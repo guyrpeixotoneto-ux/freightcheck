@@ -96,10 +96,21 @@ function rascunhoInicial(linha: LinhaApurada): string {
 export function CadastrarAPlanilha({
   dados,
   aoSalvar,
+  vigenciaNova = false,
 }: {
   dados: CadastroDaUnidade;
   /** Chamado depois de gravar, para a tela recarregar o cadastro montado. */
   aoSalvar?: () => void;
+  /**
+   * A vigência aberta pode ser uma que a unidade **ainda não tem**.
+   *
+   * Só o painel da lista abre assim — é onde a quinzena nasce, junto com o
+   * canal novo. A bandeira viaja com a escrita porque é ela que o servidor
+   * exige: sem ela, salvar numa quinzena que o export não trouxe é recusado, e
+   * é essa recusa que deixava a unidade cadastrada à mão presa na quinzena
+   * declarada no registro.
+   */
+  vigenciaNova?: boolean;
 }) {
   const queryClient = useQueryClient();
   const linhas = useMemo(() => dados.blocos.flatMap((b) => b.linhas), [dados.blocos]);
@@ -190,6 +201,7 @@ export function CadastrarAPlanilha({
         scopeHash: dados.contexto.scopeHash,
         canal: dados.contexto.channel,
         period: dados.effectiveDate,
+        ...(vigenciaNova ? { vigenciaNova: true } : {}),
         celulas,
       });
     },
@@ -256,6 +268,7 @@ export function CadastrarAPlanilha({
     <div className="space-y-6">
       <Cabecalho
         dados={dados}
+        vigenciaNova={vigenciaNova}
         informadas={linhas.filter((l) => l.declarado !== null).length}
         aoCopiar={() => {
           setErro(null);
@@ -355,6 +368,7 @@ export function CadastrarAPlanilha({
 function Cabecalho({
   dados,
   informadas,
+  vigenciaNova,
   aoCopiar,
   aoCopiado,
   aoErro,
@@ -362,6 +376,8 @@ function Cabecalho({
 }: {
   dados: CadastroDaUnidade;
   informadas: number;
+  /** A vigência aberta ainda não existe — ver {@link CadastrarAPlanilha}. */
+  vigenciaNova: boolean;
   aoCopiar: () => void;
   aoCopiado: (quantas: number) => void;
   aoErro: (mensagem: string) => void;
@@ -396,6 +412,12 @@ function Cabecalho({
         canal: dados.contexto.channel,
         de: origem,
         para: dados.effectiveDate,
+        /*
+          Copiar da quinzena passada é o primeiro gesto de quem abre uma
+          quinzena nova — a maior parte da aba repete. Sem a bandeira aqui, a
+          cópia seria recusada justamente no caso em que ela mais serve.
+        */
+        ...(vigenciaNova ? { vigenciaNova: true } : {}),
       }),
     onSuccess: (planilha) => {
       void queryClient.invalidateQueries({ queryKey: ["remuneracao"] });

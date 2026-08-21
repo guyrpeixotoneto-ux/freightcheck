@@ -40,6 +40,33 @@ import { periodLabel } from "@workspace/comparison";
 /** Uma vigência é sempre `aaaa-mm-dd`; o que não for passa direto. */
 const DATA = /^\d{4}-\d{2}-\d{2}$/;
 
+/** Os dois dias em que uma quinzena começa, e os meses que existem. */
+const INICIO_DE_QUINZENA = /^\d{4}-(0[1-9]|1[0-2])-(01|16)$/;
+
+/**
+ * A data é o **começo** de uma quinzena deste produto — dia 1 ou dia 16.
+ *
+ * Serve a uma pergunta só, e é a que separa as duas procedências de uma
+ * vigência: a que **veio de arquivo** é o que o arquivo trouxe, e pode cair em
+ * qualquer dia — `rotuloDaVigencia` sabe escrever `07/08/2026` quando isso
+ * acontece. A que alguém **cria à mão**, para digitar a aba de Excel antes de o
+ * export chegar, não tem arquivo que a sustente: ela vale porque é uma quinzena
+ * do calendário do cliente, e o calendário deste produto parte o mês no dia 16
+ * (`competenciaDoDia`, em `@workspace/fechamento`, e `periodoDaQuinzena`, na
+ * tela). Uma vigência criada no dia 7 seria uma quinzena que só aquela escrita
+ * conhece — e o fechamento, que procura o cadastro pela quinzena, a acharia
+ * dentro da primeira, ao lado de outra com o mesmo direito.
+ *
+ * A faixa de ano é a mesma que a tela e a rota da competência aplicam (2000 a
+ * 2100): não é uma opinião sobre o futuro, é a diferença entre `2026` e um
+ * `20226` digitado com um dedo a mais.
+ */
+export function ehInicioDeQuinzena(data: string): boolean {
+  if (!INICIO_DE_QUINZENA.test(data)) return false;
+  const ano = Number(data.slice(0, 4));
+  return ano >= 2000 && ano <= 2100;
+}
+
 /**
  * A quinzena a que o dia pertence: 1 do dia 1 ao 15, 2 do 16 em diante.
  *

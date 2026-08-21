@@ -11,6 +11,7 @@ import {
   Lock,
   LockOpen,
   Plus,
+  Tag,
   Trash2,
   WifiOff,
 } from "lucide-react";
@@ -36,6 +37,7 @@ import {
   cadastrarParte,
   excluirCompetencia,
   fontesDaCompetencia,
+  informarTipoDeOperacao,
   lerCompetencia,
   listarCompetencias,
   listarFontes,
@@ -157,6 +159,14 @@ const detalheDaParte = (p: Parte) =>
 */
 const previaDaParte = (texto: string) => {
   const parte = paraOFormulario(texto);
+  /*
+    Sem nada digitado, a linha de criação não é a prévia de um texto: é a porta
+    do formulário. O que a frase precisa dizer, então, é o que existe atrás
+    dela — e o que existe atrás dela é o campo do código, que é justamente o
+    que a lista fechada não mostrava.
+  */
+  if (parte.codigo === "" && parte.nome === null)
+    return "Abre o cadastro em branco, com nome e código em campos separados.";
   return parte.nome
     ? `Abre o cadastro com código ${parte.codigo} e nome “${parte.nome}”.`
     : `Abre o cadastro com “${parte.codigo}” preenchido — nome e código em campos separados.`;
@@ -217,6 +227,38 @@ export function podeExcluir(estado: Competencia["estado"]): boolean {
 }
 
 /**
+ * O que a linha oferece a respeito do tipo de operação, pelo que ela já diz.
+ *
+ * São três, como em {@link acaoDoFechamento}, e pela mesma razão: "não dá para
+ * mexer no tipo" tem uma causa só, e ela precisa aparecer com nome. Informar e
+ * corrigir também não são o mesmo gesto, ainda que escrevam a mesma coluna.
+ *
+ * `INFORMAR` é preencher o `NAO_INFORMADO` que o backfill da `0046` carimbou em
+ * toda competência anterior a ele. Não apaga declaração nenhuma — o campo está
+ * em branco porque a coluna nasceu depois da competência —, e por isso vale
+ * **inclusive na encerrada**: o que o encerramento congela é o dinheiro apurado,
+ * não a resposta à pergunta de qual operação o apurou. Sem essa exceção as
+ * quinzenas antigas, que são justamente as fechadas, ficariam sem endereço para
+ * sempre.
+ *
+ * `CORRIGIR` é trocar um tipo que alguém declarou por outro. `REABRIR_ANTES` é o
+ * mesmo pedido numa competência encerrada, e aí a resposta é não: aquele total
+ * foi fechado como sendo de uma operação, e mudá-lo o move de um mês para o
+ * outro. O caminho existe e é o de sempre — reabrir, com motivo.
+ *
+ * A régua continua sendo do servidor (`informarTipoDeOperacao`, em
+ * `persistencia.ts`); o que a tela evita é oferecer um botão que volta 409.
+ */
+export type EdicaoDoTipo = "INFORMAR" | "CORRIGIR" | "REABRIR_ANTES";
+
+export function edicaoDoTipo(
+  competencia: Pick<Competencia, "tipoDeOperacao" | "estado">,
+): EdicaoDoTipo {
+  if (competencia.tipoDeOperacao === TIPO_NAO_INFORMADO) return "INFORMAR";
+  return competencia.estado === "ENCERRADA" ? "REABRIR_ANTES" : "CORRIGIR";
+}
+
+/**
  * Importações — a porta por onde entram os períodos que o fechamento fecha, e
  * onde eles se fecham.
  *
@@ -267,6 +309,12 @@ export default function Competencias() {
     não deve compartilhar variável com o que a fecha.
   */
   const [excluindo, setExcluindo] = useState<string | null>(null);
+  /*
+    E a que está informando o tipo, que é um terceiro painel pela mesma
+    regra: mexer na chave de um fechamento não compartilha variável com
+    fechá-lo nem com apagá-lo.
+  */
+  const [tipando, setTipando] = useState<string | null>(null);
 
   /*
     A lista sustenta a tela inteira, e por isso é a que paga o preço de uma
@@ -435,6 +483,13 @@ export default function Competencias() {
                   chaveDe={(p) => p.codigo}
                   placeholder="Escolha, ou digite para buscar e cadastrar"
                   rotuloDeCriacao={(texto) => `Cadastrar “${texto}”…`}
+                  /*
+                    E a mesma linha com a busca em branco, que é o estado em que
+                    a lista está quando alguém abre este campo pela primeira
+                    vez. Sem ela, o cadastro — e com ele o campo do código —
+                    só aparecia para quem digitasse um nome inexistente antes.
+                  */
+                  rotuloDeCriacaoVazia="Cadastrar uma unidade…"
                   previaDe={previaDaParte}
                 />
               </div>
@@ -456,6 +511,7 @@ export default function Competencias() {
                   chaveDe={(p) => p.codigo}
                   placeholder="Escolha, ou digite para buscar e cadastrar"
                   rotuloDeCriacao={(texto) => `Cadastrar “${texto}”…`}
+                  rotuloDeCriacaoVazia="Cadastrar uma transportadora…"
                   previaDe={previaDaParte}
                 />
               </div>
@@ -500,12 +556,13 @@ export default function Competencias() {
 
             <p className="text-xs text-muted-foreground">
               As duas listas são o que já foi cadastrado, mais o que aparece em alguma
-              competência. Não achou? Digite o nome e escolha “Cadastrar”: abre um
-              formulário com <strong>nome e código separados</strong>, o mesmo de
-              Cadastrar uma unidade em Remuneração. O código é a identidade — é por ele
-              que a competência encontra o cadastro de remuneração desta unidade, e ele
-              precisa ser o mesmo nos dois lugares. Digitar o mesmo código com um nome
-              novo renomeia.
+              competência, e nelas se procura tanto pelo nome quanto pelo código. Não
+              achou? A última linha de cada lista é <strong>“Cadastrar…”</strong>, com
+              ou sem busca digitada: abre um formulário com nome e código separados, o
+              mesmo de Cadastrar uma unidade em Remuneração. O código é a identidade —
+              é por ele que a competência encontra o cadastro de remuneração desta
+              unidade, e ele precisa ser o mesmo nos dois lugares. Digitar o mesmo
+              código com um nome novo renomeia.
             </p>
 
             {/*
@@ -640,6 +697,8 @@ export default function Competencias() {
                 const acao = acaoDoFechamento(c.estado);
                 const painelAberto = fechando === c.id;
                 const excluindoEsta = excluindo === c.id;
+                const tipandoEsta = tipando === c.id;
+                const edicao = edicaoDoTipo(c);
                 return (
                   <li key={c.id}>
                     <div className="flex items-center gap-3">
@@ -703,6 +762,52 @@ export default function Competencias() {
                         />
                       </div>
                       {/*
+                        O tipo é ícone pela mesma régua do excluir logo abaixo,
+                        e não por falta de espaço: informá-lo é conserto de
+                        cadastro — acontece uma vez por competência, e não deve
+                        disputar o olho com o que se faz toda quinzena.
+
+                        O que muda é a cor. Enquanto o tipo não foi dito o ícone
+                        sai do cinza dos outros e ganha o contraste do texto,
+                        porque ali ele não é uma ação disponível entre as
+                        outras: é a lacuna que a linha acabou de mostrar em
+                        itálico, a um clique de distância dela. O `title` mora no
+                        `span` pelo motivo do vizinho — o botão desabilitado tem
+                        `pointer-events: none` e engoliria a explicação.
+                      */}
+                      <span
+                        className="shrink-0"
+                        title={
+                          edicao === "INFORMAR"
+                            ? "Esta quinzena não diz de qual operação é — informe o tipo"
+                            : edicao === "CORRIGIR"
+                              ? `Corrigir o tipo de operação (hoje: ${rotuloDoTipo(c.tipoDeOperacao)})`
+                              : "A quinzena está fechada — reabra, com motivo, antes de trocar o tipo."
+                        }
+                      >
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className={`h-8 w-8 ${
+                            edicao === "INFORMAR"
+                              ? "text-foreground"
+                              : "text-muted-foreground hover:text-foreground"
+                          }`}
+                          aria-label={`${
+                            edicao === "INFORMAR" ? "Informar" : "Corrigir"
+                          } o tipo de operação da quinzena de ${c.inicio.split("-").reverse().join("/")} a ${c.fim.split("-").reverse().join("/")}`}
+                          aria-expanded={tipandoEsta}
+                          disabled={edicao === "REABRIR_ANTES"}
+                          onClick={() => {
+                            setFechando(null);
+                            setExcluindo(null);
+                            setTipando(tipandoEsta ? null : c.id);
+                          }}
+                        >
+                          <Tag className="w-4 h-4" />
+                        </Button>
+                      </span>
+                      {/*
                         Excluir é ícone, e as outras ações são texto: a
                         hierarquia da linha é o trabalho da quinzena — fechar,
                         reabrir, apurar —, e apagar a importação é o conserto de
@@ -729,6 +834,7 @@ export default function Competencias() {
                           disabled={!podeExcluir(c.estado)}
                           onClick={() => {
                             setFechando(null);
+                            setTipando(null);
                             setExcluindo(excluindoEsta ? null : c.id);
                           }}
                         >
@@ -744,6 +850,11 @@ export default function Competencias() {
                     {excluindoEsta && (
                       <div className="mb-3 rounded-md border border-destructive/40 bg-destructive/5 px-4 py-4">
                         <ExclusaoDaLinha competencia={c} aoFechar={() => setExcluindo(null)} />
+                      </div>
+                    )}
+                    {tipandoEsta && (
+                      <div className="mb-3 rounded-md border bg-muted/20 px-4 py-4">
+                        <TipoDaLinha competencia={c} aoFechar={() => setTipando(null)} />
                       </div>
                     )}
                   </li>
@@ -870,6 +981,138 @@ function FechamentoDaLinha({ competenciaId }: { competenciaId: string }) {
         documentos.filter((d) => d.vigente).map((d) => d.tipo),
       )}
     />
+  );
+}
+
+/**
+ * O painel que informa — ou corrige — o tipo de operação de uma linha.
+ *
+ * **Por que ele é um painel e não um select solto na linha.** Porque o tipo
+ * entra na chave do fechamento, e mudá-lo muda em qual operação aquela quinzena
+ * aparece no Resumo do mês. Um dropdown que gravasse no `onChange` faria isso
+ * acontecer entre dois cliques de rolagem — e o que a lista mostra depois é
+ * indistinguível de um erro de leitura. O painel diz o que vai mudar antes de
+ * mudar, como o de fechar e o de excluir.
+ *
+ * **O select não oferece "Não informado".** Ele é carimbo do backfill, e não uma
+ * escolha: quem informa está saindo dele, e desinformar de volta não é pedido
+ * que a operação faça — o servidor recusa (`normalizarTipoDeOperacao`), e
+ * oferecer aqui seria oferecer um 400.
+ *
+ * A frase de recusa vem inteira do servidor. É lá que mora o caso que a tela não
+ * tem como prever: o tipo de destino já ocupado por outro fechamento da mesma
+ * quinzena, com o nome de quem está no lugar.
+ */
+function TipoDaLinha({
+  competencia,
+  aoFechar,
+}: {
+  competencia: Competencia;
+  /** Fecha o painel — o mesmo gesto para quem desistiu e para quem gravou. */
+  aoFechar: () => void;
+}) {
+  const cliente = useQueryClient();
+  const informando = edicaoDoTipo(competencia) === "INFORMAR";
+  /*
+    Nasce no que já está lá quando há o que corrigir, e vazio quando não há.
+    O vazio é deliberado: um padrão no campo em branco escolheria em silêncio de
+    qual operação é a quinzena — a mesma razão pela qual o formulário de abrir,
+    no alto desta tela, também nasce sem tipo.
+  */
+  const [escolhido, setEscolhido] = useState(informando ? "" : competencia.tipoDeOperacao);
+
+  const informar = useMutation({
+    mutationFn: () => informarTipoDeOperacao(competencia.id, escolhido),
+    onSuccess: () => {
+      void cliente.invalidateQueries({ queryKey: ["fechamento", "competencias"] });
+      void cliente.invalidateQueries({ queryKey: ["fechamento", "apuracoes"] });
+      void cliente.invalidateQueries({ queryKey: chaveDaCompetencia(competencia.id) });
+      /*
+        E o Resumo do mês, que é o que esta mudança serve para consertar: ele
+        pergunta por (unidade, transportadora, tipo, mês), e a competência
+        acabou de trocar de resposta em duas dessas perguntas — some da do tipo
+        velho, aparece na do novo. Sem esta linha, a tela que se foi conferir
+        continuaria mostrando o vazio que motivou a correção.
+      */
+      void cliente.invalidateQueries({ queryKey: ["fechamento", "resumo"] });
+      aoFechar();
+    },
+  });
+
+  const periodo = `${competencia.inicio.split("-").reverse().join("/")} a ${competencia.fim.split("-").reverse().join("/")}`;
+  const explicacao = TIPOS_DE_OPERACAO.find((t) => t.valor === escolhido)?.explicacao;
+
+  return (
+    <div className="space-y-3">
+      <p className="text-sm font-medium">
+        {informando ? "Informar o tipo de operação" : "Corrigir o tipo de operação"}
+      </p>
+      <p className="text-sm text-muted-foreground">
+        {periodo} · {competencia.unidade.nome ?? competencia.unidade.codigo} ·{" "}
+        {competencia.transportadora.nome ?? competencia.transportadora.codigo} ·{" "}
+        <span className={informando ? "italic" : "font-medium"}>
+          {rotuloDoTipo(competencia.tipoDeOperacao)}
+        </span>
+      </p>
+      <p className="text-sm text-muted-foreground">
+        {informando ? (
+          <>
+            Esta quinzena foi aberta antes de o tipo existir, e por isso ninguém
+            disse de qual operação ela é. Enquanto não disser, ela não aparece no{" "}
+            <strong>Resumo do mês</strong> de operação nenhuma — é o que este
+            campo conserta. Nada do que já foi apurado muda: o tipo diz de qual
+            operação é a conta, não como ela é calculada.
+          </>
+        ) : (
+          <>
+            EMPURRADA e ROTA são dois fechamentos da mesma quinzena, cada um com
+            a sua planilha de remuneração. Trocar o tipo move esta competência de
+            um <strong>Resumo do mês</strong> para o outro; os valores apurados
+            seguem os mesmos.
+          </>
+        )}
+      </p>
+      <div className="max-w-xs space-y-1.5">
+        <Label htmlFor={`tipo-${competencia.id}`}>Tipo de operação</Label>
+        <Select value={escolhido} onValueChange={setEscolhido}>
+          <SelectTrigger id={`tipo-${competencia.id}`}>
+            <SelectValue placeholder="Escolha a operação" />
+          </SelectTrigger>
+          <SelectContent>
+            {TIPOS_DE_OPERACAO.map((t) => (
+              <SelectItem key={t.valor} value={t.valor}>
+                {t.rotulo}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {explicacao && <p className="text-xs text-muted-foreground">{explicacao}</p>}
+      </div>
+      {informar.isError && (
+        <Alert variant="destructive">
+          <AlertDescription>{textoDoErro(informar.error)}</AlertDescription>
+        </Alert>
+      )}
+      <div className="flex flex-wrap items-center gap-2">
+        {/*
+          Desabilitado enquanto não há mudança a gravar, e não só enquanto o
+          campo está vazio: em "corrigir" o select nasce no tipo atual, e um
+          botão ativo ali prometeria uma correção que não corrige nada.
+        */}
+        <Button
+          onClick={() => informar.mutate()}
+          disabled={
+            informar.isPending || escolhido === "" || escolhido === competencia.tipoDeOperacao
+          }
+        >
+          <Tag className="w-4 h-4 mr-1.5" />
+          {informar.isPending ? "Gravando…" : informando ? "Informar o tipo" : "Trocar o tipo"}
+        </Button>
+        <Button variant="ghost" onClick={aoFechar} disabled={informar.isPending}>
+          Cancelar
+        </Button>
+      </div>
+    </div>
   );
 }
 

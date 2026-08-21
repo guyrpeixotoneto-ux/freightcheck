@@ -400,6 +400,37 @@ export function sugerir<T>(
 }
 
 /**
+ * O texto que a linha de criação leva — ou `null` quando não há linha nenhuma.
+ *
+ * `sugerir` responde por quem **já digitou**: o texto vira a linha de criação, a
+ * menos que exista coisa idêntica na lista. Quem *abre* o campo, porém, ainda
+ * não digitou nada — e era exatamente aí que a saída sumia. Uma lista vazia com
+ * a busca vazia mostrava "Nada encontrado." e mais nada: a porta do cadastro
+ * existia, e só a atravessava quem adivinhasse que era preciso digitar um nome
+ * inexistente para fazê-la aparecer. O campo que ficava sem saída assim é o da
+ * unidade em Realizar Fechamento, e o que se cadastra por ele é o **código** —
+ * a identidade que liga a competência ao cadastro de Remuneração.
+ *
+ * Por isso o segundo caso: **sem nada digitado, criar continua oferecido**, com
+ * o texto vazio. O `""` não é uma escrita — continua valendo que criar é um
+ * clique e nunca um efeito de digitar; ele é o formulário abrindo em branco,
+ * com os campos que ele tem.
+ *
+ * `aceitaSemTexto` existe porque nem todo campo pode oferecer isso. Onde
+ * `aoCriar` grava direto o texto que recebe — o catálogo de significados da
+ * Curadoria —, o vazio seria uma recusa do servidor a um clique que a tela não
+ * devia ter oferecido. Onde do outro lado há formulário, pode.
+ */
+export function textoParaCriar(
+  criar: string | null,
+  termo: string,
+  aceitaSemTexto: boolean,
+): string | null {
+  if (criar !== null) return criar;
+  return aceitaSemTexto && termo.trim() === "" ? "" : null;
+}
+
+/**
  * O aviso que acompanha o `+ Criar "…"` quando há coisa parecida no cadastro.
  *
  * Não bloqueia: quem digitou "Pedágio" tendo "Pedagiamento" cadastrado pode

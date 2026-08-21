@@ -362,22 +362,23 @@ describe("as duas quinzenas lado a lado", () => {
 });
 
 /**
- * A lista das unidades — e o defeito que só o banco pega.
+ * A lista dos cadastros — e o defeito que só o banco pega.
  *
- * A leitura da lista pergunta por **todas** as unidades de uma vez, cada uma na
- * vigência mais recente *dela*. As unidades não estão todas na mesma quinzena,
- * e é aí que mora o erro que nenhum teste em memória alcança: um predicado que
- * cruzasse a lista de unidades com a lista de datas — `scope IN (…) AND date IN
- * (…)` — devolveria número plausível para todo mundo e somaria duas quinzenas
- * na conta de quem só tem uma.
+ * A leitura da lista pergunta por **todas** as unidades de uma vez, e por
+ * todas as vigências de cada uma. É aí que mora o erro que nenhum teste em
+ * memória alcança: um predicado que cruzasse a lista de unidades com a lista
+ * de datas — `scope IN (…) AND date IN (…)` — devolveria número plausível para
+ * todo mundo e somaria a quinzena de uma na conta da outra. O mesmo vale do
+ * lado de cá do SQL: sem a data na chave que junta a linha lida ao alvo, julho
+ * e agosto da mesma unidade caem no mesmo balde e as duas linhas mostram a
+ * soma das duas.
  *
  * As duas unidades abaixo existem para armar exatamente esse cruzamento. Uma
- * tem **julho** como vigência mais recente; a outra tem julho **e** agosto,
- * com trechos diferentes em cada uma. Ler a segunda pela sua vigência mais
- * recente dá um trecho; ler as duas datas juntas daria quatro, e é essa a
- * diferença que o caso do meio confere.
+ * tem **julho** e só julho; a outra tem julho **e** agosto, com trechos
+ * diferentes em cada uma — três e um. Lidas certo, são três linhas com 2, 3 e
+ * 1 trecho; misturadas, quatro aparece em toda parte.
  */
-describe("a lista das unidades", () => {
+describe("a lista dos cadastros", () => {
   /** Só trechos, e só em julho — a unidade cuja vigência mais recente é julho. */
   const SO_TRECHOS = "escopo-so-trechos";
   /** Trechos em julho e em agosto, em entidades distintas — a isca do cruzamento. */
@@ -420,20 +421,41 @@ describe("a lista das unidades", () => {
     );
   }, 300_000);
 
+  /** As linhas de uma unidade, na ordem em que a lista as devolve. */
   async function unidade(scopeHash: string) {
     const lista = await lerSituacaoDasUnidades(ctx.db);
-    const achada = lista.unidades.find((u) => u.scopeHash === scopeHash);
-    expect(achada, `unidade ${scopeHash} na lista`).toBeDefined();
+    const achadas = lista.cadastros.filter((c) => c.scopeHash === scopeHash);
+    expect(achadas.length, `unidade ${scopeHash} na lista`).toBeGreaterThan(0);
+    return achadas;
+  }
+
+  /** A linha de uma unidade numa vigência — o cadastro daquela quinzena. */
+  async function daVigencia(scopeHash: string, effectiveDate: string) {
+    const linhas = await unidade(scopeHash);
+    const achada = linhas.find((c) => c.effectiveDate === effectiveDate);
+    expect(achada, `${scopeHash} em ${effectiveDate}`).toBeDefined();
     return achada!;
   }
 
-  it("responde cada unidade pela vigência mais recente dela, e diz qual é", async () => {
+  it("responde por vigência: uma linha por quinzena, da mais recente para a mais antiga", async () => {
     const camacari = await unidade(ESCOPO);
 
-    expect(camacari.effectiveDate).toBe(VIGENCIA);
-    expect(camacari.periodLabel).toBe("agosto/2026");
-    expect(camacari.vigencias).toBe(2);
-    expect(camacari.channel).toBe("EMPURRADA");
+    expect(camacari.map((c) => c.effectiveDate)).toEqual([VIGENCIA, ANTERIOR]);
+    expect(camacari[0]!.periodLabel).toBe("agosto/2026");
+    expect(camacari[0]!.channel).toBe("EMPURRADA");
+  });
+
+  /*
+    O caso que trouxe esta forma: a planilha preenchida numa quinzena antiga
+    continua na tela, na vigência dela, em vez de sumir quando a unidade passa
+    a ter uma vigência mais nova e vazia.
+  */
+  it("mostra a vigência antiga ao lado da nova, e não só a última", async () => {
+    const julho = await daVigencia(DUAS_VIGENCIAS, ANTERIOR);
+    const agosto = await daVigencia(DUAS_VIGENCIAS, VIGENCIA);
+
+    expect(julho.material.trechos).toBe(3);
+    expect(agosto.material.trechos).toBe(1);
   });
 
   /*
@@ -444,26 +466,32 @@ describe("a lista das unidades", () => {
     em toda a coluna.
   */
   it("não mistura o material de uma unidade com o da vigência de outra", async () => {
-    const camacari = await unidade(ESCOPO);
+    const camacari = await daVigencia(ESCOPO, VIGENCIA);
     const soTrechos = await unidade(SO_TRECHOS);
     const duasVigencias = await unidade(DUAS_VIGENCIAS);
 
     expect(camacari.material).toEqual({ cavalos: 5, trechos: 2, trechosEntregues: true, linhasInformadas: 0 });
 
-    expect(soTrechos.effectiveDate).toBe(ANTERIOR);
-    expect(soTrechos.material).toEqual({ cavalos: 0, trechos: 2, trechosEntregues: true, linhasInformadas: 0 });
+    expect(soTrechos.map((c) => c.effectiveDate)).toEqual([ANTERIOR]);
+    expect(soTrechos[0]!.material).toEqual({ cavalos: 0, trechos: 2, trechosEntregues: true, linhasInformadas: 0 });
 
-    expect(duasVigencias.effectiveDate).toBe(VIGENCIA);
-    expect(duasVigencias.material).toEqual({ cavalos: 0, trechos: 1, trechosEntregues: true, linhasInformadas: 0 });
+    /*
+      As duas quinzenas desta unidade, cada uma com o que **ela** entregou.
+      Quatro em qualquer das duas seria a soma das duas — o cruzamento que
+      este bloco existe para pegar.
+    */
+    expect(duasVigencias.map((c) => c.effectiveDate)).toEqual([VIGENCIA, ANTERIOR]);
+    expect(duasVigencias[0]!.material).toEqual({ cavalos: 0, trechos: 1, trechosEntregues: true, linhasInformadas: 0 });
+    expect(duasVigencias[1]!.material).toEqual({ cavalos: 0, trechos: 3, trechosEntregues: true, linhasInformadas: 0 });
   });
 
   it("diz qual metade do cadastro cada unidade sustenta", async () => {
-    expect((await unidade(ESCOPO)).cadastro).toMatchObject({
+    expect((await daVigencia(ESCOPO, VIGENCIA)).cadastro).toMatchObject({
       estado: "FROTA_E_ALIQUOTAS",
       frota: true,
       aliquotas: true,
     });
-    expect((await unidade(SO_TRECHOS)).cadastro).toMatchObject({
+    expect((await daVigencia(SO_TRECHOS, ANTERIOR)).cadastro).toMatchObject({
       estado: "SO_ALIQUOTAS",
       frota: false,
       aliquotas: true,
@@ -476,7 +504,7 @@ describe("a lista das unidades", () => {
     dois divergirem, é aqui que aparece.
   */
   it("conta o mesmo lastro que a tela daquela unidade mostra", async () => {
-    const daLista = await unidade(ESCOPO);
+    const daLista = await daVigencia(ESCOPO, VIGENCIA);
     const lido = await cadastro();
 
     expect(daLista.cadastro.linhas).toBe(lido.resumo.linhas);
@@ -484,16 +512,30 @@ describe("a lista das unidades", () => {
     expect(daLista.cadastro.semLastro).toBe(lido.resumo.semLastro);
   });
 
-  it("resume as unidades pelos estados que elas de fato têm", async () => {
+  it("resume os cadastros pelos estados que eles de fato têm", async () => {
     const lista = await lerSituacaoDasUnidades(ctx.db);
     const { resumo } = lista;
 
-    expect(resumo.unidades).toBe(lista.unidades.length);
+    expect(resumo.cadastros).toBe(lista.cadastros.length);
     expect(
       resumo.frotaEAliquotas + resumo.soFrota + resumo.soAliquotas + resumo.semLastro,
-    ).toBe(resumo.unidades);
+    ).toBe(resumo.cadastros);
     expect(resumo.frotaEAliquotas).toBeGreaterThanOrEqual(1);
     expect(resumo.soAliquotas).toBeGreaterThanOrEqual(1);
+  });
+
+  /*
+    Os dois números do resumo são de grãos diferentes, e a unidade de duas
+    vigências é a prova: ela é uma unidade e dois cadastros. Deduzir o primeiro
+    do tamanho da lista — como a frase "nenhuma das N unidades tem este código"
+    fazia — contaria a mesma unidade duas vezes.
+  */
+  it("conta unidades e cadastros como coisas diferentes", async () => {
+    const { resumo, cadastros } = await lerSituacaoDasUnidades(ctx.db);
+
+    const unidadesDistintas = new Set(cadastros.map((c) => `${c.scopeHash}|${c.channel ?? ""}`));
+    expect(resumo.unidades).toBe(unidadesDistintas.size);
+    expect(resumo.cadastros).toBeGreaterThan(resumo.unidades);
   });
 });
 
@@ -556,16 +598,21 @@ describe("as duas quinzenas do mesmo mês", () => {
   });
 
   /*
-    E a lista continua respondendo pela vigência mais recente — só que agora
-    dizendo qual das duas quinzenas de agosto é essa.
+    E a lista traz as duas, cada uma com o nome e o material dela. É a mesma
+    régua da tela do cadastro, aplicada a linhas que agora convivem: sem ela, as
+    duas quinzenas de agosto seriam dois "agosto/2026" um embaixo do outro, e
+    nada diria qual é qual.
   */
-  it("diz qual quinzena a coluna da lista está respondendo", async () => {
-    const lista = await lerSituacaoDasUnidades(ctx.db);
-    const achada = lista.unidades.find((u) => u.scopeHash === QUINZENAL)!;
+  it("traz as duas quinzenas do mês, cada uma com o seu nome e o seu material", async () => {
+    const { cadastros } = await lerSituacaoDasUnidades(ctx.db);
+    const daUnidade = cadastros.filter((c) => c.scopeHash === QUINZENAL);
 
-    expect(achada.effectiveDate).toBe(SEGUNDA);
-    expect(achada.periodLabel).toBe("2ª quinzena de agosto/2026");
-    expect(achada.material.cavalos).toBe(2);
+    expect(daUnidade.map((c) => c.effectiveDate)).toEqual([SEGUNDA, VIGENCIA]);
+    expect(daUnidade.map((c) => c.periodLabel)).toEqual([
+      "2ª quinzena de agosto/2026",
+      "1ª quinzena de agosto/2026",
+    ]);
+    expect(daUnidade.map((c) => c.material.cavalos)).toEqual([2, 1]);
   });
 
   /*

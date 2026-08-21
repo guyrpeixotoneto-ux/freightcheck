@@ -17,6 +17,7 @@ import {
   UnidadeJaRegistrada,
   UnidadeNaoRegistrada,
   VigenciaDoCadastroNaoEncontrada,
+  VigenciaForaDaQuinzena,
 } from "@workspace/remuneracao";
 import { TipoDeOperacaoAusente } from "@workspace/fechamento/persistencia";
 import { EmailAlreadyUsedError } from "./session";
@@ -73,6 +74,10 @@ const RECUSAS: { classe: new (...args: never[]) => Error; status: number }[] = [
      que não. Classe própria, e não a do QLP, porque as duas telas oferecem
      listas de vigências diferentes — a mensagem precisa nomear a lista certa. */
   { classe: VigenciaDoCadastroNaoEncontrada, status: 404 },
+  /* Criar uma vigência que não é quinzena. 400, e não 404: a unidade existe e o
+     pedido é que está errado — a data pedida não é começo de quinzena, e criar
+     uma no meio do mês guardaria a planilha onde nenhuma tela a procura. */
+  { classe: VigenciaForaDaQuinzena, status: 400 },
   /* A unidade existe e o cadastro dela também; o que não existe é o **par**.
      422 e nunca 404: um 404 mandaria procurar uma unidade que está bem ali. */
   { classe: ComparacaoSemDuasVigencias, status: 422 },

@@ -370,14 +370,19 @@ toda leitura — nos moldes do que `conversas.ts` já faz por `owner_id`.
   lista) e `.../remuneracao.tsx` (o cadastro de uma unidade). **A lista vem
   antes**, em `/fechamento/remuneracao`, e responde outra pergunta: quais
   unidades já têm cadastro de pé e quais ainda não têm — com um estado de
-  quatro valores por unidade (frota e alíquotas, só a frota, só as alíquotas,
+  quatro valores por cadastro (frota e alíquotas, só a frota, só as alíquotas,
   sem lastro) e quantas das trinta linhas têm lastro. O estado é sobre as duas
   metades que dependem do que a unidade entregou, e não um percentual das
   trinta: onze delas têm lastro sobre um acervo completo, e "37% cadastrado"
   seria lido como "falta importar alguma coisa" na unidade que entregou tudo.
-  A lista monta o cadastro de cada unidade em vez de deduzi-lo do material —
-  quatro consultas para todas elas, no par (unidade, vigência mais recente
-  dela) —, para que ela e a tela do cadastro nunca discordem. O cadastro
+  **A lista é por vigência**: uma linha por (unidade, quinzena), reunidas pelo
+  mês e com o mais recente em cima. Era uma linha por unidade, na vigência mais
+  recente dela, e a forma escondia trabalho feito — quem preencheu a planilha de
+  julho e voltou na virada via a unidade com "nada informado", porque a única
+  linha dela tinha passado a responder por agosto. A lista monta o cadastro de
+  cada linha em vez de deduzi-lo do material — as mesmas quatro consultas para
+  todas elas, agora no par (unidade, vigência) e agrupadas por unidade no
+  predicado —, para que ela e a tela do cadastro nunca discordem. O cadastro
   reproduz a aba
   **CADASTRO DA PLANILHA DE REMUNERAÇÃO** por unidade: alíquotas, tamanho da
   frota fixa, parcelas por veículo, vans, rotas noturnas, marketing, proporção
@@ -422,6 +427,20 @@ toda leitura — nos moldes do que `conversas.ts` já faz por `owner_id`.
   que ele não menciona fica. Não há herança entre vigências; há um botão de
   copiar, com autor e data de quem clicou, que não sobrescreve o que o destino
   já tem.
+  **A quinzena que a aba traz antes do export passou a poder ser criada.** A
+  escrita sempre exigiu que a vigência estivesse na lista da unidade, e a lista
+  vinha do acervo — parede para a premissa do módulo (a aba chega primeiro) e
+  parede total para a unidade cadastrada à mão, cujas vigências são a declarada
+  no registro mais as que ganharam planilha: ganhar planilha era o que a recusa
+  impedia. `aceitarVigenciaNova` é o irmão de `aceitarCanalNovo` — opt-in
+  (`vigenciaNova` na leitura e nas duas escritas), pedido só pela tela que
+  cadastra, e limitado pela régua da quinzena: dia 1 ou dia 16, com recusa
+  nomeada (`VigenciaForaDaQuinzena`, 400). A vigência que vem de **arquivo**
+  continua sendo a que o arquivo trouxer, em qualquer dia. E a vigência de uma
+  unidade, neste módulo, passou a ser o que o acervo entregou **mais** o que
+  alguém digitou — para toda unidade, e não só para a registrada à mão: sem a
+  união, a planilha da quinzena nova ficava gravada e sem tela nenhuma que a
+  mostrasse.
   **A vigência é quinzenal, e o rótulo passou a dizer qual.** A unidade entrega
   `2026-08-01` e `2026-08-16`, e o rótulo genérico do produto escrevia as duas
   como "agosto/2026" — dois itens iguais no seletor de quem ia digitar a segunda
