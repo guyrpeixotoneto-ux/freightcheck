@@ -4,15 +4,15 @@
  * Duas telas do Fechamento têm a mesma forma: uma lista de linhas reunidas em
  * grupos, cada linha abrindo logo abaixo de si a resposta cara que ela resume.
  * Em Apurações a linha é a competência, o grupo é a quinzena e o que abre é a
- * conta; em Remuneração a linha é a unidade, o grupo é a vigência e o que abre
- * é o cadastro. O comportamento de abrir é idêntico nas duas, e por isso mora
+ * conta; em Remuneração a linha é a vigência, o grupo é a unidade e o que abre
+ * é o cadastro daquela quinzena. O comportamento de abrir é idêntico nas duas, e por isso mora
  * aqui: duas cópias do mesmo gesto divergiriam na primeira correção, e a que
  * ficasse para trás seria a que ninguém lembrou de mexer.
  *
  * **Quais linhas estão abertas é um conjunto, e não "uma de cada vez".** As
- * duas telas existem para comparar — dois CDDs da mesma quinzena, duas unidades
- * da mesma vigência —, e fechar a de cima para ver a de baixo é exatamente o
- * que a expansão veio evitar.
+ * duas telas existem para comparar — dois CDDs da mesma quinzena, duas
+ * vigências da mesma unidade —, e fechar a de cima para ver a de baixo é
+ * exatamente o que a expansão veio evitar.
  */
 
 /**

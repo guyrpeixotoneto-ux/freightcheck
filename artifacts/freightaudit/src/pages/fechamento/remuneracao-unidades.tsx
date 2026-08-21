@@ -38,9 +38,9 @@ import {
  *
  * **É a forma de Apurações, porque é a mesma pergunta.** As duas telas são a
  * fila do fechamento vista de cima, e por isso têm a mesma anatomia: os filtros
- * em etiqueta, as linhas reunidas por período com o total do grupo escrito no
+ * em etiqueta, as linhas reunidas em grupos com o total do grupo escrito no
  * cabeçalho, e a resposta cara de cada linha abrindo **na própria linha**. Lá o
- * grupo é a quinzena e o que abre é a conta; aqui o grupo é a vigência e o que
+ * grupo é a quinzena e o que abre é a conta; aqui o grupo é a unidade e o que
  * abre é o cadastro (`components/remuneracao/uma-quinzena`) — o mesmo
  * componente da tela de dentro, e não um desenho parecido: duas versões do
  * mesmo cadastro acabariam divergindo, e a daqui seria a que ninguém lembrou de
@@ -63,15 +63,25 @@ import {
  * cadastros por estado e não soma linhas com lastro: "89 de 900" é o mesmo
  * percentual disfarçado, e diria a mesma coisa errada.
  *
- * **Uma linha por vigência, e não uma por unidade.** Foi uma por unidade — a
- * mais recente que ela entregou — e a forma escondia trabalho já feito: quem
- * preencheu a planilha de julho e voltou na virada via a unidade com "nada
- * informado", porque a única linha dela tinha passado a responder por agosto.
- * Agora a quinzena preenchida continua na tela, na vigência dela, ao lado da
- * que ainda está em branco. O que a forma antiga acertava continua de pé: o
- * grupo mais recente vem primeiro, e a unidade que parou de entregar em junho
- * aparece — sozinha, num grupo de junho, abaixo de todo mundo — em vez de
- * parecer em dia.
+ * **Uma linha por vigência, dentro do grupo da unidade.** A lista passou por
+ * três formas, e as duas primeiras erravam coisas diferentes. Foi *uma linha
+ * por unidade*, mostrando a vigência mais recente dela, e escondia trabalho
+ * feito: quem preencheu a planilha de julho voltava na virada e via "nada
+ * informado", porque a única linha da unidade tinha passado a responder por
+ * agosto. Foi depois *um grupo por vigência*, com as unidades dentro dele —
+ * o que consertou aquilo, e cobrava um acervo largo para valer a pena: num de
+ * poucas unidades e muitas vigências, todo grupo tem uma linha só, o cabeçalho
+ * do mês repete o que ela diz, e o nome da unidade desce a página uma vez por
+ * vigência sem nunca distinguir nada. Agora o grupo é a **unidade** e as linhas
+ * são as vigências dela, da mais recente para a mais antiga — ver
+ * {@link agruparPorUnidade}.
+ *
+ * **O que sobreviveu às três.** Todas as vigências continuam em tela, cada uma
+ * na linha dela, e por isso a quinzena preenchida não some quando a seguinte
+ * nasce em branco. E quem ficou para trás continua caindo para o fim: os
+ * grupos vêm na ordem da vigência mais recente de cada um, então a unidade que
+ * parou de entregar em junho fica abaixo das que entregaram em agosto, em vez
+ * de parecer em dia por ordem alfabética.
  *
  * **Cada linha responde pela vigência dela, e por nenhuma outra.** O cadastro
  * que abre embaixo, o formulário da planilha e o link para a unidade levam a
@@ -255,62 +265,76 @@ interface ContagemDoGrupo {
   comPlanilha: number;
   /** Destes, quantos têm alguma linha em que a planilha e o acervo discordam. */
   comDivergencia: number;
-  /**
-   * Quantas **unidades** do grupo entraram por cadastro, e não por arquivo.
-   *
-   * A única contagem do grupo que não é de cadastros, e nomeada assim na frase
-   * por causa disso: ser cadastrada à mão é fato da unidade, não da quinzena, e
-   * contar as linhas diria "2 unidades cadastradas à mão" onde há uma que
-   * respondeu por duas quinzenas.
-   */
-  unidadesRegistradas: number;
 }
 
-/** Um mês de vigência e os cadastros que caíram nele. */
+/** Uma unidade e as vigências pelas quais ela já respondeu. */
 export interface Grupo extends ContagemDoGrupo {
-  /** `2026-08` — o mês, que é o que reúne os cadastros. */
+  /** `scopeHash|canal` — o par que diz qual unidade é esta, e o que a reúne. */
   chave: string;
+  /** `CAMAÇARI · EMPURRADA` — o nome com a operação ao lado. */
   titulo: string;
-  /** Os dias de vigência que existem no grupo, já escritos: `01/08`, `16/08`. */
-  dias: string[];
+  /**
+   * A vigência mais recente da unidade — a data crua, e não escrita.
+   *
+   * Não vai para a tela: a primeira linha do grupo já é ela, e escrevê-la
+   * também no cabeçalho seria repetir uma polegada acima o que a linha diz. É
+   * daqui que sai a **ordem dos grupos**, que é o que a torna necessária.
+   */
+  maisRecente: string;
   linhas: SituacaoDaUnidade[];
 }
 
 /**
- * Os cadastros reunidos pelo mês da vigência de cada um.
+ * Os cadastros reunidos pela unidade que respondeu por eles.
  *
- * **Por que o mês, e não a data exata.** Duas unidades que entregaram no dia 1º
- * e no dia 16 de agosto estão as duas em dia, e separá-las em dois grupos
- * esconderia a única coisa que o agrupamento existe para mostrar — quem ficou
- * para trás. O mês é o grão em que "atrasada" quer dizer alguma coisa. Os dias
- * que existem dentro do grupo continuam escritos no cabeçalho dele, e a linha
- * cuja vigência é mais específica que o mês a escreve por extenso.
+ * **Por que a unidade, e não a vigência.** Foi por vigência, com um grupo por
+ * mês e as unidades dentro dele, e a forma era certa para o acervo que a
+ * pediu: trinta CDDs entregando na mesma quinzena, e a pergunta da virada —
+ * *onde está o trabalho* — respondida abrindo o grupo de cima e lendo trinta
+ * linhas. Ela se desfaz quando o acervo tem poucas unidades e muitas
+ * vigências, que é o caso hoje: cada grupo passa a ter uma linha só, o
+ * cabeçalho do mês repete o que a linha embaixo dele já diz, e o nome da
+ * unidade desce a página uma vez por vigência sem nunca distinguir nada.
  *
- * **A ordem é do mês mais recente para o mais antigo, e é calculada aqui.** Ao
- * contrário de Apurações, a lista não chega ordenada por data: o servidor manda
- * as unidades do acervo por vigência decrescente e **acrescenta ao fim** as que
- * existem só por planilha ou por cadastro à mão (ver `contextosEProcedencia`).
- * Herdar essa ordem colocaria a unidade cadastrada à mão num grupo próprio no
- * rodapé, ainda que a vigência dela fosse a mais recente de todas.
+ * **O que a troca preserva.** A pergunta da virada continua respondida, um
+ * grão diferente: as linhas de cada grupo vêm da mais recente para a mais
+ * antiga, então a **primeira linha de cada unidade é onde ela está**. E os
+ * grupos vêm na ordem da vigência mais recente de cada um, de modo que a
+ * unidade que parou de entregar em junho continua caindo para baixo de todas
+ * as que entregaram em agosto — em vez de parecer em dia por ordem alfabética.
  *
- * Dentro do grupo, por nome — pela mesma razão: a ordem que vem do banco é a do
- * `scope_hash`, que não quer dizer nada para quem lê. E, no nome repetido, pela
- * vigência: a unidade que entregou as duas quinzenas de agosto tem duas linhas
- * no mesmo grupo, e elas se leem em ordem de calendário.
+ * **O que a troca não é.** Não é a volta da forma que esta tela já teve, de uma
+ * linha por unidade mostrando a vigência mais recente dela: aquela escondia
+ * trabalho feito — quem preencheu a planilha de julho voltava na virada e via
+ * "nada informado", porque a única linha da unidade tinha passado a responder
+ * por agosto. Aqui **todas** as vigências continuam em tela, cada uma na linha
+ * dela; o que mudou foi só quem reúne quem.
+ *
+ * A ordem é calculada aqui, e não herdada: o servidor manda as unidades do
+ * acervo por vigência decrescente e **acrescenta ao fim** as que existem só por
+ * planilha ou por cadastro à mão (ver `contextosEProcedencia`). Herdar essa
+ * ordem jogaria a unidade cadastrada à mão para o rodapé ainda que a vigência
+ * dela fosse a mais recente de todas.
  */
-export function agruparPorVigencia(cadastros: SituacaoDaUnidade[]): Grupo[] {
+export function agruparPorUnidade(cadastros: SituacaoDaUnidade[]): Grupo[] {
   const por = new Map<string, Grupo>();
-  const dias = new Map<string, Set<string>>();
-  const registradas = new Map<string, Set<string>>();
 
   for (const u of cadastros) {
-    const chave = u.effectiveDate.slice(0, 7);
+    /*
+      A chave é `scopeHash|canal`, e o canal faz parte dela: a mesma unidade
+      pode ter uma série EMPURRADA e outra ROTA, e elas são dois cadastros com
+      duas frotas — reuni-las num grupo só somaria coisas que ninguém soma.
+      É a mesma chave de `chaveDaUnidade`, no servidor, e a mesma de
+      `porUnidade`, aqui — as três precisam concordar sobre o que é "a mesma
+      unidade", ou a lixeira da linha ofereceria apagar o que o servidor recusa.
+    */
+    const chave = `${u.scopeHash}|${u.channel ?? ""}`;
     let grupo = por.get(chave);
     if (!grupo) {
       grupo = {
         chave,
-        titulo: mesPorExtenso(u.effectiveDate),
-        dias: [],
+        titulo: rotuloDaLinha(u),
+        maisRecente: u.effectiveDate,
         linhas: [],
         frotaEAliquotas: 0,
         soFrota: 0,
@@ -318,37 +342,43 @@ export function agruparPorVigencia(cadastros: SituacaoDaUnidade[]): Grupo[] {
         semLastro: 0,
         comPlanilha: 0,
         comDivergencia: 0,
-        unidadesRegistradas: 0,
       };
       por.set(chave, grupo);
-      dias.set(chave, new Set());
-      registradas.set(chave, new Set());
     }
     grupo.linhas.push(u);
-    dias.get(chave)!.add(u.effectiveDate);
+    if (u.effectiveDate > grupo.maisRecente) grupo.maisRecente = u.effectiveDate;
     /*
       Tudo aqui conta **cadastros** — a linha inteira de uma unidade numa
       vigência —, e nunca as trinta linhas da aba somadas entre eles: uma frase
-      que misturasse os dois grãos ("2 cadastros · 89 linhas informadas") faria
+      que misturasse os dois grãos ("6 vigências · 89 linhas informadas") faria
       os dois números parecerem comparáveis. O que cada cadastro tem por dentro
-      está na linha dele. A exceção é a unidade cadastrada à mão, que é fato da
-      unidade e por isso se conta uma vez só — ver `unidadesRegistradas`.
+      está na linha dele.
+
+      A procedência da unidade — cadastrada à mão, planilha órfã, sem código —
+      não é contada: no grupo por unidade ela deixou de ser uma contagem e
+      voltou a ser o que sempre foi, um fato só, dito uma vez no cabeçalho.
     */
     grupo[CONTADOR[u.cadastro.estado]] += 1;
     if (u.cadastro.informadas > 0) grupo.comPlanilha += 1;
     if (u.cadastro.divergentes > 0) grupo.comDivergencia += 1;
-    if (u.registradaAMao) registradas.get(chave)!.add(`${u.scopeHash}|${u.channel ?? ""}`);
   }
 
+  /* Dentro do grupo, da vigência mais recente para a mais antiga: a primeira
+     linha é onde a unidade está, que é o que se procura primeiro. */
   for (const grupo of por.values()) {
-    grupo.dias = [...dias.get(grupo.chave)!].sort().map(emDiaCurto);
-    grupo.unidadesRegistradas = registradas.get(grupo.chave)!.size;
-    grupo.linhas.sort(
-      (a, b) =>
-        a.label.localeCompare(b.label, "pt-BR") || a.effectiveDate.localeCompare(b.effectiveDate),
-    );
+    grupo.linhas.sort((a, b) => b.effectiveDate.localeCompare(a.effectiveDate));
   }
-  return [...por.values()].sort((a, b) => b.chave.localeCompare(a.chave));
+
+  /*
+    Entre os grupos, quem está para trás cai para baixo: primeiro a vigência
+    mais recente, decrescente, e só no empate o nome. As unidades em dia empatam
+    entre si e se leem em ordem alfabética; a que parou em junho fica sozinha no
+    fim, que é onde a forma antiga também a punha e pela mesma razão.
+  */
+  return [...por.values()].sort(
+    (a, b) =>
+      b.maisRecente.localeCompare(a.maisRecente) || a.titulo.localeCompare(b.titulo, "pt-BR"),
+  );
 }
 
 /**
@@ -358,36 +388,33 @@ export function agruparPorVigencia(cadastros: SituacaoDaUnidade[]): Grupo[] {
  * {@link contar}: a frase é longa, o cabeçalho é de uma linha só, e um "1" que
  * termina a linha com "sem lastro" começando a seguinte é um número que perdeu
  * o substantivo.
+ *
+ * A frase **não diz a vigência mais recente**, embora seja o que o cabeçalho
+ * mais parece dever dizer: a primeira linha do grupo já é ela, imediatamente
+ * abaixo, e repeti-la aqui seria a mesma duplicação que tirou o mês do lugar
+ * de grupo. O que o cabeçalho diz é o que as linhas **não** dizem juntas —
+ * quantas são e como se repartem.
  */
 export function resumoDoGrupo(grupo: Grupo): string {
-  const partes = [contar(grupo.linhas.length, "cadastro", "cadastros")];
+  const partes = [contar(grupo.linhas.length, "vigência", "vigências")];
 
   /* Só os estados que existem no grupo: um "0 sem lastro" ocuparia a frase para
      dizer que não há o que fazer, e é justamente o que não precisa ser dito. */
   for (const estado of ESTADOS) {
     const quantas = grupo[CONTADOR[estado]];
-    if (quantas > 0) partes.push(`${quantas}\u00A0${NO_RESUMO[estado]}`);
+    if (quantas > 0) partes.push(`${quantas} ${NO_RESUMO[estado]}`);
   }
 
-  if (grupo.comPlanilha > 0) partes.push(`${grupo.comPlanilha}\u00A0com planilha informada`);
+  if (grupo.comPlanilha > 0) partes.push(`${grupo.comPlanilha} com planilha informada`);
   if (grupo.comDivergencia > 0) {
     partes.push(
-      `${grupo.comDivergencia}\u00A0${grupo.comDivergencia === 1 ? "diverge" : "divergem"} do acervo`,
-    );
-  }
-  if (grupo.unidadesRegistradas > 0) {
-    partes.push(
-      contar(
-        grupo.unidadesRegistradas,
-        "unidade cadastrada à mão",
-        "unidades cadastradas à mão",
-      ),
+      `${grupo.comDivergencia} ${grupo.comDivergencia === 1 ? "diverge" : "divergem"} do acervo`,
     );
   }
   return partes.join(" · ");
 }
 
-/** As unidades de um grupo, na ordem em que ele as mostra. */
+/** As vigências de um grupo, na ordem em que ele as mostra. */
 const idsDoGrupo = (grupo: Grupo) => grupo.linhas.map(chaveDaLinha);
 
 /**
@@ -557,7 +584,7 @@ export default function RemuneracaoUnidades() {
 
   const grupos = useMemo(
     () =>
-      agruparPorVigencia(
+      agruparPorUnidade(
         cadastros.filter((u) => {
           if (vigencia !== TUDO && u.effectiveDate.slice(0, 7) !== vigencia) return false;
           if (nome !== TUDO && nomeDaUnidade(u) !== nome) return false;
@@ -598,10 +625,12 @@ export default function RemuneracaoUnidades() {
           <BotaoDeRegistroDeUnidade />
         </div>
         <p className="text-muted-foreground mt-2 max-w-3xl">
-          As unidades que o cadastro da planilha de remuneração conhece, <strong>uma linha
-          por vigência</strong>, e o que ele alcança em cada uma delas. As mais recentes vêm
-          primeiro; clique numa linha para abrir o cadastro daquela quinzena aqui mesmo —
-          alíquotas, frota, parcelas por veículo e proporção de documentos. O que o acervo
+          As unidades que o cadastro da planilha de remuneração conhece, cada uma com
+          <strong> uma linha por vigência</strong>, e o que ele alcança em cada uma delas.
+          Dentro da unidade as vigências mais recentes vêm primeiro, e quem parou de
+          entregar cai para o fim da lista; clique numa linha para abrir o cadastro daquela
+          quinzena aqui mesmo — alíquotas, frota, parcelas por veículo e proporção de
+          documentos. O que o acervo
           ainda não responde, alguém digita da aba de Excel em <strong>Cadastrar planilha</strong>;
           e a unidade cuja aba chegou antes do export entra por <strong>Cadastrar unidade</strong>,
           sem lastro e dizendo que está sem.
@@ -690,7 +719,7 @@ export default function RemuneracaoUnidades() {
             <table className="w-full text-sm border-collapse">
               <thead>
                 <tr className="border-b text-[0.6875rem] font-bold uppercase tracking-wide text-muted-foreground">
-                  <th className="text-left font-bold px-4 py-3">Unidade</th>
+                  <th className="text-left font-bold px-4 py-3">Vigência</th>
                   <th className="text-left font-bold px-4 py-3">Cadastro</th>
                   <th className="text-left font-bold px-4 py-3">Frota</th>
                   <th className="text-left font-bold px-4 py-3">Trechos</th>
@@ -721,20 +750,45 @@ export default function RemuneracaoUnidades() {
                             {grupo.titulo}
                           </span>
                           <span className="text-muted-foreground text-xs ml-3">
-                            {grupo.dias.join(" e ")} · {resumoDoGrupo(grupo)}
+                            {resumoDoGrupo(grupo)}
                           </span>
                         </span>
                       </button>
+                      {/*
+                        A procedência da unidade fica **aqui**, e não na linha:
+                        ser cadastrada à mão, ter virado planilha órfã ou estar
+                        sem código são fatos do par (unidade, canal) — o
+                        servidor os calcula por `chaveDaUnidade`, e eles são
+                        idênticos em toda vigência dela. Na lista por vigência
+                        não havia onde pô-los senão repetidos em cada linha; o
+                        grupo por unidade é o lugar que faltava, e eles passam a
+                        ser ditos uma vez.
+
+                        Fora do `<button>` que abre o grupo, e não dentro: o
+                        painel do código é um botão, e um `<button>` dentro de
+                        outro é HTML inválido.
+                      */}
+                      <MarcasDaUnidade unidade={grupo.linhas[0]!} />
                     </th>
                   </tr>
                   {grupo.linhas.map((u) => {
                     const chave = chaveDaLinha(u);
                     const aberta = abertas.has(chave);
                     const alternar = () => setAbertas((a) => alternarUma(a, chave));
-                    /* O rótulo da vigência só quando ele diz mais que o mês do
-                       grupo — ver `mesDaVigencia`. */
-                    const vigenciaDaLinha =
-                      u.periodLabel === mesDaVigencia(u.effectiveDate) ? null : u.periodLabel;
+                    /*
+                      A linha é a **vigência**, agora que o grupo é a unidade —
+                      e o rótulo é o que o servidor mandou quando ele diz mais
+                      que o mês. A unidade que entrega uma vez por mês tem
+                      `periodLabel` igual a `agosto/2026`, e escrever isso seria
+                      dar à linha uma forma de data que a tela não usa em lugar
+                      nenhum; a que entrega quinzenalmente tem "2ª quinzena de
+                      agosto de 2026", e aí é a linha que precisa dizer qual das
+                      duas respondeu. Ver `mesDaVigencia`.
+                    */
+                    const quinzenal = u.periodLabel !== mesDaVigencia(u.effectiveDate);
+                    const rotuloDaVigencia = quinzenal
+                      ? u.periodLabel
+                      : mesPorExtenso(u.effectiveDate);
                     return (
                       <Fragment key={chave}>
                         <tr
@@ -767,100 +821,27 @@ export default function RemuneracaoUnidades() {
                                 aria-hidden
                               />
                               <span>
-                                <span className="font-semibold">{rotuloDaLinha(u)}</span>
+                                <span className="font-semibold">{rotuloDaVigencia}</span>
                                 {/*
-                                  Embaixo do nome vai a **vigência**, e só
-                                  quando ela diz mais que o mês do grupo. A
-                                  contagem de vigências da unidade — "9
-                                  vigências no acervo" — saiu daqui com a lista
-                                  por vigência: repetida em nove linhas, dizia
-                                  nove vezes o que as nove linhas já mostram, e
-                                  era ela que fazia "2 vigências cadastradas",
-                                  escrito embaixo de AGOSTO, ser lido como duas
-                                  vigências em agosto.
-                                */}
-                                {vigenciaDaLinha && (
-                                  <span className="block text-muted-foreground text-xs mt-0.5">
-                                    {vigenciaDaLinha}
-                                  </span>
-                                )}
-                                {/*
-                                  A marca é da unidade, e não do cadastro: o
-                                  estado ao lado já diz que não há lastro, e
-                                  "sem lastro" numa unidade importada quer dizer
-                                  "o arquivo veio e não trouxe o que o cadastro
-                                  lê" — coisa muito diferente de "arquivo nenhum
-                                  veio". Sem esta linha as duas situações ficam
-                                  com a mesma cara, e a primeira manda procurar
-                                  um export que ninguém deixou de mandar.
-                                */}
-                                {u.registradaAMao && (
-                                  <span className="block text-[0.6875rem] text-muted-foreground/80 mt-0.5">
-                                    cadastrada à mão — sem export importado
-                                  </span>
-                                )}
-                                {/*
-                                  A órfã é o contrário da cadastrada à mão, e
-                                  por isso a marca é outra: lá alguém declarou a
-                                  unidade e o arquivo ainda não veio; aqui a
-                                  unidade **existiu** — o acervo a perdeu depois
-                                  que a planilha foi digitada — e o que sobrou
-                                  foram as células.
+                                  O dia exato só embaixo da quinzenal, que é
+                                  onde ele separa duas linhas do mesmo mês. Na
+                                  unidade que entrega uma vez por mês, "01/08"
+                                  embaixo de "agosto de 2026" é a mesma data
+                                  escrita duas vezes.
 
-                                  A frase diz as duas metades porque as duas
-                                  importam: o que sumiu (a unidade) e o que não
-                                  sumiu (a planilha). Sem a segunda, quem
-                                  digitou trinta linhas continuaria achando que
-                                  perdeu o trabalho; sem a primeira, iria
-                                  procurar um cadastro que não existe mais.
+                                  O nome da unidade **não** vem mais aqui: ele é
+                                  o título do grupo, uma polegada acima, e
+                                  repeti-lo em toda vigência era o que fazia a
+                                  mesma unidade descer a página seis vezes sem
+                                  nunca distinguir uma linha da outra.
                                 */}
-                                {u.planilhaOrfa && (
-                                  <span className="block text-[0.6875rem] text-amber-700 mt-0.5">
-                                    a unidade saiu do acervo — a planilha
-                                    continua aqui, e volta ao lugar quando o
-                                    export dela for reimportado
+                                {quinzenal && (
+                                  <span className="block text-muted-foreground text-xs mt-0.5">
+                                    {emDiaCurto(u.effectiveDate)}
                                   </span>
                                 )}
                               </span>
                             </button>
-
-                            {/*
-                              E, quando ela também está sem código, a saída fica
-                              **ao lado do fato**, e não numa tela de
-                              configuração: sem código o export abre uma segunda
-                              unidade ao lado desta, e quem descobre isso
-                              descobre aqui, olhando a linha.
-
-                              Fora do botão que abre a linha, e com o clique
-                              contido: um `<button>` dentro de outro é HTML
-                              inválido, e sem o `stopPropagation` abrir o painel
-                              do código também abriria o cadastro embaixo dele.
-                            */}
-                            {semCodigo(u) && (
-                              <p
-                                className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 pl-5"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                {/*
-                                  Duas consequências, uma causa — e a segunda
-                                  custou uma tarde de alguém que cadastrou a
-                                  planilha inteira e não entendeu por que o
-                                  painel do fechamento continuou vazio. O
-                                  fechamento encontra o cadastro **pelo
-                                  código**, e sem ele não há o que encontrar.
-                                  Dizer só a primeira mandava procurar no lugar
-                                  errado.
-                                */}
-                                <span className="text-[0.6875rem] text-amber-700">
-                                  sem código — o export vai abrir outra ao lado, e o
-                                  painel do fechamento não encontra este cadastro
-                                </span>
-                                <BotaoDeInformarCodigo
-                                  scopeHash={u.scopeHash}
-                                  nome={nomeDaUnidade(u)}
-                                />
-                              </p>
-                            )}
                           </td>
 
                           <td className="px-4 py-3 align-middle">
@@ -982,8 +963,19 @@ export default function RemuneracaoUnidades() {
                             <td colSpan={7} className="px-4 py-4 sm:px-9">
                               <div className="space-y-3">
                                 <div className="flex flex-wrap items-baseline justify-between gap-3">
+                                  {/*
+                                    O endereço **inteiro** do cadastro — a
+                                    unidade e a vigência —, e não só a metade
+                                    que o grupo já disse. É o lugar em que a
+                                    repetição vale: várias linhas ficam abertas
+                                    ao mesmo tempo, de propósito, e comparar
+                                    duas unidades quer dizer ler dois painéis
+                                    que estão em grupos diferentes. Um painel
+                                    que dissesse só a vigência mandaria subir a
+                                    página para lembrar de quem ele é.
+                                  */}
                                   <p className="text-[0.6875rem] font-bold uppercase tracking-wide text-muted-foreground">
-                                    O cadastro da vigência · {u.label}
+                                    O cadastro · {rotuloDaLinha(u)} · {rotuloDaVigencia}
                                   </p>
                                   {/*
                                     O cadastro abre aqui; o resto da unidade —
@@ -1016,13 +1008,102 @@ export default function RemuneracaoUnidades() {
 
         {filtrando && grupos.length > 0 && (
           <p className="text-xs text-muted-foreground">
-            Os totais de cada vigência são os dos cadastros visíveis com este recorte.
+            Os totais de cada unidade são os das vigências visíveis com este recorte.
           </p>
         )}
 
         {cadastros.length > 0 && <Notas semLastro={semLastro} />}
       </div>
     </Layout>
+  );
+}
+
+/**
+ * O que se sabe da **unidade**, e não de uma vigência dela.
+ *
+ * As três marcas respondem pelo par (escopo, canal): o servidor as calcula por
+ * `chaveDaUnidade` — ver `lib/remuneracao/src/leitura.ts` —, e por isso elas
+ * chegam idênticas em todas as linhas da unidade. Enquanto o grupo era a
+ * vigência não havia onde dizê-las senão dentro de cada linha, e a unidade com
+ * seis vigências dizia seis vezes que tinha sido cadastrada à mão. Aqui elas
+ * são ditas uma vez, no cabeçalho de quem elas descrevem.
+ *
+ * Recebe uma linha qualquer do grupo porque qualquer uma serve — as três são
+ * fato da unidade, e é justamente por isso que a repetição era gratuita.
+ */
+function MarcasDaUnidade({ unidade }: { unidade: SituacaoDaUnidade }) {
+  const registrada = unidade.registradaAMao;
+  const orfa = unidade.planilhaOrfa;
+  const faltaCodigo = semCodigo(unidade);
+  if (!registrada && !orfa && !faltaCodigo) return null;
+
+  return (
+    <div className="pb-2.5 pr-4 pl-9 space-y-0.5">
+      {/*
+        A marca é da unidade, e não do cadastro: o estado de cada linha já diz
+        se há lastro, e "sem lastro" numa unidade importada quer dizer "o
+        arquivo veio e não trouxe o que o cadastro lê" — coisa muito diferente
+        de "arquivo nenhum veio". Sem esta linha as duas situações ficam com a
+        mesma cara, e a primeira manda procurar um export que ninguém deixou de
+        mandar.
+      */}
+      {registrada && (
+        <p className="text-[0.6875rem] text-muted-foreground/80">
+          cadastrada à mão — sem export importado
+        </p>
+      )}
+
+      {/*
+        A órfã é o contrário da cadastrada à mão, e por isso a marca é outra: lá
+        alguém declarou a unidade e o arquivo ainda não veio; aqui a unidade
+        **existiu** — o acervo a perdeu depois que a planilha foi digitada — e o
+        que sobrou foram as células.
+
+        A frase diz as duas metades porque as duas importam: o que sumiu (a
+        unidade) e o que não sumiu (a planilha). Sem a segunda, quem digitou
+        trinta linhas continuaria achando que perdeu o trabalho; sem a primeira,
+        iria procurar um cadastro que não existe mais.
+      */}
+      {orfa && (
+        <p className="text-[0.6875rem] text-amber-700">
+          a unidade saiu do acervo — a planilha continua aqui, e volta ao lugar quando o
+          export dela for reimportado
+        </p>
+      )}
+
+      {/*
+        E, quando ela também está sem código, a saída fica **ao lado do fato**, e
+        não numa tela de configuração: sem código o export abre uma segunda
+        unidade ao lado desta, e quem descobre isso descobre aqui, olhando a
+        lista.
+
+        O clique é contido porque o cabeçalho do grupo abre todas as vigências
+        dele: sem o `stopPropagation`, abrir o painel do código abriria junto os
+        seis cadastros embaixo dele.
+      */}
+      {faltaCodigo && (
+        <p
+          className="flex flex-wrap items-center gap-x-2 gap-y-0.5"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/*
+            Duas consequências, uma causa — e a segunda custou uma tarde de
+            alguém que cadastrou a planilha inteira e não entendeu por que o
+            painel do fechamento continuou vazio. O fechamento encontra o
+            cadastro **pelo código**, e sem ele não há o que encontrar. Dizer só
+            a primeira mandava procurar no lugar errado.
+          */}
+          <span className="text-[0.6875rem] text-amber-700">
+            sem código — o export vai abrir outra ao lado, e o painel do fechamento não
+            encontra este cadastro
+          </span>
+          <BotaoDeInformarCodigo
+            scopeHash={unidade.scopeHash}
+            nome={nomeDaUnidade(unidade)}
+          />
+        </p>
+      )}
+    </div>
   );
 }
 
