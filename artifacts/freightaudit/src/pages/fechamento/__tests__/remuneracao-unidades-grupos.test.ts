@@ -62,6 +62,7 @@ function unidade(
     material: { cavalos: 0, trechos: 0, trechosEntregues: false, linhasInformadas: 0 },
     cadastro: cadastro(estado),
     registradaAMao: false,
+    planilhaOrfa: false,
     ...extras,
   };
 }

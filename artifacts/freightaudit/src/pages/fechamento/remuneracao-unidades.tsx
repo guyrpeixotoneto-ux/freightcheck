@@ -2,6 +2,7 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
 import { ArrowRight, ChevronRight, ScrollText } from "lucide-react";
+import { BotaoDeExclusaoDoCadastro } from "@/components/remuneracao/excluir-cadastro";
 import { BotaoDeInformarCodigo } from "@/components/remuneracao/informar-codigo";
 import { BotaoDeCadastroDaPlanilha } from "@/components/remuneracao/painel-de-cadastro";
 import { BotaoDeRegistroDeUnidade } from "@/components/remuneracao/registrar-unidade";
@@ -19,6 +20,7 @@ import {
   ESTADO_DO_CADASTRO,
   lerCadastro,
   lerSituacaoDasUnidades,
+  nomeDaUnidade,
   type EstadoDoCadastro,
   type SituacaoDaUnidade,
 } from "@/lib/remuneracao";
@@ -162,9 +164,19 @@ function fraseDosTrechos(u: SituacaoDaUnidade): string {
   return `${contar(u.material.trechos, "trecho", "trechos")}, sem as colunas em reais`;
 }
 
-/** O nome do CDD, sem o canal — "CAMAÇARI" de "CAMAÇARI · EMPURRADA". */
-function nomeDaUnidade(u: SituacaoDaUnidade): string {
-  return u.unidade ?? u.label.split(" · ")[0] ?? u.label;
+/**
+ * O nome da linha, com a operação ao lado — "CAMAÇARI · EMPURRADA".
+ *
+ * É o `label` que o servidor manda, remontado a partir de
+ * {@link nomeDaUnidade} por um motivo só: a linha órfã cuja unidade saiu do
+ * acervo pode chegar rotulada pelo `scope_hash`, e sessenta e quatro caracteres
+ * de hexadecimal em negrito no meio da tabela se leem como defeito de tela.
+ * Para todas as outras — que são todas, quase sempre — o texto é idêntico ao
+ * que veio.
+ */
+function rotuloDaLinha(u: SituacaoDaUnidade): string {
+  const nome = nomeDaUnidade(u);
+  return u.channel ? `${nome} · ${u.channel}` : nome;
 }
 
 /**
@@ -472,6 +484,43 @@ export default function RemuneracaoUnidades() {
   );
 
   /*
+    Quantas linhas cada unidade tem na lista **inteira**, e quanto foi informado
+    somando todas elas. É o que decide se a lixeira de uma linha vazia oferece
+    apagar o cadastro da unidade ou não aparece.
+
+    Da lista inteira, e nunca do recorte — a mesma razão dos canais acima:
+    filtrar por agosto não faz a planilha de julho deixar de existir, e um botão
+    que se baseasse no recorte convidaria a um ato que o servidor recusa, com
+    razão, toda vez que alguém filtrasse.
+  */
+  const porUnidade = useMemo(() => {
+    const contagem = new Map<string, { linhas: number; informadas: number }>();
+    for (const u of cadastros) {
+      const chave = `${u.scopeHash}|${u.channel ?? ""}`;
+      const atual = contagem.get(chave) ?? { linhas: 0, informadas: 0 };
+      contagem.set(chave, {
+        linhas: atual.linhas + 1,
+        informadas: atual.informadas + u.cadastro.informadas,
+      });
+    }
+    return contagem;
+  }, [cadastros]);
+
+  /**
+   * Esta linha é a última que resta de uma unidade cadastrada à mão, e não há
+   * nada informado em nenhuma quinzena dela.
+   *
+   * É a única situação em que apagar o cadastro da unidade não deixa nada para
+   * trás — e é por isso que a lixeira só o oferece aqui. O servidor confere de
+   * novo; esta conta existe para o botão não convidar ao que seria recusado.
+   */
+  const ehOUltimoCadastro = (u: SituacaoDaUnidade): boolean => {
+    if (!u.registradaAMao) return false;
+    const contagem = porUnidade.get(`${u.scopeHash}|${u.channel ?? ""}`);
+    return contagem !== undefined && contagem.linhas === 1 && contagem.informadas === 0;
+  };
+
+  /*
     As opções de cada filtro são o que existe, e só. Oferecer uma vigência que
     nenhuma unidade tem daria uma lista vazia com cara de erro; oferecer um
     estado que nada alcançou daria a mesma coisa. Um filtro que só oferece
@@ -718,7 +767,7 @@ export default function RemuneracaoUnidades() {
                                 aria-hidden
                               />
                               <span>
-                                <span className="font-semibold">{u.label}</span>
+                                <span className="font-semibold">{rotuloDaLinha(u)}</span>
                                 {/*
                                   Embaixo do nome vai a **vigência**, e só
                                   quando ela diz mais que o mês do grupo. A
@@ -748,6 +797,28 @@ export default function RemuneracaoUnidades() {
                                 {u.registradaAMao && (
                                   <span className="block text-[0.6875rem] text-muted-foreground/80 mt-0.5">
                                     cadastrada à mão — sem export importado
+                                  </span>
+                                )}
+                                {/*
+                                  A órfã é o contrário da cadastrada à mão, e
+                                  por isso a marca é outra: lá alguém declarou a
+                                  unidade e o arquivo ainda não veio; aqui a
+                                  unidade **existiu** — o acervo a perdeu depois
+                                  que a planilha foi digitada — e o que sobrou
+                                  foram as células.
+
+                                  A frase diz as duas metades porque as duas
+                                  importam: o que sumiu (a unidade) e o que não
+                                  sumiu (a planilha). Sem a segunda, quem
+                                  digitou trinta linhas continuaria achando que
+                                  perdeu o trabalho; sem a primeira, iria
+                                  procurar um cadastro que não existe mais.
+                                */}
+                                {u.planilhaOrfa && (
+                                  <span className="block text-[0.6875rem] text-amber-700 mt-0.5">
+                                    a unidade saiu do acervo — a planilha
+                                    continua aqui, e volta ao lugar quando o
+                                    export dela for reimportado
                                   </span>
                                 )}
                               </span>
@@ -881,14 +952,28 @@ export default function RemuneracaoUnidades() {
                           </td>
 
                           <td className="px-4 py-3 text-right align-middle">
-                            <Link
-                              href={enderecoDaUnidade(u)}
-                              onClick={(e) => e.stopPropagation()}
-                              className="text-xs text-primary hover:underline inline-flex items-center gap-1 whitespace-nowrap"
-                            >
-                              abrir cadastro
-                              <ArrowRight className="w-3 h-3" />
-                            </Link>
+                            <span className="inline-flex items-center gap-3">
+                              <Link
+                                href={enderecoDaUnidade(u)}
+                                onClick={(e) => e.stopPropagation()}
+                                className="text-xs text-primary hover:underline inline-flex items-center gap-1 whitespace-nowrap"
+                              >
+                                abrir cadastro
+                                <ArrowRight className="w-3 h-3" />
+                              </Link>
+                              {/*
+                                A lixeira fica no fim da linha, ao lado de abrir
+                                — e não junto do botão de cadastrar planilha, que
+                                é o gesto que se repete. Excluir é o gesto que se
+                                faz uma vez; vizinho do botão que se aperta toda
+                                quinzena, ele viraria o clique errado de alguém
+                                com pressa.
+                              */}
+                              <BotaoDeExclusaoDoCadastro
+                                unidade={u}
+                                podeExcluirAUnidade={ehOUltimoCadastro(u)}
+                              />
+                            </span>
                           </td>
                         </tr>
 

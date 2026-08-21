@@ -5,9 +5,11 @@ import { ehMimeDeImagem, lerPlanilhaDaImagem } from "@workspace/assistant";
 import { hashScopeSet } from "@workspace/ingest";
 import {
   BLOCOS_DO_CADASTRO,
+  apagarPlanilhaDaUnidade,
   conferirCelula,
   copiarPlanilhaDaUnidade,
   descritorDeEscopo,
+  excluirUnidadeRegistrada,
   gravarPlanilhaDaUnidade,
   identificadorDaUnidade,
   informarCodigoDaUnidade,
@@ -48,13 +50,14 @@ import {
  *   lado a lado**, que é a forma da planilha: a aba traz os dois blocos um ao
  *   lado do outro, e quem confere lê as duas colunas juntas.
  * - `/remuneracao/planilha` — a metade que **não** sai do acervo: o que alguém
- *   digitou da aba de Excel. `GET` lê, `PUT` grava a vigência inteira, e
- *   `/copia` repete numa vigência o que já foi digitado noutra. O que entra por
- *   aqui volta no cadastro marcado como `INFORMADO`, com autor e data — nunca
- *   como apurado, e nunca por cima de um número que o acervo sustente. As duas
- *   escritas aceitam `vigenciaNova: true`, que é como a quinzena que o export
- *   ainda não trouxe passa a existir — a mesma bandeira do `canalNovo`, do lado
- *   da vigência.
+ *   digitou da aba de Excel. `GET` lê, `PUT` grava a vigência inteira, `DELETE`
+ *   apaga a vigência inteira, e `/copia` repete numa vigência o que já foi
+ *   digitado noutra. O que entra por aqui volta no cadastro marcado como
+ *   `INFORMADO`, com autor e data — nunca como apurado, e nunca por cima de um
+ *   número que o acervo sustente. As duas escritas aceitam `vigenciaNova:
+ *   true`, que é como a quinzena que o export ainda não trouxe passa a existir
+ *   — a mesma bandeira do `canalNovo`, do lado da vigência. O `DELETE` não a
+ *   aceita: criar uma quinzena para apagá-la é o contrário do pedido.
  *
  * **Nada aqui calcula.** A aritmética inteira mora em `@workspace/remuneracao`,
  * testada sem banco e sem HTTP, como a do Fechamento. Este arquivo lê a query,
@@ -303,6 +306,41 @@ router.put("/remuneracao/planilha", async (req, res): Promise<void> => {
     return;
   }
   res.json(planilha);
+});
+
+/**
+ * Apaga a planilha informada de uma vigência — a lixeira da linha da lista.
+ *
+ * **`DELETE` do mesmo recurso que o `PUT` escreve**, e por isso sem corpo: o
+ * que se apaga é a planilha daquela unidade naquela vigência, que é exatamente
+ * o que o endereço nomeia. O canal vai na query como nas leituras — `canal=`,
+ * a string vazia, é a série sem canal —, e não omitido: omitir significa
+ * "qualquer canal", e apagar em qualquer canal é apagar no canal errado.
+ *
+ * **Por que o produto tem esta porta.** A escrita já apagava célula a célula
+ * (`valor: null`), que é o gesto de corrigir. Desfazer a quinzena inteira é
+ * outro gesto — quem digitou a aba na quinzena errada não quer trinta
+ * correções —, e sem ele a linha da lista ficava para sempre, vazia, sem
+ * ninguém saber por que estava lá.
+ *
+ * Devolve quantas células saíram. Zero não é erro: a quinzena não tinha nada
+ * informado, e o que quem clicou pediu já vale.
+ */
+router.delete("/remuneracao/planilha", async (req, res): Promise<void> => {
+  const query = req.query as Record<string, unknown>;
+  const contexto = parseContext(query);
+  const period = typeof query.period === "string" && query.period !== "" ? query.period : undefined;
+
+  const apagadas = await apagarPlanilhaDaUnidade(db, {
+    ...(contexto ?? {}),
+    ...(period !== undefined ? { period } : {}),
+  });
+
+  if (apagadas === null) {
+    res.status(404).json({ error: SEM_ACERVO });
+    return;
+  }
+  res.json({ apagadas });
 });
 
 /**
@@ -598,6 +636,46 @@ router.put("/remuneracao/unidades/codigo", async (req, res): Promise<void> => {
     recarregaria uma unidade que mudou de lugar.
   */
   res.json({ scopeHash: escopoNovo, unidades });
+});
+
+/**
+ * Apaga o cadastro de uma unidade registrada à mão.
+ *
+ * **É o desfazer do `POST`, e só dele.** Sai a linha de identidade de um par
+ * (escopo, canal) que alguém digitou — nome, código, tipo de operação e
+ * quinzena inicial. Nenhum número sai por aqui, porque nenhum número entra por
+ * lá: os da planilha têm porta própria, e é ela que precisa ser usada antes.
+ *
+ * **A unidade que veio de arquivo não some por esta porta**, e a recusa não é
+ * deste arquivo: uma unidade com export vive do `snapshot`, não desta tabela, e
+ * apagar a linha daqui não tiraria da tela nada. Quem remove uma unidade
+ * importada é a exclusão da importação, em Importações, onde a decisão vem com
+ * o tamanho que ela tem — ver `deleteImportRun`.
+ *
+ * O canal vai na query pela convenção das leituras: `canal=` é a série sem
+ * canal, e omiti-lo seria pedir para apagar "qualquer uma".
+ */
+router.delete("/remuneracao/unidades", async (req, res): Promise<void> => {
+  const query = req.query as Record<string, unknown>;
+  const scopeHash = typeof query.scopeHash === "string" ? query.scopeHash.trim() : "";
+  if (scopeHash === "") {
+    throw new UnidadeInvalida(
+      "Falta dizer qual unidade sai — o pedido vem com o escopo dela, que é o que a lista já " +
+        "tem na mão.",
+    );
+  }
+  if (typeof query.canal !== "string") {
+    throw new UnidadeInvalida(
+      "Falta dizer de qual tipo de operação é o cadastro. Uma unidade pode ter um cadastro " +
+        "para EMPURRADA e outro para ROTA, e apagar sem dizer qual apagaria o que estivesse " +
+        "primeiro. A série sem tipo se pede com canal= vazio.",
+    );
+  }
+
+  const canal = query.canal === "" ? null : query.canal;
+  const unidade = await excluirUnidadeRegistrada(db, { scopeHash, canal });
+
+  res.json({ unidade });
 });
 
 export default router;
