@@ -227,6 +227,19 @@ export async function registrarUnidade(
     codigo: string;
     nome: string;
     canal: string | null;
+    /**
+     * A unidade canônica que este cadastro descreve.
+     *
+     * **É a identidade, e o `codigo` acima deixou de ser.** Quem cadastra pela
+     * tela escolhe a unidade em Administração → Unidades e o `id` dela chega
+     * aqui; o `codigo` continua sendo o texto do export, porque é sobre ele que
+     * o `scope_hash` é somado e é ele que faz o arquivo cair nesta unidade
+     * quando chegar. As duas responsabilidades passaram a morar em campos
+     * diferentes: identidade num, proveniência no outro.
+     *
+     * `null` no caminho legado e nos cadastros anteriores à `0049`.
+     */
+    unidadeId?: string | null;
     vigenciaInicial: string;
     autor: { id: string | null; nome: string | null };
   },
@@ -257,6 +270,7 @@ export async function registrarUnidade(
       scopeHash: pedido.scopeHash,
       scopeType: pedido.scopeType,
       codigo: pedido.codigo,
+      unidadeId: pedido.unidadeId ?? null,
       nome,
       canal,
       vigenciaInicial: pedido.vigenciaInicial,

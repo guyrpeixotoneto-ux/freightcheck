@@ -538,6 +538,13 @@ export interface UnidadeRegistrada {
  * reencontraria a importada.
  */
 export function registrarUnidade(pedido: {
+  /**
+   * A unidade canônica que este cadastro descreve — a identidade.
+   *
+   * É o mesmo `id` que o Fechamento grava na competência, e é o que faz os dois
+   * lados apontarem para a mesma unidade em vez de casarem por texto.
+   */
+  unidadeId?: string;
   nome: string;
   codigo: string;
   canal: string | null;

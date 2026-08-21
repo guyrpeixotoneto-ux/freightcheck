@@ -456,7 +456,15 @@ export function abrirCompetencia(entrada: {
   ano: number;
   mes: number;
   quinzena: 1 | 2;
-  unidade: { codigo: string; nome?: string };
+  /**
+   * A unidade da competência.
+   *
+   * `id` é a unidade **canônica** do cadastro mestre — o caminho da tela, e o
+   * único que cria identidade. `codigo` é o caminho legado, mantido para a
+   * importação e para chamadores antigos; ele grava a competência com
+   * `unidade_id` nulo, e a tela a mostra como não associada.
+   */
+  unidade: { id?: string; codigo?: string; nome?: string };
   transportadora: { codigo: string; nome?: string };
   /**
    * `EMPURRADA`, `ROTA` — obrigatório, porque entra na chave do fechamento.
@@ -755,7 +763,9 @@ export type EstadoDaResolucao =
   | "UNIDADE_NAO_ENCONTRADA"
   | "UNIDADE_AMBIGUA"
   | "SEM_VIGENCIA"
-  | "CONTRATO_INCOMPLETO";
+  | "CONTRATO_INCOMPLETO"
+  /** Cadastro e acervo discordam sobre o CNPJ. Nenhum é sobrescrito. */
+  | "CONFLITO_DE_IDENTIDADE";
 
 /** Como o código da competência encontrou o do cadastro. */
 export type ComoCasou = "EXATO" | "ESPACO" | "DOCUMENTO";
@@ -802,6 +812,8 @@ export interface PortaDoContrato {
 export interface DiagnosticoDoCadastro {
   estado: EstadoDaResolucao;
   unidade: PortaDaUnidade;
+  /** Os dois CNPJs em desacordo. Só em `CONFLITO_DE_IDENTIDADE`. */
+  conflito?: { doCadastro: string; doAcervo: string; scopeHash: string } | null;
   vigencia: PortaDaVigencia | null;
   contrato: PortaDoContrato | null;
   /**
@@ -812,6 +824,27 @@ export interface DiagnosticoDoCadastro {
    * a que os testes cobrem e a que a pessoa lê. `null` quando respondeu.
    */
   destrava: { problema: string; conserto: string } | null;
+}
+
+/**
+ * Uma unidade canônica, como Administração → Unidades a entrega.
+ *
+ * `id` é `null` só na linha **detectada no acervo e ainda não cadastrada** —
+ * evidência de um snapshot, não identidade. Os seletores do Fechamento e da
+ * Remuneração só oferecem as que têm `id`.
+ */
+export interface UnidadeCanonica {
+  id: string | null;
+  nome: string;
+  cnpj: string;
+  cnpjFormatado: string;
+  estado: "CADASTRADA" | "CADASTRADA_E_IMPORTADA" | "DETECTADA";
+  vigencias: number;
+}
+
+/** As unidades canônicas — o cadastro mestre. */
+export async function listarUnidadesCanonicas(): Promise<UnidadeCanonica[]> {
+  return fetchJson<UnidadeCanonica[]>("/unidades/canonicas");
 }
 
 /** Uma divergência nomeada entre o contrato e o demonstrativo. */

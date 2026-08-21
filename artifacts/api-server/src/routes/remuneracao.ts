@@ -528,6 +528,14 @@ router.post("/remuneracao/unidades", async (req, res): Promise<void> => {
   }
 
   const unidade = await registrarUnidade(db, {
+    /*
+      A unidade canônica escolhida na tela. Quando vem, é ela que responde "qual
+      unidade é esta" — o `codigo` abaixo segue sendo o texto do export, que é o
+      que o `scope_hash` soma. Ver `registrarUnidade`.
+    */
+    unidadeId: typeof corpo.unidadeId === "string" && corpo.unidadeId.trim() !== ""
+      ? corpo.unidadeId.trim()
+      : null,
     scopeHash: hashScopeSet([
       descritorDeEscopo(scopeType, identificadorDaUnidade({ codigo, nome })),
     ]),

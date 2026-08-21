@@ -56,8 +56,14 @@ export interface ComboboxCriavelProps<T> {
   /**
    * O que fazer quando alguém clica em criar. Devolve o item cadastrado — ou
    * `null` quando o servidor recusou, e aí `erro` diz por quê.
+   *
+   * **Opcional, e a ausência é uma escolha de produto.** Sem ela o combobox
+   * vira um seletor puro: não oferece criar, e não há como um texto digitado
+   * virar item. É o que o seletor de unidade do Fechamento precisa — lá a
+   * identidade da unidade é o cadastro canônico, e "usar o que digitei" seria
+   * justamente o caminho que criou `CDD Belém` como código.
    */
-  aoCriar: (texto: string) => Promise<T | null>;
+  aoCriar?: (texto: string) => Promise<T | null>;
   rotuloDe: (item: T) => string;
   /** A segunda linha de cada opção: a leitura, o caminho, a classe. */
   detalheDe?: (item: T) => string | null;
@@ -127,14 +133,22 @@ export function ComboboxCriavel<T>({
     lista, ou nada. A decisão é pura e mora em `textoParaCriar` — aqui fica só o
     desenho dela.
   */
-  const criavel = textoParaCriar(sugestao.criar, termo, rotuloDeCriacaoVazia !== undefined);
+  /*
+    Sem `aoCriar` não há o que criar, e a linha de criação some inteira — não
+    fica desabilitada, que sugeriria um caminho que não existe. É o seletor
+    puro: escolhe-se do que está cadastrado, e nada mais.
+  */
+  const criavel =
+    aoCriar === undefined
+      ? null
+      : textoParaCriar(sugestao.criar, termo, rotuloDeCriacaoVazia !== undefined);
   const previa = criavel !== null && previaDe ? previaDe(criavel) : null;
 
   const criar = async () => {
     if (criavel === null || criando) return;
     setCriando(true);
     try {
-      const item = await aoCriar(criavel);
+      const item = await aoCriar!(criavel);
       // Só fecha quando deu certo: a recusa precisa aparecer com o texto ainda
       // digitado, ou a pessoa perde o que escreveu junto com o motivo.
       if (item) {

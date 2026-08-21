@@ -88,6 +88,12 @@ interface UnidadeRegistrada {
   unidadeId?: string;
 }
 
+/** O CNPJ que a unidade canônica declara — o lado do cadastro. */
+interface CanonicaFingida {
+  id: string;
+  cnpj: string;
+}
+
 const SO_DIGITOS = (t: string) => t.replace(/\D/g, "");
 
 /**
@@ -101,6 +107,10 @@ function bancoCom(opcoes: {
   porVigencia: Record<string, ReadonlyMap<string, number>>;
   /** As abas de uma unidade específica, quando há mais de uma registrada. */
   scopeHashDaPlanilha?: string;
+  /** As unidades canônicas — o lado do cadastro no confronto de identidade. */
+  canonicas?: CanonicaFingida[];
+  /** O CNPJ que o acervo declara por escopo — o lado do arquivo. */
+  cnpjNoAcervo?: Record<string, string>;
 }): Database {
   const unidades = opcoes.unidades ?? [{ scopeHash: "sh1", canal: "", codigo: "0443" }];
   const daPlanilha = opcoes.scopeHashDaPlanilha ?? unidades[0]?.scopeHash ?? "sh1";
@@ -110,6 +120,7 @@ function bancoCom(opcoes: {
     scope_hash: u.scopeHash,
     canal: u.canal,
     codigo: u.codigo,
+    unidade_id: u.unidadeId ?? null,
   });
 
   return {
@@ -118,6 +129,16 @@ function bancoCom(opcoes: {
       const procurado = String(valores[0] ?? "");
 
       if (texto.includes("count(*)")) return { rows: [{ total: unidades.length }] };
+      /* O lado do cadastro: o CNPJ da unidade canônica. */
+      if (texto.includes("FROM unidade u WHERE u.id =")) {
+        const achada = (opcoes.canonicas ?? []).find((c) => c.id === procurado);
+        return { rows: achada ? [{ cnpj: achada.cnpj }] : [] };
+      }
+      /* O lado do arquivo: o `canonical_scope` do snapshot daquele escopo. */
+      if (texto.includes("jsonb_array_elements")) {
+        const cnpj = (opcoes.cnpjNoAcervo ?? {})[procurado];
+        return { rows: cnpj ? [{ cnpj }] : [] };
+      }
       if (texto.includes("WHERE u.unidade_id =")) {
         return {
           rows: unidades.filter((u) => u.unidadeId === procurado).map(comoLinha),
@@ -523,6 +544,104 @@ describe("a identidade canônica", () => {
 
     expect(resposta).not.toBeNull();
     expect(diagnostico.unidade.comoCasou).toBe("ESPACO");
+  });
+});
+
+/* =========================================================================
+ * O confronto de identidade — cadastro contra acervo
+ * ====================================================================== */
+
+/**
+ * Os quatro casos do confronto, e o que cada um tem de fazer.
+ *
+ * O cadastro afirma um CNPJ; o `canonical_scope` do snapshot que o escopo do
+ * cadastro alcança afirma outro. São **duas fontes independentes** sobre a
+ * mesma pergunta, e por isso podem discordar — e quando discordam, ninguém
+ * sobrescreve ninguém.
+ */
+describe("o conflito de identidade", () => {
+  const UNIDADE_A = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+  const CNPJ_A = "11222333000181";
+  const CNPJ_B = "11444777000161";
+
+  const bancoDoConfronto = (cnpjDoAcervo: string | null) =>
+    bancoCom({
+      unidades: [{ scopeHash: "sh1", canal: "", codigo: "0443", unidadeId: UNIDADE_A }],
+      canonicas: [{ id: UNIDADE_A, cnpj: CNPJ_A }],
+      cnpjNoAcervo: cnpjDoAcervo === null ? {} : { sh1: cnpjDoAcervo },
+      porVigencia: { "2026-07-01": ABA },
+    });
+
+  it("caso 1 — cadastro A, snapshot A: confirmado, o contrato responde", async () => {
+    const { resposta, diagnostico } = await porta(bancoDoConfronto(CNPJ_A)).resolver({
+      ...UNIDADE,
+      unidadeId: UNIDADE_A,
+      ...PRIMEIRA,
+    });
+
+    expect(diagnostico.estado).toBe("RESPONDEU");
+    expect(resposta).not.toBeNull();
+  });
+
+  it("caso 2 — cadastro A, snapshot B: CONFLITO, e nada é sobrescrito", async () => {
+    const { resposta, diagnostico } = await porta(bancoDoConfronto(CNPJ_B)).resolver({
+      ...UNIDADE,
+      unidadeId: UNIDADE_A,
+      ...PRIMEIRA,
+    });
+
+    expect(diagnostico.estado).toBe("CONFLITO_DE_IDENTIDADE");
+    /* O contrato **não** responde: não se sabe de qual unidade ele é. */
+    expect(resposta).toBeNull();
+    /* Os dois CNPJs chegam à tela, lado a lado. Nenhum virou o outro. */
+    expect(diagnostico.conflito?.doCadastro).toBe(CNPJ_A);
+    expect(diagnostico.conflito?.doAcervo).toBe(CNPJ_B);
+    /* E a resolução parou antes: nem vigência nem contrato foram avaliados. */
+    expect(diagnostico.vigencia).toBeNull();
+    expect(diagnostico.contrato).toBeNull();
+  });
+
+  it("caso 2 — o conflito não cai nas faixas de texto", async () => {
+    /*
+      A guarda mais importante. O cadastro tem `codigo: "0443"`, que casaria
+      pelo texto com a competência — e casar aqui faria o fechamento seguir com
+      o contrato de uma unidade que o acervo diz ser outra.
+    */
+    const { resposta, diagnostico } = await porta(bancoDoConfronto(CNPJ_B)).resolver({
+      ...UNIDADE,
+      unidadeCodigo: "0443",
+      unidadeId: UNIDADE_A,
+      ...PRIMEIRA,
+    });
+
+    expect(resposta).toBeNull();
+    expect(diagnostico.estado).not.toBe("RESPONDEU");
+    expect(diagnostico.unidade.comoCasou).toBe("IDENTIDADE");
+  });
+
+  it("caso 4 — unidade cadastrada sem snapshot: sem confronto, responde", async () => {
+    /* Sem importação não há CNPJ do lado do arquivo — nada a confrontar. */
+    const { resposta, diagnostico } = await porta(bancoDoConfronto(null)).resolver({
+      ...UNIDADE,
+      unidadeId: UNIDADE_A,
+      ...PRIMEIRA,
+    });
+
+    expect(diagnostico.estado).toBe("RESPONDEU");
+    expect(resposta).not.toBeNull();
+  });
+
+  it("o texto do conflito nomeia os dois CNPJs e não manda escolher sozinho", async () => {
+    const { diagnostico } = await porta(bancoDoConfronto(CNPJ_B)).resolver({
+      ...UNIDADE,
+      unidadeId: UNIDADE_A,
+      ...PRIMEIRA,
+    });
+    const destrava = comoDestravar(diagnostico)!;
+
+    expect(destrava.problema).toContain(CNPJ_A);
+    expect(destrava.problema).toContain(CNPJ_B);
+    expect(destrava.conserto).toContain("Nada é sobrescrito automaticamente");
   });
 });
 
