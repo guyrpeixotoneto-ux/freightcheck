@@ -27,7 +27,9 @@ export type EstadoDoTransporte =
   /** Veio corpo, e ele não é JSON: quem respondeu não é a nossa API. */
   | "RESPOSTA_ESTRANHA"
   /** Erro de status conhecido, sem corpo que o explique. */
-  | "ERRO_SEM_CORPO";
+  | "ERRO_SEM_CORPO"
+  /** Fomos nós que cancelamos: navegação, desmontagem, `AbortController`. */
+  | "REQUISICAO_CANCELADA";
 
 export interface DiagnosticoDeTransporte extends Orientacao {
   estado: EstadoDoTransporte;
@@ -52,6 +54,18 @@ export interface TransporteObservado {
   corpoVazio?: boolean;
   /** O corpo veio, e não era JSON. Traz um trecho para quem investiga. */
   corpoNaoJson?: string;
+  /**
+   * A frase que o navegador escreveu ao rejeitar o `fetch`.
+   *
+   * "Failed to fetch", "Load failed", "NetworkError when attempting to fetch
+   * resource" — ela não diz de que lado o defeito está, e mesmo assim é a única
+   * pista de primeira mão que existe. Ela se perdia porque o `TypeError` subia
+   * cru e era reclassificado por `instanceof` lá na frente; agora entra na
+   * evidência, ao lado do que se sabe e do que se supõe.
+   */
+  motivo?: string;
+  /** A chamada foi cancelada por nós, e não pela rede. */
+  cancelada?: boolean;
 }
 
 /**
@@ -89,80 +103,123 @@ const SUBIR_A_API = {
 /**
  * A ação para quando **não** houve resposta — e por isso não se sabe o que caiu.
  *
- * Esta constante existe por um defeito que sobreviveu a uma correção. O
- * `SEM_RESPOSTA` recomendava `SUBIR_A_API` como todos os outros estados; numa
- * passagem anterior o `resumo` foi reescrito para admitir as duas causas, e a
- * **ação continuou mandando conferir o processo**. O efeito é o pior possível
- * para quem opera: a frase reconhece que pode não ser a API, e a linha em
- * negrito logo abaixo — a única que se lê com pressa — manda conferir a API. A
- * pessoa confere, encontra o processo de pé, e volta à mesma tela com o mesmo
- * aviso. Foi exatamente esse laço que fez a pergunta "por que esse erro
- * continua dando?".
+ * Esta constante já foi reescrita duas vezes, e as duas correções erraram na
+ * mesma direção: a de **afirmar demais**.
  *
- * E a recomendação não era só inútil: era improvável. Com o processo fora do
- * ar, quem responde é a camada de antes — o roteador do Replit com 502 de corpo
- * vazio, ou o proxy do Vite com 500 de corpo vazio (medido: `connect
- * ECONNREFUSED` no log do Vite, `HTTP/1.1 500`, `Content-Type: text/plain`,
- * zero bytes). Os dois caem em `API_AUSENTE`, que é outro estado, com outro
- * texto. Chegar em `SEM_RESPOSTA` é chegar no caso em que a API derrubada é a
- * hipótese **menos** compatível com o que se observou.
+ * A primeira versão recomendava `SUBIR_A_API`, como todos os outros estados.
+ * Isso é improvável e foi medido: com o processo fora do ar quem responde é a
+ * camada de antes — 502 de corpo vazio pelo roteador do Replit, 500 de corpo
+ * vazio pelo proxy do Vite (`connect ECONNREFUSED` no log, `Content-Type:
+ * text/plain`, zero bytes). Os dois caem em `API_AUSENTE`, que é outro estado.
+ * A pessoa conferia o processo, encontrava-o de pé, e voltava ao mesmo aviso.
  *
- * O que resta a fazer é medir, e o código de rede da própria chamada é o que
- * separa as três causas. Por isso a ação é olhar o código, e não subir nada.
+ * A segunda mandava abrir DevTools → Network ou rodar a sonda para "separar as
+ * três causas". Trocou uma recomendação errada por uma tarefa de engenharia
+ * entregue a quem só queria a lista — e continuou afirmando mais do que o
+ * navegador permite: que as causas possíveis são exatamente três e que a API
+ * fora do ar estava descartada.
+ *
+ * O que de fato se sabe neste estado é pouco e é preciso: **não veio resposta**.
+ * Não veio status, não veio cabeçalho, e por isso não há como dizer daqui de que
+ * lado a coisa parou. O produto não pode depender de alguém abrir o console para
+ * funcionar: ele repete sozinho, e é isso que a ação diz.
  */
-const IDENTIFICAR_A_QUEDA = {
+const AGUARDAR_A_VOLTA = {
   codigo: "IDENTIFICAR_QUEDA",
+  /*
+    O texto anterior mandava a pessoa abrir DevTools → Network ou rodar
+    `node scripts/sonda-cold-start.mjs`. As duas coisas são úteis — e nenhuma
+    das duas é ação de quem está usando o produto. Pedir isso é transferir o
+    diagnóstico para quem só queria a lista, e é admitir que o sistema depende
+    de alguém abrir o console para funcionar. Ele não depende: a chamada é
+    repetida sozinha cinco vezes ao longo de 13,2s (`resiliencia.ts`), e o botão
+    ao lado repete agora.
+
+    A sonda continua existindo e continua sendo o instrumento certo — para quem
+    investiga. Ela desceu para a `evidencia`, que é a letra miúda dirigida a
+    engenharia, em vez de ocupar a linha em negrito que se lê com pressa.
+  */
   texto:
-    "Ver o código de rede desta chamada em DevTools → Network (ou rodar a " +
-    "sonda abaixo). Ele separa as três causas, e cada uma pede uma coisa " +
-    "diferente. Reenviar o arquivo não muda o resultado em nenhuma delas.",
-  comando: "node scripts/sonda-cold-start.mjs <url-do-app>",
-  quem: "plataforma",
+    "Não há nada a instalar nem a configurar: a tela repete a chamada sozinha " +
+    "por alguns segundos, e o botão abaixo tenta agora. Se continuar falhando " +
+    "depois disso, o caminho até o servidor precisa ser olhado por quem cuida " +
+    "do ambiente — com a evidência abaixo.",
+  quem: "operador",
 } as const;
 
 /**
  * A única autoridade de classificação do transporte.
  *
- * Pura, como a do banco e pelo mesmo motivo: é o que permite exercitar os cinco
+ * Pura, como a do banco e pelo mesmo motivo: é o que permite exercitar os seis
  * casos sem um servidor do lado, e é o que garante que `readJson`, `fetchJson`
  * e a tela cheguem à mesma conclusão a partir dos mesmos fatos.
  */
 export function diagnosticarTransporte(
   observado: TransporteObservado,
 ): DiagnosticoDeTransporte {
+  /*
+    O cancelamento vem antes de tudo porque não é falha: é uma chamada que nós
+    interrompemos. Classificá-lo como queda de rede faria a tela acusar a
+    plataforma por uma navegação — e faria a política de repetição insistir numa
+    chamada que ninguém quer mais.
+  */
+  if (observado.cancelada) {
+    return {
+      estado: "REQUISICAO_CANCELADA",
+      resumo:
+        "A chamada foi cancelada antes de terminar — normalmente porque a tela " +
+        "mudou enquanto ela estava em andamento.",
+      risco: NADA_ENVIADO,
+      acao: null,
+      evidencia: "Cancelada pela própria interface; nenhuma resposta foi pedida ao servidor.",
+    };
+  }
+
   if (observado.naoCompletou) {
+    /*
+      O que se sabe aqui é uma coisa só: não veio resposta. Nem status, nem
+      cabeçalho, nem corpo.
+
+      O texto anterior ia muito além disso. Dizia que o processo "API Server"
+      fora do ar estava **descartado** ("responderia 502 e apareceria aqui como
+      outro aviso") e que sobravam **exatamente três** causas. As duas
+      afirmações são inferências que o navegador não sustenta: ele não sabe se
+      houve um 502 que não chegou, não sabe se quem caiu foi o roteador, a rede
+      local ou a origem, e a lista de causas possíveis não é fechada.
+
+      Pior: neste produto a primeira afirmação era falsa por construção. A tela
+      de Unidades compartilhava a chave `["contexts"]` com a barra lateral, cuja
+      `queryFn` traduzia todo `!response.ok` em lista vazia — então um 502
+      **nunca** chegaria aqui como outro aviso; chegaria como "nenhuma vigência
+      importada". A frase que dizia ter descartado a API fora do ar era, ela
+      mesma, o efeito de a API fora do ar ter sido descartada antes, no caminho.
+      Ver `lib/contextos.ts`.
+
+      A separação abaixo é a que a interface pode honrar: o que se **sabe**
+      (fato observado), o que se **supõe** (as causas comuns, nomeadas como
+      hipótese), e o que **acontece** (a tela repete sozinha).
+    */
     return {
       estado: "SEM_RESPOSTA",
-      /*
-        `fetch` rejeita com `TypeError` quando a requisição não completa —
-        conexão recusada, DNS, um redirect de outra origem barrado por CORS. O
-        navegador escreve todas assim, "Failed to fetch" (ou "Load failed", no
-        Safari), palavras que não dizem sequer de que lado o defeito está.
-
-        O que **não** cabe aqui é a API derrubada, e essa é a correção. Com o
-        processo fora do ar quem responde é a camada anterior, e ela responde:
-        502 de corpo vazio pelo roteador do Replit, 500 de corpo vazio pelo
-        proxy do Vite. Houve resposta, então o caminho é `API_AUSENTE` logo
-        abaixo — nunca este. A versão anterior deste texto mandava conferir o
-        processo "API Server" justamente no estado em que ele é a hipótese menos
-        compatível com o observado, e quem seguia a instrução encontrava o
-        processo de pé e voltava à mesma tela.
-      */
       resumo:
-        "A requisição não completou: esta tela não chegou a receber resposta " +
-        "nenhuma do servidor — nem de erro, nem do roteador. Isso descarta o " +
-        'processo "API Server" fora do ar, que responderia 502 e apareceria ' +
-        "aqui como outro aviso. Sobram três causas: a origem inteira " +
-        "indisponível (Repl dormindo, cold start, reinício), a conexão cortada " +
-        "no meio, ou a sessão do ambiente expirada.",
+        "O que se sabe: o navegador não recebeu resposta nenhuma desta " +
+        "chamada — nem status, nem cabeçalho. Não dá para dizer daqui de que " +
+        "lado ela parou. O que costuma ser: a origem indisponível por instantes " +
+        "(reinício, partida a frio, o serviço acordando), a conexão " +
+        "interrompida, ou a rede deste computador. Nenhuma delas é descartável " +
+        "com o que se tem, e as três passam sozinhas.",
       risco: NADA_ENVIADO,
-      acao: IDENTIFICAR_A_QUEDA,
+      acao: AGUARDAR_A_VOLTA,
       evidencia:
-        "Sem status: o navegador não chegou a receber linha de resposta. O " +
-        "código de rede da chamada é o que separa as três — " +
-        "ERR_CONNECTION_REFUSED e ERR_NAME_NOT_RESOLVED são a origem fora do " +
-        "ar; ERR_EMPTY_RESPONSE e ERR_CONNECTION_RESET são a conexão cortada; " +
-        "um erro de CORS citando outro domínio é a sessão expirada.",
+        (observado.motivo ? `O navegador disse: "${observado.motivo}". ` : "") +
+        "Sem status: não houve linha de resposta para ler. Para quem " +
+        "investiga, o código de rede da chamada (DevTools → Network) é o que " +
+        "distingue as hipóteses — ERR_CONNECTION_REFUSED e " +
+        "ERR_NAME_NOT_RESOLVED apontam a origem fora do ar; ERR_EMPTY_RESPONSE " +
+        "e ERR_CONNECTION_RESET, a conexão interrompida; um erro de CORS " +
+        "citando outro domínio, a sessão do ambiente expirada. " +
+        "`node scripts/sonda-cold-start.mjs <url-do-app>` mede se a origem está " +
+        "sendo recolhida entre os acessos.",
     };
   }
 
@@ -223,6 +280,19 @@ export function diagnosticarTransporte(
       risco: NADA_ENVIADO,
       acao: null,
       ...(status === undefined ? {} : { status }),
+      /*
+        A frase do navegador aparece quando houve uma: é o caso do corpo cortado
+        no meio da leitura (ver `readJson`), que sem ela era indistinguível de um
+        204 legítimo — e, pior, era anunciado como "não houve resposta nenhuma"
+        sobre uma chamada cujo status a tela tinha acabado de ler.
+      */
+      ...(observado.motivo === undefined
+        ? {}
+        : {
+            evidencia:
+              `Status ${status ?? "desconhecido"}, e a leitura do corpo falhou: ` +
+              `"${observado.motivo}".`,
+          }),
     };
   }
 

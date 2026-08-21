@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ApiError, fetchJson } from "@/lib/api";
+import { useContextosDaCasca } from "@/lib/contextos";
 import { RESUMO_EXECUTIVO } from "@/lib/ambiente";
 import { cn } from "@/lib/utils";
 import { periodicitySuffix } from "@/lib/format";
@@ -207,12 +208,15 @@ export default function Inicio() {
     staleTime: 60_000,
   });
 
-  const contextos = useQuery({
-    queryKey: ["contexts"],
-    queryFn: () => fetchJson<SeriesContext[]>("/contexts").catch(() => []),
-    retry: false,
-    staleTime: 60_000,
-  });
+  /*
+    A quarta consulta que usava `["contexts"]` com regras próprias — e a mais
+    silenciosa das quatro: `.catch(() => [])` transformava **qualquer** falha em
+    lista vazia e a gravava no cache compartilhado, com `staleTime` de um minuto.
+    Quem saísse daqui para `/unidades` no minuto seguinte encontraria uma lista
+    vazia legítima, sem erro nenhum, sobre uma chamada que tinha falhado nesta
+    tela. Ver `lib/contextos.ts`.
+  */
+  const contextos = useContextosDaCasca();
 
   const coberturaAuditada = useMemo(() => cobertura(balancos.data), [balancos.data]);
   const integridadeDosDados = useMemo(() => integridade(balancos.data), [balancos.data]);
@@ -348,7 +352,7 @@ export default function Inicio() {
       <Cabecalho
         view={view}
         ultima={ultima}
-        contextos={contextos.data ?? []}
+        contextos={contextos.contextos}
         onTrocar={trocarPara}
       />
 

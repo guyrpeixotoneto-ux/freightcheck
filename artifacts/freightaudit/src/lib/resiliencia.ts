@@ -61,8 +61,10 @@ const TETO_DA_ESPERA = 8_000;
 /**
  * Os estados de transporte que valem uma segunda tentativa.
  *
- * Todos menos `ERRO_SEM_CORPO`, que é um 4xx: o pedido está errado, e repeti-lo
- * dá o mesmo 4xx três vezes. `RESPOSTA_ESTRANHA` entra com ressalva — ver
+ * Fora `ERRO_SEM_CORPO`, que é um 4xx — o pedido está errado, e repeti-lo dá o
+ * mesmo 4xx três vezes — e `REQUISICAO_CANCELADA`, que é a chamada que **nós**
+ * interrompemos: repetir uma navegação abandonada é gastar rede para jogar o
+ * resultado fora. `RESPOSTA_ESTRANHA` entra com ressalva — ver
  * `ehFalhaTransitoria`.
  */
 const TRANSITORIOS: ReadonlySet<EstadoDoTransporte> = new Set<EstadoDoTransporte>([
