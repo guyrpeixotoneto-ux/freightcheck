@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import * as XLSX from "xlsx";
 
 import { lerCadastro } from "./leitores/cadastro";
+import { matrizEmMarkdown, montarMatriz } from "./matriz";
 import {
   compararModos,
   reconciliar,
@@ -72,6 +73,21 @@ export const LINHA_NO_RESUMO: Record<string, number> = {
 function numero(aba: XLSX.WorkSheet | undefined, celula: string): number {
   const c = aba?.[celula];
   return c ? Number(c.v) || 0 : 0;
+}
+
+/**
+ * O número de uma célula, ou `null` quando a célula **não existe**.
+ *
+ * Existe ao lado de {@link numero} e não no lugar dele porque a diferença é o
+ * achado do quadro reservado: `AI34` não é uma célula com zero, é a ausência de
+ * célula. Ler `0` ali diria que a planilha calculou zero para a equipe de
+ * entrega, quando o que ela fez foi não calcular nada.
+ */
+function numeroOuNulo(aba: XLSX.WorkSheet | undefined, celula: string): number | null {
+  const c = aba?.[celula];
+  if (!c || c.v === undefined || c.v === null || c.v === "") return null;
+  const n = Number(c.v);
+  return Number.isFinite(n) ? n : null;
 }
 
 function texto(aba: XLSX.WorkSheet | undefined, celula: string): string {
@@ -158,6 +174,14 @@ export function extrairFechamento(bytes: Buffer, arquivo: string): FechamentoDaP
         variavel: numero(resumo, `${coluna}25`),
         outrosCustos: numero(resumo, `${coluna}30`),
         geral: numero(resumo, `${coluna}36`),
+        /*
+          As três linhas que faltavam para o resumo estar coberto inteiro. A
+          da equipe de entrega usa `numeroOuNulo` de propósito — ver a nota da
+          função.
+        */
+        equipeDeEntrega: numeroOuNulo(resumo, `${coluna}34`),
+        srtrans: numeroOuNulo(resumo, `${coluna}38`),
+        diferencaGeral: numeroOuNulo(resumo, `${coluna}40`),
       },
     };
   });
@@ -254,6 +278,14 @@ function principal(): void {
     console.log(`amostra escrita em ${destino}`);
     console.log("");
   }
+
+  /*
+    A matriz vem primeiro porque é ela que responde pelas vinte e duas linhas.
+    As duas tabelas abaixo continuam: elas abrem a memória de cálculo das
+    catorze que têm conta, que é o que se lê quando uma linha não fecha.
+  */
+  console.log(matrizEmMarkdown(montarMatriz(fechamento, "REGRA_CANONICA")));
+  console.log("");
 
   for (const modo of ["PLANILHA_LEGADA", "REGRA_CANONICA"] as ModoDaProva[]) {
     console.log(tabelaEmMarkdown(reconciliar(fechamento, modo)));

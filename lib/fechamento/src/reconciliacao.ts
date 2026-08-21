@@ -1,9 +1,11 @@
 import { centavos } from "./dominio";
+import type { EntradaDoFaturado } from "./faturado";
 import {
   montarMapaDaQuinzena,
   somarVariavel,
   type BasesDaQuinzena,
   type FatiaDoPadronizado,
+  type MapaDaQuinzena,
   type ParametrosDoCadastro,
   type ViagemDoMapa,
 } from "./mapa-rota";
@@ -95,6 +97,16 @@ export interface QuinzenaDaPlanilha {
   bases: BasesDaPlanilha;
   dias: DiaDaPlanilha[];
   /**
+   * O diário já desagrupado, quando ele vem do 2Art em vez da planilha.
+   *
+   * `dias` guarda viagens **agrupadas** porque a amostra do gabarito precisa
+   * caber no repositório — agrupar é exato para o que o motor faz com elas (ver
+   * {@link DiaDaPlanilha}). A prova ponta a ponta lê o 2Art inteiro e não tem
+   * por que agrupar para desagrupar em seguida; quando este campo vem
+   * preenchido, é ele que o motor consome e `dias` fica vazio.
+   */
+  diarioOperacional?: { viagens: ViagemDoMapa[] }[];
+  /**
    * A fatia de documentos emitidos **fora** do município que o diário calcula
    * — `Mapa Rota!AI119` e `AJ119`. Só o custo fixo padronizado da 2ª quinzena a
    * usa, e é dela que sai a divergência de R$ 128,05.
@@ -108,7 +120,82 @@ export interface QuinzenaDaPlanilha {
     variavel: number;
     outrosCustos: number;
     geral: number;
+    /**
+     * `AI34` — o quadro reservado da equipe de entrega.
+     *
+     * `null` quando a célula **não existe** na planilha, que é o caso do
+     * fechamento conferido. Opcional porque amostras extraídas antes de a
+     * matriz completa existir não o trazem.
+     */
+    equipeDeEntrega?: number | null;
+    /** `AI38` — `TOTAL GERAL SRTRANS`. */
+    srtrans?: number | null;
+    /** `AI40` — `DIFERENÇA - TOTAL GERAL`. */
+    diferencaGeral?: number | null;
   };
+  /**
+   * O lado SRTrans **pelos relatórios**, quando eles estiverem disponíveis.
+   *
+   * Fica separado do resto de propósito: tudo o mais nesta estrutura sai da
+   * `.xlsb`, e isto sai dos relatórios operacionais. Misturar os dois faria a
+   * prova comparar a planilha consigo mesma na linha que mais importa.
+   */
+  faturado?: EntradaDoFaturado;
+  /**
+   * De onde vieram os insumos desta quinzena.
+   *
+   * **É o campo que impede a prova de se enganar sobre o que provou.** Rodar o
+   * motor sobre os parâmetros, as viagens e as bases da própria `.xlsb`
+   * responde a uma pergunta legítima — *dadas as mesmas entradas, o motor chega
+   * ao mesmo resultado?* — e **não** responde à pergunta que decide a
+   * substituição da planilha: *os relatórios importados mais o cadastro do
+   * sistema chegam lá?* As duas eram indistinguíveis na saída até este campo
+   * existir.
+   *
+   * Ausente significa tudo vindo do gabarito, que é o padrão do extrator.
+   */
+  procedencia?: ProcedenciaDosInsumos;
+}
+
+/**
+ * De onde saiu cada insumo de uma quinzena — gabarito ou operação.
+ *
+ * Cada campo tem exatamente dois estados, e o nome de cada um diz o arquivo.
+ * Não há "parcial": um insumo que veio meio da planilha e meio do relatório
+ * seria uma prova que ninguém consegue interpretar.
+ */
+export interface ProcedenciaDosInsumos {
+  /** Os dezessete parâmetros do contrato. */
+  parametros: "CADASTRO_DO_SISTEMA" | "ABA_CADASTRO_DA_PLANILHA";
+  /** As viagens do período. */
+  diario: "RELATORIO_2ART" | "ABAS_DIARIAS_DA_PLANILHA";
+  /** As cinco bases de desconto e de outros custos. */
+  bases: "RELATORIOS_IMPORTADOS" | "CELULAS_DIGITADAS_DA_PLANILHA";
+}
+
+/** O padrão do extrator: tudo do gabarito. */
+export const TUDO_DO_GABARITO: ProcedenciaDosInsumos = {
+  parametros: "ABA_CADASTRO_DA_PLANILHA",
+  diario: "ABAS_DIARIAS_DA_PLANILHA",
+  bases: "CELULAS_DIGITADAS_DA_PLANILHA",
+};
+
+/** Os insumos que ainda vêm do gabarito, nomeados. Vazio = prova ponta a ponta. */
+export function insumosDoGabarito(p: ProcedenciaDosInsumos): string[] {
+  const doGabarito: string[] = [];
+  if (p.parametros === "ABA_CADASTRO_DA_PLANILHA") {
+    doGabarito.push("os parâmetros do contrato (aba `Cadastro` da planilha)");
+  }
+  if (p.diario === "ABAS_DIARIAS_DA_PLANILHA") {
+    doGabarito.push("as viagens (abas de dia da planilha, no lugar do 2Art)");
+  }
+  if (p.bases === "CELULAS_DIGITADAS_DA_PLANILHA") {
+    doGabarito.push(
+      "as bases de desconto e de outros custos (células digitadas do `Mapa Rota`, " +
+        "no lugar do 03.08.20 e do 03.08.12.09)",
+    );
+  }
+  return doGabarito;
 }
 
 export interface FechamentoDaPlanilha {
@@ -295,6 +382,17 @@ function fatiaDoModo(q: QuinzenaDaPlanilha, modo: ModoDaProva): FatiaDoPadroniza
   return { fonte: "PLANILHA_LEGADA", foraDoMunicipio: q.foraDoMunicipioNoDiario };
 }
 
+/**
+ * O diário de uma quinzena, venha ele do 2Art ou das abas de dia da planilha.
+ *
+ * O motor recebe a mesma forma nos dois casos, e é essa indiferença que permite
+ * à prova ponta a ponta reusar a comparação inteira em vez de ter uma cópia
+ * dela.
+ */
+function diarioDe(q: QuinzenaDaPlanilha): { viagens: ViagemDoMapa[] }[] {
+  return q.diarioOperacional ?? q.dias.map((d) => ({ viagens: desagrupar(d) }));
+}
+
 const menos = (a: number | null, b: number) => (a === null ? null : centavos(a - b));
 const mais = (a: number | null, b: number | null) =>
   a === null || b === null ? null : centavos(a + b);
@@ -307,6 +405,13 @@ export interface Reconciliacao {
   totais: LinhaReconciliada[];
   /** Quantas células (linha × coluna) fecham em zero, e quantas não. */
   placar: { iguais: number; diferentes: number };
+  /**
+   * Os mapas que o motor produziu, por quinzena.
+   *
+   * Saem daqui para a matriz completa não ter de rodar o motor de novo — duas
+   * execuções do mesmo cálculo são duas chances de divergirem.
+   */
+  mapas: Map<1 | 2, MapaDaQuinzena>;
 }
 
 /**
@@ -327,7 +432,7 @@ export function reconciliar(
         quinzena: q.quinzena,
         parametros: q.parametros,
         variavel: somarVariavel(
-          q.dias.map((d) => ({ viagens: desagrupar(d) })),
+          diarioDe(q),
           q.parametros,
           q.custoVariavelPrevistoPor25Viagens,
         ),
@@ -423,6 +528,7 @@ export function reconciliar(
     linhas,
     totais,
     placar: { iguais, diferentes },
+    mapas,
   };
 }
 

@@ -1,6 +1,6 @@
 {
   "competencia": "julho/2026 — CDD Belém · Horizonte",
-  "arquivo": "planilha.xlsb",
+  "arquivo": "Fechamento_Remuneracao.xlsb",
   "quinzenas": [
     {
       "quinzena": 1,
@@ -1114,7 +1114,10 @@
         "remuneracao": 1081504.9849709587,
         "variavel": 259720.02909514905,
         "outrosCustos": 0,
-        "geral": 1081504.9849709587
+        "geral": 1081504.9849709587,
+        "equipeDeEntrega": null,
+        "srtrans": 1084580.45,
+        "diferencaGeral": 3075.465029041283
       }
     },
     {
@@ -2386,7 +2389,10 @@
         "remuneracao": 991582.609633049,
         "variavel": 167276.67700335704,
         "outrosCustos": 358530.22356424126,
-        "geral": 1350112.8331972903
+        "geral": 1350112.8331972903,
+        "equipeDeEntrega": null,
+        "srtrans": 1355682.61,
+        "diferencaGeral": 5569.776802709792
       }
     }
   ]

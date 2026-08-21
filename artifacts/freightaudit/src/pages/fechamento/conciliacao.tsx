@@ -427,6 +427,15 @@ function TabelaConciliada({
       {painel.quadros.map((quadro) => (
         <div key={quadro.quadro}>
           <p className="text-xs font-semibold text-muted-foreground mb-1">{quadro.titulo}</p>
+          {/*
+            O quadro reservado da planilha não tem linha nenhuma — `AI34` e
+            `AJ34` não existem como célula, e mesmo assim o total geral dela os
+            soma. Uma tabela com cabeçalho e nada embaixo se lê como erro de
+            carregamento; a frase que explica vem escrita do domínio.
+          */}
+          {quadro.linhas.length === 0 && quadro.reservado ? (
+            <p className="py-2 text-xs text-muted-foreground">{quadro.reservado}</p>
+          ) : (
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b text-xs text-muted-foreground">
@@ -533,6 +542,7 @@ function TabelaConciliada({
               </tr>
             </tbody>
           </table>
+          )}
         </div>
       ))}
 
