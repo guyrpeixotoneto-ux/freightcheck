@@ -1,4 +1,4 @@
-import { runMigrations } from "./migrate";
+import { migrarComReparo } from "./fila";
 import { diagnosticar } from "./diagnostico";
 
 /**
@@ -32,8 +32,37 @@ if (!url) {
  */
 const adoptExisting = process.argv.includes("--adotar-existentes");
 
-runMigrations(url, undefined, { adoptExisting })
-  .then((report) => {
+migrarComReparo(url, undefined, { adoptExisting })
+  .then(({ report, reparo }) => {
+    /*
+      O reparo vem antes de tudo o que a fila fez, e em tom de alarme: ele só
+      existe quando algo de fora da fila derrubou objeto de migration
+      registrada. A estrutura voltou; o conteúdo dela, não.
+    */
+    if (reparo && reparo.aplicados.length > 0) {
+      console.warn(
+        `A fila parou porque faltava estrutura de migration já registrada. ` +
+          `Reposto antes de seguir: ${reparo.aplicados.map((a) => a.alvo).join(", ")}.`,
+      );
+      console.warn(
+        `Isso é rastro de remoção por fora da fila (tipicamente o Provision do ` +
+          `Publishing). O que voltou foi a estrutura — as linhas que essas ` +
+          `tabelas tinham não voltam por aqui. Confira o backup antes de dar o ` +
+          `banco por bom.\n`,
+      );
+    }
+    if (reparo && reparo.semComando.length > 0) {
+      console.error(
+        `Sem comando levantável para: ${reparo.semComando.join(", ")}.`,
+      );
+    }
+    if (reparo && reparo.falhas.length > 0) {
+      console.error(
+        `O banco recusou a reposição de: ` +
+          `${reparo.falhas.map((f) => `${f.alvo}${f.code ? ` (${f.code})` : ""}`).join(", ")}.`,
+      );
+    }
+
     /*
       O que entrou sai nomeado, e não como "Migrations applied.". Agora que cada
       migration é uma transação sua, "deu certo" e "deu certo até a 0007" são

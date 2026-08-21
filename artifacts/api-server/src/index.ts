@@ -1,5 +1,5 @@
 import { db } from "@workspace/db";
-import { runMigrations } from "@workspace/db/migrate";
+import { migrarComReparo } from "@workspace/db/fila";
 import { varrerLeiturasOrfas } from "@workspace/ingest";
 import app from "./app";
 import { alertar } from "./lib/alerta";
@@ -85,8 +85,37 @@ async function applyMigrationsInBackground(): Promise<void> {
   }
 
   try {
-    const report = await runMigrations(url, migrationsFolder());
+    const { report, reparo } = await migrarComReparo(url, migrationsFolder());
     lembrarRelatorio(report);
+
+    /*
+      A fila parou e o reparo a destravou: faltava, no banco, estrutura de
+      migration já registrada — o rastro de uma remoção por fora da fila. Sai
+      alto e vira alerta pela mesma razão da reconvergência de baixo: o
+      conteúdo daquelas tabelas não volta com elas, e ninguém descobre isso
+      relendo o log da partida.
+    */
+    if (reparo && reparo.aplicados.length > 0) {
+      logger.warn(
+        { repostos: reparo.aplicados.map((a) => a.alvo) },
+        "A fila esbarrou em objeto ausente de migration já registrada e foi " +
+          "destravada por reposição estrutural. O conteúdo daqueles objetos " +
+          "não volta sozinho.",
+      );
+      void alertar({
+        tipo: "RECONVERGENCIA_REPOS",
+        resumo:
+          `${reparo.aplicados.length} objeto(s) de schema repostos para destravar a fila — ` +
+          `algo os removeu por fora; o conteúdo deles não volta sozinho.`,
+        detalhe: { repostos: reparo.aplicados.map((a) => a.alvo) },
+      });
+    }
+    if (reparo && (reparo.semComando.length > 0 || reparo.falhas.length > 0)) {
+      logger.error(
+        { semComando: reparo.semComando, falhas: reparo.falhas },
+        "O reparo que destravaria a fila não conseguiu repor tudo.",
+      );
+    }
 
     if (report.failure) {
       logger.error(
