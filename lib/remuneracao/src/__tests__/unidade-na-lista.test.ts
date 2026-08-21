@@ -5,7 +5,11 @@ import { seedTaxonomy } from "@workspace/curation";
 import { buildFixture, type AttributeSpec } from "@workspace/comparison/testing";
 import { sql } from "drizzle-orm";
 import { COLUNA } from "../colunas";
-import { lerCadastroDaUnidade, lerSituacaoDasUnidades } from "../leitura";
+import {
+  gravarPlanilhaDaUnidade,
+  lerCadastroDaUnidade,
+  lerSituacaoDasUnidades,
+} from "../leitura";
 import { gravarPlanilha } from "../planilha";
 import { descritorDeEscopo, registrarUnidade } from "../unidade";
 
@@ -65,16 +69,19 @@ describe("a unidade sem acervo nenhum", () => {
   });
 
   it("aparece na lista, que antes só mostrava quem tinha importado", async () => {
-    const { unidades } = await lerSituacaoDasUnidades(ctx.db);
-    const nossa = unidades.find((u) => u.scopeHash === ESCOPO);
+    const { cadastros } = await lerSituacaoDasUnidades(ctx.db);
+    const nossa = cadastros.find((c) => c.scopeHash === ESCOPO);
 
     expect(nossa).toBeDefined();
     expect(nossa!.label).toBe("CAMAÇARI · EMPURRADA");
+    // Na quinzena declarada, que é a única que ela tem antes de qualquer
+    // planilha — a lista responde por vigência, e esta é a dela.
+    expect(nossa!.effectiveDate).toBe(VIGENCIA);
   });
 
   it("aparece sem lastro, porque é a verdade: o acervo não mede nada dela", async () => {
-    const { unidades } = await lerSituacaoDasUnidades(ctx.db);
-    const nossa = unidades.find((u) => u.scopeHash === ESCOPO)!;
+    const { cadastros } = await lerSituacaoDasUnidades(ctx.db);
+    const nossa = cadastros.find((c) => c.scopeHash === ESCOPO)!;
 
     // Nem frota nem alíquotas — e o estado nomeia isso em vez de fingir
     // um cadastro pela metade.
@@ -119,6 +126,108 @@ describe("a unidade sem acervo nenhum", () => {
   });
 });
 
+/**
+ * A quinzena preenchida não some quando chega uma mais nova e vazia.
+ *
+ * É o caso que trouxe a lista por vigência, e ele apareceu em produção: alguém
+ * cadastrou a unidade à mão declarando agosto, preencheu a planilha de julho e
+ * abriu a lista — que mostrava uma linha só, a de agosto, com "nada informado"
+ * e "sem lastro". O trabalho de julho estava no banco, com autor e data, e não
+ * havia tela nenhuma em que ele aparecesse.
+ *
+ * A unidade tem código próprio de propósito: as duas acima dividem o mesmo
+ * escopo, e uma delas já ganhou acervo — o que faria esta deixar de ser
+ * registrada à mão no meio do teste.
+ */
+describe("a unidade com planilha numa vigência que não é a mais recente", () => {
+  const OUTRO_CODIGO = "99999999000188";
+  const OUTRO_ESCOPO = hashScopeSet([descritorDeEscopo("UNIDADE", OUTRO_CODIGO)]);
+  const JULHO = "2026-07-01";
+
+  beforeAll(async () => {
+    await ctx.db.execute(sql`TRUNCATE remuneracao_unidade`);
+    await ctx.db.execute(sql`TRUNCATE remuneracao_planilha`);
+
+    await registrarUnidade(ctx.db, {
+      scopeHash: OUTRO_ESCOPO,
+      scopeType: "UNIDADE",
+      codigo: OUTRO_CODIGO,
+      nome: "CDD BELÉM",
+      canal: "ROTA",
+      vigenciaInicial: VIGENCIA,
+      autor: { id: null, nome: "Guy" },
+    });
+
+    await gravarPlanilha(ctx.db, {
+      scopeHash: OUTRO_ESCOPO,
+      canal: "ROTA",
+      effectiveDate: JULHO,
+      celulas: [
+        { chave: "aliquota_pis", valor: 1.65 },
+        { chave: "aliquota_cofins", valor: 7.6 },
+      ],
+      autor: { id: null, nome: "Guy" },
+    });
+  });
+
+  it("traz as duas vigências, e não só a mais recente", async () => {
+    const { cadastros } = await lerSituacaoDasUnidades(ctx.db);
+    const dela = cadastros.filter((c) => c.scopeHash === OUTRO_ESCOPO);
+
+    expect(dela.map((c) => c.effectiveDate)).toEqual([VIGENCIA, JULHO]);
+  });
+
+  it("e a planilha de julho aparece na linha de julho, não na de agosto", async () => {
+    const { cadastros } = await lerSituacaoDasUnidades(ctx.db);
+    const dela = cadastros.filter((c) => c.scopeHash === OUTRO_ESCOPO);
+    const agosto = dela.find((c) => c.effectiveDate === VIGENCIA)!;
+    const julho = dela.find((c) => c.effectiveDate === JULHO)!;
+
+    expect(julho.cadastro.informadas).toBe(2);
+    expect(julho.material.linhasInformadas).toBe(2);
+
+    // A quinzena declarada continua em branco — e dizer isso é o certo: ela
+    // está mesmo, e é ela que falta preencher.
+    expect(agosto.cadastro.informadas).toBe(0);
+  });
+
+  it("as duas contam como uma unidade só no resumo", async () => {
+    const { resumo } = await lerSituacaoDasUnidades(ctx.db);
+
+    expect(resumo.unidades).toBe(1);
+    expect(resumo.cadastros).toBe(2);
+  });
+
+  /*
+    A promessa que o "Cadastrar uma unidade" faz por escrito — "as outras
+    aparecem à medida que você salvar planilha nelas" — e que não tinha caminho:
+    as vigências desta unidade são a declarada mais as que ganharam planilha, o
+    formulário só oferecia essas, e salvar numa quinzena nova era recusado por
+    vigência inexistente. A unidade ficava presa na quinzena do registro.
+  */
+  it("começa a próxima quinzena, que é o que o cadastro à mão prometia", async () => {
+    const SETEMBRO = "2026-09-01";
+
+    const gravada = await gravarPlanilhaDaUnidade(ctx.db, {
+      scopeHash: OUTRO_ESCOPO,
+      channel: "ROTA",
+      period: SETEMBRO,
+      aceitarVigenciaNova: true,
+      celulas: [{ chave: "aliquota_pis", valor: 1.65 }],
+      autor: { id: null, nome: "Guy" },
+    });
+    expect(gravada?.linhas).toHaveLength(1);
+
+    const { cadastros } = await lerSituacaoDasUnidades(ctx.db);
+    const dela = cadastros.filter((c) => c.scopeHash === OUTRO_ESCOPO);
+
+    // Três quinzenas, e cada uma com o que tem: setembro recém-aberta, agosto
+    // ainda em branco, julho com a aba inteira.
+    expect(dela.map((c) => c.effectiveDate)).toEqual([SETEMBRO, VIGENCIA, JULHO]);
+    expect(dela.map((c) => c.cadastro.informadas)).toEqual([1, 0, 2]);
+  });
+});
+
 describe("o dia em que o export finalmente chega", () => {
   beforeAll(async () => {
     await ctx.db.execute(sql`TRUNCATE remuneracao_unidade`);
@@ -148,16 +257,22 @@ describe("o dia em que o export finalmente chega", () => {
   });
 
   it("a unidade não vira duas — o acervo responde no lugar da registrada", async () => {
-    const { unidades } = await lerSituacaoDasUnidades(ctx.db);
-    const nossas = unidades.filter((u) => u.scopeHash === ESCOPO);
+    const { cadastros } = await lerSituacaoDasUnidades(ctx.db);
+    const nossas = cadastros.filter((c) => c.scopeHash === ESCOPO);
 
-    // Uma linha, e não duas: é isto que o `scope_hash` calculado compra.
-    expect(nossas).toHaveLength(1);
+    /*
+      Uma unidade, e não duas: é isto que o `scope_hash` calculado compra. A
+      contagem é de unidades distintas, e não de linhas — a lista responde por
+      vigência, e duas linhas da mesma unidade em quinzenas diferentes seriam o
+      certo, não o defeito.
+    */
+    const distintas = new Set(nossas.map((c) => `${c.label}|${c.channel ?? ""}`));
+    expect(distintas.size).toBe(1);
   });
 
   it("e a linha que sobra é a do acervo, com a frota contada", async () => {
-    const { unidades } = await lerSituacaoDasUnidades(ctx.db);
-    const nossa = unidades.find((u) => u.scopeHash === ESCOPO)!;
+    const { cadastros } = await lerSituacaoDasUnidades(ctx.db);
+    const nossa = cadastros.find((c) => c.scopeHash === ESCOPO)!;
 
     // Medição vence declaração: a frota agora tem número, e o cadastro deixou
     // de estar sem lastro sem ninguém ter mexido em nada.

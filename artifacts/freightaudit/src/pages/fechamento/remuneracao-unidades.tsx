@@ -24,7 +24,7 @@ import {
 } from "@/lib/remuneracao";
 
 /**
- * Remuneração — as unidades, antes do cadastro de uma delas.
+ * Remuneração — os cadastros por vigência, antes de abrir um deles.
  *
  * **Por que esta tela vem antes.** A do cadastro responde "quais são os
  * parâmetros desta unidade", e é a resposta certa para quem já sabe qual
@@ -45,9 +45,9 @@ import {
  * corrigir. O gesto de abrir também é um só, em `lib/linhas-abertas.ts`.
  *
  * O cadastro é buscado quando a linha abre, e não junto da lista: montar as
- * trinta linhas de uma unidade é o trabalho mais caro deste módulo, e baixar
- * trinta cadastros para mostrar um seria pagar a lista inteira para ler uma
- * unidade.
+ * trinta linhas de uma vigência é o trabalho mais caro deste módulo, e baixar
+ * o de toda linha da lista para mostrar um seria pagar a lista inteira para ler
+ * uma unidade.
  *
  * **O destaque é sobre as duas metades do cadastro, e não sobre um
  * percentual.** Hoje, sobre um acervo completo, onze das trinta linhas têm
@@ -58,13 +58,23 @@ import {
  * outra são as duas metades que dependem do que ela mandou: a **frota**, que
  * vem do export de equipamento, e as **alíquotas**, que vêm do de frete. Ver
  * `lib/remuneracao/src/situacao.ts`. É por isso que o cabeçalho do grupo conta
- * unidades por estado e não soma linhas com lastro: "89 de 900" é o mesmo
+ * cadastros por estado e não soma linhas com lastro: "89 de 900" é o mesmo
  * percentual disfarçado, e diria a mesma coisa errada.
  *
- * **A situação é sempre da vigência mais recente da unidade**, e é ela que
- * decide em que grupo a linha cai. Uma lista que respondesse por uma quinzena
- * fixa faria a unidade que parou de entregar em junho parecer em dia; agrupada
- * assim, ela aparece — sozinha, num grupo de junho, abaixo de todo mundo.
+ * **Uma linha por vigência, e não uma por unidade.** Foi uma por unidade — a
+ * mais recente que ela entregou — e a forma escondia trabalho já feito: quem
+ * preencheu a planilha de julho e voltou na virada via a unidade com "nada
+ * informado", porque a única linha dela tinha passado a responder por agosto.
+ * Agora a quinzena preenchida continua na tela, na vigência dela, ao lado da
+ * que ainda está em branco. O que a forma antiga acertava continua de pé: o
+ * grupo mais recente vem primeiro, e a unidade que parou de entregar em junho
+ * aparece — sozinha, num grupo de junho, abaixo de todo mundo — em vez de
+ * parecer em dia.
+ *
+ * **Cada linha responde pela vigência dela, e por nenhuma outra.** O cadastro
+ * que abre embaixo, o formulário da planilha e o link para a unidade levam a
+ * data da linha: abrir julho e receber agosto seria a mesma troca silenciosa,
+ * um clique adiante.
  */
 
 function textoDoErro(erro: unknown): string {
@@ -172,14 +182,16 @@ function semCodigo(u: SituacaoDaUnidade): boolean {
 }
 
 /**
- * A identidade de uma linha: o par que a distingue de todas as outras.
+ * A identidade de uma linha: o que a distingue de todas as outras.
  *
- * É o mesmo par que endereça a unidade no servidor — escopo e canal —, e não um
- * índice: a lista se reordena a cada filtro, e um índice faria a linha aberta
- * saltar para outra unidade quando alguém trocasse o recorte.
+ * É o que endereça o cadastro no servidor — escopo, canal e vigência —, e não
+ * um índice: a lista se reordena a cada filtro, e um índice faria a linha
+ * aberta saltar para outro cadastro quando alguém trocasse o recorte. A
+ * vigência entra porque a mesma unidade tem uma linha por quinzena, e sem ela
+ * abrir julho abriria agosto junto.
  */
 export function chaveDaLinha(u: SituacaoDaUnidade): string {
-  return `${u.scopeHash}|${u.channel ?? ""}`;
+  return `${u.scopeHash}|${u.channel ?? ""}|${u.effectiveDate}`;
 }
 
 /** `2026-08-16` → `agosto de 2026`, o título do grupo. */
@@ -204,15 +216,21 @@ function mesDaVigencia(data: string): string {
 }
 
 /**
- * O endereço do cadastro daquela unidade.
+ * O endereço do cadastro daquela linha — unidade, canal **e vigência**.
  *
  * O canal vai sempre, mesmo vazio — a mesma razão de `irParaUnidade` na tela do
  * cadastro: uma unidade pode ter uma série com canal e outra sem, no mesmo
  * `scopeHash`, e omitir o parâmetro pediria "qualquer canal", abrindo uma série
- * que ninguém escolheu aqui.
+ * que ninguém escolheu aqui. A vigência vai pela mesma razão, um grão adiante:
+ * sem ela a tela abriria na mais recente da unidade, e quem clicou na linha de
+ * julho pediu julho.
  */
 function enderecoDaUnidade(u: SituacaoDaUnidade): string {
-  const query = new URLSearchParams({ scopeHash: u.scopeHash, canal: u.channel ?? "" });
+  const query = new URLSearchParams({
+    scopeHash: u.scopeHash,
+    canal: u.channel ?? "",
+    period: u.effectiveDate,
+  });
   return `/fechamento/remuneracao/unidade?${query}`;
 }
 
@@ -221,17 +239,24 @@ interface ContagemDoGrupo {
   soFrota: number;
   soAliquotas: number;
   semLastro: number;
-  /** Unidades com alguma linha digitada da aba de Excel. */
+  /** Cadastros com alguma linha digitada da aba de Excel. */
   comPlanilha: number;
-  /** Destas, quantas têm alguma linha em que a planilha e o acervo discordam. */
+  /** Destes, quantos têm alguma linha em que a planilha e o acervo discordam. */
   comDivergencia: number;
-  /** Unidades que entraram por cadastro, e não por arquivo. */
-  registradas: number;
+  /**
+   * Quantas **unidades** do grupo entraram por cadastro, e não por arquivo.
+   *
+   * A única contagem do grupo que não é de cadastros, e nomeada assim na frase
+   * por causa disso: ser cadastrada à mão é fato da unidade, não da quinzena, e
+   * contar as linhas diria "2 unidades cadastradas à mão" onde há uma que
+   * respondeu por duas quinzenas.
+   */
+  unidadesRegistradas: number;
 }
 
-/** Um mês de vigência e as unidades cuja última entrega caiu nele. */
+/** Um mês de vigência e os cadastros que caíram nele. */
 export interface Grupo extends ContagemDoGrupo {
-  /** `2026-08` — o mês, que é o que reúne as unidades. */
+  /** `2026-08` — o mês, que é o que reúne os cadastros. */
   chave: string;
   titulo: string;
   /** Os dias de vigência que existem no grupo, já escritos: `01/08`, `16/08`. */
@@ -240,7 +265,7 @@ export interface Grupo extends ContagemDoGrupo {
 }
 
 /**
- * As unidades reunidas pelo mês da vigência mais recente de cada uma.
+ * Os cadastros reunidos pelo mês da vigência de cada um.
  *
  * **Por que o mês, e não a data exata.** Duas unidades que entregaram no dia 1º
  * e no dia 16 de agosto estão as duas em dia, e separá-las em dois grupos
@@ -257,13 +282,16 @@ export interface Grupo extends ContagemDoGrupo {
  * rodapé, ainda que a vigência dela fosse a mais recente de todas.
  *
  * Dentro do grupo, por nome — pela mesma razão: a ordem que vem do banco é a do
- * `scope_hash`, que não quer dizer nada para quem lê.
+ * `scope_hash`, que não quer dizer nada para quem lê. E, no nome repetido, pela
+ * vigência: a unidade que entregou as duas quinzenas de agosto tem duas linhas
+ * no mesmo grupo, e elas se leem em ordem de calendário.
  */
-export function agruparPorVigencia(unidades: SituacaoDaUnidade[]): Grupo[] {
+export function agruparPorVigencia(cadastros: SituacaoDaUnidade[]): Grupo[] {
   const por = new Map<string, Grupo>();
   const dias = new Map<string, Set<string>>();
+  const registradas = new Map<string, Set<string>>();
 
-  for (const u of unidades) {
+  for (const u of cadastros) {
     const chave = u.effectiveDate.slice(0, 7);
     let grupo = por.get(chave);
     if (!grupo) {
@@ -278,28 +306,35 @@ export function agruparPorVigencia(unidades: SituacaoDaUnidade[]): Grupo[] {
         semLastro: 0,
         comPlanilha: 0,
         comDivergencia: 0,
-        registradas: 0,
+        unidadesRegistradas: 0,
       };
       por.set(chave, grupo);
       dias.set(chave, new Set());
+      registradas.set(chave, new Set());
     }
     grupo.linhas.push(u);
     dias.get(chave)!.add(u.effectiveDate);
     /*
-      Tudo aqui conta **unidades**, e nunca linhas de cadastro somadas entre
-      elas: a lista é de unidades, e uma frase que misturasse os dois grãos
-      ("2 unidades · 89 linhas informadas") faria os dois números parecerem
-      comparáveis. O que cada unidade tem por dentro está na linha dela.
+      Tudo aqui conta **cadastros** — a linha inteira de uma unidade numa
+      vigência —, e nunca as trinta linhas da aba somadas entre eles: uma frase
+      que misturasse os dois grãos ("2 cadastros · 89 linhas informadas") faria
+      os dois números parecerem comparáveis. O que cada cadastro tem por dentro
+      está na linha dele. A exceção é a unidade cadastrada à mão, que é fato da
+      unidade e por isso se conta uma vez só — ver `unidadesRegistradas`.
     */
     grupo[CONTADOR[u.cadastro.estado]] += 1;
     if (u.cadastro.informadas > 0) grupo.comPlanilha += 1;
     if (u.cadastro.divergentes > 0) grupo.comDivergencia += 1;
-    if (u.registradaAMao) grupo.registradas += 1;
+    if (u.registradaAMao) registradas.get(chave)!.add(`${u.scopeHash}|${u.channel ?? ""}`);
   }
 
   for (const grupo of por.values()) {
     grupo.dias = [...dias.get(grupo.chave)!].sort().map(emDiaCurto);
-    grupo.linhas.sort((a, b) => a.label.localeCompare(b.label, "pt-BR"));
+    grupo.unidadesRegistradas = registradas.get(grupo.chave)!.size;
+    grupo.linhas.sort(
+      (a, b) =>
+        a.label.localeCompare(b.label, "pt-BR") || a.effectiveDate.localeCompare(b.effectiveDate),
+    );
   }
   return [...por.values()].sort((a, b) => b.chave.localeCompare(a.chave));
 }
@@ -313,7 +348,7 @@ export function agruparPorVigencia(unidades: SituacaoDaUnidade[]): Grupo[] {
  * o substantivo.
  */
 export function resumoDoGrupo(grupo: Grupo): string {
-  const partes = [contar(grupo.linhas.length, "unidade", "unidades")];
+  const partes = [contar(grupo.linhas.length, "cadastro", "cadastros")];
 
   /* Só os estados que existem no grupo: um "0 sem lastro" ocuparia a frase para
      dizer que não há o que fazer, e é justamente o que não precisa ser dito. */
@@ -328,8 +363,14 @@ export function resumoDoGrupo(grupo: Grupo): string {
       `${grupo.comDivergencia}\u00A0${grupo.comDivergencia === 1 ? "diverge" : "divergem"} do acervo`,
     );
   }
-  if (grupo.registradas > 0) {
-    partes.push(contar(grupo.registradas, "cadastrada à mão", "cadastradas à mão"));
+  if (grupo.unidadesRegistradas > 0) {
+    partes.push(
+      contar(
+        grupo.unidadesRegistradas,
+        "unidade cadastrada à mão",
+        "unidades cadastradas à mão",
+      ),
+    );
   }
   return partes.join(" · ");
 }
@@ -338,19 +379,21 @@ export function resumoDoGrupo(grupo: Grupo): string {
 const idsDoGrupo = (grupo: Grupo) => grupo.linhas.map(chaveDaLinha);
 
 /**
- * O cadastro de uma unidade, dentro da linha dela.
+ * O cadastro de uma unidade **na vigência da linha**, dentro dela.
  *
  * A chave é a mesma da tela do cadastro — {@link chaveDoCadastro} —, e não por
  * economia de nome: quem abre a linha aqui e depois entra na tela de dentro a
  * encontra pronta, e quem volta de lá reabre a linha sem nova ida ao servidor.
- * Sem vigência pedida, como o link da linha também não a pede: a resposta é
- * sempre a vigência mais recente, que é por quem esta lista responde.
+ * Com a vigência pedida, como o link da linha também a pede: sem ela o servidor
+ * responderia pela mais recente da unidade, e a linha de julho mostraria o
+ * cadastro de agosto — a mesma troca silenciosa que esta lista deixou de fazer.
  */
 function CadastroDaLinha({ unidade }: { unidade: SituacaoDaUnidade }) {
   const canal = unidade.channel ?? "";
   const dados = useQuery({
-    queryKey: chaveDoCadastro(unidade.scopeHash, canal, null),
-    queryFn: () => lerCadastro({ scopeHash: unidade.scopeHash, canal }),
+    queryKey: chaveDoCadastro(unidade.scopeHash, canal, unidade.effectiveDate),
+    queryFn: () =>
+      lerCadastro({ scopeHash: unidade.scopeHash, canal, period: unidade.effectiveDate }),
   });
 
   if (dados.isLoading) {
@@ -402,7 +445,7 @@ export default function RemuneracaoUnidades() {
     enabled: !encaminhando,
   });
 
-  const unidades = useMemo(() => situacao.data?.unidades ?? [], [situacao.data]);
+  const cadastros = useMemo(() => situacao.data?.cadastros ?? [], [situacao.data]);
 
   /*
     Os tipos de operação que já existem em alguma unidade — o que o seletor do
@@ -421,9 +464,11 @@ export default function RemuneracaoUnidades() {
   */
   const canaisConhecidos = useMemo(
     () => [
-      ...new Set(unidades.map((u) => u.channel).filter((c): c is string => c !== null && c !== "")),
+      ...new Set(
+        cadastros.map((c) => c.channel).filter((c): c is string => c !== null && c !== ""),
+      ),
     ],
-    [unidades],
+    [cadastros],
   );
 
   /*
@@ -438,7 +483,7 @@ export default function RemuneracaoUnidades() {
     const nomes = new Set<string>();
     const operacoes = new Set<string>();
     const presentes = new Set<EstadoDoCadastro>();
-    for (const u of unidades) {
+    for (const u of cadastros) {
       vigencias.set(u.effectiveDate.slice(0, 7), mesPorExtenso(u.effectiveDate));
       nomes.add(nomeDaUnidade(u));
       if (u.channel) operacoes.add(u.channel);
@@ -459,12 +504,12 @@ export default function RemuneracaoUnidades() {
         rotulo: ESTADO_DO_CADASTRO[e].rotulo,
       })),
     };
-  }, [unidades]);
+  }, [cadastros]);
 
   const grupos = useMemo(
     () =>
       agruparPorVigencia(
-        unidades.filter((u) => {
+        cadastros.filter((u) => {
           if (vigencia !== TUDO && u.effectiveDate.slice(0, 7) !== vigencia) return false;
           if (nome !== TUDO && nomeDaUnidade(u) !== nome) return false;
           if (operacao !== TUDO && (u.channel ?? "") !== operacao) return false;
@@ -472,7 +517,7 @@ export default function RemuneracaoUnidades() {
           return true;
         }),
       ),
-    [unidades, vigencia, nome, operacao, estado],
+    [cadastros, vigencia, nome, operacao, estado],
   );
 
   const abertoNoGrupo = (grupo: Grupo) => grupoEstaAberto(abertas, idsDoGrupo(grupo));
@@ -504,8 +549,9 @@ export default function RemuneracaoUnidades() {
           <BotaoDeRegistroDeUnidade />
         </div>
         <p className="text-muted-foreground mt-2 max-w-3xl">
-          As unidades que o cadastro da planilha de remuneração conhece, e o que ele alcança
-          em cada uma hoje. Clique numa unidade para abrir o cadastro dela aqui mesmo —
+          As unidades que o cadastro da planilha de remuneração conhece, <strong>uma linha
+          por vigência</strong>, e o que ele alcança em cada uma delas. As mais recentes vêm
+          primeiro; clique numa linha para abrir o cadastro daquela quinzena aqui mesmo —
           alíquotas, frota, parcelas por veículo e proporção de documentos. O que o acervo
           ainda não responde, alguém digita da aba de Excel em <strong>Cadastrar planilha</strong>;
           e a unidade cuja aba chegou antes do export entra por <strong>Cadastrar unidade</strong>,
@@ -569,7 +615,7 @@ export default function RemuneracaoUnidades() {
           <p className="text-sm text-muted-foreground">Montando os cadastros…</p>
         )}
 
-        {!situacao.isLoading && !situacao.isError && unidades.length === 0 && (
+        {!situacao.isLoading && !situacao.isError && cadastros.length === 0 && (
           <div className="rounded-lg border bg-card p-8 text-sm text-muted-foreground max-w-2xl space-y-3">
             <p>
               Nenhuma unidade ainda. Há dois caminhos, e eles não se substituem: a primeira
@@ -584,9 +630,9 @@ export default function RemuneracaoUnidades() {
           </div>
         )}
 
-        {!situacao.isLoading && unidades.length > 0 && grupos.length === 0 && (
+        {!situacao.isLoading && cadastros.length > 0 && grupos.length === 0 && (
           <p className="text-sm text-muted-foreground">
-            Nenhuma unidade com esse recorte. Volte um filtro para “todas”.
+            Nenhum cadastro com esse recorte. Volte um filtro para “todas”.
           </p>
         )}
 
@@ -673,16 +719,22 @@ export default function RemuneracaoUnidades() {
                               />
                               <span>
                                 <span className="font-semibold">{u.label}</span>
-                                <span className="block text-muted-foreground text-xs mt-0.5">
-                                  {u.registradaAMao
-                                    ? contar(
-                                        u.vigencias,
-                                        "vigência cadastrada",
-                                        "vigências cadastradas",
-                                      )
-                                    : contar(u.vigencias, "vigência no acervo", "vigências no acervo")}
-                                  {vigenciaDaLinha && ` · ${vigenciaDaLinha}`}
-                                </span>
+                                {/*
+                                  Embaixo do nome vai a **vigência**, e só
+                                  quando ela diz mais que o mês do grupo. A
+                                  contagem de vigências da unidade — "9
+                                  vigências no acervo" — saiu daqui com a lista
+                                  por vigência: repetida em nove linhas, dizia
+                                  nove vezes o que as nove linhas já mostram, e
+                                  era ela que fazia "2 vigências cadastradas",
+                                  escrito embaixo de AGOSTO, ser lido como duas
+                                  vigências em agosto.
+                                */}
+                                {vigenciaDaLinha && (
+                                  <span className="block text-muted-foreground text-xs mt-0.5">
+                                    {vigenciaDaLinha}
+                                  </span>
+                                )}
                                 {/*
                                   A marca é da unidade, e não do cadastro: o
                                   estado ao lado já diz que não há lastro, e
@@ -879,11 +931,11 @@ export default function RemuneracaoUnidades() {
 
         {filtrando && grupos.length > 0 && (
           <p className="text-xs text-muted-foreground">
-            Os totais de cada vigência são os das unidades visíveis com este recorte.
+            Os totais de cada vigência são os dos cadastros visíveis com este recorte.
           </p>
         )}
 
-        {unidades.length > 0 && <Notas semLastro={semLastro} />}
+        {cadastros.length > 0 && <Notas semLastro={semLastro} />}
       </div>
     </Layout>
   );
@@ -957,21 +1009,22 @@ function Notas({ semLastro }: { semLastro: number }) {
       </p>
 
       {/*
-        A cadência da planilha é a mesma da vigência, e dizê-lo aqui evita a
-        leitura errada que a coluna sozinha convida: quem preencheu a 1ª quinzena
-        e voltar no dia 16 vai ver "nada informado" — não porque o que digitou
-        sumiu, mas porque a linha passou a responder pela quinzena seguinte, que
-        ainda está em branco. Sem esta frase, a conclusão natural é que o
-        cadastro se perdeu.
+        A cadência da planilha é a mesma da vigência, e dizê-lo aqui fecha a
+        leitura errada que a coluna sozinha convida — a de que a quinzena
+        seguinte, em branco, apagou a anterior. Era pior antes de a lista
+        responder por vigência: a unidade tinha uma linha só, e quem preencheu a
+        1ª quinzena voltava no dia 16 e via "nada informado" sem nada em tela que
+        dissesse onde o que digitou tinha ido parar.
       */}
       <p className="text-xs text-muted-foreground">
         <strong>Planilha informada</strong> conta o outro lado: as linhas que alguém digitou
         da aba de Excel. Ela não entra em "linhas com lastro" — número digitado é lastro da
         planilha, não do acervo — e é justamente por ficarem separadas que a coluna consegue
-        dizer quantas linhas os dois respondem e em quantas eles discordam. Ela segue a mesma
-        vigência da linha: a quinzena seguinte começa em branco sem apagar a anterior, e
-        dentro do formulário há <em>copiar de outra vigência</em>, para partir da quinzena
-        passada e corrigir só o que mudou.
+        dizer quantas linhas os dois respondem e em quantas eles discordam. Ela é da
+        vigência da linha: a quinzena nova nasce em branco <strong>ao lado</strong> da
+        preenchida, que continua na lista, na vigência dela; e dentro do formulário há{" "}
+        <em>copiar de outra vigência</em>, para partir da quinzena passada e corrigir só o
+        que mudou.
       </p>
 
       {/*
@@ -979,14 +1032,16 @@ function Notas({ semLastro }: { semLastro: number }) {
         **nada**, e por isso é o único que ganha frase própria: nele a planilha
         informada não é complemento, é a única forma de o cadastro ter número.
         Sem esta linha a tela responde "sem lastro" e cala a saída que existe —
-        que foi o que aconteceu no primeiro uso.
+        que foi o que aconteceu no primeiro uso. Conta cadastros, e não
+        unidades, porque é por vigência que o export falta: a unidade pode ter
+        agosto medido e julho sem nada.
       */}
       {semLastro > 0 && (
         <p className="text-xs text-muted-foreground">
           {semLastro === 1
-            ? "A unidade sem lastro não tem número nenhum vindo do acervo"
-            : `As ${semLastro} unidades sem lastro não têm número nenhum vindo do acervo`}
-          : enquanto o export não chega, o cadastro delas só ganha número pela{" "}
+            ? "O cadastro sem lastro não tem número nenhum vindo do acervo"
+            : `Os ${semLastro} cadastros sem lastro não têm número nenhum vindo do acervo`}
+          : enquanto o export daquela vigência não chega, o número deles só entra pela{" "}
           <strong>planilha informada</strong> — o botão da coluna abre o formulário, e o que
           entrar por lá fica marcado como informado, com autor e data.
         </p>

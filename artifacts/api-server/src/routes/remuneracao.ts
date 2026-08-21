@@ -35,12 +35,12 @@ import {
  *   não pelo contexto de comparação: quem abre a tela escolhe "CAMAÇARI ·
  *   EMPURRADA", e a palavra "contexto" é vocabulário do motor, não de quem
  *   opera.
- * - `/remuneracao/situacao` — as mesmas unidades, cada uma com **o que o
- *   cadastro dela alcança** na vigência mais recente. É a tela que vem antes do
- *   cadastro, e é rota separada de `/unidades` de propósito: aquela é o seletor
- *   e tem de ser barata, esta monta o cadastro de todas as unidades e custa o
- *   que custa. Juntá-las faria o seletor da tela de detalhe pagar a conta da
- *   lista toda vez que alguém troca de unidade.
+ * - `/remuneracao/situacao` — as mesmas unidades, **uma linha por vigência de
+ *   cada uma**, com o que o cadastro daquela quinzena alcança. É a tela que vem
+ *   antes do cadastro, e é rota separada de `/unidades` de propósito: aquela é
+ *   o seletor e tem de ser barata, esta monta o cadastro de todas as vigências
+ *   de todas as unidades e custa o que custa. Juntá-las faria o seletor da tela
+ *   de detalhe pagar a conta da lista toda vez que alguém troca de unidade.
  * - `/remuneracao/cadastro` — as trinta linhas da aba para uma unidade numa
  *   vigência, cada uma com o número e a procedência, ou com o motivo de não ter
  *   número.
@@ -51,7 +51,10 @@ import {
  *   digitou da aba de Excel. `GET` lê, `PUT` grava a vigência inteira, e
  *   `/copia` repete numa vigência o que já foi digitado noutra. O que entra por
  *   aqui volta no cadastro marcado como `INFORMADO`, com autor e data — nunca
- *   como apurado, e nunca por cima de um número que o acervo sustente.
+ *   como apurado, e nunca por cima de um número que o acervo sustente. As duas
+ *   escritas aceitam `vigenciaNova: true`, que é como a quinzena que o export
+ *   ainda não trouxe passa a existir — a mesma bandeira do `canalNovo`, do lado
+ *   da vigência.
  *
  * **Nada aqui calcula.** A aritmética inteira mora em `@workspace/remuneracao`,
  * testada sem banco e sem HTTP, como a do Fechamento. Este arquivo lê a query,
@@ -132,12 +135,14 @@ router.get("/remuneracao/unidades", async (_req, res): Promise<void> => {
 });
 
 /**
- * A situação do cadastro em cada unidade.
+ * A situação do cadastro em cada unidade, vigência por vigência.
  *
  * A pergunta que vem antes de "qual é o cadastro desta unidade": **quais
- * unidades já têm cadastro de pé, e quais ainda não têm.** Devolve, por
- * unidade, a vigência mais recente, o que ela entregou e quantas das trinta
+ * unidades já têm cadastro de pé, e quais ainda não têm.** Devolve uma linha
+ * por (unidade, vigência) — a quinzena, o que ela entregou e quantas das trinta
  * linhas têm lastro — mais o estado em uma palavra, que é o que a tela destaca.
+ * Por vigência, e não só pela mais recente, porque a planilha preenchida numa
+ * quinzena antiga é trabalho que existe e precisa de uma linha onde aparecer.
  *
  * Sem parâmetros: a pergunta é sobre o conjunto, e recortá-lo por unidade seria
  * pedir a lista de uma unidade só. Acervo vazio devolve lista vazia com resumo
@@ -171,11 +176,21 @@ router.get("/remuneracao/cadastro", async (req, res): Promise<void> => {
     e não um cadastro vazio que se parece com uma unidade que perdeu o lastro.
   */
   const canalNovo = query.canalNovo === "1" || query.canalNovo === "true";
+  /*
+    `vigenciaNova=1` é a mesma bandeira, do lado da quinzena: a tela que
+    cadastra a planilha precisa mostrar as trinta linhas em branco da quinzena
+    que ainda não chegou. Opt-in pela mesma razão — sem ela, uma data errada num
+    link continua sendo 404, e não um cadastro vazio com cara de vigência
+    perdida. O que a bandeira **não** afrouxa é a régua da quinzena: o dia 1 ou
+    o dia 16, ou a recusa nomeada.
+  */
+  const vigenciaNova = query.vigenciaNova === "1" || query.vigenciaNova === "true";
 
   const cadastro = await lerCadastroDaUnidade(db, {
     ...(contexto ?? {}),
     ...(period !== undefined ? { period } : {}),
     ...(canalNovo ? { aceitarCanalNovo: true } : {}),
+    ...(vigenciaNova ? { aceitarVigenciaNova: true } : {}),
   });
 
   if (!cadastro) {
@@ -278,6 +293,7 @@ router.put("/remuneracao/planilha", async (req, res): Promise<void> => {
   const planilha = await gravarPlanilhaDaUnidade(db, {
     ...(contexto ?? {}),
     ...(period !== undefined ? { period } : {}),
+    ...(corpo.vigenciaNova === true ? { aceitarVigenciaNova: true } : {}),
     celulas: corpo.celulas as { chave: unknown; valor: unknown; observacao?: unknown }[],
     autor: { id: req.user?.id ?? null, nome: req.user?.name ?? null },
   });
@@ -327,6 +343,9 @@ router.post("/remuneracao/planilha/copia", async (req, res): Promise<void> => {
     ...(contexto ?? {}),
     de,
     para,
+    /* Só o destino: copiar **de** uma quinzena que não existe é copiar de nada,
+       e o domínio continua recusando essa ponta. */
+    ...(corpo.vigenciaNova === true ? { aceitarVigenciaNova: true } : {}),
     autor: { id: req.user?.id ?? null, nome: req.user?.name ?? null },
   });
 

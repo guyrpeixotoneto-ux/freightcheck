@@ -12,6 +12,7 @@ import {
   lerPlanilhaDaUnidade,
   lerSituacaoDasUnidades,
   VigenciaDoCadastroNaoEncontrada,
+  VigenciaForaDaQuinzena,
 } from "../leitura";
 
 /**
@@ -301,8 +302,17 @@ describe("um canal que o acervo não entregou", () => {
 
   it("passa a existir como unidade própria na lista, sem lastro nenhum", async () => {
     const situacao = await lerSituacaoDasUnidades(ctx.db);
-    const rota = situacao.unidades.find((u) => u.channel === "ROTA");
+    const deRota = situacao.cadastros.filter((c) => c.channel === "ROTA");
+    const rota = deRota[0];
     expect(rota, "a unidade de ROTA").toBeDefined();
+
+    /*
+      Uma linha, e não uma por vigência da unidade: as quinzenas de ROTA são as
+      que a planilha tem. As do irmão importado continuam sendo as do
+      formulário — a quinzena é do calendário do cliente —, e trazê-las para cá
+      encheria a lista de linhas de um canal que ninguém entregou.
+    */
+    expect(deRota.map((c) => c.effectiveDate)).toEqual([VIGENCIA]);
 
     // Herda a unidade — é a mesma —, e o rótulo troca o canal.
     expect(rota!.scopeHash).toBe(ESCOPO);
@@ -361,7 +371,9 @@ describe("a lista de unidades", () => {
   */
   it("conta o informado ao lado do lastro, e nunca dentro dele", async () => {
     const situacao = await lerSituacaoDasUnidades(ctx.db);
-    const unidade = situacao.unidades.find((u) => u.scopeHash === ESCOPO)!;
+    const unidade = situacao.cadastros.find(
+      (c) => c.scopeHash === ESCOPO && c.channel === "EMPURRADA" && c.effectiveDate === VIGENCIA,
+    )!;
 
     expect(unidade.effectiveDate).toBe(VIGENCIA);
     expect(unidade.cadastro.informadas).toBeGreaterThan(0);
@@ -375,5 +387,149 @@ describe("a lista de unidades", () => {
     expect(unidade.cadastro.comLastro + unidade.cadastro.informadas).toBeLessThanOrEqual(
       unidade.cadastro.linhas,
     );
+  });
+});
+
+/**
+ * A QUINZENA QUE AINDA NÃO EXISTE — a aba que chegou antes do export.
+ *
+ * A escrita sempre exigiu que a vigência estivesse na lista da unidade, e a
+ * lista vinha do acervo. É a régua certa para a leitura e era uma parede para
+ * quem cadastra: a aba da quinzena nova chega antes do arquivo dela — é a
+ * premissa do módulo inteiro —, e não havia onde digitá-la. Na unidade
+ * cadastrada à mão a parede era total: as vigências dela são a declarada no
+ * registro mais as que ganharam planilha, e ganhar planilha era justamente o
+ * que a recusa impedia.
+ *
+ * A bandeira `aceitarVigenciaNova` é o irmão de `aceitarCanalNovo`: opt-in,
+ * pedida só pela tela que cadastra, e limitada pela régua da quinzena — dia 1
+ * ou dia 16. O que ela **não** faz é gravar sozinha: a vigência passa a existir
+ * quando a primeira célula é salva nela.
+ */
+describe("a quinzena que ainda não existe", () => {
+  const SEGUNDA = "2026-08-16";
+  const NO_MEIO_DO_MES = "2026-09-07";
+
+  it("continua recusada sem a bandeira — um link com data errada é 404, não cadastro vazio", async () => {
+    await expect(
+      lerCadastroDaUnidade(ctx.db, { ...CONTEXTO, period: SEGUNDA }),
+    ).rejects.toThrow(VigenciaDoCadastroNaoEncontrada);
+
+    await expect(
+      gravarPlanilhaDaUnidade(ctx.db, {
+        ...CONTEXTO,
+        period: SEGUNDA,
+        celulas: [{ chave: "aliquota_pis", valor: 1.65 }],
+      }),
+    ).rejects.toThrow(VigenciaDoCadastroNaoEncontrada);
+  });
+
+  it("recusa criar o que não é começo de quinzena, com a bandeira e tudo", async () => {
+    await expect(
+      gravarPlanilhaDaUnidade(ctx.db, {
+        ...CONTEXTO,
+        period: NO_MEIO_DO_MES,
+        aceitarVigenciaNova: true,
+        celulas: [{ chave: "aliquota_pis", valor: 1.65 }],
+      }),
+    ).rejects.toThrow(VigenciaForaDaQuinzena);
+
+    // E o ano de um dedo a mais também não passa.
+    await expect(
+      gravarPlanilhaDaUnidade(ctx.db, {
+        ...CONTEXTO,
+        period: "20226-09-01",
+        aceitarVigenciaNova: true,
+        celulas: [{ chave: "aliquota_pis", valor: 1.65 }],
+      }),
+    ).rejects.toThrow(VigenciaForaDaQuinzena);
+  });
+
+  it("abre o formulário em branco, e nomeia as duas quinzenas do mês", async () => {
+    const aberto = await lerCadastroDaUnidade(ctx.db, {
+      ...CONTEXTO,
+      period: SEGUNDA,
+      aceitarVigenciaNova: true,
+    });
+
+    expect(aberto!.effectiveDate).toBe(SEGUNDA);
+    expect(aberto!.resumo.informadas).toBe(0);
+
+    /*
+      A quinzena criada entra na lista de vigências, e é por isso que ela entra:
+      o rótulo sai do que existe naquele mês. Sem ela na lista, a de 1º de
+      agosto continuaria se chamando "agosto/2026" e as duas apareceriam com
+      textos que não se distinguem no mesmo seletor.
+    */
+    const doMes = aberto!.vigencias.filter((v) => v.effectiveDate.startsWith("2026-08"));
+    expect(doMes).toEqual([
+      { effectiveDate: VIGENCIA, periodLabel: "1ª quinzena de agosto/2026" },
+      { effectiveDate: SEGUNDA, periodLabel: "2ª quinzena de agosto/2026" },
+    ]);
+  });
+
+  it("passa a existir quando a primeira linha é salva — e aí não precisa mais da bandeira", async () => {
+    const gravada = await gravarPlanilhaDaUnidade(ctx.db, {
+      ...CONTEXTO,
+      period: SEGUNDA,
+      aceitarVigenciaNova: true,
+      celulas: [{ chave: "aliquota_pis", valor: 1.65 }],
+      autor: { id: null, nome: "Guy" },
+    });
+    expect(gravada?.linhas).toHaveLength(1);
+
+    const lido = await lerCadastroDaUnidade(ctx.db, { ...CONTEXTO, period: SEGUNDA });
+    expect(lido!.effectiveDate).toBe(SEGUNDA);
+    expect(lido!.vigencias.map((v) => v.effectiveDate)).toEqual([ANTERIOR, VIGENCIA, SEGUNDA]);
+  });
+
+  /*
+    E a quinzena digitada aparece na lista, que é o que separa "gravou" de
+    "tem onde ser vista". Era a metade que faltava: a planilha de uma quinzena
+    que o export não trouxe ficava no banco sem tela nenhuma, porque a lista
+    respondia só pelas vigências do acervo.
+  */
+  it("aparece na lista de cadastros, ao lado das que vieram de arquivo", async () => {
+    const { cadastros } = await lerSituacaoDasUnidades(ctx.db);
+    const daUnidade = cadastros.filter(
+      (c) => c.scopeHash === ESCOPO && c.channel === "EMPURRADA",
+    );
+
+    expect(daUnidade.map((c) => c.effectiveDate)).toEqual([SEGUNDA, VIGENCIA, ANTERIOR]);
+
+    const nova = daUnidade.find((c) => c.effectiveDate === SEGUNDA)!;
+    expect(nova.cadastro.informadas).toBe(1);
+    // Sem arquivo nenhum naquela quinzena, e a lista diz isso em vez de
+    // emprestar o lastro da quinzena vizinha.
+    expect(nova.cadastro.estado).toBe("SEM_LASTRO");
+    expect(nova.material).toEqual({
+      cavalos: 0,
+      trechos: 0,
+      trechosEntregues: false,
+      linhasInformadas: 1,
+    });
+  });
+
+  it("copiar da quinzena passada é o primeiro gesto — e vale para a que ainda não existe", async () => {
+    const TERCEIRA = "2026-09-01";
+
+    const copiada = await copiarPlanilhaDaUnidade(ctx.db, {
+      ...CONTEXTO,
+      de: VIGENCIA,
+      para: TERCEIRA,
+      aceitarVigenciaNova: true,
+      autor: { id: null, nome: "Guy" },
+    });
+    expect(copiada!.linhas.length).toBeGreaterThan(0);
+
+    // A origem, não: copiar de uma quinzena que não existe é copiar de nada.
+    await expect(
+      copiarPlanilhaDaUnidade(ctx.db, {
+        ...CONTEXTO,
+        de: "2026-10-01",
+        para: TERCEIRA,
+        aceitarVigenciaNova: true,
+      }),
+    ).rejects.toThrow(VigenciaDoCadastroNaoEncontrada);
   });
 });

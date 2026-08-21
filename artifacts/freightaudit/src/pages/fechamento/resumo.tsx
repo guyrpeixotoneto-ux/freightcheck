@@ -559,9 +559,16 @@ function PorQueNaoTemDevido({ unidadeCodigo }: { unidadeCodigo: string }) {
     queryFn: lerSituacaoDasUnidades,
   });
 
-  const cadastradas = situacao.data?.unidades ?? [];
-  const comEsteCodigo = cadastradas.some((u) =>
-    u.scopes.some((e) => e.scopeType === "UNIDADE" && e.code.trim() === unidadeCodigo.trim()),
+  /*
+    A lista traz um cadastro por (unidade, vigência), e a pergunta aqui é sobre
+    a unidade: procurar o código em qualquer linha responde igual, mas **contar**
+    linhas contaria a mesma unidade uma vez por quinzena. O número de unidades
+    vem do resumo, que é onde ele é contado uma vez só.
+  */
+  const cadastros = situacao.data?.cadastros ?? [];
+  const quantasUnidades = situacao.data?.resumo.unidades ?? 0;
+  const comEsteCodigo = cadastros.some((c) =>
+    c.scopes.some((e) => e.scopeType === "UNIDADE" && e.code.trim() === unidadeCodigo.trim()),
   );
 
   return (
@@ -585,7 +592,7 @@ function PorQueNaoTemDevido({ unidadeCodigo }: { unidadeCodigo: string }) {
           </p>
         ) : (
           <p>
-            Nenhuma das {cadastradas.length} unidades cadastradas em Remuneração tem o
+            Nenhuma das {quantasUnidades} unidades cadastradas em Remuneração tem o
             código <code>{unidadeCodigo}</code> — e é por ele que o fechamento encontra o
             cadastro. Se você cadastrou a unidade sem código, a lista mostra o aviso e o
             botão para informá-lo, e a planilha vai junto.{" "}

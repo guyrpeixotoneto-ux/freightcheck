@@ -31,7 +31,7 @@ import {
 } from "./planilha";
 import type { PlanilhaDeclarada } from "./informado";
 import { compararCadastros, type CadastroComparado } from "./comparacao";
-import { rotuloDaVigencia } from "./vigencia";
+import { ehInicioDeQuinzena, rotuloDaVigencia } from "./vigencia";
 import { unidadesRegistradas, vigenciasDaUnidade } from "./unidade";
 import { medirSituacao, type EstadoDoCadastro, type SituacaoDoCadastro } from "./situacao";
 
@@ -131,21 +131,25 @@ export interface ComparacaoDeCadastros extends CadastroComparado {
 }
 
 /**
- * Uma unidade na lista, com o que o cadastro dela alcança na vigência mais
- * recente que ela entregou.
+ * Uma unidade **numa vigência**, com o que o cadastro dela alcança lá.
  *
- * A vigência é sempre a mais recente, e não uma escolhida por quem chama: a
- * pergunta desta lista é "o cadastro desta unidade está de pé **hoje**", e
- * responder por uma quinzena antiga faria a unidade que parou de entregar
- * parecer em dia. Qual quinzena respondeu está em `effectiveDate`, ao lado da
+ * **Uma linha por vigência, e não uma por unidade.** Foi uma por unidade — a
+ * mais recente que ela entregou — enquanto a lista respondia só "o cadastro
+ * está de pé hoje", e essa resposta escondia trabalho que já tinha sido feito:
+ * quem digitou a planilha de julho e voltou em agosto via a unidade sem
+ * planilha nenhuma, porque a linha tinha passado a responder pela quinzena
+ * seguinte, que estava em branco. O que estava certo naquela forma continua
+ * certo nesta — a lista é reunida por vigência, e o mês mais recente vem
+ * primeiro —, e o que era perda deixou de ser: a quinzena preenchida continua
+ * na tela, na vigência dela.
+ *
+ * Qual vigência esta linha responde está em `effectiveDate`, ao lado da
  * resposta, para que a lista nunca escolha em silêncio.
  */
 export interface SituacaoDaUnidade extends ContextoDoCadastro {
-  /** A vigência mais recente da unidade — a que esta situação descreve. */
+  /** A vigência que esta linha responde. */
   effectiveDate: string;
   periodLabel: string;
-  /** Quantas vigências a unidade tem, todas elas. */
-  vigencias: number;
   material: MaterialLido;
   cadastro: SituacaoDoCadastro;
   /**
@@ -163,16 +167,26 @@ export interface SituacaoDaUnidade extends ContextoDoCadastro {
 }
 
 export interface SituacaoDasUnidades {
-  unidades: SituacaoDaUnidade[];
+  /** Um cadastro por (unidade, vigência) — a linha da lista. */
+  cadastros: SituacaoDaUnidade[];
   /**
-   * Quantas unidades em cada estado — os quatro somam `unidades`.
+   * Quantos cadastros em cada estado — os quatro somam `cadastros`.
    *
    * Somados aqui, e não na tela, pela mesma razão que os totais do Fechamento
    * vêm do servidor: uma contagem feita na interface é uma segunda conta sobre
    * o mesmo material, e as duas divergem no dia em que um estado novo nascer.
+   *
+   * `unidades` e `cadastros` são números de grãos diferentes, e por isso os
+   * dois estão aqui: a unidade das nove vigências é **uma** unidade e nove
+   * cadastros, e uma tela que precisasse dizer "nenhuma das N unidades tem
+   * este código" contaria nove onde há uma se tivesse de deduzir o primeiro
+   * número do tamanho da lista.
    */
   resumo: {
+    /** Unidades distintas — cada uma pode responder por várias vigências. */
     unidades: number;
+    /** Linhas da lista: uma por (unidade, vigência). */
+    cadastros: number;
     frotaEAliquotas: number;
     soFrota: number;
     soAliquotas: number;
@@ -188,6 +202,28 @@ export class VigenciaDoCadastroNaoEncontrada extends Error {
         `Disponíveis: ${disponiveis.join(", ") || "nenhuma"}.`,
     );
     this.name = "VigenciaDoCadastroNaoEncontrada";
+  }
+}
+
+/**
+ * Erro de recusa: a vigência que se quer **criar** não é uma quinzena.
+ *
+ * Só aparece no caminho que aceita quinzena nova — a tela que cadastra a
+ * planilha antes de o export chegar. Ali a vigência não vem de arquivo nenhum:
+ * ela vale porque é uma quinzena do calendário, e o calendário deste produto
+ * começa a quinzena no dia 1 ou no dia 16 (ver `ehInicioDeQuinzena`, em
+ * `vigencia.ts`). 400, e não 404: o pedido é que está errado, e a unidade está
+ * onde sempre esteve.
+ */
+export class VigenciaForaDaQuinzena extends Error {
+  constructor(pedida: string) {
+    super(
+      `${pedida} não é uma quinzena que se possa criar. Uma quinzena começa no dia 1 ou no ` +
+        "dia 16, e é por ela que o fechamento procura o cadastro — uma vigência no meio do " +
+        "mês guardaria a planilha onde nenhuma tela vai buscá-la. A vigência que vem de " +
+        "arquivo continua sendo a que o arquivo trouxer.",
+    );
+    this.name = "VigenciaForaDaQuinzena";
   }
 }
 
@@ -253,27 +289,62 @@ async function contextosDoModulo(db: Database): Promise<ContextInfo[]> {
 }
 
 /**
- * Os mesmos contextos, mais **quais deles não têm acervo nenhum**.
+ * Os mesmos contextos, mais **quais deles não têm acervo nenhum** e **por
+ * quais vigências cada um responde na lista**.
  *
- * A separação existe por uma conta: `lerSituacaoDasUnidades` precisa das duas
- * respostas, e pedi-las em duas chamadas custaria um `listContexts` a mais —
+ * A separação existe por uma conta: `lerSituacaoDasUnidades` precisa das três
+ * respostas, e pedi-las em outras chamadas custaria um `listContexts` a mais —
  * numa função cujo cabeçalho promete "quatro consultas, e não quatro por
- * unidade". A procedência é subproduto da disputa que já acontece aqui; devolvê-la
- * é de graça, e recalculá-la fora custaria a consulta inteira.
+ * unidade". As duas são subproduto da disputa que já acontece aqui; devolvê-las
+ * é de graça, e recalculá-las fora custaria a consulta inteira.
+ *
+ * **`vigenciasNaLista` só existe para o canal que só a planilha tem.** As
+ * vigências dele são herdadas do irmão importado — é a resposta certa para o
+ * formulário, porque a quinzena é do calendário do cliente e não da série —, e
+ * seria a errada para a lista: as nove vigências do irmão virariam nove linhas
+ * de um canal em que só uma quinzena foi digitada, oito delas vazias, todas
+ * dizendo "sem lastro" sobre um material que nunca existiu. Na lista ele
+ * responde pelas quinzenas que a planilha de fato tem. Os outros dois casos
+ * não precisam de recorte nenhum: a unidade do acervo tem as vigências que
+ * entregou, e a registrada à mão já tem só a inicial mais as que a planilha
+ * ganhou.
  */
-async function contextosEProcedencia(
-  db: Database,
-): Promise<{ contextos: ContextInfo[]; semAcervo: Set<string> }> {
+async function contextosEProcedencia(db: Database): Promise<{
+  contextos: ContextInfo[];
+  semAcervo: Set<string>;
+  vigenciasNaLista: Map<string, string[]>;
+}> {
   const [doAcervo, daPlanilha, registradas] = await Promise.all([
     listContexts(db),
     canaisComPlanilha(db),
     unidadesRegistradas(db),
   ]);
   if (daPlanilha.length === 0 && registradas.length === 0) {
-    return { contextos: doAcervo, semAcervo: new Set() };
+    return { contextos: doAcervo, semAcervo: new Set(), vigenciasNaLista: new Map() };
   }
 
-  const jaExiste = new Set(doAcervo.map((c) => chaveDoAlvo(c.scopeHash, c.channel)));
+  const vigenciasPorChave = new Map(
+    daPlanilha.map((c) => [chaveDaUnidade(c.scopeHash, c.canal), c.vigencias]),
+  );
+
+  /*
+    A vigência de uma unidade, neste módulo, é o que o acervo entregou **mais**
+    o que alguém digitou — e isto vale para toda unidade, e não só para a
+    registrada à mão, que já nascia com a união.
+
+    A regra assimétrica custava o defeito que ela parecia evitar: a planilha da
+    quinzena que o export ainda não trouxe ficava gravada e sem tela nenhuma.
+    Ela não aparecia na lista (que responde pelas vigências do contexto), não
+    aparecia no seletor do cadastro (idem), e a escrita seguinte na mesma
+    quinzena era recusada por vigência inexistente — a planilha existia no banco
+    e não existia em lugar nenhum. Uma vigência que alguém digitou é uma
+    vigência que alguém digitou, qualquer que tenha sido a origem da unidade.
+  */
+  const comAsDigitadas = doAcervo.map((c) =>
+    comAsVigenciasDaPlanilha(c, vigenciasPorChave.get(chaveDaUnidade(c.scopeHash, c.channel))),
+  );
+
+  const jaExiste = new Set(comAsDigitadas.map((c) => chaveDaUnidade(c.scopeHash, c.channel)));
   /*
     Quem entra por registro e não por arquivo. É medido **aqui**, e não pela
     tabela inteira, porque a pergunta da tela é "este contexto tem snapshot?" —
@@ -282,11 +353,14 @@ async function contextosEProcedencia(
   */
   const semAcervo = new Set<string>();
   const irmaoDoEscopo = new Map<string, ContextInfo>();
-  for (const c of doAcervo) if (!irmaoDoEscopo.has(c.scopeHash)) irmaoDoEscopo.set(c.scopeHash, c);
+  for (const c of comAsDigitadas) {
+    if (!irmaoDoEscopo.has(c.scopeHash)) irmaoDoEscopo.set(c.scopeHash, c);
+  }
 
   const sinteticos: ContextInfo[] = [];
+  const vigenciasNaLista = new Map<string, string[]>();
   for (const canal of daPlanilha) {
-    if (jaExiste.has(chaveDoAlvo(canal.scopeHash, canal.canal))) continue;
+    if (jaExiste.has(chaveDaUnidade(canal.scopeHash, canal.canal))) continue;
     const irmao = irmaoDoEscopo.get(canal.scopeHash);
     /*
       Sem irmão, a unidade saiu do acervo depois de a planilha ser gravada — uma
@@ -296,6 +370,7 @@ async function contextosEProcedencia(
       unidade que nenhum arquivo sustenta.
     */
     if (!irmao) continue;
+    vigenciasNaLista.set(chaveDaUnidade(canal.scopeHash, canal.canal), canal.vigencias);
     sinteticos.push({
       ...irmao,
       channel: canal.canal,
@@ -310,11 +385,8 @@ async function contextosEProcedencia(
     contextos; o índice único já as impede no banco, e repetir a guarda aqui
     custa um `Set` e cobre o banco que foi adotado com dados de antes dele.
   */
-  const vigenciasPorChave = new Map(
-    daPlanilha.map((c) => [chaveDoAlvo(c.scopeHash, c.canal), c.vigencias]),
-  );
   for (const u of registradas) {
-    const chave = chaveDoAlvo(u.scopeHash, u.canal);
+    const chave = chaveDaUnidade(u.scopeHash, u.canal);
     if (jaExiste.has(chave)) continue;
     jaExiste.add(chave);
     semAcervo.add(chave);
@@ -344,7 +416,31 @@ async function contextosEProcedencia(
     });
   }
 
-  return { contextos: [...doAcervo, ...sinteticos], semAcervo };
+  return { contextos: [...comAsDigitadas, ...sinteticos], semAcervo, vigenciasNaLista };
+}
+
+/**
+ * O contexto do acervo com as quinzenas que só a planilha tem.
+ *
+ * Devolve o mesmo objeto quando não há nada a acrescentar — a maioria dos
+ * casos, e o que mantém a lista idêntica para quem nunca digitou uma aba.
+ */
+function comAsVigenciasDaPlanilha(
+  contexto: ContextInfo,
+  daPlanilha: readonly string[] | undefined,
+): ContextInfo {
+  if (!daPlanilha || daPlanilha.length === 0) return contexto;
+
+  const todas = [...new Set([...contexto.periodosDisponiveis, ...daPlanilha])].sort();
+  if (todas.length === contexto.periodosDisponiveis.length) return contexto;
+
+  return {
+    ...contexto,
+    periodosDisponiveis: todas,
+    latestPeriod: todas[todas.length - 1]!,
+    periods: todas.length,
+    periodosNaJanela: todas.length,
+  };
 }
 
 /**
@@ -393,15 +489,26 @@ export async function lerCadastroDaUnidade(
      * parece com uma unidade que perdeu o lastro.
      */
     aceitarCanalNovo?: boolean;
+    /**
+     * Aceitar uma quinzena que a unidade ainda não tem.
+     *
+     * A outra metade de `aceitarCanalNovo`, e pela mesma razão: é a tela que
+     * cadastra a planilha que precisa mostrar as trinta linhas em branco da
+     * quinzena que ainda não chegou. Fora dela o padrão continua sendo recusar
+     * — ver {@link comAQuinzenaNova}.
+     */
+    aceitarVigenciaNova?: boolean;
   },
 ): Promise<CadastroDaUnidade | null> {
   const contextos = await contextosDoModulo(db);
   if (contextos.length === 0) return null;
 
-  const contexto = pedido?.aceitarCanalNovo
+  const daUnidade = pedido?.aceitarCanalNovo
     ? await resolverParaEscrita(db, contextos, pedido)
     : (await resolveContext(db, pedido, contextos))!;
-  const effectiveDate = conferirVigencia(contexto, pedido?.period ?? contexto.latestPeriod);
+  const pedida = pedido?.period ?? daUnidade.latestPeriod;
+  const contexto = pedido?.aceitarVigenciaNova ? comAQuinzenaNova(daUnidade, pedida) : daUnidade;
+  const effectiveDate = conferirVigencia(contexto, pedida);
   const { montado, material } = await montarDaVigencia(db, effectiveDate, contexto);
 
   return {
@@ -482,7 +589,7 @@ export async function lerComparacaoDeCadastros(
 }
 
 /**
- * As unidades do acervo, cada uma com o que o cadastro dela alcança hoje.
+ * Os cadastros que o módulo conhece — **um por unidade e vigência**.
  *
  * É a tela que vem **antes** do cadastro: quem abre Remuneração na virada da
  * quinzena não quer uma unidade — quer saber quais já estão de pé e quais
@@ -490,25 +597,49 @@ export async function lerComparacaoDeCadastros(
  * entregou os trechos custa abrir o CDD, e com trinta unidades custa abrir
  * trinta telas para achar as duas que faltam.
  *
- * **Quatro consultas, e não quatro por unidade.** Cada uma responde por todas
- * as unidades de uma vez, pelo par (unidade, vigência mais recente) que
- * {@link filtroDosAlvos} monta — a mesma decisão de `lerCavalosEmLote`,
+ * **Por vigência, e não uma linha por unidade.** Era uma linha por unidade, na
+ * vigência mais recente dela, e o que essa forma escondia é trabalho que já
+ * tinha sido feito: quem preencheu a planilha de julho e voltou na virada via
+ * a unidade com "nada informado", porque a única linha dela tinha passado a
+ * responder por agosto. A quinzena preenchida não some mais — ela é uma linha,
+ * na vigência dela, ao lado da que ainda está em branco. Quem quer só o
+ * presente lê o primeiro grupo, que continua sendo o mês mais recente.
+ *
+ * **Quatro consultas, e não quatro por cadastro.** Cada uma responde por todos
+ * os alvos de uma vez — o par (unidade, vigência) que {@link filtroDosAlvos}
+ * monta, agrupado por unidade —, a mesma decisão de `lerCavalosEmLote`,
  * escalada de "não uma consulta por cavalo" para "não um cadastro por
- * unidade". O trabalho
- * de montagem continua sendo o de trinta unidades, porque é ele que garante que
- * a lista e a tela do cadastro digam a mesma coisa: quem responde "esta linha
- * tem lastro" nos dois lugares é a mesma `montarCadastro`.
+ * unidade". O que cresceu com a vigência foi o **material lido**, e não o
+ * número de idas ao banco: são as mesmas quatro consultas, com mais linhas
+ * dentro. O trabalho de montagem continua sendo feito por cadastro, porque é
+ * ele que garante que a lista e a tela digam a mesma coisa: quem responde
+ * "esta linha tem lastro" nos dois lugares é a mesma `montarCadastro`.
+ *
+ * As vigências de cada unidade saem da mais recente para a mais antiga. É a
+ * ordem em que a tela as reúne, e é também a que faz `find` — o gesto de quem
+ * procura uma unidade nesta lista — cair na quinzena que responde por ela
+ * hoje, em vez de na primeira que ela entregou.
  *
  * Acervo vazio devolve lista vazia e resumo zerado, e não `null`: aqui não há
  * unidade pedida que possa não existir — a pergunta é sobre o conjunto, e o
  * conjunto vazio é uma resposta legítima que a tela sabe escrever.
  */
 export async function lerSituacaoDasUnidades(db: Database): Promise<SituacaoDasUnidades> {
-  const { contextos, semAcervo } = await contextosEProcedencia(db);
-  const alvos: Alvo[] = contextos.map((contexto) => ({
-    contexto,
-    effectiveDate: contexto.latestPeriod,
-  }));
+  const { contextos, semAcervo, vigenciasNaLista } = await contextosEProcedencia(db);
+
+  /*
+    O alvo carrega `SeriesContext` — o que as consultas precisam —, e aqui o
+    contexto é o inteiro: as linhas montadas pedem o rótulo, os escopos e as
+    vigências da unidade, que só o `ContextInfo` tem.
+  */
+  const alvos: (Alvo & { contexto: ContextInfo })[] = contextos.flatMap((contexto) => {
+    const chave = chaveDaUnidade(contexto.scopeHash, contexto.channel);
+    const vigencias = vigenciasNaLista.get(chave) ?? contexto.periodosDisponiveis;
+    return [...vigencias]
+      .sort()
+      .reverse()
+      .map((effectiveDate) => ({ contexto, effectiveDate }));
+  });
 
   const [cavalos, trechos, entregues, planilhas] = await Promise.all([
     lerCavalosEmLote(db, alvos),
@@ -524,38 +655,49 @@ export async function lerSituacaoDasUnidades(db: Database): Promise<SituacaoDasU
     ),
   ]);
 
-  const unidades = contextos.map((contexto): SituacaoDaUnidade => {
-    const chave = chaveDoAlvo(contexto.scopeHash, contexto.channel);
+  const cadastros = alvos.map(({ contexto, effectiveDate }): SituacaoDaUnidade => {
+    const chave = chaveDoAlvo(contexto.scopeHash, contexto.channel, effectiveDate);
     const { montado, material } = materialDe(
       cavalos.get(chave) ?? [],
       trechos.get(chave) ?? [],
       entregues.has(chave),
-      planilhas.get(
-        chaveDaPlanilha(contexto.scopeHash, contexto.channel, contexto.latestPeriod),
-      ),
+      planilhas.get(chaveDaPlanilha(contexto.scopeHash, contexto.channel, effectiveDate)),
     );
     return {
       ...retratoDo(contexto),
-      effectiveDate: contexto.latestPeriod,
-      periodLabel: rotuloDaVigencia(contexto.latestPeriod, contexto.periodosDisponiveis),
-      vigencias: contexto.periods,
+      effectiveDate,
+      /*
+        O rótulo é medido contra **todas** as vigências da unidade, e não contra
+        as que esta lista mostra: é o que a quinzena precisa para se distinguir
+        da irmã do mesmo mês, e recortá-lo pelo que a lista traz faria a mesma
+        data se chamar "agosto/2026" aqui e "1ª quinzena de agosto de 2026" na
+        tela do cadastro.
+      */
+      periodLabel: rotuloDaVigencia(effectiveDate, contexto.periodosDisponiveis),
       material,
       cadastro: medirSituacao(montado),
-      registradaAMao: semAcervo.has(chave),
+      registradaAMao: semAcervo.has(chaveDaUnidade(contexto.scopeHash, contexto.channel)),
     };
   });
 
-  const quantas = (estado: EstadoDoCadastro) =>
-    unidades.filter((u) => u.cadastro.estado === estado).length;
+  const quantos = (estado: EstadoDoCadastro) =>
+    cadastros.filter((c) => c.cadastro.estado === estado).length;
 
   return {
-    unidades,
+    cadastros,
     resumo: {
-      unidades: unidades.length,
-      frotaEAliquotas: quantas("FROTA_E_ALIQUOTAS"),
-      soFrota: quantas("SO_FROTA"),
-      soAliquotas: quantas("SO_ALIQUOTAS"),
-      semLastro: quantas("SEM_LASTRO"),
+      /*
+        Unidades distintas, e não `cadastros.length`: a unidade das nove
+        vigências é uma unidade e nove cadastros, e a frase que conta unidades
+        — "nenhuma das N unidades tem este código", no Resumo do Fechamento —
+        diria nove onde há uma se saísse do tamanho da lista.
+      */
+      unidades: new Set(cadastros.map((c) => chaveDaUnidade(c.scopeHash, c.channel))).size,
+      cadastros: cadastros.length,
+      frotaEAliquotas: quantos("FROTA_E_ALIQUOTAS"),
+      soFrota: quantos("SO_FROTA"),
+      soAliquotas: quantos("SO_ALIQUOTAS"),
+      semLastro: quantos("SEM_LASTRO"),
     },
   };
 }
@@ -592,6 +734,8 @@ export async function gravarPlanilhaDaUnidade(
   db: Database,
   pedido: RequestedContext & {
     period?: string;
+    /** A quinzena pode ser uma que a unidade ainda não tem — ver a leitura. */
+    aceitarVigenciaNova?: boolean;
     celulas: { chave: unknown; valor: unknown; observacao?: unknown }[];
     autor?: { id: string | null; nome: string | null };
   },
@@ -618,6 +762,16 @@ export async function copiarPlanilhaDaUnidade(
   pedido: RequestedContext & {
     de: string;
     para: string;
+    /**
+     * O **destino** pode ser uma quinzena que a unidade ainda não tem.
+     *
+     * É o caso mais útil da cópia, e o que ela existe para servir: a quinzena
+     * nova começa em branco, e a maior parte da aba repete a anterior. A
+     * **origem** nunca entra por aqui — copiar de uma quinzena que não existe
+     * é copiar de nada, e a recusa por vigência inexistente continua sendo a
+     * resposta certa para ela.
+     */
+    aceitarVigenciaNova?: boolean;
     autor?: { id: string | null; nome: string | null };
   },
 ): Promise<PlanilhaDaVigencia | null> {
@@ -625,11 +779,15 @@ export async function copiarPlanilhaDaUnidade(
   if (contextos.length === 0) return null;
 
   const contexto = await resolverParaEscrita(db, contextos, pedido);
+  const de = conferirVigencia(contexto, pedido.de);
+  const noDestino = pedido.aceitarVigenciaNova
+    ? comAQuinzenaNova(contexto, pedido.para)
+    : contexto;
   return copiarPlanilha(db, {
     scopeHash: contexto.scopeHash,
     canal: contexto.channel,
-    de: conferirVigencia(contexto, pedido.de),
-    para: conferirVigencia(contexto, pedido.para),
+    de,
+    para: conferirVigencia(noDestino, pedido.para),
     ...(pedido.autor ? { autor: pedido.autor } : {}),
   });
 }
@@ -637,16 +795,18 @@ export async function copiarPlanilhaDaUnidade(
 /** A unidade e a vigência de um pedido de planilha, já conferidas. */
 async function resolverAlvoDaPlanilha(
   db: Database,
-  pedido?: RequestedContext & { period?: string },
+  pedido?: RequestedContext & { period?: string; aceitarVigenciaNova?: boolean },
 ): Promise<{ scopeHash: string; canal: string | null; effectiveDate: string } | null> {
   const contextos = await contextosDoModulo(db);
   if (contextos.length === 0) return null;
 
-  const contexto = await resolverParaEscrita(db, contextos, pedido);
+  const daUnidade = await resolverParaEscrita(db, contextos, pedido);
+  const pedida = pedido?.period ?? daUnidade.latestPeriod;
+  const contexto = pedido?.aceitarVigenciaNova ? comAQuinzenaNova(daUnidade, pedida) : daUnidade;
   return {
     scopeHash: contexto.scopeHash,
     canal: contexto.channel,
-    effectiveDate: conferirVigencia(contexto, pedido?.period ?? contexto.latestPeriod),
+    effectiveDate: conferirVigencia(contexto, pedida),
   };
 }
 
@@ -702,6 +862,43 @@ async function resolverParaEscrita(
 }
 
 /**
+ * O mesmo contexto, **com a quinzena que ainda não existe** dentro dele.
+ *
+ * É o irmão de `resolverParaEscrita` do lado da vigência, e existe pela mesma
+ * razão, um grão adiante: a aba de Excel chega antes do export, e a quinzena
+ * que ela descreve não está no acervo justamente enquanto digitá-la vale a
+ * pena. Sem isto, a unidade cadastrada à mão ficava presa na quinzena declarada
+ * no registro — o formulário só oferecia as vigências que ela já tinha, salvar
+ * numa nova era recusado, e a promessa escrita em "Cadastrar unidade" ("as
+ * outras aparecem à medida que você salvar planilha nelas") não tinha caminho.
+ *
+ * A quinzena entra na lista de vigências do contexto, e não só na data pedida,
+ * porque é dela que sai o **rótulo**: `rotuloDaVigencia` decide "1ª quinzena de
+ * agosto" ou "agosto/2026" olhando o que mais existe naquele mês, e uma lista
+ * que ignorasse a recém-criada nomearia as duas de agosto com o mesmo texto no
+ * mesmo seletor.
+ *
+ * O que ela **não** faz é aceitar qualquer data: ver {@link
+ * VigenciaForaDaQuinzena}. E nada aqui grava — o contexto estendido só vale
+ * para esta chamada; a vigência passa a existir de verdade quando a primeira
+ * célula for salva nela, que é o mesmo momento em que um canal novo passa a
+ * existir.
+ */
+function comAQuinzenaNova(contexto: ContextInfo, pedida: string): ContextInfo {
+  if (contexto.periodosDisponiveis.includes(pedida)) return contexto;
+  if (!ehInicioDeQuinzena(pedida)) throw new VigenciaForaDaQuinzena(pedida);
+
+  const periodosDisponiveis = [...contexto.periodosDisponiveis, pedida].sort();
+  return {
+    ...contexto,
+    periodosDisponiveis,
+    latestPeriod: periodosDisponiveis[periodosDisponiveis.length - 1]!,
+    periods: periodosDisponiveis.length,
+    periodosNaJanela: periodosDisponiveis.length,
+  };
+}
+
+/**
  * A vigência pedida, ou a recusa escrita.
  *
  * Aparar em silêncio para a mais próxima daria o número certo sob o título
@@ -722,7 +919,7 @@ async function montarDaVigencia(
   contexto: SeriesContext,
 ): Promise<{ montado: CadastroMontado; material: MaterialLido }> {
   const alvos: Alvo[] = [{ contexto, effectiveDate }];
-  const chave = chaveDoAlvo(contexto.scopeHash, contexto.channel);
+  const chave = chaveDoAlvo(contexto.scopeHash, contexto.channel, effectiveDate);
 
   const [cavalos, trechos, entregues, planilhas] = await Promise.all([
     lerCavalosEmLote(db, alvos),
@@ -809,9 +1006,35 @@ interface Alvo {
   effectiveDate: string;
 }
 
-/** A chave que junta a linha lida de volta à unidade que a entregou. */
-function chaveDoAlvo(scopeHash: string, channel: string | null): string {
+/**
+ * A chave de uma unidade: o par (escopo, canal), sem data nenhuma.
+ *
+ * É a identidade da série na disputa de procedência — quem o acervo já
+ * responde, qual canal só a planilha tem, qual unidade foi registrada à mão.
+ * Nada aqui é sobre vigência, e é por isso que ela não entra.
+ */
+function chaveDaUnidade(scopeHash: string, channel: string | null): string {
   return `${scopeHash}|${channel ?? ""}`;
+}
+
+/**
+ * A chave que junta a linha lida de volta ao alvo que a entregou — e a
+ * vigência **faz parte dela**.
+ *
+ * A data entrou na chave no dia em que a lista passou a pedir várias vigências
+ * da mesma unidade na mesma consulta. Sem ela, os cavalos de julho e os de
+ * agosto caem no mesmo balde: a contagem de uma quinzena passa a incluir a
+ * outra, e o número sai plausível em toda a coluna e errado em todas as
+ * linhas — o mesmo defeito que {@link filtroDosAlvos} evita do lado do
+ * predicado. É a mesma forma de `chaveDaPlanilha`, em `planilha.ts`, e as duas
+ * se leem lado a lado em {@link lerSituacaoDasUnidades}.
+ */
+function chaveDoAlvo(
+  scopeHash: string,
+  channel: string | null,
+  effectiveDate: string,
+): string {
+  return `${scopeHash}|${channel ?? ""}|${effectiveDate}`;
 }
 
 /**
@@ -834,26 +1057,56 @@ function filtroDosAlvos(alias: string, alvos: Alvo[]) {
   */
   if (alvos.length === 0) return sql`false`;
 
+  /*
+    As datas da **mesma** unidade viram um `IN` só, e não uma cláusula por
+    data. É a mesma condição escrita mais curta — `(A AND d=d1) OR (A AND
+    d=d2)` é `A AND d IN (d1,d2)` —, e ela importa desde que a lista pede todas
+    as vigências de cada unidade: sem o agrupamento, trinta unidades de nove
+    quinzenas dariam duzentas e setenta cláusulas OR num predicado só.
+
+    O contexto do grupo é o do primeiro alvo dele: os alvos de uma unidade
+    saem sempre do mesmo `ContextInfo` — é assim que as duas leitoras os
+    montam —, e o que varia entre eles é só a data.
+  */
+  const porUnidade = new Map<string, { contexto: SeriesContext; datas: string[] }>();
+  for (const alvo of alvos) {
+    const chave = chaveDaUnidade(alvo.contexto.scopeHash, alvo.contexto.channel);
+    const grupo = porUnidade.get(chave);
+    if (grupo) grupo.datas.push(alvo.effectiveDate);
+    else porUnidade.set(chave, { contexto: alvo.contexto, datas: [alvo.effectiveDate] });
+  }
+
   return sql.join(
-    alvos.map(
-      (alvo) =>
-        sql`(${contextFilter(alias, alvo.contexto)}
-             AND ${sql.raw(`${alias}.effective_date`)} = ${alvo.effectiveDate}::date)`,
+    [...porUnidade.values()].map(
+      ({ contexto, datas }) =>
+        sql`(${contextFilter(alias, contexto)}
+             AND ${sql.raw(`${alias}.effective_date`)} IN (${sql.join(
+               datas.map((data) => sql`${data}::date`),
+               sql`, `,
+             )}))`,
     ),
     sql` OR `,
   );
 }
 
-/** As duas colunas que dizem de qual alvo a linha veio. */
+/**
+ * As três colunas que dizem de qual alvo a linha veio.
+ *
+ * A vigência está entre elas porque a chave a inclui: uma consulta que traz
+ * julho e agosto da mesma unidade precisa que cada linha diga de qual das duas
+ * ela é — ver {@link chaveDoAlvo}.
+ */
 function colunasDoAlvo(alias: string) {
   return sql`${sql.raw(`${alias}.scope_hash`)} AS scope_hash,
-             ${channelSql(`${alias}.source_label`)} AS canal`;
+             ${channelSql(`${alias}.source_label`)} AS canal,
+             ${sql.raw(`${alias}.effective_date`)}::text AS vigencia`;
 }
 
 /** O que toda linha lida em lote traz, além do que ela mesma diz. */
 interface LinhaComAlvo extends Record<string, unknown> {
   scope_hash: string;
   canal: string | null;
+  vigencia: string;
 }
 
 /**
@@ -882,7 +1135,7 @@ async function serieEntregueEmLote(
   const entregues = new Set<string>();
   for (const row of rows) {
     if ((row.entity_type_set ?? "").split("+").includes(entityType)) {
-      entregues.add(chaveDoAlvo(row.scope_hash, row.canal));
+      entregues.add(chaveDoAlvo(row.scope_hash, row.canal, row.vigencia));
     }
   }
   return entregues;
@@ -927,7 +1180,7 @@ async function lerFatosDoTipo(
 
   const porAlvo = new Map<string, Map<string, Map<string, LinhaDeFato>>>();
   for (const row of rows) {
-    const chave = chaveDoAlvo(row.scope_hash, row.canal);
+    const chave = chaveDoAlvo(row.scope_hash, row.canal, row.vigencia);
     const porAtivo = porAlvo.get(chave) ?? new Map<string, Map<string, LinhaDeFato>>();
     const atual = porAtivo.get(row.entity_id) ?? new Map<string, LinhaDeFato>();
     atual.set(row.code, row);
@@ -1026,7 +1279,7 @@ async function lerCavalosEmLote(
 
   const cavalos = new Map<string, CavaloDaVigencia[]>();
   for (const row of rows) {
-    const chave = chaveDoAlvo(row.scope_hash, row.canal);
+    const chave = chaveDoAlvo(row.scope_hash, row.canal, row.vigencia);
     const lista = cavalos.get(chave) ?? [];
     lista.push({
       entityId: row.entity_id,
