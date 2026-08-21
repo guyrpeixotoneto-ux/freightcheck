@@ -703,7 +703,16 @@ export interface CanalDoResumo {
  */
 export interface LinhaComparada {
   chave: string;
+  /** O rótulo como a planilha o grita — para conferir contra o arquivo. */
   rotulo: string;
+  /**
+   * O mesmo rótulo escrito como se escreve — é o que a tela mostra.
+   *
+   * A caixa alta da planilha é formatação de célula, não sentido. As duas
+   * grafias vêm do catálogo do de-para, no servidor; derivar uma da outra aqui
+   * com `toLowerCase` estragaria `DVS`, que é sigla.
+   */
+  nome: string;
   papel: string;
   devido: TresColunas;
   demonstrado: TresColunas;
@@ -765,6 +774,16 @@ export interface ConjuntoComparado {
 export interface QuadroComparado {
   quadro: string;
   titulo: string;
+  /** Como a planilha nomeia a linha de total do quadro. `null` quando não há. */
+  rotuloDoTotal: string | null;
+  /**
+   * Por que o quadro não tem linha nenhuma. `null` no quadro que tem.
+   *
+   * O `REMUNERAÇÃO VARIÁVEL - EQUIPE DE ENTREGA` da planilha é um quadro
+   * reservado: `AI34` e `AJ34` não existem como célula, e mesmo assim o total
+   * geral dela os soma. A frase vem escrita do domínio para a tela não deduzir.
+   */
+  reservado: string | null;
   linhas: LinhaComparada[];
   conjuntos: ConjuntoComparado[];
   devido: TresColunas;
@@ -791,9 +810,26 @@ export interface VersaoDaReferencia extends ProcedenciaDaReferencia {
   tamanhoEmBytes: number;
 }
 
+/**
+ * As três últimas linhas do `RESUMO GERAL`.
+ *
+ * `totalGeralDaUnidade` é o que o contrato manda pagar, somado dos mesmos
+ * quadros que a planilha soma. `totalGeralDoSrtrans` é o `Total Remuneração` do
+ * 03.08.20 do canal — o mesmo número que a aba `Verbas` mostra no fecho dela, e
+ * o mesmo que `Abertura!F45` traz na planilha.
+ */
+export interface FechoDoPainel {
+  totalGeralDaUnidade: TresColunas;
+  totalGeralDoSrtrans: TresColunas;
+  /** `SRTrans − unidade`, no sinal da planilha. */
+  diferenca: TresColunas;
+}
+
 export interface PainelComparado {
   canal: string;
   quadros: QuadroComparado[];
+  /** O fecho do resumo — ver {@link FechoDoPainel}. */
+  fecho: FechoDoPainel;
   /** De qual cadastro veio cada quinzena — onde conferir um número que surpreende. */
   cadastro: {
     primeira: { cadastroId: string; vigenteDe: string } | null;

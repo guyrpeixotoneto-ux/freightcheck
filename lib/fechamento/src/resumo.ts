@@ -1,6 +1,7 @@
 import { centavos, type Canal } from "./dominio";
 import {
   CANAIS_COM_PAINEL,
+  linhaDaPlanilha,
   type Ausencia,
   type DeParaConferido,
   type Papel,
@@ -190,7 +191,17 @@ export interface PainelDaPlanilha {
  */
 export interface LinhaComparada {
   chave: string;
+  /** O rótulo como a planilha o grita — para conferir contra o arquivo. */
   rotulo: string;
+  /**
+   * O mesmo rótulo escrito como se escreve — o que a tela mostra.
+   *
+   * Sai do catálogo do de-para, que guarda as duas grafias, e não de um
+   * `toLowerCase` sobre o rótulo: isso estragaria `DVS`, que é sigla. A caixa
+   * alta da planilha é formatação de célula, não sentido, e quem confere lê
+   * vinte e duas linhas dessas de uma vez.
+   */
+  nome: string;
   papel: string;
   /** O que o contrato manda pagar. `null` quando falta cadastro ou documento. */
   devido: TresColunas;
@@ -286,6 +297,16 @@ export interface ConjuntoComparado {
 export interface QuadroComparado {
   quadro: string;
   titulo: string;
+  /** Como a planilha nomeia a linha de total do quadro. `null` quando não há. */
+  rotuloDoTotal: string | null;
+  /**
+   * Por que o quadro não tem linha nenhuma. `null` no quadro que tem.
+   *
+   * Vem do motor (`QuadroDoMapa.reservado`) e existe para a tela não ter de
+   * deduzir: um quadro vazio e um quadro cujas linhas sumiram chegariam como o
+   * mesmo espaço em branco, e pedem coisas opostas de quem olha.
+   */
+  reservado: string | null;
   linhas: LinhaComparada[];
   /** Os números que o relatório traz para várias linhas de uma vez. */
   conjuntos: ConjuntoComparado[];
@@ -307,6 +328,14 @@ export interface QuadroComparado {
 export interface PainelComparado {
   canal: Canal;
   quadros: QuadroComparado[];
+  /**
+   * O fecho do `RESUMO GERAL` — as três últimas linhas dele.
+   *
+   * Existia só na planilha até agora, e a tela terminava no total de cada
+   * quadro. São elas que respondem à pergunta com que a reunião começa: *quanto
+   * a unidade calculou, quanto o SRTrans apresenta, e qual é a distância?*
+   */
+  fecho: FechoDoPainel;
   /** De qual cadastro veio cada quinzena. `null` na que não tem. */
   cadastro: {
     primeira: { cadastroId: string; vigenteDe: string } | null;
@@ -333,6 +362,25 @@ export interface PainelComparado {
    * transformaria a coluna numa afirmação sem fonte.
    */
   referencia: ProcedenciaDaReferencia | null;
+}
+
+/**
+ * As três últimas linhas do `RESUMO GERAL`, nas três colunas.
+ *
+ * `totalGeralDaUnidade` é o que o contrato manda pagar, somado dos mesmos
+ * quadros que a planilha soma (`AI17 + AI30 + AI34` — o variável fica fora,
+ * porque ele abre por dentro o DVS que já está no primeiro).
+ *
+ * `totalGeralDoSrtrans` é o `Total Remuneração` do 03.08.20 do canal. Não é uma
+ * reconstrução nossa: é o número que o demonstrativo publica, e é o mesmo que
+ * `Abertura!F45` traz na planilha — conferido ao centavo em julho/2026. Ver
+ * `faturado.ts`.
+ */
+export interface FechoDoPainel {
+  totalGeralDaUnidade: TresColunas;
+  totalGeralDoSrtrans: TresColunas;
+  /** `SRTrans − unidade`, no sinal da planilha. */
+  diferenca: TresColunas;
 }
 
 /** De onde saiu a coluna da planilha — a prova de contra o quê se conferiu. */
@@ -730,6 +778,14 @@ export function compararPaineis(
   calculado: { primeira: MapaDaQuinzena | null; segunda: MapaDaQuinzena | null },
   demonstrado: PainelDaPlanilha | null,
   cadastro: PainelComparado["cadastro"],
+  /**
+   * O `Total Remuneração` do 03.08.20 do canal — o lado SRTrans do fecho.
+   *
+   * Entra por parâmetro e não é derivado daqui porque ele não é do painel: é o
+   * mesmo número que a aba `Verbas` já mostra no fecho dela, e as duas abas
+   * terem de fechar nele é o que faz delas duas vistas e não duas contas.
+   */
+  totalGeralDoSrtrans: TresColunas = VAZIO,
 ): PainelComparado | null {
   const esqueleto = calculado.primeira ?? calculado.segunda;
   if (!esqueleto) return null;
@@ -768,6 +824,7 @@ export function compararPaineis(
       return {
         chave: modeloDaLinha.chave,
         rotulo: modeloDaLinha.rotulo,
+        nome: linhaDaPlanilha(modeloDaLinha.chave)?.nome ?? modeloDaLinha.rotulo,
         papel: modeloDaLinha.papel,
         devido,
         demonstrado: dem,
@@ -798,6 +855,8 @@ export function compararPaineis(
     return {
       quadro: modelo.quadro,
       titulo: modelo.titulo,
+      rotuloDoTotal: modelo.rotuloDoTotal,
+      reservado: modelo.reservado,
       linhas,
       conjuntos: conjuntosComparados(linhas),
       devido,
@@ -809,9 +868,19 @@ export function compararPaineis(
     };
   });
 
+  const totalGeralDaUnidade = tresColunas(
+    calculado.primeira?.totalGeral ?? null,
+    calculado.segunda?.totalGeral ?? null,
+  );
+
   return {
     canal,
     quadros,
+    fecho: {
+      totalGeralDaUnidade,
+      totalGeralDoSrtrans,
+      diferenca: subtrair(totalGeralDoSrtrans, totalGeralDaUnidade),
+    },
     cadastro,
     /*
       Sem referência por construção. `montarPainelComparado` não recebe a
@@ -985,6 +1054,8 @@ export function montarResumo(entrada: {
           primeira: primeira?.cadastroUsado ?? null,
           segunda: segunda?.cadastroUsado ?? null,
         },
+        /* O lado SRTrans do fecho — ver `FechoDoPainel`. */
+        demonstrativo,
       ),
       semPainel: painel
         ? null

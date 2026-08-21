@@ -61,6 +61,87 @@ cadastro são **mensais**; toda linha fixa divide por dois.
 
 A coluna `C` do `Cadastro` é a 1ª quinzena; a `F`, a 2ª.
 
+## O fecho do resumo — as três linhas que faltavam
+
+Rastreadas depois, sobre o mesmo arquivo, com as fórmulas na mão. Elas estavam
+fora do produto, e a razão registrada era que o número da transportadora "só
+existe na planilha". Não é o caso.
+
+| Linha | Célula | Fórmula | De onde sai no sistema |
+|---|---|---|---|
+| `REMUNERAÇÃO VARIÁVEL - EQUIPE DE ENTREGA` | `AI34` | **não existe como célula** | quadro reservado, sem linha |
+| `TOTAL GERAL UNIDADE` | `AI36` | `=SUM(AI17+AI30+AI34)` | `MapaDaQuinzena.totalGeral` |
+| `TOTAL GERAL SRTRANS` | `AI38` | `=Abertura!$F$45` | `Total Remuneração` do **03.08.20** |
+| `DIFERENÇA - TOTAL GERAL` | `AI40` | `=AI38-AI36` | SRTrans − unidade |
+
+**O `TOTAL GERAL SRTRANS` é o total do 03.08.20.** Na 1ª quinzena de julho/2026
+o `Total Remuneração` da Rota no demonstrativo é R$ 1.084.580,45 — o mesmo
+número, ao centavo, que `Abertura!F45` traz e que o resumo imprime. O relatório
+**publica** o total; a `Abertura` o **reconstrói** somando documentos, e um
+número publicado é fonte melhor que um remontado. Por isso a fonte canônica é o
+03.08.20 e a decomposição entra como conferência (`faturado.ts`).
+
+A decomposição da `Abertura`, conferida:
+
+```
+F16  TOTAL NF           notas fiscais de serviço da transportadora (série 748)
+F29  TOTAL CT-E         os CT-es da quinzena — 03.08.15
+F43  CT-E DIÁRIO TOTAL  "(RELATÓRIO 03.02.59.02)", escrito na aba
+```
+
+Na 2ª quinzena ela fecha ao centavo: `1.346.131,65 + 26.839,98 + 109,52 −
+17.398,54 = 1.355.682,61`. Na 1ª sobra **R$ 8,07** — um CT-e de VBZ 05 emitido
+no dia 1º que a `Abertura` não conta.
+
+**A série 748 é o único dado do resumo sem relatório importável.** Ela não está
+embutida no 03.08.15: nenhum dos treze valores de NF que a `Abertura` lista
+aparece em qualquer uma das 57.012 linhas dele. São NFs de serviço — o lado ISS
+do faturamento —, e o 03.08.15 traz o lado CT-e. Falta dela **não** impede o
+`TOTAL GERAL SRTRANS`, que vem do 03.08.20; impede a conferência que o
+decompõe. Onde informá-la está em `ONDE_INFORMAR_AS_NOTAS`.
+
+**O quadro reservado.** `AI34` e `AJ34` não existem como célula — não são zero,
+não têm fórmula. Só `AK34 = SUM(AI34+AJ34)` existe, somando dois vazios. E
+mesmo assim `AI36` soma os três quadros. Enquanto o motor somava dois, os dois
+lados chegavam ao mesmo número **por acaso**: o acaso de a terceira parcela
+estar vazia. O conceito não é hipotético — a VBZ 06 (`Rota - Rem. Variável
+Equipe Entrega`) sai em CT-e, R$ 244.753,67 na 2ª quinzena.
+
+## O 03.08.18 não é a fonte do desconto de disponibilidade
+
+A legenda de cores da planilha associa o `03.08.18` à linha
+`DESCONTO DE DISPONIBILIDADE`. Os números da competência conferida desmentem a
+associação direta, e por isso a fonte canônica fica **registrada como decisão
+pendente** (`DECISOES_PENDENTES`, em `matriz.ts`) em vez de escolhida:
+
+| Candidato | 1ª quinzena | 2ª quinzena |
+|---|---:|---:|
+| 03.08.18 (`Desc.FF Custo Fixo + Equipe + Indiretos + FA`) | 42.939,35 | 29.075,62 |
+| 03.08.20 (bloco `DESCONTO DISPONIBILIDADE`) | **não existe** | — |
+| planilha (`Mapa Rota!R139` / `AH139`, digitados) | 11.649,87 | 91.642,50 |
+
+O 11.649,87 da 1ª quinzena **é o `Desconto Frete mínimo` do 03.08.20**, lido do
+arquivo real. Ou seja: a planilha põe o frete mínimo na linha da
+disponibilidade e deixa o complementar negativo zerado. O sistema o põe no
+complementar, que é onde o relatório o declara — e como a planilha bruta a linha
+da disponibilidade pelo fator e não bruta o complementar, são **R$ 4.257,50** de
+diferença no quadro, com a mesma origem documental.
+
+`Mapa Rota!R138`, `R139`, `R140`, `AH138`, `AH139` e `AH140` **não têm
+fórmula**: são digitados à mão.
+
+## Uma advertência sobre o que a reconciliação prova
+
+A reconciliação roda o motor sobre os parâmetros, as viagens e as bases da
+**própria** `.xlsb`. Isso responde *dadas as mesmas entradas, o motor chega ao
+mesmo resultado?* — equivalência de fórmula — e **não** responde *os relatórios
+importados mais o cadastro chegam lá?*.
+
+As duas eram indistinguíveis na saída até `ProcedenciaDosInsumos` existir. Hoje
+a matriz declara de onde cada insumo veio e só chama de ponta a ponta o que é.
+O gate está em `__tests__/prova-ponta-a-ponta.test.ts`, com a lista de arquivos
+que faltam para rodá-lo.
+
 ### As duas linhas que o produto passou a calcular
 
 `INDISPONIBILIDADE` e `TOTAL REMUNERAÇÃO ROTA OUTROS CUSTOS` entravam no motor

@@ -766,6 +766,14 @@ export type QuadroDoResumo =
 export interface QuadroDoMapa {
   quadro: QuadroDoResumo;
   titulo: string;
+  /**
+   * Como a planilha nomeia a linha de total deste quadro.
+   *
+   * Vem do domínio e não da tela porque é vocabulário da planilha — a mesma
+   * razão de `titulo` estar aqui. `null` no quadro que não tem linha de total
+   * no resumo.
+   */
+  rotuloDoTotal: string | null;
   linhas: LinhaDoMapa[];
   /** A soma das parcelas menos os descontos. `null` se faltar qualquer uma. */
   total: number | null;
@@ -857,6 +865,8 @@ export function quadroDaEquipeDeEntrega(): QuadroDoMapa {
   return {
     quadro: "EQUIPE_DE_ENTREGA",
     titulo: "Remuneração variável — equipe de entrega",
+    /* A planilha não escreve linha de total neste quadro — ver a nota acima. */
+    rotuloDoTotal: null,
     linhas: [],
     /* Soma vazia é zero legítimo: não há parcela a faltar. Ver a nota acima. */
     total: 0,
@@ -994,6 +1004,7 @@ export function montarMapaDaQuinzena(entrada: {
     {
       quadro: "REMUNERACAO",
       titulo: "Rota — a remuneração da frota contratada",
+      rotuloDoTotal: "Total remuneração rota",
       linhas: remuneracao,
       total: somarQuadro(remuneracao),
       reservado: null,
@@ -1001,6 +1012,7 @@ export function montarMapaDaQuinzena(entrada: {
     {
       quadro: "VARIAVEL",
       titulo: "Rota — o variável aberto",
+      rotuloDoTotal: "Total remuneração rota",
       linhas: variaveis,
       total: somarQuadro(variaveis),
       reservado: null,
@@ -1008,6 +1020,7 @@ export function montarMapaDaQuinzena(entrada: {
     {
       quadro: "OUTROS_CUSTOS",
       titulo: "Outros custos",
+      rotuloDoTotal: "Total outros custos",
       linhas: outros,
       total: somarQuadro(outros),
       reservado: null,

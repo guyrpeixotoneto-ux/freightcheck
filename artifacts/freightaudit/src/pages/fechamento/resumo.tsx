@@ -22,7 +22,6 @@ import {
   type CanalDoResumo,
   type DiagnosticoDoCadastro,
   type Inconsistencia,
-  type LinhaComparada,
   type MesDaReferencia,
   type PainelComparado,
   type ProcedenciaDaReferencia,
@@ -34,6 +33,7 @@ import {
   PainelDaPlanilhaTabela,
   type ColunaDoPainel,
 } from "@/components/fechamento/painel-da-planilha";
+import { ResumoGeralDoCanal } from "@/components/fechamento/resumo-geral";
 import { ReferenciaDaPlanilha } from "@/components/fechamento/referencia-da-planilha";
 import { cn } from "@/lib/utils";
 
@@ -1068,54 +1068,6 @@ function PainelDoCanal({
  * esconder a linha faria o painel parecer completo quando não está.
  */
 /**
- * As duas células da planilha numa linha — e o que cada estado delas significa.
- *
- * `—` quando a planilha não publica esta linha; o número quando publica. A
- * causa conhecida entra como legenda embaixo da diferença, e **não** apaga o
- * número: a diferença continua inteira, com o nome da investigação que já foi
- * feita ao lado. Uma diferença que some porque já se sabe de onde vem é uma
- * conferência que concorda consigo mesma.
- */
-function CelulasDaPlanilha({
-  linha,
-  coluna,
-}: {
-  linha: LinhaComparada;
-  coluna: (v: TresColunas) => number | null;
-}) {
-  const daPlanilha = linha.planilha ? coluna(linha.planilha) : null;
-  const diferenca = linha.diferencaDaPlanilha ? coluna(linha.diferencaDaPlanilha) : null;
-  const celula = linha.celulaDaPlanilha?.primeira ?? linha.celulaDaPlanilha?.segunda ?? null;
-
-  return (
-    <>
-      <td
-        className="py-2 text-right font-mono tabular-nums"
-        title={celula ? `RESUMO GERAL, célula ${celula}` : undefined}
-      >
-        {dinheiro(daPlanilha)}
-      </td>
-      <td
-        className={cn(
-          "py-2 text-right font-mono tabular-nums",
-          diferenca !== null && Math.abs(diferenca) >= 0.005 && "font-semibold",
-        )}
-      >
-        {dinheiro(diferenca)}
-        {linha.causaConhecida && diferenca !== null && Math.abs(diferenca) >= 0.005 && (
-          <span
-            className="block text-xs font-sans font-normal text-muted-foreground"
-            title={linha.causaConhecida}
-          >
-            causa conhecida
-          </span>
-        )}
-      </td>
-    </>
-  );
-}
-
-/**
  * De qual arquivo saiu a coluna da planilha.
  *
  * **Aparece sempre que a coluna aparece, e não atrás de um clique.** O `.xlsb`
@@ -1141,6 +1093,13 @@ function ProcedenciaDaPlanilha({ referencia }: { referencia: ProcedenciaDaRefere
   );
 }
 
+/**
+ * A aba `Planilha` de um canal — o cabeçalho e a tabela do `RESUMO GERAL`.
+ *
+ * A tabela mora em `ResumoGeralDoCanal`; o que fica aqui é o que a emoldura: de
+ * qual `.xlsb` a conferência sai, quando há uma anexada, e de qual cadastro o
+ * devido saiu — sem isso um número que surpreende não tem onde ser conferido.
+ */
 function PainelComparadoTabela({
   painel,
   recorte,
@@ -1148,10 +1107,6 @@ function PainelComparadoTabela({
   painel: PainelComparado;
   recorte: Recorte;
 }) {
-  /* No consolidado a coluna é o total do mês; numa quinzena, a dela. */
-  const coluna = (v: TresColunas) =>
-    recorte === "consolidado" ? v.total : recorte === "1" ? v.primeira : v.segunda;
-
   const doCadastro =
     recorte === "2" ? painel.cadastro.segunda : painel.cadastro.primeira;
 
@@ -1160,25 +1115,12 @@ function PainelComparadoTabela({
     mensal, e a régua da quinzena é de calendário, não de negócio. Quem lê
     precisa saber: "vigente desde 01/07" numa coluna que começa no dia 16 é
     verdade e parece erro, e a frase é a diferença entre conferir e desconfiar.
-    A comparação é de identidade, não de data: quem decide qual aba responde é
-    `vigenciaQueResponde`, em `@workspace/remuneracao`, e repetir a régua aqui
-    daria dois lugares para ela divergir.
   */
   const mesmaAbaNasDuas =
     painel.cadastro.primeira !== null &&
     painel.cadastro.segunda !== null &&
     painel.cadastro.primeira.cadastroId === painel.cadastro.segunda.cadastroId;
 
-  /*
-    As duas colunas da planilha só existem quando há arquivo anexado — e a
-    ausência delas é o estado normal, não um erro. Uma tabela com duas colunas
-    de traços diria que a planilha não publica nada, quando a verdade é que
-    ninguém a anexou. É a mesma disciplina do resto desta tela.
-
-    A regra mora em `temColunaDaPlanilha`, exportada e testada, porque o caso que
-    ela pega — o campo ausente durante um deploy — não aparece em tela nenhuma
-    até alguém abrir o Resumo na hora errada.
-  */
   const temPlanilha = temColunaDaPlanilha(painel);
 
   return (
@@ -1186,15 +1128,11 @@ function PainelComparadoTabela({
       {painel.referencia && <ProcedenciaDaPlanilha referencia={painel.referencia} />}
       <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-xs text-muted-foreground">
         <span>
-          <strong className="text-foreground">Devido</strong> — do contrato e do diário
-        </span>
-        <span>
-          <strong className="text-foreground">Demonstrado</strong> — do 03.08.20
+          As três colunas saem do <strong className="text-foreground">cadastro</strong> e
+          dos <strong className="text-foreground">relatórios importados</strong>
         </span>
         {temPlanilha && (
-          <span>
-            <strong className="text-foreground">Planilha</strong> — do arquivo anexado
-          </span>
+          <span>abra uma linha para ver o 03.08.20 e a planilha anexada ao lado</span>
         )}
         {doCadastro && (
           <span>
@@ -1204,162 +1142,16 @@ function PainelComparadoTabela({
         )}
       </div>
 
-      {painel.quadros.map((quadro) => (
-        <div key={quadro.quadro}>
-          <p className="text-xs font-semibold text-muted-foreground mb-1">{quadro.titulo}</p>
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b text-xs text-muted-foreground">
-                <th className="py-2 text-left font-medium">Linha</th>
-                <th className="py-2 text-right font-medium min-w-32">Devido</th>
-                <th className="py-2 text-right font-medium min-w-32">Demonstrado</th>
-                <th className="py-2 text-right font-medium min-w-32">Diferença</th>
-                {temPlanilha && (
-                  <>
-                    <th className="py-2 text-right font-medium min-w-32">Planilha</th>
-                    <th className="py-2 text-right font-medium min-w-32">Dif. planilha</th>
-                  </>
-                )}
-              </tr>
-            </thead>
-            <tbody>
-              {quadro.linhas.map((linha) => {
-                const diferenca = coluna(linha.diferenca);
-                /*
-                  O demonstrado é `null` por duas razões opostas, e a tela tem
-                  de separá-las. Sem 03.08.20, falta arquivo. Com 03.08.20 e a
-                  linha dentro de um conjunto, **não falta nada**: o relatório
-                  traz a frota fixa somada e não a parte por tipo, e o número
-                  desta linha só existe junto com as outras cinco. Um traço nos
-                  dois casos mandaria procurar num relatório o que ele não tem.
-
-                  O devido ao lado aparece linha a linha, e é esse o ponto: o
-                  contrato tem a partição que o demonstrativo não tem.
-                */
-                const emConjunto =
-                  coluna(linha.demonstrado) === null && linha.conjunto !== null;
-                return (
-                  <tr key={linha.chave} className="border-b last:border-0 align-top">
-                    <td className="py-2">
-                      <span title={linha.memoria.primeira ?? linha.memoria.segunda ?? undefined}>
-                        {linha.rotulo}
-                      </span>
-                      {linha.falta && (
-                        <span className="block text-xs text-muted-foreground">
-                          falta {linha.falta}
-                        </span>
-                      )}
-                    </td>
-                    <td className="py-2 text-right font-mono tabular-nums">
-                      {dinheiro(coluna(linha.devido))}
-                    </td>
-                    <td className="py-2 text-right font-mono tabular-nums">
-                      {emConjunto ? (
-                        <span
-                          className="text-xs font-sans text-muted-foreground"
-                          title={`${linha.conjunto!.nome}: ${dinheiro(
-                            coluna(linha.conjunto!.valores),
-                          )} — dividido com ${linha.conjunto!.linhas.join(", ")}`}
-                        >
-                          em conjunto
-                        </span>
-                      ) : (
-                        dinheiro(coluna(linha.demonstrado))
-                      )}
-                    </td>
-                    <td
-                      className={cn(
-                        "py-2 text-right font-mono tabular-nums",
-                        /* Zero não merece destaque; é o estado esperado. */
-                        diferenca !== null && Math.abs(diferenca) >= 0.005 && "font-semibold",
-                      )}
-                    >
-                      {dinheiro(diferenca)}
-                    </td>
-                    {temPlanilha && <CelulasDaPlanilha linha={linha} coluna={coluna} />}
-                  </tr>
-                );
-              })}
-              {/*
-                O conjunto entra depois das linhas e antes do total, que é onde
-                a subtração dele faz sentido: as seis linhas acima têm devido e
-                não têm demonstrado, e é aqui que se vê se elas fecham contra o
-                número que o relatório traz para todas juntas.
-              */}
-              {quadro.conjuntos.map((c) => {
-                const diferencaDoConjunto = coluna(c.diferenca);
-                return (
-                  <tr key={c.chave} className="border-b bg-muted/20 align-top">
-                    <td className="py-2 text-xs text-muted-foreground italic" title={c.porque}>
-                      {c.nome} — o número que {c.linhas.length} linhas acima dividem
-                    </td>
-                    <td className="py-2 text-right font-mono tabular-nums text-xs">
-                      {dinheiro(coluna(c.devido))}
-                    </td>
-                    <td className="py-2 text-right font-mono tabular-nums text-xs">
-                      {dinheiro(coluna(c.demonstrado))}
-                    </td>
-                    <td
-                      className={cn(
-                        "py-2 text-right font-mono tabular-nums text-xs",
-                        diferencaDoConjunto !== null &&
-                          Math.abs(diferencaDoConjunto) >= 0.005 &&
-                          "font-semibold",
-                      )}
-                    >
-                      {dinheiro(diferencaDoConjunto)}
-                    </td>
-                    {/*
-                      O conjunto não tem linha própria no `RESUMO GERAL` — ele é
-                      uma soma que só o nosso lado sabe fazer. Duas células
-                      vazias, e não zeros: zero ali afirmaria que a planilha
-                      publica zero para o conjunto, e ela não publica nada.
-                    */}
-                    {temPlanilha && (
-                      <>
-                        <td className="py-2 text-right text-xs text-muted-foreground">—</td>
-                        <td className="py-2 text-right text-xs text-muted-foreground">—</td>
-                      </>
-                    )}
-                  </tr>
-                );
-              })}
-              <tr className="border-b font-semibold">
-                <td className="py-2 text-right pr-4 text-xs text-muted-foreground">Total</td>
-                {[quadro.devido, quadro.demonstrado, quadro.diferenca].map((v, i) => (
-                  <td key={i} className="py-2 text-right font-mono tabular-nums">
-                    {dinheiro(coluna(v))}
-                  </td>
-                ))}
-                {temPlanilha && (
-                  <>
-                    {/*
-                      O total da planilha é o que ela **publica** na linha de
-                      total, e não a soma das linhas dela. É deliberado: a
-                      reconciliação encontrou um total (`AJ133`) cuja fórmula
-                      discorda das próprias parcelas, e somar aqui esconderia
-                      exatamente esse defeito.
-                    */}
-                    <td className="py-2 text-right font-mono tabular-nums">
-                      {dinheiro(quadro.planilha ? coluna(quadro.planilha) : null)}
-                    </td>
-                    <td className="py-2 text-right font-mono tabular-nums">
-                      {dinheiro(
-                        quadro.diferencaDaPlanilha ? coluna(quadro.diferencaDaPlanilha) : null,
-                      )}
-                    </td>
-                  </>
-                )}
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      ))}
+      <ResumoGeralDoCanal
+        painel={painel}
+        colunas={colunasDoRecorte(recorte)}
+        temPlanilha={temPlanilha}
+      />
 
       {painel.pendencias.length > 0 && (
         <Alert>
           <AlertDescription className="text-xs">
-            O devido está incompleto: falta {painel.pendencias.join(", ")}. As linhas que
+            O cálculo está incompleto: falta {painel.pendencias.join(", ")}. As linhas que
             dependem disso ficam vazias em vez de somar zero.
           </AlertDescription>
         </Alert>
