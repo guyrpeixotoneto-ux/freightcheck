@@ -109,14 +109,17 @@ export interface ChangeGroup {
 export type { ResumoDeImpacto as ImpactSummary } from "@workspace/comparison/deduplicacao";
 import type { ResumoDeImpacto as ImpactSummary } from "@workspace/comparison/deduplicacao";
 
-export interface SeriesContext {
-  scopeHash: string;
-  channel: string | null;
-  label: string;
-  scopes: { scopeType: string; code: string; name: string | null }[];
-  latestPeriod: string;
-  periods: number;
-}
+/**
+ * A unidade e canal de uma série — o mesmo `Contexto` de `lib/contextos.ts`.
+ *
+ * Era uma terceira cópia da forma, ao lado das de `pages/unidades.tsx` e
+ * `components/layout/sidebar.tsx`. Três declarações da mesma resposta é a versão
+ * de tipos do defeito que este alias fecha do lado do dado: nada obrigava as
+ * três a concordarem, e a consulta que as alimenta é uma só. O nome fica, porque
+ * é como as views de `/changes/grouped` chamam o campo.
+ */
+export type { Contexto as SeriesContext } from "@/lib/contextos";
+import type { Contexto as SeriesContext } from "@/lib/contextos";
 
 export interface GroupedView {
   /** De quem é esta vigência: unidade e canal. */

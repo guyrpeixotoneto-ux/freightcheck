@@ -22,11 +22,76 @@ describe("diagnosticarTransporte", () => {
     const d = diagnosticarTransporte({ naoCompletou: true });
 
     expect(d.estado).toBe("SEM_RESPOSTA");
-    expect(d.acao?.quem).toBe("plataforma");
-    // A evidência precisa ensinar a separar as três causas, porque o navegador
-    // escreve as três como "Failed to fetch".
+    /*
+      A ação é de quem está na tela — e isto **mudou de propósito**.
+
+      Era `plataforma`, e a frase mandava abrir DevTools → Network ou rodar a
+      sonda. Duas coisas erradas de uma vez: transferia o diagnóstico para quem
+      só queria a lista, e admitia que o produto depende de alguém abrir o
+      console para funcionar. Ele não depende — a chamada é repetida cinco vezes
+      ao longo de 13,2s e a tela oferece o botão. Os instrumentos de investigação
+      continuam nomeados, na `evidencia`, que é a letra miúda de engenharia.
+    */
+    expect(d.acao?.quem).toBe("operador");
+    expect(d.acao?.texto).not.toMatch(/DevTools/);
+    expect(d.acao?.comando).toBeUndefined();
+    // A evidência precisa ensinar a separar as causas, porque o navegador
+    // escreve todas como "Failed to fetch".
     expect(d.evidencia).toMatch(/ERR_CONNECTION_REFUSED/);
     expect(d.evidencia).toMatch(/CORS/);
+    expect(d.evidencia).toMatch(/sonda-cold-start/);
+  });
+
+  /**
+   * O aviso não pode afirmar o que o navegador não observou.
+   *
+   * Este era o defeito da mensagem, e ele tem nome: o texto dizia que o processo
+   * "API Server" fora do ar estava **descartado** ("responderia 502 e apareceria
+   * aqui como outro aviso") e que sobravam **exatamente três** causas. Nenhuma
+   * das duas é observável de dentro do navegador — e neste produto a primeira
+   * era falsa por construção, porque a `queryFn` compartilhada da casca traduzia
+   * todo `!response.ok` em lista vazia, então um 502 nunca chegaria a virar
+   * aviso nenhum. Ver `lib/contextos.ts`.
+   *
+   * A asserção é negativa de propósito, como a de `RESTABELECER_API` abaixo: o
+   * que não pode voltar é a **afirmação**, e ela voltaria em qualquer nova
+   * redação que se sentisse à vontade para concluir.
+   */
+  it("SEM_RESPOSTA não descarta causa nenhuma nem promete uma lista fechada", () => {
+    const d = diagnosticarTransporte({ naoCompletou: true });
+    const tudo = [d.resumo, d.evidencia, d.acao?.texto].filter(Boolean).join(" ");
+
+    expect(tudo).not.toMatch(/descarta/i);
+    expect(tudo).not.toMatch(/sobram/i);
+    expect(tudo).not.toMatch(/três causas/i);
+    // E precisa separar o que se sabe do que se supõe, em vez de misturar.
+    expect(d.resumo).toMatch(/o que se sabe/i);
+  });
+
+  /**
+   * A frase do navegador é a única pista de primeira mão que existe, e ela se
+   * perdia: o `TypeError` subia cru e era reclassificado por `instanceof` lá na
+   * frente, sem a mensagem. Agora `requisitar` (em `lib/api.ts`) a traz junto.
+   */
+  it("SEM_RESPOSTA carrega a frase que o navegador escreveu", () => {
+    const d = diagnosticarTransporte({ naoCompletou: true, motivo: "Failed to fetch" });
+
+    expect(d.evidencia).toMatch(/Failed to fetch/);
+  });
+
+  /**
+   * Cancelamento não é queda.
+   *
+   * Uma navegação que desmonta a tela cancela a chamada em voo. Classificar isso
+   * como falha de rede acusaria a plataforma por um clique — e faria a política
+   * de repetição insistir numa chamada cujo resultado ninguém quer mais.
+   */
+  it("REQUISICAO_CANCELADA: fomos nós que interrompemos, e não há o que fazer", () => {
+    const d = diagnosticarTransporte({ cancelada: true });
+
+    expect(d.estado).toBe("REQUISICAO_CANCELADA");
+    expect(d.acao).toBeNull();
+    expect(d.risco.emRisco).toBe(false);
   });
 
   /**
@@ -131,6 +196,7 @@ describe("diagnosticarTransporte", () => {
   it("nenhum caso põe dado em risco, e todos dizem isso", () => {
     const casos: TransporteObservado[] = [
       { naoCompletou: true },
+      { cancelada: true },
       { status: 502, corpoVazio: true },
       { status: 200, corpoVazio: true },
       { status: 404, corpoVazio: true },
@@ -138,7 +204,7 @@ describe("diagnosticarTransporte", () => {
     ];
 
     const estados = casos.map((caso) => diagnosticarTransporte(caso).estado);
-    expect(new Set(estados).size).toBe(5);
+    expect(new Set(estados).size).toBe(6);
 
     for (const caso of casos) {
       const d = diagnosticarTransporte(caso);
@@ -155,6 +221,7 @@ describe("diagnosticarTransporte", () => {
   it("nenhum caso do transporte recomenda migrations", () => {
     const casos: TransporteObservado[] = [
       { naoCompletou: true },
+      { cancelada: true },
       { status: 502, corpoVazio: true },
       { status: 200, corpoVazio: true },
       { status: 404, corpoVazio: true },

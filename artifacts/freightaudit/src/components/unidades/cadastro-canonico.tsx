@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { apresentar } from "@/lib/apresentar-erro";
 import { fetchJson } from "@/lib/api";
+import { listarUnidadesCanonicas, type UnidadeCanonica } from "@/lib/fechamento";
 import { cn } from "@/lib/utils";
 
 /**
@@ -33,14 +34,23 @@ import { cn } from "@/lib/utils";
  * confirma é gente.
  */
 
-interface LinhaDaAdministracao {
-  id: string | null;
-  nome: string;
-  cnpj: string;
-  cnpjFormatado: string;
-  estado: "CADASTRADA" | "CADASTRADA_E_IMPORTADA" | "DETECTADA";
-  vigencias: number;
-}
+/**
+ * A linha desta tela é a `UnidadeCanonica` de `lib/fechamento.ts`, e não uma
+ * cópia dela.
+ *
+ * Era uma cópia — os mesmos seis campos, escritos de novo —, e vinha com uma
+ * `queryFn` própria para a mesma chave `["unidades","canonicas"]` que Realizar
+ * Fechamento e Registrar Unidade já usavam. As duas coisas juntas são
+ * exatamente o defeito que este PR corrige em `/contexts`: no React Query há
+ * **uma** `Query` por chave, com uma `queryFn` só, e quem dispara a busca dita
+ * o comportamento para todos os observadores. Hoje as duas versões fazem a
+ * mesma chamada e nada quebra; bastaria uma delas ganhar um `.catch(() => [])`
+ * ou um `retry: false` para as outras duas telas herdarem em silêncio.
+ *
+ * Foi `lib/__tests__/chave-compartilhada.test.ts` que apontou isto, sobre a
+ * árvore já mesclada — que é o trabalho dele.
+ */
+type LinhaDaAdministracao = UnidadeCanonica;
 
 const ROTULO: Record<LinhaDaAdministracao["estado"], { texto: string; classe: string }> = {
   CADASTRADA: {
@@ -65,7 +75,8 @@ export function CadastroCanonicoDeUnidades() {
 
   const lista = useQuery({
     queryKey: ["unidades", "canonicas"],
-    queryFn: () => fetchJson<LinhaDaAdministracao[]>("/unidades/canonicas"),
+    // A mesma busca das outras duas telas que usam esta chave. Ver o tipo acima.
+    queryFn: listarUnidadesCanonicas,
   });
 
   const cadastrar = useMutation({

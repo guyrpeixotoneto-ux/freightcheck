@@ -1,12 +1,12 @@
-import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
-import { ArrowRight, Building2 } from "lucide-react";
+import { ArrowRight, Building2, WifiOff } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
 import { ApiErrorNotice } from "@/components/api-error";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { fetchJson } from "@/lib/api";
 import { CadastroCanonicoDeUnidades } from "@/components/unidades/cadastro-canonico";
+import { useContextos, type Contexto } from "@/lib/contextos";
 
 /**
  * Unidades — as seleções que existem, com o que cada uma já entregou.
@@ -22,15 +22,6 @@ import { CadastroCanonicoDeUnidades } from "@/components/unidades/cadastro-canon
  * canal — são séries separadas, comparadas separadamente, e juntá-las na tela
  * sugeriria um total que o motor recusa a calcular.
  */
-
-interface Contexto {
-  scopeHash: string;
-  channel: string | null;
-  label: string;
-  scopes: { scopeType: string; code: string; name: string | null }[];
-  latestPeriod: string;
-  periods: number;
-}
 
 const MESES = [
   "janeiro", "fevereiro", "março", "abril", "maio", "junho",
@@ -56,10 +47,31 @@ function enderecoDe(contexto: Contexto): string {
 }
 
 export default function Unidades() {
-  const { data: contextos = [], isLoading, error } = useQuery({
-    queryKey: ["contexts"],
-    queryFn: () => fetchJson<Contexto[]>("/contexts"),
-  });
+  /*
+    A consulta vem de `lib/contextos.ts`, e não escrita aqui — foi escrevê-la
+    aqui que produziu o defeito.
+
+    Esta tela declarava `queryKey: ["contexts"]` com a sua própria `queryFn`. A
+    barra lateral, que o `Layout` monta em volta, declarava a **mesma chave** com
+    outra `queryFn` e `retry: false`. No React Query há uma `Query` por chave,
+    com uma `queryFn` e uma política só: quem dispara a busca dita as duas. E
+    quem dispara é a lateral, porque efeitos do React correm de dentro para fora.
+
+    O que se via nesta tela era o efeito disso, e nada disto é hipótese — está
+    medido em `lib/__tests__/contextos.test.ts` e reproduzido no navegador:
+
+      · a `queryFn` desta página **nunca rodava**;
+      · a da lateral traduzia todo `!response.ok` em `[]`, então 502 (API fora
+        do ar) e 401 (sessão expirada) chegavam aqui como "nenhuma vigência
+        importada ainda" — o oposto do que houve;
+      · `retry: false` vencia, então as cinco tentativas de `resiliencia.ts`
+        nunca rodavam e uma falha de rede pintava o painel na primeira;
+      · e como todo status virava dado, o único erro que sobrava era o `fetch`
+        rejeitando — o que fazia o aviso dizer *sempre* "a requisição não
+        completou", não por diagnóstico, mas por eliminação silenciosa.
+  */
+  const consulta = useContextos();
+  const contextos = consulta.dados ?? [];
 
   const unidades = new Set(contextos.map((c) => c.scopeHash)).size;
 
@@ -83,28 +95,99 @@ export default function Unidades() {
         {/*
           O cadastro mestre vem primeiro porque é a autoridade: a lista de baixo
           é o acervo — o que cada seleção já entregou —, e continua saindo de
-          `/contexts` sem mudar uma linha.
+          `/contexts`.
         */}
         <CadastroCanonicoDeUnidades />
 
-        {error && (
+        {/*
+          O painel só quando **não há lista para mostrar**.
+
+          `indisponivel` é `erro && nunca houve resposta` (`resiliencia.ts`), e é
+          a diferença entre informar e destruir informação: uma lista carregada
+          às 14h02 continua sendo a lista às 14h05, e trocá-la por um painel
+          amarelo porque um refetch de fundo não completou apaga o que estava
+          certo. Antes, qualquer falha — inclusive a que passaria sozinha —
+          substituía a tela.
+
+          O painel é do **acervo**, e só dele: o cadastro canônico acima tem a
+          consulta e o aviso dele próprio, e um erro de um não pode falar pelo
+          outro. São duas perguntas — quais unidades existem, e o que cada uma
+          já entregou — e a tela agora as faz separadamente.
+        */}
+        {consulta.indisponivel && (
           <ApiErrorNotice
-            error={error}
+            error={consulta.erro}
             what="A lista de unidades não pôde ser carregada."
+            onTentarDeNovo={consulta.tentarDeNovo}
+            tentando={consulta.atualizando}
           />
+        )}
+
+        {/*
+          A falha que não substitui a tela: há lista, e a atualização não veio.
+
+          A hora é o que faz a tira ser honesta — "de 14h02" é verificável, "pode
+          estar desatualizado" é desculpa.
+        */}
+        {consulta.avisarSobreDadoGuardado && (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-amber-200 bg-amber-50/70 px-4 py-2 text-sm text-amber-900">
+            <WifiOff className="w-4 h-4 shrink-0" />
+            <span>
+              A atualização da lista não completou. O que está em tela é de{" "}
+              {new Date(consulta.respondidoEm ?? 0).toLocaleTimeString("pt-BR", {
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+              , e continua válido.
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7"
+              disabled={consulta.atualizando}
+              onClick={consulta.tentarDeNovo}
+            >
+              {consulta.atualizando ? "Tentando…" : "Tentar de novo"}
+            </Button>
+          </div>
         )}
 
         <Card>
           <CardHeader className="pb-3">
+            {/*
+              Sem resposta não há contagem — e "0 unidades" é uma contagem.
+
+              Era a última mentira que sobrava nesta tela: o painel de falha
+              aparecia com "0 unidades · 0 seleções" logo abaixo, e o número
+              afirma sobre o acervo o mesmo que a frase de lista vazia afirmava.
+              Zero é um fato quando o servidor respondeu zero.
+            */}
             <CardTitle className="text-base">
-              {unidades} {unidades === 1 ? "unidade" : "unidades"} ·{" "}
-              {contextos.length} {contextos.length === 1 ? "seleção" : "seleções"} (unidade + canal)
+              {consulta.houveResposta ? (
+                <>
+                  {unidades} {unidades === 1 ? "unidade" : "unidades"} ·{" "}
+                  {contextos.length}{" "}
+                  {contextos.length === 1 ? "seleção" : "seleções"} (unidade + canal)
+                </>
+              ) : (
+                "Unidades e seleções (unidade + canal)"
+              )}
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
-            {isLoading && <p className="p-6 text-sm text-muted-foreground">Carregando…</p>}
+            {consulta.carregando && (
+              <p className="p-6 text-sm text-muted-foreground">Carregando…</p>
+            )}
 
-            {!isLoading && !error && contextos.length === 0 && (
+            {/*
+              "Nenhuma vigência importada" é uma **afirmação sobre o acervo**, e
+              por isso só pode ser escrita quando o servidor de fato respondeu.
+              `houveResposta` é a autoridade — não `contextos.length === 0`, que
+              vale igual para a lista vazia e para a lista que nunca chegou. Era
+              exatamente essa confusão que fazia a API fora do ar aparecer aqui
+              como um convite a importar a primeira planilha.
+            */}
+            {consulta.houveResposta && contextos.length === 0 && (
               <p className="p-6 text-sm text-muted-foreground">
                 Nenhuma vigência importada ainda. A primeira planilha enviada em{" "}
                 <Link href="/importacoes" className="text-primary hover:underline">

@@ -1,4 +1,3 @@
-import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
 import {
   ArrowRightLeft,
@@ -69,8 +68,8 @@ import {
   RESUMO_EXECUTIVO,
   type Ambiente,
 } from "@/lib/ambiente";
-import { getApiUrl } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { useContextosDaCasca, type Contexto } from "@/lib/contextos";
 import { cn } from "@/lib/utils";
 import {
   useAlteracoesDaVigencia,
@@ -613,34 +612,38 @@ function IconeDaFaixa({
 
 /** A unidade aberta, reduzida ao alfinete — o nome inteiro fica no rótulo. */
 function UnidadeNaFaixa() {
-  const { data } = useQuery({
-    queryKey: ["contexts"],
-    queryFn: async () => {
-      const response = await fetch(getApiUrl("/contexts"));
-      if (!response.ok) return [] as Contexto[];
-      const body: unknown = await response.json();
-      return Array.isArray(body) ? (body as Contexto[]) : [];
-    },
-    staleTime: 60_000,
-    retry: false,
-    /*
-      Exceção ao `refetchOnWindowFocus: false` global, pela mesma razão dos
-      contadores do menu: isto vive no layout, que nunca desmonta, e sem foco
-      não haveria atualização nenhuma. Engole o erro e não repete, e por isso o
-      foco ligado não repõe painel na tela. Ver `layout/contadores.ts`.
-    */
-    refetchOnWindowFocus: true,
-  });
+  /*
+    A consulta é a de `lib/contextos.ts`, e a `queryFn` daqui deixou de existir.
 
-  const atual = (data ?? [])[0];
+    Ela traduzia `!response.ok` em `[]`. Parecia inofensivo — a casca não deve
+    mesmo mostrar erro —, e não era: a `queryFn` pertence ao **cache**, não ao
+    componente, e esta chave é compartilhada com `pages/unidades.tsx`. Engolir
+    aqui engolia para lá também, e foi assim que a API fora do ar virou "nenhuma
+    vigência importada ainda" na tela que responde pela lista.
+
+    O erro continua sem aparecer nesta faixa, mas agora por decisão de leitura:
+    `useContextosDaCasca` entrega a lista e o estado, e quem desenha escolhe
+    calar. Ver `layout/contadores.ts`, que já sufixava as chaves dele com
+    "casca" justamente para não compartilhar cache com as telas.
+  */
+  const { contextos, indisponivel } = useContextosDaCasca();
+
+  const atual = contextos[0];
 
   return (
     <div className="px-2 pb-2 mb-1 border-b border-sidebar-border">
+      {/*
+        "Nenhuma vigência importada" é afirmação sobre o acervo, e só vale
+        quando o servidor respondeu. Sem resposta, a faixa diz que não sabe —
+        calar é o que a casca deve fazer com uma falha, e mentir não é calar.
+      */}
       <Rotulo
         texto={
-          atual === undefined
-            ? "Nenhuma vigência importada"
-            : `${unidadeDe(atual)} · ${detalheDe(atual)}`
+          atual !== undefined
+            ? `${unidadeDe(atual)} · ${detalheDe(atual)}`
+            : indisponivel
+              ? "Unidade indisponível no momento"
+              : "Nenhuma vigência importada"
         }
       >
         <div className="w-11 h-11 mx-auto rounded-lg border border-sidebar-border flex items-center justify-center">
@@ -776,15 +779,6 @@ function Contador({ valor, tipo }: { valor: number; tipo: NonNullable<NavItem["c
 // A unidade aberta
 // ---------------------------------------------------------------------------
 
-interface Contexto {
-  scopeHash: string;
-  channel: string | null;
-  label: string;
-  scopes: { scopeType: string; code: string; name: string | null }[];
-  latestPeriod: string;
-  periods: number;
-}
-
 /**
  * O que a barra lateral diz sobre unidade — e são duas coisas diferentes.
  *
@@ -793,8 +787,9 @@ interface Contexto {
  * unidades, e afirmar uma seria afirmar um recorte que nenhuma tela honra.
  *
  * **Os dois ramos são componentes, e não um `if` dentro de um.** O da
- * Auditoria chama `useSearch` e `useQuery`; o do Fechamento não chama nenhum
- * dos dois, e a barra lateral não remonta ao navegar entre os ambientes. Um
+ * Auditoria chama `useSearch` e `useContextosDaCasca`; o do Fechamento não
+ * chama nenhum dos dois, e a barra lateral não remonta ao navegar entre os
+ * ambientes. Um
  * `return` antecipado antes dos hooks mudaria a ordem deles no meio da vida do
  * componente, que é o erro que o React não perdoa.
  */
@@ -856,21 +851,8 @@ function AlcanceDoFechamento() {
  */
 function UnidadeAberta() {
   const search = useSearch();
-  const { data, isLoading } = useQuery({
-    queryKey: ["contexts"],
-    queryFn: async () => {
-      const response = await fetch(getApiUrl("/contexts"));
-      if (!response.ok) return [] as Contexto[];
-      const body: unknown = await response.json();
-      return Array.isArray(body) ? (body as Contexto[]) : [];
-    },
-    staleTime: 60_000,
-    retry: false,
-    // Exceção ao foco global, como acima. Ver `layout/contadores.ts`.
-    refetchOnWindowFocus: true,
-  });
-
-  const contextos = data ?? [];
+  // A mesma consulta única de `lib/contextos.ts` — ver `UnidadeNaFaixa`.
+  const { contextos, carregando, indisponivel } = useContextosDaCasca();
   /*
     Qual contexto está aberto: o que a URL pede, quando pede. Fora de Parâmetros
     ninguém pede, e o produto lê o mais recente — que é a ordem que `/contexts`
@@ -886,10 +868,25 @@ function UnidadeAberta() {
       </div>
 
       {atual === undefined ? (
+        /*
+          Três estados, e não dois. Carregando, indisponível e vazio de verdade
+          diziam todos "Nenhuma vigência importada" — o do meio é falso, e era o
+          que a casca escrevia enquanto a API estava fora do ar.
+        */
         <CaixaDaUnidade
-          titulo={isLoading ? "Carregando…" : "Nenhuma vigência importada"}
+          titulo={
+            carregando
+              ? "Carregando…"
+              : indisponivel
+                ? "Não foi possível ler as unidades"
+                : "Nenhuma vigência importada"
+          }
           detalhe={
-            isLoading ? "" : "Envie a primeira planilha em Importações para abrir uma unidade."
+            carregando
+              ? ""
+              : indisponivel
+                ? "A lista volta sozinha quando a chamada completar."
+                : "Envie a primeira planilha em Importações para abrir uma unidade."
           }
         />
       ) : contextos.length === 1 ? (

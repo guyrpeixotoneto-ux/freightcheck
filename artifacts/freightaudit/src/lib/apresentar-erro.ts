@@ -90,12 +90,26 @@ function escolherOrientacao(
   if (error instanceof ErroDeTransporte) return error.diagnostico;
 
   /*
-    `fetch` rejeita com `TypeError` quando a requisição não completa. Nenhum
-    erro nosso é `TypeError` — `ApiError` e `ErroDeTransporte` são `Error` —,
-    então a checagem não captura falha de servidor por engano.
+    A reserva, para as chamadas que ainda usam `fetch` cru.
+
+    Este ramo já foi o caminho **principal** de toda falha de transporte, e era
+    uma aposta: "nenhum erro nosso é `TypeError`". A aposta é falsa — um `.map`
+    num objeto, um contrato que mudou e um `undefined is not a function` são
+    todos `TypeError` —, e o preço era um defeito de código nosso apresentado
+    como "o servidor não respondeu", mandando procurar rede.
+
+    Quem passa por `fetchJson`/`fetchArquivo` não cai mais aqui: `requisitar`
+    (em `lib/api.ts`) classifica a rejeição na origem e sobe `ErroDeTransporte`,
+    com a frase do navegador junto — o ramo de cima. Restam os
+    `fetch(getApiUrl(...))` escritos à mão pelas telas, e para eles esta reserva
+    continua sendo melhor do que texto cru. O caminho de sair daqui é as telas
+    adotarem `fetchJson`, não este ramo ficar mais esperto.
   */
   if (error instanceof TypeError) {
-    return diagnosticarTransporte({ naoCompletou: true });
+    return diagnosticarTransporte({
+      naoCompletou: true,
+      ...(error.message === "" ? {} : { motivo: error.message }),
+    });
   }
 
   if (error instanceof ApiError && ehDiagnostico(error.diagnostico)) {

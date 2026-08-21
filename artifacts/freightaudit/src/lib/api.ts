@@ -14,6 +14,53 @@ export function getApiUrl(path: string): string {
 }
 
 /**
+ * Fazer a requisição, com a falha de transporte já classificada.
+ *
+ * `fetch` rejeita com `TypeError` quando a requisição não completa — conexão
+ * recusada, DNS, TLS, um redirect de outra origem barrado por CORS, a conexão
+ * cortada no meio. Todas chegam com a mesma frase ("Failed to fetch" no Chrome,
+ * "Load failed" no Safari, "NetworkError…" no Firefox), e todas subiam daqui
+ * **cruas**.
+ *
+ * Deixar o `TypeError` subir cru custava duas coisas, e as duas apareceram na
+ * tela. A primeira: quem classificava era `apresentar-erro.ts`, por
+ * `instanceof TypeError` — o que significa que **qualquer** `TypeError` do nosso
+ * próprio código (um contrato que mudou, um `.map` num objeto) era apresentado
+ * como "o servidor não respondeu", mandando procurar rede quando o defeito
+ * estava numa linha. A segunda: a frase do navegador, que é a única pista real
+ * de qual das causas foi, se perdia no caminho.
+ *
+ * Aqui a falha vira `ErroDeTransporte` — o tipo que o resto da interface já sabe
+ * ler — e a frase do navegador vai junto, como evidência. O que sobra de
+ * `TypeError` depois desta função é, por eliminação, defeito nosso.
+ *
+ * O cancelamento é separado do resto e não é falha de rede: quem cancelou fomos
+ * nós (um `AbortController`, uma navegação que desmontou a tela), e repetir uma
+ * chamada cancelada de propósito é o oposto do que se quer.
+ */
+async function requisitar(path: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(getApiUrl(path), init);
+  } catch (err) {
+    const nome =
+      typeof err === "object" && err !== null
+        ? (err as { name?: unknown }).name
+        : undefined;
+    if (nome === "AbortError") {
+      throw new ErroDeTransporte(diagnosticarTransporte({ cancelada: true }));
+    }
+    throw new ErroDeTransporte(
+      diagnosticarTransporte({
+        naoCompletou: true,
+        ...(err instanceof Error && err.message !== ""
+          ? { motivo: err.message }
+          : {}),
+      }),
+    );
+  }
+}
+
+/**
  * Ler o corpo de uma resposta sem confiar que ela é o que se pediu.
  *
  * Esta função nasceu dentro da tela de Importações e vive aqui porque o defeito
@@ -26,7 +73,33 @@ export function getApiUrl(path: string): string {
  * verdadeiro (o banco) invisível.
  */
 export async function readJson(response: Response): Promise<Record<string, unknown>> {
-  const text = await response.text();
+  /*
+    Ler o corpo também pode falhar, e a falha tem status.
+
+    `response.text()` rejeita com `TypeError` quando a conexão morre **depois**
+    da linha de resposta — o corpo é um stream, e um stream cortado no meio não
+    é "não houve resposta". Escapando cru daqui, essa falha caía no `instanceof
+    TypeError` de `apresentar-erro.ts` e era anunciada como `SEM_RESPOSTA`: a
+    tela dizia que não recebeu status nenhum sobre uma chamada cujo status ela
+    tinha lido. É a mesma classe de erro de diagnóstico que este eixo existe para
+    evitar, uma camada abaixo.
+
+    Com status, o caso é `RESPOSTA_INCOMPLETA`, que é o que de fato aconteceu.
+  */
+  let text: string;
+  try {
+    text = await response.text();
+  } catch (err) {
+    throw new ErroDeTransporte(
+      diagnosticarTransporte({
+        status: response.status,
+        corpoVazio: true,
+        ...(err instanceof Error && err.message !== ""
+          ? { motivo: err.message }
+          : {}),
+      }),
+    );
+  }
 
   /*
     As frases desta função eram escritas aqui, em `throw new Error(...)`. Era a
@@ -163,7 +236,7 @@ export function erroDaResposta(
 }
 
 export async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(getApiUrl(path), init);
+  const response = await requisitar(path, init);
   const body = await readJson(response);
   if (!response.ok) throw erroDaResposta(response, body);
   // `readJson` descreve o corpo como objeto porque é assim que os erros desta
@@ -224,7 +297,7 @@ export async function fetchArquivo(
   path: string,
   init?: RequestInit,
 ): Promise<{ blob: Blob; filename: string | null }> {
-  const response = await fetch(getApiUrl(path), init);
+  const response = await requisitar(path, init);
   if (!response.ok) {
     const body = await readJson(response);
     throw erroDaResposta(response, body);
