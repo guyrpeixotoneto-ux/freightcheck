@@ -703,12 +703,17 @@ function classificar(
           ? `a diferença desta linha é a soma das diferenças de ${divergentes.join(", ")}, ` +
             "que já estão justificadas"
           : "nenhuma parcela diverge";
+      const emReais = (n: number, casas: number) =>
+        n.toLocaleString("pt-BR", {
+          minimumFractionDigits: casas,
+          maximumFractionDigits: casas,
+        });
       return {
         status: "DIVERGENCIA_JUSTIFICADA_PLANILHA",
         causa:
           `Não diverge por conta própria: ${heranca}. Resíduo próprio de ` +
-          `R$ ${maiorResiduo.toFixed(2)}, dentro do envelope de arredondamento de ` +
-          `R$ ${envelope.toFixed(3)} (${parcelas.length} parcelas × meio centavo): a ` +
+          `R$ ${emReais(maiorResiduo, 2)}, dentro do envelope de arredondamento de ` +
+          `R$ ${emReais(envelope, 3)} (${parcelas.length} parcelas × meio centavo): a ` +
           "planilha soma as parcelas sem arredondar e o motor arredonda cada uma, que é " +
           "o que se fatura.",
       };
