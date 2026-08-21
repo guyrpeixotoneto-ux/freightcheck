@@ -34,11 +34,27 @@ import { registrarUnidade } from "@/lib/remuneracao";
  * unidades, a aba de Excel costuma chegar antes do arquivo, e a unidade que só
  * tem aba não tinha onde ser digitada.
  *
- * **O que ele cria é identidade, e não número.** Nome, código, tipo de operação
- * e a quinzena em que se começa a preencher. Os números continuam entrando pelo
- * formulário da planilha, marcados como informados, com autor e data — e
- * continuam sem apagar medição nenhuma, porque numa unidade destas o acervo
- * ainda não mede nada.
+ * **O que ele cria é identidade, e não número.** A unidade canônica, o código,
+ * o tipo de operação e a quinzena em que se começa a preencher. Os números
+ * continuam entrando pelo formulário da planilha, marcados como informados, com
+ * autor e data — e continuam sem apagar medição nenhuma, porque numa unidade
+ * destas o acervo ainda não mede nada.
+ *
+ * **Quem responde "qual unidade é esta" é o cadastro, e só ele.** Havia aqui um
+ * campo `Unidade (CDD)` de texto livre, ao lado do seletor de unidade canônica,
+ * e os dois respondiam à mesma pergunta: o nome ia para o pedido digitado como
+ * estivesse, e a linha escolhida ia junto, livres para discordar. Nada em tela
+ * dizia qual valia — e o que valia dependia do campo: o `unidade_id` saía da
+ * linha, o `scope_hash` saía do texto. Cadastrar `CAMAÇARI` tendo escolhido
+ * `CDD CAMACARI — 07.526.557/0015-05` gravava uma unidade cujo nome não é o
+ * nome dela em lugar nenhum do produto.
+ *
+ * O campo saiu, e o seletor passou a ser obrigatório. **O nome deixou de ser
+ * digitável neste produto** — ele nasce uma vez em Administração → Unidades,
+ * junto do CNPJ que é a identidade, e daí em diante é lido. É a mesma decisão
+ * que Realizar Fechamento já tinha tomado do seu lado, e é ela que faz
+ * `Fechamento.unidade_id === Remuneração.unidade_id` deixar de ser coincidência
+ * de texto.
  *
  * **Os mesmos campos de Realizar Fechamento, na mesma ordem.** Quem cadastra a
  * unidade é quem abre o fechamento dela, no mesmo dia e às vezes na mesma hora,
@@ -78,22 +94,18 @@ import { registrarUnidade } from "@/lib/remuneracao";
  * tem — as duas unidades nunca se encontrariam. A exigência é real, e a tela a
  * diz por extenso, porque quem digita não tem como adivinhá-la.
  *
- * É também a razão de o nome e o código serem **dois campos**. Realizar
- * Fechamento teve um só, em que a unidade se digitava como `443 — CDD Belém`,
- * e o leitor daquele campo partia o texto no primeiro travessão, hífen ou
- * barra — inequívoco sobre um código de CDD, que é numérico, e desastroso
- * sobre um CNPJ: `12.345.678/0001-99` traz uma barra e um hífen dentro de si,
- * e viraria o código `12.345.678` com o nome `0001-99 — CDD Belém`. Um
- * identificador errado, gravado sem erro nenhum em tela, descoberto no dia em
- * que o arquivo chegasse e abrisse a segunda unidade.
+ * É também a razão de o código ser **um campo à parte**, e não algo que se
+ * derive do CNPJ do cadastro. Ele nasce preenchido com o CNPJ da unidade
+ * escolhida — que é o que o export costuma trazer — e continua editável, porque
+ * quem manda na grafia é o arquivo: `12.345.678/0001-99` e `12345678000199` são
+ * o mesmo CNPJ e dois `scope_hash` diferentes, e só quem abriu o export sabe
+ * qual dos dois está lá.
  *
- * **As duas telas agora pedem a mesma coisa, com os mesmos rótulos.** Lá também
- * são dois campos, o do código também se chama `Código da unidade`, e o exemplo
- * dele também é um CNPJ — era `443`, e essa era a última divergência: duas
- * telas pedindo identificadores diferentes sob o mesmo nome, sendo que é por
- * esse identificador que uma encontra a outra. Quem seguisse os dois exemplos
- * gravava o número do CDD de um lado e o CNPJ do outro, e o resumo caía no
- * painel antigo sem que nada estivesse errado em tela nenhuma.
+ * **As duas telas agora pedem a mesma coisa, com os mesmos rótulos.** A unidade
+ * sai da mesma lista canônica nas duas, e o exemplo do código é um CNPJ nas
+ * duas — era `443` de um lado e o CNPJ do outro, duas telas pedindo
+ * identificadores diferentes sob o mesmo nome, sendo que é por esse
+ * identificador que uma encontra a outra.
  */
 export function BotaoDeRegistroDeUnidade() {
   const [aberto, setAberto] = useState(false);
@@ -125,14 +137,14 @@ function PainelDeRegistro({ aoFechar }: { aoFechar: () => void }) {
   const [ano, setAno] = useState(String(hoje.getFullYear()));
   const [mes, setMes] = useState(String(hoje.getMonth() + 1));
   const [quinzena, setQuinzena] = useState(hoje.getDate() <= 15 ? "1" : "2");
-  const [nome, setNome] = useState("");
   const [codigo, setCodigo] = useState("");
   /*
-    A unidade canônica escolhida — a mesma tabela que o Fechamento seleciona.
+    A unidade canônica escolhida — a mesma tabela que o Fechamento seleciona,
+    e agora **a única resposta** para "qual unidade é esta".
 
     É o que faz `Fechamento.unidade_id === Remuneração.unidade_id` deixar de
-    ser coincidência de texto: os dois lados apontam para a mesma linha. O nome
-    e o código continuam nos campos abaixo porque servem a outra coisa — o
+    ser coincidência de texto: os dois lados apontam para a mesma linha. O
+    código continua no campo abaixo porque serve a outra coisa — o
     `scope_hash`, que é somado sobre o código como o export o escreve e é o que
     faz o arquivo cair nesta unidade quando chegar.
   */
@@ -165,7 +177,13 @@ function PainelDeRegistro({ aoFechar }: { aoFechar: () => void }) {
     mutationFn: () =>
       registrarUnidade({
         unidadeId: canonica?.id ?? undefined,
-        nome,
+        /*
+          O nome vai como está no cadastro canônico — não é mais digitado aqui.
+          O servidor continua exigindo-o (é dele que sai o identificador quando
+          não há código), e é por isso que ele viaja: o que mudou é de onde ele
+          vem.
+        */
+        nome: canonica?.nome ?? "",
         codigo,
         canal: tipoDeOperacao,
         /*
@@ -186,7 +204,13 @@ function PainelDeRegistro({ aoFechar }: { aoFechar: () => void }) {
 
   const anoValido = anoAceito(ano);
   const temCodigo = codigo.trim() !== "";
-  const faltaCampo = nome.trim() === "" || tipoDeOperacao === "" || !anoValido;
+  /*
+    A unidade canônica passa a ser obrigatória, no lugar do nome digitado. É a
+    mesma exigência de Realizar Fechamento, e pela mesma razão: quem escolhe
+    uma unidade escolhe uma identidade, e é ela que faz a planilha desta tela
+    encontrar a competência do outro lado.
+  */
+  const faltaCampo = canonica === null || tipoDeOperacao === "" || !anoValido;
 
   /*
     Portal, pela razão do painel de cadastro da planilha: este botão vive no
@@ -287,8 +311,11 @@ function PainelDeRegistro({ aoFechar }: { aoFechar: () => void }) {
               {/*
                 A mesma tabela que o Fechamento seleciona — é isto que faz os
                 dois lados apontarem para a **mesma** unidade em vez de casarem
-                por texto. Escolher aqui é opcional só enquanto o passivo antigo
-                existir; o cadastro novo deve sempre apontar para uma canônica.
+                por texto. É obrigatória: era o campo `Unidade (CDD)`, logo
+                abaixo, que tornava a escolha dispensável, e enquanto ele
+                existiu o cadastro tinha duas respostas para "qual unidade é
+                esta" — a linha escolhida e o texto digitado, livres para
+                discordar.
               */}
               <Label htmlFor="unidade-canonica">Unidade canônica</Label>
               <ComboboxCriavel<UnidadeCanonica>
@@ -297,30 +324,43 @@ function PainelDeRegistro({ aoFechar }: { aoFechar: () => void }) {
                 valor={canonica}
                 aoEscolher={(u) => {
                   setCanonica(u);
-                  /* Nome e código já vêm do cadastro — ninguém redigita CNPJ. */
-                  if (nome.trim() === "") setNome(u.nome);
+                  /*
+                    O código vem preenchido com o CNPJ do cadastro, e continua
+                    editável: o `scope_hash` é somado sobre o texto **como o
+                    export o escreve**, e é o export que decide se há máscara.
+                    Só preenche quando está vazio — sobrescrever apagaria a
+                    grafia que alguém foi conferir no arquivo.
+                  */
                   if (codigo.trim() === "") setCodigo(u.cnpjFormatado);
                 }}
                 rotuloDe={(u) => `${u.nome} — ${u.cnpjFormatado}`}
                 chaveDe={(u) => u.id ?? u.cnpj}
                 placeholder="Escolha a unidade cadastrada em Administração → Unidades"
+                atalhoDeCadastro={{
+                  rotulo: "Cadastrar unidade em Administração → Unidades",
+                  para: "/unidades",
+                }}
               />
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="unidade-nome">Unidade (CDD)</Label>
-              <Input
-                id="unidade-nome"
-                value={nome}
-                placeholder="CAMAÇARI"
-                onChange={(e) => setNome(e.target.value)}
-                className="uppercase"
-              />
-            </div>
+              {/*
+                O rótulo diz o que o campo é, e ele **não** é a identidade da
+                unidade — essa é a linha canônica escolhida acima. Aqui é a
+                grafia com que o export escreve o CNPJ dela, que é sobre o que o
+                `scope_hash` é somado: `12.345.678/0001-99` e `12345678000199`
+                são o mesmo CNPJ e dois escopos diferentes, e quem decide qual
+                deles é o arquivo, não esta tela.
 
-            <div className="space-y-1.5">
+                Chamá-lo "Código da unidade" era o resto da confusão que o
+                campo `Unidade (CDD)` começava: dois campos com cara de
+                identidade ao lado de um seletor que era a identidade. O
+                servidor recusa um número que não seja o CNPJ da unidade
+                escolhida — a conferência é lá, com a mesma função da
+                importação, e não repetida aqui.
+              */}
               <Label htmlFor="unidade-codigo">
-                Código da unidade{" "}
+                CNPJ como o export escreve{" "}
                 <span className="font-normal text-muted-foreground">(opcional)</span>
               </Label>
               <Input
@@ -377,23 +417,26 @@ function PainelDeRegistro({ aoFechar }: { aoFechar: () => void }) {
             dois casos estaria errado em metade dos cadastros.
           */}
           <p className={AJUDA}>
-            O nome é o que a lista mostra, e o que quem opera procura.{" "}
+            O nome vem do cadastro da unidade — é o que a lista mostra, e não se
+            redigita aqui.{" "}
             {temCodigo ? (
               <>
-                O código é o mesmo da coluna <strong>Unidade - CNPJ</strong> do export,
-                escrito <strong>exatamente como está lá</strong> — com pontuação, se lá
-                houver. É por ele que o arquivo, quando chegar,{" "}
+                O campo ao lado não é a identidade — ela é a unidade escolhida acima. É a
+                coluna <strong>Unidade - CNPJ</strong> do export, escrita{" "}
+                <strong>exatamente como está lá</strong>: com pontuação, se lá houver. É
+                por essa grafia que o arquivo, quando chegar,{" "}
                 <strong>entra nesta unidade</strong> em vez de abrir uma segunda ao lado
-                dela.
+                dela — e é só por isso que ela se digita.
               </>
             ) : (
               <>
-                <strong>Sem o código, a unidade fica por conta própria</strong>: ela aparece
-                na lista e tem planilha, mas o export, quando chegar, abre a unidade dele ao
-                lado desta — juntar as duas é trabalho manual. Preencher o código da coluna{" "}
-                <strong>Unidade - CNPJ</strong>, exatamente como está lá, é o que faz o
-                arquivo cair aqui dentro. Se você não o tem agora, siga: a planilha não
-                espera pelo arquivo.
+                <strong>Sem essa grafia, a unidade fica por conta própria</strong>: ela
+                aparece na lista e tem planilha, mas o export, quando chegar, abre a unidade
+                dele ao lado desta — juntar as duas é trabalho manual. Preencher a coluna{" "}
+                <strong>Unidade - CNPJ</strong> exatamente como está lá é o que faz o
+                arquivo cair aqui dentro. Se você não sabe como o arquivo a escreve, siga
+                em branco: dá para informar depois, e chutar errado é pior — o código que
+                já vale não se troca por um clique.
               </>
             )}{" "}
             A quinzena é a única vigência que a unidade tem enquanto não há acervo: as outras

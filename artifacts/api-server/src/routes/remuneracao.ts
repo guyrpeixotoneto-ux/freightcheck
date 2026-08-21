@@ -1,8 +1,8 @@
 import { Router, type IRouter } from "express";
-import { db } from "@workspace/db";
+import { cnpjComMascara, db, unidadePorId } from "@workspace/db";
 import type { RequestedContext } from "@workspace/comparison";
 import { ehMimeDeImagem, lerPlanilhaDaImagem } from "@workspace/assistant";
-import { hashScopeSet } from "@workspace/ingest";
+import { hashScopeSet, normalizeDocumento } from "@workspace/ingest";
 import {
   BLOCOS_DO_CADASTRO,
   apagarPlanilhaDaUnidade,
@@ -526,6 +526,25 @@ router.post("/remuneracao/planilha/leitura-de-imagem", async (req, res): Promise
  * mão procurar o CNPJ num export que ainda não chegou — a mesma parede que
  * esta rota existe para derrubar, um passo adiante.
  *
+ * **Quando vem `unidadeId`, quem responde pela identidade é o cadastro — não o
+ * corpo do pedido.** O nome é lido da linha canônica e o do corpo é ignorado, e
+ * o `codigo` só é aceito se for uma **grafia do mesmo CNPJ** daquela unidade.
+ * É a mesma decisão que `abrirCompetencia` já tomava do lado do Fechamento
+ * (ver `lib/fechamento/src/persistencia.ts`), e ela fecha a última brecha por
+ * onde este cadastro podia gravar duas respostas para "qual unidade é esta":
+ * o `unidade_id` saindo da linha escolhida e o `scope_hash` saindo de um texto
+ * que falava de outra unidade. Não é hipótese de laboratório — era o que
+ * acontecia com o campo `Unidade (CDD)` de texto livre que esta tela tinha, e
+ * a API continuava aceitando depois de ele sair da tela.
+ *
+ * **O que a trava não faz é normalizar o código.** A grafia continua a do
+ * export — com máscara, sem máscara, com o zero da frente comido pelo Excel —
+ * porque é sobre ela que o `scope_hash` é somado, e é ela que faz o arquivo
+ * cair aqui quando chegar. `normalizeDocumento` é usado só para **comparar**,
+ * e é a mesma função que a importação usa para decidir que duas grafias são o
+ * mesmo documento: conferir com uma segunda regra escrita aqui seria criar a
+ * divergência que a conferência existe para impedir.
+ *
  * O autor sai da sessão, como no `PUT` da planilha, e pela mesma razão.
  */
 router.post("/remuneracao/unidades", async (req, res): Promise<void> => {
@@ -540,13 +559,51 @@ router.post("/remuneracao/unidades", async (req, res): Promise<void> => {
       : "UNIDADE";
 
   const codigo = normalizarCodigo(codigoBruto);
+  const unidadeId =
+    typeof corpo.unidadeId === "string" && corpo.unidadeId.trim() !== ""
+      ? corpo.unidadeId.trim()
+      : null;
+
+  /*
+    A unidade canônica, quando ela foi escolhida — e o que ela passa a decidir.
+
+    O nome sai daqui, e o do corpo é descartado: com cadastro escolhido, "qual
+    unidade é esta" tem uma resposta só, e ela não é digitável. O `codigo`
+    continua sendo o texto do export — é sobre ele que o `scope_hash` é somado —
+    mas deixa de poder falar de **outra** unidade: as grafias aceitas são as do
+    CNPJ desta.
+  */
+  let nomeDaUnidade = nome;
+  if (unidadeId !== null) {
+    const canonica = await unidadePorId(db, unidadeId);
+    if (!canonica) {
+      throw new UnidadeInvalida(
+        "Não existe unidade canônica com este identificador. Cadastre-a em " +
+          "Administração → Unidades antes de cadastrar a remuneração dela.",
+      );
+    }
+    nomeDaUnidade = canonica.nome;
+    if (codigo !== "" && normalizeDocumento(codigo) !== canonica.cnpj) {
+      throw new UnidadeInvalida(
+        `O código informado não é o CNPJ de ${canonica.nome} — o cadastro dela diz ` +
+          `${cnpjComMascara(canonica.cnpj)}. O código é a grafia com que o export ` +
+          "escreve esse mesmo CNPJ, e é por ela que o arquivo encontra esta unidade; " +
+          "um número de outra unidade mandaria a planilha para o escopo dela.",
+      );
+    }
+  }
+
   /*
     O nome é conferido **aqui**, e não só no domínio, porque sem código é dele
     que o identificador sai: sem esta guarda, uma unidade sem nome e sem código
     produziria o descritor `UNIDADE:` — o mesmo para todas elas —, e a recusa
     que viria depois seria a do domínio, com a frase certa e pelo motivo errado.
+
+    Com unidade canônica escolhida ele nunca está vazio — o cadastro recusa
+    unidade sem nome —, e a guarda continua valendo para o caminho legado, que
+    é o único em que o nome ainda chega digitado.
   */
-  if (nome.trim() === "") {
+  if (nomeDaUnidade.trim() === "") {
     throw new UnidadeInvalida(
       "A unidade precisa de um nome — é o que a lista mostra, e o que quem opera procura.",
     );
@@ -571,15 +628,13 @@ router.post("/remuneracao/unidades", async (req, res): Promise<void> => {
       unidade é esta" — o `codigo` abaixo segue sendo o texto do export, que é o
       que o `scope_hash` soma. Ver `registrarUnidade`.
     */
-    unidadeId: typeof corpo.unidadeId === "string" && corpo.unidadeId.trim() !== ""
-      ? corpo.unidadeId.trim()
-      : null,
+    unidadeId,
     scopeHash: hashScopeSet([
-      descritorDeEscopo(scopeType, identificadorDaUnidade({ codigo, nome })),
+      descritorDeEscopo(scopeType, identificadorDaUnidade({ codigo, nome: nomeDaUnidade })),
     ]),
     scopeType,
     codigo,
-    nome,
+    nome: nomeDaUnidade,
     canal,
     vigenciaInicial: vigencia,
     autor: { id: req.user?.id ?? null, nome: req.user?.name ?? null },

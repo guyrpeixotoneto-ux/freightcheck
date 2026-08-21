@@ -515,6 +515,18 @@ export default function Competencias() {
                   }
                   chaveDe={(u) => u.id ?? u.cnpj}
                   placeholder="Escolha a unidade cadastrada"
+                  /*
+                    O campo é obrigatório e não cria nada: sem o atalho, quem
+                    chega antes do primeiro cadastro — ou procura uma unidade
+                    que ainda não foi cadastrada — fica com "Nada encontrado."
+                    e sem caminho. O parágrafo abaixo já diz onde é; aqui a
+                    porta fica dentro do próprio dropdown, que é onde a pessoa
+                    está olhando quando descobre que falta.
+                  */
+                  atalhoDeCadastro={{
+                    rotulo: "Cadastrar unidade em Administração → Unidades",
+                    para: "/unidades",
+                  }}
                 />
               </div>
               <div className="space-y-1.5">

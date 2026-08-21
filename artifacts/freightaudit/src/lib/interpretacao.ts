@@ -431,6 +431,31 @@ export function textoParaCriar(
 }
 
 /**
+ * Por que a lista não tem nada para escolher — que são dois motivos, não um.
+ *
+ * "Nada encontrado." é a frase de quem procurou e não achou, e ela estava
+ * sendo dita também para quem **não tinha onde procurar**: um seletor puro
+ * (sem `aoCriar`) apoiado num cadastro ainda vazio respondia a mesma coisa,
+ * mandando refinar uma busca sobre lista nenhuma. O caso é real e é o do
+ * seletor de unidade do Fechamento, onde a lista só tem o que o cadastro
+ * canônico tiver: enquanto ninguém cadastrar, toda busca ali é "nada
+ * encontrado", inclusive a que está escrita certa.
+ *
+ * Separar os dois é o que permite dizer a frase certa e — mais importante —
+ * oferecer a saída certa: quando não há cadastro, o que falta não é procurar
+ * melhor, é ir cadastrar. Ver `atalhoDeCadastro` em `ComboboxCriavel`.
+ *
+ * `null` quando há opção na tela: aí não há vazio nenhum a explicar.
+ */
+export function motivoDoVazio(
+  totalDeItens: number,
+  opcoesVisiveis: number,
+): "SEM_CADASTRO" | "SEM_RESULTADO" | null {
+  if (opcoesVisiveis > 0) return null;
+  return totalDeItens === 0 ? "SEM_CADASTRO" : "SEM_RESULTADO";
+}
+
+/**
  * O aviso que acompanha o `+ Criar "…"` quando há coisa parecida no cadastro.
  *
  * Não bloqueia: quem digitou "Pedágio" tendo "Pedagiamento" cadastrado pode

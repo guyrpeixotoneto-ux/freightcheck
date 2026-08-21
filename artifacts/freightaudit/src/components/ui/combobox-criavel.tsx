@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronsUpDown, Loader2, Plus, Search } from "lucide-react";
+import { Link } from "wouter";
+import { ArrowRight, Check, ChevronsUpDown, Loader2, Plus, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { avisoDeParecido, sugerir, textoParaCriar } from "@/lib/interpretacao";
+import { avisoDeParecido, motivoDoVazio, sugerir, textoParaCriar } from "@/lib/interpretacao";
 import { cn } from "@/lib/utils";
 
 /**
@@ -45,6 +46,17 @@ import { cn } from "@/lib/utils";
  * "Nada encontrado." e mais nada — a regra 1 estava intacta, e mesmo assim o
  * único caminho até o cadastro era adivinhar que digitar um nome inexistente
  * faria surgir um botão. Ver `textoParaCriar`.
+ *
+ * ---------------------------------------------------------------------------
+ * E onde não há o que criar aqui, há para onde ir
+ * ---------------------------------------------------------------------------
+ * O seletor puro — sem `aoCriar` — não tem essa saída, e é o da unidade: a
+ * identidade dela nasce em Administração → Unidades, com o CNPJ conferido, e
+ * é isso que a mantém fora do alcance de quem só digitou um nome. Com o
+ * cadastro ainda vazio, porém, o dropdown terminava em "Nada encontrado." e
+ * mais nada — a regra intacta e a pessoa sem caminho nenhum, num campo
+ * obrigatório. `atalhoDeCadastro` põe a porta à vista sem abrir a mão da
+ * regra: leva à tela do cadastro, e não cria coisa alguma daqui.
  */
 
 export interface ComboboxCriavelProps<T> {
@@ -81,6 +93,22 @@ export interface ComboboxCriavelProps<T> {
    * clique que só o servidor recusaria.
    */
   rotuloDeCriacaoVazia?: string;
+  /**
+   * A porta para o cadastro que enche esta lista — mostrada quando não há nada
+   * para escolher.
+   *
+   * É o par de `rotuloDeCriacaoVazia` para o seletor **puro**. Onde cadastrar é
+   * um clique daqui, a saída é a linha de criação; onde a identidade nasce em
+   * outra tela — a unidade, que se cadastra em Administração → Unidades com o
+   * CNPJ conferido —, não há o que criar aqui, e o dropdown terminava em "Nada
+   * encontrado." e ponto final. Quem chegava com o cadastro vazio ficava sem
+   * caminho nenhum: nem escolher, nem criar, nem saber para onde ir.
+   *
+   * O atalho não afrouxa a regra que este campo protege — continua não
+   * existindo "usar o que digitei", e nada é criado a partir daqui. Ele só diz
+   * onde fica a porta.
+   */
+  atalhoDeCadastro?: { rotulo: string; para: string };
   /** Recusa do servidor, mostrada sem fechar o dropdown. */
   erro?: string | null;
   id?: string;
@@ -99,6 +127,7 @@ export function ComboboxCriavel<T>({
   placeholder,
   rotuloDeCriacao = (texto) => `Criar “${texto}”`,
   rotuloDeCriacaoVazia,
+  atalhoDeCadastro,
   erro,
   id,
   disabled,
@@ -143,6 +172,12 @@ export function ComboboxCriavel<T>({
       ? null
       : textoParaCriar(sugestao.criar, termo, rotuloDeCriacaoVazia !== undefined);
   const previa = criavel !== null && previaDe ? previaDe(criavel) : null;
+  /*
+    Por que não há nada para escolher — ver `motivoDoVazio`. A distinção
+    importa porque muda a frase e, com ela, a saída oferecida: quem não achou
+    procura de novo; quem não tem cadastro precisa é de um caminho até ele.
+  */
+  const vazio = motivoDoVazio(itens.length, sugestao.opcoes.length);
 
   const criar = async () => {
     if (criavel === null || criando) return;
@@ -230,21 +265,44 @@ export function ComboboxCriavel<T>({
             );
           })}
 
-          {sugestao.opcoes.length === 0 && criavel === null && (
+          {/*
+            Lista vazia não é "nada encontrado" quando não havia onde procurar.
+            A frase muda porque a anterior mandava procurar melhor, e o que
+            falta ali é cadastrar — a linha de criação logo abaixo, ou o atalho
+            para a tela onde o cadastro mora.
+          */}
+          {vazio !== null && criavel === null && (
             <p className="px-2 py-3 text-sm text-muted-foreground">
-              Nada encontrado.
+              {vazio === "SEM_CADASTRO" ? "Nada cadastrado ainda." : "Nada encontrado."}
+            </p>
+          )}
+
+          {vazio !== null && criavel === "" && (
+            <p className="px-2 py-3 text-sm text-muted-foreground">
+              Nada cadastrado ainda.
             </p>
           )}
 
           {/*
-            Lista vazia com busca vazia não é "nada encontrado": não se procurou
-            nada. A frase muda porque a anterior mandava procurar melhor, e o que
-            falta ali é cadastrar — que é a linha logo abaixo.
+            A porta para o cadastro, quando ela é em outra tela. Fica no vazio e
+            só nele: com opção na lista, escolher é o que se veio fazer aqui.
+
+            `Link` do wouter, e não `<a>`: o dropdown vive dentro de um
+            formulário meio preenchido, e uma navegação de página inteira
+            recarregaria o app e perderia o que já foi digitado nos outros
+            campos.
           */}
-          {sugestao.opcoes.length === 0 && criavel === "" && (
-            <p className="px-2 py-3 text-sm text-muted-foreground">
-              Nada cadastrado ainda.
-            </p>
+          {vazio !== null && atalhoDeCadastro && (
+            <div className="border-t pt-1">
+              <Link
+                href={atalhoDeCadastro.para}
+                onClick={() => setAberto(false)}
+                className="flex w-full items-center gap-2 rounded-sm px-2 py-2 text-left text-sm font-medium text-primary hover:bg-accent"
+              >
+                <ArrowRight className="h-4 w-4 shrink-0" />
+                <span className="truncate">{atalhoDeCadastro.rotulo}</span>
+              </Link>
+            </div>
           )}
 
           {criavel !== null && (
