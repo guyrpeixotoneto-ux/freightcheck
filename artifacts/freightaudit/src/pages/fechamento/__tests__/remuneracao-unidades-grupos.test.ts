@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  agruparPorVigencia,
+  agruparPorUnidade,
   chaveDaLinha,
   resumoDoGrupo,
 } from "../remuneracao-unidades";
@@ -9,25 +9,32 @@ import type { EstadoDoCadastro, SituacaoDaUnidade } from "@/lib/remuneracao";
 /**
  * Como a lista de Remuneração reúne os cadastros — e por que a ordem é dela.
  *
- * **A lista é por vigência**: uma linha por (unidade, quinzena), e não uma por
- * unidade. É o que faz a planilha preenchida em julho continuar em tela quando
- * agosto chega vazio — e é por isso que o grupo conta cadastros, e não
- * unidades, em tudo menos na procedência, que é fato da unidade.
+ * **O grupo é a unidade, e a linha é a vigência.** Uma linha por (unidade,
+ * quinzena), como antes — o que mudou foi quem as reúne. Enquanto o grupo era o
+ * mês da vigência, um acervo de poucas unidades e muitas vigências desenhava um
+ * grupo por linha: o cabeçalho do mês repetia o que a única linha dele dizia, e
+ * o nome da unidade descia a página uma vez por vigência sem distinguir nada.
+ *
+ * **O que a troca não pode perder** é o que a forma por vigência tinha
+ * consertado: todas as vigências continuam em tela, cada uma na linha dela, de
+ * modo que a planilha preenchida em julho não some quando agosto nasce vazio.
+ * Só uma linha por unidade, mostrando a mais recente, é a forma que esta tela
+ * já teve e não volta a ter.
  *
  * **A lista não chega ordenada.** O servidor manda as unidades do acervo por
  * vigência decrescente e acrescenta ao fim as que existem só por planilha ou
- * por cadastro à mão (ver `contextosEProcedencia`). Herdar essa ordem, como
- * Apurações faz com a dela, colocaria a unidade cadastrada à mão num grupo
- * sozinho no rodapé ainda que a vigência dela fosse a mais recente de todas —
- * exatamente a unidade que a tela existe para não deixar escondida.
+ * por cadastro à mão (ver `contextosEProcedencia`). Herdar essa ordem jogaria a
+ * unidade cadastrada à mão para o rodapé ainda que a vigência dela fosse a mais
+ * recente de todas — exatamente a unidade que a tela existe para não deixar
+ * escondida.
  *
- * **A frase do grupo conta cadastros, e nunca as trinta linhas de dentro
- * deles.** É o mesmo cuidado de `situacao.ts`: somá-las daria "89 de 900", que
+ * **A frase do grupo conta vigências, e nunca as trinta linhas de dentro
+ * delas.** É o mesmo cuidado de `situacao.ts`: somá-las daria "89 de 900", que
  * é o percentual que o módulo recusa, disfarçado de total.
  */
 
 /** O espaço inquebrável que `contar` e a frase do grupo põem depois do número. */
-const NBSP = "\u00A0";
+const NBSP = " ";
 
 const cadastro = (
   estado: EstadoDoCadastro,
@@ -67,77 +74,124 @@ function unidade(
   };
 }
 
-describe("agruparPorVigencia", () => {
-  it("reúne pelo mês da vigência, e não pela data exata", () => {
-    const grupos = agruparPorVigencia([
+describe("agruparPorUnidade", () => {
+  /*
+    O caso que motivou a troca: uma unidade só, seis vigências. Por vigência
+    isto eram seis grupos de uma linha, com o nome repetido seis vezes; por
+    unidade é um grupo com seis linhas.
+  */
+  it("reúne as vigências da unidade num grupo só", () => {
+    const grupos = agruparPorUnidade([
       unidade("CAMAÇARI", "2026-08-01", "SO_FROTA"),
-      unidade("BELÉM", "2026-08-16", "SEM_LASTRO"),
+      unidade("CAMAÇARI", "2026-07-02", "SO_FROTA"),
+      unidade("CAMAÇARI", "2026-06-02", "SO_FROTA"),
     ]);
 
     expect(grupos).toHaveLength(1);
-    expect(grupos[0]!.chave).toBe("2026-08");
-    expect(grupos[0]!.titulo).toBe("agosto de 2026");
-    /* Os dias continuam ditos: o grupo é o mês, e as duas metades dele não são
-       a mesma entrega. */
-    expect(grupos[0]!.dias).toEqual(["01/08", "16/08"]);
+    expect(grupos[0]!.chave).toBe("camaçari|EMPURRADA");
+    expect(grupos[0]!.titulo).toBe("CAMAÇARI · EMPURRADA");
+    expect(grupos[0]!.linhas).toHaveLength(3);
   });
 
-  it("põe o mês mais recente em cima, mesmo quando ele chega por último", () => {
-    /* A unidade cadastrada à mão vem no fim da lista do servidor, e é a mais
-       recente das três. */
-    const grupos = agruparPorVigencia([
+  /*
+    Duas séries do mesmo escopo são dois cadastros com duas frotas. Reuni-las
+    num grupo só somaria coisas que ninguém soma — e é a mesma razão pela qual
+    o canal entra na chave do servidor.
+  */
+  it("separa as duas operações do mesmo escopo em dois grupos", () => {
+    const grupos = agruparPorUnidade([
+      unidade("CAMAÇARI", "2026-08-01", "SO_FROTA"),
+      unidade("CAMAÇARI", "2026-08-01", "FROTA_E_ALIQUOTAS", { channel: "ROTA" }),
+    ]);
+
+    expect(grupos).toHaveLength(2);
+    expect(grupos.map((g) => g.titulo).sort()).toEqual([
+      "CAMAÇARI · EMPURRADA",
+      "CAMAÇARI · ROTA",
+    ]);
+  });
+
+  /* Dentro do grupo, a primeira linha é onde a unidade está — e é por isso que
+     a ordem é da vigência mais recente para a mais antiga. */
+  it("põe a vigência mais recente da unidade em cima", () => {
+    const [grupo] = agruparPorUnidade([
+      unidade("CAMAÇARI", "2026-06-02", "SO_FROTA"),
+      unidade("CAMAÇARI", "2026-08-01", "SO_FROTA"),
+      unidade("CAMAÇARI", "2026-07-02", "SO_FROTA"),
+    ]);
+
+    expect(grupo!.linhas.map((u) => u.effectiveDate)).toEqual([
+      "2026-08-01",
+      "2026-07-02",
+      "2026-06-02",
+    ]);
+    expect(grupo!.maisRecente).toBe("2026-08-01");
+  });
+
+  /*
+    A ordem dos grupos é o que substitui o "grupo mais recente em cima" da forma
+    antiga, e responde à mesma pergunta: quem ficou para trás cai para o fim.
+    BELÉM parou em junho e fica abaixo das duas que entregaram em agosto, ainda
+    que o nome dela venha antes no alfabeto.
+  */
+  it("desce ao fim a unidade que parou de entregar", () => {
+    const grupos = agruparPorUnidade([
+      unidade("BELÉM", "2026-06-02", "SEM_LASTRO"),
+      unidade("SIMÕES FILHO", "2026-08-01", "FROTA_E_ALIQUOTAS"),
+      unidade("CAMAÇARI", "2026-08-01", "SO_FROTA"),
+    ]);
+
+    expect(grupos.map((g) => g.titulo)).toEqual([
+      "CAMAÇARI · EMPURRADA",
+      "SIMÕES FILHO · EMPURRADA",
+      "BELÉM · EMPURRADA",
+    ]);
+  });
+
+  /* No empate — todo mundo em dia — a ordem é o nome, que é a única que quer
+     dizer alguma coisa para quem lê. A do banco é a do `scope_hash`. */
+  it("ordena pelo nome as unidades que estão na mesma vigência", () => {
+    const grupos = agruparPorUnidade([
+      unidade("SIMÕES FILHO", "2026-08-01", "SO_FROTA"),
+      unidade("BELÉM", "2026-08-01", "SEM_LASTRO"),
+      unidade("CAMAÇARI", "2026-08-01", "FROTA_E_ALIQUOTAS"),
+    ]);
+
+    expect(grupos.map((g) => g.titulo)).toEqual([
+      "BELÉM · EMPURRADA",
+      "CAMAÇARI · EMPURRADA",
+      "SIMÕES FILHO · EMPURRADA",
+    ]);
+  });
+
+  /*
+    A unidade cadastrada à mão chega no fim da lista do servidor e é a mais
+    recente das três: a ordem é calculada aqui justamente para ela não herdar o
+    rodapé.
+  */
+  it("não herda do servidor o rodapé da unidade cadastrada à mão", () => {
+    const grupos = agruparPorUnidade([
       unidade("BELÉM", "2026-07-16", "SEM_LASTRO"),
       unidade("CAMAÇARI", "2026-06-01", "SO_FROTA"),
       unidade("SIMÕES FILHO", "2026-08-01", "FROTA_E_ALIQUOTAS", { registradaAMao: true }),
     ]);
 
-    expect(grupos.map((g) => g.chave)).toEqual(["2026-08", "2026-07", "2026-06"]);
-  });
-
-  it("ordena as unidades do grupo pelo nome, e não pelo escopo", () => {
-    const grupos = agruparPorVigencia([
-      unidade("SIMÕES FILHO", "2026-08-01", "SO_FROTA"),
-      unidade("BELÉM", "2026-08-16", "SEM_LASTRO"),
-      unidade("CAMAÇARI", "2026-08-01", "FROTA_E_ALIQUOTAS"),
-    ]);
-
-    expect(grupos[0]!.linhas.map((u) => u.label)).toEqual([
-      "BELÉM",
-      "CAMAÇARI",
-      "SIMÕES FILHO",
-    ]);
-  });
-
-  /*
-    A unidade que entregou as duas quinzenas do mês tem duas linhas no mesmo
-    grupo. Elas ficam juntas, porque a ordem é pelo nome, e em ordem de
-    calendário entre si — que é como se lê "o que estava preenchido na 1ª" ao
-    lado de "o que falta na 2ª".
-  */
-  it("põe as duas quinzenas da mesma unidade juntas, na ordem do calendário", () => {
-    const [grupo] = agruparPorVigencia([
-      unidade("CAMAÇARI", "2026-08-16", "SO_FROTA"),
-      unidade("BELÉM", "2026-08-01", "SEM_LASTRO"),
-      unidade("CAMAÇARI", "2026-08-01", "SO_FROTA"),
-    ]);
-
-    expect(grupo!.linhas.map((u) => `${u.label} ${u.effectiveDate}`)).toEqual([
-      "BELÉM 2026-08-01",
-      "CAMAÇARI 2026-08-01",
-      "CAMAÇARI 2026-08-16",
+    expect(grupos.map((g) => g.titulo)).toEqual([
+      "SIMÕES FILHO · EMPURRADA",
+      "BELÉM · EMPURRADA",
+      "CAMAÇARI · EMPURRADA",
     ]);
   });
 
   it("conta cadastros por estado, e cada um entra num contador só", () => {
-    const grupos = agruparPorVigencia([
+    const [grupo] = agruparPorUnidade([
       unidade("A", "2026-08-01", "FROTA_E_ALIQUOTAS"),
-      unidade("B", "2026-08-01", "SO_FROTA"),
-      unidade("C", "2026-08-01", "SO_ALIQUOTAS"),
-      unidade("D", "2026-08-01", "SEM_LASTRO"),
-      unidade("E", "2026-08-01", "SEM_LASTRO"),
+      unidade("A", "2026-07-01", "SO_FROTA"),
+      unidade("A", "2026-06-01", "SO_ALIQUOTAS"),
+      unidade("A", "2026-05-01", "SEM_LASTRO"),
+      unidade("A", "2026-04-01", "SEM_LASTRO"),
     ]);
 
-    const [grupo] = grupos;
     expect(grupo!.frotaEAliquotas).toBe(1);
     expect(grupo!.soFrota).toBe(1);
     expect(grupo!.soAliquotas).toBe(1);
@@ -148,71 +202,69 @@ describe("agruparPorVigencia", () => {
   });
 
   it("conta a planilha e a divergência por cadastro, e não por linha digitada", () => {
-    const grupos = agruparPorVigencia([
+    const [grupo] = agruparPorUnidade([
       unidade("A", "2026-08-01", "SO_FROTA", {
         cadastro: cadastro("SO_FROTA", { informadas: 12, conferidas: 4, divergentes: 3 }),
       }),
-      unidade("B", "2026-08-01", "SEM_LASTRO", {
+      unidade("A", "2026-07-01", "SEM_LASTRO", {
         cadastro: cadastro("SEM_LASTRO", { informadas: 5 }),
       }),
-      unidade("C", "2026-08-01", "SO_FROTA"),
+      unidade("A", "2026-06-01", "SO_FROTA"),
     ]);
 
-    const [grupo] = grupos;
     expect(grupo!.comPlanilha).toBe(2);
     expect(grupo!.comDivergencia).toBe(1);
   });
 
-  /*
-    Ser cadastrada à mão é fato da unidade, e não da quinzena: as duas linhas
-    abaixo são a mesma unidade nas duas quinzenas de agosto, e contá-las duas
-    vezes diria que há duas unidades sem export onde há uma.
-  */
-  it("conta a unidade cadastrada à mão uma vez, mesmo com duas vigências no mês", () => {
-    const [grupo] = agruparPorVigencia([
-      unidade("BELÉM", "2026-08-01", "SEM_LASTRO", { registradaAMao: true }),
-      unidade("BELÉM", "2026-08-16", "SEM_LASTRO", { registradaAMao: true }),
-    ]);
-
-    expect(grupo!.linhas).toHaveLength(2);
-    expect(grupo!.unidadesRegistradas).toBe(1);
-  });
-
   it("a lista vazia não inventa grupo nenhum", () => {
-    expect(agruparPorVigencia([])).toEqual([]);
+    expect(agruparPorUnidade([])).toEqual([]);
   });
 });
 
 describe("resumoDoGrupo", () => {
-  it("escreve só os estados que existem no grupo", () => {
-    const [grupo] = agruparPorVigencia([
+  it("conta vigências, e escreve só os estados que existem no grupo", () => {
+    const [grupo] = agruparPorUnidade([
       unidade("A", "2026-08-01", "SO_FROTA"),
-      unidade("B", "2026-08-16", "SEM_LASTRO"),
+      unidade("A", "2026-07-01", "SEM_LASTRO"),
     ]);
 
     expect(resumoDoGrupo(grupo!)).toBe(
-      `2${NBSP}cadastros · 1${NBSP}só com a frota · 1${NBSP}sem lastro`,
+      `2${NBSP}vigências · 1${NBSP}só com a frota · 1${NBSP}sem lastro`,
     );
   });
 
-  it("diz a planilha, a divergência e a procedência quando elas existem", () => {
-    const [grupo] = agruparPorVigencia([
+  it("diz a planilha e a divergência quando elas existem", () => {
+    const [grupo] = agruparPorUnidade([
       unidade("A", "2026-08-01", "SEM_LASTRO", {
-        registradaAMao: true,
         cadastro: cadastro("SEM_LASTRO", { informadas: 8, conferidas: 2, divergentes: 1 }),
       }),
     ]);
 
     expect(resumoDoGrupo(grupo!)).toBe(
-      `1${NBSP}cadastro · 1${NBSP}sem lastro · 1${NBSP}com planilha informada · ` +
-        `1${NBSP}diverge do acervo · 1${NBSP}unidade cadastrada à mão`,
+      `1${NBSP}vigência · 1${NBSP}sem lastro · 1${NBSP}com planilha informada · ` +
+        `1${NBSP}diverge do acervo`,
     );
   });
 
-  it("cala o que não tem: nem planilha, nem divergência, nem cadastro à mão", () => {
-    const [grupo] = agruparPorVigencia([unidade("A", "2026-08-01", "FROTA_E_ALIQUOTAS")]);
+  /*
+    A procedência saiu da frase e virou marca do cabeçalho — ver
+    `MarcasDaUnidade`. No grupo por unidade ela deixou de ser uma contagem
+    ("1 unidade cadastrada à mão", dito dentro do grupo daquela unidade) e
+    voltou a ser o que sempre foi: um fato só, dito uma vez.
+  */
+  it("não conta procedência na frase: ela é fato da unidade, dito no cabeçalho", () => {
+    const [grupo] = agruparPorUnidade([
+      unidade("A", "2026-08-01", "SEM_LASTRO", { registradaAMao: true }),
+      unidade("A", "2026-07-01", "SEM_LASTRO", { registradaAMao: true }),
+    ]);
 
-    expect(resumoDoGrupo(grupo!)).toBe(`1${NBSP}cadastro · 1${NBSP}com as duas metades`);
+    expect(resumoDoGrupo(grupo!)).toBe(`2${NBSP}vigências · 2${NBSP}sem lastro`);
+  });
+
+  it("cala o que não tem: nem planilha, nem divergência", () => {
+    const [grupo] = agruparPorUnidade([unidade("A", "2026-08-01", "FROTA_E_ALIQUOTAS")]);
+
+    expect(resumoDoGrupo(grupo!)).toBe(`1${NBSP}vigência · 1${NBSP}com as duas metades`);
   });
 });
 
