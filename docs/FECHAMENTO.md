@@ -262,8 +262,12 @@ de baixo — o `%` é do critério, não da unidade; e a `INDISPONIBILIDADE` do
 quadro do variável tem nome de parcela e é o **desconto** de disponibilidade,
 centavo por centavo. Em todos os três, quem decidiu foi a soma do quadro contra
 o total que a própria planilha escreve. A `INDISPONIBILIDADE` do quadro do fixo
-segue sem lastro, e seguir é o certo: aquela célula vem vazia nas duas
-quinzenas, e vazia não decide sinal nenhum.
+segue sem lastro **no demonstrado**, e seguir é o certo: aquela célula vem vazia
+nas duas quinzenas, e vazia não decide sinal nenhum. Do lado do **devido** ela
+tem fonte — o faturado das viagens de Rota com marca de indisponibilidade no
+2Art, que é o que `Mapa Rota!132` soma. As duas leituras discordarem é o
+resultado, não o defeito: é para isso que existem duas colunas. Ver
+`docs/MAPA-ROTA.md`.
 
 **O termo que faltava era o desconto.** A planilha escreve a parcela **bruta** e
 mostra o abatimento numa linha à parte; o 03.08.20 escreve a verba **já

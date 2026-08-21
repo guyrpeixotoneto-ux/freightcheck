@@ -53,12 +53,46 @@ export interface DiaDaPlanilha {
   viagens: ViagemAgrupada[];
 }
 
+/**
+ * As bases como a `.xlsb` as traz: cinco números digitados numa célula.
+ *
+ * É de propósito que este tipo exista ao lado de `BasesDaQuinzena`, em vez de
+ * ser ele. As duas do fim — outros custos e indisponibilidade — passaram a
+ * carregar **procedência** no motor: quantas requisições entraram na soma,
+ * quantas viagens tinham marca. Uma célula da planilha não tem nada disso; ela
+ * tem um número que alguém digitou. Reaproveitar o tipo do motor aqui obrigaria
+ * a inventar um denominador para a célula — "0 de 0 viagens" — e a memória de
+ * cálculo passaria a afirmar uma contagem que ninguém fez.
+ *
+ * A conversão é {@link basesDoMotor}, e ela marca as duas como `PLANILHA`.
+ */
+export interface BasesDaPlanilha {
+  devolucao: number | null;
+  disponibilidade: number | null;
+  complementarNegativo: number | null;
+  outrosCustos: number | null;
+  indisponibilidade: number | null;
+}
+
+/** As bases da planilha na forma que o motor consome, com a fonte declarada. */
+function basesDoMotor(b: BasesDaPlanilha): BasesDaQuinzena {
+  return {
+    devolucao: b.devolucao,
+    disponibilidade: b.disponibilidade,
+    complementarNegativo: b.complementarNegativo,
+    outrosCustos:
+      b.outrosCustos === null ? null : { fonte: "PLANILHA", valor: b.outrosCustos },
+    indisponibilidade:
+      b.indisponibilidade === null ? null : { fonte: "PLANILHA", valor: b.indisponibilidade },
+  };
+}
+
 /** Uma quinzena inteira, como a planilha a traz. */
 export interface QuinzenaDaPlanilha {
   quinzena: 1 | 2;
   parametros: ParametrosDoCadastro;
   custoVariavelPrevistoPor25Viagens: number;
-  bases: BasesDaQuinzena;
+  bases: BasesDaPlanilha;
   dias: DiaDaPlanilha[];
   /**
    * A fatia de documentos emitidos **fora** do município que o diário calcula
@@ -216,7 +250,20 @@ function desagrupar(dia: DiaDaPlanilha): ViagemDoMapa[] {
         é verdade — não se sabe, e por isso a viagem conta, que é o certo para
         uma lista de onde o AS já saiu. Ver `ehDaRota` em `mapa-rota.ts`.
       */
-      viagens.push({ frota, cargaAtual, tipoDeImposto, valorFaturado, caixasDeRota: null });
+      /*
+        `tipoDeIndisponibilidade: ""` é inerte nesta prova, e não uma afirmação
+        sobre a operação: a reconciliação passa a indisponibilidade **da célula**
+        `Mapa Rota!132`, e por isso `somarIndisponibilidade` não roda aqui. A
+        amostra guarda cinco campos por viagem e não tem o sexto para dar.
+      */
+      viagens.push({
+        frota,
+        cargaAtual,
+        tipoDeImposto,
+        valorFaturado,
+        caixasDeRota: null,
+        tipoDeIndisponibilidade: "",
+      });
     }
   }
   return viagens;
@@ -284,7 +331,7 @@ export function reconciliar(
           q.parametros,
           q.custoVariavelPrevistoPor25Viagens,
         ),
-        bases: q.bases,
+        bases: basesDoMotor(q.bases),
         fatiaDoPadronizado: fatiaDoModo(q, modo),
       }),
     ]),

@@ -37,8 +37,18 @@ import {
 } from "./periodo";
 import { apurar, type Apuracao, type Fontes, type Parcela } from "./apuracao";
 import { montarResumo, type QuinzenaApurada, type ResumoDoMes } from "./resumo";
-import { SEM_CADASTRO, type FonteDeCadastro } from "./cadastro-porta";
-import { montarMapaDaQuinzena, somarVariavel, type ViagemDoMapa } from "./mapa-rota";
+import {
+  SEM_CADASTRO,
+  type DiagnosticoDoCadastro,
+  type FonteDeCadastro,
+} from "./cadastro-porta";
+import {
+  montarMapaDaQuinzena,
+  somarIndisponibilidade,
+  somarVariavel,
+  type BaseDeOutrosCustos,
+  type ViagemDoMapa,
+} from "./mapa-rota";
 import {
   CANAIS_COM_PAINEL,
   conferirDePara,
@@ -48,7 +58,7 @@ import {
 import { lerOperacao, type DetalheDaViagem, type Viagem } from "./leitores/operacao";
 import { abrirDia, diasDaCompetencia, type DiaAberto, type DiaDaOperacao } from "./diario";
 import { lerCtes } from "./leitores/cte";
-import { lerRequisicoes } from "./leitores/requisicoes";
+import { lerRequisicoes, STATUS_QUE_PAGA } from "./leitores/requisicoes";
 import { lerDisponibilidade } from "./leitores/disponibilidade";
 import { lerConciliacao } from "./leitores/conciliacao";
 import {
@@ -2096,10 +2106,12 @@ export async function lerResumoDoMes(
 
   const quinzenas: QuinzenaApurada[] = [];
   for (const c of competencias) {
-    const [apuracao, demonstrativo, descontos, paineis] = await Promise.all([
+    const [apuracao, demonstrativo, descontos, requisicoes, paineis] = await Promise.all([
       lerApuracaoVigente(db, c.id),
       somarDemonstrativo(db, c.id),
       somarDescontosDoDemonstrativo(db, c.id),
+      /* O 03.08.12.09, que fecha o quadro de outros custos do devido. */
+      requisicoesDaCompetencia(db, c.id),
       /*
         O painel entra aqui, e não numa segunda chamada da tela, porque a
         pergunta é a mesma: o mês nas três colunas. Duas idas ao servidor para
@@ -2119,28 +2131,38 @@ export async function lerResumoDoMes(
       leituras acima porque depende das bases que elas trazem.
     */
     const calculados: { canal: Canal; mapa: ReturnType<typeof montarMapaDaQuinzena> }[] = [];
+    const diagnosticoDoCadastro: { canal: Canal; diagnostico: DiagnosticoDoCadastro }[] = [];
     let cadastroUsado: { cadastroId: string; vigenteDe: string } | null = null;
     for (const canal of CANAIS_COM_PAINEL) {
-      const contrato = await cadastro.resolver({
+      const leitura = await cadastro.resolver({
         unidadeCodigo: c.unidadeCodigo,
         transportadoraCodigo: c.transportadoraCodigo,
         canal,
         inicio: String(c.inicio),
         fim: String(c.fim),
       });
+      /*
+        O diagnóstico entra **sempre**, inclusive quando o cadastro respondeu:
+        é ele que a tela usa para dizer de qual vigência o devido saiu e quais
+        opcionais entraram como zero. Guardá-lo só na falha faria a tela ter
+        explicação para o que deu errado e nenhuma para o que deu certo.
+      */
+      diagnosticoDoCadastro.push({ canal, diagnostico: leitura.diagnostico });
+      const contrato = leitura.resposta;
       if (!contrato) continue;
       cadastroUsado = { cadastroId: contrato.cadastroId, vigenteDe: contrato.vigenteDe };
+      const viagens = await viagensPorDia(db, c.id, canal);
       calculados.push({
         canal,
         mapa: montarMapaDaQuinzena({
           quinzena: c.quinzena === 1 ? 1 : 2,
           parametros: contrato.parametros,
           variavel: somarVariavel(
-            await viagensPorDia(db, c.id, canal),
+            viagens,
             contrato.parametros,
             contrato.custoVariavelPrevistoPor25Viagens,
           ),
-          bases: basesDaQuinzena(descontos, demonstrativo, canal),
+          bases: basesDaQuinzena(descontos, canal, viagens, requisicoes),
         }),
       });
     }
@@ -2152,6 +2174,7 @@ export async function lerResumoDoMes(
       estado: c.estado,
       calculados: calculados.length > 0 ? calculados : null,
       cadastroUsado,
+      diagnosticoDoCadastro,
       verbas:
         apuracao?.verbas.map((v) => ({
           vbz: v.vbz,
@@ -2199,6 +2222,8 @@ async function viagensPorDia(
       valorFaturado: fechamentoViagemTable.valorFaturado,
       /* Separa a viagem da Rota da viagem de AS — ver `ehDaRota` no motor. */
       caixasDeRota: fechamentoViagemTable.caixasDeRota,
+      /* A marca que faz a viagem entrar na linha `INDISPONIBILIDADE` do fixo. */
+      tipoDeIndisponibilidade: fechamentoViagemTable.tipoDeIndisponibilidade,
     })
     .from(fechamentoViagemTable)
     .where(
@@ -2219,6 +2244,7 @@ async function viagensPorDia(
       valorFaturado: Number(l.valorFaturado ?? 0),
       /* `null` atravessa: coluna ausente não é "carregou zero caixa de Rota". */
       caixasDeRota: l.caixasDeRota === null ? null : Number(l.caixasDeRota),
+      tipoDeIndisponibilidade: l.tipoDeIndisponibilidade ?? "",
     });
     porDia.set(dia, doDia);
   }
@@ -2238,17 +2264,35 @@ async function viagensPorDia(
  * falta — que é a resposta honesta, e a que impede o produto de repetir um
  * número que ninguém sabe justificar.
  *
- * **As três do quadro fixo já têm documento**, e as três são o 03.08.20: a
- * devolução, a soma dos quatro descontos de disponibilidade e o frete mínimo.
- * Que a planilha as digite em vez de lê-las é escolha dela; que os valores
- * coincidam ao centavo em julho/2026 é o que autoriza esta leitura. Ficam sem
- * origem os outros custos (03.08.12.09, que esta leitura não abre) e a
- * indisponibilidade (do diário).
+ * **As três do quadro fixo saem do 03.08.20**: a devolução, a soma dos quatro
+ * descontos de disponibilidade e o frete mínimo. Que a planilha as digite em vez
+ * de lê-las é escolha dela; que os valores coincidam ao centavo em julho/2026 é
+ * o que autoriza esta leitura.
+ *
+ * **As duas que ficavam permanentemente `null` agora têm fonte, e nenhuma delas
+ * é o 03.08.20.** Eram as únicas duas linhas conhecidas do painel condenadas a
+ * não ter devido por decisão nossa, e não por falta de documento:
+ *
+ * - a **indisponibilidade** sai do **2Art** — o faturado das viagens de Rota com
+ *   marca em `TipoIndisp`, que é o que `Mapa Rota!132` soma da coluna `BP` das
+ *   abas diárias. Não é, e não pode virar, o `DESCONTO DISPONIBILIDADE` do
+ *   03.08.20: aquele é abatimento e já está declarado na linha de desconto;
+ * - os **outros custos** saem do **03.08.12.09** — a soma sem imposto das
+ *   requisições aprovadas do canal, que é a origem que `Outros Custos!F4`
+ *   declara.
+ *
+ * As duas passam a receber o banco por parâmetro, e é por isso que esta função
+ * virou assíncrona: a requisição é uma consulta, e fingir que não é obrigaria
+ * quem chama a montá-la fora e passá-la — espalhando a regra de qual status paga
+ * por dois arquivos.
  */
 export function basesDaQuinzena(
   descontos: { canal: Canal; tipo: string; valor: number }[] | null,
-  demonstrativo: { canal: Canal; total: number }[] | null,
   canal: Canal,
+  /** O diário da quinzena, já agrupado por dia. Vazio quando o 2Art não veio. */
+  diario: { viagens: ViagemDoMapa[] }[],
+  /** As requisições da competência, de todos os canais. `null` sem 03.08.12.09. */
+  requisicoes: { canal: Canal; status: string; valor: number }[] | null,
 ): Parameters<typeof montarMapaDaQuinzena>[0]["bases"] {
   const soma = (tipos: string[]) => {
     if (!descontos) return null;
@@ -2286,10 +2330,44 @@ export function basesDaQuinzena(
       erro visível por um invisível.
     */
     complementarNegativo: soma(["FRETE_MINIMO"]),
-    /* Idem: os outros custos vêm do 03.08.12.09, que esta leitura não abre. */
-    outrosCustos: null,
-    /* A indisponibilidade do diário ainda não é somada aqui. */
-    indisponibilidade: null,
+    outrosCustos: outrosCustosDaQuinzena(requisicoes, canal),
+    /*
+      Diário vazio é diário ausente, e por isso `null` e não zero: uma
+      competência cujo 2Art não chegou tem exatamente a mesma lista vazia de uma
+      em que ninguém rodou, e as duas pedem coisas opostas de quem opera. Com
+      viagens na mão, zero passa a ser medido — e `somarIndisponibilidade`
+      carrega o denominador que o torna conferível.
+    */
+    indisponibilidade:
+      diario.length === 0
+        ? null
+        : { fonte: "DIARIO", medida: somarIndisponibilidade(diario) },
+  };
+}
+
+/**
+ * Os outros custos da quinzena — as requisições aprovadas do 03.08.12.09.
+ *
+ * `null` quando o relatório não foi importado. Um zero **medido** quando ele
+ * veio e nenhuma requisição do canal está aprovada — ou nenhuma é do canal.
+ * Ver {@link OutrosCustosDoRelatorio}, que carrega o denominador de cada caso.
+ */
+function outrosCustosDaQuinzena(
+  requisicoes: { canal: Canal; status: string; valor: number }[] | null,
+  canal: Canal,
+): BaseDeOutrosCustos | null {
+  if (requisicoes === null || requisicoes.length === 0) return null;
+
+  const doCanal = requisicoes.filter((r) => r.canal === canal);
+  /* O mesmo filtro da apuração, e não um segundo critério sobre o mesmo dado. */
+  const aprovadas = doCanal.filter((r) => r.status.trim().toLowerCase() === STATUS_QUE_PAGA);
+  return {
+    fonte: "REQUISICOES",
+    medida: {
+      valor: centavos(aprovadas.reduce((s, r) => s + r.valor, 0)),
+      aprovadas: aprovadas.length,
+      recebidas: doCanal.length,
+    },
   };
 }
 
@@ -2315,6 +2393,38 @@ async function somarDemonstrativo(
     .groupBy(fechamentoPagamentoItemTable.canal);
   if (linhas.length === 0) return null;
   return linhas.map((l) => ({ canal: l.canal as Canal, total: Number(l.total ?? 0) }));
+}
+
+/**
+ * As requisições do 03.08.12.09 da competência — canal, status e valor.
+ *
+ * Devolve `null` quando o relatório não foi importado, e não uma lista vazia:
+ * lista vazia diria "o relatório veio e não trouxe requisição", que é outra
+ * afirmação — e é a diferença entre mandar importar um arquivo e mandar cobrar
+ * uma aprovação. Ver `outrosCustosDaQuinzena`.
+ *
+ * Traz as três colunas que a conta usa e não a trilha de aprovação inteira: o
+ * resumo do mês soma dinheiro, e quem quer saber quem aprovou o quê abre a
+ * competência.
+ */
+async function requisicoesDaCompetencia(
+  db: Database,
+  competenciaId: string,
+): Promise<{ canal: Canal; status: string; valor: number }[] | null> {
+  const linhas = await db
+    .select({
+      canal: fechamentoRequisicaoTable.canal,
+      status: fechamentoRequisicaoTable.status,
+      valor: fechamentoRequisicaoTable.valor,
+    })
+    .from(fechamentoRequisicaoTable)
+    .where(eq(fechamentoRequisicaoTable.competenciaId, competenciaId));
+  if (linhas.length === 0) return null;
+  return linhas.map((l) => ({
+    canal: l.canal as Canal,
+    status: l.status,
+    valor: Number(l.valor ?? 0),
+  }));
 }
 
 /** Os descontos do 03.08.20, somados por canal e tipo. */

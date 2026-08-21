@@ -61,6 +61,37 @@ cadastro são **mensais**; toda linha fixa divide por dois.
 
 A coluna `C` do `Cadastro` é a 1ª quinzena; a `F`, a 2ª.
 
+### As duas linhas que o produto passou a calcular
+
+`INDISPONIBILIDADE` e `TOTAL REMUNERAÇÃO ROTA OUTROS CUSTOS` entravam no motor
+como `null` fixo — `basesDaQuinzena` as devolvia assim com um comentário dizendo
+que a fonte "ainda não é somada aqui". Eram as duas únicas linhas conhecidas do
+painel condenadas a não ter devido por decisão nossa, e não por falta de
+documento. As duas fontes estavam na tabela acima o tempo todo:
+
+| Linha | Fonte | Regra no produto |
+|---|---|---|
+| `INDISPONIBILIDADE` | 2Art, coluna `TipoIndisp` | soma o `ValorFaturado` das viagens **de Rota** com marca de indisponibilidade (`somarIndisponibilidade`, em `mapa-rota.ts`) |
+| `TOTAL REMUNERAÇÃO ROTA OUTROS CUSTOS` | 03.08.12.09 | soma sem imposto das requisições **aprovadas** do canal, pelo mesmo `STATUS_QUE_PAGA` da apuração |
+
+As duas carregam o denominador junto com o número, e é o que torna um zero
+conferível: *"nenhuma das 302 viagens de Rota traz marca"* e *"2 de 4
+requisições aprovadas"* são afirmações que o arquivo aberto ao lado derruba num
+filtro. Sem o denominador, um zero medido e um zero por ausência de arquivo
+chegavam à tela como o mesmo `0,00`.
+
+**A indisponibilidade não é o desconto de disponibilidade**, e os nomes quase
+iguais são a razão de a distinção estar escrita em três lugares. A do quadro
+fixo é **parcela**, sai do **2Art**, e é frete que a transportadora recebe por
+viagens que rodaram no lugar de um veículo indisponível. O `DESCONTO
+DISPONIBILIDADE` é **abatimento**, sai do **03.08.20**, e já está declarado na
+linha de desconto. Fontes diferentes, sinais opostos, quadros diferentes.
+
+Do lado **demonstrado** nada mudou: o 03.08.20 continua sem sustentar a
+`INDISPONIBILIDADE` do fixo, e o painel dele continua dizendo `sem lastro` ali.
+O que passou a existir é o **devido** — e a diferença entre os dois é
+exatamente o que o painel comparado existe para mostrar.
+
 ## O fator de imposto — o "1,366960" que não tinha origem
 
 O produto registrava que a planilha usava "um fator de conversão digitado

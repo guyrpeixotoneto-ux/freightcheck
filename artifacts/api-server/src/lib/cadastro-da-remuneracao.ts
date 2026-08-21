@@ -1,7 +1,20 @@
 import { sql } from "drizzle-orm";
 import type { Database } from "@workspace/db";
-import type { FonteDeCadastro, RespostaDoCadastro } from "@workspace/fechamento";
-import { contratoDaPlanilha, lerPlanilha, vigenciaQueResponde } from "@workspace/remuneracao";
+import type {
+  ComoCasou,
+  DiagnosticoDoCadastro,
+  FonteDeCadastro,
+  LeituraDoCadastro,
+  PortaDaUnidade,
+} from "@workspace/fechamento";
+import { paradoNaUnidade } from "@workspace/fechamento";
+import { normalizeDocumento } from "@workspace/ingest";
+import {
+  CHAVES_DO_CONTRATO,
+  contratoDaPlanilha,
+  lerPlanilha,
+  vigenciaQueResponde,
+} from "@workspace/remuneracao";
 
 /**
  * A PORTA DO CADASTRO, LIGADA — o contrato digitado alimentando o fechamento.
@@ -20,13 +33,25 @@ import { contratoDaPlanilha, lerPlanilha, vigenciaQueResponde } from "@workspace
  * Se um campo de `ParametrosDoCadastro` mudar de um lado e não do outro, é o
  * build **deste** arquivo que quebra — que é onde se quer ser avisado.
  *
+ * **As três portas, e por que elas agora se veem de fora.** O contrato de uma
+ * unidade atravessa três: encontrar a unidade pelo código, encontrar a vigência
+ * que responde pela quinzena, e montar o contrato com as obrigatórias da aba.
+ * Até aqui as três fechavam do mesmo jeito — um `return null` — e a tela dizia a
+ * mesma frase para as três: *"nenhum cadastro respondeu por esta unidade nesta
+ * competência"*. Quem não cadastrou a unidade, quem digitou a aba no mês errado
+ * e quem deixou duas células em branco liam exatamente o mesmo texto, e iam
+ * procurar em três lugares diferentes sem que nada na tela dissesse qual.
+ *
+ * Cada `return` daqui para baixo carrega agora um {@link DiagnosticoDoCadastro}
+ * dizendo em qual porta parou e com o que ela abre. Nenhuma delas passou a ser
+ * mais permissiva: o que mudou é que a recusa passou a ser explicada.
+ *
  * **Como a unidade do fechamento encontra a do cadastro.** Pelo `codigo`, que é
  * o mesmo identificador nos dois lados: o que a competência do fechamento traz
- * em `unidade_codigo` e o que alguém registrou em `remuneracao_unidade`. Não há
- * aproximação nenhuma — código com máscara de um lado e sem do outro **não**
- * casa, pela mesma razão que `normalizarCodigo` recusa adivinhar. Quando não
- * casa, a resposta é `null`, e a tela diz "sem cadastro" em vez de mostrar um
- * devido tirado do contrato de outra unidade.
+ * em `unidade_codigo` e o que alguém registrou em `remuneracao_unidade`. Ver
+ * {@link resolverUnidade} para as três formas de casar e o que cada uma ignora
+ * — e, principalmente, para o que **nenhuma** delas faz, que é adivinhar pelo
+ * nome.
  *
  * **A unidade sem código não é candidata, e o `<> ''` diz isso.** Desde a `0047`
  * o cadastro aceita unidade sem CNPJ, e `''` ali quer dizer "ninguém deu o
@@ -38,39 +63,155 @@ import { contratoDaPlanilha, lerPlanilha, vigenciaQueResponde } from "@workspace
  * **Só a Rota.** O contrato transcrito é o da Rota — a própria aba `Cadastro`
  * escreve `QUANTIDADE DE DOCUMENTOS EMITIDOS - ROTA %` —, e é também o único
  * canal com painel (`CANAIS_COM_PAINEL`). Responder pelo AS com os parâmetros
- * da Rota seria inventar um contrato; responder `null` é dizer a verdade.
+ * da Rota seria inventar um contrato; responder que o canal não tem contrato é
+ * dizer a verdade, e agora ela chega à tela com esse nome.
  */
 
 interface UnidadeDoCadastro {
   scopeHash: string;
   /** O tipo de operação como o cadastro o guarda. `null` é a série sem canal. */
   canal: string | null;
+  /** O código como o **cadastro** o escreve, para a tela pôr ao lado. */
+  codigo: string;
+  comoCasou: ComoCasou;
 }
+
+/**
+ * Uma linha candidata, como o SQL a devolve.
+ *
+ * `type` e não `interface` porque `db.execute<T>` exige `T extends
+ * Record<string, unknown>`, e só o alias de tipo ganha a assinatura de índice
+ * implícita que satisfaz a restrição.
+ */
+type CandidataBruta = {
+  scope_hash: string;
+  canal: string;
+  codigo: string;
+};
 
 /**
  * A unidade registrada que responde por este código e tipo de operação.
  *
- * A preferência é a série do próprio tipo de operação; sem ela, a série sem
- * canal (`''`), que é como o cadastro guarda a unidade cuja aba foi digitada
- * antes de qualquer export chegar. Ver `canaisComPlanilha` em
- * `@workspace/remuneracao`.
+ * **O defeito que esta função conserta.** A consulta era `u.codigo = $codigo`,
+ * igualdade textual crua, com `LIMIT 1`. Dois problemas moravam ali, e os dois
+ * apareciam como a mesma tela vazia:
+ *
+ * - **o espaço sobrando.** A tela de fechamento compara com `.trim()` dos dois
+ *   lados e diz "existe unidade cadastrada com este código"; o SQL comparava
+ *   byte a byte e não achava. As duas telas discordavam sobre o mesmo cadastro,
+ *   e a que decidia era a que não explicava. Pior: `normalizarCodigo`, em
+ *   `@workspace/remuneracao`, é `trim()` **e nada mais** — o código canônico da
+ *   unidade é, por definição do próprio módulo, o digitado sem o espaço em
+ *   volta. O backend estava discordando da sua própria regra;
+ * - **o `LIMIT 1` silencioso.** Duas unidades com o mesmo código faziam a
+ *   primeira responder pelo fechamento da outra, sem nada na tela dizendo que
+ *   houve escolha. Agora a ambiguidade é um estado, e ela recusa.
+ *
+ * **Sobre resolver pela identidade canônica.** Foi o primeiro caminho tentado,
+ * e ele **não** serve como resolução única — a razão é o próprio CDD Belém. A
+ * identidade canônica de uma UNIDADE, em `@workspace/ingest`, é
+ * `normalizeDocumento`: dígitos, com os zeros à esquerda de volta. Um código
+ * como `CDD Belém` não tem dígito nenhum e normaliza para `""` — e `""` casaria
+ * com **todo** código sem dígito do cadastro. Trocar a igualdade textual pela
+ * canônica pura transformaria o defeito atual (não encontra) num defeito muito
+ * pior (encontra a errada).
+ *
+ * Por isso ela entra como **terceiro** critério e só quando os dois lados têm
+ * documento de verdade. Aí ela é exatamente o que se quer: `12.345.678/0001-99`
+ * e `12345678000199` são o mesmo CNPJ, e o Excel entrega ora um ora outro.
+ *
+ * A ordem é do mais estrito para o mais frouxo, e para na primeira faixa que
+ * acha alguém — um casamento exato nunca é preterido por um aproximado.
  */
-async function unidadeDoCadastro(
+async function resolverUnidade(
   db: Database,
   unidadeCodigo: string,
   tipoDeOperacao: string,
-): Promise<UnidadeDoCadastro | null> {
-  const { rows } = await db.execute<{ scope_hash: string; canal: string }>(sql`
-    SELECT u.scope_hash, u.canal
+): Promise<{ unidade: UnidadeDoCadastro | null; candidatas: number }> {
+  const preferencia = sql`ORDER BY (u.canal = ${tipoDeOperacao}) DESC, (u.canal = '') DESC, u.canal`;
+  const procurado = unidadeCodigo.trim();
+
+  /* 1. Exato — byte a byte, como sempre foi. */
+  const exatas = await db.execute<CandidataBruta>(sql`
+    SELECT u.scope_hash, u.canal, u.codigo
       FROM remuneracao_unidade u
      WHERE u.codigo = ${unidadeCodigo}
-       AND u.codigo <> ''
-     ORDER BY (u.canal = ${tipoDeOperacao}) DESC, (u.canal = '') DESC, u.canal
-     LIMIT 1
+       AND btrim(u.codigo) <> ''
+     ${preferencia}
   `);
-  const linha = rows[0];
-  if (!linha) return null;
-  return { scopeHash: linha.scope_hash, canal: linha.canal === "" ? null : linha.canal };
+  const doExato = escolher(exatas.rows, "EXATO");
+  if (doExato.candidatas > 0) return doExato;
+
+  /* 2. Só o espaço em volta separava os dois — que é o `normalizarCodigo`. */
+  const aparadas = await db.execute<CandidataBruta>(sql`
+    SELECT u.scope_hash, u.canal, u.codigo
+      FROM remuneracao_unidade u
+     WHERE btrim(u.codigo) = ${procurado}
+       AND btrim(u.codigo) <> ''
+     ${preferencia}
+  `);
+  const doEspaco = escolher(aparadas.rows, "ESPACO");
+  if (doEspaco.candidatas > 0) return doEspaco;
+
+  /*
+    3. O mesmo documento, com máscara de um lado e sem do outro.
+
+    Só entra quando o código procurado **tem** documento: `CDD Belém` normaliza
+    para vazio, e vazio casaria com todos os outros sem dígito. O filtro do lado
+    do banco repete a guarda, porque a comparação acontece lá.
+  */
+  const documento = normalizeDocumento(procurado);
+  if (documento === "") return { unidade: null, candidatas: 0 };
+
+  const porDocumento = await db.execute<CandidataBruta>(sql`
+    SELECT u.scope_hash, u.canal, u.codigo
+      FROM remuneracao_unidade u
+     WHERE lpad(regexp_replace(u.codigo, '\\D', '', 'g'), 14, '0') = lpad(${documento}, 14, '0')
+       AND regexp_replace(u.codigo, '\\D', '', 'g') <> ''
+     ${preferencia}
+  `);
+  return escolher(porDocumento.rows, "DOCUMENTO");
+}
+
+/**
+ * A candidata única de uma faixa — ou a contagem, quando há mais de uma.
+ *
+ * Devolver a contagem em vez de escolher é a diferença entre "não encontrei" e
+ * "encontrei duas": as duas precisam de conserto, e são consertos opostos.
+ */
+function escolher(
+  linhas: CandidataBruta[],
+  comoCasou: ComoCasou,
+): { unidade: UnidadeDoCadastro | null; candidatas: number } {
+  /*
+    A mesma unidade pode ter mais de uma série de canal (`ROTA` e `''`), e isso
+    **não** é ambiguidade: é a mesma unidade duas vezes, e a preferência do
+    `ORDER BY` já sabe qual delas responde. Ambíguo é haver dois `scope_hash`.
+    Contar linhas em vez de unidades faria a unidade normal, com a série do
+    canal e a série sem canal, ser recusada por duplicidade.
+  */
+  const distintas = new Set(linhas.map((l) => l.scope_hash));
+  if (distintas.size === 0) return { unidade: null, candidatas: 0 };
+  if (distintas.size > 1) return { unidade: null, candidatas: distintas.size };
+
+  const primeira = linhas[0]!;
+  return {
+    unidade: {
+      scopeHash: primeira.scope_hash,
+      canal: primeira.canal === "" ? null : primeira.canal,
+      codigo: primeira.codigo,
+      comoCasou,
+    },
+    candidatas: 1,
+  };
+}
+
+/** Quantas unidades o cadastro tem ao todo — o denominador da frase da tela. */
+async function contarCadastradas(db: Database): Promise<number> {
+  const { rows } = await db.execute<{ total: number }>(
+    sql`SELECT count(*)::int AS total FROM remuneracao_unidade`,
+  );
+  return rows[0]?.total ?? 0;
 }
 
 /** As vigências dessa unidade que têm alguma linha de planilha digitada. */
@@ -101,26 +242,63 @@ export function cadastroDaRemuneracao(
   alvo: { tipoDeOperacao: string },
 ): FonteDeCadastro {
   return {
-    async resolver(pergunta): Promise<RespostaDoCadastro | null> {
-      if (pergunta.canal !== "ROTA") return null;
+    async resolver(pergunta): Promise<LeituraDoCadastro> {
+      const cadastradas = await contarCadastradas(db);
+      const daUnidade = (porta: Partial<PortaDaUnidade>): DiagnosticoDoCadastro =>
+        paradoNaUnidade(pergunta.unidadeCodigo, { cadastradas, ...porta });
 
-      const unidade = await unidadeDoCadastro(
+      if (pergunta.canal !== "ROTA") {
+        return {
+          resposta: null,
+          diagnostico: {
+            ...daUnidade({}),
+            estado: "CANAL_SEM_CONTRATO",
+          },
+        };
+      }
+
+      const { unidade, candidatas } = await resolverUnidade(
         db,
         pergunta.unidadeCodigo,
         alvo.tipoDeOperacao,
       );
-      if (!unidade) return null;
+      if (!unidade) return { resposta: null, diagnostico: daUnidade({ candidatas }) };
+
+      const portaDaUnidade: PortaDaUnidade = {
+        codigoProcurado: pergunta.unidadeCodigo,
+        cadastradas,
+        candidatas: 1,
+        comoCasou: unidade.comoCasou,
+        codigoNoCadastro: unidade.codigo,
+      };
 
       /*
         Qual aba responde por esta quinzena — inclusive a herança entre as duas
         metades do mês, que é regra de negócio e por isso mora em
         `@workspace/remuneracao`, testada sem banco.
       */
-      const escolhida = vigenciaQueResponde(
-        pergunta.inicio,
-        await vigenciasComPlanilha(db, unidade),
-      );
-      if (!escolhida) return null;
+      const todas = await vigenciasComPlanilha(db, unidade);
+      const mes = pergunta.inicio.slice(0, 7);
+      const doMes = todas.filter((d) => d.slice(0, 7) === mes);
+      const escolhida = vigenciaQueResponde(pergunta.inicio, todas);
+      if (!escolhida) {
+        return {
+          resposta: null,
+          diagnostico: {
+            estado: "SEM_VIGENCIA",
+            unidade: portaDaUnidade,
+            vigencia: { doMes, todas, vigenteDe: null, herdadaDaOutraQuinzena: false },
+            contrato: null,
+          },
+        };
+      }
+
+      const portaDaVigencia = {
+        doMes,
+        todas,
+        vigenteDe: escolhida.vigenteDe,
+        herdadaDaOutraQuinzena: escolhida.herdadaDaOutraQuinzena,
+      };
 
       const planilha = await lerPlanilha(db, {
         scopeHash: unidade.scopeHash,
@@ -128,7 +306,7 @@ export function cadastroDaRemuneracao(
         effectiveDate: escolhida.vigenteDe,
       });
 
-      const { contrato } = contratoDaPlanilha(
+      const { contrato, faltam, assumidasComoZero } = contratoDaPlanilha(
         new Map(planilha.linhas.map((l) => [l.chave, l.valor])),
       );
       /*
@@ -137,20 +315,48 @@ export function cadastroDaRemuneracao(
         ela é deliberada: completar as que faltam com zero produziria um número
         que ninguém contratou, e a diferença contra o demonstrativo passaria a
         medir a nossa omissão em vez da divergência real.
+
+        O que mudou é que a recusa passou a **nomear as linhas**. A lista já
+        existia — `contratoDaPlanilha` sempre devolveu `faltam` —, e era
+        descartada aqui: quem tinha vinte das vinte e duas linhas digitadas lia
+        "nenhum cadastro respondeu" e não tinha como saber quais duas.
       */
-      if (!contrato) return null;
+      const portaDoContrato = {
+        faltam,
+        assumidasComoZero,
+        lidas: CHAVES_DO_CONTRATO.length,
+      };
+      if (!contrato) {
+        return {
+          resposta: null,
+          diagnostico: {
+            estado: "CONTRATO_INCOMPLETO",
+            unidade: portaDaUnidade,
+            vigencia: portaDaVigencia,
+            contrato: portaDoContrato,
+          },
+        };
+      }
 
       return {
-        parametros: contrato.parametros,
-        custoVariavelPrevistoPor25Viagens: contrato.custoVariavelPrevistoPor25Viagens,
-        cadastroId: `${unidade.scopeHash}:${unidade.canal ?? ""}:${escolhida.vigenteDe}`,
-        /*
-          A vigência que **respondeu**, e não a quinzena que perguntou. É por
-          este campo que a herança aparece na tela: a 2ª quinzena que usou a aba
-          da 1ª mostra `2026-07-01` ao lado de um período que começa no dia 16,
-          e quem lê vê de onde o número veio sem precisar perguntar.
-        */
-        vigenteDe: escolhida.vigenteDe,
+        resposta: {
+          parametros: contrato.parametros,
+          custoVariavelPrevistoPor25Viagens: contrato.custoVariavelPrevistoPor25Viagens,
+          cadastroId: `${unidade.scopeHash}:${unidade.canal ?? ""}:${escolhida.vigenteDe}`,
+          /*
+            A vigência que **respondeu**, e não a quinzena que perguntou. É por
+            este campo que a herança aparece na tela: a 2ª quinzena que usou a aba
+            da 1ª mostra `2026-07-01` ao lado de um período que começa no dia 16,
+            e quem lê vê de onde o número veio sem precisar perguntar.
+          */
+          vigenteDe: escolhida.vigenteDe,
+        },
+        diagnostico: {
+          estado: "RESPONDEU",
+          unidade: portaDaUnidade,
+          vigencia: portaDaVigencia,
+          contrato: portaDoContrato,
+        },
       };
     },
   };

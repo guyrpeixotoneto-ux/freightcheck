@@ -1,20 +1,26 @@
 import { describe, expect, it } from "vitest";
 import type { Database } from "@workspace/db";
+import { comoDestravar } from "@workspace/fechamento";
+import { CHAVES_OBRIGATORIAS, linhaDoCadastro } from "@workspace/remuneracao";
 
 import { cadastroDaRemuneracao } from "../lib/cadastro-da-remuneracao";
 
 /**
  * A porta do cadastro, do lado da borda — com o banco fingido.
  *
- * O que se prova aqui não é aritmética: é **qual aba responde por qual
- * quinzena**, que é a regra que o usuário pediu e a única coisa que este
- * arquivo decide. A conta está provada duas vezes noutro lugar — a tradução em
+ * O que se prova aqui não é aritmética: são **as três portas** que separam uma
+ * competência do seu contrato — achar a unidade pelo código, achar a vigência
+ * que responde pela quinzena, montar o contrato com as obrigatórias da aba. A
+ * conta está provada duas vezes noutro lugar: a tradução em
  * `@workspace/remuneracao` (`contrato.test.ts`) e o motor em
  * `@workspace/fechamento` (`mapa-rota.test.ts`, contra a `.xlsb` real).
  *
  * O banco é fingido de propósito. Um Postgres aqui provaria que o `SELECT`
- * compila, e não provaria nenhuma das cinco decisões abaixo; e o teste que
- * precisa de banco é o que ninguém roda na máquina antes de mandar o commit.
+ * compila, e não provaria nenhuma das decisões abaixo; e o teste que precisa de
+ * banco é o que ninguém roda na máquina antes de mandar o commit. O fingimento
+ * é honesto onde importa: as três faixas de casamento de código são reproduzidas
+ * em JavaScript com a mesma regra que o SQL aplica, e a que erra a regra erra o
+ * teste junto.
  */
 
 /** Uma aba completa de julho/2026, como a tela a guarda (percentual em pontos). */
@@ -42,48 +48,98 @@ const ABA = new Map<string, number>([
   ["marketing_sem_impostos", 0],
 ]);
 
-/** O texto de uma consulta do drizzle, para o banco fingido saber quem chamou. */
-function textoDa(query: unknown): string {
-  const partes: string[] = [];
-  const visitar = (no: unknown) => {
-    if (no == null) return;
-    if (typeof no === "string") return void partes.push(no);
-    if (Array.isArray(no)) return void no.forEach(visitar);
-    if (typeof no === "object" && "value" in (no as Record<string, unknown>)) {
-      visitar((no as { value: unknown }).value);
+/**
+ * O texto e os parâmetros de uma consulta do drizzle, separados.
+ *
+ * A forma é a que o drizzle monta: cada pedaço literal do template é um
+ * `StringChunk` — um objeto com `value: string[]` —, e cada interpolação entra
+ * **crua**, como o valor que ela é. Um `sql` aninhado traz o `queryChunks` dele.
+ *
+ * A separação existe porque o banco fingido precisa saber **quem** chamou e
+ * **com o quê**: as três consultas de unidade têm textos diferentes e o mesmo
+ * papel, e sem o parâmetro nenhuma delas sabe qual código procurar.
+ */
+function partesDa(query: unknown): { texto: string; valores: unknown[] } {
+  const texto: string[] = [];
+  const valores: unknown[] = [];
+  const visitar = (pedacos: unknown) => {
+    if (!Array.isArray(pedacos)) return;
+    for (const pedaco of pedacos) {
+      if (pedaco != null && typeof pedaco === "object") {
+        const registro = pedaco as Record<string, unknown>;
+        if (Array.isArray(registro.queryChunks)) visitar(registro.queryChunks);
+        else if (Array.isArray(registro.value)) texto.push(...(registro.value as string[]));
+        continue;
+      }
+      /* O que não é objeto é interpolação — o parâmetro da consulta. */
+      valores.push(pedaco);
     }
   };
   visitar((query as { queryChunks?: unknown }).queryChunks);
-  return partes.join(" ");
+  return { texto: texto.join(" "), valores };
 }
 
+/** Uma unidade registrada no cadastro, como `remuneracao_unidade` a guarda. */
+interface UnidadeRegistrada {
+  scopeHash: string;
+  canal: string;
+  codigo: string;
+}
+
+const SO_DIGITOS = (t: string) => t.replace(/\D/g, "");
+
 /**
- * Um banco com uma unidade registrada e as abas de `porVigencia`.
+ * Um banco com unidades registradas e as abas de `porVigencia`.
  *
- * `unidade: null` é a unidade que ninguém registrou — o estado de toda unidade
- * antes de alguém abrir a tela de cadastro.
+ * `unidades: []` é o cadastro em que ninguém registrou nada — o estado de toda
+ * instalação antes de alguém abrir a tela.
  */
 function bancoCom(opcoes: {
-  unidade?: { scopeHash: string; canal: string } | null;
+  unidades?: UnidadeRegistrada[];
   porVigencia: Record<string, ReadonlyMap<string, number>>;
+  /** As abas de uma unidade específica, quando há mais de uma registrada. */
+  scopeHashDaPlanilha?: string;
 }): Database {
-  const unidade = opcoes.unidade === undefined ? { scopeHash: "sh1", canal: "" } : opcoes.unidade;
+  const unidades = opcoes.unidades ?? [{ scopeHash: "sh1", canal: "", codigo: "0443" }];
+  const daPlanilha = opcoes.scopeHashDaPlanilha ?? unidades[0]?.scopeHash ?? "sh1";
+  const canalDaPlanilha = unidades.find((u) => u.scopeHash === daPlanilha)?.canal ?? "";
+
+  const comoLinha = (u: UnidadeRegistrada) => ({
+    scope_hash: u.scopeHash,
+    canal: u.canal,
+    codigo: u.codigo,
+  });
 
   return {
     async execute(query: unknown) {
-      const texto = textoDa(query);
+      const { texto, valores } = partesDa(query);
+      const procurado = String(valores[0] ?? "");
 
-      if (texto.includes("remuneracao_unidade")) {
-        return { rows: unidade ? [{ scope_hash: unidade.scopeHash, canal: unidade.canal }] : [] };
+      if (texto.includes("count(*)")) return { rows: [{ total: unidades.length }] };
+
+      /* As três faixas, com a mesma regra do SQL — ver `resolverUnidade`. */
+      if (texto.includes("WHERE u.codigo =")) {
+        return { rows: unidades.filter((u) => u.codigo === procurado && u.codigo.trim() !== "").map(comoLinha) };
+      }
+      if (texto.includes("WHERE btrim(u.codigo) =")) {
+        return { rows: unidades.filter((u) => u.codigo.trim() === procurado && u.codigo.trim() !== "").map(comoLinha) };
+      }
+      if (texto.includes("lpad(regexp_replace")) {
+        const alvo = SO_DIGITOS(procurado).padStart(14, "0");
+        return {
+          rows: unidades
+            .filter((u) => SO_DIGITOS(u.codigo) !== "" && SO_DIGITOS(u.codigo).padStart(14, "0") === alvo)
+            .map(comoLinha),
+        };
       }
       if (texto.includes("DISTINCT")) {
         return { rows: Object.keys(opcoes.porVigencia).sort().map((d) => ({ effective_date: d })) };
       }
       /* O que sobra é a leitura da aba, em `lerPlanilhasEmLote`. */
-      const rows = Object.entries(opcoes.porVigencia).flatMap(([data, valores]) =>
-        [...valores].map(([chave, valor]) => ({
-          scope_hash: unidade?.scopeHash ?? "sh1",
-          canal: unidade?.canal ?? "",
+      const rows = Object.entries(opcoes.porVigencia).flatMap(([data, valores2]) =>
+        [...valores2].map(([chave, valor]) => ({
+          scope_hash: daPlanilha,
+          canal: canalDaPlanilha,
           effective_date: data,
           chave,
           valor: String(valor),
@@ -103,25 +159,40 @@ const UNIDADE = { unidadeCodigo: "0443", transportadoraCodigo: "36" };
 
 const porta = (db: Database) => cadastroDaRemuneracao(db, { tipoDeOperacao: "ROTA" });
 
-describe("cadastroDaRemuneracao", () => {
+/* =========================================================================
+ * Porta 2 — a vigência que responde pela quinzena
+ * ====================================================================== */
+
+describe("a vigência que responde", () => {
   it("uma aba na 1ª quinzena responde também pela 2ª, e diz de onde veio", async () => {
     const db = bancoCom({ porVigencia: { "2026-07-01": ABA } });
 
     const primeira = await porta(db).resolver({ ...UNIDADE, ...PRIMEIRA });
     const segunda = await porta(db).resolver({ ...UNIDADE, ...SEGUNDA });
 
-    expect(primeira?.vigenteDe).toBe("2026-07-01");
-    expect(segunda?.vigenteDe).toBe("2026-07-01");
+    expect(primeira.resposta?.vigenteDe).toBe("2026-07-01");
+    expect(segunda.resposta?.vigenteDe).toBe("2026-07-01");
     /* Mesma aba, mesma identidade — é por ela que a tela diz que é uma só. */
-    expect(segunda?.cadastroId).toBe(primeira?.cadastroId);
-    expect(segunda?.parametros.frotaFixaAtiva).toBe(56);
+    expect(segunda.resposta?.cadastroId).toBe(primeira.resposta?.cadastroId);
+    expect(segunda.resposta?.parametros.frotaFixaAtiva).toBe(56);
   });
 
-  it("e o contrário também: uma aba na 2ª responde pela 1ª", async () => {
-    const db = bancoCom({ porVigencia: { "2026-07-16": ABA } });
+  it("a vigência da própria quinzena responde sem herança, e o diagnóstico diz", async () => {
+    const db = bancoCom({ porVigencia: { "2026-07-01": ABA, "2026-07-16": ABA } });
+    const { diagnostico } = await porta(db).resolver({ ...UNIDADE, ...PRIMEIRA });
 
-    expect((await porta(db).resolver({ ...UNIDADE, ...PRIMEIRA }))?.vigenteDe).toBe("2026-07-16");
-    expect((await porta(db).resolver({ ...UNIDADE, ...SEGUNDA }))?.vigenteDe).toBe("2026-07-16");
+    expect(diagnostico.estado).toBe("RESPONDEU");
+    expect(diagnostico.vigencia?.vigenteDe).toBe("2026-07-01");
+    expect(diagnostico.vigencia?.herdadaDaOutraQuinzena).toBe(false);
+  });
+
+  it("a herança da quinzena irmã aparece marcada, não silenciosa", async () => {
+    const db = bancoCom({ porVigencia: { "2026-07-16": ABA } });
+    const { diagnostico } = await porta(db).resolver({ ...UNIDADE, ...PRIMEIRA });
+
+    expect(diagnostico.estado).toBe("RESPONDEU");
+    expect(diagnostico.vigencia?.vigenteDe).toBe("2026-07-16");
+    expect(diagnostico.vigencia?.herdadaDaOutraQuinzena).toBe(true);
   });
 
   it("duas abas cadastradas: cada quinzena usa a sua", async () => {
@@ -131,42 +202,253 @@ describe("cadastroDaRemuneracao", () => {
     const primeira = await porta(db).resolver({ ...UNIDADE, ...PRIMEIRA });
     const segunda = await porta(db).resolver({ ...UNIDADE, ...SEGUNDA });
 
-    expect(primeira?.vigenteDe).toBe("2026-07-01");
-    expect(primeira?.parametros.frotaFixaAtiva).toBe(56);
-    expect(segunda?.vigenteDe).toBe("2026-07-16");
-    expect(segunda?.parametros.frotaFixaAtiva).toBe(60);
-    expect(segunda?.cadastroId).not.toBe(primeira?.cadastroId);
+    expect(primeira.resposta?.vigenteDe).toBe("2026-07-01");
+    expect(primeira.resposta?.parametros.frotaFixaAtiva).toBe(56);
+    expect(segunda.resposta?.vigenteDe).toBe("2026-07-16");
+    expect(segunda.resposta?.parametros.frotaFixaAtiva).toBe(60);
+    expect(segunda.resposta?.cadastroId).not.toBe(primeira.resposta?.cadastroId);
   });
 
-  it("a herança não atravessa o mês: junho não responde por julho", async () => {
+  it("a herança não atravessa o mês: junho não responde por julho, e a tela diz o que existe", async () => {
     const db = bancoCom({ porVigencia: { "2026-06-01": ABA, "2026-06-16": ABA } });
-    expect(await porta(db).resolver({ ...UNIDADE, ...PRIMEIRA })).toBeNull();
+    const { resposta, diagnostico } = await porta(db).resolver({ ...UNIDADE, ...PRIMEIRA });
+
+    expect(resposta).toBeNull();
+    expect(diagnostico.estado).toBe("SEM_VIGENCIA");
+    /* A distinção que faltava: não é "você não digitou", é "digitou noutro mês". */
+    expect(diagnostico.vigencia?.doMes).toEqual([]);
+    expect(diagnostico.vigencia?.todas).toEqual(["2026-06-01", "2026-06-16"]);
+    expect(comoDestravar(diagnostico)?.problema).toContain("2026-06-01");
+  });
+
+  it("unidade cadastrada e nenhuma aba digitada é outro texto", async () => {
+    const db = bancoCom({ porVigencia: {} });
+    const { diagnostico } = await porta(db).resolver({ ...UNIDADE, ...PRIMEIRA });
+
+    expect(diagnostico.estado).toBe("SEM_VIGENCIA");
+    expect(diagnostico.vigencia?.todas).toEqual([]);
+    expect(comoDestravar(diagnostico)?.conserto).toContain("digite a aba");
   });
 
   it("converte o percentual de pontos para fração — 17,84 % vira 0,1784", async () => {
     const db = bancoCom({ porVigencia: { "2026-07-01": ABA } });
-    const r = await porta(db).resolver({ ...UNIDADE, ...PRIMEIRA });
+    const { resposta } = await porta(db).resolver({ ...UNIDADE, ...PRIMEIRA });
 
-    expect(r?.parametros.aliquotas.icms).toBeCloseTo(0.1784, 10);
-    expect(r?.parametros.parcelaDentroDoMunicipio).toBeCloseTo(0.0316, 10);
-    expect(r?.custoVariavelPrevistoPor25Viagens).toBe(5176.53);
+    expect(resposta?.parametros.aliquotas.icms).toBeCloseTo(0.1784, 10);
+    expect(resposta?.parametros.parcelaDentroDoMunicipio).toBeCloseTo(0.0316, 10);
+    expect(resposta?.custoVariavelPrevistoPor25Viagens).toBe(5176.53);
+  });
+});
+
+/* =========================================================================
+ * Porta 1 — a unidade, e o código que a encontra
+ * ====================================================================== */
+
+describe("o código que encontra a unidade", () => {
+  it("unidade sem cadastro registrado não responde com o contrato de outra", async () => {
+    const db = bancoCom({ unidades: [], porVigencia: { "2026-07-01": ABA } });
+    const { resposta, diagnostico } = await porta(db).resolver({ ...UNIDADE, ...PRIMEIRA });
+
+    expect(resposta).toBeNull();
+    expect(diagnostico.estado).toBe("UNIDADE_NAO_ENCONTRADA");
+    expect(diagnostico.unidade.cadastradas).toBe(0);
+    /* Parou na primeira porta: não se avalia o que não se chegou a perguntar. */
+    expect(diagnostico.vigencia).toBeNull();
+    expect(diagnostico.contrato).toBeNull();
   });
 
-  it("aba incompleta não vira contrato — o devido fica vazio, não errado", async () => {
+  it("o código com outro valor não casa — nada aqui adivinha pelo nome", async () => {
+    const db = bancoCom({
+      unidades: [{ scopeHash: "sh1", canal: "", codigo: "0444" }],
+      porVigencia: { "2026-07-01": ABA },
+    });
+    const { diagnostico } = await porta(db).resolver({ ...UNIDADE, ...PRIMEIRA });
+    expect(diagnostico.estado).toBe("UNIDADE_NAO_ENCONTRADA");
+    expect(diagnostico.unidade.cadastradas).toBe(1);
+  });
+
+  /**
+   * O defeito que o usuário apontou: a tela dizia "existe" e o backend não achava.
+   */
+  it("espaço sobrando no cadastro não impede o encontro, e a tela vê que foi por espaço", async () => {
+    const db = bancoCom({
+      unidades: [{ scopeHash: "sh1", canal: "", codigo: " 0443 " }],
+      porVigencia: { "2026-07-01": ABA },
+    });
+    const { resposta, diagnostico } = await porta(db).resolver({ ...UNIDADE, ...PRIMEIRA });
+
+    expect(resposta).not.toBeNull();
+    expect(diagnostico.unidade.comoCasou).toBe("ESPACO");
+    /* O código do cadastro chega à tela como ele **é**, para alguém arrumá-lo. */
+    expect(diagnostico.unidade.codigoNoCadastro).toBe(" 0443 ");
+  });
+
+  it("espaço sobrando na competência também não impede", async () => {
+    const db = bancoCom({ porVigencia: { "2026-07-01": ABA } });
+    const { resposta, diagnostico } = await porta(db).resolver({
+      ...UNIDADE,
+      unidadeCodigo: "  0443  ",
+      ...PRIMEIRA,
+    });
+
+    expect(resposta).not.toBeNull();
+    expect(diagnostico.unidade.comoCasou).toBe("ESPACO");
+  });
+
+  it("o casamento exato tem precedência sobre o aproximado", async () => {
+    const db = bancoCom({
+      unidades: [
+        { scopeHash: "aparada", canal: "", codigo: " 0443 " },
+        { scopeHash: "exata", canal: "", codigo: "0443" },
+      ],
+      scopeHashDaPlanilha: "exata",
+      porVigencia: { "2026-07-01": ABA },
+    });
+    const { resposta, diagnostico } = await porta(db).resolver({ ...UNIDADE, ...PRIMEIRA });
+
+    expect(diagnostico.unidade.comoCasou).toBe("EXATO");
+    expect(resposta?.cadastroId).toContain("exata");
+  });
+
+  it("o mesmo CNPJ com máscara e sem casa pela identidade canônica", async () => {
+    const db = bancoCom({
+      unidades: [{ scopeHash: "sh1", canal: "", codigo: "12.345.678/0001-99" }],
+      porVigencia: { "2026-07-01": ABA },
+    });
+    const { resposta, diagnostico } = await porta(db).resolver({
+      ...UNIDADE,
+      unidadeCodigo: "12345678000199",
+      ...PRIMEIRA,
+    });
+
+    expect(resposta).not.toBeNull();
+    expect(diagnostico.unidade.comoCasou).toBe("DOCUMENTO");
+  });
+
+  /**
+   * A razão de a identidade canônica **não** ser o critério único.
+   *
+   * `normalizeDocumento("CDD Belém")` é `""`, e `""` casaria com todo código sem
+   * dígito do cadastro. É o caso da unidade da tela que originou este trabalho.
+   */
+  it("um código sem dígito nenhum não entra na faixa do documento", async () => {
+    const db = bancoCom({
+      unidades: [{ scopeHash: "outra", canal: "", codigo: "CDD Ananindeua" }],
+      porVigencia: { "2026-07-01": ABA },
+    });
+    const { resposta, diagnostico } = await porta(db).resolver({
+      ...UNIDADE,
+      unidadeCodigo: "CDD Belém",
+      ...PRIMEIRA,
+    });
+
+    expect(resposta).toBeNull();
+    expect(diagnostico.estado).toBe("UNIDADE_NAO_ENCONTRADA");
+  });
+
+  it("dois cadastros com o mesmo código recusam, em vez de a primeira responder", async () => {
+    const db = bancoCom({
+      unidades: [
+        { scopeHash: "sh1", canal: "", codigo: "0443" },
+        { scopeHash: "sh2", canal: "", codigo: "0443" },
+      ],
+      porVigencia: { "2026-07-01": ABA },
+    });
+    const { resposta, diagnostico } = await porta(db).resolver({ ...UNIDADE, ...PRIMEIRA });
+
+    expect(resposta).toBeNull();
+    expect(diagnostico.estado).toBe("UNIDADE_AMBIGUA");
+    expect(diagnostico.unidade.candidatas).toBe(2);
+    expect(comoDestravar(diagnostico)?.conserto).toContain("deixe uma só");
+  });
+
+  it("a mesma unidade com série de canal e sem canal não é ambiguidade", async () => {
+    const db = bancoCom({
+      unidades: [
+        { scopeHash: "sh1", canal: "ROTA", codigo: "0443" },
+        { scopeHash: "sh1", canal: "", codigo: "0443" },
+      ],
+      porVigencia: { "2026-07-01": ABA },
+    });
+    const { resposta, diagnostico } = await porta(db).resolver({ ...UNIDADE, ...PRIMEIRA });
+
+    expect(diagnostico.estado).toBe("RESPONDEU");
+    expect(resposta).not.toBeNull();
+  });
+
+  it("o AS não é respondido com os parâmetros da Rota, e diz que é o canal", async () => {
+    const db = bancoCom({ porVigencia: { "2026-07-01": ABA } });
+    const { resposta, diagnostico } = await porta(db).resolver({
+      ...UNIDADE,
+      ...PRIMEIRA,
+      canal: "AS",
+    });
+
+    expect(resposta).toBeNull();
+    expect(diagnostico.estado).toBe("CANAL_SEM_CONTRATO");
+  });
+});
+
+/* =========================================================================
+ * Porta 3 — o contrato completo
+ * ====================================================================== */
+
+describe("o contrato completo", () => {
+  it("a aba inteira responde, e o diagnóstico não tem nada faltando", async () => {
+    const db = bancoCom({ porVigencia: { "2026-07-01": ABA } });
+    const { resposta, diagnostico } = await porta(db).resolver({ ...UNIDADE, ...PRIMEIRA });
+
+    expect(resposta).not.toBeNull();
+    expect(diagnostico.estado).toBe("RESPONDEU");
+    expect(diagnostico.contrato?.faltam).toEqual([]);
+    expect(comoDestravar(diagnostico)).toBeNull();
+  });
+
+  it("a opcional não digitada entra como zero — e isso é dito, não escondido", async () => {
+    const semMarketing = new Map(ABA);
+    semMarketing.delete("marketing_sem_impostos");
+    const db = bancoCom({ porVigencia: { "2026-07-01": semMarketing } });
+    const { resposta, diagnostico } = await porta(db).resolver({ ...UNIDADE, ...PRIMEIRA });
+
+    expect(resposta).not.toBeNull();
+    expect(diagnostico.contrato?.assumidasComoZero.map((c) => c.chave)).toContain(
+      "marketing_sem_impostos",
+    );
+  });
+
+  /**
+   * Cada obrigatória, uma por uma.
+   *
+   * Não é zelo: é o teste que impede uma chave nova de entrar em
+   * `CHAVES_OBRIGATORIAS` sem que a tela saiba nomeá-la. Antes, faltar qualquer
+   * uma das vinte produzia exatamente a mesma tela vazia.
+   */
+  it.each(CHAVES_OBRIGATORIAS)("faltando `%s`, o diagnóstico nomeia a linha", async (chave) => {
+    const faltando = new Map(ABA);
+    faltando.delete(chave);
+    const db = bancoCom({ porVigencia: { "2026-07-01": faltando } });
+    const { resposta, diagnostico } = await porta(db).resolver({ ...UNIDADE, ...PRIMEIRA });
+
+    expect(resposta).toBeNull();
+    expect(diagnostico.estado).toBe("CONTRATO_INCOMPLETO");
+    expect(diagnostico.contrato?.faltam.map((f) => f.chave)).toEqual([chave]);
+    /* O rótulo é o da tela de cadastro, e não a chave técnica. */
+    expect(diagnostico.contrato?.faltam[0]?.rotulo).toBe(linhaDoCadastro(chave)?.rotulo);
+    expect(comoDestravar(diagnostico)?.problema).toContain(linhaDoCadastro(chave)!.rotulo);
+  });
+
+  it("faltando várias, todas são nomeadas — não só a primeira", async () => {
     const faltando = new Map(ABA);
     faltando.delete("van_custo_fixo");
+    faltando.delete("aliquota_icms");
     const db = bancoCom({ porVigencia: { "2026-07-01": faltando } });
+    const { diagnostico } = await porta(db).resolver({ ...UNIDADE, ...PRIMEIRA });
 
-    expect(await porta(db).resolver({ ...UNIDADE, ...PRIMEIRA })).toBeNull();
-  });
-
-  it("unidade sem cadastro registrado responde null, não o contrato de outra", async () => {
-    const db = bancoCom({ unidade: null, porVigencia: { "2026-07-01": ABA } });
-    expect(await porta(db).resolver({ ...UNIDADE, ...PRIMEIRA })).toBeNull();
-  });
-
-  it("o AS não é respondido com os parâmetros da Rota", async () => {
-    const db = bancoCom({ porVigencia: { "2026-07-01": ABA } });
-    expect(await porta(db).resolver({ ...UNIDADE, ...PRIMEIRA, canal: "AS" })).toBeNull();
+    expect(diagnostico.contrato?.faltam.map((f) => f.chave).sort()).toEqual([
+      "aliquota_icms",
+      "van_custo_fixo",
+    ]);
+    /* A porta anterior abriu, e o diagnóstico mostra por qual aba ele passou. */
+    expect(diagnostico.vigencia?.vigenteDe).toBe("2026-07-01");
   });
 });

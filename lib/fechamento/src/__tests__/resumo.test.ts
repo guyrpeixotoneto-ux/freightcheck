@@ -249,6 +249,48 @@ describe("por que um canal fica sem painel", () => {
 
 
 /**
+ * O contrato de julho/2026 — CDD Belém, como a aba `Cadastro` o traz.
+ *
+ * Mora no escopo do módulo porque dois blocos o usam: o do painel comparado e
+ * o da transição do fallback. Duplicá-lo daria dois contratos que divergem no
+ * dia em que alguém corrigir só um.
+ */
+const PARAMETROS: ParametrosDoCadastro = {
+  aliquotas: { pis: 0.0065, cofins: 0.086, icms: 0.1784, iss: 0.059 },
+  parcelaDentroDoMunicipio: 0.0316,
+  frotaFixaAtiva: 56,
+  frotaFixaInativa: 8,
+  remuneracaoFixaDaFrotaAtiva: 1424.91,
+  remuneracaoDaEquipeDeEntrega: 8919.38,
+  remuneracaoDoQlpAdministrativo: 4427.53,
+  remuneracaoDeOutrasDespesas: 4361.07,
+  remuneracaoDaFrotaInativa: 1650.97,
+  vansAtivas: 7,
+  custoFixoDaVan: 4693.85,
+  custoDaEquipeDeEntregaDaVan: 4250.45,
+  vansInativas: 6,
+  remuneracaoDasVansInativas: 3195.18,
+  rotasNoturnas: 1,
+  custoDaNoturnaSemImposto: 8697.88,
+  custoDeMarketingSemImposto: 0,
+};
+
+const mapa = (q: 1 | 2) =>
+  montarMapaDaQuinzena({
+    quinzena: q,
+    parametros: PARAMETROS,
+    variavel: { frotaFixa: 100, agregado: 50, recargaENoturna: 0, vans: 0 },
+    bases: {
+      devolucao: 13328.3,
+      disponibilidade: 11649.87,
+      complementarNegativo: 0,
+      outrosCustos: { fonte: "PLANILHA", valor: 0 },
+      indisponibilidade: { fonte: "PLANILHA", valor: 0 },
+    },
+  });
+
+
+/**
  * O devido ao lado do demonstrado — a inversão que o motor tornou possível.
  *
  * O que estes testes prendem não é a subtração: é que o painel **só** apareça
@@ -257,40 +299,6 @@ describe("por que um canal fica sem painel", () => {
  * que uma coluna que não nasce.
  */
 describe("o painel comparado", () => {
-  const PARAMETROS: ParametrosDoCadastro = {
-    aliquotas: { pis: 0.0065, cofins: 0.086, icms: 0.1784, iss: 0.059 },
-    parcelaDentroDoMunicipio: 0.0316,
-    frotaFixaAtiva: 56,
-    frotaFixaInativa: 8,
-    remuneracaoFixaDaFrotaAtiva: 1424.91,
-    remuneracaoDaEquipeDeEntrega: 8919.38,
-    remuneracaoDoQlpAdministrativo: 4427.53,
-    remuneracaoDeOutrasDespesas: 4361.07,
-    remuneracaoDaFrotaInativa: 1650.97,
-    vansAtivas: 7,
-    custoFixoDaVan: 4693.85,
-    custoDaEquipeDeEntregaDaVan: 4250.45,
-    vansInativas: 6,
-    remuneracaoDasVansInativas: 3195.18,
-    rotasNoturnas: 1,
-    custoDaNoturnaSemImposto: 8697.88,
-    custoDeMarketingSemImposto: 0,
-  };
-
-  const mapa = (q: 1 | 2) =>
-    montarMapaDaQuinzena({
-      quinzena: q,
-      parametros: PARAMETROS,
-      variavel: { frotaFixa: 100, agregado: 50, recargaENoturna: 0, vans: 0 },
-      bases: {
-        devolucao: 13328.3,
-        disponibilidade: 11649.87,
-        complementarNegativo: 0,
-        outrosCustos: 0,
-        indisponibilidade: 0,
-      },
-    });
-
   const comCadastro = (n: 1 | 2) =>
     quinzena(n, {
       calculados: [{ canal: "ROTA", mapa: mapa(n) }],
@@ -332,5 +340,205 @@ describe("o painel comparado", () => {
       .flatMap((q) => q.linhas)
       .find((l) => l.chave === "custo_fixo_padronizado");
     expect(linha?.memoria.primeira).toContain("56 veículos ativos");
+  });
+});
+
+/**
+ * A TRANSIÇÃO — sair do fallback e passar a comparar, sem que nada se perca.
+ *
+ * É a promessa inteira deste trabalho numa frase: **cadastro válido mais
+ * vigência válida faz o painel deixar de ser uma releitura do 03.08.20 e virar
+ * a comparação**, com o devido linha a linha nas seis que o demonstrativo só
+ * traz em conjunto. E, no mesmo movimento, sem inventar o rateio que o
+ * relatório não tem.
+ */
+describe("do fallback para o painel comparado", () => {
+  /** A quinzena com os dois lados: o 03.08.20 importado e o contrato resolvido. */
+  const comOsDois = (n: 1 | 2) => {
+    const doPainel = comPainel(n);
+    return quinzena(n, {
+      ...doPainel,
+      calculados: [{ canal: "ROTA", mapa: mapa(n) }],
+      cadastroUsado: { cadastroId: "cad-1", vigenteDe: "2026-07-01" },
+      diagnosticoDoCadastro: [
+        {
+          canal: "ROTA",
+          diagnostico: {
+            estado: "RESPONDEU",
+            unidade: {
+              codigoProcurado: "0443",
+              cadastradas: 1,
+              candidatas: 1,
+              comoCasou: "EXATO",
+              codigoNoCadastro: "0443",
+            },
+            vigencia: {
+              doMes: ["2026-07-01"],
+              todas: ["2026-07-01"],
+              vigenteDe: "2026-07-01",
+              herdadaDaOutraQuinzena: false,
+            },
+            contrato: { faltam: [], assumidasComoZero: [], lidas: 22 },
+          },
+        },
+      ],
+    });
+  };
+
+  /** As seis linhas que o 03.08.20 traz somadas — ver `GRUPOS_DA_PLANILHA`. */
+  const DO_CONJUNTO = [
+    "rota_dvs",
+    "custo_fixo_padronizado",
+    "custo_fixo_inativos",
+    "custo_vans_inativas",
+    "custo_fixo_especiais",
+    "custo_fixo_vans",
+  ];
+
+  it("só o 03.08.20: o painel é a releitura, e o comparado não existe", () => {
+    const canal = montar([comPainel(1)]).canais.find((c) => c.canal === "ROTA")!;
+
+    expect(canal.painel).not.toBeNull();
+    expect(canal.comparado).toBeNull();
+    /* No fallback, as seis não têm número próprio — é o estado da tela hoje. */
+    const linha = canal.painel!.quadros.flatMap((q) => q.linhas).find(
+      (l) => l.chave === "custo_fixo_padronizado",
+    );
+    expect(linha?.valores.primeira).toBeNull();
+    expect(linha?.conjunto).not.toBeNull();
+  });
+
+  it("com cadastro e vigência, o comparado aparece e as seis ganham devido próprio", () => {
+    const canal = montar([comOsDois(1)]).canais.find((c) => c.canal === "ROTA")!;
+
+    expect(canal.comparado).not.toBeNull();
+    const linhas = canal.comparado!.quadros.flatMap((q) => q.linhas);
+    for (const chave of DO_CONJUNTO) {
+      const linha = linhas.find((l) => l.chave === chave);
+      expect(linha, chave).toBeDefined();
+      expect(linha!.devido.primeira, `${chave} sem devido`).not.toBeNull();
+    }
+  });
+
+  /**
+   * O contrato que o usuário pediu por escrito: o demonstrado **continua** em
+   * conjunto. Nada aqui reparte o número do relatório entre as seis.
+   */
+  it("o demonstrado das seis continua em conjunto — o 03.08.20 não é rateado", () => {
+    const canal = montar([comOsDois(1)]).canais.find((c) => c.canal === "ROTA")!;
+    const linhas = canal.comparado!.quadros.flatMap((q) => q.linhas);
+
+    for (const chave of DO_CONJUNTO) {
+      const linha = linhas.find((l) => l.chave === chave)!;
+      expect(linha.demonstrado.primeira, `${chave} recebeu rateio`).toBeNull();
+      /* E a tela sabe **por que** está vazio: não falta arquivo, falta partição. */
+      expect(linha.conjunto, `${chave} sem conjunto`).not.toBeNull();
+      expect(linha.conjunto!.linhas.length).toBe(6);
+      /* Sem os dois lados, a diferença da linha não existe — e não é zero. */
+      expect(linha.diferenca.primeira).toBeNull();
+    }
+  });
+
+  it("a comparação do conjunto existe, e é a soma do devido contra o agregado", () => {
+    const canal = montar([comOsDois(1)]).canais.find((c) => c.canal === "ROTA")!;
+    const quadro = canal.comparado!.quadros.find((q) => q.quadro === "REMUNERACAO")!;
+    const conjunto = quadro.conjuntos.find((c) => c.chave === "fixo_bruto");
+
+    expect(conjunto).toBeDefined();
+    expect(conjunto!.linhas.length).toBe(6);
+
+    /* O devido do conjunto é exatamente a soma do devido das seis linhas. */
+    const somaDasSeis = DO_CONJUNTO.reduce((total, chave) => {
+      const l = quadro.linhas.find((x) => x.chave === chave)!;
+      return total + (l.devido.primeira ?? 0);
+    }, 0);
+    expect(conjunto!.devido.primeira).toBeCloseTo(somaDasSeis, 2);
+
+    /* E o demonstrado é o número que o relatório traz para todas juntas. */
+    expect(conjunto!.demonstrado.primeira).not.toBeNull();
+    expect(conjunto!.diferenca.primeira).toBeCloseTo(
+      conjunto!.devido.primeira! - conjunto!.demonstrado.primeira!,
+      2,
+    );
+  });
+
+  it("faltando o devido de uma linha do conjunto, a soma do conjunto não existe", () => {
+    /* Sem diário não há `rota_dvs`, que é uma das seis. */
+    const semDiario = montarMapaDaQuinzena({
+      quinzena: 1,
+      parametros: PARAMETROS,
+      variavel: { frotaFixa: null, agregado: null, recargaENoturna: null, vans: null },
+      bases: {
+        devolucao: 13328.3,
+        disponibilidade: 11649.87,
+        complementarNegativo: 0,
+        outrosCustos: null,
+        indisponibilidade: null,
+      },
+    });
+    const doPainel = comPainel(1);
+    const canal = montar([
+      quinzena(1, {
+        ...doPainel,
+        calculados: [{ canal: "ROTA", mapa: semDiario }],
+        cadastroUsado: { cadastroId: "cad-1", vigenteDe: "2026-07-01" },
+      }),
+    ]).canais.find((c) => c.canal === "ROTA")!;
+
+    const quadro = canal.comparado!.quadros.find((q) => q.quadro === "REMUNERACAO")!;
+    const conjunto = quadro.conjuntos.find((c) => c.chave === "fixo_bruto")!;
+
+    /* Cinco sextos de uma soma não é a soma — e comparar isso mediria a nossa lacuna. */
+    expect(quadro.linhas.find((l) => l.chave === "rota_dvs")?.devido.primeira).toBeNull();
+    expect(conjunto.devido.primeira).toBeNull();
+    expect(conjunto.diferenca.primeira).toBeNull();
+    /* O demonstrado do conjunto continua lá: ele não dependia do nosso lado. */
+    expect(conjunto.demonstrado.primeira).not.toBeNull();
+  });
+
+  it("o diagnóstico do cadastro chega à tela com o texto já escrito", () => {
+    const canal = montar([comOsDois(1)]).canais.find((c) => c.canal === "ROTA")!;
+
+    expect(canal.cadastro.primeira?.estado).toBe("RESPONDEU");
+    /* Respondeu: não há o que destravar, e a tela não inventa um aviso. */
+    expect(canal.cadastro.primeira?.destrava).toBeNull();
+    /* A 2ª quinzena não existe neste mês — que é diferente de não ter cadastro. */
+    expect(canal.cadastro.segunda).toBeNull();
+  });
+
+  it("parando numa porta, o texto do conserto vem junto", () => {
+    const canal = montar([
+      quinzena(1, {
+        diagnosticoDoCadastro: [
+          {
+            canal: "ROTA",
+            diagnostico: {
+              estado: "CONTRATO_INCOMPLETO",
+              unidade: {
+                codigoProcurado: "0443",
+                cadastradas: 1,
+                candidatas: 1,
+                comoCasou: "ESPACO",
+                codigoNoCadastro: " 0443 ",
+              },
+              vigencia: {
+                doMes: ["2026-07-01"],
+                todas: ["2026-07-01"],
+                vigenteDe: "2026-07-01",
+                herdadaDaOutraQuinzena: false,
+              },
+              contrato: {
+                faltam: [{ chave: "van_custo_fixo", rotulo: "Custo fixo da van" }],
+                assumidasComoZero: [],
+                lidas: 22,
+              },
+            },
+          },
+        ],
+      }),
+    ]).canais.find((c) => c.canal === "ROTA")!;
+
+    expect(canal.cadastro.primeira?.destrava?.problema).toContain("Custo fixo da van");
+    expect(canal.cadastro.primeira?.destrava?.conserto).toContain("Digite estas linhas");
   });
 });

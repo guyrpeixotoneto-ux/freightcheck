@@ -632,6 +632,16 @@ export interface CanalDoResumo {
   semPainel: "CANAL_SEM_CATALOGO" | "SEM_DEMONSTRATIVO" | null;
   /** O devido, calculado do contrato, ao lado do demonstrado. */
   comparado: PainelComparado | null;
+  /**
+   * Por que há (ou não há) devido, quinzena a quinzena.
+   *
+   * Espelha `CanalDoResumo.cadastro` de `@workspace/fechamento`. `null` na
+   * quinzena que não existe no mês.
+   */
+  cadastro: {
+    primeira: DiagnosticoDoCadastro | null;
+    segunda: DiagnosticoDoCadastro | null;
+  };
 }
 
 /**
@@ -648,14 +658,42 @@ export interface LinhaComparada {
   devido: TresColunas;
   demonstrado: TresColunas;
   diferenca: TresColunas;
+  /**
+   * O número que o 03.08.20 traz para esta linha **junto com outras**.
+   *
+   * Presente nas seis linhas do quadro fixo que o relatório não parte por tipo
+   * de frota. É o que permite à coluna do demonstrado escrever `em conjunto` em
+   * vez de um traço: as duas seriam o mesmo `null`, e significam coisas opostas
+   * — o traço pede um arquivo, o conjunto diz que o arquivo não tem a partição.
+   */
+  conjunto: ConjuntoDoPainel | null;
   memoria: { primeira: string | null; segunda: string | null };
   falta: string | null;
+}
+
+/**
+ * A comparação no único nível em que as duas fontes falam a mesma língua.
+ *
+ * O contrato parte a frota por tipo; o 03.08.20 não. Linha a linha a diferença
+ * é incalculável — e o conjunto **é** calculável: a soma do devido das linhas
+ * que dividem o número, contra o número. Não rateia nada, e é a subtração que
+ * quem confere quer ver. `devido` é `null` se faltar o de qualquer linha.
+ */
+export interface ConjuntoComparado {
+  chave: string;
+  nome: string;
+  linhas: string[];
+  devido: TresColunas;
+  demonstrado: TresColunas;
+  diferenca: TresColunas;
+  porque: string;
 }
 
 export interface QuadroComparado {
   quadro: string;
   titulo: string;
   linhas: LinhaComparada[];
+  conjuntos: ConjuntoComparado[];
   devido: TresColunas;
   demonstrado: TresColunas;
   diferenca: TresColunas;
@@ -679,6 +717,76 @@ export interface PainelComparado {
    * Ver `inconsistencias.ts` em `@workspace/fechamento`.
    */
   inconsistencias: Inconsistencia[];
+}
+
+/* ---------------------------------------------------------------------------
+   O diagnóstico do cadastro — qual das três portas fechou
+   ------------------------------------------------------------------------ */
+
+/**
+ * Onde a resolução do cadastro parou. Espelha `EstadoDaResolucao` do domínio.
+ *
+ * A tela **não** deriva o texto destes estados por conta própria: quem escreve
+ * o problema e o conserto é `comoDestravar`, em `@workspace/fechamento`, e é de
+ * lá que a frase vem pronta. Duplicá-la aqui daria duas versões da mesma
+ * instrução, e a que a pessoa lê seria a que ninguém testa.
+ */
+export type EstadoDaResolucao =
+  | "RESPONDEU"
+  | "CANAL_SEM_CONTRATO"
+  | "UNIDADE_NAO_ENCONTRADA"
+  | "UNIDADE_AMBIGUA"
+  | "SEM_VIGENCIA"
+  | "CONTRATO_INCOMPLETO";
+
+/** Como o código da competência encontrou o do cadastro. */
+export type ComoCasou = "EXATO" | "ESPACO" | "DOCUMENTO";
+
+export interface PortaDaUnidade {
+  codigoProcurado: string;
+  cadastradas: number;
+  candidatas: number;
+  comoCasou: ComoCasou | null;
+  codigoNoCadastro: string | null;
+}
+
+export interface PortaDaVigencia {
+  doMes: string[];
+  todas: string[];
+  vigenteDe: string | null;
+  herdadaDaOutraQuinzena: boolean;
+}
+
+export interface ChaveDoContrato {
+  chave: string;
+  rotulo: string;
+}
+
+export interface PortaDoContrato {
+  faltam: ChaveDoContrato[];
+  assumidasComoZero: ChaveDoContrato[];
+  lidas: number;
+}
+
+/**
+ * O que aconteceu nas três portas.
+ *
+ * `vigencia` e `contrato` são `null` nas portas que a resolução não alcançou —
+ * não se avalia o que não se chegou a perguntar.
+ */
+export interface DiagnosticoDoCadastro {
+  estado: EstadoDaResolucao;
+  unidade: PortaDaUnidade;
+  vigencia: PortaDaVigencia | null;
+  contrato: PortaDoContrato | null;
+  /**
+   * O problema e o conserto, escritos pelo domínio (`comoDestravar`).
+   *
+   * Chega pronto do servidor de propósito: qual é o conserto de cada porta é
+   * regra de negócio, e montá-lo aqui daria duas versões da mesma instrução —
+   * a que os testes cobrem e a que a pessoa lê. `null` quando respondeu.
+   */
+  destrava: { problema: string; conserto: string } | null;
 }
 
 /** Uma divergência nomeada entre o contrato e o demonstrativo. */

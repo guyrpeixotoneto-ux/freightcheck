@@ -17,12 +17,12 @@ import {
   TIPO_NAO_INFORMADO,
   TIPOS_PARA_LER,
   type CanalDoResumo,
+  type DiagnosticoDoCadastro,
   type Inconsistencia,
   type PainelComparado,
   type ResumoDoMes,
   type TresColunas,
 } from "@/lib/fechamento";
-import { lerSituacaoDasUnidades } from "@/lib/remuneracao";
 import {
   PainelDaPlanilhaTabela,
   type ColunaDoPainel,
@@ -474,12 +474,7 @@ function Corpo({
       ) : (
         resumo.canais.map((canal) =>
           aba === "planilha" ? (
-            <PainelDoCanal
-              key={canal.canal}
-              canal={canal}
-              recorte={recorte}
-              unidadeCodigo={resumo.unidade.codigo}
-            />
+            <PainelDoCanal key={canal.canal} canal={canal} recorte={recorte} />
           ) : (
             <TabelaDoCanal key={canal.canal} canal={canal} recorte={recorte} />
           ),
@@ -539,76 +534,245 @@ function colunasDoRecorte(recorte: Recorte): ColunaDoPainel[] {
 }
 
 /**
- * Por que o devido não aparece — dito, em vez de o painel só cair no antigo.
+ * POR QUE NÃO HÁ DEVIDO — a porta que fechou, e não a ausência genérica.
  *
- * O fechamento encontra o cadastro **pelo código da unidade**, e quando não
- * encontra ele volta para a releitura do 03.08.20 sem explicar nada. Quem
- * acabou de preencher trinta linhas em Remuneração fica olhando a mesma tela de
- * antes, sem uma palavra sobre o que faltou — e o mais provável (a unidade
- * cadastrada sem código, que a `0047` passou a permitir) é justamente o que
- * nenhuma das duas telas dizia.
+ * **O que esta tela dizia antes.** Uma frase só, para três causas diferentes:
+ * *"o devido não aparece porque nenhum cadastro respondeu por esta unidade
+ * nesta competência"*. Ela é verdadeira nas três e não serve em nenhuma. Quem
+ * não cadastrou a unidade precisa informar um código; quem cadastrou e digitou
+ * a aba de junho precisa digitar a de julho; quem digitou vinte das vinte e
+ * duas linhas precisa saber **quais duas**. Os três liam o mesmo texto e iam
+ * procurar em três lugares — e o mais provável deles (a unidade sem código, que
+ * a `0047` passou a permitir) era justamente o que nenhuma das duas telas dizia.
  *
- * A leitura é da lista de unidades da Remuneração, e o que ela afirma é
- * checável: **existe** ou **não existe** unidade cadastrada com este código.
- * Nada é deduzido do nome — casar unidade por nome é a adivinhação que o módulo
- * de cadastro recusa em toda parte.
+ * Havia ainda um segundo defeito, mais silencioso: a tela conferia o código com
+ * `.trim()` dos dois lados e o backend comparava byte a byte. Podiam discordar
+ * — a tela dizendo "existe unidade cadastrada com este código" e o fechamento
+ * não achando nada —, e a que decidia era a que não explicava. As duas leituras
+ * agora são a mesma: quem resolve é `resolverUnidade`, e o resultado dela é o
+ * que chega aqui.
+ *
+ * **Nada aqui é deduzido.** `destrava` vem escrito do domínio (`comoDestravar`,
+ * em `@workspace/fechamento`), e as três portas chegam medidas. A tela põe na
+ * ordem e mostra; não decide.
  */
-function PorQueNaoTemDevido({ unidadeCodigo }: { unidadeCodigo: string }) {
-  const situacao = useQuery({
-    queryKey: ["remuneracao", "situacao"],
-    queryFn: lerSituacaoDasUnidades,
-  });
+function PorQueNaoTemDevido({ cadastro }: { cadastro: CadastroDoCanal }) {
+  /*
+    A quinzena que parou mais tarde é a que se mostra: quem já tem a 1ª
+    respondida e a 2ª sem aba precisa ler sobre a 2ª. Sem esta escolha a tela
+    mostraria a primeira que falhou, que costuma ser a menos informativa.
+  */
+  const diagnostico = maisAdiantado(cadastro);
 
-  const cadastradas = situacao.data?.unidades ?? [];
-  const comEsteCodigo = cadastradas.some((u) =>
-    u.scopes.some((e) => e.scopeType === "UNIDADE" && e.code.trim() === unidadeCodigo.trim()),
-  );
+  if (!diagnostico) {
+    return (
+      <Alert className="mb-4">
+        <AlertDescription className="text-xs">
+          Abaixo está o painel do <strong>03.08.20 relido</strong> — ele
+          concorda consigo mesmo, e por isso as linhas de frota aparecem em
+          conjunto. O <strong>devido</strong> não aparece porque nenhuma
+          competência deste mês chegou a perguntar pelo cadastro.
+        </AlertDescription>
+      </Alert>
+    );
+  }
+
+  const { unidade, vigencia, contrato, destrava } = diagnostico;
 
   return (
     <Alert className="mb-4">
-      <AlertDescription className="text-xs space-y-1">
+      <AlertDescription className="text-xs space-y-2">
         <p>
-          Abaixo está o painel do <strong>03.08.20 relido</strong> — ele concorda consigo
-          mesmo, e por isso as linhas de frota aparecem em conjunto. O{" "}
-          <strong>devido</strong> não aparece porque nenhum cadastro respondeu por esta
-          unidade nesta competência.
+          Abaixo está o painel do <strong>03.08.20 relido</strong> — ele
+          concorda consigo mesmo, e por isso as linhas de frota aparecem em
+          conjunto. O <strong>devido</strong>, que abre essas linhas uma a uma,
+          sai do contrato — e o contrato parou na porta abaixo.
         </p>
-        {situacao.isPending ? null : comEsteCodigo ? (
-          <p>
-            Existe unidade cadastrada em Remuneração com o código{" "}
-            <code>{unidadeCodigo}</code>, e mesmo assim ela não respondeu: ou falta uma
-            linha obrigatória da aba, ou a planilha está em outra vigência.{" "}
-            <Link href="/fechamento/remuneracao" className="text-primary hover:underline">
-              Abrir o cadastro
-            </Link>
-            .
-          </p>
-        ) : (
-          <p>
-            Nenhuma das {cadastradas.length} unidades cadastradas em Remuneração tem o
-            código <code>{unidadeCodigo}</code> — e é por ele que o fechamento encontra o
-            cadastro. Se você cadastrou a unidade sem código, a lista mostra o aviso e o
-            botão para informá-lo, e a planilha vai junto.{" "}
-            <Link href="/fechamento/remuneracao" className="text-primary hover:underline">
-              Abrir Remuneração
-            </Link>
-            .
-          </p>
+
+        <PortasDoCadastro diagnostico={diagnostico} />
+
+        {destrava && (
+          <div className="space-y-1">
+            <p>{destrava.problema}</p>
+            <p>
+              <span className="font-medium">O que destrava: </span>
+              {destrava.conserto}
+            </p>
+          </div>
         )}
+
+        {/*
+          O link vai para onde o conserto acontece, e ele muda com a porta:
+          não adianta mandar para a lista de unidades quem já tem a unidade e
+          precisa digitar duas células de uma aba.
+        */}
+        <p>
+          <Link
+            href="/fechamento/remuneracao"
+            className="text-primary hover:underline"
+          >
+            {diagnostico.estado === "UNIDADE_NAO_ENCONTRADA" ||
+            diagnostico.estado === "UNIDADE_AMBIGUA"
+              ? "Abrir Remuneração"
+              : "Abrir o cadastro desta unidade"}
+          </Link>
+          {unidade.codigoNoCadastro !== null &&
+            unidade.codigoNoCadastro !== unidade.codigoProcurado && (
+              <>
+                {" "}
+                — o cadastro guarda o código como{" "}
+                <code>{unidade.codigoNoCadastro}</code>, e a competência como{" "}
+                <code>{unidade.codigoProcurado}</code>.
+              </>
+            )}
+          {vigencia === null &&
+            contrato === null &&
+            unidade.cadastradas === 0 && (
+              <> Nenhuma unidade foi cadastrada em Remuneração ainda.</>
+            )}
+        </p>
       </AlertDescription>
     </Alert>
   );
 }
 
-function PainelDoCanal({
-  canal,
-  recorte,
-  unidadeCodigo,
+/**
+ * As três portas, com a que fechou marcada — o mapa antes do texto.
+ *
+ * Existe porque "faltam duas linhas obrigatórias" só faz sentido depois de se
+ * saber que as duas anteriores abriram. A lista responde, de relance, a pergunta
+ * que a frase única não respondia: *até onde chegou?*
+ */
+function PortasDoCadastro({
+  diagnostico,
 }: {
-  canal: CanalDoResumo;
-  recorte: Recorte;
-  unidadeCodigo: string;
+  diagnostico: DiagnosticoDoCadastro;
 }) {
+  const { estado, unidade, vigencia, contrato } = diagnostico;
+  const parouNaUnidade =
+    estado === "UNIDADE_NAO_ENCONTRADA" || estado === "UNIDADE_AMBIGUA";
+
+  const portas: {
+    nome: string;
+    estado: "OK" | "PAROU" | "NAO_AVALIADA";
+    detalhe: string;
+  }[] = [
+    {
+      nome: "Unidade",
+      estado:
+        estado === "CANAL_SEM_CONTRATO"
+          ? "NAO_AVALIADA"
+          : parouNaUnidade
+            ? "PAROU"
+            : "OK",
+      detalhe: parouNaUnidade
+        ? `${unidade.candidatas} de ${unidade.cadastradas} cadastradas respondem por ${unidade.codigoProcurado}`
+        : unidade.comoCasou === "EXATO"
+          ? `código ${unidade.codigoProcurado}`
+          : unidade.comoCasou === "ESPACO"
+            ? `código ${unidade.codigoProcurado}, casado ignorando o espaço em volta`
+            : unidade.comoCasou === "DOCUMENTO"
+              ? `código ${unidade.codigoProcurado}, casado como o mesmo CNPJ`
+              : "não avaliada",
+    },
+    {
+      nome: "Vigência",
+      estado:
+        vigencia === null
+          ? "NAO_AVALIADA"
+          : estado === "SEM_VIGENCIA"
+            ? "PAROU"
+            : "OK",
+      detalhe:
+        vigencia === null
+          ? "não avaliada"
+          : vigencia.vigenteDe === null
+            ? vigencia.todas.length === 0
+              ? "nenhuma aba digitada"
+              : `abas digitadas: ${vigencia.todas.join(", ")} — nenhuma deste mês`
+            : vigencia.herdadaDaOutraQuinzena
+              ? `${vigencia.vigenteDe}, herdada da outra quinzena do mês`
+              : vigencia.vigenteDe,
+    },
+    {
+      nome: "Contrato",
+      estado:
+        contrato === null
+          ? "NAO_AVALIADA"
+          : estado === "CONTRATO_INCOMPLETO"
+            ? "PAROU"
+            : "OK",
+      detalhe:
+        contrato === null
+          ? "não avaliado"
+          : contrato.faltam.length > 0
+            ? `faltam ${contrato.faltam.length} de ${contrato.lidas} linhas`
+            : `${contrato.lidas} linhas lidas`,
+    },
+  ];
+
+  return (
+    <ul className="space-y-0.5">
+      {portas.map((p) => (
+        <li key={p.nome} className="flex gap-2">
+          <span
+            aria-hidden
+            className={cn(
+              "font-mono",
+              p.estado === "OK" && "text-emerald-600 dark:text-emerald-400",
+              p.estado === "PAROU" && "text-destructive",
+              p.estado === "NAO_AVALIADA" && "text-muted-foreground",
+            )}
+          >
+            {p.estado === "OK" ? "✓" : p.estado === "PAROU" ? "✕" : "·"}
+          </span>
+          <span>
+            <span className="font-medium">{p.nome}:</span>{" "}
+            <span className="text-muted-foreground">{p.detalhe}</span>
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** O diagnóstico de cada quinzena, como o resumo o entrega. */
+type CadastroDoCanal = CanalDoResumo["cadastro"];
+
+/**
+ * A quinzena que chegou mais longe **sem responder** — a que se explica.
+ *
+ * Duas escolhas, e as duas mudam o que a pessoa lê. A primeira é olhar só para
+ * as quinzenas que **não** responderam: se uma respondeu e a outra não, quem
+ * precisa de conserto é a segunda, e é dela que a frase tem de falar. A segunda
+ * é, entre as que falharam, mostrar a que foi mais longe — quem já resolveu a
+ * unidade e parou na vigência não quer ler de novo sobre o código.
+ *
+ * `null` quando nenhuma quinzena existe no mês, ou quando todas responderam. O
+ * segundo caso não chega a esta tela — havendo contrato o painel é o comparado
+ * —, e devolver `RESPONDEU` aqui faria a tela escrever "parou na porta abaixo"
+ * com as três portas abertas.
+ */
+function maisAdiantado(cadastro: CadastroDoCanal) {
+  const ordem: Record<DiagnosticoDoCadastro["estado"], number> = {
+    CANAL_SEM_CONTRATO: 0,
+    UNIDADE_NAO_ENCONTRADA: 1,
+    UNIDADE_AMBIGUA: 1,
+    SEM_VIGENCIA: 2,
+    CONTRATO_INCOMPLETO: 3,
+    RESPONDEU: 4,
+  };
+  const candidatos = [cadastro.primeira, cadastro.segunda].filter(
+    (d): d is DiagnosticoDoCadastro => d !== null && d.estado !== "RESPONDEU",
+  );
+  if (candidatos.length === 0) return null;
+  return candidatos.reduce((a, b) =>
+    ordem[b.estado] > ordem[a.estado] ? b : a,
+  );
+}
+
+
+function PainelDoCanal({ canal, recorte }: { canal: CanalDoResumo; recorte: Recorte }) {
   return (
     <Card>
       <CardHeader className="pb-3">
@@ -624,7 +788,7 @@ function PainelDoCanal({
           <PainelComparadoTabela painel={canal.comparado} recorte={recorte} />
         ) : canal.painel ? (
           <>
-            <PorQueNaoTemDevido unidadeCodigo={unidadeCodigo} />
+            <PorQueNaoTemDevido cadastro={canal.cadastro} />
             <PainelDaPlanilhaTabela painel={canal.painel} colunas={colunasDoRecorte(recorte)} />
           </>
         ) : canal.semPainel === "SEM_DEMONSTRATIVO" ? (
@@ -632,15 +796,24 @@ function PainelDoCanal({
             O painel deste canal está transcrito e mesmo assim não tem número:
             o que falta é o arquivo. Dizer "não foi transcrito" aqui mandava
             procurar no código quem só precisava importar um relatório.
+
+            O diagnóstico do cadastro entra junto, e não só no ramo de cima: sem
+            03.08.20 **e** sem contrato faltam as duas metades, e mostrar uma de
+            cada vez faria a pessoa importar o relatório para só então descobrir
+            que o devido continua sem sair. As duas ausências são independentes,
+            e cada uma tem o seu conserto.
           */
-          <p className="text-sm text-muted-foreground">
-            O painel do {canal.canal} está escrito aqui, e as linhas dele saem do{" "}
-            <strong>03.08.20</strong> — e nenhuma das duas quinzenas tem verba dele.
-            Ou o demonstrativo não foi importado, ou o que foi importado não trouxe
-            verba nenhuma; abra a quinzena para ver qual dos dois, com o arquivo
-            nomeado. Enquanto a verba não vier, as verbas do {canal.canal} continuam
-            apuradas e conferidas na aba Verbas.
-          </p>
+          <>
+            <PorQueNaoTemDevido cadastro={canal.cadastro} />
+            <p className="text-sm text-muted-foreground">
+              O painel do {canal.canal} está escrito aqui, e as linhas dele saem do{" "}
+              <strong>03.08.20</strong> — e nenhuma das duas quinzenas tem verba dele.
+              Ou o demonstrativo não foi importado, ou o que foi importado não trouxe
+              verba nenhuma; abra a quinzena para ver qual dos dois, com o arquivo
+              nomeado. Enquanto a verba não vier, as verbas do {canal.canal} continuam
+              apuradas e conferidas na aba Verbas.
+            </p>
+          </>
         ) : (
           /*
             O texto que estava aqui dizia que o painel do AS "existe na planilha
@@ -739,6 +912,19 @@ function PainelComparadoTabela({
             <tbody>
               {quadro.linhas.map((linha) => {
                 const diferenca = coluna(linha.diferenca);
+                /*
+                  O demonstrado é `null` por duas razões opostas, e a tela tem
+                  de separá-las. Sem 03.08.20, falta arquivo. Com 03.08.20 e a
+                  linha dentro de um conjunto, **não falta nada**: o relatório
+                  traz a frota fixa somada e não a parte por tipo, e o número
+                  desta linha só existe junto com as outras cinco. Um traço nos
+                  dois casos mandaria procurar num relatório o que ele não tem.
+
+                  O devido ao lado aparece linha a linha, e é esse o ponto: o
+                  contrato tem a partição que o demonstrativo não tem.
+                */
+                const emConjunto =
+                  coluna(linha.demonstrado) === null && linha.conjunto !== null;
                 return (
                   <tr key={linha.chave} className="border-b last:border-0 align-top">
                     <td className="py-2">
@@ -755,7 +941,18 @@ function PainelComparadoTabela({
                       {dinheiro(coluna(linha.devido))}
                     </td>
                     <td className="py-2 text-right font-mono tabular-nums">
-                      {dinheiro(coluna(linha.demonstrado))}
+                      {emConjunto ? (
+                        <span
+                          className="text-xs font-sans text-muted-foreground"
+                          title={`${linha.conjunto!.nome}: ${dinheiro(
+                            coluna(linha.conjunto!.valores),
+                          )} — dividido com ${linha.conjunto!.linhas.join(", ")}`}
+                        >
+                          em conjunto
+                        </span>
+                      ) : (
+                        dinheiro(coluna(linha.demonstrado))
+                      )}
                     </td>
                     <td
                       className={cn(
@@ -765,6 +962,38 @@ function PainelComparadoTabela({
                       )}
                     >
                       {dinheiro(diferenca)}
+                    </td>
+                  </tr>
+                );
+              })}
+              {/*
+                O conjunto entra depois das linhas e antes do total, que é onde
+                a subtração dele faz sentido: as seis linhas acima têm devido e
+                não têm demonstrado, e é aqui que se vê se elas fecham contra o
+                número que o relatório traz para todas juntas.
+              */}
+              {quadro.conjuntos.map((c) => {
+                const diferencaDoConjunto = coluna(c.diferenca);
+                return (
+                  <tr key={c.chave} className="border-b bg-muted/20 align-top">
+                    <td className="py-2 text-xs text-muted-foreground italic" title={c.porque}>
+                      {c.nome} — o número que {c.linhas.length} linhas acima dividem
+                    </td>
+                    <td className="py-2 text-right font-mono tabular-nums text-xs">
+                      {dinheiro(coluna(c.devido))}
+                    </td>
+                    <td className="py-2 text-right font-mono tabular-nums text-xs">
+                      {dinheiro(coluna(c.demonstrado))}
+                    </td>
+                    <td
+                      className={cn(
+                        "py-2 text-right font-mono tabular-nums text-xs",
+                        diferencaDoConjunto !== null &&
+                          Math.abs(diferencaDoConjunto) >= 0.005 &&
+                          "font-semibold",
+                      )}
+                    >
+                      {dinheiro(diferencaDoConjunto)}
                     </td>
                   </tr>
                 );

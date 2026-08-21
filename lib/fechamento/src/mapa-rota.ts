@@ -101,10 +101,128 @@ export interface BasesDaQuinzena {
   disponibilidade: number | null;
   /** O complementar negativo — o único que a planilha não bruta. */
   complementarNegativo: number | null;
-  /** O total de outros custos da quinzena (03.08.12.09). */
-  outrosCustos: number | null;
-  /** A indisponibilidade do diário operacional. */
-  indisponibilidade: number | null;
+  /**
+   * O total de outros custos da quinzena, com a origem que o sustenta.
+   *
+   * `null` quando o 03.08.12.09 não foi importado. Ver
+   * {@link BaseDeOutrosCustos}.
+   */
+  outrosCustos: BaseDeOutrosCustos | null;
+  /**
+   * A indisponibilidade, com a origem que a sustenta.
+   *
+   * `null` quando o diário da quinzena não chegou — e `null` é o certo ali:
+   * zero diria "nenhuma viagem rodou por indisponibilidade", que é uma
+   * afirmação sobre a operação, e não sobre o arquivo que falta.
+   */
+  indisponibilidade: BaseDeIndisponibilidade | null;
+}
+
+/**
+ * O que o 03.08.12.09 sustenta no quadro de outros custos.
+ *
+ * **A segunda linha que estava permanentemente sem devido, e a fonte que a
+ * fecha.** `docs/MAPA-ROTA.md` rastreia `TOTAL REMUNERAÇÃO ROTA OUTROS CUSTOS`
+ * até `Outros Custos!F4`, e a origem declarada ali é o **03.08.12.09** — as
+ * requisições de despesa aprovadas. A prova é aritmética e está na amostra de
+ * julho/2026: a 2ª quinzena traz `Outros Custos!G4 = 358.530,22`, e a tabela
+ * "De onde vem o dinheiro do mês" do mesmo documento atribui exatamente
+ * R$ 358.530,22 ao 03.08.12.09. Mesmo número, mesma quinzena, duas leituras
+ * independentes.
+ *
+ * **Só o que paga entra.** O filtro é `STATUS_QUE_PAGA` — o mesmo que a
+ * apuração aplica desde sempre (`apuracao.ts`), e não uma regra nova inventada
+ * aqui. Uma requisição pendente ou reprovada é despesa que existe e ainda não é
+ * dinheiro; somá-la faria o devido cobrar o que ninguém aprovou.
+ *
+ * **`recebidas` existe para o zero ser conferível.** Uma quinzena em que
+ * chegaram quarenta requisições e nenhuma foi aprovada vale zero — e é um zero
+ * muito diferente do de uma quinzena sem requisição nenhuma. O primeiro manda
+ * cobrar aprovação; o segundo, importar o arquivo.
+ */
+export interface OutrosCustosDoRelatorio {
+  /** A soma do valor sem imposto das requisições aprovadas do canal. */
+  valor: number;
+  /** Quantas entraram na soma. */
+  aprovadas: number;
+  /** Quantas o arquivo trouxe para este canal, aprovadas ou não. */
+  recebidas: number;
+}
+
+/**
+ * De onde saíram os outros custos que entraram no mapa.
+ *
+ * Mesma disciplina de {@link BaseDeIndisponibilidade}: `REQUISICOES` é a regra
+ * do produto, `PLANILHA` é a célula da `.xlsb` que a reconciliação compara.
+ */
+export type BaseDeOutrosCustos =
+  | { fonte: "REQUISICOES"; medida: OutrosCustosDoRelatorio }
+  | { fonte: "PLANILHA"; valor: number };
+
+/** O número que entra na conta, seja qual for a fonte. */
+export function valorDeOutrosCustos(b: BaseDeOutrosCustos): number {
+  return b.fonte === "REQUISICOES" ? b.medida.valor : b.valor;
+}
+
+/** A frase que a tela mostra: o número e o que foi contado para chegar nele. */
+export function memoriaDeOutrosCustos(b: BaseDeOutrosCustos): string {
+  if (b.fonte === "PLANILHA") {
+    return "`Outros Custos!F4`, como a planilha legada o traz — para reconciliação";
+  }
+  const { aprovadas, recebidas } = b.medida;
+  if (recebidas === 0) {
+    return (
+      "o 03.08.12.09 da quinzena chegou e não traz requisição deste canal — " +
+      "zero medido, não zero por ausência de arquivo"
+    );
+  }
+  if (aprovadas === 0) {
+    return (
+      `nenhuma das ${recebidas} requisições do 03.08.12.09 deste canal está aprovada — ` +
+      "zero medido, não zero por ausência de arquivo"
+    );
+  }
+  return (
+    `a soma sem imposto de ${aprovadas} de ${recebidas} requisições do 03.08.12.09 ` +
+    "deste canal, só as aprovadas"
+  );
+}
+
+/**
+ * De onde saiu a indisponibilidade que entrou no mapa.
+ *
+ * Duas fontes legítimas, e a tela precisa saber qual foi. `DIARIO` é a regra do
+ * produto: o 2Art somado por {@link somarIndisponibilidade}. `PLANILHA` existe
+ * para a reconciliação, que lê `Mapa Rota!132` da `.xlsb` para comparar o motor
+ * contra ela — e ali o número é da planilha, não nosso. Sem a distinção, a
+ * memória de cálculo diria "somado do diário" sobre um número copiado de uma
+ * célula, que é exatamente o tipo de procedência falsa que este módulo recusa.
+ */
+export type BaseDeIndisponibilidade =
+  | { fonte: "DIARIO"; medida: IndisponibilidadeDoDiario }
+  | { fonte: "PLANILHA"; valor: number };
+
+/** O número que entra na conta, seja qual for a fonte. */
+export function valorDaIndisponibilidade(b: BaseDeIndisponibilidade): number {
+  return b.fonte === "DIARIO" ? b.medida.valor : b.valor;
+}
+
+/** A frase que a tela mostra: o número e o que foi contado para chegar nele. */
+export function memoriaDaIndisponibilidade(b: BaseDeIndisponibilidade): string {
+  if (b.fonte === "PLANILHA") {
+    return "`Mapa Rota!132`, como a planilha legada o traz — para reconciliação";
+  }
+  const { comMarca, viagens, tipos } = b.medida;
+  if (comMarca === 0) {
+    return (
+      `nenhuma das ${viagens} viagens de Rota do diário traz marca de indisponibilidade ` +
+      "(`TipoIndisp` do 2Art) — zero medido, não zero por ausência de arquivo"
+    );
+  }
+  return (
+    `o faturado de ${comMarca} de ${viagens} viagens de Rota com marca de ` +
+    `indisponibilidade no 2Art (${tipos.join(", ")})`
+  );
 }
 
 /**
@@ -410,6 +528,19 @@ export interface ViagemDoMapa {
    * diário não trouxe a coluna: ver {@link ehDaRota}.
    */
   caixasDeRota: number | null;
+  /**
+   * O motivo da indisponibilidade, como o 2Art o classifica — `TipoIndisp`.
+   *
+   * Vazio é a viagem normal: rodou com o veículo dela. Preenchido é a viagem
+   * que rodou **porque** um veículo contratado não pôde rodar, e é a soma do
+   * faturado dessas que a linha `INDISPONIBILIDADE` do quadro fixo escreve —
+   * ver {@link somarIndisponibilidade}.
+   *
+   * É texto e não booleano porque o motivo é o que a tela mostra ao lado do
+   * número: "R$ 12.400,00 em 8 viagens, 6 por `Manutenção` e 2 por `Sinistro`"
+   * é conferível contra o 2Art aberto ao lado; "R$ 12.400,00" não é.
+   */
+  tipoDeIndisponibilidade: string;
 }
 
 const semAcento = (t: string) =>
@@ -513,6 +644,85 @@ export function somarVariavel(
     recargaENoturna: centavos(recargaENoturna),
     vans: centavos(vans),
   };
+}
+
+/**
+ * A indisponibilidade da quinzena, somada do diário — e o que a sustenta.
+ *
+ * **A linha que estava sem lastro desde sempre, e por que ela tem lastro
+ * agora.** O painel do 03.08.20 mostra `INDISPONIBILIDADE` como *sem lastro*, e
+ * está certo: o demonstrativo traz um bloco `DESCONTO DISPONIBILIDADE` só, ele
+ * já está declarado na linha de desconto, e a célula do quadro fixo está vazia
+ * nas duas quinzenas conferidas. Nada nele sustenta esta linha, e o painel
+ * demonstrado continua dizendo isso.
+ *
+ * O **devido** não sai do demonstrativo — sai do contrato e do diário. E o
+ * diário sustenta esta linha: `docs/MAPA-ROTA.md` rastreia `INDISPONIBILIDADE`
+ * até `Mapa Rota!132`, que soma a coluna `BP` das abas diárias — *o faturado
+ * das viagens com tipo de indisponibilidade*. A coluna existe no 2Art
+ * (`TipoIndisp`), o leitor já a traz (`DetalheDaViagem.tipoDeIndisponibilidade`)
+ * e o banco já a guarda. O que faltava era ligá-la.
+ *
+ * **Não é o desconto de disponibilidade, e a confusão tem nome.** São duas
+ * coisas com nomes quase iguais em quadros diferentes:
+ *
+ * - esta — `indisponibilidade_fixo`, **parcela** do quadro da remuneração, que
+ *   sai do **2Art** e soma o frete das viagens que rodaram no lugar de um
+ *   veículo indisponível. É dinheiro que a transportadora **recebe**;
+ * - `desconto_disponibilidade` (e a homônima `indisponibilidade_variavel`),
+ *   **desconto**, que sai do bloco `DESCONTO DISPONIBILIDADE` do **03.08.20** e
+ *   entra negativo. É dinheiro que a transportadora **perde** por não ter
+ *   deixado a frota disponível.
+ *
+ * Fontes diferentes, sinais opostos, quadros diferentes. Somá-las — ou deixar
+ * uma preencher a outra — trocaria um recebimento por um abatimento no meio do
+ * quadro que fecha o mês.
+ *
+ * **Zero é resposta, e vem dito.** Uma quinzena com viagens e nenhuma marca de
+ * indisponibilidade vale zero de verdade — é o que a planilha de julho/2026
+ * escreve nas duas quinzenas. O que este retorno acrescenta é o **denominador**:
+ * `viagens` diz sobre quantas se procurou, e `tipos` diz o que se achou. Um zero
+ * sobre 302 viagens é uma afirmação que o 2Art aberto ao lado derruba num
+ * filtro; um zero sozinho não é conferível por ninguém.
+ */
+export interface IndisponibilidadeDoDiario {
+  /** O faturado somado das viagens de Rota com marca de indisponibilidade. */
+  valor: number;
+  /** Quantas viagens de Rota o diário trouxe — o denominador da frase. */
+  viagens: number;
+  /** Quantas delas têm marca. Zero com `viagens > 0` é zero de verdade. */
+  comMarca: number;
+  /** Os motivos encontrados, sem repetição e em ordem — o que a tela mostra. */
+  tipos: string[];
+}
+
+/**
+ * Soma a indisponibilidade do diário. Ver {@link IndisponibilidadeDoDiario}.
+ *
+ * O corte é o mesmo de `somarVariavel` — só viagem de Rota entra (`ehDaRota`) —,
+ * porque a linha é do painel da Rota e o 2Art traz Rota e AS na mesma lista.
+ */
+export function somarIndisponibilidade(
+  porDia: { viagens: ViagemDoMapa[] }[],
+): IndisponibilidadeDoDiario {
+  let valor = 0;
+  let viagens = 0;
+  let comMarca = 0;
+  const tipos = new Set<string>();
+
+  for (const dia of porDia) {
+    for (const v of dia.viagens) {
+      if (!ehDaRota(v)) continue;
+      viagens += 1;
+      const tipo = v.tipoDeIndisponibilidade.trim();
+      if (tipo === "") continue;
+      comMarca += 1;
+      tipos.add(tipo);
+      valor += v.valorFaturado;
+    }
+  }
+
+  return { valor: centavos(valor), viagens, comMarca, tipos: [...tipos].sort() };
 }
 
 /* ---------------------------------------------------------------------------
@@ -627,11 +837,11 @@ export function montarMapaDaQuinzena(entrada: {
       "indisponibilidade_fixo",
       "INDISPONIBILIDADE",
       "PARCELA",
-      bases.indisponibilidade,
+      bases.indisponibilidade === null ? null : valorDaIndisponibilidade(bases.indisponibilidade),
       bases.indisponibilidade === null
-        ? "sem indisponibilidade lançada na quinzena"
-        : "a indisponibilidade do diário operacional",
-      bases.indisponibilidade === null ? "a indisponibilidade do diário" : null,
+        ? "sem diário na quinzena — a indisponibilidade sai dele"
+        : memoriaDaIndisponibilidade(bases.indisponibilidade),
+      bases.indisponibilidade === null ? "o diário operacional da quinzena" : null,
     ),
     fixo.custo_fixo_especiais,
     fixo.custo_fixo_vans,
@@ -667,10 +877,10 @@ export function montarMapaDaQuinzena(entrada: {
       "outros_custos",
       "TOTAL REMUNERAÇÃO ROTA OUTROS CUSTOS",
       "PARCELA",
-      bases.outrosCustos,
+      bases.outrosCustos === null ? null : valorDeOutrosCustos(bases.outrosCustos),
       bases.outrosCustos === null
-        ? "sem outros custos na quinzena"
-        : "o total de outros custos da quinzena",
+        ? "sem 03.08.12.09 na quinzena — os outros custos saem dele"
+        : memoriaDeOutrosCustos(bases.outrosCustos),
       bases.outrosCustos === null ? "as requisições de despesa (03.08.12.09)" : null,
     ),
   ];

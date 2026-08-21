@@ -67,15 +67,16 @@ const BASES: Record<1 | 2, BasesDaQuinzena> = {
     devolucao: 13328.3,
     disponibilidade: 11649.87,
     complementarNegativo: 0,
-    outrosCustos: 0,
-    indisponibilidade: 0,
+    /* Da planilha, e não do 03.08.12.09 / 2Art: aqui a prova é contra a `.xlsb`. */
+    outrosCustos: { fonte: "PLANILHA", valor: 0 },
+    indisponibilidade: { fonte: "PLANILHA", valor: 0 },
   },
   2: {
     devolucao: 15763.61,
     disponibilidade: 91642.5,
     complementarNegativo: 14050.54,
-    outrosCustos: 358530.22,
-    indisponibilidade: 0,
+    outrosCustos: { fonte: "PLANILHA", valor: 358530.22 },
+    indisponibilidade: { fonte: "PLANILHA", valor: 0 },
   },
 };
 
@@ -174,6 +175,8 @@ describe("o lado variável, somado do diário", () => {
     valorFaturado: 0,
     /* Carregou caixa de Rota — o padrão, porque a viagem de AS é a exceção. */
     caixasDeRota: 100,
+    /* Sem marca de indisponibilidade — o padrão, porque ela é a exceção. */
+    tipoDeIndisponibilidade: "",
     ...p,
   });
 
@@ -317,6 +320,121 @@ describe("o mapa da quinzena inteiro", () => {
   it("abre o quadro com o custo variável inteiro, que é o que DVS traz", () => {
     const dvs = mapa(1).quadros[0]!.linhas.find((l) => l.chave === "rota_dvs");
     expect(dvs?.valor).toBe(313318.87);
+  });
+
+  /**
+   * O DVS com o diário vazio — a diferença entre zero e ausência, na linha que
+   * abre o quadro.
+   *
+   * Um mês sem 2Art importado tem as quatro parcelas variáveis em `null`, e a
+   * soma delas **não** é zero: `somaDoVariavel` apaga o total quando qualquer
+   * parcela falta. Zero ali diria "a frota não rodou nada nesta quinzena", que
+   * é uma afirmação sobre a operação; `null` diz o que é verdade — falta o
+   * arquivo — e a linha nomeia qual.
+   */
+  it("sem diário, o DVS fica vazio e nomeia o arquivo que falta", () => {
+    const semDiario = montarMapaDaQuinzena({
+      quinzena: 1,
+      parametros: JULHO_2026[1],
+      variavel: { frotaFixa: null, agregado: null, recargaENoturna: null, vans: null },
+      bases: BASES[1],
+    });
+    const dvs = semDiario.quadros[0]!.linhas.find((l) => l.chave === "rota_dvs");
+
+    expect(dvs?.valor).toBeNull();
+    expect(dvs?.falta).toBe("o diário operacional da quinzena");
+    /* E o quadro inteiro cai junto: um total sem uma parcela não é o total. */
+    expect(semDiario.quadros[0]!.total).toBeNull();
+  });
+
+  it("com diário e sem movimento, o DVS é zero medido — e o quadro fecha", () => {
+    const semMovimento = montarMapaDaQuinzena({
+      quinzena: 1,
+      parametros: JULHO_2026[1],
+      variavel: { frotaFixa: 0, agregado: 0, recargaENoturna: 0, vans: 0 },
+      bases: BASES[1],
+    });
+    const dvs = semMovimento.quadros[0]!.linhas.find((l) => l.chave === "rota_dvs");
+
+    expect(dvs?.valor).toBe(0);
+    expect(dvs?.falta).toBeNull();
+    expect(semMovimento.quadros[0]!.total).not.toBeNull();
+  });
+
+  /**
+   * A `INDISPONIBILIDADE` do quadro fixo, agora com fonte.
+   *
+   * Ver `somarIndisponibilidade` e `docs/MAPA-ROTA.md`: `Mapa Rota!132` soma a
+   * coluna `BP` das abas diárias, que é o faturado das viagens com tipo de
+   * indisponibilidade. Aqui se prova que o motor consome essa medida e escreve
+   * a procedência dela na memória de cálculo.
+   */
+  it("a indisponibilidade do diário entra como parcela, com a memória da origem", () => {
+    const comMarca = montarMapaDaQuinzena({
+      quinzena: 1,
+      parametros: JULHO_2026[1],
+      variavel: { frotaFixa: 0, agregado: 0, recargaENoturna: 0, vans: 0 },
+      bases: {
+        ...BASES[1],
+        indisponibilidade: {
+          fonte: "DIARIO",
+          medida: { valor: 4200, viagens: 140, comMarca: 5, tipos: ["Manutenção"] },
+        },
+      },
+    });
+    const linha = comMarca.quadros[0]!.linhas.find((l) => l.chave === "indisponibilidade_fixo");
+
+    /* Parcela positiva — é frete que a transportadora recebe, não abatimento. */
+    expect(linha?.papel).toBe("PARCELA");
+    expect(linha?.valor).toBe(4200);
+    expect(linha?.memoria).toContain("5 de 140 viagens");
+    expect(linha?.memoria).toContain("Manutenção");
+  });
+
+  it("sem diário, a indisponibilidade fica vazia e pede o diário — não o 03.08.20", () => {
+    const semDiario = montarMapaDaQuinzena({
+      quinzena: 1,
+      parametros: JULHO_2026[1],
+      variavel: { frotaFixa: 0, agregado: 0, recargaENoturna: 0, vans: 0 },
+      bases: { ...BASES[1], indisponibilidade: null },
+    });
+    const linha = semDiario.quadros[0]!.linhas.find((l) => l.chave === "indisponibilidade_fixo");
+
+    expect(linha?.valor).toBeNull();
+    expect(linha?.falta).toBe("o diário operacional da quinzena");
+  });
+
+  /**
+   * O outro lado da confusão: o desconto continua saindo do 03.08.20.
+   *
+   * `INDISPONIBILIDADE` (parcela, do 2Art) e `DESCONTO DE DISPONIBILIDADE`
+   * (desconto, do 03.08.20) são dinheiro em direções opostas. Este teste prende
+   * as duas propriedades que os separam no motor: o sinal e a base.
+   */
+  it("a parcela do diário e o desconto do demonstrativo não se misturam", () => {
+    const os_dois = montarMapaDaQuinzena({
+      quinzena: 1,
+      parametros: JULHO_2026[1],
+      variavel: { frotaFixa: 0, agregado: 0, recargaENoturna: 0, vans: 0 },
+      bases: {
+        ...BASES[1],
+        disponibilidade: 11649.87,
+        indisponibilidade: {
+          fonte: "DIARIO",
+          medida: { valor: 4200, viagens: 140, comMarca: 5, tipos: ["Manutenção"] },
+        },
+      },
+    });
+    const linhas = os_dois.quadros[0]!.linhas;
+    const parcela = linhas.find((l) => l.chave === "indisponibilidade_fixo")!;
+    const desconto = linhas.find((l) => l.chave === "desconto_disponibilidade")!;
+
+    expect(parcela.valor).toBe(4200);
+    expect(parcela.papel).toBe("PARCELA");
+    /* O desconto é negativo e brutado — outro número, outra origem. */
+    expect(desconto.papel).toBe("DESCONTO");
+    expect(desconto.valor).toBeLessThan(0);
+    expect(Math.abs(desconto.valor!)).not.toBe(parcela.valor);
   });
 
   /**

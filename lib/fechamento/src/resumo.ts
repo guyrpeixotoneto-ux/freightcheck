@@ -7,6 +7,7 @@ import {
   type Quadro,
   type QuadroConferido,
 } from "./de-para";
+import { comoDestravar, type DiagnosticoDoCadastro } from "./cadastro-porta";
 import type { LinhaDoMapa, MapaDaQuinzena, QuadroDoMapa } from "./mapa-rota";
 import { levantarInconsistencias, type Inconsistencia } from "./inconsistencias";
 import type { NaturezaDaVerba } from "./verbas";
@@ -197,16 +198,70 @@ export interface LinhaComparada {
   demonstrado: TresColunas;
   /** `devido − demonstrado`. `null` quando falta qualquer um dos dois. */
   diferenca: TresColunas;
+  /**
+   * O número que o 03.08.20 traz para esta linha **junto com outras**.
+   *
+   * **É o campo que impede a coluna do demonstrado de mentir por omissão.** Seis
+   * das linhas do quadro fixo dividem um número só no relatório — ele traz a
+   * frota fixa somada e não a parte por tipo —, e o demonstrado delas é `null`
+   * por isso, não por falta de arquivo. Sem este campo as duas ausências
+   * chegavam à tela como o mesmo traço, e a diferença é enorme: uma pede um
+   * relatório que não existe, a outra não pede nada.
+   *
+   * O devido, esse, aparece linha a linha — ele sai do contrato, que **tem** a
+   * partição por tipo de frota. É essa assimetria que o painel comparado
+   * mostra, e ela é o produto: a planilha pede seis números, o demonstrativo dá
+   * um, o contrato dá os seis.
+   *
+   * `null` na linha que o relatório sustenta sozinha.
+   */
+  conjunto: ConjuntoDoPainel | null;
   /** A conta que produziu o devido, por quinzena — a memória de cálculo. */
   memoria: { primeira: string | null; segunda: string | null };
   /** O que falta para o devido existir. `null` quando ele existe. */
   falta: string | null;
 }
 
+/**
+ * A comparação no único nível em que as duas fontes falam a mesma língua.
+ *
+ * **O problema que ela resolve.** Seis linhas do quadro fixo dividem um número
+ * só no 03.08.20 — o relatório traz a frota fixa somada e não a parte por tipo.
+ * O contrato **tem** a partição, e por isso o devido delas aparece linha a
+ * linha; o demonstrado, não. Linha a linha, portanto, a diferença é
+ * incalculável, e a coluna fica vazia — o que é correto e é pouco: quem está
+ * conferindo quer saber se o conjunto fecha.
+ *
+ * Fecha ou não fecha, e dá para medir: a soma do devido das seis contra o
+ * número que o relatório traz para as seis. **É a única subtração honesta
+ * disponível**, e ela não rateia nada — não afirma quanto do agregado é de
+ * `PADRONIZADO` e quanto é de `VANS`, que é exatamente o que o demonstrativo
+ * não diz e ninguém deve inventar.
+ *
+ * `devido` é `null` se **qualquer** linha do conjunto estiver sem devido: cinco
+ * sextos de uma soma não é a soma, e compará-la com o total do relatório
+ * produziria uma diferença que mede a nossa lacuna em vez da divergência real.
+ */
+export interface ConjuntoComparado {
+  chave: string;
+  nome: string;
+  /** Os nomes das linhas que dividem o número do demonstrativo. */
+  linhas: string[];
+  /** A soma do devido das linhas do conjunto. `null` se faltar alguma. */
+  devido: TresColunas;
+  /** O que o 03.08.20 traz para todas elas juntas. */
+  demonstrado: TresColunas;
+  diferenca: TresColunas;
+  /** Por que o relatório não parte este número — a frase do de-para. */
+  porque: string;
+}
+
 export interface QuadroComparado {
   quadro: string;
   titulo: string;
   linhas: LinhaComparada[];
+  /** Os números que o relatório traz para várias linhas de uma vez. */
+  conjuntos: ConjuntoComparado[];
   devido: TresColunas;
   demonstrado: TresColunas;
   diferenca: TresColunas;
@@ -282,6 +337,37 @@ export interface CanalDoResumo {
    * de zero. Ver `cadastro-porta.ts`.
    */
   comparado: PainelComparado | null;
+  /**
+   * Por que há (ou não há) devido, quinzena a quinzena.
+   *
+   * **É o campo que aposenta a frase genérica.** A tela dizia "nenhum cadastro
+   * respondeu por esta unidade nesta competência" para três causas diferentes —
+   * unidade não cadastrada, aba digitada no mês errado, linha obrigatória em
+   * branco —, e as três mandam procurar em lugares diferentes. Agora cada
+   * quinzena traz a porta em que parou, e `comoDestravar` escreve o conserto.
+   *
+   * É por quinzena, e não uma por canal, porque as portas fecham de formas
+   * diferentes nas duas metades do mês: a aba da 1ª responde pela 2ª por
+   * herança, e um mês aberto só na 2ª não tem primeira porta nenhuma. `null` na
+   * quinzena que não existe — que é diferente de existir e não ter cadastro.
+   */
+  cadastro: {
+    primeira: CadastroNaTela | null;
+    segunda: CadastroNaTela | null;
+  };
+}
+
+/**
+ * O diagnóstico com o texto já escrito — o que a tela recebe.
+ *
+ * `destrava` vem pronto do domínio, e não montado no navegador, pela mesma
+ * razão que a aritmética: qual é o conserto de "faltam três obrigatórias" é
+ * conhecimento de negócio, e escrevê-lo no `.tsx` daria duas versões da mesma
+ * instrução — a testada e a que a pessoa lê. É `null` quando o cadastro
+ * respondeu, porque não há o que destravar.
+ */
+export interface CadastroNaTela extends DiagnosticoDoCadastro {
+  destrava: { problema: string; conserto: string } | null;
 }
 
 /** O que uma quinzena traz para o resumo — o que o banco guardou dela. */
@@ -329,6 +415,13 @@ export interface QuinzenaApurada {
   calculados?: { canal: Canal; mapa: MapaDaQuinzena }[] | null;
   /** Qual cadastro produziu os `calculados`. Nulo quando não houve. */
   cadastroUsado?: { cadastroId: string; vigenteDe: string } | null;
+  /**
+   * Por que o cadastro respondeu — ou em qual das três portas ele parou.
+   *
+   * Anda ao lado de `calculados` e não dentro dele porque é justamente quando
+   * `calculados` é nulo que este campo importa. Ver `cadastro-porta.ts`.
+   */
+  diagnosticoDoCadastro?: { canal: Canal; diagnostico: DiagnosticoDoCadastro }[] | null;
 }
 
 export interface ResumoDoMes {
@@ -521,6 +614,54 @@ export function painelDeUmaQuinzena(
 }
 
 /**
+ * Os conjuntos de um quadro, com o devido somado das linhas que os dividem.
+ *
+ * Sai das linhas já comparadas, e não de uma segunda leitura do painel: o
+ * conjunto **é** o que aquelas linhas têm em comum, e derivá-lo delas garante
+ * que a soma seja das mesmas linhas que a tela mostra. Ver
+ * {@link ConjuntoComparado}.
+ */
+function conjuntosComparados(linhas: LinhaComparada[]): ConjuntoComparado[] {
+  const porChave = new Map<string, { conjunto: ConjuntoDoPainel; devido: TresColunas }>();
+
+  for (const linha of linhas) {
+    if (!linha.conjunto) continue;
+    const atual = porChave.get(linha.conjunto.chave);
+    if (!atual) {
+      porChave.set(linha.conjunto.chave, { conjunto: linha.conjunto, devido: linha.devido });
+      continue;
+    }
+    atual.devido = acumular(atual.devido, linha.devido);
+  }
+
+  return [...porChave.values()].map(({ conjunto, devido }) => {
+    /*
+      Uma parcela ausente apaga a soma. `acumular` trata `null` como zero para
+      poder somar colunas que só uma quinzena tem — o que é certo lá e errado
+      aqui: cinco sextos de um conjunto não é o conjunto.
+    */
+    const completo = (escolher: (v: TresColunas) => number | null) =>
+      linhas
+        .filter((l) => l.conjunto?.chave === conjunto.chave)
+        .every((l) => escolher(l.devido) !== null);
+    const doDevido: TresColunas = {
+      primeira: completo((v) => v.primeira) ? devido.primeira : null,
+      segunda: completo((v) => v.segunda) ? devido.segunda : null,
+      total: completo((v) => v.total) ? devido.total : null,
+    };
+    return {
+      chave: conjunto.chave,
+      nome: conjunto.nome,
+      linhas: conjunto.linhas,
+      devido: doDevido,
+      demonstrado: conjunto.valores,
+      diferenca: subtrair(doDevido, conjunto.valores),
+      porque: conjunto.porque,
+    };
+  });
+}
+
+/**
  * Casa o painel calculado com o painel demonstrado, quadro a quadro.
  *
  * As duas leituras já falam a mesma língua — as chaves de linha são as mesmas
@@ -554,6 +695,19 @@ export function compararPaineis(
     return l ? l.valores : VAZIO;
   };
 
+  /*
+    O conjunto a que a linha pertence no **demonstrado**, quando pertence.
+
+    Sai do painel do 03.08.20 e não do mapa: é uma limitação do relatório, não
+    do contrato. Ver `LinhaComparada.conjunto`.
+  */
+  const conjuntoDoDemonstrado = (quadro: string, chave: string): ConjuntoDoPainel | null => {
+    const q = demonstrado?.quadros.find((x) => x.quadro === quadro);
+    const l = q?.linhas.find((x) => x.chave === chave);
+    if (!l?.conjunto) return null;
+    return q?.conjuntos.find((c) => c.chave === l.conjunto) ?? null;
+  };
+
   const quadros: QuadroComparado[] = esqueleto.quadros.map((modelo) => {
     const linhas: LinhaComparada[] = modelo.linhas.map((modeloDaLinha) => {
       const l1 = linhaDe(calculado.primeira, modelo.quadro, modeloDaLinha.chave);
@@ -567,6 +721,7 @@ export function compararPaineis(
         devido,
         demonstrado: dem,
         diferenca: subtrair(devido, dem),
+        conjunto: conjuntoDoDemonstrado(modelo.quadro, modeloDaLinha.chave),
         memoria: { primeira: l1?.memoria ?? null, segunda: l2?.memoria ?? null },
         /* A falta é a mesma nas duas quando as duas a têm; basta dizer uma vez. */
         falta: l1?.falta ?? l2?.falta ?? null,
@@ -583,6 +738,7 @@ export function compararPaineis(
       quadro: modelo.quadro,
       titulo: modelo.titulo,
       linhas,
+      conjuntos: conjuntosComparados(linhas),
       devido,
       demonstrado: dem,
       diferenca: subtrair(devido, dem),
@@ -601,6 +757,22 @@ export function compararPaineis(
     ],
     inconsistencias: levantarInconsistencias(canal, quadros),
   };
+}
+
+/**
+ * O diagnóstico do cadastro de um canal, na quinzena dada.
+ *
+ * `null` quando a quinzena não existe no mês — e a distinção importa: uma
+ * competência que ninguém abriu não tem cadastro **nem porta**, e dizer
+ * "unidade não encontrada" ali mandaria conferir um código que ninguém chegou a
+ * procurar.
+ */
+function diagnosticoDe(q: QuinzenaApurada | null, canal: Canal): CadastroNaTela | null {
+  if (!q) return null;
+  const achado = q.diagnosticoDoCadastro?.find((d) => d.canal === canal)?.diagnostico;
+  if (!achado) return null;
+  /* O único funil até a tela — e por isso o único lugar que escreve o texto. */
+  return { ...achado, destrava: comoDestravar(achado) };
 }
 
 /**
@@ -749,6 +921,10 @@ export function montarResumo(entrada: {
         : CANAIS_COM_PAINEL.includes(canal)
           ? "SEM_DEMONSTRATIVO"
           : "CANAL_SEM_CATALOGO",
+      cadastro: {
+        primeira: diagnosticoDe(primeira, canal),
+        segunda: diagnosticoDe(segunda, canal),
+      },
     });
   }
 
