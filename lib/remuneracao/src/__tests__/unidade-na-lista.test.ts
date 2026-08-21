@@ -5,7 +5,11 @@ import { seedTaxonomy } from "@workspace/curation";
 import { buildFixture, type AttributeSpec } from "@workspace/comparison/testing";
 import { sql } from "drizzle-orm";
 import { COLUNA } from "../colunas";
-import { lerCadastroDaUnidade, lerSituacaoDasUnidades } from "../leitura";
+import {
+  gravarPlanilhaDaUnidade,
+  lerCadastroDaUnidade,
+  lerSituacaoDasUnidades,
+} from "../leitura";
 import { gravarPlanilha } from "../planilha";
 import { descritorDeEscopo, registrarUnidade } from "../unidade";
 
@@ -192,6 +196,35 @@ describe("a unidade com planilha numa vigência que não é a mais recente", () 
 
     expect(resumo.unidades).toBe(1);
     expect(resumo.cadastros).toBe(2);
+  });
+
+  /*
+    A promessa que o "Cadastrar uma unidade" faz por escrito — "as outras
+    aparecem à medida que você salvar planilha nelas" — e que não tinha caminho:
+    as vigências desta unidade são a declarada mais as que ganharam planilha, o
+    formulário só oferecia essas, e salvar numa quinzena nova era recusado por
+    vigência inexistente. A unidade ficava presa na quinzena do registro.
+  */
+  it("começa a próxima quinzena, que é o que o cadastro à mão prometia", async () => {
+    const SETEMBRO = "2026-09-01";
+
+    const gravada = await gravarPlanilhaDaUnidade(ctx.db, {
+      scopeHash: OUTRO_ESCOPO,
+      channel: "ROTA",
+      period: SETEMBRO,
+      aceitarVigenciaNova: true,
+      celulas: [{ chave: "aliquota_pis", valor: 1.65 }],
+      autor: { id: null, nome: "Guy" },
+    });
+    expect(gravada?.linhas).toHaveLength(1);
+
+    const { cadastros } = await lerSituacaoDasUnidades(ctx.db);
+    const dela = cadastros.filter((c) => c.scopeHash === OUTRO_ESCOPO);
+
+    // Três quinzenas, e cada uma com o que tem: setembro recém-aberta, agosto
+    // ainda em branco, julho com a aba inteira.
+    expect(dela.map((c) => c.effectiveDate)).toEqual([SETEMBRO, VIGENCIA, JULHO]);
+    expect(dela.map((c) => c.cadastro.informadas)).toEqual([1, 0, 2]);
   });
 });
 

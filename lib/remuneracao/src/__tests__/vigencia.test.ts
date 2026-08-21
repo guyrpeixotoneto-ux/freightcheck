@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { rotuloDaVigencia } from "../vigencia";
+import { ehInicioDeQuinzena, rotuloDaVigencia } from "../vigencia";
 
 /**
  * O rótulo da vigência, e as duas coisas que ele não pode fazer.
@@ -74,5 +74,39 @@ describe("o rótulo da vigência", () => {
 
   it("devolve o texto cru quando não é data — como o rótulo genérico faz", () => {
     expect(rotuloDaVigencia("sem data", AGOSTO_PARTIDO)).toBe("sem data");
+  });
+});
+
+/**
+ * A régua que separa a vigência que veio de arquivo da que alguém cria.
+ *
+ * A primeira é o que o arquivo trouxer — e o rótulo acima sabe escrever um dia
+ * qualquer quando é o caso. A segunda vale porque é uma quinzena do calendário
+ * do cliente, e é só sobre ela que esta função responde.
+ */
+describe("o começo de quinzena", () => {
+  it("aceita os dois dias em que uma quinzena começa", () => {
+    expect(ehInicioDeQuinzena("2026-08-01")).toBe(true);
+    expect(ehInicioDeQuinzena("2026-08-16")).toBe(true);
+  });
+
+  it("recusa o dia no meio do mês — seria uma quinzena que só ela conheceria", () => {
+    expect(ehInicioDeQuinzena("2026-08-07")).toBe(false);
+    expect(ehInicioDeQuinzena("2026-08-15")).toBe(false);
+    expect(ehInicioDeQuinzena("2026-08-31")).toBe(false);
+  });
+
+  it("recusa o que não é data, e o mês que não existe", () => {
+    expect(ehInicioDeQuinzena("agosto")).toBe(false);
+    expect(ehInicioDeQuinzena("2026-13-01")).toBe(false);
+    expect(ehInicioDeQuinzena("2026-00-16")).toBe(false);
+    expect(ehInicioDeQuinzena("2026-08-1")).toBe(false);
+  });
+
+  it("recusa o ano de um dedo a mais, na mesma faixa que a tela aplica", () => {
+    expect(ehInicioDeQuinzena("20226-08-01")).toBe(false);
+    expect(ehInicioDeQuinzena("1999-08-01")).toBe(false);
+    expect(ehInicioDeQuinzena("2101-08-01")).toBe(false);
+    expect(ehInicioDeQuinzena("2100-12-16")).toBe(true);
   });
 });

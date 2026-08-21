@@ -13,6 +13,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { apresentar } from "@/lib/apresentar-erro";
+import { anoAceito } from "@/lib/fechamento-tela";
+import { MES_LONGO, mesPorExtenso, periodoDaQuinzena } from "@/lib/fechamento-gerencial";
 import { cn } from "@/lib/utils";
 import { chaveDoCadastro, lerCadastro, type SituacaoDaUnidade } from "@/lib/remuneracao";
 import { CadastrarAPlanilha } from "./cadastrar-planilha";
@@ -44,8 +46,19 @@ import { CadastrarAPlanilha } from "./cadastrar-planilha";
  * O canal digitado passa a existir assim que a primeira célula é salva.
  *
  * *A vigência*, porque a planilha é de uma quinzena. As oferecidas são as que a
- * unidade entregou — inclusive para um canal que ela ainda não entregou, e é a
- * resposta certa: a quinzena é do calendário do cliente, não da série.
+ * unidade tem — o que o acervo entregou mais o que alguém já digitou —,
+ * inclusive para um canal que ela ainda não entregou, e é a resposta certa: a
+ * quinzena é do calendário do cliente, não da série. **E dá para começar uma
+ * que ainda não existe**, pelos mesmos três campos de "Cadastrar uma unidade":
+ * ano, mês e quinzena.
+ *
+ * Sem isso a unidade cadastrada à mão ficava presa: as vigências dela são a
+ * declarada no registro mais as que ganharam planilha, o seletor só oferecia
+ * essas, e salvar numa quinzena nova era recusado — a promessa escrita no
+ * "Cadastrar unidade" ("as outras aparecem à medida que você salvar planilha
+ * nelas") não tinha por onde ser cumprida. A quinzena nova segue a mesma regra
+ * do canal novo: ela é um rascunho até a primeira célula ser salva, e passa a
+ * existir com ela.
  */
 export function BotaoDeCadastroDaPlanilha({
   unidade,
@@ -87,6 +100,41 @@ function nomeDaUnidade(unidade: SituacaoDaUnidade): string {
 
 const SEM_CANAL = "__sem_canal__";
 const OUTRO = "__outro__";
+const OUTRA_QUINZENA = "__outra_quinzena__";
+
+/**
+ * A quinzena seguinte à última que a unidade tem — o padrão dos três campos.
+ *
+ * Quem abre "outra quinzena…" está quase sempre começando **a próxima**: a aba
+ * de setembro chegou, agosto já está preenchido. Abrir no mês corrente daria
+ * certo em metade das vezes e obrigaria a corrigir dois seletores na outra
+ * metade; abrir na seguinte à última acerta o gesto que trouxe a pessoa aqui, e
+ * quem quiser outra troca os campos do mesmo jeito.
+ *
+ * Sem vigência nenhuma — o que não acontece hoje, porque toda unidade tem ao
+ * menos a declarada no registro —, o padrão é a quinzena de hoje.
+ */
+function quinzenaSeguinte(vigencias: readonly { effectiveDate: string }[]) {
+  const ultima = vigencias[vigencias.length - 1]?.effectiveDate;
+  if (!ultima || !/^\d{4}-\d{2}-\d{2}$/.test(ultima)) {
+    const hoje = new Date();
+    return {
+      ano: String(hoje.getFullYear()),
+      mes: String(hoje.getMonth() + 1),
+      quinzena: hoje.getDate() <= 15 ? "1" : "2",
+    };
+  }
+
+  const ano = Number(ultima.slice(0, 4));
+  const mes = Number(ultima.slice(5, 7));
+  /* A régua da quinzena é a do produto: do dia 1 ao 15 é a primeira. */
+  if (Number(ultima.slice(8, 10)) <= 15) {
+    return { ano: String(ano), mes: String(mes), quinzena: "2" };
+  }
+  return mes === 12
+    ? { ano: String(ano + 1), mes: "1", quinzena: "1" }
+    : { ano: String(ano), mes: String(mes + 1), quinzena: "1" };
+}
 
 function PainelDeCadastro({
   unidade,
@@ -101,6 +149,20 @@ function PainelDeCadastro({
   const [digitando, setDigitando] = useState(false);
   const [rascunhoDoCanal, setRascunhoDoCanal] = useState("");
   const [vigencia, setVigencia] = useState(unidade.effectiveDate);
+  /*
+    A quinzena que **esta sessão do painel criou**, e não uma conta sobre a
+    resposta do servidor. A diferença decide o salvar: pedido o cadastro com
+    `vigenciaNova`, o servidor devolve a quinzena dentro da lista de vigências
+    — é o que faz o seletor mostrá-la e o rótulo dela nomear a irmã do mesmo mês
+    —, e uma bandeira deduzida dessa lista viraria falsa na volta da consulta,
+    justamente antes do clique em salvar, que é quando ela precisa ser
+    verdadeira.
+  */
+  const [criada, setCriada] = useState<string | null>(null);
+  const [escolhendoQuinzena, setEscolhendoQuinzena] = useState(false);
+  const [ano, setAno] = useState("");
+  const [mes, setMes] = useState("");
+  const [quinzenaDoMes, setQuinzenaDoMes] = useState("");
 
   /*
     Esc fecha. O painel cobre a tela inteira e o formulário dentro dele é longo;
@@ -116,6 +178,8 @@ function PainelDeCadastro({
     return () => document.removeEventListener("keydown", aoTeclar);
   }, [aoFechar]);
 
+  const vigenciaNova = criada !== null && criada === vigencia;
+
   const cadastro = useQuery({
     queryKey: chaveDoCadastro(unidade.scopeHash, canal, vigencia),
     queryFn: () =>
@@ -129,6 +193,9 @@ function PainelDeCadastro({
           o formulário nunca apareceria para ser preenchido.
         */
         canalNovo: true,
+        /* E a quinzena também pode ser nova, pela mesma razão e com a mesma
+           régua: o servidor só aceita começo de quinzena. */
+        ...(vigenciaNova ? { vigenciaNova: true } : {}),
       }),
   });
 
@@ -152,6 +219,41 @@ function PainelDeCadastro({
     if (texto === "") return;
     setCanal(texto);
     setDigitando(false);
+  }
+
+  /** Abrir os três campos, já na quinzena seguinte à última da unidade. */
+  function comecarOutraQuinzena() {
+    const padrao = quinzenaSeguinte(cadastro.data?.vigencias ?? []);
+    setAno(padrao.ano);
+    setMes(padrao.mes);
+    setQuinzenaDoMes(padrao.quinzena);
+    setEscolhendoQuinzena(true);
+  }
+
+  /**
+   * A quinzena escolhida vira a vigência aberta.
+   *
+   * Quem soma a data é o calendário do produto — `periodoDaQuinzena`, o mesmo
+   * de "Cadastrar uma unidade" e de Realizar Fechamento. Montá-la à mão aqui
+   * seria uma segunda aritmética de quinzena, e no dia em que as duas
+   * discordassem a planilha apareceria numa vigência que nenhuma outra tela
+   * escreve.
+   *
+   * A quinzena que a unidade **já tem** é só selecionada: marcá-la como criada
+   * mandaria a bandeira de vigência nova ao servidor para uma vigência que
+   * existe — inofensivo, e uma mentira a mais na consulta.
+   */
+  function usarAQuinzena() {
+    if (!anoAceito(ano)) return;
+    const { inicio } = periodoDaQuinzena(
+      Number(ano),
+      Number(mes),
+      Number(quinzenaDoMes) as 1 | 2,
+    );
+    const jaTem = (cadastro.data?.vigencias ?? []).some((v) => v.effectiveDate === inicio);
+    setCriada(jaTem ? null : inicio);
+    setVigencia(inicio);
+    setEscolhendoQuinzena(false);
   }
 
   /*
@@ -279,21 +381,105 @@ function PainelDeCadastro({
               >
                 Vigência que você preenche
               </label>
-              <Select value={vigencia} onValueChange={setVigencia}>
-                <SelectTrigger id="vigencia-da-planilha">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {(cadastro.data?.vigencias ?? []).map((v) => (
-                    <SelectItem key={v.effectiveDate} value={v.effectiveDate}>
-                      {v.periodLabel}
+              {escolhendoQuinzena ? (
+                /*
+                  Os mesmos três campos de "Cadastrar uma unidade", na mesma
+                  ordem: ano digitado, mês e quinzena escolhidos. Aqui eles
+                  cabem numa coluna só, e por isso vão sem rótulo — o `aria-label`
+                  de cada um faz o trabalho que o rótulo faria em tela larga.
+                */
+                <div className="space-y-2">
+                  <div className="grid grid-cols-3 gap-2">
+                    <Input
+                      autoFocus
+                      id="vigencia-da-planilha"
+                      value={ano}
+                      aria-label="Ano da quinzena"
+                      inputMode="numeric"
+                      onChange={(e) => setAno(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") usarAQuinzena();
+                        if (e.key === "Escape") {
+                          e.stopPropagation();
+                          setEscolhendoQuinzena(false);
+                        }
+                      }}
+                    />
+                    <Select value={mes} onValueChange={setMes}>
+                      <SelectTrigger aria-label="Mês da quinzena">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {MES_LONGO.map((_, indice) => (
+                          <SelectItem key={indice} value={String(indice + 1)}>
+                            {mesPorExtenso(indice + 1)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Select value={quinzenaDoMes} onValueChange={setQuinzenaDoMes}>
+                      <SelectTrigger aria-label="Quinzena do mês">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="1">1ª — dias 1 a 15</SelectItem>
+                        <SelectItem value="2">2ª — dia 16 ao fim</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button variant="outline" onClick={usarAQuinzena} disabled={!anoAceito(ano)}>
+                      Usar
+                    </Button>
+                    <Button variant="ghost" onClick={() => setEscolhendoQuinzena(false)}>
+                      Cancelar
+                    </Button>
+                    {!anoAceito(ano) && (
+                      <span className="text-xs text-amber-700">O ano vai de 2000 a 2100.</span>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <Select
+                  value={vigencia}
+                  onValueChange={(v) =>
+                    v === OUTRA_QUINZENA ? comecarOutraQuinzena() : setVigencia(v)
+                  }
+                >
+                  <SelectTrigger id="vigencia-da-planilha">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(cadastro.data?.vigencias ?? []).map((v) => (
+                      <SelectItem key={v.effectiveDate} value={v.effectiveDate}>
+                        {v.periodLabel}
+                      </SelectItem>
+                    ))}
+                    <SelectItem value={OUTRA_QUINZENA}>
+                      <span className="inline-flex items-center gap-1.5">
+                        <Plus className="w-3 h-3" />
+                        outra quinzena…
+                      </span>
                     </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                  </SelectContent>
+                </Select>
+              )}
+
               <p className="text-xs text-muted-foreground">
-                As vigências são as que esta unidade entregou — inclusive para um tipo que ela
-                ainda não entregou, porque a quinzena é do calendário, não da série.
+                As vigências são as que esta unidade tem — o que o acervo entregou mais o que
+                já foi digitado —, inclusive para um tipo que ela ainda não entregou, porque a
+                quinzena é do calendário, não da série.{" "}
+                {vigenciaNova ? (
+                  <strong>
+                    Esta quinzena ainda não existe: ela passa a existir quando a primeira
+                    linha for salva.
+                  </strong>
+                ) : (
+                  <>
+                    Quando a aba de uma quinzena nova chegar antes do export dela, comece por{" "}
+                    <em>outra quinzena…</em>.
+                  </>
+                )}
               </p>
             </div>
           </div>
@@ -320,6 +506,7 @@ function PainelDeCadastro({
             <CadastrarAPlanilha
               key={`${unidade.scopeHash}|${canal ?? ""}|${cadastro.data.effectiveDate}`}
               dados={cadastro.data}
+              vigenciaNova={vigenciaNova}
             />
           )}
         </div>

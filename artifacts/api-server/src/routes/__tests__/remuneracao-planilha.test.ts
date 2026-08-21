@@ -262,6 +262,72 @@ describe("a planilha informada, pela borda", () => {
     expect(status).toBe(404);
   });
 
+  /*
+    A bandeira que deixa a quinzena nascer, pela borda. Ela é opt-in nas três
+    superfícies — `vigenciaNova=1` na leitura, `vigenciaNova: true` nas duas
+    escritas —, e o que ela não afrouxa é a régua da quinzena: só o dia 1 e o
+    dia 16, com a recusa nomeada em 400.
+  */
+  it("cria a quinzena nova quando o corpo pede, e só então", async () => {
+    const SEGUNDA = "2026-08-16";
+    const celulas = [{ chave: "aliquota_icms", valor: 17.84 }];
+
+    expect(
+      (
+        await enviar("PUT", "/remuneracao/planilha", {
+          scopeHash: ESCOPO,
+          canal: "EMPURRADA",
+          period: SEGUNDA,
+          celulas,
+        })
+      ).status,
+    ).toBe(404);
+
+    const { status, body } = await enviar("PUT", "/remuneracao/planilha", {
+      scopeHash: ESCOPO,
+      canal: "EMPURRADA",
+      period: SEGUNDA,
+      vigenciaNova: true,
+      celulas,
+    });
+    expect(status).toBe(200);
+    expect(body.effectiveDate).toBe(SEGUNDA);
+
+    // E, depois de existir, ela aparece no seletor do cadastro sem bandeira.
+    const cadastro = await get(`/remuneracao/cadastro?${CONSULTA}&period=${SEGUNDA}`);
+    expect(cadastro.status).toBe(200);
+    const oferecidas = cadastro.body.vigencias.map(
+      (v: { effectiveDate: string }) => v.effectiveDate,
+    );
+    expect(oferecidas).toContain(SEGUNDA);
+  });
+
+  it("recusa com 400 a vigência que não é começo de quinzena", async () => {
+    const { status, body } = await enviar("PUT", "/remuneracao/planilha", {
+      scopeHash: ESCOPO,
+      canal: "EMPURRADA",
+      period: "2026-09-07",
+      vigenciaNova: true,
+      celulas: [{ chave: "aliquota_icms", valor: 17.84 }],
+    });
+
+    expect(status).toBe(400);
+    expect(String(body.error)).toContain("dia 16");
+  });
+
+  it("abre o formulário em branco da quinzena nova só com vigenciaNova=1", async () => {
+    const NOVA = "2026-09-01";
+
+    expect((await get(`/remuneracao/cadastro?${CONSULTA}&period=${NOVA}`)).status).toBe(404);
+
+    const { status, body } = await get(
+      `/remuneracao/cadastro?${CONSULTA}&period=${NOVA}&vigenciaNova=1`,
+    );
+    expect(status).toBe(200);
+    expect(body.effectiveDate).toBe(NOVA);
+    expect(body.resumo.informadas).toBe(0);
+  });
+
   it("recusa copiar sem as duas pontas, e copiar para a mesma vigência", async () => {
     expect(
       (await enviar("POST", "/remuneracao/planilha/copia", { scopeHash: ESCOPO, de: VIGENCIA }))

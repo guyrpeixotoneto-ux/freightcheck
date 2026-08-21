@@ -31,7 +31,7 @@ import {
 } from "./planilha";
 import type { PlanilhaDeclarada } from "./informado";
 import { compararCadastros, type CadastroComparado } from "./comparacao";
-import { rotuloDaVigencia } from "./vigencia";
+import { ehInicioDeQuinzena, rotuloDaVigencia } from "./vigencia";
 import { unidadesRegistradas, vigenciasDaUnidade } from "./unidade";
 import { medirSituacao, type EstadoDoCadastro, type SituacaoDoCadastro } from "./situacao";
 
@@ -206,6 +206,28 @@ export class VigenciaDoCadastroNaoEncontrada extends Error {
 }
 
 /**
+ * Erro de recusa: a vigência que se quer **criar** não é uma quinzena.
+ *
+ * Só aparece no caminho que aceita quinzena nova — a tela que cadastra a
+ * planilha antes de o export chegar. Ali a vigência não vem de arquivo nenhum:
+ * ela vale porque é uma quinzena do calendário, e o calendário deste produto
+ * começa a quinzena no dia 1 ou no dia 16 (ver `ehInicioDeQuinzena`, em
+ * `vigencia.ts`). 400, e não 404: o pedido é que está errado, e a unidade está
+ * onde sempre esteve.
+ */
+export class VigenciaForaDaQuinzena extends Error {
+  constructor(pedida: string) {
+    super(
+      `${pedida} não é uma quinzena que se possa criar. Uma quinzena começa no dia 1 ou no ` +
+        "dia 16, e é por ela que o fechamento procura o cadastro — uma vigência no meio do " +
+        "mês guardaria a planilha onde nenhuma tela vai buscá-la. A vigência que vem de " +
+        "arquivo continua sendo a que o arquivo trouxer.",
+    );
+    this.name = "VigenciaForaDaQuinzena";
+  }
+}
+
+/**
  * Erro de recusa: esta unidade só entregou uma vigência. Rota traduz em 422.
  *
  * Não é 404 — a unidade existe e o cadastro dela também. O que não existe é o
@@ -301,7 +323,28 @@ async function contextosEProcedencia(db: Database): Promise<{
     return { contextos: doAcervo, semAcervo: new Set(), vigenciasNaLista: new Map() };
   }
 
-  const jaExiste = new Set(doAcervo.map((c) => chaveDaUnidade(c.scopeHash, c.channel)));
+  const vigenciasPorChave = new Map(
+    daPlanilha.map((c) => [chaveDaUnidade(c.scopeHash, c.canal), c.vigencias]),
+  );
+
+  /*
+    A vigência de uma unidade, neste módulo, é o que o acervo entregou **mais**
+    o que alguém digitou — e isto vale para toda unidade, e não só para a
+    registrada à mão, que já nascia com a união.
+
+    A regra assimétrica custava o defeito que ela parecia evitar: a planilha da
+    quinzena que o export ainda não trouxe ficava gravada e sem tela nenhuma.
+    Ela não aparecia na lista (que responde pelas vigências do contexto), não
+    aparecia no seletor do cadastro (idem), e a escrita seguinte na mesma
+    quinzena era recusada por vigência inexistente — a planilha existia no banco
+    e não existia em lugar nenhum. Uma vigência que alguém digitou é uma
+    vigência que alguém digitou, qualquer que tenha sido a origem da unidade.
+  */
+  const comAsDigitadas = doAcervo.map((c) =>
+    comAsVigenciasDaPlanilha(c, vigenciasPorChave.get(chaveDaUnidade(c.scopeHash, c.channel))),
+  );
+
+  const jaExiste = new Set(comAsDigitadas.map((c) => chaveDaUnidade(c.scopeHash, c.channel)));
   /*
     Quem entra por registro e não por arquivo. É medido **aqui**, e não pela
     tabela inteira, porque a pergunta da tela é "este contexto tem snapshot?" —
@@ -310,7 +353,9 @@ async function contextosEProcedencia(db: Database): Promise<{
   */
   const semAcervo = new Set<string>();
   const irmaoDoEscopo = new Map<string, ContextInfo>();
-  for (const c of doAcervo) if (!irmaoDoEscopo.has(c.scopeHash)) irmaoDoEscopo.set(c.scopeHash, c);
+  for (const c of comAsDigitadas) {
+    if (!irmaoDoEscopo.has(c.scopeHash)) irmaoDoEscopo.set(c.scopeHash, c);
+  }
 
   const sinteticos: ContextInfo[] = [];
   const vigenciasNaLista = new Map<string, string[]>();
@@ -340,9 +385,6 @@ async function contextosEProcedencia(db: Database): Promise<{
     contextos; o índice único já as impede no banco, e repetir a guarda aqui
     custa um `Set` e cobre o banco que foi adotado com dados de antes dele.
   */
-  const vigenciasPorChave = new Map(
-    daPlanilha.map((c) => [chaveDaUnidade(c.scopeHash, c.canal), c.vigencias]),
-  );
   for (const u of registradas) {
     const chave = chaveDaUnidade(u.scopeHash, u.canal);
     if (jaExiste.has(chave)) continue;
@@ -374,7 +416,31 @@ async function contextosEProcedencia(db: Database): Promise<{
     });
   }
 
-  return { contextos: [...doAcervo, ...sinteticos], semAcervo, vigenciasNaLista };
+  return { contextos: [...comAsDigitadas, ...sinteticos], semAcervo, vigenciasNaLista };
+}
+
+/**
+ * O contexto do acervo com as quinzenas que só a planilha tem.
+ *
+ * Devolve o mesmo objeto quando não há nada a acrescentar — a maioria dos
+ * casos, e o que mantém a lista idêntica para quem nunca digitou uma aba.
+ */
+function comAsVigenciasDaPlanilha(
+  contexto: ContextInfo,
+  daPlanilha: readonly string[] | undefined,
+): ContextInfo {
+  if (!daPlanilha || daPlanilha.length === 0) return contexto;
+
+  const todas = [...new Set([...contexto.periodosDisponiveis, ...daPlanilha])].sort();
+  if (todas.length === contexto.periodosDisponiveis.length) return contexto;
+
+  return {
+    ...contexto,
+    periodosDisponiveis: todas,
+    latestPeriod: todas[todas.length - 1]!,
+    periods: todas.length,
+    periodosNaJanela: todas.length,
+  };
 }
 
 /**
@@ -423,15 +489,26 @@ export async function lerCadastroDaUnidade(
      * parece com uma unidade que perdeu o lastro.
      */
     aceitarCanalNovo?: boolean;
+    /**
+     * Aceitar uma quinzena que a unidade ainda não tem.
+     *
+     * A outra metade de `aceitarCanalNovo`, e pela mesma razão: é a tela que
+     * cadastra a planilha que precisa mostrar as trinta linhas em branco da
+     * quinzena que ainda não chegou. Fora dela o padrão continua sendo recusar
+     * — ver {@link comAQuinzenaNova}.
+     */
+    aceitarVigenciaNova?: boolean;
   },
 ): Promise<CadastroDaUnidade | null> {
   const contextos = await contextosDoModulo(db);
   if (contextos.length === 0) return null;
 
-  const contexto = pedido?.aceitarCanalNovo
+  const daUnidade = pedido?.aceitarCanalNovo
     ? await resolverParaEscrita(db, contextos, pedido)
     : (await resolveContext(db, pedido, contextos))!;
-  const effectiveDate = conferirVigencia(contexto, pedido?.period ?? contexto.latestPeriod);
+  const pedida = pedido?.period ?? daUnidade.latestPeriod;
+  const contexto = pedido?.aceitarVigenciaNova ? comAQuinzenaNova(daUnidade, pedida) : daUnidade;
+  const effectiveDate = conferirVigencia(contexto, pedida);
   const { montado, material } = await montarDaVigencia(db, effectiveDate, contexto);
 
   return {
@@ -657,6 +734,8 @@ export async function gravarPlanilhaDaUnidade(
   db: Database,
   pedido: RequestedContext & {
     period?: string;
+    /** A quinzena pode ser uma que a unidade ainda não tem — ver a leitura. */
+    aceitarVigenciaNova?: boolean;
     celulas: { chave: unknown; valor: unknown; observacao?: unknown }[];
     autor?: { id: string | null; nome: string | null };
   },
@@ -683,6 +762,16 @@ export async function copiarPlanilhaDaUnidade(
   pedido: RequestedContext & {
     de: string;
     para: string;
+    /**
+     * O **destino** pode ser uma quinzena que a unidade ainda não tem.
+     *
+     * É o caso mais útil da cópia, e o que ela existe para servir: a quinzena
+     * nova começa em branco, e a maior parte da aba repete a anterior. A
+     * **origem** nunca entra por aqui — copiar de uma quinzena que não existe
+     * é copiar de nada, e a recusa por vigência inexistente continua sendo a
+     * resposta certa para ela.
+     */
+    aceitarVigenciaNova?: boolean;
     autor?: { id: string | null; nome: string | null };
   },
 ): Promise<PlanilhaDaVigencia | null> {
@@ -690,11 +779,15 @@ export async function copiarPlanilhaDaUnidade(
   if (contextos.length === 0) return null;
 
   const contexto = await resolverParaEscrita(db, contextos, pedido);
+  const de = conferirVigencia(contexto, pedido.de);
+  const noDestino = pedido.aceitarVigenciaNova
+    ? comAQuinzenaNova(contexto, pedido.para)
+    : contexto;
   return copiarPlanilha(db, {
     scopeHash: contexto.scopeHash,
     canal: contexto.channel,
-    de: conferirVigencia(contexto, pedido.de),
-    para: conferirVigencia(contexto, pedido.para),
+    de,
+    para: conferirVigencia(noDestino, pedido.para),
     ...(pedido.autor ? { autor: pedido.autor } : {}),
   });
 }
@@ -702,16 +795,18 @@ export async function copiarPlanilhaDaUnidade(
 /** A unidade e a vigência de um pedido de planilha, já conferidas. */
 async function resolverAlvoDaPlanilha(
   db: Database,
-  pedido?: RequestedContext & { period?: string },
+  pedido?: RequestedContext & { period?: string; aceitarVigenciaNova?: boolean },
 ): Promise<{ scopeHash: string; canal: string | null; effectiveDate: string } | null> {
   const contextos = await contextosDoModulo(db);
   if (contextos.length === 0) return null;
 
-  const contexto = await resolverParaEscrita(db, contextos, pedido);
+  const daUnidade = await resolverParaEscrita(db, contextos, pedido);
+  const pedida = pedido?.period ?? daUnidade.latestPeriod;
+  const contexto = pedido?.aceitarVigenciaNova ? comAQuinzenaNova(daUnidade, pedida) : daUnidade;
   return {
     scopeHash: contexto.scopeHash,
     canal: contexto.channel,
-    effectiveDate: conferirVigencia(contexto, pedido?.period ?? contexto.latestPeriod),
+    effectiveDate: conferirVigencia(contexto, pedida),
   };
 }
 
@@ -763,6 +858,43 @@ async function resolverParaEscrita(
     ...irmao,
     channel: canalPedido,
     label: rotuloComCanal(irmao, canalPedido),
+  };
+}
+
+/**
+ * O mesmo contexto, **com a quinzena que ainda não existe** dentro dele.
+ *
+ * É o irmão de `resolverParaEscrita` do lado da vigência, e existe pela mesma
+ * razão, um grão adiante: a aba de Excel chega antes do export, e a quinzena
+ * que ela descreve não está no acervo justamente enquanto digitá-la vale a
+ * pena. Sem isto, a unidade cadastrada à mão ficava presa na quinzena declarada
+ * no registro — o formulário só oferecia as vigências que ela já tinha, salvar
+ * numa nova era recusado, e a promessa escrita em "Cadastrar unidade" ("as
+ * outras aparecem à medida que você salvar planilha nelas") não tinha caminho.
+ *
+ * A quinzena entra na lista de vigências do contexto, e não só na data pedida,
+ * porque é dela que sai o **rótulo**: `rotuloDaVigencia` decide "1ª quinzena de
+ * agosto" ou "agosto/2026" olhando o que mais existe naquele mês, e uma lista
+ * que ignorasse a recém-criada nomearia as duas de agosto com o mesmo texto no
+ * mesmo seletor.
+ *
+ * O que ela **não** faz é aceitar qualquer data: ver {@link
+ * VigenciaForaDaQuinzena}. E nada aqui grava — o contexto estendido só vale
+ * para esta chamada; a vigência passa a existir de verdade quando a primeira
+ * célula for salva nela, que é o mesmo momento em que um canal novo passa a
+ * existir.
+ */
+function comAQuinzenaNova(contexto: ContextInfo, pedida: string): ContextInfo {
+  if (contexto.periodosDisponiveis.includes(pedida)) return contexto;
+  if (!ehInicioDeQuinzena(pedida)) throw new VigenciaForaDaQuinzena(pedida);
+
+  const periodosDisponiveis = [...contexto.periodosDisponiveis, pedida].sort();
+  return {
+    ...contexto,
+    periodosDisponiveis,
+    latestPeriod: periodosDisponiveis[periodosDisponiveis.length - 1]!,
+    periods: periodosDisponiveis.length,
+    periodosNaJanela: periodosDisponiveis.length,
   };
 }
 

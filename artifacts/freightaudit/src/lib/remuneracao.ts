@@ -371,12 +371,22 @@ export function lerCadastro(pedido: {
    * outras leituras o canal desconhecido continua sendo 404.
    */
   canalNovo?: boolean;
+  /**
+   * Abrir o formulário de uma quinzena que a unidade ainda não tem.
+   *
+   * A outra metade de `canalNovo`, e pelo mesmo motivo: a aba de Excel da
+   * quinzena nova chega antes do export dela, e as trinta linhas em branco
+   * precisam aparecer para que alguém as preencha. O servidor continua exigindo
+   * que a data seja começo de quinzena — dia 1 ou dia 16.
+   */
+  vigenciaNova?: boolean;
 }): Promise<CadastroDaUnidade> {
   const query = new URLSearchParams();
   if (pedido.scopeHash) query.set("scopeHash", pedido.scopeHash);
   if (pedido.canal !== undefined && pedido.canal !== null) query.set("canal", pedido.canal);
   if (pedido.period) query.set("period", pedido.period);
   if (pedido.canalNovo) query.set("canalNovo", "1");
+  if (pedido.vigenciaNova) query.set("vigenciaNova", "1");
   const sufixo = query.toString();
   return fetchJson<CadastroDaUnidade>(`/remuneracao/cadastro${sufixo ? `?${sufixo}` : ""}`);
 }
@@ -496,6 +506,8 @@ export function gravarPlanilha(pedido: {
   scopeHash?: string;
   canal?: string | null;
   period?: string;
+  /** A quinzena pode ser uma que a unidade ainda não tem — ver `lerCadastro`. */
+  vigenciaNova?: boolean;
   celulas: CelulaAGravar[];
 }): Promise<PlanilhaDaVigencia> {
   return fetchJson<PlanilhaDaVigencia>("/remuneracao/planilha", {
@@ -607,6 +619,8 @@ export function copiarPlanilha(pedido: {
   canal?: string | null;
   de: string;
   para: string;
+  /** Vale para o **destino**: a origem tem de existir, senão não há o que copiar. */
+  vigenciaNova?: boolean;
 }): Promise<PlanilhaDaVigencia> {
   return fetchJson<PlanilhaDaVigencia>("/remuneracao/planilha/copia", {
     method: "POST",

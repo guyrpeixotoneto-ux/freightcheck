@@ -427,6 +427,20 @@ toda leitura — nos moldes do que `conversas.ts` já faz por `owner_id`.
   que ele não menciona fica. Não há herança entre vigências; há um botão de
   copiar, com autor e data de quem clicou, que não sobrescreve o que o destino
   já tem.
+  **A quinzena que a aba traz antes do export passou a poder ser criada.** A
+  escrita sempre exigiu que a vigência estivesse na lista da unidade, e a lista
+  vinha do acervo — parede para a premissa do módulo (a aba chega primeiro) e
+  parede total para a unidade cadastrada à mão, cujas vigências são a declarada
+  no registro mais as que ganharam planilha: ganhar planilha era o que a recusa
+  impedia. `aceitarVigenciaNova` é o irmão de `aceitarCanalNovo` — opt-in
+  (`vigenciaNova` na leitura e nas duas escritas), pedido só pela tela que
+  cadastra, e limitado pela régua da quinzena: dia 1 ou dia 16, com recusa
+  nomeada (`VigenciaForaDaQuinzena`, 400). A vigência que vem de **arquivo**
+  continua sendo a que o arquivo trouxer, em qualquer dia. E a vigência de uma
+  unidade, neste módulo, passou a ser o que o acervo entregou **mais** o que
+  alguém digitou — para toda unidade, e não só para a registrada à mão: sem a
+  união, a planilha da quinzena nova ficava gravada e sem tela nenhuma que a
+  mostrasse.
   **A vigência é quinzenal, e o rótulo passou a dizer qual.** A unidade entrega
   `2026-08-01` e `2026-08-16`, e o rótulo genérico do produto escrevia as duas
   como "agosto/2026" — dois itens iguais no seletor de quem ia digitar a segunda
