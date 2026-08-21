@@ -539,3 +539,96 @@ describe("as duas portas do desfazer", () => {
     expect(r.status).toBe(400);
   });
 });
+
+/**
+ * A UNIDADE CANÔNICA COMO ÚNICA IDENTIDADE — e o que a rota passa a recusar.
+ *
+ * A tela de cadastro tinha, ao lado do seletor de unidade canônica, um campo
+ * `Unidade (CDD)` de texto livre. Os dois respondiam "qual unidade é esta", e o
+ * que valia dependia da coluna: `unidade_id` saía da linha escolhida e
+ * `scope_hash` saía do texto digitado. O campo saiu da tela — e a rota
+ * continuava aceitando os dois, o que deixava a divergência a um `curl` de
+ * distância e, pior, disponível para a próxima tela que chamasse esta rota.
+ *
+ * O que estes casos prendem:
+ *
+ * 1. **O nome vem do cadastro, e o do corpo é ignorado.** É a mesma decisão de
+ *    `abrirCompetencia` no Fechamento.
+ * 2. **O código só pode ser uma grafia do CNPJ daquela unidade.** Ele continua
+ *    guardado como veio — é sobre o texto que o `scope_hash` é somado —, e o
+ *    que a rota confere é o documento, com o `normalizeDocumento` da própria
+ *    importação.
+ * 3. **Um `unidadeId` que não existe é recusa nomeada**, e não erro de FK.
+ */
+describe("a identidade vem da unidade canônica", () => {
+  /** Cria (ou reaproveita) uma unidade canônica e devolve o `id` dela. */
+  async function canonica(nome: string, cnpj: string): Promise<string> {
+    const { rows } = await ctx.db.execute<{ id: string }>(sql`
+      INSERT INTO unidade (nome, cnpj) VALUES (${nome}, ${cnpj})
+      ON CONFLICT (cnpj) DO UPDATE SET nome = EXCLUDED.nome
+      RETURNING id
+    `);
+    return rows[0]!.id;
+  }
+
+  it("o nome gravado é o do cadastro, e não o que veio no corpo", async () => {
+    const id = await canonica("CDD CAMAÇARI", "12345678000199");
+
+    const r = await enviar({ ...VALIDO, unidadeId: id, nome: "outro nome qualquer" });
+
+    expect(r.status).toBe(201);
+    expect(r.body.nome).toBe("CDD CAMAÇARI");
+  });
+
+  it("aceita outra grafia do mesmo CNPJ — é o que o export decide, não a tela", async () => {
+    const id = await canonica("CDD CAMAÇARI", "12345678000199");
+
+    const r = await enviar({ ...VALIDO, unidadeId: id, codigo: "12.345.678/0001-99" });
+
+    /*
+      Aceita **e guarda como veio**: o `scope_hash` é o da grafia com máscara,
+      que é a que aquele arquivo carrega. Normalizar aqui pareceria mais
+      caprichado e mandaria a planilha para um escopo que o export não tem.
+    */
+    expect(r.status).toBe(201);
+    expect(r.body.codigo).toBe("12.345.678/0001-99");
+    expect(r.body.scopeHash).toBe(hashScopeSet(["UNIDADE:12.345.678/0001-99"]));
+  });
+
+  it("aceita o CNPJ sem o zero da frente — é como o Excel entrega o número", async () => {
+    const id = await canonica("CDD SALVADOR", "07526557001505");
+
+    const r = await enviar({ ...VALIDO, unidadeId: id, codigo: "7526557001505" });
+
+    expect(r.status).toBe(201);
+  });
+
+  it("recusa o código que é o CNPJ de outra unidade — 400, e diz qual é o desta", async () => {
+    const id = await canonica("CDD CAMAÇARI", "12345678000199");
+
+    const r = await enviar({ ...VALIDO, unidadeId: id, codigo: "99999999000191" });
+
+    expect(r.status).toBe(400);
+    expect(r.body.error).toContain("12.345.678/0001-99");
+  });
+
+  it("recusa `unidadeId` que não existe, com frase e não com erro de banco", async () => {
+    const r = await enviar({
+      ...VALIDO,
+      unidadeId: "00000000-0000-0000-0000-000000000000",
+    });
+
+    expect(r.status).toBe(400);
+    expect(r.body.error).toContain("Administração");
+  });
+
+  it("sem código, o cadastro canônico continua aceito — informar depois é o caminho", async () => {
+    const id = await canonica("CDD CAMAÇARI", "12345678000199");
+
+    const r = await enviar({ ...VALIDO, unidadeId: id, codigo: "" });
+
+    /* O identificador sai do nome do cadastro — ver `identificadorDaUnidade`. */
+    expect(r.status).toBe(201);
+    expect(r.body.scopeHash).toBe(hashScopeSet(["UNIDADE:CDD CAMAÇARI"]));
+  });
+});

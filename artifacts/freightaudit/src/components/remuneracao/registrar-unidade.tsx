@@ -344,8 +344,23 @@ function PainelDeRegistro({ aoFechar }: { aoFechar: () => void }) {
             </div>
 
             <div className="space-y-1.5">
+              {/*
+                O rótulo diz o que o campo é, e ele **não** é a identidade da
+                unidade — essa é a linha canônica escolhida acima. Aqui é a
+                grafia com que o export escreve o CNPJ dela, que é sobre o que o
+                `scope_hash` é somado: `12.345.678/0001-99` e `12345678000199`
+                são o mesmo CNPJ e dois escopos diferentes, e quem decide qual
+                deles é o arquivo, não esta tela.
+
+                Chamá-lo "Código da unidade" era o resto da confusão que o
+                campo `Unidade (CDD)` começava: dois campos com cara de
+                identidade ao lado de um seletor que era a identidade. O
+                servidor recusa um número que não seja o CNPJ da unidade
+                escolhida — a conferência é lá, com a mesma função da
+                importação, e não repetida aqui.
+              */}
               <Label htmlFor="unidade-codigo">
-                Código da unidade{" "}
+                CNPJ como o export escreve{" "}
                 <span className="font-normal text-muted-foreground">(opcional)</span>
               </Label>
               <Input
@@ -406,20 +421,22 @@ function PainelDeRegistro({ aoFechar }: { aoFechar: () => void }) {
             redigita aqui.{" "}
             {temCodigo ? (
               <>
-                O código é o mesmo da coluna <strong>Unidade - CNPJ</strong> do export,
-                escrito <strong>exatamente como está lá</strong> — com pontuação, se lá
-                houver. É por ele que o arquivo, quando chegar,{" "}
+                O campo ao lado não é a identidade — ela é a unidade escolhida acima. É a
+                coluna <strong>Unidade - CNPJ</strong> do export, escrita{" "}
+                <strong>exatamente como está lá</strong>: com pontuação, se lá houver. É
+                por essa grafia que o arquivo, quando chegar,{" "}
                 <strong>entra nesta unidade</strong> em vez de abrir uma segunda ao lado
-                dela.
+                dela — e é só por isso que ela se digita.
               </>
             ) : (
               <>
-                <strong>Sem o código, a unidade fica por conta própria</strong>: ela aparece
-                na lista e tem planilha, mas o export, quando chegar, abre a unidade dele ao
-                lado desta — juntar as duas é trabalho manual. Preencher o código da coluna{" "}
-                <strong>Unidade - CNPJ</strong>, exatamente como está lá, é o que faz o
-                arquivo cair aqui dentro. Se você não o tem agora, siga: a planilha não
-                espera pelo arquivo.
+                <strong>Sem essa grafia, a unidade fica por conta própria</strong>: ela
+                aparece na lista e tem planilha, mas o export, quando chegar, abre a unidade
+                dele ao lado desta — juntar as duas é trabalho manual. Preencher a coluna{" "}
+                <strong>Unidade - CNPJ</strong> exatamente como está lá é o que faz o
+                arquivo cair aqui dentro. Se você não sabe como o arquivo a escreve, siga
+                em branco: dá para informar depois, e chutar errado é pior — o código que
+                já vale não se troca por um clique.
               </>
             )}{" "}
             A quinzena é a única vigência que a unidade tem enquanto não há acervo: as outras

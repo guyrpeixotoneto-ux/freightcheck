@@ -222,6 +222,26 @@ export async function unidadePorCnpj(
 }
 
 /**
+ * A unidade de um `id` canônico. `null` quando ele não existe.
+ *
+ * Serve às bordas que **recebem** o `id` de uma tela — Fechamento e
+ * Remuneração — e precisam ler nome e CNPJ do cadastro em vez de aceitar o que
+ * veio no corpo. É a leitura que faz "o cadastro é a autoridade" valer também
+ * para quem chama a API direto, e não só para quem passa pela tela.
+ */
+export async function unidadePorId(
+  db: Database,
+  id: string,
+): Promise<UnidadeCanonica | null> {
+  const [linha] = await db
+    .select({ id: unidadeTable.id, nome: unidadeTable.nome, cnpj: unidadeTable.cnpj })
+    .from(unidadeTable)
+    .where(eq(unidadeTable.id, id))
+    .limit(1);
+  return linha ?? null;
+}
+
+/**
  * Cadastra uma unidade canônica — o ato que cria identidade neste produto.
  *
  * **É o único caminho que cria linha em `unidade`, e isso é o desenho.** Nenhuma
