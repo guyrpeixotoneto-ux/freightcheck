@@ -9,6 +9,7 @@ import {
   ListTodo,
   Lock,
   PenLine,
+  Scale,
   ScrollText,
   Stamp,
   Table2,
@@ -83,6 +84,14 @@ export const NAV_GROUPS_FECHAMENTO: NavGroup[] = [
       { href: "/fechamento/competencias", label: "Importações", icon: CalendarDays },
       { href: "/fechamento/apuracoes", label: "Apurações", icon: Table2 },
       { href: "/fechamento/resumo", label: "Resumo geral", icon: FileSpreadsheet },
+      /*
+        A Conciliação fecha a seção porque é o último gesto do começo do
+        trabalho: importado o mês e lido o resumo, confere-se o que se tem
+        contra a planilha que a operação mantém. Ela não é uma aba do Resumo —
+        tem gesto próprio (anexar a régua, versioná-la, trocar de versão),
+        procedência própria e um estado normal que é "ainda não há planilha".
+      */
+      { href: "/fechamento/conciliacao", label: "Conciliação", icon: Scale },
     ],
   },
   {
