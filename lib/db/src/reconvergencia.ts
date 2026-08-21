@@ -1,5 +1,9 @@
 import pg from "pg";
-import { readMigrations, type MigrationFile } from "./migrate";
+import {
+  objetosCriadosPor,
+  readMigrations,
+  type MigrationFile,
+} from "./migrate";
 import { bridgePendente } from "./bridge-marcador";
 import {
   comandoQueRepoe,
@@ -270,13 +274,51 @@ function codigoDe(err: unknown): string | undefined {
 }
 
 /**
+ * O que estas migrations ainda vão criar — a ausência que **não** é estrago.
+ *
+ * A comparação de schema é contra o `schema.ts`, que descreve o fim da fila.
+ * Num banco em dia isso basta: tudo o que ele declara devia estar lá. Num
+ * banco com pendência, não: a tabela que a próxima migration cria falta por
+ * uma razão legítima, e repô-la aqui seria a reconvergência fazendo o trabalho
+ * da fila — com o DDL final, sem os passos de dado que a migration leva junto.
+ *
+ * Por isso o reparo pergunta primeiro de quem é a ausência. O que as pendentes
+ * criam é silêncio, não `semComando`: `semComando` significa "falta e não sei
+ * repor", e aqui não falta — ainda não chegou a hora.
+ */
+function objetosDe(migrations: MigrationFile[]): {
+  tabelas: Set<string>;
+  colunas: Set<string>;
+} {
+  const tabelas = new Set<string>();
+  const colunas = new Set<string>();
+  for (const m of migrations) {
+    const criados = objetosCriadosPor(m.statements);
+    for (const tabela of criados.tabelas) tabelas.add(tabela);
+    for (const { tabela, coluna } of criados.colunas) {
+      colunas.add(`${tabela}.${coluna}`);
+    }
+  }
+  return { tabelas, colunas };
+}
+
+/**
  * A reconvergência em si. Idempotente: num banco íntegro não aplica nada, e a
  * segunda passada num banco reparado devolve o relatório vazio.
  */
 export async function reconvergirSchema(
   connectionString: string,
   migrations: MigrationFile[] = readMigrations(),
+  /**
+   * As migrations que ainda não rodaram neste banco.
+   *
+   * Vazio no chamador de sempre — a partida depois da fila, onde nada está
+   * pendente por definição. Preenchido pelo reparo que destrava a fila, onde
+   * há pendência e ela precisa ser distinguida do estrago.
+   */
+  pendentes: MigrationFile[] = [],
 ): Promise<RelatorioDeReconvergencia> {
+  const daFilaQueFalta = objetosDe(pendentes);
   const pool = new pg.Pool({ connectionString, max: 1 });
   const client = await pool.connect();
   const relatorio: RelatorioDeReconvergencia = {
@@ -306,6 +348,7 @@ export async function reconvergirSchema(
     //    entram na passada seguinte, e os índices e FKs delas nas de baixo.
     const antes = compararSchema(declaradas, await colunasReais(client));
     for (const tabela of antes.tabelasAusentes) {
+      if (daFilaQueFalta.tabelas.has(tabela)) continue;
       const comando = comandoQueCriaTabela(tabela, migrations);
       if (!comando) {
         relatorio.semComando.push(`${tabela} (tabela inteira)`);
@@ -317,6 +360,10 @@ export async function reconvergirSchema(
     // 2. Colunas, contra o estado que a passada 1 deixou.
     const depois = compararSchema(declaradas, await colunasReais(client));
     for (const coluna of depois.colunasAusentes) {
+      if (daFilaQueFalta.tabelas.has(coluna.tabela)) continue;
+      if (daFilaQueFalta.colunas.has(`${coluna.tabela}.${coluna.coluna}`)) {
+        continue;
+      }
       const comando = comandoQueRepoe(coluna, migrations);
       if (!comando) {
         relatorio.semComando.push(`${coluna.tabela}.${coluna.coluna}`);
@@ -486,4 +533,96 @@ export async function reconvergirSeCabivel(
   }
 
   return { rodou: true, relatorio: await reconvergirSchema(connectionString, migrations) };
+}
+
+/**
+ * O reparo que destrava a fila — a recusa acima, virada onde ela é falsa.
+ *
+ * ---------------------------------------------------------------------------
+ * O impasse que isto desfaz
+ * ---------------------------------------------------------------------------
+ * `runMigrations()` decide por carimbo: migration registrada não roda de novo,
+ * e por isso a fila não repõe nada. `reconvergirSeCabivel` repõe, mas se
+ * recusa quando há pendência — "pendência explica ausência, e é a fila quem
+ * resolve". As duas regras estão certas, e existe um estado em que as duas
+ * juntas não deixam ninguém agir: **a pendência é causada pela ausência de um
+ * objeto de migration já registrada**.
+ *
+ * Foi onde Production parou em 21/08/2026. O Provision do Publishing tinha
+ * levado `remuneracao_unidade` — tabela da `0048`, registrada como aplicada —
+ * e a `0049` morreu no `ALTER TABLE "remuneracao_unidade" ADD COLUMN IF NOT
+ * EXISTS "unidade_id"` com 42P01: o `IF NOT EXISTS` guarda a coluna, nunca a
+ * tabela. A fila não repunha (carimbo lá), a reconvergência não rodava
+ * (pendência), e o estado era estável — cada partida repetia idêntico.
+ *
+ * Aqui a pendência **não** explica a ausência, e é por isso que esta porta
+ * existe separada em vez de a outra afrouxar: o que se repõe é só o que as
+ * migrations **registradas** criam, com o DDL levantado delas próprias. O que
+ * só as pendentes sabem criar continua sendo trabalho da fila, e some do
+ * relatório em vez de virar `semComando`.
+ *
+ * Não é um caminho para o deploy normal: quem chega aqui já falhou uma vez, e
+ * quem chama é `migrarComReparo` (`./fila`), depois de a fila ter parado.
+ */
+export async function reconvergirRegistradas(
+  connectionString: string,
+  migrations: MigrationFile[] = readMigrations(),
+): Promise<DesfechoDaReconvergencia> {
+  const pool = new pg.Pool({ connectionString, max: 1 });
+  let registradas: MigrationFile[] = [];
+  let pendentes: MigrationFile[] = [];
+
+  try {
+    const temRegistro = await pool.query<{ existe: boolean }>(
+      `select to_regclass('drizzle.__drizzle_migrations') is not null as existe`,
+    );
+    if (!temRegistro.rows[0]?.existe) {
+      return { rodou: false, motivo: "registro ausente — a fila resolve" };
+    }
+
+    const { rows } = await pool.query<{ created_at: string }>(
+      `select created_at from drizzle.__drizzle_migrations`,
+    );
+    const aplicadas = new Set(rows.map((linha) => Number(linha.created_at)));
+    registradas = migrations.filter((m) => aplicadas.has(m.when));
+    pendentes = migrations.filter((m) => !aplicadas.has(m.when));
+
+    if (registradas.length === 0) {
+      /* Registro vazio: nada foi declarado aplicado, então nada foi arrancado
+         de debaixo da fila. É banco novo, ou é registro perdido — e o segundo
+         é decisão humana (`--adotar-existentes`), nunca reparo automático. */
+      return { rodou: false, motivo: "nada registrado — a fila cria do zero" };
+    }
+    if (pendentes.length === 0) {
+      /* Sem pendência não há impasse: a porta de sempre já cobre este banco. */
+      return {
+        rodou: false,
+        motivo: "nada pendente — a reconvergência da partida resolve",
+      };
+    }
+
+    const bridge = await bridgePendente(async (texto) => {
+      const r = await pool.query<Record<string, unknown>>(texto);
+      return { rows: r.rows };
+    });
+    if (bridge.pendente) {
+      return { rodou: false, motivo: "bridge pendente — o bridge:up resolve" };
+    }
+  } catch (err) {
+    return {
+      rodou: false,
+      motivo: `banco inalcançável (${err instanceof Error ? err.message : String(err)})`,
+    };
+  } finally {
+    await pool.end();
+  }
+
+  return {
+    rodou: true,
+    relatorio: await reconvergirSchema(
+      connectionString,
+      registradas,
+      pendentes,
+    ),
+  };
 }

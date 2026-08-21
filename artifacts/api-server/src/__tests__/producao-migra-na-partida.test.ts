@@ -29,6 +29,13 @@ import type { EstadoObservado } from "@workspace/db/diagnostico";
  * Quem prova a política por ambiente é `politica-de-migracao.test.ts`. Os dois
  * arquivos se completam: lá se decide **se** migra, aqui se garante que, quando
  * a resposta for sim, a chamada e o relatório continuam existindo.
+ *
+ * **A porta mudou de nome em 21/08/2026, e não de papel.** A chamada é
+ * `migrarComReparo` (`@workspace/db/fila`), que roda a mesma fila e, se ela
+ * parar por faltar objeto de migration já registrada, repõe o objeto e tenta
+ * uma segunda vez — o impasse em que Production ficou quando o Provision levou
+ * `remuneracao_unidade`. O que estas provas guardam continua sendo o mesmo: a
+ * chamada existe, usa a pasta do bundle, e o relatório é guardado.
  */
 const RAIZ = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const ler = (rel: string) => readFileSync(path.join(RAIZ, rel), "utf8");
@@ -43,9 +50,9 @@ const observando = (estado: Partial<EstadoObservado>) => async (): Promise<Estad
 });
 
 describe("o servidor publicado aplica a fila", () => {
-  it("index.ts chama runMigrations na partida", () => {
+  it("index.ts aplica a fila na partida", () => {
     const fonte = ler("src/index.ts");
-    expect(fonte).toMatch(/import \{ runMigrations \} from "@workspace\/db\/migrate"/);
+    expect(fonte).toMatch(/import \{ migrarComReparo \} from "@workspace\/db\/fila"/);
 
     const executavel = fonte
       .replace(/\/\*[\s\S]*?\*\//g, "")
@@ -54,7 +61,9 @@ describe("o servidor publicado aplica a fila", () => {
       .join("\n");
 
     // A chamada de verdade, com a pasta de migrations do bundle.
-    expect(executavel).toMatch(/runMigrations\(\s*url\s*,\s*migrationsFolder\(\)\s*\)/);
+    expect(executavel).toMatch(
+      /migrarComReparo\(\s*url\s*,\s*migrationsFolder\(\)\s*\)/,
+    );
     // E o relatório é guardado, que é o que faz a falha chegar ao healthz.
     expect(executavel).toMatch(/lembrarRelatorio\(\s*report\s*\)/);
   });
@@ -69,7 +78,7 @@ describe("o servidor publicado aplica a fila", () => {
 
     expect(executavelDev).toMatch(/runMigrations:\s*null/);
     expect(executavelDev).not.toMatch(/(runCaptured|spawnChild|spawn)\s*\([^)]*migrate/s);
-    expect(ler("src/index.ts")).toMatch(/runMigrations\(/);
+    expect(ler("src/index.ts")).toMatch(/migrarComReparo\(/);
   });
 });
 

@@ -140,7 +140,7 @@ const MIGRATION_LOCK = 8_675_309;
  */
 
 /** O que uma migration cria, extraído do SQL dela. */
-interface ObjetosCriados {
+export interface ObjetosCriados {
   tabelas: string[];
   tipos: string[];
   indices: string[];
@@ -149,7 +149,14 @@ interface ObjetosCriados {
   gatilhos: { tabela: string; gatilho: string }[];
 }
 
-function objetosCriadosPor(statements: string[]): ObjetosCriados {
+/*
+  Exportada porque a reconvergência precisa da mesma leitura para a pergunta
+  inversa: aqui ela serve para decidir se uma migration já rodou; lá, para
+  saber o que **ainda não** rodou — e não confundir "a fila ainda não chegou
+  nesta tabela" com "esta tabela foi arrancada do banco". Duas redações do que
+  um `CREATE TABLE` cria divergiriam no primeiro DDL que fugisse do formato.
+*/
+export function objetosCriadosPor(statements: string[]): ObjetosCriados {
   const sql = statements.join("\n");
   const todos = (re: RegExp): string[] =>
     [...sql.matchAll(re)].map((m) => m[1]);

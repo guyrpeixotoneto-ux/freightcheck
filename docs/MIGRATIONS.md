@@ -56,6 +56,56 @@ As recusas são as mesmas da partida (`reconvergirSeCabivel`, em
 `lib/db/src/reconvergencia.ts`): pendência é da fila, bridge é do `bridge:up`,
 e as duas portas não têm como discordar, porque são a mesma função.
 
+### Quando a ausência trava a própria fila — 21/08/2026
+
+A recusa de cima ("não roda com migrations pendentes") está certa quase sempre:
+com pendência, a ausência de um objeto costuma significar que a fila ainda não
+chegou nele. Ela é falsa num caso, e o caso aconteceu — **a pendência é causada
+pela ausência de objeto de migration já registrada**.
+
+Production tinha 49 migrations registradas e não tinha `remuneracao_unidade`, a
+tabela que a `0048` cria. A `0049` morre no terceiro comando dela:
+
+```sql
+ALTER TABLE "remuneracao_unidade" ADD COLUMN IF NOT EXISTS "unidade_id" uuid;
+```
+
+`IF NOT EXISTS`, ali, guarda a **coluna** — nunca a tabela. Sobre tabela que não
+existe é `42P01`, e a migration inteira volta pelo `ROLLBACK`, o que faz cada
+partida repetir idêntico. A fila não repunha a tabela (decide por carimbo, e o
+carimbo da `0048` estava lá); a reconvergência não rodava (havia pendência). As
+duas autoridades certas, e ninguém agindo.
+
+**O tell, para quem opera:** `Parou em NNNN (SQLSTATE 42P01)` nomeando relação
+de uma migration *anterior* não é defeito da migration que falhou. É remoção por
+fora da fila, e a migration que parou só teve o azar de ser a primeira a tocar
+no buraco.
+
+A saída **não** foi reescrever a `0049` nem acrescentar uma migration de reparo:
+
+- reescrever migration aplicada deixaria Development com um texto e Production
+  com outro, pelo motivo que já preservou a `0015`;
+- migration de reparo depois da `0049` nunca rodaria — a fila não tenta o que
+  vem depois da que falhou, e o relatório daquele dia dizia exatamente isso
+  ("Não foram tentadas: 0050").
+
+A saída foi dar à fila como destravar o próprio chão: `migrarComReparo`
+(`lib/db/src/fila.ts`), que é o que a partida e o `pnpm ... run migrate` chamam.
+Ela roda a fila; se a fila parar, chama `reconvergirRegistradas` — a
+reconvergência **limitada ao que as migrations registradas criam**, com o DDL
+levantado delas mesmas — e tenta uma segunda vez, uma só. O que apenas as
+pendentes sabem criar continua sendo trabalho da fila, e some do relatório em
+vez de virar `semComando`: ali a ausência é legítima.
+
+É reativo de propósito. Num banco íntegro a primeira passada não falha e nada
+disto roda. E o que volta é estrutura: as linhas que a tabela derrubada
+guardava não voltam por aqui — por isso o boot alerta (`RECONVERGENCIA_REPOS`) e
+a CLI manda conferir o backup antes de dar o banco por bom.
+
+Preso por `lib/db/src/__tests__/fila-com-reparo.test.ts`, que monta o banco
+daquele dia rodando a fila real até a `0048` numa pasta truncada — e não por DDL
+que imite o resultado.
+
 ## Quem avança a fila só por ter subido
 
 A regra é uma: **os dois ambientes com banco próprio convergem pela fila ao
