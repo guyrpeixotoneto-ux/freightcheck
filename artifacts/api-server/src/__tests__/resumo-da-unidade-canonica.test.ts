@@ -350,41 +350,67 @@ describe.skipIf(!temBanco)("o Resumo, depois da unidade canônica", () => {
   });
 
   /**
-   * DEFEITO CONHECIDO, INDEPENDENTE DA IDENTIDADE — zero onde deveria ser ausência.
+   * ZERO NÃO É AUSÊNCIA — a linha que dizia `R$ 0,00` sem ter olhado o diário.
    *
-   * Sem 2Art, as quatro parcelas variáveis saem **zero** e não `null`:
-   * `viagensPorDia` devolve `[]`, e `somarVariavel([])` soma sobre lista vazia e
-   * devolve `{frotaFixa: 0, agregado: 0, …}`. `custoVariavelInteiro` então vale
-   * 0, e a tela escreve `R$ 0,00` em `TOTAL REMUNERAÇÃO ROTA DVS` — afirmando
-   * que a frota não rodou nada, quando a verdade é que o arquivo não chegou.
+   * Era um defeito real e anterior a este trabalho, sem relação com identidade
+   * de unidade: `viagensPorDia` devolvia `[]` quando o 2Art não tinha chegado,
+   * `somarVariavel([])` somava sobre a lista vazia e devolvia
+   * `{frotaFixa: 0, agregado: 0, …}`, `custoVariavelInteiro` valia 0 e a tela
+   * escrevia `R$ 0,00` em `TOTAL REMUNERAÇÃO ROTA DVS`. Isso afirma que a frota
+   * não rodou nada — uma afirmação sobre a operação — onde a verdade é que o
+   * arquivo não foi importado. Quem abrisse o fechamento antes do 2Art via uma
+   * divergência de −313.318,87 contra a planilha, sem saber se a frota parou ou
+   * se faltava documento.
    *
-   * É a mesma distinção que `basesDaQuinzena` já faz para a indisponibilidade
-   * (`diario.length === 0 ? null : …`) e que as parcelas variáveis não fazem. É
-   * **anterior** a este trabalho e não tem relação com identidade de unidade: a
-   * competência acha o contrato certo, e a linha do diário é que mente.
+   * A guarda mora em `somarVariavel`, e não no ponto de chamada, porque são
+   * dois chamadores e o esquecimento em um deles era exatamente o defeito. É o
+   * mesmo corte que `basesDaQuinzena` já fazia para a indisponibilidade
+   * (`diario.length === 0 ? null : …`), sobre a mesma lista, pelo mesmo motivo.
    *
-   * Este teste prende o comportamento **atual** para que a correção seja
-   * deliberada e visível no diff — não para dá-lo por bom. O conserto é uma
-   * guarda em `lerResumoDoMes`, no mesmo molde da indisponibilidade, e está
-   * fora do escopo desta entrega por decisão de quem a pediu.
+   * Este teste é a prova de ponta a ponta: banco real, competência real,
+   * cadastro resolvido pela identidade canônica, 2Art ausente de verdade.
    */
-  it("[defeito conhecido] sem 2Art o DVS sai zero, e deveria sair vazio", async () => {
+  it("sem 2Art, o DVS sai vazio e nomeia o arquivo que falta", async () => {
     const rota = (await oResumo()).canais.find((c) => c.canal === "ROTA")!;
     const linhas = rota.comparado!.quadros.flatMap((q) => q.linhas);
 
     const dvs = linhas.find((l) => l.chave === "rota_dvs")!;
-    /* O que acontece hoje — e o que a planilha diz que deveria ser 313.318,87. */
-    expect(dvs.devido.primeira).toBe(0);
-    expect(dvs.falta).toBeNull();
+    expect(dvs.devido.primeira).toBeNull();
+    expect(dvs.falta).toBe("o diário operacional da quinzena");
 
-    /*
-      A indisponibilidade, essa, já está certa: sem diário ela é `null` e nomeia
-      o arquivo. É a prova de que a distinção é possível e de que só falta
-      aplicá-la às quatro parcelas variáveis.
-    */
+    /* As três linhas que saem do diário caem juntas — não só a que abre o quadro. */
+    for (const chave of DO_DIARIO) {
+      const linha = linhas.find((l) => l.chave === chave);
+      if (!linha) continue;
+      expect(linha.devido.primeira, `${chave} ainda afirma zero`).toBeNull();
+      expect(linha.falta, `${chave} não nomeia o arquivo`).toBe(
+        "o diário operacional da quinzena",
+      );
+    }
+
+    /* A indisponibilidade já dizia isso antes, e continua dizendo: é a mesma regra. */
     const indisp = linhas.find((l) => l.chave === "indisponibilidade_fixo")!;
     expect(indisp.devido.primeira).toBeNull();
     expect(indisp.falta).toBe("o diário operacional da quinzena");
+  });
+
+  /**
+   * A contraprova: o cadastro continua respondendo, e a ausência é do diário.
+   *
+   * Sem esta, um `null` no DVS seria ambíguo — poderia ser o cadastro que não
+   * resolveu. As cinco linhas do contrato saem com número na mesma leitura, o
+   * que prova que a competência achou o contrato certo e que o que falta é só
+   * o arquivo do diário.
+   */
+  it("o vazio do DVS é do diário, não do cadastro — as cinco do contrato têm número", async () => {
+    const rota = (await oResumo()).canais.find((c) => c.canal === "ROTA")!;
+    const linhas = rota.comparado!.quadros.flatMap((q) => q.linhas);
+
+    for (const chave of DO_CONTRATO) {
+      const linha = linhas.find((l) => l.chave === chave)!;
+      expect(linha.devido.primeira, `${chave} sem devido`).not.toBeNull();
+      expect(linha.falta, `${chave} reclamou de falta`).toBeNull();
+    }
   });
 
   it("o demonstrado das seis continua em conjunto — o 03.08.20 não é rateado", async () => {
