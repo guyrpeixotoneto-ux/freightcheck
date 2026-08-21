@@ -196,6 +196,51 @@ router.post("/fechamento/partes", async (req, res): Promise<void> => {
 });
 
 /**
+ * O mês que uma leitura do fechamento endereça — a quíntupla, lida da query.
+ *
+ * Duas rotas a usam: o Resumo e a Conciliação. Elas leem o mesmo mês e devolvem
+ * coisas diferentes, e é justamente por serem duas leituras do mesmo endereço
+ * que a validação é uma só: uma recusa que discordasse entre elas faria a mesma
+ * URL ser válida numa tela e inválida na outra.
+ */
+function mesDoFechamento(
+  query: Request["query"],
+): { alvo: MesDaReferencia } | { erro: string } {
+  const unidade = String(query.unidade ?? "").trim();
+  const transportadora = String(query.transportadora ?? "").trim();
+  const tipoDeOperacao = String(query.tipoDeOperacao ?? "").trim().toUpperCase();
+  const ano = Number(query.ano);
+  const mes = Number(query.mes);
+
+  if (unidade === "" || transportadora === "") {
+    return {
+      erro:
+        "unidade e transportadora são obrigatórias — a leitura é de um fechamento, não de um " +
+        "mês do calendário.",
+    };
+  }
+  /*
+    Desde a `0046` a mesma unidade pode ter EMPURRADA e ROTA na mesma quinzena.
+    Sem este recorte as duas cairiam nas mesmas duas colunas e o mês somaria
+    duas operações num total só.
+  */
+  if (tipoDeOperacao === "") {
+    return {
+      erro:
+        "tipoDeOperacao é obrigatório — EMPURRADA e ROTA são fechamentos diferentes na mesma " +
+        "quinzena, e somá-los numa leitura só misturaria duas operações.",
+    };
+  }
+  if (!Number.isInteger(ano) || ano < 2000 || ano > 2100) {
+    return { erro: "ano precisa ser um ano entre 2000 e 2100." };
+  }
+  if (!Number.isInteger(mes) || mes < 1 || mes > 12) {
+    return { erro: "mes precisa ser um número de 1 a 12." };
+  }
+  return { alvo: { unidade, transportadora, tipoDeOperacao, ano, mes } };
+}
+
+/**
  * O mês inteiro — as duas quinzenas lado a lado, com o total.
  *
  * É a leitura que a tela de Resumo faz, e a que responde no formato em que a
@@ -203,39 +248,18 @@ router.post("/fechamento/partes", async (req, res): Promise<void> => {
  * obrigatórios porque a trinca que identifica um fechamento é (unidade,
  * transportadora, período): dois CDDs no mesmo mês são dois resumos, e somá-los
  * por omissão de um filtro seria inventar um terceiro.
+ *
+ * **A planilha anexada não entra aqui, e a ausência dela é o desenho.** Esta
+ * rota responde o fechamento contra as duas fontes que o sustentam — o contrato
+ * e o 03.08.20 —, e nada mais. Quem quer a régua da operação ao lado pede
+ * `/fechamento/conciliacao`, que é outra pergunta e por isso é outro endereço:
+ * o Resumo continua carregando e continua respondendo mesmo quando não há
+ * arquivo nenhum anexado ao mês, sem uma consulta a mais para descobrir isso.
  */
 router.get("/fechamento/resumo", async (req, res): Promise<void> => {
-  const unidade = String(req.query.unidade ?? "").trim();
-  const transportadora = String(req.query.transportadora ?? "").trim();
-  const tipoDeOperacao = String(req.query.tipoDeOperacao ?? "").trim().toUpperCase();
-  const ano = Number(req.query.ano);
-  const mes = Number(req.query.mes);
-
-  if (unidade === "" || transportadora === "") {
-    res.status(400).json({
-      error: "unidade e transportadora são obrigatórias — o resumo é de um fechamento, não de um mês do calendário.",
-    });
-    return;
-  }
-  /*
-    Desde a `0046` a mesma unidade pode ter EMPURRADA e ROTA na mesma quinzena.
-    Sem este recorte as duas cairiam nas mesmas duas colunas do resumo e o mês
-    somaria duas operações num total só.
-  */
-  if (tipoDeOperacao === "") {
-    res.status(400).json({
-      error:
-        "tipoDeOperacao é obrigatório — EMPURRADA e ROTA são fechamentos diferentes na mesma " +
-        "quinzena, e somá-los num resumo só misturaria duas operações.",
-    });
-    return;
-  }
-  if (!Number.isInteger(ano) || ano < 2000 || ano > 2100) {
-    res.status(400).json({ error: "ano precisa ser um ano entre 2000 e 2100." });
-    return;
-  }
-  if (!Number.isInteger(mes) || mes < 1 || mes > 12) {
-    res.status(400).json({ error: "mes precisa ser um número de 1 a 12." });
+  const lido = mesDoFechamento(req.query);
+  if ("erro" in lido) {
+    res.status(400).json({ error: lido.erro });
     return;
   }
 
@@ -244,20 +268,50 @@ router.get("/fechamento/resumo", async (req, res): Promise<void> => {
     painel da planilha volta a ser uma releitura do 03.08.20 — ver
     `lib/cadastro-da-remuneracao.ts`.
   */
-  const alvo = { unidade, transportadora, tipoDeOperacao, ano, mes };
+  const resumo = await lerResumoDoMes(
+    db,
+    lido.alvo,
+    cadastroDaRemuneracao(db, { tipoDeOperacao: lido.alvo.tipoDeOperacao }),
+  );
+  res.json(resumo);
+});
 
-  /*
-    As duas leituras são independentes e a ordem entre elas não importa — é
-    exatamente o que se quer provar. `lerResumoDoMes` calcula o devido sem
-    saber que existe planilha anexada (`persistencia.ts` não importa nada da
-    referência), e `referenciaAtivaDoMes` lê números que ninguém somou a nada.
-    O encontro acontece em `resumoComReferencia`, que é uma transformação pura e
-    não recalcula um centavo. Ver a nota de contaminação em
-    `lib/fechamento/src/painel-referencia.ts`.
-  */
+/**
+ * A CONCILIAÇÃO — o mesmo mês, com a planilha da operação ao lado.
+ *
+ * É o Resumo mais uma coluna, e a coluna é a razão de a rota existir: o
+ * `.xlsb` que a operação mantém publica no `RESUMO GERAL` um número por linha,
+ * e a pergunta desta tela é se o fechamento do sistema — do cadastro e das
+ * importações de quem pergunta — bate com ele. Sem arquivo anexado ela responde
+ * o mesmo que o Resumo, e a tela diz que falta anexar.
+ *
+ * **As duas leituras são independentes e a ordem entre elas não importa** — é
+ * exatamente o que se quer provar. `lerResumoDoMes` calcula o devido sem saber
+ * que existe planilha anexada (`persistencia.ts` não importa nada da
+ * referência), e `referenciaAtivaDoMes` lê números que ninguém somou a nada. O
+ * encontro acontece em `resumoComReferencia`, que é uma transformação pura e
+ * não recalcula um centavo. Ver a nota de contaminação em
+ * `lib/fechamento/src/painel-referencia.ts`.
+ *
+ * **Por que não é um parâmetro do `/resumo`.** Um `?planilha=1` faria a mesma
+ * rota responder duas coisas, e a diferença entre elas — a régua entrou ou não
+ * — ficaria escondida numa query. Endereços separados dizem qual leitura foi
+ * pedida no próprio log.
+ */
+router.get("/fechamento/conciliacao", async (req, res): Promise<void> => {
+  const lido = mesDoFechamento(req.query);
+  if ("erro" in lido) {
+    res.status(400).json({ error: lido.erro });
+    return;
+  }
+
   const [resumo, referencia] = await Promise.all([
-    lerResumoDoMes(db, alvo, cadastroDaRemuneracao(db, { tipoDeOperacao })),
-    referenciaAtivaDoMes(db, alvo),
+    lerResumoDoMes(
+      db,
+      lido.alvo,
+      cadastroDaRemuneracao(db, { tipoDeOperacao: lido.alvo.tipoDeOperacao }),
+    ),
+    referenciaAtivaDoMes(db, lido.alvo),
   ]);
 
   res.json(resumoComReferencia(resumo, referencia));
@@ -265,37 +319,21 @@ router.get("/fechamento/resumo", async (req, res): Promise<void> => {
 
 /* ---------------------------------------------------------------------------
    A referência de conferência — a planilha da operação, anexada a um mês
+   ---------------------------------------------------------------------------
+
+   As três rotas abaixo endereçam o mês pela mesma quíntupla das duas de cima,
+   com a mesma `mesDoFechamento`, e pelo mesmo motivo: uma referência serve a um
+   **fechamento**, e não a um mês do calendário. Duas versões da regra dariam
+   duas recusas para a mesma URL — e a que a pessoa leria seria a que ninguém
+   testa.
+
+   O mês vem de quem anexa, e não do arquivo: o `.xlsb` não declara unidade,
+   CNPJ nem competência. Ver `anexarReferencia`.
    ------------------------------------------------------------------------ */
-
-/**
- * O mês declarado por quem anexa, lido da query. Ver `anexarReferencia`.
- *
- * A mesma quíntupla do resumo, e pelo mesmo motivo: uma referência serve a um
- * fechamento, não a um mês do calendário. Devolve a mensagem de recusa em vez
- * de lançar porque as três rotas abaixo a usam e todas respondem 400 igual.
- */
-function mesDaQuery(query: Request["query"]): { alvo: MesDaReferencia } | { erro: string } {
-  const unidade = String(query.unidade ?? "").trim();
-  const transportadora = String(query.transportadora ?? "").trim();
-  const tipoDeOperacao = String(query.tipoDeOperacao ?? "").trim().toUpperCase();
-  const ano = Number(query.ano);
-  const mes = Number(query.mes);
-
-  if (unidade === "" || transportadora === "" || tipoDeOperacao === "") {
-    return {
-      erro:
-        "unidade, transportadora e tipoDeOperacao são obrigatórias — a referência é de um " +
-        "fechamento, não de um mês do calendário.",
-    };
-  }
-  if (!Number.isInteger(ano) || ano < 2000 || ano > 2100) return { erro: "ano inválido." };
-  if (!Number.isInteger(mes) || mes < 1 || mes > 12) return { erro: "mes precisa ser de 1 a 12." };
-  return { alvo: { unidade, transportadora, tipoDeOperacao, ano, mes } };
-}
 
 /** As versões já anexadas ao mês, da mais nova para a mais velha. */
 router.get("/fechamento/referencias", async (req, res): Promise<void> => {
-  const lido = mesDaQuery(req.query);
+  const lido = mesDoFechamento(req.query);
   if ("erro" in lido) {
     res.status(400).json({ error: lido.erro });
     return;
@@ -316,7 +354,7 @@ router.get("/fechamento/referencias", async (req, res): Promise<void> => {
  * toda diferença.
  */
 router.post("/fechamento/referencias", async (req, res): Promise<void> => {
-  const lido = mesDaQuery(req.query);
+  const lido = mesDoFechamento(req.query);
   if ("erro" in lido) {
     res.status(400).json({ error: lido.erro });
     return;

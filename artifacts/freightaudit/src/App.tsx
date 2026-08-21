@@ -45,6 +45,7 @@ import UnidadeDoFechamento from '@/pages/fechamento/unidade';
 import Competencias from '@/pages/fechamento/competencias';
 import Apuracoes from '@/pages/fechamento/apuracoes';
 import ResumoGeral from '@/pages/fechamento/resumo';
+import Conciliacao from '@/pages/fechamento/conciliacao';
 import CompetenciaAberta from '@/pages/fechamento/competencia';
 import DiaDoFechamento from '@/pages/fechamento/dia';
 import RemuneracaoCadastro from '@/pages/fechamento/remuneracao';
@@ -359,6 +360,13 @@ function Router() {
       </Route>
       <Route path="/fechamento/apuracoes" component={Apuracoes} />
       <Route path="/fechamento/resumo" component={ResumoGeral} />
+      {/*
+        A Conciliação é irmã do Resumo e não uma aba dele: ela responde outra
+        pergunta — o fechamento contra a planilha que a operação mantém — e só
+        existe depois de alguém anexar um arquivo. Endereço próprio é o que
+        permite mandar "abre a conciliação de julho" numa mensagem.
+      */}
+      <Route path="/fechamento/conciliacao" component={Conciliacao} />
       {/*
         Remuneração é a única tela do Fechamento que lê o acervo da Auditoria e
         não uma competência. Ela mora aqui porque é aqui que serve — o cadastro

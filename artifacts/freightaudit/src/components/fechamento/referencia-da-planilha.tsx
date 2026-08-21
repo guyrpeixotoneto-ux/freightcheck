@@ -42,6 +42,11 @@ function textoDoErro(erro: unknown): string {
  * não tem como conferir. O que ele oferece no lugar é procedência — arquivo,
  * versão, quem, quando, `sha256` — visível ao lado de toda diferença.
  *
+ * **Onde este componente aparece.** Na Conciliação, que é a tela desta régua.
+ * O Resumo geral não o mostra: lá o mês é conferido contra as duas fontes que
+ * sempre existem — o contrato e o 03.08.20 —, e um botão de anexo no meio
+ * daquela tabela sugeria que faltava um arquivo para ela responder.
+ *
  * **A recusa é o caminho normal, não a exceção.** O servidor lê o arquivo antes
  * de gravar e devolve 400 com o endereço da célula quando ele não é uma
  * planilha deste formato. A mensagem aparece aqui inteira porque é ela que diz
@@ -70,14 +75,17 @@ export function ReferenciaDaPlanilha({ alvo }: { alvo: MesDaReferencia }) {
   });
 
   /*
-    Invalida o resumo junto: a coluna da planilha vem de lá, e não daqui.
+    Invalida a conciliação junto: a coluna da planilha vem de lá, e não daqui.
     Recarregar só esta lista deixaria a tabela mostrando a régua antiga com o
     cabeçalho novo — duas verdades na mesma tela.
+
+    O Resumo geral **não** entra: ele não lê a referência, e invalidá-lo faria
+    a tela ao lado buscar de novo, com a mesma resposta, a cada anexo.
   */
   const recarregar = async () => {
     await Promise.all([
       cliente.invalidateQueries({ queryKey: chave }),
-      cliente.invalidateQueries({ queryKey: ["fechamento", "resumo"] }),
+      cliente.invalidateQueries({ queryKey: ["fechamento", "conciliacao"] }),
     ]);
   };
 
@@ -144,10 +152,11 @@ export function ReferenciaDaPlanilha({ alvo }: { alvo: MesDaReferencia }) {
 
       {!ativa && !versoes.isLoading && (
         <p className="text-xs text-muted-foreground max-w-2xl">
-          Sem planilha anexada, o mês é conferido só contra o 03.08.20. Anexar a{" "}
-          <code>Fechamento_Remuneracao.xlsb</code> deste fechamento acrescenta a
-          coluna <strong>Planilha</strong> ao lado do devido — e nada do que ela
-          traz entra no cálculo.
+          Sem planilha anexada não há o que conciliar: o mês continua conferido
+          contra o 03.08.20 no Resumo geral. Anexar a{" "}
+          <code>Fechamento_Remuneracao.xlsb</code> deste fechamento põe a coluna{" "}
+          <strong>Planilha</strong> ao lado do devido — e nada do que ela traz
+          entra no cálculo.
         </p>
       )}
 
