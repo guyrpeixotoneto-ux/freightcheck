@@ -11,6 +11,7 @@ import {
   resumo,
   significadoAtual,
   sugerir,
+  textoParaCriar,
   vigenciaDoDado,
   type CampoEmConfirmacao,
   type Escolhas,
@@ -276,6 +277,30 @@ describe("o combobox pesquisável", () => {
     const s = sugerir("", CATALOGO, (o) => o.label, (o) => o.code);
     expect(s.opcoes).toHaveLength(CATALOGO.length);
     expect(s.criar).toBeNull();
+  });
+
+  it("com formulário do outro lado, o campo vazio oferece cadastrar do zero", () => {
+    // O `""` é o formulário abrindo em branco — a saída que a lista ainda vazia
+    // não tinha, e que não pode depender de adivinhar que digitar um nome
+    // inexistente faz surgir um botão.
+    const s = sugerir("", CATALOGO, (o) => o.label, (o) => o.code);
+    expect(textoParaCriar(s.criar, "", true)).toBe("");
+    expect(textoParaCriar(s.criar, "   ", true)).toBe("");
+  });
+
+  it("sem formulário do outro lado, o campo vazio continua sem linha de criar", () => {
+    // `aoCriar("")` seria uma recusa do servidor a um clique que a tela não
+    // devia ter oferecido.
+    const s = sugerir("", CATALOGO, (o) => o.label, (o) => o.code);
+    expect(textoParaCriar(s.criar, "", false)).toBeNull();
+  });
+
+  it("o que foi digitado manda, e o idêntico continua desligando o criar", () => {
+    const novo = sugerir("R$ por hora", CATALOGO, (o) => o.label, (o) => o.code);
+    expect(textoParaCriar(novo.criar, "R$ por hora", true)).toBe("R$ por hora");
+
+    const existente = sugerir("R$ por mês", CATALOGO, (o) => o.label, (o) => o.code);
+    expect(textoParaCriar(existente.criar, "R$ por mês", true)).toBeNull();
   });
 
   it("selecionar categoria existente: 'combustivel' encontra 'Combustível'", () => {

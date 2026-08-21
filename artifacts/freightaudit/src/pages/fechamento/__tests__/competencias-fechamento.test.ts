@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   acaoDoFechamento,
+  edicaoDoTipo,
   lerParteDigitada,
   paraOFormulario,
   podeExcluir,
@@ -148,5 +149,37 @@ describe("paraOFormulario", () => {
       const { codigo, nome } = paraOFormulario(texto);
       expect(`${codigo}${nome ?? ""}`.replace(/\s|—/g, "")).toBe(texto.replace(/\s|—/g, ""));
     }
+  });
+});
+
+/**
+ * O que a linha oferece a respeito do tipo, que não é o que ela oferece a
+ * respeito do fechamento.
+ *
+ * A distinção que estes casos guardam é a única do módulo que não se lê no
+ * estado sozinho: `NAO_INFORMADO` numa encerrada **é** editável, e um tipo
+ * declarado numa encerrada não é. Escrito com `estado !== "ENCERRADA"` e mais
+ * nada — que é a régua de `podeExcluir`, logo acima — a tela recusaria
+ * exatamente as competências que esta função existe para consertar: as do
+ * backfill da `0046` são as antigas, e as antigas são as fechadas.
+ */
+describe("edicaoDoTipo", () => {
+  it("manda informar quem carrega o carimbo do backfill", () => {
+    expect(edicaoDoTipo({ tipoDeOperacao: "NAO_INFORMADO", estado: "APURADA" })).toBe("INFORMAR");
+  });
+
+  it("manda informar também na encerrada — é justamente onde o carimbo está", () => {
+    expect(edicaoDoTipo({ tipoDeOperacao: "NAO_INFORMADO", estado: "ENCERRADA" })).toBe("INFORMAR");
+  });
+
+  it("oferece corrigir quem já declarou e ainda não fechou", () => {
+    expect(edicaoDoTipo({ tipoDeOperacao: "EMPURRADA", estado: "ABERTA" })).toBe("CORRIGIR");
+    expect(edicaoDoTipo({ tipoDeOperacao: "ROTA", estado: "APURADA" })).toBe("CORRIGIR");
+  });
+
+  it("manda reabrir antes quem já declarou e já fechou: o total mudaria de mês", () => {
+    expect(edicaoDoTipo({ tipoDeOperacao: "EMPURRADA", estado: "ENCERRADA" })).toBe(
+      "REABRIR_ANTES",
+    );
   });
 });
