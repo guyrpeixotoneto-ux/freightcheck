@@ -4,6 +4,7 @@ import {
   familiaDaCategoria,
   leituraDe,
   leituraDoSintetico,
+  motivoDoVazio,
   oQueFalta,
   podeConfirmar,
   precisaDoPeriodo,
@@ -421,5 +422,24 @@ describe("a leitura do significado escolhido", () => {
       );
       if (naoSoma) expect(opcao.aggregation, opcao.code).not.toBe("SUM");
     }
+  });
+});
+
+describe("o vazio da lista — dois motivos, duas saídas", () => {
+  it("lista vazia é falta de cadastro, e não busca sem resultado", () => {
+    // O caso do seletor de unidade antes do primeiro cadastro: mandar procurar
+    // melhor sobre lista nenhuma é a instrução que não leva a lugar nenhum.
+    expect(motivoDoVazio(0, 0)).toBe("SEM_CADASTRO");
+  });
+
+  it("cadastro cheio e filtro sem casar é busca sem resultado", () => {
+    expect(motivoDoVazio(12, 0)).toBe("SEM_RESULTADO");
+  });
+
+  it("com opção na tela não há vazio a explicar", () => {
+    expect(motivoDoVazio(12, 3)).toBeNull();
+    // Nem quando o que se vê veio inteiro da busca por proximidade — o que
+    // conta é haver o que escolher.
+    expect(motivoDoVazio(0, 1)).toBeNull();
   });
 });

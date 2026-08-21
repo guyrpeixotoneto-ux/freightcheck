@@ -80,8 +80,28 @@ export function CadastroCanonicoDeUnidades() {
   });
 
   const cadastrar = useMutation({
+    /*
+      O `Content-Type` não é decoração: sem ele o cadastro **não cadastrava**.
+
+      `fetch` só declara `application/json` quando alguém o declara — com um
+      corpo de texto e nenhum cabeçalho, o navegador manda
+      `text/plain;charset=UTF-8`. O `express.json()` do servidor lê pelo tipo:
+      o que não é JSON declarado ele não desserializa, e a rota recebia
+      `req.body` vazio. Daí o desfecho que quem cadastrava via — nome e CNPJ
+      preenchidos na tela e "O nome da unidade é o que a lista mostra… sem ele
+      a unidade existe e ninguém a acha" de volta —, que é a recusa correta de
+      `cadastrarUnidade` para o pedido que de fato chegou lá: um sem nome.
+
+      Todas as outras escritas desta interface já declaravam o cabeçalho; esta
+      era a única que não, e `lib/__tests__/corpo-json.test.ts` passa a impedir
+      que a próxima nasça assim.
+    */
     mutationFn: (pedido: { nome: string; cnpj: string }) =>
-      fetchJson("/unidades/canonicas", { method: "POST", body: JSON.stringify(pedido) }),
+      fetchJson("/unidades/canonicas", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(pedido),
+      }),
     onSuccess: async () => {
       await cliente.invalidateQueries({ queryKey: ["unidades", "canonicas"] });
       setAberto(false);
