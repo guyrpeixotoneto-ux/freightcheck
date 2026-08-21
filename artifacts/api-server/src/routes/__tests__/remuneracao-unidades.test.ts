@@ -427,3 +427,115 @@ describe("a unidade cadastrada aparece nas leituras do módulo", () => {
     expect(body.effectiveDate).toBe("2026-08-01");
   });
 });
+
+/**
+ * `DELETE` — as duas portas do desfazer, e a ordem entre elas.
+ *
+ * O domínio já prova que apagar a planilha não toca a quinzena vizinha e que a
+ * unidade com planilha é recusada (`lib/remuneracao/src/__tests__/exclusao.test.ts`).
+ * O que só existe aqui é a borda: o canal viaja na query — e a rota **exige**
+ * que ele venha, mesmo vazio, porque omiti-lo significaria "qualquer canal" e
+ * apagar em qualquer canal é apagar no errado —, e a recusa do domínio vira 409
+ * pela tabela de classes, sem `try/catch` na rota.
+ */
+async function apagarPlanilhaNaBorda(query: string): Promise<Resposta> {
+  const res = await fetch(`${base}/remuneracao/planilha?${query}`, { method: "DELETE" });
+  return { status: res.status, body: await res.json() };
+}
+
+async function excluirUnidadeNaBorda(query: string): Promise<Resposta> {
+  const res = await fetch(`${base}/remuneracao/unidades?${query}`, { method: "DELETE" });
+  return { status: res.status, body: await res.json() };
+}
+
+async function gravarPlanilhaNaBorda(corpo: unknown): Promise<Resposta> {
+  const res = await fetch(`${base}/remuneracao/planilha`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(corpo),
+  });
+  return { status: res.status, body: await res.json() };
+}
+
+describe("as duas portas do desfazer", () => {
+  /** Cadastra CAMAÇARI · EMPURRADA e digita uma célula na quinzena inicial. */
+  async function comPlanilha(): Promise<string> {
+    const criada = await enviar(VALIDO);
+    expect(criada.status).toBe(201);
+    const escopo = criada.body.scopeHash as string;
+
+    const gravada = await gravarPlanilhaNaBorda({
+      scopeHash: escopo,
+      canal: "EMPURRADA",
+      period: VALIDO.vigencia,
+      celulas: [{ chave: "aliquota_pis", valor: 1.65 }],
+    });
+    expect(gravada.status).toBe(200);
+    return escopo;
+  }
+
+  it("apaga a planilha da quinzena e diz quantas células saíram", async () => {
+    const escopo = await comPlanilha();
+
+    const r = await apagarPlanilhaNaBorda(
+      new URLSearchParams({
+        scopeHash: escopo,
+        canal: "EMPURRADA",
+        period: VALIDO.vigencia,
+      }).toString(),
+    );
+
+    expect(r.status).toBe(200);
+    expect(r.body.apagadas).toBe(1);
+    expect(await celulasEm(escopo)).toBe(0);
+  });
+
+  it("recusa apagar a unidade enquanto houver planilha — 409, e nada sai", async () => {
+    const escopo = await comPlanilha();
+
+    const r = await excluirUnidadeNaBorda(
+      new URLSearchParams({ scopeHash: escopo, canal: "EMPURRADA" }).toString(),
+    );
+
+    expect(r.status).toBe(409);
+    expect(await celulasEm(escopo)).toBe(1);
+  });
+
+  it("apaga a unidade depois que a planilha sai, e a segunda vez é 404", async () => {
+    const escopo = await comPlanilha();
+    await apagarPlanilhaNaBorda(
+      new URLSearchParams({
+        scopeHash: escopo,
+        canal: "EMPURRADA",
+        period: VALIDO.vigencia,
+      }).toString(),
+    );
+
+    const primeira = await excluirUnidadeNaBorda(
+      new URLSearchParams({ scopeHash: escopo, canal: "EMPURRADA" }).toString(),
+    );
+    expect(primeira.status).toBe(200);
+    expect(primeira.body.unidade.nome).toBe("CAMAÇARI");
+
+    /* Quem clicou duas vezes, e quem clicou depois de o export chegar. */
+    const segunda = await excluirUnidadeNaBorda(
+      new URLSearchParams({ scopeHash: escopo, canal: "EMPURRADA" }).toString(),
+    );
+    expect(segunda.status).toBe(404);
+  });
+
+  it("recusa apagar a unidade sem dizer de qual operação — 400", async () => {
+    /*
+      Sem o canal o pedido não nomeia um cadastro: a mesma unidade pode ter um
+      de EMPURRADA e outro de ROTA. A série sem tipo se pede com `canal=` vazio,
+      que é a convenção das leituras — e é diferente de não dizer nada.
+    */
+    const escopo = await comPlanilha();
+
+    const r = await excluirUnidadeNaBorda(
+      new URLSearchParams({ scopeHash: escopo }).toString(),
+    );
+
+    expect(r.status).toBe(400);
+  });
+});

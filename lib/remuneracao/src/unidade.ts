@@ -474,3 +474,89 @@ export async function contarUnidadesRegistradas(db: Database): Promise<number> {
   );
   return rows[0]?.total ?? 0;
 }
+
+/**
+ * Recusa: a unidade cadastrada à mão ainda sustenta planilha, e por isso não sai
+ * por um clique.
+ *
+ * Existe separada de {@link CodigoRecusado} porque é outra pergunta — lá o
+ * pedido é sobre o código, aqui é sobre apagar — e porque a frase precisa dizer
+ * o que está no caminho **e** qual é o caminho: as quinzenas informadas saem
+ * uma a uma, cada uma com a sua própria confirmação, e é essa lentidão que
+ * impede que trinta linhas digitadas sumam por engano num clique só.
+ */
+export class ExclusaoRecusada extends Error {
+  constructor(mensagem: string) {
+    super(mensagem);
+    this.name = "ExclusaoRecusada";
+  }
+}
+
+/**
+ * Apaga o cadastro de uma unidade registrada à mão.
+ *
+ * **O que ela é.** O desfazer de `registrarUnidade`, e nada além disso: sai a
+ * linha de identidade — nome, código, canal e quinzena inicial — de um par
+ * (escopo, canal) que alguém digitou. Nenhum número sai por aqui, porque nenhum
+ * número mora aqui.
+ *
+ * **Por que ela recusa quando há planilha.** Uma unidade sem acervo tem as
+ * vigências que a planilha lhe deu; apagá-la com as células dentro faria as
+ * duas coisas ao mesmo tempo — a identidade e o trabalho digitado — num clique
+ * cuja confirmação falaria de uma delas. Pior: as células ficariam no banco,
+ * órfãs, e a lista voltaria a mostrá-las sem nome (ver `contextosEProcedencia`),
+ * de modo que "excluir a unidade" produziria uma linha nova em vez de nenhuma.
+ * Apagar quinzena por quinzena e só então a unidade é mais lento, e é a ordem
+ * em que o estado nunca fica pela metade.
+ *
+ * **Por que ela não apaga quem tem acervo.** Não por regra deste arquivo: uma
+ * unidade com snapshot não é uma linha registrada nesta tabela — ela pode ter
+ * uma, ignorada pela montagem do contexto, e apagá-la não tiraria da lista uma
+ * unidade que vive do arquivo. Quem tira uma unidade importada da tela é a
+ * exclusão da importação, em Importações, e é lá que essa decisão tem o
+ * tamanho que merece.
+ */
+export async function excluirUnidadeRegistrada(
+  db: Database,
+  pedido: { scopeHash: string; canal: string | null },
+): Promise<UnidadeRegistrada> {
+  const canal = pedido.canal ?? "";
+
+  return db.transaction(async (tx) => {
+    const [linha] = await tx
+      .select()
+      .from(remuneracaoUnidadeTable)
+      .where(
+        and(
+          eq(remuneracaoUnidadeTable.scopeHash, pedido.scopeHash),
+          eq(remuneracaoUnidadeTable.canal, canal),
+        ),
+      );
+    if (!linha) throw new UnidadeNaoRegistrada();
+
+    const { rows } = await tx.execute<{ total: number; quinzenas: number }>(sql`
+      SELECT count(*)::int AS total,
+             count(DISTINCT effective_date)::int AS quinzenas
+        FROM remuneracao_planilha
+       WHERE scope_hash = ${pedido.scopeHash}
+         AND canal = ${canal}`);
+    const comPlanilha = rows[0] ?? { total: 0, quinzenas: 0 };
+
+    if (comPlanilha.total > 0) {
+      throw new ExclusaoRecusada(
+        `${linha.nome} tem ${comPlanilha.total} ${
+          comPlanilha.total === 1 ? "linha informada" : "linhas informadas"
+        } em ${comPlanilha.quinzenas} ${
+          comPlanilha.quinzenas === 1 ? "quinzena" : "quinzenas"
+        }. Apague a planilha de cada quinzena primeiro — assim o que se perde ` +
+          "está escrito antes de cada clique, e nada fica no banco sem unidade que o explique.",
+      );
+    }
+
+    await tx
+      .delete(remuneracaoUnidadeTable)
+      .where(eq(remuneracaoUnidadeTable.id, linha.id));
+
+    return comoElaVolta(linha);
+  });
+}

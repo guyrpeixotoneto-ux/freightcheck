@@ -5,6 +5,7 @@ import {
   aplicarJanela,
   channelSql,
   contextFilter,
+  contextLabel,
   listContexts,
   resolveContext,
   type ContextInfo,
@@ -21,12 +22,14 @@ import {
 import type { CavaloDaVigencia, TrechoDaVigencia } from "./medicao";
 import { montarCadastro, type CadastroMontado } from "./montagem";
 import {
+  apagarPlanilha,
   canaisComPlanilha,
   chaveDaPlanilha,
   copiarPlanilha,
   gravarPlanilha,
   lerPlanilha,
   lerPlanilhasEmLote,
+  type CanalComPlanilha,
   type PlanilhaDaVigencia,
 } from "./planilha";
 import type { PlanilhaDeclarada } from "./informado";
@@ -164,6 +167,26 @@ export interface SituacaoDaUnidade extends ContextoDoCadastro {
    * digitou.
    */
   registradaAMao: boolean;
+  /**
+   * Esta linha existe **porque a planilha existe** — e por mais nada.
+   *
+   * Nem acervo, nem registro: o par (escopo, canal) desapareceu das duas
+   * fontes que dizem quem é a unidade, e o que restou foi o que alguém digitou.
+   * Acontece quando a importação que sustentava a unidade é excluída, ou quando
+   * o banco volta de um restauro sem ela.
+   *
+   * Ela era descartada em silêncio, e o silêncio é o defeito: a planilha ficava
+   * no banco, com autor e data, sem aparecer em lista nenhuma e sem poder ser
+   * reaberta — quem tinha preenchido trinta linhas via "sumiu". A marca existe
+   * para a tela poder dizer a única coisa honesta sobre a linha: os números
+   * continuam aqui, a unidade que os explicava é que não está mais.
+   *
+   * É diferente de {@link registradaAMao}, e a diferença é o conserto: lá falta
+   * o export de uma unidade que alguém cadastrou, e ele chega importando; aqui
+   * falta a unidade, e o que reata as duas pontas é reimportar a série ou
+   * cadastrar a unidade com o mesmo código.
+   */
+  planilhaOrfa: boolean;
 }
 
 export interface SituacaoDasUnidades {
@@ -289,13 +312,14 @@ async function contextosDoModulo(db: Database): Promise<ContextInfo[]> {
 }
 
 /**
- * Os mesmos contextos, mais **quais deles não têm acervo nenhum** e **por
- * quais vigências cada um responde na lista**.
+ * Os mesmos contextos, mais **quais deles não têm acervo nenhum**, **quais
+ * existem só porque a planilha existe** e **por quais vigências cada um
+ * responde na lista**.
  *
- * A separação existe por uma conta: `lerSituacaoDasUnidades` precisa das três
- * respostas, e pedi-las em outras chamadas custaria um `listContexts` a mais —
- * numa função cujo cabeçalho promete "quatro consultas, e não quatro por
- * unidade". As duas são subproduto da disputa que já acontece aqui; devolvê-las
+ * A separação existe por uma conta: `lerSituacaoDasUnidades` precisa das
+ * respostas todas, e pedi-las em outras chamadas custaria um `listContexts` a
+ * mais — numa função cujo cabeçalho promete "quatro consultas, e não quatro por
+ * unidade". Elas são subproduto da disputa que já acontece aqui; devolvê-las
  * é de graça, e recalculá-las fora custaria a consulta inteira.
  *
  * **`vigenciasNaLista` só existe para o canal que só a planilha tem.** As
@@ -312,6 +336,7 @@ async function contextosDoModulo(db: Database): Promise<ContextInfo[]> {
 async function contextosEProcedencia(db: Database): Promise<{
   contextos: ContextInfo[];
   semAcervo: Set<string>;
+  orfas: Set<string>;
   vigenciasNaLista: Map<string, string[]>;
 }> {
   const [doAcervo, daPlanilha, registradas] = await Promise.all([
@@ -320,7 +345,12 @@ async function contextosEProcedencia(db: Database): Promise<{
     unidadesRegistradas(db),
   ]);
   if (daPlanilha.length === 0 && registradas.length === 0) {
-    return { contextos: doAcervo, semAcervo: new Set(), vigenciasNaLista: new Map() };
+    return {
+      contextos: doAcervo,
+      semAcervo: new Set(),
+      orfas: new Set(),
+      vigenciasNaLista: new Map(),
+    };
   }
 
   const vigenciasPorChave = new Map(
@@ -357,33 +387,30 @@ async function contextosEProcedencia(db: Database): Promise<{
     if (!irmaoDoEscopo.has(c.scopeHash)) irmaoDoEscopo.set(c.scopeHash, c);
   }
 
+  const orfas = new Set<string>();
   const sinteticos: ContextInfo[] = [];
   const vigenciasNaLista = new Map<string, string[]>();
-  for (const canal of daPlanilha) {
-    if (jaExiste.has(chaveDaUnidade(canal.scopeHash, canal.canal))) continue;
-    const irmao = irmaoDoEscopo.get(canal.scopeHash);
-    /*
-      Sem irmão, a unidade saiu do acervo depois de a planilha ser gravada — uma
-      importação excluída, por exemplo. A planilha continua no banco e some da
-      lista, e é o comportamento certo: o rótulo e o escopo dela viviam na
-      série que deixou de existir, e inventá-los aqui seria escrever um nome de
-      unidade que nenhum arquivo sustenta.
-    */
-    if (!irmao) continue;
-    vigenciasNaLista.set(chaveDaUnidade(canal.scopeHash, canal.canal), canal.vigencias);
-    sinteticos.push({
-      ...irmao,
-      channel: canal.canal,
-      label: rotuloComCanal(irmao, canal.canal),
-    });
-  }
 
   /*
-    As registradas entram por último e só onde ninguém respondeu — nem o
-    acervo, nem um canal que já tenha irmão importado. `jaExiste` cresce a cada
-    uma para que duas linhas registradas com o mesmo par não virem dois
-    contextos; o índice único já as impede no banco, e repetir a guarda aqui
-    custa um `Set` e cobre o banco que foi adotado com dados de antes dele.
+    As registradas entram **antes** dos canais que só a planilha tem, e a ordem
+    é o conserto de dois defeitos que a ordem inversa produzia.
+
+    O primeiro era uma linha a mais: a unidade registrada à mão cujo escopo
+    ganhou export em **outro** canal aparecia duas vezes — uma vinda da
+    planilha, pendurada no irmão importado, e outra vinda do registro —, porque
+    o laço da planilha não anotava em `jaExiste` o par que acabara de criar. São
+    as "duas CAMAÇARI" que este caminho inteiro existe para não cometer, com a
+    diferença de que nada em tela dizia que eram a mesma.
+
+    O segundo era uma linha a menos, e pior: a unidade registrada à mão não
+    entrava em `irmaoDoEscopo`, que só via o acervo. Salvar a planilha de um
+    canal que ela ainda não tinha — o gesto que o painel de cadastro oferece, e
+    que a escrita aceita — gravava as células num par que a leitura descartava
+    logo em seguida. A planilha ficava no banco, com autor e data, e sem tela
+    nenhuma.
+
+    A procedência não muda: `jaExiste` já nasce com o acervo inteiro, e por isso
+    o acervo continua vencendo o registro no par que os dois têm.
   */
   for (const u of registradas) {
     const chave = chaveDaUnidade(u.scopeHash, u.canal);
@@ -392,7 +419,7 @@ async function contextosEProcedencia(db: Database): Promise<{
     semAcervo.add(chave);
 
     const vigencias = vigenciasDaUnidade(u.vigenciaInicial, vigenciasPorChave.get(chave) ?? []);
-    sinteticos.push({
+    const registrada: ContextInfo = {
       scopeHash: u.scopeHash,
       channel: u.canal,
       /*
@@ -413,10 +440,148 @@ async function contextosEProcedencia(db: Database): Promise<{
       periodosDisponiveis: vigencias,
       periodosNaJanela: vigencias.length,
       janela: null,
-    });
+    };
+    sinteticos.push(registrada);
+    /*
+      Só onde o acervo não respondeu: o irmão importado continua sendo quem
+      nomeia os outros canais do escopo, porque medição vence declaração — e é
+      o mesmo motivo pelo qual esta linha não sobrescreve a de lá.
+    */
+    if (!irmaoDoEscopo.has(u.scopeHash)) irmaoDoEscopo.set(u.scopeHash, registrada);
   }
 
-  return { contextos: [...comAsDigitadas, ...sinteticos], semAcervo, vigenciasNaLista };
+  /*
+    Os canais que só a planilha tem, e o que fazer com aquele que não tem irmão
+    nenhum.
+
+    Havia um `continue` aqui, e a justificativa era boa: o rótulo e o escopo de
+    uma planilha vivem na série que a trouxe, e inventá-los seria escrever um
+    nome de unidade que nenhum arquivo sustenta. O que ela não pesava é o preço
+    do silêncio. A unidade sai do acervo — uma importação excluída, um banco
+    restaurado sem ela — e a planilha que alguém digitou, com autor e data,
+    deixa de ter tela: não está na lista, não abre pelo cadastro, e a escrita
+    seguinte no mesmo lugar é recusada por unidade inexistente. Quem preencheu
+    trinta linhas vê "sumiu", e é literalmente o que aconteceu.
+
+    Nomear não precisa ser inventar. `contextLabel` — o mesmo de `listContexts`
+    — já resolve isto para o acervo: nome, senão código, senão o hash, "que é
+    feio mas é honesto". O escopo que restou é procurado em `escopoQueRestou`, e
+    quando não resta nada a linha se chama pelo hash. Feio, e visível: uma
+    planilha que existe no banco tem de existir em tela, ainda que a tela só
+    consiga dizer que ela existe.
+  */
+  const semIrmao = daPlanilha.filter(
+    (c) => !jaExiste.has(chaveDaUnidade(c.scopeHash, c.canal)) && !irmaoDoEscopo.has(c.scopeHash),
+  );
+  const escopoQueRestou = await escoposForaDoAcervo(
+    db,
+    [...new Set(semIrmao.map((c) => c.scopeHash))],
+  );
+
+  for (const canal of daPlanilha) {
+    const chave = chaveDaUnidade(canal.scopeHash, canal.canal);
+    if (jaExiste.has(chave)) continue;
+    jaExiste.add(chave);
+    vigenciasNaLista.set(chave, canal.vigencias);
+
+    const irmao = irmaoDoEscopo.get(canal.scopeHash);
+    if (irmao) {
+      /*
+        Sem export no par, venha o irmão de onde vier: a marca é do par (escopo,
+        canal), e o canal novo de uma unidade registrada à mão não tem arquivo
+        nenhum — dizer o contrário mandaria procurar um export que ninguém
+        deixou de mandar.
+      */
+      if (semAcervo.has(chaveDaUnidade(irmao.scopeHash, irmao.channel))) semAcervo.add(chave);
+      sinteticos.push({
+        ...irmao,
+        channel: canal.canal,
+        label: rotuloComCanal(irmao, canal.canal),
+      });
+      continue;
+    }
+
+    orfas.add(chave);
+    sinteticos.push(daPlanilhaSozinha(canal, escopoQueRestou.get(canal.scopeHash) ?? []));
+  }
+
+  return { contextos: [...comAsDigitadas, ...sinteticos], semAcervo, orfas, vigenciasNaLista };
+}
+
+/**
+ * O contexto de uma planilha cuja unidade não está em lugar nenhum.
+ *
+ * As vigências são as que a planilha de fato tem, e não há outra régua
+ * possível: não há acervo de onde herdar quinzenas nem registro que declare uma
+ * inicial. É também a régua certa — a linha responde exatamente pelas quinzenas
+ * em que alguém digitou alguma coisa, que é tudo o que sobrou dela.
+ */
+function daPlanilhaSozinha(
+  canal: CanalComPlanilha,
+  scopes: ContextInfo["scopes"],
+): ContextInfo {
+  const vigencias = [...canal.vigencias].sort();
+  return {
+    scopeHash: canal.scopeHash,
+    channel: canal.canal,
+    label: contextLabel(scopes, canal.canal, canal.scopeHash),
+    scopes,
+    latestPeriod: vigencias[vigencias.length - 1]!,
+    periods: vigencias.length,
+    periodosDisponiveis: vigencias,
+    periodosNaJanela: vigencias.length,
+    janela: null,
+  };
+}
+
+/**
+ * O escopo de uma unidade que o acervo de equipamento já não tem.
+ *
+ * `listContexts` pergunta pelas vigências **ativas de equipamento**, e é a
+ * pergunta certa para montar a lista. Esta é outra: "sobrou em algum lugar do
+ * banco quem é o dono deste `scope_hash`?" — e por isso não filtra nem por
+ * família nem por `status`. Uma vigência substituída por revisão, ou o export
+ * de frete da mesma unidade, continuam sabendo o nome que a planilha órfã
+ * perdeu.
+ *
+ * Não é reconstrução de identidade: o `scope_hash` é o mesmo, e o que se lê é
+ * a linha de `scope` que a importação gravou. Quando nem isso resta — a
+ * importação foi excluída inteira —, o mapa não traz a chave e quem chama
+ * resolve com o hash.
+ *
+ * Uma consulta só, e só quando há órfã: a lista de hashes vem vazia no banco em
+ * que toda planilha tem unidade, que é o caso comum.
+ */
+async function escoposForaDoAcervo(
+  db: Database,
+  hashes: string[],
+): Promise<Map<string, ContextInfo["scopes"]>> {
+  const escopos = new Map<string, ContextInfo["scopes"]>();
+  if (hashes.length === 0) return escopos;
+
+  const { rows } = await db.execute<{
+    scope_hash: string;
+    scope_type: string;
+    code: string;
+    name: string | null;
+  }>(sql`
+    SELECT DISTINCT s.scope_hash, sc.scope_type, sc.code, sc.name
+      FROM snapshot s
+      JOIN snapshot_scope ss ON ss.snapshot_id = s.id
+      JOIN scope sc          ON sc.id = ss.scope_id
+     WHERE s.scope_hash IN (${sql.join(
+       hashes.map((h) => sql`${h}`),
+       sql`, `,
+     )})
+     ORDER BY s.scope_hash, sc.scope_type, sc.code
+  `);
+
+  for (const linha of rows) {
+    const lista = escopos.get(linha.scope_hash) ?? [];
+    lista.push({ scopeType: linha.scope_type, code: linha.code, name: linha.name });
+    escopos.set(linha.scope_hash, lista);
+  }
+  return escopos;
 }
 
 /**
@@ -625,7 +790,7 @@ export async function lerComparacaoDeCadastros(
  * conjunto vazio é uma resposta legítima que a tela sabe escrever.
  */
 export async function lerSituacaoDasUnidades(db: Database): Promise<SituacaoDasUnidades> {
-  const { contextos, semAcervo, vigenciasNaLista } = await contextosEProcedencia(db);
+  const { contextos, semAcervo, orfas, vigenciasNaLista } = await contextosEProcedencia(db);
 
   /*
     O alvo carrega `SeriesContext` — o que as consultas precisam —, e aqui o
@@ -677,6 +842,7 @@ export async function lerSituacaoDasUnidades(db: Database): Promise<SituacaoDasU
       material,
       cadastro: medirSituacao(montado),
       registradaAMao: semAcervo.has(chaveDaUnidade(contexto.scopeHash, contexto.channel)),
+      planilhaOrfa: orfas.has(chaveDaUnidade(contexto.scopeHash, contexto.channel)),
     };
   });
 
@@ -747,6 +913,29 @@ export async function gravarPlanilhaDaUnidade(
     celulas: pedido.celulas,
     ...(pedido.autor ? { autor: pedido.autor } : {}),
   });
+}
+
+/**
+ * Apaga a planilha informada de uma unidade numa vigência.
+ *
+ * **A quinzena é conferida pelas mesmas portas da leitura** — unidade que não
+ * existe é `ContextNotFoundError`, vigência que a unidade não tem é
+ * {@link VigenciaDoCadastroNaoEncontrada} —, e **não** existe aqui o
+ * `aceitarVigenciaNova` da escrita: criar uma quinzena para apagá-la é o
+ * contrário do que quem chama pediu, e um endereço errado que respondesse
+ * "apaguei" diria que o trabalho sumiu quando ele continua onde estava.
+ *
+ * Devolve quantas células saíram, e nunca a planilha resultante: o que sobra é
+ * uma quinzena vazia, e devolvê-la como objeto convidaria a tela a mostrá-la
+ * como se ainda houvesse cadastro ali.
+ */
+export async function apagarPlanilhaDaUnidade(
+  db: Database,
+  pedido?: RequestedContext & { period?: string },
+): Promise<number | null> {
+  const alvo = await resolverAlvoDaPlanilha(db, pedido);
+  if (alvo === null) return null;
+  return apagarPlanilha(db, alvo);
 }
 
 /**

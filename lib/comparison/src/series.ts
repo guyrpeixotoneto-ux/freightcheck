@@ -287,8 +287,16 @@ export async function listContexts(
  * A unidade manda; o canal entra ao lado quando existe. Sem escopo cadastrado
  * — o que acontece em fixtures sintéticas — resta o hash, que é feio mas é
  * honesto: inventar "Unidade 1" seria pior.
+ *
+ * **Exportada** porque quem nomeia um contexto nem sempre é `listContexts`.
+ * A planilha de Remuneração vive por `scope_hash` e sobrevive à vigência que a
+ * trouxe: quando a unidade sai do acervo, o módulo de lá precisa nomear a linha
+ * com o que restou do escopo — ver `contextosEProcedencia`. Fazê-lo com uma
+ * segunda função daria dois nomes para a mesma unidade dependendo de qual tela
+ * a montou, e a regra de fallback (nome, código, hash) é justamente a que não
+ * pode divergir.
  */
-function contextLabel(
+export function contextLabel(
   scopes: ContextInfo["scopes"],
   channel: string | null,
   scopeHash: string,

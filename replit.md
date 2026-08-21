@@ -382,7 +382,17 @@ toda leitura — nos moldes do que `conversas.ts` já faz por `owner_id`.
   linha dela tinha passado a responder por agosto. A lista monta o cadastro de
   cada linha em vez de deduzi-lo do material — as mesmas quatro consultas para
   todas elas, agora no par (unidade, vigência) e agrupadas por unidade no
-  predicado —, para que ela e a tela do cadastro nunca discordem. O cadastro
+  predicado —, para que ela e a tela do cadastro nunca discordem. **Nenhuma
+  planilha gravada fica sem linha**: a de um canal que a unidade cadastrada à
+  mão ainda não tinha aparece nela, e a que perdeu a unidade — importação
+  excluída, banco restaurado sem ela — aparece marcada como órfã, com o nome que
+  restou em algum `scope` do banco ou, em último caso, dizendo que a unidade
+  saiu do acervo. Antes as duas eram descartadas em silêncio: as células ficavam
+  no banco, com autor e data, sem tela nenhuma. **E há desfazer**: a lixeira da
+  linha apaga a planilha daquela quinzena e, quando não sobrou nada informado, o
+  cadastro da unidade que alguém digitou — nessa ordem, nunca as duas de uma vez,
+  e nunca a unidade que veio de arquivo (essa sai pela exclusão da importação).
+  O cadastro
   reproduz a aba
   **CADASTRO DA PLANILHA DE REMUNERAÇÃO** por unidade: alíquotas, tamanho da
   frota fixa, parcelas por veículo, vans, rotas noturnas, marketing, proporção

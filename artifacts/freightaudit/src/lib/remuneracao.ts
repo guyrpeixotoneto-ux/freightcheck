@@ -268,6 +268,44 @@ export interface SituacaoDaUnidade {
    * procurar. Sem esta marca as duas ficam com a mesma cara.
    */
   registradaAMao: boolean;
+  /**
+   * Esta linha existe **porque a planilha existe** — e por mais nada.
+   *
+   * Nem acervo, nem cadastro à mão: o par (unidade, operação) sumiu das duas
+   * fontes que dizem quem é a unidade, e o que restou foram as células que
+   * alguém digitou. Acontece quando a importação que sustentava a unidade é
+   * excluída, ou quando o banco volta de um restauro sem ela.
+   *
+   * A linha era descartada em silêncio, e o silêncio é o defeito: os números
+   * ficavam no banco sem aparecer em lugar nenhum, e quem tinha preenchido a
+   * aba lia isso como "sumiu". A tela agora a mostra e diz o que houve — é a
+   * única coisa honesta a dizer, e é o que permite recuperar os números.
+   */
+  planilhaOrfa: boolean;
+}
+
+/**
+ * O nome da unidade como a lista a chama — sem o canal, e sem hash na tela.
+ *
+ * `unidade` é o nome que o escopo declara, e é ele que manda. Quando a unidade
+ * saiu do acervo, o servidor pode não ter mais escopo nenhum para nomeá-la: o
+ * rótulo então vem sendo o `scope_hash`, que é honesto no domínio (inventar um
+ * nome seria pior) e ilegível numa coluna de tabela — sessenta e quatro
+ * caracteres de hexadecimal onde se espera "CDD BELÉM". Nesse caso, e só nele, a
+ * tela diz o que de fato sabe: que a unidade não está mais no acervo.
+ *
+ * Mora aqui, e não em cada tela, porque são duas as que a escrevem — a lista e
+ * o painel de cadastro que abre por cima dela — e um nome que dependesse de qual
+ * delas montou a frase seria a mesma unidade com dois nomes.
+ */
+export function nomeDaUnidade(u: {
+  unidade: string | null;
+  label: string;
+  planilhaOrfa?: boolean;
+}): string {
+  if (u.unidade !== null) return u.unidade;
+  if (u.planilhaOrfa) return "unidade fora do acervo";
+  return u.label.split(" · ")[0] ?? u.label;
 }
 
 export interface SituacaoDasUnidades {
@@ -514,6 +552,50 @@ export function gravarPlanilha(pedido: {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(pedido),
+  });
+}
+
+/**
+ * Apaga a planilha informada de uma quinzena — a lixeira da linha da lista.
+ *
+ * **O canal vai sempre, mesmo vazio**, e é a diferença que decide onde a
+ * exclusão cai: omiti-lo pede "qualquer canal", e o servidor apagaria o
+ * primeiro que encontrasse. Uma unidade pode ter uma série de EMPURRADA e outra
+ * de ROTA no mesmo escopo — apagar a errada é a espécie de acidente que não
+ * avisa, porque as duas respondem com sucesso.
+ */
+export function apagarPlanilha(pedido: {
+  scopeHash: string;
+  canal: string | null;
+  period: string;
+}): Promise<{ apagadas: number }> {
+  const query = new URLSearchParams({
+    scopeHash: pedido.scopeHash,
+    canal: pedido.canal ?? "",
+    period: pedido.period,
+  });
+  return fetchJson<{ apagadas: number }>(`/remuneracao/planilha?${query}`, {
+    method: "DELETE",
+  });
+}
+
+/**
+ * Apaga o cadastro de uma unidade registrada à mão.
+ *
+ * O desfazer de `registrarUnidade`, e nada além: sai a identidade que alguém
+ * digitou. O servidor recusa (409) enquanto houver planilha informada naquele
+ * par — as quinzenas saem primeiro, uma a uma, cada uma com a sua confirmação.
+ */
+export function excluirUnidadeCadastrada(pedido: {
+  scopeHash: string;
+  canal: string | null;
+}): Promise<{ unidade: UnidadeRegistrada }> {
+  const query = new URLSearchParams({
+    scopeHash: pedido.scopeHash,
+    canal: pedido.canal ?? "",
+  });
+  return fetchJson<{ unidade: UnidadeRegistrada }>(`/remuneracao/unidades?${query}`, {
+    method: "DELETE",
   });
 }
 

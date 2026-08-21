@@ -16,7 +16,12 @@ import { apresentar } from "@/lib/apresentar-erro";
 import { anoAceito } from "@/lib/fechamento-tela";
 import { MES_LONGO, mesPorExtenso, periodoDaQuinzena } from "@/lib/fechamento-gerencial";
 import { cn } from "@/lib/utils";
-import { chaveDoCadastro, lerCadastro, type SituacaoDaUnidade } from "@/lib/remuneracao";
+import {
+  chaveDoCadastro,
+  lerCadastro,
+  nomeDaUnidade,
+  type SituacaoDaUnidade,
+} from "@/lib/remuneracao";
 import { CadastrarAPlanilha } from "./cadastrar-planilha";
 
 /**
@@ -91,11 +96,6 @@ export function BotaoDeCadastroDaPlanilha({
       )}
     </>
   );
-}
-
-/** O rótulo da unidade sem o canal — "CAMAÇARI" de "CAMAÇARI · EMPURRADA". */
-function nomeDaUnidade(unidade: SituacaoDaUnidade): string {
-  return unidade.unidade ?? unidade.label.split(" · ")[0] ?? unidade.label;
 }
 
 const SEM_CANAL = "__sem_canal__";
