@@ -19,7 +19,10 @@ import {
   type CanalDoResumo,
   type DiagnosticoDoCadastro,
   type Inconsistencia,
+  type LinhaComparada,
+  type MesDaReferencia,
   type PainelComparado,
+  type ProcedenciaDaReferencia,
   type ResumoDoMes,
   type TresColunas,
 } from "@/lib/fechamento";
@@ -27,6 +30,7 @@ import {
   PainelDaPlanilhaTabela,
   type ColunaDoPainel,
 } from "@/components/fechamento/painel-da-planilha";
+import { ReferenciaDaPlanilha } from "@/components/fechamento/referencia-da-planilha";
 import { cn } from "@/lib/utils";
 
 /**
@@ -78,6 +82,24 @@ type Aba = "verbas" | "planilha" | "inconsistencias";
 function textoDoErro(erro: unknown): string {
   const aviso = apresentar(erro);
   return aviso.orientacao?.resumo ?? aviso.mensagemCrua ?? "Não foi possível carregar o resumo.";
+}
+
+/**
+ * A coluna da planilha aparece? — e por que a pergunta não é `!== null`.
+ *
+ * Exportada para ser testada, como `motivoDoVazio` e `quinzenaExiste`: é uma
+ * regra de tela cujo erro não aparece em tela nenhuma até alguém abrir o Resumo
+ * no meio de um deploy.
+ *
+ * **O caso que `!== null` erra.** Um servidor antigo devolve o painel **sem** o
+ * campo `referencia`, e `undefined !== null` é `true`: a tela abriria duas
+ * colunas de traços, afirmando que a planilha não publica nada quando a verdade
+ * é que ninguém a anexou — ou que o servidor ainda não sabe respondê-la. As duas
+ * ausências viram a mesma coluna vazia, que é o erro que este produto passa o
+ * tempo todo evitando.
+ */
+export function temColunaDaPlanilha(painel: { referencia?: unknown }): boolean {
+  return Boolean(painel.referencia);
 }
 
 /** `null` é ausência e aparece como traço — nunca como `R$ 0,00`. */
@@ -263,6 +285,7 @@ export default function ResumoGeral() {
             recorte={recorte}
             aba={aba}
             trocar={trocar}
+            alvo={{ unidade, transportadora, tipoDeOperacao, ano, mes }}
           />
         )}
       </div>
@@ -307,12 +330,15 @@ function Corpo({
   recorte,
   aba,
   trocar,
+  alvo,
 }: {
   resumo: ResumoDoMes;
   tipoDeOperacao: string;
   recorte: Recorte;
   aba: Aba;
   trocar: (campo: string, valor: string) => void;
+  /** O mês da tela — o que quem anexa a planilha declara ao anexar. */
+  alvo: MesDaReferencia;
 }) {
   const vazio = resumo.canais.length === 0;
   const motivo = motivoDoVazio(resumo.quinzenas);
@@ -474,7 +500,7 @@ function Corpo({
       ) : (
         resumo.canais.map((canal) =>
           aba === "planilha" ? (
-            <PainelDoCanal key={canal.canal} canal={canal} recorte={recorte} />
+            <PainelDoCanal key={canal.canal} canal={canal} recorte={recorte} alvo={alvo} />
           ) : (
             <TabelaDoCanal key={canal.canal} canal={canal} recorte={recorte} />
           ),
@@ -787,13 +813,28 @@ function maisAdiantado(cadastro: CadastroDoCanal) {
 }
 
 
-function PainelDoCanal({ canal, recorte }: { canal: CanalDoResumo; recorte: Recorte }) {
+function PainelDoCanal({
+  canal,
+  recorte,
+  alvo,
+}: {
+  canal: CanalDoResumo;
+  recorte: Recorte;
+  /** O mês da tela — o que quem anexa declara ao anexar. */
+  alvo: MesDaReferencia;
+}) {
   return (
     <Card>
       <CardHeader className="pb-3">
         <CardTitle className="text-base">{canal.canal}</CardTitle>
       </CardHeader>
-      <CardContent className="overflow-x-auto">
+      <CardContent className="overflow-x-auto space-y-4">
+        {/*
+          O controle de anexo fica **acima** do painel e aparece mesmo sem
+          cadastro: anexar a planilha não depende de haver devido, e quem chegou
+          num mês sem contrato pode querer justamente ver o que a planilha diz.
+        */}
+        <ReferenciaDaPlanilha alvo={alvo} />
         {canal.comparado ? (
           /*
             Havendo cadastro, o painel é a comparação: o que o contrato deve
@@ -867,6 +908,80 @@ function PainelDoCanal({ canal, recorte }: { canal: CanalDoResumo; recorte: Reco
  * falta de 03.08.20 são estados diferentes, os dois normais no meio do mês, e
  * esconder a linha faria o painel parecer completo quando não está.
  */
+/**
+ * As duas células da planilha numa linha — e o que cada estado delas significa.
+ *
+ * `—` quando a planilha não publica esta linha; o número quando publica. A
+ * causa conhecida entra como legenda embaixo da diferença, e **não** apaga o
+ * número: a diferença continua inteira, com o nome da investigação que já foi
+ * feita ao lado. Uma diferença que some porque já se sabe de onde vem é uma
+ * conferência que concorda consigo mesma.
+ */
+function CelulasDaPlanilha({
+  linha,
+  coluna,
+}: {
+  linha: LinhaComparada;
+  coluna: (v: TresColunas) => number | null;
+}) {
+  const daPlanilha = linha.planilha ? coluna(linha.planilha) : null;
+  const diferenca = linha.diferencaDaPlanilha ? coluna(linha.diferencaDaPlanilha) : null;
+  const celula = linha.celulaDaPlanilha?.primeira ?? linha.celulaDaPlanilha?.segunda ?? null;
+
+  return (
+    <>
+      <td
+        className="py-2 text-right font-mono tabular-nums"
+        title={celula ? `RESUMO GERAL, célula ${celula}` : undefined}
+      >
+        {dinheiro(daPlanilha)}
+      </td>
+      <td
+        className={cn(
+          "py-2 text-right font-mono tabular-nums",
+          diferenca !== null && Math.abs(diferenca) >= 0.005 && "font-semibold",
+        )}
+      >
+        {dinheiro(diferenca)}
+        {linha.causaConhecida && diferenca !== null && Math.abs(diferenca) >= 0.005 && (
+          <span
+            className="block text-xs font-sans font-normal text-muted-foreground"
+            title={linha.causaConhecida}
+          >
+            causa conhecida
+          </span>
+        )}
+      </td>
+    </>
+  );
+}
+
+/**
+ * De qual arquivo saiu a coluna da planilha.
+ *
+ * **Aparece sempre que a coluna aparece, e não atrás de um clique.** O `.xlsb`
+ * não declara a que mês pertence — quem anexa é que declara —, e a única coisa
+ * que torna a diferença auditável é dizer, ao lado dela, contra qual arquivo
+ * ela foi medida. Sem isto a coluna seria uma afirmação sem fonte.
+ */
+function ProcedenciaDaPlanilha({ referencia }: { referencia: ProcedenciaDaReferencia }) {
+  return (
+    <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+      Conferindo contra{" "}
+      <strong className="text-foreground">{referencia.nomeDoArquivo}</strong> (versão{" "}
+      {referencia.versao}), anexada em{" "}
+      {new Date(referencia.anexadaEm).toLocaleString("pt-BR")}.{" "}
+      <span className="font-mono" title={`sha256 ${referencia.sha256}`}>
+        {referencia.sha256.slice(0, 12)}…
+      </span>
+      <span className="block mt-1">
+        A associação a este mês foi declarada por quem anexou — a planilha não
+        carrega essa informação, e o sistema não a adivinha.
+      </span>
+    </div>
+  );
+}
+
 function PainelComparadoTabela({
   painel,
   recorte,
@@ -895,8 +1010,21 @@ function PainelComparadoTabela({
     painel.cadastro.segunda !== null &&
     painel.cadastro.primeira.cadastroId === painel.cadastro.segunda.cadastroId;
 
+  /*
+    As duas colunas da planilha só existem quando há arquivo anexado — e a
+    ausência delas é o estado normal, não um erro. Uma tabela com duas colunas
+    de traços diria que a planilha não publica nada, quando a verdade é que
+    ninguém a anexou. É a mesma disciplina do resto desta tela.
+
+    A regra mora em `temColunaDaPlanilha`, exportada e testada, porque o caso que
+    ela pega — o campo ausente durante um deploy — não aparece em tela nenhuma
+    até alguém abrir o Resumo na hora errada.
+  */
+  const temPlanilha = temColunaDaPlanilha(painel);
+
   return (
     <div className="space-y-4">
+      {painel.referencia && <ProcedenciaDaPlanilha referencia={painel.referencia} />}
       <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-xs text-muted-foreground">
         <span>
           <strong className="text-foreground">Devido</strong> — do contrato e do diário
@@ -904,6 +1032,11 @@ function PainelComparadoTabela({
         <span>
           <strong className="text-foreground">Demonstrado</strong> — do 03.08.20
         </span>
+        {temPlanilha && (
+          <span>
+            <strong className="text-foreground">Planilha</strong> — do arquivo anexado
+          </span>
+        )}
         {doCadastro && (
           <span>
             cadastro vigente desde {doCadastro.vigenteDe}
@@ -922,6 +1055,12 @@ function PainelComparadoTabela({
                 <th className="py-2 text-right font-medium min-w-32">Devido</th>
                 <th className="py-2 text-right font-medium min-w-32">Demonstrado</th>
                 <th className="py-2 text-right font-medium min-w-32">Diferença</th>
+                {temPlanilha && (
+                  <>
+                    <th className="py-2 text-right font-medium min-w-32">Planilha</th>
+                    <th className="py-2 text-right font-medium min-w-32">Dif. planilha</th>
+                  </>
+                )}
               </tr>
             </thead>
             <tbody>
@@ -978,6 +1117,7 @@ function PainelComparadoTabela({
                     >
                       {dinheiro(diferenca)}
                     </td>
+                    {temPlanilha && <CelulasDaPlanilha linha={linha} coluna={coluna} />}
                   </tr>
                 );
               })}
@@ -1010,6 +1150,18 @@ function PainelComparadoTabela({
                     >
                       {dinheiro(diferencaDoConjunto)}
                     </td>
+                    {/*
+                      O conjunto não tem linha própria no `RESUMO GERAL` — ele é
+                      uma soma que só o nosso lado sabe fazer. Duas células
+                      vazias, e não zeros: zero ali afirmaria que a planilha
+                      publica zero para o conjunto, e ela não publica nada.
+                    */}
+                    {temPlanilha && (
+                      <>
+                        <td className="py-2 text-right text-xs text-muted-foreground">—</td>
+                        <td className="py-2 text-right text-xs text-muted-foreground">—</td>
+                      </>
+                    )}
                   </tr>
                 );
               })}
@@ -1020,6 +1172,25 @@ function PainelComparadoTabela({
                     {dinheiro(coluna(v))}
                   </td>
                 ))}
+                {temPlanilha && (
+                  <>
+                    {/*
+                      O total da planilha é o que ela **publica** na linha de
+                      total, e não a soma das linhas dela. É deliberado: a
+                      reconciliação encontrou um total (`AJ133`) cuja fórmula
+                      discorda das próprias parcelas, e somar aqui esconderia
+                      exatamente esse defeito.
+                    */}
+                    <td className="py-2 text-right font-mono tabular-nums">
+                      {dinheiro(quadro.planilha ? coluna(quadro.planilha) : null)}
+                    </td>
+                    <td className="py-2 text-right font-mono tabular-nums">
+                      {dinheiro(
+                        quadro.diferencaDaPlanilha ? coluna(quadro.diferencaDaPlanilha) : null,
+                      )}
+                    </td>
+                  </>
+                )}
               </tr>
             </tbody>
           </table>

@@ -1,5 +1,5 @@
 import path from "node:path";
-import { Router, type IRouter } from "express";
+import { Router, type IRouter, type Request } from "express";
 import { db } from "@workspace/db";
 import {
   abrirCompetencia,
@@ -29,7 +29,10 @@ import {
   RecusaDeFechamento,
 } from "@workspace/fechamento/persistencia";
 import {
+  AbaDoResumoNaoEncontrada,
+  CelulaRecusada,
   DESCRICAO_DA_FONTE,
+  resumoComReferencia,
   diagnosticarPagamento,
   FORMATOS_DA_FONTE,
   GRUPOS_DA_PLANILHA,
@@ -41,6 +44,20 @@ import {
   type ColunaDoPagamento,
   type TipoDeFonte,
 } from "@workspace/fechamento";
+/*
+  A guarda da régua entra por um caminho próprio, e não pela raiz do pacote,
+  pela mesma razão de `persistencia`: quem só quer os tipos não arrasta o banco
+  junto. E aqui há uma segunda razão — o import isolado deixa visível, num
+  arquivo só, tudo o que esta rota sabe sobre a planilha de conferência.
+*/
+import {
+  anexarReferencia,
+  ativarReferencia,
+  listarReferenciasDoMes,
+  referenciaAtivaDoMes,
+  ReferenciaJaAnexada,
+  type MesDaReferencia,
+} from "@workspace/fechamento/referencia-persistencia";
 
 import { cadastroDaRemuneracao } from "../lib/cadastro-da-remuneracao";
 
@@ -227,13 +244,136 @@ router.get("/fechamento/resumo", async (req, res): Promise<void> => {
     painel da planilha volta a ser uma releitura do 03.08.20 — ver
     `lib/cadastro-da-remuneracao.ts`.
   */
-  res.json(
-    await lerResumoDoMes(
-      db,
-      { unidade, transportadora, tipoDeOperacao, ano, mes },
-      cadastroDaRemuneracao(db, { tipoDeOperacao }),
-    ),
-  );
+  const alvo = { unidade, transportadora, tipoDeOperacao, ano, mes };
+
+  /*
+    As duas leituras são independentes e a ordem entre elas não importa — é
+    exatamente o que se quer provar. `lerResumoDoMes` calcula o devido sem
+    saber que existe planilha anexada (`persistencia.ts` não importa nada da
+    referência), e `referenciaAtivaDoMes` lê números que ninguém somou a nada.
+    O encontro acontece em `resumoComReferencia`, que é uma transformação pura e
+    não recalcula um centavo. Ver a nota de contaminação em
+    `lib/fechamento/src/painel-referencia.ts`.
+  */
+  const [resumo, referencia] = await Promise.all([
+    lerResumoDoMes(db, alvo, cadastroDaRemuneracao(db, { tipoDeOperacao })),
+    referenciaAtivaDoMes(db, alvo),
+  ]);
+
+  res.json(resumoComReferencia(resumo, referencia));
+});
+
+/* ---------------------------------------------------------------------------
+   A referência de conferência — a planilha da operação, anexada a um mês
+   ------------------------------------------------------------------------ */
+
+/**
+ * O mês declarado por quem anexa, lido da query. Ver `anexarReferencia`.
+ *
+ * A mesma quíntupla do resumo, e pelo mesmo motivo: uma referência serve a um
+ * fechamento, não a um mês do calendário. Devolve a mensagem de recusa em vez
+ * de lançar porque as três rotas abaixo a usam e todas respondem 400 igual.
+ */
+function mesDaQuery(query: Request["query"]): { alvo: MesDaReferencia } | { erro: string } {
+  const unidade = String(query.unidade ?? "").trim();
+  const transportadora = String(query.transportadora ?? "").trim();
+  const tipoDeOperacao = String(query.tipoDeOperacao ?? "").trim().toUpperCase();
+  const ano = Number(query.ano);
+  const mes = Number(query.mes);
+
+  if (unidade === "" || transportadora === "" || tipoDeOperacao === "") {
+    return {
+      erro:
+        "unidade, transportadora e tipoDeOperacao são obrigatórias — a referência é de um " +
+        "fechamento, não de um mês do calendário.",
+    };
+  }
+  if (!Number.isInteger(ano) || ano < 2000 || ano > 2100) return { erro: "ano inválido." };
+  if (!Number.isInteger(mes) || mes < 1 || mes > 12) return { erro: "mes precisa ser de 1 a 12." };
+  return { alvo: { unidade, transportadora, tipoDeOperacao, ano, mes } };
+}
+
+/** As versões já anexadas ao mês, da mais nova para a mais velha. */
+router.get("/fechamento/referencias", async (req, res): Promise<void> => {
+  const lido = mesDaQuery(req.query);
+  if ("erro" in lido) {
+    res.status(400).json({ error: lido.erro });
+    return;
+  }
+  res.json({ versoes: await listarReferenciasDoMes(db, lido.alvo) });
+});
+
+/**
+ * Anexa uma planilha ao mês — e recusa o arquivo em vez de supor.
+ *
+ * **A recusa é 400 e traz o endereço da célula.** Quem está na tela escolheu um
+ * arquivo e pode escolher outro; devolver 500 ou, pior, aceitar e mostrar zeros
+ * transformaria um engano corrigível numa conferência errada que ninguém vê.
+ *
+ * **A associação é declarada.** O mês vem da query, de quem anexou. O `.xlsb`
+ * não declara unidade, CNPJ nem competência, e esta rota não finge que declara:
+ * o que ela grava no lugar é procedência, e é ela que a tela mostra ao lado de
+ * toda diferença.
+ */
+router.post("/fechamento/referencias", async (req, res): Promise<void> => {
+  const lido = mesDaQuery(req.query);
+  if ("erro" in lido) {
+    res.status(400).json({ error: lido.erro });
+    return;
+  }
+
+  const corpo = req.body as Record<string, unknown>;
+  const filename = typeof corpo?.filename === "string" ? path.basename(corpo.filename.trim()) : "";
+  if (filename === "") {
+    res.status(400).json({ error: "filename é obrigatório." });
+    return;
+  }
+  const encoded = typeof corpo?.contentBase64 === "string" ? corpo.contentBase64.trim() : "";
+  if (encoded === "") {
+    res.status(400).json({ error: "contentBase64 é obrigatório." });
+    return;
+  }
+  if (!/^[A-Za-z0-9+/\r\n]*={0,2}$/.test(encoded)) {
+    res.status(400).json({ error: "contentBase64 não está em base64 válido." });
+    return;
+  }
+
+  try {
+    const versao = await anexarReferencia(db, {
+      mes: lido.alvo,
+      nomeDoArquivo: filename,
+      conteudo: Buffer.from(encoded, "base64"),
+      anexadaPor: null,
+    });
+    res.status(201).json(versao);
+  } catch (erro) {
+    /*
+      Recusa de leitura e arquivo repetido são 400: os dois são coisas que quem
+      está na tela resolve trocando o arquivo. Qualquer outra coisa sobe, porque
+      um erro que a tela não sabe consertar não deve virar uma mensagem que
+      sugere que ela saiba.
+    */
+    if (
+      erro instanceof CelulaRecusada ||
+      erro instanceof AbaDoResumoNaoEncontrada ||
+      erro instanceof ReferenciaJaAnexada
+    ) {
+      res.status(400).json({ error: erro.message });
+      return;
+    }
+    throw erro;
+  }
+});
+
+/** Troca qual versão é a ativa. Nenhuma é apagada — ver `ativarReferencia`. */
+router.post("/fechamento/referencias/:id/ativacao", async (req, res): Promise<void> => {
+  const { id } = req.params;
+  if (!UUID.test(id)) {
+    res.status(400).json({ error: "Identificador de referência inválido." });
+    return;
+  }
+  await ativarReferencia(db, id);
+  res.status(204).end();
 });
 
 /**

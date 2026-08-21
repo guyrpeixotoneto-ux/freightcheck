@@ -220,6 +220,33 @@ export interface LinhaComparada {
   memoria: { primeira: string | null; segunda: string | null };
   /** O que falta para o devido existir. `null` quando ele existe. */
   falta: string | null;
+  /**
+   * O que a planilha da operação publica nesta linha — a **terceira** fonte.
+   *
+   * `null` em toda leitura de um mês sem referência anexada, que é o estado
+   * normal: a planilha é opcional, e o painel funciona sem ela exatamente como
+   * funcionava antes de esta coluna existir.
+   *
+   * **Ela não participa de `devido`, `demonstrado` nem `diferenca`.** Estes
+   * quatro campos são enxertados por `comReferencia` **depois** de o painel
+   * estar montado, num módulo que o cálculo não importa — ver
+   * `painel-referencia.ts`. É por isso que a coluna existe sem que a conta
+   * mude: ela chega tarde demais para influenciar o que quer que seja.
+   */
+  planilha: TresColunas | null;
+  /** `devido − planilha`. `null` quando falta qualquer um dos dois. */
+  diferencaDaPlanilha: TresColunas | null;
+  /** De que célula do `RESUMO GERAL` saiu cada quinzena — `AI7`, `AJ7`. */
+  celulaDaPlanilha: { primeira: string | null; segunda: string | null } | null;
+  /**
+   * Por que esta linha diverge, quando já se sabe — de `DIVERGENCIAS_CONHECIDAS`.
+   *
+   * Não é desculpa nem tolerância: a diferença continua aparecendo com o valor
+   * inteiro. É o nome da causa já investigada, para quem lê não reabrir a mesma
+   * investigação. `null` na linha cuja divergência ninguém explicou ainda — e
+   * essa é justamente a que merece olhar.
+   */
+  causaConhecida: string | null;
 }
 
 /**
@@ -265,6 +292,10 @@ export interface QuadroComparado {
   devido: TresColunas;
   demonstrado: TresColunas;
   diferenca: TresColunas;
+  /** O total que a planilha publica para o quadro. `null` sem referência. */
+  planilha: TresColunas | null;
+  /** `devido − planilha` no total do quadro. */
+  diferencaDaPlanilha: TresColunas | null;
 }
 
 /**
@@ -292,6 +323,26 @@ export interface PainelComparado {
    * consigo mesmo por construção.
    */
   inconsistencias: Inconsistencia[];
+  /**
+   * De qual arquivo saiu a coluna da planilha. `null` quando ninguém anexou.
+   *
+   * **Aparece em toda leitura, e não só quando alguém pergunta.** O `.xlsb` não
+   * declara a que mês pertence — a associação é declarada por quem anexa —, e
+   * por isso a única coisa que torna a diferença auditável é dizer, ao lado
+   * dela, contra qual arquivo ela foi medida. Esconder a procedência
+   * transformaria a coluna numa afirmação sem fonte.
+   */
+  referencia: ProcedenciaDaReferencia | null;
+}
+
+/** De onde saiu a coluna da planilha — a prova de contra o quê se conferiu. */
+export interface ProcedenciaDaReferencia {
+  id: string;
+  versao: number;
+  nomeDoArquivo: string;
+  sha256: string;
+  anexadaPor: string | null;
+  anexadaEm: string;
 }
 
 export interface CanalDoResumo {
@@ -725,6 +776,16 @@ export function compararPaineis(
         memoria: { primeira: l1?.memoria ?? null, segunda: l2?.memoria ?? null },
         /* A falta é a mesma nas duas quando as duas a têm; basta dizer uma vez. */
         falta: l1?.falta ?? l2?.falta ?? null,
+        /*
+          Nascem nulos **sempre**, inclusive quando há referência anexada. Quem
+          os preenche é `comReferencia`, depois, de fora. Este construtor não
+          conhece a planilha e não recebe parâmetro por onde ela entre — é a
+          forma estrutural de garantir que ela não alcança o devido.
+        */
+        planilha: null,
+        diferencaDaPlanilha: null,
+        celulaDaPlanilha: null,
+        causaConhecida: null,
       };
     });
 
@@ -742,6 +803,9 @@ export function compararPaineis(
       devido,
       demonstrado: dem,
       diferenca: subtrair(devido, dem),
+      /* Nulos aqui pela mesma razão das linhas — quem preenche é `comReferencia`. */
+      planilha: null,
+      diferencaDaPlanilha: null,
     };
   });
 
@@ -749,6 +813,12 @@ export function compararPaineis(
     canal,
     quadros,
     cadastro,
+    /*
+      Sem referência por construção. `montarPainelComparado` não recebe a
+      planilha e não tem como recebê-la: quem a enxerta é `comReferencia`, de
+      fora, depois. Ver a nota de contaminação em `painel-referencia.ts`.
+    */
+    referencia: null,
     pendencias: [
       ...new Set([
         ...(calculado.primeira?.pendencias ?? []),

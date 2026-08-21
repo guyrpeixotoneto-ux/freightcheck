@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./persistencia": "./src/persistencia.ts"
+    "./persistencia": "./src/persistencia.ts",
+    "./referencia-persistencia": "./src/referencia-persistencia.ts"
   },
   "scripts": {
     "test": "vitest run",

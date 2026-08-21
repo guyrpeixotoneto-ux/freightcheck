@@ -277,6 +277,26 @@ const TABELAS_REMOVIDAS = [
     aposentar. Descartá-la desfaria o cadastro e devolveria o produto ao estado
     em que duas telas adivinhavam se dois textos eram a mesma unidade.
   */
+  /*
+    As três da referência de conferência, da `0051` — e elas vêm **antes** de
+    `unidade`, porque `fechamento_referencia.unidade_id` aponta para lá e o
+    `RESTRICT` do `down` só deixa a mãe sair depois da filha. Entre si, a mesma
+    regra: as duas que penduram na referência saem antes dela.
+
+    **A pré-condição de vazia é a certa, e por um motivo próprio destas.** Cada
+    linha de `fechamento_referencia` é uma planilha que alguém anexou a um mês e
+    **declarou** pertencer a ele — declaração que nenhuma consulta reconstrói,
+    justamente porque o `.xlsb` não carrega identidade legível. E cada linha de
+    `fechamento_referencia_linha` é a régua contra a qual alguém leu uma
+    diferença; perdê-la tornaria aquela leitura irreproduzível.
+
+    Nada aqui alimenta cálculo, e por isso descartá-las não mudaria um centavo
+    de nenhum `devido` — o que se perderia é a **conferência**, que é decisão de
+    gente do mesmo naipe de `remuneracao_planilha` e `coverage_expectation`.
+  */
+  "fechamento_referencia_linha",
+  "fechamento_referencia_conteudo",
+  "fechamento_referencia",
   "unidade",
 ];
 
@@ -1839,6 +1859,45 @@ function planoUp(): PassoUp[] {
     "FKs da unidade canônica",
     levantar(M49, /fechamento_competencia_unidade_id_unidade_id_fk/),
   );
+
+  /*
+    A referência de conferência, da `0051`.
+
+    Vem **depois** da `0049` na ordem do `up`, que é a inversa da do `down`:
+    `fechamento_referencia.unidade_id` aponta para `unidade`, e a mãe tem de
+    existir antes da filha. As três tabelas e as três FKs vêm do DDL da própria
+    migration por `levantar`, pela razão de sempre — uma segunda escrita da
+    mesma definição concorda no dia em que é escrita e discorda no dia em que a
+    migration muda.
+
+    O `up` repõe as tabelas **vazias**, e isso não é omissão: uma referência é
+    um arquivo que alguém anexou e um mês que alguém declarou. Nenhuma consulta
+    reconstrói nem uma coisa nem a outra — é por isso que as três exigem tabela
+    vazia no `down`, e é por isso que ele só desce quando não há conferência a
+    perder.
+  */
+  const M51 = "0051_referencia_da_planilha";
+  add(M51, "fechamento_referencia", levantar(M51, /CREATE TABLE IF NOT EXISTS "fechamento_referencia" \(/));
+  add(
+    M51,
+    "fechamento_referencia_conteudo",
+    levantar(M51, /CREATE TABLE IF NOT EXISTS "fechamento_referencia_conteudo" \(/),
+  );
+  add(
+    M51,
+    "fechamento_referencia_linha",
+    levantar(M51, /CREATE TABLE IF NOT EXISTS "fechamento_referencia_linha" \(/),
+  );
+  add(M51, "FKs da referência", levantar(M51, /fechamento_referencia_conteudo_referencia_fk/));
+  for (const indice of [
+    "fechamento_referencia_linha_unica",
+    "fechamento_referencia_ativa_unica",
+    "fechamento_referencia_versao_unica",
+    "fechamento_referencia_sem_repeticao",
+    "fechamento_referencia_por_mes",
+  ]) {
+    add(M51, `índice ${indice}`, levantar(M51, new RegExp(`INDEX IF NOT EXISTS "${indice}"`)));
+  }
 
   const M42 = "0042_viagem_completa";
   for (const coluna of COLUNAS_DO_RETRATO_DA_VIAGEM) {

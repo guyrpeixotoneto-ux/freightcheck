@@ -43,8 +43,16 @@ const ULTIMO_DIA = { 1: "R", 2: "AH" } as const;
 const COLUNA_DA_QUINZENA = { 1: "AI", 2: "AJ" } as const;
 const DIAS_DA_QUINZENA = { 1: [1, 15], 2: [16, 31] } as const;
 
-/** As linhas do `RESUMO GERAL`, por chave do motor. */
-const LINHA_NO_RESUMO: Record<string, number> = {
+/**
+ * As linhas do `RESUMO GERAL`, por chave do motor.
+ *
+ * Exportada para que `referencia.test.ts` prenda a concordância com o mapa de
+ * `referencia.ts`: os dois módulos leem a mesma planilha para perguntas
+ * diferentes, e a mesma célula não pode ter dois endereços no repositório.
+ * Não são fundidos porque as perguntas divergem — este mapa é o das linhas de
+ * quadro, e o de lá inclui os totais que a tela mostra.
+ */
+export const LINHA_NO_RESUMO: Record<string, number> = {
   rota_dvs: 7,
   custo_fixo_padronizado: 8,
   custo_fixo_inativos: 9,

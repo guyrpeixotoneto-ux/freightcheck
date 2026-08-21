@@ -695,6 +695,29 @@ export interface LinhaComparada {
   conjunto: ConjuntoDoPainel | null;
   memoria: { primeira: string | null; segunda: string | null };
   falta: string | null;
+  /**
+   * O que a planilha da operação publica nesta linha — a **terceira** fonte.
+   *
+   * `null` em todo mês sem planilha anexada, que é o estado normal: a coluna é
+   * opcional e a tela funciona sem ela exatamente como funcionava antes.
+   *
+   * Ela chega ao painel **depois** de o devido estar calculado, por enxerto
+   * puro no servidor — nunca participa de `devido`, `demonstrado` nem
+   * `diferenca`. Ver `painel-referencia.ts` em `@workspace/fechamento`.
+   */
+  planilha: TresColunas | null;
+  /** `devido − planilha`, no mesmo sinal de `diferenca`: positivo é o sistema pedindo mais. */
+  diferencaDaPlanilha: TresColunas | null;
+  /** De que célula do `RESUMO GERAL` saiu cada quinzena — `AI7`, `AJ7`. */
+  celulaDaPlanilha: { primeira: string | null; segunda: string | null } | null;
+  /**
+   * A causa já investigada desta divergência, quando existe.
+   *
+   * Não é tolerância: a diferença continua inteira ao lado. É o nome da causa,
+   * para quem lê não reabrir a mesma investigação. `null` na divergência que
+   * ninguém explicou — e é essa que merece olhar.
+   */
+  causaConhecida: string | null;
 }
 
 /**
@@ -723,6 +746,25 @@ export interface QuadroComparado {
   devido: TresColunas;
   demonstrado: TresColunas;
   diferenca: TresColunas;
+  /** O total que a planilha publica para o quadro — lido, não somado das linhas. */
+  planilha: TresColunas | null;
+  diferencaDaPlanilha: TresColunas | null;
+}
+
+/** De onde saiu a coluna da planilha — a prova de contra o quê se conferiu. */
+export interface ProcedenciaDaReferencia {
+  id: string;
+  versao: number;
+  nomeDoArquivo: string;
+  sha256: string;
+  anexadaPor: string | null;
+  anexadaEm: string;
+}
+
+/** Uma versão anexada, como a tela a lista para trocar de régua. */
+export interface VersaoDaReferencia extends ProcedenciaDaReferencia {
+  ativa: boolean;
+  tamanhoEmBytes: number;
 }
 
 export interface PainelComparado {
@@ -743,6 +785,15 @@ export interface PainelComparado {
    * Ver `inconsistencias.ts` em `@workspace/fechamento`.
    */
   inconsistencias: Inconsistencia[];
+  /**
+   * De qual arquivo saiu a coluna da planilha. `null` quando ninguém anexou.
+   *
+   * A tela mostra isto **sempre que a coluna aparece**, e não atrás de um
+   * clique: o `.xlsb` não declara a que mês pertence — quem anexa é que declara
+   * —, e a única coisa que torna a diferença auditável é dizer, ao lado dela,
+   * contra qual arquivo ela foi medida.
+   */
+  referencia: ProcedenciaDaReferencia | null;
 }
 
 /* ---------------------------------------------------------------------------
@@ -901,6 +952,67 @@ export function lerResumoDoMes(alvo: {
     mes: String(alvo.mes),
   });
   return fetchJson<ResumoDoMes>(`/fechamento/resumo?${busca.toString()}`);
+}
+
+/* ---------------------------------------------------------------------------
+   A referência de conferência — a planilha da operação, anexada a um mês
+   ------------------------------------------------------------------------ */
+
+/** O mês que uma referência endereça — a mesma quíntupla do resumo. */
+export interface MesDaReferencia {
+  unidade: string;
+  transportadora: string;
+  tipoDeOperacao: string;
+  ano: number;
+  mes: number;
+}
+
+function buscaDoMes(alvo: MesDaReferencia): string {
+  return new URLSearchParams({
+    unidade: alvo.unidade,
+    transportadora: alvo.transportadora,
+    tipoDeOperacao: alvo.tipoDeOperacao,
+    ano: String(alvo.ano),
+    mes: String(alvo.mes),
+  }).toString();
+}
+
+/** As versões já anexadas ao mês, da mais nova para a mais velha. */
+export function listarReferenciasDoMes(alvo: MesDaReferencia): Promise<{ versoes: VersaoDaReferencia[] }> {
+  return fetchJson<{ versoes: VersaoDaReferencia[] }>(`/fechamento/referencias?${buscaDoMes(alvo)}`);
+}
+
+/**
+ * Anexa uma planilha ao mês.
+ *
+ * **A recusa volta como mensagem, e a mensagem nomeia a célula.** O servidor lê
+ * o arquivo antes de gravar; se ele não for uma planilha deste formato, ou se
+ * uma célula do `RESUMO GERAL` estiver vazia, com erro do Excel ou com texto, a
+ * resposta é 400 com o endereço. Quem está na tela troca o arquivo — nada foi
+ * gravado e nenhum valor foi suposto.
+ */
+export async function anexarReferencia(
+  alvo: MesDaReferencia,
+  arquivo: File,
+): Promise<VersaoDaReferencia> {
+  const bytes = new Uint8Array(await arquivo.arrayBuffer());
+  let binario = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    binario += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  }
+  return fetchJson<VersaoDaReferencia>(`/fechamento/referencias?${buscaDoMes(alvo)}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ filename: arquivo.name, contentBase64: btoa(binario) }),
+  });
+}
+
+/** Troca qual versão é a ativa. Nenhuma é apagada. */
+export async function ativarReferencia(id: string): Promise<void> {
+  const resposta = await fetch(getApiUrl(`/fechamento/referencias/${id}/ativacao`), {
+    method: "POST",
+  });
+  if (!resposta.ok) throw erroDaResposta(resposta, await readJson(resposta));
 }
 
 /**

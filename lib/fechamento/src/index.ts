@@ -40,6 +40,15 @@ export * from "./inconsistencias";
 */
 export * from "./reconciliacao";
 export * from "./cadastro-porta";
+/*
+  A régua de conferência. Sai da raiz do pacote porque a rota e a tela precisam
+  dela; **não** sai daqui nada que o cálculo consuma — ver a nota de
+  contaminação em `painel-referencia.ts`. A persistência da referência mora em
+  `./referencia-persistencia` e é exportada à parte, pelo mesmo motivo por que
+  `persistencia.ts` também é: quem só quer os tipos não arrasta o banco junto.
+*/
+export * from "./referencia";
+export * from "./painel-referencia";
 export { lerOperacao, type DetalheDaViagem, type Viagem } from "./leitores/operacao";
 export {
   lerCadastro,

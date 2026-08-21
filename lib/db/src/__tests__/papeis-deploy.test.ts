@@ -207,6 +207,19 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
           Production a ganha quando o servidor novo aplicar a fila na partida.
         */
         "unidade",
+        /*
+          As três da referência de conferência, da `0051` — a planilha anexada a
+          um mês para se conferir contra ela. Aditivas como as demais: nenhuma
+          tabela existente muda de forma, nenhuma coluna nova sai de tabela do
+          cálculo, e Production as ganha quando o servidor novo aplicar a fila.
+
+          Elas guardam o arquivo e os números que ele imprime, e **nada** do que
+          está aqui alimenta conta nenhuma: a referência entra na tela como
+          coluna ao lado do devido, depois de ele estar calculado.
+        */
+        "fechamento_referencia",
+        "fechamento_referencia_conteudo",
+        "fechamento_referencia_linha",
       ]),
     );
     /*
@@ -286,6 +299,8 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
       "0048_unidade_sem_acervo",
       "0049_unidade_canonica",
       "0050_reconciliar_unidade_canonica",
+      "0051_referencia_da_planilha",
+      "0052_reconciliar_referencia_da_planilha",
     ]);
 
     // Preservação + backfill: as três contas continuam com o hash original e

@@ -313,6 +313,185 @@ export const fechamentoDocumentoConteudoTable = pgTable(
 );
 
 /* ===========================================================================
+ * 2b. A referência de conferência — a planilha, que não é fonte
+ * ======================================================================== */
+
+/**
+ * A `Fechamento_Remuneracao.xlsb` anexada a um mês, para conferir contra ela.
+ *
+ * **Por que uma tabela à parte, e não um sétimo `tipo` em
+ * `fechamento_documento`.** As seis fontes daquela tabela são todas relatórios
+ * Promax e todas **insumos do cálculo** — o `check` que as lista é a trava que
+ * mantém qualquer outra coisa fora da conta. A planilha é o oposto: é o que
+ * está sendo conferido. Um sétimo `tipo` a faria atravessar `TipoDeFonte`,
+ * `DESCRICAO_DA_FONTE`, `FORMATOS_DA_FONTE` e `FONTES_DA_QUINZENA`, e em cada
+ * um desses lugares ela pareceria fonte de cálculo para quem lesse depois.
+ * Separada, a pergunta "isto entra na conta?" se responde pelo nome da tabela.
+ *
+ * **É de mês, e não de quinzena — e isso vem do arquivo, não de gosto.** O
+ * `RESUMO GERAL` empilha a 1ª quinzena na coluna `AI` e a 2ª na `AJ`: um
+ * arquivo carrega as duas. Guardá-la por competência obrigaria a subir o mesmo
+ * `.xlsb` duas vezes e criaria duas verdades para o mesmo arquivo — duas
+ * linhas, dois `sha256` iguais, e nenhuma regra dizendo qual vale se elas
+ * divergirem. Aqui a chave é a mesma quíntupla por que `lerResumoDoMes`
+ * endereça o mês, e os bytes ficam guardados uma vez só.
+ *
+ * **Nenhuma identidade é adivinhada.** O `.xlsb` não declara unidade, CNPJ nem
+ * mês em nada que se leia dele: `lerCadastro` traz só números, e a competência
+ * que aparece na amostra de teste é string escrita no código. Então a
+ * associação é **declarada** por quem anexa, e o que o produto oferece no lugar
+ * de uma porta falsa é procedência: `sha256`, nome do arquivo, quem anexou e
+ * quando, mostrados ao lado da coluna em toda leitura. Uma heurística de
+ * "parece do mesmo mês" seria o casamento-por-semelhança que `unidade` existe
+ * para aposentar.
+ *
+ * **Versão explícita, histórico preservado.** Anexar de novo não sobrescreve:
+ * cria a versão seguinte e desativa a anterior. O índice parcial
+ * `fechamento_referencia_ativa_unica` garante **uma** ativa por mês — sem ele,
+ * duas ativas fariam a tela escolher em silêncio, que é o defeito que a regra
+ * de versão existe para impedir. As inativas ficam, porque a diferença que
+ * alguém leu ontem foi medida contra um arquivo específico e essa leitura tem
+ * de continuar reconstruível.
+ */
+export const fechamentoReferenciaTable = pgTable(
+  "fechamento_referencia",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /*
+      A quíntupla que endereça o mês — a mesma de `lerResumoDoMes`. Texto e não
+      FK para `unidade` de propósito: as competências históricas são endereçadas
+      pelo código digitado, e uma referência tem de poder ser anexada a um mês
+      cuja unidade ninguém canonizou ainda.
+    */
+    unidadeCodigo: text("unidade_codigo").notNull(),
+    transportadoraCodigo: text("transportadora_codigo").notNull(),
+    /** `EMPURRADA`, `ROTA` — o mesmo eixo de `fechamento_competencia`. */
+    tipoDeOperacao: text("tipo_de_operacao").notNull(),
+    ano: integer("ano").notNull(),
+    mes: integer("mes").notNull(),
+    /**
+     * A unidade canônica **se** o mês já a tiver — auditoria, nunca casamento.
+     *
+     * Gravada por conveniência de quem audita depois; nada a lê para decidir
+     * qual referência serve a qual mês. Quem decide isso é a quíntupla acima,
+     * que é o que quem anexa declarou.
+     */
+    unidadeId: uuid("unidade_id").references(() => unidadeTable.id),
+    nomeDoArquivo: text("nome_do_arquivo").notNull(),
+    sha256: text("sha256").notNull(),
+    tamanhoEmBytes: integer("tamanho_em_bytes").notNull(),
+    /** 1, 2, 3… na ordem em que foram anexadas ao mesmo mês. */
+    versao: integer("versao").notNull(),
+    /** A que a tela usa. Uma só por mês, garantido por índice parcial. */
+    ativa: boolean("ativa").notNull().default(true),
+    anexadaPor: uuid("anexada_por"),
+    anexadaEm: timestamp("anexada_em", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("fechamento_referencia_ativa_unica")
+      .on(t.unidadeCodigo, t.transportadoraCodigo, t.tipoDeOperacao, t.ano, t.mes)
+      .where(sql`${t.ativa}`),
+    uniqueIndex("fechamento_referencia_versao_unica").on(
+      t.unidadeCodigo,
+      t.transportadoraCodigo,
+      t.tipoDeOperacao,
+      t.ano,
+      t.mes,
+      t.versao,
+    ),
+    /*
+      O mesmo arquivo não vira duas versões do mesmo mês. Anexar de novo o que
+      já está lá é engano de quem opera, não uma versão nova — e uma versão nova
+      com bytes idênticos faria o histórico contar uma troca que não houve.
+    */
+    uniqueIndex("fechamento_referencia_sem_repeticao").on(
+      t.unidadeCodigo,
+      t.transportadoraCodigo,
+      t.tipoDeOperacao,
+      t.ano,
+      t.mes,
+      t.sha256,
+    ),
+    index("fechamento_referencia_por_mes").on(
+      t.unidadeCodigo,
+      t.transportadoraCodigo,
+      t.tipoDeOperacao,
+      t.ano,
+      t.mes,
+    ),
+    check("fechamento_referencia_mes", sql`${t.mes} between 1 and 12`),
+    check("fechamento_referencia_versao", sql`${t.versao} >= 1`),
+  ],
+);
+
+/**
+ * Os bytes do `.xlsb`, guardados uma vez por versão.
+ *
+ * Tabela à parte pela razão de `fechamento_documento_conteudo`: listar as
+ * versões de um mês é operação de tela, e um `bytea` de megabytes na mesma
+ * linha arrastaria o conteúdo pelo TOAST em toda listagem. E a coluna da
+ * planilha na tela **não** lê estes bytes — ela lê os números já extraídos na
+ * hora do anexo. Isto aqui é a evidência, para quem quiser reabrir o arquivo e
+ * conferir de onde saiu cada número.
+ */
+export const fechamentoReferenciaConteudoTable = pgTable(
+  "fechamento_referencia_conteudo",
+  {
+    referenciaId: uuid("referencia_id").primaryKey(),
+    /** O `.xlsb`, comprimido com gzip. */
+    conteudo: bytea("conteudo").notNull(),
+    /** Quantos bytes o arquivo tinha antes de comprimir — confere na volta. */
+    bytesOriginais: integer("bytes_originais").notNull(),
+    guardadoEm: timestamp("guardado_em", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.referenciaId],
+      foreignColumns: [fechamentoReferenciaTable.id],
+      name: "fechamento_referencia_conteudo_referencia_fk",
+    }).onDelete("cascade"),
+  ],
+);
+
+/**
+ * O `RESUMO GERAL` que a planilha imprime, linha a linha, já extraído.
+ *
+ * **Por que os números vivem no banco e não são relidos do `.xlsb`.** Abrir um
+ * arquivo de 3 MB e 44 abas a cada leitura do Resumo custaria segundos por
+ * requisição para devolver catorze números por quinzena. Mas o motivo forte é
+ * outro: a extração é **fail-closed** e pode recusar. Recusar tem de acontecer
+ * **no anexo**, na frente de quem escolheu o arquivo e pode trocá-lo — não na
+ * abertura do Resumo, semanas depois, para alguém que só queria conferir. O
+ * que está aqui já passou pela porta.
+ *
+ * **Uma linha por (referência, quinzena, chave).** A chave é a do motor
+ * (`rota_dvs`, `custo_fixo_padronizado`, …), que é o que permite pôr a coluna
+ * lado a lado com o devido sem casar por rótulo.
+ */
+export const fechamentoReferenciaLinhaTable = pgTable(
+  "fechamento_referencia_linha",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    referenciaId: uuid("referencia_id").notNull(),
+    quinzena: integer("quinzena").notNull(),
+    /** A chave do motor — `rota_dvs`, `custo_fixo_padronizado`, `total_geral`… */
+    chave: text("chave").notNull(),
+    /** O endereço de onde saiu — `AI7`. A célula, para quem for conferir. */
+    celula: text("celula").notNull(),
+    valor: numeric("valor", { precision: 14, scale: 2 }).notNull(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.referenciaId],
+      foreignColumns: [fechamentoReferenciaTable.id],
+      name: "fechamento_referencia_linha_referencia_fk",
+    }).onDelete("cascade"),
+    uniqueIndex("fechamento_referencia_linha_unica").on(t.referenciaId, t.quinzena, t.chave),
+    check("fechamento_referencia_linha_quinzena", sql`${t.quinzena} in (1, 2)`),
+  ],
+);
+
+/* ===========================================================================
  * 3. As linhas normalizadas — uma tabela por fonte
  * ======================================================================== */
 

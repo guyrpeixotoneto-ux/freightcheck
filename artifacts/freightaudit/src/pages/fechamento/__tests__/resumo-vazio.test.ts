@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { motivoDoVazio, quinzenaExiste } from "../resumo";
+import { motivoDoVazio, quinzenaExiste, temColunaDaPlanilha } from "../resumo";
 
 /**
  * O Resumo geral sem números — e as duas razões que ele confundia numa só.
@@ -45,5 +45,27 @@ describe("motivoDoVazio", () => {
     expect(motivoDoVazio([NAO_ABERTA, { quinzena: 1, competenciaId: "c2" }])).toBe(
       "SEM_APURACAO",
     );
+  });
+});
+
+/**
+ * A coluna da planilha — e as três ausências que ela precisa distinguir.
+ *
+ * O caso do meio é o que motivou extrair a regra: durante um deploy, um servidor
+ * antigo devolve o painel sem o campo. `!== null` daria `true` ali e a tela
+ * abriria duas colunas de traços, dizendo que a planilha não publica nada.
+ */
+describe("temColunaDaPlanilha", () => {
+  it("com referência anexada, a coluna aparece", () => {
+    expect(temColunaDaPlanilha({ referencia: { id: "r1", versao: 1 } })).toBe(true);
+  });
+
+  it("sem referência, a coluna não aparece — e esse é o estado normal", () => {
+    expect(temColunaDaPlanilha({ referencia: null })).toBe(false);
+  });
+
+  it("campo ausente é tratado como sem referência, e não como presente", () => {
+    expect(temColunaDaPlanilha({})).toBe(false);
+    expect(temColunaDaPlanilha({ referencia: undefined })).toBe(false);
   });
 });
