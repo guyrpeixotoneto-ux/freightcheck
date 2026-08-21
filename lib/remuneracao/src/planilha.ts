@@ -404,3 +404,42 @@ export async function copiarPlanilha(
     ...(pedido.autor ? { autor: pedido.autor } : {}),
   });
 }
+
+/**
+ * Apaga a planilha informada de uma unidade **numa vigência** — as células
+ * todas, de uma vez.
+ *
+ * **Por que existe.** A escrita já sabia apagar linha a linha (`valor: null`),
+ * e é o gesto certo para corrigir uma célula. O que não havia era o gesto de
+ * desfazer a quinzena inteira, e ele é diferente na intenção: quem digitou a
+ * aba na quinzena errada não quer trinta correções, quer que aquela linha da
+ * lista deixe de existir. Sem isto a saída era apagar as trinta à mão e ficar
+ * com uma linha vazia que ninguém sabia por que estava lá.
+ *
+ * **Devolve quantas saíram**, e é o que a tela mostra de volta. Zero é resposta
+ * legítima — a quinzena não tinha nada informado —, e não erro: quem clicou já
+ * está com a lista aberta e o que ele pediu ("não quero nada informado aqui")
+ * está cumprido.
+ *
+ * Não há histórico: as células saem do banco. É a mesma postura do resto do
+ * módulo — a planilha não tem versões, ela tem autor e data da última escrita —,
+ * e por isso a tela que chama daqui precisa dizer, antes, quantas linhas vão
+ * sair e quem as informou. Ver `PainelDeExclusao`.
+ */
+export async function apagarPlanilha(
+  db: Database,
+  alvo: { scopeHash: string; canal: string | null; effectiveDate: string },
+): Promise<number> {
+  const apagadas = await db
+    .delete(remuneracaoPlanilhaTable)
+    .where(
+      and(
+        eq(remuneracaoPlanilhaTable.scopeHash, alvo.scopeHash),
+        eq(remuneracaoPlanilhaTable.canal, canalGravado(alvo.canal)),
+        eq(remuneracaoPlanilhaTable.effectiveDate, alvo.effectiveDate),
+      ),
+    )
+    .returning({ id: remuneracaoPlanilhaTable.id });
+
+  return apagadas.length;
+}

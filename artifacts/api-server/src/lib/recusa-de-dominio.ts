@@ -11,6 +11,7 @@ import { VigenciaNaoEncontradaError } from "@workspace/qlp";
 import {
   CodigoRecusado,
   ComparacaoSemDuasVigencias,
+  ExclusaoRecusada,
   LinhaDaPlanilhaInvalida,
   PlanilhaVazia,
   UnidadeInvalida,
@@ -112,6 +113,11 @@ const RECUSAS: { classe: new (...args: never[]) => Error; status: number }[] = [
      formado, e é o estado que já responde. A frase nomeia o que está no
      caminho, porque a saída é sempre manual. */
   { classe: CodigoRecusado, status: 409 },
+  /* Apagar a unidade cadastrada à mão que ainda tem planilha. 409 pela mesma
+     razão das duas acima — o pedido está bem formado, e é o estado que
+     responde: as quinzenas informadas saem primeiro, uma a uma, para que o que
+     se perde esteja escrito antes de cada clique. */
+  { classe: ExclusaoRecusada, status: 409 },
   /* Conflito de estado, não defeito do pedido: o e-mail já é de outra conta. */
   { classe: EmailAlreadyUsedError, status: 409 },
 ];
