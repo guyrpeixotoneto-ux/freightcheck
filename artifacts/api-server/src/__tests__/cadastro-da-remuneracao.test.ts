@@ -88,10 +88,12 @@ interface UnidadeRegistrada {
   unidadeId?: string;
 }
 
-/** O CNPJ que a unidade canônica declara — o lado do cadastro. */
+/** A unidade canônica fingida — o cadastro mestre do outro lado. */
 interface CanonicaFingida {
   id: string;
   cnpj: string;
+  /** O nome legível. É por ele que a sugestão encontra a candidata. */
+  nome?: string;
 }
 
 const SO_DIGITOS = (t: string) => t.replace(/\D/g, "");
@@ -129,10 +131,37 @@ function bancoCom(opcoes: {
       const procurado = String(valores[0] ?? "");
 
       if (texto.includes("count(*)")) return { rows: [{ total: unidades.length }] };
-      /* O lado do cadastro: o CNPJ da unidade canônica. */
+      /* O lado do cadastro: a unidade canônica de um identificador. */
       if (texto.includes("FROM unidade u WHERE u.id =")) {
         const achada = (opcoes.canonicas ?? []).find((c) => c.id === procurado);
-        return { rows: achada ? [{ cnpj: achada.cnpj }] : [] };
+        return {
+          rows: achada
+            ? [{ id: achada.id, nome: achada.nome ?? "", cnpj: achada.cnpj }]
+            : [],
+        };
+      }
+      /*
+        A sugestão pelo texto: o nome comparável, com a mesma normalização do
+        SQL — minúsculas, espaço colapsado e acentos rebaixados.
+      */
+      if (texto.includes("translate(")) {
+        const comparavel = (t: string) =>
+          t
+            .trim()
+            .replace(/\s+/g, " ")
+            .toLowerCase()
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "");
+        const documento = SO_DIGITOS(procurado);
+        return {
+          rows: (opcoes.canonicas ?? [])
+            .filter(
+              (c) =>
+                (c.nome !== undefined && comparavel(c.nome) === comparavel(procurado)) ||
+                (documento !== "" && c.cnpj === documento.padStart(14, "0")),
+            )
+            .map((c) => ({ id: c.id, nome: c.nome ?? "", cnpj: c.cnpj })),
+        };
       }
       /* O lado do arquivo: o `canonical_scope` do snapshot daquele escopo. */
       if (texto.includes("jsonb_array_elements")) {
@@ -535,6 +564,56 @@ describe("a identidade canônica", () => {
     expect(diagnostico.estado).toBe("UNIDADE_NAO_ENCONTRADA");
   });
 
+  /**
+   * O estado que existe para não mandar a pessoa ao lugar errado.
+   *
+   * Com identidade, o texto não é comparado com nada — e a frase antiga, "os
+   * dois textos precisam ser iguais", era executável, inofensiva e inútil. Quem
+   * a seguisse mudaria o código do cadastro e a tela continuaria igual.
+   */
+  it("com identidade e sem cadastro nela, o conserto é do lado de Remuneração", async () => {
+    const db = bancoCom({
+      unidades: [{ scopeHash: "sh1", canal: "", codigo: "0443", unidadeId: OUTRA_ID }],
+      canonicas: [{ id: UNIDADE_ID, nome: "CDD BELÉM", cnpj: "11177288000190" }],
+      porVigencia: { "2026-07-01": ABA },
+    });
+    const { resposta, diagnostico } = await porta(db).resolver({
+      ...UNIDADE,
+      unidadeCodigo: "CDD Belém",
+      unidadeId: UNIDADE_ID,
+      ...PRIMEIRA,
+    });
+    const destrava = comoDestravar(diagnostico)!;
+
+    expect(resposta).toBeNull();
+    expect(diagnostico.estado).toBe("UNIDADE_SEM_CADASTRO");
+    /* A unidade é nomeada: sem o nome, "associe o cadastro a ela" não diz a qual. */
+    expect(diagnostico.unidade.identidade?.nome).toBe("CDD BELÉM");
+    expect(destrava.problema).toContain("CDD BELÉM");
+    expect(destrava.conserto).toContain("Remuneração");
+    /* E, principalmente, **não** manda igualar textos que ninguém lê. */
+    expect(destrava.conserto).not.toContain("Os dois textos precisam ser iguais");
+  });
+
+  it("com identidade, não se sugere unidade nenhuma — já há uma escolhida", async () => {
+    const db = bancoCom({
+      unidades: [{ scopeHash: "sh1", canal: "", codigo: "0443", unidadeId: OUTRA_ID }],
+      canonicas: [
+        { id: UNIDADE_ID, nome: "CDD BELÉM", cnpj: "11177288000190" },
+        { id: OUTRA_ID, nome: "CDD BELÉM", cnpj: "22222222000122" },
+      ],
+      porVigencia: { "2026-07-01": ABA },
+    });
+    const { diagnostico } = await porta(db).resolver({
+      ...UNIDADE,
+      unidadeCodigo: "CDD Belém",
+      unidadeId: UNIDADE_ID,
+      ...PRIMEIRA,
+    });
+
+    expect(diagnostico.unidade.sugestoes).toEqual([]);
+  });
+
   it("sem identidade, as três faixas de texto continuam servindo o histórico", async () => {
     const db = bancoCom({
       unidades: [{ scopeHash: "sh1", canal: "", codigo: " 0443 " }],
@@ -544,6 +623,136 @@ describe("a identidade canônica", () => {
 
     expect(resposta).not.toBeNull();
     expect(diagnostico.unidade.comoCasou).toBe("ESPACO");
+  });
+});
+
+/* =========================================================================
+ * A sugestão pelo nome — encurtar a procura sem adivinhar
+ * ====================================================================== */
+
+/**
+ * O CASO `CDD Belém`, do lado da tela.
+ *
+ * Uma competência foi aberta com `CDD Belém` no campo do código, e o cadastro
+ * de Remuneração da mesma unidade guarda o CNPJ. Os dois textos nunca vão
+ * coincidir, e a tela mandava procurar um código sem dizer que a unidade já
+ * estava cadastrada em Administração → Unidades, a um clique de distância.
+ *
+ * **O que estes testes fixam é a fronteira.** O nome encontra a candidata e a
+ * põe na tela; ele **não** resolve contrato nenhum — `resposta` continua nula,
+ * e continua nula mesmo quando a candidata é óbvia. Quem associa é gente, e o
+ * que passa a valer depois é o `id`.
+ */
+describe("a sugestão pelo nome", () => {
+  const BELEM = { id: "33333333-3333-3333-3333-333333333333", nome: "CDD BELÉM", cnpj: "11177288000190" };
+
+  it("acha a unidade cadastrada cujo nome é o texto da competência", async () => {
+    const db = bancoCom({
+      unidades: [{ scopeHash: "sh1", canal: "", codigo: "11.177.288/0001-90" }],
+      canonicas: [BELEM],
+      porVigencia: { "2026-07-01": ABA },
+    });
+    const { resposta, diagnostico } = await porta(db).resolver({
+      ...UNIDADE,
+      unidadeCodigo: "CDD Belém",
+      ...PRIMEIRA,
+    });
+
+    /* A sugestão aparece — e o contrato **não** responde por causa dela. */
+    expect(resposta).toBeNull();
+    expect(diagnostico.estado).toBe("UNIDADE_NAO_ENCONTRADA");
+    expect(diagnostico.unidade.sugestoes).toEqual([BELEM]);
+  });
+
+  it("ignora caixa, acento e espaço no meio — são grafias do mesmo nome", async () => {
+    const db = bancoCom({
+      unidades: [{ scopeHash: "sh1", canal: "", codigo: "11.177.288/0001-90" }],
+      canonicas: [BELEM],
+      porVigencia: { "2026-07-01": ABA },
+    });
+    const { diagnostico } = await porta(db).resolver({
+      ...UNIDADE,
+      unidadeCodigo: "  cdd  belem ",
+      ...PRIMEIRA,
+    });
+
+    expect(diagnostico.unidade.sugestoes).toEqual([BELEM]);
+  });
+
+  it("o conserto oferece a associação antes de mandar igualar códigos", async () => {
+    const db = bancoCom({
+      unidades: [{ scopeHash: "sh1", canal: "", codigo: "11.177.288/0001-90" }],
+      canonicas: [BELEM],
+      porVigencia: { "2026-07-01": ABA },
+    });
+    const { diagnostico } = await porta(db).resolver({
+      ...UNIDADE,
+      unidadeCodigo: "CDD Belém",
+      ...PRIMEIRA,
+    });
+    const destrava = comoDestravar(diagnostico)!;
+
+    /* Os dois lados continuam na frase do problema — é o que acaba a procura. */
+    expect(destrava.problema).toContain("CDD Belém");
+    expect(destrava.problema).toContain("11.177.288/0001-90");
+    /* E o conserto nomeia a candidata, com o CNPJ que a distingue de uma xará. */
+    expect(destrava.conserto).toContain("CDD BELÉM");
+    expect(destrava.conserto).toContain("11.177.288/0001-90");
+    expect(destrava.conserto).toContain("associe a competência");
+  });
+
+  it("um nome que não é de ninguém não sugere nada", async () => {
+    const db = bancoCom({
+      unidades: [{ scopeHash: "sh1", canal: "", codigo: "11.177.288/0001-90" }],
+      canonicas: [BELEM],
+      porVigencia: { "2026-07-01": ABA },
+    });
+    const { diagnostico } = await porta(db).resolver({
+      ...UNIDADE,
+      unidadeCodigo: "CDD Manaus",
+      ...PRIMEIRA,
+    });
+
+    expect(diagnostico.unidade.sugestoes).toEqual([]);
+    /* Sem candidata, a instrução volta a ser a de igualar os dois textos. */
+    expect(comoDestravar(diagnostico)!.conserto).toContain("Os dois textos precisam ser iguais");
+  });
+
+  /**
+   * Duas unidades de mesmo nome são duas unidades, e a tela oferece as duas.
+   *
+   * É aqui que se vê por que o nome não pode resolver sozinho: escolher uma
+   * delas em silêncio poria o contrato de um CDD a responder pelo fechamento do
+   * outro — o mesmo defeito que o `LIMIT 1` do casamento por texto causava.
+   */
+  it("duas xarás viram duas candidatas, e nenhuma é escolhida", async () => {
+    const outra = { id: "44444444-4444-4444-4444-444444444444", nome: "CDD Belém", cnpj: "99999999000199" };
+    const db = bancoCom({
+      unidades: [{ scopeHash: "sh1", canal: "", codigo: "11.177.288/0001-90" }],
+      canonicas: [BELEM, outra],
+      porVigencia: { "2026-07-01": ABA },
+    });
+    const { resposta, diagnostico } = await porta(db).resolver({
+      ...UNIDADE,
+      unidadeCodigo: "CDD Belém",
+      ...PRIMEIRA,
+    });
+
+    expect(resposta).toBeNull();
+    expect(diagnostico.unidade.sugestoes).toHaveLength(2);
+    expect(comoDestravar(diagnostico)!.conserto).toContain("associe a competência à certa");
+  });
+
+  it("achando o cadastro pelo texto, não há o que sugerir", async () => {
+    const db = bancoCom({
+      unidades: [{ scopeHash: "sh1", canal: "", codigo: "0443" }],
+      canonicas: [BELEM],
+      porVigencia: { "2026-07-01": ABA },
+    });
+    const { resposta, diagnostico } = await porta(db).resolver({ ...UNIDADE, ...PRIMEIRA });
+
+    expect(resposta).not.toBeNull();
+    expect(diagnostico.unidade.sugestoes).toEqual([]);
   });
 });
 

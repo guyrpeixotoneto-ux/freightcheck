@@ -523,6 +523,30 @@ export function informarTipoDeOperacao(id: string, tipoDeOperacao: string): Prom
   });
 }
 
+/**
+ * Associa a competência à unidade canônica — o conserto sem exclusão.
+ *
+ * **O que ele grava é uma coluna: `unidade_id`.** Nada do que foi importado é
+ * lido ou tocado — nem documentos, nem itens do 03.08.20, nem os bytes
+ * originais de cada arquivo —, e `unidade_codigo` fica onde está. É por isso
+ * que a tela pode oferecê-lo como um botão: o custo de errar a unidade é
+ * associar de novo, e não reimportar a quinzena.
+ *
+ * A recusa da competência encerrada é do servidor, e a tela mostra a frase que
+ * voltar em vez de reescrevê-la: uma quinzena congelada que muda de número
+ * depois de fechada é exatamente o que o encerramento existe para impedir.
+ */
+export function associarUnidadeDaCompetencia(
+  id: string,
+  unidadeId: string,
+): Promise<Competencia> {
+  return fetchJson<Competencia>(`/fechamento/competencias/${id}/unidade`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ unidadeId }),
+  });
+}
+
 /** Encerra a competência — congela a quinzena. */
 export function encerrar(id: string): Promise<Competencia> {
   return fetchJson<Competencia>(`/fechamento/competencias/${id}/encerramento`, { method: "POST" });
@@ -813,13 +837,50 @@ export type EstadoDaResolucao =
   | "CANAL_SEM_CONTRATO"
   | "UNIDADE_NAO_ENCONTRADA"
   | "UNIDADE_AMBIGUA"
+  /**
+   * A competência já aponta para uma unidade e nenhum cadastro de Remuneração
+   * aponta para a mesma.
+   *
+   * Separado de `UNIDADE_NAO_ENCONTRADA` porque o conserto é o oposto: ali
+   * faltam dois textos coincidirem, aqui o texto nem é lido — falta um cadastro
+   * de Remuneração associado à unidade.
+   */
+  | "UNIDADE_SEM_CADASTRO"
   | "SEM_VIGENCIA"
   | "CONTRATO_INCOMPLETO"
   /** Cadastro e acervo discordam sobre o CNPJ. Nenhum é sobrescrito. */
   | "CONFLITO_DE_IDENTIDADE";
 
-/** Como o código da competência encontrou o do cadastro. */
-export type ComoCasou = "EXATO" | "ESPACO" | "DOCUMENTO";
+/**
+ * Como o código da competência encontrou o do cadastro.
+ *
+ * `IDENTIDADE` é o casamento que não compara texto nenhum — as duas pontas
+ * apontam para a mesma unidade canônica. Os outros três são o plano B das
+ * competências históricas, que ainda não têm identidade.
+ */
+export type ComoCasou = "IDENTIDADE" | "EXATO" | "ESPACO" | "DOCUMENTO";
+
+/**
+ * Uma unidade canônica como o diagnóstico a nomeia.
+ *
+ * O `id` é o que a associação grava; o par nome/CNPJ é como uma pessoa
+ * reconhece a unidade — e o CNPJ é o que distingue dois CDDs de mesmo nome.
+ */
+export interface UnidadeSugerida {
+  id: string;
+  nome: string;
+  /** Os catorze dígitos, sem máscara. A tela usa {@link formatarCnpj}. */
+  cnpj: string;
+}
+
+/** `12345678000199` → `12.345.678/0001-99`. Só para exibir. */
+export function formatarCnpj(cnpj: string): string {
+  if (!/^\d{14}$/.test(cnpj)) return cnpj;
+  return (
+    `${cnpj.slice(0, 2)}.${cnpj.slice(2, 5)}.${cnpj.slice(5, 8)}` +
+    `/${cnpj.slice(8, 12)}-${cnpj.slice(12)}`
+  );
+}
 
 export interface PortaDaUnidade {
   codigoProcurado: string;
@@ -834,6 +895,16 @@ export interface PortaDaUnidade {
    * é o que transforma "não achei" em "procurei X e existe Y".
    */
   codigosCadastrados: string[];
+  /** A unidade canônica que esta competência já aponta, quando aponta. */
+  identidade: UnidadeSugerida | null;
+  /**
+   * As unidades cadastradas cujo nome é o texto que a competência carrega.
+   *
+   * Sugestão, nunca resolução: o nome trouxe a candidata até a tela e não a
+   * escolhe — quem associa é gente. Vazia quando a unidade foi encontrada ou
+   * quando a competência já tem identidade.
+   */
+  sugestoes: UnidadeSugerida[];
 }
 
 export interface PortaDaVigencia {
