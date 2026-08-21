@@ -32,6 +32,13 @@ export * from "./diario";
 export * from "./resumo";
 export * from "./de-para";
 export * from "./mapa-rota";
+/*
+  O lado da transportadora — as três últimas linhas do `RESUMO GERAL`. Fica ao
+  lado do mapa e não dentro dele porque o mapa é o **devido**, e isto é o que a
+  outra parte apresenta: duas fontes que precisam continuar independentes para
+  a diferença entre elas valer alguma coisa.
+*/
+export * from "./faturado";
 export * from "./inconsistencias";
 /*
   A prova de equivalência contra a planilha. Vai no índice porque quem consome o
@@ -39,6 +46,13 @@ export * from "./inconsistencias";
   como se chega a duas verdades sobre o mesmo número.
 */
 export * from "./reconciliacao";
+/*
+  A matriz completa — as vinte e duas linhas do `RESUMO GERAL` com veredito.
+  A reconciliação prova catorze; esta obriga as vinte e duas a ter status, e é
+  ela que responde "de onde veio este número e por que ele é igual — ou
+  justificadamente diferente — ao da planilha?".
+*/
+export * from "./matriz";
 export * from "./cadastro-porta";
 /*
   A régua de conferência. Sai da raiz do pacote porque a rota e a tela precisam

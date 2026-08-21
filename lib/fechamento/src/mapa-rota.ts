@@ -745,21 +745,61 @@ export function somarIndisponibilidade(
 }
 
 /* ---------------------------------------------------------------------------
-   Os três quadros do RESUMO GERAL
+   Os quatro quadros do RESUMO GERAL
    ------------------------------------------------------------------------ */
 
+/**
+ * Os quadros em que o `RESUMO GERAL` empilha a Rota.
+ *
+ * São **quatro**, e não três. O quarto — `EQUIPE_DE_ENTREGA` — estava fora do
+ * motor porque está vazio no fechamento conferido, e ficar de fora escondia
+ * duas coisas: que o total geral da planilha o soma (`AI36 = AI17+AI30+AI34`) e
+ * que o conceito existe do lado emitido (a VBZ 06 sai em CT-e). Ver
+ * {@link quadroDaEquipeDeEntrega}.
+ */
+export type QuadroDoResumo =
+  | "REMUNERACAO"
+  | "VARIAVEL"
+  | "OUTROS_CUSTOS"
+  | "EQUIPE_DE_ENTREGA";
+
 export interface QuadroDoMapa {
-  quadro: "REMUNERACAO" | "VARIAVEL" | "OUTROS_CUSTOS";
+  quadro: QuadroDoResumo;
   titulo: string;
   linhas: LinhaDoMapa[];
   /** A soma das parcelas menos os descontos. `null` se faltar qualquer uma. */
   total: number | null;
+  /**
+   * Por que o quadro não tem linha nenhuma. `null` no quadro que tem.
+   *
+   * Um quadro vazio e um quadro sem fonte são coisas diferentes, e sem este
+   * campo os dois chegam à tela como o mesmo espaço em branco. Ver
+   * {@link quadroDaEquipeDeEntrega}.
+   */
+  reservado: string | null;
 }
+
+/**
+ * Os quadros que o `TOTAL GERAL UNIDADE` soma — e o que fica de fora.
+ *
+ * A planilha soma `AI17 + AI30 + AI34`: remuneração, outros custos e equipe de
+ * entrega. O quadro do **variável** não entra, e não entra porque é uma
+ * decomposição: ele abre por dentro o `TOTAL REMUNERAÇÃO ROTA DVS`, que já está
+ * somado no primeiro quadro. Somá-lo contaria o variável duas vezes.
+ */
+export const QUADROS_DO_TOTAL_GERAL: QuadroDoResumo[] = [
+  "REMUNERACAO",
+  "OUTROS_CUSTOS",
+  "EQUIPE_DE_ENTREGA",
+];
 
 export interface MapaDaQuinzena {
   quinzena: 1 | 2;
   quadros: QuadroDoMapa[];
-  /** `REMUNERACAO + OUTROS_CUSTOS` — o `TOTAL GERAL UNIDADE` da planilha. */
+  /**
+   * `REMUNERACAO + OUTROS_CUSTOS + EQUIPE_DE_ENTREGA` — o `TOTAL GERAL
+   * UNIDADE` da planilha, com os mesmos três quadros que ela soma.
+   */
   totalGeral: number | null;
   /** O que falta para o mapa fechar inteiro, linha a linha. */
   pendencias: string[];
@@ -781,6 +821,52 @@ function somarQuadro(linhas: LinhaDoMapa[]): number | null {
     total += l.valor;
   }
   return centavos(total);
+}
+
+/**
+ * O QUARTO QUADRO — `REMUNERAÇÃO VARIÁVEL - EQUIPE DE ENTREGA`, reservado e vazio.
+ *
+ * **O que a planilha tem ali, lido célula a célula.** As linhas 32 e 33 do
+ * `RESUMO GERAL` trazem o título do quadro e os três cabeçalhos de coluna. A
+ * linha 34 é a linha de dados, e `AI34` e `AJ34` **não existem** — não é célula
+ * com zero, não é célula com fórmula: não há célula. A única que existe é
+ * `AK34 = SUM(AI34+AJ34)`, que soma dois vazios e imprime zero. O quadro é um
+ * lugar guardado, e nada foi calculado nele no fechamento conferido.
+ *
+ * **Por que ele entra no motor mesmo vazio.** Porque o total geral o soma:
+ * `AI36 = SUM(AI17+AI30+AI34)`. Enquanto o motor somava dois quadros e a
+ * planilha somava três, os dois chegavam ao mesmo número **por acaso** — o
+ * acaso de a terceira parcela estar vazia. No mês em que ela não estiver, o
+ * total do motor ficaria menor sem que nada acusasse. Agora o quadro existe,
+ * entra na soma e é ele que passa a ter de ganhar linha.
+ *
+ * **E o conceito não é hipotético.** A VBZ 06 — `Rota - Rem. Variável Equipe
+ * Entrega` — é emitida: o 03.08.15 do fechamento conferido traz
+ * R$ 244.753,67 dela na 2ª quinzena, e a `Abertura` a lista no CT-e 2047848.
+ * Ou seja: a transportadora fatura a remuneração variável da equipe, e o
+ * `RESUMO GERAL` não calcula devido nenhum para ela. Essa assimetria é achado,
+ * não erro nosso — e é justamente o tipo de coisa que some quando o quadro não
+ * existe na estrutura.
+ *
+ * **Nenhuma linha é inventada aqui.** Escrever uma parcela com a VBZ 06 do
+ * emitido seria pôr o demonstrado dentro do devido — a contaminação que este
+ * pacote inteiro recusa. O quadro entra sem linha, com o motivo escrito, e
+ * soma zero porque **não tem parcela**, e não porque alguém mediu zero.
+ */
+export function quadroDaEquipeDeEntrega(): QuadroDoMapa {
+  return {
+    quadro: "EQUIPE_DE_ENTREGA",
+    titulo: "Remuneração variável — equipe de entrega",
+    linhas: [],
+    /* Soma vazia é zero legítimo: não há parcela a faltar. Ver a nota acima. */
+    total: 0,
+    reservado:
+      "A planilha reserva este quadro e não escreve linha nenhuma nele: `AI34` e `AJ34` " +
+      "não existem como célula, e o total geral dela soma esse vazio. O conceito existe do " +
+      "lado emitido — a VBZ 06 sai em CT-e —, e nenhuma regra o converte em devido. " +
+      "Enquanto não houver essa regra, o quadro entra na estrutura e soma zero por não ter " +
+      "parcela, nunca por ter medido zero.",
+  };
 }
 
 /**
@@ -910,31 +996,41 @@ export function montarMapaDaQuinzena(entrada: {
       titulo: "Rota — a remuneração da frota contratada",
       linhas: remuneracao,
       total: somarQuadro(remuneracao),
+      reservado: null,
     },
     {
       quadro: "VARIAVEL",
       titulo: "Rota — o variável aberto",
       linhas: variaveis,
       total: somarQuadro(variaveis),
+      reservado: null,
     },
     {
       quadro: "OUTROS_CUSTOS",
       titulo: "Outros custos",
       linhas: outros,
       total: somarQuadro(outros),
+      reservado: null,
     },
+    quadroDaEquipeDeEntrega(),
   ];
 
-  const remuneracaoTotal = quadros[0]!.total;
-  const outrosTotal = quadros[2]!.total;
+  /*
+    O total geral soma os mesmos quadros que a planilha soma — e a lista de
+    quais são está declarada, não escrita por índice. Somar `quadros[0]` e
+    `quadros[2]` fazia a conta depender da ordem do array: acrescentar um quadro
+    no meio mudaria o total em silêncio, que é exatamente o que aconteceria
+    agora com o quarto entrando.
+  */
+  const doTotalGeral = quadros.filter((q) => QUADROS_DO_TOTAL_GERAL.includes(q.quadro));
+  const totalGeral = doTotalGeral.some((q) => q.total === null)
+    ? null
+    : centavos(doTotalGeral.reduce((soma, q) => soma + (q.total ?? 0), 0));
 
   return {
     quinzena: entrada.quinzena,
     quadros,
-    totalGeral:
-      remuneracaoTotal === null || outrosTotal === null
-        ? null
-        : centavos(remuneracaoTotal + outrosTotal),
+    totalGeral,
     pendencias: [
       ...new Set(
         quadros
