@@ -263,9 +263,59 @@ describe.skipIf(!temBanco)("o Resumo, depois da unidade canônica", () => {
     expect(padronizado.conjunto).not.toBeNull();
   });
 
-  it("associar as duas pontas à mesma unidade canônica", async () => {
+  /**
+   * O NOME SUGERE, E NÃO RESOLVE — a fronteira, com SQL de verdade.
+   *
+   * A unidade passa a existir no cadastro mestre com o **nome** que a
+   * competência carrega no lugar do código. É a situação de quem cadastrou a
+   * unidade em Administração e ainda não voltou ao fechamento — e a tela, até
+   * aqui, mandava procurar um código sem dizer que a unidade estava a um clique.
+   *
+   * O que ela **não** pode fazer é responder por isso: o contrato continua sem
+   * sair. Um nome não é identidade, e dois CDDs podem chamar-se igual.
+   */
+  it("a unidade cadastrada com o nome da competência vira sugestão — e só isso", async () => {
     const u = await cadastrarUnidade(db, { nome: "CDD Belém", cnpj: "11.222.333/0001-81" });
     unidadeId = u.id;
+
+    const rota = (await oResumo()).canais.find((c) => c.canal === "ROTA")!;
+    const porta = rota.cadastro.primeira!;
+
+    /* A candidata aparece, com o CNPJ que a distingue de uma xará. */
+    expect(porta.unidade.sugestoes).toEqual([
+      { id: u.id, nome: "CDD Belém", cnpj: "11222333000181" },
+    ]);
+    expect(porta.destrava?.conserto).toContain("associe a competência");
+    /* E o contrato continua sem responder: o nome não escolheu nada. */
+    expect(porta.estado).toBe("UNIDADE_NAO_ENCONTRADA");
+    expect(rota.comparado).toBeNull();
+  });
+
+  /**
+   * A METADE DO CAMINHO — e a instrução que ela precisava receber.
+   *
+   * A competência passa a apontar para a unidade; o cadastro de Remuneração
+   * ainda não. Daqui em diante o texto dos dois lados não é mais comparado, e a
+   * frase antiga — "os dois textos precisam ser iguais" — mandaria igualar
+   * códigos que ninguém lê. O estado próprio existe para dizer a verdade: o que
+   * falta está do lado de Remuneração.
+   */
+  it("associada só a competência, o conserto é do lado de Remuneração", async () => {
+    await associarUnidadeDaCompetencia(db, competenciaId, unidadeId!);
+
+    const porta = (await oResumo()).canais.find((c) => c.canal === "ROTA")!.cadastro
+      .primeira!;
+
+    expect(porta.estado).toBe("UNIDADE_SEM_CADASTRO");
+    expect(porta.unidade.identidade?.nome).toBe("CDD Belém");
+    expect(porta.destrava?.conserto).toContain("Remuneração");
+    expect(porta.destrava?.conserto).not.toContain("Os dois textos precisam ser iguais");
+    /* Nada foi sugerido: já há uma unidade escolhida. */
+    expect(porta.unidade.sugestoes).toEqual([]);
+  });
+
+  it("associar as duas pontas à mesma unidade canônica", async () => {
+    const u = { id: unidadeId! };
 
     await associarUnidadeDaCompetencia(db, competenciaId, u.id);
     await db

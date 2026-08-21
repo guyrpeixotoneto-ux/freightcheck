@@ -1,9 +1,10 @@
-import { Fragment, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { Fragment, useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
 import { FileSpreadsheet, ArrowRight } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -11,6 +12,8 @@ import { apresentar } from "@/lib/apresentar-erro";
 import { formatBrl } from "@/lib/format";
 import { MES_LONGO } from "@/lib/fechamento-gerencial";
 import {
+  associarUnidadeDaCompetencia,
+  formatarCnpj,
   lerResumoDoMes,
   listarPartes,
   rotuloDoTipo,
@@ -25,6 +28,7 @@ import {
   type ProcedenciaDaReferencia,
   type ResumoDoMes,
   type TresColunas,
+  type UnidadeSugerida,
 } from "@/lib/fechamento";
 import {
   PainelDaPlanilhaTabela,
@@ -500,7 +504,13 @@ function Corpo({
       ) : (
         resumo.canais.map((canal) =>
           aba === "planilha" ? (
-            <PainelDoCanal key={canal.canal} canal={canal} recorte={recorte} alvo={alvo} />
+            <PainelDoCanal
+              key={canal.canal}
+              canal={canal}
+              recorte={recorte}
+              alvo={alvo}
+              quinzenas={resumo.quinzenas}
+            />
           ) : (
             <TabelaDoCanal key={canal.canal} canal={canal} recorte={recorte} />
           ),
@@ -582,13 +592,21 @@ function colunasDoRecorte(recorte: Recorte): ColunaDoPainel[] {
  * em `@workspace/fechamento`), e as três portas chegam medidas. A tela põe na
  * ordem e mostra; não decide.
  */
-function PorQueNaoTemDevido({ cadastro }: { cadastro: CadastroDoCanal }) {
+function PorQueNaoTemDevido({
+  cadastro,
+  quinzenas,
+}: {
+  cadastro: CadastroDoCanal;
+  /** As duas quinzenas do mês — é delas que sai a competência a associar. */
+  quinzenas: ResumoDoMes["quinzenas"];
+}) {
   /*
     A quinzena que parou mais tarde é a que se mostra: quem já tem a 1ª
     respondida e a 2ª sem aba precisa ler sobre a 2ª. Sem esta escolha a tela
     mostraria a primeira que falhou, que costuma ser a menos informativa.
   */
-  const diagnostico = maisAdiantado(cadastro);
+  const escolhido = maisAdiantado(cadastro);
+  const diagnostico = escolhido?.diagnostico ?? null;
 
   if (!diagnostico) {
     return (
@@ -628,6 +646,25 @@ function PorQueNaoTemDevido({ cadastro }: { cadastro: CadastroDoCanal }) {
         )}
 
         {/*
+          A sugestão vira ato aqui, e não uma frase a executar noutra tela.
+
+          A pessoa está lendo "há uma unidade cadastrada com este nome"; o
+          caminho manual dali seria abrir Administração, achar a unidade, copiar
+          o identificador e voltar. O botão faz o que a frase descreve — grava
+          `unidade_id` na competência desta quinzena — e nada além disso.
+        */}
+        {unidade.sugestoes.length > 0 && escolhido && (
+          <AssociarUnidade
+            sugestoes={unidade.sugestoes}
+            quinzena={escolhido.quinzena}
+            competenciaId={
+              quinzenas.find((q) => q.quinzena === escolhido.quinzena)
+                ?.competenciaId ?? null
+            }
+          />
+        )}
+
+        {/*
           O link vai para onde o conserto acontece, e ele muda com a porta:
           não adianta mandar para a lista de unidades quem já tem a unidade e
           precisa digitar duas células de uma aba.
@@ -638,7 +675,8 @@ function PorQueNaoTemDevido({ cadastro }: { cadastro: CadastroDoCanal }) {
             className="text-primary hover:underline"
           >
             {diagnostico.estado === "UNIDADE_NAO_ENCONTRADA" ||
-            diagnostico.estado === "UNIDADE_AMBIGUA"
+            diagnostico.estado === "UNIDADE_AMBIGUA" ||
+            diagnostico.estado === "UNIDADE_SEM_CADASTRO"
               ? "Abrir Remuneração"
               : "Abrir o cadastro desta unidade"}
           </Link>
@@ -663,6 +701,91 @@ function PorQueNaoTemDevido({ cadastro }: { cadastro: CadastroDoCanal }) {
 }
 
 /**
+ * A SUGESTÃO QUE VIRA ATO — associar a competência à unidade cadastrada.
+ *
+ * **O que ela grava, e por que um botão pode gravá-lo.** Uma coluna:
+ * `unidade_id` da competência desta quinzena. Nada do que foi importado é lido
+ * ou tocado — nem documentos, nem itens do 03.08.20, nem os bytes originais —, e
+ * `unidade_codigo` fica onde está. Errar a unidade custa associar de novo, e não
+ * reimportar a quinzena; é essa reversibilidade que faz o clique ser honesto.
+ *
+ * **Por que o efeito é imediato.** O contrato não é gravado em lugar nenhum: o
+ * resumo resolve o cadastro **a cada leitura**. Invalidar a consulta do resumo é
+ * tudo o que falta para o devido aparecer — não há reimportação, e nem sequer
+ * uma nova apuração, a rodar depois.
+ *
+ * **Quem confirma é gente, e é o ponto inteiro.** O nome trouxe a candidata até
+ * aqui; ele não a escolhe. Havendo mais de uma, cada uma tem o seu botão com o
+ * CNPJ ao lado — dois CDDs de nome igual são duas unidades, e a diferença entre
+ * elas é o documento, não o rótulo.
+ */
+function AssociarUnidade({
+  sugestoes,
+  quinzena,
+  competenciaId,
+}: {
+  sugestoes: UnidadeSugerida[];
+  /**
+   * A quinzena que o botão associa — dita, porque a associação é por
+   * competência e cada quinzena é uma.
+   *
+   * As duas metades do mês são duas competências, e associar uma não associa a
+   * outra. O texto diz qual está sendo associada, e a outra reaparece com o seu
+   * próprio botão na releitura seguinte — em vez de a pessoa clicar uma vez e
+   * ficar sem entender por que metade do mês continua sem devido.
+   */
+  quinzena: 1 | 2;
+  /** `null` quando a quinzena do diagnóstico não é uma competência aberta. */
+  competenciaId: string | null;
+}) {
+  const cliente = useQueryClient();
+  const [erro, setErro] = useState<string | null>(null);
+  const associar = useMutation({
+    mutationFn: (unidadeId: string) =>
+      associarUnidadeDaCompetencia(competenciaId!, unidadeId),
+    onMutate: () => setErro(null),
+    /*
+      A recusa é do servidor — a competência encerrada é o caso real —, e a tela
+      mostra a frase que voltar em vez de reescrevê-la. Duplicar a regra aqui
+      daria duas versões dela, e a que a pessoa lê seria a que ninguém testa.
+    */
+    onError: (e) => setErro(textoDoErro(e)),
+    onSuccess: () => {
+      void cliente.invalidateQueries({ queryKey: ["fechamento", "resumo"] });
+      void cliente.invalidateQueries({ queryKey: ["fechamento", "competencias"] });
+    },
+  });
+
+  if (competenciaId === null) return null;
+
+  return (
+    <div className="space-y-1">
+      <div className="flex flex-wrap gap-2">
+        {sugestoes.map((s) => (
+          <Button
+            key={s.id}
+            size="sm"
+            variant="outline"
+            disabled={associar.isPending}
+            onClick={() => associar.mutate(s.id)}
+          >
+            Associar a {s.nome} · {formatarCnpj(s.cnpj)}
+          </Button>
+        ))}
+      </div>
+      <p className="text-muted-foreground">
+        Associa a <strong>{quinzena}ª quinzena</strong> — grava só a identidade
+        da unidade nessa competência. Nada do que foi importado é lido ou
+        alterado, e o devido aparece na próxima leitura desta tela, sem
+        reimportar e sem apurar de novo. A outra quinzena é outra competência: se
+        ela também estiver sem cadastro, o botão dela aparece aqui em seguida.
+      </p>
+      {erro && <p className="text-destructive">{erro}</p>}
+    </div>
+  );
+}
+
+/**
  * As três portas, com a que fechou marcada — o mapa antes do texto.
  *
  * Existe porque "faltam duas linhas obrigatórias" só faz sentido depois de se
@@ -678,7 +801,8 @@ function PortasDoCadastro({
   const parouNaUnidade =
     estado === "UNIDADE_NAO_ENCONTRADA" ||
     estado === "UNIDADE_AMBIGUA" ||
-    estado === "CONFLITO_DE_IDENTIDADE";
+    estado === "CONFLITO_DE_IDENTIDADE" ||
+    estado === "UNIDADE_SEM_CADASTRO";
 
   const portas: {
     nome: string;
@@ -696,14 +820,30 @@ function PortasDoCadastro({
       detalhe: diagnostico.conflito
         ? `cadastro diz ${diagnostico.conflito.doCadastro} · acervo diz ` +
           `${diagnostico.conflito.doAcervo} — nenhum foi sobrescrito`
-        : parouNaUnidade
+        : /*
+            Com identidade não se procurou por texto, e a linha não pode dizer
+            que sim: quem lesse "procura por X · cadastrado é Y" iria igualar os
+            dois, que é justamente o que aqui não tem efeito nenhum.
+          */
+          estado === "UNIDADE_SEM_CADASTRO"
+          ? `associada a “${unidade.identidade?.nome ?? "uma unidade"}” · nenhum ` +
+            "cadastro de Remuneração aponta para ela"
+          : parouNaUnidade
         ? `esta competência procura por “${unidade.codigoProcurado}”` +
           (unidade.codigosCadastrados.length > 0
             ? ` · cadastrado em Remuneração: ${unidade.codigosCadastrados
                 .map((c) => `“${c}”`)
                 .join(", ")}`
             : ` · ${unidade.cadastradas} cadastrada(s), nenhuma com este código`)
-        : unidade.comoCasou === "EXATO"
+        : /*
+            A identidade não compara texto nenhum, e a linha diz isso: mostrar
+            "código X" aqui sugeriria que foi o texto que casou — e no dia em que
+            o texto divergir, quem lesse iria "consertar" um código que já não é
+            consultado.
+          */
+          unidade.comoCasou === "IDENTIDADE"
+          ? "pela unidade cadastrada — sem comparar código"
+          : unidade.comoCasou === "EXATO"
           ? `código ${unidade.codigoProcurado}`
           : unidade.comoCasou === "ESPACO"
             ? `código ${unidade.codigoProcurado}, casado ignorando o espaço em volta`
@@ -788,8 +928,15 @@ type CadastroDoCanal = CanalDoResumo["cadastro"];
  * segundo caso não chega a esta tela — havendo contrato o painel é o comparado
  * —, e devolver `RESPONDEU` aqui faria a tela escrever "parou na porta abaixo"
  * com as três portas abertas.
+ *
+ * **Devolve de qual quinzena é o diagnóstico, e não só o diagnóstico.** Sem o
+ * número não há como chegar à competência — e sem a competência a sugestão de
+ * unidade seria uma frase a executar à mão, em outra tela, quando o que ela
+ * pede é um clique.
  */
-function maisAdiantado(cadastro: CadastroDoCanal) {
+function maisAdiantado(
+  cadastro: CadastroDoCanal,
+): { quinzena: 1 | 2; diagnostico: DiagnosticoDoCadastro } | null {
   const ordem: Record<DiagnosticoDoCadastro["estado"], number> = {
     CANAL_SEM_CONTRATO: 0,
     UNIDADE_NAO_ENCONTRADA: 1,
@@ -799,16 +946,25 @@ function maisAdiantado(cadastro: CadastroDoCanal) {
       identidade dela é que está em disputa —, e por isso pesa como ela.
     */
     CONFLITO_DE_IDENTIDADE: 1,
+    /* A competência tem identidade e o cadastro de Remuneração não: primeira
+       porta também — o que falta é um cadastro apontando para a unidade. */
+    UNIDADE_SEM_CADASTRO: 1,
     SEM_VIGENCIA: 2,
     CONTRATO_INCOMPLETO: 3,
     RESPONDEU: 4,
   };
-  const candidatos = [cadastro.primeira, cadastro.segunda].filter(
-    (d): d is DiagnosticoDoCadastro => d !== null && d.estado !== "RESPONDEU",
-  );
+  const candidatos = ([1, 2] as const)
+    .map((quinzena) => ({
+      quinzena,
+      diagnostico: quinzena === 1 ? cadastro.primeira : cadastro.segunda,
+    }))
+    .filter(
+      (c): c is { quinzena: 1 | 2; diagnostico: DiagnosticoDoCadastro } =>
+        c.diagnostico !== null && c.diagnostico.estado !== "RESPONDEU",
+    );
   if (candidatos.length === 0) return null;
   return candidatos.reduce((a, b) =>
-    ordem[b.estado] > ordem[a.estado] ? b : a,
+    ordem[b.diagnostico.estado] > ordem[a.diagnostico.estado] ? b : a,
   );
 }
 
@@ -817,11 +973,14 @@ function PainelDoCanal({
   canal,
   recorte,
   alvo,
+  quinzenas,
 }: {
   canal: CanalDoResumo;
   recorte: Recorte;
   /** O mês da tela — o que quem anexa declara ao anexar. */
   alvo: MesDaReferencia;
+  /** As duas quinzenas do mês — a competência que a associação alcança. */
+  quinzenas: ResumoDoMes["quinzenas"];
 }) {
   return (
     <Card>
@@ -844,7 +1003,7 @@ function PainelDoCanal({
           <PainelComparadoTabela painel={canal.comparado} recorte={recorte} />
         ) : canal.painel ? (
           <>
-            <PorQueNaoTemDevido cadastro={canal.cadastro} />
+            <PorQueNaoTemDevido cadastro={canal.cadastro} quinzenas={quinzenas} />
             <PainelDaPlanilhaTabela painel={canal.painel} colunas={colunasDoRecorte(recorte)} />
           </>
         ) : canal.semPainel === "SEM_DEMONSTRATIVO" ? (
@@ -860,7 +1019,7 @@ function PainelDoCanal({
             e cada uma tem o seu conserto.
           */
           <>
-            <PorQueNaoTemDevido cadastro={canal.cadastro} />
+            <PorQueNaoTemDevido cadastro={canal.cadastro} quinzenas={quinzenas} />
             <p className="text-sm text-muted-foreground">
               O painel do {canal.canal} está escrito aqui, e as linhas dele saem do{" "}
               <strong>03.08.20</strong> — e nenhuma das duas quinzenas tem verba dele.

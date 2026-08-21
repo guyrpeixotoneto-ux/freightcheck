@@ -372,6 +372,8 @@ describe("do fallback para o painel comparado", () => {
               comoCasou: "EXATO",
               codigoNoCadastro: "0443",
               codigosCadastrados: [],
+              identidade: null,
+              sugestoes: [],
             },
             vigencia: {
               doMes: ["2026-07-01"],
@@ -522,6 +524,8 @@ describe("do fallback para o painel comparado", () => {
                 comoCasou: "ESPACO",
                 codigoNoCadastro: " 0443 ",
                 codigosCadastrados: [],
+                identidade: null,
+                sugestoes: [],
               },
               vigencia: {
                 doMes: ["2026-07-01"],

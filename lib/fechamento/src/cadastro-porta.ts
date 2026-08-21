@@ -1,3 +1,5 @@
+import { cnpjComMascara } from "@workspace/db";
+
 import type { Canal } from "./dominio";
 import type { ParametrosDoCadastro } from "./mapa-rota";
 
@@ -108,6 +110,23 @@ export type EstadoDaResolucao =
    * fechamento de outra, sem nada na tela dizendo que houve escolha.
    */
   | "UNIDADE_AMBIGUA"
+  /**
+   * A competência já tem unidade canônica, e nenhum cadastro de Remuneração
+   * aponta para ela.
+   *
+   * **Não é o mesmo que `UNIDADE_NAO_ENCONTRADA`, e confundir os dois manda a
+   * pessoa ao lugar errado.** Sem identidade, o que falta é fazer os dois
+   * textos coincidirem — e o conserto é digitar um código. Com identidade, o
+   * texto não é mais consultado: a competência aponta para uma linha da tabela
+   * `unidade` e o cadastro de Remuneração não aponta para nenhuma, ou aponta
+   * para outra. Igualar os códigos ali não muda nada, porque ninguém os lê. O
+   * conserto é do outro lado — associar o cadastro à mesma unidade.
+   *
+   * Enquanto os dois estados eram um só, a tela dizia "os dois textos precisam
+   * ser iguais" para quem já tinha associado a competência, e quem seguisse a
+   * instrução mudaria o cadastro sem que nada acontecesse.
+   */
+  | "UNIDADE_SEM_CADASTRO"
   /** A unidade existe e nenhuma aba do mês responde por esta quinzena. */
   | "SEM_VIGENCIA"
   /** A aba existe e faltam obrigatórias — o contrato não se monta. */
@@ -167,6 +186,21 @@ export type ComoCasou =
    */
   | "DOCUMENTO";
 
+/**
+ * Uma unidade canônica como o diagnóstico a mostra.
+ *
+ * Só o que a tela precisa para nomear e para agir: o `id`, que é a identidade e
+ * o que a associação grava, e o par nome/CNPJ, que é como uma pessoa reconhece
+ * a unidade. Nada aqui é comparado por texto — ver {@link PortaDaUnidade}.
+ */
+export interface UnidadeCanonicaVista {
+  id: string;
+  /** `CDD BELÉM`. Descrição, nunca identidade — ver o schema de `unidade`. */
+  nome: string;
+  /** Os catorze dígitos, sem máscara. */
+  cnpj: string;
+}
+
 /** Os dois CNPJs que discordam, quando discordam. */
 export interface ConflitoDeIdentidade {
   /** O CNPJ da unidade canônica — o cadastro. */
@@ -208,6 +242,34 @@ export interface PortaDaUnidade {
    * reconhecer, não para inventariar.
    */
   codigosCadastrados: string[];
+  /**
+   * A unidade canônica que **esta competência** já aponta, quando aponta.
+   *
+   * É o que separa "ninguém disse qual unidade é esta" de "já se disse, e o
+   * cadastro de Remuneração é que não aponta para ela" — dois estados com
+   * consertos opostos. Ver `UNIDADE_SEM_CADASTRO`.
+   */
+  identidade: UnidadeCanonicaVista | null;
+  /**
+   * As unidades cadastradas cujo **nome** é o texto que a competência carrega.
+   *
+   * **É uma sugestão, e ela nunca resolve o contrato.** O nome de uma unidade é
+   * descrição — o próprio schema de `unidade` diz isso —, e dois CDDs podem
+   * chamar-se igual: deixar um nome escolher o contrato seria a adivinhação que
+   * a identidade canônica existe para acabar, com a agravante de errar em
+   * silêncio.
+   *
+   * O que o nome pode fazer, e é o que faz aqui, é **encurtar a procura**. A
+   * competência aberta com `CDD Belém` no lugar do código e a unidade cadastrada
+   * como `CDD BELÉM` são, quase sempre, a mesma coisa — e antes disto a tela
+   * mandava procurar um código sem dizer que a unidade já estava cadastrada ao
+   * lado. Agora ela nomeia a candidata e oferece a associação; quem confirma é
+   * gente, com um clique, e o que passa a valer é o `id` — não o nome que
+   * levou até ele.
+   *
+   * Vazia quando a competência já tem identidade: aí não há o que sugerir.
+   */
+  sugestoes: UnidadeCanonicaVista[];
 }
 
 /**
@@ -219,6 +281,16 @@ export interface PortaDaUnidade {
  * Remuneração, que é feita para isso.
  */
 export const TETO_DE_CODIGOS = 5;
+
+/**
+ * Quantas unidades cadastradas o nome pode sugerir.
+ *
+ * Poucas, e por uma razão diferente da do teto acima: uma sugestão serve para
+ * ser confirmada com um clique, e uma lista de dez candidatas devolve à pessoa
+ * exatamente a escolha que a sugestão existia para poupar. Passando disso, o
+ * lugar de escolher é a lista de unidades, que é feita para isso.
+ */
+export const TETO_DE_SUGESTOES = 3;
 
 /** A segunda porta: alguma aba digitada responde por esta quinzena. */
 export interface PortaDaVigencia {
@@ -329,22 +401,84 @@ export function comoDestravar(
         Y" mostra a diferença e acaba a procura.
       */
       const cadastrados = u.codigosCadastrados;
+      const problema =
+        `Esta competência procura o cadastro pelo código "${u.codigoProcurado}", e ` +
+        (u.cadastradas === 0
+          ? "nenhuma unidade foi cadastrada em Remuneração ainda."
+          : cadastrados.length === 0
+            ? `nenhuma das ${u.cadastradas} unidades cadastradas em Remuneração tem código.`
+            : `o que está cadastrado em Remuneração é ${cadastrados.map((c) => `"${c}"`).join(", ")}` +
+              (u.cadastradas > cadastrados.length
+                ? ` e mais ${u.cadastradas - cadastrados.length}.`
+                : "."));
+
+      /*
+        O caminho curto, quando o nome digitado é o de uma unidade cadastrada.
+
+        Vem **antes** da instrução de igualar os textos, e não no lugar dela: a
+        associação resolve de uma vez e para sempre — a competência passa a
+        apontar para a unidade, e nenhuma grafia volta a separá-las —, enquanto
+        igualar dois códigos conserta esta competência e deixa a próxima
+        dependendo de quem digita. Quando há candidata, a ordem das duas frases
+        é a ordem das duas soluções.
+      */
+      if (u.sugestoes.length > 0) {
+        const nomeadas = u.sugestoes
+          .map((s) => `"${s.nome}" (CNPJ ${cnpjComMascara(s.cnpj)})`)
+          .join(", ");
+        return {
+          problema,
+          conserto:
+            (u.sugestoes.length === 1
+              ? `Há uma unidade cadastrada com este nome: ${nomeadas}. Se é esta, ` +
+                "associe a competência a ela — "
+              : `Há unidades cadastradas com este nome: ${nomeadas}. Se uma delas é ` +
+                "esta, associe a competência à certa — ") +
+            "a competência passa a apontar para a unidade em vez de carregar um texto, " +
+            "e o cadastro de Remuneração da mesma unidade responde sem que nenhum código " +
+            "seja comparado. Nada do que foi importado é tocado: a associação grava uma " +
+            "coluna. Se preferir seguir pelo texto, os dois códigos precisam ficar iguais " +
+            "— é só isso que o fechamento compara quando não há identidade.",
+        };
+      }
+
       return {
-        problema:
-          `Esta competência procura o cadastro pelo código "${u.codigoProcurado}", e ` +
-          (u.cadastradas === 0
-            ? "nenhuma unidade foi cadastrada em Remuneração ainda."
-            : cadastrados.length === 0
-              ? `nenhuma das ${u.cadastradas} unidades cadastradas em Remuneração tem código.`
-              : `o que está cadastrado em Remuneração é ${cadastrados.map((c) => `"${c}"`).join(", ")}` +
-                (u.cadastradas > cadastrados.length
-                  ? ` e mais ${u.cadastradas - cadastrados.length}.`
-                  : ".")),
+        problema,
         conserto:
           "Os dois textos precisam ser iguais — é só isso que o fechamento compara. " +
           "Espaço em volta e máscara de CNPJ já não impedem o encontro. Se a unidade foi " +
           "cadastrada sem código, informe o código dela na lista de Remuneração; se foi " +
-          "cadastrada com outro, é ele que precisa virar o desta competência.",
+          "cadastrada com outro, é ele que precisa virar o desta competência. Se a unidade " +
+          "já existe em Administração → Unidades, associar a competência a ela resolve de " +
+          "uma vez — e aí nenhum texto precisa coincidir.",
+      };
+    }
+
+    case "UNIDADE_SEM_CADASTRO": {
+      /*
+        O conserto é do outro lado, e dizer o contrário custa uma tarde.
+
+        Antes deste estado, quem já tinha associado a competência lia a frase de
+        `UNIDADE_NAO_ENCONTRADA` — "os dois textos precisam ser iguais" — e ia
+        igualar códigos que a resolução por identidade nem chega a ler. A
+        instrução era executável, inofensiva e completamente inútil, que é a
+        pior combinação: a pessoa faz o que a tela pede e a tela continua igual.
+      */
+      const nome = u.identidade
+        ? `"${u.identidade.nome}" (CNPJ ${cnpjComMascara(u.identidade.cnpj)})`
+        : "a unidade a que ela está associada";
+      return {
+        problema:
+          `Esta competência já aponta para ${nome}, e nenhum cadastro de Remuneração ` +
+          "aponta para a mesma unidade. Com a identidade definida, o código " +
+          `"${u.codigoProcurado}" não é mais comparado com nada — a busca é pela unidade, ` +
+          "e não há cadastro nela.",
+        conserto:
+          "Abra o cadastro desta unidade em Remuneração e associe-o à mesma unidade — se " +
+          "ainda não há cadastro dela, crie-o já associado. Igualar os códigos dos dois " +
+          "lados não adianta aqui: a competência com identidade não passa pelo casamento " +
+          "por texto, e é de propósito — era ele que fazia o contrato de uma unidade " +
+          "responder pelo fechamento de outra.",
       };
     }
 
@@ -432,17 +566,33 @@ function nenhumaUnidade(codigoProcurado: string, cadastradas = 0): PortaDaUnidad
     comoCasou: null,
     codigoNoCadastro: null,
     codigosCadastrados: [],
+    identidade: null,
+    sugestoes: [],
   };
 }
 
-/** O diagnóstico de quem parou na primeira porta. */
+/**
+ * O diagnóstico de quem parou na primeira porta.
+ *
+ * **Os três estados saem daqui, e nenhum deles é escolhido por quem chama.** É
+ * o único lugar que decide entre "não achei", "achei demais" e "a competência
+ * já tem identidade e não há cadastro nela" — porque os três se distinguem pelo
+ * mesmo par de campos (`candidatas`, `identidade`) e deixar a escolha na borda
+ * faria cada chamador reimplementá-la, com uma delas ficando para trás na
+ * próxima mudança.
+ */
 export function paradoNaUnidade(
   codigoProcurado: string,
   porta: Partial<PortaDaUnidade> = {},
 ): DiagnosticoDoCadastro {
   const unidade = { ...nenhumaUnidade(codigoProcurado), ...porta };
   return {
-    estado: unidade.candidatas > 1 ? "UNIDADE_AMBIGUA" : "UNIDADE_NAO_ENCONTRADA",
+    estado:
+      unidade.candidatas > 1
+        ? "UNIDADE_AMBIGUA"
+        : unidade.identidade !== null
+          ? "UNIDADE_SEM_CADASTRO"
+          : "UNIDADE_NAO_ENCONTRADA",
     unidade,
     vigencia: null,
     contrato: null,
@@ -505,6 +655,8 @@ export function cadastroEmMemoria(
         comoCasou: "EXATO",
         codigoNoCadastro: pergunta.unidadeCodigo,
         codigosCadastrados: [],
+        identidade: null,
+        sugestoes: [],
       };
 
       const cobre = daUnidade.filter(

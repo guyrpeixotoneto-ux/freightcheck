@@ -6,8 +6,13 @@ import type {
   FonteDeCadastro,
   LeituraDoCadastro,
   PortaDaUnidade,
+  UnidadeCanonicaVista,
 } from "@workspace/fechamento";
-import { paradoNaUnidade, TETO_DE_CODIGOS } from "@workspace/fechamento";
+import {
+  paradoNaUnidade,
+  TETO_DE_CODIGOS,
+  TETO_DE_SUGESTOES,
+} from "@workspace/fechamento";
 import { normalizeDocumento } from "@workspace/ingest";
 import {
   CHAVES_DO_CONTRATO,
@@ -53,6 +58,14 @@ import {
  * — e, principalmente, para o que **nenhuma** delas faz, que é adivinhar pelo
  * nome.
  *
+ * **O nome sugere; ele não resolve.** Quando nada é encontrado, o texto que a
+ * competência carrega é procurado entre os *nomes* das unidades do cadastro
+ * mestre ({@link sugestoesPeloTexto}), e a candidata vai para o diagnóstico. É a
+ * diferença entre encurtar a procura e adivinhar: a sugestão é oferecida a uma
+ * pessoa, que associa a competência à unidade com um clique — e o que passa a
+ * valer dali em diante é o `id`, não o nome que levou até ele. Nenhum contrato
+ * responde por semelhança de nome, hoje nem depois.
+ *
  * **A unidade sem código não é candidata, e o `<> ''` diz isso.** Desde a `0047`
  * o cadastro aceita unidade sem CNPJ, e `''` ali quer dizer "ninguém deu o
  * código" — nunca "o código é vazio". Sem a guarda, uma competência que
@@ -91,6 +104,15 @@ type CandidataBruta = {
   codigo: string;
   unidade_id: string | null;
 };
+
+/**
+ * Uma unidade canônica como o SQL a devolve.
+ *
+ * `type` pela mesma razão de {@link CandidataBruta}: `db.execute<T>` exige `T
+ * extends Record<string, unknown>`, e só o alias ganha a assinatura de índice
+ * implícita. Os campos são os de `UnidadeCanonicaVista`, e é ela que sai daqui.
+ */
+type CanonicaBruta = { id: string; nome: string; cnpj: string };
 
 /**
  * A unidade registrada que responde por este código e tipo de operação.
@@ -161,6 +183,10 @@ async function resolverUnidade(
       não "vou tentar pelo texto". Cair nas faixas de texto aqui reabriria a
       porta que a identidade fecha: a competência aponta para a unidade A, o
       texto dela casa com o cadastro da unidade B, e o contrato errado responde.
+
+      Quem chama transforma este vazio em `UNIDADE_SEM_CADASTRO` — e não em
+      `UNIDADE_NAO_ENCONTRADA`, que mandaria igualar textos que este caminho
+      nunca lê.
     */
     return { unidade: null, candidatas: 0 };
   }
@@ -272,6 +298,92 @@ async function cnpjNoAcervo(db: Database, scopeHash: string): Promise<string | n
   return rows.length === 1 ? rows[0]!.cnpj : null;
 }
 
+/**
+ * A unidade canônica de um identificador — nome e CNPJ, para a tela nomeá-la.
+ *
+ * Uma consulta só, usada pelos dois caminhos que precisam dela: o confronto de
+ * identidade, que compara o CNPJ contra o do acervo, e o diagnóstico de
+ * `UNIDADE_SEM_CADASTRO`, que precisa **dizer o nome** da unidade a que a
+ * competência já está associada. Antes o confronto lia só o CNPJ, e a frase da
+ * tela não tinha como chamar a unidade pelo nome.
+ */
+async function unidadeCanonica(
+  db: Database,
+  id: string,
+): Promise<UnidadeCanonicaVista | null> {
+  const { rows } = await db.execute<CanonicaBruta>(sql`
+    SELECT u.id, u.nome, u.cnpj FROM unidade u WHERE u.id = ${id} LIMIT 1
+  `);
+  return rows[0] ?? null;
+}
+
+/**
+ * O texto sem o que separa duas grafias do mesmo nome, como o SQL o compara.
+ *
+ * Minúsculas, espaço em volta e no meio normalizados, e os acentos rebaixados
+ * pelo `translate` — que é a forma de fazê-lo **sem** exigir a extensão
+ * `unaccent`, cuja instalação seria uma dependência nova de banco para um
+ * conserto de tela. `CDD Belém`, `cdd belem` e `CDD  BELÉM` viram o mesmo
+ * texto, e é só disso que a sugestão precisa.
+ *
+ * **Não é uma identidade, e não vira uma.** Nada aqui grava, resolve contrato
+ * ou escolhe cadastro; o resultado é uma lista de candidatas para uma pessoa
+ * confirmar. Ver `PortaDaUnidade.sugestoes`.
+ */
+function nomeComparavel(texto: unknown) {
+  /*
+    Duas miudezas que só aparecem em produção, e por isso ficam anotadas.
+
+    O `\\s` é escrito com duas barras porque `sql` é um template **marcado** e o
+    drizzle lê a versão cozida das partes: `\s` viraria a letra `s`, e o
+    `regexp_replace` passaria a trocar runs de "s" por espaço. É o mesmo `\\D`
+    da faixa 3 de `resolverUnidade`, pela mesma razão.
+
+    O `::text` tira do Postgres a escolha entre `btrim(text)` e `btrim(bytea)`
+    para o parâmetro do lado direito, que chega sem tipo declarado. A coluna já
+    é `text` e nada perde com o cast, então a mesma função serve aos dois lados
+    — e é ela ser a mesma que garante que as duas pontas normalizem igual.
+  */
+  return sql`translate(lower(regexp_replace(btrim(${texto}::text), '\\s+', ' ', 'g')), 'áàâãäéèêëíìîïóòôõöúùûüçñ', 'aaaaaeeeeiiiiooooouuuucn')`;
+}
+
+/**
+ * As unidades cadastradas que o texto da competência descreve — as candidatas.
+ *
+ * Duas evidências, e as duas são do cadastro mestre (`unidade`), não do
+ * cadastro de Remuneração: **o nome**, quando alguém abriu a competência
+ * digitando `CDD Belém` no campo do código, e **o CNPJ**, quando o que foi
+ * digitado é o documento de uma unidade já cadastrada. As duas apontam para uma
+ * linha da tabela `unidade`, que é o que a associação grava.
+ *
+ * Roda **só quando nada foi encontrado**, e só para a competência sem
+ * identidade: é uma consulta a mais que o caminho feliz não paga, e sugerir
+ * unidade a quem já tem uma associada seria oferecer trocar a identidade por um
+ * palpite.
+ */
+async function sugestoesPeloTexto(
+  db: Database,
+  texto: string,
+): Promise<UnidadeCanonicaVista[]> {
+  const procurado = texto.trim();
+  if (procurado === "") return [];
+  /*
+    O CNPJ entra como `''` quando o texto não tem dígito nenhum — e `''` não
+    casa com nenhum CNPJ, porque a coluna é sempre catorze dígitos. É a mesma
+    guarda da faixa 3 de `resolverUnidade`, pela mesma razão.
+  */
+  const documento = normalizeDocumento(procurado);
+  const { rows } = await db.execute<CanonicaBruta>(sql`
+    SELECT u.id, u.nome, u.cnpj
+      FROM unidade u
+     WHERE ${nomeComparavel(sql`u.nome`)} = ${nomeComparavel(sql`${procurado}`)}
+        OR u.cnpj = ${documento}
+     ORDER BY u.nome
+     LIMIT ${TETO_DE_SUGESTOES}
+  `);
+  return rows;
+}
+
 /** Quantas unidades o cadastro tem ao todo — o denominador da frase da tela. */
 async function contarCadastradas(db: Database): Promise<number> {
   const { rows } = await db.execute<{ total: number }>(
@@ -351,12 +463,28 @@ export function cadastroDaRemuneracao(
         /*
           Os códigos entram **só** quando não se achou: é aí que eles servem, e
           é uma consulta a mais que o caminho feliz não precisa pagar.
+
+          E o que se acrescenta a eles depende de a competência ter identidade,
+          porque os dois casos têm consertos opostos:
+
+          - **com identidade**, a unidade canônica é lida para a tela poder
+            chamá-la pelo nome, e o estado vira `UNIDADE_SEM_CADASTRO` — o que
+            falta está do lado de Remuneração, e nenhum texto será comparado;
+          - **sem identidade**, o texto vira busca no cadastro mestre, e a
+            candidata encontrada é oferecida para associação. Note que nenhuma
+            das duas consultas resolve contrato: uma nomeia, a outra sugere.
         */
         return {
           resposta: null,
           diagnostico: daUnidade({
             candidatas,
             codigosCadastrados: await codigosCadastrados(db),
+            identidade: pergunta.unidadeId
+              ? await unidadeCanonica(db, pergunta.unidadeId)
+              : null,
+            sugestoes: pergunta.unidadeId
+              ? []
+              : await sugestoesPeloTexto(db, pergunta.unidadeCodigo),
           }),
         };
       }
@@ -367,8 +495,10 @@ export function cadastroDaRemuneracao(
         candidatas: 1,
         comoCasou: unidade.comoCasou,
         codigoNoCadastro: unidade.codigo,
-        /* Achou: a lista de candidatos não tem para que servir. */
+        /* Achou: nem a lista de candidatos nem a sugestão têm para que servir. */
         codigosCadastrados: [],
+        identidade: null,
+        sugestoes: [],
       };
 
       /*
@@ -385,9 +515,7 @@ export function cadastroDaRemuneracao(
         que não produzir nenhum.
       */
       if (unidade.unidadeId !== null) {
-        const [canonica] = await db.execute<{ cnpj: string }>(sql`
-          SELECT u.cnpj FROM unidade u WHERE u.id = ${unidade.unidadeId} LIMIT 1
-        `).then((r) => r.rows);
+        const canonica = await unidadeCanonica(db, unidade.unidadeId);
         const doAcervo = await cnpjNoAcervo(db, unidade.scopeHash);
         if (canonica && doAcervo !== null && doAcervo !== canonica.cnpj) {
           return {
