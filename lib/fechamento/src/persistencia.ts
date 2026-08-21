@@ -16,6 +16,7 @@ import {
   fechamentoPagamentoItemTable,
   fechamentoParteTable,
   fechamentoRequisicaoTable,
+  unidadeTable,
   fechamentoViagemTable,
 } from "@workspace/db";
 import {
@@ -100,7 +101,9 @@ export class RecusaDeFechamento extends Error {
       | "DOCUMENTO_FORA_DO_PERIODO"
       | "CONTEUDO_NAO_GUARDADO"
       | "ARQUIVO_ILEGIVEL"
-      | "PARTE_SEM_CODIGO",
+      | "PARTE_SEM_CODIGO"
+      /** Pediram para associar a uma unidade canônica que não existe. */
+      | "UNIDADE_NAO_ENCONTRADA",
     mensagem: string,
     readonly detalhe?: unknown,
   ) {
@@ -196,6 +199,21 @@ export async function abrirCompetencia(
     ano: number;
     mes: number;
     quinzena: 1 | 2;
+    /**
+     * A unidade **selecionada** do cadastro mestre — o caminho de agora.
+     *
+     * Quando vem, `unidade` é ignorada: nome e código saem da unidade canônica,
+     * e nenhuma identidade é digitada. Ver o corpo.
+     */
+    unidadeId?: string | null;
+    /**
+     * A unidade digitada — o caminho legado.
+     *
+     * Continua aceito porque o histórico e a importação o usam, e porque tirá-lo
+     * agora quebraria toda competência aberta antes da `0049`. O que ele não faz
+     * é criar identidade: sem `unidadeId`, a competência nasce com `unidade_id`
+     * nulo e a tela a mostra como não associada.
+     */
     unidade: { codigo: string; nome?: string | null };
     transportadora: { codigo: string; nome?: string | null };
     /** `EMPURRADA`, `ROTA` — o eixo de `remuneracao_planilha.canal`. */
@@ -206,7 +224,40 @@ export async function abrirCompetencia(
   const comp = montarCompetencia(entrada.ano, entrada.mes, entrada.quinzena);
   const tipoDeOperacao = normalizarTipoDeOperacao(entrada.tipoDeOperacao);
 
-  await registrarParte(db, { tipo: "UNIDADE", ...entrada.unidade });
+  /*
+    A unidade **selecionada** — o caminho novo, e o que a regra central pede.
+
+    Quando quem abre escolhe uma unidade canônica, nada mais é digitado: o nome e
+    o código saem do cadastro, e o código é o CNPJ. Não porque o CNPJ seja "o
+    código" — o legado continua sendo texto livre —, mas porque a competência
+    nova precisa de um valor para `unidade_codigo`, que é NOT NULL e está na
+    chave única, e o CNPJ é o único texto que **já** é a identidade. Assim as
+    competências novas nascem com as duas pontas concordando.
+
+    A unidade digitada continua aceita para não quebrar o histórico e os testes
+    que a usam; o que ela não faz é criar identidade — `unidadeId` fica nulo, e
+    a tela mostra "unidade não associada".
+  */
+  let unidade = entrada.unidade;
+  let unidadeId: string | null = null;
+  if (entrada.unidadeId) {
+    const [canonica] = await db
+      .select()
+      .from(unidadeTable)
+      .where(eq(unidadeTable.id, entrada.unidadeId))
+      .limit(1);
+    if (!canonica) {
+      throw new RecusaDeFechamento(
+        "UNIDADE_NAO_ENCONTRADA",
+        "Não existe unidade canônica com este identificador. Cadastre-a em " +
+          "Administração → Unidades antes de abrir a competência.",
+      );
+    }
+    unidade = { codigo: canonica.cnpj, nome: canonica.nome };
+    unidadeId = canonica.id;
+  }
+
+  await registrarParte(db, { tipo: "UNIDADE", ...unidade });
   await registrarParte(db, { tipo: "TRANSPORTADORA", ...entrada.transportadora });
 
   const existente = await db
@@ -214,7 +265,7 @@ export async function abrirCompetencia(
     .from(fechamentoCompetenciaTable)
     .where(
       and(
-        eq(fechamentoCompetenciaTable.unidadeCodigo, entrada.unidade.codigo),
+        eq(fechamentoCompetenciaTable.unidadeCodigo, unidade.codigo),
         eq(fechamentoCompetenciaTable.transportadoraCodigo, entrada.transportadora.codigo),
         eq(fechamentoCompetenciaTable.tipoDeOperacao, tipoDeOperacao),
         eq(fechamentoCompetenciaTable.chave, comp.chave),
@@ -232,8 +283,9 @@ export async function abrirCompetencia(
       quinzena: comp.quinzena,
       inicio: comp.inicio,
       fim: comp.fim,
-      unidadeCodigo: entrada.unidade.codigo,
-      unidadeNome: entrada.unidade.nome ?? null,
+      unidadeCodigo: unidade.codigo,
+      unidadeNome: unidade.nome ?? null,
+      unidadeId,
       transportadoraCodigo: entrada.transportadora.codigo,
       transportadoraNome: entrada.transportadora.nome ?? null,
       tipoDeOperacao,
@@ -2238,6 +2290,8 @@ export async function lerResumoDoMes(
     let cadastroUsado: { cadastroId: string; vigenteDe: string } | null = null;
     for (const canal of CANAIS_COM_PAINEL) {
       const leitura = await cadastro.resolver({
+        /* A identidade canônica, quando a competência já a tem. Ver a porta. */
+        unidadeId: c.unidadeId ?? null,
         unidadeCodigo: c.unidadeCodigo,
         transportadoraCodigo: c.transportadoraCodigo,
         canal,
@@ -2755,6 +2809,75 @@ export async function excluirCompetencia(
       .where(eq(fechamentoCompetenciaTable.id, competenciaId));
     return { competencia, ...apagado };
   });
+}
+
+/**
+ * Associa uma competência à unidade canônica — sem tocar em mais nada.
+ *
+ * **É o caminho que corrige uma competência antiga sem apagá-la.** O caso que a
+ * originou: uma competência aberta com `unidade_codigo = "CDD Belém"` — um nome
+ * fazendo papel de código, gravado quando o formulário tinha um campo só — e o
+ * cadastro de Remuneração da mesma unidade com outro identificador. Os dois
+ * nunca se encontravam, o Resumo caía no painel do 03.08.20 relido, e a única
+ * saída era excluir a competência e reimportar tudo.
+ *
+ * **O que esta função escreve: uma coluna.** `unidade_id`. E só.
+ *
+ * - `unidade_codigo` fica como está — é o texto legado, está na chave única, e
+ *   reescrevê-lo mudaria a identidade de linhas que outras tabelas endereçam;
+ * - documentos, itens do 03.08.20, descontos, viagens, CT-es, disponibilidade,
+ *   requisições e conciliação não são lidos nem tocados;
+ * - `bytes_originais` idem — nada é reimportado, e o `sha256` de cada documento
+ *   continua o mesmo;
+ * - nenhum código de fonte é convertido: `081-0443` continua `081-0443`.
+ *
+ * **A competência encerrada é recusada, pela regra oficial.** Não porque
+ * associar seja perigoso em si — é uma coluna nula ganhando valor —, mas porque
+ * o efeito dela não é: com a unidade associada, o Resumo passa a achar o
+ * contrato e a recalcular o devido. Uma quinzena congelada que muda de número
+ * depois de fechada é exatamente o que o encerramento existe para impedir.
+ * Quem precisa reabre com motivo, que é o caminho que o produto já tem.
+ */
+export async function associarUnidadeDaCompetencia(
+  db: Database,
+  competenciaId: string,
+  unidadeId: string,
+): Promise<CompetenciaRegistrada> {
+  const competencia = await buscarCompetencia(db, competenciaId);
+  if (!competencia) {
+    throw new RecusaDeFechamento(
+      "COMPETENCIA_NAO_ENCONTRADA",
+      "A competência informada não existe.",
+    );
+  }
+  if (competencia.estado === "ENCERRADA") {
+    throw new RecusaDeFechamento(
+      "COMPETENCIA_ENCERRADA",
+      `A competência ${competencia.chave} está encerrada. Associar a unidade faria o ` +
+        "Resumo achar o contrato e recalcular o devido — e uma quinzena fechada que muda " +
+        "de número é o que o encerramento existe para impedir. Reabra-a, com motivo, antes.",
+    );
+  }
+
+  const [unidade] = await db
+    .select({ id: unidadeTable.id })
+    .from(unidadeTable)
+    .where(eq(unidadeTable.id, unidadeId))
+    .limit(1);
+  if (!unidade) {
+    throw new RecusaDeFechamento(
+      "UNIDADE_NAO_ENCONTRADA",
+      "Não existe unidade canônica com este identificador. Cadastre-a em " +
+        "Administração → Unidades antes de associar.",
+    );
+  }
+
+  await db
+    .update(fechamentoCompetenciaTable)
+    .set({ unidadeId })
+    .where(eq(fechamentoCompetenciaTable.id, competenciaId));
+
+  return (await buscarCompetencia(db, competenciaId))!;
 }
 
 /**

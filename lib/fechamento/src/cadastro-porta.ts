@@ -24,6 +24,18 @@ import type { ParametrosDoCadastro } from "./mapa-rota";
 
 /** O que o fechamento pergunta ao cadastro. */
 export interface PerguntaAoCadastro {
+  /**
+   * A unidade canônica da competência. `null` enquanto ninguém a associou.
+   *
+   * **É por ela que o cadastro é encontrado, quando ela existe.** As três faixas
+   * de casamento por texto (exato, aparado, documento) continuam existindo e
+   * passaram a ser o *plano B*: elas atendem as competências históricas que
+   * ainda não têm identidade. Uma competência com `unidadeId` não passa por
+   * nenhuma delas — vai direto ao cadastro que aponta para a mesma unidade —, e
+   * é isso que acaba com a adivinhação.
+   */
+  unidadeId: string | null;
+  /** O texto legado. Ver `unidadeId`. */
   unidadeCodigo: string;
   transportadoraCodigo: string;
   canal: Canal;
@@ -111,6 +123,13 @@ export type EstadoDaResolucao =
  * arrumar.
  */
 export type ComoCasou =
+  /**
+   * Pela unidade canônica — as duas pontas apontam para o mesmo `unidade.id`.
+   *
+   * É o único casamento que não compara texto nenhum, e por isso o único que
+   * não pode errar. Os três abaixo são o plano B das competências históricas.
+   */
+  | "IDENTIDADE"
   /** Byte a byte. */
   | "EXATO"
   /**

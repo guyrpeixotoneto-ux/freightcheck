@@ -238,6 +238,8 @@ describe("0015 sobre um banco parado na 0014", () => {
       "0046_tipo_de_operacao",
       "0047_conteudo_da_importacao",
       "0048_unidade_sem_acervo",
+      "0049_unidade_canonica",
+      "0050_reconciliar_unidade_canonica",
     ]);
 
     const linhas = await retrato(pool);

@@ -125,11 +125,42 @@ type CandidataBruta = {
  */
 async function resolverUnidade(
   db: Database,
-  unidadeCodigo: string,
+  pergunta: { unidadeId: string | null; unidadeCodigo: string },
   tipoDeOperacao: string,
 ): Promise<{ unidade: UnidadeDoCadastro | null; candidatas: number }> {
   const preferencia = sql`ORDER BY (u.canal = ${tipoDeOperacao}) DESC, (u.canal = '') DESC, u.canal`;
+  const { unidadeCodigo } = pergunta;
   const procurado = unidadeCodigo.trim();
+
+  /*
+    0. Pela identidade canônica — as duas pontas apontando para a mesma unidade.
+
+    É a faixa que aposenta as outras três, e a única que não compara texto
+    nenhum. Quando a competência tem `unidade_id` e existe cadastro de
+    Remuneração para a mesma unidade, não há o que casar: é a mesma linha da
+    tabela `unidade`, e nenhuma grafia, máscara ou espaço pode desalinhá-las.
+
+    As três faixas seguintes continuam existindo para as competências
+    históricas, que ainda não têm identidade — e vão continuar até o passivo
+    estar classificado. Uma competência com `unidade_id` nunca chega a elas.
+  */
+  if (pergunta.unidadeId !== null) {
+    const porIdentidade = await db.execute<CandidataBruta>(sql`
+      SELECT u.scope_hash, u.canal, u.codigo
+        FROM remuneracao_unidade u
+       WHERE u.unidade_id = ${pergunta.unidadeId}
+       ${preferencia}
+    `);
+    const daIdentidade = escolher(porIdentidade.rows, "IDENTIDADE");
+    if (daIdentidade.candidatas > 0) return daIdentidade;
+    /*
+      Sem cadastro de Remuneração para esta unidade, a resposta é "não há", e
+      não "vou tentar pelo texto". Cair nas faixas de texto aqui reabriria a
+      porta que a identidade fecha: a competência aponta para a unidade A, o
+      texto dela casa com o cadastro da unidade B, e o contrato errado responde.
+    */
+    return { unidade: null, candidatas: 0 };
+  }
 
   /* 1. Exato — byte a byte, como sempre foi. */
   const exatas = await db.execute<CandidataBruta>(sql`
@@ -278,7 +309,7 @@ export function cadastroDaRemuneracao(
 
       const { unidade, candidatas } = await resolverUnidade(
         db,
-        pergunta.unidadeCodigo,
+        pergunta,
         alvo.tipoDeOperacao,
       );
       if (!unidade) {

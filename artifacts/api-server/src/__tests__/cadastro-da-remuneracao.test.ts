@@ -84,6 +84,8 @@ interface UnidadeRegistrada {
   scopeHash: string;
   canal: string;
   codigo: string;
+  /** A unidade canônica que este cadastro descreve, quando já foi associada. */
+  unidadeId?: string;
 }
 
 const SO_DIGITOS = (t: string) => t.replace(/\D/g, "");
@@ -116,6 +118,11 @@ function bancoCom(opcoes: {
       const procurado = String(valores[0] ?? "");
 
       if (texto.includes("count(*)")) return { rows: [{ total: unidades.length }] };
+      if (texto.includes("WHERE u.unidade_id =")) {
+        return {
+          rows: unidades.filter((u) => u.unidadeId === procurado).map(comoLinha),
+        };
+      }
       if (texto.includes("SELECT DISTINCT u.codigo")) {
         return {
           rows: [...new Set(unidades.map((u) => u.codigo).filter((c) => c.trim() !== ""))]
@@ -162,7 +169,12 @@ function bancoCom(opcoes: {
 
 const PRIMEIRA = { canal: "ROTA" as const, inicio: "2026-07-01", fim: "2026-07-15" };
 const SEGUNDA = { canal: "ROTA" as const, inicio: "2026-07-16", fim: "2026-07-31" };
-const UNIDADE = { unidadeCodigo: "0443", transportadoraCodigo: "36" };
+/*
+  A competência histórica: só o texto legado, sem identidade canônica. É o
+  estado de toda competência aberta antes da `0049`, e o que faz as três faixas
+  de casamento por texto continuarem existindo.
+*/
+const UNIDADE = { unidadeId: null, unidadeCodigo: "0443", transportadoraCodigo: "36" };
 
 const porta = (db: Database) => cadastroDaRemuneracao(db, { tipoDeOperacao: "ROTA" });
 
@@ -442,6 +454,77 @@ describe("o código que encontra a unidade", () => {
 /* =========================================================================
  * Porta 3 — o contrato completo
  * ====================================================================== */
+
+/* =========================================================================
+ * Porta 1, por identidade — o casamento que não compara texto
+ * ====================================================================== */
+
+/**
+ * A faixa que aposenta as outras três.
+ *
+ * Quando a competência e o cadastro apontam para a mesma `unidade.id`, não há o
+ * que casar: é a mesma linha da tabela `unidade`. Nenhuma grafia, máscara ou
+ * espaço pode desalinhá-los — e nenhum texto parecido pode alinhá-los por
+ * engano, que é o defeito oposto e o mais caro dos dois.
+ */
+describe("a identidade canônica", () => {
+  const UNIDADE_ID = "11111111-1111-1111-1111-111111111111";
+  const OUTRA_ID = "22222222-2222-2222-2222-222222222222";
+
+  it("encontra o cadastro pela unidade, ignorando o texto dos dois lados", async () => {
+    const db = bancoCom({
+      unidades: [{ scopeHash: "sh1", canal: "", codigo: "12.345.678/0001-99", unidadeId: UNIDADE_ID }],
+      porVigencia: { "2026-07-01": ABA },
+    });
+    const { resposta, diagnostico } = await porta(db).resolver({
+      ...UNIDADE,
+      /* O texto legado é um nome, e não importa mais. */
+      unidadeCodigo: "CDD Belém",
+      unidadeId: UNIDADE_ID,
+      ...PRIMEIRA,
+    });
+
+    expect(resposta).not.toBeNull();
+    expect(diagnostico.estado).toBe("RESPONDEU");
+    expect(diagnostico.unidade.comoCasou).toBe("IDENTIDADE");
+  });
+
+  /**
+   * A guarda que impede o defeito oposto: com identidade, **não** se cai no
+   * texto. Cair reabriria a porta que a identidade fecha — a competência aponta
+   * para a unidade A, o texto casa com o cadastro da unidade B, e o contrato
+   * errado responde por um fechamento que ninguém conferiu.
+   */
+  it("com identidade e sem cadastro para ela, não cai no casamento por texto", async () => {
+    const db = bancoCom({
+      unidades: [
+        /* Este cadastro casaria pelo texto — e é de **outra** unidade. */
+        { scopeHash: "sh1", canal: "", codigo: "0443", unidadeId: OUTRA_ID },
+      ],
+      porVigencia: { "2026-07-01": ABA },
+    });
+    const { resposta, diagnostico } = await porta(db).resolver({
+      ...UNIDADE,
+      unidadeCodigo: "0443",
+      unidadeId: UNIDADE_ID,
+      ...PRIMEIRA,
+    });
+
+    expect(resposta).toBeNull();
+    expect(diagnostico.estado).toBe("UNIDADE_NAO_ENCONTRADA");
+  });
+
+  it("sem identidade, as três faixas de texto continuam servindo o histórico", async () => {
+    const db = bancoCom({
+      unidades: [{ scopeHash: "sh1", canal: "", codigo: " 0443 " }],
+      porVigencia: { "2026-07-01": ABA },
+    });
+    const { resposta, diagnostico } = await porta(db).resolver({ ...UNIDADE, ...PRIMEIRA });
+
+    expect(resposta).not.toBeNull();
+    expect(diagnostico.unidade.comoCasou).toBe("ESPACO");
+  });
+});
 
 describe("o contrato completo", () => {
   it("a aba inteira responde, e o diagnóstico não tem nada faltando", async () => {
