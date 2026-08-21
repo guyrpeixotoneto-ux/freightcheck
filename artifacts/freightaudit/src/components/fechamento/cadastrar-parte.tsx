@@ -37,17 +37,44 @@ export interface ParteDigitada {
   nome: string | null;
 }
 
-const ROTULOS: Record<TipoDeParte, { titulo: string; campo: string; exemplo: string; codigo: string }> = {
+export const ROTULOS: Record<
+  TipoDeParte,
+  { titulo: string; campo: string; exemplo: string; codigo: string; campoDoCodigo: string }
+> = {
   UNIDADE: {
     titulo: "Cadastrar uma unidade",
     campo: "Unidade (CDD)",
+    /* O mesmo rótulo da tela de Remuneração — ver `registrar-unidade.tsx`. */
+    campoDoCodigo: "Código da unidade",
     exemplo: "CDD BELÉM",
-    codigo: "443",
+    /*
+      O CNPJ, e **não** o número do CDD — o exemplo aqui era `443`, e era ele
+      que desalinhava as duas telas. A de Remuneração sempre pediu o CNPJ, com
+      o placeholder `12.345.678/0001-99` e a frase "o mesmo da coluna
+      `Unidade - CNPJ` do export"; esta pedia o código numérico do CDD. Duas
+      telas pedindo coisas diferentes sob o mesmo rótulo "Código", e é por ele
+      que uma encontra a outra: quem seguia os dois exemplos gravava `443` de
+      um lado e um CNPJ do outro, e o resumo caía no painel antigo sem que
+      nada estivesse errado em nenhuma das duas telas.
+
+      O número do CDD continua existindo e continua sendo da Ambev — o
+      03.08.20 o escreve como `081-0443`, e o produto o lê e não o reescreve.
+      Ele só não é a identidade por onde o fechamento acha o cadastro.
+    */
+    codigo: "12.345.678/0001-99",
   },
   TRANSPORTADORA: {
     titulo: "Cadastrar uma transportadora",
     campo: "Transportadora",
+    campoDoCodigo: "Código da transportadora",
     exemplo: "HORIZONTE LOGÍSTICA",
+    /*
+      Aqui o exemplo continua sendo o número da Ambev, e continuar é o certo:
+      não há cadastro de transportadora em Remuneração para esta identidade
+      encontrar. É a unidade que o resumo procura (`cadastroDaRemuneracao` casa
+      por `unidadeCodigo`), e alinhar a transportadora ao CNPJ por simetria
+      trocaria um código que funciona por um que não tem par do outro lado.
+    */
     codigo: "36",
   },
 };
@@ -133,7 +160,7 @@ export function CadastrarParte({
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="parte-codigo">Código</Label>
+              <Label htmlFor="parte-codigo">{rotulos.campoDoCodigo}</Label>
               <Input
                 id="parte-codigo"
                 value={codigo}
@@ -154,6 +181,23 @@ export function CadastrarParte({
             ele que a competência encontra o cadastro de Remuneração desta unidade. Ele
             precisa ser exatamente o mesmo nos dois lugares, com ou sem máscara.
           </p>
+
+          {/*
+            Dizer **qual** código, e não só que ele precisa bater. A frase acima
+            já existia e não bastava: ela pede que os dois lados coincidam sem
+            dizer em quê, e quem tinha o número do CDD na cabeça digitava o
+            número do CDD. É a mesma frase da tela de Remuneração, de propósito
+            — as duas pedem a mesma coisa e agora dizem a mesma coisa.
+          */}
+          {tipo === "UNIDADE" && (
+            <p className="text-xs text-muted-foreground">
+              O código da unidade é o <strong>CNPJ</strong>, como está na coluna{" "}
+              <strong>Unidade - CNPJ</strong> do export — é o mesmo que a tela de
+              Remuneração pede ao cadastrar a unidade da planilha. O número do CDD
+              (<code>081-0443</code> no 03.08.20) é da Ambev, o sistema o lê e não o
+              usa como identidade aqui.
+            </p>
+          )}
         </div>
 
         <div className="flex items-center justify-end gap-2 border-t px-6 py-4">

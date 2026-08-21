@@ -766,6 +766,13 @@ export interface PortaDaUnidade {
   candidatas: number;
   comoCasou: ComoCasou | null;
   codigoNoCadastro: string | null;
+  /**
+   * Os códigos que as unidades cadastradas têm — o outro lado da comparação.
+   *
+   * Só vem preenchido quando a unidade não foi encontrada, que é quando serve:
+   * é o que transforma "não achei" em "procurei X e existe Y".
+   */
+  codigosCadastrados: string[];
 }
 
 export interface PortaDaVigencia {

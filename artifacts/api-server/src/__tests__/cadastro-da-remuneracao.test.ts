@@ -116,6 +116,13 @@ function bancoCom(opcoes: {
       const procurado = String(valores[0] ?? "");
 
       if (texto.includes("count(*)")) return { rows: [{ total: unidades.length }] };
+      if (texto.includes("SELECT DISTINCT u.codigo")) {
+        return {
+          rows: [...new Set(unidades.map((u) => u.codigo).filter((c) => c.trim() !== ""))]
+            .sort()
+            .map((codigo) => ({ codigo })),
+        };
+      }
 
       /* As três faixas, com a mesma regra do SQL — ver `resolverUnidade`. */
       if (texto.includes("WHERE u.codigo =")) {
@@ -265,6 +272,49 @@ describe("o código que encontra a unidade", () => {
     const { diagnostico } = await porta(db).resolver({ ...UNIDADE, ...PRIMEIRA });
     expect(diagnostico.estado).toBe("UNIDADE_NAO_ENCONTRADA");
     expect(diagnostico.unidade.cadastradas).toBe(1);
+  });
+
+  /**
+   * O conserto do ponto de confusão: os **dois** lados na mesma frase.
+   *
+   * Antes a tela dizia "nenhuma das N unidades responde por X" — o que se
+   * procurou, sem o que existe. A pergunta seguinte era sempre "então qual é o
+   * código certo?", e nada respondia. Com os dois textos à vista não há regra a
+   * decorar: eles precisam ser iguais.
+   */
+  it("mostra o que está cadastrado, e não só o que procurou", async () => {
+    const db = bancoCom({
+      unidades: [{ scopeHash: "sh1", canal: "", codigo: "12.345.678/0001-99" }],
+      porVigencia: { "2026-07-01": ABA },
+    });
+    const { diagnostico } = await porta(db).resolver({
+      ...UNIDADE,
+      unidadeCodigo: "CDD Belém",
+      ...PRIMEIRA,
+    });
+
+    expect(diagnostico.unidade.codigosCadastrados).toEqual(["12.345.678/0001-99"]);
+    const destrava = comoDestravar(diagnostico)!;
+    /* Os dois lados, nomeados, na mesma frase. */
+    expect(destrava.problema).toContain("CDD Belém");
+    expect(destrava.problema).toContain("12.345.678/0001-99");
+    expect(destrava.conserto).toContain("precisam ser iguais");
+  });
+
+  it("a unidade cadastrada sem código não entra na lista de códigos", async () => {
+    const db = bancoCom({
+      unidades: [{ scopeHash: "sh1", canal: "", codigo: "" }],
+      porVigencia: { "2026-07-01": ABA },
+    });
+    const { diagnostico } = await porta(db).resolver({
+      ...UNIDADE,
+      unidadeCodigo: "CDD Belém",
+      ...PRIMEIRA,
+    });
+
+    expect(diagnostico.unidade.codigosCadastrados).toEqual([]);
+    /* E a frase muda: não é "existe outro", é "não tem nenhum". */
+    expect(comoDestravar(diagnostico)!.problema).toContain("nenhuma das 1 unidades");
   });
 
   /**

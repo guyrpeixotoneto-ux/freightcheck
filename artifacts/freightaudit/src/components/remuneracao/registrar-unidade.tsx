@@ -73,15 +73,22 @@ import { registrarUnidade } from "@/lib/remuneracao";
  * tem — as duas unidades nunca se encontrariam. A exigência é real, e a tela a
  * diz por extenso, porque quem digita não tem como adivinhá-la.
  *
- * É também a razão de o nome e o código serem **dois campos**, onde Realizar
- * Fechamento tem um só. Lá a unidade se digita como `443 — CDD Belém`, e o
- * leitor daquele campo parte o texto no primeiro travessão, hífen ou barra —
- * inequívoco sobre um código de CDD, que é numérico. O código daqui é o CNPJ
- * como o export o escreve, e `12.345.678/0001-99` traz uma barra e um hífen
- * dentro de si: no formato de lá, ele viraria o código `12.345.678` e o nome
- * `0001-99 — CDD Belém`. Seria um identificador errado, gravado sem erro
- * nenhum em tela, descoberto no dia em que o arquivo chegasse e abrisse a
- * segunda unidade.
+ * É também a razão de o nome e o código serem **dois campos**. Realizar
+ * Fechamento teve um só, em que a unidade se digitava como `443 — CDD Belém`,
+ * e o leitor daquele campo partia o texto no primeiro travessão, hífen ou
+ * barra — inequívoco sobre um código de CDD, que é numérico, e desastroso
+ * sobre um CNPJ: `12.345.678/0001-99` traz uma barra e um hífen dentro de si,
+ * e viraria o código `12.345.678` com o nome `0001-99 — CDD Belém`. Um
+ * identificador errado, gravado sem erro nenhum em tela, descoberto no dia em
+ * que o arquivo chegasse e abrisse a segunda unidade.
+ *
+ * **As duas telas agora pedem a mesma coisa, com os mesmos rótulos.** Lá também
+ * são dois campos, o do código também se chama `Código da unidade`, e o exemplo
+ * dele também é um CNPJ — era `443`, e essa era a última divergência: duas
+ * telas pedindo identificadores diferentes sob o mesmo nome, sendo que é por
+ * esse identificador que uma encontra a outra. Quem seguisse os dois exemplos
+ * gravava o número do CDD de um lado e o CNPJ do outro, e o resumo caía no
+ * painel antigo sem que nada estivesse errado em tela nenhuma.
  */
 export function BotaoDeRegistroDeUnidade() {
   const [aberto, setAberto] = useState(false);

@@ -146,7 +146,36 @@ export interface PortaDaUnidade {
   comoCasou: ComoCasou | null;
   /** O código como o **cadastro** o escreve — o que a tela põe ao lado. */
   codigoNoCadastro: string | null;
+  /**
+   * Os códigos que as unidades cadastradas de fato têm.
+   *
+   * **É o outro lado da comparação, e a sua falta era o ponto de confusão.** A
+   * tela dizia "nenhuma das N unidades responde pelo código X" — verdade, e
+   * metade da informação: quem lê fica sabendo o que se procurou e não o que
+   * existe. E como as duas telas que gravam esse campo pedem coisas diferentes
+   * (a de Remuneração pede o CNPJ da coluna `Unidade - CNPJ`; a competência
+   * guarda o que alguém digitou ao abri-la), a pergunta seguinte é sempre a
+   * mesma — *então qual é o código certo?* — e nada na tela respondia.
+   *
+   * Com os dois lados à vista, a resposta é olhar: de um lado o que a
+   * competência procura, do outro o que está cadastrado. Não há regra a
+   * decorar; há dois textos que precisam ser iguais.
+   *
+   * Vem limitada — ver `TETO_DE_CODIGOS` —, porque a lista serve para
+   * reconhecer, não para inventariar.
+   */
+  codigosCadastrados: string[];
 }
+
+/**
+ * Quantos códigos cadastrados o diagnóstico carrega.
+ *
+ * Poucos de propósito: a lista existe para quem tem duas ou três unidades
+ * reconhecer a sua num relance. Num acervo de trinta, despejar as trinta
+ * transformaria a explicação num paredão — e quem tem trinta abre a lista de
+ * Remuneração, que é feita para isso.
+ */
+export const TETO_DE_CODIGOS = 5;
 
 /** A segunda porta: alguma aba digitada responde por esta quinzena. */
 export interface PortaDaVigencia {
@@ -240,30 +269,45 @@ export function comoDestravar(
     case "CANAL_SEM_CONTRATO":
       return {
         problema:
-          "O contrato transcrito no cadastro é o da Rota — a própria aba `Cadastro` " +
-          "escreve `QUANTIDADE DE DOCUMENTOS EMITIDOS - ROTA %`.",
+          "O contrato transcrito no cadastro é o da Rota — a própria aba Cadastro " +
+          "escreve QUANTIDADE DE DOCUMENTOS EMITIDOS - ROTA %.",
         conserto:
           "Nada, deste lado: responder por outro canal com os parâmetros da Rota " +
           "inventaria um contrato. O devido deste canal depende de o painel dele ser " +
           "transcrito.",
       };
 
-    case "UNIDADE_NAO_ENCONTRADA":
+    case "UNIDADE_NAO_ENCONTRADA": {
+      /*
+        Os dois lados na mesma frase. "Nenhuma responde por X" manda procurar
+        sem dizer onde; "esta competência procura X, e o que está cadastrado é
+        Y" mostra a diferença e acaba a procura.
+      */
+      const cadastrados = u.codigosCadastrados;
       return {
         problema:
-          `Nenhuma das ${u.cadastradas} unidades cadastradas em Remuneração responde pelo ` +
-          `código \`${u.codigoProcurado}\` — e é por ele que o fechamento encontra o cadastro.`,
+          `Esta competência procura o cadastro pelo código "${u.codigoProcurado}", e ` +
+          (u.cadastradas === 0
+            ? "nenhuma unidade foi cadastrada em Remuneração ainda."
+            : cadastrados.length === 0
+              ? `nenhuma das ${u.cadastradas} unidades cadastradas em Remuneração tem código.`
+              : `o que está cadastrado em Remuneração é ${cadastrados.map((c) => `"${c}"`).join(", ")}` +
+                (u.cadastradas > cadastrados.length
+                  ? ` e mais ${u.cadastradas - cadastrados.length}.`
+                  : ".")),
         conserto:
-          "Se você cadastrou a unidade sem código, informe o código dela na lista de " +
-          "Remuneração. Espaço em volta e máscara de CNPJ já não impedem o encontro; o " +
-          "que impede é o código ser outro.",
+          "Os dois textos precisam ser iguais — é só isso que o fechamento compara. " +
+          "Espaço em volta e máscara de CNPJ já não impedem o encontro. Se a unidade foi " +
+          "cadastrada sem código, informe o código dela na lista de Remuneração; se foi " +
+          "cadastrada com outro, é ele que precisa virar o desta competência.",
       };
+    }
 
     case "UNIDADE_AMBIGUA":
       return {
         problema:
           `${u.candidatas} unidades cadastradas respondem pelo código ` +
-          `\`${u.codigoProcurado}\`, e escolher uma delas poria o contrato de uma unidade ` +
+          `"${u.codigoProcurado}", e escolher uma delas poria o contrato de uma unidade ` +
           "a responder pelo fechamento de outra.",
         conserto:
           "Abra Remuneração e deixe uma só com este código — apague a duplicada ou " +
@@ -281,7 +325,7 @@ export function comoDestravar(
               `digitada — o que existe é ${todas.join(", ")}.`,
         conserto:
           todas.length === 0
-            ? "Abra a unidade em Remuneração e digite a aba `Cadastro` da vigência."
+            ? "Abra a unidade em Remuneração e digite a aba Cadastro da vigência."
             : "Digite a aba da vigência deste mês. A aba de uma quinzena responde pela " +
               "outra metade do mesmo mês; de um mês para outro, não — a frota " +
               "contratada muda, e herdar entre meses inventaria um contrato.",
@@ -326,6 +370,7 @@ function nenhumaUnidade(codigoProcurado: string, cadastradas = 0): PortaDaUnidad
     candidatas: 0,
     comoCasou: null,
     codigoNoCadastro: null,
+    codigosCadastrados: [],
   };
 }
 
@@ -398,6 +443,7 @@ export function cadastroEmMemoria(
         candidatas: 1,
         comoCasou: "EXATO",
         codigoNoCadastro: pergunta.unidadeCodigo,
+        codigosCadastrados: [],
       };
 
       const cobre = daUnidade.filter(

@@ -7,7 +7,7 @@ import type {
   LeituraDoCadastro,
   PortaDaUnidade,
 } from "@workspace/fechamento";
-import { paradoNaUnidade } from "@workspace/fechamento";
+import { paradoNaUnidade, TETO_DE_CODIGOS } from "@workspace/fechamento";
 import { normalizeDocumento } from "@workspace/ingest";
 import {
   CHAVES_DO_CONTRATO,
@@ -214,6 +214,25 @@ async function contarCadastradas(db: Database): Promise<number> {
   return rows[0]?.total ?? 0;
 }
 
+/**
+ * Os códigos que as unidades cadastradas de fato têm — o outro lado da
+ * comparação.
+ *
+ * Distintos e sem os vazios: a unidade cadastrada sem código não tem código a
+ * mostrar, e listar `''` entre os candidatos sugeriria que o vazio é um valor
+ * que se pode digitar. Quantas são as sem código já sai do denominador.
+ */
+async function codigosCadastrados(db: Database): Promise<string[]> {
+  const { rows } = await db.execute<{ codigo: string }>(sql`
+    SELECT DISTINCT u.codigo
+      FROM remuneracao_unidade u
+     WHERE btrim(u.codigo) <> ''
+     ORDER BY u.codigo
+     LIMIT ${TETO_DE_CODIGOS}
+  `);
+  return rows.map((l) => l.codigo);
+}
+
 /** As vigências dessa unidade que têm alguma linha de planilha digitada. */
 async function vigenciasComPlanilha(
   db: Database,
@@ -262,7 +281,19 @@ export function cadastroDaRemuneracao(
         pergunta.unidadeCodigo,
         alvo.tipoDeOperacao,
       );
-      if (!unidade) return { resposta: null, diagnostico: daUnidade({ candidatas }) };
+      if (!unidade) {
+        /*
+          Os códigos entram **só** quando não se achou: é aí que eles servem, e
+          é uma consulta a mais que o caminho feliz não precisa pagar.
+        */
+        return {
+          resposta: null,
+          diagnostico: daUnidade({
+            candidatas,
+            codigosCadastrados: await codigosCadastrados(db),
+          }),
+        };
+      }
 
       const portaDaUnidade: PortaDaUnidade = {
         codigoProcurado: pergunta.unidadeCodigo,
@@ -270,6 +301,8 @@ export function cadastroDaRemuneracao(
         candidatas: 1,
         comoCasou: unidade.comoCasou,
         codigoNoCadastro: unidade.codigo,
+        /* Achou: a lista de candidatos não tem para que servir. */
+        codigosCadastrados: [],
       };
 
       /*

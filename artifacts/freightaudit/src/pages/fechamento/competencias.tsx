@@ -559,9 +559,10 @@ export default function Competencias() {
               competência, e nelas se procura tanto pelo nome quanto pelo código. Não
               achou? A última linha de cada lista é <strong>“Cadastrar…”</strong>, com
               ou sem busca digitada: abre um formulário com nome e código separados, o
-              mesmo de Cadastrar uma unidade em Remuneração. O código é a identidade —
-              é por ele que a competência encontra o cadastro de remuneração desta
-              unidade, e ele precisa ser o mesmo nos dois lugares. Digitar o mesmo
+              mesmo de Cadastrar uma unidade em Remuneração. O código da unidade é o{" "}
+              <strong>CNPJ</strong>, como está na coluna <strong>Unidade - CNPJ</strong> do
+              export — é por ele que a competência encontra o cadastro de remuneração
+              desta unidade, e ele precisa ser o mesmo nos dois lugares. Digitar o mesmo
               código com um nome novo renomeia.
             </p>
 

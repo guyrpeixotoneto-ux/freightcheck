@@ -666,7 +666,12 @@ function PortasDoCadastro({
             ? "PAROU"
             : "OK",
       detalhe: parouNaUnidade
-        ? `${unidade.candidatas} de ${unidade.cadastradas} cadastradas respondem por ${unidade.codigoProcurado}`
+        ? `esta competência procura por “${unidade.codigoProcurado}”` +
+          (unidade.codigosCadastrados.length > 0
+            ? ` · cadastrado em Remuneração: ${unidade.codigosCadastrados
+                .map((c) => `“${c}”`)
+                .join(", ")}`
+            : ` · ${unidade.cadastradas} cadastrada(s), nenhuma com este código`)
         : unidade.comoCasou === "EXATO"
           ? `código ${unidade.codigoProcurado}`
           : unidade.comoCasou === "ESPACO"
