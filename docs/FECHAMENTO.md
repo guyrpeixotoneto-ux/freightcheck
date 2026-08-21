@@ -69,7 +69,7 @@ listas:
   correspondente no `replit.md`.
 - **Fechamento** — `components/layout/nav-fechamento.ts`, cinco seções na
   ordem do processo:
-  - **Fechamento**: Visão Gerencial · Importações · Apurações
+  - **Fechamento**: Visão Gerencial · Importações · Apurações · Resumo geral · Conciliação
   - **Remuneração**: Cadastro
   - **Apuração**: Apuração · Pendências · Conferências
   - **Decisão**: Ajustes · Aprovações · Encerramento
@@ -241,6 +241,62 @@ Quatro decisões que a tela materializa:
 A aritmética mora em `lib/fechamento/src/resumo.ts`, pura e sob teste, pela
 mesma razão de `lib/fechamento-gerencial`: uma soma feita no navegador é uma
 segunda opinião sobre remuneração.
+
+A planilha que a operação mantém **não** aparece aqui: conferir o mês contra o
+`.xlsb` anexado é outra pergunta, e ela tem tela própria — a Conciliação, logo
+abaixo. O Resumo ficou com o que se lê todo dia sem depender de anexo nenhum.
+
+## A Conciliação — o fechamento contra a planilha que a operação mantém
+
+`/fechamento/conciliacao` responde a pergunta que se faz com o `.xlsb` aberto ao
+lado: *o meu fechamento — do meu cadastro e das minhas importações — bate com a
+minha planilha?* Anexa-se a `Fechamento_Remuneracao.xlsb` daquele mês e cada
+linha aparece com o **devido** (do contrato e do diário), o **demonstrado** (do
+03.08.20), o que o `RESUMO GERAL` dela **publica**, e a distância entre o devido
+e a planilha.
+
+**Por que é um módulo, e não mais duas colunas no Resumo geral.** O Resumo
+responde todo dia, sem depender de anexo nenhum: duas fontes que sempre existem
+e a diferença entre elas. A conferência contra a planilha só existe depois de
+alguém anexar um arquivo — tem gesto próprio (anexar, versionar, trocar de
+régua), procedência própria (qual arquivo, quem, quando, `sha256`) e um estado
+normal que é "ainda não há planilha". Espremer isso em duas colunas
+condicionais fazia a mesma tabela ter duas larguras e duas leituras, e escondia
+o anexo dentro de um painel do Resumo.
+
+A separação é de endereço, e não só de tela:
+
+1. **`GET /fechamento/resumo` não lê a referência.** Ele não faz a consulta,
+   não a enxerta, e responde igual antes e depois de um anexo — provado em
+   `routes/__tests__/fechamento-conciliacao.test.ts`.
+2. **`GET /fechamento/conciliacao` lê as duas coisas em paralelo** e as junta
+   com `resumoComReferencia`, que é transformação pura. As duas leituras são
+   independentes e a ordem entre elas não importa — é o que se quer provar.
+3. **As duas endereçam o mês pela mesma régua** (`mesDoFechamento`): a mesma
+   URL recebe a mesma recusa, palavra por palavra, nos dois endereços. Uma
+   segunda cópia da validação faria um link colado numa mensagem abrir uma tela
+   e quebrar a outra.
+
+Três decisões que a tela materializa:
+
+1. **A planilha é régua, e régua não entra na conta.** O enxerto acontece
+   **depois** de o devido estar calculado (`painel-referencia.ts`), e o cálculo
+   não tem um único import da referência — `contaminacao.test.ts` reprova quem
+   escrever o primeiro. Uma régua que mudasse o que ela mede não seria régua.
+2. **A diferença com causa conhecida continua inteira.** O nome da investigação
+   já feita entra como legenda embaixo do número; o número não é absorvido nem
+   arredondado para zero. Um painel que zerasse a divergência cuja causa já se
+   sabe concordaria consigo mesmo por construção.
+3. **Sem devido não há o que conciliar, e a tela diz isso.** O diagnóstico das
+   três portas do cadastro é o mesmo do Resumo, no mesmo componente
+   (`components/fechamento/por-que-nao-tem-devido.tsx`), para que as duas telas
+   não digam duas coisas sobre o mesmo cadastro. Comparar o arquivo com a
+   releitura do próprio 03.08.20 seria uma conferência que concorda consigo
+   mesma.
+
+O total de cada quadro é o que a planilha **publica** na linha de total, e não a
+soma das linhas dela: a reconciliação encontrou um total (`AJ133`) cuja fórmula
+discorda das próprias parcelas, e somar aqui esconderia exatamente esse defeito.
 
 ## O de-para — a classificação do sistema conversando com a da planilha
 

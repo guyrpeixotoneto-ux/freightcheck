@@ -1037,44 +1037,36 @@ export interface ResumoDoMes {
   canais: CanalDoResumo[];
 }
 
-/**
- * O mês inteiro, das duas quinzenas.
- *
- * Os quatro parâmetros são obrigatórios porque um fechamento é a trinca
- * (unidade, transportadora, período): dois CDDs no mesmo mês são dois resumos.
- */
-export function lerResumoDoMes(alvo: {
-  unidade: string;
-  transportadora: string;
-  /** `EMPURRADA`, `ROTA` — o resumo é de uma operação, e não da unidade. */
-  tipoDeOperacao: string;
-  ano: number;
-  mes: number;
-}): Promise<ResumoDoMes> {
-  const busca = new URLSearchParams({
-    unidade: alvo.unidade,
-    transportadora: alvo.transportadora,
-    tipoDeOperacao: alvo.tipoDeOperacao,
-    ano: String(alvo.ano),
-    mes: String(alvo.mes),
-  });
-  return fetchJson<ResumoDoMes>(`/fechamento/resumo?${busca.toString()}`);
-}
-
 /* ---------------------------------------------------------------------------
-   A referência de conferência — a planilha da operação, anexada a um mês
+   O endereço de um mês — a quíntupla que toda leitura do fechamento pede
    ------------------------------------------------------------------------ */
 
-/** O mês que uma referência endereça — a mesma quíntupla do resumo. */
-export interface MesDaReferencia {
+/**
+ * O mês de um fechamento: quem, com quem, em que operação, quando.
+ *
+ * É a mesma quíntupla nas quatro leituras — resumo, conciliação, lista de
+ * referências e anexo —, e ela é uma só porque um fechamento é a trinca
+ * (unidade, transportadora, operação) num período: dois CDDs no mesmo mês são
+ * dois fechamentos, e a mesma unidade com EMPURRADA e ROTA também.
+ */
+export interface MesDoFechamento {
   unidade: string;
   transportadora: string;
+  /** `EMPURRADA`, `ROTA` — a leitura é de uma operação, e não da unidade. */
   tipoDeOperacao: string;
   ano: number;
   mes: number;
 }
 
-function buscaDoMes(alvo: MesDaReferencia): string {
+/**
+ * O mês que uma referência endereça — o mesmo endereço, com o nome de lá.
+ *
+ * Continua exportado porque é assim que os componentes do anexo o nomeiam, e
+ * porque "a referência é de um mês" é a frase que se lê naquele canto da tela.
+ */
+export type MesDaReferencia = MesDoFechamento;
+
+function buscaDoMes(alvo: MesDoFechamento): string {
   return new URLSearchParams({
     unidade: alvo.unidade,
     transportadora: alvo.transportadora,
@@ -1083,6 +1075,41 @@ function buscaDoMes(alvo: MesDaReferencia): string {
     mes: String(alvo.mes),
   }).toString();
 }
+
+/**
+ * O mês inteiro, das duas quinzenas.
+ *
+ * Os quatro parâmetros são obrigatórios porque um fechamento é a trinca
+ * (unidade, transportadora, período): dois CDDs no mesmo mês são dois resumos.
+ *
+ * **Sem a planilha anexada.** O Resumo confere o fechamento contra as duas
+ * fontes que o sustentam — o contrato e o 03.08.20 —, e a régua da operação é
+ * outra pergunta, com endereço próprio: {@link lerConciliacaoDoMes}. Nesta
+ * leitura `referencia` vem sempre `null`, e as colunas da planilha também.
+ */
+export function lerResumoDoMes(alvo: MesDoFechamento): Promise<ResumoDoMes> {
+  return fetchJson<ResumoDoMes>(`/fechamento/resumo?${buscaDoMes(alvo)}`);
+}
+
+/**
+ * O mesmo mês, **com** a planilha da operação ao lado — a leitura da Conciliação.
+ *
+ * A resposta tem a forma do resumo, e a diferença está no que vem preenchido:
+ * `referencia` diz de qual arquivo a régua saiu, e cada linha ganha `planilha`,
+ * `diferencaDaPlanilha`, `celulaDaPlanilha` e `causaConhecida`. Sem arquivo
+ * anexado ao mês ela responde exatamente o que o Resumo responde — a tela é que
+ * diz, então, que falta anexar.
+ *
+ * O enxerto é feito no servidor **depois** de o devido estar calculado, e nunca
+ * participa dele. Ver `painel-referencia.ts` em `@workspace/fechamento`.
+ */
+export function lerConciliacaoDoMes(alvo: MesDoFechamento): Promise<ResumoDoMes> {
+  return fetchJson<ResumoDoMes>(`/fechamento/conciliacao?${buscaDoMes(alvo)}`);
+}
+
+/* ---------------------------------------------------------------------------
+   A referência de conferência — a planilha da operação, anexada a um mês
+   ------------------------------------------------------------------------ */
 
 /** As versões já anexadas ao mês, da mais nova para a mais velha. */
 export function listarReferenciasDoMes(alvo: MesDaReferencia): Promise<{ versoes: VersaoDaReferencia[] }> {
