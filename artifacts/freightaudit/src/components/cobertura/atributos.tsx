@@ -8,8 +8,10 @@ import {
   numero,
   ORIGEM_DO_ESPERADO,
   percentual,
+  type AberturaDoAtributo,
   type CelulaDoAtributo,
   type ColunaDaMatriz,
+  type ColunaDoConjunto,
   type LinhaDaMatriz,
   type LinhaDeAtributo,
   type MatrizDeAtributos,
@@ -41,12 +43,12 @@ export function AtributosDaLinha({
   linha,
   colunas,
   vigencias,
-  aoAbrirLacuna,
+  aoAbrirAtributo,
 }: {
   linha: LinhaDaMatriz;
   colunas: ColunaDaMatriz[];
   vigencias: number;
-  aoAbrirLacuna: (celula: { snapshotId: string; attributeCode: string }) => void;
+  aoAbrirAtributo: (abertura: AberturaDoAtributo) => void;
 }) {
   const [recorte, setRecorte] = useState<"TODOS" | "FALTA" | "CRITICOS">("TODOS");
   const [mostrarTudo, setMostrarTudo] = useState(false);
@@ -100,6 +102,13 @@ export function AtributosDaLinha({
   }
 
   const { linhas, resumo } = consulta.data;
+  /*
+    As colunas vêm da resposta, e não da matriz de cima, porque só a resposta
+    sabe qual vigência **deste conjunto** cai em cada período — que é o que
+    permite abrir a gaveta a partir de uma célula em traço. As chaves são as
+    mesmas dos dois lados; o servidor calcula a janela pela mesma regra.
+  */
+  const colunasDoConjunto = consulta.data.colunas;
 
   /*
     O filtro é da tela e só esconde linha — ele não recalcula nada. Os números do
@@ -141,7 +150,7 @@ export function AtributosDaLinha({
                   ` · ${numero(resumo.nuncaChegaram)} esperados que não chegaram em nenhuma vigência`}
                 {resumo.semExpectativa > 0 &&
                   ` · ${numero(resumo.semExpectativa)} chegaram sem ninguém cobrar (a célula tracejada)`}
-                . Clique numa célula para ver quais equipamentos ficaram sem o dado.
+                . Clique numa célula para abrir o atributo naquela vigência.
               </p>
             </div>
             <div className="flex gap-1 shrink-0">
@@ -192,9 +201,10 @@ export function AtributosDaLinha({
             <div className="text-[0.625rem] text-muted-foreground flex flex-wrap gap-x-2">
               <code title={atributo.attributeCode}>{atributo.attributeCode}</code>
               {atributo.origem ? (
-                /* `ORIGEM_DO_ESPERADO` já diz "(inferido)" em quem é inferência. */
+                /* O nome da origem, e o eixo declaração/inferência ao lado. */
                 <span title={atributo.motivo ?? undefined}>
                   {ORIGEM_DO_ESPERADO[atributo.origem]}
+                  {!atributo.declarado && " (inferido)"}
                 </span>
               ) : (
                 <span title="Chegou, e nenhuma origem o cobra. Não é lacuna.">
@@ -207,12 +217,13 @@ export function AtributosDaLinha({
               )}
             </div>
           </th>
-          {colunas.map((coluna) => (
+          {colunasDoConjunto.map((coluna) => (
             <td key={coluna.chave} className="px-1.5 py-1">
               <CelulaDeAtributo
                 atributo={atributo}
+                coluna={coluna}
                 celula={atributo.celulas[coluna.chave]}
-                aoAbrirLacuna={aoAbrirLacuna}
+                aoAbrirAtributo={aoAbrirAtributo}
               />
             </td>
           ))}
@@ -263,21 +274,46 @@ export function AtributosDaLinha({
  */
 function CelulaDeAtributo({
   atributo,
+  coluna,
   celula,
-  aoAbrirLacuna,
+  aoAbrirAtributo,
 }: {
   atributo: LinhaDeAtributo;
+  coluna: ColunaDoConjunto;
   celula: CelulaDoAtributo | undefined;
-  aoAbrirLacuna: (celula: { snapshotId: string; attributeCode: string }) => void;
+  aoAbrirAtributo: (abertura: AberturaDoAtributo) => void;
 }) {
+  const abrir = () =>
+    aoAbrirAtributo({
+      snapshotId: celula?.snapshotId ?? coluna.snapshotId,
+      attributeCode: atributo.attributeCode,
+      attributeLabel: atributo.attributeLabel,
+      periodo: coluna.periodo,
+    });
+
+  /*
+    O traço também abre.
+
+    Ele responde uma pergunta — "por que está vazio aqui?" — e a resposta tem
+    duas versões que a tela desenha igual: o atributo não foi cobrado e não
+    chegou, ou a vigência não trouxe este conjunto. Deixá-lo morto obrigaria a
+    adivinhar qual das duas, e é justamente a distinção que a gaveta sabe fazer.
+  */
   if (!celula) {
+    const semConjunto = coluna.snapshotId === null;
+    const descricao = semConjunto
+      ? `${atributo.attributeLabel} em ${coluna.periodo}: esta vigência não trouxe este conjunto.`
+      : `${atributo.attributeLabel} em ${coluna.periodo}: não chegou, e ninguém o cobrava.`;
     return (
-      <div
-        className="px-1.5 py-1 text-center text-[0.625rem] text-muted-foreground border border-dashed"
-        title="Nesta vigência este atributo não chegou e ninguém o cobrava."
+      <button
+        type="button"
+        onClick={abrir}
+        title={descricao}
+        aria-label={descricao}
+        className="w-full px-1.5 py-1 text-center text-[0.625rem] text-muted-foreground border border-dashed transition-colors hover:bg-muted focus:outline-none focus:ring-2 focus:ring-brand"
       >
         —
-      </div>
+      </button>
     );
   }
 
@@ -290,12 +326,7 @@ function CelulaDeAtributo({
   return (
     <button
       type="button"
-      onClick={() =>
-        aoAbrirLacuna({
-          snapshotId: celula.snapshotId,
-          attributeCode: atributo.attributeCode,
-        })
-      }
+      onClick={abrir}
       title={frase(atributo, celula)}
       aria-label={frase(atributo, celula)}
       className={cn(
@@ -333,13 +364,30 @@ function frase(atributo: LinhaDeAtributo, celula: CelulaDoAtributo): string {
       `${numero(celula.entidadesEsperadas)} com o dado.`
     );
   }
+  /*
+    A causa da falta, e não um chute sobre ela.
+
+    A frase dizia "a coluna veio no arquivo e não trouxe número para eles"
+    sempre que a coluna estava no layout — inclusive quando os faltantes eram
+    equipamentos que não vieram na vigência, para os quais não havia coluna
+    nenhuma a trazer número. As duas causas somam no mesmo total e têm donos
+    diferentes; a célula tem os números para separá-las, e separa.
+  */
+  const vazias = Math.max(0, celula.entidadesVazias - celula.naoAplicaveis);
+  const semVir = Math.max(0, celula.entidadesFaltando - vazias);
+  const causa = !celula.noLayout
+    ? " — a coluna não veio nesta vigência."
+    : vazias > 0 && semVir > 0
+      ? ` — ${numero(vazias)} receberam a coluna sem número e ${numero(semVir)} não vieram na vigência.`
+      : semVir > 0
+        ? " — a coluna veio no arquivo; eles é que não vieram na vigência."
+        : " — a coluna veio no arquivo e não trouxe número para eles.";
+
   return (
     `${onde}: ${percentual(celula.percentual)}. ` +
     `${numero(celula.entidadesFaltando)} de ${numero(celula.entidadesEsperadas)} ` +
     `${celula.entidadesFaltando === 1 ? "equipamento ficou" : "equipamentos ficaram"} sem o dado` +
-    (celula.noLayout
-      ? " — a coluna veio no arquivo e não trouxe número para eles."
-      : " — a coluna não veio nesta vigência.") +
+    causa +
     (celula.criticidade === "CRITICO" ? " Atributo crítico." : "")
   );
 }

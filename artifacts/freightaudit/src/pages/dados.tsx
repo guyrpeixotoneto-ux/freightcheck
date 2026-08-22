@@ -3,14 +3,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Layout } from "@/components/layout/layout";
 import { ApiErrorNotice } from "@/components/api-error";
 import { Descobertas } from "@/components/cobertura/descobertas";
-import {
-  DetalheDaCelulaPainel,
-  DetalheDaLacunaPainel,
-} from "@/components/cobertura/detalhe";
+import { DetalheDaCelulaPainel } from "@/components/cobertura/detalhe";
+import { GavetaDoAtributo } from "@/components/cobertura/gaveta";
 import { Lacunas } from "@/components/cobertura/lacunas";
 import { Matriz } from "@/components/cobertura/matriz";
 import { MedicaoIncompleta, Resumo } from "@/components/cobertura/resumo";
 import type {
+  AberturaDoAtributo,
   CelulaDaMatriz,
   Criticidade,
   Lacuna,
@@ -78,9 +77,15 @@ export default function Dados() {
   } | null>(null);
   /** A linha aberta por dentro — uma de cada vez, pela chave da linha. */
   const [atributosDe, setAtributosDe] = useState<string | null>(null);
-  const [lacuna, setLacuna] = useState<{ snapshotId: string; attributeCode: string } | null>(
-    null,
-  );
+  /*
+    O atributo aberto na gaveta.
+
+    Um estado só para os três caminhos que chegam nela — a célula da tabela de
+    atributos, a lista de lacunas e a lista de lacunas de dentro do painel da
+    célula. Três estados dariam três gavetas capazes de abrir ao mesmo tempo,
+    sobre a mesma tela, dizendo coisas diferentes.
+  */
+  const [atributo, setAtributo] = useState<AberturaDoAtributo | null>(null);
   const [avancados, setAvancados] = useState(false);
   const clienteDeConsultas = useQueryClient();
 
@@ -248,7 +253,7 @@ export default function Dados() {
               vigencias={vigencias}
               selecionada={celula}
               aoSelecionar={(c: CelulaDaMatriz) => {
-                setLacuna(null);
+                setAtributo(null);
                 setCelula(
                   celula?.snapshotId === c.vigencia.snapshotId &&
                     celula.entityType === c.entityType
@@ -264,7 +269,7 @@ export default function Dados() {
               aoExpandir={(l: LinhaDaMatriz) =>
                 setAtributosDe(atributosDe === l.chave ? null : l.chave)
               }
-              aoAbrirLacuna={setLacuna}
+              aoAbrirAtributo={setAtributo}
             />
 
             {celula && (
@@ -288,19 +293,9 @@ export default function Dados() {
                 }}
                 aoFechar={() => {
                   setCelula(null);
-                  setLacuna(null);
+                  setAtributo(null);
                 }}
-                aoAbrirLacuna={(l: Lacuna) =>
-                  setLacuna({ snapshotId: l.snapshotId, attributeCode: l.attributeCode })
-                }
-              />
-            )}
-
-            {lacuna && (
-              <DetalheDaLacunaPainel
-                snapshotId={lacuna.snapshotId}
-                attributeCode={lacuna.attributeCode}
-                aoFechar={() => setLacuna(null)}
+                aoAbrirLacuna={(l: Lacuna) => setAtributo(aberturaDe(l))}
               />
             )}
 
@@ -311,20 +306,35 @@ export default function Dados() {
               de contexto.
             */}
             {!celula && (
-              <Lacunas
-                lacunas={consulta.data.lacunas}
-                aoAbrir={(l: Lacuna) =>
-                  setLacuna({ snapshotId: l.snapshotId, attributeCode: l.attributeCode })
-                }
-              />
+              <Lacunas lacunas={consulta.data.lacunas} aoAbrir={(l: Lacuna) => setAtributo(aberturaDe(l))} />
             )}
 
             <Descobertas descobertas={consulta.data.descobertas} />
+
+            <GavetaDoAtributo abertura={atributo} aoFechar={() => setAtributo(null)} />
           </>
         )}
       </div>
     </Layout>
   );
+}
+
+/**
+ * Uma lacuna, na forma que a gaveta abre.
+ *
+ * Só identidade: a gaveta pede os números ao servidor, e é isso que faz o
+ * painel aberto pela lista de lacunas e o painel aberto pela célula da tabela
+ * mostrarem a mesma medida. Passar aqui os números que a lacuna já traz seria
+ * mais rápido e criaria a chance de a gaveta discordar de si mesma conforme o
+ * caminho por onde foi aberta.
+ */
+function aberturaDe(lacuna: Lacuna): AberturaDoAtributo {
+  return {
+    snapshotId: lacuna.snapshotId,
+    attributeCode: lacuna.attributeCode,
+    attributeLabel: lacuna.attributeLabel,
+    periodo: lacuna.periodo,
+  };
 }
 
 /**
