@@ -48,7 +48,7 @@ import {
   numerosSemLastro,
   orquestrar,
   sanear,
-  recorteDaConversa,
+  contextoDoTurno,
   recorteDoDossie,
   type Dossie,
   type Etapa,
@@ -56,6 +56,7 @@ import {
 } from "./orquestrador";
 import { agenteLigado, evidenciasDaInvestigacao, investigar, type Investigacao } from "./agente";
 import { registroPadrao } from "./ferramentas/registro";
+import { montarRastro, type RastroDaResposta } from "./rastro";
 import { SUGESTOES } from "./conhecimento";
 import { termos } from "./normalizar";
 import {
@@ -94,6 +95,16 @@ export interface Resposta {
   desambiguacao: { termo: string; opcoes: string[] } | null;
   /** O estado a persistir para a próxima pergunta. */
   estado: EstadoDaConversa;
+  /**
+   * O que é preciso guardar para explicar esta resposta depois dela.
+   *
+   * Sai de `responder` já montado, e não da rota, por uma razão de contrato:
+   * quem constrói a resposta é quem tem o plano à mão — `scopeHash`, origem do
+   * recorte, período recusado —, e nada disso aparece na superfície pública da
+   * `Resposta`. Montá-lo na rota exigiria expor o plano inteiro só para que
+   * alguém lá fora o remontasse.
+   */
+  rastro: RastroDaResposta;
   tecnico: {
     intencao: Intencao;
     porque: string;
@@ -765,6 +776,98 @@ function encadeamentoDe(chamadas: Investigacao["chamadas"]): (number | null)[] {
   });
 }
 
+
+/**
+ * O rastro desta resposta, a partir do que os dois caminhos têm em mãos.
+ *
+ * Escrito uma vez porque as duas montagens — planejador e agente — devolvem o
+ * mesmo contrato e diferem só no que preenche `tecnico.agente`. Duplicá-lo
+ * faria o rastro do agente sair de sincronia com o do planejador no primeiro
+ * campo novo, que é exatamente a classe de defeito que o rastro existe para
+ * tornar investigável.
+ */
+
+/**
+ * O que esta chamada **exerceu** — e não só como o modelo a chamou.
+ *
+ * **O defeito que isto fecha, e por que ele custou caro.** `ChamadaDeFerramenta`
+ * guarda o nome cru que o modelo pediu: `"alteracoes"`. O nível — `total`,
+ * `grupos`, `linhas` — vive nos argumentos e reaparece em `Evidencia.ferramenta`
+ * como `alteracoes:linhas`, que é a granularidade em que a bateria de aceitação
+ * decide se uma capacidade foi exercida. Como `tecnico.ferramentas` carregava só
+ * o nome, `capacidadesDe` caía no casamento por prefixo — e o prefixo devolve a
+ * **primeira** entrada do mapa, que é a mais fraca (`alteracoes:total` →
+ * MOVIMENTO_AGREGADO).
+ *
+ * O efeito prático: o agente descia ao veículo, exercia ALTERACOES_DETALHADAS, e
+ * a régua registrava "capacidade-ausente". Uma decisão de virada de chave tomada
+ * sobre esse número reprova o agente por uma capacidade que ele exerceu.
+ *
+ * A evidência é a autoridade porque é ela que a trava de lastro confere e é ela
+ * que numera as citações: se a capacidade fosse lida de um lugar e o lastro de
+ * outro, os dois sairiam de sincronia sem nada quebrar.
+ *
+ * Uma chamada que falhou não tem evidência e não exerceu capacidade nenhuma —
+ * ela mantém o nome cru com o carimbo de falha, que é o que a régua precisa para
+ * não a contar como exercício.
+ */
+
+/**
+ * A primeira frase da narração, em tamanho de etapa.
+ *
+ * O modelo narra em prosa — às vezes um parágrafo — e a tela mostra etapas de
+ * uma linha. Cortar no fim da primeira frase preserva a informação que
+ * interessa ("vou olhar os grupos de alteração") e descarta o resto, que numa
+ * lista de progresso vira ruído. O corte por caracteres é o teto de segurança
+ * para uma narração sem pontuação.
+ */
+function primeiraFrase(texto: string): string {
+  const limpo = texto.replace(/\s+/g, " ").trim();
+  const fim = limpo.search(/[.!?](\s|$)/);
+  const frase = fim > 0 ? limpo.slice(0, fim + 1) : limpo;
+  return frase.length > 120 ? `${frase.slice(0, 117)}…` : frase;
+}
+
+function capacidadeExercida(chamada: Investigacao["chamadas"][number]): string {
+  if (!chamada.ok) return `${chamada.nome} (falhou)`;
+  const daEvidencia = [...new Set(chamada.evidencias.map((e) => e.ferramenta))];
+  if (daEvidencia.length > 0) return daEvidencia.join(" + ");
+  /*
+    Chamada sem evidência não exerceu capacidade — mesmo tendo `ok: true`.
+
+    `ok` diz que a ferramenta não lançou; não diz que ela respondeu. `alteracoes`
+    com `nivel: "linhas"` e sem `atributo` é o caso exemplar: ela devolve, de
+    propósito, um conteúdo que **explica ao modelo** o que faltou — e nenhuma
+    evidência, porque não há o que citar. Devolver o nome cru aqui fazia a régua
+    casá-lo por prefixo e registrar MOVIMENTO_AGREGADO: uma consulta que não
+    respondeu nada contava como agregado entregue.
+
+    O carimbo mantém a consulta visível no log — ela aconteceu, custou uma
+    rodada, e quem investiga a resposta precisa vê-la — e a tira da conta de
+    capacidades, que é onde ela não pode entrar.
+  */
+  return `${chamada.nome} (sem evidência)`;
+}
+
+function rastroDe(
+  dossie: Dossie,
+  resposta: Omit<Resposta, "rastro">,
+): RastroDaResposta {
+  return montarRastro({
+    recorte: resposta.recorte,
+    lacunas: resposta.lacunas,
+    plano: {
+      scopeHash: dossie.plano.contexto?.contexto.scopeHash ?? null,
+      canal: dossie.plano.contexto?.contexto.channel ?? null,
+      origemDoRecorte: dossie.plano.origemDoRecorte,
+      unidadeCitada: dossie.plano.unidadeCitada,
+      periodo: dossie.plano.periodo,
+      periodoImpossivel: dossie.plano.periodoImpossivel,
+    },
+    tecnico: resposta.tecnico,
+  });
+}
+
 function montarComAgente(
   dossie: Dossie,
   investigacao: Investigacao,
@@ -839,7 +942,7 @@ function montarComAgente(
     ...(e.tela ? { tela: e.tela } : {}),
   }));
 
-  return {
+  const montada: Omit<Resposta, "rastro"> = {
     pergunta,
     texto,
     redacao,
@@ -856,8 +959,12 @@ function montarComAgente(
       intencao: dossie.plano.intencao,
       porque: dossie.plano.porque,
       herdado: dossie.plano.herdado,
-      /* O log completo: nome e desfecho de cada consulta, na ordem. */
-      ferramentas: investigacao.chamadas.map((c) => `${c.nome}${c.ok ? "" : " (falhou)"}`),
+      /*
+        O log completo: **capacidade** e desfecho de cada consulta, na ordem.
+        Ver `capacidadeExercida` — o nome cru perde o nível, e o nível é o que
+        diz o que foi exercido.
+      */
+      ferramentas: investigacao.chamadas.map(capacidadeExercida),
       numerosRecusados,
       agente: {
         rodadas: investigacao.rodadas,
@@ -908,6 +1015,7 @@ function montarComAgente(
       },
     },
   };
+  return { ...montada, rastro: rastroDe(dossie, montada) };
 }
 
 /**
@@ -945,9 +1053,24 @@ function montarComAgente(
  * por causa dele trocaria resposta incompleta por resposta nenhuma. O que
  * sobra, quem lê declara.
  */
-async function garantirRecorte(db: Database, opcoes: PerguntaOptions): Promise<void> {
-  const recorte = recorteDaConversa(opcoes.recorte, opcoes.estado ?? null);
-  const resolvido = await resolverContexto(db, recorte).catch(() => null);
+async function garantirRecorte(
+  db: Database,
+  pergunta: string,
+  opcoes: PerguntaOptions,
+): Promise<void> {
+  /*
+    A pré-condição é garantida no recorte que a **pergunta** descreve.
+
+    Enquanto ela usava só a tela e o fio, "só Camaçari" fazia a orquestração
+    consultar Camaçari e a garantia materializar as comparações da unidade
+    anterior — e a diferença aparecia como uma resposta sem alterações numa
+    vigência que tinha várias. É a mesma decisão em dois lugares; agora é a
+    mesma função.
+  */
+  const { resolvido } = await contextoDoTurno(db, pergunta, {
+    ...(opcoes.recorte ? { recorte: opcoes.recorte } : {}),
+    estado: opcoes.estado ?? null,
+  }).catch(() => ({ resolvido: null }));
   if (!resolvido) return;
   opcoes.aoAvancar?.({
     nome: "garantirComparacoes",
@@ -973,7 +1096,7 @@ export async function responder(
     Antes de orquestrar e antes de investigar, e por isso vale para os dois.
     Ver `garantirRecorte` acima para por que a pré-condição mora aqui.
   */
-  await garantirRecorte(db, opcoes);
+  await garantirRecorte(db, pergunta, opcoes);
 
   const dossie = await orquestrar(db, pergunta.trim(), {
     ...(opcoes.recorte ? { recorte: opcoes.recorte } : {}),
@@ -1029,19 +1152,91 @@ export async function responder(
       const investigacao = await investigar({
         pergunta,
         registro: registroPadrao(),
+        /*
+          O recorte das ferramentas é o que a orquestração **resolveu**, e não o
+          que a tela mandou.
+
+          A diferença aparece na frase que nomeia a unidade: `plano.contexto` já
+          é Camaçari quando alguém escreveu "só Camaçari", e `opcoes.recorte`
+          continua sendo a unidade do link. Passar o segundo faria o agente
+          investigar uma operação e a resposta anunciar outra — com o rótulo do
+          recorte, que vem do dossiê, dizendo a certa.
+        */
         ferramentas: {
           db,
-          recorte: {
-            ...(opcoes.recorte?.scopeHash ? { scopeHash: opcoes.recorte.scopeHash } : {}),
-            ...(opcoes.recorte?.channel !== undefined ? { channel: opcoes.recorte.channel } : {}),
-          },
+          recorte: dossie.plano.contexto
+            ? {
+                scopeHash: dossie.plano.contexto.contexto.scopeHash,
+                channel: dossie.plano.contexto.contexto.channel,
+              }
+            : {
+                ...(opcoes.recorte?.scopeHash ? { scopeHash: opcoes.recorte.scopeHash } : {}),
+                ...(opcoes.recorte?.channel !== undefined
+                  ? { channel: opcoes.recorte.channel }
+                  : {}),
+              },
           ...(dossie.plano.periodo ? { periodo: dossie.plano.periodo } : {}),
+          /*
+            Os filtros do fio, injetados como o recorte.
+
+            `dossie.leitura.entidades.equipamento` já é o desta pergunta ou o
+            herdado — a orquestração resolveu essa precedência antes de chegar
+            aqui. O que o executor faz é aplicá-lo como padrão, para que o
+            modelo não precise repetir "cavalos" em toda chamada e, sobretudo,
+            para que esquecer de repetir não devolva a resposta à frota inteira.
+          */
+          filtros: {
+            ...(dossie.leitura.entidades.equipamento
+              ? { equipamento: dossie.leitura.entidades.equipamento }
+              : {}),
+            ...(opcoes.estado?.pagina
+              ? {
+                  apartirDe: opcoes.estado.pagina.apartirDe,
+                  limite: opcoes.estado.pagina.tamanho,
+                }
+              : {}),
+          },
         },
         ...(opcoes.historico?.length ? { historico: opcoes.historico } : {}),
+        /*
+          Os três canais de progresso, e por que os três precisam existir.
+
+          A investigação do agente leva de vinte a trinta segundos, e até aqui a
+          tela recebia **um** deles — `aoConsultar`. Entre duas consultas, e
+          durante a rodada que redige, não chegava nada: a experiência era um
+          cursor parado por dezenas de segundos numa aplicação que acabou de
+          prometer investigar.
+
+          - `aoRodada` diz que o modelo voltou a pensar. É o que preenche o
+            intervalo entre o resultado de uma consulta e o pedido da próxima.
+          - `aoConsultar` diz o que está sendo consultado agora — já existia.
+          - `aoNarrar` traz a frase que o modelo escreve antes de consultar
+            ("deixa eu ver os grupos de alteração"). Ela é progresso de verdade,
+            escrita por quem está investigando, e **era descartada**: o campo
+            existia em `investigar` desde o PR 2 e nenhum chamador o passava.
+
+          **O que deliberadamente não se faz: transmitir o texto da resposta
+          enquanto ele é escrito.** No caminho determinístico isso é seguro
+          porque o dossiê está fechado antes da primeira palavra — a trava
+          confere frase a frase contra um conjunto que não muda mais. No laço do
+          agente não há esse conjunto: uma rodada que parece estar redigindo pode
+          terminar pedindo mais uma consulta, e o que já teria aparecido na tela
+          seria narração exibida como resposta. Preferir o congelamento de uma
+          rodada a mostrar uma resposta que não é a resposta é a mesma escolha
+          que este produto faz em toda tela.
+        */
         ...(opcoes.aoAvancar
           ? {
+              aoRodada: (rodada: number) =>
+                opcoes.aoAvancar!({
+                  nome: "rodada",
+                  rotulo: rodada === 1 ? "Investigando" : `Investigando · rodada ${rodada}`,
+                  ms: 0,
+                }),
               aoConsultar: (nome: string) =>
                 opcoes.aoAvancar!({ nome: "ferramenta", rotulo: `Consultando ${nome}`, ms: 0 }),
+              aoNarrar: (texto: string) =>
+                opcoes.aoAvancar!({ nome: "narracao", rotulo: primeiraFrase(texto), ms: 0 }),
             }
           : {}),
       });
@@ -1119,7 +1314,7 @@ export async function responder(
 
   const estado = avancarEstado(opcoes.estado ?? ESTADO_VAZIO, dossie);
 
-  return {
+  const montada: Omit<Resposta, "rastro"> = {
     pergunta: dossie.pergunta,
     texto,
     redacao,
@@ -1164,6 +1359,7 @@ export async function responder(
       },
     },
   };
+  return { ...montada, rastro: rastroDe(dossie, montada) };
 }
 
 /** As perguntas oferecidas quando não há conversa. */

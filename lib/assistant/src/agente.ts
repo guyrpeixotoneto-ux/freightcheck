@@ -247,6 +247,15 @@ export interface PedidoDeInvestigacao {
   historico?: TurnoAnterior[];
   /** Narração de rodada intermediária — progresso, não resposta. */
   aoNarrar?: (texto: string) => void;
+  /**
+   * Cada rodada, no instante em que ela começa.
+   *
+   * É o que tira a tela do estado congelado entre uma consulta e a próxima: a
+   * pessoa vê que o assistente voltou a pensar, e não um cursor parado. A
+   * última rodada — a que redige — é anunciada como tal, porque é a mais longa
+   * e a única em que nada mais vai acontecer na tela até o texto sair.
+   */
+  aoRodada?: (rodada: number) => void;
   /** Cada ferramenta, no instante em que começa a rodar. */
   aoConsultar?: (nome: string, argumentos: unknown) => void;
 }
@@ -357,6 +366,7 @@ export async function investigar(pedido: PedidoDeInvestigacao): Promise<Investig
   try {
     while (rodadas < TETO_DE_RODADAS) {
       rodadas += 1;
+      pedido.aoRodada?.(rodadas);
 
       const resposta = await obterCliente().beta.messages.create({
         model: MODELO,

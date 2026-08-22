@@ -134,6 +134,15 @@ export const alteracoes: Ferramenta = {
         "ativos; 'alteracoes', o que tem mais linhas. Padrão: criticidade.",
       opcoes: ["impacto", "criticidade", "veiculos", "alteracoes"] as const,
     },
+    apartirDe: {
+      tipo: "inteiro",
+      descricao:
+        "Pular os primeiros N itens da ordem — para continuar uma lista já mostrada, em vez " +
+        "de repetir o começo dela. O resultado diz `apartirDe` e `restantes`, que é o que " +
+        "permite saber se ainda há página seguinte.",
+      minimo: 0,
+      maximo: 5000,
+    },
     limite: {
       tipo: "inteiro",
       descricao: `Quantos itens devolver. Padrão ${LIMITE_PADRAO}, teto 100.`,
@@ -150,6 +159,20 @@ export const alteracoes: Ferramenta = {
 
   async executar(ctx: ContextoDaFerramenta, args): Promise<SaidaDaFerramenta> {
     const nivel = args.nivel as "total" | "grupos" | "linhas";
+    /*
+      O filtro do fio é o padrão; o argumento explícito vence.
+
+      `??` e não `||`: `equipamento` pode chegar `null` do estado quando ninguém
+      recortou, e `null` aqui quer dizer "a frota inteira" — que é diferente de
+      "não informado". Trocar por `||` faria uma conversa sem recorte de
+      equipamento herdar o de outra.
+    */
+    const equipamentoEfetivo =
+      (args.equipamento as string | undefined) ?? ctx.filtros?.equipamento ?? undefined;
+    const apartirDe = Math.max(
+      0,
+      (args.apartirDe as number | undefined) ?? ctx.filtros?.apartirDe ?? 0,
+    );
     const vigencia = (args.vigencia as string | undefined) ?? ctx.periodo;
 
     const visao = await getGroupedView(ctx.db, vigencia, ctx.recorte);
@@ -207,6 +230,24 @@ export const alteracoes: Ferramenta = {
     // ---- total -------------------------------------------------------------
     if (nivel === "total") {
       const t = visao.totals;
+      /*
+        O agregado é da frota inteira, e ele diz isso quando há filtro em pé.
+
+        `visao.totals` vem do motor somado sobre o conjunto; filtrá-lo aqui por
+        equipamento seria **recalcular** o resumo dentro do Assistente, que é
+        exatamente o que este arquivo não faz. O que se pode — e se deve — é não
+        deixar o número passar por outra coisa: com "só cavalos" em pé, uma
+        resposta que apresentasse 749 alterações como sendo dos cavalos estaria
+        errada, e nada no material anterior a impedia.
+
+        Quem quer o recorte por equipamento tem `grupos` e `linhas`, que filtram
+        a lista que o motor devolve — sem refazer conta nenhuma.
+      */
+      const avisoDoFiltro = equipamentoEfetivo
+        ? `Estes totais são da frota inteira do recorte, e **não** só de ${equipamentoEfetivo}: ` +
+          "o motor os soma sobre o conjunto e este nível não os recompõe por equipamento. " +
+          `Para o recorte de ${equipamentoEfetivo}, use nivel='grupos'.`
+        : null;
       const evidencia: Evidencia = {
         ferramenta: "alteracoes:total",
         titulo: `O que mudou em ${visao.periodLabel}`,
@@ -250,6 +291,7 @@ export const alteracoes: Ferramenta = {
       return {
         conteudo: {
           recorte,
+          ...(avisoDoFiltro ? { avisoDoFiltro } : {}),
           vigenciaAnterior: visao.series[0]?.previousPeriodLabel ?? null,
           completo: visao.complete,
           seriesFaltando: visao.missingSeries,
@@ -283,7 +325,7 @@ export const alteracoes: Ferramenta = {
         cara de filtrada, que é precisamente o defeito que esta ferramenta
         existe para corrigir.
       */
-      if (args.equipamento) grupos = grupos.filter((g) => g.entityType === args.equipamento);
+      if (equipamentoEfetivo) grupos = grupos.filter((g) => g.entityType === equipamentoEfetivo);
       if (args.atributo) grupos = grupos.filter((g) => g.attributeCode === args.atributo);
       if (args.natureza) {
         const alvo = String(args.natureza).toUpperCase();
@@ -301,8 +343,8 @@ export const alteracoes: Ferramenta = {
       };
       const ordenados = [...grupos].sort((a, b) => chave(b) - chave(a));
 
-      const limite = (args.limite as number | undefined) ?? LIMITE_PADRAO;
-      const pagina = ordenados.slice(0, limite);
+      const limite = (args.limite as number | undefined) ?? ctx.filtros?.limite ?? LIMITE_PADRAO;
+      const pagina = ordenados.slice(apartirDe, apartirDe + limite);
 
       const itens = pagina.map((g) => ({
         atributo: g.attributeCode,
@@ -354,6 +396,16 @@ export const alteracoes: Ferramenta = {
         numeros: [
           grupos.length,
           pagina.length,
+          /*
+            O deslocamento e o que resta são mostrados ao modelo, e por isso
+            precisam ser autorizados. É a regra que a auditoria de integridade
+            fixa: o que a ferramenta exibe, ela autoriza — o conserto de um
+            número visto e não lastreado é registrá-lo aqui, nunca abrir exceção
+            na trava. Sem isto, "mostro 5 dos 20; faltam 15" é uma frase
+            verdadeira que a trava poda.
+          */
+          apartirDe,
+          Math.max(0, grupos.length - (apartirDe + pagina.length)),
           ...pagina.flatMap((g) =>
             [
               g.changes, g.vehicles, g.fleet, g.patterns,
@@ -385,6 +437,13 @@ export const alteracoes: Ferramenta = {
           */
           gruposNoTotal: grupos.length,
           mostrando: pagina.length,
+          apartirDe,
+          /*
+            Quantos ficaram **depois** desta página. É o que permite ao modelo
+            oferecer a continuação em vez de adivinhar se ela existe — e o que
+            impede "mostre os 5 seguintes" de prometer uma página vazia.
+          */
+          restantes: Math.max(0, grupos.length - (apartirDe + pagina.length)),
           ordenadoPor: ordem,
           grupos: itens,
         },
@@ -408,7 +467,7 @@ export const alteracoes: Ferramenta = {
     const grupo = visao.groups.find(
       (g) =>
         g.attributeCode === atributo &&
-        (!args.equipamento || g.entityType === args.equipamento),
+        (!equipamentoEfetivo || g.entityType === equipamentoEfetivo),
     );
     if (!grupo) {
       return {
@@ -428,8 +487,8 @@ export const alteracoes: Ferramenta = {
       channel: visao.context.channel,
     });
 
-    const limite = (args.limite as number | undefined) ?? LIMITE_PADRAO;
-    const pagina = veiculos.slice(0, limite);
+    const limite = (args.limite as number | undefined) ?? ctx.filtros?.limite ?? LIMITE_PADRAO;
+    const pagina = veiculos.slice(apartirDe, apartirDe + limite);
 
     const evidencia: Evidencia = {
       ferramenta: "alteracoes:linhas",
@@ -451,12 +510,26 @@ export const alteracoes: Ferramenta = {
       numeros: [
         veiculos.length,
         pagina.length,
+        // Mesma regra do nível acima: o que o conteúdo mostra, a evidência autoriza.
+        apartirDe,
+        Math.max(0, veiculos.length - (apartirDe + pagina.length)),
         ...veiculos.flatMap((v) =>
           [v.numericBefore, v.numericAfter, v.impactAmount, v.deltaPercent].filter(
             (n): n is number => typeof n === "number",
           ),
         ),
       ],
+      /*
+        As placas da página, declaradas como identificadores.
+
+        É a lista que o modelo de fato recebeu em `conteudo.linhas` — nem uma a
+        mais. Autorizar `veiculos` inteiro (que pode ter dezenas fora do corte)
+        deixaria o modelo citar um caminhão que ele não viu, e o corte existe
+        justamente para ele não ver.
+      */
+      identificadores: pagina
+        .map((v) => v.plate)
+        .filter((p): p is string => typeof p === "string" && p.length > 0),
       origem: `getGroupVehicles(${atributo}, ${grupo.entityType}) · ${rotuloDoPeriodo(visao.period)}`,
       recorte,
       tela: { label: "Alterações", href: "/alteracoes" },
@@ -474,6 +547,8 @@ export const alteracoes: Ferramenta = {
         },
         linhasNoTotal: veiculos.length,
         mostrando: pagina.length,
+        apartirDe,
+        restantes: Math.max(0, veiculos.length - (apartirDe + pagina.length)),
         linhas: pagina.map((v) => ({
           placa: v.plate,
           antes: v.valueBefore,

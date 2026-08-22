@@ -215,6 +215,28 @@ export interface ContextoDaFerramenta {
   recorte: { scopeHash?: string; channel?: string | null };
   /** A vigência em foco, quando a tela ou a conversa fixou uma. */
   periodo?: string | undefined;
+  /**
+   * Os filtros que a conversa estabeleceu — e que o modelo não precisa repetir.
+   *
+   * **Por que injetados, e não argumentados.** É a mesma decisão do recorte, e
+   * pelo mesmo motivo: um filtro que depende de o modelo lembrar de repeti-lo em
+   * toda chamada é um filtro que se perde na terceira pergunta. "E somente
+   * cavalos" vale até alguém dizer outra coisa, e quem garante isso é o
+   * executor, não a memória do modelo.
+   *
+   * **O modelo continua podendo trocar.** Um argumento explícito vence o
+   * padrão — é assim que "e nas carretas?" funciona. O que ele não pode é
+   * *esquecer*: omitir o argumento mantém o filtro do fio, em vez de voltar em
+   * silêncio para a frota inteira.
+   */
+  filtros?:
+    | {
+        equipamento?: "CAVALO" | "CARRETA" | null | undefined;
+        /** Onde a última lista parou — para "me mostre os 5 seguintes". */
+        apartirDe?: number | undefined;
+        limite?: number | undefined;
+      }
+    | undefined;
 }
 
 export interface SaidaDaFerramenta {

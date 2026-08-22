@@ -37,6 +37,29 @@ export interface Resposta {
     herdado: string[];
     ferramentas: string[];
     numerosRecusados: string[];
+    /**
+     * A investigação do agente — `null` no caminho determinístico.
+     *
+     * A API devolve este campo desde o PR 2 e o tipo da tela não o tinha: a
+     * trajetória que decide se o agente investiga ou só consulta muito — quantas
+     * rodadas, quais argumentos, e qual consulta derivou de qual — chegava ao
+     * navegador e era descartada na fronteira do TypeScript. Avaliar um canário
+     * sem isso é opinar sobre a prosa.
+     */
+    agente: {
+      rodadas: number;
+      consultas: number;
+      parou: string;
+      chamadas: {
+        nome: string;
+        argumentos: Record<string, unknown>;
+        ok: boolean;
+        erro: string | null;
+        evidencias: number;
+        /** Índice da consulta de cujo resultado esta saiu. */
+        derivaDe: number | null;
+      }[];
+    } | null;
     /** O rastro que explica esta resposta depois que ela aconteceu. */
     rastro: {
       assunto: string | null;
@@ -107,6 +130,15 @@ export interface ConversaResumo {
 export interface Capacidades {
   ia: boolean;
   modelo: string | null;
+  /**
+   * Qual cérebro responde a quem está perguntando: AGENTE ou PLANEJADOR.
+   *
+   * A rota devolve isto desde que a flag por usuário existe, e sem ele quem
+   * testa não tem como saber qual dos dois avaliou — as duas respostas chegam
+   * pela mesma rota, com a mesma cara. Uma avaliação de experiência feita sobre
+   * o caminho errado é pior do que nenhuma.
+   */
+  cerebro: "AGENTE" | "PLANEJADOR";
   trechos: number;
   corpora: { catalogo: number; book: number; artigos: number };
 }

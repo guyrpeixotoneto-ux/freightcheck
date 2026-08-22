@@ -55,6 +55,9 @@ const DOSSIE = {
     alvo: null,
     resolucao: null,
     contexto: null,
+    origemDoRecorte: "PADRAO" as const,
+    unidadeCitada: null,
+    periodoImpossivel: null,
     periodo: "2026-08-01",
     intervalo: null,
   },
@@ -65,6 +68,7 @@ const DOSSIE = {
   lacunas: [],
   etapas: [],
   desambiguacao: null,
+  telaScopeHash: null,
   diagnostico: {
     book: { candidatos: 0, selecionados: 0, melhorPontuacao: 0 },
     ms: 0,

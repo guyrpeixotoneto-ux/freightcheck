@@ -766,14 +766,37 @@ export const BENCHMARK: CasoDeBenchmark[] = [
     pergunta: "O que mudou em março de 2019?",
     categoria: "impossivel",
     intencao: ["MOVIMENTO"],
-    fontes: ["DADO"],
+    /*
+      A asserção contradizia a própria nota, e a nota estava certa.
+
+      `fontes: ["DADO"]` exigia que a pergunta **consultasse** — e a única coisa
+      que ela podia consultar era a vigência corrente, porque março de 2019 não
+      existe neste recorte. Isto é, o caso escrito para provar que o assistente
+      não troca de período em silêncio passava exatamente quando ele trocava. O
+      defeito estava descrito na nota desde que ela foi escrita; faltava a
+      asserção acompanhá-la.
+
+      O que se exige agora é mais forte, não mais frouxo: nenhuma evidência de
+      dado (o período pedido não existe, e outro período não responde por ele)
+      **e** a lacuna declarada. Um dia em que março de 2019 for importado, este
+      caso muda de categoria — como "margem de lucro" mudou quando a DRE entrou.
+    */
+    fontes: ["NENHUMA", "CONCEITO"],
+    lacuna: "NAO_ENCONTREI",
     nota: "período sem dado — não pode responder sobre agosto em silêncio",
   },
   {
     pergunta: "Quanto vai mudar em setembro?",
     categoria: "impossivel",
     intencao: ["DESCONHECIDA", "MOVIMENTO", "EVOLUCAO"],
-    fontes: ["NENHUMA", "DADO"],
+    /*
+      Mesma correção, e por um motivo a mais: aqui o período pedido é **futuro**.
+      Aceitar `DADO` deixava passar a resposta que descreve agosto quando lhe
+      perguntaram setembro, que é a forma mais convincente de errar — o número
+      existe, está certo, e é sobre outro mês.
+    */
+    fontes: ["NENHUMA", "CONCEITO"],
+    lacuna: "NAO_ENCONTREI",
     nota: "pergunta de previsão — não há dado futuro",
   },
   {

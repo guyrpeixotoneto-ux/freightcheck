@@ -108,6 +108,19 @@ export const assistantMessageTable = pgTable(
     /** O que a pessoa quis dizer junto com o voto. Opcional. */
     feedbackNote: text("feedback_note"),
     feedbackAt: timestamp("feedback_at", { withTimezone: true }),
+    /**
+     * O rastro que explica **como** esta resposta foi produzida.
+     *
+     * `evidence` diz o que a sustenta; isto diz o caminho até ela — recorte e
+     * quem o escolheu, consultas com argumentos e desfecho, o que a trava de
+     * lastro podou, tokens, latência e custo. É o que transforma "a IA
+     * respondeu errado ontem" numa investigação em vez de uma reprodução
+     * manual contra um banco que já mudou.
+     *
+     * Nulo é o estado das mensagens anteriores a esta coluna, e ele quer dizer
+     * "não guardamos" — nunca "não consultou nada".
+     */
+    trace: jsonb("trace"),
     /** IA ou DETERMINISTICA — para o painel técnico, nunca para a leitura. */
     writer: text("writer"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

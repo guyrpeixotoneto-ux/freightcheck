@@ -40,6 +40,7 @@ function dossieCom(opcoes: {
     lacunas: [],
     etapas: [],
     desambiguacao: null,
+  telaScopeHash: null,
     diagnostico: {
       book: { candidatos: 0, selecionados: 0, melhorPontuacao: 0 },
       ms: 0,

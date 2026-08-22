@@ -1,0 +1,19 @@
+-- O rastro da resposta: o que é preciso para explicá-la depois dela.
+--
+-- `evidence` guarda as fontes e as lacunas — o que sustenta o texto. O que
+-- faltava é o que explica **como** o texto foi produzido: de que unidade a
+-- resposta falava e quem escolheu essa unidade, o que foi consultado e com que
+-- argumentos, quantas frases a trava podou e por quê, quanto custou. Sem isso,
+-- "a IA respondeu errado ontem" só se investiga reproduzindo a pergunta à mão
+-- contra um banco que pode já ter mudado.
+--
+-- Coluna à parte, e não dentro de `evidence`, porque as duas respondem
+-- perguntas diferentes e têm públicos diferentes: `evidence` é o que a tela
+-- reabre para quem conversou; `trace` é o que alguém lê para achar um defeito.
+-- Misturá-las faria a tela carregar o rastro em toda releitura de conversa.
+--
+-- Anulável de propósito: as mensagens já gravadas não têm rastro e não podem
+-- passar a ter. Um `NOT NULL DEFAULT '{}'` inventaria um rastro vazio para elas
+-- e faria "esta resposta não tem rastro" indistinguível de "esta resposta foi
+-- produzida sem consultar nada".
+ALTER TABLE "assistant_message" ADD COLUMN "trace" jsonb;

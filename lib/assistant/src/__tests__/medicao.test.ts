@@ -32,6 +32,9 @@ function dossieVazio(parcial: Partial<Dossie> = {}): Dossie {
       alvo: null,
       resolucao: null,
       contexto: null,
+      origemDoRecorte: "PADRAO" as const,
+      unidadeCitada: null,
+      periodoImpossivel: null,
       periodo: null,
       intervalo: null,
     },
@@ -42,6 +45,7 @@ function dossieVazio(parcial: Partial<Dossie> = {}): Dossie {
     lacunas: [],
     etapas: [],
     desambiguacao: null,
+    telaScopeHash: null,
     diagnostico: { book: { candidatos: 0, selecionados: 0, melhorPontuacao: 0 }, ms: 1 },
     ...parcial,
   };

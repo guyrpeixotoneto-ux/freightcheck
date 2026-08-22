@@ -105,37 +105,63 @@ const CAPACIDADE_DE: Record<string, Capacidade> = {
   estado_do_dado: "GOVERNANCA",
 };
 
-/** As capacidades que esta resposta exerceu, seja qual for o caminho. */
+/**
+ * As capacidades que esta resposta exerceu, seja qual for o caminho.
+ *
+ * **A fonte é `tecnico.ferramentas`, e só ela.** Nos dois caminhos esse campo
+ * carrega agora o nome que a **evidência** declara — `alteracoes:linhas`, e não
+ * o `alteracoes` cru que o modelo pediu. Ver `capacidadeExercida` em
+ * `resposta.ts`: o nível vive nos argumentos da chamada e reaparece na
+ * evidência, e é o nível que diz o que foi exercido.
+ *
+ * Havia aqui uma segunda leitura, por `fonte.origem`, e ela nunca casou nada:
+ * `origem` é a assinatura da consulta (`getGroupVehicles(cavalo.finame, CAVALO)
+ * · agosto/2026`), que não é vocabulário deste mapa. Mantê-la dava a impressão
+ * de uma rede de segurança que não existia — e foi essa impressão que deixou o
+ * casamento por prefixo passar despercebido.
+ *
+ * **Uma chamada que falhou não exerce capacidade.** Ela chega marcada e sai
+ * fora: contá-la faria a régua aprovar uma resposta que tentou e não conseguiu.
+ */
 export function capacidadesDe(resposta: Resposta): Set<Capacidade> {
   const saida = new Set<Capacidade>();
   for (const bruto of resposta.tecnico.ferramentas) {
-    const nome = bruto.replace(/ \(falhou\)$/, "");
-    const exata = CAPACIDADE_DE[nome];
-    if (exata) {
-      saida.add(exata);
-      continue;
-    }
     /*
-      O agente nomeia `ferramenta:nivel` e a evidência é que carrega o nível. Um
-      log que diga só `alteracoes` ainda tem de casar alguma capacidade — a mais
-      fraca das que a ferramenta serve —, senão o caso reprova por vocabulário e
-      não por comportamento.
+      Duas formas de não ter exercido nada, e as duas saem daqui: a ferramenta
+      lançou (`falhou`), ou ela respondeu sem nada citável (`sem evidência`) —
+      um `alteracoes` de nível `linhas` chamado sem o atributo obrigatório, por
+      exemplo. Ver `capacidadeExercida` em `resposta.ts`.
     */
-    const porPrefixo = Object.entries(CAPACIDADE_DE).find(([chave]) =>
-      chave.startsWith(`${nome}:`),
-    );
-    if (porPrefixo) saida.add(porPrefixo[1]);
-  }
-  /*
-    A evidência também conta. No caminho do agente `tecnico.ferramentas` guarda
-    o nome da ferramenta e a evidência guarda o nível — e é o nível que diz que
-    capacidade foi exercida.
-  */
-  for (const fonte of resposta.fontes) {
-    const cap = CAPACIDADE_DE[fonte.origem.split(" ")[0] ?? ""];
-    if (cap) saida.add(cap);
+    if (bruto.endsWith("(falhou)") || bruto.endsWith("(sem evidência)")) continue;
+    /*
+      Uma chamada pode devolver mais de uma evidência — `capacidadeExercida` as
+      junta com " + ", e cada uma conta a sua capacidade.
+    */
+    for (const nome of bruto.split(" + ")) {
+      const exata = CAPACIDADE_DE[nome];
+      if (exata) saida.add(exata);
+      else naoExata(nome, saida);
+    }
   }
   return saida;
+}
+
+/**
+ * O que fazer com um nome sem entrada exata.
+ *
+ * **Isto deveria ser inalcançável**, e a função existe para que a suposição
+ * fique escrita em vez de embutida. O casamento por prefixo devolve a primeira
+ * entrada do mapa que comece com `nome:` — e, para `alteracoes`, essa é a mais
+ * fraca (`alteracoes:total`). Enquanto `tecnico.ferramentas` carregava o nome
+ * cru, era este caminho que decidia, e ele registrava MOVIMENTO_AGREGADO para
+ * uma consulta que havia descido ao veículo. A régua reprovava o agente por uma
+ * capacidade que ele exercera.
+ */
+function naoExata(nome: string, saida: Set<Capacidade>): void {
+  const porPrefixo = Object.entries(CAPACIDADE_DE).find(([chave]) =>
+    chave.startsWith(`${nome}:`),
+  );
+  if (porPrefixo) saida.add(porPrefixo[1]);
 }
 
 // ── O que se espera de uma resposta ─────────────────────────────────────────
@@ -354,11 +380,13 @@ export const CASOS_DE_DESFECHO: CasoDeDesfecho[] = [
     id: "ordenar",
     pergunta: "o que mais impactou negativamente nesta vigência?",
     esperado: "Uma ordem por dinheiro, com o que está no topo nomeado.",
+    /*
+      Corrigido: `impact\w* negativ\w*` e `negativamente` entraram no vocabulário
+      do detector de perda. A linha `defeitoConhecido` foi apagada no mesmo
+      commit, que é o que este arquivo exige de quem conserta um caso.
+    */
     espera: {
       precisa: ["ORDENACAO"],
-      defeitoConhecido:
-        "o detector de ranking casa `perdemos|perda|piorou|caiu`, e \"impactou negativamente\" " +
-        "não está na lista — a pergunta cai no plano padrão e recebe o agregado",
     },
   },
   {

@@ -201,14 +201,27 @@ const DETECTORES: Detector[] = [
       /^(?!.*\b(o que (e|sao|significa)|que e|como funciona|explique|explica|defini(cao|r)|para que serve)\b).*?(?:\bdre\b|\bebitda\b|\bmargem( de contribuicao)?\b|\bresultado (economico|apurado|operacional)\b|\bda (dinheiro|lucro|prejuizo)\b|\b(prejuizo|lucrativ\w*|deficitari\w*|rentabilidade|rentav\w*)\b|\bquanto (sobra|sobrou|resta|restou)\b|\b(caminh(ao|oes)|cavalo?s?|veiculos?|conjuntos?)\b.{0,25}\b(da|dao|deu|deram) (mais )?(dinheiro|lucro|prejuizo)\b|\bcusto por km\b|\bcusto\/km\b|\b[a-z]{3}\d[a-z0-9]\d{2}\b.{0,40}\b(piorou|melhorou|caiu|despencou|desandou)\b)/,
     porque: "pede o resultado econômico apurado",
   },
+  /*
+    O vocabulário do ranking, e as duas formas que faltavam.
+
+    `impact\w* negativ\w*` e `negativamente` são o jeito executivo de pedir a
+    mesma coisa que "onde perdemos mais?" — e a bateria de desfecho registra a
+    ausência delas como defeito conhecido desde que foi escrita: "o detector
+    casa `perdemos|perda|piorou|caiu`, e 'impactou negativamente' não está na
+    lista; a pergunta cai no plano padrão e recebe o agregado".
+
+    Isto **não** é um `if pergunta = X`: são duas formas de dizer perda, na
+    língua de quem apresenta resultado a diretoria. O que seria um caso especial
+    é uma entrada por frase; o que se acrescenta aqui é vocabulário.
+  */
   {
     necessidade: "RANKING_PERDA",
-    quando: /\b(perdemos|perda|perdas|prejudic\w*|piorou|pior|caiu mais|reduziu|queda)\b/,
+    quando: /\b(perdemos|perda|perdas|prejudic\w*|piorou|pior|caiu mais|reduziu|queda|negativamente)\b|\bimpact\w*\s+negativ\w*/,
     porque: "pede o que reduziu a remuneração",
   },
   {
     necessidade: "RANKING_GANHO",
-    quando: /\b(ganhamos|ganho|ganhos|melhorou|melhor|subiu mais|aumentou mais|maior alta)\b/,
+    quando: /\b(ganhamos|ganho|ganhos|melhorou|melhor|subiu mais|aumentou mais|maior alta|positivamente)\b|\bimpact\w*\s+positiv\w*/,
     porque: "pede o que aumentou a remuneração",
   },
   {

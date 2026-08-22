@@ -737,6 +737,9 @@ importers:
       '@workspace/composition':
         specifier: workspace:*
         version: link:../composition
+      '@workspace/coverage':
+        specifier: workspace:*
+        version: link:../coverage
       '@workspace/curation':
         specifier: workspace:*
         version: link:../curation

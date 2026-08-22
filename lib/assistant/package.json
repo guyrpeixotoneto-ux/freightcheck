@@ -24,13 +24,14 @@
     "@workspace/balance": "workspace:*",
     "@workspace/comparison": "workspace:*",
     "@workspace/composition": "workspace:*",
+    "@workspace/coverage": "workspace:*",
     "@workspace/curation": "workspace:*",
     "@workspace/db": "workspace:*",
+    "@workspace/dre": "workspace:*",
     "@workspace/ingest": "workspace:*",
     "@workspace/knowledge": "workspace:*",
     "drizzle-orm": "catalog:",
-    "xlsx": "^0.18.5",
-    "@workspace/dre": "workspace:*"
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/node": "catalog:",

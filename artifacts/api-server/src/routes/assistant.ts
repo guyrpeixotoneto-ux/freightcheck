@@ -364,6 +364,7 @@ router.post("/assistant/ask", async (req, res): Promise<void> => {
         recorte: resposta.recorte,
         intencao: resposta.intencao,
       },
+      rastro: resposta.rastro,
     });
 
     const corpo = {
