@@ -28,7 +28,6 @@ function linha(parcial: Partial<LinhaDaFrota> & { placa: string }): LinhaDaFrota
     operacao: null,
     effectiveDate: "2026-08-02",
     periodLabel: "Agosto/2026",
-    presente: true,
     mensal: null,
     componentes: 0,
     semRegraFinanceira: 0,

@@ -55,7 +55,16 @@ export interface LinhaDaFrota {
   operacao: string | null;
   effectiveDate: string;
   periodLabel: string;
-  presente: boolean;
+  /*
+    Não há `presente` aqui, e a ausência do campo é a afirmação.
+
+    Toda linha desta lista veio na vigência — é o que a lista é. Um booleano que
+    só pode valer `true` não informa: ele convida a próxima tela a escrever
+    `if (!linha.presente)` e a mostrar um estado que não existe mais. Quem
+    precisa perguntar "esta placa veio neste mês?" pergunta na ficha
+    (`ComposicaoDoEquipamento.presente`) ou no histórico
+    (`PontoDoHistorico.presente`), onde a resposta pode ser não.
+  */
   /** A remuneração mensal apurada. Nulo quando nada pôde ser apurado. */
   mensal: number | null;
   /** Quantos componentes formaram esse número. */
@@ -193,14 +202,33 @@ export async function getVisaoDeFrota(
     : null;
 
   /*
-    Quem aparece na lista: quem está nesta vigência **e** quem estava na
-    anterior e sumiu. A saída de um ativo é o evento que mais mexe no total da
-    frota e o único que uma listagem "do que está aqui" nunca mostra.
+    Quem aparece na lista: **quem está nesta vigência.** Só.
+
+    Esta lista já foi a união desta vigência com a anterior, para que a saída de
+    um ativo não passasse em branco. A intenção era boa e o lugar era errado —
+    era uma terceira definição de "esperado", com um mês de profundidade,
+    morando no módulo que não deveria ter nenhuma. O efeito prático era pior do
+    que a ausência: um equipamento que sumia aparecia **uma vez** e depois
+    evaporava, de modo que a Composição respondia "quem recebeu" em oito
+    vigências e "quem recebeu mais quem saiu no mês passado" na nona, sem dizer
+    em qual das duas o leitor estava. E como a lista não consultava
+    `entity_expectation`, uma baixa registrada em Curadoria não a apagava.
+
+    A fronteira agora é a que o produto declara:
+
+    - **Composição** = o que foi recebido nesta vigência, e como a remuneração
+      dele se compõe.
+    - **Cobertura** = o que era esperado contra o que veio, com a série inteira
+      atrás e a declaração da Curadoria por cima (`lib/coverage/src/frota.ts`).
+    - **Curadoria** = quem decide se uma placa continua `ESPERADA` ou recebeu
+      `BAIXA`.
+
+    `materialAnterior` **continua sendo lido**, e continua obrigatório: ele é a
+    outra ponta da variação e do `anteriorPresente`. O que ele deixou de fazer é
+    decidir quem entra na lista. Comparar com o mês passado é uma coisa; herdar
+    a frota dele é outra.
   */
-  const ids = new Set<string>([
-    ...material.fatosPorAtivo.keys(),
-    ...(materialAnterior?.fatosPorAtivo.keys() ?? []),
-  ]);
+  const ids = new Set<string>(material.fatosPorAtivo.keys());
 
   const regra = regraDe(entityType);
   const linhas: LinhaDaFrota[] = [];
@@ -231,14 +259,14 @@ export async function getVisaoDeFrota(
       operacao: context.channel,
       effectiveDate: alvo.effectiveDate,
       periodLabel: alvo.periodLabel,
-      presente: fatos.length > 0,
       mensal,
       componentes: composicao.totais.find((t) => t.gaveta === "MENSAL")?.componentes ?? 0,
       semRegraFinanceira: composicao.naoApurados.filter((n) => n.monetarioPotencial).length,
       semClassificacao: composicao.naoApurados.filter((n) => n.semClassificacao).length,
       variacao: calcularVariacao(mensal, mensalAnterior),
       status: avaliarStatus({
-        presente: fatos.length > 0,
+        /* Invariante da lista: toda linha daqui veio na vigência. */
+        presente: true,
         mensal,
         variacao: calcularVariacao(mensal, mensalAnterior),
         integridade: composicao.integridade,

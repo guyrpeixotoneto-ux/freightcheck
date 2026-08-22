@@ -1,8 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { FileSpreadsheet, Rows3, X } from "lucide-react";
+import { Link } from "wouter";
 import { fetchJson } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Lacunas } from "./lacunas";
+import { caminhoDaFicha, tituloDaPlacaAusente } from "./ficha-da-entidade";
 import {
   numero,
   percentual,
@@ -200,13 +202,26 @@ export function DetalheDaCelulaPainel({
                 </p>
                 <ul className="mt-2 grid gap-x-6 gap-y-1 sm:grid-cols-2 lg:grid-cols-3 text-xs">
                   {consulta.data.entidadesAusentes.slice(0, 30).map((e) => (
-                    <li key={e.entityId} className="flex justify-between gap-2">
-                      <span className="truncate font-mono" title={e.entityId}>
-                        {e.rotulo}
-                      </span>
-                      <span className="text-muted-foreground tabular-nums shrink-0">
-                        até {e.ultimaVigencia}
-                      </span>
+                    <li key={e.entityId}>
+                      {/*
+                        O mesmo destino da gaveta: a ficha na última vigência em
+                        que a placa existiu. Ver `LinkParaAFicha` em `gaveta.tsx`
+                        para por que não é a vigência desta célula.
+                      */}
+                      <Link
+                        href={caminhoDaFicha(e, {
+                          effectiveDate: consulta.data!.vigencia.effectiveDate,
+                          scopeHash: consulta.data!.scopeHash,
+                          canal: consulta.data!.canal,
+                        })}
+                        title={tituloDaPlacaAusente(e)}
+                        className="flex justify-between gap-2 hover:text-brand transition-colors"
+                      >
+                        <span className="truncate font-mono">{e.rotulo}</span>
+                        <span className="text-muted-foreground tabular-nums shrink-0">
+                          {e.ultimaVigencia === null ? "nunca veio" : `até ${e.ultimaVigencia}`}
+                        </span>
+                      </Link>
                     </li>
                   ))}
                 </ul>

@@ -631,11 +631,9 @@ function Tabela({ view }: { view: VisaoDeFrota }) {
               <td className="px-4 py-3 text-right">
                 {linha.mensal === null ? (
                   <span className="text-muted-foreground text-xs">
-                    {!linha.presente
-                      ? "fora da vigência"
-                      : linha.status.naoApuradoPor
-                        ? ROTULO_DA_NAO_APURACAO[linha.status.naoApuradoPor]
-                        : "não apurado"}
+                    {linha.status.naoApuradoPor
+                      ? ROTULO_DA_NAO_APURACAO[linha.status.naoApuradoPor]
+                      : "não apurado"}
                   </span>
                 ) : (
                   <>

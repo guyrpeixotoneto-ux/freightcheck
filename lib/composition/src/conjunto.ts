@@ -130,8 +130,10 @@ export interface LinhaDoConjunto {
   explicacaoDoVinculo: string;
   /** A placa que o cavalo declarou, tenha ela encontrado carreta ou não. */
   placaApontada: string | null;
-  /** Falso quando o conjunto estava na vigência anterior e não está nesta. */
-  presente: boolean;
+  /*
+    Não há `presente` aqui, pela mesma razão de `LinhaDaFrota` — ver o campo
+    ausente lá. Todo conjunto desta lista se formou nesta vigência.
+  */
   cavalo: LadoDoConjunto | null;
   carreta: LadoDoConjunto | null;
   /** A soma do que as duas fichas apuram. Nulo quando nenhum lado apurou nada. */
@@ -373,26 +375,21 @@ export async function getVisaoDeConjuntos(
   );
 
   /*
-    Quem saiu. Um conjunto que estava na vigência anterior e não está nesta é o
-    evento que mais mexe no total da frota, e o único que uma lista "do que está
-    aqui" nunca mostra.
+    Quem saiu **não** entra aqui — e não entra pela mesma regra que rege a aba
+    de cavalos e a de carretas: a Composição responde "o que foi recebido nesta
+    vigência". Um conjunto que existia em julho e não existe em agosto é uma
+    pergunta sobre o esperado, e o esperado tem módulo próprio (Cobertura), com
+    a série inteira atrás dele e a declaração da Curadoria por cima — em vez do
+    mês de memória que esta lista tinha.
 
-    A conferência que este trecho faz antes de emitir a linha existe por causa de
-    um falso positivo real: a chave do conjunto é o cavalo, ou a carreta quando
-    ela é órfã. Uma carreta órfã em julho que ganha cavalo em agosto muda de
-    chave — e sem esta guarda apareceria como "conjunto que saiu" ao lado do
-    conjunto novo que a contém. Ela não saiu; ela mudou de conjunto, e é no
-    conjunto novo que isso se lê.
+    Manter as duas abas na mesma definição de presença é metade do ponto. A
+    outra metade é que a definição curta enganava: um conjunto que saía aparecia
+    numa vigência e sumia na seguinte, sem que nada na tela dissesse que a
+    janela era de um mês.
+
+    `materialAnterior` continua lido e continua necessário — é dele que saem a
+    variação e a troca de carreta.
   */
-  const idsAgora = new Set(material.pares.map((p) => p.id));
-  for (const par of materialAnterior?.pares ?? []) {
-    if (idsAgora.has(par.id)) continue;
-    const aindaNaFrota = [par.cavalo, par.carreta].some(
-      (lado) => lado !== null && material.fatosPorAtivo.has(lado.entityId),
-    );
-    if (aindaNaFrota) continue;
-    linhas.push(linhaQueSaiu(par, materialAnterior!));
-  }
 
   linhas.sort((a, b) => a.rotulo.localeCompare(b.rotulo, "pt-BR", { numeric: true }));
 
@@ -489,7 +486,6 @@ function montarLinha(
     natureza: par.natureza,
     explicacaoDoVinculo: FRASE_DA_NATUREZA[par.natureza],
     placaApontada: par.placaApontada,
-    presente: true,
     cavalo,
     carreta,
     apurado,
@@ -513,42 +509,6 @@ function montarLinha(
       variacao,
       carretaAnterior,
     }),
-  };
-}
-
-/** A linha de um conjunto que estava na vigência anterior e não está nesta. */
-function linhaQueSaiu(par: ParDoConjunto, anterior: MaterialDoConjunto): LinhaDoConjunto {
-  const declarado = par.carreta
-    ? (anterior.apuracoes.get(par.carreta.entityId)?.declarado ?? null)
-    : null;
-  return {
-    id: par.id,
-    rotulo: rotuloDoPar(par),
-    natureza: par.natureza,
-    explicacaoDoVinculo: FRASE_DA_NATUREZA[par.natureza],
-    placaApontada: par.placaApontada,
-    presente: false,
-    cavalo: null,
-    carreta: null,
-    apurado: null,
-    declarado: null,
-    declaradoCode: null,
-    declaradoTitulo: null,
-    fonte: null,
-    divergencia: null,
-    fecha: null,
-    variacao: null,
-    carretaAnterior: null,
-    status: {
-      farol: "INCOMPLETO",
-      motivos: [
-        `O conjunto saiu da frota nesta vigência — estava em ${anterior.periodLabel}` +
-          (declarado === null
-            ? "."
-            : ` com ${formatarBrl(declarado)}/mês declarados, e não está aqui.`),
-      ],
-      alertas: 1,
-    },
   };
 }
 
@@ -735,14 +695,12 @@ function resumir(linhas: LinhaDoConjunto[]): ResumoDosConjuntos {
   for (const linha of linhas) {
     porFarol[linha.status.farol] += 1;
 
-    if (linha.presente) {
-      if (linha.natureza === "PAREADO") pareados += 1;
-      else if (linha.natureza === "CARRETA_ORFA") carretasOrfas += 1;
-      else if (linha.natureza === "CAVALO_SEM_VINCULO") cavalosSemCarreta += 1;
-      else {
-        cavalosSemCarreta += 1;
-        vinculosQuebrados += 1;
-      }
+    if (linha.natureza === "PAREADO") pareados += 1;
+    else if (linha.natureza === "CARRETA_ORFA") carretasOrfas += 1;
+    else if (linha.natureza === "CAVALO_SEM_VINCULO") cavalosSemCarreta += 1;
+    else {
+      cavalosSemCarreta += 1;
+      vinculosQuebrados += 1;
     }
 
     if (linha.declarado !== null) {
@@ -770,7 +728,8 @@ function resumir(linhas: LinhaDoConjunto[]): ResumoDosConjuntos {
   const arredondar = (v: number | null) => (v === null ? null : Number(v.toFixed(2)));
 
   return {
-    conjuntos: linhas.filter((l) => l.presente).length,
+    /* Toda linha é desta vigência agora — ver o campo ausente em `LinhaDoConjunto`. */
+    conjuntos: linhas.length,
     pareados,
     carretasOrfas,
     cavalosSemCarreta,

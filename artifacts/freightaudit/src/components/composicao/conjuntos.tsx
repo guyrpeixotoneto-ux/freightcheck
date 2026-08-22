@@ -321,13 +321,11 @@ function LinhaDaTabela({
           )}
         </td>
         <td className="px-4 py-3 text-xs text-muted-foreground uppercase tracking-wide">
-          {linha.presente ? ROTULO_DA_NATUREZA[linha.natureza] : "fora da vigência"}
+          {ROTULO_DA_NATUREZA[linha.natureza]}
         </td>
         <td className="px-4 py-3 text-right">
           {linha.declarado === null ? (
-            <span className="text-muted-foreground text-xs">
-              {linha.presente ? "não declarado" : "—"}
-            </span>
+            <span className="text-muted-foreground text-xs">não declarado</span>
           ) : (
             <>
               <span className="font-semibold tabular-nums text-base">
@@ -423,12 +421,6 @@ function Diferenca({ linha }: { linha: LinhaDoConjunto }) {
  * proveniência é carregada.
  */
 function Detalhe({ linha, view }: { linha: LinhaDoConjunto; view: VisaoDeConjuntos }) {
-  if (!linha.presente) {
-    return (
-      <p className="text-sm text-muted-foreground">{linha.status.motivos.join(" ")}</p>
-    );
-  }
-
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground max-w-3xl">{linha.explicacaoDoVinculo}</p>
