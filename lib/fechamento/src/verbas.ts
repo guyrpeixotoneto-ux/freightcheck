@@ -91,6 +91,21 @@ export const VERBAS: Verba[] = [
   { vbz: 30, canal: "AS", nome: "Outras Despesas", natureza: "COMPLEMENTAR", rubricaDaConciliacao: null },
 ];
 
+/**
+ * A `VBZ 06` — `Rota - Rem. Variável Equipe Entrega`.
+ *
+ * O número é do domínio e não da tela: é ele que separa o quarto quadro dos
+ * outros custos, dos dois lados da conferência — no 03.08.12.09, que é de onde
+ * o devido dela sai, e no bloco `OUTROS CUSTOS` do 03.08.20, que é de onde sai
+ * o demonstrado. Escrevê-lo solto nos dois deixaria os dois livres para
+ * divergir, e é por isso que ele mora aqui, no catálogo das verbas, e não em
+ * nenhum dos dois lados.
+ *
+ * A natureza não serve para separá-la: a `VBZ 06`, a `08` e a `09` são todas
+ * `COMPLEMENTAR`. O corte é mesmo por código.
+ */
+export const VBZ_DA_EQUIPE_DE_ENTREGA = 6;
+
 const PORVBZ = new Map<number, Verba>(VERBAS.map((v) => [v.vbz, v]));
 
 /** A verba de um código, ou `null` se o catálogo não a conhece. */

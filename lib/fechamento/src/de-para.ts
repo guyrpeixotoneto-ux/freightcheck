@@ -6,7 +6,7 @@ import type {
   Pagamento,
   TipoDeDescontoDoPagamento,
 } from "./leitores/pagamento";
-import type { NaturezaDaVerba } from "./verbas";
+import { VBZ_DA_EQUIPE_DE_ENTREGA, type NaturezaDaVerba } from "./verbas";
 
 /**
  * O DE-PARA — a classificação do FreightCheck conversando com a da planilha.
@@ -55,7 +55,7 @@ import type { NaturezaDaVerba } from "./verbas";
  * verbas que nenhuma linha nomeia. O resíduo não é erro: é exatamente o que
  * essas duas listas somam, e é uma afirmação que a planilha derruba num
  * minuto se estiver errada. Quem tem o `.xlsb` aberto confere uma subtração em
- * vez de dezoito rótulos — e cada vez que ela não bater, o que se aprende é
+ * vez de vinte rótulos — e cada vez que ela não bater, o que se aprende é
  * qual das hipóteses deste arquivo caiu.
  *
  * **Por que só a Rota.** O painel transcrito aqui é o da Rota, rótulo por
@@ -74,7 +74,7 @@ import type { NaturezaDaVerba } from "./verbas";
  * por estar contratada e o que ela recebe por ter rodado —, que é a mesma
  * divisão que o catálogo de verbas chama de natureza.
  */
-export type Quadro = "REMUNERACAO" | "VARIAVEL" | "OUTROS_CUSTOS";
+export type Quadro = "REMUNERACAO" | "VARIAVEL" | "OUTROS_CUSTOS" | "EQUIPE_DE_ENTREGA";
 
 /**
  * Os canais cujo painel foi transcrito — hoje, um.
@@ -123,7 +123,27 @@ export type Origem =
    * Ambev e muda quando ela muda; a natureza é do catálogo e é o que a planilha
    * de fato separa. Uma VBZ nova de frota fixa entra no quadro certo sozinha.
    */
-  | { tipo: "VERBAS"; bloco: BlocoDoPagamento; naturezas: NaturezaDaVerba[] }
+  | {
+      tipo: "VERBAS";
+      bloco: BlocoDoPagamento;
+      naturezas: NaturezaDaVerba[];
+      /**
+       * Um recorte **por VBZ** dentro da natureza, quando a natureza não basta.
+       *
+       * A regra geral do módulo continua sendo o recorte por natureza (ver
+       * acima), e este campo é a exceção declarada, não uma porta de saída: ele
+       * existe porque a `VBZ 06` (`Rem. Variável Equipe Entrega`) tem a mesma
+       * natureza `COMPLEMENTAR` das outras despesas do bloco `OUTROS_CUSTOS` e
+       * ainda assim é um quadro à parte da planilha — `AI34`, que ela reserva e
+       * nunca preenche.
+       *
+       * Que o corte seja por VBZ aqui não é escolha nossa: é o corte que o
+       * **domínio** já usa. O 03.08.12.09 identifica a mesma despesa pela VBZ, e
+       * `VBZ_DA_EQUIPE_DE_ENTREGA` já é constante do motor. Recortar por
+       * natureza seria que inventaria um critério.
+       */
+      vbzs?: { apenas?: number[]; exceto?: number[] };
+    }
   /** Um ou mais descontos do 03.08.20, somados. */
   | { tipo: "DESCONTOS"; descontos: TipoDeDescontoDoPagamento[] }
   /** A soma de outras linhas deste mesmo de-para, com o sinal de cada papel. */
@@ -153,7 +173,7 @@ export interface LinhaDaPlanilha {
    * O mesmo rótulo escrito como se escreve — é o que a tela mostra.
    *
    * A planilha grita: `CUSTO FIXO - VANS`. A caixa alta ali não é sentido, é
-   * formatação de célula — e quem confere lê dezoito linhas dessas de uma vez.
+   * formatação de célula — e quem confere lê vinte linhas dessas de uma vez.
    * Guardar as duas grafias separadas é o que permite mostrar `Custo fixo —
    * vans` sem perder a transcrição literal contra a qual o de-para se confere.
    * Derivar uma da outra por `toLowerCase` estragaria `DVS`, que é sigla.
@@ -183,13 +203,6 @@ export interface GrupoDaPlanilha {
   origem: Origem;
   /** O que impede o rateio entre as linhas do grupo. */
   porque: string;
-  /**
-   * Somar de volta os descontos que saíram destas verbas.
-   *
-   * Só o grupo do fixo faz isso, e é o termo que faltava para o quadro fechar:
-   * a planilha escreve a parcela bruta, o 03.08.20 escreve a verba líquida.
-   */
-  brutoDeDescontos?: boolean;
 }
 
 /* =========================================================================
@@ -251,18 +264,31 @@ export const LINHAS_DA_PLANILHA: LinhaDaPlanilha[] = [
     nome: "Total remuneração rota DVS",
     quadro: "REMUNERACAO",
     papel: "PARCELA",
-    origem: { tipo: "EM_GRUPO", grupo: "fixo_bruto" },
+    origem: {
+      tipo: "SEM_ORIGEM",
+      motivo:
+        "O 03.08.20 não tem linha `DVS`, e o dinheiro dela não está nas verbas deste quadro: " +
+        "o motor calcula esta linha como o custo variável inteiro — frota fixa, agregado, " +
+        "recarga/noturna e vans —, e o variável do relatório são as VBZ 05 e 07, de natureza " +
+        "`VARIAVEL`, que o quadro de baixo já confere. As verbas deste quadro são as VBZ 01 a " +
+        "04, de natureza `FIXO` e `ADMINISTRATIVO`. Dar a ela o número do conjunto do fixo " +
+        "somaria o variável dentro do fixo e o contaria duas vezes no painel.",
+      destrava:
+        "Um recorte do 03.08.20 que isole a parcela `DVS` — ou a definição da sigla, que " +
+        "nenhuma das seis fontes traz. Enquanto não vier, a linha aparece com o devido e sem " +
+        "demonstrado, que é o que se sabe.",
+    },
     porque:
-      "Começa com `TOTAL` e ainda assim é parcela — a aritmética do próprio painel o diz. " +
-      "Sem ela, as cinco linhas de tipo de frota somam R$ 802.292,68 na 1ª quinzena, e o " +
-      "quadro fecha em R$ 1.081.504,98 com R$ 34.106,56 de desconto; com ela, as seis somam " +
-      "R$ 1.115.611,55, que é exatamente o fechamento mais os descontos. A conta fecha ao " +
-      "centavo nas duas quinzenas, e não fecha sem esta linha. " +
+      "Começa com `TOTAL` e ainda assim é parcela do quadro — a aritmética do próprio painel " +
+      "o diz. Sem ela, as cinco linhas de tipo de frota somam R$ 802.292,68 na 1ª quinzena, e " +
+      "o quadro fecha em R$ 1.081.504,98 com R$ 34.106,56 de desconto; com ela, as seis somam " +
+      "R$ 1.115.611,55, que é exatamente o fechamento mais os descontos. Ser parcela do " +
+      "**quadro**, porém, não é ser parcela do **conjunto**: o conjunto é o número que o " +
+      "03.08.20 traz somado para as linhas que ele não parte, e o dinheiro do `DVS` não está " +
+      "nesse número. Ver o motivo da ausência, acima. " +
       "O que continua sem lastro é a **sigla**: `DVS` não aparece em nenhuma das seis fontes " +
       "— nem no 03.08.20, nem no 2Art, nem na conciliação —, e expandi-la por palpite poria " +
-      "uma definição nossa num rótulo que é da Ambev. Por isso ela entra no conjunto das " +
-      "outras cinco: é a frota contratada bruta, partida por um critério que o relatório " +
-      "não traz.",
+      "uma definição nossa num rótulo que é da Ambev.",
   },
   {
     chave: "custo_fixo_padronizado",
@@ -376,24 +402,26 @@ export const LINHAS_DA_PLANILHA: LinhaDaPlanilha[] = [
     nome: "Desconto complementar negativo",
     quadro: "REMUNERACAO",
     papel: "DESCONTO",
-    origem: {
-      tipo: "SEM_ORIGEM",
-      motivo:
-        "Nenhum bloco do 03.08.20 se chama assim. Sobra, do lado do relatório, exatamente um " +
-        "desconto sem par: o `DESCONTO FRETE MINIMO`, cujo rótulo diz ter sido subtraído " +
-        "'das VBZs de custo Fixo coluna ICMS' — o mesmo quadro em que esta linha está. Casar " +
-        "os dois por serem os últimos que sobraram é elegante e é dedução: os nomes não se " +
-        "parecem, e o frete mínimo é o maior desconto unilateral da conta (a apuração o " +
-        "levanta como divergência própria, `DESCONTO_FRETE_MINIMO`). O de-para não os iguala; " +
-        "deixa o frete mínimo no resíduo, para que a subtração diga se são a mesma coisa.",
-      destrava:
-        "A fórmula desta célula no `.xlsb`. Se ela apontar para o frete mínimo, a origem vira " +
-        "`DESCONTOS: [FRETE_MINIMO]` e o quadro passa a fechar em zero.",
-    },
+    origem: { tipo: "DESCONTOS", descontos: ["FRETE_MINIMO"] },
     porque:
-      "A única linha de desconto da planilha sem bloco correspondente no relatório — e o frete " +
-      "mínimo é o único desconto do relatório sem linha na planilha. A coincidência é forte e " +
-      "continua sendo coincidência até alguém abrir a fórmula.",
+      "O `DESCONTO FRETE MINIMO` do 03.08.20 — nenhum bloco do relatório se chama " +
+      "`COMPLEMENTAR NEGATIVO`, e o rótulo do frete mínimo diz ter sido subtraído 'das VBZs " +
+      "de custo Fixo coluna ICMS', que é o quadro desta linha. " +
+      "**Por duas versões este de-para recusou a identificação**, e a recusa estava certa " +
+      "enquanto o argumento era só que os dois eram os últimos que sobravam de cada lado: os " +
+      "nomes não se parecem, e casar por eliminação é dedução, não leitura. O que a mudou não " +
+      "foi um argumento melhor, foram dois fechamentos: " +
+      "na 2ª quinzena de julho/2026 a célula `DESCONTO COMPLEMENTAR NEGATIVO` da planilha traz " +
+      "R$ 14.050,54, que é ao centavo o frete mínimo do relatório daquela quinzena; na 1ª ela " +
+      "vem zerada e os mesmos R$ 11.649,87 do frete mínimo aparecem — brutados pelo fator, " +
+      "R$ 15.907,37 — na linha da **disponibilidade**, numa quinzena em que o 03.08.20 não " +
+      "traz bloco `DESCONTO DISPONIBILIDADE` nenhum. O número existe nos dois fechamentos, em " +
+      "duas linhas diferentes, e só uma origem o explica nas duas: a outra hipótese exige uma " +
+      "disponibilidade que o relatório não tem. " +
+      "O motor já lia assim — `basesDaQuinzena` põe o frete mínimo no complementar negativo — " +
+      "e o de-para dizer o contrário deixava as duas metades do mesmo sistema em desacordo " +
+      "sobre o mesmo número. O que continua não lido é a **fórmula** da célula no `.xlsb`; " +
+      "ela confirmaria por escrito o que estes dois fechamentos mostram por valor.",
   },
   {
     chave: "total_remuneracao_rota_fixo",
@@ -489,7 +517,7 @@ export const LINHAS_DA_PLANILHA: LinhaDaPlanilha[] = [
 
   /* --- Quadro 3: o que não é frete ---------------------------------------- */
   {
-    chave: "outros_custos_parcela",
+    chave: "outros_custos",
     rotulo: "TOTAL REMUNERAÇÃO ROTA OUTROS CUSTOS",
     nome: "Total remuneração rota outros custos",
     quadro: "OUTROS_CUSTOS",
@@ -498,6 +526,7 @@ export const LINHAS_DA_PLANILHA: LinhaDaPlanilha[] = [
       tipo: "VERBAS",
       bloco: "OUTROS_CUSTOS",
       naturezas: ["FIXO", "VARIAVEL", "COMPLEMENTAR", "ADMINISTRATIVO"],
+      vbzs: { exceto: [VBZ_DA_EQUIPE_DE_ENTREGA] },
     },
     porque:
       "A correspondência mais direta do painel inteiro, e a única que não precisa de " +
@@ -505,9 +534,14 @@ export const LINHAS_DA_PLANILHA: LinhaDaPlanilha[] = [
       "com as suas verbas e o seu `Total Outros Custos`. Nenhuma natureza é filtrada porque o " +
       "bloco é definido pela seção do relatório, não pelo tipo da verba — a VBZ 07, por " +
       "exemplo, aparece nos dois blocos, e é justamente a seção que os separa. " +
+      "O que **é** filtrado é a `VBZ 06`, e por quadro, não por natureza: a planilha reserva " +
+      "um quadro só para ela em `AI34`, e o relatório a lança dentro desta seção. Somá-la aqui " +
+      "punha os dois quadros da planilha num só e fazia esta linha sair maior que o devido " +
+      "pelo valor exato da equipe. Na 2ª quinzena o relatório fecha a seção em R$ 262.282,80; " +
+      "sem a `VBZ 06` sobram R$ 80.247,66 sem imposto, que brutados dão os R$ 109.695,38 que o " +
+      "motor calcula das requisições do 03.08.12.09 — dois arquivos diferentes, ao centavo. " +
       "O rótulo começa com `TOTAL` e ainda assim é parcela: este quadro tem uma parcela só, " +
-      "e ela e o total do quadro são o mesmo número — que é exatamente o que o relatório " +
-      "faz quando fecha a seção com `Total Outros Custos`.",
+      "e ela e o total do quadro são o mesmo número.",
   },
   {
     chave: "total_outros_custos",
@@ -518,7 +552,44 @@ export const LINHAS_DA_PLANILHA: LinhaDaPlanilha[] = [
     origem: { tipo: "SOMA_DO_QUADRO" },
     porque:
       "O fecho do quadro, que o 03.08.20 escreve com o mesmo nome — `Total Outros Custos`. " +
-      "Nenhum desconto do relatório sai deste bloco: a base da devolução o exclui por escrito.",
+      "Nenhum desconto do relatório sai deste bloco: a base da devolução o exclui por escrito. " +
+      "O número aqui é o da seção **menos a `VBZ 06`**, pela razão escrita na parcela acima.",
+  },
+
+  /* --- Quadro 4: a remuneração variável da equipe de entrega -------------- */
+  {
+    chave: "equipe_de_entrega",
+    rotulo: "REM. VARIÁVEL - EQUIPE DE ENTREGA",
+    nome: "Remuneração variável — equipe de entrega",
+    quadro: "EQUIPE_DE_ENTREGA",
+    papel: "PARCELA",
+    origem: {
+      tipo: "VERBAS",
+      bloco: "OUTROS_CUSTOS",
+      naturezas: ["FIXO", "VARIAVEL", "COMPLEMENTAR", "ADMINISTRATIVO"],
+      vbzs: { apenas: [VBZ_DA_EQUIPE_DE_ENTREGA] },
+    },
+    porque:
+      "A `VBZ 06` — `Rem. Variável Equipe Entrega` — sozinha. É o quadro que a planilha " +
+      "reserva em `AI34` e nunca preenche: a fórmula do total geral dela é " +
+      "`SUM(AI17+AI30+AI34)`, e `SUM` de célula vazia é zero. Que o quadro exista e valha zero " +
+      "na planilha não o faz valer zero no fechamento — o relatório traz o número, e as " +
+      "requisições do 03.08.12.09 o confirmam: R$ 182.035,14 sem imposto na 2ª quinzena pelos " +
+      "dois caminhos, que brutados dão R$ 248.834,84. " +
+      "O corte é por VBZ e não por natureza porque a natureza não separa: a `06`, a `08` e a " +
+      "`09` são todas `COMPLEMENTAR`. Ver `VBZ_DA_EQUIPE_DE_ENTREGA`, em `verbas.ts`.",
+  },
+  {
+    chave: "total_equipe_de_entrega",
+    rotulo: "TOTAL REM. VARIÁVEL - EQUIPE DE ENTREGA",
+    nome: "Total remuneração variável — equipe de entrega",
+    quadro: "EQUIPE_DE_ENTREGA",
+    papel: "TOTAL",
+    origem: { tipo: "SOMA_DO_QUADRO" },
+    porque:
+      "O fecho do quadro. Como o de `OUTROS_CUSTOS`, ele é o recorte do quadro no relatório — " +
+      "aqui, a `VBZ 06` —, e não a soma que este módulo faz das linhas: a parcela e o total " +
+      "são o mesmo número porque o quadro tem uma parcela só.",
   },
 ];
 
@@ -528,7 +599,6 @@ export const GRUPOS_DA_PLANILHA: GrupoDaPlanilha[] = [
     chave: "fixo_bruto",
     rotulo: "Custo fixo bruto — antes dos descontos",
     linhas: [
-      "rota_dvs",
       "custo_fixo_padronizado",
       "custo_fixo_inativos",
       "custo_vans_inativas",
@@ -536,31 +606,37 @@ export const GRUPOS_DA_PLANILHA: GrupoDaPlanilha[] = [
       "custo_fixo_vans",
     ],
     origem: { tipo: "VERBAS", bloco: "FRETE", naturezas: ["FIXO", "ADMINISTRATIVO"] },
-    brutoDeDescontos: true,
     porque:
-      "As seis linhas são a frota contratada partida por tipo (padrão, especial, van) e por " +
-      "atividade (ativa, inativa), mais a linha `DVS`, cuja sigla nenhuma fonte define. O " +
-      "03.08.20 traz a partição por atividade — há VBZ de ativa e de inativa — e não traz a " +
-      "por tipo, que é a que corta as seis. Como o corte por tipo atravessa as duas VBZs, o " +
-      "grupo é das seis: separar só a inativa deixaria duas linhas com um número e quatro sem, " +
-      "e o número da inativa ainda seria de duas linhas. " +
-      "O valor é **bruto**: os descontos que a planilha abate neste quadro, somados de volta, " +
-      "porque é assim que ela escreve a parcela e o relatório não. Que sejam estas seis e não " +
-      "cinco é conta, não opinião: na 1ª quinzena as seis somam R$ 1.115.611,55, e o quadro " +
-      "fecha em R$ 1.081.504,98 com R$ 34.106,56 de desconto.",
+      "As cinco linhas são a frota contratada partida por tipo (padrão, especial, van) e por " +
+      "atividade (ativa, inativa). O 03.08.20 traz a partição por atividade — há VBZ de ativa " +
+      "e de inativa — e não traz a por tipo, que é a que corta as cinco. Como o corte por tipo " +
+      "atravessa as duas VBZs, o grupo é das cinco: separar só a inativa deixaria duas linhas " +
+      "com um número e três sem, e o número da inativa ainda seria de duas linhas. " +
+      "O valor é **bruto**: os descontos que o relatório declara ter subtraído destas VBZs, " +
+      "somados de volta, porque é assim que a planilha escreve a parcela e o relatório não. " +
+      "A linha `DVS` ficou **de fora**, e a razão é de natureza, não de aritmética: ela é o " +
+      "custo variável inteiro, e as verbas deste conjunto são as VBZ 01 a 04, `FIXO` e " +
+      "`ADMINISTRATIVO`. Enquanto ela esteve dentro, o conjunto acusava R$ 307.173,93 de " +
+      "diferença na 1ª quinzena e R$ 326.848,57 na 2ª — o tamanho do próprio `DVS`. Sem ela, " +
+      "sobram R$ 572,27 e R$ 574,08, que a planilha também tem e que ninguém explicou ainda.",
   },
   {
     chave: "variavel_bruto",
     rotulo: "Custo variável bruto — antes da devolução",
     linhas: ["custo_variavel_frota_fixa", "custo_variavel_agregado"],
     origem: { tipo: "VERBAS", bloco: "FRETE", naturezas: ["VARIAVEL"] },
-    brutoDeDescontos: true,
     porque:
       "Cada linha tem a sua verba, e o grupo não existe por dúvida sobre qual é qual — existe " +
-      "porque as duas dividem um desconto. A base da devolução declara alcançar todas as VBZs " +
-      "exceto a de remuneração variável de equipe e as de outros custos, e o relatório não diz " +
-      "quanto dela saiu de cada verba. Enquanto não disser, o bruto é conjunto: as duas verbas " +
-      "mais a devolução que este quadro abate.",
+      "porque as duas dividem o mesmo recorte do relatório: as VBZ 05 e 07 chegam somadas na " +
+      "seção `FRETE`, e o critério para rachá-las entre `FROTA FIXA` e `AGREGADO` não está em " +
+      "nenhum dos arquivos. " +
+      "O grupo **não** soma desconto nenhum de volta, e essa é a diferença em relação ao do " +
+      "fixo: a base da devolução declara alcançar todas as VBZs exceto a de remuneração " +
+      "variável de equipe e as de outros custos, mas o rótulo do desconto diz de onde ele foi " +
+      "**subtraído** — a VBZ 01, Frota Fixa Ativa —, e o mesmo vale para os quatro de " +
+      "disponibilidade (VBZ 01, 02 e 03). Nenhum deles saiu daqui. A planilha repete as duas " +
+      "linhas neste quadro, e é só repetição: o quadro do variável não entra no total geral " +
+      "dela.",
   },
 ];
 
@@ -653,7 +729,7 @@ export interface QuadroConferido {
    * É uma afirmação verificável, e é o que este módulo tem de novo a dizer. O
    * resíduo é, por construção, o valor conjunto de duas coisas: as linhas de
    * {@link semLastro} e as verbas de {@link verbasSemLinha}. Quem abrir o
-   * `.xlsb` confere uma subtração em vez de dezoito rótulos.
+   * `.xlsb` confere uma subtração em vez de vinte rótulos.
    *
    * **Resíduo zero não é "nada a ver".** Zero afirma que as linhas de
    * `semLastro` valem zero nesta quinzena — que `INDISPONIBILIDADE` e
@@ -709,9 +785,15 @@ const TITULO_DO_QUADRO: Record<Quadro, string> = {
   REMUNERACAO: "Remuneração — a frota contratada",
   VARIAVEL: "Variável — o que a operação rodou",
   OUTROS_CUSTOS: "Outros custos — o que não é frete",
+  EQUIPE_DE_ENTREGA: "Remuneração variável — equipe de entrega",
 };
 
-const ORDEM_DOS_QUADROS: Quadro[] = ["REMUNERACAO", "VARIAVEL", "OUTROS_CUSTOS"];
+const ORDEM_DOS_QUADROS: Quadro[] = [
+  "REMUNERACAO",
+  "VARIAVEL",
+  "OUTROS_CUSTOS",
+  "EQUIPE_DE_ENTREGA",
+];
 
 /**
  * O recorte do 03.08.20 que cada quadro fecha.
@@ -723,10 +805,24 @@ const ORDEM_DOS_QUADROS: Quadro[] = ["REMUNERACAO", "VARIAVEL", "OUTROS_CUSTOS"]
 const RECORTE_DO_QUADRO: Record<Quadro, Extract<Origem, { tipo: "VERBAS" }>> = {
   REMUNERACAO: { tipo: "VERBAS", bloco: "FRETE", naturezas: ["FIXO", "ADMINISTRATIVO"] },
   VARIAVEL: { tipo: "VERBAS", bloco: "FRETE", naturezas: ["VARIAVEL", "COMPLEMENTAR"] },
+  /*
+    O bloco `OUTROS CUSTOS` **menos** a VBZ 06, que é o quadro seguinte. O
+    relatório fecha a seção inteira num `Total Outros Custos` só; a planilha
+    parte esse total em dois quadros e escreve o segundo em `AI34`. Os dois
+    recortes abaixo somam exatamente o total do relatório — nenhum centavo entra
+    ou sai, e é o mesmo reagrupamento que o motor faz do lado do devido.
+  */
   OUTROS_CUSTOS: {
     tipo: "VERBAS",
     bloco: "OUTROS_CUSTOS",
     naturezas: ["FIXO", "VARIAVEL", "COMPLEMENTAR", "ADMINISTRATIVO"],
+    vbzs: { exceto: [VBZ_DA_EQUIPE_DE_ENTREGA] },
+  },
+  EQUIPE_DE_ENTREGA: {
+    tipo: "VERBAS",
+    bloco: "OUTROS_CUSTOS",
+    naturezas: ["FIXO", "VARIAVEL", "COMPLEMENTAR", "ADMINISTRATIVO"],
+    vbzs: { apenas: [VBZ_DA_EQUIPE_DE_ENTREGA] },
   },
 };
 
@@ -739,7 +835,7 @@ function somar(valores: number[]): number {
  *
  * Função pura, como toda a aritmética deste pacote: recebe o demonstrativo já
  * lido e devolve o painel preenchido. Quem vai ao banco é `persistencia.ts`, e
- * a separação é o que permite conferir os dezoito rótulos contra material
+ * a separação é o que permite conferir os vinte rótulos contra material
  * sintético, sem Postgres.
  *
  * O canal é sempre `ROTA` porque é o painel que existe — ver a nota de abertura
@@ -764,7 +860,11 @@ export function conferirDePara(
     origem: Extract<Origem, { tipo: "VERBAS" }>,
   ): { itens: ItemDePagamento[]; valor: number } => {
     const escolhidos = itens.filter(
-      (i) => i.bloco === origem.bloco && origem.naturezas.includes(i.verba.natureza),
+      (i) =>
+        i.bloco === origem.bloco &&
+        origem.naturezas.includes(i.verba.natureza) &&
+        (origem.vbzs?.apenas === undefined || origem.vbzs.apenas.includes(i.verba.vbz)) &&
+        (origem.vbzs?.exceto === undefined || !origem.vbzs.exceto.includes(i.verba.vbz)),
     );
     return { itens: escolhidos, valor: somar(escolhidos.map(valorDoItem)) };
   };
@@ -773,24 +873,36 @@ export function conferirDePara(
     descontos.filter((d) => tipos.includes(d.tipo));
 
   /*
-    Os descontos que cada quadro abate — os que as linhas de desconto **dele**
-    reivindicam, e nenhum outro.
+    Os descontos que saíram destas verbas — **como o relatório os declara**, e
+    não como a planilha os arruma.
 
-    É a chave do bruto, e ela vem da planilha e não do relatório: o quadro que
-    mostra um desconto é o quadro cuja parcela está bruta dele. Somar de volta
-    um desconto que a planilha abate noutro quadro fecharia um e estouraria o
-    outro pelo mesmo valor — que é exatamente o que acontece com a devolução, e
-    é por isso que ela é reportada em `origemForaDoQuadro` em vez de rateada.
+    É a chave do bruto: a planilha escreve a parcela cheia e mostra o desconto
+    numa linha à parte; o 03.08.20 já entrega a verba líquida. Somar o desconto
+    de volta é o que põe os dois na mesma moeda.
+
+    De qual verba somar de volta é o relatório que diz, por escrito, na própria
+    linha do desconto: *"Desconto Líquido Devolução já subtraído da VBZ Frota
+    Fixa Ativa"*, *"Desconto FF - Equipe Entrega (… já subtraído da VBZ 02 —
+    Equipe Entrega)"*. `vbzDeOrigem` é essa leitura.
+
+    **Perguntar isso à planilha estava errado, e o erro tinha tamanho.** A regra
+    anterior somava de volta os descontos que as linhas de desconto *daquele
+    quadro da planilha* reivindicavam — e a planilha repete a devolução e a
+    disponibilidade no quadro do variável, onde elas são informativas. O
+    conjunto do variável saía bruto de descontos que nunca saíram das VBZ 05 e
+    07: R$ 30.442,73 a mais na 1ª quinzena de julho/2026 e R$ 157.743,78 na 2ª.
+    Nenhuma das duas linhas mudou de lugar — elas continuam onde a planilha as
+    pôs, e `origemForaDoQuadro` continua dizendo quando as duas discordam.
+
+    O desconto que o relatório **não** atribui a nenhuma verba — o frete mínimo,
+    que diz apenas "das VBZs de custo Fixo coluna ICMS" — não entra em conjunto
+    nenhum. Chutar de qual verba ele saiu para fechar uma conta é exatamente o
+    que este módulo não faz.
   */
-  const descontosDoQuadro = (quadro: Quadro): DescontoDoPagamento[] => {
-    const tipos = LINHAS_DA_PLANILHA.filter(
-      (l) => l.quadro === quadro && l.papel === "DESCONTO" && l.origem.tipo === "DESCONTOS",
-    ).flatMap((l) => (l.origem.tipo === "DESCONTOS" ? l.origem.descontos : []));
-    return descontosDoTipo(tipos);
+  const descontosDasVerbas = (vbzs: number[]): DescontoDoPagamento[] => {
+    const alvo = new Set(vbzs);
+    return descontos.filter((d) => d.vbzDeOrigem.some((v) => alvo.has(v)));
   };
-
-  const quadroDoGrupo = (grupo: GrupoDaPlanilha): Quadro | null =>
-    POR_CHAVE.get(grupo.linhas[0] ?? "")?.quadro ?? null;
 
   /* --- os conjuntos: um número do relatório para várias linhas da planilha -- */
   const conjuntos = new Map<string, Conjunto>();
@@ -799,8 +911,8 @@ export function conferirDePara(
     const { itens: escolhidos, valor } = daOrigemDeVerbas(grupo.origem);
     if (escolhidos.length === 0) continue;
 
-    const quadro = quadroDoGrupo(grupo);
-    const somados = grupo.brutoDeDescontos && quadro ? descontosDoQuadro(quadro) : [];
+    const vbzs = [...new Set(escolhidos.map((i) => i.verba.vbz))].sort((a, b) => a - b);
+    const somados = descontosDasVerbas(vbzs);
     conjuntos.set(grupo.chave, {
       chave: grupo.chave,
       rotulo: grupo.rotulo,
@@ -819,7 +931,7 @@ export function conferirDePara(
         registros: escolhidos.length + somados.length,
       },
       porque: grupo.porque,
-      vbz: [...new Set(escolhidos.map((i) => i.verba.vbz))].sort((a, b) => a - b),
+      vbz: vbzs,
     });
   }
 

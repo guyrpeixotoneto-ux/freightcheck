@@ -32,6 +32,7 @@ import {
   AbaDoResumoNaoEncontrada,
   CelulaRecusada,
   DESCRICAO_DA_FONTE,
+  resumoAferido,
   resumoComReferencia,
   diagnosticarPagamento,
   FORMATOS_DA_FONTE,
@@ -282,7 +283,11 @@ router.get("/fechamento/resumo", async (req, res): Promise<void> => {
     lido.alvo,
     cadastroDaRemuneracao(db, { tipoDeOperacao: lido.alvo.tipoDeOperacao }),
   );
-  res.json(resumo);
+  /*
+    A aferição entra aqui, e não dentro de `lerResumoDoMes`: ela é uma leitura
+    **sobre** o fechamento e não pode ser insumo dele. Ver `afericao.ts`.
+  */
+  res.json(resumoAferido(resumo));
 });
 
 /**
@@ -323,7 +328,8 @@ router.get("/fechamento/conciliacao", async (req, res): Promise<void> => {
     referenciaAtivaDoMes(db, lido.alvo),
   ]);
 
-  res.json(resumoComReferencia(resumo, referencia));
+  /* A ordem não importa — as duas são puras e nenhuma toca no cálculo. */
+  res.json(resumoAferido(resumoComReferencia(resumo, referencia)));
 });
 
 /* ---------------------------------------------------------------------------

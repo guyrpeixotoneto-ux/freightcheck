@@ -3,6 +3,7 @@ import { ChevronRight } from "lucide-react";
 import { formatBrl } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type {
+  ConjuntoComparado,
   LinhaComparada,
   PainelComparado,
   QuadroComparado,
@@ -53,6 +54,62 @@ function dinheiro(valor: number | null): string {
   return valor === null ? "—" : formatBrl(valor);
 }
 
+/**
+ * O que a coluna `Auditar` diz de uma linha — e de onde ela tirou isso.
+ *
+ * Duas procedências, e a distinção importa para quem lê: `LINHA` é uma
+ * divergência desta linha; `CONJUNTO` é uma divergência do grupo a que ela
+ * pertence, e nesse caso **as outras linhas do grupo mostram a mesma marca**.
+ * Não é repetição por descuido: o relatório não parte o número, e não se sabe de
+ * qual das linhas do grupo a diferença vem. Marcar só uma delas seria escolher
+ * uma culpada por sorteio.
+ */
+export interface Achado {
+  onde: "LINHA" | "CONJUNTO";
+  /** O rótulo curto da célula — o que se lê varrendo a coluna. */
+  marca: string;
+  /** A frase inteira, que aparece ao abrir a linha. */
+  texto: string;
+}
+
+export function achadoDaLinha(
+  linha: LinhaComparada,
+  conjunto: ConjuntoComparado | null,
+): Achado | null {
+  if (linha.auditar) {
+    /*
+      Duas marcas, porque são dois problemas diferentes de quem confere. `Não
+      bate` é uma conta a refazer; `Sem lastro` é um documento a procurar — e
+      ninguém procura documento quando o que falta é conferir a conta.
+    */
+    const semLastro = linha.demonstrado.primeira === null && linha.demonstrado.segunda === null;
+    return {
+      onde: "LINHA",
+      marca: semLastro ? "Sem lastro" : "Não bate",
+      texto: linha.auditar,
+    };
+  }
+  if (conjunto?.auditar) {
+    return { onde: "CONJUNTO", marca: "Conjunto não bate", texto: conjunto.auditar };
+  }
+  return null;
+}
+
+/** A marca da coluna `Auditar`. Nada quando a linha se sustenta — que é o normal. */
+function Auditar({ achado }: { achado: Achado | null }) {
+  if (!achado) return <span className="text-muted-foreground/50">—</span>;
+  return (
+    <span
+      className={cn(
+        "inline-block rounded px-1.5 py-0.5 text-[11px] font-medium whitespace-nowrap",
+        "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200",
+      )}
+    >
+      {achado.marca}
+    </span>
+  );
+}
+
 export function ResumoGeralDoCanal({
   painel,
   colunas,
@@ -84,6 +141,12 @@ export function ResumoGeralDoCanal({
                   {c.rotulo}
                 </th>
               ))}
+              {/*
+                A coluna que deve viver vazia. Ela fica na ponta, e não ao lado
+                do nome, porque não é sobre o que a linha é — é sobre o que
+                sobrou depois de conferir o número.
+              */}
+              <th className="py-2 pl-4 text-left font-medium">Auditar</th>
             </tr>
           </thead>
           <tbody>
@@ -122,7 +185,7 @@ function Quadro({
   return (
     <Fragment>
       <tr className="border-b bg-muted/40">
-        <td colSpan={colunas.length + 1} className="py-1.5 text-xs font-semibold">
+        <td colSpan={colunas.length + 2} className="py-1.5 text-xs font-semibold">
           {quadro.titulo}
         </td>
       </tr>
@@ -135,7 +198,7 @@ function Quadro({
       {quadro.reservado && (
         <tr className="border-b">
           <td
-            colSpan={colunas.length + 1}
+            colSpan={colunas.length + 2}
             className="py-2 pl-4 text-xs text-muted-foreground"
           >
             {quadro.reservado}
@@ -147,6 +210,14 @@ function Quadro({
         <Linha
           key={linha.chave}
           linha={linha}
+          /*
+            O conjunto comparado — o que tem a subtração — vem do quadro, e não
+            de `linha.conjunto`, que é o do demonstrativo e só descreve o
+            agrupamento. É nele que mora a auditoria das linhas agrupadas.
+          */
+          conjunto={
+            quadro.conjuntos.find((c) => c.chave === linha.conjunto?.chave) ?? null
+          }
           colunas={colunas}
           temPlanilha={temPlanilha}
           aberta={aberta === linha.chave}
@@ -169,6 +240,12 @@ function Quadro({
               {dinheiro(c.de(quadro.devido))}
             </td>
           ))}
+          {/*
+            O total não repete a marca das linhas dele: o que impede o quadro de
+            fechar já está marcado onde aconteceu, e repetir aqui faria a coluna
+            parecer cheia quando ela tem um achado só.
+          */}
+          <td className="py-2 pl-4" />
         </tr>
       )}
     </Fragment>
@@ -177,17 +254,22 @@ function Quadro({
 
 function Linha({
   linha,
+  conjunto,
   colunas,
   temPlanilha,
   aberta,
   onAbrir,
 }: {
   linha: LinhaComparada;
+  /** O conjunto a que a linha pertence, quando pertence — com a subtração dele. */
+  conjunto: ConjuntoComparado | null;
   colunas: ColunaDoResumo[];
   temPlanilha: boolean;
   aberta: boolean;
   onAbrir: () => void;
 }) {
+  const achado = achadoDaLinha(linha, conjunto);
+
   return (
     <Fragment>
       <tr
@@ -224,11 +306,31 @@ function Linha({
             {dinheiro(c.de(linha.devido))}
           </td>
         ))}
+        <td className="py-2 pl-4 align-top">
+          <Auditar achado={achado} />
+        </td>
       </tr>
 
       {aberta && (
         <tr className="border-b bg-muted/30">
-          <td colSpan={colunas.length + 1} className="py-3 px-8 space-y-2 text-sm">
+          <td colSpan={colunas.length + 2} className="py-3 px-8 space-y-2 text-sm">
+            {/*
+              O achado vem primeiro, antes da memória de cálculo: quem abriu uma
+              linha marcada abriu por causa da marca.
+            */}
+            {achado && (
+              <p className="rounded border border-amber-300 bg-amber-50 p-2 text-xs text-amber-950 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
+                <span className="font-semibold">Auditar — {achado.marca}. </span>
+                {achado.texto}
+                {achado.onde === "CONJUNTO" && conjunto && (
+                  <span className="mt-1 block text-amber-900/80 dark:text-amber-200/80">
+                    As linhas que dividem este número — {conjunto.linhas.join(", ")} — trazem
+                    a mesma marca, e trazem porque a diferença é do grupo: o relatório não o
+                    parte, e não se sabe de qual delas ela vem.
+                  </span>
+                )}
+              </p>
+            )}
             <Memoria linha={linha} />
             <OutrasLeituras linha={linha} colunas={colunas} temPlanilha={temPlanilha} />
             <p className="text-xs text-muted-foreground">

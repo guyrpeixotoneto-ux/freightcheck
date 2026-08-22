@@ -26,6 +26,7 @@ import {
 } from "@/components/fechamento/escolher-fechamento";
 import { PorQueNaoTemDevido } from "@/components/fechamento/por-que-nao-tem-devido";
 import { ReferenciaDaPlanilha } from "@/components/fechamento/referencia-da-planilha";
+import { SelosDeAfericao } from "@/components/fechamento/selos-de-afericao";
 import { Seletor } from "@/components/fechamento/seletor";
 import { cn } from "@/lib/utils";
 
@@ -332,8 +333,21 @@ function CanalConciliado({
 }) {
   return (
     <Card>
-      <CardHeader className="pb-3">
+      <CardHeader className="pb-3 space-y-3">
         <CardTitle className="text-base">{canal.canal}</CardTitle>
+        {/*
+          Os mesmos dois selos do Resumo, do mesmo componente e com o mesmo
+          número. Recalculá-los aqui daria duas telas com a mesma medida e dois
+          lugares para ela divergir — que é o defeito que o resto deste módulo
+          existe para não cometer.
+        */}
+        {canal.afericao && (
+          <SelosDeAfericao
+            afericao={canal.afericao}
+            coluna={recorte === "consolidado" ? "total" : recorte === "1" ? "primeira" : "segunda"}
+            rotuloDaColuna={recorte === "consolidado" ? "mês inteiro" : `${recorte}ª quinzena`}
+          />
+        )}
       </CardHeader>
       <CardContent className="overflow-x-auto space-y-4">
         {canal.comparado ? (

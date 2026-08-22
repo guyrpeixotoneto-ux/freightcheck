@@ -165,6 +165,7 @@ describe("o painel da planilha no resumo do mês", () => {
       "REMUNERACAO",
       "VARIAVEL",
       "OUTROS_CUSTOS",
+      "EQUIPE_DE_ENTREGA",
     ]);
     expect(painel.quadros[0]!.linhas.map((l) => l.nome)).toEqual([
       "Total remuneração rota DVS",
@@ -192,9 +193,9 @@ describe("o painel da planilha no resumo do mês", () => {
       segunda: 208675,
       total: 417350,
     });
-    /* As seis linhas apontam para ele e não repetem o valor. */
+    /* As cinco linhas apontam para ele e não repetem o valor. */
     const doConjunto = quadro.linhas.filter((l) => l.conjunto === quadro.conjuntos[0]!.chave);
-    expect(doConjunto).toHaveLength(6);
+    expect(doConjunto).toHaveLength(5);
     expect(doConjunto.every((l) => l.valores.total === null)).toBe(true);
   });
 
@@ -282,10 +283,11 @@ const mapa = (q: 1 | 2) =>
     variavel: { frotaFixa: 100, agregado: 50, recargaENoturna: 0, vans: 0 },
     bases: {
       devolucao: 13328.3,
-      disponibilidade: 11649.87,
+      disponibilidade: { fonte: "PLANILHA", valor: 11649.87 },
       complementarNegativo: 0,
       outrosCustos: { fonte: "PLANILHA", valor: 0 },
       indisponibilidade: { fonte: "PLANILHA", valor: 0 },
+      equipeDeEntrega: { fonte: "PLANILHA", valor: 0 },
     },
   });
 
@@ -390,7 +392,6 @@ describe("do fallback para o painel comparado", () => {
 
   /** As seis linhas que o 03.08.20 traz somadas — ver `GRUPOS_DA_PLANILHA`. */
   const DO_CONJUNTO = [
-    "rota_dvs",
     "custo_fixo_padronizado",
     "custo_fixo_inativos",
     "custo_vans_inativas",
@@ -427,7 +428,7 @@ describe("do fallback para o painel comparado", () => {
    * O contrato que o usuário pediu por escrito: o demonstrado **continua** em
    * conjunto. Nada aqui reparte o número do relatório entre as seis.
    */
-  it("o demonstrado das seis continua em conjunto — o 03.08.20 não é rateado", () => {
+  it("o demonstrado das cinco continua em conjunto — o 03.08.20 não é rateado", () => {
     const canal = montar([comOsDois(1)]).canais.find((c) => c.canal === "ROTA")!;
     const linhas = canal.comparado!.quadros.flatMap((q) => q.linhas);
 
@@ -436,7 +437,7 @@ describe("do fallback para o painel comparado", () => {
       expect(linha.demonstrado.primeira, `${chave} recebeu rateio`).toBeNull();
       /* E a tela sabe **por que** está vazio: não falta arquivo, falta partição. */
       expect(linha.conjunto, `${chave} sem conjunto`).not.toBeNull();
-      expect(linha.conjunto!.linhas.length).toBe(6);
+      expect(linha.conjunto!.linhas.length).toBe(5);
       /* Sem os dois lados, a diferença da linha não existe — e não é zero. */
       expect(linha.diferenca.primeira).toBeNull();
     }
@@ -448,14 +449,14 @@ describe("do fallback para o painel comparado", () => {
     const conjunto = quadro.conjuntos.find((c) => c.chave === "fixo_bruto");
 
     expect(conjunto).toBeDefined();
-    expect(conjunto!.linhas.length).toBe(6);
+    expect(conjunto!.linhas.length).toBe(5);
 
-    /* O devido do conjunto é exatamente a soma do devido das seis linhas. */
-    const somaDasSeis = DO_CONJUNTO.reduce((total, chave) => {
+    /* O devido do conjunto é exatamente a soma do devido das cinco linhas. */
+    const somaDasCinco = DO_CONJUNTO.reduce((total, chave) => {
       const l = quadro.linhas.find((x) => x.chave === chave)!;
       return total + (l.devido.primeira ?? 0);
     }, 0);
-    expect(conjunto!.devido.primeira).toBeCloseTo(somaDasSeis, 2);
+    expect(conjunto!.devido.primeira).toBeCloseTo(somaDasCinco, 2);
 
     /* E o demonstrado é o número que o relatório traz para todas juntas. */
     expect(conjunto!.demonstrado.primeira).not.toBeNull();
@@ -466,24 +467,45 @@ describe("do fallback para o painel comparado", () => {
   });
 
   it("faltando o devido de uma linha do conjunto, a soma do conjunto não existe", () => {
-    /* Sem diário não há `rota_dvs`, que é uma das seis. */
-    const semDiario = montarMapaDaQuinzena({
+    /*
+      Uma das cinco sem devido. O caso é construído apagando o valor da linha no
+      mapa já montado, e não fabricando um cadastro incompleto: as cinco saem de
+      parâmetros que o cadastro exige, e um cadastro faltando não produz mapa
+      nenhum — não produz meio mapa. O que se afirma aqui é a regra da soma, que
+      é de `conjuntosComparados` e vale seja qual for a causa da falta.
+    */
+    const mapa = montarMapaDaQuinzena({
       quinzena: 1,
       parametros: PARAMETROS,
-      variavel: { frotaFixa: null, agregado: null, recargaENoturna: null, vans: null },
+      variavel: { frotaFixa: 100, agregado: 50, recargaENoturna: 0, vans: 0 },
       bases: {
         devolucao: 13328.3,
-        disponibilidade: 11649.87,
+        disponibilidade: { fonte: "PLANILHA", valor: 11649.87 },
         complementarNegativo: 0,
         outrosCustos: null,
         indisponibilidade: null,
+        equipeDeEntrega: { fonte: "PLANILHA", valor: 0 },
       },
     });
+    const semUmaDasCinco = {
+      ...mapa,
+      quadros: mapa.quadros.map((q) =>
+        q.quadro !== "REMUNERACAO"
+          ? q
+          : {
+              ...q,
+              linhas: q.linhas.map((l) =>
+                l.chave === "custo_vans_inativas" ? { ...l, valor: null } : l,
+              ),
+            },
+      ),
+    };
+
     const doPainel = comPainel(1);
     const canal = montar([
       quinzena(1, {
         ...doPainel,
-        calculados: [{ canal: "ROTA", mapa: semDiario }],
+        calculados: [{ canal: "ROTA", mapa: semUmaDasCinco }],
         cadastroUsado: { cadastroId: "cad-1", vigenteDe: "2026-07-01" },
       }),
     ]).canais.find((c) => c.canal === "ROTA")!;
@@ -491,8 +513,10 @@ describe("do fallback para o painel comparado", () => {
     const quadro = canal.comparado!.quadros.find((q) => q.quadro === "REMUNERACAO")!;
     const conjunto = quadro.conjuntos.find((c) => c.chave === "fixo_bruto")!;
 
-    /* Cinco sextos de uma soma não é a soma — e comparar isso mediria a nossa lacuna. */
-    expect(quadro.linhas.find((l) => l.chave === "rota_dvs")?.devido.primeira).toBeNull();
+    /* Quatro quintos de uma soma não é a soma — e comparar isso mediria a nossa lacuna. */
+    expect(
+      quadro.linhas.find((l) => l.chave === "custo_vans_inativas")?.devido.primeira,
+    ).toBeNull();
     expect(conjunto.devido.primeira).toBeNull();
     expect(conjunto.diferenca.primeira).toBeNull();
     /* O demonstrado do conjunto continua lá: ele não dependia do nosso lado. */

@@ -725,6 +725,13 @@ export interface CanalDoResumo {
   /** O devido, calculado do contrato, ao lado do demonstrado. */
   comparado: PainelComparado | null;
   /**
+   * Precisão e lastro deste canal — ver {@link Afericao}.
+   *
+   * Opcional porque a resposta de um servidor mais antigo não a traz, e a tela
+   * tem de continuar inteira sem ela: os selos somem, o resto fica.
+   */
+  afericao?: Afericao;
+  /**
    * Por que há (ou não há) devido, quinzena a quinzena.
    *
    * Espelha `CanalDoResumo.cadastro` de `@workspace/fechamento`. `null` na
@@ -793,6 +800,22 @@ export interface LinhaComparada {
    * ninguém explicou — e é essa que merece olhar.
    */
   causaConhecida: string | null;
+  /**
+   * O que **nenhum documento sustenta** nesta linha — a coluna `Auditar`.
+   *
+   * Preenchida em dois casos, e só nesses dois: os dois lados existem e
+   * discordam em mais de meio centavo, ou o devido é dinheiro e não há
+   * demonstrado nenhum — nem próprio nem por conjunto.
+   *
+   * **Não é `causaConhecida` com outro nome.** Aquela fala do que a planilha faz
+   * de diferente do sistema; esta, do que o demonstrativo assinado faz de
+   * diferente do contrato. Uma linha pode ter as duas.
+   *
+   * **A coluna deve viver vazia**, e é assim que se lê a tela: linha com texto
+   * aqui é a que merece o olho. Falta de arquivo não entra — para isso existe
+   * `falta`, e ali o devido nem existe.
+   */
+  auditar: string | null;
 }
 
 /**
@@ -811,6 +834,13 @@ export interface ConjuntoComparado {
   demonstrado: TresColunas;
   diferenca: TresColunas;
   porque: string;
+  /**
+   * O que ninguém sustenta no conjunto — a mesma coluna `Auditar` das linhas.
+   *
+   * É aqui que a auditoria das linhas em conjunto acontece: elas não têm
+   * demonstrado próprio, e a única subtração honesta é a do conjunto.
+   */
+  auditar: string | null;
 }
 
 export interface QuadroComparado {
@@ -829,11 +859,83 @@ export interface QuadroComparado {
   linhas: LinhaComparada[];
   conjuntos: ConjuntoComparado[];
   devido: TresColunas;
+  /**
+   * O total do quadro **somado das linhas demonstradas**, na moeda do devido.
+   *
+   * Não é o total que o 03.08.20 imprime para a seção — esse continua no painel
+   * do demonstrativo, que é onde ele é o assunto. `null` quando alguma linha do
+   * quadro tem devido em dinheiro e não tem demonstrado; {@link semDemonstrado}
+   * diz qual.
+   */
   demonstrado: TresColunas;
   diferenca: TresColunas;
+  /** As linhas que impedem o total demonstrado de existir. Vazia quando ele existe. */
+  semDemonstrado: string[];
   /** O total que a planilha publica para o quadro — lido, não somado das linhas. */
   planilha: TresColunas | null;
   diferencaDaPlanilha: TresColunas | null;
+}
+
+/* =========================================================================
+ * A aferição — os dois números do cabeçalho, e o que eles não medem
+ * ====================================================================== */
+
+/** De que qualidade é a evidência por trás de uma parcela do fechamento. */
+export type ClasseDeLastro =
+  /** Os dois lados existem, saem de documentos diferentes, e a parcela fecha. */
+  | "CRUZADO"
+  /** Idem, mas a conferência é do **grupo** — a partição entre as linhas não é conferida. */
+  | "CRUZADO_EM_CONJUNTO"
+  /** Os dois lados saem do mesmo arquivo: prova a leitura, não a operação. */
+  | "MESMA_FONTE"
+  /** Devido em dinheiro e nada do outro lado. Não é diferença — é ausência. */
+  | "SEM_CONTRAPARTIDA";
+
+export interface ParcelaAferida {
+  chave: string;
+  nome: string;
+  /** O dinheiro que a parcela move, em módulo. */
+  valor: TresColunas;
+  classe: ClasseDeLastro;
+  /** Quanto de `valor` tem contrapartida independente. Pode ser parcial. */
+  comLastro: TresColunas;
+  fonteDoDevido: string | null;
+  naoExplicado: TresColunas;
+  porque: string;
+}
+
+/** Um limite do que a aferição mediu — com cifra quando tem cifra. */
+export interface LimiteDaAfericao {
+  titulo: string;
+  texto: string;
+  valor: TresColunas | null;
+}
+
+/**
+ * Precisão e lastro de um canal — **derivados, nunca digitados**.
+ *
+ * `precisao` responde *do dinheiro que o sistema conseguiu conferir, quanto
+ * bate?*; `lastro`, *do dinheiro que o fechamento move, quanto tem
+ * contrapartida num documento que não o produziu?*. São perguntas diferentes e
+ * andam em direções opostas com frequência: conferir tudo contra o arquivo de
+ * onde os números saíram dá precisão perfeita e lastro nenhum.
+ *
+ * Os dois vêm calculados do servidor. Nada aqui soma, e um percentual escrito à
+ * mão numa tela envelheceria em silêncio — que é o defeito que este tipo existe
+ * para tornar impossível.
+ */
+export interface Afericao {
+  canal: string;
+  movimentado: TresColunas;
+  comContrapartida: TresColunas;
+  comLastroCruzado: TresColunas;
+  naoExplicado: TresColunas;
+  /** Entre 0 e 1. `null` quando nada foi conferido — indefinida, e não zero. */
+  precisao: TresColunas;
+  /** Entre 0 e 1. `null` quando nada foi movimentado. */
+  lastro: TresColunas;
+  parcelas: ParcelaAferida[];
+  limites: LimiteDaAfericao[];
 }
 
 /** De onde saiu a coluna da planilha — a prova de contra o quê se conferiu. */
