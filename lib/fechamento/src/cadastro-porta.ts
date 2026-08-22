@@ -333,6 +333,36 @@ export interface PortaDoContrato {
   assumidasComoZero: ChaveDoContrato[];
   /** Quantas linhas o contrato lê ao todo — o denominador de "faltam 3 de 22". */
   lidas: number;
+  /**
+   * Quanto deste cadastro o acervo comprova — **auditabilidade, não bloqueio**.
+   *
+   * Viaja ao lado do contrato e nunca decide nada: o devido sai do que foi
+   * digitado, com ou sem documento. Existe porque a tela da competência não
+   * tinha como distinguir um devido conferido por dois exports de um devido só
+   * transcrito — e essa é justamente a distinção que quem assina o fechamento
+   * precisa ver.
+   *
+   * `null` quando não se chegou a perguntar (porta anterior fechada) ou quando
+   * quem monta a porta não sabe medir lastro. Preenchido pelo módulo de borda,
+   * que enxerga os dois pacotes.
+   */
+  lastro?: LastroDoCadastro | null;
+}
+
+/**
+ * Quanto do cadastro tem documento por trás — três números e nada de juízo.
+ *
+ * `comLastro` sobre `verificaveis`, e não sobre as trinta linhas: dezenove das
+ * trinta não esperam arquivo nenhum — são preço contratado ou conta que o
+ * próprio cadastro refaz. Ver `procedenciaPossivel`, em `@workspace/remuneracao`.
+ */
+export interface LastroDoCadastro {
+  /** Linhas que o acervo sustenta nesta vigência. */
+  comLastro: number;
+  /** Quantas **podem** ter documento — onze das trinta. */
+  verificaveis: number;
+  /** Linhas que alguém digitou na aba. */
+  informadas: number;
 }
 
 /**

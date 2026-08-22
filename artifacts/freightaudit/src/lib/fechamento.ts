@@ -946,6 +946,28 @@ export interface ContratoFaltante {
   /** O que está errado e o que destrava, escritos pelo domínio. */
   problema: string | null;
   conserto: string | null;
+  /** A competência desta quinzena — o que o botão de associar escreve. */
+  competenciaId: string | null;
+  /** As candidatas, com o CNPJ que as distingue. Sugestão, nunca resolução. */
+  sugestoes: UnidadeSugerida[];
+  /** As obrigatórias que faltam, pelo rótulo impresso na aba. */
+  faltam: { chave: string; rotulo: string }[];
+  /** `false` na encerrada: associar recalcularia um devido congelado. */
+  podeAssociar: boolean;
+}
+
+/**
+ * O que a coluna **assume** — e que não falta, não bloqueia e não é erro.
+ *
+ * A opcional que a planilha soma como zero é premissa do contrato; o devido
+ * sem lastro documental é perda de auditabilidade, não de cálculo. As duas
+ * precisam ser ditas, e nenhuma delas em vermelho.
+ */
+export interface PremissaDaColuna {
+  quinzena: 1 | 2;
+  tipo: "OPCIONAIS_COMO_ZERO" | "SEM_LASTRO_DOCUMENTAL" | "LASTRO_PARCIAL";
+  titulo: string;
+  texto: string;
 }
 
 export interface Aferibilidade {
@@ -956,6 +978,8 @@ export interface Aferibilidade {
   semContrato: ContratoFaltante[];
   /** A frase que a tela mostra no lugar do percentual. `null` quando `COMPLETO`. */
   porque: string | null;
+  /** O que a coluna assume — ver {@link PremissaDaColuna}. Nunca bloqueia. */
+  premissas: PremissaDaColuna[];
 }
 
 /**

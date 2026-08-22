@@ -6,6 +6,7 @@ import {
   type TipoDeFonte,
 } from "./dominio";
 import { FONTE_DO_DEMONSTRATIVO, procedenciaDoMotor } from "./matriz";
+import type { ChaveDoContrato, UnidadeCanonicaVista } from "./cadastro-porta";
 import type { CadastroNaTela, CanalDoResumo, ResumoDoMes, TresColunas } from "./resumo";
 
 /**
@@ -108,6 +109,37 @@ export interface ContratoFaltante {
   /** Em que porta o cadastro parou — `SEM_VIGENCIA`, `CONTRATO_INCOMPLETO`, … */
   estado: string;
   /**
+   * A competência desta quinzena — o que a associação escreve.
+   *
+   * Sem ela a caixa de pendências só sabia **descrever** o conserto: dizia
+   * "associe a competência a esta unidade" e não tinha como oferecer o gesto,
+   * porque o botão morava noutro componente, que não aparece quando existe
+   * painel comparado. Com metade do mês respondida — o caso real — a frase
+   * ficava sozinha na tela, sem nada em que clicar.
+   */
+  competenciaId: string | null;
+  /**
+   * As unidades candidatas, com o CNPJ que as distingue.
+   *
+   * Sugestão, nunca resolução: quem escolhe é gente. Vazia quando o texto da
+   * competência não lembra nenhuma unidade cadastrada.
+   */
+  sugestoes: UnidadeCanonicaVista[];
+  /**
+   * As linhas obrigatórias que faltam, quando a porta que fechou foi a do
+   * contrato. Vazia nas outras — não se lista o que não se chegou a perguntar.
+   */
+  faltam: ChaveDoContrato[];
+  /**
+   * A competência aceita ser associada agora?
+   *
+   * `false` na encerrada: associar faria o Resumo recalcular o devido, e uma
+   * quinzena congelada que muda de número é o que o encerramento existe para
+   * impedir. A tela então pede a reabertura com motivo, em vez de oferecer um
+   * botão que o servidor vai recusar.
+   */
+  podeAssociar: boolean;
+  /**
    * O que está errado e o que destrava, na frase do domínio.
    *
    * Vêm de `comoDestravar` (em `cadastro-porta.ts`) e atravessam até aqui em
@@ -133,6 +165,32 @@ export interface Aferibilidade {
   semContrato: ContratoFaltante[];
   /** A frase que a tela mostra no lugar do percentual. `null` quando `COMPLETO`. */
   porque: string | null;
+  /**
+   * O que esta coluna **assume** — e que não falta, não bloqueia e não é erro.
+   *
+   * A caixa de pendências dizia uma coisa só, e em vermelho: "faltam dados". Há
+   * dois fatos que precisam ser ditos e não são falta nenhuma — a linha opcional
+   * que a planilha deixa em branco e soma como zero, e o devido que saiu de
+   * cadastro digitado sem documento que o confirme. O primeiro é premissa do
+   * contrato; o segundo é perda de auditabilidade, não de cálculo. Tratá-los
+   * como pendência mandaria procurar arquivo que ninguém emitiu; escondê-los
+   * faria quem assina o fechamento não saber o que está assinando.
+   */
+  premissas: PremissaDaColuna[];
+}
+
+/** O que a coluna assume, dito por extenso. Nunca bloqueia a aferição. */
+export interface PremissaDaColuna {
+  quinzena: 1 | 2;
+  tipo:
+    /** Opcionais em branco, somadas como zero — é o que a própria aba faz. */
+    | "OPCIONAIS_COMO_ZERO"
+    /** O contrato existe e o acervo não confirma nenhuma linha dele. */
+    | "SEM_LASTRO_DOCUMENTAL"
+    /** O acervo confirma parte — a fração é o que se pode auditar. */
+    | "LASTRO_PARCIAL";
+  titulo: string;
+  texto: string;
 }
 
 /** De que qualidade é a evidência por trás de uma parcela do fechamento. */
@@ -389,6 +447,8 @@ function aferibilidadeDaQuinzena(
    * ou quando não há quinzena para perguntar. Ver {@link ContratoFaltante}.
    */
   contrato: ContratoFaltante | null,
+  /** O que a coluna assume, quando o cadastro respondeu. Nunca bloqueia. */
+  premissas: PremissaDaColuna[] = [],
 ): Aferibilidade {
   /*
     Sem sequer a linha da quinzena não se afirma completude nenhuma. É o mesmo
@@ -399,6 +459,7 @@ function aferibilidadeDaQuinzena(
       completude: "INCOMPLETO",
       faltando: [],
       semContrato: [],
+      premissas: [],
       porque:
         "Não há informação sobre os relatórios desta quinzena, e sem ela não dá para " +
         "afirmar que o fechamento está completo.",
@@ -434,6 +495,7 @@ function aferibilidadeDaQuinzena(
       completude: "INCOMPLETO",
       faltando,
       semContrato,
+      premissas,
       porque: porqueIncompleto(Boolean(quinzena.competenciaId), faltando.length > 0, semContrato.length > 0),
     };
   }
@@ -444,11 +506,12 @@ function aferibilidadeDaQuinzena(
       completude: "NAO_APLICAVEL",
       faltando: [],
       semContrato: [],
+      premissas,
       porque: "Nada a aferir nesta coluna: nenhuma parcela move dinheiro nela.",
     };
   }
 
-  return { completude: "COMPLETO", faltando: [], semContrato: [], porque: null };
+  return { completude: "COMPLETO", faltando: [], semContrato: [], premissas, porque: null };
 }
 
 /**
@@ -486,6 +549,8 @@ function porqueIncompleto(temCompetencia: boolean, faltaFonte: boolean, faltaCon
 function aferibilidadeDoMes(primeira: Aferibilidade, segunda: Aferibilidade): Aferibilidade {
   const faltando = [...primeira.faltando, ...segunda.faltando];
   const semContrato = [...primeira.semContrato, ...segunda.semContrato];
+  /* As premissas do mês são as das duas metades: o total herda o que elas assumem. */
+  const premissas = [...primeira.premissas, ...segunda.premissas];
   if (
     faltando.length > 0 ||
     semContrato.length > 0 ||
@@ -496,6 +561,7 @@ function aferibilidadeDoMes(primeira: Aferibilidade, segunda: Aferibilidade): Af
       completude: "INCOMPLETO",
       faltando,
       semContrato,
+      premissas,
       porque:
         semContrato.length > 0 && faltando.length === 0
           ? "Fechamento incompleto: o mês só é aferível com as duas quinzenas contratadas."
@@ -507,10 +573,11 @@ function aferibilidadeDoMes(primeira: Aferibilidade, segunda: Aferibilidade): Af
       completude: "NAO_APLICAVEL",
       faltando: [],
       semContrato: [],
+      premissas,
       porque: "Nada a aferir neste mês: nenhuma parcela move dinheiro.",
     };
   }
-  return { completude: "COMPLETO", faltando: [], semContrato: [], porque: null };
+  return { completude: "COMPLETO", faltando: [], semContrato: [], premissas, porque: null };
 }
 
 /** O valor de uma coluna, ou zero — para somar quando a ausência não é o assunto. */
@@ -536,7 +603,7 @@ function somar(valores: TresColunas[]): TresColunas {
  */
 function contratoFaltanteDaQuinzena(
   quinzena: 1 | 2,
-  daQuinzena: { competenciaId: string | null } | null,
+  daQuinzena: { competenciaId: string | null; estado: string | null } | null,
   cadastro: CadastroNaTela | null,
 ): ContratoFaltante | null {
   if (!daQuinzena?.competenciaId) return null;
@@ -546,7 +613,81 @@ function contratoFaltanteDaQuinzena(
     estado: cadastro.estado,
     problema: cadastro.destrava?.problema ?? null,
     conserto: cadastro.destrava?.conserto ?? null,
+    competenciaId: daQuinzena.competenciaId,
+    /*
+      A sugestão vem junto para a tela poder oferecer o gesto, e não só
+      descrevê-lo. Ela continua sendo sugestão: o botão leva o CNPJ de cada
+      candidata, e quem confirma é gente.
+    */
+    sugestoes: cadastro.unidade.sugestoes,
+    /* Só a porta do contrato lista linhas — as outras nem chegaram a lê-las. */
+    faltam: cadastro.contrato?.faltam ?? [],
+    podeAssociar: daQuinzena.estado !== "ENCERRADA",
   };
+}
+
+/**
+ * O que a quinzena assume quando o cadastro **respondeu**.
+ *
+ * Só existe no caminho feliz, e é aí que ela importa: com o contrato de pé, a
+ * tela não tinha mais nada a dizer sobre ele — nem que uma parcela entrou como
+ * zero por premissa da própria planilha, nem que o número inteiro veio de
+ * digitação sem documento que o confirme. As duas coisas são verdadeiras, não
+ * são falta, e quem assina o fechamento precisa das duas.
+ */
+function premissasDaQuinzena(
+  quinzena: 1 | 2,
+  daQuinzena: { competenciaId: string | null } | null,
+  cadastro: CadastroNaTela | null,
+): PremissaDaColuna[] {
+  if (!daQuinzena?.competenciaId) return [];
+  if (!cadastro || cadastro.estado !== "RESPONDEU") return [];
+
+  const premissas: PremissaDaColuna[] = [];
+  const contrato = cadastro.contrato;
+
+  const zeradas = contrato?.assumidasComoZero ?? [];
+  if (zeradas.length > 0) {
+    premissas.push({
+      quinzena,
+      tipo: "OPCIONAIS_COMO_ZERO",
+      titulo:
+        zeradas.length === 1
+          ? "Uma linha opcional entrou como zero"
+          : `${zeradas.length} linhas opcionais entraram como zero`,
+      texto:
+        `${zeradas.map((c) => `"${c.rotulo}"`).join(", ")} não foi digitada nesta vigência, e o ` +
+        "contrato a soma como zero — é o que a própria planilha faz com a célula em branco. " +
+        "Não é linha esquecida: é a premissa adotada, e ela está dita para poder ser " +
+        "contestada.",
+    });
+  }
+
+  const lastro = contrato?.lastro ?? null;
+  if (lastro && lastro.verificaveis > 0) {
+    const semNenhum = lastro.comLastro === 0;
+    if (semNenhum || lastro.comLastro < lastro.verificaveis) {
+      premissas.push({
+        quinzena,
+        tipo: semNenhum ? "SEM_LASTRO_DOCUMENTAL" : "LASTRO_PARCIAL",
+        titulo: semNenhum
+          ? "O devido saiu de cadastro digitado"
+          : `Lastro documental parcial: ${lastro.comLastro} de ${lastro.verificaveis}`,
+        texto:
+          (semNenhum
+            ? `Nenhuma das ${lastro.verificaveis} linhas verificáveis do cadastro tem documento ` +
+              "por trás nesta vigência: o acervo não recebeu o export de equipamento nem a série " +
+              "de trechos. "
+            : `${lastro.comLastro} das ${lastro.verificaveis} linhas verificáveis têm documento por ` +
+              "trás; as demais valem pelo que foi digitado. ") +
+          "O devido é calculado do mesmo jeito — ele sai do contrato, e o contrato sai da aba " +
+          "informada. O que se perde é conferência externa: um erro de transcrição passaria sem " +
+          "nada para contradizê-lo.",
+      });
+    }
+  }
+
+  return premissas;
 }
 
 /**
@@ -611,6 +752,7 @@ export function aferir(
       completude: "NAO_APLICAVEL",
       faltando: [],
       semContrato: [],
+      premissas: [],
       porque: limites[0]!.titulo,
     };
     return {
@@ -854,11 +996,13 @@ export function aferir(
     daQuinzena(1),
     temParcela("primeira"),
     contratoFaltanteDaQuinzena(1, daQuinzena(1), canal.cadastro?.primeira ?? null),
+    premissasDaQuinzena(1, daQuinzena(1), canal.cadastro?.primeira ?? null),
   );
   const segunda = aferibilidadeDaQuinzena(
     daQuinzena(2),
     temParcela("segunda"),
     contratoFaltanteDaQuinzena(2, daQuinzena(2), canal.cadastro?.segunda ?? null),
+    premissasDaQuinzena(2, daQuinzena(2), canal.cadastro?.segunda ?? null),
   );
   const aferibilidade = { primeira, segunda, total: aferibilidadeDoMes(primeira, segunda) };
 

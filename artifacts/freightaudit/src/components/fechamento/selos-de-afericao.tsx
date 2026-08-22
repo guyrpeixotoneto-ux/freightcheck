@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { ChevronRight } from "lucide-react";
 
+import { AssociarUnidade } from "@/components/fechamento/associar-unidade";
 import {
   Sheet,
   SheetContent,
@@ -14,6 +15,7 @@ import type {
   Afericao,
   Aferibilidade,
   ClasseDeLastro,
+  ContratoFaltante,
   FonteFaltante,
   LimiteDaAfericao,
   ParcelaAferida,
@@ -173,6 +175,15 @@ export function SelosDeAfericao({
       */}
       {temPendenciaAMostrar(aferibilidade) && <FaltamDados aferibilidade={aferibilidade!} />}
 
+      {/*
+        E, embaixo, o que a coluna **assume** — em cinza, porque não é falta.
+
+        Aparece inclusive com o fechamento completo, que é quando mais importa:
+        é o mês que fecha, com a precisão em verde, e cujo devido ninguém
+        conferiu contra documento nenhum. Ver `Premissas`.
+      */}
+      <Premissas aferibilidade={aferibilidade} />
+
       <Sheet open={aberto !== null} onOpenChange={(v) => !v && setAberto(null)}>
         <SheetContent className="w-full sm:max-w-xl overflow-y-auto">
           {aberto === "PRECISAO" && (
@@ -319,20 +330,10 @@ function FaltamDados({ aferibilidade }: { aferibilidade: Aferibilidade }) {
         emitiu.
       */}
       {aferibilidade.semContrato.length > 0 && (
-        <ul className="mt-1 space-y-1">
+        <ul className="mt-1 space-y-2">
           {aferibilidade.semContrato.map((c) => (
             <li key={`contrato-${c.quinzena}`} className="text-muted-foreground">
-              <span className="text-foreground">
-                Cadastro da {c.quinzena}ª quinzena
-              </span>{" "}
-              — sem contrato não sai devido, e as linhas dela ficam em branco.
-              {c.problema && <span className="block">{c.problema}</span>}
-              {c.conserto && (
-                <span className="block">
-                  <span className="font-medium text-foreground">O que destrava: </span>
-                  {c.conserto}
-                </span>
-              )}
+              <ContratoQueFalta contrato={c} />
             </li>
           ))}
         </ul>
@@ -357,6 +358,130 @@ function FaltamDados({ aferibilidade }: { aferibilidade: Aferibilidade }) {
         <strong className="text-foreground">ainda não dá para saber</strong>, não
         “os valores estão errados”.
       </p>
+    </div>
+  );
+}
+
+/**
+ * O TÍTULO DE CADA PENDÊNCIA DE CONTRATO — quatro causas, quatro frases.
+ *
+ * A caixa dizia a mesma coisa para todas: *"Cadastro da 2ª quinzena — sem
+ * contrato não sai devido"*. É verdade nas quatro e não serve em nenhuma. Quem
+ * não associou a unidade precisa de um clique; quem tem a unidade e não tem a
+ * aba precisa abrir Remuneração; quem tem a aba e deixou duas células em branco
+ * precisa saber **quais duas**. Um aviso que não distingue isso é indistinguível
+ * de um aviso que não interessa.
+ */
+function tituloDaPendencia(estado: string, quinzena: 1 | 2): string {
+  switch (estado) {
+    case "UNIDADE_NAO_ENCONTRADA":
+    case "UNIDADE_AMBIGUA":
+    case "UNIDADE_SEM_CADASTRO":
+      return `${quinzena}ª quinzena — unidade não associada`;
+    case "CONFLITO_DE_IDENTIDADE":
+      return `${quinzena}ª quinzena — dois CNPJs para a mesma unidade`;
+    case "SEM_VIGENCIA":
+      return `${quinzena}ª quinzena — sem aba de cadastro`;
+    case "CONTRATO_INCOMPLETO":
+      return `${quinzena}ª quinzena — faltam linhas obrigatórias`;
+    case "CANAL_SEM_CONTRATO":
+      return `${quinzena}ª quinzena — este canal não tem contrato transcrito`;
+    default:
+      return `Cadastro da ${quinzena}ª quinzena`;
+  }
+}
+
+/**
+ * A pendência de contrato de uma quinzena — com o gesto, quando ele existe.
+ *
+ * **A frase e o botão passaram a viajar juntos.** O texto sempre disse "associe
+ * a competência a esta unidade"; o botão vivia em `PorQueNaoTemDevido`, que só
+ * aparece quando não há painel comparado. Com metade do mês respondida — que é
+ * o caso em que esta caixa existe — o painel havia, e a instrução ficava sozinha
+ * numa tela sem nada em que clicar.
+ */
+function ContratoQueFalta({ contrato }: { contrato: ContratoFaltante }) {
+  return (
+    <>
+      <span className="font-medium text-foreground">
+        {tituloDaPendencia(contrato.estado, contrato.quinzena)}
+      </span>
+      {contrato.problema && <span className="block">{contrato.problema}</span>}
+      {contrato.conserto && (
+        <span className="block">
+          <span className="font-medium text-foreground">O que destrava: </span>
+          {contrato.conserto}
+        </span>
+      )}
+
+      {/*
+        As linhas que faltam, pelo rótulo da planilha — e não pela chave.
+
+        "Faltam 2 de 22" mandava abrir o cadastro e conferir vinte e duas
+        células uma a uma. Quem lê procura o rótulo que está impresso na aba.
+      */}
+      {contrato.faltam.length > 0 && (
+        <span className="block">
+          <span className="font-medium text-foreground">Linhas que faltam: </span>
+          {contrato.faltam.map((f) => f.rotulo).join(", ")}.
+        </span>
+      )}
+
+      {contrato.sugestoes.length > 0 &&
+        (contrato.podeAssociar ? (
+          <span className="mt-1 block">
+            <AssociarUnidade
+              sugestoes={contrato.sugestoes}
+              quinzena={contrato.quinzena}
+              competenciaId={contrato.competenciaId}
+            />
+          </span>
+        ) : (
+          /*
+            A encerrada não recebe o botão, e a razão é dita: associar faria o
+            Resumo recalcular o devido, e uma quinzena congelada que muda de
+            número é o que o encerramento existe para impedir. Oferecer um botão
+            que o servidor vai recusar seria pior do que não oferecer nenhum.
+          */
+          <span className="mt-1 block">
+            Esta quinzena está <strong>encerrada</strong>: associar a unidade faria o devido
+            dela ser recalculado, e é isso que o encerramento impede. Reabra-a com motivo
+            para poder associar.
+          </span>
+        ))}
+    </>
+  );
+}
+
+/**
+ * O QUE A COLUNA ASSUME — dito em cinza, e não em âmbar.
+ *
+ * Duas coisas verdadeiras que não são falta de nada: a linha opcional que a
+ * planilha deixa em branco e soma como zero, e o devido que saiu de cadastro
+ * digitado sem documento que o confirme. Postas na caixa de pendências, as duas
+ * viravam cobrança — mandavam procurar arquivo que ninguém emitiu. Caladas,
+ * deixavam quem assina o fechamento sem saber o que está assinando.
+ *
+ * Elas aparecem **inclusive quando está tudo completo**, que é o caso em que
+ * mais importam: é o mês que fecha, com a precisão em verde, e cujo devido
+ * ninguém conferiu contra documento nenhum.
+ */
+export function Premissas({ aferibilidade }: { aferibilidade: Aferibilidade | null }) {
+  if (!aferibilidade || aferibilidade.premissas.length === 0) return null;
+
+  return (
+    <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs">
+      <p className="font-semibold text-foreground">O que esta coluna assume</p>
+      <ul className="mt-1 space-y-1">
+        {aferibilidade.premissas.map((p) => (
+          <li key={`${p.tipo}-${p.quinzena}`} className="text-muted-foreground">
+            <span className="text-foreground">
+              {p.quinzena}ª quinzena — {p.titulo}
+            </span>
+            <span className="block">{p.texto}</span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
