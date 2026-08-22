@@ -275,14 +275,6 @@ export function contratoDaPlanilha(valores: ReadonlyMap<string, number>): Contra
 export interface VigenciaQueResponde {
   /** A `effectiveDate` da planilha que responde. */
   vigenteDe: string;
-  /**
-   * `true` quando a planilha veio da **outra quinzena do mesmo mês**.
-   *
-   * Quem lê a tela precisa disso: o número não muda, mas a afirmação sim — uma
-   * é "foi isto que cadastraram para esta quinzena" e a outra é "não
-   * cadastraram esta, e a do mês vale para as duas".
-   */
-  herdadaDaOutraQuinzena: boolean;
 }
 
 const DATA = /^\d{4}-\d{2}-\d{2}$/;
@@ -292,26 +284,32 @@ const DATA = /^\d{4}-\d{2}-\d{2}$/;
  *
  * **A regra, na ordem:**
  *
- * 1. A planilha da própria quinzena, se houver. Duas na mesma metade do mês —
- *    o que a régua de `vigencia.ts` já trata como caso legítimo — resolvem-se
+ * 1. A planilha da **própria quinzena**, se houver. Duas na mesma metade do mês
+ *    — o que a régua de `vigencia.ts` já trata como caso legítimo — resolvem-se
  *    pela mais recente, que é a correção mais nova.
- * 2. A da **outra quinzena do mesmo mês**, se houver. É a herança que o
- *    contrato quinzenal pede: quem opera com um contrato só no mês digita uma
- *    aba e ela vale para as duas metades; quem tem contrato diferente em cada
- *    metade digita as duas, e aí o passo 1 responde por cada uma. Não existe
- *    "meia herança": a aba é um ato só (ver `gravarPlanilha`), e completar as
- *    linhas que faltam numa com as da outra montaria um contrato que ninguém
- *    assinou.
- * 3. Nada. `null` é resposta legítima, e é o estado de toda unidade antes de
- *    alguém digitar a primeira aba.
+ * 2. Nada. `null` é resposta legítima, e é o estado de toda quinzena antes de
+ *    alguém digitar a aba dela.
  *
- * **A herança para no mês, de propósito.** Julho não responde por agosto, e a
- * razão é a mesma que `copiarPlanilha` já registra: uma vigência que herdasse a
- * anterior em silêncio faria a planilha de um mês responder pelo seguinte sem
- * que ninguém tivesse dito isso — e responderia igual para sempre, inclusive
- * depois de a operação mudar. Entre as duas quinzenas do **mesmo** mês a
- * herança é outra coisa: é o mesmo contrato, partido pela metade por uma régua
- * de calendário, e o normal é ele ser um só.
+ * **Cada quinzena responde pela própria aba, e não existe herança.** Isto já foi
+ * diferente: a aba de uma metade respondia pela outra quando esta não tinha a
+ * sua, e a ideia era servir quem opera com um contrato só no mês. O que ela
+ * servia era outra coisa. Os parâmetros mudam entre as metades — em julho/2026,
+ * seis deles mudam, entre eles a remuneração fixa da frota ativa (1.424,91 →
+ * 1.038,03) e a da frota inativa (1.650,97 → 4.359,09) —, e a herança pagava a
+ * segunda quinzena com o contrato da primeira **sem dizer**. Numa competência
+ * conferida isso deu R$ 14.817,52 de diferença numa linha só, num número que a
+ * tela apresentava como qualquer outro.
+ *
+ * A escolha aqui não é entre um número e outro: é entre um número errado e uma
+ * pendência. Sem a aba da quinzena não se sabe o que foi contratado nela, e
+ * `null` é a única resposta que não inventa. Quem tem o mesmo contrato nas duas
+ * metades digita as duas abas — é um ato a mais, e ele deixa escrito que as
+ * duas foram conferidas.
+ *
+ * **O mês continua sendo o limite.** Julho não responde por agosto pela razão
+ * que `copiarPlanilha` já registra: uma vigência que herdasse a anterior em
+ * silêncio responderia igual para sempre, inclusive depois de a operação mudar.
+ * Agora o limite é mais estreito — a quinzena —, pelo mesmo motivo.
  */
 export function vigenciaQueResponde(
   inicioDaQuinzena: string,
@@ -320,16 +318,10 @@ export function vigenciaQueResponde(
   if (!DATA.test(inicioDaQuinzena)) return null;
 
   const mes = inicioDaQuinzena.slice(0, 7);
-  const doMes = comPlanilha
-    .filter((d) => DATA.test(d) && d.slice(0, 7) === mes)
+  const quinzena = quinzenaDe(inicioDaQuinzena);
+  const daQuinzena = comPlanilha
+    .filter((d) => DATA.test(d) && d.slice(0, 7) === mes && quinzenaDe(d) === quinzena)
     .sort((a, b) => b.localeCompare(a));
 
-  const quinzena = quinzenaDe(inicioDaQuinzena);
-  const propria = doMes.find((d) => quinzenaDe(d) === quinzena);
-  if (propria) return { vigenteDe: propria, herdadaDaOutraQuinzena: false };
-
-  const irma = doMes.find((d) => quinzenaDe(d) !== quinzena);
-  if (irma) return { vigenteDe: irma, herdadaDaOutraQuinzena: true };
-
-  return null;
+  return daQuinzena[0] ? { vigenteDe: daQuinzena[0] } : null;
 }

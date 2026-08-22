@@ -328,9 +328,7 @@ function PortasDoCadastro({
             ? vigencia.todas.length === 0
               ? "nenhuma aba digitada"
               : `abas digitadas: ${vigencia.todas.join(", ")} — nenhuma deste mês`
-            : vigencia.herdadaDaOutraQuinzena
-              ? `${vigencia.vigenteDe}, herdada da outra quinzena do mês`
-              : vigencia.vigenteDe,
+            : vigencia.vigenteDe,
     },
     {
       nome: "Contrato",

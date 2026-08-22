@@ -303,10 +303,14 @@ export interface PortaDaVigencia {
    * digitou no mês errado", e as duas chegavam à tela como a mesma ausência.
    */
   todas: string[];
-  /** A que respondeu. `null` quando nenhuma. */
+  /**
+   * A que respondeu. `null` quando nenhuma.
+   *
+   * É sempre a aba **da própria quinzena**: a herança entre as metades do mês
+   * foi removida, porque pagava uma quinzena com o contrato da outra sem dizer.
+   * Ver `vigenciaQueResponde`, em `@workspace/remuneracao`.
+   */
   vigenteDe: string | null;
-  /** Respondeu a aba da outra metade do mês — a herança que a regra permite. */
-  herdadaDaOutraQuinzena: boolean;
 }
 
 /** Uma linha da aba que o contrato precisa, com o rótulo que a tela mostra. */
@@ -671,7 +675,7 @@ export function cadastroEmMemoria(
           diagnostico: {
             estado: "SEM_VIGENCIA",
             unidade,
-            vigencia: { doMes: [], todas, vigenteDe: null, herdadaDaOutraQuinzena: false },
+            vigencia: { doMes: [], todas, vigenteDe: null },
             contrato: null,
           },
         };
@@ -691,7 +695,6 @@ export function cadastroEmMemoria(
             doMes: todas,
             todas,
             vigenteDe: escolhida.vigenteDe,
-            herdadaDaOutraQuinzena: false,
           },
           contrato: { faltam: [], assumidasComoZero: [], lidas: 0 },
         },
