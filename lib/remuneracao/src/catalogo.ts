@@ -536,3 +536,93 @@ const POR_CHAVE = new Map(LINHAS_DO_CADASTRO.map((l) => [l.chave, l]));
 export function linhaDoCadastro(chave: string): LinhaDoCadastro | undefined {
   return POR_CHAVE.get(chave);
 }
+
+/* =========================================================================
+ * O QUE CADA LINHA PODE SER COMPROVADO — a classificação que o lastro conta
+ * ====================================================================== */
+
+/**
+ * De onde o número **poderia** vir, no melhor dos mundos.
+ *
+ * Não é o estado da linha hoje (isso é `LinhaApurada.estado`); é o teto dela.
+ * Existe porque o denominador do lastro estava errado, e o erro tinha nome: a
+ * tela dizia `0 de 30 linhas com lastro` e quem lia entendia que faltavam
+ * trinta arquivos. Faltavam onze — e as outras dezenove não esperam arquivo
+ * nenhum, nunca esperaram, e não vão esperar: elas são decisões de negócio que
+ * alguém digita, ou contas que o próprio cadastro refaz.
+ *
+ * Um percentual sobre trinta diria "37% cadastrado" para a unidade que entregou
+ * tudo o que tinha para entregar. É a diferença entre um indicador e uma
+ * cobrança injusta.
+ */
+export type ProcedenciaPossivel =
+  /**
+   * Há documento independente que mede esta linha — export de equipamento ou
+   * série de trechos. São as que o acervo confirma ou contradiz.
+   */
+  | "DOCUMENTO"
+  /**
+   * Aritmética sobre linhas de documento. Não tem fonte própria e herda a
+   * delas: com as alíquotas medidas, o resumo de impostos é medido junto.
+   */
+  | "DERIVADA_DE_DOCUMENTO"
+  /**
+   * Aritmética sobre linhas que só existem informadas. Nunca terá lastro do
+   * acervo — não porque falte arquivo, mas porque não há arquivo que a diga.
+   */
+  | "DERIVADA_DO_CADASTRO"
+  /** Decisão de negócio. Só existe se alguém a digitar. */
+  | "SO_INFORMADA";
+
+/** Qual documento sustenta a linha, quando algum sustenta. */
+export type DocumentoQueSustenta = "EXPORT_DE_EQUIPAMENTO" | "SERIE_DE_TRECHOS";
+
+/**
+ * O teto de uma linha — o que ela pode chegar a ser.
+ *
+ * Sai de `origem.tipo`, e não de uma lista à parte: uma segunda lista
+ * discordaria da primeira no dia em que uma linha mudasse de origem, e a que a
+ * tela lê seria a que ninguém testa.
+ */
+export function procedenciaPossivel(linha: LinhaDoCadastro): ProcedenciaPossivel {
+  switch (linha.origem.tipo) {
+    case "CONTAGEM_DE_FROTA":
+    case "ALIQUOTA_DECLARADA":
+    case "ALIQUOTA_CONJUNTA_PIS_COFINS":
+    case "PROPORCAO_DE_DOCUMENTOS":
+      return "DOCUMENTO";
+    case "RESUMO_DE_IMPOSTOS":
+      return "DERIVADA_DE_DOCUMENTO";
+    case "SOMA_DE_LINHAS":
+      return "DERIVADA_DO_CADASTRO";
+    case "SEM_ORIGEM":
+      return "SO_INFORMADA";
+  }
+}
+
+/** Qual arquivo mede a linha — `null` nas que arquivo nenhum mede. */
+export function documentoQueSustenta(linha: LinhaDoCadastro): DocumentoQueSustenta | null {
+  switch (linha.origem.tipo) {
+    case "CONTAGEM_DE_FROTA":
+      return "EXPORT_DE_EQUIPAMENTO";
+    case "ALIQUOTA_DECLARADA":
+    case "ALIQUOTA_CONJUNTA_PIS_COFINS":
+    case "PROPORCAO_DE_DOCUMENTOS":
+      return "SERIE_DE_TRECHOS";
+    default:
+      return null;
+  }
+}
+
+/**
+ * As linhas cujo valor o acervo pode sustentar — **o denominador do lastro**.
+ *
+ * As de documento e as que derivam delas. As duas derivadas entram porque o
+ * lastro delas é real: com as alíquotas medidas pelo export, `resumo_iss` é
+ * aritmética sobre número medido, e a tela a marca como apurada. O que não
+ * entra é o que nenhum arquivo alcança.
+ */
+export const LINHAS_VERIFICAVEIS_NO_ACERVO: string[] = LINHAS_DO_CADASTRO.filter((l) => {
+  const p = procedenciaPossivel(l);
+  return p === "DOCUMENTO" || p === "DERIVADA_DE_DOCUMENTO";
+}).map((l) => l.chave);

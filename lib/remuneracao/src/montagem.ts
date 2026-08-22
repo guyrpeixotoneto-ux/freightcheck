@@ -182,6 +182,27 @@ export interface ResumoDoCadastro {
   conferidas: number;
   /** Destas, quantas discordam. É o número que quem confere veio procurar. */
   divergentes: number;
+  /**
+   * Das conferidas, quantas confrontam o digitado com o **acervo**.
+   *
+   * **A separação existe porque a tela dizia uma coisa impossível.** A mesma
+   * linha do CDD Belém mostrava `0 de 30 linhas com lastro` e `2 conferem com o
+   * acervo`: as duas conferências eram `resumo_iss` e `resumo_ctrc`, calculadas
+   * sobre alíquotas **informadas** e confrontadas com o percentual **também
+   * informado** — a aba conferindo consigo mesma, sem acervo em ponta nenhuma.
+   *
+   * Uma conferência interna não é menos útil: é ela que pega o erro de
+   * transcrição, porque o total impresso na aba tem de bater com a soma das
+   * parcelas digitadas. O que ela não é, é evidência externa — e chamá-la de
+   * "confere com o acervo" prometia auditoria onde havia aritmética.
+   */
+  conferenciasComAcervo: number;
+  /** Das conferidas, quantas são a aba conferida contra ela mesma. */
+  conferenciasInternas: number;
+  /** Das divergentes, quantas discordam do acervo. */
+  divergenciasComAcervo: number;
+  /** Das divergentes, quantas são incoerência interna da própria aba. */
+  divergenciasInternas: number;
 }
 
 export interface CadastroMontado {
@@ -722,6 +743,18 @@ function contarResumo(blocos: BlocoApurado[]): ResumoDoCadastro {
       .map((l) => [l.conjunto!.rotulo, l.conjunto!.conferencia!]),
   );
 
+  /*
+    O lado medido de cada conferência decide de que espécie ela é.
+
+    `lastroDoAcervo` é lido da linha, e não do estado, pela mesma razão de
+    sempre: a linha informada que o export sustentava em par continua sendo
+    sustentada por ele. O par PIS + COFINS é sempre acervo — o `conjunto` só
+    existe quando o export mediu os dois juntos.
+  */
+  const doAcervo = conferidas.filter((l) => l.lastroDoAcervo);
+  const internas = conferidas.filter((l) => !l.lastroDoAcervo);
+  const conjuntosDivergentes = [...conjuntos.values()].filter((c) => !c.bate).length;
+
   return {
     linhas: linhas.length,
     apuradas: linhas.filter((l) => l.estado === "APURADO").length,
@@ -731,7 +764,11 @@ function contarResumo(blocos: BlocoApurado[]): ResumoDoCadastro {
     comLastro: linhas.filter((l) => l.lastroDoAcervo).length,
     conferidas: conferidas.length + conjuntos.size,
     divergentes:
-      conferidas.filter((l) => l.conferencia?.bate === false).length +
-      [...conjuntos.values()].filter((c) => !c.bate).length,
+      conferidas.filter((l) => l.conferencia?.bate === false).length + conjuntosDivergentes,
+    conferenciasComAcervo: doAcervo.length + conjuntos.size,
+    conferenciasInternas: internas.length,
+    divergenciasComAcervo:
+      doAcervo.filter((l) => l.conferencia?.bate === false).length + conjuntosDivergentes,
+    divergenciasInternas: internas.filter((l) => l.conferencia?.bate === false).length,
   };
 }

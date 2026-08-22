@@ -1,3 +1,5 @@
+import { LINHAS_VERIFICAVEIS_NO_ACERVO } from "./catalogo";
+import { CHAVES_DO_CONTRATO, CHAVES_OBRIGATORIAS, CHAVES_OPCIONAIS } from "./contrato";
 import type { CadastroMontado, LinhaApurada } from "./montagem";
 
 /**
@@ -73,6 +75,51 @@ export interface SituacaoDoCadastro {
   conferidas: number;
   /** Destas, quantas discordam. É o que faz alguém abrir a unidade. */
   divergentes: number;
+
+  /* --- o que a tela precisa para não confundir três perguntas ----------- */
+
+  /**
+   * Quantas linhas **podem** ter lastro documental — o denominador honesto.
+   *
+   * Onze das trinta. As outras dezenove não esperam arquivo: são decisão de
+   * negócio digitada ou conta que o cadastro refaz. `0 de 30` dizia à pessoa
+   * que faltavam trinta arquivos; `0 de 11` diz quantos itens o acervo poderia
+   * confirmar. Ver `procedenciaPossivel`, em `catalogo.ts`.
+   */
+  verificaveis: number;
+  /** Quantas linhas o **contrato** exige para produzir devido — as vinte. */
+  obrigatorias: number;
+  /** Destas, quantas foram informadas. `obrigatorias` é o alvo. */
+  obrigatoriasInformadas: number;
+  /**
+   * Opcionais não informadas — a premissa, não um erro.
+   *
+   * A `.xlsb` deixa `Marketing` e `Lucro Operacional` em branco e as soma como
+   * zero; uma célula que a própria aba deixa vazia e trata como zero não é
+   * ausência de informação. A tela diz a premissa em vez de contar uma falta.
+   */
+  opcionaisAssumidasComoZero: number;
+  /** Linhas que o motor refaz — digitá-las é conferência, não entrada. */
+  calculadas: number;
+  /**
+   * **A resposta que o indicador principal deve dar.** O cadastro basta para
+   * calcular o devido desta vigência?
+   *
+   * É `true` quando as vinte obrigatórias têm número informado — exatamente a
+   * regra de `contratoDaPlanilha`, que é quem monta o contrato. Não depende de
+   * lastro, e não pode passar a depender: o devido sai do que foi contratado,
+   * e a prova de que ele é independente do acervo está em
+   * `cadastro-a-mao-sem-lastro.test.ts`.
+   */
+  suficienteParaCalcular: boolean;
+  /** Conferências entre o digitado e o acervo — evidência externa. */
+  conferenciasComAcervo: number;
+  /** Conferências da aba contra ela mesma — coerência de transcrição. */
+  conferenciasInternas: number;
+  /** Das conferências com o acervo, quantas discordam. */
+  divergenciasComAcervo: number;
+  /** Das internas, quantas discordam — erro de transcrição, não de fonte. */
+  divergenciasInternas: number;
 }
 
 /**
@@ -122,9 +169,32 @@ export function medirSituacao(montado: CadastroMontado): SituacaoDoCadastro {
       temLastro(linha),
   );
 
+  /*
+    A suficiência é medida sobre o **declarado**, e não sobre o valor da linha.
+
+    É a mesma base que `contratoDaPlanilha` usa: o contrato sai da aba digitada
+    e só dela. Medir sobre `valor` diria "suficiente" para uma unidade cujas
+    alíquotas o acervo mede e ninguém digitou — e o contrato continuaria sem
+    sair, com a tela dizendo o contrário.
+  */
+  const declaradas = new Set(
+    linhas.filter((linha) => linha.declarado !== null).map((linha) => linha.chave),
+  );
+  const obrigatoriasInformadas = CHAVES_OBRIGATORIAS.filter((c) => declaradas.has(c)).length;
+
   return {
     linhas: montado.resumo.linhas,
     comLastro: montado.resumo.comLastro,
+    verificaveis: LINHAS_VERIFICAVEIS_NO_ACERVO.length,
+    obrigatorias: CHAVES_OBRIGATORIAS.length,
+    obrigatoriasInformadas,
+    opcionaisAssumidasComoZero: CHAVES_OPCIONAIS.filter((c) => !declaradas.has(c)).length,
+    calculadas: montado.resumo.linhas - CHAVES_DO_CONTRATO.length,
+    suficienteParaCalcular: obrigatoriasInformadas === CHAVES_OBRIGATORIAS.length,
+    conferenciasComAcervo: montado.resumo.conferenciasComAcervo,
+    conferenciasInternas: montado.resumo.conferenciasInternas,
+    divergenciasComAcervo: montado.resumo.divergenciasComAcervo,
+    divergenciasInternas: montado.resumo.divergenciasInternas,
     /*
       O que o acervo não sustenta — e não "o que não tem número". Os dois
       diferiam no dia em que a planilha passou a ser informável: uma linha

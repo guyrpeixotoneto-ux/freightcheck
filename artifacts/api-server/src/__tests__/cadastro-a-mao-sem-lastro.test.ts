@@ -203,12 +203,26 @@ describe.skipIf(!temBanco)("o cadastro à mão, sem lastro nenhum", () => {
     expect(doEscopo.map((c) => c.effectiveDate).sort()).toEqual(["2026-07-01", "2026-07-16"]);
 
     for (const c of doEscopo) {
-      /* O selo vermelho: o acervo não sustenta nenhuma das trinta. */
+      /* Sem lastro documental: o acervo não sustenta nenhuma linha. */
       expect(c.cadastro.estado).toBe("SEM_LASTRO");
       expect(c.cadastro.comLastro).toBe(0);
       expect(c.cadastro.linhas).toBe(30);
+      /*
+        E o denominador honesto do lastro é onze, não trinta: as outras
+        dezenove não esperam arquivo nenhum. Ver `procedencia-das-linhas`.
+      */
+      expect(c.cadastro.verificaveis).toBe(11);
       /* E, ao lado dele, as 29 que alguém digitou. */
       expect(c.cadastro.informadas).toBe(29);
+      /*
+        **O indicador que a tela precisava ter.** Vinte de vinte obrigatórias:
+        este cadastro calcula o devido, e a única linha em branco é opcional —
+        a planilha a soma como zero, e isso é premissa, não falta.
+      */
+      expect(c.cadastro.obrigatoriasInformadas).toBe(20);
+      expect(c.cadastro.obrigatorias).toBe(20);
+      expect(c.cadastro.suficienteParaCalcular).toBe(true);
+      expect(c.cadastro.opcionaisAssumidasComoZero).toBe(1);
       /* As duas metades que o acervo mediria — nenhuma entregue. */
       expect(c.cadastro.frota).toBe(false);
       expect(c.cadastro.aliquotas).toBe(false);
@@ -232,7 +246,17 @@ describe.skipIf(!temBanco)("o cadastro à mão, sem lastro nenhum", () => {
     )!;
 
     expect(primeira.cadastro.comLastro).toBe(0);
-    expect(primeira.cadastro.conferidas).toBeGreaterThan(0);
+    expect(primeira.cadastro.conferidas).toBe(2);
+
+    /*
+      E agora elas têm nome. Duas conferências, nenhuma com o acervo: são
+      `resumo_iss` e `resumo_ctrc`, calculadas sobre alíquotas informadas e
+      confrontadas com o percentual também informado. A tela dizia "2 conferem
+      com o acervo" sobre exatamente isto, ao lado de "0 de 30 com lastro".
+    */
+    expect(primeira.cadastro.conferenciasComAcervo).toBe(0);
+    expect(primeira.cadastro.conferenciasInternas).toBe(2);
+    expect(primeira.cadastro.divergenciasComAcervo).toBe(0);
   });
 
   /* --- 2. a porta, e as duas identidades -------------------------------- */

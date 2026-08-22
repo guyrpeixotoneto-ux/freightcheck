@@ -244,6 +244,35 @@ export interface SituacaoDoCadastro {
   conferidas: number;
   /** Destas, quantas discordam. */
   divergentes: number;
+
+  /* --- as três perguntas, separadas — ver `lib/remuneracao/src/situacao.ts` */
+
+  /**
+   * Quantas linhas **podem** ter lastro documental. Onze das trinta.
+   *
+   * É o denominador honesto: as outras dezenove não esperam arquivo nenhum.
+   * `0 de 30` dizia que faltavam trinta arquivos e mandava procurar o que não
+   * existe. Ver `procedenciaPossivel`, no catálogo do domínio.
+   */
+  verificaveis: number;
+  /** Quantas linhas o contrato exige — as vinte. */
+  obrigatorias: number;
+  /** Destas, quantas foram informadas. */
+  obrigatoriasInformadas: number;
+  /** Opcionais em branco: a premissa adotada, e não uma falta. */
+  opcionaisAssumidasComoZero: number;
+  /** Linhas que o motor refaz — digitá-las é conferência, não entrada. */
+  calculadas: number;
+  /** **O indicador principal**: este cadastro basta para calcular o devido? */
+  suficienteParaCalcular: boolean;
+  /** Conferências contra o acervo — evidência externa. */
+  conferenciasComAcervo: number;
+  /** Conferências da aba contra ela mesma — coerência de transcrição. */
+  conferenciasInternas: number;
+  /** Das conferências com o acervo, quantas discordam. */
+  divergenciasComAcervo: number;
+  /** Das internas, quantas discordam — erro de transcrição, não de fonte. */
+  divergenciasInternas: number;
 }
 
 /** Uma unidade **numa vigência** — a linha da lista. */
@@ -365,12 +394,48 @@ export const ESTADO_DO_CADASTRO: Record<
       "cavalos, ou eles vieram sem a coluna que separa ativo de parado.",
   },
   SEM_LASTRO: {
-    rotulo: "Sem lastro",
+    rotulo: "Sem lastro documental",
     frase:
-      "A unidade entregou vigência, mas não o que o cadastro lê: nenhuma linha da aba tem " +
-      "número nesta quinzena.",
+      "Nenhuma das onze linhas verificáveis tem documento por trás nesta vigência — o acervo " +
+      "não recebeu cavalos nem trechos. Não diz nada sobre o cadastro existir: um cadastro " +
+      "digitado calcula o devido sem lastro nenhum, e perde só a conferência externa.",
   },
 };
+
+/**
+ * O QUE A COLUNA `CADASTRO` RESPONDE — e o que ela deixou de responder.
+ *
+ * Ela mostrava o selo de lastro, vermelho, com a palavra "SEM LASTRO". A coluna
+ * chama-se `Cadastro`, e quem lê uma coluna chamada Cadastro marcada de
+ * vermelho entende que o cadastro não existe ou não serve — quando o que ele
+ * não tem é documento por trás. As duas perguntas passaram a ter colunas
+ * próprias: aqui, se o cadastro **calcula**; ao lado, quanto dele se
+ * **comprova**.
+ */
+export function suficienciaDoCadastro(cadastro: SituacaoDoCadastro): {
+  rotulo: string;
+  frase: string;
+  variante: "success" | "destructive";
+} {
+  const faltam = cadastro.obrigatorias - cadastro.obrigatoriasInformadas;
+  if (cadastro.suficienteParaCalcular) {
+    return {
+      rotulo: "Calcula o devido",
+      frase:
+        `As ${cadastro.obrigatorias} linhas obrigatórias estão informadas, e é só delas que o ` +
+        "contrato sai. O devido desta quinzena é calculado com este cadastro.",
+      variante: "success",
+    };
+  }
+  return {
+    rotulo: `Faltam ${faltam} obrigatórias`,
+    frase:
+      `${faltam} das ${cadastro.obrigatorias} linhas que o contrato lê não foram informadas. ` +
+      "Sem elas não há devido — e completá-las com zero produziria um número que ninguém " +
+      "contratou. Abra o cadastro para ver quais.",
+    variante: "destructive",
+  };
+}
 
 /**
  * A chave com que se pergunta pelo cadastro de uma unidade.
