@@ -10,6 +10,7 @@ import {
   UnidadeSemNome,
   type UnidadeCanonica,
 } from "@workspace/db";
+import { conciliarIdentidadeDasCompetencias } from "@workspace/fechamento";
 
 /**
  * ADMINISTRAÇÃO → UNIDADES — o cadastro mestre, e o que ele **não** é.
@@ -146,7 +147,17 @@ router.post("/unidades/canonicas", async (req, res): Promise<void> => {
   const cnpj = typeof corpo.cnpj === "string" ? corpo.cnpj : "";
 
   try {
-    res.status(201).json(await cadastrarUnidade(db, { nome, cnpj }));
+    const criada = await cadastrarUnidade(db, { nome, cnpj });
+    /*
+      Cadastrar a unidade é um dos momentos em que a identidade passa a ser
+      conhecida — e, até aqui, o único que não escrevia nada no Fechamento. A
+      competência aberta com o CNPJ desta unidade no campo de código ficava sem
+      `unidade_id` para sempre, esperando um clique manual que ninguém sabia
+      que existia. A conciliação é idempotente e não adivinha: associa a que
+      **é** esta unidade e lista as demais. Ver `identidade-da-competencia.ts`.
+    */
+    const conciliacao = await conciliarIdentidadeDasCompetencias(db);
+    res.status(201).json({ ...criada, conciliacao });
   } catch (erro) {
     if (erro instanceof CnpjJaCadastrado) {
       res.status(409).json({ error: erro.message, codigo: "CNPJ_JA_CADASTRADO" });

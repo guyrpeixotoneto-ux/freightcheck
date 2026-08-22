@@ -3,6 +3,7 @@ import { cnpjComMascara, db, unidadePorId } from "@workspace/db";
 import type { RequestedContext } from "@workspace/comparison";
 import { ehMimeDeImagem, lerPlanilhaDaImagem } from "@workspace/assistant";
 import { hashScopeSet, normalizeDocumento } from "@workspace/ingest";
+import { conciliarIdentidadeDasCompetencias } from "@workspace/fechamento";
 import {
   BLOCOS_DO_CADASTRO,
   apagarPlanilhaDaUnidade,
@@ -640,7 +641,24 @@ router.post("/remuneracao/unidades", async (req, res): Promise<void> => {
     autor: { id: req.user?.id ?? null, nome: req.user?.name ?? null },
   });
 
-  res.status(201).json(unidade);
+  /*
+    Cadastrar a remuneração **de uma unidade canônica** é uma afirmação sobre
+    duas coisas ao mesmo tempo: qual unidade é esta, e com que grafia o export a
+    escreve. A segunda é o que o Fechamento não tinha como saber sozinho — uma
+    competência aberta com `443` no campo de código não é casável com nenhum
+    CNPJ, e ficava sem identidade mesmo depois de alguém dizer, aqui, que `443`
+    é esta unidade.
+
+    Só o **código** é propagado; o nome nunca. Dois CDDs podem chamar-se igual,
+    e associar por semelhança de nome é a única coisa que este produto se
+    recusa a fazer em toda a cadeia de identidade.
+  */
+  const conciliacao =
+    unidadeId === null
+      ? null
+      : await conciliarIdentidadeDasCompetencias(db, { unidadeId, codigos: [codigo] });
+
+  res.status(201).json(conciliacao ? { ...unidade, conciliacao } : unidade);
 });
 
 /**
