@@ -71,6 +71,7 @@ import {
 import { useAuth } from "@/lib/auth";
 import { useContextosDaCasca, type Contexto } from "@/lib/contextos";
 import { cn } from "@/lib/utils";
+import { enderecoDoAssistente } from "@/lib/entrada-do-assistente";
 import {
   useAlteracoesDaVigencia,
   useCuradoriaPendente,
@@ -364,6 +365,15 @@ const NAV_GROUPS: NavGroup[] = [
 
 export function Sidebar({ open }: { open: boolean }) {
   const [location] = useLocation();
+  /*
+    O recorte de onde a pessoa está, para o atalho do Assistente levá-lo junto.
+
+    Ver `lib/entrada-do-assistente.ts`: sem `scopeHash` no link, o servidor cai
+    no primeiro contexto do banco, e quem clicava no atalho olhando uma unidade
+    passava a conversar sobre outra.
+  */
+  const busca = useSearch();
+  const paraOAssistente = enderecoDoAssistente(busca);
   const alteracoes = useAlteracoesDaVigencia();
   const importacoes = useImportacoesEmAndamento();
   const curadoria = useCuradoriaPendente();
@@ -380,7 +390,7 @@ export function Sidebar({ open }: { open: boolean }) {
   const grupos = ambiente === "fechamento" ? NAV_GROUPS_FECHAMENTO : NAV_GROUPS;
 
   if (!open) {
-    return <FaixaDeIcones location={location} grupos={grupos} ambiente={ambiente} contadores={contadores} />;
+    return <FaixaDeIcones location={location} grupos={grupos} ambiente={ambiente} contadores={contadores} paraOAssistente={paraOAssistente} />;
   }
 
   return (
@@ -469,6 +479,7 @@ export function Sidebar({ open }: { open: boolean }) {
                   >
                     {grupo.itens.map((item) => (
                       <ItemDoMenu
+                        href={item.href === "/assistente" ? paraOAssistente : item.href}
                         key={item.href}
                         item={item}
                         ativo={estaAtivo(location, item.href)}
@@ -524,11 +535,14 @@ function FaixaDeIcones({
   grupos,
   ambiente,
   contadores,
+  paraOAssistente,
 }: {
   location: string;
   grupos: NavGroup[];
   ambiente: Ambiente;
   contadores: Contadores;
+  /** O endereço do Assistente já com o recorte da tela de onde se clica. */
+  paraOAssistente: string;
 }) {
   return (
     <aside className="w-16 bg-sidebar text-sidebar-foreground border-r border-sidebar-border shrink-0 flex flex-col sticky top-16 h-[calc(100dvh-4rem)]">
@@ -542,6 +556,7 @@ function FaixaDeIcones({
           >
             {grupo.itens.map((item) => (
               <IconeDaFaixa
+                href={item.href === "/assistente" ? paraOAssistente : item.href}
                 key={item.href}
                 item={item}
                 ativo={estaAtivo(location, item.href)}
@@ -557,7 +572,7 @@ function FaixaDeIcones({
         <div className="p-2 border-t border-sidebar-border">
           <Rotulo texto="Pergunte ao FreightCheck">
             <Link
-              href="/assistente"
+              href={paraOAssistente}
               aria-label="Pergunte ao FreightCheck"
               className="w-11 h-11 mx-auto rounded-lg border border-nav-inteligencia/30 bg-nav-inteligencia/[0.06] flex items-center justify-center hover:bg-nav-inteligencia/[0.12] transition-colors"
             >
@@ -572,17 +587,20 @@ function FaixaDeIcones({
 
 function IconeDaFaixa({
   item,
+  href,
   ativo,
   contagem,
 }: {
   item: NavItem;
+  /** O endereço já resolvido — ver `enderecoDoAssistente`. Omitido, é o do item. */
+  href?: string;
   ativo: boolean;
   contagem: number;
 }) {
   return (
     <Rotulo texto={contagem > 0 ? `${item.label} · ${contagem}` : item.label}>
       <Link
-        href={item.href}
+        href={href ?? item.href}
         aria-label={contagem > 0 ? `${item.label}: ${contagem}` : item.label}
         aria-current={ativo ? "page" : undefined}
         className={cn(
@@ -703,16 +721,19 @@ function estaAtivo(location: string, href: string): boolean {
 
 function ItemDoMenu({
   item,
+  href,
   ativo,
   contagem,
 }: {
   item: NavItem;
+  /** O endereço já resolvido — ver `enderecoDoAssistente`. Omitido, é o do item. */
+  href?: string;
   ativo: boolean;
   contagem: number;
 }) {
   return (
     <Link
-      href={item.href}
+      href={href ?? item.href}
       aria-current={ativo ? "page" : undefined}
       className={cn(
         /*

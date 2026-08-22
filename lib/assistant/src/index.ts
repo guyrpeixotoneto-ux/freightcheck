@@ -10,6 +10,8 @@ export * from "./normalizar";
 export * from "./observabilidade";
 export * from "./orquestrador";
 export * from "./parametros";
+export * from "./rastro";
+export * from "./recorte";
 export * from "./planilha-por-imagem";
 export * from "./resposta";
 export * from "./semantica";

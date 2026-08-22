@@ -82,11 +82,62 @@ import {
 } from "./interpretacao";
 import { normalizar, termos } from "./normalizar";
 import { resolverParametro, type Alvo, type Resolucao } from "./parametros";
-import { listContexts, listPeriods, type SeriesContext } from "@workspace/comparison";
+import { listContexts, listPeriods, type ContextInfo, type SeriesContext } from "@workspace/comparison";
 import { rotuloDoPeriodo } from "./formato";
+import { descer, type Fundo, type Lado, type PassoDaDescida } from "./aprofundar";
+import {
+  calcular,
+  evidenciaDoCalculo,
+  grandezasApuradas,
+  operacaoDaFrase,
+  operandosDoFio,
+  type ResultadoDoCalculo,
+} from "./calculo";
+import {
+  afirmacoesSemLastro,
+  autorizacoesDoTexto,
+  type Autorizacoes,
+} from "./lastro";
 import type { EstadoDaConversa } from "./conversa";
+import {
+  comoSePediu,
+  explicarPeriodoInexistente,
+  resolverRecorteDoTurno,
+  type OrigemDoRecorte,
+  type RecorteDoTurno,
+  type ResolucaoDePeriodo,
+} from "./recorte";
 
 // ── As quatro formas de não saber ───────────────────────────────────────────
+
+/**
+ * As necessidades cuja pergunta é **por quê** — e não **quanto**.
+ *
+ * É esta lista que decide se a orquestração desce até a causa. Ela é curta de
+ * propósito: descer custa três consultas, e a maioria das perguntas deste
+ * produto se responde num nível só. Uma necessidade a mais aqui é uma
+ * afirmação sobre o domínio ("esta pergunta pede causa"), não um ajuste de
+ * cobertura.
+ */
+/**
+ * Os focos que significam "a conversa já está dentro de uma investigação".
+ *
+ * Um grupo ou um veículo em foco quer dizer que a descida já aconteceu e que a
+ * pergunta seguinte, se não nomear outro assunto, continua dentro dela. O
+ * recorte inteiro **não** entra: estar falando da vigência é o estado normal, e
+ * tratá-lo como investigação aberta faria toda pergunta descer.
+ */
+const DENTRO_DA_DESCIDA: ReadonlySet<string> = new Set(["GRUPO", "VEICULO"]);
+
+/** As necessidades que operam sobre o já apurado — elas nunca disparam a descida. */
+const SEM_DESCIDA: ReadonlySet<string> = new Set(["CALCULO", "SUSTENTACAO"]);
+
+const CAUSAIS: ReadonlySet<string> = new Set([
+  "PROCEDENCIA",
+  "RANKING_PERDA",
+  "RANKING_GANHO",
+  "ATENCAO",
+]);
 
 export type TipoDeLacuna =
   /** A busca não trouxe nada — pode existir e não termos achado. */
@@ -146,8 +197,26 @@ export interface Plano {
   alvo: Alvo | null;
   resolucao: Resolucao | null;
   contexto: ContextoResolvido | null;
+  /**
+   * De onde veio o recorte deste turno — e nunca implícito.
+   *
+   * `PADRAO` é o estado em que ninguém escolheu: a resposta descreve o primeiro
+   * contexto que o banco devolve, que é o de vigência mais recente. Dizê-lo é a
+   * diferença entre escolher por padrão, que é aceitável, e escolher em
+   * silêncio, que é o que este produto não faz em nenhuma outra tela.
+   */
+  origemDoRecorte: OrigemDoRecorte;
+  /** A unidade que a pergunta nomeou, quando o produto a reconheceu. */
+  unidadeCitada: string | null;
   periodo: string | null;
   intervalo: { de: string | null; ate: string | null } | null;
+  /**
+   * O período pedido não existe neste recorte.
+   *
+   * Quando verdadeiro, nenhuma consulta de dado roda: qualquer número que
+   * saísse aqui descreveria outra vigência que não a pedida.
+   */
+  periodoImpossivel: { pedido: string; disponiveis: string[] } | null;
 }
 
 export interface Dossie {
@@ -183,6 +252,27 @@ export interface Dossie {
   /** Quando a pergunta casa duas gavetas e o assistente precisa perguntar. */
   desambiguacao: { termo: string; opcoes: string[] } | null;
   /**
+   * A descida que **reagiu ao dado** — e não a largura que foi decidida antes.
+   *
+   * Cada passo aqui teve um argumento que não existia antes de o passo anterior
+   * voltar: o código do parâmetro veio do grupo que mais pesou, a placa veio das
+   * linhas daquele grupo, a célula veio daquela placa. É a diferença entre
+   * investigar e consultar muito, medida em vez de afirmada — ver
+   * `encadeamento.ts` e `aprofundar.ts`.
+   *
+   * Vazio é o estado normal: a maioria das perguntas se responde sem descer, e
+   * descer sempre seria a mesma largura pré-planejada com outro nome.
+   */
+  encadeamentos: PassoDaDescida[];
+  /**
+   * O `scopeHash` que a tela mandou neste turno — `null` quando ela não mandou.
+   *
+   * Guardado no estado para o turno seguinte poder distinguir "a tela continua
+   * onde estava" de "a pessoa acabou de trocar o seletor". Ver a precedência em
+   * `resolverRecorteDoTurno`.
+   */
+  telaScopeHash: string | null;
+  /**
    * O que a recuperação viu antes de decidir — para explicar uma resposta ruim
    * **depois** que ela aconteceu.
    *
@@ -200,23 +290,54 @@ export interface Dossie {
 
 // ── Resolução de período ────────────────────────────────────────────────────
 
-/** "agosto" + as vigências do contexto → "2026-08-01". */
+/**
+ * "agosto" + as vigências do contexto → "2026-08-01".
+ *
+ * **Três desfechos, não dois.** Ver `ResolucaoDePeriodo`: o que se pediu e não
+ * existe não pode voltar pelo mesmo caminho do que não se pediu, porque o
+ * chamador trata a ausência de período como "use a vigência corrente" — e foi
+ * assim que uma pergunta sobre fevereiro de 1998 recebeu números de agosto de
+ * 2026 sem uma linha dizendo que o período tinha sido trocado.
+ */
 async function resolverPeriodo(
   db: Database,
   ctx: ContextoResolvido,
   pedido: PeriodoPedido | null,
-): Promise<string | null> {
-  if (!pedido) return null;
+): Promise<ResolucaoDePeriodo> {
+  if (!pedido) return { tipo: "SEM_PEDIDO" };
   const periodos = await listPeriods(db, ctx.contexto); // mais recente primeiro
-  if (periodos.length === 0) return null;
+  const rotulos = periodos.map((p) => rotuloDoPeriodo(p.effective_date));
+  const inexistente = (): ResolucaoDePeriodo => ({
+    tipo: "INEXISTENTE",
+    pedido: comoSePediu(pedido),
+    disponiveis: rotulos,
+  });
 
-  if (pedido.relativo === "ULTIMA") return periodos[0].effective_date;
-  if (pedido.relativo === "ANTERIOR") return periodos[1]?.effective_date ?? null;
-  if (pedido.relativo === "PRIMEIRA") return periodos[periodos.length - 1].effective_date;
+  if (periodos.length === 0) return inexistente();
 
-  if (!pedido.mes) return null;
+  if (pedido.relativo === "ULTIMA") return { tipo: "RESOLVIDO", data: periodos[0].effective_date };
+  if (pedido.relativo === "ANTERIOR") {
+    const anterior = periodos[1]?.effective_date;
+    return anterior ? { tipo: "RESOLVIDO", data: anterior } : inexistente();
+  }
+  if (pedido.relativo === "PRIMEIRA") {
+    return { tipo: "RESOLVIDO", data: periodos[periodos.length - 1]!.effective_date };
+  }
+
+  /*
+    Um ano sozinho — "e em 1998?" — é um pedido de período tanto quanto um mês.
+    Tratá-lo como "sem pedido" era o segundo caminho pelo qual a vigência
+    trocava em silêncio.
+  */
+  if (!pedido.mes) {
+    if (!pedido.ano) return { tipo: "SEM_PEDIDO" };
+    const doAno = periodos.filter((p) => Number(p.effective_date.split("-")[0]) === pedido.ano);
+    return doAno[0]
+      ? { tipo: "RESOLVIDO", data: doAno[0].effective_date }
+      : inexistente();
+  }
   const numero = mesParaNumero(pedido.mes);
-  if (!numero) return null;
+  if (!numero) return inexistente();
 
   /*
     Sem ano declarado, o mais recente daquele mês.
@@ -230,7 +351,9 @@ async function resolverPeriodo(
     const [ano, mes] = p.effective_date.split("-");
     return Number(mes) === numero && (!pedido.ano || Number(ano) === pedido.ano);
   });
-  return candidatos[0]?.effective_date ?? null;
+  return candidatos[0]
+    ? { tipo: "RESOLVIDO", data: candidatos[0].effective_date }
+    : inexistente();
 }
 
 // ── Detecção de lacuna conceitual ───────────────────────────────────────────
@@ -370,6 +493,33 @@ export function recorteDaConversa(
 }
 
 /**
+ * O mesmo, **com a pergunta** — que é a fonte que faltava.
+ *
+ * `recorteDaConversa` conhecia a tela e o fio; a pergunta, não. Uma frase que
+ * nomeia a unidade é a declaração mais recente de quem está perguntando, e ela
+ * precisa vencer as duas. Esta função é o dono único dessa decisão, e os dois
+ * caminhos — a orquestração e a pré-condição das comparações — passam por ela.
+ *
+ * Faz **uma** ida ao banco (`listContexts`) e devolve o contexto já resolvido,
+ * para o chamador não repetir a consulta nem repetir a regra.
+ */
+export async function contextoDoTurno(
+  db: Database,
+  pergunta: string,
+  opcoes: { recorte?: OpcoesDeOrquestracao["recorte"]; estado?: EstadoDaConversa | null },
+): Promise<{ resolvido: ContextoResolvido | null; recorte: RecorteDoTurno }> {
+  const contextos: ContextInfo[] = await listContexts(db).catch(() => []);
+  const recorte = resolverRecorteDoTurno({
+    pergunta,
+    pedidoDaTela: opcoes.recorte,
+    estado: opcoes.estado ?? null,
+    contextos,
+  });
+  const resolvido = await resolverContexto(db, recorte.pedido).catch(() => null);
+  return { resolvido, recorte };
+}
+
+/**
  * Da pergunta ao dossiê — sem escrever uma frase.
  *
  * O que sai daqui é material fechado: os trechos que sustentam o conceito, as
@@ -423,6 +573,21 @@ export async function orquestrar(
     O pronome anafórico é o caso explícito da mesma regra: "isso está previsto
     no Book?" declara, com todas as letras, que o assunto está na conversa.
   */
+  /*
+    O equipamento do fio vale para a pergunta que não nomeia um.
+
+    Sem isto, "qual teve maior perda?" logo depois de "e somente cavalos"
+    responde sobre a frota inteira — e a única pista da troca é o número mudar.
+    A leitura é reescrita aqui, e não no estado, porque tudo o que vem depois
+    (o plano, as ferramentas, o executor do agente) lê `leitura.entidades`.
+  */
+  const equipamentoDoFio =
+    leitura.entidades.equipamento ?? (estado?.equipamento ?? null);
+  if (!leitura.entidades.equipamento && equipamentoDoFio) {
+    leitura.entidades.equipamento = equipamentoDoFio;
+    herdado.push(`equipamento ${equipamentoDoFio.toLowerCase()}`);
+  }
+
   const pronome = temPronomeAnaforico(pergunta);
   if (estado && !candidato && estado.assunto) {
     const pedeAssunto = INTENCOES_QUE_HERDAM_ASSUNTO.has(intencao) || pronome;
@@ -618,10 +783,37 @@ export async function orquestrar(
     precisaRecorte ||
     investigacao.necessidades.includes("PANORAMA") ||
     investigacao.necessidades.includes("CATALOGO_DE_CONTEXTO");
-  if (querContexto) {
+  /*
+    O recorte é resolvido para **toda** pergunta que não seja saudação, e não só
+    para as que consultam número.
+
+    Duas razões. A primeira é que a origem precisa ser conhecida mesmo quando
+    ninguém vai consultar: uma pergunta conceitual feita depois de "só Camaçari"
+    continua sendo sobre Camaçari, e o fio da conversa não pode perder a unidade
+    porque o turno do meio era de conceito. A segunda é o custo: `listContexts`
+    é uma consulta e o produto já a fazia aqui na maioria dos turnos.
+  */
+  let recorteDoTurno: RecorteDoTurno = {
+    pedido: {},
+    origem: "PADRAO",
+    citada: null,
+  };
+  if (leitura.intencao !== "SAUDACAO") {
     marcar("resolverContexto", "Resolvendo unidade e canal");
-    contexto = await resolverContexto(db, recorteDaConversa(opcoes.recorte, estado));
+    const doTurno = await contextoDoTurno(db, pergunta, {
+      ...(opcoes.recorte ? { recorte: opcoes.recorte } : {}),
+      estado,
+    });
+    recorteDoTurno = doTurno.recorte;
+    if (querContexto) contexto = doTurno.resolvido;
+    /*
+      Quando a pergunta nomeou a unidade, o contexto é resolvido mesmo que o
+      plano não peça recorte — é o que grava a unidade no estado da conversa e
+      faz "só Camaçari" valer para o turno seguinte.
+    */
+    else if (doTurno.recorte.origem === "PERGUNTA") contexto = doTurno.resolvido;
   }
+  if (recorteDoTurno.citada) herdado.push(`unidade ${recorteDoTurno.citada.nome} (da pergunta)`);
 
   /*
     ---- a garantia das comparações **não mora mais aqui** ---------------------
@@ -640,13 +832,47 @@ export async function orquestrar(
 
     Ver `garantirRecorte` em `resposta.ts`: um dono só, acima dos dois caminhos.
   */
-  const periodo = contexto ? await resolverPeriodo(db, contexto, periodoPedido) : null;
-  const intervalo = contexto && intervaloPedido
-    ? {
-        de: await resolverPeriodo(db, contexto, intervaloPedido.de),
-        ate: intervaloPedido.ate ? await resolverPeriodo(db, contexto, intervaloPedido.ate) : null,
+  const resolucaoDoPeriodo: ResolucaoDePeriodo = contexto
+    ? await resolverPeriodo(db, contexto, periodoPedido)
+    : { tipo: "SEM_PEDIDO" };
+  const periodo = resolucaoDoPeriodo.tipo === "RESOLVIDO" ? resolucaoDoPeriodo.data : null;
+
+  /*
+    O período pedido e inexistente desliga as consultas — não as redireciona.
+
+    É a mesma decisão de `alvoPerdido` um pouco mais abaixo, pelo mesmo motivo:
+    um número certo sob o período errado é pior que nenhum número, porque parece
+    uma resposta. A lacuna, escrita em `recorte.ts`, é o que sai no lugar.
+  */
+  const periodoImpossivel =
+    resolucaoDoPeriodo.tipo === "INEXISTENTE"
+      ? { pedido: resolucaoDoPeriodo.pedido, disponiveis: resolucaoDoPeriodo.disponiveis }
+      : null;
+
+  /*
+    As duas pontas de um intervalo seguem a mesma regra, e basta uma falhar.
+    "De fevereiro de 1998 a agosto" não é meio respondível: a ponta que não
+    existe torna a diferença entre elas indefinida.
+  */
+  let intervalo: { de: string | null; ate: string | null } | null = null;
+  let intervaloImpossivel: { pedido: string; disponiveis: string[] } | null = null;
+  if (contexto && intervaloPedido) {
+    const de = await resolverPeriodo(db, contexto, intervaloPedido.de);
+    const ate = intervaloPedido.ate
+      ? await resolverPeriodo(db, contexto, intervaloPedido.ate)
+      : ({ tipo: "SEM_PEDIDO" } as ResolucaoDePeriodo);
+    for (const ponta of [de, ate]) {
+      if (ponta.tipo === "INEXISTENTE" && !intervaloImpossivel) {
+        intervaloImpossivel = { pedido: ponta.pedido, disponiveis: ponta.disponiveis };
       }
-    : null;
+    }
+    intervalo = {
+      de: de.tipo === "RESOLVIDO" ? de.data : null,
+      ate: ate.tipo === "RESOLVIDO" ? ate.data : null,
+    };
+  }
+
+  const periodoRecusado = periodoImpossivel ?? intervaloImpossivel;
 
   const plano: Plano = {
     intencao,
@@ -658,8 +884,17 @@ export async function orquestrar(
     alvo,
     resolucao,
     contexto,
-    periodo: periodo ?? opcoes.recorte?.period ?? null,
+    origemDoRecorte: recorteDoTurno.origem,
+    unidadeCitada: recorteDoTurno.citada?.nome ?? null,
+    /*
+      O período pedido e recusado **não** cai no da tela.
+
+      `opcoes.recorte?.period` é o que a tela tinha selecionado, e usá-lo aqui
+      seria o mesmo fallback silencioso por outro caminho.
+    */
+    periodo: periodoRecusado ? null : (periodo ?? opcoes.recorte?.period ?? null),
     intervalo,
+    periodoImpossivel: periodoRecusado,
   };
 
   // ---- 5. execução ---------------------------------------------------------
@@ -701,7 +936,20 @@ export async function orquestrar(
     resposta pode fazer.
   */
   const pendentes: Promise<Evidencia | null>[] = [];
+  /*
+    O funil único das consultas de dado — e o lugar certo para a recusa.
+
+    Guardar cada `case` do switch contra o período impossível seria vinte
+    chances de esquecer uma; aqui é uma. A promessa recebida é descartada sem
+    ser aguardada: ela já foi criada pelo chamador (é assim que o leque roda em
+    paralelo), e deixá-la pendente sem `catch` produziria uma rejeição não
+    tratada quando a consulta falhar.
+  */
   const juntar = (rotulo: string, promessa: Promise<Evidencia | null>): void => {
+    if (periodoRecusado) {
+      void promessa.catch(() => null);
+      return;
+    }
     marcar("consultar", rotulo);
     pendentes.push(promessa.catch(() => null));
   };
@@ -718,6 +966,44 @@ export async function orquestrar(
   };
 
   const periodoEfetivo = plano.periodo ?? undefined;
+
+  /*
+    ---- o cálculo derivado, sobre o que a conversa já apurou ------------------
+
+    Ele roda antes do laço porque não depende de nenhuma consulta desta
+    pergunta: os operandos são o **foco** da conversa e a base que a resposta
+    anterior trouxe. Ver `foco.ts` e `calculo.ts`.
+
+    **Nada aqui é calculado pelo modelo, e nada aqui é calculado sem lastro.**
+    Cada operando é conferido contra o que as consultas anteriores apuraram;
+    quando falta operando, o desfecho é `CALCULO_NAO_APURADO` com a lista do que
+    existe — que é uma resposta, e não um bloqueio.
+  */
+  let calculoDoFio: ResultadoDoCalculo | null = null;
+  let disponiveisParaCalculo: { rotulo: string; escrito: string }[] = [];
+  if (investigacao.necessidades.includes("CALCULO")) {
+    const escolha = operacaoDaFrase(pergunta);
+    const anteriores = estado?.evidenciasAnteriores ?? [];
+    if (!escolha) {
+      calculoDoFio = {
+        apurado: false,
+        motivo: "CALCULO_NAO_APURADO",
+        explicacao: "não consegui identificar que composição você quer",
+      };
+    } else {
+      const doFio = operandosDoFio(escolha.operacao, estado?.foco ?? null, anteriores);
+      disponiveisParaCalculo = doFio.disponiveis;
+      calculoDoFio = calcular(
+        {
+          operacao: escolha.operacao,
+          operandos: doFio.operandos,
+          grandeza: doFio.grandeza,
+          ...(escolha.fator === undefined ? {} : { fator: escolha.fator }),
+        },
+        grandezasApuradas(anteriores),
+      );
+    }
+  }
 
   /*
     A pergunta nomeou uma coisa, e essa coisa não existe aqui.
@@ -756,7 +1042,15 @@ export async function orquestrar(
     fechado —, mas ele roda dentro de um laço, e o que decide quantas vezes é o
     plano.
   */
-  for (const necessidade of investigacao.necessidades) {
+  /*
+    Nenhuma consulta é sequer criada quando o período pedido não existe.
+
+    O funil (`juntar`) já recusaria o resultado; parar aqui evita disparar o
+    trabalho no banco para depois jogá-lo fora. As duas guardas existem de
+    propósito: esta economiza, e a do funil é a que não se pode esquecer ao
+    acrescentar um `case`.
+  */
+  for (const necessidade of periodoRecusado ? [] : investigacao.necessidades) {
   switch (necessidade) {
     case "CONCEITUAL":
     case "DISPONIBILIDADE":
@@ -1016,6 +1310,31 @@ export async function orquestrar(
       }
       break;
 
+    /*
+      ---- as duas que falam do que já se disse -------------------------------
+
+      Nenhuma das duas consulta o recorte, e essa é a coisa toda: "tem certeza?"
+      pergunta pela qualidade da resposta anterior e "quanto isso dá por ano?"
+      compõe um número que já foi apurado. Mandá-las consultar o movimento da
+      vigência era o defeito — um resumo correto de outra coisa, entregue a quem
+      perguntou outra coisa.
+    */
+    case "SUSTENTACAO":
+      /*
+        Ela é respondida em `resposta.ts`, a partir do rastro guardado no
+        estado, e por isso não há consulta aqui. O dossiê fica sem evidência de
+        propósito: não há número novo a mostrar — há uma resposta anterior a
+        auditar.
+      */
+      break;
+
+    case "CALCULO":
+      if (calculoDoFio) {
+        marcar("calcular", "Compondo os valores já apurados");
+        if (calculoDoFio.apurado) evidencias.push(evidenciaDoCalculo(calculoDoFio));
+      }
+      break;
+
     case "SAUDACAO":
     case "DESCONHECIDA":
       break;
@@ -1124,6 +1443,108 @@ export async function orquestrar(
     devolveria a fila ao comportamento sequencial sem que nada denunciasse.
   */
   await colher();
+
+  /*
+    ---- a descida ------------------------------------------------------------
+
+    Aqui a orquestração deixa de executar um plano e passa a **reagir** ao que
+    voltou. Ver `aprofundar.ts`: o código do parâmetro sai do grupo que mais
+    pesou, a placa sai das linhas daquele grupo, a célula sai daquela placa —
+    nenhum dos três existia antes da consulta anterior, e é por isso que eles
+    contam como encadeamento e a largura do plano não conta.
+
+    **Quando ela roda.** Quando a pergunta é causal — quer a razão de um
+    movimento, o que mais pesou, ou o que merece atenção — e há vigência
+    resolvida. Rodar sempre seria transformar profundidade em custo fixo, e a
+    maioria das perguntas deste produto se responde num nível só.
+
+    **Quando ela para.** No primeiro passo sem argumento: recorte sem grupo com
+    impacto, grupo sem placa, placa sem célula. Parar cedo é desfecho normal.
+  */
+  const encadeamentos: PassoDaDescida[] = [];
+  /*
+    `houveTroca` não entra aqui, e não por esquecimento: o portão de
+    correspondência roda **depois** desta descida — ele precisa de tudo o que a
+    busca trouxe para decidir — e é ele quem esvazia o dossiê quando o que
+    voltou não é o que foi pedido. A descida é consulta ao recorte, não à coisa
+    nomeada; se o portão fechar, o que ela trouxe sai junto com o resto.
+  */
+  /*
+    Três portas para a descida, e cada uma cobre o que as outras não veem.
+
+    1. **A forma da pergunta.** `leitura.pedeCausa` é a leitura que nenhum
+       detector de conteúdo pode fazer: "por que a remuneração caiu?" e "quanto
+       a remuneração caiu?" casam o **mesmo** detector, e sem este campo a
+       primeira virava MOVIMENTO e recebia o agregado da vigência.
+    2. **O plano.** Ranking, atenção e procedência já são pedidos de causa por
+       necessidade, tenham ou não a palavra "por quê".
+    3. **O fio.** Quando a conversa já está dentro de um grupo, "o que mudou
+       nesses veículos?" continua a descida sem nomear causa nenhuma — e
+       recomeçar do agregado ali é perder a investigação no meio.
+  */
+  const querCausa =
+    !periodoRecusado &&
+    !alvoPerdido &&
+    /*
+      As duas necessidades que operam sobre o que **já** foi apurado nunca
+      descem. Compor um valor e auditar uma conclusão não pedem dado novo — e
+      buscar dado novo aqui traria números de uma consulta que não é a que está
+      em discussão: a conta sairia aritmeticamente perfeita sobre duas coisas
+      que não se comparam. O controle negativo em `calculo-derivado.test.ts`
+      pegou exatamente isto.
+    */
+    !investigacao.necessidades.some((n) => SEM_DESCIDA.has(n)) &&
+    (leitura.pedeCausa ||
+      investigacao.necessidades.some((n) => CAUSAIS.has(n)) ||
+      (DENTRO_DA_DESCIDA.has(estado?.foco?.tipo ?? "") && termoDoAssunto === null));
+  if (querCausa && contexto) {
+    marcar("aprofundar", "Descendo até a causa");
+    /*
+      A profundidade sai do plano, e não de mais um vocabulário.
+
+      Procedência pergunta pela origem: desce até a célula. Uma pergunta por
+      veículos quer as placas: a linha é a resposta, e a planilha é o passo
+      seguinte que ninguém pediu. Ranking e atenção querem o grupo aberto.
+      "Por quê" sem mais nada desce até o fundo, porque é a pergunta que não diz
+      onde parar.
+    */
+    const ate: Fundo = investigacao.necessidades.includes("PROCEDENCIA")
+      ? "CELULA"
+      : investigacao.necessidades.includes("VEICULOS")
+        ? "LINHA"
+        : leitura.pedeCausa
+          ? "CELULA"
+          : "LINHA";
+
+    /*
+      O lado sai do plano, pela mesma razão que a profundidade: a pergunta já
+      declarou de que lado fala, e ordenar por módulo apaga essa declaração.
+    */
+    const lado: Lado = investigacao.necessidades.includes("RANKING_PERDA")
+      ? "PERDA"
+      : investigacao.necessidades.includes("RANKING_GANHO")
+        ? "GANHO"
+        : "QUALQUER";
+
+    const descida = await descer({
+      db,
+      ctx: contexto,
+      ate,
+      lado,
+      ...(estado?.foco?.grupo ? { grupoEmFoco: estado.foco.grupo } : {}),
+      periodo: plano.periodo,
+      equipamento: leitura.entidades.equipamento,
+      aoAvancar: (rotulo) => marcar("consultar", rotulo),
+    }).catch(() => ({ evidencias: [], passos: [] }));
+
+    for (const e of descida.evidencias) {
+      const chave = `${e.ferramenta}|${e.titulo}|${e.origem}`;
+      if (vistas.has(chave)) continue;
+      vistas.add(chave);
+      evidencias.push(e);
+    }
+    encadeamentos.push(...descida.passos);
+  }
 
   /*
     ---- o segundo salto ------------------------------------------------------
@@ -1291,11 +1712,55 @@ export async function orquestrar(
     trechos.length = 0;
     evidencias.length = 0;
     anexos.length = 0;
+    // A descida some junto com o que ela desceu: um encadeamento que aponta
+    // para evidência que não está mais no dossiê é um rastro que mente.
+    encadeamentos.length = 0;
     desambiguacao = desambiguacaoDe(semCorrespondencia);
     lacunas.push({ tipo: "NAO_ENCONTREI", explicacao: explicarFalta(semCorrespondencia) });
   }
 
   // ---- 7. lacunas ----------------------------------------------------------
+  /*
+    O período que não existe é a primeira lacuna, e ela vem antes de todas.
+
+    Ela é a explicação do turno inteiro: nenhuma consulta rodou por causa dela,
+    e qualquer outra lacuna declarada aqui seria consequência dessa, não causa.
+    Posta em primeiro lugar, é a que a redação lê primeiro.
+  */
+  if (periodoRecusado) {
+    lacunas.push({
+      tipo: "NAO_ENCONTREI",
+      explicacao: explicarPeriodoInexistente(
+        periodoRecusado.pedido,
+        periodoRecusado.disponiveis,
+      ),
+    });
+  }
+
+  /*
+    O cálculo que não pôde ser apurado é dito com o nome dele, e com o que existe.
+
+    A alternativa seria um dos dois erros que esta capacidade existe para não
+    cometer: devolver um agregado que não responde, ou simplesmente bloquear.
+    Aqui a recusa é a resposta — ela diz por que a conta não saiu e lista os
+    valores que estão sobre a mesa, que é o que permite a próxima pergunta ser
+    a certa.
+  */
+  if (calculoDoFio && !calculoDoFio.apurado) {
+    const oQueHa = disponiveisParaCalculo
+      .slice(0, 6)
+      .map((d) => `${d.rotulo}: ${d.escrito}`)
+      .join(" · ");
+    lacunas.push({
+      tipo: "DADO_SEM_PRECO",
+      explicacao:
+        `Não dá para fazer essa conta: ${calculoDoFio.explicacao}.` +
+        (oQueHa
+          ? ` O que a conversa apurou até aqui — ${oQueHa}. Diga qual desses você quer compor.`
+          : " Consulte primeiro o valor que você quer compor."),
+    });
+  }
+
   /*
     O qualificador só é lacuna quando a pergunta espera uma coluna.
 
@@ -1384,9 +1849,18 @@ export async function orquestrar(
     a tela. A saudação sai daqui sem lacuna, e quem redige a trata como o que
     ela é: conversa.
   */
+  /*
+    E o período recusado já explicou o vazio deste turno.
+
+    Sem esta condição, a mesma resposta traria duas lacunas dizendo coisas
+    diferentes sobre a mesma causa: "não existe vigência para fevereiro de 1998"
+    e "procurei nos três lugares e não encontrei nada". A segunda é verdadeira e
+    enganosa — dá a entender que a busca falhou, quando ela não chegou a rodar.
+  */
   if (
     intencao !== "SAUDACAO" &&
     !houveTroca &&
+    !periodoRecusado &&
     evidencias.length === 0 &&
     documentos.length === 0 &&
     trechos.length === 0 &&
@@ -1422,6 +1896,8 @@ export async function orquestrar(
     lacunas,
     etapas,
     desambiguacao,
+    encadeamentos,
+    telaScopeHash: opcoes.recorte?.scopeHash ?? null,
     diagnostico: { book: diagnosticoDoBook, ms: Date.now() - comecou },
   };
 }
@@ -1489,6 +1965,75 @@ export function itensCitaveis(dossie: Dossie): ItemCitavel[] {
  */
 function numerosDoTexto(texto: string): string[] {
   return (texto.match(/\d[\d.,]*/g) ?? []).map((t) => t.replace(/[.,]+$/, ""));
+}
+
+// ── Identificadores: placa não é número ─────────────────────────────────────
+
+/**
+ * A forma de uma placa. A mesma de `ferramentas.ts` e `correspondencia.ts`.
+ *
+ * Ela vive em três arquivos e isso é uma dívida conhecida — o que não se pode é
+ * ela divergir, porque os três decidem coisas sobre a mesma string: o que é uma
+ * placa citada, o que é uma placa consultada, e o que é uma afirmação numérica.
+ */
+const PLACA = /\b([A-Z]{3}\d[A-Z0-9]\d{2})\b/gi;
+
+/** As placas escritas neste texto, em caixa alta. */
+function placasDoTexto(texto: string): string[] {
+  return [...new Set([...texto.matchAll(PLACA)].map((m) => m[1]!.toUpperCase()))];
+}
+
+/**
+ * As placas que o dossiê autoriza citar.
+ *
+ * Três fontes, e as três são o que o modelo de fato recebeu: o campo declarado
+ * pela ferramenta (`identificadores`), o texto dos fatos — onde a placa é o
+ * rótulo da linha —, e o conteúdo de documento e conceito, porque um contrato
+ * pode nomear um veículo.
+ *
+ * **O que não é fonte: os números.** É o ponto inteiro desta separação. Uma
+ * placa não se autoriza por coincidir com um valor apurado.
+ */
+function placasAutorizadas(dossie: Dossie): Set<string> {
+  const autorizadas = new Set<string>();
+  const registrar = (texto: string | undefined | null) => {
+    if (!texto) return;
+    for (const placa of placasDoTexto(texto)) autorizadas.add(placa);
+  };
+
+  for (const e of dossie.evidencias) {
+    for (const id of e.identificadores ?? []) autorizadas.add(id.toUpperCase());
+    registrar(e.titulo);
+    registrar(e.nota);
+    registrar(e.origem);
+    for (const f of e.fatos) {
+      registrar(f.rotulo);
+      registrar(f.valor);
+      registrar(f.detalhe);
+    }
+  }
+  for (const d of dossie.documentos) registrar(d.trecho.texto);
+  for (const t of dossie.trechos) registrar(t.trecho.texto);
+  for (const l of dossie.lacunas) registrar(l.explicacao);
+  return autorizadas;
+}
+
+/**
+ * As placas que o texto afirma e o dossiê não sustenta.
+ *
+ * **Isto é uma trava nova, e ela aperta.** Antes uma placa inventada só era
+ * pega por acaso — quando os dígitos dela não casassem com nenhum valor da
+ * tabela. `ZZZ1Z11` passaria num dossiê que tivesse o número 11 em qualquer
+ * lugar, e `ZZZ9Z99` reprovava num que não tivesse 99. O veredito dependia de
+ * uma coincidência aritmética que não tem nada a ver com a pergunta.
+ *
+ * Um dossiê com anexo não isenta: um PDF pode conter placas, mas o modelo não
+ * pode citá-las sem que a consulta as tenha devolvido — a licença do anexo é
+ * sobre número, e um identificador errado aponta para o caminhão errado.
+ */
+export function identificadoresSemLastro(texto: string, dossie: Dossie): string[] {
+  const autorizadas = placasAutorizadas(dossie);
+  return placasDoTexto(texto).filter((p) => !autorizadas.has(p));
 }
 
 /**
@@ -1657,6 +2202,8 @@ export interface Saneamento {
  */
 export function sanear(texto: string, dossie: Dossie): Saneamento {
   const pedacos = emFrases(texto);
+  // Uma travessia do dossiê para o texto inteiro, e não uma por frase.
+  const tipadas = autorizacoesTipadas(dossie);
   const mantidas: string[] = [];
   const recusados: string[] = [];
   let removidas = 0;
@@ -1664,11 +2211,30 @@ export function sanear(texto: string, dossie: Dossie): Saneamento {
   for (const pedaco of pedacos) {
     const semLastro = numerosSemLastro(pedaco, dossie);
     const semFonte = citacoesSemFonte(pedaco, dossie);
-    if (semLastro.length === 0 && semFonte.length === 0) {
+    /*
+      A terceira régua: identificador. Ver `identificadoresSemLastro` — uma placa
+      que não voltou de consulta aponta para o caminhão errado, e isso não é
+      menos grave que um número inventado.
+    */
+    const semIdentidade = identificadoresSemLastro(pedaco, dossie);
+    /*
+      A quarta régua: **tipo**. Ver `lastro.ts` — o dossiê que apurou `62
+      veículos` não autoriza a frase `62%`, e o que apurou `R$ 52.500` não
+      autoriza `52.500 veículos`. Ela é a última porque é a mais estreita: só
+      opina sobre número com tipo declarado no próprio texto, e as três de cima
+      já decidiram tudo o mais.
+    */
+    const semTipo = afirmacoesSemLastro(pedaco, tipadas);
+    if (
+      semLastro.length === 0 &&
+      semFonte.length === 0 &&
+      semIdentidade.length === 0 &&
+      semTipo.length === 0
+    ) {
       mantidas.push(pedaco);
       continue;
     }
-    recusados.push(...semLastro, ...semFonte);
+    recusados.push(...semLastro, ...semFonte, ...semIdentidade, ...semTipo);
     removidas += 1;
   }
 
@@ -1698,6 +2264,42 @@ export function sanear(texto: string, dossie: Dossie): Saneamento {
  * clique na tela do Book. O que continua proibido é o número **sem** citação, que
  * é o caso em que quem lê não tem para onde ir — e esse segue sendo descartado.
  */
+/**
+ * O que o dossiê **declarou** sobre cada grandeza — para a régua por tipo.
+ *
+ * Percorre exatamente as mesmas fontes que `numerosSemLastro` percorre para
+ * montar os tokens permitidos. Uma segunda travessia, escrita à parte, sairia
+ * de sincronia no primeiro campo novo — e as duas leriam dossiês diferentes
+ * achando que leem o mesmo.
+ */
+export function autorizacoesTipadas(dossie: Dossie): Autorizacoes {
+  const saida: Autorizacoes = { percentual: [], moeda: [], contagem: [] };
+  const ler = (texto: string | undefined | null) => {
+    if (texto) autorizacoesDoTexto(String(texto), saida);
+  };
+
+  for (const e of dossie.evidencias) {
+    ler(e.titulo);
+    ler(e.nota);
+    ler(e.origem);
+    for (const f of e.fatos) {
+      /*
+        O rótulo entra junto do valor, colados, porque é o rótulo que diz o que
+        o número conta: "Alterações" + "267" é uma contagem, e nenhum dos dois
+        sozinho declara isso. A ordem é `valor rotulo` para a adjacência —
+        "267 alterações" — que é a forma que o classificador lê.
+      */
+      ler(`${f.valor} ${f.rotulo}`);
+      ler(f.valor);
+      ler(f.detalhe);
+    }
+  }
+  for (const t of dossie.trechos) ler(t.trecho.texto);
+  for (const d of dossie.documentos) ler(d.trecho.texto);
+  for (const l of dossie.lacunas) ler(l.explicacao);
+  return saida;
+}
+
 export function numerosSemLastro(texto: string, dossie: Dossie): string[] {
   /*
     O marcador de citação não é uma afirmação numérica.
@@ -1724,7 +2326,22 @@ export function numerosSemLastro(texto: string, dossie: Dossie): string[] {
     return semLastro;
   }
 
-  const semCitacoes = texto.replace(/\[\d{1,2}\]/g, " ");
+  /*
+    A placa sai do texto antes da extração numérica — **autorizada ou não**.
+
+    Uma string com a forma de placa não é uma afirmação numérica em nenhum dos
+    dois casos, e quem decide sobre ela é `identificadoresSemLastro`. Deixar a
+    placa não autorizada aqui produziria a recusa certa pelo motivo errado: a
+    resposta seria podada por "99", e quem lesse o painel técnico procuraria um
+    valor de noventa e nove reais que não existe em lugar nenhum. Uma régua por
+    tipo de afirmação, e o motivo da recusa dito com o nome certo.
+
+    O que isto **não** afrouxa: a placa inventada continua derrubando a frase,
+    pela outra trava, e agora sempre — antes ela dependia de os dígitos dela não
+    coincidirem por acaso com algum valor apurado.
+  */
+  const semPlacas = texto.replace(PLACA, " ");
+  const semCitacoes = semPlacas.replace(/\[\d{1,2}\]/g, " ");
   const permitidos = new Set<string>();
   /** Os mesmos números como grandeza, para conferir arredondamento. */
   const valores: number[] = [];

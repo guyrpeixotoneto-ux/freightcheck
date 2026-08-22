@@ -227,6 +227,24 @@ const veredito = passo("4/4 · o portão", "comparar", [
   turnos de leitura agradável sobre algo que não vai entrar — e é assim que uma
   decisão ruim ganha material de apoio.
 */
+/*
+  ---- a bateria funda de investigação ---------------------------------------
+
+  Ela roda **independentemente do veredito**, e a razão é que ela responde outra
+  pergunta. O portão pergunta "o agente pode substituir o planejador?"; esta
+  pergunta "quanta profundidade cada um alcança?" — e a resposta interessa
+  inclusive (e principalmente) quando o portão reprova, porque é ela que diz se
+  a regressão foi de profundidade ou de outra coisa.
+
+  A régua é a de `encadeamento.ts`, a mesma dos dois lados: uma consulta só
+  conta como encadeada quando um argumento dela não existia antes de outra
+  voltar. É o que impede a leitura preguiçosa "o agente fez mais consultas, logo
+  investigou mais".
+*/
+passo("extra · investigação funda (planejador × agente)", "investigacao", [
+  `${PASTA}/investigacao.json`,
+], { ASSISTENTE_AGENTE: "1" });
+
 if (veredito === 0) {
   passo("extra · bateria exploratória (uma conversa)", "exploratoria", [
     `--saida=${PASTA}/exploratoria`,
@@ -234,7 +252,7 @@ if (veredito === 0) {
 }
 
 console.log(`\n\x1b[1mRelatórios em ${PASTA}/\x1b[0m`);
-console.log("  antes.md · depois.md · trajetoria.md · comparacao.md" + (veredito === 0 ? " · exploratoria.md" : ""));
+console.log("  antes.md · depois.md · trajetoria.md · comparacao.md · investigacao.json" + (veredito === 0 ? " · exploratoria.md" : ""));
 console.log(
   veredito === 0
     ? "\n\x1b[32mO portão aprovou.\x1b[0m Leia comparacao.md e exploratoria.md antes de ligar\n" +

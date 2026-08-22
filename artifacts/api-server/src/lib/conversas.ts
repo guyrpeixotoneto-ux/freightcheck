@@ -203,7 +203,7 @@ export async function gravarTurno(
   db: Database,
   conversationId: string,
   pergunta: string,
-  resposta: { texto: string; redacao: string; evidencia: object },
+  resposta: { texto: string; redacao: string; evidencia: object; rastro?: object | null },
 ) {
   const [linha] = await db
     .select({
@@ -225,6 +225,14 @@ export async function gravarTurno(
       content: resposta.texto,
       writer: resposta.redacao,
       evidence: resposta.evidencia,
+      /*
+        O rastro entra na mesma escrita que a resposta, e não numa segunda.
+
+        Uma segunda escrita poderia falhar sozinha e deixar a mensagem gravada
+        sem rastro — o estado exato que este campo existe para não ter, e o mais
+        difícil de notar, porque a conversa continua funcionando.
+      */
+      trace: resposta.rastro ?? null,
     },
   ]).returning({ id: assistantMessageTable.id, role: assistantMessageTable.role });
 

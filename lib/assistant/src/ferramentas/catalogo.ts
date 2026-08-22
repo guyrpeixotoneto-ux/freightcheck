@@ -26,6 +26,7 @@
  */
 
 import { buscarTrechos } from "../corpus";
+import { proveniencia } from "./proveniencia";
 import {
   compararIntervalo,
   composicaoDaFrota,
@@ -703,7 +704,13 @@ export const estadoDoDado: Ferramenta = {
   },
 };
 
-/** As nove capacidades, na ordem em que fazem sentido para quem lê. */
+/**
+ * As dez capacidades, na ordem em que fazem sentido para quem lê.
+ *
+ * `proveniencia` entra por último de propósito: ela é a pergunta que se faz
+ * **depois** de já ter um número na mão, e a ordem desta lista é a ordem em que
+ * o modelo lê as descrições.
+ */
 export const CATALOGO: Ferramenta[] = [
   recortes,
   parametros,
@@ -714,4 +721,5 @@ export const CATALOGO: Ferramenta[] = [
   resultado,
   documentos,
   estadoDoDado,
+  proveniencia,
 ];

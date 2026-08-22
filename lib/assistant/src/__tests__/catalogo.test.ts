@@ -24,10 +24,10 @@ const comBanco = url ? describe : describe.skip;
 const registro = registroPadrao();
 
 describe("o registro como conjunto", () => {
-  it("tem dez capacidades, cada uma com nome único", () => {
+  it("tem doze capacidades, cada uma com nome único", () => {
     const nomes = registro.lista().map((f) => f.nome);
-    expect(nomes).toHaveLength(10);
-    expect(new Set(nomes).size).toBe(10);
+    expect(nomes).toHaveLength(12);
+    expect(new Set(nomes).size).toBe(12);
   });
 
   it("nenhuma declara recorte — a fronteira de isolamento vale para todas", () => {

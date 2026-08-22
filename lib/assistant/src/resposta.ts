@@ -48,7 +48,7 @@ import {
   numerosSemLastro,
   orquestrar,
   sanear,
-  recorteDaConversa,
+  contextoDoTurno,
   recorteDoDossie,
   type Dossie,
   type Etapa,
@@ -56,6 +56,15 @@ import {
 } from "./orquestrador";
 import { agenteLigado, evidenciasDaInvestigacao, investigar, type Investigacao } from "./agente";
 import { registroPadrao } from "./ferramentas/registro";
+import { montarRastro, type RastroDaResposta } from "./rastro";
+import {
+  derivacaoPorConsulta,
+  encadeamentosDe,
+  explicarEncadeamento,
+  preplanejadas,
+  quantosEncadeamentos,
+} from "./encadeamento";
+import { responderSustentacao, semRespostaAnterior } from "./sustentacao";
 import { SUGESTOES } from "./conhecimento";
 import { termos } from "./normalizar";
 import {
@@ -94,6 +103,16 @@ export interface Resposta {
   desambiguacao: { termo: string; opcoes: string[] } | null;
   /** O estado a persistir para a próxima pergunta. */
   estado: EstadoDaConversa;
+  /**
+   * O que é preciso guardar para explicar esta resposta depois dela.
+   *
+   * Sai de `responder` já montado, e não da rota, por uma razão de contrato:
+   * quem constrói a resposta é quem tem o plano à mão — `scopeHash`, origem do
+   * recorte, período recusado —, e nada disso aparece na superfície pública da
+   * `Resposta`. Montá-lo na rota exigiria expor o plano inteiro só para que
+   * alguém lá fora o remontasse.
+   */
+  rastro: RastroDaResposta;
   tecnico: {
     intencao: Intencao;
     porque: string;
@@ -119,6 +138,12 @@ export interface Resposta {
       rodadas: number;
       consultas: number;
       parou: Investigacao["parou"];
+      /** Quantas consultas reagiram a um resultado anterior. Ver `encadeamento.ts`. */
+      encadeamentosReais: number;
+      /** Quantas foram decididas antes de qualquer resultado existir. */
+      preplanejadas: number;
+      /** Uma linha técnica por reação — o valor, de onde saiu e onde entrou. */
+      porqueEncadeou: string[];
       chamadas: {
         nome: string;
         argumentos: Record<string, unknown>;
@@ -129,6 +154,14 @@ export interface Resposta {
         derivaDe: number | null;
       }[];
     } | null;
+    /**
+     * A descida do caminho determinístico — cada passo com o que o motivou.
+     *
+     * No agente o encadeamento é inferido do log; aqui ele é **declarado** por
+     * quem escolheu a próxima consulta. Vazio é o estado normal: a maioria das
+     * perguntas se responde num nível só.
+     */
+    descida: { ferramenta: string; derivaDe: number | null; porque: string }[];
     /**
      * O rastro que explica esta resposta **depois** que ela aconteceu.
      *
@@ -740,28 +773,105 @@ export interface PerguntaOptions {
  * **A pergunta que isto responde.** "O agente investiga mais" não pode ser
  * provado contando consultas: dez buscas independentes disparadas de uma vez
  * são largura, não profundidade. O que separa investigar de consultar muito é
- * uma consulta cujo **argumento veio do resultado de outra** — "achei o grupo
- * mais crítico, agora abro ele". Essa é uma decisão tomada depois de ver o
- * dado, e é a única forma de encadeamento que se pode verificar sem perguntar
- * ao modelo o que ele quis dizer.
+ * uma consulta cujo **argumento veio do resultado de outra**.
  *
- * Devolve, para cada chamada, o índice da anterior cujo conteúdo continha um
- * dos argumentos dela — ou `null`. Valores curtos ficam de fora: um `5` de
- * `limite` casaria com qualquer resultado e transformaria a medida em ruído.
+ * A régua mora em `encadeamento.ts` e não aqui. A versão que vivia neste
+ * arquivo perguntava só "algum argumento aparece num resultado anterior?", e
+ * três coisas passavam: um leque pedido na **mesma rodada** (decidido antes de
+ * qualquer resultado), um valor que **quem perguntou escreveu**, e um valor que
+ * a investigação **já usava**. As três inflam o número na direção da meta, que
+ * é a forma mais cara de uma métrica errar.
  */
-function encadeamentoDe(chamadas: Investigacao["chamadas"]): (number | null)[] {
-  const textos = chamadas.map((c) => JSON.stringify(c.conteudo ?? null));
 
-  return chamadas.map((c, i) => {
-    const valores = Object.values(c.argumentos ?? {})
-      .filter((v): v is string | number => typeof v === "string" || typeof v === "number")
-      .map(String)
-      .filter((v) => v.length >= 4);
 
-    for (let j = i - 1; j >= 0; j--) {
-      if (valores.some((v) => textos[j]!.includes(v))) return j;
-    }
-    return null;
+/**
+ * O rastro desta resposta, a partir do que os dois caminhos têm em mãos.
+ *
+ * Escrito uma vez porque as duas montagens — planejador e agente — devolvem o
+ * mesmo contrato e diferem só no que preenche `tecnico.agente`. Duplicá-lo
+ * faria o rastro do agente sair de sincronia com o do planejador no primeiro
+ * campo novo, que é exatamente a classe de defeito que o rastro existe para
+ * tornar investigável.
+ */
+
+/**
+ * O que esta chamada **exerceu** — e não só como o modelo a chamou.
+ *
+ * **O defeito que isto fecha, e por que ele custou caro.** `ChamadaDeFerramenta`
+ * guarda o nome cru que o modelo pediu: `"alteracoes"`. O nível — `total`,
+ * `grupos`, `linhas` — vive nos argumentos e reaparece em `Evidencia.ferramenta`
+ * como `alteracoes:linhas`, que é a granularidade em que a bateria de aceitação
+ * decide se uma capacidade foi exercida. Como `tecnico.ferramentas` carregava só
+ * o nome, `capacidadesDe` caía no casamento por prefixo — e o prefixo devolve a
+ * **primeira** entrada do mapa, que é a mais fraca (`alteracoes:total` →
+ * MOVIMENTO_AGREGADO).
+ *
+ * O efeito prático: o agente descia ao veículo, exercia ALTERACOES_DETALHADAS, e
+ * a régua registrava "capacidade-ausente". Uma decisão de virada de chave tomada
+ * sobre esse número reprova o agente por uma capacidade que ele exerceu.
+ *
+ * A evidência é a autoridade porque é ela que a trava de lastro confere e é ela
+ * que numera as citações: se a capacidade fosse lida de um lugar e o lastro de
+ * outro, os dois sairiam de sincronia sem nada quebrar.
+ *
+ * Uma chamada que falhou não tem evidência e não exerceu capacidade nenhuma —
+ * ela mantém o nome cru com o carimbo de falha, que é o que a régua precisa para
+ * não a contar como exercício.
+ */
+
+/**
+ * A primeira frase da narração, em tamanho de etapa.
+ *
+ * O modelo narra em prosa — às vezes um parágrafo — e a tela mostra etapas de
+ * uma linha. Cortar no fim da primeira frase preserva a informação que
+ * interessa ("vou olhar os grupos de alteração") e descarta o resto, que numa
+ * lista de progresso vira ruído. O corte por caracteres é o teto de segurança
+ * para uma narração sem pontuação.
+ */
+function primeiraFrase(texto: string): string {
+  const limpo = texto.replace(/\s+/g, " ").trim();
+  const fim = limpo.search(/[.!?](\s|$)/);
+  const frase = fim > 0 ? limpo.slice(0, fim + 1) : limpo;
+  return frase.length > 120 ? `${frase.slice(0, 117)}…` : frase;
+}
+
+function capacidadeExercida(chamada: Investigacao["chamadas"][number]): string {
+  if (!chamada.ok) return `${chamada.nome} (falhou)`;
+  const daEvidencia = [...new Set(chamada.evidencias.map((e) => e.ferramenta))];
+  if (daEvidencia.length > 0) return daEvidencia.join(" + ");
+  /*
+    Chamada sem evidência não exerceu capacidade — mesmo tendo `ok: true`.
+
+    `ok` diz que a ferramenta não lançou; não diz que ela respondeu. `alteracoes`
+    com `nivel: "linhas"` e sem `atributo` é o caso exemplar: ela devolve, de
+    propósito, um conteúdo que **explica ao modelo** o que faltou — e nenhuma
+    evidência, porque não há o que citar. Devolver o nome cru aqui fazia a régua
+    casá-lo por prefixo e registrar MOVIMENTO_AGREGADO: uma consulta que não
+    respondeu nada contava como agregado entregue.
+
+    O carimbo mantém a consulta visível no log — ela aconteceu, custou uma
+    rodada, e quem investiga a resposta precisa vê-la — e a tira da conta de
+    capacidades, que é onde ela não pode entrar.
+  */
+  return `${chamada.nome} (sem evidência)`;
+}
+
+function rastroDe(
+  dossie: Dossie,
+  resposta: Omit<Resposta, "rastro">,
+): RastroDaResposta {
+  return montarRastro({
+    recorte: resposta.recorte,
+    lacunas: resposta.lacunas,
+    plano: {
+      scopeHash: dossie.plano.contexto?.contexto.scopeHash ?? null,
+      canal: dossie.plano.contexto?.contexto.channel ?? null,
+      origemDoRecorte: dossie.plano.origemDoRecorte,
+      unidadeCitada: dossie.plano.unidadeCitada,
+      periodo: dossie.plano.periodo,
+      periodoImpossivel: dossie.plano.periodoImpossivel,
+    },
+    tecnico: resposta.tecnico,
   });
 }
 
@@ -772,7 +882,8 @@ function montarComAgente(
   pergunta: string,
 ): Resposta {
   const daFerramenta = evidenciasDaInvestigacao(investigacao);
-  const encadeamento = encadeamentoDe(investigacao.chamadas);
+  const cadeias = encadeamentosDe(investigacao.chamadas, pergunta);
+  const encadeamento = derivacaoPorConsulta(investigacao.chamadas.length, cadeias);
   /*
     O dossiê que a trava confere é o do agente: as evidências das ferramentas,
     e não as da orquestração. Somar as duas listas deixaria o modelo citar um
@@ -839,7 +950,7 @@ function montarComAgente(
     ...(e.tela ? { tela: e.tela } : {}),
   }));
 
-  return {
+  const montada: Omit<Resposta, "rastro"> = {
     pergunta,
     texto,
     redacao,
@@ -851,18 +962,47 @@ function montarComAgente(
     lacunas: dossie.lacunas,
     sugestoes: sugerir(dossie),
     desambiguacao: dossie.desambiguacao,
-    estado: avancarEstado(opcoes.estado ?? ESTADO_VAZIO, dossie),
+    estado: guardarSustentacao(avancarEstado(opcoes.estado ?? ESTADO_VAZIO, dossie), {
+      pergunta,
+      texto,
+      consultas: investigacao.chamadas.map(capacidadeExercida),
+      evidencias: daFerramenta.length,
+      encadeamentos: quantosEncadeamentos(cadeias),
+      lacunas: dossie.lacunas,
+      podadas: { removidas: frasesPodadas, total: frasesTotais },
+      redigiu: redacao,
+      recorte: recorteDoDossie(dossie),
+      vigencia: dossie.plano.periodo,
+    }),
     tecnico: {
       intencao: dossie.plano.intencao,
       porque: dossie.plano.porque,
       herdado: dossie.plano.herdado,
-      /* O log completo: nome e desfecho de cada consulta, na ordem. */
-      ferramentas: investigacao.chamadas.map((c) => `${c.nome}${c.ok ? "" : " (falhou)"}`),
+      /*
+        O log completo: **capacidade** e desfecho de cada consulta, na ordem.
+        Ver `capacidadeExercida` — o nome cru perde o nível, e o nível é o que
+        diz o que foi exercido.
+      */
+      ferramentas: investigacao.chamadas.map(capacidadeExercida),
       numerosRecusados,
+      // O agente não usa a descida do planejador: o encadeamento dele é medido
+      // do log das chamadas, logo abaixo.
+      descida: [],
       agente: {
         rodadas: investigacao.rodadas,
         consultas: investigacao.chamadas.length,
         parou: investigacao.parou,
+        /*
+          Os dois números lado a lado, e nunca um só.
+
+          "Dez consultas" é a mesma frase para uma varredura larga e para uma
+          investigação funda; `encadeamentosReais` e `preplanejadas` separam as
+          duas, e a soma delas é o total. Publicar só o total é como este
+          relatório já mentiu uma vez.
+        */
+        encadeamentosReais: quantosEncadeamentos(cadeias),
+        preplanejadas: preplanejadas(investigacao.chamadas, cadeias),
+        porqueEncadeou: cadeias.map((c) => explicarEncadeamento(c, investigacao.chamadas)),
         chamadas: investigacao.chamadas.map((c, i) => ({
           nome: c.nome,
           argumentos: (c.argumentos ?? {}) as Record<string, unknown>,
@@ -908,6 +1048,7 @@ function montarComAgente(
       },
     },
   };
+  return { ...montada, rastro: rastroDe(dossie, montada) };
 }
 
 /**
@@ -945,9 +1086,24 @@ function montarComAgente(
  * por causa dele trocaria resposta incompleta por resposta nenhuma. O que
  * sobra, quem lê declara.
  */
-async function garantirRecorte(db: Database, opcoes: PerguntaOptions): Promise<void> {
-  const recorte = recorteDaConversa(opcoes.recorte, opcoes.estado ?? null);
-  const resolvido = await resolverContexto(db, recorte).catch(() => null);
+async function garantirRecorte(
+  db: Database,
+  pergunta: string,
+  opcoes: PerguntaOptions,
+): Promise<void> {
+  /*
+    A pré-condição é garantida no recorte que a **pergunta** descreve.
+
+    Enquanto ela usava só a tela e o fio, "só Camaçari" fazia a orquestração
+    consultar Camaçari e a garantia materializar as comparações da unidade
+    anterior — e a diferença aparecia como uma resposta sem alterações numa
+    vigência que tinha várias. É a mesma decisão em dois lugares; agora é a
+    mesma função.
+  */
+  const { resolvido } = await contextoDoTurno(db, pergunta, {
+    ...(opcoes.recorte ? { recorte: opcoes.recorte } : {}),
+    estado: opcoes.estado ?? null,
+  }).catch(() => ({ resolvido: null }));
   if (!resolvido) return;
   opcoes.aoAvancar?.({
     nome: "garantirComparacoes",
@@ -973,7 +1129,7 @@ export async function responder(
     Antes de orquestrar e antes de investigar, e por isso vale para os dois.
     Ver `garantirRecorte` acima para por que a pré-condição mora aqui.
   */
-  await garantirRecorte(db, opcoes);
+  await garantirRecorte(db, pergunta, opcoes);
 
   const dossie = await orquestrar(db, pergunta.trim(), {
     ...(opcoes.recorte ? { recorte: opcoes.recorte } : {}),
@@ -981,7 +1137,19 @@ export async function responder(
     ...(opcoes.aoAvancar ? { aoAvancar: opcoes.aoAvancar } : {}),
   });
 
-  const determinista = redacaoDeterministica(dossie);
+  /*
+    A meta-pergunta é interceptada antes de qualquer redação — e antes do
+    agente.
+
+    "Tem certeza?" é uma afirmação sobre a nossa própria máquina: o que ela
+    consultou, o que a trava podou, que lacuna foi declarada. Um modelo
+    redigindo isso descreveria de memória um processo que não observou, e a
+    versão mais convincente seria a menos verificável. É a mesma regra das
+    lacunas: o que o produto sabe de si, o produto escreve.
+  */
+  const meta = respostaDaMetaPergunta(dossie, opcoes);
+
+  const determinista = meta ?? redacaoDeterministica(dossie);
   let texto = determinista;
   let redacao: Resposta["redacao"] = "DETERMINISTICA";
   let numerosRecusados: string[] = [];
@@ -997,7 +1165,7 @@ export async function responder(
   */
   let causa: CausaDaRedacao = opcoes.semIa ? "IA_DESLIGADA" : "SEM_CHAVE";
 
-  if (!opcoes.semIa && disponivel()) {
+  if (meta === null && !opcoes.semIa && disponivel()) {
     const pedido: PedidoDeRedacao = {
       pergunta,
       dossie,
@@ -1025,23 +1193,118 @@ export async function responder(
       da migração: um número só chega à tela se tiver voltado de uma consulta,
       e agora "consulta" inclui as que o modelo escolheu.
     */
-    if (opcoes.agente ?? agenteLigado()) {
+    if (meta === null && (opcoes.agente ?? agenteLigado())) {
+      /*
+        O que já voltou neste turno, para o cálculo derivado ter sobre o que
+        operar. Preenchido pelo `aoConsultar` do laço — ver `apurados`, logo
+        abaixo, e a regra do lastro em `calculo.ts`.
+      */
+      const colhidas: Evidencia[] = [];
       const investigacao = await investigar({
         pergunta,
         registro: registroPadrao(),
+        /*
+          O recorte das ferramentas é o que a orquestração **resolveu**, e não o
+          que a tela mandou.
+
+          A diferença aparece na frase que nomeia a unidade: `plano.contexto` já
+          é Camaçari quando alguém escreveu "só Camaçari", e `opcoes.recorte`
+          continua sendo a unidade do link. Passar o segundo faria o agente
+          investigar uma operação e a resposta anunciar outra — com o rótulo do
+          recorte, que vem do dossiê, dizendo a certa.
+        */
         ferramentas: {
           db,
-          recorte: {
-            ...(opcoes.recorte?.scopeHash ? { scopeHash: opcoes.recorte.scopeHash } : {}),
-            ...(opcoes.recorte?.channel !== undefined ? { channel: opcoes.recorte.channel } : {}),
-          },
+          recorte: dossie.plano.contexto
+            ? {
+                scopeHash: dossie.plano.contexto.contexto.scopeHash,
+                channel: dossie.plano.contexto.contexto.channel,
+              }
+            : {
+                ...(opcoes.recorte?.scopeHash ? { scopeHash: opcoes.recorte.scopeHash } : {}),
+                ...(opcoes.recorte?.channel !== undefined
+                  ? { channel: opcoes.recorte.channel }
+                  : {}),
+              },
           ...(dossie.plano.periodo ? { periodo: dossie.plano.periodo } : {}),
+          /*
+            Os filtros do fio, injetados como o recorte.
+
+            `dossie.leitura.entidades.equipamento` já é o desta pergunta ou o
+            herdado — a orquestração resolveu essa precedência antes de chegar
+            aqui. O que o executor faz é aplicá-lo como padrão, para que o
+            modelo não precise repetir "cavalos" em toda chamada e, sobretudo,
+            para que esquecer de repetir não devolva a resposta à frota inteira.
+          */
+          filtros: {
+            ...(dossie.leitura.entidades.equipamento
+              ? { equipamento: dossie.leitura.entidades.equipamento }
+              : {}),
+            ...(opcoes.estado?.pagina
+              ? {
+                  apartirDe: opcoes.estado.pagina.apartirDe,
+                  limite: opcoes.estado.pagina.tamanho,
+                }
+              : {}),
+          },
+          /*
+            O lastro dos operandos do cálculo — vivo, e não capturado.
+
+            A quarta consulta do laço pode compor números que a segunda
+            descobriu, e uma lista fixada aqui não os teria. `colhidas` é
+            preenchida pelo próprio laço; ler dela é ler o que já voltou neste
+            turno. As evidências da resposta **anterior** entram junto, porque
+            "quanto isso dá por ano?" fala do número do turno passado.
+          */
+          apurados: () => [...(opcoes.estado?.evidenciasAnteriores ?? []), ...colhidas],
         },
         ...(opcoes.historico?.length ? { historico: opcoes.historico } : {}),
+        /*
+          O que já foi apurado neste turno, à medida que é apurado. Ver
+          `apurados`, acima: é o lastro dos operandos do cálculo derivado.
+        */
+        aoColher: (c) => {
+          if (c.ok) colhidas.push(...c.evidencias);
+        },
+        /*
+          Os três canais de progresso, e por que os três precisam existir.
+
+          A investigação do agente leva de vinte a trinta segundos, e até aqui a
+          tela recebia **um** deles — `aoConsultar`. Entre duas consultas, e
+          durante a rodada que redige, não chegava nada: a experiência era um
+          cursor parado por dezenas de segundos numa aplicação que acabou de
+          prometer investigar.
+
+          - `aoRodada` diz que o modelo voltou a pensar. É o que preenche o
+            intervalo entre o resultado de uma consulta e o pedido da próxima.
+          - `aoConsultar` diz o que está sendo consultado agora — já existia.
+          - `aoNarrar` traz a frase que o modelo escreve antes de consultar
+            ("deixa eu ver os grupos de alteração"). Ela é progresso de verdade,
+            escrita por quem está investigando, e **era descartada**: o campo
+            existia em `investigar` desde o PR 2 e nenhum chamador o passava.
+
+          **O que deliberadamente não se faz: transmitir o texto da resposta
+          enquanto ele é escrito.** No caminho determinístico isso é seguro
+          porque o dossiê está fechado antes da primeira palavra — a trava
+          confere frase a frase contra um conjunto que não muda mais. No laço do
+          agente não há esse conjunto: uma rodada que parece estar redigindo pode
+          terminar pedindo mais uma consulta, e o que já teria aparecido na tela
+          seria narração exibida como resposta. Preferir o congelamento de uma
+          rodada a mostrar uma resposta que não é a resposta é a mesma escolha
+          que este produto faz em toda tela.
+        */
         ...(opcoes.aoAvancar
           ? {
+              aoRodada: (rodada: number) =>
+                opcoes.aoAvancar!({
+                  nome: "rodada",
+                  rotulo: rodada === 1 ? "Investigando" : `Investigando · rodada ${rodada}`,
+                  ms: 0,
+                }),
               aoConsultar: (nome: string) =>
                 opcoes.aoAvancar!({ nome: "ferramenta", rotulo: `Consultando ${nome}`, ms: 0 }),
+              aoNarrar: (texto: string) =>
+                opcoes.aoAvancar!({ nome: "narracao", rotulo: primeiraFrase(texto), ms: 0 }),
             }
           : {}),
       });
@@ -1117,9 +1380,20 @@ export async function responder(
     };
   }
 
-  const estado = avancarEstado(opcoes.estado ?? ESTADO_VAZIO, dossie);
+  const estado = guardarSustentacao(avancarEstado(opcoes.estado ?? ESTADO_VAZIO, dossie), {
+    pergunta: dossie.pergunta,
+    texto,
+    consultas: dossie.evidencias.map((e: Evidencia) => e.ferramenta),
+    evidencias: dossie.evidencias.length,
+    encadeamentos: dossie.encadeamentos.length,
+    lacunas: dossie.lacunas,
+    podadas: { removidas: frasesPodadas, total: frasesTotais },
+    redigiu: redacao,
+    recorte: recorteDoDossie(dossie),
+    vigencia: dossie.plano.periodo,
+  });
 
-  return {
+  const montada: Omit<Resposta, "rastro"> = {
     pergunta: dossie.pergunta,
     texto,
     redacao,
@@ -1138,6 +1412,11 @@ export async function responder(
       herdado: dossie.plano.herdado,
       ferramentas: dossie.evidencias.map((e: Evidencia) => e.ferramenta),
       numerosRecusados,
+      descida: dossie.encadeamentos.map((p) => ({
+        ferramenta: p.ferramenta,
+        derivaDe: p.derivaDe,
+        porque: p.porque,
+      })),
       // O caminho determinístico não investiga: não há rodadas a relatar.
       agente: null,
       motor: explicarRedacao({
@@ -1164,6 +1443,68 @@ export async function responder(
       },
     },
   };
+  return { ...montada, rastro: rastroDe(dossie, montada) };
+}
+
+/**
+ * O que esta resposta deixa para trás, para a próxima poder auditá-la.
+ *
+ * Escrito uma vez e usado pelos dois caminhos: a meta-pergunta não pode
+ * funcionar só no planejador ou só no agente, porque a pessoa não sabe em qual
+ * dos dois está — e não deveria precisar saber.
+ */
+export function guardarSustentacao(
+  estado: EstadoDaConversa,
+  dados: {
+    pergunta: string;
+    texto: string;
+    consultas: string[];
+    evidencias: number;
+    encadeamentos: number;
+    lacunas: { explicacao: string }[];
+    podadas: { removidas: number; total: number };
+    redigiu: string;
+    recorte: string | null;
+    vigencia: string | null;
+  },
+): EstadoDaConversa {
+  return {
+    ...estado,
+    sustentacaoAnterior: {
+      pergunta: dados.pergunta,
+      conclusao: primeiraFrase(dados.texto),
+      consultas: dados.consultas,
+      evidencias: dados.evidencias,
+      encadeamentos: dados.encadeamentos,
+      lacunas: dados.lacunas.map((l) => l.explicacao),
+      podadas: dados.podadas,
+      redigiu: dados.redigiu,
+      recorte: dados.recorte,
+      vigencia: dados.vigencia,
+    },
+  };
+}
+
+/**
+ * A meta-pergunta, respondida em código a partir do rastro da anterior.
+ *
+ * **Por que ela intercepta antes de qualquer redação.** "Tem certeza?" é uma
+ * afirmação sobre a nossa própria máquina — o que ela consultou, o que a trava
+ * podou, que lacuna foi declarada. Um modelo redigindo isso estaria descrevendo
+ * de memória um processo que não observou, e a resposta mais convincente seria
+ * a menos verificável. É a mesma regra das lacunas.
+ *
+ * Devolve `null` quando a pergunta não é a meta-pergunta — e é assim que ela
+ * não muda mais nada no fluxo.
+ */
+function respostaDaMetaPergunta(
+  dossie: Dossie,
+  opcoes: PerguntaOptions,
+): string | null {
+  if (dossie.plano.intencao !== "SUSTENTACAO") return null;
+  const guardada = opcoes.estado?.sustentacaoAnterior ?? null;
+  if (!guardada) return semRespostaAnterior();
+  return responderSustentacao(guardada, opcoes.estado?.foco ?? null).texto;
 }
 
 /** As perguntas oferecidas quando não há conversa. */
