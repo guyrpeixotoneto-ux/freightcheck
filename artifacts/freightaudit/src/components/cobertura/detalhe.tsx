@@ -4,23 +4,25 @@ import { fetchJson } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Lacunas } from "./lacunas";
 import {
-  APARENCIA,
   numero,
   percentual,
   type DetalheDaCelula,
-  type DetalheDaLacuna,
   type Lacuna,
-  type PontoDoHistorico,
   type Proveniencia,
 } from "./tipos";
 
 /**
- * O terceiro e o quarto degraus: o detalhe e a origem.
+ * O terceiro degrau: o detalhe de um conjunto numa vigência.
  *
- * A hierarquia da tela é resumo → matriz → exceções → detalhe, e estes painéis
- * são os dois últimos. Eles só existem depois de um clique — nada disto é
- * carregado com a página, porque quase ninguém desce até aqui e quem desce quer
- * uma coisa específica.
+ * A hierarquia da tela é resumo → matriz → exceções → detalhe, e este painel é
+ * o penúltimo. Ele só existe depois de um clique — nada disto é carregado com a
+ * página, porque quase ninguém desce até aqui e quem desce quer uma coisa
+ * específica.
+ *
+ * O último degrau — um atributo, numa vigência — saiu daqui para `gaveta.tsx`,
+ * e virou painel lateral. A razão está escrita lá: a informação é sobre uma
+ * célula, e uma seção que nascia abaixo da matriz tirava a célula clicada do
+ * campo de visão exatamente quando ela precisava continuar à vista.
  */
 
 export function DetalheDaCelulaPainel({
@@ -294,167 +296,6 @@ function Contribuintes({
           </li>
         ))}
       </ul>
-    </div>
-  );
-}
-
-/**
- * O último degrau: quais equipamentos, e de onde veio o que existe.
- *
- * Mostra tanto quem está sem o dado quanto o histórico do atributo, porque as
- * duas perguntas chegam juntas: "quem está faltando?" e "desde quando?".
- */
-export function DetalheDaLacunaPainel({
-  snapshotId,
-  attributeCode,
-  aoFechar,
-}: {
-  snapshotId: string;
-  attributeCode: string;
-  aoFechar: () => void;
-}) {
-  const lacuna = useQuery({
-    queryKey: ["coverage", "gap", snapshotId, attributeCode],
-    queryFn: () =>
-      fetchJson<DetalheDaLacuna>(
-        `/coverage/gap/${snapshotId}/${encodeURIComponent(attributeCode)}`,
-      ),
-    retry: false,
-  });
-
-  const historico = useQuery({
-    queryKey: ["coverage", "history", attributeCode],
-    queryFn: () =>
-      fetchJson<PontoDoHistorico[]>(
-        `/coverage/history/${encodeURIComponent(attributeCode)}`,
-      ),
-    retry: false,
-  });
-
-  return (
-    <section className="mt-6 border-2 border-brand-red bg-card">
-      <header className="flex items-start justify-between gap-4 px-6 py-4 border-b bg-muted/40">
-        <div className="min-w-0">
-          <h2 className="text-lg font-bold uppercase tracking-wide">
-            {lacuna.data?.attributeLabel ?? attributeCode}
-          </h2>
-          <p className="text-sm text-muted-foreground">
-            <code>{attributeCode}</code>
-            {lacuna.data && ` · ${lacuna.data.vigencia.periodo} · ${lacuna.data.entityType.toLowerCase()}`}
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={aoFechar}
-          className="shrink-0 text-muted-foreground hover:text-foreground"
-          aria-label="Fechar o detalhe da lacuna"
-        >
-          <X className="w-5 h-5" />
-        </button>
-      </header>
-
-      <div className="px-6 py-5">
-        {historico.data && historico.data.length > 0 && <Historico pontos={historico.data} />}
-
-        {lacuna.isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
-        {lacuna.data && (
-          <div className="mt-6">
-            <h3 className="text-sm font-bold uppercase tracking-wide">
-              Equipamentos sem o dado ({numero(lacuna.data.entidades.length)}
-              {lacuna.data.naoListadas > 0 && ` de ${numero(
-                lacuna.data.entidades.length + lacuna.data.naoListadas,
-              )}`}
-              )
-            </h3>
-            {lacuna.data.naoListadas > 0 && (
-              <p className="text-xs text-warning-foreground mt-1">
-                {numero(lacuna.data.naoListadas)} não aparecem nesta lista. Ela é limitada de
-                propósito — o que está acima é amostra, não o conjunto.
-              </p>
-            )}
-            <ul className="mt-2 flex flex-wrap gap-1.5">
-              {lacuna.data.entidades.map((e) => (
-                <li
-                  key={e.entityId}
-                  className={cn(
-                    "text-xs px-2 py-1 border font-mono",
-                    e.estado === "AUSENTE" && "border-brand-red/40 bg-brand-red/5",
-                    e.estado === "VAZIO" && "border-warning/40 bg-warning/5",
-                  )}
-                  title={
-                    e.estado === "AUSENTE"
-                      ? "A coluna não veio para este equipamento."
-                      : `Coluna entregue e sem valor (${e.nullReason ?? "sem motivo declarado"}).`
-                  }
-                >
-                  {e.identificador}
-                </li>
-              ))}
-            </ul>
-            {lacuna.data.entidades.length === 0 && (
-              <p className="text-sm text-muted-foreground mt-2">
-                Nenhum equipamento sem o dado nesta vigência.
-              </p>
-            )}
-          </div>
-        )}
-      </div>
-    </section>
-  );
-}
-
-/**
- * A série do atributo, vigência a vigência.
- *
- * Barras em vez de linha, e a vigência sem a coluna aparece vazia em vez de
- * sumir: uma linha que pula o buraco esconde exatamente a quebra de padrão que
- * se veio ver.
- */
-function Historico({ pontos }: { pontos: PontoDoHistorico[] }) {
-  const maximo = Math.max(...pontos.map((p) => p.percentual), 100);
-  return (
-    <div>
-      <h3 className="text-sm font-bold uppercase tracking-wide">Histórico</h3>
-      <p className="text-xs text-muted-foreground mt-1">
-        Proporção dos equipamentos daquela vigência com o dado presente.
-      </p>
-      <ol className="mt-3 flex items-end gap-2 overflow-x-auto pb-2">
-        {pontos.map((p) => (
-          <li key={p.snapshotId} className="flex flex-col items-center gap-1 min-w-[3.25rem]">
-            <span className="text-[0.625rem] tabular-nums text-muted-foreground">
-              {p.noLayout ? `${Math.round(p.percentual)}%` : "—"}
-            </span>
-            <div
-              className="w-full bg-muted flex items-end"
-              style={{ height: "3.5rem" }}
-              title={`${p.periodo}: ${
-                p.noLayout
-                  ? `${numero(p.comValor)} de ${numero(p.entidadesNaVigencia)} com dado`
-                  : "a coluna não veio nesta vigência"
-              }`}
-            >
-              <div
-                className={cn(
-                  "w-full",
-                  !p.noLayout
-                    ? "bg-brand-red/30"
-                    : p.percentual >= 100
-                      ? "bg-success"
-                      : p.percentual >= 50
-                        ? "bg-warning"
-                        : "bg-brand-red",
-                )}
-                style={{
-                  height: p.noLayout ? `${(p.percentual / maximo) * 100}%` : "100%",
-                }}
-              />
-            </div>
-            <span className="text-[0.625rem] text-muted-foreground whitespace-nowrap">
-              {p.periodo}
-            </span>
-          </li>
-        ))}
-      </ol>
     </div>
   );
 }

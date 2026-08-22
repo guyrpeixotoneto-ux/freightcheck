@@ -103,6 +103,21 @@ export interface LinhaDeAtributo {
   celulas: Record<string, CelulaDoAtributo>;
 }
 
+/**
+ * A coluna da tabela de atributos: um período, e a vigência que o conjunto teve
+ * nele.
+ *
+ * `snapshotId` é `null` quando o conjunto não veio naquele período — e é o que
+ * separa "este atributo não foi cobrado aqui" de "esta vigência não trouxe este
+ * conjunto". As duas desenham o mesmo traço na tela, e são coisas diferentes;
+ * sem isto, a gaveta não teria como dizer qual das duas ela está abrindo.
+ */
+export interface ColunaDoConjunto extends ColunaDaMatriz {
+  snapshotId: string | null;
+  sourceLabel: string | null;
+  revision: number | null;
+}
+
 export interface MatrizDeAtributos {
   conjunto: {
     datasetFamily: string;
@@ -114,7 +129,7 @@ export interface MatrizDeAtributos {
     canal: string;
     rotulo: string;
   };
-  colunas: ColunaDaMatriz[];
+  colunas: ColunaDoConjunto[];
   linhas: LinhaDeAtributo[];
   resumo: {
     atributos: number;
@@ -176,7 +191,7 @@ export async function matrizDeAtributos(
       v.canal === filtro.canal,
   );
 
-  const colunas = montarColunas(naJanela);
+  const colunas = montarColunas(naJanela, doConjunto);
   if (doConjunto.length === 0) {
     return { conjunto, colunas, linhas: [], resumo: resumoVazio() };
   }
@@ -381,19 +396,27 @@ export async function matrizDeAtributos(
  * tivesse acontecido. É a mesma regra do histórico do atributo em `detalhe.ts`:
  * a vigência sem dado aparece vazia em vez de sumir.
  */
-function montarColunas(vigencias: { effectiveDate: string; sourceLabel: string }[]): ColunaDaMatriz[] {
-  const porData = new Map<string, ColunaDaMatriz>();
+function montarColunas(
+  vigencias: { effectiveDate: string; sourceLabel: string }[],
+  doConjunto: { effectiveDate: string; sourceLabel: string; snapshotId: string; revision: number }[],
+): ColunaDoConjunto[] {
+  const doConjuntoPorData = new Map(doConjunto.map((v) => [v.effectiveDate, v] as const));
+  const porData = new Map<string, ColunaDoConjunto>();
   for (const v of vigencias) {
     const atual = porData.get(v.effectiveDate);
     if (atual) {
       if (!atual.rotulos.includes(v.sourceLabel)) atual.rotulos.push(v.sourceLabel);
       continue;
     }
+    const dele = doConjuntoPorData.get(v.effectiveDate);
     porData.set(v.effectiveDate, {
       chave: v.effectiveDate,
       effectiveDate: v.effectiveDate,
       periodo: periodoDe(v.effectiveDate),
       rotulos: [v.sourceLabel],
+      snapshotId: dele?.snapshotId ?? null,
+      sourceLabel: dele?.sourceLabel ?? null,
+      revision: dele?.revision ?? null,
     });
   }
   return [...porData.values()].sort((a, b) => a.effectiveDate.localeCompare(b.effectiveDate));

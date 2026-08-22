@@ -5,6 +5,7 @@ import { buildFixture } from "@workspace/comparison/testing";
 import { seedTaxonomy } from "@workspace/curation";
 import { DecisaoRecusada, registrarDecisao } from "../contrato";
 import { detalheDaCelula } from "../detalhe";
+import { matrizDeAtributos } from "../atributos";
 import { visaoDaCobertura } from "../matriz";
 import { vigenciasObservadas } from "../observado";
 
@@ -233,6 +234,100 @@ describe("14. escopos diferentes não se misturam", () => {
     expect(visao.lacunas.map((l) => l.attributeCode)).not.toContain("carreta.so_da_um");
     const linha = visao.linhas[0]!;
     expect(linha.celulas["2026-03-01"]!.estado).toBe("COMPLETO");
+  });
+});
+
+/**
+ * O período em que o conjunto simplesmente não veio.
+ *
+ * O export real não tem isto — as nove vigências trazem os dois equipamentos —,
+ * e por isso ele precisa ser montado à mão. A tabela de atributos desenha um
+ * traço nessa coluna, e o traço tem **duas** causas que a tela não distingue
+ * sozinha: o atributo não era cobrado ali, ou o conjunto inteiro faltou naquele
+ * período. `coluna.snapshotId` é o que separa as duas, e é o que permite à
+ * gaveta abrir dizendo qual das duas ela está explicando.
+ */
+describe("o período sem vigência do conjunto", () => {
+  const ATRIBUTOS = [{ code: "carreta.intermitente", dataType: "NUMERIC" as const }];
+
+  beforeAll(async () => {
+    /* O intermitente pula fev/27; o constante existe nos três meses. */
+    await buildFixture(
+      ctx.db,
+      ATRIBUTOS,
+      [
+        {
+          label: "INT_1_1_2027",
+          effectiveDate: "2027-01-01",
+          data: placas("INT", 10, { "carreta.intermitente": 1 }),
+        },
+        {
+          label: "INT_1_3_2027",
+          effectiveDate: "2027-03-01",
+          data: placas("INT", 10, { "carreta.intermitente": 1 }),
+        },
+      ],
+      { entityType: "CARRETA", scopeHash: "intermitente", canal: "INT" },
+    );
+
+    await buildFixture(
+      ctx.db,
+      ATRIBUTOS,
+      [
+        {
+          label: "CTE_1_1_2027",
+          effectiveDate: "2027-01-01",
+          data: placas("CTE", 10, { "carreta.intermitente": 1 }),
+        },
+        {
+          label: "CTE_1_2_2027",
+          effectiveDate: "2027-02-01",
+          data: placas("CTE", 10, { "carreta.intermitente": 1 }),
+        },
+        {
+          label: "CTE_1_3_2027",
+          effectiveDate: "2027-03-01",
+          data: placas("CTE", 10, { "carreta.intermitente": 1 }),
+        },
+      ],
+      { entityType: "CARRETA", scopeHash: "constante", canal: "CTE" },
+    );
+  }, 600_000);
+
+  it("a coluna do período que faltou não aponta vigência nenhuma", async () => {
+    const aberta = await matrizDeAtributos(ctx.db, {
+      datasetFamily: "REMUNERACAO_EQUIPAMENTO",
+      entityType: "CARRETA",
+      scopeHash: "intermitente",
+      canal: "INT",
+      vigencias: 3,
+    });
+
+    /*
+      A janela é a de **todas** as vigências, e não a do conjunto: fev/27 tem de
+      aparecer como coluna vazia. Uma janela calculada só sobre o conjunto
+      puxaria uma vigência mais antiga para o lugar dela, e a tabela esconderia
+      exatamente o mês em que ele não veio.
+    */
+    expect(aberta.colunas.map((c) => c.chave)).toEqual([
+      "2027-01-01",
+      "2027-02-01",
+      "2027-03-01",
+    ]);
+
+    const fevereiro = aberta.colunas.find((c) => c.chave === "2027-02-01")!;
+    expect(fevereiro.snapshotId).toBeNull();
+    expect(fevereiro.sourceLabel).toBeNull();
+
+    const janeiro = aberta.colunas.find((c) => c.chave === "2027-01-01")!;
+    expect(janeiro.snapshotId).not.toBeNull();
+    expect(janeiro.sourceLabel).toBe("INT_1_1_2027");
+
+    /* E nenhuma linha inventa célula onde não houve vigência. */
+    for (const linha of aberta.linhas) {
+      expect(linha.celulas["2027-02-01"]).toBeUndefined();
+      expect(linha.celulas["2027-01-01"]).toBeDefined();
+    }
   });
 });
 
