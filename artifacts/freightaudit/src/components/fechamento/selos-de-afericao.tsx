@@ -2,6 +2,7 @@ import { useState } from "react";
 import { ChevronRight } from "lucide-react";
 
 import { AssociarUnidade } from "@/components/fechamento/associar-unidade";
+import { ReabrirQuinzena } from "@/components/fechamento/fechar-quinzena";
 import {
   Sheet,
   SheetContent,
@@ -392,6 +393,37 @@ function tituloDaPendencia(estado: string, quinzena: 1 | 2): string {
 }
 
 /**
+ * QUAL GESTO ESTA PENDÊNCIA OFERECE — a decisão, fora do JSX para ser testada.
+ *
+ * Três respostas, e a do meio é a que faltava:
+ *
+ * - `ASSOCIAR` — há candidata e a quinzena está aberta: um clique resolve.
+ * - `REABRIR` — há candidata e a quinzena está **encerrada**. Associar agora é
+ *   recusado pelo servidor de propósito (o devido congelado mudaria de número),
+ *   e o único caminho é destravar o período com motivo escrito. Antes esta
+ *   resposta era só uma frase, e a frase mandava fazer numa outra tela uma
+ *   coisa que ela não dizia onde ficava.
+ * - `NENHUM` — não há competência aberta para a quinzena, ou não há candidata
+ *   nenhuma. Aqui o conserto não é um clique: é digitar a aba Cadastro da
+ *   vigência, ou igualar os dois códigos. `conserto` já explica qual, e
+ *   oferecer um botão seria oferecer o botão errado.
+ *
+ * **A ordem importa e não é a que parece.** `podeAssociar` só é perguntada
+ * depois de haver candidata: uma quinzena encerrada cujo cadastro parou por
+ * falta de linha obrigatória não precisa reabrir competência alguma — o
+ * cadastro vive em Remuneração, por vigência, e o encerramento não o congela.
+ * Oferecer "reabrir" ali mandaria descongelar a prova de uma cobrança para
+ * resolver um problema que está fora dela.
+ */
+export function gestoDaPendencia(
+  contrato: Pick<ContratoFaltante, "competenciaId" | "sugestoes" | "podeAssociar">,
+): "ASSOCIAR" | "REABRIR" | "NENHUM" {
+  if (contrato.competenciaId === null) return "NENHUM";
+  if (contrato.sugestoes.length === 0) return "NENHUM";
+  return contrato.podeAssociar ? "ASSOCIAR" : "REABRIR";
+}
+
+/**
  * A pendência de contrato de uma quinzena — com o gesto, quando ele existe.
  *
  * **A frase e o botão passaram a viajar juntos.** O texto sempre disse "associe
@@ -401,6 +433,8 @@ function tituloDaPendencia(estado: string, quinzena: 1 | 2): string {
  * numa tela sem nada em que clicar.
  */
 function ContratoQueFalta({ contrato }: { contrato: ContratoFaltante }) {
+  const gesto = gestoDaPendencia(contrato);
+
   return (
     <>
       <span className="font-medium text-foreground">
@@ -427,28 +461,48 @@ function ContratoQueFalta({ contrato }: { contrato: ContratoFaltante }) {
         </span>
       )}
 
-      {contrato.sugestoes.length > 0 &&
-        (contrato.podeAssociar ? (
-          <span className="mt-1 block">
-            <AssociarUnidade
-              sugestoes={contrato.sugestoes}
-              quinzena={contrato.quinzena}
-              competenciaId={contrato.competenciaId}
-            />
-          </span>
-        ) : (
-          /*
-            A encerrada não recebe o botão, e a razão é dita: associar faria o
-            Resumo recalcular o devido, e uma quinzena congelada que muda de
-            número é o que o encerramento existe para impedir. Oferecer um botão
-            que o servidor vai recusar seria pior do que não oferecer nenhum.
-          */
+      {gesto === "ASSOCIAR" && (
+        <span className="mt-1 block">
+          <AssociarUnidade
+            sugestoes={contrato.sugestoes}
+            quinzena={contrato.quinzena}
+            competenciaId={contrato.competenciaId}
+          />
+        </span>
+      )}
+
+      {/*
+        A encerrada continua sem o botão de associar — e ganha o de reabrir.
+
+        A regra não afrouxou: associar faria o Resumo recalcular o devido, e uma
+        quinzena congelada que muda de número é o que o encerramento existe para
+        impedir. O que mudou é que a frase deixou de ser um beco. Ela mandava
+        reabrir "com motivo" e não dizia onde; o formulário morava na tela da
+        competência e na linha de Importações, e quem estava aqui — olhando a
+        coluna em branco que a falta produz — tinha de adivinhar que o caminho
+        era sair desta tela, achar a quinzena certa entre as duas e voltar.
+
+        É a mesma correção que `AssociarUnidade` já recebeu, pelo mesmo motivo:
+        a instrução e o gesto passam a viajar juntos. O formulário é o mesmo
+        componente das outras três telas — recolhido, porque reabrir descongela
+        a prova de uma cobrança e não é rotina —, então continua havendo uma
+        opinião só sobre o que destrava um período fechado.
+      */}
+      {gesto === "REABRIR" && contrato.competenciaId && (
+        <>
           <span className="mt-1 block">
             Esta quinzena está <strong>encerrada</strong>: associar a unidade faria o devido
-            dela ser recalculado, e é isso que o encerramento impede. Reabra-a com motivo
-            para poder associar.
+            dela ser recalculado, e é isso que o encerramento impede. Reabra-a com motivo —
+            o botão de associar aparece aqui mesmo, na leitura seguinte.
           </span>
-        ))}
+          <span className="mt-1.5 block">
+            <ReabrirQuinzena
+              competencia={{ id: contrato.competenciaId }}
+              rotulo={`Reabrir a ${contrato.quinzena}ª quinzena`}
+            />
+          </span>
+        </>
+      )}
     </>
   );
 }

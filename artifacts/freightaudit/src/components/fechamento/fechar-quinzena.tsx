@@ -59,7 +59,7 @@ export function motivoAceito(texto: string): boolean {
 }
 
 /**
- * O que uma mudança de estado da competência invalida — sempre as três chaves.
+ * O que uma mudança de estado da competência invalida — e por que o Resumo entrou.
  *
  * O estado aparece na tela da competência, em Importações, em Apurações e nas
  * duas da Visão Gerencial, e todas as outras leem
@@ -67,11 +67,35 @@ export function motivoAceito(texto: string): boolean {
  * reabrir sem invalidá-las deixaria a mesma quinzena "Apurada" numa aba e
  * "Encerrada" na outra, que é a forma mais barata de fazer alguém desconfiar do
  * número certo.
+ *
+ * **`["fechamento", "resumo"]` faltava, e passou a fazer falta de verdade.** O
+ * encerramento não muda só um rótulo: ele é o que decide se a caixa de
+ * pendências do Resumo oferece o botão de associar a unidade ou a frase que
+ * explica por que não pode (ver `podeAssociar`, em `afericao.ts`). Agora que a
+ * reabertura também é oferecida **de dentro daquela caixa**, não invalidar o
+ * resumo faria o gesto parecer não ter acontecido: a competência reabriria no
+ * banco e a caixa continuaria dizendo "esta quinzena está encerrada", com o
+ * botão de associar sem aparecer, até alguém recarregar a página. Um botão que
+ * funciona e parece não funcionar é pior do que um botão ausente.
+ *
+ * Exportada, e não escrita dentro do `useMutation`, para que o teste exercite a
+ * lista que o produto usa em vez de uma cópia dela.
  */
+export function chavesDeUmaMudancaDeEstado(
+  competenciaId: string,
+): readonly (readonly string[])[] {
+  return [
+    chaveDaCompetencia(competenciaId),
+    ["fechamento", "competencias"],
+    ["fechamento", "apuracoes"],
+    ["fechamento", "resumo"],
+  ];
+}
+
 function atualizarFechamento(cliente: QueryClient, competenciaId: string): void {
-  void cliente.invalidateQueries({ queryKey: chaveDaCompetencia(competenciaId) });
-  void cliente.invalidateQueries({ queryKey: ["fechamento", "competencias"] });
-  void cliente.invalidateQueries({ queryKey: ["fechamento", "apuracoes"] });
+  for (const queryKey of chavesDeUmaMudancaDeEstado(competenciaId)) {
+    void cliente.invalidateQueries({ queryKey });
+  }
 }
 
 /**
@@ -96,13 +120,19 @@ function atualizarFechamento(cliente: QueryClient, competenciaId: string): void 
  * **A competência volta para APURADA, não para ABERTA** (ver
  * `reabrirCompetencia`): a apuração que estava lá continua valendo, e é contra
  * ela que se compara o que mudar depois do arquivo novo entrar.
+ *
+ * **Pede o `id`, e não a competência inteira.** O ato precisa de uma coisa só —
+ * a linha a destravar —, e quem o chama nem sempre tem a competência carregada:
+ * a caixa de pendências do Resumo conhece a quinzena pelo `competenciaId` que
+ * o diagnóstico carrega, e buscar o objeto inteiro só para satisfazer um tipo
+ * seria uma ida ao servidor para não usar nada do que voltasse.
  */
 export function ReabrirQuinzena({
   competencia,
   iniciaAberto = false,
   rotulo = "Reabrir a quinzena",
 }: {
-  competencia: Competencia;
+  competencia: Pick<Competencia, "id">;
   /** No painel de fechamento o formulário já vem aberto: reabrir é o assunto dele. */
   iniciaAberto?: boolean;
   /** O que o botão promete, quando o bloco começa recolhido. */

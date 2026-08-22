@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { faixa, motivoDaFalta, percentual, temPendenciaAMostrar } from "../selos-de-afericao";
-import type { Aferibilidade, FonteFaltante } from "@/lib/fechamento";
+import {
+  faixa,
+  gestoDaPendencia,
+  motivoDaFalta,
+  percentual,
+  temPendenciaAMostrar,
+} from "../selos-de-afericao";
+import type { Aferibilidade, ContratoFaltante, FonteFaltante } from "@/lib/fechamento";
 
 /**
  * OS SELOS — o que a tela decide sobre um número que ela não calcula.
@@ -146,5 +152,66 @@ describe("a caixa de pendências olha as duas ausências, não só os relatório
       listar. Uma caixa vazia com título seria pior que nenhuma.
     */
     expect(temPendenciaAMostrar(base({}))).toBe(false);
+  });
+});
+
+/**
+ * QUAL GESTO A PENDÊNCIA OFERECE — e o beco que ela deixou de ser.
+ *
+ * O caso real: julho/2026, ROTA, `CDD Belém`. A 2ª quinzena estava **encerrada**
+ * e sem unidade associada; a caixa dizia "reabra-a com motivo para poder
+ * associar" e não havia, nesta tela, nada que reabrisse. O botão de associar
+ * estava corretamente escondido — o servidor recusa associar competência
+ * encerrada, de propósito —, mas o gesto que destrava morava em outras três
+ * telas, e nenhuma delas era esta. Instrução sem gesto é o mesmo que instrução
+ * nenhuma, e custa horas de quem procura.
+ *
+ * O que se prova aqui é a decisão de qual dos dois botões aparece, e o silêncio
+ * quando nenhum dos dois é o conserto certo.
+ */
+describe("gestoDaPendencia", () => {
+  const sugestao = { id: "u1", nome: "CDD BELEM", cnpj: "11177288000190" };
+  const pendencia = (parcial: Partial<ContratoFaltante>): ContratoFaltante => ({
+    quinzena: 2,
+    estado: "UNIDADE_SEM_CADASTRO",
+    problema: null,
+    conserto: null,
+    competenciaId: "c2",
+    sugestoes: [sugestao],
+    faltam: [],
+    podeAssociar: true,
+    ...parcial,
+  });
+
+  it("quinzena aberta com candidata: o clique resolve", () => {
+    expect(gestoDaPendencia(pendencia({}))).toBe("ASSOCIAR");
+  });
+
+  it("quinzena encerrada com candidata: reabrir é o gesto, e ele é oferecido", () => {
+    /*
+      A regressão que esta linha prende. Enquanto a resposta era "nenhum", a
+      caixa mandava reabrir e não dizia onde — e o encerramento, que existe para
+      impedir que um devido congelado mude de número, virava um beco sem saída
+      em vez de um passo com motivo escrito.
+    */
+    expect(gestoDaPendencia(pendencia({ podeAssociar: false }))).toBe("REABRIR");
+  });
+
+  it("sem candidata não há botão, encerrada ou não — o conserto é outro", () => {
+    /*
+      Cadastro que parou por linha obrigatória em branco não se resolve
+      descongelando a competência: a aba vive em Remuneração, por vigência, e o
+      encerramento não a congela. Oferecer "reabrir" aqui mandaria destravar a
+      prova de uma cobrança para consertar coisa que está fora dela.
+    */
+    expect(gestoDaPendencia(pendencia({ sugestoes: [] }))).toBe("NENHUM");
+    expect(gestoDaPendencia(pendencia({ sugestoes: [], podeAssociar: false }))).toBe("NENHUM");
+  });
+
+  it("sem competência aberta não há o que associar nem o que reabrir", () => {
+    expect(gestoDaPendencia(pendencia({ competenciaId: null }))).toBe("NENHUM");
+    expect(gestoDaPendencia(pendencia({ competenciaId: null, podeAssociar: false }))).toBe(
+      "NENHUM",
+    );
   });
 });
