@@ -12,6 +12,7 @@ import {
   classificar,
   contar,
   ehDeclarado,
+  medirAtributo,
   ORDEM_DA_CRITICIDADE,
   ORDEM_DO_ESTADO,
   type Contagem,
@@ -471,59 +472,43 @@ export function medirCelula(entrada: {
     if (entrada.dispensados.has(esperado.attributeCode)) continue;
 
     const observado = porCodigo.get(esperado.attributeCode);
-    const presentesBrutos = observado?.comValor ?? 0;
     /*
-      A expectativa sobe quando a realidade a supera, e nunca desce.
+      A aritmética de um atributo mora em `medirAtributo`, e não aqui.
 
-      O esperado inferido do histórico é um **piso**: "veio para 100 carretas
-      nas vigências anteriores". Se a vigência de hoje traz 144, não faltou
-      nada — o universo cresceu. Sem este `max`, o numerador passava o
-      denominador e a célula exibia 144% de cobertura, que é o tipo de número
-      que faz o leitor deixar de acreditar na tela inteira. Foi um teste do
-      cenário de arquivos complementares que o encontrou.
-
-      Para uma expectativa declarada por contrato isto é inócuo: lá o esperado
-      já é o total de entidades do equipamento, e nada pode superá-lo.
+      Ela é a mesma que a matriz de atributos mostra linha a linha — o piso da
+      expectativa, o não aplicável saindo dos dois lados da fração, a
+      classificação do estado. Enquanto ela morava neste laço, o drill-down por
+      atributo só podia refazê-la, e duas aritméticas para a mesma pergunta são
+      como a tela acaba mostrando 88,1% na célula e um atributo completo dentro
+      dela que a célula conta como lacuna.
     */
-    const esperadas = Math.max(
-      esperado.entidadesEsperadas,
-      presentesBrutos + (observado?.naoAplicaveis ?? 0),
-    );
-    /*
-      O não aplicável sai dos dois lados da fração. Deixá-lo no denominador
-      faria uma dispensa legítima derrubar o percentual; tirá-lo só do
-      numerador faria o contrário. A única forma de ele não mexer no resultado é
-      sair de ambos — que é o que "não aplicável" quer dizer.
-    */
-    const naoAplicaveis = observado?.naoAplicaveis ?? 0;
-    const presentes = presentesBrutos;
-    const faltando = Math.max(0, esperadas - presentes - naoAplicaveis);
+    const medida = medirAtributo({ esperado, observado });
 
-    combinacoesEsperadas += esperadas;
-    combinacoesEncontradas += presentes;
-    combinacoesNaoAplicaveis += naoAplicaveis;
-    if (presentes > 0) atributosEncontrados++;
+    combinacoesEsperadas += medida.entidadesEsperadas;
+    combinacoesEncontradas += medida.entidadesPresentes;
+    combinacoesNaoAplicaveis += medida.naoAplicaveis;
+    if (medida.entidadesPresentes > 0) atributosEncontrados++;
 
     const critico = esperado.criticidade === "CRITICO";
     if (critico) {
       atributosCriticos++;
-      criticasEsperadas += esperadas;
-      criticasEncontradas += presentes;
-      criticasNaoAplicaveis += naoAplicaveis;
-      if (presentes > 0) atributosCriticosEncontrados++;
+      criticasEsperadas += medida.entidadesEsperadas;
+      criticasEncontradas += medida.entidadesPresentes;
+      criticasNaoAplicaveis += medida.naoAplicaveis;
+      if (medida.entidadesPresentes > 0) atributosCriticosEncontrados++;
     }
 
-    if (faltando === 0) continue;
+    if (medida.entidadesFaltando === 0) continue;
 
     lacunas.push({
       attributeCode: esperado.attributeCode,
       attributeLabel: observado?.attributeLabel ?? esperado.attributeCode,
       entityType: esperado.entityType,
-      estado: presentes === 0 ? "AUSENTE" : "PARCIAL",
+      estado: medida.estado,
       criticidade: esperado.criticidade,
-      entidadesEsperadas: esperadas,
-      entidadesPresentes: presentes,
-      entidadesFaltando: faltando,
+      entidadesEsperadas: medida.entidadesEsperadas,
+      entidadesPresentes: medida.entidadesPresentes,
+      entidadesFaltando: medida.entidadesFaltando,
       justificativa: esperado.justificativa,
       possivelSucessor: null,
     });

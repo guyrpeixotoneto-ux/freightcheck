@@ -14,6 +14,7 @@ import type {
   CelulaDaMatriz,
   Criticidade,
   Lacuna,
+  LinhaDaMatriz,
   VisaoDaCobertura,
 } from "@/components/cobertura/tipos";
 import { fetchJson } from "@/lib/api";
@@ -61,7 +62,22 @@ export default function Dados() {
   const [vigencias, setVigencias] = useState(6);
   const [criticidade, setCriticidade] = useState<Criticidade | "TODAS">("TODAS");
   const [equipamento, setEquipamento] = useState<string>("TODOS");
-  const [celula, setCelula] = useState<{ snapshotId: string; entityType: string } | null>(null);
+  /*
+    A célula aberta guarda também a chave da linha dela.
+
+    Ela é o que liga o painel de detalhe de volta à matriz: "ver os atributos
+    deste conjunto" precisa dizer **qual** linha explodir, e a linha é
+    (família · equipamento · escopo · canal), não a vigência. Derivar isso do
+    `snapshotId` obrigaria a tela a reabrir a resposta para descobrir a que
+    linha a célula pertencia — informação que ela já tinha na mão no clique.
+  */
+  const [celula, setCelula] = useState<{
+    snapshotId: string;
+    entityType: string;
+    linhaChave: string;
+  } | null>(null);
+  /** A linha aberta por dentro — uma de cada vez, pela chave da linha. */
+  const [atributosDe, setAtributosDe] = useState<string | null>(null);
   const [lacuna, setLacuna] = useState<{ snapshotId: string; attributeCode: string } | null>(
     null,
   );
@@ -229,6 +245,7 @@ export default function Dados() {
             <Matriz
               colunas={consulta.data.colunas}
               linhas={consulta.data.linhas}
+              vigencias={vigencias}
               selecionada={celula}
               aoSelecionar={(c: CelulaDaMatriz) => {
                 setLacuna(null);
@@ -236,15 +253,39 @@ export default function Dados() {
                   celula?.snapshotId === c.vigencia.snapshotId &&
                     celula.entityType === c.entityType
                     ? null
-                    : { snapshotId: c.vigencia.snapshotId, entityType: c.entityType },
+                    : {
+                        snapshotId: c.vigencia.snapshotId,
+                        entityType: c.entityType,
+                        linhaChave: `${c.datasetFamily}|${c.entityType}|${c.scopeHash}|${c.canal}`,
+                      },
                 );
               }}
+              expandida={atributosDe}
+              aoExpandir={(l: LinhaDaMatriz) =>
+                setAtributosDe(atributosDe === l.chave ? null : l.chave)
+              }
+              aoAbrirLacuna={setLacuna}
             />
 
             {celula && (
               <DetalheDaCelulaPainel
                 snapshotId={celula.snapshotId}
                 entityType={celula.entityType}
+                atributosAbertos={atributosDe === celula.linhaChave}
+                aoVerAtributos={() => {
+                  const chave = celula.linhaChave;
+                  setAtributosDe(atributosDe === chave ? null : chave);
+                  /*
+                    A matriz fica acima do painel, e explodir uma linha que ficou
+                    fora da tela é o mesmo que não explodir nada. O `scroll` é o
+                    que faz o botão parecer ter feito alguma coisa.
+                  */
+                  if (atributosDe !== chave) {
+                    document
+                      .getElementById("matriz-de-cobertura")
+                      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+                  }
+                }}
                 aoFechar={() => {
                   setCelula(null);
                   setLacuna(null);

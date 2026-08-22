@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classificar, contar } from "../modelo";
+import { classificar, contar, medirAtributo } from "../modelo";
 import { medirCelula } from "../matriz";
 import {
   MINIMO_DE_VIGENCIAS,
@@ -600,5 +600,143 @@ describe("o universo declarado", () => {
       const naDRE = linha.evidencia.entraNaDRE as boolean;
       expect(linha.criticidade).toBe(naDRE ? "RELEVANTE" : "INFORMATIVO");
     }
+  });
+});
+
+/**
+ * O átomo da cobertura: um atributo, numa vigência.
+ *
+ * `medirAtributo` é a função que `medirCelula` soma para chegar ao percentual
+ * da célula e que a matriz de atributos mostra linha a linha. As provas abaixo
+ * exercitam as duas propriedades de que as duas telas dependem: que a conta seja
+ * a mesma nos dois usos, e que os quatro sentidos de "não tem valor" — ausente,
+ * vazio, não aplicável e dispensado — continuem sendo quatro coisas diferentes.
+ */
+describe("a conta de um atributo só", () => {
+  it("é a mesma que a célula soma — a soma das linhas fecha com o total", () => {
+    const esperados = [
+      esperado("cavalo.seguro", "CAVALO", 144, "CRITICO"),
+      esperado("cavalo.ipva", "CAVALO", 144),
+      esperado("cavalo.pneus", "CAVALO", 144),
+    ];
+    const observados = [
+      observado("cavalo.seguro", "CAVALO", 73),
+      observado("cavalo.ipva", "CAVALO", 144),
+      observado("cavalo.pneus", "CAVALO", 0),
+    ];
+
+    const celula = medirCelula({
+      esperados,
+      observados,
+      dispensados: new Set(),
+      entidadesNaVigencia: 144,
+    });
+
+    const porAtributo = esperados.map((e) =>
+      medirAtributo({
+        esperado: e,
+        observado: observados.find((o) => o.attributeCode === e.attributeCode),
+      }),
+    );
+
+    expect(porAtributo.reduce((s, m) => s + m.entidadesEsperadas, 0)).toBe(
+      celula.conta.combinacoesEsperadas,
+    );
+    expect(porAtributo.reduce((s, m) => s + m.entidadesPresentes, 0)).toBe(
+      celula.conta.combinacoesEncontradas,
+    );
+    /* E o estado de cada linha é o mesmo que a lacuna da célula declarou. */
+    for (const lacuna of celula.lacunas) {
+      const medida = porAtributo[esperados.findIndex((e) => e.attributeCode === lacuna.attributeCode)];
+      expect(medida!.estado).toBe(lacuna.estado);
+      expect(medida!.entidadesFaltando).toBe(lacuna.entidadesFaltando);
+    }
+  });
+
+  it("separa a coluna que não veio da coluna que veio vazia", () => {
+    const naoVeio = medirAtributo({
+      esperado: esperado("cavalo.seguro", "CAVALO", 144),
+    });
+    expect(naoVeio.estado).toBe("AUSENTE");
+    expect(naoVeio.noLayout).toBe(false);
+    expect(naoVeio.entidadesFaltando).toBe(144);
+
+    const veioVazia = medirAtributo({
+      esperado: esperado("cavalo.seguro", "CAVALO", 144),
+      observado: observado("cavalo.seguro", "CAVALO", 0, { vazias: 144 }),
+    });
+    expect(veioVazia.estado).toBe("AUSENTE");
+    expect(veioVazia.noLayout).toBe(true);
+    expect(veioVazia.entidadesVazias).toBe(144);
+    expect(veioVazia.entidadesFaltando).toBe(144);
+  });
+
+  it("o não aplicável sai dos dois lados e não derruba o percentual", () => {
+    const medida = medirAtributo({
+      esperado: esperado("carreta.eixo_extra", "CARRETA", 76),
+      observado: observado("carreta.eixo_extra", "CARRETA", 40, {
+        vazias: 36,
+        naoAplicaveis: 36,
+      }),
+    });
+    expect(medida.entidadesFaltando).toBe(0);
+    expect(medida.percentual).toBe(100);
+    expect(medida.estado).toBe("COMPLETO");
+  });
+
+  /*
+    Uma dispensa não pode virar cobrança porque o dado chegou assim mesmo — é o
+    oposto do que dispensar quer dizer, e é o modo de falhar que faria a tela
+    cobrar exatamente o que uma pessoa decidiu não cobrar.
+  */
+  it("o dispensado não cobra nada, mesmo com o dado chegando", () => {
+    const medida = medirAtributo({
+      esperado: esperado("cavalo.campo_morto", "CAVALO", 144),
+      observado: observado("cavalo.campo_morto", "CAVALO", 12),
+      dispensado: true,
+    });
+    expect(medida.estado).toBe("NAO_APLICAVEL");
+    expect(medida.entidadesFaltando).toBe(0);
+    expect(medida.esperado).toBe(false);
+    expect(medida.dispensado).toBe(true);
+  });
+
+  /*
+    O que chegou para toda a frota não é esperado por inferência nenhuma — a
+    regra estrutural exige presença **abaixo** de 100%. Mostrar só o esperado o
+    esconderia justo na tabela feita para dizer o que existe.
+  */
+  it("o que chegou sem ninguém cobrar aparece completo, e não como lacuna", () => {
+    const medida = medirAtributo({
+      observado: observado("cavalo.campo_novo", "CAVALO", 144),
+    });
+    expect(medida.estado).toBe("COMPLETO");
+    expect(medida.esperado).toBe(false);
+    expect(medida.entidadesFaltando).toBe(0);
+    expect(medida.entidadesEsperadas).toBe(144);
+  });
+
+  it("a estreia é marcada como novo, e vem de fora", () => {
+    const medida = medirAtributo({
+      observado: observado("cavalo.campo_novo", "CAVALO", 144),
+      novo: true,
+    });
+    expect(medida.estado).toBe("NOVO");
+    expect(medida.novo).toBe(true);
+  });
+
+  /*
+    O piso do esperado é o que já chegou. Sem ele, um atributo que veio para 144
+    cavalos quando o histórico esperava 100 exibiria 144%, que é o tipo de
+    número que faz quem lê parar de acreditar na tela inteira.
+  */
+  it("nunca passa de 100% quando a realidade supera a expectativa", () => {
+    const medida = medirAtributo({
+      esperado: esperado("cavalo.seguro", "CAVALO", 100),
+      observado: observado("cavalo.seguro", "CAVALO", 144),
+    });
+    expect(medida.percentual).toBe(100);
+    expect(medida.entidadesEsperadas).toBe(144);
+    expect(medida.entidadesFaltando).toBe(0);
   });
 });
