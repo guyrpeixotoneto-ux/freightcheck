@@ -213,16 +213,32 @@ describe("a série inteira", () => {
 
   /**
    * Maio/2026 é a vigência em que a frota se mexeu, e é ela que exercita o que
-   * só a visão de conjunto enxerga: **cinco cavalos trocaram de carreta**, e
-   * quatro conjuntos saíram da frota. Nenhuma das duas coisas aparece na ficha
-   * do cavalo nem na da carreta, porque nenhuma das duas vê o outro lado.
+   * só a visão de conjunto enxerga: **cinco cavalos trocaram de carreta.**
+   *
+   * Este teste também afirmava que quatro conjuntos "saíram da frota" e
+   * apareciam como linha — 75 linhas para 71 conjuntos. Não aparecem mais, e a
+   * mudança é a mesma da aba de cavalos, pela mesma razão: a Composição
+   * responde "o que veio nesta vigência", e um conjunto que existia em abril e
+   * não existe em maio é uma afirmação sobre o esperado. Ela tem dono — a
+   * Cobertura, que olha a série inteira e respeita a baixa declarada em
+   * Curadoria —, e tê-la aqui dava à aba um horizonte de um mês que ninguém
+   * declarou e que a tela não dizia ter.
+   *
+   * As duas abas obedecendo à mesma definição de presença é o ponto: enquanto
+   * uma dizia "recebido" e a outra "recebido + saiu", o mesmo conjunto podia
+   * estar em uma e não na outra sem que nada explicasse a diferença.
+   *
+   * A troca de carreta continua inteira — ela é sobre quem **está** aqui, e
+   * `materialAnterior` continua sendo lido para calculá-la.
    */
-  it("vê a troca de carreta e a saída de conjunto em maio/2026", async () => {
+  it("vê a troca de carreta em maio/2026, e não lista quem saiu", async () => {
     const vigencia = agosto.vigencias.find((v) => v.periodLabel === "maio/2026")!;
     const maio = (await getVisaoDeConjuntos(ctx.db, { period: vigencia.effectiveDate }))!;
     expect(maio.resumo.trocaramDeCarreta).toBe(5);
     expect(maio.resumo.conjuntos).toBe(71);
-    expect(maio.linhas).toHaveLength(75);
+
+    /* Uma linha por conjunto desta vigência — nem uma a mais. */
+    expect(maio.linhas).toHaveLength(71);
 
     const trocaram = maio.linhas.filter((l) => l.carretaAnterior !== null);
     expect(trocaram).toHaveLength(5);
@@ -231,12 +247,34 @@ describe("a série inteira", () => {
       expect(linha.status.motivos.join(" ")).toContain("trocou de carreta");
     }
 
-    const sairam = maio.linhas.filter((l) => !l.presente);
-    expect(sairam).toHaveLength(4);
-    for (const linha of sairam) {
-      expect(linha.status.farol).toBe("INCOMPLETO");
-      expect(linha.status.motivos.join(" ")).toContain("saiu da frota");
-    }
+    /* Nenhuma linha herdada da vigência anterior: ninguém "saiu da frota" aqui. */
+    expect(maio.linhas.some((l) => l.status.motivos.join(" ").includes("saiu da frota"))).toBe(
+      false,
+    );
+  }, 120_000);
+
+  /**
+   * A frota encolhe e o dinheiro não some junto.
+   *
+   * Esta é a prova de que remover as linhas herdadas não mexeu em nenhum
+   * número: os quatro conjuntos que saíram nunca somaram no declarado nem no
+   * apurado — eles entravam com todos os valores nulos —, então o total de maio
+   * é o mesmo antes e depois, e continua sendo a soma **do que veio em maio**.
+   *
+   * O que muda é só a contagem de linhas, e ela passou a bater com a contagem
+   * de conjuntos. Antes eram 75 linhas para 71 conjuntos, e a diferença de
+   * quatro não tinha explicação na tela.
+   */
+  it("a saída de conjuntos não é lida como queda de remuneração", async () => {
+    const vigencia = agosto.vigencias.find((v) => v.periodLabel === "maio/2026")!;
+    const maio = (await getVisaoDeConjuntos(ctx.db, { period: vigencia.effectiveDate }))!;
+
+    expect(maio.linhas).toHaveLength(maio.resumo.conjuntos);
+    /* Todo total do resumo é a soma das linhas que estão na lista. */
+    const declarado = maio.linhas.reduce((s, l) => s + (l.declarado ?? 0), 0);
+    expect(maio.resumo.declaradoTotal).toBeCloseTo(Number(declarado.toFixed(2)), 2);
+    /* E toda linha conferida tem as duas pontas — nenhuma entra sem valor. */
+    expect(maio.resumo.conferidos).toBe(maio.resumo.conjuntos);
   }, 120_000);
 
   it("não inventa variação na primeira vigência da série", async () => {

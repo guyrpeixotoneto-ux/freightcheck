@@ -38,7 +38,12 @@ beforeAll(async () => {
     aqui é necessariamente um que o produto sabe apurar.
   */
   const frota = (await getVisaoDeFrota(ctx.db, "CAVALO", { period: AGOSTO }))!;
-  const cavalo = frota.linhas.find((l) => l.placa !== null && l.presente);
+  /*
+    Sem `&& l.presente`: a lista da Composição passou a ser só o que veio na
+    vigência, então toda linha daqui já é de um cavalo presente — ver o campo
+    ausente em `LinhaDaFrota`.
+  */
+  const cavalo = frota.linhas.find((l) => l.placa !== null);
   if (!cavalo) throw new Error("o export real não trouxe cavalo com placa nesta vigência");
   placaDoCavalo = cavalo.placa!;
   consultaDeCavalo = (await remuneradoDaPlaca(ctx.db, placaDoCavalo, { period: AGOSTO }))!;

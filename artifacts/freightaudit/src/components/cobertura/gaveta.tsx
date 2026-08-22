@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle } from "lucide-react";
+import { Link } from "wouter";
 import {
   Sheet,
   SheetContent,
@@ -16,8 +17,10 @@ import {
   percentual,
   type AberturaDoAtributo,
   type DetalheDaLacuna,
+  type EntidadeAusente,
   type PontoDoHistorico,
 } from "./tipos";
+import { caminhoDaFicha, tituloDaPlacaAusente } from "./ficha-da-entidade";
 
 /**
  * A gaveta de uma célula da tabela de atributos.
@@ -368,6 +371,33 @@ function PorQue({ detalhe }: { detalhe: DetalheDaLacuna }) {
 }
 
 /**
+ * A placa ausente, clicável.
+ *
+ * O destino e a frase vêm de `ficha-da-entidade.ts`, que é onde a regra mora —
+ * o detalhe da célula oferece a mesma travessia e tem de oferecer a mesma.
+ */
+function LinkParaAFicha({
+  ausente,
+  vigencia,
+}: {
+  ausente: EntidadeAusente;
+  vigencia: DetalheDaLacuna["vigencia"];
+}) {
+  return (
+    <Link
+      href={caminhoDaFicha(ausente, vigencia)}
+      title={tituloDaPlacaAusente(ausente)}
+      className={cn(
+        "block text-xs px-2 py-1 border font-mono transition-colors",
+        "border-brand-red/40 bg-brand-red/5 hover:bg-brand-red/10 hover:border-brand-red",
+      )}
+    >
+      {ausente.rotulo}
+    </Link>
+  );
+}
+
+/**
  * Quem ficou sem o dado — em duas listas, porque são dois problemas.
  *
  * O equipamento que veio na vigência e não trouxe número é um problema da
@@ -464,12 +494,8 @@ function SemODado({ detalhe }: { detalhe: DetalheDaLacuna }) {
           </p>
           <ul className="mt-2 flex flex-wrap gap-1.5">
             {detalhe.entidadesAusentes.map((e) => (
-              <li
-                key={e.entityId}
-                className="text-xs px-2 py-1 border border-brand-red/40 bg-brand-red/5 font-mono"
-                title={`Apareceu em ${numero(e.vigenciasComDado)} vigência(s) anterior(es); a última foi ${e.ultimaVigencia}.`}
-              >
-                {e.rotulo}
+              <li key={e.entityId}>
+                <LinkParaAFicha ausente={e} vigencia={detalhe.vigencia} />
               </li>
             ))}
           </ul>

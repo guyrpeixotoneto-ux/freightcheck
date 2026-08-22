@@ -65,7 +65,7 @@ export interface LinhaDaFrota {
   operacao: string | null;
   effectiveDate: string;
   periodLabel: string;
-  presente: boolean;
+  /* Sem `presente`: toda linha desta lista veio na vigência — ver `lib/composition/src/frota.ts`. */
   mensal: number | null;
   componentes: number;
   semRegraFinanceira: number;
@@ -156,7 +156,7 @@ export interface LinhaDoConjunto {
   natureza: NaturezaDoVinculo;
   explicacaoDoVinculo: string;
   placaApontada: string | null;
-  presente: boolean;
+  /* Sem `presente`, pela mesma razão de `LinhaDaFrota`. */
   cavalo: LadoDoConjunto | null;
   carreta: LadoDoConjunto | null;
   apurado: number | null;

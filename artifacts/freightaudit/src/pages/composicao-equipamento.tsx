@@ -328,7 +328,26 @@ function AbaComposicao({ composicao }: { composicao: Composicao }) {
         );
       })}
 
-      {composicao.linhas.length === 0 && (
+      {/*
+        Duas ausências, duas frases.
+
+        "Veio e nada pôde ser apurado" e "não veio" são estados diferentes, e a
+        ficha mostrava a primeira frase nos dois casos. Passou a importar quando
+        a Cobertura ganhou link para cá: quem clica numa placa ausente chega
+        numa vigência em que ela pode não existir, e ler "nenhum componente pôde
+        ser apurado com segurança" sugeriria um problema de curadoria onde o
+        fato é que o equipamento não está no arquivo. O histórico logo abaixo
+        diz em quais vigências ele esteve.
+      */}
+      {!composicao.presente && (
+        <p className="text-sm text-muted-foreground bg-card border rounded-md px-6 py-8 text-center">
+          Este equipamento <strong>não veio na vigência {composicao.periodLabel}</strong>. Não é
+          lacuna de apuração: o arquivo deste período não o trouxe. O histórico abaixo mostra
+          em quais vigências ele apareceu.
+        </p>
+      )}
+
+      {composicao.presente && composicao.linhas.length === 0 && (
         <p className="text-sm text-muted-foreground bg-card border rounded-md px-6 py-8 text-center">
           Nenhum componente deste equipamento pôde ser apurado com segurança nesta vigência.
           Os parâmetros continuam abaixo, com o motivo de cada um.
