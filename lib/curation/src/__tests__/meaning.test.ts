@@ -184,6 +184,88 @@ describe("escrever o significado é o passo barato", () => {
   });
 });
 
+/**
+ * A regra de alteração — a terceira frase, e a que não é versionada.
+ *
+ * Ela responde o que as outras duas não respondem: `definition` diz o que a
+ * coluna é, `calculationBasis` diz como o número é produzido hoje, e esta diz o
+ * que faz esse número deixar de ser o que é. Continua sendo prosa, então
+ * continua não movendo `semantics_status` — é o mesmo contrato do arquivo
+ * inteiro, e o que muda é só onde a frase é guardada.
+ */
+describe("a regra de alteração", () => {
+  it("grava em `attribute`, e não na versão da semântica", async () => {
+    const result = await saveMeaning(ctx.db, {
+      code: CODE,
+      changeRule: "Revisão semestral da tabela do fornecedor.",
+      actor: "curador@teste",
+    });
+
+    expect(result.changeRule).toBe("Revisão semestral da tabela do fornecedor.");
+    expect(result.changed).toEqual(["change_rule"]);
+
+    const a = await attribute(CODE);
+    expect(a.changeRule).toBe("Revisão semestral da tabela do fornecedor.");
+  });
+
+  it("não move o status — escrever por que o número muda não destrava dinheiro", async () => {
+    const antes = await attribute(CODE);
+    await saveMeaning(ctx.db, {
+      code: CODE,
+      changeRule: "Reajusta por IPCA na virada do contrato.",
+      actor: "curador@teste",
+    });
+    const depois = await attribute(CODE);
+
+    expect(depois.semanticsStatus).toBe(antes.semanticsStatus);
+    expect(depois.confirmedBy).toBe(antes.confirmedBy);
+    expect(depois.confirmedAt).toEqual(antes.confirmedAt);
+  });
+
+  it("registra o evento com o antes e o depois", async () => {
+    const a = await attribute(CODE);
+    const eventos = await ctx.db
+      .select()
+      .from(curationEventTable)
+      .where(
+        and(
+          eq(curationEventTable.targetId, a.id),
+          eq(curationEventTable.field, "change_rule"),
+        ),
+      );
+
+    expect(eventos.length).toBeGreaterThan(0);
+    const ultimo = eventos.at(-1)!;
+    expect(ultimo.actor).toBe("curador@teste");
+    expect(ultimo.valueAfter).toBe("Reajusta por IPCA na virada do contrato.");
+    expect(ultimo.valueBefore).toBe("Revisão semestral da tabela do fornecedor.");
+    expect(ultimo.reason).toBeNull();
+  });
+
+  it("é a única coisa que a chamada precisa trazer", async () => {
+    // Sozinha ela basta: a recusa de "nada a gravar" conta os quatro campos, e
+    // não os três de antes. Sem isto, a planilha que só preenchesse a regra
+    // seria recusada por um contador que ninguém atualizou.
+    await expect(
+      saveMeaning(ctx.db, {
+        code: CODE,
+        changeRule: "Muda quando a tabela é renegociada.",
+        actor: "curador@teste",
+      }),
+    ).resolves.toMatchObject({ changed: ["change_rule"] });
+  });
+
+  it("em branco é 'não tenho nada a dizer', e limpa", async () => {
+    const result = await saveMeaning(ctx.db, {
+      code: CODE,
+      changeRule: "   ",
+      actor: "curador@teste",
+    });
+    expect(result.changeRule).toBeNull();
+    expect((await attribute(CODE)).changeRule).toBeNull();
+  });
+});
+
 describe("o significado é versionado como o resto da semântica", () => {
   const OUTRO = "cavalo.ipva_licenciamento";
 

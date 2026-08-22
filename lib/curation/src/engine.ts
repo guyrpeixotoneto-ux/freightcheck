@@ -635,6 +635,13 @@ export interface QueueItem {
   /** How the source produces it, from the version in force. */
   calculationBasis: string | null;
   /**
+   * A regra pela qual a coluna muda de valor, escrita por quem a conhece.
+   *
+   * Do atributo, e não da versão: é a regra da mudança, não um valor que muda
+   * com ela. Ver `attribute.change_rule`.
+   */
+  changeRule: string | null;
+  /**
    * O significado econômico gravado, quando há um. `null` em tudo que foi
    * curado antes da autoridade semântica — e a tela o resolve de volta pelos
    * quatro campos técnicos, que continuam sendo a verdade nesses casos.
@@ -688,6 +695,7 @@ export async function getCurationQueue(
       semanticsRationale: attributeTable.semanticsRationale,
       definition: attributeTable.definition,
       calculationBasis: attributeSemanticsTable.calculationBasis,
+      changeRule: attributeTable.changeRule,
       meaningCode: semanticMeaningTable.code,
       meaningLabel: semanticMeaningTable.label,
       taxonomyCode: taxonomyNodeTable.code,

@@ -75,6 +75,7 @@ const ROTULO_DO_CAMPO: Record<string, string> = {
   displayName: "Nome Gerencial",
   definition: "O que é",
   categoria: "Categoria DRE (sintético › analítico)",
+  changeRule: "Regra de Alteração",
 };
 
 /** O arquivo em base64 dentro de JSON — o mesmo caminho da tela de importações. */

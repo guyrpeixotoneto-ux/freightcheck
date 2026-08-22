@@ -467,6 +467,28 @@ export const attributeTable = pgTable(
      * "ninguém decidiu ainda".
      */
     costClass: text("cost_class"),
+    /**
+     * A regra pela qual esta coluna muda de valor, escrita por quem a conhece.
+     *
+     * Texto livre, e pelo mesmo motivo de `calculation_basis`: o vocabulário
+     * das regras de reajuste é da operação do cliente, não nosso. "Revisão
+     * semestral", "reajusta por IPCA na virada do contrato", "muda quando a
+     * Ambev renegocia a tabela" — nenhuma dessas cabe numa lista fechada, e uma
+     * lista fechada faria quem sabe a regra escolher a opção menos errada.
+     *
+     * É prosa, e portanto não move dinheiro: escrevê-la nunca toca
+     * `semantics_status`, exatamente como `definition`. A diferença entre as
+     * três frases desta tabela é a pergunta que cada uma responde —
+     * `definition` diz o que a coluna é, `calculation_basis` diz como o número
+     * é produzido hoje, e esta diz o que faz esse número deixar de ser o que é.
+     *
+     * Fica em `attribute`, e não na versão da semântica, de propósito: é a
+     * regra de mudança, e não um valor que muda com ela. Guardá-la em
+     * `attribute_semantics` faria a planilha de atributos recusar a célula de
+     * toda coluna sem versão — que é o beco em que `calculation_basis` cai, e
+     * que `notWritten` existe para explicar.
+     */
+    changeRule: text("change_rule"),
     /** Only a human writes these two, and only for CONFIRMED. */
     confirmedBy: text("confirmed_by"),
     confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
