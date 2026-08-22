@@ -9,6 +9,7 @@ import {
   detalheDaCelula,
   detalheDaLacuna,
   historicoDoAtributo,
+  matrizDeAtributos,
   provenienciaDoFato,
   refazerAgregado,
   registrarBaixa,
@@ -90,6 +91,44 @@ router.get("/coverage/cell/:snapshotId/:entityType", async (req, res): Promise<v
       req.params.snapshotId,
       req.params.entityType.toUpperCase(),
     ),
+  );
+});
+
+/**
+ * Uma linha da matriz, aberta por dentro: atributo × vigência.
+ *
+ * O degrau que faltava entre a célula e a lacuna. A célula diz quanto falta num
+ * conjunto numa vigência; a lacuna diz quais placas ficaram sem um atributo. No
+ * meio não havia como perguntar **o quê** falta, e desde quando — e é a
+ * pergunta que quem vê três meses seguidos de "88,1%" faz primeiro: é o mesmo
+ * atributo faltando desde junho ou três atributos se revezando?
+ *
+ * Fica fora de `/coverage` pelo mesmo motivo do resto do drill-down: são até
+ * 138 linhas por conjunto, e quase ninguém abre. E recebe o conjunto inteiro
+ * (família, equipamento, escopo e canal) em vez de um `snapshotId` porque a
+ * pergunta atravessa vigências — um identificador de vigência responderia por
+ * uma coluna só, que é justamente o que a célula já faz.
+ */
+router.get("/coverage/attributes", async (req, res): Promise<void> => {
+  const q = req.query as Record<string, unknown>;
+  const datasetFamily = texto(q.familia);
+  const entityType = texto(q.equipamento);
+  const scopeHash = texto(q.escopo);
+  if (!datasetFamily || !entityType || !scopeHash) {
+    res.status(400).json({
+      error:
+        "Diga de qual conjunto: família, equipamento e escopo. A tabela atravessa vigências, e sem o recorte ela misturaria unidades.",
+    });
+    return;
+  }
+  res.json(
+    await matrizDeAtributos(db, {
+      datasetFamily,
+      entityType: entityType.toUpperCase(),
+      scopeHash,
+      canal: texto(q.canal) ?? "",
+      vigencias: numero(q.vigencias, 6, 36),
+    }),
   );
 });
 

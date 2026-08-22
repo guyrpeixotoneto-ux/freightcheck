@@ -399,30 +399,46 @@ mensal entrega, para que a aba `Planilha` seja o mesmo componente nas duas telas
 catálogo dos vinte rótulos sem competência nenhuma. O painel transcrito é o da
 Rota; o do AS existe na planilha e os rótulos dele ainda não foram capturados.
 
-## Os relatórios de cada quinzena — quatro na primeira, seis na segunda
+## Os relatórios de cada quinzena — quatro esperados na primeira, seis na segunda
 
 O catálogo tem seis fontes; **a quinzena decide quantas delas existem**. A
-primeira quinzena fecha com quatro — 2Art, 03.08.15, 03.08.20 e 03.08.18 — e a
-segunda com as seis: as requisições de despesa (03.08.12.09) e a conciliação do
-Promax (03.02.59.02) chegam com o fechamento da segunda.
+primeira quinzena espera quatro — 2Art, 03.08.15, 03.08.20 e 03.08.18 — e a
+segunda espera as seis: a conciliação do Promax (03.02.59.02) é o fecho do mês e
+chega com o fechamento da segunda.
 
-A regra mora em `FONTES_DA_QUINZENA` (`lib/fechamento/src/dominio.ts`), num
-lugar só, e desce por três caminhos:
+**O 03.08.12.09 é o caso do meio, e por isso são duas listas e não uma.** A
+requisição de despesa aprovada entre os dias 1 e 15 sai no relatório *daquela*
+quinzena: ele **pode existir** na primeira. O que não dá para afirmar é o
+contrário — uma quinzena sem requisição aprovada nenhuma não gera arquivo —,
+então nem "é obrigatório" nem "não existe" descrevem o relatório. Ele mora em
+`FONTES_OPCIONAIS_DA_QUINZENA`: **a casinha de envio existe, e a falta dela não
+é pendência.** Antes disso a primeira quinzena não oferecia onde enviá-lo, e o
+complementar dos dias 1 a 15 ficava de fora da conta em silêncio — uma fonte que
+a tela não oferece é uma fonte que ninguém sabe que falta.
 
-1. **A apuração não chama de ausente o que a quinzena não tem.**
-   `fontesAusentes` só nomeia o que é esperado ali. Sem isso, toda primeira
-   quinzena do ano nasceria com duas pendências que ninguém pode resolver — e
-   "falta importar", que é trabalho de alguém, passaria a se confundir com "não
-   há o que importar", que não é.
-2. **A tela pede o que existe.** A competência aberta lista os relatórios da
-   quinzena dela, e o rodapé de "3 de 4 relatórios" tem o denominador certo nas
-   duas metades do mês. Na lista de Apurações, onde as duas convivem na mesma
-   tabela, o recorte é por linha (`fontesDaCompetencia`, em
-   `lib/fechamento.ts` da interface).
+A regra mora em `FONTES_DA_QUINZENA` e `FONTES_OPCIONAIS_DA_QUINZENA`
+(`lib/fechamento/src/dominio.ts`), num lugar só, e desce por três caminhos:
+
+1. **A apuração não chama de ausente o que a quinzena não espera.**
+   `fontesAusentes` só nomeia o que é esperado ali — o opcional que não chegou
+   fica de fora. Sem isso, toda primeira quinzena do ano nasceria com pendências
+   que ninguém pode resolver, e "falta importar", que é trabalho de alguém,
+   passaria a se confundir com "não há o que importar", que não é. O opcional
+   que **chega** entra na conta como qualquer outra fonte: presente é presente.
+2. **A tela oferece o que pode existir e pede o que existe.** São duas listas em
+   `lib/fechamento.ts` da interface: `fontesParaEnviar` desenha as casinhas
+   (esperadas + opcionais + o que já chegou) e `fontesDaCompetencia` é o
+   denominador de "3 de 4 relatórios" (esperadas + o que já chegou). Contar o
+   opcional no denominador faria a primeira quinzena completa dizer "4 de 5"
+   para sempre. Na lista de Apurações, onde as duas metades convivem na mesma
+   tabela, o recorte é por linha.
 3. **O catálogo da API diz em que quinzenas cada fonte entra.**
-   `GET /fechamento/fontes` devolve sempre as seis, cada uma com `quinzenas`;
+   `GET /fechamento/fontes` devolve sempre as seis, cada uma com `quinzenas` (em
+   quais é esperada) e `quinzenasOpcionais` (em quais é admitida sem cobrança);
    quem desenha uma página com quinzenas das duas metades não precisa buscar o
-   catálogo duas vezes.
+   catálogo duas vezes. São dois campos e não um porque mandam em coisas
+   diferentes: um decide se a casinha aparece, o outro se a ausência é
+   pendência.
 
 O que a regra **não** faz é recusar. Uma conciliação enviada a uma primeira
 quinzena é recebida, lida e apurada como qualquer outra fonte — e a tela a
@@ -1068,7 +1084,9 @@ quinzena seguinte começa em branco sem apagar a anterior. Dentro do formulário
   reduz o que a transportadora recebe. É o número que aparece em três lugares.
   E o motivo da reabertura, que em branco não sai daqui.
 - `lib/__tests__/fechamento.test.ts` — o recorte por quinzena: quatro
-  relatórios na primeira e seis na segunda, e o que foi enviado fora da
-  quinzena dele continua na lista (e no denominador). Do lado do motor,
+  relatórios pedidos na primeira e seis na segunda, o 03.08.12.09 oferecido na
+  primeira sem entrar no denominador, e o que foi enviado fora da quinzena dele
+  continua na lista (e nas duas pontas da fração). Do lado do motor,
   `lib/fechamento/src/__tests__/fechamento.test.ts` guarda a outra ponta: a
-  primeira quinzena não nomeia como ausente o que ela não tem.
+  primeira quinzena não nomeia como ausente o que ela não espera, e apura o
+  03.08.12.09 que chegar nela.

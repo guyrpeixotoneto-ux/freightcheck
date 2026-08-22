@@ -259,3 +259,114 @@ export function classificar(
   if (sinais.temNovo) return "NOVO";
   return "COMPLETO";
 }
+
+/**
+ * A conta de **um** atributo, numa vigência — o átomo de que a célula é feita.
+ *
+ * `medirCelula` somava isto em linha, dentro do laço, e por isso a única forma
+ * de saber "como está o `cavalo.seguro` em Jun/26" era refazer a aritmética num
+ * segundo lugar. Um segundo lugar é como um produto acaba dizendo 88,1% na
+ * matriz e listando um atributo completo que a matriz conta como lacuna: os
+ * dois números estariam certos nos seus próprios termos, e a tela estaria
+ * mentindo em um deles.
+ *
+ * A função é pura e serve os dois: a célula soma o que ela devolve, e a matriz
+ * de atributos mostra o que ela devolve, atributo a atributo. Uma definição só.
+ *
+ * **O que cada entrada ausente significa** — e as três são casos reais:
+ *
+ * - sem `esperado` — ninguém cobra este atributo aqui. Ele pode ter chegado
+ *   assim mesmo (o caso do que veio para toda a frota e por isso nem entra na
+ *   inferência estrutural, ver `esperado.ts`), e chegar sem ser cobrado não é
+ *   defeito nenhum.
+ * - sem `observado` — a coluna não veio no layout desta vigência. Diferente de
+ *   ter vindo e não trazer valor, que é `vazias`.
+ * - `dispensado` — há decisão humana registrada. Sai dos dois lados da fração,
+ *   que é o que dispensar quer dizer.
+ */
+export interface MedidaDoAtributo {
+  /** Quantas entidades deveriam ter o dado. Nunca menor do que as que têm. */
+  entidadesEsperadas: number;
+  /** Entidades com valor de verdade. Zero é valor; ausência não é. */
+  entidadesPresentes: number;
+  /** Entidades para as quais a coluna veio e não trouxe número. */
+  entidadesVazias: number;
+  /** Destas, as que declaram NOT_APPLICABLE. Não são lacuna. */
+  naoAplicaveis: number;
+  /** `esperadas - presentes - naoAplicaveis`, nunca negativo. */
+  entidadesFaltando: number;
+  /** `presentes / (esperadas - naoAplicaveis)`, em pontos percentuais. */
+  percentual: number;
+  estado: EstadoDeCobertura;
+  /** Alguma origem cobra este atributo nesta vigência? */
+  esperado: boolean;
+  /** A coluna veio no layout desta vigência? */
+  noLayout: boolean;
+  dispensado: boolean;
+  /** O atributo estreou nesta vigência? Vem de `descobertas`, nunca daqui. */
+  novo: boolean;
+}
+
+export function medirAtributo(entrada: {
+  esperado?: Pick<Esperado, "entidadesEsperadas"> | undefined;
+  observado?:
+    | Pick<Observado, "comValor" | "vazias" | "naoAplicaveis" | "noLayout">
+    | undefined;
+  dispensado?: boolean;
+  novo?: boolean;
+}): MedidaDoAtributo {
+  const presentes = entrada.observado?.comValor ?? 0;
+  const vazias = entrada.observado?.vazias ?? 0;
+  const naoAplicaveis = entrada.observado?.naoAplicaveis ?? 0;
+  const dispensado = entrada.dispensado ?? false;
+  const novo = entrada.novo ?? false;
+
+  /*
+    A expectativa sobe quando a realidade a supera, e nunca desce.
+
+    O esperado inferido do histórico é um **piso**: "veio para 100 carretas nas
+    vigências anteriores". Se a vigência de hoje traz 144, não faltou nada — o
+    universo cresceu. Sem este `max`, o numerador passava o denominador e a
+    célula exibia 144% de cobertura, que é o tipo de número que faz o leitor
+    deixar de acreditar na tela inteira.
+
+    Uma dispensa zera o esperado em vez de somá-lo: uma decisão humana de não
+    cobrar não pode virar cobrança porque o dado chegou assim mesmo.
+  */
+  const entidadesEsperadas = dispensado
+    ? presentes + naoAplicaveis
+    : Math.max(entrada.esperado?.entidadesEsperadas ?? 0, presentes + naoAplicaveis);
+
+  /*
+    A conta e a classificação são as mesmas de qualquer outro recorte — `contar`
+    e `classificar`, sem cópia. Aqui as "combinações" são entidades, porque o
+    recorte é um atributo só: entidades × 1 atributo.
+  */
+  const conta = contar({
+    entidadesEsperadas,
+    entidadesEncontradas: presentes,
+    atributosEsperados: entrada.esperado || dispensado ? 1 : 0,
+    atributosEncontrados: presentes > 0 ? 1 : 0,
+    combinacoesEsperadas: entidadesEsperadas,
+    combinacoesEncontradas: presentes,
+    combinacoesNaoAplicaveis: naoAplicaveis,
+  });
+
+  return {
+    entidadesEsperadas,
+    entidadesPresentes: presentes,
+    entidadesVazias: vazias,
+    naoAplicaveis,
+    entidadesFaltando: Math.max(0, entidadesEsperadas - presentes - naoAplicaveis),
+    percentual: conta.percentual,
+    estado: classificar(conta, {
+      temNovo: novo,
+      temAlterado: false,
+      tudoDispensado: dispensado,
+    }),
+    esperado: entrada.esperado !== undefined && !dispensado,
+    noLayout: entrada.observado?.noLayout ?? false,
+    dispensado,
+    novo,
+  };
+}

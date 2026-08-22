@@ -18,6 +18,7 @@ import { BaixaRecusada, registrarBaixa } from "../frota";
 import { descobertas } from "../descoberta";
 import { detalheDaCelula, detalheDaLacuna, historicoDoAtributo } from "../detalhe";
 import { visaoDaCobertura } from "../matriz";
+import { matrizDeAtributos } from "../atributos";
 import { entidadesDoAtributo, vigenciasObservadas } from "../observado";
 import { contribuintesDaVigencia, provenienciaDoFato } from "../proveniencia";
 
@@ -499,6 +500,138 @@ describe("descoberta sobre o export real", () => {
     expect(achados.length).toBe(138);
     expect(achados.every((a) => a.arquivo !== null)).toBe(true);
     expect(achados.every((a) => a.entidadesAfetadas > 0)).toBe(true);
+  });
+});
+
+/**
+ * A linha da matriz aberta por dentro, sobre o dado real.
+ *
+ * O que estas provas guardam é a promessa que o degrau novo faz: **a soma das
+ * linhas de atributo fecha com o número da célula que as abriu**. Se ela não
+ * fechasse, a tela mostraria 88,1% na célula e uma tabela por dentro dela que
+ * diz outra coisa — e quem lê não teria como saber qual das duas acreditar.
+ */
+describe("a matriz de atributos sobre o export real", () => {
+  it("usa as mesmas colunas da matriz que a abriu", async () => {
+    const visao = await visaoDaCobertura(ctx.db, { vigencias: 9 });
+    const cavalo = visao.linhas.find((l) => l.entityType === "CAVALO")!;
+
+    const aberta = await matrizDeAtributos(ctx.db, {
+      datasetFamily: cavalo.datasetFamily,
+      entityType: cavalo.entityType,
+      scopeHash: cavalo.scopeHash,
+      canal: cavalo.canal,
+      vigencias: 9,
+    });
+
+    expect(aberta.colunas.map((c) => c.chave)).toEqual(visao.colunas.map((c) => c.chave));
+    expect(aberta.conjunto.rotulo).toBe(cavalo.rotulo);
+    expect(aberta.linhas.length).toBeGreaterThan(0);
+  });
+
+  /*
+    A prova central deste degrau.
+
+    A célula é a soma dos atributos esperados dela — é a definição que
+    `medirCelula` usa. Depois de `medirAtributo` existir, as duas telas leem a
+    mesma função, e este teste é o que impede alguém de reintroduzir uma segunda
+    aritmética aqui sem que a suíte reprove.
+  */
+  it("a soma das linhas de atributo é exatamente a conta da célula", async () => {
+    const visao = await visaoDaCobertura(ctx.db, { vigencias: 9 });
+
+    for (const linha of visao.linhas) {
+      const aberta = await matrizDeAtributos(ctx.db, {
+        datasetFamily: linha.datasetFamily,
+        entityType: linha.entityType,
+        scopeHash: linha.scopeHash,
+        canal: linha.canal,
+        vigencias: 9,
+      });
+
+      for (const [chave, celula] of Object.entries(linha.celulas)) {
+        const doPeriodo = aberta.linhas
+          .map((a) => a.celulas[chave])
+          .filter((c): c is NonNullable<typeof c> => c !== undefined)
+          /* A célula só conta o que era esperado e não foi dispensado. */
+          .filter((c) => c.esperado);
+
+        expect(doPeriodo.reduce((s, c) => s + c.entidadesEsperadas, 0)).toBe(
+          celula.conta.combinacoesEsperadas,
+        );
+        expect(doPeriodo.reduce((s, c) => s + c.entidadesPresentes, 0)).toBe(
+          celula.conta.combinacoesEncontradas,
+        );
+        expect(doPeriodo.reduce((s, c) => s + c.naoAplicaveis, 0)).toBe(
+          celula.conta.combinacoesNaoAplicaveis,
+        );
+        expect(doPeriodo).toHaveLength(celula.conta.atributosEsperados);
+      }
+    }
+  });
+
+  /*
+    O conjunto declarado que nunca chegou é o caso que a matriz sozinha só sabe
+    pintar de vermelho. Aberto, ele passa a dizer **quais** 110 colunas o
+    catálogo cobra e que nenhum arquivo trouxe — que é a lista que alguém
+    precisa levar para a origem.
+  */
+  it("o conjunto que nunca chegou lista os atributos que o catálogo cobra", async () => {
+    const visao = await visaoDaCobertura(ctx.db, { vigencias: 9 });
+    const trecho = visao.linhas.find((l) => l.entityType === "TRECHO")!;
+
+    const aberta = await matrizDeAtributos(ctx.db, {
+      datasetFamily: trecho.datasetFamily,
+      entityType: trecho.entityType,
+      scopeHash: trecho.scopeHash,
+      canal: trecho.canal,
+      vigencias: 9,
+    });
+
+    expect(aberta.linhas.length).toBeGreaterThan(0);
+    expect(aberta.resumo.nuncaChegaram).toBe(aberta.linhas.length);
+    for (const linha of aberta.linhas) {
+      expect(linha.pior).toBe("AUSENTE");
+      expect(linha.origem).not.toBeNull();
+      expect(linha.declarado).toBe(true);
+      expect(Object.values(linha.celulas).every((c) => c.estado === "AUSENTE")).toBe(true);
+      /* A explicação viaja junto: uma lacuna sem motivo é um palpite. */
+      expect(linha.motivo).toBeTruthy();
+    }
+  });
+
+  it("o que chegou aparece ao lado do que falta, e não só o que falta", async () => {
+    const visao = await visaoDaCobertura(ctx.db, { vigencias: 9 });
+    const carreta = visao.linhas.find((l) => l.entityType === "CARRETA")!;
+
+    const aberta = await matrizDeAtributos(ctx.db, {
+      datasetFamily: carreta.datasetFamily,
+      entityType: carreta.entityType,
+      scopeHash: carreta.scopeHash,
+      canal: carreta.canal,
+      vigencias: 9,
+    });
+
+    const comDado = aberta.linhas.filter((l) =>
+      Object.values(l.celulas).some((c) => c.entidadesPresentes > 0),
+    );
+    expect(comDado.length).toBeGreaterThan(0);
+    expect(aberta.resumo.atributos).toBe(aberta.linhas.length);
+    expect(aberta.resumo.comFalta).toBeLessThanOrEqual(aberta.resumo.atributos);
+    /* Toda linha é de um equipamento só — o recorte é (família · equipamento). */
+    expect(new Set(aberta.linhas.map((l) => l.entityType))).toEqual(new Set(["CARRETA"]));
+  });
+
+  it("um escopo que não existe devolve tabela vazia, e não a de outro", async () => {
+    const aberta = await matrizDeAtributos(ctx.db, {
+      datasetFamily: "REMUNERACAO_EQUIPAMENTO",
+      entityType: "CAVALO",
+      scopeHash: "escopo-que-nao-existe",
+      canal: "EMPURRADA",
+      vigencias: 9,
+    });
+    expect(aberta.linhas).toEqual([]);
+    expect(aberta.resumo.atributos).toBe(0);
   });
 });
 

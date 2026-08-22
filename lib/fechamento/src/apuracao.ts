@@ -64,9 +64,12 @@ import type { Verba } from "./verbas";
  * do que ela conseguiu sustentar.
  *
  * **E o que ela não chama de falta.** `fontesAusentes` só nomeia o que a
- * quinzena da competência tem: a primeira não recebe requisições nem
- * conciliação (`FONTES_DA_QUINZENA`), e cobrá-las ali seria pedir arquivo que
- * não existe.
+ * quinzena da competência **espera** (`FONTES_DA_QUINZENA`): a primeira não
+ * recebe a conciliação, e cobrá-la ali seria pedir arquivo que não existe. O
+ * 03.08.12.09 da primeira quinzena não é cobrado pelo mesmo motivo — mas ele
+ * *pode* existir, e por isso é opcional ali e não ausente
+ * (`FONTES_OPCIONAIS_DA_QUINZENA`): quando chega, entra na conta como em
+ * qualquer outra quinzena; quando não chega, não vira pendência de ninguém.
  */
 
 /** As fontes que a apuração consome. Todas opcionais: a conta roda com o que há. */
@@ -208,12 +211,15 @@ export function apurar(competencia: Competencia, fontes: Fontes): Apuracao {
   };
   /*
     Ausente é o que **esta quinzena** espera e não chegou — não tudo que não
-    chegou. A primeira quinzena não tem requisições nem conciliação (ver
-    `FONTES_DA_QUINZENA`), e nomeá-las ali faria toda primeira quinzena do ano
-    nascer com duas pendências que ninguém pode resolver.
+    chegou. A primeira quinzena não espera a conciliação, e o 03.08.12.09 é
+    opcional nela (ver `FONTES_DA_QUINZENA` e `FONTES_OPCIONAIS_DA_QUINZENA`):
+    nomeá-los ali faria toda primeira quinzena do ano nascer com duas pendências
+    que ninguém pode resolver.
 
-    O que chegou fora da quinzena dele continua presente: presente é presente, e
-    a conta usa o que houver.
+    O que chegou fora — ou por cima — da quinzena dele continua presente:
+    presente é presente, e a conta usa o que houver. É o que faz o 03.08.12.09
+    da primeira quinzena virar complementar como o da segunda, sem que a sua
+    falta vire cobrança.
   */
   const presentes: TipoDeFonte[] = [];
   const ausentes: TipoDeFonte[] = [];

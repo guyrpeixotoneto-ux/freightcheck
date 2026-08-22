@@ -40,6 +40,7 @@ import {
   LINHAS_DA_PLANILHA,
   painelDeUmaQuinzena,
   QUINZENAS_DA_FONTE,
+  QUINZENAS_OPCIONAIS_DA_FONTE,
   TIPOS_DE_FONTE,
   type Canal,
   type ColunaDoPagamento,
@@ -107,11 +108,18 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  * O catálogo das fontes, para a tela saber o que pedir e por quê.
  *
  * Devolve as seis sempre, com `quinzenas` dizendo em qual delas cada uma é
- * esperada — a primeira quinzena tem quatro relatórios, a segunda tem os seis
- * (ver `FONTES_DA_QUINZENA`). O recorte é da tela e não da rota de propósito:
- * a lista de Apurações mostra quinzenas das duas metades na mesma tabela, e
- * filtrar aqui a obrigaria a buscar o catálogo duas vezes para desenhar uma
- * página.
+ * esperada — a primeira quinzena espera quatro relatórios, a segunda espera os
+ * seis (ver `FONTES_DA_QUINZENA`). O recorte é da tela e não da rota de
+ * propósito: a lista de Apurações mostra quinzenas das duas metades na mesma
+ * tabela, e filtrar aqui a obrigaria a buscar o catálogo duas vezes para
+ * desenhar uma página.
+ *
+ * `quinzenasOpcionais` é o segundo campo e responde a outra pergunta: em que
+ * quinzenas a fonte é **admitida sem ser cobrada**. Hoje é o 03.08.12.09 na
+ * primeira, que pode existir e nem sempre existe (ver
+ * `FONTES_OPCIONAIS_DA_QUINZENA`). São dois campos e não um porque eles mandam
+ * em coisas diferentes: um decide se a casinha de envio aparece, o outro se a
+ * ausência é pendência.
  */
 router.get("/fechamento/fontes", (_req, res): void => {
   res.json(
@@ -120,6 +128,7 @@ router.get("/fechamento/fontes", (_req, res): void => {
       ...DESCRICAO_DA_FONTE[tipo],
       extensoes: FORMATOS_DA_FONTE[tipo],
       quinzenas: QUINZENAS_DA_FONTE[tipo],
+      quinzenasOpcionais: QUINZENAS_OPCIONAIS_DA_FONTE[tipo],
     })),
   );
 });

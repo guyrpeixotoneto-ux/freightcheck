@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   agruparPorUnidade,
   chaveDaLinha,
+  partirEmQuinzenas,
   resumoDoGrupo,
+  resumoDoMes,
 } from "../remuneracao-unidades";
 import type { EstadoDoCadastro, SituacaoDaUnidade } from "@/lib/remuneracao";
 
@@ -291,5 +293,152 @@ describe("chaveDaLinha", () => {
   it("a série sem canal tem chave própria, e não a de um canal qualquer", () => {
     const semCanal = unidade("CAMAÇARI", "2026-08-01", "SO_FROTA", { channel: null });
     expect(chaveDaLinha(semCanal)).toBe("camaçari||2026-08-01");
+  });
+});
+
+/**
+ * COMO A UNIDADE SE REPARTE EM MESES E QUINZENAS — o nível que a tabela ganhou.
+ *
+ * A planilha de remuneração é quinzenal: a mesma unidade responde por
+ * `2026-07-01` e `2026-07-16`. Enquanto as vigências eram uma lista rasa, as
+ * duas metades de julho eram duas linhas irmãs, indistinguíveis das de junho a
+ * não ser pelo rótulo que o servidor escreveu em cada uma — e **a metade que
+ * ninguém entregou não tinha como aparecer**, porque sem vigência não havia
+ * linha. Julho com uma entrega só ficava com a mesma cara da unidade que
+ * entrega uma vez por mês: as duas liam igual, e a que pedia trabalho era a
+ * que ninguém via.
+ *
+ * Por isso `partirEmQuinzenas` devolve **sempre as duas** casas de cada mês. É
+ * o único lugar do módulo que afirma uma quinzena sobre uma vigência sozinha, e
+ * a diferença com `rotuloDaVigencia` é sobre o que se afirma: lá a pergunta é
+ * como *nomear* uma vigência — e chamar o `2026-08-01` de uma unidade mensal de
+ * "1ª quinzena" inventaria um grão que os arquivos não têm; aqui é em que casa
+ * do calendário ela *cai*, e essa casa existe antes de qualquer arquivo.
+ */
+describe("partirEmQuinzenas", () => {
+  it("dá as duas quinzenas do mês, mesmo com uma entrega só", () => {
+    const meses = partirEmQuinzenas([unidade("CAMAÇARI", "2026-07-01", "SO_FROTA")]);
+
+    expect(meses).toHaveLength(1);
+    expect(meses[0]!.chave).toBe("2026-07");
+    expect(meses[0]!.titulo).toBe("julho de 2026");
+    expect(meses[0]!.quinzenas.map((q) => q.numero)).toEqual([1, 2]);
+    expect(meses[0]!.quinzenas[0]!.linhas).toHaveLength(1);
+    expect(meses[0]!.quinzenas[1]!.linhas).toHaveLength(0);
+  });
+
+  /* A régua é a do produto — `quinzenaDaData`, a mesma que o fechamento usa
+     para procurar este cadastro: do dia 1 ao 15 é a primeira. */
+  it("põe cada vigência na metade em que o dia dela cai", () => {
+    const meses = partirEmQuinzenas([
+      unidade("CAMAÇARI", "2026-07-16", "SO_FROTA"),
+      unidade("CAMAÇARI", "2026-07-01", "FROTA_E_ALIQUOTAS"),
+    ]);
+
+    expect(meses[0]!.quinzenas[0]!.linhas[0]!.effectiveDate).toBe("2026-07-01");
+    expect(meses[0]!.quinzenas[1]!.linhas[0]!.effectiveDate).toBe("2026-07-16");
+  });
+
+  /* O dia 15 é o último da primeira, e o 16 o primeiro da segunda: é a borda em
+     que uma régua escrita à mão erraria sem que nada apontasse para ela. */
+  it("parte o mês no dia 16, e não no 15", () => {
+    const meses = partirEmQuinzenas([
+      unidade("CAMAÇARI", "2026-07-15", "SO_FROTA"),
+      unidade("CAMAÇARI", "2026-07-16", "SO_FROTA"),
+    ]);
+
+    expect(meses[0]!.quinzenas[0]!.linhas.map((u) => u.effectiveDate)).toEqual(["2026-07-15"]);
+    expect(meses[0]!.quinzenas[1]!.linhas.map((u) => u.effectiveDate)).toEqual(["2026-07-16"]);
+  });
+
+  /* O começo da quinzena é o que o painel recebe para criar o cadastro que
+     falta, e o servidor só aceita dia 1 ou dia 16. */
+  it("diz onde cada quinzena começa, inclusive a vazia", () => {
+    const meses = partirEmQuinzenas([unidade("CAMAÇARI", "2026-02-03", "SO_FROTA")]);
+
+    expect(meses[0]!.quinzenas.map((q) => q.inicio)).toEqual(["2026-02-01", "2026-02-16"]);
+  });
+
+  /* Os meses na ordem em que a unidade se lê: o mais recente primeiro, que é
+     onde ela está. Dentro do mês a ordem é a do calendário. */
+  it("dá os meses do mais recente para o mais antigo", () => {
+    const meses = partirEmQuinzenas([
+      unidade("CAMAÇARI", "2026-06-16", "SO_FROTA"),
+      unidade("CAMAÇARI", "2026-08-01", "SO_FROTA"),
+      unidade("CAMAÇARI", "2026-07-01", "SO_FROTA"),
+    ]);
+
+    expect(meses.map((m) => m.chave)).toEqual(["2026-08", "2026-07", "2026-06"]);
+  });
+
+  /*
+    Duas vigências caídas na mesma metade — o caso que `rotuloDaVigencia`
+    resolve escrevendo o dia. A lista não esconde a segunda: escondê-la seria
+    perder uma planilha inteira porque o arquivo trouxe uma data que a quinzena
+    não separa.
+  */
+  it("não perde a segunda vigência caída na mesma metade", () => {
+    const meses = partirEmQuinzenas([
+      unidade("CAMAÇARI", "2026-07-10", "SO_FROTA"),
+      unidade("CAMAÇARI", "2026-07-03", "SO_FROTA"),
+    ]);
+
+    expect(meses[0]!.quinzenas[0]!.linhas.map((u) => u.effectiveDate)).toEqual([
+      "2026-07-03",
+      "2026-07-10",
+    ]);
+    expect(meses[0]!.quinzenas[1]!.linhas).toHaveLength(0);
+  });
+});
+
+/**
+ * O mês fechado precisa dizer o bastante para alguém decidir se abre — senão
+ * ele é uma fila de nomes de mês, e achar a quinzena sem lastro custa abrir
+ * doze.
+ */
+describe("resumoDoMes", () => {
+  it("diz o estado de cada metade, e nomeia a que não existe", () => {
+    const [mes] = partirEmQuinzenas([unidade("CAMAÇARI", "2026-07-01", "FROTA_E_ALIQUOTAS")]);
+
+    expect(resumoDoMes(mes!)).toBe(
+      "1ª quinzena com as duas metades · 2ª quinzena sem cadastro",
+    );
+  });
+
+  it("fala das duas quando as duas existem", () => {
+    const [mes] = partirEmQuinzenas([
+      unidade("CAMAÇARI", "2026-07-01", "SO_FROTA"),
+      unidade("CAMAÇARI", "2026-07-16", "SEM_LASTRO"),
+    ]);
+
+    expect(resumoDoMes(mes!)).toBe("1ª quinzena só com a frota · 2ª quinzena sem lastro");
+  });
+
+  /* Com duas vigências na mesma metade, o cabeçalho só as conta: os estados
+     das duas cabem na linha de cada uma, e não numa frase de cabeçalho. */
+  it("conta a metade que recebeu mais de uma vigência", () => {
+    const [mes] = partirEmQuinzenas([
+      unidade("CAMAÇARI", "2026-07-03", "SO_FROTA"),
+      unidade("CAMAÇARI", "2026-07-10", "SEM_LASTRO"),
+    ]);
+
+    expect(resumoDoMes(mes!)).toBe(
+      `1ª quinzena com 2${NBSP}vigências · 2ª quinzena sem cadastro`,
+    );
+  });
+});
+
+/** Os meses do grupo são os das vigências dele, e na mesma ordem. */
+describe("agruparPorUnidade — os meses do grupo", () => {
+  it("reparte as vigências do grupo em meses", () => {
+    const grupos = agruparPorUnidade([
+      unidade("CAMAÇARI", "2026-08-01", "SO_FROTA"),
+      unidade("CAMAÇARI", "2026-07-16", "SO_FROTA"),
+      unidade("CAMAÇARI", "2026-07-01", "SO_FROTA"),
+    ]);
+
+    expect(grupos[0]!.meses.map((m) => m.chave)).toEqual(["2026-08", "2026-07"]);
+    expect(grupos[0]!.meses[1]!.quinzenas.map((q) => q.linhas.length)).toEqual([1, 1]);
+    expect(grupos[0]!.meses[0]!.quinzenas.map((q) => q.linhas.length)).toEqual([1, 0]);
   });
 });
