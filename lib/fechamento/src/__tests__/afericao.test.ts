@@ -387,7 +387,15 @@ describe("a aferição separa `não tenho dados` de `os dados não batem`", () =
     */
     const faltam = a.aferibilidade.segunda.faltando;
     expect(faltam.map((f) => f.rotina).sort()).toEqual(
-      ["03.02.59.02", "03.08.12.09", "03.08.15", "03.08.18", "03.08.20", "2Art"].sort(),
+      [
+        "03.02.59.02",
+        "03.08.12.09",
+        "03.08.15",
+        "03.08.18 FF",
+        "03.08.18 Vans",
+        "03.08.20",
+        "2Art",
+      ].sort(),
     );
     expect(faltam.every((f) => f.quinzena === 2)).toBe(true);
     expect(faltam.every((f) => f.motivo === "QUINZENA_NAO_ABERTA")).toBe(true);
@@ -417,8 +425,14 @@ describe("a aferição separa `não tenho dados` de `os dados não batem`", () =
       dos dois pode aparecer como pendência: seria mandar procurar um arquivo
       que ninguém emitiu.
     */
-    const so4: TipoDeFonte[] = ["OPERACAO", "CTE", "PAGAMENTO", "DISPONIBILIDADE"];
-    const a = aferir(rota, quinzenas(so4, [...TIPOS_DE_FONTE]));
+    const so5: TipoDeFonte[] = [
+      "OPERACAO",
+      "CTE",
+      "PAGAMENTO",
+      "DISPONIBILIDADE_FF",
+      "DISPONIBILIDADE_VAN",
+    ];
+    const a = aferir(rota, quinzenas(so5, [...TIPOS_DE_FONTE]));
 
     expect(a.aferibilidade.primeira.faltando).toEqual([]);
     expect(a.aferibilidade.primeira.completude).not.toBe("INCOMPLETO");

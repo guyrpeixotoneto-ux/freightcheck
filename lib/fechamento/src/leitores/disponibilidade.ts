@@ -92,11 +92,29 @@ function tipoDeFrotaDeclarado(bruta: LinhaDePlanilha): TipoDeFrotaContratada | n
   return null;
 }
 
+/** Como o relatório escreve a frota, para a frase que quem opera lê. */
+const NOME_DA_FROTA: Record<TipoDeFrotaContratada, string> = { FF: "FF", VAN: "Vans" };
+
 /**
- * Lê o 03.08.18, as duas abas.
+ * Lê o 03.08.18 — de uma frota, ou das duas.
  *
- * Uma aba ausente não é erro: há CDDs sem van. O que seria erro é ler nenhuma
- * das duas, e aí a exceção de cabeçalho da última tentativa sobe.
+ * **`so` é a frota que a casinha de envio declara**, e é ela que decide o que
+ * entra: com `so: "FF"` a aba `Van` é lida e descartada, e vice-versa. A porta
+ * de entrada tem duas casinhas porque o relatório sai do Promax em dois
+ * arquivos (ver `FROTA_DA_FONTE`, no domínio), e nenhuma das duas pode gravar
+ * a frota da outra — foi isso que fez o segundo arquivo a chegar apagar o
+ * primeiro enquanto os dois disputavam a mesma vigência.
+ *
+ * Sem `so`, lê as duas: é como a apuração relê o que já está gravado e como os
+ * testes de leitura pura exercitam o arquivo inteiro.
+ *
+ * **O arquivo que não tem a frota pedida é recusado, e a recusa diz onde ele
+ * cabe.** Mandar o arquivo das vans na casinha da FF é o erro de trocar a aba
+ * de envio, e ele tem de doer na porta: promovê-lo vazio deixaria a FF
+ * "presente" sem um desconto dentro.
+ *
+ * Uma aba ausente continua não sendo erro quando não foi ela a pedida: há CDDs
+ * sem van, e o arquivo de FF deles é um `.xlsx` de uma aba só.
  *
  * **Um arquivo de texto não tem abas, e esta é a única fonte para quem isso
  * importa.** Nas outras cinco a aba é embalagem; aqui ela *é* dado — é o nome
@@ -106,22 +124,80 @@ function tipoDeFrotaDeclarado(bruta: LinhaDePlanilha): TipoDeFrotaContratada | n
  * recusa é do arquivo inteiro e diz para enviar a planilha. Escolher `FF` por
  * omissão seria dar à van os descontos do caminhão, em silêncio.
  */
-export function lerDisponibilidade(arquivo: Buffer | ArrayBuffer): Leitura<DiaDeDisponibilidade> {
+export function lerDisponibilidade(
+  arquivo: Buffer | ArrayBuffer,
+  so?: TipoDeFrotaContratada,
+): Leitura<DiaDeDisponibilidade> {
   const presentes = new Set(nomesDasAbas(arquivo));
-  if (presentes.size === 0) return lerTabelaUnica(arquivo);
+  const leitura = presentes.size === 0 ? lerTabelaUnica(arquivo) : lerAbas(arquivo, presentes);
+  if (!so) {
+    return { linhas: leitura.linhas, recusas: leitura.recusas.map(({ frota: _, ...r }) => r) };
+  }
 
+  /*
+    O corte é depois da leitura, e não antes: ler as duas abas é o que permite
+    dizer, na recusa, que o arquivo é da *outra* frota — que é a informação de
+    que quem enviou precisa. Cortar antes devolveria "não tem a aba FF" sobre um
+    arquivo que tem a Van inteira dentro.
+  */
+  const linhas = leitura.linhas.filter((l) => l.tipoDeFrota === so);
+  /*
+    **O arquivo da outra frota é recusado na porta; o arquivo vazio, não.**
+
+    São duas faltas diferentes. Um `.xlsx` com a `Van` inteira dentro, enviado na
+    casinha da FF, é a aba de envio trocada: o arquivo está certo, e o que ele
+    precisa é ir para a outra casinha — guardá-lo aqui em quarentena poria um
+    aviso âmbar sobre um relatório que não tem defeito nenhum, e ainda deixaria a
+    FF parecendo tratada. Já o arquivo do qual não saiu linha nenhuma é o caso de
+    sempre (`motivoParaQuarentena`, em `persistencia.ts`): ele fica guardado
+    inteiro para exame, porque é justamente o que ninguém consegue explicar sem
+    reabrir.
+  */
+  const outra = leitura.linhas.find((l) => l.tipoDeFrota !== so)?.tipoDeFrota;
+  if (linhas.length === 0 && outra) {
+    throw new Error(
+      `Este é o 03.08.18 ${NOME_DA_FROTA[so]}, e o arquivo não tem nenhuma linha dessa frota: ` +
+        `o que ele traz é a frota ${NOME_DA_FROTA[outra]}. Envie-o na casinha do ` +
+        `03.08.18 ${NOME_DA_FROTA[outra]}.`,
+    );
+  }
+
+  /*
+    A recusa acompanha a frota da linha recusada: repetir na FF o que a Van
+    recusou faria cada envio responder por linhas que ele não gravou. A linha
+    que não declara frota nenhuma é a exceção, e vai para as duas — ela pode ser
+    de qualquer uma, e omiti-la das duas seria sumir com ela.
+  */
+  return {
+    linhas,
+    recusas: leitura.recusas
+      .filter((r) => r.frota === so || r.frota === null)
+      .map(({ frota: _, ...r }) => r),
+  };
+}
+
+/** Uma recusa que ainda lembra de que frota era a linha — ver `lerDisponibilidade`. */
+type RecusaDeFrota = Recusa & { frota: TipoDeFrotaContratada | null };
+
+/** O 03.08.18 em planilha: as duas abas, cada linha marcada com a frota da sua. */
+function lerAbas(
+  arquivo: Buffer | ArrayBuffer,
+  presentes: Set<string>,
+): { linhas: DiaDeDisponibilidade[]; recusas: RecusaDeFrota[] } {
   const linhas: DiaDeDisponibilidade[] = [];
-  const recusas: Recusa[] = [];
+  const recusas: RecusaDeFrota[] = [];
   let lidas = 0;
 
   for (const { nome, tipo } of ABAS) {
     if (!presentes.has(nome)) continue;
     const planilha = lerAba(arquivo, { aba: nome, exigidas: COLUNAS_EXIGIDAS });
     lidas += 1;
+    const daAba: Recusa[] = [];
     for (const bruta of planilha.linhas) {
-      const lida = lerLinha(bruta, nome, tipo, recusas);
+      const lida = lerLinha(bruta, nome, tipo, daAba);
       if (lida) linhas.push(lida);
     }
+    recusas.push(...daAba.map((r) => ({ ...r, frota: tipo })));
   }
 
   if (lidas === 0) {
@@ -135,10 +211,13 @@ export function lerDisponibilidade(arquivo: Buffer | ArrayBuffer): Leitura<DiaDe
 }
 
 /** O 03.08.18 exportado em texto: uma tabela só, com a frota dentro dela. */
-function lerTabelaUnica(arquivo: Buffer | ArrayBuffer): Leitura<DiaDeDisponibilidade> {
+function lerTabelaUnica(arquivo: Buffer | ArrayBuffer): {
+  linhas: DiaDeDisponibilidade[];
+  recusas: RecusaDeFrota[];
+} {
   const planilha: PlanilhaLida = lerAba(arquivo, { exigidas: COLUNAS_EXIGIDAS });
   const linhas: DiaDeDisponibilidade[] = [];
-  const recusas: Recusa[] = [];
+  const recusas: RecusaDeFrota[] = [];
 
   if (!planilha.linhas.some((bruta) => tipoDeFrotaDeclarado(bruta) !== null)) {
     throw new Error(
@@ -156,11 +235,14 @@ function lerTabelaUnica(arquivo: Buffer | ArrayBuffer): Leitura<DiaDeDisponibili
         linha: bruta.numero,
         motivo: "A linha não diz se é da frota FF ou da Van.",
         original: String(celula(bruta, COLUNAS_DE_TIPO_DE_FROTA[0]) ?? ""),
+        frota: null,
       });
       continue;
     }
-    const lida = lerLinha(bruta, planilha.aba, tipo, recusas);
+    const daLinha: Recusa[] = [];
+    const lida = lerLinha(bruta, planilha.aba, tipo, daLinha);
     if (lida) linhas.push(lida);
+    recusas.push(...daLinha.map((r) => ({ ...r, frota: tipo })));
   }
 
   return { linhas, recusas };

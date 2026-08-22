@@ -39,7 +39,8 @@ mostra em cada linha de envio:
 | --- | --- |
 | 2Art | `.xlsx` `.xls` `.csv` `.txt` |
 | 03.08.15 | `.xlsx` `.xls` `.csv` `.txt` |
-| 03.08.18 | `.xlsx` `.xls` `.csv` `.txt` |
+| 03.08.18 FF | `.xlsx` `.xls` `.csv` `.txt` |
+| 03.08.18 Vans | `.xlsx` `.xls` `.csv` `.txt` |
 | 03.08.12.09 | `.csv` `.txt` `.xlsx` `.xls` |
 | 03.08.20 | `.txt` `.csv` |
 | 03.02.59.02 | `.txt` `.csv` |
@@ -54,7 +55,10 @@ Três consequências que não são detalhe de implementação:
 2. **O 03.08.18 é o único em que a aba é dado.** É o nome dela (`FF`, `Van`)
    que diz de que frota é a linha, e as duas descontam coisas diferentes. Um
    `.csv` dele só é aceito quando alguma coluna declara a frota; sem ela, a
-   recusa é do arquivo inteiro e pede a planilha.
+   recusa é do arquivo inteiro e pede a planilha. E é por isso que ele tem
+   **duas casinhas de envio** — `03.08.18 FF` e `03.08.18 Vans`: o relatório sai
+   do Promax em dois arquivos, e cada casinha lê só a frota dela. O arquivo que
+   traz as duas abas serve às duas, enviado uma vez em cada.
 3. **O 03.02.59.02 é o único em que a coluna do número é o sentido.** No
    `.txt`, a régua de caracteres resolve (emitido termina na 75, calculado na
    88). No `.csv`, quem resolve é o índice do campo, descoberto no cabeçalho do
@@ -86,6 +90,12 @@ que a tela `/fechamento/competencias/:id/dias/:dia` reproduz linha a linha: o
 que a conta soma. Ver `FECHAMENTO.md`.
 
 ### 2. Relatório 03.08.18 — disponibilidade de frota (`03.08.18.xlsx`, abas `FF` e `Van`)
+
+**Duas fontes no produto, e não uma:** `03.08.18 FF` e `03.08.18 Vans`. A
+exportação do Promax costuma sair em dois arquivos, um por frota, e cada um tem
+a sua casinha de envio, a sua vigência e o seu histórico — o arquivo com as duas
+abas juntas é enviado nas duas, e cada casinha lê a frota dela. Ver
+`FROTA_DA_FONTE` (`lib/fechamento/src/dominio.ts`).
 
 **Uma linha por dia** do mês (datas em serial Excel; 46204 = 01/07/2026), por
 tipo de frota (FF = caminhões da frota fixa; Van). Compara frota **Contratada**
@@ -275,10 +285,11 @@ acima**, aba por aba:
 
 ## Convenções que valem para todas
 
-- **A primeira quinzena espera quatro relatórios; a segunda, seis.** O 2Art, o
-  03.08.15, o 03.08.20 e o 03.08.18 entram nas duas; a conciliação
-  (03.02.59.02) é o fecho do mês e chega com o fechamento da segunda. A amostra
-  deste documento é uma segunda quinzena — por isso ela traz as seis. No código
+- **A primeira quinzena espera cinco relatórios; a segunda, sete.** O 2Art, o
+  03.08.15, o 03.08.20 e as duas metades do 03.08.18 (FF e Vans) entram nas
+  duas; a conciliação (03.02.59.02) é o fecho do mês e chega com o fechamento da
+  segunda. A amostra deste documento é uma segunda quinzena — por isso ela traz
+  as sete. No código
   a regra mora em `FONTES_DA_QUINZENA` (`lib/fechamento/src/dominio.ts`): a
   apuração não chama de ausente uma fonte que a quinzena não espera, e a tela
   não pede um arquivo que ninguém pode enviar. Ela também não recusa o

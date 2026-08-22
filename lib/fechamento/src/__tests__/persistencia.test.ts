@@ -43,6 +43,7 @@ import {
   fixtureCtes,
   fixtureCtesEmCsv,
   fixtureDisponibilidade,
+  fixtureDisponibilidadeDeUmaFrota,
   fixtureDisponibilidadeDoMesInteiro,
   fixtureDisponibilidadeEmCsv,
   fixtureOperacao,
@@ -510,7 +511,10 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
       ["OPERACAO", "2art.xlsx", fixtureOperacao()],
       ["CTE", "03.08.15.xlsx", fixtureCtes()],
       ["REQUISICOES", "03.08.12.09.csv", fixtureRequisicoes()],
-      ["DISPONIBILIDADE", "03.08.18.xlsx", fixtureDisponibilidade()],
+      /* O mesmo arquivo nas duas casinhas do 03.08.18: cada uma lê a frota
+         dela. Ver `FROTA_DA_FONTE`, no domínio. */
+      ["DISPONIBILIDADE_FF", "03.08.18.xlsx", fixtureDisponibilidade()],
+      ["DISPONIBILIDADE_VAN", "03.08.18.xlsx", fixtureDisponibilidade()],
       ["CONCILIACAO", "03.02.59.02.txt", Buffer.from(fixtureConciliacao(), "latin1")],
     ] as const;
     for (const [tipo, nome, conteudo] of fontes) {
@@ -573,7 +577,8 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
       ["OPERACAO", "2art.xlsx", fixtureOperacao()],
       ["CTE", "03.08.15.xlsx", fixtureCtes()],
       ["REQUISICOES", "03.08.12.09.csv", fixtureRequisicoes()],
-      ["DISPONIBILIDADE", "03.08.18.xlsx", fixtureDisponibilidade()],
+      ["DISPONIBILIDADE_FF", "03.08.18.xlsx", fixtureDisponibilidade()],
+      ["DISPONIBILIDADE_VAN", "03.08.18.xlsx", fixtureDisponibilidade()],
       ["PAGAMENTO", "03.08.20.txt", fixturePagamento()],
       ["CONCILIACAO", "03.02.59.02.txt", Buffer.from(fixtureConciliacao(), "latin1")],
     ]);
@@ -588,7 +593,8 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
       ["OPERACAO", "2art.csv", fixtureOperacaoEmCsv()],
       ["CTE", "03.08.15_1Q_JUL.csv", fixtureCtesEmCsv()],
       ["REQUISICOES", "03.08.12.09.xlsx", fixtureRequisicoesEmPlanilha()],
-      ["DISPONIBILIDADE", "03.08.18.csv", fixtureDisponibilidadeEmCsv()],
+      ["DISPONIBILIDADE_FF", "03.08.18.csv", fixtureDisponibilidadeEmCsv()],
+      ["DISPONIBILIDADE_VAN", "03.08.18.csv", fixtureDisponibilidadeEmCsv()],
       ["PAGAMENTO", "03.08.20_1Q_JUL.csv", fixturePagamentoEmCsv()],
       ["CONCILIACAO", "03.02.59.02_1Q_JUL.csv", fixtureConciliacaoEmCsv()],
     ]);
@@ -907,7 +913,7 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
     });
     await receberDocumento(db, {
       competenciaId: comp.id,
-      tipo: "DISPONIBILIDADE",
+      tipo: "DISPONIBILIDADE_FF",
       nomeDoArquivo: "03.08.18.xlsx",
       conteudo: fixtureDisponibilidade(),
     });
@@ -916,8 +922,8 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
     const pagamento = comVerba.find((d) => d.tipo === "PAGAMENTO")!;
     expect(pagamento.verbas).toBeGreaterThan(0);
     expect(pagamento.verbas).toBeLessThan(pagamento.linhasLidas);
-    /* As outras cinco fontes não respondem a esta pergunta. */
-    expect(comVerba.find((d) => d.tipo === "DISPONIBILIDADE")?.verbas).toBeNull();
+    /* As outras seis fontes não respondem a esta pergunta. */
+    expect(comVerba.find((d) => d.tipo === "DISPONIBILIDADE_FF")?.verbas).toBeNull();
 
     /* E o estado que a tela precisa acusar: documento vigente, zero verbas. */
     await db
@@ -1506,7 +1512,8 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
     expect(q2.relatorios).toEqual([
       "OPERACAO",
       "CTE",
-      "DISPONIBILIDADE",
+      "DISPONIBILIDADE_FF",
+      "DISPONIBILIDADE_VAN",
       "REQUISICOES",
       "CONCILIACAO",
     ]);
@@ -1681,7 +1688,8 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
         ["OPERACAO", "2art.xlsx", fixtureOperacao()],
         ["CTE", "03.08.15.xlsx", fixtureCtes()],
         ["REQUISICOES", "03.08.12.09.csv", fixtureRequisicoes()],
-        ["DISPONIBILIDADE", "03.08.18.xlsx", fixtureDisponibilidade()],
+        ["DISPONIBILIDADE_FF", "03.08.18.xlsx", fixtureDisponibilidade()],
+        ["DISPONIBILIDADE_VAN", "03.08.18.xlsx", fixtureDisponibilidade()],
         ["CONCILIACAO", "03.02.59.02.txt", Buffer.from(fixtureConciliacao(), "latin1")],
       ] as const;
       for (const [tipo, nome, conteudo] of fontes) {
@@ -1697,7 +1705,7 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
 
       const saiu = await descartarDadosDaCompetencia(db, comp.id);
 
-      expect(saiu.documentos).toBe(5);
+      expect(saiu.documentos).toBe(6);
       expect(saiu.apuracoes).toBe(1);
       expect(saiu.linhas.OPERACAO).toBeGreaterThan(0);
       expect(saiu.linhas.CTE).toBeGreaterThan(0);
@@ -1934,12 +1942,14 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
       const q1 = await abrir("450", 1);
       const q2 = await abrir("450", 2);
       for (const comp of [q1, q2]) {
-        await receberDocumento(db, {
-          competenciaId: comp.id,
-          tipo: "DISPONIBILIDADE",
-          nomeDoArquivo: `03.08.18-mensal-q${comp.id.slice(0, 4)}.xlsx`,
-          conteudo: fixtureDisponibilidadeDoMesInteiro(),
-        });
+        for (const tipo of ["DISPONIBILIDADE_FF", "DISPONIBILIDADE_VAN"] as const) {
+          await receberDocumento(db, {
+            competenciaId: comp.id,
+            tipo,
+            nomeDoArquivo: `03.08.18-mensal-q${comp.id.slice(0, 4)}.xlsx`,
+            conteudo: fixtureDisponibilidadeDoMesInteiro(),
+          });
+        }
       }
 
       const doMes = await comoALeituraVe([q1, q2]);
@@ -1971,12 +1981,14 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
       */
       const q1 = await abrir("451", 1);
       const q2 = await abrir("451", 2);
-      await receberDocumento(db, {
-        competenciaId: q2.id,
-        tipo: "DISPONIBILIDADE",
-        nomeDoArquivo: "03.08.18-so-na-segunda.xlsx",
-        conteudo: fixtureDisponibilidadeDoMesInteiro(),
-      });
+      for (const tipo of ["DISPONIBILIDADE_FF", "DISPONIBILIDADE_VAN"] as const) {
+        await receberDocumento(db, {
+          competenciaId: q2.id,
+          tipo,
+          nomeDoArquivo: "03.08.18-so-na-segunda.xlsx",
+          conteudo: fixtureDisponibilidadeDoMesInteiro(),
+        });
+      }
 
       const doMes = await comoALeituraVe([q1, q2]);
       expect(doMes!.total).toBe(DA_SEGUNDA);
@@ -1988,12 +2000,14 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
     it("só a 1ª quinzena recebeu: idem, pelo outro lado", async () => {
       const q1 = await abrir("452", 1);
       const q2 = await abrir("452", 2);
-      await receberDocumento(db, {
-        competenciaId: q1.id,
-        tipo: "DISPONIBILIDADE",
-        nomeDoArquivo: "03.08.18-so-na-primeira.xlsx",
-        conteudo: fixtureDisponibilidadeDoMesInteiro(),
-      });
+      for (const tipo of ["DISPONIBILIDADE_FF", "DISPONIBILIDADE_VAN"] as const) {
+        await receberDocumento(db, {
+          competenciaId: q1.id,
+          tipo,
+          nomeDoArquivo: "03.08.18-so-na-primeira.xlsx",
+          conteudo: fixtureDisponibilidadeDoMesInteiro(),
+        });
+      }
 
       const doMes = await comoALeituraVe([q1, q2]);
       expect(doMes!.total).toBe(DA_PRIMEIRA);
@@ -2004,6 +2018,178 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
       const q1 = await abrir("453", 1);
       const q2 = await abrir("453", 2);
       expect(await comoALeituraVe([q1, q2])).toBeNull();
+    }, 60_000);
+  });
+
+  /**
+   * As duas casinhas do 03.08.18 — o defeito que elas existem para fechar.
+   *
+   * O relatório sai do Promax em dois arquivos, um por frota. Enquanto os dois
+   * disputavam uma casinha só, o segundo a chegar despromovia o primeiro e
+   * apagava as linhas dele: quem mandava a FF e depois a van ficava com o
+   * desconto das vans e sem o dos caminhões — e a tela mostrava visto verde,
+   * porque o 03.08.18 "tinha chegado".
+   */
+  describe("o 03.08.18 em dois arquivos — a FF e as vans", () => {
+    const abrirDaFrota = (codigo: string, quinzena: 1 | 2) =>
+      abrirCompetencia(db, {
+        ano: 2026,
+        mes: 7,
+        quinzena,
+        unidade: { codigo, nome: `CDD DAS DUAS FROTAS ${codigo}` },
+        transportadora,
+        tipoDeOperacao,
+      });
+
+    const frotasGravadas = async (competenciaId: string) => {
+      const { rows } = await pool.query<{ tipo_de_frota: string; n: string }>(
+        `select tipo_de_frota, count(*) as n from fechamento_disponibilidade
+          where competencia_id = $1 group by tipo_de_frota order by tipo_de_frota`,
+        [competenciaId],
+      );
+      return rows.map((r) => [r.tipo_de_frota, Number(r.n)] as const);
+    };
+
+    it("a van chegando depois não apaga a FF — as duas ficam vigentes", async () => {
+      const comp = await abrirDaFrota("460", 2);
+
+      await receberDocumento(db, {
+        competenciaId: comp.id,
+        tipo: "DISPONIBILIDADE_FF",
+        nomeDoArquivo: "03.08.18-ff.xlsx",
+        conteudo: fixtureDisponibilidadeDeUmaFrota("FF"),
+      });
+      await receberDocumento(db, {
+        competenciaId: comp.id,
+        tipo: "DISPONIBILIDADE_VAN",
+        nomeDoArquivo: "03.08.18-vans.xlsx",
+        conteudo: fixtureDisponibilidadeDeUmaFrota("Van"),
+      });
+
+      const vigentes = (await listarDocumentos(db, comp.id)).filter((d) => d.vigente);
+      expect(vigentes.map((d) => d.tipo).sort()).toEqual([
+        "DISPONIBILIDADE_FF",
+        "DISPONIBILIDADE_VAN",
+      ]);
+      /* E os fatos das duas continuam no banco: duas linhas de FF, uma de van. */
+      expect(await frotasGravadas(comp.id)).toEqual([
+        ["FF", 2],
+        ["VAN", 1],
+      ]);
+    }, 60_000);
+
+    it("reenviar a FF troca só a FF, e a van fica onde estava", async () => {
+      /* Substituir é por casinha: a exportação corrigida de uma frota não pode
+         levar a outra junto, que é o que uma vigência só fazia. */
+      const comp = await abrirDaFrota("461", 2);
+      for (const [tipo, nome, conteudo] of [
+        ["DISPONIBILIDADE_FF", "ff.xlsx", fixtureDisponibilidadeDeUmaFrota("FF")],
+        ["DISPONIBILIDADE_VAN", "vans.xlsx", fixtureDisponibilidadeDeUmaFrota("Van")],
+      ] as const) {
+        await receberDocumento(db, {
+          competenciaId: comp.id,
+          tipo,
+          nomeDoArquivo: nome,
+          conteudo,
+        });
+      }
+
+      /* A FF corrigida: o mesmo relatório do mês inteiro, só a aba dela. */
+      const trocado = await receberDocumento(db, {
+        competenciaId: comp.id,
+        tipo: "DISPONIBILIDADE_FF",
+        nomeDoArquivo: "ff-corrigido.xlsx",
+        conteudo: fixtureDisponibilidadeDoMesInteiro(),
+      });
+      expect(trocado.desfecho).toBe("PROMOVIDO");
+      expect(trocado.substituiu).not.toBeNull();
+
+      const vigentes = (await listarDocumentos(db, comp.id)).filter((d) => d.vigente);
+      expect(vigentes.map((d) => d.nomeDoArquivo).sort()).toEqual([
+        "ff-corrigido.xlsx",
+        "vans.xlsx",
+      ]);
+      expect(await frotasGravadas(comp.id)).toEqual([
+        ["FF", 2],
+        ["VAN", 1],
+      ]);
+    }, 60_000);
+
+    it("o arquivo de duas abas entra nas duas casinhas sem virar reenvio", async () => {
+      /*
+        A outra forma em que o relatório chega: um `.xlsx` com as duas abas. Ele
+        é o arquivo da FF **e** o das vans, e por isso os mesmos bytes precisam
+        entrar duas vezes — uma por casinha. Enquanto a chave de repetição era
+        `(competência, sha256)`, o segundo envio era recusado como reenvio
+        acidental e a van ficava de fora sem ninguém saber.
+      */
+      const comp = await abrirDaFrota("462", 2);
+      const arquivo = fixtureDisponibilidade();
+
+      for (const tipo of ["DISPONIBILIDADE_FF", "DISPONIBILIDADE_VAN"] as const) {
+        const recebido = await receberDocumento(db, {
+          competenciaId: comp.id,
+          tipo,
+          nomeDoArquivo: "03.08.18-com-as-duas-abas.xlsx",
+          conteudo: arquivo,
+        });
+        expect(recebido.desfecho).toBe("PROMOVIDO");
+      }
+
+      expect(await frotasGravadas(comp.id)).toEqual([
+        ["FF", 2],
+        ["VAN", 1],
+      ]);
+
+      /* Dentro da mesma casinha, os mesmos bytes continuam dobrando a conta —
+         e continuam recusados. */
+      await expect(
+        receberDocumento(db, {
+          competenciaId: comp.id,
+          tipo: "DISPONIBILIDADE_FF",
+          nomeDoArquivo: "de-novo.xlsx",
+          conteudo: arquivo,
+        }),
+      ).rejects.toMatchObject({ codigo: "DOCUMENTO_JA_RECEBIDO" });
+    }, 60_000);
+
+    it("o arquivo da outra frota é recusado na porta, com a casinha certa na frase", async () => {
+      const comp = await abrirDaFrota("463", 2);
+      await expect(
+        receberDocumento(db, {
+          competenciaId: comp.id,
+          tipo: "DISPONIBILIDADE_FF",
+          nomeDoArquivo: "vans-na-casinha-errada.xlsx",
+          conteudo: fixtureDisponibilidadeDeUmaFrota("Van"),
+        }),
+      ).rejects.toMatchObject({ codigo: "ARQUIVO_ILEGIVEL" });
+
+      /* Nada foi promovido, e nada ficou pela metade. */
+      expect(await listarDocumentos(db, comp.id)).toEqual([]);
+    }, 60_000);
+
+    it("o export que saiu vazio continua indo para a quarentena, e não para a recusa", async () => {
+      /*
+        A outra metade da distinção acima. O arquivo da van na casinha da FF é a
+        aba de envio trocada — o arquivo está certo e o lugar dele é outro. O
+        arquivo do qual não saiu linha nenhuma é o caso de sempre: ele fica
+        guardado inteiro para exame, porque é justamente o que ninguém consegue
+        explicar sem reabrir.
+      */
+      const comp = await abrirDaFrota("464", 2);
+      const recebido = await receberDocumento(db, {
+        competenciaId: comp.id,
+        tipo: "DISPONIBILIDADE_FF",
+        nomeDoArquivo: "ff-vazio.xlsx",
+        conteudo: fixtureDisponibilidadeDeUmaFrota("FF", { semLinhas: true }),
+      });
+
+      expect(recebido.desfecho).toBe("EM_QUARENTENA");
+      expect(recebido.motivoDaQuarentena).toContain("03.08.18 FF");
+      /* Guardado, e sem valer: nenhum documento vigente, e o arquivo no banco. */
+      const documentos = await listarDocumentos(db, comp.id);
+      expect(documentos.map((d) => d.vigente)).toEqual([false]);
+      expect(await lerConteudoDoDocumento(db, recebido.id)).not.toBeNull();
     }, 60_000);
   });
 

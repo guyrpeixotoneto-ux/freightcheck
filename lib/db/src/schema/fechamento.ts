@@ -229,7 +229,15 @@ export const fechamentoDocumentoTable = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     competenciaId: uuid("competencia_id").notNull(),
-    /** `OPERACAO` | `CTE` | `PAGAMENTO` | `DISPONIBILIDADE` | `REQUISICOES` | `CONCILIACAO`. */
+    /**
+     * `OPERACAO` | `CTE` | `PAGAMENTO` | `DISPONIBILIDADE_FF` |
+     * `DISPONIBILIDADE_VAN` | `REQUISICOES` | `CONCILIACAO`.
+     *
+     * O 03.08.18 são dois tipos e não um: a FF e as vans saem do Promax em
+     * arquivos separados, e uma vigência só as fazia disputar a mesma casinha —
+     * a segunda a chegar apagava a primeira. Ver `FROTA_DA_FONTE`, no domínio
+     * do fechamento, e a `0055`, que separou as duas.
+     */
     tipo: text("tipo").notNull(),
     nomeDoArquivo: text("nome_do_arquivo").notNull(),
     sha256: text("sha256").notNull(),
@@ -251,14 +259,22 @@ export const fechamentoDocumentoTable = pgTable(
       foreignColumns: [fechamentoCompetenciaTable.id],
       name: "fechamento_documento_competencia_fk",
     }).onDelete("cascade"),
-    uniqueIndex("fechamento_documento_sem_repeticao").on(t.competenciaId, t.sha256),
+    /*
+      O mesmo arquivo não entra duas vezes **na mesma fonte** — e entra em duas
+      fontes diferentes, que é o 03.08.18 exportado com as duas abas juntas: ele
+      é o arquivo da FF e o das vans ao mesmo tempo, e cada casinha lê a sua
+      frota e ignora a outra. Enquanto a chave era `(competência, sha256)`, o
+      segundo envio do mesmo arquivo era recusado como repetição e a segunda
+      frota ficava de fora. Ver a `0055`.
+    */
+    uniqueIndex("fechamento_documento_sem_repeticao").on(t.competenciaId, t.tipo, t.sha256),
     uniqueIndex("fechamento_documento_vigente_unico")
       .on(t.competenciaId, t.tipo)
       .where(sql`${t.vigente}`),
     index("fechamento_documento_por_competencia").on(t.competenciaId, t.tipo),
     check(
       "fechamento_documento_tipo",
-      sql`${t.tipo} in ('OPERACAO', 'CTE', 'PAGAMENTO', 'DISPONIBILIDADE', 'REQUISICOES', 'CONCILIACAO')`,
+      sql`${t.tipo} in ('OPERACAO', 'CTE', 'PAGAMENTO', 'DISPONIBILIDADE_FF', 'DISPONIBILIDADE_VAN', 'REQUISICOES', 'CONCILIACAO')`,
     ),
   ],
 );

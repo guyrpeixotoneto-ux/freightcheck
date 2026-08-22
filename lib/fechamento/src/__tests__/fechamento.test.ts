@@ -328,14 +328,24 @@ describe("a alíquota é medida, não presumida", () => {
 });
 
 describe("o catálogo de cada quinzena", () => {
-  it("espera quatro relatórios na primeira e seis na segunda", () => {
+  it("espera cinco relatórios na primeira e sete na segunda", () => {
     expect(FONTES_DA_QUINZENA[1]).toEqual([
       "OPERACAO",
       "CTE",
       "PAGAMENTO",
-      "DISPONIBILIDADE",
+      "DISPONIBILIDADE_FF",
+      "DISPONIBILIDADE_VAN",
     ]);
-    expect(FONTES_DA_QUINZENA[2]).toHaveLength(6);
+    expect(FONTES_DA_QUINZENA[2]).toHaveLength(7);
+  });
+
+  it("cobra as duas metades do 03.08.18 nas duas quinzenas", () => {
+    /* As duas frotas descontam nas duas quinzenas, e os dois arquivos chegam
+       separados: uma casinha só fazia o segundo apagar o primeiro. */
+    for (const quinzena of [1, 2] as const) {
+      expect(FONTES_DA_QUINZENA[quinzena]).toContain("DISPONIBILIDADE_FF");
+      expect(FONTES_DA_QUINZENA[quinzena]).toContain("DISPONIBILIDADE_VAN");
+    }
   });
 
   it("admite o 03.08.12.09 na primeira sem cobrá-lo dela", () => {
@@ -438,20 +448,26 @@ describe("a apuração", () => {
   });
 
   it("não cobra da 1ª quinzena o que a 1ª quinzena não espera", () => {
-    /* A primeira quinzena espera quatro relatórios: a conciliação (03.02.59.02)
+    /* A primeira quinzena espera cinco relatórios: a conciliação (03.02.59.02)
        chega com o fechamento da segunda e as requisições (03.08.12.09) podem
        nem existir. Nomeá-las como ausentes ali seria cobrar arquivo que ninguém
        tem para enviar — e a tela passaria a quinzena inteira pedindo o que pode
        não haver. */
     const primeira = apurar(competencia(2026, 7, 1), { ctes: fontes.ctes });
-    expect(primeira.fontesAusentes).toEqual(["OPERACAO", "PAGAMENTO", "DISPONIBILIDADE"]);
+    expect(primeira.fontesAusentes).toEqual([
+      "OPERACAO",
+      "PAGAMENTO",
+      "DISPONIBILIDADE_FF",
+      "DISPONIBILIDADE_VAN",
+    ]);
 
-    /* A mesma falta, na segunda quinzena, são cinco: lá as duas existem. */
+    /* A mesma falta, na segunda quinzena, são seis: lá as duas existem. */
     const segunda = apurar(competencia(2026, 7, 2), { ctes: fontes.ctes });
     expect(segunda.fontesAusentes).toEqual([
       "OPERACAO",
       "PAGAMENTO",
-      "DISPONIBILIDADE",
+      "DISPONIBILIDADE_FF",
+      "DISPONIBILIDADE_VAN",
       "REQUISICOES",
       "CONCILIACAO",
     ]);

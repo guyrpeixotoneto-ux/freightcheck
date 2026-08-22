@@ -399,12 +399,24 @@ mensal entrega, para que a aba `Planilha` seja o mesmo componente nas duas telas
 catálogo dos vinte rótulos sem competência nenhuma. O painel transcrito é o da
 Rota; o do AS existe na planilha e os rótulos dele ainda não foram capturados.
 
-## Os relatórios de cada quinzena — quatro esperados na primeira, seis na segunda
+## Os relatórios de cada quinzena — cinco esperados na primeira, sete na segunda
 
-O catálogo tem seis fontes; **a quinzena decide quantas delas existem**. A
-primeira quinzena espera quatro — 2Art, 03.08.15, 03.08.20 e 03.08.18 — e a
-segunda espera as seis: a conciliação do Promax (03.02.59.02) é o fecho do mês e
-chega com o fechamento da segunda.
+O catálogo tem sete fontes; **a quinzena decide quantas delas existem**. A
+primeira quinzena espera cinco — 2Art, 03.08.15, 03.08.20 e as duas metades do
+03.08.18 — e a segunda espera as sete: a conciliação do Promax (03.02.59.02) é o
+fecho do mês e chega com o fechamento da segunda.
+
+**O 03.08.18 são duas fontes, e não uma.** O relatório de disponibilidade sai do
+Promax em dois arquivos — `DISPONIBILIDADE_FF`, a frota de caminhões, e
+`DISPONIBILIDADE_VAN`, a frota dedicada —, tirados por pessoas diferentes e em
+horas diferentes, e os dois são cobrados nas duas quinzenas. Enquanto disputavam
+uma casinha só, o segundo a chegar despromovia o primeiro e apagava as linhas
+dele: a competência ficava com metade do desconto de disponibilidade e a tela
+mostrava visto verde, porque "o 03.08.18 chegou". Cada frota tem hoje a sua
+vigência, o seu histórico e a sua pendência; o arquivo que traz as duas abas
+juntas é enviado nas duas casinhas, e cada uma lê a frota dela e ignora a outra
+(ver `FROTA_DA_FONTE`, em `lib/fechamento/src/dominio.ts`, e a `0055`, que
+separou o que já estava no banco pela frota das linhas de cada documento).
 
 **O 03.08.12.09 é o caso do meio, e por isso são duas listas e não uma.** A
 requisição de despesa aprovada entre os dias 1 e 15 sai no relatório *daquela*
