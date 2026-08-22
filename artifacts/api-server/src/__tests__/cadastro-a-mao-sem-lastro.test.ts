@@ -295,6 +295,24 @@ describe.skipIf(!temBanco)("o cadastro à mão, sem lastro nenhum", () => {
     expect(primeira.resposta?.vigenteDe).toBe("2026-07-01");
     expect(segunda.resposta?.vigenteDe).toBe("2026-07-16");
 
+    /*
+      **A LINGUAGEM DA API, SEPARADA EM TRÊS.** O mesmo diagnóstico responde as
+      três perguntas sem misturá-las, e é isso que permite à tela não misturar:
+
+        estado   RESPONDEU        — há contrato, e o devido sai dele
+        faltam   []               — nenhuma obrigatória em branco
+        lastro   0 de 11          — e nada disso tem documento por trás
+
+      O `lastro` viaja ao lado do contrato e não o afeta: o `estado` já é
+      `RESPONDEU` com ele zerado.
+    */
+    expect(primeira.diagnostico.contrato?.lastro).toEqual({
+      comLastro: 0,
+      verificaveis: 11,
+      informadas: 29,
+    });
+    expect(segunda.diagnostico.contrato?.lastro?.comLastro).toBe(0);
+
     /* A linha em branco é opcional: entra como zero, e é dita. */
     expect(primeira.diagnostico.contrato?.faltam).toEqual([]);
     expect(primeira.diagnostico.contrato?.assumidasComoZero.map((c) => c.chave)).toEqual([
