@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { FileSpreadsheet, X } from "lucide-react";
+import { FileSpreadsheet, Rows3, X } from "lucide-react";
 import { fetchJson } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Lacunas } from "./lacunas";
@@ -26,11 +26,16 @@ import {
 export function DetalheDaCelulaPainel({
   snapshotId,
   entityType,
+  atributosAbertos,
+  aoVerAtributos,
   aoFechar,
   aoAbrirLacuna,
 }: {
   snapshotId: string;
   entityType: string;
+  /** A linha deste conjunto já está aberta por dentro, lá na matriz? */
+  atributosAbertos: boolean;
+  aoVerAtributos: () => void;
   aoFechar: () => void;
   aoAbrirLacuna: (lacuna: Lacuna) => void;
 }) {
@@ -58,14 +63,34 @@ export function DetalheDaCelulaPainel({
             </p>
           )}
         </div>
-        <button
-          type="button"
-          onClick={aoFechar}
-          className="shrink-0 text-muted-foreground hover:text-foreground"
-          aria-label="Fechar o detalhe"
-        >
-          <X className="w-5 h-5" />
-        </button>
+        <div className="flex items-center gap-3 shrink-0">
+          {/*
+            A ponte de volta para a matriz.
+
+            Este painel responde "quanto falta nesta vigência" e lista as
+            lacunas dela. A pergunta que ele levanta e não responde é se a mesma
+            lacuna está nas vigências vizinhas — e essa é uma leitura de linha,
+            não de célula. Em vez de repetir aqui uma tabela que a matriz já
+            sabe desenhar alinhada às suas colunas, o botão abre a linha lá.
+          */}
+          <button
+            type="button"
+            onClick={aoVerAtributos}
+            aria-pressed={atributosAbertos}
+            className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 border border-brand text-brand hover:bg-brand/10 whitespace-nowrap"
+          >
+            <Rows3 className="w-3.5 h-3.5" aria-hidden />
+            {atributosAbertos ? "Fechar os atributos" : "Ver atributo por atributo"}
+          </button>
+          <button
+            type="button"
+            onClick={aoFechar}
+            className="text-muted-foreground hover:text-foreground"
+            aria-label="Fechar o detalhe"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
       </header>
 
       <div className="px-6 py-5">

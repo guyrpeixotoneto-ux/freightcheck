@@ -25,4 +25,5 @@ export * from "./agregado";
 export * from "./descoberta";
 export * from "./proveniencia";
 export * from "./matriz";
+export * from "./atributos";
 export * from "./detalhe";
