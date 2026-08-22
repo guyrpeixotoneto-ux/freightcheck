@@ -18,7 +18,8 @@
     "exploratoria": "tsx src/cli/exploratoria.ts",
     "pr7": "node ../../scripts/pr7.mjs",
     "erro-da-ia": "tsx src/cli/erro-da-ia.ts",
-    "investigacao": "tsx src/cli/investigacao.ts"
+    "investigacao": "tsx src/cli/investigacao.ts",
+    "tres": "tsx src/cli/tres-investigacoes.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "catalog:",

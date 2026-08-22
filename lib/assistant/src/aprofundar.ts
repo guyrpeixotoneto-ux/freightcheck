@@ -68,6 +68,23 @@ export interface Descida {
  */
 export type Fundo = "GRUPO" | "LINHA" | "CELULA";
 
+/**
+ * De que lado do movimento a pergunta fala.
+ *
+ * **O defeito que isto corrige, e ele é de resposta errada, não de custo.** A
+ * descida ordenava por módulo do impacto: "o que mais impactou
+ * **negativamente**?" recebia o grupo de maior |impacto| — que naquela vigência
+ * era um ganho de +R$ 17 mil. A resposta nomeava, com número certo e fonte ao
+ * lado, o grupo que mais **ajudou** como sendo o que mais atrapalhou. É a
+ * classe de erro mais cara deste produto: verdadeira sobre outra coisa, e
+ * indistinguível da certa na leitura.
+ *
+ * `QUALQUER` continua sendo o padrão para quem perguntou "por quê?" sem dizer
+ * de que lado — aí o maior módulo é a leitura certa, porque o que se quer é o
+ * que mais mexeu.
+ */
+export type Lado = "PERDA" | "GANHO" | "QUALQUER";
+
 export interface PedidoDeDescida {
   db: Database;
   ctx: ContextoResolvido;
@@ -83,6 +100,8 @@ export interface PedidoDeDescida {
   equipamento?: "CAVALO" | "CARRETA" | null | undefined;
   /** Até que nível descer. Ver `Fundo`. */
   ate: Fundo;
+  /** De que lado do movimento a pergunta fala. Ver `Lado`. */
+  lado: Lado;
   /**
    * O grupo que a conversa já tinha aberto — de onde **continuar**.
    *
@@ -127,9 +146,18 @@ export async function descer(pedido: PedidoDeDescida): Promise<Descida> {
   */
   const periodo = visao.period;
 
+  const doLado = (v: number) =>
+    pedido.lado === "PERDA" ? v < 0 : pedido.lado === "GANHO" ? v > 0 : true;
+
   const comImpacto = visao.groups
     .filter((g) => g.impact.amount !== null && g.attributeCode && g.entityType)
-    .filter((g) => !equipamento || g.entityType === equipamento);
+    .filter((g) => !equipamento || g.entityType === equipamento)
+    .filter((g) => doLado(g.impact.amount!));
+  /*
+    Nenhum grupo do lado pedido é um desfecho, e não uma falha: "o que mais
+    piorou?" numa vigência em que nada piorou tem uma resposta, e ela é essa.
+    Cair no maior módulo aqui responderia com um ganho.
+  */
   if (comImpacto.length === 0) return { evidencias, passos };
 
   const emFoco = pedido.grupoEmFoco;
@@ -147,7 +175,12 @@ export async function descer(pedido: PedidoDeDescida): Promise<Descida> {
   const totalDoLado = comImpacto.reduce((s, g) => s + Math.abs(g.impact.amount ?? 0), 0);
   evidencias.push({
     ferramenta: "grupoQueMaisPesou",
-    titulo: `O grupo que mais pesou em ${periodo}`,
+    titulo:
+      pedido.lado === "PERDA"
+        ? `O grupo que mais reduziu a remuneração em ${periodo}`
+        : pedido.lado === "GANHO"
+          ? `O grupo que mais aumentou a remuneração em ${periodo}`
+          : `O grupo que mais pesou em ${periodo}`,
     fatos: [
       {
         rotulo: maior.title,
@@ -164,7 +197,12 @@ export async function descer(pedido: PedidoDeDescida): Promise<Descida> {
           detalhe: `${g.vehicles} veículos · ${g.changes} alterações`,
         })),
       {
-        rotulo: "Grupos com impacto apurado nesta vigência",
+        rotulo:
+          pedido.lado === "PERDA"
+            ? "Grupos que reduziram a remuneração nesta vigência"
+            : pedido.lado === "GANHO"
+              ? "Grupos que aumentaram a remuneração nesta vigência"
+              : "Grupos com impacto apurado nesta vigência",
         valor: String(comImpacto.length),
         detalhe: `soma dos módulos: ${dinheiro(totalDoLado, maior.impact.periodicity ?? "MENSAL")}`,
       },
@@ -197,7 +235,11 @@ export async function descer(pedido: PedidoDeDescida): Promise<Descida> {
     derivaDe: null,
     porque: doFoco
       ? `continua no grupo que a conversa já tinha aberto: ${maior.title}`
-      : "abre a investigação: qual grupo de alteração pesou mais nesta vigência",
+      : pedido.lado === "PERDA"
+        ? "abre a investigação: qual grupo reduziu mais a remuneração nesta vigência"
+        : pedido.lado === "GANHO"
+          ? "abre a investigação: qual grupo aumentou mais a remuneração nesta vigência"
+          : "abre a investigação: qual grupo de alteração pesou mais nesta vigência",
   });
 
   if (pedido.ate === "GRUPO") return { evidencias, passos };

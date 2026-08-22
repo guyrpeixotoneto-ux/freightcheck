@@ -84,7 +84,7 @@ import { normalizar, termos } from "./normalizar";
 import { resolverParametro, type Alvo, type Resolucao } from "./parametros";
 import { listContexts, listPeriods, type ContextInfo, type SeriesContext } from "@workspace/comparison";
 import { rotuloDoPeriodo } from "./formato";
-import { descer, type Fundo, type PassoDaDescida } from "./aprofundar";
+import { descer, type Fundo, type Lado, type PassoDaDescida } from "./aprofundar";
 import {
   calcular,
   evidenciaDoCalculo,
@@ -1516,10 +1516,21 @@ export async function orquestrar(
           ? "CELULA"
           : "LINHA";
 
+    /*
+      O lado sai do plano, pela mesma razão que a profundidade: a pergunta já
+      declarou de que lado fala, e ordenar por módulo apaga essa declaração.
+    */
+    const lado: Lado = investigacao.necessidades.includes("RANKING_PERDA")
+      ? "PERDA"
+      : investigacao.necessidades.includes("RANKING_GANHO")
+        ? "GANHO"
+        : "QUALQUER";
+
     const descida = await descer({
       db,
       ctx: contexto,
       ate,
+      lado,
       ...(estado?.foco?.grupo ? { grupoEmFoco: estado.foco.grupo } : {}),
       periodo: plano.periodo,
       equipamento: leitura.entidades.equipamento,

@@ -114,6 +114,36 @@ rodar("a descida, contra o banco real", () => {
     expect(porVeiculos.encadeamentos.length).toBeGreaterThanOrEqual(2);
   }, 180_000);
 
+  it("«o que piorou» não pode devolver o que mais melhorou", async () => {
+    /*
+      **O defeito, e ele é de resposta errada.** A descida ordenava por módulo do
+      impacto. Numa vigência em que o maior movimento é um ganho, "o que mais
+      impactou negativamente?" nomeava esse ganho — com número certo, fonte ao
+      lado, e a palavra "negativamente" na pergunta. Verdadeiro sobre outra
+      coisa, e indistinguível do certo na leitura.
+    */
+    const perda = await orquestrar(db, "O que mais impactou negativamente?");
+    const grupo = perda.evidencias.find((e) => e.ferramenta === "grupoQueMaisPesou");
+    expect(grupo, "a descida não abriu grupo nenhum").toBeTruthy();
+    expect(grupo!.titulo).toContain("reduziu a remuneração");
+
+    /*
+      A asserção que prova o lado: todo valor em dinheiro apurado do grupo
+      escolhido é negativo. Um `+R$` aqui é o defeito de volta.
+    */
+    const valorPrincipal = grupo!.fatos[0]!.valor;
+    expect(valorPrincipal, `o grupo escolhido é um ganho: ${valorPrincipal}`).toMatch(/^−R\$/);
+  }, 180_000);
+
+  it("«o que ajudou» é o espelho, e não o mesmo grupo", async () => {
+    const ganho = await orquestrar(db, "Onde a remuneração subiu mais?");
+    const grupo = ganho.evidencias.find((e) => e.ferramenta === "grupoQueMaisPesou");
+    if (grupo) {
+      expect(grupo.titulo).toContain("aumentou a remuneração");
+      expect(grupo.fatos[0]!.valor).toMatch(/^\+R\$/);
+    }
+  }, 180_000);
+
   it("a bateria funda inteira: nove casos, cada um com a descida que pede", async () => {
     let estado: EstadoDaConversa = ESTADO_VAZIO;
     const falhas: string[] = [];
