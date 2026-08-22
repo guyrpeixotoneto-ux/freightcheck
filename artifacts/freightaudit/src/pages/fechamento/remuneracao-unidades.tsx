@@ -12,7 +12,7 @@ import { Layout } from "@/components/layout/layout";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { apresentar } from "@/lib/apresentar-erro";
-import { emDiaCurto, MES_LONGO } from "@/lib/calendario";
+import { emDiaCurto, MES_LONGO, periodoDaQuinzena, quinzenaDaData } from "@/lib/calendario";
 import { alternarGrupo, alternarUma, grupoEstaAberto } from "@/lib/linhas-abertas";
 import { cn } from "@/lib/utils";
 import {
@@ -40,11 +40,21 @@ import {
  * fila do fechamento vista de cima, e por isso têm a mesma anatomia: os filtros
  * em etiqueta, as linhas reunidas em grupos com o total do grupo escrito no
  * cabeçalho, e a resposta cara de cada linha abrindo **na própria linha**. Lá o
- * grupo é a quinzena e o que abre é a conta; aqui o grupo é a unidade e o que
+ * grupo é a quinzena e o que abre é a conta; aqui a linha é a quinzena e o que
  * abre é o cadastro (`components/remuneracao/uma-quinzena`) — o mesmo
  * componente da tela de dentro, e não um desenho parecido: duas versões do
  * mesmo cadastro acabariam divergindo, e a daqui seria a que ninguém lembrou de
  * corrigir. O gesto de abrir também é um só, em `lib/linhas-abertas.ts`.
+ *
+ * **Uma tabela por unidade, e dentro dela o calendário.** Cada unidade é um
+ * cartão com a tabela dela — o espaço entre os cartões é o que diz que uma
+ * unidade acabou. Dentro, uma faixa por mês; a faixa abre e mostra **as duas
+ * quinzenas** dele, que é o grão em que a planilha de remuneração existe. As
+ * duas sempre, e é o principal: a metade que ninguém entregou é o trabalho que
+ * falta, e enquanto as vigências eram uma lista rasa ela não tinha como
+ * aparecer — sem vigência não havia linha, e um julho com uma entrega só ficava
+ * com a mesma cara da unidade que entrega uma vez por mês. Ver
+ * {@link partirEmQuinzenas} e {@link QuinzenaSemCadastro}.
  *
  * O cadastro é buscado quando a linha abre, e não junto da lista: montar as
  * trinta linhas de uma vigência é o trabalho mais caro deste módulo, e baixar
@@ -63,8 +73,8 @@ import {
  * cadastros por estado e não soma linhas com lastro: "89 de 900" é o mesmo
  * percentual disfarçado, e diria a mesma coisa errada.
  *
- * **Uma linha por vigência, dentro do grupo da unidade.** A lista passou por
- * três formas, e as duas primeiras erravam coisas diferentes. Foi *uma linha
+ * **Uma linha por quinzena, dentro do mês, dentro da unidade.** A lista passou
+ * por quatro formas, e as duas primeiras erravam coisas diferentes. Foi *uma linha
  * por unidade*, mostrando a vigência mais recente dela, e escondia trabalho
  * feito: quem preencheu a planilha de julho voltava na virada e via "nada
  * informado", porque a única linha da unidade tinha passado a responder por
@@ -72,14 +82,16 @@ import {
  * o que consertou aquilo, e cobrava um acervo largo para valer a pena: num de
  * poucas unidades e muitas vigências, todo grupo tem uma linha só, o cabeçalho
  * do mês repete o que ela diz, e o nome da unidade desce a página uma vez por
- * vigência sem nunca distinguir nada. Agora o grupo é a **unidade** e as linhas
- * são as vigências dela, da mais recente para a mais antiga — ver
- * {@link agruparPorUnidade}.
+ * vigência sem nunca distinguir nada. Foi então *uma tabela só*, com a unidade
+ * reunindo as vigências dela num `<tbody>` — ver {@link agruparPorUnidade} —, e
+ * com trinta CDDs empilhados numa tabela contínua o fim de um e o começo do
+ * outro passaram a se tocar na mesma borda. Agora cada unidade é a **tabela
+ * dela**, e dentro há o mês, e dentro do mês as duas quinzenas.
  *
- * **O que sobreviveu às três.** Todas as vigências continuam em tela, cada uma
+ * **O que sobreviveu às quatro.** Todas as vigências continuam em tela, cada uma
  * na linha dela, e por isso a quinzena preenchida não some quando a seguinte
  * nasce em branco. E quem ficou para trás continua caindo para o fim: os
- * grupos vêm na ordem da vigência mais recente de cada um, então a unidade que
+ * cartões vêm na ordem da vigência mais recente de cada um, então a unidade que
  * parou de entregar em junho fica abaixo das que entregaram em agosto, em vez
  * de parecer em dia por ordem alfabética.
  *
@@ -223,21 +235,6 @@ function mesPorExtenso(data: string): string {
 }
 
 /**
- * `2026-08-16` → `agosto/2026` — a forma que o servidor dá ao **mês inteiro**.
- *
- * Serve para uma pergunta só: o rótulo desta vigência diz mais do que o grupo já
- * disse? A unidade que entrega uma vez por mês tem `periodLabel` igual a este
- * texto, e repeti-lo na linha seria escrever "agosto" embaixo de "agosto". A que
- * entrega quinzenalmente tem "2ª quinzena de agosto de 2026", e aí a linha
- * precisa dizer qual das duas respondeu — ver `rotuloDaVigencia`, em
- * `lib/remuneracao/src/vigencia.ts`.
- */
-function mesDaVigencia(data: string): string {
-  const indice = Number(data.slice(5, 7)) - 1;
-  return indice >= 0 && indice < 12 ? `${MES_LONGO[indice]}/${data.slice(0, 4)}` : data;
-}
-
-/**
  * O endereço do cadastro daquela linha — unidade, canal **e vigência**.
  *
  * O canal vai sempre, mesmo vazio — a mesma razão de `irParaUnidade` na tela do
@@ -254,6 +251,133 @@ function enderecoDaUnidade(u: SituacaoDaUnidade): string {
     period: u.effectiveDate,
   });
   return `/fechamento/remuneracao/unidade?${query}`;
+}
+
+/** Uma das duas metades de um mês, e as vigências que caíram nela. */
+export interface Quinzena {
+  /** 1 — do dia 1 ao 15; 2 — do dia 16 ao fim do mês. */
+  numero: 1 | 2;
+  /**
+   * `2026-07-16` — o dia em que ela começa.
+   *
+   * É onde o cadastro dela nasce quando ainda não existe: o servidor só aceita
+   * começo de quinzena, e é esta data que o painel de "Cadastrar planilha"
+   * recebe da metade vazia. Sai de `periodoDaQuinzena` — a mesma aritmética de
+   * "Cadastrar uma unidade" e de Realizar Fechamento — e não de um `-01`/`-16`
+   * montado aqui: uma segunda régua de quinzena divergiria da primeira algum
+   * dia, e a planilha apareceria numa vigência que nenhuma outra tela escreve.
+   */
+  inicio: string;
+  /**
+   * As vigências desta metade, da mais antiga para a mais recente.
+   *
+   * Quase sempre uma. **Nenhuma** é o caso que este tipo existe para dizer: a
+   * metade do mês que ninguém entregou, e que a lista mostra do mesmo jeito.
+   * Mais de uma acontece quando o arquivo traz duas datas dentro da mesma
+   * metade — `2026-07-03` e `2026-07-10` —; a lista não esconde a segunda, e
+   * ali é o dia que passa a distinguir uma da outra.
+   */
+  linhas: SituacaoDaUnidade[];
+}
+
+/** Um mês de uma unidade, sempre com as duas quinzenas dele. */
+export interface Mes {
+  /** `2026-07` — o que reúne as duas metades. */
+  chave: string;
+  /** `julho de 2026` — o que o cabeçalho do mês escreve. */
+  titulo: string;
+  /** A primeira e a segunda, nesta ordem, existindo elas ou não. */
+  quinzenas: [Quinzena, Quinzena];
+}
+
+/**
+ * As vigências de uma unidade repartidas em meses e, dentro deles, nas duas
+ * quinzenas do calendário.
+ *
+ * **Por que o mês virou um nível.** A planilha de remuneração é quinzenal — a
+ * mesma unidade responde por `2026-07-01` e `2026-07-16` —, e enquanto as
+ * vigências eram uma lista rasa as duas metades de julho eram duas linhas
+ * irmãs, indistinguíveis das de junho a não ser pelo rótulo que o servidor
+ * escreveu em cada uma. Com o mês por cima delas, a unidade se lê pelo
+ * calendário que ela de fato tem: doze meses, dois lugares em cada um.
+ *
+ * **As duas metades são ditas sempre, e é a razão principal da função.** A
+ * quinzena que ninguém entregou não é ausência de informação: é o trabalho que
+ * falta, e é exatamente o que esta tela existe para achar. Na lista rasa ela
+ * não tinha como aparecer — sem vigência não havia linha —, e a única pista de
+ * que faltava metade de julho era julho ter uma linha só, o que também é a cara
+ * da unidade que entrega uma vez por mês. Aqui a metade vazia tem lugar, diz
+ * que está vazia e oferece o formulário que a preenche.
+ *
+ * **É o único lugar do módulo que afirma uma quinzena sobre uma vigência
+ * sozinha**, e a diferença com `rotuloDaVigencia` (em
+ * `lib/remuneracao/src/vigencia.ts`) é sobre o que se afirma. Lá a pergunta é
+ * como **nomear** uma vigência, e chamar o `2026-08-01` de uma unidade mensal
+ * de "1ª quinzena" inventaria um grão que os arquivos não têm. Aqui a pergunta
+ * é em que casa do calendário ela **cai**, e essa casa existe antes de qualquer
+ * arquivo: a régua é `quinzenaDaData`, a mesma do fechamento que vai procurar
+ * este cadastro.
+ *
+ * Os meses vêm do mais recente para o mais antigo, como as linhas vinham — a
+ * primeira coisa que se lê de uma unidade é onde ela está. Dentro do mês a
+ * ordem é a do calendário, primeira e depois segunda: são duas casas fixas de
+ * um mês já nomeado, e invertê-las faria o mês ser lido de trás para frente
+ * sem que nada apontasse para trás.
+ */
+export function partirEmQuinzenas(linhas: readonly SituacaoDaUnidade[]): Mes[] {
+  const por = new Map<string, Mes>();
+
+  for (const u of linhas) {
+    const chave = u.effectiveDate.slice(0, 7);
+    let mes = por.get(chave);
+    if (!mes) {
+      const ano = Number(chave.slice(0, 4));
+      const numeroDoMes = Number(chave.slice(5, 7));
+      mes = {
+        chave,
+        titulo: mesPorExtenso(u.effectiveDate),
+        quinzenas: [
+          { numero: 1, inicio: periodoDaQuinzena(ano, numeroDoMes, 1).inicio, linhas: [] },
+          { numero: 2, inicio: periodoDaQuinzena(ano, numeroDoMes, 2).inicio, linhas: [] },
+        ],
+      };
+      por.set(chave, mes);
+    }
+    mes.quinzenas[quinzenaDaData(u.effectiveDate) - 1]!.linhas.push(u);
+  }
+
+  for (const mes of por.values()) {
+    for (const quinzena of mes.quinzenas) {
+      quinzena.linhas.sort((a, b) => a.effectiveDate.localeCompare(b.effectiveDate));
+    }
+  }
+
+  return [...por.values()].sort((a, b) => b.chave.localeCompare(a.chave));
+}
+
+/**
+ * O que cada metade do mês diz, com o mês fechado.
+ *
+ * O mês fechado precisa dizer o suficiente para alguém decidir se abre — senão
+ * ele é uma fila de nomes de mês, e achar a quinzena sem lastro custa abrir
+ * doze. As três frases são os três casos de {@link Quinzena.linhas}: a metade
+ * vazia, a metade com uma vigência (e aí o estado dela, na língua de
+ * {@link NO_RESUMO}) e a rara com mais de uma, que só é contada — os estados
+ * das duas cabem na linha de cada uma, e não numa frase de cabeçalho.
+ */
+function fraseDaQuinzena(quinzena: Quinzena): string {
+  if (quinzena.linhas.length === 0) return "sem cadastro";
+  if (quinzena.linhas.length > 1) {
+    return `com ${contar(quinzena.linhas.length, "vigência", "vigências")}`;
+  }
+  return NO_RESUMO[quinzena.linhas[0]!.cadastro.estado];
+}
+
+/** `1ª quinzena com as duas metades · 2ª quinzena sem cadastro`. */
+export function resumoDoMes(mes: Mes): string {
+  return mes.quinzenas
+    .map((quinzena) => `${quinzena.numero}ª quinzena ${fraseDaQuinzena(quinzena)}`)
+    .join(" · ");
 }
 
 interface ContagemDoGrupo {
@@ -282,6 +406,16 @@ export interface Grupo extends ContagemDoGrupo {
    */
   maisRecente: string;
   linhas: SituacaoDaUnidade[];
+  /**
+   * As mesmas vigências de {@link linhas}, repartidas por mês e quinzena — é
+   * o que a tabela da unidade desenha.
+   *
+   * As duas convivem porque respondem a perguntas diferentes: `linhas` é o
+   * conjunto plano, de onde saem as contagens do cabeçalho e a ordem entre as
+   * unidades; `meses` é a forma. Derivar as contagens da árvore seria percorrer
+   * duas metades vazias por mês para somar o que a lista já tem à mão.
+   */
+  meses: Mes[];
 }
 
 /**
@@ -336,6 +470,7 @@ export function agruparPorUnidade(cadastros: SituacaoDaUnidade[]): Grupo[] {
         titulo: rotuloDaLinha(u),
         maisRecente: u.effectiveDate,
         linhas: [],
+        meses: [],
         frotaEAliquotas: 0,
         soFrota: 0,
         soAliquotas: 0,
@@ -367,6 +502,7 @@ export function agruparPorUnidade(cadastros: SituacaoDaUnidade[]): Grupo[] {
      linha é onde a unidade está, que é o que se procura primeiro. */
   for (const grupo of por.values()) {
     grupo.linhas.sort((a, b) => b.effectiveDate.localeCompare(a.effectiveDate));
+    grupo.meses = partirEmQuinzenas(grupo.linhas);
   }
 
   /*
@@ -418,6 +554,18 @@ export function resumoDoGrupo(grupo: Grupo): string {
 const idsDoGrupo = (grupo: Grupo) => grupo.linhas.map(chaveDaLinha);
 
 /**
+ * O endereço de um mês dentro da tela — a unidade **e** o mês.
+ *
+ * A unidade entra porque o conjunto de meses abertos é um só para a página
+ * inteira: com `2026-07` sozinho, abrir julho de um CDD abriria julho dos
+ * trinta. É a mesma razão que põe a vigência em {@link chaveDaLinha}.
+ */
+const chaveDoMes = (grupo: Grupo, mes: Mes) => `${grupo.chave}|${mes.chave}`;
+
+/** Os meses de um grupo — o que o cabeçalho da unidade abre e fecha junto. */
+const mesesDoGrupo = (grupo: Grupo) => grupo.meses.map((mes) => chaveDoMes(grupo, mes));
+
+/**
  * O cadastro de uma unidade **na vigência da linha**, dentro dela.
  *
  * A chave é a mesma da tela do cadastro — {@link chaveDoCadastro} —, e não por
@@ -458,6 +606,19 @@ export default function RemuneracaoUnidades() {
   const [estado, setEstado] = useState(TUDO);
   /* As unidades com o cadastro aberto — ver `lib/linhas-abertas.ts`. */
   const [abertas, setAbertas] = useState<ReadonlySet<string>>(() => new Set());
+  /*
+    E os meses com as duas quinzenas à vista, que é outro conjunto e não o
+    mesmo: abrir julho quer dizer ver as duas metades dele, e abrir uma delas
+    quer dizer montar o cadastro daquela quinzena — a consulta cara. Um conjunto
+    só faria o primeiro gesto pagar o segundo em toda unidade que se abrisse.
+
+    Os meses nascem fechados. Uma unidade com um ano de vigências tem doze
+    meses e vinte e quatro metades, e abri-los todos de saída daria a mesma
+    página contínua que a tabela por unidade veio desfazer; o cabeçalho de cada
+    mês diz em que estado as duas quinzenas estão — ver `resumoDoMes` —, que é
+    o que decide se vale abrir.
+  */
+  const [mesesAbertos, setMesesAbertos] = useState<ReadonlySet<string>>(() => new Set());
 
   /*
     O endereço antigo do cadastro era este, com a unidade na query. Quem tiver
@@ -597,7 +758,50 @@ export default function RemuneracaoUnidades() {
   );
 
   const abertoNoGrupo = (grupo: Grupo) => grupoEstaAberto(abertas, idsDoGrupo(grupo));
+
+  /**
+   * O cabeçalho da unidade abre — ou fecha — **tudo** o que ela tem: os meses
+   * e, dentro deles, o cadastro de cada quinzena.
+   *
+   * Os dois juntos porque um sem o outro não é gesto nenhum. Abrir só os
+   * cadastros deixaria trinta consultas de pé embaixo de meses fechados, sem
+   * nada em tela; abrir só os meses obrigaria a clicar quinzena por quinzena
+   * depois de ter pedido a unidade inteira.
+   *
+   * Quem decide se está abrindo ou fechando são as vigências, e não os meses: é
+   * a mesma pergunta que `alternarGrupo` faz — falta alguma por abrir? —, e
+   * respondê-la duas vezes em dois conjuntos deixaria o clique abrir um e
+   * fechar o outro no meio-termo em que eles discordassem.
+   */
+  const alternarUnidade = (grupo: Grupo) => {
+    const abrindo = !abertoNoGrupo(grupo);
+    const meses = mesesDoGrupo(grupo);
+    setAbertas((a) => alternarGrupo(a, idsDoGrupo(grupo)));
+    setMesesAbertos((m) => {
+      const proximo = new Set(m);
+      for (const mes of meses) {
+        if (abrindo) proximo.add(mes);
+        else proximo.delete(mes);
+      }
+      return proximo;
+    });
+  };
   const filtrando = [vigencia, nome, operacao, estado].some((v) => v !== TUDO);
+
+  /**
+   * Dá para dizer que uma quinzena está vazia com este recorte?
+   *
+   * A linha da metade sem cadastro **afirma uma ausência** — "nada nesta
+   * quinzena, nem export importado nem planilha digitada" — e oferece criá-la.
+   * Filtrar por estado do cadastro é o único recorte que tira uma das duas
+   * metades de um mês e deixa a outra: com ele ligado, a frase passaria a ser
+   * sobre o recorte, e a linha convidaria a cadastrar o que já está cadastrado.
+   *
+   * Os outros três não partem mês nenhum, e por isso não desligam nada:
+   * vigência recorta por mês inteiro — as duas metades entram ou saem juntas —,
+   * e unidade e operação recortam por cartão.
+   */
+  const podeAfirmarQuinzenaVazia = estado === TUDO;
   const semLastro = situacao.data?.resumo.semLastro ?? 0;
 
   /*
@@ -626,11 +830,12 @@ export default function RemuneracaoUnidades() {
         </div>
         <p className="text-muted-foreground mt-2 max-w-3xl">
           As unidades que o cadastro da planilha de remuneração conhece, cada uma com
-          <strong> uma linha por vigência</strong>, e o que ele alcança em cada uma delas.
-          Dentro da unidade as vigências mais recentes vêm primeiro, e quem parou de
-          entregar cai para o fim da lista; clique numa linha para abrir o cadastro daquela
-          quinzena aqui mesmo — alíquotas, frota, parcelas por veículo e proporção de
-          documentos. O que o acervo
+          <strong> a tabela dela</strong>: uma faixa por mês, e o mês abre nas{" "}
+          <strong>duas quinzenas</strong> — as duas sempre, para que a metade que ninguém
+          entregou apareça em vez de faltar em silêncio. Os meses mais recentes vêm
+          primeiro, e a unidade que parou de entregar cai para o fim da página; clique numa
+          quinzena para abrir o cadastro dela aqui mesmo — alíquotas, frota, parcelas por
+          veículo e proporção de documentos. O que o acervo
           ainda não responde, alguém digita da aba de Excel em <strong>Cadastrar planilha</strong>;
           e a unidade cuja aba chegou antes do export entra por <strong>Cadastrar unidade</strong>,
           sem lastro e dizendo que está sem.
@@ -714,295 +919,436 @@ export default function RemuneracaoUnidades() {
           </p>
         )}
 
+        {/*
+          UMA TABELA POR UNIDADE — e não uma tabela só, com as unidades
+          empilhadas dentro dela.
+
+          Enquanto a unidade era um `<tbody>` da mesma tabela, o fim de um grupo
+          e o começo do seguinte ficavam colados: a última vigência de uma
+          unidade e a faixa com o nome da outra se tocam na mesma borda, e a
+          leitura de cima para baixo não tem onde parar. É o custo que a forma
+          por vigência não pagava — lá o grupo era o mês, e havia poucos; aqui
+          são trinta CDDs, e trinta faixas dentro de uma tabela só viram uma
+          página contínua em que a unidade se perde.
+
+          Cada unidade passa a ser um cartão com a tabela dela: o espaço entre
+          os cartões é o que diz que uma unidade acabou, e as colunas se repetem
+          em cada um porque cada um é uma tabela de verdade — quem rola até a
+          décima unidade lê o título das colunas ali, e não vinte linhas acima.
+
+          O cabeçalho da unidade fica **fora** do rolamento horizontal da
+          tabela: numa tela estreita as colunas correm para o lado, e o nome do
+          CDD correndo junto tiraria da vista justamente o que diz de quem é a
+          tabela que se está lendo.
+        */}
         {grupos.length > 0 && (
-          <div className="rounded-lg border bg-card overflow-x-auto">
-            <table className="w-full text-sm border-collapse">
-              <thead>
-                <tr className="border-b text-[0.6875rem] font-bold uppercase tracking-wide text-muted-foreground">
-                  <th className="text-left font-bold px-4 py-3">Vigência</th>
-                  <th className="text-left font-bold px-4 py-3">Cadastro</th>
-                  <th className="text-left font-bold px-4 py-3">Frota</th>
-                  <th className="text-left font-bold px-4 py-3">Trechos</th>
-                  <th className="text-right font-bold px-4 py-3">Linhas com lastro</th>
-                  <th className="text-right font-bold px-4 py-3">Planilha informada</th>
-                  <th className="text-right font-bold px-4 py-3" />
-                </tr>
-              </thead>
-              {grupos.map((grupo) => (
-                <tbody key={grupo.chave}>
-                  <tr className="border-b bg-muted/40">
-                    <th colSpan={7} scope="colgroup" className="p-0 text-left font-normal">
-                      <button
-                        type="button"
-                        onClick={() => setAbertas((a) => alternarGrupo(a, idsDoGrupo(grupo)))}
-                        aria-expanded={abertoNoGrupo(grupo)}
-                        className="flex w-full items-start gap-2 px-4 py-2.5 text-left hover:bg-muted/70"
-                      >
-                        <ChevronRight
-                          className={cn(
-                            "w-3.5 h-3.5 mt-0.5 shrink-0 text-muted-foreground transition-transform",
-                            abertoNoGrupo(grupo) && "rotate-90",
-                          )}
-                          aria-hidden
-                        />
-                        <span>
-                          <span className="font-bold uppercase tracking-wide text-xs">
-                            {grupo.titulo}
-                          </span>
-                          <span className="text-muted-foreground text-xs ml-3">
-                            {resumoDoGrupo(grupo)}
-                          </span>
-                        </span>
-                      </button>
-                      {/*
-                        A procedência da unidade fica **aqui**, e não na linha:
-                        ser cadastrada à mão, ter virado planilha órfã ou estar
-                        sem código são fatos do par (unidade, canal) — o
-                        servidor os calcula por `chaveDaUnidade`, e eles são
-                        idênticos em toda vigência dela. Na lista por vigência
-                        não havia onde pô-los senão repetidos em cada linha; o
-                        grupo por unidade é o lugar que faltava, e eles passam a
-                        ser ditos uma vez.
+          <div className="space-y-4">
+            {grupos.map((grupo) => (
+              <section key={grupo.chave} className="rounded-lg border bg-card overflow-hidden">
+                <div className="border-b bg-muted/40">
+                  <button
+                    type="button"
+                    onClick={() => alternarUnidade(grupo)}
+                    aria-expanded={abertoNoGrupo(grupo)}
+                    className="flex w-full items-start gap-2 px-4 py-2.5 text-left hover:bg-muted/70"
+                  >
+                    <ChevronRight
+                      className={cn(
+                        "w-3.5 h-3.5 mt-0.5 shrink-0 text-muted-foreground transition-transform",
+                        abertoNoGrupo(grupo) && "rotate-90",
+                      )}
+                      aria-hidden
+                    />
+                    <span>
+                      <span className="font-bold uppercase tracking-wide text-xs">
+                        {grupo.titulo}
+                      </span>
+                      <span className="text-muted-foreground text-xs ml-3">
+                        {resumoDoGrupo(grupo)}
+                      </span>
+                    </span>
+                  </button>
+                  {/*
+                    A procedência da unidade fica **aqui**, e não na linha: ser
+                    cadastrada à mão, ter virado planilha órfã ou estar sem
+                    código são fatos do par (unidade, canal) — o servidor os
+                    calcula por `chaveDaUnidade`, e eles são idênticos em toda
+                    vigência dela. Na lista por vigência não havia onde pô-los
+                    senão repetidos em cada linha; o cartão da unidade é o lugar
+                    que faltava, e eles passam a ser ditos uma vez.
 
-                        Fora do `<button>` que abre o grupo, e não dentro: o
-                        painel do código é um botão, e um `<button>` dentro de
-                        outro é HTML inválido.
-                      */}
-                      <MarcasDaUnidade unidade={grupo.linhas[0]!} />
-                    </th>
-                  </tr>
-                  {grupo.linhas.map((u) => {
-                    const chave = chaveDaLinha(u);
-                    const aberta = abertas.has(chave);
-                    const alternar = () => setAbertas((a) => alternarUma(a, chave));
-                    /*
-                      A linha é a **vigência**, agora que o grupo é a unidade —
-                      e o rótulo é o que o servidor mandou quando ele diz mais
-                      que o mês. A unidade que entrega uma vez por mês tem
-                      `periodLabel` igual a `agosto/2026`, e escrever isso seria
-                      dar à linha uma forma de data que a tela não usa em lugar
-                      nenhum; a que entrega quinzenalmente tem "2ª quinzena de
-                      agosto de 2026", e aí é a linha que precisa dizer qual das
-                      duas respondeu. Ver `mesDaVigencia`.
-                    */
-                    const quinzenal = u.periodLabel !== mesDaVigencia(u.effectiveDate);
-                    const rotuloDaVigencia = quinzenal
-                      ? u.periodLabel
-                      : mesPorExtenso(u.effectiveDate);
-                    return (
-                      <Fragment key={chave}>
-                        <tr
-                          onClick={alternar}
-                          className={cn(
-                            "border-b last:border-b-0 cursor-pointer hover:bg-muted/50",
-                            aberta && "bg-muted/40",
-                          )}
-                        >
-                          <td className="px-4 py-3 align-middle">
-                            {/*
-                              O botão repete o clique da linha por causa do
-                              teclado: uma `<tr>` clicável não recebe foco, e sem
-                              ele o cadastro seria inalcançável sem mouse.
-                            */}
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                alternar();
-                              }}
-                              aria-expanded={aberta}
-                              className="flex items-start gap-1.5 text-left"
-                            >
-                              <ChevronRight
-                                className={cn(
-                                  "w-3.5 h-3.5 mt-1 shrink-0 text-muted-foreground transition-transform",
-                                  aberta && "rotate-90",
-                                )}
-                                aria-hidden
-                              />
-                              <span>
-                                <span className="font-semibold">{rotuloDaVigencia}</span>
-                                {/*
-                                  O dia exato só embaixo da quinzenal, que é
-                                  onde ele separa duas linhas do mesmo mês. Na
-                                  unidade que entrega uma vez por mês, "01/08"
-                                  embaixo de "agosto de 2026" é a mesma data
-                                  escrita duas vezes.
+                    Fora do `<button>` que abre o cartão, e não dentro: o painel
+                    do código é um botão, e um `<button>` dentro de outro é HTML
+                    inválido.
+                  */}
+                  <MarcasDaUnidade unidade={grupo.linhas[0]!} />
+                </div>
 
-                                  O nome da unidade **não** vem mais aqui: ele é
-                                  o título do grupo, uma polegada acima, e
-                                  repeti-lo em toda vigência era o que fazia a
-                                  mesma unidade descer a página seis vezes sem
-                                  nunca distinguir uma linha da outra.
-                                */}
-                                {quinzenal && (
-                                  <span className="block text-muted-foreground text-xs mt-0.5">
-                                    {emDiaCurto(u.effectiveDate)}
-                                  </span>
-                                )}
-                              </span>
-                            </button>
-                          </td>
+                <div className="overflow-x-auto">
+                  {/*
+                    O nome da unidade nomeia a tabela: ele está no cabeçalho
+                    acima, que não é `<caption>` para não rolar com as colunas —
+                    e sem o `aria-label` quem lê por leitor de tela encontraria
+                    trinta tabelas sem nome nenhum.
+                  */}
+                  <table className="w-full text-sm border-collapse" aria-label={grupo.titulo}>
+                    {/*
+                      O título das colunas aparece quando há célula embaixo
+                      dele, e não antes.
 
-                          <td className="px-4 py-3 align-middle">
-                            <Badge
-                              variant={APARENCIA_DO_ESTADO[u.cadastro.estado]}
-                              title={ESTADO_DO_CADASTRO[u.cadastro.estado].frase}
-                              className="gap-1.5 whitespace-nowrap px-2.5 py-1 text-[0.6875rem] font-bold uppercase tracking-wide"
-                            >
-                              <span className="w-1.5 h-1.5 rounded-full bg-current" aria-hidden />
-                              {ESTADO_DO_CADASTRO[u.cadastro.estado].rotulo}
-                            </Badge>
-                          </td>
-
-                          <td className="px-4 py-3 align-middle">
-                            <MetadeDoCadastro tem={u.cadastro.frota} frase={fraseDaFrota(u)} />
-                          </td>
-                          <td className="px-4 py-3 align-middle">
-                            <MetadeDoCadastro
-                              tem={u.cadastro.aliquotas}
-                              frase={fraseDosTrechos(u)}
-                            />
-                          </td>
-
-                          {/*
-                            Sem barra de proporção ao lado do número, ao
-                            contrário da coluna "conferido" de Apurações, que é
-                            a que ocupa este lugar lá. Lá a razão entre dois
-                            valores é a resposta; aqui "3 de 30" desenhado como
-                            10% seria o percentual que o módulo recusa —
-                            dezenove das trinta linhas dependem de decisão de
-                            negócio, e não de arquivo que falta.
-                          */}
-                          <td className="px-4 py-3 text-right tabular-nums whitespace-nowrap align-middle">
-                            {u.cadastro.comLastro} de {u.cadastro.linhas}
-                          </td>
-
-                          {/*
-                            A planilha informada é coluna própria, e nunca somada
-                            à de lastro: as duas respondem perguntas opostas — uma
-                            diz o que a unidade **entregou**, a outra o que alguém
-                            **digitou**. Somadas, a unidade que não mandou arquivo
-                            nenhum e teve a aba transcrita apareceria em dia, e
-                            quem opera pararia de procurar o arquivo que falta.
-
-                            A célula é o **lugar de preencher**, e não só a
-                            contagem: sem o botão, esta coluna dizia "nada
-                            informado" e não oferecia nada a quem lesse isso.
-
-                            O clique é retido aqui porque a linha inteira abre o
-                            cadastro: o formulário sobe num portal que continua
-                            filho desta célula na árvore do React, e sem a
-                            retenção cada tecla dentro dele fecharia — ou abriria
-                            — a linha atrás.
-                          */}
-                          <td
-                            className="px-4 py-3 text-right whitespace-nowrap align-middle"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <div className="inline-flex flex-col items-end gap-1">
-                              {u.cadastro.informadas > 0 && (
-                                <>
-                                  <span className="tabular-nums">
-                                    {u.cadastro.informadas} de {u.cadastro.linhas}
-                                  </span>
-                                  {u.cadastro.divergentes > 0 ? (
-                                    <Badge variant="destructive" className="text-[0.6875rem]">
-                                      {u.cadastro.divergentes}{" "}
-                                      {u.cadastro.divergentes === 1
-                                        ? "diverge do acervo"
-                                        : "divergem do acervo"}
-                                    </Badge>
-                                  ) : (
-                                    u.cadastro.conferidas > 0 && (
-                                      <span className="text-[0.6875rem] text-muted-foreground">
-                                        {u.cadastro.conferidas}{" "}
-                                        {u.cadastro.conferidas === 1
-                                          ? "confere com o acervo"
-                                          : "conferem com o acervo"}
-                                      </span>
-                                    )
-                                  )}
-                                </>
-                              )}
-                              <BotaoDeCadastroDaPlanilha
-                                unidade={u}
-                                canaisConhecidos={canaisConhecidos}
-                              />
-                            </div>
-                          </td>
-
-                          <td className="px-4 py-3 text-right align-middle">
-                            <span className="inline-flex items-center gap-3">
-                              <Link
-                                href={enderecoDaUnidade(u)}
-                                onClick={(e) => e.stopPropagation()}
-                                className="text-xs text-primary hover:underline inline-flex items-center gap-1 whitespace-nowrap"
-                              >
-                                abrir cadastro
-                                <ArrowRight className="w-3 h-3" />
-                              </Link>
-                              {/*
-                                A lixeira fica no fim da linha, ao lado de abrir
-                                — e não junto do botão de cadastrar planilha, que
-                                é o gesto que se repete. Excluir é o gesto que se
-                                faz uma vez; vizinho do botão que se aperta toda
-                                quinzena, ele viraria o clique errado de alguém
-                                com pressa.
-                              */}
-                              <BotaoDeExclusaoDoCadastro
-                                unidade={u}
-                                podeExcluirAUnidade={ehOUltimoCadastro(u)}
-                              />
-                            </span>
-                          </td>
+                      Com os meses fechados a tabela é uma fila de faixas que
+                      atravessam a largura toda — nenhuma delas ocupa "Frota"
+                      ou "Trechos". Escrever os sete títulos ali seria uma
+                      linha de rótulos sobre nada, repetida em cada cartão da
+                      página, e a primeira coisa que se lê de uma unidade
+                      passaria a ser o cabeçalho de uma tabela vazia.
+                    */}
+                    {grupo.meses.some((mes) => mesesAbertos.has(chaveDoMes(grupo, mes))) && (
+                      <thead>
+                        <tr className="border-b text-[0.6875rem] font-bold uppercase tracking-wide text-muted-foreground">
+                          <th className="text-left font-bold px-4 py-3">Vigência</th>
+                          <th className="text-left font-bold px-4 py-3">Cadastro</th>
+                          <th className="text-left font-bold px-4 py-3">Frota</th>
+                          <th className="text-left font-bold px-4 py-3">Trechos</th>
+                          <th className="text-right font-bold px-4 py-3">Linhas com lastro</th>
+                          <th className="text-right font-bold px-4 py-3">Planilha informada</th>
+                          <th className="text-right font-bold px-4 py-3" />
                         </tr>
+                      </thead>
+                    )}
+                    <tbody>
+                      {grupo.meses.map((mes) => {
+                        const chaveDesteMes = chaveDoMes(grupo, mes);
+                        const mesAberto = mesesAbertos.has(chaveDesteMes);
+                        return (
+                          <Fragment key={chaveDesteMes}>
+                            {/*
+                              O MÊS É UMA FAIXA QUE ABRE, e o que ela abre são as
+                              duas quinzenas dele — as duas sempre, tenha a
+                              unidade entregado uma, as duas ou nenhuma.
 
-                        {aberta && (
-                          <tr className="border-b last:border-b-0 bg-muted/20">
-                            <td colSpan={7} className="px-4 py-4 sm:px-9">
-                              <div className="space-y-3">
-                                <div className="flex flex-wrap items-baseline justify-between gap-3">
-                                  {/*
-                                    O endereço **inteiro** do cadastro — a
-                                    unidade e a vigência —, e não só a metade
-                                    que o grupo já disse. É o lugar em que a
-                                    repetição vale: várias linhas ficam abertas
-                                    ao mesmo tempo, de propósito, e comparar
-                                    duas unidades quer dizer ler dois painéis
-                                    que estão em grupos diferentes. Um painel
-                                    que dissesse só a vigência mandaria subir a
-                                    página para lembrar de quem ele é.
-                                  */}
-                                  <p className="text-[0.6875rem] font-bold uppercase tracking-wide text-muted-foreground">
-                                    O cadastro · {rotuloDaLinha(u)} · {rotuloDaVigencia}
-                                  </p>
-                                  {/*
-                                    O cadastro abre aqui; o resto da unidade —
-                                    trocar de vigência, comparar duas quinzenas,
-                                    digitar a planilha com as trinta linhas à
-                                    vista — é outra tela, e o caminho para ela
-                                    fica onde a pergunta seguinte aparece.
-                                  */}
-                                  <Link
-                                    href={enderecoDaUnidade(u)}
-                                    className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
-                                  >
-                                    Abrir a unidade — vigências, comparação e planilha
-                                    <ArrowRight className="w-3.5 h-3.5" aria-hidden />
-                                  </Link>
-                                </div>
-                                <CadastroDaLinha unidade={u} />
-                              </div>
-                            </td>
-                          </tr>
-                        )}
-                      </Fragment>
-                    );
-                  })}
-                </tbody>
-              ))}
-            </table>
+                              Fechado, o mês precisa dizer o bastante para
+                              alguém decidir se abre: `resumoDoMes` põe ao lado
+                              do nome em que estado está cada metade, e é por
+                              isso que a fila de meses de uma unidade não é uma
+                              fila de nomes de mês.
+                            */}
+                            <tr className="border-b bg-muted/20">
+                              <th
+                                colSpan={7}
+                                scope="colgroup"
+                                className="p-0 text-left font-normal"
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setMesesAbertos((m) => alternarUma(m, chaveDesteMes))
+                                  }
+                                  aria-expanded={mesAberto}
+                                  className="flex w-full items-start gap-2 px-4 py-2 text-left hover:bg-muted/40"
+                                >
+                                  <ChevronRight
+                                    className={cn(
+                                      "w-3.5 h-3.5 mt-0.5 shrink-0 text-muted-foreground transition-transform",
+                                      mesAberto && "rotate-90",
+                                    )}
+                                    aria-hidden
+                                  />
+                                  <span>
+                                    <span className="font-semibold">{mes.titulo}</span>
+                                    <span className="text-muted-foreground text-xs ml-3">
+                                      {resumoDoMes(mes)}
+                                    </span>
+                                  </span>
+                                </button>
+                              </th>
+                            </tr>
+
+                            {mesAberto &&
+                              mes.quinzenas.map((quinzena) => (
+                                /*
+                                  A chave é da **casa do calendário**, e não da
+                                  vigência que caiu nela: é o que faz preencher
+                                  a segunda quinzena trocar aquela linha no
+                                  lugar, em vez de remontar as duas.
+                                */
+                                <Fragment key={`${chaveDesteMes}|Q${quinzena.numero}`}>
+                                  {quinzena.linhas.length === 0 ? (
+                                    /*
+                                      A metade que ninguém entregou tem linha do
+                                      mesmo jeito: ela é o trabalho que falta, e
+                                      era justamente o que a lista rasa não tinha
+                                      como mostrar — sem vigência não havia linha,
+                                      e julho com uma entrega só tinha a mesma
+                                      cara da unidade que entrega uma vez por mês.
+
+                                      Só onde o recorte deixa afirmá-lo — ver
+                                      `podeAfirmarQuinzenaVazia`.
+                                    */
+                                    podeAfirmarQuinzenaVazia && (
+                                      <QuinzenaSemCadastro
+                                        quinzena={quinzena}
+                                        unidade={grupo.linhas[0]!}
+                                        canaisConhecidos={canaisConhecidos}
+                                      />
+                                    )
+                                  ) : (
+                                    quinzena.linhas.map((u) => {
+                                      const chave = chaveDaLinha(u);
+                                      const aberta = abertas.has(chave);
+                                      const alternar = () =>
+                                        setAbertas((a) => alternarUma(a, chave));
+                                      /*
+                                        A linha é a **quinzena**, e o mês dela é a
+                                        faixa logo acima: escrever "julho de 2026"
+                                        aqui repetiria uma polegada abaixo o que a
+                                        faixa acabou de dizer.
+
+                                        O rótulo inteiro — com o mês — ainda é
+                                        montado, e vai para o cabeçalho do painel
+                                        que abre: lá embaixo o mês já saiu de
+                                        vista, e várias linhas ficam abertas ao
+                                        mesmo tempo, de propósito.
+                                      */
+                                      const rotuloDaVigencia = `${quinzena.numero}ª quinzena de ${mes.titulo}`;
+                                      /*
+                                        O dia só onde ele distingue alguma coisa:
+                                        a vigência que não começa no dia da
+                                        quinzena, e a metade que recebeu duas.
+                                        Embaixo de "1ª quinzena", um "01/07" é a
+                                        mesma data escrita duas vezes.
+                                      */
+                                      const precisaDoDia =
+                                        quinzena.linhas.length > 1 ||
+                                        u.effectiveDate !== quinzena.inicio;
+                                      return (
+                                        <Fragment key={chave}>
+                                          <tr
+                                            onClick={alternar}
+                                            className={cn(
+                                              "border-b last:border-b-0 cursor-pointer hover:bg-muted/50",
+                                              aberta && "bg-muted/40",
+                                            )}
+                                          >
+                                            <td className="px-4 py-3 align-middle">
+                                              {/*
+                                                O botão repete o clique da linha por causa do
+                                                teclado: uma `<tr>` clicável não recebe foco, e sem
+                                                ele o cadastro seria inalcançável sem mouse.
+                                              */}
+                                              <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  alternar();
+                                                }}
+                                                aria-expanded={aberta}
+                                                /*
+                                                  O recuo é o que põe a quinzena
+                                                  **dentro** do mês: sem ele a
+                                                  seta da linha nasce na mesma
+                                                  coluna da seta da faixa acima,
+                                                  e os dois níveis se leem como
+                                                  um só.
+                                                */
+                                                className="flex items-start gap-1.5 pl-4 text-left"
+                                              >
+                                                <ChevronRight
+                                                  className={cn(
+                                                    "w-3.5 h-3.5 mt-1 shrink-0 text-muted-foreground transition-transform",
+                                                    aberta && "rotate-90",
+                                                  )}
+                                                  aria-hidden
+                                                />
+                                                <span>
+                                                  {/*
+                                                    Nem o nome da unidade nem o do
+                                                    mês vêm aqui: são o cartão e a
+                                                    faixa acima desta linha, e
+                                                    repeti-los era o que fazia a
+                                                    mesma unidade descer a página
+                                                    uma vez por vigência sem nunca
+                                                    distinguir nada.
+                                                  */}
+                                                  <span className="font-semibold">
+                                                    {quinzena.numero}ª quinzena
+                                                  </span>
+                                                  {precisaDoDia && (
+                                                    <span className="block text-muted-foreground text-xs mt-0.5">
+                                                      {emDiaCurto(u.effectiveDate)}
+                                                    </span>
+                                                  )}
+                                                </span>
+                                              </button>
+                                            </td>
+
+                                            <td className="px-4 py-3 align-middle">
+                                              <Badge
+                                                variant={APARENCIA_DO_ESTADO[u.cadastro.estado]}
+                                                title={ESTADO_DO_CADASTRO[u.cadastro.estado].frase}
+                                                className="gap-1.5 whitespace-nowrap px-2.5 py-1 text-[0.6875rem] font-bold uppercase tracking-wide"
+                                              >
+                                                <span className="w-1.5 h-1.5 rounded-full bg-current" aria-hidden />
+                                                {ESTADO_DO_CADASTRO[u.cadastro.estado].rotulo}
+                                              </Badge>
+                                            </td>
+
+                                            <td className="px-4 py-3 align-middle">
+                                              <MetadeDoCadastro tem={u.cadastro.frota} frase={fraseDaFrota(u)} />
+                                            </td>
+                                            <td className="px-4 py-3 align-middle">
+                                              <MetadeDoCadastro
+                                                tem={u.cadastro.aliquotas}
+                                                frase={fraseDosTrechos(u)}
+                                              />
+                                            </td>
+
+                                            {/*
+                                              Sem barra de proporção ao lado do número, ao
+                                              contrário da coluna "conferido" de Apurações, que é
+                                              a que ocupa este lugar lá. Lá a razão entre dois
+                                              valores é a resposta; aqui "3 de 30" desenhado como
+                                              10% seria o percentual que o módulo recusa —
+                                              dezenove das trinta linhas dependem de decisão de
+                                              negócio, e não de arquivo que falta.
+                                            */}
+                                            <td className="px-4 py-3 text-right tabular-nums whitespace-nowrap align-middle">
+                                              {u.cadastro.comLastro} de {u.cadastro.linhas}
+                                            </td>
+
+                                            {/*
+                                              A planilha informada é coluna própria, e nunca somada
+                                              à de lastro: as duas respondem perguntas opostas — uma
+                                              diz o que a unidade **entregou**, a outra o que alguém
+                                              **digitou**. Somadas, a unidade que não mandou arquivo
+                                              nenhum e teve a aba transcrita apareceria em dia, e
+                                              quem opera pararia de procurar o arquivo que falta.
+
+                                              A célula é o **lugar de preencher**, e não só a
+                                              contagem: sem o botão, esta coluna dizia "nada
+                                              informado" e não oferecia nada a quem lesse isso.
+
+                                              O clique é retido aqui porque a linha inteira abre o
+                                              cadastro: o formulário sobe num portal que continua
+                                              filho desta célula na árvore do React, e sem a
+                                              retenção cada tecla dentro dele fecharia — ou abriria
+                                              — a linha atrás.
+                                            */}
+                                            <td
+                                              className="px-4 py-3 text-right whitespace-nowrap align-middle"
+                                              onClick={(e) => e.stopPropagation()}
+                                            >
+                                              <div className="inline-flex flex-col items-end gap-1">
+                                                {u.cadastro.informadas > 0 && (
+                                                  <>
+                                                    <span className="tabular-nums">
+                                                      {u.cadastro.informadas} de {u.cadastro.linhas}
+                                                    </span>
+                                                    {u.cadastro.divergentes > 0 ? (
+                                                      <Badge variant="destructive" className="text-[0.6875rem]">
+                                                        {u.cadastro.divergentes}{" "}
+                                                        {u.cadastro.divergentes === 1
+                                                          ? "diverge do acervo"
+                                                          : "divergem do acervo"}
+                                                      </Badge>
+                                                    ) : (
+                                                      u.cadastro.conferidas > 0 && (
+                                                        <span className="text-[0.6875rem] text-muted-foreground">
+                                                          {u.cadastro.conferidas}{" "}
+                                                          {u.cadastro.conferidas === 1
+                                                            ? "confere com o acervo"
+                                                            : "conferem com o acervo"}
+                                                        </span>
+                                                      )
+                                                    )}
+                                                  </>
+                                                )}
+                                                <BotaoDeCadastroDaPlanilha
+                                                  unidade={u}
+                                                  canaisConhecidos={canaisConhecidos}
+                                                />
+                                              </div>
+                                            </td>
+
+                                            <td className="px-4 py-3 text-right align-middle">
+                                              <span className="inline-flex items-center gap-3">
+                                                <Link
+                                                  href={enderecoDaUnidade(u)}
+                                                  onClick={(e) => e.stopPropagation()}
+                                                  className="text-xs text-primary hover:underline inline-flex items-center gap-1 whitespace-nowrap"
+                                                >
+                                                  abrir cadastro
+                                                  <ArrowRight className="w-3 h-3" />
+                                                </Link>
+                                                {/*
+                                                  A lixeira fica no fim da linha, ao lado de abrir
+                                                  — e não junto do botão de cadastrar planilha, que
+                                                  é o gesto que se repete. Excluir é o gesto que se
+                                                  faz uma vez; vizinho do botão que se aperta toda
+                                                  quinzena, ele viraria o clique errado de alguém
+                                                  com pressa.
+                                                */}
+                                                <BotaoDeExclusaoDoCadastro
+                                                  unidade={u}
+                                                  podeExcluirAUnidade={ehOUltimoCadastro(u)}
+                                                />
+                                              </span>
+                                            </td>
+                                          </tr>
+
+                                          {aberta && (
+                                            <tr className="border-b last:border-b-0 bg-muted/20">
+                                              <td colSpan={7} className="px-4 py-4 sm:px-9">
+                                                <div className="space-y-3">
+                                                  <div className="flex flex-wrap items-baseline justify-between gap-3">
+                                                    {/*
+                                                      O endereço **inteiro** do cadastro — a
+                                                      unidade e a vigência —, e não só a metade
+                                                      que o grupo já disse. É o lugar em que a
+                                                      repetição vale: várias linhas ficam abertas
+                                                      ao mesmo tempo, de propósito, e comparar
+                                                      duas unidades quer dizer ler dois painéis
+                                                      que estão em grupos diferentes. Um painel
+                                                      que dissesse só a vigência mandaria subir a
+                                                      página para lembrar de quem ele é.
+                                                    */}
+                                                    <p className="text-[0.6875rem] font-bold uppercase tracking-wide text-muted-foreground">
+                                                      O cadastro · {rotuloDaLinha(u)} · {rotuloDaVigencia}
+                                                    </p>
+                                                    {/*
+                                                      O cadastro abre aqui; o resto da unidade —
+                                                      trocar de vigência, comparar duas quinzenas,
+                                                      digitar a planilha com as trinta linhas à
+                                                      vista — é outra tela, e o caminho para ela
+                                                      fica onde a pergunta seguinte aparece.
+                                                    */}
+                                                    <Link
+                                                      href={enderecoDaUnidade(u)}
+                                                      className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
+                                                    >
+                                                      Abrir a unidade — vigências, comparação e planilha
+                                                      <ArrowRight className="w-3.5 h-3.5" aria-hidden />
+                                                    </Link>
+                                                  </div>
+                                                  <CadastroDaLinha unidade={u} />
+                                                </div>
+                                              </td>
+                                            </tr>
+                                          )}
+                                      </Fragment>
+                                    );
+                                  })
+                                )}
+                                </Fragment>
+                              ))}
+                          </Fragment>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            ))}
           </div>
         )}
 
@@ -1015,6 +1361,92 @@ export default function RemuneracaoUnidades() {
         {cadastros.length > 0 && <Notas semLastro={semLastro} />}
       </div>
     </Layout>
+  );
+}
+
+/**
+ * A METADE DO MÊS QUE NINGUÉM ENTREGOU — e por que ela tem linha.
+ *
+ * Ela não é um cadastro: não há vigência, e por isso não há estado, frota,
+ * trechos nem linhas com lastro para escrever. É uma **casa do calendário**, e
+ * é o que a torna a linha mais útil da tabela: a planilha de remuneração é
+ * quinzenal, toda unidade deve duas por mês, e a que falta é exatamente o que
+ * esta tela existe para achar.
+ *
+ * Na lista rasa ela não tinha como aparecer — sem vigência não havia linha —, e
+ * a única pista de que faltava metade de julho era julho ter uma linha só, o
+ * que também é a cara da unidade que entrega uma vez por mês. As duas
+ * situações liam igual, e a que pedia trabalho era a que ninguém via.
+ *
+ * **A linha não abre.** As outras abrem o cadastro daquela quinzena, e aqui não
+ * há cadastro para montar: uma seta que girasse para revelar o vazio seria um
+ * clique que promete e não entrega. O que ela oferece é o gesto que existe —
+ * *Cadastrar planilha*, já apontado para esta quinzena, que a cria quando a
+ * primeira célula for salva.
+ *
+ * As três colunas do meio viram uma frase só, e não três traços: um traço em
+ * "Frota" e outro em "Trechos" se leem como "o export veio e não trouxe nada",
+ * que é uma das situações que a coluna sabe dizer — e é a situação errada.
+ *
+ * Recebe a `unidade` de uma metade irmã porque o painel precisa do escopo e do
+ * canal, e esses são fatos do par (unidade, canal): idênticos em toda vigência
+ * dela, e é por isso que qualquer linha do cartão serve.
+ */
+function QuinzenaSemCadastro({
+  quinzena,
+  unidade,
+  canaisConhecidos,
+}: {
+  quinzena: Quinzena;
+  unidade: SituacaoDaUnidade;
+  canaisConhecidos: string[];
+}) {
+  return (
+    <tr className="border-b last:border-b-0">
+      {/* `pl-9` = o recuo do mês mais a seta que esta linha não tem: o texto
+           nasce alinhado com o das irmãs. */}
+      <td className="px-4 py-3 align-middle">
+        <span className="block pl-9">
+          <span className="font-semibold text-muted-foreground">
+            {quinzena.numero}ª quinzena
+          </span>
+          <span className="block text-muted-foreground text-xs mt-0.5">
+            a partir de {emDiaCurto(quinzena.inicio)}
+          </span>
+        </span>
+      </td>
+
+      <td className="px-4 py-3 align-middle">
+        {/*
+          Fora dos quatro estados, e de propósito: "sem lastro" quer dizer que a
+          vigência existe e o acervo não respondeu por ela, e é outra coisa —
+          outro trabalho — do que não haver vigência nenhuma.
+        */}
+        <Badge
+          variant="outline"
+          title="Nenhuma vigência nesta quinzena: nem export importado, nem planilha digitada."
+          className="gap-1.5 whitespace-nowrap px-2.5 py-1 text-[0.6875rem] font-bold uppercase tracking-wide text-muted-foreground"
+        >
+          <span className="w-1.5 h-1.5 rounded-full bg-current opacity-50" aria-hidden />
+          Sem cadastro
+        </Badge>
+      </td>
+
+      <td colSpan={3} className="px-4 py-3 align-middle text-muted-foreground">
+        nada nesta quinzena — nem export importado, nem planilha digitada
+      </td>
+
+      <td className="px-4 py-3 text-right whitespace-nowrap align-middle">
+        <BotaoDeCadastroDaPlanilha
+          unidade={unidade}
+          canaisConhecidos={canaisConhecidos}
+          vigenciaInicial={quinzena.inicio}
+          vigenciaNova
+        />
+      </td>
+
+      <td className="px-4 py-3" />
+    </tr>
   );
 }
 
