@@ -37,13 +37,13 @@ export type Frota = "PADRAO" | "SPOT" | "FIXO" | "ESPECIAL";
 export type TipoDeFrotaContratada = "FF" | "VAN";
 
 /**
- * As seis fontes que um fechamento consome.
+ * As sete fontes que um fechamento consome.
  *
  * Os nomes são os do processo, não os dos arquivos: quem opera chama o
  * relatório pelo número da rotina (`03.08.15`), mas o número é do Promax e
  * pode mudar de versão. O que não muda é o papel de cada um na conta.
  *
- * São seis no catálogo e nem sempre seis na quinzena: a primeira espera quatro,
+ * São sete no catálogo e nem sempre sete na quinzena: a primeira espera cinco,
  * admite o 03.08.12.09 quando ele existe, e não tem a conciliação — ver
  * `FONTES_DA_QUINZENA` e `FONTES_OPCIONAIS_DA_QUINZENA`.
  */
@@ -54,8 +54,16 @@ export type TipoDeFonte =
   | "CTE"
   /** 03.08.20 — o demonstrativo de pagamento. A única fonte que abre o fixo. */
   | "PAGAMENTO"
-  /** 03.08.18 — frota contratada × realizada. Origem dos descontos no fixo. */
-  | "DISPONIBILIDADE"
+  /**
+   * 03.08.18 **FF** — a frota de caminhões contratada × realizada.
+   *
+   * Origem dos descontos no fixo da frota fixa. Ver
+   * {@link FROTA_DA_FONTE} para por que o 03.08.18 são **duas** fontes e não
+   * uma com duas abas.
+   */
+  | "DISPONIBILIDADE_FF"
+  /** 03.08.18 **Vans** — a frota dedicada, o outro arquivo do mesmo relatório. */
+  | "DISPONIBILIDADE_VAN"
   /**
    * 03.08.12.09 — requisições de despesa aprovadas. Origem do complementar.
    *
@@ -71,15 +79,47 @@ export const TIPOS_DE_FONTE: TipoDeFonte[] = [
   "OPERACAO",
   "CTE",
   "PAGAMENTO",
-  "DISPONIBILIDADE",
+  "DISPONIBILIDADE_FF",
+  "DISPONIBILIDADE_VAN",
   "REQUISICOES",
   "CONCILIACAO",
 ];
 
 /**
- * Quais das seis fontes cada quinzena **espera**.
+ * De que frota contratada cada casinha do 03.08.18 responde.
  *
- * **A primeira quinzena fecha com quatro relatórios; a segunda, com os seis.**
+ * **O 03.08.18 são dois arquivos, e por isso são duas fontes.** Os dois medem a
+ * mesma coisa — frota contratada contra a que rodou, e o desconto que a
+ * diferença gera —, mas um é da frota de caminhões e o outro é das vans, saem
+ * do Promax em exportações separadas, e chegam em horas diferentes pelas mãos
+ * de pessoas diferentes. Enquanto os dois disputavam uma casinha só, o segundo
+ * a chegar despromovia o primeiro: a competência ficava com meio 03.08.18 e
+ * nada na tela dizia qual metade tinha sumido.
+ *
+ * Duas casinhas resolvem isso pela raiz — cada frota tem a sua vigência, o seu
+ * documento e o seu histórico —, e o preço é uma pergunta a mais na porta de
+ * entrada: **de que frota é este arquivo?** Quem responde é a casinha em que
+ * ele foi enviado, e a leitura só admite as linhas daquela frota (ver
+ * `leitores/disponibilidade`). O arquivo que traz as duas abas é o mesmo nas
+ * duas casinhas: cada uma lê a sua e ignora a outra.
+ *
+ * O mapa é `Partial` porque as outras cinco fontes não têm frota: elas falam da
+ * quinzena inteira. Ver {@link frotaDaFonte}, que é como se pergunta.
+ */
+export const FROTA_DA_FONTE: Partial<Record<TipoDeFonte, TipoDeFrotaContratada>> = {
+  DISPONIBILIDADE_FF: "FF",
+  DISPONIBILIDADE_VAN: "VAN",
+};
+
+/** A frota que esta fonte recorta, ou `null` quando ela não recorta nenhuma. */
+export function frotaDaFonte(tipo: TipoDeFonte): TipoDeFrotaContratada | null {
+  return FROTA_DA_FONTE[tipo] ?? null;
+}
+
+/**
+ * Quais das sete fontes cada quinzena **espera**.
+ *
+ * **A primeira quinzena fecha com cinco relatórios; a segunda, com os sete.**
  * A conciliação do Promax (03.02.59.02) é o fecho do mês e chega com o
  * fechamento da segunda quinzena: na primeira ela não existe. As requisições
  * (03.08.12.09) também não são esperadas ali, mas por outro motivo, e é por
@@ -97,7 +137,7 @@ export const TIPOS_DE_FONTE: TipoDeFonte[] = [
  * a conta roda com o que houver.
  */
 export const FONTES_DA_QUINZENA: Record<1 | 2, TipoDeFonte[]> = {
-  1: ["OPERACAO", "CTE", "PAGAMENTO", "DISPONIBILIDADE"],
+  1: ["OPERACAO", "CTE", "PAGAMENTO", "DISPONIBILIDADE_FF", "DISPONIBILIDADE_VAN"],
   2: [...TIPOS_DE_FONTE],
 };
 
@@ -202,7 +242,7 @@ export interface FonteDaQuinzena {
 }
 
 /**
- * O estado das seis fontes numa quinzena, dado o que chegou.
+ * O estado das sete fontes numa quinzena, dado o que chegou.
  *
  * **É a função que separa "não tenho dados" de "os dados não batem".** Ela não
  * decide nada de novo: aplica {@link FONTES_DA_QUINZENA} e
@@ -238,6 +278,13 @@ export function fontesDaQuinzena(
       dezesseis dias depois por outra pessoa. A exceção escondia falta real, e
       saiu. O que resolve a sobreposição é o corte por período na leitura, não
       afrouxar o que se cobra.
+
+      **E as duas metades são cobradas separadas, nas duas quinzenas.** Aquele
+      episódio é o retrato de por que: a `FF` e a `Van` do 03.08.18 são dois
+      arquivos, com histórias próprias, e uma casinha só as fazia disputar a
+      mesma vigência — a segunda a chegar apagava a primeira em silêncio. Cada
+      frota tem a sua linha aqui, e a que faltar é nomeada pela frota que
+      faltou (ver `FROTA_DA_FONTE`).
     */
     const estado: EstadoDaFonte = chegou.has(tipo)
       ? "PRESENTE"
@@ -276,7 +323,8 @@ export type LadoDaConferencia =
  * um traz:
  *
  * - `OPERACAO` (2Art) — a operação que alimenta a remuneração variável;
- * - `DISPONIBILIDADE` (03.08.18) — o desconto de disponibilidade;
+ * - `DISPONIBILIDADE_FF` e `DISPONIBILIDADE_VAN` (03.08.18) — o desconto de
+ *   disponibilidade, num arquivo por frota;
  * - `REQUISICOES` (03.08.12.09) — outros custos e requisições de despesa.
  *
  * O cadastro entra por fora desta lista porque não chega por importação: ele
@@ -291,7 +339,8 @@ export type LadoDaConferencia =
  */
 export const FONTES_QUE_FORMAM_O_DEVIDO: readonly TipoDeFonte[] = [
   "OPERACAO",
-  "DISPONIBILIDADE",
+  "DISPONIBILIDADE_FF",
+  "DISPONIBILIDADE_VAN",
   "REQUISICOES",
 ];
 
@@ -362,8 +411,9 @@ export const LADOS_DA_CONFERENCIA: {
     explica:
       "Nenhum destes é o contrato, e nenhum produz número sozinho — juntos é que formam o " +
       "devido. O cadastro traz as regras, as tarifas e os parâmetros; o 2Art traz a operação " +
-      "que alimenta a remuneração variável; o 03.08.18, o desconto de disponibilidade; o " +
-      "03.08.12.09, outros custos e requisições de despesa.",
+      "que alimenta a remuneração variável; o 03.08.18 traz o desconto de disponibilidade, " +
+      "num arquivo por frota — a FF e as vans descontam coisas diferentes e chegam separadas; " +
+      "o 03.08.12.09, outros custos e requisições de despesa.",
     precisaDeContrato: true,
   },
   {
@@ -411,10 +461,17 @@ export const DESCRICAO_DA_FONTE: Record<
     papel:
       "O que a Ambev diz que vai pagar, verba a verba — a única fonte que abre a parcela fixa.",
   },
-  DISPONIBILIDADE: {
-    rotina: "03.08.18",
-    nome: "Disponibilidade de frota",
-    papel: "Frota contratada contra a realizada: é daqui que saem os descontos no fixo.",
+  DISPONIBILIDADE_FF: {
+    rotina: "03.08.18 FF",
+    nome: "Disponibilidade da frota fixa",
+    papel:
+      "Caminhão contratado contra o que rodou: é daqui que saem os descontos no fixo da FF.",
+  },
+  DISPONIBILIDADE_VAN: {
+    rotina: "03.08.18 Vans",
+    nome: "Disponibilidade das vans",
+    papel:
+      "A mesma medida para a frota dedicada: van contratada contra a que rodou, e o desconto dela.",
   },
   REQUISICOES: {
     rotina: "03.08.12.09",
@@ -431,7 +488,7 @@ export const DESCRICAO_DA_FONTE: Record<
 /**
  * Em que formatos cada fonte chega — e, portanto, quais o produto aceita.
  *
- * **A lista é do que se sabe ler, não do que se sabe abrir.** Nenhuma das seis
+ * **A lista é do que se sabe ler, não do que se sabe abrir.** Nenhuma das sete
  * fontes tem um formato só: o mesmo relatório sai do Promax em `.xlsx` quando
  * alguém o exporta pela tela e em `.csv` quando o exporta pela fila, e chega em
  * `.txt` quando o caminho passou por um sistema que renomeia. Recusar por
@@ -454,7 +511,8 @@ export const FORMATOS_DA_FONTE: Record<TipoDeFonte, string[]> = {
   OPERACAO: [".xlsx", ".xls", ".csv", ".txt"],
   CTE: [".xlsx", ".xls", ".csv", ".txt"],
   PAGAMENTO: [".txt", ".csv"],
-  DISPONIBILIDADE: [".xlsx", ".xls", ".csv", ".txt"],
+  DISPONIBILIDADE_FF: [".xlsx", ".xls", ".csv", ".txt"],
+  DISPONIBILIDADE_VAN: [".xlsx", ".xls", ".csv", ".txt"],
   REQUISICOES: [".csv", ".txt", ".xlsx", ".xls"],
   CONCILIACAO: [".txt", ".csv"],
 };

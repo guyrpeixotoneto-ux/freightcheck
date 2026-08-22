@@ -18,6 +18,7 @@ import {
   fixtureCtes,
   fixtureCtesEmCsv,
   fixtureDisponibilidade,
+  fixtureDisponibilidadeDeUmaFrota,
   fixtureDisponibilidadeEmCsv,
   fixtureOperacao,
   fixtureOperacaoEmCsv,
@@ -186,6 +187,57 @@ describe("o 03.08.18 em CSV", () => {
     expect(() =>
       lerDisponibilidade(fixtureDisponibilidadeEmCsv({ comTipoDeFrota: false })),
     ).toThrow(/frota FF ou da Van/);
+  });
+});
+
+/**
+ * O 03.08.18 lido pela casinha em que ele foi enviado.
+ *
+ * O relatório sai do Promax em dois arquivos, um por frota, e cada um tem a sua
+ * casinha. O que se prova aqui é o corte: a casinha da FF grava caminhão, a das
+ * vans grava van, e nenhuma das duas grava a frota da outra — nem quando o
+ * arquivo traz as duas abas juntas.
+ */
+describe("o 03.08.18 recortado pela frota da casinha", () => {
+  it("cada casinha lê a sua frota do arquivo que traz as duas abas", () => {
+    const inteiro = lerDisponibilidade(fixtureDisponibilidade());
+    const ff = lerDisponibilidade(fixtureDisponibilidade(), "FF");
+    const van = lerDisponibilidade(fixtureDisponibilidade(), "VAN");
+
+    expect(ff.linhas.every((l) => l.tipoDeFrota === "FF")).toBe(true);
+    expect(van.linhas.every((l) => l.tipoDeFrota === "VAN")).toBe(true);
+    /* Somadas, as duas casinhas dão o arquivo inteiro: nada se perde no corte,
+       e nada entra duas vezes. */
+    expect(ff.linhas.length + van.linhas.length).toBe(inteiro.linhas.length);
+  });
+
+  it("lê o arquivo de uma frota só, que é como o Promax o exporta", () => {
+    const ff = lerDisponibilidade(fixtureDisponibilidadeDeUmaFrota("FF"), "FF");
+    const van = lerDisponibilidade(fixtureDisponibilidadeDeUmaFrota("Van"), "VAN");
+
+    expect(ff.linhas.map((l) => l.descontos.total)).toEqual([300, 0]);
+    expect(van.linhas.map((l) => l.descontos.total)).toEqual([50]);
+  });
+
+  it("recusa o arquivo da outra frota, e diz em que casinha ele cabe", () => {
+    /*
+      Mandar o arquivo das vans na casinha da FF é trocar a aba de envio. Aceitá-lo
+      vazio deixaria a FF "presente" sem um desconto dentro — que é pior do que a
+      falta, porque a falta é nomeada e isto não seria.
+    */
+    expect(() =>
+      lerDisponibilidade(fixtureDisponibilidadeDeUmaFrota("Van"), "FF"),
+    ).toThrow(/03\.08\.18 Vans/);
+    expect(() =>
+      lerDisponibilidade(fixtureDisponibilidadeDeUmaFrota("FF"), "VAN"),
+    ).toThrow(/03\.08\.18 FF/);
+  });
+
+  it("o CSV de uma tabela só também é recortado pela coluna da frota", () => {
+    const ff = lerDisponibilidade(fixtureDisponibilidadeEmCsv(), "FF");
+    const van = lerDisponibilidade(fixtureDisponibilidadeEmCsv(), "VAN");
+    expect(ff.linhas.map((l) => l.tipoDeFrota)).toEqual(["FF", "FF"]);
+    expect(van.linhas.map((l) => l.tipoDeFrota)).toEqual(["VAN"]);
   });
 });
 

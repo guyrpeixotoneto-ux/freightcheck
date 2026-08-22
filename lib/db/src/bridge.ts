@@ -1742,6 +1742,44 @@ function planoUp(): PassoUp[] {
   );
 
   /*
+    A `0055` — o 03.08.18 separado em `DISPONIBILIDADE_FF` e
+    `DISPONIBILIDADE_VAN`. Ela reescreve duas coisas que a `0039` e a `0043` já
+    tinham escrito: a lista fechada do `tipo` e a chave de repetição do
+    documento, que passou de `(competência, sha256)` para
+    `(competência, tipo, sha256)`.
+
+    **As duas versões entram no plano, nesta ordem, e isso não é redundância.**
+    Cada passo só roda se a migration dele estiver carimbada: o banco parado na
+    `0043` recebe de volta exatamente o que aquele momento tinha, e o que já
+    atravessou a `0055` recebe as duas — a antiga primeiro, derrubada em seguida
+    pela nova. Levantar só a nova deixaria o banco antigo sem índice nenhum;
+    levantar só a antiga devolveria a Production um banco que recusa os dois
+    nomes novos, e a fila não teria como corrigir, porque a `0055` já estaria
+    carimbada.
+  */
+  const M55 = "0055_disponibilidade_por_frota";
+  add(
+    M55,
+    "fechamento_documento_tipo (drop, 0055)",
+    levantar(M55, /DROP CONSTRAINT IF EXISTS "fechamento_documento_tipo"/),
+  );
+  add(
+    M55,
+    "índice fechamento_documento_sem_repeticao (drop)",
+    levantar(M55, /DROP INDEX IF EXISTS "fechamento_documento_sem_repeticao"/),
+  );
+  add(
+    M55,
+    "índice fechamento_documento_sem_repeticao",
+    levantar(M55, /INDEX IF NOT EXISTS "fechamento_documento_sem_repeticao"/),
+  );
+  add(
+    M55,
+    "fechamento_documento_tipo (0055)",
+    levantar(M55, /ADD CONSTRAINT "fechamento_documento_tipo"/),
+  );
+
+  /*
     A `0044` — o cadastro de unidade e transportadora, pela mesma razão das
     outras: o `down` o derruba com o resto do ambiente, e o `up` tem de
     devolvê-lo inteiro, com o índice único que o torna um cadastro em vez de uma

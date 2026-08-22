@@ -47,7 +47,8 @@ const FATOS: { tipo: string; tabelas: string[] }[] = [
     tipo: "PAGAMENTO",
     tabelas: ["fechamento_pagamento_item", "fechamento_pagamento_desconto"],
   },
-  { tipo: "DISPONIBILIDADE", tabelas: ["fechamento_disponibilidade"] },
+  { tipo: "DISPONIBILIDADE_FF", tabelas: ["fechamento_disponibilidade"] },
+  { tipo: "DISPONIBILIDADE_VAN", tabelas: ["fechamento_disponibilidade"] },
   { tipo: "REQUISICOES", tabelas: ["fechamento_requisicao"] },
   { tipo: "CONCILIACAO", tabelas: ["fechamento_conciliacao_item"] },
 ];

@@ -29,6 +29,8 @@
  * `recorte.ts`.
  */
 
+import { tipoDeImportacao } from "@workspace/ingest/tipos";
+
 import { paramsDoRecorte, type Recorte } from "@/lib/recorte";
 
 // ---------------------------------------------------------------------------
@@ -55,10 +57,13 @@ import { paramsDoRecorte, type Recorte } from "@/lib/recorte";
  * sobre um trecho, e uma segunda tela para fazê-las de novo garantiria apenas
  * que um dia elas fossem respondidas de dois jeitos.
  *
- * **Esta é a lista, e não uma delas.** A Curadoria mantinha a sua própria —
- * as mesmas três strings e os mesmos três rótulos, escritos noutro arquivo por
- * outra razão — e duas listas dos mesmos tipos concordam no dia em que são
- * escritas e discordam no dia do quarto. Ela lê daqui desde então, e o que ela
+ * **Esta é a lista das telas 360°, e só dela.** Ela não é a lista do que o
+ * produto importa: essa é `TIPOS_DE_IMPORTACAO`, em `@workspace/ingest/tipos`,
+ * e tem cinco — os três daqui mais `QLP_ADMINISTRATIVO` e `QLP_OPERACIONAL`.
+ * As duas respondem perguntas diferentes: aqui é "que tipos têm tela própria
+ * no menu", lá é "que tipos entram por importação". A Curadoria fala do que
+ * foi importado, e por isso as abas dela saem de lá — o quadro de pessoal tem
+ * coluna para curar como o cavalo tem, sem ter tela 360° nenhuma. O que ela
  * acrescenta continua sendo dela: a ordem das abas, a contagem por fila, e a
  * decisão de mostrar a aba vazia em vez de escondê-la.
  */
@@ -187,13 +192,24 @@ export function palavrasDoTipo(entityType: string | null): PalavrasDoTipo {
 }
 
 /*
-  Os rótulos — e a regra que os dois compartilham.
+  Os rótulos — e a regra que os três compartilham.
 
-  **Um tipo desconhecido volta como veio**, e não como "Ativo": numa fileira de
-  abas que já tem Cavalo e Carreta, a terceira dizendo "Ativo" some dentro das
-  outras duas, enquanto `FROTA_PROPRIA` diz exatamente o que é — e é o nome que
-  a pessoa vai reconhecer da aba da planilha que importou. Inventar
-  capitalização para o desconhecido erraria em toda sigla.
+  Três perguntas em cadeia, nesta ordem, e cada degrau existe porque o de baixo
+  erraria o caso do de cima:
+
+  1. **É um dos três tipos com tela 360°?** Então o nome sai de
+     `TELA_DO_EQUIPAMENTO`, que é onde o produto guarda como fala deles;
+  2. **É um tipo que a importação conhece?** Então o nome sai de
+     `TIPOS_DE_IMPORTACAO` — `QLP_ADMINISTRATIVO` vira `QLP Administrativo`,
+     que é como a aba de Importações já o escreve. Uma aba de curadoria dizendo
+     `QLP_ADMINISTRATIVO` em caixa alta é o nome do banco vazando para a tela,
+     e ele grita ao lado de `Cavalo` e `Carreta`;
+  3. **Nenhum dos dois?** Então **volta como veio**, e não como "Ativo": numa
+     fileira de abas que já tem Cavalo e Carreta, a terceira dizendo "Ativo"
+     some dentro das outras duas, enquanto `FROTA_PROPRIA` diz exatamente o que
+     é — e é o nome que a pessoa vai reconhecer da aba da planilha que
+     importou. Inventar capitalização para o desconhecido erraria em toda
+     sigla, que é justamente o que o degrau 2 evita no caso conhecido.
 
   O neutro de `palavrasDoTipo` serve à frase corrida, onde o tipo já foi nomeado
   antes; aqui o rótulo **é** a única nomeação, e por isso a regra é outra.
@@ -201,23 +217,53 @@ export function palavrasDoTipo(entityType: string | null): PalavrasDoTipo {
 const emMaiuscula = (palavra: string): string =>
   palavra.charAt(0).toUpperCase() + palavra.slice(1);
 
+/** O nome escrito pela importação, quando ela conhece o tipo. */
+const rotuloImportado = (entityType: string): string | null =>
+  tipoDeImportacao(entityType)?.rotulo ?? null;
+
 /**
- * `CAVALO` → `Cavalo`. O nome do tipo no singular, para títulos e abas.
+ * `CAVALO` → `Cavalo`, `QLP_ADMINISTRATIVO` → `QLP Administrativo`. O nome do
+ * tipo no singular, para títulos e abas.
  *
  * É o rótulo que a Curadoria põe nas abas da fila e no título da tela. Ele mora
  * aqui, e não lá, porque é o mesmo nome que estas telas usam: duas listas dos
- * mesmos três tipos concordam no dia em que são escritas e discordam no dia do
- * quarto.
+ * mesmos tipos concordam no dia em que são escritas e discordam no dia do
+ * seguinte.
  */
 export function rotuloDoTipo(entityType: string | null): string {
-  if (entityType !== null && !equipamentoValido(entityType)) return entityType;
+  if (entityType !== null && !equipamentoValido(entityType)) {
+    return rotuloImportado(entityType) ?? entityType;
+  }
   return emMaiuscula(palavrasDoTipo(entityType).singular);
 }
 
-/** `CAVALO` → `Cavalos`. O plural em maiúscula, para os botões e as pílulas. */
+/**
+ * `CAVALO` → `Cavalos`. O plural em maiúscula, para os botões e as pílulas.
+ *
+ * O tipo importado que não é equipamento sai no singular de propósito: "QLP
+ * Administrativo" é um quadro de lotação, não uma contagem de peças, e
+ * "QLP Administrativos" seria inventar um plural que ninguém fala. O que
+ * importa aqui é a pílula dizer o nome certo, e não a flexão.
+ */
 export function pluralEmMaiuscula(entityType: string | null): string {
-  if (entityType !== null && !equipamentoValido(entityType)) return entityType;
+  if (entityType !== null && !equipamentoValido(entityType)) {
+    return rotuloImportado(entityType) ?? entityType;
+  }
   return emMaiuscula(palavrasDoTipo(entityType).plural);
+}
+
+/**
+ * O nome do tipo **dentro** de uma frase: "modelo de cavalo", "modelo de QLP
+ * Administrativo".
+ *
+ * `rotuloDoTipo(...).toLowerCase()` era o que estava escrito na chamada, e ele
+ * é certo para as três palavras comuns e errado para toda sigla — "modelo de
+ * qlp administrativo" é o mesmo defeito da caixa alta, do outro lado. Só o que
+ * é palavra comum desce de caixa; o resto entra na frase como se escreve.
+ */
+export function rotuloEmFrase(entityType: string | null): string {
+  const rotulo = rotuloDoTipo(entityType);
+  return equipamentoValido(entityType) ? rotulo.toLowerCase() : rotulo;
 }
 
 /*

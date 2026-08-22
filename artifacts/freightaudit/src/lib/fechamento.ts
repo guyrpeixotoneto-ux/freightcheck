@@ -14,7 +14,17 @@ export type TipoDeFonte =
   | "OPERACAO"
   | "CTE"
   | "PAGAMENTO"
-  | "DISPONIBILIDADE"
+  /**
+   * O 03.08.18 são **duas** casinhas: a frota de caminhões e as vans.
+   *
+   * Os dois arquivos saem do Promax separados e medem a mesma coisa em frotas
+   * diferentes. Enquanto disputavam uma casinha só, o segundo a chegar
+   * despromovia o primeiro — a competência ficava com metade do desconto de
+   * disponibilidade sem que nada na tela dissesse qual metade. Ver
+   * `FROTA_DA_FONTE`, no domínio do fechamento.
+   */
+  | "DISPONIBILIDADE_FF"
+  | "DISPONIBILIDADE_VAN"
   | "REQUISICOES"
   | "CONCILIACAO";
 
@@ -451,10 +461,10 @@ export function listarLadosDaConferencia(): Promise<LadoDaConferenciaNaTela[]> {
 /**
  * Os relatórios que uma competência **pede** — o denominador de "3 de 4".
  *
- * A quinzena decide: a primeira espera quatro relatórios (2Art, 03.08.15,
- * 03.08.20 e 03.08.18) e a segunda espera os seis, porque a conciliação
- * (03.02.59.02) chega com o fechamento do mês e o 03.08.12.09 da primeira nem
- * sempre existe. Pedir as seis nas duas fazia toda primeira quinzena exibir
+ * A quinzena decide: a primeira espera cinco relatórios (2Art, 03.08.15,
+ * 03.08.20 e as duas metades do 03.08.18 — FF e Vans) e a segunda espera os
+ * sete, porque a conciliação (03.02.59.02) chega com o fechamento do mês e o
+ * 03.08.12.09 da primeira nem sempre existe. Pedir as sete nas duas fazia toda primeira quinzena exibir
  * linhas eternamente vazias — e "falta importar" é trabalho de alguém, enquanto
  * "não há o que importar" não é.
  *

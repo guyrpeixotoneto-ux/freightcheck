@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
   abasDeEquipamento,
+  enderecoDaAba,
+  equipamentoDoAtributo,
   EQUIPAMENTOS_DA_CURADORIA,
   estaDescrito,
   filtrarPorEquipamento,
   normalizarEquipamento,
 } from "../curadoria";
-import { EQUIPAMENTOS, rotuloDoTipo } from "../frota";
+import { rotuloDoTipo } from "../frota";
+import { TIPOS_DE_IMPORTACAO } from "@workspace/ingest/tipos";
 
 /**
  * O verde da fila de curadoria promete uma coisa só: **os três campos do card
@@ -70,13 +73,32 @@ const fila = [
 ];
 
 describe("abasDeEquipamento", () => {
-  it("abre com Todos e as três abas fixas, nessa ordem", () => {
+  it("abre com Todos e uma aba por tipo importável, nessa ordem", () => {
     expect(abasDeEquipamento(fila).map((a) => a.rotulo)).toEqual([
       "Todos",
       "Cavalo",
       "Carreta",
       "Trecho",
+      "QLP Administrativo",
+      "QLP Operacional",
     ]);
+  });
+
+  /*
+    O quadro de pessoal entra por importação e não tem tela 360°: preso à lista
+    das telas, ele aparecia como aba extra — só depois de a primeira planilha
+    dele entrar, e com o nome do banco, em caixa alta, ao lado de `Cavalo`.
+  */
+  it("escreve o QLP pelo nome, e não pelo código do banco", () => {
+    const abas = abasDeEquipamento([
+      ...fila,
+      { entityType: "QLP_ADMINISTRATIVO", code: "qlp.ordenados" },
+    ]);
+    expect(abas.find((a) => a.tipo === "QLP_ADMINISTRATIVO")).toEqual({
+      tipo: "QLP_ADMINISTRATIVO",
+      rotulo: "QLP Administrativo",
+      total: 1,
+    });
   });
 
   it("conta quantos itens da fila caem em cada aba", () => {
@@ -96,24 +118,38 @@ describe("abasDeEquipamento", () => {
     });
   });
 
-  it("acrescenta um quarto tipo importado depois das fixas, sem perdê-lo", () => {
+  it("mantém zerada também a do QLP que ainda não foi importado", () => {
+    expect(
+      abasDeEquipamento(fila).find((a) => a.tipo === "QLP_OPERACIONAL"),
+    ).toEqual({
+      tipo: "QLP_OPERACIONAL",
+      rotulo: "QLP Operacional",
+      total: 0,
+    });
+  });
+
+  it("acrescenta um tipo de fora da lista depois das fixas, sem perdê-lo", () => {
     const abas = abasDeEquipamento([...fila, { entityType: "REBOQUE" }]);
     expect(abas.map((a) => a.tipo)).toEqual([
       null,
       "CAVALO",
       "CARRETA",
       "TRECHO",
+      "QLP_ADMINISTRATIVO",
+      "QLP_OPERACIONAL",
       "REBOQUE",
     ]);
     expect(abas.at(-1)?.total).toBe(1);
   });
 
-  it("continua com as três abas na fila vazia — é onde elas mais importam", () => {
+  it("continua com as abas fixas na fila vazia — é onde elas mais importam", () => {
     expect(abasDeEquipamento([]).map((a) => a.tipo)).toEqual([
       null,
       "CAVALO",
       "CARRETA",
       "TRECHO",
+      "QLP_ADMINISTRATIVO",
+      "QLP_OPERACIONAL",
     ]);
   });
 });
@@ -132,6 +168,90 @@ describe("filtrarPorEquipamento", () => {
 
   it("devolve fila vazia no equipamento sem coluna nenhuma", () => {
     expect(filtrarPorEquipamento(fila, "TRECHO")).toEqual([]);
+  });
+});
+
+/**
+ * O clique na aba, que era o defeito visível: com um atributo de cavalo aberto,
+ * Carreta, Trecho e QLP **não selecionavam**. A aba escrevia o tipo no
+ * endereço, um efeito lia o desencontro entre a aba e o atributo aberto e
+ * reescrevia a aba do atributo antes da repintura — sem erro nenhum na tela, e
+ * com a aba do equipamento já aberto sendo a única que parecia funcionar.
+ *
+ * O que se guarda aqui é a inversão: **o clique manda**, e a contradição se
+ * desfaz fechando o atributo que não é da aba, nunca desfazendo o clique.
+ */
+describe("enderecoDaAba", () => {
+  const comCodigo = [
+    { entityType: "CAVALO", code: "cavalo.ipva" },
+    { entityType: "CARRETA", code: "carreta.finame" },
+    { entityType: "QLP_ADMINISTRATIVO", code: "qlp.ordenados" },
+  ];
+
+  it("troca de aba mesmo com um atributo de outro equipamento aberto", () => {
+    expect(enderecoDaAba(comCodigo, "CARRETA", "cavalo.ipva")).toEqual({
+      equipamento: "CARRETA",
+      atributo: null,
+    });
+    expect(enderecoDaAba(comCodigo, "QLP_ADMINISTRATIVO", "cavalo.ipva")).toEqual({
+      equipamento: "QLP_ADMINISTRATIVO",
+      atributo: null,
+    });
+  });
+
+  it("mantém aberto o atributo que é da aba escolhida", () => {
+    expect(enderecoDaAba(comCodigo, "CARRETA", "carreta.finame")).toEqual({
+      equipamento: "CARRETA",
+      atributo: "carreta.finame",
+    });
+  });
+
+  it("não fecha nada ao voltar para Todos", () => {
+    expect(enderecoDaAba(comCodigo, null, "cavalo.ipva")).toEqual({
+      equipamento: null,
+      atributo: "cavalo.ipva",
+    });
+  });
+
+  /*
+    A fila em "Pendentes" não traz os confirmados: fechar o painel de um
+    atributo que ela não tem apagaria exatamente o que o link pediu.
+  */
+  it("deixa onde está o atributo que a fila ainda não tem", () => {
+    expect(enderecoDaAba(comCodigo, "TRECHO", "cavalo.ja_confirmado")).toEqual({
+      equipamento: "TRECHO",
+      atributo: "cavalo.ja_confirmado",
+    });
+    expect(enderecoDaAba([], "CARRETA", "cavalo.ipva")).toEqual({
+      equipamento: "CARRETA",
+      atributo: "cavalo.ipva",
+    });
+  });
+
+  it("sem atributo aberto, só troca a aba", () => {
+    expect(enderecoDaAba(comCodigo, "TRECHO", null)).toEqual({
+      equipamento: "TRECHO",
+      atributo: null,
+    });
+  });
+});
+
+describe("equipamentoDoAtributo", () => {
+  const comCodigo = [{ entityType: "cavalo ", code: "cavalo.ipva" }];
+
+  it("responde o tipo normalizado do atributo da fila", () => {
+    expect(equipamentoDoAtributo(comCodigo, "cavalo.ipva")).toBe("CAVALO");
+  });
+
+  /*
+    `undefined` é ausência de resposta, e não "sem equipamento": é por
+    confundir os dois que a aba trocava sozinha enquanto a fila carregava.
+  */
+  it("distingue a fila que não tem o atributo de um atributo sem tipo", () => {
+    expect(equipamentoDoAtributo(comCodigo, "carreta.finame")).toBeUndefined();
+    expect(
+      equipamentoDoAtributo([{ entityType: "  ", code: "x" }], "x"),
+    ).toBeNull();
   });
 });
 
@@ -160,17 +280,19 @@ describe("o rótulo do tipo", () => {
   });
 
   /*
-    A curadoria e as telas 360° mantinham, cada uma, a sua lista dos mesmos três
-    tipos e o seu mapa dos mesmos três rótulos. As duas nasceram no mesmo dia,
-    por caminhos diferentes, e concordavam — que é o estado em que uma
-    duplicação sempre começa e o único em que ela é barata de desfazer.
+    A curadoria mantinha a sua própria lista de tipos, e o dia em que ela
+    discordou da autoridade foi o dia do QLP: o quadro de pessoal entra por
+    importação e não tem tela 360°, e a lista das telas — que era de onde as
+    abas saíam — não o nomeava.
 
-    Este caso não confere que as duas listas são iguais: confere que **é a mesma
-    lista**. Se alguém voltar a escrever uma cópia aqui, ele continua passando
-    enquanto as duas concordarem, e é por isso que a asserção é de identidade da
-    referência, e não do conteúdo.
+    Este caso não confere que as duas listas combinam: confere que a daqui
+    **é derivada** da lista do que se importa. Uma cópia escrita à mão continua
+    passando enquanto as duas concordarem, e é por isso que a asserção compara
+    contra `TIPOS_DE_IMPORTACAO` em vez de contra cinco strings literais.
   */
-  it("sai de uma lista só, e não de duas que combinam", () => {
-    expect(EQUIPAMENTOS_DA_CURADORIA).toBe(EQUIPAMENTOS);
+  it("sai da lista do que o produto importa, e não de uma cópia", () => {
+    expect(EQUIPAMENTOS_DA_CURADORIA).toEqual(
+      TIPOS_DE_IMPORTACAO.map((tipo) => tipo.code),
+    );
   });
 });

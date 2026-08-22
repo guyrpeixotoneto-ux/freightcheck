@@ -386,6 +386,13 @@
       "when": 1787422404069,
       "tag": "0054_regra_de_alteracao",
       "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1787431944426,
+      "tag": "0055_disponibilidade_por_frota",
+      "breakpoints": true
     }
   ]
 }

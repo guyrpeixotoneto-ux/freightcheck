@@ -24,6 +24,10 @@ import { existsSync, readdirSync, watch } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createApiSupervisor } from "./lib/api-supervisor.mjs";
+import {
+  conferirArestas,
+  explicarFalhaDeResolucao,
+} from "./lib/arestas-do-workspace.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -100,6 +104,55 @@ function runCaptured(command, args, env = {}) {
       resolve({ ok: false, output: `${output}\n${err.message}` });
     });
   });
+}
+
+/**
+ * O build, precedido da conferência do grafo do workspace.
+ *
+ * **O defeito que esta ordem fecha.** O esbuild parou com
+ * `Could not resolve "@workspace/coverage"` apontando para
+ * `lib/assistant/src/aprofundar.ts`, num workspace onde a dependência estava
+ * declarada como `workspace:*`, o lockfile íntegro, o
+ * `pnpm install --frozen-lockfile` passando, o símbolo exportado e um symlink
+ * `@workspace/coverage` presente — em `artifacts/api-server/node_modules/`. O
+ * que faltava era `lib/assistant/node_modules/@workspace/coverage`: o pnpm liga
+ * por pacote que declara, e aquele `node_modules` era anterior à aresta. Como
+ * só uma aresta era nova, só um import falhava, e "só o coverage não resolve"
+ * mandou procurar defeito no pacote importado — `exports`? falta um `dist`? o
+ * bundler? — que é o lugar onde não havia nada errado.
+ *
+ * A mensagem do bundler nomeia o import; ela não tem como nomear um link
+ * ausente a dois diretórios dali. Quem tem é a varredura de
+ * `arestas-do-workspace.mjs`, que compara o que os `package.json` declaram com
+ * o que está no disco. Ela roda **antes** do build porque, nesse estado, o
+ * build não tem como terminar — e a recusa com o motivo certo vale mais do que
+ * um erro verdadeiro apontando para o arquivo errado.
+ *
+ * Custa nada no caminho feliz: é leitura de diretório, sem rede e sem
+ * gerenciador de pacotes. A regra da partida continua valendo — nada aqui
+ * invoca o pnpm; o comando é **dito** a quem lê.
+ */
+async function construirApi() {
+  const { frase } = conferirArestas(root);
+  if (frase !== null) {
+    console.error(`[api] ${frase}`);
+    return { ok: false, output: frase };
+  }
+
+  const resultado = await runCaptured("node", ["artifacts/api-server/build.mjs"]);
+  if (resultado.ok) return resultado;
+
+  /*
+    O build falhou mesmo com o grafo em dia. Se foi por resolução, a explicação
+    ainda cabe — e ali ela é outra: com o link no lugar, o que falta num
+    `@workspace/x/subcaminho` é a entrada em `exports` do pacote importado.
+    Mandar rodar install nesse caso seria mandar repetir um comando que não
+    muda nada.
+  */
+  const explicacao = explicarFalhaDeResolucao(resultado.output, root);
+  if (explicacao === null) return resultado;
+  console.error(`[api] ${explicacao}`);
+  return { ok: false, output: `${resultado.output}\n${explicacao}` };
 }
 
 function shutdown(code = 0) {
@@ -193,8 +246,12 @@ async function startApi() {
       este caminho não invoca `pnpm`, e que o comando aqui continua sendo o
       mesmo que o `package.json` declara. Sem essa segunda prova, a duplicação
       viraria deriva na primeira vez que alguém mudasse o script.
+
+      `construirApi` é esse mesmo comando com a conferência do grafo do
+      workspace na frente — ver o cabeçalho dela. Ela não acrescenta pnpm
+      nenhum ao caminho: lê diretório e diz o comando a quem lê.
     */
-    runBuild: () => runCaptured("node", ["artifacts/api-server/build.mjs"]),
+    runBuild: () => construirApi(),
     spawnServer: () =>
       spawnChild(
         "node",
@@ -258,6 +315,18 @@ async function startApi() {
  * Chamando o `vite` direto, a única coisa entre o workflow e a porta é o vite.
  */
 function startWeb() {
+  /*
+    A mesma conferência do lado da API, e aqui ela só **avisa**.
+
+    A web não tem explicador: recusar subir deixaria a 25609 vazia, e o
+    roteador devolve 502 sem corpo — a pior mensagem possível, e exatamente o
+    estado que este arquivo existe para não produzir. Com o aviso, o Vite sobe,
+    e quem for esbarrar num import que não resolve já tem a causa no console
+    em vez de descobri-la pelo overlay de erro.
+  */
+  const { frase } = conferirArestas(root);
+  if (frase !== null) console.error(`[web] ${frase}`);
+
   spawnChild("./node_modules/.bin/vite", ["--config", "vite.config.ts", "--host", "0.0.0.0"], {
     PORT: WEB_PORT,
     BASE_PATH: "/",
