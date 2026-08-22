@@ -1,6 +1,10 @@
 import type { ErrorRequestHandler, Request, RequestHandler, Response } from "express";
 import { erroDoPostgres } from "@workspace/db";
-import { faltaSchema, responderSchemaAusente } from "../lib/schema-ausente";
+import {
+  faltaSchema,
+  regraDeMigrationPendente,
+  responderSchemaAusente,
+} from "../lib/schema-ausente";
 import { statusDaRecusa } from "../lib/recusa-de-dominio";
 import { ehFraseParaQuemOpera } from "../lib/classificar-falha";
 import { alertar } from "../lib/alerta";
@@ -179,6 +183,35 @@ function contextoDeSchemaAusente(req: Request, err: unknown): string {
 }
 
 /**
+ * O contexto da regra fechada que este banco aplica e é de antes deste build.
+ *
+ * A frase de `contextoDeSchemaAusente` não serve aqui, e a diferença não é de
+ * estilo: ela diz que falta *parte do schema que esta rota lê*, e quem lesse
+ * isso sobre uma coluna que existe iria procurar tabela ausente. O que falta é
+ * a **versão** da regra — a lista fechada da coluna admite hoje menos valores
+ * do que este build escreve —, e é isso que precisa estar dito para que
+ * ninguém procure defeito no arquivo que acabou de subir.
+ *
+ * A constraint é nomeada porque é o endereço exato do que está velho, e porque
+ * é schema, não dado: nenhum valor do pedido atravessa. Recomendação nenhuma
+ * sai daqui — o que resolve vem de `diagnosticar`, como em todo este arquivo.
+ *
+ * A frase diz o que se sabe, e para: que a regra é de antes, e que a chamada
+ * não gravou. Absolver o arquivo por escrito seria ir além da evidência — a
+ * fila reescrever aquela regra não prova que o valor passaria na versão nova —,
+ * e é a razão da recusa, e não um veredito, que tira quem opera do arquivo.
+ */
+function contextoDeRegraAntiga(req: Request, err: unknown): string {
+  const constraint = erroDoPostgres(err)?.constraint;
+  return (
+    `${req.method} ${req.path} parou numa regra que este banco aplica na ` +
+    `versão anterior à deste build${constraint ? ` (\`${constraint}\`)` : ""}: ` +
+    `a fila tem uma migration que a reescreve, e ela ainda não rodou aqui. ` +
+    `Nada foi gravado por esta chamada, e nada se perdeu.`
+  );
+}
+
+/**
  * O 500 de sempre — a última saída, quando nada acima classificou o erro.
  *
  * Está numa função porque é chamado de dois lugares: do fluxo normal e do
@@ -288,6 +321,27 @@ export const erroEmJson: ErrorRequestHandler = (err, req, res, _next) => {
       if (faltaSchema(err)) {
         req.log?.error({ err }, "Schema ausente — respondido com diagnóstico");
         await responderSchemaAusente(res, contextoDeSchemaAusente(req, err));
+        return;
+      }
+
+      /*
+        A mesma falta, na forma que o schema tem quando o objeto **está** lá e
+        é de antes: a regra fechada que uma migration pendente reescreve. Vem
+        depois de `faltaSchema` porque é a mais cara das duas — só ela pergunta
+        ao banco — e porque um erro que já se classificou por SQLSTATE não
+        precisa de evidência nenhuma além dele.
+      */
+      const observado = await regraDeMigrationPendente(err);
+      if (observado) {
+        req.log?.error(
+          { err },
+          "Regra de migration pendente — respondido com diagnóstico",
+        );
+        await responderSchemaAusente(
+          res,
+          contextoDeRegraAntiga(req, err),
+          observado,
+        );
         return;
       }
     } catch (falhaDaClassificacao) {

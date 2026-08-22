@@ -59,6 +59,14 @@ const EXCECOES: Record<string, string> = {
     falhou" de "a chamada não chegou". Fica, e é o modelo — não a exceção.
   */
   "assistant.ts": "ASSISTENTE_FALHOU — já responde com code e requestId",
+  /*
+    `/readyz` responde 503 quando este processo não pode servir. Fica, e é a
+    única forma possível: o 5xx do contrato nasce de uma exceção, e aqui não há
+    exceção nenhuma — a resposta É a medição. Um readiness que respondesse 200
+    dizendo "não pronto" no corpo seria inútil para qualquer probe, que é
+    exatamente quem o consulta.
+  */
+  "health.ts": "readyz — 503 é a própria medição de prontidão, não uma falha",
 };
 
 describe("a constante que sumiu", () => {
@@ -134,5 +142,27 @@ describe("o contrato está montado", () => {
        erro se ele vier depois de tudo o que pode falhar — inclusive do 404. */
     expect(router).toBeLessThan(rota404);
     expect(rota404).toBeLessThan(erro);
+  });
+
+  /**
+   * A ordem que fecha a janela da partida — régua sobre o texto, como as de
+   * cima, porque é uma forma que se desfaz sem ninguém notar.
+   *
+   * O portão de prontidão recusa tráfego de produto enquanto a fila deste
+   * build não está aplicada neste banco. Montá-lo **depois** de
+   * `requireSession` o esvaziaria pela metade: a sessão é lida do banco, e a
+   * primeira consulta do pedido aconteceria dentro da janela que o portão
+   * existe para manter vazia.
+   */
+  it("o portão de prontidão vem antes da sessão e antes das rotas", () => {
+    const app = readFileSync(path.join(AQUI, "..", "app.ts"), "utf8");
+
+    const portao = app.indexOf('app.use("/api", portaoDeProntidao)');
+    const sessao = app.indexOf('app.use("/api", requireSession)');
+    const router = app.indexOf('app.use("/api", router)');
+
+    expect(portao).toBeGreaterThan(-1);
+    expect(portao).toBeLessThan(sessao);
+    expect(sessao).toBeLessThan(router);
   });
 });

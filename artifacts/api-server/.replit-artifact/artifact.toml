@@ -42,5 +42,25 @@ PORT = "8080"
 NODE_ENV = "production"
 DB_MIGRATE_ON_BOOT = "1"
 
+# O startup probe fica no `/healthz`, e a prontidão **não** mora aqui.
+#
+# São duas perguntas com consumidores opostos, e uma chave só não responde as
+# duas. O probe precisa de um endpoint que responda 200 mesmo com o banco fora:
+# se ele falhasse junto com o banco, o deployment nunca subiria e o roteador
+# voltaria a devolver 502 sem corpo — o estado que a rota de saúde existe para
+# tornar legível. A prontidão precisa do contrário: não-200 exatamente quando
+# não dá para servir.
+#
+# Apontar este probe para `/api/readyz` seria trocar um modo de falha por um
+# pior: uma migration que falhasse deixaria o deployment inteiro sem subir, com
+# a versão anterior servindo e nada dizendo por quê — e o reinício seguinte
+# bateria na mesma parede, que é o argumento escrito em `index.ts`.
+#
+# Quem segura o tráfego é o processo, e não a plataforma: o roteador do Replit
+# não tem readiness probe para consultar, então a garantia está onde ela pode
+# ser exercida — o portão em `middlewares/portao-de-prontidao.ts`, que recusa
+# `/api/*` com 503 e `Retry-After` enquanto a fila deste build não estiver
+# aplicada neste banco. `/api/readyz` é o mesmo estado como código HTTP, para
+# quem consultar por probe, por script de deploy ou à mão.
 [services.production.health.startup]
 path = "/api/healthz"

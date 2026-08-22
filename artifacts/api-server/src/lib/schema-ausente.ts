@@ -4,8 +4,11 @@ import {
   diagnosticar,
   textoDoDiagnostico,
   type Diagnostico,
+  type EstadoObservado,
 } from "@workspace/db/diagnostico";
-import { observarBanco } from "./migrations";
+import { readMigrations } from "@workspace/db/migrate";
+import { constraintsTocadasPor } from "@workspace/db/reconvergencia";
+import { migrationsFolder, observarBanco } from "./migrations";
 
 /**
  * A resposta de uma rota que esbarrou num schema que este banco não tem.
@@ -89,6 +92,66 @@ export function faltaSchema(err: unknown): boolean {
   );
 }
 
+/** `check_violation` — a lista fechada de uma coluna recusou o valor. */
+const CHECK_VIOLATION = "23514";
+
+/**
+ * A regra que recusou esta gravação é mais velha do que este build?
+ *
+ * **O caso vivido, de 22/08/2026.** A tela do fechamento passou a oferecer
+ * duas casinhas para o 03.08.18 — `DISPONIBILIDADE_FF` e `DISPONIBILIDADE_VAN`,
+ * separadas pela `0055` —, o envio chegou ao servidor e o banco o recusou:
+ * a `0055` ainda não tinha rodado ali, e o `check` de
+ * `fechamento_documento.tipo` era o da lista antiga, sem os dois nomes. Quem
+ * operava recebeu "O servidor falhou ao processar este pedido", que manda
+ * procurar defeito num arquivo perfeito — o mesmo beco do Book do Operador,
+ * uma classe de erro abaixo.
+ *
+ * **Por que `23514` não entra em `SCHEMA_AUSENTE` pelo código.** Ele é, quase
+ * sempre, o oposto disto: um valor que a regra do domínio recusa, e a resposta
+ * certa é dizer que o valor não serve. Tratar todo `check_violation` como banco
+ * atrasado mandaria alguém rodar migrations por causa de um dado errado — o
+ * espelho exato do erro que este módulo existe para não cometer.
+ *
+ * **O que decide é a fila, não o SQLSTATE.** A pergunta é se a constraint que
+ * recusou está entre as que uma migration **pendente neste banco** reescreve.
+ * Estando, a regra aplicada aqui é comprovadamente uma versão anterior da que
+ * este build escreve, e o desfecho é o de sempre: 503 com o diagnóstico de
+ * `diagnosticar`, que já sabe dizer "faltam migrations" e qual comando as
+ * aplica. Não estando, nada muda — o erro segue para o 500, que é a resposta
+ * certa para o que ninguém classificou.
+ *
+ * É a mesma disciplina do `42P10` em {@link faltaSchema}: um SQLSTATE
+ * ambíguo só vira schema ausente com a evidência que desfaz a ambiguidade.
+ *
+ * Devolve **o estado observado** quando é o caso, para que quem responde
+ * reaproveite a mesma observação: a classificação e o diagnóstico não podem
+ * discordar sobre o mesmo banco no mesmo instante.
+ */
+export async function regraDeMigrationPendente(
+  err: unknown,
+): Promise<EstadoObservado | null> {
+  const doPostgres = erroDoPostgres(err);
+  /*
+    A observação do banco custa consultas, e só é feita depois de os dois
+    fatos baratos baterem: é `check_violation`, e o protocolo nomeou a
+    constraint. Sem o nome não há o que perguntar à fila — e adivinhá-lo pelo
+    texto da mensagem seria classificar por frase, que é o que este arquivo
+    inteiro recusa.
+  */
+  if (doPostgres?.code !== CHECK_VIOLATION) return null;
+  const constraint = doPostgres.constraint;
+  if (!constraint) return null;
+
+  const observado = await observarBanco();
+  if (observado.pendentes.length === 0) return null;
+
+  const naFila = readMigrations(migrationsFolder()).filter((m) =>
+    observado.pendentes.includes(m.tag),
+  );
+  return constraintsTocadasPor(naFila).has(constraint) ? observado : null;
+}
+
 export interface CorpoDeSchemaAusente {
   /** O texto corrido, para quem lê por `curl` ou no log. */
   error: string;
@@ -113,6 +176,14 @@ export interface CorpoDeSchemaAusente {
 export async function responderSchemaAusente(
   res: Response,
   contexto: string,
+  /*
+    A observação já feita, quando quem chamou precisou dela para **classificar**
+    o erro — ver `regraDeMigrationPendente`. Observar de novo abriria a janela
+    em que a classificação e o diagnóstico falam de dois instantes diferentes
+    do mesmo banco, que é precisamente o par contraditório que este módulo
+    existe para eliminar. Sem ela, observa aqui, como sempre.
+  */
+  jaObservado?: EstadoObservado,
 ): Promise<void> {
   /*
     Observar e classificar ficam como dois passos, e não como um `diagnosticar
@@ -129,7 +200,7 @@ export async function responderSchemaAusente(
     mesmo corpo.
   */
   const diagnostico = diagnosticar({
-    ...(await observarBanco()),
+    ...(jaObservado ?? (await observarBanco())),
     objetoAusenteAgora: true,
   });
   const corpo: CorpoDeSchemaAusente = {

@@ -17,7 +17,7 @@ vi.mock("../migrations", async (original) => ({
   observarBanco,
 }));
 
-const { faltaSchema, responderSchemaAusente } =
+const { faltaSchema, regraDeMigrationPendente, responderSchemaAusente } =
   await import("../schema-ausente");
 
 /** Um `res` do Express reduzido ao que esta função usa. */
@@ -226,5 +226,132 @@ describe("responderSchemaAusente", () => {
     };
     expect(diagnostico.estado).toBe("INDISPONIVEL");
     expect(diagnostico.acao.quem).toBe("plataforma");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A regra fechada que este banco aplica e é de antes deste build
+// ---------------------------------------------------------------------------
+
+/**
+ * **O caso vivido de 22/08/2026.** A tela do fechamento passou a oferecer as
+ * duas casinhas do 03.08.18 — a `0055` separou `DISPONIBILIDADE_FF` de
+ * `DISPONIBILIDADE_VAN` —, o envio chegou ao servidor e o `check` de
+ * `fechamento_documento.tipo` o recusou: naquele banco a `0055` ainda não
+ * tinha rodado, e a lista fechada era a de antes. O que a tela mostrou foi "O
+ * servidor falhou ao processar este pedido", que manda procurar defeito num
+ * arquivo perfeito.
+ *
+ * O que se trava aqui é a evidência que separa esse caso do outro `23514` — o
+ * valor que a regra do domínio recusa de verdade, e que continua sendo 500. O
+ * critério não é o SQLSTATE: é a fila. Se uma migration **pendente neste
+ * banco** reescreve a constraint que recusou, a regra aplicada aqui é
+ * comprovadamente uma versão anterior da que este build escreve.
+ */
+describe("regraDeMigrationPendente", () => {
+  /** A recusa como o `pg` a entrega: SQLSTATE e a constraint, sem texto. */
+  const recusaDoCheck = (constraint: string) =>
+    Object.assign(new Error("new row violates check constraint"), {
+      code: "23514",
+      constraint,
+      table: "fechamento_documento",
+    });
+
+  const bancoAtrasado = () =>
+    observarBanco.mockResolvedValue({
+      configurada: true,
+      alcancavel: true,
+      aplicadas: 55,
+      pendentes: ["0055_disponibilidade_por_frota"],
+    });
+
+  it("a constraint que a migration pendente reescreve é schema, não pedido", async () => {
+    bancoAtrasado();
+
+    const observado = await regraDeMigrationPendente(
+      recusaDoCheck("fechamento_documento_tipo"),
+    );
+
+    /* Devolve o estado observado — e não `true` — para que quem responde use
+       a mesma observação, e não uma segunda leitura do banco. */
+    expect(observado?.pendentes).toEqual(["0055_disponibilidade_por_frota"]);
+  });
+
+  it("atravessa o embrulho do drizzle, como toda classificação daqui", async () => {
+    bancoAtrasado();
+
+    const embrulhado = Object.assign(
+      new Error('Failed query: insert into "fechamento_documento" … params: …'),
+      { cause: recusaDoCheck("fechamento_documento_tipo") },
+    );
+
+    expect(await regraDeMigrationPendente(embrulhado)).not.toBeNull();
+  });
+
+  it("uma constraint que a fila pendente não toca continua sendo 500", async () => {
+    /*
+      É o outro `23514`, e é o comum: um valor que a regra do domínio recusa.
+      Classificá-lo como banco atrasado mandaria rodar migrations por causa de
+      um dado errado — o espelho do erro que este módulo existe para não
+      cometer.
+    */
+    bancoAtrasado();
+
+    expect(
+      await regraDeMigrationPendente(recusaDoCheck("ticket_status_ck")),
+    ).toBeNull();
+  });
+
+  it("sem migration pendente, nenhum check_violation vira falta de schema", async () => {
+    observarBanco.mockResolvedValue({
+      configurada: true,
+      alcancavel: true,
+      aplicadas: 56,
+      pendentes: [],
+    });
+
+    expect(
+      await regraDeMigrationPendente(recusaDoCheck("fechamento_documento_tipo")),
+    ).toBeNull();
+  });
+
+  it("sem o nome da constraint não há o que perguntar à fila", async () => {
+    /* Adivinhá-lo pelo texto da mensagem seria classificar por frase, que é o
+       que este arquivo inteiro recusa. */
+    bancoAtrasado();
+
+    expect(await regraDeMigrationPendente({ code: "23514" })).toBeNull();
+  });
+
+  it("não pergunta ao banco pelo que não é check_violation", async () => {
+    /* A observação custa consultas, e o erro que não é 23514 nunca chega a
+       precisar dela — nem o 23505, que é o vizinho mais próximo. */
+    bancoAtrasado();
+
+    expect(await regraDeMigrationPendente({ code: "23505" })).toBeNull();
+    expect(await regraDeMigrationPendente(new Error("boom"))).toBeNull();
+    expect(await regraDeMigrationPendente(null)).toBeNull();
+    expect(observarBanco).not.toHaveBeenCalled();
+  });
+
+  it("a observação já feita é a que vira diagnóstico — o banco não é lido duas vezes", async () => {
+    bancoAtrasado();
+
+    const observado = await regraDeMigrationPendente(
+      recusaDoCheck("fechamento_documento_tipo"),
+    );
+    const { res, gravado } = resFalso();
+    await responderSchemaAusente(res as never, CONTEXTO, observado!);
+
+    expect(observarBanco).toHaveBeenCalledTimes(1);
+    expect(gravado.status).toBe(503);
+    const corpo = gravado.corpo as Record<string, unknown>;
+    expect((corpo["diagnostico"] as { estado: string }).estado).toBe(
+      "MIGRATIONS_PENDENTES",
+    );
+    /* E a ação é a única que resolve: rodar a fila. */
+    expect(
+      (corpo["diagnostico"] as { acao: { codigo: string } }).acao.codigo,
+    ).toBe("APLICAR_MIGRATIONS");
   });
 });
