@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   CircleHelp,
+  ClipboardPen,
   FileSearch,
   Lock,
   ShieldCheck,
@@ -20,6 +21,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { ComboboxCriavel } from "@/components/ui/combobox-criavel";
@@ -206,6 +213,18 @@ export default function Curadoria() {
   const equipamento = normalizarEquipamento(
     new URLSearchParams(search).get("equipamento"),
   );
+  /*
+    E a gaveta de cadastro também: ela é o formulário de **um** atributo, e a
+    razão de o atributo aberto morar no endereço vale inteira para ela — "vá
+    cadastrar a interpretação de `cavalo.ipva`" precisa ser um link, e não uma
+    instrução para procurar a linha na fila e clicar no ícone certo.
+
+    Param separado de `atributo` de propósito: abrir a gaveta a partir da linha
+    não pode trocar o que o painel da direita está mostrando. São duas leituras
+    do mesmo atributo — o painel mostra os valores reais, a gaveta recebe as
+    respostas — e uma não é o estado da outra.
+  */
+  const emCadastro = new URLSearchParams(search).get("cadastro");
 
   const irPara = (patch: Record<string, string | null>) => {
     const params = new URLSearchParams(search);
@@ -222,6 +241,7 @@ export default function Curadoria() {
 
   const setSelected = (code: string | null) => irPara({ atributo: code });
   const setEquipamento = (tipo: string | null) => irPara({ equipamento: tipo });
+  const setCadastro = (code: string | null) => irPara({ cadastro: code });
 
   const [filter, setFilter] = useState("");
   const [showConfirmed, setShowConfirmed] = useState(false);
@@ -302,11 +322,18 @@ export default function Curadoria() {
     só quando o endereço pediu alguém que a fila atual não tem — trocá-lo por
     conta própria em qualquer outra situação seria desfazer uma escolha de quem
     está lendo.
+
+    Vale para os dois pedidos do endereço, e não só para o painel: fechar a
+    gaveta de cadastro de um atributo confirmado devolveria a pessoa a uma lista
+    onde a linha de onde ela veio não existe.
   */
   useEffect(() => {
-    if (selected === null || showConfirmed || queue.length === 0) return;
-    if (!queue.some((item) => item.code === selected)) setShowConfirmed(true);
-  }, [selected, queue, showConfirmed]);
+    if (showConfirmed || queue.length === 0) return;
+    const pedidos = [selected, emCadastro].filter((c): c is string => c !== null);
+    if (pedidos.some((code) => !queue.some((item) => item.code === code))) {
+      setShowConfirmed(true);
+    }
+  }, [selected, emCadastro, queue, showConfirmed]);
 
   /*
     E a aba segue o atributo, pela mesma razão e com o mesmo limite.
@@ -529,58 +556,97 @@ export default function Curadoria() {
             )}
             {visible.map((item) => {
               const descrito = estaDescrito(item);
+              const nome = item.displayName ?? item.sourceName;
               return (
-                <button
+                /*
+                  Duas ações no mesmo card, e por isso ele deixou de ser um
+                  botão só: ler o atributo (o painel da direita, com os valores
+                  reais) e cadastrar a interpretação dele (a gaveta). Botão
+                  dentro de botão não é HTML válido — o card virou a linha, e
+                  cada ação ganhou o próprio alvo dentro dela.
+                */
+                <div
                   key={item.code}
-                  onClick={() => setSelected(item.code)}
                   /* A faixa da esquerda existe em todo card, transparente
                      quando não há o que marcar: assim o verde acende sem
                      empurrar o texto 4px para o lado. */
                   className={cn(
-                    "w-full text-left px-4 py-3 border-b border-l-4 border-l-transparent transition-colors",
+                    "flex items-stretch border-b border-l-4 border-l-transparent transition-colors",
                     descrito
                       ? "border-l-emerald-500 bg-emerald-50/70 hover:bg-emerald-100/70"
                       : "hover:bg-muted/60",
                     selected === item.code &&
                       (descrito ? "bg-emerald-100" : "bg-muted"),
+                    emCadastro === item.code && "ring-1 ring-inset ring-primary/40",
                   )}
                 >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="font-mono text-xs text-muted-foreground truncate">
-                        {item.displayName ? `${item.sourceName} · ` : ""}
-                        {item.code}
+                  <button
+                    onClick={() => setSelected(item.code)}
+                    className="min-w-0 flex-1 text-left px-4 py-3"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="font-mono text-xs text-muted-foreground truncate">
+                          {item.displayName ? `${item.sourceName} · ` : ""}
+                          {item.code}
+                        </div>
+                        <div className="font-medium text-sm truncate">
+                          {nome}
+                        </div>
                       </div>
-                      <div className="font-medium text-sm truncate">
-                        {item.displayName ?? item.sourceName}
-                      </div>
+                      <StatusBadge status={item.semanticsStatus} />
                     </div>
-                    <StatusBadge status={item.semanticsStatus} />
-                  </div>
-                  <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
-                    <span className="font-mono">{item.unit ?? "sem unidade"}</span>
-                    <span>·</span>
-                    <span className="font-mono">{item.aggregation ?? "sem agregação"}</span>
-                    {item.magnitude !== null && item.magnitude !== 0 && (
-                      <>
-                        <span>·</span>
-                        <span className="font-mono tabular-nums">{brl(item.magnitude)}</span>
-                      </>
+                    <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
+                      <span className="font-mono">{item.unit ?? "sem unidade"}</span>
+                      <span>·</span>
+                      <span className="font-mono">{item.aggregation ?? "sem agregação"}</span>
+                      {item.magnitude !== null && item.magnitude !== 0 && (
+                        <>
+                          <span>·</span>
+                          <span className="font-mono tabular-nums">{brl(item.magnitude)}</span>
+                        </>
+                      )}
+                      {/* O verde sozinho não diz do que é o verde — e neste
+                          card, ao lado de um selo de status, seria lido como
+                          "confirmado". A palavra impede a leitura errada. */}
+                      {descrito && (
+                        <>
+                          <span>·</span>
+                          <span className="inline-flex items-center gap-1 font-medium text-emerald-700">
+                            <CheckCircle2 className="w-3 h-3" />
+                            descrito
+                          </span>
+                        </>
+                      )}
+                    </div>
+                  </button>
+
+                  {/*
+                    O ícone de cadastro, em toda linha da fila.
+
+                    Ele existe porque as perguntas que destravam o dinheiro —
+                    significado, linha da DRE e detalhe dentro dela — ficavam a
+                    três rolagens de distância: era preciso escolher o atributo,
+                    descer o painel da direita passando pela tabela de valores e
+                    pelo card de nome, e só então chegar aos campos. Quem já sabe
+                    o que a coluna é não deveria percorrer isso para dizê-lo.
+
+                    Prancheta com caneta, e não um "+": não se está criando um
+                    atributo — ele já existe, veio da importação. O que se
+                    cadastra é a interpretação dele.
+                  */}
+                  <button
+                    onClick={() => setCadastro(item.code)}
+                    aria-label={`Cadastrar a interpretação de ${nome}`}
+                    title="Cadastrar a interpretação — abre a gaveta com os campos"
+                    className={cn(
+                      "flex w-11 shrink-0 items-center justify-center border-l text-muted-foreground transition-colors hover:bg-background hover:text-foreground",
+                      emCadastro === item.code && "bg-background text-foreground",
                     )}
-                    {/* O verde sozinho não diz do que é o verde — e neste
-                        card, ao lado de um selo de status, seria lido como
-                        "confirmado". A palavra impede a leitura errada. */}
-                    {descrito && (
-                      <>
-                        <span>·</span>
-                        <span className="inline-flex items-center gap-1 font-medium text-emerald-700">
-                          <CheckCircle2 className="w-3 h-3" />
-                          descrito
-                        </span>
-                      </>
-                    )}
-                  </div>
-                </button>
+                  >
+                    <ClipboardPen className="h-4 w-4" />
+                  </button>
+                </div>
               );
             })}
             {/*
@@ -618,11 +684,20 @@ export default function Curadoria() {
           <Card className="h-full">
             <CardContent className="p-12 text-center text-muted-foreground">
               Selecione um atributo para ver os valores reais e confirmar o que
-              ele significa.
+              ele significa. Para responder direto o que ele representa, use o
+              ícone de cadastro na linha da fila.
             </CardContent>
           </Card>
         )}
       </div>
+
+      <GavetaDeCadastro
+        codigo={emCadastro}
+        aoFechar={() => setCadastro(null)}
+        aoConfirmar={() => {
+          queryClient.invalidateQueries({ queryKey: ["curation"] });
+        }}
+      />
     </Layout>
   );
 }
@@ -880,9 +955,21 @@ function AttributePanel({
 function ConfirmarInterpretacao({
   detail,
   onConfirmed,
+  emGaveta = false,
 }: {
   detail: AttributeDetail;
   onConfirmed: () => void;
+  /**
+   * As mesmas perguntas, sem a moldura do card.
+   *
+   * A gaveta já tem cabeçalho, título e nome do atributo — repetir a moldura
+   * dentro dela colocaria um card com borda dentro de um painel com borda, e o
+   * botão de IA cairia num terceiro nível de cabeçalho. O que muda é só o
+   * envelope: as perguntas, a derivação e a confirmação são as mesmas, porque
+   * duas cópias do formulário seriam duas oportunidades de discordarem sobre o
+   * que a confirmação grava.
+   */
+  emGaveta?: boolean;
 }) {
   const queryClient = useQueryClient();
 
@@ -1222,6 +1309,377 @@ function ConfirmarInterpretacao({
 
   const vigencia = vigenciaDoDado(detail.history);
 
+  /*
+    O ícone de IA, uma vez só, exibido nos dois envelopes.
+
+    Ele não é decoração do card: é a ação que responde "não sei o que preencher
+    aqui". Por isso ele acompanha as perguntas para dentro da gaveta em vez de
+    ficar no cabeçalho que a gaveta não tem — e por isso é um só, e não uma
+    cópia por lugar: duas cópias divergem no dia em que uma ganhar estado de
+    carregamento e a outra não.
+  */
+  const botaoDeIA = (
+    <Button
+      variant="outline"
+      size="icon"
+      className="shrink-0"
+      onClick={() => sugerirComIA.mutate()}
+      disabled={sugerirComIA.isPending}
+      aria-label="Sugerir com IA o que preencher"
+      title="Sugerir com IA o que preencher"
+    >
+      <Sparkles
+        className={cn("h-4 w-4", sugerirComIA.isPending && "animate-pulse")}
+      />
+    </Button>
+  );
+
+  const corpo = (
+    <>
+      {/* 1. Resumo — o que já se sabe de um lado, o que falta do outro. Uma
+          lista única faria a pessoa ler tudo para descobrir onde ela entra. */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <Resumo
+          titulo="IA identificou"
+          itens={quadro.identificado}
+          tone="good"
+          vazio="Nada foi identificado a partir dos valores."
+        />
+        <Resumo
+          titulo="Falta confirmar"
+          itens={quadro.faltaConfirmar}
+          tone="warn"
+          vazio="Nada — está tudo preenchido."
+        />
+      </div>
+
+      {/* 2. O que a IA entendeu. Curto, e com o textão recolhido atrás de uma
+          ação secundária: a análise completa é útil e não pode dominar a
+          tela que existe para receber duas respostas.
+
+          A caixa deixou de depender só de `semanticsRationale`. Ela era a
+          única condição, e por isso a resposta ao clique no ícone de IA —
+          a leitura, o motivo de não haver leitura, o erro da chamada — não
+          tinha onde aparecer numa coluna que o motor nunca analisou: o botão
+          respondia em silêncio, e "não deu nada" ficava indistinguível de
+          "não fez nada". Agora a caixa aparece quando há o que dizer, venha
+          do motor ou do clique. */}
+      {(detail.semanticsRationale ||
+        sugestao ||
+        motivoSemSugestao ||
+        sugerirComIA.isError) && (
+        <div className="rounded-md border bg-muted/40 px-3 py-3 space-y-2">
+          {detail.semanticsRationale && (
+            <>
+              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                O que a IA entendeu
+              </div>
+              <p className="text-sm">{entendimentoCurto(detail, jaSabido)}</p>
+            </>
+          )}
+          <div className="flex flex-wrap items-center gap-2 empty:hidden">
+            {detail.semanticsRationale && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-xs"
+                onClick={() => setVerAnalise((v) => !v)}
+              >
+                {verAnalise ? "Ocultar análise completa" : "Ver análise completa da IA"}
+              </Button>
+            )}
+            {/* O `Desfazer` só existe enquanto os campos ainda contêm o que a
+                IA deixou. Depois de a pessoa mexer, restaurar apagaria a
+                escolha dela, e não a do modelo. */}
+            {antes &&
+              sugestao &&
+              (antes.meaningCode !== meaningCode ||
+                antes.periodicity !== periodicity) && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-xs"
+                  onClick={() => {
+                    setMeaningCode(antes.meaningCode);
+                    setPeriodicity(antes.periodicity);
+                    setSugestao(null);
+                    setAntes(null);
+                  }}
+                >
+                  <Undo2 className="h-3.5 w-3.5" />
+                  Desfazer a leitura da IA
+                </Button>
+              )}
+          </div>
+          {verAnalise && detail.semanticsRationale && (
+            <p className="whitespace-pre-line border-t pt-2 text-sm text-muted-foreground">
+              {detail.semanticsRationale}
+            </p>
+          )}
+          {sugerirComIA.isError && (
+            <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+              {sugerirComIA.error.message}
+            </p>
+          )}
+          {motivoSemSugestao && (
+            <p className="text-sm text-muted-foreground">
+              {MOTIVO_SEM_SUGESTAO[motivoSemSugestao] ?? MOTIVO_SEM_SUGESTAO.ERRO}
+            </p>
+          )}
+          {sugestao && <LeituraDaIA sugestao={sugestao} />}
+        </div>
+      )}
+
+      {/* 3. Confirmado pela IA — só o que já se sabe. "Pode ser somado entre
+          veículos?" saiu daqui de propósito: a agregação é consequência da
+          semântica, e não uma pergunta nem uma resposta a exibir. */}
+      <div>
+        <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Confirmado pela IA
+        </div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Metric label="Vigência do dado" value={vigencia ?? "—"} />
+          <Metric
+            label="Natureza do campo"
+            value={
+              jaSabido?.isMonetary === true || jaSabido?.unit?.startsWith("BRL")
+                ? "Valor financeiro"
+                : jaSabido
+                  ? leituraDe(jaSabido).natureza
+                  : "—"
+            }
+          />
+        </div>
+      </div>
+
+      {/* 4. As duas perguntas. */}
+      <div className="space-y-4">
+        <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Precisa da sua confirmação
+        </div>
+
+        <Field
+          label="O que este valor representa?"
+          hint="Escolha a interpretação econômica do valor. O FreightCheck deriva os campos técnicos automaticamente."
+        >
+          <ComboboxCriavel
+            itens={catalogo}
+            valor={escolhido}
+            aoEscolher={(item) => {
+              setMeaningCode(item.code);
+              setErroDoCadastro(null);
+            }}
+            aoCriar={criarSignificadoInline}
+            rotuloDe={(item) => item.label}
+            chaveDe={(item) => item.code}
+            detalheDe={(item) => leituraDe(item).natureza}
+            previaDe={(texto) =>
+              previaDaCriacao(texto)?.natureza ??
+              "Não consegui entender esse formato — tente “R$ por hora”, “Percentual” ou “Quantidade”."
+            }
+            placeholder="Pesquisar ou cadastrar…"
+            erro={erroDoCadastro}
+          />
+          {escolhido && (
+            // A consequência da escolha, dita antes de confirmar. É onde a
+            // regra de agregação aparece — como leitura, nunca como campo.
+            <p className="text-xs text-muted-foreground">
+              {leituraDe(escolhido).agregacao}
+            </p>
+          )}
+        </Field>
+
+        {pedePeriodo && (
+          <Field
+            label="De quanto em quanto tempo este valor é pago?"
+            hint="Este significado é dinheiro que se acumula, e não diz de que período. Sem isso não há em que total colocá-lo."
+          >
+            <div className="space-y-1.5">
+              {PERIODOS_EM_ABERTO.map((opcao) => (
+                <label
+                  key={opcao.periodicity}
+                  className="flex cursor-pointer items-start gap-2 rounded-md border px-3 py-2 text-sm hover:bg-muted/50"
+                >
+                  <input
+                    type="radio"
+                    name="periodo"
+                    className="mt-1"
+                    checked={periodicity === opcao.periodicity}
+                    onChange={() => setPeriodicity(opcao.periodicity)}
+                  />
+                  <span>
+                    <span className="font-medium">{opcao.rotulo}</span>
+                    <span className="block text-xs text-muted-foreground">
+                      {opcao.ajuda}
+                    </span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          </Field>
+        )}
+
+        {/* "Categoria DRE", e não "Categoria": são os mesmos campos que as
+            colunas de mesmo nome da planilha de atributos preenchem, e dois
+            nomes para o mesmo campo fazem quem preenche a planilha procurar
+            na tela um campo que não existe. O nome também diz o que a escolha
+            decide — em que linha da DRE a coluna cai. */}
+        <Field
+          label="Categoria DRE - Sintético"
+          hint="A linha da DRE que totaliza. Sozinha ela não classifica: escolher aqui filtra a lista do analítico. Pesquise ou cadastre uma nova."
+        >
+          {/*
+            Criável, como o analítico, e pelo mesmo motivo: um primeiro nível
+            fechado obriga quem cura a pendurar o que ela quer dizer na linha
+            *mais parecida* que existe, e aí a DRE soma numa linha que ninguém
+            escolheu, sem que tela nenhuma acuse.
+          */}
+          <ComboboxCriavel
+            itens={sinteticos}
+            valor={sinteticoEscolhido}
+            aoEscolher={(item) => {
+              setSinteticoPendente(item.nome);
+              /*
+                Trocar a linha da DRE derruba o analítico que pertencia à
+                anterior. É a diferença que importa: sem isto a tela ficaria
+                mostrando "Custo Fixo" com "Combustível" embaixo, e o par que
+                a confirmação gravaria seria o antigo — o sintético é derivado
+                do nó, e é o nó que manda.
+              */
+              if (categoriaEscolhida && categoriaEscolhida.sintetico !== item.nome) {
+                setTaxonomyCode(null);
+              }
+              setErroDoCadastro(null);
+            }}
+            aoCriar={criarSinteticoInline}
+            rotuloDe={(item) => item.nome}
+            detalheDe={(item) => leituraDoSintetico(item)}
+            previaDe={() =>
+              "Entra como linha nova da DRE, ainda sem lado da conta — de que lado ela cai não se lê no nome. " +
+              "Até que se decida, o que estiver dentro dela fica fora dos totais de custo fixo e variável."
+            }
+            rotuloDeCriacao={(texto) => `Criar linha da DRE “${texto}”`}
+            placeholder="Escolher ou cadastrar a linha da DRE…"
+            erro={erroDoCadastro}
+          />
+        </Field>
+
+        <Field
+          label="Categoria DRE - Analítico"
+          hint={
+            sinteticoAtivo === null
+              ? "Onde este valor entra na conta. Pesquise ou cadastre uma nova — escolher aqui preenche o sintético sozinho."
+              : `O detalhe dentro de ${sinteticoAtivo}. Pesquise ou cadastre uma nova.`
+          }
+        >
+          <ComboboxCriavel
+            /*
+              Filtrada pelo sintético, e a lista inteira enquanto nenhum foi
+              escolhido: quem já sabe o nome do analítico não deve ser obrigado
+              a responder a classe antes para poder digitá-lo. Escolher pela
+              lista cheia preenche o sintético sozinho, porque ele é derivado.
+            */
+            itens={analiticasVisiveis}
+            valor={categoriaEscolhida}
+            aoEscolher={(item) => {
+              setTaxonomyCode(item.code);
+              setSinteticoPendente(item.sintetico);
+              setErroDoCadastro(null);
+            }}
+            aoCriar={criarCategoriaInline}
+            rotuloDe={(item) => item.analitico || item.caminho}
+            detalheDe={(item) =>
+              sinteticoAtivo === null
+                ? `${item.sintetico} · ${familiaDaCategoria(item)}`
+                : familiaDaCategoria(item)
+            }
+            /*
+              A prévia diz onde a categoria vai cair de verdade, antes do
+              clique. Eram dois destinos possíveis enquanto três famílias
+              decidiam lado da conta e por isso não recebiam categoria nova; a
+              classe saiu da árvore, e agora a categoria nasce onde quem
+              escolheu mandou — ou no limbo, quando ninguém escolheu.
+            */
+            previaDe={() =>
+              sinteticoEscolhido
+                ? `Entra em ${sinteticoAtivo}. Dizer o que a coluna é não diz o que a faz mudar — ` +
+                  "isso é o campo abaixo, e é por atributo."
+                : "Entra como categoria nova, sob “Não classificado” — escolha a família acima " +
+                  "para que ela nasça no lugar certo."
+            }
+            rotuloDeCriacao={(texto) => `Criar categoria “${texto}”`}
+            placeholder="Pesquisar ou cadastrar…"
+            erro={erroDoCadastro}
+          />
+        </Field>
+
+        {/* A regra de alteração fica **depois** da categoria e é outra
+            pergunta: a de cima diz o que o valor é, esta diz o que o faz
+            mudar. Aqui ficava a classe de custo — fixo ou variável —, e a
+            troca não é de rótulo: o que quem cura sabe sobre uma coluna como
+            o IPVA é uma frase, e nenhuma das três opções guardava frase
+            nenhuma. */}
+        <Field
+          label="Regra de Alteração"
+          hint="O que faz esta coluna mudar de valor: revisão semestral, reajuste anual por índice, renegociação de tabela. Não é a fórmula do número de hoje — é o que faz a fórmula de hoje deixar de valer."
+        >
+          <Textarea
+            value={changeRule}
+            onChange={(e) => setChangeRule(e.target.value)}
+            placeholder="Ex.: revisão semestral do percentual sobre o valor da nota de compra."
+            rows={2}
+          />
+          {/* A consequência da escrita, dita antes de confirmar — a mesma
+              honestidade do rodapé do card "Significado". É prosa: entra no
+              cadastro do atributo e não move `semantics_status`. */}
+          <p className="text-xs text-muted-foreground">
+            Texto livre, e não destrava cálculo: é o registro de por que este
+            número muda, para quem for ler a série depois.
+          </p>
+        </Field>
+      </div>
+
+      {/* 8. Estado incompleto — dito por extenso, e não por um botão cinza
+          que não explica o que falta. */}
+      {falta && (
+        <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          {falta}
+        </p>
+      )}
+      {error && (
+        <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+          {error}
+        </p>
+      )}
+
+      <Button
+        onClick={() => confirm.mutate()}
+        disabled={confirm.isPending || !podeConfirmar(escolhas, catalogo)}
+      >
+        {confirm.isPending ? "Confirmando…" : "Confirmar interpretação"}
+      </Button>
+    </>
+  );
+
+  if (emGaveta) {
+    return (
+      <div className="space-y-6">
+        {/* A oferta da IA vem antes das perguntas, e dita por extenso: um ícone
+            sozinho no alto de um formulário não diz o que ele faria com os
+            campos, e o que ele faz é escrever dentro deles. */}
+        <div className="flex items-start justify-between gap-3 rounded-md border border-dashed px-3 py-3">
+          <p className="text-xs text-muted-foreground">
+            Não sabe o que preencher? A IA lê os valores já importados desta
+            coluna e propõe o significado — é palpite, e nada é gravado enquanto
+            você não confirmar.
+          </p>
+          {botaoDeIA}
+        </div>
+        {corpo}
+      </div>
+    );
+  }
+
   return (
     <Card>
       <CardHeader className="pb-3">
@@ -1235,330 +1693,160 @@ function ConfirmarInterpretacao({
               abaixo antes de confirmar.
             </p>
           </div>
-          <Button
-            variant="outline"
-            size="icon"
-            className="shrink-0"
-            onClick={() => sugerirComIA.mutate()}
-            disabled={sugerirComIA.isPending}
-            aria-label="Reler os valores importados com IA"
-            title="Reler os valores importados com IA"
-          >
-            <Sparkles
-              className={cn("h-4 w-4", sugerirComIA.isPending && "animate-pulse")}
-            />
-          </Button>
+          {botaoDeIA}
         </div>
       </CardHeader>
 
-      <CardContent className="space-y-6">
-        {/* 1. Resumo — o que já se sabe de um lado, o que falta do outro. Uma
-            lista única faria a pessoa ler tudo para descobrir onde ela entra. */}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Resumo
-            titulo="IA identificou"
-            itens={quadro.identificado}
-            tone="good"
-            vazio="Nada foi identificado a partir dos valores."
-          />
-          <Resumo
-            titulo="Falta confirmar"
-            itens={quadro.faltaConfirmar}
-            tone="warn"
-            vazio="Nada — está tudo preenchido."
-          />
-        </div>
+      <CardContent className="space-y-6">{corpo}</CardContent>
+    </Card>
+  );
+}
 
-        {/* 2. O que a IA entendeu. Curto, e com o textão recolhido atrás de uma
-            ação secundária: a análise completa é útil e não pode dominar a
-            tela que existe para receber duas respostas. */}
-        {detail.semanticsRationale && (
-          <div className="rounded-md border bg-muted/40 px-3 py-3 space-y-2">
-            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              O que a IA entendeu
-            </div>
-            <p className="text-sm">{entendimentoCurto(detail, jaSabido)}</p>
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 px-2 text-xs"
-                onClick={() => setVerAnalise((v) => !v)}
-              >
-                {verAnalise ? "Ocultar análise completa" : "Ver análise completa da IA"}
-              </Button>
-              {/* O `Desfazer` só existe enquanto os campos ainda contêm o que a
-                  IA deixou. Depois de a pessoa mexer, restaurar apagaria a
-                  escolha dela, e não a do modelo. */}
-              {antes &&
-                sugestao &&
-                (antes.meaningCode !== meaningCode ||
-                  antes.periodicity !== periodicity) && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 px-2 text-xs"
-                    onClick={() => {
-                      setMeaningCode(antes.meaningCode);
-                      setPeriodicity(antes.periodicity);
-                      setSugestao(null);
-                      setAntes(null);
-                    }}
-                  >
-                    <Undo2 className="h-3.5 w-3.5" />
-                    Desfazer a leitura da IA
-                  </Button>
-                )}
-            </div>
-            {verAnalise && (
-              <p className="whitespace-pre-line border-t pt-2 text-sm text-muted-foreground">
-                {detail.semanticsRationale}
-              </p>
+/**
+ * A gaveta de cadastro — as perguntas da curadoria, abertas pela linha da fila.
+ *
+ * ---------------------------------------------------------------------------
+ * Por que gaveta, e não a mesma coluna da direita
+ * ---------------------------------------------------------------------------
+ * O painel da direita é para **ler** o atributo: a proposta do motor, a tabela
+ * de valores reais com a origem de cada um, o nome gerencial, o histórico de
+ * curadoria. As perguntas que destravam o dinheiro ficam no fim dessa leitura,
+ * e é a ordem certa para quem ainda não sabe o que a coluna é.
+ *
+ * Só que quem cura uma fila de 121 colunas quase sempre já sabe: reconhece o
+ * nome, sabe em que linha da DRE aquilo cai, e o que ela precisa é dizer isso e
+ * passar para a próxima. Para essa pessoa, o caminho até os campos era três
+ * rolagens por atributo — e a tela cobrava esse pedágio 121 vezes.
+ *
+ * A gaveta abre por cima, com a fila atrás e visível: fechar devolve o dedo
+ * exatamente na linha seguinte. É a mesma escolha da gaveta da Cobertura, pelo
+ * mesmo motivo — o que se está respondendo é sobre **uma** linha, e a linha não
+ * pode sair do campo de visão.
+ *
+ * ---------------------------------------------------------------------------
+ * A gaveta não carrega o formulário; ela o pede
+ * ---------------------------------------------------------------------------
+ * A linha da fila tem `QueueItem`, que é o resumo. O formulário precisa do
+ * atributo inteiro — o histórico decide a vigência exibida, `semanticsRationale`
+ * decide o que a caixa da IA mostra — e por isso a gaveta faz a **mesma**
+ * consulta do painel da direita, com a **mesma** chave. Duas chaves para o
+ * mesmo atributo dariam duas cópias livres para divergir; com uma, abrir a
+ * gaveta do atributo já aberto não custa uma chamada, e confirmar por um lado
+ * atualiza o outro.
+ *
+ * E o formulário é literalmente o mesmo componente do painel — em `emGaveta`,
+ * que troca só o envelope. Uma segunda cópia dos campos seria a primeira coisa
+ * a sair de sincronia com o que a confirmação grava.
+ */
+function GavetaDeCadastro({
+  codigo,
+  aoFechar,
+  aoConfirmar,
+}: {
+  codigo: string | null;
+  aoFechar: () => void;
+  aoConfirmar: () => void;
+}) {
+  const consulta = useQuery({
+    queryKey: ["curation", "attribute", codigo],
+    queryFn: () => fetchJson<AttributeDetail>(`/curation/attributes/${codigo}`),
+    enabled: codigo !== null,
+  });
+
+  const detail = consulta.data;
+
+  return (
+    <Sheet open={codigo !== null} onOpenChange={(aberto) => !aberto && aoFechar()}>
+      <SheetContent
+        side="right"
+        className="flex w-full flex-col gap-0 p-0 sm:max-w-xl"
+      >
+        <header className="shrink-0 border-b px-6 pb-4 pt-6">
+          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            <ClipboardPen className="h-3.5 w-3.5" />
+            Cadastro do atributo
+          </div>
+
+          {/* O nome gerencial manda quando existe; sem ele, o código — que é o
+              que a linha da fila mostrava, e trocar o rótulo entre o clique e a
+              gaveta faria duvidar de qual atributo abriu. */}
+          <SheetTitle
+            className={cn(
+              "mt-1.5 pr-8 text-lg font-bold tracking-tight",
+              !detail?.displayName && "font-mono",
             )}
-            {sugerirComIA.isError && (
-              <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
-                {sugerirComIA.error.message}
-              </p>
-            )}
-            {motivoSemSugestao && (
-              <p className="text-sm text-muted-foreground">
-                {MOTIVO_SEM_SUGESTAO[motivoSemSugestao] ?? MOTIVO_SEM_SUGESTAO.ERRO}
-              </p>
-            )}
-            {sugestao && <LeituraDaIA sugestao={sugestao} />}
-          </div>
-        )}
-
-        {/* 3. Confirmado pela IA — só o que já se sabe. "Pode ser somado entre
-            veículos?" saiu daqui de propósito: a agregação é consequência da
-            semântica, e não uma pergunta nem uma resposta a exibir. */}
-        <div>
-          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Confirmado pela IA
-          </div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Metric label="Vigência do dado" value={vigencia ?? "—"} />
-            <Metric
-              label="Natureza do campo"
-              value={
-                jaSabido?.isMonetary === true || jaSabido?.unit?.startsWith("BRL")
-                  ? "Valor financeiro"
-                  : jaSabido
-                    ? leituraDe(jaSabido).natureza
-                    : "—"
-              }
-            />
-          </div>
-        </div>
-
-        {/* 4. As duas perguntas. */}
-        <div className="space-y-4">
-          <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Precisa da sua confirmação
-          </div>
-
-          <Field
-            label="O que este valor representa?"
-            hint="Escolha a interpretação econômica do valor. O FreightCheck deriva os campos técnicos automaticamente."
           >
-            <ComboboxCriavel
-              itens={catalogo}
-              valor={escolhido}
-              aoEscolher={(item) => {
-                setMeaningCode(item.code);
-                setErroDoCadastro(null);
-              }}
-              aoCriar={criarSignificadoInline}
-              rotuloDe={(item) => item.label}
-              chaveDe={(item) => item.code}
-              detalheDe={(item) => leituraDe(item).natureza}
-              previaDe={(texto) =>
-                previaDaCriacao(texto)?.natureza ??
-                "Não consegui entender esse formato — tente “R$ por hora”, “Percentual” ou “Quantidade”."
-              }
-              placeholder="Pesquisar ou cadastrar…"
-              erro={erroDoCadastro}
-            />
-            {escolhido && (
-              // A consequência da escolha, dita antes de confirmar. É onde a
-              // regra de agregação aparece — como leitura, nunca como campo.
-              <p className="text-xs text-muted-foreground">
-                {leituraDe(escolhido).agregacao}
-              </p>
-            )}
-          </Field>
+            {detail?.displayName ?? detail?.sourceName ?? codigo}
+          </SheetTitle>
 
-          {pedePeriodo && (
-            <Field
-              label="De quanto em quanto tempo este valor é pago?"
-              hint="Este significado é dinheiro que se acumula, e não diz de que período. Sem isso não há em que total colocá-lo."
-            >
-              <div className="space-y-1.5">
-                {PERIODOS_EM_ABERTO.map((opcao) => (
-                  <label
-                    key={opcao.periodicity}
-                    className="flex cursor-pointer items-start gap-2 rounded-md border px-3 py-2 text-sm hover:bg-muted/50"
-                  >
-                    <input
-                      type="radio"
-                      name="periodo"
-                      className="mt-1"
-                      checked={periodicity === opcao.periodicity}
-                      onChange={() => setPeriodicity(opcao.periodicity)}
-                    />
-                    <span>
-                      <span className="font-medium">{opcao.rotulo}</span>
-                      <span className="block text-xs text-muted-foreground">
-                        {opcao.ajuda}
-                      </span>
-                    </span>
-                  </label>
-                ))}
-              </div>
-            </Field>
+          <SheetDescription className="mt-1 font-mono text-xs">
+            {detail?.displayName && <>{detail.sourceName} · </>}
+            {codigo}
+            {detail && (
+              <>
+                {" · "}
+                {detail.entityType} · tipo {detail.dataType}
+              </>
+            )}
+          </SheetDescription>
+
+          {detail && (
+            <div className="mt-2.5">
+              <StatusBadge status={detail.semanticsStatus} />
+            </div>
+          )}
+        </header>
+
+        <div className="flex-1 overflow-y-auto px-6 py-5">
+          {consulta.isLoading && (
+            <p className="text-sm text-muted-foreground">Carregando o atributo…</p>
           )}
 
-          {/* "Categoria DRE", e não "Categoria": são os mesmos campos que as
-              colunas de mesmo nome da planilha de atributos preenchem, e dois
-              nomes para o mesmo campo fazem quem preenche a planilha procurar
-              na tela um campo que não existe. O nome também diz o que a escolha
-              decide — em que linha da DRE a coluna cai. */}
-          <Field
-            label="Categoria DRE - Sintético"
-            hint="A linha da DRE que totaliza. Sozinha ela não classifica: escolher aqui filtra a lista do analítico. Pesquise ou cadastre uma nova."
-          >
-            {/*
-              Criável, como o analítico, e pelo mesmo motivo: um primeiro nível
-              fechado obriga quem cura a pendurar o que ela quer dizer na linha
-              *mais parecida* que existe, e aí a DRE soma numa linha que ninguém
-              escolheu, sem que tela nenhuma acuse.
-            */}
-            <ComboboxCriavel
-              itens={sinteticos}
-              valor={sinteticoEscolhido}
-              aoEscolher={(item) => {
-                setSinteticoPendente(item.nome);
-                /*
-                  Trocar a linha da DRE derruba o analítico que pertencia à
-                  anterior. É a diferença que importa: sem isto a tela ficaria
-                  mostrando "Custo Fixo" com "Combustível" embaixo, e o par que
-                  a confirmação gravaria seria o antigo — o sintético é derivado
-                  do nó, e é o nó que manda.
-                */
-                if (categoriaEscolhida && categoriaEscolhida.sintetico !== item.nome) {
-                  setTaxonomyCode(null);
-                }
-                setErroDoCadastro(null);
-              }}
-              aoCriar={criarSinteticoInline}
-              rotuloDe={(item) => item.nome}
-              detalheDe={(item) => leituraDoSintetico(item)}
-              previaDe={() =>
-                "Entra como linha nova da DRE, ainda sem lado da conta — de que lado ela cai não se lê no nome. " +
-                "Até que se decida, o que estiver dentro dela fica fora dos totais de custo fixo e variável."
-              }
-              rotuloDeCriacao={(texto) => `Criar linha da DRE “${texto}”`}
-              placeholder="Escolher ou cadastrar a linha da DRE…"
-              erro={erroDoCadastro}
-            />
-          </Field>
+          {/*
+            A falha não vira formulário em branco. Um cadastro que abre com
+            todos os campos vazios porque a chamada não voltou é indistinguível
+            de um atributo que ninguém curou — e a diferença decide se o que se
+            responder aqui vai por cima de uma curadoria que já existe.
+          */}
+          {consulta.isError && (
+            <div className="space-y-2 rounded-md border border-red-200 bg-red-50 px-3 py-3 text-sm text-red-800">
+              <p>
+                Não consegui abrir o cadastro deste atributo. Sem a resposta do
+                servidor não dá para dizer o que já está preenchido nele, e por
+                isso os campos não abrem.
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7"
+                disabled={consulta.isFetching}
+                onClick={() => consulta.refetch()}
+              >
+                {consulta.isFetching ? "Tentando…" : "Tentar de novo"}
+              </Button>
+            </div>
+          )}
 
-          <Field
-            label="Categoria DRE - Analítico"
-            hint={
-              sinteticoAtivo === null
-                ? "Onde este valor entra na conta. Pesquise ou cadastre uma nova — escolher aqui preenche o sintético sozinho."
-                : `O detalhe dentro de ${sinteticoAtivo}. Pesquise ou cadastre uma nova.`
-            }
-          >
-            <ComboboxCriavel
-              /*
-                Filtrada pelo sintético, e a lista inteira enquanto nenhum foi
-                escolhido: quem já sabe o nome do analítico não deve ser obrigado
-                a responder a classe antes para poder digitá-lo. Escolher pela
-                lista cheia preenche o sintético sozinho, porque ele é derivado.
-              */
-              itens={analiticasVisiveis}
-              valor={categoriaEscolhida}
-              aoEscolher={(item) => {
-                setTaxonomyCode(item.code);
-                setSinteticoPendente(item.sintetico);
-                setErroDoCadastro(null);
+          {detail && (
+            /* Chaveado pelo código pelo mesmo motivo do painel da direita: os
+               campos nascem de `useState(detail…)`, e sem a chave a gaveta
+               reaberta em outro atributo mostraria as respostas do anterior. */
+            <ConfirmarInterpretacao
+              key={detail.code}
+              detail={detail}
+              emGaveta
+              onConfirmed={() => {
+                aoConfirmar();
+                /* Fecha ao confirmar: a gaveta existe para responder e seguir
+                   para a próxima linha, e deixá-la aberta sobre o formulário já
+                   assinado convida a confirmar duas vezes o mesmo atributo. */
+                aoFechar();
               }}
-              aoCriar={criarCategoriaInline}
-              rotuloDe={(item) => item.analitico || item.caminho}
-              detalheDe={(item) =>
-                sinteticoAtivo === null
-                  ? `${item.sintetico} · ${familiaDaCategoria(item)}`
-                  : familiaDaCategoria(item)
-              }
-              /*
-                A prévia diz onde a categoria vai cair de verdade, antes do
-                clique. Eram dois destinos possíveis enquanto três famílias
-                decidiam lado da conta e por isso não recebiam categoria nova; a
-                classe saiu da árvore, e agora a categoria nasce onde quem
-                escolheu mandou — ou no limbo, quando ninguém escolheu.
-              */
-              previaDe={() =>
-                sinteticoEscolhido
-                  ? `Entra em ${sinteticoAtivo}. Dizer o que a coluna é não diz o que a faz mudar — ` +
-                    "isso é o campo abaixo, e é por atributo."
-                  : "Entra como categoria nova, sob “Não classificado” — escolha a família acima " +
-                    "para que ela nasça no lugar certo."
-              }
-              rotuloDeCriacao={(texto) => `Criar categoria “${texto}”`}
-              placeholder="Pesquisar ou cadastrar…"
-              erro={erroDoCadastro}
             />
-          </Field>
-
-          {/* A regra de alteração fica **depois** da categoria e é outra
-              pergunta: a de cima diz o que o valor é, esta diz o que o faz
-              mudar. Aqui ficava a classe de custo — fixo ou variável —, e a
-              troca não é de rótulo: o que quem cura sabe sobre uma coluna como
-              o IPVA é uma frase, e nenhuma das três opções guardava frase
-              nenhuma. */}
-          <Field
-            label="Regra de Alteração"
-            hint="O que faz esta coluna mudar de valor: revisão semestral, reajuste anual por índice, renegociação de tabela. Não é a fórmula do número de hoje — é o que faz a fórmula de hoje deixar de valer."
-          >
-            <Textarea
-              value={changeRule}
-              onChange={(e) => setChangeRule(e.target.value)}
-              placeholder="Ex.: revisão semestral do percentual sobre o valor da nota de compra."
-              rows={2}
-            />
-            {/* A consequência da escrita, dita antes de confirmar — a mesma
-                honestidade do rodapé do card "Significado". É prosa: entra no
-                cadastro do atributo e não move `semantics_status`. */}
-            <p className="text-xs text-muted-foreground">
-              Texto livre, e não destrava cálculo: é o registro de por que este
-              número muda, para quem for ler a série depois.
-            </p>
-          </Field>
+          )}
         </div>
-
-        {/* 8. Estado incompleto — dito por extenso, e não por um botão cinza
-            que não explica o que falta. */}
-        {falta && (
-          <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-            {falta}
-          </p>
-        )}
-        {error && (
-          <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
-            {error}
-          </p>
-        )}
-
-        <Button
-          onClick={() => confirm.mutate()}
-          disabled={confirm.isPending || !podeConfirmar(escolhas, catalogo)}
-        >
-          {confirm.isPending ? "Confirmando…" : "Confirmar interpretação"}
-        </Button>
-      </CardContent>
-    </Card>
+      </SheetContent>
+    </Sheet>
   );
 }
 
