@@ -550,7 +550,7 @@ export function cadastroDaRemuneracao(
           diagnostico: {
             estado: "SEM_VIGENCIA",
             unidade: portaDaUnidade,
-            vigencia: { doMes, todas, vigenteDe: null, herdadaDaOutraQuinzena: false },
+            vigencia: { doMes, todas, vigenteDe: null },
             contrato: null,
           },
         };
@@ -560,7 +560,6 @@ export function cadastroDaRemuneracao(
         doMes,
         todas,
         vigenteDe: escolhida.vigenteDe,
-        herdadaDaOutraQuinzena: escolhida.herdadaDaOutraQuinzena,
       };
 
       const planilha = await lerPlanilha(db, {

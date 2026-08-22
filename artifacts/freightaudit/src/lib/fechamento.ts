@@ -932,10 +932,28 @@ export interface FonteFaltante {
   motivo: "NAO_IMPORTADO" | "QUINZENA_NAO_ABERTA";
 }
 
+/**
+ * O contrato que falta para uma quinzena ser aferível.
+ *
+ * Separado de {@link FonteFaltante} porque as duas ausências pedem gestos
+ * opostos: relatório que falta se resolve importando; contrato que falta se
+ * resolve digitando a aba Cadastro da vigência, em Remuneração.
+ */
+export interface ContratoFaltante {
+  quinzena: 1 | 2;
+  /** Em que porta o cadastro parou — `SEM_VIGENCIA`, `CONTRATO_INCOMPLETO`, … */
+  estado: string;
+  /** O que está errado e o que destrava, escritos pelo domínio. */
+  problema: string | null;
+  conserto: string | null;
+}
+
 export interface Aferibilidade {
   completude: Completude;
   /** As fontes esperadas que não chegaram. Vazia quando `COMPLETO`. */
   faltando: FonteFaltante[];
+  /** As quinzenas cujo contrato não respondeu. Vazia quando `COMPLETO`. */
+  semContrato: ContratoFaltante[];
   /** A frase que a tela mostra no lugar do percentual. `null` quando `COMPLETO`. */
   porque: string | null;
 }
@@ -1133,7 +1151,6 @@ export interface PortaDaVigencia {
   doMes: string[];
   todas: string[];
   vigenteDe: string | null;
-  herdadaDaOutraQuinzena: boolean;
 }
 
 export interface ChaveDoContrato {

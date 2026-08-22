@@ -85,7 +85,7 @@ const doMes = descontoDeDisponibilidadeDoMes(
 const VAZIO = { primeira: null, segunda: null, total: null };
 
 /** Um canal do resumo com o painel comparado da 2ª quinzena montado. */
-function canalDaRota(): CanalDoResumo {
+function canalDaRota(cadastro: CanalDoResumo["cadastro"] = { primeira: null, segunda: null }): CanalDoResumo {
   const pagamento = lerPagamento(fixturePagamentoDoPainel());
   const bases = basesDaQuinzena(
     pagamento.descontos.map((d) => ({ canal: d.canal, tipo: d.tipo as string, valor: d.valor })),
@@ -118,7 +118,7 @@ function canalDaRota(): CanalDoResumo {
     painel: null,
     semPainel: null,
     comparado,
-    cadastro: { primeira: null, segunda: null },
+    cadastro,
   } as unknown as CanalDoResumo;
 }
 
@@ -466,5 +466,99 @@ describe("a aferição separa `não tenho dados` de `os dados não batem`", () =
     );
     expect(a.aferibilidade.total.completude).toBe("NAO_APLICAVEL");
     expect(a.aferibilidade.total.faltando).toEqual([]);
+  });
+});
+
+
+/**
+ * SEM CONTRATO NÃO HÁ DEVIDO — e isso é fechamento incompleto, não fechamento errado.
+ *
+ * **O defeito, e como ele apareceu.** Uma competência real tinha as duas
+ * quinzenas abertas, encerradas, com os seis relatórios importados nas duas — e
+ * a coluna da 2ª quinzena inteira em traço. A aferição dizia `COMPLETO`, porque
+ * só olhava relatórios; a tela não tinha uma palavra explicando o vazio, porque
+ * `PorQueNaoTemDevido` só aparece quando **não há** painel comparado, e ali
+ * havia (a 1ª quinzena respondera). Quem operava ficou olhando meia tela vazia
+ * sem ter como saber por quê.
+ *
+ * **Por que é a mesma família do falso 0,0%.** Ausência de contrato não é
+ * contrato zero. O devido sai dele; sem ele nenhuma linha da quinzena tem
+ * número, e declarar o mês completo afirma uma conferência que não aconteceu.
+ */
+describe("a falta de contrato é uma pendência, e ela tem nome", () => {
+  const semVigencia = (): CanalDoResumo["cadastro"][keyof CanalDoResumo["cadastro"]] =>
+    ({
+      estado: "SEM_VIGENCIA",
+      unidade: { codigoProcurado: "0443", cadastradas: 1, candidatas: 1, comoCasou: "EXATO", codigoNoCadastro: "0443", codigosCadastrados: ["0443"], identidade: null, sugestoes: [] },
+      vigencia: { doMes: ["2026-07-01"], todas: ["2026-07-01"], vigenteDe: null },
+      contrato: null,
+      destrava: {
+        problema: "A unidade está cadastrada e nenhuma vigência **deste mês** tem aba digitada.",
+        conserto: "Digite a aba da vigência desta quinzena.",
+      },
+    }) as unknown as CanalDoResumo["cadastro"]["primeira"];
+
+  const respondeu = (): CanalDoResumo["cadastro"]["primeira"] =>
+    ({ estado: "RESPONDEU", unidade: {}, vigencia: {}, contrato: {}, destrava: null }) as unknown as CanalDoResumo["cadastro"]["primeira"];
+
+  it("o controle: com as duas quinzenas contratadas, o mês é completo", () => {
+    const a = aferir(canalDaRota({ primeira: respondeu(), segunda: respondeu() }), COMPLETO());
+    expect(a.aferibilidade.total.completude).toBe("COMPLETO");
+    expect(a.aferibilidade.total.semContrato).toEqual([]);
+  });
+
+  it("a 2ª quinzena sem contrato deixa o mês incompleto — e a precisão em branco", () => {
+    const a = aferir(canalDaRota({ primeira: respondeu(), segunda: semVigencia() }), COMPLETO());
+
+    expect(a.aferibilidade.segunda.completude).toBe("INCOMPLETO");
+    expect(a.aferibilidade.total.completude).toBe("INCOMPLETO");
+    /* O conserto inteiro: sem base, traço — nunca zero, nunca um percentual baixo. */
+    expect(a.precisao.segunda).toBeNull();
+    expect(a.precisao.total).toBeNull();
+    expect(a.precisao.total).not.toBe(0);
+  });
+
+  it("a falta de contrato NÃO vira relatório faltante", () => {
+    /*
+      O contraprova do modelo. Empurrar o contrato para dentro de `faltando`
+      faria a tela mandar importar um arquivo que ninguém emitiu — e o gesto
+      certo é digitar uma aba noutra tela.
+    */
+    const a = aferir(canalDaRota({ primeira: respondeu(), segunda: semVigencia() }), COMPLETO());
+
+    expect(a.aferibilidade.total.faltando).toEqual([]);
+    expect(a.aferibilidade.total.semContrato).toHaveLength(1);
+    expect(a.aferibilidade.total.semContrato[0]).toMatchObject({
+      quinzena: 2,
+      estado: "SEM_VIGENCIA",
+    });
+  });
+
+  it("o motivo vai escrito, com o conserto que o domínio já sabia", () => {
+    const a = aferir(canalDaRota({ primeira: respondeu(), segunda: semVigencia() }), COMPLETO());
+
+    expect(a.aferibilidade.total.porque).toContain("contratadas");
+    expect(a.aferibilidade.segunda.porque).toContain("cadastro desta quinzena não respondeu");
+    /* E o limite entra na frente do de relatórios: é ele que apaga a coluna. */
+    expect(a.limites[0]!.titulo).toBe("Falta o cadastro de uma quinzena");
+    expect(a.limites[0]!.texto).toContain("2ª quinzena");
+    expect(a.limites[0]!.texto).toContain("não é zero");
+    expect(a.aferibilidade.total.semContrato[0]!.conserto).toContain("Digite a aba");
+  });
+
+  it("quinzena não aberta não é cobrada de cadastro — a pendência dela é outra", () => {
+    /*
+      Sem competência não há período para o cadastro responder. Cobrar as duas
+      pendências de uma vez mandaria digitar o cadastro de um mês que ainda não
+      existe; a ordem é abrir, depois cadastrar.
+    */
+    const a = aferir(
+      canalDaRota({ primeira: respondeu(), segunda: semVigencia() }),
+      quinzenas([...TIPOS_DE_FONTE], null),
+    );
+
+    expect(a.aferibilidade.segunda.semContrato).toEqual([]);
+    expect(a.aferibilidade.segunda.completude).toBe("INCOMPLETO");
+    expect(a.aferibilidade.segunda.porque).toContain("ainda não foi aberta");
   });
 });

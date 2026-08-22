@@ -233,35 +233,52 @@ const porta = (db: Database) => cadastroDaRemuneracao(db, { tipoDeOperacao: "ROT
  * ====================================================================== */
 
 describe("a vigência que responde", () => {
-  it("uma aba na 1ª quinzena responde também pela 2ª, e diz de onde veio", async () => {
+  it("uma aba na 1ª quinzena NÃO responde pela 2ª — cada metade tem a sua", async () => {
+    /*
+      Este teste defendia a herança. Ela pagava a 2ª quinzena com o contrato da
+      1ª sem dizer, e em julho/2026 seis parâmetros mudam entre as metades — a
+      remuneração da frota inativa vai de 1.650,97 para 4.359,09. Numa
+      competência conferida isso deu R$ 14.817,52 de diferença numa linha só.
+
+      Agora a 1ª responde com a aba dela e a 2ª fica em `SEM_VIGENCIA`, que é o
+      que faz a tela pedir o cadastro em vez de exibir um número emprestado.
+    */
     const db = bancoCom({ porVigencia: { "2026-07-01": ABA } });
 
     const primeira = await porta(db).resolver({ ...UNIDADE, ...PRIMEIRA });
     const segunda = await porta(db).resolver({ ...UNIDADE, ...SEGUNDA });
 
     expect(primeira.resposta?.vigenteDe).toBe("2026-07-01");
-    expect(segunda.resposta?.vigenteDe).toBe("2026-07-01");
-    /* Mesma aba, mesma identidade — é por ela que a tela diz que é uma só. */
-    expect(segunda.resposta?.cadastroId).toBe(primeira.resposta?.cadastroId);
-    expect(segunda.resposta?.parametros.frotaFixaAtiva).toBe(56);
+    expect(primeira.resposta?.parametros.frotaFixaAtiva).toBe(56);
+
+    expect(segunda.resposta).toBeNull();
+    expect(segunda.diagnostico.estado).toBe("SEM_VIGENCIA");
+    /* A aba digitada continua nomeada: quem errou a metade sabe onde procurar. */
+    expect(segunda.diagnostico.vigencia?.todas).toContain("2026-07-01");
   });
 
-  it("a vigência da própria quinzena responde sem herança, e o diagnóstico diz", async () => {
+  it("a vigência da própria quinzena responde", async () => {
     const db = bancoCom({ porVigencia: { "2026-07-01": ABA, "2026-07-16": ABA } });
     const { diagnostico } = await porta(db).resolver({ ...UNIDADE, ...PRIMEIRA });
 
     expect(diagnostico.estado).toBe("RESPONDEU");
     expect(diagnostico.vigencia?.vigenteDe).toBe("2026-07-01");
-    expect(diagnostico.vigencia?.herdadaDaOutraQuinzena).toBe(false);
   });
 
-  it("a herança da quinzena irmã aparece marcada, não silenciosa", async () => {
+  it("a aba da quinzena irmã NÃO responde: sem a própria, é pendência", async () => {
+    /*
+      Este teste defendia a herança, e ela pagava uma quinzena com o contrato da
+      outra sem dizer. Agora a 1ª quinzena sem aba própria para em
+      `SEM_VIGENCIA`, e a tela pede o cadastro em vez de exibir um número
+      emprestado. As abas digitadas continuam nomeadas, para quem digitou no
+      lugar errado saber onde procurar.
+    */
     const db = bancoCom({ porVigencia: { "2026-07-16": ABA } });
     const { diagnostico } = await porta(db).resolver({ ...UNIDADE, ...PRIMEIRA });
 
-    expect(diagnostico.estado).toBe("RESPONDEU");
-    expect(diagnostico.vigencia?.vigenteDe).toBe("2026-07-16");
-    expect(diagnostico.vigencia?.herdadaDaOutraQuinzena).toBe(true);
+    expect(diagnostico.estado).toBe("SEM_VIGENCIA");
+    expect(diagnostico.vigencia?.vigenteDe).toBeNull();
+    expect(diagnostico.vigencia?.todas).toContain("2026-07-16");
   });
 
   it("duas abas cadastradas: cada quinzena usa a sua", async () => {

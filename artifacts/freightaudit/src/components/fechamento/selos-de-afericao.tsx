@@ -171,9 +171,7 @@ export function SelosDeAfericao({
         faço agora?", e essa pergunta não pode custar um clique. Cada item traz
         a rotina, a quinzena e a causa, que é o endereço de quem vai resolver.
       */}
-      {incompleto && aferibilidade!.faltando.length > 0 && (
-        <FaltamDados aferibilidade={aferibilidade!} />
-      )}
+      {temPendenciaAMostrar(aferibilidade) && <FaltamDados aferibilidade={aferibilidade!} />}
 
       <Sheet open={aberto !== null} onOpenChange={(v) => !v && setAberto(null)}>
         <SheetContent className="w-full sm:max-w-xl overflow-y-auto">
@@ -268,6 +266,23 @@ function Selo({
 }
 
 /**
+ * A caixa de pendências aparece? — a decisão, fora do JSX para poder ser testada.
+ *
+ * **Ela já esteve errada, e o erro era invisível.** A condição olhava só
+ * `faltando`, que é a lista de **relatórios**. Uma quinzena aberta, com os seis
+ * relatórios importados e **sem contrato** tem `faltando` vazio e `semContrato`
+ * com um item: a caixa não aparecia, e a pessoa ficava com meia coluna em
+ * branco sem uma palavra na tela inteira explicando o vazio — `PorQueNaoTemDevido`
+ * também não a alcança, porque ele só existe quando não há painel comparado.
+ *
+ * As duas listas contam, e por isso a condição pergunta pelas duas.
+ */
+export function temPendenciaAMostrar(aferibilidade: Aferibilidade | null): boolean {
+  if (!aferibilidade || aferibilidade.completude !== "INCOMPLETO") return false;
+  return aferibilidade.faltando.length > 0 || aferibilidade.semContrato.length > 0;
+}
+
+/**
  * O que falta para aferir — a lista que transforma um traço em trabalho.
  *
  * **Não basta dizer "fechamento incompleto".** Quem lê precisa saber qual
@@ -291,17 +306,52 @@ function FaltamDados({ aferibilidade }: { aferibilidade: Aferibilidade }) {
       <p className="font-semibold text-amber-900 dark:text-amber-100">
         Faltam dados para aferir
       </p>
-      <ul className="mt-1 space-y-0.5">
-        {porQuinzena.flatMap((g) =>
-          g.itens.map((f) => (
-            <li key={`${f.tipo}-${f.quinzena}`} className="text-muted-foreground">
-              <span className="font-mono text-[11px] text-foreground">{f.rotina}</span>
-              {" · "}
-              {f.quinzena}ª quinzena — {motivoDaFalta(f)}
+
+      {/*
+        O contrato vem **antes** dos relatórios, e não junto.
+
+        Não é ordem estética: sem contrato a quinzena inteira fica sem devido —
+        a coluna some —, enquanto um relatório que falta tira uma linha. Quem
+        abre a tela e vê meia coluna em branco precisa ler primeiro o que apaga
+        a coluna. E são gestos diferentes em telas diferentes: um se resolve
+        importando um arquivo, o outro digitando a aba Cadastro em Remuneração —
+        misturá-los numa lista só mandaria procurar um arquivo que ninguém
+        emitiu.
+      */}
+      {aferibilidade.semContrato.length > 0 && (
+        <ul className="mt-1 space-y-1">
+          {aferibilidade.semContrato.map((c) => (
+            <li key={`contrato-${c.quinzena}`} className="text-muted-foreground">
+              <span className="text-foreground">
+                Cadastro da {c.quinzena}ª quinzena
+              </span>{" "}
+              — sem contrato não sai devido, e as linhas dela ficam em branco.
+              {c.problema && <span className="block">{c.problema}</span>}
+              {c.conserto && (
+                <span className="block">
+                  <span className="font-medium text-foreground">O que destrava: </span>
+                  {c.conserto}
+                </span>
+              )}
             </li>
-          )),
-        )}
-      </ul>
+          ))}
+        </ul>
+      )}
+
+      {porQuinzena.length > 0 && (
+        <ul className="mt-1 space-y-0.5">
+          {porQuinzena.flatMap((g) =>
+            g.itens.map((f) => (
+              <li key={`${f.tipo}-${f.quinzena}`} className="text-muted-foreground">
+                <span className="font-mono text-[11px] text-foreground">{f.rotina}</span>
+                {" · "}
+                {f.quinzena}ª quinzena — {motivoDaFalta(f)}
+              </li>
+            )),
+          )}
+        </ul>
+      )}
+
       <p className="mt-1.5 text-muted-foreground">
         Enquanto faltarem, a precisão fica em branco — e branco aqui é{" "}
         <strong className="text-foreground">ainda não dá para saber</strong>, não

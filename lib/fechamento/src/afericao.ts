@@ -6,7 +6,7 @@ import {
   type TipoDeFonte,
 } from "./dominio";
 import { FONTE_DO_DEMONSTRATIVO, procedenciaDoMotor } from "./matriz";
-import type { CanalDoResumo, ResumoDoMes, TresColunas } from "./resumo";
+import type { CadastroNaTela, CanalDoResumo, ResumoDoMes, TresColunas } from "./resumo";
 
 /**
  * A AFERIÇÃO — dois números sobre o próprio fechamento, e nenhum deles opinião.
@@ -87,11 +87,50 @@ export interface FonteFaltante {
   motivo: "NAO_IMPORTADO" | "QUINZENA_NAO_ABERTA";
 }
 
+/**
+ * O contrato que falta para uma quinzena ser aferível.
+ *
+ * **Não é uma {@link FonteFaltante}, e por isso não entra na lista delas.** As
+ * duas ausências param o mesmo cálculo e pedem gestos opostos: fonte que falta
+ * se resolve importando um relatório, contrato que falta se resolve digitando a
+ * aba Cadastro da vigência em Remuneração — outra tela, outro papel, outro dia.
+ * Empurrar uma para dentro da outra faria a tela mandar procurar um arquivo que
+ * ninguém emitiu.
+ *
+ * **Por que ela existe.** O devido sai do contrato: sem ele, nenhuma linha da
+ * quinzena tem número, e a coluna inteira vira traço. Isso era invisível — a
+ * aferição só olhava relatórios, declarava o mês `COMPLETO`, e a tela mostrava
+ * meia coluna vazia sem uma palavra de explicação. Uma competência real ficou
+ * assim e ninguém tinha como saber por quê.
+ */
+export interface ContratoFaltante {
+  quinzena: 1 | 2;
+  /** Em que porta o cadastro parou — `SEM_VIGENCIA`, `CONTRATO_INCOMPLETO`, … */
+  estado: string;
+  /**
+   * O que está errado e o que destrava, na frase do domínio.
+   *
+   * Vêm de `comoDestravar` (em `cadastro-porta.ts`) e atravessam até aqui em
+   * vez de serem reescritos na tela: qual é o conserto de "faltam três linhas
+   * obrigatórias" é conhecimento de negócio, e uma segunda versão dele no
+   * `.tsx` seria a que ninguém testa. `null` quando o domínio não tem frase
+   * para o estado.
+   */
+  problema: string | null;
+  conserto: string | null;
+}
+
 /** A resposta à primeira pergunta: dá para conferir esta coluna? */
 export interface Aferibilidade {
   completude: Completude;
   /** As fontes esperadas que não chegaram. Vazia quando `COMPLETO`. */
   faltando: FonteFaltante[];
+  /**
+   * As quinzenas cujo contrato não respondeu. Vazia quando `COMPLETO`.
+   *
+   * Separada de {@link faltando} de propósito — ver {@link ContratoFaltante}.
+   */
+  semContrato: ContratoFaltante[];
   /** A frase que a tela mostra no lugar do percentual. `null` quando `COMPLETO`. */
   porque: string | null;
 }
@@ -345,6 +384,11 @@ function somarNaoExplicado(parcelas: ParcelaAferida[]): TresColunas {
 function aferibilidadeDaQuinzena(
   quinzena: { quinzena: 1 | 2; competenciaId: string | null; fontes: FonteDaQuinzena[] } | null,
   temParcela: boolean,
+  /**
+   * Em que porta o cadastro desta quinzena parou. `null` quando ele respondeu —
+   * ou quando não há quinzena para perguntar. Ver {@link ContratoFaltante}.
+   */
+  contrato: ContratoFaltante | null,
 ): Aferibilidade {
   /*
     Sem sequer a linha da quinzena não se afirma completude nenhuma. É o mesmo
@@ -354,6 +398,7 @@ function aferibilidadeDaQuinzena(
     return {
       completude: "INCOMPLETO",
       faltando: [],
+      semContrato: [],
       porque:
         "Não há informação sobre os relatórios desta quinzena, e sem ela não dá para " +
         "afirmar que o fechamento está completo.",
@@ -374,13 +419,22 @@ function aferibilidadeDaQuinzena(
       motivo: quinzena.competenciaId ? ("NAO_IMPORTADO" as const) : ("QUINZENA_NAO_ABERTA" as const),
     }));
 
-  if (faltando.length > 0) {
+  /*
+    As duas ausências entram juntas, e nenhuma esconde a outra.
+
+    Quem está sem o 03.08.20 **e** sem a aba do cadastro precisa dos dois; uma
+    tela que mostrasse um de cada vez faria a pessoa importar o relatório para
+    só então descobrir que o devido continua sem sair. É a mesma razão pela qual
+    `PorQueNaoTemDevido` já mostrava as três portas do cadastro de uma vez.
+  */
+  const semContrato = contrato ? [contrato] : [];
+
+  if (faltando.length > 0 || semContrato.length > 0) {
     return {
       completude: "INCOMPLETO",
       faltando,
-      porque: quinzena.competenciaId
-        ? "Fechamento incompleto: faltam relatórios desta quinzena."
-        : "Fechamento incompleto: esta quinzena ainda não foi aberta.",
+      semContrato,
+      porque: porqueIncompleto(Boolean(quinzena.competenciaId), faltando.length > 0, semContrato.length > 0),
     };
   }
 
@@ -389,11 +443,36 @@ function aferibilidadeDaQuinzena(
     return {
       completude: "NAO_APLICAVEL",
       faltando: [],
+      semContrato: [],
       porque: "Nada a aferir nesta coluna: nenhuma parcela move dinheiro nela.",
     };
   }
 
-  return { completude: "COMPLETO", faltando: [], porque: null };
+  return { completude: "COMPLETO", faltando: [], semContrato: [], porque: null };
+}
+
+/**
+ * A frase de "por que incompleto", que nomeia **o que** falta.
+ *
+ * Existe separada porque as três combinações pedem gestos diferentes, e uma
+ * frase genérica ("fechamento incompleto") manda quem lê descobrir sozinho se o
+ * próximo passo é importar, abrir a quinzena ou digitar o cadastro.
+ */
+function porqueIncompleto(temCompetencia: boolean, faltaFonte: boolean, faltaContrato: boolean): string {
+  if (!temCompetencia) return "Fechamento incompleto: esta quinzena ainda não foi aberta.";
+  if (faltaFonte && faltaContrato) {
+    return (
+      "Fechamento incompleto: faltam relatórios desta quinzena e o cadastro dela não " +
+      "respondeu — sem contrato não há devido, e sem devido não há o que conferir."
+    );
+  }
+  if (faltaContrato) {
+    return (
+      "Fechamento incompleto: o cadastro desta quinzena não respondeu. Sem contrato não " +
+      "há devido, e as linhas dela ficam em branco — não em zero."
+    );
+  }
+  return "Fechamento incompleto: faltam relatórios desta quinzena.";
 }
 
 /**
@@ -406,21 +485,32 @@ function aferibilidadeDaQuinzena(
  */
 function aferibilidadeDoMes(primeira: Aferibilidade, segunda: Aferibilidade): Aferibilidade {
   const faltando = [...primeira.faltando, ...segunda.faltando];
-  if (faltando.length > 0 || primeira.completude === "INCOMPLETO" || segunda.completude === "INCOMPLETO") {
+  const semContrato = [...primeira.semContrato, ...segunda.semContrato];
+  if (
+    faltando.length > 0 ||
+    semContrato.length > 0 ||
+    primeira.completude === "INCOMPLETO" ||
+    segunda.completude === "INCOMPLETO"
+  ) {
     return {
       completude: "INCOMPLETO",
       faltando,
-      porque: "Fechamento incompleto: o mês só é aferível com as duas quinzenas completas.",
+      semContrato,
+      porque:
+        semContrato.length > 0 && faltando.length === 0
+          ? "Fechamento incompleto: o mês só é aferível com as duas quinzenas contratadas."
+          : "Fechamento incompleto: o mês só é aferível com as duas quinzenas completas.",
     };
   }
   if (primeira.completude === "NAO_APLICAVEL" && segunda.completude === "NAO_APLICAVEL") {
     return {
       completude: "NAO_APLICAVEL",
       faltando: [],
+      semContrato: [],
       porque: "Nada a aferir neste mês: nenhuma parcela move dinheiro.",
     };
   }
-  return { completude: "COMPLETO", faltando: [], porque: null };
+  return { completude: "COMPLETO", faltando: [], semContrato: [], porque: null };
 }
 
 /** O valor de uma coluna, ou zero — para somar quando a ausência não é o assunto. */
@@ -430,6 +520,33 @@ const ou0 = (v: TresColunas, c: Coluna) => v[c] ?? 0;
 function somar(valores: TresColunas[]): TresColunas {
   if (valores.length === 0) return VAZIO;
   return valores.reduce(acumular, VAZIO);
+}
+
+/**
+ * O contrato que falta numa quinzena — ou `null` quando não falta.
+ *
+ * **Só se cobra contrato de quinzena aberta.** Sem competência não há período
+ * para o cadastro responder, e a pendência a mostrar é outra: abrir a quinzena.
+ * Cobrar as duas de uma vez faria a tela pedir um cadastro para um período que
+ * ainda não existe.
+ *
+ * O diagnóstico chega pronto de `CanalDoResumo.cadastro`, que é o mesmo que
+ * `PorQueNaoTemDevido` usa — as duas telas dizem a mesma coisa porque leem o
+ * mesmo campo, e não porque alguém sincronizou dois textos.
+ */
+function contratoFaltanteDaQuinzena(
+  quinzena: 1 | 2,
+  daQuinzena: { competenciaId: string | null } | null,
+  cadastro: CadastroNaTela | null,
+): ContratoFaltante | null {
+  if (!daQuinzena?.competenciaId) return null;
+  if (!cadastro || cadastro.estado === "RESPONDEU") return null;
+  return {
+    quinzena,
+    estado: cadastro.estado,
+    problema: cadastro.destrava?.problema ?? null,
+    conserto: cadastro.destrava?.conserto ?? null,
+  };
 }
 
 /**
@@ -493,6 +610,7 @@ export function aferir(
     const naoSeAplica: Aferibilidade = {
       completude: "NAO_APLICAVEL",
       faltando: [],
+      semContrato: [],
       porque: limites[0]!.titulo,
     };
     return {
@@ -726,8 +844,22 @@ export function aferir(
 
   /* ---- a decisão que vem antes do cálculo ------------------------------ */
   const temParcela = (coluna: Coluna) => parcelas.some((p) => (p.valor[coluna] ?? 0) > 0);
-  const primeira = aferibilidadeDaQuinzena(daQuinzena(1), temParcela("primeira"));
-  const segunda = aferibilidadeDaQuinzena(daQuinzena(2), temParcela("segunda"));
+  /*
+    O contrato só é cobrado de quinzena que **existe**: perguntar pelo cadastro
+    de uma competência que ninguém abriu somaria uma segunda pendência à
+    primeira, e as duas se resolvem na mesma tela, na ordem — abrir, depois
+    cadastrar. Ver `contratoFaltanteDaQuinzena`.
+  */
+  const primeira = aferibilidadeDaQuinzena(
+    daQuinzena(1),
+    temParcela("primeira"),
+    contratoFaltanteDaQuinzena(1, daQuinzena(1), canal.cadastro?.primeira ?? null),
+  );
+  const segunda = aferibilidadeDaQuinzena(
+    daQuinzena(2),
+    temParcela("segunda"),
+    contratoFaltanteDaQuinzena(2, daQuinzena(2), canal.cadastro?.segunda ?? null),
+  );
   const aferibilidade = { primeira, segunda, total: aferibilidadeDoMes(primeira, segunda) };
 
   /*
@@ -746,6 +878,29 @@ export function aferir(
             (f.motivo === "NAO_IMPORTADO" ? "não importado" : "quinzena não aberta"),
         )
         .join(" · "),
+      valor: null,
+    });
+  }
+
+  /*
+    E o limite do contrato, separado do de cima — porque é outra tela e outro
+    gesto. Vem **antes** na pilha por ser o que trava mais: sem contrato a
+    quinzena inteira fica sem devido, enquanto um relatório que falta tira uma
+    linha. Quem lê precisa ver primeiro o que apaga a coluna.
+  */
+  const semContrato = aferibilidade.total.semContrato;
+  if (semContrato.length > 0) {
+    limites.unshift({
+      titulo: "Falta o cadastro de uma quinzena",
+      texto:
+        semContrato
+          .map(
+            (c) =>
+              `${c.quinzena}ª quinzena — ${c.problema ?? "o cadastro não respondeu"}`,
+          )
+          .join(" · ") +
+        " Sem contrato não sai devido: as linhas dessa quinzena ficam em branco, e branco " +
+        "aqui é ainda não dá para saber — não é zero.",
       valor: null,
     });
   }

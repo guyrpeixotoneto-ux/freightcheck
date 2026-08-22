@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { faixa, motivoDaFalta, percentual } from "../selos-de-afericao";
-import type { FonteFaltante } from "@/lib/fechamento";
+import { faixa, motivoDaFalta, percentual, temPendenciaAMostrar } from "../selos-de-afericao";
+import type { Aferibilidade, FonteFaltante } from "@/lib/fechamento";
 
 /**
  * OS SELOS — o que a tela decide sobre um número que ela não calcula.
@@ -91,5 +91,60 @@ describe("a faixa que decide a cor", () => {
     */
     expect(faixa(0.5)).toBe("BAIXA");
     expect(faixa(0.995)).toBe("BOA");
+  });
+});
+
+
+/**
+ * QUANDO A CAIXA DE PENDÊNCIAS APARECE.
+ *
+ * O caso que a motivou: as duas quinzenas abertas, os seis relatórios
+ * importados nas duas, e a 2ª sem contrato. `faltando` fica vazio — não falta
+ * relatório nenhum —, e a caixa não aparecia. A tela ficava com meia coluna em
+ * branco e nenhuma explicação em lugar nenhum.
+ */
+describe("a caixa de pendências olha as duas ausências, não só os relatórios", () => {
+  const base = (parcial: Partial<Aferibilidade>): Aferibilidade => ({
+    completude: "INCOMPLETO",
+    faltando: [],
+    semContrato: [],
+    porque: null,
+    ...parcial,
+  });
+
+  const fonte: FonteFaltante = {
+    tipo: "OPERACAO",
+    quinzena: 2,
+    rotina: "2Art",
+    nome: "Diário de operação",
+    motivo: "NAO_IMPORTADO",
+  };
+
+  const contrato = { quinzena: 2 as const, estado: "SEM_VIGENCIA", problema: "x", conserto: "y" };
+
+  it("aparece quando falta relatório", () => {
+    expect(temPendenciaAMostrar(base({ faltando: [fonte] }))).toBe(true);
+  });
+
+  it("aparece quando falta contrato — o caso que ela não pegava", () => {
+    expect(temPendenciaAMostrar(base({ semContrato: [contrato] }))).toBe(true);
+  });
+
+  it("aparece quando faltam os dois", () => {
+    expect(temPendenciaAMostrar(base({ faltando: [fonte], semContrato: [contrato] }))).toBe(true);
+  });
+
+  it("não aparece no fechamento completo, nem sem aferibilidade", () => {
+    expect(temPendenciaAMostrar(base({ completude: "COMPLETO" }))).toBe(false);
+    expect(temPendenciaAMostrar(base({ completude: "NAO_APLICAVEL" }))).toBe(false);
+    expect(temPendenciaAMostrar(null)).toBe(false);
+  });
+
+  it("incompleto sem nada nomeado não abre caixa vazia", () => {
+    /*
+      O estado da quinzena que nem linha tem: é incompleto e não há item para
+      listar. Uma caixa vazia com título seria pior que nenhuma.
+    */
+    expect(temPendenciaAMostrar(base({}))).toBe(false);
   });
 });

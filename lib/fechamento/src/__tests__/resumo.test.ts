@@ -384,7 +384,6 @@ describe("do fallback para o painel comparado", () => {
               doMes: ["2026-07-01"],
               todas: ["2026-07-01"],
               vigenteDe: "2026-07-01",
-              herdadaDaOutraQuinzena: false,
             },
             contrato: { faltam: [], assumidasComoZero: [], lidas: 22 },
           },
@@ -558,7 +557,6 @@ describe("do fallback para o painel comparado", () => {
                 doMes: ["2026-07-01"],
                 todas: ["2026-07-01"],
                 vigenteDe: "2026-07-01",
-                herdadaDaOutraQuinzena: false,
               },
               contrato: {
                 faltam: [{ chave: "van_custo_fixo", rotulo: "Custo fixo da van" }],

@@ -120,26 +120,27 @@ describe("contratoDaPlanilha", () => {
 });
 
 describe("vigenciaQueResponde", () => {
-  it("prefere a planilha da própria quinzena", () => {
+  it("responde com a planilha da própria quinzena", () => {
     expect(vigenciaQueResponde("2026-07-16", ["2026-07-01", "2026-07-16"])).toEqual({
       vigenteDe: "2026-07-16",
-      herdadaDaOutraQuinzena: false,
     });
     expect(vigenciaQueResponde("2026-07-01", ["2026-07-01", "2026-07-16"])).toEqual({
       vigenteDe: "2026-07-01",
-      herdadaDaOutraQuinzena: false,
     });
   });
 
-  it("herda a da outra quinzena do mês, nos dois sentidos, e diz que herdou", () => {
-    expect(vigenciaQueResponde("2026-07-16", ["2026-07-01"])).toEqual({
-      vigenteDe: "2026-07-01",
-      herdadaDaOutraQuinzena: true,
-    });
-    expect(vigenciaQueResponde("2026-07-01", ["2026-07-16"])).toEqual({
-      vigenteDe: "2026-07-16",
-      herdadaDaOutraQuinzena: true,
-    });
+  it("NÃO herda a aba da outra quinzena — nos dois sentidos", () => {
+    /*
+      A regra que este bloco defendia era a oposta, e ela pagava uma quinzena com
+      o contrato da outra em silêncio. Em julho/2026 seis parâmetros mudam entre
+      as metades, e a herança deu R$ 14.817,52 de diferença numa linha só, num
+      número que a tela apresentava como qualquer outro.
+
+      Sem a aba da quinzena não se sabe o que foi contratado nela. `null` aqui é
+      o que faz a tela pedir o cadastro em vez de exibir um número emprestado.
+    */
+    expect(vigenciaQueResponde("2026-07-16", ["2026-07-01"])).toBeNull();
+    expect(vigenciaQueResponde("2026-07-01", ["2026-07-16"])).toBeNull();
   });
 
   it("não atravessa o mês: junho não responde por julho", () => {
@@ -148,16 +149,23 @@ describe("vigenciaQueResponde", () => {
   });
 
   it("duas vigências na mesma metade do mês: vale a mais recente", () => {
+    /*
+      O que sobrou da regra antiga, e continua certo: duas abas na mesma metade
+      são correção, não contrato diferente — a mais nova é a que vale.
+    */
     expect(vigenciaQueResponde("2026-07-01", ["2026-07-01", "2026-07-08"])).toEqual({
       vigenteDe: "2026-07-08",
-      herdadaDaOutraQuinzena: false,
     });
   });
 
   it("a régua da quinzena é a do produto: o dia 15 ainda é a primeira", () => {
-    expect(vigenciaQueResponde("2026-07-16", ["2026-07-15"])).toEqual({
+    /*
+      E por isso a aba de 15/07 **não** responde pela 2ª quinzena: ela é da
+      primeira metade. Antes respondia, por herança.
+    */
+    expect(vigenciaQueResponde("2026-07-16", ["2026-07-15"])).toBeNull();
+    expect(vigenciaQueResponde("2026-07-01", ["2026-07-15"])).toEqual({
       vigenteDe: "2026-07-15",
-      herdadaDaOutraQuinzena: true,
     });
   });
 
