@@ -119,9 +119,9 @@ só o Fechamento a recebia, associar uma unidade *derrubava* um cadastro que
 estava respondendo — o `comparado` sumia, a tela caía na releitura do 03.08.20,
 e o conserto que ela sugeria não existia como ato no produto.
 
-Quem mantém a invariante são duas funções irmãs, chamadas juntas em todo lugar
-onde a identidade passa a ser conhecida — associar uma competência, cadastrar a
-unidade canônica, e a partida do servidor:
+Quem mantém a invariante são duas funções irmãs, chamadas juntas — **na mesma
+transação** — em todo lugar onde a identidade passa a ser conhecida: associar
+uma competência e cadastrar a unidade canônica.
 
 | Lado | Função | Onde |
 |---|---|---|
@@ -130,7 +130,25 @@ unidade canônica, e a partida do servidor:
 
 As duas só escrevem onde `unidade_id IS NULL`, casam apenas por critério
 determinístico — a grafia que uma pessoa afirmou, ou o documento — e, diante de
-sinais que discordam, não escolhem: listam a pendência.
+ambiguidade, não escolhem: listam a pendência. São duas as ambiguidades, e a
+segunda só se vê olhando o conjunto: dois `scope_hash` reivindicando a mesma
+unidade fariam `resolverUnidade` recusar com `UNIDADE_AMBIGUA`, de modo que
+conciliar os dois criaria o problema que a conciliação veio consertar.
+
+**A atomicidade é da transação, e não da ordem das chamadas.**
+`associarUnidadeDaCompetencia` abre a transação e recebe a segunda metade por
+um gancho (`tambemNaMesmaTransacao`), tipado com `Executor`. Duas chamadas
+seguidas na rota deixariam a segunda falhar com a primeira já gravada — a
+competência com identidade e o cadastro sem, que é exatamente o estado que faz
+o devido sumir.
+
+**O passivo tem um comando, e não roda sozinho.** Os cadastros anteriores à
+`0049` são conciliados por
+`pnpm --filter @workspace/api-server run conciliar-cadastro`, que **simula por
+padrão** e só escreve com `-- --aplicar`. Ele chama a mesma função das rotas —
+não uma migration com a regra reescrita em SQL, que é como duas versões da
+mesma regra passam a divergir — e é idempotente: a segunda passada não escreve
+nada.
 
 ## Vigência
 

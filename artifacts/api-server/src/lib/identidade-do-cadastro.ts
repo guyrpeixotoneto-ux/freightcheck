@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import type { Database } from "@workspace/db";
+import type { Executor } from "@workspace/fechamento";
 import { normalizeDocumento } from "@workspace/ingest";
 
 /**
@@ -70,6 +70,23 @@ export interface UnidadeCandidata {
 export type ComoSoube = "CODIGO_AFIRMADO" | "DOCUMENTO";
 
 /**
+ * As duas formas de a identidade de um cadastro não poder ser decidida sozinha.
+ *
+ * - `SINAIS_DISCORDANTES` — a grafia afirmada diz unidade A, os dígitos do
+ *   código são o CNPJ da unidade B. Dois sinais determinísticos, e discordantes.
+ * - `DOIS_CADASTROS_PARA_A_MESMA_UNIDADE` — mais de um `scope_hash` reivindica a
+ *   mesma unidade canônica. Escrever os dois é o que **produz** o problema:
+ *   `resolverUnidade` conta `scope_hash` distintos e recusa com `UNIDADE_AMBIGUA`
+ *   — de modo que conciliar aqui transformaria um cadastro que respondia pelo
+ *   texto num que não responde por nada. Séries de canal do mesmo `scope_hash`
+ *   (`ROTA` e `''`) não contam: são o mesmo cadastro duas vezes, e é assim que
+ *   `escolher` já as trata.
+ */
+export type MotivoDaAmbiguidade =
+  | "SINAIS_DISCORDANTES"
+  | "DOIS_CADASTROS_PARA_A_MESMA_UNIDADE";
+
+/**
  * O que uma passada fez — e o que ela deliberadamente não fez.
  *
  * `ambiguas` não é falha: é a situação em que os dois sinais determinísticos
@@ -87,10 +104,22 @@ export type ComoSoube = "CODIGO_AFIRMADO" | "DOCUMENTO";
  */
 export interface ConciliacaoDoCadastro {
   associadas: (CadastroSemIdentidade & { unidade: UnidadeCandidata; como: ComoSoube })[];
-  ambiguas: (CadastroSemIdentidade & { candidatas: UnidadeCandidata[] })[];
+  ambiguas: (CadastroSemIdentidade & {
+    motivo: MotivoDaAmbiguidade;
+    candidatas: UnidadeCandidata[];
+  })[];
+  /**
+   * Os que nenhuma faixa determinística alcança — nem pendência, nem erro.
+   *
+   * É o cadastro registrado pelo nome, sem CNPJ e sem ninguém ter afirmado a
+   * grafia. Ele aparece na conta porque o CLI de backfill precisa dizer o que
+   * **não** vai conciliar: um relatório que só some com eles se leria como
+   * "cobri tudo" tendo deixado trabalho para trás.
+   */
+  semSinal: CadastroSemIdentidade[];
 }
 
-const VAZIA: ConciliacaoDoCadastro = { associadas: [], ambiguas: [] };
+const nada = (): ConciliacaoDoCadastro => ({ associadas: [], ambiguas: [], semSinal: [] });
 
 type CadastroBruto = {
   id: string;
@@ -102,14 +131,25 @@ type CadastroBruto = {
 
 type UnidadeBruta = { id: string; nome: string; cnpj: string };
 
+/** A linha do banco como as três listas do relatório a mostram. */
+function comoEstao(linha: CadastroBruto): CadastroSemIdentidade {
+  return {
+    scopeHash: linha.scope_hash,
+    canal: linha.canal === "" ? null : linha.canal,
+    codigo: linha.codigo,
+    nome: linha.nome,
+  };
+}
+
 /**
  * Escreve a identidade nos cadastros de Remuneração que a têm e não a guardaram.
  *
  * **Idempotente por construção**, como a irmã dela do lado do Fechamento: só
  * toca em `unidade_id IS NULL`. Por isso pode ser chamada de todo lugar onde a
  * identidade passa a ser conhecida — cadastrar a unidade canônica, associar uma
- * competência à mão, e a partida do servidor — sem que a ordem entre esses atos
- * importe.
+ * competência à mão — sem que a ordem entre esses atos importe. É a mesma
+ * propriedade que deixa o CLI de backfill (`cli/conciliar-cadastro.ts`) ser
+ * repetido à vontade: a segunda passada não escreve nada.
  *
  * **`codigos` é uma afirmação de quem chama, e não uma busca.** Quem associa uma
  * competência sabe que aquele texto é daquela unidade; passar a grafia junto é
@@ -118,25 +158,41 @@ type UnidadeBruta = { id: string; nome: string; cnpj: string };
  * documento, que não depende de ninguém.
  */
 export async function conciliarIdentidadeDoCadastro(
-  db: Database,
+  db: Executor,
   afirmacao?: {
     /** A unidade que quem chama acabou de tornar conhecida. */
     unidadeId: string;
     /** As grafias que quem chama afirma serem dela. */
     codigos: readonly string[];
   },
+  /**
+   * `simular` percorre e classifica sem escrever uma linha.
+   *
+   * Existe para o CLI de backfill poder ser rodado antes do deploy e dizer o
+   * que faria. A classificação é a mesma do modo que escreve — é o mesmo
+   * caminho, com o `UPDATE` desligado —, e não uma segunda contagem que
+   * poderia discordar dela.
+   */
+  opcoes: { simular?: boolean } = {},
 ): Promise<ConciliacaoDoCadastro> {
   const { rows: pendentes } = await db.execute<CadastroBruto>(sql`
     SELECT u.id, u.scope_hash, u.canal, u.codigo, u.nome
       FROM remuneracao_unidade u
      WHERE u.unidade_id IS NULL
   `);
-  if (pendentes.length === 0) return VAZIA;
+  if (pendentes.length === 0) return nada();
 
   const { rows: unidades } = await db.execute<UnidadeBruta>(sql`
     SELECT u.id, u.nome, u.cnpj FROM unidade u
   `);
-  if (unidades.length === 0) return VAZIA;
+  /*
+    Sem unidade canônica nenhuma, nada é conciliável — e os pendentes não somem
+    do relatório por isso. Devolvê-los como `semSinal` é o que faz o CLI dizer
+    "encontrei doze e não concilio nenhum" em vez de "não encontrei nada".
+  */
+  if (unidades.length === 0) {
+    return { associadas: [], ambiguas: [], semSinal: pendentes.map(comoEstao) };
+  }
 
   /*
     O CNPJ canônico tem índice único (`unidade_cnpj_uq`) e a coluna é checada
@@ -156,15 +212,22 @@ export async function conciliarIdentidadeDoCadastro(
     }
   }
 
-  const resultado: ConciliacaoDoCadastro = { associadas: [], ambiguas: [] };
+  const resultado = nada();
+
+  /*
+    Duas passadas: a primeira classifica cadastro a cadastro, a segunda decide o
+    que só se vê olhando o conjunto. Escrever na primeira impediria a segunda de
+    recusar o que já teria sido gravado.
+  */
+  const candidatos: {
+    pendente: CadastroBruto;
+    onde: CadastroSemIdentidade;
+    unidade: UnidadeCandidata;
+    como: ComoSoube;
+  }[] = [];
 
   for (const pendente of pendentes) {
-    const onde: CadastroSemIdentidade = {
-      scopeHash: pendente.scope_hash,
-      canal: pendente.canal === "" ? null : pendente.canal,
-      codigo: pendente.codigo,
-      nome: pendente.nome,
-    };
+    const onde = comoEstao(pendente);
 
     /*
       As duas faixas, avaliadas em separado de propósito: é a discordância entre
@@ -184,12 +247,69 @@ export async function conciliarIdentidadeDoCadastro(
         bastante para ser descartado, e escolher seria adivinhar — falha
         fechada, com as duas candidatas nomeadas para quem for decidir.
       */
-      resultado.ambiguas.push({ ...onde, candidatas: [porAfirmacao, porDocumento] });
+      resultado.ambiguas.push({
+        ...onde,
+        motivo: "SINAIS_DISCORDANTES",
+        candidatas: [porAfirmacao, porDocumento],
+      });
       continue;
     }
 
     const escolhida = porAfirmacao ?? porDocumento;
-    if (!escolhida) continue;
+    if (!escolhida) {
+      resultado.semSinal.push(onde);
+      continue;
+    }
+
+    candidatos.push({
+      pendente,
+      onde,
+      unidade: escolhida,
+      como: porAfirmacao ? "CODIGO_AFIRMADO" : "DOCUMENTO",
+    });
+  }
+
+  /*
+    A SEGUNDA AMBIGUIDADE — a que só aparece olhando o conjunto.
+
+    Um cadastro por vez, tudo acima é determinístico. Dois cadastros de
+    `scope_hash` diferentes apontando para a mesma unidade, não: escrever os dois
+    faz `resolverUnidade` contar duas candidatas e recusar com `UNIDADE_AMBIGUA`
+    — o cadastro que respondia pelo texto passaria a não responder por nada, e a
+    conciliação teria criado o problema que veio consertar. Os já ligados contam
+    junto, porque a contagem que importa é a que `escolher` fará depois.
+  */
+  const porUnidade = new Map<string, Set<string>>();
+  for (const { unidade, pendente } of candidatos) {
+    const escopos = porUnidade.get(unidade.id) ?? new Set<string>();
+    escopos.add(pendente.scope_hash);
+    porUnidade.set(unidade.id, escopos);
+  }
+  const { rows: jaLigados } = await db.execute<{ scope_hash: string; unidade_id: string }>(sql`
+    SELECT DISTINCT u.scope_hash, u.unidade_id
+      FROM remuneracao_unidade u
+     WHERE u.unidade_id IS NOT NULL
+  `);
+  for (const ligado of jaLigados) {
+    porUnidade.get(ligado.unidade_id)?.add(ligado.scope_hash);
+  }
+
+  for (const candidato of candidatos) {
+    const { pendente, onde, unidade, como } = candidato;
+
+    if ((porUnidade.get(unidade.id)?.size ?? 0) > 1) {
+      resultado.ambiguas.push({
+        ...onde,
+        motivo: "DOIS_CADASTROS_PARA_A_MESMA_UNIDADE",
+        candidatas: [unidade],
+      });
+      continue;
+    }
+
+    if (opcoes.simular) {
+      resultado.associadas.push({ ...onde, unidade, como });
+      continue;
+    }
 
     /*
       A guarda `unidade_id IS NULL` repetida no `UPDATE`: entre o `SELECT` acima
@@ -199,17 +319,13 @@ export async function conciliarIdentidadeDoCadastro(
     */
     const { rowCount } = await db.execute(sql`
       UPDATE remuneracao_unidade
-         SET unidade_id = ${escolhida.id}
+         SET unidade_id = ${unidade.id}
        WHERE id = ${pendente.id}
          AND unidade_id IS NULL
     `);
     if (rowCount === 0) continue;
 
-    resultado.associadas.push({
-      ...onde,
-      unidade: escolhida,
-      como: porAfirmacao ? "CODIGO_AFIRMADO" : "DOCUMENTO",
-    });
+    resultado.associadas.push({ ...onde, unidade, como });
   }
 
   return resultado;

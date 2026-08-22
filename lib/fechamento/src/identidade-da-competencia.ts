@@ -1,5 +1,7 @@
 import { and, eq, isNull, ne, sql } from "drizzle-orm";
-import { fechamentoCompetenciaTable, lerCnpj, unidadeTable, type Database } from "@workspace/db";
+import { fechamentoCompetenciaTable, lerCnpj, unidadeTable } from "@workspace/db";
+
+import type { Executor } from "./executor";
 
 /**
  * A IDENTIDADE DE UMA COMPETÊNCIA — quando ela pode ser afirmada sozinha.
@@ -84,7 +86,7 @@ export type IdentidadeDaCompetencia =
  * um CNPJ. `CDD Belém` não passa por ela, e é o certo.
  */
 async function porCnpjNoCodigo(
-  db: Database,
+  db: Executor,
   unidadeCodigo: string,
 ): Promise<UnidadeCandidata | null> {
   const { canonico } = lerCnpj(unidadeCodigo);
@@ -111,7 +113,7 @@ async function porCnpjNoCodigo(
  * Duas respostas diferentes para o mesmo texto não escolhem nenhuma.
  */
 async function porDecisaoJaTomada(
-  db: Database,
+  db: Executor,
   unidadeCodigo: string,
   exceto: string | null,
 ): Promise<IdentidadeDaCompetencia> {
@@ -141,7 +143,7 @@ async function porDecisaoJaTomada(
  * decisão tomada noutra linha, porque não depende de ninguém ter acertado antes.
  */
 export async function identidadeDaCompetencia(
-  db: Database,
+  db: Executor,
   entrada: {
     unidadeCodigo: string;
     /** A própria competência, quando ela já existe — não é irmã de si mesma. */
@@ -195,7 +197,7 @@ const VAZIA: Conciliacao = { associadas: [], ambiguas: [], encerradas: [] };
  * nada: ela propaga o que a pessoa acabou de afirmar.
  */
 export async function conciliarIdentidadeDasCompetencias(
-  db: Database,
+  db: Executor,
   afirmacao?: {
     /** A unidade que quem chama acabou de tornar conhecida. */
     unidadeId: string;

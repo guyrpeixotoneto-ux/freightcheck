@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { gunzipSync, gzipSync } from "node:zlib";
 import { and, desc, eq, gte, inArray, isNull, lte, ne, notInArray, sql } from "drizzle-orm";
 import type { Database } from "@workspace/db";
+import type { Executor, Transacao } from "./executor";
 import {
   fechamentoApuracaoTable,
   fechamentoApuracaoVerbaTable,
@@ -484,7 +485,7 @@ export async function listarCompetencias(db: Database): Promise<CompetenciaRegis
 }
 
 export async function buscarCompetencia(
-  db: Database,
+  db: Executor,
   id: string,
 ): Promise<CompetenciaRegistrada | null> {
   const [linha] = await db
@@ -1202,7 +1203,6 @@ async function emLotes<T>(itens: T[], gravar: (lote: T[]) => Promise<unknown>): 
   }
 }
 
-type Transacao = Parameters<Parameters<Database["transaction"]>[0]>[0];
 
 /**
  * O retrato da viagem, do objeto lido para as colunas do banco.
@@ -3221,6 +3221,25 @@ export async function associarUnidadeDaCompetencia(
   db: Database,
   competenciaId: string,
   unidadeId: string,
+  /**
+   * A outra metade da mesma afirmação, dentro da mesma transação.
+   *
+   * **Por que um parâmetro, e não uma chamada da rota depois desta.** A
+   * identidade canônica é escrita em dois lugares — aqui e em
+   * `remuneracao_unidade`, que mora noutro pacote — e as duas escritas são uma
+   * afirmação só. Duas chamadas seguidas na rota deixariam a segunda falhar com
+   * a primeira já gravada: a competência apontando para a unidade e o cadastro
+   * dela sem apontar para nada, que é **exatamente** o estado que produziu o
+   * defeito do `comparado` sumindo — só que agora escrito por nós, e sem
+   * ninguém tendo clicado em nada errado.
+   *
+   * Recebendo o gancho, a transação é de quem já escrevia, e nenhum chamador
+   * pode esquecer a metade que não é dele. Falhando o gancho, nada fica.
+   */
+  tambemNaMesmaTransacao?: (
+    tx: Transacao,
+    competencia: CompetenciaRegistrada,
+  ) => Promise<void>,
 ): Promise<CompetenciaRegistrada> {
   const competencia = await buscarCompetencia(db, competenciaId);
   if (!competencia) {
@@ -3251,27 +3270,46 @@ export async function associarUnidadeDaCompetencia(
     );
   }
 
-  await db
-    .update(fechamentoCompetenciaTable)
-    .set({ unidadeId })
-    .where(eq(fechamentoCompetenciaTable.id, competenciaId));
-
   /*
-    A decisão vale para o texto, e não para a linha.
+    As três escritas numa transação só, e o gancho dentro dela.
 
-    Quem clica "associar" está dizendo qual unidade é o `CDD Belém` desta
-    competência — e as duas quinzenas do mês são duas competências com esse
-    mesmo texto. Sem esta propagação, a pessoa associava a 1ª, via o devido
-    aparecer, e a 2ª continuava em branco esperando um segundo clique que a tela
-    (com painel comparado já montado) tinha deixado de oferecer. Era o caso real
-    de julho/2026.
-
-    Não é inferência: é a mesma afirmação, aplicada onde ela já valia. As
-    encerradas ficam de fora, e a conciliação as devolve listadas.
+    Antes eram três comandos soltos: a coluna desta competência, a propagação
+    para as irmãs, e — depois, na rota — o cadastro de Remuneração. Cada um
+    podia ficar sozinho no banco, e o estado pela metade não é abstrato: é a
+    competência com identidade e o cadastro sem, que é a configuração exata em
+    que `resolverUnidade` deixa de comparar texto e não encontra nada pela
+    identidade. O devido some, e nada na tela diz que a gravação foi parcial.
   */
-  await conciliarIdentidadeDasCompetencias(db, {
-    unidadeId,
-    codigos: [competencia.unidade.codigo],
+  await db.transaction(async (tx) => {
+    await tx
+      .update(fechamentoCompetenciaTable)
+      .set({ unidadeId })
+      .where(eq(fechamentoCompetenciaTable.id, competenciaId));
+
+    /*
+      A decisão vale para o texto, e não para a linha.
+
+      Quem clica "associar" está dizendo qual unidade é o `CDD Belém` desta
+      competência — e as duas quinzenas do mês são duas competências com esse
+      mesmo texto. Sem esta propagação, a pessoa associava a 1ª, via o devido
+      aparecer, e a 2ª continuava em branco esperando um segundo clique que a
+      tela (com painel comparado já montado) tinha deixado de oferecer. Era o
+      caso real de julho/2026.
+
+      Não é inferência: é a mesma afirmação, aplicada onde ela já valia. As
+      encerradas ficam de fora, e a conciliação as devolve listadas.
+    */
+    await conciliarIdentidadeDasCompetencias(tx, {
+      unidadeId,
+      codigos: [competencia.unidade.codigo],
+    });
+
+    /*
+      A metade que mora noutro pacote — ver o parâmetro. A competência vai
+      junto porque é dela que sai a grafia afirmada, e lê-la de novo na borda
+      seria uma segunda leitura podendo discordar desta.
+    */
+    await tambemNaMesmaTransacao?.(tx, competencia);
   });
 
   return (await buscarCompetencia(db, competenciaId))!;

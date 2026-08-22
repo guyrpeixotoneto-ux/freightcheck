@@ -1114,10 +1114,8 @@ router.put("/fechamento/competencias/:id/unidade", async (req, res): Promise<voi
   }
 
   try {
-    const competencia = await associarUnidadeDaCompetencia(db, id, unidadeId);
-
     /*
-      A MESMA AFIRMAÇÃO, NO OUTRO LADO — sem isto, associar derrubava o devido.
+      A MESMA AFIRMAÇÃO, NO OUTRO LADO — e na mesma transação.
 
       `associarUnidadeDaCompetencia` escreve a identidade no Fechamento e a
       propaga para as competências irmãs. Só que a partir dela `resolverUnidade`
@@ -1128,12 +1126,21 @@ router.put("/fechamento/competencias/:id/unidade", async (req, res): Promise<voi
 
       Quem clica está dizendo qual unidade é o `CDD Belém` desta competência. É
       a mesma frase que resolve o cadastro registrado sob aquela grafia, e é ela
-      que viaja aqui. Ver `lib/identidade-do-cadastro.ts`.
+      que viaja no gancho — dentro da transação de quem já escrevia, para que
+      metade da afirmação não possa ficar gravada sem a outra. Ver
+      `lib/identidade-do-cadastro.ts` e `Executor`.
     */
-    await conciliarIdentidadeDoCadastro(db, {
+    const competencia = await associarUnidadeDaCompetencia(
+      db,
+      id,
       unidadeId,
-      codigos: [competencia.unidade.codigo],
-    });
+      async (tx, competencia) => {
+        await conciliarIdentidadeDoCadastro(tx, {
+          unidadeId,
+          codigos: [competencia.unidade.codigo],
+        });
+      },
+    );
 
     res.json(competencia);
   } catch (erro) {

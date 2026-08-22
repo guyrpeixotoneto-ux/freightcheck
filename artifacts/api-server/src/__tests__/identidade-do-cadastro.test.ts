@@ -123,12 +123,28 @@ describe.skipIf(!temBanco)("a identidade escrita dos dois lados", () => {
     fechar = () => alvo.pool.end();
   }, 180_000);
 
+  /*
+    O `DROP` espera por conexão que ainda não fechou, e com a suíte inteira
+    rodando em paralelo essa espera passa dos 10 s de `hookTimeout` — o arquivo
+    passava sozinho e derrubava o pacote junto com os outros quarenta e cinco.
+    Encerrar o pool, matar o que restou e derrubar com `FORCE` é o que torna a
+    limpeza independente de quem mais está no servidor.
+  */
   afterAll(async () => {
     await fechar?.().catch(() => {});
     const admin = createDb(ADMIN);
-    await admin.pool.query(`DROP DATABASE IF EXISTS "${NOME_DO_BANCO}"`).catch(() => {});
+    await admin.pool
+      .query(
+        `SELECT pg_terminate_backend(pid) FROM pg_stat_activity
+          WHERE datname = $1 AND pid <> pg_backend_pid()`,
+        [NOME_DO_BANCO],
+      )
+      .catch(() => {});
+    await admin.pool
+      .query(`DROP DATABASE IF EXISTS "${NOME_DO_BANCO}" WITH (FORCE)`)
+      .catch(() => {});
     await admin.pool.end().catch(() => {});
-  });
+  }, 60_000);
 
   /*
     Cada caso começa do zero na mesma instância. Os cenários se distinguem por
@@ -421,6 +437,7 @@ describe.skipIf(!temBanco)("a identidade escrita dos dois lados", () => {
 
     expect(relatorio.associadas).toEqual([]);
     expect(relatorio.ambiguas).toHaveLength(1);
+    expect(relatorio.ambiguas[0]!.motivo).toBe("SINAIS_DISCORDANTES");
     expect(relatorio.ambiguas[0]!.candidatas.map((c) => c.id).sort()).toEqual(
       [daGrafia.id, doCnpj.id].sort(),
     );
@@ -445,6 +462,60 @@ describe.skipIf(!temBanco)("a identidade escrita dos dois lados", () => {
 
     expect(relatorio.associadas).toEqual([]);
     expect(await identidadeNoCadastro("escopo-pelo-nome")).toBeNull();
+  }, 60_000);
+  /**
+   * DOIS CADASTROS PARA A MESMA UNIDADE — a ambiguidade que só o conjunto revela.
+   *
+   * Cada um deles, sozinho, casa por documento sem sombra de dúvida. Escrever os
+   * dois é que seria o estrago: `resolverUnidade` conta `scope_hash` distintos e
+   * recusa com `UNIDADE_AMBIGUA`, de modo que a conciliação teria transformado
+   * dois cadastros que respondiam pelo texto em dois que não respondem por nada.
+   */
+  it("não concilia quando dois cadastros reivindicam a mesma unidade", async () => {
+    await abrirOMes(CNPJ_MASCARADO);
+    await cadastrarUnidade(db, { nome: "CDD BELEM", cnpj: CNPJ_MASCARADO });
+
+    /* O mesmo CNPJ, com e sem máscara — dois escopos, uma unidade. */
+    await cadastroLegado(CNPJ_MASCARADO, "escopo-um");
+    await cadastroLegado("11222333000181", "escopo-dois");
+
+    const relatorio = await conciliarIdentidadeDoCadastro(db);
+
+    expect(relatorio.associadas).toEqual([]);
+    expect(relatorio.ambiguas).toHaveLength(2);
+    expect(new Set(relatorio.ambiguas.map((a) => a.motivo))).toEqual(
+      new Set(["DOIS_CADASTROS_PARA_A_MESMA_UNIDADE"]),
+    );
+    expect(await identidadeNoCadastro("escopo-um")).toBeNull();
+    expect(await identidadeNoCadastro("escopo-dois")).toBeNull();
+  }, 60_000);
+
+  /**
+   * E o mesmo vale contra quem já está ligado.
+   *
+   * A contagem que importa é a que `escolher` fará depois, e ela não distingue o
+   * que foi escrito hoje do que já estava lá.
+   */
+  it("não concilia um segundo cadastro para uma unidade que já tem o seu", async () => {
+    await abrirOMes(CNPJ_MASCARADO);
+    const u = await cadastrarUnidade(db, { nome: "CDD BELEM", cnpj: CNPJ_MASCARADO });
+
+    await db.insert(remuneracaoUnidadeTable).values({
+      scopeHash: "escopo-ja-ligado",
+      scopeType: "UNIDADE",
+      codigo: CNPJ_MASCARADO,
+      nome: "CDD BELEM",
+      canal: "ROTA",
+      unidadeId: u.id,
+      vigenciaInicial: "2026-07-01",
+    });
+    await cadastroLegado("11222333000181", "escopo-novo");
+
+    const relatorio = await conciliarIdentidadeDoCadastro(db);
+
+    expect(relatorio.associadas).toEqual([]);
+    expect(relatorio.ambiguas[0]?.motivo).toBe("DOIS_CADASTROS_PARA_A_MESMA_UNIDADE");
+    expect(await identidadeNoCadastro("escopo-novo")).toBeNull();
   }, 60_000);
 });
 
