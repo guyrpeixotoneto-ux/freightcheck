@@ -107,25 +107,71 @@ lados chegavam ao mesmo número **por acaso**: o acaso de a terceira parcela
 estar vazia. O conceito não é hipotético — a VBZ 06 (`Rota - Rem. Variável
 Equipe Entrega`) sai em CT-e, R$ 244.753,67 na 2ª quinzena.
 
-## O 03.08.18 não é a fonte do desconto de disponibilidade
+## O 03.08.18 **é** a fonte do desconto de disponibilidade — o mês, não a quinzena
+
+> **Corrigido.** Este documento afirmou o contrário por duas investigações. A
+> afirmação anterior — "os números desmentem a associação direta" — estava
+> ancorada numa comparação errada, e a correção está provada abaixo.
 
 A legenda de cores da planilha associa o `03.08.18` à linha
-`DESCONTO DE DISPONIBILIDADE`. Os números da competência conferida desmentem a
-associação direta, e por isso a fonte canônica fica **registrada como decisão
-pendente** (`DECISOES_PENDENTES`, em `matriz.ts`) em vez de escolhida:
+`DESCONTO DE DISPONIBILIDADE`, e a legenda está certa. O que despistou é que
+**o desconto é acumulado no mês inteiro e aplicado uma vez, no demonstrativo da
+2ª quinzena** — comparar a quinzena de um documento com a quinzena do outro
+compara o mês com um quarto dele.
+
+Lido pelos leitores de produção sobre os arquivos reais de julho/2026
+(CDD Belém · Horizonte, canal Rota), o encaixe é ao centavo em **três linhas
+independentes**:
+
+| 03.08.18 — dias 1 a 31, abas `FF` + `Van` | | 03.08.20 da 2ª quinzena |
+|---|:-:|---|
+| `Desc.FF Custo Fixo` + `Equipe` + `Indiretos` = **91.321,65** | = | `Desconto FF - Equipe Entrega` = **91.321,65** |
+| `Desconto FA` = **320,85** | = | `Desconto FF - Fator Ajudante` = **320,85** |
+| `Desconto Total` = **91.642,50** | = | total do bloco = **91.642,50** |
+
+Diferença R$ 0,00 nas três. O demonstrativo agrupa custo fixo, equipe e
+indiretos numa linha só porque os três são subtraídos da mesma `VBZ 02`; o
+03.08.18 os abre por dia, por aba e por responsabilidade.
+
+### O "315,2%" que ficou registrado como inexplicado
+
+A tabela que este documento trazia comparava assim:
 
 | Candidato | 1ª quinzena | 2ª quinzena |
 |---|---:|---:|
-| 03.08.18 (`Desc.FF Custo Fixo + Equipe + Indiretos + FA`) | 42.939,35 | 29.075,62 |
-| 03.08.20 (bloco `DESCONTO DISPONIBILIDADE`) | **não existe** | — |
+| 03.08.18 (`Desc.FF …`, só a metade do mês, só a aba `FF`) | 42.939,35 | 29.075,62 |
 | planilha (`Mapa Rota!R139` / `AH139`, digitados) | 11.649,87 | 91.642,50 |
 
-O 11.649,87 da 1ª quinzena **é o `Desconto Frete mínimo` do 03.08.20**, lido do
-arquivo real. Ou seja: a planilha põe o frete mínimo na linha da
-disponibilidade e deixa o complementar negativo zerado. O sistema o põe no
-complementar, que é onde o relatório o declara — e como a planilha bruta a linha
-da disponibilidade pelo fator e não bruta o complementar, são **R$ 4.257,50** de
-diferença no quadro, com a mesma origem documental.
+`91.642,50 ÷ 29.075,62 = 3,152`. Não é discrepância: é a razão entre o mês
+inteiro (as duas quinzenas, as duas abas) e um quarto dele. A associação sempre
+esteve lá; o período é que estava errado dos dois lados.
+
+### O que isso resolve na 1ª quinzena
+
+O 03.08.20 da 1ª quinzena **não traz bloco `DESCONTO DISPONIBILIDADE` nenhum** —
+e agora sabe-se por quê: naquele momento o desconto ainda não foi aplicado. A 1ª
+quinzena vale **R$ 0,00 de disponibilidade por regra**, e não por falta de
+arquivo. O acumulado parcial do 03.08.18 até o dia 15 (R$ 54.155,08) é
+informação, não abatimento.
+
+O que a planilha faz ali continua sendo defeito dela: ela digita 11.649,87 na
+linha da disponibilidade, e esse número **é o `Desconto Frete mínimo` do
+03.08.20**. O sistema o põe no complementar negativo, que é onde o relatório o
+declara — e como a planilha bruta a linha da disponibilidade pelo fator e não
+bruta o complementar, são **R$ 4.257,50** de diferença no quadro, com a mesma
+origem documental.
+
+### Onde a regra mora, e o alcance dela
+
+`descontoDeDisponibilidadeDoMes`, em `leitores/disponibilidade.ts`, com o gate
+em `__tests__/disponibilidade-mensal.test.ts` — que prende as três identidades
+**e** a afirmação de que nenhuma das metades sozinha reproduz o bloco. O
+registro da decisão está em `DECISOES_RESOLVIDAS`, em `matriz.ts`.
+
+A prova é de **uma** competência. O encaixe ao centavo em três linhas
+independentes é forte demais para ser acaso, mas "mês inteiro, aplicado na 2ª"
+só vira regra geral com uma segunda competência — e é para isso que
+`DescontoDeDisponibilidadeDoMes` carrega os dias que entraram na soma.
 
 `Mapa Rota!R138`, `R139`, `R140`, `AH138`, `AH139` e `AH140` **não têm
 fórmula**: são digitados à mão.
@@ -316,16 +362,23 @@ tem fórmula:
 A aba `Justificativa` parece a origem, e não é: ela **lê de volta** do `Mapa
 Rota` (`='Mapa Rota'!R138`) e traz uma cópia das colunas do 03.08.18.
 
-O teste decisivo é contra o próprio 03.08.18, que está na pasta como aba:
+O teste decisivo é contra o próprio 03.08.18, que está na pasta como aba. Ele foi
+feito **quinzena contra quinzena**, e é aí que ele erra:
 
-| | 03.08.18 `Desconto Total` | Base digitada | Relação |
+| | 03.08.18 `Desconto Total` (só a metade, só `FF`) | Base digitada | Relação |
 |---|---:|---:|---|
 | 1ª quinzena | 42.939,35 | 11.649,87 | 27,1 % |
 | 2ª quinzena | 29.075,62 | 91.642,50 | 315,2 % |
 
-Nenhuma coluna, nem soma de colunas, do 03.08.18 ou da `Justificativa`
-reproduz as bases digitadas — em nenhuma das duas quinzenas, por nenhum fator
-constante. **A derivação acontece fora do arquivo.**
+> **Corrigido.** A conclusão que se tirou daqui — "a derivação acontece fora do
+> arquivo" — era falsa para a disponibilidade. Somado o **mês inteiro**, nas
+> **duas abas**, o 03.08.18 reproduz `AH139` ao centavo: 91.642,50. Os 315,2 %
+> são a razão entre o mês e um quarto dele. Ver a seção *O 03.08.18 **é** a
+> fonte do desconto de disponibilidade*, acima.
+
+Para a **devolução** e o **complementar** a conclusão continua de pé: nenhuma
+coluna do 03.08.18 ou da `Justificativa` as reproduz, e elas saem mesmo do
+03.08.20.
 
 ### Onde ela acontece: as cinco bases são o 03.08.20
 
@@ -358,20 +411,26 @@ zero, e a disponibilidade fica vazia porque o relatório não a traz. Reproduzir
 inconsistência faria os dois lados concordarem por construção, que é o oposto do
 que este painel existe para fazer.
 
-### O que o sistema ainda pode fazer melhor
+### O fio que faltava ligar, e que a regra mensal liga
 
 O sistema já lê o 03.08.18 e extrai, por dia e por canal,
 `descontos: { custoFixo, equipe, indiretos, fatorAjudante, total }`
 (`leitores/disponibilidade.ts`). Ele tem, portanto, o material para **calcular**
 a disponibilidade em vez de recebê-la do 03.08.20 — o que nem a planilha faz.
 
-Isso é uma mudança de número, não só de método: com o `Desconto Total` do
-03.08.18 como base, a 1ª quinzena descontaria R$ 42.939,35 × fator em vez de
-nada. Antes de ligar esse fio é preciso saber por que o demonstrativo e o
-03.08.18 discordam nessa ordem de grandeza — e essa pergunta continua aberta.
+A pergunta que travava esse fio era *por que o demonstrativo e o 03.08.18
+discordam nessa ordem de grandeza*. **Eles não discordam**: somado o mês inteiro,
+o 03.08.18 dá exatamente o bloco do 03.08.20 (`descontoDeDisponibilidadeDoMes`).
+O que discordava era o recorte de período usado na comparação.
 
-As bases seguem entrando no motor como parâmetro (`BasesDaQuinzena`), com o
-mesmo tratamento de ausência das demais: `null`, nunca zero.
+Com a regra mensal, calcular do 03.08.18 deixa de ser uma mudança de número e
+passa a ser uma mudança de **procedência**: o mesmo R$ 91.642,50 na 2ª quinzena,
+mas derivado dos 29 dias que o produziram em vez de copiado do demonstrativo que
+ele deveria auditar. E a 1ª quinzena passa a valer **zero por regra** — com a
+razão escrita — em vez de vazia por falta de bloco.
+
+As demais bases seguem entrando no motor como parâmetro (`BasesDaQuinzena`), com
+o mesmo tratamento de ausência: `null`, nunca zero.
 
 ## O corte que faltava no diário: `CxRota > 0`
 

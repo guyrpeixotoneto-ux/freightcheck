@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   DECISOES_PENDENTES,
+  DECISOES_RESOLVIDAS,
   LINHAS_DO_RESUMO_GERAL,
   montarMatriz,
   type StatusDaLinha,
@@ -138,19 +139,52 @@ describe("a matriz não se engana sobre o que provou", () => {
 });
 
 describe("as decisões de domínio pendentes ficam registradas, não assumidas", () => {
-  it("o desconto de disponibilidade está registrado com evidência e saída", () => {
-    const pendente = DECISOES_PENDENTES.desconto_disponibilidade;
-    expect(pendente).toBeTruthy();
-    /* Os três números que impedem a escolha por coincidência. */
-    expect(pendente!.evidencia).toContain("42.939,35");
-    expect(pendente!.evidencia).toContain("11.649,87");
-    expect(pendente!.evidencia).toContain("91.642,50");
-    expect(pendente!.resolve).not.toHaveLength(0);
+  /*
+    A pergunta do desconto de disponibilidade saiu daqui: ela foi respondida
+    com prova, e mudou de registro. Ver o bloco abaixo. O que este teste guarda
+    hoje é a forma do registro, para que a próxima pendência nasça completa.
+  */
+  it("toda pendência registrada traz pergunta, evidência e o que a resolve", () => {
+    for (const [chave, pendente] of Object.entries(DECISOES_PENDENTES)) {
+      expect(pendente.pergunta, `${chave} sem pergunta`).not.toHaveLength(0);
+      expect(pendente.evidencia, `${chave} sem evidência`).not.toHaveLength(0);
+      expect(pendente.resolve, `${chave} sem saída`).not.toHaveLength(0);
+    }
+  });
+});
+
+describe("a decisão do desconto de disponibilidade foi resolvida com prova", () => {
+  it("a resposta é o 03.08.18, acumulado no mês", () => {
+    const r = DECISOES_RESOLVIDAS.desconto_disponibilidade;
+    expect(r).toBeTruthy();
+    expect(r!.resposta).toContain("03.08.18");
+    expect(r!.resposta).toContain("mês inteiro");
   });
 
-  it("a linha da matriz aponta para a decisão pendente", () => {
+  /*
+    Os três números do encaixe. Fixá-los aqui é o que impede a prova de virar
+    uma afirmação sem lastro no dia em que alguém reescrever o texto.
+  */
+  it("a prova cita as três linhas que fecham ao centavo", () => {
+    const r = DECISOES_RESOLVIDAS.desconto_disponibilidade;
+    expect(r!.prova).toContain("91.321,65");
+    expect(r!.prova).toContain("320,85");
+    expect(r!.prova).toContain("91.642,50");
+  });
+
+  /* O que enganou por dois documentos, dito, para não enganar uma terceira vez. */
+  it("o alcance registra que a comparação por quinzena é a armadilha", () => {
+    const r = DECISOES_RESOLVIDAS.desconto_disponibilidade;
+    expect(r!.alcance).toContain("29.075,62");
+    expect(r!.alcance).toContain("3,152");
+    expect(r!.alcance).toContain("uma segunda competência");
+  });
+
+  it("a linha da matriz aponta para o 03.08.18 e não mais para uma pendência", () => {
     const matriz = montarMatriz(fechamento, "REGRA_CANONICA");
     const linha = matriz.linhas.find((l) => l.chave === "desconto_disponibilidade")!;
-    expect(linha.fonteOperacional).toContain("DECISOES_PENDENTES");
+    expect(linha.fonteOperacional).toContain("03.08.18");
+    expect(linha.fonteOperacional).not.toContain("DECISOES_PENDENTES");
+    expect(linha.regraNoSistema).toContain("mês");
   });
 });

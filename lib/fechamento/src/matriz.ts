@@ -168,6 +168,7 @@ interface EntradaDoCatalogo {
 const CADASTRO = "Cadastro do sistema (Remuneração)";
 const DIARIO = "2Art";
 const DEMONSTRATIVO = "03.08.20";
+const DISPONIBILIDADE = "03.08.18";
 
 /**
  * As vinte e duas linhas, na ordem em que a planilha as empilha.
@@ -275,9 +276,11 @@ const CATALOGO: EntradaDoCatalogo[] = [
     chave: "desconto_disponibilidade",
     rotulo: "DESCONTO DE DISPONIBILIDADE",
     quadro: "Rota — remuneração",
-    fonteOperacional: `${DEMONSTRATIVO} — decisão de domínio pendente, ver DECISOES_PENDENTES`,
+    fonteOperacional: `${DISPONIBILIDADE} (mês inteiro) — conferido contra ${DEMONSTRATIVO}`,
     regraNoSistema:
-      "−(soma dos quatro blocos `DESCONTO DISPONIBILIDADE` do 03.08.20 × fator)",
+      "−(`Desconto Total` do 03.08.18 acumulado no mês, FF + Van, × fator). O desconto " +
+      "é mensal e entra no fechamento da 2ª quinzena; a 1ª vale zero por regra. Ver " +
+      "DECISOES_RESOLVIDAS.desconto_disponibilidade",
     formulaDaPlanilha:
       "='Mapa Rota'!AI139 — a base R139 é **digitada**; na 1ª quinzena ela traz o " +
       "frete mínimo do 03.08.20, não uma disponibilidade",
@@ -477,31 +480,46 @@ const CATALOGO: EntradaDoCatalogo[] = [
 export const DECISOES_PENDENTES: Record<
   string,
   { pergunta: string; evidencia: string; resolve: string }
+> = {};
+
+/**
+ * O que **era** pendente e foi resolvido com prova — e o que a prova foi.
+ *
+ * Uma decisão resolvida não vira silêncio. A pergunta que consumiu duas
+ * investigações continua valendo a pena responder no código, porque quem
+ * reabrir o assunto vai reabrir pelo mesmo caminho: comparando a quinzena do
+ * 03.08.18 com a quinzena do 03.08.20, achando 3x de diferença e concluindo que
+ * as fontes discordam. Este registro é o atalho que impede a terceira volta.
+ */
+export const DECISOES_RESOLVIDAS: Record<
+  string,
+  { pergunta: string; resposta: string; prova: string; alcance: string }
 > = {
   desconto_disponibilidade: {
     pergunta:
       "Qual documento é a fonte canônica do desconto de disponibilidade: o 03.08.18, " +
       "que mede a frota contratada contra a realizada, ou o 03.08.20, que publica o " +
       "desconto já calculado?",
-    evidencia:
-      "Na 1ª quinzena de julho/2026 os três candidatos dão números diferentes, e por " +
-      "isso a escolha não pode ser feita por coincidência. O 03.08.18 soma " +
-      "R$ 42.939,35 no canal (Desc.FF Custo Fixo 5.870,63 + Desc.FF Equipe 36.747,87 + " +
-      "Indiretos 0,00 + Desconto FA 320,85, dias 1 a 15). O 03.08.20 da mesma quinzena " +
-      "**não traz bloco de disponibilidade nenhum** — traz `Desconto Devolucao` " +
-      "13.328,30 e `Desconto Frete mínimo` 11.649,87, e nada mais. A planilha digita " +
-      "11.649,87 na linha da disponibilidade (`Mapa Rota!R139`), que é exatamente o " +
-      "frete mínimo do 03.08.20 — ou seja, ela põe o frete mínimo na linha errada e " +
-      "deixa o complementar negativo zerado. Na 2ª quinzena a planilha digita 91.642,50, " +
-      "que brutado dá os R$ 125.271,68 que ela imprime, e o 03.08.18 soma R$ 29.075,62. " +
-      "Nenhuma das duas quinzenas casa com o 03.08.18.",
-    resolve:
-      "Um 03.08.20 de 2ª quinzena para conferir se o bloco de disponibilidade dele " +
-      "bate com os 91.642,50 digitados, e uma segunda competência para ver se o " +
-      "03.08.18 alguma vez reproduz a base. Enquanto isso, a regra do sistema " +
-      "permanece a que está: o valor sai do 03.08.20, que é onde ele aparece como " +
-      "dinheiro; o 03.08.18 é a evidência de frota por trás dele, e serve de " +
-      "conferência.",
+    resposta:
+      "O 03.08.18 — e o que faltava não era o documento, era o **período**. O desconto " +
+      "é acumulado no mês inteiro e aplicado uma vez, no demonstrativo da 2ª quinzena. " +
+      "O 03.08.20 é a conferência, e confere ao centavo. Ver " +
+      "`descontoDeDisponibilidadeDoMes`, em `leitores/disponibilidade.ts`.",
+    prova:
+      "Julho/2026, CDD Belém · Horizonte, lido pelos leitores de produção sobre os " +
+      "arquivos reais. O 03.08.18 dos dias 1 a 31, abas FF e Van, canal Rota, somado: " +
+      "custo fixo 21.388,36 + equipe 69.933,29 + indiretos 0,00 = **91.321,65**, que é " +
+      "exatamente o `Desconto FF - Equipe Entrega` do bloco (os três saem da mesma " +
+      "VBZ 02, e o demonstrativo os publica numa linha só); fator ajudante **320,85**, " +
+      "que é exatamente o `Desconto FF - Fator Ajudante`; e `Desconto Total` " +
+      "**91.642,50**, que é exatamente o total do bloco. Três linhas independentes, " +
+      "R$ 0,00 de diferença nas três.",
+    alcance:
+      "Uma competência. O que enganou por dois documentos foi comparar quinzena com " +
+      "quinzena: o 03.08.18 da 2ª sozinho soma 29.075,62, e 91.642,50 ÷ 29.075,62 = " +
+      "3,152 — os '315,2%' que ficaram registrados como inexplicados são a razão entre " +
+      "o mês e um quarto dele, não uma discrepância. A regra 'mês inteiro, aplicado na " +
+      "2ª' só vira geral com uma segunda competência, e é o que a próxima confere.",
   },
 };
 
