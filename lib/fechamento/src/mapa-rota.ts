@@ -1,4 +1,4 @@
-import { centavos } from "./dominio";
+import { centavos, emReais } from "./dominio";
 
 /**
  * O MOTOR DA PLANILHA — o `Mapa Rota` sem planilha.
@@ -97,8 +97,14 @@ export interface ParametrosDoCadastro {
 export interface BasesDaQuinzena {
   /** A devolução acumulada, sem imposto. `null` quando o documento não veio. */
   devolucao: number | null;
-  /** A disponibilidade acumulada, sem imposto (03.08.18). */
-  disponibilidade: number | null;
+  /**
+   * A disponibilidade da competência, com a origem que a sustenta.
+   *
+   * `null` quando o 03.08.18 do mês não foi importado — e só nesse caso. Uma 1ª
+   * quinzena com o arquivo presente vale **zero por regra**, não `null`: ver
+   * {@link DisponibilidadeDaCompetencia}.
+   */
+  disponibilidade: BaseDeDisponibilidade | null;
   /** O complementar negativo — o único que a planilha não bruta. */
   complementarNegativo: number | null;
   /**
@@ -223,6 +229,87 @@ export function memoriaDaIndisponibilidade(b: BaseDeIndisponibilidade): string {
     `o faturado de ${comMarca} de ${viagens} viagens de Rota com marca de ` +
     `indisponibilidade no 2Art (${tipos.join(", ")})`
   );
+}
+
+/**
+ * O desconto de disponibilidade da competência — o mês, aplicado na 2ª quinzena.
+ *
+ * **A regra, e por que ela é do mês.** O 03.08.18 mede o gap de frota dia a dia,
+ * mas o desconto não é cobrado quinzena a quinzena: ele é acumulado no mês
+ * inteiro e aplicado uma vez, no fechamento da 2ª. Provado em julho/2026 pelo
+ * encaixe ao centavo em três linhas independentes contra o bloco `DESCONTO
+ * DISPONIBILIDADE` do 03.08.20 — ver `descontoDeDisponibilidadeDoMes`, em
+ * `leitores/disponibilidade.ts`, e `DECISOES_RESOLVIDAS`, em `matriz.ts`.
+ *
+ * **Por que a 1ª quinzena vale zero, e por que zero e não `null`.** Na 1ª o
+ * desconto ainda não foi aplicado: o 03.08.20 daquela quinzena não traz bloco de
+ * disponibilidade nenhum, e não por falta de arquivo. `null` diria "falta o
+ * documento" e mandaria alguém procurar o que não existe; zero diz o que é
+ * verdade — não há abatimento nesta metade do mês. É a mesma disciplina do zero
+ * medido da indisponibilidade, e {@link doMes} carrega o acumulado parcial para
+ * que o zero seja conferível em vez de ser preciso confiar nele.
+ */
+export interface DisponibilidadeDaCompetencia {
+  /** O que entra **nesta** quinzena: zero na 1ª, o mês inteiro na 2ª. */
+  valor: number;
+  /**
+   * O acumulado do mês inteiro, sempre — inclusive na 1ª, onde não desconta.
+   *
+   * É o que torna o zero da 1ª quinzena uma afirmação e não um silêncio: a tela
+   * mostra "R$ 54.155,08 acumulados até aqui, que entram no fechamento da 2ª".
+   */
+  doMes: number;
+  quinzena: 1 | 2;
+  /** Quantos dias do 03.08.18 entraram na soma do mês — o denominador. */
+  dias: number;
+  /**
+   * O que o 03.08.20 publica no bloco, quando ele veio. `null` sem o documento.
+   *
+   * Não entra na conta: é **conferência**. O devido sai do 03.08.18, que é onde
+   * o desconto é medido e onde ele pode ser contestado dia a dia; o
+   * demonstrativo é a segunda opinião. Guardá-lo aqui é o que permite a
+   * divergência aparecer sem uma segunda leitura do banco.
+   */
+  noDemonstrativo: number | null;
+}
+
+/**
+ * De onde saiu a disponibilidade que entrou no mapa.
+ *
+ * Mesma disciplina de {@link BaseDeIndisponibilidade}: `MENSAL_03_08_18` é a
+ * regra do produto, `PLANILHA` é a célula da `.xlsb` que a reconciliação
+ * compara.
+ */
+export type BaseDeDisponibilidade =
+  | { fonte: "MENSAL_03_08_18"; medida: DisponibilidadeDaCompetencia }
+  | { fonte: "PLANILHA"; valor: number };
+
+/** O número que entra na conta, seja qual for a fonte. */
+export function valorDaDisponibilidade(b: BaseDeDisponibilidade): number {
+  return b.fonte === "MENSAL_03_08_18" ? b.medida.valor : b.valor;
+}
+
+/** A frase que a tela mostra: o número e o que foi contado para chegar nele. */
+export function memoriaDaDisponibilidade(b: BaseDeDisponibilidade): string {
+  if (b.fonte === "PLANILHA") {
+    return "`Mapa Rota!139`, como a planilha legada o traz — para reconciliação";
+  }
+  const { quinzena, doMes, dias, noDemonstrativo } = b.medida;
+  if (quinzena === 1) {
+    return (
+      `zero por regra: o desconto de disponibilidade é do mês e entra no fechamento ` +
+      `da 2ª quinzena. O 03.08.18 já acumula ${emReais(doMes)} em ${dias} dias, e ` +
+      `nada disso desconta aqui`
+    );
+  }
+  const confere =
+    noDemonstrativo === null
+      ? "sem o 03.08.20 da quinzena para conferir"
+      : Math.abs(noDemonstrativo - doMes) < 0.005
+        ? `confere ao centavo com o bloco DESCONTO DISPONIBILIDADE do 03.08.20`
+        : `o 03.08.20 publica ${emReais(noDemonstrativo)} no bloco — divergência de ` +
+          `${emReais(noDemonstrativo - doMes)}`;
+  return `o \`Desconto Total\` do 03.08.18 somado nos ${dias} dias do mês (FF + Van); ${confere}`;
 }
 
 /**
@@ -488,11 +575,20 @@ export function linhasDeDesconto(
       "desconto_disponibilidade",
       "DESCONTO DE DISPONIBILIDADE",
       "DESCONTO",
-      brutado(bases.disponibilidade),
       bases.disponibilidade === null
-        ? "sem base de disponibilidade na quinzena"
-        : `${bases.disponibilidade.toFixed(2)} sem imposto × ${f}, negativo`,
-      bases.disponibilidade === null ? "o 03.08.18 da quinzena" : null,
+        ? null
+        : -bruto(valorDaDisponibilidade(bases.disponibilidade), p),
+      bases.disponibilidade === null
+        ? "sem o 03.08.18 do mês"
+        : `${memoriaDaDisponibilidade(bases.disponibilidade)}${
+            valorDaDisponibilidade(bases.disponibilidade) === 0 ? "" : ` × ${f}, negativo`
+          }`,
+      /*
+        A falta nomeia o 03.08.18, que é de onde o desconto sai. Por duas
+        versões ela nomeou o 03.08.18 enquanto o valor vinha do 03.08.20 — a
+        mensagem mandava importar um arquivo que não resolveria a linha.
+      */
+      bases.disponibilidade === null ? "o 03.08.18 do mês" : null,
     ),
     linha(
       "desconto_complementar_negativo",
@@ -777,7 +873,15 @@ export function somarIndisponibilidade(
       if (!ehDaRota(v)) continue;
       viagens += 1;
       const tipo = v.tipoDeIndisponibilidade.trim();
-      if (tipo === "") continue;
+      /*
+        `""` e `"0"` são a mesma coisa: ausência de marca. O leitor já converte
+        o zero numérico do 2Art em vazio (ver `comoMarca`, em
+        `leitores/operacao.ts`), e a checagem se repete aqui de propósito —
+        **as viagens já gravadas guardam `"0"` no banco**. Sem esta linha, toda
+        competência importada antes do conserto continuaria somando o faturado
+        inteiro da Rota nesta parcela até alguém reimportar o 2Art.
+      */
+      if (tipo === "" || tipo === "0") continue;
       comMarca += 1;
       tipos.add(tipo);
       valor += v.valorFaturado;

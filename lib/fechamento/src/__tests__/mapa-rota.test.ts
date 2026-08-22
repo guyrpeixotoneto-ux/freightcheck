@@ -65,7 +65,7 @@ const JULHO_2026: Record<1 | 2, ParametrosDoCadastro> = {
 const BASES: Record<1 | 2, BasesDaQuinzena> = {
   1: {
     devolucao: 13328.3,
-    disponibilidade: 11649.87,
+    disponibilidade: { fonte: "PLANILHA", valor: 11649.87 },
     complementarNegativo: 0,
     /* Da planilha, e não do 03.08.12.09 / 2Art: aqui a prova é contra a `.xlsb`. */
     outrosCustos: { fonte: "PLANILHA", valor: 0 },
@@ -73,7 +73,7 @@ const BASES: Record<1 | 2, BasesDaQuinzena> = {
   },
   2: {
     devolucao: 15763.61,
-    disponibilidade: 91642.5,
+    disponibilidade: { fonte: "PLANILHA", valor: 91642.5 },
     complementarNegativo: 14050.54,
     outrosCustos: { fonte: "PLANILHA", valor: 358530.22 },
     indisponibilidade: { fonte: "PLANILHA", valor: 0 },
@@ -159,11 +159,17 @@ describe("os descontos", () => {
     });
   }
 
-  it("uma base ausente deixa a linha vazia e nomeia o que falta", () => {
+  /*
+    A falta nomeia o **mês**, e não a quinzena: o desconto de disponibilidade é
+    acumulado no mês inteiro. Por duas versões esta mensagem apontou o 03.08.18
+    enquanto o valor vinha do 03.08.20 — mandava importar um arquivo que não
+    resolveria a linha.
+  */
+  it("uma base ausente deixa a linha vazia e nomeia o arquivo do mês", () => {
     const linhas = linhasDeDesconto(JULHO_2026[1], { ...BASES[1], disponibilidade: null });
     const linha = linhas.find((l) => l.chave === "desconto_disponibilidade");
     expect(linha?.valor).toBeNull();
-    expect(linha?.falta).toBe("o 03.08.18 da quinzena");
+    expect(linha?.falta).toBe("o 03.08.18 do mês");
   });
 });
 
@@ -472,7 +478,7 @@ describe("o mapa da quinzena inteiro", () => {
       variavel: { frotaFixa: 0, agregado: 0, recargaENoturna: 0, vans: 0 },
       bases: {
         ...BASES[1],
-        disponibilidade: 11649.87,
+        disponibilidade: { fonte: "PLANILHA", valor: 11649.87 },
         indisponibilidade: {
           fonte: "DIARIO",
           medida: { valor: 4200, viagens: 140, comMarca: 5, tipos: ["Manutenção"] },
@@ -521,6 +527,6 @@ describe("o mapa da quinzena inteiro", () => {
   it("um documento que falta apaga o total em vez de somar zero", () => {
     const semDisponibilidade = mapa(2, { ...BASES[2], disponibilidade: null });
     expect(semDisponibilidade.quadros[0]!.total).toBeNull();
-    expect(semDisponibilidade.pendencias).toContain("o 03.08.18 da quinzena");
+    expect(semDisponibilidade.pendencias).toContain("o 03.08.18 do mês");
   });
 });

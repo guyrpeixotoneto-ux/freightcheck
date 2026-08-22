@@ -80,7 +80,8 @@ export interface BasesDaPlanilha {
 function basesDoMotor(b: BasesDaPlanilha): BasesDaQuinzena {
   return {
     devolucao: b.devolucao,
-    disponibilidade: b.disponibilidade,
+    disponibilidade:
+      b.disponibilidade === null ? null : { fonte: "PLANILHA", valor: b.disponibilidade },
     complementarNegativo: b.complementarNegativo,
     outrosCustos:
       b.outrosCustos === null ? null : { fonte: "PLANILHA", valor: b.outrosCustos },

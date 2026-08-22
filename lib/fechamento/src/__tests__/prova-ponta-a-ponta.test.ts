@@ -170,7 +170,7 @@ describe("as bases pelo caminho de produção, contra as digitadas na planilha",
         tipo: d.tipo as string,
         valor: d.valor,
       }));
-      const bases = basesDaQuinzena(descontos, "ROTA", [], null);
+      const bases = basesDaQuinzena(descontos, "ROTA", [], null, null);
 
       /* O que o 03.08.20 sustenta. */
       expect(bases.devolucao).toBeCloseTo(13_328.3, 2);

@@ -1,7 +1,7 @@
 import { competencia, dentroDaCompetencia, type Competencia } from "./periodo";
 import type { Canal } from "./dominio";
 import type { EntradaDoFaturado } from "./faturado";
-import type { ParametrosDoCadastro, ViagemDoMapa } from "./mapa-rota";
+import { valorDaDisponibilidade, type ParametrosDoCadastro, type ViagemDoMapa } from "./mapa-rota";
 import { basesDaQuinzena } from "./persistencia";
 import type {
   BasesDaPlanilha,
@@ -10,6 +10,11 @@ import type {
   QuinzenaDaPlanilha,
 } from "./reconciliacao";
 import { lerConciliacao, valorDe } from "./leitores/conciliacao";
+import {
+  descontoDeDisponibilidadeDoMes,
+  lerDisponibilidade,
+  type DescontoDeDisponibilidadeDoMes,
+} from "./leitores/disponibilidade";
 import { lerCtes } from "./leitores/cte";
 import { lerOperacao } from "./leitores/operacao";
 import { lerPagamento } from "./leitores/pagamento";
@@ -54,6 +59,16 @@ export interface RelatoriosDaQuinzena {
   pagamento?: Buffer;
   /** O 03.08.12.09 — requisições de despesa. */
   requisicoes?: Buffer;
+  /**
+   * O 03.08.18 — disponibilidade de frota.
+   *
+   * **É do mês, e não da quinzena.** O desconto que ele mede é acumulado no mês
+   * inteiro e aplicado uma vez, no fechamento da 2ª. A prova soma o arquivo das
+   * duas quinzenas e desduplica por `(aba, dia)`, de modo que enviá-lo inteiro
+   * numa delas, partido nas duas, ou repetido nas duas dá o mesmo total. Ver
+   * `descontoDeDisponibilidadeDoMes`.
+   */
+  disponibilidade?: Buffer;
   /** O 03.08.15 — CT-es por verba. */
   ctes?: Buffer;
   /** O 03.02.59.02 — conciliação CT-e × SRTrans. */
@@ -127,6 +142,8 @@ function basesDosRelatorios(
   relatorios: RelatoriosDaQuinzena,
   canal: Canal,
   diario: { viagens: ViagemDoMapa[] }[],
+  /** A disponibilidade do **mês** — ver `disponibilidadeDoMesDaProva`. */
+  disponibilidade: { quinzena: 1 | 2; doMes: DescontoDeDisponibilidadeDoMes } | null,
 ): BasesDaPlanilha {
   const descontos = relatorios.pagamento
     ? lerPagamento(relatorios.pagamento).descontos.map((d) => ({
@@ -149,11 +166,12 @@ function basesDosRelatorios(
     regra de qual desconto alimenta qual base mudar lá, a prova muda junto — que
     é exatamente o que se quer de um gate.
   */
-  const doMotor = basesDaQuinzena(descontos, canal, diario, requisicoes);
+  const doMotor = basesDaQuinzena(descontos, canal, diario, requisicoes, disponibilidade);
 
   return {
     devolucao: doMotor.devolucao,
-    disponibilidade: doMotor.disponibilidade,
+    disponibilidade:
+      doMotor.disponibilidade === null ? null : valorDaDisponibilidade(doMotor.disponibilidade),
     complementarNegativo: doMotor.complementarNegativo,
     outrosCustos:
       doMotor.outrosCustos === null
@@ -168,6 +186,28 @@ function basesDosRelatorios(
           ? doMotor.indisponibilidade.medida.valor
           : doMotor.indisponibilidade.valor,
   };
+}
+
+/**
+ * O 03.08.18 do mês, somado das remessas das duas quinzenas.
+ *
+ * **Somar as duas e desduplicar é o que torna o resultado indiferente ao
+ * envio.** As exportações reais se sobrepõem: a da 2ª quinzena costuma vir com
+ * o mês inteiro, e a da 1ª às vezes traz dias da 2ª numa aba e não na outra —
+ * o conjunto real de julho/2026 tem exatamente isso. Somar as listas cruas
+ * contaria os dias comuns duas vezes; `descontoDeDisponibilidadeDoMes`
+ * desduplica por `(aba, dia)`, que é o grão de uma linha do relatório.
+ *
+ * `null` quando nenhuma das duas remessas trouxe o arquivo.
+ */
+function disponibilidadeDoMesDaProva(
+  relatorios: RelatoriosDaQuinzena[],
+  canal: Canal,
+): DescontoDeDisponibilidadeDoMes | null {
+  const remessas = relatorios.filter((r) => r.disponibilidade);
+  if (remessas.length === 0) return null;
+  const dias = remessas.flatMap((r) => lerDisponibilidade(r.disponibilidade!).linhas);
+  return descontoDeDisponibilidadeDoMes(dias, canal);
 }
 
 /** O lado SRTrans pelos relatórios — ver `faturado.ts`. */
@@ -229,6 +269,12 @@ function faturadoDosRelatorios(
  * ponta a ponta ou a equivalência de fórmula.
  */
 export function montarProvaPontaAPonta(entrada: EntradaDaProva): QuinzenaDaPlanilha[] {
+  /*
+    A disponibilidade é do mês, e por isso é somada uma vez, das duas quinzenas,
+    antes do laço. Ver `disponibilidadeDoMesDaProva`.
+  */
+  const doMes = disponibilidadeDoMesDaProva(entrada.relatorios, entrada.canal);
+
   return entrada.gabarito.map((doGabarito): QuinzenaDaPlanilha => {
     const q = doGabarito.quinzena;
     const periodo = competencia(entrada.ano, entrada.mes, q);
@@ -253,7 +299,12 @@ export function montarProvaPontaAPonta(entrada: EntradaDaProva): QuinzenaDaPlani
       */
       dias,
       diarioOperacional: diario,
-      bases: basesDosRelatorios(relatorios, entrada.canal, diario),
+      bases: basesDosRelatorios(
+        relatorios,
+        entrada.canal,
+        diario,
+        doMes === null ? null : { quinzena: q, doMes },
+      ),
       faturado: faturadoDosRelatorios(relatorios, entrada.canal, periodo),
       procedencia: {
         parametros: "CADASTRO_DO_SISTEMA",

@@ -213,6 +213,7 @@ function lerViagem(bruta: LinhaDePlanilha, recusas: Recusa[]): Viagem | null {
 function lerDetalhe(bruta: LinhaDePlanilha): DetalheDaViagem {
   const numero = (coluna: string) => lerNumero(celula(bruta, coluna));
   const texto = (coluna: string) => comoTexto(bruta, coluna);
+  const marca = (coluna: string) => comoMarca(bruta, coluna);
 
   return {
     transportadora: texto("Transp"),
@@ -227,10 +228,15 @@ function lerDetalhe(bruta: LinhaDePlanilha): DetalheDaViagem {
     matriculaDoAjudante1: texto("MatricAjudante1"),
     matriculaDoAjudante2: texto("MatricAjudante2"),
 
-    veiculoIndisponivel: texto("VeiculoIndisp"),
-    placaIndisponivel: texto("PlacaIndisp"),
-    frotaIndisponivel: texto("FrotaIndisp"),
-    tipoDeIndisponibilidade: texto("TipoIndisp"),
+    /*
+      As quatro colunas da indisponibilidade passam por `comoMarca`, e não por
+      `texto`: duas delas são numéricas e escrevem **zero** para dizer "não há".
+      Ver `comoMarca` para o que isso custava.
+    */
+    veiculoIndisponivel: marca("VeiculoIndisp"),
+    placaIndisponivel: marca("PlacaIndisp"),
+    frotaIndisponivel: marca("FrotaIndisp"),
+    tipoDeIndisponibilidade: marca("TipoIndisp"),
 
     ocupacao: numero("Ocupacao"),
     caixasDeRota: numero("CxRota"),
@@ -278,6 +284,40 @@ function lerDetalhe(bruta: LinhaDePlanilha): DetalheDaViagem {
 /** O texto de uma coluna, sem espaço em volta. Vazio quando a coluna não veio. */
 function comoTexto(bruta: LinhaDePlanilha, coluna: string): string {
   return String(celula(bruta, coluna) ?? "").trim();
+}
+
+/**
+ * Uma marca que o 2Art escreve como **número** quando ela não existe.
+ *
+ * **O bug que isto conserta, e como ele passava.** O bloco da indisponibilidade
+ * tem quatro colunas: `PlacaIndisp` e `FrotaIndisp` são texto e chegam em
+ * branco quando não há indisponibilidade; `VeiculoIndisp` e `TipoIndisp` são
+ * numéricas e chegam com **zero**. `comoTexto` transformava esse zero em `"0"`,
+ * que é uma string não vazia — e `somarIndisponibilidade` conta como marcada
+ * toda viagem cujo tipo não é vazio. Resultado: **todas** as viagens entravam
+ * na linha `INDISPONIBILIDADE`.
+ *
+ * Não era pequeno. Nos arquivos reais de julho/2026 a linha somava
+ * R$ 308.411,01 na 1ª quinzena e R$ 328.169,46 na 2ª — que é o faturado inteiro
+ * da Rota, viagem por viagem —, onde o `RESUMO GERAL` imprime `R$ -` nas duas.
+ *
+ * **Por que só apareceu agora.** O caminho que exercita isto é o da importação
+ * de verdade; a reconciliação roda sobre as abas diárias da `.xlsb`, que não
+ * têm estas colunas, e os testes de unidade montavam a viagem com `""`. Um
+ * defeito que só existe entre o arquivo e o motor não é visível de nenhum dos
+ * dois lados.
+ *
+ * **O alcance do que se sabe, dito.** Nas 1.827 linhas das duas quinzenas
+ * conferidas `TipoIndisp` é `0` em todas, e a planilha confirma o zero. Não há,
+ * nesta competência, nenhuma viagem com indisponibilidade — então não se sabe
+ * como o 2Art escreve uma marca de verdade. O que esta função afirma é só o que
+ * está provado: `0` é ausência, do mesmo jeito que o branco é ausência nas duas
+ * colunas de texto ao lado. Um código numérico diferente de zero atravessa
+ * inteiro e vira marca, que é o comportamento certo se for esse o formato.
+ */
+function comoMarca(bruta: LinhaDePlanilha, coluna: string): string {
+  const texto = comoTexto(bruta, coluna);
+  return texto === "0" ? "" : texto;
 }
 
 /**
