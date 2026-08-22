@@ -1,6 +1,7 @@
 import { normalizarEquipamento } from "@workspace/curation/equipamento";
+import { TIPOS_DE_IMPORTACAO } from "@workspace/ingest/tipos";
 
-import { EQUIPAMENTOS, rotuloDoTipo } from "@/lib/frota";
+import { rotuloDoTipo } from "@/lib/frota";
 
 /**
  * As duas perguntas da fila de curadoria que não são desenho: "esta coluna já
@@ -40,29 +41,31 @@ export function estaDescrito(atributo: CamposDeSignificado): boolean {
 }
 
 /**
- * As abas fixas da curadoria: os mesmos três tipos que o resto do produto
- * conhece, na mesma ordem, lidos de `lib/frota.ts`.
+ * As abas fixas da curadoria: **tudo o que o produto importa**, na ordem em que
+ * a tela de Importações os oferece — cavalo, carreta, trecho e os dois QLP.
  *
- * A lista mora lá, e não aqui, porque duas listas dos mesmos três tipos
- * concordam hoje e discordam no dia do quarto: a Curadoria mostraria uma aba
- * que o 360° não tem, ou o contrário, e a divergência só apareceria quando
- * alguém procurasse a aba que falta. Aqui fica o que é da Curadoria — **que
- * elas aparecem mesmo vazias.**
+ * A lista sai de `@workspace/ingest/tipos`, e a escolha da autoridade é a
+ * decisão desta linha. Ela vinha de `lib/frota.ts`, que é a lista dos tipos com
+ * **tela 360°** — três —, e enquanto tudo o que se importava tinha tela as duas
+ * respostas coincidiam. O quadro de pessoal desfez a coincidência: ele entra
+ * por importação, traz coluna com nome que ninguém definiu, e não tem tela
+ * 360° nenhuma. Preso à lista de lá, `QLP_OPERACIONAL` só apareceria na
+ * curadoria depois de a primeira planilha dele entrar, e `QLP_ADMINISTRATIVO`
+ * aparecia como aba extra — com o nome do banco, em caixa alta, ao lado de
+ * `Cavalo` e `Carreta`. A pergunta que a Curadoria faz é "o que já foi
+ * importado e ainda não tem significado", e a lista do que se importa é
+ * `TIPOS_DE_IMPORTACAO`.
  *
-
+ * O que continua sendo desta tela é o que ela faz com eles: a ordem, a
+ * contagem, e — **que elas aparecem mesmo vazias.**
+ *
  * Isso é o que faz a tela dizer "não há coluna de trecho nesta base" em vez de
  * simplesmente não ter onde procurar por ela. Um tipo vazio custa uma aba com
  * zero e uma frase; um tipo que só existe quando há dado custa a dúvida de
  * saber se a base não tem a coluna ou se a tela não sabe mostrá-la.
- *
- * **A lista não é escrita aqui.** Ela era, com as mesmas três strings e os
- * mesmos três rótulos que `lib/frota.ts` já mantinha para as telas 360°, e as
- * duas cópias nasceram no mesmo dia por caminhos diferentes — que é exatamente
- * como uma discordância futura começa. Os tipos que o produto nomeia são um
- * conjunto só; o que continua sendo desta tela é o que ela faz com eles: a
- * ordem, a contagem, e a decisão de mostrar a aba vazia.
  */
-export const EQUIPAMENTOS_DA_CURADORIA: readonly string[] = EQUIPAMENTOS;
+export const EQUIPAMENTOS_DA_CURADORIA: readonly string[] =
+  TIPOS_DE_IMPORTACAO.map((tipo) => tipo.code);
 
 /** O mínimo de que as abas precisam de cada item da fila. */
 export interface ItemComEquipamento {
@@ -78,12 +81,12 @@ export interface AbaDeEquipamento {
 }
 
 /**
- * As abas a exibir: "Todos", as três fixas e o que mais a base trouxer.
+ * As abas a exibir: "Todos", as fixas e o que mais a base trouxer.
  *
  * A ordem é deliberada. As fixas vêm na ordem do produto — o cavalo primeiro,
- * porque é o equipamento de maior custo fixo e o que a tela abre —, e um quarto
- * tipo qualquer entra depois delas, em ordem alfabética, sem precisar de
- * mudança nenhuma aqui.
+ * porque é o equipamento de maior custo fixo e o que a tela abre —, e um tipo
+ * que não está na lista de importação entra depois delas, em ordem alfabética,
+ * sem precisar de mudança nenhuma aqui.
  *
  * O total é contado sobre a fila que está na tela, e não sobre a base inteira:
  * é ele que promete quantos cards a aba tem para mostrar, e uma aba escrita
@@ -130,6 +133,57 @@ export function abasDeEquipamento(
  * dia em que a tela mostraria 41 atributos e o arquivo sairia vazio.
  */
 export { normalizarEquipamento };
+
+/** O item da fila tal como as duas regras abaixo precisam dele. */
+export interface ItemDaFila extends ItemComEquipamento {
+  code: string;
+}
+
+/**
+ * De que equipamento é o atributo aberto — `undefined` quando a fila ainda não
+ * o tem.
+ *
+ * Os três estados são diferentes e as duas regras abaixo dependem da diferença:
+ * um tipo é resposta, `null` é "a linha veio sem tipo", e `undefined` é
+ * **ausência de resposta** — a fila ainda está carregando, ou o atributo está
+ * confirmado e o botão "Pendentes" o esconde. Decidir por `undefined` é decidir
+ * por falta de dado, que é como a aba acabava trocando sozinha.
+ */
+export function equipamentoDoAtributo(
+  itens: readonly ItemDaFila[],
+  code: string,
+): string | null | undefined {
+  const item = itens.find((i) => i.code === code);
+  return item === undefined ? undefined : normalizarEquipamento(item.entityType);
+}
+
+/**
+ * O endereço depois de um clique numa aba: **o clique manda.**
+ *
+ * A tela fazia o contrário e sem dizer. Com um atributo de cavalo aberto, o
+ * clique em Carreta escrevia `CARRETA` no endereço e um efeito o reescrevia
+ * para `CAVALO` antes da repintura — as abas Carreta, Trecho e QLP não
+ * selecionavam, e a única que parecia funcionar era a do atributo já aberto. O
+ * efeito existia por um motivo real (um link para `cavalo.ipva` com a aba
+ * `Carreta` no endereço mostrava um painel que a lista ao lado não continha),
+ * mas ele não distinguia o link torto do clique deliberado.
+ *
+ * Aqui a contradição se resolve pelo outro lado: a aba escolhida fica, e o
+ * atributo que não é dela sai da tela junto. Fecha só nesse caso — "Todos" e a
+ * aba do próprio atributo não tiram nada —, e um atributo que a fila não tem
+ * (`undefined`) fica onde está, porque em "Pendentes" a fila não traz os
+ * confirmados e fechá-lo apagaria justamente o que o link pediu.
+ */
+export function enderecoDaAba(
+  itens: readonly ItemDaFila[],
+  tipo: string | null,
+  atributo: string | null,
+): { equipamento: string | null; atributo: string | null } {
+  if (atributo === null || tipo === null) return { equipamento: tipo, atributo };
+  const doAtributo = equipamentoDoAtributo(itens, atributo);
+  const foraDaAba = doAtributo !== undefined && doAtributo !== tipo;
+  return { equipamento: tipo, atributo: foraDaAba ? null : atributo };
+}
 
 /** A fila da aba. Em "Todos" (`null`), a fila inteira. */
 export function filtrarPorEquipamento<T extends ItemComEquipamento>(

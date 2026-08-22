@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/dialog";
 import { fetchArquivo, getApiUrl, salvarArquivo } from "@/lib/api";
 import { apresentar } from "@/lib/apresentar-erro";
-import { rotuloDoTipo } from "@/lib/frota";
+import { rotuloEmFrase } from "@/lib/frota";
 import { cn } from "@/lib/utils";
 
 /**
@@ -244,7 +244,7 @@ export function PlanilhaDeAtributos({ equipamento }: PlanilhaDeAtributosProps) {
             ? "Montando a planilha…"
             : equipamento === null
               ? "Baixar modelo (.xlsx)"
-              : `Baixar modelo de ${rotuloDoTipo(equipamento).toLowerCase()} (.xlsx)`}
+              : `Baixar modelo de ${rotuloEmFrase(equipamento)} (.xlsx)`}
         </Button>
         <Button
           variant="outline"

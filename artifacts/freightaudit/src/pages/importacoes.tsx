@@ -44,6 +44,7 @@ import {
   type HistoricoDoArquivo,
   type PapelNoArquivo,
 } from "@/lib/importacoes";
+import { rotuloDoTipo } from "@/lib/frota";
 import { cn } from "@/lib/utils";
 
 /**
@@ -137,9 +138,15 @@ interface ImportRun {
   leiturasDoArquivo: number;
 }
 
-/** O rótulo humano de um tipo: "Cavalo", "QLP Administrativo". */
-const rotuloDoTipo = (code: string) =>
-  TIPOS_DE_IMPORTACAO.find((t) => t.code === code)?.rotulo ?? code;
+/*
+  O rótulo humano de um tipo — "Cavalo", "QLP Administrativo" — vem de
+  `@/lib/frota`, e não de uma busca escrita aqui.
+
+  Era uma busca escrita aqui, com o mesmo resultado, e a cópia ficou visível no
+  dia em que a Curadoria precisou do mesmo nome: as abas de lá diziam
+  `QLP_ADMINISTRATIVO` em caixa alta enquanto esta tela já escrevia
+  "QLP Administrativo". Um nome de tipo é um só no produto inteiro.
+*/
 
 /**
  * O que veio no arquivo desta importação — e, por isso, a que aba ela pertence.
