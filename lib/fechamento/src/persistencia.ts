@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { gunzipSync, gzipSync } from "node:zlib";
-import { and, desc, eq, inArray, ne, notInArray, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lte, ne, notInArray, sql } from "drizzle-orm";
 import type { Database } from "@workspace/db";
 import {
   fechamentoApuracaoTable,
@@ -2268,10 +2268,9 @@ export async function lerResumoDoMes(
     A disponibilidade é do **mês**, e por isso é lida uma vez, fora do laço, das
     competências todas. Ver `disponibilidadeDoMes`.
   */
-  const idsDoMes = competencias.map((c) => c.id);
   const dispDoMesPorCanal = new Map<Canal, DescontoDeDisponibilidadeDoMes | null>();
   for (const canal of CANAIS_COM_PAINEL) {
-    dispDoMesPorCanal.set(canal, await disponibilidadeDoMes(db, idsDoMes, canal));
+    dispDoMesPorCanal.set(canal, await disponibilidadeDoMes(db, competencias, canal));
   }
 
   const quinzenas: QuinzenaApurada[] = [];
@@ -2323,7 +2322,7 @@ export async function lerResumoDoMes(
       const contrato = leitura.resposta;
       if (!contrato) continue;
       cadastroUsado = { cadastroId: contrato.cadastroId, vigenteDe: contrato.vigenteDe };
-      const viagens = await viagensPorDia(db, c.id, canal);
+      const viagens = await viagensPorDia(db, c, canal);
       calculados.push({
         canal,
         mapa: montarMapaDaQuinzena({
@@ -2383,9 +2382,28 @@ export async function lerResumoDoMes(
  * daria outro número. É a mesma disciplina do `Mapa Rota`, que tem uma coluna
  * por dia justamente por isso.
  */
+/**
+ * As viagens de uma competência, agrupadas por dia — só as **do período dela**.
+ *
+ * **O corte por data não é redundante com o `competenciaId`, e a falta dele
+ * misturava quinzena.** O 2Art é exportado por mês e a competência é meio mês;
+ * a importação grava o arquivo inteiro, de propósito (ver
+ * `recusarOperacaoDeOutroPeriodo`, que só recusa quando **nenhuma** linha é do
+ * período — metade cair fora é o normal). Quem lê é que precisa cortar.
+ *
+ * A apuração sempre cortou (`resumirOperacao`, em `apuracao.ts`); esta leitura,
+ * que é a que alimenta o painel Devido × Demonstrado, não cortava. Um 2Art
+ * mensal enviado à 1ª quinzena fazia o `CUSTO VARIÁVEL` e a `INDISPONIBILIDADE`
+ * dela somarem os trinta e um dias — com o `DESCONTO` da mesma tela vindo do
+ * 03.08.20, que é guardado pelo período (`recusarPagamentoDeOutroPeriodo`) e
+ * traz só a quinzena. Metade da linha via o mês e a outra metade via a quinzena.
+ *
+ * O corte é no SQL, e não depois: linha que não entra na conta não precisa
+ * atravessar a rede.
+ */
 async function viagensPorDia(
   db: Database,
-  competenciaId: string,
+  competencia: { id: string; inicio: string; fim: string },
   canal: Canal,
 ): Promise<{ viagens: ViagemDoMapa[] }[]> {
   const linhas = await db
@@ -2408,8 +2426,11 @@ async function viagensPorDia(
     .from(fechamentoViagemTable)
     .where(
       and(
-        eq(fechamentoViagemTable.competenciaId, competenciaId),
+        eq(fechamentoViagemTable.competenciaId, competencia.id),
         eq(fechamentoViagemTable.canal, canal),
+        /* Ver o bloco acima: o `competenciaId` não basta. */
+        gte(fechamentoViagemTable.dia, competencia.inicio),
+        lte(fechamentoViagemTable.dia, competencia.fim),
       ),
     );
 
@@ -2488,10 +2509,20 @@ async function viagensPorDia(
  */
 async function disponibilidadeDoMes(
   db: Database,
-  competenciaIds: string[],
+  competencias: { id: string; inicio: string; fim: string }[],
   canal: Canal,
 ): Promise<DescontoDeDisponibilidadeDoMes | null> {
-  if (competenciaIds.length === 0) return null;
+  if (competencias.length === 0) return null;
+
+  /*
+    O mês, e só ele. A regra soma o 03.08.18 inteiro — mas "inteiro" é o mês da
+    competência, não o arquivo. O relatório pode vir com mais de um mês, e o
+    `competenciaId` sozinho não corta isso: quem grava não filtra por data, pelo
+    mesmo motivo do 2Art. Sem estes limites, um 03.08.18 de dois meses aplicaria
+    o desconto dos dois numa quinzena só.
+  */
+  const inicio = competencias.map((c) => c.inicio).sort()[0]!;
+  const fim = competencias.map((c) => c.fim).sort().at(-1)!;
   const linhas = await db
     .select({
       aba: fechamentoDisponibilidadeTable.tipoDeFrota,
@@ -2504,7 +2535,16 @@ async function disponibilidadeDoMes(
       total: fechamentoDisponibilidadeTable.descontoTotal,
     })
     .from(fechamentoDisponibilidadeTable)
-    .where(inArray(fechamentoDisponibilidadeTable.competenciaId, competenciaIds));
+    .where(
+      and(
+        inArray(
+          fechamentoDisponibilidadeTable.competenciaId,
+          competencias.map((c) => c.id),
+        ),
+        gte(fechamentoDisponibilidadeTable.dia, inicio),
+        lte(fechamentoDisponibilidadeTable.dia, fim),
+      ),
+    );
 
   /* Sem linha nenhuma o 03.08.18 do mês não veio — e aí é `null`, não zero. */
   if (linhas.length === 0) return null;
