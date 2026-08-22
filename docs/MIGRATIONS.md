@@ -106,6 +106,48 @@ Preso por `lib/db/src/__tests__/fila-com-reparo.test.ts`, que monta o banco
 daquele dia rodando a fila real até a `0048` numa pasta truncada — e não por DDL
 que imite o resultado.
 
+### Quando a fila está atrás e a tela diz "o servidor falhou" — 22/08/2026
+
+A janela entre o código e a fila é estrutural neste deploy: o servidor abre a
+porta e **depois** aplica as migrations, em segundo plano. Enquanto ela dura, a
+tela nova conversa com o banco velho. Para objeto ausente isso já estava
+resolvido — `faltaSchema` classifica `42P01`, `42703`, `42704`, `42883` e o
+`42P10` do `ON CONFLICT`, e a rota responde 503 com o diagnóstico do
+`/healthz`.
+
+Faltava a forma em que **o objeto está lá e é de antes**. A tela do fechamento
+passou a oferecer as duas casinhas do 03.08.18 — a `0055` separou
+`DISPONIBILIDADE_FF` de `DISPONIBILIDADE_VAN` —, o arquivo subiu inteiro, e o
+`check` de `fechamento_documento.tipo` naquele banco ainda era a lista sem os
+dois nomes. A coluna existe, a tabela existe: nenhum SQLSTATE de schema
+aparece. Sai `23514`, que não é classificado, e o corpo é o 500 genérico:
+
+> O servidor falhou ao processar este pedido. Nada foi gravado por esta chamada.
+
+Quem recebeu isso tem um arquivo perfeito na mão e nenhuma pista de que o que
+falta é uma migration.
+
+**O que decide não é o SQLSTATE — é a fila.** `23514` é, quase sempre, o
+oposto: um valor que a regra do domínio recusa de verdade, e tratá-lo como
+banco atrasado mandaria alguém rodar migrations por causa de um dado errado.
+`regraDeMigrationPendente` (`artifacts/api-server/src/lib/schema-ausente.ts`)
+pergunta se a constraint que recusou está entre as que uma migration
+**pendente neste banco** reescreve — `constraintsTocadasPor`, em
+`lib/db/src/reconvergencia.ts`, lendo o SQL da própria fila. Estando, a regra
+aplicada ali é comprovadamente uma versão anterior da que o build escreve, e o
+desfecho é o de sempre: 503, `MIGRATIONS_PENDENTES`, `pnpm --filter
+@workspace/db run migrate`. Não estando, nada muda. É a mesma disciplina do
+`42P10`: SQLSTATE ambíguo só vira schema ausente com a evidência que desfaz a
+ambiguidade.
+
+**O tell, para quem opera:** um envio que a tela recusa com "o servidor falhou"
+enquanto outro, da mesma tela, entra normalmente. O que separa os dois é a fila
+— o `/api/healthz` diz quantas migrations faltam, e aplicá-las é o conserto.
+
+Preso por `artifacts/api-server/src/routes/__tests__/fechamento-fila-atrasada.test.ts`,
+que monta o banco daquele dia — a fila real, com registro, parada na `0054` — e
+manda o 03.08.18 pela rota de verdade.
+
 ## Quem avança a fila só por ter subido
 
 A regra é uma: **os dois ambientes com banco próprio convergem pela fila ao

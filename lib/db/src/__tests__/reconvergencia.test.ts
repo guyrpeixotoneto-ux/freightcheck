@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import pg from "pg";
-import { runMigrations } from "../migrate";
+import { readMigrations, runMigrations } from "../migrate";
 import {
   comandoQueCriaTabela,
   constraintsDaFila,
+  constraintsTocadasPor,
   indicesDaFila,
   reconvergirSchema,
 } from "../reconvergencia";
@@ -96,6 +97,59 @@ describe("os levantadores devolvem a fila, nunca uma segunda redação", () => {
     expect(
       constraints.get("entity_expectation_entity_id_entity_id_fk")?.substituida,
     ).toBe(false);
+  });
+
+  /**
+   * A pergunta que separa "o valor está errado" de "a regra aqui é de antes".
+   *
+   * Quem a faz é a classificação de erro do servidor, com as migrations
+   * pendentes: uma `23514` sobre uma constraint que uma delas reescreve não é
+   * defeito do pedido — ver `regraDeMigrationPendente`, em
+   * `artifacts/api-server/src/lib/schema-ausente.ts`.
+   */
+  describe("as constraints que um pedaço da fila mexe", () => {
+    const so = (...tags: string[]) =>
+      constraintsTocadasPor(readMigrations().filter((m) => tags.includes(m.tag)));
+
+    it("a 0055 é nomeada como quem reescreve a lista fechada do documento", () => {
+      /*
+        O caso vivido: a tela oferecia `DISPONIBILIDADE_FF`, o banco ainda
+        aplicava a lista sem ele, e o envio morria em 23514. A 0055 derruba e
+        recria `fechamento_documento_tipo` — é isso que a torna a explicação.
+      */
+      expect(so("0055_disponibilidade_por_frota")).toContain(
+        "fechamento_documento_tipo",
+      );
+    });
+
+    it("uma migration que não encosta na constraint não a nomeia", () => {
+      /* Sem este lado, todo `check_violation` viraria "faltam migrations" —
+         que é mandar rodar a fila por causa de um dado errado. */
+      expect(so("0053_rastro_da_resposta")).not.toContain(
+        "fechamento_documento_tipo",
+      );
+    });
+
+    it("um recorte vazio da fila não toca constraint nenhuma", () => {
+      expect(constraintsTocadasPor([]).size).toBe(0);
+    });
+
+    it("enxerga as duas formas que a fila usa, e o DROP também", () => {
+      /* O bloco reentrante que a fila escreve desde a 0028 (`DO $$ …
+         pg_constraint …`) conta como mexer, do mesmo jeito que o `ALTER TABLE
+         … ADD CONSTRAINT` direto. */
+      expect(so("0032_universo_esperado")).toContain(
+        "entity_expectation_entity_id_entity_id_fk",
+      );
+      /* A 0055 nomeia a constraint pelo DROP **e** pelo ADD: reescrever é as
+         duas coisas, e reconhecer só uma deixaria de fora a migration que
+         apenas remove uma regra velha. */
+      expect(
+        readMigrations()
+          .find((m) => m.tag === "0055_disponibilidade_por_frota")!
+          .statements.filter((s) => /drop\s+constraint/i.test(s)).length,
+      ).toBeGreaterThan(0);
+    });
   });
 });
 

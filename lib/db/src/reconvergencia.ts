@@ -219,6 +219,46 @@ export function constraintsDaFila(
 }
 
 /**
+ * Os nomes de constraint em que estas migrations mexem — criam, removem ou
+ * reescrevem.
+ *
+ * `constraintsDaFila` responde o que **fica de pé no fim**, e é a pergunta da
+ * reconvergência. Esta responde outra: *quais regras este pedaço da fila
+ * mudaria se rodasse?* — e a diferença é o que separa "o banco recusou porque
+ * o valor está errado" de "o banco recusou porque aplica a regra de antes".
+ *
+ * Quem pergunta é a classificação de erro do servidor (ver `faltaSchema` e
+ * `regraDeMigrationPendente`, em `artifacts/api-server`), com as migrations
+ * **pendentes** neste banco: uma `23514` sobre uma constraint que uma delas
+ * reescreve não é defeito do pedido, é a fila que ainda não chegou aqui.
+ *
+ * As três formas reconhecidas são as mesmas de `constraintsDaFila`, e de
+ * propósito: duas leituras do mesmo SQL que divergissem na forma que
+ * reconhecem produziriam duas respostas sobre a mesma migration.
+ */
+export function constraintsTocadasPor(migrations: MigrationFile[]): Set<string> {
+  const nomes = new Set<string>();
+  for (const m of migrations) {
+    for (const bruto of m.statements) {
+      const comando = semComentarioDeAbertura(bruto);
+      const inteira = ADD_CONSTRAINT.exec(comando);
+      if (inteira) {
+        nomes.add(inteira[2]!);
+        continue;
+      }
+      const reentrante = CONSTRAINT_REENTRANTE.exec(comando);
+      if (reentrante) {
+        nomes.add(reentrante[1]!);
+        continue;
+      }
+      const removida = DROP_CONSTRAINT.exec(comando);
+      if (removida) nomes.add(removida[2]!);
+    }
+  }
+  return nomes;
+}
+
+/**
  * O bloco reentrante de trigger, como a fila o escreve desde a `0001`.
  *
  * Reconhece só a forma exata — um `DO` cuja substância é a guarda de

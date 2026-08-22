@@ -394,6 +394,93 @@ describe("o banco a que falta parte do schema", () => {
     expect(diagnostico.acao.codigo).toBe("CONFERIR_SCHEMA");
     expect(diagnostico.risco.emRisco).toBe(false);
   });
+
+  /**
+   * A mesma falta, na forma que ela tem quando o objeto **está** lá e é velho.
+   *
+   * O caso de 22/08/2026: a tela do fechamento oferecia as duas casinhas do
+   * 03.08.18 — a `0055` separou `DISPONIBILIDADE_FF` de `DISPONIBILIDADE_VAN`
+   * —, o envio chegou e o `check` de `fechamento_documento.tipo` o recusou,
+   * porque naquele banco a `0055` ainda não tinha rodado. Nenhum SQLSTATE de
+   * `SCHEMA_AUSENTE` aparece nesse caminho: a coluna existe, a tabela existe,
+   * e o que é de antes é a lista de valores que ela admite. A resposta era o
+   * 500 genérico, que manda procurar defeito num arquivo perfeito.
+   */
+  describe("a regra fechada que é de antes deste build", () => {
+    const recusaDoCheck = (constraint: string) =>
+      erroDoDrizzle(
+        "23514",
+        `new row for relation "fechamento_documento" violates check constraint "${constraint}"`,
+        { constraint },
+      );
+
+    const filaAtrasada = () =>
+      observarBanco.mockResolvedValue({
+        configurada: true,
+        alcancavel: true,
+        aplicadas: 55,
+        pendentes: ["0055_disponibilidade_por_frota"],
+      });
+
+    it("responde 503 e manda aplicar a fila, e não procurar defeito no arquivo", async () => {
+      filaAtrasada();
+
+      const { status, body } = await respostaPara(
+        recusaDoCheck("fechamento_documento_tipo"),
+      );
+
+      expect(status).toBe(503);
+      expect(body["code"]).toBe("SCHEMA_AUSENTE");
+      const diagnostico = body["diagnostico"] as {
+        estado: string;
+        acao: { codigo: string };
+      };
+      expect(diagnostico.estado).toBe("MIGRATIONS_PENDENTES");
+      expect(diagnostico.acao.codigo).toBe("APLICAR_MIGRATIONS");
+      exigirRespostaLimpa(body);
+    });
+
+    it("o contexto nomeia a regra velha, e absolve quem enviou", async () => {
+      filaAtrasada();
+
+      const { body } = await respostaPara(
+        recusaDoCheck("fechamento_documento_tipo"),
+      );
+      const contexto = body["contexto"] as string;
+
+      expect(contexto).toContain("fechamento_documento_tipo");
+      expect(contexto).toMatch(/nada foi gravado/i);
+      /* Recomendação nenhuma sai da rota: quem recomenda é o diagnóstico. */
+      expect(contexto).not.toMatch(/pnpm|reinici|suba o servidor/i);
+    });
+
+    it("o check que nenhuma migration pendente reescreve continua 500", async () => {
+      /*
+        O outro `23514`, e o comum: um valor que a regra do domínio recusa.
+        Classificá-lo como banco atrasado mandaria rodar migrations por causa
+        de um dado errado — o espelho exato do erro que esta camada evita.
+      */
+      filaAtrasada();
+
+      const { status, body } = await respostaPara(
+        recusaDoCheck("ticket_status_ck"),
+      );
+
+      expect(status).toBe(500);
+      expect(body["code"]).toBe(CODIGO_ERRO_INTERNO);
+      expect(JSON.stringify(body)).not.toMatch(/migration/i);
+    });
+
+    it("com a fila em dia, nenhum check_violation vira falta de schema", async () => {
+      /* O `beforeEach` já deixa o banco sem pendência: é o estado normal, e
+         nele um 23514 é o que sempre foi. */
+      const { status } = await respostaPara(
+        recusaDoCheck("fechamento_documento_tipo"),
+      );
+
+      expect(status).toBe(500);
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
