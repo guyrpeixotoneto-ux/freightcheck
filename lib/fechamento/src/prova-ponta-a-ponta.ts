@@ -110,6 +110,9 @@ export function diarioPorDia(
         d?.caixasDeRota === null || d?.caixasDeRota === undefined
           ? null
           : Number(d.caixasDeRota),
+      /* O segundo termo do corte do canal — ver `ehDaRota`, em `mapa-rota.ts`. */
+      caixasDeAs:
+        d?.caixasDeAs === null || d?.caixasDeAs === undefined ? null : Number(d.caixasDeAs),
       tipoDeIndisponibilidade: d?.tipoDeIndisponibilidade ?? "",
     });
     porDia.set(v.dia, doDia);

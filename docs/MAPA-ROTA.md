@@ -432,21 +432,25 @@ razão escrita — em vez de vazia por falta de bloco.
 As demais bases seguem entrando no motor como parâmetro (`BasesDaQuinzena`), com
 o mesmo tratamento de ausência: `null`, nunca zero.
 
-## O corte que faltava no diário: `CxRota > 0`
+## O corte do canal no diário: `NÃO(CxRota = 0 E CxAS > 0)`
 
-O 2Art traz numa lista só as viagens da **Rota** e as do **AS**, e a coluna que
-as separa é `CxRota`: a viagem de AS vem com `CxRota = 0` e `CxAS > 0`. O motor
-somava as duas.
+O 2Art traz numa lista só as viagens da **Rota** e as do **AS**. O motor somava
+as duas, e o efeito não era pequeno.
 
 Conferido linha a linha contra as abas diárias `01`..`31` da `.xlsb`, que são o
 2Art já filtrado: das dezoito viagens que a planilha descartou no mês, as
-dezesseis de frota padrão têm `CxRota = 0` e `CxAS > 0`. Nenhuma exceção.
+dezesseis de frota padrão têm `CxRota = 0` **e `CxAS > 0`**. Nenhuma exceção.
+
+> **A regra é uma conjunção, e o código implementou só um termo.** Por duas
+> versões o corte foi `CxRota > 0`, e `ViagemDoMapa` nem carregava `CxAS` — a
+> regra que este documento verificou era impossível de escrever. Custou
+> R$ 1.727,06 na 2ª quinzena. Ver a seção seguinte.
 
 O efeito, em julho/2026:
 
 | Linha | sem o corte (1ª) | com o corte (1ª) | sem o corte (2ª) | com o corte (2ª) |
 |---|---:|---:|---:|---:|
-| Custo Variável (Frota Fixa) | +2.540,23 | **+0,01** | +2.006,25 | −1.723,03 |
+| Custo Variável (Frota Fixa) | +2.540,23 | **+0,01** | +2.006,25 | **−81,01** |
 | Custo Variável (Extra e Spot) | +38.473,58 | **+0,05** | +47.098,45 | **+0,06** |
 | Vans | **0,00** | **0,00** | **0,00** | **0,00** |
 | Recarga e Noturna | −6.344,78 | −6.344,78 | **0,00** | **0,00** |
@@ -454,17 +458,87 @@ O efeito, em julho/2026:
 *(diferença contra o `RESUMO GERAL`; `somarVariavel`, com `ValorFaturado` do
 próprio 2Art e o valor médio do veículo do cadastro)*
 
+### O terceiro caso: a viagem de Rota que rodou vazia
+
+`CxRota = 0` sozinho funde dois casos opostos:
+
+| caso | `CxRota` | `CxAS` | é deste mapa? |
+| --- | ---: | ---: | --- |
+| viagem de Rota que entregou | `> 0` | qualquer | **sim** |
+| viagem de AS | `0` | `> 0` | **não** — é do outro canal |
+| viagem de Rota que rodou vazia | `0` | `0` | **sim** — rodou, e mapa fechado é mapa |
+
+O terceiro caso é real e é dinheiro. Em julho/2026 são **seis** viagens, todas
+com `Entrega = Rota`, frota `Padrao`, `StMapa = Pago` e a tarifa cheia de
+R$ 289,02:
+
+| Dia | Veículo | `CxRota` | `CxAS` | Imposto | Faturado |
+|---|---:|---:|---:|---|---:|
+| 23/07 | 223 | 0 | 0 | CTRC-ICMS | 289,02 |
+| 23/07 | 404 | 0 | 0 | CTRC-ICMS | 289,02 |
+| 23/07 | 693 | 0 | 0 | CTRC-ICMS | 289,02 |
+| 28/07 | 223 | 0 | 0 | CTRC-ICMS | 289,02 |
+| 28/07 | 404 | 0 | 0 | CTRC-ICMS | 289,02 |
+| 28/07 | 693 | 0 | 0 | CTRC-ICMS | 289,02 |
+
+O veículo saiu, o mapa fechou e a viagem foi paga; ela só não entregou caixa
+nenhuma. A `.xlsb` as conta como mapa, e está certa: a remuneração da frota fixa
+é por **mapa fechado**, não por caixa entregue.
+
+Como as seis são `CTRC-ICMS`, o efeito fecha por dois caminhos independentes:
+
+```
+motor com o corte largo  ....................  186.000,42
+motor com o corte correto ...................  187.727,49
+efeito .......................................   1.727,06
+6 × (1 ÷ 0,7291) × (5.246,67 ÷ 25) ..........   1.727,06
+```
+
+> **Corrigido.** Este documento afirmava: *"nos dias 23 e 28 a planilha conta 3
+> mapas a mais do que a aba do dia tem linhas — não é o filtro, as linhas não
+> estão lá. Ou o 2Art da planilha era outro snapshot, ou alguém somou à mão."*
+> As linhas **estão** no 2Art, e era o filtro. Não há snapshot divergente nem
+> soma manual.
+
+### Por que a 1ª quinzena nunca acusou o defeito
+
+Não existe nenhuma viagem de Rota com `CxRota = 0` e `CxAS = 0` nos dias 1 a 15.
+O efeito do corte ali é **R$ 0,00**: a 1ª quinzena fechava por ausência do caso,
+não por acerto da regra. É o modo de falhar mais caro que existe — o gate que
+impede a repetição está em `__tests__/corte-do-canal.test.ts`, e ele prende os
+três casos separadamente, justamente porque um teste que só usasse `CxRota = 0`
+passava com a regra errada.
+
+### R$ 1.727,06 e não R$ 1.723,03 — a diferença de R$ 4,03
+
+As duas medidas são do mesmo defeito, com bases diferentes:
+
+- **R$ 1.723,03** — o motor rodado sobre as **abas diárias da `.xlsb`**, que
+  carregam o rateio quebrado do dia 27 (colunas `BM`/`BN` não arrastadas).
+- **R$ 1.727,06** — o motor rodado sobre o **2Art cru**, cujo rateio é o
+  verdadeiro.
+
+As seis viagens mudam a contagem de mapas do dia, e a contagem entra no rateio
+ISS/ICMS; com o rateio quebrado do dia 27 no meio, o mesmo efeito mede R$ 4,03
+a menos. O número que vale é **R$ 1.727,06**, porque é o efeito puro do filtro,
+conferido por dois caminhos — e é ele que está preso no teste.
+
+### Por que não `Entrega = 'Rota'`, que a coluna declara em letra
+
+Nesta competência `NÃO(CxRota = 0 E CxAS > 0)`, `Entrega = 'Rota'` e `CxAS = 0`
+concordam em **1.827 de 1.827** linhas, e as três reproduzem a contagem de mapas
+da `.xlsb` em 31 de 31 dias. Concordância numa amostra não é razão para trocar a
+regra que foi de fato verificada contra a planilha — e o defeito aqui nasceu
+exatamente de trocar a regra verificada por uma versão mais curta dela. `Entrega`
+segue disponível no detalhe da viagem para quem quiser conferir.
+
 ### O que é um "mapa fechado"
 
 A contagem que multiplica o valor médio do veículo é de linhas com
-`FROTA = Padrao` e `CARGA ATUAL` **diferente de** `Recarga` e `Noturna` — que
-carregaram caixa de Rota. Recarga e noturna não fecham mapa: têm linha própria.
-
-A regra reproduz a contagem da planilha em 27 dos 29 dias com movimento. Nos
-dias **23 e 28** a planilha conta 3 mapas a mais do que a aba do dia tem linhas
-— não é o filtro, as linhas não estão lá. Ou o 2Art da planilha era outro
-snapshot, ou alguém somou à mão; vale R$ 1.723,03 na 2ª quinzena, e está na
-lista de inconsistências.
+`FROTA = Padrao` e `CARGA ATUAL` **diferente de** `Recarga` e `Noturna`, que não
+sejam do canal AS. Recarga e noturna não fecham mapa: têm linha própria. Com o
+corte correto, a regra reproduz a contagem da planilha em **31 dos 31** dias com
+movimento.
 
 ### O que continua aberto
 

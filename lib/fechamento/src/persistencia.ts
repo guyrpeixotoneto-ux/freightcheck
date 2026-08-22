@@ -2377,8 +2377,13 @@ async function viagensPorDia(
       cargaAtual: fechamentoViagemTable.cargaAtual,
       tipoDeImposto: fechamentoViagemTable.tipoDeImposto,
       valorFaturado: fechamentoViagemTable.valorFaturado,
-      /* Separa a viagem da Rota da viagem de AS — ver `ehDaRota` no motor. */
+      /*
+        Separam a viagem da Rota da viagem de AS — e só **juntas**: `CxRota = 0`
+        sozinho confunde a viagem de AS com a viagem de Rota que rodou vazia.
+        Ver `ehDaRota` no motor.
+      */
       caixasDeRota: fechamentoViagemTable.caixasDeRota,
+      caixasDeAs: fechamentoViagemTable.caixasDeAs,
       /* A marca que faz a viagem entrar na linha `INDISPONIBILIDADE` do fixo. */
       tipoDeIndisponibilidade: fechamentoViagemTable.tipoDeIndisponibilidade,
     })
@@ -2401,6 +2406,7 @@ async function viagensPorDia(
       valorFaturado: Number(l.valorFaturado ?? 0),
       /* `null` atravessa: coluna ausente não é "carregou zero caixa de Rota". */
       caixasDeRota: l.caixasDeRota === null ? null : Number(l.caixasDeRota),
+      caixasDeAs: l.caixasDeAs === null ? null : Number(l.caixasDeAs),
       tipoDeIndisponibilidade: l.tipoDeIndisponibilidade ?? "",
     });
     porDia.set(dia, doDia);

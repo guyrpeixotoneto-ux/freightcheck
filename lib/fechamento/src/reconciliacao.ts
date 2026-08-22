@@ -331,11 +331,12 @@ function desagrupar(dia: DiaDaPlanilha): ViagemDoMapa[] {
   for (const [frota, cargaAtual, tipoDeImposto, valorFaturado, quantidade] of dia.viagens) {
     for (let i = 0; i < quantidade; i += 1) {
       /*
-        `caixasDeRota: null` — a amostra sai das abas diárias da própria `.xlsb`,
-        que já são o 2Art **filtrado**: a viagem de AS não chega até lá. Pôr um
-        número aqui fingiria uma coluna que a amostra não tem; `null` diz o que
-        é verdade — não se sabe, e por isso a viagem conta, que é o certo para
-        uma lista de onde o AS já saiu. Ver `ehDaRota` em `mapa-rota.ts`.
+        `caixasDeRota` e `caixasDeAs` em `null` — a amostra sai das abas diárias
+        da própria `.xlsb`, que já são o 2Art **filtrado**: a viagem de AS não
+        chega até lá. Pôr um número aqui fingiria colunas que a amostra não tem;
+        `null` diz o que é verdade — não se sabe, e por isso a viagem conta, que
+        é o certo para uma lista de onde o AS já saiu. Ver `ehDaRota` em
+        `mapa-rota.ts`.
       */
       /*
         `tipoDeIndisponibilidade: ""` é inerte nesta prova, e não uma afirmação
@@ -349,6 +350,7 @@ function desagrupar(dia: DiaDaPlanilha): ViagemDoMapa[] {
         tipoDeImposto,
         valorFaturado,
         caixasDeRota: null,
+        caixasDeAs: null,
         tipoDeIndisponibilidade: "",
       });
     }

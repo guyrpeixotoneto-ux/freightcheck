@@ -524,10 +524,24 @@ export interface ViagemDoMapa {
   /**
    * As caixas de **Rota** que a viagem carregou — a coluna `CxRota` do 2Art.
    *
-   * É o que separa a viagem deste mapa da viagem que rodou AS. `null` quando o
-   * diário não trouxe a coluna: ver {@link ehDaRota}.
+   * É metade do que separa a viagem deste mapa da viagem que rodou AS. A outra
+   * metade é {@link caixasDeAs}, e as duas só decidem juntas: ver
+   * {@link ehDaRota}. `null` quando o diário não trouxe a coluna.
    */
   caixasDeRota: number | null;
+  /**
+   * As caixas de **AS** que a viagem carregou — a coluna `CxAS` do 2Art.
+   *
+   * **Sem ela o corte do canal não é o corte do canal.** `CxRota = 0` sozinho
+   * confunde duas coisas opostas: a viagem que rodou AS (e não é deste mapa) e
+   * a viagem de Rota que rodou e não entregou nada (que é deste mapa e conta
+   * como mapa fechado). O que as separa é justamente esta coluna. Ver
+   * {@link ehDaRota} para o custo de ter confundido as duas.
+   *
+   * `null` quando o diário não trouxe a coluna, com o mesmo sentido de
+   * `caixasDeRota`: não se sabe, e o desconhecido não exclui.
+   */
+  caixasDeAs: number | null;
   /**
    * O motivo da indisponibilidade, como o 2Art o classifica — `TipoIndisp`.
    *
@@ -547,27 +561,56 @@ const semAcento = (t: string) =>
   t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
 
 /**
- * A viagem carregou caixa de Rota — e por isso pertence a este mapa.
+ * A viagem é deste mapa — ou seja, **não** é uma viagem de AS.
  *
- * **É o corte que faltava, e ele é do canal, não do tipo de frota.** O 2Art
- * traz numa lista só as viagens da Rota e as do AS, e a coluna que as separa é
- * `CxRota`: a viagem de AS vem com `CxRota = 0` e `CxAS > 0`. Sem este filtro o
- * `Mapa Rota` somava as duas, e o efeito não era pequeno — em julho/2026 o
- * `Custo Variável (Extra e Spot)` saía R$ 38.473,58 acima do que a planilha
- * fecha na 1ª quinzena, e R$ 47.098,45 acima na 2ª. Com o filtro, as duas
- * quinzenas batem ao centavo.
+ * **É o corte do canal, não do tipo de frota.** O 2Art traz numa lista só as
+ * viagens da Rota e as do AS. Sem filtro nenhum o `Mapa Rota` somava as duas, e
+ * o efeito não era pequeno: em julho/2026 o `Custo Variável (Extra e Spot)`
+ * saía R$ 38.473,58 acima do que a planilha fecha na 1ª quinzena e R$ 47.098,45
+ * acima na 2ª.
  *
- * Conferido linha a linha contra as abas diárias da `.xlsb`: das dezoito
- * viagens que a planilha descartou no mês inteiro, as dezesseis de frota padrão
- * têm `CxRota = 0` e `CxAS > 0`. Nenhuma exceção.
+ * **A regra é uma conjunção, e implementá-la como um termo só custou dinheiro.**
+ * A verificação contra as abas diárias da `.xlsb` sempre disse isto: das dezoito
+ * viagens que a planilha descartou no mês, as dezesseis de frota padrão têm
+ * `CxRota = 0` **e** `CxAS > 0`. O código, porém, testava só `CxRota > 0` — e
+ * `ViagemDoMapa` nem carregava `CxAS`, de modo que a regra verificada era
+ * impossível de escrever. O termo que faltava não é decorativo: ele separa dois
+ * casos opostos que `CxRota = 0` funde num só.
  *
- * **`null` conta como da Rota, e é a escolha certa.** Um diário antigo, sem a
- * coluna, não deve perder todas as viagens de uma vez — isso trocaria um erro
- * de mais por um erro de tudo. O que a coluna ausente custa é a separação, e
- * ela aparece como divergência contra o demonstrativo, que é onde se vê.
+ * | caso | `CxRota` | `CxAS` | é deste mapa? |
+ * | --- | ---: | ---: | --- |
+ * | viagem de Rota que entregou | `> 0` | qualquer | **sim** |
+ * | viagem de AS | `0` | `> 0` | **não** — é do outro canal |
+ * | viagem de Rota que rodou vazia | `0` | `0` | **sim** — rodou, e mapa fechado é mapa |
+ *
+ * O terceiro caso é real e é dinheiro: em julho/2026 são **seis** viagens de
+ * `Entrega = Rota`, frota `Padrao`, `StMapa = Pago`, tarifa cheia de R$ 289,02,
+ * nos dias 23 e 28 — veículos 223, 404 e 693. O veículo saiu, o mapa fechou, e
+ * não entregou caixa nenhuma. A `.xlsb` as conta como mapa (o que é certo: a
+ * remuneração da frota fixa é por mapa fechado, não por caixa entregue), e o
+ * corte largo as jogava fora. Custou **R$ 1.727,06** no `CUSTO VARIÁVEL (FROTA
+ * FIXA)` da 2ª quinzena — todas as seis são `CTRC-ICMS`, então a conta fecha em
+ * `6 × (1 ÷ divisor de fora) × valor médio do veículo`, ao centavo.
+ *
+ * **Por que a 1ª quinzena nunca acusou o defeito:** não há nenhuma viagem de
+ * Rota com `CxRota = 0` e `CxAS = 0` nos dias 1 a 15. O efeito do filtro ali é
+ * R$ 0,00 — ela fechava por ausência do caso, não por acerto da regra. É o
+ * modo de falhar mais caro que existe, e o gate está em
+ * `__tests__/corte-do-canal.test.ts`.
+ *
+ * **Por que não `Entrega = 'Rota'`, que a coluna declara em letra.** Porque
+ * nesta competência as duas concordam em 1.827 de 1.827 linhas, e concordância
+ * numa amostra não é razão para trocar a regra que foi de fato verificada
+ * contra a planilha. `Entrega` continua disponível no detalhe da viagem para
+ * quem quiser conferir.
+ *
+ * **`null` não exclui.** Um diário antigo, sem as colunas, não deve perder
+ * todas as viagens de uma vez — isso trocaria um erro de mais por um erro de
+ * tudo. O que a coluna ausente custa é a separação, e ela aparece como
+ * divergência contra o demonstrativo, que é onde se vê.
  */
 function ehDaRota(v: ViagemDoMapa): boolean {
-  return v.caixasDeRota === null || v.caixasDeRota > 0;
+  return !(v.caixasDeRota === 0 && (v.caixasDeAs ?? 0) > 0);
 }
 
 /** A viagem é de frota fixa padrão — nem recarga, nem noturna, nem agregado. */

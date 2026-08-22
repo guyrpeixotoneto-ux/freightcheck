@@ -175,6 +175,8 @@ describe("o lado variável, somado do diário", () => {
     valorFaturado: 0,
     /* Carregou caixa de Rota — o padrão, porque a viagem de AS é a exceção. */
     caixasDeRota: 100,
+    /* Nenhuma caixa de AS: o corte do canal só exclui quando esta é > 0. */
+    caixasDeAs: 0,
     /* Sem marca de indisponibilidade — o padrão, porque ela é a exceção. */
     tipoDeIndisponibilidade: "",
     ...p,
@@ -182,23 +184,27 @@ describe("o lado variável, somado do diário", () => {
 
   it("a viagem que rodou AS não entra em nenhuma das quatro parcelas", () => {
     /*
-      O 2Art traz Rota e AS numa lista só, e a de AS vem com `CxRota = 0`. Em
-      julho/2026 são dezoito viagens no mês — todas as dezesseis de frota padrão
-      com `CxAS > 0` —, e sem este corte o agregado da 1ª quinzena saía
-      R$ 38.473,58 acima do que a planilha fecha.
+      O 2Art traz Rota e AS numa lista só, e a de AS vem com `CxRota = 0` **e
+      `CxAS > 0`**. Em julho/2026 são dezoito viagens no mês — todas as
+      dezesseis de frota padrão com essa marca —, e sem este corte o agregado da
+      1ª quinzena saía R$ 38.473,58 acima do que a planilha fecha.
+
+      Os dois termos entram aqui de propósito: com `caixasDeRota: 0` sozinho
+      este teste passava mesmo com o corte largo, que era o defeito. Ver
+      `corte-do-canal.test.ts` para o terceiro caso, que é o que ele custava.
     */
     const comAs = somarVariavel(
       [
         {
           viagens: [
             viagem({ valorFaturado: 283.04 }),
-            viagem({ caixasDeRota: 0, valorFaturado: 283.04 }),
+            viagem({ caixasDeRota: 0, caixasDeAs: 500, valorFaturado: 283.04 }),
             viagem({ frota: "Spot", valorFaturado: 848.36 }),
-            viagem({ frota: "Spot", caixasDeRota: 0, valorFaturado: 848.36 }),
+            viagem({ frota: "Spot", caixasDeRota: 0, caixasDeAs: 500, valorFaturado: 848.36 }),
             viagem({ frota: "Fixo", valorFaturado: 123.71 }),
-            viagem({ frota: "Fixo", caixasDeRota: 0, valorFaturado: 123.71 }),
+            viagem({ frota: "Fixo", caixasDeRota: 0, caixasDeAs: 500, valorFaturado: 123.71 }),
             viagem({ cargaAtual: "Recarga", valorFaturado: 163.95 }),
-            viagem({ cargaAtual: "Recarga", caixasDeRota: 0, valorFaturado: 163.95 }),
+            viagem({ cargaAtual: "Recarga", caixasDeRota: 0, caixasDeAs: 500, valorFaturado: 163.95 }),
           ],
         },
       ],
@@ -218,7 +224,7 @@ describe("o lado variável, somado do diário", () => {
     expect(comAs.frotaFixa).toBe(284);
   });
 
-  it("diário sem a coluna CxRota não perde viagem nenhuma", () => {
+  it("diário sem as colunas CxRota/CxAS não perde viagem nenhuma", () => {
     /*
       `null` não é zero. Um diário antigo, sem a coluna, deve continuar somando
       tudo — perder todas as viagens de uma vez trocaria um erro de mais por um
@@ -226,7 +232,7 @@ describe("o lado variável, somado do diário", () => {
       como divergência contra o demonstrativo.
     */
     const semColuna = somarVariavel(
-      [{ viagens: [viagem({ frota: "Spot", caixasDeRota: null, valorFaturado: 848.36 })] }],
+      [{ viagens: [viagem({ frota: "Spot", caixasDeRota: null, caixasDeAs: null, valorFaturado: 848.36 })] }],
       JULHO_2026[1],
       5176.53,
     );

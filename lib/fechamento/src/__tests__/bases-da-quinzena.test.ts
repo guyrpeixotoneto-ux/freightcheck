@@ -44,6 +44,7 @@ const viagem = (p: Partial<ViagemDoMapa> = {}): ViagemDoMapa => ({
   tipoDeImposto: "CTRC-ICMS",
   valorFaturado: 0,
   caixasDeRota: 100,
+  caixasDeAs: 0,
   tipoDeIndisponibilidade: "",
   ...p,
 });
@@ -135,7 +136,12 @@ describe("a indisponibilidade sai do 2Art", () => {
   it("a viagem que rodou AS não entra — o corte é o mesmo do variável", () => {
     const diario = diarioDe(
       viagem({ valorFaturado: 400, tipoDeIndisponibilidade: "Manutenção" }),
-      viagem({ valorFaturado: 900, tipoDeIndisponibilidade: "Manutenção", caixasDeRota: 0 }),
+      viagem({
+        valorFaturado: 900,
+        tipoDeIndisponibilidade: "Manutenção",
+        caixasDeRota: 0,
+        caixasDeAs: 500,
+      }),
     );
 
     const b = basesDaQuinzena(DESCONTOS_2A, ROTA, diario, null);
