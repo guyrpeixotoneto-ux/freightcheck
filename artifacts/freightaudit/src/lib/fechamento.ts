@@ -912,6 +912,35 @@ export interface LimiteDaAfericao {
 }
 
 /**
+ * Se **dá para aferir** — a pergunta que vem antes de qualquer percentual.
+ *
+ * `COMPLETO` é o único estado em que a precisão existe. `INCOMPLETO` é
+ * fechamento com relatório faltando: a tela mostra traço e a lista do que
+ * falta, **em âmbar** — é pendência de importação, não erro financeiro.
+ * `NAO_APLICAVEL` é não haver o que conferir.
+ */
+export type Completude = "COMPLETO" | "INCOMPLETO" | "NAO_APLICAVEL";
+
+/** Uma fonte que falta, com o endereço que quem importa precisa para agir. */
+export interface FonteFaltante {
+  tipo: string;
+  quinzena: 1 | 2;
+  /** `2Art`, `03.08.20` — como quem opera a chama. */
+  rotina: string;
+  nome: string;
+  /** `NAO_IMPORTADO` pede upload; `QUINZENA_NAO_ABERTA` pede abrir a competência. */
+  motivo: "NAO_IMPORTADO" | "QUINZENA_NAO_ABERTA";
+}
+
+export interface Aferibilidade {
+  completude: Completude;
+  /** As fontes esperadas que não chegaram. Vazia quando `COMPLETO`. */
+  faltando: FonteFaltante[];
+  /** A frase que a tela mostra no lugar do percentual. `null` quando `COMPLETO`. */
+  porque: string | null;
+}
+
+/**
  * Precisão e lastro de um canal — **derivados, nunca digitados**.
  *
  * `precisao` responde *do dinheiro que o sistema conseguiu conferir, quanto
@@ -926,11 +955,24 @@ export interface LimiteDaAfericao {
  */
 export interface Afericao {
   canal: string;
+  /**
+   * Dá para aferir cada coluna? — e o que falta quando não dá.
+   *
+   * É daqui que sai a diferença entre o vermelho de divergência real e o âmbar
+   * de fechamento incompleto. Sem ela, a tela pintava de vermelho um mês que só
+   * estava pela metade.
+   */
+  aferibilidade: { primeira: Aferibilidade; segunda: Aferibilidade; total: Aferibilidade };
   movimentado: TresColunas;
   comContrapartida: TresColunas;
   comLastroCruzado: TresColunas;
   naoExplicado: TresColunas;
-  /** Entre 0 e 1. `null` quando nada foi conferido — indefinida, e não zero. */
+  /**
+   * Entre 0 e 1. **`null` sempre que a coluna não é aferível** — nunca zero.
+   *
+   * Zero afirma que a conta está errada; traço afirma que ela não foi feita.
+   * Confundir as duas foi o defeito que esta versão conserta.
+   */
   precisao: TresColunas;
   /** Entre 0 e 1. `null` quando nada foi movimentado. */
   lastro: TresColunas;
@@ -1177,6 +1219,8 @@ export interface ResumoDoMes {
     estado: string | null;
     apurada: boolean;
     temDemonstrativo: boolean;
+    /** O estado das seis fontes nesta quinzena — presente, ausente, não aplicável. */
+    fontes?: { tipo: string; quinzena: 1 | 2; estado: string; rotina: string; opcional: boolean }[];
   }[];
   canais: CanalDoResumo[];
 }

@@ -196,6 +196,29 @@ export function fixtureDisponibilidade(): Buffer {
 }
 
 /**
+ * O 03.08.18 do **mês inteiro** — a exportação que atravessa as duas quinzenas.
+ *
+ * É o formato real: a exportação da 2ª quinzena costuma vir com o mês todo, e a
+ * da 1ª às vezes também. Anexar este mesmo arquivo nas duas competências é o
+ * que o produto tem de tolerar sem dobrar o desconto — e é o que
+ * `disponibilidadeDoMes` resolve cortando cada competência pelo seu período.
+ *
+ * `10/07` cai na 1ª quinzena e `20/07` na 2ª. Os totais das duas metades são
+ * diferentes de propósito: com números iguais, um corte trocado passaria
+ * despercebido.
+ */
+export function fixtureDisponibilidadeDoMesInteiro(): Buffer {
+  const cabecalho = ["Cód.Filial", "Nome Filial", "Geografia", "Transportadora", "Data", "Canal", "Frota Total", "Contratada", "Meta Indisp.", "Real 1º Viagem", "Real 2º Viagem", "Gap FF TT", "Gap Cia.", "Gap TP Frota Canc.", "Gap TP Outros Canc.", "Gap TP Frota N.Canc.", "Gap TP Outros N.Canc.", "Desc.Transp.Canc.", "Desc.Transp.N.Canc.", "Desc.FF Custo Fixo", "Desc.FF Equipe", "Desc.FF Indiretos", "% Utilização 1º Viagem", "% Utilização 2º Viagem", "% Utilização Total", "% Disponib.", "Ajudantes Contratados", "Ajudantes Real", "FA Contratado", "FA Real", "Gap FA", "Desconto FA", "Desconto Total", "Frota Disp.", "Freteiro Disp.", "Frota"];
+  const dia = (data: number, custoFixo: number, equipe: number, total: number) =>
+    [229, "CDD FICTICIO", "GEO NO", "036-TRANSPORTES FICTICIA", data, "Rota", 10, 8, 0, 6, 0, 2, 1, 0, 0, 1, 0, 0, 1, custoFixo, equipe, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, total, 0, 0, "Padrao"];
+  return planilha({
+    /* 10/07 — 1ª quinzena; 20/07 — 2ª. Ver `SERIAL_16_07_2026`. */
+    FF: [cabecalho, dia(SERIAL_16_07_2026 - 6, 100, 200, 300), dia(SERIAL_16_07_2026 + 4, 30, 70, 100)],
+    Van: [cabecalho, dia(SERIAL_16_07_2026 - 6, 40, 10, 50), dia(SERIAL_16_07_2026 + 4, 5, 2, 7)],
+  });
+}
+
+/**
  * O 03.08.12.09 — CSV com ponto e vírgula, em latin-1.
  *
  * O `Descrição Despesa` com cedilha e til existe para que o teste prove a

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { faixa, percentual } from "../selos-de-afericao";
+import { faixa, motivoDaFalta, percentual } from "../selos-de-afericao";
+import type { FonteFaltante } from "@/lib/fechamento";
 
 /**
  * OS SELOS — o que a tela decide sobre um número que ela não calcula.
@@ -47,12 +48,48 @@ describe("a faixa que decide a cor", () => {
     expect(faixa(0)).toBe("BAIXA");
   });
 
+  it("fechamento incompleto tem faixa própria, e ela não é a pior", () => {
+    /*
+      **A decisão de leitura mais importante desta tela.** Vermelho diz "a
+      remuneração está errada"; âmbar diz "faltam documentos". Um mês pela
+      metade pintado de vermelho manda quem lê discutir valores quando o que
+      falta é importar arquivo — e foi exatamente o que aconteceu.
+
+      A completude ganha do percentual: mesmo que a razão tivesse saído baixa,
+      o que se comunica primeiro é que ela não devia ter sido calculada.
+    */
+    expect(faixa(null, "INCOMPLETO")).toBe("INCOMPLETO");
+    expect(faixa(0, "INCOMPLETO")).toBe("INCOMPLETO");
+    expect(faixa(0.5, "INCOMPLETO")).toBe("INCOMPLETO");
+
+    /* E completo volta a mandar: divergência real continua vermelha. */
+    expect(faixa(0.5, "COMPLETO")).toBe("BAIXA");
+    expect(faixa(null, "NAO_APLICAVEL")).toBe("SEM_MEDIDA");
+  });
+
+  it("a causa da falta vira a palavra de quem vai resolver", () => {
+    /*
+      Duas causas, duas ações: uma pede upload, a outra pede abrir a competência
+      antes. Um texto só mandaria metade das pessoas ao lugar errado.
+    */
+    const falta = (motivo: FonteFaltante["motivo"]): FonteFaltante => ({
+      tipo: "OPERACAO",
+      quinzena: 2,
+      rotina: "2Art",
+      nome: "Relatório operacional",
+      motivo,
+    });
+    expect(motivoDaFalta(falta("NAO_IMPORTADO"))).toBe("não importado");
+    expect(motivoDaFalta(falta("QUINZENA_NAO_ABERTA"))).toBe("quinzena não aberta");
+  });
+
   it("os mesmos cortes valem para os dois selos", () => {
     /*
       Precisão e lastro são a mesma grandeza — fração do dinheiro do fechamento
       —, e cortes diferentes fariam a mesma cor significar coisas diferentes em
       dois selos lado a lado. Por isso `faixa` não recebe qual selo é.
     */
-    expect(faixa.length).toBe(1);
+    expect(faixa(0.5)).toBe("BAIXA");
+    expect(faixa(0.995)).toBe("BOA");
   });
 });

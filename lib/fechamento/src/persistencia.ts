@@ -2273,6 +2273,42 @@ export async function lerResumoDoMes(
     dispDoMesPorCanal.set(canal, await disponibilidadeDoMes(db, competencias, canal));
   }
 
+  /*
+    Que relatórios cada competência recebeu — da tabela de documentos, e não do
+    retrato que a apuração guardou.
+
+    A diferença importa e já mordeu: o painel desta tela é montado de leitura
+    viva (viagens, de-para, requisições), então um arquivo enviado **depois** da
+    última apuração já entra na conta. Lendo `apuracao.fontesPresentes`, a tela
+    diria que falta um relatório que ela mesma acabou de usar.
+
+    Só o vigente conta: um documento substituído continua na tabela e não é o
+    que a conta leu.
+  */
+  const recebidasPorCompetencia = new Map<string, TipoDeFonte[]>();
+  if (competencias.length > 0) {
+    const documentos = await db
+      .select({
+        competenciaId: fechamentoDocumentoTable.competenciaId,
+        tipo: fechamentoDocumentoTable.tipo,
+      })
+      .from(fechamentoDocumentoTable)
+      .where(
+        and(
+          inArray(
+            fechamentoDocumentoTable.competenciaId,
+            competencias.map((c) => c.id),
+          ),
+          eq(fechamentoDocumentoTable.vigente, true),
+        ),
+      );
+    for (const d of documentos) {
+      const lista = recebidasPorCompetencia.get(d.competenciaId) ?? [];
+      if (!lista.includes(d.tipo as TipoDeFonte)) lista.push(d.tipo as TipoDeFonte);
+      recebidasPorCompetencia.set(d.competenciaId, lista);
+    }
+  }
+
   const quinzenas: QuinzenaApurada[] = [];
   for (const c of competencias) {
     const [apuracao, demonstrativo, descontos, requisicoes, paineis] = await Promise.all([
@@ -2346,6 +2382,8 @@ export async function lerResumoDoMes(
       competenciaId: c.id,
       chave: c.chave,
       estado: c.estado,
+      /* A competência existe: o que ela não recebeu é lista vazia, não ignorância. */
+      fontesRecebidas: recebidasPorCompetencia.get(c.id) ?? [],
       calculados: calculados.length > 0 ? calculados : null,
       cadastroUsado,
       diagnosticoDoCadastro,
@@ -2490,24 +2528,39 @@ async function viagensPorDia(
  */
 
 /**
- * O desconto de disponibilidade do **mês**, lido das competências dele.
+ * O desconto de disponibilidade do **mês**, lido competência por competência.
  *
- * **Por que a leitura é do mês e não da competência.** O desconto do 03.08.18 é
- * acumulado no mês inteiro e aplicado uma vez, no fechamento da 2ª quinzena
- * (ver `descontoDeDisponibilidadeDoMes`, em `leitores/disponibilidade.ts`). A
- * tabela é por competência, que é uma quinzena — então somar uma competência só
- * daria metade do desconto quando o arquivo tivesse sido enviado partido, e o
- * mês inteiro quando tivesse sido enviado inteiro. O mesmo mês valeria dois
- * números conforme como alguém anexou o arquivo, que é o pior tipo de
- * dependência que uma apuração pode ter.
+ * **Por que a soma é do mês.** O desconto do 03.08.18 é acumulado no mês
+ * inteiro e aplicado uma vez, no fechamento da 2ª quinzena (ver
+ * `descontoDeDisponibilidadeDoMes`, em `leitores/disponibilidade.ts`). A tabela
+ * é por competência, que é meia; somar uma competência só daria metade do
+ * desconto.
  *
- * **A desduplicação é o que torna a leitura indiferente ao envio.** As duas
- * remessas do mês se sobrepõem na prática — a exportação da 2ª quinzena costuma
- * vir com o mês inteiro, e a da 1ª às vezes também. `descontoDeDisponibilidadeDoMes`
- * desduplica por `(aba, dia)`, de modo que enviar o arquivo uma vez, duas vezes
- * ou partido dá o mesmo total.
+ * **Por que cada competência é lida no próprio período.** Esta função já lia as
+ * duas competências, mas com **um** intervalo — de min(início) a max(fim), ou
+ * seja, o mês inteiro para as duas. Um 03.08.18 mensal anexado à 1ª quinzena
+ * entrava com os trinta e um dias, o da 2ª também, e as duas remessas se
+ * sobrepunham em cada dia do mês. Quem resolvia a sobreposição era a
+ * desduplicação por `(aba, dia)` de `descontoDeDisponibilidadeDoMes`, que
+ * escolhe a **primeira** linha que vê: com duas emissões diferentes do mesmo
+ * relatório, o total do mês passava a depender da ordem em que o banco
+ * devolveu as linhas.
+ *
+ * Cortando cada competência pelo seu período, a sobreposição some na origem: a
+ * 1ª quinzena contribui com os dias 1 a 15 do que recebeu, a 2ª com os dias 16
+ * ao fim do que recebeu, e a mesma linha não pode entrar duas vezes. O total do
+ * mês fica igual quer o relatório chegue partido, inteiro nas duas, ou inteiro
+ * numa só — e deixa de depender de sorteio.
+ *
+ * A desduplicação continua onde está, como rede: ela ainda protege contra duas
+ * remessas do 03.08.18 dentro da **mesma** competência, e agora, quando as duas
+ * discordam do valor de um dia, ela recusa em vez de escolher.
+ *
+ * Exportada porque é o corte que precisa de prova com banco: ele é `WHERE`, e
+ * um `WHERE` só se exercita consultando. `persistencia.test.ts` a chama com o
+ * mesmo arquivo mensal nas duas competências, que é o caso que dobrava.
  */
-async function disponibilidadeDoMes(
+export async function disponibilidadeDoMes(
   db: Database,
   competencias: { id: string; inicio: string; fim: string }[],
   canal: Canal,
@@ -2515,36 +2568,48 @@ async function disponibilidadeDoMes(
   if (competencias.length === 0) return null;
 
   /*
-    O mês, e só ele. A regra soma o 03.08.18 inteiro — mas "inteiro" é o mês da
-    competência, não o arquivo. O relatório pode vir com mais de um mês, e o
-    `competenciaId` sozinho não corta isso: quem grava não filtra por data, pelo
-    mesmo motivo do 2Art. Sem estes limites, um 03.08.18 de dois meses aplicaria
-    o desconto dos dois numa quinzena só.
+    Uma consulta por competência, cada uma cortada pelo **seu** período.
+
+    O corte por data é necessário porque o `competenciaId` sozinho não diz de
+    que dias a linha é: quem grava não filtra por período, pelo mesmo motivo do
+    2Art — o relatório é exportado por mês e recusar o arquivo inteiro por
+    metade dele cair fora seria pior. E o corte é por competência, e não um
+    intervalo só para as duas, porque é isso que impede a mesma linha de entrar
+    duas vezes. Ver o bloco acima.
   */
-  const inicio = competencias.map((c) => c.inicio).sort()[0]!;
-  const fim = competencias.map((c) => c.fim).sort().at(-1)!;
-  const linhas = await db
-    .select({
-      aba: fechamentoDisponibilidadeTable.tipoDeFrota,
-      dia: fechamentoDisponibilidadeTable.dia,
-      canal: fechamentoDisponibilidadeTable.canal,
-      custoFixo: fechamentoDisponibilidadeTable.descontoCustoFixo,
-      equipe: fechamentoDisponibilidadeTable.descontoEquipe,
-      indiretos: fechamentoDisponibilidadeTable.descontoIndiretos,
-      fatorAjudante: fechamentoDisponibilidadeTable.descontoFatorAjudante,
-      total: fechamentoDisponibilidadeTable.descontoTotal,
-    })
-    .from(fechamentoDisponibilidadeTable)
-    .where(
-      and(
-        inArray(
-          fechamentoDisponibilidadeTable.competenciaId,
-          competencias.map((c) => c.id),
-        ),
-        gte(fechamentoDisponibilidadeTable.dia, inicio),
-        lte(fechamentoDisponibilidadeTable.dia, fim),
-      ),
+  const linhas: {
+    aba: string;
+    dia: string;
+    canal: string;
+    custoFixo: string | null;
+    equipe: string | null;
+    indiretos: string | null;
+    fatorAjudante: string | null;
+    total: string | null;
+  }[] = [];
+  for (const c of competencias) {
+    linhas.push(
+      ...(await db
+        .select({
+          aba: fechamentoDisponibilidadeTable.tipoDeFrota,
+          dia: fechamentoDisponibilidadeTable.dia,
+          canal: fechamentoDisponibilidadeTable.canal,
+          custoFixo: fechamentoDisponibilidadeTable.descontoCustoFixo,
+          equipe: fechamentoDisponibilidadeTable.descontoEquipe,
+          indiretos: fechamentoDisponibilidadeTable.descontoIndiretos,
+          fatorAjudante: fechamentoDisponibilidadeTable.descontoFatorAjudante,
+          total: fechamentoDisponibilidadeTable.descontoTotal,
+        })
+        .from(fechamentoDisponibilidadeTable)
+        .where(
+          and(
+            eq(fechamentoDisponibilidadeTable.competenciaId, c.id),
+            gte(fechamentoDisponibilidadeTable.dia, c.inicio),
+            lte(fechamentoDisponibilidadeTable.dia, c.fim),
+          ),
+        )),
     );
+  }
 
   /* Sem linha nenhuma o 03.08.18 do mês não veio — e aí é `null`, não zero. */
   if (linhas.length === 0) return null;
@@ -2645,7 +2710,17 @@ export function basesDaQuinzena(
       em `noDemonstrativo`. Ver `DECISOES_RESOLVIDAS`, em `matriz.ts`.
     */
     disponibilidade:
-      periodo.disponibilidadeDoMes === null
+      /*
+        Duas razões distintas para não haver disponibilidade devida, e as duas
+        acabam em `null` porque as duas são a mesma resposta aritmética: não se
+        sabe. O 03.08.18 não chegou, ou chegou em duas versões que discordam do
+        valor de um dia — e aí `total` vem nulo e `conflitos` diz quais dias
+        estão em disputa. Ver `descontoDeDisponibilidadeDoMes`.
+
+        Somar uma das versões seria sortear; somar zero seria afirmar que não
+        houve desconto. Nulo é o que a tela sabe pintar como pendência.
+      */
+      periodo.disponibilidadeDoMes === null || periodo.disponibilidadeDoMes.total === null
         ? null
         : {
             fonte: "MENSAL_03_08_18",

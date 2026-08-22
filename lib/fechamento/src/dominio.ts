@@ -173,6 +173,81 @@ export function fonteOpcionalNaQuinzena(quinzena: 1 | 2, tipo: TipoDeFonte): boo
   return FONTES_OPCIONAIS_DA_QUINZENA[quinzena].includes(tipo);
 }
 
+/**
+ * Em que estado uma fonte está, para uma quinzena — a distinção que faltava.
+ *
+ * **Três estados e não dois, porque "não veio" tem dois significados opostos.**
+ * O 03.02.59.02 não vir na 1ª quinzena não é pendência: ele não existe ali. O
+ * 03.08.20 não vir é. Tratar os dois como "ausente" faria toda 1ª quinzena
+ * nascer com pendências que ninguém pode resolver — e tratar os dois como
+ * "tudo certo" faria um fechamento sem demonstrativo parecer conferível.
+ */
+export type EstadoDaFonte =
+  /** Chegou. Vale igual para a esperada e para a que a quinzena só admite. */
+  | "PRESENTE"
+  /** A quinzena **espera** e não chegou. É a única que bloqueia a aferição. */
+  | "AUSENTE"
+  /** A quinzena não espera nem admite — ou admite e não cobra. Não é pendência. */
+  | "NAO_APLICAVEL";
+
+/** O estado de uma fonte numa quinzena, com o que a tela precisa para nomeá-la. */
+export interface FonteDaQuinzena {
+  tipo: TipoDeFonte;
+  quinzena: 1 | 2;
+  estado: EstadoDaFonte;
+  /** A rotina como quem opera a chama — `2Art`, `03.08.20`. */
+  rotina: string;
+  /** A quinzena a admite sem cobrar? Verdadeiro só no 03.08.12.09 da 1ª. */
+  opcional: boolean;
+}
+
+/**
+ * O estado das seis fontes numa quinzena, dado o que chegou.
+ *
+ * **É a função que separa "não tenho dados" de "os dados não batem".** Ela não
+ * decide nada de novo: aplica {@link FONTES_DA_QUINZENA} e
+ * {@link FONTES_OPCIONAIS_DA_QUINZENA}, que são a regra do processo, e que já
+ * regiam `fontesAusentes` na apuração. O que muda é passar a lê-la também do
+ * lado da aferição, que até agora calculava percentual sobre um fechamento pela
+ * metade sem saber que estava pela metade.
+ *
+ * `recebidas` em `null` é a **quinzena que nem foi aberta** — não há competência
+ * e portanto não há documento nenhum. Tudo o que ela espera fica `AUSENTE`, que
+ * é a verdade: o trabalho existe e não foi feito.
+ */
+export function fontesDaQuinzena(
+  quinzena: 1 | 2,
+  recebidas: readonly TipoDeFonte[] | null,
+): FonteDaQuinzena[] {
+  const chegou = new Set(recebidas ?? []);
+  return TIPOS_DE_FONTE.map((tipo) => {
+    const opcional = fonteOpcionalNaQuinzena(quinzena, tipo);
+    const esperada = fonteEsperadaNaQuinzena(quinzena, tipo);
+    /*
+      Presente é presente, mesmo fora da quinzena dela: a conta usa o que houver
+      (ver a nota de `FONTES_DA_QUINZENA`), e um arquivo que chegou não pode
+      aparecer como falta só por ter chegado cedo.
+
+      **Toda fonte é da quinzena, inclusive o 03.08.18.** Por uma versão ele foi
+      tratado como mensal — dado por presente quando chegasse em qualquer das
+      duas competências —, e a razão era um arquivo enganoso: o 03.08.18 de uma
+      unidade chegou com a aba `FF` cortada em 15/07 e a aba `Van` com o mês
+      inteiro, e daí se leu que as duas abas tinham periodicidades diferentes.
+      O arquivo era o mensal com a `FF` podada à mão: mesmo `CreatedDate` do
+      outro, subconjunto perfeito dele, autofilter só na aba mexida e salvo
+      dezesseis dias depois por outra pessoa. A exceção escondia falta real, e
+      saiu. O que resolve a sobreposição é o corte por período na leitura, não
+      afrouxar o que se cobra.
+    */
+    const estado: EstadoDaFonte = chegou.has(tipo)
+      ? "PRESENTE"
+      : esperada
+        ? "AUSENTE"
+        : "NAO_APLICAVEL";
+    return { tipo, quinzena, estado, rotina: DESCRICAO_DA_FONTE[tipo].rotina, opcional };
+  });
+}
+
 /** Como cada fonte se chama na tela, e o que ela responde. */
 export const DESCRICAO_DA_FONTE: Record<TipoDeFonte, { rotina: string; nome: string; papel: string }> = {
   OPERACAO: {

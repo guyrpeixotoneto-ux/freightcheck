@@ -75,6 +75,7 @@ const doMes = (quinzena: 1 | 2, total = 91642.5, dias = 29) => ({
     agrupadoComoNoDemonstrativo: 91321.65,
     dias,
     periodo: { de: "2026-07-01", ate: "2026-07-31" },
+    conflitos: [],
   },
 });
 

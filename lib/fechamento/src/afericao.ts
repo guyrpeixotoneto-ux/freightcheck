@@ -1,4 +1,10 @@
-import { centavos, type Canal } from "./dominio";
+import {
+  centavos,
+  DESCRICAO_DA_FONTE,
+  type Canal,
+  type FonteDaQuinzena,
+  type TipoDeFonte,
+} from "./dominio";
 import { FONTE_DO_DEMONSTRATIVO, procedenciaDoMotor } from "./matriz";
 import type { CanalDoResumo, ResumoDoMes, TresColunas } from "./resumo";
 
@@ -36,6 +42,59 @@ import type { CanalDoResumo, ResumoDoMes, TresColunas } from "./resumo";
  * por extenso, e alguns deles com o valor em dinheiro ao lado — porque um
  * limite com cifra é auditável e um limite genérico é decoração.
  */
+
+/**
+ * Se **dá para aferir** esta coluna — a pergunta que vem antes de qualquer conta.
+ *
+ * **O defeito que este tipo existe para não deixar voltar.** A aferição
+ * calculava precisão sobre um fechamento pela metade sem saber que estava pela
+ * metade. Faltando a 2ª quinzena, as três parcelas de lastro cruzado
+ * (disponibilidade, outros custos, equipe de entrega) valem zero — porque as
+ * três só existem lá —, e o que sobra é conjunto e desconto. A razão
+ * `1 − não explicado ÷ com contrapartida` ficava **negativa**, o `Math.max(0, …)`
+ * a prendia em zero, e a tela imprimia **0,0% em vermelho**: "a remuneração
+ * está toda errada", quando a verdade era "ainda não tenho documento para
+ * conferir".
+ *
+ * Trocar o clamp por `null` trataria o sintoma. A causa é que **duas perguntas
+ * estavam misturadas**: *tenho dados para conferir?* e *os valores conferem?*.
+ * Este tipo é a primeira; `precisao` só responde a segunda depois de a primeira
+ * dar `COMPLETO`.
+ */
+export type Completude =
+  /** Todas as fontes que a quinzena espera chegaram. A precisão pode ser calculada. */
+  | "COMPLETO"
+  /** Falta fonte esperada. Precisão fica `null` — e {@link Aferibilidade.faltando} diz o quê. */
+  | "INCOMPLETO"
+  /** Não há o que aferir nesta coluna: nenhuma parcela move dinheiro nela. */
+  | "NAO_APLICAVEL";
+
+/** Uma fonte que falta, com o endereço que quem importa precisa para agir. */
+export interface FonteFaltante {
+  tipo: TipoDeFonte;
+  quinzena: 1 | 2;
+  /** `2Art`, `03.08.20` — como quem opera a chama. */
+  rotina: string;
+  /** O nome por extenso, para a tela não obrigar a decorar número de rotina. */
+  nome: string;
+  /**
+   * Por que ela falta — e as duas causas pedem coisas diferentes.
+   *
+   * `NAO_IMPORTADO`: a competência existe e o arquivo não chegou. É upload.
+   * `QUINZENA_NAO_ABERTA`: não há competência nenhuma para esta quinzena, e
+   * antes de importar é preciso abri-la.
+   */
+  motivo: "NAO_IMPORTADO" | "QUINZENA_NAO_ABERTA";
+}
+
+/** A resposta à primeira pergunta: dá para conferir esta coluna? */
+export interface Aferibilidade {
+  completude: Completude;
+  /** As fontes esperadas que não chegaram. Vazia quando `COMPLETO`. */
+  faltando: FonteFaltante[];
+  /** A frase que a tela mostra no lugar do percentual. `null` quando `COMPLETO`. */
+  porque: string | null;
+}
 
 /** De que qualidade é a evidência por trás de uma parcela do fechamento. */
 export type ClasseDeLastro =
@@ -132,11 +191,23 @@ export interface Afericao {
   /** A soma das diferenças sem causa — o numerador do que falta à precisão. */
   naoExplicado: TresColunas;
   /**
+   * Dá para aferir cada coluna? — a pergunta que vem **antes** da precisão.
+   *
+   * Ver {@link Completude}. É aqui que a tela descobre que o vermelho não é
+   * erro financeiro, e é daqui que sai a lista do que falta importar.
+   */
+  aferibilidade: { primeira: Aferibilidade; segunda: Aferibilidade; total: Aferibilidade };
+  /**
    * `1 − naoExplicado ÷ comContrapartida`, entre 0 e 1.
    *
-   * `null` quando não há nada conferido: um canal sem painel transcrito não tem
-   * precisão ruim, tem precisão **indefinida**, e mostrar 0% ali seria afirmar
-   * que a conta está errada quando ninguém a conferiu.
+   * **`null` sempre que a coluna não é aferível** — e é a regra que dá sentido
+   * ao número. Precisão só é calculada sobre fechamento cujas fontes esperadas
+   * chegaram todas; sem isso, o que a razão devolve não é uma precisão baixa, é
+   * uma conta feita sobre metade dos documentos. Ver {@link aferibilidade}.
+   *
+   * Também `null` no canal sem painel transcrito: ele não tem precisão ruim,
+   * tem precisão **indefinida**, e mostrar 0% ali afirmaria que a conta está
+   * errada quando ninguém a conferiu.
    */
   precisao: TresColunas;
   /** `comLastroCruzado ÷ movimentado`, entre 0 e 1. `null` sem nada movimentado. */
@@ -146,6 +217,19 @@ export interface Afericao {
 }
 
 const VAZIO: TresColunas = { primeira: null, segunda: null, total: null };
+
+/**
+ * Zero onde a parcela existe, nada onde ela não existe — o "fecha" medido.
+ *
+ * A parcela que fecha tem diferença **zero**, e zero é uma medição: os dois
+ * lados existem e são iguais. Devolver `null` ali faria a soma estrita
+ * ({@link somarNaoExplicado}) confundir "não diverge" com "não se sabe", e o mês
+ * inteiro ficaria sem precisão por causa de uma linha que está certa.
+ */
+function zeroOndeExiste(valor: TresColunas): TresColunas {
+  const uma = (v: number | null) => (v === null ? null : 0);
+  return { primeira: uma(valor.primeira), segunda: uma(valor.segunda), total: uma(valor.total) };
+}
 const COLUNAS = ["primeira", "segunda", "total"] as const;
 type Coluna = (typeof COLUNAS)[number];
 
@@ -167,19 +251,45 @@ function emModulo(v: TresColunas): TresColunas {
 }
 
 /**
- * `1 − parte ÷ todo`, coluna a coluna.
+ * `1 − parte ÷ todo`, coluna a coluna — **só onde a coluna é aferível**.
  *
- * `null` quando o todo é nulo ou zero — e é a distinção que importa: razão de
- * denominador zero não é 0% nem 100%, é uma pergunta que não foi feita.
+ * `null` quando o todo é nulo ou zero: razão de denominador zero não é 0% nem
+ * 100%, é uma pergunta que não foi feita.
+ *
+ * `null` também quando a coluna não passou na decisão de completude, e é aí que
+ * mora o conserto. **Não há clamp.** O `Math.max(0, …)` que existia aqui pegava
+ * uma razão negativa — sinal de que o não explicado excedia tudo o que havia
+ * para conferir, isto é, de que a pergunta não fazia sentido — e a devolvia como
+ * `0`, que a tela pinta de vermelho e quem lê entende como "está tudo errado".
+ * Um número fora de [0,1] não é um número ruim: é um número que não devia ter
+ * sido calculado, e agora não é.
+ *
+ * Sobra a asserção: chegando aqui com a coluna aferível, o resultado **está**
+ * em [0,1] por construção — o não explicado é diferença entre parcelas que
+ * estão todas dentro do denominador. Se um dia sair fora, é defeito, e o `null`
+ * o deixa visível em vez de o esconder num zero.
  */
-function razaoInversa(parte: TresColunas, todo: TresColunas): TresColunas {
-  const uma = (p: number | null, t: number | null) =>
-    t === null || t === 0 ? null : Math.max(0, Math.min(1, 1 - (p ?? 0) / t));
-  return {
-    primeira: uma(parte.primeira, todo.primeira),
-    segunda: uma(parte.segunda, todo.segunda),
-    total: uma(parte.total, todo.total),
+function razaoInversa(
+  parte: TresColunas,
+  todo: TresColunas,
+  aferivel: Record<Coluna, boolean>,
+): TresColunas {
+  const uma = (coluna: Coluna) => {
+    if (!aferivel[coluna]) return null;
+    const t = todo[coluna];
+    if (t === null || t === 0) return null;
+    /*
+      Numerador desconhecido **não é numerador zero**. `?? 0` aqui devolvia 100%
+      de precisão para uma coluna cuja diferença não era somável — o mesmo
+      "ausência virou zero" que este conserto existe para tirar da tela, uma
+      linha abaixo de onde ele já tinha sido tirado.
+    */
+    const parcial = parte[coluna];
+    if (parcial === null) return null;
+    const razao = 1 - parcial / t;
+    return razao < 0 || razao > 1 ? null : razao;
   };
+  return { primeira: uma("primeira"), segunda: uma("segunda"), total: uma("total") };
 }
 
 /** `parte ÷ todo`, coluna a coluna, com a mesma disciplina do denominador nulo. */
@@ -191,6 +301,126 @@ function razao(parte: TresColunas, todo: TresColunas): TresColunas {
     segunda: uma(parte.segunda, todo.segunda),
     total: uma(parte.total, todo.total),
   };
+}
+
+/**
+ * A soma das diferenças sem causa — que **se recusa a tratar desconhecido como zero**.
+ *
+ * Uma parcela que fecha contribui zero, e zero é medido: os dois lados existem e
+ * são iguais. Uma parcela cuja diferença **não é calculável naquela coluna** —
+ * porque falta um dos lados — contribui desconhecido, e desconhecido contamina a
+ * soma inteira: não dá para dizer quanto o mês tem de divergência sem explicação
+ * se uma das parcelas dele não tem diferença apurável.
+ *
+ * `somar` genérico não serve aqui porque ele trata `null` como zero para poder
+ * somar colunas que só uma quinzena tem — o que é certo lá e errado aqui.
+ *
+ * A parcela que **não existe** naquela coluna (a equipe de entrega na 1ª
+ * quinzena, por exemplo) é pulada: ela não tem diferença por não ter valor, e
+ * isso não é ignorância, é ausência de assunto.
+ */
+function somarNaoExplicado(parcelas: ParcelaAferida[]): TresColunas {
+  const daColuna = (c: Coluna): number | null => {
+    let soma = 0;
+    for (const p of parcelas) {
+      if (p.valor[c] === null) continue;
+      const diferenca = p.naoExplicado[c];
+      if (diferenca === null) return null;
+      soma += diferenca;
+    }
+    return centavos(soma);
+  };
+  return { primeira: daColuna("primeira"), segunda: daColuna("segunda"), total: daColuna("total") };
+}
+
+/**
+ * A primeira pergunta, respondida para uma quinzena: **dá para conferir?**
+ *
+ * A resposta sai das fontes que a quinzena espera e das que chegaram — regra do
+ * processo, não desta função (ver `FONTES_DA_QUINZENA`). Falta de fonte esperada
+ * ganha de tudo: uma quinzena com documento faltando é incompleta mesmo que as
+ * parcelas que ela tem fechem perfeitamente, porque o que falta pode ser
+ * exatamente o que não fecharia.
+ */
+function aferibilidadeDaQuinzena(
+  quinzena: { quinzena: 1 | 2; competenciaId: string | null; fontes: FonteDaQuinzena[] } | null,
+  temParcela: boolean,
+): Aferibilidade {
+  /*
+    Sem sequer a linha da quinzena não se afirma completude nenhuma. É o mesmo
+    `null` do resto do módulo: não saber é diferente de estar tudo lá.
+  */
+  if (!quinzena) {
+    return {
+      completude: "INCOMPLETO",
+      faltando: [],
+      porque:
+        "Não há informação sobre os relatórios desta quinzena, e sem ela não dá para " +
+        "afirmar que o fechamento está completo.",
+    };
+  }
+
+  const faltando: FonteFaltante[] = quinzena.fontes
+    .filter((f) => f.estado === "AUSENTE")
+    .map((f) => ({
+      tipo: f.tipo,
+      quinzena: quinzena.quinzena,
+      rotina: f.rotina,
+      nome: DESCRICAO_DA_FONTE[f.tipo].nome,
+      /*
+        As duas causas pedem coisas diferentes de quem lê: sem competência, o
+        próximo passo é abrir a quinzena; com ela, é enviar o arquivo.
+      */
+      motivo: quinzena.competenciaId ? ("NAO_IMPORTADO" as const) : ("QUINZENA_NAO_ABERTA" as const),
+    }));
+
+  if (faltando.length > 0) {
+    return {
+      completude: "INCOMPLETO",
+      faltando,
+      porque: quinzena.competenciaId
+        ? "Fechamento incompleto: faltam relatórios desta quinzena."
+        : "Fechamento incompleto: esta quinzena ainda não foi aberta.",
+    };
+  }
+
+  /* Sem parcela que mova dinheiro não há o que conferir — e isso não é falha. */
+  if (!temParcela) {
+    return {
+      completude: "NAO_APLICAVEL",
+      faltando: [],
+      porque: "Nada a aferir nesta coluna: nenhuma parcela move dinheiro nela.",
+    };
+  }
+
+  return { completude: "COMPLETO", faltando: [], porque: null };
+}
+
+/**
+ * A mesma pergunta para a coluna do mês, que é as duas quinzenas juntas.
+ *
+ * **Um mês só é aferível se as duas metades forem.** Não basta a metade que
+ * está na tela fechar: a coluna do total soma as duas, e um total conferido
+ * contra meia pilha de documentos é exatamente o número que este conserto
+ * existe para não imprimir.
+ */
+function aferibilidadeDoMes(primeira: Aferibilidade, segunda: Aferibilidade): Aferibilidade {
+  const faltando = [...primeira.faltando, ...segunda.faltando];
+  if (faltando.length > 0 || primeira.completude === "INCOMPLETO" || segunda.completude === "INCOMPLETO") {
+    return {
+      completude: "INCOMPLETO",
+      faltando,
+      porque: "Fechamento incompleto: o mês só é aferível com as duas quinzenas completas.",
+    };
+  }
+  if (primeira.completude === "NAO_APLICAVEL" && segunda.completude === "NAO_APLICAVEL") {
+    return {
+      completude: "NAO_APLICAVEL",
+      faltando: [],
+      porque: "Nada a aferir neste mês: nenhuma parcela move dinheiro.",
+    };
+  }
+  return { completude: "COMPLETO", faltando: [], porque: null };
 }
 
 /** O valor de uma coluna, ou zero — para somar quando a ausência não é o assunto. */
@@ -212,7 +442,22 @@ function somar(valores: TresColunas[]): TresColunas {
  * uma conta que ninguém fez) e lastro fica 0 (não há documento cruzado atrás
  * daquele dinheiro), com o motivo escrito nos limites.
  */
-export function aferir(canal: CanalDoResumo): Afericao {
+export function aferir(
+  canal: CanalDoResumo,
+  /**
+   * As duas quinzenas do mês, com o estado das fontes de cada uma.
+   *
+   * Entra por parâmetro porque a informação é **do mês**, não do canal: os
+   * relatórios chegam por competência e valem para os dois canais. Passá-la
+   * daqui é o que separa "os valores não conferem" de "ainda não tenho os
+   * documentos" — as duas perguntas que este módulo existe para não misturar.
+   *
+   * Lista vazia é o caso de quem chama sem saber, e aí nenhuma coluna é
+   * declarada completa: presumir que está tudo lá é justamente o defeito.
+   */
+  quinzenas: ResumoDoMes["quinzenas"],
+): Afericao {
+  const daQuinzena = (n: 1 | 2) => quinzenas.find((q) => q.quinzena === n) ?? null;
   const parcelas: ParcelaAferida[] = [];
   const limites: LimiteDaAfericao[] = [];
 
@@ -240,8 +485,19 @@ export function aferir(canal: CanalDoResumo): Afericao {
             valor: movimentado,
           },
     );
+    /*
+      Sem painel não há o que conferir, e isso é `NAO_APLICAVEL` — não
+      `INCOMPLETO`. A diferença é de trabalho: incompleto pede arquivo,
+      não aplicável pede transcrição (ou nada). O limite acima diz qual.
+    */
+    const naoSeAplica: Aferibilidade = {
+      completude: "NAO_APLICAVEL",
+      faltando: [],
+      porque: limites[0]!.titulo,
+    };
     return {
       canal: canal.canal,
+      aferibilidade: { primeira: naoSeAplica, segunda: naoSeAplica, total: naoSeAplica },
       movimentado,
       comContrapartida: VAZIO,
       comLastroCruzado: zero,
@@ -316,7 +572,7 @@ export function aferir(canal: CanalDoResumo): Afericao {
         classe: cruzado ? "CRUZADO_EM_CONJUNTO" : "MESMA_FONTE",
         comLastro: cruzado ? valor : { primeira: 0, segunda: 0, total: 0 },
         fonteDoDevido: fontes.join(" + ") || null,
-        naoExplicado: conjunto.auditar ? emModulo(conjunto.diferenca) : VAZIO,
+        naoExplicado: conjunto.auditar ? emModulo(conjunto.diferenca) : zeroOndeExiste(valor),
         porque:
           `${membros.length} linhas dividem um número só do 03.08.20 — ele não parte este ` +
           "quadro como o contrato parte. A soma delas confere; a partição entre elas, não.",
@@ -374,7 +630,7 @@ export function aferir(canal: CanalDoResumo): Afericao {
         classe,
         comLastro: classe === "CRUZADO" ? valor : { primeira: 0, segunda: 0, total: 0 },
         fonteDoDevido: procedencia?.fonteOperacional ?? null,
-        naoExplicado: linha.auditar ? emModulo(linha.diferenca) : VAZIO,
+        naoExplicado: linha.auditar ? emModulo(linha.diferenca) : zeroOndeExiste(valor),
         porque:
           classe === "SEM_CONTRAPARTIDA"
             ? "O contrato produz este valor e o 03.08.20 não traz linha que lhe corresponda."
@@ -392,7 +648,7 @@ export function aferir(canal: CanalDoResumo): Afericao {
 
   const movimentado = somar(parcelas.map((p) => p.valor));
   const comLastroCruzado = somar(parcelas.map((p) => p.comLastro));
-  const naoExplicado = somar(parcelas.map((p) => p.naoExplicado));
+  const naoExplicado = somarNaoExplicado(parcelas);
   /*
     O denominador da precisão é o que tem contra o que ser medido — o lastro
     cruzado mais o que fecha contra a própria fonte. O dinheiro sem contrapartida
@@ -468,13 +724,54 @@ export function aferir(canal: CanalDoResumo): Afericao {
     valor: null,
   });
 
+  /* ---- a decisão que vem antes do cálculo ------------------------------ */
+  const temParcela = (coluna: Coluna) => parcelas.some((p) => (p.valor[coluna] ?? 0) > 0);
+  const primeira = aferibilidadeDaQuinzena(daQuinzena(1), temParcela("primeira"));
+  const segunda = aferibilidadeDaQuinzena(daQuinzena(2), temParcela("segunda"));
+  const aferibilidade = { primeira, segunda, total: aferibilidadeDoMes(primeira, segunda) };
+
+  /*
+    O limite que nomeia o que falta, com o arquivo e a quinzena de cada um.
+    Sem cifra de propósito: o que falta não tem valor conhecido — é justamente
+    o que não se sabe. Pôr um número ali seria inventar o que o arquivo traria.
+  */
+  const faltando = aferibilidade.total.faltando;
+  if (faltando.length > 0) {
+    limites.unshift({
+      titulo: "Faltam dados para aferir",
+      texto: faltando
+        .map(
+          (f) =>
+            `${f.rotina} · ${f.quinzena}ª quinzena — ` +
+            (f.motivo === "NAO_IMPORTADO" ? "não importado" : "quinzena não aberta"),
+        )
+        .join(" · "),
+      valor: null,
+    });
+  }
+
   return {
     canal: canal.canal,
+    aferibilidade,
     movimentado,
     comContrapartida,
     comLastroCruzado,
     naoExplicado,
-    precisao: razaoInversa(naoExplicado, comContrapartida),
+    /*
+      A precisão só é calculada onde a coluna passou na decisão acima. É o
+      conserto inteiro numa linha: sem base, `null` — nunca zero.
+    */
+    precisao: razaoInversa(naoExplicado, comContrapartida, {
+      primeira: primeira.completude === "COMPLETO",
+      segunda: segunda.completude === "COMPLETO",
+      total: aferibilidade.total.completude === "COMPLETO",
+    }),
+    /*
+      O lastro continua sendo calculado no fechamento incompleto, e de propósito:
+      ele mede **cobertura de evidência**, não correção. Num mês pela metade ele
+      é uma verdade sobre a metade que existe, e a tela o marca como provisório
+      pela completude. Zerá-lo esconderia que o que chegou tem documento atrás.
+    */
     lastro: razao(comLastroCruzado, movimentado),
     parcelas,
     limites,
@@ -532,6 +829,9 @@ export { ou0 as valorDaColuna };
 export function resumoAferido(resumo: ResumoDoMes): ResumoDoMes {
   return {
     ...resumo,
-    canais: resumo.canais.map((canal) => ({ ...canal, afericao: aferir(canal) })),
+    canais: resumo.canais.map((canal) => ({
+      ...canal,
+      afericao: aferir(canal, resumo.quinzenas),
+    })),
   };
 }

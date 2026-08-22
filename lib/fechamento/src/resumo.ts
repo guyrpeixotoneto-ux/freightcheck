@@ -1,5 +1,12 @@
 import type { Afericao } from "./afericao";
-import { centavos, emReais, type Canal } from "./dominio";
+import {
+  centavos,
+  emReais,
+  fontesDaQuinzena,
+  type Canal,
+  type FonteDaQuinzena,
+  type TipoDeFonte,
+} from "./dominio";
 import {
   CANAIS_COM_PAINEL,
   linhaDaPlanilha,
@@ -564,6 +571,19 @@ export interface QuinzenaApurada {
   competenciaId: string;
   chave: string;
   estado: string;
+  /**
+   * Os tipos de relatório que esta competência **recebeu** — o que foi importado.
+   *
+   * Vem da tabela de documentos e não da apuração: a apuração guarda um retrato
+   * de quando ela rodou, e um arquivo enviado depois dela não apareceria. O
+   * painel desta tela é montado de leitura viva, então a lista de fontes tem de
+   * ser viva também, ou a tela diria que falta um arquivo que ela mesma está
+   * usando.
+   *
+   * `null` quando quem monta não sabe dizer — e aí a aferição não afirma
+   * completude nenhuma, em vez de presumir que está tudo lá.
+   */
+  fontesRecebidas: TipoDeFonte[] | null;
   /** Nulo quando a competência existe e ainda não apurou. */
   verbas:
     | {
@@ -625,6 +645,14 @@ export interface ResumoDoMes {
     estado: string | null;
     apurada: boolean;
     temDemonstrativo: boolean;
+    /**
+     * O estado das seis fontes nesta quinzena — presente, ausente, não aplicável.
+     *
+     * É o que permite à tela dizer *o que* falta em vez de só dizer que falta
+     * algo, e é o que a aferição lê para decidir se há base para calcular
+     * precisão. Ver `fontesDaQuinzena`, em `dominio.ts`.
+     */
+    fontes: FonteDaQuinzena[];
   }[];
   canais: CanalDoResumo[];
 }
@@ -1277,6 +1305,7 @@ export function montarResumo(entrada: {
   const primeira = daQuinzena(1);
   const segunda = daQuinzena(2);
 
+
   const valorDe = (q: QuinzenaApurada | null, escolher: (v: NonNullable<QuinzenaApurada["verbas"]>[number]) => number | null, filtro: (v: NonNullable<QuinzenaApurada["verbas"]>[number]) => boolean) => {
     if (!q?.verbas) return null;
     const alvos = q.verbas.filter(filtro);
@@ -1427,6 +1456,11 @@ export function montarResumo(entrada: {
         estado: q?.estado ?? null,
         apurada: !!q?.verbas,
         temDemonstrativo: !!q?.demonstrativo,
+        /*
+          Sem competência, `fontesRecebidas` é `null` e tudo o que a quinzena
+          espera sai como ausente — que é a verdade: a quinzena não foi aberta.
+        */
+        fontes: fontesDaQuinzena(n, q?.fontesRecebidas ?? null),
       };
     }),
     canais: montados,

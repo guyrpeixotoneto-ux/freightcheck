@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { aferir, porClasse, type Afericao } from "../afericao";
 import { conferirDePara } from "../de-para";
+import { fontesDaQuinzena, TIPOS_DE_FONTE, type TipoDeFonte } from "../dominio";
 import {
   descontoDeDisponibilidadeDoMes,
   type DiaDeDisponibilidade,
@@ -9,7 +10,12 @@ import {
 import { lerPagamento } from "../leitores/pagamento";
 import { montarMapaDaQuinzena, type ParametrosDoCadastro } from "../mapa-rota";
 import { basesDaQuinzena } from "../persistencia";
-import { compararPaineis, painelDeUmaQuinzena, type CanalDoResumo } from "../resumo";
+import {
+  compararPaineis,
+  painelDeUmaQuinzena,
+  type CanalDoResumo,
+  type ResumoDoMes,
+} from "../resumo";
 import { fixturePagamentoDoPainel } from "./fixtures";
 
 /**
@@ -118,8 +124,35 @@ function canalDaRota(): CanalDoResumo {
 
 const parcela = (a: Afericao, chave: string) => a.parcelas.find((p) => p.chave === chave)!;
 
+/**
+ * As duas quinzenas do mês, com o estado das fontes de cada uma.
+ *
+ * `recebidas` em `null` é a quinzena **não aberta** — sem competência, e por
+ * isso sem documento. É o estado que produzia o falso 0,0%.
+ */
+function quinzenas(
+  primeira: readonly TipoDeFonte[] | null,
+  segunda: readonly TipoDeFonte[] | null,
+): ResumoDoMes["quinzenas"] {
+  return ([1, 2] as const).map((n) => {
+    const recebidas = n === 1 ? primeira : segunda;
+    return {
+      quinzena: n,
+      competenciaId: recebidas === null ? null : `id-${n}`,
+      chave: recebidas === null ? null : `2026-07-Q${n}`,
+      estado: recebidas === null ? null : "APURADA",
+      apurada: recebidas !== null,
+      temDemonstrativo: (recebidas ?? []).includes("PAGAMENTO"),
+      fontes: fontesDaQuinzena(n, recebidas),
+    };
+  });
+}
+
+/** O mês inteiro completo: as duas quinzenas com tudo o que esperam. */
+const COMPLETO = () => quinzenas([...TIPOS_DE_FONTE], [...TIPOS_DE_FONTE]);
+
 describe("os dois números medem coisas diferentes", () => {
-  const afericao = aferir(canalDaRota());
+  const afericao = aferir(canalDaRota(), COMPLETO());
 
   it("nenhum dos dois é escrito — os dois saem das parcelas", () => {
     /*
@@ -166,7 +199,13 @@ describe("os dois números medem coisas diferentes", () => {
     expect(devolucao.classe).toBe("MESMA_FONTE");
     expect(devolucao.valor.segunda).toBeGreaterThan(0);
     expect(devolucao.comLastro.segunda).toBe(0);
-    expect(devolucao.naoExplicado.segunda).toBeNull();
+    /*
+      Zero **medido**, e não nulo: a linha fecha, os dois lados existem e são
+      iguais. A distinção decide a soma do mês — `somarNaoExplicado` trata nulo
+      como "não se sabe" e apaga a precisão da coluna inteira, e uma linha que
+      está certa não pode apagar a nota do mês.
+    */
+    expect(devolucao.naoExplicado.segunda).toBe(0);
   });
 
   it("a linha de dois documentos diferentes sobe os dois", () => {
@@ -178,7 +217,7 @@ describe("os dois números medem coisas diferentes", () => {
 });
 
 describe("o dinheiro é contado uma vez, e o quadro que abre outro não é dinheiro novo", () => {
-  const afericao = aferir(canalDaRota());
+  const afericao = aferir(canalDaRota(), COMPLETO());
 
   it("o quadro do variável não entra no movimentado — ele abre o DVS", () => {
     /*
@@ -219,12 +258,15 @@ describe("o dinheiro é contado uma vez, e o quadro que abre outro não é dinhe
 });
 
 describe("o canal sem painel é não conferido, e não é conferido com nota zero", () => {
-  const semPainel = aferir({
-    canal: "AS",
-    emitido: { primeira: 100, segunda: 200, total: 300 },
-    semPainel: "CANAL_SEM_CATALOGO",
-    comparado: null,
-  } as unknown as CanalDoResumo);
+  const semPainel = aferir(
+    {
+      canal: "AS",
+      emitido: { primeira: 100, segunda: 200, total: 300 },
+      semPainel: "CANAL_SEM_CATALOGO",
+      comparado: null,
+    } as unknown as CanalDoResumo,
+    COMPLETO(),
+  );
 
   it("precisão é indefinida, não zero", () => {
     /*
@@ -249,7 +291,7 @@ describe("o canal sem painel é não conferido, e não é conferido com nota zer
 });
 
 describe("o detalhamento por classe fecha com os totais", () => {
-  const afericao = aferir(canalDaRota());
+  const afericao = aferir(canalDaRota(), COMPLETO());
   const classes = porClasse(afericao);
 
   it("a soma das classes que contam é o lastro", () => {
@@ -277,9 +319,152 @@ describe("os limites são o que a aferição não mede", () => {
       todo fechamento, inclusive um que feche perfeito — e é justamente nesse
       que ela precisa aparecer.
     */
-    const afericao = aferir(canalDaRota());
+    const afericao = aferir(canalDaRota(), COMPLETO());
     const daRegra = afericao.limites.find((l) => l.valor === null);
     expect(daRegra).toBeDefined();
     expect(daRegra!.titulo).toContain("competência");
+  });
+});
+
+/**
+ * OS SEIS CENÁRIOS DA COMPLETUDE — e o falso 0,0% que motivou tudo.
+ *
+ * **O defeito, em uma frase.** A aferição calculava precisão sobre um
+ * fechamento pela metade sem saber que estava pela metade. Faltando a 2ª
+ * quinzena, as três parcelas de lastro cruzado — disponibilidade, outros custos
+ * e equipe de entrega — valem zero, porque as três só existem lá. A razão
+ * `1 − não explicado ÷ com contrapartida` ficava negativa, o `Math.max(0, …)`
+ * a prendia em zero, e a tela imprimia **0,0% em vermelho**: quem lê entende
+ * "a remuneração está toda errada" quando a verdade é "ainda não tenho os
+ * documentos".
+ *
+ * O conserto não é trocar o clamp por `null`. É decidir **antes** se há base
+ * para a pergunta — e é isso que estes testes prendem, cenário a cenário.
+ */
+describe("a aferição separa `não tenho dados` de `os dados não batem`", () => {
+  const rota = canalDaRota();
+
+  it("A — mês completo: precisão calculada, nenhum aviso de documento faltante", () => {
+    const a = aferir(rota, COMPLETO());
+    expect(a.aferibilidade.total.completude).toBe("COMPLETO");
+    expect(a.aferibilidade.total.faltando).toEqual([]);
+    /*
+      O que A afirma é que a pergunta **foi feita** — um número em [0,1], não um
+      número alto. Quanto ele vale é assunto de B: a fixture sintética diverge
+      de propósito, e um mês completo que diverge continua sendo um mês completo.
+    */
+    expect(a.precisao.segunda).not.toBeNull();
+    expect(a.precisao.segunda!).toBeGreaterThanOrEqual(0);
+    expect(a.precisao.segunda!).toBeLessThanOrEqual(1);
+    expect(a.limites.some((l) => l.titulo === "Faltam dados para aferir")).toBe(false);
+  });
+
+  it("B — mês completo com divergência: precisão calculada, e não é `incompleto`", () => {
+    /*
+      **É o teste que impede o conserto de virar desculpa.** Uma divergência
+      real tem de continuar aparecendo como divergência: se "incompleto"
+      passasse a absorver todo caso ruim, a tela deixaria de acusar erro.
+    */
+    const a = aferir(rota, COMPLETO());
+    expect(a.aferibilidade.segunda.completude).toBe("COMPLETO");
+    expect(a.naoExplicado.segunda!).toBeGreaterThan(0);
+    expect(a.precisao.segunda).not.toBeNull();
+    expect(a.precisao.segunda!).toBeLessThan(1);
+  });
+
+  it("C — falta a 2ª quinzena inteira: precisão `null` e a lista do que falta", () => {
+    const a = aferir(rota, quinzenas([...TIPOS_DE_FONTE], null));
+
+    expect(a.precisao.segunda).toBeNull();
+    expect(a.precisao.total).toBeNull();
+    expect(a.aferibilidade.segunda.completude).toBe("INCOMPLETO");
+    expect(a.aferibilidade.total.completude).toBe("INCOMPLETO");
+
+    /*
+      As **seis** que a 2ª quinzena espera, o 03.08.18 entre elas. Ele é
+      quinzenal como as outras: o relatório abre linha por dia, e os dias de
+      16 a 31 só existem na remessa da 2ª. Ver `fontesDaQuinzena`.
+    */
+    const faltam = a.aferibilidade.segunda.faltando;
+    expect(faltam.map((f) => f.rotina).sort()).toEqual(
+      ["03.02.59.02", "03.08.12.09", "03.08.15", "03.08.18", "03.08.20", "2Art"].sort(),
+    );
+    expect(faltam.every((f) => f.quinzena === 2)).toBe(true);
+    expect(faltam.every((f) => f.motivo === "QUINZENA_NAO_ABERTA")).toBe(true);
+  });
+
+  it("D — o falso 0,0% não volta: sem base, é traço, nunca zero", () => {
+    /*
+      **O controle negativo desta suíte.** No código anterior esta asserção
+      falhava com `0` — a razão saía negativa e o clamp a entregava como zero
+      absoluto, que a tela pinta de vermelho. Aqui ela tem de ser `null`.
+    */
+    const a = aferir(rota, quinzenas([...TIPOS_DE_FONTE], null));
+    expect(a.precisao.total).not.toBe(0);
+    expect(a.precisao.total).toBeNull();
+    expect(a.precisao.segunda).not.toBe(0);
+
+    /* E o motivo vai escrito, para o traço não ser um mistério. */
+    expect(a.aferibilidade.total.porque).toContain("incompleto");
+    expect(a.limites[0]!.titulo).toBe("Faltam dados para aferir");
+    expect(a.limites[0]!.texto).toContain("2Art · 2ª quinzena");
+  });
+
+  it("E — fonte não aplicável não vira documento faltante", () => {
+    /*
+      A 1ª quinzena não tem conciliação (03.02.59.02) e não cobra o 03.08.12.09
+      — o primeiro não existe ali, o segundo é admitido sem ser esperado. Nenhum
+      dos dois pode aparecer como pendência: seria mandar procurar um arquivo
+      que ninguém emitiu.
+    */
+    const so4: TipoDeFonte[] = ["OPERACAO", "CTE", "PAGAMENTO", "DISPONIBILIDADE"];
+    const a = aferir(rota, quinzenas(so4, [...TIPOS_DE_FONTE]));
+
+    expect(a.aferibilidade.primeira.faltando).toEqual([]);
+    expect(a.aferibilidade.primeira.completude).not.toBe("INCOMPLETO");
+    expect(a.aferibilidade.total.completude).toBe("COMPLETO");
+  });
+
+  it("F — documento importado sem a verba é diferente de documento não importado", () => {
+    /*
+      As duas coisas já se distinguem, e por caminhos diferentes: a **fonte**
+      responde se o arquivo chegou; a **linha** responde se ele trouxe a verba.
+      Um 03.08.20 importado sem bloco de disponibilidade dá fonte `PRESENTE` e
+      linha sem demonstrado — e é assim que a tela manda conferir a verba em vez
+      de mandar reenviar o arquivo.
+    */
+    const a = aferir(rota, COMPLETO());
+    expect(a.aferibilidade.total.faltando).toEqual([]);
+
+    const dvs = parcela(a, "rota_dvs");
+    expect(dvs.classe).not.toBe("SEM_CONTRAPARTIDA");
+
+    /* O 03.08.20 chegou; o que não veio nele foi a linha `DVS`. */
+    const daFonte = quinzenas([...TIPOS_DE_FONTE], [...TIPOS_DE_FONTE])[1]!.fontes;
+    expect(daFonte.find((f) => f.tipo === "PAGAMENTO")!.estado).toBe("PRESENTE");
+  });
+
+  it("o lastro continua sendo calculado no mês incompleto — ele mede cobertura, não acerto", () => {
+    /*
+      Zerar o lastro junto com a precisão esconderia que o que chegou **tem**
+      documento atrás. São duas perguntas, e só uma delas fica sem resposta
+      quando falta arquivo.
+    */
+    const a = aferir(rota, quinzenas([...TIPOS_DE_FONTE], null));
+    expect(a.lastro.segunda).not.toBeNull();
+    expect(a.precisao.segunda).toBeNull();
+  });
+
+  it("o canal sem painel é `NAO_APLICAVEL`, e não `INCOMPLETO`", () => {
+    /*
+      Incompleto pede arquivo; não aplicável pede transcrição. Mandar quem lê
+      procurar um 03.08.20 do AS não resolveria nada — o que falta é o painel.
+    */
+    const a = aferir(
+      { canal: "AS", emitido: { primeira: 100, segunda: 200, total: 300 }, semPainel: "CANAL_SEM_CATALOGO", comparado: null } as unknown as CanalDoResumo,
+      COMPLETO(),
+    );
+    expect(a.aferibilidade.total.completude).toBe("NAO_APLICAVEL");
+    expect(a.aferibilidade.total.faltando).toEqual([]);
   });
 });

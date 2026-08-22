@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { conferirDePara } from "../de-para";
+import { TIPOS_DE_FONTE } from "../dominio";
 import { lerPagamento } from "../leitores/pagamento";
 import { montarMapaDaQuinzena, type ParametrosDoCadastro } from "../mapa-rota";
 import { comReferencia, resumoComReferencia, type NumerosDaReferencia } from "../painel-referencia";
@@ -66,6 +67,8 @@ function quinzenaComTudo(n: 1 | 2): QuinzenaApurada {
     competenciaId: `id-${n}`,
     chave: `2026-07-Q${n}`,
     estado: "APURADA",
+    /* "Com tudo" inclui os relatórios: é o fechamento completo, e aferível. */
+    fontesRecebidas: [...TIPOS_DE_FONTE],
     verbas: [
       { vbz: 1, canal: "ROTA", nome: "Frota Fixa Ativa", natureza: "FIXO", emitido: 100 * n, esperado: 100 * n },
     ],

@@ -15,6 +15,7 @@ import {
   lerResumoDoMes,
   TipoDeOperacaoAusente,
   descartarDadosDaCompetencia,
+  disponibilidadeDoMes,
   encerrarCompetencia,
   excluirCompetencia,
   explicarPainelAusente,
@@ -42,6 +43,7 @@ import {
   fixtureCtes,
   fixtureCtesEmCsv,
   fixtureDisponibilidade,
+  fixtureDisponibilidadeDoMesInteiro,
   fixtureDisponibilidadeEmCsv,
   fixtureOperacao,
   fixtureOperacaoEmCsv,
@@ -1873,6 +1875,136 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
         excluirCompetencia(db, "00000000-0000-0000-0000-000000000000"),
       ).rejects.toMatchObject({ codigo: "COMPETENCIA_NAO_ENCONTRADA" });
     });
+  });
+
+
+  /**
+   * O CORTE POR COMPETÊNCIA — a prova que só o banco dá.
+   *
+   * Unidade própria (`446`) porque este bloco abre as duas quinzenas de
+   * julho/2026 e as asserções anteriores leem a `443`.
+   *
+   * O que se prende aqui é o `WHERE` de `disponibilidadeDoMes`: cada
+   * competência é consultada **no seu próprio período**. Antes era um intervalo
+   * só, de min(início) a max(fim), e o mesmo arquivo mensal anexado às duas
+   * quinzenas entrava inteiro nas duas — sobrepondo cada dia do mês. Quem
+   * desempatava era a desduplicação por `(aba, dia)`, ficando com a primeira
+   * linha que via; e "a primeira" é a ordem em que o banco devolveu, que não é
+   * regra de negócio nenhuma.
+   */
+  describe("o 03.08.18 do mês, lido competência por competência", () => {
+    /* 10/07 — FF 300 + Van 50. 20/07 — FF 100 + Van 7. Ver a fixture. */
+    const DA_PRIMEIRA = 350;
+    const DA_SEGUNDA = 107;
+    const DO_MES = DA_PRIMEIRA + DA_SEGUNDA;
+
+    /*
+      Uma unidade por caso, e não uma para o bloco: a chave de uma competência é
+      (unidade, transportadora, operação, período), então `abrirCompetencia` da
+      mesma quinzena devolve a **mesma** competência — com os documentos que o
+      caso anterior anexou. Cada cenário aqui é um estado de importação
+      diferente, e precisa começar limpo.
+
+      Os códigos vão de 450 para cima porque 443 a 448 já estão tomados neste
+      arquivo — reaproveitar um deles trouxe o 03.08.18 de outro bloco para
+      dentro da soma, e o teste falhou por contaminação em vez de por defeito.
+    */
+    const abrir = (codigo: string, quinzena: 1 | 2) =>
+      abrirCompetencia(db, {
+        ano: 2026,
+        mes: 7,
+        quinzena,
+        unidade: { codigo, nome: `CDD DO CORTE ${codigo}` },
+        transportadora,
+        tipoDeOperacao,
+      });
+
+    const comoALeituraVe = async (ids: { id: string }[]) => {
+      const linhas = await Promise.all(
+        ids.map(async (c) => (await buscarCompetencia(db, c.id))!),
+      );
+      return disponibilidadeDoMes(
+        db,
+        linhas.map((c) => ({ id: c.id, inicio: c.inicio, fim: c.fim })),
+        "ROTA",
+      );
+    };
+
+    it("o mesmo arquivo mensal nas duas competências conta o mês uma vez", async () => {
+      const q1 = await abrir("450", 1);
+      const q2 = await abrir("450", 2);
+      for (const comp of [q1, q2]) {
+        await receberDocumento(db, {
+          competenciaId: comp.id,
+          tipo: "DISPONIBILIDADE",
+          nomeDoArquivo: `03.08.18-mensal-q${comp.id.slice(0, 4)}.xlsx`,
+          conteudo: fixtureDisponibilidadeDoMesInteiro(),
+        });
+      }
+
+      const doMes = await comoALeituraVe([q1, q2]);
+      expect(doMes!.total).toBe(DO_MES);
+      /* Sem sobreposição, a rede não teve o que pegar. */
+      expect(doMes!.conflitos).toEqual([]);
+      /* Dois dias distintos, e não quatro: 10/07 e 20/07, cada um uma vez. */
+      expect(doMes!.dias).toBe(2);
+
+      /*
+        **O controle negativo.** As linhas estão todas lá, as oito — quatro por
+        competência. É o corte, e só ele, que impede o total de dobrar: sem ele
+        a soma crua daria o dobro, e com a desduplicação antiga daria o certo
+        por sorteio.
+      */
+      const gravadas = await pool.query<{ n: string }>(
+        "select count(*) as n from fechamento_disponibilidade where competencia_id = any($1)",
+        [[q1.id, q2.id]],
+      );
+      expect(Number(gravadas.rows[0]!.n)).toBe(8);
+    }, 60_000);
+
+    it("só a 2ª quinzena recebeu: o total é o dela, e não o do mês", async () => {
+      /*
+        A afirmação que impede o produto de fingir completude. Os dias 1 a 15
+        não chegaram em lugar nenhum, e o corte não os inventa a partir do
+        arquivo mensal que a 2ª recebeu. O número sai menor, a tela cobra o
+        03.08.18 da 1ª quinzena, e é isso que se quer.
+      */
+      const q1 = await abrir("451", 1);
+      const q2 = await abrir("451", 2);
+      await receberDocumento(db, {
+        competenciaId: q2.id,
+        tipo: "DISPONIBILIDADE",
+        nomeDoArquivo: "03.08.18-so-na-segunda.xlsx",
+        conteudo: fixtureDisponibilidadeDoMesInteiro(),
+      });
+
+      const doMes = await comoALeituraVe([q1, q2]);
+      expect(doMes!.total).toBe(DA_SEGUNDA);
+      expect(doMes!.total).not.toBe(DO_MES);
+      expect(doMes!.dias).toBe(1);
+      expect(doMes!.periodo).toEqual({ de: "2026-07-20", ate: "2026-07-20" });
+    }, 60_000);
+
+    it("só a 1ª quinzena recebeu: idem, pelo outro lado", async () => {
+      const q1 = await abrir("452", 1);
+      const q2 = await abrir("452", 2);
+      await receberDocumento(db, {
+        competenciaId: q1.id,
+        tipo: "DISPONIBILIDADE",
+        nomeDoArquivo: "03.08.18-so-na-primeira.xlsx",
+        conteudo: fixtureDisponibilidadeDoMesInteiro(),
+      });
+
+      const doMes = await comoALeituraVe([q1, q2]);
+      expect(doMes!.total).toBe(DA_PRIMEIRA);
+      expect(doMes!.periodo).toEqual({ de: "2026-07-10", ate: "2026-07-10" });
+    }, 60_000);
+
+    it("sem 03.08.18 nenhum é `null`, e não zero", async () => {
+      const q1 = await abrir("453", 1);
+      const q2 = await abrir("453", 2);
+      expect(await comoALeituraVe([q1, q2])).toBeNull();
+    }, 60_000);
   });
 
   it("uma competência encerrada não aceita documento", async () => {
