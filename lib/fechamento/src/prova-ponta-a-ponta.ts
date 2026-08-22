@@ -1,7 +1,12 @@
 import { competencia, dentroDaCompetencia, type Competencia } from "./periodo";
 import type { Canal } from "./dominio";
 import type { EntradaDoFaturado } from "./faturado";
-import { valorDaDisponibilidade, type ParametrosDoCadastro, type ViagemDoMapa } from "./mapa-rota";
+import {
+  valorDaDisponibilidade,
+  valorDaEquipeDeEntrega,
+  type ParametrosDoCadastro,
+  type ViagemDoMapa,
+} from "./mapa-rota";
 import { basesDaQuinzena } from "./persistencia";
 import type {
   BasesDaPlanilha,
@@ -157,6 +162,8 @@ function basesDosRelatorios(
         canal: r.canal,
         status: r.status,
         valor: r.valor,
+        /* Decide em que quadro a requisição cai — ver `quadroDaEquipeDeEntrega`. */
+        vbz: r.verba.vbz,
       }))
     : null;
 
@@ -185,6 +192,16 @@ function basesDosRelatorios(
         : doMotor.indisponibilidade.fonte === "DIARIO"
           ? doMotor.indisponibilidade.medida.valor
           : doMotor.indisponibilidade.valor,
+    /*
+      A `VBZ 06` sai do mesmo 03.08.12.09 que os outros custos e vai para o
+      quarto quadro. Sem esta linha ela chegaria à reconciliação como zero — e o
+      `TOTAL GERAL UNIDADE` sairia R$ 248.834,84 menor sem nada acusar, porque a
+      planilha também não escreve nada ali.
+    */
+    equipeDeEntrega:
+      doMotor.equipeDeEntrega === null
+        ? null
+        : valorDaEquipeDeEntrega(doMotor.equipeDeEntrega),
   };
 }
 

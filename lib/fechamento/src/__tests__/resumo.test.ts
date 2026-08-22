@@ -286,6 +286,7 @@ const mapa = (q: 1 | 2) =>
       complementarNegativo: 0,
       outrosCustos: { fonte: "PLANILHA", valor: 0 },
       indisponibilidade: { fonte: "PLANILHA", valor: 0 },
+      equipeDeEntrega: { fonte: "PLANILHA", valor: 0 },
     },
   });
 
@@ -477,6 +478,7 @@ describe("do fallback para o painel comparado", () => {
         complementarNegativo: 0,
         outrosCustos: null,
         indisponibilidade: null,
+        equipeDeEntrega: { fonte: "PLANILHA", valor: 0 },
       },
     });
     const doPainel = comPainel(1);

@@ -70,6 +70,7 @@ const BASES: Record<1 | 2, BasesDaQuinzena> = {
     /* Da planilha, e não do 03.08.12.09 / 2Art: aqui a prova é contra a `.xlsb`. */
     outrosCustos: { fonte: "PLANILHA", valor: 0 },
     indisponibilidade: { fonte: "PLANILHA", valor: 0 },
+    equipeDeEntrega: { fonte: "PLANILHA", valor: 0 },
   },
   2: {
     devolucao: 15763.61,
@@ -77,6 +78,7 @@ const BASES: Record<1 | 2, BasesDaQuinzena> = {
     complementarNegativo: 14050.54,
     outrosCustos: { fonte: "PLANILHA", valor: 358530.22 },
     indisponibilidade: { fonte: "PLANILHA", valor: 0 },
+    equipeDeEntrega: { fonte: "PLANILHA", valor: 0 },
   },
 };
 

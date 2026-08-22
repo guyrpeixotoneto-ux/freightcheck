@@ -5,7 +5,32 @@ import {
   montarFaturado,
   ONDE_INFORMAR_AS_NOTAS,
 } from "../faturado";
-import { quadroDaEquipeDeEntrega, QUADROS_DO_TOTAL_GERAL } from "../mapa-rota";
+import {
+  quadroDaEquipeDeEntrega,
+  QUADROS_DO_TOTAL_GERAL,
+  type ParametrosDoCadastro,
+} from "../mapa-rota";
+
+/** Os parâmetros reais da 2ª quinzena de julho/2026 — só o fator importa aqui. */
+const PARAMETROS: ParametrosDoCadastro = {
+  aliquotas: { pis: 0.0065, cofins: 0.086, icms: 0.1784, iss: 0.059 },
+  parcelaDentroDoMunicipio: 0.0238,
+  frotaFixaAtiva: 56,
+  frotaFixaInativa: 8,
+  remuneracaoFixaDaFrotaAtiva: 1424.91,
+  remuneracaoDaEquipeDeEntrega: 8919.38,
+  remuneracaoDoQlpAdministrativo: 4427.53,
+  remuneracaoDeOutrasDespesas: 4361.07,
+  remuneracaoDaFrotaInativa: 1650.97,
+  vansAtivas: 7,
+  custoFixoDaVan: 4693.85,
+  custoDaEquipeDeEntregaDaVan: 4250.45,
+  vansInativas: 6,
+  remuneracaoDasVansInativas: 3195.18,
+  rotasNoturnas: 1,
+  custoDaNoturnaSemImposto: 8697.88,
+  custoDeMarketingSemImposto: 0,
+};
 
 /**
  * O LADO DA TRANSPORTADORA, preso pelos números do fechamento real.
@@ -179,13 +204,74 @@ describe("diferencaDoTotalGeral", () => {
 });
 
 describe("o quarto quadro", () => {
-  it("entra vazio, reservado, e soma zero por não ter parcela", () => {
-    const q = quadroDaEquipeDeEntrega();
+  /*
+    Sem o 03.08.12.09 o quadro continua reservado — e `null`, não zero: não há
+    como afirmar nem que a equipe rendeu nada nem que ela rendeu zero.
+  */
+  it("sem o 03.08.12.09 fica reservado, e o total é ausência e não zero", () => {
+    const q = quadroDaEquipeDeEntrega(null, PARAMETROS);
 
     expect(q.quadro).toBe("EQUIPE_DE_ENTREGA");
     expect(q.linhas).toEqual([]);
-    expect(q.total).toBe(0);
+    expect(q.total).toBeNull();
     expect(q.reservado).toContain("AI34");
+  });
+
+  it("com a VBZ 06 aprovada, ganha linha e o total é a parcela brutada", () => {
+    const q = quadroDaEquipeDeEntrega(
+      { fonte: "REQUISICOES", medida: { valor: 182035.14, aprovadas: 4, recebidas: 15 } },
+      PARAMETROS,
+    );
+
+    expect(q.reservado).toBeNull();
+    expect(q.linhas).toHaveLength(1);
+    expect(q.linhas[0]!.chave).toBe("equipe_de_entrega");
+    /*
+      182.035,14 × 1,3669605 — o mesmo fator das demais linhas da quinzena, com
+      a precisão que ele tem. Arredondá-lo para as seis casas que a planilha
+      exibe daria 248.834,75, e a diferença de nove centavos é do arredondamento
+      do fator, não da conta.
+    */
+    expect(q.total).toBeCloseTo(248834.84, 2);
+    expect(q.linhas[0]!.memoria).toContain("4 de 15 requisições");
+    expect(q.linhas[0]!.memoria).toContain("VBZ 06");
+  });
+
+  /*
+    A prova de que separar a VBZ 06 é **reagrupamento e não mudança de
+    dinheiro**. O 03.08.20 e a planilha lançam a equipe dentro de outros custos:
+    262.282,80 = 74.247,66 + 6.000,00 + 182.035,14, e `Outros Custos!G4` bruta
+    esse total inteiro (358.530,22). Separando, os dois quadros somados têm de
+    dar exatamente o mesmo número — se não derem, alguém está contando duas
+    vezes ou perdendo dinheiro no meio.
+  */
+  it("equipe + outros custos reproduz a linha única da planilha, ao centavo", () => {
+    const equipe = quadroDaEquipeDeEntrega(
+      { fonte: "REQUISICOES", medida: { valor: 182035.14, aprovadas: 4, recebidas: 15 } },
+      PARAMETROS,
+    );
+    const outros = quadroDaEquipeDeEntrega(
+      { fonte: "REQUISICOES", medida: { valor: 80247.66, aprovadas: 11, recebidas: 15 } },
+      PARAMETROS,
+    );
+    const juntos = quadroDaEquipeDeEntrega(
+      { fonte: "REQUISICOES", medida: { valor: 262282.8, aprovadas: 15, recebidas: 15 } },
+      PARAMETROS,
+    );
+
+    expect(equipe.total! + outros.total!).toBeCloseTo(juntos.total!, 2);
+    /* E o número da planilha, `Resumo Geral!AJ29`. */
+    expect(juntos.total).toBeCloseTo(358530.22, 2);
+    expect(equipe.total! + outros.total!).toBeCloseTo(358530.22, 2);
+  });
+
+  it("relatório sem nenhuma requisição da VBZ 06 vale zero **medido**", () => {
+    const q = quadroDaEquipeDeEntrega(
+      { fonte: "REQUISICOES", medida: { valor: 0, aprovadas: 0, recebidas: 11 } },
+      PARAMETROS,
+    );
+    expect(q.total).toBe(0);
+    expect(q.linhas[0]!.memoria).toContain("zero medido");
   });
 
   it("participa do total geral, como a planilha o soma — e o variável não", () => {

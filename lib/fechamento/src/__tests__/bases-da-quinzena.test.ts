@@ -271,11 +271,11 @@ describe("a indisponibilidade sai do 2Art", () => {
  */
 describe("os outros custos saem do 03.08.12.09", () => {
   const REQUISICOES = [
-    { canal: ROTA, status: "Aprovada", valor: 300000 },
-    { canal: ROTA, status: "Aprovada", valor: 58530.22 },
-    { canal: ROTA, status: "Pendente", valor: 12000 },
-    { canal: ROTA, status: "Reprovada", valor: 9000 },
-    { canal: "AS" as const, status: "Aprovada", valor: 77000 },
+    { canal: ROTA, status: "Aprovada", valor: 300000, vbz: 9 },
+    { canal: ROTA, status: "Aprovada", valor: 58530.22, vbz: 9 },
+    { canal: ROTA, status: "Pendente", valor: 12000, vbz: 9 },
+    { canal: ROTA, status: "Reprovada", valor: 9000, vbz: 9 },
+    { canal: "AS" as const, status: "Aprovada", valor: 77000, vbz: 9 },
   ];
 
   it("soma só as aprovadas, e só as do canal", () => {
@@ -290,14 +290,14 @@ describe("os outros custos saem do 03.08.12.09", () => {
 
   it("o status é lido sem depender de caixa nem de espaço", () => {
     const b = basesDaQuinzena(DESCONTOS_2A, ROTA, SEM_MARCA, [
-      { canal: ROTA, status: "  APROVADA ", valor: 100 },
+      { canal: ROTA, status: "  APROVADA ", valor: 100, vbz: 9 },
     ], SEM_DISP);
     expect(valorDeOutrosCustos(b.outrosCustos!)).toBe(100);
   });
 
   it("relatório sem nenhuma aprovada vale zero **medido**, não ausência", () => {
     const b = basesDaQuinzena(DESCONTOS_2A, ROTA, SEM_MARCA, [
-      { canal: ROTA, status: "Pendente", valor: 5000 },
+      { canal: ROTA, status: "Pendente", valor: 5000, vbz: 9 },
     ], SEM_DISP);
     expect(valorDeOutrosCustos(b.outrosCustos!)).toBe(0);
     expect(memoriaDeOutrosCustos(b.outrosCustos!)).toContain("nenhuma das 1 requisições");
@@ -305,7 +305,7 @@ describe("os outros custos saem do 03.08.12.09", () => {
 
   it("relatório sem requisição deste canal vale zero, e a frase diz que ele chegou", () => {
     const b = basesDaQuinzena(DESCONTOS_2A, ROTA, SEM_MARCA, [
-      { canal: "AS" as const, status: "Aprovada", valor: 77000 },
+      { canal: "AS" as const, status: "Aprovada", valor: 77000, vbz: 9 },
     ], SEM_DISP);
     expect(valorDeOutrosCustos(b.outrosCustos!)).toBe(0);
     expect(memoriaDeOutrosCustos(b.outrosCustos!)).toContain("não traz requisição deste canal");

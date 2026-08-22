@@ -46,6 +46,7 @@ import {
 import {
   montarMapaDaQuinzena,
   somarIndisponibilidade,
+  VBZ_DA_EQUIPE_DE_ENTREGA,
   somarVariavel,
   type BaseDeOutrosCustos,
   type ViagemDoMapa,
@@ -2550,13 +2551,27 @@ async function disponibilidadeDoMes(
   );
 }
 
+/**
+ * Uma requisição do 03.08.12.09, no mínimo que a conta lê.
+ *
+ * `vbz` entra porque ela decide **em que quadro** o dinheiro cai: a `VBZ 06` é a
+ * remuneração variável da equipe de entrega e tem quadro próprio; o resto é
+ * outros custos. Ver `quadroDaEquipeDeEntrega`, em `mapa-rota.ts`.
+ */
+export interface RequisicaoDaConta {
+  canal: Canal;
+  status: string;
+  valor: number;
+  vbz: number;
+}
+
 export function basesDaQuinzena(
   descontos: { canal: Canal; tipo: string; valor: number }[] | null,
   canal: Canal,
   /** O diário da quinzena, já agrupado por dia. Vazio quando o 2Art não veio. */
   diario: { viagens: ViagemDoMapa[] }[],
   /** As requisições da competência, de todos os canais. `null` sem 03.08.12.09. */
-  requisicoes: { canal: Canal; status: string; valor: number }[] | null,
+  requisicoes: RequisicaoDaConta[] | null,
   /**
    * A disponibilidade do **mês**, e qual quinzena está sendo montada.
    *
@@ -2626,7 +2641,15 @@ export function basesDaQuinzena(
       erro visível por um invisível.
     */
     complementarNegativo: soma(["FRETE_MINIMO"]),
-    outrosCustos: outrosCustosDaQuinzena(requisicoes, canal),
+    /*
+      Os dois recortes do **mesmo** relatório, separados na origem. A `VBZ 06`
+      sai daqui e vai para o quadro próprio; somá-la nos dois lugares contaria
+      R$ 248.834,75 duas vezes no total geral de julho/2026. A soma dos dois
+      reproduz o número único que a planilha imprime — ver
+      `quadroDaEquipeDeEntrega`.
+    */
+    outrosCustos: outrosCustosDaQuinzena(requisicoes, canal, "SEM_A_EQUIPE"),
+    equipeDeEntrega: outrosCustosDaQuinzena(requisicoes, canal, "SO_A_EQUIPE"),
     /*
       Diário vazio é diário ausente, e por isso `null` e não zero: uma
       competência cujo 2Art não chegou tem exatamente a mesma lista vazia de uma
@@ -2649,12 +2672,24 @@ export function basesDaQuinzena(
  * Ver {@link OutrosCustosDoRelatorio}, que carrega o denominador de cada caso.
  */
 function outrosCustosDaQuinzena(
-  requisicoes: { canal: Canal; status: string; valor: number }[] | null,
+  requisicoes: RequisicaoDaConta[] | null,
   canal: Canal,
+  /**
+   * Qual dos dois recortes da mesma lista.
+   *
+   * `SEM_A_EQUIPE` é o quadro de outros custos; `SO_A_EQUIPE` é o quarto quadro.
+   * Os dois saem daqui, e não de duas funções, para que o filtro de status e o
+   * denominador sejam necessariamente os mesmos — duas cópias divergiriam no dia
+   * em que uma delas mudasse.
+   */
+  recorte: "SEM_A_EQUIPE" | "SO_A_EQUIPE",
 ): BaseDeOutrosCustos | null {
   if (requisicoes === null || requisicoes.length === 0) return null;
 
-  const doCanal = requisicoes.filter((r) => r.canal === canal);
+  const daEquipe = (r: RequisicaoDaConta) => r.vbz === VBZ_DA_EQUIPE_DE_ENTREGA;
+  const doCanal = requisicoes
+    .filter((r) => r.canal === canal)
+    .filter((r) => (recorte === "SO_A_EQUIPE" ? daEquipe(r) : !daEquipe(r)));
   /* O mesmo filtro da apuração, e não um segundo critério sobre o mesmo dado. */
   const aprovadas = doCanal.filter((r) => r.status.trim().toLowerCase() === STATUS_QUE_PAGA);
   return {
@@ -2706,12 +2741,14 @@ async function somarDemonstrativo(
 async function requisicoesDaCompetencia(
   db: Database,
   competenciaId: string,
-): Promise<{ canal: Canal; status: string; valor: number }[] | null> {
+): Promise<RequisicaoDaConta[] | null> {
   const linhas = await db
     .select({
       canal: fechamentoRequisicaoTable.canal,
       status: fechamentoRequisicaoTable.status,
       valor: fechamentoRequisicaoTable.valor,
+      /* A VBZ separa a equipe de entrega dos outros custos — ver `basesDaQuinzena`. */
+      vbz: fechamentoRequisicaoTable.vbz,
     })
     .from(fechamentoRequisicaoTable)
     .where(eq(fechamentoRequisicaoTable.competenciaId, competenciaId));
@@ -2720,6 +2757,7 @@ async function requisicoesDaCompetencia(
     canal: l.canal as Canal,
     status: l.status,
     valor: Number(l.valor ?? 0),
+    vbz: Number(l.vbz ?? 0),
   }));
 }
 

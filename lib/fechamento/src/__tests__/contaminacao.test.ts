@@ -152,6 +152,7 @@ function quinzenaComTudo(n: 1 | 2): QuinzenaApurada {
             complementarNegativo: 0,
             outrosCustos: { fonte: "PLANILHA", valor: 0 },
             indisponibilidade: { fonte: "PLANILHA", valor: 0 },
+            equipeDeEntrega: { fonte: "PLANILHA", valor: 0 },
           },
         }),
       },

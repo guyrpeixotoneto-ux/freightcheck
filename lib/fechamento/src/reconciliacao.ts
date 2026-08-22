@@ -74,6 +74,13 @@ export interface BasesDaPlanilha {
   complementarNegativo: number | null;
   outrosCustos: number | null;
   indisponibilidade: number | null;
+  /**
+   * `Resumo Geral!AI34` — o quadro da equipe de entrega.
+   *
+   * `null` no fechamento conferido, e não zero: a célula **não existe** na
+   * planilha. Ver `quadroDaEquipeDeEntrega`, em `mapa-rota.ts`.
+   */
+  equipeDeEntrega?: number | null;
 }
 
 /** As bases da planilha na forma que o motor consome, com a fonte declarada. */
@@ -87,6 +94,15 @@ function basesDoMotor(b: BasesDaPlanilha): BasesDaQuinzena {
       b.outrosCustos === null ? null : { fonte: "PLANILHA", valor: b.outrosCustos },
     indisponibilidade:
       b.indisponibilidade === null ? null : { fonte: "PLANILHA", valor: b.indisponibilidade },
+    /*
+      A planilha não escreve célula no quarto quadro — `AI34` e `AJ34` não
+      existem. Mas o total geral dela é `SUM(AI17+AI30+AI34)`, e `SUM` de célula
+      inexistente **é zero**: é assim que a planilha chega ao número que
+      imprime. Reproduzi-la exige reproduzir isso, e por isso a ausência vira
+      zero **aqui**, na conversão que existe só para a reconciliação — nunca no
+      caminho de produção, onde a ausência do 03.08.12.09 continua sendo `null`.
+    */
+    equipeDeEntrega: { fonte: "PLANILHA", valor: b.equipeDeEntrega ?? 0 },
   };
 }
 

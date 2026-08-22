@@ -122,6 +122,56 @@ export interface BasesDaQuinzena {
    * afirmação sobre a operação, e não sobre o arquivo que falta.
    */
   indisponibilidade: BaseDeIndisponibilidade | null;
+  /**
+   * A remuneração variável da equipe de entrega — a `VBZ 06`.
+   *
+   * `null` quando o 03.08.12.09 não foi importado, pelo mesmo motivo dos outros
+   * custos: sem o arquivo não há zero medido. Ver {@link BaseDaEquipeDeEntrega}.
+   */
+  equipeDeEntrega: BaseDaEquipeDeEntrega | null;
+}
+
+/**
+ * A `VBZ 06` — `Rota - Rem. Variável Equipe Entrega`.
+ *
+ * O número é do domínio e não da tela: é ele que separa o quarto quadro dos
+ * outros custos, e escrevê-lo solto em dois lugares deixaria os dois livres
+ * para divergir.
+ */
+export const VBZ_DA_EQUIPE_DE_ENTREGA = 6;
+
+/**
+ * De onde sai a remuneração variável da equipe de entrega.
+ *
+ * Mesma disciplina de {@link BaseDeOutrosCustos}, e de propósito: a fonte é o
+ * **mesmo** 03.08.12.09, com o mesmo filtro de status. O que muda é o recorte —
+ * a `VBZ 06` em vez de todas as outras.
+ */
+export type BaseDaEquipeDeEntrega =
+  | { fonte: "REQUISICOES"; medida: OutrosCustosDoRelatorio }
+  | { fonte: "PLANILHA"; valor: number };
+
+/** O número que entra na conta, seja qual for a fonte. */
+export function valorDaEquipeDeEntrega(b: BaseDaEquipeDeEntrega): number {
+  return b.fonte === "REQUISICOES" ? b.medida.valor : b.valor;
+}
+
+/** A frase que a tela mostra: o número e o que foi contado para chegar nele. */
+export function memoriaDaEquipeDeEntrega(b: BaseDaEquipeDeEntrega): string {
+  if (b.fonte === "PLANILHA") {
+    return "`Resumo Geral!AI34`, como a planilha legada o traz — para reconciliação";
+  }
+  const { aprovadas, recebidas } = b.medida;
+  if (aprovadas === 0) {
+    return (
+      `nenhuma das ${recebidas} requisições do 03.08.12.09 deste canal aponta a ` +
+      `VBZ ${String(VBZ_DA_EQUIPE_DE_ENTREGA).padStart(2, "0")} — zero medido, não zero por ausência de arquivo`
+    );
+  }
+  return (
+    `a soma sem imposto de ${aprovadas} de ${recebidas} requisições aprovadas do ` +
+    `03.08.12.09 que apontam a VBZ ${String(VBZ_DA_EQUIPE_DE_ENTREGA).padStart(2, "0")}`
+  );
 }
 
 /**
@@ -979,7 +1029,7 @@ function somarQuadro(linhas: LinhaDoMapa[]): number | null {
 }
 
 /**
- * O QUARTO QUADRO — `REMUNERAÇÃO VARIÁVEL - EQUIPE DE ENTREGA`, reservado e vazio.
+ * O QUARTO QUADRO — `REMUNERAÇÃO VARIÁVEL - EQUIPE DE ENTREGA`.
  *
  * **O que a planilha tem ali, lido célula a célula.** As linhas 32 e 33 do
  * `RESUMO GERAL` trazem o título do quadro e os três cabeçalhos de coluna. A
@@ -1003,26 +1053,63 @@ function somarQuadro(linhas: LinhaDoMapa[]): number | null {
  * não erro nosso — e é justamente o tipo de coisa que some quando o quadro não
  * existe na estrutura.
  *
- * **Nenhuma linha é inventada aqui.** Escrever uma parcela com a VBZ 06 do
- * emitido seria pôr o demonstrado dentro do devido — a contaminação que este
- * pacote inteiro recusa. O quadro entra sem linha, com o motivo escrito, e
- * soma zero porque **não tem parcela**, e não porque alguém mediu zero.
+ * **A fonte é o 03.08.12.09, e não o 03.08.20.** Escrever a parcela com a VBZ 06
+ * do *demonstrativo* seria pôr o demonstrado dentro do devido — a contaminação
+ * que este pacote recusa. O que sustenta a linha é o mesmo relatório de
+ * requisições que já sustenta os outros custos, com o mesmo filtro de status:
+ * as requisições **aprovadas** que apontam a `VBZ 06`. Em julho/2026 são quatro,
+ * somando R$ 182.035,14 sem imposto — exatamente o que o 03.08.20 publica na
+ * linha `06 - Rota - Rem. Variável Equipe Entrega`. Duas fontes independentes,
+ * mesmo centavo, e a que entra na conta é a do devido.
+ *
+ * **Por que a VBZ 06 sai dos outros custos ao entrar aqui.** O 03.08.20 e a
+ * planilha lançam a `VBZ 06` **dentro** do bloco de outros custos: os
+ * R$ 262.282,80 de `Total Outros Custos` são `74.247,66 + 6.000,00 +
+ * 182.035,14`, e `Outros Custos!F4` bruta esse total inteiro. Somar a equipe num
+ * quadro próprio **sem** tirá-la de lá contaria R$ 248.834,75 duas vezes no
+ * total geral. Por isso {@link BasesDaQuinzena} traz as duas separadas na
+ * origem, e a soma das duas reproduz o número único da planilha ao centavo — é
+ * um **reagrupamento**, não uma mudança de dinheiro, e o gate prende a
+ * identidade.
  */
-export function quadroDaEquipeDeEntrega(): QuadroDoMapa {
+export function quadroDaEquipeDeEntrega(
+  base: BaseDaEquipeDeEntrega | null,
+  p: ParametrosDoCadastro,
+): QuadroDoMapa {
+  /*
+    O quadro sem fonte continua sendo reservado — e é diferente de um quadro que
+    mediu zero. Sem o 03.08.12.09 não há como afirmar nem uma coisa nem outra.
+  */
+  if (base === null) {
+    return {
+      quadro: "EQUIPE_DE_ENTREGA",
+      titulo: "Remuneração variável — equipe de entrega",
+      rotuloDoTotal: null,
+      linhas: [],
+      total: null,
+      reservado:
+        "Sem o 03.08.12.09 do período não há como saber quanto a equipe de entrega " +
+        "rendeu: é dele que sai a VBZ 06. A planilha reserva este quadro e não escreve " +
+        "célula nenhuma nele (`AI34` e `AJ34` não existem), e mesmo assim o total geral " +
+        "dela o soma.",
+    };
+  }
+
   return {
     quadro: "EQUIPE_DE_ENTREGA",
     titulo: "Remuneração variável — equipe de entrega",
-    /* A planilha não escreve linha de total neste quadro — ver a nota acima. */
-    rotuloDoTotal: null,
-    linhas: [],
-    /* Soma vazia é zero legítimo: não há parcela a faltar. Ver a nota acima. */
-    total: 0,
-    reservado:
-      "A planilha reserva este quadro e não escreve linha nenhuma nele: `AI34` e `AJ34` " +
-      "não existem como célula, e o total geral dela soma esse vazio. O conceito existe do " +
-      "lado emitido — a VBZ 06 sai em CT-e —, e nenhuma regra o converte em devido. " +
-      "Enquanto não houver essa regra, o quadro entra na estrutura e soma zero por não ter " +
-      "parcela, nunca por ter medido zero.",
+    rotuloDoTotal: "Total equipe de entrega",
+    linhas: [
+      linha(
+        "equipe_de_entrega",
+        "REMUNERAÇÃO VARIÁVEL - EQUIPE DE ENTREGA",
+        "PARCELA",
+        bruto(valorDaEquipeDeEntrega(base), p),
+        `${memoriaDaEquipeDeEntrega(base)}, brutado pelo fator de imposto`,
+      ),
+    ],
+    total: centavos(bruto(valorDaEquipeDeEntrega(base), p)),
+    reservado: null,
   };
 }
 
@@ -1172,7 +1259,7 @@ export function montarMapaDaQuinzena(entrada: {
       total: somarQuadro(outros),
       reservado: null,
     },
-    quadroDaEquipeDeEntrega(),
+    quadroDaEquipeDeEntrega(bases.equipeDeEntrega, p),
   ];
 
   /*
