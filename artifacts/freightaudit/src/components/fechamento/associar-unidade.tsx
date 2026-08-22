@@ -51,13 +51,15 @@ export function AssociarUnidade({
 }: {
   sugestoes: UnidadeSugerida[];
   /**
-   * A quinzena que o botão associa — dita, porque a associação é por
-   * competência e cada quinzena é uma.
+   * A quinzena de onde o clique parte — dita, porque a competência é dela.
    *
-   * As duas metades do mês são duas competências, e associar uma não associa a
-   * outra. O texto diz qual está sendo associada, e a outra reaparece com o seu
-   * próprio botão na releitura seguinte — em vez de a pessoa clicar uma vez e
-   * ficar sem entender por que metade do mês continua sem devido.
+   * **A frase que estava aqui deixou de ser verdade, e era o defeito.** Ela
+   * dizia que associar uma quinzena não associa a outra, e que a outra
+   * reapareceria com o seu próprio botão. A pessoa clicava uma vez, via meia
+   * competência responder, e esperava um segundo botão que — com painel
+   * comparado já montado — a tela tinha deixado de oferecer. Hoje a decisão é
+   * sobre o texto da unidade e se propaga para as competências abertas que o
+   * carregam; a quinzena continua sendo dita porque é dela que o clique parte.
    */
   quinzena: 1 | 2;
   /** `null` quando a quinzena do diagnóstico não é uma competência aberta. */
@@ -102,9 +104,9 @@ export function AssociarUnidade({
         Associa a <strong>{quinzena}ª quinzena</strong> — grava só a identidade
         da unidade nessa competência. Nada do que foi importado é lido ou
         alterado, e o devido aparece na próxima leitura desta tela, sem
-        reimportar e sem apurar de novo. A outra quinzena do mesmo texto é
-        associada junto, porque a decisão é sobre a unidade e não sobre a linha
-        — ver `identidade-da-competencia.ts`.
+        reimportar e sem apurar de novo. As outras competências abertas com este
+        mesmo código são associadas junto: a escolha é sobre qual unidade é
+        esta, e não sobre uma quinzena.
       </p>
       {erro && <p className="text-destructive">{erro}</p>}
     </div>
