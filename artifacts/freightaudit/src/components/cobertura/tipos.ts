@@ -31,7 +31,7 @@ export interface Contagem {
 }
 
 export interface Justificativa {
-  origem: "CONTRATO" | "CURADORIA" | "HISTORICO" | "ESTRUTURA";
+  origem: "CONTRATO" | "CATALOGO" | "CURADORIA" | "HISTORICO" | "ESTRUTURA";
   declarado: boolean;
   motivo: string;
   medicao: Record<string, number | string | null>;
@@ -104,6 +104,75 @@ export interface ColunaDaMatriz {
   effectiveDate: string;
   periodo: string;
   rotulos: string[];
+}
+
+/**
+ * A linha da matriz aberta por dentro: um atributo, ao longo das vigências.
+ *
+ * Espelha `lib/coverage/src/atributos.ts`. Como todo o resto deste arquivo, não
+ * carrega regra: `estado`, `percentual` e `entidadesFaltando` chegam medidos —
+ * pela mesma função que a célula da matriz usa para somar o seu percentual —, e
+ * a tela só desenha.
+ */
+export interface CelulaDoAtributo {
+  snapshotId: string;
+  effectiveDate: string;
+  periodo: string;
+  sourceLabel: string;
+  criticidade: Criticidade;
+  justificativa: Justificativa | null;
+  entidadesEsperadas: number;
+  entidadesPresentes: number;
+  entidadesVazias: number;
+  naoAplicaveis: number;
+  entidadesFaltando: number;
+  percentual: number;
+  estado: EstadoDeCobertura;
+  /** Alguma origem cobra este atributo nesta vigência? */
+  esperado: boolean;
+  /** A coluna veio no layout desta vigência? */
+  noLayout: boolean;
+  dispensado: boolean;
+  novo: boolean;
+}
+
+export interface LinhaDeAtributo {
+  attributeCode: string;
+  attributeLabel: string;
+  sourceName: string | null;
+  entityType: string;
+  secaoDaDRE: string | null;
+  criticidade: Criticidade;
+  origem: Justificativa["origem"] | null;
+  declarado: boolean;
+  motivo: string | null;
+  pior: EstadoDeCobertura;
+  vigenciasEsperado: number;
+  vigenciasComFalta: number;
+  entidadesFaltando: number;
+  celulas: Record<string, CelulaDoAtributo>;
+}
+
+export interface MatrizDeAtributos {
+  conjunto: {
+    datasetFamily: string;
+    familiaLabel: string;
+    entityType: string;
+    equipamentoLabel: string;
+    scopeHash: string;
+    scopeLabel: string;
+    canal: string;
+    rotulo: string;
+  };
+  colunas: ColunaDaMatriz[];
+  linhas: LinhaDeAtributo[];
+  resumo: {
+    atributos: number;
+    comFalta: number;
+    criticosComFalta: number;
+    nuncaChegaram: number;
+    semExpectativa: number;
+  };
 }
 
 export interface Descoberta {
@@ -311,6 +380,7 @@ export const APARENCIA_DA_CRITICIDADE: Record<
 /** De onde a expectativa veio, dito em duas palavras para caber num selo. */
 export const ORIGEM_DO_ESPERADO: Record<Justificativa["origem"], string> = {
   CONTRATO: "Contrato",
+  CATALOGO: "Catálogo",
   CURADORIA: "Curadoria",
   HISTORICO: "Histórico (inferido)",
   ESTRUTURA: "Estrutura (inferido)",

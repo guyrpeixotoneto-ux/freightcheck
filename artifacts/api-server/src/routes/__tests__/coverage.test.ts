@@ -230,6 +230,79 @@ describe("GET /coverage/cell e /coverage/gap", () => {
   });
 });
 
+describe("GET /coverage/attributes", () => {
+  it("abre a linha da matriz nas mesmas colunas, atributo por atributo", async () => {
+    const visao = await get("/coverage?vigencias=9");
+    const linha = visao.body.linhas[0];
+
+    const query = new URLSearchParams({
+      familia: linha.datasetFamily,
+      equipamento: linha.entityType,
+      escopo: linha.scopeHash,
+      vigencias: "9",
+    });
+    if (linha.canal) query.set("canal", linha.canal);
+
+    const res = await get(`/coverage/attributes?${query}`);
+    expect(res.status).toBe(200);
+    expect(res.body.colunas.map((c: any) => c.chave)).toEqual(
+      visao.body.colunas.map((c: any) => c.chave),
+    );
+    expect(res.body.linhas.length).toBeGreaterThan(0);
+    expect(res.body.conjunto.rotulo).toBe(linha.rotulo);
+    /* Toda linha traz o porquê junto: expectativa sem explicação é palpite. */
+    for (const atributo of res.body.linhas) {
+      if (atributo.origem) expect(atributo.motivo).toBeTruthy();
+    }
+  });
+
+  /*
+    A propriedade que este degrau existe para não quebrar: a tabela por dentro
+    da célula soma exatamente o número que a célula mostrou. Duas contas para a
+    mesma pergunta é o defeito que este módulo inteiro veio corrigir.
+  */
+  it("a soma das linhas de atributo fecha com a conta da célula", async () => {
+    const visao = await get("/coverage?vigencias=9");
+    const linha = visao.body.linhas[0];
+    const celula: any = Object.values(linha.celulas).at(-1);
+
+    const query = new URLSearchParams({
+      familia: linha.datasetFamily,
+      equipamento: linha.entityType,
+      escopo: linha.scopeHash,
+      vigencias: "9",
+    });
+    if (linha.canal) query.set("canal", linha.canal);
+    const res = await get(`/coverage/attributes?${query}`);
+
+    const doPeriodo = res.body.linhas
+      .map((a: any) => a.celulas[celula.vigencia.effectiveDate])
+      .filter((c: any) => c !== undefined && c.esperado);
+
+    expect(
+      doPeriodo.reduce((s: number, c: any) => s + c.entidadesEsperadas, 0),
+    ).toBe(celula.conta.combinacoesEsperadas);
+    expect(
+      doPeriodo.reduce((s: number, c: any) => s + c.entidadesPresentes, 0),
+    ).toBe(celula.conta.combinacoesEncontradas);
+  });
+
+  it("sem dizer de qual conjunto, para em 400 com a frase de quem opera", async () => {
+    const res = await get("/coverage/attributes?familia=REMUNERACAO_EQUIPAMENTO");
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/escopo/i);
+  });
+
+  it("um escopo que não existe devolve tabela vazia, não a de outro conjunto", async () => {
+    const res = await get(
+      "/coverage/attributes?familia=REMUNERACAO_EQUIPAMENTO&equipamento=CAVALO&escopo=nao-existe",
+    );
+    expect(res.status).toBe(200);
+    expect(res.body.linhas).toEqual([]);
+    expect(res.body.resumo.atributos).toBe(0);
+  });
+});
+
 describe("GET /coverage/history e /coverage/provenance", () => {
   it("o histórico de um atributo tem um ponto por vigência", async () => {
     const res = await get("/coverage/history/cavalo.ipva_licenciamento");

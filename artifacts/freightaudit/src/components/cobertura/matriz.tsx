@@ -1,4 +1,7 @@
+import { Fragment } from "react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { AtributosDaLinha } from "./atributos";
 import {
   APARENCIA,
   numero,
@@ -24,22 +27,39 @@ import {
  * tela procura problema; deixar a pior linha em quinto lugar porque o nome dela
  * começa com R é obrigar a varrer a tabela para achar o que ela deveria
  * entregar de relance. A ordenação vem pronta do servidor.
+ *
+ * **A linha abre por dentro.** O percentual da célula responde *quanto* falta;
+ * abrir a linha responde *o quê* — uma sublinha por atributo, nas mesmas
+ * colunas. Três meses seguidos de 88,1% podem ser o mesmo campo ausente desde
+ * junho ou três campos se revezando, e a matriz sozinha mostrava os dois
+ * exatamente igual. As sublinhas nascem dentro desta mesma `<table>`, que é o
+ * que mantém cada vigência debaixo da sua própria coluna.
  */
 export function Matriz({
   colunas,
   linhas,
+  vigencias,
   selecionada,
   aoSelecionar,
+  expandida,
+  aoExpandir,
+  aoAbrirLacuna,
 }: {
   colunas: ColunaDaMatriz[];
   linhas: LinhaDaMatriz[];
+  /** A janela, para que as sublinhas peçam exatamente estas colunas. */
+  vigencias: number;
   selecionada: { snapshotId: string; entityType: string } | null;
   aoSelecionar: (celula: CelulaDaMatriz) => void;
+  /** A chave da linha aberta por dentro, ou `null`. Uma de cada vez. */
+  expandida: string | null;
+  aoExpandir: (linha: LinhaDaMatriz) => void;
+  aoAbrirLacuna: (celula: { snapshotId: string; attributeCode: string }) => void;
 }) {
   if (linhas.length === 0) return null;
 
   return (
-    <section className="mt-8">
+    <section className="mt-8" id="matriz-de-cobertura">
       <div className="flex items-baseline justify-between gap-4 flex-wrap">
         <h2 className="text-lg font-bold uppercase tracking-wide">Matriz de cobertura</h2>
         <Legenda />
@@ -47,7 +67,8 @@ export function Matriz({
       <div className="border-b-2 border-brand mt-2" />
       <p className="text-xs text-muted-foreground mt-3 max-w-4xl">
         Clique numa célula para ver o que falta nela, por que o FreightCheck acha que falta e de
-        qual arquivo veio o que chegou.
+        qual arquivo veio o que chegou. Clique na seta ao lado do conjunto para abrir a linha
+        por dentro: um atributo por linha, as mesmas vigências nas colunas.
       </p>
 
       <div className="mt-4 overflow-x-auto">
@@ -77,34 +98,71 @@ export function Matriz({
             </tr>
           </thead>
           <tbody>
-            {linhas.map((linha) => (
-              <tr key={linha.chave} className="border-b last:border-b-0">
-                <th
-                  scope="row"
-                  className="px-4 py-3 text-left font-medium whitespace-nowrap sticky left-0 bg-card z-10 border-r"
-                >
-                  <div>{linha.rotulo}</div>
-                  <div className="text-xs text-muted-foreground font-normal">
-                    {linha.scopeLabel}
-                    {linha.canal ? ` · ${linha.canal}` : ""}
-                  </div>
-                </th>
-                {colunas.map((coluna) => (
-                  <td key={coluna.chave} className="px-1.5 py-1.5">
-                    <Celula
-                      celula={linha.celulas[coluna.chave]}
-                      selecionada={
-                        !!selecionada &&
-                        linha.celulas[coluna.chave]?.vigencia.snapshotId ===
-                          selecionada.snapshotId &&
-                        linha.entityType === selecionada.entityType
-                      }
-                      aoSelecionar={aoSelecionar}
+            {linhas.map((linha) => {
+              const aberta = expandida === linha.chave;
+              return (
+                <Fragment key={linha.chave}>
+                  <tr className="border-b last:border-b-0">
+                    <th
+                      scope="row"
+                      className="px-4 py-3 text-left font-medium whitespace-nowrap sticky left-0 bg-card z-10 border-r"
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => aoExpandir(linha)}
+                          aria-expanded={aberta}
+                          title={
+                            aberta
+                              ? `Fechar os atributos de ${linha.rotulo}`
+                              : `Ver o que este conjunto tem e o que falta, atributo por atributo`
+                          }
+                          aria-label={
+                            aberta
+                              ? `Fechar os atributos de ${linha.rotulo}`
+                              : `Abrir os atributos de ${linha.rotulo}`
+                          }
+                          className="shrink-0 text-muted-foreground hover:text-brand focus:outline-none focus:ring-2 focus:ring-brand"
+                        >
+                          {aberta ? (
+                            <ChevronDown className="w-4 h-4" aria-hidden />
+                          ) : (
+                            <ChevronRight className="w-4 h-4" aria-hidden />
+                          )}
+                        </button>
+                        <span>{linha.rotulo}</span>
+                      </div>
+                      <div className="text-xs text-muted-foreground font-normal pl-[1.375rem]">
+                        {linha.scopeLabel}
+                        {linha.canal ? ` · ${linha.canal}` : ""}
+                      </div>
+                    </th>
+                    {colunas.map((coluna) => (
+                      <td key={coluna.chave} className="px-1.5 py-1.5">
+                        <Celula
+                          celula={linha.celulas[coluna.chave]}
+                          selecionada={
+                            !!selecionada &&
+                            linha.celulas[coluna.chave]?.vigencia.snapshotId ===
+                              selecionada.snapshotId &&
+                            linha.entityType === selecionada.entityType
+                          }
+                          aoSelecionar={aoSelecionar}
+                        />
+                      </td>
+                    ))}
+                  </tr>
+                  {aberta && (
+                    <AtributosDaLinha
+                      linha={linha}
+                      colunas={colunas}
+                      vigencias={vigencias}
+                      aoAbrirLacuna={aoAbrirLacuna}
                     />
-                  </td>
-                ))}
-              </tr>
-            ))}
+                  )}
+                </Fragment>
+              );
+            })}
           </tbody>
         </table>
       </div>
