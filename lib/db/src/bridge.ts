@@ -176,6 +176,21 @@ export const ALLOWLIST: {
     tipo: "jsonb",
     aindaPodeNaoExistir: true,
   },
+  /*
+    A da `0054`. A regra de alteração do atributo — o que faz aquela coluna
+    mudar de valor, escrito por quem cura: "revisão semestral", "reajusta por
+    IPCA na virada do contrato". Aditiva e nula por definição: `NULL` ali é
+    "ninguém escreveu ainda", que é diferente de "não muda", e nenhum atributo
+    anterior a ela tem a frase. Production a ganha quando rodar a fila; até lá o
+    `down` a mantém, para que a proposta do Publishing continue sendo só o que
+    esta lista nomeia.
+  */
+  {
+    tabela: "attribute",
+    coluna: "change_rule",
+    tipo: "text",
+    aindaPodeNaoExistir: true,
+  },
 ];
 
 /**
