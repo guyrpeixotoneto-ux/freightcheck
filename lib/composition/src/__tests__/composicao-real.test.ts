@@ -58,6 +58,75 @@ describe("a frota de agosto/2026", () => {
   });
 
   /**
+   * As duas placas que abriram este trabalho, sobre o dado real.
+   *
+   * `RZG4I77` e `RZG5A37` estão em março/2026 e abril/2026 do export e em mais
+   * nenhuma vigência. A Cobertura continua cobrando as duas em agosto — e deve,
+   * porque ninguém registrou baixa —, e a Composição de agosto não as tem,
+   * porque elas não vieram em agosto.
+   *
+   * **O que mudou.** Maio/2026 é a vigência em que a antiga união com a
+   * vigência anterior as fazia aparecer: 64 linhas para 62 cavalos recebidos,
+   * as duas com "fora da vigência" na coluna do valor. Em junho elas evaporavam
+   * sem que nada dissesse por quê. Era a Composição respondendo "recebido" em
+   * oito vigências e "recebido + saiu no mês passado" na nona.
+   *
+   * Agora maio traz 62, como todas as outras — e as duas placas continuam
+   * acessíveis pela ficha, que é onde se pergunta pela vida de um equipamento.
+   */
+  it("não traz em maio/2026 os cavalos que só existiram até abril", async () => {
+    const MAIO = "2026-05-02";
+    const maio = (await getVisaoDeFrota(ctx.db, "CAVALO", { period: MAIO }))!;
+
+    expect(maio.linhas).toHaveLength(62);
+    for (const placa of ["RZG4I77", "RZG5A37"]) {
+      expect(maio.linhas.find((l) => l.placa === placa), placa).toBeUndefined();
+    }
+
+    /* E elas existem: abril é o último mês em que o arquivo as trouxe. */
+    const abril = (await getVisaoDeFrota(ctx.db, "CAVALO", { period: "2026-04-02" }))!;
+    for (const placa of ["RZG4I77", "RZG5A37"]) {
+      expect(abril.linhas.find((l) => l.placa === placa), placa).toBeDefined();
+    }
+    expect(abril.linhas).toHaveLength(64);
+  });
+
+  /**
+   * A frota encolhe de 64 para 62 e o total não é lido como queda de preço.
+   *
+   * Abril tem 64 cavalos; maio tem 62, e são os mesmos 62 mais nenhum. Este
+   * teste fixa que `mensalTotal` de maio é a soma **do que veio em maio** e que
+   * `variacaoTotal` fala só dos comparáveis — os dois cavalos que saíram não
+   * viram uma redução de remuneração, porque não são uma.
+   */
+  it("a saída de dois cavalos entre abril e maio não vira queda de remuneração", async () => {
+    const abril = (await getVisaoDeFrota(ctx.db, "CAVALO", { period: "2026-04-02" }))!;
+    const maio = (await getVisaoDeFrota(ctx.db, "CAVALO", { period: "2026-05-02" }))!;
+
+    expect(abril.resumo.equipamentos).toBe(64);
+    expect(maio.resumo.equipamentos).toBe(62);
+
+    /* O total é exatamente a soma das linhas que estão na lista. */
+    const soma = maio.linhas.reduce((s, l) => s + (l.mensal ?? 0), 0);
+    expect(maio.resumo.mensalTotal).toBeCloseTo(Number(soma.toFixed(2)), 2);
+
+    /*
+      A variação só existe para quem tem as duas pontas. Os dois que saíram não
+      estão na lista de maio, então não há linha deles a variar — e se houvesse,
+      ela viria com `variacao: null`, porque `calcularVariacao` recusa uma ponta
+      nula. De um jeito ou de outro, a saída não entra no total da variação.
+    */
+    const comVariacao = maio.linhas.filter((l) => l.variacao !== null);
+    const somaDasVariacoes = comVariacao.reduce((s, l) => s + l.variacao!.absoluta, 0);
+    expect(maio.resumo.variacaoTotal).toBeCloseTo(Number(somaDasVariacoes.toFixed(2)), 2);
+
+    /* Nenhuma linha de maio fala em saída de frota. */
+    expect(maio.linhas.some((l) => l.status.motivos.join(" ").includes("saiu da frota"))).toBe(
+      false,
+    );
+  });
+
+  /**
    * O teste que existe por causa do achado — e que mudou de contrato em
    * 18/08/2026.
    *

@@ -63,6 +63,9 @@ function dossie(parcial: Partial<Dossie> = {}): Dossie {
       alvo: null,
       resolucao: null,
       contexto: null,
+      origemDoRecorte: "PADRAO" as const,
+      unidadeCitada: null,
+      periodoImpossivel: null,
       periodo: null,
       intervalo: null,
     },
@@ -73,6 +76,8 @@ function dossie(parcial: Partial<Dossie> = {}): Dossie {
     lacunas: [],
     etapas: [],
     desambiguacao: null,
+  encadeamentos: [],
+  telaScopeHash: null,
     diagnostico: {
       book: { candidatos: 0, selecionados: 0, melhorPontuacao: 0 },
       ms: 0,

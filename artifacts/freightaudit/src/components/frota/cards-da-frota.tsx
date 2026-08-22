@@ -605,9 +605,6 @@ function CardDoAtivo({
         </div>
         <div className="text-xs text-muted-foreground">
           {ativo.periodLabel}
-          {!ativo.presente && (
-            <span className="text-amber-700"> · saiu da frota</span>
-          )}
         </div>
       </div>
 
@@ -617,11 +614,9 @@ function CardDoAtivo({
           <div className="mt-0.5">
             {ativo.mensal === null ? (
               <span className="text-muted-foreground text-sm">
-                {!ativo.presente
-                  ? "fora da vigência"
-                  : ativo.status.naoApuradoPor
-                    ? ROTULO_DA_NAO_APURACAO[ativo.status.naoApuradoPor]
-                    : "não apurado"}
+                {ativo.status.naoApuradoPor
+                  ? ROTULO_DA_NAO_APURACAO[ativo.status.naoApuradoPor]
+                  : "não apurado"}
               </span>
             ) : (
               <>

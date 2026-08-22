@@ -37,6 +37,50 @@ export interface Resposta {
     herdado: string[];
     ferramentas: string[];
     numerosRecusados: string[];
+    /**
+     * A investigação do agente — `null` no caminho determinístico.
+     *
+     * A API devolve este campo desde o PR 2 e o tipo da tela não o tinha: a
+     * trajetória que decide se o agente investiga ou só consulta muito — quantas
+     * rodadas, quais argumentos, e qual consulta derivou de qual — chegava ao
+     * navegador e era descartada na fronteira do TypeScript. Avaliar um canário
+     * sem isso é opinar sobre a prosa.
+     */
+    agente: {
+      rodadas: number;
+      consultas: number;
+      parou: string;
+      /**
+       * Quantas consultas **reagiram** a um resultado anterior.
+       *
+       * O contraponto de `preplanejadas`, e os dois publicados juntos de
+       * propósito: "dez consultas" é a mesma frase para uma varredura larga e
+       * para uma investigação funda, e só a separação responde qual das duas
+       * aconteceu.
+       */
+      encadeamentosReais: number;
+      /** Quantas foram decididas antes de qualquer resultado existir. */
+      preplanejadas: number;
+      /** Uma linha por reação: o valor descoberto, de onde saiu, onde entrou. */
+      porqueEncadeou: string[];
+      chamadas: {
+        nome: string;
+        argumentos: Record<string, unknown>;
+        ok: boolean;
+        erro: string | null;
+        evidencias: number;
+        /** Índice da consulta de cujo resultado esta saiu. */
+        derivaDe: number | null;
+      }[];
+    } | null;
+    /**
+     * A descida do caminho determinístico — cada passo com o que o motivou.
+     *
+     * É o equivalente de `agente.chamadas` para quem não está no canário: a
+     * coluna que mostra que a orquestração **reagiu** ao dado em vez de
+     * executar um plano fechado. Vazia é o estado normal.
+     */
+    descida: { ferramenta: string; derivaDe: number | null; porque: string }[];
     /** O rastro que explica esta resposta depois que ela aconteceu. */
     rastro: {
       assunto: string | null;
@@ -107,6 +151,15 @@ export interface ConversaResumo {
 export interface Capacidades {
   ia: boolean;
   modelo: string | null;
+  /**
+   * Qual cérebro responde a quem está perguntando: AGENTE ou PLANEJADOR.
+   *
+   * A rota devolve isto desde que a flag por usuário existe, e sem ele quem
+   * testa não tem como saber qual dos dois avaliou — as duas respostas chegam
+   * pela mesma rota, com a mesma cara. Uma avaliação de experiência feita sobre
+   * o caminho errado é pior do que nenhuma.
+   */
+  cerebro: "AGENTE" | "PLANEJADOR";
   trechos: number;
   corpora: { catalogo: number; book: number; artigos: number };
 }

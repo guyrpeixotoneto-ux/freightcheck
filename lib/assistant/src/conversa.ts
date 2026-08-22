@@ -17,6 +17,7 @@
 import type { Intencao, PeriodoPedido } from "./interpretacao";
 import type { Evidencia } from "./ferramentas";
 import type { Dossie } from "./orquestrador";
+import { focoDe, type FocoDaConversa } from "./foco";
 
 export interface EstadoDaConversa {
   /** O que se estava perguntando. */
@@ -50,8 +51,45 @@ export interface EstadoDaConversa {
    * guarda o que a pessoa **escreveu**, e o bloco é o que a busca **encontrou**.
    */
   blocoDoBook: string | null;
+  /**
+   * O tipo de ativo em foco — o filtro que não atravessava um turno.
+   *
+   * "E somente cavalos" era lido corretamente pela interpretação e morria ali:
+   * o estado guardava *sobre o quê* se falava (assunto, período, bloco) e não
+   * *como se estava recortando*. O turno seguinte voltava à frota inteira, e a
+   * única pista disso era o número mudar.
+   */
+  equipamento: "CAVALO" | "CARRETA" | null;
+  /**
+   * Onde a última lista parou, e de que tamanho ela era.
+   *
+   * É o que "me mostre os 5 seguintes" precisa saber. Guardar só o deslocamento
+   * não bastaria: sem o tamanho da página, "mostre mais" — sem número — não tem
+   * como continuar do mesmo jeito.
+   */
+  pagina: { apartirDe: number; tamanho: number } | null;
   /** O recorte em que a conversa está. */
   scopeHash: string | null;
+  /**
+   * Como a unidade deste fio foi escolhida — e por que isso precisa ser guardado.
+   *
+   * Uma unidade que a pessoa **digitou** ("só Camaçari") e uma que veio junto do
+   * link da tela são as duas um recorte, e não valem o mesmo na hora de decidir
+   * o turno seguinte. Sem esta coluna, "e somente cavalos" — que não nomeia
+   * unidade — perdia para o `scopeHash` que a tela continuava mandando, e a
+   * conversa voltava sozinha para a unidade de onde a pessoa saiu dois turnos
+   * antes.
+   */
+  origemDoRecorte: "PERGUNTA" | "TELA" | "CONVERSA" | "PADRAO" | null;
+  /**
+   * O que a tela mandou no turno anterior.
+   *
+   * É o que permite distinguir "a tela continua na mesma unidade" de "a pessoa
+   * acabou de trocar o seletor". Sem essa distinção, uma unidade fixada pela
+   * conversa venceria para sempre — inclusive depois de alguém escolher outra
+   * no seletor, que é uma declaração tão explícita quanto a frase.
+   */
+  telaScopeHash: string | null;
   canal: string | null;
   contexto: string | null;
   /**
@@ -61,6 +99,60 @@ export interface EstadoDaConversa {
    * reusadas para responder outra coisa: uma pergunta nova refaz as consultas.
    */
   evidenciasAnteriores: Evidencia[];
+  /**
+   * O item de que a conversa está falando — por referência, não por texto.
+   *
+   * É o que resolve "por quê?", "esse número" e "quanto isso dá por ano" sem
+   * reinterpretar a prosa da resposta anterior. Ver `foco.ts`: o que se guarda
+   * é o que a **consulta** devolveu — código do parâmetro, placa, vigência,
+   * grandeza —, que é a mesma coisa que a próxima consulta precisa como
+   * argumento.
+   *
+   * Ele **não** é cache de resposta: o valor guardado nunca é reexibido como se
+   * fosse consulta nova. Serve para escolher a próxima consulta e para conferir
+   * uma composição; quem responde refaz a consulta.
+   */
+  foco: FocoDaConversa | null;
+  /**
+   * O rastro da resposta anterior — o que "tem certeza?" investiga.
+   *
+   * Guardado porque a meta-pergunta é sobre **aquela** conclusão, e não sobre o
+   * assunto dela: responder "tem certeza?" refazendo a consulta responderia
+   * outra pergunta. Aqui está o que sustentou a resposta que está sendo posta
+   * em dúvida — quais consultas, quantas evidências, o que foi podado, que
+   * lacunas foram declaradas.
+   */
+  sustentacaoAnterior: SustentacaoGuardada | null;
+}
+
+/**
+ * O que sobrou da resposta anterior para ela poder ser auditada na seguinte.
+ *
+ * Pequeno de propósito: é estado de conversa, persistido a cada turno, e o que
+ * "tem certeza?" precisa é a **forma** do que sustentou a conclusão, não o
+ * conteúdo dela. O conteúdo é refeito por consulta; a forma é o que diria
+ * "aquilo veio de duas consultas, uma delas falhou, e uma frase foi podada".
+ */
+export interface SustentacaoGuardada {
+  /** A pergunta que gerou a resposta em dúvida. */
+  pergunta: string;
+  /** A primeira frase da resposta — o que está sendo questionado. */
+  conclusao: string;
+  /** As capacidades exercidas, na ordem. */
+  consultas: string[];
+  /** Quantas evidências citáveis sustentaram. */
+  evidencias: number;
+  /** Quantos encadeamentos verdadeiros houve. */
+  encadeamentos: number;
+  /** As lacunas declaradas — o que já se sabia que não dava para provar. */
+  lacunas: string[];
+  /** Frases podadas pela trava, e de quantas. */
+  podadas: { removidas: number; total: number };
+  /** Quem escreveu o texto. */
+  redigiu: string;
+  /** O recorte e a vigência daquela resposta. */
+  recorte: string | null;
+  vigencia: string | null;
 }
 
 export const ESTADO_VAZIO: EstadoDaConversa = {
@@ -70,10 +162,16 @@ export const ESTADO_VAZIO: EstadoDaConversa = {
   blocoDoBook: null,
   periodo: null,
   intervalo: null,
+  equipamento: null,
+  pagina: null,
   scopeHash: null,
+  origemDoRecorte: null,
+  telaScopeHash: null,
   canal: null,
   contexto: null,
   evidenciasAnteriores: [],
+  foco: null,
+  sustentacaoAnterior: null,
 };
 
 /**
@@ -84,6 +182,30 @@ export const ESTADO_VAZIO: EstadoDaConversa = {
  * continua o de antes. É o que faz "E julho?" manter o IPVA e "E o pneu?"
  * trocá-lo — sem nenhum caso especial para essas duas frases.
  */
+
+/** Quantos itens uma página tem quando ninguém disse. O padrão das ferramentas. */
+const TAMANHO_PADRAO_DA_PAGINA = 20;
+
+/**
+ * Onde a próxima lista começa.
+ *
+ * Três estados, e o terceiro é o que faltava. Sem pedido de continuação e sem
+ * lista em curso: nada. Com pedido de continuação: avança do ponto em que a
+ * anterior parou. Sem pedido, mas com lista em curso: **volta ao começo**,
+ * porque a pergunta mudou e a lista dela é outra.
+ */
+function paginaSeguinte(
+  base: EstadoDaConversa,
+  dossie: Dossie,
+): EstadoDaConversa["pagina"] {
+  const pedido = dossie.leitura.entidades.paginacao;
+  if (!pedido) return null;
+  const anterior = base.pagina;
+  const tamanho = pedido.quantos ?? anterior?.tamanho ?? TAMANHO_PADRAO_DA_PAGINA;
+  const apartirDe = (anterior?.apartirDe ?? 0) + (anterior?.tamanho ?? TAMANHO_PADRAO_DA_PAGINA);
+  return { apartirDe, tamanho };
+}
+
 export function avancarEstado(
   anterior: EstadoDaConversa | null,
   dossie: Dossie,
@@ -139,7 +261,39 @@ export function avancarEstado(
     blocoDoBook: dossie.documentos[0]?.trecho.bloco ?? base.blocoDoBook,
     periodo,
     intervalo,
+    /*
+      O equipamento do fio: quem nomeou um, troca; quem não nomeou, mantém.
+
+      É a mesma regra do assunto, e pelo mesmo motivo — "qual teve maior
+      perda?", logo depois de "e somente cavalos", continua sendo sobre cavalos.
+      Trocar para `null` a cada turno que não nomeia equipamento faria o filtro
+      durar exatamente uma pergunta, que é o comportamento que esta linha
+      existe para acabar.
+    */
+    equipamento: leitura.entidades.equipamento ?? base.equipamento,
+    /*
+      A página anda quando a pergunta pede a continuação, e **zera** quando a
+      pergunta é outra.
+
+      Zerar é a metade que se esquece: sem ela, uma nova pergunta depois de
+      "mostre os 5 seguintes" começaria no sexto item de uma lista que não é
+      mais a mesma. O deslocamento só sobrevive enquanto a conversa está
+      percorrendo uma lista.
+    */
+    pagina: paginaSeguinte(base, dossie),
     scopeHash: plano.contexto?.contexto.scopeHash ?? base.scopeHash,
+    /*
+      A origem só é rebaixada quando outra a substitui.
+
+      Um turno conceitual, que não resolve contexto nenhum, não pode apagar o
+      fato de que a unidade foi escolhida a dedo dois turnos antes — senão a
+      precedência se perde no primeiro "o que é IPVA?" no meio da investigação.
+    */
+    origemDoRecorte:
+      plano.origemDoRecorte === "PERGUNTA" || plano.origemDoRecorte === "TELA"
+        ? plano.origemDoRecorte
+        : base.origemDoRecorte,
+    telaScopeHash: dossie.telaScopeHash ?? base.telaScopeHash,
     canal: plano.contexto?.contexto.channel ?? base.canal,
     contexto: plano.contexto?.info.label ?? base.contexto,
     /*
@@ -149,6 +303,19 @@ export function avancarEstado(
     */
     evidenciasAnteriores:
       dossie.evidencias.length > 0 ? dossie.evidencias : base.evidenciasAnteriores,
+    /*
+      O foco segue a mesma regra do assunto: quem descobriu um item novo troca,
+      quem não descobriu mantém. Um turno conceitual no meio da investigação não
+      apaga o parâmetro que estava sendo discutido — é justamente depois dele que
+      alguém pergunta "e por que esse caiu?".
+    */
+    foco: focoDe(dossie.evidencias, dossie.plano.periodo) ?? base.foco,
+    /*
+      A sustentação é escrita por `responder`, que é quem sabe o que aconteceu
+      com o texto. Aqui ela só atravessa o turno: `avancarEstado` roda sobre o
+      dossiê, e o dossiê não sabe se a trava podou alguma frase.
+    */
+    sustentacaoAnterior: base.sustentacaoAnterior,
   };
 }
 
@@ -156,6 +323,15 @@ export function avancarEstado(
 export function serializarEstado(estado: EstadoDaConversa): unknown {
   return {
     ...estado,
+    /*
+      O foco e a sustentação **são** persistidos, e as evidências não — a
+      diferença não é de tamanho, é de natureza. Uma evidência é o resultado de
+      uma consulta de um instante, e reidratá-la noutro dia faria "de onde veio
+      esse número?" apontar para um recorte que o banco pode não ter mais. O
+      foco é uma referência (código, placa, vigência) e a sustentação é a forma
+      do que aconteceu; os dois continuam verdadeiros amanhã, e são exatamente o
+      que uma conversa recarregada precisa para não recomeçar do zero.
+    */
     // As evidências não são persistidas: elas descrevem uma consulta feita num
     // instante, e reidratá-las num outro dia faria "de onde veio esse número?"
     // apontar para um recorte que pode não ser mais o que o banco tem.
@@ -173,9 +349,15 @@ export function desserializarEstado(bruto: unknown): EstadoDaConversa {
     blocoDoBook: (o.blocoDoBook as string) ?? null,
     periodo: (o.periodo as PeriodoPedido) ?? null,
     intervalo: (o.intervalo as EstadoDaConversa["intervalo"]) ?? null,
+    equipamento: (o.equipamento as EstadoDaConversa["equipamento"]) ?? null,
+    pagina: (o.pagina as EstadoDaConversa["pagina"]) ?? null,
+    origemDoRecorte: (o.origemDoRecorte as EstadoDaConversa["origemDoRecorte"]) ?? null,
+    telaScopeHash: (o.telaScopeHash as string) ?? null,
     scopeHash: (o.scopeHash as string) ?? null,
     canal: (o.canal as string) ?? null,
     contexto: (o.contexto as string) ?? null,
     evidenciasAnteriores: [],
+    foco: (o.foco as FocoDaConversa) ?? null,
+    sustentacaoAnterior: (o.sustentacaoAnterior as SustentacaoGuardada) ?? null,
   };
 }

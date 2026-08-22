@@ -384,15 +384,58 @@ describe("variação e farol", () => {
     expect(entrou.status.farol).toBe("INCOMPLETO");
   });
 
-  it("quem saiu da frota aparece na lista, dito como saída", async () => {
+  /**
+   * Este teste afirmava o contrário: que CCC3C33 **aparecia** na lista de
+   * agosto, com `presente: false` e "saiu da frota" no motivo. A regra mudou, e
+   * mudou de propósito — a inversão é o registro do porquê.
+   *
+   * A lista da Composição era a união desta vigência com a anterior, o que a
+   * fazia responder duas perguntas ao mesmo tempo: "quem recebeu em agosto" e
+   * "quem recebia em julho e não recebe mais". A segunda é a pergunta da
+   * Cobertura, que a responde melhor — com a série inteira atrás, e não com um
+   * mês de memória — e com a declaração da Curadoria por cima, que esta lista
+   * nunca consultou: uma `BAIXA` registrada não apagava a linha daqui.
+   *
+   * O efeito de superfície era pior do que a ausência da informação: CCC3C33
+   * aparecia em agosto e sumia em setembro, sem nada na tela dizendo que a
+   * janela era de um mês. Quem procurasse a placa em setembro não a encontrava,
+   * e concluía — corretamente para a tela, incorretamente para o produto — que
+   * ela não era cobrada em lugar nenhum.
+   *
+   * A fronteira agora: **Composição = recebido no período**; Cobertura =
+   * esperado × recebido; Curadoria = quem decide `ESPERADA` ou `BAIXA`.
+   */
+  it("quem saiu da frota não aparece na lista — a lista é o que veio na vigência", async () => {
     const frota = await getVisaoDeFrota(ctx.db, "CAVALO", {
       period: "2026-08-01",
       context: contexto,
     });
-    const saiu = frota!.linhas.find((l) => l.placa === "CCC3C33")!;
-    expect(saiu.presente).toBe(false);
-    expect(saiu.status.farol).toBe("INCOMPLETO");
-    expect(saiu.status.motivos[0]).toContain("saiu da frota");
+    expect(frota!.linhas.find((l) => l.placa === "CCC3C33")).toBeUndefined();
+
+    /* E CCC3C33 existe: ela está na série, só não está nesta vigência. */
+    const julho = await getVisaoDeFrota(ctx.db, "CAVALO", {
+      period: "2026-07-01",
+      context: contexto,
+    });
+    expect(julho!.linhas.find((l) => l.placa === "CCC3C33")).toBeDefined();
+  });
+
+  /**
+   * A metade que a remoção acima não pode custar.
+   *
+   * Tirar a linha de quem saiu é legítimo; deixar de comparar com o mês
+   * anterior não é. `materialAnterior` continua sendo lido, e continua sendo a
+   * outra ponta da variação — é isto que separa "não herdo a frota da vigência
+   * anterior" de "não olho para a vigência anterior".
+   */
+  it("continua comparando com a vigência anterior de quem está aqui", async () => {
+    const frota = await getVisaoDeFrota(ctx.db, "CAVALO", {
+      period: "2026-08-01",
+      context: contexto,
+    });
+    const bbb = frota!.linhas.find((l) => l.placa === "BBB2B22")!;
+    expect(bbb.variacao).toEqual({ absoluta: 2_000, percentual: 20 });
+    expect(frota!.anterior?.effectiveDate).toBe("2026-07-01");
   });
 });
 
@@ -402,13 +445,80 @@ describe("a visão de frota", () => {
       period: "2026-08-01",
       context: contexto,
     });
-    // AAA 10.000 + BBB 12.000 + DDD 0 + FFF 10.000 = 32.000.
-    // EEE (sem valor) e CCC (saiu) não somam nada.
+    // AAA 10.000 + BBB 12.000 + DDD 0 + FFF 10.000 = 32.000. EEE veio sem valor.
     expect(frota!.resumo.mensalTotal).toBe(32_000);
-    expect(frota!.resumo.equipamentos).toBe(6);
+    /*
+      Cinco, e não seis: CCC3C33 saiu e a lista é o que veio em agosto. O sexto
+      era ela, herdada de julho — ver "quem saiu da frota não aparece na lista".
+      `incompletos` cai junto pela mesma razão: sobra EEE, que veio sem valor.
+    */
+    expect(frota!.resumo.equipamentos).toBe(5);
     expect(frota!.resumo.comValorApurado).toBe(4);
-    expect(frota!.resumo.incompletos).toBe(2);
+    expect(frota!.resumo.incompletos).toBe(1);
     expect(frota!.resumo.comAumento).toBe(1);
+  });
+
+  /**
+   * A frota encolhe e o dinheiro dos que ficaram não se mexe.
+   *
+   * O risco desta mudança inteira é de leitura, não de conta: quando a lista
+   * deixa de trazer quem saiu, alguém pode ler a queda de **quantidade** como
+   * queda de **remuneração**. Este teste fixa que nenhuma das duas coisas
+   * contamina a outra, medindo as duas pontas da mesma série sintética.
+   *
+   * Julho: AAA 10.000 + BBB 10.000 + CCC 10.000 + DDD 0 = 30.000, quatro ativos.
+   * Agosto: CCC saiu, EEE e FFF entraram, e BBB subiu 2.000.
+   *
+   * O que este teste cobra:
+   *
+   * 1. `mensalTotal` de agosto é a soma **do que veio em agosto** — os 10.000 de
+   *    CCC não estão lá, e não estariam mesmo antes desta mudança, porque uma
+   *    linha ausente entrava com `mensal: null`.
+   * 2. `variacaoTotal` é a soma das variações **dos comparáveis**, e vale
+   *    exatamente os +2.000 de BBB. A saída de CCC não vira −10.000: quem não
+   *    tem as duas pontas tem `variacao: null` e não entra na conta. É a
+   *    diferença entre "a frota diminuiu" e "os equipamentos ficaram mais
+   *    baratos", e o resumo só afirma a segunda.
+   * 3. Nenhum texto do farol menciona saída — não há linha a que ele pertença.
+   */
+  it("quando a frota encolhe, o total de agosto é só o recebido em agosto", async () => {
+    const julho = (await getVisaoDeFrota(ctx.db, "CAVALO", {
+      period: "2026-07-01",
+      context: contexto,
+    }))!;
+    const agosto = (await getVisaoDeFrota(ctx.db, "CAVALO", {
+      period: "2026-08-01",
+      context: contexto,
+    }))!;
+
+    expect(julho.resumo.equipamentos).toBe(4);
+    expect(julho.resumo.mensalTotal).toBe(30_000);
+    expect(agosto.resumo.equipamentos).toBe(5);
+    expect(agosto.resumo.mensalTotal).toBe(32_000);
+
+    /* 1. O total de agosto é exatamente a soma das linhas de agosto. */
+    const somaDasLinhas = agosto.linhas.reduce((s, l) => s + (l.mensal ?? 0), 0);
+    expect(agosto.resumo.mensalTotal).toBe(somaDasLinhas);
+
+    /* 2. A variação é a dos comparáveis: só BBB se mexeu, e foram +2.000. */
+    const comparaveis = new Set(
+      agosto.linhas.filter((l) => l.variacao !== null).map((l) => l.placa),
+    );
+    expect([...comparaveis].sort()).toEqual(["AAA1A11", "BBB2B22", "DDD4D44"]);
+    expect(agosto.resumo.variacaoTotal).toBe(2_000);
+    expect(agosto.resumo.comReducao).toBe(0);
+
+    /*
+      E a prova pelo avesso: a diferença bruta entre os dois meses é +2.000
+      apesar de a frota ter mudado de composição. Se a saída de CCC tivesse
+      entrado na variação, este número seria −8.000.
+    */
+    expect(agosto.resumo.mensalTotal - julho.resumo.mensalTotal).toBe(2_000);
+
+    /* 3. Nenhuma linha fala em saída, porque nenhuma linha é de quem saiu. */
+    expect(
+      agosto.linhas.some((l) => l.status.motivos.join(" ").includes("saiu da frota")),
+    ).toBe(false);
   });
 
   it("filtra sem mexer no resumo da frota", async () => {

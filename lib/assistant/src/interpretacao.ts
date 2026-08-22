@@ -59,6 +59,31 @@ export type Intencao =
   | "VEICULOS"
   /** "por quê?", "de onde veio esse número" */
   | "PROCEDENCIA"
+  /**
+   * "tem certeza?", "como você sabe?", "qual a confiança nessa resposta?"
+   *
+   * A pergunta é sobre a **resposta anterior**, não sobre o assunto dela — e a
+   * diferença é a coisa toda. Sem esta intenção, "tem certeza?" não casava
+   * detector nenhum, caía no plano padrão e recebia o movimento da vigência:
+   * um resumo correto de outra coisa, entregue a quem duvidou de uma conclusão.
+   *
+   * Ela é vizinha de PROCEDENCIA e não é ela. "De onde saiu esse número?"
+   * pergunta pela **origem de um valor** e desce até a célula da planilha;
+   * "tem certeza?" pergunta pela **qualidade de uma conclusão** e abre o que a
+   * sustentou. As duas respostas se completam, e trocá-las responde a outra
+   * pergunta.
+   */
+  | "SUSTENTACAO"
+  /**
+   * "quanto isso dá por ano?", "que percentual isso representa?", "qual a média?"
+   *
+   * Pede uma grandeza **derivada** de números que já foram apurados. Não é
+   * VALOR (que consulta um número) nem COMPARACAO (que confronta duas
+   * vigências): é uma composição sobre o que já está em cima da mesa. Sem ela,
+   * a pergunta caía no plano padrão e recebia um agregado que não responde —
+   * ou, pior, seria respondida por uma conta do modelo.
+   */
+  | "CALCULO"
   /** "o que não conseguimos precificar", "semântica não confirmada" */
   | "SEM_PRECO"
   /** "o que o Book diz sobre X" */
@@ -106,6 +131,12 @@ export const INTENCOES_COM_RECORTE: ReadonlySet<Intencao> = new Set<Intencao>([
   "RANKING_GANHO",
   "VEICULOS",
   "PROCEDENCIA",
+  /*
+    O cálculo derivado precisa de recorte porque os valores que ele compõe são
+    de um recorte: compor o impacto de Camaçari com a base de Uberlândia daria
+    um percentual verdadeiro sobre nada.
+  */
+  "CALCULO",
   // O que não dá para precificar é uma propriedade de um recorte, não do
   // produto: a mesma coluna pode ter semântica confirmada numa unidade e
   // pendente noutra. Sem recorte, `semParaPrecificar` não roda — e foi
@@ -161,6 +192,11 @@ export const INTENCOES_QUE_HERDAM_ASSUNTO: ReadonlySet<Intencao> = new Set<Inten
   "MOVIMENTO",
   "VEICULOS",
   "PROCEDENCIA",
+  /*
+    "Quanto isso dá por ano?" herda o assunto por definição: o "isso" é o que
+    se estava discutindo. É a intenção mais dependente do fio de todas.
+  */
+  "CALCULO",
   "BOOK",
 ]);
 
@@ -201,6 +237,18 @@ export interface Entidades {
   /** Quando a pergunta delimita um intervalo: "desde dezembro", "de julho a agosto". */
   intervalo: { de: PeriodoPedido; ate: PeriodoPedido | null } | null;
   equipamento: "CAVALO" | "CARRETA" | null;
+  /**
+   * "Me mostre os 5 seguintes" — a continuação de uma lista já mostrada.
+   *
+   * É a única entidade aqui que não descreve **o que** se quer, e sim **onde
+   * parar de repetir**. Sem ela, a frase cai no plano padrão e recebe o mesmo
+   * agregado de sempre: a pessoa pede a página seguinte e recebe a primeira,
+   * outra vez, sem nada dizendo que a lista não andou.
+   *
+   * `quantos` é `null` quando a pessoa não disse o número ("mostre mais") — aí
+   * vale o tamanho da página anterior, que é a leitura que erra menos.
+   */
+  paginacao: { quantos: number | null } | null;
 }
 
 export interface Leitura {
@@ -208,6 +256,23 @@ export interface Leitura {
   entidades: Entidades;
   /** A frase depende da anterior para significar algo. */
   continuacao: boolean;
+  /**
+   * A pergunta quer **a razão** de alguma coisa — e não a coisa.
+   *
+   * **Por que este campo existe separado da intenção.** A intenção é decidida
+   * por um conjunto de detectores de conteúdo, e o conteúdo de uma pergunta
+   * causal é o mesmo de uma descritiva: "por que a remuneração caiu?" e "quanto
+   * a remuneração caiu?" casam o mesmo detector de movimento, e a primeira
+   * perdia a leitura causal por completo — a intenção virava MOVIMENTO e a
+   * resposta era o agregado da vigência. Verdadeiro, e não é a resposta: a
+   * resposta é qual grupo puxou, em quais veículos, e de onde veio.
+   *
+   * Aqui a causalidade é lida da **forma** da pergunta, que é uma coisa que
+   * nenhum detector de conteúdo pode ver, e ela não disputa com a intenção —
+   * ela se soma a ela. É o que decide se a orquestração desce (ver
+   * `aprofundar.ts`), sem mexer no que a resposta se chama.
+   */
+  pedeCausa: boolean;
   /** O padrão que decidiu — vai para o painel técnico, não para a resposta. */
   porque: string;
 }
@@ -266,6 +331,46 @@ function lerRelativo(frase: string): PeriodoPedido | null {
   if (/\b(ultima|atual|corrente|mais recente)\b/.test(frase)) return { relativo: "ULTIMA" };
   if (/\b(anterior|passada|penultima)\b/.test(frase)) return { relativo: "ANTERIOR" };
   if (/\b(primeira|inicial)\b/.test(frase)) return { relativo: "PRIMEIRA" };
+  return null;
+}
+
+/**
+ * O pedido de "mais um pouco da mesma lista".
+ *
+ * Três formas, e as três são frases que só existem depois de uma lista: pedir
+ * os *seguintes*, os *próximos*, ou simplesmente *mais*. Um número solto ("mais
+ * 5") é o tamanho da próxima página; sem número, repete-se o tamanho anterior.
+ *
+ * A construção é estreita de propósito. `mais` sozinho aparece em meia língua
+ * portuguesa — "o que mais mudou?", "quem foi mais afetado?" —, e por isso ele
+ * só conta quando vem acompanhado de número ou das palavras que nomeiam uma
+ * continuação. Um falso positivo aqui pagina uma lista que ninguém pediu.
+ */
+
+/**
+ * A frase fala de um movimento — de algo que **mudou**?
+ *
+ * É o que decide se um "por que…" pede dado ou conceito. Só verbos e formas que
+ * descrevem variação entram: `mudar` e `alterar` cobrem a família inteira por
+ * prefixo, e os demais são as palavras com que se relata perda e ganho neste
+ * produto. `diferente` entra porque "por que o valor está diferente?" é a mesma
+ * pergunta dita sem verbo de movimento.
+ *
+ * Deliberadamente **fora**: `funciona`, `existe`, `significa`, `serve` — as
+ * formas com que se pergunta por uma regra. Elas são o outro lado da fronteira,
+ * e mantê-las fora é o que preserva o acerto original ("por que o impacto é
+ * acumulado por periodicidade?" continua sendo conceito).
+ */
+const MOVIMENTO_NA_FRASE =
+  /\b(mud(ou|aram|ando)|alter(ou|aram|ando)|ca(iu|iram)|subi(u|ram)|aument(ou|aram)|diminu(iu|iram)|redu(ziu|ziram)|cresc(eu|eram)|pior(ou|aram)|melhor(ou|aram)|perd(i|emos|eu)|ganh(ei|amos|ou)|zer(ou|aram)|diferente|divergent)/;
+
+function lerPaginacao(frase: string): { quantos: number | null } | null {
+  const comNumero = /\b(?:mais|proximos?|seguintes?|outros?)\s+(\d{1,3})\b/.exec(frase);
+  if (comNumero) return { quantos: Number(comNumero[1]) };
+  const numeroAntes = /\b(\d{1,3})\s+(?:seguintes?|proximos?)\b/.exec(frase);
+  if (numeroAntes) return { quantos: Number(numeroAntes[1]) };
+  if (/\b(?:os\s+)?(?:seguintes|proximos)\b/.test(frase)) return { quantos: null };
+  if (/\bmostre?\s+mais\b|\bmais\s+alguns\b|\bcontinue\b/.test(frase)) return { quantos: null };
   return null;
 }
 
@@ -419,12 +524,14 @@ export function interpretar(pergunta: string): Leitura {
     return {
       intencao: "SAUDACAO",
       continuacao: false,
+      pedeCausa: false,
       porque: "é conversa, não consulta",
       entidades: {
         assuntoCandidato: null,
         periodo: null,
         intervalo: null,
         equipamento: null,
+        paginacao: null,
       },
     };
   }
@@ -470,11 +577,34 @@ export function interpretar(pergunta: string): Leitura {
     arquitetura.
   */
   if (intencao === "DESCONHECIDA" && /^(por que|porque|por qu)\b/.test(frase)) {
+    /*
+      **A fronteira estava no comprimento da frase, e ela é sobre o assunto.**
+
+      A regra anterior era: até duas palavras, procedência; acima disso,
+      conceito. Ela acertava os dois exemplos que a motivaram — "por quê?" e
+      "por que o impacto é acumulado por periodicidade?" — e errava a pergunta
+      mais valiosa deste produto. "Por que a remuneração caiu este mês?" tem
+      quatro palavras de conteúdo, virava CONCEITUAL, e CONCEITUAL é o único
+      ramo do plano que **não consulta dado nenhum**: a pergunta central de uma
+      aplicação de auditoria era respondida com um parágrafo de conceito e zero
+      números. Medido: a classificação trocava só por acrescentar "este mês".
+
+      O que separa as duas de verdade não é o tamanho — é do que a frase fala.
+      Uma pergunta sobre **movimento** ("caiu", "mudou", "subiu", "está
+      diferente") pede a causa de um número, e a causa de um número está no
+      banco. Uma pergunta sobre **regra do produto** pede o conhecimento escrito.
+      A lista abaixo é de verbos e formas de movimento, e ela é curta de
+      propósito: na dúvida, o desfecho certo é consultar e mostrar a origem, não
+      explicar um princípio de arquitetura a quem perguntou de dinheiro.
+    */
     const curto = termos(pergunta).length <= 2;
-    intencao = curto ? "PROCEDENCIA" : "CONCEITUAL";
+    const sobreMovimento = MOVIMENTO_NA_FRASE.test(frase);
+    intencao = curto || sobreMovimento ? "PROCEDENCIA" : "CONCEITUAL";
     porque = curto
       ? "pede a explicação da resposta anterior"
-      : "pede a razão de uma regra do produto";
+      : sobreMovimento
+        ? "pede a causa de um movimento — e a causa de um número está no dado"
+        : "pede a razão de uma regra do produto";
   }
 
   /*
@@ -500,14 +630,39 @@ export function interpretar(pergunta: string): Leitura {
   return {
     intencao,
     continuacao,
+    pedeCausa: pedeCausa(frase),
     porque,
     entidades: {
       assuntoCandidato,
       periodo,
       intervalo,
       equipamento: lerEquipamento(frase),
+      paginacao: lerPaginacao(frase),
     },
   };
+}
+
+/**
+ * O vocabulário da causalidade — e por que ele é curto.
+ *
+ * Três formas, e as três são categorias linguísticas, não perguntas: a
+ * interrogativa de razão (`por que`), o substantivo de causa (`causa`,
+ * `motivo`, `razão`) e o verbo de explicação (`explica`, `causou`, `puxou`,
+ * `provocou`). Nada aqui casa uma pergunta do benchmark em particular, e
+ * acrescentar um sinônimo não faz nenhuma passar a passar por conta disso —
+ * o que este campo liga é a **descida**, e a descida só produz resposta quando
+ * o dado sustenta cada passo.
+ *
+ * Deliberadamente fora: "qual o maior", "o que mais pesou", "principal". Elas
+ * pedem uma **ordenação**, que o plano já sabe fazer com RANKING, e tratá-las
+ * como causais faria toda pergunta executiva descer três níveis para responder
+ * "qual o maior?".
+ */
+const CAUSALIDADE =
+  /^(por que|porque|por qu)\b|\b(qual (foi )?(a|o) (principal )?(causa|motivo|razao)|o que (causou|explica|explicam|provocou|puxou|derrubou)|que explica\w*|a que se deve|motivo (da|do|de)|razao (da|do|de))\b/;
+
+function pedeCausa(frase: string): boolean {
+  return CAUSALIDADE.test(frase);
 }
 
 /**

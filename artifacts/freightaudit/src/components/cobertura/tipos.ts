@@ -82,10 +82,19 @@ export interface EntidadeAusente {
   entityType: string;
   /** A placa ou chassi corrente. */
   rotulo: string;
-  /** A última vigência deste recorte em que ela apareceu. */
-  ultimaVigencia: string;
-  /** Em quantas vigências anteriores deste recorte ela apareceu. */
+  /**
+   * A última vigência deste recorte em que ela apareceu.
+   *
+   * Nula quando ela nunca apareceu — o caso de quem só é esperado porque a
+   * Curadoria declarou `ESPERADA`.
+   */
+  ultimaVigencia: string | null;
+  /** Em quantas vigências anteriores deste recorte ela apareceu. Zero quando nenhuma. */
   vigenciasComDado: number;
+  /** Se ela é esperada por inferência da série ou porque alguém declarou. */
+  origem: "CONTINUIDADE" | "DECLARACAO";
+  /** O motivo escrito na declaração, quando a origem é `DECLARACAO`. */
+  motivo: string | null;
 }
 
 export interface LinhaDaMatriz {
@@ -236,6 +245,7 @@ export interface DetalheDaCelula {
   familiaLabel: string;
   entityType: string;
   equipamentoLabel: string;
+  scopeHash: string;
   scopeLabel: string;
   canal: string;
   estado: EstadoDeCobertura;

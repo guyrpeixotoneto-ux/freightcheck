@@ -47,6 +47,15 @@ export interface DetalheDaCelula {
   familiaLabel: string;
   entityType: string;
   equipamentoLabel: string;
+  /**
+   * O recorte de escopo, e não só o rótulo dele.
+   *
+   * O rótulo é para ler; o hash é para navegar. Sem ele, o link de uma placa
+   * ausente para a ficha dela cairia no contexto padrão — a unidade mais
+   * recente —, que não é necessariamente a unidade da célula que o leitor
+   * estava olhando.
+   */
+  scopeHash: string;
   scopeLabel: string;
   canal: string;
   estado: EstadoDeCobertura;
@@ -208,6 +217,7 @@ export async function detalheDaCelula(
     familiaLabel: rotuloDaFamilia(vigencia.datasetFamily),
     entityType,
     equipamentoLabel: rotuloDoEquipamento(entityType),
+    scopeHash: vigencia.scopeHash,
     scopeLabel: vigencia.scopeLabel,
     canal: vigencia.canal,
     estado: medida.estado,

@@ -162,6 +162,20 @@ export const ALLOWLIST: {
     tipo: "text",
     aindaPodeNaoExistir: true,
   },
+  /*
+    A da `0053`. O rastro da resposta do Assistente — de que unidade ela falava,
+    o que foi consultado e com que argumentos, o que a trava podou, quanto
+    custou. Aditiva e nula por definição: as mensagens gravadas antes dela não
+    têm rastro e não podem passar a ter, e é isso que `NULL` diz ali. Production
+    a ganha quando rodar a fila; até lá o `down` a mantém, para que a proposta
+    do Publishing continue sendo só o que esta lista nomeia.
+  */
+  {
+    tabela: "assistant_message",
+    coluna: "trace",
+    tipo: "jsonb",
+    aindaPodeNaoExistir: true,
+  },
 ];
 
 /**

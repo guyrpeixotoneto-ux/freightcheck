@@ -17,20 +17,23 @@
     "comparativo": "tsx src/cli/comparativo.ts",
     "exploratoria": "tsx src/cli/exploratoria.ts",
     "pr7": "node ../../scripts/pr7.mjs",
-    "erro-da-ia": "tsx src/cli/erro-da-ia.ts"
+    "erro-da-ia": "tsx src/cli/erro-da-ia.ts",
+    "investigacao": "tsx src/cli/investigacao.ts",
+    "tres": "tsx src/cli/tres-investigacoes.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "catalog:",
     "@workspace/balance": "workspace:*",
     "@workspace/comparison": "workspace:*",
     "@workspace/composition": "workspace:*",
+    "@workspace/coverage": "workspace:*",
     "@workspace/curation": "workspace:*",
     "@workspace/db": "workspace:*",
+    "@workspace/dre": "workspace:*",
     "@workspace/ingest": "workspace:*",
     "@workspace/knowledge": "workspace:*",
     "drizzle-orm": "catalog:",
-    "xlsx": "^0.18.5",
-    "@workspace/dre": "workspace:*"
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/node": "catalog:",

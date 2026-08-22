@@ -352,7 +352,15 @@ describe("13 e 14. vigências e escopos não contaminam uns aos outros", () => {
         expect(celula.entidadesAusentes.length).toBeGreaterThan(0);
         for (const ausente of celula.entidadesAusentes) {
           expect(ausente.rotulo).toBeTruthy();
-          expect(ausente.ultimaVigencia < coluna.effectiveDate).toBe(true);
+          /*
+            No export real não há declaração nenhuma, então toda ausência aqui
+            é de continuidade — e continuidade sem "última vigência" não existe.
+            O nulo é o caso `ESPERADA`, que este banco não tem e que
+            `frota-declarada.test.ts` cobre.
+          */
+          expect(ausente.origem).toBe("CONTINUIDADE");
+          expect(ausente.ultimaVigencia).not.toBeNull();
+          expect(ausente.ultimaVigencia! < coluna.effectiveDate).toBe(true);
           expect(ausente.vigenciasComDado).toBeGreaterThan(0);
         }
       }

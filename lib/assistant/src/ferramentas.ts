@@ -93,6 +93,27 @@ export interface Evidencia {
    * texto que não esteja aqui não veio de consulta nenhuma.
    */
   numeros: number[];
+  /**
+   * Os **identificadores** que este resultado autoriza a citar — placas, hoje.
+   *
+   * **Por que eles não são números.** `QYP3G72` é o nome de um caminhão. O
+   * extrator de afirmações numéricas via `3` e `72` ali dentro e conferia os
+   * dois contra a lista de valores apurados: uma placa passava quando algum
+   * valor por acaso terminava naqueles dígitos, e reprovava quando não. Medido
+   * na bateria real, foi assim que a investigação mais funda que este produto
+   * já produziu — dez consultas, seis encadeadas — foi descartada inteira, por
+   * trinta e sete fragmentos de dois dígitos que eram pedaços de placa.
+   *
+   * **A correção não afrouxa nada; ela troca a régua.** Uma placa continua
+   * precisando de lastro — só que o lastro é *ser uma placa que voltou de
+   * consulta*, e não *coincidir com um valor em reais*. Uma placa inventada
+   * passa a ser recusada sempre, e não só quando os dígitos dela não casam por
+   * acaso com algum número da tabela.
+   *
+   * Vazio ou ausente quer dizer "esta consulta não autoriza identificador
+   * nenhum" — que é o correto para um agregado.
+   */
+  identificadores?: string[];
   origem: string;
   recorte?: Recorte;
   tela?: { label: string; href: string };
@@ -120,6 +141,19 @@ export interface Evidencia {
    * agregado não descobriu assunto nenhum; ela descreveu o conjunto.
    */
   assuntoEmDestaque?: string;
+  /**
+   * A referência **estruturada** do que esta consulta abriu — para a próxima usar.
+   *
+   * `assuntoEmDestaque` é o rótulo gerencial ("Consumo negociado cavalo"), e é
+   * o que entra na prosa. Ele não serve como argumento: a consulta seguinte
+   * precisa do código do atributo e do tipo de ativo, e derivar um do outro
+   * exigiria uma busca por nome — que é justamente onde um rename da curadoria
+   * quebraria a conversa em silêncio.
+   *
+   * É este campo que faz o foco da conversa ser uma referência e não um texto.
+   * Ver `foco.ts` e `aprofundar.ts`.
+   */
+  alvoDaDescida?: { codigo: string; equipamento: string; rotulo: string };
 }
 
 export interface ContextoResolvido {
@@ -936,6 +970,10 @@ export async function veiculosAfetados(
       visao.summary.vehiclesTouched,
       ...top.flatMap((v) => [v.changes, ...Object.values(v.byPeriodicity)]),
     ],
+    /* As placas do ranking — o que esta consulta autoriza nomear. */
+    identificadores: top
+      .map((v) => v.plate)
+      .filter((p): p is string => typeof p === "string" && p.length > 0),
     origem: `getFamiliesView → summary.topVehicles · ${visao.periodLabel}`,
     recorte: recorteDe(ctx.info, { vigencia: visao.periodLabel }),
     tela: { label: "Análise de frota", href: "/analise-equipamentos" },
@@ -1043,6 +1081,7 @@ export async function veiculosDoGrupo(
 
   return {
     ferramenta: "veiculosDoGrupo",
+    alvoDaDescida: { codigo, equipamento, rotulo: codigo },
     titulo: `Veículos com alteração em ${codigo}`,
     fatos: veiculos.slice(0, 10).map((v) => ({
       rotulo: v.plate ?? "(sem placa)",
@@ -1057,6 +1096,17 @@ export async function veiculosDoGrupo(
         (n): n is number => n !== null,
       ),
     ),
+    /*
+      As dez placas que os fatos mostram — as mesmas que a redação pode nomear.
+
+      `numeros` acima cobre a lista inteira porque a soma e a contagem falam do
+      conjunto; os identificadores param na página, porque nomear é diferente de
+      contar: o que não foi mostrado não pode ser citado pelo nome.
+    */
+    identificadores: veiculos
+      .slice(0, 10)
+      .map((v) => v.plate)
+      .filter((p): p is string => typeof p === "string" && p.length > 0),
     origem: `getGroupVehicles(${codigo}, ${equipamento}) · ${rotuloDoPeriodo(periodo)}`,
     recorte: recorteDe(ctx.info, { vigencia: rotuloDoPeriodo(periodo) }),
     tela: { label: "Alterações", href: "/alteracoes" },

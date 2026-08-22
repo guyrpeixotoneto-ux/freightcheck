@@ -249,3 +249,128 @@ export async function contribuintesDaVigencia(
     equipamentos: r.equipamentos,
   }));
 }
+
+// ── Chegar ao fato pelo vocabulário de quem opera ───────────────────────────
+
+/**
+ * A pergunta que quem opera faz, e que `provenienciaDoFato` não aceita.
+ *
+ * `provenienciaDoFato` precisa de um `factId` — um número que não aparece em
+ * tela nenhuma e que ninguém digita. A pergunta real é "de onde veio o seguro
+ * da placa ABC1D23 em agosto?", e ela nomeia três coisas: a placa, o parâmetro
+ * e a vigência. Este resolvedor é a ponte entre as duas, e ele mora aqui, ao
+ * lado da cadeia que percorre, porque é a mesma consulta lendo as mesmas
+ * tabelas — pô-lo no Assistente faria uma segunda implementação da identidade
+ * de um fato viver fora do pacote que a define.
+ *
+ * **Três formas de não encontrar, e elas não se confundem.** A placa pode não
+ * existir; pode existir e não ter aquele parâmetro na vigência; e a vigência
+ * pode não existir. Devolver `null` para as três faria a resposta dizer "não
+ * encontrei" quando o certo é dizer *o que* não encontrou — que é a diferença
+ * entre encerrar o assunto e apontar o próximo passo.
+ */
+export type AlvoDaProveniencia =
+  | { achou: true; proveniencia: Proveniencia }
+  | { achou: false; motivo: "PLACA_DESCONHECIDA"; placa: string }
+  | { achou: false; motivo: "SEM_VIGENCIA"; vigencia: string | null }
+  | {
+      achou: false;
+      motivo: "SEM_FATO";
+      placa: string;
+      atributo: string;
+      vigencia: string;
+      /** O que aquele veículo **tem** naquela vigência, para a resposta oferecer. */
+      atributosDisponiveis: string[];
+    };
+
+/**
+ * De (placa, parâmetro, vigência) até o arquivo e a célula.
+ *
+ * A vigência é opcional: omitida, vale a mais recente em que aquele veículo tem
+ * o parâmetro — que é o que "de onde veio esse valor?" quer dizer quando
+ * ninguém disse a data.
+ */
+export async function provenienciaDoValor(
+  db: Database,
+  pedido: {
+    placa: string;
+    atributo: string;
+    vigencia?: string | undefined;
+    scopeHash?: string | undefined;
+    canal?: string | null | undefined;
+  },
+): Promise<AlvoDaProveniencia> {
+  const placa = pedido.placa.trim().toUpperCase();
+
+  const { rows: doVeiculo } = await db.execute<{ entity_id: string }>(sql`
+    SELECT ei.entity_id::text AS entity_id
+      FROM entity_identifier ei
+     WHERE ei.identifier_type = 'PLACA'
+       AND ei.is_current
+       AND upper(ei.identifier_value) = ${placa}
+     LIMIT 1
+  `);
+  const entityId = doVeiculo[0]?.entity_id;
+  if (!entityId) return { achou: false, motivo: "PLACA_DESCONHECIDA", placa };
+
+  /*
+    O fato é escolhido pela vigência pedida ou, sem pedido, pela mais recente
+    daquele veículo e parâmetro. `status <> 'SUPERSEDED'` é a mesma condição que
+    `listContexts` aplica: uma revisão substituída não descreve o que vale hoje.
+
+    O recorte entra quando quem pergunta o tem — e ele não é opcional por
+    conveniência: um veículo pode ter sido transferido de unidade, e responder
+    pela vigência de outra operação seria a mesma troca silenciosa que o resto
+    deste produto recusa.
+  */
+  const { rows } = await db.execute<{ fact_id: string; effective_date: string }>(sql`
+    SELECT f.id::text AS fact_id, s.effective_date::text AS effective_date
+      FROM fact f
+      JOIN attribute a ON a.id = f.attribute_id
+      JOIN snapshot s  ON s.id = f.snapshot_id
+     WHERE f.entity_id = ${entityId}::uuid
+       AND a.code = ${pedido.atributo}
+       AND s.status <> 'SUPERSEDED'
+       ${pedido.vigencia ? sql`AND s.effective_date = ${pedido.vigencia}::date` : sql``}
+       ${pedido.scopeHash ? sql`AND s.scope_hash = ${pedido.scopeHash}` : sql``}
+     ORDER BY s.effective_date DESC
+     LIMIT 1
+  `);
+
+  const achado = rows[0];
+  if (!achado) {
+    /*
+      O que aquele veículo tem naquela vigência. É o que transforma "não
+      encontrei" numa informação: quem perguntou pelo seguro e recebe a lista
+      dos parâmetros que existem descobre que o nome era outro.
+    */
+    const { rows: disponiveis } = await db.execute<{ code: string }>(sql`
+      SELECT DISTINCT a.code
+        FROM fact f
+        JOIN attribute a ON a.id = f.attribute_id
+        JOIN snapshot s  ON s.id = f.snapshot_id
+       WHERE f.entity_id = ${entityId}::uuid
+         AND s.status <> 'SUPERSEDED'
+         ${pedido.vigencia ? sql`AND s.effective_date = ${pedido.vigencia}::date` : sql``}
+       ORDER BY a.code
+       LIMIT 40
+    `);
+    if (disponiveis.length === 0) {
+      return { achou: false, motivo: "SEM_VIGENCIA", vigencia: pedido.vigencia ?? null };
+    }
+    return {
+      achou: false,
+      motivo: "SEM_FATO",
+      placa,
+      atributo: pedido.atributo,
+      vigencia: pedido.vigencia ?? "a mais recente",
+      atributosDisponiveis: disponiveis.map((d) => d.code),
+    };
+  }
+
+  const proveniencia = await provenienciaDoFato(db, Number(achado.fact_id));
+  if (!proveniencia) {
+    return { achou: false, motivo: "SEM_VIGENCIA", vigencia: achado.effective_date };
+  }
+  return { achou: true, proveniencia };
+}

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useSearch } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import {
   ArrowUp,
   Loader2,
@@ -12,6 +12,7 @@ import {
 import { Layout } from "@/components/layout/layout";
 import { ApiErrorNotice } from "@/components/api-error";
 import { Mensagem } from "@/components/assistente/mensagem";
+import { SeletorDeRecorte, type RecorteEscolhido } from "@/components/assistente/recorte";
 import type {
   Capacidades,
   ConversaResumo,
@@ -57,6 +58,7 @@ const SUGESTOES_INICIAIS = [
 
 export default function Assistente() {
   const search = useSearch();
+  const [, navegar] = useLocation();
   const cliente = useQueryClient();
 
   const [turnos, setTurnos] = useState<Turno[]>([]);
@@ -87,6 +89,24 @@ export default function Assistente() {
       period: p.get("period") ?? undefined,
     };
   }, [search]);
+
+  /*
+    Trocar o recorte reescreve a URL, e é só isso que ele faz.
+
+    O estado do recorte não é `useState`: ele é o endereço. Assim a escolha
+    sobrevive a um F5, volta pelo botão de voltar, e vai junto quando alguém
+    manda o link — que é a mesma regra das outras telas deste produto. E é o
+    que permite ao atalho da barra lateral carregar a unidade de onde a pessoa
+    estava, sem nenhum estado global.
+  */
+  const trocarRecorte = (novo: RecorteEscolhido) => {
+    const p = new URLSearchParams();
+    if (novo.scopeHash) p.set("scopeHash", novo.scopeHash);
+    if (novo.canal) p.set("canal", novo.canal);
+    if (novo.period) p.set("period", novo.period);
+    const qs = p.toString();
+    navegar(qs ? `/assistente?${qs}` : "/assistente");
+  };
 
   const capacidades = useQuery({
     queryKey: ["assistant-capabilities"],
@@ -217,6 +237,8 @@ export default function Assistente() {
                 Pergunte sobre parâmetros, alterações, impactos e o Book do Operador.
               </p>
             </div>
+            <div className="flex items-center gap-3">
+              <SeletorDeRecorte recorte={recorte} aoTrocar={trocarRecorte} />
             <button
               type="button"
               onClick={() => setPainelTecnico((v) => !v)}
@@ -228,6 +250,7 @@ export default function Assistente() {
             >
               <Terminal className="w-4 h-4" />
             </button>
+            </div>
           </header>
 
           <div className="flex-1 overflow-y-auto">
@@ -683,6 +706,69 @@ function PainelTecnico({ resposta }: { resposta: Resposta }) {
         {t.ferramentas.length > 0 ? t.ferramentas.join(", ") : "—"}
       </p>
       {/*
+        A trajetória do agente — o que separa investigar de consultar muito.
+
+        Rodadas e consultas são contagens diferentes de propósito: seis rodadas
+        com seis consultas é uma investigação funda e estreita; duas rodadas com
+        onze é uma varredura larga e rasa. `derivaDe` é a coluna que decide: uma
+        consulta cujo argumento saiu do resultado de outra é uma decisão tomada
+        **depois** de ver o dado.
+      */}
+      {t.agente && (
+        <div className="border-t border-input/60 pt-1 mt-1 space-y-0.5">
+          <p>
+            <span className="text-muted-foreground">agente:</span> {t.agente.rodadas} rodada(s) ·{" "}
+            {t.agente.consultas} consulta(s) ·{" "}
+            {t.agente.encadeamentosReais} encadeada(s) · {t.agente.preplanejadas} pré-planejada(s) ·
+            parou: {t.agente.parou}
+          </p>
+          {/*
+            O porquê de cada encadeamento — e nunca o raciocínio do modelo.
+
+            A linha diz que valor apareceu no resultado de qual consulta e em
+            que argumento ele entrou. É o que aconteceu com os argumentos, lido
+            do log; não é o que o modelo pensou, e não há como confundir os dois
+            porque o log é a única fonte.
+          */}
+          {t.agente.porqueEncadeou.map((linha, i) => (
+            <p key={`enc-${i}`} className="pl-3 text-muted-foreground">
+              ↳ {linha}
+            </p>
+          ))}
+          {t.agente.chamadas.map((c, i) => (
+            <p key={i} className="pl-3 text-muted-foreground">
+              <span className="text-foreground">#{i + 1}</span> {c.nome}
+              {Object.keys(c.argumentos).length > 0 ? ` ${JSON.stringify(c.argumentos)}` : ""}
+              {c.derivaDe !== null ? ` ← #${c.derivaDe + 1}` : ""}
+              {c.ok ? "" : ` · falhou: ${c.erro ?? "sem motivo"}`}
+            </p>
+          ))}
+        </div>
+      )}
+      {/*
+        A descida do caminho determinístico.
+
+        Ela responde a mesma pergunta que `agente.chamadas` responde no canário
+        — a orquestração reagiu ao dado, ou executou um plano fechado? — para
+        quem está no caminho em que o produto de fato roda hoje. Cada linha
+        nomeia o valor que **não existia** antes da consulta anterior.
+      */}
+      {t.descida.length > 0 && (
+        <div className="border-t border-input/60 pt-1 mt-1 space-y-0.5">
+          <p>
+            <span className="text-muted-foreground">descida:</span>{" "}
+            {t.descida.filter((d) => d.derivaDe !== null).length} encadeamento(s) em{" "}
+            {t.descida.length} passo(s)
+          </p>
+          {t.descida.map((d, i) => (
+            <p key={`desc-${i}`} className="pl-3 text-muted-foreground">
+              <span className="text-foreground">#{i + 1}</span> {d.ferramenta}
+              {d.derivaDe !== null ? ` ← #${d.derivaDe + 1}` : ""} · {d.porque}
+            </p>
+          ))}
+        </div>
+      )}
+      {/*
         Quantos candidatos havia e quantos passaram — a pergunta que se faz
         quando a resposta trouxe o documento errado, ou nenhum.
       */}
@@ -692,6 +778,10 @@ function PainelTecnico({ resposta }: { resposta: Resposta }) {
         {t.rastro.book.candidatos > 0
           ? ` · melhor ${t.rastro.book.melhorPontuacao.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}`
           : ""}
+      </p>
+      <p>
+        <span className="text-muted-foreground">cérebro:</span>{" "}
+        {t.agente ? "AGENTE" : "PLANEJADOR"}
       </p>
       <p>
         <span className="text-muted-foreground">redação:</span> {resposta.redacao}

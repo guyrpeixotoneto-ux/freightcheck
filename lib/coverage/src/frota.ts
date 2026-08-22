@@ -35,14 +35,47 @@ import { entityExpectationTable, curationEventTable } from "@workspace/db";
  * - **a continuidade é inferência** — recalculada a cada leitura, nunca gravada,
  *   e chega à tela dizendo que é inferência. É a mesma fronteira que
  *   `coverage_expectation` protege do lado dos atributos.
- * - **a baixa é declaração** — vira linha em `entity_expectation`, com ator e
- *   motivo obrigatórios, e é o único jeito de uma ausência deixar de contar.
+ * - **a declaração é humana** — vira linha em `entity_expectation`, com ator e
+ *   motivo obrigatórios, e é o que corrige a inferência nos dois sentidos:
+ *   `BAIXA` tira da conta quem saiu, `ESPERADA` põe na conta quem deveria estar
+ *   e a série nunca viu.
  *
  * A consequência é deliberada e vale estar escrita: **enquanto ninguém declarar
  * a baixa, a ausência continua contando.** Não é efeito colateral, é o
  * mecanismo — é o que transforma "sumiu um caminhão do arquivo" numa fila de
  * trabalho em vez de num silêncio.
+ *
+ * ---------------------------------------------------------------------------
+ * A declaração vale onde ela foi feita, e enquanto ela vale
+ * ---------------------------------------------------------------------------
+ * `registrarBaixa` grava `dataset_family`, `canal` e `scope_key`, e por muito
+ * tempo a leitura ignorava os três: um `SELECT ... WHERE status = 'BAIXA'` sem
+ * recorte e sem janela. O efeito era o pior tipo de silêncio — **uma baixa dada
+ * numa unidade calava a mesma placa em todas as outras**, e uma baixa com
+ * `effective_until` fechado calava para sempre. Uma decisão de curadoria que
+ * atravessa a fronteira do recorte não é uma decisão: é um vazamento.
+ *
+ * A regra de casamento agora é a mesma de `esperadoDeclarado` do lado dos
+ * atributos (ver `contrato.ts`), e é a mesma porque a tabela irmã declara a
+ * mesma semântica: nulo é **curinga**, não ausência. Uma linha vale num recorte
+ * quando a família bate, o canal bate ou é nulo, o escopo bate ou é nulo, e a
+ * data cai na janela `[effective_from, effective_until)`.
+ *
+ * Quando mais de uma linha vale, a mais específica ganha, e no empate a mais
+ * recente — ver {@link declaracaoEmVigor}. É o que permite "toda a família saiu
+ * do canal EMPURRADA, menos esta placa nesta unidade" sem que as duas linhas se
+ * anulem em silêncio.
  */
+
+/**
+ * Por que este equipamento é esperado nesta vigência.
+ *
+ * A distinção é a mesma que `Justificativa` faz do lado dos atributos, e existe
+ * pela mesma razão: quem lê a tela precisa saber se está diante de uma
+ * estatística ou de uma decisão. `CONTINUIDADE` é inferência — apareceu antes,
+ * deveria continuar aparecendo. `DECLARACAO` é alguém que assinou.
+ */
+export type OrigemDaEntidadeEsperada = "CONTINUIDADE" | "DECLARACAO";
 
 /** Um equipamento que era esperado nesta vigência e não veio. */
 export interface EntidadeAusente {
@@ -50,10 +83,20 @@ export interface EntidadeAusente {
   entityType: string;
   /** A placa corrente, ou o início do id quando não há identificador. */
   rotulo: string;
-  /** A última vigência deste recorte em que ela apareceu. */
-  ultimaVigencia: string;
-  /** Em quantas vigências anteriores deste recorte ela apareceu. */
+  /**
+   * A última vigência deste recorte em que ela apareceu.
+   *
+   * Nulo quando ela **nunca** apareceu — o caso que só existe por declaração
+   * `ESPERADA`, e que a tela precisa distinguir de "sumiu": um equipamento que
+   * nunca chegou não tem "desde quando".
+   */
+  ultimaVigencia: string | null;
+  /** Em quantas vigências anteriores deste recorte ela apareceu. Zero quando nenhuma. */
   vigenciasComDado: number;
+  /** Se ela é esperada por inferência ou porque alguém declarou. */
+  origem: OrigemDaEntidadeEsperada;
+  /** O motivo escrito na declaração, quando a origem é `DECLARACAO`. */
+  motivo: string | null;
 }
 
 /** O que a frota deveria ser numa vigência, e quem falta para ela ser isso. */
@@ -70,11 +113,176 @@ export interface RecorteDaVigencia {
   datasetFamily: string;
   canal: string;
   scopeHash: string;
+  /**
+   * O escopo canônico serializado — a chave de recorte por unidade.
+   *
+   * Anda ao lado de `scopeHash` e não no lugar dele porque os dois respondem
+   * coisas diferentes. `scopeHash` é o hash do escopo **como ele veio** e é o
+   * que a continuidade usa, por continuidade com o que já estava medido;
+   * `scopeKey` é a identidade canônica, e é contra ela que a declaração casa —
+   * é o campo que `registrarBaixa` grava em `scope_key`.
+   */
+  scopeKey: string;
   effectiveDate: string;
 }
 
 const chaveDoRecorte = (v: { datasetFamily: string; canal: string; scopeHash: string }) =>
   `${v.datasetFamily}|${v.canal}|${v.scopeHash}`;
+
+// ---------------------------------------------------------------------------
+// A declaração: onde ela vale, e qual delas vale
+// ---------------------------------------------------------------------------
+
+/** Uma linha de `entity_expectation`, antes de se saber se ela vale aqui. */
+export interface DeclaracaoDeFrota {
+  entityId: string;
+  entityType: string;
+  datasetFamily: string;
+  /** Nulo = vale para qualquer canal desta família. */
+  canal: string | null;
+  /** Nulo = vale para qualquer unidade. */
+  scopeKey: string | null;
+  status: "ESPERADA" | "BAIXA";
+  efetivoDe: string;
+  /** Exclusivo. Nulo = em vigor. */
+  efetivoAte: string | null;
+  motivo: string;
+  /** Só para desempatar duas declarações igualmente específicas e igualmente antigas. */
+  criadaEm: string;
+}
+
+/** O recorte contra o qual uma declaração é conferida. */
+export interface RecorteDeclarado {
+  datasetFamily: string;
+  canal: string;
+  scopeKey: string;
+}
+
+/**
+ * Quanto uma declaração fala **deste** recorte, e não de um mais largo.
+ *
+ * Três degraus: a que nomeia a unidade ganha da que nomeia só o canal, que
+ * ganha da que fala da família inteira. É o que permite escrever "o canal
+ * EMPURRADA inteiro saiu, menos esta placa nesta unidade" — sem a escada, as
+ * duas linhas valeriam ao mesmo tempo e a ordem de leitura decidiria, o que é
+ * o mesmo que não decidir.
+ */
+function especificidade(d: DeclaracaoDeFrota): number {
+  return (d.scopeKey !== null ? 2 : 0) + (d.canal !== null ? 1 : 0);
+}
+
+/**
+ * A declaração que governa uma entidade num recorte, numa data — ou nenhuma.
+ *
+ * Pura de propósito. É a regra que impede uma baixa de vazar entre unidades, e
+ * uma regra dessas tem de ser conferível sem banco, caso a caso, em vez de
+ * inferida do resultado de uma consulta que também faz outras cinco coisas.
+ *
+ * O casamento é o de `esperadoDeclarado` (`contrato.ts`), e é o mesmo porque a
+ * tabela irmã declara a mesma semântica de nulo:
+ *
+ * - a **família** casa por igualdade, sempre — é o único campo `NOT NULL`;
+ * - **canal** e **escopo** casam por igualdade **ou** por nulo, que é curinga;
+ * - a **janela** é `[efetivoDe, efetivoAte)`, com `efetivoAte` exclusivo. Uma
+ *   baixa que expirou volta a não valer, que é o que "até" quer dizer.
+ *
+ * Entre as que sobrevivem vence a mais específica; no empate, a de `efetivoDe`
+ * maior — a decisão mais recente sobre o mesmo recorte é a que está em pé —; e
+ * no empate desta, a gravada por último. Nunca devolve duas: uma entidade tem
+ * um estado por recorte e por data, ou a tela teria de escolher no lugar de
+ * quem decidiu.
+ */
+export function declaracaoEmVigor(
+  declaracoes: readonly DeclaracaoDeFrota[],
+  recorte: RecorteDeclarado,
+  data: string,
+): DeclaracaoDeFrota | null {
+  let escolhida: DeclaracaoDeFrota | null = null;
+  for (const d of declaracoes) {
+    if (d.datasetFamily !== recorte.datasetFamily) continue;
+    if (d.canal !== null && d.canal !== recorte.canal) continue;
+    if (d.scopeKey !== null && d.scopeKey !== recorte.scopeKey) continue;
+    if (d.efetivoDe > data) continue;
+    if (d.efetivoAte !== null && d.efetivoAte <= data) continue;
+
+    if (escolhida === null) {
+      escolhida = d;
+      continue;
+    }
+    const ganha =
+      especificidade(d) !== especificidade(escolhida)
+        ? especificidade(d) > especificidade(escolhida)
+        : d.efetivoDe !== escolhida.efetivoDe
+          ? d.efetivoDe > escolhida.efetivoDe
+          : d.criadaEm > escolhida.criadaEm;
+    if (ganha) escolhida = d;
+  }
+  return escolhida;
+}
+
+/**
+ * As declarações de frota das famílias pedidas, cruas.
+ *
+ * Sem filtro de recorte na consulta, e é deliberado: quem decide o que vale
+ * onde é {@link declaracaoEmVigor}, em memória, sobre uma tabela que é
+ * curadoria humana — dezenas de linhas, não milhões. Espalhar o predicado entre
+ * SQL e TypeScript daria duas metades da mesma regra em duas linguagens, e foi
+ * exatamente assim que a versão anterior perdeu o recorte inteiro.
+ */
+async function declaracoesDeFrota(
+  db: Database,
+  familias: readonly string[],
+): Promise<Map<string, DeclaracaoDeFrota[]>> {
+  const porEntidade = new Map<string, DeclaracaoDeFrota[]>();
+  if (familias.length === 0) return porEntidade;
+
+  const { rows } = await db.execute<{
+    entity_id: string;
+    entity_type: string;
+    dataset_family: string;
+    canal: string | null;
+    scope_key: string | null;
+    status: string;
+    effective_from: string;
+    effective_until: string | null;
+    rationale: string;
+    created_at: string;
+  }>(sql`
+    SELECT entity_id::text AS entity_id,
+           entity_type,
+           dataset_family,
+           canal,
+           scope_key,
+           status,
+           effective_from::text  AS effective_from,
+           effective_until::text AS effective_until,
+           rationale,
+           created_at::text      AS created_at
+      FROM entity_expectation
+     WHERE dataset_family = ANY(${sql`ARRAY[${sql.join(
+       familias.map((f) => sql`${f}::text`),
+       sql`, `,
+     )}]`})
+  `);
+
+  for (const r of rows) {
+    const lista = porEntidade.get(r.entity_id) ?? [];
+    lista.push({
+      entityId: r.entity_id,
+      entityType: r.entity_type,
+      datasetFamily: r.dataset_family,
+      canal: r.canal,
+      scopeKey: r.scope_key,
+      status: r.status as "ESPERADA" | "BAIXA",
+      efetivoDe: r.effective_from,
+      efetivoAte: r.effective_until,
+      motivo: r.rationale,
+      criadaEm: r.created_at,
+    });
+    porEntidade.set(r.entity_id, lista);
+  }
+  return porEntidade;
+}
 
 /**
  * O roster de várias vigências, em três consultas — e não em três por vigência.
@@ -88,8 +296,10 @@ const chaveDoRecorte = (v: { datasetFamily: string; canal: string; scopeHash: st
  * **pequeno** — entidades × vigências, mil e duzentas linhas no export real,
  * contra as centenas de milhares de `fact` que as produzem —, então ele cabe
  * inteiro em memória e a diferença entre vigências vira um `Set`. As três
- * consultas são: quem esteve em cada vigência, quais baixas foram declaradas, e
- * o rótulo de quem faltou.
+ * consultas são: quem esteve em cada vigência, o que a curadoria declarou, e o
+ * rótulo de quem faltou. A declaração é lida uma vez e **avaliada por
+ * vigência** — é em `declaracaoEmVigor` que ela vira sim ou não, porque a
+ * resposta depende da data e do recorte, e não só da entidade.
  *
  * A janela da matriz **não** limita a continuidade. As vigências pedidas dizem
  * de quais recortes se trata; o histórico considerado é o do recorte inteiro.
@@ -136,13 +346,9 @@ export async function rosterDasVigencias(
      WHERE s.status <> 'SUPERSEDED'
   `);
 
-  const { rows: baixas } = await db.execute<{ entity_id: string; desde: string }>(sql`
-    SELECT entity_id, min(effective_from)::text AS desde
-      FROM entity_expectation
-     WHERE status = 'BAIXA'
-     GROUP BY entity_id
-  `);
-  const baixaDe = new Map(baixas.map((b) => [b.entity_id, b.desde]));
+  const declaracoes = await declaracoesDeFrota(db, [
+    ...new Set(vigencias.map((v) => v.datasetFamily)),
+  ]);
 
   /* Agrupa a presença por recorte uma vez, em vez de filtrar a lista por vigência. */
   const porRecorte = new Map<
@@ -179,19 +385,59 @@ export async function rosterDasVigencias(
       antes.set(p.entityId, { entityType: p.entityType, vezes: 1, ultima: p.data });
     }
 
+    /*
+      A declaração é conferida **por vigência**, e não uma vez por entidade.
+
+      É o que faz `efetivoDe` e `efetivoAte` significarem alguma coisa: a mesma
+      placa pode estar baixada em agosto e cobrada em maio, e um mapa de
+      "entidades baixadas" calculado fora do laço — que foi o que existiu aqui —
+      não tem como dizer isso.
+    */
     const ausentes: Omit<EntidadeAusente, "rotulo">[] = [];
     for (const [entityId, info] of antes) {
       if (agora.has(entityId)) continue;
-      const baixa = baixaDe.get(entityId);
-      if (baixa !== undefined && baixa <= vigencia.effectiveDate) continue;
+      const declaracao = declaracaoEmVigor(
+        declaracoes.get(entityId) ?? [],
+        vigencia,
+        vigencia.effectiveDate,
+      );
+      if (declaracao?.status === "BAIXA") continue;
       ausentes.push({
         entityId,
         entityType: info.entityType,
         ultimaVigencia: info.ultima,
         vigenciasComDado: info.vezes,
+        /* A declaração ganha da inferência sempre — a mesma ordem de `esperado.ts`. */
+        origem: declaracao === null ? "CONTINUIDADE" : "DECLARACAO",
+        motivo: declaracao?.motivo ?? null,
       });
       precisamDeRotulo.add(entityId);
     }
+
+    /*
+      E quem nunca apareceu.
+
+      Esta é a metade que `ESPERADA` existe para cobrir e que ficou anos escrita
+      sem ser lida: alguém afirma que um equipamento deveria estar na vigência
+      **antes** de qualquer arquivo o trazer. A continuidade não alcança este
+      caso por construção — ela só sabe de quem já veio —, e sem ele a única
+      alavanca da curadoria sobre a frota era negativa.
+    */
+    for (const [entityId, lista] of declaracoes) {
+      if (agora.has(entityId) || antes.has(entityId)) continue;
+      const declaracao = declaracaoEmVigor(lista, vigencia, vigencia.effectiveDate);
+      if (declaracao?.status !== "ESPERADA") continue;
+      ausentes.push({
+        entityId,
+        entityType: declaracao.entityType,
+        ultimaVigencia: null,
+        vigenciasComDado: 0,
+        origem: "DECLARACAO",
+        motivo: declaracao.motivo,
+      });
+      precisamDeRotulo.add(entityId);
+    }
+
     ausentesPorVigencia.set(vigencia.snapshotId, ausentes);
   }
 
