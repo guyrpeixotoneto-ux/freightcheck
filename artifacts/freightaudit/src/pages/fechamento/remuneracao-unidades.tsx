@@ -21,8 +21,10 @@ import {
   lerCadastro,
   lerSituacaoDasUnidades,
   nomeDaUnidade,
+  suficienciaDoCadastro,
   type EstadoDoCadastro,
   type SituacaoDaUnidade,
+  type SituacaoDoCadastro,
 } from "@/lib/remuneracao";
 
 /**
@@ -142,7 +144,7 @@ const NO_RESUMO: Record<EstadoDoCadastro, string> = {
   FROTA_E_ALIQUOTAS: "com as duas metades",
   SO_FROTA: "só com a frota",
   SO_ALIQUOTAS: "só com as alíquotas",
-  SEM_LASTRO: "sem lastro",
+  SEM_LASTRO: "sem lastro documental",
 };
 
 /** Onde cada estado é contado dentro do grupo. */
@@ -389,6 +391,16 @@ interface ContagemDoGrupo {
   comPlanilha: number;
   /** Destes, quantos têm alguma linha em que a planilha e o acervo discordam. */
   comDivergencia: number;
+  /**
+   * Vigências cujo cadastro **não** basta para calcular o devido.
+   *
+   * É a primeira coisa que o cabeçalho precisa dizer, e a que ele não dizia:
+   * contava lastro, que é auditoria, e deixava quem lê deduzir dali se havia
+   * contrato. São perguntas diferentes — a unidade sem lastro nenhum pode
+   * calcular o mês inteiro, e a que tem metade do acervo pode não calcular
+   * nada.
+   */
+  semDevido: number;
 }
 
 /** Uma unidade e as vigências pelas quais ela já respondeu. */
@@ -477,6 +489,7 @@ export function agruparPorUnidade(cadastros: SituacaoDaUnidade[]): Grupo[] {
         semLastro: 0,
         comPlanilha: 0,
         comDivergencia: 0,
+        semDevido: 0,
       };
       por.set(chave, grupo);
     }
@@ -496,6 +509,7 @@ export function agruparPorUnidade(cadastros: SituacaoDaUnidade[]): Grupo[] {
     grupo[CONTADOR[u.cadastro.estado]] += 1;
     if (u.cadastro.informadas > 0) grupo.comPlanilha += 1;
     if (u.cadastro.divergentes > 0) grupo.comDivergencia += 1;
+    if (!u.cadastro.suficienteParaCalcular) grupo.semDevido += 1;
   }
 
   /* Dentro do grupo, da vigência mais recente para a mais antiga: a primeira
@@ -541,6 +555,13 @@ export function resumoDoGrupo(grupo: Grupo): string {
     if (quantas > 0) partes.push(`${quantas} ${NO_RESUMO[estado]}`);
   }
 
+  /*
+    A suficiência vem antes da planilha e antes das divergências: é a única
+    parte da frase que responde "dá para fechar o mês?".
+  */
+  if (grupo.semDevido > 0) {
+    partes.push(`${grupo.semDevido} sem cadastro suficiente para o devido`);
+  }
   if (grupo.comPlanilha > 0) partes.push(`${grupo.comPlanilha} com planilha informada`);
   if (grupo.comDivergencia > 0) {
     partes.push(
@@ -1010,8 +1031,8 @@ export default function RemuneracaoUnidades() {
                           <th className="text-left font-bold px-4 py-3">Cadastro</th>
                           <th className="text-left font-bold px-4 py-3">Frota</th>
                           <th className="text-left font-bold px-4 py-3">Trechos</th>
-                          <th className="text-right font-bold px-4 py-3">Linhas com lastro</th>
-                          <th className="text-right font-bold px-4 py-3">Planilha informada</th>
+                          <th className="text-right font-bold px-4 py-3">Lastro documental</th>
+                          <th className="text-right font-bold px-4 py-3">Informado no cadastro</th>
                           <th className="text-right font-bold px-4 py-3" />
                         </tr>
                       </thead>
@@ -1182,15 +1203,34 @@ export default function RemuneracaoUnidades() {
                                               </button>
                                             </td>
 
+                                            {/*
+                                              A COLUNA `CADASTRO` RESPONDE SE O
+                                              CADASTRO CALCULA — e não quanto
+                                              dele tem documento.
+
+                                              Ela mostrava o selo de lastro em
+                                              vermelho, e uma coluna chamada
+                                              Cadastro marcada de vermelho diz a
+                                              quem lê que o cadastro não existe.
+                                              O do CDD Belém existia, estava
+                                              inteiro e produzia devido ao
+                                              centavo. O lastro tem coluna
+                                              própria, duas adiante.
+                                            */}
                                             <td className="px-4 py-3 align-middle">
-                                              <Badge
-                                                variant={APARENCIA_DO_ESTADO[u.cadastro.estado]}
-                                                title={ESTADO_DO_CADASTRO[u.cadastro.estado].frase}
-                                                className="gap-1.5 whitespace-nowrap px-2.5 py-1 text-[0.6875rem] font-bold uppercase tracking-wide"
-                                              >
-                                                <span className="w-1.5 h-1.5 rounded-full bg-current" aria-hidden />
-                                                {ESTADO_DO_CADASTRO[u.cadastro.estado].rotulo}
-                                              </Badge>
+                                              {(() => {
+                                                const suficiencia = suficienciaDoCadastro(u.cadastro);
+                                                return (
+                                                  <Badge
+                                                    variant={suficiencia.variante}
+                                                    title={suficiencia.frase}
+                                                    className="gap-1.5 whitespace-nowrap px-2.5 py-1 text-[0.6875rem] font-bold uppercase tracking-wide"
+                                                  >
+                                                    <span className="w-1.5 h-1.5 rounded-full bg-current" aria-hidden />
+                                                    {suficiencia.rotulo}
+                                                  </Badge>
+                                                );
+                                              })()}
                                             </td>
 
                                             <td className="px-4 py-3 align-middle">
@@ -1212,8 +1252,18 @@ export default function RemuneracaoUnidades() {
                                               dezenove das trinta linhas dependem de decisão de
                                               negócio, e não de arquivo que falta.
                                             */}
-                                            <td className="px-4 py-3 text-right tabular-nums whitespace-nowrap align-middle">
-                                              {u.cadastro.comLastro} de {u.cadastro.linhas}
+                                            <td className="px-4 py-3 text-right whitespace-nowrap align-middle">
+                                              <div className="inline-flex flex-col items-end gap-1">
+                                                <span className="tabular-nums">
+                                                  {u.cadastro.comLastro} de {u.cadastro.verificaveis}
+                                                </span>
+                                                <span
+                                                  className="text-[0.6875rem] text-muted-foreground"
+                                                  title={ESTADO_DO_CADASTRO[u.cadastro.estado].frase}
+                                                >
+                                                  {ESTADO_DO_CADASTRO[u.cadastro.estado].rotulo.toLowerCase()}
+                                                </span>
+                                              </div>
                                             </td>
 
                                             {/*
@@ -1244,23 +1294,34 @@ export default function RemuneracaoUnidades() {
                                                     <span className="tabular-nums">
                                                       {u.cadastro.informadas} de {u.cadastro.linhas}
                                                     </span>
-                                                    {u.cadastro.divergentes > 0 ? (
-                                                      <Badge variant="destructive" className="text-[0.6875rem]">
-                                                        {u.cadastro.divergentes}{" "}
-                                                        {u.cadastro.divergentes === 1
-                                                          ? "diverge do acervo"
-                                                          : "divergem do acervo"}
-                                                      </Badge>
-                                                    ) : (
-                                                      u.cadastro.conferidas > 0 && (
-                                                        <span className="text-[0.6875rem] text-muted-foreground">
-                                                          {u.cadastro.conferidas}{" "}
-                                                          {u.cadastro.conferidas === 1
-                                                            ? "confere com o acervo"
-                                                            : "conferem com o acervo"}
-                                                        </span>
-                                                      )
+                                                    {/*
+                                                      As obrigatórias primeiro, porque são
+                                                      elas que decidem se há devido. "29 de
+                                                      30" sozinho conta caixas preenchidas e
+                                                      não responde nada: a que falta pode ser
+                                                      uma opcional (premissa) ou a linha que
+                                                      trava o contrato inteiro.
+                                                    */}
+                                                    <span className="text-[0.6875rem] text-muted-foreground">
+                                                      {u.cadastro.obrigatoriasInformadas} de{" "}
+                                                      {u.cadastro.obrigatorias} obrigatórias
+                                                    </span>
+                                                    {u.cadastro.opcionaisAssumidasComoZero > 0 && (
+                                                      <span
+                                                        className="text-[0.6875rem] text-muted-foreground"
+                                                        title={
+                                                          "A planilha deixa estas células em branco e as soma como zero — " +
+                                                          "é a premissa que o contrato adota, e não uma linha esquecida."
+                                                        }
+                                                      >
+                                                        {u.cadastro.opcionaisAssumidasComoZero}{" "}
+                                                        {u.cadastro.opcionaisAssumidasComoZero === 1
+                                                          ? "opcional assumida"
+                                                          : "opcionais assumidas"}{" "}
+                                                        como zero
+                                                      </span>
                                                     )}
+                                                    <Conferencias cadastro={u.cadastro} />
                                                   </>
                                                 )}
                                                 <BotaoDeCadastroDaPlanilha
@@ -1561,6 +1622,58 @@ function MetadeDoCadastro({ tem, frase }: { tem: boolean; frase: string }) {
 }
 
 /**
+ * AS DUAS CONFERÊNCIAS, QUE NÃO SÃO A MESMA COISA.
+ *
+ * A tela dizia `N conferem com o acervo` sobre qualquer conferência — e a linha
+ * ao lado dizia `0 de 30 com lastro`. As duas não podem ser verdade juntas, e a
+ * errada era a primeira: no CDD Belém as duas conferências eram `resumo_iss` e
+ * `resumo_ctrc`, calculadas sobre alíquotas **informadas** e confrontadas com o
+ * percentual **também informado**. A aba conferindo consigo mesma.
+ *
+ * A conferência interna não vale menos — é ela que pega o erro de transcrição,
+ * porque o total impresso na aba tem de bater com a soma das parcelas
+ * digitadas. O que ela não é, é evidência externa; e chamá-la de acervo
+ * prometia auditoria onde havia aritmética.
+ */
+function Conferencias({ cadastro }: { cadastro: SituacaoDoCadastro }) {
+  const linha = (
+    quantas: number,
+    divergentes: number,
+    onde: string,
+    titulo: string,
+  ) => {
+    if (quantas === 0) return null;
+    return divergentes > 0 ? (
+      <Badge variant="destructive" className="text-[0.6875rem]" title={titulo}>
+        {divergentes} {divergentes === 1 ? "diverge" : "divergem"} {onde}
+      </Badge>
+    ) : (
+      <span className="text-[0.6875rem] text-muted-foreground" title={titulo}>
+        {quantas} {quantas === 1 ? "confere" : "conferem"} {onde}
+      </span>
+    );
+  };
+
+  return (
+    <>
+      {linha(
+        cadastro.conferenciasComAcervo,
+        cadastro.divergenciasComAcervo,
+        "com o acervo",
+        "O número digitado confrontado com o que o export mede. É evidência externa.",
+      )}
+      {linha(
+        cadastro.conferenciasInternas,
+        cadastro.divergenciasInternas,
+        "dentro da própria aba",
+        "Total impresso contra a soma das parcelas digitadas, ou percentual impresso contra " +
+          "as alíquotas digitadas. Prova que a transcrição é coerente — não que ela é verdade.",
+      )}
+    </>
+  );
+}
+
+/**
  * O que a tabela não cabe dizer em cada linha — por extenso e uma vez só.
  *
  * **Por que embaixo, e não num cartão em cima.** Era um cartão antes da
@@ -1599,12 +1712,40 @@ function Notas({ semLastro }: { semLastro: number }) {
         ))}
       </dl>
 
-      <p className="text-xs text-muted-foreground border-t pt-3">
-        <strong>Linhas com lastro</strong> conta as trinta linhas da aba, e não as duas
-        metades: dezenove delas dependem de decisões de negócio que ainda não foram
-        registradas, e não de arquivo que alguém deixou de mandar — abrir o cadastro de uma
-        unidade diz, linha a linha, qual é o caso de cada uma.
-      </p>
+      {/*
+        AS QUATRO PALAVRAS, SEPARADAS — porque a tela vinha misturando duas
+        delas e prometendo uma terceira.
+
+        `0 de 30 com lastro` ao lado de `2 conferem com o acervo` era
+        impossível, e as duas frases eram lidas juntas como "este cadastro não
+        serve". O cadastro do CDD Belém servia: produzia o devido do mês ao
+        centavo, digitado à mão, com zero documentos importados.
+      */}
+      <div className="text-xs text-muted-foreground border-t pt-3 space-y-2">
+        <p>
+          <strong>Cadastro</strong> responde se as vinte linhas obrigatórias foram
+          informadas — e é só delas que o contrato sai. É a coluna que diz se há devido.
+        </p>
+        <p>
+          <strong>Lastro documental</strong> conta quantas das <strong>onze</strong> linhas
+          verificáveis têm documento por trás. Onze, e não trinta: as outras dezenove são
+          preço contratado ou conta que o próprio cadastro refaz, e arquivo nenhum as
+          confirma — nunca confirmou. Lastro mede auditabilidade, e não prontidão: um
+          cadastro sem lastro nenhum calcula o devido igual, e perde só a conferência
+          externa.
+        </p>
+        <p>
+          <strong>Informado no cadastro</strong> conta o que alguém digitou, com as
+          obrigatórias destacadas. Uma opcional em branco não é falta: a planilha a deixa
+          vazia e a soma como zero, e a tela diz a premissa em vez de cobrar a célula.
+        </p>
+        <p>
+          <strong>Conferência</strong> tem duas espécies, e elas nunca se somam:{" "}
+          <em>com o acervo</em> confronta o digitado com o que o export mede — evidência
+          externa; <em>dentro da própria aba</em> confronta o total impresso com a soma das
+          parcelas digitadas — prova que a transcrição é coerente, não que ela é verdade.
+        </p>
+      </div>
 
       {/*
         A cadência da planilha é a mesma da vigência, e dizê-lo aqui fecha a

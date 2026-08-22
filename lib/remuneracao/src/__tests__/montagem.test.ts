@@ -134,6 +134,10 @@ describe("o cadastro montado", () => {
       comLastro: 11,
       conferidas: 0,
       divergentes: 0,
+      conferenciasComAcervo: 0,
+      conferenciasInternas: 0,
+      divergenciasComAcervo: 0,
+      divergenciasInternas: 0,
     });
   });
 
@@ -152,6 +156,10 @@ describe("o cadastro montado", () => {
       comLastro: 0,
       conferidas: 0,
       divergentes: 0,
+      conferenciasComAcervo: 0,
+      conferenciasInternas: 0,
+      divergenciasComAcervo: 0,
+      divergenciasInternas: 0,
     });
   });
 });

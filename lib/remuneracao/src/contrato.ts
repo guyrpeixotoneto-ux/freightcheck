@@ -187,6 +187,9 @@ export const CHAVES_DO_CONTRATO: string[] = DE_PARA.map((d) => d.chave);
 /** As que travam o contrato quando faltam. */
 export const CHAVES_OBRIGATORIAS: string[] = CHAVES_DO_CONTRATO.filter((c) => !OPCIONAIS.has(c));
 
+/** As que faltam sem travar — entram como zero, e a tela diz a premissa. */
+export const CHAVES_OPCIONAIS: string[] = [...OPCIONAIS];
+
 /** O que falta, com o rótulo que a pessoa vê na tela de cadastro. */
 export interface ChaveFaltante {
   chave: string;

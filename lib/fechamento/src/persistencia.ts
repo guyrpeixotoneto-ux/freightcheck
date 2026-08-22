@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { gunzipSync, gzipSync } from "node:zlib";
-import { and, desc, eq, gte, inArray, lte, ne, notInArray, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, lte, ne, notInArray, sql } from "drizzle-orm";
 import type { Database } from "@workspace/db";
 import {
   fechamentoApuracaoTable,
@@ -36,6 +36,10 @@ import {
   type Competencia,
   type Dia,
 } from "./periodo";
+import {
+  conciliarIdentidadeDasCompetencias,
+  identidadeDaCompetencia,
+} from "./identidade-da-competencia";
 import { apurar, type Apuracao, type Fontes, type Parcela } from "./apuracao";
 import { montarResumo, type QuinzenaApurada, type ResumoDoMes } from "./resumo";
 import {
@@ -121,7 +125,7 @@ export interface CompetenciaRegistrada extends Competencia {
   id: string;
   unidade: { codigo: string; nome: string | null };
   /**
-   * A unidade canônica desta competência, quando ela já tem uma.
+   * A unidade canônica desta competência — `null` enquanto ninguém a afirmou.
    *
    * **É o que permite perguntar ao cadastro sem comparar texto.** As duas
    * pontas apontando para o mesmo `unidade.id` é o único casamento que não pode
@@ -130,8 +134,14 @@ export interface CompetenciaRegistrada extends Competencia {
    * precisa dela — sem isto, duas telas perguntando pelo mesmo contrato podem
    * receber respostas diferentes, uma pela identidade e outra pelo texto.
    *
-   * `null` nas competências abertas antes de a identidade existir, e nas que
-   * ninguém associou. Ver `associarUnidadeDaCompetencia`.
+   * Sai no registro também porque é **estado da competência**, e não detalhe
+   * interno: sem ele, a única forma de a tela saber se o fechamento tem
+   * identidade era deduzir do diagnóstico do cadastro, que responde outra
+   * pergunta (qual porta fechou).
+   *
+   * `null` nas abertas antes de a identidade existir e nas que ninguém
+   * associou — cada vez menos, desde que `identidade-da-competencia.ts` passou
+   * a escrevê-la em todo momento em que ela é afirmável.
    */
   unidadeId: string | null;
   transportadora: { codigo: string; nome: string | null };
@@ -276,6 +286,24 @@ export async function abrirCompetencia(
     unidadeId = canonica.id;
   }
 
+  /*
+    O caminho legado deixa de nascer sem identidade quando ela **é** afirmável.
+
+    Sem isto, toda competência aberta pelo texto — importação, histórico, script
+    — nascia com `unidade_id` nulo mesmo quando o texto era o CNPJ de uma
+    unidade cadastrada, ou quando a competência irmã do mesmo texto já tinha
+    sido associada por alguém. O nulo então nunca mais era revisto, e o conserto
+    virava um clique manual por quinzena.
+
+    Nada aqui adivinha: `identidadeDaCompetencia` só responde ao CNPJ no próprio
+    texto e à decisão que uma pessoa já tomou sobre o mesmo texto. Ambígua e
+    desconhecida continuam nascendo nulas, que é a resposta honesta.
+  */
+  if (unidadeId === null) {
+    const identidade = await identidadeDaCompetencia(db, { unidadeCodigo: unidade.codigo });
+    if (identidade.tipo === "INEQUIVOCA") unidadeId = identidade.unidade.id;
+  }
+
   await registrarParte(db, { tipo: "UNIDADE", ...unidade });
   await registrarParte(db, { tipo: "TRANSPORTADORA", ...entrada.transportadora });
 
@@ -291,7 +319,33 @@ export async function abrirCompetencia(
       ),
     )
     .limit(1);
-  if (existente[0]) return comoRegistrada(existente[0]);
+  /*
+    Reabrir o mesmo endereço é um clique repetido — e é também a segunda chance
+    de a competência antiga ganhar identidade. Quem volta à tela de abrir para a
+    2ª quinzena depois de ter cadastrado a unidade está afirmando de novo qual
+    unidade é aquela; devolver a linha nula sem escrevê-la deixaria o conserto
+    dependendo de um terceiro gesto que ninguém sabe que existe.
+
+    Só a competência **aberta** é corrigida: a encerrada muda de número ao ser
+    associada, e isso é do encerramento, não daqui.
+  */
+  if (existente[0]) {
+    const jaExiste = existente[0];
+    if (unidadeId !== null && jaExiste.unidadeId === null && jaExiste.estado !== "ENCERRADA") {
+      const [atualizada] = await db
+        .update(fechamentoCompetenciaTable)
+        .set({ unidadeId })
+        .where(
+          and(
+            eq(fechamentoCompetenciaTable.id, jaExiste.id),
+            isNull(fechamentoCompetenciaTable.unidadeId),
+          ),
+        )
+        .returning();
+      if (atualizada) return comoRegistrada(atualizada);
+    }
+    return comoRegistrada(jaExiste);
+  }
 
   const [criada] = await db
     .insert(fechamentoCompetenciaTable)
@@ -3201,6 +3255,24 @@ export async function associarUnidadeDaCompetencia(
     .update(fechamentoCompetenciaTable)
     .set({ unidadeId })
     .where(eq(fechamentoCompetenciaTable.id, competenciaId));
+
+  /*
+    A decisão vale para o texto, e não para a linha.
+
+    Quem clica "associar" está dizendo qual unidade é o `CDD Belém` desta
+    competência — e as duas quinzenas do mês são duas competências com esse
+    mesmo texto. Sem esta propagação, a pessoa associava a 1ª, via o devido
+    aparecer, e a 2ª continuava em branco esperando um segundo clique que a tela
+    (com painel comparado já montado) tinha deixado de oferecer. Era o caso real
+    de julho/2026.
+
+    Não é inferência: é a mesma afirmação, aplicada onde ela já valia. As
+    encerradas ficam de fora, e a conciliação as devolve listadas.
+  */
+  await conciliarIdentidadeDasCompetencias(db, {
+    unidadeId,
+    codigos: [competencia.unidade.codigo],
+  });
 
   return (await buscarCompetencia(db, competenciaId))!;
 }

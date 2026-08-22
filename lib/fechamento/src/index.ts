@@ -62,6 +62,7 @@ export * from "./matriz";
 */
 export * from "./afericao";
 export * from "./cadastro-porta";
+export * from "./identidade-da-competencia";
 /*
   A régua de conferência. Sai da raiz do pacote porque a rota e a tela precisam
   dela; **não** sai daqui nada que o cálculo consuma — ver a nota de

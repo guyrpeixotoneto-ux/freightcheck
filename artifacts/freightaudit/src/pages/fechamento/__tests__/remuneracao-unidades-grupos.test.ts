@@ -51,6 +51,22 @@ const cadastro = (
   informadas: 0,
   conferidas: 0,
   divergentes: 0,
+  /*
+    O cadastro do teste **calcula**: as vinte obrigatórias informadas. É o caso
+    comum, e o que separa a frase do grupo em duas perguntas — quantas vigências
+    têm lastro (auditoria) e quantas produzem devido (cálculo). Um `extras` com
+    `suficienteParaCalcular: false` exercita a outra ponta.
+  */
+  verificaveis: 11,
+  obrigatorias: 20,
+  obrigatoriasInformadas: 20,
+  opcionaisAssumidasComoZero: 0,
+  calculadas: 8,
+  suficienteParaCalcular: true,
+  conferenciasComAcervo: 0,
+  conferenciasInternas: 0,
+  divergenciasComAcervo: 0,
+  divergenciasInternas: 0,
   ...extras,
 });
 
@@ -231,7 +247,7 @@ describe("resumoDoGrupo", () => {
     ]);
 
     expect(resumoDoGrupo(grupo!)).toBe(
-      `2${NBSP}vigências · 1${NBSP}só com a frota · 1${NBSP}sem lastro`,
+      `2${NBSP}vigências · 1${NBSP}só com a frota · 1${NBSP}sem lastro documental`,
     );
   });
 
@@ -243,7 +259,7 @@ describe("resumoDoGrupo", () => {
     ]);
 
     expect(resumoDoGrupo(grupo!)).toBe(
-      `1${NBSP}vigência · 1${NBSP}sem lastro · 1${NBSP}com planilha informada · ` +
+      `1${NBSP}vigência · 1${NBSP}sem lastro documental · 1${NBSP}com planilha informada · ` +
         `1${NBSP}diverge do acervo`,
     );
   });
@@ -260,7 +276,7 @@ describe("resumoDoGrupo", () => {
       unidade("A", "2026-07-01", "SEM_LASTRO", { registradaAMao: true }),
     ]);
 
-    expect(resumoDoGrupo(grupo!)).toBe(`2${NBSP}vigências · 2${NBSP}sem lastro`);
+    expect(resumoDoGrupo(grupo!)).toBe(`2${NBSP}vigências · 2${NBSP}sem lastro documental`);
   });
 
   it("cala o que não tem: nem planilha, nem divergência", () => {
@@ -393,7 +409,7 @@ describe("partirEmQuinzenas", () => {
 
 /**
  * O mês fechado precisa dizer o bastante para alguém decidir se abre — senão
- * ele é uma fila de nomes de mês, e achar a quinzena sem lastro custa abrir
+ * ele é uma fila de nomes de mês, e achar a quinzena sem lastro documental custa abrir
  * doze.
  */
 describe("resumoDoMes", () => {
@@ -411,7 +427,7 @@ describe("resumoDoMes", () => {
       unidade("CAMAÇARI", "2026-07-16", "SEM_LASTRO"),
     ]);
 
-    expect(resumoDoMes(mes!)).toBe("1ª quinzena só com a frota · 2ª quinzena sem lastro");
+    expect(resumoDoMes(mes!)).toBe("1ª quinzena só com a frota · 2ª quinzena sem lastro documental");
   });
 
   /* Com duas vigências na mesma metade, o cabeçalho só as conta: os estados

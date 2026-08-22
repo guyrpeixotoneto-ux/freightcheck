@@ -879,6 +879,35 @@ export async function lerSituacaoDasUnidades(db: Database): Promise<SituacaoDasU
  * data criaria planilha para uma quinzena que nenhuma tela mostra — dado que
  * ninguém encontra depois, e que ninguém sabe que existe.
  */
+/**
+ * O lastro de **uma** vigência — o número que o Fechamento precisa citar.
+ *
+ * A tela da competência precisa poder dizer "o devido saiu do cadastro digitado
+ * e nenhuma das onze linhas verificáveis tem documento por trás". Sem isto, ela
+ * só sabia se o contrato respondeu — e a diferença entre um devido conferido
+ * pelo acervo e um devido só digitado ficava invisível justamente onde ela
+ * importa, que é na hora de assinar o fechamento.
+ *
+ * **Não bloqueia nada, e não pode passar a bloquear.** É uma medida de
+ * auditabilidade que viaja ao lado do contrato; o contrato sai do que foi
+ * digitado, com ou sem ela. Ver `lastro-e-devido.test.ts`.
+ *
+ * Monta pelo mesmo caminho da lista e da tela do cadastro — `montarDaVigencia`,
+ * `medirSituacao` —, e é essa a razão de existir aqui em vez de no Fechamento:
+ * um segundo cálculo de lastro discordaria do primeiro no dia em que uma linha
+ * mudasse de origem.
+ */
+export async function lerSituacaoDaVigencia(
+  db: Database,
+  pedido: { scopeHash: string; canal: string | null; effectiveDate: string },
+): Promise<SituacaoDoCadastro> {
+  const { montado } = await montarDaVigencia(db, pedido.effectiveDate, {
+    scopeHash: pedido.scopeHash,
+    channel: pedido.canal,
+  });
+  return medirSituacao(montado);
+}
+
 export async function lerPlanilhaDaUnidade(
   db: Database,
   pedido?: RequestedContext & { period?: string },

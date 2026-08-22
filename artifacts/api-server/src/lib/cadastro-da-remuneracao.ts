@@ -18,6 +18,7 @@ import {
   CHAVES_DO_CONTRATO,
   contratoDaPlanilha,
   lerPlanilha,
+  lerSituacaoDaVigencia,
   vigenciaQueResponde,
 } from "@workspace/remuneracao";
 
@@ -583,10 +584,30 @@ export function cadastroDaRemuneracao(
         descartada aqui: quem tinha vinte das vinte e duas linhas digitadas lia
         "nenhum cadastro respondeu" e não tinha como saber quais duas.
       */
+      /*
+        O lastro entra aqui, e não decide nada aqui.
+
+        É a medida de auditabilidade da vigência que respondeu — quantas das
+        onze linhas verificáveis o acervo sustenta —, e ela viaja junto com o
+        contrato para a tela poder dizer de onde o devido veio. O contrato já
+        está montado a esta altura, e nenhuma linha abaixo o consulta: se um dia
+        alguém fizer o `if` que falta aqui, `lastro-e-devido.test.ts` cai.
+      */
+      const lastro = await lerSituacaoDaVigencia(db, {
+        scopeHash: unidade.scopeHash,
+        canal: unidade.canal,
+        effectiveDate: escolhida.vigenteDe,
+      });
+
       const portaDoContrato = {
         faltam,
         assumidasComoZero,
         lidas: CHAVES_DO_CONTRATO.length,
+        lastro: {
+          comLastro: lastro.comLastro,
+          verificaveis: lastro.verificaveis,
+          informadas: lastro.informadas,
+        },
       };
       if (!contrato) {
         return {
