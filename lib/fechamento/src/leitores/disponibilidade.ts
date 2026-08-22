@@ -261,16 +261,42 @@ function lerLinha(
  * isso que {@link DescontoDeDisponibilidadeDoMes} carrega os dias que entraram
  * na soma: a competência seguinte confere ou derruba sem ninguém reabrir nada.
  */
+/**
+ * Uma linha `(aba, dia)` que chegou mais de uma vez com **valores diferentes**.
+ *
+ * Não é o caso normal de repetição. Duas remessas do mesmo relatório trazem a
+ * mesma linha com os mesmos números, e aí repetir é inofensivo: conta uma vez e
+ * pronto. Isto aqui é o outro caso — duas linhas com a mesma identidade e
+ * dinheiro diferente, que é ou duas emissões discordantes do 03.08.18, ou duas
+ * filiais que o relatório abre e esta leitura não distingue.
+ *
+ * Nos dois casos escolher uma é sortear, e é isso que esta lista existe para
+ * impedir: quem recebe um conflito não recebe um total.
+ */
+export interface LinhaDeDisponibilidadeEmConflito {
+  /** `FF` ou `Van` — a aba do relatório. */
+  aba: string;
+  dia: Dia;
+  /** Os `Desconto Total` discordantes, na ordem em que chegaram. */
+  valores: number[];
+}
+
 export interface DescontoDeDisponibilidadeDoMes {
-  /** O `Desconto Total` somado de todos os dias do mês, `FF` + `Van`. */
-  total: number;
-  /** As quatro parcelas, como o 03.08.18 as abre. */
+  /**
+   * O `Desconto Total` somado de todos os dias do mês, `FF` + `Van`.
+   *
+   * `null` quando há conflito — ver {@link LinhaDeDisponibilidadeEmConflito}.
+   * Zero é um total **medido**: o canal veio e não tem desconto. Nulo é a
+   * recusa de somar o que não se sabe.
+   */
+  total: number | null;
+  /** As quatro parcelas, como o 03.08.18 as abre. `null` com conflito. */
   parcelas: {
     custoFixo: number;
     equipe: number;
     indiretos: number;
     fatorAjudante: number;
-  };
+  } | null;
   /**
    * `custoFixo + equipe + indiretos` — o que o 03.08.20 publica numa linha só.
    *
@@ -278,11 +304,17 @@ export interface DescontoDeDisponibilidadeDoMes {
    * forma em que o demonstrativo escreve o número: sem ela a conferência
    * contra o 03.08.20 seria uma soma refeita à mão a cada leitura.
    */
-  agrupadoComoNoDemonstrativo: number;
-  /** Quantos dias entraram na soma — o denominador que torna o total conferível. */
+  agrupadoComoNoDemonstrativo: number | null;
+  /**
+   * Quantos dias distintos entraram — o denominador que torna o total
+   * conferível. Continua contando com conflito: quais dias chegaram é fato,
+   * ainda que quanto eles valem esteja em disputa.
+   */
   dias: number;
   /** O primeiro e o último dia somados, para a tela dizer o alcance. */
   periodo: { de: Dia; ate: Dia } | null;
+  /** Vazio no caso normal. Ver {@link LinhaDeDisponibilidadeEmConflito}. */
+  conflitos: LinhaDeDisponibilidadeEmConflito[];
 }
 
 /**
@@ -292,27 +324,89 @@ export interface DescontoDeDisponibilidadeDoMes {
  * só os do canal pedido. O corte por canal é o mesmo do resto do módulo: o
  * relatório traz Rota e AS na mesma lista, e o painel é de um canal só.
  *
- * **Dia repetido entra uma vez.** As duas remessas do mês se sobrepõem na
- * prática — a exportação da 2ª quinzena vem com o mês inteiro, e a da 1ª também
- * traz dias da 2ª em algumas exportações (o conjunto real de julho/2026 tem
- * exatamente isso na aba `Van`). Somar as duas listas cruas contaria os dias
- * comuns duas vezes e dobraria o desconto. A chave da desduplicação é
- * `(aba, dia)`, que é o grão em que o relatório escreve uma linha: `FF` e `Van`
- * do mesmo dia são dois descontos legítimos, e não uma repetição.
+ * **Dia repetido entra uma vez, e dia repetido *divergente* não entra.** A
+ * chave é `(aba, dia)`, que é o grão em que o relatório escreve uma linha:
+ * `FF` e `Van` do mesmo dia são dois descontos legítimos, e não uma repetição.
+ * Quando a mesma chave chega duas vezes com os **mesmos** números, a segunda é
+ * descartada em silêncio — é a mesma linha do mesmo relatório, e somá-la
+ * dobraria o desconto. Quando chega com números **diferentes**, esta função
+ * para de somar e devolve a chave em `conflitos`.
+ *
+ * **Por que a divergência não é resolvida aqui.** Ela costumava ser: quem
+ * chegasse primeiro ganhava. Isso fazia o total do mês depender da ordem em que
+ * o banco devolveu as linhas — e a ordem de um `SELECT` sem `ORDER BY` não é
+ * uma regra de negócio. Escolher a maior, a menor ou a mais recente seria
+ * inventar um critério que ninguém combinou. A resposta honesta é dizer qual
+ * linha está em disputa e não entregar total nenhum, que é o que a tela precisa
+ * para pedir a coisa certa a quem opera.
+ *
+ * **Esta é a rede, e não a defesa principal.** Depois que `disponibilidadeDoMes`
+ * passou a ler cada competência no seu próprio período, a sobreposição entre as
+ * duas remessas do mês deixou de existir na origem. O que sobra para esta
+ * função pegar é o que atravessa aquele corte: duas emissões dentro da mesma
+ * competência, ou um relatório com mais de uma filial.
  */
 export function descontoDeDisponibilidadeDoMes(
   dias: DiaDeDisponibilidade[],
   canal: Canal,
 ): DescontoDeDisponibilidadeDoMes {
+  /* As cinco parcelas que a soma lê — a identidade de dinheiro de uma linha. */
+  const dinheiro = (d: DiaDeDisponibilidade) =>
+    [
+      d.descontos.custoFixo,
+      d.descontos.equipe,
+      d.descontos.indiretos,
+      d.descontos.fatorAjudante,
+      d.descontos.total,
+    ].join("|");
+
   const vistos = new Map<string, DiaDeDisponibilidade>();
+  const emConflito = new Map<string, LinhaDeDisponibilidadeEmConflito>();
   for (const d of dias) {
     if (d.canal !== canal) continue;
     /* Ver o bloco acima: `(aba, dia)` é o grão de uma linha do relatório. */
     const chave = `${d.aba} ${d.dia}`;
-    if (!vistos.has(chave)) vistos.set(chave, d);
+    const antes = vistos.get(chave);
+    if (!antes) {
+      vistos.set(chave, d);
+      continue;
+    }
+    /* Repetição idêntica é a mesma linha duas vezes: passa em silêncio. */
+    if (dinheiro(antes) === dinheiro(d)) continue;
+    const registro = emConflito.get(chave) ?? {
+      aba: d.aba,
+      dia: d.dia,
+      valores: [antes.descontos.total],
+    };
+    registro.valores.push(d.descontos.total);
+    emConflito.set(chave, registro);
   }
 
   const escolhidos = [...vistos.values()];
+  const ordenados = [...new Set(escolhidos.map((d) => d.dia))].sort();
+  const periodo =
+    ordenados.length === 0
+      ? null
+      : { de: ordenados[0]!, ate: ordenados[ordenados.length - 1]! };
+
+  /*
+    Com conflito não há soma. Os dias e o período ficam porque continuam
+    verdadeiros — quais dias chegaram é fato, quanto eles valem é o que está em
+    disputa —, e é com eles que a tela consegue dizer *onde* está a disputa.
+  */
+  if (emConflito.size > 0) {
+    return {
+      total: null,
+      parcelas: null,
+      agrupadoComoNoDemonstrativo: null,
+      dias: ordenados.length,
+      periodo,
+      conflitos: [...emConflito.values()].sort((a, b) =>
+        a.dia === b.dia ? a.aba.localeCompare(b.aba) : a.dia.localeCompare(b.dia),
+      ),
+    };
+  }
+
   const parcelas = { custoFixo: 0, equipe: 0, indiretos: 0, fatorAjudante: 0 };
   let total = 0;
   for (const d of escolhidos) {
@@ -323,7 +417,6 @@ export function descontoDeDisponibilidadeDoMes(
     total += d.descontos.total;
   }
 
-  const ordenados = [...new Set(escolhidos.map((d) => d.dia))].sort();
   return {
     total: centavos(total),
     parcelas: {
@@ -336,9 +429,7 @@ export function descontoDeDisponibilidadeDoMes(
       parcelas.custoFixo + parcelas.equipe + parcelas.indiretos,
     ),
     dias: ordenados.length,
-    periodo:
-      ordenados.length === 0
-        ? null
-        : { de: ordenados[0]!, ate: ordenados[ordenados.length - 1]! },
+    periodo,
+    conflitos: [],
   };
 }

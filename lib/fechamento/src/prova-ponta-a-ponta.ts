@@ -228,24 +228,36 @@ function basesDosRelatorios(
 }
 
 /**
- * O 03.08.18 do mês, somado das remessas das duas quinzenas.
+ * O 03.08.18 do mês, somado das remessas das duas quinzenas — **cada uma
+ * cortada pelo seu período**.
  *
- * **Somar as duas e desduplicar é o que torna o resultado indiferente ao
- * envio.** As exportações reais se sobrepõem: a da 2ª quinzena costuma vir com
- * o mês inteiro, e a da 1ª às vezes traz dias da 2ª numa aba e não na outra —
- * o conjunto real de julho/2026 tem exatamente isso. Somar as listas cruas
- * contaria os dias comuns duas vezes; `descontoDeDisponibilidadeDoMes`
- * desduplica por `(aba, dia)`, que é o grão de uma linha do relatório.
+ * É o mesmo corte que `disponibilidadeDoMes` faz no banco, e existe aqui pelo
+ * mesmo motivo: a remessa da 2ª quinzena costuma vir com o mês inteiro, e a da
+ * 1ª às vezes também. Somando as duas cruas, os dias comuns entrariam duas
+ * vezes; deixando a desduplicação resolver, o total passaria a depender de qual
+ * remessa foi lida primeiro. Cortando cada uma no período dela, a sobreposição
+ * não chega a existir: a 1ª contribui com os dias 1 a 15 do que recebeu, a 2ª
+ * com os dias 16 ao fim.
+ *
+ * O gate roda por aqui, e é por isso que o corte tem de estar nos dois lugares:
+ * uma prova que lê diferente do produto não prova o produto.
  *
  * `null` quando nenhuma das duas remessas trouxe o arquivo.
  */
 function disponibilidadeDoMesDaProva(
   relatorios: RelatoriosDaQuinzena[],
   canal: Canal,
+  ano: number,
+  mes: number,
 ): DescontoDeDisponibilidadeDoMes | null {
   const remessas = relatorios.filter((r) => r.disponibilidade);
   if (remessas.length === 0) return null;
-  const dias = remessas.flatMap((r) => lerDisponibilidade(r.disponibilidade!).linhas);
+  const dias = remessas.flatMap((r) => {
+    const periodo = competencia(ano, mes, r.quinzena);
+    return lerDisponibilidade(r.disponibilidade!).linhas.filter((l) =>
+      dentroDaCompetencia(periodo, l.dia),
+    );
+  });
   return descontoDeDisponibilidadeDoMes(dias, canal);
 }
 
@@ -312,7 +324,12 @@ export function montarProvaPontaAPonta(entrada: EntradaDaProva): QuinzenaDaPlani
     A disponibilidade é do mês, e por isso é somada uma vez, das duas quinzenas,
     antes do laço. Ver `disponibilidadeDoMesDaProva`.
   */
-  const doMes = disponibilidadeDoMesDaProva(entrada.relatorios, entrada.canal);
+  const doMes = disponibilidadeDoMesDaProva(
+    entrada.relatorios,
+    entrada.canal,
+    entrada.ano,
+    entrada.mes,
+  );
 
   return entrada.gabarito.map((doGabarito): QuinzenaDaPlanilha => {
     const q = doGabarito.quinzena;

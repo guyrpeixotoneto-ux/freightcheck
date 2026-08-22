@@ -105,8 +105,8 @@ describe("o desconto de disponibilidade é mensal", () => {
 
   it("o fator ajudante fica à parte, como no demonstrativo", () => {
     const doMes = descontoDeDisponibilidadeDoMes(mesInteiro(), "ROTA");
-    expect(doMes.parcelas.fatorAjudante).toBe(320.85);
-    expect(doMes.parcelas.fatorAjudante).toBe(DEMONSTRATIVO_2A.fatorAjudante);
+    expect(doMes.parcelas!.fatorAjudante).toBe(320.85);
+    expect(doMes.parcelas!.fatorAjudante).toBe(DEMONSTRATIVO_2A.fatorAjudante);
   });
 
   /*
@@ -128,7 +128,7 @@ describe("o desconto de disponibilidade é mensal", () => {
     expect(soPrimeira.total).not.toBe(DEMONSTRATIVO_2A.total);
     expect(soSegunda.total).not.toBe(DEMONSTRATIVO_2A.total);
     /* E as duas somadas são o mês — a identidade que fecha a prova. */
-    expect(soPrimeira.total + soSegunda.total).toBe(DEMONSTRATIVO_2A.total);
+    expect(soPrimeira.total! + soSegunda.total!).toBe(DEMONSTRATIVO_2A.total);
   });
 
   /*
@@ -137,7 +137,7 @@ describe("o desconto de disponibilidade é mensal", () => {
   */
   it("a razão que parecia discrepância é a razão entre o mês e um quarto dele", () => {
     const soSegundaFF = descontoDeDisponibilidadeDoMes([dia("FF", "2026-07-20", REAL.FF[2])], "ROTA");
-    const razao = DEMONSTRATIVO_2A.total / soSegundaFF.total;
+    const razao = DEMONSTRATIVO_2A.total / soSegundaFF.total!;
     expect(razao).toBeCloseTo(3.152, 3);
   });
 });
