@@ -120,6 +120,20 @@ export class RecusaDeFechamento extends Error {
 export interface CompetenciaRegistrada extends Competencia {
   id: string;
   unidade: { codigo: string; nome: string | null };
+  /**
+   * A unidade canônica desta competência, quando ela já tem uma.
+   *
+   * **É o que permite perguntar ao cadastro sem comparar texto.** As duas
+   * pontas apontando para o mesmo `unidade.id` é o único casamento que não pode
+   * errar; sem ele resta o plano B das competências históricas, que compara
+   * códigos escritos à mão. Quem lê a competência e vai resolver o contrato
+   * precisa dela — sem isto, duas telas perguntando pelo mesmo contrato podem
+   * receber respostas diferentes, uma pela identidade e outra pelo texto.
+   *
+   * `null` nas competências abertas antes de a identidade existir, e nas que
+   * ninguém associou. Ver `associarUnidadeDaCompetencia`.
+   */
+  unidadeId: string | null;
   transportadora: { codigo: string; nome: string | null };
   /**
    * `EMPURRADA`, `ROTA` — a operação que este fechamento fecha.
@@ -433,6 +447,7 @@ function comoRegistrada(linha: typeof fechamentoCompetenciaTable.$inferSelect): 
     ...base,
     id: linha.id,
     unidade: { codigo: linha.unidadeCodigo, nome: linha.unidadeNome },
+    unidadeId: linha.unidadeId ?? null,
     transportadora: { codigo: linha.transportadoraCodigo, nome: linha.transportadoraNome },
     tipoDeOperacao: linha.tipoDeOperacao,
     estado: linha.estado,

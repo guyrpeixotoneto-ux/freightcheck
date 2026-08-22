@@ -248,38 +248,117 @@ export function fontesDaQuinzena(
   });
 }
 
-/** Como cada fonte se chama na tela, e o que ela responde. */
-export const DESCRICAO_DA_FONTE: Record<TipoDeFonte, { rotina: string; nome: string; papel: string }> = {
+/**
+ * De que lado da conferência cada fonte está.
+ *
+ * **A conferência do fechamento é de dois lados, e eles saem de arquivos
+ * diferentes.** É isso que lhe dá força: o devido é derivado do contrato e da
+ * operação; o demonstrado é lido do 03.08.20. Dois documentos que ninguém
+ * escreveu olhando o outro chegando ao mesmo centavo é uma afirmação sobre a
+ * operação, e não sobre a leitura.
+ *
+ * **Por que três valores e não dois.** Duas fontes não estão em nenhum dos
+ * lados, e forçá-las para dentro de um deles diria que elas alimentam uma
+ * comparação que elas não alimentam: o 03.08.15 é o que foi **emitido em CT-e**
+ * — um terceiro eixo, que aparece na linha própria do fecho — e o 03.02.59.02
+ * traz os ajustes que atravessam a quinzena (`NF-e sem CT-e na Quinzena` e
+ * `Desconto Saldo Complementar Negativo`). Elas conferem o faturamento, não a
+ * remuneração.
+ *
+ * Mora aqui, e não na tela, porque é afirmação sobre a conta: quem muda o que
+ * uma fonte alimenta muda este campo no mesmo lugar.
+ */
+export type LadoDaConferencia =
+  /** Alimenta o **devido** — junto do contrato, que não é arquivo. */
+  | "DEVIDO"
+  /** É o **demonstrado**: o que a Ambev declara que vai pagar. */
+  | "DEMONSTRADO"
+  /** Nem um nem outro: o que foi faturado, e o fecho que atravessa a quinzena. */
+  | "FATURAMENTO";
+
+/**
+ * Os três lados, na ordem em que a tela os empilha, com o texto que os explica.
+ *
+ * **O contrato aparece no primeiro, e ele não é arquivo.** É a razão de esta
+ * lista existir: uma competência com os três relatórios do devido importados e
+ * sem a aba do cadastro digitada não produz devido nenhum, e a tela de
+ * importação não tinha onde dizer isso — mostrava três vistos verdes e um
+ * painel vazio noutra tela. Ver `precisaDeContrato`.
+ */
+export const LADOS_DA_CONFERENCIA: {
+  lado: LadoDaConferencia;
+  titulo: string;
+  explica: string;
+  /** O grupo depende também do contrato, que não chega por importação. */
+  precisaDeContrato: boolean;
+}[] = [
+  {
+    lado: "DEVIDO",
+    titulo: "O que o contrato manda pagar",
+    explica:
+      "O contrato diz quanto vale cada coisa e estes relatórios dizem quantas aconteceram. " +
+      "O devido é a multiplicação dos dois — sem o cadastro da quinzena, nenhum deles produz número.",
+    precisaDeContrato: true,
+  },
+  {
+    lado: "DEMONSTRADO",
+    titulo: "O que dizem que pagaram",
+    explica:
+      "O outro lado da conferência, num arquivo só. É contra ele que o devido é confrontado, " +
+      "e é por virem de fontes independentes que baterem significa alguma coisa.",
+    precisaDeContrato: false,
+  },
+  {
+    lado: "FATURAMENTO",
+    titulo: "O faturamento e o fecho",
+    explica:
+      "Não entram na comparação entre devido e demonstrado: dizem o que foi emitido em CT-e e " +
+      "trazem os ajustes que atravessam a quinzena.",
+    precisaDeContrato: false,
+  },
+];
+
+/** Como cada fonte se chama na tela, o que ela responde, e de que lado está. */
+export const DESCRICAO_DA_FONTE: Record<
+  TipoDeFonte,
+  { rotina: string; nome: string; papel: string; lado: LadoDaConferencia }
+> = {
   OPERACAO: {
     rotina: "2Art",
     nome: "Relatório operacional",
     papel: "Uma linha por viagem: é daqui que sai o frete variável da quinzena.",
+    lado: "DEVIDO",
   },
   CTE: {
     rotina: "03.08.15",
     nome: "CT-es por verba",
     papel: "Tudo que foi faturado, verba a verba — o que a Ambev diz ter emitido.",
+    lado: "FATURAMENTO",
   },
   PAGAMENTO: {
     rotina: "03.08.20",
     nome: "Demonstrativo de pagamento",
     papel:
       "O que a Ambev diz que vai pagar, verba a verba — a única fonte que abre a parcela fixa.",
+    lado: "DEMONSTRADO",
   },
   DISPONIBILIDADE: {
     rotina: "03.08.18",
     nome: "Disponibilidade de frota",
     papel: "Frota contratada contra a realizada: é daqui que saem os descontos no fixo.",
+    lado: "DEVIDO",
   },
   REQUISICOES: {
     rotina: "03.08.12.09",
     nome: "Requisições de despesa",
     papel: "As despesas extras aprovadas — o complementar que não nasce do cálculo automático.",
+    lado: "DEVIDO",
   },
   CONCILIACAO: {
     rotina: "03.02.59.02",
     nome: "Conciliação CT-e × SRTrans",
     papel: "O fecho: emitido contra calculado, com os saldos que atravessam a quinzena.",
+    lado: "FATURAMENTO",
   },
 };
 

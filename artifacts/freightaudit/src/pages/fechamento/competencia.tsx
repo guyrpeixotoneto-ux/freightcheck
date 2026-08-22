@@ -43,9 +43,11 @@ import {
   enviarDocumento,
   fontesDaCompetencia,
   fontesParaEnviar,
+  type ContratoDaCompetencia,
   lerCompetencia,
   lerDiario,
   listarFontes,
+  listarLadosDaConferencia,
   reimportarDocumento,
   EXPLICACAO_DA_DIVERGENCIA,
   NOME_DO_ESTADO,
@@ -107,6 +109,15 @@ export default function CompetenciaAberta({ id }: { id: string }) {
     queryFn: () => lerCompetencia(id),
   });
   const fontes = useQuery({ queryKey: ["fechamento", "fontes"], queryFn: listarFontes });
+  /*
+    O agrupamento é catálogo, como as fontes: muda quando o domínio muda, não
+    quando a competência muda. Fica na mesma chave estável do react-query e é
+    buscado uma vez por sessão.
+  */
+  const lados = useQuery({
+    queryKey: ["fechamento", "lados"],
+    queryFn: listarLadosDaConferencia,
+  });
   /*
     O diário continua sendo consulta própria, e não parte de `lerCompetencia`:
     ele muda por outro motivo (o 2Art entrou) e é lido por outra tela (a do dia).
@@ -358,26 +369,60 @@ export default function CompetenciaAberta({ id }: { id: string }) {
                 </AlertDescription>
               </Alert>
             )}
-            <ul className="divide-y">
-              {catalogo.map((fonte) => (
-                <LinhaDeFonte
-                  key={fonte.tipo}
-                  fonte={fonte}
-                  documento={vigentes.get(fonte.tipo)}
-                  competenciaId={id}
-                  semVerba={estadoDaFonte(vigentes.get(fonte.tipo)) === "SEM_VERBA"}
-                  foraDaQuinzena={
-                    !fonte.quinzenas.includes(competencia.quinzena) &&
-                    !fonte.quinzenasOpcionais.includes(competencia.quinzena)
-                  }
-                  opcionalNaQuinzena={fonte.quinzenasOpcionais.includes(competencia.quinzena)}
-                  quinzena={competencia.quinzena}
-                  enviando={enviar.isPending && enviar.variables?.tipo === fonte.tipo}
-                  travada={encerrada}
-                  onArquivo={(arquivo) => enviar.mutate({ tipo: fonte.tipo, arquivo })}
-                />
-              ))}
-            </ul>
+            {/*
+              Os relatórios saem agrupados **pelo lado da conferência que eles
+              alimentam**, e não numa lista só.
+
+              O fechamento confere dois lados que saem de arquivos diferentes —
+              o devido, derivado do contrato e da operação, contra o demonstrado
+              do 03.08.20 —, e uma lista plana escondia isso: seis linhas iguais
+              não dizem que faltar o 2Art e faltar o 03.08.20 quebram coisas
+              opostas. O agrupamento vem do domínio (`LADOS_DA_CONFERENCIA`),
+              porque é afirmação sobre a conta, não sobre o layout.
+
+              E é no primeiro grupo que entra a peça que não é arquivo: o
+              contrato. Era ela que faltava numa competência real com os três
+              relatórios do devido importados, três vistos verdes, e nenhum
+              devido saindo do outro lado do produto.
+            */}
+            {(lados.data ?? []).map(({ lado, titulo, explica, precisaDeContrato }) => {
+              const doLado = catalogo.filter((f) => f.lado === lado);
+              if (doLado.length === 0) return null;
+              return (
+                <section key={lado} className="space-y-1">
+                  <div className="pt-2">
+                    <h3 className="text-sm font-semibold">{titulo}</h3>
+                    <p className="text-xs text-muted-foreground mt-0.5 max-w-2xl">{explica}</p>
+                  </div>
+                  <ul className="divide-y">
+                    {doLado.map((fonte) => (
+                      <LinhaDeFonte
+                        key={fonte.tipo}
+                        fonte={fonte}
+                        documento={vigentes.get(fonte.tipo)}
+                        competenciaId={id}
+                        semVerba={estadoDaFonte(vigentes.get(fonte.tipo)) === "SEM_VERBA"}
+                        foraDaQuinzena={
+                          !fonte.quinzenas.includes(competencia.quinzena) &&
+                          !fonte.quinzenasOpcionais.includes(competencia.quinzena)
+                        }
+                        opcionalNaQuinzena={fonte.quinzenasOpcionais.includes(competencia.quinzena)}
+                        quinzena={competencia.quinzena}
+                        enviando={enviar.isPending && enviar.variables?.tipo === fonte.tipo}
+                        travada={encerrada}
+                        onArquivo={(arquivo) => enviar.mutate({ tipo: fonte.tipo, arquivo })}
+                      />
+                    ))}
+                    {precisaDeContrato && (
+                      <LinhaDoContrato
+                        contrato={dados.data?.contrato ?? null}
+                        quinzena={competencia.quinzena}
+                      />
+                    )}
+                  </ul>
+                </section>
+              );
+            })}
           </CardContent>
         </Card>
 
@@ -625,6 +670,82 @@ export default function CompetenciaAberta({ id }: { id: string }) {
         )}
       </div>
     </Layout>
+  );
+}
+
+/**
+ * O CONTRATO DA QUINZENA — a linha do grupo do devido que não é arquivo.
+ *
+ * **Por que ela existe.** O devido é o contrato multiplicado pela operação: o
+ * cadastro diz quanto vale cada coisa, os relatórios dizem quantas
+ * aconteceram. Faltando o cadastro, os três relatórios do grupo podem estar
+ * todos importados e nenhuma linha do painel sai com número — foi o que
+ * aconteceu numa competência real, com três vistos verdes aqui e uma coluna
+ * inteira em branco no Resumo, sem nada ligando as duas telas.
+ *
+ * **Ela não tem casinha de envio, e isso é o ponto.** O contrato é digitado em
+ * Remuneração, não importado aqui. O que esta linha faz é dizer que ele falta,
+ * por quê, e para onde ir — o mesmo diagnóstico que o Resumo e a Conciliação
+ * mostram, lido do mesmo campo.
+ *
+ * **Sem tipo de operação não há o que afirmar.** A competência aberta antes do
+ * campo existir não tem a quem perguntar pelo contrato, e a linha some: um
+ * alerta que não sabe do que fala é pior que nenhum.
+ */
+function LinhaDoContrato({
+  contrato,
+  quinzena,
+}: {
+  contrato: ContratoDaCompetencia | null;
+  quinzena: 1 | 2;
+}) {
+  if (!contrato) return null;
+  const respondeu = contrato.estado === "RESPONDEU";
+
+  return (
+    <li className="py-3 flex items-start justify-between gap-4">
+      <div className="min-w-0">
+        <div className="flex items-center gap-2">
+          {respondeu ? (
+            <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+          ) : (
+            <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+          )}
+          <span className="font-medium text-sm">Contrato</span>
+          <span className="text-sm text-muted-foreground">Cadastro da {quinzena}ª quinzena</span>
+          <span className="rounded-full border border-border px-2 py-0.5 text-[0.6875rem] uppercase tracking-wide text-muted-foreground">
+            não é importado
+          </span>
+        </div>
+        <p className="text-sm text-muted-foreground mt-0.5 ml-6">
+          {respondeu
+            ? "O contrato desta quinzena respondeu: o devido sai dele multiplicado pela operação."
+            : "Sem contrato não sai devido: as linhas desta quinzena ficam em branco no Resumo — e branco ali é ainda não dá para saber, não é zero."}
+        </p>
+        {/*
+          O problema e o conserto vêm escritos do domínio (`comoDestravar`), e
+          não montados aqui: qual é o remédio de "faltam três linhas
+          obrigatórias" é conhecimento de negócio, e uma segunda versão dele
+          neste arquivo seria a que ninguém testa.
+        */}
+        {contrato.destrava && (
+          <div className="text-xs text-muted-foreground mt-1 ml-6 space-y-0.5">
+            <p>{contrato.destrava.problema}</p>
+            <p>
+              <span className="font-medium text-foreground">O que destrava: </span>
+              {contrato.destrava.conserto}
+            </p>
+          </div>
+        )}
+      </div>
+      <div className="shrink-0">
+        {!respondeu && (
+          <Button asChild variant="outline" size="sm">
+            <Link href="/fechamento/remuneracao">Abrir Remuneração</Link>
+          </Button>
+        )}
+      </div>
+    </li>
   );
 }
 
