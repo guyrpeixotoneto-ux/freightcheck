@@ -1095,6 +1095,12 @@ export function quadroDaEquipeDeEntrega(
     };
   }
 
+  /* Ver a nota em `outrosCustos`: o 03.08.12.09 vem sem imposto, a célula não. */
+  const valorDaEquipe =
+    base.fonte === "REQUISICOES"
+      ? bruto(base.medida.valor, p)
+      : base.valor;
+
   return {
     quadro: "EQUIPE_DE_ENTREGA",
     titulo: "Remuneração variável — equipe de entrega",
@@ -1104,11 +1110,13 @@ export function quadroDaEquipeDeEntrega(
         "equipe_de_entrega",
         "REMUNERAÇÃO VARIÁVEL - EQUIPE DE ENTREGA",
         "PARCELA",
-        bruto(valorDaEquipeDeEntrega(base), p),
-        `${memoriaDaEquipeDeEntrega(base)}, brutado pelo fator de imposto`,
+        valorDaEquipe,
+        base.fonte === "REQUISICOES"
+          ? `${memoriaDaEquipeDeEntrega(base)}, brutado pelo fator de imposto`
+          : memoriaDaEquipeDeEntrega(base),
       ),
     ],
-    total: centavos(bruto(valorDaEquipeDeEntrega(base), p)),
+    total: centavos(valorDaEquipe),
     reservado: null,
   };
 }
@@ -1221,15 +1229,35 @@ export function montarMapaDaQuinzena(entrada: {
   ];
 
   /* --- Quadro 3: outros custos ------------------------------------------ */
+  /*
+    **As duas fontes chegam em moedas diferentes, e só uma precisa ser brutada.**
+    O 03.08.12.09 traz o valor **sem imposto** — é a moeda em que o SRTrans
+    trabalha, a mesma das bases de desconto. A célula `Outros Custos!F4` da
+    planilha já vem **brutada**, porque é o que ela imprime.
+
+    Isso passou despercebido enquanto a reconciliação era a única prova: ela
+    alimenta a linha pela célula da planilha, que já está na moeda final, e
+    devolver o número intacto batia ao centavo. Pelo caminho de importação a
+    linha saía sem imposto — R$ 80.247,66 onde a planilha imprime
+    R$ 109.695,38 —, e o `TOTAL GERAL UNIDADE` inteiro saía menor.
+  */
+  const outrosCustos =
+    bases.outrosCustos === null
+      ? null
+      : bases.outrosCustos.fonte === "REQUISICOES"
+        ? bruto(bases.outrosCustos.medida.valor, p)
+        : bases.outrosCustos.valor;
   const outros: LinhaDoMapa[] = [
     linha(
       "outros_custos",
       "TOTAL REMUNERAÇÃO ROTA OUTROS CUSTOS",
       "PARCELA",
-      bases.outrosCustos === null ? null : valorDeOutrosCustos(bases.outrosCustos),
+      outrosCustos,
       bases.outrosCustos === null
         ? "sem 03.08.12.09 na quinzena — os outros custos saem dele"
-        : memoriaDeOutrosCustos(bases.outrosCustos),
+        : bases.outrosCustos.fonte === "REQUISICOES"
+          ? `${memoriaDeOutrosCustos(bases.outrosCustos)}, brutado pelo fator de imposto`
+          : memoriaDeOutrosCustos(bases.outrosCustos),
       bases.outrosCustos === null ? "as requisições de despesa (03.08.12.09)" : null,
     ),
   ];

@@ -303,6 +303,38 @@ export const DIVERGENCIAS_CONHECIDAS: Record<string, string> = {
     "Herda as duas diferenças do variável, mais o `Custo Variável (Recarga e Noturna)`: " +
     "a fórmula diária dele aponta para a linha 1.048.619, que não existe, e o valor " +
     "exibido é cache. Na 2ª quinzena o cache coincide com a soma correta; na 1ª, não.",
+  /*
+    As duas linhas abaixo são **a mesma verba** vista dos dois lados, e por isso
+    as diferenças delas são iguais em módulo e opostas em sinal.
+  */
+  desconto_disponibilidade:
+    "Na 1ª quinzena a planilha digita R$ 11.649,87 na linha da disponibilidade, e esse " +
+    "número é o `Desconto Frete mínimo` do 03.08.20 — não uma disponibilidade. O 03.08.20 " +
+    "daquela quinzena não traz bloco `DESCONTO DISPONIBILIDADE` nenhum, e o desconto do " +
+    "03.08.18 é mensal e entra no fechamento da 2ª. A planilha ainda bruta essa linha pelo " +
+    "fator (11.649,87 × 1,365455 = 15.907,37) e não bruta o complementar, o que acrescenta " +
+    "R$ 4.257,50 ao erro. O sistema põe o frete mínimo no complementar negativo, que é onde " +
+    "o relatório o declara, e a 1ª quinzena vale zero de disponibilidade por regra.",
+  indisponibilidade_variavel:
+    "A mesma linha da disponibilidade, repetida pela planilha no quadro do variável — a " +
+    "diferença é a mesma, pela mesma causa.",
+  outros_custos:
+    "**Reagrupamento, não diferença de dinheiro.** O 03.08.20 e a planilha lançam a " +
+    "`VBZ 06` (`Rota - Rem. Variável Equipe Entrega`) **dentro** do bloco de outros " +
+    "custos: os R$ 262.282,80 de `Total Outros Custos` são 74.247,66 + 6.000,00 + " +
+    "182.035,14, e `Outros Custos!F4` bruta esse total inteiro. O sistema põe a `VBZ 06` " +
+    "no quadro próprio dela — que é o que a planilha reserva em `AI34` e nunca preenche " +
+    "—, e por isso esta linha sai menor pelo valor exato da equipe. A soma das duas " +
+    "reproduz o número único da planilha ao centavo: 109.695,38 + 248.834,84 = " +
+    "358.530,22. Nenhum centavo entra ou sai; o que muda é em que quadro ele aparece.",
+  total_outros_custos:
+    "Herda o reagrupamento da `VBZ 06` — ver `outros_custos`.",
+  desconto_complementar_negativo:
+    "O outro lado da mesma verba: a planilha põe o frete mínimo da 1ª quinzena na linha da " +
+    "disponibilidade e deixa o complementar em zero; na 2ª põe cada um no seu lugar. São " +
+    "duas regras para o mesmo desconto em duas metades do mesmo mês. O sistema adota uma " +
+    "só — o frete mínimo é o complementar negativo, nas duas —, e a diferença de " +
+    "R$ 11.649,87 é exatamente a base que a planilha lançou na linha errada.",
 };
 
 /**

@@ -54,8 +54,13 @@ const viagem = (p: Partial<ViagemDoMapa> = {}): ViagemDoMapa => ({
 /** Um diário de um dia — a forma que o motor consome. */
 const diarioDe = (...viagens: ViagemDoMapa[]) => [{ viagens }];
 
-/** O 03.08.18 do mês não foi importado — a disponibilidade fica `null`. */
-const SEM_DISP = null;
+/**
+ * O 03.08.18 do mês não foi importado, na 2ª quinzena.
+ *
+ * A quinzena entra sempre, mesmo quando o arquivo não veio: é ela que decide se
+ * a disponibilidade desconta e se os outros custos valem zero por regra.
+ */
+const SEM_DISP = { quinzena: 2 as const, disponibilidadeDoMes: null };
 
 /**
  * O 03.08.18 do mês, somado — como `disponibilidadeDoMes` o entrega.
@@ -64,7 +69,7 @@ const SEM_DISP = null;
  */
 const doMes = (quinzena: 1 | 2, total = 91642.5, dias = 29) => ({
   quinzena,
-  doMes: {
+  disponibilidadeDoMes: {
     total,
     parcelas: { custoFixo: 21388.36, equipe: 69933.29, indiretos: 0, fatorAjudante: 320.85 },
     agrupadoComoNoDemonstrativo: 91321.65,

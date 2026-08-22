@@ -2334,12 +2334,10 @@ export async function lerResumoDoMes(
             contrato.parametros,
             contrato.custoVariavelPrevistoPor25Viagens,
           ),
-          bases: basesDaQuinzena(descontos, canal, viagens, requisicoes, (() => {
-            const doMes = dispDoMesPorCanal.get(canal) ?? null;
-            return doMes === null
-              ? null
-              : { quinzena: c.quinzena === 1 ? (1 as const) : (2 as const), doMes };
-          })()),
+          bases: basesDaQuinzena(descontos, canal, viagens, requisicoes, {
+            quinzena: c.quinzena === 1 ? 1 : 2,
+            disponibilidadeDoMes: dispDoMesPorCanal.get(canal) ?? null,
+          }),
         }),
       });
     }
@@ -2581,7 +2579,11 @@ export function basesDaQuinzena(
    *
    * `null` quando o 03.08.18 do mês não foi importado.
    */
-  disponibilidade: { quinzena: 1 | 2; doMes: DescontoDeDisponibilidadeDoMes } | null,
+  periodo: {
+    quinzena: 1 | 2;
+    /** O 03.08.18 do mês, somado. `null` quando ele não foi importado. */
+    disponibilidadeDoMes: DescontoDeDisponibilidadeDoMes | null;
+  },
 ): Parameters<typeof montarMapaDaQuinzena>[0]["bases"] {
   const soma = (tipos: string[]) => {
     if (!descontos) return null;
@@ -2603,15 +2605,15 @@ export function basesDaQuinzena(
       em `noDemonstrativo`. Ver `DECISOES_RESOLVIDAS`, em `matriz.ts`.
     */
     disponibilidade:
-      disponibilidade === null
+      periodo.disponibilidadeDoMes === null
         ? null
         : {
             fonte: "MENSAL_03_08_18",
             medida: {
-              valor: disponibilidade.quinzena === 1 ? 0 : disponibilidade.doMes.total,
-              doMes: disponibilidade.doMes.total,
-              quinzena: disponibilidade.quinzena,
-              dias: disponibilidade.doMes.dias,
+              valor: periodo.quinzena === 1 ? 0 : periodo.disponibilidadeDoMes.total,
+              doMes: periodo.disponibilidadeDoMes.total,
+              quinzena: periodo.quinzena,
+              dias: periodo.disponibilidadeDoMes.dias,
               noDemonstrativo: soma([
                 "DISPONIBILIDADE_CUSTO_FIXO",
                 "DISPONIBILIDADE_EQUIPE",
@@ -2648,8 +2650,8 @@ export function basesDaQuinzena(
       reproduz o número único que a planilha imprime — ver
       `quadroDaEquipeDeEntrega`.
     */
-    outrosCustos: outrosCustosDaQuinzena(requisicoes, canal, "SEM_A_EQUIPE"),
-    equipeDeEntrega: outrosCustosDaQuinzena(requisicoes, canal, "SO_A_EQUIPE"),
+    outrosCustos: outrosCustosDaQuinzena(requisicoes, canal, "SEM_A_EQUIPE", periodo.quinzena),
+    equipeDeEntrega: outrosCustosDaQuinzena(requisicoes, canal, "SO_A_EQUIPE", periodo.quinzena),
     /*
       Diário vazio é diário ausente, e por isso `null` e não zero: uma
       competência cujo 2Art não chegou tem exatamente a mesma lista vazia de uma
@@ -2683,7 +2685,23 @@ function outrosCustosDaQuinzena(
    * em que uma delas mudasse.
    */
   recorte: "SEM_A_EQUIPE" | "SO_A_EQUIPE",
+  quinzena: 1 | 2,
 ): BaseDeOutrosCustos | null {
+  /*
+    **A 1ª quinzena vale zero por regra, e não por ausência.** O 03.08.12.09 não
+    existe nela: `FONTES_DA_QUINZENA[1]` não o espera, e o 03.08.20 daquela
+    metade não traz bloco `OUTROS CUSTOS` nenhum — as requisições chegam com o
+    fechamento da 2ª, e é lá que elas são pagas. Duas fontes independentes
+    dizendo a mesma coisa.
+
+    `null` aqui diria "falta o arquivo" e mandaria alguém procurar o que não
+    existe; pior, derrubaria o `TOTAL GERAL UNIDADE` do mês inteiro para `null`
+    por causa de uma metade que legitimamente não tem outros custos. É a mesma
+    disciplina da disponibilidade, e pelo mesmo motivo.
+  */
+  if (quinzena === 1 && (requisicoes === null || requisicoes.length === 0)) {
+    return { fonte: "REQUISICOES", medida: { valor: 0, aprovadas: 0, recebidas: 0 } };
+  }
   if (requisicoes === null || requisicoes.length === 0) return null;
 
   const daEquipe = (r: RequisicaoDaConta) => r.vbz === VBZ_DA_EQUIPE_DE_ENTREGA;

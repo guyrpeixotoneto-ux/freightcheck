@@ -40,6 +40,26 @@ import {
  * com a causa ao lado.
  */
 
+/**
+ * De que natureza é o número de uma linha — a pergunta que vem antes de "bate?".
+ *
+ * **Existe porque "de onde vem" e "quanto vale" são conferências diferentes.**
+ * Uma linha `CAD` que discorda pede conferir o contrato; uma `DOC` que discorda
+ * pede reabrir o relatório; uma `SUB` que discorda **não tem defeito próprio** —
+ * ela herda o das parcelas, e procurar erro nela é procurar no lugar errado.
+ * Sem esta classificação as quatro conversas chegavam à tela como a mesma
+ * coluna de número.
+ */
+export type OrigemDaLinha =
+  /** Sai do cadastro contratual da unidade. Nenhum relatório a sustenta. */
+  | "CAD"
+  /** Sai de um relatório importado, quase direto — no máximo brutada. */
+  | "DOC"
+  /** O sistema a calcula a partir de documento e/ou cadastro. */
+  | "CALC"
+  /** É soma de outras linhas desta mesma matriz. */
+  | "SUB";
+
 /** O veredito de uma linha. Toda linha tem um; não existe "não avaliada". */
 export type StatusDaLinha =
   /** O motor chega ao mesmo número da planilha nas três colunas. */
@@ -72,6 +92,10 @@ export interface LinhaDaMatriz {
   /** O rótulo como a planilha o grita. */
   rotulo: string;
   quadro: string;
+  /** De que natureza é o número — ver {@link OrigemDaLinha}. */
+  origem: OrigemDaLinha;
+  /** O que precisa existir para a linha ter número. */
+  dependencias: string[];
   /** As células das três colunas: `AI7 / AJ7 / AK7`. */
   celulas: string;
   /** Que relatório ou cadastro alimenta esta linha no sistema. */
@@ -144,6 +168,15 @@ interface EntradaDoCatalogo {
   chave: string;
   rotulo: string;
   quadro: string;
+  origem: OrigemDaLinha;
+  /**
+   * O que precisa existir para a linha ter número — nomeado, não implícito.
+   *
+   * É a lista que a tela usa para dizer *o que importar* quando a linha sai
+   * vazia, e a que o gate usa para separar `DADO AUSENTE` de defeito. Vazia
+   * numa linha `SUB`, cujas dependências são as parcelas que ela soma.
+   */
+  dependencias: string[];
   fonteOperacional: string;
   regraNoSistema: string;
   formulaDaPlanilha: string;
@@ -181,6 +214,8 @@ const CATALOGO: EntradaDoCatalogo[] = [
   {
     linhaNaPlanilha: 7,
     chave: "rota_dvs",
+    origem: "CALC",
+    dependencias: ["2Art", "cadastro contratual vigente da unidade"],
     rotulo: "TOTAL REMUNERAÇÃO ROTA DVS",
     quadro: "Rota — remuneração",
     fonteOperacional: DIARIO,
@@ -193,6 +228,8 @@ const CATALOGO: EntradaDoCatalogo[] = [
   {
     linhaNaPlanilha: 8,
     chave: "custo_fixo_padronizado",
+    origem: "CAD",
+    dependencias: ["cadastro contratual vigente da unidade"],
     rotulo: "CUSTO FIXO PADRONIZADO",
     quadro: "Rota — remuneração",
     fonteOperacional: CADASTRO,
@@ -206,6 +243,8 @@ const CATALOGO: EntradaDoCatalogo[] = [
   {
     linhaNaPlanilha: 9,
     chave: "custo_fixo_inativos",
+    origem: "CAD",
+    dependencias: ["cadastro contratual vigente da unidade"],
     rotulo: "CUSTO FIXO INATIVOS",
     quadro: "Rota — remuneração",
     fonteOperacional: CADASTRO,
@@ -217,6 +256,8 @@ const CATALOGO: EntradaDoCatalogo[] = [
   {
     linhaNaPlanilha: 10,
     chave: "custo_vans_inativas",
+    origem: "CAD",
+    dependencias: ["cadastro contratual vigente da unidade"],
     rotulo: "CUSTO VANS INATIVAS",
     quadro: "Rota — remuneração",
     fonteOperacional: CADASTRO,
@@ -228,6 +269,8 @@ const CATALOGO: EntradaDoCatalogo[] = [
   {
     linhaNaPlanilha: 11,
     chave: "indisponibilidade_fixo",
+    origem: "CALC",
+    dependencias: ["2Art"],
     rotulo: "INDISPONIBILIDADE",
     quadro: "Rota — remuneração",
     fonteOperacional: DIARIO,
@@ -240,6 +283,8 @@ const CATALOGO: EntradaDoCatalogo[] = [
   {
     linhaNaPlanilha: 12,
     chave: "custo_fixo_especiais",
+    origem: "CAD",
+    dependencias: ["cadastro contratual vigente da unidade"],
     rotulo: "CUSTO FIXO - ESPECIAIS",
     quadro: "Rota — remuneração",
     fonteOperacional: CADASTRO,
@@ -251,6 +296,8 @@ const CATALOGO: EntradaDoCatalogo[] = [
   {
     linhaNaPlanilha: 13,
     chave: "custo_fixo_vans",
+    origem: "CAD",
+    dependencias: ["cadastro contratual vigente da unidade"],
     rotulo: "CUSTO FIXO - VANS",
     quadro: "Rota — remuneração",
     fonteOperacional: CADASTRO,
@@ -262,6 +309,8 @@ const CATALOGO: EntradaDoCatalogo[] = [
   {
     linhaNaPlanilha: 14,
     chave: "desconto_devolucao_percentual",
+    origem: "DOC",
+    dependencias: ["03.08.20", "cadastro contratual vigente da unidade"],
     rotulo: "DESCONTO DE DEVOLUÇÃO %",
     quadro: "Rota — remuneração",
     fonteOperacional: DEMONSTRATIVO,
@@ -274,6 +323,8 @@ const CATALOGO: EntradaDoCatalogo[] = [
   {
     linhaNaPlanilha: 15,
     chave: "desconto_disponibilidade",
+    origem: "CALC",
+    dependencias: ["03.08.18 do mês", "cadastro contratual vigente da unidade"],
     rotulo: "DESCONTO DE DISPONIBILIDADE",
     quadro: "Rota — remuneração",
     fonteOperacional: `${DISPONIBILIDADE} (mês inteiro) — conferido contra ${DEMONSTRATIVO}`,
@@ -290,6 +341,8 @@ const CATALOGO: EntradaDoCatalogo[] = [
   {
     linhaNaPlanilha: 16,
     chave: "desconto_complementar_negativo",
+    origem: "DOC",
+    dependencias: ["03.08.20"],
     rotulo: "DESCONTO COMPLEMENTAR NEGATIVO",
     quadro: "Rota — remuneração",
     fonteOperacional: DEMONSTRATIVO,
@@ -301,6 +354,8 @@ const CATALOGO: EntradaDoCatalogo[] = [
   {
     linhaNaPlanilha: 17,
     chave: "total_remuneracao_rota",
+    origem: "SUB",
+    dependencias: [],
     rotulo: "TOTAL REMUNERAÇÃO ROTA",
     quadro: "Rota — remuneração",
     fonteOperacional: "derivada — soma do quadro",
@@ -324,6 +379,8 @@ const CATALOGO: EntradaDoCatalogo[] = [
   {
     linhaNaPlanilha: 21,
     chave: "custo_variavel_frota_fixa",
+    origem: "CALC",
+    dependencias: ["2Art", "cadastro contratual vigente da unidade"],
     rotulo: "CUSTO VARIÁVEL (FROTA FIXA)",
     quadro: "Rota — variável",
     fonteOperacional: `${DIARIO} + ${CADASTRO}`,
@@ -336,6 +393,8 @@ const CATALOGO: EntradaDoCatalogo[] = [
   {
     linhaNaPlanilha: 22,
     chave: "custo_variavel_agregado",
+    origem: "DOC",
+    dependencias: ["2Art"],
     rotulo: "CUSTO VARIÁVEL (AGREGADO)",
     quadro: "Rota — variável",
     fonteOperacional: DIARIO,
@@ -347,6 +406,8 @@ const CATALOGO: EntradaDoCatalogo[] = [
   {
     linhaNaPlanilha: 23,
     chave: "desconto_devolucao_variavel",
+    origem: "DOC",
+    dependencias: ["03.08.20", "cadastro contratual vigente da unidade"],
     rotulo: "DESCONTO DE DEVOLUÇÃO",
     quadro: "Rota — variável",
     fonteOperacional: DEMONSTRATIVO,
@@ -358,6 +419,8 @@ const CATALOGO: EntradaDoCatalogo[] = [
   {
     linhaNaPlanilha: 24,
     chave: "indisponibilidade_variavel",
+    origem: "CALC",
+    dependencias: ["03.08.18 do mês", "cadastro contratual vigente da unidade"],
     rotulo: "INDISPONIBILIDADE (variável)",
     quadro: "Rota — variável",
     fonteOperacional: DEMONSTRATIVO,
@@ -369,6 +432,8 @@ const CATALOGO: EntradaDoCatalogo[] = [
   {
     linhaNaPlanilha: 25,
     chave: "total_remuneracao_rota_variavel",
+    origem: "SUB",
+    dependencias: [],
     rotulo: "TOTAL REMUNERAÇÃO ROTA (variável)",
     quadro: "Rota — variável",
     fonteOperacional: "derivada — soma do quadro",
@@ -386,6 +451,8 @@ const CATALOGO: EntradaDoCatalogo[] = [
   {
     linhaNaPlanilha: 29,
     chave: "outros_custos",
+    origem: "DOC",
+    dependencias: ["03.08.12.09", "cadastro contratual vigente da unidade"],
     rotulo: "TOTAL REMUNERAÇÃO ROTA OUTROS CUSTOS",
     quadro: "Outros custos",
     fonteOperacional: "03.08.12.09",
@@ -398,6 +465,8 @@ const CATALOGO: EntradaDoCatalogo[] = [
   {
     linhaNaPlanilha: 30,
     chave: "total_outros_custos",
+    origem: "SUB",
+    dependencias: [],
     rotulo: "TOTAL OUTROS CUSTOS",
     quadro: "Outros custos",
     fonteOperacional: "derivada — soma do quadro",
@@ -411,6 +480,8 @@ const CATALOGO: EntradaDoCatalogo[] = [
   {
     linhaNaPlanilha: 34,
     chave: "equipe_de_entrega",
+    origem: "DOC",
+    dependencias: ["03.08.12.09", "cadastro contratual vigente da unidade"],
     rotulo: "REMUNERAÇÃO VARIÁVEL - EQUIPE DE ENTREGA",
     quadro: "Equipe de entrega",
     fonteOperacional: "nenhuma — quadro reservado e vazio na planilha",
@@ -423,6 +494,8 @@ const CATALOGO: EntradaDoCatalogo[] = [
   {
     linhaNaPlanilha: 36,
     chave: "total_geral_unidade",
+    origem: "SUB",
+    dependencias: [],
     rotulo: "TOTAL GERAL UNIDADE",
     quadro: "Fecho",
     fonteOperacional: "derivada — remuneração + outros custos + equipe de entrega",
@@ -439,6 +512,8 @@ const CATALOGO: EntradaDoCatalogo[] = [
   {
     linhaNaPlanilha: 38,
     chave: "total_geral_srtrans",
+    origem: "DOC",
+    dependencias: ["03.08.20"],
     rotulo: "TOTAL GERAL SRTRANS",
     quadro: "Fecho",
     fonteOperacional: DEMONSTRATIVO,
@@ -452,6 +527,8 @@ const CATALOGO: EntradaDoCatalogo[] = [
   {
     linhaNaPlanilha: 40,
     chave: "diferenca_total_geral",
+    origem: "SUB",
+    dependencias: [],
     rotulo: "DIFERENÇA - TOTAL GERAL",
     quadro: "Fecho",
     fonteOperacional: "derivada — SRTrans menos unidade",
@@ -655,10 +732,19 @@ function classificar(
     }));
 
     /*
-      A parcela que a planilha não escreve contribui **zero** para a diferença,
-      e não `null`. É o caso do quadro reservado: `AI34` não existe, a soma da
-      planilha o trata como zero, e o motor também soma zero — os dois
-      concordam, e concordar não pode apagar a explicação do total inteiro.
+      A parcela que a planilha não escreve contribui `sistema − 0`.
+      
+      É o caso do quadro reservado: `AI34` **não existe** como célula, e o total
+      geral da planilha é `SUM(AI17+AI30+AI34)` — `SUM` de célula inexistente é
+      zero. Então a planilha contribui zero ali, e a diferença da parcela é o que
+      o motor pôs menos zero, ou seja, o próprio valor do motor.
+      
+      Enquanto a equipe de entrega valia zero dos dois lados isso não importava,
+      e a regra escrita era "contribui zero". Com a `VBZ 06` entrando no quadro,
+      passou a importar muito: os R$ 248.834,84 que o motor põe aqui são
+      exatamente os que ele tira dos outros custos, e as duas contribuições se
+      cancelam no total geral. Devolver `null` fazia a herança não fechar e o
+      `TOTAL GERAL UNIDADE` inteiro aparecer como defeito do motor.
     */
     const contribuicao = (
       linha: LinhaDaMatriz | null,
@@ -666,7 +752,7 @@ function classificar(
     ): number | null => {
       if (!linha) return null;
       if (linha.diferenca[coluna] !== null) return linha.diferenca[coluna];
-      if (linha.status === "NAO_SE_APLICA" && zero(linha.sistema[coluna])) return 0;
+      if (linha.status === "NAO_SE_APLICA") return linha.sistema[coluna];
       return null;
     };
 
@@ -783,6 +869,8 @@ export function montarMatriz(
       chave: e.chave,
       rotulo: e.rotulo,
       quadro: e.quadro,
+      origem: e.origem,
+      dependencias: e.dependencias,
       celulas: `AI${e.linhaNaPlanilha} / AJ${e.linhaNaPlanilha} / AK${e.linhaNaPlanilha}`,
       fonteOperacional: e.fonteOperacional,
       regraNoSistema: e.regraNoSistema,

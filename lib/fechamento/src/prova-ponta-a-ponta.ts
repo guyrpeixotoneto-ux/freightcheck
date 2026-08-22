@@ -2,11 +2,16 @@ import { competencia, dentroDaCompetencia, type Competencia } from "./periodo";
 import type { Canal } from "./dominio";
 import type { EntradaDoFaturado } from "./faturado";
 import {
+  fatorDeImposto,
   valorDaDisponibilidade,
-  valorDaEquipeDeEntrega,
   type ParametrosDoCadastro,
   type ViagemDoMapa,
 } from "./mapa-rota";
+
+/** Um valor sem imposto na moeda em que a planilha o imprime. */
+function brutar(valor: number, p: ParametrosDoCadastro): number {
+  return valor * fatorDeImposto(p.aliquotas, p.parcelaDentroDoMunicipio);
+}
 import { basesDaQuinzena } from "./persistencia";
 import type {
   BasesDaPlanilha,
@@ -147,8 +152,10 @@ function basesDosRelatorios(
   relatorios: RelatoriosDaQuinzena,
   canal: Canal,
   diario: { viagens: ViagemDoMapa[] }[],
-  /** A disponibilidade do **mês** — ver `disponibilidadeDoMesDaProva`. */
-  disponibilidade: { quinzena: 1 | 2; doMes: DescontoDeDisponibilidadeDoMes } | null,
+  /** A quinzena e a disponibilidade do **mês** — ver `disponibilidadeDoMesDaProva`. */
+  periodo: { quinzena: 1 | 2; disponibilidadeDoMes: DescontoDeDisponibilidadeDoMes | null },
+  /** O contrato da quinzena — só o fator de imposto é lido aqui. */
+  parametros: ParametrosDoCadastro,
 ): BasesDaPlanilha {
   const descontos = relatorios.pagamento
     ? lerPagamento(relatorios.pagamento).descontos.map((d) => ({
@@ -173,18 +180,31 @@ function basesDosRelatorios(
     regra de qual desconto alimenta qual base mudar lá, a prova muda junto — que
     é exatamente o que se quer de um gate.
   */
-  const doMotor = basesDaQuinzena(descontos, canal, diario, requisicoes, disponibilidade);
+  const doMotor = basesDaQuinzena(descontos, canal, diario, requisicoes, periodo);
 
   return {
     devolucao: doMotor.devolucao,
     disponibilidade:
       doMotor.disponibilidade === null ? null : valorDaDisponibilidade(doMotor.disponibilidade),
     complementarNegativo: doMotor.complementarNegativo,
+    /*
+      **Convertidos para a moeda da planilha antes de entrar aqui.**
+      `BasesDaPlanilha` é, por contrato, "as bases como a `.xlsb` as traz" — e a
+      `.xlsb` traz `Outros Custos!F4` já **brutado**, enquanto o 03.08.12.09 traz
+      o valor **sem imposto**. As outras três bases não têm esse problema: a
+      planilha e os relatórios as escrevem na mesma moeda (sem imposto), e é a
+      linha do motor que as bruta.
+
+      Sem esta conversão a prova entregava R$ 80.247,66 onde a planilha imprime
+      R$ 109.695,38, e o `TOTAL GERAL UNIDADE` saía R$ 97.515,48 menor — com a
+      diferença aparecendo como defeito nosso, que é o que ela deixaria de ser
+      no instante em que alguém olhasse a moeda.
+    */
     outrosCustos:
       doMotor.outrosCustos === null
         ? null
         : doMotor.outrosCustos.fonte === "REQUISICOES"
-          ? doMotor.outrosCustos.medida.valor
+          ? brutar(doMotor.outrosCustos.medida.valor, parametros)
           : doMotor.outrosCustos.valor,
     indisponibilidade:
       doMotor.indisponibilidade === null
@@ -201,7 +221,9 @@ function basesDosRelatorios(
     equipeDeEntrega:
       doMotor.equipeDeEntrega === null
         ? null
-        : valorDaEquipeDeEntrega(doMotor.equipeDeEntrega),
+        : doMotor.equipeDeEntrega.fonte === "REQUISICOES"
+          ? brutar(doMotor.equipeDeEntrega.medida.valor, parametros)
+          : doMotor.equipeDeEntrega.valor,
   };
 }
 
@@ -320,7 +342,8 @@ export function montarProvaPontaAPonta(entrada: EntradaDaProva): QuinzenaDaPlani
         relatorios,
         entrada.canal,
         diario,
-        doMes === null ? null : { quinzena: q, doMes },
+        { quinzena: q, disponibilidadeDoMes: doMes },
+        cadastro.parametros,
       ),
       faturado: faturadoDosRelatorios(relatorios, entrada.canal, periodo),
       procedencia: {
