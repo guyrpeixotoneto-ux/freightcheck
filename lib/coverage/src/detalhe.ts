@@ -1,17 +1,25 @@
 import { sql } from "drizzle-orm";
 import type { Database } from "@workspace/db";
 import { esperadoDaVigencia, type PresencaNaVigencia } from "./esperado";
-import { candidatoPara, janelaDosAtributos } from "./descoberta";
+import { candidatoPara, descobertas, janelaDosAtributos } from "./descoberta";
 import {
   atributosObservados,
   entidadesDoAtributo,
   vigenciasObservadas,
 } from "./observado";
 import { contribuintesDaVigencia } from "./proveniencia";
-import { atributoDeclarado } from "@workspace/curation/catalogo-declarado";
+import { atributoDeclarado, entraNaDRE } from "@workspace/curation/catalogo-declarado";
 import { rosterDaVigencia, type EntidadeAusente } from "./frota";
 import { medirCelula, periodoDe, rotuloDaFamilia, rotuloDoEquipamento } from "./matriz";
-import type { Contagem, EstadoDeCobertura, Lacuna } from "./modelo";
+import { medirAtributo } from "./modelo";
+import type {
+  Contagem,
+  Criticidade,
+  EstadoDeCobertura,
+  Justificativa,
+  Lacuna,
+  MedidaDoAtributo,
+} from "./modelo";
 
 /**
  * O drill-down: da célula da matriz até a placa, e da placa até o arquivo.
@@ -226,19 +234,75 @@ export async function detalheDaCelula(
 export interface DetalheDaLacuna {
   attributeCode: string;
   attributeLabel: string;
+  /** O cabeçalho literal da coluna no arquivo. Nunca reescrito. */
+  sourceName: string | null;
   entityType: string;
-  vigencia: { snapshotId: string; sourceLabel: string; effectiveDate: string; periodo: string };
-  /** As entidades que não têm o dado, com o motivo de cada uma. */
+  equipamentoLabel: string;
+  criticidade: Criticidade;
+  /** A linha da DRE que este atributo alimenta, quando alimenta alguma. */
+  secaoDaDRE: string | null;
+  vigencia: {
+    snapshotId: string;
+    sourceLabel: string;
+    effectiveDate: string;
+    periodo: string;
+    revision: number;
+    datasetFamily: string;
+    familiaLabel: string;
+    /**
+     * O recorte, para que a série do atributo possa ser pedida **desta**
+     * unidade. Sem ele, o histórico da gaveta somaria vigências de escopos
+     * diferentes — a mesma contaminação que `esperado.ts` proíbe na inferência.
+     */
+    scopeHash: string;
+    scopeLabel: string;
+    canal: string;
+  };
+  /**
+   * A conta deste atributo nesta vigência.
+   *
+   * Vem de `medirAtributo` — a mesma função que soma a célula da matriz e que
+   * desenha a linha da tabela de atributos. É o que permite a gaveta se abrir
+   * sabendo só (vigência, atributo) sem correr o risco de exibir um número
+   * diferente do da célula que a abriu.
+   */
+  medida: MedidaDoAtributo;
+  /** Por que era esperado aqui. `null` quando nenhuma origem o cobra. */
+  justificativa: Justificativa | null;
+  /** Quantas entidades deste tipo a vigência trouxe. */
+  entidadesNaVigencia: number;
+  /**
+   * Os equipamentos que eram esperados nesta vigência e não vieram nela.
+   *
+   * Eles contam em `medida.entidadesFaltando` — a expectativa é o roster, não o
+   * arquivo — e **não** aparecem em `entidades`, que só enxerga quem tem fato na
+   * vigência. Sem esta lista a gaveta se contradizia na mesma tela: "2 sem o
+   * dado" no número e "nenhum equipamento sem o dado" na lista logo abaixo, com
+   * as duas frases certas nos seus próprios termos. São dois problemas
+   * diferentes — a coluna que não trouxe número e o caminhão que não veio — e a
+   * separação é a mesma que `detalheDaCelula` já faz para o conjunto.
+   */
+  entidadesAusentes: EntidadeAusente[];
+  /** As entidades que vieram na vigência e estão sem o dado. */
   entidades: Awaited<ReturnType<typeof entidadesDoAtributo>>;
   /** Quantas ficaram de fora do recorte devolvido. Nunca truncamento silencioso. */
   naoListadas: number;
 }
 
 /**
- * As entidades afetadas por uma lacuna.
+ * Um atributo, numa vigência: a conta, o porquê e quem ficou sem o dado.
  *
- * Limitada, e a resposta **diz** que limitou. Uma lista truncada em silêncio é
- * pior do que uma lista curta: quem lê conclui que são essas e só essas.
+ * É o que a gaveta da tela abre, e ela abre sabendo só o par (vigência,
+ * atributo) — de propósito. A alternativa seria a tela carregar consigo os
+ * números que já tinha na célula e completá-los com uma chamada, e aí a gaveta
+ * passaria a mostrar uma medida montada em dois lugares: a metade que veio da
+ * tabela e a metade que veio daqui. **A medida sai inteira de `medirAtributo`**,
+ * a mesma função que somou a célula da matriz e desenhou a linha da tabela; o
+ * teste sobre o export real guarda que os dois caminhos devolvem o mesmo.
+ *
+ * A lista de entidades é limitada, e a resposta **diz** que limitou. Uma lista
+ * truncada em silêncio é pior do que uma lista curta: quem lê conclui que são
+ * essas e só essas.
  */
 export async function detalheDaLacuna(
   db: Database,
@@ -261,10 +325,12 @@ export async function detalheDaLacuna(
     effective_date: string;
     code: string | null;
     label: string | null;
+    source_name: string | null;
     entity_type: string | null;
   }>(sql`
     SELECT s.source_label, s.effective_date::text, a.code,
-           coalesce(a.display_name, a.source_name) AS label, a.entity_type
+           coalesce(a.display_name, a.source_name) AS label,
+           a.source_name, a.entity_type
       FROM snapshot s
       LEFT JOIN attribute a ON a.code = ${attributeCode}
      WHERE s.id = ${snapshotId}::uuid
@@ -285,18 +351,134 @@ export async function detalheDaLacuna(
     limite: limite + 1,
   });
 
+  const { medida, justificativa, criticidade, vigencia, entidadesNaVigencia, ausentes } =
+    await medirNaVigencia(db, snapshotId, attributeCode, entityType);
+
   return {
     attributeCode,
     attributeLabel,
+    sourceName: cabecalho.source_name ?? declarado?.sourceName ?? null,
     entityType,
+    equipamentoLabel: entityType === "" ? "" : rotuloDoEquipamento(entityType),
+    criticidade,
+    secaoDaDRE: declarado && entraNaDRE(declarado) ? declarado.secaoDaDRE : null,
     vigencia: {
       snapshotId,
       sourceLabel: cabecalho.source_label,
       effectiveDate: cabecalho.effective_date,
       periodo: periodoDe(cabecalho.effective_date),
+      revision: vigencia?.revision ?? 0,
+      datasetFamily: vigencia?.datasetFamily ?? "",
+      familiaLabel: vigencia ? rotuloDaFamilia(vigencia.datasetFamily) : "",
+      scopeHash: vigencia?.scopeHash ?? "",
+      scopeLabel: vigencia?.scopeLabel ?? "",
+      canal: vigencia?.canal ?? "",
     },
+    medida,
+    justificativa,
+    entidadesNaVigencia,
+    entidadesAusentes: ausentes,
     entidades: faltando.slice(0, limite),
     naoListadas: Math.max(0, faltando.length - limite),
+  };
+}
+
+/**
+ * A conta de um atributo numa vigência, resolvida do banco.
+ *
+ * Repete a sequência da matriz — roster, esperado, observado, `medirAtributo` —
+ * e não uma versão curta dela. Uma versão curta é como duas leituras da mesma
+ * célula acabam com dois denominadores: sem o roster, um equipamento que sumiu
+ * do arquivo sairia dos dois lados da fração e a gaveta mostraria uma cobertura
+ * que a matriz não mostra.
+ *
+ * `novo` sai de `descobertas`, e não de "observado menos esperado", pela mesma
+ * razão de `medirCelula` receber `novos` de fora: duas definições do mesmo
+ * rótulo discordam, e o dia em que discordassem a célula viria azul e a gaveta
+ * viria verde.
+ */
+async function medirNaVigencia(
+  db: Database,
+  snapshotId: string,
+  attributeCode: string,
+  entityType: string,
+): Promise<{
+  medida: MedidaDoAtributo;
+  justificativa: Justificativa | null;
+  criticidade: Criticidade;
+  entidadesNaVigencia: number;
+  ausentes: EntidadeAusente[];
+  vigencia: Awaited<ReturnType<typeof vigenciasObservadas>>[number] | undefined;
+}> {
+  const [vigencia] = await vigenciasObservadas(db).then((todas) =>
+    todas.filter((v) => v.snapshotId === snapshotId),
+  );
+
+  const observados = await atributosObservados(db, [snapshotId]);
+  const observado = observados.find(
+    (o) => o.attributeCode === attributeCode && o.entityType === entityType,
+  );
+
+  if (!vigencia) {
+    /*
+      Sem vigência ativa não há esperado a resolver — e não há como inventá-lo.
+      A medida sai do que se observou, que é a única afirmação sustentável aqui.
+    */
+    return {
+      medida: medirAtributo({ observado }),
+      justificativa: null,
+      criticidade: "INFORMATIVO",
+      entidadesNaVigencia: 0,
+      ausentes: [],
+      vigencia,
+    };
+  }
+
+  const entidadesPorTipo = new Map(
+    vigencia.equipamentos.map((e) => [e.entityType, e.entidades] as const),
+  );
+  const presenca: PresencaNaVigencia[] = observados.map((o) => ({
+    attributeCode: o.attributeCode,
+    entityType: o.entityType,
+    entidadesComAtributo: o.comValor + o.vazias,
+  }));
+  const roster = await rosterDaVigencia(db, vigencia, entidadesPorTipo);
+  const { esperados, dispensados } = await esperadoDaVigencia(
+    db,
+    vigencia,
+    presenca,
+    roster.esperadasPorTipo,
+  );
+
+  const esperado = esperados.find(
+    (e) => e.attributeCode === attributeCode && e.entityType === entityType,
+  );
+
+  const estreou = (
+    await descobertas(db, {
+      datasetFamily: vigencia.datasetFamily,
+      scopeHash: vigencia.scopeHash,
+      canal: vigencia.canal,
+    })
+  ).some(
+    (d) =>
+      d.attributeCode === attributeCode &&
+      d.entityType === entityType &&
+      d.primeiraVigencia === vigencia.effectiveDate,
+  );
+
+  return {
+    medida: medirAtributo({
+      esperado,
+      observado,
+      dispensado: dispensados.has(attributeCode),
+      novo: estreou,
+    }),
+    justificativa: esperado?.justificativa ?? null,
+    criticidade: esperado?.criticidade ?? "INFORMATIVO",
+    entidadesNaVigencia: entidadesPorTipo.get(entityType) ?? 0,
+    ausentes: roster.ausentes.filter((a) => a.entityType === entityType),
+    vigencia,
   };
 }
 

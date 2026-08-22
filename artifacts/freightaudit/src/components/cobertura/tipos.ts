@@ -153,6 +153,16 @@ export interface LinhaDeAtributo {
   celulas: Record<string, CelulaDoAtributo>;
 }
 
+/**
+ * A coluna da tabela de atributos: um período, e a vigência que o conjunto teve
+ * nele. `snapshotId` nulo é "esta vigência não trouxe este conjunto".
+ */
+export interface ColunaDoConjunto extends ColunaDaMatriz {
+  snapshotId: string | null;
+  sourceLabel: string | null;
+  revision: number | null;
+}
+
 export interface MatrizDeAtributos {
   conjunto: {
     datasetFamily: string;
@@ -164,7 +174,7 @@ export interface MatrizDeAtributos {
     canal: string;
     rotulo: string;
   };
-  colunas: ColunaDaMatriz[];
+  colunas: ColunaDoConjunto[];
   linhas: LinhaDeAtributo[];
   resumo: {
     atributos: number;
@@ -255,16 +265,64 @@ export interface EntidadeDaLacuna {
   factId: number | null;
 }
 
+/**
+ * O que a gaveta precisa saber para abrir — e nada além disso.
+ *
+ * Identidade, e não conteúdo: os números vêm do servidor, pela mesma função que
+ * mediu a célula clicada. A alternativa seria a tela levar consigo o que já
+ * tinha na célula e completar com uma chamada, e aí a gaveta exibiria uma
+ * medida montada em dois lugares — metade da tabela, metade da resposta.
+ */
+export interface AberturaDoAtributo {
+  /** A vigência do conjunto naquele período. `null`: ele não veio nela. */
+  snapshotId: string | null;
+  attributeCode: string;
+  /** Só para pintar o cabeçalho enquanto a resposta não chega. */
+  attributeLabel: string;
+  periodo: string;
+}
+
+/** A conta de um atributo numa vigência. Espelha `MedidaDoAtributo`. */
+export interface MedidaDoAtributo {
+  entidadesEsperadas: number;
+  entidadesPresentes: number;
+  entidadesVazias: number;
+  naoAplicaveis: number;
+  entidadesFaltando: number;
+  percentual: number;
+  estado: EstadoDeCobertura;
+  esperado: boolean;
+  noLayout: boolean;
+  dispensado: boolean;
+  novo: boolean;
+}
+
 export interface DetalheDaLacuna {
   attributeCode: string;
   attributeLabel: string;
+  sourceName: string | null;
   entityType: string;
+  equipamentoLabel: string;
+  criticidade: Criticidade;
+  secaoDaDRE: string | null;
   vigencia: {
     snapshotId: string;
     sourceLabel: string;
     effectiveDate: string;
     periodo: string;
+    revision: number;
+    datasetFamily: string;
+    familiaLabel: string;
+    scopeHash: string;
+    scopeLabel: string;
+    canal: string;
   };
+  medida: MedidaDoAtributo;
+  justificativa: Justificativa | null;
+  entidadesNaVigencia: number;
+  /** Esperados nesta vigência que não vieram nela. Contam como falta. */
+  entidadesAusentes: EntidadeAusente[];
+  /** Vieram na vigência e estão sem o dado. */
   entidades: EntidadeDaLacuna[];
   naoListadas: number;
 }
@@ -377,13 +435,22 @@ export const APARENCIA_DA_CRITICIDADE: Record<
   INFORMATIVO: { rotulo: "Informativa", classe: "text-muted-foreground border-border" },
 };
 
-/** De onde a expectativa veio, dito em duas palavras para caber num selo. */
+/**
+ * De onde a expectativa veio, dito em uma palavra para caber num selo.
+ *
+ * Só o nome da origem. **Declaração ou inferência é o outro eixo**, e ele mora
+ * em `justificativa.declarado` — cada lugar que mostra a origem mostra também
+ * esse eixo, do jeito que couber ali. Enquanto o rótulo carregava um
+ * "(inferido)" embutido, a gaveta o exibia ao lado do seu próprio selo e saía
+ * "Inferência · Estrutura (inferido)": a mesma informação duas vezes, numa tela
+ * cuja regra é justamente não repetir canal por acidente.
+ */
 export const ORIGEM_DO_ESPERADO: Record<Justificativa["origem"], string> = {
   CONTRATO: "Contrato",
   CATALOGO: "Catálogo",
   CURADORIA: "Curadoria",
-  HISTORICO: "Histórico (inferido)",
-  ESTRUTURA: "Estrutura (inferido)",
+  HISTORICO: "Histórico",
+  ESTRUTURA: "Estrutura",
 };
 
 export function percentual(valor: number): string {

@@ -228,6 +228,45 @@ describe("GET /coverage/cell e /coverage/gap", () => {
     expect(res.body.entidades.length).toBeLessThanOrEqual(5);
     expect(typeof res.body.naoListadas).toBe("number");
   });
+
+  /*
+    A gaveta da tela abre com este par e nada mais. Se a rota devolvesse só as
+    entidades, a tela teria de carregar consigo os números da célula e completar
+    com esta resposta — uma medida montada em dois lugares, que é como um painel
+    passa a discordar da célula que o abriu.
+  */
+  it("a lacuna abre com a medida inteira, e ela bate com a da tabela", async () => {
+    const visao = await get("/coverage?vigencias=9");
+    const linha = visao.body.linhas[0];
+    const celula: any = Object.values(linha.celulas).at(-1);
+
+    const query = new URLSearchParams({
+      familia: linha.datasetFamily,
+      equipamento: linha.entityType,
+      escopo: linha.scopeHash,
+      vigencias: "9",
+    });
+    if (linha.canal) query.set("canal", linha.canal);
+    const tabela = await get(`/coverage/attributes?${query}`);
+
+    const alvo = tabela.body.linhas.find(
+      (a: any) => a.celulas[celula.vigencia.effectiveDate] !== undefined,
+    );
+    const daTabela = alvo.celulas[celula.vigencia.effectiveDate];
+
+    const res = await get(
+      `/coverage/gap/${celula.vigencia.snapshotId}/${encodeURIComponent(alvo.attributeCode)}`,
+    );
+    expect(res.status).toBe(200);
+    expect(res.body.medida.estado).toBe(daTabela.estado);
+    expect(res.body.medida.entidadesEsperadas).toBe(daTabela.entidadesEsperadas);
+    expect(res.body.medida.entidadesPresentes).toBe(daTabela.entidadesPresentes);
+    expect(res.body.medida.percentual).toBe(daTabela.percentual);
+    expect(res.body.criticidade).toBe(daTabela.criticidade);
+    /* E o recorte, para a série do atributo ser pedida desta unidade. */
+    expect(res.body.vigencia.scopeHash).toBe(linha.scopeHash);
+    expect(res.body.equipamentoLabel).toBeTruthy();
+  });
 });
 
 describe("GET /coverage/attributes", () => {
