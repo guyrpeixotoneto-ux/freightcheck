@@ -65,8 +65,15 @@ describe("a classificação das fontes é declarada, e não deduzida", () => {
     expect(DESCRICAO_DA_FONTE.OPERACAO).not.toHaveProperty("lado");
   });
 
-  it("o devido é formado por três relatórios — e nenhum deles é o contrato", () => {
-    expect(doLado("DEVIDO")).toEqual(["DISPONIBILIDADE", "OPERACAO", "REQUISICOES"]);
+  it("o devido é formado por quatro relatórios — e nenhum deles é o contrato", () => {
+    /* Quatro e não três desde que o 03.08.18 virou dois: a FF e as vans chegam
+       em arquivos separados e cada uma responde pelo desconto da frota dela. */
+    expect(doLado("DEVIDO")).toEqual([
+      "DISPONIBILIDADE_FF",
+      "DISPONIBILIDADE_VAN",
+      "OPERACAO",
+      "REQUISICOES",
+    ]);
     /* O cadastro não é fonte importável: entra pelo grupo, não pela lista. */
     expect(LADOS_DA_CONFERENCIA.find((l) => l.lado === "DEVIDO")?.precisaDeContrato).toBe(true);
   });

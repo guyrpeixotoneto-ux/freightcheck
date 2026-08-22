@@ -196,6 +196,38 @@ export function fixtureDisponibilidade(): Buffer {
 }
 
 /**
+ * O 03.08.18 de **uma frota só** — que é como o Promax de fato o exporta.
+ *
+ * A exportação real vem em dois arquivos, um por frota, tirados por pessoas
+ * diferentes e em horas diferentes. É o caso que fazia o segundo envio apagar o
+ * primeiro enquanto os dois disputavam uma casinha só: o arquivo da van não tem
+ * aba `FF` nenhuma, então promovê-lo na casinha única levava embora o desconto
+ * dos caminhões sem que nada dissesse.
+ *
+ * Os números são os mesmos de {@link fixtureDisponibilidade}, aba por aba, para
+ * que as duas metades enviadas em separado somem exatamente o que o arquivo
+ * único soma — e um teste possa afirmar isso.
+ */
+export function fixtureDisponibilidadeDeUmaFrota(
+  frota: "FF" | "Van",
+  opcoes?: { semLinhas?: boolean },
+): Buffer {
+  const cabecalho = ["Cód.Filial", "Nome Filial", "Geografia", "Transportadora", "Data", "Canal", "Frota Total", "Contratada", "Meta Indisp.", "Real 1º Viagem", "Real 2º Viagem", "Gap FF TT", "Gap Cia.", "Gap TP Frota Canc.", "Gap TP Outros Canc.", "Gap TP Frota N.Canc.", "Gap TP Outros N.Canc.", "Desc.Transp.Canc.", "Desc.Transp.N.Canc.", "Desc.FF Custo Fixo", "Desc.FF Equipe", "Desc.FF Indiretos", "% Utilização 1º Viagem", "% Utilização 2º Viagem", "% Utilização Total", "% Disponib.", "Ajudantes Contratados", "Ajudantes Real", "FA Contratado", "FA Real", "Gap FA", "Desconto FA", "Desconto Total", "Frota Disp.", "Freteiro Disp.", "Frota"];
+  const dia = (data: number, contratada: number, real: number, gapCia: number, gapTp: number, custoFixo: number, equipe: number, total: number) =>
+    [229, "CDD FICTICIO", "GEO NO", "036-TRANSPORTES FICTICIA", data, "Rota", 10, contratada, 0, real, 0, contratada - real, gapCia, 0, 0, gapTp, 0, 0, gapTp, custoFixo, equipe, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, total, 0, 0, "Padrao"];
+  /* `semLinhas` é o export que saiu pela metade: cabeçalho no lugar e nenhum
+     dia dentro. Não é o arquivo da outra frota — é o arquivo que ninguém
+     consegue explicar sem reabrir, e por isso ele é guardado em quarentena em
+     vez de recusado. Ver `lerDisponibilidade`. */
+  const linhas = (dias: unknown[][]) => (opcoes?.semLinhas ? [cabecalho] : [cabecalho, ...dias]);
+  return frota === "FF"
+    ? planilha({
+        FF: linhas([dia(SERIAL_16_07_2026, 8, 6, 1, 1, 100, 200, 300), dia(SERIAL_16_07_2026 + 1, 8, 8, 0, 0, 0, 0, 0)]),
+      })
+    : planilha({ Van: linhas([dia(SERIAL_16_07_2026, 2, 1, 0, 1, 40, 10, 50)]) });
+}
+
+/**
  * O 03.08.18 do **mês inteiro** — a exportação que atravessa as duas quinzenas.
  *
  * É o formato real: a exportação da 2ª quinzena costuma vir com o mês todo, e a

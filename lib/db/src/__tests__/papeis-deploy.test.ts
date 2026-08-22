@@ -309,6 +309,7 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
       "0052_reconciliar_referencia_da_planilha",
       "0053_rastro_da_resposta",
       "0054_regra_de_alteracao",
+      "0055_disponibilidade_por_frota",
     ]);
 
     // Preservação + backfill: as três contas continuam com o hash original e

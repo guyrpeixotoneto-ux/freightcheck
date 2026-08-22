@@ -165,7 +165,9 @@ describe("GET /fechamento/fontes", () => {
     const lado = (tipo: string) => body.find((f: { tipo: string }) => f.tipo === tipo)?.lado;
 
     expect(lado("OPERACAO")).toBe("DEVIDO");
-    expect(lado("DISPONIBILIDADE")).toBe("DEVIDO");
+    /* As duas casinhas do 03.08.18 formam o devido, cada uma pela frota dela. */
+    expect(lado("DISPONIBILIDADE_FF")).toBe("DEVIDO");
+    expect(lado("DISPONIBILIDADE_VAN")).toBe("DEVIDO");
     expect(lado("REQUISICOES")).toBe("DEVIDO");
     expect(lado("PAGAMENTO")).toBe("DEMONSTRADO");
     expect(lado("CTE")).toBe("FATURAMENTO");

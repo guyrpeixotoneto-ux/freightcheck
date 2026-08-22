@@ -23,6 +23,7 @@ import {
   DESCRICAO_DA_FONTE,
   TIPOS_DE_FONTE,
   centavos,
+  frotaDaFonte,
   type Canal,
   type Frota,
   type Recusa,
@@ -586,6 +587,18 @@ export async function receberDocumento(
   }
 
   const sha256 = createHash("sha256").update(entrada.conteudo).digest("hex");
+  /*
+    **A repetição é dentro da fonte, e não dentro da competência.** O 03.08.18
+    exportado com as duas abas juntas é o arquivo da FF *e* o das vans: cada
+    casinha lê a frota dela e ignora a outra, e por isso os mesmos bytes
+    precisam entrar duas vezes, uma por fonte. Enquanto a pergunta era
+    "estes bytes já entraram nesta competência?", o segundo envio era recusado
+    como reenvio acidental e a segunda frota ficava de fora sem aviso — ver a
+    `0055`, que moveu a chave para `(competência, tipo, sha256)`.
+
+    Dentro da mesma fonte nada mudou: os mesmos bytes de novo dobrariam a conta,
+    e continuam recusados enquanto o documento que está lá sustentar linha.
+  */
   const jaRecebido = await db
     .select({
       id: fechamentoDocumentoTable.id,
@@ -596,6 +609,7 @@ export async function receberDocumento(
     .where(
       and(
         eq(fechamentoDocumentoTable.competenciaId, entrada.competenciaId),
+        eq(fechamentoDocumentoTable.tipo, entrada.tipo),
         eq(fechamentoDocumentoTable.sha256, sha256),
       ),
     )
@@ -616,11 +630,10 @@ export async function receberDocumento(
       fez: reimportar aquele documento, no lugar, a partir dos bytes que a
       importação guardou.
     */
-    const mesmaFonte = (jaRecebido[0].tipo as TipoDeFonte) === entrada.tipo;
+    /* A consulta já é da mesma fonte (ver acima); o que resta perguntar é se o
+       documento que está lá sustenta alguma linha. */
     const podeConsertar =
-      /* Os mesmos bytes guardados como **outra** fonte não são um documento a
-         consertar: trocar o que um relatório é não é conserto, é envio novo. */
-      mesmaFonte && (await oQueODocumentoSustenta(db, jaRecebido[0].id, entrada.tipo)) === 0;
+      (await oQueODocumentoSustenta(db, jaRecebido[0].id, entrada.tipo)) === 0;
     if (podeConsertar) {
       /*
         Os bytes vieram junto, e são usados **estes** — não os guardados. É a
@@ -770,7 +783,10 @@ const LINHA_DA_FONTE = {
   OPERACAO: fechamentoViagemTable,
   CTE: fechamentoCteTable,
   REQUISICOES: fechamentoRequisicaoTable,
-  DISPONIBILIDADE: fechamentoDisponibilidadeTable,
+  /* As duas casinhas do 03.08.18 gravam na mesma tabela, e cada linha carrega a
+     frota dela: o que separa os dois documentos é o `documento_id`. */
+  DISPONIBILIDADE_FF: fechamentoDisponibilidadeTable,
+  DISPONIBILIDADE_VAN: fechamentoDisponibilidadeTable,
   CONCILIACAO: fechamentoConciliacaoItemTable,
   /*
     O 03.08.20 grava verba **e** desconto, e aqui só a verba conta. É a mesma
@@ -1165,8 +1181,11 @@ function interpretar(
         const l = lerRequisicoes(conteudo);
         return { linhasLidas: l.linhas.length, recusas: l.recusas };
       }
-      case "DISPONIBILIDADE": {
-        const l = lerDisponibilidade(conteudo);
+      case "DISPONIBILIDADE_FF":
+      case "DISPONIBILIDADE_VAN": {
+        /* A casinha de envio é que diz a frota, e a leitura só admite as
+           linhas dela: ver `frotaDaFonte` e `lerDisponibilidade`. */
+        const l = lerDisponibilidade(conteudo, frotaDaFonte(tipo)!);
         return { linhasLidas: l.linhas.length, recusas: l.recusas };
       }
       case "PAGAMENTO": {
@@ -1454,8 +1473,9 @@ async function gravarLinhas(
       );
       return;
     }
-    case "DISPONIBILIDADE": {
-      const { linhas } = lerDisponibilidade(conteudo);
+    case "DISPONIBILIDADE_FF":
+    case "DISPONIBILIDADE_VAN": {
+      const { linhas } = lerDisponibilidade(conteudo, frotaDaFonte(tipo)!);
       await emLotes(linhas, (lote) =>
         tx.insert(fechamentoDisponibilidadeTable).values(
           lote.map((d) => ({
@@ -1783,7 +1803,9 @@ async function lerFontesDoBanco(db: Database, competenciaId: string): Promise<Fo
     }));
   }
 
-  if (tem.has("DISPONIBILIDADE")) {
+  /* Basta uma das duas casinhas ter chegado: a tabela é uma só, e a leitura
+     traz as linhas das frotas que existirem. */
+  if (tem.has("DISPONIBILIDADE_FF") || tem.has("DISPONIBILIDADE_VAN")) {
     const linhas = await db
       .select()
       .from(fechamentoDisponibilidadeTable)
@@ -3099,10 +3121,27 @@ async function apagarOQueFoiImportado(
           .delete(fechamentoPagamentoDescontoTable)
           .where(eq(fechamentoPagamentoDescontoTable.competenciaId, competenciaId)),
       ),
-    DISPONIBILIDADE: quantas(
+    /* Um descarte por frota, porque são duas fontes e o relatório diz quantas
+       linhas cada uma perdeu. A tabela é a mesma; o corte é `tipo_de_frota`. */
+    DISPONIBILIDADE_FF: quantas(
       await tx
         .delete(fechamentoDisponibilidadeTable)
-        .where(eq(fechamentoDisponibilidadeTable.competenciaId, competenciaId)),
+        .where(
+          and(
+            eq(fechamentoDisponibilidadeTable.competenciaId, competenciaId),
+            eq(fechamentoDisponibilidadeTable.tipoDeFrota, "FF"),
+          ),
+        ),
+    ),
+    DISPONIBILIDADE_VAN: quantas(
+      await tx
+        .delete(fechamentoDisponibilidadeTable)
+        .where(
+          and(
+            eq(fechamentoDisponibilidadeTable.competenciaId, competenciaId),
+            eq(fechamentoDisponibilidadeTable.tipoDeFrota, "VAN"),
+          ),
+        ),
     ),
     REQUISICOES: quantas(
       await tx

@@ -205,7 +205,15 @@ export function apurar(competencia: Competencia, fontes: Fontes): Apuracao {
     OPERACAO: !!fontes.operacao,
     CTE: !!fontes.ctes,
     PAGAMENTO: !!fontes.pagamento,
-    DISPONIBILIDADE: !!fontes.disponibilidade,
+    /*
+      O 03.08.18 são duas casinhas e uma tabela só: o que diz se cada uma
+      chegou é haver linha da frota dela. Marcar as duas por `!!disponibilidade`
+      faria o envio da FF dar a van por recebida — e uma van "presente" sem
+      desconto dentro é exatamente o silêncio que a separação existe para
+      acabar.
+    */
+    DISPONIBILIDADE_FF: !!fontes.disponibilidade?.some((d) => d.tipoDeFrota === "FF"),
+    DISPONIBILIDADE_VAN: !!fontes.disponibilidade?.some((d) => d.tipoDeFrota === "VAN"),
     REQUISICOES: !!fontes.requisicoes,
     CONCILIACAO: !!fontes.conciliacao,
   };

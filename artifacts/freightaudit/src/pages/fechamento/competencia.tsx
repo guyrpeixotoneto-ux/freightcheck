@@ -305,11 +305,26 @@ export default function CompetenciaAberta({ id }: { id: string }) {
           <CardContent className="space-y-3">
             <p className="text-sm text-muted-foreground">
               {competencia.quinzena === 1
-                ? "Quatro exportações do Promax/SRTrans, e as requisições (03.08.12.09) quando a quinzena teve alguma aprovada: elas podem existir aqui, então a casinha fica de pé sem que a falta seja cobrada. A conciliação (03.02.59.02) é a única que não existe na 1ª — ela chega com o fechamento da 2ª."
-                : "Seis exportações do Promax/SRTrans."}{" "}
+                ? "Cinco exportações do Promax/SRTrans, e as requisições (03.08.12.09) quando a quinzena teve alguma aprovada: elas podem existir aqui, então a casinha fica de pé sem que a falta seja cobrada. A conciliação (03.02.59.02) é a única que não existe na 1ª — ela chega com o fechamento da 2ª."
+                : "Sete exportações do Promax/SRTrans."}{" "}
               Cada relatório diz abaixo em que formatos ele é lido. A conta roda
               com o que houver — o que faltar aparece nomeado na apuração, nunca
               como zero.
+            </p>
+            {/*
+              O 03.08.18 tem duas casinhas, e quem opera precisa saber disso
+              antes de clicar: as duas exportações do Promax chegam separadas —
+              uma da frota fixa, outra das vans — e cada uma tem a sua vigência.
+              O arquivo único de duas abas é o mesmo nas duas: cada casinha lê a
+              frota dela e ignora a outra, e por isso mandá-lo duas vezes não
+              dobra a conta.
+            */}
+            <p className="text-sm text-muted-foreground">
+              O 03.08.18 vem em dois — <strong>FF</strong> e{" "}
+              <strong>Vans</strong> —, e cada um tem a sua casinha nas duas
+              quinzenas: são frotas diferentes e descontos diferentes. Se a sua
+              exportação vier com as duas abas num arquivo só, mande o mesmo
+              arquivo nas duas: cada casinha lê a frota dela.
             </p>
             {/*
               A reabertura aparece aqui, e não só no painel do fim da tela,

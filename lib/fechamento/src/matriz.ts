@@ -201,8 +201,16 @@ interface EntradaDoCatalogo {
 const CADASTRO = "Cadastro do sistema (Remuneração)";
 const DIARIO = "2Art";
 const DEMONSTRATIVO = "03.08.20";
-const DISPONIBILIDADE = "03.08.18";
-const DISPONIBILIDADE_MENSAL = "03.08.18 (mês inteiro) — conferido contra 03.08.20";
+/*
+  O 03.08.18 chega em dois arquivos — a frota fixa e as vans —, e as duas linhas
+  que ele alimenta somam os dois. A procedência nomeia os dois porque é ela que
+  a tela mostra e é contra ela que `lados-da-conferencia.test.ts` confere o
+  catálogo: escrever só "03.08.18" deixaria de dizer que a conta precisa das
+  duas metades para fechar.
+*/
+const DISPONIBILIDADE = "03.08.18 FF + 03.08.18 Vans";
+const DISPONIBILIDADE_MENSAL =
+  "03.08.18 FF + 03.08.18 Vans (mês inteiro) — conferido contra 03.08.20";
 
 /**
  * As vinte e duas linhas, na ordem em que a planilha as empilha.
