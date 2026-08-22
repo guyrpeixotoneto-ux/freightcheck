@@ -21,8 +21,11 @@ import {
   medirAliquotas,
   valorDe,
   FONTES_DA_QUINZENA,
+  FONTES_OPCIONAIS_DA_QUINZENA,
   QUINZENAS_DA_FONTE,
+  QUINZENAS_OPCIONAIS_DA_FONTE,
   fonteEsperadaNaQuinzena,
+  fonteOpcionalNaQuinzena,
 } from "../index";
 import {
   FATOR,
@@ -325,7 +328,7 @@ describe("a alíquota é medida, não presumida", () => {
 });
 
 describe("o catálogo de cada quinzena", () => {
-  it("dá quatro relatórios à primeira e seis à segunda", () => {
+  it("espera quatro relatórios na primeira e seis na segunda", () => {
     expect(FONTES_DA_QUINZENA[1]).toEqual([
       "OPERACAO",
       "CTE",
@@ -335,12 +338,31 @@ describe("o catálogo de cada quinzena", () => {
     expect(FONTES_DA_QUINZENA[2]).toHaveLength(6);
   });
 
-  it("diz, por fonte, em que quinzenas ela é esperada", () => {
-    /* É esta forma que a API publica e a tela lê — e ela é derivada da outra,
-       para que as duas não possam discordar. */
+  it("admite o 03.08.12.09 na primeira sem cobrá-lo dela", () => {
+    /* A requisição aprovada entre os dias 1 e 15 sai no relatório daquela
+       quinzena: ele **pode** existir ali. O que não dá para afirmar é o
+       contrário — quinzena sem requisição nenhuma não gera arquivo —, e por
+       isso ele é opcional e não esperado. As duas listas não se cruzam: o que
+       é esperado não é opcional, e vice-versa. */
+    expect(FONTES_OPCIONAIS_DA_QUINZENA[1]).toEqual(["REQUISICOES"]);
+    expect(FONTES_OPCIONAIS_DA_QUINZENA[2]).toEqual([]);
+    expect(fonteOpcionalNaQuinzena(1, "REQUISICOES")).toBe(true);
+    expect(fonteEsperadaNaQuinzena(1, "REQUISICOES")).toBe(false);
+    /* A conciliação continua sendo a única que não existe na primeira. */
+    expect(fonteOpcionalNaQuinzena(1, "CONCILIACAO")).toBe(false);
+  });
+
+  it("diz, por fonte, em que quinzenas ela é esperada e em quais é opcional", () => {
+    /* São estas duas formas que a API publica e a tela lê — e as duas são
+       derivadas das listas por quinzena, para que não possam discordar delas.
+       Ficam em campos separados de propósito: um decide se a casinha de envio
+       aparece, o outro se a ausência é pendência. */
     expect(QUINZENAS_DA_FONTE.CTE).toEqual([1, 2]);
     expect(QUINZENAS_DA_FONTE.REQUISICOES).toEqual([2]);
     expect(QUINZENAS_DA_FONTE.CONCILIACAO).toEqual([2]);
+    expect(QUINZENAS_OPCIONAIS_DA_FONTE.REQUISICOES).toEqual([1]);
+    expect(QUINZENAS_OPCIONAIS_DA_FONTE.CONCILIACAO).toEqual([]);
+    expect(QUINZENAS_OPCIONAIS_DA_FONTE.CTE).toEqual([]);
     expect(fonteEsperadaNaQuinzena(1, "CONCILIACAO")).toBe(false);
     expect(fonteEsperadaNaQuinzena(2, "CONCILIACAO")).toBe(true);
   });
@@ -415,11 +437,12 @@ describe("a apuração", () => {
     expect(apuracao.divergencias.some((d) => d.tipo === "OPERACAO_NAO_FECHA" && d.canal === "AS")).toBe(false);
   });
 
-  it("não cobra da 1ª quinzena o que a 1ª quinzena não tem", () => {
-    /* A primeira quinzena fecha com quatro relatórios: as requisições
-       (03.08.12.09) e a conciliação (03.02.59.02) chegam com o fechamento da
-       segunda. Nomeá-las como ausentes ali seria cobrar arquivo que ninguém
-       pode enviar — e a tela passaria a quinzena inteira pedindo o impossível. */
+  it("não cobra da 1ª quinzena o que a 1ª quinzena não espera", () => {
+    /* A primeira quinzena espera quatro relatórios: a conciliação (03.02.59.02)
+       chega com o fechamento da segunda e as requisições (03.08.12.09) podem
+       nem existir. Nomeá-las como ausentes ali seria cobrar arquivo que ninguém
+       tem para enviar — e a tela passaria a quinzena inteira pedindo o que pode
+       não haver. */
     const primeira = apurar(competencia(2026, 7, 1), { ctes: fontes.ctes });
     expect(primeira.fontesAusentes).toEqual(["OPERACAO", "PAGAMENTO", "DISPONIBILIDADE"]);
 
@@ -432,6 +455,26 @@ describe("a apuração", () => {
       "REQUISICOES",
       "CONCILIACAO",
     ]);
+  });
+
+  it("apura o 03.08.12.09 que chegou na 1ª quinzena, sem tê-lo cobrado antes", () => {
+    /* Opcional é "pode existir", não "não vale": quando o relatório chega, ele
+       entra na conta da primeira quinzena como entraria na da segunda. O que a
+       lista de opcionais compra é a assimetria — presente conta, ausente não
+       cobra —, e é ela que faz o complementar dos dias 1 a 15 poder existir sem
+       fazer toda primeira quinzena do ano nascer devendo um arquivo. */
+    const semRequisicoes = apurar(competencia(2026, 7, 1), { ctes: fontes.ctes });
+    expect(semRequisicoes.fontesAusentes).not.toContain("REQUISICOES");
+    expect(semRequisicoes.fontesPresentes).not.toContain("REQUISICOES");
+
+    const comRequisicoes = apurar(competencia(2026, 7, 1), {
+      ctes: fontes.ctes,
+      requisicoes: fontes.requisicoes,
+    });
+    expect(comRequisicoes.fontesPresentes).toContain("REQUISICOES");
+    expect(comRequisicoes.fontesAusentes).not.toContain("REQUISICOES");
+    /* E o complementar da VBZ 9, que só nasce de requisição, aparece. */
+    expect(comRequisicoes.verbas.find((v) => v.verba.vbz === 9)?.esperado).not.toBeNull();
   });
 
   it("conta como presente o que chegou fora da quinzena dele", () => {

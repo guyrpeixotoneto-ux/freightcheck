@@ -67,6 +67,21 @@ describe("a camada: o supervisor não migra — o servidor decide e loga", () =>
 });
 
 describe("o sentido: Development converge, e converge cedo", () => {
+  /*
+    O prazo é do `import`, e não da prova.
+
+    `deveMigrarNaPartida` é função pura e decide em 1 ms; o que leva segundos é
+    trazer o módulo, porque ele arrasta `@workspace/db` e o vitest transpila o
+    diretório de schema inteiro na hora. No CI este pacote é o último do shard
+    `unit` e roda com a máquina ocupada pelas suítes de banco dos outros — o
+    mesmo import que custa ~1 s numa máquina ociosa estourou os 5 s padrão ali,
+    e reprovou uma afirmação sobre política de migration por causa do tempo de
+    carregar um arquivo.
+
+    O prazo explícito é o conserto certo porque a prova continua inteira: a
+    asserção é a mesma, e o que deixou de ser medido contra ela é o custo de
+    compilar o módulo que ela examina.
+  */
   it("a política dá `true` para o ambiente que o dev.mjs monta", async () => {
     const { deveMigrarNaPartida } = await import(
       "../../artifacts/api-server/src/lib/migrations.ts"
@@ -79,7 +94,7 @@ describe("o sentido: Development converge, e converge cedo", () => {
     });
 
     expect(decisao.migrar).toBe(true);
-  });
+  }, 60_000);
 
   it("scripts/post-merge.sh aplica a fila quando há banco", () => {
     const fonte = ler("scripts/post-merge.sh");
