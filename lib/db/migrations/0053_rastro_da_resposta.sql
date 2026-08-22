@@ -16,4 +16,9 @@
 -- passar a ter. Um `NOT NULL DEFAULT '{}'` inventaria um rastro vazio para elas
 -- e faria "esta resposta não tem rastro" indistinguível de "esta resposta foi
 -- produzida sem consultar nada".
-ALTER TABLE "assistant_message" ADD COLUMN "trace" jsonb;
+-- `IF NOT EXISTS` porque a fila tem de ser reentrante: um banco que perdeu o
+-- registro de migrations reroda tudo, e uma migration que falha na segunda
+-- passagem trava a fila inteira num banco que já estava certo. É a convenção
+-- das outras 26 migrations que acrescentam coluna, e a suíte de `lib/db` a
+-- cobra — foi ela que pegou esta.
+ALTER TABLE "assistant_message" ADD COLUMN IF NOT EXISTS "trace" jsonb;
