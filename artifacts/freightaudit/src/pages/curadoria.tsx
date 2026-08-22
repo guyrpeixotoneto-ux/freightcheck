@@ -24,13 +24,6 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { ComboboxCriavel } from "@/components/ui/combobox-criavel";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   familiaDaCategoria,
   leituraDe,
   leituraDoSintetico,
@@ -91,6 +84,7 @@ interface QueueItem {
   taxonomyPath: string | null;
   taxonomyName: string | null;
   costClass: string | null;
+  changeRule: string | null;
   valueCount: number;
   nullCount: number;
   magnitude: number | null;
@@ -949,16 +943,21 @@ function ConfirmarInterpretacao({
    */
   const [sinteticoPendente, setSinteticoPendente] = useState<string | null>(null);
   /**
-   * Como o valor se comporta — e por que é um estado separado da categoria.
+   * A regra pela qual este valor muda — e por que ela é texto, e não lista.
    *
-   * Era lido da categoria: a árvore declarava a classe e a herdava para baixo.
-   * Deixou de ser, porque a mesma natureza tem classes diferentes conforme o
-   * contexto — `Pessoal e encargos` é fixo no cavalo e variável no trecho —, e
-   * lê-la da árvore obrigava a duplicar a natureza. Agora é do atributo.
+   * Esta pergunta ocupa o lugar em que a tela perguntava a classe de custo
+   * ("como este valor se comporta?", fixo ou variável). A troca não é de
+   * rótulo: a classe é uma escolha entre três, e o que quem cura de fato sabe
+   * sobre uma coluna como o IPVA é uma frase — "revisão semestral" — que
+   * nenhuma das três guarda. A classe continua existindo em
+   * `attribute.cost_class`, proposta pela família da categoria; o que saiu foi
+   * a pergunta, não a coluna.
+   *
+   * Texto livre pelo mesmo motivo de `calculation_basis`: o vocabulário das
+   * regras de reajuste é da operação do cliente, e uma lista fechada faria quem
+   * sabe a regra escolher a opção menos errada.
    */
-  const [costClass, setCostClass] = useState<string | null>(
-    detail.costClass ?? null,
-  );
+  const [changeRule, setChangeRule] = useState(detail.changeRule ?? "");
   const [periodicity, setPeriodicity] = useState<string | null>(detail.periodicity);
   const [error, setError] = useState<string | null>(null);
   const [erroDoCadastro, setErroDoCadastro] = useState<string | null>(null);
@@ -1101,29 +1100,33 @@ function ConfirmarInterpretacao({
       if (!response.ok) throw new Error(body.error ?? "Falha ao confirmar");
 
       /*
-        A classe de custo vai numa chamada própria, e de propósito.
+        A regra de alteração vai numa chamada própria, e de propósito.
 
         Ela não é um dos campos que a confirmação assina: confirmar destrava
-        soma de dinheiro — unidade, periodicidade, agregação —, e dizer de que
-        lado da conta o valor cai é outra afirmação, com o seu próprio evento de
-        curadoria. Eram atos separados quando isto se fazia movendo a categoria
-        na árvore, e continuam sendo.
+        soma de dinheiro — unidade, periodicidade, agregação —, e escrever por
+        que o valor muda não destrava nada. É prosa, e prosa vai pela mesma rota
+        que grava o nome gerencial e o "o que é": `saveMeaning`, que por
+        contrato não toca `semantics_status`.
+
+        Só sobe se mudou. Mandá-la em toda confirmação faria a caixa em que
+        ninguém tocou chegar ao servidor como uma escrita, e um evento de
+        curadoria por confirmação para um texto que ninguém digitou.
 
         Nenhuma das duas pede justificativa em prosa: a tela deixou de ter o
         campo, e quem assina as duas é a mesma sessão.
       */
-      if (costClass && costClass !== detail.costClass) {
-        const classe = await fetch(
-          getApiUrl(`/curation/attributes/${detail.code}/classe-de-custo`),
+      if (changeRule.trim() !== (detail.changeRule ?? "").trim()) {
+        const regra = await fetch(
+          getApiUrl(`/curation/attributes/${detail.code}/meaning`),
           {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ classe: costClass }),
+            body: JSON.stringify({ changeRule }),
           },
         );
-        const corpo = await classe.json();
-        if (!classe.ok) {
-          throw new Error(corpo.error ?? "Falha ao gravar a classe de custo");
+        const corpo = await regra.json();
+        if (!regra.ok) {
+          throw new Error(corpo.error ?? "Falha ao gravar a regra de alteração");
         }
       }
       return body;
@@ -1498,7 +1501,7 @@ function ConfirmarInterpretacao({
               */
               previaDe={() =>
                 sinteticoEscolhido
-                  ? `Entra em ${sinteticoAtivo}. Dizer o que a coluna é não diz como ela se comporta — ` +
+                  ? `Entra em ${sinteticoAtivo}. Dizer o que a coluna é não diz o que a faz mudar — ` +
                     "isso é o campo abaixo, e é por atributo."
                   : "Entra como categoria nova, sob “Não classificado” — escolha a família acima " +
                     "para que ela nasça no lugar certo."
@@ -1509,29 +1512,29 @@ function ConfirmarInterpretacao({
             />
           </Field>
 
-          {/* A classe de custo fica **depois** da categoria e é outra pergunta:
-              a de cima diz o que o valor é, esta diz como ele se comporta. Era
-              uma só quando a árvore declarava a classe, e a mesma natureza não
-              cabia em dois lados por causa disso. */}
+          {/* A regra de alteração fica **depois** da categoria e é outra
+              pergunta: a de cima diz o que o valor é, esta diz o que o faz
+              mudar. Aqui ficava a classe de custo — fixo ou variável —, e a
+              troca não é de rótulo: o que quem cura sabe sobre uma coluna como
+              o IPVA é uma frase, e nenhuma das três opções guardava frase
+              nenhuma. */}
           <Field
-            label="Como este valor se comporta?"
-            hint="Custo fixo incide por ter o ativo; variável, só quando roda. É do atributo, não da categoria — a mesma natureza pode ser fixa num equipamento e variável em outro."
+            label="Regra de Alteração"
+            hint="O que faz esta coluna mudar de valor: revisão semestral, reajuste anual por índice, renegociação de tabela. Não é a fórmula do número de hoje — é o que faz a fórmula de hoje deixar de valer."
           >
-            <Select
-              value={costClass ?? ""}
-              onValueChange={(valor) => setCostClass(valor)}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Escolher o comportamento…" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="FIXO">Custo fixo</SelectItem>
-                <SelectItem value="VARIAVEL">Custo variável</SelectItem>
-                <SelectItem value="NAO_APLICAVEL">
-                  Não é custo — cadastro, direcionador ou receita
-                </SelectItem>
-              </SelectContent>
-            </Select>
+            <Textarea
+              value={changeRule}
+              onChange={(e) => setChangeRule(e.target.value)}
+              placeholder="Ex.: revisão semestral do percentual sobre o valor da nota de compra."
+              rows={2}
+            />
+            {/* A consequência da escrita, dita antes de confirmar — a mesma
+                honestidade do rodapé do card "Significado". É prosa: entra no
+                cadastro do atributo e não move `semantics_status`. */}
+            <p className="text-xs text-muted-foreground">
+              Texto livre, e não destrava cálculo: é o registro de por que este
+              número muda, para quem for ler a série depois.
+            </p>
           </Field>
         </div>
 

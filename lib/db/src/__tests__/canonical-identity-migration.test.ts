@@ -243,6 +243,7 @@ describe("0015 sobre um banco parado na 0014", () => {
       "0051_referencia_da_planilha",
       "0052_reconciliar_referencia_da_planilha",
       "0053_rastro_da_resposta",
+      "0054_regra_de_alteracao",
     ]);
 
     const linhas = await retrato(pool);

@@ -1,0 +1,23 @@
+-- A regra de alteração do atributo: o que faz esta coluna mudar de valor.
+--
+-- A terceira frase em prosa do atributo, e a que faltava. `definition` diz o
+-- que a coluna é; `calculation_basis` diz como o número é produzido hoje; esta
+-- diz o que faz esse número deixar de ser o que é — "revisão semestral",
+-- "reajusta por IPCA na virada do contrato", "muda quando a Ambev renegocia a
+-- tabela".
+--
+-- Texto livre pelo mesmo motivo de `calculation_basis`: o vocabulário das
+-- regras de reajuste é da operação do cliente, e uma lista fechada faria quem
+-- sabe a regra escolher a opção menos errada.
+--
+-- Em `attribute`, e não em `attribute_semantics`: é a regra da mudança, e não
+-- um valor que muda com ela. Na tabela versionada, toda coluna sem versão
+-- ficaria sem onde guardá-la — que é o beco de `calculation_basis`.
+--
+-- Anulável, e é uma resposta: `NULL` é "ninguém escreveu ainda", que é
+-- diferente de "não muda". Quem quiser afirmar a segunda escreve a frase.
+--
+-- `IF NOT EXISTS` porque a fila tem de ser reentrante: um banco que perdeu o
+-- registro de migrations reroda tudo, e uma migration que falha na segunda
+-- passagem trava a fila inteira num banco que já estava certo.
+ALTER TABLE "attribute" ADD COLUMN IF NOT EXISTS "change_rule" text;

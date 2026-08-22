@@ -248,8 +248,153 @@ export function fontesDaQuinzena(
   });
 }
 
-/** Como cada fonte se chama na tela, e o que ela responde. */
-export const DESCRICAO_DA_FONTE: Record<TipoDeFonte, { rotina: string; nome: string; papel: string }> = {
+/**
+ * De que lado da conferência uma fonte está.
+ *
+ * **A conferência do fechamento é entre dois lados que saem de arquivos
+ * diferentes.** É isso que lhe dá força: o devido é formado pelo cadastro e
+ * pelos relatórios da operação; o demonstrado é lido do 03.08.20. Dois
+ * documentos que ninguém escreveu olhando o outro chegando ao mesmo centavo é
+ * uma afirmação sobre a operação, e não sobre a leitura.
+ */
+export type LadoDaConferencia =
+  /** Forma o **devido** — junto do contrato, que não é arquivo. */
+  | "DEVIDO"
+  /** É o **demonstrado**: o que a Ambev declara que vai pagar. */
+  | "DEMONSTRADO"
+  /** Não entra na comparação: o faturamento e o fecho da quinzena. */
+  | "FATURAMENTO";
+
+/* ---------------------------------------------------------------------------
+   A classificação — declarada aqui, e não deduzida na tela
+   ------------------------------------------------------------------------ */
+
+/**
+ * Os relatórios que, **com o cadastro**, formam o valor devido.
+ *
+ * Nenhum deles é o contrato, e nenhum deles produz número sozinho. O que cada
+ * um traz:
+ *
+ * - `OPERACAO` (2Art) — a operação que alimenta a remuneração variável;
+ * - `DISPONIBILIDADE` (03.08.18) — o desconto de disponibilidade;
+ * - `REQUISICOES` (03.08.12.09) — outros custos e requisições de despesa.
+ *
+ * O cadastro entra por fora desta lista porque não chega por importação: ele
+ * traz as regras, as tarifas e os parâmetros. Ver `LADOS_DA_CONFERENCIA`, que é
+ * onde o grupo declara que depende dele.
+ *
+ * **É uma afirmação sobre a conta, e ela é conferível.** `matriz.ts` declara,
+ * linha a linha do `RESUMO GERAL`, de que fonte operacional o devido daquela
+ * linha sai — e `lados-da-conferencia.test.ts` confronta esta lista com aquela
+ * declaração. Uma fonte que entrasse aqui sem alimentar linha nenhuma, ou que
+ * passasse a alimentar sem entrar aqui, derruba o teste.
+ */
+export const FONTES_QUE_FORMAM_O_DEVIDO: readonly TipoDeFonte[] = [
+  "OPERACAO",
+  "DISPONIBILIDADE",
+  "REQUISICOES",
+];
+
+/**
+ * A fonte que demonstra o pagamento — uma só, e é o 03.08.20.
+ *
+ * **Ser uma só é o que sustenta a conferência.** O devido é confrontado contra
+ * ela; se um segundo documento entrasse deste lado, ou se ela passasse a ser
+ * também a origem do devido, a comparação começaria a concordar consigo mesma —
+ * que é exatamente o estado de que este módulo saiu, quando o painel era uma
+ * releitura do próprio demonstrativo.
+ *
+ * Duas linhas do resumo têm o devido lido dela (o desconto de devolução e o
+ * complementar negativo), e isso é sabido e medido: são as parcelas de classe
+ * `MESMA_FONTE`, que entram na precisão e **não** entram no lastro. Ver
+ * `ClasseDeLastro`, em `afericao.ts`.
+ */
+export const FONTE_QUE_DEMONSTRA_O_PAGAMENTO: TipoDeFonte = "PAGAMENTO";
+
+/**
+ * As fontes de faturamento e fechamento — as que **não** entram na comparação.
+ *
+ * - `CTE` (03.08.15) — o que foi faturado, verba a verba;
+ * - `CONCILIACAO` (03.02.59.02) — os ajustes e o fecho que atravessam a quinzena.
+ *
+ * **Não é sobra de classificação.** Nenhuma das duas aparece como fonte
+ * operacional de linha nenhuma do `RESUMO GERAL`: elas não formam devido e não
+ * demonstram pagamento. O 03.08.15 responde por um terceiro eixo — o emitido em
+ * CT-e, com linha própria no fecho — e o 03.02.59.02 traz dois ajustes
+ * nominais. Forçá-las para um dos lados diria que alimentam um confronto do
+ * qual não participam.
+ */
+export const FONTES_DE_FATURAMENTO: readonly TipoDeFonte[] = ["CTE", "CONCILIACAO"];
+
+/**
+ * De que lado uma fonte está — **derivado** das três listas acima.
+ *
+ * É função e não campo de propósito. Enquanto `lado` era um campo escrito à mão
+ * ao lado de cada fonte, ele podia divergir da lista sem nada acusar — duas
+ * declarações da mesma coisa, e a que a tela lia não era a que os testes
+ * prendiam. Derivando, a divergência deixa de ser possível.
+ */
+export function ladoDaFonte(tipo: TipoDeFonte): LadoDaConferencia {
+  if (tipo === FONTE_QUE_DEMONSTRA_O_PAGAMENTO) return "DEMONSTRADO";
+  if (FONTES_QUE_FORMAM_O_DEVIDO.includes(tipo)) return "DEVIDO";
+  return "FATURAMENTO";
+}
+
+/**
+ * Os três lados, na ordem em que a tela os empilha, com o texto que os explica.
+ *
+ * **O contrato aparece no primeiro, e ele não é arquivo.** É a razão de esta
+ * lista existir: uma competência com os três relatórios do devido importados e
+ * sem a aba do cadastro digitada não produz devido nenhum, e a tela de
+ * importação não tinha onde dizer isso — mostrava três vistos verdes e um
+ * painel vazio noutra tela. Ver `precisaDeContrato`.
+ */
+export const LADOS_DA_CONFERENCIA: {
+  lado: LadoDaConferencia;
+  titulo: string;
+  explica: string;
+  /** O grupo depende também do contrato, que não chega por importação. */
+  precisaDeContrato: boolean;
+}[] = [
+  {
+    lado: "DEVIDO",
+    titulo: "O que forma o valor devido",
+    explica:
+      "Nenhum destes é o contrato, e nenhum produz número sozinho — juntos é que formam o " +
+      "devido. O cadastro traz as regras, as tarifas e os parâmetros; o 2Art traz a operação " +
+      "que alimenta a remuneração variável; o 03.08.18, o desconto de disponibilidade; o " +
+      "03.08.12.09, outros custos e requisições de despesa.",
+    precisaDeContrato: true,
+  },
+  {
+    lado: "DEMONSTRADO",
+    titulo: "O que a Ambev demonstrou pagar",
+    explica:
+      "O outro lado da conferência, num arquivo só: é contra ele que o devido é confrontado. " +
+      "Vir de fonte independente é o que faz baterem significar alguma coisa.",
+    precisaDeContrato: false,
+  },
+  {
+    lado: "FATURAMENTO",
+    titulo: "Faturamento e fechamento",
+    explica:
+      "Não entram na comparação entre o devido e o demonstrado: o 03.08.15 é o que foi " +
+      "faturado em CT-e e o 03.02.59.02 traz os ajustes e o fecho que atravessam a quinzena.",
+    precisaDeContrato: false,
+  },
+];
+
+/**
+ * Como cada fonte se chama na tela e o que ela responde.
+ *
+ * **O lado da conferência não mora aqui** — ele é derivado por `ladoDaFonte`,
+ * das três listas acima. Enquanto era um campo escrito ao lado de cada fonte,
+ * havia duas declarações da mesma coisa e nada impedia que divergissem.
+ */
+export const DESCRICAO_DA_FONTE: Record<
+  TipoDeFonte,
+  { rotina: string; nome: string; papel: string }
+> = {
   OPERACAO: {
     rotina: "2Art",
     nome: "Relatório operacional",

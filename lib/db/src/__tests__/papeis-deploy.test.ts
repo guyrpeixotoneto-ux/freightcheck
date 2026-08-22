@@ -229,9 +229,10 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
       reprocessamento: elas dizem qual leitura um run releu e por quê.
       `assistant_message.trace` é da `0053`: o rastro de uma resposta do
       Assistente — de que unidade ela falava, o que foi consultado, o que a trava
-      podou. As quatro são aditivas e nulas, que é o que faz este diff
-      atravessável — o servidor novo aplica a fila na partida e Production as
-      ganha lá.
+      podou. `attribute.change_rule` é da `0054`: a regra pela qual aquela coluna
+      muda de valor, escrita por quem cura. As cinco são aditivas e nulas, que é
+      o que faz este diff atravessável — o servidor novo aplica a fila na partida
+      e Production as ganha lá.
 
       Prendê-las aqui é o ponto: uma coluna nova que apareça neste diff sem
       alguém ter vindo escrevê-la nesta linha é uma mudança de schema que
@@ -243,6 +244,7 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
         "import_run.reprocess_of_run_id",
         "import_run.reprocess_reason",
         "assistant_message.trace",
+        "attribute.change_rule",
         /*
           A coluna que a `0046` acrescentou a `fechamento_competencia` **não**
           entra aqui, e a ausência é a informação: o diff a reporta pela tabela,
@@ -306,6 +308,7 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
       "0051_referencia_da_planilha",
       "0052_reconciliar_referencia_da_planilha",
       "0053_rastro_da_resposta",
+      "0054_regra_de_alteracao",
     ]);
 
     // Preservação + backfill: as três contas continuam com o hash original e

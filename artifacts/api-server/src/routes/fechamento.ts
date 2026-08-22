@@ -5,6 +5,7 @@ import {
   abrirCompetencia,
   apurarCompetencia,
   buscarCompetencia,
+  TIPO_NAO_INFORMADO,
   descartarDadosDaCompetencia,
   excluirCompetencia,
   explicarPainelAusente,
@@ -20,6 +21,7 @@ import {
   listarApuracoes,
   listarCompetencias,
   listarDocumentos,
+  type CompetenciaRegistrada,
   listarPartes,
   receberDocumento,
   registrarParte,
@@ -30,7 +32,11 @@ import {
 } from "@workspace/fechamento/persistencia";
 import {
   AbaDoResumoNaoEncontrada,
+  CANAIS_COM_PAINEL,
+  ladoDaFonte,
+  LADOS_DA_CONFERENCIA,
   CelulaRecusada,
+  comoDestravar,
   DESCRICAO_DA_FONTE,
   resumoAferido,
   resumoComReferencia,
@@ -126,11 +132,30 @@ router.get("/fechamento/fontes", (_req, res): void => {
     TIPOS_DE_FONTE.map((tipo) => ({
       tipo,
       ...DESCRICAO_DA_FONTE[tipo],
+      /*
+        O lado é **derivado** das listas do domínio, e não copiado de um campo:
+        ver `ladoDaFonte`. É o que impede a tela de agrupar por uma classificação
+        que discorde do que o motor consome.
+      */
+      lado: ladoDaFonte(tipo),
       extensoes: FORMATOS_DA_FONTE[tipo],
       quinzenas: QUINZENAS_DA_FONTE[tipo],
       quinzenasOpcionais: QUINZENAS_OPCIONAIS_DA_FONTE[tipo],
     })),
   );
+});
+
+/**
+ * Os lados da conferência, com o texto que os explica.
+ *
+ * Rota própria, e não um campo dentro de `/fontes`, porque as duas respondem a
+ * perguntas diferentes — *que arquivos eu mando?* e *o que cada grupo deles
+ * sustenta?* — e três telas já consomem `/fontes` como lista. O texto vem do
+ * domínio (`LADOS_DA_CONFERENCIA`): quem muda o que um grupo significa muda num
+ * lugar só, e não na tela.
+ */
+router.get("/fechamento/lados", (_req, res): void => {
+  res.json(LADOS_DA_CONFERENCIA);
 });
 
 router.get("/fechamento/competencias", async (_req, res): Promise<void> => {
@@ -514,12 +539,52 @@ router.get("/fechamento/competencias/:id", async (req, res): Promise<void> => {
     res.status(404).json({ error: "Competência não encontrada." });
     return;
   }
-  const [documentos, apuracao] = await Promise.all([
+  const [documentos, apuracao, contrato] = await Promise.all([
     listarDocumentos(db, id),
     lerApuracaoVigente(db, id),
+    contratoDaCompetencia(competencia),
   ]);
-  res.json({ competencia, documentos, apuracao });
+  res.json({ competencia, documentos, apuracao, contrato });
 });
+
+/**
+ * Em que porta o cadastro desta quinzena parou — para a tela de importação.
+ *
+ * **Por que a tela de importação precisa disto.** Os relatórios do devido
+ * podem estar todos lá e o devido não sair, porque falta a quarta peça do
+ * grupo: o contrato. Ela não chega por importação — é digitada em Remuneração —
+ * e por isso não tinha linha nenhuma naquela tela. Uma competência real ficou
+ * com três vistos verdes e um painel vazio noutra tela, e ninguém tinha como
+ * ligar as duas coisas.
+ *
+ * **O texto vem pronto do domínio.** `comoDestravar` escreve o problema e o
+ * conserto, e é o mesmo que o Resumo e a Conciliação mostram — as três telas
+ * dizem a mesma coisa porque leem o mesmo campo, não porque alguém sincronizou
+ * três frases.
+ *
+ * Responde pelo canal que tem painel (`CANAIS_COM_PAINEL`): é dele que sai o
+ * devido, e perguntar pelos outros produziria um diagnóstico sobre um painel
+ * que não existe.
+ */
+async function contratoDaCompetencia(
+  competencia: CompetenciaRegistrada,
+): Promise<{ canal: Canal; estado: string; destrava: { problema: string; conserto: string } | null } | null> {
+  const canal = CANAIS_COM_PAINEL[0];
+  if (!canal || competencia.tipoDeOperacao === TIPO_NAO_INFORMADO) return null;
+
+  const { diagnostico } = await cadastroDaRemuneracao(db, {
+    tipoDeOperacao: competencia.tipoDeOperacao,
+  }).resolver({
+    unidadeId: competencia.unidadeId,
+    unidadeCodigo: competencia.unidade.codigo,
+    transportadoraCodigo: competencia.transportadora.codigo,
+    canal,
+    inicio: String(competencia.inicio),
+    fim: String(competencia.fim),
+  });
+
+  return { canal, estado: diagnostico.estado, destrava: comoDestravar(diagnostico) };
+}
 
 /**
  * O de-para: o painel da planilha preenchido com o 03.08.20 desta competência.

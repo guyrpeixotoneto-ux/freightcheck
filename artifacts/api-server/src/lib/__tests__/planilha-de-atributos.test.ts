@@ -42,6 +42,7 @@ const base: AtributoDoModelo[] = [
     semanticsStatus: "PRESUMED",
     displayName: "Seguro do cavalo",
     definition: null,
+    changeRule: null,
     taxonomyCode: null,
   },
   {
@@ -51,6 +52,7 @@ const base: AtributoDoModelo[] = [
     semanticsStatus: "PRESUMED",
     displayName: null,
     definition: "Preço unitário do pneu.",
+    changeRule: "Revisão semestral da tabela do fornecedor.",
     taxonomyCode: "cv_pneus",
   },
 ];
@@ -84,6 +86,7 @@ describe("o modelo de atributos", () => {
     // A aba é metade da chave: é ela que diz de que equipamento é a coluna.
     expect(pneu.aba).toBe("Carreta");
     expect(pneu.definition).toBe("Preço unitário do pneu.");
+    expect(pneu.changeRule).toBe("Revisão semestral da tabela do fornecedor.");
     // O que estava gravado sai escrito no arquivo — nas duas colunas —, e é o
     // que faz a volta ser um diff e não um preenchimento do zero.
     expect(pneu.categoriaSintetica).toBe("Custo Variável");

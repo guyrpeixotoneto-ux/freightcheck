@@ -127,11 +127,21 @@ export interface CompetenciaRegistrada extends Competencia {
   /**
    * A unidade canônica desta competência — `null` enquanto ninguém a afirmou.
    *
-   * Sai no registro porque é **estado da competência**, e não detalhe interno:
-   * sem ele, a única forma de a tela saber se o fechamento tem identidade era
-   * deduzir do diagnóstico do cadastro, que responde outra pergunta (qual porta
-   * fechou). Duas coisas diferentes lidas do mesmo campo divergem no primeiro
-   * estado novo. Ver `identidade-da-competencia.ts`.
+   * **É o que permite perguntar ao cadastro sem comparar texto.** As duas
+   * pontas apontando para o mesmo `unidade.id` é o único casamento que não pode
+   * errar; sem ele resta o plano B das competências históricas, que compara
+   * códigos escritos à mão. Quem lê a competência e vai resolver o contrato
+   * precisa dela — sem isto, duas telas perguntando pelo mesmo contrato podem
+   * receber respostas diferentes, uma pela identidade e outra pelo texto.
+   *
+   * Sai no registro também porque é **estado da competência**, e não detalhe
+   * interno: sem ele, a única forma de a tela saber se o fechamento tem
+   * identidade era deduzir do diagnóstico do cadastro, que responde outra
+   * pergunta (qual porta fechou).
+   *
+   * `null` nas abertas antes de a identidade existir e nas que ninguém
+   * associou — cada vez menos, desde que `identidade-da-competencia.ts` passou
+   * a escrevê-la em todo momento em que ela é afirmável.
    */
   unidadeId: string | null;
   transportadora: { codigo: string; nome: string | null };
@@ -491,7 +501,7 @@ function comoRegistrada(linha: typeof fechamentoCompetenciaTable.$inferSelect): 
     ...base,
     id: linha.id,
     unidade: { codigo: linha.unidadeCodigo, nome: linha.unidadeNome },
-    unidadeId: linha.unidadeId,
+    unidadeId: linha.unidadeId ?? null,
     transportadora: { codigo: linha.transportadoraCodigo, nome: linha.transportadoraNome },
     tipoDeOperacao: linha.tipoDeOperacao,
     estado: linha.estado,

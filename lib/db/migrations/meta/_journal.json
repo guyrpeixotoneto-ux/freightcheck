@@ -379,6 +379,13 @@
       "when": 1787406983033,
       "tag": "0053_rastro_da_resposta",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1787422404069,
+      "tag": "0054_regra_de_alteracao",
+      "breakpoints": true
     }
   ]
 }

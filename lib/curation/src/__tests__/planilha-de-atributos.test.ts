@@ -8,8 +8,8 @@ import {
 } from "../planilha-de-atributos";
 
 /**
- * A planilha de atributos tem quatro colunas, e as três promessas que este
- * arquivo guarda vêm justamente de ela ser tão curta:
+ * A planilha de atributos é curta — seis colunas —, e as três promessas que
+ * este arquivo guarda vêm justamente disso:
  *
  * 1. **A chave é o par aba + atributo.** Sem a coluna de código, é o nome de
  *    origem dentro da aba do equipamento que diz de que coluna a linha fala —
@@ -31,6 +31,7 @@ const base: AtributoDoModelo[] = [
     semanticsStatus: "PRESUMED",
     displayName: "Seguro do cavalo",
     definition: null,
+    changeRule: null,
     taxonomyCode: null,
   },
   {
@@ -40,6 +41,7 @@ const base: AtributoDoModelo[] = [
     semanticsStatus: "PRESUMED",
     displayName: null,
     definition: "Seguro contratado para o implemento.",
+    changeRule: "Revisão anual na renovação da apólice.",
     taxonomyCode: "cf_seguros",
   },
   {
@@ -49,6 +51,7 @@ const base: AtributoDoModelo[] = [
     semanticsStatus: "PRESUMED",
     displayName: null,
     definition: null,
+    changeRule: null,
     taxonomyCode: null,
   },
 ];
@@ -97,7 +100,21 @@ describe("montarLinhas", () => {
       definition: "Seguro contratado para o implemento.",
       categoriaSintetica: "Custo Fixo",
       categoriaAnalitica: "Seguros e tributos",
+      changeRule: "Revisão anual na renovação da apólice.",
     });
+  });
+
+  /*
+    O nome do campo é a chave da coluna, e não um apelido em português.
+
+    `aba.addRow(linha)` casa a linha com as colunas por `key`: um campo chamado
+    `regraDeAlteracao` ao lado de uma coluna chamada `changeRule` sairia do
+    arquivo como célula vazia, sem erro nenhum — e o defeito só apareceria em
+    quem abrisse o modelo e não encontrasse a frase que estava no banco.
+  */
+  it("escreve a regra de alteração na chave da coluna do arquivo", () => {
+    const [, carreta] = montarLinhas(base, catalogos);
+    expect(Object.keys(carreta)).toContain("changeRule");
   });
 
   it("escreve a categoria em nome de negócio, e não no caminho técnico", () => {
@@ -160,6 +177,67 @@ describe("conferirPreenchimento", () => {
     );
     expect(linhas[0]).toMatchObject({ desfecho: "AMBIGUO", code: null });
     expect(linhas[0].problemas[0]).toMatch(/CAVALO e CARRETA/);
+  });
+
+  /*
+    A regra de alteração é a sexta coluna, e o que este bloco fixa é que ela é
+    **prosa**: entra como o nome gerencial e o "o que é" entram, e pelas mesmas
+    regras. A diferença que importa é com a Categoria DRE — aquela é barrada em
+    atributo confirmado porque troca a linha da DRE em que o número cai; esta
+    passa, porque escrever por que o número muda não move dinheiro nenhum.
+  */
+  describe("a regra de alteração", () => {
+    it("entra como texto, do jeito que foi escrita", () => {
+      const { linhas } = conferirPreenchimento(
+        [linha({ changeRule: "Revisão semestral do percentual sobre a nota." })],
+        base,
+        catalogos,
+      );
+      expect(linhas[0]).toMatchObject({ code: "cavalo.seguro", desfecho: "MUDA" });
+      expect(linhas[0].mudancas).toEqual([
+        {
+          campo: "changeRule",
+          de: null,
+          para: "Revisão semestral do percentual sobre a nota.",
+        },
+      ]);
+    });
+
+    it("célula em branco não apaga a regra que já estava lá", () => {
+      const { linhas } = conferirPreenchimento(
+        [linha({ aba: "Carreta", changeRule: "   " })],
+        base,
+        catalogos,
+      );
+      expect(linhas[0]).toMatchObject({ code: "carreta.seguro", desfecho: "IGUAL" });
+      expect(linhas[0].mudancas).toEqual([]);
+    });
+
+    it("passa em atributo confirmado — prosa não move dinheiro", () => {
+      const confirmado: AtributoDoModelo[] = [
+        { ...base[0], semanticsStatus: "CONFIRMED", taxonomyCode: "cv_pneus" },
+      ];
+      const { linhas } = conferirPreenchimento(
+        [
+          linha({
+            changeRule: "Reajusta por IPCA na virada do contrato.",
+            categoriaAnalitica: "Seguros e tributos",
+          }),
+        ],
+        confirmado,
+        catalogos,
+      );
+      // A categoria é recusada, e só ela: trocá-la muda em que linha da DRE o
+      // valor cai, e isso é ato de tela, com assinatura.
+      expect(linhas[0].problemas[0]).toMatch(/já está confirmado/);
+      expect(linhas[0].mudancas).toEqual([
+        {
+          campo: "changeRule",
+          de: null,
+          para: "Reajusta por IPCA na virada do contrato.",
+        },
+      ]);
+    });
   });
 
   it("célula em branco não apaga o que está gravado", () => {
