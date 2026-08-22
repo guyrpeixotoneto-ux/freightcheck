@@ -211,9 +211,12 @@ export function FecharQuinzena({
   apuracao: Apuracao;
   /**
    * Os relatórios que **esta** quinzena pede — o denominador de "3 de 4
-   * relatórios". A primeira quinzena tem quatro e a segunda tem seis, então o
+   * relatórios". A primeira espera quatro e a segunda espera seis, então o
    * denominador vem recortado de fora (ver `fontesDaCompetencia`) em vez de ser
-   * o catálogo inteiro.
+   * o catálogo inteiro. É a lista das **esperadas**, e não a das casinhas de
+   * envio: o 03.08.12.09 opcional da primeira quinzena entra na fração quando
+   * chega, e não antes — contá-lo antes faria a quinzena completa dizer "4 de
+   * 5" para sempre.
    */
   fontes: Fonte[];
 }) {
