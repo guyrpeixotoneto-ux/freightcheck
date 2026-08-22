@@ -11,6 +11,8 @@ import {
   paramsDaTela,
   paramsDoEscopo,
   pluralEmMaiuscula,
+  rotuloDoTipo,
+  rotuloEmFrase,
   TELA_DO_EQUIPAMENTO,
   todosOsPlural,
   type EscopoDeFrota,
@@ -113,6 +115,29 @@ describe("os equipamentos", () => {
     expect(palavrasDoTipo(null).plural).toBe("ativos");
     expect(pluralEmMaiuscula("DOLLY")).toBe("DOLLY");
     expect(pluralEmMaiuscula("TRECHO")).toBe("Trechos");
+  });
+
+  /*
+    O tipo sem tela 360° que **a importação conhece** tem nome escrito, e é ele
+    que a pílula usa: `QLP_ADMINISTRATIVO` em caixa alta é o nome do banco
+    vazando para a tela. O plural não se inventa — um quadro de lotação não se
+    conta em peças.
+  */
+  it("escreve o tipo importado pelo nome que a importação lhe dá", () => {
+    expect(rotuloDoTipo("QLP_ADMINISTRATIVO")).toBe("QLP Administrativo");
+    expect(rotuloDoTipo("QLP_OPERACIONAL")).toBe("QLP Operacional");
+    expect(pluralEmMaiuscula("QLP_ADMINISTRATIVO")).toBe("QLP Administrativo");
+  });
+
+  /*
+    Dentro de uma frase — "Baixar modelo de …" — a palavra comum desce de caixa
+    e a sigla não. `rotuloDoTipo(...).toLowerCase()`, que era o que a chamada
+    fazia, escrevia "modelo de qlp administrativo".
+  */
+  it("baixa a caixa do nome comum na frase, e deixa a sigla em pé", () => {
+    expect(rotuloEmFrase("CAVALO")).toBe("cavalo");
+    expect(rotuloEmFrase("QLP_ADMINISTRATIVO")).toBe("QLP Administrativo");
+    expect(rotuloEmFrase("DOLLY")).toBe("DOLLY");
   });
 
   /*

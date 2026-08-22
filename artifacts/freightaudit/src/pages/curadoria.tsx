@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useSearch } from "wouter";
 import {
@@ -47,6 +47,8 @@ import {
 import { fetchJson, getApiUrl } from "@/lib/api";
 import {
   abasDeEquipamento,
+  enderecoDaAba,
+  equipamentoDoAtributo,
   estaDescrito,
   filtrarPorEquipamento,
   normalizarEquipamento,
@@ -309,24 +311,57 @@ export default function Curadoria() {
   }, [selected, queue, showConfirmed]);
 
   /*
-    E a aba segue o atributo, pela mesma razão e com o mesmo limite.
+    E a aba segue o atributo — **na chegada pelo link, e só nela.**
 
     Um link para `cavalo.ipva` aberto com a aba `Carreta` no endereço mostrava o
-    painel de um atributo que a lista ao lado não continha — a contradição que o
-    efeito acima já resolvia para o botão Pendentes. A aba anda uma vez, só
-    quando o atributo pedido é de outro equipamento; clicar numa aba com um
-    atributo aberto continua sendo escolha de quem clicou, e ela não se desfaz
-    sozinha.
+    painel de um atributo que a lista ao lado não continha: a contradição que o
+    efeito acima já resolvia para o botão Pendentes. A correção era mover a aba,
+    e ela custou caro em silêncio — como o efeito observava a aba junto com o
+    atributo, ele não distinguia "cheguei por um link torto" de "acabei de
+    clicar numa aba". Com um atributo de cavalo aberto, clicar em Carreta punha
+    `CARRETA` no endereço, o efeito lia o desencontro e escrevia `CAVALO` de
+    volta antes de a tela repintar. As abas Carreta, Trecho e QLP simplesmente
+    não selecionavam, sem erro nenhum, e a única que "funcionava" era a do
+    equipamento do atributo já aberto.
+
+    O `ref` é o que separa as duas situações. Ele guarda o atributo que já foi
+    conciliado; a conciliação acontece uma vez por atributo, na primeira vez em
+    que a fila contém o código pedido, e nunca mais. Clicar numa aba continua
+    sendo escolha de quem clicou — e quem clicou já não tem contradição para
+    ver, porque `escolherEquipamento` fecha o atributo que não pertence à aba
+    escolhida.
+
+    Enquanto a fila não chega, nada é marcado: `undefined` é "ainda não sei de
+    que equipamento este código é", e decidir por ausência de resposta
+    consumiria a única conciliação sem ter conciliado nada.
   */
+  const atributoConciliado = useRef<string | null>(null);
   useEffect(() => {
-    if (selected === null || equipamento === null) return;
-    const item = queue.find((i) => i.code === selected);
-    const tipo = item ? normalizarEquipamento(item.entityType) : null;
+    if (selected === null) {
+      atributoConciliado.current = null;
+      return;
+    }
+    if (atributoConciliado.current === selected) return;
+    const tipo = equipamentoDoAtributo(queue, selected);
+    if (tipo === undefined) return;
+    atributoConciliado.current = selected;
+    if (equipamento === null) return;
     if (tipo !== null && tipo !== equipamento) setEquipamento(tipo);
     /* `setEquipamento` fica fora das dependências de propósito: ele nasce a
        cada render, porque lê o endereço. O que este efeito observa é o
        endereço, que é o que ele escreve. */
   }, [selected, equipamento, queue]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /*
+    A outra metade da correção: trocar de aba fecha o atributo que não é dela.
+
+    É o que mantém a tela coerente sem desfazer o clique — a lista da esquerda
+    passa a ser de carreta, e o painel da direita não continua mostrando uma
+    coluna de cavalo que a lista não contém. A regra é `enderecoDaAba`, em
+    `lib/curadoria.ts`, com o resto do que responde em vez de pintar.
+  */
+  const escolherEquipamento = (tipo: string | null) =>
+    irPara(enderecoDaAba(queue, tipo, selected));
 
   /*
     Os números do topo falam da aba aberta.
@@ -397,7 +432,7 @@ export default function Curadoria() {
         <Tabs
           value={equipamento ?? TODOS}
           onValueChange={(valor) =>
-            setEquipamento(valor === TODOS ? null : valor)
+            escolherEquipamento(valor === TODOS ? null : valor)
           }
           className="mt-5"
         >
@@ -659,9 +694,9 @@ function FilaVazia({
         ? "Nenhum atributo importado nesta base."
         : "Nada aguardando confirmação — a fila está limpa."
       : colunasNaBase === 0
-        ? `Nenhuma coluna de ${rotulo} foi importada nesta base. O tipo de ` +
-          `equipamento vem do nome da aba da planilha: uma aba "${rotulo}" na ` +
-          `próxima importação abre esta fila sozinha.`
+        ? `Nenhuma coluna de ${rotulo} foi importada nesta base. O tipo é ` +
+          `declarado na tela de Importações: uma planilha enviada pela aba ` +
+          `"${rotulo}" de lá abre esta fila sozinha.`
         : mostrandoConfirmados
           ? `Nenhuma coluna de ${rotulo} nesta base.`
           : `Nada aguardando confirmação em ${rotulo}` +
