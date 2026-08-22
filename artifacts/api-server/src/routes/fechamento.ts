@@ -33,6 +33,7 @@ import {
 import {
   AbaDoResumoNaoEncontrada,
   CANAIS_COM_PAINEL,
+  ladoDaFonte,
   LADOS_DA_CONFERENCIA,
   CelulaRecusada,
   comoDestravar,
@@ -131,6 +132,12 @@ router.get("/fechamento/fontes", (_req, res): void => {
     TIPOS_DE_FONTE.map((tipo) => ({
       tipo,
       ...DESCRICAO_DA_FONTE[tipo],
+      /*
+        O lado é **derivado** das listas do domínio, e não copiado de um campo:
+        ver `ladoDaFonte`. É o que impede a tela de agrupar por uma classificação
+        que discorde do que o motor consome.
+      */
+      lado: ladoDaFonte(tipo),
       extensoes: FORMATOS_DA_FONTE[tipo],
       quinzenas: QUINZENAS_DA_FONTE[tipo],
       quinzenasOpcionais: QUINZENAS_OPCIONAIS_DA_FONTE[tipo],

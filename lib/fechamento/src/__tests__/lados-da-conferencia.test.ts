@@ -2,101 +2,165 @@ import { describe, expect, it } from "vitest";
 
 import {
   DESCRICAO_DA_FONTE,
+  FONTES_DE_FATURAMENTO,
+  FONTES_QUE_FORMAM_O_DEVIDO,
+  FONTE_QUE_DEMONSTRA_O_PAGAMENTO,
   LADOS_DA_CONFERENCIA,
+  ladoDaFonte,
   TIPOS_DE_FONTE,
   type LadoDaConferencia,
+  type TipoDeFonte,
 } from "../dominio";
+import { FONTES_OPERACIONAIS_DO_CATALOGO, FONTE_DO_DEMONSTRATIVO } from "../matriz";
 
 /**
- * DE QUE LADO DA CONFERÊNCIA CADA FONTE ESTÁ.
+ * O QUE FORMA O DEVIDO, O QUE DEMONSTRA O PAGAMENTO, E O QUE É SÓ FATURAMENTO.
  *
- * **O que este arquivo defende.** A força da conferência do fechamento vem de
- * os dois lados saírem de arquivos diferentes: o devido é derivado do contrato
- * e da operação, o demonstrado é lido do 03.08.20. Se uma fonte migrar de lado
- * sem que ninguém perceba, a tela passa a prometer uma independência que não
- * existe — e é exatamente o defeito de que este módulo saiu, quando o devido
- * era uma releitura do próprio demonstrativo.
+ * **Por que este arquivo existe, e por que ele confronta o motor.** A
+ * classificação nasceu como rótulo de tela: um campo `lado` escrito à mão ao
+ * lado de cada fonte, que nenhuma linha de cálculo consultava. Um rótulo assim
+ * pode divergir do que o motor faz sem nada acusar — e um agrupamento que
+ * promete "estes formam o devido" enquanto o motor usa outros é pior que
+ * nenhum agrupamento, porque é uma afirmação falsa com cara de estrutura.
  *
- * As asserções abaixo são sobre a **conta**, não sobre o layout: o agrupamento
- * da tela é consequência.
+ * As asserções abaixo confrontam a classificação com **a declaração do próprio
+ * motor**: `matriz.ts` nomeia, linha a linha do `RESUMO GERAL`, de que fonte
+ * operacional aquele devido sai. Uma fonte que mude de papel sem mudar de lista
+ * derruba este arquivo.
+ *
+ * **A força da conferência é o que está sendo protegido.** O devido é formado
+ * pelo cadastro e pelos relatórios da operação; o demonstrado é lido do
+ * 03.08.20. Os dois virem de documentos que ninguém escreveu olhando o outro é
+ * o que faz baterem significar alguma coisa — e é o estado de que este módulo
+ * saiu, quando o painel era uma releitura do próprio demonstrativo.
  */
-describe("cada fonte tem um lado, e o lado diz o que ela alimenta", () => {
-  it("as seis fontes estão classificadas", () => {
-    for (const tipo of TIPOS_DE_FONTE) {
-      expect(DESCRICAO_DA_FONTE[tipo].lado, `${tipo} sem lado`).toBeTruthy();
-    }
+
+/** As fontes de um lado, ordenadas — a asserção não depende da ordem do catálogo. */
+const doLado = (lado: LadoDaConferencia): TipoDeFonte[] =>
+  TIPOS_DE_FONTE.filter((t) => ladoDaFonte(t) === lado).sort();
+
+/** A rotina como quem opera a chama — `2Art`, `03.08.20`. */
+const rotina = (t: TipoDeFonte) => DESCRICAO_DA_FONTE[t].rotina;
+
+describe("a classificação das fontes é declarada, e não deduzida", () => {
+  it("as três listas cobrem as seis fontes, sem sobra e sem repetição", () => {
+    const classificadas = [
+      ...FONTES_QUE_FORMAM_O_DEVIDO,
+      FONTE_QUE_DEMONSTRA_O_PAGAMENTO,
+      ...FONTES_DE_FATURAMENTO,
+    ];
+    expect(new Set(classificadas).size, "fonte em duas listas").toBe(classificadas.length);
+    expect([...classificadas].sort()).toEqual([...TIPOS_DE_FONTE].sort());
   });
 
-  it("o devido sai do contrato mais a operação — três fontes", () => {
+  it("o lado é derivado das listas — não há um segundo lugar que o declare", () => {
     /*
-      2Art dá as viagens, 03.08.18 dá os dias, 03.08.12.09 dá as despesas
-      aprovadas. Nenhuma delas produz número sozinha: o contrato diz quanto vale
-      cada coisa, e é por isso que o grupo pede o cadastro junto.
+      A garantia estrutural: `ladoDaFonte` é a única resposta, e ela lê as três
+      listas. Enquanto `lado` era campo em `DESCRICAO_DA_FONTE`, havia duas
+      declarações e nada impedia que discordassem.
     */
-    expect(doLado("DEVIDO")).toEqual(["DISPONIBILIDADE", "OPERACAO", "REQUISICOES"]);
+    for (const t of FONTES_QUE_FORMAM_O_DEVIDO) expect(ladoDaFonte(t)).toBe("DEVIDO");
+    expect(ladoDaFonte(FONTE_QUE_DEMONSTRA_O_PAGAMENTO)).toBe("DEMONSTRADO");
+    for (const t of FONTES_DE_FATURAMENTO) expect(ladoDaFonte(t)).toBe("FATURAMENTO");
+    expect(DESCRICAO_DA_FONTE.OPERACAO).not.toHaveProperty("lado");
   });
 
-  it("o demonstrado é um arquivo só, e é o 03.08.20", () => {
+  it("o devido é formado por três relatórios — e nenhum deles é o contrato", () => {
+    expect(doLado("DEVIDO")).toEqual(["DISPONIBILIDADE", "OPERACAO", "REQUISICOES"]);
+    /* O cadastro não é fonte importável: entra pelo grupo, não pela lista. */
+    expect(LADOS_DA_CONFERENCIA.find((l) => l.lado === "DEVIDO")?.precisaDeContrato).toBe(true);
+  });
+
+  it("o demonstrado é um arquivo só, e é o mesmo que a matriz nomeia", () => {
     /*
-      A asserção que protege a inversão do motor. Se um dia uma segunda fonte
-      aparecer deste lado, ou o 03.08.20 aparecer do lado do devido, a
-      conferência deixa de ser entre documentos independentes — e passa a
-      concordar consigo mesma por construção.
+      A asserção que protege a inversão do motor. Se um segundo documento
+      entrasse deste lado, ou se este saísse, a conferência deixaria de ser
+      entre fontes independentes.
     */
     expect(doLado("DEMONSTRADO")).toEqual(["PAGAMENTO"]);
-    expect(DESCRICAO_DA_FONTE.PAGAMENTO.lado).toBe("DEMONSTRADO");
+    expect(rotina(FONTE_QUE_DEMONSTRA_O_PAGAMENTO)).toBe(FONTE_DO_DEMONSTRATIVO);
   });
 
-  it("o faturamento e o fecho não entram na comparação", () => {
-    /*
-      O 03.08.15 é o que foi emitido em CT-e — um terceiro eixo, com linha
-      própria no fecho — e o 03.02.59.02 traz os ajustes que atravessam a
-      quinzena. Empurrá-los para um dos lados diria que eles alimentam uma
-      comparação que eles não alimentam.
-    */
+  it("faturamento e fechamento são os dois que sobram", () => {
     expect(doLado("FATURAMENTO")).toEqual(["CONCILIACAO", "CTE"]);
   });
+});
 
-  it("só o grupo do devido pede contrato", () => {
+/**
+ * O confronto com o motor — o que tira a classificação do terreno visual.
+ */
+describe("a classificação bate com o que o motor declara consumir", () => {
+  it("toda fonte do devido alimenta pelo menos uma linha do RESUMO GERAL", () => {
     /*
-      É a razão de `precisaDeContrato` existir. O contrato não é arquivo — é
-      digitado em Remuneração — e sem ele os três relatórios do devido não
-      produzem número nenhum. Marcar outro grupo faria a tela pedir cadastro
-      para um lado que não depende dele.
-    */
-    const pedem = LADOS_DA_CONFERENCIA.filter((l) => l.precisaDeContrato).map((l) => l.lado);
-    expect(pedem).toEqual(["DEVIDO"]);
-  });
+      `FONTES_OPERACIONAIS_DO_CATALOGO` é a lista das procedências que as linhas
+      do resumo declaram. Uma fonte classificada como formadora do devido que
+      não aparecesse ali estaria prometendo alimentar uma conta que não a usa.
 
-  it("todo lado declarado tem fonte, e toda fonte tem lado declarado", () => {
-    /*
-      As duas pontas do mesmo contrato. Um lado sem fonte viraria um título
-      seguido de nada na tela; uma fonte com lado que a lista não declara
-      sumiria da tela sem ninguém notar — que é pior, porque é um relatório que
-      deixa de ser pedido.
+      O casamento é por rotina porque é assim que o catálogo escreve a
+      procedência — `2Art`, `03.08.18`, `03.08.12.09` —, e algumas entradas a
+      qualificam ("03.08.18 (mês inteiro) — conferido contra 03.08.20").
     */
-    const declarados = LADOS_DA_CONFERENCIA.map((l) => l.lado);
-    expect(new Set(declarados).size, "lado repetido na lista").toBe(declarados.length);
-    for (const lado of declarados) {
-      expect(doLado(lado).length, `${lado} sem fonte nenhuma`).toBeGreaterThan(0);
-    }
-    for (const tipo of TIPOS_DE_FONTE) {
-      expect(declarados, `${tipo} aponta para um lado não declarado`).toContain(
-        DESCRICAO_DA_FONTE[tipo].lado,
-      );
+    for (const t of FONTES_QUE_FORMAM_O_DEVIDO) {
+      const usada = FONTES_OPERACIONAIS_DO_CATALOGO.some((f) => f.includes(rotina(t)));
+      expect(usada, `${rotina(t)} está no devido e não alimenta linha nenhuma`).toBe(true);
     }
   });
 
-  it("cada lado tem título e explicação escritos", () => {
-    /* O texto é do domínio: a tela o mostra, e não o inventa. */
-    for (const l of LADOS_DA_CONFERENCIA) {
-      expect(l.titulo.length, `${l.lado} sem título`).toBeGreaterThan(0);
-      expect(l.explica.length, `${l.lado} sem explicação`).toBeGreaterThan(20);
+  it("a fonte do demonstrado também aparece — e é sabido por quê", () => {
+    /*
+      O 03.08.20 aparece como procedência de duas linhas: o desconto de
+      devolução e o complementar negativo têm o devido lido dele. Não é defeito
+      e não é acidente — é o que a aferição classifica como `MESMA_FONTE` e
+      exclui do lastro justamente por isso. O teste registra o fato para que ele
+      não seja lido como contradição da classificação.
+    */
+    const usada = FONTES_OPERACIONAIS_DO_CATALOGO.some((f) => f.includes(FONTE_DO_DEMONSTRATIVO));
+    expect(usada).toBe(true);
+  });
+
+  it("nenhuma fonte de faturamento aparece como procedência de linha nenhuma", () => {
+    /*
+      **É esta a asserção que prova que o terceiro grupo não é sobra.** O
+      03.08.15 e o 03.02.59.02 não formam devido e não demonstram pagamento: o
+      motor não os nomeia em linha alguma do `RESUMO GERAL`. Se um dia
+      passarem a alimentar uma linha, este teste cai — e a classificação terá
+      de mudar junto, em vez de continuar dizendo que eles estão de fora.
+    */
+    for (const t of FONTES_DE_FATURAMENTO) {
+      const usada = FONTES_OPERACIONAIS_DO_CATALOGO.some((f) => f.includes(rotina(t)));
+      expect(usada, `${rotina(t)} é de faturamento e alimenta uma linha do resumo`).toBe(false);
     }
   });
 });
 
-/** As fontes de um lado, ordenadas — para a asserção não depender da ordem do catálogo. */
-function doLado(lado: LadoDaConferencia): string[] {
-  return TIPOS_DE_FONTE.filter((t) => DESCRICAO_DA_FONTE[t].lado === lado).sort();
-}
+describe("o texto dos grupos vem do domínio", () => {
+  it("os três lados são declarados, na ordem, com título e explicação", () => {
+    expect(LADOS_DA_CONFERENCIA.map((l) => l.lado)).toEqual([
+      "DEVIDO",
+      "DEMONSTRADO",
+      "FATURAMENTO",
+    ]);
+    for (const l of LADOS_DA_CONFERENCIA) {
+      expect(l.titulo.length, `${l.lado} sem título`).toBeGreaterThan(0);
+      expect(l.explica.length, `${l.lado} sem explicação`).toBeGreaterThan(20);
+      expect(doLado(l.lado).length, `${l.lado} sem fonte nenhuma`).toBeGreaterThan(0);
+    }
+  });
+
+  it("o título do devido não atribui ao contrato o que os quatro formam juntos", () => {
+    /*
+      A correção que motivou esta revisão. "O que o contrato manda pagar" era
+      falso pela metade: o grupo tem o contrato **e** três relatórios, e é a
+      soma deles que forma o devido — o cadastro traz regras, tarifas e
+      parâmetros, e os relatórios trazem a operação.
+    */
+    const devido = LADOS_DA_CONFERENCIA.find((l) => l.lado === "DEVIDO")!;
+    expect(devido.titulo).toBe("O que forma o valor devido");
+    expect(devido.explica).toContain("nenhum produz número sozinho");
+  });
+
+  it("só o grupo do devido depende do contrato", () => {
+    const pedem = LADOS_DA_CONFERENCIA.filter((l) => l.precisaDeContrato).map((l) => l.lado);
+    expect(pedem).toEqual(["DEVIDO"]);
+  });
+});
