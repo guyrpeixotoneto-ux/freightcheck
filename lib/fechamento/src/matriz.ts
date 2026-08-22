@@ -982,6 +982,27 @@ export function procedenciaDoMotor(
  */
 export const FONTE_DO_DEMONSTRATIVO = DEMONSTRATIVO;
 
+/**
+ * As fontes operacionais que o catálogo de fato declara, sem repetição.
+ *
+ * **É a lista do que a conta consome, dita pela própria conta.** Cada entrada
+ * do `CATALOGO` nomeia de onde o devido daquela linha do `RESUMO GERAL` sai; o
+ * conjunto delas é, portanto, o inventário das fontes que participam do
+ * cálculo — e o complemento dele é o inventário das que não participam.
+ *
+ * Exposta para que a classificação das fontes em `dominio.ts`
+ * (`FONTES_QUE_FORMAM_O_DEVIDO`, `FONTES_DE_FATURAMENTO`) possa ser
+ * **confrontada** com o cálculo em vez de repetida ao lado dele. Sem isto a
+ * classificação era um rótulo de tela: nada quebrava se ela discordasse do que
+ * o motor faz. Ver `lados-da-conferencia.test.ts`.
+ *
+ * As entradas derivadas (`derivada — soma do quadro`) entram como estão: elas
+ * declaram que a linha não tem fonte própria, que é informação e não ruído.
+ */
+export const FONTES_OPERACIONAIS_DO_CATALOGO: readonly string[] = [
+  ...new Set(CATALOGO.map((l) => l.fonteOperacional)),
+];
+
 export const LINHAS_DO_RESUMO_GERAL = CATALOGO.length;
 
 const brl = (n: number | null) =>
