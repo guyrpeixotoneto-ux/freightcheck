@@ -143,7 +143,7 @@ function quinzenas(
       estado: recebidas === null ? null : "APURADA",
       apurada: recebidas !== null,
       temDemonstrativo: (recebidas ?? []).includes("PAGAMENTO"),
-      fontes: fontesDaQuinzena(n, recebidas),
+      fontes: fontesDaQuinzena(n, recebidas, [...(primeira ?? []), ...(segunda ?? [])]),
     };
   });
 }
@@ -380,11 +380,17 @@ describe("a aferição separa `não tenho dados` de `os dados não batem`", () =
     expect(a.aferibilidade.segunda.completude).toBe("INCOMPLETO");
     expect(a.aferibilidade.total.completude).toBe("INCOMPLETO");
 
-    /* As seis que a 2ª quinzena espera, nomeadas pela rotina e pela causa. */
+    /*
+      **Cinco, e não seis.** A 2ª quinzena espera as seis, mas o 03.08.18 é do
+      mês: ele chegou na 1ª e o motor o lê atravessando as duas competências, de
+      modo que ele **não falta** — cobrá-lo aqui mandaria reenviar um relatório
+      que o sistema já está usando. Ver `FONTES_DO_MES`.
+    */
     const faltam = a.aferibilidade.segunda.faltando;
     expect(faltam.map((f) => f.rotina).sort()).toEqual(
-      ["03.02.59.02", "03.08.12.09", "03.08.15", "03.08.18", "03.08.20", "2Art"].sort(),
+      ["03.02.59.02", "03.08.12.09", "03.08.15", "03.08.20", "2Art"].sort(),
     );
+    expect(faltam.map((f) => f.rotina)).not.toContain("03.08.18");
     expect(faltam.every((f) => f.quinzena === 2)).toBe(true);
     expect(faltam.every((f) => f.motivo === "QUINZENA_NAO_ABERTA")).toBe(true);
   });
@@ -462,5 +468,71 @@ describe("a aferição separa `não tenho dados` de `os dados não batem`", () =
     );
     expect(a.aferibilidade.total.completude).toBe("NAO_APLICAVEL");
     expect(a.aferibilidade.total.faltando).toEqual([]);
+  });
+});
+
+/**
+ * O 03.08.18 É DO MÊS — e cobrá-lo por quinzena inventava pendência.
+ *
+ * **O defeito, e como ele apareceu.** Alguém importou os seis relatórios na 2ª
+ * quinzena, viu "fechamento incompleto" e perguntou por quê. A resposta era um
+ * erro meu: a regra de completude perguntava "esta **competência** recebeu o
+ * 03.08.18?", quando `disponibilidadeDoMes` lê o relatório atravessando as duas
+ * — `inArray(competenciaId, …)` limitado por min(início) e max(fim). Um único
+ * arquivo serve o mês inteiro, e a quinzena que não o recebeu aparecia com
+ * pendência de um relatório que o sistema já estava usando.
+ *
+ * **Pendência falsa gasta o crédito das verdadeiras.** É o mesmo motivo por que
+ * `FONTES_DA_QUINZENA` não cobra a conciliação da 1ª quinzena: uma lista que
+ * pede o que não existe deixa de ser lida.
+ */
+describe("a fonte cujo conteúdo é do mês não é cobrada da quinzena", () => {
+  const rota = canalDaRota();
+  /* A 1ª quinzena com tudo **menos** o 03.08.18; a 2ª, com os seis. */
+  const SEM_DISPONIBILIDADE: TipoDeFonte[] = ["OPERACAO", "CTE", "PAGAMENTO"];
+
+  it("o 03.08.18 enviado só na 2ª quinzena satisfaz as duas", () => {
+    const fontes = fontesDaQuinzena(1, SEM_DISPONIBILIDADE, [...TIPOS_DE_FONTE]);
+    const disp = fontes.find((f) => f.tipo === "DISPONIBILIDADE")!;
+    expect(disp.escopo).toBe("MES");
+    expect(disp.estado).toBe("PRESENTE");
+  });
+
+  it("e o mês não fica incompleto por causa dele", () => {
+    const a = aferir(rota, quinzenas(SEM_DISPONIBILIDADE, [...TIPOS_DE_FONTE]));
+    expect(a.aferibilidade.total.completude).toBe("COMPLETO");
+    expect(a.aferibilidade.total.faltando).toEqual([]);
+    /*
+      A precisão volta a existir na coluna que o painel desta fixture tem — a 2ª.
+      A do mês continua nula aqui porque a fixture só monta uma quinzena, e a
+      diferença do total não é somável sem as duas: é a soma estrita fazendo o
+      que deve, e não a completude bloqueando.
+    */
+    expect(a.precisao.segunda).not.toBeNull();
+  });
+
+  it("mas o que é da quinzena continua sendo cobrado dela", () => {
+    /*
+      O contraprova: sem esta asserção, "olhar o mês" poderia ter virado "aceitar
+      qualquer coisa que chegou em qualquer lugar", e a lista de pendências
+      deixaria de existir. O 2Art é da quinzena e é cobrado da quinzena.
+    */
+    const semDiario: TipoDeFonte[] = ["CTE", "PAGAMENTO", "DISPONIBILIDADE"];
+    const fontes = fontesDaQuinzena(1, semDiario, [...TIPOS_DE_FONTE]);
+    const art = fontes.find((f) => f.tipo === "OPERACAO")!;
+    expect(art.escopo).toBe("QUINZENA");
+    expect(art.estado).toBe("AUSENTE");
+
+    const a = aferir(rota, quinzenas(semDiario, [...TIPOS_DE_FONTE]));
+    expect(a.aferibilidade.primeira.completude).toBe("INCOMPLETO");
+    expect(a.aferibilidade.primeira.faltando.map((f) => f.rotina)).toEqual(["2Art"]);
+  });
+
+  it("o mês inteiro sem 03.08.18 nenhum continua incompleto nas duas", () => {
+    /* Mensal não quer dizer dispensável: se não chegou em lugar nenhum, falta. */
+    const a = aferir(rota, quinzenas(SEM_DISPONIBILIDADE, ["OPERACAO", "CTE", "PAGAMENTO", "REQUISICOES", "CONCILIACAO"]));
+    const faltam = a.aferibilidade.total.faltando.filter((f) => f.rotina === "03.08.18");
+    expect(faltam).toHaveLength(2);
+    expect(faltam.map((f) => f.quinzena).sort()).toEqual([1, 2]);
   });
 });

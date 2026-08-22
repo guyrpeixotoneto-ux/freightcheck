@@ -174,6 +174,25 @@ export function fonteOpcionalNaQuinzena(quinzena: 1 | 2, tipo: TipoDeFonte): boo
 }
 
 /**
+ * As fontes cujo **conteúdo é do mês**, não da quinzena.
+ *
+ * O 03.08.18 é mensal: `disponibilidadeDoMes` soma as linhas das **duas**
+ * competências do mês (`inArray(competenciaId, …)`, limitado por min(início) e
+ * max(fim)), e o desconto inteiro entra no fechamento da 2ª quinzena. Um único
+ * arquivo enviado a qualquer uma das duas serve as duas.
+ *
+ * **Por isso ele não pode ser cobrado por competência.** Perguntar "esta
+ * quinzena recebeu o 03.08.18?" faz a quinzena que não recebeu o arquivo
+ * aparecer com pendência — e mandar reenviar um relatório que o sistema já
+ * está usando. É pendência falsa, e pendência falsa gasta o crédito das
+ * verdadeiras.
+ *
+ * A lista é curta de propósito: só entra aqui a fonte que o motor de fato lê
+ * atravessando as competências. Toda outra é da quinzena, e é cobrada dela.
+ */
+export const FONTES_DO_MES: TipoDeFonte[] = ["DISPONIBILIDADE"];
+
+/**
  * Em que estado uma fonte está, para uma quinzena — a distinção que faltava.
  *
  * **Três estados e não dois, porque "não veio" tem dois significados opostos.**
@@ -199,6 +218,13 @@ export interface FonteDaQuinzena {
   rotina: string;
   /** A quinzena a admite sem cobrar? Verdadeiro só no 03.08.12.09 da 1ª. */
   opcional: boolean;
+  /**
+   * O conteúdo dela é da quinzena ou do mês? Ver {@link FONTES_DO_MES}.
+   *
+   * A de escopo mensal é dada como presente quando chegou em **qualquer** das
+   * duas competências — que é como o motor a lê.
+   */
+  escopo: "QUINZENA" | "MES";
 }
 
 /**
@@ -218,22 +244,30 @@ export interface FonteDaQuinzena {
 export function fontesDaQuinzena(
   quinzena: 1 | 2,
   recebidas: readonly TipoDeFonte[] | null,
+  /**
+   * O que chegou em **qualquer** competência do mês.
+   *
+   * Só as fontes de {@link FONTES_DO_MES} o consultam — as outras são da
+   * quinzena e são cobradas dela. O padrão é a própria quinzena, para quem
+   * chama sem o mês não passar a achar que tudo é mensal.
+   */
+  recebidasNoMes: readonly TipoDeFonte[] = recebidas ?? [],
 ): FonteDaQuinzena[] {
-  const chegou = new Set(recebidas ?? []);
+  const naQuinzena = new Set(recebidas ?? []);
+  const noMes = new Set(recebidasNoMes);
   return TIPOS_DE_FONTE.map((tipo) => {
     const opcional = fonteOpcionalNaQuinzena(quinzena, tipo);
     const esperada = fonteEsperadaNaQuinzena(quinzena, tipo);
+    const escopo = FONTES_DO_MES.includes(tipo) ? ("MES" as const) : ("QUINZENA" as const);
     /*
       Presente é presente, mesmo fora da quinzena dela: a conta usa o que houver
       (ver a nota de `FONTES_DA_QUINZENA`), e um arquivo que chegou não pode
-      aparecer como falta só por ter chegado cedo.
+      aparecer como falta só por ter chegado cedo. Para a fonte mensal, "chegou"
+      é ter chegado no **mês** — é assim que o motor a lê.
     */
-    const estado: EstadoDaFonte = chegou.has(tipo)
-      ? "PRESENTE"
-      : esperada
-        ? "AUSENTE"
-        : "NAO_APLICAVEL";
-    return { tipo, quinzena, estado, rotina: DESCRICAO_DA_FONTE[tipo].rotina, opcional };
+    const chegou = escopo === "MES" ? noMes.has(tipo) : naQuinzena.has(tipo);
+    const estado: EstadoDaFonte = chegou ? "PRESENTE" : esperada ? "AUSENTE" : "NAO_APLICAVEL";
+    return { tipo, quinzena, estado, rotina: DESCRICAO_DA_FONTE[tipo].rotina, opcional, escopo };
   });
 }
 

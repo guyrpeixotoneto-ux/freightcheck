@@ -1305,6 +1305,11 @@ export function montarResumo(entrada: {
   const primeira = daQuinzena(1);
   const segunda = daQuinzena(2);
 
+  /* Tudo o que chegou no mês, de qualquer das duas — ver `FONTES_DO_MES`. */
+  const recebidasNoMes = [
+    ...new Set(entrada.quinzenas.flatMap((q) => q.fontesRecebidas ?? [])),
+  ];
+
   const valorDe = (q: QuinzenaApurada | null, escolher: (v: NonNullable<QuinzenaApurada["verbas"]>[number]) => number | null, filtro: (v: NonNullable<QuinzenaApurada["verbas"]>[number]) => boolean) => {
     if (!q?.verbas) return null;
     const alvos = q.verbas.filter(filtro);
@@ -1458,8 +1463,14 @@ export function montarResumo(entrada: {
         /*
           Sem competência, `fontesRecebidas` é `null` e tudo o que a quinzena
           espera sai como ausente — que é a verdade: a quinzena não foi aberta.
+
+          O terceiro argumento é o que chegou no **mês**, e existe por causa do
+          03.08.18: ele é mensal, o motor o lê atravessando as duas competências,
+          e um arquivo enviado só numa delas serve as duas. Sem isso, a quinzena
+          que não recebeu o arquivo aparecia com pendência falsa — mandando
+          reenviar um relatório que o sistema já estava usando.
         */
-        fontes: fontesDaQuinzena(n, q?.fontesRecebidas ?? null),
+        fontes: fontesDaQuinzena(n, q?.fontesRecebidas ?? null, recebidasNoMes),
       };
     }),
     canais: montados,
