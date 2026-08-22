@@ -12,6 +12,8 @@ import {
 } from "@workspace/db";
 import { conciliarIdentidadeDasCompetencias } from "@workspace/fechamento";
 
+import { conciliarIdentidadeDoCadastro } from "../lib/identidade-do-cadastro";
+
 /**
  * ADMINISTRAÇÃO → UNIDADES — o cadastro mestre, e o que ele **não** é.
  *
@@ -157,7 +159,21 @@ router.post("/unidades/canonicas", async (req, res): Promise<void> => {
       **é** esta unidade e lista as demais. Ver `identidade-da-competencia.ts`.
     */
     const conciliacao = await conciliarIdentidadeDasCompetencias(db);
-    res.status(201).json({ ...criada, conciliacao });
+    /*
+      E o mesmo do lado de Remuneração, na mesma passada e pela mesma razão.
+
+      Cadastrar a unidade canônica dá identidade à competência cujo código é o
+      CNPJ dela — e, com identidade, `resolverUnidade` para de comparar texto. Um
+      cadastro de Remuneração ainda sem `unidade_id` deixava de responder nesse
+      exato instante, sem que ninguém tivesse tocado no fechamento: o mês
+      passava de conferido a "sem cadastro" por causa de um cadastro feito noutra
+      tela. Conciliar os dois lados juntos é o que impede isso.
+
+      Aqui não há grafia afirmada — ninguém disse nada sobre texto nenhum —, e a
+      conciliação fica com a faixa do documento, que é aritmética.
+    */
+    const conciliacaoDoCadastro = await conciliarIdentidadeDoCadastro(db);
+    res.status(201).json({ ...criada, conciliacao, conciliacaoDoCadastro });
   } catch (erro) {
     if (erro instanceof CnpjJaCadastrado) {
       res.status(409).json({ error: erro.message, codigo: "CNPJ_JA_CADASTRADO" });

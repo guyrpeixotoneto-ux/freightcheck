@@ -4,6 +4,7 @@ import { varrerLeiturasOrfas } from "@workspace/ingest";
 import app from "./app";
 import { alertar } from "./lib/alerta";
 import { agendarBackups } from "./lib/backup-agendado";
+import { conciliarIdentidadeDoCadastro } from "./lib/identidade-do-cadastro";
 import { logger } from "./lib/logger";
 import {
   deveMigrarNaPartida,
@@ -195,6 +196,49 @@ async function applyMigrationsInBackground(): Promise<void> {
           semComando: reconvergencia.relatorio.semComando,
           falhas: reconvergencia.relatorio.falhas,
         },
+      });
+    }
+
+    /*
+      O PASSIVO DE IDENTIDADE DO CADASTRO — conciliado aqui, e não por SQL solto.
+
+      Os cadastros de Remuneração registrados antes da `0049` têm `unidade_id`
+      nulo, e desde que a competência passou a ter identidade eles deixaram de
+      ser encontrados: `resolverUnidade` não compara texto quando há identidade,
+      e nenhum caminho do produto escrevia aquele campo depois do `INSERT`. O
+      efeito era o devido sumir de um mês que estava fechado.
+
+      Roda pela **mesma função** que os dois atos humanos usam — não por uma
+      migration com a regra reescrita em SQL, que é como as duas versões da mesma
+      regra passam a divergir. Idempotente: num banco já conciliado devolve as
+      duas listas vazias e não escreve nada, e por isso pode rodar em toda
+      partida sem condição nenhuma em volta.
+    */
+    const doCadastro = await conciliarIdentidadeDoCadastro(db);
+    if (doCadastro.associadas.length > 0) {
+      logger.info(
+        { associadas: doCadastro.associadas.map((a) => ({ nome: a.nome, como: a.como })) },
+        "Cadastros de Remuneração que estavam sem identidade canônica foram conciliados.",
+      );
+    }
+    if (doCadastro.ambiguas.length > 0) {
+      /*
+        Ambíguo não é erro de código: são dois sinais determinísticos
+        discordando sobre a mesma linha, e quem decide é uma pessoa. Sai como
+        alerta porque, calado, o cadastro fica sem identidade e o mês dele
+        aparece sem devido — o mesmo sintoma, agora com causa nomeada.
+      */
+      logger.warn(
+        { ambiguas: doCadastro.ambiguas },
+        "Cadastros de Remuneração cuja identidade não pôde ser decidida sem escolher por " +
+          "alguém — a grafia afirmada e o CNPJ do código apontam para unidades diferentes.",
+      );
+      void alertar({
+        tipo: "IDENTIDADE_DO_CADASTRO_AMBIGUA",
+        resumo:
+          `${doCadastro.ambiguas.length} cadastro(s) de Remuneração com identidade ambígua — ` +
+          "ficam sem devido até alguém decidir.",
+        detalhe: { ambiguas: doCadastro.ambiguas },
       });
     }
   } catch (err) {

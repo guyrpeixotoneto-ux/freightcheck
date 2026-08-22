@@ -104,6 +104,34 @@ Um cadastro cujo declarado se afasta do medido é um sinal, não um erro.
 competência obrigaria a redigitar dezoito parâmetros a cada quinzena para dizer
 que nada mudou — e é assim que se erra um deles.
 
+### A identidade canônica vale para os dois lados
+
+Desde a `0049` a chave textual acima é o **plano B**. Quando existe unidade
+canônica, quem casa os dois lados é `unidade_id` — em
+`fechamento_competencia` e em `remuneracao_unidade` —, e `resolverUnidade`
+(em `cadastro-da-remuneracao.ts`) deixa de comparar texto assim que a
+competência tem identidade. A recusa é deliberada: era o casamento textual que
+fazia o contrato de uma unidade responder pelo fechamento de outra.
+
+O corolário é uma invariante, e ela já foi violada uma vez com custo alto: **a
+identidade tem de ser escrita nos dois lados, sempre no mesmo ato**. Enquanto
+só o Fechamento a recebia, associar uma unidade *derrubava* um cadastro que
+estava respondendo — o `comparado` sumia, a tela caía na releitura do 03.08.20,
+e o conserto que ela sugeria não existia como ato no produto.
+
+Quem mantém a invariante são duas funções irmãs, chamadas juntas em todo lugar
+onde a identidade passa a ser conhecida — associar uma competência, cadastrar a
+unidade canônica, e a partida do servidor:
+
+| Lado | Função | Onde |
+|---|---|---|
+| Fechamento | `conciliarIdentidadeDasCompetencias` | `identidade-da-competencia.ts` |
+| Remuneração | `conciliarIdentidadeDoCadastro` | `api-server/src/lib/identidade-do-cadastro.ts` |
+
+As duas só escrevem onde `unidade_id IS NULL`, casam apenas por critério
+determinístico — a grafia que uma pessoa afirmou, ou o documento — e, diante de
+sinais que discordam, não escolhem: listam a pendência.
+
 ## Vigência
 
 ```
