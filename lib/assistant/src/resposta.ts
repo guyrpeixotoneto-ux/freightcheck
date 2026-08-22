@@ -57,6 +57,14 @@ import {
 import { agenteLigado, evidenciasDaInvestigacao, investigar, type Investigacao } from "./agente";
 import { registroPadrao } from "./ferramentas/registro";
 import { montarRastro, type RastroDaResposta } from "./rastro";
+import {
+  derivacaoPorConsulta,
+  encadeamentosDe,
+  explicarEncadeamento,
+  preplanejadas,
+  quantosEncadeamentos,
+} from "./encadeamento";
+import { responderSustentacao, semRespostaAnterior } from "./sustentacao";
 import { SUGESTOES } from "./conhecimento";
 import { termos } from "./normalizar";
 import {
@@ -130,6 +138,12 @@ export interface Resposta {
       rodadas: number;
       consultas: number;
       parou: Investigacao["parou"];
+      /** Quantas consultas reagiram a um resultado anterior. Ver `encadeamento.ts`. */
+      encadeamentosReais: number;
+      /** Quantas foram decididas antes de qualquer resultado existir. */
+      preplanejadas: number;
+      /** Uma linha técnica por reação — o valor, de onde saiu e onde entrou. */
+      porqueEncadeou: string[];
       chamadas: {
         nome: string;
         argumentos: Record<string, unknown>;
@@ -140,6 +154,14 @@ export interface Resposta {
         derivaDe: number | null;
       }[];
     } | null;
+    /**
+     * A descida do caminho determinístico — cada passo com o que o motivou.
+     *
+     * No agente o encadeamento é inferido do log; aqui ele é **declarado** por
+     * quem escolheu a próxima consulta. Vazio é o estado normal: a maioria das
+     * perguntas se responde num nível só.
+     */
+    descida: { ferramenta: string; derivaDe: number | null; porque: string }[];
     /**
      * O rastro que explica esta resposta **depois** que ela aconteceu.
      *
@@ -751,30 +773,15 @@ export interface PerguntaOptions {
  * **A pergunta que isto responde.** "O agente investiga mais" não pode ser
  * provado contando consultas: dez buscas independentes disparadas de uma vez
  * são largura, não profundidade. O que separa investigar de consultar muito é
- * uma consulta cujo **argumento veio do resultado de outra** — "achei o grupo
- * mais crítico, agora abro ele". Essa é uma decisão tomada depois de ver o
- * dado, e é a única forma de encadeamento que se pode verificar sem perguntar
- * ao modelo o que ele quis dizer.
+ * uma consulta cujo **argumento veio do resultado de outra**.
  *
- * Devolve, para cada chamada, o índice da anterior cujo conteúdo continha um
- * dos argumentos dela — ou `null`. Valores curtos ficam de fora: um `5` de
- * `limite` casaria com qualquer resultado e transformaria a medida em ruído.
+ * A régua mora em `encadeamento.ts` e não aqui. A versão que vivia neste
+ * arquivo perguntava só "algum argumento aparece num resultado anterior?", e
+ * três coisas passavam: um leque pedido na **mesma rodada** (decidido antes de
+ * qualquer resultado), um valor que **quem perguntou escreveu**, e um valor que
+ * a investigação **já usava**. As três inflam o número na direção da meta, que
+ * é a forma mais cara de uma métrica errar.
  */
-function encadeamentoDe(chamadas: Investigacao["chamadas"]): (number | null)[] {
-  const textos = chamadas.map((c) => JSON.stringify(c.conteudo ?? null));
-
-  return chamadas.map((c, i) => {
-    const valores = Object.values(c.argumentos ?? {})
-      .filter((v): v is string | number => typeof v === "string" || typeof v === "number")
-      .map(String)
-      .filter((v) => v.length >= 4);
-
-    for (let j = i - 1; j >= 0; j--) {
-      if (valores.some((v) => textos[j]!.includes(v))) return j;
-    }
-    return null;
-  });
-}
 
 
 /**
@@ -875,7 +882,8 @@ function montarComAgente(
   pergunta: string,
 ): Resposta {
   const daFerramenta = evidenciasDaInvestigacao(investigacao);
-  const encadeamento = encadeamentoDe(investigacao.chamadas);
+  const cadeias = encadeamentosDe(investigacao.chamadas, pergunta);
+  const encadeamento = derivacaoPorConsulta(investigacao.chamadas.length, cadeias);
   /*
     O dossiê que a trava confere é o do agente: as evidências das ferramentas,
     e não as da orquestração. Somar as duas listas deixaria o modelo citar um
@@ -954,7 +962,18 @@ function montarComAgente(
     lacunas: dossie.lacunas,
     sugestoes: sugerir(dossie),
     desambiguacao: dossie.desambiguacao,
-    estado: avancarEstado(opcoes.estado ?? ESTADO_VAZIO, dossie),
+    estado: guardarSustentacao(avancarEstado(opcoes.estado ?? ESTADO_VAZIO, dossie), {
+      pergunta,
+      texto,
+      consultas: investigacao.chamadas.map(capacidadeExercida),
+      evidencias: daFerramenta.length,
+      encadeamentos: quantosEncadeamentos(cadeias),
+      lacunas: dossie.lacunas,
+      podadas: { removidas: frasesPodadas, total: frasesTotais },
+      redigiu: redacao,
+      recorte: recorteDoDossie(dossie),
+      vigencia: dossie.plano.periodo,
+    }),
     tecnico: {
       intencao: dossie.plano.intencao,
       porque: dossie.plano.porque,
@@ -966,10 +985,24 @@ function montarComAgente(
       */
       ferramentas: investigacao.chamadas.map(capacidadeExercida),
       numerosRecusados,
+      // O agente não usa a descida do planejador: o encadeamento dele é medido
+      // do log das chamadas, logo abaixo.
+      descida: [],
       agente: {
         rodadas: investigacao.rodadas,
         consultas: investigacao.chamadas.length,
         parou: investigacao.parou,
+        /*
+          Os dois números lado a lado, e nunca um só.
+
+          "Dez consultas" é a mesma frase para uma varredura larga e para uma
+          investigação funda; `encadeamentosReais` e `preplanejadas` separam as
+          duas, e a soma delas é o total. Publicar só o total é como este
+          relatório já mentiu uma vez.
+        */
+        encadeamentosReais: quantosEncadeamentos(cadeias),
+        preplanejadas: preplanejadas(investigacao.chamadas, cadeias),
+        porqueEncadeou: cadeias.map((c) => explicarEncadeamento(c, investigacao.chamadas)),
         chamadas: investigacao.chamadas.map((c, i) => ({
           nome: c.nome,
           argumentos: (c.argumentos ?? {}) as Record<string, unknown>,
@@ -1104,7 +1137,19 @@ export async function responder(
     ...(opcoes.aoAvancar ? { aoAvancar: opcoes.aoAvancar } : {}),
   });
 
-  const determinista = redacaoDeterministica(dossie);
+  /*
+    A meta-pergunta é interceptada antes de qualquer redação — e antes do
+    agente.
+
+    "Tem certeza?" é uma afirmação sobre a nossa própria máquina: o que ela
+    consultou, o que a trava podou, que lacuna foi declarada. Um modelo
+    redigindo isso descreveria de memória um processo que não observou, e a
+    versão mais convincente seria a menos verificável. É a mesma regra das
+    lacunas: o que o produto sabe de si, o produto escreve.
+  */
+  const meta = respostaDaMetaPergunta(dossie, opcoes);
+
+  const determinista = meta ?? redacaoDeterministica(dossie);
   let texto = determinista;
   let redacao: Resposta["redacao"] = "DETERMINISTICA";
   let numerosRecusados: string[] = [];
@@ -1120,7 +1165,7 @@ export async function responder(
   */
   let causa: CausaDaRedacao = opcoes.semIa ? "IA_DESLIGADA" : "SEM_CHAVE";
 
-  if (!opcoes.semIa && disponivel()) {
+  if (meta === null && !opcoes.semIa && disponivel()) {
     const pedido: PedidoDeRedacao = {
       pergunta,
       dossie,
@@ -1148,7 +1193,13 @@ export async function responder(
       da migração: um número só chega à tela se tiver voltado de uma consulta,
       e agora "consulta" inclui as que o modelo escolheu.
     */
-    if (opcoes.agente ?? agenteLigado()) {
+    if (meta === null && (opcoes.agente ?? agenteLigado())) {
+      /*
+        O que já voltou neste turno, para o cálculo derivado ter sobre o que
+        operar. Preenchido pelo `aoConsultar` do laço — ver `apurados`, logo
+        abaixo, e a regra do lastro em `calculo.ts`.
+      */
+      const colhidas: Evidencia[] = [];
       const investigacao = await investigar({
         pergunta,
         registro: registroPadrao(),
@@ -1196,8 +1247,25 @@ export async function responder(
                 }
               : {}),
           },
+          /*
+            O lastro dos operandos do cálculo — vivo, e não capturado.
+
+            A quarta consulta do laço pode compor números que a segunda
+            descobriu, e uma lista fixada aqui não os teria. `colhidas` é
+            preenchida pelo próprio laço; ler dela é ler o que já voltou neste
+            turno. As evidências da resposta **anterior** entram junto, porque
+            "quanto isso dá por ano?" fala do número do turno passado.
+          */
+          apurados: () => [...(opcoes.estado?.evidenciasAnteriores ?? []), ...colhidas],
         },
         ...(opcoes.historico?.length ? { historico: opcoes.historico } : {}),
+        /*
+          O que já foi apurado neste turno, à medida que é apurado. Ver
+          `apurados`, acima: é o lastro dos operandos do cálculo derivado.
+        */
+        aoColher: (c) => {
+          if (c.ok) colhidas.push(...c.evidencias);
+        },
         /*
           Os três canais de progresso, e por que os três precisam existir.
 
@@ -1312,7 +1380,18 @@ export async function responder(
     };
   }
 
-  const estado = avancarEstado(opcoes.estado ?? ESTADO_VAZIO, dossie);
+  const estado = guardarSustentacao(avancarEstado(opcoes.estado ?? ESTADO_VAZIO, dossie), {
+    pergunta: dossie.pergunta,
+    texto,
+    consultas: dossie.evidencias.map((e: Evidencia) => e.ferramenta),
+    evidencias: dossie.evidencias.length,
+    encadeamentos: dossie.encadeamentos.length,
+    lacunas: dossie.lacunas,
+    podadas: { removidas: frasesPodadas, total: frasesTotais },
+    redigiu: redacao,
+    recorte: recorteDoDossie(dossie),
+    vigencia: dossie.plano.periodo,
+  });
 
   const montada: Omit<Resposta, "rastro"> = {
     pergunta: dossie.pergunta,
@@ -1333,6 +1412,11 @@ export async function responder(
       herdado: dossie.plano.herdado,
       ferramentas: dossie.evidencias.map((e: Evidencia) => e.ferramenta),
       numerosRecusados,
+      descida: dossie.encadeamentos.map((p) => ({
+        ferramenta: p.ferramenta,
+        derivaDe: p.derivaDe,
+        porque: p.porque,
+      })),
       // O caminho determinístico não investiga: não há rodadas a relatar.
       agente: null,
       motor: explicarRedacao({
@@ -1360,6 +1444,67 @@ export async function responder(
     },
   };
   return { ...montada, rastro: rastroDe(dossie, montada) };
+}
+
+/**
+ * O que esta resposta deixa para trás, para a próxima poder auditá-la.
+ *
+ * Escrito uma vez e usado pelos dois caminhos: a meta-pergunta não pode
+ * funcionar só no planejador ou só no agente, porque a pessoa não sabe em qual
+ * dos dois está — e não deveria precisar saber.
+ */
+export function guardarSustentacao(
+  estado: EstadoDaConversa,
+  dados: {
+    pergunta: string;
+    texto: string;
+    consultas: string[];
+    evidencias: number;
+    encadeamentos: number;
+    lacunas: { explicacao: string }[];
+    podadas: { removidas: number; total: number };
+    redigiu: string;
+    recorte: string | null;
+    vigencia: string | null;
+  },
+): EstadoDaConversa {
+  return {
+    ...estado,
+    sustentacaoAnterior: {
+      pergunta: dados.pergunta,
+      conclusao: primeiraFrase(dados.texto),
+      consultas: dados.consultas,
+      evidencias: dados.evidencias,
+      encadeamentos: dados.encadeamentos,
+      lacunas: dados.lacunas.map((l) => l.explicacao),
+      podadas: dados.podadas,
+      redigiu: dados.redigiu,
+      recorte: dados.recorte,
+      vigencia: dados.vigencia,
+    },
+  };
+}
+
+/**
+ * A meta-pergunta, respondida em código a partir do rastro da anterior.
+ *
+ * **Por que ela intercepta antes de qualquer redação.** "Tem certeza?" é uma
+ * afirmação sobre a nossa própria máquina — o que ela consultou, o que a trava
+ * podou, que lacuna foi declarada. Um modelo redigindo isso estaria descrevendo
+ * de memória um processo que não observou, e a resposta mais convincente seria
+ * a menos verificável. É a mesma regra das lacunas.
+ *
+ * Devolve `null` quando a pergunta não é a meta-pergunta — e é assim que ela
+ * não muda mais nada no fluxo.
+ */
+function respostaDaMetaPergunta(
+  dossie: Dossie,
+  opcoes: PerguntaOptions,
+): string | null {
+  if (dossie.plano.intencao !== "SUSTENTACAO") return null;
+  const guardada = opcoes.estado?.sustentacaoAnterior ?? null;
+  if (!guardada) return semRespostaAnterior();
+  return responderSustentacao(guardada, opcoes.estado?.foco ?? null).texto;
 }
 
 /** As perguntas oferecidas quando não há conversa. */

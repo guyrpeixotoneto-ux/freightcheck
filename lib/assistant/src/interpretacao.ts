@@ -59,6 +59,31 @@ export type Intencao =
   | "VEICULOS"
   /** "por quê?", "de onde veio esse número" */
   | "PROCEDENCIA"
+  /**
+   * "tem certeza?", "como você sabe?", "qual a confiança nessa resposta?"
+   *
+   * A pergunta é sobre a **resposta anterior**, não sobre o assunto dela — e a
+   * diferença é a coisa toda. Sem esta intenção, "tem certeza?" não casava
+   * detector nenhum, caía no plano padrão e recebia o movimento da vigência:
+   * um resumo correto de outra coisa, entregue a quem duvidou de uma conclusão.
+   *
+   * Ela é vizinha de PROCEDENCIA e não é ela. "De onde saiu esse número?"
+   * pergunta pela **origem de um valor** e desce até a célula da planilha;
+   * "tem certeza?" pergunta pela **qualidade de uma conclusão** e abre o que a
+   * sustentou. As duas respostas se completam, e trocá-las responde a outra
+   * pergunta.
+   */
+  | "SUSTENTACAO"
+  /**
+   * "quanto isso dá por ano?", "que percentual isso representa?", "qual a média?"
+   *
+   * Pede uma grandeza **derivada** de números que já foram apurados. Não é
+   * VALOR (que consulta um número) nem COMPARACAO (que confronta duas
+   * vigências): é uma composição sobre o que já está em cima da mesa. Sem ela,
+   * a pergunta caía no plano padrão e recebia um agregado que não responde —
+   * ou, pior, seria respondida por uma conta do modelo.
+   */
+  | "CALCULO"
   /** "o que não conseguimos precificar", "semântica não confirmada" */
   | "SEM_PRECO"
   /** "o que o Book diz sobre X" */
@@ -106,6 +131,12 @@ export const INTENCOES_COM_RECORTE: ReadonlySet<Intencao> = new Set<Intencao>([
   "RANKING_GANHO",
   "VEICULOS",
   "PROCEDENCIA",
+  /*
+    O cálculo derivado precisa de recorte porque os valores que ele compõe são
+    de um recorte: compor o impacto de Camaçari com a base de Uberlândia daria
+    um percentual verdadeiro sobre nada.
+  */
+  "CALCULO",
   // O que não dá para precificar é uma propriedade de um recorte, não do
   // produto: a mesma coluna pode ter semântica confirmada numa unidade e
   // pendente noutra. Sem recorte, `semParaPrecificar` não roda — e foi
@@ -161,6 +192,11 @@ export const INTENCOES_QUE_HERDAM_ASSUNTO: ReadonlySet<Intencao> = new Set<Inten
   "MOVIMENTO",
   "VEICULOS",
   "PROCEDENCIA",
+  /*
+    "Quanto isso dá por ano?" herda o assunto por definição: o "isso" é o que
+    se estava discutindo. É a intenção mais dependente do fio de todas.
+  */
+  "CALCULO",
   "BOOK",
 ]);
 
@@ -220,6 +256,23 @@ export interface Leitura {
   entidades: Entidades;
   /** A frase depende da anterior para significar algo. */
   continuacao: boolean;
+  /**
+   * A pergunta quer **a razão** de alguma coisa — e não a coisa.
+   *
+   * **Por que este campo existe separado da intenção.** A intenção é decidida
+   * por um conjunto de detectores de conteúdo, e o conteúdo de uma pergunta
+   * causal é o mesmo de uma descritiva: "por que a remuneração caiu?" e "quanto
+   * a remuneração caiu?" casam o mesmo detector de movimento, e a primeira
+   * perdia a leitura causal por completo — a intenção virava MOVIMENTO e a
+   * resposta era o agregado da vigência. Verdadeiro, e não é a resposta: a
+   * resposta é qual grupo puxou, em quais veículos, e de onde veio.
+   *
+   * Aqui a causalidade é lida da **forma** da pergunta, que é uma coisa que
+   * nenhum detector de conteúdo pode ver, e ela não disputa com a intenção —
+   * ela se soma a ela. É o que decide se a orquestração desce (ver
+   * `aprofundar.ts`), sem mexer no que a resposta se chama.
+   */
+  pedeCausa: boolean;
   /** O padrão que decidiu — vai para o painel técnico, não para a resposta. */
   porque: string;
 }
@@ -471,6 +524,7 @@ export function interpretar(pergunta: string): Leitura {
     return {
       intencao: "SAUDACAO",
       continuacao: false,
+      pedeCausa: false,
       porque: "é conversa, não consulta",
       entidades: {
         assuntoCandidato: null,
@@ -576,6 +630,7 @@ export function interpretar(pergunta: string): Leitura {
   return {
     intencao,
     continuacao,
+    pedeCausa: pedeCausa(frase),
     porque,
     entidades: {
       assuntoCandidato,
@@ -585,6 +640,29 @@ export function interpretar(pergunta: string): Leitura {
       paginacao: lerPaginacao(frase),
     },
   };
+}
+
+/**
+ * O vocabulário da causalidade — e por que ele é curto.
+ *
+ * Três formas, e as três são categorias linguísticas, não perguntas: a
+ * interrogativa de razão (`por que`), o substantivo de causa (`causa`,
+ * `motivo`, `razão`) e o verbo de explicação (`explica`, `causou`, `puxou`,
+ * `provocou`). Nada aqui casa uma pergunta do benchmark em particular, e
+ * acrescentar um sinônimo não faz nenhuma passar a passar por conta disso —
+ * o que este campo liga é a **descida**, e a descida só produz resposta quando
+ * o dado sustenta cada passo.
+ *
+ * Deliberadamente fora: "qual o maior", "o que mais pesou", "principal". Elas
+ * pedem uma **ordenação**, que o plano já sabe fazer com RANKING, e tratá-las
+ * como causais faria toda pergunta executiva descer três níveis para responder
+ * "qual o maior?".
+ */
+const CAUSALIDADE =
+  /^(por que|porque|por qu)\b|\b(qual (foi )?(a|o) (principal )?(causa|motivo|razao)|o que (causou|explica|explicam|provocou|puxou|derrubou)|que explica\w*|a que se deve|motivo (da|do|de)|razao (da|do|de))\b/;
+
+function pedeCausa(frase: string): boolean {
+  return CAUSALIDADE.test(frase);
 }
 
 /**

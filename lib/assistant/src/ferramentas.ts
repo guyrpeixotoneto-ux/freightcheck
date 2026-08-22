@@ -141,6 +141,19 @@ export interface Evidencia {
    * agregado não descobriu assunto nenhum; ela descreveu o conjunto.
    */
   assuntoEmDestaque?: string;
+  /**
+   * A referência **estruturada** do que esta consulta abriu — para a próxima usar.
+   *
+   * `assuntoEmDestaque` é o rótulo gerencial ("Consumo negociado cavalo"), e é
+   * o que entra na prosa. Ele não serve como argumento: a consulta seguinte
+   * precisa do código do atributo e do tipo de ativo, e derivar um do outro
+   * exigiria uma busca por nome — que é justamente onde um rename da curadoria
+   * quebraria a conversa em silêncio.
+   *
+   * É este campo que faz o foco da conversa ser uma referência e não um texto.
+   * Ver `foco.ts` e `aprofundar.ts`.
+   */
+  alvoDaDescida?: { codigo: string; equipamento: string; rotulo: string };
 }
 
 export interface ContextoResolvido {
@@ -1068,6 +1081,7 @@ export async function veiculosDoGrupo(
 
   return {
     ferramenta: "veiculosDoGrupo",
+    alvoDaDescida: { codigo, equipamento, rotulo: codigo },
     titulo: `Veículos com alteração em ${codigo}`,
     fatos: veiculos.slice(0, 10).map((v) => ({
       rotulo: v.plate ?? "(sem placa)",

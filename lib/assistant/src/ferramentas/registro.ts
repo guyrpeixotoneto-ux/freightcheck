@@ -44,6 +44,7 @@
 import type { Database } from "@workspace/db";
 import type { Evidencia } from "../ferramentas";
 import { alteracoes } from "./alteracoes";
+import { calculo } from "./calculo";
 import { CATALOGO } from "./catalogo";
 
 // ── O esquema dos argumentos ────────────────────────────────────────────────
@@ -229,6 +230,16 @@ export interface ContextoDaFerramenta {
    * *esquecer*: omitir o argumento mantém o filtro do fio, em vez de voltar em
    * silêncio para a frota inteira.
    */
+  /**
+   * O que **esta conversa** já apurou — o lastro dos operandos do cálculo.
+   *
+   * Uma função, e não uma lista, porque o conjunto cresce dentro do turno: a
+   * quarta consulta do agente pode compor números que a segunda descobriu, e
+   * uma lista capturada no início do laço não os teria. Entregue pelo executor
+   * pelo mesmo motivo que o recorte: um lastro que o modelo declarasse por
+   * argumento seria o mesmo que não ter lastro.
+   */
+  apurados?: (() => Evidencia[]) | undefined;
   filtros?:
     | {
         equipamento?: "CAVALO" | "CARRETA" | null | undefined;
@@ -313,6 +324,19 @@ export interface ChamadaDeFerramenta {
   nome: string;
   /** Os argumentos como o modelo os mandou — antes da validação. */
   argumentos: unknown;
+  /**
+   * Em que ida ao modelo esta consulta foi pedida.
+   *
+   * Sem este campo, duas consultas pedidas no **mesmo** `tool_use` — decididas
+   * juntas, antes de qualquer resultado existir — são indistinguíveis de uma
+   * que reagiu à outra. A métrica de encadeamento lê exatamente isto para não
+   * relatar largura pré-planejada como profundidade; ver `encadeamento.ts`.
+   *
+   * `undefined` fora do laço do agente: quem executa uma ferramenta direto (um
+   * teste, o aprofundamento determinístico) não tem rodada, e a ordem da lista
+   * é o que resta.
+   */
+  rodada?: number | undefined;
   ok: boolean;
   ms: number;
   /** O que o modelo recebe de volta. Em falha, é a explicação da falha. */
@@ -335,11 +359,13 @@ export async function executar(
   nome: string,
   argumentos: unknown,
   ctx: ContextoDaFerramenta,
+  rodada?: number,
 ): Promise<ChamadaDeFerramenta> {
   const comecou = Date.now();
   const falha = (erro: string, conteudo: unknown): ChamadaDeFerramenta => ({
     nome,
     argumentos,
+    ...(rodada === undefined ? {} : { rodada }),
     ok: false,
     ms: Date.now() - comecou,
     conteudo,
@@ -373,6 +399,7 @@ export async function executar(
     return {
       nome,
       argumentos,
+      ...(rodada === undefined ? {} : { rodada }),
       ok: true,
       ms: Date.now() - comecou,
       conteudo: saida.conteudo,
@@ -416,7 +443,7 @@ export function evidenciasDe(chamadas: ChamadaDeFerramenta[]): Evidencia[] {
  * modelo lê na lista de ferramentas.
  */
 export function registroPadrao(): Registro {
-  const registro = new Registro().registrar(alteracoes);
+  const registro = new Registro().registrar(alteracoes).registrar(calculo);
   for (const ferramenta of CATALOGO) registro.registrar(ferramenta);
   return registro;
 }

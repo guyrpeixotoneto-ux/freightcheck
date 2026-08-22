@@ -106,8 +106,57 @@ const casa = (d: Detector, frase: string): boolean =>
 const DETECTORES: Detector[] = [
   {
     necessidade: "PROCEDENCIA",
-    quando: /\b(de onde ve(io|m)|qual a (fonte|origem|procedencia)|onde (esta|ta) escrito|me mostre? a fonte|como voce sabe|por que(m)? (isso|isto|esse|essa))\b/,
+    quando: /\b(de onde ve(io|m)|de onde (saiu|sai)|qual a (fonte|origem|procedencia)|onde (esta|ta) escrito|me mostre? a fonte|por que(m)? (isso|isto|esse|essa))\b/,
     porque: "pede a origem de uma afirmação",
+  },
+  /*
+    A meta-pergunta. Ela é sobre a **resposta anterior**, e o vocabulário aqui é
+    o de quem duvida de uma conclusão — não o de quem pede um número.
+
+    `de onde tirou` e `como voce sabe` moram aqui e não em PROCEDENCIA de
+    propósito: os dois perguntam pelo **fundamento da afirmação**, e quem
+    pergunta pela origem de um valor escreve "de onde saiu esse número". A
+    resposta da sustentação termina oferecendo a descida até a planilha, então
+    quem quis a origem chega lá pelo passo seguinte — e quem quis saber se pode
+    confiar recebe o que perguntou.
+  */
+  {
+    necessidade: "SUSTENTACAO",
+    quando:
+      /\b(tem certeza|voce tem certeza|certeza disso|confirma|voce confirma|tem confianca|qual (a|e a) confianca|quao (confiavel|seguro)|como voce sabe|como sabe disso|de onde (voce )?tirou|isso (e|esta) (certo|correto)|posso confiar|da para confiar|isso procede|voce garante)\b/,
+    /*
+      **Dúvida com uma afirmação rival não é a meta-pergunta.**
+
+      "Tem certeza?" pede a qualidade da conclusão anterior. "Confirma que o
+      impacto de agosto foi de R$ 50 mil?" traz um número que não saiu de
+      consulta nenhuma e pede que ele seja confirmado — e a única resposta
+      honesta a isso é **consultar** e dizer qual é o número apurado. Tratá-la
+      como meta-pergunta devolveria uma auditoria da resposta anterior a quem
+      pediu a verificação de um valor, e o valor falso ficaria sem contestação.
+
+      A fronteira é a presença da proposição: `certeza que…`, `confirma que…`,
+      ou uma quantia escrita na própria pergunta. As duas formas declaram que há
+      algo **externo** a conferir; a dúvida nua não declara nada além da dúvida.
+    */
+    exceto:
+      /\b(certeza (de )?que|confirma (me )?que|garante que|procede que)\b|r\$\s*\d|\b\d[\d.,]*\s*(mil|milh(ao|oes))?\s*reais\b/,
+    porque: "pergunta sobre a qualidade da resposta anterior, não sobre o assunto",
+  },
+  /*
+    O cálculo derivado.
+
+    O vocabulário é o da composição — por ano, percentual, média, diferença,
+    projeção — e a exceção existe porque duas dessas palavras também aparecem
+    em perguntas de consulta. "Qual a média de consumo negociado?" pede um
+    parâmetro, não uma composição; "quanto foi a diferença entre julho e
+    agosto?" é comparação de vigências, e o motor já a apura.
+  */
+  {
+    necessidade: "CALCULO",
+    quando:
+      /\b(por ano|anualiz\w*|ao ano|em (12|doze) meses|se continuar assim|se (isso|isso se) (mantiver|manter|repetir)|projet\w*|extrapol\w*)\b|\bqu(al|e) (o |a )?(percentual|porcentagem|proporcao|fracao)\b|\bquantos? por cento\b|\brepresenta (quanto|que percentual|quantos? por cento)\b|\bqual (a )?media\b|\bem media\b|\bdiferenca percentual\b|\bvariacao percentual\b/,
+    exceto: /\bmedia (de|do|da) \w+ (negociad|contratad|praticad)/,
+    porque: "pede uma grandeza derivada de números já apurados",
   },
   {
     necessidade: "SEM_PRECO",
@@ -386,7 +435,21 @@ export interface EntradaDoPlano {
  */
 const ORDEM: Necessidade[] = [
   "SAUDACAO",
+  /*
+    A meta-pergunta vem antes de tudo, e não por importância: por **objeto**.
+    "Tem certeza?" não fala do assunto da conversa, fala da resposta anterior.
+    Deixá-la disputar posição com as necessidades de dado faria uma frase que
+    também menciona um parâmetro ser respondida sobre o parâmetro — que é a
+    pergunta que ela não fez.
+  */
+  "SUSTENTACAO",
   "PROCEDENCIA",
+  /*
+    O cálculo derivado também é sobre o que já se disse, e por isso vem cedo.
+    "Quanto isso dá por ano?" cita um período e casaria detectores de dado; o
+    que ela pede é a composição, e o dado dela já está na conversa.
+  */
+  "CALCULO",
   "BALANCO", "IMPORTACOES", "CELULAS",
   "PANORAMA", "CATALOGO_DE_CONTEXTO",
   /*

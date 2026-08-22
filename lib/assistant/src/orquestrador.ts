@@ -84,6 +84,20 @@ import { normalizar, termos } from "./normalizar";
 import { resolverParametro, type Alvo, type Resolucao } from "./parametros";
 import { listContexts, listPeriods, type ContextInfo, type SeriesContext } from "@workspace/comparison";
 import { rotuloDoPeriodo } from "./formato";
+import { descer, type Fundo, type PassoDaDescida } from "./aprofundar";
+import {
+  calcular,
+  evidenciaDoCalculo,
+  grandezasApuradas,
+  operacaoDaFrase,
+  operandosDoFio,
+  type ResultadoDoCalculo,
+} from "./calculo";
+import {
+  afirmacoesSemLastro,
+  autorizacoesDoTexto,
+  type Autorizacoes,
+} from "./lastro";
 import type { EstadoDaConversa } from "./conversa";
 import {
   comoSePediu,
@@ -95,6 +109,35 @@ import {
 } from "./recorte";
 
 // ── As quatro formas de não saber ───────────────────────────────────────────
+
+/**
+ * As necessidades cuja pergunta é **por quê** — e não **quanto**.
+ *
+ * É esta lista que decide se a orquestração desce até a causa. Ela é curta de
+ * propósito: descer custa três consultas, e a maioria das perguntas deste
+ * produto se responde num nível só. Uma necessidade a mais aqui é uma
+ * afirmação sobre o domínio ("esta pergunta pede causa"), não um ajuste de
+ * cobertura.
+ */
+/**
+ * Os focos que significam "a conversa já está dentro de uma investigação".
+ *
+ * Um grupo ou um veículo em foco quer dizer que a descida já aconteceu e que a
+ * pergunta seguinte, se não nomear outro assunto, continua dentro dela. O
+ * recorte inteiro **não** entra: estar falando da vigência é o estado normal, e
+ * tratá-lo como investigação aberta faria toda pergunta descer.
+ */
+const DENTRO_DA_DESCIDA: ReadonlySet<string> = new Set(["GRUPO", "VEICULO"]);
+
+/** As necessidades que operam sobre o já apurado — elas nunca disparam a descida. */
+const SEM_DESCIDA: ReadonlySet<string> = new Set(["CALCULO", "SUSTENTACAO"]);
+
+const CAUSAIS: ReadonlySet<string> = new Set([
+  "PROCEDENCIA",
+  "RANKING_PERDA",
+  "RANKING_GANHO",
+  "ATENCAO",
+]);
 
 export type TipoDeLacuna =
   /** A busca não trouxe nada — pode existir e não termos achado. */
@@ -208,6 +251,19 @@ export interface Dossie {
   etapas: Etapa[];
   /** Quando a pergunta casa duas gavetas e o assistente precisa perguntar. */
   desambiguacao: { termo: string; opcoes: string[] } | null;
+  /**
+   * A descida que **reagiu ao dado** — e não a largura que foi decidida antes.
+   *
+   * Cada passo aqui teve um argumento que não existia antes de o passo anterior
+   * voltar: o código do parâmetro veio do grupo que mais pesou, a placa veio das
+   * linhas daquele grupo, a célula veio daquela placa. É a diferença entre
+   * investigar e consultar muito, medida em vez de afirmada — ver
+   * `encadeamento.ts` e `aprofundar.ts`.
+   *
+   * Vazio é o estado normal: a maioria das perguntas se responde sem descer, e
+   * descer sempre seria a mesma largura pré-planejada com outro nome.
+   */
+  encadeamentos: PassoDaDescida[];
   /**
    * O `scopeHash` que a tela mandou neste turno — `null` quando ela não mandou.
    *
@@ -912,6 +968,44 @@ export async function orquestrar(
   const periodoEfetivo = plano.periodo ?? undefined;
 
   /*
+    ---- o cálculo derivado, sobre o que a conversa já apurou ------------------
+
+    Ele roda antes do laço porque não depende de nenhuma consulta desta
+    pergunta: os operandos são o **foco** da conversa e a base que a resposta
+    anterior trouxe. Ver `foco.ts` e `calculo.ts`.
+
+    **Nada aqui é calculado pelo modelo, e nada aqui é calculado sem lastro.**
+    Cada operando é conferido contra o que as consultas anteriores apuraram;
+    quando falta operando, o desfecho é `CALCULO_NAO_APURADO` com a lista do que
+    existe — que é uma resposta, e não um bloqueio.
+  */
+  let calculoDoFio: ResultadoDoCalculo | null = null;
+  let disponiveisParaCalculo: { rotulo: string; escrito: string }[] = [];
+  if (investigacao.necessidades.includes("CALCULO")) {
+    const escolha = operacaoDaFrase(pergunta);
+    const anteriores = estado?.evidenciasAnteriores ?? [];
+    if (!escolha) {
+      calculoDoFio = {
+        apurado: false,
+        motivo: "CALCULO_NAO_APURADO",
+        explicacao: "não consegui identificar que composição você quer",
+      };
+    } else {
+      const doFio = operandosDoFio(escolha.operacao, estado?.foco ?? null, anteriores);
+      disponiveisParaCalculo = doFio.disponiveis;
+      calculoDoFio = calcular(
+        {
+          operacao: escolha.operacao,
+          operandos: doFio.operandos,
+          grandeza: doFio.grandeza,
+          ...(escolha.fator === undefined ? {} : { fator: escolha.fator }),
+        },
+        grandezasApuradas(anteriores),
+      );
+    }
+  }
+
+  /*
     A pergunta nomeou uma coisa, e essa coisa não existe aqui.
 
     Este é o gate que impede a pior classe de resposta que este assistente
@@ -1216,6 +1310,31 @@ export async function orquestrar(
       }
       break;
 
+    /*
+      ---- as duas que falam do que já se disse -------------------------------
+
+      Nenhuma das duas consulta o recorte, e essa é a coisa toda: "tem certeza?"
+      pergunta pela qualidade da resposta anterior e "quanto isso dá por ano?"
+      compõe um número que já foi apurado. Mandá-las consultar o movimento da
+      vigência era o defeito — um resumo correto de outra coisa, entregue a quem
+      perguntou outra coisa.
+    */
+    case "SUSTENTACAO":
+      /*
+        Ela é respondida em `resposta.ts`, a partir do rastro guardado no
+        estado, e por isso não há consulta aqui. O dossiê fica sem evidência de
+        propósito: não há número novo a mostrar — há uma resposta anterior a
+        auditar.
+      */
+      break;
+
+    case "CALCULO":
+      if (calculoDoFio) {
+        marcar("calcular", "Compondo os valores já apurados");
+        if (calculoDoFio.apurado) evidencias.push(evidenciaDoCalculo(calculoDoFio));
+      }
+      break;
+
     case "SAUDACAO":
     case "DESCONHECIDA":
       break;
@@ -1324,6 +1443,97 @@ export async function orquestrar(
     devolveria a fila ao comportamento sequencial sem que nada denunciasse.
   */
   await colher();
+
+  /*
+    ---- a descida ------------------------------------------------------------
+
+    Aqui a orquestração deixa de executar um plano e passa a **reagir** ao que
+    voltou. Ver `aprofundar.ts`: o código do parâmetro sai do grupo que mais
+    pesou, a placa sai das linhas daquele grupo, a célula sai daquela placa —
+    nenhum dos três existia antes da consulta anterior, e é por isso que eles
+    contam como encadeamento e a largura do plano não conta.
+
+    **Quando ela roda.** Quando a pergunta é causal — quer a razão de um
+    movimento, o que mais pesou, ou o que merece atenção — e há vigência
+    resolvida. Rodar sempre seria transformar profundidade em custo fixo, e a
+    maioria das perguntas deste produto se responde num nível só.
+
+    **Quando ela para.** No primeiro passo sem argumento: recorte sem grupo com
+    impacto, grupo sem placa, placa sem célula. Parar cedo é desfecho normal.
+  */
+  const encadeamentos: PassoDaDescida[] = [];
+  /*
+    `houveTroca` não entra aqui, e não por esquecimento: o portão de
+    correspondência roda **depois** desta descida — ele precisa de tudo o que a
+    busca trouxe para decidir — e é ele quem esvazia o dossiê quando o que
+    voltou não é o que foi pedido. A descida é consulta ao recorte, não à coisa
+    nomeada; se o portão fechar, o que ela trouxe sai junto com o resto.
+  */
+  /*
+    Três portas para a descida, e cada uma cobre o que as outras não veem.
+
+    1. **A forma da pergunta.** `leitura.pedeCausa` é a leitura que nenhum
+       detector de conteúdo pode fazer: "por que a remuneração caiu?" e "quanto
+       a remuneração caiu?" casam o **mesmo** detector, e sem este campo a
+       primeira virava MOVIMENTO e recebia o agregado da vigência.
+    2. **O plano.** Ranking, atenção e procedência já são pedidos de causa por
+       necessidade, tenham ou não a palavra "por quê".
+    3. **O fio.** Quando a conversa já está dentro de um grupo, "o que mudou
+       nesses veículos?" continua a descida sem nomear causa nenhuma — e
+       recomeçar do agregado ali é perder a investigação no meio.
+  */
+  const querCausa =
+    !periodoRecusado &&
+    !alvoPerdido &&
+    /*
+      As duas necessidades que operam sobre o que **já** foi apurado nunca
+      descem. Compor um valor e auditar uma conclusão não pedem dado novo — e
+      buscar dado novo aqui traria números de uma consulta que não é a que está
+      em discussão: a conta sairia aritmeticamente perfeita sobre duas coisas
+      que não se comparam. O controle negativo em `calculo-derivado.test.ts`
+      pegou exatamente isto.
+    */
+    !investigacao.necessidades.some((n) => SEM_DESCIDA.has(n)) &&
+    (leitura.pedeCausa ||
+      investigacao.necessidades.some((n) => CAUSAIS.has(n)) ||
+      (DENTRO_DA_DESCIDA.has(estado?.foco?.tipo ?? "") && termoDoAssunto === null));
+  if (querCausa && contexto) {
+    marcar("aprofundar", "Descendo até a causa");
+    /*
+      A profundidade sai do plano, e não de mais um vocabulário.
+
+      Procedência pergunta pela origem: desce até a célula. Uma pergunta por
+      veículos quer as placas: a linha é a resposta, e a planilha é o passo
+      seguinte que ninguém pediu. Ranking e atenção querem o grupo aberto.
+      "Por quê" sem mais nada desce até o fundo, porque é a pergunta que não diz
+      onde parar.
+    */
+    const ate: Fundo = investigacao.necessidades.includes("PROCEDENCIA")
+      ? "CELULA"
+      : investigacao.necessidades.includes("VEICULOS")
+        ? "LINHA"
+        : leitura.pedeCausa
+          ? "CELULA"
+          : "LINHA";
+
+    const descida = await descer({
+      db,
+      ctx: contexto,
+      ate,
+      ...(estado?.foco?.grupo ? { grupoEmFoco: estado.foco.grupo } : {}),
+      periodo: plano.periodo,
+      equipamento: leitura.entidades.equipamento,
+      aoAvancar: (rotulo) => marcar("consultar", rotulo),
+    }).catch(() => ({ evidencias: [], passos: [] }));
+
+    for (const e of descida.evidencias) {
+      const chave = `${e.ferramenta}|${e.titulo}|${e.origem}`;
+      if (vistas.has(chave)) continue;
+      vistas.add(chave);
+      evidencias.push(e);
+    }
+    encadeamentos.push(...descida.passos);
+  }
 
   /*
     ---- o segundo salto ------------------------------------------------------
@@ -1491,6 +1701,9 @@ export async function orquestrar(
     trechos.length = 0;
     evidencias.length = 0;
     anexos.length = 0;
+    // A descida some junto com o que ela desceu: um encadeamento que aponta
+    // para evidência que não está mais no dossiê é um rastro que mente.
+    encadeamentos.length = 0;
     desambiguacao = desambiguacaoDe(semCorrespondencia);
     lacunas.push({ tipo: "NAO_ENCONTREI", explicacao: explicarFalta(semCorrespondencia) });
   }
@@ -1510,6 +1723,30 @@ export async function orquestrar(
         periodoRecusado.pedido,
         periodoRecusado.disponiveis,
       ),
+    });
+  }
+
+  /*
+    O cálculo que não pôde ser apurado é dito com o nome dele, e com o que existe.
+
+    A alternativa seria um dos dois erros que esta capacidade existe para não
+    cometer: devolver um agregado que não responde, ou simplesmente bloquear.
+    Aqui a recusa é a resposta — ela diz por que a conta não saiu e lista os
+    valores que estão sobre a mesa, que é o que permite a próxima pergunta ser
+    a certa.
+  */
+  if (calculoDoFio && !calculoDoFio.apurado) {
+    const oQueHa = disponiveisParaCalculo
+      .slice(0, 6)
+      .map((d) => `${d.rotulo}: ${d.escrito}`)
+      .join(" · ");
+    lacunas.push({
+      tipo: "DADO_SEM_PRECO",
+      explicacao:
+        `Não dá para fazer essa conta: ${calculoDoFio.explicacao}.` +
+        (oQueHa
+          ? ` O que a conversa apurou até aqui — ${oQueHa}. Diga qual desses você quer compor.`
+          : " Consulte primeiro o valor que você quer compor."),
     });
   }
 
@@ -1648,6 +1885,7 @@ export async function orquestrar(
     lacunas,
     etapas,
     desambiguacao,
+    encadeamentos,
     telaScopeHash: opcoes.recorte?.scopeHash ?? null,
     diagnostico: { book: diagnosticoDoBook, ms: Date.now() - comecou },
   };
@@ -1953,6 +2191,8 @@ export interface Saneamento {
  */
 export function sanear(texto: string, dossie: Dossie): Saneamento {
   const pedacos = emFrases(texto);
+  // Uma travessia do dossiê para o texto inteiro, e não uma por frase.
+  const tipadas = autorizacoesTipadas(dossie);
   const mantidas: string[] = [];
   const recusados: string[] = [];
   let removidas = 0;
@@ -1966,11 +2206,24 @@ export function sanear(texto: string, dossie: Dossie): Saneamento {
       menos grave que um número inventado.
     */
     const semIdentidade = identificadoresSemLastro(pedaco, dossie);
-    if (semLastro.length === 0 && semFonte.length === 0 && semIdentidade.length === 0) {
+    /*
+      A quarta régua: **tipo**. Ver `lastro.ts` — o dossiê que apurou `62
+      veículos` não autoriza a frase `62%`, e o que apurou `R$ 52.500` não
+      autoriza `52.500 veículos`. Ela é a última porque é a mais estreita: só
+      opina sobre número com tipo declarado no próprio texto, e as três de cima
+      já decidiram tudo o mais.
+    */
+    const semTipo = afirmacoesSemLastro(pedaco, tipadas);
+    if (
+      semLastro.length === 0 &&
+      semFonte.length === 0 &&
+      semIdentidade.length === 0 &&
+      semTipo.length === 0
+    ) {
       mantidas.push(pedaco);
       continue;
     }
-    recusados.push(...semLastro, ...semFonte, ...semIdentidade);
+    recusados.push(...semLastro, ...semFonte, ...semIdentidade, ...semTipo);
     removidas += 1;
   }
 
@@ -2000,6 +2253,42 @@ export function sanear(texto: string, dossie: Dossie): Saneamento {
  * clique na tela do Book. O que continua proibido é o número **sem** citação, que
  * é o caso em que quem lê não tem para onde ir — e esse segue sendo descartado.
  */
+/**
+ * O que o dossiê **declarou** sobre cada grandeza — para a régua por tipo.
+ *
+ * Percorre exatamente as mesmas fontes que `numerosSemLastro` percorre para
+ * montar os tokens permitidos. Uma segunda travessia, escrita à parte, sairia
+ * de sincronia no primeiro campo novo — e as duas leriam dossiês diferentes
+ * achando que leem o mesmo.
+ */
+export function autorizacoesTipadas(dossie: Dossie): Autorizacoes {
+  const saida: Autorizacoes = { percentual: [], moeda: [], contagem: [] };
+  const ler = (texto: string | undefined | null) => {
+    if (texto) autorizacoesDoTexto(String(texto), saida);
+  };
+
+  for (const e of dossie.evidencias) {
+    ler(e.titulo);
+    ler(e.nota);
+    ler(e.origem);
+    for (const f of e.fatos) {
+      /*
+        O rótulo entra junto do valor, colados, porque é o rótulo que diz o que
+        o número conta: "Alterações" + "267" é uma contagem, e nenhum dos dois
+        sozinho declara isso. A ordem é `valor rotulo` para a adjacência —
+        "267 alterações" — que é a forma que o classificador lê.
+      */
+      ler(`${f.valor} ${f.rotulo}`);
+      ler(f.valor);
+      ler(f.detalhe);
+    }
+  }
+  for (const t of dossie.trechos) ler(t.trecho.texto);
+  for (const d of dossie.documentos) ler(d.trecho.texto);
+  for (const l of dossie.lacunas) ler(l.explicacao);
+  return saida;
+}
+
 export function numerosSemLastro(texto: string, dossie: Dossie): string[] {
   /*
     O marcador de citação não é uma afirmação numérica.

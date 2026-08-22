@@ -135,6 +135,17 @@ pergunta — é para isso que você pode chamar de novo.
 **Comece amplo e estreite.** Pedir o nível mais detalhado de saída sem saber o
 que procurar devolve muita linha e pouca informação.
 
+**Desça um nível de cada vez, e só enquanto valer a pena.** O caminho de uma
+pergunta de causa costuma ser: o movimento agregado → o grupo que mais pesou →
+os veículos daquele grupo → o que mudou neles → de onde veio a mudança
+("proveniencia", que chega ao arquivo, à aba, à linha e à coluna). Cada passo
+usa como argumento algo que o passo anterior devolveu. **Pare no nível que
+responde a pergunta**: quem perguntou quais veículos quer as placas, e a célula
+da planilha é o passo seguinte que ninguém pediu.
+
+**Uma consulta basta quando basta.** Perguntar o total da vigência é uma
+consulta. Descer três níveis para responder isso é custo, não profundidade.
+
 **Uma consulta que falhou não vira conclusão.** Quando uma ferramenta devolver
 erro, diga que aquela consulta não pôde ser feita e o que isso deixa em aberto.
 Nunca preencha o buraco com estimativa.
@@ -148,8 +159,18 @@ consulte para obtê-lo.
 1. **Nenhum número que não tenha voltado de uma ferramenta.** Não estime, não
    some periodicidades diferentes, não converta mensal em anual, não calcule
    média, não complete série, não infira percentual. O cálculo oficial é do
-   sistema; o seu trabalho é explicar o que ele devolveu. Se um número seria
-   útil e não veio, diga que não foi apurado.
+   sistema; o seu trabalho é explicar o que ele devolveu.
+
+   Quando a pergunta pedir uma dessas contas — "quanto isso dá por ano?", "que
+   percentual isso representa?", "qual a média?" —, **chame a ferramenta "calculo"**. Ela faz
+   a conta em código, confere cada valor contra o que já foi consultado e
+   devolve a expressão por extenso, que é o que quem lê usa para auditar. Um
+   número que você calculou de cabeça não tem onde ser conferido, e é
+   indistinguível de um inventado. Se ela recusar, a recusa é a resposta:
+   diga o que falta apurar.
+
+   Uma projeção volta marcada como condicional. Escreva-a como condicional —
+   "se continuar assim, dá X por ano" —, nunca como um valor anual apurado.
 2. **Não afirme ter consultado o que não consultou.**
 3. **Não troque o recorte.** Unidade, canal e vigência da conversa são os que
    as ferramentas já aplicam. Se a resposta valer só para um recorte, diga qual.
@@ -258,6 +279,16 @@ export interface PedidoDeInvestigacao {
   aoRodada?: (rodada: number) => void;
   /** Cada ferramenta, no instante em que começa a rodar. */
   aoConsultar?: (nome: string, argumentos: unknown) => void;
+  /**
+   * Cada consulta, no instante em que **termina** — com o que ela devolveu.
+   *
+   * É o que torna possível uma ferramenta operar sobre o que outra acabou de
+   * apurar dentro do mesmo turno: o cálculo derivado precisa saber o que já
+   * tem lastro, e esse conjunto cresce durante o laço. Sem este canal, quem
+   * monta o contexto das ferramentas só conhece o estado de antes da primeira
+   * rodada, e a quarta consulta compõe sobre uma lista vazia.
+   */
+  aoColher?: (chamada: ChamadaDeFerramenta) => void;
 }
 
 const TURNOS_NO_HISTORICO = 8;
@@ -437,8 +468,10 @@ export async function investigar(pedido: PedidoDeInvestigacao): Promise<Investig
             p.name,
             p.input,
             pedido.ferramentas,
+            rodadas,
           );
           chamadas.push(chamada);
+          pedido.aoColher?.(chamada);
           return { id: p.id, chamada };
         }),
       );

@@ -719,15 +719,51 @@ function PainelTecnico({ resposta }: { resposta: Resposta }) {
           <p>
             <span className="text-muted-foreground">agente:</span> {t.agente.rodadas} rodada(s) ·{" "}
             {t.agente.consultas} consulta(s) ·{" "}
-            {t.agente.chamadas.filter((c) => c.derivaDe !== null).length} encadeada(s) · parou:{" "}
-            {t.agente.parou}
+            {t.agente.encadeamentosReais} encadeada(s) · {t.agente.preplanejadas} pré-planejada(s) ·
+            parou: {t.agente.parou}
           </p>
+          {/*
+            O porquê de cada encadeamento — e nunca o raciocínio do modelo.
+
+            A linha diz que valor apareceu no resultado de qual consulta e em
+            que argumento ele entrou. É o que aconteceu com os argumentos, lido
+            do log; não é o que o modelo pensou, e não há como confundir os dois
+            porque o log é a única fonte.
+          */}
+          {t.agente.porqueEncadeou.map((linha, i) => (
+            <p key={`enc-${i}`} className="pl-3 text-muted-foreground">
+              ↳ {linha}
+            </p>
+          ))}
           {t.agente.chamadas.map((c, i) => (
             <p key={i} className="pl-3 text-muted-foreground">
               <span className="text-foreground">#{i + 1}</span> {c.nome}
               {Object.keys(c.argumentos).length > 0 ? ` ${JSON.stringify(c.argumentos)}` : ""}
               {c.derivaDe !== null ? ` ← #${c.derivaDe + 1}` : ""}
               {c.ok ? "" : ` · falhou: ${c.erro ?? "sem motivo"}`}
+            </p>
+          ))}
+        </div>
+      )}
+      {/*
+        A descida do caminho determinístico.
+
+        Ela responde a mesma pergunta que `agente.chamadas` responde no canário
+        — a orquestração reagiu ao dado, ou executou um plano fechado? — para
+        quem está no caminho em que o produto de fato roda hoje. Cada linha
+        nomeia o valor que **não existia** antes da consulta anterior.
+      */}
+      {t.descida.length > 0 && (
+        <div className="border-t border-input/60 pt-1 mt-1 space-y-0.5">
+          <p>
+            <span className="text-muted-foreground">descida:</span>{" "}
+            {t.descida.filter((d) => d.derivaDe !== null).length} encadeamento(s) em{" "}
+            {t.descida.length} passo(s)
+          </p>
+          {t.descida.map((d, i) => (
+            <p key={`desc-${i}`} className="pl-3 text-muted-foreground">
+              <span className="text-foreground">#{i + 1}</span> {d.ferramenta}
+              {d.derivaDe !== null ? ` ← #${d.derivaDe + 1}` : ""} · {d.porque}
             </p>
           ))}
         </div>

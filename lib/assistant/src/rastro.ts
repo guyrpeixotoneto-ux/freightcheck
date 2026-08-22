@@ -81,6 +81,25 @@ export interface RastroDaResposta {
   agente: { rodadas: number; parou: string } | null;
 
   /**
+   * A investigação, separada em profundidade e largura.
+   *
+   * **Um número só mentiria.** "Seis consultas" é a mesma frase para uma
+   * varredura larga e para uma investigação funda; `encadeamentos` conta as que
+   * **reagiram** a um resultado anterior, e `preplanejadas` conta as que foram
+   * decididas antes de qualquer resultado existir. A soma é o total, e é a
+   * separação — não a soma — que responde "isto foi investigação?".
+   *
+   * `porque` traz uma linha técnica por reação: o valor descoberto, de qual
+   * consulta ele saiu, e em que argumento entrou. Não é raciocínio do modelo: é
+   * o que aconteceu com os argumentos, lido do log.
+   */
+  investigacao: {
+    encadeamentos: number;
+    preplanejadas: number;
+    porque: string[];
+  };
+
+  /**
    * O que aconteceu com o texto — a parte que explica a **forma** da resposta.
    *
    * `numerosRecusados` é o campo mais caro de perder: ele é a diferença entre
@@ -136,9 +155,22 @@ export interface RespostaParaRastro {
     herdado: string[];
     ferramentas: string[];
     numerosRecusados: string[];
+    /**
+     * A descida do caminho determinístico — declarada por quem a executou.
+     *
+     * No agente o encadeamento é **inferido** do log (o argumento apareceu no
+     * resultado anterior); aqui ele é **declarado**, porque quem escolheu a
+     * próxima consulta foi o código e ele sabe de onde tirou o argumento. Um
+     * encadeamento declarado é mais forte que um inferido; os dois medem a
+     * mesma coisa nas duas evidências que existem.
+     */
+    descida: { ferramenta: string; derivaDe: number | null; porque: string }[];
     agente: {
       rodadas: number;
       parou: string;
+      encadeamentosReais: number;
+      preplanejadas: number;
+      porqueEncadeou: string[];
       chamadas: {
         nome: string;
         argumentos: Record<string, unknown>;
@@ -171,6 +203,47 @@ export interface RespostaParaRastro {
 }
 
 /**
+ * Onde cada passo da descida caiu na lista de consultas.
+ *
+ * A descida é o fim da lista — o plano roda primeiro —, então o casamento é
+ * feito de trás para frente. Sem isso, um passo chamado `veiculosDoGrupo`
+ * apontaria para a consulta homônima que o plano já tinha feito, e o rastro
+ * afirmaria uma derivação que não aconteceu.
+ */
+function derivacaoDaDescida(
+  ferramentas: readonly string[],
+  descida: readonly { ferramenta: string; derivaDe: number | null }[],
+): (number | null)[] {
+  const saida = new Array<number | null>(ferramentas.length).fill(null);
+  if (descida.length === 0) return saida;
+
+  /** O índice, em `ferramentas`, de cada passo da descida — casado do fim. */
+  const posicao: number[] = [];
+  let limite = ferramentas.length;
+  for (let k = descida.length - 1; k >= 0; k--) {
+    const alvo = descida[k]!.ferramenta;
+    let achado = -1;
+    for (let i = limite - 1; i >= 0; i--) {
+      if (ferramentas[i]!.replace(/ \(.*\)$/, "").startsWith(alvo)) {
+        achado = i;
+        break;
+      }
+    }
+    posicao[k] = achado;
+    if (achado >= 0) limite = achado;
+  }
+
+  for (let k = 0; k < descida.length; k++) {
+    const meu = posicao[k]!;
+    const de = descida[k]!.derivaDe;
+    if (meu < 0 || de === null) continue;
+    const origem = posicao[de];
+    if (origem !== undefined && origem >= 0) saida[meu] = origem;
+  }
+  return saida;
+}
+
+/**
  * O rastro desta resposta.
  *
  * `agora` entra por parâmetro para o teste poder fixá-lo — e porque um carimbo
@@ -198,13 +271,20 @@ export function montarRastro(
         evidencias: c.evidencias,
         derivaDe: c.derivaDe,
       }))
-    : t.ferramentas.map((nome) => ({
+    : t.ferramentas.map((nome, i) => ({
         nome: nome.replace(/ \(falhou\)$/, ""),
         argumentos: null,
         ok: !nome.endsWith("(falhou)"),
         erro: null,
         evidencias: 1,
-        derivaDe: null,
+        /*
+          A descida é o **fim** da lista de consultas, e é por isso que ela é
+          casada de trás para frente: o plano roda primeiro (largura), e os
+          passos que reagiram vêm depois. Casar por nome do começo apontaria
+          para a consulta homônima do plano, e o rastro diria que a descida
+          derivou de si mesma.
+        */
+        derivaDe: derivacaoDaDescida(t.ferramentas, t.descida)[i] ?? null,
       }));
 
   return {
@@ -228,6 +308,17 @@ export function montarRastro(
     },
     consultas,
     agente: t.agente ? { rodadas: t.agente.rodadas, parou: t.agente.parou } : null,
+    investigacao: t.agente
+      ? {
+          encadeamentos: t.agente.encadeamentosReais,
+          preplanejadas: t.agente.preplanejadas,
+          porque: t.agente.porqueEncadeou,
+        }
+      : {
+          encadeamentos: t.descida.filter((d) => d.derivaDe !== null).length,
+          preplanejadas: t.ferramentas.length - t.descida.filter((d) => d.derivaDe !== null).length,
+          porque: t.descida.filter((d) => d.derivaDe !== null).map((d) => d.porque),
+        },
     grounding: {
       redigiu: t.motor.redigiu,
       causa: t.motor.codigo,

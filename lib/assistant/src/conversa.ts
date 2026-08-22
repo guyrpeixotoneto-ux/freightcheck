@@ -17,6 +17,7 @@
 import type { Intencao, PeriodoPedido } from "./interpretacao";
 import type { Evidencia } from "./ferramentas";
 import type { Dossie } from "./orquestrador";
+import { focoDe, type FocoDaConversa } from "./foco";
 
 export interface EstadoDaConversa {
   /** O que se estava perguntando. */
@@ -98,6 +99,60 @@ export interface EstadoDaConversa {
    * reusadas para responder outra coisa: uma pergunta nova refaz as consultas.
    */
   evidenciasAnteriores: Evidencia[];
+  /**
+   * O item de que a conversa está falando — por referência, não por texto.
+   *
+   * É o que resolve "por quê?", "esse número" e "quanto isso dá por ano" sem
+   * reinterpretar a prosa da resposta anterior. Ver `foco.ts`: o que se guarda
+   * é o que a **consulta** devolveu — código do parâmetro, placa, vigência,
+   * grandeza —, que é a mesma coisa que a próxima consulta precisa como
+   * argumento.
+   *
+   * Ele **não** é cache de resposta: o valor guardado nunca é reexibido como se
+   * fosse consulta nova. Serve para escolher a próxima consulta e para conferir
+   * uma composição; quem responde refaz a consulta.
+   */
+  foco: FocoDaConversa | null;
+  /**
+   * O rastro da resposta anterior — o que "tem certeza?" investiga.
+   *
+   * Guardado porque a meta-pergunta é sobre **aquela** conclusão, e não sobre o
+   * assunto dela: responder "tem certeza?" refazendo a consulta responderia
+   * outra pergunta. Aqui está o que sustentou a resposta que está sendo posta
+   * em dúvida — quais consultas, quantas evidências, o que foi podado, que
+   * lacunas foram declaradas.
+   */
+  sustentacaoAnterior: SustentacaoGuardada | null;
+}
+
+/**
+ * O que sobrou da resposta anterior para ela poder ser auditada na seguinte.
+ *
+ * Pequeno de propósito: é estado de conversa, persistido a cada turno, e o que
+ * "tem certeza?" precisa é a **forma** do que sustentou a conclusão, não o
+ * conteúdo dela. O conteúdo é refeito por consulta; a forma é o que diria
+ * "aquilo veio de duas consultas, uma delas falhou, e uma frase foi podada".
+ */
+export interface SustentacaoGuardada {
+  /** A pergunta que gerou a resposta em dúvida. */
+  pergunta: string;
+  /** A primeira frase da resposta — o que está sendo questionado. */
+  conclusao: string;
+  /** As capacidades exercidas, na ordem. */
+  consultas: string[];
+  /** Quantas evidências citáveis sustentaram. */
+  evidencias: number;
+  /** Quantos encadeamentos verdadeiros houve. */
+  encadeamentos: number;
+  /** As lacunas declaradas — o que já se sabia que não dava para provar. */
+  lacunas: string[];
+  /** Frases podadas pela trava, e de quantas. */
+  podadas: { removidas: number; total: number };
+  /** Quem escreveu o texto. */
+  redigiu: string;
+  /** O recorte e a vigência daquela resposta. */
+  recorte: string | null;
+  vigencia: string | null;
 }
 
 export const ESTADO_VAZIO: EstadoDaConversa = {
@@ -115,6 +170,8 @@ export const ESTADO_VAZIO: EstadoDaConversa = {
   canal: null,
   contexto: null,
   evidenciasAnteriores: [],
+  foco: null,
+  sustentacaoAnterior: null,
 };
 
 /**
@@ -246,6 +303,19 @@ export function avancarEstado(
     */
     evidenciasAnteriores:
       dossie.evidencias.length > 0 ? dossie.evidencias : base.evidenciasAnteriores,
+    /*
+      O foco segue a mesma regra do assunto: quem descobriu um item novo troca,
+      quem não descobriu mantém. Um turno conceitual no meio da investigação não
+      apaga o parâmetro que estava sendo discutido — é justamente depois dele que
+      alguém pergunta "e por que esse caiu?".
+    */
+    foco: focoDe(dossie.evidencias, dossie.plano.periodo) ?? base.foco,
+    /*
+      A sustentação é escrita por `responder`, que é quem sabe o que aconteceu
+      com o texto. Aqui ela só atravessa o turno: `avancarEstado` roda sobre o
+      dossiê, e o dossiê não sabe se a trava podou alguma frase.
+    */
+    sustentacaoAnterior: base.sustentacaoAnterior,
   };
 }
 
@@ -253,6 +323,15 @@ export function avancarEstado(
 export function serializarEstado(estado: EstadoDaConversa): unknown {
   return {
     ...estado,
+    /*
+      O foco e a sustentação **são** persistidos, e as evidências não — a
+      diferença não é de tamanho, é de natureza. Uma evidência é o resultado de
+      uma consulta de um instante, e reidratá-la noutro dia faria "de onde veio
+      esse número?" apontar para um recorte que o banco pode não ter mais. O
+      foco é uma referência (código, placa, vigência) e a sustentação é a forma
+      do que aconteceu; os dois continuam verdadeiros amanhã, e são exatamente o
+      que uma conversa recarregada precisa para não recomeçar do zero.
+    */
     // As evidências não são persistidas: elas descrevem uma consulta feita num
     // instante, e reidratá-las num outro dia faria "de onde veio esse número?"
     // apontar para um recorte que pode não ser mais o que o banco tem.
@@ -278,5 +357,7 @@ export function desserializarEstado(bruto: unknown): EstadoDaConversa {
     canal: (o.canal as string) ?? null,
     contexto: (o.contexto as string) ?? null,
     evidenciasAnteriores: [],
+    foco: (o.foco as FocoDaConversa) ?? null,
+    sustentacaoAnterior: (o.sustentacaoAnterior as SustentacaoGuardada) ?? null,
   };
 }

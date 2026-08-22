@@ -151,6 +151,8 @@ describe("Etapa 0 — o recorte do turno", () => {
           intencao: null, assunto: null, parametro: null, blocoDoBook: null,
           periodo: null, intervalo: null, equipamento: null, pagina: null, origemDoRecorte: null, telaScopeHash: null, scopeHash: "hash-uberlandia",
           canal: "EMPURRADA", contexto: "UBERLÂNDIA", evidenciasAnteriores: [],
+        foco: null,
+        sustentacaoAnterior: null,
         },
         contextos,
       });
@@ -167,6 +169,8 @@ describe("Etapa 0 — o recorte do turno", () => {
           intencao: null, assunto: null, parametro: null, blocoDoBook: null,
           periodo: null, intervalo: null, equipamento: null, pagina: null, origemDoRecorte: null, telaScopeHash: null, scopeHash: "hash-uberlandia",
           canal: null, contexto: null, evidenciasAnteriores: [],
+        foco: null,
+        sustentacaoAnterior: null,
         },
         contextos,
       });
@@ -182,6 +186,8 @@ describe("Etapa 0 — o recorte do turno", () => {
           intencao: null, assunto: null, parametro: null, blocoDoBook: null,
           periodo: null, intervalo: null, equipamento: null, pagina: null, origemDoRecorte: null, telaScopeHash: null, scopeHash: "hash-camacari",
           canal: "EMPURRADA", contexto: "CAMAÇARI", evidenciasAnteriores: [],
+        foco: null,
+        sustentacaoAnterior: null,
         },
         contextos,
       });
@@ -198,6 +204,8 @@ describe("Etapa 0 — o recorte do turno", () => {
           intencao: "MOVIMENTO", assunto: null, parametro: null, blocoDoBook: null,
           periodo: null, intervalo: null, equipamento: null, pagina: null, origemDoRecorte: null, telaScopeHash: null, scopeHash: "hash-uberlandia",
           canal: "EMPURRADA", contexto: "UBERLÂNDIA", evidenciasAnteriores: [],
+        foco: null,
+        sustentacaoAnterior: null,
         },
       });
 

@@ -50,6 +50,19 @@ export interface Resposta {
       rodadas: number;
       consultas: number;
       parou: string;
+      /**
+       * Quantas consultas **reagiram** a um resultado anterior.
+       *
+       * O contraponto de `preplanejadas`, e os dois publicados juntos de
+       * propósito: "dez consultas" é a mesma frase para uma varredura larga e
+       * para uma investigação funda, e só a separação responde qual das duas
+       * aconteceu.
+       */
+      encadeamentosReais: number;
+      /** Quantas foram decididas antes de qualquer resultado existir. */
+      preplanejadas: number;
+      /** Uma linha por reação: o valor descoberto, de onde saiu, onde entrou. */
+      porqueEncadeou: string[];
       chamadas: {
         nome: string;
         argumentos: Record<string, unknown>;
@@ -60,6 +73,14 @@ export interface Resposta {
         derivaDe: number | null;
       }[];
     } | null;
+    /**
+     * A descida do caminho determinístico — cada passo com o que o motivou.
+     *
+     * É o equivalente de `agente.chamadas` para quem não está no canário: a
+     * coluna que mostra que a orquestração **reagiu** ao dado em vez de
+     * executar um plano fechado. Vazia é o estado normal.
+     */
+    descida: { ferramenta: string; derivaDe: number | null; porque: string }[];
     /** O rastro que explica esta resposta depois que ela aconteceu. */
     rastro: {
       assunto: string | null;

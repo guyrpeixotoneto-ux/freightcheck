@@ -45,7 +45,8 @@ function dossieVazio(parcial: Partial<Dossie> = {}): Dossie {
     lacunas: [],
     etapas: [],
     desambiguacao: null,
-    telaScopeHash: null,
+    encadeamentos: [],
+  telaScopeHash: null,
     diagnostico: { book: { candidatos: 0, selecionados: 0, melhorPontuacao: 0 }, ms: 1 },
     ...parcial,
   };
