@@ -448,8 +448,16 @@ function PainelDoCanal({
 }) {
   return (
     <Card>
-      <CardHeader className="pb-3">
+      <CardHeader className="pb-3 space-y-3">
         <CardTitle className="text-base">{canal.canal}</CardTitle>
+        {/*
+          Os mesmos selos da aba Verbas, e é o mesmo componente com o mesmo
+          número: eles são do **canal**, não da aba. Mostrá-los só numa das
+          duas faria a mesma pergunta — "dá para confiar neste mês?" — ter
+          resposta em metade da tela, e quem entra direto na aba Planilha (que é
+          onde a coluna Auditar mora) veria os achados sem a medida do conjunto.
+        */}
+        <AfericaoDoCanal canal={canal} recorte={recorte} />
       </CardHeader>
       <CardContent className="overflow-x-auto space-y-4">
         {canal.comparado ? (
