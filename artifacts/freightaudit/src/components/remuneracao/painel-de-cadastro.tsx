@@ -68,29 +68,59 @@ import { CadastrarAPlanilha } from "./cadastrar-planilha";
 export function BotaoDeCadastroDaPlanilha({
   unidade,
   canaisConhecidos,
+  vigenciaInicial,
+  vigenciaNova = false,
 }: {
   unidade: SituacaoDaUnidade;
   /** Os canais que existem em qualquer unidade — o que o seletor oferece. */
   canaisConhecidos: string[];
+  /**
+   * A quinzena em que o painel abre, quando não é a da linha que o chamou.
+   *
+   * Quem passa é a lista de Remuneração, na **quinzena vazia**: a metade do mês
+   * que nenhuma vigência ocupa não tem `SituacaoDaUnidade` própria — ela é uma
+   * casa do calendário, e não um cadastro —, e o botão dela chega com a unidade
+   * da metade irmã. Sem esta data o painel abriria na quinzena da irmã, que é a
+   * que já está preenchida: quem clicou em "cadastrar" na segunda quinzena
+   * digitaria por cima da primeira.
+   */
+  vigenciaInicial?: string;
+  /**
+   * Essa quinzena ainda não existe — o painel a cria quando a primeira célula
+   * for salva, pela mesma porta de "outra quinzena…".
+   *
+   * Vem de quem sabe: a lista desenha a quinzena vazia justamente porque não há
+   * vigência nela. Deduzir aqui, comparando com as vigências que a consulta
+   * devolve, daria falso logo depois do primeiro salvamento — o servidor passa
+   * a incluí-la na lista — e a bandeira precisa continuar valendo pela sessão
+   * inteira do painel.
+   */
+  vigenciaNova?: boolean;
 }) {
   const [aberto, setAberto] = useState(false);
+
+  /* A quinzena que ainda não existe não tem linha informada nenhuma: o rótulo é
+     sempre o de começar, e não o de editar. */
+  const nadaInformado = vigenciaNova || unidade.cadastro.informadas === 0;
 
   return (
     <>
       <Button
         size="sm"
-        variant={unidade.cadastro.informadas === 0 ? "outline" : "ghost"}
+        variant={nadaInformado ? "outline" : "ghost"}
         onClick={() => setAberto(true)}
         className="whitespace-nowrap"
       >
         <PencilLine className="w-3.5 h-3.5 mr-1.5" />
-        {unidade.cadastro.informadas === 0 ? "Cadastrar planilha" : "Editar planilha"}
+        {nadaInformado ? "Cadastrar planilha" : "Editar planilha"}
       </Button>
 
       {aberto && (
         <PainelDeCadastro
           unidade={unidade}
           canaisConhecidos={canaisConhecidos}
+          vigenciaInicial={vigenciaInicial}
+          vigenciaNova={vigenciaNova}
           aoFechar={() => setAberto(false)}
         />
       )}
@@ -139,16 +169,21 @@ function quinzenaSeguinte(vigencias: readonly { effectiveDate: string }[]) {
 function PainelDeCadastro({
   unidade,
   canaisConhecidos,
+  vigenciaInicial,
+  vigenciaNova: nasceNova = false,
   aoFechar,
 }: {
   unidade: SituacaoDaUnidade;
   canaisConhecidos: string[];
+  vigenciaInicial?: string;
+  vigenciaNova?: boolean;
   aoFechar: () => void;
 }) {
+  const abreEm = vigenciaInicial ?? unidade.effectiveDate;
   const [canal, setCanal] = useState<string | null>(unidade.channel);
   const [digitando, setDigitando] = useState(false);
   const [rascunhoDoCanal, setRascunhoDoCanal] = useState("");
-  const [vigencia, setVigencia] = useState(unidade.effectiveDate);
+  const [vigencia, setVigencia] = useState(abreEm);
   /*
     A quinzena que **esta sessão do painel criou**, e não uma conta sobre a
     resposta do servidor. A diferença decide o salvar: pedido o cadastro com
@@ -157,8 +192,13 @@ function PainelDeCadastro({
     —, e uma bandeira deduzida dessa lista viraria falsa na volta da consulta,
     justamente antes do clique em salvar, que é quando ela precisa ser
     verdadeira.
+
+    Ela nasce preenchida quando o painel foi aberto **por** uma quinzena que
+    não existe — a casa vazia do calendário, na lista de Remuneração. É a mesma
+    afirmação de quem clicou em "outra quinzena…", feita um passo antes: a
+    diferença é só quem escolheu a data, e não o que ela quer dizer.
   */
-  const [criada, setCriada] = useState<string | null>(null);
+  const [criada, setCriada] = useState<string | null>(nasceNova ? abreEm : null);
   const [escolhendoQuinzena, setEscolhendoQuinzena] = useState(false);
   const [ano, setAno] = useState("");
   const [mes, setMes] = useState("");
