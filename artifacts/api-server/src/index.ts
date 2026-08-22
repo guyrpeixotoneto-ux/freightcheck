@@ -212,6 +212,7 @@ async function applyMigrationsInBackground(): Promise<void> {
         },
       });
     }
+
   } catch (err) {
     logger.error(
       { err },

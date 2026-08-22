@@ -68,6 +68,7 @@ import {
 } from "@workspace/fechamento/referencia-persistencia";
 
 import { cadastroDaRemuneracao } from "../lib/cadastro-da-remuneracao";
+import { conciliarIdentidadeDoCadastro } from "../lib/identidade-do-cadastro";
 
 /**
  * Fechamento de Remuneração — a superfície HTTP do outro ambiente do produto.
@@ -1113,7 +1114,35 @@ router.put("/fechamento/competencias/:id/unidade", async (req, res): Promise<voi
   }
 
   try {
-    res.json(await associarUnidadeDaCompetencia(db, id, unidadeId));
+    /*
+      A MESMA AFIRMAÇÃO, NO OUTRO LADO — e na mesma transação.
+
+      `associarUnidadeDaCompetencia` escreve a identidade no Fechamento e a
+      propaga para as competências irmãs. Só que a partir dela `resolverUnidade`
+      deixa de comparar texto (e deve mesmo deixar), de modo que um cadastro de
+      Remuneração sem `unidade_id` — todo o passivo anterior à `0049` — parava de
+      ser encontrado no instante em que alguém associava. Quem clicava para
+      ganhar o devido perdia o que já tinha.
+
+      Quem clica está dizendo qual unidade é o `CDD Belém` desta competência. É
+      a mesma frase que resolve o cadastro registrado sob aquela grafia, e é ela
+      que viaja no gancho — dentro da transação de quem já escrevia, para que
+      metade da afirmação não possa ficar gravada sem a outra. Ver
+      `lib/identidade-do-cadastro.ts` e `Executor`.
+    */
+    const competencia = await associarUnidadeDaCompetencia(
+      db,
+      id,
+      unidadeId,
+      async (tx, competencia) => {
+        await conciliarIdentidadeDoCadastro(tx, {
+          unidadeId,
+          codigos: [competencia.unidade.codigo],
+        });
+      },
+    );
+
+    res.json(competencia);
   } catch (erro) {
     if (erro instanceof RecusaDeFechamento) {
       res.status(erro.codigo === "COMPETENCIA_NAO_ENCONTRADA" ? 404 : 409).json({

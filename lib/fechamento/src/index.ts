@@ -62,6 +62,9 @@ export * from "./matriz";
 */
 export * from "./afericao";
 export * from "./cadastro-porta";
+/* O executor das escritas — o que permite às duas metades da identidade
+   canônica caberem na mesma transação. Ver `executor.ts`. */
+export * from "./executor";
 export * from "./identidade-da-competencia";
 /*
   A régua de conferência. Sai da raiz do pacote porque a rota e a tela precisam

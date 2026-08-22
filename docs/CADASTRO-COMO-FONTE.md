@@ -104,6 +104,52 @@ Um cadastro cujo declarado se afasta do medido é um sinal, não um erro.
 competência obrigaria a redigitar dezoito parâmetros a cada quinzena para dizer
 que nada mudou — e é assim que se erra um deles.
 
+### A identidade canônica vale para os dois lados
+
+Desde a `0049` a chave textual acima é o **plano B**. Quando existe unidade
+canônica, quem casa os dois lados é `unidade_id` — em
+`fechamento_competencia` e em `remuneracao_unidade` —, e `resolverUnidade`
+(em `cadastro-da-remuneracao.ts`) deixa de comparar texto assim que a
+competência tem identidade. A recusa é deliberada: era o casamento textual que
+fazia o contrato de uma unidade responder pelo fechamento de outra.
+
+O corolário é uma invariante, e ela já foi violada uma vez com custo alto: **a
+identidade tem de ser escrita nos dois lados, sempre no mesmo ato**. Enquanto
+só o Fechamento a recebia, associar uma unidade *derrubava* um cadastro que
+estava respondendo — o `comparado` sumia, a tela caía na releitura do 03.08.20,
+e o conserto que ela sugeria não existia como ato no produto.
+
+Quem mantém a invariante são duas funções irmãs, chamadas juntas — **na mesma
+transação** — em todo lugar onde a identidade passa a ser conhecida: associar
+uma competência e cadastrar a unidade canônica.
+
+| Lado | Função | Onde |
+|---|---|---|
+| Fechamento | `conciliarIdentidadeDasCompetencias` | `identidade-da-competencia.ts` |
+| Remuneração | `conciliarIdentidadeDoCadastro` | `api-server/src/lib/identidade-do-cadastro.ts` |
+
+As duas só escrevem onde `unidade_id IS NULL`, casam apenas por critério
+determinístico — a grafia que uma pessoa afirmou, ou o documento — e, diante de
+ambiguidade, não escolhem: listam a pendência. São duas as ambiguidades, e a
+segunda só se vê olhando o conjunto: dois `scope_hash` reivindicando a mesma
+unidade fariam `resolverUnidade` recusar com `UNIDADE_AMBIGUA`, de modo que
+conciliar os dois criaria o problema que a conciliação veio consertar.
+
+**A atomicidade é da transação, e não da ordem das chamadas.**
+`associarUnidadeDaCompetencia` abre a transação e recebe a segunda metade por
+um gancho (`tambemNaMesmaTransacao`), tipado com `Executor`. Duas chamadas
+seguidas na rota deixariam a segunda falhar com a primeira já gravada — a
+competência com identidade e o cadastro sem, que é exatamente o estado que faz
+o devido sumir.
+
+**O passivo tem um comando, e não roda sozinho.** Os cadastros anteriores à
+`0049` são conciliados por
+`pnpm --filter @workspace/api-server run conciliar-cadastro`, que **simula por
+padrão** e só escreve com `-- --aplicar`. Ele chama a mesma função das rotas —
+não uma migration com a regra reescrita em SQL, que é como duas versões da
+mesma regra passam a divergir — e é idempotente: a segunda passada não escreve
+nada.
+
 ## Vigência
 
 ```

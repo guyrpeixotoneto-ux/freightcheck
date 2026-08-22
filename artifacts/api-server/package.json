@@ -9,7 +9,8 @@
     "start": "node --enable-source-maps ./dist/index.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "create-user": "tsx ./src/cli/create-user.ts"
+    "create-user": "tsx ./src/cli/create-user.ts",
+    "conciliar-cadastro": "tsx ./src/cli/conciliar-cadastro.ts"
   },
   "dependencies": {
     "@workspace/advisory": "workspace:*",
