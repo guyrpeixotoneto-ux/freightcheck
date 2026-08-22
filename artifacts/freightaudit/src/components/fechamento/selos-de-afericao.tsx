@@ -12,7 +12,9 @@ import { formatBrl } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type {
   Afericao,
+  Aferibilidade,
   ClasseDeLastro,
+  FonteFaltante,
   LimiteDaAfericao,
   ParcelaAferida,
   TresColunas,
@@ -50,6 +52,9 @@ import type {
 /** Qual das três colunas o recorte da tela está lendo. */
 export type ColunaDaAfericao = "primeira" | "segunda" | "total";
 
+/** Reexportado para o teste desta tela não precisar do pacote de domínio. */
+export type Completude = "COMPLETO" | "INCOMPLETO" | "NAO_APLICAVEL";
+
 const dinheiro = (v: number | null) => (v === null ? "—" : formatBrl(v));
 
 /**
@@ -76,7 +81,18 @@ export function percentual(v: number | null): string {
  * do dinheiro do fechamento —, e usar cortes diferentes em cada um faria a
  * mesma cor significar coisas diferentes lado a lado.
  */
-export function faixa(v: number | null): "SEM_MEDIDA" | "BOA" | "ATENCAO" | "BAIXA" {
+export function faixa(
+  v: number | null,
+  completude?: Completude,
+): "SEM_MEDIDA" | "INCOMPLETO" | "BOA" | "ATENCAO" | "BAIXA" {
+  /*
+    **Fechamento incompleto tem faixa própria, e ela não é a pior.** Vermelho
+    fica reservado para divergência real em fechamento aferível: pintar de
+    vermelho um mês que só está pela metade faz quem lê entender "a remuneração
+    está toda errada" quando a verdade é "ainda não tenho os documentos". Âmbar
+    diz o que é — pendência de importação.
+  */
+  if (completude === "INCOMPLETO") return "INCOMPLETO";
   if (v === null) return "SEM_MEDIDA";
   if (v >= 0.99) return "BOA";
   if (v >= 0.9) return "ATENCAO";
@@ -84,6 +100,8 @@ export function faixa(v: number | null): "SEM_MEDIDA" | "BOA" | "ATENCAO" | "BAI
 }
 
 const CORES: Record<ReturnType<typeof faixa>, string> = {
+  INCOMPLETO:
+    "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-900 dark:bg-amber-950/50 dark:text-amber-100",
   BOA: "border-emerald-300 bg-emerald-50 text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/50 dark:text-emerald-100",
   ATENCAO:
     "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-900 dark:bg-amber-950/50 dark:text-amber-100",
@@ -109,6 +127,8 @@ export function SelosDeAfericao({
 
   const precisao = afericao.precisao[coluna];
   const lastro = afericao.lastro[coluna];
+  const aferibilidade = afericao.aferibilidade?.[coluna] ?? null;
+  const incompleto = aferibilidade?.completude === "INCOMPLETO";
 
   return (
     <>
@@ -116,10 +136,19 @@ export function SelosDeAfericao({
         <Selo
           rotulo="Precisão"
           valor={precisao}
+          completude={aferibilidade?.completude}
+          /*
+            No fechamento incompleto o resumo diz **o estado**, não a cifra. Um
+            "R$ 1.023.037,11 sem explicação" ao lado de um traço convidaria a ler
+            o número como divergência, quando ele é a soma de diferenças medidas
+            sobre metade dos documentos.
+          */
           resumo={
-            precisao === null
-              ? "nada conferido neste recorte"
-              : `${dinheiro(afericao.naoExplicado[coluna])} sem explicação`
+            incompleto
+              ? "Fechamento incompleto"
+              : precisao === null
+                ? "nada conferido neste recorte"
+                : `${dinheiro(afericao.naoExplicado[coluna])} sem explicação`
           }
           onAbrir={() => setAberto("PRECISAO")}
         />
@@ -136,6 +165,15 @@ export function SelosDeAfericao({
           onAbrir={() => setAberto("LASTRO")}
         />
       </div>
+
+      {/*
+        A lista do que falta, fora da barra lateral — ela responde "o que eu
+        faço agora?", e essa pergunta não pode custar um clique. Cada item traz
+        a rotina, a quinzena e a causa, que é o endereço de quem vai resolver.
+      */}
+      {incompleto && aferibilidade!.faltando.length > 0 && (
+        <FaltamDados aferibilidade={aferibilidade!} />
+      )}
 
       <Sheet open={aberto !== null} onOpenChange={(v) => !v && setAberto(null)}>
         <SheetContent className="w-full sm:max-w-xl overflow-y-auto">
@@ -197,11 +235,14 @@ function Selo({
   rotulo,
   valor,
   resumo,
+  completude,
   onAbrir,
 }: {
   rotulo: string;
   valor: number | null;
   resumo: string;
+  /** Decide a cor junto com o valor — ver {@link faixa}. */
+  completude?: Completude;
   onAbrir: () => void;
 }) {
   return (
@@ -211,7 +252,7 @@ function Selo({
       className={cn(
         "group flex items-baseline gap-2 rounded-md border px-3 py-1.5 text-left transition-colors",
         "hover:brightness-[0.97] dark:hover:brightness-125",
-        CORES[faixa(valor)],
+        CORES[faixa(valor, completude)],
       )}
     >
       <span className="text-[11px] font-semibold uppercase tracking-wide opacity-80">
@@ -224,6 +265,55 @@ function Selo({
       <ChevronRight className="h-3.5 w-3.5 self-center opacity-50 transition-transform group-hover:translate-x-0.5" />
     </button>
   );
+}
+
+/**
+ * O que falta para aferir — a lista que transforma um traço em trabalho.
+ *
+ * **Não basta dizer "fechamento incompleto".** Quem lê precisa saber qual
+ * arquivo e de qual quinzena, ou o aviso vira ruído: um alerta que não diz o
+ * que fazer é indistinguível de um alerta que não interessa. Cada item traz a
+ * rotina como quem opera a chama (`2Art`, `03.08.20`), a quinzena, e a causa —
+ * porque as duas causas pedem ações diferentes: importar um arquivo, ou abrir a
+ * competência antes de poder importar.
+ */
+function FaltamDados({ aferibilidade }: { aferibilidade: Aferibilidade }) {
+  /* Agrupa por quinzena, que é como quem vai resolver organiza o trabalho. */
+  const porQuinzena = ([1, 2] as const)
+    .map((q) => ({
+      quinzena: q,
+      itens: aferibilidade.faltando.filter((f) => f.quinzena === q),
+    }))
+    .filter((g) => g.itens.length > 0);
+
+  return (
+    <div className="rounded-md border border-amber-300 bg-amber-50/70 px-3 py-2 text-xs dark:border-amber-900/70 dark:bg-amber-950/30">
+      <p className="font-semibold text-amber-900 dark:text-amber-100">
+        Faltam dados para aferir
+      </p>
+      <ul className="mt-1 space-y-0.5">
+        {porQuinzena.flatMap((g) =>
+          g.itens.map((f) => (
+            <li key={`${f.tipo}-${f.quinzena}`} className="text-muted-foreground">
+              <span className="font-mono text-[11px] text-foreground">{f.rotina}</span>
+              {" · "}
+              {f.quinzena}ª quinzena — {motivoDaFalta(f)}
+            </li>
+          )),
+        )}
+      </ul>
+      <p className="mt-1.5 text-muted-foreground">
+        Enquanto faltarem, a precisão fica em branco — e branco aqui é{" "}
+        <strong className="text-foreground">ainda não dá para saber</strong>, não
+        “os valores estão errados”.
+      </p>
+    </div>
+  );
+}
+
+/** A causa de uma falta, na palavra de quem vai resolvê-la. */
+export function motivoDaFalta(f: FonteFaltante): string {
+  return f.motivo === "NAO_IMPORTADO" ? "não importado" : "quinzena não aberta";
 }
 
 /** As classes de lastro na ordem em que a barra lateral as empilha. */
@@ -266,6 +356,7 @@ function Detalhe({
   const ordenadas = [...afericao.parcelas].sort(
     (a, b) => (b.valor[coluna] ?? 0) - (a.valor[coluna] ?? 0),
   );
+  const aferibilidade = afericao.aferibilidade?.[coluna] ?? null;
 
   return (
     <>
@@ -283,6 +374,23 @@ function Detalhe({
       </SheetHeader>
 
       <div className="mt-6 space-y-7 px-4 pb-10">
+        {/*
+          O estado vem antes da conta. Abrir a barra lateral de um fechamento
+          incompleto e encontrar numerador e denominador convidaria a discutir
+          uma conta que não devia ter sido feita.
+        */}
+        {aferibilidade?.completude === "INCOMPLETO" && (
+          <section className="space-y-3">
+            <div className="rounded-md border border-amber-300 bg-amber-50/70 p-3 dark:border-amber-900/70 dark:bg-amber-950/30">
+              <p className="text-sm font-semibold">Fechamento incompleto</p>
+              <p className="mt-1 text-xs text-muted-foreground">{aferibilidade.porque}</p>
+            </div>
+            {aferibilidade.faltando.length > 0 && (
+              <FaltamDados aferibilidade={aferibilidade} />
+            )}
+          </section>
+        )}
+
         {/* A conta, aberta. É o que transforma um selo numa afirmação conferível. */}
         <section className="space-y-3">
           <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">

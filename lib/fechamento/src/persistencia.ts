@@ -2273,6 +2273,42 @@ export async function lerResumoDoMes(
     dispDoMesPorCanal.set(canal, await disponibilidadeDoMes(db, competencias, canal));
   }
 
+  /*
+    Que relatórios cada competência recebeu — da tabela de documentos, e não do
+    retrato que a apuração guardou.
+
+    A diferença importa e já mordeu: o painel desta tela é montado de leitura
+    viva (viagens, de-para, requisições), então um arquivo enviado **depois** da
+    última apuração já entra na conta. Lendo `apuracao.fontesPresentes`, a tela
+    diria que falta um relatório que ela mesma acabou de usar.
+
+    Só o vigente conta: um documento substituído continua na tabela e não é o
+    que a conta leu.
+  */
+  const recebidasPorCompetencia = new Map<string, TipoDeFonte[]>();
+  if (competencias.length > 0) {
+    const documentos = await db
+      .select({
+        competenciaId: fechamentoDocumentoTable.competenciaId,
+        tipo: fechamentoDocumentoTable.tipo,
+      })
+      .from(fechamentoDocumentoTable)
+      .where(
+        and(
+          inArray(
+            fechamentoDocumentoTable.competenciaId,
+            competencias.map((c) => c.id),
+          ),
+          eq(fechamentoDocumentoTable.vigente, true),
+        ),
+      );
+    for (const d of documentos) {
+      const lista = recebidasPorCompetencia.get(d.competenciaId) ?? [];
+      if (!lista.includes(d.tipo as TipoDeFonte)) lista.push(d.tipo as TipoDeFonte);
+      recebidasPorCompetencia.set(d.competenciaId, lista);
+    }
+  }
+
   const quinzenas: QuinzenaApurada[] = [];
   for (const c of competencias) {
     const [apuracao, demonstrativo, descontos, requisicoes, paineis] = await Promise.all([
@@ -2346,6 +2382,8 @@ export async function lerResumoDoMes(
       competenciaId: c.id,
       chave: c.chave,
       estado: c.estado,
+      /* A competência existe: o que ela não recebeu é lista vazia, não ignorância. */
+      fontesRecebidas: recebidasPorCompetencia.get(c.id) ?? [],
       calculados: calculados.length > 0 ? calculados : null,
       cadastroUsado,
       diagnosticoDoCadastro,

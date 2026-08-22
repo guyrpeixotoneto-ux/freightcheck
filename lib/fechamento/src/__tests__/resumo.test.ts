@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { montarResumo, type QuinzenaApurada } from "../resumo";
 import { montarMapaDaQuinzena, type ParametrosDoCadastro } from "../mapa-rota";
 import { conferirDePara } from "../de-para";
+import { TIPOS_DE_FONTE } from "../dominio";
 import { lerPagamento } from "../leitores/pagamento";
 import { fixturePagamentoDoPainel } from "./fixtures";
 
@@ -24,6 +25,8 @@ function quinzena(n: 1 | 2, dados: Partial<QuinzenaApurada> = {}): QuinzenaApura
     competenciaId: `id-${n}`,
     chave: `2026-07-Q${n}`,
     estado: "APURADA",
+    /* A quinzena do fixture é completa: os seis relatórios chegaram. */
+    fontesRecebidas: [...TIPOS_DE_FONTE],
     verbas: [
       { vbz: 1, canal: "ROTA", nome: "Frota Fixa Ativa", natureza: "FIXO", emitido: 100 * n, esperado: 100 * n },
       { vbz: 5, canal: "ROTA", nome: "Frota Fixa Variável", natureza: "VARIAVEL", emitido: 50 * n, esperado: null },
