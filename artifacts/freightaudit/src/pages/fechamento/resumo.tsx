@@ -24,6 +24,10 @@ import {
 } from "@/components/fechamento/painel-da-planilha";
 import { ResumoGeralDoCanal } from "@/components/fechamento/resumo-geral";
 import {
+  SelosDeAfericao,
+  type ColunaDaAfericao,
+} from "@/components/fechamento/selos-de-afericao";
+import {
   ANOS_DO_FECHAMENTO,
   EscolherFechamento,
   fechamentoEscolhido,
@@ -695,6 +699,27 @@ const ROTULO_DO_TIPO: Record<Inconsistencia["tipo"], string> = {
   SEM_DEVIDO: "o demonstrativo paga e o contrato não sustenta",
 };
 
+/**
+ * Os selos de precisão e lastro de um canal, no recorte que a tela está lendo.
+ *
+ * **Some inteiro quando o servidor não manda a aferição.** É a resposta de uma
+ * versão anterior da API durante um deploy, e a tela tem de continuar inteira
+ * sem os selos — mostrá-los vazios sugeriria que a medida deu zero.
+ *
+ * O rótulo do recorte viaja junto porque a barra lateral fala de dinheiro: sem
+ * ele, os R$ 2,4 milhões do cabeçalho não dizem se são do mês ou de meio mês.
+ */
+function AfericaoDoCanal({ canal, recorte }: { canal: CanalDoResumo; recorte: Recorte }) {
+  if (!canal.afericao) return null;
+  const coluna: ColunaDaAfericao =
+    recorte === "consolidado" ? "total" : recorte === "1" ? "primeira" : "segunda";
+  const rotulo =
+    recorte === "consolidado" ? "mês inteiro" : `${recorte}ª quinzena`;
+  return (
+    <SelosDeAfericao afericao={canal.afericao} coluna={coluna} rotuloDaColuna={rotulo} />
+  );
+}
+
 function TabelaDoCanal({ canal, recorte }: { canal: CanalDoResumo; recorte: Recorte }) {
   const consolidado = recorte === "consolidado";
   /* No recorte de uma quinzena, a coluna dela é a única que se lê. */
@@ -716,8 +741,15 @@ function TabelaDoCanal({ canal, recorte }: { canal: CanalDoResumo; recorte: Reco
 
   return (
     <Card>
-      <CardHeader className="pb-3">
+      <CardHeader className="pb-3 space-y-3">
         <CardTitle className="text-base">{canal.canal}</CardTitle>
+        {/*
+          Os dois selos abrem o canal, antes de qualquer número — a pergunta
+          "dá para confiar neste mês?" vem antes de "quanto deu esta verba?", e
+          pô-los no rodapé faria quem lê descobrir o quanto vale o que leu
+          depois de já ter lido.
+        */}
+        <AfericaoDoCanal canal={canal} recorte={recorte} />
       </CardHeader>
       <CardContent className="overflow-x-auto">
         <table className="w-full text-sm">

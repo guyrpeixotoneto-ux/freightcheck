@@ -1,3 +1,4 @@
+import type { Afericao } from "./afericao";
 import { centavos, emReais, type Canal } from "./dominio";
 import {
   CANAIS_COM_PAINEL,
@@ -348,6 +349,15 @@ export interface QuadroComparado {
    * mesmo espaço em branco, e pedem coisas opostas de quem olha.
    */
   reservado: string | null;
+  /**
+   * A linha de outro quadro que este abre por dentro. `null` no quadro próprio.
+   *
+   * Vem do motor (`QuadroDoMapa.detalha`) e atravessa até aqui porque quem afere
+   * o fechamento precisa saber que o dinheiro deste quadro **não é dinheiro a
+   * mais** — é o mesmo de uma linha lá de cima, aberto. Sem isso a aferição
+   * contaria o variável duas vezes.
+   */
+  detalha: { quadro: string; chave: string } | null;
   linhas: LinhaComparada[];
   /** Os números que o relatório traz para várias linhas de uma vez. */
   conjuntos: ConjuntoComparado[];
@@ -501,6 +511,20 @@ export interface CanalDoResumo {
    * de zero. Ver `cadastro-porta.ts`.
    */
   comparado: PainelComparado | null;
+  /**
+   * Precisão e lastro deste canal — os dois números do cabeçalho da tela.
+   *
+   * `undefined` no resumo cru: quem os calcula é `resumoAferido`, na rota,
+   * depois de o resumo estar pronto. É a mesma disciplina da coluna da planilha
+   * — uma medida *sobre* o fechamento não pode ser um insumo dele, e a forma
+   * estrutural de garantir isso é ela chegar tarde demais para influenciar
+   * qualquer conta. Ver `afericao.ts`.
+   *
+   * O `import type` circular entre os dois módulos é deliberado e é seguro: ele
+   * some na compilação, e o que sobra é a dependência num sentido só — a
+   * aferição lê o resumo, o resumo só conhece o formato dela.
+   */
+  afericao?: Afericao;
   /**
    * Por que há (ou não há) devido, quinzena a quinzena.
    *
@@ -1175,6 +1199,7 @@ export function compararPaineis(
       titulo: modelo.titulo,
       rotuloDoTotal: modelo.rotuloDoTotal,
       reservado: modelo.reservado,
+      detalha: modelo.detalha,
       linhas,
       conjuntos,
       devido,

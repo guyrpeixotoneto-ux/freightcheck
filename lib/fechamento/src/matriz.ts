@@ -202,6 +202,7 @@ const CADASTRO = "Cadastro do sistema (Remuneração)";
 const DIARIO = "2Art";
 const DEMONSTRATIVO = "03.08.20";
 const DISPONIBILIDADE = "03.08.18";
+const DISPONIBILIDADE_MENSAL = "03.08.18 (mês inteiro) — conferido contra 03.08.20";
 
 /**
  * As vinte e duas linhas, na ordem em que a planilha as empilha.
@@ -429,7 +430,12 @@ const CATALOGO: EntradaDoCatalogo[] = [
     dependencias: ["03.08.18 do mês", "cadastro contratual vigente da unidade"],
     rotulo: "INDISPONIBILIDADE (variável)",
     quadro: "Rota — variável",
-    fonteOperacional: DEMONSTRATIVO,
+    /*
+      Ficou apontando o 03.08.20 depois de o desconto passar a sair do 03.08.18
+      do mês — as `dependencias` acima já diziam a verdade e este campo não. O
+      valor é o mesmo da linha 15, e a fonte também tem de ser.
+    */
+    fonteOperacional: DISPONIBILIDADE_MENSAL,
     regraNoSistema: "a mesma linha 15 repetida no quadro, com o nome da causa",
     formulaDaPlanilha: "='Mapa Rota'!AI139 — a mesma célula da linha 15",
     motor: { de: "LINHA", quadro: "VARIAVEL", chave: "indisponibilidade_variavel" },
@@ -490,9 +496,18 @@ const CATALOGO: EntradaDoCatalogo[] = [
     dependencias: ["03.08.12.09", "cadastro contratual vigente da unidade"],
     rotulo: "REMUNERAÇÃO VARIÁVEL - EQUIPE DE ENTREGA",
     quadro: "Equipe de entrega",
-    fonteOperacional: "nenhuma — quadro reservado e vazio na planilha",
+    /*
+      "Nenhuma" era verdade enquanto o quadro não tinha linha. Desde que ela foi
+      implementada, o devido sai do 03.08.12.09 e o demonstrado sai da `VBZ 06`
+      do 03.08.20 — os dois fecham em R$ 248.834,84 na 2ª quinzena de
+      julho/2026. O que continua não existindo é a **célula da planilha**, e é
+      por isso que a linha segue como `REGRA A DEFINIR` na matriz: o que falta é
+      contra o que comparar, não de onde tirar.
+    */
+    fonteOperacional: "03.08.12.09",
     regraNoSistema:
-      "quadro sem linha; soma zero por não ter parcela, nunca por ter medido zero",
+      "a soma sem imposto das requisições aprovadas que apontam a VBZ 06, brutada pelo " +
+      "fator de imposto da quinzena",
     formulaDaPlanilha: "AI34 e AJ34 **não existem como célula**; só AK34 = SUM(AI34+AJ34)",
     motor: { de: "TOTAL_DO_QUADRO", quadro: "EQUIPE_DE_ENTREGA" },
     planilha: { de: "PUBLICADO", campo: "equipeDeEntrega" },
@@ -918,6 +933,55 @@ export function montarMatriz(
 }
 
 /** Quantas linhas o `RESUMO GERAL` tem — o denominador da cobertura. */
+/**
+ * De onde o motor tira o número de uma linha do painel — a procedência declarada.
+ *
+ * O catálogo acima existe para a matriz de reconciliação, e é a **única** lista
+ * do pacote que diz, linha a linha, qual relatório alimenta o devido. Esta
+ * função a abre para quem precisa da procedência sem precisar da matriz inteira
+ * — hoje, a aferição (`afericao.ts`), que classifica o lastro de cada parcela
+ * comparando a fonte do devido com a do demonstrado.
+ *
+ * Devolve `null` para a chave que o catálogo não conhece: a aferição a trata
+ * como sem procedência declarada, que é diferente de tratá-la como conferida.
+ *
+ * O endereço é `(quadro, chave)` e não só `chave` porque a mesma chave existe
+ * em dois quadros — a devolução aparece no fixo e no variável, com rótulos
+ * diferentes na planilha e a mesma célula por trás.
+ */
+export function procedenciaDoMotor(
+  quadro: string,
+  chave: string,
+): { origem: OrigemDaLinha; fonteOperacional: string; dependencias: string[] } | null {
+  const achada = CATALOGO.find((l) => {
+    if (l.motor.de === "LINHA") return l.motor.quadro === quadro && l.motor.chave === chave;
+    /*
+      O quadro de uma parcela só. A planilha lhe dá uma célula de total e nenhuma
+      de parcela — é o caso da equipe de entrega, em `AI34` —, e por isso a
+      entrada do catálogo endereça o **total** do quadro. Do lado do motor a
+      linha existe, com a mesma chave da entrada, e é ela que a tela mostra.
+      Sem este ramo a linha ficaria sem procedência declarada e a aferição a
+      contaria como não conferida, que é o oposto do que ela é.
+    */
+    return l.motor.de === "TOTAL_DO_QUADRO" && l.motor.quadro === quadro && l.chave === chave;
+  });
+  if (!achada) return null;
+  return {
+    origem: achada.origem,
+    fonteOperacional: achada.fonteOperacional,
+    dependencias: achada.dependencias,
+  };
+}
+
+/**
+ * O nome do 03.08.20 como o catálogo o escreve.
+ *
+ * Exportado para a aferição poder perguntar "esta linha sai do mesmo relatório
+ * que produz o demonstrado?" sem repetir a string. Repetida, ela seria uma
+ * segunda verdade sobre o mesmo arquivo.
+ */
+export const FONTE_DO_DEMONSTRATIVO = DEMONSTRATIVO;
+
 export const LINHAS_DO_RESUMO_GERAL = CATALOGO.length;
 
 const brl = (n: number | null) =>

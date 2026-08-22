@@ -53,6 +53,14 @@ export * from "./reconciliacao";
   justificadamente diferente — ao da planilha?".
 */
 export * from "./matriz";
+
+/*
+  A aferição — precisão e lastro, derivados do próprio painel.
+
+  Depois da matriz de propósito: ela consome `resumo.ts` e `matriz.ts`, e a
+  ordem do arquivo é a ordem em que se lê o que cada módulo sabe.
+*/
+export * from "./afericao";
 export * from "./cadastro-porta";
 /*
   A régua de conferência. Sai da raiz do pacote porque a rota e a tela precisam

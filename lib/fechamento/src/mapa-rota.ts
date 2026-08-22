@@ -1037,6 +1037,24 @@ export interface QuadroDoMapa {
    * {@link quadroDaEquipeDeEntrega}.
    */
   reservado: string | null;
+  /**
+   * A linha de outro quadro que este aqui **abre por dentro**. `null` no quadro
+   * que soma dinheiro próprio.
+   *
+   * O quadro do variável não entra no `TOTAL GERAL UNIDADE` (ver
+   * {@link QUADROS_DO_TOTAL_GERAL}) porque ele é uma decomposição: as parcelas
+   * dele já estão somadas no `TOTAL REMUNERAÇÃO ROTA DVS`, no quadro do fixo.
+   * Isso sempre esteve escrito — em comentário, para gente ler. Aqui está como
+   * dado, para a conta ler.
+   *
+   * **É o que permite aferir o `DVS` sem contá-lo duas vezes.** Aquela linha não
+   * tem demonstrado próprio: o 03.08.20 não traz uma verba `DVS`. O lastro dela
+   * está aqui, no conjunto deste quadro — e sem esta declaração a aferição teria
+   * de escolher entre ignorar a evidência (e chamar R$ 635.168,85 de dinheiro
+   * sem contrapartida) ou somar as duas (e inflar o denominador com o mesmo
+   * dinheiro contado de dois jeitos).
+   */
+  detalha: { quadro: QuadroDoResumo; chave: string } | null;
 }
 
 /**
@@ -1155,6 +1173,7 @@ export function quadroDaEquipeDeEntrega(
         "rendeu: é dele que sai a VBZ 06. A planilha reserva este quadro e não escreve " +
         "célula nenhuma nele (`AI34` e `AJ34` não existem), e mesmo assim o total geral " +
         "dela o soma.",
+      detalha: null,
     };
   }
 
@@ -1181,6 +1200,7 @@ export function quadroDaEquipeDeEntrega(
     ],
     total: centavos(valorDaEquipe),
     reservado: null,
+    detalha: null,
   };
 }
 
@@ -1344,6 +1364,7 @@ export function montarMapaDaQuinzena(entrada: {
       linhas: remuneracao,
       total: somarQuadro(remuneracao),
       reservado: null,
+      detalha: null,
     },
     {
       quadro: "VARIAVEL",
@@ -1352,6 +1373,8 @@ export function montarMapaDaQuinzena(entrada: {
       linhas: variaveis,
       total: somarQuadro(variaveis),
       reservado: null,
+      /* Ele abre o `DVS` — ver `QuadroDoMapa.detalha` e `QUADROS_DO_TOTAL_GERAL`. */
+      detalha: { quadro: "REMUNERACAO", chave: "rota_dvs" },
     },
     {
       quadro: "OUTROS_CUSTOS",
@@ -1360,6 +1383,7 @@ export function montarMapaDaQuinzena(entrada: {
       linhas: outros,
       total: somarQuadro(outros),
       reservado: null,
+      detalha: null,
     },
     quadroDaEquipeDeEntrega(bases.equipeDeEntrega, p),
   ];
