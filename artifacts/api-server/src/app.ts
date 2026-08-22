@@ -4,6 +4,7 @@ import cors from "cors";
 import pinoHttp from "pino-http";
 import router from "./routes";
 import { requireSession } from "./middlewares/require-session";
+import { portaoDeProntidao } from "./middlewares/portao-de-prontidao";
 import { erroEmJson, rotaDesconhecida } from "./middlewares/contrato-json";
 import { logger } from "./lib/logger";
 
@@ -51,6 +52,22 @@ app.use(cors());
 app.use(express.json({ limit: "64mb" }));
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
+
+/**
+ * Antes de tudo o que toca o banco: o portão de prontidão.
+ *
+ * A partida abre a porta antes de a fila rodar — tem de abrir, senão o startup
+ * probe do autoscale desiste (ver `index.ts`). O que não pode é o tráfego de
+ * produto atravessar essa janela: entre o `listen` e a convergência, o código
+ * deste build e o schema deste banco podem falar versões diferentes do mesmo
+ * contrato, e foi assim que um 03.08.18 perfeito virou "o servidor falhou" em
+ * 22/08/2026. Ver `middlewares/portao-de-prontidao.ts`.
+ *
+ * **Antes de `requireSession`, e a ordem é a correção**: a sessão também é lida
+ * do banco. Autenticar primeiro faria a primeira consulta do pedido acontecer
+ * dentro da janela que o portão existe para manter vazia.
+ */
+app.use("/api", portaoDeProntidao);
 
 /**
  * Antes das rotas, e uma vez só: a autenticação é do servidor inteiro, não de

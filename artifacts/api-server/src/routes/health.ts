@@ -7,6 +7,7 @@ import {
   type EstadoObservado,
 } from "@workspace/db/diagnostico";
 import { observarBanco } from "../lib/migrations";
+import { estadoDaProntidao } from "../lib/prontidao";
 import { estadoDoBackup } from "../lib/backup-agendado";
 
 /**
@@ -128,11 +129,56 @@ router.get("/healthz", async (_req, res) => {
   const base = HealthCheckResponse.parse({ status: "ok" });
   const database = await describeDatabase(() => observarBanco());
   /*
-    O backup entra pela mesma razão que as migrations: cópia atrasada é um
-    estado que precisa ser observável de fora ANTES de fazer falta. Sai o
-    estado, nunca o caminho — este endpoint é público.
+    **`ready` é o campo que faltava, e a distinção é o ponto.** Este endpoint
+    responde 200 sempre porque é para onde o startup probe aponta: o
+    deployment precisa subir para poder ser diagnosticado. Isso, sozinho,
+    fazia um processo com a fila atrasada — ou com uma migration que falhou —
+    parecer saudável para qualquer um que olhasse só o status.
+
+    De pé e pronto passam a ser duas perguntas. O status 200 responde a
+    primeira; `ready` responde a segunda, e `/readyz` a devolve também como
+    código HTTP, para quem consulta por probe em vez de ler corpo.
   */
-  res.json({ ...base, database, backup: estadoDoBackup() });
+  const prontidao = await estadoDaProntidao();
+  res.json({
+    ...base,
+    ready: prontidao.pronto,
+    database,
+    backup: estadoDoBackup(),
+  });
+});
+
+/**
+ * Este processo pode receber tráfego de produto?
+ *
+ * **Separado do `/healthz`, e não uma versão dele com outro status.** As duas
+ * perguntas têm consumidores opostos: o startup probe precisa de um endpoint
+ * que responda 200 mesmo com o banco fora — senão o deployment nunca sobe e o
+ * roteador volta a devolver 502 sem corpo —, e a prontidão precisa de um que
+ * responda **não-200** exatamente quando não dá para servir. Um endpoint só
+ * não pode fazer as duas coisas, e foi por tentar que "de pé" passou anos
+ * significando "pronto".
+ *
+ * 503, e não 500: é indisponibilidade temporária deste processo, com
+ * `Retry-After` — a mesma classe do portão que recusa as rotas de produto, e
+ * pela mesma razão.
+ *
+ * O corpo traz o diagnóstico inteiro porque é ele que diz o que resolve, e é a
+ * mesma autoridade do `/healthz`: as duas rotas não têm como discordar sobre o
+ * mesmo banco, porque perguntam à mesma função.
+ */
+router.get("/readyz", async (_req, res) => {
+  const prontidao = await estadoDaProntidao();
+  if (prontidao.pronto) {
+    res.json({ ready: true });
+    return;
+  }
+  res.setHeader("Retry-After", "5");
+  res.status(503).json({
+    ready: false,
+    diagnostico: prontidao.diagnostico,
+    detail: textoDoDiagnostico(prontidao.diagnostico),
+  });
 });
 
 const startedAt = new Date().toISOString();

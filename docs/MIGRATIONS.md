@@ -148,6 +148,79 @@ Preso por `artifacts/api-server/src/routes/__tests__/fechamento-fila-atrasada.te
 que monta o banco daquele dia — a fila real, com registro, parada na `0054` — e
 manda o 03.08.18 pela rota de verdade.
 
+Isso é a **segunda** linha, e ela existe para o banco atrasado que não é o deste
+processo — drift, ou uma instância que já convergiu falando com um banco trocado
+por fora. A janela da própria partida foi fechada na raiz, abaixo.
+
+## A porta aberta não é tráfego aceito — o portão de prontidão
+
+`app.listen()` acontece **antes** da fila, e tem de acontecer: a conexão de
+produção (SSL, timeout) bloqueava o bind por até 60 s, o startup probe do
+autoscale desistia e a publicação falhava mesmo com o código perfeito. Foi por
+isso que `runMigrations()` foi para segundo plano, no callback do `listen`.
+
+O que ficou sem resposta por um ano foi o intervalo entre os dois. Nele o
+roteador já encaminha `/api/*` para um processo cujo banco pode estar em
+qualquer estado anterior — e é uma janela que **toda** migration de contrato
+reabre. A `0055` não a criou; foi só a primeira a cair dentro dela.
+
+### As duas arquiteturas possíveis, e por que esta
+
+| | migrations antes do `listen` | subir e recusar até convergir |
+| --- | --- | --- |
+| fecha a janela | sim | sim |
+| startup probe | falha por timeout; a publicação não sobe | passa: a porta abre na hora |
+| migration que falha | deployment não sobe, versão anterior servindo, nada diz por quê — e o reinício bate na mesma parede | processo de pé, `ready:false`, alerta, e o diagnóstico legível de fora |
+| diagnosticável de fora | não: não há processo para perguntar | sim, é a razão de `/healthz` existir |
+
+A primeira já foi tentada neste repositório e produziu o modo de falha pior.
+Vale a segunda — e com uma consequência que decide o desenho: **o roteador do
+Replit não tem readiness probe.** O `artifact.toml` declara um probe só, o de
+startup, e ele precisa de um endpoint que responda 200 mesmo com o banco fora.
+Não há como pedir à plataforma que segure o tráfego. Quem recusa tem de ser o
+processo.
+
+### O que foi feito
+
+1. **`lib/prontidao.ts`** — pronto ⇔ o banco **não** está em
+   `MIGRATIONS_PENDENTES`, `MIGRATION_FALHOU` nem `REGISTRO_PERDIDO`. Os três
+   têm a mesma forma: a fila deste build não está aplicada aqui, e não há como
+   saber que versão de contrato o banco aplica. `SCHEMA_DIVERGENTE`,
+   `BRIDGE_PENDENTE` e `INDISPONIVEL` **não** fecham o portão — os dois
+   primeiros são circunscritos e têm a resposta proporcional da segunda linha;
+   o terceiro trocaria o erro de conexão real por um que esconde a causa.
+2. **`middlewares/portao-de-prontidao.ts`** — montado em `/api` **antes** de
+   `requireSession`, porque a sessão também é lida do banco. Responde 503 com
+   `Retry-After` e o diagnóstico. Atravessam o portão fechado só `/healthz`
+   (o startup probe), `/readyz`, `/build` e `/` (o deployer sonda as duas).
+3. **`/api/readyz`** — a prontidão como código HTTP, para quem consulta por
+   probe. E `/api/healthz` ganhou `ready`, para que 200 não volte a poder ser
+   lido como "pronto".
+4. **A partida grita** — terminada a tentativa, `anunciarProntidao()` mede e,
+   se o portão estiver fechado, loga em `error` e alerta `SERVICO_NAO_PRONTO`.
+
+**A prontidão é medida, nunca declarada.** A partida não guarda "convergi": ela
+seria uma segunda versão da verdade, e as duas discordariam no minuto em que
+outra instância — ou uma pessoa, por `pnpm ... run migrate` — aplicasse a fila.
+Medindo pelo mesmo `diagnosticar(observarBanco())` do `/healthz`, o portão abre
+sozinho assim que o banco converge, sem reiniciar nada. Uma vez aberto não se
+pergunta mais: o caminho quente não paga nada, e o que acontecer depois é drift,
+que é da segunda linha.
+
+**Mais de uma instância subindo não disputa nada.** A fila já serializa em
+`pg_advisory_lock` (`runMigrations`); o portão só **lê**, e por isso não
+acrescenta escrita nenhuma à partida. Provado em
+`lib/db/src/__tests__/fila-concorrente.test.ts`: quatro chamadas concorrentes
+sobre um banco na `0054`, ninguém falha, a `0055` entra uma vez e o carimbo não
+duplica.
+
+A prova de que a janela sumiu está em
+`artifacts/api-server/src/__tests__/janela-da-partida.test.ts`, com o **app de
+verdade** sobre um banco parado na `0054`: o produto responde 503 (mesmo com
+sessão válida), o banco continua literalmente vazio depois das tentativas, o
+`/healthz` responde 200 com `ready:false`, e — aplicada a `0055`, sem reiniciar
+— o serviço fica pronto e o 03.08.18 sobe e grava.
+
 ## Quem avança a fila só por ter subido
 
 A regra é uma: **os dois ambientes com banco próprio convergem pela fila ao

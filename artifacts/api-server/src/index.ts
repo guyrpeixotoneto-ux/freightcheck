@@ -11,6 +11,7 @@ import {
   migrationsFolder,
   reconvergirNaPartida,
 } from "./lib/migrations";
+import { estadoDaProntidao } from "./lib/prontidao";
 
 const rawPort = process.env["PORT"];
 
@@ -41,11 +42,25 @@ if (Number.isNaN(port) || port <= 0) {
  * probe passes immediately and the operator knows the DB state from the
  * response body.
  *
+ * **A porta aberta não é mais tráfego aceito, e essa é a correção de
+ * 22/08/2026.** Abrir cedo continua obrigatório — é o probe —, mas entre o
+ * `listen` e a convergência havia uma janela em que o roteador encaminhava
+ * `/api/*` para um processo cujo banco podia estar em qualquer estado
+ * anterior. Foi ela que fez um 03.08.18 perfeito virar "o servidor falhou",
+ * porque a tela nova conversava com a lista fechada de antes da `0055`. Hoje o
+ * portão de prontidão (`middlewares/portao-de-prontidao.ts`) recusa todo
+ * tráfego de produto enquanto a fila deste build não estiver aplicada, e o
+ * `/api/readyz` responde 503 no mesmo intervalo. O que roda em segundo plano é
+ * a fila; o que espera por ela é o produto.
+ *
  * Migration failure is logged but does NOT crash the process: crashing would
  * make the deployment look like a success (the previous version keeps
  * serving) but then the next restart would hit the same wall. Staying up
  * with the pendência visível em /api/healthz is the honest, recoverable
- * state — an operator can read it and act.
+ * state — an operator can read it and act. E "de pé" deixou de poder ser
+ * confundido com "pronto": `ready` sai no `/api/healthz`, `/api/readyz`
+ * responde 503, as rotas de produto recusam, e a partida alerta
+ * (`SERVICO_NAO_PRONTO`) em vez de terminar em silêncio.
  *
  * **O relatório é guardado, não só logado.** Log de deployment é o lugar onde
  * uma falha de migration ia morrer: quem abre a tela e recebe 500 não tem como
@@ -210,6 +225,53 @@ async function applyMigrationsInBackground(): Promise<void> {
   }
 }
 
+/**
+ * Depois da tentativa: o processo está pronto, ou está no ar e recusando?
+ *
+ * **Isto existe porque "no ar" nunca quis dizer "pronto", e ninguém dizia a
+ * diferença.** A falha da fila já alertava; o que não existia era o estado que
+ * sobra depois dela — um processo de pé, com a porta aberta, recusando todo
+ * tráfego de produto. Ele não pode depender de alguém reler o log da partida
+ * nem de alguém abrir a tela e receber 503: sai alto, e vira alerta, na mesma
+ * classe de tudo o que deixa o produto indisponível.
+ *
+ * A medição é a mesma do portão e a mesma do `/healthz` — `estadoDaProntidao`,
+ * que pergunta a `diagnosticar`. A partida não declara prontidão nenhuma: se
+ * declarasse, seria uma segunda versão da verdade, e as duas discordariam no
+ * minuto em que outra instância aplicasse a fila.
+ */
+async function anunciarProntidao(): Promise<void> {
+  try {
+    const estado = await estadoDaProntidao();
+    if (estado.pronto) {
+      logger.info(
+        {},
+        "Pronto: a fila deste build está aplicada neste banco, e as rotas de produto respondem.",
+      );
+      return;
+    }
+    logger.error(
+      { estado: estado.diagnostico.estado, acao: estado.diagnostico.acao?.codigo },
+      "NO AR E NÃO PRONTO — as rotas de produto respondem 503 até a fila deste " +
+        "build ser aplicada. /api/readyz responde 503 e /api/healthz traz ready:false.",
+    );
+    void alertar({
+      tipo: "SERVICO_NAO_PRONTO",
+      resumo:
+        `O servidor subiu e não está pronto (${estado.diagnostico.estado}): o tráfego de ` +
+        `produto é recusado até a fila deste build ser aplicada.`,
+      detalhe: {
+        estado: estado.diagnostico.estado,
+        evidencia: estado.diagnostico.evidencia,
+      },
+    });
+  } catch (err) {
+    /* Medir falhou — e medir é leitura. Não muda o portão (que mede por
+       chamada); muda o que se sabe daqui, e por isso sai alto. */
+    logger.error({ err }, "Não foi possível medir a prontidão na partida.");
+  }
+}
+
 app.listen(port, (err) => {
   if (err) {
     logger.error({ err }, "Error listening on port");
@@ -225,8 +287,14 @@ app.listen(port, (err) => {
     "Server listening",
   );
 
-  // Migrations run after binding — keeps the startup probe window clean.
-  void applyMigrationsInBackground();
+  /*
+    A fila roda depois do bind — é o que mantém a janela do startup probe
+    limpa. O que mudou é o que acontece **enquanto** ela roda: o portão de
+    prontidão recusa tráfego de produto até o banco convergir (ver
+    `middlewares/portao-de-prontidao.ts`), e a partida diz alto em que dos dois
+    estados ela terminou.
+  */
+  void applyMigrationsInBackground().then(anunciarProntidao);
 
   // Depois da fila, a cópia: com BACKUP_DIR definido, toda partida confere a
   // idade do último dump e repõe o que envelheceu — ver backup-agendado.ts.
