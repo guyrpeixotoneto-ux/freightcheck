@@ -18,8 +18,18 @@ export type TipoDeFonte =
   | "REQUISICOES"
   | "CONCILIACAO";
 
+/** De que lado da conferência uma fonte está — ver `LADOS_DA_CONFERENCIA`. */
+export type LadoDaConferencia = "DEVIDO" | "DEMONSTRADO" | "FATURAMENTO";
+
 export interface Fonte {
   tipo: TipoDeFonte;
+  /**
+   * O lado da conferência que esta fonte alimenta.
+   *
+   * Vem do domínio e não é decidido na tela: é afirmação sobre a conta. O
+   * agrupamento da tela de importação sai daqui.
+   */
+  lado: LadoDaConferencia;
   /** O número da rotina do Promax — `03.08.15`. É como quem opera a chama. */
   rotina: string;
   nome: string;
@@ -244,10 +254,31 @@ export interface Apuracao {
   divergencias: Divergencia[];
 }
 
+/**
+ * Em que porta o cadastro desta quinzena parou.
+ *
+ * `null` quando a competência não tem tipo de operação informado — aí não há a
+ * quem perguntar. `estado: "RESPONDEU"` é o caso bom: há contrato, e
+ * `destrava` é `null` porque não há o que destravar.
+ */
+export interface ContratoDaCompetencia {
+  canal: string;
+  estado: string;
+  destrava: { problema: string; conserto: string } | null;
+}
+
 export interface CompetenciaAberta {
   competencia: Competencia;
   documentos: Documento[];
   apuracao: Apuracao | null;
+  /**
+   * O contrato da quinzena — a peça do devido que **não chega por importação**.
+   *
+   * Está aqui porque a tela que pede os relatórios é a mesma em que a falta do
+   * contrato precisa aparecer: três relatórios do devido com visto verde e
+   * nenhum devido saindo era um estado que esta tela não sabia mostrar.
+   */
+  contrato: ContratoDaCompetencia | null;
 }
 
 /* ---------------------------------------------------------------------------
@@ -396,6 +427,25 @@ export const DIAS_DA_SEMANA = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"]
 
 export function listarFontes(): Promise<Fonte[]> {
   return fetchJson<Fonte[]>("/fechamento/fontes");
+}
+
+/**
+ * Um lado da conferência, com o texto que o explica.
+ *
+ * O fechamento confronta dois lados que saem de arquivos diferentes — o devido,
+ * derivado do contrato e da operação, contra o demonstrado do 03.08.20 — e um
+ * terceiro grupo que não entra na comparação (o faturamento e o fecho).
+ */
+export interface LadoDaConferenciaNaTela {
+  lado: LadoDaConferencia;
+  titulo: string;
+  explica: string;
+  /** O grupo depende também do contrato, que não chega por importação. */
+  precisaDeContrato: boolean;
+}
+
+export function listarLadosDaConferencia(): Promise<LadoDaConferenciaNaTela[]> {
+  return fetchJson<LadoDaConferenciaNaTela[]>("/fechamento/lados");
 }
 
 /**
