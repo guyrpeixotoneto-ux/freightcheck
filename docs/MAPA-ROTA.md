@@ -25,7 +25,7 @@ Rota`, e cada linha do `Mapa Rota` é uma fórmula sobre a aba `Cadastro` — a
 frota contratada, a tarifa por veículo, as alíquotas — ou sobre o diário
 operacional (abas `01`…`31`).
 
-O de-para que o produto tinha traduzia as mesmas dezoito linhas **a partir do
+O de-para que o produto tinha traduzia as mesmas linhas **a partir do
 03.08.20**. Por isso o painel inteiro dependia de um relatório que a planilha
 nunca abre: sem ele, `lerDeParaDaCompetencia` devolve `null` e a aba `Planilha`
 não tem o que mostrar.

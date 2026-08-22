@@ -158,6 +158,57 @@ importável nenhum — conferi as 19.876 linhas do 03.08.15 da 1ª quinzena. Ela
 impede o `TOTAL GERAL SRTRANS`, que vem do 03.08.20; impede a conferência que o
 decompõe.
 
+## O painel Devido × Demonstrado, e a coluna `Auditar`
+
+A matriz acima confere o sistema contra a `.xlsb`. A **tela** confere outra
+coisa, e é a que vale quando a planilha sair de cena: o **devido** (contrato +
+diário) contra o **demonstrado** (o 03.08.20 assinado). Duas fontes
+independentes, e é por isso que a diferença entre elas diz algo.
+
+**A moeda estava errada, e a coluna `Diferença` media câmbio.** O devido sai do
+motor bruto — a parcela já com o fator de imposto — e com o desconto negativo,
+que é como a planilha escreve. O demonstrado saía do 03.08.20 pela coluna
+`S/Imposto` e com o desconto em módulo positivo, que é como o relatório escreve.
+Numa linha em que os dois lados são **a mesma verba do mesmo arquivo**, a
+subtração dava `−18.199,19 − 13.328,30 = −31.527,49`.
+
+Cada linha do mapa agora declara como o demonstrado dela se converte
+(`ConversaoDoDemonstrado`: o sinal, e se sobe pelo fator); o fator é da quinzena,
+não da linha; e `resumo.ts` só aplica. Em julho/2026, todas as linhas que têm os
+dois lados fecham em **R$ 0,00 exatos**:
+
+| Linha | 1ª | 2ª |
+|---|---:|---:|
+| `DESCONTO DE DEVOLUÇÃO %` | R$ 0,00 | R$ 0,00 |
+| `DESCONTO DE DISPONIBILIDADE` | — (sem bloco no relatório) | R$ 0,00 |
+| `DESCONTO COMPLEMENTAR NEGATIVO` | R$ 0,00 | R$ 0,00 |
+| `DESCONTO DE DEVOLUÇÃO` (variável) | R$ 0,00 | R$ 0,00 |
+| `INDISPONIBILIDADE` (variável) | — | R$ 0,00 |
+| `TOTAL REMUNERAÇÃO ROTA OUTROS CUSTOS` | — | **R$ 0,00** |
+| `REM. VARIÁVEL - EQUIPE DE ENTREGA` | — | **R$ 0,00** |
+
+As duas últimas são as que mais dizem: o devido delas sai do **03.08.12.09** e o
+demonstrado do **03.08.20**. Dois arquivos diferentes, R$ 109.695,38 e
+R$ 248.834,84, ao centavo.
+
+**A coluna `Auditar`** é o que sobra. Ela é computada da própria subtração — não
+há catálogo de exceção, e uma divergência só some de lá quando para de existir.
+Preenche-se em dois casos: os dois lados existem e discordam em mais de meio
+centavo, ou o devido é dinheiro e não há demonstrado nenhum. Em julho/2026 ela
+tem três entradas, e essas três são **tudo** o que o sistema não consegue provar:
+
+| O que | 1ª | 2ª | Por quê |
+|---|---:|---:|---|
+| `TOTAL REMUNERAÇÃO ROTA DVS` | R$ 307.746,20 | R$ 327.422,65 | O 03.08.20 não tem linha `DVS`. O motor a calcula como o custo variável inteiro, e o variável do relatório (VBZ 05 e 07) já é conferido no quadro de baixo. Entra no fechamento **sem corroboração de documento** |
+| conjunto `Custo fixo bruto` | −R$ 572,27 | −R$ 574,08 | O 03.08.20 paga ~R$ 573 a mais de custo fixo do que o contrato cadastrado explica. **A planilha tem a mesma diferença** — não é defeito do motor |
+| conjunto `Custo variável bruto` | −R$ 12.243,54 | −R$ 10.923,87 | O variável do 2Art e as VBZ 05/07 do 03.08.20 medem a mesma operação e não coincidem. É a divergência que este painel existe para mostrar |
+
+O `DVS` também impede o **total do quadro do fixo** de existir: uma linha com
+devido em dinheiro e sem demonstrado anula a soma, porque a soma de parte das
+linhas não é o total, e a diferença contra ela mediria a lacuna do painel em vez
+da divergência dos documentos. `QuadroComparado.semDemonstrado` nomeia quem
+faltou.
+
 ## Os defeitos que este trabalho encontrou
 
 Todos só existiam **entre o arquivo e o motor** — a reconciliação alimentava
@@ -172,6 +223,12 @@ que nenhum dos dois lados os via.
 | `BasesDaPlanilha` recebia valor de relatório sem converter a moeda | idem | `basesDosRelatorios` |
 | a mensagem de falta apontava o 03.08.18 enquanto o valor vinha do 03.08.20 | — | `linhasDeDesconto` |
 | a herança do total geral não somava a parcela que a planilha não escreve | R$ 248.834,84 | `contribuicao` |
+| o demonstrado comparado sem converter moeda nem sinal | R$ 31.527,49 numa linha só | `compararPaineis` |
+| `rota_dvs` no conjunto do fixo — o variável somado dentro do fixo | R$ 307.173,93 (1ª) · R$ 326.848,57 (2ª) | `GRUPOS_DA_PLANILHA` |
+| o bruto do conjunto perguntava à planilha de qual verba o desconto saiu, e o relatório diz | R$ 30.442,73 (1ª) · R$ 157.743,78 (2ª) | `descontosDasVerbas` |
+| a `VBZ 06` dentro de `outros_custos`, sem o quadro que a planilha reserva | R$ 248.834,84 | `RECORTE_DO_QUADRO` |
+| duas chaves que nunca se encontravam (`desconto_devolucao`, `outros_custos`) | as linhas apareciam sem demonstrado | `mapa-rota.ts` · `de-para.ts` |
+| o total do quadro lido do relatório: outra lista de linhas, outra moeda | R$ 505.534,69 num quadro cujas linhas fechavam | `totalDemonstradoDoQuadro` |
 
 ## Onde cada coisa mora
 
@@ -188,3 +245,7 @@ que nenhum dos dois lados os via.
 | `__tests__/corte-do-canal.test.ts` | os três casos do corte, e as seis viagens |
 | `__tests__/disponibilidade-mensal.test.ts` | a regra do mês, e que nenhuma metade a reproduz |
 | `__tests__/marca-de-indisponibilidade.test.ts` | o zero que não é marca |
+| `__tests__/moeda-do-devido.test.ts` | a conversão, o total do quadro e a coluna `Auditar` |
+| `resumo.ts` | `compararPaineis`, `comAuditoria`, `totalDemonstradoDoQuadro` |
+| `de-para.ts` | os vinte rótulos, os conjuntos e o bruto por VBZ |
+| `components/fechamento/resumo-geral.tsx` | a coluna `Auditar` na tela |

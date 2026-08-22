@@ -55,7 +55,7 @@ import { VBZ_DA_EQUIPE_DE_ENTREGA, type NaturezaDaVerba } from "./verbas";
  * verbas que nenhuma linha nomeia. O resíduo não é erro: é exatamente o que
  * essas duas listas somam, e é uma afirmação que a planilha derruba num
  * minuto se estiver errada. Quem tem o `.xlsb` aberto confere uma subtração em
- * vez de dezoito rótulos — e cada vez que ela não bater, o que se aprende é
+ * vez de vinte rótulos — e cada vez que ela não bater, o que se aprende é
  * qual das hipóteses deste arquivo caiu.
  *
  * **Por que só a Rota.** O painel transcrito aqui é o da Rota, rótulo por
@@ -173,7 +173,7 @@ export interface LinhaDaPlanilha {
    * O mesmo rótulo escrito como se escreve — é o que a tela mostra.
    *
    * A planilha grita: `CUSTO FIXO - VANS`. A caixa alta ali não é sentido, é
-   * formatação de célula — e quem confere lê dezoito linhas dessas de uma vez.
+   * formatação de célula — e quem confere lê vinte linhas dessas de uma vez.
    * Guardar as duas grafias separadas é o que permite mostrar `Custo fixo —
    * vans` sem perder a transcrição literal contra a qual o de-para se confere.
    * Derivar uma da outra por `toLowerCase` estragaria `DVS`, que é sigla.
@@ -729,7 +729,7 @@ export interface QuadroConferido {
    * É uma afirmação verificável, e é o que este módulo tem de novo a dizer. O
    * resíduo é, por construção, o valor conjunto de duas coisas: as linhas de
    * {@link semLastro} e as verbas de {@link verbasSemLinha}. Quem abrir o
-   * `.xlsb` confere uma subtração em vez de dezoito rótulos.
+   * `.xlsb` confere uma subtração em vez de vinte rótulos.
    *
    * **Resíduo zero não é "nada a ver".** Zero afirma que as linhas de
    * `semLastro` valem zero nesta quinzena — que `INDISPONIBILIDADE` e
@@ -835,7 +835,7 @@ function somar(valores: number[]): number {
  *
  * Função pura, como toda a aritmética deste pacote: recebe o demonstrativo já
  * lido e devolve o painel preenchido. Quem vai ao banco é `persistencia.ts`, e
- * a separação é o que permite conferir os dezoito rótulos contra material
+ * a separação é o que permite conferir os vinte rótulos contra material
  * sintético, sem Postgres.
  *
  * O canal é sempre `ROTA` porque é o painel que existe — ver a nota de abertura

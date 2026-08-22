@@ -751,6 +751,22 @@ export interface LinhaComparada {
    * ninguém explicou — e é essa que merece olhar.
    */
   causaConhecida: string | null;
+  /**
+   * O que **nenhum documento sustenta** nesta linha — a coluna `Auditar`.
+   *
+   * Preenchida em dois casos, e só nesses dois: os dois lados existem e
+   * discordam em mais de meio centavo, ou o devido é dinheiro e não há
+   * demonstrado nenhum — nem próprio nem por conjunto.
+   *
+   * **Não é `causaConhecida` com outro nome.** Aquela fala do que a planilha faz
+   * de diferente do sistema; esta, do que o demonstrativo assinado faz de
+   * diferente do contrato. Uma linha pode ter as duas.
+   *
+   * **A coluna deve viver vazia**, e é assim que se lê a tela: linha com texto
+   * aqui é a que merece o olho. Falta de arquivo não entra — para isso existe
+   * `falta`, e ali o devido nem existe.
+   */
+  auditar: string | null;
 }
 
 /**
@@ -769,6 +785,13 @@ export interface ConjuntoComparado {
   demonstrado: TresColunas;
   diferenca: TresColunas;
   porque: string;
+  /**
+   * O que ninguém sustenta no conjunto — a mesma coluna `Auditar` das linhas.
+   *
+   * É aqui que a auditoria das linhas em conjunto acontece: elas não têm
+   * demonstrado próprio, e a única subtração honesta é a do conjunto.
+   */
+  auditar: string | null;
 }
 
 export interface QuadroComparado {
@@ -787,8 +810,18 @@ export interface QuadroComparado {
   linhas: LinhaComparada[];
   conjuntos: ConjuntoComparado[];
   devido: TresColunas;
+  /**
+   * O total do quadro **somado das linhas demonstradas**, na moeda do devido.
+   *
+   * Não é o total que o 03.08.20 imprime para a seção — esse continua no painel
+   * do demonstrativo, que é onde ele é o assunto. `null` quando alguma linha do
+   * quadro tem devido em dinheiro e não tem demonstrado; {@link semDemonstrado}
+   * diz qual.
+   */
   demonstrado: TresColunas;
   diferenca: TresColunas;
+  /** As linhas que impedem o total demonstrado de existir. Vazia quando ele existe. */
+  semDemonstrado: string[];
   /** O total que a planilha publica para o quadro — lido, não somado das linhas. */
   planilha: TresColunas | null;
   diferencaDaPlanilha: TresColunas | null;
