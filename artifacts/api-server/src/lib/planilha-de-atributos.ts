@@ -239,7 +239,8 @@ function instrucoes(workbook: ExcelJS.Workbook, modelo: ModeloDeAtributos): void
     "3. Isto não confirma nada. Nem mesmo a Categoria DRE: ela entra como proposta, aparece pronta na tela, e o atributo continua fora dos cálculos financeiros até alguém confirmar com justificativa assinada.",
     "4. A Categoria DRE são duas colunas, e as duas têm lista suspensa. Sintético é a linha da DRE que totaliza (Custo Variável, Custo Fixo, Cadastral); Analítico é o detalhe dentro dela (Manutenção, Pneus, Combustível). Preencha as duas: o sintético sozinho não classifica, e o analítico sozinho fica ambíguo quando o mesmo nome existe em mais de uma linha — \"Outros\" é assim.",
     "5. As duas listas são independentes, então dá para escolher um par que não existe. Se isso acontecer, a prévia diz qual é o caminho real daquele analítico e não grava nada até você corrigir. Se faltar um item, cadastre-o na tela de Curadoria antes de reenviar.",
-    "6. Só aparece aqui o que virou atributo na importação. Colunas de chave — vigência e placa — identificam a linha em vez de medir algo, e por isso não têm o que descrever.",
+    "6. Regra de Alteração é texto livre: o que faz aquela coluna mudar de valor — revisão semestral, reajuste anual por índice, renegociação de tabela. Não é a fórmula do número de hoje, é o que faz a fórmula de hoje deixar de valer. Sem lista, porque o vocabulário das regras é o da sua operação.",
+    "7. Só aparece aqui o que virou atributo na importação. Colunas de chave — vigência e placa — identificam a linha em vez de medir algo, e por isso não têm o que descrever.",
     "",
     "Para aplicar: Curadoria › Planilha de atributos › Enviar preenchida. O sistema mostra o que vai mudar antes de gravar.",
   ];
@@ -350,6 +351,7 @@ export function lerModeloDeAtributos(bytes: Buffer): LeituraDoModelo {
         "definition",
         "categoriaSintetica",
         "categoriaAnalitica",
+        "changeRule",
         "categoria",
       ]
         .map(ler)
@@ -368,6 +370,7 @@ export function lerModeloDeAtributos(bytes: Buffer): LeituraDoModelo {
         definition: ler("definition"),
         categoriaSintetica: ler("categoriaSintetica"),
         categoriaAnalitica: ler("categoriaAnalitica"),
+        changeRule: ler("changeRule"),
         categoria: ler("categoria"),
       });
     }

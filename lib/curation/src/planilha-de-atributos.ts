@@ -18,7 +18,8 @@ import { saveMeaning } from "./meaning";
  * A tela cura uma coluna por vez, e isso é certo para o ato caro — confirmar
  * interpretação é assinar que um número pode entrar em soma financeira, e
  * assinar 121 vezes seguidas é como se assina sem ler. Mas o ato **barato** —
- * dizer como a coluna se chama, o que ela é e onde ela entra na conta — é
+ * dizer como a coluna se chama, o que ela é, onde ela entra na conta e o que a
+ * faz mudar de valor — é
  * conhecimento que quem opera já tem escrito em algum lugar, e cobrá-lo em 121
  * idas e voltas de tela é o que manteve esses campos vazios.
  *
@@ -73,6 +74,20 @@ import { saveMeaning } from "./meaning";
  * não move dinheiro.
  *
  * ---------------------------------------------------------------------------
+ * A regra de alteração
+ * ---------------------------------------------------------------------------
+ * A sexta coluna, e a mais barata das seis: texto livre sobre o que faz aquela
+ * coluna mudar de valor — "revisão semestral", "reajusta por IPCA na virada do
+ * contrato", "muda quando a tabela é renegociada". É prosa, então entra como
+ * prosa: grava por `saveMeaning`, não mexe em status, e passa também em
+ * atributo já confirmado.
+ *
+ * Ela é a resposta a uma pergunta que o produto fazia em três lugares e não
+ * guardava em nenhum: por que o IPVA foi 2,52% do valor da nota, depois
+ * exatamente 1,000%, depois 0,651%. A base de cálculo de cada vigência já era
+ * guardada; o que faltava era a frase que diz que aquela base **tem** revisão.
+ *
+ * ---------------------------------------------------------------------------
  * Célula em branco não apaga
  * ---------------------------------------------------------------------------
  * A regra da planilha inteira. Quem preenche 12 linhas de 121 devolve 109
@@ -92,7 +107,11 @@ import { saveMeaning } from "./meaning";
  * e analítico são duas alturas de um caminho, e o que se grava é o nó em que
  * esse caminho termina. Uma mudança de categoria vale pelo caminho inteiro.
  */
-export type CampoDoModelo = "displayName" | "definition" | "categoria";
+export type CampoDoModelo =
+  | "displayName"
+  | "definition"
+  | "categoria"
+  | "changeRule";
 
 /** As colunas do arquivo — que não são os campos: a categoria ocupa duas. */
 export type ChaveDeColuna =
@@ -100,7 +119,8 @@ export type ChaveDeColuna =
   | "displayName"
   | "definition"
   | "categoriaSintetica"
-  | "categoriaAnalitica";
+  | "categoriaAnalitica"
+  | "changeRule";
 
 export interface ColunaDoModelo {
   chave: ChaveDeColuna;
@@ -112,7 +132,7 @@ export interface ColunaDoModelo {
 }
 
 /**
- * Cinco colunas, e a primeira é a chave.
+ * Seis colunas, e a primeira é a chave.
  *
  * O modelo tinha nove — código, coluna de origem, status, valores, "também
  * existe em", nome, o que é, fórmula e significado — e o que se descobriu
@@ -167,6 +187,14 @@ export const COLUNAS_DO_MODELO: ColunaDoModelo[] = [
     ajuda:
       "O detalhe dentro do sintético — Manutenção, Pneus, Combustível. É o que de fato classifica a coluna, e entra como proposta: não confirma o atributo.",
   },
+  {
+    chave: "changeRule",
+    rotulo: "Regra de Alteração",
+    largura: 60,
+    preenchivel: true,
+    ajuda:
+      "A regra pela qual esta coluna muda de valor — revisão semestral, reajuste anual por índice, renegociação de tabela. Texto livre: o vocabulário das regras é da operação, não do sistema.",
+  },
 ];
 
 /** O rótulo antigo, quando a categoria cabia numa coluna só. Ainda é lido. */
@@ -191,6 +219,12 @@ export interface LinhaDoModelo {
   definition: string;
   categoriaSintetica: string;
   categoriaAnalitica: string;
+  /**
+   * O nome é o da chave da coluna, e não "regraDeAlteracao": `aba.addRow` casa
+   * a linha com as colunas por `key`, e um campo com outro nome sairia do
+   * arquivo como célula vazia — sem erro, e sem nada que o acusasse.
+   */
+  changeRule: string;
 }
 
 /** O atributo como a base o tem, para o modelo e para a conferência. */
@@ -203,6 +237,8 @@ export interface AtributoDoModelo {
   semanticsStatus: string;
   displayName: string | null;
   definition: string | null;
+  /** A regra de alteração como a base a tem. Ver `attribute.change_rule`. */
+  changeRule: string | null;
   /**
    * A categoria por **código**, e não pelo texto que a tela mostra.
    *
@@ -242,6 +278,7 @@ export function montarLinhas(
       definition: a.definition ?? "",
       categoriaSintetica: categoria?.sintetico ?? "",
       categoriaAnalitica: categoria?.analitico ?? "",
+      changeRule: a.changeRule ?? "",
     };
   });
 }
@@ -261,6 +298,7 @@ export interface LinhaPreenchida {
   definition?: string;
   categoriaSintetica?: string;
   categoriaAnalitica?: string;
+  changeRule?: string;
   /** A coluna única dos arquivos gerados antes da separação em dois níveis. */
   categoria?: string;
 }
@@ -629,7 +667,7 @@ export function conferirPreenchimento(
     const mudancas: MudancaDeCampo[] = [];
     const problemas: string[] = [];
 
-    const texto = (campo: "displayName" | "definition") => {
+    const texto = (campo: "displayName" | "definition" | "changeRule") => {
       const valor = preenchido(linha[campo]);
       if (valor === null) return;
       if ((atributo[campo] ?? "").trim() === valor) return;
@@ -637,6 +675,14 @@ export function conferirPreenchimento(
     };
     texto("displayName");
     texto("definition");
+    /*
+      A regra de alteração entra como as outras duas frases, e num atributo
+      **confirmado** também: prosa não move dinheiro. É a mesma assimetria que
+      barra a Categoria DRE de quem já foi assinado logo abaixo — trocar a
+      categoria muda em que linha da DRE o número cai, escrever por que ele
+      muda não muda nada.
+    */
+    texto("changeRule");
 
     /*
       A coluna antiga, de um arquivo gerado antes da separação, entra como
@@ -790,7 +836,7 @@ export async function aplicarPreenchimento(
     const de = (campo: CampoDoModelo) =>
       linha.mudancas.find((m) => m.campo === campo);
     try {
-      const prosa = (["displayName", "definition"] as const).filter(
+      const prosa = (["displayName", "definition", "changeRule"] as const).filter(
         (campo) => de(campo) !== undefined,
       );
       if (prosa.length > 0) {

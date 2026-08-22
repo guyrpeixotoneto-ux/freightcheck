@@ -49,6 +49,16 @@ export interface MeaningInput {
   /** How the source produces the number, when that is known. Same convention. */
   calculationBasis?: string | null;
   /**
+   * A regra pela qual a coluna muda de valor. Mesma convenção.
+   *
+   * É a terceira frase, e responde o que as outras duas não respondem:
+   * `definition` diz o que a coluna é, `calculationBasis` diz como o número é
+   * produzido hoje, e esta diz o que faz esse número deixar de ser o que é —
+   * "revisão semestral", "reajusta por IPCA na virada do contrato". Ver
+   * `attribute.change_rule`.
+   */
+  changeRule?: string | null;
+  /**
    * What the column should be called on screen. Same convention.
    *
    * Naming belongs here for the reason the definition does: `combustivelVidaCavalo`
@@ -65,6 +75,7 @@ export interface MeaningResult {
   code: string;
   definition: string | null;
   calculationBasis: string | null;
+  changeRule: string | null;
   displayName: string | null;
   /** Untouched by this operation. Returned so a caller can prove that. */
   semanticsStatus: string;
@@ -97,16 +108,29 @@ function normalise(value: string | null | undefined): string | null | undefined 
  * coisas e deixou uma terceira para depois, e um aviso que só falasse da que
  * faltou faria a pessoa reescrever o nome que já está no banco.
  */
+/**
+ * A primeira letra em maiúscula, e só ela.
+ *
+ * Era um `replace(/^o/, "O")`, escrito quando a lista só podia começar por "o
+ * nome gerencial" ou "o significado". Com "a regra de alteração" na lista, a
+ * mesma expressão deixa a frase começando em minúscula — e o defeito é
+ * invisível até alguém salvar a regra num atributo sem versão de semântica.
+ */
+function maiuscula(frase: string): string {
+  return frase.charAt(0).toUpperCase() + frase.slice(1);
+}
+
 function recusaDaBase(code: string, gravados: string[]): string {
   const nomes = [
     gravados.includes("display_name") ? "o nome gerencial" : null,
     gravados.includes("definition") ? "o significado" : null,
+    gravados.includes("change_rule") ? "a regra de alteração" : null,
   ].filter((n): n is string => n !== null);
 
   const salvo =
     nomes.length === 0
       ? "" // Nada mais mudou nesta chamada; não há o que anunciar como salvo.
-      : ` ${nomes.join(" e ").replace(/^o/, "O")} ${
+      : ` ${maiuscula(nomes.join(" e "))} ${
           nomes.length === 1 ? "foi salvo" : "foram salvos"
         } normalmente.`;
 
@@ -142,15 +166,17 @@ export async function saveMeaning(
 
   const definition = normalise(input.definition);
   const calculationBasis = normalise(input.calculationBasis);
+  const changeRule = normalise(input.changeRule);
   const displayName = normalise(input.displayName);
 
   if (
     definition === undefined &&
     calculationBasis === undefined &&
+    changeRule === undefined &&
     displayName === undefined
   ) {
     throw new Error(
-      "Nada a gravar: informe o nome gerencial, o significado ou a base de cálculo.",
+      "Nada a gravar: informe o nome gerencial, o significado, a base de cálculo ou a regra de alteração.",
     );
   }
 
@@ -196,7 +222,12 @@ export async function saveMeaning(
     // Still an exception when the basis is the whole call: there is nothing
     // else to save, and answering "gravado" to a write that stored nothing
     // would be the same lie in the other direction.
-    if (basisRefused && definition === undefined && displayName === undefined) {
+    if (
+      basisRefused &&
+      definition === undefined &&
+      changeRule === undefined &&
+      displayName === undefined
+    ) {
       throw new Error(
         `Ainda não dá para gravar "fórmula de cálculo" de "${input.code}": esse campo ` +
           `pertence à versão da semântica, e este atributo não tem nenhuma. Desde a ` +
@@ -220,6 +251,19 @@ export async function saveMeaning(
     */
     const nextDisplayName =
       displayName !== undefined ? displayName : attribute.displayName;
+    /*
+      A regra de alteração não é versionada, e mora só em `attribute`.
+
+      É a diferença com a base de cálculo, e ela é deliberada: a base descreve
+      como o número era produzido *naquela vigência*, e por isso a do IPVA de
+      janeiro tem de sobreviver à de julho. A regra de alteração descreve o
+      contrário — o que faz a base trocar —, e ela não muda de verdade a cada
+      vigência. Versioná-la só compraria o beco de `calculation_basis`: coluna
+      sem versão ficaria sem onde guardar a frase, e a planilha de atributos
+      recusaria a célula justamente nas colunas que ninguém olhou ainda.
+    */
+    const nextChangeRule =
+      changeRule !== undefined ? changeRule : attribute.changeRule;
 
     const changed: { field: string; before: string | null; after: string | null }[] =
       [];
@@ -242,6 +286,13 @@ export async function saveMeaning(
         after: calculationBasis,
       });
     }
+    if (changeRule !== undefined && changeRule !== attribute.changeRule) {
+      changed.push({
+        field: "change_rule",
+        before: attribute.changeRule,
+        after: changeRule,
+      });
+    }
     if (displayName !== undefined && displayName !== attribute.displayName) {
       changed.push({
         field: "display_name",
@@ -253,7 +304,11 @@ export async function saveMeaning(
     if (changed.length > 0) {
       await tx
         .update(attributeTable)
-        .set({ definition: nextDefinition, displayName: nextDisplayName })
+        .set({
+          definition: nextDefinition,
+          displayName: nextDisplayName,
+          changeRule: nextChangeRule,
+        })
         .where(eq(attributeTable.id, attribute.id));
 
       if (current) {
@@ -285,6 +340,7 @@ export async function saveMeaning(
       // Nunca o texto recusado: devolver o que a pessoa digitou faria a tela
       // mostrar como guardada uma fórmula que não está em lugar nenhum.
       calculationBasis: nextBasis,
+      changeRule: nextChangeRule,
       displayName: nextDisplayName,
       // Read back rather than echoed: the guarantee this function makes is that
       // it did not move, and asserting it from the row proves it.

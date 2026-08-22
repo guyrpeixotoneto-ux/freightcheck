@@ -76,6 +76,7 @@ async function daBase(): Promise<AtributoDoModelo[]> {
     semanticsStatus: item.semanticsStatus,
     displayName: item.displayName,
     definition: item.definition,
+    changeRule: item.changeRule,
     taxonomyCode: item.taxonomyCode,
   }));
 }

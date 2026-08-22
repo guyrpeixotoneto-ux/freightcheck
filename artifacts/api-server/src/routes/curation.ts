@@ -60,11 +60,12 @@ const router: IRouter = Router();
 /**
  * As migrations que criam o que esta tela lê.
  *
- * São três, e é isso que torna a Curadoria diferente do Book (uma migration) e
- * de Chamados (três seguidas): as colunas desta tela foram acrescentadas ao
- * longo de todo o produto, e a última — `attribute.definition`, da
- * `0022_significado` — é lida **só** pela fila e pelo detalhe. Nem o resumo,
- * nem a taxonomia, nem nenhuma outra tela a tocam.
+ * São cinco, e é isso que torna a Curadoria diferente do Book (uma migration)
+ * e de Chamados (três seguidas): as colunas desta tela foram acrescentadas ao
+ * longo de todo o produto, e as duas últimas — `attribute.definition`, da
+ * `0022_significado`, e `attribute.change_rule`, da `0054_regra_de_alteracao`
+ * — são lidas **só** pela fila e pelo detalhe. Nem o resumo, nem a taxonomia,
+ * nem nenhuma outra tela as tocam.
  *
  * Essa assimetria é o que faz esta rota merecer um diagnóstico próprio: num
  * banco onde a 0022 consta como aplicada e não deixou a coluna, os cartões de
@@ -73,8 +74,8 @@ const router: IRouter = Router();
  * a forma mais cara de esconder uma divergência de schema.
  */
 const SCHEMA_DA_CURADORIA =
-  "0002_curation_layer, 0005_versioned_semantics, 0022_significado e " +
-  "0028_significado_economico";
+  "0002_curation_layer, 0005_versioned_semantics, 0022_significado, " +
+  "0028_significado_economico e 0054_regra_de_alteracao";
 
 /**
  * A mesma frase de antes, declarada em vez de escrita dentro de um `catch`.
@@ -140,6 +141,7 @@ async function atributosDoModelo(
     semanticsStatus: item.semanticsStatus,
     displayName: item.displayName,
     definition: item.definition,
+    changeRule: item.changeRule,
     taxonomyCode: item.taxonomyCode,
   }));
 }
@@ -372,7 +374,7 @@ router.post("/curation/attributes/:code/confirm", async (req, res, next): Promis
 
 router.patch("/curation/attributes/:code/meaning", async (req, res, next): Promise<void> => {
   try {
-    const { definition, calculationBasis, displayName } = req.body ?? {};
+    const { definition, calculationBasis, changeRule, displayName } = req.body ?? {};
 
     // Same rule as the confirmation: the signature comes from the session, not
     // from the body. A name typed into a form never proved anything.
@@ -380,6 +382,7 @@ router.patch("/curation/attributes/:code/meaning", async (req, res, next): Promi
       code: req.params.code,
       definition,
       calculationBasis,
+      changeRule,
       displayName,
       actor: req.user!.email,
     });
