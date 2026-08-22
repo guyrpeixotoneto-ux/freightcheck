@@ -153,6 +153,7 @@ function LinhaDeLacuna({
                   )}
                 >
                   {ORIGEM_DO_ESPERADO[lacuna.justificativa.origem]}
+                  {!lacuna.justificativa.declarado && " (inferido)"}
                 </span>
                 {Object.entries(lacuna.justificativa.medicao)
                   .filter(([, v]) => v !== null && v !== undefined)

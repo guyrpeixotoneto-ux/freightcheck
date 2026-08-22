@@ -214,3 +214,131 @@ function lerLinha(
     percentualDeDisponibilidade: lerNumero(celula(bruta, "% Disponib.")),
   };
 }
+
+/* ---------------------------------------------------------------------------
+   A REGRA DO DESCONTO DE DISPONIBILIDADE — mensal, aplicada no fecho do mês
+   ------------------------------------------------------------------------ */
+
+/**
+ * O desconto de disponibilidade da **competência mensal**, somado do 03.08.18.
+ *
+ * **A regra, e a prova dela.** O desconto que o 03.08.18 mede dia a dia não é
+ * cobrado quinzena a quinzena: ele é **acumulado no mês inteiro e aplicado uma
+ * vez, no demonstrativo da 2ª quinzena**. Em julho/2026 — CDD Belém · Horizonte
+ * — o encaixe é ao centavo em três linhas independentes:
+ *
+ * | 03.08.18, dias 1 a 31, `FF` + `Van` | | 03.08.20 da 2ª quinzena |
+ * | --- | --- | --- |
+ * | `custoFixo + equipe + indiretos` = 91.321,65 | = | `Desconto FF - Equipe Entrega` 91.321,65 |
+ * | `fatorAjudante` = 320,85 | = | `Desconto FF - Fator Ajudante` 320,85 |
+ * | `total` = **91.642,50** | = | total do bloco **91.642,50** |
+ *
+ * Diferença R$ 0,00 nas três.
+ *
+ * **Por que isto ficou dois documentos em aberto.** Todo mundo — este pacote
+ * inclusive — comparou *quinzena contra quinzena*: o 03.08.18 da 2ª soma
+ * R$ 29.075,62 contra os R$ 91.642,50 do bloco, e a razão entre os dois é
+ * 3,152. Era exatamente esse "315,2%" que `docs/MAPA-ROTA.md` registrava como
+ * inexplicado. Ele não é discrepância: é a razão entre o mês e um pedaço dele.
+ *
+ * **E é isto que explica a 1ª quinzena.** O 03.08.20 da 1ª quinzena não traz
+ * bloco `DESCONTO DISPONIBILIDADE` nenhum — não porque falte arquivo, mas
+ * porque naquele momento **o desconto ainda não foi aplicado**. A 1ª quinzena
+ * vale R$ 0,00 de disponibilidade *por regra*, e o acumulado parcial do
+ * 03.08.18 até o dia 15 é informação, não abatimento.
+ *
+ * **O que o 03.08.20 agrupa e o 03.08.18 abre.** O demonstrativo tem quatro
+ * linhas no bloco e usa só duas: ele soma custo fixo, equipe e indiretos na
+ * linha da equipe — porque os três são subtraídos da mesma VBZ 02 — e mantém o
+ * fator ajudante à parte. O 03.08.18 abre os quatro por dia, por aba e por
+ * responsabilidade, e é por isso que ele é a base e o demonstrativo é a
+ * conferência: contestar um desconto exige saber de que dia e de que veículo
+ * ele veio, e só o 03.08.18 diz.
+ *
+ * **O alcance da prova, dito.** Uma competência. O encaixe ao centavo em três
+ * linhas independentes é forte demais para ser acaso, mas "mês inteiro,
+ * aplicado na 2ª" só vira regra geral com uma segunda competência — e é por
+ * isso que {@link DescontoDeDisponibilidadeDoMes} carrega os dias que entraram
+ * na soma: a competência seguinte confere ou derruba sem ninguém reabrir nada.
+ */
+export interface DescontoDeDisponibilidadeDoMes {
+  /** O `Desconto Total` somado de todos os dias do mês, `FF` + `Van`. */
+  total: number;
+  /** As quatro parcelas, como o 03.08.18 as abre. */
+  parcelas: {
+    custoFixo: number;
+    equipe: number;
+    indiretos: number;
+    fatorAjudante: number;
+  };
+  /**
+   * `custoFixo + equipe + indiretos` — o que o 03.08.20 publica numa linha só.
+   *
+   * Existe como campo, e não como soma feita por quem confere, porque é a
+   * forma em que o demonstrativo escreve o número: sem ela a conferência
+   * contra o 03.08.20 seria uma soma refeita à mão a cada leitura.
+   */
+  agrupadoComoNoDemonstrativo: number;
+  /** Quantos dias entraram na soma — o denominador que torna o total conferível. */
+  dias: number;
+  /** O primeiro e o último dia somados, para a tela dizer o alcance. */
+  periodo: { de: Dia; ate: Dia } | null;
+}
+
+/**
+ * Soma o desconto de disponibilidade do mês. Ver {@link DescontoDeDisponibilidadeDoMes}.
+ *
+ * Recebe os dias já lidos — de uma ou de várias remessas do 03.08.18 — e soma
+ * só os do canal pedido. O corte por canal é o mesmo do resto do módulo: o
+ * relatório traz Rota e AS na mesma lista, e o painel é de um canal só.
+ *
+ * **Dia repetido entra uma vez.** As duas remessas do mês se sobrepõem na
+ * prática — a exportação da 2ª quinzena vem com o mês inteiro, e a da 1ª também
+ * traz dias da 2ª em algumas exportações (o conjunto real de julho/2026 tem
+ * exatamente isso na aba `Van`). Somar as duas listas cruas contaria os dias
+ * comuns duas vezes e dobraria o desconto. A chave da desduplicação é
+ * `(aba, dia)`, que é o grão em que o relatório escreve uma linha: `FF` e `Van`
+ * do mesmo dia são dois descontos legítimos, e não uma repetição.
+ */
+export function descontoDeDisponibilidadeDoMes(
+  dias: DiaDeDisponibilidade[],
+  canal: Canal,
+): DescontoDeDisponibilidadeDoMes {
+  const vistos = new Map<string, DiaDeDisponibilidade>();
+  for (const d of dias) {
+    if (d.canal !== canal) continue;
+    /* Ver o bloco acima: `(aba, dia)` é o grão de uma linha do relatório. */
+    const chave = `${d.aba} ${d.dia}`;
+    if (!vistos.has(chave)) vistos.set(chave, d);
+  }
+
+  const escolhidos = [...vistos.values()];
+  const parcelas = { custoFixo: 0, equipe: 0, indiretos: 0, fatorAjudante: 0 };
+  let total = 0;
+  for (const d of escolhidos) {
+    parcelas.custoFixo += d.descontos.custoFixo;
+    parcelas.equipe += d.descontos.equipe;
+    parcelas.indiretos += d.descontos.indiretos;
+    parcelas.fatorAjudante += d.descontos.fatorAjudante;
+    total += d.descontos.total;
+  }
+
+  const ordenados = [...new Set(escolhidos.map((d) => d.dia))].sort();
+  return {
+    total: centavos(total),
+    parcelas: {
+      custoFixo: centavos(parcelas.custoFixo),
+      equipe: centavos(parcelas.equipe),
+      indiretos: centavos(parcelas.indiretos),
+      fatorAjudante: centavos(parcelas.fatorAjudante),
+    },
+    agrupadoComoNoDemonstrativo: centavos(
+      parcelas.custoFixo + parcelas.equipe + parcelas.indiretos,
+    ),
+    dias: ordenados.length,
+    periodo:
+      ordenados.length === 0
+        ? null
+        : { de: ordenados[0]!, ate: ordenados[ordenados.length - 1]! },
+  };
+}

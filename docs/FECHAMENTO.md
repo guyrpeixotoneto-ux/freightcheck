@@ -305,7 +305,7 @@ O fechamento classifica dinheiro por **VBZ** (`05 - Frota Fixa Variável`,
 RESUMO** (`CUSTO FIXO PADRONIZADO`, `CUSTO VARIÁVEL (AGREGADO)`, `TOTAL OUTROS
 CUSTOS`). São dois recortes do mesmo total, e quem conferia lia os dois lado a
 lado e casava de cabeça. `lib/fechamento/src/de-para.ts` é essa tradução
-escrita, com os dezoito rótulos do painel da Rota transcritos acento por acento
+escrita, com os vinte rótulos do painel da Rota transcritos acento por acento
 — e com um segundo nome por linha, o mesmo rótulo escrito como se escreve, que
 é o que a tela mostra.
 
@@ -336,68 +336,109 @@ O que cada linha do painel virou:
 
 | Linha da planilha | O que o FreightCheck põe atrás dela |
 | --- | --- |
-| `TOTAL REMUNERAÇÃO ROTA DVS` · `CUSTO FIXO PADRONIZADO` · `CUSTO FIXO INATIVOS` · `CUSTO VANS INATIVAS` · `CUSTO FIXO - ESPECIAIS` · `CUSTO FIXO - VANS` | **em conjunto**: as verbas fixas e administrativas do bloco `FRETE`, brutas dos descontos do quadro. O rateio por tipo de frota não existe no 03.08.20, e a sigla `DVS` não é definida em nenhuma das seis fontes |
+| `TOTAL REMUNERAÇÃO ROTA DVS` | **sem origem** — o motor calcula esta linha como o custo variável inteiro, e o variável do relatório são as VBZ 05 e 07, que o quadro de baixo já confere. As verbas deste quadro são as VBZ 01 a 04, `FIXO` e `ADMINISTRATIVO`. Dá-la ao conjunto do fixo somaria o variável dentro do fixo |
+| `CUSTO FIXO PADRONIZADO` · `CUSTO FIXO INATIVOS` · `CUSTO VANS INATIVAS` · `CUSTO FIXO - ESPECIAIS` · `CUSTO FIXO - VANS` | **em conjunto**: as verbas fixas e administrativas do bloco `FRETE`, brutas dos descontos que o relatório declara ter subtraído delas. O rateio por tipo de frota não existe no 03.08.20 |
 | `INDISPONIBILIDADE` (quadro do fixo) | sem origem — a célula vem vazia, e vazia não diz se a linha seria parcela ou abatimento |
 | `INDISPONIBILIDADE` (quadro do variável) | os quatro descontos do bloco `DESCONTO DISPONIBILIDADE` — o mesmo número que `DESCONTO DE DISPONIBILIDADE` abate no quadro de cima |
 | `DESCONTO DE DEVOLUÇÃO %` | o `Desconto Devolucao` do 03.08.20. A alíquota `% Dev. Resp. Transportadora` viaja na procedência da linha |
 | `DESCONTO DE DISPONIBILIDADE` | os quatro descontos do bloco `DESCONTO DISPONIBILIDADE` |
-| `DESCONTO COMPLEMENTAR NEGATIVO` | sem origem — sobra o `DESCONTO FRETE MINIMO` do lado do relatório, e casá-los por eliminação é dedução, não leitura |
+| `DESCONTO COMPLEMENTAR NEGATIVO` | o `DESCONTO FRETE MINIMO` do 03.08.20 — ver a nota abaixo |
 | `TOTAL REMUNERAÇÃO ROTA` (fixo) | as verbas fixas e administrativas do bloco `FRETE`, líquidas |
-| `CUSTO VARIÁVEL (FROTA FIXA)` · `CUSTO VARIÁVEL (AGREGADO)` | **em conjunto**: as verbas variáveis do `FRETE` (VBZ 05 e 07), brutas da devolução |
+| `CUSTO VARIÁVEL (FROTA FIXA)` · `CUSTO VARIÁVEL (AGREGADO)` | **em conjunto**: as verbas variáveis do `FRETE` (VBZ 05 e 07), **cruas** — nenhum desconto do relatório saiu delas |
 | `DESCONTO DE DEVOLUÇÃO` | o `Desconto Devolucao` do 03.08.20 |
 | `TOTAL REMUNERAÇÃO ROTA` (variável) | as verbas variáveis e complementares do bloco `FRETE` |
-| `TOTAL REMUNERAÇÃO ROTA OUTROS CUSTOS` · `TOTAL OUTROS CUSTOS` | o bloco `OUTROS CUSTOS`, que o relatório traz com esse nome |
+| `TOTAL REMUNERAÇÃO ROTA OUTROS CUSTOS` · `TOTAL OUTROS CUSTOS` | o bloco `OUTROS CUSTOS` **menos a VBZ 06** |
+| `REM. VARIÁVEL - EQUIPE DE ENTREGA` · `TOTAL REM. VARIÁVEL - EQUIPE DE ENTREGA` | a `VBZ 06` do bloco `OUTROS CUSTOS`, sozinha — o quadro que a planilha reserva em `AI34` e nunca preenche |
 
-Quatro decisões que o módulo materializa:
+Cinco decisões que o módulo materializa:
 
 1. **Nenhuma linha inventa a origem.** É a regra de `@workspace/remuneracao`
    aplicada aqui: a linha sem correspondência traz `motivo` e `destrava` por
    extenso, e não um número plausível.
-2. **O que o arquivo traz junto fica junto.** As seis linhas do quadro do fixo
+2. **O que o arquivo traz junto fica junto.** As cinco linhas do quadro do fixo
    compartilham um número, como `PIS + COFINS` compartilham no cadastro.
    Rachá-lo por semelhança de rótulo seria simples e seria invenção — a tela
    escreve o valor uma vez, na linha do conjunto.
 3. **O resíduo é a afirmação verificável.** Cada quadro devolve
-   `total − somado`, que é, por construção, o que as linhas sem origem e as
-   verbas sem linha somam. Resíduo zero afirma que `INDISPONIBILIDADE` (a do
-   fixo) e `DESCONTO COMPLEMENTAR NEGATIVO` estão vazias na quinzena — e a
-   planilha derruba essa afirmação num minuto, que é de propósito.
-4. **A VBZ do desconto é lida, não deduzida.** `ja subtraido da VBZ 01` vira
-   dado (`vbzDeOrigem`), e é ele que acusa o caso da devolução: a planilha a
-   abate no quadro do variável e o relatório declara tê-la tirado da VBZ 01, que
-   é fixa. O número fica onde a planilha o pôs; a discordância é dita.
+   `total − somado`, que é, por construção, o que as linhas sem origem, as
+   verbas sem linha e os descontos sem verba de origem somam.
+4. **A VBZ do desconto é lida, não deduzida — e é ela que decide o bruto.**
+   `ja subtraido da VBZ 01` vira dado (`vbzDeOrigem`), e o conjunto só soma de
+   volta o desconto que o relatório atribui às verbas **dele**. Perguntar isso à
+   planilha estava errado e tinha tamanho: ela repete a devolução e a
+   disponibilidade no quadro do variável, onde são informativas, e o conjunto de
+   lá subia por descontos que nunca saíram das VBZ 05 e 07 — R$ 30.442,73 a mais
+   na 1ª quinzena de julho/2026 e R$ 157.743,78 na 2ª. O número continua onde a
+   planilha o pôs; a discordância continua sendo dita em `origemForaDoQuadro`.
+   O desconto que o relatório **não** atribui a verba nenhuma — o frete mínimo,
+   que diz apenas "das VBZs de custo Fixo coluna ICMS" — não sobe conjunto
+   nenhum, e a diferença fica no resíduo.
+5. **O corte é por natureza, com uma exceção declarada.** A `VBZ 06` tem a mesma
+   natureza `COMPLEMENTAR` das outras despesas do bloco e ainda assim é um
+   quadro à parte da planilha. O corte por código está em
+   `VBZ_DA_EQUIPE_DE_ENTREGA` (`verbas.ts`) e não é escolha nossa: é o mesmo
+   corte que o 03.08.12.09 usa. Separadas, as duas linhas fecham em R$ 0,00
+   contra as requisições — R$ 109.695,38 e R$ 248.834,84 na 2ª quinzena de
+   julho/2026, por dois arquivos diferentes, ao centavo.
+
+**Sobre o `DESCONTO COMPLEMENTAR NEGATIVO`.** Por duas versões este de-para
+recusou a identificação com o frete mínimo, e a recusa estava certa enquanto o
+argumento era só que os dois eram os últimos que sobravam de cada lado. O que a
+mudou foram dois fechamentos: na 2ª quinzena de julho/2026 a célula da planilha
+traz R$ 14.050,54, que é ao centavo o frete mínimo do relatório; na 1ª ela vem
+zerada e os mesmos R$ 11.649,87 do frete mínimo aparecem — brutados pelo fator,
+R$ 15.907,37 — na linha da **disponibilidade**, numa quinzena em que o 03.08.20
+não traz bloco de disponibilidade nenhum. O número existe nos dois fechamentos,
+em duas linhas diferentes, e só uma origem o explica nas duas. O motor já lia
+assim. O que continua não lido é a fórmula da célula no `.xlsb`.
 
 `GET /fechamento/competencias/:id/de-para` devolve o painel preenchido nas três
 colunas do mês, com só a da quinzena preenchida — a mesma forma que o resumo
 mensal entrega, para que a aba `Planilha` seja o mesmo componente nas duas telas
 (`?coluna=semImposto|ctrcIcms|valorFaturado`). `GET /fechamento/de-para` devolve o
-catálogo dos dezoito rótulos sem competência nenhuma. O painel transcrito é o da
+catálogo dos vinte rótulos sem competência nenhuma. O painel transcrito é o da
 Rota; o do AS existe na planilha e os rótulos dele ainda não foram capturados.
 
-## Os relatórios de cada quinzena — quatro na primeira, seis na segunda
+## Os relatórios de cada quinzena — quatro esperados na primeira, seis na segunda
 
 O catálogo tem seis fontes; **a quinzena decide quantas delas existem**. A
-primeira quinzena fecha com quatro — 2Art, 03.08.15, 03.08.20 e 03.08.18 — e a
-segunda com as seis: as requisições de despesa (03.08.12.09) e a conciliação do
-Promax (03.02.59.02) chegam com o fechamento da segunda.
+primeira quinzena espera quatro — 2Art, 03.08.15, 03.08.20 e 03.08.18 — e a
+segunda espera as seis: a conciliação do Promax (03.02.59.02) é o fecho do mês e
+chega com o fechamento da segunda.
 
-A regra mora em `FONTES_DA_QUINZENA` (`lib/fechamento/src/dominio.ts`), num
-lugar só, e desce por três caminhos:
+**O 03.08.12.09 é o caso do meio, e por isso são duas listas e não uma.** A
+requisição de despesa aprovada entre os dias 1 e 15 sai no relatório *daquela*
+quinzena: ele **pode existir** na primeira. O que não dá para afirmar é o
+contrário — uma quinzena sem requisição aprovada nenhuma não gera arquivo —,
+então nem "é obrigatório" nem "não existe" descrevem o relatório. Ele mora em
+`FONTES_OPCIONAIS_DA_QUINZENA`: **a casinha de envio existe, e a falta dela não
+é pendência.** Antes disso a primeira quinzena não oferecia onde enviá-lo, e o
+complementar dos dias 1 a 15 ficava de fora da conta em silêncio — uma fonte que
+a tela não oferece é uma fonte que ninguém sabe que falta.
 
-1. **A apuração não chama de ausente o que a quinzena não tem.**
-   `fontesAusentes` só nomeia o que é esperado ali. Sem isso, toda primeira
-   quinzena do ano nasceria com duas pendências que ninguém pode resolver — e
-   "falta importar", que é trabalho de alguém, passaria a se confundir com "não
-   há o que importar", que não é.
-2. **A tela pede o que existe.** A competência aberta lista os relatórios da
-   quinzena dela, e o rodapé de "3 de 4 relatórios" tem o denominador certo nas
-   duas metades do mês. Na lista de Apurações, onde as duas convivem na mesma
-   tabela, o recorte é por linha (`fontesDaCompetencia`, em
-   `lib/fechamento.ts` da interface).
+A regra mora em `FONTES_DA_QUINZENA` e `FONTES_OPCIONAIS_DA_QUINZENA`
+(`lib/fechamento/src/dominio.ts`), num lugar só, e desce por três caminhos:
+
+1. **A apuração não chama de ausente o que a quinzena não espera.**
+   `fontesAusentes` só nomeia o que é esperado ali — o opcional que não chegou
+   fica de fora. Sem isso, toda primeira quinzena do ano nasceria com pendências
+   que ninguém pode resolver, e "falta importar", que é trabalho de alguém,
+   passaria a se confundir com "não há o que importar", que não é. O opcional
+   que **chega** entra na conta como qualquer outra fonte: presente é presente.
+2. **A tela oferece o que pode existir e pede o que existe.** São duas listas em
+   `lib/fechamento.ts` da interface: `fontesParaEnviar` desenha as casinhas
+   (esperadas + opcionais + o que já chegou) e `fontesDaCompetencia` é o
+   denominador de "3 de 4 relatórios" (esperadas + o que já chegou). Contar o
+   opcional no denominador faria a primeira quinzena completa dizer "4 de 5"
+   para sempre. Na lista de Apurações, onde as duas metades convivem na mesma
+   tabela, o recorte é por linha.
 3. **O catálogo da API diz em que quinzenas cada fonte entra.**
-   `GET /fechamento/fontes` devolve sempre as seis, cada uma com `quinzenas`;
+   `GET /fechamento/fontes` devolve sempre as seis, cada uma com `quinzenas` (em
+   quais é esperada) e `quinzenasOpcionais` (em quais é admitida sem cobrança);
    quem desenha uma página com quinzenas das duas metades não precisa buscar o
-   catálogo duas vezes.
+   catálogo duas vezes. São dois campos e não um porque mandam em coisas
+   diferentes: um decide se a casinha aparece, o outro se a ausência é
+   pendência.
 
 O que a regra **não** faz é recusar. Uma conciliação enviada a uma primeira
 quinzena é recebida, lida e apurada como qualquer outra fonte — e a tela a
@@ -1043,7 +1084,9 @@ quinzena seguinte começa em branco sem apagar a anterior. Dentro do formulário
   reduz o que a transportadora recebe. É o número que aparece em três lugares.
   E o motivo da reabertura, que em branco não sai daqui.
 - `lib/__tests__/fechamento.test.ts` — o recorte por quinzena: quatro
-  relatórios na primeira e seis na segunda, e o que foi enviado fora da
-  quinzena dele continua na lista (e no denominador). Do lado do motor,
+  relatórios pedidos na primeira e seis na segunda, o 03.08.12.09 oferecido na
+  primeira sem entrar no denominador, e o que foi enviado fora da quinzena dele
+  continua na lista (e nas duas pontas da fração). Do lado do motor,
   `lib/fechamento/src/__tests__/fechamento.test.ts` guarda a outra ponta: a
-  primeira quinzena não nomeia como ausente o que ela não tem.
+  primeira quinzena não nomeia como ausente o que ela não espera, e apura o
+  03.08.12.09 que chegar nela.

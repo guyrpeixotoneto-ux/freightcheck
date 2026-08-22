@@ -6,6 +6,7 @@ import {
   APARENCIA,
   numero,
   percentual,
+  type AberturaDoAtributo,
   type CelulaDaMatriz,
   type ColunaDaMatriz,
   type LinhaDaMatriz,
@@ -43,7 +44,7 @@ export function Matriz({
   aoSelecionar,
   expandida,
   aoExpandir,
-  aoAbrirLacuna,
+  aoAbrirAtributo,
 }: {
   colunas: ColunaDaMatriz[];
   linhas: LinhaDaMatriz[];
@@ -54,7 +55,7 @@ export function Matriz({
   /** A chave da linha aberta por dentro, ou `null`. Uma de cada vez. */
   expandida: string | null;
   aoExpandir: (linha: LinhaDaMatriz) => void;
-  aoAbrirLacuna: (celula: { snapshotId: string; attributeCode: string }) => void;
+  aoAbrirAtributo: (abertura: AberturaDoAtributo) => void;
 }) {
   if (linhas.length === 0) return null;
 
@@ -157,7 +158,7 @@ export function Matriz({
                       linha={linha}
                       colunas={colunas}
                       vigencias={vigencias}
-                      aoAbrirLacuna={aoAbrirLacuna}
+                      aoAbrirAtributo={aoAbrirAtributo}
                     />
                   )}
                 </Fragment>

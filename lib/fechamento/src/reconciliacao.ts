@@ -74,18 +74,35 @@ export interface BasesDaPlanilha {
   complementarNegativo: number | null;
   outrosCustos: number | null;
   indisponibilidade: number | null;
+  /**
+   * `Resumo Geral!AI34` — o quadro da equipe de entrega.
+   *
+   * `null` no fechamento conferido, e não zero: a célula **não existe** na
+   * planilha. Ver `quadroDaEquipeDeEntrega`, em `mapa-rota.ts`.
+   */
+  equipeDeEntrega?: number | null;
 }
 
 /** As bases da planilha na forma que o motor consome, com a fonte declarada. */
 function basesDoMotor(b: BasesDaPlanilha): BasesDaQuinzena {
   return {
     devolucao: b.devolucao,
-    disponibilidade: b.disponibilidade,
+    disponibilidade:
+      b.disponibilidade === null ? null : { fonte: "PLANILHA", valor: b.disponibilidade },
     complementarNegativo: b.complementarNegativo,
     outrosCustos:
       b.outrosCustos === null ? null : { fonte: "PLANILHA", valor: b.outrosCustos },
     indisponibilidade:
       b.indisponibilidade === null ? null : { fonte: "PLANILHA", valor: b.indisponibilidade },
+    /*
+      A planilha não escreve célula no quarto quadro — `AI34` e `AJ34` não
+      existem. Mas o total geral dela é `SUM(AI17+AI30+AI34)`, e `SUM` de célula
+      inexistente **é zero**: é assim que a planilha chega ao número que
+      imprime. Reproduzi-la exige reproduzir isso, e por isso a ausência vira
+      zero **aqui**, na conversão que existe só para a reconciliação — nunca no
+      caminho de produção, onde a ausência do 03.08.12.09 continua sendo `null`.
+    */
+    equipeDeEntrega: { fonte: "PLANILHA", valor: b.equipeDeEntrega ?? 0 },
   };
 }
 
@@ -286,6 +303,38 @@ export const DIVERGENCIAS_CONHECIDAS: Record<string, string> = {
     "Herda as duas diferenças do variável, mais o `Custo Variável (Recarga e Noturna)`: " +
     "a fórmula diária dele aponta para a linha 1.048.619, que não existe, e o valor " +
     "exibido é cache. Na 2ª quinzena o cache coincide com a soma correta; na 1ª, não.",
+  /*
+    As duas linhas abaixo são **a mesma verba** vista dos dois lados, e por isso
+    as diferenças delas são iguais em módulo e opostas em sinal.
+  */
+  desconto_disponibilidade:
+    "Na 1ª quinzena a planilha digita R$ 11.649,87 na linha da disponibilidade, e esse " +
+    "número é o `Desconto Frete mínimo` do 03.08.20 — não uma disponibilidade. O 03.08.20 " +
+    "daquela quinzena não traz bloco `DESCONTO DISPONIBILIDADE` nenhum, e o desconto do " +
+    "03.08.18 é mensal e entra no fechamento da 2ª. A planilha ainda bruta essa linha pelo " +
+    "fator (11.649,87 × 1,365455 = 15.907,37) e não bruta o complementar, o que acrescenta " +
+    "R$ 4.257,50 ao erro. O sistema põe o frete mínimo no complementar negativo, que é onde " +
+    "o relatório o declara, e a 1ª quinzena vale zero de disponibilidade por regra.",
+  indisponibilidade_variavel:
+    "A mesma linha da disponibilidade, repetida pela planilha no quadro do variável — a " +
+    "diferença é a mesma, pela mesma causa.",
+  outros_custos:
+    "**Reagrupamento, não diferença de dinheiro.** O 03.08.20 e a planilha lançam a " +
+    "`VBZ 06` (`Rota - Rem. Variável Equipe Entrega`) **dentro** do bloco de outros " +
+    "custos: os R$ 262.282,80 de `Total Outros Custos` são 74.247,66 + 6.000,00 + " +
+    "182.035,14, e `Outros Custos!F4` bruta esse total inteiro. O sistema põe a `VBZ 06` " +
+    "no quadro próprio dela — que é o que a planilha reserva em `AI34` e nunca preenche " +
+    "—, e por isso esta linha sai menor pelo valor exato da equipe. A soma das duas " +
+    "reproduz o número único da planilha ao centavo: 109.695,38 + 248.834,84 = " +
+    "358.530,22. Nenhum centavo entra ou sai; o que muda é em que quadro ele aparece.",
+  total_outros_custos:
+    "Herda o reagrupamento da `VBZ 06` — ver `outros_custos`.",
+  desconto_complementar_negativo:
+    "O outro lado da mesma verba: a planilha põe o frete mínimo da 1ª quinzena na linha da " +
+    "disponibilidade e deixa o complementar em zero; na 2ª põe cada um no seu lugar. São " +
+    "duas regras para o mesmo desconto em duas metades do mesmo mês. O sistema adota uma " +
+    "só — o frete mínimo é o complementar negativo, nas duas —, e a diferença de " +
+    "R$ 11.649,87 é exatamente a base que a planilha lançou na linha errada.",
 };
 
 /**
@@ -331,11 +380,12 @@ function desagrupar(dia: DiaDaPlanilha): ViagemDoMapa[] {
   for (const [frota, cargaAtual, tipoDeImposto, valorFaturado, quantidade] of dia.viagens) {
     for (let i = 0; i < quantidade; i += 1) {
       /*
-        `caixasDeRota: null` — a amostra sai das abas diárias da própria `.xlsb`,
-        que já são o 2Art **filtrado**: a viagem de AS não chega até lá. Pôr um
-        número aqui fingiria uma coluna que a amostra não tem; `null` diz o que
-        é verdade — não se sabe, e por isso a viagem conta, que é o certo para
-        uma lista de onde o AS já saiu. Ver `ehDaRota` em `mapa-rota.ts`.
+        `caixasDeRota` e `caixasDeAs` em `null` — a amostra sai das abas diárias
+        da própria `.xlsb`, que já são o 2Art **filtrado**: a viagem de AS não
+        chega até lá. Pôr um número aqui fingiria colunas que a amostra não tem;
+        `null` diz o que é verdade — não se sabe, e por isso a viagem conta, que
+        é o certo para uma lista de onde o AS já saiu. Ver `ehDaRota` em
+        `mapa-rota.ts`.
       */
       /*
         `tipoDeIndisponibilidade: ""` é inerte nesta prova, e não uma afirmação
@@ -349,6 +399,7 @@ function desagrupar(dia: DiaDaPlanilha): ViagemDoMapa[] {
         tipoDeImposto,
         valorFaturado,
         caixasDeRota: null,
+        caixasDeAs: null,
         tipoDeIndisponibilidade: "",
       });
     }

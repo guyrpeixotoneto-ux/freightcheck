@@ -65,18 +65,20 @@ const JULHO_2026: Record<1 | 2, ParametrosDoCadastro> = {
 const BASES: Record<1 | 2, BasesDaQuinzena> = {
   1: {
     devolucao: 13328.3,
-    disponibilidade: 11649.87,
+    disponibilidade: { fonte: "PLANILHA", valor: 11649.87 },
     complementarNegativo: 0,
     /* Da planilha, e não do 03.08.12.09 / 2Art: aqui a prova é contra a `.xlsb`. */
     outrosCustos: { fonte: "PLANILHA", valor: 0 },
     indisponibilidade: { fonte: "PLANILHA", valor: 0 },
+    equipeDeEntrega: { fonte: "PLANILHA", valor: 0 },
   },
   2: {
     devolucao: 15763.61,
-    disponibilidade: 91642.5,
+    disponibilidade: { fonte: "PLANILHA", valor: 91642.5 },
     complementarNegativo: 14050.54,
     outrosCustos: { fonte: "PLANILHA", valor: 358530.22 },
     indisponibilidade: { fonte: "PLANILHA", valor: 0 },
+    equipeDeEntrega: { fonte: "PLANILHA", valor: 0 },
   },
 };
 
@@ -159,11 +161,17 @@ describe("os descontos", () => {
     });
   }
 
-  it("uma base ausente deixa a linha vazia e nomeia o que falta", () => {
+  /*
+    A falta nomeia o **mês**, e não a quinzena: o desconto de disponibilidade é
+    acumulado no mês inteiro. Por duas versões esta mensagem apontou o 03.08.18
+    enquanto o valor vinha do 03.08.20 — mandava importar um arquivo que não
+    resolveria a linha.
+  */
+  it("uma base ausente deixa a linha vazia e nomeia o arquivo do mês", () => {
     const linhas = linhasDeDesconto(JULHO_2026[1], { ...BASES[1], disponibilidade: null });
     const linha = linhas.find((l) => l.chave === "desconto_disponibilidade");
     expect(linha?.valor).toBeNull();
-    expect(linha?.falta).toBe("o 03.08.18 da quinzena");
+    expect(linha?.falta).toBe("o 03.08.18 do mês");
   });
 });
 
@@ -175,6 +183,8 @@ describe("o lado variável, somado do diário", () => {
     valorFaturado: 0,
     /* Carregou caixa de Rota — o padrão, porque a viagem de AS é a exceção. */
     caixasDeRota: 100,
+    /* Nenhuma caixa de AS: o corte do canal só exclui quando esta é > 0. */
+    caixasDeAs: 0,
     /* Sem marca de indisponibilidade — o padrão, porque ela é a exceção. */
     tipoDeIndisponibilidade: "",
     ...p,
@@ -182,23 +192,27 @@ describe("o lado variável, somado do diário", () => {
 
   it("a viagem que rodou AS não entra em nenhuma das quatro parcelas", () => {
     /*
-      O 2Art traz Rota e AS numa lista só, e a de AS vem com `CxRota = 0`. Em
-      julho/2026 são dezoito viagens no mês — todas as dezesseis de frota padrão
-      com `CxAS > 0` —, e sem este corte o agregado da 1ª quinzena saía
-      R$ 38.473,58 acima do que a planilha fecha.
+      O 2Art traz Rota e AS numa lista só, e a de AS vem com `CxRota = 0` **e
+      `CxAS > 0`**. Em julho/2026 são dezoito viagens no mês — todas as
+      dezesseis de frota padrão com essa marca —, e sem este corte o agregado da
+      1ª quinzena saía R$ 38.473,58 acima do que a planilha fecha.
+
+      Os dois termos entram aqui de propósito: com `caixasDeRota: 0` sozinho
+      este teste passava mesmo com o corte largo, que era o defeito. Ver
+      `corte-do-canal.test.ts` para o terceiro caso, que é o que ele custava.
     */
     const comAs = somarVariavel(
       [
         {
           viagens: [
             viagem({ valorFaturado: 283.04 }),
-            viagem({ caixasDeRota: 0, valorFaturado: 283.04 }),
+            viagem({ caixasDeRota: 0, caixasDeAs: 500, valorFaturado: 283.04 }),
             viagem({ frota: "Spot", valorFaturado: 848.36 }),
-            viagem({ frota: "Spot", caixasDeRota: 0, valorFaturado: 848.36 }),
+            viagem({ frota: "Spot", caixasDeRota: 0, caixasDeAs: 500, valorFaturado: 848.36 }),
             viagem({ frota: "Fixo", valorFaturado: 123.71 }),
-            viagem({ frota: "Fixo", caixasDeRota: 0, valorFaturado: 123.71 }),
+            viagem({ frota: "Fixo", caixasDeRota: 0, caixasDeAs: 500, valorFaturado: 123.71 }),
             viagem({ cargaAtual: "Recarga", valorFaturado: 163.95 }),
-            viagem({ cargaAtual: "Recarga", caixasDeRota: 0, valorFaturado: 163.95 }),
+            viagem({ cargaAtual: "Recarga", caixasDeRota: 0, caixasDeAs: 500, valorFaturado: 163.95 }),
           ],
         },
       ],
@@ -218,7 +232,7 @@ describe("o lado variável, somado do diário", () => {
     expect(comAs.frotaFixa).toBe(284);
   });
 
-  it("diário sem a coluna CxRota não perde viagem nenhuma", () => {
+  it("diário sem as colunas CxRota/CxAS não perde viagem nenhuma", () => {
     /*
       `null` não é zero. Um diário antigo, sem a coluna, deve continuar somando
       tudo — perder todas as viagens de uma vez trocaria um erro de mais por um
@@ -226,7 +240,7 @@ describe("o lado variável, somado do diário", () => {
       como divergência contra o demonstrativo.
     */
     const semColuna = somarVariavel(
-      [{ viagens: [viagem({ frota: "Spot", caixasDeRota: null, valorFaturado: 848.36 })] }],
+      [{ viagens: [viagem({ frota: "Spot", caixasDeRota: null, caixasDeAs: null, valorFaturado: 848.36 })] }],
       JULHO_2026[1],
       5176.53,
     );
@@ -466,7 +480,7 @@ describe("o mapa da quinzena inteiro", () => {
       variavel: { frotaFixa: 0, agregado: 0, recargaENoturna: 0, vans: 0 },
       bases: {
         ...BASES[1],
-        disponibilidade: 11649.87,
+        disponibilidade: { fonte: "PLANILHA", valor: 11649.87 },
         indisponibilidade: {
           fonte: "DIARIO",
           medida: { valor: 4200, viagens: 140, comMarca: 5, tipos: ["Manutenção"] },
@@ -515,6 +529,6 @@ describe("o mapa da quinzena inteiro", () => {
   it("um documento que falta apaga o total em vez de somar zero", () => {
     const semDisponibilidade = mapa(2, { ...BASES[2], disponibilidade: null });
     expect(semDisponibilidade.quadros[0]!.total).toBeNull();
-    expect(semDisponibilidade.pendencias).toContain("o 03.08.18 da quinzena");
+    expect(semDisponibilidade.pendencias).toContain("o 03.08.18 do mês");
   });
 });

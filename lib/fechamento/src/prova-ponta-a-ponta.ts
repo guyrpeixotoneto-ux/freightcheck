@@ -1,7 +1,17 @@
 import { competencia, dentroDaCompetencia, type Competencia } from "./periodo";
 import type { Canal } from "./dominio";
 import type { EntradaDoFaturado } from "./faturado";
-import type { ParametrosDoCadastro, ViagemDoMapa } from "./mapa-rota";
+import {
+  fatorDeImposto,
+  valorDaDisponibilidade,
+  type ParametrosDoCadastro,
+  type ViagemDoMapa,
+} from "./mapa-rota";
+
+/** Um valor sem imposto na moeda em que a planilha o imprime. */
+function brutar(valor: number, p: ParametrosDoCadastro): number {
+  return valor * fatorDeImposto(p.aliquotas, p.parcelaDentroDoMunicipio);
+}
 import { basesDaQuinzena } from "./persistencia";
 import type {
   BasesDaPlanilha,
@@ -10,6 +20,11 @@ import type {
   QuinzenaDaPlanilha,
 } from "./reconciliacao";
 import { lerConciliacao, valorDe } from "./leitores/conciliacao";
+import {
+  descontoDeDisponibilidadeDoMes,
+  lerDisponibilidade,
+  type DescontoDeDisponibilidadeDoMes,
+} from "./leitores/disponibilidade";
 import { lerCtes } from "./leitores/cte";
 import { lerOperacao } from "./leitores/operacao";
 import { lerPagamento } from "./leitores/pagamento";
@@ -54,6 +69,16 @@ export interface RelatoriosDaQuinzena {
   pagamento?: Buffer;
   /** O 03.08.12.09 — requisições de despesa. */
   requisicoes?: Buffer;
+  /**
+   * O 03.08.18 — disponibilidade de frota.
+   *
+   * **É do mês, e não da quinzena.** O desconto que ele mede é acumulado no mês
+   * inteiro e aplicado uma vez, no fechamento da 2ª. A prova soma o arquivo das
+   * duas quinzenas e desduplica por `(aba, dia)`, de modo que enviá-lo inteiro
+   * numa delas, partido nas duas, ou repetido nas duas dá o mesmo total. Ver
+   * `descontoDeDisponibilidadeDoMes`.
+   */
+  disponibilidade?: Buffer;
   /** O 03.08.15 — CT-es por verba. */
   ctes?: Buffer;
   /** O 03.02.59.02 — conciliação CT-e × SRTrans. */
@@ -110,6 +135,9 @@ export function diarioPorDia(
         d?.caixasDeRota === null || d?.caixasDeRota === undefined
           ? null
           : Number(d.caixasDeRota),
+      /* O segundo termo do corte do canal — ver `ehDaRota`, em `mapa-rota.ts`. */
+      caixasDeAs:
+        d?.caixasDeAs === null || d?.caixasDeAs === undefined ? null : Number(d.caixasDeAs),
       tipoDeIndisponibilidade: d?.tipoDeIndisponibilidade ?? "",
     });
     porDia.set(v.dia, doDia);
@@ -124,6 +152,10 @@ function basesDosRelatorios(
   relatorios: RelatoriosDaQuinzena,
   canal: Canal,
   diario: { viagens: ViagemDoMapa[] }[],
+  /** A quinzena e a disponibilidade do **mês** — ver `disponibilidadeDoMesDaProva`. */
+  periodo: { quinzena: 1 | 2; disponibilidadeDoMes: DescontoDeDisponibilidadeDoMes | null },
+  /** O contrato da quinzena — só o fator de imposto é lido aqui. */
+  parametros: ParametrosDoCadastro,
 ): BasesDaPlanilha {
   const descontos = relatorios.pagamento
     ? lerPagamento(relatorios.pagamento).descontos.map((d) => ({
@@ -137,6 +169,8 @@ function basesDosRelatorios(
         canal: r.canal,
         status: r.status,
         valor: r.valor,
+        /* Decide em que quadro a requisição cai — ver `quadroDaEquipeDeEntrega`. */
+        vbz: r.verba.vbz,
       }))
     : null;
 
@@ -146,17 +180,31 @@ function basesDosRelatorios(
     regra de qual desconto alimenta qual base mudar lá, a prova muda junto — que
     é exatamente o que se quer de um gate.
   */
-  const doMotor = basesDaQuinzena(descontos, canal, diario, requisicoes);
+  const doMotor = basesDaQuinzena(descontos, canal, diario, requisicoes, periodo);
 
   return {
     devolucao: doMotor.devolucao,
-    disponibilidade: doMotor.disponibilidade,
+    disponibilidade:
+      doMotor.disponibilidade === null ? null : valorDaDisponibilidade(doMotor.disponibilidade),
     complementarNegativo: doMotor.complementarNegativo,
+    /*
+      **Convertidos para a moeda da planilha antes de entrar aqui.**
+      `BasesDaPlanilha` é, por contrato, "as bases como a `.xlsb` as traz" — e a
+      `.xlsb` traz `Outros Custos!F4` já **brutado**, enquanto o 03.08.12.09 traz
+      o valor **sem imposto**. As outras três bases não têm esse problema: a
+      planilha e os relatórios as escrevem na mesma moeda (sem imposto), e é a
+      linha do motor que as bruta.
+
+      Sem esta conversão a prova entregava R$ 80.247,66 onde a planilha imprime
+      R$ 109.695,38, e o `TOTAL GERAL UNIDADE` saía R$ 97.515,48 menor — com a
+      diferença aparecendo como defeito nosso, que é o que ela deixaria de ser
+      no instante em que alguém olhasse a moeda.
+    */
     outrosCustos:
       doMotor.outrosCustos === null
         ? null
         : doMotor.outrosCustos.fonte === "REQUISICOES"
-          ? doMotor.outrosCustos.medida.valor
+          ? brutar(doMotor.outrosCustos.medida.valor, parametros)
           : doMotor.outrosCustos.valor,
     indisponibilidade:
       doMotor.indisponibilidade === null
@@ -164,7 +212,41 @@ function basesDosRelatorios(
         : doMotor.indisponibilidade.fonte === "DIARIO"
           ? doMotor.indisponibilidade.medida.valor
           : doMotor.indisponibilidade.valor,
+    /*
+      A `VBZ 06` sai do mesmo 03.08.12.09 que os outros custos e vai para o
+      quarto quadro. Sem esta linha ela chegaria à reconciliação como zero — e o
+      `TOTAL GERAL UNIDADE` sairia R$ 248.834,84 menor sem nada acusar, porque a
+      planilha também não escreve nada ali.
+    */
+    equipeDeEntrega:
+      doMotor.equipeDeEntrega === null
+        ? null
+        : doMotor.equipeDeEntrega.fonte === "REQUISICOES"
+          ? brutar(doMotor.equipeDeEntrega.medida.valor, parametros)
+          : doMotor.equipeDeEntrega.valor,
   };
+}
+
+/**
+ * O 03.08.18 do mês, somado das remessas das duas quinzenas.
+ *
+ * **Somar as duas e desduplicar é o que torna o resultado indiferente ao
+ * envio.** As exportações reais se sobrepõem: a da 2ª quinzena costuma vir com
+ * o mês inteiro, e a da 1ª às vezes traz dias da 2ª numa aba e não na outra —
+ * o conjunto real de julho/2026 tem exatamente isso. Somar as listas cruas
+ * contaria os dias comuns duas vezes; `descontoDeDisponibilidadeDoMes`
+ * desduplica por `(aba, dia)`, que é o grão de uma linha do relatório.
+ *
+ * `null` quando nenhuma das duas remessas trouxe o arquivo.
+ */
+function disponibilidadeDoMesDaProva(
+  relatorios: RelatoriosDaQuinzena[],
+  canal: Canal,
+): DescontoDeDisponibilidadeDoMes | null {
+  const remessas = relatorios.filter((r) => r.disponibilidade);
+  if (remessas.length === 0) return null;
+  const dias = remessas.flatMap((r) => lerDisponibilidade(r.disponibilidade!).linhas);
+  return descontoDeDisponibilidadeDoMes(dias, canal);
 }
 
 /** O lado SRTrans pelos relatórios — ver `faturado.ts`. */
@@ -226,6 +308,12 @@ function faturadoDosRelatorios(
  * ponta a ponta ou a equivalência de fórmula.
  */
 export function montarProvaPontaAPonta(entrada: EntradaDaProva): QuinzenaDaPlanilha[] {
+  /*
+    A disponibilidade é do mês, e por isso é somada uma vez, das duas quinzenas,
+    antes do laço. Ver `disponibilidadeDoMesDaProva`.
+  */
+  const doMes = disponibilidadeDoMesDaProva(entrada.relatorios, entrada.canal);
+
   return entrada.gabarito.map((doGabarito): QuinzenaDaPlanilha => {
     const q = doGabarito.quinzena;
     const periodo = competencia(entrada.ano, entrada.mes, q);
@@ -250,7 +338,13 @@ export function montarProvaPontaAPonta(entrada: EntradaDaProva): QuinzenaDaPlani
       */
       dias,
       diarioOperacional: diario,
-      bases: basesDosRelatorios(relatorios, entrada.canal, diario),
+      bases: basesDosRelatorios(
+        relatorios,
+        entrada.canal,
+        diario,
+        { quinzena: q, disponibilidadeDoMes: doMes },
+        cadastro.parametros,
+      ),
       faturado: faturadoDosRelatorios(relatorios, entrada.canal, periodo),
       procedencia: {
         parametros: "CADASTRO_DO_SISTEMA",

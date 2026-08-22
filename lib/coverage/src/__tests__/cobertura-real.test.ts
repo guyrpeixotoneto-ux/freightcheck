@@ -622,6 +622,140 @@ describe("a matriz de atributos sobre o export real", () => {
     expect(new Set(aberta.linhas.map((l) => l.entityType))).toEqual(new Set(["CARRETA"]));
   });
 
+  /*
+    A gaveta abre sabendo só (vigência, atributo), e por isso ela **refaz** a
+    conta em vez de recebê-la. Este teste é o que impede as duas leituras de
+    divergirem: se alguém encurtar o caminho de `detalheDaLacuna` — pular o
+    roster, deduzir o "novo", resolver o esperado de outro jeito — a tabela
+    continuaria dizendo 62/64 e a gaveta abriria com outro número.
+  */
+  it("a medida da gaveta é a mesma da célula que a abriu", async () => {
+    const visao = await visaoDaCobertura(ctx.db, { vigencias: 9 });
+    const cavalo = visao.linhas.find((l) => l.entityType === "CAVALO")!;
+
+    const aberta = await matrizDeAtributos(ctx.db, {
+      datasetFamily: cavalo.datasetFamily,
+      entityType: cavalo.entityType,
+      scopeHash: cavalo.scopeHash,
+      canal: cavalo.canal,
+      vigencias: 9,
+    });
+
+    /* Uma amostra que cobre os quatro estados que a tabela sabe desenhar. */
+    const porEstado = new Map<string, { code: string; chave: string }>();
+    for (const linha of aberta.linhas) {
+      for (const [chave, celula] of Object.entries(linha.celulas)) {
+        if (!porEstado.has(celula.estado)) {
+          porEstado.set(celula.estado, { code: linha.attributeCode, chave });
+        }
+      }
+    }
+    expect(porEstado.size).toBeGreaterThan(1);
+
+    for (const [estado, { code, chave }] of porEstado) {
+      const daTabela = aberta.linhas.find((l) => l.attributeCode === code)!.celulas[chave]!;
+      const daGaveta = await detalheDaLacuna(ctx.db, daTabela.snapshotId, code);
+
+      expect(daGaveta, `${code} em ${chave} (${estado})`).not.toBeNull();
+      expect(daGaveta!.medida.estado).toBe(daTabela.estado);
+      expect(daGaveta!.medida.entidadesEsperadas).toBe(daTabela.entidadesEsperadas);
+      expect(daGaveta!.medida.entidadesPresentes).toBe(daTabela.entidadesPresentes);
+      expect(daGaveta!.medida.entidadesFaltando).toBe(daTabela.entidadesFaltando);
+      expect(daGaveta!.medida.naoAplicaveis).toBe(daTabela.naoAplicaveis);
+      expect(daGaveta!.medida.percentual).toBe(daTabela.percentual);
+      expect(daGaveta!.medida.esperado).toBe(daTabela.esperado);
+      /* E o porquê chega junto, ou a lacuna seria um palpite com número. */
+      expect(daGaveta!.justificativa?.origem ?? null).toBe(
+        daTabela.justificativa?.origem ?? null,
+      );
+      expect(daGaveta!.criticidade).toBe(daTabela.criticidade);
+    }
+  });
+
+  /*
+    O número e a lista têm de fechar. A gaveta somava em `entidadesFaltando` os
+    equipamentos que não vieram na vigência e listava só os que vieram sem o
+    dado — "2 sem o dado" ao lado de "nenhum equipamento sem o dado", as duas
+    frases certas nos seus próprios termos e a tela se contradizendo.
+  */
+  it("as duas listas da gaveta fecham com o número de faltantes", async () => {
+    const visao = await visaoDaCobertura(ctx.db, { vigencias: 9 });
+    const cavalo = visao.linhas.find((l) => l.entityType === "CAVALO")!;
+
+    const aberta = await matrizDeAtributos(ctx.db, {
+      datasetFamily: cavalo.datasetFamily,
+      entityType: cavalo.entityType,
+      scopeHash: cavalo.scopeHash,
+      canal: cavalo.canal,
+      vigencias: 9,
+    });
+
+    /* A vigência em que a frota encolheu — a que produz ausentes de verdade. */
+    const comAusentes = Object.values(cavalo.celulas).find(
+      (c) => c.entidadesAusentes.length > 0,
+    );
+    expect(comAusentes, "o export real tem uma vigência com equipamento faltando").toBeDefined();
+
+    const linha = aberta.linhas.find(
+      (l) => l.celulas[comAusentes!.vigencia.effectiveDate]?.entidadesFaltando ?? 0 > 0,
+    )!;
+    const celula = linha.celulas[comAusentes!.vigencia.effectiveDate]!;
+
+    const gaveta = await detalheDaLacuna(
+      ctx.db,
+      celula.snapshotId,
+      linha.attributeCode,
+      1000,
+    );
+    expect(gaveta!.entidadesAusentes.length).toBe(comAusentes!.entidadesAusentes.length);
+    expect(gaveta!.entidades.length + gaveta!.entidadesAusentes.length).toBe(
+      celula.entidadesFaltando,
+    );
+    expect(gaveta!.naoListadas).toBe(0);
+  });
+
+  it("a gaveta traz o recorte da vigência, para a série ser deste escopo", async () => {
+    const visao = await visaoDaCobertura(ctx.db, { vigencias: 9 });
+    const cavalo = visao.linhas.find((l) => l.entityType === "CAVALO")!;
+    const celula = Object.values(cavalo.celulas).at(-1)!;
+
+    const gaveta = await detalheDaLacuna(
+      ctx.db,
+      celula.vigencia.snapshotId,
+      "cavalo.ipva_licenciamento",
+    );
+    expect(gaveta!.vigencia.scopeHash).toBe(cavalo.scopeHash);
+    expect(gaveta!.vigencia.canal).toBe(cavalo.canal);
+    expect(gaveta!.vigencia.revision).toBeGreaterThan(0);
+    expect(gaveta!.entidadesNaVigencia).toBeGreaterThan(0);
+    expect(gaveta!.equipamentoLabel).toBe("Cavalo");
+  });
+
+  /*
+    As colunas dizem qual vigência do conjunto cai em cada período — e `null`
+    quando nenhuma cai. É o que separa "o atributo não foi cobrado aqui" de
+    "esta vigência não trouxe este conjunto": a tela desenha o mesmo traço para
+    as duas, e sem isto a gaveta não teria como dizer qual das duas abriu.
+  */
+  it("cada coluna aponta a vigência do conjunto naquele período", async () => {
+    const visao = await visaoDaCobertura(ctx.db, { vigencias: 9 });
+    const cavalo = visao.linhas.find((l) => l.entityType === "CAVALO")!;
+
+    const aberta = await matrizDeAtributos(ctx.db, {
+      datasetFamily: cavalo.datasetFamily,
+      entityType: cavalo.entityType,
+      scopeHash: cavalo.scopeHash,
+      canal: cavalo.canal,
+      vigencias: 9,
+    });
+
+    for (const coluna of aberta.colunas) {
+      const daMatriz = cavalo.celulas[coluna.chave];
+      expect(coluna.snapshotId).toBe(daMatriz?.vigencia.snapshotId ?? null);
+      expect(coluna.sourceLabel).toBe(daMatriz?.vigencia.sourceLabel ?? null);
+    }
+  });
+
   it("um escopo que não existe devolve tabela vazia, e não a de outro", async () => {
     const aberta = await matrizDeAtributos(ctx.db, {
       datasetFamily: "REMUNERACAO_EQUIPAMENTO",

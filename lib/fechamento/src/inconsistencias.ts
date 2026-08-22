@@ -6,7 +6,7 @@ import { centavos, emReais, type Canal } from "./dominio";
  * O painel do fechamento pergunta a mesma coisa a duas fontes independentes: o
  * **devido**, que sai do contrato e do diário, e o **demonstrado**, que sai do
  * 03.08.20. Quando elas concordam, não há o que dizer. Quando discordam, a
- * diferença aparece numa coluna — e some no meio de dezoito linhas, sem nome,
+ * diferença aparece numa coluna — e some no meio de vinte linhas, sem nome,
  * sem tamanho relativo e sem dizer o que a resolveria.
  *
  * Este módulo é essa coluna virada do avesso: uma lista de **afirmações

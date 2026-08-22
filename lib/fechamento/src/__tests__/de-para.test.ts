@@ -13,7 +13,9 @@ import { fixturePagamento, fixturePagamentoDoPainel } from "./fixtures";
 
 const painel = () => conferirDePara(lerPagamento(fixturePagamentoDoPainel()));
 
-const quadro = (nome: "REMUNERACAO" | "VARIAVEL" | "OUTROS_CUSTOS"): QuadroConferido => {
+const quadro = (
+  nome: "REMUNERACAO" | "VARIAVEL" | "OUTROS_CUSTOS" | "EQUIPE_DE_ENTREGA",
+): QuadroConferido => {
   const achado = painel().quadros.find((q) => q.quadro === nome);
   if (!achado) throw new Error(`quadro ${nome} não montado`);
   return achado;
@@ -28,7 +30,7 @@ const linha = (chave: string): LinhaConferida => {
 };
 
 describe("o catálogo do painel", () => {
-  it("transcreve os dezoito rótulos da planilha, na ordem em que ela os empilha", () => {
+  it("transcreve os vinte rótulos da planilha, na ordem em que ela os empilha", () => {
     expect(LINHAS_DA_PLANILHA.map((l) => l.rotulo)).toEqual([
       "TOTAL REMUNERAÇÃO ROTA DVS",
       "CUSTO FIXO PADRONIZADO",
@@ -48,12 +50,14 @@ describe("o catálogo do painel", () => {
       "TOTAL REMUNERAÇÃO ROTA",
       "TOTAL REMUNERAÇÃO ROTA OUTROS CUSTOS",
       "TOTAL OUTROS CUSTOS",
+      "REM. VARIÁVEL - EQUIPE DE ENTREGA",
+      "TOTAL REM. VARIÁVEL - EQUIPE DE ENTREGA",
     ]);
   });
 
-  it("escreve os mesmos dezoito rótulos como se escreve, para a tela mostrar", () => {
+  it("escreve os mesmos vinte rótulos como se escreve, para a tela mostrar", () => {
     /*
-      A caixa alta da planilha é formatação de célula, não sentido — e dezoito
+      A caixa alta da planilha é formatação de célula, não sentido — e vinte
       linhas gritando de uma vez é o que a tela não pode repetir. As duas
       grafias vivem lado a lado porque nenhuma deriva da outra: `toLowerCase`
       estragaria `DVS`, que é sigla, e `toUpperCase` perderia os travessões.
@@ -77,6 +81,8 @@ describe("o catálogo do painel", () => {
       "Total remuneração rota",
       "Total remuneração rota outros custos",
       "Total outros custos",
+      "Remuneração variável — equipe de entrega",
+      "Total remuneração variável — equipe de entrega",
     ]);
   });
 
@@ -214,7 +220,6 @@ describe("o quadro do fixo", () => {
     const conjunto = linha("custo_fixo_padronizado").conjunto;
     expect(conjunto?.valor).toBe(208675);
     expect(conjunto?.linhas).toEqual([
-      "rota_dvs",
       "custo_fixo_padronizado",
       "custo_fixo_inativos",
       "custo_vans_inativas",
@@ -223,17 +228,33 @@ describe("o quadro do fixo", () => {
     ]);
   });
 
-  it("não deixa resíduo: bruto menos descontos é exatamente o total do relatório", () => {
+  it("deixa de resíduo o desconto que o relatório não atribui a verba nenhuma", () => {
+    /*
+      Bruto menos descontos daria o total do relatório se todo desconto tivesse
+      de onde voltar. O frete mínimo não tem: o rótulo dele diz "das VBZs de
+      custo Fixo coluna ICMS" e não nomeia nenhuma, e o conjunto só soma de
+      volta o que o relatório atribui. Ele é abatido e não é somado, e a
+      diferença de R$ 700,00 fica no resíduo, que é onde ela pode ser vista.
+    */
     const q = quadro("REMUNERACAO");
-    expect(q.somado).toBe(200000);
-    expect(q.residuo).toBe(0);
+    expect(q.somado).toBe(199300);
+    expect(q.total).toBe(200000);
+    expect(q.residuo).toBe(700);
   });
 
   it("nomeia as duas linhas que continuam sem origem, e só essas duas", () => {
-    /* Pelo nome que a tela mostra: o resíduo é lido por gente, não por grep. */
+    /*
+      Pelo nome que a tela mostra: o resíduo é lido por gente, não por grep.
+
+      `DVS` entrou nesta lista quando saiu do conjunto do fixo — ver o motivo
+      escrito na origem dela. Ela tem devido e não tem demonstrado, que é um
+      estado legítimo e diferente de não ter nenhum dos dois. O desconto
+      complementar negativo saiu dela na mesma leva, ao ser identificado com o
+      frete mínimo do relatório.
+    */
     expect(quadro("REMUNERACAO").semLastro).toEqual([
+      "Total remuneração rota DVS",
       "Indisponibilidade",
-      "Desconto complementar negativo",
     ]);
   });
 
@@ -241,9 +262,8 @@ describe("o quadro do fixo", () => {
     expect(quadro("REMUNERACAO").verbasSemLinha).toEqual([]);
   });
 
-  it("dá as seis linhas do fixo como conjunto, nunca rateadas", () => {
+  it("dá as cinco linhas do fixo como conjunto, nunca rateadas", () => {
     for (const chave of [
-      "rota_dvs",
       "custo_fixo_padronizado",
       "custo_fixo_inativos",
       "custo_vans_inativas",
@@ -286,10 +306,24 @@ describe("o quadro do variável", () => {
     expect(quadro("VARIAVEL").total).toBe(125000);
   });
 
-  it("deixa de resíduo exatamente a verba que o painel da planilha não nomeia", () => {
+  it("não soma de volta desconto que não saiu das verbas dele", () => {
+    /*
+      O conjunto do variável é **líquido de nada**: os R$ 120.000,00 são a soma
+      crua da VBZ 05 com a VBZ 07. O relatório diz, na linha de cada desconto, de
+      qual verba ele foi subtraído — devolução da VBZ 01, disponibilidade das
+      VBZ 01, 02 e 03 —, e nenhuma delas é daqui.
+
+      A planilha repete as duas linhas neste quadro e as abate do total dele; o
+      relatório não. É essa discordância, e não uma verba perdida, que responde
+      pela maior parte do resíduo — e ela é da planilha, cujo quadro do variável
+      é informativo e não entra no total geral que ela imprime.
+    */
     const q = quadro("VARIAVEL");
-    expect(q.somado).toBe(120000);
-    expect(q.residuo).toBe(5000);
+    expect(linha("custo_variavel_frota_fixa").conjunto?.valor).toBe(120000);
+    expect(q.somado).toBe(111325);
+    expect(q.total).toBe(125000);
+    /* 5.000 da verba sem linha + 8.675 dos dois descontos que a planilha repete. */
+    expect(q.residuo).toBe(13675);
     expect(q.verbasSemLinha).toEqual([
       { vbz: 6, nome: "Rem. Variável Equipe Entrega", valor: 5000 },
     ]);
@@ -335,7 +369,7 @@ describe("o quadro de outros custos", () => {
       que decide de qual quadro ela é em cada aparição — somá-la pela natureza
       a poria duas vezes no variável.
     */
-    const entrou = linha("outros_custos_parcela").procedencia?.entrou ?? [];
+    const entrou = linha("outros_custos").procedencia?.entrou ?? [];
     expect(entrou).toEqual(["VBZ 7 — Freteiro", "VBZ 9 — Outras Despesas"]);
   });
 });
@@ -371,13 +405,21 @@ describe("o 03.08.20 que não cobre o painel", () => {
     const magro = conferirDePara(lerPagamento(fixturePagamento()));
     const fixo = magro.quadros.find((q) => q.quadro === "REMUNERACAO");
     expect(fixo?.total).toBe(1600);
-    expect(fixo?.residuo).toBe(0);
+    /*
+      O resíduo de R$ 250,00 são dois descontos que o conjunto não tem de onde
+      somar de volta: R$ 200,00 que o relatório declara ter subtraído da VBZ 02
+      num arquivo que não traz VBZ 02 nenhuma, e R$ 50,00 de frete mínimo, cujo
+      rótulo não nomeia verba nenhuma. Os dois são abatidos pelas linhas da
+      planilha e nenhum é somado de volta: a diferença fica no resíduo, que é
+      onde ela pode ser vista.
+    */
+    expect(fixo?.residuo).toBe(250);
     /*
       A fixture magra não traz verba complementar no frete, e o quadro do
-      variável fica com uma verba só. O painel continua inteiro — dezoito linhas
+      variável fica com uma verba só. O painel continua inteiro — vinte linhas
       —, e o que muda é o estado de cada uma.
     */
-    expect(magro.quadros.flatMap((q) => q.linhas)).toHaveLength(18);
+    expect(magro.quadros.flatMap((q) => q.linhas)).toHaveLength(20);
 
     for (const q of magro.quadros) {
       for (const l of q.linhas) {

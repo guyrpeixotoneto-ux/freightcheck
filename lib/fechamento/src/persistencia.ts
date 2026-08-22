@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { gunzipSync, gzipSync } from "node:zlib";
-import { and, desc, eq, inArray, ne, notInArray, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lte, ne, notInArray, sql } from "drizzle-orm";
 import type { Database } from "@workspace/db";
 import {
   fechamentoApuracaoTable,
@@ -46,6 +46,7 @@ import {
 import {
   montarMapaDaQuinzena,
   somarIndisponibilidade,
+  VBZ_DA_EQUIPE_DE_ENTREGA,
   somarVariavel,
   type BaseDeOutrosCustos,
   type ViagemDoMapa,
@@ -60,7 +61,11 @@ import { lerOperacao, type DetalheDaViagem, type Viagem } from "./leitores/opera
 import { abrirDia, diasDaCompetencia, type DiaAberto, type DiaDaOperacao } from "./diario";
 import { lerCtes } from "./leitores/cte";
 import { lerRequisicoes, STATUS_QUE_PAGA } from "./leitores/requisicoes";
-import { lerDisponibilidade } from "./leitores/disponibilidade";
+import {
+  descontoDeDisponibilidadeDoMes,
+  lerDisponibilidade,
+  type DescontoDeDisponibilidadeDoMes,
+} from "./leitores/disponibilidade";
 import { lerConciliacao } from "./leitores/conciliacao";
 import {
   lerPagamento,
@@ -2259,6 +2264,15 @@ export async function lerResumoDoMes(
       ),
     );
 
+  /*
+    A disponibilidade é do **mês**, e por isso é lida uma vez, fora do laço, das
+    competências todas. Ver `disponibilidadeDoMes`.
+  */
+  const dispDoMesPorCanal = new Map<Canal, DescontoDeDisponibilidadeDoMes | null>();
+  for (const canal of CANAIS_COM_PAINEL) {
+    dispDoMesPorCanal.set(canal, await disponibilidadeDoMes(db, competencias, canal));
+  }
+
   const quinzenas: QuinzenaApurada[] = [];
   for (const c of competencias) {
     const [apuracao, demonstrativo, descontos, requisicoes, paineis] = await Promise.all([
@@ -2308,7 +2322,7 @@ export async function lerResumoDoMes(
       const contrato = leitura.resposta;
       if (!contrato) continue;
       cadastroUsado = { cadastroId: contrato.cadastroId, vigenteDe: contrato.vigenteDe };
-      const viagens = await viagensPorDia(db, c.id, canal);
+      const viagens = await viagensPorDia(db, c, canal);
       calculados.push({
         canal,
         mapa: montarMapaDaQuinzena({
@@ -2319,7 +2333,10 @@ export async function lerResumoDoMes(
             contrato.parametros,
             contrato.custoVariavelPrevistoPor25Viagens,
           ),
-          bases: basesDaQuinzena(descontos, canal, viagens, requisicoes),
+          bases: basesDaQuinzena(descontos, canal, viagens, requisicoes, {
+            quinzena: c.quinzena === 1 ? 1 : 2,
+            disponibilidadeDoMes: dispDoMesPorCanal.get(canal) ?? null,
+          }),
         }),
       });
     }
@@ -2365,9 +2382,28 @@ export async function lerResumoDoMes(
  * daria outro número. É a mesma disciplina do `Mapa Rota`, que tem uma coluna
  * por dia justamente por isso.
  */
+/**
+ * As viagens de uma competência, agrupadas por dia — só as **do período dela**.
+ *
+ * **O corte por data não é redundante com o `competenciaId`, e a falta dele
+ * misturava quinzena.** O 2Art é exportado por mês e a competência é meio mês;
+ * a importação grava o arquivo inteiro, de propósito (ver
+ * `recusarOperacaoDeOutroPeriodo`, que só recusa quando **nenhuma** linha é do
+ * período — metade cair fora é o normal). Quem lê é que precisa cortar.
+ *
+ * A apuração sempre cortou (`resumirOperacao`, em `apuracao.ts`); esta leitura,
+ * que é a que alimenta o painel Devido × Demonstrado, não cortava. Um 2Art
+ * mensal enviado à 1ª quinzena fazia o `CUSTO VARIÁVEL` e a `INDISPONIBILIDADE`
+ * dela somarem os trinta e um dias — com o `DESCONTO` da mesma tela vindo do
+ * 03.08.20, que é guardado pelo período (`recusarPagamentoDeOutroPeriodo`) e
+ * traz só a quinzena. Metade da linha via o mês e a outra metade via a quinzena.
+ *
+ * O corte é no SQL, e não depois: linha que não entra na conta não precisa
+ * atravessar a rede.
+ */
 async function viagensPorDia(
   db: Database,
-  competenciaId: string,
+  competencia: { id: string; inicio: string; fim: string },
   canal: Canal,
 ): Promise<{ viagens: ViagemDoMapa[] }[]> {
   const linhas = await db
@@ -2377,16 +2413,24 @@ async function viagensPorDia(
       cargaAtual: fechamentoViagemTable.cargaAtual,
       tipoDeImposto: fechamentoViagemTable.tipoDeImposto,
       valorFaturado: fechamentoViagemTable.valorFaturado,
-      /* Separa a viagem da Rota da viagem de AS — ver `ehDaRota` no motor. */
+      /*
+        Separam a viagem da Rota da viagem de AS — e só **juntas**: `CxRota = 0`
+        sozinho confunde a viagem de AS com a viagem de Rota que rodou vazia.
+        Ver `ehDaRota` no motor.
+      */
       caixasDeRota: fechamentoViagemTable.caixasDeRota,
+      caixasDeAs: fechamentoViagemTable.caixasDeAs,
       /* A marca que faz a viagem entrar na linha `INDISPONIBILIDADE` do fixo. */
       tipoDeIndisponibilidade: fechamentoViagemTable.tipoDeIndisponibilidade,
     })
     .from(fechamentoViagemTable)
     .where(
       and(
-        eq(fechamentoViagemTable.competenciaId, competenciaId),
+        eq(fechamentoViagemTable.competenciaId, competencia.id),
         eq(fechamentoViagemTable.canal, canal),
+        /* Ver o bloco acima: o `competenciaId` não basta. */
+        gte(fechamentoViagemTable.dia, competencia.inicio),
+        lte(fechamentoViagemTable.dia, competencia.fim),
       ),
     );
 
@@ -2401,6 +2445,7 @@ async function viagensPorDia(
       valorFaturado: Number(l.valorFaturado ?? 0),
       /* `null` atravessa: coluna ausente não é "carregou zero caixa de Rota". */
       caixasDeRota: l.caixasDeRota === null ? null : Number(l.caixasDeRota),
+      caixasDeAs: l.caixasDeAs === null ? null : Number(l.caixasDeAs),
       tipoDeIndisponibilidade: l.tipoDeIndisponibilidade ?? "",
     });
     porDia.set(dia, doDia);
@@ -2443,13 +2488,142 @@ async function viagensPorDia(
  * quem chama a montá-la fora e passá-la — espalhando a regra de qual status paga
  * por dois arquivos.
  */
+
+/**
+ * O desconto de disponibilidade do **mês**, lido das competências dele.
+ *
+ * **Por que a leitura é do mês e não da competência.** O desconto do 03.08.18 é
+ * acumulado no mês inteiro e aplicado uma vez, no fechamento da 2ª quinzena
+ * (ver `descontoDeDisponibilidadeDoMes`, em `leitores/disponibilidade.ts`). A
+ * tabela é por competência, que é uma quinzena — então somar uma competência só
+ * daria metade do desconto quando o arquivo tivesse sido enviado partido, e o
+ * mês inteiro quando tivesse sido enviado inteiro. O mesmo mês valeria dois
+ * números conforme como alguém anexou o arquivo, que é o pior tipo de
+ * dependência que uma apuração pode ter.
+ *
+ * **A desduplicação é o que torna a leitura indiferente ao envio.** As duas
+ * remessas do mês se sobrepõem na prática — a exportação da 2ª quinzena costuma
+ * vir com o mês inteiro, e a da 1ª às vezes também. `descontoDeDisponibilidadeDoMes`
+ * desduplica por `(aba, dia)`, de modo que enviar o arquivo uma vez, duas vezes
+ * ou partido dá o mesmo total.
+ */
+async function disponibilidadeDoMes(
+  db: Database,
+  competencias: { id: string; inicio: string; fim: string }[],
+  canal: Canal,
+): Promise<DescontoDeDisponibilidadeDoMes | null> {
+  if (competencias.length === 0) return null;
+
+  /*
+    O mês, e só ele. A regra soma o 03.08.18 inteiro — mas "inteiro" é o mês da
+    competência, não o arquivo. O relatório pode vir com mais de um mês, e o
+    `competenciaId` sozinho não corta isso: quem grava não filtra por data, pelo
+    mesmo motivo do 2Art. Sem estes limites, um 03.08.18 de dois meses aplicaria
+    o desconto dos dois numa quinzena só.
+  */
+  const inicio = competencias.map((c) => c.inicio).sort()[0]!;
+  const fim = competencias.map((c) => c.fim).sort().at(-1)!;
+  const linhas = await db
+    .select({
+      aba: fechamentoDisponibilidadeTable.tipoDeFrota,
+      dia: fechamentoDisponibilidadeTable.dia,
+      canal: fechamentoDisponibilidadeTable.canal,
+      custoFixo: fechamentoDisponibilidadeTable.descontoCustoFixo,
+      equipe: fechamentoDisponibilidadeTable.descontoEquipe,
+      indiretos: fechamentoDisponibilidadeTable.descontoIndiretos,
+      fatorAjudante: fechamentoDisponibilidadeTable.descontoFatorAjudante,
+      total: fechamentoDisponibilidadeTable.descontoTotal,
+    })
+    .from(fechamentoDisponibilidadeTable)
+    .where(
+      and(
+        inArray(
+          fechamentoDisponibilidadeTable.competenciaId,
+          competencias.map((c) => c.id),
+        ),
+        gte(fechamentoDisponibilidadeTable.dia, inicio),
+        lte(fechamentoDisponibilidadeTable.dia, fim),
+      ),
+    );
+
+  /* Sem linha nenhuma o 03.08.18 do mês não veio — e aí é `null`, não zero. */
+  if (linhas.length === 0) return null;
+
+  const numero = (v: string | null) => (v == null ? 0 : Number(v));
+
+  /*
+    Só os campos que a regra soma. O tipo pede a viagem inteira e a soma lê
+    cinco números; preencher o resto com zeros plausíveis faria a leitura
+    afirmar uma frota contratada que ela não consultou.
+  */
+  return descontoDeDisponibilidadeDoMes(
+    linhas.map((d) => ({
+      linha: 0,
+      aba: d.aba,
+      tipoDeFrota: d.aba as TipoDeFrotaContratada,
+      dia: d.dia,
+      canal: d.canal as Canal,
+      frotaTotal: 0,
+      contratada: 0,
+      realPrimeiraViagem: 0,
+      realSegundaViagem: 0,
+      gapTotal: 0,
+      gapDaCia: 0,
+      gapDaTransportadora: {
+        frotaCancelada: 0,
+        outrosCancelados: 0,
+        frotaNaoCancelada: 0,
+        outrosNaoCancelados: 0,
+      },
+      descontos: {
+        custoFixo: numero(d.custoFixo),
+        equipe: numero(d.equipe),
+        indiretos: numero(d.indiretos),
+        fatorAjudante: numero(d.fatorAjudante),
+        total: numero(d.total),
+      },
+      percentualDeUtilizacao: null,
+      percentualDeDisponibilidade: null,
+    })),
+    canal,
+  );
+}
+
+/**
+ * Uma requisição do 03.08.12.09, no mínimo que a conta lê.
+ *
+ * `vbz` entra porque ela decide **em que quadro** o dinheiro cai: a `VBZ 06` é a
+ * remuneração variável da equipe de entrega e tem quadro próprio; o resto é
+ * outros custos. Ver `quadroDaEquipeDeEntrega`, em `mapa-rota.ts`.
+ */
+export interface RequisicaoDaConta {
+  canal: Canal;
+  status: string;
+  valor: number;
+  vbz: number;
+}
+
 export function basesDaQuinzena(
   descontos: { canal: Canal; tipo: string; valor: number }[] | null,
   canal: Canal,
   /** O diário da quinzena, já agrupado por dia. Vazio quando o 2Art não veio. */
   diario: { viagens: ViagemDoMapa[] }[],
   /** As requisições da competência, de todos os canais. `null` sem 03.08.12.09. */
-  requisicoes: { canal: Canal; status: string; valor: number }[] | null,
+  requisicoes: RequisicaoDaConta[] | null,
+  /**
+   * A disponibilidade do **mês**, e qual quinzena está sendo montada.
+   *
+   * Vem de fora porque o dado é do mês e esta função é de uma quinzena: quem
+   * chama tem as duas competências na mão e soma o 03.08.18 uma vez só. Ver
+   * `disponibilidadeDoMes`, e {@link DisponibilidadeDaCompetencia} para a regra.
+   *
+   * `null` quando o 03.08.18 do mês não foi importado.
+   */
+  periodo: {
+    quinzena: 1 | 2;
+    /** O 03.08.18 do mês, somado. `null` quando ele não foi importado. */
+    disponibilidadeDoMes: DescontoDeDisponibilidadeDoMes | null;
+  },
 ): Parameters<typeof montarMapaDaQuinzena>[0]["bases"] {
   const soma = (tipos: string[]) => {
     if (!descontos) return null;
@@ -2460,12 +2634,34 @@ export function basesDaQuinzena(
 
   return {
     devolucao: soma(["DEVOLUCAO"]),
-    disponibilidade: soma([
-      "DISPONIBILIDADE_CUSTO_FIXO",
-      "DISPONIBILIDADE_EQUIPE",
-      "DISPONIBILIDADE_INDIRETO",
-      "DISPONIBILIDADE_FATOR_AJUDANTE",
-    ]),
+    /*
+      A disponibilidade sai do **03.08.18**, acumulada no mês e aplicada na 2ª
+      quinzena. Ela saía do 03.08.20 — o que dava o mesmo número na 2ª e nada na
+      1ª, porque o demonstrativo daquela metade não traz o bloco. A mudança é de
+      procedência, não de valor: o devido passa a ser derivado dos dias que o
+      produziram em vez de copiado do documento que ele deveria auditar.
+
+      O bloco do 03.08.20 continua sendo lido — como **conferência**, guardada
+      em `noDemonstrativo`. Ver `DECISOES_RESOLVIDAS`, em `matriz.ts`.
+    */
+    disponibilidade:
+      periodo.disponibilidadeDoMes === null
+        ? null
+        : {
+            fonte: "MENSAL_03_08_18",
+            medida: {
+              valor: periodo.quinzena === 1 ? 0 : periodo.disponibilidadeDoMes.total,
+              doMes: periodo.disponibilidadeDoMes.total,
+              quinzena: periodo.quinzena,
+              dias: periodo.disponibilidadeDoMes.dias,
+              noDemonstrativo: soma([
+                "DISPONIBILIDADE_CUSTO_FIXO",
+                "DISPONIBILIDADE_EQUIPE",
+                "DISPONIBILIDADE_INDIRETO",
+                "DISPONIBILIDADE_FATOR_AJUDANTE",
+              ]),
+            },
+          },
     /*
       O `DESCONTO FRETE MINIMO` do 03.08.20 — o elo que `MAPA-ROTA.md` registrava
       como inexistente.
@@ -2487,7 +2683,15 @@ export function basesDaQuinzena(
       erro visível por um invisível.
     */
     complementarNegativo: soma(["FRETE_MINIMO"]),
-    outrosCustos: outrosCustosDaQuinzena(requisicoes, canal),
+    /*
+      Os dois recortes do **mesmo** relatório, separados na origem. A `VBZ 06`
+      sai daqui e vai para o quadro próprio; somá-la nos dois lugares contaria
+      R$ 248.834,75 duas vezes no total geral de julho/2026. A soma dos dois
+      reproduz o número único que a planilha imprime — ver
+      `quadroDaEquipeDeEntrega`.
+    */
+    outrosCustos: outrosCustosDaQuinzena(requisicoes, canal, "SEM_A_EQUIPE", periodo.quinzena),
+    equipeDeEntrega: outrosCustosDaQuinzena(requisicoes, canal, "SO_A_EQUIPE", periodo.quinzena),
     /*
       Diário vazio é diário ausente, e por isso `null` e não zero: uma
       competência cujo 2Art não chegou tem exatamente a mesma lista vazia de uma
@@ -2510,12 +2714,40 @@ export function basesDaQuinzena(
  * Ver {@link OutrosCustosDoRelatorio}, que carrega o denominador de cada caso.
  */
 function outrosCustosDaQuinzena(
-  requisicoes: { canal: Canal; status: string; valor: number }[] | null,
+  requisicoes: RequisicaoDaConta[] | null,
   canal: Canal,
+  /**
+   * Qual dos dois recortes da mesma lista.
+   *
+   * `SEM_A_EQUIPE` é o quadro de outros custos; `SO_A_EQUIPE` é o quarto quadro.
+   * Os dois saem daqui, e não de duas funções, para que o filtro de status e o
+   * denominador sejam necessariamente os mesmos — duas cópias divergiriam no dia
+   * em que uma delas mudasse.
+   */
+  recorte: "SEM_A_EQUIPE" | "SO_A_EQUIPE",
+  quinzena: 1 | 2,
 ): BaseDeOutrosCustos | null {
+  /*
+    **A 1ª quinzena vale zero por regra, e não por ausência.** O 03.08.12.09 não
+    existe nela: `FONTES_DA_QUINZENA[1]` não o espera, e o 03.08.20 daquela
+    metade não traz bloco `OUTROS CUSTOS` nenhum — as requisições chegam com o
+    fechamento da 2ª, e é lá que elas são pagas. Duas fontes independentes
+    dizendo a mesma coisa.
+
+    `null` aqui diria "falta o arquivo" e mandaria alguém procurar o que não
+    existe; pior, derrubaria o `TOTAL GERAL UNIDADE` do mês inteiro para `null`
+    por causa de uma metade que legitimamente não tem outros custos. É a mesma
+    disciplina da disponibilidade, e pelo mesmo motivo.
+  */
+  if (quinzena === 1 && (requisicoes === null || requisicoes.length === 0)) {
+    return { fonte: "REQUISICOES", medida: { valor: 0, aprovadas: 0, recebidas: 0 } };
+  }
   if (requisicoes === null || requisicoes.length === 0) return null;
 
-  const doCanal = requisicoes.filter((r) => r.canal === canal);
+  const daEquipe = (r: RequisicaoDaConta) => r.vbz === VBZ_DA_EQUIPE_DE_ENTREGA;
+  const doCanal = requisicoes
+    .filter((r) => r.canal === canal)
+    .filter((r) => (recorte === "SO_A_EQUIPE" ? daEquipe(r) : !daEquipe(r)));
   /* O mesmo filtro da apuração, e não um segundo critério sobre o mesmo dado. */
   const aprovadas = doCanal.filter((r) => r.status.trim().toLowerCase() === STATUS_QUE_PAGA);
   return {
@@ -2567,12 +2799,14 @@ async function somarDemonstrativo(
 async function requisicoesDaCompetencia(
   db: Database,
   competenciaId: string,
-): Promise<{ canal: Canal; status: string; valor: number }[] | null> {
+): Promise<RequisicaoDaConta[] | null> {
   const linhas = await db
     .select({
       canal: fechamentoRequisicaoTable.canal,
       status: fechamentoRequisicaoTable.status,
       valor: fechamentoRequisicaoTable.valor,
+      /* A VBZ separa a equipe de entrega dos outros custos — ver `basesDaQuinzena`. */
+      vbz: fechamentoRequisicaoTable.vbz,
     })
     .from(fechamentoRequisicaoTable)
     .where(eq(fechamentoRequisicaoTable.competenciaId, competenciaId));
@@ -2581,6 +2815,7 @@ async function requisicoesDaCompetencia(
     canal: l.canal as Canal,
     status: l.status,
     valor: Number(l.valor ?? 0),
+    vbz: Number(l.vbz ?? 0),
   }));
 }
 

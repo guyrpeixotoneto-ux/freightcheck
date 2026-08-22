@@ -25,8 +25,18 @@ export interface Fonte {
   nome: string;
   papel: string;
   extensoes: string[];
-  /** Em que quinzenas este relatório é esperado. A 1ª tem quatro; a 2ª, os seis. */
+  /** Em que quinzenas este relatório é esperado. A 1ª espera quatro; a 2ª, os seis. */
   quinzenas: (1 | 2)[];
+  /**
+   * Em que quinzenas ele é **admitido sem ser cobrado** — o "pode existir".
+   *
+   * Hoje é o 03.08.12.09 na 1ª quinzena: a requisição aprovada entre os dias 1
+   * e 15 sai no relatório daquela quinzena, mas uma quinzena sem requisição
+   * nenhuma não gera arquivo. A casinha de envio aparece (ver
+   * {@link fontesParaEnviar}) e a ausência não conta como falta (ver
+   * {@link fontesDaCompetencia}, que é o denominador).
+   */
+  quinzenasOpcionais: (1 | 2)[];
 }
 
 export interface Competencia {
@@ -389,20 +399,25 @@ export function listarFontes(): Promise<Fonte[]> {
 }
 
 /**
- * Os relatórios que uma competência pede, na ordem do catálogo.
+ * Os relatórios que uma competência **pede** — o denominador de "3 de 4".
  *
- * A quinzena decide: a primeira fecha com quatro relatórios (2Art, 03.08.15,
- * 03.08.20 e 03.08.18) e a segunda com os seis, porque as requisições
- * (03.08.12.09) e a conciliação (03.02.59.02) chegam com o fechamento do mês.
- * Mostrar as seis nas duas fazia toda primeira quinzena exibir duas linhas
- * eternamente vazias — e "falta importar" é trabalho de alguém, enquanto "não
- * há o que importar" não é.
+ * A quinzena decide: a primeira espera quatro relatórios (2Art, 03.08.15,
+ * 03.08.20 e 03.08.18) e a segunda espera os seis, porque a conciliação
+ * (03.02.59.02) chega com o fechamento do mês e o 03.08.12.09 da primeira nem
+ * sempre existe. Pedir as seis nas duas fazia toda primeira quinzena exibir
+ * linhas eternamente vazias — e "falta importar" é trabalho de alguém, enquanto
+ * "não há o que importar" não é.
  *
  * `recebidas` é o que já entrou na competência, e entra na lista mesmo fora da
  * quinzena dele: um arquivo enviado nunca some da tela por causa deste recorte.
  * Isso é o que mantém a conta do rodapé honesta — o denominador é esta lista, e
  * um documento fora da quinzena aparece nas duas pontas da fração em vez de
  * virar um `5/4`.
+ *
+ * **Não é esta a lista das casinhas de envio** — essa é {@link fontesParaEnviar},
+ * que é esta mais as opcionais. A diferença existe porque o opcional que ainda
+ * não chegou tem de ser enviável sem ser cobrado: contá-lo aqui faria a
+ * primeira quinzena completa aparecer como "4 de 5" para sempre.
  *
  * O catálogo chega por consulta, então a lista nasce vazia e se preenche; quem
  * a usa como denominador precisa tratar o vazio como "ainda não sei", nunca
@@ -415,6 +430,33 @@ export function fontesDaCompetencia(
 ): Fonte[] {
   const chegou = new Set(recebidas);
   return catalogo.filter((f) => f.quinzenas.includes(quinzena) || chegou.has(f.tipo));
+}
+
+/**
+ * Os relatórios que uma competência **aceita** — as casinhas de envio da tela.
+ *
+ * É {@link fontesDaCompetencia} mais o que a quinzena admite sem esperar: hoje,
+ * o 03.08.12.09 na primeira. A requisição aprovada entre os dias 1 e 15 sai no
+ * relatório daquela quinzena, e sem casinha para enviá-lo o complementar do
+ * período ficava de fora da conta — não com um aviso, mas em silêncio, porque
+ * uma fonte que a tela não oferece é uma fonte que ninguém sabe que falta.
+ *
+ * A ausência do opcional continua não sendo pendência: quem pergunta "quantos
+ * faltam" pergunta à outra função, e a apuração nomeia como ausente só o que a
+ * quinzena espera (`FONTES_DA_QUINZENA`, no motor).
+ */
+export function fontesParaEnviar(
+  catalogo: Fonte[],
+  quinzena: 1 | 2,
+  recebidas: TipoDeFonte[] = [],
+): Fonte[] {
+  const chegou = new Set(recebidas);
+  return catalogo.filter(
+    (f) =>
+      f.quinzenas.includes(quinzena) ||
+      f.quinzenasOpcionais.includes(quinzena) ||
+      chegou.has(f.tipo),
+  );
 }
 
 export function listarCompetencias(): Promise<Competencia[]> {
@@ -683,6 +725,13 @@ export interface CanalDoResumo {
   /** O devido, calculado do contrato, ao lado do demonstrado. */
   comparado: PainelComparado | null;
   /**
+   * Precisão e lastro deste canal — ver {@link Afericao}.
+   *
+   * Opcional porque a resposta de um servidor mais antigo não a traz, e a tela
+   * tem de continuar inteira sem ela: os selos somem, o resto fica.
+   */
+  afericao?: Afericao;
+  /**
    * Por que há (ou não há) devido, quinzena a quinzena.
    *
    * Espelha `CanalDoResumo.cadastro` de `@workspace/fechamento`. `null` na
@@ -751,6 +800,22 @@ export interface LinhaComparada {
    * ninguém explicou — e é essa que merece olhar.
    */
   causaConhecida: string | null;
+  /**
+   * O que **nenhum documento sustenta** nesta linha — a coluna `Auditar`.
+   *
+   * Preenchida em dois casos, e só nesses dois: os dois lados existem e
+   * discordam em mais de meio centavo, ou o devido é dinheiro e não há
+   * demonstrado nenhum — nem próprio nem por conjunto.
+   *
+   * **Não é `causaConhecida` com outro nome.** Aquela fala do que a planilha faz
+   * de diferente do sistema; esta, do que o demonstrativo assinado faz de
+   * diferente do contrato. Uma linha pode ter as duas.
+   *
+   * **A coluna deve viver vazia**, e é assim que se lê a tela: linha com texto
+   * aqui é a que merece o olho. Falta de arquivo não entra — para isso existe
+   * `falta`, e ali o devido nem existe.
+   */
+  auditar: string | null;
 }
 
 /**
@@ -769,6 +834,13 @@ export interface ConjuntoComparado {
   demonstrado: TresColunas;
   diferenca: TresColunas;
   porque: string;
+  /**
+   * O que ninguém sustenta no conjunto — a mesma coluna `Auditar` das linhas.
+   *
+   * É aqui que a auditoria das linhas em conjunto acontece: elas não têm
+   * demonstrado próprio, e a única subtração honesta é a do conjunto.
+   */
+  auditar: string | null;
 }
 
 export interface QuadroComparado {
@@ -787,11 +859,83 @@ export interface QuadroComparado {
   linhas: LinhaComparada[];
   conjuntos: ConjuntoComparado[];
   devido: TresColunas;
+  /**
+   * O total do quadro **somado das linhas demonstradas**, na moeda do devido.
+   *
+   * Não é o total que o 03.08.20 imprime para a seção — esse continua no painel
+   * do demonstrativo, que é onde ele é o assunto. `null` quando alguma linha do
+   * quadro tem devido em dinheiro e não tem demonstrado; {@link semDemonstrado}
+   * diz qual.
+   */
   demonstrado: TresColunas;
   diferenca: TresColunas;
+  /** As linhas que impedem o total demonstrado de existir. Vazia quando ele existe. */
+  semDemonstrado: string[];
   /** O total que a planilha publica para o quadro — lido, não somado das linhas. */
   planilha: TresColunas | null;
   diferencaDaPlanilha: TresColunas | null;
+}
+
+/* =========================================================================
+ * A aferição — os dois números do cabeçalho, e o que eles não medem
+ * ====================================================================== */
+
+/** De que qualidade é a evidência por trás de uma parcela do fechamento. */
+export type ClasseDeLastro =
+  /** Os dois lados existem, saem de documentos diferentes, e a parcela fecha. */
+  | "CRUZADO"
+  /** Idem, mas a conferência é do **grupo** — a partição entre as linhas não é conferida. */
+  | "CRUZADO_EM_CONJUNTO"
+  /** Os dois lados saem do mesmo arquivo: prova a leitura, não a operação. */
+  | "MESMA_FONTE"
+  /** Devido em dinheiro e nada do outro lado. Não é diferença — é ausência. */
+  | "SEM_CONTRAPARTIDA";
+
+export interface ParcelaAferida {
+  chave: string;
+  nome: string;
+  /** O dinheiro que a parcela move, em módulo. */
+  valor: TresColunas;
+  classe: ClasseDeLastro;
+  /** Quanto de `valor` tem contrapartida independente. Pode ser parcial. */
+  comLastro: TresColunas;
+  fonteDoDevido: string | null;
+  naoExplicado: TresColunas;
+  porque: string;
+}
+
+/** Um limite do que a aferição mediu — com cifra quando tem cifra. */
+export interface LimiteDaAfericao {
+  titulo: string;
+  texto: string;
+  valor: TresColunas | null;
+}
+
+/**
+ * Precisão e lastro de um canal — **derivados, nunca digitados**.
+ *
+ * `precisao` responde *do dinheiro que o sistema conseguiu conferir, quanto
+ * bate?*; `lastro`, *do dinheiro que o fechamento move, quanto tem
+ * contrapartida num documento que não o produziu?*. São perguntas diferentes e
+ * andam em direções opostas com frequência: conferir tudo contra o arquivo de
+ * onde os números saíram dá precisão perfeita e lastro nenhum.
+ *
+ * Os dois vêm calculados do servidor. Nada aqui soma, e um percentual escrito à
+ * mão numa tela envelheceria em silêncio — que é o defeito que este tipo existe
+ * para tornar impossível.
+ */
+export interface Afericao {
+  canal: string;
+  movimentado: TresColunas;
+  comContrapartida: TresColunas;
+  comLastroCruzado: TresColunas;
+  naoExplicado: TresColunas;
+  /** Entre 0 e 1. `null` quando nada foi conferido — indefinida, e não zero. */
+  precisao: TresColunas;
+  /** Entre 0 e 1. `null` quando nada foi movimentado. */
+  lastro: TresColunas;
+  parcelas: ParcelaAferida[];
+  limites: LimiteDaAfericao[];
 }
 
 /** De onde saiu a coluna da planilha — a prova de contra o quê se conferiu. */

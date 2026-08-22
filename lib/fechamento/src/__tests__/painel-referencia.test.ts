@@ -51,10 +51,11 @@ const mapa = (q: 1 | 2) =>
     variavel: { frotaFixa: 100, agregado: 50, recargaENoturna: 0, vans: 0 },
     bases: {
       devolucao: 13328.3,
-      disponibilidade: 11649.87,
+      disponibilidade: { fonte: "PLANILHA", valor: 11649.87 },
       complementarNegativo: 0,
       outrosCustos: { fonte: "PLANILHA", valor: 0 },
       indisponibilidade: { fonte: "PLANILHA", valor: 0 },
+      equipeDeEntrega: { fonte: "PLANILHA", valor: 0 },
     },
   });
 

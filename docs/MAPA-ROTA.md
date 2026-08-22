@@ -25,7 +25,7 @@ Rota`, e cada linha do `Mapa Rota` é uma fórmula sobre a aba `Cadastro` — a
 frota contratada, a tarifa por veículo, as alíquotas — ou sobre o diário
 operacional (abas `01`…`31`).
 
-O de-para que o produto tinha traduzia as mesmas dezoito linhas **a partir do
+O de-para que o produto tinha traduzia as mesmas linhas **a partir do
 03.08.20**. Por isso o painel inteiro dependia de um relatório que a planilha
 nunca abre: sem ele, `lerDeParaDaCompetencia` devolve `null` e a aba `Planilha`
 não tem o que mostrar.
@@ -107,25 +107,71 @@ lados chegavam ao mesmo número **por acaso**: o acaso de a terceira parcela
 estar vazia. O conceito não é hipotético — a VBZ 06 (`Rota - Rem. Variável
 Equipe Entrega`) sai em CT-e, R$ 244.753,67 na 2ª quinzena.
 
-## O 03.08.18 não é a fonte do desconto de disponibilidade
+## O 03.08.18 **é** a fonte do desconto de disponibilidade — o mês, não a quinzena
+
+> **Corrigido.** Este documento afirmou o contrário por duas investigações. A
+> afirmação anterior — "os números desmentem a associação direta" — estava
+> ancorada numa comparação errada, e a correção está provada abaixo.
 
 A legenda de cores da planilha associa o `03.08.18` à linha
-`DESCONTO DE DISPONIBILIDADE`. Os números da competência conferida desmentem a
-associação direta, e por isso a fonte canônica fica **registrada como decisão
-pendente** (`DECISOES_PENDENTES`, em `matriz.ts`) em vez de escolhida:
+`DESCONTO DE DISPONIBILIDADE`, e a legenda está certa. O que despistou é que
+**o desconto é acumulado no mês inteiro e aplicado uma vez, no demonstrativo da
+2ª quinzena** — comparar a quinzena de um documento com a quinzena do outro
+compara o mês com um quarto dele.
+
+Lido pelos leitores de produção sobre os arquivos reais de julho/2026
+(CDD Belém · Horizonte, canal Rota), o encaixe é ao centavo em **três linhas
+independentes**:
+
+| 03.08.18 — dias 1 a 31, abas `FF` + `Van` | | 03.08.20 da 2ª quinzena |
+|---|:-:|---|
+| `Desc.FF Custo Fixo` + `Equipe` + `Indiretos` = **91.321,65** | = | `Desconto FF - Equipe Entrega` = **91.321,65** |
+| `Desconto FA` = **320,85** | = | `Desconto FF - Fator Ajudante` = **320,85** |
+| `Desconto Total` = **91.642,50** | = | total do bloco = **91.642,50** |
+
+Diferença R$ 0,00 nas três. O demonstrativo agrupa custo fixo, equipe e
+indiretos numa linha só porque os três são subtraídos da mesma `VBZ 02`; o
+03.08.18 os abre por dia, por aba e por responsabilidade.
+
+### O "315,2%" que ficou registrado como inexplicado
+
+A tabela que este documento trazia comparava assim:
 
 | Candidato | 1ª quinzena | 2ª quinzena |
 |---|---:|---:|
-| 03.08.18 (`Desc.FF Custo Fixo + Equipe + Indiretos + FA`) | 42.939,35 | 29.075,62 |
-| 03.08.20 (bloco `DESCONTO DISPONIBILIDADE`) | **não existe** | — |
+| 03.08.18 (`Desc.FF …`, só a metade do mês, só a aba `FF`) | 42.939,35 | 29.075,62 |
 | planilha (`Mapa Rota!R139` / `AH139`, digitados) | 11.649,87 | 91.642,50 |
 
-O 11.649,87 da 1ª quinzena **é o `Desconto Frete mínimo` do 03.08.20**, lido do
-arquivo real. Ou seja: a planilha põe o frete mínimo na linha da
-disponibilidade e deixa o complementar negativo zerado. O sistema o põe no
-complementar, que é onde o relatório o declara — e como a planilha bruta a linha
-da disponibilidade pelo fator e não bruta o complementar, são **R$ 4.257,50** de
-diferença no quadro, com a mesma origem documental.
+`91.642,50 ÷ 29.075,62 = 3,152`. Não é discrepância: é a razão entre o mês
+inteiro (as duas quinzenas, as duas abas) e um quarto dele. A associação sempre
+esteve lá; o período é que estava errado dos dois lados.
+
+### O que isso resolve na 1ª quinzena
+
+O 03.08.20 da 1ª quinzena **não traz bloco `DESCONTO DISPONIBILIDADE` nenhum** —
+e agora sabe-se por quê: naquele momento o desconto ainda não foi aplicado. A 1ª
+quinzena vale **R$ 0,00 de disponibilidade por regra**, e não por falta de
+arquivo. O acumulado parcial do 03.08.18 até o dia 15 (R$ 54.155,08) é
+informação, não abatimento.
+
+O que a planilha faz ali continua sendo defeito dela: ela digita 11.649,87 na
+linha da disponibilidade, e esse número **é o `Desconto Frete mínimo` do
+03.08.20**. O sistema o põe no complementar negativo, que é onde o relatório o
+declara — e como a planilha bruta a linha da disponibilidade pelo fator e não
+bruta o complementar, são **R$ 4.257,50** de diferença no quadro, com a mesma
+origem documental.
+
+### Onde a regra mora, e o alcance dela
+
+`descontoDeDisponibilidadeDoMes`, em `leitores/disponibilidade.ts`, com o gate
+em `__tests__/disponibilidade-mensal.test.ts` — que prende as três identidades
+**e** a afirmação de que nenhuma das metades sozinha reproduz o bloco. O
+registro da decisão está em `DECISOES_RESOLVIDAS`, em `matriz.ts`.
+
+A prova é de **uma** competência. O encaixe ao centavo em três linhas
+independentes é forte demais para ser acaso, mas "mês inteiro, aplicado na 2ª"
+só vira regra geral com uma segunda competência — e é para isso que
+`DescontoDeDisponibilidadeDoMes` carrega os dias que entraram na soma.
 
 `Mapa Rota!R138`, `R139`, `R140`, `AH138`, `AH139` e `AH140` **não têm
 fórmula**: são digitados à mão.
@@ -316,16 +362,23 @@ tem fórmula:
 A aba `Justificativa` parece a origem, e não é: ela **lê de volta** do `Mapa
 Rota` (`='Mapa Rota'!R138`) e traz uma cópia das colunas do 03.08.18.
 
-O teste decisivo é contra o próprio 03.08.18, que está na pasta como aba:
+O teste decisivo é contra o próprio 03.08.18, que está na pasta como aba. Ele foi
+feito **quinzena contra quinzena**, e é aí que ele erra:
 
-| | 03.08.18 `Desconto Total` | Base digitada | Relação |
+| | 03.08.18 `Desconto Total` (só a metade, só `FF`) | Base digitada | Relação |
 |---|---:|---:|---|
 | 1ª quinzena | 42.939,35 | 11.649,87 | 27,1 % |
 | 2ª quinzena | 29.075,62 | 91.642,50 | 315,2 % |
 
-Nenhuma coluna, nem soma de colunas, do 03.08.18 ou da `Justificativa`
-reproduz as bases digitadas — em nenhuma das duas quinzenas, por nenhum fator
-constante. **A derivação acontece fora do arquivo.**
+> **Corrigido.** A conclusão que se tirou daqui — "a derivação acontece fora do
+> arquivo" — era falsa para a disponibilidade. Somado o **mês inteiro**, nas
+> **duas abas**, o 03.08.18 reproduz `AH139` ao centavo: 91.642,50. Os 315,2 %
+> são a razão entre o mês e um quarto dele. Ver a seção *O 03.08.18 **é** a
+> fonte do desconto de disponibilidade*, acima.
+
+Para a **devolução** e o **complementar** a conclusão continua de pé: nenhuma
+coluna do 03.08.18 ou da `Justificativa` as reproduz, e elas saem mesmo do
+03.08.20.
 
 ### Onde ela acontece: as cinco bases são o 03.08.20
 
@@ -358,36 +411,46 @@ zero, e a disponibilidade fica vazia porque o relatório não a traz. Reproduzir
 inconsistência faria os dois lados concordarem por construção, que é o oposto do
 que este painel existe para fazer.
 
-### O que o sistema ainda pode fazer melhor
+### O fio que faltava ligar, e que a regra mensal liga
 
 O sistema já lê o 03.08.18 e extrai, por dia e por canal,
 `descontos: { custoFixo, equipe, indiretos, fatorAjudante, total }`
 (`leitores/disponibilidade.ts`). Ele tem, portanto, o material para **calcular**
 a disponibilidade em vez de recebê-la do 03.08.20 — o que nem a planilha faz.
 
-Isso é uma mudança de número, não só de método: com o `Desconto Total` do
-03.08.18 como base, a 1ª quinzena descontaria R$ 42.939,35 × fator em vez de
-nada. Antes de ligar esse fio é preciso saber por que o demonstrativo e o
-03.08.18 discordam nessa ordem de grandeza — e essa pergunta continua aberta.
+A pergunta que travava esse fio era *por que o demonstrativo e o 03.08.18
+discordam nessa ordem de grandeza*. **Eles não discordam**: somado o mês inteiro,
+o 03.08.18 dá exatamente o bloco do 03.08.20 (`descontoDeDisponibilidadeDoMes`).
+O que discordava era o recorte de período usado na comparação.
 
-As bases seguem entrando no motor como parâmetro (`BasesDaQuinzena`), com o
-mesmo tratamento de ausência das demais: `null`, nunca zero.
+Com a regra mensal, calcular do 03.08.18 deixa de ser uma mudança de número e
+passa a ser uma mudança de **procedência**: o mesmo R$ 91.642,50 na 2ª quinzena,
+mas derivado dos 29 dias que o produziram em vez de copiado do demonstrativo que
+ele deveria auditar. E a 1ª quinzena passa a valer **zero por regra** — com a
+razão escrita — em vez de vazia por falta de bloco.
 
-## O corte que faltava no diário: `CxRota > 0`
+As demais bases seguem entrando no motor como parâmetro (`BasesDaQuinzena`), com
+o mesmo tratamento de ausência: `null`, nunca zero.
 
-O 2Art traz numa lista só as viagens da **Rota** e as do **AS**, e a coluna que
-as separa é `CxRota`: a viagem de AS vem com `CxRota = 0` e `CxAS > 0`. O motor
-somava as duas.
+## O corte do canal no diário: `NÃO(CxRota = 0 E CxAS > 0)`
+
+O 2Art traz numa lista só as viagens da **Rota** e as do **AS**. O motor somava
+as duas, e o efeito não era pequeno.
 
 Conferido linha a linha contra as abas diárias `01`..`31` da `.xlsb`, que são o
 2Art já filtrado: das dezoito viagens que a planilha descartou no mês, as
-dezesseis de frota padrão têm `CxRota = 0` e `CxAS > 0`. Nenhuma exceção.
+dezesseis de frota padrão têm `CxRota = 0` **e `CxAS > 0`**. Nenhuma exceção.
+
+> **A regra é uma conjunção, e o código implementou só um termo.** Por duas
+> versões o corte foi `CxRota > 0`, e `ViagemDoMapa` nem carregava `CxAS` — a
+> regra que este documento verificou era impossível de escrever. Custou
+> R$ 1.727,06 na 2ª quinzena. Ver a seção seguinte.
 
 O efeito, em julho/2026:
 
 | Linha | sem o corte (1ª) | com o corte (1ª) | sem o corte (2ª) | com o corte (2ª) |
 |---|---:|---:|---:|---:|
-| Custo Variável (Frota Fixa) | +2.540,23 | **+0,01** | +2.006,25 | −1.723,03 |
+| Custo Variável (Frota Fixa) | +2.540,23 | **+0,01** | +2.006,25 | **−81,01** |
 | Custo Variável (Extra e Spot) | +38.473,58 | **+0,05** | +47.098,45 | **+0,06** |
 | Vans | **0,00** | **0,00** | **0,00** | **0,00** |
 | Recarga e Noturna | −6.344,78 | −6.344,78 | **0,00** | **0,00** |
@@ -395,17 +458,87 @@ O efeito, em julho/2026:
 *(diferença contra o `RESUMO GERAL`; `somarVariavel`, com `ValorFaturado` do
 próprio 2Art e o valor médio do veículo do cadastro)*
 
+### O terceiro caso: a viagem de Rota que rodou vazia
+
+`CxRota = 0` sozinho funde dois casos opostos:
+
+| caso | `CxRota` | `CxAS` | é deste mapa? |
+| --- | ---: | ---: | --- |
+| viagem de Rota que entregou | `> 0` | qualquer | **sim** |
+| viagem de AS | `0` | `> 0` | **não** — é do outro canal |
+| viagem de Rota que rodou vazia | `0` | `0` | **sim** — rodou, e mapa fechado é mapa |
+
+O terceiro caso é real e é dinheiro. Em julho/2026 são **seis** viagens, todas
+com `Entrega = Rota`, frota `Padrao`, `StMapa = Pago` e a tarifa cheia de
+R$ 289,02:
+
+| Dia | Veículo | `CxRota` | `CxAS` | Imposto | Faturado |
+|---|---:|---:|---:|---|---:|
+| 23/07 | 223 | 0 | 0 | CTRC-ICMS | 289,02 |
+| 23/07 | 404 | 0 | 0 | CTRC-ICMS | 289,02 |
+| 23/07 | 693 | 0 | 0 | CTRC-ICMS | 289,02 |
+| 28/07 | 223 | 0 | 0 | CTRC-ICMS | 289,02 |
+| 28/07 | 404 | 0 | 0 | CTRC-ICMS | 289,02 |
+| 28/07 | 693 | 0 | 0 | CTRC-ICMS | 289,02 |
+
+O veículo saiu, o mapa fechou e a viagem foi paga; ela só não entregou caixa
+nenhuma. A `.xlsb` as conta como mapa, e está certa: a remuneração da frota fixa
+é por **mapa fechado**, não por caixa entregue.
+
+Como as seis são `CTRC-ICMS`, o efeito fecha por dois caminhos independentes:
+
+```
+motor com o corte largo  ....................  186.000,42
+motor com o corte correto ...................  187.727,49
+efeito .......................................   1.727,06
+6 × (1 ÷ 0,7291) × (5.246,67 ÷ 25) ..........   1.727,06
+```
+
+> **Corrigido.** Este documento afirmava: *"nos dias 23 e 28 a planilha conta 3
+> mapas a mais do que a aba do dia tem linhas — não é o filtro, as linhas não
+> estão lá. Ou o 2Art da planilha era outro snapshot, ou alguém somou à mão."*
+> As linhas **estão** no 2Art, e era o filtro. Não há snapshot divergente nem
+> soma manual.
+
+### Por que a 1ª quinzena nunca acusou o defeito
+
+Não existe nenhuma viagem de Rota com `CxRota = 0` e `CxAS = 0` nos dias 1 a 15.
+O efeito do corte ali é **R$ 0,00**: a 1ª quinzena fechava por ausência do caso,
+não por acerto da regra. É o modo de falhar mais caro que existe — o gate que
+impede a repetição está em `__tests__/corte-do-canal.test.ts`, e ele prende os
+três casos separadamente, justamente porque um teste que só usasse `CxRota = 0`
+passava com a regra errada.
+
+### R$ 1.727,06 e não R$ 1.723,03 — a diferença de R$ 4,03
+
+As duas medidas são do mesmo defeito, com bases diferentes:
+
+- **R$ 1.723,03** — o motor rodado sobre as **abas diárias da `.xlsb`**, que
+  carregam o rateio quebrado do dia 27 (colunas `BM`/`BN` não arrastadas).
+- **R$ 1.727,06** — o motor rodado sobre o **2Art cru**, cujo rateio é o
+  verdadeiro.
+
+As seis viagens mudam a contagem de mapas do dia, e a contagem entra no rateio
+ISS/ICMS; com o rateio quebrado do dia 27 no meio, o mesmo efeito mede R$ 4,03
+a menos. O número que vale é **R$ 1.727,06**, porque é o efeito puro do filtro,
+conferido por dois caminhos — e é ele que está preso no teste.
+
+### Por que não `Entrega = 'Rota'`, que a coluna declara em letra
+
+Nesta competência `NÃO(CxRota = 0 E CxAS > 0)`, `Entrega = 'Rota'` e `CxAS = 0`
+concordam em **1.827 de 1.827** linhas, e as três reproduzem a contagem de mapas
+da `.xlsb` em 31 de 31 dias. Concordância numa amostra não é razão para trocar a
+regra que foi de fato verificada contra a planilha — e o defeito aqui nasceu
+exatamente de trocar a regra verificada por uma versão mais curta dela. `Entrega`
+segue disponível no detalhe da viagem para quem quiser conferir.
+
 ### O que é um "mapa fechado"
 
 A contagem que multiplica o valor médio do veículo é de linhas com
-`FROTA = Padrao` e `CARGA ATUAL` **diferente de** `Recarga` e `Noturna` — que
-carregaram caixa de Rota. Recarga e noturna não fecham mapa: têm linha própria.
-
-A regra reproduz a contagem da planilha em 27 dos 29 dias com movimento. Nos
-dias **23 e 28** a planilha conta 3 mapas a mais do que a aba do dia tem linhas
-— não é o filtro, as linhas não estão lá. Ou o 2Art da planilha era outro
-snapshot, ou alguém somou à mão; vale R$ 1.723,03 na 2ª quinzena, e está na
-lista de inconsistências.
+`FROTA = Padrao` e `CARGA ATUAL` **diferente de** `Recarga` e `Noturna`, que não
+sejam do canal AS. Recarga e noturna não fecham mapa: têm linha própria. Com o
+corte correto, a regra reproduz a contagem da planilha em **31 dos 31** dias com
+movimento.
 
 ### O que continua aberto
 

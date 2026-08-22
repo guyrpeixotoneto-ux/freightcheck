@@ -1,4 +1,5 @@
-import { centavos } from "./dominio";
+import { centavos, emReais } from "./dominio";
+import { VBZ_DA_EQUIPE_DE_ENTREGA } from "./verbas";
 
 /**
  * O MOTOR DA PLANILHA — o `Mapa Rota` sem planilha.
@@ -97,8 +98,14 @@ export interface ParametrosDoCadastro {
 export interface BasesDaQuinzena {
   /** A devolução acumulada, sem imposto. `null` quando o documento não veio. */
   devolucao: number | null;
-  /** A disponibilidade acumulada, sem imposto (03.08.18). */
-  disponibilidade: number | null;
+  /**
+   * A disponibilidade da competência, com a origem que a sustenta.
+   *
+   * `null` quando o 03.08.18 do mês não foi importado — e só nesse caso. Uma 1ª
+   * quinzena com o arquivo presente vale **zero por regra**, não `null`: ver
+   * {@link DisponibilidadeDaCompetencia}.
+   */
+  disponibilidade: BaseDeDisponibilidade | null;
   /** O complementar negativo — o único que a planilha não bruta. */
   complementarNegativo: number | null;
   /**
@@ -116,6 +123,55 @@ export interface BasesDaQuinzena {
    * afirmação sobre a operação, e não sobre o arquivo que falta.
    */
   indisponibilidade: BaseDeIndisponibilidade | null;
+  /**
+   * A remuneração variável da equipe de entrega — a `VBZ 06`.
+   *
+   * `null` quando o 03.08.12.09 não foi importado, pelo mesmo motivo dos outros
+   * custos: sem o arquivo não há zero medido. Ver {@link BaseDaEquipeDeEntrega}.
+   */
+  equipeDeEntrega: BaseDaEquipeDeEntrega | null;
+}
+
+/**
+ * A `VBZ 06` — reexportada do catálogo, que é onde ela mora.
+ *
+ * Continua saindo daqui porque metade do pacote a importa deste módulo; o valor
+ * é o de `verbas.ts`, e não uma segunda cópia. Ver a nota lá.
+ */
+export { VBZ_DA_EQUIPE_DE_ENTREGA } from "./verbas";
+
+/**
+ * De onde sai a remuneração variável da equipe de entrega.
+ *
+ * Mesma disciplina de {@link BaseDeOutrosCustos}, e de propósito: a fonte é o
+ * **mesmo** 03.08.12.09, com o mesmo filtro de status. O que muda é o recorte —
+ * a `VBZ 06` em vez de todas as outras.
+ */
+export type BaseDaEquipeDeEntrega =
+  | { fonte: "REQUISICOES"; medida: OutrosCustosDoRelatorio }
+  | { fonte: "PLANILHA"; valor: number };
+
+/** O número que entra na conta, seja qual for a fonte. */
+export function valorDaEquipeDeEntrega(b: BaseDaEquipeDeEntrega): number {
+  return b.fonte === "REQUISICOES" ? b.medida.valor : b.valor;
+}
+
+/** A frase que a tela mostra: o número e o que foi contado para chegar nele. */
+export function memoriaDaEquipeDeEntrega(b: BaseDaEquipeDeEntrega): string {
+  if (b.fonte === "PLANILHA") {
+    return "`Resumo Geral!AI34`, como a planilha legada o traz — para reconciliação";
+  }
+  const { aprovadas, recebidas } = b.medida;
+  if (aprovadas === 0) {
+    return (
+      `nenhuma das ${recebidas} requisições do 03.08.12.09 deste canal aponta a ` +
+      `VBZ ${String(VBZ_DA_EQUIPE_DE_ENTREGA).padStart(2, "0")} — zero medido, não zero por ausência de arquivo`
+    );
+  }
+  return (
+    `a soma sem imposto de ${aprovadas} de ${recebidas} requisições aprovadas do ` +
+    `03.08.12.09 que apontam a VBZ ${String(VBZ_DA_EQUIPE_DE_ENTREGA).padStart(2, "0")}`
+  );
 }
 
 /**
@@ -223,6 +279,87 @@ export function memoriaDaIndisponibilidade(b: BaseDeIndisponibilidade): string {
     `o faturado de ${comMarca} de ${viagens} viagens de Rota com marca de ` +
     `indisponibilidade no 2Art (${tipos.join(", ")})`
   );
+}
+
+/**
+ * O desconto de disponibilidade da competência — o mês, aplicado na 2ª quinzena.
+ *
+ * **A regra, e por que ela é do mês.** O 03.08.18 mede o gap de frota dia a dia,
+ * mas o desconto não é cobrado quinzena a quinzena: ele é acumulado no mês
+ * inteiro e aplicado uma vez, no fechamento da 2ª. Provado em julho/2026 pelo
+ * encaixe ao centavo em três linhas independentes contra o bloco `DESCONTO
+ * DISPONIBILIDADE` do 03.08.20 — ver `descontoDeDisponibilidadeDoMes`, em
+ * `leitores/disponibilidade.ts`, e `DECISOES_RESOLVIDAS`, em `matriz.ts`.
+ *
+ * **Por que a 1ª quinzena vale zero, e por que zero e não `null`.** Na 1ª o
+ * desconto ainda não foi aplicado: o 03.08.20 daquela quinzena não traz bloco de
+ * disponibilidade nenhum, e não por falta de arquivo. `null` diria "falta o
+ * documento" e mandaria alguém procurar o que não existe; zero diz o que é
+ * verdade — não há abatimento nesta metade do mês. É a mesma disciplina do zero
+ * medido da indisponibilidade, e {@link doMes} carrega o acumulado parcial para
+ * que o zero seja conferível em vez de ser preciso confiar nele.
+ */
+export interface DisponibilidadeDaCompetencia {
+  /** O que entra **nesta** quinzena: zero na 1ª, o mês inteiro na 2ª. */
+  valor: number;
+  /**
+   * O acumulado do mês inteiro, sempre — inclusive na 1ª, onde não desconta.
+   *
+   * É o que torna o zero da 1ª quinzena uma afirmação e não um silêncio: a tela
+   * mostra "R$ 54.155,08 acumulados até aqui, que entram no fechamento da 2ª".
+   */
+  doMes: number;
+  quinzena: 1 | 2;
+  /** Quantos dias do 03.08.18 entraram na soma do mês — o denominador. */
+  dias: number;
+  /**
+   * O que o 03.08.20 publica no bloco, quando ele veio. `null` sem o documento.
+   *
+   * Não entra na conta: é **conferência**. O devido sai do 03.08.18, que é onde
+   * o desconto é medido e onde ele pode ser contestado dia a dia; o
+   * demonstrativo é a segunda opinião. Guardá-lo aqui é o que permite a
+   * divergência aparecer sem uma segunda leitura do banco.
+   */
+  noDemonstrativo: number | null;
+}
+
+/**
+ * De onde saiu a disponibilidade que entrou no mapa.
+ *
+ * Mesma disciplina de {@link BaseDeIndisponibilidade}: `MENSAL_03_08_18` é a
+ * regra do produto, `PLANILHA` é a célula da `.xlsb` que a reconciliação
+ * compara.
+ */
+export type BaseDeDisponibilidade =
+  | { fonte: "MENSAL_03_08_18"; medida: DisponibilidadeDaCompetencia }
+  | { fonte: "PLANILHA"; valor: number };
+
+/** O número que entra na conta, seja qual for a fonte. */
+export function valorDaDisponibilidade(b: BaseDeDisponibilidade): number {
+  return b.fonte === "MENSAL_03_08_18" ? b.medida.valor : b.valor;
+}
+
+/** A frase que a tela mostra: o número e o que foi contado para chegar nele. */
+export function memoriaDaDisponibilidade(b: BaseDeDisponibilidade): string {
+  if (b.fonte === "PLANILHA") {
+    return "`Mapa Rota!139`, como a planilha legada o traz — para reconciliação";
+  }
+  const { quinzena, doMes, dias, noDemonstrativo } = b.medida;
+  if (quinzena === 1) {
+    return (
+      `zero por regra: o desconto de disponibilidade é do mês e entra no fechamento ` +
+      `da 2ª quinzena. O 03.08.18 já acumula ${emReais(doMes)} em ${dias} dias, e ` +
+      `nada disso desconta aqui`
+    );
+  }
+  const confere =
+    noDemonstrativo === null
+      ? "sem o 03.08.20 da quinzena para conferir"
+      : Math.abs(noDemonstrativo - doMes) < 0.005
+        ? `confere ao centavo com o bloco DESCONTO DISPONIBILIDADE do 03.08.20`
+        : `o 03.08.20 publica ${emReais(noDemonstrativo)} no bloco — divergência de ` +
+          `${emReais(noDemonstrativo - doMes)}`;
+  return `o \`Desconto Total\` do 03.08.18 somado nos ${dias} dias do mês (FF + Van); ${confere}`;
 }
 
 /**
@@ -350,6 +487,46 @@ export interface LinhaDoMapa {
   memoria: string;
   /** O que falta, quando falta. `null` quando a linha tem número. */
   falta: string | null;
+  /**
+   * Como trazer o número do **demonstrado** para a convenção desta linha.
+   *
+   * **As duas colunas do painel falavam moedas diferentes, e a diferença entre
+   * elas media o câmbio.** O devido sai daqui já na moeda em que a planilha
+   * escreve: brutado pelo fator de imposto, e com o desconto negativo. O
+   * demonstrado sai do 03.08.20 pela coluna `semImposto` — que é a escolha certa
+   * lá, porque é somando descontos sem imposto de volta que a parcela bruta
+   * aparece (ver `ColunaDoPagamento`, em `de-para.ts`) — e com o desconto na
+   * magnitude positiva.
+   *
+   * Subtrair um do outro dava, por exemplo, `−18.199,19 − 13.328,30 =
+   * −31.527,49` numa linha em que os dois lados são **a mesma verba do mesmo
+   * arquivo** e a diferença é zero.
+   *
+   * A conversão mora aqui, e não em quem compara, porque é esta linha que sabe
+   * se ela bruta ou não: a devolução e a disponibilidade brutam, o complementar
+   * negativo **não** — a planilha não o bruta, e o relatório o declara já no
+   * valor em que é descontado.
+   */
+  conversaoDoDemonstrado: ConversaoDoDemonstrado;
+}
+
+/**
+ * O câmbio entre a coluna do demonstrado e a do devido, numa linha.
+ *
+ * `sinal` é `-1` no desconto, porque o devido o guarda negativo e o
+ * demonstrativo o publica em magnitude. `fator` é o de imposto onde a linha
+ * bruta e `1` onde ela não bruta.
+ */
+export interface ConversaoDoDemonstrado {
+  sinal: 1 | -1;
+  /**
+   * A linha bruta o valor sem imposto, ou não?
+   *
+   * Booleano e não o fator em si porque **o fator é da quinzena, não da linha**:
+   * ele sai da fatia de emissão, que muda entre 1ª e 2ª. A linha sabe apenas se
+   * bruta; quem aplica busca o fator em {@link MapaDaQuinzena.fatorDeImposto}.
+   */
+  bruta: boolean;
 }
 
 function linha(
@@ -359,8 +536,18 @@ function linha(
   valor: number | null,
   memoria: string,
   falta: string | null = null,
+  /* O padrão é o da parcela: mesmo sinal, brutada pelo fator da quinzena. */
+  conversaoDoDemonstrado: ConversaoDoDemonstrado = { sinal: 1, bruta: true },
 ): LinhaDoMapa {
-  return { chave, rotulo, papel, valor: valor === null ? null : centavos(valor), memoria, falta };
+  return {
+    chave,
+    rotulo,
+    papel,
+    valor: valor === null ? null : centavos(valor),
+    memoria,
+    falta,
+    conversaoDoDemonstrado,
+  };
 }
 
 /**
@@ -483,16 +670,27 @@ export function linhasDeDesconto(
         ? "sem base de devolução na quinzena"
         : `${bases.devolucao.toFixed(2)} sem imposto × ${f}, negativo`,
       bases.devolucao === null ? "a devolução acumulada da quinzena" : null,
+      { sinal: -1, bruta: true },
     ),
     linha(
       "desconto_disponibilidade",
       "DESCONTO DE DISPONIBILIDADE",
       "DESCONTO",
-      brutado(bases.disponibilidade),
       bases.disponibilidade === null
-        ? "sem base de disponibilidade na quinzena"
-        : `${bases.disponibilidade.toFixed(2)} sem imposto × ${f}, negativo`,
-      bases.disponibilidade === null ? "o 03.08.18 da quinzena" : null,
+        ? null
+        : -bruto(valorDaDisponibilidade(bases.disponibilidade), p),
+      bases.disponibilidade === null
+        ? "sem o 03.08.18 do mês"
+        : `${memoriaDaDisponibilidade(bases.disponibilidade)}${
+            valorDaDisponibilidade(bases.disponibilidade) === 0 ? "" : ` × ${f}, negativo`
+          }`,
+      /*
+        A falta nomeia o 03.08.18, que é de onde o desconto sai. Por duas
+        versões ela nomeou o 03.08.18 enquanto o valor vinha do 03.08.20 — a
+        mensagem mandava importar um arquivo que não resolveria a linha.
+      */
+      bases.disponibilidade === null ? "o 03.08.18 do mês" : null,
+      { sinal: -1, bruta: true },
     ),
     linha(
       "desconto_complementar_negativo",
@@ -503,6 +701,9 @@ export function linhasDeDesconto(
         ? "sem complementar negativo na quinzena"
         : `${bases.complementarNegativo.toFixed(2)}, negativo e sem bruto — a planilha não o bruta`,
       bases.complementarNegativo === null ? "o complementar negativo da quinzena" : null,
+      /* O único que não bruta: a planilha não o bruta e o relatório o declara
+         já no valor em que é descontado ("coluna ICMS", diz o rótulo). */
+      { sinal: -1, bruta: false },
     ),
   ];
 }
@@ -524,10 +725,24 @@ export interface ViagemDoMapa {
   /**
    * As caixas de **Rota** que a viagem carregou — a coluna `CxRota` do 2Art.
    *
-   * É o que separa a viagem deste mapa da viagem que rodou AS. `null` quando o
-   * diário não trouxe a coluna: ver {@link ehDaRota}.
+   * É metade do que separa a viagem deste mapa da viagem que rodou AS. A outra
+   * metade é {@link caixasDeAs}, e as duas só decidem juntas: ver
+   * {@link ehDaRota}. `null` quando o diário não trouxe a coluna.
    */
   caixasDeRota: number | null;
+  /**
+   * As caixas de **AS** que a viagem carregou — a coluna `CxAS` do 2Art.
+   *
+   * **Sem ela o corte do canal não é o corte do canal.** `CxRota = 0` sozinho
+   * confunde duas coisas opostas: a viagem que rodou AS (e não é deste mapa) e
+   * a viagem de Rota que rodou e não entregou nada (que é deste mapa e conta
+   * como mapa fechado). O que as separa é justamente esta coluna. Ver
+   * {@link ehDaRota} para o custo de ter confundido as duas.
+   *
+   * `null` quando o diário não trouxe a coluna, com o mesmo sentido de
+   * `caixasDeRota`: não se sabe, e o desconhecido não exclui.
+   */
+  caixasDeAs: number | null;
   /**
    * O motivo da indisponibilidade, como o 2Art o classifica — `TipoIndisp`.
    *
@@ -547,27 +762,56 @@ const semAcento = (t: string) =>
   t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
 
 /**
- * A viagem carregou caixa de Rota — e por isso pertence a este mapa.
+ * A viagem é deste mapa — ou seja, **não** é uma viagem de AS.
  *
- * **É o corte que faltava, e ele é do canal, não do tipo de frota.** O 2Art
- * traz numa lista só as viagens da Rota e as do AS, e a coluna que as separa é
- * `CxRota`: a viagem de AS vem com `CxRota = 0` e `CxAS > 0`. Sem este filtro o
- * `Mapa Rota` somava as duas, e o efeito não era pequeno — em julho/2026 o
- * `Custo Variável (Extra e Spot)` saía R$ 38.473,58 acima do que a planilha
- * fecha na 1ª quinzena, e R$ 47.098,45 acima na 2ª. Com o filtro, as duas
- * quinzenas batem ao centavo.
+ * **É o corte do canal, não do tipo de frota.** O 2Art traz numa lista só as
+ * viagens da Rota e as do AS. Sem filtro nenhum o `Mapa Rota` somava as duas, e
+ * o efeito não era pequeno: em julho/2026 o `Custo Variável (Extra e Spot)`
+ * saía R$ 38.473,58 acima do que a planilha fecha na 1ª quinzena e R$ 47.098,45
+ * acima na 2ª.
  *
- * Conferido linha a linha contra as abas diárias da `.xlsb`: das dezoito
- * viagens que a planilha descartou no mês inteiro, as dezesseis de frota padrão
- * têm `CxRota = 0` e `CxAS > 0`. Nenhuma exceção.
+ * **A regra é uma conjunção, e implementá-la como um termo só custou dinheiro.**
+ * A verificação contra as abas diárias da `.xlsb` sempre disse isto: das dezoito
+ * viagens que a planilha descartou no mês, as dezesseis de frota padrão têm
+ * `CxRota = 0` **e** `CxAS > 0`. O código, porém, testava só `CxRota > 0` — e
+ * `ViagemDoMapa` nem carregava `CxAS`, de modo que a regra verificada era
+ * impossível de escrever. O termo que faltava não é decorativo: ele separa dois
+ * casos opostos que `CxRota = 0` funde num só.
  *
- * **`null` conta como da Rota, e é a escolha certa.** Um diário antigo, sem a
- * coluna, não deve perder todas as viagens de uma vez — isso trocaria um erro
- * de mais por um erro de tudo. O que a coluna ausente custa é a separação, e
- * ela aparece como divergência contra o demonstrativo, que é onde se vê.
+ * | caso | `CxRota` | `CxAS` | é deste mapa? |
+ * | --- | ---: | ---: | --- |
+ * | viagem de Rota que entregou | `> 0` | qualquer | **sim** |
+ * | viagem de AS | `0` | `> 0` | **não** — é do outro canal |
+ * | viagem de Rota que rodou vazia | `0` | `0` | **sim** — rodou, e mapa fechado é mapa |
+ *
+ * O terceiro caso é real e é dinheiro: em julho/2026 são **seis** viagens de
+ * `Entrega = Rota`, frota `Padrao`, `StMapa = Pago`, tarifa cheia de R$ 289,02,
+ * nos dias 23 e 28 — veículos 223, 404 e 693. O veículo saiu, o mapa fechou, e
+ * não entregou caixa nenhuma. A `.xlsb` as conta como mapa (o que é certo: a
+ * remuneração da frota fixa é por mapa fechado, não por caixa entregue), e o
+ * corte largo as jogava fora. Custou **R$ 1.727,06** no `CUSTO VARIÁVEL (FROTA
+ * FIXA)` da 2ª quinzena — todas as seis são `CTRC-ICMS`, então a conta fecha em
+ * `6 × (1 ÷ divisor de fora) × valor médio do veículo`, ao centavo.
+ *
+ * **Por que a 1ª quinzena nunca acusou o defeito:** não há nenhuma viagem de
+ * Rota com `CxRota = 0` e `CxAS = 0` nos dias 1 a 15. O efeito do filtro ali é
+ * R$ 0,00 — ela fechava por ausência do caso, não por acerto da regra. É o
+ * modo de falhar mais caro que existe, e o gate está em
+ * `__tests__/corte-do-canal.test.ts`.
+ *
+ * **Por que não `Entrega = 'Rota'`, que a coluna declara em letra.** Porque
+ * nesta competência as duas concordam em 1.827 de 1.827 linhas, e concordância
+ * numa amostra não é razão para trocar a regra que foi de fato verificada
+ * contra a planilha. `Entrega` continua disponível no detalhe da viagem para
+ * quem quiser conferir.
+ *
+ * **`null` não exclui.** Um diário antigo, sem as colunas, não deve perder
+ * todas as viagens de uma vez — isso trocaria um erro de mais por um erro de
+ * tudo. O que a coluna ausente custa é a separação, e ela aparece como
+ * divergência contra o demonstrativo, que é onde se vê.
  */
 function ehDaRota(v: ViagemDoMapa): boolean {
-  return v.caixasDeRota === null || v.caixasDeRota > 0;
+  return !(v.caixasDeRota === 0 && (v.caixasDeAs ?? 0) > 0);
 }
 
 /** A viagem é de frota fixa padrão — nem recarga, nem noturna, nem agregado. */
@@ -734,7 +978,15 @@ export function somarIndisponibilidade(
       if (!ehDaRota(v)) continue;
       viagens += 1;
       const tipo = v.tipoDeIndisponibilidade.trim();
-      if (tipo === "") continue;
+      /*
+        `""` e `"0"` são a mesma coisa: ausência de marca. O leitor já converte
+        o zero numérico do 2Art em vazio (ver `comoMarca`, em
+        `leitores/operacao.ts`), e a checagem se repete aqui de propósito —
+        **as viagens já gravadas guardam `"0"` no banco**. Sem esta linha, toda
+        competência importada antes do conserto continuaria somando o faturado
+        inteiro da Rota nesta parcela até alguém reimportar o 2Art.
+      */
+      if (tipo === "" || tipo === "0") continue;
       comMarca += 1;
       tipos.add(tipo);
       valor += v.valorFaturado;
@@ -785,6 +1037,24 @@ export interface QuadroDoMapa {
    * {@link quadroDaEquipeDeEntrega}.
    */
   reservado: string | null;
+  /**
+   * A linha de outro quadro que este aqui **abre por dentro**. `null` no quadro
+   * que soma dinheiro próprio.
+   *
+   * O quadro do variável não entra no `TOTAL GERAL UNIDADE` (ver
+   * {@link QUADROS_DO_TOTAL_GERAL}) porque ele é uma decomposição: as parcelas
+   * dele já estão somadas no `TOTAL REMUNERAÇÃO ROTA DVS`, no quadro do fixo.
+   * Isso sempre esteve escrito — em comentário, para gente ler. Aqui está como
+   * dado, para a conta ler.
+   *
+   * **É o que permite aferir o `DVS` sem contá-lo duas vezes.** Aquela linha não
+   * tem demonstrado próprio: o 03.08.20 não traz uma verba `DVS`. O lastro dela
+   * está aqui, no conjunto deste quadro — e sem esta declaração a aferição teria
+   * de escolher entre ignorar a evidência (e chamar R$ 635.168,85 de dinheiro
+   * sem contrapartida) ou somar as duas (e inflar o denominador com o mesmo
+   * dinheiro contado de dois jeitos).
+   */
+  detalha: { quadro: QuadroDoResumo; chave: string } | null;
 }
 
 /**
@@ -803,6 +1073,14 @@ export const QUADROS_DO_TOTAL_GERAL: QuadroDoResumo[] = [
 
 export interface MapaDaQuinzena {
   quinzena: 1 | 2;
+  /**
+   * O fator de imposto **desta** quinzena — ver {@link fatorDeImposto}.
+   *
+   * Exposto porque quem compara as duas colunas do painel precisa dele: o
+   * demonstrado chega sem imposto e o devido já está bruto. Ver
+   * {@link ConversaoDoDemonstrado}.
+   */
+  fatorDeImposto: number;
   quadros: QuadroDoMapa[];
   /**
    * `REMUNERACAO + OUTROS_CUSTOS + EQUIPE_DE_ENTREGA` — o `TOTAL GERAL
@@ -832,7 +1110,7 @@ function somarQuadro(linhas: LinhaDoMapa[]): number | null {
 }
 
 /**
- * O QUARTO QUADRO — `REMUNERAÇÃO VARIÁVEL - EQUIPE DE ENTREGA`, reservado e vazio.
+ * O QUARTO QUADRO — `REMUNERAÇÃO VARIÁVEL - EQUIPE DE ENTREGA`.
  *
  * **O que a planilha tem ali, lido célula a célula.** As linhas 32 e 33 do
  * `RESUMO GERAL` trazem o título do quadro e os três cabeçalhos de coluna. A
@@ -856,26 +1134,73 @@ function somarQuadro(linhas: LinhaDoMapa[]): number | null {
  * não erro nosso — e é justamente o tipo de coisa que some quando o quadro não
  * existe na estrutura.
  *
- * **Nenhuma linha é inventada aqui.** Escrever uma parcela com a VBZ 06 do
- * emitido seria pôr o demonstrado dentro do devido — a contaminação que este
- * pacote inteiro recusa. O quadro entra sem linha, com o motivo escrito, e
- * soma zero porque **não tem parcela**, e não porque alguém mediu zero.
+ * **A fonte é o 03.08.12.09, e não o 03.08.20.** Escrever a parcela com a VBZ 06
+ * do *demonstrativo* seria pôr o demonstrado dentro do devido — a contaminação
+ * que este pacote recusa. O que sustenta a linha é o mesmo relatório de
+ * requisições que já sustenta os outros custos, com o mesmo filtro de status:
+ * as requisições **aprovadas** que apontam a `VBZ 06`. Em julho/2026 são quatro,
+ * somando R$ 182.035,14 sem imposto — exatamente o que o 03.08.20 publica na
+ * linha `06 - Rota - Rem. Variável Equipe Entrega`. Duas fontes independentes,
+ * mesmo centavo, e a que entra na conta é a do devido.
+ *
+ * **Por que a VBZ 06 sai dos outros custos ao entrar aqui.** O 03.08.20 e a
+ * planilha lançam a `VBZ 06` **dentro** do bloco de outros custos: os
+ * R$ 262.282,80 de `Total Outros Custos` são `74.247,66 + 6.000,00 +
+ * 182.035,14`, e `Outros Custos!F4` bruta esse total inteiro. Somar a equipe num
+ * quadro próprio **sem** tirá-la de lá contaria R$ 248.834,75 duas vezes no
+ * total geral. Por isso {@link BasesDaQuinzena} traz as duas separadas na
+ * origem, e a soma das duas reproduz o número único da planilha ao centavo — é
+ * um **reagrupamento**, não uma mudança de dinheiro, e o gate prende a
+ * identidade.
  */
-export function quadroDaEquipeDeEntrega(): QuadroDoMapa {
+export function quadroDaEquipeDeEntrega(
+  base: BaseDaEquipeDeEntrega | null,
+  p: ParametrosDoCadastro,
+): QuadroDoMapa {
+  /*
+    O quadro sem fonte continua sendo reservado — e é diferente de um quadro que
+    mediu zero. Sem o 03.08.12.09 não há como afirmar nem uma coisa nem outra.
+  */
+  if (base === null) {
+    return {
+      quadro: "EQUIPE_DE_ENTREGA",
+      titulo: "Remuneração variável — equipe de entrega",
+      rotuloDoTotal: null,
+      linhas: [],
+      total: null,
+      reservado:
+        "Sem o 03.08.12.09 do período não há como saber quanto a equipe de entrega " +
+        "rendeu: é dele que sai a VBZ 06. A planilha reserva este quadro e não escreve " +
+        "célula nenhuma nele (`AI34` e `AJ34` não existem), e mesmo assim o total geral " +
+        "dela o soma.",
+      detalha: null,
+    };
+  }
+
+  /* Ver a nota em `outrosCustos`: o 03.08.12.09 vem sem imposto, a célula não. */
+  const valorDaEquipe =
+    base.fonte === "REQUISICOES"
+      ? bruto(base.medida.valor, p)
+      : base.valor;
+
   return {
     quadro: "EQUIPE_DE_ENTREGA",
     titulo: "Remuneração variável — equipe de entrega",
-    /* A planilha não escreve linha de total neste quadro — ver a nota acima. */
-    rotuloDoTotal: null,
-    linhas: [],
-    /* Soma vazia é zero legítimo: não há parcela a faltar. Ver a nota acima. */
-    total: 0,
-    reservado:
-      "A planilha reserva este quadro e não escreve linha nenhuma nele: `AI34` e `AJ34` " +
-      "não existem como célula, e o total geral dela soma esse vazio. O conceito existe do " +
-      "lado emitido — a VBZ 06 sai em CT-e —, e nenhuma regra o converte em devido. " +
-      "Enquanto não houver essa regra, o quadro entra na estrutura e soma zero por não ter " +
-      "parcela, nunca por ter medido zero.",
+    rotuloDoTotal: "Total equipe de entrega",
+    linhas: [
+      linha(
+        "equipe_de_entrega",
+        "REMUNERAÇÃO VARIÁVEL - EQUIPE DE ENTREGA",
+        "PARCELA",
+        valorDaEquipe,
+        base.fonte === "REQUISICOES"
+          ? `${memoriaDaEquipeDeEntrega(base)}, brutado pelo fator de imposto`
+          : memoriaDaEquipeDeEntrega(base),
+      ),
+    ],
+    total: centavos(valorDaEquipe),
+    reservado: null,
+    detalha: null,
   };
 }
 
@@ -981,21 +1306,52 @@ export function montarMapaDaQuinzena(entrada: {
       "a soma do faturado das viagens de frota Spot",
       variavel.agregado === null ? "o diário operacional da quinzena" : null,
     ),
-    /* As mesmas duas linhas do quadro de cima — a planilha as repete aqui. */
-    descontos[0]!,
+    /*
+      As mesmas duas linhas do quadro de cima — a planilha as repete aqui, com
+      outros rótulos, e é pelo rótulo dela que as chaves mudam: em cima ela
+      escreve `DESCONTO DE DEVOLUÇÃO %` e `DESCONTO DE DISPONIBILIDADE`, aqui
+      escreve `DESCONTO DE DEVOLUÇÃO` e `INDISPONIBILIDADE`.
+
+      Repetir a chave do quadro de cima parecia inofensivo e não era: a
+      comparação casa linha com linha **por quadro e chave**, e o de-para — que
+      transcreve os rótulos literais — chamava esta de `desconto_devolucao`. As
+      duas nunca se encontravam, e a linha aparecia na tela com devido e sem
+      demonstrado como se o 03.08.20 não a trouxesse.
+    */
+    { ...descontos[0]!, chave: "desconto_devolucao", rotulo: "DESCONTO DE DEVOLUÇÃO" },
     { ...descontos[1]!, chave: "indisponibilidade_variavel", rotulo: "INDISPONIBILIDADE" },
   ];
 
   /* --- Quadro 3: outros custos ------------------------------------------ */
+  /*
+    **As duas fontes chegam em moedas diferentes, e só uma precisa ser brutada.**
+    O 03.08.12.09 traz o valor **sem imposto** — é a moeda em que o SRTrans
+    trabalha, a mesma das bases de desconto. A célula `Outros Custos!F4` da
+    planilha já vem **brutada**, porque é o que ela imprime.
+
+    Isso passou despercebido enquanto a reconciliação era a única prova: ela
+    alimenta a linha pela célula da planilha, que já está na moeda final, e
+    devolver o número intacto batia ao centavo. Pelo caminho de importação a
+    linha saía sem imposto — R$ 80.247,66 onde a planilha imprime
+    R$ 109.695,38 —, e o `TOTAL GERAL UNIDADE` inteiro saía menor.
+  */
+  const outrosCustos =
+    bases.outrosCustos === null
+      ? null
+      : bases.outrosCustos.fonte === "REQUISICOES"
+        ? bruto(bases.outrosCustos.medida.valor, p)
+        : bases.outrosCustos.valor;
   const outros: LinhaDoMapa[] = [
     linha(
       "outros_custos",
       "TOTAL REMUNERAÇÃO ROTA OUTROS CUSTOS",
       "PARCELA",
-      bases.outrosCustos === null ? null : valorDeOutrosCustos(bases.outrosCustos),
+      outrosCustos,
       bases.outrosCustos === null
         ? "sem 03.08.12.09 na quinzena — os outros custos saem dele"
-        : memoriaDeOutrosCustos(bases.outrosCustos),
+        : bases.outrosCustos.fonte === "REQUISICOES"
+          ? `${memoriaDeOutrosCustos(bases.outrosCustos)}, brutado pelo fator de imposto`
+          : memoriaDeOutrosCustos(bases.outrosCustos),
       bases.outrosCustos === null ? "as requisições de despesa (03.08.12.09)" : null,
     ),
   ];
@@ -1008,6 +1364,7 @@ export function montarMapaDaQuinzena(entrada: {
       linhas: remuneracao,
       total: somarQuadro(remuneracao),
       reservado: null,
+      detalha: null,
     },
     {
       quadro: "VARIAVEL",
@@ -1016,6 +1373,8 @@ export function montarMapaDaQuinzena(entrada: {
       linhas: variaveis,
       total: somarQuadro(variaveis),
       reservado: null,
+      /* Ele abre o `DVS` — ver `QuadroDoMapa.detalha` e `QUADROS_DO_TOTAL_GERAL`. */
+      detalha: { quadro: "REMUNERACAO", chave: "rota_dvs" },
     },
     {
       quadro: "OUTROS_CUSTOS",
@@ -1024,8 +1383,9 @@ export function montarMapaDaQuinzena(entrada: {
       linhas: outros,
       total: somarQuadro(outros),
       reservado: null,
+      detalha: null,
     },
-    quadroDaEquipeDeEntrega(),
+    quadroDaEquipeDeEntrega(bases.equipeDeEntrega, p),
   ];
 
   /*
@@ -1042,6 +1402,7 @@ export function montarMapaDaQuinzena(entrada: {
 
   return {
     quinzena: entrada.quinzena,
+    fatorDeImposto: fatorDeImposto(p.aliquotas, p.parcelaDentroDoMunicipio),
     quadros,
     totalGeral,
     pendencias: [
