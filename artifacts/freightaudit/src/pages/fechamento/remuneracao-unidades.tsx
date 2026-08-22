@@ -1698,7 +1698,16 @@ function Notas({ semLastro }: { semLastro: number }) {
       <dl className="space-y-2">
         {ESTADOS.map((estado) => (
           <div key={estado} className="flex flex-col sm:flex-row sm:items-baseline gap-1 sm:gap-3">
-            <dt className="shrink-0 sm:w-40">
+            {/*
+              A coluna acompanha o selo, e não o contrário.
+
+              Era `w-40` fixa, medida quando o rótulo mais longo era "Frota e
+              alíquotas". "Sem lastro documental" não cabe: o selo tem
+              `whitespace-nowrap`, transborda a coluna e passa por cima da frase
+              ao lado. Largura mínima com `shrink-0` mantém as quatro frases
+              alinhadas e deixa o selo mandar quando ele é maior.
+            */}
+            <dt className="shrink-0 sm:min-w-40">
               <Badge
                 variant={APARENCIA_DO_ESTADO[estado]}
                 className="gap-1.5 whitespace-nowrap px-2.5 py-1 text-[0.6875rem] font-bold uppercase tracking-wide"
