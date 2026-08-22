@@ -1,4 +1,4 @@
-import { centavos, type Canal } from "./dominio";
+import { centavos, emReais, type Canal } from "./dominio";
 import {
   CANAIS_COM_PAINEL,
   linhaDaPlanilha,
@@ -258,6 +258,38 @@ export interface LinhaComparada {
    * essa é justamente a que merece olhar.
    */
   causaConhecida: string | null;
+  /**
+   * O que **nenhum documento sustenta** nesta linha — a coluna `Auditar`.
+   *
+   * `null` quando a linha se sustenta, e há duas maneiras de se sustentar: o
+   * devido e o demonstrado batem, ou a linha não tem devido em dinheiro para
+   * sustentar. Preenchida nos dois casos em que não se sustenta:
+   *
+   * 1. **Os dois lados existem e discordam** em mais de meio centavo.
+   * 2. **O devido é dinheiro e não há demonstrado nenhum** — nem na linha, nem
+   *    no conjunto a que ela pertença. É o caso do `DVS`: R$ 307.746,20 que o
+   *    contrato manda pagar e que nenhuma linha do 03.08.20 corrobora.
+   *
+   * A linha que divide o número do relatório com outras **não** cai aqui por
+   * não ter demonstrado próprio: o que a sustenta é o conjunto, e é lá que a
+   * conferência dela acontece — inclusive a auditoria, em
+   * {@link ConjuntoComparado.auditar}.
+   *
+   * **É computada, não catalogada.** Não há lista de linhas que "podem"
+   * divergir: o texto sai da própria comparação, e por isso não envelhece. Uma
+   * divergência que alguém explique some daqui quando a explicação virar
+   * conta — nunca por ser marcada como conhecida.
+   *
+   * **Não é o mesmo que {@link causaConhecida}, e não se substituem.** Aquela
+   * fala do que a planilha faz de diferente do sistema; esta, do que o
+   * demonstrativo assinado faz de diferente do contrato. São duas perguntas, e
+   * uma linha pode responder sim às duas.
+   *
+   * **É a coluna mais importante da tela e a que deve viver vazia.** Uma linha
+   * com texto aqui é trabalho de alguém — não do sistema, que já disse tudo o
+   * que sabe.
+   */
+  auditar: string | null;
 }
 
 /**
@@ -292,6 +324,15 @@ export interface ConjuntoComparado {
   diferenca: TresColunas;
   /** Por que o relatório não parte este número — a frase do de-para. */
   porque: string;
+  /**
+   * O que ninguém sustenta no conjunto — a mesma coluna `Auditar` das linhas.
+   *
+   * Existe aqui porque é aqui que a conferência das linhas em conjunto de fato
+   * acontece: as seis do fixo não têm demonstrado próprio, e a única subtração
+   * honesta disponível é a do conjunto. Sem esta coluna, a maior divergência do
+   * painel não teria onde aparecer.
+   */
+  auditar: string | null;
 }
 
 export interface QuadroComparado {
@@ -311,8 +352,32 @@ export interface QuadroComparado {
   /** Os números que o relatório traz para várias linhas de uma vez. */
   conjuntos: ConjuntoComparado[];
   devido: TresColunas;
+  /**
+   * O total do quadro **somado das linhas demonstradas**, na moeda do devido.
+   *
+   * Não é o total que o 03.08.20 imprime para a seção. O relatório fecha a
+   * seção somando as verbas dele; a planilha fecha o quadro somando as parcelas
+   * dela menos os descontos dela, e as duas listas não são a mesma. Ler o
+   * número do relatório e pô-lo aqui comparava a soma de uma lista contra a
+   * soma de outra — e ainda em outra moeda, porque a coluna do relatório é sem
+   * imposto. O total do relatório continua existindo, intacto, no painel do
+   * demonstrativo (`PainelDaPlanilha.quadros[].total`), que é onde ele é o
+   * assunto.
+   *
+   * `null` quando **qualquer** linha do quadro tem devido e não tem demonstrado
+   * — a mesma disciplina do conjunto, pela mesma razão: a soma de parte das
+   * linhas não é o total, e a diferença contra ela mediria a nossa lacuna em
+   * vez da divergência. {@link semDemonstrado} nomeia quem faltou.
+   */
   demonstrado: TresColunas;
   diferenca: TresColunas;
+  /**
+   * As linhas que impedem o total demonstrado de existir, pelo nome da tela.
+   *
+   * Vazia quando o total existe. É o texto que responde "por que esta célula
+   * está em branco?" sem obrigar quem olha a percorrer o quadro procurando.
+   */
+  semDemonstrado: string[];
   /** O total que a planilha publica para o quadro. `null` sem referência. */
   planilha: TresColunas | null;
   /** `devido − planilha` no total do quadro. */
@@ -756,8 +821,204 @@ function conjuntosComparados(linhas: LinhaComparada[]): ConjuntoComparado[] {
       demonstrado: conjunto.valores,
       diferenca: subtrair(doDevido, conjunto.valores),
       porque: conjunto.porque,
+      /* Nasce nula; quem a preenche é `comAuditoria`, sobre o quadro já montado. */
+      auditar: null,
     };
   });
+}
+
+/**
+ * O total demonstrado de um quadro, somado das linhas — e nunca lido do total.
+ *
+ * **O defeito que ela corrige.** O total do quadro vinha do `total` que o
+ * 03.08.20 fecha para a seção: um número sem imposto, sobre a lista de verbas
+ * do relatório, contra um devido bruto sobre a lista de linhas da planilha. As
+ * duas listas não coincidem — a planilha parte outros custos em dois quadros, o
+ * relatório fecha um só; a planilha tem linha de `DVS`, o relatório não — e as
+ * duas moedas também não. A subtração dava R$ 505.534,69 num quadro cujas
+ * linhas fechavam todas em zero.
+ *
+ * **A regra.** Uma parcela em conjunto entra pelo conjunto, uma vez, por mais
+ * linhas que o dividam; as demais entram pelo valor já convertido, que carrega
+ * o sinal — desconto chega negativo de {@link naMoedaDoDevido}, e por isso a
+ * soma aqui é só soma. Uma linha com devido **em dinheiro** e sem demonstrado
+ * anula o total: a soma de parte das linhas não é o total, e a diferença contra
+ * ela mediria a lacuna do painel em vez da divergência dos documentos. É o caso
+ * do `DVS`, que vale R$ 307.746,20 no devido e não tem linha no 03.08.20 — e é
+ * por causa dele que o quadro do fixo não fecha, e não deve fingir que fecha.
+ *
+ * **Duas ausências não anulam nada, e as duas por aritmética.** A linha que
+ * nenhuma das duas leituras tem — sem devido e sem demonstrado — não é lacuna. E
+ * a linha cujo devido é **zero** e cujo demonstrado falta também não: ela não
+ * põe nada no total do devido, e não pôr nada no do demonstrado deixa a
+ * subtração exatamente onde estava. É o que acontece com a `INDISPONIBILIDADE`
+ * nos dois quadros, com o desconto de disponibilidade da 1ª quinzena e com os
+ * dois quadros de despesa dela: zero medido de um lado, bloco inexistente do
+ * outro. Somar `null` ali apagaria um total que a aritmética sustenta inteiro.
+ *
+ * Que dinheiro do relatório escape por uma linha que não o reivindica é
+ * problema de outra pergunta, e ela já tem resposta: `verbasSemLinha` e
+ * `residuo`, no painel do demonstrativo, mostram toda verba que nenhuma linha
+ * reclamou.
+ */
+function totalDemonstradoDoQuadro(
+  linhas: LinhaComparada[],
+  conjuntos: ConjuntoComparado[],
+): { demonstrado: TresColunas; semDemonstrado: string[] } {
+  const faltando = new Set<string>();
+
+  const daColuna = (coluna: "primeira" | "segunda"): number | null => {
+    /*
+      A quinzena que não foi lida de todo — nenhuma linha e nenhum conjunto com
+      demonstrado — sai antes de somar. Sem esta saída, um quadro vazio devolvia
+      `centavos(0)`, e a tela mostrava R$ 0,00 onde não havia leitura nenhuma;
+      e a coluna de uma quinzena não importada enchia `semDemonstrado` com o
+      quadro inteiro, num campo que se lê como se falasse das duas.
+    */
+    const leu =
+      conjuntos.some((c) => c.demonstrado[coluna] !== null) ||
+      linhas.some((l) => l.demonstrado[coluna] !== null);
+    if (!leu) return null;
+
+    let soma = 0;
+    let completo = true;
+    const faltamNestaColuna: string[] = [];
+
+    for (const conjunto of conjuntos) {
+      const v = conjunto.demonstrado[coluna];
+      if (v === null) {
+        completo = false;
+        faltamNestaColuna.push(conjunto.nome);
+        continue;
+      }
+      soma += v;
+    }
+
+    for (const l of linhas) {
+      /* A parcela em conjunto já entrou acima — somá-la aqui a contaria duas vezes. */
+      if (l.conjunto) continue;
+      const v = l.demonstrado[coluna];
+      if (v !== null) {
+        soma += v;
+        continue;
+      }
+      /*
+        Sem devido, ou com devido zero, a ausência do demonstrado não muda a
+        subtração — ver a nota acima. Só o devido em dinheiro anula.
+      */
+      const devidoDaLinha = l.devido[coluna];
+      if (devidoDaLinha === null || devidoDaLinha === 0) continue;
+      completo = false;
+      faltamNestaColuna.push(l.nome);
+    }
+
+    for (const nome of faltamNestaColuna) faltando.add(nome);
+    return completo ? centavos(soma) : null;
+  };
+
+  const primeira = daColuna("primeira");
+  const segunda = daColuna("segunda");
+  return {
+    /*
+      O total das duas quinzenas é a soma das duas convertidas, e não a conversão
+      de uma soma: os fatores de imposto são diferentes. Mesma razão de
+      `naMoedaDoDevido`.
+    */
+    demonstrado: {
+      primeira,
+      segunda,
+      total: primeira === null || segunda === null ? null : centavos(primeira + segunda),
+    },
+    semDemonstrado: [...faltando],
+  };
+}
+
+/**
+ * Preenche a coluna `Auditar` — o que os documentos não sustentam.
+ *
+ * **A regra é de exclusão, e é ela que faz a coluna valer alguma coisa.** Uma
+ * linha só chega aqui de duas maneiras: os dois lados existem e discordam em
+ * mais de meio centavo, ou o devido é dinheiro e não há demonstrado nenhum —
+ * nem próprio nem por conjunto. Tudo o mais sai.
+ *
+ * **Por que meio centavo e não zero.** As duas colunas passam por uma conversão
+ * de moeda com seis casas, e uma diferença de meio centavo é aritmética de
+ * ponto flutuante, não desacordo entre documentos. Fixar o limiar aí é dizer
+ * que a menor unidade que alguém paga é a menor unidade que se audita.
+ *
+ * **Não há catálogo de exceção, e é de propósito.** O texto é derivado da
+ * comparação, e uma divergência só some daqui quando parar de existir. Uma
+ * lista de "divergências aceitas" faria o oposto: bastaria alguém inscrever uma
+ * chave para o número sumir da vista sem que nada tivesse sido resolvido.
+ *
+ * **A coluna deve viver vazia**, e é assim que se lê o painel: linha com texto
+ * aqui é a que merece o olho. Não é lista de pendência de importação — falta de
+ * arquivo aparece em `falta`, e ali o devido nem existe.
+ */
+function comAuditoria(quadro: QuadroComparado): QuadroComparado {
+  const COLUNAS = ["primeira", "segunda"] as const;
+  const nomeDa = (c: (typeof COLUNAS)[number]) => (c === "primeira" ? "1ª" : "2ª");
+
+  /* As quinzenas em que os dois lados existem e não batem. */
+  const discordam = (valores: { diferenca: TresColunas }) =>
+    COLUNAS.filter((c) => {
+      const d = valores.diferenca[c];
+      return d !== null && Math.abs(d) >= 0.005;
+    });
+
+  const quanto = (diferenca: TresColunas, colunas: readonly (typeof COLUNAS)[number][]) =>
+    colunas.map((c) => `${nomeDa(c)}: ${emReais(diferenca[c]!)}`).join(", ");
+
+  const auditarLinha = (l: LinhaComparada): LinhaComparada => {
+    const naoBatem = discordam(l);
+    if (naoBatem.length > 0) {
+      return {
+        ...l,
+        auditar:
+          `O devido e o demonstrado discordam na ${naoBatem.map(nomeDa).join(" e ")} quinzena ` +
+          `(${quanto(l.diferenca, naoBatem)}). Os dois números existem — não é falta de ` +
+          "arquivo, e nenhuma conta conhecida explica a distância.",
+      };
+    }
+
+    /*
+      O devido em dinheiro sem nada do outro lado. A linha em conjunto está
+      fora: o que a sustenta é o conjunto, e é lá que ela é auditada.
+    */
+    if (l.conjunto) return l;
+    const semLastro = COLUNAS.filter(
+      (c) => l.demonstrado[c] === null && l.devido[c] !== null && l.devido[c] !== 0,
+    );
+    if (semLastro.length === 0) return l;
+
+    return {
+      ...l,
+      auditar:
+        `O contrato manda pagar ${semLastro
+          .map((c) => `${emReais(l.devido[c]!)} na ${nomeDa(c)} quinzena`)
+          .join(" e ")}, e o 03.08.20 não traz linha que corresponda. ` +
+        "Não há o que subtrair: este valor entra no fechamento sem corroboração de documento.",
+    };
+  };
+
+  const auditarConjunto = (c: ConjuntoComparado): ConjuntoComparado => {
+    const naoBatem = discordam(c);
+    if (naoBatem.length === 0) return c;
+    return {
+      ...c,
+      auditar:
+        `A soma do devido das ${c.linhas.length} linhas e o número que o 03.08.20 traz para ` +
+        `todas elas discordam na ${naoBatem.map(nomeDa).join(" e ")} quinzena ` +
+        `(${quanto(c.diferenca, naoBatem)}). Como o relatório não parte o número, a ` +
+        "divergência é do conjunto e não se sabe de qual linha dele.",
+    };
+  };
+
+  return {
+    ...quadro,
+    linhas: quadro.linhas.map(auditarLinha),
+    conjuntos: quadro.conjuntos.map(auditarConjunto),
+  };
 }
 
 /**
@@ -802,6 +1063,45 @@ export function compararPaineis(
     return l ? l.valores : VAZIO;
   };
 
+  /**
+   * O demonstrado trazido para a moeda e o sinal do devido.
+   *
+   * **Sem isto a coluna `Diferença` media câmbio, não divergência.** O devido
+   * sai do motor já bruto e com o desconto negativo; o demonstrado sai do
+   * 03.08.20 pela coluna `semImposto` e com o desconto em magnitude positiva.
+   * Subtrair um do outro dava `−18.199,19 − 13.328,30 = −31.527,49` numa linha
+   * em que os dois lados são a **mesma verba do mesmo arquivo** — diferença
+   * real, zero.
+   *
+   * A regra de conversão é da linha (`ConversaoDoDemonstrado`, em
+   * `mapa-rota.ts`), e o fator é da quinzena. Nenhum dos dois é decidido aqui:
+   * este módulo só aplica.
+   */
+  const naMoedaDoDevido = (
+    valores: TresColunas,
+    linhaDoMapa: { conversaoDoDemonstrado: { sinal: 1 | -1; bruta: boolean } } | null,
+  ): TresColunas => {
+    if (!linhaDoMapa) return valores;
+    const { sinal, bruta } = linhaDoMapa.conversaoDoDemonstrado;
+    const converter = (v: number | null, mapa: MapaDaQuinzena | null) => {
+      if (v === null) return null;
+      const fator = bruta ? (mapa?.fatorDeImposto ?? 1) : 1;
+      return centavos(sinal * v * fator);
+    };
+    const primeira = converter(valores.primeira, calculado.primeira);
+    const segunda = converter(valores.segunda, calculado.segunda);
+    return {
+      primeira,
+      segunda,
+      /*
+        O total é a soma das duas convertidas, e não a conversão do total: as
+        duas quinzenas têm fatores diferentes, e converter a soma aplicaria o
+        fator de uma delas ao dinheiro das duas.
+      */
+      total: primeira === null || segunda === null ? null : centavos(primeira + segunda),
+    };
+  };
+
   /*
     O conjunto a que a linha pertence no **demonstrado**, quando pertence.
 
@@ -812,7 +1112,16 @@ export function compararPaineis(
     const q = demonstrado?.quadros.find((x) => x.quadro === quadro);
     const l = q?.linhas.find((x) => x.chave === chave);
     if (!l?.conjunto) return null;
-    return q?.conjuntos.find((c) => c.chave === l.conjunto) ?? null;
+    const achado = q?.conjuntos.find((c) => c.chave === l.conjunto) ?? null;
+    if (!achado) return null;
+    /*
+      O conjunto é a soma de parcelas sem imposto, e é comparado contra a soma
+      dos devidos, que estão brutos. Mesma conversão das linhas, mesmo motivo.
+    */
+    return {
+      ...achado,
+      valores: naMoedaDoDevido(achado.valores, { conversaoDoDemonstrado: { sinal: 1, bruta: true } }),
+    };
   };
 
   const quadros: QuadroComparado[] = esqueleto.quadros.map((modelo) => {
@@ -820,7 +1129,10 @@ export function compararPaineis(
       const l1 = linhaDe(calculado.primeira, modelo.quadro, modeloDaLinha.chave);
       const l2 = linhaDe(calculado.segunda, modelo.quadro, modeloDaLinha.chave);
       const devido = tresColunas(l1?.valor ?? null, l2?.valor ?? null);
-      const dem = doDemonstrado(modelo.quadro, modeloDaLinha.chave);
+      const dem = naMoedaDoDevido(
+        doDemonstrado(modelo.quadro, modeloDaLinha.chave),
+        l1 ?? l2 ?? null,
+      );
       return {
         chave: modeloDaLinha.chave,
         rotulo: modeloDaLinha.rotulo,
@@ -843,14 +1155,20 @@ export function compararPaineis(
         diferencaDaPlanilha: null,
         celulaDaPlanilha: null,
         causaConhecida: null,
+        /*
+          Nasce nula e é preenchida por `comCausasEAuditoria`, depois de o painel
+          estar montado — pelo mesmo motivo de `causaConhecida`: quem sabe o que
+          já foi investigado é o catálogo de divergências, não este construtor.
+        */
+        auditar: null,
       };
     });
 
     const q1 = quadroDe(calculado.primeira, modelo.quadro);
     const q2 = quadroDe(calculado.segunda, modelo.quadro);
     const devido = tresColunas(q1?.total ?? null, q2?.total ?? null);
-    const dem =
-      demonstrado?.quadros.find((x) => x.quadro === modelo.quadro)?.total ?? VAZIO;
+    const conjuntos = conjuntosComparados(linhas);
+    const { demonstrado: dem, semDemonstrado } = totalDemonstradoDoQuadro(linhas, conjuntos);
 
     return {
       quadro: modelo.quadro,
@@ -858,10 +1176,11 @@ export function compararPaineis(
       rotuloDoTotal: modelo.rotuloDoTotal,
       reservado: modelo.reservado,
       linhas,
-      conjuntos: conjuntosComparados(linhas),
+      conjuntos,
       devido,
       demonstrado: dem,
       diferenca: subtrair(devido, dem),
+      semDemonstrado,
       /* Nulos aqui pela mesma razão das linhas — quem preenche é `comReferencia`. */
       planilha: null,
       diferencaDaPlanilha: null,
@@ -875,7 +1194,7 @@ export function compararPaineis(
 
   return {
     canal,
-    quadros,
+    quadros: quadros.map(comAuditoria),
     fecho: {
       totalGeralDaUnidade,
       totalGeralDoSrtrans,

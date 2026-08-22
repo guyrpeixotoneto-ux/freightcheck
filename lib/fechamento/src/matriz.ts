@@ -413,7 +413,13 @@ const CATALOGO: EntradaDoCatalogo[] = [
     fonteOperacional: DEMONSTRATIVO,
     regraNoSistema: "a mesma linha 14 repetida no quadro, como a planilha a repete",
     formulaDaPlanilha: "='Mapa Rota'!AI138 — a mesma célula da linha 14",
-    motor: { de: "LINHA", quadro: "VARIAVEL", chave: "desconto_devolucao_percentual" },
+    /*
+      A chave é `desconto_devolucao` e não `desconto_devolucao_percentual`: a
+      planilha escreve `DESCONTO DE DEVOLUÇÃO %` no quadro de cima e
+      `DESCONTO DE DEVOLUÇÃO` aqui, e a chave do motor segue o rótulo dela. O
+      número é o mesmo — a célula é a mesma —, a linha é outra.
+    */
+    motor: { de: "LINHA", quadro: "VARIAVEL", chave: "desconto_devolucao" },
     planilha: { de: "RESUMO", chave: "desconto_devolucao_percentual" },
   },
   {

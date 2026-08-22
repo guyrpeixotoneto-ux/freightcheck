@@ -1,4 +1,5 @@
 import { centavos, emReais } from "./dominio";
+import { VBZ_DA_EQUIPE_DE_ENTREGA } from "./verbas";
 
 /**
  * O MOTOR DA PLANILHA — o `Mapa Rota` sem planilha.
@@ -132,13 +133,12 @@ export interface BasesDaQuinzena {
 }
 
 /**
- * A `VBZ 06` — `Rota - Rem. Variável Equipe Entrega`.
+ * A `VBZ 06` — reexportada do catálogo, que é onde ela mora.
  *
- * O número é do domínio e não da tela: é ele que separa o quarto quadro dos
- * outros custos, e escrevê-lo solto em dois lugares deixaria os dois livres
- * para divergir.
+ * Continua saindo daqui porque metade do pacote a importa deste módulo; o valor
+ * é o de `verbas.ts`, e não uma segunda cópia. Ver a nota lá.
  */
-export const VBZ_DA_EQUIPE_DE_ENTREGA = 6;
+export { VBZ_DA_EQUIPE_DE_ENTREGA } from "./verbas";
 
 /**
  * De onde sai a remuneração variável da equipe de entrega.
@@ -487,6 +487,46 @@ export interface LinhaDoMapa {
   memoria: string;
   /** O que falta, quando falta. `null` quando a linha tem número. */
   falta: string | null;
+  /**
+   * Como trazer o número do **demonstrado** para a convenção desta linha.
+   *
+   * **As duas colunas do painel falavam moedas diferentes, e a diferença entre
+   * elas media o câmbio.** O devido sai daqui já na moeda em que a planilha
+   * escreve: brutado pelo fator de imposto, e com o desconto negativo. O
+   * demonstrado sai do 03.08.20 pela coluna `semImposto` — que é a escolha certa
+   * lá, porque é somando descontos sem imposto de volta que a parcela bruta
+   * aparece (ver `ColunaDoPagamento`, em `de-para.ts`) — e com o desconto na
+   * magnitude positiva.
+   *
+   * Subtrair um do outro dava, por exemplo, `−18.199,19 − 13.328,30 =
+   * −31.527,49` numa linha em que os dois lados são **a mesma verba do mesmo
+   * arquivo** e a diferença é zero.
+   *
+   * A conversão mora aqui, e não em quem compara, porque é esta linha que sabe
+   * se ela bruta ou não: a devolução e a disponibilidade brutam, o complementar
+   * negativo **não** — a planilha não o bruta, e o relatório o declara já no
+   * valor em que é descontado.
+   */
+  conversaoDoDemonstrado: ConversaoDoDemonstrado;
+}
+
+/**
+ * O câmbio entre a coluna do demonstrado e a do devido, numa linha.
+ *
+ * `sinal` é `-1` no desconto, porque o devido o guarda negativo e o
+ * demonstrativo o publica em magnitude. `fator` é o de imposto onde a linha
+ * bruta e `1` onde ela não bruta.
+ */
+export interface ConversaoDoDemonstrado {
+  sinal: 1 | -1;
+  /**
+   * A linha bruta o valor sem imposto, ou não?
+   *
+   * Booleano e não o fator em si porque **o fator é da quinzena, não da linha**:
+   * ele sai da fatia de emissão, que muda entre 1ª e 2ª. A linha sabe apenas se
+   * bruta; quem aplica busca o fator em {@link MapaDaQuinzena.fatorDeImposto}.
+   */
+  bruta: boolean;
 }
 
 function linha(
@@ -496,8 +536,18 @@ function linha(
   valor: number | null,
   memoria: string,
   falta: string | null = null,
+  /* O padrão é o da parcela: mesmo sinal, brutada pelo fator da quinzena. */
+  conversaoDoDemonstrado: ConversaoDoDemonstrado = { sinal: 1, bruta: true },
 ): LinhaDoMapa {
-  return { chave, rotulo, papel, valor: valor === null ? null : centavos(valor), memoria, falta };
+  return {
+    chave,
+    rotulo,
+    papel,
+    valor: valor === null ? null : centavos(valor),
+    memoria,
+    falta,
+    conversaoDoDemonstrado,
+  };
 }
 
 /**
@@ -620,6 +670,7 @@ export function linhasDeDesconto(
         ? "sem base de devolução na quinzena"
         : `${bases.devolucao.toFixed(2)} sem imposto × ${f}, negativo`,
       bases.devolucao === null ? "a devolução acumulada da quinzena" : null,
+      { sinal: -1, bruta: true },
     ),
     linha(
       "desconto_disponibilidade",
@@ -639,6 +690,7 @@ export function linhasDeDesconto(
         mensagem mandava importar um arquivo que não resolveria a linha.
       */
       bases.disponibilidade === null ? "o 03.08.18 do mês" : null,
+      { sinal: -1, bruta: true },
     ),
     linha(
       "desconto_complementar_negativo",
@@ -649,6 +701,9 @@ export function linhasDeDesconto(
         ? "sem complementar negativo na quinzena"
         : `${bases.complementarNegativo.toFixed(2)}, negativo e sem bruto — a planilha não o bruta`,
       bases.complementarNegativo === null ? "o complementar negativo da quinzena" : null,
+      /* O único que não bruta: a planilha não o bruta e o relatório o declara
+         já no valor em que é descontado ("coluna ICMS", diz o rótulo). */
+      { sinal: -1, bruta: false },
     ),
   ];
 }
@@ -1000,6 +1055,14 @@ export const QUADROS_DO_TOTAL_GERAL: QuadroDoResumo[] = [
 
 export interface MapaDaQuinzena {
   quinzena: 1 | 2;
+  /**
+   * O fator de imposto **desta** quinzena — ver {@link fatorDeImposto}.
+   *
+   * Exposto porque quem compara as duas colunas do painel precisa dele: o
+   * demonstrado chega sem imposto e o devido já está bruto. Ver
+   * {@link ConversaoDoDemonstrado}.
+   */
+  fatorDeImposto: number;
   quadros: QuadroDoMapa[];
   /**
    * `REMUNERACAO + OUTROS_CUSTOS + EQUIPE_DE_ENTREGA` — o `TOTAL GERAL
@@ -1223,8 +1286,19 @@ export function montarMapaDaQuinzena(entrada: {
       "a soma do faturado das viagens de frota Spot",
       variavel.agregado === null ? "o diário operacional da quinzena" : null,
     ),
-    /* As mesmas duas linhas do quadro de cima — a planilha as repete aqui. */
-    descontos[0]!,
+    /*
+      As mesmas duas linhas do quadro de cima — a planilha as repete aqui, com
+      outros rótulos, e é pelo rótulo dela que as chaves mudam: em cima ela
+      escreve `DESCONTO DE DEVOLUÇÃO %` e `DESCONTO DE DISPONIBILIDADE`, aqui
+      escreve `DESCONTO DE DEVOLUÇÃO` e `INDISPONIBILIDADE`.
+
+      Repetir a chave do quadro de cima parecia inofensivo e não era: a
+      comparação casa linha com linha **por quadro e chave**, e o de-para — que
+      transcreve os rótulos literais — chamava esta de `desconto_devolucao`. As
+      duas nunca se encontravam, e a linha aparecia na tela com devido e sem
+      demonstrado como se o 03.08.20 não a trouxesse.
+    */
+    { ...descontos[0]!, chave: "desconto_devolucao", rotulo: "DESCONTO DE DEVOLUÇÃO" },
     { ...descontos[1]!, chave: "indisponibilidade_variavel", rotulo: "INDISPONIBILIDADE" },
   ];
 
@@ -1304,6 +1378,7 @@ export function montarMapaDaQuinzena(entrada: {
 
   return {
     quinzena: entrada.quinzena,
+    fatorDeImposto: fatorDeImposto(p.aliquotas, p.parcelaDentroDoMunicipio),
     quadros,
     totalGeral,
     pendencias: [
