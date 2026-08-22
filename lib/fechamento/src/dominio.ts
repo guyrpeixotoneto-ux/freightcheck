@@ -43,8 +43,9 @@ export type TipoDeFrotaContratada = "FF" | "VAN";
  * relatório pelo número da rotina (`03.08.15`), mas o número é do Promax e
  * pode mudar de versão. O que não muda é o papel de cada um na conta.
  *
- * São seis no catálogo e nem sempre seis na quinzena: a primeira só tem as
- * quatro primeiras — ver `FONTES_DA_QUINZENA`.
+ * São seis no catálogo e nem sempre seis na quinzena: a primeira espera quatro,
+ * admite o 03.08.12.09 quando ele existe, e não tem a conciliação — ver
+ * `FONTES_DA_QUINZENA` e `FONTES_OPCIONAIS_DA_QUINZENA`.
  */
 export type TipoDeFonte =
   /** 2Art — o diário operacional, uma linha por viagem. Origem do variável. */
@@ -55,7 +56,13 @@ export type TipoDeFonte =
   | "PAGAMENTO"
   /** 03.08.18 — frota contratada × realizada. Origem dos descontos no fixo. */
   | "DISPONIBILIDADE"
-  /** 03.08.12.09 — requisições de despesa aprovadas. Origem do complementar. Só na 2ª quinzena. */
+  /**
+   * 03.08.12.09 — requisições de despesa aprovadas. Origem do complementar.
+   *
+   * Esperado na 2ª quinzena e **admitido na 1ª**: a requisição aprovada entre
+   * os dias 1 e 15 sai no 03.08.12.09 daquela quinzena, e sem ele o
+   * complementar dela não teria de onde nascer.
+   */
   | "REQUISICOES"
   /** 03.02.59.02 — a conciliação do Promax. O fecho do mês, e por isso só na 2ª quinzena. */
   | "CONCILIACAO";
@@ -70,18 +77,19 @@ export const TIPOS_DE_FONTE: TipoDeFonte[] = [
 ];
 
 /**
- * Quais das seis fontes cada quinzena tem.
+ * Quais das seis fontes cada quinzena **espera**.
  *
  * **A primeira quinzena fecha com quatro relatórios; a segunda, com os seis.**
- * As requisições de despesa (03.08.12.09) e a conciliação do Promax
- * (03.02.59.02) chegam com o fechamento da segunda quinzena, e não existem na
- * primeira.
+ * A conciliação do Promax (03.02.59.02) é o fecho do mês e chega com o
+ * fechamento da segunda quinzena: na primeira ela não existe. As requisições
+ * (03.08.12.09) também não são esperadas ali, mas por outro motivo, e é por
+ * isso que elas moram na lista de baixo em vez de nesta.
  *
  * A distinção importa porque `fontesAusentes` é lido pela tela: sem ela, toda
- * primeira quinzena do ano nasceria com duas pendências que ninguém pode
- * resolver, e "falta importar" — que é trabalho de alguém — passaria a se
- * confundir com "não há o que importar", que não é. O catálogo por quinzena é o
- * que mantém a lista da tela igual à pilha de arquivos que a Ambev entregou.
+ * primeira quinzena do ano nasceria com pendências que ninguém pode resolver,
+ * e "falta importar" — que é trabalho de alguém — passaria a se confundir com
+ * "não há o que importar", que não é. O catálogo por quinzena é o que mantém a
+ * lista da tela igual à pilha de arquivos que a Ambev entregou.
  *
  * O que a lista **não** faz é recusar: uma fonte que chegue fora da quinzena
  * dela é lida, apurada e mostrada como qualquer outra. A lista diz o que se
@@ -94,6 +102,45 @@ export const FONTES_DA_QUINZENA: Record<1 | 2, TipoDeFonte[]> = {
 };
 
 /**
+ * As fontes que a quinzena **admite sem esperar** — a lista do "pode existir".
+ *
+ * **O 03.08.12.09 pode existir na primeira quinzena.** A requisição de despesa
+ * aprovada entre os dias 1 e 15 sai no relatório daquela quinzena, e quando ela
+ * existe é dali que nasce o complementar do período. O que não dá para afirmar
+ * é o contrário: uma quinzena sem requisição aprovada nenhuma não gera arquivo,
+ * e cobrar o 03.08.12.09 de toda primeira quinzena do ano seria pedir um
+ * relatório que não existe.
+ *
+ * Entre as duas afirmações — "é obrigatório" e "não existe" — a segunda foi a
+ * que tirou o relatório da tela: sem casinha para enviar, o 03.08.12.09 da
+ * primeira quinzena só entrava por outra competência ou não entrava, e o
+ * complementar do período ficava de fora da conta em silêncio. Esta lista é a
+ * terceira resposta, que é a certa: **a casinha existe, e a falta dela não é
+ * pendência.**
+ *
+ * Duas consequências, e as duas são o ponto:
+ *
+ * - `fontesAusentes` continua nomeando só o que a quinzena espera, então o
+ *   opcional que não veio não vira cobrança (ver `apurar`).
+ * - a tela oferece o envio mesmo assim, e o denominador de "3 de 4 relatórios"
+ *   continua sendo o das esperadas — o opcional entra na fração quando chega,
+ *   pelas duas pontas, como qualquer arquivo enviado fora da quinzena dele.
+ */
+export const FONTES_OPCIONAIS_DA_QUINZENA: Record<1 | 2, TipoDeFonte[]> = {
+  1: ["REQUISICOES"],
+  2: [],
+};
+
+function quinzenasEm(porQuinzena: Record<1 | 2, TipoDeFonte[]>): Record<TipoDeFonte, (1 | 2)[]> {
+  return Object.fromEntries(
+    TIPOS_DE_FONTE.map((tipo) => [
+      tipo,
+      ([1, 2] as const).filter((quinzena) => porQuinzena[quinzena].includes(tipo)),
+    ]),
+  ) as Record<TipoDeFonte, (1 | 2)[]>;
+}
+
+/**
  * O inverso: em que quinzenas cada fonte é esperada.
  *
  * É esta forma que o catálogo da API carrega, porque a tela pergunta pela
@@ -101,16 +148,29 @@ export const FONTES_DA_QUINZENA: Record<1 | 2, TipoDeFonte[]> = {
  * de `FONTES_DA_QUINZENA` de propósito: duas listas escritas à mão divergiriam
  * no dia em que uma sétima fonte aparecesse.
  */
-export const QUINZENAS_DA_FONTE: Record<TipoDeFonte, (1 | 2)[]> = Object.fromEntries(
-  TIPOS_DE_FONTE.map((tipo) => [
-    tipo,
-    ([1, 2] as const).filter((quinzena) => FONTES_DA_QUINZENA[quinzena].includes(tipo)),
-  ]),
-) as Record<TipoDeFonte, (1 | 2)[]>;
+export const QUINZENAS_DA_FONTE: Record<TipoDeFonte, (1 | 2)[]> = quinzenasEm(FONTES_DA_QUINZENA);
+
+/**
+ * O mesmo inverso para as opcionais: em que quinzenas cada fonte é admitida
+ * sem ser cobrada.
+ *
+ * Vai no catálogo da API ao lado de `quinzenas`, e não misturada com ele: a
+ * tela precisa das duas respostas separadas porque elas mandam em coisas
+ * diferentes — uma diz se a casinha aparece, a outra se a ausência é pendência.
+ * Somá-las num campo só faria o opcional que não chegou virar "falta importar".
+ */
+export const QUINZENAS_OPCIONAIS_DA_FONTE: Record<TipoDeFonte, (1 | 2)[]> = quinzenasEm(
+  FONTES_OPCIONAIS_DA_QUINZENA,
+);
 
 /** A fonte é esperada nesta quinzena? */
 export function fonteEsperadaNaQuinzena(quinzena: 1 | 2, tipo: TipoDeFonte): boolean {
   return FONTES_DA_QUINZENA[quinzena].includes(tipo);
+}
+
+/** A fonte é admitida nesta quinzena sem ser cobrada dela? */
+export function fonteOpcionalNaQuinzena(quinzena: 1 | 2, tipo: TipoDeFonte): boolean {
+  return FONTES_OPCIONAIS_DA_QUINZENA[quinzena].includes(tipo);
 }
 
 /** Como cada fonte se chama na tela, e o que ela responde. */

@@ -25,8 +25,18 @@ export interface Fonte {
   nome: string;
   papel: string;
   extensoes: string[];
-  /** Em que quinzenas este relatório é esperado. A 1ª tem quatro; a 2ª, os seis. */
+  /** Em que quinzenas este relatório é esperado. A 1ª espera quatro; a 2ª, os seis. */
   quinzenas: (1 | 2)[];
+  /**
+   * Em que quinzenas ele é **admitido sem ser cobrado** — o "pode existir".
+   *
+   * Hoje é o 03.08.12.09 na 1ª quinzena: a requisição aprovada entre os dias 1
+   * e 15 sai no relatório daquela quinzena, mas uma quinzena sem requisição
+   * nenhuma não gera arquivo. A casinha de envio aparece (ver
+   * {@link fontesParaEnviar}) e a ausência não conta como falta (ver
+   * {@link fontesDaCompetencia}, que é o denominador).
+   */
+  quinzenasOpcionais: (1 | 2)[];
 }
 
 export interface Competencia {
@@ -389,20 +399,25 @@ export function listarFontes(): Promise<Fonte[]> {
 }
 
 /**
- * Os relatórios que uma competência pede, na ordem do catálogo.
+ * Os relatórios que uma competência **pede** — o denominador de "3 de 4".
  *
- * A quinzena decide: a primeira fecha com quatro relatórios (2Art, 03.08.15,
- * 03.08.20 e 03.08.18) e a segunda com os seis, porque as requisições
- * (03.08.12.09) e a conciliação (03.02.59.02) chegam com o fechamento do mês.
- * Mostrar as seis nas duas fazia toda primeira quinzena exibir duas linhas
- * eternamente vazias — e "falta importar" é trabalho de alguém, enquanto "não
- * há o que importar" não é.
+ * A quinzena decide: a primeira espera quatro relatórios (2Art, 03.08.15,
+ * 03.08.20 e 03.08.18) e a segunda espera os seis, porque a conciliação
+ * (03.02.59.02) chega com o fechamento do mês e o 03.08.12.09 da primeira nem
+ * sempre existe. Pedir as seis nas duas fazia toda primeira quinzena exibir
+ * linhas eternamente vazias — e "falta importar" é trabalho de alguém, enquanto
+ * "não há o que importar" não é.
  *
  * `recebidas` é o que já entrou na competência, e entra na lista mesmo fora da
  * quinzena dele: um arquivo enviado nunca some da tela por causa deste recorte.
  * Isso é o que mantém a conta do rodapé honesta — o denominador é esta lista, e
  * um documento fora da quinzena aparece nas duas pontas da fração em vez de
  * virar um `5/4`.
+ *
+ * **Não é esta a lista das casinhas de envio** — essa é {@link fontesParaEnviar},
+ * que é esta mais as opcionais. A diferença existe porque o opcional que ainda
+ * não chegou tem de ser enviável sem ser cobrado: contá-lo aqui faria a
+ * primeira quinzena completa aparecer como "4 de 5" para sempre.
  *
  * O catálogo chega por consulta, então a lista nasce vazia e se preenche; quem
  * a usa como denominador precisa tratar o vazio como "ainda não sei", nunca
@@ -415,6 +430,33 @@ export function fontesDaCompetencia(
 ): Fonte[] {
   const chegou = new Set(recebidas);
   return catalogo.filter((f) => f.quinzenas.includes(quinzena) || chegou.has(f.tipo));
+}
+
+/**
+ * Os relatórios que uma competência **aceita** — as casinhas de envio da tela.
+ *
+ * É {@link fontesDaCompetencia} mais o que a quinzena admite sem esperar: hoje,
+ * o 03.08.12.09 na primeira. A requisição aprovada entre os dias 1 e 15 sai no
+ * relatório daquela quinzena, e sem casinha para enviá-lo o complementar do
+ * período ficava de fora da conta — não com um aviso, mas em silêncio, porque
+ * uma fonte que a tela não oferece é uma fonte que ninguém sabe que falta.
+ *
+ * A ausência do opcional continua não sendo pendência: quem pergunta "quantos
+ * faltam" pergunta à outra função, e a apuração nomeia como ausente só o que a
+ * quinzena espera (`FONTES_DA_QUINZENA`, no motor).
+ */
+export function fontesParaEnviar(
+  catalogo: Fonte[],
+  quinzena: 1 | 2,
+  recebidas: TipoDeFonte[] = [],
+): Fonte[] {
+  const chegou = new Set(recebidas);
+  return catalogo.filter(
+    (f) =>
+      f.quinzenas.includes(quinzena) ||
+      f.quinzenasOpcionais.includes(quinzena) ||
+      chegou.has(f.tipo),
+  );
 }
 
 export function listarCompetencias(): Promise<Competencia[]> {

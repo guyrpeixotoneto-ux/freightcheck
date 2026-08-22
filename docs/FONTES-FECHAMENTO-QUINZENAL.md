@@ -275,15 +275,23 @@ acima**, aba por aba:
 
 ## Convenções que valem para todas
 
-- **A primeira quinzena tem quatro relatórios; a segunda, seis.** O 2Art, o
-  03.08.15, o 03.08.20 e o 03.08.18 entram nas duas; as requisições
-  (03.08.12.09) e a conciliação (03.02.59.02) chegam com o fechamento da
-  segunda. A amostra deste documento é uma segunda quinzena — por isso ela traz
-  as seis. No código a regra mora em `FONTES_DA_QUINZENA`
-  (`lib/fechamento/src/dominio.ts`): a apuração não chama de ausente uma fonte
-  que a quinzena não tem, e a tela não pede um arquivo que ninguém pode enviar.
-  Ela também não recusa o contrário — o que chegar fora da quinzena dele é
-  lido e apurado como qualquer outra fonte.
+- **A primeira quinzena espera quatro relatórios; a segunda, seis.** O 2Art, o
+  03.08.15, o 03.08.20 e o 03.08.18 entram nas duas; a conciliação
+  (03.02.59.02) é o fecho do mês e chega com o fechamento da segunda. A amostra
+  deste documento é uma segunda quinzena — por isso ela traz as seis. No código
+  a regra mora em `FONTES_DA_QUINZENA` (`lib/fechamento/src/dominio.ts`): a
+  apuração não chama de ausente uma fonte que a quinzena não espera, e a tela
+  não pede um arquivo que ninguém pode enviar. Ela também não recusa o
+  contrário — o que chegar fora da quinzena dele é lido e apurado como qualquer
+  outra fonte.
+- **As requisições (03.08.12.09) podem existir na primeira quinzena.** Cada
+  linha do relatório traz a `Quinzena Pagamento` a que ela pertence, e a
+  requisição aprovada entre os dias 1 e 15 sai no relatório daquela quinzena.
+  Não é garantido que exista: quinzena sem requisição aprovada nenhuma não gera
+  arquivo. Por isso ela é **opcional** na primeira
+  (`FONTES_OPCIONAIS_DA_QUINZENA`) — a tela oferece a casinha de envio, e a
+  ausência não vira pendência. Quando o arquivo chega, o complementar dos dias 1
+  a 15 nasce dele como o da segunda quinzena nasce do dela.
 - **"Quinzena 16/07/2026"** é rótulo, não data de emissão: significa o período
   16–31/07. Datas aparecem em três formatos: serial Excel (46219 = 16/07/2026;
   46204 = 01/07/2026), `ddmmaaaa` (2Art) e `dd/mm/aaaa` (CSV/TXT).

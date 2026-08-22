@@ -42,6 +42,7 @@ import {
   diagnosticarDocumento,
   enviarDocumento,
   fontesDaCompetencia,
+  fontesParaEnviar,
   lerCompetencia,
   lerDiario,
   listarFontes,
@@ -200,8 +201,17 @@ export default function CompetenciaAberta({ id }: { id: string }) {
     O que ainda não chegou, nomeado. Com a quinzena fechada é esta lista que
     explica por que alguém quer reabri-la: "falta o 03.08.20" é uma frase
     acionável, "falta 1 relatório" não é.
+
+    Sai dos relatórios que **esta** quinzena espera, e não das seis do catálogo:
+    era o catálogo inteiro, e por isso toda primeira quinzena fechada oferecia
+    reabertura para enviar a conciliação — um arquivo que não existe ali. Pelo
+    mesmo motivo o 03.08.12.09 opcional não entra aqui: ele pode ser enviado, e
+    não é cobrado.
   */
-  const faltando = (fontes.data ?? []).filter((f) => !vigentes.has(f.tipo));
+  const esperados = fontesDaCompetencia(fontes.data ?? [], competencia.quinzena, [
+    ...vigentes.keys(),
+  ]);
+  const faltando = esperados.filter((f) => !vigentes.has(f.tipo));
   /*
     A fila do que questionar sai de `oQueQuestionar`, e não de um filtro escrito
     aqui: é o mesmo número que o resumo do fechamento mostra ao lado do botão de
@@ -211,11 +221,13 @@ export default function CompetenciaAberta({ id }: { id: string }) {
     ? oQueQuestionar(apuracao)
     : { acionaveis: [], aReceber: 0 };
   /*
-    Os relatórios desta quinzena, e não os seis do catálogo: a primeira quinzena
-    não tem requisições nem conciliação. O que já foi enviado entra na lista de
-    qualquer forma — ver `fontesDaCompetencia`.
+    As casinhas de envio desta quinzena, e não as seis do catálogo: a primeira
+    não tem a conciliação. O 03.08.12.09 aparece nas duas — esperado na segunda,
+    opcional na primeira —, e o que já foi enviado entra na lista de qualquer
+    forma. Ver `fontesParaEnviar`, e `fontesDaCompetencia` para o denominador,
+    que é a outra lista de propósito.
   */
-  const catalogo = fontesDaCompetencia(fontes.data ?? [], competencia.quinzena, [
+  const catalogo = fontesParaEnviar(fontes.data ?? [], competencia.quinzena, [
     ...vigentes.keys(),
   ]);
 
@@ -282,7 +294,7 @@ export default function CompetenciaAberta({ id }: { id: string }) {
           <CardContent className="space-y-3">
             <p className="text-sm text-muted-foreground">
               {competencia.quinzena === 1
-                ? "Quatro exportações do Promax/SRTrans: a 1ª quinzena não tem as requisições (03.08.12.09) nem a conciliação (03.02.59.02), que chegam com o fechamento da 2ª."
+                ? "Quatro exportações do Promax/SRTrans, e as requisições (03.08.12.09) quando a quinzena teve alguma aprovada: elas podem existir aqui, então a casinha fica de pé sem que a falta seja cobrada. A conciliação (03.02.59.02) é a única que não existe na 1ª — ela chega com o fechamento da 2ª."
                 : "Seis exportações do Promax/SRTrans."}{" "}
               Cada relatório diz abaixo em que formatos ele é lido. A conta roda
               com o que houver — o que faltar aparece nomeado na apuração, nunca
@@ -354,7 +366,11 @@ export default function CompetenciaAberta({ id }: { id: string }) {
                   documento={vigentes.get(fonte.tipo)}
                   competenciaId={id}
                   semVerba={estadoDaFonte(vigentes.get(fonte.tipo)) === "SEM_VERBA"}
-                  foraDaQuinzena={!fonte.quinzenas.includes(competencia.quinzena)}
+                  foraDaQuinzena={
+                    !fonte.quinzenas.includes(competencia.quinzena) &&
+                    !fonte.quinzenasOpcionais.includes(competencia.quinzena)
+                  }
+                  opcionalNaQuinzena={fonte.quinzenasOpcionais.includes(competencia.quinzena)}
                   quinzena={competencia.quinzena}
                   enviando={enviar.isPending && enviar.variables?.tipo === fonte.tipo}
                   travada={encerrada}
@@ -593,12 +609,16 @@ export default function CompetenciaAberta({ id }: { id: string }) {
                 competência — ver `components/fechamento/fechar-quinzena`. Aqui
                 ele é o fim do trabalho; lá, o gesto de quem fecha várias
                 seguidas. O ato, o resumo e o aviso do que falta são um só.
+
+                O denominador que ele mostra é o das esperadas (`esperados`), e
+                não o das casinhas: o 03.08.12.09 opcional que ainda não chegou
+                faria a primeira quinzena completa dizer "4 de 5" para sempre.
               */}
               <FecharQuinzena
                 competencia={competencia}
                 documentos={documentos}
                 apuracao={apuracao}
-                fontes={catalogo}
+                fontes={esperados}
               />
             </CardContent>
           </Card>
@@ -719,6 +739,7 @@ function LinhaDeFonte({
   competenciaId,
   semVerba,
   foraDaQuinzena,
+  opcionalNaQuinzena,
   quinzena,
   enviando,
   travada,
@@ -741,6 +762,13 @@ function LinhaDeFonte({
    * da tela é a forma mais rápida de alguém importá-lo de novo.
    */
   foraDaQuinzena: boolean;
+  /**
+   * O relatório é dos que esta quinzena **admite sem esperar** — o 03.08.12.09
+   * na 1ª. A linha diz isso porque as duas frases são diferentes: "ainda não
+   * chegou" cobra alguém, "pode não existir" não cobra ninguém, e sem o
+   * distintivo a casinha vazia seria lida como a primeira.
+   */
+  opcionalNaQuinzena: boolean;
   quinzena: 1 | 2;
   enviando: boolean;
   /** A competência está encerrada: nada entra nela sem reabertura. */
@@ -772,6 +800,14 @@ function LinhaDeFonte({
           {foraDaQuinzena && (
             <span className="rounded-full border border-border px-2 py-0.5 text-[0.6875rem] uppercase tracking-wide text-muted-foreground">
               fora da {quinzena}ª quinzena
+            </span>
+          )}
+          {opcionalNaQuinzena && (
+            <span
+              title="Pode existir nesta quinzena e nem sempre existe: envie quando houver, e a apuração não cobra a falta."
+              className="rounded-full border border-border px-2 py-0.5 text-[0.6875rem] uppercase tracking-wide text-muted-foreground"
+            >
+              opcional na {quinzena}ª quinzena
             </span>
           )}
         </div>
