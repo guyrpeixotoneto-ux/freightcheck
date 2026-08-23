@@ -378,7 +378,16 @@ export function resumirUnidades(
   const unidades = [...porContexto.values()].map((daUnidade) => {
     const contexto = daUnidade[0].contexto;
     const quinzenas = quinzenasDoAno(daUnidade, ano, diaDeHoje);
-    const ultimaVigencia = daUnidade
+    /*
+      Uma casca de TRECHO (`entityTypeSet === "TRECHO"`) não é uma vigência
+      navegável — é a mesma exclusão de `naoEhSoTrecho` (`series.ts`), aqui
+      refeita em JS porque o cartão nunca vê o SQL. Sem isto, uma casca mais
+      recente que a vigência de equipamento vira `ultimaVigencia`, o cartão
+      linka para uma data que o Parâmetros não reconhece como período, e a
+      tela abre vazia mesmo a unidade tendo dado real e auditado.
+    */
+    const comVigenciaNavegavel = daUnidade.filter((v) => v.entityTypeSet !== "TRECHO");
+    const ultimaVigencia = (comVigenciaNavegavel.length > 0 ? comVigenciaNavegavel : daUnidade)
       .map((v) => v.effectiveDate)
       .sort((a, b) => b.localeCompare(a))[0];
 

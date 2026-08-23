@@ -337,6 +337,27 @@ describe("o resumo de uma unidade", () => {
     expect(unidade.coberturas).toEqual(["CARRETA", "CAVALO"]);
   });
 
+  /*
+    Uma casca de TRECHO (`entityTypeSet === "TRECHO"`, sem frota) mais recente
+    que a vigência de equipamento não pode virar `ultimaVigencia`: o cartão
+    linkaria para uma data que o Parâmetros não reconhece como período — a
+    mesma exclusão de `naoEhSoTrecho` em `lib/comparison/src/series.ts`,
+    refeita aqui em JS.
+  */
+  it("ignora a casca de TRECHO ao escolher a última vigência do cartão", () => {
+    const [unidade] = resumirUnidades(
+      [
+        vigencia({ data: "2026-07-16", cobertura: "CAVALO", ativos: 50 }),
+        vigencia({ data: "2026-08-02", cobertura: "TRECHO", ativos: 0 }),
+      ],
+      2026,
+      HOJE,
+    );
+
+    expect(unidade.ultimaVigencia).toBe("2026-07-16");
+    expect(unidade.ativos).toBe(50);
+  });
+
   it("conta como lacuna a quinzena vencida em que a unidade não publicou", () => {
     const [unidade] = resumirUnidades(
       [vigencia({ data: "2026-08-01", comparacao: { alteracoes: 1 } })],
