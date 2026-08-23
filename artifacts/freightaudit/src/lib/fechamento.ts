@@ -1370,6 +1370,18 @@ export async function listarUnidadesCanonicas(): Promise<UnidadeCanonica[]> {
   return fetchJson<UnidadeCanonica[]>("/unidades/canonicas");
 }
 
+/** Edita nome e/ou CNPJ de uma unidade já cadastrada. */
+export async function editarUnidadeCanonica(
+  id: string,
+  pedido: { nome: string; cnpj: string },
+): Promise<UnidadeCanonica> {
+  return fetchJson<UnidadeCanonica>(`/unidades/canonicas/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(pedido),
+  });
+}
+
 /** Uma divergência nomeada entre o contrato e o demonstrativo. */
 export interface Inconsistencia {
   chave: string;

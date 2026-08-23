@@ -6,7 +6,9 @@ import {
   CnpjInvalido,
   CnpjJaCadastrado,
   db,
+  editarUnidade,
   listarUnidadesCanonicas,
+  UnidadeNaoEncontrada,
   UnidadeSemNome,
   type UnidadeCanonica,
 } from "@workspace/db";
@@ -175,6 +177,48 @@ router.post("/unidades/canonicas", async (req, res): Promise<void> => {
     const conciliacaoDoCadastro = await conciliarIdentidadeDoCadastro(db);
     res.status(201).json({ ...criada, conciliacao, conciliacaoDoCadastro });
   } catch (erro) {
+    if (erro instanceof CnpjJaCadastrado) {
+      res.status(409).json({ error: erro.message, codigo: "CNPJ_JA_CADASTRADO" });
+      return;
+    }
+    if (erro instanceof CnpjInvalido) {
+      res.status(400).json({ error: erro.message, codigo: `CNPJ_${erro.recusa}` });
+      return;
+    }
+    if (erro instanceof UnidadeSemNome) {
+      res.status(400).json({ error: erro.message, codigo: "UNIDADE_SEM_NOME" });
+      return;
+    }
+    throw erro;
+  }
+});
+
+/**
+ * Edita nome e/ou CNPJ de uma unidade já cadastrada.
+ *
+ * O corpo recusado é o mesmo do `POST`: nome vazio, CNPJ inválido ou CNPJ de
+ * outra unidade recusam do mesmo jeito. A diferença é que o CNPJ editado pode
+ * mudar a quem a unidade responde no acervo e no cadastro de Remuneração —
+ * corrigir um dígito trocado é exatamente o caso em que a competência que
+ * apontava para o texto antigo precisa ganhar identidade agora —, então a
+ * conciliação roda de novo aqui pela mesma razão do cadastro novo.
+ */
+router.put("/unidades/canonicas/:id", async (req, res): Promise<void> => {
+  const { id } = req.params;
+  const corpo = (req.body ?? {}) as Record<string, unknown>;
+  const nome = typeof corpo.nome === "string" ? corpo.nome : "";
+  const cnpj = typeof corpo.cnpj === "string" ? corpo.cnpj : "";
+
+  try {
+    const editada = await editarUnidade(db, id, { nome, cnpj });
+    const conciliacao = await conciliarIdentidadeDasCompetencias(db);
+    const conciliacaoDoCadastro = await conciliarIdentidadeDoCadastro(db);
+    res.status(200).json({ ...editada, conciliacao, conciliacaoDoCadastro });
+  } catch (erro) {
+    if (erro instanceof UnidadeNaoEncontrada) {
+      res.status(404).json({ error: erro.message, codigo: "UNIDADE_NAO_ENCONTRADA" });
+      return;
+    }
     if (erro instanceof CnpjJaCadastrado) {
       res.status(409).json({ error: erro.message, codigo: "CNPJ_JA_CADASTRADO" });
       return;
