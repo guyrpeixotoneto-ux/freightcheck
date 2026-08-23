@@ -287,3 +287,51 @@ export class UnidadeSemNome extends Error {
     this.name = "UnidadeSemNome";
   }
 }
+
+/** O `id` não corresponde a nenhuma unidade cadastrada — não há o que editar. */
+export class UnidadeNaoEncontrada extends Error {
+  constructor(readonly id: string) {
+    super(`Nenhuma unidade cadastrada com o id ${id}.`);
+    this.name = "UnidadeNaoEncontrada";
+  }
+}
+
+/**
+ * Edita o nome e o CNPJ de uma unidade já cadastrada.
+ *
+ * **Mesmas regras do cadastro, porque é a mesma afirmação — "qual unidade é
+ * esta" —, só que corrigindo uma já feita.** Nome vazio continua recusado, o
+ * CNPJ continua validado por {@link lerCnpj}, e ele continua tendo que ser
+ * único: `CnpjJaCadastrado` dispara também aqui, exceto quando o CNPJ
+ * informado é o da própria unidade sendo editada — reenviar o que já está lá
+ * não é conflito com si mesma.
+ *
+ * Não reatribui `id`: é ele que Fechamento e Remuneração referenciam, e
+ * trocá-lo apagaria a identidade que este cadastro existe para preservar. O
+ * que muda é a grafia do nome e, quando a pessoa errou o documento, o CNPJ.
+ */
+export async function editarUnidade(
+  db: Database,
+  id: string,
+  pedido: { nome: string; cnpj: string },
+): Promise<UnidadeCanonica> {
+  const existente = await unidadePorId(db, id);
+  if (existente === null) throw new UnidadeNaoEncontrada(id);
+
+  const nome = pedido.nome.trim();
+  if (nome === "") {
+    throw new UnidadeSemNome();
+  }
+  const { canonico, recusa } = lerCnpj(pedido.cnpj);
+  if (canonico === null) throw new CnpjInvalido(recusa!);
+
+  const deOutra = await unidadePorCnpj(db, canonico);
+  if (deOutra && deOutra.id !== id) throw new CnpjJaCadastrado(canonico, deOutra);
+
+  const [editada] = await db
+    .update(unidadeTable)
+    .set({ nome, cnpj: canonico })
+    .where(eq(unidadeTable.id, id))
+    .returning({ id: unidadeTable.id, nome: unidadeTable.nome, cnpj: unidadeTable.cnpj });
+  return editada!;
+}

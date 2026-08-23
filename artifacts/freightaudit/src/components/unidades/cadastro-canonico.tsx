@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { apresentar } from "@/lib/apresentar-erro";
 import { fetchJson } from "@/lib/api";
 import {
+  editarUnidadeCanonica,
   listarUnidadesCanonicas,
   type UnidadeCanonica,
 } from "@/lib/fechamento";
@@ -79,6 +80,8 @@ export function CadastroCanonicoDeUnidades() {
   const [aberto, setAberto] = useState(false);
   const [nome, setNome] = useState("");
   const [cnpj, setCnpj] = useState("");
+  /* `null` é cadastrar do zero; um `id` é editar a unidade que já tem esse `id`. */
+  const [emEdicao, setEmEdicao] = useState<string | null>(null);
 
   const lista = useQuery({
     queryKey: ["unidades", "canonicas"],
@@ -117,15 +120,58 @@ export function CadastroCanonicoDeUnidades() {
     },
   });
 
+  const editar = useMutation({
+    mutationFn: (pedido: { id: string; nome: string; cnpj: string }) =>
+      editarUnidadeCanonica(pedido.id, { nome: pedido.nome, cnpj: pedido.cnpj }),
+    onSuccess: async () => {
+      await cliente.invalidateQueries({ queryKey: ["unidades", "canonicas"] });
+      setAberto(false);
+      setEmEdicao(null);
+      setNome("");
+      setCnpj("");
+    },
+  });
+
   const linhas = lista.data ?? [];
   const cadastradas = linhas.filter((l) => l.id !== null).length;
 
+  /* Abrir o formulário do zero, pelo botão "Cadastrar unidade" do cabeçalho. */
+  const abrirParaCadastrar = () => {
+    cadastrar.reset();
+    editar.reset();
+    setEmEdicao(null);
+    setNome("");
+    setCnpj("");
+    setAberto(true);
+  };
+
   /* Abrir o formulário a partir de uma detectada: o CNPJ já vem preenchido. */
   const cadastrarDetectada = (linha: LinhaDaAdministracao) => {
+    setEmEdicao(null);
     setNome(linha.nome);
     setCnpj(linha.cnpjFormatado);
     setAberto(true);
   };
+
+  /* Abrir o formulário para editar uma unidade já cadastrada. */
+  const editarCadastrada = (linha: LinhaDaAdministracao) => {
+    cadastrar.reset();
+    editar.reset();
+    setEmEdicao(linha.id);
+    setNome(linha.nome);
+    setCnpj(linha.cnpjFormatado);
+    setAberto(true);
+  };
+
+  const fecharFormulario = () => {
+    setAberto(false);
+    setEmEdicao(null);
+    setNome("");
+    setCnpj("");
+  };
+
+  const salvando = cadastrar.isPending || editar.isPending;
+  const erroDoFormulario = emEdicao === null ? cadastrar.error : editar.error;
 
   return (
     <Card>
@@ -143,7 +189,7 @@ export function CadastroCanonicoDeUnidades() {
             {cadastradas === 1 ? "" : "s"}.
           </p>
         </div>
-        <Button size="sm" onClick={() => setAberto((v) => !v)}>
+        <Button size="sm" onClick={() => (aberto ? fecharFormulario() : abrirParaCadastrar())}>
           <Plus className="w-4 h-4 mr-1" />
           Cadastrar unidade
         </Button>
@@ -152,17 +198,22 @@ export function CadastroCanonicoDeUnidades() {
       <CardContent className="space-y-4">
         {aberto && (
           <div className="rounded-lg border p-4 space-y-3">
-            {cadastrar.error !== null && (
+            <p className="text-sm font-medium">
+              {emEdicao === null ? "Cadastrar unidade" : "Editar cadastro"}
+            </p>
+            {erroDoFormulario !== null && (
               <Alert variant="destructive">
                 <AlertDescription className="text-xs">
                   {(() => {
                     /* A mesma leitura de `informar-codigo.tsx`: orientação quando
                        o servidor a tipou, a mensagem crua quando não. */
-                    const aviso = apresentar(cadastrar.error);
+                    const aviso = apresentar(erroDoFormulario);
                     return (
                       aviso.principal ??
                       aviso.mensagemCrua ??
-                      "Não foi possível cadastrar a unidade."
+                      (emEdicao === null
+                        ? "Não foi possível cadastrar a unidade."
+                        : "Não foi possível salvar a edição.")
                     );
                   })()}
                 </AlertDescription>
@@ -196,19 +247,25 @@ export function CadastroCanonicoDeUnidades() {
               como código.
             </p>
             <div className="flex justify-end gap-2">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setAberto(false)}
-              >
+              <Button variant="ghost" size="sm" onClick={fecharFormulario}>
                 Cancelar
               </Button>
               <Button
                 size="sm"
-                disabled={cadastrar.isPending}
-                onClick={() => cadastrar.mutate({ nome, cnpj })}
+                disabled={salvando}
+                onClick={() =>
+                  emEdicao === null
+                    ? cadastrar.mutate({ nome, cnpj })
+                    : editar.mutate({ id: emEdicao, nome, cnpj })
+                }
               >
-                {cadastrar.isPending ? "Cadastrando…" : "Cadastrar unidade"}
+                {emEdicao === null
+                  ? cadastrar.isPending
+                    ? "Cadastrando…"
+                    : "Cadastrar unidade"
+                  : editar.isPending
+                    ? "Salvando…"
+                    : "Salvar alterações"}
               </Button>
             </div>
           </div>
@@ -261,13 +318,21 @@ export function CadastroCanonicoDeUnidades() {
                       {linha.vigencias}
                     </td>
                     <td className="py-2 text-right">
-                      {linha.estado === "DETECTADA" && (
+                      {linha.estado === "DETECTADA" ? (
                         <Button
                           variant="ghost"
                           size="sm"
                           onClick={() => cadastrarDetectada(linha)}
                         >
                           Cadastrar unidade
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => editarCadastrada(linha)}
+                        >
+                          Editar
                         </Button>
                       )}
                     </td>
