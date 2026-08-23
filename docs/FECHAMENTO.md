@@ -1,30 +1,67 @@
-# FreightCheck — Os dois ambientes: Auditoria e Fechamento
+# FreightCheck — Os ambientes: Auditoria, Fechamento Rota e Fechamento Empurrada
 
 > **Status:** fundação implementada. Estrutura de navegação, rotas e telas do
 > Fechamento existem; nenhuma lógica financeira de fechamento foi construída.
+> O Fechamento Empurrada nasce como **estrutura**: mesmas telas, mesmo menu,
+> mesmas rotas do Rota, sob a própria base. O racional que o distingue ainda
+> não foi escrito — ver "Os dois fechamentos", abaixo.
 
-## O que são os dois ambientes
+## O que são os ambientes
 
 O FreightCheck é **um** produto — um login, uma empresa/unidade, uma base de
-frota, uma infraestrutura, um design system — que atende **dois** processos:
+frota, uma infraestrutura, um design system — que atende **três** processos:
 
-| | Auditoria de Remuneração | Fechamento de Remuneração |
-|---|---|---|
-| Pergunta | O que mudou? Está correto? Qual o impacto? Há valor a recuperar? | Quanto devemos receber nesta competência? O que está pendente? Podemos fechar? |
-| Eixo | A vigência (o retrato que o Freightec exporta) | A competência (o período de apuração, com estado e ciclo de vida) |
-| Natureza | Investigação contínua | Fluxo com começo, meio e fim |
+| | Auditoria de Remuneração | Fechamento Rota | Fechamento Empurrada |
+|---|---|---|---|
+| Pergunta | O que mudou? Está correto? Qual o impacto? Há valor a recuperar? | Quanto devemos receber nesta competência? O que está pendente? Podemos fechar? | A mesma pergunta, sobre a operação de empurrada. |
+| Eixo | A vigência (o retrato que o Freightec exporta) | A competência (o período de apuração, com estado e ciclo de vida) | A competência, idem |
+| Natureza | Investigação contínua | Fluxo com começo, meio e fim | Fluxo com começo, meio e fim |
 
 A relação entre eles é de mão dupla e vive **no modelo, não nas telas**:
 o Fechamento apura o valor da competência; a Auditoria confere se aquele valor
 se sustenta; a divergência encontrada volta ao Fechamento como pendência ou
 ajuste, e o que for cobrável segue para Recuperação.
 
-## A regra que separa os dois
+## Os dois fechamentos — mesma forma, operações diferentes
+
+Rota e Empurrada correm **o mesmo processo**: abre-se a competência, apura-se,
+resolve-se o que impede a conta de fechar, decide-se e encerra-se. Por isso eles
+não são dois códigos: são o mesmo código montado sob duas bases de endereço.
+
+- O menu sai de `navGroupsFechamento(base, nome)`
+  (`components/layout/nav-fechamento.ts`).
+- As rotas saem de `rotasDoFechamento(base)`, em `App.tsx`, chamada uma vez por
+  base.
+- As etapas ainda sem tela saem de `etapasDoFechamento(base)`
+  (`pages/fechamento/etapas.ts`).
+- Toda tela monta os próprios links a partir de `useBaseDoFechamento()`
+  (`lib/base-do-fechamento.ts`), e nunca de `/fechamento` escrito à mão — um
+  `href` literal levaria quem está na Empurrada de volta ao Rota no primeiro
+  clique, sem erro nenhum na tela, que é o pior jeito de essa regressão
+  aparecer.
+
+Uma tela nova entra uma vez e nasce nos dois. Duas listas escritas à mão
+divergiriam no primeiro item acrescentado a uma e esquecido na outra, e é
+essa divergência que os testes de simetria em
+`components/layout/__tests__/sidebar.test.ts` guardam.
+
+**O que ainda não os separa: o dado.** As duas bases leem hoje os mesmos
+endpoints e a mesma competência — nenhum recorte por operação foi ligado. O eixo
+que existe no modelo para isso é `competencia.tipoDeOperacao`
+(EMPURRADA | ROTA), descrito mais abaixo, e é ele que o racional do Fechamento
+Empurrada vai usar quando for escrito.
+
+## A regra que separa os ambientes
 
 **A URL é a única fonte da verdade sobre o ambiente aberto.**
 
-- Tudo sob `/fechamento/...` é Fechamento.
+- Tudo sob `/fechamento/...` é Fechamento Rota.
+- Tudo sob `/fechamento-empurrada/...` é Fechamento Empurrada.
 - Todo o resto é a Auditoria de sempre.
+
+A comparação é exata ou seguida de barra, e nunca `startsWith` cru:
+`/fechamento-empurrada` começa com `/fechamento`, e com prefixo cru a Empurrada
+inteira seria lida como Rota — mesmo endereço, menu errado, nenhum erro na tela.
 
 A regra vive em `artifacts/freightaudit/src/lib/ambiente.ts` e é uma função
 pura sobre a localização — sem provider, sem `localStorage`, sem estado que
@@ -36,12 +73,17 @@ são o produto em uso — favoritos, links em e-mail, histórico de navegador.
 Movê-las daria simetria ao custo de quebrar todos esses links. O prefixo
 explícito ficou para o domínio que nasce agora, onde não custa nada.
 
+**Por que o Rota ficou em `/fechamento`, e não em `/fechamento/rota`:** pela
+mesma razão. Quando a Empurrada nasceu, o Rota já era o produto em uso. Quem
+paga o prefixo é sempre quem chega agora.
+
 ## Como se troca de ambiente
 
 Pelo seletor no topbar, colado à marca — `FreightCheck | Auditoria ▾` —
 implementado em `components/layout/topbar.tsx`. Ele mostra sempre o ambiente
-aberto e lista os dois com nome completo e descrição. Trocar navega para a
-home do outro (`/visao-gerencial` ou `/fechamento`). A marca também leva à home
+aberto e lista os três com nome completo e descrição. Trocar navega para a
+home do escolhido (`/visao-gerencial`, `/fechamento` ou
+`/fechamento-empurrada`). A marca também leva à home
 **do ambiente aberto**, para que "voltar ao início" nunca troque de espaço de
 trabalho sem avisar.
 
@@ -57,7 +99,8 @@ que é o formato de todo link antigo. A regra inteira está em `lib/ambiente.ts`
 ## A lateral contextual
 
 A lateral é o mesmo componente (`components/layout/sidebar.tsx`) com duas
-listas:
+listas — a da Auditoria e a do Fechamento, esta última montada sobre a base do
+ambiente aberto e, portanto, servindo Rota e Empurrada sem duplicação:
 
 - **Auditoria** — `NAV_GROUPS`: Visão executiva, Auditoria, Recuperação, QLP,
   Frota, Inteligência, Dados & governança, Administração. As oito seções e a
@@ -69,7 +112,7 @@ listas:
   correspondente no `replit.md`.
 - **Fechamento** — `components/layout/nav-fechamento.ts`, cinco seções na
   ordem do processo:
-  - **Fechamento**: Visão Gerencial · Importações · Apurações · Resumo geral · Conciliação
+  - **Fechamento Rota** / **Fechamento Empurrada**: Visão Gerencial · Importações · Apurações · Resumo geral · Conciliação
   - **Remuneração**: Cadastro
   - **Apuração**: Apuração · Pendências · Conferências
   - **Decisão**: Ajustes · Aprovações · Encerramento
@@ -79,9 +122,11 @@ Cinco desvios deliberados da lista originalmente proposta:
 
 1. **Apuração vem antes de Pendências** — pendência é o que a apuração não
    conseguiu apurar; sem rodar a conta, não há fila.
-2. **A primeira seção chama-se "Fechamento", e o ato final, "Encerramento"** —
-   o nome do processo fica onde ele começa, e um segundo item com a mesma
-   palavra diria dois sentidos de uma vez.
+2. **A primeira seção leva o nome do ambiente, e o ato final chama-se
+   "Encerramento"** — o nome do processo fica onde ele começa, e um segundo item
+   com a mesma palavra diria dois sentidos de uma vez. É também onde o menu diz
+   em qual dos dois fechamentos se está, já que as outras quatro seções são
+   idênticas nos dois.
 3. **A lista de competências chama-se "Importações"** — o que se faz nela é
    abrir o período e enviar os relatórios da quinzena; a lista é
    consequência. Ao lado dela, **Apurações** mostra o resultado dessa
@@ -674,6 +719,14 @@ O eixo de `tipoDeOperacao` é o de `remuneracao_planilha.canal` e o do rótulo d
 vigência (`EMPURRADA_1_8_2026` → `EMPURRADA`): é a operação que a planilha de
 remuneração descreve, e é por ele que um fechamento se liga ao cadastro que o
 remunera.
+
+**É este o eixo que os dois ambientes de fechamento vão usar.** Hoje eles são
+duas bases de endereço com o mesmo dado atrás: nada filtra por
+`tipoDeOperacao` conforme a base aberta. Ligar esse recorte é a primeira coisa
+que o racional do Fechamento Empurrada precisa decidir — e ele decide mais do
+que um filtro de lista: o campo `Tipo` de "Realizar Fechamento" deixa de ser
+escolha quando o ambiente já a fez, e o seletor de Tipo do Resumo geral deixa de
+ter o que oferecer.
 
 ### O backfill não adivinha
 

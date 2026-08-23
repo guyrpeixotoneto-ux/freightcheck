@@ -64,6 +64,9 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   ambienteDe,
+  BASES_DE_FECHAMENTO,
+  descricaoDoAmbiente,
+  ehFechamento,
   ENTRADA_DA_AUDITORIA,
   RESUMO_EXECUTIVO,
   type Ambiente,
@@ -78,7 +81,7 @@ import {
   useImportacoesEmAndamento,
 } from "./contadores";
 import type { NavGroup, NavItem } from "./nav";
-import { NAV_GROUPS_FECHAMENTO } from "./nav-fechamento";
+import { navGroupsFechamento } from "./nav-fechamento";
 import { useSecoesRecolhidas } from "./preferencias";
 
 /**
@@ -383,11 +386,14 @@ export function Sidebar({ open }: { open: boolean }) {
 
   /*
     A lateral é a mesma nos dois ambientes; o conteúdo é que troca. Quem decide
-    é a URL (`lib/ambiente.ts`): sob `/fechamento`, as quatro seções do
-    processo de fechamento; em todo o resto, as oito da Auditoria de sempre.
+    é a URL (`lib/ambiente.ts`): sob a base de um dos fechamentos — Rota ou
+    Empurrada —, as cinco seções do processo, com o nome do ambiente na
+    primeira; em todo o resto, as oito da Auditoria de sempre.
   */
   const ambiente = ambienteDe(location);
-  const grupos = ambiente === "fechamento" ? NAV_GROUPS_FECHAMENTO : NAV_GROUPS;
+  const grupos = ehFechamento(ambiente)
+    ? navGroupsFechamento(BASES_DE_FECHAMENTO[ambiente], descricaoDoAmbiente(ambiente).nome)
+    : NAV_GROUPS;
 
   if (!open) {
     return <FaixaDeIcones location={location} grupos={grupos} ambiente={ambiente} contadores={contadores} paraOAssistente={paraOAssistente} />;
@@ -706,16 +712,17 @@ function normalizar(texto: string): string {
 
 /**
  * O item ativo é o da rota atual, e prefixo só conta abaixo da raiz — sem essa
- * exceção "/" ficaria aceso em toda tela do produto. `/fechamento` é a raiz do
- * outro ambiente e tem a mesma exceção pela mesma razão: todo endereço do
- * Fechamento começa com ele.
+ * exceção "/" ficaria aceso em toda tela do produto. A base de cada fechamento
+ * é a raiz do ambiente dele e tem a mesma exceção pela mesma razão: todo
+ * endereço daquele Fechamento começa com ela.
  *
  * A exceção de "/" continua aqui mesmo depois de a raiz ter deixado de ser item
  * de menu: ela custa uma comparação e é o que impede a lateral inteira de
  * acender no dia em que alguém reaproveitar "/" como href de algum item.
  */
 function estaAtivo(location: string, href: string): boolean {
-  if (href === "/" || href === "/fechamento") return location === href;
+  const raizes: string[] = ["/", ...Object.values(BASES_DE_FECHAMENTO)];
+  if (raizes.includes(href)) return location === href;
   return location === href || location.startsWith(`${href}/`);
 }
 
@@ -815,7 +822,7 @@ function Contador({ valor, tipo }: { valor: number; tipo: NonNullable<NavItem["c
  * componente, que é o erro que o React não perdoa.
  */
 function SeletorDeUnidade({ ambiente }: { ambiente: Ambiente }) {
-  return ambiente === "fechamento" ? <AlcanceDoFechamento /> : <UnidadeAberta />;
+  return ehFechamento(ambiente) ? <AlcanceDoFechamento /> : <UnidadeAberta />;
 }
 
 /**

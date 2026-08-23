@@ -1,18 +1,29 @@
 /**
- * Os dois ambientes de trabalho do FreightCheck.
+ * Os três ambientes de trabalho do FreightCheck.
  *
  * O produto é um só — mesmo login, mesma unidade, mesma base de frota, mesma
- * infraestrutura — mas os processos que ele atende são dois, e cada um tem a
+ * infraestrutura — mas os processos que ele atende são três, e cada um tem a
  * sua pergunta:
  *
  * - **Auditoria de Remuneração**: o que mudou? está correto? qual o impacto?
  *   existe valor a recuperar?
- * - **Fechamento de Remuneração**: quanto devemos receber nesta competência?
+ * - **Fechamento Rota**: quanto devemos receber nesta competência?
  *   o que está pendente? o que precisa ser conferido? podemos fechar?
+ * - **Fechamento Empurrada**: a mesma pergunta, sobre a operação de empurrada.
+ *
+ * **Os dois fechamentos são o mesmo processo sobre operações diferentes.**
+ * Abre-se a competência, apura-se, resolve-se o que impede a conta de fechar,
+ * decide-se e encerra-se — a ordem do trabalho é uma só, e por isso a lateral,
+ * as telas e o desenho são os mesmos nos dois. O que muda entre eles é o
+ * racional da apuração, não a forma de trabalhar; e é justamente por serem a
+ * mesma forma que eles não são dois códigos, e sim o mesmo código montado sob
+ * duas bases de endereço. Ver `BASES_DE_FECHAMENTO`, abaixo, e as rotas em
+ * `App.tsx`, que nascem de um laço sobre essas bases.
  *
  * **A URL é a única fonte da verdade sobre o ambiente aberto.** Tudo o que
- * vive sob `/fechamento` é Fechamento; todo o resto é a Auditoria de sempre.
- * Essa regra tem duas consequências deliberadas:
+ * vive sob `/fechamento` é Fechamento Rota; tudo sob `/fechamento-empurrada` é
+ * Fechamento Empurrada; todo o resto é a Auditoria de sempre. Essa regra tem
+ * três consequências deliberadas:
  *
  * 1. **A Auditoria não foi movida para um prefixo.** As rotas atuais
  *    (`/alteracoes`, `/comparar`, `/dre`…) são o produto em uso — favoritos,
@@ -26,7 +37,12 @@
  *    Gerencial — mas `/` continua atendendo, e continua levando ao Resumo
  *    executivo todo link que chegar com recorte na consulta. Nenhum endereço
  *    guardado morreu. Ver `destinoDaRaiz`, no fim deste arquivo.
- * 2. **Não há estado paralelo de ambiente** — nada em `localStorage`, nada em
+ * 2. **O Fechamento Rota ficou em `/fechamento`, e não em `/fechamento/rota`.**
+ *    Pela mesma razão da Auditoria: quando a Empurrada nasceu, o Rota já era o
+ *    produto em uso, com endereços guardados por aí. Quem paga o prefixo é
+ *    sempre quem chega agora — a Empurrada nasce dizendo o próprio nome no
+ *    endereço, e nenhum link existente muda de significado.
+ * 3. **Não há estado paralelo de ambiente** — nada em `localStorage`, nada em
  *    contexto React que possa divergir do endereço. Compartilhar um link é
  *    compartilhar o ambiente; voltar no histórico volta o ambiente junto. Um
  *    estado guardado seria uma segunda fonte da verdade, e a errada — a mesma
@@ -34,10 +50,14 @@
  *
  * Por isso este módulo não tem hook nem provider: é uma função pura sobre a
  * localização, e quem precisa do ambiente a chama com o `useLocation` que já
- * tem.
+ * tem. O atalho para as telas, que é o mesmo `useLocation` embrulhado, mora em
+ * `lib/base-do-fechamento.ts` para que este arquivo continue puro.
  */
 
-export type Ambiente = "auditoria" | "fechamento";
+export type Ambiente = "auditoria" | "fechamento-rota" | "fechamento-empurrada";
+
+/** Os ambientes que rodam o processo de fechamento — hoje, Rota e Empurrada. */
+export type AmbienteDeFechamento = Exclude<Ambiente, "auditoria">;
 
 export interface DescricaoDeAmbiente {
   id: Ambiente;
@@ -62,9 +82,9 @@ export interface DescricaoDeAmbiente {
  * retrato do acervo dependia de alguém saber que existia um segundo item no
  * menu.
  *
- * É também a simetria que faltava com o Fechamento, cuja home (`/fechamento`)
- * sempre foi a Visão Gerencial dele. Os dois ambientes passam a abrir na mesma
- * altura: o conjunto primeiro, a unidade depois.
+ * É também a simetria que faltava com o Fechamento, cuja home sempre foi a
+ * Visão Gerencial dele. Os ambientes passam a abrir na mesma altura: o
+ * conjunto primeiro, a unidade depois.
  */
 export const ENTRADA_DA_AUDITORIA = "/visao-gerencial";
 
@@ -78,6 +98,25 @@ export const ENTRADA_DA_AUDITORIA = "/visao-gerencial";
  */
 export const RESUMO_EXECUTIVO = "/resumo-executivo";
 
+/**
+ * A base de endereço de cada fechamento — a única coisa que separa os dois.
+ *
+ * Toda tela do fechamento monta os próprios links a partir da base do ambiente
+ * em que está (`lib/base-do-fechamento.ts`), e é só por isso que o mesmo
+ * componente serve aos dois: `${base}/competencias` é a lista de importações do
+ * Rota ou da Empurrada conforme a porta pela qual se entrou. Uma tela que
+ * escrevesse `/fechamento/...` à mão jogaria quem está na Empurrada de volta
+ * para o Rota no primeiro clique — e sem erro nenhum na tela, que é o pior
+ * jeito de essa regressão aparecer.
+ */
+export const BASES_DE_FECHAMENTO: Record<AmbienteDeFechamento, string> = {
+  "fechamento-rota": "/fechamento",
+  "fechamento-empurrada": "/fechamento-empurrada",
+};
+
+/** A base do ambiente aberto quando não se está em fechamento nenhum. */
+export const BASE_PADRAO_DE_FECHAMENTO = BASES_DE_FECHAMENTO["fechamento-rota"];
+
 export const AMBIENTES: DescricaoDeAmbiente[] = [
   {
     id: "auditoria",
@@ -87,25 +126,60 @@ export const AMBIENTES: DescricaoDeAmbiente[] = [
     home: ENTRADA_DA_AUDITORIA,
   },
   {
-    id: "fechamento",
-    nome: "Fechamento",
-    nomeCompleto: "Fechamento de Remuneração",
-    descricao: "Apurar a competência, resolver pendências e fechar o período.",
-    home: "/fechamento",
+    id: "fechamento-rota",
+    nome: "Fechamento Rota",
+    nomeCompleto: "Fechamento de Remuneração — Rota",
+    descricao:
+      "Apurar a competência da rota, resolver pendências e fechar o período.",
+    home: BASES_DE_FECHAMENTO["fechamento-rota"],
+  },
+  {
+    id: "fechamento-empurrada",
+    nome: "Fechamento Empurrada",
+    nomeCompleto: "Fechamento de Remuneração — Empurrada",
+    descricao: "O mesmo processo sobre a operação de empurrada.",
+    home: BASES_DE_FECHAMENTO["fechamento-empurrada"],
   },
 ];
 
-/** O prefixo que define o ambiente Fechamento. Tudo fora dele é Auditoria. */
-const PREFIXO_FECHAMENTO = "/fechamento";
+/**
+ * A leitura do endereço, do prefixo mais específico para o mais geral.
+ *
+ * A comparação é exata ou seguida de barra, e nunca `startsWith` cru: sem isso
+ * `/fechamentos` — que não existe, mas poderia — cairia no fechamento, e
+ * `/fechamento-empurrada` cairia no Rota, que é o engano que este produto não
+ * pode cometer em silêncio.
+ */
+function sobA(base: string, location: string): boolean {
+  return location === base || location.startsWith(`${base}/`);
+}
 
 export function ambienteDe(location: string): Ambiente {
-  return location === PREFIXO_FECHAMENTO || location.startsWith(`${PREFIXO_FECHAMENTO}/`)
-    ? "fechamento"
-    : "auditoria";
+  for (const [id, base] of Object.entries(BASES_DE_FECHAMENTO)) {
+    if (sobA(base, location)) return id as AmbienteDeFechamento;
+  }
+  return "auditoria";
+}
+
+/** Se o ambiente é um dos fechamentos — a pergunta que a lateral e o topo fazem. */
+export function ehFechamento(id: Ambiente): id is AmbienteDeFechamento {
+  return id !== "auditoria";
+}
+
+/**
+ * A base de endereço do fechamento aberto nesta localização.
+ *
+ * Fora dos fechamentos ela devolve a do Rota. Não é fallback silencioso: quem
+ * chama isto é tela de fechamento, e tela de fechamento só existe sob uma das
+ * bases — o valor de fora nunca chega a ser usado para navegar.
+ */
+export function baseDoFechamento(location: string): string {
+  const id = ambienteDe(location);
+  return ehFechamento(id) ? BASES_DE_FECHAMENTO[id] : BASE_PADRAO_DE_FECHAMENTO;
 }
 
 export function descricaoDoAmbiente(id: Ambiente): DescricaoDeAmbiente {
-  // A lista é fixa e cobre os dois ids possíveis; o fallback nunca roda.
+  // A lista é fixa e cobre os ids possíveis; o fallback nunca roda.
   return AMBIENTES.find((a) => a.id === id) ?? AMBIENTES[0];
 }
 

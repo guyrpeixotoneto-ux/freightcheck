@@ -4,6 +4,7 @@ import { Link, useLocation, useSearch } from "wouter";
 import { ArrowRight } from "lucide-react";
 
 import { Layout } from "@/components/layout/layout";
+import { useBaseDoFechamento } from "@/lib/base-do-fechamento";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { apresentar } from "@/lib/apresentar-erro";
@@ -118,6 +119,7 @@ export function referenciaDoMes(
 }
 
 export default function Conciliacao() {
+  const base = useBaseDoFechamento();
   const busca = useSearch();
   const [, navegar] = useLocation();
   const parametros = useMemo(() => new URLSearchParams(busca), [busca]);
@@ -132,7 +134,7 @@ export default function Conciliacao() {
   const trocar = (campo: string, valor: string) => {
     const proximos = new URLSearchParams(parametros);
     proximos.set(campo, valor);
-    navegar(`/fechamento/conciliacao?${proximos.toString()}`);
+    navegar(`${base}/conciliacao?${proximos.toString()}`);
   };
 
   const alvo = { unidade, transportadora, tipoDeOperacao, ano, mes };
@@ -239,6 +241,7 @@ function Corpo({
   recorte: Recorte;
   trocar: (campo: string, valor: string) => void;
 }) {
+  const base = useBaseDoFechamento();
   const referencia = referenciaDoMes(mes.canais);
   const temComparacao = mes.canais.some((c) => c.comparado !== null);
 
@@ -253,7 +256,7 @@ function Corpo({
           ela é do mês, e não da competência —, e a comparação aparece assim que
           houver o que comparar. Abra a quinzena em{" "}
           <Link
-            href="/fechamento/competencias"
+            href={`${base}/competencias`}
             className="text-primary hover:underline"
           >
             Importações
@@ -293,7 +296,7 @@ function Corpo({
             abaixo ganham a coluna da planilha e a diferença contra o devido.
             Enquanto isso, o mês continua conferido contra o 03.08.20 no{" "}
             <Link
-              href="/fechamento/resumo"
+              href={`${base}/resumo`}
               className="inline-flex items-center gap-1 text-primary hover:underline"
             >
               Resumo geral <ArrowRight className="w-3 h-3" />

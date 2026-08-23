@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ArrowRight, Plus, TriangleAlert } from "lucide-react";
 import { Link, useLocation, useSearch } from "wouter";
 import { Layout } from "@/components/layout/layout";
+import { useBaseDoFechamento } from "@/lib/base-do-fechamento";
 import {
   Barra,
   FaixaDoAno,
@@ -30,7 +31,7 @@ import {
 import { formatBrlCompacto, formatBrlShort } from "@/lib/format";
 import { apresentar } from "@/lib/apresentar-erro";
 import { cn } from "@/lib/utils";
-import { ETAPAS_FECHAMENTO } from "./etapas";
+import { etapasDoFechamento } from "./etapas";
 
 /**
  * Visão Gerencial — o fechamento do ano inteiro, unidade a unidade.
@@ -58,7 +59,7 @@ import { ETAPAS_FECHAMENTO } from "./etapas";
  *    à parte, como lacuna, e nunca somado ao percentual — ver `resumirUnidades`.
  * 2. **A ordem dos cartões é a do atraso**, e não a alfabética: primeiro quem
  *    tem quinzena vencida em aberto. A tela existe para dizer onde ir.
- * 3. **O cartão abre o ano.** Clicar leva a `/fechamento/unidades/:codigo`, que
+ * 3. **O cartão abre o ano.** Clicar leva a `<base>/unidades/:codigo`, que
  *    mostra as 24 quinzenas do ano daquela unidade — inclusive as que passaram
  *    sem competência aberta, que é o buraco que nenhuma lista de competências
  *    existentes consegue mostrar.
@@ -87,6 +88,7 @@ function CartaoDaUnidade({
   unidade: ResumoDaUnidade;
   ano: number;
 }) {
+  const base = useBaseDoFechamento();
   const nome = nomeDaParte(unidade);
   const pendencia = [
     unidade.vencidas > 0 &&
@@ -98,7 +100,7 @@ function CartaoDaUnidade({
 
   return (
     <Link
-      href={`/fechamento/unidades/${encodeURIComponent(unidade.codigo)}?ano=${ano}`}
+      href={`${base}/unidades/${encodeURIComponent(unidade.codigo)}?ano=${ano}`}
       className="rounded-lg border bg-card p-5 block transition-colors hover:border-primary/50 hover:bg-muted/30"
       data-testid={`cartao-unidade-${unidade.codigo}`}
     >
@@ -197,6 +199,7 @@ function CartaoDaUnidade({
 }
 
 export default function VisaoGerencial() {
+  const base = useBaseDoFechamento();
   const [, navegar] = useLocation();
   const busca = useSearch();
   const apuracoes = useQuery({
@@ -246,7 +249,7 @@ export default function VisaoGerencial() {
             {anos.length > 0 && (
               <Select
                 value={String(ano)}
-                onValueChange={(v) => navegar(`/fechamento?ano=${v}`)}
+                onValueChange={(v) => navegar(`${base}?ano=${v}`)}
               >
                 <SelectTrigger
                   className="h-auto w-auto gap-2 rounded-full px-4 py-2 shadow-none"
@@ -266,7 +269,7 @@ export default function VisaoGerencial() {
                 </SelectContent>
               </Select>
             )}
-            <Link href="/fechamento/competencias">
+            <Link href={`${base}/competencias`}>
               <Button size="sm" variant="outline">
                 <Plus className="w-3.5 h-3.5 mr-1.5" />
                 Realizar Fechamento
@@ -297,7 +300,7 @@ export default function VisaoGerencial() {
             <p>
               Abra a primeira em{" "}
               <Link
-                href="/fechamento/competencias"
+                href={`${base}/competencias`}
                 className="text-primary hover:underline"
               >
                 Importações
@@ -413,7 +416,7 @@ export default function VisaoGerencial() {
               </CardTitle>
             </CardHeader>
             <CardContent className="p-0">
-              {ETAPAS_FECHAMENTO.map((etapa, indice) => (
+              {etapasDoFechamento(base).map((etapa, indice) => (
                 <Link
                   key={etapa.href}
                   href={etapa.href}

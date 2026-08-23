@@ -9,6 +9,7 @@ import { BotaoDeRegistroDeUnidade } from "@/components/remuneracao/registrar-uni
 import { VistaDeUmaQuinzena } from "@/components/remuneracao/uma-quinzena";
 import { Filtro, TUDO } from "@/components/fechamento/filtro";
 import { Layout } from "@/components/layout/layout";
+import { useBaseDoFechamento } from "@/lib/base-do-fechamento";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { apresentar } from "@/lib/apresentar-erro";
@@ -260,13 +261,13 @@ function mesPorExtenso(data: string): string {
  * sem ela a tela abriria na mais recente da unidade, e quem clicou na linha de
  * julho pediu julho.
  */
-function enderecoDaUnidade(u: SituacaoDaUnidade): string {
+function enderecoDaUnidade(u: SituacaoDaUnidade, base: string): string {
   const query = new URLSearchParams({
     scopeHash: u.scopeHash,
     canal: u.channel ?? "",
     period: u.effectiveDate,
   });
-  return `/fechamento/remuneracao/unidade?${query}`;
+  return `${base}/remuneracao/unidade?${query}`;
 }
 
 /** Uma das duas metades de um mês, e as vigências que caíram nela. */
@@ -654,6 +655,7 @@ function CadastroDaLinha({ unidade }: { unidade: SituacaoDaUnidade }) {
 }
 
 export default function RemuneracaoUnidades() {
+  const base = useBaseDoFechamento();
   const busca = useSearch();
   const [, navegar] = useLocation();
 
@@ -691,7 +693,7 @@ export default function RemuneracaoUnidades() {
   const encaminhando = new URLSearchParams(busca).get("scopeHash") !== null;
   useEffect(() => {
     if (encaminhando)
-      navegar(`/fechamento/remuneracao/unidade?${busca}`, { replace: true });
+      navegar(`${base}/remuneracao/unidade?${busca}`, { replace: true });
   }, [encaminhando, busca, navegar]);
 
   /*
@@ -1468,7 +1470,7 @@ export default function RemuneracaoUnidades() {
                                               <td className="px-4 py-3 text-right align-middle">
                                                 <span className="inline-flex items-center gap-3">
                                                   <Link
-                                                    href={enderecoDaUnidade(u)}
+                                                    href={enderecoDaUnidade(u, base)}
                                                     onClick={(e) =>
                                                       e.stopPropagation()
                                                     }
@@ -1529,6 +1531,7 @@ export default function RemuneracaoUnidades() {
                                                       <Link
                                                         href={enderecoDaUnidade(
                                                           u,
+                                                          base,
                                                         )}
                                                         className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
                                                       >

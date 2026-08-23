@@ -15,6 +15,7 @@ import {
   Upload,
 } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
+import { useBaseDoFechamento } from "@/lib/base-do-fechamento";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -85,6 +86,7 @@ const emDiaBR = (iso: string) => iso.split("-").reverse().join("/");
  * consegue sustentar aparece como não conferido em vez de virar zero.
  */
 export default function CompetenciaAberta({ id }: { id: string }) {
+  const base = useBaseDoFechamento();
   const cliente = useQueryClient();
   const [erroDoEnvio, setErroDoEnvio] = useState<string | null>(null);
   /*
@@ -257,7 +259,7 @@ export default function CompetenciaAberta({ id }: { id: string }) {
     <Layout>
       <header className="border-b bg-card px-8 py-6">
         <Link
-          href="/fechamento/competencias"
+          href={`${base}/competencias`}
           className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground mb-2"
         >
           <ArrowLeft className="w-3.5 h-3.5" />
@@ -762,6 +764,8 @@ function LinhaDoContrato({
   contrato: ContratoDaCompetencia | null;
   quinzena: 1 | 2;
 }) {
+  const base = useBaseDoFechamento();
+
   if (!contrato) return null;
   const respondeu = contrato.estado === "RESPONDEU";
 
@@ -808,7 +812,7 @@ function LinhaDoContrato({
       <div className="shrink-0">
         {!respondeu && (
           <Button asChild variant="outline" size="sm">
-            <Link href="/fechamento/remuneracao">Abrir Remuneração</Link>
+            <Link href={`${base}/remuneracao`}>Abrir Remuneração</Link>
           </Button>
         )}
       </div>

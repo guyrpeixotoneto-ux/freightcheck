@@ -479,8 +479,8 @@ toda leitura — nos moldes do que `conversas.ts` já faz por `owner_id`.
 - `docs/ARQUITETURA.md` — as decisões estruturais em prosa
 - `docs/DIAGNOSTICO-ABA-CLIENTE.md` — o comportamento econômico de cada
   parâmetro, medido, e por que quase nada vira proposta
-- `docs/FECHAMENTO.md` — os dois ambientes (Auditoria e Fechamento), a regra do
-  prefixo que os separa e o módulo Remuneração
+- `docs/FECHAMENTO.md` — os três ambientes (Auditoria, Fechamento Rota e
+  Fechamento Empurrada), a regra do prefixo que os separa e o módulo Remuneração
 - `docs/PROPOSTA-NAVEGACAO-FREIGHTECH.md` — o mapeamento Freightech → FreightCheck
 
 ## Assistente de IA

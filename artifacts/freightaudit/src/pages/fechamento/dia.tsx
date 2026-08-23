@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { ArrowLeft, ChevronLeft, ChevronRight, Truck } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
+import { useBaseDoFechamento } from "@/lib/base-do-fechamento";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { TabelaDoDia } from "@/components/fechamento/tabela-do-dia";
@@ -55,6 +56,7 @@ export default function DiaDoFechamento({
   id: string;
   dia: string;
 }) {
+  const base = useBaseDoFechamento();
   const dados = useQuery({
     queryKey: chaveDoDia(id, dia),
     queryFn: () => lerDia(id, dia),
@@ -74,7 +76,7 @@ export default function DiaDoFechamento({
       <Layout>
         <div className="p-8 space-y-4">
           <Link
-            href={`/fechamento/competencias/${id}`}
+            href={`${base}/competencias/${id}`}
             className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
@@ -96,7 +98,7 @@ export default function DiaDoFechamento({
     <Layout>
       <header className="border-b bg-card px-8 py-6">
         <Link
-          href={`/fechamento/competencias/${id}`}
+          href={`${base}/competencias/${id}`}
           className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground mb-2"
         >
           <ArrowLeft className="w-3.5 h-3.5" />
@@ -113,13 +115,13 @@ export default function DiaDoFechamento({
           <nav className="flex items-center gap-1 ml-auto">
             <Passo
               href={
-                anterior && `/fechamento/competencias/${id}/dias/${anterior}`
+                anterior && `${base}/competencias/${id}/dias/${anterior}`
               }
               anterior
             />
             <Passo
               href={
-                seguinte && `/fechamento/competencias/${id}/dias/${seguinte}`
+                seguinte && `${base}/competencias/${id}/dias/${seguinte}`
               }
             />
           </nav>

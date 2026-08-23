@@ -2,23 +2,39 @@ import { describe, expect, it } from "vitest";
 import {
   AMBIENTES,
   ambienteDe,
+  baseDoFechamento,
+  BASES_DE_FECHAMENTO,
   descricaoDoAmbiente,
   destinoDaRaiz,
+  ehFechamento,
   ENTRADA_DA_AUDITORIA,
   RESUMO_EXECUTIVO,
 } from "../ambiente";
 
 /**
- * A regra que separa os dois espaços de trabalho é uma só — tudo sob
- * `/fechamento` é Fechamento, o resto é Auditoria — e este teste a guarda nos
- * pontos onde ela quebraria em silêncio: o prefixo que casa por engano
- * (`/fechamentos` não é o ambiente) e a raiz exata.
+ * A regra que separa os espaços de trabalho é uma só — cada base de fechamento
+ * manda no que vive abaixo dela, o resto é Auditoria — e este teste a guarda
+ * nos pontos onde ela quebraria em silêncio: o prefixo que casa por engano
+ * (`/fechamentos` não é o ambiente), a base da Empurrada, que começa com a do
+ * Rota sem ser ela, e a raiz exata.
  */
 describe("ambienteDe", () => {
-  it("lê a raiz e tudo abaixo dela como Fechamento", () => {
-    expect(ambienteDe("/fechamento")).toBe("fechamento");
-    expect(ambienteDe("/fechamento/apuracao")).toBe("fechamento");
-    expect(ambienteDe("/fechamento/competencias")).toBe("fechamento");
+  it("lê a raiz do Rota e tudo abaixo dela como Fechamento Rota", () => {
+    expect(ambienteDe("/fechamento")).toBe("fechamento-rota");
+    expect(ambienteDe("/fechamento/apuracao")).toBe("fechamento-rota");
+    expect(ambienteDe("/fechamento/competencias")).toBe("fechamento-rota");
+  });
+
+  /*
+    `/fechamento-empurrada` começa com `/fechamento`, e é por isso que a
+    comparação do módulo é exata ou seguida de barra: com `startsWith` cru a
+    Empurrada inteira seria lida como Rota — mesmo endereço, menu errado e
+    nenhum erro na tela.
+  */
+  it("lê a base da Empurrada como Fechamento Empurrada, e não como Rota", () => {
+    expect(ambienteDe("/fechamento-empurrada")).toBe("fechamento-empurrada");
+    expect(ambienteDe("/fechamento-empurrada/apuracao")).toBe("fechamento-empurrada");
+    expect(ambienteDe("/fechamento-empurrada/competencias/abc")).toBe("fechamento-empurrada");
   });
 
   it("lê todo o resto como Auditoria — inclusive o quase-prefixo", () => {
@@ -29,9 +45,45 @@ describe("ambienteDe", () => {
   });
 });
 
+/**
+ * A base é o que faz o mesmo componente servir aos dois fechamentos: toda tela
+ * monta os próprios links a partir dela (`lib/base-do-fechamento.ts`).
+ */
+describe("baseDoFechamento", () => {
+  it("devolve a base do ambiente em que o endereço está", () => {
+    expect(baseDoFechamento("/fechamento/competencias/abc")).toBe("/fechamento");
+    expect(baseDoFechamento("/fechamento-empurrada/competencias/abc")).toBe(
+      "/fechamento-empurrada",
+    );
+  });
+
+  it("fora dos fechamentos devolve a do Rota, que ninguém chega a usar", () => {
+    expect(baseDoFechamento("/alteracoes")).toBe("/fechamento");
+  });
+
+  it("é a base de cada ambiente, e não uma segunda lista", () => {
+    for (const [id, base] of Object.entries(BASES_DE_FECHAMENTO)) {
+      expect(ambienteDe(base)).toBe(id);
+      expect(baseDoFechamento(`${base}/qualquer/coisa`)).toBe(base);
+    }
+  });
+});
+
+describe("ehFechamento", () => {
+  it("separa a Auditoria dos dois fechamentos", () => {
+    expect(ehFechamento("auditoria")).toBe(false);
+    expect(ehFechamento("fechamento-rota")).toBe(true);
+    expect(ehFechamento("fechamento-empurrada")).toBe(true);
+  });
+});
+
 describe("os ambientes", () => {
-  it("são dois, e a home de cada um vive no ambiente que ela abre", () => {
-    expect(AMBIENTES.map((a) => a.id)).toEqual(["auditoria", "fechamento"]);
+  it("são três, e a home de cada um vive no ambiente que ela abre", () => {
+    expect(AMBIENTES.map((a) => a.id)).toEqual([
+      "auditoria",
+      "fechamento-rota",
+      "fechamento-empurrada",
+    ]);
     for (const ambiente of AMBIENTES) {
       expect(ambienteDe(ambiente.home)).toBe(ambiente.id);
     }
@@ -39,7 +91,8 @@ describe("os ambientes", () => {
 
   it("descreve cada id com o próprio registro", () => {
     expect(descricaoDoAmbiente("auditoria").nome).toBe("Auditoria");
-    expect(descricaoDoAmbiente("fechamento").nome).toBe("Fechamento");
+    expect(descricaoDoAmbiente("fechamento-rota").nome).toBe("Fechamento Rota");
+    expect(descricaoDoAmbiente("fechamento-empurrada").nome).toBe("Fechamento Empurrada");
   });
 
   /*
@@ -48,9 +101,10 @@ describe("os ambientes", () => {
     voltar a ser uma tela de unidade, que é exatamente a regressão que a mudança
     de entrada existiu para desfazer.
   */
-  it("abre a Auditoria pela Visão Gerencial, como o Fechamento", () => {
+  it("abre a Auditoria pela Visão Gerencial, como os fechamentos", () => {
     expect(descricaoDoAmbiente("auditoria").home).toBe(ENTRADA_DA_AUDITORIA);
-    expect(descricaoDoAmbiente("fechamento").home).toBe("/fechamento");
+    expect(descricaoDoAmbiente("fechamento-rota").home).toBe("/fechamento");
+    expect(descricaoDoAmbiente("fechamento-empurrada").home).toBe("/fechamento-empurrada");
   });
 });
 

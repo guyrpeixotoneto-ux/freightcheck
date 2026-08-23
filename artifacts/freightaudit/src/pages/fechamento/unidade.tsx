@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, ArrowRight, Plus } from "lucide-react";
 import { Link, useLocation, useSearch } from "wouter";
 import { Layout } from "@/components/layout/layout";
+import { useBaseDoFechamento } from "@/lib/base-do-fechamento";
 import {
   EtiquetaDaSituacao,
   LegendaDasSituacoes,
@@ -81,6 +82,7 @@ function textoDoErro(erro: unknown): string {
  * número duas vezes na mesma caixa faria parecer que são dois.
  */
 function LinhaDaCompetencia({ linha }: { linha: ResumoDeApuracao }) {
+  const base = useBaseDoFechamento();
   const { competencia, apuracao } = linha;
   const conferido = apuracao ? percentualConferido(apuracao) : null;
   const detalhe = [
@@ -96,7 +98,7 @@ function LinhaDaCompetencia({ linha }: { linha: ResumoDeApuracao }) {
 
   return (
     <Link
-      href={`/fechamento/competencias/${competencia.id}`}
+      href={`${base}/competencias/${competencia.id}`}
       className="flex items-center justify-between gap-3 rounded px-2 py-1.5 -mx-2 hover:bg-muted/60 transition-colors"
     >
       <span className="min-w-0">
@@ -121,6 +123,7 @@ function LinhaDaCompetencia({ linha }: { linha: ResumoDeApuracao }) {
  * "abrir competência" seria cobrança de trabalho que ainda não é devido.
  */
 function CasaDaQuinzena({ quinzena }: { quinzena: QuinzenaDoAno }) {
+  const base = useBaseDoFechamento();
   const vazia = quinzena.competencias.length === 0;
   const conferido = percentualConferido(quinzena);
 
@@ -150,7 +153,7 @@ function CasaDaQuinzena({ quinzena }: { quinzena: QuinzenaDoAno }) {
             <>
               A quinzena terminou e nenhuma competência foi aberta para ela.{" "}
               <Link
-                href="/fechamento/competencias"
+                href={`${base}/competencias`}
                 className="text-primary hover:underline"
               >
                 Abrir agora
@@ -259,6 +262,7 @@ function ResumoDaUnidadeNoAno({
 }
 
 export default function UnidadeDoFechamento({ codigo }: { codigo: string }) {
+  const base = useBaseDoFechamento();
   const [, navegar] = useLocation();
   const busca = useSearch();
 
@@ -297,7 +301,7 @@ export default function UnidadeDoFechamento({ codigo }: { codigo: string }) {
     <Layout>
       <header className="border-b bg-card px-8 py-6">
         <Link
-          href="/fechamento"
+          href={base}
           className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
         >
           <ArrowLeft className="w-3.5 h-3.5" />
@@ -326,7 +330,7 @@ export default function UnidadeDoFechamento({ codigo }: { codigo: string }) {
                 value={String(ano)}
                 onValueChange={(v) =>
                   navegar(
-                    `/fechamento/unidades/${encodeURIComponent(codigo)}?ano=${v}`,
+                    `${base}/unidades/${encodeURIComponent(codigo)}?ano=${v}`,
                   )
                 }
               >
@@ -348,7 +352,7 @@ export default function UnidadeDoFechamento({ codigo }: { codigo: string }) {
                 </SelectContent>
               </Select>
             )}
-            <Link href="/fechamento/competencias">
+            <Link href={`${base}/competencias`}>
               <Button size="sm" variant="outline">
                 <Plus className="w-3.5 h-3.5 mr-1.5" />
                 Realizar Fechamento
@@ -380,13 +384,13 @@ export default function UnidadeDoFechamento({ codigo }: { codigo: string }) {
             <p>
               Abra a primeira em{" "}
               <Link
-                href="/fechamento/competencias"
+                href={`${base}/competencias`}
                 className="text-primary hover:underline"
               >
                 Importações
               </Link>
               , ou volte à{" "}
-              <Link href="/fechamento" className="text-primary hover:underline">
+              <Link href={base} className="text-primary hover:underline">
                 Visão Gerencial
               </Link>{" "}
               para ver as unidades que já têm.
