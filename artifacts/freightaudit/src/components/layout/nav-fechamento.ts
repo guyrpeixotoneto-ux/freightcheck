@@ -14,6 +14,7 @@ import {
   Stamp,
   Table2,
 } from "lucide-react";
+import { GRUPO_ADMINISTRACAO } from "./nav-administracao";
 import type { NavGroup } from "./nav";
 
 /**
@@ -168,5 +169,20 @@ export function navGroupsFechamento(base: string, nome: string): NavGroup[] {
       cor: "text-nav-fechamento",
       itens: [{ href: `${base}/historico`, label: "Histórico", icon: History }],
     },
+    /*
+      A sexta seção não é do processo: é a casa, a mesma que fecha a lateral da
+      Auditoria (`nav-administracao.ts`). Ela entra aqui porque o que ela guarda
+      — as unidades, os usuários, as integrações, os ajustes da instalação — é o
+      cadastro que os três ambientes consomem, e não o de nenhum deles. Trocar
+      para o Fechamento escondia justamente o cadastro da unidade que a apuração
+      lê, e quem estava fechando a competência precisava sair do fechamento para
+      alcançá-lo.
+
+      Os endereços dela são absolutos e não passam pela `base`, ao contrário de
+      todos os outros desta lista: `/unidades` é uma tela só, e não uma por
+      ambiente. Abrir um item daqui sai do fechamento de propósito — é sair do
+      processo para mexer na casa.
+    */
+    GRUPO_ADMINISTRACAO,
   ];
 }
