@@ -2,7 +2,6 @@ import { Link, useLocation, useSearch } from "wouter";
 import {
   ArrowRightLeft,
   BadgeCheck,
-  Building2,
   Bot,
   Briefcase,
   Calculator,
@@ -16,7 +15,6 @@ import {
   ClipboardCheck,
   ClipboardList,
   CloudDownload,
-  Cog,
   Container,
   Database,
   FileSearch,
@@ -32,13 +30,10 @@ import {
   LayoutDashboard,
   Layers,
   MapPin,
-  Plug,
   RefreshCcwDot,
   Route,
   Scale,
   ScanSearch,
-  Settings2,
-  Shield,
   ShieldCheck,
   ShoppingCart,
   SlidersVertical,
@@ -50,7 +45,6 @@ import {
   TrendingUp,
   TriangleAlert,
   Truck,
-  Users,
   UsersRound,
 } from "lucide-react";
 import {
@@ -81,6 +75,7 @@ import {
   useImportacoesEmAndamento,
 } from "./contadores";
 import type { NavGroup, NavItem } from "./nav";
+import { GRUPO_ADMINISTRACAO } from "./nav-administracao";
 import { navGroupsFechamento } from "./nav-fechamento";
 import { useSecoesRecolhidas } from "./preferencias";
 
@@ -352,27 +347,14 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/logs-sistema", label: "Logs de sistema", icon: SquareTerminal },
     ],
   },
-  {
-    titulo: "Administração",
-    descricao: "Unidades, usuários e ajustes da instalação",
-    icon: Cog,
-    cor: "text-nav-admin",
-    itens: [
-      { href: "/unidades", label: "Unidades", icon: Building2 },
-      /*
-        "Usuários" continua em `/configuracoes`, que é onde a tela sempre esteve
-        e para onde o menu da faixa vermelha e o assistente já apontam. A
-        Configurações desta lista — os ajustes da instalação — nasce em
-        `/ajustes` por isso: mudar o endereço de uma tela que funciona, para dar
-        o nome bonito a uma que ainda não existe, quebraria os dois links por
-        uma questão de nomenclatura.
-      */
-      { href: "/configuracoes", label: "Usuários", icon: Users },
-      { href: "/ajustes", label: "Configurações", icon: Settings2 },
-      { href: "/integracoes", label: "Integrações", icon: Plug },
-      { href: "/seguranca", label: "Segurança", icon: Shield },
-    ],
-  },
+  /*
+    A casa fecha a lista, e é a mesma lista que fecha a lateral do Fechamento —
+    ver `nav-administracao.ts`. O grupo saiu daqui para lá quando deixou de ser
+    exclusivo da Auditoria: unidades, usuários e ajustes da instalação são o que
+    os três ambientes consomem, e escondê-los ao trocar de ambiente tirava da
+    mão de quem fecha a competência o cadastro de que o fechamento depende.
+  */
+  GRUPO_ADMINISTRACAO,
 ];
 
 export function Sidebar({ open }: { open: boolean }) {

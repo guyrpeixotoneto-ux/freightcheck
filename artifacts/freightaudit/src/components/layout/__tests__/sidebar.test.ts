@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { GRUPO_ADMINISTRACAO } from "../nav-administracao";
 import { navGroupsFechamento } from "../nav-fechamento";
 import { barraMobile } from "../nav-mobile";
 import { etapasDoFechamento } from "@/pages/fechamento/etapas";
@@ -27,14 +28,29 @@ const raiz = path.resolve(import.meta.dirname, "../../..");
 const fonte = (relativo: string) =>
   readFileSync(path.join(raiz, relativo), "utf8");
 
-/** Os `href:` da lateral da Auditoria — os itens do menu, sem os atalhos internos. */
-function hrefsDoMenu(): string[] {
+/** O trecho de `sidebar.tsx` onde a lista da Auditoria é escrita. */
+function listaDaAuditoria(): string {
   const texto = fonte("components/layout/sidebar.tsx");
-  const lista = texto.slice(
+  return texto.slice(
     texto.indexOf("const NAV_GROUPS"),
     texto.indexOf("export function Sidebar"),
   );
-  return [...lista.matchAll(/href:\s*"([^"]+)"/g)].map((m) => m[1]);
+}
+
+/**
+ * Os `href:` da lateral da Auditoria — os itens do menu, sem os atalhos
+ * internos.
+ *
+ * A Administração não é literal no arquivo desde que passou a ser a mesma
+ * seção nos três ambientes (`nav-administracao.ts`); os itens dela entram aqui
+ * pelo módulo, como os do Fechamento, para que este teste continue conferindo
+ * a lateral inteira contra o roteador.
+ */
+function hrefsDoMenu(): string[] {
+  return [
+    ...[...listaDaAuditoria().matchAll(/href:\s*"([^"]+)"/g)].map((m) => m[1]),
+    ...GRUPO_ADMINISTRACAO.itens.map((item) => item.href),
+  ];
 }
 
 /**
@@ -171,20 +187,32 @@ describe("a lateral", () => {
     );
   });
 
-  it("não repete um endereço em dois itens", () => {
-    const hrefs = [...hrefsDoMenu(), ...hrefsDoMenuDoFechamento()];
-
-    expect(hrefs).toHaveLength(new Set(hrefs).size);
+  /*
+    A conferência é por lateral, e não sobre as duas somadas: a Administração é
+    de propósito a mesma seção nas duas (`nav-administracao.ts`), então os
+    endereços dela aparecem nos dois lados. O que não pode haver é o mesmo
+    endereço em dois itens *da mesma lista* — aí um dos dois é engano.
+  */
+  it("não repete um endereço em dois itens da mesma lateral", () => {
+    for (const hrefs of [hrefsDoMenu(), hrefsDoMenuDoFechamento()]) {
+      expect(hrefs).toHaveLength(new Set(hrefs).size);
+    }
   });
 
   it("mantém as nove seções do desenho, na ordem", () => {
-    const texto = fonte("components/layout/sidebar.tsx");
-    const lista = texto.slice(
-      texto.indexOf("const NAV_GROUPS"),
-      texto.indexOf("export function Sidebar"),
-    );
+    const lista = listaDaAuditoria();
+    /*
+      Oito títulos são literais no arquivo; o nono — a Administração — é o grupo
+      compartilhado, escrito ali como `GRUPO_ADMINISTRACAO`. Somá-lo pelo módulo
+      é o que faz o teste conferir a lista que a lateral monta, e não a grafia
+      de quem a escreveu.
+    */
+    const titulos = [
+      ...[...lista.matchAll(/titulo:\s*"([^"]+)"/g)].map((m) => m[1]),
+      ...(lista.includes("GRUPO_ADMINISTRACAO") ? [GRUPO_ADMINISTRACAO.titulo] : []),
+    ];
 
-    expect([...lista.matchAll(/titulo:\s*"([^"]+)"/g)].map((m) => m[1])).toEqual([
+    expect(titulos).toEqual([
       "Visão executiva",
       /*
         Compras vem antes de Auditoria porque é um portão antes de o dinheiro
@@ -214,7 +242,7 @@ describe("a lateral", () => {
     o cadastro da unidade, que a apuração consome. Entre Fechamento e Apuração é
     onde ela é consultada, e é onde ela fica.
   */
-  it("mantém as cinco seções do Fechamento, na ordem do processo", () => {
+  it("mantém as cinco seções do Fechamento, na ordem do processo, e a casa no fim", () => {
     /*
       A primeira seção leva o nome do ambiente: é ali que o menu diz em qual dos
       dois fechamentos se está, já que as outras quatro são idênticas nos dois.
@@ -225,20 +253,57 @@ describe("a lateral", () => {
       "Apuração",
       "Decisão",
       "Registro",
+      /*
+        A sexta não é do processo: é a casa, a mesma seção que fecha a lateral
+        da Auditoria. Ela fica no fim porque é onde ela está lá — quem aprendeu
+        que Administração é a última linha continua achando na última linha,
+        troque de ambiente quantas vezes trocar.
+      */
+      "Administração",
     ]);
   });
 
   /*
-    Todo item do menu do Fechamento vive sob a base do ambiente — é o prefixo
-    que o define (`lib/ambiente.ts`). Um item fora dela mudaria de ambiente ao
-    ser clicado, e a lateral trocaria embaixo do clique.
+    Todo item do processo vive sob a base do ambiente — é o prefixo que o define
+    (`lib/ambiente.ts`). Um item fora dela mudaria de ambiente ao ser clicado, e
+    a lateral trocaria embaixo do clique.
+
+    A Administração é a única exceção, e é exceção por desenho: as telas dela
+    não têm versão por ambiente (`nav-administracao.ts`), então os endereços são
+    absolutos e sair do fechamento ao abrir uma delas é o comportamento
+    pretendido. O teste confere as duas metades da regra — nenhuma seção do
+    processo escapa da base, e a única que escapa é a casa.
   */
-  it("não põe, no menu do Fechamento, nenhum endereço fora da base", () => {
-    const fora = hrefsDoMenuDoFechamento().filter(
-      (href) => href !== BASE && !href.startsWith(`${BASE}/`),
-    );
+  it("não põe, nas seções do processo, nenhum endereço fora da base", () => {
+    const grupos = navGroupsFechamento(BASE, "Fechamento Rota");
+    const doProcesso = grupos.filter((g) => g.titulo !== GRUPO_ADMINISTRACAO.titulo);
+    const fora = doProcesso
+      .flatMap((g) => g.itens.map((item) => item.href))
+      .filter((href) => href !== BASE && !href.startsWith(`${BASE}/`));
 
     expect(fora).toEqual([]);
+    expect(doProcesso).toHaveLength(grupos.length - 1);
+  });
+
+  /*
+    A casa é a mesma nos três ambientes: os mesmos itens, na mesma ordem, com os
+    mesmos endereços. Era isso que faltava enquanto ela vivia só na lista da
+    Auditoria — trocar para um fechamento escondia o cadastro de que o
+    fechamento depende.
+  */
+  it("põe a mesma Administração nos três ambientes", () => {
+    const daAuditoria = GRUPO_ADMINISTRACAO.itens.map((item) => item.href);
+
+    for (const base of Object.values(BASES_DE_FECHAMENTO)) {
+      const casa = navGroupsFechamento(base, "Fechamento").find(
+        (g) => g.titulo === GRUPO_ADMINISTRACAO.titulo,
+      );
+
+      expect(casa?.itens.map((item) => item.href)).toEqual(daAuditoria);
+    }
+
+    /* E os itens dela continuam sendo os que a lista da Auditoria oferece. */
+    expect(daAuditoria.filter((href) => !hrefsDoMenu().includes(href))).toEqual([]);
   });
 
   /*
