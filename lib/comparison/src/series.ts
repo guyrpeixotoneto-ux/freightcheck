@@ -58,6 +58,38 @@ export function channelSql(labelColumn: string) {
 export { channelOf };
 
 /**
+ * Uma vigência conta para navegação só se tiver algo além de Trecho.
+ *
+ * ---------------------------------------------------------------------------
+ * Por que este predicado existe
+ * ---------------------------------------------------------------------------
+ * Trecho não é uma entrega de calendário própria — normalmente ele chega
+ * fundido à vigência de equipamento da mesma data (`promote` funde
+ * componentes novos com os que a revisão anterior já tinha). Quando ele chega
+ * **sozinho**, numa data em que ainda não há cavalo nem carreta, a vigência que
+ * nasce é uma casca: `entity_type_set = 'TRECHO'`, sem frota nenhuma.
+ *
+ * Sem este predicado, essa casca contava como vigência para tudo que lista
+ * "quando": virava a vigência mais recente do contexto, o Resumo executivo
+ * abria nela com zero veículo, e o mês duplicava no seletor — `agosto/2026` e
+ * `agosto/2026`, sem nada que as diferenciasse (a segunda entrada era essa
+ * casca, com o rótulo ainda não desambiguado). O trecho em si nunca foi o
+ * problema, e continua correto no banco e legível na composição de qualquer
+ * vigência que o tenha (`tipos-da-vigencia.ts`, que **não** usa este
+ * predicado — ele responde "o que existe nesta data", e uma casca de trecho
+ * existe). O problema era a casca se comportar como se fosse uma entrega
+ * própria nas telas que respondem "quando".
+ *
+ * A régua é literal: um `entity_type_set` que é **só** `TRECHO` não conta.
+ * Fundido com qualquer outra coisa — `CAVALO+TRECHO`, `CARRETA+CAVALO+TRECHO`
+ * — ele conta normalmente, porque aí ele é o que sempre foi: um componente a
+ * mais da vigência do equipamento.
+ */
+export function naoEhSoTrecho(snapshotAlias: string) {
+  return sql`${sql.raw(`${snapshotAlias}.entity_type_set`)} <> 'TRECHO'`;
+}
+
+/**
  * O recorte temporal de uma leitura: **de qual vigência até qual**.
  *
  * As duas pontas são inclusivas e são datas de vigências que o contexto de fato
@@ -207,10 +239,30 @@ export async function listContexts(
    * inalcançável pela tela. Um padrão que devolve tudo não é neutro: ele é a
    * escolha de misturar.
    */
-  opts?: { datasetFamily?: string },
+  opts?: {
+    datasetFamily?: string;
+    /**
+     * Inclui a casca de trecho sozinho como vigência entregue. Padrão: fora.
+     *
+     * A casca — `entity_type_set = 'TRECHO'`, sem cavalo nem carreta — não é
+     * uma entrega própria para quem navega por vigência: o Resumo executivo, a
+     * barra lateral, a tela de Unidades, Parâmetros, Comparar Vigências e o
+     * assistente todos leem "quando a unidade entregou" para decidir a mais
+     * recente e povoar o seletor, e a casca virando "a mais recente" foi
+     * exatamente o defeito que motivou `naoEhSoTrecho`.
+     *
+     * A remuneração é a exceção, e a única chamadora que passa `true`. Ela
+     * modela — e testa — a unidade cujo **cadastro** existe só de trecho: o
+     * arquivo de cavalo ainda não chegou, mas ICMS/ISS do trecho já bastam para
+     * uma linha de cadastro. Para ela a casca não é ruído, é o próprio dado —
+     * ver `lib/remuneracao/src/leitura.ts`, `contextosEProcedencia`.
+     */
+    incluirCascaDeTrecho?: boolean;
+  },
 ): Promise<ContextInfo[]> {
   const datasetFamily = opts?.datasetFamily ?? DATASET_FAMILY_REMUNERACAO_EQUIPAMENTO;
   const familia = sql` AND ${datasetFamilyFilter("s", datasetFamily)}`;
+  const semCasca = opts?.incluirCascaDeTrecho ? sql`` : sql` AND ${naoEhSoTrecho("s")}`;
 
   const { rows } = await db.execute<{
     scope_hash: string;
@@ -226,7 +278,7 @@ export async function listContexts(
            array_agg(DISTINCT s.effective_date::text ORDER BY s.effective_date::text)
              AS all_periods
       FROM snapshot s
-     WHERE s.status <> 'SUPERSEDED'${familia}
+     WHERE s.status <> 'SUPERSEDED'${familia}${semCasca}
      GROUP BY 1, 2
      ORDER BY max(s.effective_date) DESC, s.scope_hash, 2 NULLS LAST
   `);

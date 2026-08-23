@@ -13,9 +13,19 @@
  * disciplina de `escopos.ts` e `importacoes.ts`.
  */
 
-import { ehFiltroDeTipo, TODOS_OS_TIPOS, type FiltroDeTipo } from "@workspace/comparison/tipos";
+import {
+  ehFiltroDeTipo,
+  TIPOS_DE_ANALISE,
+  TODOS_OS_TIPOS,
+  type DefinicaoDeTipoDeAnalise,
+  type FiltroDeTipo,
+} from "@workspace/comparison/tipos";
 import { ehEscopo, type EscopoCode } from "@/lib/escopos";
-import type { FamiliesView, TipoNaVigencia } from "@/components/inicio/types";
+import type {
+  ComposicaoDaVigencia,
+  FamiliesView,
+  TipoNaVigencia,
+} from "@/components/inicio/types";
 
 /**
  * O tipo escolhido, lido do endereço. `null` é **Todos**.
@@ -56,4 +66,39 @@ export function tipoAusenteNaVigencia(
 ): TipoNaVigencia | null {
   if (!view || escopo === null) return null;
   return view.composicao?.tipos.find((t) => t.code === escopo && !t.presente) ?? null;
+}
+
+/**
+ * Os tipos que a barra oferece como análise — os seis do catálogo, sem Trecho.
+ *
+ * Trecho continua correto no banco e continua lido junto com o equipamento
+ * pela remuneração (`@workspace/remuneracao/leitura`); ele só deixa de ser uma
+ * opção de análise **nesta tela**. A vigência que só tem trecho, além disso,
+ * não navega mais até aqui — ela para de contar como vigência em
+ * `listContexts`/`listPeriods` (`@workspace/comparison/series`,
+ * `@workspace/comparison/consolidated`), pela mesma razão dita lá: trecho
+ * sozinho é uma casca, não uma entrega própria. As duas coisas são
+ * independentes por design — um dia em que Trecho voltar a ser uma pergunta
+ * desta tela, é aqui que ele reaparece, sem mexer na navegação.
+ */
+export const TIPOS_NA_BARRA: DefinicaoDeTipoDeAnalise[] = TIPOS_DE_ANALISE.filter(
+  (t) => t.code !== "TRECHO",
+);
+
+/**
+ * A composição, sem a linha de Trecho — só para a barra e a faixa desta tela.
+ *
+ * Filtrar a resposta do servidor em vez de escrever uma segunda apuração é o
+ * que impede as duas contagens — a do banco e a desta tela — de discordarem em
+ * qualquer coisa além da presença do trecho. `vazia` é recalculada sobre o
+ * conjunto filtrado: uma vigência cujo único tipo fosse trecho ficaria "vazia"
+ * aqui mesmo que `composicao.vazia` do servidor dissesse que não.
+ */
+export function semTrechoNaBarra(
+  composicao: ComposicaoDaVigencia | null | undefined,
+): ComposicaoDaVigencia | null {
+  if (!composicao) return null;
+  const tipos = composicao.tipos.filter((t) => t.code !== "TRECHO");
+  const presentes = tipos.filter((t) => t.presente);
+  return { tipos, presentes, vazia: presentes.length === 0 };
 }

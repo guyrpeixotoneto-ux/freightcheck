@@ -62,13 +62,14 @@ import {
   type OrdemCode,
 } from "@/lib/escopos";
 import {
+  TIPOS_NA_BARRA,
+  semTrechoNaBarra,
   tipoAusenteNaVigencia,
   tipoDoEndereco,
   valorDoSeletor,
 } from "@/lib/tipo-da-tela";
 import {
   FAMILIA_QUADRO_DE_PESSOAL,
-  TIPOS_DE_ANALISE,
   TODOS_OS_TIPOS,
   contagemDoTipo,
   type FiltroDeTipo,
@@ -622,7 +623,7 @@ function ComposicaoDaTela({
   view: FamiliesView;
   tipo: EscopoCode | null;
 }) {
-  const composicao = view.composicao;
+  const composicao = semTrechoNaBarra(view.composicao);
   if (!composicao) return null;
 
   const escolhido =
@@ -1397,9 +1398,13 @@ function BarraFiltro({
     `composicao` pode faltar numa resposta antiga (ou num mock), e aí o campo
     Tipo continua funcionando com todos os tipos escritos como ausentes: é a
     leitura honesta de "o servidor não disse", e não um seletor que some.
+
+    `semTrechoNaBarra` tira o trecho de tudo aqui: ele não é uma opção de
+    análise nesta tela — ver `tipo-da-tela.ts`.
   */
-  const porTipo = new Map((view.composicao?.tipos ?? []).map((t) => [t.code, t]));
-  const presentes = view.composicao?.presentes ?? [];
+  const composicaoDaBarra = semTrechoNaBarra(view.composicao);
+  const porTipo = new Map((composicaoDaBarra?.tipos ?? []).map((t) => [t.code, t]));
+  const presentes = composicaoDaBarra?.presentes ?? [];
   const escolhido = tipo === TODOS_OS_TIPOS ? null : porTipo.get(tipo);
   const notaDoTipo =
     escolhido === undefined || escolhido === null
@@ -1493,7 +1498,8 @@ function BarraFiltro({
       {/*
         Tipo — o eixo "o quê", ao lado dos três que a tela já tinha.
 
-        Todos os seis aparecem sempre, e os que a vigência não tem aparecem
+        Cinco dos seis do catálogo aparecem sempre — Trecho fica fora desta
+        barra, ver `TIPOS_NA_BARRA` — e os que a vigência não tem aparecem
         **escritos como ausentes** em vez de sumirem. Some-los pareceria uma
         tela sem opção; escrevê-los é o que permite escolher "Cavalo" numa
         vigência sem cavalo e receber a frase certa — com o caminho para a
@@ -1510,7 +1516,7 @@ function BarraFiltro({
             <SelectItem value={TODOS_OS_TIPOS}>
               Todos{presentes.length > 0 ? ` (${presentes.length})` : ""}
             </SelectItem>
-            {TIPOS_DE_ANALISE.map((definicao) => {
+            {TIPOS_NA_BARRA.map((definicao) => {
               const naVigencia = porTipo.get(definicao.code);
               return (
                 <SelectItem key={definicao.code} value={definicao.code}>
