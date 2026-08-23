@@ -9,6 +9,10 @@ import {
   type Proximo,
   type Significado,
 } from "@workspace/curation/significado";
+import {
+  ehLinhaCadastral,
+  podeRepetirOSintetico,
+} from "@workspace/curation/linha-da-dre";
 
 /**
  * O que a tela "Confirmar interpretação do campo" decide — sem React.
@@ -85,6 +89,27 @@ export interface OpcaoDeSintetico {
   nome: string;
   categorias: number;
   isSeed: boolean;
+}
+
+/**
+ * A tela pode oferecer o analítico que repete o sintético?
+ *
+ * Só no cadastral, e só enquanto ele ainda não existe. A regra de quem pode
+ * repetir mora em `@workspace/curation/linha-da-dre`, junto com a do cadastro
+ * que grava — uma cópia dela aqui viraria, no primeiro ajuste, um botão que a
+ * tela oferece e o servidor recusa.
+ *
+ * A segunda condição é o que impede a lista de terminar em duas opções com o
+ * mesmo nome: criada a repetição, ela passa a ser uma opção como qualquer
+ * outra, e oferecer "criar" ao lado dela seria oferecer a duplicata.
+ */
+export function podeRepetirNoAnalitico(
+  sintetico: OpcaoDeSintetico | null,
+  visiveis: OpcaoDeCategoria[],
+): boolean {
+  if (sintetico === null) return false;
+  if (!ehLinhaCadastral(sintetico.nome)) return false;
+  return !visiveis.some((c) => podeRepetirOSintetico(c.name, sintetico.nome));
 }
 
 /** O que a família já tem dentro, dito na segunda linha da opção. */

@@ -535,3 +535,93 @@ describe("linhas sintéticas — o primeiro nível da DRE, também cadastrável"
     ).rejects.toThrow(/responsável identificado/);
   });
 });
+
+/**
+ * A exceção do homônimo — e por que ela é uma só.
+ *
+ * A regra geral, testada acima nos dois sentidos, é que nada se chama como a
+ * linha que o totaliza: dois nós de mesmo nome em alturas diferentes não se
+ * distinguem em relatório nenhum. A linha cadastral é a única em que a regra
+ * cobra mais do que protege — ela não se desdobra, não soma em total nenhum, e
+ * exigir um analítico ali obriga quem cura a inventar um nível que a DRE não
+ * tem.
+ */
+describe("o analítico que repete o sintético — só no cadastral", () => {
+  it("repete a linha cadastral, com código próprio e autor", async () => {
+    const r = await criarCategoria(ctx.db, {
+      name: "Cadastro e identificação",
+      sintetico: "cadastro",
+      actor: ATOR,
+    });
+    expect(r.desfecho).toBe("CRIADO");
+    expect(r.item).toMatchObject({
+      code: "cadastro_proprio",
+      name: "Cadastro e identificação",
+      caminho: "Cadastro e identificação › Cadastro e identificação",
+      sintetico: "Cadastro e identificação",
+      analitico: "Cadastro e identificação",
+    });
+
+    const [linha] = await ctx.db
+      .select()
+      .from(taxonomyNodeTable)
+      .where(eq(taxonomyNodeTable.code, "cadastro_proprio"));
+    expect(linha.createdBy).toBe(ATOR);
+    expect(linha.path).toBe("natureza/cadastro/cadastro_proprio");
+
+    const eventos = await ctx.db
+      .select()
+      .from(curationEventTable)
+      .where(eq(curationEventTable.targetId, linha.id));
+    expect(eventos[0].actor).toBe(ATOR);
+    expect(eventos[0].reason).toContain("repete o sintético");
+  });
+
+  it("pedir de novo devolve a que existe, a menos de acento e caixa", async () => {
+    const antes = (await listarCategorias(ctx.db)).length;
+    const r = await criarCategoria(ctx.db, {
+      name: "cadastro e identificacao",
+      sintetico: "cadastro",
+      actor: ATOR,
+    });
+    expect(r.desfecho).toBe("JA_EXISTE");
+    expect(r.item?.code).toBe("cadastro_proprio");
+    expect((await listarCategorias(ctx.db)).length).toBe(antes);
+  });
+
+  /**
+   * O limite da exceção. Sem ele, digitar o nome de uma linha da DRE com outra
+   * escolhida criaria dentro dela o nó ambíguo que a regra geral impede — e
+   * "Consumo e operação" passaria a existir em duas alturas da árvore.
+   */
+  it("a linha que remunera continua recusando o próprio nome", async () => {
+    const r = await criarCategoria(ctx.db, {
+      name: "Consumo e operação",
+      sintetico: "operacao",
+      actor: ATOR,
+    });
+    expect(r.desfecho).toBe("JA_EXISTE");
+    expect(r.item).toBeNull();
+    expect(r.mensagem).toContain("é uma linha da DRE");
+  });
+
+  /**
+   * E a repetição não vira porta de entrada para o homônimo em outro galho: com
+   * "Consumo e operação" escolhido, o nome cadastral devolve a categoria que já
+   * existe — dentro do cadastral, de onde ela nunca saiu — em vez de nascer uma
+   * segunda vez debaixo da operação.
+   */
+  it("e o cadastral só se repete dentro de si mesmo", async () => {
+    const r = await criarCategoria(ctx.db, {
+      name: "Cadastro e identificação",
+      sintetico: "operacao",
+      actor: ATOR,
+    });
+    expect(r.desfecho).toBe("JA_EXISTE");
+    expect(r.item?.code).toBe("cadastro_proprio");
+    const dentroDeOperacao = (await listarCategorias(ctx.db)).filter(
+      (c) => c.sintetico === "Consumo e operação",
+    );
+    expect(dentroDeOperacao.map((c) => c.name)).not.toContain("Cadastro e identificação");
+  });
+});

@@ -1,5 +1,6 @@
 export * from "./agregacao";
 export * from "./significado";
+export * from "./linha-da-dre";
 export * from "./catalogo";
 export * from "./semantics";
 export * from "./taxonomy";

@@ -7,6 +7,7 @@ import {
   motivoDoVazio,
   oQueFalta,
   podeConfirmar,
+  podeRepetirNoAnalitico,
   precisaDoPeriodo,
   previaDaCriacao,
   resumo,
@@ -383,6 +384,67 @@ describe("a família, lida no campo do sintético", () => {
       isSeed: false,
     });
     expect(leituraDoSintetico(nova)).toBe("nenhuma categoria ainda");
+  });
+});
+
+describe("o analítico que repete o sintético — só na linha que não remunera", () => {
+  const linha = (code: string, nome: string): OpcaoDeSintetico => ({
+    id: code,
+    code,
+    nome,
+    categorias: 0,
+    isSeed: true,
+  });
+
+  /*
+    A linha cadastral não se desdobra: placa, CNPJ e vigência não somam em total
+    nenhum, e o detalhe dentro dela não muda número em tela alguma. Exigir um
+    analítico ali obriga quem cura a inventar um nível que a DRE não tem — e o
+    que se inventa por obrigação é a aproximação silenciosa que esta tela existe
+    para não pedir.
+  */
+  it("oferece a repetição no cadastral", () => {
+    expect(podeRepetirNoAnalitico(linha("cadastro", "Cadastro e identificação"), [])).toBe(
+      true,
+    );
+    // Como a base de produção a escreve, parênteses inclusos.
+    expect(
+      podeRepetirNoAnalitico(linha("cadastral", "Cadastral (não remuneratório)"), []),
+    ).toBe(true);
+  });
+
+  it("não oferece nas linhas que totalizam dinheiro", () => {
+    expect(podeRepetirNoAnalitico(linha("operacao", "Consumo e operação"), [])).toBe(false);
+    expect(podeRepetirNoAnalitico(linha("capital", "Capital e financiamento"), [])).toBe(
+      false,
+    );
+  });
+
+  it("sem sintético escolhido não há o que repetir", () => {
+    expect(podeRepetirNoAnalitico(null, CATEGORIAS)).toBe(false);
+  });
+
+  /*
+    Criada a repetição, ela é uma opção como qualquer outra. Continuar
+    oferecendo "criar" ao lado dela seria oferecer a duplicata — e a lista
+    terminaria com dois itens de mesmo nome, que é justamente o que a regra do
+    homônimo existe para impedir.
+  */
+  it("deixa de oferecer depois que a repetição existe", () => {
+    const cadastral = linha("cadastral", "Cadastral (não remuneratório)");
+    const repetida = categoria(
+      "9",
+      "cadastral_proprio",
+      "Cadastral (não remuneratório) › Cadastral (não remuneratório)",
+      "cadastral",
+    );
+    expect(podeRepetirNoAnalitico(cadastral, [repetida])).toBe(false);
+    // A menos de acento e caixa, como todo o resto do cadastro.
+    expect(
+      podeRepetirNoAnalitico(cadastral, [
+        { ...repetida, name: "cadastral (nao remuneratorio)" },
+      ]),
+    ).toBe(false);
   });
 });
 
