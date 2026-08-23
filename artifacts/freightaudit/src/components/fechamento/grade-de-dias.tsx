@@ -1,6 +1,7 @@
 import { Link } from "wouter";
 import { formatBrlCompacto, formatNumber } from "@/lib/format";
 import { DIAS_DA_SEMANA, type DiaDaOperacao } from "@/lib/fechamento";
+import { useBaseDoFechamento } from "@/lib/base-do-fechamento";
 
 /**
  * A grade de dias da quinzena — a porta de entrada do diário.
@@ -34,11 +35,12 @@ export function GradeDeDias({
 }
 
 function Ladrilho({ competenciaId, dia }: { competenciaId: string; dia: DiaDaOperacao }) {
+  const base = useBaseDoFechamento();
   const rodou = dia.totais.viagens > 0;
 
   return (
     <Link
-      href={`/fechamento/competencias/${competenciaId}/dias/${dia.dia}`}
+      href={`${base}/competencias/${competenciaId}/dias/${dia.dia}`}
       className={`rounded-lg border p-3 transition-colors block ${
         rodou
           ? "bg-card hover:border-primary/50 hover:bg-muted/50"

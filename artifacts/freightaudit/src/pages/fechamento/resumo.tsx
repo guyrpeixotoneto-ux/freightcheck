@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
 import { ArrowRight, Scale } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
+import { useBaseDoFechamento } from "@/lib/base-do-fechamento";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { apresentar } from "@/lib/apresentar-erro";
@@ -104,6 +105,7 @@ function dinheiro(valor: number | null): string {
 }
 
 export default function ResumoGeral() {
+  const base = useBaseDoFechamento();
   const busca = useSearch();
   const [, navegar] = useLocation();
   const parametros = useMemo(() => new URLSearchParams(busca), [busca]);
@@ -125,7 +127,7 @@ export default function ResumoGeral() {
   const trocar = (campo: string, valor: string) => {
     const proximos = new URLSearchParams(parametros);
     proximos.set(campo, valor);
-    navegar(`/fechamento/resumo?${proximos.toString()}`);
+    navegar(`${base}/resumo?${proximos.toString()}`);
   };
 
   const alvo = { unidade, transportadora, tipoDeOperacao, ano, mes };
@@ -161,7 +163,7 @@ export default function ResumoGeral() {
         */}
         <p className="text-sm mt-3">
           <Link
-            href={`/fechamento/conciliacao?${parametros.toString()}`}
+            href={`${base}/conciliacao?${parametros.toString()}`}
             className="inline-flex items-center gap-1.5 text-primary hover:underline"
           >
             <Scale className="w-4 h-4" />
@@ -259,6 +261,7 @@ function Corpo({
   aba: Aba;
   trocar: (campo: string, valor: string) => void;
 }) {
+  const base = useBaseDoFechamento();
   const vazio = resumo.canais.length === 0;
   const motivo = motivoDoVazio(resumo.quinzenas);
   /*
@@ -331,7 +334,7 @@ function Corpo({
                     <>
                       {" · "}
                       <Link
-                        href={`/fechamento/competencias/${q.competenciaId}`}
+                        href={`${base}/competencias/${q.competenciaId}`}
                         className="inline-flex items-center gap-1 underline hover:text-foreground"
                       >
                         abrir <ArrowRight className="w-3 h-3" />
@@ -364,7 +367,7 @@ function Corpo({
                   <>
                     Abra a quinzena em{" "}
                     <Link
-                      href="/fechamento/competencias"
+                      href={`${base}/competencias`}
                       className="text-primary hover:underline"
                     >
                       Importações
@@ -395,7 +398,7 @@ function Corpo({
                     operação cada fechamento antigo era. Se não é o caso, abra a
                     quinzena em{" "}
                     <Link
-                      href="/fechamento/competencias"
+                      href={`${base}/competencias`}
                       className="text-primary hover:underline"
                     >
                       Importações
@@ -413,7 +416,7 @@ function Corpo({
                 foi apurada ainda — é a apuração que produz as verbas que este
                 resumo soma. Rode-a em{" "}
                 <Link
-                  href="/fechamento/competencias"
+                  href={`${base}/competencias`}
                   className="text-primary hover:underline"
                 >
                   Importações

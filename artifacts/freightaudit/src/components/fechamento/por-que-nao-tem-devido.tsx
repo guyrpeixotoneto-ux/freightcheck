@@ -1,6 +1,7 @@
 import { Link } from "wouter";
 
 import { AssociarUnidade } from "@/components/fechamento/associar-unidade";
+import { useBaseDoFechamento } from "@/lib/base-do-fechamento";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { apresentar } from "@/lib/apresentar-erro";
 import {
@@ -66,6 +67,7 @@ export function PorQueNaoTemDevido({
     respondida e a 2ª sem aba precisa ler sobre a 2ª. Sem esta escolha a tela
     mostraria a primeira que falhou, que costuma ser a menos informativa.
   */
+  const base = useBaseDoFechamento();
   const escolhido = maisAdiantado(cadastro);
   const diagnostico = escolhido?.diagnostico ?? null;
 
@@ -132,7 +134,7 @@ export function PorQueNaoTemDevido({
         */}
         <p>
           <Link
-            href="/fechamento/remuneracao"
+            href={`${base}/remuneracao`}
             className="text-primary hover:underline"
           >
             {diagnostico.estado === "UNIDADE_NAO_ENCONTRADA" ||

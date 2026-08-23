@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { ArrowRight, ChevronRight, Lock } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
+import { useBaseDoFechamento } from "@/lib/base-do-fechamento";
 import { ContaApurada } from "@/components/fechamento/conta-apurada";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Filtro, TUDO } from "@/components/fechamento/filtro";
@@ -264,12 +265,14 @@ function ContaDaLinha({
 
 /** O que dizer quando não há conta — e para onde ir fazer uma. */
 function SemApuracao({ competenciaId }: { competenciaId: string }) {
+  const base = useBaseDoFechamento();
+
   return (
     <p className="text-sm text-muted-foreground">
       Esta competência ainda não apurou — e apurar é um botão, dentro da
       competência, porque rodar grava.{" "}
       <Link
-        href={`/fechamento/competencias/${competenciaId}`}
+        href={`${base}/competencias/${competenciaId}`}
         className="text-primary hover:underline"
       >
         Abra a competência
@@ -280,6 +283,7 @@ function SemApuracao({ competenciaId }: { competenciaId: string }) {
 }
 
 export default function Apuracoes() {
+  const base = useBaseDoFechamento();
   const [quinzena, setQuinzena] = useState(TUDO);
   const [unidade, setUnidade] = useState(TUDO);
   const [transportadora, setTransportadora] = useState(TUDO);
@@ -422,7 +426,7 @@ export default function Apuracoes() {
             <p>
               Abra a primeira em{" "}
               <Link
-                href="/fechamento/competencias"
+                href={`${base}/competencias`}
                 className="text-primary hover:underline"
               >
                 Importações
@@ -678,7 +682,7 @@ export default function Apuracoes() {
                                     pergunta seguinte aparece.
                                   */}
                                     <Link
-                                      href={`/fechamento/competencias/${c.id}`}
+                                      href={`${base}/competencias/${c.id}`}
                                       className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
                                     >
                                       Abrir a competência — relatórios, dias e

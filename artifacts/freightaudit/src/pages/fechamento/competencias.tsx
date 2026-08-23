@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { ApiErrorNotice } from "@/components/api-error";
 import { Layout } from "@/components/layout/layout";
+import { useBaseDoFechamento } from "@/lib/base-do-fechamento";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -292,6 +293,7 @@ export function edicaoDoTipo(
  * abertos ao mesmo tempo convidam a fechar a quinzena errada.
  */
 export default function Competencias() {
+  const base = useBaseDoFechamento();
   const [, navegar] = useLocation();
   const cliente = useQueryClient();
   const hoje = new Date();
@@ -428,7 +430,7 @@ export default function Competencias() {
         queryKey: ["fechamento", "competencias"],
       });
       void cliente.invalidateQueries({ queryKey: ["fechamento", "partes"] });
-      navegar(`/fechamento/competencias/${criada.id}`);
+      navegar(`${base}/competencias/${criada.id}`);
     },
   });
 
@@ -781,7 +783,7 @@ export default function Competencias() {
                   <li key={c.id}>
                     <div className="flex items-center gap-3">
                       <Link
-                        href={`/fechamento/competencias/${c.id}`}
+                        href={`${base}/competencias/${c.id}`}
                         className="flex min-w-0 flex-1 items-center justify-between gap-4 py-3 hover:bg-muted/50 -mx-2 px-2 rounded"
                       >
                         <div className="min-w-0">

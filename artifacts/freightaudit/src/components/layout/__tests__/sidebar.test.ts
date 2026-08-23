@@ -1,6 +1,9 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { navGroupsFechamento } from "../nav-fechamento";
+import { etapasDoFechamento } from "@/pages/fechamento/etapas";
+import { BASES_DE_FECHAMENTO } from "@/lib/ambiente";
 
 /**
  * O teste que guarda a única promessa que a lateral faz: **clicar leva a algum
@@ -33,10 +36,30 @@ function hrefsDoMenu(): string[] {
   return [...lista.matchAll(/href:\s*"([^"]+)"/g)].map((m) => m[1]);
 }
 
-/** Os `href:` da lateral do Fechamento, que vive em arquivo próprio. */
+/**
+ * A base sobre a qual este teste confere os dois lados.
+ *
+ * Rota e Empurrada montam menu e rotas da mesma função sobre bases diferentes
+ * (`lib/ambiente.ts`), então conferir as duas seria conferir o mesmo desenho
+ * duas vezes. Confere-se sobre uma — a do Rota, por ser a que os textos do
+ * roteador escrevem por extenso —, e o que vale para ela vale para a outra por
+ * construção. Os dois testes de simetria, mais abaixo, guardam a construção.
+ */
+const BASE = BASES_DE_FECHAMENTO["fechamento-rota"];
+
+/**
+ * Os `href` da lateral do Fechamento, que vive em arquivo próprio.
+ *
+ * Aqui se lê o módulo, e não o texto dele: desde que a lista virou função da
+ * base, o `href` deixou de ser literal no arquivo — e uma expressão regular
+ * sobre `` `${base}/...` `` conferiria a grafia do template, não o endereço que
+ * sai dele. `nav-fechamento.ts` só importa ícones, então lê-lo não traz React
+ * nem roteador para esta suíte.
+ */
 function hrefsDoMenuDoFechamento(): string[] {
-  const texto = fonte("components/layout/nav-fechamento.ts");
-  return [...texto.matchAll(/href:\s*"([^"]+)"/g)].map((m) => m[1]);
+  return navGroupsFechamento(BASE, "Fechamento Rota").flatMap((grupo) =>
+    grupo.itens.map((item) => item.href),
+  );
 }
 
 /**
@@ -46,13 +69,32 @@ function hrefsDoMenuDoFechamento(): string[] {
 function rotasRegistradas(): Set<string> {
   const app = fonte("App.tsx");
   const catalogo = fonte("pages/telas-em-preparo.ts");
-  const etapas = fonte("pages/fechamento/etapas.ts");
 
   return new Set([
     ...[...app.matchAll(/<Route\s+path="([^"]+)"/g)].map((m) => m[1]),
+    ...rotasDoFechamentoNoRoteador(),
     ...[...catalogo.matchAll(/href:\s*"([^"]+)"/g)].map((m) => m[1]),
-    ...[...etapas.matchAll(/^\s{4}href:\s*"([^"]+)"/gm)].map((m) => m[1]),
+    ...etapasDoFechamento(BASE).map((etapa) => etapa.href),
   ]);
+}
+
+/**
+ * As rotas que `rotasDoFechamento`, em `App.tsx`, monta sobre a base.
+ *
+ * Elas são escritas como `path={base}` e `` path={`${base}/...`} `` — o
+ * roteador é um só para os dois fechamentos —, e é isso que esta leitura
+ * traduz de volta para endereço. Continua sendo leitura de texto, e não import,
+ * porque importar `App.tsx` traria React, o Tanstack Query e o roteador inteiro
+ * para uma suíte que roda em Node sem DOM.
+ */
+function rotasDoFechamentoNoRoteador(): string[] {
+  const app = fonte("App.tsx");
+  const raiz = /path=\{base\}/.test(app) ? [BASE] : [];
+  const filhas = [...app.matchAll(/path=\{`\$\{base\}([^`]*)`\}/g)].map(
+    (m) => `${BASE}${m[1]}`,
+  );
+
+  return [...raiz, ...filhas];
 }
 
 describe("a lateral", () => {
@@ -109,10 +151,12 @@ describe("a lateral", () => {
     onde ela é consultada, e é onde ela fica.
   */
   it("mantém as cinco seções do Fechamento, na ordem do processo", () => {
-    const texto = fonte("components/layout/nav-fechamento.ts");
-
-    expect([...texto.matchAll(/titulo:\s*"([^"]+)"/g)].map((m) => m[1])).toEqual([
-      "Fechamento",
+    /*
+      A primeira seção leva o nome do ambiente: é ali que o menu diz em qual dos
+      dois fechamentos se está, já que as outras quatro são idênticas nos dois.
+    */
+    expect(navGroupsFechamento(BASE, "Fechamento Rota").map((g) => g.titulo)).toEqual([
+      "Fechamento Rota",
       "Remuneração",
       "Apuração",
       "Decisão",
@@ -121,16 +165,34 @@ describe("a lateral", () => {
   });
 
   /*
-    Todo item do menu do Fechamento vive sob `/fechamento` — é o prefixo que
-    define o ambiente (`lib/ambiente.ts`). Um item fora dele mudaria de
-    ambiente ao ser clicado, e a lateral trocaria embaixo do clique.
+    Todo item do menu do Fechamento vive sob a base do ambiente — é o prefixo
+    que o define (`lib/ambiente.ts`). Um item fora dela mudaria de ambiente ao
+    ser clicado, e a lateral trocaria embaixo do clique.
   */
-  it("não põe, no menu do Fechamento, nenhum endereço fora de /fechamento", () => {
+  it("não põe, no menu do Fechamento, nenhum endereço fora da base", () => {
     const fora = hrefsDoMenuDoFechamento().filter(
-      (href) => href !== "/fechamento" && !href.startsWith("/fechamento/"),
+      (href) => href !== BASE && !href.startsWith(`${BASE}/`),
     );
 
     expect(fora).toEqual([]);
+  });
+
+  /*
+    O que garante que Rota e Empurrada são o mesmo produto: o menu de um é o do
+    outro com a base trocada. Se algum dia um item escapar para um endereço
+    literal, é aqui que ele aparece — o menu da Empurrada teria um endereço do
+    Rota no meio dele, que é a regressão silenciosa que
+    `lib/base-do-fechamento.ts` existe para impedir.
+  */
+  it("dá às duas bases o mesmo menu, item a item", () => {
+    const empurrada = BASES_DE_FECHAMENTO["fechamento-empurrada"];
+    const daEmpurrada = navGroupsFechamento(empurrada, "Fechamento Empurrada").flatMap((g) =>
+      g.itens.map((item) => item.href),
+    );
+
+    expect(daEmpurrada).toEqual(
+      hrefsDoMenuDoFechamento().map((href) => href.replace(BASE, empurrada)),
+    );
   });
 });
 
@@ -182,21 +244,21 @@ describe("o catálogo de etapas do Fechamento", () => {
     de nenhum dos dois catálogos.
   */
   it("só manda, em 'onde olhar hoje', para telas que já funcionam", () => {
-    const etapas = fonte("pages/fechamento/etapas.ts");
+    const etapas = etapasDoFechamento(BASE);
     const catalogo = fonte("pages/telas-em-preparo.ts");
     const emPreparo = new Set([
-      ...[...etapas.matchAll(/^\s{4}href:\s*"([^"]+)"/gm)].map((m) => m[1]),
+      ...etapas.map((etapa) => etapa.href),
       ...[...catalogo.matchAll(/^\s{4}href:\s*"([^"]+)"/gm)].map((m) => m[1]),
     ]);
-    const atalhos = [...etapas.matchAll(/^\s{8}href:\s*"([^"]+)"/gm)].map((m) => m[1]);
+    const atalhos = etapas.flatMap((etapa) => etapa.hoje.map((atalho) => atalho.href));
 
     expect(atalhos.length).toBeGreaterThan(0);
     expect(atalhos.filter((href) => emPreparo.has(href))).toEqual([]);
   });
 
   it("descreve, para cada etapa, o que falta antes de ela mostrar um número", () => {
-    const etapas = fonte("pages/fechamento/etapas.ts");
-    const telas = [...etapas.matchAll(/^\s{4}href:\s*"([^"]+)"/gm)].length;
+    const etapas = etapasDoFechamento(BASE);
+    const telas = etapas.length;
 
     /*
       Sete, e não as oito do desenho original: **Importações** saiu do
@@ -205,7 +267,21 @@ describe("o catálogo de etapas do Fechamento", () => {
       etapa construída, e chegar a zero é o catálogo ter cumprido o seu papel.
     */
     expect(telas).toBe(7);
-    expect([...etapas.matchAll(/^\s{4}depende:\s*\[/gm)]).toHaveLength(telas);
-    expect([...etapas.matchAll(/^\s{4}pergunta:/gm)]).toHaveLength(telas);
+    expect(etapas.filter((etapa) => etapa.depende.length > 0)).toHaveLength(telas);
+    expect(etapas.filter((etapa) => etapa.pergunta.length > 0)).toHaveLength(telas);
+  });
+
+  /*
+    As sete etapas existem nos dois fechamentos, cada uma no endereço do seu: a
+    Empurrada não herda nenhuma rota do Rota, e é isso que este teste guarda —
+    uma etapa que escapasse com endereço literal apontaria as duas para a mesma
+    tela.
+  */
+  it("dá a cada base o seu próprio conjunto de etapas", () => {
+    const empurrada = BASES_DE_FECHAMENTO["fechamento-empurrada"];
+
+    expect(etapasDoFechamento(empurrada).map((etapa) => etapa.href)).toEqual(
+      etapasDoFechamento(BASE).map((etapa) => etapa.href.replace(BASE, empurrada)),
+    );
   });
 });

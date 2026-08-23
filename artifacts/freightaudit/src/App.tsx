@@ -7,7 +7,7 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import NotFound from '@/pages/not-found';
 import { Route, Switch, useLocation, useSearch, Router as WouterRouter } from 'wouter';
 import { AuthProvider, useAuth } from '@/lib/auth';
-import { destinoDaRaiz, RESUMO_EXECUTIVO } from '@/lib/ambiente';
+import { BASES_DE_FECHAMENTO, destinoDaRaiz, RESUMO_EXECUTIVO } from '@/lib/ambiente';
 import { publicarNoConsole } from '@/lib/registro-de-falhas';
 import { PADRAO_DAS_CONSULTAS } from '@/lib/chamada-resiliente';
 import Login from '@/pages/login';
@@ -51,7 +51,7 @@ import DiaDoFechamento from '@/pages/fechamento/dia';
 import RemuneracaoCadastro from '@/pages/fechamento/remuneracao';
 import RemuneracaoUnidades from '@/pages/fechamento/remuneracao-unidades';
 import { EtapaDoFechamento } from '@/pages/fechamento/etapa';
-import { ETAPAS_FECHAMENTO } from '@/pages/fechamento/etapas';
+import { etapasDoFechamento } from '@/pages/fechamento/etapas';
 
 /**
  * As rotas do produto.
@@ -327,71 +327,100 @@ function Router() {
       ))}
 
       {/*
-        O ambiente Fechamento inteiro, sob um prefixo só.
+        Os dois ambientes de fechamento, cada um inteiro sob a própria base.
 
-        `/fechamento/...` é o segundo espaço de trabalho do produto — ver
-        `lib/ambiente.ts` para a regra e o porquê de a Auditoria ter ficado nos
-        endereços de sempre. As etapas vêm do catálogo pela mesma razão que as
-        telas em preparo vêm do delas: construir a tela de verdade é tirar a
-        entrada de lá e escrever o `<Route>` explícito aqui, e enquanto os dois
-        coexistirem a linha explícita ganha.
-      */}
-      <Route path="/fechamento" component={VisaoGerencial} />
-      {/*
-        O ano de uma unidade, atrás do cartão da Visão Gerencial. Não está na
-        lateral de propósito: é aprofundamento de um número da home, e não uma
-        seção do processo — o menu do Fechamento continua sendo as cinco etapas
-        do trabalho.
-      */}
-      <Route path="/fechamento/unidades/:codigo">
-        {(params) => <UnidadeDoFechamento codigo={decodeURIComponent(params.codigo)} />}
-      </Route>
-      <Route path="/fechamento/competencias" component={Competencias} />
-      <Route path="/fechamento/competencias/:id">
-        {(params) => <CompetenciaAberta id={params.id} />}
-      </Route>
-      {/*
-        O dia da quinzena vem depois da competência, e o `Switch` entrega ao
-        primeiro que casa: como os dois caminhos têm profundidades diferentes,
-        a ordem aqui é só leitura — `/dias/:dia` nunca é confundido com `/:id`.
-      */}
-      <Route path="/fechamento/competencias/:id/dias/:dia">
-        {(params) => <DiaDoFechamento id={params.id} dia={params.dia} />}
-      </Route>
-      <Route path="/fechamento/apuracoes" component={Apuracoes} />
-      <Route path="/fechamento/resumo" component={ResumoGeral} />
-      {/*
-        A Conciliação é irmã do Resumo e não uma aba dele: ela responde outra
-        pergunta — o fechamento contra a planilha que a operação mantém — e só
-        existe depois de alguém anexar um arquivo. Endereço próprio é o que
-        permite mandar "abre a conciliação de julho" numa mensagem.
-      */}
-      <Route path="/fechamento/conciliacao" component={Conciliacao} />
-      {/*
-        Remuneração é a única tela do Fechamento que lê o acervo da Auditoria e
-        não uma competência. Ela mora aqui porque é aqui que serve — o cadastro
-        é o que a apuração da quinzena consome —, e a rota HTTP dela fica fora
-        de `/fechamento` pelo motivo simétrico: o dado é da unidade numa
-        vigência. Ver `routes/remuneracao.ts`.
+        `/fechamento/...` é o Fechamento Rota e `/fechamento-empurrada/...` é o
+        Fechamento Empurrada — ver `lib/ambiente.ts` para a regra e o porquê de
+        a Auditoria ter ficado nos endereços de sempre. As rotas dos dois saem
+        do **mesmo** `rotasDoFechamento`, e é isso que garante o que se pediu
+        deles: mesma estrutura, mesmas telas, mesmo desenho. Uma tela nova entra
+        uma vez e nasce nos dois; uma tela escrita duas vezes começaria a
+        divergir no primeiro conserto feito só de um lado.
 
-        São duas telas e duas perguntas: a lista responde *quais unidades já têm
-        cadastro de pé*, e a de dentro, *quais são os parâmetros desta unidade*.
-        A lista fica no endereço curto porque é por onde se entra — e porque era
-        ele que a lateral já apontava. O endereço antigo do cadastro era este
-        mesmo, com a unidade na query; a lista encaminha quem chegar com
-        `scopeHash` para `/unidade`, e nenhum link guardado por aí morre.
+        O laço devolve um vetor de `<Route>`, e não um fragmento: o `Switch` do
+        wouter examina os próprios filhos para achar o que casa, e um fragmento
+        chegaria a ele como um filho só, que não casa com nada.
       */}
-      <Route path="/fechamento/remuneracao" component={RemuneracaoUnidades} />
-      <Route path="/fechamento/remuneracao/unidade" component={RemuneracaoCadastro} />
-      {ETAPAS_FECHAMENTO.map((etapa) => (
-        <Route key={etapa.href} path={etapa.href}>
-          <EtapaDoFechamento etapa={etapa} />
-        </Route>
-      ))}
+      {Object.values(BASES_DE_FECHAMENTO).flatMap((base) => rotasDoFechamento(base))}
 
       <Route component={NotFound} />
     </Switch>
   );
+}
+
+/**
+ * Todas as rotas de um fechamento, montadas sobre a base que recebe.
+ *
+ * Chamada uma vez por ambiente de fechamento (`BASES_DE_FECHAMENTO`), é ela que
+ * faz o Rota e a Empurrada serem o mesmo produto em dois endereços. As etapas
+ * ainda sem tela vêm do catálogo pela mesma razão que as telas em preparo vêm
+ * do delas: construir a tela de verdade é tirar a entrada de lá e escrever o
+ * `<Route>` explícito aqui, e enquanto os dois coexistirem a linha explícita
+ * ganha — o `Switch` entrega ao primeiro que casa.
+ */
+function rotasDoFechamento(base: string) {
+  return [
+    <Route key={base} path={base} component={VisaoGerencial} />,
+    /*
+      O ano de uma unidade, atrás do cartão da Visão Gerencial. Não está na
+      lateral de propósito: é aprofundamento de um número da home, e não uma
+      seção do processo — o menu do Fechamento continua sendo as cinco etapas do
+      trabalho.
+    */
+    <Route key={`${base}/unidades`} path={`${base}/unidades/:codigo`}>
+      {(params) => <UnidadeDoFechamento codigo={decodeURIComponent(params.codigo)} />}
+    </Route>,
+    <Route key={`${base}/competencias`} path={`${base}/competencias`} component={Competencias} />,
+    <Route key={`${base}/competencias/:id`} path={`${base}/competencias/:id`}>
+      {(params) => <CompetenciaAberta id={params.id} />}
+    </Route>,
+    /*
+      O dia da quinzena vem depois da competência, e o `Switch` entrega ao
+      primeiro que casa: como os dois caminhos têm profundidades diferentes, a
+      ordem aqui é só leitura — `/dias/:dia` nunca é confundido com `/:id`.
+    */
+    <Route key={`${base}/dias`} path={`${base}/competencias/:id/dias/:dia`}>
+      {(params) => <DiaDoFechamento id={params.id} dia={params.dia} />}
+    </Route>,
+    <Route key={`${base}/apuracoes`} path={`${base}/apuracoes`} component={Apuracoes} />,
+    <Route key={`${base}/resumo`} path={`${base}/resumo`} component={ResumoGeral} />,
+    /*
+      A Conciliação é irmã do Resumo e não uma aba dele: ela responde outra
+      pergunta — o fechamento contra a planilha que a operação mantém — e só
+      existe depois de alguém anexar um arquivo. Endereço próprio é o que
+      permite mandar "abre a conciliação de julho" numa mensagem.
+    */
+    <Route key={`${base}/conciliacao`} path={`${base}/conciliacao`} component={Conciliacao} />,
+    /*
+      Remuneração é a única tela do Fechamento que lê o acervo da Auditoria e
+      não uma competência. Ela mora aqui porque é aqui que serve — o cadastro é
+      o que a apuração da quinzena consome —, e a rota HTTP dela fica fora da
+      base pelo motivo simétrico: o dado é da unidade numa vigência. Ver
+      `routes/remuneracao.ts`.
+
+      São duas telas e duas perguntas: a lista responde *quais unidades já têm
+      cadastro de pé*, e a de dentro, *quais são os parâmetros desta unidade*. A
+      lista fica no endereço curto porque é por onde se entra — e porque era ele
+      que a lateral já apontava. O endereço antigo do cadastro era este mesmo,
+      com a unidade na query; a lista encaminha quem chegar com `scopeHash` para
+      `/unidade`, e nenhum link guardado por aí morre.
+    */
+    <Route
+      key={`${base}/remuneracao`}
+      path={`${base}/remuneracao`}
+      component={RemuneracaoUnidades}
+    />,
+    <Route
+      key={`${base}/remuneracao/unidade`}
+      path={`${base}/remuneracao/unidade`}
+      component={RemuneracaoCadastro}
+    />,
+    ...etapasDoFechamento(base).map((etapa) => (
+      <Route key={etapa.href} path={etapa.href}>
+        <EtapaDoFechamento etapa={etapa} />
+      </Route>
+    )),
+  ];
 }
 
 /**

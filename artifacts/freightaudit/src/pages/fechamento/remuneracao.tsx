@@ -9,6 +9,7 @@ import {
   ScrollText,
 } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
+import { useBaseDoFechamento } from "@/lib/base-do-fechamento";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -97,6 +98,7 @@ function chaveDaUnidade(scopeHash: string, canal: string | null): string {
 }
 
 export default function RemuneracaoCadastro() {
+  const base = useBaseDoFechamento();
   const busca = useSearch();
   const [, navegar] = useLocation();
   const queryClient = useQueryClient();
@@ -191,7 +193,7 @@ export default function RemuneracaoCadastro() {
       if (valor === null) query.delete(chave);
       else query.set(chave, valor);
     }
-    navegar(`/fechamento/remuneracao/unidade?${query}`);
+    navegar(`${base}/remuneracao/unidade?${query}`);
   }
 
   /*
@@ -211,7 +213,7 @@ export default function RemuneracaoCadastro() {
     */
     const query = new URLSearchParams({ scopeHash, canal });
     if (vistaPedida !== null) query.set("vista", vistaPedida);
-    navegar(`/fechamento/remuneracao/unidade?${query}`);
+    navegar(`${base}/remuneracao/unidade?${query}`);
   }
 
   const carregando =
@@ -223,7 +225,7 @@ export default function RemuneracaoCadastro() {
     <Layout>
       <header className="border-b bg-card px-8 py-6">
         <Link
-          href="/fechamento/remuneracao"
+          href={`${base}/remuneracao`}
           className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft className="w-3 h-3" />
