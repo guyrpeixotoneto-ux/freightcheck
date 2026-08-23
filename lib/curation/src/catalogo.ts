@@ -19,6 +19,11 @@ import {
   type Proximo,
   type Significado,
 } from "./significado";
+import {
+  codigoDaRepeticao,
+  ehLinhaCadastral,
+  podeRepetirOSintetico,
+} from "./linha-da-dre";
 
 /**
  * O cadastro canônico — significados econômicos e categorias, criáveis sem
@@ -714,6 +719,15 @@ async function paiDaCategoriaNova(
  * sintético real — é por ele que o campo se corrige sozinho.
  *
  * Sem `sintetico`, o destino é "Não classificado", como sempre foi.
+ *
+ * ---------------------------------------------------------------------------
+ * A única categoria que pode se chamar como a linha que a totaliza
+ * ---------------------------------------------------------------------------
+ * A cadastral. Ver {@link podeRepetirOSintetico}: a linha que não remunera não
+ * se desdobra, e exigir um analítico ali obriga quem cura a inventar um nível
+ * que a DRE não tem. Em qualquer outra linha o homônimo continua recusado, nos
+ * dois sentidos, porque dois nós de mesmo nome em alturas diferentes não se
+ * distinguem em relatório nenhum.
  */
 export async function criarCategoria(
   db: Database,
@@ -737,24 +751,44 @@ export async function criarCategoria(
     };
   }
 
+  const pai = await paiDaCategoriaNova(db, entrada.sintetico);
+
+  /*
+    O analítico que repete o sintético — a exceção, e só ela.
+
+    Ver {@link podeRepetirOSintetico}: no cadastral o par "Cadastral ›
+    Cadastral" é a resposta certa, porque a linha não se desdobra e exigir um
+    nível abaixo dela é pedir que quem cura invente um. Fora do cadastral a
+    recusa logo abaixo continua valendo inteira.
+
+    A repetição só vale para a linha **escolhida na tela**: é `pai.name` que
+    entra na comparação, e não a lista de sintéticos. Sem isso, digitar o nome
+    da linha cadastral com "Consumo e operação" escolhida criaria, dentro da
+    operação, uma categoria homônima de outra linha da DRE — exatamente o nó
+    ambíguo que a regra geral existe para impedir.
+  */
+  const repeticao = podeRepetirOSintetico(nome, pai.name);
+
   // O simétrico da checagem em `criarSintetico`, e pelo mesmo motivo: uma
   // categoria com o nome de uma linha da DRE deixa a árvore com dois nós
   // homônimos em alturas diferentes, e nenhum relatório os separa.
-  const linhaDaDre = procurarProximos(nome, await listarSinteticos(db), (s) => s.nome).find(
-    (p) => p.tipo === "IGUAL",
-  );
+  const linhaDaDre = repeticao
+    ? undefined
+    : procurarProximos(nome, await listarSinteticos(db), (s) => s.nome).find(
+        (p) => p.tipo === "IGUAL",
+      );
   if (linhaDaDre) {
     return {
       desfecho: "JA_EXISTE",
       item: null,
       mensagem:
         `"${linhaDaDre.item.nome}" é uma linha da DRE, e não uma categoria dentro dela. ` +
-        "Escolha essa linha no campo de cima, e cadastre aqui o detalhe que vai dentro.",
+        (ehLinhaCadastral(linhaDaDre.item.nome)
+          ? "Escolha essa linha no campo de cima para poder repeti-la aqui."
+          : "Escolha essa linha no campo de cima, e cadastre aqui o detalhe que vai dentro."),
       proximos,
     };
   }
-
-  const pai = await paiDaCategoriaNova(db, entrada.sintetico);
 
   /*
     O código é derivado do nome normalizado, e é único na árvore inteira — não
@@ -763,7 +797,9 @@ export async function criarCategoria(
     virarem dois nós. A colisão é tratada como duplicata, e não como erro: quem
     digitou não precisa saber que existe um código por trás.
   */
-  const code = normalizarRotulo(nome).replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  const code = repeticao
+    ? codigoDaRepeticao(pai.code)
+    : normalizarRotulo(nome).replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
   const [colisao] = await db
     .select()
     .from(taxonomyNodeTable)
@@ -804,9 +840,12 @@ export async function criarCategoria(
     valueBefore: null,
     valueAfter: inserido.path,
     actor: entrada.actor,
-    reason:
-      `Categoria cadastrada na tela de confirmação. Entra sob “${pai.name}” — ` +
-      "a classe de custo (fixo ou variável) não se lê no nome e continua por decidir.",
+    reason: repeticao
+      ? `Analítico que repete o sintético “${pai.name}”, cadastrado na tela de confirmação. ` +
+        "A linha cadastral não se desdobra — não soma em total nenhum —, e o par sintético/analítico " +
+        "precisa das duas metades para que a coluna fique classificada."
+      : `Categoria cadastrada na tela de confirmação. Entra sob “${pai.name}” — ` +
+        "a classe de custo (fixo ou variável) não se lê no nome e continua por decidir.",
   });
 
   const atualizadas = await listarCategorias(db);

@@ -7,6 +7,7 @@
     ".": "./src/index.ts",
     "./agregacao": "./src/agregacao.ts",
     "./significado": "./src/significado.ts",
+    "./linha-da-dre": "./src/linha-da-dre.ts",
     "./equipamento": "./src/equipamento.ts",
     "./catalogo-declarado": "./src/catalogo-declarado.ts"
   },

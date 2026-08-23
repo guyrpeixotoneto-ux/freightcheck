@@ -36,6 +36,7 @@ import {
   leituraDoSintetico,
   oQueFalta,
   podeConfirmar,
+  podeRepetirNoAnalitico,
   precisaDoPeriodo,
   previaDaCriacao,
   resumo,
@@ -1192,6 +1193,18 @@ function ConfirmarInterpretacao({
         : categorias.filter((c) => c.sintetico === sinteticoAtivo),
     [categorias, sinteticoAtivo],
   );
+  /*
+    A repetição do sintético no analítico — oferecida só na linha cadastral.
+
+    A linha que não remunera não se desdobra: placa, CNPJ e vigência não somam
+    em total nenhum, e o detalhe dentro dela não muda número em tela alguma.
+    Exigir um analítico ali é obrigar quem cura a inventar um nível que a DRE
+    não tem — e o que se inventa por obrigação é a aproximação silenciosa que
+    esta tela existe para não pedir. Nas outras linhas o homônimo continua
+    recusado: dois nós de mesmo nome em alturas diferentes não se distinguem em
+    relatório nenhum.
+  */
+  const repeteOSintetico = podeRepetirNoAnalitico(sinteticoEscolhido, analiticasVisiveis);
   const quadro = resumo(campo, escolhas, catalogo);
   const falta = oQueFalta(escolhas, catalogo);
   const pedePeriodo = precisaDoPeriodo(escolhas, catalogo);
@@ -1312,9 +1325,18 @@ function ConfirmarInterpretacao({
   };
 
   const criarCategoriaInline = async (
-    name: string,
+    texto: string,
   ): Promise<OpcaoDeCategoria | null> => {
     setErroDoCadastro(null);
+    /*
+      Texto em branco é a linha de criação que aparece antes da primeira letra,
+      e ela só é oferecida no cadastral (ver `podeRepetirNoAnalitico`): ali o
+      que se cria é o analítico que repete o sintético, e o nome dele é o nome
+      da linha escolhida. Sem esta substituição o clique subiria `name: ""` e o
+      servidor recusaria pedindo um nome que a tela nunca perguntou.
+    */
+    const name = texto.trim() === "" ? (sinteticoAtivo ?? "") : texto;
+    if (!name) return null;
     const response = await fetch(getApiUrl("/curation/categorias"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1604,7 +1626,9 @@ function ConfirmarInterpretacao({
           hint={
             sinteticoAtivo === null
               ? "Onde este valor entra na conta. Pesquise ou cadastre uma nova — escolher aqui preenche o sintético sozinho."
-              : `O detalhe dentro de ${sinteticoAtivo}. Pesquise ou cadastre uma nova.`
+              : repeteOSintetico
+                ? `O detalhe dentro de ${sinteticoAtivo}. Como esta linha não remunera, o analítico pode repetir o próprio sintético.`
+                : `O detalhe dentro de ${sinteticoAtivo}. Pesquise ou cadastre uma nova.`
           }
         >
           <ComboboxCriavel
@@ -1635,14 +1659,27 @@ function ConfirmarInterpretacao({
               classe saiu da árvore, e agora a categoria nasce onde quem
               escolheu mandou — ou no limbo, quando ninguém escolheu.
             */
-            previaDe={() =>
-              sinteticoEscolhido
-                ? `Entra em ${sinteticoAtivo}. Dizer o que a coluna é não diz o que a faz mudar — ` +
-                  "isso é o campo abaixo, e é por atributo."
-                : "Entra como categoria nova, sob “Não classificado” — escolha a família acima " +
-                  "para que ela nasça no lugar certo."
+            previaDe={(texto) =>
+              texto === ""
+                ? `Cria “${sinteticoAtivo}” também como analítico, dentro dela mesma. ` +
+                  "A linha cadastral não soma em total nenhum, e o par sintético/analítico " +
+                  "fica completo sem inventar um detalhe que a DRE não tem."
+                : sinteticoEscolhido
+                  ? `Entra em ${sinteticoAtivo}. Dizer o que a coluna é não diz o que a faz mudar — ` +
+                    "isso é o campo abaixo, e é por atributo."
+                  : "Entra como categoria nova, sob “Não classificado” — escolha a família acima " +
+                    "para que ela nasça no lugar certo."
             }
             rotuloDeCriacao={(texto) => `Criar categoria “${texto}”`}
+            /*
+              A linha de criação antes da primeira letra, e só no cadastral: é
+              o "repetir o sintético" do pedido. Sem ela, o único caminho seria
+              digitar de novo, à mão e sem errar acento nem parêntese, o nome
+              que já está escrito no campo de cima.
+            */
+            rotuloDeCriacaoVazia={
+              repeteOSintetico ? `Repetir “${sinteticoAtivo}” no analítico` : undefined
+            }
             placeholder="Pesquisar ou cadastrar…"
             erro={erroDoCadastro}
           />
