@@ -24,6 +24,13 @@ export interface NavItem {
 
 export interface NavGroup {
   titulo: string;
+  /**
+   * A frase que diz o que se faz na seção, para onde ela é lida sem a lista
+   * aberta — hoje, o menu do celular, onde cada seção é um cartão e o cartão
+   * tem espaço para uma linha a mais. A lateral do desktop não a usa: lá as
+   * seções abrem com um clique e a própria lista responde o que o texto diria.
+   */
+  descricao?: string;
   icon: LucideIcon;
   /** A classe de cor da seção — ver o bloco `--nav-*` em `index.css`. */
   cor: string;

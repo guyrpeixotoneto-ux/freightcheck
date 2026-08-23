@@ -2,8 +2,9 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { navGroupsFechamento } from "../nav-fechamento";
+import { barraMobile } from "../nav-mobile";
 import { etapasDoFechamento } from "@/pages/fechamento/etapas";
-import { BASES_DE_FECHAMENTO } from "@/lib/ambiente";
+import { BASES_DE_FECHAMENTO, ENTRADA_DA_AUDITORIA } from "@/lib/ambiente";
 
 /**
  * O teste que guarda a única promessa que a lateral faz: **clicar leva a algum
@@ -66,6 +67,21 @@ function hrefsDoMenuDoFechamento(): string[] {
  * Os `path=` do roteador, mais as rotas que os dois catálogos geram — o de
  * telas em preparo da Auditoria e o de etapas do Fechamento.
  */
+/**
+ * Os `href` da barra do celular, nos três ambientes.
+ *
+ * Ela promete o mesmo que a lateral — clicar leva a algum lugar —, e promete
+ * mais uma coisa: **não inventa destino**. Todo atalho da barra é um item que a
+ * lateral já lista, com o mesmo endereço; é por isso que os dois testes abaixo
+ * conferem contra o roteador *e* contra a lista lateral do mesmo ambiente. Um
+ * atalho só da barra seria uma tela que só existe no telefone, e este produto
+ * não tem nenhuma.
+ */
+function atalhosDaBarra(ambiente: Parameters<typeof barraMobile>[0]): string[] {
+  const barra = barraMobile(ambiente);
+  return [...barra.esquerda, barra.centro, ...barra.direita].map((a) => a.href);
+}
+
 function rotasRegistradas(): Set<string> {
   const app = fonte("App.tsx");
   const catalogo = fonte("pages/telas-em-preparo.ts");
@@ -105,6 +121,54 @@ describe("a lateral", () => {
     );
 
     expect(orfaos).toEqual([]);
+  });
+
+  it("não oferece, na barra do celular, endereço que o roteador não atenda", () => {
+    const rotas = rotasRegistradas();
+    /*
+      Confere-se sobre a base do Rota, pela mesma razão de `BASE`: o roteador
+      escreve as rotas do Fechamento sobre uma base, e a Empurrada é a mesma
+      lista com o prefixo trocado — o que o teste de simetria, mais abaixo,
+      guarda.
+    */
+    const orfaos = [
+      ...atalhosDaBarra("auditoria"),
+      ...atalhosDaBarra("fechamento-rota"),
+    ].filter((href) => !rotas.has(href));
+
+    expect(orfaos).toEqual([]);
+  });
+
+  /*
+    A barra do celular é atalho para quatro linhas da lateral, e nunca um
+    segundo menu: o mesmo endereço, o mesmo destino. Se um atalho escapar para
+    um endereço que a lateral não lista, o telefone passa a ter uma tela que o
+    computador não alcança — e é aqui que isso aparece.
+  */
+  it("só põe, na barra do celular, endereços que a lateral já lista", () => {
+    /*
+      `hrefsDoMenu` lê os literais do arquivo, e os dois itens que abrem a
+      Visão executiva são constantes de `lib/ambiente.ts` — o literal deles não
+      está escrito na lista. Somá-los aqui é o que faz o teste comparar
+      endereços, e não grafias.
+    */
+    const daAuditoria = new Set([...hrefsDoMenu(), ENTRADA_DA_AUDITORIA]);
+    const doFechamento = new Set(hrefsDoMenuDoFechamento());
+
+    expect(atalhosDaBarra("auditoria").filter((href) => !daAuditoria.has(href))).toEqual([]);
+    expect(atalhosDaBarra("fechamento-rota").filter((href) => !doFechamento.has(href))).toEqual([]);
+  });
+
+  /*
+    Rota e Empurrada são o mesmo produto também no telefone — a barra de um é a
+    do outro com a base trocada, pela mesma razão que a lateral.
+  */
+  it("dá às duas bases a mesma barra de celular", () => {
+    const empurrada = BASES_DE_FECHAMENTO["fechamento-empurrada"];
+
+    expect(atalhosDaBarra("fechamento-empurrada")).toEqual(
+      atalhosDaBarra("fechamento-rota").map((href) => href.replace(BASE, empurrada)),
+    );
   });
 
   it("não repete um endereço em dois itens", () => {
