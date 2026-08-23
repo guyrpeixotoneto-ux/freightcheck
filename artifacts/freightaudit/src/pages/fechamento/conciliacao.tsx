@@ -70,7 +70,9 @@ type Recorte = "1" | "2" | "consolidado";
 function textoDoErro(erro: unknown): string {
   const aviso = apresentar(erro);
   return (
-    aviso.orientacao?.resumo ?? aviso.mensagemCrua ?? "Não foi possível carregar a conciliação."
+    aviso.principal ??
+    aviso.mensagemCrua ??
+    "Não foi possível carregar a conciliação."
   );
 }
 
@@ -104,7 +106,9 @@ export function temColunaDaPlanilha(painel: { referencia?: unknown }): boolean {
  * Devolver o primeiro é dizer isso; procurar "a do canal" sugeriria que pode
  * haver duas.
  */
-export function referenciaDoMes(canais: CanalDoResumo[]): ProcedenciaDaReferencia | null {
+export function referenciaDoMes(
+  canais: CanalDoResumo[],
+): ProcedenciaDaReferencia | null {
   for (const canal of canais) {
     if (canal.comparado && temColunaDaPlanilha(canal.comparado)) {
       return canal.comparado.referencia;
@@ -141,7 +145,15 @@ export default function Conciliacao() {
     planilha, e a de lá não.
   */
   const conciliacao = useQuery({
-    queryKey: ["fechamento", "conciliacao", unidade, transportadora, tipoDeOperacao, ano, mes],
+    queryKey: [
+      "fechamento",
+      "conciliacao",
+      unidade,
+      transportadora,
+      tipoDeOperacao,
+      ano,
+      mes,
+    ],
     queryFn: () => lerConciliacaoDoMes(alvo),
     enabled: escolhido,
   });
@@ -152,9 +164,10 @@ export default function Conciliacao() {
         <h1 className="text-2xl font-bold tracking-tight">Conciliação</h1>
         <p className="text-muted-foreground mt-2 max-w-3xl">
           O fechamento do sistema contra a planilha da operação. Anexe a{" "}
-          <code>Fechamento_Remuneracao.xlsb</code> deste mês e cada linha aparece
-          com o que o contrato deve, o que o <code>RESUMO GERAL</code> dela publica
-          e a distância entre os dois — com o arquivo de onde a régua saiu ao lado.
+          <code>Fechamento_Remuneracao.xlsb</code> deste mês e cada linha
+          aparece com o que o contrato deve, o que o <code>RESUMO GERAL</code>{" "}
+          dela publica e a distância entre os dois — com o arquivo de onde a
+          régua saiu ao lado.
         </p>
       </header>
 
@@ -180,7 +193,9 @@ export default function Conciliacao() {
             */}
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="text-base">A planilha deste mês</CardTitle>
+                <CardTitle className="text-base">
+                  A planilha deste mês
+                </CardTitle>
               </CardHeader>
               <CardContent>
                 <ReferenciaDaPlanilha alvo={alvo} />
@@ -189,7 +204,9 @@ export default function Conciliacao() {
 
             {conciliacao.isError && (
               <Alert variant="destructive">
-                <AlertDescription>{textoDoErro(conciliacao.error)}</AlertDescription>
+                <AlertDescription>
+                  {textoDoErro(conciliacao.error)}
+                </AlertDescription>
               </Alert>
             )}
             {conciliacao.isLoading && (
@@ -232,10 +249,13 @@ function Corpo({
           Nenhum fechamento aberto em {MES_LONGO[mes.mes - 1]} de {mes.ano} para{" "}
           {mes.unidade.nome ?? mes.unidade.codigo} ·{" "}
           {mes.transportadora.nome ?? mes.transportadora.codigo} ·{" "}
-          {rotuloDoTipo(tipoDeOperacao)}. A planilha anexada continua guardada — ela
-          é do mês, e não da competência —, e a comparação aparece assim que houver
-          o que comparar. Abra a quinzena em{" "}
-          <Link href="/fechamento/competencias" className="text-primary hover:underline">
+          {rotuloDoTipo(tipoDeOperacao)}. A planilha anexada continua guardada —
+          ela é do mês, e não da competência —, e a comparação aparece assim que
+          houver o que comparar. Abra a quinzena em{" "}
+          <Link
+            href="/fechamento/competencias"
+            className="text-primary hover:underline"
+          >
             Importações
           </Link>
           .
@@ -303,12 +323,16 @@ function Corpo({
  * que torna a diferença auditável é dizer, ao lado dela, contra qual arquivo
  * ela foi medida. Sem isto a coluna seria uma afirmação sem fonte.
  */
-function ProcedenciaDaPlanilha({ referencia }: { referencia: ProcedenciaDaReferencia }) {
+function ProcedenciaDaPlanilha({
+  referencia,
+}: {
+  referencia: ProcedenciaDaReferencia;
+}) {
   return (
     <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
       Conferindo contra{" "}
-      <strong className="text-foreground">{referencia.nomeDoArquivo}</strong> (versão{" "}
-      {referencia.versao}), anexada em{" "}
+      <strong className="text-foreground">{referencia.nomeDoArquivo}</strong>{" "}
+      (versão {referencia.versao}), anexada em{" "}
       {new Date(referencia.anexadaEm).toLocaleString("pt-BR")}.{" "}
       <span className="font-mono" title={`sha256 ${referencia.sha256}`}>
         {referencia.sha256.slice(0, 12)}…
@@ -344,8 +368,16 @@ function CanalConciliado({
         {canal.afericao && (
           <SelosDeAfericao
             afericao={canal.afericao}
-            coluna={recorte === "consolidado" ? "total" : recorte === "1" ? "primeira" : "segunda"}
-            rotuloDaColuna={recorte === "consolidado" ? "mês inteiro" : `${recorte}ª quinzena`}
+            coluna={
+              recorte === "consolidado"
+                ? "total"
+                : recorte === "1"
+                  ? "primeira"
+                  : "segunda"
+            }
+            rotuloDaColuna={
+              recorte === "consolidado" ? "mês inteiro" : `${recorte}ª quinzena`
+            }
           />
         )}
       </CardHeader>
@@ -361,7 +393,10 @@ function CanalConciliado({
               vem do mesmo componente, para que as duas telas não digam duas
               coisas sobre o mesmo cadastro.
             */}
-            <PorQueNaoTemDevido cadastro={canal.cadastro} quinzenas={quinzenas} />
+            <PorQueNaoTemDevido
+              cadastro={canal.cadastro}
+              quinzenas={quinzenas}
+            />
             <p className="text-sm text-muted-foreground">
               Enquanto o devido não sair, não há coluna contra a qual medir a
               planilha: comparar o arquivo com a releitura do próprio 03.08.20
@@ -399,9 +434,14 @@ function TabelaConciliada({
 }) {
   /* No consolidado a coluna é o total do mês; numa quinzena, a dela. */
   const coluna = (v: TresColunas) =>
-    recorte === "consolidado" ? v.total : recorte === "1" ? v.primeira : v.segunda;
+    recorte === "consolidado"
+      ? v.total
+      : recorte === "1"
+        ? v.primeira
+        : v.segunda;
 
-  const doCadastro = recorte === "2" ? painel.cadastro.segunda : painel.cadastro.primeira;
+  const doCadastro =
+    recorte === "2" ? painel.cadastro.segunda : painel.cadastro.primeira;
 
   /*
     Uma aba só respondendo pelas duas quinzenas é o caso comum — o contrato é
@@ -420,14 +460,16 @@ function TabelaConciliada({
     <div className="space-y-4">
       <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-xs text-muted-foreground">
         <span>
-          <strong className="text-foreground">Devido</strong> — do contrato e do diário
+          <strong className="text-foreground">Devido</strong> — do contrato e do
+          diário
         </span>
         <span>
           <strong className="text-foreground">Demonstrado</strong> — do 03.08.20
         </span>
         {temPlanilha && (
           <span>
-            <strong className="text-foreground">Planilha</strong> — do arquivo anexado
+            <strong className="text-foreground">Planilha</strong> — do arquivo
+            anexado
           </span>
         )}
         {doCadastro && (
@@ -440,7 +482,9 @@ function TabelaConciliada({
 
       {painel.quadros.map((quadro) => (
         <div key={quadro.quadro}>
-          <p className="text-xs font-semibold text-muted-foreground mb-1">{quadro.titulo}</p>
+          <p className="text-xs font-semibold text-muted-foreground mb-1">
+            {quadro.titulo}
+          </p>
           {/*
             O quadro reservado da planilha não tem linha nenhuma — `AI34` e
             `AJ34` não existem como célula, e mesmo assim o total geral dela os
@@ -448,114 +492,146 @@ function TabelaConciliada({
             carregamento; a frase que explica vem escrita do domínio.
           */}
           {quadro.linhas.length === 0 && quadro.reservado ? (
-            <p className="py-2 text-xs text-muted-foreground">{quadro.reservado}</p>
+            <p className="py-2 text-xs text-muted-foreground">
+              {quadro.reservado}
+            </p>
           ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b text-xs text-muted-foreground">
-                <th className="py-2 text-left font-medium">Linha</th>
-                <th className="py-2 text-right font-medium min-w-32">Devido</th>
-                <th className="py-2 text-right font-medium min-w-32">Demonstrado</th>
-                <th className="py-2 text-right font-medium min-w-32">Planilha</th>
-                <th className="py-2 text-right font-medium min-w-32">Dif. planilha</th>
-              </tr>
-            </thead>
-            <tbody>
-              {quadro.linhas.map((linha) => {
-                /*
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b text-xs text-muted-foreground">
+                  <th className="py-2 text-left font-medium">Linha</th>
+                  <th className="py-2 text-right font-medium min-w-32">
+                    Devido
+                  </th>
+                  <th className="py-2 text-right font-medium min-w-32">
+                    Demonstrado
+                  </th>
+                  <th className="py-2 text-right font-medium min-w-32">
+                    Planilha
+                  </th>
+                  <th className="py-2 text-right font-medium min-w-32">
+                    Dif. planilha
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {quadro.linhas.map((linha) => {
+                  /*
                   O demonstrado é `null` por duas razões opostas, e a tela tem de
                   separá-las. Sem 03.08.20, falta arquivo. Com 03.08.20 e a linha
                   dentro de um conjunto, **não falta nada**: o relatório traz a
                   frota fixa somada e não a parte por tipo, e o número desta linha
                   só existe junto com as outras cinco.
                 */
-                const emConjunto =
-                  coluna(linha.demonstrado) === null && linha.conjunto !== null;
-                return (
-                  <tr key={linha.chave} className="border-b last:border-0 align-top">
-                    <td className="py-2">
-                      <span title={linha.memoria.primeira ?? linha.memoria.segunda ?? undefined}>
-                        {linha.rotulo}
-                      </span>
-                      {linha.falta && (
-                        <span className="block text-xs text-muted-foreground">
-                          falta {linha.falta}
-                        </span>
-                      )}
-                    </td>
-                    <td className="py-2 text-right font-mono tabular-nums">
-                      {dinheiro(coluna(linha.devido))}
-                    </td>
-                    <td className="py-2 text-right font-mono tabular-nums">
-                      {emConjunto ? (
+                  const emConjunto =
+                    coluna(linha.demonstrado) === null &&
+                    linha.conjunto !== null;
+                  return (
+                    <tr
+                      key={linha.chave}
+                      className="border-b last:border-0 align-top"
+                    >
+                      <td className="py-2">
                         <span
-                          className="text-xs font-sans text-muted-foreground"
-                          title={`${linha.conjunto!.nome}: ${dinheiro(
-                            coluna(linha.conjunto!.valores),
-                          )} — dividido com ${linha.conjunto!.linhas.join(", ")}`}
+                          title={
+                            linha.memoria.primeira ??
+                            linha.memoria.segunda ??
+                            undefined
+                          }
                         >
-                          em conjunto
+                          {linha.rotulo}
                         </span>
-                      ) : (
-                        dinheiro(coluna(linha.demonstrado))
-                      )}
-                    </td>
-                    <CelulasDaPlanilha linha={linha} coluna={coluna} />
-                  </tr>
-                );
-              })}
-              {/*
+                        {linha.falta && (
+                          <span className="block text-xs text-muted-foreground">
+                            falta {linha.falta}
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-2 text-right font-mono tabular-nums">
+                        {dinheiro(coluna(linha.devido))}
+                      </td>
+                      <td className="py-2 text-right font-mono tabular-nums">
+                        {emConjunto ? (
+                          <span
+                            className="text-xs font-sans text-muted-foreground"
+                            title={`${linha.conjunto!.nome}: ${dinheiro(
+                              coluna(linha.conjunto!.valores),
+                            )} — dividido com ${linha.conjunto!.linhas.join(", ")}`}
+                          >
+                            em conjunto
+                          </span>
+                        ) : (
+                          dinheiro(coluna(linha.demonstrado))
+                        )}
+                      </td>
+                      <CelulasDaPlanilha linha={linha} coluna={coluna} />
+                    </tr>
+                  );
+                })}
+                {/*
                 O conjunto entra depois das linhas e antes do total, que é onde a
                 subtração dele faz sentido: as seis linhas acima têm devido e não
                 têm demonstrado, e é aqui que se vê se elas fecham contra o número
                 que o relatório traz para todas juntas.
               */}
-              {quadro.conjuntos.map((c) => (
-                <tr key={c.chave} className="border-b bg-muted/20 align-top">
-                  <td className="py-2 text-xs text-muted-foreground italic" title={c.porque}>
-                    {c.nome} — o número que {c.linhas.length} linhas acima dividem
-                  </td>
-                  <td className="py-2 text-right font-mono tabular-nums text-xs">
-                    {dinheiro(coluna(c.devido))}
-                  </td>
-                  <td className="py-2 text-right font-mono tabular-nums text-xs">
-                    {dinheiro(coluna(c.demonstrado))}
-                  </td>
-                  {/*
+                {quadro.conjuntos.map((c) => (
+                  <tr key={c.chave} className="border-b bg-muted/20 align-top">
+                    <td
+                      className="py-2 text-xs text-muted-foreground italic"
+                      title={c.porque}
+                    >
+                      {c.nome} — o número que {c.linhas.length} linhas acima
+                      dividem
+                    </td>
+                    <td className="py-2 text-right font-mono tabular-nums text-xs">
+                      {dinheiro(coluna(c.devido))}
+                    </td>
+                    <td className="py-2 text-right font-mono tabular-nums text-xs">
+                      {dinheiro(coluna(c.demonstrado))}
+                    </td>
+                    {/*
                     O conjunto não tem linha própria no `RESUMO GERAL` — ele é uma
                     soma que só o nosso lado sabe fazer. Duas células vazias, e não
                     zeros: zero ali afirmaria que a planilha publica zero para o
                     conjunto, e ela não publica nada.
                   */}
-                  <td className="py-2 text-right text-xs text-muted-foreground">—</td>
-                  <td className="py-2 text-right text-xs text-muted-foreground">—</td>
-                </tr>
-              ))}
-              <tr className="border-b font-semibold">
-                <td className="py-2 text-right pr-4 text-xs text-muted-foreground">Total</td>
-                <td className="py-2 text-right font-mono tabular-nums">
-                  {dinheiro(coluna(quadro.devido))}
-                </td>
-                <td className="py-2 text-right font-mono tabular-nums">
-                  {dinheiro(coluna(quadro.demonstrado))}
-                </td>
-                {/*
+                    <td className="py-2 text-right text-xs text-muted-foreground">
+                      —
+                    </td>
+                    <td className="py-2 text-right text-xs text-muted-foreground">
+                      —
+                    </td>
+                  </tr>
+                ))}
+                <tr className="border-b font-semibold">
+                  <td className="py-2 text-right pr-4 text-xs text-muted-foreground">
+                    Total
+                  </td>
+                  <td className="py-2 text-right font-mono tabular-nums">
+                    {dinheiro(coluna(quadro.devido))}
+                  </td>
+                  <td className="py-2 text-right font-mono tabular-nums">
+                    {dinheiro(coluna(quadro.demonstrado))}
+                  </td>
+                  {/*
                   O total da planilha é o que ela **publica** na linha de total, e
                   não a soma das linhas dela. É deliberado: a reconciliação
                   encontrou um total (`AJ133`) cuja fórmula discorda das próprias
                   parcelas, e somar aqui esconderia exatamente esse defeito.
                 */}
-                <td className="py-2 text-right font-mono tabular-nums">
-                  {dinheiro(quadro.planilha ? coluna(quadro.planilha) : null)}
-                </td>
-                <td className="py-2 text-right font-mono tabular-nums">
-                  {dinheiro(
-                    quadro.diferencaDaPlanilha ? coluna(quadro.diferencaDaPlanilha) : null,
-                  )}
-                </td>
-              </tr>
-            </tbody>
-          </table>
+                  <td className="py-2 text-right font-mono tabular-nums">
+                    {dinheiro(quadro.planilha ? coluna(quadro.planilha) : null)}
+                  </td>
+                  <td className="py-2 text-right font-mono tabular-nums">
+                    {dinheiro(
+                      quadro.diferencaDaPlanilha
+                        ? coluna(quadro.diferencaDaPlanilha)
+                        : null,
+                    )}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
           )}
         </div>
       ))}
@@ -563,9 +639,10 @@ function TabelaConciliada({
       {painel.pendencias.length > 0 && (
         <Alert>
           <AlertDescription className="text-xs">
-            O devido está incompleto: falta {painel.pendencias.join(", ")}. As linhas que
-            dependem disso ficam vazias em vez de somar zero — e a diferença contra a
-            planilha não é escrita onde um dos lados não existe.
+            O devido está incompleto: falta {painel.pendencias.join(", ")}. As
+            linhas que dependem disso ficam vazias em vez de somar zero — e a
+            diferença contra a planilha não é escrita onde um dos lados não
+            existe.
           </AlertDescription>
         </Alert>
       )}
@@ -590,8 +667,11 @@ function CelulasDaPlanilha({
   coluna: (v: TresColunas) => number | null;
 }) {
   const daPlanilha = linha.planilha ? coluna(linha.planilha) : null;
-  const diferenca = linha.diferencaDaPlanilha ? coluna(linha.diferencaDaPlanilha) : null;
-  const celula = linha.celulaDaPlanilha?.primeira ?? linha.celulaDaPlanilha?.segunda ?? null;
+  const diferenca = linha.diferencaDaPlanilha
+    ? coluna(linha.diferencaDaPlanilha)
+    : null;
+  const celula =
+    linha.celulaDaPlanilha?.primeira ?? linha.celulaDaPlanilha?.segunda ?? null;
 
   return (
     <>
@@ -608,14 +688,16 @@ function CelulasDaPlanilha({
         )}
       >
         {dinheiro(diferenca)}
-        {linha.causaConhecida && diferenca !== null && Math.abs(diferenca) >= 0.005 && (
-          <span
-            className="block text-xs font-sans font-normal text-muted-foreground"
-            title={linha.causaConhecida}
-          >
-            causa conhecida
-          </span>
-        )}
+        {linha.causaConhecida &&
+          diferenca !== null &&
+          Math.abs(diferenca) >= 0.005 && (
+            <span
+              className="block text-xs font-sans font-normal text-muted-foreground"
+              title={linha.causaConhecida}
+            >
+              causa conhecida
+            </span>
+          )}
       </td>
     </>
   );

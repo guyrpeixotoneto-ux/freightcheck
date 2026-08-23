@@ -71,7 +71,10 @@ interface TicketImportSummary {
   ignoredRowCount: number;
   unmappedColumns: string[];
   parameterColumns: string[];
-  columnMapping: Record<string, { header: string; match: string; reason: string }>;
+  columnMapping: Record<
+    string,
+    { header: string; match: string; reason: string }
+  >;
   failureReason: string | null;
 }
 
@@ -233,7 +236,9 @@ export function AbaChamados({
   // tamanho ou a sequência da lista — e a página em que se estava pode não
   // existir mais, ou já não conter o que continha do outro lado da troca.
   useEffect(() => {
-    setJanela((atual) => (atual.pagina === 1 ? atual : { ...atual, pagina: 1 }));
+    setJanela((atual) =>
+      atual.pagina === 1 ? atual : { ...atual, pagina: 1 },
+    );
   }, [filters, envio, ordem, vigencias.de, vigencias.ate]);
 
   /** O escopo como a API o recebe. Vazio fora das telas 360°. */
@@ -265,7 +270,8 @@ export function AbaChamados({
           ordem,
         ),
       );
-      for (const [chave, valor] of escopoNaConsulta ?? []) consulta.set(chave, valor);
+      for (const [chave, valor] of escopoNaConsulta ?? [])
+        consulta.set(chave, valor);
       return fetchJson<TicketsResponse>(`/tickets?${consulta}`);
     },
     /*
@@ -386,12 +392,16 @@ export function AbaChamados({
 
   const falhas = data?.imports.filter((i) => i.status === "FAILED") ?? [];
   const emLeitura =
-    data?.imports.filter((i) => i.status === "PENDING" || i.status === "READING") ??
-    [];
+    data?.imports.filter(
+      (i) => i.status === "PENDING" || i.status === "READING",
+    ) ?? [];
   const naoMapeadas = run?.unmappedColumns ?? [];
   const ignoradas = run?.ignoredRowCount ?? 0;
   const temAviso =
-    falhas.length > 0 || emLeitura.length > 0 || naoMapeadas.length > 0 || ignoradas > 0;
+    falhas.length > 0 ||
+    emLeitura.length > 0 ||
+    naoMapeadas.length > 0 ||
+    ignoradas > 0;
 
   /*
     O dinheiro pinta os dois cartões que falam dele. "Com impacto" é uma
@@ -469,7 +479,9 @@ export function AbaChamados({
                 onClick={() => abrirPainel("colunas")}
                 aria-expanded={painel === "colunas"}
                 className={cn(
-                  painel === "colunas" ? "text-blue-700" : "text-muted-foreground",
+                  painel === "colunas"
+                    ? "text-blue-700"
+                    : "text-muted-foreground",
                 )}
               >
                 <Columns3 className="w-4 h-4 mr-1.5" />
@@ -486,7 +498,8 @@ export function AbaChamados({
                   .filter((i) => i.status === "READ")
                   .map((i) => (
                     <option key={i.id} value={i.id}>
-                      {i.filename} · {new Date(i.receivedAt).toLocaleDateString("pt-BR")}
+                      {i.filename} ·{" "}
+                      {new Date(i.receivedAt).toLocaleDateString("pt-BR")}
                     </option>
                   ))}
               </select>
@@ -603,7 +616,7 @@ export function AbaChamados({
           O upload falha por dois motivos muito diferentes — o arquivo não
           serve, ou o banco deste ambiente não tem onde guardar — e a frase do
           servidor sozinha não os distingue. `ApiErrorNotice` pergunta ao
-          /healthz e escreve a diferença.
+          /readyz e escreve a diferença.
         */}
         {erroUpload != null && (
           <ApiErrorNotice
@@ -686,10 +699,14 @@ export function AbaChamados({
                       .map((e) => e.label)
                       .join(" · ")
               }
-              hint={`${(totals.notCalculable + totals.impacto.foraDaRegua).toLocaleString(
+              hint={`${(
+                totals.notCalculable + totals.impacto.foraDaRegua
+              ).toLocaleString(
                 "pt-BR",
               )} alterações fora desta soma — sem apuração ou fora da régua financeira`}
-              valueTone={totals.impacto.alteracoesSomadas === 0 ? "muted" : tomDoDinheiro}
+              valueTone={
+                totals.impacto.alteracoesSomadas === 0 ? "muted" : tomDoDinheiro
+              }
             />
             <MetricCard
               tone="purple"
@@ -717,12 +734,19 @@ export function AbaChamados({
             onde morar, e um arquivo perfeito não tem faixa vermelha. */}
         {(temAviso || painel !== null) && (
           <Card className="p-5 space-y-4">
-            <div className={cn("gap-4 md:grid-cols-2", temAviso ? "grid" : "hidden")}>
+            <div
+              className={cn(
+                "gap-4 md:grid-cols-2",
+                temAviso ? "grid" : "hidden",
+              )}
+            >
               {falhas.length > 0 && (
                 <Aviso
                   tone="red"
                   titulo={`${falhas.length} arquivo${falhas.length === 1 ? "" : "s"} com problema`}
-                  detalhe={falhas[0].failureReason ?? "O arquivo não pôde ser lido."}
+                  detalhe={
+                    falhas[0].failureReason ?? "O arquivo não pôde ser lido."
+                  }
                   acao="Revisar"
                   aberto={painel === "falhas"}
                   onClick={() => abrirPainel("falhas")}
@@ -762,7 +786,10 @@ export function AbaChamados({
             {painel === "falhas" && (
               <div className="rounded-xl border bg-muted/30 p-4 space-y-2 text-sm">
                 {falhas.map((i) => (
-                  <div key={i.id} className="flex flex-wrap items-baseline gap-x-2">
+                  <div
+                    key={i.id}
+                    className="flex flex-wrap items-baseline gap-x-2"
+                  >
                     <span className="font-mono font-medium">{i.filename}</span>
                     <span className="text-muted-foreground">
                       · {new Date(i.receivedAt).toLocaleDateString("pt-BR")}
@@ -856,24 +883,29 @@ export function AbaChamados({
                       De que coluna do arquivo saiu cada campo
                     </div>
                     <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1.5">
-                      {Object.entries(run.columnMapping).map(([campo, ligacao]) => (
-                        <div key={campo} className="flex items-baseline gap-2 min-w-0">
-                          <span className="text-muted-foreground shrink-0">
-                            {NOMES_DE_CAMPO[campo] ?? campo}:
-                          </span>
-                          <span className="font-mono text-xs truncate">
-                            {ligacao.header}
-                          </span>
-                          {ligacao.match === "aproximado" && (
-                            <span
-                              className="text-xs text-amber-700 shrink-0"
-                              title={ligacao.reason}
-                            >
-                              por aproximação
+                      {Object.entries(run.columnMapping).map(
+                        ([campo, ligacao]) => (
+                          <div
+                            key={campo}
+                            className="flex items-baseline gap-2 min-w-0"
+                          >
+                            <span className="text-muted-foreground shrink-0">
+                              {NOMES_DE_CAMPO[campo] ?? campo}:
                             </span>
-                          )}
-                        </div>
-                      ))}
+                            <span className="font-mono text-xs truncate">
+                              {ligacao.header}
+                            </span>
+                            {ligacao.match === "aproximado" && (
+                              <span
+                                className="text-xs text-amber-700 shrink-0"
+                                title={ligacao.reason}
+                              >
+                                por aproximação
+                              </span>
+                            )}
+                          </div>
+                        ),
+                      )}
                     </div>
                   </div>
                 )}
@@ -883,13 +915,13 @@ export function AbaChamados({
             {painel === "ignoradas" && run && (
               <div className="rounded-xl border bg-muted/30 p-4 text-sm">
                 O arquivo trazia{" "}
-                <strong>{run.rowCount.toLocaleString("pt-BR")}</strong> linhas de
-                dados;{" "}
+                <strong>{run.rowCount.toLocaleString("pt-BR")}</strong> linhas
+                de dados;{" "}
                 <strong>{run.ticketCount.toLocaleString("pt-BR")}</strong>{" "}
                 viraram chamado e{" "}
                 <strong>{run.ignoredRowCount.toLocaleString("pt-BR")}</strong>{" "}
-                ficaram de fora por não terem número de chamado. A conta fecha, e
-                nada foi descartado em silêncio.
+                ficaram de fora por não terem número de chamado. A conta fecha,
+                e nada foi descartado em silêncio.
               </div>
             )}
           </Card>
@@ -945,7 +977,9 @@ export function AbaChamados({
                   setFilters({
                     ...filters,
                     parameterLabel:
-                      filters.parameterLabel === parameterLabel ? "" : parameterLabel,
+                      filters.parameterLabel === parameterLabel
+                        ? ""
+                        : parameterLabel,
                   })
                 }
               />
@@ -957,7 +991,9 @@ export function AbaChamados({
                   setFilters({
                     ...filters,
                     parameterLabel:
-                      filters.parameterLabel === parameterLabel ? "" : parameterLabel,
+                      filters.parameterLabel === parameterLabel
+                        ? ""
+                        : parameterLabel,
                   })
                 }
               />
@@ -1123,7 +1159,10 @@ function ExcluirEnvioDialog({
         [
           ["Chamados", plano.removes.tickets],
           ["Alterações de parâmetro", plano.removes.ticketChanges],
-          ["Tentativas recusadas como duplicata", plano.removes.duplicateAttempts],
+          [
+            "Tentativas recusadas como duplicata",
+            plano.removes.duplicateAttempts,
+          ],
         ] as [string, number][]
       ).filter(([, valor]) => valor > 0)
     : [];
@@ -1346,7 +1385,9 @@ function ImpactosRelevantes({
                 title={`filtrar a lista por ${p.parameterLabel}`}
                 className={cn(
                   "w-full flex items-center gap-3 rounded-xl px-4 py-3 text-left transition-colors",
-                  perda ? "bg-red-50 hover:bg-red-100" : "bg-emerald-50 hover:bg-emerald-100",
+                  perda
+                    ? "bg-red-50 hover:bg-red-100"
+                    : "bg-emerald-50 hover:bg-emerald-100",
                   selecionado === p.parameterLabel &&
                     (perda ? "ring-1 ring-red-300" : "ring-1 ring-emerald-300"),
                 )}
@@ -1354,7 +1395,9 @@ function ImpactosRelevantes({
                 <span
                   className={cn(
                     "h-8 w-8 rounded-full grid place-content-center shrink-0 bg-card border",
-                    perda ? "text-red-600 border-red-200" : "text-emerald-600 border-emerald-200",
+                    perda
+                      ? "text-red-600 border-red-200"
+                      : "text-emerald-600 border-emerald-200",
                   )}
                 >
                   {perda ? (

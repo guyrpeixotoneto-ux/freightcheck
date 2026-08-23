@@ -6,10 +6,27 @@ import {
 import { observarBanco } from "./migrations";
 
 /**
- * Este processo pode receber tráfego de produto?
+ * Este processo está pronto, e este processo pode servir produto?
  *
  * ---------------------------------------------------------------------------
- * A janela que isto fecha
+ * Duas perguntas, e confundi-las é o defeito que este módulo separa
+ * ---------------------------------------------------------------------------
+ * **Prontidão** (`pronto`) é a resposta a "tudo o que este build precisa está
+ * de pé neste ambiente?". Ela inclui a conectividade com o banco, a fila de
+ * migrations obrigatórias deste build e a conferência de schema — é o que
+ * `/readyz` publica, e é a pergunta que um probe de readiness faria.
+ *
+ * **O portão** (`bloqueiaProduto`) é a resposta a outra coisa: "deixar esta
+ * requisição atravessar produz dado errado?". Ela é mais estreita de
+ * propósito, e a diferença está documentada em `CONTRATO_DIVERGENTE`.
+ *
+ * Enquanto as duas eram um campo só, `/readyz` respondia `ready: true` com o
+ * banco fora do ar — porque o portão, corretamente, não fecha nesse caso — e
+ * quem consultasse a prontidão para diagnosticar uma falha recebia "está tudo
+ * pronto" no exato momento em que nada estava.
+ *
+ * ---------------------------------------------------------------------------
+ * A janela que o portão fecha
  * ---------------------------------------------------------------------------
  * A partida deste servidor abre a porta **antes** de a fila rodar: o `listen`
  * acontece, e só no callback dele `applyMigrationsInBackground()` começa (ver
@@ -24,28 +41,28 @@ import { observarBanco } from "./migrations";
  * igual.
  *
  * ---------------------------------------------------------------------------
- * Por que a garantia é do processo, e não da plataforma
- * ---------------------------------------------------------------------------
- * O `artifact.toml` deste serviço declara **um** probe, o de startup, e ele
- * aponta para `/api/healthz` — que responde 200 mesmo com o banco fora, de
- * propósito: uma rota de saúde que falha junto com o banco faz o deployment
- * nunca subir, e o roteador volta a devolver 502 sem corpo. Não há readiness
- * probe para o roteador consultar, e portanto **não há como pedir à plataforma
- * que segure o tráfego**. Quem tem de recusar é o processo, e é isto aqui.
- *
- * ---------------------------------------------------------------------------
- * Uma autoridade só
+ * Uma autoridade só, e medida — nunca declarada na partida
  * ---------------------------------------------------------------------------
  * A prontidão não é declarada pela partida — ela é **medida**, pelo mesmo
- * `diagnosticar(observarBanco())` que responde ao `/healthz`. A partida que
+ * `diagnosticar(observarBanco())` que responde a todo o resto. A partida que
  * declarasse "convergi" seria uma segunda versão da verdade, e as duas
  * discordariam no dia em que outra instância, ou uma pessoa, aplicasse a fila.
- * Medindo, o portão abre sozinho assim que o banco converge — não importa quem
- * o converteu, nem se este processo reiniciou.
+ * Medindo, a prontidão acompanha o banco assim que ele converge — não importa
+ * quem o converteu, nem se este processo reiniciou.
  */
-export type Prontidao =
-  | { pronto: true }
-  | { pronto: false; diagnostico: Diagnostico };
+
+/** O que se sabe sobre servir, agora. */
+export interface Prontidao {
+  /**
+   * Tudo o que este build precisa está de pé: banco alcançável, fila aplicada,
+   * schema conferido. É o que `/readyz` responde, e é `SAUDAVEL` e nada mais.
+   */
+  pronto: boolean;
+  /** Uma requisição de produto agora produziria dado sob contrato divergente. */
+  bloqueiaProduto: boolean;
+  /** O estado que sustenta as duas respostas — sempre presente. */
+  diagnostico: Diagnostico;
+}
 
 /**
  * Os estados em que o código e o banco falam versões diferentes do contrato.
@@ -55,7 +72,9 @@ export type Prontidao =
  * dentro disso é o que produz metade de uma competência, ou um 500 sobre um
  * arquivo perfeito.
  *
- * **O que deliberadamente não fecha o portão**, e a razão de cada um:
+ * **O que deliberadamente não fecha o portão** — e nenhum deles passa por
+ * pronto: os três respondem `ready: false` em `/readyz`, com o diagnóstico
+ * inteiro. O que muda é só quem responde a requisição de produto:
  *
  * - `SCHEMA_DIVERGENTE` e `BRIDGE_PENDENTE`. Aqui o registro está completo e o
  *   que falta é um objeto nomeado. Derrubar o produto inteiro por causa de uma
@@ -67,6 +86,8 @@ export type Prontidao =
  *   real — que diz o que houve e é o que a plataforma precisa ver — por um
  *   "não estou pronto" que esconde a causa. E uma queda de segundos passaria a
  *   travar o processo inteiro em vez de falhar as chamadas daquele instante.
+ *   A rota que esbarra nele responde 503 com o mesmo diagnóstico, por
+ *   `contrato-json.ts`.
  * - `SAUDAVEL`, evidentemente.
  */
 const CONTRATO_DIVERGENTE: ReadonlySet<EstadoDoBanco> = new Set<EstadoDoBanco>([
@@ -76,7 +97,7 @@ const CONTRATO_DIVERGENTE: ReadonlySet<EstadoDoBanco> = new Set<EstadoDoBanco>([
 ]);
 
 /**
- * Convergiu uma vez, e não se pergunta mais.
+ * Convergiu uma vez, e o **portão** não se pergunta mais.
  *
  * O caminho quente não paga nada depois da partida: uma vez que o banco
  * respondeu "a fila deste build está aplicada", nenhuma requisição de produto
@@ -84,32 +105,44 @@ const CONTRATO_DIVERGENTE: ReadonlySet<EstadoDoBanco> = new Set<EstadoDoBanco>([
  * **depois** disso — o Provision que remove uma coluna, o banco trocado por
  * fora — é drift, e para drift a resposta certa é a da rota que esbarra nele,
  * não um portão que reabre e fecha a cada leitura.
+ *
+ * **A memória é do portão, e só dele.** `/readyz` nunca a consulta: uma
+ * prontidão que respondesse pela lembrança da partida seria o estado obsoleto
+ * que este módulo existe para não ter — diria "pronto" com o banco fora do ar,
+ * horas depois de a medição que a fixou ter deixado de valer.
  */
 let convergiu = false;
 
-/** A observação em curso, compartilhada — ver `estadoDaProntidao`. */
+/** A observação em curso, compartilhada — ver `medir`. */
 let emVoo: Promise<Prontidao> | null = null;
 
 /**
- * O estado agora, medido no banco enquanto ainda não convergiu.
+ * O estado agora, perguntando ao banco.
  *
  * **As leituras concorrentes dividem uma observação só.** Na partida chegam
  * várias requisições no mesmo instante, e num processo travado por migration
  * que falhou elas chegariam para sempre: sem isto, cada uma abriria a sua
  * rodada de consultas ao banco e o portão fechado viraria um amplificador de
  * carga em cima de um banco que já está em incidente.
+ *
+ * O que **não** existe aqui é cache com prazo. Uma janela de validade, por
+ * curta que fosse, é a mesma classe de defeito da memória de partida: a
+ * primeira resposta depois de a fila rodar continuaria dizendo que ela não
+ * rodou. O preço de não ter é uma rodada de consultas por chamada de
+ * `/readyz` — e `/readyz` não está no caminho de nenhuma tela.
  */
-export async function estadoDaProntidao(): Promise<Prontidao> {
-  if (convergiu) return { pronto: true };
+async function medir(): Promise<Prontidao> {
   if (emVoo) return emVoo;
 
   const medindo = (async (): Promise<Prontidao> => {
     const diagnostico = diagnosticar(await observarBanco());
-    if (CONTRATO_DIVERGENTE.has(diagnostico.estado)) {
-      return { pronto: false, diagnostico };
-    }
-    convergiu = true;
-    return { pronto: true };
+    const bloqueiaProduto = CONTRATO_DIVERGENTE.has(diagnostico.estado);
+    if (!bloqueiaProduto) convergiu = true;
+    return {
+      pronto: diagnostico.estado === "SAUDAVEL",
+      bloqueiaProduto,
+      diagnostico,
+    };
   })();
 
   emVoo = medindo;
@@ -122,11 +155,44 @@ export async function estadoDaProntidao(): Promise<Prontidao> {
 }
 
 /**
+ * A prontidão deste processo, sempre medida agora.
+ *
+ * É o que `/readyz` responde e o que a interface consulta quando uma chamada
+ * falha. Nunca responde pela memória do portão: é justamente depois de
+ * convergir que o banco pode cair, e uma prontidão que não voltasse a olhar
+ * responderia "pronto" no meio de uma queda.
+ */
+export async function estadoDaProntidao(): Promise<Prontidao> {
+  return medir();
+}
+
+/** O portão está fechado para esta requisição de produto? */
+export type EstadoDoPortao =
+  { bloqueia: false } | { bloqueia: true; diagnostico: Diagnostico };
+
+/**
+ * A pergunta do portão, com o atalho da convergência.
+ *
+ * Separada de `estadoDaProntidao` porque só ela pode usar a memória: "a fila
+ * deste build está aplicada neste banco" é um fato que não se desfaz — o que
+ * pode mudar depois é outra coisa (drift, queda), e para essas a resposta certa
+ * é a da rota, não a do portão.
+ */
+export async function estadoDoPortao(): Promise<EstadoDoPortao> {
+  if (convergiu) return { bloqueia: false };
+  const estado = await medir();
+  return estado.bloqueiaProduto
+    ? { bloqueia: true, diagnostico: estado.diagnostico }
+    : { bloqueia: false };
+}
+
+/**
  * Esquece o que foi medido — só os testes chamam.
  *
  * Existe porque a memória de `convergiu` é do processo, e uma suíte que
  * exercita "banco atrasado → banco em dia" no mesmo processo precisa poder
- * voltar ao começo. Em produção nada a chama: reiniciar é o que a zera.
+ * voltar ao começo. Em produção nada a chama: a prontidão já é medida a cada
+ * pergunta, e o portão só guarda o que não se desfaz.
  */
 export function esquecerProntidao(): void {
   convergiu = false;

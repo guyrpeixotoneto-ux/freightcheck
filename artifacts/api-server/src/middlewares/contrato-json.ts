@@ -1,10 +1,19 @@
-import type { ErrorRequestHandler, Request, RequestHandler, Response } from "express";
+import type {
+  ErrorRequestHandler,
+  Request,
+  RequestHandler,
+  Response,
+} from "express";
 import { erroDoPostgres } from "@workspace/db";
 import {
   faltaSchema,
   regraDeMigrationPendente,
   responderSchemaAusente,
 } from "../lib/schema-ausente";
+import {
+  bancoIndisponivel,
+  responderBancoIndisponivel,
+} from "../lib/banco-indisponivel";
 import { statusDaRecusa } from "../lib/recusa-de-dominio";
 import { ehFraseParaQuemOpera } from "../lib/classificar-falha";
 import { alertar } from "../lib/alerta";
@@ -93,7 +102,8 @@ function podeDetalhar(): boolean {
  */
 function detalheDe(err: unknown): string | undefined {
   if (!podeDetalhar()) return undefined;
-  const texto = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+  const texto =
+    err instanceof Error ? `${err.name}: ${err.message}` : String(err);
   if (ehFraseParaQuemOpera(texto)) return texto;
   const nome = err instanceof Error ? err.name : "erro";
   const codigo = erroDoPostgres(err)?.code;
@@ -212,6 +222,23 @@ function contextoDeRegraAntiga(req: Request, err: unknown): string {
 }
 
 /**
+ * O contexto de uma chamada que não chegou ao banco.
+ *
+ * Diz o que se sabe e para: **qual** pedido parou e que ele não gravou nada.
+ * Recomendação nenhuma sai daqui — o que houve com o ambiente e o que resolve
+ * vêm de `diagnosticar`, como em todo este arquivo. A frase existe porque sem
+ * ela o diagnóstico chegaria à tela sem dizer sobre qual chamada ele fala, e
+ * "o banco não respondeu" sozinho não responde à pergunta que quem acabou de
+ * clicar faz primeiro: *o que eu tentei fazer aconteceu?*
+ */
+function contextoDeBancoIndisponivel(req: Request): string {
+  return (
+    `${req.method} ${req.path} não foi executado: a consulta não chegou ao ` +
+    `banco deste ambiente. Nada foi gravado por esta chamada.`
+  );
+}
+
+/**
  * O 500 de sempre — a última saída, quando nada acima classificou o erro.
  *
  * Está numa função porque é chamado de dois lugares: do fluxo normal e do
@@ -219,7 +246,11 @@ function contextoDeRegraAntiga(req: Request, err: unknown): string {
  * Express cair no `finalhandler`, que responde `text/html` — exatamente o que
  * este arquivo inteiro existe para impedir.
  */
-function responderFalhaInterna(req: Request, res: Response, err: unknown): void {
+function responderFalhaInterna(
+  req: Request,
+  res: Response,
+  err: unknown,
+): void {
   res.status(500).json({
     error:
       "O servidor falhou ao processar este pedido. Nada foi gravado por esta " +
@@ -240,7 +271,7 @@ function responderFalhaInterna(req: Request, res: Response, err: unknown): void 
 /**
  * A última linha: o que sobrou de erro vira JSON, sempre.
  *
- * Cinco desfechos, **nesta ordem** — e a ordem é o desenho, não arrumação:
+ * Seis desfechos, **nesta ordem** — e a ordem é o desenho, não arrumação:
  *
  * 1. **Cabeçalho já enviado.** Não há status para trocar. Se a resposta em
  *    curso é um stream de eventos — o `/assistant/ask` com `text/event-stream`
@@ -256,7 +287,11 @@ function responderFalhaInterna(req: Request, res: Response, err: unknown): void 
  *    autoridade que responde ao `/healthz`. É o caso que o `/healthz` sozinho
  *    não enxerga: pela contagem de migrations está tudo em dia e, ainda assim,
  *    um objeto que elas criam não está lá.
- * 5. **Falha nossa.** 500, com `code` e `requestId`, e o erro inteiro — com
+ * 5. **O banco não respondeu.** 503 com o diagnóstico da conexão que falhou —
+ *    ver `lib/banco-indisponivel.ts`. Vem depois do schema porque é a menos
+ *    específica das falhas de ambiente, e antes do 500 porque um banco fora do
+ *    ar não é defeito deste servidor.
+ * 6. **Falha nossa.** 500, com `code` e `requestId`, e o erro inteiro — com
  *    stack — na linha de log deste `requestId`.
  *
  * Os desfechos 3 e 4 eram, até aqui, trabalho de cada rota: trinta e nove
@@ -274,7 +309,10 @@ function responderFalhaInterna(req: Request, res: Response, err: unknown): void 
 export const erroEmJson: ErrorRequestHandler = (err, req, res, _next) => {
   void (async () => {
     if (res.headersSent) {
-      req.log?.error({ err }, "Erro não tratado — respondido pelo contrato JSON");
+      req.log?.error(
+        { err },
+        "Erro não tratado — respondido pelo contrato JSON",
+      );
       const tipo = String(res.getHeader("content-type") ?? "");
       if (tipo.includes("text/event-stream")) {
         res.write(
@@ -341,6 +379,30 @@ export const erroEmJson: ErrorRequestHandler = (err, req, res, _next) => {
           res,
           contextoDeRegraAntiga(req, err),
           observado,
+        );
+        return;
+      }
+      /*
+        A terceira falha de ambiente, e a mais banal: a consulta não chegou ao
+        banco. Vem depois das duas de schema porque elas são mais específicas —
+        um `42P01` é uma consulta que **chegou** e encontrou o banco sem a
+        tabela —, e vem antes do 500 porque um banco fora do ar não é defeito
+        deste servidor, e responder que ele é manda procurar no lugar errado.
+
+        Era o buraco por onde a tela de login saía dizendo "Não foi possível
+        concluir o login" com o banco desligado — a mesma frase que ela usaria
+        para uma senha errada.
+      */
+      if (bancoIndisponivel(err)) {
+        req.log?.error(
+          { err },
+          "Banco indisponível — respondido com diagnóstico",
+        );
+        responderBancoIndisponivel(
+          res,
+          contextoDeBancoIndisponivel(req),
+          err,
+          req.id,
         );
         return;
       }

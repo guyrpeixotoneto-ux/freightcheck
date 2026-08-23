@@ -11,18 +11,34 @@ import { estadoDaProntidao } from "../lib/prontidao";
 import { estadoDoBackup } from "../lib/backup-agendado";
 
 /**
- * Saúde do processo, e — o que faltava — do que ele enxerga do banco.
+ * As três rotas de estado, e a fronteira entre elas.
+ *
+ * | rota       | pergunta                                   | toca o banco |
+ * | ---------- | ------------------------------------------ | ------------ |
+ * | `/healthz` | este processo está de pé?                  | não          |
+ * | `/readyz`  | este ambiente tem o que este build precisa? | sim          |
+ * | `/build`   | de qual código ele foi feito?              | não          |
+ *
+ * A fronteira entre as duas primeiras é a correção deste arquivo, e ela não é
+ * arrumação. As duas perguntas têm consumidores opostos — o startup probe
+ * precisa de um 200 mesmo com o banco fora, a prontidão precisa de um não-200
+ * exatamente quando não dá para servir — e por anos foram respondidas pelo
+ * mesmo endereço. O efeito colateral era a interface: com `/healthz` sendo o
+ * único lugar que sabia do banco, a tela passou a **mandar a pessoa abri-lo**,
+ * e "confira /api/healthz" virou a resposta do produto a quem só queria entrar.
  *
  * A pergunta "o api-server publicado está recebendo a DATABASE_URL?" não tinha
  * como ser respondida de fora. Nada neste repositório entrega essa variável ao
  * deployment: o código só lê `process.env.DATABASE_URL`, e quem a coloca lá é a
  * plataforma. Sem uma resposta observável, a checagem virava adivinhação sobre
- * o que o Replit injeta em qual processo.
- *
- * Agora `/api/healthz` responde isso, sem expor valor nenhum: se a variável
- * chegou, se dá para conectar com ela, e se o schema existe do outro lado.
+ * o que o Replit injeta em qual processo. Quem a responde agora é `/readyz`,
+ * sem expor valor nenhum: se a variável chegou, se dá para conectar com ela, e
+ * se o schema do outro lado é o que este build declara.
  */
 const router: IRouter = Router();
+
+/** Quando este processo subiu — respondido pelo `/healthz` e pelo `/build`. */
+const startedAt = new Date().toISOString();
 
 /**
  * Quais migrations este banco tem, e quais este build esperava encontrar.
@@ -118,38 +134,54 @@ export async function describeDatabase(
 }
 
 /**
- * Responde sempre 200, inclusive com o banco fora.
+ * Liveness, e **só** liveness: este processo está de pé e atendendo.
  *
- * O `[services.production.health.startup]` do artifact aponta para cá: se esta
- * rota falhasse quando o banco falha, o deployment nunca ficaria de pé — e o
- * roteador voltaria a devolver 502 sem corpo, que é justamente o estado que
- * este endpoint existe para tornar legível.
+ * ---------------------------------------------------------------------------
+ * Por que esta rota não fala do banco
+ * ---------------------------------------------------------------------------
+ * Ela já falou, e o preço apareceu na tela de quem usa o produto. Enquanto
+ * `/healthz` respondia o estado do banco, ele virou **o endereço que a
+ * interface mandava a pessoa abrir**: "Se isto persistir, confira
+ * `/api/healthz`" na tela de login, um link "Ver /api/healthz" na tela que não
+ * conseguiu ser desenhada. Um produto que responde a uma falha entregando um
+ * endpoint técnico está pedindo a quem só queria entrar que faça o diagnóstico
+ * no lugar dele.
+ *
+ * A separação é o que permite tirar aquela frase sem perder informação:
+ * liveness aqui, readiness em `/readyz`, e a interface consulta `/readyz`
+ * sozinha quando uma chamada falha — ver `lib/prontidao.ts` na interface. O que
+ * a pessoa lê passa a ser uma frase em português; o nome da migration e o
+ * comando continuam existindo, atrás de "Detalhes técnicos".
+ *
+ * ---------------------------------------------------------------------------
+ * Por que ela responde 200 sempre
+ * ---------------------------------------------------------------------------
+ * O `[services.production.health.startup]` do artifact aponta para cá. Uma
+ * rota de saúde que falhasse junto com o banco faria o deployment nunca ficar
+ * de pé — e o roteador voltaria a devolver 502 sem corpo, que é justamente o
+ * estado que estas rotas existem para tornar legível. "De pé" e "pronto" são
+ * duas perguntas, e cada uma tem o seu endereço.
+ *
+ * Não toca no banco: nenhuma consulta, nenhuma conexão. É o que a torna
+ * imune ao banco fora do ar — a propriedade que o startup probe precisa — e o
+ * que a faz responder em microssegundos.
  */
-router.get("/healthz", async (_req, res) => {
+router.get("/healthz", (_req, res) => {
   const base = HealthCheckResponse.parse({ status: "ok" });
-  const database = await describeDatabase(() => observarBanco());
-  /*
-    **`ready` é o campo que faltava, e a distinção é o ponto.** Este endpoint
-    responde 200 sempre porque é para onde o startup probe aponta: o
-    deployment precisa subir para poder ser diagnosticado. Isso, sozinho,
-    fazia um processo com a fila atrasada — ou com uma migration que falhou —
-    parecer saudável para qualquer um que olhasse só o status.
-
-    De pé e pronto passam a ser duas perguntas. O status 200 responde a
-    primeira; `ready` responde a segunda, e `/readyz` a devolve também como
-    código HTTP, para quem consulta por probe em vez de ler corpo.
-  */
-  const prontidao = await estadoDaProntidao();
   res.json({
     ...base,
-    ready: prontidao.pronto,
-    database,
-    backup: estadoDoBackup(),
+    /*
+      O que este processo sabe sem perguntar a ninguém. `startedAt` é o mesmo
+      carimbo do `/build`, e está aqui porque a primeira pergunta de quem
+      encontra um serviço estranho é há quanto tempo ele subiu.
+    */
+    startedAt,
+    uptimeSeconds: Math.round(process.uptime()),
   });
 });
 
 /**
- * Este processo pode receber tráfego de produto?
+ * Readiness: este ambiente tem tudo o que este build precisa para servir?
  *
  * **Separado do `/healthz`, e não uma versão dele com outro status.** As duas
  * perguntas têm consumidores opostos: o startup probe precisa de um endpoint
@@ -159,29 +191,48 @@ router.get("/healthz", async (_req, res) => {
  * não pode fazer as duas coisas, e foi por tentar que "de pé" passou anos
  * significando "pronto".
  *
+ * **O que entra na conta**, e cada um é uma pré-condição de servir, não uma
+ * curiosidade: a `DATABASE_URL` ter chegado, o banco responder, a fila de
+ * migrations deste build estar aplicada e o schema conferir com o que o build
+ * declara. Pronto é `SAUDAVEL` e nada além — ver `lib/prontidao.ts`.
+ *
+ * **Medido agora, sempre.** Nenhuma resposta desta rota sai da lembrança da
+ * partida: é depois de convergir que o banco cai, e é depois de subir com a
+ * fila atrasada que alguém aplica as migrations. Nos dois sentidos, a resposta
+ * seguinte já é a nova — sem reiniciar processo nenhum.
+ *
  * 503, e não 500: é indisponibilidade temporária deste processo, com
  * `Retry-After` — a mesma classe do portão que recusa as rotas de produto, e
  * pela mesma razão.
  *
- * O corpo traz o diagnóstico inteiro porque é ele que diz o que resolve, e é a
- * mesma autoridade do `/healthz`: as duas rotas não têm como discordar sobre o
- * mesmo banco, porque perguntam à mesma função.
+ * O corpo traz o diagnóstico inteiro nos dois desfechos. É ele que a interface
+ * apresenta quando uma chamada falha, e é a mesma autoridade que responde às
+ * rotas: `diagnosticar` classifica uma vez, e ninguém tem como discordar dela
+ * sobre o mesmo banco no mesmo instante.
  */
 router.get("/readyz", async (_req, res) => {
   const prontidao = await estadoDaProntidao();
+  const corpo = {
+    ready: prontidao.pronto,
+    diagnostico: prontidao.diagnostico,
+    detail: textoDoDiagnostico(prontidao.diagnostico),
+    database: await describeDatabase(() => observarBanco()),
+    /*
+      A idade da última cópia sai aqui, e não no liveness: é fato de operação
+      deste ambiente, da mesma família das outras pré-condições. Não entra em
+      `ready` de propósito — um backup atrasado é motivo para alarme, nunca para
+      recusar tráfego de um produto que está servindo corretamente.
+    */
+    backup: estadoDoBackup(),
+  };
+
   if (prontidao.pronto) {
-    res.json({ ready: true });
+    res.json(corpo);
     return;
   }
   res.setHeader("Retry-After", "5");
-  res.status(503).json({
-    ready: false,
-    diagnostico: prontidao.diagnostico,
-    detail: textoDoDiagnostico(prontidao.diagnostico),
-  });
+  res.status(503).json(corpo);
 });
-
-const startedAt = new Date().toISOString();
 
 /**
  * De qual código este servidor foi feito, e desde quando está no ar.

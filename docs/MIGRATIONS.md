@@ -8,7 +8,7 @@ Onde isso roda:
 
 | momento | quem aplica |
 | --- | --- |
-| partida do servidor **em Production** | `artifacts/api-server/src/index.ts` chama `runMigrations()` em segundo plano; o estado sai em `/api/healthz` |
+| partida do servidor **em Production** | `artifacts/api-server/src/index.ts` chama `runMigrations()` em segundo plano; o estado sai em `/api/readyz` |
 | partida do servidor **em Development** | o mesmo caminho — ver a política abaixo e por que ela mudou de sinal |
 | post-merge do Replit | `scripts/post-merge.sh` instala **e aplica a fila** quando há `DATABASE_URL` |
 | à mão | `pnpm --filter @workspace/db run migrate` |
@@ -142,7 +142,7 @@ ambiguidade.
 
 **O tell, para quem opera:** um envio que a tela recusa com "o servidor falhou"
 enquanto outro, da mesma tela, entra normalmente. O que separa os dois é a fila
-— o `/api/healthz` diz quantas migrations faltam, e aplicá-las é o conserto.
+— o `/api/readyz` diz quantas migrations faltam, e aplicá-las é o conserto.
 
 Preso por `artifacts/api-server/src/routes/__tests__/fechamento-fila-atrasada.test.ts`,
 que monta o banco daquele dia — a fila real, com registro, parada na `0054` — e
@@ -171,7 +171,7 @@ reabre. A `0055` não a criou; foi só a primeira a cair dentro dela.
 | fecha a janela | sim | sim |
 | startup probe | falha por timeout; a publicação não sobe | passa: a porta abre na hora |
 | migration que falha | deployment não sobe, versão anterior servindo, nada diz por quê — e o reinício bate na mesma parede | processo de pé, `ready:false`, alerta, e o diagnóstico legível de fora |
-| diagnosticável de fora | não: não há processo para perguntar | sim, é a razão de `/healthz` existir |
+| diagnosticável de fora | não: não há processo para perguntar | sim, é a razão de `/readyz` existir |
 
 A primeira já foi tentada neste repositório e produziu o modo de falha pior.
 Vale a segunda — e com uma consequência que decide o desenho: **o roteador do
@@ -194,7 +194,10 @@ processo.
    `Retry-After` e o diagnóstico. Atravessam o portão fechado só `/healthz`
    (o startup probe), `/readyz`, `/build` e `/` (o deployer sonda as duas).
 3. **`/api/readyz`** — a prontidão como código HTTP, para quem consulta por
-   probe. E `/api/healthz` ganhou `ready`, para que 200 não volte a poder ser
+   probe. E o estado do banco saiu do `/api/healthz` — que virou liveness puro,
+   porque enquanto carregava diagnóstico ele era o endereço que a tela
+   mandava a pessoa abrir — e mora no `/api/readyz`, para que 200 no
+   liveness não volte a poder ser
    lido como "pronto".
 4. **A partida grita** — terminada a tentativa, `anunciarProntidao()` mede e,
    se o portão estiver fechado, loga em `error` e alerta `SERVICO_NAO_PRONTO`.
@@ -218,7 +221,7 @@ A prova de que a janela sumiu está em
 `artifacts/api-server/src/__tests__/janela-da-partida.test.ts`, com o **app de
 verdade** sobre um banco parado na `0054`: o produto responde 503 (mesmo com
 sessão válida), o banco continua literalmente vazio depois das tentativas, o
-`/healthz` responde 200 com `ready:false`, e — aplicada a `0055`, sem reiniciar
+`/healthz` responde 200 (liveness), `/readyz` responde 503 com o diagnóstico, e — aplicada a `0055`, sem reiniciar
 — o serviço fica pronto e o 03.08.18 sobe e grava.
 
 ## Quem avança a fila só por ter subido
@@ -280,7 +283,7 @@ conexão, não o que o inicia.
 
 ### Desligado não é cego
 
-Com a migração automática desligada, `/api/healthz` continua dizendo o que
+Com a migração automática desligada, `/api/readyz` continua dizendo o que
 falta: `observarBanco()` pergunta ao banco a cada chamada, e não ao que este
 processo fez na partida. O que muda é quem aplica — uma pessoa, por comando.
 
@@ -347,7 +350,7 @@ de desenvolvimento — o que é o normal no instante do deploy —, ele vai enco
 diferença e oferecer aplicá-la.
 
 **Recuse a proposta.** Publique só build e start: o servidor aplica a fila
-versionada na partida e `/api/healthz` mostra o resultado. Aceitar a proposta é
+versionada na partida e `/api/readyz` mostra o resultado. Aceitar a proposta é
 o único jeito de este projeto ficar com dois schemas.
 
 Ela costuma aparecer como uma pergunta de *renomeação* — "Detected potential

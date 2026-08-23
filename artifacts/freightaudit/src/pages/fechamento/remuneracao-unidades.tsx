@@ -12,8 +12,17 @@ import { Layout } from "@/components/layout/layout";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { apresentar } from "@/lib/apresentar-erro";
-import { emDiaCurto, MES_LONGO, periodoDaQuinzena, quinzenaDaData } from "@/lib/calendario";
-import { alternarGrupo, alternarUma, grupoEstaAberto } from "@/lib/linhas-abertas";
+import {
+  emDiaCurto,
+  MES_LONGO,
+  periodoDaQuinzena,
+  quinzenaDaData,
+} from "@/lib/calendario";
+import {
+  alternarGrupo,
+  alternarUma,
+  grupoEstaAberto,
+} from "@/lib/linhas-abertas";
 import { cn } from "@/lib/utils";
 import {
   chaveDoCadastro,
@@ -106,7 +115,9 @@ import {
 function textoDoErro(erro: unknown): string {
   const aviso = apresentar(erro);
   return (
-    aviso.orientacao?.resumo ?? aviso.mensagemCrua ?? "Não foi possível carregar as unidades."
+    aviso.principal ??
+    aviso.mensagemCrua ??
+    "Não foi possível carregar as unidades."
   );
 }
 
@@ -182,7 +193,8 @@ function fraseDaFrota(u: SituacaoDaUnidade): string {
 
 /** O mesmo, do lado dos trechos — de onde saem alíquotas, proporções e resumo. */
 function fraseDosTrechos(u: SituacaoDaUnidade): string {
-  if (u.cadastro.aliquotas) return contar(u.material.trechos, "trecho", "trechos");
+  if (u.cadastro.aliquotas)
+    return contar(u.material.trechos, "trecho", "trechos");
   if (!u.material.trechosEntregues) return "não entregou a série de trechos";
   if (u.material.trechos === 0) return "entregou a série de trechos vazia";
   return `${contar(u.material.trechos, "trecho", "trechos")}, sem as colunas em reais`;
@@ -233,7 +245,9 @@ export function chaveDaLinha(u: SituacaoDaUnidade): string {
 /** `2026-08-16` → `agosto de 2026`, o título do grupo. */
 function mesPorExtenso(data: string): string {
   const indice = Number(data.slice(5, 7)) - 1;
-  return indice >= 0 && indice < 12 ? `${MES_LONGO[indice]} de ${data.slice(0, 4)}` : data;
+  return indice >= 0 && indice < 12
+    ? `${MES_LONGO[indice]} de ${data.slice(0, 4)}`
+    : data;
 }
 
 /**
@@ -339,8 +353,16 @@ export function partirEmQuinzenas(linhas: readonly SituacaoDaUnidade[]): Mes[] {
         chave,
         titulo: mesPorExtenso(u.effectiveDate),
         quinzenas: [
-          { numero: 1, inicio: periodoDaQuinzena(ano, numeroDoMes, 1).inicio, linhas: [] },
-          { numero: 2, inicio: periodoDaQuinzena(ano, numeroDoMes, 2).inicio, linhas: [] },
+          {
+            numero: 1,
+            inicio: periodoDaQuinzena(ano, numeroDoMes, 1).inicio,
+            linhas: [],
+          },
+          {
+            numero: 2,
+            inicio: periodoDaQuinzena(ano, numeroDoMes, 2).inicio,
+            linhas: [],
+          },
         ],
       };
       por.set(chave, mes);
@@ -350,7 +372,9 @@ export function partirEmQuinzenas(linhas: readonly SituacaoDaUnidade[]): Mes[] {
 
   for (const mes of por.values()) {
     for (const quinzena of mes.quinzenas) {
-      quinzena.linhas.sort((a, b) => a.effectiveDate.localeCompare(b.effectiveDate));
+      quinzena.linhas.sort((a, b) =>
+        a.effectiveDate.localeCompare(b.effectiveDate),
+      );
     }
   }
 
@@ -378,7 +402,9 @@ function fraseDaQuinzena(quinzena: Quinzena): string {
 /** `1ª quinzena com as duas metades · 2ª quinzena sem cadastro`. */
 export function resumoDoMes(mes: Mes): string {
   return mes.quinzenas
-    .map((quinzena) => `${quinzena.numero}ª quinzena ${fraseDaQuinzena(quinzena)}`)
+    .map(
+      (quinzena) => `${quinzena.numero}ª quinzena ${fraseDaQuinzena(quinzena)}`,
+    )
     .join(" · ");
 }
 
@@ -494,7 +520,8 @@ export function agruparPorUnidade(cadastros: SituacaoDaUnidade[]): Grupo[] {
       por.set(chave, grupo);
     }
     grupo.linhas.push(u);
-    if (u.effectiveDate > grupo.maisRecente) grupo.maisRecente = u.effectiveDate;
+    if (u.effectiveDate > grupo.maisRecente)
+      grupo.maisRecente = u.effectiveDate;
     /*
       Tudo aqui conta **cadastros** — a linha inteira de uma unidade numa
       vigência —, e nunca as trinta linhas da aba somadas entre eles: uma frase
@@ -527,7 +554,8 @@ export function agruparPorUnidade(cadastros: SituacaoDaUnidade[]): Grupo[] {
   */
   return [...por.values()].sort(
     (a, b) =>
-      b.maisRecente.localeCompare(a.maisRecente) || a.titulo.localeCompare(b.titulo, "pt-BR"),
+      b.maisRecente.localeCompare(a.maisRecente) ||
+      a.titulo.localeCompare(b.titulo, "pt-BR"),
   );
 }
 
@@ -562,7 +590,8 @@ export function resumoDoGrupo(grupo: Grupo): string {
   if (grupo.semDevido > 0) {
     partes.push(`${grupo.semDevido} sem cadastro suficiente para o devido`);
   }
-  if (grupo.comPlanilha > 0) partes.push(`${grupo.comPlanilha} com planilha informada`);
+  if (grupo.comPlanilha > 0)
+    partes.push(`${grupo.comPlanilha} com planilha informada`);
   if (grupo.comDivergencia > 0) {
     partes.push(
       `${grupo.comDivergencia} ${grupo.comDivergencia === 1 ? "diverge" : "divergem"} do acervo`,
@@ -584,7 +613,8 @@ const idsDoGrupo = (grupo: Grupo) => grupo.linhas.map(chaveDaLinha);
 const chaveDoMes = (grupo: Grupo, mes: Mes) => `${grupo.chave}|${mes.chave}`;
 
 /** Os meses de um grupo — o que o cabeçalho da unidade abre e fecha junto. */
-const mesesDoGrupo = (grupo: Grupo) => grupo.meses.map((mes) => chaveDoMes(grupo, mes));
+const mesesDoGrupo = (grupo: Grupo) =>
+  grupo.meses.map((mes) => chaveDoMes(grupo, mes));
 
 /**
  * O cadastro de uma unidade **na vigência da linha**, dentro dela.
@@ -601,11 +631,17 @@ function CadastroDaLinha({ unidade }: { unidade: SituacaoDaUnidade }) {
   const dados = useQuery({
     queryKey: chaveDoCadastro(unidade.scopeHash, canal, unidade.effectiveDate),
     queryFn: () =>
-      lerCadastro({ scopeHash: unidade.scopeHash, canal, period: unidade.effectiveDate }),
+      lerCadastro({
+        scopeHash: unidade.scopeHash,
+        canal,
+        period: unidade.effectiveDate,
+      }),
   });
 
   if (dados.isLoading) {
-    return <p className="text-sm text-muted-foreground">Montando o cadastro…</p>;
+    return (
+      <p className="text-sm text-muted-foreground">Montando o cadastro…</p>
+    );
   }
   if (dados.isError || !dados.data) {
     return (
@@ -639,7 +675,9 @@ export default function RemuneracaoUnidades() {
     mês diz em que estado as duas quinzenas estão — ver `resumoDoMes` —, que é
     o que decide se vale abrir.
   */
-  const [mesesAbertos, setMesesAbertos] = useState<ReadonlySet<string>>(() => new Set());
+  const [mesesAbertos, setMesesAbertos] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
 
   /*
     O endereço antigo do cadastro era este, com a unidade na query. Quem tiver
@@ -652,7 +690,8 @@ export default function RemuneracaoUnidades() {
   */
   const encaminhando = new URLSearchParams(busca).get("scopeHash") !== null;
   useEffect(() => {
-    if (encaminhando) navegar(`/fechamento/remuneracao/unidade?${busca}`, { replace: true });
+    if (encaminhando)
+      navegar(`/fechamento/remuneracao/unidade?${busca}`, { replace: true });
   }, [encaminhando, busca, navegar]);
 
   /*
@@ -666,7 +705,10 @@ export default function RemuneracaoUnidades() {
     enabled: !encaminhando,
   });
 
-  const cadastros = useMemo(() => situacao.data?.cadastros ?? [], [situacao.data]);
+  const cadastros = useMemo(
+    () => situacao.data?.cadastros ?? [],
+    [situacao.data],
+  );
 
   /*
     Os tipos de operação que já existem em alguma unidade — o que o seletor do
@@ -686,7 +728,9 @@ export default function RemuneracaoUnidades() {
   const canaisConhecidos = useMemo(
     () => [
       ...new Set(
-        cadastros.map((c) => c.channel).filter((c): c is string => c !== null && c !== ""),
+        cadastros
+          .map((c) => c.channel)
+          .filter((c): c is string => c !== null && c !== ""),
       ),
     ],
     [cadastros],
@@ -726,7 +770,11 @@ export default function RemuneracaoUnidades() {
   const ehOUltimoCadastro = (u: SituacaoDaUnidade): boolean => {
     if (!u.registradaAMao) return false;
     const contagem = porUnidade.get(`${u.scopeHash}|${u.channel ?? ""}`);
-    return contagem !== undefined && contagem.linhas === 1 && contagem.informadas === 0;
+    return (
+      contagem !== undefined &&
+      contagem.linhas === 1 &&
+      contagem.informadas === 0
+    );
   };
 
   /*
@@ -742,13 +790,18 @@ export default function RemuneracaoUnidades() {
     const operacoes = new Set<string>();
     const presentes = new Set<EstadoDoCadastro>();
     for (const u of cadastros) {
-      vigencias.set(u.effectiveDate.slice(0, 7), mesPorExtenso(u.effectiveDate));
+      vigencias.set(
+        u.effectiveDate.slice(0, 7),
+        mesPorExtenso(u.effectiveDate),
+      );
       nomes.add(nomeDaUnidade(u));
       if (u.channel) operacoes.add(u.channel);
       presentes.add(u.cadastro.estado);
     }
     const emOrdem = (s: Set<string>) =>
-      [...s].sort((a, b) => a.localeCompare(b, "pt-BR")).map((v) => ({ valor: v, rotulo: v }));
+      [...s]
+        .sort((a, b) => a.localeCompare(b, "pt-BR"))
+        .map((v) => ({ valor: v, rotulo: v }));
     return {
       /* Da mais recente para a mais antiga, como os grupos. */
       vigencias: [...vigencias]
@@ -768,7 +821,8 @@ export default function RemuneracaoUnidades() {
     () =>
       agruparPorUnidade(
         cadastros.filter((u) => {
-          if (vigencia !== TUDO && u.effectiveDate.slice(0, 7) !== vigencia) return false;
+          if (vigencia !== TUDO && u.effectiveDate.slice(0, 7) !== vigencia)
+            return false;
           if (nome !== TUDO && nomeDaUnidade(u) !== nome) return false;
           if (operacao !== TUDO && (u.channel ?? "") !== operacao) return false;
           if (estado !== TUDO && u.cadastro.estado !== estado) return false;
@@ -778,7 +832,8 @@ export default function RemuneracaoUnidades() {
     [cadastros, vigencia, nome, operacao, estado],
   );
 
-  const abertoNoGrupo = (grupo: Grupo) => grupoEstaAberto(abertas, idsDoGrupo(grupo));
+  const abertoNoGrupo = (grupo: Grupo) =>
+    grupoEstaAberto(abertas, idsDoGrupo(grupo));
 
   /**
    * O cabeçalho da unidade abre — ou fecha — **tudo** o que ela tem: os meses
@@ -850,15 +905,17 @@ export default function RemuneracaoUnidades() {
           <BotaoDeRegistroDeUnidade />
         </div>
         <p className="text-muted-foreground mt-2 max-w-3xl">
-          As unidades que o cadastro da planilha de remuneração conhece, cada uma com
+          As unidades que o cadastro da planilha de remuneração conhece, cada
+          uma com
           <strong> a tabela dela</strong>: uma faixa por mês, e o mês abre nas{" "}
-          <strong>duas quinzenas</strong> — as duas sempre, para que a metade que ninguém
-          entregou apareça em vez de faltar em silêncio. Os meses mais recentes vêm
-          primeiro, e a unidade que parou de entregar cai para o fim da página; clique numa
-          quinzena para abrir o cadastro dela aqui mesmo — alíquotas, frota, parcelas por
-          veículo e proporção de documentos. O que o acervo
-          ainda não responde, alguém digita da aba de Excel em <strong>Cadastrar planilha</strong>;
-          e a unidade cuja aba chegou antes do export entra por <strong>Cadastrar unidade</strong>,
+          <strong>duas quinzenas</strong> — as duas sempre, para que a metade
+          que ninguém entregou apareça em vez de faltar em silêncio. Os meses
+          mais recentes vêm primeiro, e a unidade que parou de entregar cai para
+          o fim da página; clique numa quinzena para abrir o cadastro dela aqui
+          mesmo — alíquotas, frota, parcelas por veículo e proporção de
+          documentos. O que o acervo ainda não responde, alguém digita da aba de
+          Excel em <strong>Cadastrar planilha</strong>; e a unidade cuja aba
+          chegou antes do export entra por <strong>Cadastrar unidade</strong>,
           sem lastro e dizendo que está sem.
         </p>
       </header>
@@ -916,20 +973,26 @@ export default function RemuneracaoUnidades() {
         )}
 
         {situacao.isLoading && (
-          <p className="text-sm text-muted-foreground">Montando os cadastros…</p>
+          <p className="text-sm text-muted-foreground">
+            Montando os cadastros…
+          </p>
         )}
 
         {!situacao.isLoading && !situacao.isError && cadastros.length === 0 && (
           <div className="rounded-lg border bg-card p-8 text-sm text-muted-foreground max-w-2xl space-y-3">
             <p>
-              Nenhuma unidade ainda. Há dois caminhos, e eles não se substituem: a primeira
-              planilha enviada em{" "}
-              <Link href="/importacoes" className="text-primary hover:underline">
+              Nenhuma unidade ainda. Há dois caminhos, e eles não se substituem:
+              a primeira planilha enviada em{" "}
+              <Link
+                href="/importacoes"
+                className="text-primary hover:underline"
+              >
                 Importações
               </Link>{" "}
-              traz a unidade com o que o acervo mede, e <strong>Cadastrar unidade</strong>,
-              aqui em cima, põe na lista aquela cuja aba de Excel já chegou e cujo export
-              ainda não — sem lastro, e dizendo que está sem.
+              traz a unidade com o que o acervo mede, e{" "}
+              <strong>Cadastrar unidade</strong>, aqui em cima, põe na lista
+              aquela cuja aba de Excel já chegou e cujo export ainda não — sem
+              lastro, e dizendo que está sem.
             </p>
           </div>
         )}
@@ -965,7 +1028,10 @@ export default function RemuneracaoUnidades() {
         {grupos.length > 0 && (
           <div className="space-y-4">
             {grupos.map((grupo) => (
-              <section key={grupo.chave} className="rounded-lg border bg-card overflow-hidden">
+              <section
+                key={grupo.chave}
+                className="rounded-lg border bg-card overflow-hidden"
+              >
                 <div className="border-b bg-muted/40">
                   <button
                     type="button"
@@ -1012,7 +1078,10 @@ export default function RemuneracaoUnidades() {
                     e sem o `aria-label` quem lê por leitor de tela encontraria
                     trinta tabelas sem nome nenhum.
                   */}
-                  <table className="w-full text-sm border-collapse" aria-label={grupo.titulo}>
+                  <table
+                    className="w-full text-sm border-collapse"
+                    aria-label={grupo.titulo}
+                  >
                     {/*
                       O título das colunas aparece quando há célula embaixo
                       dele, e não antes.
@@ -1024,15 +1093,29 @@ export default function RemuneracaoUnidades() {
                       página, e a primeira coisa que se lê de uma unidade
                       passaria a ser o cabeçalho de uma tabela vazia.
                     */}
-                    {grupo.meses.some((mes) => mesesAbertos.has(chaveDoMes(grupo, mes))) && (
+                    {grupo.meses.some((mes) =>
+                      mesesAbertos.has(chaveDoMes(grupo, mes)),
+                    ) && (
                       <thead>
                         <tr className="border-b text-[0.6875rem] font-bold uppercase tracking-wide text-muted-foreground">
-                          <th className="text-left font-bold px-4 py-3">Vigência</th>
-                          <th className="text-left font-bold px-4 py-3">Cadastro</th>
-                          <th className="text-left font-bold px-4 py-3">Frota</th>
-                          <th className="text-left font-bold px-4 py-3">Trechos</th>
-                          <th className="text-right font-bold px-4 py-3">Lastro documental</th>
-                          <th className="text-right font-bold px-4 py-3">Informado no cadastro</th>
+                          <th className="text-left font-bold px-4 py-3">
+                            Vigência
+                          </th>
+                          <th className="text-left font-bold px-4 py-3">
+                            Cadastro
+                          </th>
+                          <th className="text-left font-bold px-4 py-3">
+                            Frota
+                          </th>
+                          <th className="text-left font-bold px-4 py-3">
+                            Trechos
+                          </th>
+                          <th className="text-right font-bold px-4 py-3">
+                            Lastro documental
+                          </th>
+                          <th className="text-right font-bold px-4 py-3">
+                            Informado no cadastro
+                          </th>
                           <th className="text-right font-bold px-4 py-3" />
                         </tr>
                       </thead>
@@ -1063,7 +1146,9 @@ export default function RemuneracaoUnidades() {
                                 <button
                                   type="button"
                                   onClick={() =>
-                                    setMesesAbertos((m) => alternarUma(m, chaveDesteMes))
+                                    setMesesAbertos((m) =>
+                                      alternarUma(m, chaveDesteMes),
+                                    )
                                   }
                                   aria-expanded={mesAberto}
                                   className="flex w-full items-start gap-2 px-4 py-2 text-left hover:bg-muted/40"
@@ -1076,7 +1161,9 @@ export default function RemuneracaoUnidades() {
                                     aria-hidden
                                   />
                                   <span>
-                                    <span className="font-semibold">{mes.titulo}</span>
+                                    <span className="font-semibold">
+                                      {mes.titulo}
+                                    </span>
                                     <span className="text-muted-foreground text-xs ml-3">
                                       {resumoDoMes(mes)}
                                     </span>
@@ -1093,9 +1180,11 @@ export default function RemuneracaoUnidades() {
                                   a segunda quinzena trocar aquela linha no
                                   lugar, em vez de remontar as duas.
                                 */
-                                <Fragment key={`${chaveDesteMes}|Q${quinzena.numero}`}>
-                                  {quinzena.linhas.length === 0 ? (
-                                    /*
+                                <Fragment
+                                  key={`${chaveDesteMes}|Q${quinzena.numero}`}
+                                >
+                                  {quinzena.linhas.length === 0
+                                    ? /*
                                       A metade que ninguém entregou tem linha do
                                       mesmo jeito: ela é o trabalho que falta, e
                                       era justamente o que a lista rasa não tinha
@@ -1106,20 +1195,21 @@ export default function RemuneracaoUnidades() {
                                       Só onde o recorte deixa afirmá-lo — ver
                                       `podeAfirmarQuinzenaVazia`.
                                     */
-                                    podeAfirmarQuinzenaVazia && (
-                                      <QuinzenaSemCadastro
-                                        quinzena={quinzena}
-                                        unidade={grupo.linhas[0]!}
-                                        canaisConhecidos={canaisConhecidos}
-                                      />
-                                    )
-                                  ) : (
-                                    quinzena.linhas.map((u) => {
-                                      const chave = chaveDaLinha(u);
-                                      const aberta = abertas.has(chave);
-                                      const alternar = () =>
-                                        setAbertas((a) => alternarUma(a, chave));
-                                      /*
+                                      podeAfirmarQuinzenaVazia && (
+                                        <QuinzenaSemCadastro
+                                          quinzena={quinzena}
+                                          unidade={grupo.linhas[0]!}
+                                          canaisConhecidos={canaisConhecidos}
+                                        />
+                                      )
+                                    : quinzena.linhas.map((u) => {
+                                        const chave = chaveDaLinha(u);
+                                        const aberta = abertas.has(chave);
+                                        const alternar = () =>
+                                          setAbertas((a) =>
+                                            alternarUma(a, chave),
+                                          );
+                                        /*
                                         A linha é a **quinzena**, e o mês dela é a
                                         faixa logo acima: escrever "julho de 2026"
                                         aqui repetiria uma polegada abaixo o que a
@@ -1131,40 +1221,40 @@ export default function RemuneracaoUnidades() {
                                         vista, e várias linhas ficam abertas ao
                                         mesmo tempo, de propósito.
                                       */
-                                      const rotuloDaVigencia = `${quinzena.numero}ª quinzena de ${mes.titulo}`;
-                                      /*
+                                        const rotuloDaVigencia = `${quinzena.numero}ª quinzena de ${mes.titulo}`;
+                                        /*
                                         O dia só onde ele distingue alguma coisa:
                                         a vigência que não começa no dia da
                                         quinzena, e a metade que recebeu duas.
                                         Embaixo de "1ª quinzena", um "01/07" é a
                                         mesma data escrita duas vezes.
                                       */
-                                      const precisaDoDia =
-                                        quinzena.linhas.length > 1 ||
-                                        u.effectiveDate !== quinzena.inicio;
-                                      return (
-                                        <Fragment key={chave}>
-                                          <tr
-                                            onClick={alternar}
-                                            className={cn(
-                                              "border-b last:border-b-0 cursor-pointer hover:bg-muted/50",
-                                              aberta && "bg-muted/40",
-                                            )}
-                                          >
-                                            <td className="px-4 py-3 align-middle">
-                                              {/*
+                                        const precisaDoDia =
+                                          quinzena.linhas.length > 1 ||
+                                          u.effectiveDate !== quinzena.inicio;
+                                        return (
+                                          <Fragment key={chave}>
+                                            <tr
+                                              onClick={alternar}
+                                              className={cn(
+                                                "border-b last:border-b-0 cursor-pointer hover:bg-muted/50",
+                                                aberta && "bg-muted/40",
+                                              )}
+                                            >
+                                              <td className="px-4 py-3 align-middle">
+                                                {/*
                                                 O botão repete o clique da linha por causa do
                                                 teclado: uma `<tr>` clicável não recebe foco, e sem
                                                 ele o cadastro seria inalcançável sem mouse.
                                               */}
-                                              <button
-                                                type="button"
-                                                onClick={(e) => {
-                                                  e.stopPropagation();
-                                                  alternar();
-                                                }}
-                                                aria-expanded={aberta}
-                                                /*
+                                                <button
+                                                  type="button"
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    alternar();
+                                                  }}
+                                                  aria-expanded={aberta}
+                                                  /*
                                                   O recuo é o que põe a quinzena
                                                   **dentro** do mês: sem ele a
                                                   seta da linha nasce na mesma
@@ -1172,17 +1262,17 @@ export default function RemuneracaoUnidades() {
                                                   e os dois níveis se leem como
                                                   um só.
                                                 */
-                                                className="flex items-start gap-1.5 pl-4 text-left"
-                                              >
-                                                <ChevronRight
-                                                  className={cn(
-                                                    "w-3.5 h-3.5 mt-1 shrink-0 text-muted-foreground transition-transform",
-                                                    aberta && "rotate-90",
-                                                  )}
-                                                  aria-hidden
-                                                />
-                                                <span>
-                                                  {/*
+                                                  className="flex items-start gap-1.5 pl-4 text-left"
+                                                >
+                                                  <ChevronRight
+                                                    className={cn(
+                                                      "w-3.5 h-3.5 mt-1 shrink-0 text-muted-foreground transition-transform",
+                                                      aberta && "rotate-90",
+                                                    )}
+                                                    aria-hidden
+                                                  />
+                                                  <span>
+                                                    {/*
                                                     Nem o nome da unidade nem o do
                                                     mês vêm aqui: são o cartão e a
                                                     faixa acima desta linha, e
@@ -1191,19 +1281,22 @@ export default function RemuneracaoUnidades() {
                                                     uma vez por vigência sem nunca
                                                     distinguir nada.
                                                   */}
-                                                  <span className="font-semibold">
-                                                    {quinzena.numero}ª quinzena
-                                                  </span>
-                                                  {precisaDoDia && (
-                                                    <span className="block text-muted-foreground text-xs mt-0.5">
-                                                      {emDiaCurto(u.effectiveDate)}
+                                                    <span className="font-semibold">
+                                                      {quinzena.numero}ª
+                                                      quinzena
                                                     </span>
-                                                  )}
-                                                </span>
-                                              </button>
-                                            </td>
+                                                    {precisaDoDia && (
+                                                      <span className="block text-muted-foreground text-xs mt-0.5">
+                                                        {emDiaCurto(
+                                                          u.effectiveDate,
+                                                        )}
+                                                      </span>
+                                                    )}
+                                                  </span>
+                                                </button>
+                                              </td>
 
-                                            {/*
+                                              {/*
                                               A COLUNA `CADASTRO` RESPONDE SE O
                                               CADASTRO CALCULA — e não quanto
                                               dele tem documento.
@@ -1217,33 +1310,44 @@ export default function RemuneracaoUnidades() {
                                               centavo. O lastro tem coluna
                                               própria, duas adiante.
                                             */}
-                                            <td className="px-4 py-3 align-middle">
-                                              {(() => {
-                                                const suficiencia = suficienciaDoCadastro(u.cadastro);
-                                                return (
-                                                  <Badge
-                                                    variant={suficiencia.variante}
-                                                    title={suficiencia.frase}
-                                                    className="gap-1.5 whitespace-nowrap px-2.5 py-1 text-[0.6875rem] font-bold uppercase tracking-wide"
-                                                  >
-                                                    <span className="w-1.5 h-1.5 rounded-full bg-current" aria-hidden />
-                                                    {suficiencia.rotulo}
-                                                  </Badge>
-                                                );
-                                              })()}
-                                            </td>
+                                              <td className="px-4 py-3 align-middle">
+                                                {(() => {
+                                                  const suficiencia =
+                                                    suficienciaDoCadastro(
+                                                      u.cadastro,
+                                                    );
+                                                  return (
+                                                    <Badge
+                                                      variant={
+                                                        suficiencia.variante
+                                                      }
+                                                      title={suficiencia.frase}
+                                                      className="gap-1.5 whitespace-nowrap px-2.5 py-1 text-[0.6875rem] font-bold uppercase tracking-wide"
+                                                    >
+                                                      <span
+                                                        className="w-1.5 h-1.5 rounded-full bg-current"
+                                                        aria-hidden
+                                                      />
+                                                      {suficiencia.rotulo}
+                                                    </Badge>
+                                                  );
+                                                })()}
+                                              </td>
 
-                                            <td className="px-4 py-3 align-middle">
-                                              <MetadeDoCadastro tem={u.cadastro.frota} frase={fraseDaFrota(u)} />
-                                            </td>
-                                            <td className="px-4 py-3 align-middle">
-                                              <MetadeDoCadastro
-                                                tem={u.cadastro.aliquotas}
-                                                frase={fraseDosTrechos(u)}
-                                              />
-                                            </td>
+                                              <td className="px-4 py-3 align-middle">
+                                                <MetadeDoCadastro
+                                                  tem={u.cadastro.frota}
+                                                  frase={fraseDaFrota(u)}
+                                                />
+                                              </td>
+                                              <td className="px-4 py-3 align-middle">
+                                                <MetadeDoCadastro
+                                                  tem={u.cadastro.aliquotas}
+                                                  frase={fraseDosTrechos(u)}
+                                                />
+                                              </td>
 
-                                            {/*
+                                              {/*
                                               Sem barra de proporção ao lado do número, ao
                                               contrário da coluna "conferido" de Apurações, que é
                                               a que ocupa este lugar lá. Lá a razão entre dois
@@ -1252,21 +1356,28 @@ export default function RemuneracaoUnidades() {
                                               dezenove das trinta linhas dependem de decisão de
                                               negócio, e não de arquivo que falta.
                                             */}
-                                            <td className="px-4 py-3 text-right whitespace-nowrap align-middle">
-                                              <div className="inline-flex flex-col items-end gap-1">
-                                                <span className="tabular-nums">
-                                                  {u.cadastro.comLastro} de {u.cadastro.verificaveis}
-                                                </span>
-                                                <span
-                                                  className="text-[0.6875rem] text-muted-foreground"
-                                                  title={ESTADO_DO_CADASTRO[u.cadastro.estado].frase}
-                                                >
-                                                  {ESTADO_DO_CADASTRO[u.cadastro.estado].rotulo.toLowerCase()}
-                                                </span>
-                                              </div>
-                                            </td>
+                                              <td className="px-4 py-3 text-right whitespace-nowrap align-middle">
+                                                <div className="inline-flex flex-col items-end gap-1">
+                                                  <span className="tabular-nums">
+                                                    {u.cadastro.comLastro} de{" "}
+                                                    {u.cadastro.verificaveis}
+                                                  </span>
+                                                  <span
+                                                    className="text-[0.6875rem] text-muted-foreground"
+                                                    title={
+                                                      ESTADO_DO_CADASTRO[
+                                                        u.cadastro.estado
+                                                      ].frase
+                                                    }
+                                                  >
+                                                    {ESTADO_DO_CADASTRO[
+                                                      u.cadastro.estado
+                                                    ].rotulo.toLowerCase()}
+                                                  </span>
+                                                </div>
+                                              </td>
 
-                                            {/*
+                                              {/*
                                               A planilha informada é coluna própria, e nunca somada
                                               à de lastro: as duas respondem perguntas opostas — uma
                                               diz o que a unidade **entregou**, a outra o que alguém
@@ -1284,17 +1395,21 @@ export default function RemuneracaoUnidades() {
                                               retenção cada tecla dentro dele fecharia — ou abriria
                                               — a linha atrás.
                                             */}
-                                            <td
-                                              className="px-4 py-3 text-right whitespace-nowrap align-middle"
-                                              onClick={(e) => e.stopPropagation()}
-                                            >
-                                              <div className="inline-flex flex-col items-end gap-1">
-                                                {u.cadastro.informadas > 0 && (
-                                                  <>
-                                                    <span className="tabular-nums">
-                                                      {u.cadastro.informadas} de {u.cadastro.linhas}
-                                                    </span>
-                                                    {/*
+                                              <td
+                                                className="px-4 py-3 text-right whitespace-nowrap align-middle"
+                                                onClick={(e) =>
+                                                  e.stopPropagation()
+                                                }
+                                              >
+                                                <div className="inline-flex flex-col items-end gap-1">
+                                                  {u.cadastro.informadas >
+                                                    0 && (
+                                                    <>
+                                                      <span className="tabular-nums">
+                                                        {u.cadastro.informadas}{" "}
+                                                        de {u.cadastro.linhas}
+                                                      </span>
+                                                      {/*
                                                       As obrigatórias primeiro, porque são
                                                       elas que decidem se há devido. "29 de
                                                       30" sozinho conta caixas preenchidas e
@@ -1302,46 +1417,67 @@ export default function RemuneracaoUnidades() {
                                                       uma opcional (premissa) ou a linha que
                                                       trava o contrato inteiro.
                                                     */}
-                                                    <span className="text-[0.6875rem] text-muted-foreground">
-                                                      {u.cadastro.obrigatoriasInformadas} de{" "}
-                                                      {u.cadastro.obrigatorias} obrigatórias
-                                                    </span>
-                                                    {u.cadastro.opcionaisAssumidasComoZero > 0 && (
-                                                      <span
-                                                        className="text-[0.6875rem] text-muted-foreground"
-                                                        title={
-                                                          "A planilha deixa estas células em branco e as soma como zero — " +
-                                                          "é a premissa que o contrato adota, e não uma linha esquecida."
-                                                        }
-                                                      >
-                                                        {u.cadastro.opcionaisAssumidasComoZero}{" "}
-                                                        {u.cadastro.opcionaisAssumidasComoZero === 1
-                                                          ? "opcional assumida"
-                                                          : "opcionais assumidas"}{" "}
-                                                        como zero
+                                                      <span className="text-[0.6875rem] text-muted-foreground">
+                                                        {
+                                                          u.cadastro
+                                                            .obrigatoriasInformadas
+                                                        }{" "}
+                                                        de{" "}
+                                                        {
+                                                          u.cadastro
+                                                            .obrigatorias
+                                                        }{" "}
+                                                        obrigatórias
                                                       </span>
-                                                    )}
-                                                    <Conferencias cadastro={u.cadastro} />
-                                                  </>
-                                                )}
-                                                <BotaoDeCadastroDaPlanilha
-                                                  unidade={u}
-                                                  canaisConhecidos={canaisConhecidos}
-                                                />
-                                              </div>
-                                            </td>
+                                                      {u.cadastro
+                                                        .opcionaisAssumidasComoZero >
+                                                        0 && (
+                                                        <span
+                                                          className="text-[0.6875rem] text-muted-foreground"
+                                                          title={
+                                                            "A planilha deixa estas células em branco e as soma como zero — " +
+                                                            "é a premissa que o contrato adota, e não uma linha esquecida."
+                                                          }
+                                                        >
+                                                          {
+                                                            u.cadastro
+                                                              .opcionaisAssumidasComoZero
+                                                          }{" "}
+                                                          {u.cadastro
+                                                            .opcionaisAssumidasComoZero ===
+                                                          1
+                                                            ? "opcional assumida"
+                                                            : "opcionais assumidas"}{" "}
+                                                          como zero
+                                                        </span>
+                                                      )}
+                                                      <Conferencias
+                                                        cadastro={u.cadastro}
+                                                      />
+                                                    </>
+                                                  )}
+                                                  <BotaoDeCadastroDaPlanilha
+                                                    unidade={u}
+                                                    canaisConhecidos={
+                                                      canaisConhecidos
+                                                    }
+                                                  />
+                                                </div>
+                                              </td>
 
-                                            <td className="px-4 py-3 text-right align-middle">
-                                              <span className="inline-flex items-center gap-3">
-                                                <Link
-                                                  href={enderecoDaUnidade(u)}
-                                                  onClick={(e) => e.stopPropagation()}
-                                                  className="text-xs text-primary hover:underline inline-flex items-center gap-1 whitespace-nowrap"
-                                                >
-                                                  abrir cadastro
-                                                  <ArrowRight className="w-3 h-3" />
-                                                </Link>
-                                                {/*
+                                              <td className="px-4 py-3 text-right align-middle">
+                                                <span className="inline-flex items-center gap-3">
+                                                  <Link
+                                                    href={enderecoDaUnidade(u)}
+                                                    onClick={(e) =>
+                                                      e.stopPropagation()
+                                                    }
+                                                    className="text-xs text-primary hover:underline inline-flex items-center gap-1 whitespace-nowrap"
+                                                  >
+                                                    abrir cadastro
+                                                    <ArrowRight className="w-3 h-3" />
+                                                  </Link>
+                                                  {/*
                                                   A lixeira fica no fim da linha, ao lado de abrir
                                                   — e não junto do botão de cadastrar planilha, que
                                                   é o gesto que se repete. Excluir é o gesto que se
@@ -1349,20 +1485,25 @@ export default function RemuneracaoUnidades() {
                                                   quinzena, ele viraria o clique errado de alguém
                                                   com pressa.
                                                 */}
-                                                <BotaoDeExclusaoDoCadastro
-                                                  unidade={u}
-                                                  podeExcluirAUnidade={ehOUltimoCadastro(u)}
-                                                />
-                                              </span>
-                                            </td>
-                                          </tr>
+                                                  <BotaoDeExclusaoDoCadastro
+                                                    unidade={u}
+                                                    podeExcluirAUnidade={ehOUltimoCadastro(
+                                                      u,
+                                                    )}
+                                                  />
+                                                </span>
+                                              </td>
+                                            </tr>
 
-                                          {aberta && (
-                                            <tr className="border-b last:border-b-0 bg-muted/20">
-                                              <td colSpan={7} className="px-4 py-4 sm:px-9">
-                                                <div className="space-y-3">
-                                                  <div className="flex flex-wrap items-baseline justify-between gap-3">
-                                                    {/*
+                                            {aberta && (
+                                              <tr className="border-b last:border-b-0 bg-muted/20">
+                                                <td
+                                                  colSpan={7}
+                                                  className="px-4 py-4 sm:px-9"
+                                                >
+                                                  <div className="space-y-3">
+                                                    <div className="flex flex-wrap items-baseline justify-between gap-3">
+                                                      {/*
                                                       O endereço **inteiro** do cadastro — a
                                                       unidade e a vigência —, e não só a metade
                                                       que o grupo já disse. É o lugar em que a
@@ -1373,33 +1514,43 @@ export default function RemuneracaoUnidades() {
                                                       que dissesse só a vigência mandaria subir a
                                                       página para lembrar de quem ele é.
                                                     */}
-                                                    <p className="text-[0.6875rem] font-bold uppercase tracking-wide text-muted-foreground">
-                                                      O cadastro · {rotuloDaLinha(u)} · {rotuloDaVigencia}
-                                                    </p>
-                                                    {/*
+                                                      <p className="text-[0.6875rem] font-bold uppercase tracking-wide text-muted-foreground">
+                                                        O cadastro ·{" "}
+                                                        {rotuloDaLinha(u)} ·{" "}
+                                                        {rotuloDaVigencia}
+                                                      </p>
+                                                      {/*
                                                       O cadastro abre aqui; o resto da unidade —
                                                       trocar de vigência, comparar duas quinzenas,
                                                       digitar a planilha com as trinta linhas à
                                                       vista — é outra tela, e o caminho para ela
                                                       fica onde a pergunta seguinte aparece.
                                                     */}
-                                                    <Link
-                                                      href={enderecoDaUnidade(u)}
-                                                      className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
-                                                    >
-                                                      Abrir a unidade — vigências, comparação e planilha
-                                                      <ArrowRight className="w-3.5 h-3.5" aria-hidden />
-                                                    </Link>
+                                                      <Link
+                                                        href={enderecoDaUnidade(
+                                                          u,
+                                                        )}
+                                                        className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
+                                                      >
+                                                        Abrir a unidade —
+                                                        vigências, comparação e
+                                                        planilha
+                                                        <ArrowRight
+                                                          className="w-3.5 h-3.5"
+                                                          aria-hidden
+                                                        />
+                                                      </Link>
+                                                    </div>
+                                                    <CadastroDaLinha
+                                                      unidade={u}
+                                                    />
                                                   </div>
-                                                  <CadastroDaLinha unidade={u} />
-                                                </div>
-                                              </td>
-                                            </tr>
-                                          )}
-                                      </Fragment>
-                                    );
-                                  })
-                                )}
+                                                </td>
+                                              </tr>
+                                            )}
+                                          </Fragment>
+                                        );
+                                      })}
                                 </Fragment>
                               ))}
                           </Fragment>
@@ -1415,7 +1566,8 @@ export default function RemuneracaoUnidades() {
 
         {filtrando && grupos.length > 0 && (
           <p className="text-xs text-muted-foreground">
-            Os totais de cada unidade são os das vigências visíveis com este recorte.
+            Os totais de cada unidade são os das vigências visíveis com este
+            recorte.
           </p>
         )}
 
@@ -1488,7 +1640,10 @@ function QuinzenaSemCadastro({
           title="Nenhuma vigência nesta quinzena: nem export importado, nem planilha digitada."
           className="gap-1.5 whitespace-nowrap px-2.5 py-1 text-[0.6875rem] font-bold uppercase tracking-wide text-muted-foreground"
         >
-          <span className="w-1.5 h-1.5 rounded-full bg-current opacity-50" aria-hidden />
+          <span
+            className="w-1.5 h-1.5 rounded-full bg-current opacity-50"
+            aria-hidden
+          />
           Sem cadastro
         </Badge>
       </td>
@@ -1559,8 +1714,8 @@ function MarcasDaUnidade({ unidade }: { unidade: SituacaoDaUnidade }) {
       */}
       {orfa && (
         <p className="text-[0.6875rem] text-amber-700">
-          a unidade saiu do acervo — a planilha continua aqui, e volta ao lugar quando o
-          export dela for reimportado
+          a unidade saiu do acervo — a planilha continua aqui, e volta ao lugar
+          quando o export dela for reimportado
         </p>
       )}
 
@@ -1587,8 +1742,8 @@ function MarcasDaUnidade({ unidade }: { unidade: SituacaoDaUnidade }) {
             a primeira mandava procurar no lugar errado.
           */}
           <span className="text-[0.6875rem] text-amber-700">
-            sem código — o export vai abrir outra ao lado, e o painel do fechamento não
-            encontra este cadastro
+            sem código — o export vai abrir outra ao lado, e o painel do
+            fechamento não encontra este cadastro
           </span>
           <BotaoDeInformarCodigo
             scopeHash={unidade.scopeHash}
@@ -1697,7 +1852,10 @@ function Notas({ semLastro }: { semLastro: number }) {
       </p>
       <dl className="space-y-2">
         {ESTADOS.map((estado) => (
-          <div key={estado} className="flex flex-col sm:flex-row sm:items-baseline gap-1 sm:gap-3">
+          <div
+            key={estado}
+            className="flex flex-col sm:flex-row sm:items-baseline gap-1 sm:gap-3"
+          >
             {/*
               A coluna acompanha o selo, e não o contrário.
 
@@ -1712,11 +1870,16 @@ function Notas({ semLastro }: { semLastro: number }) {
                 variant={APARENCIA_DO_ESTADO[estado]}
                 className="gap-1.5 whitespace-nowrap px-2.5 py-1 text-[0.6875rem] font-bold uppercase tracking-wide"
               >
-                <span className="w-1.5 h-1.5 rounded-full bg-current" aria-hidden />
+                <span
+                  className="w-1.5 h-1.5 rounded-full bg-current"
+                  aria-hidden
+                />
                 {ESTADO_DO_CADASTRO[estado].rotulo}
               </Badge>
             </dt>
-            <dd className="text-xs text-muted-foreground">{ESTADO_DO_CADASTRO[estado].frase}</dd>
+            <dd className="text-xs text-muted-foreground">
+              {ESTADO_DO_CADASTRO[estado].frase}
+            </dd>
           </div>
         ))}
       </dl>
@@ -1732,27 +1895,31 @@ function Notas({ semLastro }: { semLastro: number }) {
       */}
       <div className="text-xs text-muted-foreground border-t pt-3 space-y-2">
         <p>
-          <strong>Cadastro</strong> responde se as vinte linhas obrigatórias foram
-          informadas — e é só delas que o contrato sai. É a coluna que diz se há devido.
+          <strong>Cadastro</strong> responde se as vinte linhas obrigatórias
+          foram informadas — e é só delas que o contrato sai. É a coluna que diz
+          se há devido.
         </p>
         <p>
-          <strong>Lastro documental</strong> conta quantas das <strong>onze</strong> linhas
-          verificáveis têm documento por trás. Onze, e não trinta: as outras dezenove são
-          preço contratado ou conta que o próprio cadastro refaz, e arquivo nenhum as
-          confirma — nunca confirmou. Lastro mede auditabilidade, e não prontidão: um
-          cadastro sem lastro nenhum calcula o devido igual, e perde só a conferência
+          <strong>Lastro documental</strong> conta quantas das{" "}
+          <strong>onze</strong> linhas verificáveis têm documento por trás.
+          Onze, e não trinta: as outras dezenove são preço contratado ou conta
+          que o próprio cadastro refaz, e arquivo nenhum as confirma — nunca
+          confirmou. Lastro mede auditabilidade, e não prontidão: um cadastro
+          sem lastro nenhum calcula o devido igual, e perde só a conferência
           externa.
         </p>
         <p>
-          <strong>Informado no cadastro</strong> conta o que alguém digitou, com as
-          obrigatórias destacadas. Uma opcional em branco não é falta: a planilha a deixa
-          vazia e a soma como zero, e a tela diz a premissa em vez de cobrar a célula.
+          <strong>Informado no cadastro</strong> conta o que alguém digitou, com
+          as obrigatórias destacadas. Uma opcional em branco não é falta: a
+          planilha a deixa vazia e a soma como zero, e a tela diz a premissa em
+          vez de cobrar a célula.
         </p>
         <p>
           <strong>Conferência</strong> tem duas espécies, e elas nunca se somam:{" "}
-          <em>com o acervo</em> confronta o digitado com o que o export mede — evidência
-          externa; <em>dentro da própria aba</em> confronta o total impresso com a soma das
-          parcelas digitadas — prova que a transcrição é coerente, não que ela é verdade.
+          <em>com o acervo</em> confronta o digitado com o que o export mede —
+          evidência externa; <em>dentro da própria aba</em> confronta o total
+          impresso com a soma das parcelas digitadas — prova que a transcrição é
+          coerente, não que ela é verdade.
         </p>
       </div>
 
@@ -1765,14 +1932,15 @@ function Notas({ semLastro }: { semLastro: number }) {
         dissesse onde o que digitou tinha ido parar.
       */}
       <p className="text-xs text-muted-foreground">
-        <strong>Planilha informada</strong> conta o outro lado: as linhas que alguém digitou
-        da aba de Excel. Ela não entra em "linhas com lastro" — número digitado é lastro da
-        planilha, não do acervo — e é justamente por ficarem separadas que a coluna consegue
-        dizer quantas linhas os dois respondem e em quantas eles discordam. Ela é da
-        vigência da linha: a quinzena nova nasce em branco <strong>ao lado</strong> da
-        preenchida, que continua na lista, na vigência dela; e dentro do formulário há{" "}
-        <em>copiar de outra vigência</em>, para partir da quinzena passada e corrigir só o
-        que mudou.
+        <strong>Planilha informada</strong> conta o outro lado: as linhas que
+        alguém digitou da aba de Excel. Ela não entra em "linhas com lastro" —
+        número digitado é lastro da planilha, não do acervo — e é justamente por
+        ficarem separadas que a coluna consegue dizer quantas linhas os dois
+        respondem e em quantas eles discordam. Ela é da vigência da linha: a
+        quinzena nova nasce em branco <strong>ao lado</strong> da preenchida,
+        que continua na lista, na vigência dela; e dentro do formulário há{" "}
+        <em>copiar de outra vigência</em>, para partir da quinzena passada e
+        corrigir só o que mudou.
       </p>
 
       {/*
@@ -1789,9 +1957,10 @@ function Notas({ semLastro }: { semLastro: number }) {
           {semLastro === 1
             ? "O cadastro sem lastro não tem número nenhum vindo do acervo"
             : `Os ${semLastro} cadastros sem lastro não têm número nenhum vindo do acervo`}
-          : enquanto o export daquela vigência não chega, o número deles só entra pela{" "}
-          <strong>planilha informada</strong> — o botão da coluna abre o formulário, e o que
-          entrar por lá fica marcado como informado, com autor e data.
+          : enquanto o export daquela vigência não chega, o número deles só
+          entra pela <strong>planilha informada</strong> — o botão da coluna
+          abre o formulário, e o que entrar por lá fica marcado como informado,
+          com autor e data.
         </p>
       )}
     </div>

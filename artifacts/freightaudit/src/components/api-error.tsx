@@ -1,66 +1,29 @@
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { fetchJson } from "@/lib/api";
+import { DetalhesTecnicos } from "@/components/detalhes-tecnicos";
 import { apresentar } from "@/lib/apresentar-erro";
-import type { Diagnostico, Orientacao } from "@/lib/diagnostico";
+import { consultarProntidao, PRONTIDAO_QUERY_KEY } from "@/lib/prontidao";
 
 /**
  * Uma chamada de API que falhou, dita de um jeito que aponta para a causa.
  *
  * Um 500 em `/api/overview` não é um defeito do Painel, e tratá-lo como tal
  * manda quem está olhando procurar no lugar errado. Quase sempre a resposta
- * está no diagnóstico do banco, que o servidor classifica num lugar só e
- * publica tanto no corpo do erro quanto no `/api/healthz`.
+ * está no estado do ambiente, que o servidor classifica num lugar só e publica
+ * tanto no corpo do erro quanto em `/api/readyz`.
  *
  * **Uma recomendação, nunca duas.** Este componente imprimia dois textos
  * sempre: o do `/healthz` e a mensagem crua da rota, um embaixo do outro. Ver
  * `lib/apresentar-erro.ts`, que é onde essa decisão passou a morar e onde ela é
  * testada. Aqui só se desenha o que aquela função devolveu.
+ *
+ * **E a tela pergunta sozinha.** A versão anterior deste aviso terminava com um
+ * link para `/api/healthz` — o produto entregando um endpoint técnico a quem só
+ * queria a lista, e transferindo o diagnóstico para quem menos tem como
+ * fazê-lo. A pergunta sempre foi possível de fazer daqui; agora ela é feita.
+ * Ver `lib/prontidao.ts`.
  */
-
-interface DatabaseHealth {
-  configured: boolean;
-  reachable: boolean;
-  migrated: boolean;
-  upToDate?: boolean;
-  diagnostico?: Diagnostico;
-  detail: string;
-}
-
-/** O único lugar do repositório que desenha uma orientação. */
-function BlocoDeOrientacao({ orientacao }: { orientacao: Orientacao }) {
-  const { acao } = orientacao;
-  return (
-    <div className="space-y-2 text-sm">
-      <p>{orientacao.resumo}</p>
-      <p>{orientacao.risco.texto}</p>
-      {acao === null ? (
-        <p className="font-medium">Nenhuma ação é necessária.</p>
-      ) : (
-        <div className="space-y-1">
-          <p className="font-medium">
-            {acao.texto}
-            {acao.quem === "plataforma" && (
-              <span className="font-normal">
-                {" "}
-                (não é algo que se resolva por esta tela)
-              </span>
-            )}
-          </p>
-          {acao.comando && (
-            <pre className="text-xs font-mono bg-amber-100/70 rounded px-2 py-1 overflow-x-auto">
-              {acao.comando}
-            </pre>
-          )}
-        </div>
-      )}
-      {orientacao.evidencia && (
-        <p className="text-xs opacity-80">{orientacao.evidencia}</p>
-      )}
-    </div>
-  );
-}
 
 export function ApiErrorNotice({
   error,
@@ -89,16 +52,20 @@ export function ApiErrorNotice({
   /** Há tentativa em voo agora: o botão vira rótulo e para de aceitar clique. */
   tentando?: boolean;
 }) {
-  // `retry: false` de propósito: isto roda quando algo já falhou, e insistir só
-  // atrasa a mensagem que a pessoa está esperando.
-  const { data: health } = useQuery({
-    queryKey: ["healthz"],
-    queryFn: () => fetchJson<{ database: DatabaseHealth }>("/healthz"),
+  /*
+    `retry: false` de propósito: isto roda quando algo já falhou, e insistir só
+    atrasa a mensagem que a pessoa está esperando. `consultarProntidao` não
+    lança — nem quando o servidor está fora do ar —, então o desfecho de não
+    conseguir perguntar também chega como resposta, e não como erro de query.
+  */
+  const { data: prontidao } = useQuery({
+    queryKey: PRONTIDAO_QUERY_KEY,
+    queryFn: ({ signal }) => consultarProntidao(signal),
     retry: false,
-    staleTime: 30_000,
+    staleTime: 15_000,
   });
 
-  const vista = apresentar(error, health?.database);
+  const vista = apresentar(error, prontidao);
 
   return (
     <div className="rounded-lg border border-amber-300 bg-amber-50 px-5 py-4 space-y-2 text-amber-900">
@@ -108,34 +75,28 @@ export function ApiErrorNotice({
       </div>
 
       {vista.contexto && <p className="text-sm">{vista.contexto}</p>}
-      {vista.orientacao && <BlocoDeOrientacao orientacao={vista.orientacao} />}
-      {vista.mensagemCrua && (
-        <p className="text-xs font-mono break-words opacity-80">
-          {vista.mensagemCrua}
-        </p>
-      )}
+
       {/*
-        O identificador da requisição — a única coisa acionável quando não há
-        orientação nenhuma. Era o buraco desta tela: `Internal server error` com
-        o `/healthz` respondendo `SAUDAVEL`, e nada que ligasse o que se via ao
-        que o servidor registrou. Com este número, quem está na tela consegue
-        dizer *qual* chamada falhou a quem consegue ler o log.
+        A mensagem principal, e ela é uma frase em português sobre o que houve.
+        O nome da migration, o comando e o SQLSTATE continuam existindo — logo
+        abaixo, atrás de "Detalhes técnicos".
       */}
-      {vista.requestId && (
-        <p className="text-xs">
-          Requisição{" "}
-          <code className="font-mono select-all">{vista.requestId}</code> — é
-          por este número que o log descreve a falha.
+      {vista.principal && <p className="text-sm">{vista.principal}</p>}
+
+      {/*
+        Sem orientação nenhuma — ninguém soube explicar. Aí a mensagem crua e o
+        identificador da requisição são o que se tem, e é honesto dizer o que
+        eles servem para fazer em vez de deixar a caixa terminar no vazio.
+      */}
+      {vista.principal === null && (
+        <p className="text-sm">
+          Não foi possível determinar a causa desta falha, e o ambiente não
+          reportou nenhum problema. Nada do que você enviou foi gravado — os
+          detalhes abaixo identificam esta chamada para quem for investigar.
         </p>
       )}
-      {vista.mostrarLinkHealthz && (
-        <p className="text-xs">
-          <a href="/api/healthz" className="underline">
-            /api/healthz
-          </a>{" "}
-          diz o que o servidor enxerga do banco.
-        </p>
-      )}
+
+      <DetalhesTecnicos detalhes={vista.detalhes} className="pt-1" />
 
       {/*
         O botão vem por último, depois da orientação, e não antes dela: a

@@ -11,7 +11,10 @@ import {
 } from "@workspace/db/migrate";
 import type { EstadoObservado } from "@workspace/db/diagnostico";
 import { bridgePendente } from "@workspace/db/bridge-marcador";
-import { compararSchema, tabelasDeclaradas } from "@workspace/db/conferir-schema";
+import {
+  compararSchema,
+  tabelasDeclaradas,
+} from "@workspace/db/conferir-schema";
 import {
   reconvergirSeCabivel,
   type DesfechoDaReconvergencia,
@@ -133,7 +136,10 @@ export function deveMigrarNaPartida(
   }
 
   const naoReconhecido =
-    explicito !== undefined && explicito !== "" && !SIM.has(explicito) && !NAO.has(explicito)
+    explicito !== undefined &&
+    explicito !== "" &&
+    !SIM.has(explicito) &&
+    !NAO.has(explicito)
       ? ` (${CHAVE}=${bruto} não é um valor reconhecido e foi ignorado)`
       : "";
 
@@ -182,7 +188,12 @@ export async function observarBanco(
   databaseUrl: string | undefined = process.env["DATABASE_URL"],
 ): Promise<EstadoObservado> {
   if (!databaseUrl) {
-    return { configurada: false, alcancavel: false, pendentes: [], aplicadas: 0 };
+    return {
+      configurada: false,
+      alcancavel: false,
+      pendentes: [],
+      aplicadas: 0,
+    };
   }
 
   const esperadas = expectedMigrations();
@@ -199,7 +210,28 @@ export async function observarBanco(
     const pendentes = esperadas
       .filter((migration) => !aplicadas.has(migration.when))
       .map((migration) => migration.tag);
-    const falha = relatorioDaPartida()?.failure;
+    /*
+      A falha da partida vale enquanto a migration dela ainda estiver faltando
+      — e **só** enquanto.
+
+      Era estado obsoleto de partida com efeito visível: o processo tentou a
+      fila, o banco recusou a `0053`, e o relatório ficou guardado na memória
+      deste processo para sempre. Se depois disso outra instância — ou uma
+      pessoa pela linha de comando — aplicasse a `0053`, este processo
+      continuaria anunciando "a migration 0053 foi recusada pelo banco" sobre um
+      banco que já a tem, e mandando investigar uma falha que não existe mais. A
+      única saída era reiniciar, que é exatamente o reinício indevido que a
+      prontidão medida existe para eliminar.
+
+      O registro do banco é a autoridade sobre o que foi aplicado; o relatório
+      só acrescenta **onde parou**, e essa informação só é verdadeira sobre uma
+      migration que continua pendente.
+    */
+    const doRelatorio = relatorioDaPartida()?.failure;
+    const falha =
+      doRelatorio && pendentes.includes(doRelatorio.tag)
+        ? doRelatorio
+        : undefined;
 
     /*
       O bridge é perguntado aqui, e não numa rota, porque é a mesma leitura que
@@ -230,14 +262,18 @@ export async function observarBanco(
     let objetosAusentes: string[] | undefined;
     if (temSchema && pendentes.length === 0) {
       try {
-        const colunas = await db.execute<{ table_name: string; column_name: string }>(
+        const colunas = await db.execute<{
+          table_name: string;
+          column_name: string;
+        }>(
           sql`select table_name, column_name
                 from information_schema.columns
                where table_schema = 'public'`,
         );
         const reais = new Map<string, Set<string>>();
         for (const linha of colunas.rows) {
-          if (!reais.has(linha.table_name)) reais.set(linha.table_name, new Set());
+          if (!reais.has(linha.table_name))
+            reais.set(linha.table_name, new Set());
           reais.get(linha.table_name)!.add(linha.column_name);
         }
         const divergencia = compararSchema(tabelasDeclaradas(), reais);
@@ -263,7 +299,12 @@ export async function observarBanco(
           }
         : {}),
       ...(falha
-        ? { falha: { tag: falha.tag, ...(falha.code ? { code: falha.code } : {}) } }
+        ? {
+            falha: {
+              tag: falha.tag,
+              ...(falha.code ? { code: falha.code } : {}),
+            },
+          }
         : {}),
     };
   } catch (err) {

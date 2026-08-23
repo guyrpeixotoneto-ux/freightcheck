@@ -1,7 +1,11 @@
 import type { RequestHandler } from "express";
 import { db } from "@workspace/db";
 import { isPublicPath } from "../lib/auth";
-import { resolveSession, SESSION_COOKIE, type SessionUser } from "../lib/session";
+import {
+  resolveSession,
+  SESSION_COOKIE,
+  type SessionUser,
+} from "../lib/session";
 
 declare global {
   namespace Express {
@@ -32,17 +36,22 @@ export const requireSession: RequestHandler = async (req, res, next) => {
       const user = await resolveSession(db, token);
       if (user) req.user = user;
     } catch (err) {
-      // O banco fora não é "não autenticado": responder 401 mandaria para a
-      // tela de login quem já está logado, e a mensagem de lá — "confira suas
-      // credenciais" — apontaria para o lugar errado.
+      /*
+        O banco fora não é "não autenticado": responder 401 mandaria para a
+        tela de login quem já está logado, e a mensagem de lá — sobre
+        credenciais — apontaria para o lugar errado.
+
+        Quem responde é o contrato de erro, e não este middleware. Ele escrevia
+        aqui a própria frase ("o banco não respondeu"), afirmando por conta
+        própria uma causa que não tinha como distinguir de um schema atrasado
+        ou de um defeito nosso — e sem o diagnóstico que diz o que resolve.
+        `next(err)` entrega o erro a quem classifica uma vez para todas as
+        rotas, e a tela recebe a mesma orientação que receberia de qualquer
+        outra chamada que morresse pela mesma causa.
+      */
       req.log.error({ err }, "Falha ao verificar a sessão");
       if (!isPublic) {
-        res.status(503).json({
-          error:
-            "Não foi possível verificar a sessão: o banco não respondeu. " +
-            "Isso não é problema das suas credenciais.",
-          code: "SESSION_CHECK_FAILED",
-        });
+        next(err);
         return;
       }
     }

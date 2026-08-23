@@ -66,7 +66,23 @@ export interface Acao {
  * eixo ela veio é decisão de quem escolhe, não de quem desenha.
  */
 export interface Orientacao {
-  /** O que aconteceu, em uma ou duas frases. */
+  /**
+   * A frase que a tela mostra como **mensagem principal**.
+   *
+   * Vem pronta dos dois eixos — do servidor, em `diagnosticar`; daqui, em
+   * `diagnosticarTransporte` — e a regra dela é a mesma nos dois: nenhum nome
+   * de migration, nenhum comando, nenhum SQLSTATE, nenhum endereço de rota. O
+   * detalhe técnico continua existindo em `resumo`, `acao.comando` e
+   * `evidencia`, e a tela o guarda atrás de "Detalhes técnicos".
+   *
+   * **Opcional porque o servidor pode ser mais velho que este bundle.** É
+   * situação real neste projeto — um build anterior ainda no ar —, e um
+   * diagnóstico sem `humano` precisa continuar sendo apresentável. Quem
+   * desenha usa `humano ?? resumo`, que é a frase de antes: pior, e não
+   * quebrada.
+   */
+  humano?: string;
+  /** O que aconteceu, em uma ou duas frases, para quem opera o ambiente. */
   resumo: string;
   /** Os dados correm risco? Respondido sempre, nunca deixado para dedução. */
   risco: { emRisco: boolean; texto: string };

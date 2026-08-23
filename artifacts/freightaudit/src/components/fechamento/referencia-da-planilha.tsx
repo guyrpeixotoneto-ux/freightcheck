@@ -26,7 +26,7 @@ function textoDoErro(erro: unknown): string {
   const aviso = apresentar(erro);
   return (
     aviso.mensagemCrua ??
-    aviso.orientacao?.resumo ??
+    aviso.principal ??
     "Não foi possível anexar a planilha."
   );
 }
@@ -133,7 +133,9 @@ export function ReferenciaDaPlanilha({ alvo }: { alvo: MesDaReferencia }) {
           onClick={() => campo.current?.click()}
         >
           <FileUp className="h-4 w-4 mr-2" />
-          {ativa ? "Anexar nova versão da planilha" : "Anexar planilha para conferir"}
+          {ativa
+            ? "Anexar nova versão da planilha"
+            : "Anexar planilha para conferir"}
         </Button>
         {lista.length > 1 && (
           <Button
@@ -146,7 +148,9 @@ export function ReferenciaDaPlanilha({ alvo }: { alvo: MesDaReferencia }) {
           </Button>
         )}
         {anexar.isPending && (
-          <span className="text-xs text-muted-foreground">lendo a planilha…</span>
+          <span className="text-xs text-muted-foreground">
+            lendo a planilha…
+          </span>
         )}
       </div>
 
@@ -162,9 +166,7 @@ export function ReferenciaDaPlanilha({ alvo }: { alvo: MesDaReferencia }) {
 
       {erro && (
         <Alert variant="destructive">
-          <AlertDescription className="text-xs">
-            {erro}
-          </AlertDescription>
+          <AlertDescription className="text-xs">{erro}</AlertDescription>
         </Alert>
       )}
 
@@ -179,8 +181,9 @@ export function ReferenciaDaPlanilha({ alvo }: { alvo: MesDaReferencia }) {
             />
           ))}
           <p className="px-3 py-2 text-xs text-muted-foreground">
-            Nenhuma versão é apagada. A diferença que alguém leu foi medida contra
-            um arquivo específico, e essa leitura precisa continuar reconstruível.
+            Nenhuma versão é apagada. A diferença que alguém leu foi medida
+            contra um arquivo específico, e essa leitura precisa continuar
+            reconstruível.
           </p>
         </div>
       )}

@@ -25,7 +25,11 @@ import {
 } from "@/lib/fechamento-gerencial";
 import { formatBrl } from "@/lib/format";
 import { apresentar } from "@/lib/apresentar-erro";
-import { alternarGrupo, alternarUma, grupoEstaAberto } from "@/lib/linhas-abertas";
+import {
+  alternarGrupo,
+  alternarUma,
+  grupoEstaAberto,
+} from "@/lib/linhas-abertas";
 import { cn } from "@/lib/utils";
 import { chaveDaCompetencia } from "@/lib/fechamento-tela";
 
@@ -75,7 +79,11 @@ import { chaveDaCompetencia } from "@/lib/fechamento-tela";
  */
 function textoDoErro(erro: unknown): string {
   const aviso = apresentar(erro);
-  return aviso.orientacao?.resumo ?? aviso.mensagemCrua ?? "Não foi possível carregar as apurações.";
+  return (
+    aviso.principal ??
+    aviso.mensagemCrua ??
+    "Não foi possível carregar as apurações."
+  );
 }
 
 /**
@@ -88,7 +96,10 @@ function textoDoErro(erro: unknown): string {
  * coluna de valores.
  */
 const emValor = (v: number) =>
-  v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  v.toLocaleString("pt-BR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 
 /** `03.08.12.09` vira `12.09`; `2Art` continua `2Art`. */
 const rotinaCurta = (rotina: string) => rotina.split(".").slice(-2).join(".");
@@ -96,7 +107,8 @@ const rotinaCurta = (rotina: string) => rotina.split(".").slice(-2).join(".");
 const rotuloLongo = (c: Competencia) =>
   `${c.quinzena}ª quinzena de ${MES_LONGO[c.mes - 1]} de ${c.ano}`;
 
-const rotuloCurto = (c: Competencia) => `${MES_CURTO[c.mes - 1]}/${c.ano} · ${c.quinzena}ª`;
+const rotuloCurto = (c: Competencia) =>
+  `${MES_CURTO[c.mes - 1]}/${c.ano} · ${c.quinzena}ª`;
 
 /** As competências de um grupo, na ordem em que a quinzena as mostra. */
 const idsDoGrupo = (grupo: Grupo) => grupo.linhas.map((l) => l.competencia.id);
@@ -192,8 +204,12 @@ function resumoDoGrupo(grupo: Grupo): string {
   const partes = [
     contagem,
     `${formatBrl(grupo.emitido)} emitidos`,
-    conferido === null ? "sem emissão a conferir" : `${Math.round(conferido)}% conferido`,
-    grupo.aQuestionar > 0 ? `${formatBrl(grupo.aQuestionar)} a questionar` : "nada a questionar",
+    conferido === null
+      ? "sem emissão a conferir"
+      : `${Math.round(conferido)}% conferido`,
+    grupo.aQuestionar > 0
+      ? `${formatBrl(grupo.aQuestionar)} a questionar`
+      : "nada a questionar",
   ];
   if (grupo.todasEncerradas) partes.push("todas encerradas");
   return partes.join(" · ");
@@ -208,7 +224,13 @@ function resumoDoGrupo(grupo: Grupo): string {
  * linha sem nova ida ao servidor. Duas chaves para o mesmo recurso dariam duas
  * cópias que podem discordar entre si.
  */
-function ContaDaLinha({ competenciaId, fontes }: { competenciaId: string; fontes: Fonte[] }) {
+function ContaDaLinha({
+  competenciaId,
+  fontes,
+}: {
+  competenciaId: string;
+  fontes: Fonte[];
+}) {
   const dados = useQuery({
     queryKey: chaveDaCompetencia(competenciaId),
     queryFn: () => lerCompetencia(competenciaId),
@@ -231,15 +253,21 @@ function ContaDaLinha({ competenciaId, fontes }: { competenciaId: string; fontes
   */
   const { apuracao } = dados.data;
   if (!apuracao) return <SemApuracao competenciaId={competenciaId} />;
-  return <ContaApurada apuracao={apuracao} competenciaId={competenciaId} fontes={fontes} />;
+  return (
+    <ContaApurada
+      apuracao={apuracao}
+      competenciaId={competenciaId}
+      fontes={fontes}
+    />
+  );
 }
 
 /** O que dizer quando não há conta — e para onde ir fazer uma. */
 function SemApuracao({ competenciaId }: { competenciaId: string }) {
   return (
     <p className="text-sm text-muted-foreground">
-      Esta competência ainda não apurou — e apurar é um botão, dentro da competência,
-      porque rodar grava.{" "}
+      Esta competência ainda não apurou — e apurar é um botão, dentro da
+      competência, porque rodar grava.{" "}
       <Link
         href={`/fechamento/competencias/${competenciaId}`}
         className="text-primary hover:underline"
@@ -263,7 +291,10 @@ export default function Apuracoes() {
     queryKey: ["fechamento", "apuracoes"],
     queryFn: listarApuracoes,
   });
-  const fontes = useQuery({ queryKey: ["fechamento", "fontes"], queryFn: listarFontes });
+  const fontes = useQuery({
+    queryKey: ["fechamento", "fontes"],
+    queryFn: listarFontes,
+  });
 
   const todas = useMemo(() => apuracoes.data ?? [], [apuracoes.data]);
 
@@ -280,7 +311,10 @@ export default function Apuracoes() {
     const estados = new Map<string, string>();
     for (const { competencia: c } of todas) {
       quinzenas.set(c.chave, rotuloCurto(c));
-      unidades.set(c.unidade.codigo, `${nomeDaParte(c.unidade)} · ${c.unidade.codigo}`);
+      unidades.set(
+        c.unidade.codigo,
+        `${nomeDaParte(c.unidade)} · ${c.unidade.codigo}`,
+      );
       transportadoras.set(
         c.transportadora.codigo,
         `${nomeDaParte(c.transportadora)} · ${c.transportadora.codigo}`,
@@ -291,7 +325,9 @@ export default function Apuracoes() {
       [...m].map(([valor, rotulo]) => ({ valor, rotulo }));
     return {
       quinzenas: emLista(quinzenas),
-      unidades: emLista(unidades).sort((a, b) => a.rotulo.localeCompare(b.rotulo, "pt-BR")),
+      unidades: emLista(unidades).sort((a, b) =>
+        a.rotulo.localeCompare(b.rotulo, "pt-BR"),
+      ),
       transportadoras: emLista(transportadoras).sort((a, b) =>
         a.rotulo.localeCompare(b.rotulo, "pt-BR"),
       ),
@@ -305,7 +341,11 @@ export default function Apuracoes() {
         todas.filter(({ competencia: c }) => {
           if (quinzena !== TUDO && c.chave !== quinzena) return false;
           if (unidade !== TUDO && c.unidade.codigo !== unidade) return false;
-          if (transportadora !== TUDO && c.transportadora.codigo !== transportadora) return false;
+          if (
+            transportadora !== TUDO &&
+            c.transportadora.codigo !== transportadora
+          )
+            return false;
           if (estado !== TUDO && c.estado !== estado) return false;
           return true;
         }),
@@ -313,8 +353,11 @@ export default function Apuracoes() {
     [todas, quinzena, unidade, transportadora, estado],
   );
 
-  const abertoNoGrupo = (grupo: Grupo) => grupoEstaAberto(abertas, idsDoGrupo(grupo));
-  const filtrando = [quinzena, unidade, transportadora, estado].some((v) => v !== TUDO);
+  const abertoNoGrupo = (grupo: Grupo) =>
+    grupoEstaAberto(abertas, idsDoGrupo(grupo));
+  const filtrando = [quinzena, unidade, transportadora, estado].some(
+    (v) => v !== TUDO,
+  );
   const catalogo = fontes.data ?? [];
 
   return (
@@ -322,10 +365,10 @@ export default function Apuracoes() {
       <header className="border-b bg-card px-8 py-6">
         <h1 className="text-2xl font-bold tracking-tight">Apurações</h1>
         <p className="text-muted-foreground mt-2 max-w-3xl">
-          O que cada competência já apurou: os relatórios que chegaram, quanto foi
-          emitido em CT-e, quanto disso as fontes sustentam e quanto continua a
-          questionar. Clique numa quinzena para abrir a conta aqui mesmo, verba a
-          verba.
+          O que cada competência já apurou: os relatórios que chegaram, quanto
+          foi emitido em CT-e, quanto disso as fontes sustentam e quanto
+          continua a questionar. Clique numa quinzena para abrir a conta aqui
+          mesmo, verba a verba.
         </p>
       </header>
 
@@ -363,9 +406,7 @@ export default function Apuracoes() {
 
         {apuracoes.isError && (
           <Alert variant="destructive">
-            <AlertDescription>
-              {textoDoErro(apuracoes.error)}
-            </AlertDescription>
+            <AlertDescription>{textoDoErro(apuracoes.error)}</AlertDescription>
           </Alert>
         )}
 
@@ -380,7 +421,10 @@ export default function Apuracoes() {
             </p>
             <p>
               Abra a primeira em{" "}
-              <Link href="/fechamento/competencias" className="text-primary hover:underline">
+              <Link
+                href="/fechamento/competencias"
+                className="text-primary hover:underline"
+              >
                 Importações
               </Link>{" "}
               e envie os relatórios que a Ambev exporta na quinzena. O que for
@@ -400,21 +444,33 @@ export default function Apuracoes() {
             <table className="w-full text-sm border-collapse">
               <thead>
                 <tr className="border-b text-[0.6875rem] font-bold uppercase tracking-wide text-muted-foreground">
-                  <th className="text-left font-bold px-4 py-3">Unidade e transportadora</th>
+                  <th className="text-left font-bold px-4 py-3">
+                    Unidade e transportadora
+                  </th>
                   <th className="text-left font-bold px-4 py-3">Relatórios</th>
-                  <th className="text-right font-bold px-4 py-3">Emitido em CT-e</th>
+                  <th className="text-right font-bold px-4 py-3">
+                    Emitido em CT-e
+                  </th>
                   <th className="text-right font-bold px-4 py-3">Conferido</th>
-                  <th className="text-right font-bold px-4 py-3">A questionar</th>
+                  <th className="text-right font-bold px-4 py-3">
+                    A questionar
+                  </th>
                   <th className="text-left font-bold px-4 py-3">Estado</th>
                 </tr>
               </thead>
               {grupos.map((grupo) => (
                 <tbody key={grupo.chave}>
                   <tr className="border-b bg-muted/40">
-                    <th colSpan={6} scope="colgroup" className="p-0 text-left font-normal">
+                    <th
+                      colSpan={6}
+                      scope="colgroup"
+                      className="p-0 text-left font-normal"
+                    >
                       <button
                         type="button"
-                        onClick={() => setAbertas((a) => alternarGrupo(a, idsDoGrupo(grupo)))}
+                        onClick={() =>
+                          setAbertas((a) => alternarGrupo(a, idsDoGrupo(grupo)))
+                        }
                         aria-expanded={abertoNoGrupo(grupo)}
                         className="flex w-full items-start gap-2 px-4 py-2.5 text-left hover:bg-muted/70"
                       >
@@ -430,199 +486,225 @@ export default function Apuracoes() {
                             {rotuloLongo(grupo.amostra)}
                           </span>
                           <span className="text-muted-foreground text-xs ml-3">
-                            {emDiaCurto(grupo.amostra.inicio)} a {emDiaCurto(grupo.amostra.fim)} ·{" "}
+                            {emDiaCurto(grupo.amostra.inicio)} a{" "}
+                            {emDiaCurto(grupo.amostra.fim)} ·{" "}
                             {resumoDoGrupo(grupo)}
                           </span>
                         </span>
                       </button>
                     </th>
                   </tr>
-                  {grupo.linhas.map(({ competencia: c, relatorios, apuracao }) => {
-                    const conferido = apuracao ? percentualConferido(apuracao) : null;
-                    const aberta = abertas.has(c.id);
-                    const alternar = () => setAbertas((a) => alternarUma(a, c.id));
-                    /*
+                  {grupo.linhas.map(
+                    ({ competencia: c, relatorios, apuracao }) => {
+                      const conferido = apuracao
+                        ? percentualConferido(apuracao)
+                        : null;
+                      const aberta = abertas.has(c.id);
+                      const alternar = () =>
+                        setAbertas((a) => alternarUma(a, c.id));
+                      /*
                       As casinhas são as da quinzena desta linha: a primeira pede
                       quatro relatórios e a segunda, seis. A tabela mistura as
                       duas metades do mês, então o recorte é por linha — desenhar
                       seis em toda linha faria metade das quinzenas parecer
                       eternamente incompleta.
                     */
-                    const esperados = fontesDaCompetencia(catalogo, c.quinzena, relatorios);
-                    return (
-                      <Fragment key={c.id}>
-                        <tr
-                          onClick={alternar}
-                          className={cn(
-                            "border-b last:border-b-0 cursor-pointer hover:bg-muted/50",
-                            aberta && "bg-muted/40",
-                          )}
-                        >
-                          <td className="px-4 py-3 align-middle">
-                            {/*
+                      const esperados = fontesDaCompetencia(
+                        catalogo,
+                        c.quinzena,
+                        relatorios,
+                      );
+                      return (
+                        <Fragment key={c.id}>
+                          <tr
+                            onClick={alternar}
+                            className={cn(
+                              "border-b last:border-b-0 cursor-pointer hover:bg-muted/50",
+                              aberta && "bg-muted/40",
+                            )}
+                          >
+                            <td className="px-4 py-3 align-middle">
+                              {/*
                               O botão repete o clique da linha por causa do
                               teclado: uma `<tr>` clicável não recebe foco, e sem
                               ele a conta seria inalcançável sem mouse.
                             */}
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                alternar();
-                              }}
-                              aria-expanded={aberta}
-                              className="flex items-start gap-1.5 text-left"
-                            >
-                              <ChevronRight
-                                className={cn(
-                                  "w-3.5 h-3.5 mt-1 shrink-0 text-muted-foreground transition-transform",
-                                  aberta && "rotate-90",
-                                )}
-                                aria-hidden
-                              />
-                              <span>
-                                <span className="font-semibold">
-                                  {nomeDaParte(c.unidade)}
-                                  {c.unidade.nome && (
-                                    <span className="text-muted-foreground font-normal">
-                                      {" · "}
-                                      {c.unidade.codigo}
-                                    </span>
-                                  )}
-                                </span>
-                                <span className="block text-muted-foreground text-xs mt-0.5">
-                                  {nomeDaParte(c.transportadora)}
-                                </span>
-                              </span>
-                            </button>
-                          </td>
-
-                          <td className="px-4 py-3 align-middle">
-                            <div className="flex items-center gap-1.5">
-                              {esperados.map((fonte) => {
-                                const chegou = relatorios.includes(fonte.tipo);
-                                return (
-                                  <span
-                                    key={fonte.tipo}
-                                    title={`${fonte.rotina} — ${fonte.nome}${chegou ? "" : " (não enviado)"}`}
-                                    className={cn(
-                                      "rounded px-1.5 py-1 font-mono text-[0.6875rem] leading-none",
-                                      chegou
-                                        ? "bg-primary text-primary-foreground"
-                                        : "border border-dashed border-border text-muted-foreground/70",
-                                    )}
-                                  >
-                                    {rotinaCurta(fonte.rotina)}
-                                  </span>
-                                );
-                              })}
-                              {esperados.length > 0 && (
-                                <span className="text-muted-foreground font-mono text-xs ml-1.5">
-                                  {relatorios.length}/{esperados.length}
-                                </span>
-                              )}
-                            </div>
-                          </td>
-
-                          {apuracao ? (
-                            <>
-                              <td className="px-4 py-3 text-right font-mono tabular-nums align-middle">
-                                {emValor(apuracao.emitido)}
-                              </td>
-                              <td className="px-4 py-3 align-middle">
-                                {conferido === null ? (
-                                  <div className="text-right text-muted-foreground">—</div>
-                                ) : (
-                                  <div className="flex flex-col items-end gap-1">
-                                    <span className="font-mono tabular-nums">
-                                      {Math.round(conferido)}%
-                                    </span>
-                                    <span
-                                      className="h-1.5 w-24 rounded-full bg-muted overflow-hidden"
-                                      aria-hidden
-                                    >
-                                      <span
-                                        className="block h-full rounded-full bg-primary"
-                                        style={{ width: `${Math.min(100, Math.max(0, conferido))}%` }}
-                                      />
-                                    </span>
-                                  </div>
-                                )}
-                              </td>
-                              <td
-                                className={cn(
-                                  "px-4 py-3 text-right font-mono tabular-nums align-middle",
-                                  apuracao.aQuestionar > 0
-                                    ? "text-amber-700 dark:text-amber-500"
-                                    : "text-muted-foreground",
-                                )}
-                                title={
-                                  apuracao.aQuestionar > 0
-                                    ? `${apuracao.aQuestionarQuantidade} divergência${apuracao.aQuestionarQuantidade === 1 ? "" : "s"} sem desfecho`
-                                    : "Nenhuma divergência em aberto"
-                                }
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  alternar();
+                                }}
+                                aria-expanded={aberta}
+                                className="flex items-start gap-1.5 text-left"
                               >
-                                {apuracao.aQuestionar > 0 ? emValor(apuracao.aQuestionar) : "—"}
-                              </td>
-                            </>
-                          ) : (
-                            <>
-                              {/*
+                                <ChevronRight
+                                  className={cn(
+                                    "w-3.5 h-3.5 mt-1 shrink-0 text-muted-foreground transition-transform",
+                                    aberta && "rotate-90",
+                                  )}
+                                  aria-hidden
+                                />
+                                <span>
+                                  <span className="font-semibold">
+                                    {nomeDaParte(c.unidade)}
+                                    {c.unidade.nome && (
+                                      <span className="text-muted-foreground font-normal">
+                                        {" · "}
+                                        {c.unidade.codigo}
+                                      </span>
+                                    )}
+                                  </span>
+                                  <span className="block text-muted-foreground text-xs mt-0.5">
+                                    {nomeDaParte(c.transportadora)}
+                                  </span>
+                                </span>
+                              </button>
+                            </td>
+
+                            <td className="px-4 py-3 align-middle">
+                              <div className="flex items-center gap-1.5">
+                                {esperados.map((fonte) => {
+                                  const chegou = relatorios.includes(
+                                    fonte.tipo,
+                                  );
+                                  return (
+                                    <span
+                                      key={fonte.tipo}
+                                      title={`${fonte.rotina} — ${fonte.nome}${chegou ? "" : " (não enviado)"}`}
+                                      className={cn(
+                                        "rounded px-1.5 py-1 font-mono text-[0.6875rem] leading-none",
+                                        chegou
+                                          ? "bg-primary text-primary-foreground"
+                                          : "border border-dashed border-border text-muted-foreground/70",
+                                      )}
+                                    >
+                                      {rotinaCurta(fonte.rotina)}
+                                    </span>
+                                  );
+                                })}
+                                {esperados.length > 0 && (
+                                  <span className="text-muted-foreground font-mono text-xs ml-1.5">
+                                    {relatorios.length}/{esperados.length}
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+
+                            {apuracao ? (
+                              <>
+                                <td className="px-4 py-3 text-right font-mono tabular-nums align-middle">
+                                  {emValor(apuracao.emitido)}
+                                </td>
+                                <td className="px-4 py-3 align-middle">
+                                  {conferido === null ? (
+                                    <div className="text-right text-muted-foreground">
+                                      —
+                                    </div>
+                                  ) : (
+                                    <div className="flex flex-col items-end gap-1">
+                                      <span className="font-mono tabular-nums">
+                                        {Math.round(conferido)}%
+                                      </span>
+                                      <span
+                                        className="h-1.5 w-24 rounded-full bg-muted overflow-hidden"
+                                        aria-hidden
+                                      >
+                                        <span
+                                          className="block h-full rounded-full bg-primary"
+                                          style={{
+                                            width: `${Math.min(100, Math.max(0, conferido))}%`,
+                                          }}
+                                        />
+                                      </span>
+                                    </div>
+                                  )}
+                                </td>
+                                <td
+                                  className={cn(
+                                    "px-4 py-3 text-right font-mono tabular-nums align-middle",
+                                    apuracao.aQuestionar > 0
+                                      ? "text-amber-700 dark:text-amber-500"
+                                      : "text-muted-foreground",
+                                  )}
+                                  title={
+                                    apuracao.aQuestionar > 0
+                                      ? `${apuracao.aQuestionarQuantidade} divergência${apuracao.aQuestionarQuantidade === 1 ? "" : "s"} sem desfecho`
+                                      : "Nenhuma divergência em aberto"
+                                  }
+                                >
+                                  {apuracao.aQuestionar > 0
+                                    ? emValor(apuracao.aQuestionar)
+                                    : "—"}
+                                </td>
+                              </>
+                            ) : (
+                              <>
+                                {/*
                                 Três traços e uma frase, e não três zeros: a
                                 competência sem apuração não vale zero, ela ainda
                                 não vale nada — a conta não rodou. Zero aqui seria
                                 o único número inventado da tela.
                               */}
-                              <td className="px-4 py-3 text-right text-muted-foreground align-middle whitespace-nowrap">
-                                — sem apuração
-                              </td>
-                              <td className="px-4 py-3 text-right text-muted-foreground align-middle">
-                                —
-                              </td>
-                              <td className="px-4 py-3 text-right text-muted-foreground align-middle">
-                                —
-                              </td>
-                            </>
-                          )}
+                                <td className="px-4 py-3 text-right text-muted-foreground align-middle whitespace-nowrap">
+                                  — sem apuração
+                                </td>
+                                <td className="px-4 py-3 text-right text-muted-foreground align-middle">
+                                  —
+                                </td>
+                                <td className="px-4 py-3 text-right text-muted-foreground align-middle">
+                                  —
+                                </td>
+                              </>
+                            )}
 
-                          <td className="px-4 py-3 align-middle">
-                            <Estado estado={c.estado} />
-                          </td>
-                        </tr>
-                        {aberta && (
-                          <tr className="border-b last:border-b-0 bg-muted/20">
-                            <td colSpan={6} className="px-4 py-4 sm:px-9">
-                              <div className="space-y-3">
-                                <div className="flex flex-wrap items-baseline justify-between gap-3">
-                                  <p className="text-[0.6875rem] font-bold uppercase tracking-wide text-muted-foreground">
-                                    A conta da quinzena · {nomeDaParte(c.unidade)}
-                                  </p>
-                                  {/*
+                            <td className="px-4 py-3 align-middle">
+                              <Estado estado={c.estado} />
+                            </td>
+                          </tr>
+                          {aberta && (
+                            <tr className="border-b last:border-b-0 bg-muted/20">
+                              <td colSpan={6} className="px-4 py-4 sm:px-9">
+                                <div className="space-y-3">
+                                  <div className="flex flex-wrap items-baseline justify-between gap-3">
+                                    <p className="text-[0.6875rem] font-bold uppercase tracking-wide text-muted-foreground">
+                                      A conta da quinzena ·{" "}
+                                      {nomeDaParte(c.unidade)}
+                                    </p>
+                                    {/*
                                     A conta abre aqui; o resto da competência —
                                     enviar relatório, ver os dias, encerrar — é
                                     outra tela, e o caminho para ela fica onde a
                                     pergunta seguinte aparece.
                                   */}
-                                  <Link
-                                    href={`/fechamento/competencias/${c.id}`}
-                                    className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
-                                  >
-                                    Abrir a competência — relatórios, dias e encerramento
-                                    <ArrowRight className="w-3.5 h-3.5" aria-hidden />
-                                  </Link>
+                                    <Link
+                                      href={`/fechamento/competencias/${c.id}`}
+                                      className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
+                                    >
+                                      Abrir a competência — relatórios, dias e
+                                      encerramento
+                                      <ArrowRight
+                                        className="w-3.5 h-3.5"
+                                        aria-hidden
+                                      />
+                                    </Link>
+                                  </div>
+                                  {apuracao ? (
+                                    <ContaDaLinha
+                                      competenciaId={c.id}
+                                      fontes={esperados}
+                                    />
+                                  ) : (
+                                    <SemApuracao competenciaId={c.id} />
+                                  )}
                                 </div>
-                                {apuracao ? (
-                                  <ContaDaLinha competenciaId={c.id} fontes={esperados} />
-                                ) : (
-                                  <SemApuracao competenciaId={c.id} />
-                                )}
-                              </div>
-                            </td>
-                          </tr>
-                        )}
-                      </Fragment>
-                    );
-                  })}
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      );
+                    },
+                  )}
                 </tbody>
               ))}
             </table>
@@ -631,7 +713,8 @@ export default function Apuracoes() {
 
         {filtrando && grupos.length > 0 && (
           <p className="text-xs text-muted-foreground">
-            Os totais de cada quinzena são os das competências visíveis com este recorte.
+            Os totais de cada quinzena são os das competências visíveis com este
+            recorte.
           </p>
         )}
       </div>

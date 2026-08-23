@@ -34,8 +34,22 @@ interface AuthContextValue {
   user: SessionUser | null;
   /** A primeira resposta ainda não chegou: não se sabe se há sessão. */
   isLoading: boolean;
-  /** A pergunta não chegou ao servidor. Diferente de "não está logado". */
-  unreachable: Error | null;
+  /**
+   * A pergunta pela sessão falhou — e este campo é o **erro**, não um veredito.
+   *
+   * Chamava-se `unreachable` e valia `true` para qualquer falha de
+   * `GET /auth/session`, inclusive uma resposta perfeitamente articulada do
+   * servidor. Era o que punha, na mesma tela de login, "O servidor não
+   * respondeu" logo acima de um 503 em que o servidor respondia com o
+   * diagnóstico inteiro do ambiente: duas afirmações contraditórias, uma delas
+   * falsa, sobre a mesma chamada.
+   *
+   * Quem decide o que isto significa é `apresentar` — a mesma função que decide
+   * por todas as outras telas —, e ela recebe o erro. Um nome que já contém a
+   * conclusão ("inalcançável") é um lugar onde a conclusão vai ser tirada duas
+   * vezes.
+   */
+  erroDaSessao: unknown;
   login: (input: { email: string; password: string }) => Promise<void>;
   logout: () => Promise<void>;
   isSubmitting: boolean;
@@ -95,7 +109,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const value: AuthContextValue = {
     user: session.data?.user ?? null,
     isLoading: session.isPending,
-    unreachable: session.isError ? (session.error as Error) : null,
+    erroDaSessao: session.isError ? session.error : null,
     login: async (input) => {
       await login.mutateAsync(input);
     },

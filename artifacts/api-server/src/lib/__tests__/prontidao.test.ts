@@ -1,12 +1,19 @@
 /**
- * Quando este processo pode receber tráfego de produto — e quando não pode.
+ * As duas perguntas — está pronto? pode servir produto? — e a fronteira entre
+ * elas.
  *
  * A prova ponta a ponta, com Postgres e o app inteiro, está em
  * `src/__tests__/janela-da-partida.test.ts`. Aqui se fixa a **decisão**: quais
- * estados do banco fecham o portão, quais deliberadamente não fecham, e as
- * duas propriedades que fazem dele algo que dá para deixar num caminho quente
- * — não custa nada depois de convergir, e não vira enxurrada de consultas
- * enquanto está fechado.
+ * estados do banco fecham o portão, quais deliberadamente não fecham (e mesmo
+ * assim não são "pronto"), e as propriedades que fazem do portão algo que dá
+ * para deixar num caminho quente — não custa nada depois de convergir, e não
+ * vira enxurrada de consultas enquanto está fechado.
+ *
+ * A separação é a correção deste arquivo. Enquanto `pronto` e "o portão está
+ * aberto" eram o mesmo campo, `/readyz` respondia `ready: true` com o banco
+ * fora do ar — porque o portão, corretamente, não fecha nesse caso — e a
+ * interface, que consulta a prontidão para diagnosticar uma falha, recebia
+ * "está tudo pronto" no exato instante em que nada estava.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import express from "express";
@@ -21,10 +28,10 @@ vi.mock("../migrations", async (original) => ({
   observarBanco,
 }));
 
-const { estadoDaProntidao, esquecerProntidao } = await import("../prontidao");
-const { portaoDeProntidao, CODIGO_NAO_PRONTO } = await import(
-  "../../middlewares/portao-de-prontidao"
-);
+const { estadoDaProntidao, estadoDoPortao, esquecerProntidao } =
+  await import("../prontidao");
+const { portaoDeProntidao, CODIGO_NAO_PRONTO } =
+  await import("../../middlewares/portao-de-prontidao");
 
 /** Um banco em dia. */
 const EM_DIA: EstadoObservado = {
@@ -56,10 +63,10 @@ describe("o que fecha o portão", () => {
 
     const estado = await estadoDaProntidao();
 
+    expect(estado.bloqueiaProduto).toBe(true);
     expect(estado.pronto).toBe(false);
-    expect(estado.pronto === false && estado.diagnostico.estado).toBe(
-      "MIGRATIONS_PENDENTES",
-    );
+    expect(estado.diagnostico.estado).toBe("MIGRATIONS_PENDENTES");
+    expect((await estadoDoPortao()).bloqueia).toBe(true);
   });
 
   it("uma migration que falhou — rodar de novo não é a resposta, servir também não", async () => {
@@ -70,10 +77,8 @@ describe("o que fecha o portão", () => {
 
     const estado = await estadoDaProntidao();
 
-    expect(estado.pronto).toBe(false);
-    expect(estado.pronto === false && estado.diagnostico.estado).toBe(
-      "MIGRATION_FALHOU",
-    );
+    expect(estado.bloqueiaProduto).toBe(true);
+    expect(estado.diagnostico.estado).toBe("MIGRATION_FALHOU");
   });
 
   it("o registro perdido — a fila não consegue nem começar", async () => {
@@ -87,18 +92,19 @@ describe("o que fecha o portão", () => {
 
     const estado = await estadoDaProntidao();
 
-    expect(estado.pronto).toBe(false);
-    expect(estado.pronto === false && estado.diagnostico.estado).toBe(
-      "REGISTRO_PERDIDO",
-    );
+    expect(estado.bloqueiaProduto).toBe(true);
+    expect(estado.diagnostico.estado).toBe("REGISTRO_PERDIDO");
   });
 });
 
-describe("o que deliberadamente não fecha o portão", () => {
-  it("um banco em dia", async () => {
+describe("o que deliberadamente não fecha o portão — e ainda assim não é pronto", () => {
+  it("um banco em dia é as duas coisas: pronto e sem bloqueio", async () => {
     observarBanco.mockResolvedValue(EM_DIA);
 
-    expect((await estadoDaProntidao()).pronto).toBe(true);
+    const estado = await estadoDaProntidao();
+
+    expect(estado.pronto).toBe(true);
+    expect(estado.bloqueiaProduto).toBe(false);
   });
 
   it("schema divergente — a resposta proporcional é da rota que esbarra nele", async () => {
@@ -113,7 +119,13 @@ describe("o que deliberadamente não fecha o portão", () => {
       objetosAusentes: ["attribute.cost_class"],
     });
 
-    expect((await estadoDaProntidao()).pronto).toBe(true);
+    const estado = await estadoDaProntidao();
+
+    expect(estado.bloqueiaProduto).toBe(false);
+    /* Mas `/readyz` não diz que está pronto: o schema não confere com o que
+       este build declara, e é isso que a prontidão responde. */
+    expect(estado.pronto).toBe(false);
+    expect(estado.diagnostico.estado).toBe("SCHEMA_DIVERGENTE");
   });
 
   it("bridge pendente — mesma razão, mesmo tamanho", async () => {
@@ -122,7 +134,11 @@ describe("o que deliberadamente não fecha o portão", () => {
       bridgePendente: { desde: "2026-08-16" },
     });
 
-    expect((await estadoDaProntidao()).pronto).toBe(true);
+    const estado = await estadoDaProntidao();
+
+    expect(estado.bloqueiaProduto).toBe(false);
+    expect(estado.pronto).toBe(false);
+    expect(estado.diagnostico.estado).toBe("BRIDGE_PENDENTE");
   });
 
   it("banco fora — fechar trocaria o erro real por um que esconde a causa", async () => {
@@ -139,19 +155,51 @@ describe("o que deliberadamente não fecha o portão", () => {
       pendentes: [],
     });
 
-    expect((await estadoDaProntidao()).pronto).toBe(true);
+    const estado = await estadoDaProntidao();
+
+    expect(estado.bloqueiaProduto).toBe(false);
+    /*
+      **A regressão que a separação corrige.** Este era o caso em que
+      `/readyz` respondia `ready: true` com o banco desligado — e era a
+      resposta que a tela consultava para explicar por que a chamada dela
+      falhou. Agora as duas coisas são ditas ao mesmo tempo sem se
+      contradizerem: o portão não fecha, e pronto não está.
+    */
+    expect(estado.pronto).toBe(false);
+    expect(estado.diagnostico.estado).toBe("INDISPONIVEL");
   });
 });
 
-describe("as duas propriedades que o deixam num caminho quente", () => {
-  it("convergiu uma vez, e não se pergunta mais", async () => {
+describe("as propriedades que deixam o portão num caminho quente", () => {
+  it("convergiu uma vez, e o portão não pergunta mais", async () => {
     observarBanco.mockResolvedValue(EM_DIA);
 
-    await estadoDaProntidao();
-    await estadoDaProntidao();
-    await estadoDaProntidao();
+    await estadoDoPortao();
+    await estadoDoPortao();
+    await estadoDoPortao();
 
     expect(observarBanco).toHaveBeenCalledTimes(1);
+  });
+
+  it("a prontidão, essa, mede sempre — a memória é do portão e só dele", async () => {
+    /*
+      Uma prontidão que respondesse pela lembrança da partida seria estado
+      obsoleto com efeito: diria "pronto" horas depois, com o banco fora do ar,
+      para quem a consultou justamente porque uma chamada acabou de falhar.
+    */
+    observarBanco.mockResolvedValue(EM_DIA);
+    expect((await estadoDaProntidao()).pronto).toBe(true);
+
+    observarBanco.mockResolvedValue({
+      configurada: true,
+      alcancavel: false,
+      codigoDeConexao: "ECONNREFUSED",
+      aplicadas: 0,
+      pendentes: [],
+    });
+
+    expect((await estadoDaProntidao()).pronto).toBe(false);
+    expect(observarBanco).toHaveBeenCalledTimes(2);
   });
 
   it("fechado, as leituras concorrentes dividem uma observação só", async () => {
@@ -168,17 +216,17 @@ describe("as duas propriedades que o deixam num caminho quente", () => {
       estadoDaProntidao(),
     ]);
 
-    expect(juntas.every((e) => !e.pronto)).toBe(true);
+    expect(juntas.every((e) => e.bloqueiaProduto)).toBe(true);
     expect(observarBanco).toHaveBeenCalledTimes(1);
   });
 
   it("e volta a medir na próxima, porque o banco pode ter convergido", async () => {
     observarBanco.mockResolvedValueOnce(ATRASADO);
-    expect((await estadoDaProntidao()).pronto).toBe(false);
+    expect((await estadoDoPortao()).bloqueia).toBe(true);
 
     /* Outra instância — ou uma pessoa — aplicou a fila. Ninguém reinicia nada. */
     observarBanco.mockResolvedValueOnce(EM_DIA);
-    expect((await estadoDaProntidao()).pronto).toBe(true);
+    expect((await estadoDoPortao()).bloqueia).toBe(false);
   });
 });
 

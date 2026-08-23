@@ -206,28 +206,39 @@ describe("sem a coluna que a 0030 cria em attribute_semantics", () => {
   });
 });
 
-describe("o /healthz para de responder SAUDAVEL sobre um banco divergente", () => {
+describe("o /readyz para de responder SAUDAVEL sobre um banco divergente", () => {
   /*
    * O terceiro fato dos dois incidentes, e o que os tornava indecifráveis: a
-   * tela caía com 42703 e o `/healthz`, consultado no mesmo minuto, respondia
-   * SAUDAVEL — porque ele contava migrations, e a contagem estava certa. Agora
-   * o `observarBanco` roda a conferência de schema quando a contagem diz "em
-   * dia", e o healthz nomeia a coluna **antes** de qualquer tela morrer.
+   * tela caía com 42703 e a rota de saúde, consultada no mesmo minuto,
+   * respondia SAUDAVEL — porque ela contava migrations, e a contagem estava
+   * certa. Agora o `observarBanco` roda a conferência de schema quando a
+   * contagem diz "em dia", e quem a publica nomeia a coluna **antes** de
+   * qualquer tela morrer.
+   *
+   * Quem publica é o `/readyz`: o `/healthz` virou liveness puro e não fala
+   * mais do banco — enquanto falava, ele era o endereço que a interface
+   * mandava a pessoa abrir. O estado vem no corpo dos dois desfechos, e o
+   * status acompanha: 200 pronto, 503 não.
    */
-  const REMOVER = 'ALTER TABLE "attribute_semantics" DROP COLUMN IF EXISTS "cost_class"';
+  const REMOVER =
+    'ALTER TABLE "attribute_semantics" DROP COLUMN IF EXISTS "cost_class"';
   const RECOLOCAR =
     'ALTER TABLE "attribute_semantics" ADD COLUMN IF NOT EXISTS "cost_class" text';
 
   async function saude(): Promise<Record<string, unknown>> {
-    const res = await fetch(`${base}/healthz`);
-    expect(res.status).toBe(200);
+    const res = await fetch(`${base}/readyz`);
+    /* Divergente não está pronto: o corpo explica, e o status também. */
+    expect([200, 503]).toContain(res.status);
     const corpo = (await res.json()) as { database: Record<string, unknown> };
     return corpo.database;
   }
 
   it("com o banco em dia, diz que conferiu — não só que contou", async () => {
     const database = await saude();
-    const diagnostico = database["diagnostico"] as { estado: string; evidencia?: string };
+    const diagnostico = database["diagnostico"] as {
+      estado: string;
+      evidencia?: string;
+    };
 
     expect(diagnostico.estado).toBe("SAUDAVEL");
     expect(diagnostico.evidencia).toMatch(/o schema confere/);

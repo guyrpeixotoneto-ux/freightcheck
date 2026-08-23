@@ -14,7 +14,11 @@ import {
 } from "@/components/ui/select";
 import { apresentar } from "@/lib/apresentar-erro";
 import { anoAceito } from "@/lib/fechamento-tela";
-import { MES_LONGO, mesPorExtenso, periodoDaQuinzena } from "@/lib/fechamento-gerencial";
+import {
+  MES_LONGO,
+  mesPorExtenso,
+  periodoDaQuinzena,
+} from "@/lib/fechamento-gerencial";
 import { cn } from "@/lib/utils";
 import {
   chaveDoCadastro,
@@ -198,7 +202,9 @@ function PainelDeCadastro({
     afirmação de quem clicou em "outra quinzena…", feita um passo antes: a
     diferença é só quem escolheu a data, e não o que ela quer dizer.
   */
-  const [criada, setCriada] = useState<string | null>(nasceNova ? abreEm : null);
+  const [criada, setCriada] = useState<string | null>(
+    nasceNova ? abreEm : null,
+  );
   const [escolhendoQuinzena, setEscolhendoQuinzena] = useState(false);
   const [ano, setAno] = useState("");
   const [mes, setMes] = useState("");
@@ -239,7 +245,12 @@ function PainelDeCadastro({
       }),
   });
 
-  const opcoes = [...new Set([...canaisConhecidos, ...(unidade.channel ? [unidade.channel] : [])])]
+  const opcoes = [
+    ...new Set([
+      ...canaisConhecidos,
+      ...(unidade.channel ? [unidade.channel] : []),
+    ]),
+  ]
     .filter((c) => c !== "")
     .sort();
 
@@ -290,7 +301,9 @@ function PainelDeCadastro({
       Number(mes),
       Number(quinzenaDoMes) as 1 | 2,
     );
-    const jaTem = (cadastro.data?.vigencias ?? []).some((v) => v.effectiveDate === inicio);
+    const jaTem = (cadastro.data?.vigencias ?? []).some(
+      (v) => v.effectiveDate === inicio,
+    );
     setCriada(jaTem ? null : inicio);
     setVigencia(inicio);
     setEscolhendoQuinzena(false);
@@ -336,13 +349,19 @@ function PainelDeCadastro({
               Cadastrar a planilha — {nomeDaUnidade(unidade)}
             </h2>
             <p className="text-xs text-muted-foreground mt-1.5 max-w-2xl">
-              O que você digitar aqui é o que a <strong>aba de Excel</strong> diz, e não medida do
-              acervo: cada linha volta ao cadastro marcada como informada, com o seu nome e a
-              data. Onde o acervo também responde, o número dele continua sendo o do cadastro e
-              o seu aparece ao lado.
+              O que você digitar aqui é o que a <strong>aba de Excel</strong>{" "}
+              diz, e não medida do acervo: cada linha volta ao cadastro marcada
+              como informada, com o seu nome e a data. Onde o acervo também
+              responde, o número dele continua sendo o do cadastro e o seu
+              aparece ao lado.
             </p>
           </div>
-          <Button variant="ghost" size="icon" onClick={aoFechar} aria-label="Fechar">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={aoFechar}
+            aria-label="Fechar"
+          >
             <X className="w-4 h-4" />
           </Button>
         </div>
@@ -407,10 +426,10 @@ function PainelDeCadastro({
               )}
 
               <p className="text-xs text-muted-foreground">
-                A planilha é de um tipo de operação, e não da unidade inteira: a mesma
-                {" "}{nomeDaUnidade(unidade)} tem uma aba para EMPURRADA e outra para ROTA. A
-                lista traz os tipos que já existem; um tipo novo passa a existir quando a
-                primeira linha dele for salva.
+                A planilha é de um tipo de operação, e não da unidade inteira: a
+                mesma {nomeDaUnidade(unidade)} tem uma aba para EMPURRADA e
+                outra para ROTA. A lista traz os tipos que já existem; um tipo
+                novo passa a existir quando a primeira linha dele for salva.
               </p>
             </div>
 
@@ -457,7 +476,10 @@ function PainelDeCadastro({
                         ))}
                       </SelectContent>
                     </Select>
-                    <Select value={quinzenaDoMes} onValueChange={setQuinzenaDoMes}>
+                    <Select
+                      value={quinzenaDoMes}
+                      onValueChange={setQuinzenaDoMes}
+                    >
                       <SelectTrigger aria-label="Quinzena do mês">
                         <SelectValue />
                       </SelectTrigger>
@@ -468,14 +490,23 @@ function PainelDeCadastro({
                     </Select>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Button variant="outline" onClick={usarAQuinzena} disabled={!anoAceito(ano)}>
+                    <Button
+                      variant="outline"
+                      onClick={usarAQuinzena}
+                      disabled={!anoAceito(ano)}
+                    >
                       Usar
                     </Button>
-                    <Button variant="ghost" onClick={() => setEscolhendoQuinzena(false)}>
+                    <Button
+                      variant="ghost"
+                      onClick={() => setEscolhendoQuinzena(false)}
+                    >
                       Cancelar
                     </Button>
                     {!anoAceito(ano) && (
-                      <span className="text-xs text-amber-700">O ano vai de 2000 a 2100.</span>
+                      <span className="text-xs text-amber-700">
+                        O ano vai de 2000 a 2100.
+                      </span>
                     )}
                   </div>
                 </div>
@@ -483,7 +514,9 @@ function PainelDeCadastro({
                 <Select
                   value={vigencia}
                   onValueChange={(v) =>
-                    v === OUTRA_QUINZENA ? comecarOutraQuinzena() : setVigencia(v)
+                    v === OUTRA_QUINZENA
+                      ? comecarOutraQuinzena()
+                      : setVigencia(v)
                   }
                 >
                   <SelectTrigger id="vigencia-da-planilha">
@@ -506,18 +539,19 @@ function PainelDeCadastro({
               )}
 
               <p className="text-xs text-muted-foreground">
-                As vigências são as que esta unidade tem — o que o acervo entregou mais o que
-                já foi digitado —, inclusive para um tipo que ela ainda não entregou, porque a
-                quinzena é do calendário, não da série.{" "}
+                As vigências são as que esta unidade tem — o que o acervo
+                entregou mais o que já foi digitado —, inclusive para um tipo
+                que ela ainda não entregou, porque a quinzena é do calendário,
+                não da série.{" "}
                 {vigenciaNova ? (
                   <strong>
-                    Esta quinzena ainda não existe: ela passa a existir quando a primeira
-                    linha for salva.
+                    Esta quinzena ainda não existe: ela passa a existir quando a
+                    primeira linha for salva.
                   </strong>
                 ) : (
                   <>
-                    Quando a aba de uma quinzena nova chegar antes do export dela, comece por{" "}
-                    <em>outra quinzena…</em>.
+                    Quando a aba de uma quinzena nova chegar antes do export
+                    dela, comece por <em>outra quinzena…</em>.
                   </>
                 )}
               </p>
@@ -527,7 +561,9 @@ function PainelDeCadastro({
 
         <div className={cn("px-6 py-5", cadastro.isLoading && "opacity-60")}>
           {cadastro.isLoading && (
-            <p className="text-sm text-muted-foreground">Montando o cadastro…</p>
+            <p className="text-sm text-muted-foreground">
+              Montando o cadastro…
+            </p>
           )}
 
           {cadastro.isError && (
@@ -558,5 +594,9 @@ function PainelDeCadastro({
 
 function textoDoErro(erro: unknown): string {
   const aviso = apresentar(erro);
-  return aviso.orientacao?.resumo ?? aviso.mensagemCrua ?? "Não foi possível abrir o cadastro.";
+  return (
+    aviso.principal ??
+    aviso.mensagemCrua ??
+    "Não foi possível abrir o cadastro."
+  );
 }

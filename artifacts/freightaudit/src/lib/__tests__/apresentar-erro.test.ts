@@ -14,6 +14,7 @@ import { describe, expect, it } from "vitest";
 import { ApiError, erroDaResposta } from "@/lib/api";
 import { apresentar } from "@/lib/apresentar-erro";
 import { ehDiagnostico, type Diagnostico } from "@/lib/diagnostico";
+import type { RespostaDaProntidao } from "@/lib/prontidao";
 import { ErroDeTransporte, diagnosticarTransporte } from "@/lib/transporte";
 
 const REGISTRO_PERDIDO: Diagnostico = {
@@ -70,16 +71,27 @@ const erroDeChamados = (diagnostico: Diagnostico) =>
     },
   );
 
+/** O que `/readyz` respondeu quando o ambiente não está pronto. */
+const naoPronto = (diagnostico: Diagnostico): RespostaDaProntidao => ({
+  estado: "nao-pronto",
+  diagnostico,
+});
+
+/** O que `/readyz` respondeu quando está tudo de pé. */
+const PRONTO: RespostaDaProntidao = { estado: "pronto", diagnostico: SAUDAVEL };
+
 /** Tudo o que a tela vai escrever, junto — para conferir o conjunto. */
 const naTela = (vista: ReturnType<typeof apresentar>): string =>
   [
     vista.contexto,
+    vista.principal,
     vista.orientacao?.resumo,
     vista.orientacao?.risco.texto,
     vista.orientacao?.acao?.texto,
     vista.orientacao?.acao?.comando,
     vista.orientacao?.evidencia,
     vista.mensagemCrua,
+    ...vista.detalhes.map((d) => `${d.rotulo}: ${d.texto}`),
   ]
     .filter(Boolean)
     .join(" ");
@@ -98,7 +110,11 @@ describe("apresentar", () => {
       "pnpm --filter @workspace/db run migrate:adotar",
     );
     expect(vista.mensagemCrua).toBeNull();
-    expect(vista.mostrarLinkHealthz).toBe(false);
+    /* O comando não ocupa a linha principal: ele mora nos detalhes técnicos. */
+    expect(vista.principal).not.toMatch(/migrate|pnpm/);
+    expect(
+      vista.detalhes.some((d) => d.comando && /migrate:adotar/.test(d.texto)),
+    ).toBe(true);
 
     // O nome do arquivo sobrevive: com vários enviados, "qual deles" é a
     // primeira pergunta de quem lê o aviso.
@@ -137,7 +153,7 @@ describe("apresentar", () => {
   describe("o eixo do transporte vence o do banco", () => {
     /**
      * **O buraco que faltava fechar.** Um roteador sem ninguém atrás de `/api`
-     * não se explica pelo estado do banco — e o `/healthz` pode estar em cache
+     * não se explica pelo estado do banco — e a prontidão pode estar em cache
      * de antes, respondendo sobre migrations. Apresentar `migrate` como
      * resposta a "a API não está no ar" é a mesma contradição de sempre, só que
      * entre camadas.
@@ -147,7 +163,7 @@ describe("apresentar", () => {
         new ErroDeTransporte(
           diagnosticarTransporte({ status: 502, corpoVazio: true }),
         ),
-        { diagnostico: PENDENTES },
+        naoPronto(PENDENTES),
       );
 
       expect(vista.orientacao?.estado).toBe("API_AUSENTE");
@@ -156,9 +172,10 @@ describe("apresentar", () => {
     });
 
     it("requisição que não completou também ignora o healthz", () => {
-      const vista = apresentar(new TypeError("Failed to fetch"), {
-        diagnostico: REGISTRO_PERDIDO,
-      });
+      const vista = apresentar(
+        new TypeError("Failed to fetch"),
+        naoPronto(REGISTRO_PERDIDO),
+      );
 
       expect(vista.orientacao?.estado).toBe("SEM_RESPOSTA");
       expect(naTela(vista)).not.toMatch(/migrate:adotar/);
@@ -173,7 +190,7 @@ describe("apresentar", () => {
             corpoNaoJson: "<!doctype html><h1>504 Gateway Timeout</h1>",
           }),
         ),
-        { diagnostico: REGISTRO_PERDIDO },
+        naoPronto(REGISTRO_PERDIDO),
       );
 
       expect(vista.orientacao?.estado).toBe("RESPOSTA_ESTRANHA");
@@ -182,12 +199,22 @@ describe("apresentar", () => {
     });
   });
 
-  it("erro não tipado cai no fallback: mensagem crua e o link do healthz", () => {
+  it("erro não tipado cai no fallback: mensagem crua nos detalhes, e nenhum link", () => {
     const vista = apresentar(new ApiError("Internal server error", 500));
 
     expect(vista.orientacao).toBeNull();
+    expect(vista.principal).toBeNull();
     expect(vista.mensagemCrua).toBe("Internal server error");
-    expect(vista.mostrarLinkHealthz).toBe(true);
+    /*
+      O que havia aqui era `mostrarLinkHealthz: true` — a interface entregando
+      um endereço técnico quando não sabia explicar. O campo não existe mais em
+      forma nenhuma: quando a tela quer saber do ambiente, ela pergunta ao
+      `/readyz` sozinha (ver `lib/prontidao.ts`) e o resultado entra por este
+      mesmo `apresentar`, como segundo argumento.
+    */
+    expect(
+      vista.detalhes.some((d) => d.texto === "Internal server error"),
+    ).toBe(true);
   });
 
   it("erro que nem é Error também é apresentável", () => {
@@ -197,10 +224,11 @@ describe("apresentar", () => {
     expect(vista.orientacao).toBeNull();
   });
 
-  it("sem diagnóstico no erro, o do /healthz vale", () => {
-    const vista = apresentar(new ApiError("Internal server error", 500), {
-      diagnostico: REGISTRO_PERDIDO,
-    });
+  it("sem diagnóstico no erro, o da prontidão vale", () => {
+    const vista = apresentar(
+      new ApiError("Internal server error", 500),
+      naoPronto(REGISTRO_PERDIDO),
+    );
 
     expect(vista.orientacao?.estado).toBe("REGISTRO_PERDIDO");
     expect(vista.mensagemCrua).toBeNull();
@@ -210,19 +238,18 @@ describe("apresentar", () => {
    * "Está tudo certo" ao lado de uma falha manda procurar no lugar errado: se o
    * banco está são, a causa do erro é outra, e a mensagem crua é o que se tem.
    */
-  it("banco saudável não é explicação para um erro — a mensagem crua volta", () => {
-    const vista = apresentar(new ApiError("Internal server error", 500), {
-      diagnostico: SAUDAVEL,
-    });
+  it("ambiente pronto não é explicação para um erro — a mensagem crua volta", () => {
+    const vista = apresentar(
+      new ApiError("Internal server error", 500),
+      PRONTO,
+    );
 
     expect(vista.orientacao).toBeNull();
     expect(vista.mensagemCrua).toBe("Internal server error");
   });
 
-  it("o diagnóstico do próprio erro tem prioridade sobre o do /healthz", () => {
-    const vista = apresentar(erroDeChamados(REGISTRO_PERDIDO), {
-      diagnostico: SAUDAVEL,
-    });
+  it("o diagnóstico do próprio erro tem prioridade sobre o da prontidão", () => {
+    const vista = apresentar(erroDeChamados(REGISTRO_PERDIDO), PRONTO);
 
     expect(vista.orientacao?.estado).toBe("REGISTRO_PERDIDO");
   });
@@ -273,9 +300,7 @@ describe("o requestId", () => {
     );
 
   it("atravessa quando não há orientação nenhuma — o caso sem explicação", () => {
-    const vista = apresentar(erroInterno({ requestId: "9f2c1a" }), {
-      diagnostico: SAUDAVEL,
-    });
+    const vista = apresentar(erroInterno({ requestId: "9f2c1a" }), PRONTO);
 
     expect(vista.orientacao).toBeNull();
     expect(vista.requestId).toBe("9f2c1a");
@@ -313,14 +338,11 @@ describe("o requestId", () => {
       metade — e foi assim que o `diagnostico` se perdia no caminho do upload.
       O identificador entra pela mesma porta, para não repetir a história.
     */
-    const erro = erroDaResposta(
-      { status: 500 } as Response,
-      {
-        error: "O servidor falhou ao processar este pedido.",
-        code: "ERRO_INTERNO",
-        requestId: "7b3e0d",
-      },
-    );
+    const erro = erroDaResposta({ status: 500 } as Response, {
+      error: "O servidor falhou ao processar este pedido.",
+      code: "ERRO_INTERNO",
+      requestId: "7b3e0d",
+    });
 
     expect(erro.requestId).toBe("7b3e0d");
     expect(erro.code).toBe("ERRO_INTERNO");

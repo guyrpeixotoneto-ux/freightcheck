@@ -1,6 +1,6 @@
 import type { RequestHandler } from "express";
 import { textoDoDiagnostico } from "@workspace/db/diagnostico";
-import { estadoDaProntidao } from "../lib/prontidao";
+import { estadoDoPortao } from "../lib/prontidao";
 
 /**
  * O portão que impede uma requisição de produto de atravessar a janela em que
@@ -79,9 +79,9 @@ export const portaoDeProntidao: RequestHandler = (req, res, next) => {
     return;
   }
 
-  void estadoDaProntidao().then(
+  void estadoDoPortao().then(
     (estado) => {
-      if (estado.pronto) {
+      if (!estado.bloqueia) {
         next();
         return;
       }

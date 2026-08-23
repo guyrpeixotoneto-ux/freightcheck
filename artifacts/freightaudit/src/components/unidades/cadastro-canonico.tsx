@@ -9,7 +9,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { apresentar } from "@/lib/apresentar-erro";
 import { fetchJson } from "@/lib/api";
-import { listarUnidadesCanonicas, type UnidadeCanonica } from "@/lib/fechamento";
+import {
+  listarUnidadesCanonicas,
+  type UnidadeCanonica,
+} from "@/lib/fechamento";
 import { cn } from "@/lib/utils";
 
 /**
@@ -52,14 +55,18 @@ import { cn } from "@/lib/utils";
  */
 type LinhaDaAdministracao = UnidadeCanonica;
 
-const ROTULO: Record<LinhaDaAdministracao["estado"], { texto: string; classe: string }> = {
+const ROTULO: Record<
+  LinhaDaAdministracao["estado"],
+  { texto: string; classe: string }
+> = {
   CADASTRADA: {
     texto: "Cadastrada, sem importação",
     classe: "bg-sky-100 text-sky-900 dark:bg-sky-950 dark:text-sky-200",
   },
   CADASTRADA_E_IMPORTADA: {
     texto: "Cadastrada e importada",
-    classe: "bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200",
+    classe:
+      "bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200",
   },
   DETECTADA: {
     texto: "Detectada no acervo, não cadastrada",
@@ -129,9 +136,10 @@ export function CadastroCanonicoDeUnidades() {
             Cadastro de unidades
           </CardTitle>
           <p className="text-xs text-muted-foreground mt-1 max-w-2xl">
-            A autoridade sobre <strong>qual unidade é esta</strong>. O CNPJ é a identidade,
-            informado uma vez aqui — Fechamento e Remuneração passam a escolher desta lista
-            em vez de digitar código. {cadastradas} cadastrada
+            A autoridade sobre <strong>qual unidade é esta</strong>. O CNPJ é a
+            identidade, informado uma vez aqui — Fechamento e Remuneração passam
+            a escolher desta lista em vez de digitar código. {cadastradas}{" "}
+            cadastrada
             {cadastradas === 1 ? "" : "s"}.
           </p>
         </div>
@@ -152,7 +160,7 @@ export function CadastroCanonicoDeUnidades() {
                        o servidor a tipou, a mensagem crua quando não. */
                     const aviso = apresentar(cadastrar.error);
                     return (
-                      aviso.orientacao?.resumo ??
+                      aviso.principal ??
                       aviso.mensagemCrua ??
                       "Não foi possível cadastrar a unidade."
                     );
@@ -182,12 +190,17 @@ export function CadastroCanonicoDeUnidades() {
               </div>
             </div>
             <p className="text-xs text-muted-foreground">
-              O CNPJ é a identidade da unidade em todo o FreightCheck — aceita máscara e é
-              guardado só com os dígitos. O nome é descrição: é o que a lista mostra e o que
-              quem opera procura, e nunca funciona como código.
+              O CNPJ é a identidade da unidade em todo o FreightCheck — aceita
+              máscara e é guardado só com os dígitos. O nome é descrição: é o
+              que a lista mostra e o que quem opera procura, e nunca funciona
+              como código.
             </p>
             <div className="flex justify-end gap-2">
-              <Button variant="ghost" size="sm" onClick={() => setAberto(false)}>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setAberto(false)}
+              >
                 Cancelar
               </Button>
               <Button
@@ -201,12 +214,14 @@ export function CadastroCanonicoDeUnidades() {
           </div>
         )}
 
-        {lista.isPending && <p className="text-sm text-muted-foreground">Carregando…</p>}
+        {lista.isPending && (
+          <p className="text-sm text-muted-foreground">Carregando…</p>
+        )}
 
         {!lista.isPending && linhas.length === 0 && (
           <p className="text-sm text-muted-foreground">
-            Nenhuma unidade cadastrada e nenhuma detectada no acervo. A primeira nasce aqui,
-            com nome e CNPJ — não de um arquivo.
+            Nenhuma unidade cadastrada e nenhuma detectada no acervo. A primeira
+            nasce aqui, com nome e CNPJ — não de um arquivo.
           </p>
         )}
 
@@ -217,7 +232,9 @@ export function CadastroCanonicoDeUnidades() {
                 <tr className="border-b text-xs uppercase text-muted-foreground">
                   <th className="text-left py-2 font-medium">Unidade</th>
                   <th className="text-left py-2 font-medium">CNPJ</th>
-                  <th className="text-left py-2 font-medium">Situação de dados</th>
+                  <th className="text-left py-2 font-medium">
+                    Situação de dados
+                  </th>
                   <th className="text-right py-2 font-medium">Vigências</th>
                   <th className="text-right py-2 font-medium" />
                 </tr>
@@ -226,19 +243,30 @@ export function CadastroCanonicoDeUnidades() {
                 {linhas.map((linha) => (
                   <tr key={linha.cnpj} className="border-b last:border-0">
                     <td className="py-2 font-medium">{linha.nome || "—"}</td>
-                    <td className="py-2 font-mono text-xs">{linha.cnpjFormatado}</td>
+                    <td className="py-2 font-mono text-xs">
+                      {linha.cnpjFormatado}
+                    </td>
                     <td className="py-2">
                       <Badge
                         variant="secondary"
-                        className={cn("font-normal", ROTULO[linha.estado].classe)}
+                        className={cn(
+                          "font-normal",
+                          ROTULO[linha.estado].classe,
+                        )}
                       >
                         {ROTULO[linha.estado].texto}
                       </Badge>
                     </td>
-                    <td className="py-2 text-right tabular-nums">{linha.vigencias}</td>
+                    <td className="py-2 text-right tabular-nums">
+                      {linha.vigencias}
+                    </td>
                     <td className="py-2 text-right">
                       {linha.estado === "DETECTADA" && (
-                        <Button variant="ghost" size="sm" onClick={() => cadastrarDetectada(linha)}>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => cadastrarDetectada(linha)}
+                        >
                           Cadastrar unidade
                         </Button>
                       )}

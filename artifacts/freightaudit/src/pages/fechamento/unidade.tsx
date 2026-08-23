@@ -11,8 +11,17 @@ import {
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
-import { listarApuracoes, NOME_DO_ESTADO, type ResumoDeApuracao } from "@/lib/fechamento";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+} from "@/components/ui/select";
+import {
+  listarApuracoes,
+  NOME_DO_ESTADO,
+  type ResumoDeApuracao,
+} from "@/lib/fechamento";
 import {
   anosComCompetencia,
   emDiaCurto,
@@ -56,7 +65,11 @@ import { cn } from "@/lib/utils";
 
 function textoDoErro(erro: unknown): string {
   const aviso = apresentar(erro);
-  return aviso.orientacao?.resumo ?? aviso.mensagemCrua ?? "Não foi possível carregar a unidade.";
+  return (
+    aviso.principal ??
+    aviso.mensagemCrua ??
+    "Não foi possível carregar a unidade."
+  );
 }
 
 /**
@@ -72,7 +85,9 @@ function LinhaDaCompetencia({ linha }: { linha: ResumoDeApuracao }) {
   const conferido = apuracao ? percentualConferido(apuracao) : null;
   const detalhe = [
     NOME_DO_ESTADO[competencia.estado],
-    apuracao === null ? "sem apuração" : `${formatBrlCompacto(apuracao.emitido)} emitidos`,
+    apuracao === null
+      ? "sem apuração"
+      : `${formatBrlCompacto(apuracao.emitido)} emitidos`,
     conferido !== null && `${Math.round(conferido)}% conferido`,
     apuracao !== null &&
       apuracao.aQuestionar > 0 &&
@@ -88,7 +103,9 @@ function LinhaDaCompetencia({ linha }: { linha: ResumoDeApuracao }) {
         <span className="block text-sm font-medium truncate">
           {nomeDaParte(competencia.transportadora)}
         </span>
-        <span className="block text-xs text-muted-foreground">{detalhe.join(" · ")}</span>
+        <span className="block text-xs text-muted-foreground">
+          {detalhe.join(" · ")}
+        </span>
       </span>
       <ArrowRight className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
     </Link>
@@ -132,7 +149,10 @@ function CasaDaQuinzena({ quinzena }: { quinzena: QuinzenaDoAno }) {
           {quinzena.situacao === "SEM_COMPETENCIA" ? (
             <>
               A quinzena terminou e nenhuma competência foi aberta para ela.{" "}
-              <Link href="/fechamento/competencias" className="text-primary hover:underline">
+              <Link
+                href="/fechamento/competencias"
+                className="text-primary hover:underline"
+              >
                 Abrir agora
               </Link>
             </>
@@ -168,7 +188,13 @@ function CasaDaQuinzena({ quinzena }: { quinzena: QuinzenaDoAno }) {
 }
 
 /** A faixa executiva da unidade — os mesmos números da Visão Gerencial, num recorte só. */
-function ResumoDaUnidadeNoAno({ unidade, ano }: { unidade: ResumoDaUnidade; ano: number }) {
+function ResumoDaUnidadeNoAno({
+  unidade,
+  ano,
+}: {
+  unidade: ResumoDaUnidade;
+  ano: number;
+}) {
   const conferido = percentualConferido(unidade);
   return (
     <Card>
@@ -202,7 +228,9 @@ function ResumoDaUnidadeNoAno({ unidade, ano }: { unidade: ResumoDaUnidade; ano:
           />
           <Numero
             rotulo="Emitido em CT-e"
-            valor={unidade.apuradas === 0 ? "—" : formatBrlShort(unidade.emitido)}
+            valor={
+              unidade.apuradas === 0 ? "—" : formatBrlShort(unidade.emitido)
+            }
             detalhe={
               unidade.apuradas === 0
                 ? "nenhuma competência apurada ainda"
@@ -213,7 +241,9 @@ function ResumoDaUnidadeNoAno({ unidade, ano }: { unidade: ResumoDaUnidade; ano:
           />
           <Numero
             rotulo="A questionar"
-            valor={unidade.apuradas === 0 ? "—" : formatBrlShort(unidade.aQuestionar)}
+            valor={
+              unidade.apuradas === 0 ? "—" : formatBrlShort(unidade.aQuestionar)
+            }
             detalhe={
               unidade.apuradas === 0
                 ? "nenhuma competência apurada ainda"
@@ -254,7 +284,10 @@ export default function UnidadeDoFechamento({ codigo }: { codigo: string }) {
 
   const diaDeHoje = hojeEm();
   const unidade = useMemo(
-    () => (ano === null ? null : (resumirUnidades(daUnidade, ano, diaDeHoje)[0] ?? null)),
+    () =>
+      ano === null
+        ? null
+        : (resumirUnidades(daUnidade, ano, diaDeHoje)[0] ?? null),
     [daUnidade, ano, diaDeHoje],
   );
 
@@ -292,7 +325,9 @@ export default function UnidadeDoFechamento({ codigo }: { codigo: string }) {
               <Select
                 value={String(ano)}
                 onValueChange={(v) =>
-                  navegar(`/fechamento/unidades/${encodeURIComponent(codigo)}?ano=${v}`)
+                  navegar(
+                    `/fechamento/unidades/${encodeURIComponent(codigo)}?ano=${v}`,
+                  )
                 }
               >
                 <SelectTrigger
@@ -300,7 +335,9 @@ export default function UnidadeDoFechamento({ codigo }: { codigo: string }) {
                   aria-label="Ano"
                 >
                   <span className="font-semibold">Ano</span>
-                  <span className="font-normal text-muted-foreground tabular-nums">{ano}</span>
+                  <span className="font-normal text-muted-foreground tabular-nums">
+                    {ano}
+                  </span>
                 </SelectTrigger>
                 <SelectContent>
                   {anos.map((a) => (
@@ -328,18 +365,24 @@ export default function UnidadeDoFechamento({ codigo }: { codigo: string }) {
           </Alert>
         )}
 
-        {apuracoes.isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
+        {apuracoes.isLoading && (
+          <p className="text-sm text-muted-foreground">Carregando…</p>
+        )}
 
         {!apuracoes.isLoading && !apuracoes.isError && unidade === null && (
           <div className="rounded-lg border bg-card p-8 text-sm text-muted-foreground max-w-2xl space-y-3">
             <p>
-              Nenhuma competência foi aberta para a unidade <strong>{codigo}</strong>.
-              Uma unidade só existe no Fechamento a partir da primeira competência
-              — não há cadastro de unidade separado dela.
+              Nenhuma competência foi aberta para a unidade{" "}
+              <strong>{codigo}</strong>. Uma unidade só existe no Fechamento a
+              partir da primeira competência — não há cadastro de unidade
+              separado dela.
             </p>
             <p>
               Abra a primeira em{" "}
-              <Link href="/fechamento/competencias" className="text-primary hover:underline">
+              <Link
+                href="/fechamento/competencias"
+                className="text-primary hover:underline"
+              >
                 Importações
               </Link>
               , ou volte à{" "}
@@ -373,11 +416,11 @@ export default function UnidadeDoFechamento({ codigo }: { codigo: string }) {
             </div>
 
             <p className="text-xs text-muted-foreground max-w-3xl">
-              O percentual de fechamento conta as competências encerradas sobre as
-              competências abertas no ano. A quinzena que passou sem competência
-              nenhuma não entra nessa conta — ela aparece acima, como “sem
-              competência”, porque o sistema sabe que ela passou vazia, mas não sabe
-              se esta unidade deveria ter operado nela.
+              O percentual de fechamento conta as competências encerradas sobre
+              as competências abertas no ano. A quinzena que passou sem
+              competência nenhuma não entra nessa conta — ela aparece acima,
+              como “sem competência”, porque o sistema sabe que ela passou
+              vazia, mas não sabe se esta unidade deveria ter operado nela.
             </p>
           </>
         )}

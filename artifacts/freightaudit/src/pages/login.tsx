@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Logotipo } from "@/components/layout/logotipo";
 import {
   AlertTriangle,
@@ -11,7 +12,10 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { DetalhesTecnicos } from "@/components/detalhes-tecnicos";
 import { useAuth } from "@/lib/auth";
+import { apresentar } from "@/lib/apresentar-erro";
+import { consultarProntidao, PRONTIDAO_QUERY_KEY } from "@/lib/prontidao";
 
 /**
  * A porta, e ela só sabe abrir para quem já tem conta.
@@ -23,26 +27,69 @@ import { useAuth } from "@/lib/auth";
  * declarado é que um ambiente novo depende do `create-user` no terminal para a
  * primeira conta.
  *
- * O que ela mostra quando falha importa tanto quanto o resto: credencial errada
- * e servidor fora são coisas diferentes e recebem frases diferentes. Uma tela
- * que responde "verifique suas credenciais" quando o banco caiu manda a pessoa
- * procurar no lugar errado.
+ * ---------------------------------------------------------------------------
+ * O que ela mostra quando falha, e por que é **um** aviso
+ * ---------------------------------------------------------------------------
+ * Credencial errada, banco fora e servidor fora são três coisas diferentes e
+ * recebem frases diferentes. Uma tela que responde "verifique suas
+ * credenciais" quando o banco caiu manda a pessoa procurar no lugar errado.
+ *
+ * Esta tela já foi o único lugar do produto que mostrava **dois** avisos ao
+ * mesmo tempo, e eles se contradiziam. Em cima, em âmbar, "O servidor não
+ * respondeu — não é a sua senha: a API não está atendendo. Se isto persistir,
+ * confira `/api/healthz`"; embaixo, em vermelho, doze linhas em que o servidor
+ * respondia com muita precisão, nomeando três migrations e um comando `pnpm`.
+ * Os dois estavam na tela de quem tinha digitado a senha certa. O de cima era
+ * falso — o servidor tinha respondido —, o de baixo não era para aquela pessoa,
+ * e nenhum dos dois dizia o que ela precisava saber.
+ *
+ * As duas caixas nasciam da mesma causa: esta tela escrevia diagnóstico por
+ * conta própria, em vez de usar a função que decide isso para o produto
+ * inteiro. Agora ela usa — `apresentar`, a mesma de todas as outras telas —, e
+ * a invariante que aquela função sustenta ("uma orientação, nunca duas") passa
+ * a valer aqui por construção, e não por alguém lembrar.
  */
 export default function Login() {
-  const { login, isSubmitting, unreachable } = useAuth();
+  const { login, isSubmitting, erroDaSessao } = useAuth();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [erro, setErro] = useState<unknown>(null);
+
+  /*
+    **A falha que se apresenta é a mais recente, e é uma só.**
+
+    Duas podem existir ao mesmo tempo: a de perguntar quem está logado (que
+    acontece sozinha, ao abrir a tela) e a da tentativa de entrar. Elas quase
+    sempre têm a mesma causa — o ambiente —, e mostrar as duas é o defeito que
+    esta tela tinha. A da tentativa vence porque é a que responde ao gesto que a
+    pessoa acabou de fazer.
+  */
+  const falha = erro ?? erroDaSessao;
+
+  /*
+    A pergunta que a tela faz sozinha quando alguma coisa falhou — no lugar de
+    mandar alguém abrir `/api/healthz`. Só é feita quando há falha: um login
+    que funciona não consulta prontidão nenhuma.
+  */
+  const { data: prontidao } = useQuery({
+    queryKey: PRONTIDAO_QUERY_KEY,
+    queryFn: ({ signal }) => consultarProntidao(signal),
+    enabled: falha != null,
+    retry: false,
+    staleTime: 15_000,
+  });
+
+  const vista = falha == null ? null : apresentar(falha, prontidao);
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    setError(null);
+    setErro(null);
     try {
       await login({ email, password });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Não foi possível entrar.");
+      setErro(err);
     }
   }
 
@@ -57,8 +104,8 @@ export default function Login() {
             custa.
           </h1>
           <p className="text-white/80 leading-relaxed">
-            Auditoria dos modelos que a Ambev entrega pelo Freightech — sem nunca
-            exibir um número que não se consiga sustentar até a célula da
+            Auditoria dos modelos que a Ambev entrega pelo Freightech — sem
+            nunca exibir um número que não se consiga sustentar até a célula da
             planilha de origem.
           </p>
           <div className="flex items-start gap-3 text-sm text-white/70 border-t border-white/25 pt-6">
@@ -84,19 +131,6 @@ export default function Login() {
           <p className="text-muted-foreground text-sm mt-1.5 mb-8">
             Use a conta que já existe neste ambiente.
           </p>
-
-          {unreachable ? (
-            <div className="flex items-start gap-3 rounded-md border border-warning/40 bg-warning/10 p-3 mb-6 text-sm">
-              <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-warning" />
-              <div>
-                <p className="font-medium">O servidor não respondeu.</p>
-                <p className="text-muted-foreground mt-0.5">
-                  Não é a sua senha: a API não está atendendo. Se isto persistir,
-                  confira <code className="font-mono text-xs">/api/healthz</code>.
-                </p>
-              </div>
-            </div>
-          ) : null}
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
@@ -140,17 +174,32 @@ export default function Login() {
               </div>
             </div>
 
-            {error ? (
+            {vista ? (
               <div
                 role="alert"
                 className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive"
               >
                 <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-                <span>{error}</span>
+                <div className="space-y-2 min-w-0">
+                  {/*
+                    Uma frase, em português, sobre o que houve. Credencial
+                    errada continua dizendo que a credencial está errada — é o
+                    401 da rota, que não traz diagnóstico e chega aqui como
+                    mensagem crua. O que mudou é o resto: banco fora, fila
+                    atrasada e servidor fora deixaram de ser apresentados como
+                    se fossem problema da senha de quem está entrando.
+                  */}
+                  <p>{vista.principal ?? vista.mensagemCrua}</p>
+                  <DetalhesTecnicos detalhes={vista.detalhes} />
+                </div>
               </div>
             ) : null}
 
-            <Button type="submit" className="w-full gap-2" disabled={isSubmitting}>
+            <Button
+              type="submit"
+              className="w-full gap-2"
+              disabled={isSubmitting}
+            >
               {isSubmitting ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
               ) : (

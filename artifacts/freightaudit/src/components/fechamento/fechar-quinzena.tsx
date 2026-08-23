@@ -1,5 +1,9 @@
 import { useState } from "react";
-import { useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQueryClient,
+  type QueryClient,
+} from "@tanstack/react-query";
 import { AlertTriangle, Lock, LockOpen } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -19,7 +23,7 @@ import {
 
 function textoDoErro(erro: unknown): string {
   const aviso = apresentar(erro);
-  return aviso.orientacao?.resumo ?? aviso.mensagemCrua ?? "Não foi possível concluir.";
+  return aviso.principal ?? aviso.mensagemCrua ?? "Não foi possível concluir.";
 }
 
 /**
@@ -38,7 +42,9 @@ export function oQueQuestionar(apuracao: Apuracao): {
   acionaveis: Divergencia[];
   aReceber: number;
 } {
-  const acionaveis = apuracao.divergencias.filter((d) => d.sentido !== "INFORMATIVO");
+  const acionaveis = apuracao.divergencias.filter(
+    (d) => d.sentido !== "INFORMATIVO",
+  );
   const aReceber = acionaveis
     .filter((d) => d.sentido === "A_RECEBER")
     .reduce((soma, d) => soma + d.valor, 0);
@@ -68,8 +74,13 @@ export function motivoAceito(texto: string): boolean {
  * "Encerrada" na outra, que é a forma mais barata de fazer alguém desconfiar do
  * número certo.
  */
-function atualizarFechamento(cliente: QueryClient, competenciaId: string): void {
-  void cliente.invalidateQueries({ queryKey: chaveDaCompetencia(competenciaId) });
+function atualizarFechamento(
+  cliente: QueryClient,
+  competenciaId: string,
+): void {
+  void cliente.invalidateQueries({
+    queryKey: chaveDaCompetencia(competenciaId),
+  });
   void cliente.invalidateQueries({ queryKey: ["fechamento", "competencias"] });
   void cliente.invalidateQueries({ queryKey: ["fechamento", "apuracoes"] });
 }
@@ -133,8 +144,8 @@ export function ReabrirQuinzena({
   return (
     <div className="space-y-2">
       <p className="text-sm text-muted-foreground">
-        Escreva o motivo. Ele fica no registro da competência — é o que distingue
-        uma correção de uma alteração silenciosa depois do fato.
+        Escreva o motivo. Ele fica no registro da competência — é o que
+        distingue uma correção de uma alteração silenciosa depois do fato.
       </p>
       <Textarea
         value={motivo}
@@ -236,9 +247,9 @@ export function FecharQuinzena({
       <div className="space-y-3">
         <p className="text-sm text-muted-foreground">
           Esta competência está fechada: os relatórios, a conta apurada e as
-          divergências ficam como estão, e o banco recusa qualquer escrita nela. É o
-          que faz o número que você cobrou continuar sendo o número que se lê daqui
-          a um ano.
+          divergências ficam como estão, e o banco recusa qualquer escrita nela.
+          É o que faz o número que você cobrou continuar sendo o número que se
+          lê daqui a um ano.
         </p>
         <div className="space-y-2 border-t pt-3">
           <p className="text-sm font-medium">Precisa reabrir?</p>
@@ -251,10 +262,11 @@ export function FecharQuinzena({
   return (
     <div className="space-y-3">
       <p className="text-sm text-muted-foreground">
-        Tudo o que você enviou e apurou já está gravado — salvar não é o que guarda
-        os dados. O que este botão faz é <strong>fechar a quinzena</strong>: a partir
-        dele nada mais entra nela, e a conta apurada passa a ser o registro do que
-        foi cobrado. Reabrir depois é possível, com motivo.
+        Tudo o que você enviou e apurou já está gravado — salvar não é o que
+        guarda os dados. O que este botão faz é{" "}
+        <strong>fechar a quinzena</strong>: a partir dele nada mais entra nela,
+        e a conta apurada passa a ser o registro do que foi cobrado. Reabrir
+        depois é possível, com motivo.
       </p>
       <ul className="text-sm text-muted-foreground space-y-1">
         <li>
@@ -267,7 +279,8 @@ export function FecharQuinzena({
         </li>
         <li>• {formatBrl(apuracao.totais.emitido)} emitidos em CT-e</li>
         <li>
-          • {acionaveis.length} ponto(s) a questionar, somando {formatBrl(aReceber)}
+          • {acionaveis.length} ponto(s) a questionar, somando{" "}
+          {formatBrl(aReceber)}
         </li>
       </ul>
       {apuracao.fontesAusentes.length > 0 && (
@@ -275,7 +288,8 @@ export function FecharQuinzena({
           <AlertTriangle className="w-4 h-4" />
           <AlertDescription>
             Faltam {apuracao.fontesAusentes.length} relatório(s). Dá para fechar
-            assim, e o que eles sustentariam vai ficar registrado como não conferido.
+            assim, e o que eles sustentariam vai ficar registrado como não
+            conferido.
           </AlertDescription>
         </Alert>
       )}

@@ -4,7 +4,12 @@ import { AlertTriangle, ChevronRight } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { apresentar } from "@/lib/apresentar-erro";
 import { formatBrl } from "@/lib/format";
-import { lerPainelDaCompetencia, type Apuracao, type Fonte, type VerbaApurada } from "@/lib/fechamento";
+import {
+  lerPainelDaCompetencia,
+  type Apuracao,
+  type Fonte,
+  type VerbaApurada,
+} from "@/lib/fechamento";
 import { PainelDaPlanilhaTabela } from "@/components/fechamento/painel-da-planilha";
 import { chaveDoPainel } from "@/lib/fechamento-tela";
 import { cn } from "@/lib/utils";
@@ -157,7 +162,7 @@ function AbaDaPlanilha({ competenciaId }: { competenciaId: string }) {
     return (
       <Alert>
         <AlertDescription>
-          {aviso.orientacao?.resumo ??
+          {aviso.principal ??
             aviso.mensagemCrua ??
             "Não foi possível montar o painel da planilha."}
         </AlertDescription>
@@ -190,9 +195,7 @@ function Numero({
 }) {
   return (
     <div className="rounded-lg border bg-card p-4">
-      <p className="text-xs text-muted-foreground">
-        {titulo}
-      </p>
+      <p className="text-xs text-muted-foreground">{titulo}</p>
       <p className="text-xl font-bold tabular-nums mt-1">{formatBrl(valor)}</p>
       {nota && <p className="text-xs text-muted-foreground mt-1">{nota}</p>}
     </div>

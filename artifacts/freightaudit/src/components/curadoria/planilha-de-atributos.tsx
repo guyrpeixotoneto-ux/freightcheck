@@ -42,7 +42,8 @@ interface LinhaConferida {
   linha: number;
   atributo: string;
   code: string | null;
-  desfecho: "MUDA" | "IGUAL" | "SEM_ATRIBUTO_NA_LINHA" | "SEM_ATRIBUTO" | "AMBIGUO";
+  desfecho:
+    "MUDA" | "IGUAL" | "SEM_ATRIBUTO_NA_LINHA" | "SEM_ATRIBUTO" | "AMBIGUO";
   mudancas: MudancaDeCampo[];
   problemas: string[];
 }
@@ -146,7 +147,9 @@ export function PlanilhaDeAtributos({ equipamento }: PlanilhaDeAtributosProps) {
     try {
       const { blob, filename } = await fetchArquivo(
         `/curation/atributos/modelo.xlsx${
-          equipamento === null ? "" : `?equipamento=${encodeURIComponent(equipamento)}`
+          equipamento === null
+            ? ""
+            : `?equipamento=${encodeURIComponent(equipamento)}`
         }`,
       );
       // O nome vem do servidor, que já o escreve dizendo o recorte
@@ -172,11 +175,17 @@ export function PlanilhaDeAtributos({ equipamento }: PlanilhaDeAtributosProps) {
   };
 
   const enviar = async (caminho: "previa" | "aplicar", file: File) => {
-    const response = await fetch(getApiUrl(`/curation/atributos/modelo/${caminho}`), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ filename: file.name, contentBase64: await paraBase64(file) }),
-    });
+    const response = await fetch(
+      getApiUrl(`/curation/atributos/modelo/${caminho}`),
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          filename: file.name,
+          contentBase64: await paraBase64(file),
+        }),
+      },
+    );
     const body = await response.json();
     if (!response.ok) throw new Error(body.error ?? "Falha ao ler a planilha.");
     return body;
@@ -211,14 +220,18 @@ export function PlanilhaDeAtributos({ equipamento }: PlanilhaDeAtributosProps) {
     onError: (err: Error) => setErro(err.message),
   });
 
-  const mudancas = (conferencia?.linhas ?? []).filter((l) => l.desfecho === "MUDA");
+  const mudancas = (conferencia?.linhas ?? []).filter(
+    (l) => l.desfecho === "MUDA",
+  );
   /*
     Uma linha pode estar nas duas listas, e é assim que tem de ser: quem
     escreveu a descrição certa e errou a categoria vê a descrição em "vai ser
     gravado" e a categoria em "não entendi". Mostrar só uma das duas obrigaria a
     pessoa a descobrir sozinha o que aconteceu com o resto da linha.
   */
-  const comProblema = (conferencia?.linhas ?? []).filter((l) => l.problemas.length > 0);
+  const comProblema = (conferencia?.linhas ?? []).filter(
+    (l) => l.problemas.length > 0,
+  );
 
   return (
     <>
@@ -265,12 +278,15 @@ export function PlanilhaDeAtributos({ equipamento }: PlanilhaDeAtributosProps) {
             vez de espremer os dois botões. */}
         {avisoDoDownload && (
           <p className="w-full text-xs text-red-600">
-            {avisoDoDownload.orientacao?.resumo ?? avisoDoDownload.mensagemCrua}
+            {avisoDoDownload.principal ?? avisoDoDownload.mensagemCrua}
           </p>
         )}
       </div>
 
-      <Dialog open={aberto} onOpenChange={(v) => (v ? setAberto(true) : fechar())}>
+      <Dialog
+        open={aberto}
+        onOpenChange={(v) => (v ? setAberto(true) : fechar())}
+      >
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <FileSpreadsheet className="h-5 w-5 text-primary" />
@@ -305,7 +321,9 @@ export function PlanilhaDeAtributos({ equipamento }: PlanilhaDeAtributosProps) {
               disabled={conferir.isPending}
             >
               <Upload className="h-4 w-4" />
-              {conferir.isPending ? "Conferindo…" : "Escolher a planilha preenchida"}
+              {conferir.isPending
+                ? "Conferindo…"
+                : "Escolher a planilha preenchida"}
             </Button>
           )}
 
@@ -320,15 +338,28 @@ export function PlanilhaDeAtributos({ equipamento }: PlanilhaDeAtributosProps) {
               <div className="grid grid-cols-3 gap-2 text-center">
                 <Quadro
                   valor={conferencia.resumo.campos}
-                  rotulo={conferencia.resumo.campos === 1 ? "campo muda" : "campos mudam"}
+                  rotulo={
+                    conferencia.resumo.campos === 1
+                      ? "campo muda"
+                      : "campos mudam"
+                  }
                   tom="bom"
                 />
-                <Quadro valor={conferencia.resumo.iguais} rotulo="sem mudança" tom="neutro" />
                 <Quadro
-                  valor={conferencia.resumo.ignoradas + conferencia.resumo.naoEntendidas}
+                  valor={conferencia.resumo.iguais}
+                  rotulo="sem mudança"
+                  tom="neutro"
+                />
+                <Quadro
+                  valor={
+                    conferencia.resumo.ignoradas +
+                    conferencia.resumo.naoEntendidas
+                  }
                   rotulo="não entendi"
                   tom={
-                    conferencia.resumo.ignoradas + conferencia.resumo.naoEntendidas > 0
+                    conferencia.resumo.ignoradas +
+                      conferencia.resumo.naoEntendidas >
+                    0
                       ? "aviso"
                       : "neutro"
                   }
@@ -342,18 +373,27 @@ export function PlanilhaDeAtributos({ equipamento }: PlanilhaDeAtributosProps) {
                   </div>
                   <div className="max-h-64 overflow-y-auto">
                     {mudancas.map((linha) => (
-                      <div key={`${linha.aba}-${linha.linha}`} className="border-b px-3 py-2 last:border-0">
+                      <div
+                        key={`${linha.aba}-${linha.linha}`}
+                        className="border-b px-3 py-2 last:border-0"
+                      >
                         <div className="font-mono text-xs">
                           {linha.aba} · {linha.atributo}
                         </div>
                         {linha.mudancas.map((mudanca, i) => (
-                          <div key={i} className="text-xs text-muted-foreground">
+                          <div
+                            key={i}
+                            className="text-xs text-muted-foreground"
+                          >
                             <span className="font-medium text-foreground">
                               {ROTULO_DO_CAMPO[mudanca.campo] ?? mudanca.campo}:
                             </span>{" "}
                             {mudanca.de ? (
                               <>
-                                <span className="line-through">{mudanca.de}</span> →{" "}
+                                <span className="line-through">
+                                  {mudanca.de}
+                                </span>{" "}
+                                →{" "}
                               </>
                             ) : null}
                             {mudanca.para}
@@ -409,7 +449,8 @@ export function PlanilhaDeAtributos({ equipamento }: PlanilhaDeAtributosProps) {
                 <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 space-y-1">
                   {aplicacao.recusadas.map((recusa, i) => (
                     <div key={i}>
-                      <span className="font-mono">{recusa.code}</span>: {recusa.motivo}
+                      <span className="font-mono">{recusa.code}</span>:{" "}
+                      {recusa.motivo}
                     </div>
                   ))}
                 </div>
