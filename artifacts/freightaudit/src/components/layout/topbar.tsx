@@ -30,6 +30,13 @@ import { Logotipo } from "./logotipo";
  *
  * O que fica aqui é o que não tem lugar melhor: a marca, o botão que recolhe a
  * lateral e quem está logado.
+ *
+ * **No celular a faixa perde dois desses três.** O hambúrguer some porque não
+ * há lateral para recolher — quem navega ali é a barra da borda de baixo
+ * (`barra-mobile.tsx`) —, e o e-mail vira as iniciais, porque escrito por
+ * extenso ele empurrava o seletor de ambiente para fora da tela. O par
+ * Configurações/Sair continua a um toque, no pé da folha "Mais". O que sobra
+ * na faixa é o que responde onde se está: a marca e o ambiente aberto.
  */
 export function Topbar({
   menuAberto,
@@ -43,7 +50,7 @@ export function Topbar({
   const ambiente = descricaoDoAmbiente(ambienteDe(location));
 
   return (
-    <header className="h-16 bg-topbar text-topbar-foreground flex items-center gap-4 px-4 shrink-0 sticky top-0 z-40">
+    <header className="h-16 bg-topbar text-topbar-foreground flex items-center gap-2 md:gap-4 px-3 md:px-4 shrink-0 sticky top-0 z-40">
       <button
         type="button"
         onClick={onToggleSidebar}
@@ -54,7 +61,7 @@ export function Topbar({
         */
         aria-label={menuAberto ? "Recolher o menu" : "Expandir o menu"}
         aria-expanded={menuAberto}
-        className="p-2 -ml-1 rounded hover:bg-white/10 transition-colors"
+        className="hidden md:block p-2 -ml-1 rounded hover:bg-white/10 transition-colors"
       >
         <Menu className="w-6 h-6" />
       </button>
@@ -65,8 +72,8 @@ export function Topbar({
         avisar — e "voltar ao início" não pode significar "voltar para outro
         espaço de trabalho".
       */}
-      <Link href={ambiente.home} className="shrink-0">
-        <Logotipo />
+      <Link href={ambiente.home} className="shrink-0 min-w-0">
+        <Logotipo soSimboloNoCelular />
       </Link>
 
       <SeletorDeAmbiente atual={ambiente.id} />
@@ -76,7 +83,18 @@ export function Topbar({
       {user && (
         <DropdownMenu>
           <DropdownMenuTrigger className="flex items-center gap-1.5 text-[0.8125rem] font-semibold uppercase tracking-wide px-2 py-2 rounded hover:bg-white/10 transition-colors max-w-[22rem]">
-            <span className="truncate">{user.email}</span>
+            {/*
+              O e-mail por extenso não cabe num telefone: ele ocupava a faixa
+              inteira e cortava o seletor de ambiente ao meio. As iniciais dizem
+              a mesma coisa — quem está logado — no espaço que há.
+            */}
+            <span className="hidden md:block truncate">{user.email}</span>
+            <span
+              aria-hidden
+              className="md:hidden w-8 h-8 rounded-full bg-white/15 text-xs font-bold flex items-center justify-center shrink-0"
+            >
+              {iniciaisDe(user.name)}
+            </span>
             <ChevronDown className="w-4 h-4 shrink-0" />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-64">
@@ -128,7 +146,7 @@ function SeletorDeAmbiente({ atual }: { atual: (typeof AMBIENTES)[number]["id"] 
       <DropdownMenu>
         <DropdownMenuTrigger
           aria-label={`Ambiente de trabalho: ${descricaoDoAmbiente(atual).nomeCompleto}`}
-          className="flex items-center gap-1.5 px-2 py-1.5 -ml-1 rounded text-[0.9375rem] font-semibold tracking-wide hover:bg-white/10 transition-colors shrink-0"
+          className="flex items-center gap-1.5 px-2 py-1.5 -ml-1 rounded text-sm md:text-[0.9375rem] font-semibold tracking-wide hover:bg-white/10 transition-colors min-w-0"
         >
           {descricaoDoAmbiente(atual).nome}
           <ChevronDown className="w-4 h-4 shrink-0 opacity-80" />
@@ -160,4 +178,13 @@ function SeletorDeAmbiente({ atual }: { atual: (typeof AMBIENTES)[number]["id"] 
       </DropdownMenu>
     </>
   );
+}
+
+/** `Guy Peixoto` → `GP`; nome de uma palavra só rende uma letra. */
+function iniciaisDe(nome: string): string {
+  const partes = nome.trim().split(/\s+/).filter(Boolean);
+  if (partes.length === 0) return "?";
+  const primeira = partes[0][0];
+  const ultima = partes.length > 1 ? partes[partes.length - 1][0] : "";
+  return `${primeira}${ultima}`.toUpperCase();
 }

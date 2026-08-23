@@ -1,4 +1,5 @@
 import { ReactNode } from "react";
+import { BarraMobile } from "./barra-mobile";
 import { Sidebar } from "./sidebar";
 import { Topbar } from "./topbar";
 import { useMenuAberto } from "./preferencias";
@@ -16,6 +17,14 @@ import { useMenuAberto } from "./preferencias";
  * página monta a sua própria `Layout`, então este componente é remontado a cada
  * navegação. Em `useState` puro, a lateral recolhida voltaria inteira no
  * primeiro item clicado — e o botão pareceria não funcionar.
+ *
+ * **No celular a casca é outra, e a troca é de CSS.** Abaixo de `md` a lateral
+ * não existe (`hidden md:flex`, em `sidebar.tsx`) e quem navega é a barra da
+ * borda de baixo, com a folha "Mais" (`barra-mobile.tsx`) — ver lá por que a
+ * lateral não serve num telefone. Os dois menus são montados sempre, e é a
+ * media query que decide qual aparece: decidir em JavaScript, com
+ * `useIsMobile`, custaria um primeiro quadro sem menu nenhum a cada montagem
+ * da casca — e a casca remonta a cada navegação.
  */
 export function Layout({ children }: { children: ReactNode }) {
   const { aberto, alternar } = useMenuAberto();
@@ -25,8 +34,20 @@ export function Layout({ children }: { children: ReactNode }) {
       <Topbar menuAberto={aberto} onToggleSidebar={alternar} />
       <div className="flex flex-1 min-h-0">
         <Sidebar open={aberto} />
-        <main className="flex-1 flex flex-col min-w-0">{children}</main>
+        {/*
+          O espaço reservado embaixo é a altura da barra do celular, que é
+          `fixed`: sem ele, a última linha de toda tela nasce por baixo dela — e
+          a última linha de uma tabela é onde costuma estar o total.
+
+          São 5,5rem, e não os 4rem da barra: o botão redondo do meio sobe 1,5rem
+          acima dela, e era exatamente essa faixa que ficava por cima do texto da
+          última linha.
+        */}
+        <main className="flex-1 flex flex-col min-w-0 pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:pb-0">
+          {children}
+        </main>
       </div>
+      <BarraMobile />
     </div>
   );
 }

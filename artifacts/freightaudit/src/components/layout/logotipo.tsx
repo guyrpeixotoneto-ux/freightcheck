@@ -23,15 +23,34 @@ import { cn } from "@/lib/utils";
 export function Logotipo({
   tom = "claro",
   className,
+  soSimboloNoCelular = false,
 }: {
   /** `claro` = nome branco sobre a faixa marinho. `escuro` = nome marinho sobre o branco. */
   tom?: "claro" | "escuro";
   className?: string;
+  /**
+   * No telefone, só o símbolo.
+   *
+   * A faixa do topo tem, num aparelho de 390px, a marca, o seletor de ambiente
+   * e quem está logado — e a palavra "FreightCheck" sozinha come metade disso,
+   * empurrando o ambiente aberto para fora da tela (era o que se via antes
+   * desta opção). O símbolo continua dizendo de quem é o produto, que é o que
+   * a marca precisa dizer ali; o nome por extenso volta a partir de `sm`.
+   *
+   * A opção é do lugar que a usa, e não o padrão: no login e em qualquer tela
+   * onde a marca se apresenta, ela se apresenta inteira em qualquer largura.
+   */
+  soSimboloNoCelular?: boolean;
 }) {
   return (
     <span className={cn("flex items-center gap-2.5 shrink-0", className)}>
       <Simbolo />
-      <span className="text-2xl leading-none tracking-tight whitespace-nowrap">
+      <span
+        className={cn(
+          "text-2xl leading-none tracking-tight whitespace-nowrap",
+          soSimboloNoCelular && "hidden sm:inline",
+        )}
+      >
         <span
           className={cn(
             "font-extrabold italic",

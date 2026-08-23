@@ -89,6 +89,7 @@ export function navGroupsFechamento(base: string, nome: string): NavGroup[] {
         o clique de quem procurava o total.
       */
       titulo: nome,
+      descricao: "Onde o período entra e o ano é lido",
       icon: CalendarDays,
       cor: "text-nav-fechamento",
       itens: [
@@ -127,12 +128,14 @@ export function navGroupsFechamento(base: string, nome: string): NavGroup[] {
         vai fazer ali; a lista é a porta.
       */
       titulo: "Remuneração",
+      descricao: "O cadastro por unidade que a apuração consome",
       icon: ScrollText,
       cor: "text-nav-fechamento",
       itens: [{ href: `${base}/remuneracao`, label: "Cadastro", icon: FileSpreadsheet }],
     },
     {
       titulo: "Apuração",
+      descricao: "A conta da competência e o que a impede de fechar",
       icon: Calculator,
       cor: "text-nav-fechamento",
       itens: [
@@ -149,6 +152,7 @@ export function navGroupsFechamento(base: string, nome: string): NavGroup[] {
         Recuperação de Auditoria no outro ambiente.
       */
       titulo: "Decisão",
+      descricao: "Ajustar, aprovar e encerrar o período",
       icon: Stamp,
       cor: "text-nav-fechamento",
       itens: [
@@ -159,6 +163,7 @@ export function navGroupsFechamento(base: string, nome: string): NavGroup[] {
     },
     {
       titulo: "Registro",
+      descricao: "O que já fechou, competência a competência",
       icon: History,
       cor: "text-nav-fechamento",
       itens: [{ href: `${base}/historico`, label: "Histórico", icon: History }],

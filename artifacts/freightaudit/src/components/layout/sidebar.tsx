@@ -158,9 +158,10 @@ import { useSecoesRecolhidas } from "./preferencias";
  * dessas telas, um número de exemplo. Clicar leva a algum lugar; o que aquele
  * lugar informa é o que ainda não se sabe.
  */
-const NAV_GROUPS: NavGroup[] = [
+export const NAV_GROUPS: NavGroup[] = [
   {
     titulo: "Visão executiva",
+    descricao: "O retrato do conjunto e o valor apurado",
     icon: ChartNoAxesCombined,
     cor: "text-nav-executiva",
     itens: [
@@ -223,12 +224,14 @@ const NAV_GROUPS: NavGroup[] = [
       no meio delas seria encontrado por quem já sabia que ele existia.
     */
     titulo: "Compras",
+    descricao: "Quanto a Ambev remunera o que se vai comprar",
     icon: ShoppingCart,
     cor: "text-nav-compras",
     itens: [{ href: "/remunerado", label: "Remunerado", icon: Tags }],
   },
   {
     titulo: "Auditoria",
+    descricao: "O que mudou na vigência e quanto custou",
     icon: ScanSearch,
     cor: "text-nav-auditoria",
     itens: [
@@ -254,6 +257,7 @@ const NAV_GROUPS: NavGroup[] = [
       cobrar. Quem passa o dia numa das duas fecha a outra.
     */
     titulo: "Recuperação",
+    descricao: "A cobrança do desvio já apurado",
     icon: RefreshCcwDot,
     cor: "text-nav-recuperacao",
     itens: [
@@ -273,6 +277,7 @@ const NAV_GROUPS: NavGroup[] = [
       ver `pages/telas-em-preparo.ts`, onde cada um diz o que falta.
     */
     titulo: "QLP",
+    descricao: "O quadro de gente que o modelo remunera",
     icon: UsersRound,
     cor: "text-nav-qlp",
     itens: [
@@ -289,6 +294,7 @@ const NAV_GROUPS: NavGroup[] = [
       assunto, e a posição na lista diz de que altura ele está sendo visto.
     */
     titulo: "Frota",
+    descricao: "Do comportamento da frota à placa",
     icon: Truck,
     cor: "text-nav-frota",
     itens: [
@@ -309,6 +315,7 @@ const NAV_GROUPS: NavGroup[] = [
   },
   {
     titulo: "Inteligência",
+    descricao: "Perguntas ao assistente e o Book do Operador",
     icon: Sparkles,
     cor: "text-nav-inteligencia",
     itens: [
@@ -319,6 +326,7 @@ const NAV_GROUPS: NavGroup[] = [
   },
   {
     titulo: "Dados & governança",
+    descricao: "De onde vêm os números e o que os sustenta",
     icon: Database,
     cor: "text-nav-dados",
     itens: [
@@ -346,6 +354,7 @@ const NAV_GROUPS: NavGroup[] = [
   },
   {
     titulo: "Administração",
+    descricao: "Unidades, usuários e ajustes da instalação",
     icon: Cog,
     cor: "text-nav-admin",
     itens: [
@@ -409,7 +418,7 @@ export function Sidebar({ open }: { open: boolean }) {
      * rolagem aparecia numa página que cabia, o que é o defeito mais difícil de
      * atribuir à causa certa.
      */
-    <aside className="w-[19rem] bg-sidebar text-sidebar-foreground border-r border-sidebar-border shrink-0 flex flex-col sticky top-16 h-[calc(100dvh-4rem)]">
+    <aside className="hidden md:flex w-[19rem] bg-sidebar text-sidebar-foreground border-r border-sidebar-border shrink-0 flex-col sticky top-16 h-[calc(100dvh-4rem)]">
       <div className="overflow-y-auto flex-1">
         <SeletorDeUnidade ambiente={ambiente} />
 
@@ -551,7 +560,7 @@ function FaixaDeIcones({
   paraOAssistente: string;
 }) {
   return (
-    <aside className="w-16 bg-sidebar text-sidebar-foreground border-r border-sidebar-border shrink-0 flex flex-col sticky top-16 h-[calc(100dvh-4rem)]">
+    <aside className="hidden md:flex w-16 bg-sidebar text-sidebar-foreground border-r border-sidebar-border shrink-0 flex-col sticky top-16 h-[calc(100dvh-4rem)]">
       <div className="overflow-y-auto flex-1 py-2">
         <UnidadeNaFaixa />
 
@@ -720,7 +729,7 @@ function normalizar(texto: string): string {
  * de menu: ela custa uma comparação e é o que impede a lateral inteira de
  * acender no dia em que alguém reaproveitar "/" como href de algum item.
  */
-function estaAtivo(location: string, href: string): boolean {
+export function estaAtivo(location: string, href: string): boolean {
   const raizes: string[] = ["/", ...Object.values(BASES_DE_FECHAMENTO)];
   if (raizes.includes(href)) return location === href;
   return location === href || location.startsWith(`${href}/`);
@@ -1027,7 +1036,7 @@ function CaixaDaUnidade({
 }
 
 /** O nome da unidade; sem escopo cadastrado sobra o rótulo que o servidor montou. */
-function unidadeDe(contexto: Contexto): string {
+export function unidadeDe(contexto: Contexto): string {
   const unidade = contexto.scopes.find((s) => s.scopeType === "UNIDADE");
   return unidade?.name ?? unidade?.code ?? contexto.label;
 }
@@ -1038,7 +1047,7 @@ function canalDe(contexto: Contexto): string {
 }
 
 /** `EMPURRADA · ago/2026` — canal e vigência numa linha, para rótulo e menu. */
-function detalheDe(contexto: Contexto): string {
+export function detalheDe(contexto: Contexto): string {
   return `${canalDe(contexto)} · ${mesAbreviado(contexto.latestPeriod)}`;
 }
 
