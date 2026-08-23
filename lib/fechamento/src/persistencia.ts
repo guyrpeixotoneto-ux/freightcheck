@@ -519,7 +519,10 @@ export async function listarCompetencias(
   recorte?: RecorteDaOperacao,
 ): Promise<CompetenciaRegistrada[]> {
   const tipos = tiposDoRecorte(recorte);
-  const consulta = db.select().from(fechamentoCompetenciaTable);
+  const consulta = db
+    .select({ competencia: fechamentoCompetenciaTable, unidadeNomeAtual: unidadeTable.nome })
+    .from(fechamentoCompetenciaTable)
+    .leftJoin(unidadeTable, eq(unidadeTable.id, fechamentoCompetenciaTable.unidadeId));
   const linhas = await (tipos
     ? consulta.where(inArray(fechamentoCompetenciaTable.tipoDeOperacao, tipos))
     : consulta
@@ -528,7 +531,9 @@ export async function listarCompetencias(
     desc(fechamentoCompetenciaTable.mes),
     desc(fechamentoCompetenciaTable.quinzena),
   );
-  return linhas.map(comoRegistrada);
+  return linhas.map((linha: { competencia: typeof fechamentoCompetenciaTable.$inferSelect; unidadeNomeAtual: string | null }) =>
+    comoRegistrada(linha.competencia, linha.unidadeNomeAtual),
+  );
 }
 
 export async function buscarCompetencia(
@@ -536,19 +541,30 @@ export async function buscarCompetencia(
   id: string,
 ): Promise<CompetenciaRegistrada | null> {
   const [linha] = await db
-    .select()
+    .select({ competencia: fechamentoCompetenciaTable, unidadeNomeAtual: unidadeTable.nome })
     .from(fechamentoCompetenciaTable)
+    .leftJoin(unidadeTable, eq(unidadeTable.id, fechamentoCompetenciaTable.unidadeId))
     .where(eq(fechamentoCompetenciaTable.id, id))
     .limit(1);
-  return linha ? comoRegistrada(linha) : null;
+  return linha ? comoRegistrada(linha.competencia, linha.unidadeNomeAtual) : null;
 }
 
-function comoRegistrada(linha: typeof fechamentoCompetenciaTable.$inferSelect): CompetenciaRegistrada {
+/**
+ * `unidadeNome` na linha é um retrato tirado na abertura da competência — some
+ * a unidade for renomeada depois, ele fica velho. Quando a competência está
+ * associada a uma unidade cadastrada (`unidadeId`), o nome atual dessa unidade
+ * (vindo do join) é a fonte da verdade; o retrato só sobra pra competências
+ * antigas, nunca associadas a um cadastro.
+ */
+function comoRegistrada(
+  linha: typeof fechamentoCompetenciaTable.$inferSelect,
+  unidadeNomeAtual?: string | null,
+): CompetenciaRegistrada {
   const base = competenciaDaChave(linha.chave) ?? montarCompetencia(linha.ano, linha.mes, linha.quinzena as 1 | 2);
   return {
     ...base,
     id: linha.id,
-    unidade: { codigo: linha.unidadeCodigo, nome: linha.unidadeNome },
+    unidade: { codigo: linha.unidadeCodigo, nome: unidadeNomeAtual ?? linha.unidadeNome },
     unidadeId: linha.unidadeId ?? null,
     transportadora: { codigo: linha.transportadoraCodigo, nome: linha.transportadoraNome },
     tipoDeOperacao: linha.tipoDeOperacao,
