@@ -1,6 +1,13 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
-import { ArrowLeft, Columns2, Link2, PencilLine, Rows3, ScrollText } from "lucide-react";
+import {
+  ArrowLeft,
+  Columns2,
+  Link2,
+  PencilLine,
+  Rows3,
+  ScrollText,
+} from "lucide-react";
 import { Layout } from "@/components/layout/layout";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Card, CardContent } from "@/components/ui/card";
@@ -77,7 +84,11 @@ const VISTAS: Vista[] = ["uma", "duas", "cadastrar"];
 
 function textoDoErro(erro: unknown): string {
   const aviso = apresentar(erro);
-  return aviso.orientacao?.resumo ?? aviso.mensagemCrua ?? "Não foi possível carregar o cadastro.";
+  return (
+    aviso.principal ??
+    aviso.mensagemCrua ??
+    "Não foi possível carregar o cadastro."
+  );
 }
 
 /** `abc123` + canal → a chave de um item do seletor, e o par que a URL carrega. */
@@ -111,7 +122,9 @@ export default function RemuneracaoCadastro() {
     contar. Enquanto a lista não chega, `null`: é diferente de "uma só", e é o
     que impede a tela de piscar na vista errada antes de saber.
   */
-  const unidadeAberta: UnidadeDoCadastro | undefined = (unidades.data ?? []).find((u) =>
+  const unidadeAberta: UnidadeDoCadastro | undefined = (
+    unidades.data ?? []
+  ).find((u) =>
     scopeHashPedido === null
       ? true
       : u.scopeHash === scopeHashPedido &&
@@ -146,7 +159,14 @@ export default function RemuneracaoCadastro() {
   });
 
   const comparacao = useQuery({
-    queryKey: ["remuneracao", "comparacao", scopeHashPedido, canalPedido, dePedido, atePedido],
+    queryKey: [
+      "remuneracao",
+      "comparacao",
+      scopeHashPedido,
+      canalPedido,
+      dePedido,
+      atePedido,
+    ],
     queryFn: () =>
       lerComparacao({
         ...(scopeHashPedido ? { scopeHash: scopeHashPedido } : {}),
@@ -158,8 +178,12 @@ export default function RemuneracaoCadastro() {
   });
 
   /** As vigências para os seletores, da vista que estiver aberta. */
-  const vigencias = (vista === "duas" ? comparacao.data?.vigencias : cadastro.data?.vigencias) ?? [];
-  const contexto = vista === "duas" ? comparacao.data?.contexto : cadastro.data?.contexto;
+  const vigencias =
+    (vista === "duas"
+      ? comparacao.data?.vigencias
+      : cadastro.data?.vigencias) ?? [];
+  const contexto =
+    vista === "duas" ? comparacao.data?.contexto : cadastro.data?.contexto;
 
   function trocar(mudancas: Record<string, string | null>) {
     const query = new URLSearchParams(busca);
@@ -190,7 +214,8 @@ export default function RemuneracaoCadastro() {
     navegar(`/fechamento/remuneracao/unidade?${query}`);
   }
 
-  const carregando = vista === "duas" ? comparacao.isLoading : cadastro.isLoading;
+  const carregando =
+    vista === "duas" ? comparacao.isLoading : cadastro.isLoading;
   const erro = vista === "duas" ? comparacao.error : cadastro.error;
   const falhou = vista === "duas" ? comparacao.isError : cadastro.isError;
 
@@ -209,11 +234,12 @@ export default function RemuneracaoCadastro() {
           <h1 className="text-2xl font-bold tracking-tight">Remuneração</h1>
         </div>
         <p className="text-muted-foreground mt-2 max-w-3xl">
-          O cadastro que abre a planilha de remuneração desta unidade — alíquotas, frota,
-          parcelas por veículo e proporção de documentos. Cada linha diz de onde o número
-          veio no acervo da Auditoria, ou o que falta para ele existir. O que o acervo ainda
-          não responde, você preenche em <strong>Cadastrar a planilha</strong>, e ele passa a
-          aparecer aqui marcado como informado.
+          O cadastro que abre a planilha de remuneração desta unidade —
+          alíquotas, frota, parcelas por veículo e proporção de documentos. Cada
+          linha diz de onde o número veio no acervo da Auditoria, ou o que falta
+          para ele existir. O que o acervo ainda não responde, você preenche em{" "}
+          <strong>Cadastrar a planilha</strong>, e ele passa a aparecer aqui
+          marcado como informado.
         </p>
       </header>
 
@@ -246,7 +272,11 @@ export default function RemuneracaoCadastro() {
                   Unidade
                 </label>
                 <Select
-                  value={contexto ? chaveDaUnidade(contexto.scopeHash, contexto.channel) : ""}
+                  value={
+                    contexto
+                      ? chaveDaUnidade(contexto.scopeHash, contexto.channel)
+                      : ""
+                  }
                   onValueChange={irParaUnidade}
                   disabled={!unidades.data || unidades.data.length === 0}
                 >
@@ -286,7 +316,11 @@ export default function RemuneracaoCadastro() {
               ) : (
                 <SeletorDeVigencia
                   id="period"
-                  rotulo={vista === "cadastrar" ? "Vigência que você preenche" : "Vigência"}
+                  rotulo={
+                    vista === "cadastrar"
+                      ? "Vigência que você preenche"
+                      : "Vigência"
+                  }
                   valor={cadastro.data?.effectiveDate ?? ""}
                   vigencias={vigencias}
                   onChange={(v) => trocar({ period: v })}
@@ -297,16 +331,18 @@ export default function RemuneracaoCadastro() {
             <p className="flex items-start gap-2 text-xs text-muted-foreground border-t pt-3">
               <Link2 className="w-3.5 h-3.5 shrink-0 mt-0.5" />
               <span>
-                O cadastro é da <strong>unidade numa vigência</strong>, e não de uma competência:
-                ele descreve o que a Ambev contratou, que é o que a Auditoria guarda. É por isso
-                que a lista de períodos aqui é de vigências, e não das quinzenas abertas em
-                Importações.
+                O cadastro é da <strong>unidade numa vigência</strong>, e não de
+                uma competência: ele descreve o que a Ambev contratou, que é o
+                que a Auditoria guarda. É por isso que a lista de períodos aqui
+                é de vigências, e não das quinzenas abertas em Importações.
               </span>
             </p>
           </CardContent>
         </Card>
 
-        {carregando && <p className="text-sm text-muted-foreground">Montando o cadastro…</p>}
+        {carregando && (
+          <p className="text-sm text-muted-foreground">Montando o cadastro…</p>
+        )}
 
         {falhou && (
           <Alert variant="destructive">
@@ -314,8 +350,12 @@ export default function RemuneracaoCadastro() {
           </Alert>
         )}
 
-        {vista === "duas" && comparacao.data && <VistaDeDuasQuinzenas dados={comparacao.data} />}
-        {vista === "uma" && cadastro.data && <VistaDeUmaQuinzena dados={cadastro.data} />}
+        {vista === "duas" && comparacao.data && (
+          <VistaDeDuasQuinzenas dados={comparacao.data} />
+        )}
+        {vista === "uma" && cadastro.data && (
+          <VistaDeUmaQuinzena dados={cadastro.data} />
+        )}
         {vista === "cadastrar" && cadastro.data && (
           /*
             A `key` carrega a unidade e a vigência de propósito: o formulário
@@ -357,7 +397,11 @@ function SeletorDeVigencia({
       >
         {rotulo}
       </label>
-      <Select value={valor} onValueChange={onChange} disabled={vigencias.length === 0}>
+      <Select
+        value={valor}
+        onValueChange={onChange}
+        disabled={vigencias.length === 0}
+      >
         <SelectTrigger id={id}>
           <SelectValue placeholder="Escolha a vigência" />
         </SelectTrigger>

@@ -138,7 +138,28 @@ export interface RiscoAosDados {
 
 export interface Diagnostico {
   estado: EstadoDoBanco;
-  /** O que aconteceu, em uma ou duas frases. */
+  /**
+   * A frase que se mostra a quem está na tela — a **mensagem principal**.
+   *
+   * Existe porque `resumo` tem outro público. Ele nomeia migrations, conta
+   * carimbos e cita SQLSTATE, e isso é o que quem opera o ambiente precisa;
+   * para quem só queria entrar no sistema, é uma parede de jargão que não
+   * responde nenhuma das três perguntas que a pessoa de fato faz: *foi comigo?
+   * perdi o que eu fiz? tem algo que eu possa fazer?*
+   *
+   * A regra desta frase, e ela é verificada em teste: **nenhum nome de
+   * migration, nenhum comando, nenhum SQLSTATE, nenhum endereço de rota.** Tudo
+   * isso continua existindo — em `resumo`, `acao.comando` e `evidencia` —, e a
+   * interface o guarda atrás de "Detalhes técnicos". O que muda é qual das duas
+   * ocupa a linha que se lê com pressa.
+   *
+   * Mora aqui, e não na interface, pela mesma razão que todo o resto deste
+   * módulo: uma frase escrita na tela seria uma segunda autoridade sobre o que
+   * aconteceu, livre para divergir desta — que é exatamente o defeito que este
+   * arquivo existe para tornar irrepresentável.
+   */
+  humano: string;
+  /** O que aconteceu, em uma ou duas frases, para quem opera o ambiente. */
   resumo: string;
   risco: RiscoAosDados;
   /** O que resolve. `null` quando não há nada a fazer — ver `SAUDAVEL`. */
@@ -279,7 +300,10 @@ function registroPerdido(estado: EstadoObservado): boolean {
 }
 
 /** A evidência da divergência: nomeada quando se sabe, contada quando não. */
-function nomearAusentes(aplicadas: number, ausentes: string[] | undefined): string {
+function nomearAusentes(
+  aplicadas: number,
+  ausentes: string[] | undefined,
+): string {
   if (ausentes === undefined || ausentes.length === 0) {
     return `${aplicadas} migrations registradas, e mesmo assim um objeto de schema falta.`;
   }
@@ -336,6 +360,10 @@ export function diagnosticar(estado: EstadoObservado): Diagnostico {
   if (!estado.configurada) {
     return {
       estado: "INDISPONIVEL",
+      humano:
+        "O sistema não está conseguindo falar com o banco de dados deste " +
+        "ambiente. Não é a sua senha nem o arquivo que você enviou: nada do " +
+        "que você fez chegou a ser gravado, e nada se perdeu.",
       resumo:
         "Este processo não recebeu a DATABASE_URL. Toda tela que lê o banco " +
         "responde erro enquanto isso — e o banco pode estar perfeitamente " +
@@ -359,6 +387,10 @@ export function diagnosticar(estado: EstadoObservado): Diagnostico {
   if (!estado.alcancavel) {
     return {
       estado: "INDISPONIVEL",
+      humano:
+        "O banco de dados deste ambiente não está respondendo agora. Não é a " +
+        "sua senha nem o arquivo que você enviou: nada do que você fez chegou " +
+        "a ser gravado, e nada se perdeu.",
       resumo: conexao(estado.codigoDeConexao),
       risco: {
         emRisco: false,
@@ -374,7 +406,9 @@ export function diagnosticar(estado: EstadoObservado): Diagnostico {
         quem: "plataforma",
       },
       ...(estado.codigoDeConexao
-        ? { evidencia: `Código da falha de conexão: ${estado.codigoDeConexao}.` }
+        ? {
+            evidencia: `Código da falha de conexão: ${estado.codigoDeConexao}.`,
+          }
         : {}),
     };
   }
@@ -393,6 +427,10 @@ export function diagnosticar(estado: EstadoObservado): Diagnostico {
   if (estado.bridgePendente) {
     return {
       estado: "BRIDGE_PENDENTE",
+      humano:
+        "Este ambiente está no meio de uma atualização de estrutura, e ela " +
+        "ainda não terminou. Enquanto isso, as telas que dependem da parte que " +
+        "falta respondem erro — o que já estava gravado continua inteiro.",
       resumo:
         "Este banco está no meio de um bridge de deploy: o `bridge:down` " +
         "entrou e o `bridge:up` correspondente não. Enquanto isso, faltam " +
@@ -426,9 +464,16 @@ export function diagnosticar(estado: EstadoObservado): Diagnostico {
       necessária" ao lado de uma consulta que acabou de falhar por schema.
     */
     const conferidos = estado.objetosAusentes;
-    if (estado.objetoAusenteAgora || (conferidos !== undefined && conferidos.length > 0)) {
+    if (
+      estado.objetoAusenteAgora ||
+      (conferidos !== undefined && conferidos.length > 0)
+    ) {
       return {
         estado: "SCHEMA_DIVERGENTE",
+        humano:
+          "A estrutura deste ambiente não corresponde à versão do sistema que " +
+          "está no ar, e por isso algumas telas respondem erro. O que você " +
+          "enviou não chegou a ser gravado, e nada se perdeu.",
         resumo:
           "O registro diz que todas as migrations deste build rodaram, mas um " +
           "objeto que elas criam não existe neste banco. Ou o schema foi " +
@@ -470,6 +515,9 @@ export function diagnosticar(estado: EstadoObservado): Diagnostico {
 
     return {
       estado: "SAUDAVEL",
+      humano:
+        "Este ambiente está no ar e na versão de estrutura que o sistema " +
+        "espera.",
       resumo:
         "Conectado, com todas as migrations deste build aplicadas neste banco.",
       risco: { emRisco: false, texto: "Nada a conferir." },
@@ -495,6 +543,11 @@ export function diagnosticar(estado: EstadoObservado): Diagnostico {
   if (registroPerdido(estado)) {
     return {
       estado: "REGISTRO_PERDIDO",
+      humano:
+        "Este ambiente precisa de um ajuste de estrutura que reiniciar o " +
+        "sistema não resolve, e enquanto ele não for feito as telas que " +
+        "dependem dessa estrutura respondem erro. Nada do que está gravado se " +
+        "perdeu.",
       resumo:
         "Este banco tem o schema e não tem o registro dele. Por isso a fila " +
         "recomeça da primeira migration e esbarra em algo que já existe — e " +
@@ -531,6 +584,11 @@ export function diagnosticar(estado: EstadoObservado): Diagnostico {
   if (estado.falha) {
     return {
       estado: "MIGRATION_FALHOU",
+      humano:
+        "Uma atualização de estrutura deste ambiente foi recusada pelo banco e " +
+        "precisa ser olhada antes de qualquer nova tentativa. Enquanto isso, " +
+        "as telas que dependem dela respondem erro — nada do que está gravado " +
+        "se perdeu.",
       resumo:
         `A migration ${estado.falha.tag} foi recusada pelo banco. As ` +
         "anteriores ficaram aplicadas; as seguintes não chegaram a ser " +
@@ -554,6 +612,10 @@ export function diagnosticar(estado: EstadoObservado): Diagnostico {
 
   return {
     estado: "MIGRATIONS_PENDENTES",
+    humano:
+      "Este ambiente ainda não recebeu uma atualização de estrutura que a " +
+      "versão no ar do sistema espera. Enquanto ela não for aplicada, as telas " +
+      "que dependem dela respondem erro — nada do que você fez se perdeu.",
     resumo:
       `Conectado, mas ${faltando} As telas que dependem ` +
       `${estado.pendentes.length === 1 ? "dela respondem erro até que ela rode" : "delas respondem erro até que rodem"}.`,

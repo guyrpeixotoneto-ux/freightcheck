@@ -59,7 +59,7 @@ import {
 
 function textoDoErro(erro: unknown): string {
   const aviso = apresentar(erro);
-  return aviso.orientacao?.resumo ?? aviso.mensagemCrua ?? "Não foi possível concluir.";
+  return aviso.principal ?? aviso.mensagemCrua ?? "Não foi possível concluir.";
 }
 
 const emDiaBR = (iso: string) => iso.split("-").reverse().join("/");
@@ -108,7 +108,10 @@ export default function CompetenciaAberta({ id }: { id: string }) {
     queryKey: chaveDaCompetencia(id),
     queryFn: () => lerCompetencia(id),
   });
-  const fontes = useQuery({ queryKey: ["fechamento", "fontes"], queryFn: listarFontes });
+  const fontes = useQuery({
+    queryKey: ["fechamento", "fontes"],
+    queryFn: listarFontes,
+  });
   /*
     O agrupamento é catálogo, como as fontes: muda quando o domínio muda, não
     quando a competência muda. Fica na mesma chave estável do react-query e é
@@ -181,7 +184,9 @@ export default function CompetenciaAberta({ id }: { id: string }) {
       void cliente.invalidateQueries({ queryKey: ["fechamento", "resumo"] });
       /* As duas listas do ambiente liam o que acabou de sair. A grade de dias e
          o painel saem junto com a competência, por serem filhos dela. */
-      void cliente.invalidateQueries({ queryKey: ["fechamento", "competencias"] });
+      void cliente.invalidateQueries({
+        queryKey: ["fechamento", "competencias"],
+      });
       void cliente.invalidateQueries({ queryKey: ["fechamento", "apuracoes"] });
     },
   });
@@ -189,7 +194,9 @@ export default function CompetenciaAberta({ id }: { id: string }) {
   if (dados.isLoading) {
     return (
       <Layout>
-        <div className="p-8 text-sm text-muted-foreground">Carregando a competência…</div>
+        <div className="p-8 text-sm text-muted-foreground">
+          Carregando a competência…
+        </div>
       </Layout>
     );
   }
@@ -207,7 +214,9 @@ export default function CompetenciaAberta({ id }: { id: string }) {
 
   const { competencia, documentos, apuracao } = dados.data;
   const encerrada = competencia.estado === "ENCERRADA";
-  const vigentes = new Map(documentos.filter((d) => d.vigente).map((d) => [d.tipo, d]));
+  const vigentes = new Map(
+    documentos.filter((d) => d.vigente).map((d) => [d.tipo, d]),
+  );
   /*
     O que ainda não chegou, nomeado. Com a quinzena fechada é esta lista que
     explica por que alguém quer reabri-la: "falta o 03.08.20" é uma frase
@@ -219,9 +228,11 @@ export default function CompetenciaAberta({ id }: { id: string }) {
     mesmo motivo o 03.08.12.09 opcional não entra aqui: ele pode ser enviado, e
     não é cobrado.
   */
-  const esperados = fontesDaCompetencia(fontes.data ?? [], competencia.quinzena, [
-    ...vigentes.keys(),
-  ]);
+  const esperados = fontesDaCompetencia(
+    fontes.data ?? [],
+    competencia.quinzena,
+    [...vigentes.keys()],
+  );
   const faltando = esperados.filter((f) => !vigentes.has(f.tipo));
   /*
     A fila do que questionar sai de `oQueQuestionar`, e não de um filtro escrito
@@ -277,8 +288,8 @@ export default function CompetenciaAberta({ id }: { id: string }) {
             <p className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
               <Lock className="w-3.5 h-3.5" />
               Quinzena salva e congelada em{" "}
-              {new Date(competencia.encerradaEm!).toLocaleString("pt-BR")}. Nada mais
-              entra nela sem reabertura.
+              {new Date(competencia.encerradaEm!).toLocaleString("pt-BR")}. Nada
+              mais entra nela sem reabertura.
             </p>
             <ReabrirQuinzena competencia={competencia} rotulo="Reabrir" />
           </div>
@@ -339,8 +350,8 @@ export default function CompetenciaAberta({ id }: { id: string }) {
                 <Lock className="w-4 h-4" />
                 <AlertDescription className="space-y-2">
                   <p>
-                    Enviar e substituir estão travados enquanto a quinzena estiver
-                    fechada.
+                    Enviar e substituir estão travados enquanto a quinzena
+                    estiver fechada.
                     {faltando.length > 0 && (
                       <>
                         {" "}
@@ -350,9 +361,10 @@ export default function CompetenciaAberta({ id }: { id: string }) {
                     )}
                   </p>
                   <p>
-                    Reabrir destrava o envio: escreva o motivo, mande o arquivo e
-                    apure de novo — a apuração de hoje continua valendo até a
-                    próxima rodar, e fechar de novo é o mesmo botão do fim da tela.
+                    Reabrir destrava o envio: escreva o motivo, mande o arquivo
+                    e apure de novo — a apuração de hoje continua valendo até a
+                    próxima rodar, e fechar de novo é o mesmo botão do fim da
+                    tela.
                   </p>
                   <ReabrirQuinzena
                     competencia={competencia}
@@ -379,7 +391,9 @@ export default function CompetenciaAberta({ id }: { id: string }) {
               <Alert>
                 <AlertTriangle className="w-4 h-4" />
                 <AlertDescription>
-                  <strong>{quarentena.nomeDoArquivo} chegou e não valeu.</strong>{" "}
+                  <strong>
+                    {quarentena.nomeDoArquivo} chegou e não valeu.
+                  </strong>{" "}
                   {quarentena.motivo}
                 </AlertDescription>
               </Alert>
@@ -400,44 +414,60 @@ export default function CompetenciaAberta({ id }: { id: string }) {
               relatórios do devido importados, três vistos verdes, e nenhum
               devido saindo do outro lado do produto.
             */}
-            {(lados.data ?? []).map(({ lado, titulo, explica, precisaDeContrato }) => {
-              const doLado = catalogo.filter((f) => f.lado === lado);
-              if (doLado.length === 0) return null;
-              return (
-                <section key={lado} className="space-y-1">
-                  <div className="pt-2">
-                    <h3 className="text-sm font-semibold">{titulo}</h3>
-                    <p className="text-xs text-muted-foreground mt-0.5 max-w-2xl">{explica}</p>
-                  </div>
-                  <ul className="divide-y">
-                    {doLado.map((fonte) => (
-                      <LinhaDeFonte
-                        key={fonte.tipo}
-                        fonte={fonte}
-                        documento={vigentes.get(fonte.tipo)}
-                        competenciaId={id}
-                        semVerba={estadoDaFonte(vigentes.get(fonte.tipo)) === "SEM_VERBA"}
-                        foraDaQuinzena={
-                          !fonte.quinzenas.includes(competencia.quinzena) &&
-                          !fonte.quinzenasOpcionais.includes(competencia.quinzena)
-                        }
-                        opcionalNaQuinzena={fonte.quinzenasOpcionais.includes(competencia.quinzena)}
-                        quinzena={competencia.quinzena}
-                        enviando={enviar.isPending && enviar.variables?.tipo === fonte.tipo}
-                        travada={encerrada}
-                        onArquivo={(arquivo) => enviar.mutate({ tipo: fonte.tipo, arquivo })}
-                      />
-                    ))}
-                    {precisaDeContrato && (
-                      <LinhaDoContrato
-                        contrato={dados.data?.contrato ?? null}
-                        quinzena={competencia.quinzena}
-                      />
-                    )}
-                  </ul>
-                </section>
-              );
-            })}
+            {(lados.data ?? []).map(
+              ({ lado, titulo, explica, precisaDeContrato }) => {
+                const doLado = catalogo.filter((f) => f.lado === lado);
+                if (doLado.length === 0) return null;
+                return (
+                  <section key={lado} className="space-y-1">
+                    <div className="pt-2">
+                      <h3 className="text-sm font-semibold">{titulo}</h3>
+                      <p className="text-xs text-muted-foreground mt-0.5 max-w-2xl">
+                        {explica}
+                      </p>
+                    </div>
+                    <ul className="divide-y">
+                      {doLado.map((fonte) => (
+                        <LinhaDeFonte
+                          key={fonte.tipo}
+                          fonte={fonte}
+                          documento={vigentes.get(fonte.tipo)}
+                          competenciaId={id}
+                          semVerba={
+                            estadoDaFonte(vigentes.get(fonte.tipo)) ===
+                            "SEM_VERBA"
+                          }
+                          foraDaQuinzena={
+                            !fonte.quinzenas.includes(competencia.quinzena) &&
+                            !fonte.quinzenasOpcionais.includes(
+                              competencia.quinzena,
+                            )
+                          }
+                          opcionalNaQuinzena={fonte.quinzenasOpcionais.includes(
+                            competencia.quinzena,
+                          )}
+                          quinzena={competencia.quinzena}
+                          enviando={
+                            enviar.isPending &&
+                            enviar.variables?.tipo === fonte.tipo
+                          }
+                          travada={encerrada}
+                          onArquivo={(arquivo) =>
+                            enviar.mutate({ tipo: fonte.tipo, arquivo })
+                          }
+                        />
+                      ))}
+                      {precisaDeContrato && (
+                        <LinhaDoContrato
+                          contrato={dados.data?.contrato ?? null}
+                          quinzena={competencia.quinzena}
+                        />
+                      )}
+                    </ul>
+                  </section>
+                );
+              },
+            )}
           </CardContent>
         </Card>
 
@@ -453,10 +483,10 @@ export default function CompetenciaAberta({ id }: { id: string }) {
           </CardHeader>
           <CardContent className="space-y-3">
             <p className="text-sm text-muted-foreground">
-              O que a operação rodou, dia a dia, do 2Art. Clique num dia para ver
-              as viagens daquele dia inteiras — placa, mapa, caixas, horários e a
-              cadeia de imposto —, com os totais por frota que se comparam ao
-              SRTrans.
+              O que a operação rodou, dia a dia, do 2Art. Clique num dia para
+              ver as viagens daquele dia inteiras — placa, mapa, caixas,
+              horários e a cadeia de imposto —, com os totais por frota que se
+              comparam ao SRTrans.
             </p>
             {diario.isError && (
               <Alert variant="destructive">
@@ -464,7 +494,9 @@ export default function CompetenciaAberta({ id }: { id: string }) {
               </Alert>
             )}
             {diario.isLoading && (
-              <p className="text-sm text-muted-foreground">Carregando os dias…</p>
+              <p className="text-sm text-muted-foreground">
+                Carregando os dias…
+              </p>
             )}
             {diario.data && (
               <>
@@ -472,10 +504,10 @@ export default function CompetenciaAberta({ id }: { id: string }) {
                   <Alert>
                     <AlertTriangle className="w-4 h-4" />
                     <AlertDescription>
-                      O 2Art ainda não foi enviado. A grade abaixo é o calendário
-                      da quinzena, e não a operação dela: dia vazio aqui quer
-                      dizer que ninguém importou o relatório, não que ninguém
-                      rodou.
+                      O 2Art ainda não foi enviado. A grade abaixo é o
+                      calendário da quinzena, e não a operação dela: dia vazio
+                      aqui quer dizer que ninguém importou o relatório, não que
+                      ninguém rodou.
                     </AlertDescription>
                   </Alert>
                 )}
@@ -489,10 +521,10 @@ export default function CompetenciaAberta({ id }: { id: string }) {
                   {diario.data.viagensForaDoPeriodo > 0 && (
                     <>
                       {" "}
-                      · {formatNumber(diario.data.viagensForaDoPeriodo, 0)} do 2Art
-                      ficaram de fora, por serem de fora de{" "}
-                      {emDiaBR(competencia.inicio)} a {emDiaBR(competencia.fim)} —
-                      elas não entram em conta nenhuma daqui
+                      · {formatNumber(diario.data.viagensForaDoPeriodo, 0)} do
+                      2Art ficaram de fora, por serem de fora de{" "}
+                      {emDiaBR(competencia.inicio)} a {emDiaBR(competencia.fim)}{" "}
+                      — elas não entram em conta nenhuma daqui
                     </>
                   )}
                   .
@@ -508,14 +540,14 @@ export default function CompetenciaAberta({ id }: { id: string }) {
         <Card>
           <CardHeader className="pb-3 flex-row items-center justify-between gap-4 space-y-0">
             <CardTitle className="text-base flex items-center gap-2">
-              <Calculator className="w-4 h-4" />
-              A conta da quinzena
+              <Calculator className="w-4 h-4" />A conta da quinzena
             </CardTitle>
             <div className="flex flex-wrap items-center justify-end gap-2">
               {confirmandoDescarte ? (
                 <>
                   <span className="text-sm text-muted-foreground">
-                    Apagar {documentos.length} arquivo(s) e a apuração desta competência?
+                    Apagar {documentos.length} arquivo(s) e a apuração desta
+                    competência?
                   </span>
                   <Button
                     variant="destructive"
@@ -550,7 +582,11 @@ export default function CompetenciaAberta({ id }: { id: string }) {
                 onClick={() => rodar.mutate()}
                 disabled={rodar.isPending || vigentes.size === 0 || encerrada}
               >
-                {rodar.isPending ? "Apurando…" : apuracao ? "Apurar de novo" : "Apurar"}
+                {rodar.isPending
+                  ? "Apurando…"
+                  : apuracao
+                    ? "Apurar de novo"
+                    : "Apurar"}
               </Button>
             </div>
           </CardHeader>
@@ -562,7 +598,9 @@ export default function CompetenciaAberta({ id }: { id: string }) {
             )}
             {descartar.isError && (
               <Alert variant="destructive">
-                <AlertDescription>{textoDoErro(descartar.error)}</AlertDescription>
+                <AlertDescription>
+                  {textoDoErro(descartar.error)}
+                </AlertDescription>
               </Alert>
             )}
             {descartado && (
@@ -570,19 +608,24 @@ export default function CompetenciaAberta({ id }: { id: string }) {
                 <Trash2 className="w-4 h-4" />
                 <AlertDescription className="space-y-2">
                   <p>
-                    {descartado.documentos} relatório(s) e {descartado.apuracoes}{" "}
-                    apuração(ões) descartados. A competência continua aberta, de{" "}
-                    {emDiaBR(competencia.inicio)} a {emDiaBR(competencia.fim)} — os
-                    arquivos certos podem entrar agora, inclusive os mesmos que
-                    acabaram de sair.
+                    {descartado.documentos} relatório(s) e{" "}
+                    {descartado.apuracoes} apuração(ões) descartados. A
+                    competência continua aberta, de{" "}
+                    {emDiaBR(competencia.inicio)} a {emDiaBR(competencia.fim)} —
+                    os arquivos certos podem entrar agora, inclusive os mesmos
+                    que acabaram de sair.
                   </p>
-                  {(fontes.data ?? []).some((f) => (descartado.linhas[f.tipo] ?? 0) > 0) && (
+                  {(fontes.data ?? []).some(
+                    (f) => (descartado.linhas[f.tipo] ?? 0) > 0,
+                  ) && (
                     <ul className="text-xs text-muted-foreground">
                       {(fontes.data ?? [])
                         .filter((f) => (descartado.linhas[f.tipo] ?? 0) > 0)
                         .map((f) => (
                           <li key={f.tipo}>
-                            {f.rotina} · {formatNumber(descartado.linhas[f.tipo], 0)} linha(s)
+                            {f.rotina} ·{" "}
+                            {formatNumber(descartado.linhas[f.tipo], 0)}{" "}
+                            linha(s)
                           </li>
                         ))}
                     </ul>
@@ -615,8 +658,7 @@ export default function CompetenciaAberta({ id }: { id: string }) {
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-base flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4" />
-                O que perguntar à Ambev
+                <AlertTriangle className="w-4 h-4" />O que perguntar à Ambev
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -627,9 +669,9 @@ export default function CompetenciaAberta({ id }: { id: string }) {
               ) : (
                 <>
                   <p className="text-sm">
-                    <span className="font-semibold">{formatBrl(aReceber)}</span> em
-                    valores que reduzem o que a transportadora recebe, cada um com
-                    a fonte e a linha de onde saiu.
+                    <span className="font-semibold">{formatBrl(aReceber)}</span>{" "}
+                    em valores que reduzem o que a transportadora recebe, cada
+                    um com a fonte e a linha de onde saiu.
                   </p>
                   <ul className="divide-y">
                     {acionaveis.map((d) => (
@@ -643,7 +685,9 @@ export default function CompetenciaAberta({ id }: { id: string }) {
                         <p className="text-sm text-muted-foreground">
                           {EXPLICACAO_DA_DIVERGENCIA[d.tipo] ?? d.tipo}
                         </p>
-                        <p className="text-xs text-muted-foreground font-mono">{d.onde}</p>
+                        <p className="text-xs text-muted-foreground font-mono">
+                          {d.onde}
+                        </p>
                       </li>
                     ))}
                   </ul>
@@ -659,7 +703,11 @@ export default function CompetenciaAberta({ id }: { id: string }) {
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-base flex items-center gap-2">
-                {encerrada ? <Lock className="w-4 h-4" /> : <Check className="w-4 h-4" />}
+                {encerrada ? (
+                  <Lock className="w-4 h-4" />
+                ) : (
+                  <Check className="w-4 h-4" />
+                )}
                 {encerrada ? "Quinzena salva" : "Salvar a quinzena"}
               </CardTitle>
             </CardHeader>
@@ -727,7 +775,9 @@ function LinhaDoContrato({
             <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
           )}
           <span className="font-medium text-sm">Contrato</span>
-          <span className="text-sm text-muted-foreground">Cadastro da {quinzena}ª quinzena</span>
+          <span className="text-sm text-muted-foreground">
+            Cadastro da {quinzena}ª quinzena
+          </span>
           <span className="rounded-full border border-border px-2 py-0.5 text-[0.6875rem] uppercase tracking-wide text-muted-foreground">
             não é importado
           </span>
@@ -747,7 +797,9 @@ function LinhaDoContrato({
           <div className="text-xs text-muted-foreground mt-1 ml-6 space-y-0.5">
             <p>{contrato.destrava.problema}</p>
             <p>
-              <span className="font-medium text-foreground">O que destrava: </span>
+              <span className="font-medium text-foreground">
+                O que destrava:{" "}
+              </span>
               {contrato.destrava.conserto}
             </p>
           </div>
@@ -804,7 +856,9 @@ function PorQueSemVerba({
     onSuccess: () => {
       /* A mesma chave de tudo que se pergunta sobre a competência: a lista, a
          grade de dias e o painel da planilha saem juntos (`chaveDaCompetencia`). */
-      void cliente.invalidateQueries({ queryKey: chaveDaCompetencia(competenciaId) });
+      void cliente.invalidateQueries({
+        queryKey: chaveDaCompetencia(competenciaId),
+      });
       void cliente.invalidateQueries({ queryKey: ["fechamento", "resumo"] });
     },
   });
@@ -822,7 +876,10 @@ function PorQueSemVerba({
         que a pergunta sobre o conteúdo do arquivo ficou sem resposta.
       */}
       {diagnostico.isError && (
-        <p>Não foi possível reler o arquivo guardado: {textoDoErro(diagnostico.error)}</p>
+        <p>
+          Não foi possível reler o arquivo guardado:{" "}
+          {textoDoErro(diagnostico.error)}
+        </p>
       )}
       {d && !reimportar && <p className="font-medium">{d.resumo}</p>}
       {/*
@@ -836,7 +893,9 @@ function PorQueSemVerba({
               linha {s.linha}: {s.original.slice(0, 120)}
             </li>
           ))}
-          {d.suspeitas.length > 3 && <li>… e mais {d.suspeitas.length - 3}.</li>}
+          {d.suspeitas.length > 3 && (
+            <li>… e mais {d.suspeitas.length - 3}.</li>
+          )}
         </ul>
       )}
       {reimportar && (
@@ -848,7 +907,11 @@ function PorQueSemVerba({
             arquivo a escolher.
           */}
           <span
-            title={travada ? "A quinzena está fechada — reabra para reimportar." : undefined}
+            title={
+              travada
+                ? "A quinzena está fechada — reabra para reimportar."
+                : undefined
+            }
           >
             <Button
               variant="outline"
@@ -858,7 +921,9 @@ function PorQueSemVerba({
               onClick={() => refazer.mutate()}
             >
               <RefreshCw className="w-3 h-3 mr-1.5" />
-              {refazer.isPending ? "Reimportando…" : "Reimportar do arquivo guardado"}
+              {refazer.isPending
+                ? "Reimportando…"
+                : "Reimportar do arquivo guardado"}
             </Button>
           </span>
           {refazer.isError && <span>{textoDoErro(refazer.error)}</span>}
@@ -947,7 +1012,9 @@ function LinhaDeFonte({
             </span>
           )}
         </div>
-        <p className="text-sm text-muted-foreground mt-0.5 ml-6">{fonte.papel}</p>
+        <p className="text-sm text-muted-foreground mt-0.5 ml-6">
+          {fonte.papel}
+        </p>
         {/*
           Os formatos ficam à vista, e não só dentro do seletor de arquivo.
           O mesmo relatório sai do Promax em mais de um formato, e quem opera
@@ -961,11 +1028,13 @@ function LinhaDeFonte({
         )}
         {documento && (
           <p className="text-xs text-muted-foreground mt-1 ml-6">
-            {documento.nomeDoArquivo} · {documento.linhasLidas.toLocaleString("pt-BR")} linhas
+            {documento.nomeDoArquivo} ·{" "}
+            {documento.linhasLidas.toLocaleString("pt-BR")} linhas
             {documento.recusas.length > 0 && (
               <span className="text-amber-600">
                 {" "}
-                · {documento.recusas.length} linha(s) recusada(s): {documento.recusas[0].motivo}
+                · {documento.recusas.length} linha(s) recusada(s):{" "}
+                {documento.recusas[0].motivo}
               </span>
             )}
           </p>
@@ -985,7 +1054,11 @@ function LinhaDeFonte({
             diagnóstico que dizia o contrário. Quem sabe do arquivo é quem o
             releu — ver `PorQueSemVerba`.
           */
-          <PorQueSemVerba documento={documento} competenciaId={competenciaId} travada={travada} />
+          <PorQueSemVerba
+            documento={documento}
+            competenciaId={competenciaId}
+            travada={travada}
+          />
         )}
       </div>
       <div className="shrink-0">
@@ -1005,7 +1078,13 @@ function LinhaDeFonte({
           `pointer-events: none` e nunca mostraria a explicação de por que está
           desabilitado — que é justamente a única coisa que ele tem a dizer.
         */}
-        <span title={travada ? "A quinzena está fechada — reabra para enviar." : undefined}>
+        <span
+          title={
+            travada
+              ? "A quinzena está fechada — reabra para enviar."
+              : undefined
+          }
+        >
           <Button
             variant={documento ? "outline" : "default"}
             size="sm"

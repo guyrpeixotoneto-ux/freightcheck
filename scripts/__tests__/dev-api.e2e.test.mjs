@@ -54,7 +54,8 @@ describe("node scripts/dev.mjs api", () => {
         API_PORT: String(port),
         PORT: "",
         // Porta 1 não aceita conexão.
-        DATABASE_URL: "postgres://ninguem@127.0.0.1:1/inexistente?sslmode=disable",
+        DATABASE_URL:
+          "postgres://ninguem@127.0.0.1:1/inexistente?sslmode=disable",
       },
     });
 
@@ -69,15 +70,23 @@ describe("node scripts/dev.mjs api", () => {
       efeito colateral de subir o servidor — a ordem correta é Production
       primeiro, e um `Run` que migrasse sozinho fabricaria justamente o diff que
       trava o Publishing (ver `sem-auto-migracao.test.mjs`). Sem esse passo, o
-      servidor sobe, e o diagnóstico do banco passa a morar onde ele sempre
-      pertenceu: em `/api/healthz`, que responde 200 com o banco fora.
+      servidor sobe, e o diagnóstico do banco mora em `/api/readyz` — que
+      responde 503 com ele no corpo, enquanto o `/api/healthz` responde 200
+      porque é liveness e não fala do banco.
     */
     const resposta = await esperarResposta(port, 90_000);
     expect(resposta.status).toBeGreaterThanOrEqual(200);
 
-    const saude = await fetch(`http://127.0.0.1:${port}/api/healthz`);
-    expect(saude.status).toBe(200);
-    const corpo = await saude.json();
+    /* Liveness: de pé, com o banco fora. É o que o startup probe consulta. */
+    const vivo = await fetch(`http://127.0.0.1:${port}/api/healthz`);
+    expect(vivo.status).toBe(200);
+    expect((await vivo.json()).status).toBe("ok");
+
+    /* Readiness: não está pronto, e diz por quê. */
+    const pronto = await fetch(`http://127.0.0.1:${port}/api/readyz`);
+    expect(pronto.status).toBe(503);
+    const corpo = await pronto.json();
+    expect(corpo.ready).toBe(false);
     expect(corpo.database.configured).toBe(true);
     expect(corpo.database.reachable).toBe(false);
     expect(corpo.database.detail).toMatch(/banco/i);

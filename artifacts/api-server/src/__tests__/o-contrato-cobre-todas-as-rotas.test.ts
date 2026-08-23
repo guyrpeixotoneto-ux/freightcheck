@@ -45,12 +45,15 @@ function fonte(nome: string): string {
  */
 const EXCECOES: Record<string, string> = {
   /*
-    A checagem de sessão responde 503 com `code` próprio quando não consegue
-    falar com o banco. Fica: é a única rota cuja falha de banco não é "esta
-    tela não carregou", e sim "não sabemos quem é você" — e a interface trata
-    as duas de formas diferentes.
+    `auth.ts` **saiu desta lista**, e a saída é o trabalho.
+
+    Ela respondia 503 com `SESSION_CHECK_FAILED` e a frase "Confira
+    /api/healthz", e 500 com "Não foi possível concluir o login" — a mesma
+    resposta para banco desligado e para defeito nosso, e indistinguível de
+    senha errada para quem lê. As três agora sobem para o contrato, que
+    classifica cada uma com o diagnóstico da autoridade única. Nenhuma rota
+    escreve 5xx aqui.
   */
-  "auth.ts": "SESSION_CHECK_FAILED — indisponibilidade da checagem de sessão",
   /*
     O Assistente é o caso em que a forma daqui **já** estava certa antes deste
     trabalho: o `falhou` responde com `code` próprio e `requestId`, e não com a

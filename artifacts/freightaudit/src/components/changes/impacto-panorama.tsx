@@ -274,7 +274,9 @@ export function ImpactoPanorama({
 
   const porCodigo = new Map(data.parametros.map((p) => [p.code, p]));
   const lista = (codes: string[]) =>
-    codes.map((c) => porCodigo.get(c)).filter((p): p is ParametroAlterado => !!p);
+    codes
+      .map((c) => porCodigo.get(c))
+      .filter((p): p is ParametroAlterado => !!p);
 
   /*
     A leitura ativa. `TUDO` é o próprio panorama — ele já tem a mesma forma dos
@@ -286,7 +288,8 @@ export function ImpactoPanorama({
   const financeiros = lista(leitura.maiorImpacto);
   const alterados = lista(leitura.maisAlterados);
   const conjunto = lista(leitura.visaoDeConjunto);
-  const recorteVazio = recorte !== null && recorte.totais.parametrosAlterados === 0;
+  const recorteVazio =
+    recorte !== null && recorte.totais.parametrosAlterados === 0;
   const primeira = data.periods[0];
   const ultima = data.periods[data.periods.length - 1];
 
@@ -343,11 +346,14 @@ export function ImpactoPanorama({
       */}
       <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div className="min-w-0 max-w-3xl">
-          <h2 className="text-lg font-semibold tracking-tight">Tudo que mudou</h2>
+          <h2 className="text-lg font-semibold tracking-tight">
+            Tudo que mudou
+          </h2>
           <p className="text-sm text-muted-foreground">
             Entre <strong>{primeira?.sourceLabel}</strong> e{" "}
             <strong>{ultima?.sourceLabel}</strong> — {data.periods.length}{" "}
-            vigências. Clique numa linha para abrir a tabela por placa e vigência.
+            vigências. Clique numa linha para abrir a tabela por placa e
+            vigência.
           </p>
         </div>
         <ExportarEmExcel
@@ -429,7 +435,8 @@ export function ImpactoPanorama({
             <div key={grupo.periodicity ?? "sem"}>
               <div className="border-b bg-muted/30 px-4 py-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
                 {grupo.periodicity
-                  ? (POR_PERIODO[grupo.periodicity] ?? grupo.periodicity.toLowerCase())
+                  ? (POR_PERIODO[grupo.periodicity] ??
+                    grupo.periodicity.toLowerCase())
                   : "sem periodicidade declarada"}
               </div>
               <TabelaFinanceira
@@ -579,7 +586,7 @@ function ExportarEmExcel({
       </p>
       {aviso && (
         <p className="max-w-xs text-xs text-red-600 md:text-right">
-          {aviso.orientacao?.resumo ?? aviso.mensagemCrua}
+          {aviso.principal ?? aviso.mensagemCrua}
         </p>
       )}
     </div>
@@ -623,7 +630,12 @@ function SeletorDeClasse({
   corte: Corte;
   onCorte: (c: Corte) => void;
 }) {
-  const opcoes: { valor: Corte; nome: string; contagem: number; titulo: string }[] = [
+  const opcoes: {
+    valor: Corte;
+    nome: string;
+    contagem: number;
+    titulo: string;
+  }[] = [
     {
       valor: "TUDO",
       nome: "Tudo",
@@ -676,7 +688,9 @@ function SeletorDeClasse({
         variável — que é o que a taxonomia declara.
       */}
       {ativo && corte !== "TUDO" && (
-        <p className="text-xs text-muted-foreground max-w-3xl">{ativo.titulo}</p>
+        <p className="text-xs text-muted-foreground max-w-3xl">
+          {ativo.titulo}
+        </p>
       )}
     </div>
   );
@@ -686,7 +700,9 @@ function Cabecalho({ titulo, detalhe }: { titulo: string; detalhe: string }) {
   return (
     <div className="border-b px-4 py-3">
       <h3 className="text-sm font-semibold">{titulo}</h3>
-      <p className="text-xs text-muted-foreground mt-0.5 max-w-3xl">{detalhe}</p>
+      <p className="text-xs text-muted-foreground mt-0.5 max-w-3xl">
+        {detalhe}
+      </p>
     </div>
   );
 }
@@ -733,8 +749,7 @@ function TabelaFinanceira({
   onEscolher: (e: EscolhaDeParametro) => void;
   comClasse: boolean;
 }) {
-  const dinheiro = (v: number | null) =>
-    v === null ? "—" : formatBrlShort(v);
+  const dinheiro = (v: number | null) => (v === null ? "—" : formatBrlShort(v));
   const comSinal = (v: number) => `${v > 0 ? "+" : ""}${formatBrlShort(v)}`;
 
   return (
@@ -757,7 +772,9 @@ function TabelaFinanceira({
           {linhas.map((p) => (
             <tr
               key={p.code}
-              onClick={() => onEscolher({ entityType: p.entityType, code: p.code })}
+              onClick={() =>
+                onEscolher({ entityType: p.entityType, code: p.code })
+              }
               tabIndex={0}
               onKeyDown={(e) => {
                 if (e.key === "Enter" || e.key === " ") {
@@ -772,9 +789,13 @@ function TabelaFinanceira({
               </td>
               <td className="px-3 py-2.5 text-right tabular-nums">
                 {p.entities}
-                <span className="text-muted-foreground">/{p.entitiesNaSerie}</span>
+                <span className="text-muted-foreground">
+                  /{p.entitiesNaSerie}
+                </span>
               </td>
-              <td className="px-3 py-2.5 text-right tabular-nums">{p.changes}</td>
+              <td className="px-3 py-2.5 text-right tabular-nums">
+                {p.changes}
+              </td>
               <td className="px-3 py-2.5 text-right tabular-nums text-muted-foreground">
                 {dinheiro(p.from?.total ?? null)}
               </td>
@@ -815,7 +836,12 @@ function TabelaFinanceira({
                 <div className="whitespace-nowrap">
                   {unidadeCurta(p)}
                   {p.periodicity && (
-                    <> · {POR_PERIODO[p.periodicity] ?? p.periodicity.toLowerCase()}</>
+                    <>
+                      {" "}
+                      ·{" "}
+                      {POR_PERIODO[p.periodicity] ??
+                        p.periodicity.toLowerCase()}
+                    </>
                   )}
                 </div>
                 {p.reconciliacao && (
@@ -869,7 +895,9 @@ function TabelaDeAlteracoes({
             <th className="text-right font-medium px-3 py-2">Veículos</th>
             <th className="text-left font-medium px-3 py-2">Unidade</th>
             <th className="text-left font-medium px-3 py-2">Periodicidade</th>
-            <th className="text-left font-medium px-3 py-2">Impacto financeiro</th>
+            <th className="text-left font-medium px-3 py-2">
+              Impacto financeiro
+            </th>
             <th className="w-8" />
           </tr>
         </thead>
@@ -877,7 +905,9 @@ function TabelaDeAlteracoes({
           {linhas.map((p) => (
             <tr
               key={p.code}
-              onClick={() => onEscolher({ entityType: p.entityType, code: p.code })}
+              onClick={() =>
+                onEscolher({ entityType: p.entityType, code: p.code })
+              }
               tabIndex={0}
               onKeyDown={(e) => {
                 if (e.key === "Enter" || e.key === " ") {
@@ -895,7 +925,9 @@ function TabelaDeAlteracoes({
               </td>
               <td className="px-3 py-2.5 text-right tabular-nums">
                 {p.entities}
-                <span className="text-muted-foreground">/{p.entitiesNaSerie}</span>
+                <span className="text-muted-foreground">
+                  /{p.entitiesNaSerie}
+                </span>
               </td>
               <td className="px-3 py-2.5 text-xs text-muted-foreground">
                 {unidadeCurta(p)}
@@ -1065,7 +1097,9 @@ function Resumo({
         <div className="text-2xl font-bold tracking-tight tabular-nums mt-0.5 truncate">
           {value}
         </div>
-        {hint && <div className="text-xs text-muted-foreground mt-1">{hint}</div>}
+        {hint && (
+          <div className="text-xs text-muted-foreground mt-1">{hint}</div>
+        )}
       </div>
     </div>
   );

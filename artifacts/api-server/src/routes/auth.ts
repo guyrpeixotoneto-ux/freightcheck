@@ -122,23 +122,27 @@ function clearSessionCookie(req: Request, res: Response): void {
  * vez de um estado de falha.
  */
 router.get("/auth/session", async (req, res): Promise<void> => {
-  try {
-    const token: unknown = req.cookies?.[SESSION_COOKIE];
-    const user =
-      typeof token === "string" && token !== ""
-        ? await resolveSession(db, token)
-        : null;
+  /*
+    **Sem `catch` próprio, e é uma correção.** Esta rota respondia 503 com a
+    frase "Não foi possível falar com o banco para verificar a sessão. Confira
+    /api/healthz." — duas coisas erradas numa linha só. A segunda é o produto
+    entregando um endpoint técnico a quem só queria entrar; a primeira é uma
+    afirmação que a rota não tinha como sustentar, porque `resolveSession` pode
+    falhar por banco fora, por schema atrasado ou por defeito nosso, e ela
+    respondia a mesma coisa para os três.
 
-    res.json({ user });
-  } catch (err) {
-    req.log.error({ err }, "Error resolving session");
-    res.status(503).json({
-      error:
-        "Não foi possível falar com o banco para verificar a sessão. " +
-        "Confira /api/healthz.",
-      code: "SESSION_CHECK_FAILED",
-    });
-  }
+    O contrato de erro sabe distinguir os três e responde cada um com o
+    diagnóstico da autoridade única (`middlewares/contrato-json.ts`). Deixar o
+    erro subir é o que dá acesso a isso — e o Express 5 encaminha a rejeição de
+    um handler `async` para lá sozinho.
+  */
+  const token: unknown = req.cookies?.[SESSION_COOKIE];
+  const user =
+    typeof token === "string" && token !== ""
+      ? await resolveSession(db, token)
+      : null;
+
+  res.json({ user });
 });
 
 router.post("/auth/login", async (req, res): Promise<void> => {
@@ -190,7 +194,21 @@ router.post("/auth/login", async (req, res): Promise<void> => {
     res.json({ user: { id: user.id, name: user.name, email: user.email } });
   } catch (err) {
     req.log.error({ err }, "Error during login");
-    res.status(500).json({ error: "Não foi possível concluir o login." });
+    /*
+      **Sobe, e não vira "Não foi possível concluir o login".**
+
+      Aquela frase era a resposta desta rota para o banco desligado — e ela é
+      indistinguível de senha errada para quem a lê, o que manda a pessoa
+      digitar de novo a credencial certa e concluir que perdeu o acesso. O 401
+      logo acima é a resposta a credencial errada, e precisa continuar sendo a
+      **única** coisa que se parece com ela.
+
+      O que houve com o ambiente é classificado num lugar só, e não aqui: banco
+      fora vira 503 com o diagnóstico da conexão, schema atrasado vira 503 com
+      a migration que falta, e o que ninguém classificou vira 500 com
+      `requestId`. Ver `middlewares/contrato-json.ts`.
+    */
+    throw err;
   }
 });
 
@@ -258,7 +276,13 @@ router.post("/auth/password", async (req, res): Promise<void> => {
     res.json({ user: me });
   } catch (err) {
     req.log.error({ err }, "Error changing own password");
-    res.status(500).json({ error: "Não foi possível trocar a senha." });
+    /*
+      Sobe, pelo mesmo motivo do login: "Não foi possível trocar a senha" com o
+      banco fora é indistinguível de "a senha atual não confere", que é o 401
+      logo acima. O contrato de erro classifica e responde com o diagnóstico —
+      ver `middlewares/contrato-json.ts`.
+    */
+    throw err;
   }
 });
 

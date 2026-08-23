@@ -20,7 +20,11 @@ import {
   TIPOS_DE_OPERACAO,
   type UnidadeCanonica,
 } from "@/lib/fechamento";
-import { MES_LONGO, mesPorExtenso, periodoDaQuinzena } from "@/lib/fechamento-gerencial";
+import {
+  MES_LONGO,
+  mesPorExtenso,
+  periodoDaQuinzena,
+} from "@/lib/fechamento-gerencial";
 import { anoAceito } from "@/lib/fechamento-tela";
 import { registrarUnidade } from "@/lib/remuneracao";
 
@@ -193,7 +197,11 @@ function PainelDeRegistro({ aoFechar }: { aoFechar: () => void }) {
           quinzena, e o dia em que as duas discordassem a planilha digitada
           apareceria numa vigência que o arquivo não tem.
         */
-        vigencia: periodoDaQuinzena(Number(ano), Number(mes), Number(quinzena) as 1 | 2).inicio,
+        vigencia: periodoDaQuinzena(
+          Number(ano),
+          Number(mes),
+          Number(quinzena) as 1 | 2,
+        ).inicio,
       }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["remuneracao"] });
@@ -220,7 +228,11 @@ function PainelDeRegistro({ aoFechar }: { aoFechar: () => void }) {
   */
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4 sm:p-8">
-      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm" onClick={aoFechar} aria-hidden />
+      <div
+        className="fixed inset-0 bg-black/50 backdrop-blur-sm"
+        onClick={aoFechar}
+        aria-hidden
+      />
 
       <div
         role="dialog"
@@ -242,12 +254,18 @@ function PainelDeRegistro({ aoFechar }: { aoFechar: () => void }) {
               Cadastrar uma unidade
             </h2>
             <p className="text-xs text-muted-foreground mt-1.5">
-              Para a unidade cuja aba de Excel já chegou e cujo export ainda não. Ela passa a
-              aparecer na lista e a ter planilha — <strong>sem lastro do acervo</strong>, que é
-              o que a lista vai dizer, até o arquivo chegar.
+              Para a unidade cuja aba de Excel já chegou e cujo export ainda
+              não. Ela passa a aparecer na lista e a ter planilha —{" "}
+              <strong>sem lastro do acervo</strong>, que é o que a lista vai
+              dizer, até o arquivo chegar.
             </p>
           </div>
-          <Button variant="ghost" size="icon" onClick={aoFechar} aria-label="Fechar">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={aoFechar}
+            aria-label="Fechar"
+          >
             <X className="w-4 h-4" />
           </Button>
         </div>
@@ -275,7 +293,11 @@ function PainelDeRegistro({ aoFechar }: { aoFechar: () => void }) {
                 onChange={(e) => setAno(e.target.value)}
                 inputMode="numeric"
               />
-              {!anoValido && <p className="text-xs text-amber-700">O ano vai de 2000 a 2100.</p>}
+              {!anoValido && (
+                <p className="text-xs text-amber-700">
+                  O ano vai de 2000 a 2100.
+                </p>
+              )}
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="unidade-mes">Mês</Label>
@@ -361,7 +383,9 @@ function PainelDeRegistro({ aoFechar }: { aoFechar: () => void }) {
               */}
               <Label htmlFor="unidade-codigo">
                 CNPJ como o export escreve{" "}
-                <span className="font-normal text-muted-foreground">(opcional)</span>
+                <span className="font-normal text-muted-foreground">
+                  (opcional)
+                </span>
               </Label>
               <Input
                 id="unidade-codigo"
@@ -397,7 +421,8 @@ function PainelDeRegistro({ aoFechar }: { aoFechar: () => void }) {
                 </SelectContent>
               </Select>
               <p className={AJUDA}>
-                {TIPOS_DE_OPERACAO.find((t) => t.valor === tipoDeOperacao)?.explicacao ??
+                {TIPOS_DE_OPERACAO.find((t) => t.valor === tipoDeOperacao)
+                  ?.explicacao ??
                   "EMPURRADA e ROTA são fechamentos separados na mesma quinzena."}
               </p>
             </div>
@@ -421,26 +446,29 @@ function PainelDeRegistro({ aoFechar }: { aoFechar: () => void }) {
             redigita aqui.{" "}
             {temCodigo ? (
               <>
-                O campo ao lado não é a identidade — ela é a unidade escolhida acima. É a
-                coluna <strong>Unidade - CNPJ</strong> do export, escrita{" "}
-                <strong>exatamente como está lá</strong>: com pontuação, se lá houver. É
-                por essa grafia que o arquivo, quando chegar,{" "}
-                <strong>entra nesta unidade</strong> em vez de abrir uma segunda ao lado
-                dela — e é só por isso que ela se digita.
+                O campo ao lado não é a identidade — ela é a unidade escolhida
+                acima. É a coluna <strong>Unidade - CNPJ</strong> do export,
+                escrita <strong>exatamente como está lá</strong>: com pontuação,
+                se lá houver. É por essa grafia que o arquivo, quando chegar,{" "}
+                <strong>entra nesta unidade</strong> em vez de abrir uma segunda
+                ao lado dela — e é só por isso que ela se digita.
               </>
             ) : (
               <>
-                <strong>Sem essa grafia, a unidade fica por conta própria</strong>: ela
-                aparece na lista e tem planilha, mas o export, quando chegar, abre a unidade
-                dele ao lado desta — juntar as duas é trabalho manual. Preencher a coluna{" "}
-                <strong>Unidade - CNPJ</strong> exatamente como está lá é o que faz o
-                arquivo cair aqui dentro. Se você não sabe como o arquivo a escreve, siga
-                em branco: dá para informar depois, e chutar errado é pior — o código que
-                já vale não se troca por um clique.
+                <strong>
+                  Sem essa grafia, a unidade fica por conta própria
+                </strong>
+                : ela aparece na lista e tem planilha, mas o export, quando
+                chegar, abre a unidade dele ao lado desta — juntar as duas é
+                trabalho manual. Preencher a coluna{" "}
+                <strong>Unidade - CNPJ</strong> exatamente como está lá é o que
+                faz o arquivo cair aqui dentro. Se você não sabe como o arquivo
+                a escreve, siga em branco: dá para informar depois, e chutar
+                errado é pior — o código que já vale não se troca por um clique.
               </>
             )}{" "}
-            A quinzena é a única vigência que a unidade tem enquanto não há acervo: as outras
-            aparecem à medida que você salvar planilha nelas.
+            A quinzena é a única vigência que a unidade tem enquanto não há
+            acervo: as outras aparecem à medida que você salvar planilha nelas.
           </p>
         </div>
 
@@ -448,7 +476,10 @@ function PainelDeRegistro({ aoFechar }: { aoFechar: () => void }) {
           <Button variant="ghost" onClick={aoFechar}>
             Cancelar
           </Button>
-          <Button onClick={() => registrar.mutate()} disabled={faltaCampo || registrar.isPending}>
+          <Button
+            onClick={() => registrar.mutate()}
+            disabled={faltaCampo || registrar.isPending}
+          >
             {registrar.isPending ? "Cadastrando…" : "Cadastrar unidade"}
           </Button>
         </div>
@@ -462,5 +493,9 @@ const AJUDA = "text-xs text-muted-foreground";
 
 function textoDoErro(erro: unknown): string {
   const aviso = apresentar(erro);
-  return aviso.orientacao?.resumo ?? aviso.mensagemCrua ?? "Não foi possível cadastrar a unidade.";
+  return (
+    aviso.principal ??
+    aviso.mensagemCrua ??
+    "Não foi possível cadastrar a unidade."
+  );
 }

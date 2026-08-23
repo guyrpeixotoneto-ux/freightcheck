@@ -31,10 +31,15 @@ import { readMigrations, runMigrations } from "@workspace/db/migrate";
  *      literalmente vazio depois delas;
  *   B. o portão recusa **antes** da sessão — o que sobreviveria a uma reordem
  *      acidental de middleware;
- *   C. o que serve para diagnosticar o próprio portão continua respondendo,
- *      inclusive o `/healthz` para onde o startup probe aponta;
- *   D. aplicada a `0055`, o serviço fica pronto **sem reiniciar**;
- *   E. e aí, e só aí, o 03.08.18 sobe e grava.
+ *   C. o `/auth/login` também é recusado, e **não** com a frase de credencial:
+ *      quem tem a senha certa não pode ser informado de que ela está errada
+ *      porque o banco está atrasado;
+ *   D. o que serve para diagnosticar o próprio portão continua respondendo — o
+ *      `/healthz` para onde o startup probe aponta, que não toca no banco, e o
+ *      `/readyz`, que responde 503 com o diagnóstico inteiro;
+ *   E. aplicada a `0055`, a prontidão fica verde **sem reiniciar**;
+ *   F. o login passa a funcionar, com a mesma senha que foi recusada antes;
+ *   G. e aí, e só aí, o 03.08.18 sobe e grava.
  *
  * A prova de que o 503 por rota continua de pé para o banco atrasado que não é
  * este processo — drift, outra instância — está em
@@ -54,6 +59,9 @@ const temBanco = Boolean(
 const ANTES_DA_0055 = "0054_regra_de_alteracao";
 
 const NOME = `fc_test_janela_${process.pid}`;
+
+/** A senha de quem opera neste teste — a mesma antes e depois da fila. */
+const SENHA = "quinzena-de-julho-2026";
 
 let url: string;
 let servidor: Server;
@@ -157,7 +165,8 @@ beforeAll(async () => {
     const s = app.listen(0, "127.0.0.1", () => resolve(s));
   });
   const endereco = servidor.address();
-  if (typeof endereco === "string" || endereco === null) throw new Error("sem porta");
+  if (typeof endereco === "string" || endereco === null)
+    throw new Error("sem porta");
   base = `http://127.0.0.1:${endereco.port}`;
 
   /*
@@ -166,9 +175,17 @@ beforeAll(async () => {
     depois da convergência é a rota de produto com quem opera autenticado, e
     não a recusa por falta de sessão.
   */
+  const { hashPassword } = await import("../lib/auth");
   const { rows } = await poolDoTeste.query<{ id: string }>(
     `INSERT INTO "app_user" ("name","email","password_hash","role")
-     VALUES ('Guy','guy@freightcheck','scrypt$x','OPERADOR') RETURNING id`,
+     VALUES ('Guy','guy@freightcheck',$1,'OPERADOR') RETURNING id`,
+    /*
+      Um hash de verdade, e não um carimbo: metade deste arquivo passou a
+      exercitar o `/auth/login` — recusado com a fila atrasada, aceito depois
+      dela —, e um hash falso faria as duas respostas serem 401 pelo motivo
+      errado.
+    */
+    [await hashPassword(SENHA)],
   );
   const { startSession } = await import("../lib/session");
   const sessao = await startSession(db, rows[0]!.id);
@@ -238,6 +255,55 @@ describe.skipIf(!temBanco)("a janela da partida, com o app de verdade", () => {
     expect(body.contexto).toMatch(/nada foi gravado/i);
   });
 
+  /* ------------------------------------------------------------------- C */
+
+  it("o login é recusado — e não pela senha, que está certa", async () => {
+    /*
+      **A tela de entrada é rota de produto, e é a que mais importa aqui.** Ela
+      lê o banco (`app_user`, `session`) exatamente como qualquer outra, e uma
+      leitura dentro desta janela é uma leitura sob contrato divergente.
+
+      O que este teste fixa é o que a pessoa **não** pode receber: a frase de
+      credencial. Quem digitou a senha certa e ouve "e-mail ou senha
+      incorretos" conclui que perdeu o acesso, troca a senha, abre chamado — e
+      nada disso tem a ver com o que houve. A resposta é 503 com o diagnóstico
+      do ambiente, e o `Retry-After` que faz o cliente voltar sozinho.
+    */
+    const { status, body, retryAfter } = await pedir("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: "guy@freightcheck", password: SENHA }),
+    });
+
+    expect(status).toBe(503);
+    expect(status).not.toBe(401);
+    expect(status).not.toBe(500);
+    expect(body.code).toBe("SERVICO_NAO_PRONTO");
+    expect(body.diagnostico.estado).toBe("MIGRATIONS_PENDENTES");
+    expect(retryAfter).toBe("5");
+    expect(JSON.stringify(body)).not.toMatch(/senha incorret/i);
+    /* E a frase principal não manda ninguém abrir endpoint técnico nenhum. */
+    expect(body.diagnostico.humano).not.toMatch(/healthz|readyz|\/api\//);
+    expect(body.diagnostico.humano).not.toMatch(/migration|pnpm|SQLSTATE/i);
+  });
+
+  it("a senha errada, dentro da janela, recebe a mesma resposta do ambiente", async () => {
+    /*
+      E não a de credencial — que seria verdadeira por acidente. O portão
+      recusa antes de qualquer leitura, então o servidor **não sabe** se a
+      senha confere: afirmar que não confere seria inventar um fato que ninguém
+      apurou.
+    */
+    const { status, body } = await pedir("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: "guy@freightcheck", password: "errada" }),
+    });
+
+    expect(status).toBe(503);
+    expect(body.code).toBe("SERVICO_NAO_PRONTO");
+  });
+
   it("o banco continua vazio depois das tentativas — a janela ficou intocada", async () => {
     /*
       A afirmação forte, e a razão de este arquivo existir: não é que a
@@ -257,27 +323,34 @@ describe.skipIf(!temBanco)("a janela da partida, com o app de verdade", () => {
     expect(await contar("fechamento_documento")).toBe(0);
   });
 
-  /* ------------------------------------------------------------------- C */
+  /* ------------------------------------------------------------------- D */
 
-  it("o startup probe continua passando, e o corpo diz que não está pronto", async () => {
+  it("o startup probe continua passando — e o liveness não fala do banco", async () => {
     const health = await pedir("/api/healthz");
 
     /* 200: o deployment precisa subir para poder ser diagnosticado. */
     expect(health.status).toBe(200);
-    /* E "de pé" deixou de poder ser lido como "pronto". */
-    expect(health.body.ready).toBe(false);
-    expect(health.body.database.diagnostico.estado).toBe("MIGRATIONS_PENDENTES");
-    expect(health.body.database.migrations.pending).toContain(
-      "0055_disponibilidade_por_frota",
-    );
+    expect(health.body.status).toBe("ok");
+    /*
+      E nada além disso. Enquanto o `/healthz` respondia o estado do banco, ele
+      virou o endereço que a interface mandava a pessoa abrir — "confira
+      /api/healthz" na tela de login. Liveness aqui, readiness em `/readyz`.
+    */
+    expect(health.body.database).toBeUndefined();
+    expect(health.body.ready).toBeUndefined();
   });
 
-  it("a prontidão responde 503 como código, para quem consulta por probe", async () => {
+  it("a prontidão responde 503 com o diagnóstico inteiro", async () => {
     const ready = await pedir("/api/readyz");
 
     expect(ready.status).toBe(503);
     expect(ready.body.ready).toBe(false);
     expect(ready.retryAfter).toBe("5");
+    expect(ready.body.diagnostico.estado).toBe("MIGRATIONS_PENDENTES");
+    /* O detalhe técnico continua existindo, e é aqui que ele mora. */
+    expect(ready.body.database.migrations.pending).toContain(
+      "0055_disponibilidade_por_frota",
+    );
   });
 
   it("o que diagnostica o próprio portão atravessa o portão fechado", async () => {
@@ -286,7 +359,7 @@ describe.skipIf(!temBanco)("a janela da partida, com o app de verdade", () => {
     expect((await pedir("/api")).status).toBe(200);
   });
 
-  /* ------------------------------------------------------------- D and E */
+  /* ----------------------------------------------------------- E, F and G */
 
   it("aplicada a 0055, o serviço fica pronto sem reiniciar", async () => {
     /*
@@ -300,10 +373,39 @@ describe.skipIf(!temBanco)("a janela da partida, com o app de verdade", () => {
     const ready = await pedir("/api/readyz");
     expect(ready.status).toBe(200);
     expect(ready.body.ready).toBe(true);
+    expect(ready.body.diagnostico.estado).toBe("SAUDAVEL");
+    expect(ready.body.database.migrations.pending).toEqual([]);
+  });
 
-    const health = await pedir("/api/healthz");
-    expect(health.body.ready).toBe(true);
-    expect(health.body.database.diagnostico.estado).toBe("SAUDAVEL");
+  it("e o login funciona — com a mesma senha que foi recusada antes", async () => {
+    /*
+      **O fecho do que a pessoa vive.** A mesma credencial, o mesmo processo, a
+      mesma porta: o que mudou foi o banco convergir. Nenhum reinício, nenhuma
+      nova sessão de deploy — a prontidão é medida, e a primeira chamada depois
+      da fila já atravessa.
+    */
+    const entrou = await pedir("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: "guy@freightcheck", password: SENHA }),
+    });
+
+    expect(entrou.status).toBe(200);
+    expect(entrou.body.user.email).toBe("guy@freightcheck");
+  });
+
+  it("e a senha errada volta a ser senha errada — 401, e não 503", async () => {
+    /* A distinção que a janela apagava: com o ambiente pronto, credencial
+       errada é credencial errada, e a frase é a dela. */
+    const recusado = await pedir("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: "guy@freightcheck", password: "errada" }),
+    });
+
+    expect(recusado.status).toBe(401);
+    expect(recusado.body.error).toMatch(/senha incorretos/i);
+    expect(recusado.body.diagnostico).toBeUndefined();
   });
 
   it("e aí o 03.08.18 sobe e grava — as duas casinhas", async () => {
@@ -333,7 +435,9 @@ describe.skipIf(!temBanco)("a janela da partida, com o app de verdade", () => {
         }),
       );
 
-      expect(enviado.status, `${tipo}: ${JSON.stringify(enviado.body)}`).toBe(201);
+      expect(enviado.status, `${tipo}: ${JSON.stringify(enviado.body)}`).toBe(
+        201,
+      );
       expect(enviado.body.desfecho).toBe("PROMOVIDO");
       expect(enviado.body.linhasLidas).toBe(1);
     }

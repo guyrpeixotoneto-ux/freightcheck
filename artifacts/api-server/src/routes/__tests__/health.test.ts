@@ -177,8 +177,23 @@ describe("describeDatabase", () => {
       }),
     );
 
+    /*
+      Os sentinelas são palavras que **só** poderiam ter vindo da URL.
+
+      "senha" e "usuario" estavam nesta lista e deixaram de servir: o
+      diagnóstico passou a trazer uma frase em português dirigida a quem está na
+      tela — "não é a sua senha nem o arquivo que você enviou" —, e a regra
+      passou a reprovar a frase certa por causa de uma palavra comum. Um teste
+      de vazamento que se apoia numa palavra do idioma não mede vazamento: mede
+      vocabulário, e pressiona a mensagem a ficar pior para o teste passar.
+    */
     const serializado = JSON.stringify(saude);
-    for (const segredo of ["senha", "usuario", "db.interno.exemplo", "5432"]) {
+    for (const segredo of [
+      "s3nh4-do-banco",
+      "operador-do-banco",
+      "db.interno.exemplo",
+      "5432",
+    ]) {
       expect(serializado).not.toContain(segredo);
     }
   });

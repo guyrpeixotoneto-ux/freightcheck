@@ -1,9 +1,5 @@
 import { useState } from "react";
-import {
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import {
   ArrowRight,
@@ -30,7 +26,10 @@ import {
 } from "@/components/ui/select";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { ComboboxCriavel } from "@/components/ui/combobox-criavel";
-import { CadastrarParte, type ParteDigitada } from "@/components/fechamento/cadastrar-parte";
+import {
+  CadastrarParte,
+  type ParteDigitada,
+} from "@/components/fechamento/cadastrar-parte";
 import { FecharQuinzena } from "@/components/fechamento/fechar-quinzena";
 import {
   abrirCompetencia,
@@ -66,7 +65,7 @@ import { anoAceito, chaveDaCompetencia } from "@/lib/fechamento-tela";
  */
 function textoDoErro(erro: unknown): string {
   const aviso = apresentar(erro);
-  return aviso.orientacao?.resumo ?? aviso.mensagemCrua ?? "Não foi possível concluir.";
+  return aviso.principal ?? aviso.mensagemCrua ?? "Não foi possível concluir.";
 }
 
 /**
@@ -82,7 +81,10 @@ function textoDoErro(erro: unknown): string {
  * nome anterior (`cadastrar`) prometia o contrário, e a promessa era verdadeira
  * quando o cadastro só existia dentro do estado desta tela.
  */
-export function lerParteDigitada(texto: string): { codigo: string; nome: string | null } {
+export function lerParteDigitada(texto: string): {
+  codigo: string;
+  nome: string | null;
+} {
   const partido = /^\s*([^—\-/]+?)\s*[—\-/]\s*(.+?)\s*$/.exec(texto);
   if (partido) return { codigo: partido[1]!, nome: partido[2]! };
   return { codigo: texto.trim(), nome: null };
@@ -141,7 +143,8 @@ export function paraOFormulario(texto: string): ParteDigitada {
   return { codigo: "", nome: cru };
 }
 
-const rotuloDaParte = (p: Parte) => (p.nome ? `${p.codigo} — ${p.nome}` : p.codigo);
+const rotuloDaParte = (p: Parte) =>
+  p.nome ? `${p.codigo} — ${p.nome}` : p.codigo;
 
 /*
   A parte cadastrada e ainda não usada não é "nova": ela está gravada, e some
@@ -206,7 +209,9 @@ const previaDaParte = (texto: string) => {
  */
 export type AcaoDoFechamento = "FECHAR" | "REABRIR" | "APURAR";
 
-export function acaoDoFechamento(estado: Competencia["estado"]): AcaoDoFechamento {
+export function acaoDoFechamento(
+  estado: Competencia["estado"],
+): AcaoDoFechamento {
   if (estado === "ENCERRADA") return "REABRIR";
   if (estado === "APURADA" || estado === "APROVADA") return "FECHAR";
   return "APURAR";
@@ -352,7 +357,10 @@ export default function Competencias() {
     endpoint: "/fechamento/competencias",
     buscar: listarCompetencias,
   });
-  const partes = useQuery({ queryKey: ["fechamento", "partes"], queryFn: listarPartes });
+  const partes = useQuery({
+    queryKey: ["fechamento", "partes"],
+    queryFn: listarPartes,
+  });
 
   /*
     O cadastro de uma parte — uma mutação por campo, e não uma compartilhada
@@ -376,17 +384,25 @@ export default function Competencias() {
     },
   });
   const cadastroDaUnidade = useMutation(opcoesDoCadastro("UNIDADE"));
-  const cadastroDaTransportadora = useMutation(opcoesDoCadastro("TRANSPORTADORA"));
-  const [cadastroEmCurso, setCadastroEmCurso] = useState<CadastroEmCurso | null>(null);
+  const cadastroDaTransportadora = useMutation(
+    opcoesDoCadastro("TRANSPORTADORA"),
+  );
+  const [cadastroEmCurso, setCadastroEmCurso] =
+    useState<CadastroEmCurso | null>(null);
 
   /* O texto do campo de busca preenche o formulário — não vira regra. */
-  const abrirCadastro = (tipo: TipoDeParte, texto: string): Promise<Parte | null> =>
+  const abrirCadastro = (
+    tipo: TipoDeParte,
+    texto: string,
+  ): Promise<Parte | null> =>
     new Promise((resolver) =>
       setCadastroEmCurso({ tipo, digitado: paraOFormulario(texto), resolver }),
     );
 
   const mutacaoEmCurso =
-    cadastroEmCurso?.tipo === "TRANSPORTADORA" ? cadastroDaTransportadora : cadastroDaUnidade;
+    cadastroEmCurso?.tipo === "TRANSPORTADORA"
+      ? cadastroDaTransportadora
+      : cadastroDaUnidade;
 
   const fecharCadastro = (parte: Parte | null) => {
     cadastroEmCurso?.resolver(parte);
@@ -408,7 +424,9 @@ export default function Competencias() {
         tipoDeOperacao,
       }),
     onSuccess: (criada) => {
-      void cliente.invalidateQueries({ queryKey: ["fechamento", "competencias"] });
+      void cliente.invalidateQueries({
+        queryKey: ["fechamento", "competencias"],
+      });
       void cliente.invalidateQueries({ queryKey: ["fechamento", "partes"] });
       navegar(`/fechamento/competencias/${criada.id}`);
     },
@@ -416,7 +434,10 @@ export default function Competencias() {
 
   const anoValido = anoAceito(ano);
   const podeAbrir =
-    unidade !== null && transportadora !== null && anoValido && tipoDeOperacao !== "";
+    unidade !== null &&
+    transportadora !== null &&
+    anoValido &&
+    tipoDeOperacao !== "";
 
   return (
     <Layout>
@@ -448,9 +469,16 @@ export default function Competencias() {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="space-y-1.5">
                 <Label htmlFor="ano">Ano</Label>
-                <Input id="ano" value={ano} onChange={(e) => setAno(e.target.value)} inputMode="numeric" />
+                <Input
+                  id="ano"
+                  value={ano}
+                  onChange={(e) => setAno(e.target.value)}
+                  inputMode="numeric"
+                />
                 {!anoValido && (
-                  <p className="text-xs text-amber-700">O ano vai de 2000 a 2100.</p>
+                  <p className="text-xs text-amber-700">
+                    O ano vai de 2000 a 2100.
+                  </p>
                 )}
               </div>
               <div className="space-y-1.5">
@@ -571,7 +599,10 @@ export default function Competencias() {
                   esta lista é uma linha — e enquanto isso ela impede que
                   "Empurrada" e "EMPURRADA" virem dois fechamentos do mesmo mês.
                 */}
-                <Select value={tipoDeOperacao} onValueChange={setTipoDeOperacao}>
+                <Select
+                  value={tipoDeOperacao}
+                  onValueChange={setTipoDeOperacao}
+                >
                   <SelectTrigger id="tipo-de-operacao">
                     <SelectValue placeholder="Escolha o tipo da operação" />
                   </SelectTrigger>
@@ -584,7 +615,8 @@ export default function Competencias() {
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">
-                  {TIPOS_DE_OPERACAO.find((t) => t.valor === tipoDeOperacao)?.explicacao ??
+                  {TIPOS_DE_OPERACAO.find((t) => t.valor === tipoDeOperacao)
+                    ?.explicacao ??
                     "EMPURRADA e ROTA são fechamentos separados na mesma quinzena."}
                 </p>
               </div>
@@ -595,12 +627,13 @@ export default function Competencias() {
               <a href="/unidades" className="text-primary hover:underline">
                 Administração → Unidades
               </a>
-              , onde ela é identificada pelo <strong>CNPJ</strong>. Não existe aqui a
-              opção de usar o texto digitado: quem escolhe uma unidade escolhe uma
-              identidade, e é ela que faz a competência encontrar o cadastro de
-              Remuneração. Se a unidade não estiver na lista, cadastre-a lá e volte.
-              A lista de transportadoras continua sendo a de partes, com o código da
-              Ambev — <code>36</code> —, que é identidade legítima daquele lado.
+              , onde ela é identificada pelo <strong>CNPJ</strong>. Não existe
+              aqui a opção de usar o texto digitado: quem escolhe uma unidade
+              escolhe uma identidade, e é ela que faz a competência encontrar o
+              cadastro de Remuneração. Se a unidade não estiver na lista,
+              cadastre-a lá e volte. A lista de transportadoras continua sendo a
+              de partes, com o código da Ambev — <code>36</code> —, que é
+              identidade legítima daquele lado.
             </p>
 
             {/*
@@ -613,7 +646,11 @@ export default function Competencias() {
                 tipo={cadastroEmCurso.tipo}
                 nomeInicial={cadastroEmCurso.digitado.nome ?? ""}
                 codigoInicial={cadastroEmCurso.digitado.codigo}
-                erro={mutacaoEmCurso.isError ? textoDoErro(mutacaoEmCurso.error) : null}
+                erro={
+                  mutacaoEmCurso.isError
+                    ? textoDoErro(mutacaoEmCurso.error)
+                    : null
+                }
                 salvando={mutacaoEmCurso.isPending}
                 aoCancelar={() => fecharCadastro(null)}
                 aoConfirmar={(parte) => {
@@ -631,7 +668,10 @@ export default function Competencias() {
               </Alert>
             )}
 
-            <Button onClick={() => abrir.mutate()} disabled={!podeAbrir || abrir.isPending}>
+            <Button
+              onClick={() => abrir.mutate()}
+              disabled={!podeAbrir || abrir.isPending}
+            >
               {abrir.isPending ? "Iniciando…" : "Realizar Fechamento"}
             </Button>
           </CardContent>
@@ -726,8 +766,8 @@ export default function Competencias() {
             )}
             {(competencias.dados?.length ?? 0) > 0 && (
               <p className="text-sm text-muted-foreground mb-3">
-                A linha abre a competência — relatórios, dias e a conta. A que já
-                apurou fecha aqui mesmo; a que já fechou reabre com motivo.
+                A linha abre a competência — relatórios, dias e a conta. A que
+                já apurou fecha aqui mesmo; a que já fechou reabre com motivo.
               </p>
             )}
             <ul className="divide-y">
@@ -748,7 +788,8 @@ export default function Competencias() {
                           <div className="flex items-center gap-2 font-medium">
                             <CalendarDays className="w-4 h-4 text-muted-foreground shrink-0" />
                             <span>
-                              {c.inicio.split("-").reverse().join("/")} a {c.fim.split("-").reverse().join("/")}
+                              {c.inicio.split("-").reverse().join("/")} a{" "}
+                              {c.fim.split("-").reverse().join("/")}
                             </span>
                             <span className="rounded-full border border-border bg-muted px-2 py-0.5 text-[0.6875rem] font-bold uppercase tracking-wide text-muted-foreground">
                               {NOME_DO_ESTADO[c.estado]}
@@ -772,11 +813,21 @@ export default function Competencias() {
                           <p className="text-sm text-muted-foreground truncate">
                             {c.unidade.nome ?? c.unidade.codigo}
                             {c.unidade.nome && (
-                              <span className="text-muted-foreground/70"> ({c.unidade.codigo})</span>
-                            )}{" · "}
+                              <span className="text-muted-foreground/70">
+                                {" "}
+                                ({c.unidade.codigo})
+                              </span>
+                            )}
+                            {" · "}
                             {c.transportadora.nome ?? c.transportadora.codigo}
                             {" · "}
-                            <span className={c.tipoDeOperacao === TIPO_NAO_INFORMADO ? "italic" : "font-medium"}>
+                            <span
+                              className={
+                                c.tipoDeOperacao === TIPO_NAO_INFORMADO
+                                  ? "italic"
+                                  : "font-medium"
+                              }
+                            >
                               {rotuloDoTipo(c.tipoDeOperacao)}
                             </span>
                           </p>
@@ -887,12 +938,18 @@ export default function Competencias() {
                     )}
                     {excluindoEsta && (
                       <div className="mb-3 rounded-md border border-destructive/40 bg-destructive/5 px-4 py-4">
-                        <ExclusaoDaLinha competencia={c} aoFechar={() => setExcluindo(null)} />
+                        <ExclusaoDaLinha
+                          competencia={c}
+                          aoFechar={() => setExcluindo(null)}
+                        />
                       </div>
                     )}
                     {tipandoEsta && (
                       <div className="mb-3 rounded-md border bg-muted/20 px-4 py-4">
-                        <TipoDaLinha competencia={c} aoFechar={() => setTipando(null)} />
+                        <TipoDaLinha
+                          competencia={c}
+                          aoFechar={() => setTipando(null)}
+                        />
                       </div>
                     )}
                   </li>
@@ -978,10 +1035,15 @@ function FechamentoDaLinha({ competenciaId }: { competenciaId: string }) {
     queryKey: chaveDaCompetencia(competenciaId),
     queryFn: () => lerCompetencia(competenciaId),
   });
-  const fontes = useQuery({ queryKey: ["fechamento", "fontes"], queryFn: listarFontes });
+  const fontes = useQuery({
+    queryKey: ["fechamento", "fontes"],
+    queryFn: listarFontes,
+  });
 
   if (dados.isLoading) {
-    return <p className="text-sm text-muted-foreground">Carregando a competência…</p>;
+    return (
+      <p className="text-sm text-muted-foreground">Carregando a competência…</p>
+    );
   }
   if (dados.isError || !dados.data) {
     return (
@@ -1001,8 +1063,8 @@ function FechamentoDaLinha({ competenciaId }: { competenciaId: string }) {
     */
     return (
       <p className="text-sm text-muted-foreground">
-        Esta competência não tem apuração vigente — apure-a antes de fechar. Abra
-        a competência para rodar a conta.
+        Esta competência não tem apuração vigente — apure-a antes de fechar.
+        Abra a competência para rodar a conta.
       </p>
     );
   }
@@ -1057,14 +1119,20 @@ function TipoDaLinha({
     qual operação é a quinzena — a mesma razão pela qual o formulário de abrir,
     no alto desta tela, também nasce sem tipo.
   */
-  const [escolhido, setEscolhido] = useState(informando ? "" : competencia.tipoDeOperacao);
+  const [escolhido, setEscolhido] = useState(
+    informando ? "" : competencia.tipoDeOperacao,
+  );
 
   const informar = useMutation({
     mutationFn: () => informarTipoDeOperacao(competencia.id, escolhido),
     onSuccess: () => {
-      void cliente.invalidateQueries({ queryKey: ["fechamento", "competencias"] });
+      void cliente.invalidateQueries({
+        queryKey: ["fechamento", "competencias"],
+      });
       void cliente.invalidateQueries({ queryKey: ["fechamento", "apuracoes"] });
-      void cliente.invalidateQueries({ queryKey: chaveDaCompetencia(competencia.id) });
+      void cliente.invalidateQueries({
+        queryKey: chaveDaCompetencia(competencia.id),
+      });
       /*
         E o Resumo do mês, que é o que esta mudança serve para consertar: ele
         pergunta por (unidade, transportadora, tipo, mês), e a competência
@@ -1078,12 +1146,16 @@ function TipoDaLinha({
   });
 
   const periodo = `${competencia.inicio.split("-").reverse().join("/")} a ${competencia.fim.split("-").reverse().join("/")}`;
-  const explicacao = TIPOS_DE_OPERACAO.find((t) => t.valor === escolhido)?.explicacao;
+  const explicacao = TIPOS_DE_OPERACAO.find(
+    (t) => t.valor === escolhido,
+  )?.explicacao;
 
   return (
     <div className="space-y-3">
       <p className="text-sm font-medium">
-        {informando ? "Informar o tipo de operação" : "Corrigir o tipo de operação"}
+        {informando
+          ? "Informar o tipo de operação"
+          : "Corrigir o tipo de operação"}
       </p>
       <p className="text-sm text-muted-foreground">
         {periodo} · {competencia.unidade.nome ?? competencia.unidade.codigo} ·{" "}
@@ -1096,17 +1168,17 @@ function TipoDaLinha({
         {informando ? (
           <>
             Esta quinzena foi aberta antes de o tipo existir, e por isso ninguém
-            disse de qual operação ela é. Enquanto não disser, ela não aparece no{" "}
-            <strong>Resumo do mês</strong> de operação nenhuma — é o que este
+            disse de qual operação ela é. Enquanto não disser, ela não aparece
+            no <strong>Resumo do mês</strong> de operação nenhuma — é o que este
             campo conserta. Nada do que já foi apurado muda: o tipo diz de qual
             operação é a conta, não como ela é calculada.
           </>
         ) : (
           <>
             EMPURRADA e ROTA são dois fechamentos da mesma quinzena, cada um com
-            a sua planilha de remuneração. Trocar o tipo move esta competência de
-            um <strong>Resumo do mês</strong> para o outro; os valores apurados
-            seguem os mesmos.
+            a sua planilha de remuneração. Trocar o tipo move esta competência
+            de um <strong>Resumo do mês</strong> para o outro; os valores
+            apurados seguem os mesmos.
           </>
         )}
       </p>
@@ -1124,7 +1196,9 @@ function TipoDaLinha({
             ))}
           </SelectContent>
         </Select>
-        {explicacao && <p className="text-xs text-muted-foreground">{explicacao}</p>}
+        {explicacao && (
+          <p className="text-xs text-muted-foreground">{explicacao}</p>
+        )}
       </div>
       {informar.isError && (
         <Alert variant="destructive">
@@ -1140,13 +1214,23 @@ function TipoDaLinha({
         <Button
           onClick={() => informar.mutate()}
           disabled={
-            informar.isPending || escolhido === "" || escolhido === competencia.tipoDeOperacao
+            informar.isPending ||
+            escolhido === "" ||
+            escolhido === competencia.tipoDeOperacao
           }
         >
           <Tag className="w-4 h-4 mr-1.5" />
-          {informar.isPending ? "Gravando…" : informando ? "Informar o tipo" : "Trocar o tipo"}
+          {informar.isPending
+            ? "Gravando…"
+            : informando
+              ? "Informar o tipo"
+              : "Trocar o tipo"}
         </Button>
-        <Button variant="ghost" onClick={aoFechar} disabled={informar.isPending}>
+        <Button
+          variant="ghost"
+          onClick={aoFechar}
+          disabled={informar.isPending}
+        >
           Cancelar
         </Button>
       </div>
@@ -1197,7 +1281,9 @@ function ExclusaoDaLinha({
         já se sabe aqui.
       */
       cliente.removeQueries({ queryKey: chaveDaCompetencia(competencia.id) });
-      void cliente.invalidateQueries({ queryKey: ["fechamento", "competencias"] });
+      void cliente.invalidateQueries({
+        queryKey: ["fechamento", "competencias"],
+      });
       void cliente.invalidateQueries({ queryKey: ["fechamento", "apuracoes"] });
       void cliente.invalidateQueries({ queryKey: ["fechamento", "partes"] });
       aoFechar();
@@ -1216,12 +1302,20 @@ function ExclusaoDaLinha({
         {rotuloDoTipo(competencia.tipoDeOperacao)}
       </p>
       {dados.isLoading ? (
-        <p className="text-sm text-muted-foreground">Contando o que vai junto…</p>
+        <p className="text-sm text-muted-foreground">
+          Contando o que vai junto…
+        </p>
       ) : (
         <ul className="text-sm text-muted-foreground space-y-1">
-          <li>• {enviados} relatório(s) enviado(s), com as linhas que eles produziram</li>
           <li>
-            • {dados.data?.apuracao ? "a conta apurada e as divergências dela" : "nenhuma apuração"}
+            • {enviados} relatório(s) enviado(s), com as linhas que eles
+            produziram
+          </li>
+          <li>
+            •{" "}
+            {dados.data?.apuracao
+              ? "a conta apurada e as divergências dela"
+              : "nenhuma apuração"}
           </li>
           <li>• os dias da quinzena, como esta competência os montou</li>
         </ul>

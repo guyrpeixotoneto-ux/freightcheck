@@ -108,7 +108,10 @@ function ouvintesLocais(porta) {
         encoding: "utf8",
         stdio: ["ignore", "pipe", "ignore"],
       });
-      return saida.split("\n").filter(filtra).map((l) => l.trim());
+      return saida
+        .split("\n")
+        .filter(filtra)
+        .map((l) => l.trim());
     } catch {
       /* ferramenta ausente ou sem permissão: tenta a próxima */
     }
@@ -124,17 +127,22 @@ console.log(`Pergunta usada: "${PERGUNTA}"`);
 // 1 ── quem está na porta -----------------------------------------------------
 titulo("1. O processo API Server está de pé?");
 const porta = new URL(base).port || (base.startsWith("https") ? "443" : "80");
-const local = /^(127\.0\.0\.1|localhost|0\.0\.0\.0|\[::1\])$/.test(new URL(base).hostname);
+const local = /^(127\.0\.0\.1|localhost|0\.0\.0\.0|\[::1\])$/.test(
+  new URL(base).hostname,
+);
 if (local) {
   const linhas = ouvintesLocais(porta);
-  if (linhas === null) nota(`\`ss\` indisponível; pulando a inspeção da porta ${porta}.`);
+  if (linhas === null)
+    nota(`\`ss\` indisponível; pulando a inspeção da porta ${porta}.`);
   else if (linhas.length === 0) erro(`ninguém escutando na porta ${porta}.`);
   else {
     ok(`há processo escutando na porta ${porta}.`);
     for (const l of linhas) nota(l);
   }
 } else {
-  nota("alvo remoto: quem responde é o roteador da plataforma, e a porta não se vê daqui.");
+  nota(
+    "alvo remoto: quem responde é o roteador da plataforma, e a porta não se vê daqui.",
+  );
 }
 
 // 2 ── healthz: a API responde, e é ela mesma? --------------------------------
@@ -155,7 +163,12 @@ if (!saude.chegou) {
   );
 } else {
   ok("a API respondeu, em JSON.");
-  const banco = saude.json?.database ?? {};
+  /*
+    O estado do banco mora no `/api/readyz` — o healthz virou liveness puro. O
+    fallback para o corpo do healthz cobre um api-server anterior à separação.
+  */
+  const prontidao = await pedir("/api/readyz");
+  const banco = prontidao.json?.database ?? saude.json?.database ?? {};
   nota(
     `banco: configurado=${banco.configured} alcançável=${banco.reachable} ` +
       `migrations em dia=${banco.upToDate ?? banco.migrated}`,
@@ -169,7 +182,9 @@ if (!saude.chegou) {
 titulo("3. Qual código está no ar?");
 const build = await pedir("/api/build");
 if (build.chegou && build.ehJson) {
-  ok(`revisão ${build.json.revision ?? "?"} · construída em ${build.json.builtAt ?? "?"}`);
+  ok(
+    `revisão ${build.json.revision ?? "?"} · construída em ${build.json.builtAt ?? "?"}`,
+  );
 } else {
   nota(`sem /api/build legível (${descrever(build)}).`);
 }
@@ -194,7 +209,8 @@ titulo("5. A chave da Anthropic chegou ao processo que roda a API?");
 const cap = await pedir("/api/assistant/capabilities");
 console.log(`        ${descrever(cap)}`);
 if (cap.chegou && cap.ehJson && cap.status === 200) {
-  if (cap.json.ia) ok(`há chave neste processo; modelo configurado: ${cap.json.modelo}`);
+  if (cap.json.ia)
+    ok(`há chave neste processo; modelo configurado: ${cap.json.modelo}`);
   else
     erro(
       "não há ANTHROPIC_API_KEY (nem ANTHROPIC_AUTH_TOKEN) neste processo — " +
@@ -265,7 +281,9 @@ for (const [rotulo, accept] of [
 /** O que a resposta conta sobre a chamada ao modelo. */
 function relatarResposta(corpo) {
   nota(`redação: ${corpo.redacao} · intenção: ${corpo.intencao}`);
-  nota(`etapas executadas: ${(corpo.etapas ?? []).map((e) => e.nome).join(" → ") || "(nenhuma)"}`);
+  nota(
+    `etapas executadas: ${(corpo.etapas ?? []).map((e) => e.nome).join(" → ") || "(nenhuma)"}`,
+  );
   const ia = corpo.tecnico?.ia;
   if (!ia) {
     nota(
@@ -287,7 +305,8 @@ titulo("7. O que as últimas chamadas ao modelo registraram?");
 const uso = await pedir("/api/assistant/usage?limite=5");
 if (uso.chegou && uso.ehJson && uso.status === 200) {
   const eventos = uso.json.eventos ?? [];
-  if (eventos.length === 0) nota("o anel está vazio — nenhuma chamada ao modelo neste processo.");
+  if (eventos.length === 0)
+    nota("o anel está vazio — nenhuma chamada ao modelo neste processo.");
   for (const e of eventos.slice(-5)) {
     nota(
       `${e.desfecho} · ${e.modelo} · ${e.latenciaMs}ms` +

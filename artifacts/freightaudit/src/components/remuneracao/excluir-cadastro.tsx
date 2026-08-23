@@ -71,7 +71,11 @@ export function BotaoDeExclusaoDoCadastro({
     aparece.
   */
   const oQueSai: "planilha" | "unidade" | null =
-    unidade.cadastro.informadas > 0 ? "planilha" : podeExcluirAUnidade ? "unidade" : null;
+    unidade.cadastro.informadas > 0
+      ? "planilha"
+      : podeExcluirAUnidade
+        ? "unidade"
+        : null;
   if (oQueSai === null) return null;
 
   return (
@@ -116,7 +120,7 @@ export function BotaoDeExclusaoDoCadastro({
 
 function textoDoErro(erro: unknown): string {
   const aviso = apresentar(erro);
-  return aviso.orientacao?.resumo ?? aviso.mensagemCrua ?? "Não foi possível excluir.";
+  return aviso.principal ?? aviso.mensagemCrua ?? "Não foi possível excluir.";
 }
 
 /** `1` → "1 linha informada"; `27` → "27 linhas informadas". */
@@ -203,7 +207,11 @@ function PainelDeExclusao({
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4 sm:p-8">
-      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm" onClick={aoFechar} aria-hidden />
+      <div
+        className="fixed inset-0 bg-black/50 backdrop-blur-sm"
+        onClick={aoFechar}
+        aria-hidden
+      />
 
       <div
         role="dialog"
@@ -237,7 +245,12 @@ function PainelDeExclusao({
               )}
             </p>
           </div>
-          <Button variant="ghost" size="icon" onClick={aoFechar} aria-label="Fechar">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={aoFechar}
+            aria-label="Fechar"
+          >
             <X className="w-4 h-4" />
           </Button>
         </div>
@@ -252,9 +265,10 @@ function PainelDeExclusao({
           {oQueSai === "planilha" ? (
             <>
               <p className="text-sm">
-                Saem <strong>{contarLinhas(unidade.cadastro.informadas)}</strong> desta
-                quinzena. As outras quinzenas desta unidade não são tocadas — nunca houve
-                herança entre elas.
+                Saem{" "}
+                <strong>{contarLinhas(unidade.cadastro.informadas)}</strong>{" "}
+                desta quinzena. As outras quinzenas desta unidade não são
+                tocadas — nunca houve herança entre elas.
               </p>
               {/*
                 A linha some quando a quinzena só existia por causa da planilha —
@@ -264,30 +278,33 @@ function PainelDeExclusao({
                 prometer o que não vai acontecer.
               */}
               <p className="text-xs text-muted-foreground">
-                Se esta quinzena existia só por causa da planilha, a linha some da lista
-                junto com ela. Se a unidade entregou export nesta vigência, a linha
-                continua — sem nada informado, que é o que ela era antes de alguém
-                digitar.
+                Se esta quinzena existia só por causa da planilha, a linha some
+                da lista junto com ela. Se a unidade entregou export nesta
+                vigência, a linha continua — sem nada informado, que é o que ela
+                era antes de alguém digitar.
               </p>
             </>
           ) : (
             <>
               <p className="text-sm">
-                Sai o cadastro que alguém digitou: <strong>nome, código, tipo de operação
-                e a quinzena inicial</strong>. Nenhum número sai, porque nenhum número
-                mora nele — e é por isso que o servidor recusa este ato enquanto houver
-                planilha informada em alguma quinzena.
+                Sai o cadastro que alguém digitou:{" "}
+                <strong>
+                  nome, código, tipo de operação e a quinzena inicial
+                </strong>
+                . Nenhum número sai, porque nenhum número mora nele — e é por
+                isso que o servidor recusa este ato enquanto houver planilha
+                informada em alguma quinzena.
               </p>
               <p className="text-xs text-muted-foreground">
-                Se o export desta unidade chegar depois, ela volta à lista pelo arquivo —
-                com o nome que o arquivo trouxer.
+                Se o export desta unidade chegar depois, ela volta à lista pelo
+                arquivo — com o nome que o arquivo trouxer.
               </p>
             </>
           )}
 
           <p className="text-xs text-amber-700">
-            Não há desfazer. A planilha não guarda versões: ela guarda o último número, com
-            autor e data.
+            Não há desfazer. A planilha não guarda versões: ela guarda o último
+            número, com autor e data.
           </p>
         </div>
 

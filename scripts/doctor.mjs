@@ -95,7 +95,9 @@ function ouvintes(porta) {
 
 function comando(pid) {
   try {
-    return readFileSync(`/proc/${pid}/cmdline`, "utf8").replace(/\0/g, " ").trim();
+    return readFileSync(`/proc/${pid}/cmdline`, "utf8")
+      .replace(/\0/g, " ")
+      .trim();
   } catch {
     return `pid ${pid}`;
   }
@@ -113,22 +115,33 @@ async function status(url) {
 
 // ---------------------------------------------------------------------------
 
-const artifacts = [lerArtifact("artifacts/api-server"), lerArtifact("artifacts/freightaudit")];
+const artifacts = [
+  lerArtifact("artifacts/api-server"),
+  lerArtifact("artifacts/freightaudit"),
+];
 
 console.log("\nPortas declaradas nos artifacts");
 for (const a of artifacts) {
   if (a.localPort && a.localPort === a.envPort) {
-    ok(`${a.relativo}: roteador manda para ${a.localPort}, service sobe em ${a.envPort}`);
+    ok(
+      `${a.relativo}: roteador manda para ${a.localPort}, service sobe em ${a.envPort}`,
+    );
   } else {
     erro(
       `${a.relativo}: localPort=${a.localPort ?? "ausente"} e ` +
         `[services.env] PORT=${a.envPort ?? "ausente"} não são o mesmo número.`,
     );
-    nota("O service sobe numa porta e o roteador encaminha para outra: 502 em /api.");
+    nota(
+      "O service sobe numa porta e o roteador encaminha para outra: 502 em /api.",
+    );
   }
   if (!a.runDev?.includes("scripts/dev.mjs")) {
-    erro(`${a.relativo}: o service de desenvolvimento não roda scripts/dev.mjs.`);
-    nota(`É "${a.runDev}" — sem migrations nem rebuild, e diferente do que o terminal roda.`);
+    erro(
+      `${a.relativo}: o service de desenvolvimento não roda scripts/dev.mjs.`,
+    );
+    nota(
+      `É "${a.runDev}" — sem migrations nem rebuild, e diferente do que o terminal roda.`,
+    );
   }
 }
 
@@ -143,9 +156,13 @@ for (const a of artifacts) {
     erro(`${a.localPort} (${a.relativo}): ninguém escutando.`);
     nota("Toda chamada encaminhada para cá volta 502 sem corpo.");
   } else if (pids.length > 1) {
-    erro(`${a.localPort}: ${pids.length} processos disputando a porta (${ferramenta}).`);
+    erro(
+      `${a.localPort}: ${pids.length} processos disputando a porta (${ferramenta}).`,
+    );
     for (const pid of pids) nota(comando(pid));
-    nota("Suba o ambiente só pelo Run: os services dos artifacts são a única forma.");
+    nota(
+      "Suba o ambiente só pelo Run: os services dos artifacts são a única forma.",
+    );
   } else {
     ok(`${a.localPort}: um processo — ${comando(pids[0])}`);
   }
@@ -158,10 +175,21 @@ if (!url) {
   nota("node scripts/doctor.mjs https://<seu-app>.replit.dev");
 } else {
   console.log(`\nCaminho do roteador — ${url}`);
-  for (const caminho of ["/", "/api/healthz", "/api/imports"]) {
+  /*
+    O `/api/readyz` entrou no lugar do papel duplo que o `/api/healthz` tinha:
+    o healthz virou liveness puro (não fala do banco), e é o readyz que carrega
+    o diagnóstico. Um readyz 503 aqui não é a porta vazia — é a resposta.
+  */
+  for (const caminho of ["/", "/api/healthz", "/api/readyz", "/api/imports"]) {
     const { code, corpo } = await status(`${url}${caminho}`);
     if (code === null) {
       erro(`${caminho}: não respondeu (${corpo}).`);
+    } else if (caminho === "/api/readyz" && (code === 200 || code === 503)) {
+      // Os dois códigos são resposta do readiness, e o corpo diz o resto.
+      (code === 200 ? ok : erro)(
+        `${caminho}: ${code} — ${code === 200 ? "pronto para servir" : "não está pronto"}.`,
+      );
+      relatarBanco(corpo);
     } else if (code === 502 || code === 503 || code === 504) {
       // Um 503 com `error` em JSON é o explicador do próprio projeto, ocupando
       // a porta para dizer por que a API não está nela. A razão dele vale mais
@@ -184,12 +212,17 @@ if (!url) {
       erro(`${caminho}: ${code} — ${corpo.slice(0, 120)}`);
     } else if (caminho === "/api/imports" && corpo.trim().startsWith("<")) {
       // HTML em /api quer dizer que o Vite respondeu no lugar da API.
-      erro(`${caminho}: ${code}, mas veio HTML — /api não está chegando ao api-server.`);
+      erro(
+        `${caminho}: ${code}, mas veio HTML — /api não está chegando ao api-server.`,
+      );
     } else {
       ok(`${caminho}: ${code}`);
-      // O healthz diz o que o processo enxerga do banco. É a única forma de
-      // responder, de fora, se a DATABASE_URL chegou àquele processo — e a
-      // pergunta é diferente de "o banco existe", que se responde no painel.
+      /*
+        O relato do banco também sai do healthz de um api-server antigo, que
+        ainda o carregava — `relatarBanco` só age quando o corpo tem `database`,
+        então num build novo esta linha não imprime nada e o relato vem do
+        readyz logo acima.
+      */
       if (caminho === "/api/healthz") relatarBanco(corpo);
     }
   }
@@ -203,16 +236,14 @@ function relatarBanco(corpo) {
     return;
   }
   if (!banco) {
-    nota(
-      "este api-server é anterior ao diagnóstico de banco no healthz; " +
-        "republique a main para saber o que ele enxerga do banco.",
-    );
     return;
   }
   if (!banco.configured) {
     erro(`banco: a DATABASE_URL não chegou a este processo.`);
   } else if (!banco.reachable) {
-    erro(`banco: variável recebida, conexão falhou${banco.code ? ` (${banco.code})` : ""}.`);
+    erro(
+      `banco: variável recebida, conexão falhou${banco.code ? ` (${banco.code})` : ""}.`,
+    );
   } else if (!banco.migrated) {
     erro("banco: conectado, mas sem schema — faltam migrations.");
   } else {

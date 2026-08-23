@@ -65,7 +65,7 @@ em `/api` — que é o aceite desta configuração.
 - Única env obrigatória: `DATABASE_URL`
 - `BACKUP_DIR` liga o backup automático (dump diário com prova de restore em
   CI); **em produção ele deve apontar para armazenamento durável**, e o
-  `/api/healthz` diz a idade da última cópia. Ver `docs/BACKUP.md`.
+  `/api/readyz` diz a idade da última cópia. Ver `docs/BACKUP.md`.
 - `ALERTA_WEBHOOK_URL` liga o alerta operacional: migration falhando na
   partida, backup falhando, reconvergência incompleta, leituras órfãs e taxa
   de 500 chegam como POST JSON (`{text, tipo, …}`, um por tipo a cada 10 min).
@@ -94,7 +94,7 @@ fato canônico nem vigência — a aba Planilha não é tocada —, e o rastro f
 ## Acesso
 
 **Nada do produto aparece sem login.** Toda rota da API exige sessão, com cinco
-exceções que existem por motivo declarado — `/api/healthz` e `/api/build`
+exceções que existem por motivo declarado — `/api/healthz`, `/api/readyz` e `/api/build`
 (o health check do deployment não pode depender de credencial) e
 `/api/auth/session`, `/login` e `/logout`. A lista está em `isPublicPath`, num
 lugar só: rota nova nasce protegida sem ninguém precisar lembrar de protegê-la.
@@ -862,7 +862,9 @@ número.
   frontend novo conversando com um servidor velho responde 404 numa rota que
   você acabou de escrever. `scripts/dev.mjs` sempre reconstrói primeiro, e é
   ele que os artifacts rodam em desenvolvimento.
-- `curl -s localhost:8080/api/healthz` responde pelo api-server;
+- `curl -s localhost:8080/api/healthz` responde pelo api-server (liveness —
+  ele não fala do banco); `curl -s localhost:8080/api/readyz` diz se o
+  ambiente tem tudo o que o build precisa, com o diagnóstico no corpo;
   `curl -s localhost:25609/api/healthz` confirma o caminho inteiro pela
   interface. Um proxy do Vite sem servidor atrás responde **500**, não 502 — a
   diferença entre os dois números diz em qual camada procurar.

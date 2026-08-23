@@ -1,5 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { AlertTriangle } from "lucide-react";
+import { DetalhesTecnicos } from "@/components/detalhes-tecnicos";
 
 /**
  * A última linha entre um defeito e uma tela branca.
@@ -47,13 +48,33 @@ export class ErrorBoundary extends Component<Props, State> {
             Esta tela não conseguiu ser desenhada
           </h1>
           <p className="text-sm text-muted-foreground">
-            Alguma coisa falhou enquanto a página era montada. O erro está
-            abaixo, e a interface continua no ar — recarregar costuma bastar
-            quando a causa foi uma resposta que não veio.
+            Alguma coisa falhou enquanto a página era montada, e a interface
+            continua no ar — recarregar costuma bastar quando a causa foi uma
+            resposta que não veio. Nada do que você fez se perdeu por causa
+            disto.
           </p>
-          <pre className="rounded-md border bg-muted px-4 py-3 text-xs whitespace-pre-wrap break-words">
-            {error.message}
-          </pre>
+
+          {/*
+            A mensagem da exceção desceu para cá, e o link "Ver /api/healthz"
+            saiu de vez.
+
+            Ela é o texto de um `Error` de JavaScript — em inglês, com nome de
+            propriedade dentro — e ocupava o corpo do aviso: a coisa mais
+            técnica da tela na posição mais visível dela. O botão ao lado
+            oferecia a segunda: um endpoint técnico, entregue a quem tinha
+            acabado de ver a página sumir. Continua tudo aqui, a um clique, para
+            quem vai investigar.
+
+            Esta caixa não consulta a prontidão como os outros avisos fazem: o
+            que falhou aqui foi o **render**, e não uma chamada. Perguntar ao
+            ambiente sobre um defeito de código nosso é a mesma troca de eixo
+            que o resto deste trabalho desfaz.
+          */}
+          <DetalhesTecnicos
+            detalhes={[{ rotulo: "Erro no render", texto: error.message }]}
+            className="rounded-md border bg-muted px-4 py-3"
+          />
+
           <div className="flex gap-3">
             <button
               type="button"
@@ -62,12 +83,6 @@ export class ErrorBoundary extends Component<Props, State> {
             >
               Recarregar
             </button>
-            <a
-              href="/api/healthz"
-              className="rounded-md border px-4 py-2 text-sm font-medium"
-            >
-              Ver /api/healthz
-            </a>
           </div>
         </div>
       </div>

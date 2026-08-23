@@ -91,7 +91,11 @@ type Aba = "verbas" | "planilha" | "inconsistencias";
 
 function textoDoErro(erro: unknown): string {
   const aviso = apresentar(erro);
-  return aviso.orientacao?.resumo ?? aviso.mensagemCrua ?? "Não foi possível carregar o resumo.";
+  return (
+    aviso.principal ??
+    aviso.mensagemCrua ??
+    "Não foi possível carregar o resumo."
+  );
 }
 
 /** `null` é ausência e aparece como traço — nunca como `R$ 0,00`. */
@@ -127,8 +131,17 @@ export default function ResumoGeral() {
   const alvo = { unidade, transportadora, tipoDeOperacao, ano, mes };
   const escolhido = fechamentoEscolhido(alvo);
   const resumo = useQuery({
-    queryKey: ["fechamento", "resumo", unidade, transportadora, tipoDeOperacao, ano, mes],
-    queryFn: () => lerResumoDoMes({ unidade, transportadora, tipoDeOperacao, ano, mes }),
+    queryKey: [
+      "fechamento",
+      "resumo",
+      unidade,
+      transportadora,
+      tipoDeOperacao,
+      ano,
+      mes,
+    ],
+    queryFn: () =>
+      lerResumoDoMes({ unidade, transportadora, tipoDeOperacao, ano, mes }),
     enabled: escolhido,
   });
 
@@ -155,8 +168,10 @@ export default function ResumoGeral() {
             Conferir contra a planilha da operação
           </Link>
           <span className="text-muted-foreground">
-            {" "}— a coluna da <code>Fechamento_Remuneracao.xlsb</code> anexada mora
-            em Conciliação, com a procedência do arquivo ao lado de cada diferença.
+            {" "}
+            — a coluna da <code>Fechamento_Remuneracao.xlsb</code> anexada mora
+            em Conciliação, com a procedência do arquivo ao lado de cada
+            diferença.
           </span>
         </p>
       </header>
@@ -208,7 +223,9 @@ export default function ResumoGeral() {
  * nada tinha sido aberto. É `competenciaId` que separa os dois: ele só existe
  * quando existe uma competência no banco.
  */
-export function quinzenaExiste(q: { competenciaId: string | null } | undefined): boolean {
+export function quinzenaExiste(
+  q: { competenciaId: string | null } | undefined,
+): boolean {
   return q?.competenciaId != null;
 }
 
@@ -340,13 +357,16 @@ function Corpo({
             {motivo === "SEM_COMPETENCIA" ? (
               <>
                 Nenhum fechamento aberto em {MES_LONGO[resumo.mes - 1]} de{" "}
-                {resumo.ano} para {resumo.unidade.nome ?? resumo.unidade.codigo} ·{" "}
-                {resumo.transportadora.nome ?? resumo.transportadora.codigo} ·{" "}
+                {resumo.ano} para {resumo.unidade.nome ?? resumo.unidade.codigo}{" "}
+                · {resumo.transportadora.nome ?? resumo.transportadora.codigo} ·{" "}
                 {rotuloDoTipo(tipoDeOperacao)}.{" "}
                 {tipoDeOperacao === TIPO_NAO_INFORMADO ? (
                   <>
                     Abra a quinzena em{" "}
-                    <Link href="/fechamento/competencias" className="text-primary hover:underline">
+                    <Link
+                      href="/fechamento/competencias"
+                      className="text-primary hover:underline"
+                    >
                       Importações
                     </Link>{" "}
                     e envie os relatórios.
@@ -360,19 +380,24 @@ function Corpo({
                       sumiu. Vale como primeira hipótese porque é a única causa
                       que não depende de erro de quem lê.
                     */}
-                    Se este mês já existia antes de o campo <strong>Tipo</strong>{" "}
-                    aparecer, ele está em{" "}
+                    Se este mês já existia antes de o campo{" "}
+                    <strong>Tipo</strong> aparecer, ele está em{" "}
                     <button
                       type="button"
-                      onClick={() => trocar("tipoDeOperacao", TIPO_NAO_INFORMADO)}
+                      onClick={() =>
+                        trocar("tipoDeOperacao", TIPO_NAO_INFORMADO)
+                      }
                       className="text-primary font-medium hover:underline"
                     >
                       Não informado
                     </button>
-                    : a migration que criou o campo não adivinhou de qual operação
-                    cada fechamento antigo era. Se não é o caso, abra a quinzena
-                    em{" "}
-                    <Link href="/fechamento/competencias" className="text-primary hover:underline">
+                    : a migration que criou o campo não adivinhou de qual
+                    operação cada fechamento antigo era. Se não é o caso, abra a
+                    quinzena em{" "}
+                    <Link
+                      href="/fechamento/competencias"
+                      className="text-primary hover:underline"
+                    >
                       Importações
                     </Link>
                     .
@@ -387,7 +412,10 @@ function Corpo({
                 {rotuloDoTipo(tipoDeOperacao)} está aberto, e nenhuma quinzena
                 foi apurada ainda — é a apuração que produz as verbas que este
                 resumo soma. Rode-a em{" "}
-                <Link href="/fechamento/competencias" className="text-primary hover:underline">
+                <Link
+                  href="/fechamento/competencias"
+                  className="text-primary hover:underline"
+                >
                   Importações
                 </Link>{" "}
                 — o resumo se enche sozinho.
@@ -469,8 +497,14 @@ function PainelDoCanal({
           <PainelComparadoTabela painel={canal.comparado} recorte={recorte} />
         ) : canal.painel ? (
           <>
-            <PorQueNaoTemDevido cadastro={canal.cadastro} quinzenas={quinzenas} />
-            <PainelDaPlanilhaTabela painel={canal.painel} colunas={colunasDoRecorte(recorte)} />
+            <PorQueNaoTemDevido
+              cadastro={canal.cadastro}
+              quinzenas={quinzenas}
+            />
+            <PainelDaPlanilhaTabela
+              painel={canal.painel}
+              colunas={colunasDoRecorte(recorte)}
+            />
           </>
         ) : canal.semPainel === "SEM_DEMONSTRATIVO" ? (
           /*
@@ -485,14 +519,18 @@ function PainelDoCanal({
             e cada uma tem o seu conserto.
           */
           <>
-            <PorQueNaoTemDevido cadastro={canal.cadastro} quinzenas={quinzenas} />
+            <PorQueNaoTemDevido
+              cadastro={canal.cadastro}
+              quinzenas={quinzenas}
+            />
             <p className="text-sm text-muted-foreground">
-              O painel do {canal.canal} está escrito aqui, e as linhas dele saem do{" "}
-              <strong>03.08.20</strong> — e nenhuma das duas quinzenas tem verba dele.
-              Ou o demonstrativo não foi importado, ou o que foi importado não trouxe
-              verba nenhuma; abra a quinzena para ver qual dos dois, com o arquivo
-              nomeado. Enquanto a verba não vier, as verbas do {canal.canal} continuam
-              apuradas e conferidas na aba Verbas.
+              O painel do {canal.canal} está escrito aqui, e as linhas dele saem
+              do <strong>03.08.20</strong> — e nenhuma das duas quinzenas tem
+              verba dele. Ou o demonstrativo não foi importado, ou o que foi
+              importado não trouxe verba nenhuma; abra a quinzena para ver qual
+              dos dois, com o arquivo nomeado. Enquanto a verba não vier, as
+              verbas do {canal.canal} continuam apuradas e conferidas na aba
+              Verbas.
             </p>
           </>
         ) : (
@@ -506,12 +544,13 @@ function PainelDoCanal({
           */
           <p className="text-sm text-muted-foreground">
             O painel da planilha é o da <strong>Rota</strong>. A planilha
-            conferida não traz painel do {canal.canal}: o <code>RESUMO GERAL</code>{" "}
-            dela abre a Rota nos três quadros e fecha no total da unidade, sem
-            quadro equivalente. Enquanto uma planilha com painel do{" "}
-            {canal.canal} não aparecer, não há rótulo a transcrever — escrevê-los
-            por analogia com os da Rota inventaria a metade que falta. As verbas
-            do {canal.canal} continuam apuradas e conferidas na aba Verbas.
+            conferida não traz painel do {canal.canal}: o{" "}
+            <code>RESUMO GERAL</code> dela abre a Rota nos três quadros e fecha
+            no total da unidade, sem quadro equivalente. Enquanto uma planilha
+            com painel do {canal.canal} não aparecer, não há rótulo a
+            transcrever — escrevê-los por analogia com os da Rota inventaria a
+            metade que falta. As verbas do {canal.canal} continuam apuradas e
+            conferidas na aba Verbas.
           </p>
         )}
       </CardContent>
@@ -566,8 +605,9 @@ function PainelComparadoTabela({
     <div className="space-y-4">
       <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-xs text-muted-foreground">
         <span>
-          As três colunas saem do <strong className="text-foreground">cadastro</strong> e
-          dos <strong className="text-foreground">relatórios importados</strong>
+          As três colunas saem do{" "}
+          <strong className="text-foreground">cadastro</strong> e dos{" "}
+          <strong className="text-foreground">relatórios importados</strong>
         </span>
         {doCadastro && (
           <span>
@@ -592,8 +632,8 @@ function PainelComparadoTabela({
       {painel.pendencias.length > 0 && (
         <Alert>
           <AlertDescription className="text-xs">
-            O cálculo está incompleto: falta {painel.pendencias.join(", ")}. As linhas que
-            dependem disso ficam vazias em vez de somar zero.
+            O cálculo está incompleto: falta {painel.pendencias.join(", ")}. As
+            linhas que dependem disso ficam vazias em vez de somar zero.
           </AlertDescription>
         </Alert>
       )}
@@ -630,11 +670,11 @@ function ListaDeInconsistencias({
       <Card>
         <CardContent className="py-6">
           <p className="text-sm text-muted-foreground">
-            Ainda não há o que conciliar: a lista compara o <strong>devido</strong> — que
-            sai do contrato e do diário — contra o <strong>demonstrado</strong> do
-            03.08.20, e o devido depende do cadastro da unidade. Enquanto ele não for
-            preenchido, o painel mostra só a releitura do demonstrativo, que concorda
-            consigo mesma.
+            Ainda não há o que conciliar: a lista compara o{" "}
+            <strong>devido</strong> — que sai do contrato e do diário — contra o{" "}
+            <strong>demonstrado</strong> do 03.08.20, e o devido depende do
+            cadastro da unidade. Enquanto ele não for preenchido, o painel
+            mostra só a releitura do demonstrativo, que concorda consigo mesma.
           </p>
         </CardContent>
       </Card>
@@ -646,9 +686,10 @@ function ListaDeInconsistencias({
       <Card>
         <CardContent className="py-6">
           <p className="text-sm text-muted-foreground">
-            Nenhuma inconsistência{recorte === "consolidado" ? " no mês" : " nesta quinzena"}.
-            As duas leituras chegaram ao mesmo número em todas as linhas — e elas saem de
-            fontes independentes, então isso é afirmação, não empate.
+            Nenhuma inconsistência
+            {recorte === "consolidado" ? " no mês" : " nesta quinzena"}. As duas
+            leituras chegaram ao mesmo número em todas as linhas — e elas saem
+            de fontes independentes, então isso é afirmação, não empate.
           </p>
         </CardContent>
       </Card>
@@ -661,24 +702,30 @@ function ListaDeInconsistencias({
         <CardTitle className="text-base">
           Inconsistências
           <span className="ml-2 text-sm font-normal text-muted-foreground">
-            {itens.length} {itens.length === 1 ? "item" : "itens"}, do maior para o menor
+            {itens.length} {itens.length === 1 ? "item" : "itens"}, do maior
+            para o menor
           </span>
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
         <p className="text-xs text-muted-foreground">
           Cada item é uma divergência entre duas fontes independentes.{" "}
-          <strong className="text-foreground">A lista não soma</strong>: os itens se
-          sobrepõem, e um total aqui contaria a mesma divergência duas vezes.
+          <strong className="text-foreground">A lista não soma</strong>: os
+          itens se sobrepõem, e um total aqui contaria a mesma divergência duas
+          vezes.
         </p>
 
         {itens.map((item) => (
-          <div key={`${item.canal}:${item.chave}`} className="rounded-lg border p-3 space-y-1.5">
+          <div
+            key={`${item.canal}:${item.chave}`}
+            className="rounded-lg border p-3 space-y-1.5"
+          >
             <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
               <span className="text-sm font-medium">
                 {item.rotulo}
                 <span className="ml-2 text-xs font-normal text-muted-foreground">
-                  {item.canal} · {item.quinzena}ª quinzena · {ROTULO_DO_TIPO[item.tipo]}
+                  {item.canal} · {item.quinzena}ª quinzena ·{" "}
+                  {ROTULO_DO_TIPO[item.tipo]}
                 </span>
               </span>
               <span className="font-mono tabular-nums text-sm font-semibold">
@@ -686,8 +733,10 @@ function ListaDeInconsistencias({
               </span>
             </div>
             <p className="text-xs text-muted-foreground">
-              Discordam <strong className="text-foreground">{item.entre[0]}</strong> e{" "}
-              <strong className="text-foreground">{item.entre[1]}</strong>. {item.porque}
+              Discordam{" "}
+              <strong className="text-foreground">{item.entre[0]}</strong> e{" "}
+              <strong className="text-foreground">{item.entre[1]}</strong>.{" "}
+              {item.porque}
             </p>
             <p className="text-xs">
               <span className="font-medium">O que destrava: </span>
@@ -717,18 +766,38 @@ const ROTULO_DO_TIPO: Record<Inconsistencia["tipo"], string> = {
  * O rótulo do recorte viaja junto porque a barra lateral fala de dinheiro: sem
  * ele, os R$ 2,4 milhões do cabeçalho não dizem se são do mês ou de meio mês.
  */
-function AfericaoDoCanal({ canal, recorte }: { canal: CanalDoResumo; recorte: Recorte }) {
+function AfericaoDoCanal({
+  canal,
+  recorte,
+}: {
+  canal: CanalDoResumo;
+  recorte: Recorte;
+}) {
   if (!canal.afericao) return null;
   const coluna: ColunaDaAfericao =
-    recorte === "consolidado" ? "total" : recorte === "1" ? "primeira" : "segunda";
+    recorte === "consolidado"
+      ? "total"
+      : recorte === "1"
+        ? "primeira"
+        : "segunda";
   const rotulo =
     recorte === "consolidado" ? "mês inteiro" : `${recorte}ª quinzena`;
   return (
-    <SelosDeAfericao afericao={canal.afericao} coluna={coluna} rotuloDaColuna={rotulo} />
+    <SelosDeAfericao
+      afericao={canal.afericao}
+      coluna={coluna}
+      rotuloDaColuna={rotulo}
+    />
   );
 }
 
-function TabelaDoCanal({ canal, recorte }: { canal: CanalDoResumo; recorte: Recorte }) {
+function TabelaDoCanal({
+  canal,
+  recorte,
+}: {
+  canal: CanalDoResumo;
+  recorte: Recorte;
+}) {
   const consolidado = recorte === "consolidado";
   /* No recorte de uma quinzena, a coluna dela é a única que se lê. */
   const coluna = (v: TresColunas) =>
@@ -780,7 +849,10 @@ function TabelaDoCanal({ canal, recorte }: { canal: CanalDoResumo; recorte: Reco
                   </td>
                 </tr>
                 {bloco.linhas.map((linha) => (
-                  <tr key={`${bloco.natureza}-${linha.vbz}`} className="border-b last:border-0">
+                  <tr
+                    key={`${bloco.natureza}-${linha.vbz}`}
+                    className="border-b last:border-0"
+                  >
                     <td className="py-2">
                       <span className="font-mono text-xs text-muted-foreground mr-2">
                         {linha.vbz}
@@ -788,7 +860,10 @@ function TabelaDoCanal({ canal, recorte }: { canal: CanalDoResumo; recorte: Reco
                       {linha.nome}
                     </td>
                     {celulas(linha.emitido, linha.apurado).map((valor, i) => (
-                      <td key={i} className="py-2 text-right font-mono tabular-nums">
+                      <td
+                        key={i}
+                        className="py-2 text-right font-mono tabular-nums"
+                      >
                         {dinheiro(valor)}
                       </td>
                     ))}
@@ -799,7 +874,10 @@ function TabelaDoCanal({ canal, recorte }: { canal: CanalDoResumo; recorte: Reco
                     Subtotal
                   </td>
                   {celulas(bloco.emitido, bloco.apurado).map((valor, i) => (
-                    <td key={i} className="py-2 text-right font-mono tabular-nums">
+                    <td
+                      key={i}
+                      className="py-2 text-right font-mono tabular-nums"
+                    >
                       {dinheiro(valor)}
                     </td>
                   ))}
@@ -854,10 +932,20 @@ function TabelaDoCanal({ canal, recorte }: { canal: CanalDoResumo; recorte: Reco
                 ["Conferido pela apuração", canal.conferido, false],
                 ["Sem fonte que confira", canal.semFonte, false],
                 ["Total remuneração (03.08.20)", canal.demonstrativo, false],
-                ["Diferença — emitido menos demonstrativo", canal.diferenca, true],
+                [
+                  "Diferença — emitido menos demonstrativo",
+                  canal.diferenca,
+                  true,
+                ],
               ] as const
             ).map(([rotulo, valores, destaque]) => (
-              <tr key={rotulo} className={cn("border-b last:border-0", destaque && "font-bold")}>
+              <tr
+                key={rotulo}
+                className={cn(
+                  "border-b last:border-0",
+                  destaque && "font-bold",
+                )}
+              >
                 <td className="py-2">{rotulo}</td>
                 {(consolidado
                   ? [valores.primeira, valores.segunda, valores.total]
@@ -881,8 +969,8 @@ function TabelaDoCanal({ canal, recorte }: { canal: CanalDoResumo; recorte: Reco
         {canal.demonstrativo.total === null && (
           <p className="text-xs text-muted-foreground mt-3">
             A linha do demonstrativo está vazia porque o 03.08.20 não foi
-            importado neste mês. Sem ele a parcela fixa entra na conta pelo que o
-            CT-e diz, e ninguém a confere.
+            importado neste mês. Sem ele a parcela fixa entra na conta pelo que
+            o CT-e diz, e ninguém a confere.
           </p>
         )}
       </CardContent>

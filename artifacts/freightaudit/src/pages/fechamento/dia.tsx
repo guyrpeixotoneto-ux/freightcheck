@@ -17,13 +17,18 @@ import {
 
 function textoDoErro(erro: unknown): string {
   const aviso = apresentar(erro);
-  return aviso.orientacao?.resumo ?? aviso.mensagemCrua ?? "Não foi possível concluir.";
+  return aviso.principal ?? aviso.mensagemCrua ?? "Não foi possível concluir.";
 }
 
 const emDiaBR = (iso: string) => iso.split("-").reverse().join("/");
 
 /** O dia anterior/seguinte, ou `null` quando sai da competência. */
-function vizinho(dia: string, passo: 1 | -1, inicio: string, fim: string): string | null {
+function vizinho(
+  dia: string,
+  passo: 1 | -1,
+  inicio: string,
+  fim: string,
+): string | null {
   const alvo = new Date(`${dia}T00:00:00Z`);
   alvo.setUTCDate(alvo.getUTCDate() + passo);
   const iso = alvo.toISOString().slice(0, 10);
@@ -43,7 +48,13 @@ function vizinho(dia: string, passo: 1 | -1, inicio: string, fim: string): strin
  * mesma função que alimenta a apuração. Uma segunda conta na tela seria uma
  * segunda verdade sobre o mesmo dinheiro.
  */
-export default function DiaDoFechamento({ id, dia }: { id: string; dia: string }) {
+export default function DiaDoFechamento({
+  id,
+  dia,
+}: {
+  id: string;
+  dia: string;
+}) {
   const dados = useQuery({
     queryKey: chaveDoDia(id, dia),
     queryFn: () => lerDia(id, dia),
@@ -52,7 +63,9 @@ export default function DiaDoFechamento({ id, dia }: { id: string; dia: string }
   if (dados.isLoading) {
     return (
       <Layout>
-        <div className="p-8 text-sm text-muted-foreground">Carregando o dia…</div>
+        <div className="p-8 text-sm text-muted-foreground">
+          Carregando o dia…
+        </div>
       </Layout>
     );
   }
@@ -91,20 +104,32 @@ export default function DiaDoFechamento({ id, dia }: { id: string; dia: string }
         </Link>
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="text-2xl font-bold tracking-tight">
-            Dia {String(aberto.numeroDoDia).padStart(2, "0")} · {emDiaBR(aberto.dia)}
+            Dia {String(aberto.numeroDoDia).padStart(2, "0")} ·{" "}
+            {emDiaBR(aberto.dia)}
           </h1>
           <span className="rounded-full border border-border bg-muted px-2.5 py-1 text-[0.6875rem] font-bold uppercase tracking-wide text-muted-foreground">
             {DIAS_DA_SEMANA[aberto.diaDaSemana]}
           </span>
           <nav className="flex items-center gap-1 ml-auto">
-            <Passo href={anterior && `/fechamento/competencias/${id}/dias/${anterior}`} anterior />
-            <Passo href={seguinte && `/fechamento/competencias/${id}/dias/${seguinte}`} />
+            <Passo
+              href={
+                anterior && `/fechamento/competencias/${id}/dias/${anterior}`
+              }
+              anterior
+            />
+            <Passo
+              href={
+                seguinte && `/fechamento/competencias/${id}/dias/${seguinte}`
+              }
+            />
           </nav>
         </div>
         <p className="text-muted-foreground mt-2">
           {competencia.unidade.nome ?? competencia.unidade.codigo} ·{" "}
           {competencia.transportadora.nome ?? competencia.transportadora.codigo}
-          {fonte && <span className="font-mono text-xs"> · {fonte.nomeDoArquivo}</span>}
+          {fonte && (
+            <span className="font-mono text-xs"> · {fonte.nomeDoArquivo}</span>
+          )}
         </p>
       </header>
 
@@ -172,7 +197,13 @@ export default function DiaDoFechamento({ id, dia }: { id: string; dia: string }
   );
 }
 
-function Passo({ href, anterior }: { href?: string | null; anterior?: boolean }) {
+function Passo({
+  href,
+  anterior,
+}: {
+  href?: string | null;
+  anterior?: boolean;
+}) {
   const conteudo = anterior ? (
     <ChevronLeft className="w-4 h-4" />
   ) : (
@@ -191,7 +222,11 @@ function Passo({ href, anterior }: { href?: string | null; anterior?: boolean })
     );
   }
   return (
-    <Link href={href} className="rounded-md border p-1.5 hover:bg-muted" aria-label={rotulo}>
+    <Link
+      href={href}
+      className="rounded-md border p-1.5 hover:bg-muted"
+      aria-label={rotulo}
+    >
       {conteudo}
     </Link>
   );
@@ -208,12 +243,18 @@ function Fecho({
   destaque?: boolean;
 }) {
   return (
-    <div className={`rounded-lg border p-4 ${destaque ? "bg-card" : "bg-muted/30"}`}>
-      <p className="text-xs uppercase tracking-wide text-muted-foreground">{titulo}</p>
-      <p className="text-xl font-bold tabular-nums mt-1">{formatBrl(totais.freteComImposto)}</p>
+    <div
+      className={`rounded-lg border p-4 ${destaque ? "bg-card" : "bg-muted/30"}`}
+    >
+      <p className="text-xs uppercase tracking-wide text-muted-foreground">
+        {titulo}
+      </p>
+      <p className="text-xl font-bold tabular-nums mt-1">
+        {formatBrl(totais.freteComImposto)}
+      </p>
       <p className="text-xs text-muted-foreground mt-1 tabular-nums">
-        {totais.viagens} viagem(ns) · {formatNumber(totais.caixasEntregues, 0)} cx entregues de{" "}
-        {formatNumber(totais.caixasCarregadas, 0)} carregadas
+        {totais.viagens} viagem(ns) · {formatNumber(totais.caixasEntregues, 0)}{" "}
+        cx entregues de {formatNumber(totais.caixasCarregadas, 0)} carregadas
       </p>
       <p className="text-xs text-muted-foreground tabular-nums">
         {formatBrl(totais.freteSemImposto)} sem imposto

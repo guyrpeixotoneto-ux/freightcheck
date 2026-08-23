@@ -87,7 +87,9 @@ describe("diagnosticar", () => {
       lê, e nunca o `migrate`. A ação dizia "compare" sem dizer com o quê; o
       `conferir-schema` nasceu para ela e agora é citado por ela.
     */
-    expect(d.acao?.comando).toBe("pnpm --filter @workspace/db run conferir-schema");
+    expect(d.acao?.comando).toBe(
+      "pnpm --filter @workspace/db run conferir-schema",
+    );
     expect(d.acao?.comando).not.toMatch(/\brun migrate\b/);
     expect(textoDoDiagnostico(d)).not.toMatch(/Nenhuma ação é necessária/);
   });
@@ -312,17 +314,23 @@ describe("a conferência de schema no diagnóstico", () => {
   });
 
   it("a ação diz com o quê comparar — o comando que sempre existiu para ela", () => {
-    const d = diagnosticar(observado({ objetosAusentes: ["attribute.cost_class"] }));
+    const d = diagnosticar(
+      observado({ objetosAusentes: ["attribute.cost_class"] }),
+    );
 
     expect(d.acao?.codigo).toBe("CONFERIR_SCHEMA");
-    expect(d.acao?.comando).toBe("pnpm --filter @workspace/db run conferir-schema");
+    expect(d.acao?.comando).toBe(
+      "pnpm --filter @workspace/db run conferir-schema",
+    );
   });
 
   it("a consulta que morreu também ganha o comando, mesmo sem conferência", () => {
     const d = diagnosticar(observado({ objetoAusenteAgora: true }));
 
     expect(d.estado).toBe("SCHEMA_DIVERGENTE");
-    expect(d.acao?.comando).toBe("pnpm --filter @workspace/db run conferir-schema");
+    expect(d.acao?.comando).toBe(
+      "pnpm --filter @workspace/db run conferir-schema",
+    );
     /* Sem conferência não se nomeia nada: a frase é a de contagem. */
     expect(d.evidencia).toMatch(/um objeto de schema falta/);
   });
@@ -387,10 +395,14 @@ describe("BRIDGE_PENDENTE", () => {
   it("aparece sem que nenhuma consulta tenha falhado — é o ponto todo", () => {
     // Nada pendente, nada quebrado: exatamente o que o /healthz via como
     // SAUDAVEL enquanto faltavam colunas no banco.
-    const d = diagnosticar(observado({ pendentes: [], objetoAusenteAgora: false }));
+    const d = diagnosticar(
+      observado({ pendentes: [], objetoAusenteAgora: false }),
+    );
     expect(d.estado).toBe("SAUDAVEL");
 
-    const comBridge = diagnosticar(observado({ bridgePendente: { desde: "2026-08-16T18:00:00.000Z" } }));
+    const comBridge = diagnosticar(
+      observado({ bridgePendente: { desde: "2026-08-16T18:00:00.000Z" } }),
+    );
     expect(comBridge.estado).toBe("BRIDGE_PENDENTE");
     expect(comBridge.evidencia).toContain("2026-08-16");
   });
@@ -423,5 +435,123 @@ describe("BRIDGE_PENDENTE", () => {
 
     expect(d.risco.emRisco).toBe(false);
     expect(textoDoDiagnostico(d)).toMatch(/bridge:up/);
+  });
+});
+
+/**
+ * A frase principal, e a régua que a mantém sendo uma frase principal.
+ *
+ * `humano` existe porque `resumo` tem outro público. Ele nomeia migrations,
+ * conta carimbos e cita SQLSTATE — o que quem opera o ambiente precisa, e o que
+ * transformou a tela de login num parágrafo vermelho de doze linhas entregue a
+ * quem tinha digitado a senha certa. A interface passou a mostrar `humano` e a
+ * guardar o resto atrás de "Detalhes técnicos".
+ *
+ * Sem esta régua, a separação dura uma revisão: a primeira pessoa que quiser
+ * ser prestativa acrescenta o nome da migration à frase de cima, e o defeito
+ * volta com cara de melhoria. O teste percorre **todos** os estados, e é por
+ * isso que ele não pode ser satisfeito consertando um caso.
+ */
+describe("a frase de quem está na tela", () => {
+  /** Um observado por estado — a lista tem de continuar cobrindo os oito. */
+  const CASOS: { nome: string; estado: EstadoObservado }[] = [
+    { nome: "sem DATABASE_URL", estado: observado({ configurada: false }) },
+    {
+      nome: "banco fora",
+      estado: observado({ alcancavel: false, codigoDeConexao: "ECONNREFUSED" }),
+    },
+    { nome: "saudável", estado: observado({}) },
+    {
+      nome: "migrations pendentes",
+      estado: observado({ aplicadas: 16, pendentes: ["0055_x"] }),
+    },
+    {
+      nome: "migration falhou",
+      estado: observado({
+        aplicadas: 16,
+        pendentes: ["0055_x"],
+        falha: { tag: "0055_x", code: "42P01" },
+      }),
+    },
+    {
+      nome: "registro perdido",
+      estado: observado({
+        aplicadas: 0,
+        pendentes: ["0000_freightcheck_foundation"],
+        temSchema: true,
+      }),
+    },
+    {
+      nome: "schema divergente",
+      estado: observado({ objetosAusentes: ["attribute.cost_class"] }),
+    },
+    { nome: "bridge pendente", estado: observado({ bridgePendente: {} }) },
+  ];
+
+  it("cobre os oito estados — a lista não pode envelhecer em silêncio", () => {
+    const cobertos = new Set(CASOS.map((c) => diagnosticar(c.estado).estado));
+    expect([...cobertos].sort()).toEqual([
+      "BRIDGE_PENDENTE",
+      "INDISPONIVEL",
+      "MIGRATIONS_PENDENTES",
+      "MIGRATION_FALHOU",
+      "REGISTRO_PERDIDO",
+      "SAUDAVEL",
+      "SCHEMA_DIVERGENTE",
+    ]);
+  });
+
+  it("nenhuma delas carrega jargão: migration, comando, SQLSTATE ou endpoint", () => {
+    /*
+      A lista é do vocabulário que **não** pertence à linha que se lê com
+      pressa. Cada item já apareceu numa tela de produto, e o `/api/healthz` é
+      o que motivou este trabalho inteiro: um endpoint técnico oferecido como
+      resposta a quem só queria entrar.
+    */
+    const PROIBIDO =
+      /migration|migrate|pnpm|SQLSTATE|DATABASE_URL|healthz|readyz|drizzle|schema `|\/api\//i;
+
+    for (const caso of CASOS) {
+      const d = diagnosticar(caso.estado);
+      expect(d.humano, `${caso.nome}: ${d.humano}`).not.toMatch(PROIBIDO);
+      /* E nunca é o nome de um arquivo de migration disfarçado de frase. */
+      expect(d.humano, caso.nome).not.toMatch(/\b\d{4}_[a-z_]+\b/);
+    }
+  });
+
+  it("é uma frase de verdade, e não um rótulo", () => {
+    for (const caso of CASOS) {
+      const d = diagnosticar(caso.estado);
+      expect(d.humano.length, caso.nome).toBeGreaterThan(40);
+      expect(d.humano.trim().endsWith("."), caso.nome).toBe(true);
+    }
+  });
+
+  it("toda falha responde a pergunta que se faz primeiro: perdi o que eu fiz?", () => {
+    /*
+      Quem acabou de clicar em Entrar, ou de subir um arquivo, pergunta isso
+      antes de qualquer outra coisa. Deixar implícito faz alguém reenviar por
+      medo, que é como um upload vira dois.
+    */
+    for (const caso of CASOS) {
+      const d = diagnosticar(caso.estado);
+      if (d.estado === "SAUDAVEL") continue;
+      expect(d.humano, caso.nome).toMatch(/gravad|perde|inteiro|íntegr/i);
+    }
+  });
+
+  it("o texto corrido continua sendo o técnico — quem lê por curl não perde nada", () => {
+    const d = diagnosticar(
+      observado({
+        aplicadas: 16,
+        pendentes: ["0055_disponibilidade_por_frota"],
+      }),
+    );
+
+    /* A frase de cima não nomeia a migration; o texto para o log e o `curl`,
+       sim, e é ele que vai no campo `error` das respostas. */
+    expect(d.humano).not.toContain("0055_disponibilidade_por_frota");
+    expect(textoDoDiagnostico(d)).toContain("0055_disponibilidade_por_frota");
+    expect(textoDoDiagnostico(d)).toContain("run migrate");
   });
 });

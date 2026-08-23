@@ -12,7 +12,12 @@ import {
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+} from "@/components/ui/select";
 import { listarApuracoes } from "@/lib/fechamento";
 import {
   anosComCompetencia,
@@ -62,7 +67,9 @@ import { ETAPAS_FECHAMENTO } from "./etapas";
 function textoDoErro(erro: unknown): string {
   const aviso = apresentar(erro);
   return (
-    aviso.orientacao?.resumo ?? aviso.mensagemCrua ?? "Não foi possível carregar o fechamento."
+    aviso.principal ??
+    aviso.mensagemCrua ??
+    "Não foi possível carregar o fechamento."
   );
 }
 
@@ -73,12 +80,20 @@ function textoDoErro(erro: unknown): string {
  * a contagem que o sustenta; o dinheiro que a apuração gravou; e a faixa das 24
  * quinzenas, que mostra *quando* o ano fechou e não só quanto.
  */
-function CartaoDaUnidade({ unidade, ano }: { unidade: ResumoDaUnidade; ano: number }) {
+function CartaoDaUnidade({
+  unidade,
+  ano,
+}: {
+  unidade: ResumoDaUnidade;
+  ano: number;
+}) {
   const nome = nomeDaParte(unidade);
   const pendencia = [
-    unidade.vencidas > 0 && `${unidade.vencidas} vencida${unidade.vencidas === 1 ? "" : "s"} em aberto`,
+    unidade.vencidas > 0 &&
+      `${unidade.vencidas} vencida${unidade.vencidas === 1 ? "" : "s"} em aberto`,
     unidade.emCurso > 0 && `${unidade.emCurso} em curso`,
-    unidade.lacunas > 0 && `${unidade.lacunas} quinzena${unidade.lacunas === 1 ? "" : "s"} sem competência`,
+    unidade.lacunas > 0 &&
+      `${unidade.lacunas} quinzena${unidade.lacunas === 1 ? "" : "s"} sem competência`,
   ].filter((p): p is string => typeof p === "string");
 
   return (
@@ -117,10 +132,14 @@ function CartaoDaUnidade({ unidade, ano }: { unidade: ResumoDaUnidade; ano: numb
         <p
           className={cn(
             "text-xs mt-3 flex items-start gap-1.5",
-            unidade.vencidas > 0 ? "text-destructive font-medium" : "text-muted-foreground",
+            unidade.vencidas > 0
+              ? "text-destructive font-medium"
+              : "text-muted-foreground",
           )}
         >
-          {unidade.vencidas > 0 && <TriangleAlert className="w-3.5 h-3.5 shrink-0 mt-px" />}
+          {unidade.vencidas > 0 && (
+            <TriangleAlert className="w-3.5 h-3.5 shrink-0 mt-px" />
+          )}
           {pendencia.join(" · ")}
         </p>
       )}
@@ -132,7 +151,9 @@ function CartaoDaUnidade({ unidade, ano }: { unidade: ResumoDaUnidade; ano: numb
           </dt>
           <dd className="text-sm font-semibold tabular-nums mt-0.5">
             {unidade.apuradas === 0 ? (
-              <span className="text-muted-foreground font-normal">sem apuração</span>
+              <span className="text-muted-foreground font-normal">
+                sem apuração
+              </span>
             ) : (
               formatBrlCompacto(unidade.emitido)
             )}
@@ -144,7 +165,9 @@ function CartaoDaUnidade({ unidade, ano }: { unidade: ResumoDaUnidade; ano: numb
           </dt>
           <dd className="text-sm font-semibold tabular-nums mt-0.5">
             {unidade.apuradas === 0 ? (
-              <span className="text-muted-foreground font-normal">sem apuração</span>
+              <span className="text-muted-foreground font-normal">
+                sem apuração
+              </span>
             ) : unidade.aQuestionar > 0 ? (
               <>
                 {formatBrlCompacto(unidade.aQuestionar)}{" "}
@@ -210,22 +233,29 @@ export default function VisaoGerencial() {
       <header className="border-b bg-card px-8 py-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight">Visão Gerencial</h1>
+            <h1 className="text-2xl font-bold tracking-tight">
+              Visão Gerencial
+            </h1>
             <p className="text-muted-foreground mt-2 max-w-3xl">
-              Quanto do ano já foi fechado, em cada unidade — o que está encerrado,
-              o que venceu sem fechar e quanto continua a questionar. Abra uma
-              unidade para ver as quinzenas do ano, uma a uma.
+              Quanto do ano já foi fechado, em cada unidade — o que está
+              encerrado, o que venceu sem fechar e quanto continua a questionar.
+              Abra uma unidade para ver as quinzenas do ano, uma a uma.
             </p>
           </div>
           <div className="flex items-center gap-3">
             {anos.length > 0 && (
-              <Select value={String(ano)} onValueChange={(v) => navegar(`/fechamento?ano=${v}`)}>
+              <Select
+                value={String(ano)}
+                onValueChange={(v) => navegar(`/fechamento?ano=${v}`)}
+              >
                 <SelectTrigger
                   className="h-auto w-auto gap-2 rounded-full px-4 py-2 shadow-none"
                   aria-label="Ano"
                 >
                   <span className="font-semibold">Ano</span>
-                  <span className="font-normal text-muted-foreground tabular-nums">{ano}</span>
+                  <span className="font-normal text-muted-foreground tabular-nums">
+                    {ano}
+                  </span>
                 </SelectTrigger>
                 <SelectContent>
                   {anos.map((a) => (
@@ -253,7 +283,9 @@ export default function VisaoGerencial() {
           </Alert>
         )}
 
-        {apuracoes.isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
+        {apuracoes.isLoading && (
+          <p className="text-sm text-muted-foreground">Carregando…</p>
+        )}
 
         {!apuracoes.isLoading && !apuracoes.isError && todas.length === 0 && (
           <div className="rounded-lg border bg-card p-8 text-sm text-muted-foreground max-w-2xl space-y-3">
@@ -264,13 +296,16 @@ export default function VisaoGerencial() {
             </p>
             <p>
               Abra a primeira em{" "}
-              <Link href="/fechamento/competencias" className="text-primary hover:underline">
+              <Link
+                href="/fechamento/competencias"
+                className="text-primary hover:underline"
+              >
                 Importações
               </Link>{" "}
               e envie os relatórios que a Ambev exporta no período. A partir
-              deles o FreightCheck reconstrói a conta verba a verba, com a memória
-              de cálculo de cada parcela, e aponta o que não fecha. Nenhum número
-              aparece sem a linha de arquivo que o sustenta.
+              deles o FreightCheck reconstrói a conta verba a verba, com a
+              memória de cálculo de cada parcela, e aponta o que não fecha.
+              Nenhum número aparece sem a linha de arquivo que o sustenta.
             </p>
           </div>
         )}
@@ -311,7 +346,9 @@ export default function VisaoGerencial() {
                 />
                 <Numero
                   rotulo="Emitido em CT-e"
-                  valor={total.apuradas === 0 ? "—" : formatBrlShort(total.emitido)}
+                  valor={
+                    total.apuradas === 0 ? "—" : formatBrlShort(total.emitido)
+                  }
                   detalhe={
                     total.apuradas === 0
                       ? "nenhuma competência apurada ainda"
@@ -322,7 +359,11 @@ export default function VisaoGerencial() {
                 />
                 <Numero
                   rotulo="A questionar"
-                  valor={total.apuradas === 0 ? "—" : formatBrlShort(total.aQuestionar)}
+                  valor={
+                    total.apuradas === 0
+                      ? "—"
+                      : formatBrlShort(total.aQuestionar)
+                  }
                   detalhe={
                     total.apuradas === 0
                       ? "nenhuma competência apurada ainda"
@@ -337,7 +378,8 @@ export default function VisaoGerencial() {
             <div>
               <div className="flex flex-wrap items-baseline justify-between gap-3 mb-3">
                 <h2 className="text-base font-bold">
-                  {total.unidades} unidade{total.unidades === 1 ? "" : "s"} em {ano}{" "}
+                  {total.unidades} unidade{total.unidades === 1 ? "" : "s"} em{" "}
+                  {ano}{" "}
                   <span className="font-normal text-muted-foreground text-sm">
                     — em ordem do que está atrasado
                   </span>
@@ -346,7 +388,11 @@ export default function VisaoGerencial() {
               </div>
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                 {unidades.map((unidade) => (
-                  <CartaoDaUnidade key={unidade.codigo} unidade={unidade} ano={ano} />
+                  <CartaoDaUnidade
+                    key={unidade.codigo}
+                    unidade={unidade}
+                    ano={ano}
+                  />
                 ))}
               </div>
             </div>
@@ -362,7 +408,9 @@ export default function VisaoGerencial() {
         <div className="grid gap-6 lg:grid-cols-2 items-start">
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-base">O processo, na ordem em que acontece</CardTitle>
+              <CardTitle className="text-base">
+                O processo, na ordem em que acontece
+              </CardTitle>
             </CardHeader>
             <CardContent className="p-0">
               {ETAPAS_FECHAMENTO.map((etapa, indice) => (
@@ -394,7 +442,9 @@ export default function VisaoGerencial() {
 
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-base">Como isto conversa com a Auditoria</CardTitle>
+              <CardTitle className="text-base">
+                Como isto conversa com a Auditoria
+              </CardTitle>
             </CardHeader>
             <CardContent className="text-sm text-muted-foreground space-y-3">
               <p>
@@ -402,7 +452,8 @@ export default function VisaoGerencial() {
                 apura quanto a competência vale; a Auditoria confere se aquilo
                 está correto — o que mudou, qual o impacto, o que há para
                 recuperar. O valor apurado aqui é o que a Auditoria audita lá; a
-                divergência encontrada lá volta para cá como pendência ou ajuste.
+                divergência encontrada lá volta para cá como pendência ou
+                ajuste.
               </p>
               <p>
                 A troca de ambiente é sempre dita: o seletor no topo da tela, ao

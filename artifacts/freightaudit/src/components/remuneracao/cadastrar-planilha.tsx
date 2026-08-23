@@ -113,7 +113,10 @@ export function CadastrarAPlanilha({
   vigenciaNova?: boolean;
 }) {
   const queryClient = useQueryClient();
-  const linhas = useMemo(() => dados.blocos.flatMap((b) => b.linhas), [dados.blocos]);
+  const linhas = useMemo(
+    () => dados.blocos.flatMap((b) => b.linhas),
+    [dados.blocos],
+  );
 
   /*
     O rascunho é remontado quando a unidade ou a vigência muda — a `key` de
@@ -338,7 +341,8 @@ export function CadastrarAPlanilha({
             ) : (
               <>
                 <strong className="text-foreground">
-                  {mudadas.length} {mudadas.length === 1 ? "linha alterada" : "linhas alteradas"}
+                  {mudadas.length}{" "}
+                  {mudadas.length === 1 ? "linha alterada" : "linhas alteradas"}
                 </strong>{" "}
                 — as outras ficam como estão.
               </>
@@ -346,10 +350,14 @@ export function CadastrarAPlanilha({
           </p>
           <Button
             onClick={() => gravar.mutate()}
-            disabled={mudadas.length === 0 || invalidas.length > 0 || gravar.isPending}
+            disabled={
+              mudadas.length === 0 || invalidas.length > 0 || gravar.isPending
+            }
           >
             <Save className="w-4 h-4 mr-1.5" />
-            {gravar.isPending ? "Salvando…" : "Salvar a planilha desta vigência"}
+            {gravar.isPending
+              ? "Salvando…"
+              : "Salvar a planilha desta vigência"}
           </Button>
         </div>
       </div>
@@ -386,7 +394,9 @@ function Cabecalho({
   const queryClient = useQueryClient();
   const [origem, setOrigem] = useState<string>("");
 
-  const outras = dados.vigencias.filter((v) => v.effectiveDate !== dados.effectiveDate);
+  const outras = dados.vigencias.filter(
+    (v) => v.effectiveDate !== dados.effectiveDate,
+  );
 
   /*
     Quantas linhas a vigência de origem tem — a pergunta que decide se o botão
@@ -395,7 +405,13 @@ function Cabecalho({
     falhou.
   */
   const daOrigem = useQuery({
-    queryKey: ["remuneracao", "planilha", dados.contexto.scopeHash, dados.contexto.channel, origem],
+    queryKey: [
+      "remuneracao",
+      "planilha",
+      dados.contexto.scopeHash,
+      dados.contexto.channel,
+      origem,
+    ],
     queryFn: () =>
       lerPlanilha({
         scopeHash: dados.contexto.scopeHash,
@@ -438,7 +454,10 @@ function Cabecalho({
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <Contagem titulo="Linhas da planilha" valor={dados.resumo.linhas} />
           <Contagem titulo="Informadas" valor={informadas} />
-          <Contagem titulo="Conferidas com o acervo" valor={dados.resumo.conferidas} />
+          <Contagem
+            titulo="Conferidas com o acervo"
+            valor={dados.resumo.conferidas}
+          />
           <Contagem
             titulo="Divergentes"
             valor={dados.resumo.divergentes}
@@ -447,13 +466,18 @@ function Cabecalho({
         </div>
 
         <p className="text-xs text-muted-foreground border-t pt-3">
-          O que você digitar aqui vale <strong>para esta vigência</strong> e não é medida do
-          acervo: cada linha volta ao cadastro marcada como informada, com o seu nome e a data.
-          Onde o acervo também responde, o número dele continua sendo o do cadastro e o seu
-          aparece ao lado — é a diferença entre os dois que esta tela existe para mostrar.
+          O que você digitar aqui vale <strong>para esta vigência</strong> e não
+          é medida do acervo: cada linha volta ao cadastro marcada como
+          informada, com o seu nome e a data. Onde o acervo também responde, o
+          número dele continua sendo o do cadastro e o seu aparece ao lado — é a
+          diferença entre os dois que esta tela existe para mostrar.
         </p>
 
-        <ImportarDaImagem aoLer={aoLerImagem} aoErro={aoErro} aoComecar={aoCopiar} />
+        <ImportarDaImagem
+          aoLer={aoLerImagem}
+          aoErro={aoErro}
+          aoComecar={aoCopiar}
+        />
 
         {outras.length > 0 && (
           <div className="flex flex-wrap items-end gap-3 border-t pt-3">
@@ -485,7 +509,11 @@ function Cabecalho({
             </div>
             <Button
               variant="outline"
-              disabled={origem === "" || copiar.isPending || daOrigem.data?.linhas.length === 0}
+              disabled={
+                origem === "" ||
+                copiar.isPending ||
+                daOrigem.data?.linhas.length === 0
+              }
               onClick={() => copiar.mutate()}
             >
               <Copy className="w-4 h-4 mr-1.5" />
@@ -575,7 +603,7 @@ function ImportarDaImagem({
         lidas === 0
           ? "Não achei nenhuma linha do cadastro nesta imagem — confira se é a aba de parâmetros."
           : `${lidas} ${lidas === 1 ? "linha preenchida" : "linhas preenchidas"} a partir da ` +
-            "imagem. Confira cada uma e salve — nada foi gravado ainda.",
+              "imagem. Confira cada uma e salve — nada foi gravado ainda.",
       );
 
       /*
@@ -587,7 +615,9 @@ function ImportarDaImagem({
       setRessalva(
         leitura.recusadas.length > 0
           ? `${leitura.recusadas.length} ${
-              leitura.recusadas.length === 1 ? "linha ficou de fora" : "linhas ficaram de fora"
+              leitura.recusadas.length === 1
+                ? "linha ficou de fora"
+                : "linhas ficaram de fora"
             } porque o valor lido não passa na regra da linha (${leitura.recusadas
               .map((r) => `"${r.comoEstaNaImagem}"`)
               .join(", ")}). Digite essas à mão.`
@@ -668,8 +698,12 @@ function ImportarDaImagem({
       <p className="text-xs text-muted-foreground flex-1 min-w-[16rem]">
         {resumo ? (
           <>
-            <span className={cn(ressalva ? undefined : "text-foreground")}>{resumo}</span>
-            {ressalva && <span className="block mt-0.5 text-foreground">{ressalva}</span>}
+            <span className={cn(ressalva ? undefined : "text-foreground")}>
+              {resumo}
+            </span>
+            {ressalva && (
+              <span className="block mt-0.5 text-foreground">{ressalva}</span>
+            )}
           </>
         ) : (
           "Um print da aba de parâmetros preenche os campos de uma vez, cada um marcado com o " +
@@ -695,7 +729,11 @@ function base64De(arquivo: File): Promise<string> {
   return new Promise((resolver, rejeitar) => {
     const leitor = new FileReader();
     leitor.onerror = () =>
-      rejeitar(new Error("Não consegui abrir este arquivo. Tente salvá-lo como PNG e reenviar."));
+      rejeitar(
+        new Error(
+          "Não consegui abrir este arquivo. Tente salvá-lo como PNG e reenviar.",
+        ),
+      );
     leitor.onload = () => {
       const bruto = typeof leitor.result === "string" ? leitor.result : "";
       resolver(bruto.replace(/^data:[^,]*,/, ""));
@@ -715,7 +753,9 @@ function Contagem({
 }) {
   return (
     <div>
-      <p className="text-xs uppercase tracking-wide text-muted-foreground">{titulo}</p>
+      <p className="text-xs uppercase tracking-wide text-muted-foreground">
+        {titulo}
+      </p>
       <p
         className={cn(
           "text-2xl font-bold tabular-nums mt-0.5",
@@ -744,7 +784,9 @@ function BlocoEditavel({
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="text-sm font-bold uppercase tracking-wide">{bloco.titulo}</CardTitle>
+        <CardTitle className="text-sm font-bold uppercase tracking-wide">
+          {bloco.titulo}
+        </CardTitle>
         <p className="text-xs text-muted-foreground mt-1">{bloco.resumo}</p>
       </CardHeader>
       <CardContent className="p-0">
@@ -840,8 +882,12 @@ function LinhaEditavel({
 
           {linha.declarado && (
             <p className="mt-1 text-xs text-muted-foreground/80">
-              Informado por {linha.declarado.autor ?? "uma conta não identificada"} em{" "}
-              {new Date(linha.declarado.informadoEm).toLocaleDateString("pt-BR")}.
+              Informado por{" "}
+              {linha.declarado.autor ?? "uma conta não identificada"} em{" "}
+              {new Date(linha.declarado.informadoEm).toLocaleDateString(
+                "pt-BR",
+              )}
+              .
             </p>
           )}
         </div>
@@ -849,7 +895,9 @@ function LinhaEditavel({
         <div className="shrink-0 space-y-1.5 w-56">
           <div className="flex items-center gap-1.5">
             {simbolo.antes && (
-              <span className="text-xs text-muted-foreground w-5 text-right">{simbolo.antes}</span>
+              <span className="text-xs text-muted-foreground w-5 text-right">
+                {simbolo.antes}
+              </span>
             )}
             <Input
               aria-label={linha.rotulo}
@@ -860,11 +908,14 @@ function LinhaEditavel({
               onBlur={onNormalizar}
               className={cn(
                 "text-right tabular-nums",
-                divergiu && "border-destructive/60 focus-visible:ring-destructive/30",
+                divergiu &&
+                  "border-destructive/60 focus-visible:ring-destructive/30",
               )}
             />
             {simbolo.depois && (
-              <span className="text-xs text-muted-foreground w-4">{simbolo.depois}</span>
+              <span className="text-xs text-muted-foreground w-4">
+                {simbolo.depois}
+              </span>
             )}
           </div>
 
@@ -910,12 +961,12 @@ function LinhaEditavel({
               ).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%)`}
           </Badge>
           <span className="text-xs text-muted-foreground">
-            A planilha e o cadastro discordam nesta linha. Nenhum dos dois é corrigido pelo
-            outro — a diferença fica registrada, que é o que permite discuti-la.
+            A planilha e o cadastro discordam nesta linha. Nenhum dos dois é
+            corrigido pelo outro — a diferença fica registrada, que é o que
+            permite discuti-la.
           </span>
         </div>
       )}
-
     </li>
   );
 }
@@ -923,6 +974,8 @@ function LinhaEditavel({
 function textoDoErro(erro: unknown): string {
   const aviso = apresentar(erro);
   return (
-    aviso.orientacao?.resumo ?? aviso.mensagemCrua ?? "Não foi possível salvar a planilha."
+    aviso.principal ??
+    aviso.mensagemCrua ??
+    "Não foi possível salvar a planilha."
   );
 }

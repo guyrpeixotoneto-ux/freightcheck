@@ -51,7 +51,11 @@ export function BotaoDeInformarCodigo({
       </button>
 
       {aberto && (
-        <PainelDoCodigo scopeHash={scopeHash} nome={nome} aoFechar={() => setAberto(false)} />
+        <PainelDoCodigo
+          scopeHash={scopeHash}
+          nome={nome}
+          aoFechar={() => setAberto(false)}
+        />
       )}
     </>
   );
@@ -95,7 +99,11 @@ function PainelDoCodigo({
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4 sm:p-8">
-      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm" onClick={aoFechar} aria-hidden />
+      <div
+        className="fixed inset-0 bg-black/50 backdrop-blur-sm"
+        onClick={aoFechar}
+        aria-hidden
+      />
 
       <div
         role="dialog"
@@ -110,12 +118,18 @@ function PainelDoCodigo({
               Informar o código de {nome}
             </h2>
             <p className="text-xs text-muted-foreground mt-1.5">
-              Esta unidade foi cadastrada sem código, e é por isso que o export ainda abriria
-              uma segunda ao lado dela. Com o código, ela passa a ocupar o lugar que o arquivo
-              vai procurar — <strong>e a planilha já digitada vai junto</strong>.
+              Esta unidade foi cadastrada sem código, e é por isso que o export
+              ainda abriria uma segunda ao lado dela. Com o código, ela passa a
+              ocupar o lugar que o arquivo vai procurar —{" "}
+              <strong>e a planilha já digitada vai junto</strong>.
             </p>
           </div>
-          <Button variant="ghost" size="icon" onClick={aoFechar} aria-label="Fechar">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={aoFechar}
+            aria-label="Fechar"
+          >
             <X className="w-4 h-4" />
           </Button>
         </div>
@@ -140,9 +154,10 @@ function PainelDoCodigo({
 
           <p className="text-xs text-muted-foreground">
             O mesmo da coluna <strong>Unidade - CNPJ</strong> do export, escrito{" "}
-            <strong>exatamente como está lá</strong> — com pontuação, se lá houver. É sobre
-            esse texto que o identificador é somado: com a pontuação errada, a unidade muda de
-            lugar e continua sem encontrar o arquivo.
+            <strong>exatamente como está lá</strong> — com pontuação, se lá
+            houver. É sobre esse texto que o identificador é somado: com a
+            pontuação errada, a unidade muda de lugar e continua sem encontrar o
+            arquivo.
           </p>
           {/*
             O aviso de irreversibilidade é curto e vem antes do botão, e não
@@ -151,9 +166,9 @@ function PainelDoCodigo({
             chegou —, e descobrir a regra pela recusa é descobri-la tarde.
           */}
           <p className="text-xs text-muted-foreground">
-            O código é gravado <strong>uma vez</strong>. Trocá-lo depois moveria a unidade de
-            novo, para longe do arquivo que ela já tivesse encontrado, e por isso não é o que
-            esta tela faz.
+            O código é gravado <strong>uma vez</strong>. Trocá-lo depois moveria
+            a unidade de novo, para longe do arquivo que ela já tivesse
+            encontrado, e por isso não é o que esta tela faz.
           </p>
         </div>
 
@@ -176,5 +191,9 @@ function PainelDoCodigo({
 
 function textoDoErro(erro: unknown): string {
   const aviso = apresentar(erro);
-  return aviso.orientacao?.resumo ?? aviso.mensagemCrua ?? "Não foi possível informar o código.";
+  return (
+    aviso.principal ??
+    aviso.mensagemCrua ??
+    "Não foi possível informar o código."
+  );
 }

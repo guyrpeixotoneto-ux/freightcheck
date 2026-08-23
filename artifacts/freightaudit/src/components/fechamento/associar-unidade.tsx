@@ -22,7 +22,11 @@ import {
 
 function textoDoErro(erro: unknown): string {
   const aviso = apresentar(erro);
-  return aviso.orientacao?.resumo ?? aviso.mensagemCrua ?? "Não foi possível associar a unidade.";
+  return (
+    aviso.principal ??
+    aviso.mensagemCrua ??
+    "Não foi possível associar a unidade."
+  );
 }
 
 /**
@@ -79,7 +83,9 @@ export function AssociarUnidade({
     onError: (e) => setErro(textoDoErro(e)),
     onSuccess: () => {
       void cliente.invalidateQueries({ queryKey: ["fechamento", "resumo"] });
-      void cliente.invalidateQueries({ queryKey: ["fechamento", "competencias"] });
+      void cliente.invalidateQueries({
+        queryKey: ["fechamento", "competencias"],
+      });
     },
   });
 

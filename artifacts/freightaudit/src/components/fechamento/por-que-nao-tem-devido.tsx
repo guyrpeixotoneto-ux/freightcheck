@@ -23,7 +23,11 @@ import { cn } from "@/lib/utils";
 
 function textoDoErro(erro: unknown): string {
   const aviso = apresentar(erro);
-  return aviso.orientacao?.resumo ?? aviso.mensagemCrua ?? "Não foi possível carregar o resumo.";
+  return (
+    aviso.principal ??
+    aviso.mensagemCrua ??
+    "Não foi possível carregar o resumo."
+  );
 }
 
 /**
@@ -201,27 +205,27 @@ function PortasDoCadastro({
           ? `associada a “${unidade.identidade?.nome ?? "uma unidade"}” · nenhum ` +
             "cadastro de Remuneração aponta para ela"
           : parouNaUnidade
-        ? `esta competência procura por “${unidade.codigoProcurado}”` +
-          (unidade.codigosCadastrados.length > 0
-            ? ` · cadastrado em Remuneração: ${unidade.codigosCadastrados
-                .map((c) => `“${c}”`)
-                .join(", ")}`
-            : ` · ${unidade.cadastradas} cadastrada(s), nenhuma com este código`)
-        : /*
+            ? `esta competência procura por “${unidade.codigoProcurado}”` +
+              (unidade.codigosCadastrados.length > 0
+                ? ` · cadastrado em Remuneração: ${unidade.codigosCadastrados
+                    .map((c) => `“${c}”`)
+                    .join(", ")}`
+                : ` · ${unidade.cadastradas} cadastrada(s), nenhuma com este código`)
+            : /*
             A identidade não compara texto nenhum, e a linha diz isso: mostrar
             "código X" aqui sugeriria que foi o texto que casou — e no dia em que
             o texto divergir, quem lesse iria "consertar" um código que já não é
             consultado.
           */
-          unidade.comoCasou === "IDENTIDADE"
-          ? "pela unidade cadastrada — sem comparar código"
-          : unidade.comoCasou === "EXATO"
-          ? `código ${unidade.codigoProcurado}`
-          : unidade.comoCasou === "ESPACO"
-            ? `código ${unidade.codigoProcurado}, casado ignorando o espaço em volta`
-            : unidade.comoCasou === "DOCUMENTO"
-              ? `código ${unidade.codigoProcurado}, casado como o mesmo CNPJ`
-              : "não avaliada",
+              unidade.comoCasou === "IDENTIDADE"
+              ? "pela unidade cadastrada — sem comparar código"
+              : unidade.comoCasou === "EXATO"
+                ? `código ${unidade.codigoProcurado}`
+                : unidade.comoCasou === "ESPACO"
+                  ? `código ${unidade.codigoProcurado}, casado ignorando o espaço em volta`
+                  : unidade.comoCasou === "DOCUMENTO"
+                    ? `código ${unidade.codigoProcurado}, casado como o mesmo CNPJ`
+                    : "não avaliada",
     },
     {
       nome: "Vigência",
@@ -337,5 +341,3 @@ export function maisAdiantado(
     ordem[b.diagnostico.estado] > ordem[a.diagnostico.estado] ? b : a,
   );
 }
-
-

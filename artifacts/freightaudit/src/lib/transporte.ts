@@ -166,12 +166,16 @@ export function diagnosticarTransporte(
   if (observado.cancelada) {
     return {
       estado: "REQUISICAO_CANCELADA",
+      humano:
+        "A tela mudou antes de esta consulta terminar, e ela foi interrompida. " +
+        "Nada foi enviado ao servidor.",
       resumo:
         "A chamada foi cancelada antes de terminar — normalmente porque a tela " +
         "mudou enquanto ela estava em andamento.",
       risco: NADA_ENVIADO,
       acao: null,
-      evidencia: "Cancelada pela própria interface; nenhuma resposta foi pedida ao servidor.",
+      evidencia:
+        "Cancelada pela própria interface; nenhuma resposta foi pedida ao servidor.",
     };
   }
 
@@ -201,6 +205,19 @@ export function diagnosticarTransporte(
     */
     return {
       estado: "SEM_RESPOSTA",
+      /*
+        A frase que a pessoa lê quando o servidor não respondeu. Ela diz o que
+        se sabe (não veio resposta), o que não se sabe (de que lado parou) e o
+        que **está acontecendo** — a tela repete sozinha. O que não diz é para
+        onde ir olhar: o endereço da sonda e os códigos de rede que separam as
+        hipóteses estão na evidência, atrás de "Detalhes técnicos", que é onde
+        o texto dirigido a engenharia pertence.
+      */
+      humano:
+        "O servidor não respondeu a esta chamada. A tela tenta de novo sozinha " +
+        "por alguns segundos; se continuar assim, é o ambiente que precisa ser " +
+        "olhado, e não algo que você tenha feito. Nada do que você enviou foi " +
+        "gravado.",
       resumo:
         "O que se sabe: o navegador não recebeu resposta nenhuma desta " +
         "chamada — nem status, nem cabeçalho. Não dá para dizer daqui de que " +
@@ -228,6 +245,10 @@ export function diagnosticarTransporte(
   if (observado.corpoNaoJson !== undefined) {
     return {
       estado: "RESPOSTA_ESTRANHA",
+      humano:
+        "Quem respondeu a esta chamada não foi o sistema, e sim uma camada " +
+        "antes dele — o serviço por trás do endereço não está atendendo. Não é " +
+        "nada que você tenha feito, e nada foi gravado.",
       resumo:
         "Veio uma resposta, e ela não é da nossa API: toda resposta daqui é " +
         "JSON, mesmo quando é erro. O que respondeu foi outra camada — um " +
@@ -251,6 +272,10 @@ export function diagnosticarTransporte(
     if (status !== undefined && status >= 500) {
       return {
         estado: "API_AUSENTE",
+        humano:
+          "A tela está no ar, e o serviço que responde por ela não está. Não é " +
+          "nada que você tenha feito, e nada do que você enviou foi gravado — " +
+          "quem precisa agir é quem cuida do ambiente.",
         resumo:
           "A interface está no ar, mas o servidor por trás de /api não está. " +
           "A requisição parou numa camada antes de chegar nele.",
@@ -264,6 +289,9 @@ export function diagnosticarTransporte(
     if (status !== undefined && status >= 400) {
       return {
         estado: "ERRO_SEM_CORPO",
+        humano:
+          "O servidor recusou esta chamada sem dizer por quê. Nada foi " +
+          "gravado.",
         resumo: `O servidor respondeu ${status} sem detalhar o motivo.`,
         risco: NADA_ENVIADO,
         acao: null,
@@ -274,6 +302,10 @@ export function diagnosticarTransporte(
 
     return {
       estado: "RESPOSTA_INCOMPLETA",
+      humano:
+        "A resposta do servidor chegou pela metade — a conexão foi " +
+        "interrompida no caminho. Tentar de novo costuma bastar, e nada do que " +
+        "você enviou se perdeu.",
       resumo:
         `O servidor respondeu ${status ?? "com sucesso"} sem conteúdo. A ` +
         "conexão pode ter sido interrompida a caminho.",
@@ -300,6 +332,8 @@ export function diagnosticarTransporte(
   // estado do transporte. Responder "está tudo bem" esconderia esse defeito.
   return {
     estado: "RESPOSTA_ESTRANHA",
+    humano:
+      "A resposta do servidor não pôde ser interpretada. Nada foi gravado.",
     resumo: "A resposta do servidor não pôde ser interpretada.",
     risco: NADA_ENVIADO,
     acao: SUBIR_A_API,
