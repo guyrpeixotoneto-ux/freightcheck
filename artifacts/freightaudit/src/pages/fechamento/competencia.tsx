@@ -15,7 +15,11 @@ import {
   Upload,
 } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
-import { useBaseDoFechamento } from "@/lib/base-do-fechamento";
+import {
+  useBaseDoFechamento,
+  useOperacaoDoFechamento,
+} from "@/lib/base-do-fechamento";
+import { baseDaOperacao, nomeDoFechamentoDa } from "@/lib/ambiente";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -40,6 +44,7 @@ import { formatBrl, formatNumber } from "@/lib/format";
 import {
   apurar,
   descartarDados,
+  TIPO_NAO_INFORMADO,
   diagnosticarDocumento,
   enviarDocumento,
   fontesDaCompetencia,
@@ -87,6 +92,7 @@ const emDiaBR = (iso: string) => iso.split("-").reverse().join("/");
  */
 export default function CompetenciaAberta({ id }: { id: string }) {
   const base = useBaseDoFechamento();
+  const operacao = useOperacaoDoFechamento();
   const cliente = useQueryClient();
   const [erroDoEnvio, setErroDoEnvio] = useState<string | null>(null);
   /*
@@ -215,6 +221,56 @@ export default function CompetenciaAberta({ id }: { id: string }) {
   }
 
   const { competencia, documentos, apuracao } = dados.data;
+  /*
+    A competência de outra operação não abre aqui — ela abre lá.
+
+    A rota é por `id`, e um `id` não diz de qual ambiente ele é: um link colado
+    numa mensagem, um favorito de antes da separação ou uma volta no histórico
+    trazem para o Fechamento Rota uma quinzena da Empurrada, e a tela a mostrava
+    inteira, com todos os botões — apurar, importar, encerrar, excluir. É o
+    mesmo vazamento das listas por outra porta, e nesta o estrago é maior,
+    porque aqui se apaga.
+
+    O caminho não é um erro: é a mesma tela, no ambiente certo, a um clique. O
+    endereço muda só de base — o `id` é o mesmo dos dois lados.
+
+    A sem tipo declarado (`NAO_INFORMADO`) passa, e passa nos dois ambientes:
+    ela não é de nenhum até alguém dizer, e é em Importações, deste lado, que se
+    diz. Ver `OPERACAO_DO_AMBIENTE`, em `lib/ambiente.ts`.
+  */
+  if (
+    competencia.tipoDeOperacao !== TIPO_NAO_INFORMADO &&
+    competencia.tipoDeOperacao !== operacao
+  ) {
+    return (
+      <Layout>
+        <div className="p-8 max-w-2xl">
+          <Alert>
+            <AlertDescription className="space-y-3">
+              <p>
+                Esta competência é do{" "}
+                <strong>
+                  {nomeDoFechamentoDa(competencia.tipoDeOperacao)}
+                </strong>
+                , e o ambiente aberto é o{" "}
+                <strong>{nomeDoFechamentoDa(operacao)}</strong>. São dois
+                fechamentos separados: cada um tem a sua planilha de remuneração,
+                os seus relatórios e a sua conta.
+              </p>
+              <p>
+                <Link
+                  href={`${baseDaOperacao(competencia.tipoDeOperacao)}/competencias/${competencia.id}`}
+                  className="text-primary hover:underline"
+                >
+                  Abrir no {nomeDoFechamentoDa(competencia.tipoDeOperacao)}
+                </Link>
+              </p>
+            </AlertDescription>
+          </Alert>
+        </div>
+      </Layout>
+    );
+  }
   const encerrada = competencia.estado === "ENCERRADA";
   const vigentes = new Map(
     documentos.filter((d) => d.vigente).map((d) => [d.tipo, d]),

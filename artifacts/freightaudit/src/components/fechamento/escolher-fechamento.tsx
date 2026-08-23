@@ -11,7 +11,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { MES_LONGO } from "@/lib/fechamento-gerencial";
-import { listarPartes, TIPOS_PARA_LER } from "@/lib/fechamento";
+import { listarPartes, tiposParaLerNoAmbiente } from "@/lib/fechamento";
+import { useOperacaoDoFechamento } from "@/lib/base-do-fechamento";
 
 /**
  * QUAL FECHAMENTO — a mesma pergunta em toda tela que responde sobre um mês.
@@ -47,6 +48,16 @@ export function EscolherFechamento({
   onTrocar: (campo: keyof FechamentoEscolhido, valor: string) => void;
 }) {
   const partes = useQuery({ queryKey: ["fechamento", "partes"], queryFn: listarPartes });
+  /*
+    O que este seletor pode oferecer no campo Tipo é o que o **ambiente**
+    alcança: a operação do fechamento aberto, e o `NAO_INFORMADO` de quem ainda
+    não disse qual é. A lista inteira estava aqui desde antes de os dois
+    fechamentos existirem, e com eles ela virou um dropdown capaz de desmentir a
+    porta pela qual a pessoa entrou — o Rota mostrando a conta da empurrada, com
+    "Fechamento Rota" escrito no topo.
+  */
+  const operacao = useOperacaoDoFechamento();
+  const tipos = tiposParaLerNoAmbiente(operacao);
 
   return (
     <Card>
@@ -78,12 +89,15 @@ export function EscolherFechamento({
             operação: "CAMAÇARI · EMPURRADA" é uma coisa e "CAMAÇARI · ROTA" é
             outra, com contas separadas desde a `0046`.
 
-            A lista é a de **ler** (`TIPOS_PARA_LER`), e não a de abrir: ela tem
-            o `NAO_INFORMADO` do backfill. Quem abre não pode escolhê-lo — seria
-            dizer "não sei" num campo obrigatório —, mas todo fechamento anterior
-            à `0046` o carrega, e um seletor sem ele deixa o acervo inteiro sem
-            endereço nestas telas: a unidade certa, a transportadora certa, o mês
-            certo, e mesmo assim nada.
+            A lista é a de **ler dentro deste ambiente**
+            (`tiposParaLerNoAmbiente`): a operação do fechamento aberto e o
+            `NAO_INFORMADO` do backfill. Quem abre não pode escolher o segundo —
+            seria dizer "não sei" num campo obrigatório —, mas todo fechamento
+            anterior à `0046` o carrega, e um seletor sem ele deixa esse acervo
+            sem endereço nestas telas: a unidade certa, a transportadora certa, o
+            mês certo, e mesmo assim nada. A operação do **outro** fechamento
+            também não está aqui, e por outro motivo: ela não é escolha desta
+            tela, é o ambiente — e o ambiente se troca no topo.
           */}
           <div className="space-y-1.5">
             <Label htmlFor="tipo-de-operacao">Tipo</Label>
@@ -95,7 +109,7 @@ export function EscolherFechamento({
                 <SelectValue placeholder="Escolha" />
               </SelectTrigger>
               <SelectContent>
-                {TIPOS_PARA_LER.map((t) => (
+                {tipos.map((t) => (
                   <SelectItem key={t.valor} value={t.valor}>
                     {t.rotulo}
                   </SelectItem>

@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   AMBIENTES,
+  ambienteDaOperacao,
   ambienteDe,
+  baseDaOperacao,
+  nomeDoFechamentoDa,
+  OPERACAO_DO_AMBIENTE,
+  operacaoDoFechamento,
   baseDoFechamento,
   BASES_DE_FECHAMENTO,
   descricaoDoAmbiente,
@@ -145,5 +150,75 @@ describe("destinoDaRaiz", () => {
       expect(destino).not.toBe("/");
       expect(ambienteDe(destino.split("?")[0])).toBe("auditoria");
     }
+  });
+});
+
+/**
+ * A operação de cada ambiente — o recorte que faz Rota e Empurrada serem dois
+ * acervos e não o mesmo acervo com dois nomes.
+ *
+ * O que este bloco guarda é a regressão que motivou o mapa: enquanto a operação
+ * não vinha do endereço, as listas do fechamento traziam as competências das
+ * duas operações nos dois ambientes — e excluir uma importação na Empurrada a
+ * apagava do Rota, porque era a mesma linha vista duas vezes.
+ */
+describe("operacaoDoFechamento", () => {
+  it("dá a operação de cada base, e só ela", () => {
+    expect(operacaoDoFechamento("/fechamento")).toBe("ROTA");
+    expect(operacaoDoFechamento("/fechamento/competencias")).toBe("ROTA");
+    expect(operacaoDoFechamento("/fechamento-empurrada")).toBe("EMPURRADA");
+    expect(operacaoDoFechamento("/fechamento-empurrada/apuracoes")).toBe(
+      "EMPURRADA",
+    );
+  });
+
+  /*
+    A mesma armadilha de `ambienteDe`: `/fechamento-empurrada` começa com
+    `/fechamento`, e um `startsWith` cru faria a Empurrada apurar como rota.
+  */
+  it("não confunde a base da Empurrada com a do Rota", () => {
+    expect(operacaoDoFechamento("/fechamento-empurrada")).not.toBe(
+      operacaoDoFechamento("/fechamento"),
+    );
+  });
+
+  it("nenhum ambiente compartilha operação com o outro", () => {
+    const operacoes = Object.values(OPERACAO_DO_AMBIENTE);
+    expect(new Set(operacoes).size).toBe(operacoes.length);
+  });
+});
+
+describe("ambienteDaOperacao", () => {
+  it("é a volta exata do mapa", () => {
+    for (const [id, operacao] of Object.entries(OPERACAO_DO_AMBIENTE)) {
+      expect(ambienteDaOperacao(operacao)).toBe(id);
+      expect(baseDaOperacao(operacao)).toBe(
+        BASES_DE_FECHAMENTO[id as keyof typeof BASES_DE_FECHAMENTO],
+      );
+    }
+  });
+
+  it("aceita o tipo como o acervo o escreve, em qualquer caixa", () => {
+    expect(ambienteDaOperacao(" rota ")).toBe("fechamento-rota");
+    expect(ambienteDaOperacao("Empurrada")).toBe("fechamento-empurrada");
+  });
+
+  /*
+    `NAO_INFORMADO` é o carimbo do backfill da `0046`: ele não é de nenhum dos
+    dois fechamentos, e é por isso que a resposta é `null` em vez de um palpite.
+  */
+  it("a operação sem ambiente volta nula, e o nome volta cru", () => {
+    expect(ambienteDaOperacao("NAO_INFORMADO")).toBeNull();
+    expect(nomeDoFechamentoDa("NAO_INFORMADO")).toBe("NAO_INFORMADO");
+    expect(baseDaOperacao("NAO_INFORMADO")).toBe(BASES_DE_FECHAMENTO["fechamento-rota"]);
+  });
+
+  it("nomeia o fechamento como o seletor do topo o nomeia", () => {
+    expect(nomeDoFechamentoDa("ROTA")).toBe(
+      descricaoDoAmbiente("fechamento-rota").nome,
+    );
+    expect(nomeDoFechamentoDa("EMPURRADA")).toBe(
+      descricaoDoAmbiente("fechamento-empurrada").nome,
+    );
   });
 });

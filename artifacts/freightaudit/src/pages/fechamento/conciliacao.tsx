@@ -4,7 +4,10 @@ import { Link, useLocation, useSearch } from "wouter";
 import { ArrowRight } from "lucide-react";
 
 import { Layout } from "@/components/layout/layout";
-import { useBaseDoFechamento } from "@/lib/base-do-fechamento";
+import {
+  useBaseDoFechamento,
+  useOperacaoDoFechamento,
+} from "@/lib/base-do-fechamento";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { apresentar } from "@/lib/apresentar-erro";
@@ -19,6 +22,7 @@ import {
   type ProcedenciaDaReferencia,
   type ResumoDoMes,
   type TresColunas,
+  tipoDaLeitura,
 } from "@/lib/fechamento";
 import {
   ANOS_DO_FECHAMENTO,
@@ -120,13 +124,24 @@ export function referenciaDoMes(
 
 export default function Conciliacao() {
   const base = useBaseDoFechamento();
+  const operacao = useOperacaoDoFechamento();
   const busca = useSearch();
   const [, navegar] = useLocation();
   const parametros = useMemo(() => new URLSearchParams(busca), [busca]);
 
   const unidade = parametros.get("unidade") ?? "";
   const transportadora = parametros.get("transportadora") ?? "";
-  const tipoDeOperacao = parametros.get("tipoDeOperacao") ?? "";
+  /*
+    O tipo é o do **ambiente**, e a URL só pode confirmá-lo ou trazer o
+    `NAO_INFORMADO` do backfill: um endereço colado do outro fechamento —
+    ou guardado de antes de os dois existirem — pediria aqui a conta da outra
+    operação, e a tela a mostraria com o nome deste ambiente no topo. Ver
+    `tipoDaLeitura`.
+  */
+  const tipoDeOperacao = tipoDaLeitura(
+    parametros.get("tipoDeOperacao") ?? "",
+    operacao,
+  );
   const ano = Number(parametros.get("ano") ?? ANOS_DO_FECHAMENTO[0]);
   const mes = Number(parametros.get("mes") ?? new Date().getMonth() + 1);
   const recorte = (parametros.get("ver") ?? "consolidado") as Recorte;

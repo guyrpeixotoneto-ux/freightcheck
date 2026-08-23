@@ -472,16 +472,62 @@ export async function informarTipoDeOperacao(
   return comoRegistrada(linha);
 }
 
-/** Todas as competências, da mais recente para a mais antiga. */
-export async function listarCompetencias(db: Database): Promise<CompetenciaRegistrada[]> {
-  const linhas = await db
-    .select()
-    .from(fechamentoCompetenciaTable)
-    .orderBy(
-      desc(fechamentoCompetenciaTable.ano),
-      desc(fechamentoCompetenciaTable.mes),
-      desc(fechamentoCompetenciaTable.quinzena),
-    );
+/**
+ * O recorte de operação de uma leitura de lista — o ambiente que está perguntando.
+ *
+ * O produto tem dois fechamentos, Rota e Empurrada, e eles são **dois acervos**:
+ * o que se abre, se apura e se exclui num não existe no outro. Enquanto as
+ * listas respondiam a base inteira, os dois ambientes mostravam as mesmas
+ * competências e excluir uma na Empurrada a fazia sumir do Rota — a mesma linha,
+ * vista duas vezes, apagada uma vez só. A separação já estava na chave desde a
+ * `0046`; o que faltava era a leitura respeitá-la.
+ *
+ * **`NAO_INFORMADO` aparece nos dois, e isto é deliberado.** A `0046` recusou-se
+ * a adivinhar a operação das competências abertas antes dela, e uma leitura que
+ * só trouxesse o tipo pedido deixaria esse acervo inteiro sem endereço — sem
+ * lista, portanto sem a tela onde se informa o tipo que falta. Ele não é do Rota
+ * nem da Empurrada: é o que ainda não disse de qual é, e a tela o mostra assim,
+ * para que alguém o resolva.
+ */
+export interface RecorteDaOperacao {
+  /** `EMPURRADA`, `ROTA` — ausente lê o acervo inteiro, como antes. */
+  tipoDeOperacao?: string | null;
+}
+
+/**
+ * Os tipos que o recorte alcança: o pedido e o carimbo do backfill.
+ *
+ * Devolve `null` quando não há recorte — e aí a consulta não filtra nada, que é
+ * o comportamento das leituras internas (CLIs, provas) e o de quem pergunta
+ * pelo acervo todo.
+ */
+function tiposDoRecorte(recorte?: RecorteDaOperacao): string[] | null {
+  const pedido = recorte?.tipoDeOperacao?.trim().toUpperCase();
+  if (!pedido) return null;
+  /*
+    Quem pede o carimbo pede **só** o carimbo: é a leitura de quem foi procurar
+    o que ainda não disse de qual operação é, e devolver o acervo inteiro aí
+    seria responder outra pergunta.
+  */
+  if (pedido === TIPO_NAO_INFORMADO) return [TIPO_NAO_INFORMADO];
+  return [pedido, TIPO_NAO_INFORMADO];
+}
+
+/** Todas as competências da operação pedida, da mais recente para a mais antiga. */
+export async function listarCompetencias(
+  db: Database,
+  recorte?: RecorteDaOperacao,
+): Promise<CompetenciaRegistrada[]> {
+  const tipos = tiposDoRecorte(recorte);
+  const consulta = db.select().from(fechamentoCompetenciaTable);
+  const linhas = await (tipos
+    ? consulta.where(inArray(fechamentoCompetenciaTable.tipoDeOperacao, tipos))
+    : consulta
+  ).orderBy(
+    desc(fechamentoCompetenciaTable.ano),
+    desc(fechamentoCompetenciaTable.mes),
+    desc(fechamentoCompetenciaTable.quinzena),
+  );
   return linhas.map(comoRegistrada);
 }
 
@@ -2216,8 +2262,11 @@ export interface ResumoDeApuracao {
  * as linhas uma pela outra e as somas sairiam infladas. Agregar cada lado no
  * banco e cruzar por `id` na memória é a forma que não tem esse erro.
  */
-export async function listarApuracoes(db: Database): Promise<ResumoDeApuracao[]> {
-  const competencias = await listarCompetencias(db);
+export async function listarApuracoes(
+  db: Database,
+  recorte?: RecorteDaOperacao,
+): Promise<ResumoDeApuracao[]> {
+  const competencias = await listarCompetencias(db, recorte);
   if (competencias.length === 0) return [];
 
   const [documentos, apuracoes, questoes] = await Promise.all([

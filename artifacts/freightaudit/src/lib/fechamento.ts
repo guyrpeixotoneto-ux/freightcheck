@@ -144,6 +144,40 @@ export const TIPOS_PARA_LER: { valor: string; rotulo: string }[] = [
 ];
 
 /**
+ * Os tipos que uma tela de leitura oferece **dentro de um ambiente**.
+ *
+ * São dois: a operação do fechamento aberto e o `NAO_INFORMADO` do backfill.
+ * O terceiro — a operação do outro fechamento — não é escolha desta tela: o
+ * Fechamento Rota responde pela conta da rota, e oferecer a da empurrada num
+ * seletor era deixar o ambiente ser desmentido por um dropdown. Quem quer o
+ * outro troca de ambiente no topo, que é onde essa escolha mora.
+ *
+ * `NAO_INFORMADO` fica nos dois pela razão de sempre: ele não é de nenhum dos
+ * dois, e sem ele o acervo anterior à `0046` não teria endereço em tela nenhuma.
+ */
+export function tiposParaLerNoAmbiente(
+  operacao: string,
+): { valor: string; rotulo: string }[] {
+  return TIPOS_PARA_LER.filter(
+    (t) => t.valor === operacao || t.valor === TIPO_NAO_INFORMADO,
+  );
+}
+
+/**
+ * O tipo que uma tela de leitura deve usar, dado o que veio na URL.
+ *
+ * Um endereço colado de outro ambiente — ou guardado de antes desta separação —
+ * traz o tipo do outro fechamento na consulta, e obedecê-lo faria o Fechamento
+ * Rota mostrar a conta da empurrada com a lateral e o topo dizendo "Rota". A
+ * regra é: o que este ambiente alcança, vale; o que não alcança vira a operação
+ * do ambiente, que é a resposta certa para "o mês deste fechamento".
+ */
+export function tipoDaLeitura(bruto: string, operacao: string): string {
+  const pedido = bruto.trim().toUpperCase();
+  return pedido === TIPO_NAO_INFORMADO || pedido === operacao ? pedido : operacao;
+}
+
+/**
  * O tipo como a tela o escreve.
  *
  * `NAO_INFORMADO` aparece por extenso, e não escondido: a linha que não diz de
@@ -152,6 +186,21 @@ export const TIPOS_PARA_LER: { valor: string; rotulo: string }[] = [
  */
 export function rotuloDoTipo(tipo: string): string {
   return TIPOS_PARA_LER.find((t) => t.valor === tipo)?.rotulo ?? tipo;
+}
+
+/**
+ * A frase que explica um tipo de operação — a mesma nos dois lugares que a dizem.
+ *
+ * O formulário de Importações a mostrava a partir de `TIPOS_DE_OPERACAO` e a
+ * escrevia à mão quando não achava; virou função quando o tipo deixou de ser um
+ * campo e passou a ser o ambiente aberto, para que a linha que **afirma** a
+ * operação e a lista que a **oferecia** não digam coisas diferentes sobre ela.
+ */
+export function explicacaoDoTipo(tipo: string): string {
+  return (
+    TIPOS_DE_OPERACAO.find((t) => t.valor === tipo)?.explicacao ??
+    "EMPURRADA e ROTA são fechamentos separados na mesma quinzena."
+  );
 }
 
 /** Os dois lados de um fechamento: o CDD que recebe e quem entrega. */
@@ -519,8 +568,36 @@ export function fontesParaEnviar(
   );
 }
 
-export function listarCompetencias(): Promise<Competencia[]> {
-  return fetchJson<Competencia[]>("/fechamento/competencias");
+/**
+ * As competências de uma operação — as do ambiente que está perguntando.
+ *
+ * `tipoDeOperacao` não é filtro de conveniência: é o recorte que faz o
+ * Fechamento Rota e o Fechamento Empurrada serem dois acervos e não o mesmo
+ * acervo com dois nomes. Sem ele a rota devolve tudo, e foi assim que excluir
+ * uma importação na Empurrada a fazia sumir do Rota — a lista mostrava, nos dois
+ * ambientes, as mesmas linhas.
+ *
+ * O servidor devolve junto as competências ainda **sem operação declarada**
+ * (`NAO_INFORMADO`, o carimbo do backfill da `0046`), e isso vale nos dois
+ * ambientes de propósito: elas não são de nenhum dos dois até alguém dizer de
+ * qual são, e escondê-las tiraria delas a única tela onde essa resposta se dá.
+ */
+export function listarCompetencias(tipoDeOperacao?: string): Promise<Competencia[]> {
+  return fetchJson<Competencia[]>(enderecoDaLista("/fechamento/competencias", tipoDeOperacao));
+}
+
+/**
+ * O endereço de uma lista do fechamento, com o recorte da operação quando há um.
+ *
+ * Uma função só para as duas listas porque o recorte é o mesmo e o parâmetro
+ * precisa ser escrito com o mesmo nome nas duas: um `tipo` aqui e um
+ * `tipoDeOperacao` ali seria uma das telas voltando a ver o acervo inteiro, em
+ * silêncio.
+ */
+export function enderecoDaLista(caminho: string, tipoDeOperacao?: string): string {
+  return tipoDeOperacao
+    ? `${caminho}?${new URLSearchParams({ tipoDeOperacao }).toString()}`
+    : caminho;
 }
 
 /**
@@ -546,8 +623,9 @@ export interface ResumoDeApuracao {
   } | null;
 }
 
-export function listarApuracoes(): Promise<ResumoDeApuracao[]> {
-  return fetchJson<ResumoDeApuracao[]>("/fechamento/apuracoes");
+/** As apurações da operação pedida — o mesmo recorte de {@link listarCompetencias}. */
+export function listarApuracoes(tipoDeOperacao?: string): Promise<ResumoDeApuracao[]> {
+  return fetchJson<ResumoDeApuracao[]>(enderecoDaLista("/fechamento/apuracoes", tipoDeOperacao));
 }
 
 export function lerCompetencia(id: string): Promise<CompetenciaAberta> {

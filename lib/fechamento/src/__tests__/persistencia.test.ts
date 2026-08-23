@@ -316,6 +316,71 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
       });
       expect(comCompetencia(deRota)).toEqual([2]);
     });
+
+    /*
+      E as **listas** também são de uma operação — o defeito que se via na tela.
+
+      Enquanto elas respondiam o acervo inteiro, o Fechamento Rota e o
+      Fechamento Empurrada mostravam as mesmas competências: a mesma linha vista
+      nos dois ambientes, e apagada dos dois quando alguém a excluía de um. O
+      recorte já estava na chave desde a `0046`; o que faltava era a leitura
+      respeitá-la.
+    */
+    it("a lista de uma operação não alcança a competência da outra", async () => {
+      const empurrada = await abrirCompetencia(db, {
+        ano: 2028, mes: 1, quinzena: 1, unidade, transportadora, tipoDeOperacao: "EMPURRADA",
+      });
+      const rota = await abrirCompetencia(db, {
+        ano: 2028, mes: 1, quinzena: 1, unidade, transportadora, tipoDeOperacao: "ROTA",
+      });
+
+      const daRota = await listarCompetencias(db, { tipoDeOperacao: "ROTA" });
+      const idsDaRota = daRota.map((c) => c.id);
+      expect(idsDaRota).toContain(rota.id);
+      expect(idsDaRota).not.toContain(empurrada.id);
+
+      /* E o inverso, para que o caso não passe por uma lista vazia. */
+      const daEmpurrada = await listarCompetencias(db, { tipoDeOperacao: "EMPURRADA" });
+      const idsDaEmpurrada = daEmpurrada.map((c) => c.id);
+      expect(idsDaEmpurrada).toContain(empurrada.id);
+      expect(idsDaEmpurrada).not.toContain(rota.id);
+
+      /* A tela de Apurações lê a mesma separação, pela mesma função. */
+      const apuradas = await listarApuracoes(db, { tipoDeOperacao: "ROTA" });
+      const idsApurados = apuradas.map((r) => r.competencia.id);
+      expect(idsApurados).toContain(rota.id);
+      expect(idsApurados).not.toContain(empurrada.id);
+
+      /* Sem recorte, o acervo inteiro — o contrato de quem lê por fora da tela. */
+      const todas = (await listarCompetencias(db)).map((c) => c.id);
+      expect(todas).toEqual(expect.arrayContaining([rota.id, empurrada.id]));
+    });
+
+    /*
+      O carimbo do backfill aparece nos **dois** ambientes, e é deliberado: a
+      `0046` recusou-se a adivinhar de qual operação eram as competências
+      abertas antes dela, e uma lista que só trouxesse o tipo pedido as
+      esconderia das duas telas — inclusive daquela onde se informa o tipo que
+      falta.
+    */
+    it("a competência sem tipo declarado aparece nas duas listas", async () => {
+      const semTipo = await abrirCompetencia(db, {
+        ano: 2028, mes: 2, quinzena: 1, unidade, transportadora, tipoDeOperacao: "EMPURRADA",
+      });
+      await db
+        .update(fechamentoCompetenciaTable)
+        .set({ tipoDeOperacao: "NAO_INFORMADO" })
+        .where(eq(fechamentoCompetenciaTable.id, semTipo.id));
+
+      for (const tipo of ["ROTA", "EMPURRADA"]) {
+        const lista = await listarCompetencias(db, { tipoDeOperacao: tipo });
+        expect(lista.map((c) => c.id), `lista de ${tipo}`).toContain(semTipo.id);
+        /* E nada além da operação pedida e do carimbo. */
+        expect(new Set(lista.map((c) => c.tipoDeOperacao))).toEqual(
+          new Set([tipo, "NAO_INFORMADO"]),
+        );
+      }
+    });
   });
 
   /*

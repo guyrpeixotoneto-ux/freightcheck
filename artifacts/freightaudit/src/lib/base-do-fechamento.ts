@@ -1,5 +1,5 @@
 import { useLocation } from "wouter";
-import { baseDoFechamento } from "@/lib/ambiente";
+import { baseDoFechamento, operacaoDoFechamento } from "@/lib/ambiente";
 
 /**
  * A base de endereço do fechamento aberto — o atalho que as telas usam.
@@ -18,4 +18,18 @@ import { baseDoFechamento } from "@/lib/ambiente";
 export function useBaseDoFechamento(): string {
   const [location] = useLocation();
   return baseDoFechamento(location);
+}
+
+/**
+ * A operação do fechamento aberto — o recorte de todas as leituras de lista.
+ *
+ * O par de {@link useBaseDoFechamento}: aquele diz para onde os links vão, este
+ * diz de qual acervo a tela fala. Uma lista pedida sem ele traz o Fechamento
+ * inteiro, e aí o Rota mostra as competências da Empurrada — a mesma linha em
+ * dois lugares, que some dos dois quando alguém a exclui de um. Ver
+ * `OPERACAO_DO_AMBIENTE`, em `lib/ambiente.ts`.
+ */
+export function useOperacaoDoFechamento(): string {
+  const [location] = useLocation();
+  return operacaoDoFechamento(location);
 }
