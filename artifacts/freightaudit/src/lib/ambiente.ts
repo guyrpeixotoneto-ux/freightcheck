@@ -117,6 +117,55 @@ export const BASES_DE_FECHAMENTO: Record<AmbienteDeFechamento, string> = {
 /** A base do ambiente aberto quando não se está em fechamento nenhum. */
 export const BASE_PADRAO_DE_FECHAMENTO = BASES_DE_FECHAMENTO["fechamento-rota"];
 
+/**
+ * A operação de cada fechamento — o recorte que separa os dois acervos.
+ *
+ * O tipo de operação entra na chave da competência desde a `0046`
+ * (`lib/db/migrations/0046_tipo_de_operacao.sql`): a mesma unidade, com a mesma
+ * transportadora, na mesma quinzena, fecha EMPURRADA e ROTA como **dois**
+ * fechamentos, cada um com a sua planilha, os seus relatórios e a sua conta.
+ * Este mapa é o que liga aquele eixo do banco a este eixo da tela.
+ *
+ * **Sem ele os dois ambientes eram o mesmo acervo com dois nomes.** As listas
+ * pediam o Fechamento inteiro, então o Rota mostrava as competências da
+ * Empurrada e vice-versa — e excluir uma importação num ambiente a apagava do
+ * outro, que é a mesma linha vista duas vezes e apagada uma vez só. O que muda
+ * entre Rota e Empurrada nunca foi só o endereço: é de qual operação é a conta.
+ *
+ * A Administração é a exceção conhecida, e continua sendo: unidades,
+ * transportadoras e usuários valem para o produto inteiro, e é por isso que elas
+ * vivem fora dos prefixos de fechamento.
+ */
+export const OPERACAO_DO_AMBIENTE: Record<AmbienteDeFechamento, string> = {
+  "fechamento-rota": "ROTA",
+  "fechamento-empurrada": "EMPURRADA",
+};
+
+/**
+ * A operação do fechamento aberto nesta localização.
+ *
+ * Fora dos fechamentos devolve a do Rota, pela mesma razão de
+ * {@link baseDoFechamento}: quem chama isto é tela de fechamento, e tela de
+ * fechamento só existe sob uma das bases.
+ */
+export function operacaoDoFechamento(location: string): string {
+  const id = ambienteDe(location);
+  return ehFechamento(id)
+    ? OPERACAO_DO_AMBIENTE[id]
+    : OPERACAO_DO_AMBIENTE["fechamento-rota"];
+}
+
+/** O ambiente em que uma operação é fechada — o caminho de volta do mapa acima. */
+export function ambienteDaOperacao(
+  tipoDeOperacao: string,
+): AmbienteDeFechamento | null {
+  const alvo = tipoDeOperacao.trim().toUpperCase();
+  const achado = Object.entries(OPERACAO_DO_AMBIENTE).find(
+    ([, operacao]) => operacao === alvo,
+  );
+  return achado ? (achado[0] as AmbienteDeFechamento) : null;
+}
+
 export const AMBIENTES: DescricaoDeAmbiente[] = [
   {
     id: "auditoria",
@@ -184,6 +233,32 @@ export function ehFechamento(id: Ambiente): id is AmbienteDeFechamento {
 export function baseDoFechamento(location: string): string {
   const id = ambienteDe(location);
   return ehFechamento(id) ? BASES_DE_FECHAMENTO[id] : BASE_PADRAO_DE_FECHAMENTO;
+}
+
+/**
+ * A base de endereço do fechamento que trata de uma operação.
+ *
+ * É o que permite oferecer "abrir no outro ambiente" sem escrever `/fechamento`
+ * à mão: a tela sabe de qual operação é a competência e pergunta por onde se
+ * chega nela. Operação sem ambiente cai na base padrão, que é o que já vale em
+ * {@link baseDoFechamento}.
+ */
+export function baseDaOperacao(tipoDeOperacao: string): string {
+  const id = ambienteDaOperacao(tipoDeOperacao);
+  return id ? BASES_DE_FECHAMENTO[id] : BASE_PADRAO_DE_FECHAMENTO;
+}
+
+/**
+ * O nome do fechamento que trata de uma operação — "Fechamento Rota", e não "ROTA".
+ *
+ * É como a tela chama o ambiente no seletor do topo, e é o nome que a pessoa
+ * reconhece. Uma operação sem ambiente (o `NAO_INFORMADO` do backfill, ou um
+ * tipo que ainda não tem tela) volta com o rótulo cru, que é o mais honesto que
+ * se pode dizer dela.
+ */
+export function nomeDoFechamentoDa(tipoDeOperacao: string): string {
+  const id = ambienteDaOperacao(tipoDeOperacao);
+  return id ? descricaoDoAmbiente(id).nome : tipoDeOperacao;
 }
 
 export function descricaoDoAmbiente(id: Ambiente): DescricaoDeAmbiente {

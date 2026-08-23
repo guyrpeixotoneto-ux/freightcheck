@@ -45,11 +45,46 @@ divergiriam no primeiro item acrescentado a uma e esquecido na outra, e é
 essa divergência que os testes de simetria em
 `components/layout/__tests__/sidebar.test.ts` guardam.
 
-**O que ainda não os separa: o dado.** As duas bases leem hoje os mesmos
-endpoints e a mesma competência — nenhum recorte por operação foi ligado. O eixo
-que existe no modelo para isso é `competencia.tipoDeOperacao`
-(EMPURRADA | ROTA), descrito mais abaixo, e é ele que o racional do Fechamento
-Empurrada vai usar quando for escrito.
+**O que os separa: o dado, pela operação.** As duas bases leem os mesmos
+endpoints, e cada uma pede o **recorte da sua operação** —
+`competencia.tipoDeOperacao` (EMPURRADA | ROTA), o quarto eixo da chave desde a
+`0046`. O mapa entre ambiente e operação é `OPERACAO_DO_AMBIENTE`, em
+`lib/ambiente.ts`; nas telas ele chega por `useOperacaoDoFechamento()`, irmão de
+`useBaseDoFechamento()` — um diz para onde os links vão, o outro de qual acervo
+a tela fala.
+
+Onde isso vale hoje:
+
+- `GET /fechamento/competencias` e `GET /fechamento/apuracoes` aceitam
+  `?tipoDeOperacao=`, e as telas de Importações, Apurações, Visão Gerencial e
+  unidade o mandam sempre. Sem o parâmetro a resposta continua sendo o acervo
+  inteiro — é o contrato de quem lê o Fechamento por fora da tela (CLIs, provas).
+- A operação entra na `queryKey` de cada consulta, e não só na chamada: sem
+  isso a resposta guardada de um ambiente serviria o outro na troca.
+- Importações **abre** na operação do ambiente: o campo Tipo saiu do formulário,
+  porque a porta já respondeu o que ele perguntava — e deixava responder o
+  contrário.
+- Resumo geral e Conciliação leem a operação do ambiente; um endereço colado do
+  outro fechamento não faz a tela mostrar a conta de lá (`tipoDaLeitura`).
+- A tela de uma competência de outra operação não abre no ambiente errado:
+  mostra de qual fechamento ela é e o link para abri-la lá.
+- O cadastro de Remuneração lista a operação do ambiente, e a etiqueta de filtro
+  "Operação" deixou de existir — ela era um clique de volta ao acervo do outro.
+
+**Por que isto não é conveniência de tela.** Enquanto as listas respondiam o
+acervo inteiro, os dois ambientes mostravam as mesmas competências, e **excluir
+uma importação na Empurrada a apagava do Rota** — a mesma linha vista duas
+vezes, apagada uma vez só. A separação já estava na chave; o que faltava era a
+leitura respeitá-la.
+
+**O que continua valendo para o produto inteiro:** a Administração — unidades,
+transportadoras, usuários, papéis. Ela vive fora dos prefixos de fechamento
+justamente porque é a exceção: identidade de unidade é uma só, e duplicá-la por
+operação criaria dois cadastros da mesma empresa.
+
+O `NAO_INFORMADO` do backfill da `0046` aparece nos **dois** ambientes, e é
+deliberado: ele não é de nenhum dos dois até alguém dizer de qual é, e
+escondê-lo tiraria dele a única tela onde essa resposta se dá.
 
 ## A regra que separa os ambientes
 

@@ -3,7 +3,10 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { ArrowRight, ChevronRight, Lock } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
-import { useBaseDoFechamento } from "@/lib/base-do-fechamento";
+import {
+  useBaseDoFechamento,
+  useOperacaoDoFechamento,
+} from "@/lib/base-do-fechamento";
 import { ContaApurada } from "@/components/fechamento/conta-apurada";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Filtro, TUDO } from "@/components/fechamento/filtro";
@@ -284,6 +287,7 @@ function SemApuracao({ competenciaId }: { competenciaId: string }) {
 
 export default function Apuracoes() {
   const base = useBaseDoFechamento();
+  const operacao = useOperacaoDoFechamento();
   const [quinzena, setQuinzena] = useState(TUDO);
   const [unidade, setUnidade] = useState(TUDO);
   const [transportadora, setTransportadora] = useState(TUDO);
@@ -291,9 +295,16 @@ export default function Apuracoes() {
   /* As competências com a conta aberta — ver `alternarUma` e `alternarGrupo`. */
   const [abertas, setAbertas] = useState<ReadonlySet<string>>(() => new Set());
 
+  /*
+    A lista é a da **operação deste ambiente**, e não a do Fechamento inteiro:
+    Rota e Empurrada são dois acervos, e uma lista sem recorte mostra as
+    competências dos dois em qualquer um deles. A operação entra também na
+    `queryKey` — sem isso a resposta de um ambiente ficaria em cache servindo o
+    outro, que é o mesmo vazamento por outro caminho.
+  */
   const apuracoes = useQuery({
-    queryKey: ["fechamento", "apuracoes"],
-    queryFn: listarApuracoes,
+    queryKey: ["fechamento", "apuracoes", operacao],
+    queryFn: () => listarApuracoes(operacao),
   });
   const fontes = useQuery({
     queryKey: ["fechamento", "fontes"],

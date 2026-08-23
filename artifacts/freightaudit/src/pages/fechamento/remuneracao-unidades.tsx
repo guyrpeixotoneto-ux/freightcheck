@@ -8,8 +8,12 @@ import { BotaoDeCadastroDaPlanilha } from "@/components/remuneracao/painel-de-ca
 import { BotaoDeRegistroDeUnidade } from "@/components/remuneracao/registrar-unidade";
 import { VistaDeUmaQuinzena } from "@/components/remuneracao/uma-quinzena";
 import { Filtro, TUDO } from "@/components/fechamento/filtro";
+import { rotuloDoTipo } from "@/lib/fechamento";
 import { Layout } from "@/components/layout/layout";
-import { useBaseDoFechamento } from "@/lib/base-do-fechamento";
+import {
+  useBaseDoFechamento,
+  useOperacaoDoFechamento,
+} from "@/lib/base-do-fechamento";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { apresentar } from "@/lib/apresentar-erro";
@@ -656,12 +660,21 @@ function CadastroDaLinha({ unidade }: { unidade: SituacaoDaUnidade }) {
 
 export default function RemuneracaoUnidades() {
   const base = useBaseDoFechamento();
+  /*
+    O cadastro que este ambiente mostra é o **da operação dele**.
+
+    A planilha de remuneração é por operação — o canal da vigência
+    (`EMPURRADA_1_8_2026`) é o mesmo eixo do tipo da competência —, e é contra
+    ela que o fechamento apura. Uma lista sem recorte punha o cadastro de ROTA
+    dentro do Fechamento Empurrada e vice-versa, com a lixeira de cada linha ao
+    lado: apagar no ambiente errado o que era do outro.
+  */
+  const operacaoDoAmbiente = useOperacaoDoFechamento();
   const busca = useSearch();
   const [, navegar] = useLocation();
 
   const [vigencia, setVigencia] = useState(TUDO);
   const [nome, setNome] = useState(TUDO);
-  const [operacao, setOperacao] = useState(TUDO);
   const [estado, setEstado] = useState(TUDO);
   /* As unidades com o cadastro aberto — ver `lib/linhas-abertas.ts`. */
   const [abertas, setAbertas] = useState<ReadonlySet<string>>(() => new Set());
@@ -707,9 +720,21 @@ export default function RemuneracaoUnidades() {
     enabled: !encaminhando,
   });
 
+  /*
+    A lista, já recortada pela operação do ambiente. O recorte é aqui e não num
+    filtro porque não é escolha de quem lê: quem quer o cadastro da outra
+    operação troca de ambiente no topo.
+
+    A série **sem canal** entra nos dois, pela mesma razão do `NAO_INFORMADO`
+    das competências: ela não diz de qual operação é, e escondê-la a deixaria
+    sem tela em ambiente nenhum.
+  */
   const cadastros = useMemo(
-    () => situacao.data?.cadastros ?? [],
-    [situacao.data],
+    () =>
+      (situacao.data?.cadastros ?? []).filter(
+        (c) => !c.channel || c.channel === operacaoDoAmbiente,
+      ),
+    [situacao.data, operacaoDoAmbiente],
   );
 
   /*
@@ -729,13 +754,14 @@ export default function RemuneracaoUnidades() {
   */
   const canaisConhecidos = useMemo(
     () => [
-      ...new Set(
-        cadastros
+      ...new Set([
+        operacaoDoAmbiente,
+        ...cadastros
           .map((c) => c.channel)
           .filter((c): c is string => c !== null && c !== ""),
-      ),
+      ]),
     ],
-    [cadastros],
+    [cadastros, operacaoDoAmbiente],
   );
 
   /*
@@ -789,7 +815,6 @@ export default function RemuneracaoUnidades() {
   const opcoes = useMemo(() => {
     const vigencias = new Map<string, string>();
     const nomes = new Set<string>();
-    const operacoes = new Set<string>();
     const presentes = new Set<EstadoDoCadastro>();
     for (const u of cadastros) {
       vigencias.set(
@@ -797,7 +822,6 @@ export default function RemuneracaoUnidades() {
         mesPorExtenso(u.effectiveDate),
       );
       nomes.add(nomeDaUnidade(u));
-      if (u.channel) operacoes.add(u.channel);
       presentes.add(u.cadastro.estado);
     }
     const emOrdem = (s: Set<string>) =>
@@ -810,7 +834,6 @@ export default function RemuneracaoUnidades() {
         .sort(([a], [b]) => b.localeCompare(a))
         .map(([valor, rotulo]) => ({ valor, rotulo })),
       nomes: emOrdem(nomes),
-      operacoes: emOrdem(operacoes),
       /* Na ordem dos estados, e não na ordem em que apareceram na lista. */
       estados: ESTADOS.filter((e) => presentes.has(e)).map((e) => ({
         valor: e,
@@ -826,12 +849,11 @@ export default function RemuneracaoUnidades() {
           if (vigencia !== TUDO && u.effectiveDate.slice(0, 7) !== vigencia)
             return false;
           if (nome !== TUDO && nomeDaUnidade(u) !== nome) return false;
-          if (operacao !== TUDO && (u.channel ?? "") !== operacao) return false;
           if (estado !== TUDO && u.cadastro.estado !== estado) return false;
           return true;
         }),
       ),
-    [cadastros, vigencia, nome, operacao, estado],
+    [cadastros, vigencia, nome, estado],
   );
 
   const abertoNoGrupo = (grupo: Grupo) =>
@@ -864,7 +886,7 @@ export default function RemuneracaoUnidades() {
       return proximo;
     });
   };
-  const filtrando = [vigencia, nome, operacao, estado].some((v) => v !== TUDO);
+  const filtrando = [vigencia, nome, estado].some((v) => v !== TUDO);
 
   /**
    * Dá para dizer que uma quinzena está vazia com este recorte?
@@ -946,19 +968,11 @@ export default function RemuneracaoUnidades() {
             tudo="todas"
           />
           {/*
-            A operação só aparece onde existe: um acervo em que nenhuma série
-            traz canal ofereceria uma etiqueta que abre vazia, e uma etiqueta
-            sem opção nenhuma é um controle quebrado.
+            A etiqueta "Operação" saiu daqui: a operação deixou de ser recorte e
+            virou o ambiente. Um filtro que oferecesse "todas" traria de volta,
+            num clique, o cadastro do outro fechamento — que é justamente o que
+            o recorte da lista existe para não mostrar.
           */}
-          {opcoes.operacoes.length > 0 && (
-            <Filtro
-              rotulo="Operação"
-              valor={operacao}
-              aoTrocar={setOperacao}
-              opcoes={opcoes.operacoes}
-              tudo="todas"
-            />
-          )}
           <Filtro
             rotulo="Cadastro"
             valor={estado}
@@ -983,7 +997,11 @@ export default function RemuneracaoUnidades() {
         {!situacao.isLoading && !situacao.isError && cadastros.length === 0 && (
           <div className="rounded-lg border bg-card p-8 text-sm text-muted-foreground max-w-2xl space-y-3">
             <p>
-              Nenhuma unidade ainda. Há dois caminhos, e eles não se substituem:
+              Nenhuma unidade com cadastro de{" "}
+              <strong>{rotuloDoTipo(operacaoDoAmbiente)}</strong> ainda — o
+              cadastro da outra operação vive no outro fechamento, que se troca
+              no topo. Há dois caminhos para pôr uma aqui, e eles não se
+              substituem:
               a primeira planilha enviada em{" "}
               <Link
                 href="/importacoes"

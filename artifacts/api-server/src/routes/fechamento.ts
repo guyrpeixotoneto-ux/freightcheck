@@ -104,6 +104,18 @@ const router: IRouter = Router();
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/**
+ * O tipo de operação que a consulta pediu — o ambiente que está do outro lado.
+ *
+ * Texto só, e em caixa alta: `?tipoDeOperacao=rota` e `?tipoDeOperacao=ROTA` são
+ * o mesmo pedido, e um array (`?tipoDeOperacao=a&tipoDeOperacao=b`) não é pedido
+ * nenhum — vira ausência, que é ler o acervo inteiro. Quem valida o valor é a
+ * persistência; aqui só se lê a consulta.
+ */
+function recorteDaOperacao(bruto: unknown): string | null {
+  return typeof bruto === "string" && bruto.trim() !== "" ? bruto.trim().toUpperCase() : null;
+}
+
 /*
  * As extensões que cada fonte admite moram em `@workspace/fechamento`
  * (`FORMATOS_DA_FONTE`), junto do resto do vocabulário das fontes, e não aqui:
@@ -159,8 +171,21 @@ router.get("/fechamento/lados", (_req, res): void => {
   res.json(LADOS_DA_CONFERENCIA);
 });
 
-router.get("/fechamento/competencias", async (_req, res): Promise<void> => {
-  res.json(await listarCompetencias(db));
+/**
+ * A lista de competências **do ambiente que perguntou**.
+ *
+ * `?tipoDeOperacao=ROTA` responde o acervo do Fechamento Rota; `EMPURRADA`, o da
+ * Empurrada. Sem o parâmetro a resposta é o acervo inteiro — é o contrato antigo,
+ * e ele fica para quem lê o Fechamento por fora da tela (CLIs, provas).
+ *
+ * **Por que o recorte é do cliente e não da sessão.** O ambiente aberto é o
+ * endereço da tela (`lib/ambiente.ts`, na interface) e nada mais: não há estado
+ * de ambiente no servidor, e inventar um aqui criaria a segunda fonte da verdade
+ * que aquele arquivo existe para não ter. Quem está sob `/fechamento-empurrada`
+ * pergunta pela Empurrada porque a URL dele diz isso.
+ */
+router.get("/fechamento/competencias", async (req, res): Promise<void> => {
+  res.json(await listarCompetencias(db, { tipoDeOperacao: recorteDaOperacao(req.query.tipoDeOperacao) }));
 });
 
 /**
@@ -172,8 +197,8 @@ router.get("/fechamento/competencias", async (_req, res): Promise<void> => {
  * cabe numa linha de lista. Ver `listarApuracoes` para por que a soma acontece
  * aqui e não no navegador.
  */
-router.get("/fechamento/apuracoes", async (_req, res): Promise<void> => {
-  res.json(await listarApuracoes(db));
+router.get("/fechamento/apuracoes", async (req, res): Promise<void> => {
+  res.json(await listarApuracoes(db, { tipoDeOperacao: recorteDaOperacao(req.query.tipoDeOperacao) }));
 });
 
 /**

@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  enderecoDaLista,
   rotuloDoTipo,
+  tipoDaLeitura,
+  tiposParaLerNoAmbiente,
   TIPO_NAO_INFORMADO,
   TIPOS_DE_OPERACAO,
   TIPOS_PARA_LER,
@@ -56,5 +59,69 @@ describe("rotuloDoTipo", () => {
 
   it("devolve o valor cru para um tipo que ainda não tem rótulo, sem inventar um", () => {
     expect(rotuloDoTipo("TRANSFERENCIA")).toBe("TRANSFERENCIA");
+  });
+});
+
+/**
+ * O terceiro recorte de Tipo: o que uma tela de **leitura** oferece dentro de um
+ * ambiente.
+ *
+ * Rota e Empurrada são dois fechamentos, e o seletor que oferecia os dois tipos
+ * em qualquer um deles deixava a tela desmentir a porta pela qual a pessoa
+ * entrou — o Fechamento Rota mostrando a conta da empurrada, com "Fechamento
+ * Rota" escrito no topo.
+ */
+describe("os tipos de leitura dentro de um ambiente", () => {
+  it("oferece a operação do ambiente e o carimbo do backfill — nada mais", () => {
+    expect(tiposParaLerNoAmbiente("ROTA").map((t) => t.valor)).toEqual([
+      "ROTA",
+      TIPO_NAO_INFORMADO,
+    ]);
+    expect(tiposParaLerNoAmbiente("EMPURRADA").map((t) => t.valor)).toEqual([
+      "EMPURRADA",
+      TIPO_NAO_INFORMADO,
+    ]);
+  });
+
+  it("nunca oferece a operação do outro fechamento", () => {
+    expect(tiposParaLerNoAmbiente("ROTA").some((t) => t.valor === "EMPURRADA")).toBe(
+      false,
+    );
+  });
+});
+
+describe("tipoDaLeitura", () => {
+  it("aceita o que o ambiente alcança", () => {
+    expect(tipoDaLeitura("ROTA", "ROTA")).toBe("ROTA");
+    expect(tipoDaLeitura(TIPO_NAO_INFORMADO, "ROTA")).toBe(TIPO_NAO_INFORMADO);
+  });
+
+  /*
+    A regressão que este caso prende: um endereço colado do outro fechamento —
+    ou guardado de antes de os dois existirem — traz o tipo do outro na
+    consulta. Obedecê-lo faria a tela ler a conta da outra operação sem nada
+    dizer que ela é de lá.
+  */
+  it("um endereço do outro fechamento não muda a operação desta tela", () => {
+    expect(tipoDaLeitura("EMPURRADA", "ROTA")).toBe("ROTA");
+    expect(tipoDaLeitura("ROTA", "EMPURRADA")).toBe("EMPURRADA");
+  });
+
+  it("sem tipo na URL, vale a operação do ambiente", () => {
+    expect(tipoDaLeitura("", "EMPURRADA")).toBe("EMPURRADA");
+    expect(tipoDaLeitura(" rota ", "ROTA")).toBe("ROTA");
+  });
+});
+
+describe("enderecoDaLista", () => {
+  it("leva o recorte na consulta quando há um", () => {
+    expect(enderecoDaLista("/fechamento/competencias", "ROTA")).toBe(
+      "/fechamento/competencias?tipoDeOperacao=ROTA",
+    );
+  });
+
+  it("sem recorte, é a rota nua — o contrato de quem lê o acervo inteiro", () => {
+    expect(enderecoDaLista("/fechamento/apuracoes")).toBe("/fechamento/apuracoes");
+    expect(enderecoDaLista("/fechamento/apuracoes", "")).toBe("/fechamento/apuracoes");
   });
 });

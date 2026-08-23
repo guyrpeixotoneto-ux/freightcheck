@@ -13,7 +13,11 @@ import {
 } from "lucide-react";
 import { ApiErrorNotice } from "@/components/api-error";
 import { Layout } from "@/components/layout/layout";
-import { useBaseDoFechamento } from "@/lib/base-do-fechamento";
+import {
+  useBaseDoFechamento,
+  useOperacaoDoFechamento,
+} from "@/lib/base-do-fechamento";
+import { nomeDoFechamentoDa } from "@/lib/ambiente";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -46,6 +50,7 @@ import {
   rotuloDoTipo,
   TIPO_NAO_INFORMADO,
   TIPOS_DE_OPERACAO,
+  explicacaoDoTipo,
   type Competencia,
   type Parte,
   type TipoDeParte,
@@ -294,6 +299,21 @@ export function edicaoDoTipo(
  */
 export default function Competencias() {
   const base = useBaseDoFechamento();
+  /*
+    O tipo de operação não é mais um campo: ele é **o ambiente aberto**.
+
+    Ele nasceu como um select porque a `0046` o tornou obrigatório e nada na
+    tela dizia de qual operação era a quinzena. Hoje diz: quem abre em
+    `/fechamento` abre no Fechamento Rota, quem abre em `/fechamento-empurrada`
+    abre no Fechamento Empurrada, e o campo perguntava de novo o que a porta já
+    tinha respondido. Pior: permitia responder o **contrário** — abrir uma
+    competência de ROTA estando na Empurrada —, e o que ela fizesse em seguida
+    sumiria da lista de quem a abriu, porque a lista, agora, é a da operação.
+
+    Não há estado nenhum aqui, então: a operação vem da URL, como todo o resto
+    do ambiente (`lib/ambiente.ts`).
+  */
+  const operacao = useOperacaoDoFechamento();
   const [, navegar] = useLocation();
   const cliente = useQueryClient();
   const hoje = new Date();
@@ -321,12 +341,6 @@ export default function Competencias() {
     select: (todas: UnidadeCanonica[]) => todas.filter((u) => u.id !== null),
   });
   const [transportadora, setTransportadora] = useState<Parte | null>(null);
-  /*
-    O tipo de operação — EMPURRADA, ROTA. Nasce vazio de propósito, e não com um
-    padrão: ele entra na **chave** do fechamento desde a `0046`, e um padrão
-    escolheria em silêncio de qual operação é a quinzena que alguém abriu.
-  */
-  const [tipoDeOperacao, setTipoDeOperacao] = useState("");
   /** A competência cujo painel de fechamento está aberto — uma, ou nenhuma. */
   const [fechando, setFechando] = useState<string | null>(null);
   /*
@@ -354,10 +368,24 @@ export default function Competencias() {
     entrega é o que muda o desenho: preservar a resposta anterior, distinguir
     "não respondeu" de "respondeu vazio", e oferecer a tentativa manual.
   */
+  /*
+    E ela é a lista **desta operação**, e não a do Fechamento inteiro. Rota e
+    Empurrada são dois acervos — a operação entra na chave da competência desde
+    a `0046` —, e uma lista sem recorte mostrava as duas nos dois ambientes:
+    excluir uma importação na Empurrada a fazia sumir do Rota, porque era a
+    mesma linha aparecendo duas vezes.
+
+    A operação entra também na `queryKey`, e não só na chamada: sem isso a
+    resposta guardada de um ambiente serviria o outro na troca, e o vazamento
+    voltaria pelo cache com a rota já corrigida.
+
+    O `endpoint` continua sem a query string de propósito — é a chave do
+    registro de falhas do hook, e ele quer uma por rota, não uma por recorte.
+  */
   const competencias = useConsultaResiliente<Competencia[]>({
-    queryKey: ["fechamento", "competencias"],
+    queryKey: ["fechamento", "competencias", operacao],
     endpoint: "/fechamento/competencias",
-    buscar: listarCompetencias,
+    buscar: () => listarCompetencias(operacao),
   });
   const partes = useQuery({
     queryKey: ["fechamento", "partes"],
@@ -423,7 +451,7 @@ export default function Competencias() {
           codigo: transportadora!.codigo,
           nome: transportadora!.nome ?? undefined,
         },
-        tipoDeOperacao,
+        tipoDeOperacao: operacao,
       }),
     onSuccess: (criada) => {
       void cliente.invalidateQueries({
@@ -435,11 +463,11 @@ export default function Competencias() {
   });
 
   const anoValido = anoAceito(ano);
-  const podeAbrir =
-    unidade !== null &&
-    transportadora !== null &&
-    anoValido &&
-    tipoDeOperacao !== "";
+  /*
+    O tipo saiu da conta de propósito: ele não pode faltar, porque vem da porta
+    pela qual a pessoa entrou.
+  */
+  const podeAbrir = unidade !== null && transportadora !== null && anoValido;
 
   return (
     <Layout>
@@ -583,45 +611,21 @@ export default function Competencias() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <Label htmlFor="tipo-de-operacao">Tipo</Label>
-                {/*
-                  O tipo entra na chave do fechamento, e é por isso que ele é
-                  obrigatório: a mesma unidade roda EMPURRADA e ROTA com a mesma
-                  transportadora na mesma quinzena, e são duas operações — cada
-                  uma com a sua planilha de remuneração, os seus relatórios e a
-                  sua conta. Sem o campo, a segunda abertura encontrava a
-                  primeira e devolvia o fechamento da outra operação, em
-                  silêncio, porque repetir a abertura é o caminho feliz.
-
-                  Um select fechado, e não um campo livre como os de parte: o
-                  eixo é o mesmo do rótulo da vigência, e o produto conhece os
-                  dois nomes que ele tem hoje. O dia em que aparecer um terceiro,
-                  esta lista é uma linha — e enquanto isso ela impede que
-                  "Empurrada" e "EMPURRADA" virem dois fechamentos do mesmo mês.
-                */}
-                <Select
-                  value={tipoDeOperacao}
-                  onValueChange={setTipoDeOperacao}
-                >
-                  <SelectTrigger id="tipo-de-operacao">
-                    <SelectValue placeholder="Escolha o tipo da operação" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {TIPOS_DE_OPERACAO.map((t) => (
-                      <SelectItem key={t.valor} value={t.valor}>
-                        {t.rotulo}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">
-                  {TIPOS_DE_OPERACAO.find((t) => t.valor === tipoDeOperacao)
-                    ?.explicacao ??
-                    "EMPURRADA e ROTA são fechamentos separados na mesma quinzena."}
-                </p>
-              </div>
+            {/*
+              O tipo não se escolhe: ele é o ambiente aberto, e a linha abaixo
+              diz qual é. Um select aqui perguntaria de novo o que a porta já
+              respondeu — e deixaria responder o contrário, abrindo em ROTA quem
+              está na Empurrada. A quinzena da outra operação se abre trocando de
+              ambiente no topo, que é onde essa escolha mora.
+            */}
+            <div className="rounded-md border bg-muted/30 px-4 py-3">
+              <p className="text-sm">
+                <span className="text-muted-foreground">Tipo de operação: </span>
+                <strong>{rotuloDoTipo(operacao)}</strong>
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                {explicacaoDoTipo(operacao)}
+              </p>
             </div>
 
             <p className="text-xs text-muted-foreground">
@@ -1114,6 +1118,7 @@ function TipoDaLinha({
   aoFechar: () => void;
 }) {
   const cliente = useQueryClient();
+  const operacao = useOperacaoDoFechamento();
   const informando = edicaoDoTipo(competencia) === "INFORMAR";
   /*
     Nasce no que já está lá quando há o que corrigir, e vazio quando não há.
@@ -1200,6 +1205,21 @@ function TipoDaLinha({
         </Select>
         {explicacao && (
           <p className="text-xs text-muted-foreground">{explicacao}</p>
+        )}
+        {/*
+          E o que acontece com a linha depois de gravar, quando a operação
+          escolhida não é a deste ambiente: a competência passa a ser do outro
+          fechamento e sai desta lista. Dizer isto antes é o que separa "gravei e
+          a linha sumiu" — que se lê como perda — de "gravei e ela foi para
+          onde eu mandei".
+        */}
+        {escolhido !== "" && escolhido !== operacao && (
+          <p className="text-xs text-amber-700">
+            Ao gravar, esta competência passa a ser do{" "}
+            <strong>{nomeDoFechamentoDa(escolhido)}</strong> e sai desta lista —
+            ela continua inteira, com tudo o que já foi importado e apurado, do
+            outro lado.
+          </p>
         )}
       </div>
       {informar.isError && (
