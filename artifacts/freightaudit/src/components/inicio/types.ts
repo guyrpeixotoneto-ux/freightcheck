@@ -121,14 +121,37 @@ import type { ResumoDeImpacto as ImpactSummary } from "@workspace/comparison/ded
 export type { Contexto as SeriesContext } from "@/lib/contextos";
 import type { Contexto as SeriesContext } from "@/lib/contextos";
 
+/*
+  A composição da vigência — o que ela tem, por tipo — também vem do servidor.
+
+  Mesma razão da linha acima: uma cópia aqui concordaria com o servidor no dia
+  em que fosse escrita. O import é de tipo, e some na compilação; nada de
+  `drizzle` entra no bundle por causa dele.
+*/
+export type {
+  ComposicaoDaVigencia,
+  TipoNaVigencia,
+  VigenciaComTipo,
+} from "@workspace/comparison/tipos-da-vigencia";
+import type { ComposicaoDaVigencia } from "@workspace/comparison/tipos-da-vigencia";
+
 export interface GroupedView {
   /** De quem é esta vigência: unidade e canal. */
   context: SeriesContext;
   /** Os outros contextos no banco. Vazio enquanto houver uma unidade só. */
   otherContexts: SeriesContext[];
   period: string;
+  /** O rótulo já desambiguado dentro do contexto — ver `labels.ts` no servidor. */
   periodLabel: string;
-  periods: { date: string; label: string; series: string[] }[];
+  periods: {
+    date: string;
+    label: string;
+    series: string[];
+    /** O que aquela vigência contém, para o seletor não oferecer no escuro. */
+    tipos: { code: string; rotulo: string; entidades: number }[];
+  }[];
+  /** O eixo "o quê": o que esta vigência tem, o que não tem, e onde o que falta está. */
+  composicao: ComposicaoDaVigencia;
   series: {
     entityTypeSet: string;
     equipment: string;

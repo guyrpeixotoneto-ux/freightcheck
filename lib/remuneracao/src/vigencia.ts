@@ -1,7 +1,16 @@
-import { periodLabel } from "@workspace/comparison";
+import { quinzenaDe, rotuloDaVigencia } from "@workspace/comparison";
 
 /**
  * COMO A VIGÊNCIA SE ESCREVE AQUI — e por que "agosto/2026" não bastava.
+ *
+ * **A régua mudou de casa, e não de conteúdo.** `rotuloDaVigencia` e
+ * `quinzenaDe` nasceram neste arquivo e hoje moram em
+ * `@workspace/comparison/labels`, reexportadas daqui: a Auditoria passou a
+ * precisar da mesma garantia — o seletor da tela de Parâmetros oferecia duas
+ * opções escritas "agosto/2026" quando a unidade entregava duas vigências no
+ * mês —, e duas implementações da mesma régua concordariam só no dia em que
+ * fossem escritas. O texto abaixo continua sendo a explicação de por que ela
+ * existe; o corpo dela está lá.
  *
  * `periodLabel` responde `2026-08-01` → `agosto/2026`, e é a resposta certa em
  * quase todo o produto: as telas da Auditoria comparam vigências de meses
@@ -37,30 +46,9 @@ import { periodLabel } from "@workspace/comparison";
  * data, e não afirma uma quinzena que o calendário não sustenta.
  */
 
-/** Uma vigência é sempre `aaaa-mm-dd`; o que não for passa direto. */
-const DATA = /^\d{4}-\d{2}-\d{2}$/;
-
 /** Os dois dias em que uma quinzena começa, e os meses que existem. */
 const INICIO_DE_QUINZENA = /^\d{4}-(0[1-9]|1[0-2])-(01|16)$/;
 
-/**
- * A data é o **começo** de uma quinzena deste produto — dia 1 ou dia 16.
- *
- * Serve a uma pergunta só, e é a que separa as duas procedências de uma
- * vigência: a que **veio de arquivo** é o que o arquivo trouxe, e pode cair em
- * qualquer dia — `rotuloDaVigencia` sabe escrever `07/08/2026` quando isso
- * acontece. A que alguém **cria à mão**, para digitar a aba de Excel antes de o
- * export chegar, não tem arquivo que a sustente: ela vale porque é uma quinzena
- * do calendário do cliente, e o calendário deste produto parte o mês no dia 16
- * (`competenciaDoDia`, em `@workspace/fechamento`, e `periodoDaQuinzena`, na
- * tela). Uma vigência criada no dia 7 seria uma quinzena que só aquela escrita
- * conhece — e o fechamento, que procura o cadastro pela quinzena, a acharia
- * dentro da primeira, ao lado de outra com o mesmo direito.
- *
- * A faixa de ano é a mesma que a tela e a rota da competência aplicam (2000 a
- * 2100): não é uma opinião sobre o futuro, é a diferença entre `2026` e um
- * `20226` digitado com um dedo a mais.
- */
 export function ehInicioDeQuinzena(data: string): boolean {
   if (!INICIO_DE_QUINZENA.test(data)) return false;
   const ano = Number(data.slice(0, 4));
@@ -70,38 +58,9 @@ export function ehInicioDeQuinzena(data: string): boolean {
 /**
  * A quinzena a que o dia pertence: 1 do dia 1 ao 15, 2 do 16 em diante.
  *
- * Exportada porque `contrato.ts` decide por ela qual planilha responde por uma
- * quinzena — e reescrever a régua lá abriria a porta para as duas divergirem
- * num dia 15 qualquer.
+ * Reexportada de `@workspace/comparison`, onde a régua mora desde que a
+ * Auditoria passou a escrever vigências com ela. Continua saindo daqui porque
+ * `contrato.ts` decide por ela qual planilha responde por uma quinzena, e o
+ * módulo não deveria ter de saber em que pacote a linha de calendário mora.
  */
-export function quinzenaDe(data: string): 1 | 2 {
-  return Number(data.slice(8, 10)) <= 15 ? 1 : 2;
-}
-
-/** `2026-08-16` → `16/08/2026`, o mesmo formato do rótulo de competência. */
-function comoDia(data: string): string {
-  const [ano, mes, dia] = data.split("-");
-  return `${dia}/${mes}/${ano}`;
-}
-
-/**
- * O rótulo de uma vigência, dentro do que o contexto dela entregou.
- *
- * `doContexto` são as vigências da mesma unidade e canal — `periodosDisponiveis`.
- * A própria `data` entra na conta mesmo que não esteja na lista: é o que impede
- * o rótulo de afirmar "2ª quinzena" para duas datas ao mesmo tempo quando a
- * chamada vem de fora do conjunto.
- */
-export function rotuloDaVigencia(data: string, doContexto: readonly string[]): string {
-  if (!DATA.test(data)) return periodLabel(data);
-
-  const mes = data.slice(0, 7);
-  const doMes = new Set(doContexto.filter((d) => DATA.test(d) && d.slice(0, 7) === mes));
-  doMes.add(data);
-  if (doMes.size < 2) return periodLabel(data);
-
-  const quinzenas = new Set([...doMes].map(quinzenaDe));
-  return quinzenas.size === doMes.size
-    ? `${quinzenaDe(data)}ª quinzena de ${periodLabel(data)}`
-    : comoDia(data);
-}
+export { quinzenaDe, rotuloDaVigencia };

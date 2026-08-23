@@ -23,8 +23,15 @@ import {
   equipmentPluralNoun,
   natureLabel,
   periodLabel,
+  rotuloDaVigencia,
   semanticsLabel,
 } from "./labels";
+import {
+  composicaoDe,
+  contagensPorVigencia,
+  tiposPresentesEm,
+  type ComposicaoDaVigencia,
+} from "./tipos-da-vigencia";
 import { buildCockpit, type CockpitView } from "./cockpit";
 import { listPeriods } from "./consolidated";
 import {
@@ -263,8 +270,34 @@ export interface GroupedView {
   /** Os outros contextos que existem no banco, para o seletor. */
   otherContexts: ContextInfo[];
   period: string;
+  /**
+   * O rótulo da vigência aberta, **desambiguado dentro do contexto**.
+   *
+   * `rotuloDaVigencia` e não `periodLabel`: uma unidade que entrega duas
+   * vigências no mesmo mês tinha as duas escritas "agosto/2026" — aqui, no
+   * seletor, e em todo lugar que lê este campo. Ver `labels.ts`.
+   */
   periodLabel: string;
-  periods: { date: string; label: string; series: string[] }[];
+  /**
+   * O seletor de vigência: uma entrada por data, com o rótulo que a distingue e
+   * os tipos que ela contém.
+   *
+   * `tipos` viaja junto porque a pergunta "em qual agosto estão os cavalos?" é
+   * do seletor, e respondê-la no cliente exigiria uma chamada por vigência.
+   */
+  periods: {
+    date: string;
+    label: string;
+    series: string[];
+    tipos: { code: string; rotulo: string; entidades: number }[];
+  }[];
+  /**
+   * O que a vigência aberta tem, por tipo — e onde está o que ela não tem.
+   *
+   * É o eixo que faltava na tela: vigência responde *quando*, unidade responde
+   * *onde*, e isto responde *o quê*. Ver `tipos-da-vigencia.ts`.
+   */
+  composicao: ComposicaoDaVigencia;
   series: GroupedSeries[];
   missingSeries: string[];
   complete: boolean;
@@ -1009,16 +1042,32 @@ export async function getGroupedView(
         ? "COM_ALTERACOES"
         : "SEM_ALTERACOES";
 
+  /*
+    O que cada vigência deste contexto contém, por tipo.
+
+    Uma leitura só, aqui, servindo às duas perguntas que a tela faz: o seletor
+    diz o que cada vigência tem, e a vigência aberta diz o que ela **não** tem e
+    onde aquilo está. Ver `tipos-da-vigencia.ts`.
+
+    As datas vêm de `context.periodosDisponiveis`, e não de `periods`: o rótulo
+    tem de ser o mesmo esteja a janela aplicada ou não, senão a mesma vigência
+    se chamaria "agosto/2026" numa tela e "02/08/2026" na outra.
+  */
+  const contagens = await contagensPorVigencia(db, context);
+  const rotulos = context.periodosDisponiveis;
+
   const base = {
     context,
     otherContexts,
     period: target.effective_date,
-    periodLabel: periodLabel(target.effective_date),
+    periodLabel: rotuloDaVigencia(target.effective_date, rotulos),
     periods: periods.map((p) => ({
       date: p.effective_date,
-      label: periodLabel(p.effective_date),
+      label: rotuloDaVigencia(p.effective_date, rotulos),
       series: p.series ?? [],
+      tipos: tiposPresentesEm(contagens, p.effective_date),
     })),
+    composicao: composicaoDe(contagens, target.effective_date, rotulos),
     series,
     missingSeries,
     complete: missingSeries.length === 0,

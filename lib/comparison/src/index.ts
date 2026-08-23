@@ -12,6 +12,8 @@ export * from "./vinculos";
 export * from "./impacto-apurado";
 export * from "./anomalies";
 export * from "./labels";
+export * from "./tipos";
+export * from "./tipos-da-vigencia";
 export * from "./grouped";
 export * from "./cockpit";
 export * from "./families";

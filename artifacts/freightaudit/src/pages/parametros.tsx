@@ -56,12 +56,23 @@ import {
   type CartaoCatalogo,
 } from "@/lib/freightech-catalogo";
 import {
-  ehEscopo,
   ehOrdem,
   montarAtributos,
   type EscopoCode,
   type OrdemCode,
 } from "@/lib/escopos";
+import {
+  tipoAusenteNaVigencia,
+  tipoDoEndereco,
+  valorDoSeletor,
+} from "@/lib/tipo-da-tela";
+import {
+  FAMILIA_QUADRO_DE_PESSOAL,
+  TIPOS_DE_ANALISE,
+  TODOS_OS_TIPOS,
+  contagemDoTipo,
+  type FiltroDeTipo,
+} from "@workspace/comparison/tipos";
 import type {
   ChangeGroup,
   FamiliesView,
@@ -148,8 +159,20 @@ export default function Parametros() {
     valor adulterado no endereço não quebra a tela — `ehEscopo` e `ehOrdem`
     devolvem o padrão.
   */
-  const escopoParam = params.get("escopo");
-  const escopo: EscopoCode | null = ehEscopo(escopoParam) ? escopoParam : null;
+  /*
+    O **Tipo** — o eixo que faltava, e que agora mora na barra de filtros.
+
+    Vigência responde *quando*, unidade responde *onde*, e este responde *o
+    quê*. Sem ele o tipo entrava de carona na vigência: uma vigência que por
+    acaso só tinha trecho lia-se como "esta unidade não tem nada", com o
+    equipamento intacto no banco uma vigência ao lado.
+
+    `escopo` continua sendo o nome do recorte dentro da grade — é dela a ligação
+    atributo → escopo —, e o endereço antigo continua abrindo: quem tem um link
+    com `?escopo=CAVALO` guardado não pode cair em "todos" porque o campo mudou
+    de nome. `null` é **Todos**.
+  */
+  const escopo: EscopoCode | null = tipoDoEndereco(params);
   const ordemParam = params.get("ordem");
   const ordem: OrdemCode = ehOrdem(ordemParam) ? ordemParam : "impacto";
   const atributoAberto = params.get("atributo");
@@ -199,6 +222,17 @@ export default function Parametros() {
     },
   });
 
+  /**
+   * O tipo escolhido que **não existe** nesta vigência.
+   *
+   * `null` cobre os dois casos em que a tela segue normal: nenhum tipo
+   * escolhido (Todos), e um tipo que está lá. Quando ele não está, a página
+   * troca a grade inteira por uma frase — porque os cartões, aqui, contariam
+   * zero alteração de uma coisa que não chegou, e "zero" e "não veio" pedem
+   * ações opostas.
+   */
+  const tipoAusente = tipoAusenteNaVigencia(data ?? null, escopo);
+
   const secoes = useMemo(() => montarSecoes(data ?? null), [data]);
   const atributos = useMemo(() => montarAtributos(data ?? null), [data]);
 
@@ -223,7 +257,7 @@ export default function Parametros() {
     // trocar de unidade nunca é pedido para voltar ao catálogo, largar o escopo
     // escolhido ou reordenar a grade.
     if (vista === "catalogo") next.set("vista", vista);
-    if (escopo) next.set("escopo", escopo);
+    if (escopo) next.set("tipo", escopo);
     if (ordem !== "impacto") next.set("ordem", ordem);
     if (atributoAberto) next.set("atributo", atributoAberto);
     if (cartaoAberto) {
@@ -247,6 +281,26 @@ export default function Parametros() {
       next.delete("ate");
     }
     navigate(`/parametros?${next}`);
+  };
+
+  /**
+   * Trocar de tipo — e por que não passa pelo botão FILTRAR.
+   *
+   * FILTRAR existe para o que muda a **pergunta ao servidor**: outra unidade,
+   * outro canal, outra vigência. O tipo é recorte da resposta que já está na
+   * tela, como o escopo e a ordenação sempre foram — e é a mesma troca que a
+   * fileira de pastilhas da grade faz com um clique. Exigir dois cliques aqui
+   * e um lá faria o mesmo recorte ter duas mecânicas.
+   *
+   * O atributo aberto sai junto: ele pertence a um tipo, e mantê-lo pendurado
+   * deixaria a tela num endereço que o novo recorte não sabe abrir.
+   */
+  const trocarTipo = (valor: FiltroDeTipo) => {
+    irPara({
+      tipo: valor === TODOS_OS_TIPOS ? null : valor,
+      escopo: null,
+      atributo: null,
+    });
   };
 
   const abrirAtributo = (chave: string | null) => {
@@ -367,6 +421,10 @@ export default function Parametros() {
           <BarraFiltro
             view={data}
             onFiltrar={aplicar}
+            /* SEM_ESCOPO é recorte da grade e não tipo do domínio: na barra
+               ele se lê como "Todos", que é o que ele filtra por cima. */
+            tipo={valorDoSeletor(escopo)}
+            onTipo={trocarTipo}
             busca={busca}
             onBuscar={setBusca}
             buscaAtiva={!cartao}
@@ -468,7 +526,7 @@ export default function Parametros() {
             atributoAberto={atributoAberto}
             carregando={isLoading}
             temCartao={(chave) => cartaoDoParametro.has(chave)}
-            onEscopo={(v) => irPara({ escopo: v })}
+            onEscopo={(v) => irPara({ tipo: v, escopo: null })}
             onBusca={setBusca}
             onOrdem={(v) => irPara({ ordem: v === "impacto" ? null : v })}
             onAbrir={abrirAtributo}
@@ -476,6 +534,17 @@ export default function Parametros() {
           />
         ) : (
           <>
+            {data && <ComposicaoDaTela view={data} tipo={escopo} />}
+
+            {tipoAusente ? (
+              <TipoAusenteNaVigencia
+                ausente={tipoAusente}
+                periodLabel={data!.periodLabel}
+                onIrPara={(date) => irPara({ period: date })}
+                onTodos={() => trocarTipo(TODOS_OS_TIPOS)}
+              />
+            ) : (
+              <>
             {data && <Ladrilhos view={data} />}
 
             <FaixaVisaoGeral onAbrir={() => abrirCartao(CHAVE_VISAO_GERAL)} />
@@ -508,7 +577,7 @@ export default function Parametros() {
                 atributoAberto={null}
                 carregando={isLoading}
                 temCartao={(chave) => cartaoDoParametro.has(chave)}
-                onEscopo={(v) => irPara({ escopo: v })}
+                onEscopo={(v) => irPara({ tipo: v, escopo: null })}
                 onBusca={setBusca}
                 onOrdem={(v) => irPara({ ordem: v === "impacto" ? null : v })}
                 onAbrir={abrirAtributo}
@@ -517,10 +586,169 @@ export default function Parametros() {
             ) : (
               <Grade secoes={secoes} busca={busca} onAbrir={abrirCartao} />
             )}
+              </>
+            )}
           </>
         )}
       </div>
     </Layout>
+  );
+}
+
+
+/* ------------------------------------------------------------------ */
+/* O eixo "o quê": composição e ausência                               */
+/* ------------------------------------------------------------------ */
+
+/**
+ * O que esta vigência tem, escrito antes de qualquer número.
+ *
+ * Em **Todos**, é a composição real do período — "24 cavalos · 31 carretas · 18
+ * conjuntos · 3 trechos". É a frase que faltava na tela: com ela, uma vigência
+ * que só trouxe trecho **diz** que só trouxe trecho, em vez de deixar os
+ * cartões zerados sugerirem que a unidade perdeu a frota.
+ *
+ * Com um tipo escolhido, é a confirmação do recorte — o que está sendo
+ * analisado e sobre quantas linhas.
+ *
+ * Sem `composicao` na resposta a faixa não aparece: inventar uma composição a
+ * partir do que a tela tem à mão seria exatamente a inferência frágil que este
+ * campo veio substituir.
+ */
+function ComposicaoDaTela({
+  view,
+  tipo,
+}: {
+  view: FamiliesView;
+  tipo: EscopoCode | null;
+}) {
+  const composicao = view.composicao;
+  if (!composicao) return null;
+
+  const escolhido =
+    tipo === null ? null : (composicao.tipos.find((t) => t.code === tipo) ?? null);
+
+  return (
+    <div className="mt-6 bg-card border border-l-[6px] border-l-brand px-6 py-3 text-sm flex flex-wrap items-center gap-x-2 gap-y-1">
+      <Layers className="w-4 h-4 shrink-0 text-brand" />
+      {escolhido ? (
+        <>
+          <span className="text-muted-foreground">Analisando</span>
+          <strong>{escolhido.nome}</strong>
+          <span className="text-muted-foreground">
+            em {view.periodLabel} ·{" "}
+            {escolhido.presente
+              ? `${contagemDoTipo(escolhido, escolhido.entidades)} nesta vigência`
+              : "nada deste tipo nesta vigência"}
+          </span>
+        </>
+      ) : composicao.vazia ? (
+        <span className="text-muted-foreground">
+          <strong>{view.periodLabel}</strong> não tem nenhum dos tipos que esta tela
+          analisa.
+        </span>
+      ) : (
+        <>
+          <span className="text-muted-foreground">
+            <strong>{view.periodLabel}</strong> tem
+          </span>
+          {composicao.presentes.map((t, i) => (
+            <span key={t.code}>
+              {i > 0 && <span className="text-muted-foreground"> · </span>}
+              <strong>{t.entidades}</strong> {t.entidades === 1 ? t.nome.toLowerCase() : t.plural}
+            </span>
+          ))}
+        </>
+      )}
+    </div>
+  );
+}
+
+/**
+ * O tipo escolhido não existe nesta vigência — dito, e com para onde ir.
+ *
+ * Esta é a tela que o defeito original produzia sem nome: cartões zerados,
+ * "0 veículos afetados", "o cliente não mexeu em nada". Tudo verdade sobre uma
+ * vigência que não tem cavalo nenhum, e tudo lido como "o cavalo sumiu".
+ *
+ * Três frases, e cada uma responde a uma pergunta que a pessoa realmente faz:
+ *
+ * 1. **o que não há** — "Nenhum Cavalo importado nesta vigência";
+ * 2. **onde ele está** — a última vigência anterior em que ele existiu, com a
+ *    contagem, e um botão que leva até lá mantendo o tipo escolhido;
+ * 3. **por que ele pode estar noutra vigência** — no caso do QLP, que forma
+ *    vigência própria por família de dataset, e cuja ausência aqui não é
+ *    notícia nenhuma sobre o quadro de pessoal.
+ *
+ * Quando o tipo nunca existiu neste contexto não há para onde mandar, e a
+ * frase muda de "está lá" para "nunca foi importado aqui" — que é um pedido de
+ * arquivo, não de navegação.
+ */
+function TipoAusenteNaVigencia({
+  ausente,
+  periodLabel,
+  onIrPara,
+  onTodos,
+}: {
+  ausente: NonNullable<FamiliesView["composicao"]>["tipos"][number];
+  periodLabel: string;
+  onIrPara: (date: string) => void;
+  onTodos: () => void;
+}) {
+  const ultima = ausente.ultimaVigenciaComDado;
+
+  return (
+    <div className="mt-6 bg-card border rounded-lg px-8 py-10 text-center">
+      <AlertTriangle className="w-8 h-8 mx-auto text-amber-500" />
+      <h2 className="mt-4 text-lg font-semibold">
+        Nenhum {ausente.nome} importado nesta vigência.
+      </h2>
+      <p className="mt-2 text-sm text-muted-foreground max-w-2xl mx-auto">
+        {periodLabel} não trouxe {ausente.plural}. Isto <strong>não é zero</strong>: é
+        ausência de arquivo — nada foi apagado, e o que existe continua no lugar em que
+        entrou.
+        {ausente.familia === FAMILIA_QUADRO_DE_PESSOAL && (
+          <>
+            {" "}
+            O quadro de pessoal forma vigência própria, separada da remuneração de
+            equipamento, e por isso ele quase nunca cai na mesma data.
+          </>
+        )}
+      </p>
+
+      {ultima ? (
+        <div className="mt-6">
+          <p className="text-sm">
+            Última vigência com {ausente.nome}:{" "}
+            <strong>{ultima.label}</strong>{" "}
+            <span className="text-muted-foreground">
+              ({contagemDoTipo(ausente, ultima.entidades)})
+            </span>
+          </p>
+          <button
+            type="button"
+            onClick={() => onIrPara(ultima.date)}
+            className="mt-3 h-11 px-6 rounded-lg text-sm font-medium bg-brand text-brand-foreground hover:brightness-110 inline-flex items-center gap-1.5"
+          >
+            Abrir {ultima.label}
+            <ChevronRight className="w-4 h-4" />
+          </button>
+        </div>
+      ) : (
+        <p className="mt-6 text-sm text-muted-foreground">
+          {ausente.nome} nunca foi importado nesta unidade e canal — não há vigência
+          anterior para onde ir.
+        </p>
+      )}
+
+      <button
+        type="button"
+        onClick={onTodos}
+        className="mt-4 block mx-auto text-sm text-muted-foreground underline hover:text-foreground"
+      >
+        Ver tudo o que esta vigência tem
+      </button>
+    </div>
   );
 }
 
@@ -1122,6 +1350,8 @@ function agregar(parametros: ParameterView[]): {
 function BarraFiltro({
   view,
   onFiltrar,
+  tipo,
+  onTipo,
   busca,
   onBuscar,
   buscaAtiva,
@@ -1129,6 +1359,9 @@ function BarraFiltro({
 }: {
   view: FamiliesView;
   onFiltrar: (selecao: { scopeHash: string; canal: string | null; period: string }) => void;
+  /** O tipo escolhido, ou `TODOS`. Ver o campo Tipo, abaixo. */
+  tipo: FiltroDeTipo;
+  onTipo: (valor: FiltroDeTipo) => void;
   busca: string;
   onBuscar: (valor: string) => void;
   /** Com um cartão aberto não há grade para filtrar; o campo desabilita. */
@@ -1157,6 +1390,25 @@ function BarraFiltro({
     setCanal(view.context.channel);
     setPeriod(view.period);
   }, [view.context.scopeHash, view.context.channel, view.period]);
+
+  /*
+    O que esta vigência tem, por tipo — direto da resposta do servidor.
+
+    `composicao` pode faltar numa resposta antiga (ou num mock), e aí o campo
+    Tipo continua funcionando com todos os tipos escritos como ausentes: é a
+    leitura honesta de "o servidor não disse", e não um seletor que some.
+  */
+  const porTipo = new Map((view.composicao?.tipos ?? []).map((t) => [t.code, t]));
+  const presentes = view.composicao?.presentes ?? [];
+  const escolhido = tipo === TODOS_OS_TIPOS ? null : porTipo.get(tipo);
+  const notaDoTipo =
+    escolhido === undefined || escolhido === null
+      ? presentes.length > 0
+        ? `${presentes.length} nesta vigência`
+        : null
+      : escolhido.presente
+        ? contagemDoTipo(escolhido, escolhido.entidades)
+        : "não há nesta vigência";
 
   const canais = contextos.filter((c) => c.scopeHash === scopeHash);
   const sujo =
@@ -1236,6 +1488,41 @@ function BarraFiltro({
         ) : (
           <CampoFixo valor={nomeDaUnidade(view.context)} largura="w-56" />
         )}
+      </Campo>
+
+      {/*
+        Tipo — o eixo "o quê", ao lado dos três que a tela já tinha.
+
+        Todos os seis aparecem sempre, e os que a vigência não tem aparecem
+        **escritos como ausentes** em vez de sumirem. Some-los pareceria uma
+        tela sem opção; escrevê-los é o que permite escolher "Cavalo" numa
+        vigência sem cavalo e receber a frase certa — com o caminho para a
+        vigência em que ele está — no lugar de cartões zerados.
+
+        Aplica na hora: é recorte da resposta, não pergunta nova. Ver `trocarTipo`.
+      */}
+      <Campo rotulo="Tipo" nota={notaDoTipo}>
+        <Select value={tipo} onValueChange={(v) => onTipo(v as FiltroDeTipo)}>
+          <SelectTrigger className="w-56 h-11 rounded-lg bg-background">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={TODOS_OS_TIPOS}>
+              Todos{presentes.length > 0 ? ` (${presentes.length})` : ""}
+            </SelectItem>
+            {TIPOS_DE_ANALISE.map((definicao) => {
+              const naVigencia = porTipo.get(definicao.code);
+              return (
+                <SelectItem key={definicao.code} value={definicao.code}>
+                  {definicao.nome}
+                  {naVigencia?.presente
+                    ? ` · ${naVigencia.entidades}`
+                    : " · não há nesta vigência"}
+                </SelectItem>
+              );
+            })}
+          </SelectContent>
+        </Select>
       </Campo>
 
       {/* O botão entra na mesma coluna de três faixas, com o rótulo vazio: é o
