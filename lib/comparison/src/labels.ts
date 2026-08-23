@@ -221,3 +221,72 @@ export function natureLabel(nature: string | null): string {
   };
   return map[nature ?? ""] ?? (nature ?? "—").toLowerCase();
 }
+
+/**
+ * A quinzena a que um dia pertence: 1 do dia 1 ao 15, 2 do 16 em diante.
+ *
+ * É a régua que o produto já aplica em `competenciaDoDia`
+ * (`@workspace/fechamento`) e na tela de remuneração. Está aqui porque
+ * {@link rotuloDaVigencia} precisa dela e este módulo é o que responde "como
+ * isto se escreve na tela" — não porque a Auditoria tenha virado quinzenal.
+ */
+export function quinzenaDe(data: string): 1 | 2 {
+  return Number(data.slice(8, 10)) <= 15 ? 1 : 2;
+}
+
+/** Uma vigência é sempre `aaaa-mm-dd`; o que não for passa direto. */
+const DATA_ISO = /^\d{4}-\d{2}-\d{2}$/;
+
+/** `2026-08-16` → `16/08/2026`, o mesmo formato do rótulo de competência. */
+function comoDia(data: string): string {
+  const [ano, mes, dia] = data.split("-");
+  return `${dia}/${mes}/${ano}`;
+}
+
+/**
+ * O rótulo de uma vigência, dentro do que o contexto dela entregou.
+ *
+ * `periodLabel` responde `2026-08-01` → `agosto/2026`, e essa é a resposta
+ * certa quando a unidade entrega uma vigência por mês. Deixa de ser quando ela
+ * entrega duas: `EMPURRADA_1_8_2026` e `EMPURRADA_2_8_2026` viram o mesmo
+ * texto, e o seletor passa a oferecer **duas opções idênticas** — foi assim
+ * que uma importação de trecho em `2026-08-02` pareceu ter apagado o
+ * equipamento de `2026-08-01`: as duas se chamavam "agosto/2026", e a tela
+ * abriu na mais recente sem que nada dissesse que eram duas.
+ *
+ * A régua é a do dado, e não a da aparência:
+ *
+ * - **mês com uma entrega** continua `agosto/2026` — chamar de "1ª quinzena"
+ *   uma unidade que entrega mensalmente inventaria um grão que os arquivos não
+ *   têm;
+ * - **mês partido em duas metades do calendário** (dia ≤ 15 e dia ≥ 16) ganha a
+ *   ordinal: `1ª quinzena de agosto/2026`;
+ * - **qualquer outro mês com mais de uma entrega** — três vigências, ou duas
+ *   caídas na mesma metade, que é o caso de `01/08` e `02/08` — é escrito pelo
+ *   **dia**, `dd/mm/aaaa`. Distingue sempre, porque duas vigências do mesmo
+ *   contexto nunca compartilham data, e não afirma uma quinzena que o
+ *   calendário não sustenta.
+ *
+ * `doContexto` são as vigências da mesma unidade e canal
+ * (`periodosDisponiveis`). A própria `data` entra na conta mesmo que não esteja
+ * na lista: é o que impede o rótulo de afirmar "2ª quinzena" para duas datas ao
+ * mesmo tempo quando a chamada vem de fora do conjunto.
+ *
+ * Nasceu em `@workspace/remuneracao`, que precisou dela primeiro porque a
+ * planilha de lá é quinzenal por natureza. Mora aqui desde que a Auditoria
+ * passou a precisar da mesma garantia — e continua uma implementação só, pela
+ * razão de sempre: duas concordariam no dia em que fossem escritas.
+ */
+export function rotuloDaVigencia(data: string, doContexto: readonly string[]): string {
+  if (!DATA_ISO.test(data)) return periodLabel(data);
+
+  const mes = data.slice(0, 7);
+  const doMes = new Set(doContexto.filter((d) => DATA_ISO.test(d) && d.slice(0, 7) === mes));
+  doMes.add(data);
+  if (doMes.size < 2) return periodLabel(data);
+
+  const quinzenas = new Set([...doMes].map(quinzenaDe));
+  return quinzenas.size === doMes.size
+    ? `${quinzenaDe(data)}ª quinzena de ${periodLabel(data)}`
+    : comoDia(data);
+}

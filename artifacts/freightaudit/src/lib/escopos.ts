@@ -10,14 +10,21 @@
  * cartões dentro de FROTA, ao lado de `Combustível` e `Prazo FINAME`, que valem
  * para os dois.
  *
- * Este arquivo é a divisão que faltava. Os cinco primeiros escopos são os cinco
- * tipos que o produto importa — a mesma lista de `@workspace/ingest/tipos`, que
- * é quem decide o que é importável. O sexto, CONJUNTO, não é tipo de importação
- * nenhum: é a leitura de uma coluna da carreta que **já embute o cavalo**, e a
- * lista dele é `ESCOPOS_DE_CONJUNTO`, medida contra o export real. Ele existe
- * como escopo próprio por uma razão de auditoria: `carreta.custo_fixo` aparece
- * na linha de uma carreta e vale pelo par: lê-lo como atributo de carreta é o
- * caminho mais curto para contar o mesmo cavalo duas vezes.
+ * Este arquivo é a divisão que faltava. **A lista não mora mais aqui**: ela é
+ * `TIPOS_DE_ANALISE`, em `@workspace/comparison/tipos`, que é a mesma que o
+ * servidor usa para contar o que cada vigência tem. Duas listas dos mesmos seis
+ * concordariam no dia em que fossem escritas — e discordariam no dia do sétimo,
+ * que é exatamente como o trecho chegou às telas sendo contado por umas e
+ * ignorado por outras. O que sobra aqui é a ligação **atributo → escopo**, que
+ * é decisão de tela e não existe no servidor.
+ *
+ * Cinco dos seis são tipos que o produto importa. O sexto, CONJUNTO, não é tipo
+ * de importação nenhum: é a leitura de uma coluna da carreta que **já embute o
+ * cavalo**, e a lista dele é `ESCOPOS_DE_CONJUNTO`, medida contra o export
+ * real. Ele existe como escopo próprio por uma razão de auditoria:
+ * `carreta.custo_fixo` aparece na linha de uma carreta e vale pelo par: lê-lo
+ * como atributo de carreta é o caminho mais curto para contar o mesmo cavalo
+ * duas vezes.
  *
  * **Nenhum escopo é atribuído por palpite.** Um atributo cai num deles pelo
  * `entity_type` que o banco lhe deu ou por estar na lista medida do conjunto; o
@@ -26,16 +33,17 @@
  */
 
 import { ESCOPOS_DE_CONJUNTO } from "@workspace/comparison/composition";
+import { TIPOS_DE_ANALISE, type TipoDeAnalise } from "@workspace/comparison/tipos";
 import type { ChangeGroup, FamiliesView } from "@/components/inicio/types";
 
-export type EscopoCode =
-  | "CAVALO"
-  | "CARRETA"
-  | "CONJUNTO"
-  | "TRECHO"
-  | "QLP_ADMINISTRATIVO"
-  | "QLP_OPERACIONAL"
-  | "SEM_ESCOPO";
+/**
+ * Um escopo é um tipo de análise, mais o resto.
+ *
+ * `TipoDeAnalise` vem do catálogo compartilhado; `SEM_ESCOPO` é só da tela — o
+ * servidor não tem o que fazer com ele, porque ele não é uma coisa que exista
+ * no banco, é o que a grade escreve quando não sabe.
+ */
+export type EscopoCode = TipoDeAnalise | "SEM_ESCOPO";
 
 export interface Escopo {
   code: EscopoCode;
@@ -50,60 +58,22 @@ export interface Escopo {
 }
 
 /**
- * Os seis, na ordem em que a tela os oferece.
+ * Os seis, na ordem em que a tela os oferece — derivados, não redigitados.
  *
- * A ordem é a do peso na remuneração, e não a alfabética: cavalo e carreta são
- * onde está a frota, conjunto vem logo depois porque é a leitura combinada dos
- * dois, e os três de estrutura fecham. `SEM_ESCOPO` fica fora desta lista de
- * propósito — ele não é um escopo que alguém escolha, é o resto, e aparece na
- * barra apenas quando existe alguma coisa nele.
+ * A ordem, os nomes, os plurais e o grão saem de `TIPOS_DE_ANALISE`. A ordem lá
+ * é a do peso na remuneração, e não a alfabética: cavalo e carreta são onde
+ * está a frota, conjunto vem logo depois porque é a leitura combinada dos dois,
+ * e os de estrutura fecham. `SEM_ESCOPO` fica fora desta lista de propósito —
+ * ele não é um escopo que alguém escolha, é o resto, e aparece na barra apenas
+ * quando existe alguma coisa nele.
  */
-export const ESCOPOS: Escopo[] = [
-  {
-    code: "CAVALO",
-    rotulo: "Cavalo",
-    nome: "Cavalo",
-    plural: "cavalos",
-    grao: "uma linha por placa de cavalo mecânico",
-  },
-  {
-    code: "CARRETA",
-    rotulo: "Carreta",
-    nome: "Carreta",
-    plural: "carretas",
-    grao: "uma linha por placa de carreta",
-  },
-  {
-    code: "CONJUNTO",
-    rotulo: "Conjunto",
-    nome: "Conjunto",
-    plural: "conjuntos",
-    grao:
-      "colunas da carreta que já embutem o cavalo vinculado — o número é do par, " +
-      "não da carreta sozinha",
-  },
-  {
-    code: "TRECHO",
-    rotulo: "Trecho",
-    nome: "Trecho",
-    plural: "trechos",
-    grao: "uma linha por chave de trecho — origem, destino e quilometragem",
-  },
-  {
-    code: "QLP_ADMINISTRATIVO",
-    rotulo: "QLP adm.",
-    nome: "QLP administrativo",
-    plural: "cargos",
-    grao: "uma linha por cargo da estrutura administrativa da unidade",
-  },
-  {
-    code: "QLP_OPERACIONAL",
-    rotulo: "QLP oper.",
-    nome: "QLP operacional",
-    plural: "cargos",
-    grao: "uma linha por cargo e turno da operação",
-  },
-];
+export const ESCOPOS: Escopo[] = TIPOS_DE_ANALISE.map((tipo) => ({
+  code: tipo.code,
+  rotulo: tipo.rotulo,
+  nome: tipo.nome,
+  plural: tipo.plural,
+  grao: tipo.grao,
+}));
 
 export const ESCOPO_RESTO: Escopo = {
   code: "SEM_ESCOPO",
@@ -131,14 +101,16 @@ export function escopoDe(code: EscopoCode): Escopo {
 /** Os códigos de atributo que são do conjunto, medidos — não uma segunda lista. */
 const CODIGOS_DE_CONJUNTO = new Set(ESCOPOS_DE_CONJUNTO.map((e) => e.code));
 
-/** Os `entity_type` que o produto importa, e o escopo de cada um. */
-const POR_ENTITY_TYPE: Record<string, EscopoCode> = {
-  CAVALO: "CAVALO",
-  CARRETA: "CARRETA",
-  TRECHO: "TRECHO",
-  QLP_ADMINISTRATIVO: "QLP_ADMINISTRATIVO",
-  QLP_OPERACIONAL: "QLP_OPERACIONAL",
-};
+/**
+ * Os `entity_type` que o produto importa, e o escopo de cada um.
+ *
+ * Sai do catálogo: o tipo que declara `entityType` é o que existe como linha no
+ * banco. CONJUNTO não declara — ele não é entidade —, e por isso não entra aqui
+ * e continua sendo decidido pela lista medida, logo acima.
+ */
+const POR_ENTITY_TYPE: Record<string, EscopoCode> = Object.fromEntries(
+  TIPOS_DE_ANALISE.filter((t) => t.entityType !== null).map((t) => [t.entityType!, t.code]),
+);
 
 /**
  * De qual escopo é este atributo.
@@ -410,6 +382,24 @@ export function contarPorEscopo(atributos: AtributoRender[]): ContagemDeEscopo[]
  * arquivo que falta pedir. As duas telas seriam idênticas sem isto.
  */
 export function escoposImportados(view: FamiliesView | null): Set<EscopoCode> {
+  /*
+    A resposta do servidor manda.
+
+    `composicao` é apurada no banco, tipo a tipo, contando entidades — inclusive
+    o CONJUNTO, que ninguém importa e que só existe se o par cavalo+carreta
+    estiver vinculado naquela vigência. Deduzir isso aqui das séries era a
+    aproximação possível enquanto o contrato não trazia a conta; ela erra
+    justamente onde dói, dizendo "há conjunto" porque os dois equipamentos
+    chegaram, sem olhar se algum par existe.
+
+    A dedução antiga fica como recuo para uma resposta sem `composicao` — mocks
+    e payloads de antes deste campo —, e não como segunda régua: quando as duas
+    existem, a do servidor é a que vale.
+  */
+  if (view?.composicao) {
+    return new Set(view.composicao.presentes.map((t) => t.code as EscopoCode));
+  }
+
   const importados = new Set<EscopoCode>();
   for (const serie of view?.series ?? []) {
     for (const tipo of serie.entityTypeSet.split("+")) {
