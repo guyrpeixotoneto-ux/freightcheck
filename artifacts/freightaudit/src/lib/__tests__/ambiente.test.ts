@@ -90,7 +90,7 @@ describe("os ambientes", () => {
   });
 
   it("descreve cada id com o próprio registro", () => {
-    expect(descricaoDoAmbiente("auditoria").nome).toBe("Auditoria");
+    expect(descricaoDoAmbiente("auditoria").nome).toBe("Auditoria Empurrada");
     expect(descricaoDoAmbiente("fechamento-rota").nome).toBe("Fechamento Rota");
     expect(descricaoDoAmbiente("fechamento-empurrada").nome).toBe("Fechamento Empurrada");
   });

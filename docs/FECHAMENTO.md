@@ -1,4 +1,4 @@
-# FreightCheck — Os ambientes: Auditoria, Fechamento Rota e Fechamento Empurrada
+# FreightCheck — Os ambientes: Auditoria Empurrada, Fechamento Rota e Fechamento Empurrada
 
 > **Status:** fundação implementada. Estrutura de navegação, rotas e telas do
 > Fechamento existem; nenhuma lógica financeira de fechamento foi construída.
@@ -11,7 +11,7 @@
 O FreightCheck é **um** produto — um login, uma empresa/unidade, uma base de
 frota, uma infraestrutura, um design system — que atende **três** processos:
 
-| | Auditoria de Remuneração | Fechamento Rota | Fechamento Empurrada |
+| | Auditoria de Remuneração — Empurrada | Fechamento Rota | Fechamento Empurrada |
 |---|---|---|---|
 | Pergunta | O que mudou? Está correto? Qual o impacto? Há valor a recuperar? | Quanto devemos receber nesta competência? O que está pendente? Podemos fechar? | A mesma pergunta, sobre a operação de empurrada. |
 | Eixo | A vigência (o retrato que o Freightec exporta) | A competência (o período de apuração, com estado e ciclo de vida) | A competência, idem |
@@ -79,7 +79,7 @@ paga o prefixo é sempre quem chega agora.
 
 ## Como se troca de ambiente
 
-Pelo seletor no topbar, colado à marca — `FreightCheck | Auditoria ▾` —
+Pelo seletor no topbar, colado à marca — `FreightCheck | Auditoria Empurrada ▾` —
 implementado em `components/layout/topbar.tsx`. Ele mostra sempre o ambiente
 aberto e lista os três com nome completo e descrição. Trocar navega para a
 home do escolhido (`/visao-gerencial`, `/fechamento` ou
