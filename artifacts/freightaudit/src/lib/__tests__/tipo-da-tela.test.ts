@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  TIPOS_NA_BARRA,
+  semTrechoNaBarra,
   tipoAusenteNaVigencia,
   tipoDoEndereco,
   valorDoSeletor,
@@ -10,8 +12,8 @@ import type { FamiliesView, TipoNaVigencia } from "@/components/inicio/types";
 /**
  * O que a tela de Parâmetros decide sozinha sobre o eixo "o quê".
  *
- * Três decisões, e as três podem errar em silêncio — que é o que as põe sob
- * teste:
+ * Quatro decisões, e as quatro podem errar em silêncio — que é o que as põe
+ * sob teste:
  *
  * 1. **ler o tipo do endereço**, porque um link antigo que abrisse em "Todos"
  *    devolveria a pessoa ao estado de onde ela saiu sem dizer que devolveu;
@@ -19,7 +21,10 @@ import type { FamiliesView, TipoNaVigencia } from "@/components/inicio/types";
  *    grade por uma frase — e trocá-la à toa esconderia dado que existe;
  * 3. **dizer o que a vigência tem**, porque foi deduzir isso na tela, em vez de
  *    perguntar ao servidor, que fez uma vigência só de trechos parecer uma
- *    unidade sem frota.
+ *    unidade sem frota;
+ * 4. **tirar Trecho da barra**, porque ele deixou de ser uma opção de análise
+ *    nesta tela — a composição que o servidor manda continua completa, e é a
+ *    tela que filtra a própria leitura.
  *
  * Nada aqui testa pixel.
  */
@@ -164,5 +169,58 @@ describe("o que a vigência tem, para a fileira de escopos", () => {
     } as unknown as FamiliesView;
 
     expect([...escoposImportados(antigo)].sort()).toEqual(["CARRETA", "CAVALO", "CONJUNTO"]);
+  });
+});
+
+describe("Trecho fora da barra desta tela", () => {
+  /**
+   * Cinco dos seis do catálogo — Trecho não é uma opção de análise aqui. Ele
+   * continua existindo no catálogo completo (`TIPOS_DE_ANALISE`) e continua
+   * lido junto do equipamento pela remuneração; só não aparece no seletor
+   * "Tipo" desta tela.
+   */
+  it("lista o catálogo sem Trecho", () => {
+    expect(TIPOS_NA_BARRA.map((t) => t.code)).toEqual([
+      "CAVALO",
+      "CARRETA",
+      "CONJUNTO",
+      "QLP_ADMINISTRATIVO",
+      "QLP_OPERACIONAL",
+    ]);
+  });
+
+  /**
+   * O caso do relato, uma vez removida a opção: uma vigência que só tem trecho
+   * fica **vazia** para esta barra, mesmo que `composicao.vazia` do servidor
+   * diga que não — porque, para os cinco tipos que a barra oferece, ela não tem
+   * mesmo nada.
+   */
+  it("recalcula 'vazia' sobre os cinco tipos, não sobre os seis", () => {
+    const filtrada = semTrechoNaBarra(vigenciaSoComTrecho().composicao);
+
+    expect(filtrada?.presentes).toEqual([]);
+    expect(filtrada?.vazia).toBe(true);
+    expect(filtrada?.tipos.map((t) => t.code)).not.toContain("TRECHO");
+  });
+
+  /** Numa vigência com equipamento, os outros tipos continuam intactos. */
+  it("preserva o que não é trecho", () => {
+    const cavalo = { code: "CAVALO", presente: true, entidades: 62 } as unknown as TipoNaVigencia;
+    const trecho = { code: "TRECHO", presente: true, entidades: 3 } as unknown as TipoNaVigencia;
+
+    const filtrada = semTrechoNaBarra({
+      tipos: [cavalo, trecho],
+      presentes: [cavalo, trecho],
+      vazia: false,
+    });
+
+    expect(filtrada?.tipos).toEqual([cavalo]);
+    expect(filtrada?.presentes).toEqual([cavalo]);
+    expect(filtrada?.vazia).toBe(false);
+  });
+
+  it("devolve null sem composição — nada a filtrar", () => {
+    expect(semTrechoNaBarra(null)).toBeNull();
+    expect(semTrechoNaBarra(undefined)).toBeNull();
   });
 });

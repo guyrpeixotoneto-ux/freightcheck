@@ -340,7 +340,10 @@ async function contextosEProcedencia(db: Database): Promise<{
   vigenciasNaLista: Map<string, string[]>;
 }> {
   const [doAcervo, daPlanilha, registradas] = await Promise.all([
-    listContexts(db),
+    // A casca de trecho sozinho entra aqui: uma unidade cujo cadastro existe
+    // só de trecho é dado real deste módulo, não ruído de navegação — ver
+    // `incluirCascaDeTrecho`, em `@workspace/comparison/series`.
+    listContexts(db, { incluirCascaDeTrecho: true }),
     canaisComPlanilha(db),
     unidadesRegistradas(db),
   ]);

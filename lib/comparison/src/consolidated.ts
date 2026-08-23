@@ -6,6 +6,7 @@ import { periodLabel } from "./labels";
 import { getChangeSetForPair } from "./query";
 import {
   contextFilter,
+  naoEhSoTrecho,
   resolveContext,
   seriesKey,
   type ContextInfo,
@@ -172,6 +173,11 @@ export async function listPeriods(db: Database, context?: SeriesContext) {
            unnest(string_to_array(s.entity_type_set, '+')) t
      WHERE s.status <> 'SUPERSEDED'
        AND ${contextFilter("s", resolved)}
+       -- Mesma régua de listContexts: uma vigência que só tem trecho não é
+       -- uma entrega própria, e não deveria virar uma opção no seletor nem
+       -- disputar "mais recente" com o equipamento — ver naoEhSoTrecho, em
+       -- series.ts.
+       AND ${naoEhSoTrecho("s")}
      GROUP BY s.effective_date
      ORDER BY s.effective_date DESC
   `);
@@ -202,6 +208,7 @@ export async function listPeriodLabels(
       FROM snapshot s
      WHERE s.status <> 'SUPERSEDED'
        AND ${contextFilter("s", { ...context, janela: null })}
+       AND ${naoEhSoTrecho("s")}
      GROUP BY s.effective_date
      ORDER BY s.effective_date
   `);
