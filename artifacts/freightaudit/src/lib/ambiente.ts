@@ -5,8 +5,8 @@
  * infraestrutura — mas os processos que ele atende são três, e cada um tem a
  * sua pergunta:
  *
- * - **Auditoria de Remuneração**: o que mudou? está correto? qual o impacto?
- *   existe valor a recuperar?
+ * - **Auditoria de Remuneração — Empurrada**: o que mudou? está correto? qual
+ *   o impacto? existe valor a recuperar?
  * - **Fechamento Rota**: quanto devemos receber nesta competência?
  *   o que está pendente? o que precisa ser conferido? podemos fechar?
  * - **Fechamento Empurrada**: a mesma pergunta, sobre a operação de empurrada.
@@ -120,8 +120,16 @@ export const BASE_PADRAO_DE_FECHAMENTO = BASES_DE_FECHAMENTO["fechamento-rota"];
 export const AMBIENTES: DescricaoDeAmbiente[] = [
   {
     id: "auditoria",
-    nome: "Auditoria",
-    nomeCompleto: "Auditoria de Remuneração",
+    /*
+      O nome diz a operação, como o dos outros dois. O acervo que esta Auditoria
+      lê é o da empurrada, e o seletor é o único lugar do produto onde isso cabe
+      escrito: um menu que diz só "Auditoria" ao lado de dois fechamentos que
+      dizem qual operação são deixa a pergunta "de qual delas?" sem resposta na
+      tela. O `id` continua `auditoria` — ele é a chave do ambiente, não o
+      rótulo, e trocá-lo seria renomear o eixo por causa do nome.
+    */
+    nome: "Auditoria Empurrada",
+    nomeCompleto: "Auditoria de Remuneração — Empurrada",
     descricao: "O que mudou, se está correto e o que há para recuperar.",
     home: ENTRADA_DA_AUDITORIA,
   },
