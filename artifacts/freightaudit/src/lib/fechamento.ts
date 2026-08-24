@@ -26,10 +26,24 @@ export type TipoDeFonte =
   | "DISPONIBILIDADE_FF"
   | "DISPONIBILIDADE_VAN"
   | "REQUISICOES"
-  | "CONCILIACAO";
+  | "CONCILIACAO"
+  /**
+   * A frota do Promax — ativa (01.22.02.00) e inativa (01.22.08.00).
+   *
+   * Não é fonte financeira: não forma devido, não demonstra pagamento, não
+   * entra em cálculo de remuneração nenhum. É conferência operacional — ver
+   * `lado: "CONFERENCIA_OPERACIONAL"` e `/fechamento/competencias/:id/frota`.
+   */
+  | "FROTA_PROMAX_ATIVA"
+  | "FROTA_PROMAX_INATIVA";
 
 /** De que lado da conferência uma fonte está — ver `LADOS_DA_CONFERENCIA`. */
-export type LadoDaConferencia = "DEVIDO" | "DEMONSTRADO" | "FATURAMENTO";
+export type LadoDaConferencia =
+  | "DEVIDO"
+  | "DEMONSTRADO"
+  | "FATURAMENTO"
+  /** A frota Promax — não é dinheiro, não entra em cálculo de remuneração. */
+  | "CONFERENCIA_OPERACIONAL";
 
 export interface Fonte {
   tipo: TipoDeFonte;
@@ -1710,3 +1724,63 @@ export const EXPLICACAO_DA_DIVERGENCIA: Record<string, string> = {
     "O que o 2Art registra de frete no canal não bate com o que o SRTrans diz ter calculado.",
   AVISO_DA_CONCILIACAO: "O relatório do Promax trouxe um aviso sem valor associado.",
 };
+
+/* ---------------------------------------------------------------------------
+   A FROTA PROMAX — conferência operacional, não financeira
+   ------------------------------------------------------------------------ */
+
+/**
+ * O que aconteceu entre o Promax e a referência do contrato, para um grupo.
+ *
+ * O mesmo vocabulário de `Movimento` usado na comparação entre vigências do
+ * cadastro — reescrito aqui pela mesma razão do resto deste arquivo: a tela
+ * não importa o motor.
+ */
+export type MovimentoDaFrota =
+  | "IGUAL"
+  | "SUBIU"
+  | "DESCEU"
+  | "GANHOU_LASTRO"
+  | "PERDEU_LASTRO"
+  | "SEM_COMPARACAO";
+
+export interface ReferenciaDeFrota {
+  nome: string;
+  quantidade: number | null;
+  diferenca: number | null;
+  movimento: MovimentoDaFrota;
+}
+
+export interface GrupoDeFrotaComparado {
+  unidade: string;
+  modelo: string;
+  categoria: string | null;
+  situacao: "ATIVA" | "INATIVA";
+  /** `null` quando o grupo está em conflito — ver `conflitos`. */
+  quantidadePromax: number | null;
+  referencias: ReferenciaDeFrota[];
+}
+
+export interface ConflitoDeFrotaPromax {
+  unidade: string;
+  modelo: string;
+  situacao: "ATIVA" | "INATIVA";
+  evidencia: { linha: number; placa: string }[];
+}
+
+export interface ComparacaoDeFrotaPromax {
+  grupos: GrupoDeFrotaComparado[];
+  conflitos: ConflitoDeFrotaPromax[];
+}
+
+/**
+ * A conferência de frota da competência: o que o Promax leu contra o cadastro
+ * do contrato.
+ *
+ * **Não é a apuração** — é uma leitura própria, que nunca passa pelo motor
+ * financeiro. Ver `routes/fechamento.ts` e `frota-promax-comparacao.ts`, em
+ * `@workspace/fechamento`.
+ */
+export function lerFrotaDaCompetencia(competenciaId: string): Promise<ComparacaoDeFrotaPromax> {
+  return fetchJson<ComparacaoDeFrotaPromax>(`/fechamento/competencias/${competenciaId}/frota`);
+}

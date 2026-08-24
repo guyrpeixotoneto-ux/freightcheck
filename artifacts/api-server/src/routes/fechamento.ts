@@ -5,6 +5,7 @@ import {
   abrirCompetencia,
   apurarCompetencia,
   buscarCompetencia,
+  compararFrotaDaCompetencia,
   TIPO_NAO_INFORMADO,
   descartarDadosDaCompetencia,
   excluirCompetencia,
@@ -948,6 +949,46 @@ router.delete("/fechamento/competencias/:id/dados", async (req, res): Promise<vo
   }
   try {
     res.json(await descartarDadosDaCompetencia(db, id));
+  } catch (erro) {
+    if (erro instanceof RecusaDeFechamento) {
+      res.status(erro.codigo === "COMPETENCIA_NAO_ENCONTRADA" ? 404 : 409).json({
+        error: erro.message,
+        codigo: erro.codigo,
+      });
+      return;
+    }
+    throw erro;
+  }
+});
+
+/**
+ * A CONFERÊNCIA DE FROTA — o Promax contra o cadastro do contrato.
+ *
+ * **Não é a apuração, e não passa por ela.** `compararFrotaDaCompetencia` lê
+ * as linhas de `FROTA_PROMAX_ATIVA`/`FROTA_PROMAX_INATIVA` direto do banco e
+ * as compara contra `frotaFixaAtiva`/`frotaFixaInativa`/Vans do cadastro —
+ * fora do motor financeiro (`apurarCompetencia` nunca vê estas linhas; ver
+ * `apuracao.ts`). É um `GET`, como o Resumo: não recalcula nada, só lê o que
+ * já está gravado e compara.
+ */
+router.get("/fechamento/competencias/:id/frota", async (req, res): Promise<void> => {
+  const { id } = req.params;
+  if (!UUID.test(id)) {
+    res.status(400).json({ error: "Identificador de competência inválido." });
+    return;
+  }
+  try {
+    const competencia = await buscarCompetencia(db, id);
+    if (!competencia) {
+      res.status(404).json({ error: "Competência não encontrada." });
+      return;
+    }
+    const { comparacao } = await compararFrotaDaCompetencia(
+      db,
+      id,
+      cadastroDaRemuneracao(db, { tipoDeOperacao: competencia.tipoDeOperacao }),
+    );
+    res.json(comparacao);
   } catch (erro) {
     if (erro instanceof RecusaDeFechamento) {
       res.status(erro.codigo === "COMPETENCIA_NAO_ENCONTRADA" ? 404 : 409).json({

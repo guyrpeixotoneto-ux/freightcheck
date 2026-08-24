@@ -13,6 +13,7 @@ import {
   ScrollText,
   Stamp,
   Table2,
+  Truck,
 } from "lucide-react";
 import { GRUPO_ADMINISTRACAO } from "./nav-administracao";
 import type { NavGroup } from "./nav";
@@ -143,6 +144,14 @@ export function navGroupsFechamento(base: string, nome: string): NavGroup[] {
         { href: `${base}/apuracao`, label: "Apuração", icon: Calculator },
         { href: `${base}/pendencias`, label: "Pendências", icon: ListTodo },
         { href: `${base}/conferencias`, label: "Conferências", icon: ClipboardCheck },
+        /*
+          Frota é conferência operacional — o Promax contra o cadastro do
+          contrato —, e não financeira: por isso mora aqui e não na conta
+          apurada. Aponta para a lista por competência
+          (`pages/fechamento/frotas.tsx`), no mesmo padrão de "Apurações": a
+          tela de dentro é sempre a frota *de um período*.
+        */
+        { href: `${base}/frotas`, label: "Frota", icon: Truck },
       ],
     },
     {

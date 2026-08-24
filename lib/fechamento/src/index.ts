@@ -107,6 +107,29 @@ export {
 export { lerRequisicoes, STATUS_QUE_PAGA, type Requisicao } from "./leitores/requisicoes";
 export { lerDisponibilidade, type DiaDeDisponibilidade } from "./leitores/disponibilidade";
 export {
+  lerFrotaPromax,
+  type VeiculoDaFrotaPromax,
+  type SituacaoDaFrotaPromax,
+} from "./leitores/frota-promax";
+/*
+  A conferência de frota é operacional, não financeira — ver o comentário de
+  topo de `frota-promax-comparacao.ts`. Exportada aqui como o resto do
+  vocabulário do módulo, e não a partir de `painel-referencia`/`apuracao`: ela
+  não é lida por nenhum dos dois, e não deveria começar a ser.
+*/
+export {
+  agruparFrotaPromax,
+  compararFrotaPromax,
+  compararFrotaPromaxContraContrato,
+  type ComparacaoDeFrotaPromax,
+  type ConflitoDeFrotaPromax,
+  type ContratoParaComparacaoDeFrota,
+  type GrupoDeFrotaComparado,
+  type Movimento as MovimentoDaFrota,
+  type Referencia as ReferenciaDeFrota,
+  type SituacaoDaFrota,
+} from "./frota-promax-comparacao";
+export {
   lerConciliacao,
   valorDe,
   ColunasDaConciliacaoIndefinidas,
