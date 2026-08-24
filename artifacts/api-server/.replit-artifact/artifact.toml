@@ -26,13 +26,39 @@ NODE_ENV = "production"
 [services.production.run]
 args = ["node", "--enable-source-maps", "artifacts/api-server/dist/index.mjs"]
 
-# O Publish do Replit é a única autoridade que altera o schema de produção.
-# Desligar a fila na partida evita DDL concorrente durante a janela de
-# readiness e mantém o processo HTTP independente do banco.
+# `DB_MIGRATE_ON_BOOT` é dito aqui por extenso, e não deixado para o `NODE_ENV`.
+#
+# O servidor aceita os dois sinais — a chave vence, o `NODE_ENV` decide na
+# ausência dela —, e mesmo assim vale escrevê-la. Production é o único ambiente
+# que aplica a fila versionada ao subir, e essa é uma decisão de deploy: ela
+# pertence ao arquivo que descreve o deploy, onde quem publica a lê, e não a uma
+# inferência a partir de uma variável que existe para outra coisa.
+#
+# **Esteve "0" entre 22/08 e 25/08/2026 — revertido, não é reincidência.** Um
+# incidente real de readiness (worker de migration interferindo na partida)
+# levou a desligar esta chave às 13h16 de 22/08. A correção estrutural desse
+# incidente — abrir a porta antes da fila, migrations sempre em segundo plano,
+# portão de prontidão separado do probe de partida (ver o bloco abaixo) — foi
+# ao ar no mesmo dia, às 22h55, tornando o incidente original estruturalmente
+# irrepetível. A chave ficou desligada por mais três dias depois de a correção
+# já valer, e nesse intervalo Production parou de convergir sozinho: nenhum
+# restart aplicava migration nenhuma, porque `deveMigrarNaPartida()` retorna
+# `false` incondicionalmente com esta chave em "0" — o runner inteiro (lock,
+# journal, transações, reparo) nunca chegava a ser chamado. Foi assim que
+# `0056_frota_promax` e `0057_total_do_pagamento` ficaram pendentes em
+# Production por dias, com o portão de prontidão corretamente recusando
+# produto o tempo todo, sem que nada tentasse fechar a lacuna. Ver
+# `docs/MIGRATIONS.md` e `.agents/memory/publish-owns-production-schema.md`
+# para o relato completo — a nota de memória foi corrigida junto com esta
+# reversão, e não deve voltar a recomendar desligar esta chave.
+#
+# O efeito prático é o Preview e qualquer serviço futuro: nascem sem a chave,
+# caem no padrão seguro (não migram) e só passam a migrar quando alguém
+# escrever isto aqui de novo, de propósito.
 [services.production.run.env]
 PORT = "8080"
 NODE_ENV = "production"
-DB_MIGRATE_ON_BOOT = "0"
+DB_MIGRATE_ON_BOOT = "1"
 
 # O startup probe fica no `/healthz`, e a prontidão **não** mora aqui.
 #

@@ -589,3 +589,49 @@ promoção pública com `/api/startupz` respondendo 503 no momento em que o
 tráfego começou a ser aceito, isso é o sinal para abrir uma investigação
 específica da plataforma — não deste código, que já teria feito sua parte
 corretamente.
+
+## Três dias parado por uma chave desligada em vez do incidente que ela resolvia — 22–25/08/2026
+
+`DB_MIGRATE_ON_BOOT` foi desligado em Production às 13h16 de 22/08/2026, em
+reação a um incidente real: um build de deploy falhou readiness porque o
+worker de migration interferia na partida, e os logs do container mostravam
+falhas repetidas de health check com erro de Postgres na janela de boot. O
+raciocínio do momento — "o Publish do Replit é a única autoridade que altera
+o schema de produção" — parecia uma saída razoável.
+
+Duas coisas estavam erradas nela, e as duas já estão documentadas acima neste
+arquivo: o passo de schema do Publish **não escreve no registro**
+`drizzle.__drizzle_migrations` (ver "A reconvergência da partida"), então
+desligar a chave não transferia a autoridade para lugar nenhum que o resto do
+sistema — `/api/readyz`, o portão, `diagnosticar` — conseguisse enxergar; e o
+incidente de readiness que motivou a mudança já tinha, no mesmo repositório, a
+correção estrutural certa esperando para ser aplicada: abrir a porta antes da
+fila, migrar em segundo plano, portão de prontidão separado do probe de
+partida (ver "A porta aberta não é tráfego aceito", acima). Essa correção foi
+ao ar **~9h30 depois**, no mesmo dia — `c9cf017`, 22h55 — tornando o incidente
+original estruturalmente irrepetível: `/api/healthz`, alvo do startup probe,
+nunca toca o banco e responde 200 imediatamente após o bind, então uma
+migration lenta ou recusada não tem como derrubar o probe.
+
+A chave continuou em `"0"` por mais três dias depois de essa correção já
+valer. O efeito, com `deveMigrarNaPartida()` retornando `false`
+incondicionalmente: todo restart de Production — e houve vários — chegava ao
+mesmo lugar sem nunca chamar `migrarComReparo()`. Nenhum `pg_advisory_lock`
+disputado, nenhuma tentativa, nenhuma falha registrada — simplesmente nada
+tentava. `0056_frota_promax` e `0057_total_do_pagamento` ficaram pendentes o
+tempo todo, com o portão de prontidão corretamente recusando produto — a parte
+que funcionava — enquanto nada convergia, porque não havia mecanismo tentando
+fechar a lacuna. Não foi um SQLSTATE, não foi um `pg_advisory_lock` preso: foi
+ausência total de tentativa, disfarçada de decisão deliberada por um
+comentário que já estava desatualizado no dia em que foi escrito.
+
+**O tell, para quem opera:** `/api/build` mostrando `startedAt` recente — o
+processo reiniciou de verdade — e `/api/readyz` continuando com a mesma
+contagem de pendências de antes do restart. Migração que falha muda de
+figura a cada tentativa (`falha.tag` nomeia onde parou); migração que nunca é
+tentada fica estática para sempre, porque não há tentativa para variar.
+
+**A correção:** reverter a chave para `"1"`, e nada além disso — o runner
+inteiro (lock, journal, transações, reparo, fail-closed) nunca foi alterado
+pelo incidente; ficou só inatingível. `.agents/memory/publish-owns-production-schema.md`
+foi reescrita para não voltar a recomendar este desligamento.

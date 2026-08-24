@@ -70,14 +70,23 @@ describe("Production segue a política definida", () => {
     expect(decisao.motivo).toContain("DB_MIGRATE_ON_BOOT");
   });
 
-  it("o artifact de produção delega o schema ao Publish", () => {
+  /*
+    Esteve `"0"` entre 22/08 e 25/08/2026, e é o próprio defeito que esta prova
+    existe para não deixar repetir: com a chave em "0", `deveMigrarNaPartida`
+    retorna `false` incondicionalmente em Production, `migrarComReparo` nunca é
+    chamado, e nenhum restart converge o banco — foi assim que `0056` e `0057`
+    ficaram pendentes por dias com o portão de prontidão corretamente
+    recusando produto o tempo todo, sem que nada tentasse fechar a lacuna. Ver
+    o comentário no próprio `artifact.toml` e `docs/MIGRATIONS.md`.
+  */
+  it("o artifact de produção diz as duas coisas por extenso", () => {
     const artifact = readFileSync(
       path.join(RAIZ, ".replit-artifact/artifact.toml"),
       "utf8",
     );
     const producao = artifact.slice(artifact.indexOf("[services.production.run.env]"));
     expect(producao).toMatch(/NODE_ENV\s*=\s*"production"/);
-    expect(producao).toMatch(/DB_MIGRATE_ON_BOOT\s*=\s*"0"/);
+    expect(producao).toMatch(/DB_MIGRATE_ON_BOOT\s*=\s*"1"/);
   });
 
   it("um valor de chave sem sentido não derruba Production — cai no NODE_ENV", () => {
