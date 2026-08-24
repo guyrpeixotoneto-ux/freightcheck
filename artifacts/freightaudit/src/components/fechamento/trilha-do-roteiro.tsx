@@ -8,14 +8,16 @@ import type { EtapaDoRoteiro } from "@/pages/fechamento/roteiro";
  *
  * **O que ela responde, e o que ela deliberadamente não faz.** Responde "em que
  * pé está esta quinzena" de uma olhada. Não é navegação por passos e não trava
- * nada: clicar leva à etapa na mesma página, e uma etapa com divergência não
- * impede as seguintes. Um fechamento real avança com pendência em aberto — quem
- * confere volta nela —, e uma trilha que bloqueasse obrigaria a operação a
- * contornar o produto para trabalhar.
+ * nada: clicar abre aquela etapa, e uma etapa com divergência não impede as
+ * seguintes. Um fechamento real avança com pendência em aberto — quem confere
+ * volta nela —, e uma trilha que bloqueasse obrigaria a operação a contornar o
+ * produto para trabalhar.
  *
- * Por isso não há "etapa atual": as oito são mostradas com o mesmo peso, e o
- * que distingue uma da outra é só o estado. Marcar uma como "a de agora" seria
- * uma afirmação sobre a ordem de trabalho de quem fecha, e essa ordem é dela.
+ * **Marcar a aberta não é o mesmo que declarar uma "atual".** O destaque diz
+ * onde a pessoa está olhando agora — foi ela quem clicou, ou foi a tela que
+ * abriu a primeira que pedia alguma coisa. O que a trilha continua não fazendo
+ * é afirmar que aquela é a etapa em que o trabalho *deveria* estar: as oito
+ * seguem com o mesmo peso, e o que distingue uma da outra é o estado.
  */
 
 /**
@@ -78,8 +80,13 @@ export function SeloDaEtapa({ estado }: { estado: EstadoDaEtapa }) {
 
 export function TrilhaDoRoteiro({
   etapas,
+  aberta,
+  aoEscolher,
 }: {
   etapas: { etapa: EtapaDoRoteiro; estado: EstadoDaEtapa }[];
+  /** O número da etapa aberta agora — a trilha a marca, sem chamá-la de "atual". */
+  aberta: number;
+  aoEscolher: (numero: number) => void;
 }) {
   return (
     /*
@@ -87,34 +94,50 @@ export function TrilhaDoRoteiro({
       sequência, e uma sequência partida ao meio deixa de ser lida como ordem.
     */
     <nav aria-label="Etapas do fechamento" className="overflow-x-auto -mx-1 px-1">
-      <ol className="flex items-stretch gap-1 min-w-max">
+      <ol className="flex items-stretch min-w-max">
         {etapas.map(({ etapa, estado }, i) => {
           const { rotulo, ponto } = APARENCIA_DO_ESTADO[estado];
+          const estaAberta = etapa.numero === aberta;
           return (
-            <li key={etapa.numero} className="flex items-stretch gap-1">
-              <a
-                href={`#etapa-${etapa.numero}`}
+            <li key={etapa.numero} className="flex items-stretch">
+              {/*
+                Botão, e não âncora: clicar **abre** a etapa, e um `#hash` que
+                rolasse até um bloco fechado levaria a pessoa a um cabeçalho e
+                nada mais. A rolagem continua acontecendo, depois de abrir.
+              */}
+              <button
+                type="button"
+                onClick={() => aoEscolher(etapa.numero)}
+                aria-current={estaAberta ? "step" : undefined}
                 title={`${etapa.titulo} — ${rotulo}`}
-                className="group flex items-center gap-2 rounded-md px-2.5 py-1.5 hover:bg-muted transition-colors"
+                className={cn(
+                  "group flex items-center gap-1.5 rounded-md px-2 py-1.5 transition-colors",
+                  estaAberta ? "bg-muted" : "hover:bg-muted",
+                )}
               >
                 <span
                   className={cn("w-2 h-2 rounded-full shrink-0", ponto)}
                   aria-hidden
                 />
-                <span className="text-xs">
+                <span className="text-xs whitespace-nowrap">
                   <span className="text-muted-foreground tabular-nums">
                     {etapa.numero}.
                   </span>{" "}
-                  <span className="font-medium group-hover:underline underline-offset-4">
+                  <span
+                    className={cn(
+                      "group-hover:underline underline-offset-4",
+                      estaAberta ? "font-semibold" : "font-medium",
+                    )}
+                  >
                     {etapa.curto}
                   </span>
                 </span>
                 {/* O estado por extenso, para quem lê com leitor de tela. */}
                 <span className="sr-only">— {rotulo}</span>
-              </a>
+              </button>
               {i < etapas.length - 1 && (
                 <span
-                  className="self-center text-muted-foreground/40 text-xs"
+                  className="self-center text-muted-foreground/40 text-xs px-0.5"
                   aria-hidden
                 >
                   ›

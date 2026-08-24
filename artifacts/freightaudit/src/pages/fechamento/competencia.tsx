@@ -65,7 +65,18 @@ import {
   type TotaisDoPagamento,
 } from "@/lib/fechamento";
 import { ROTEIRO, type EtapaDoRoteiro } from "./roteiro";
-import { situacaoDaEtapa, type SituacaoDaEtapa } from "./status-da-etapa";
+import {
+  primeiraEtapaQuePede,
+  resumoDaEtapa,
+  situacaoDaEtapa,
+  type SituacaoDaEtapa,
+} from "./status-da-etapa";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 import {
   SeloDaEtapa,
   TrilhaDoRoteiro,
@@ -118,6 +129,8 @@ export default function CompetenciaAberta({ id }: { id: string }) {
     contra apagar a competência errada.
   */
   const [confirmandoDescarte, setConfirmandoDescarte] = useState(false);
+  /* A etapa aberta do roteiro. `null` = ainda não houve clique; ver `aberta`. */
+  const [etapaAberta, setEtapaAberta] = useState<string | null>(null);
   const [descartado, setDescartado] = useState<DadosDescartados | null>(null);
 
   const dados = useQuery({
@@ -338,6 +351,17 @@ export default function CompetenciaAberta({ id }: { id: string }) {
     ]),
   );
 
+  /*
+    Qual etapa está aberta. Uma por vez: as oito abertas eram uma página inteira
+    de rolagem para achar a que interessa, e o estado de cada uma já está no
+    cabeçalho dela (ver `resumoDaEtapa`), então fechar não esconde nada.
+
+    O padrão é a primeira que pede alguma coisa — não "a etapa atual", que a
+    trilha continua não afirmando. `null` até a primeira renderização decidir,
+    e daí em diante quem manda é o clique.
+  */
+  const aberta = etapaAberta ?? `etapa-${primeiraEtapaQuePede(situacoes, ROTEIRO.map((e) => e.numero))}`;
+
   return (
     <Layout>
       <header className="border-b bg-card px-8 py-6">
@@ -504,32 +528,70 @@ export default function CompetenciaAberta({ id }: { id: string }) {
                 etapa,
                 estado: situacoes.get(etapa.numero)!.estado,
               }))}
+              aberta={Number(aberta.replace("etapa-", ""))}
+              aoEscolher={(numero) => {
+                setEtapaAberta(`etapa-${numero}`);
+                /*
+                  Rolar depois de abrir, e no quadro seguinte: o bloco só ganha
+                  altura quando o accordion o expande, e rolar antes disso mira
+                  a posição que o cabeçalho tinha fechado.
+                */
+                requestAnimationFrame(() =>
+                  document
+                    .getElementById(`etapa-${numero}`)
+                    ?.scrollIntoView({ block: "start", behavior: "smooth" }),
+                );
+              }}
             />
 
+            <Accordion
+              type="single"
+              collapsible
+              value={aberta}
+              onValueChange={(v) => setEtapaAberta(v)}
+              className="border-t"
+            >
             {ROTEIRO.map((etapa) => {
               const situacao = situacoes.get(etapa.numero)!;
+              const resumo = resumoDaEtapa(situacao);
               const doRoteiro = etapa.fontes
                 .map((t) => catalogo.find((f) => f.tipo === t))
                 .filter((f): f is Fonte => !!f);
 
               return (
-                <section
+                <AccordionItem
                   key={etapa.numero}
+                  value={`etapa-${etapa.numero}`}
                   id={`etapa-${etapa.numero}`}
-                  className="pt-4 scroll-mt-4 border-t first:border-t-0"
+                  className="scroll-mt-4"
                 >
-                  <div className="flex items-start justify-between gap-3">
-                    <h3 className="text-sm font-semibold">
-                      <span className="text-muted-foreground tabular-nums mr-1.5">
-                        {etapa.numero}.
+                  {/*
+                    O cabeçalho carrega o estado sozinho — selo e resumo —,
+                    porque com uma etapa aberta por vez ele é tudo o que sete
+                    delas mostram. `hover:no-underline` desfaz o padrão do
+                    componente: sublinhar a linha inteira, com selo e número,
+                    faria o cabeçalho parecer um link só.
+                  */}
+                  <AccordionTrigger className="hover:no-underline py-3 gap-3">
+                    <span className="flex items-center gap-3 min-w-0 flex-1">
+                      <span className="text-sm font-semibold text-left">
+                        <span className="text-muted-foreground tabular-nums mr-1.5">
+                          {etapa.numero}.
+                        </span>
+                        {etapa.titulo}
                       </span>
-                      {etapa.titulo}
-                    </h3>
+                      {resumo && (
+                        <span className="text-xs text-muted-foreground truncate hidden sm:inline">
+                          {resumo}
+                        </span>
+                      )}
+                    </span>
                     <SeloDaEtapa estado={situacao.estado} />
-                  </div>
+                  </AccordionTrigger>
 
+                  <AccordionContent>
                   {/* O que se confere — na língua do processo, antes do nome do arquivo. */}
-                  <p className="text-xs text-muted-foreground mt-1 max-w-2xl">
+                  <p className="text-xs text-muted-foreground max-w-2xl">
                     {etapa.confere}
                   </p>
 
@@ -594,9 +656,11 @@ export default function CompetenciaAberta({ id }: { id: string }) {
                     competenciaId={id}
                     totais={totais.data}
                   />
-                </section>
+                  </AccordionContent>
+                </AccordionItem>
               );
             })}
+            </Accordion>
           </CardContent>
         </Card>
 

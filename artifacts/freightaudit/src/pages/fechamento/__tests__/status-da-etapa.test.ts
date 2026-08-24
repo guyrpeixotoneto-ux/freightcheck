@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { Documento, Divergencia, Fonte, TipoDeFonte } from "@/lib/fechamento";
 import { ROTEIRO, etapaDaFonte, fontesForaDoRoteiro } from "../roteiro";
-import { divergenciasDaEtapa, situacaoDaEtapa } from "../status-da-etapa";
+import {
+  divergenciasDaEtapa,
+  primeiraEtapaQuePede,
+  resumoDaEtapa,
+  situacaoDaEtapa,
+} from "../status-da-etapa";
 
 /**
  * O estado de cada etapa do roteiro.
@@ -256,6 +261,81 @@ describe("o roteiro em si", () => {
       expect(e.verifica.length, `etapa ${e.numero}`).toBeGreaterThan(0);
       expect(e.confere.length).toBeGreaterThan(20);
       expect(e.curto.length).toBeLessThanOrEqual(16);
+    }
+  });
+});
+
+describe("o resumo que o cabeçalho fechado carrega", () => {
+  /*
+    Com uma etapa aberta por vez, sete ficam representadas só pelo cabeçalho.
+    Se ele não disser o número, fechar a etapa apaga da tela a informação de que
+    ela depende — e quem fecha a quinzena passa a ter de abrir as oito para
+    saber onde está.
+  */
+  it("conta os arquivos que chegaram sobre o total", () => {
+    expect(resumoDaEtapa(situacao([doc("DISPONIBILIDADE_FF")]))).toBe("1 de 2");
+  });
+
+  it("com tudo no lugar, diz o total por extenso", () => {
+    const s = situacao([doc("DISPONIBILIDADE_FF"), doc("DISPONIBILIDADE_VAN")]);
+    expect(resumoDaEtapa(s)).toBe("2 de 2 arquivos");
+  });
+
+  it("soma recusas e diferenças ao lado dos arquivos", () => {
+    const s = situacao(
+      [doc("DISPONIBILIDADE_FF", 3), doc("DISPONIBILIDADE_VAN")],
+      [divergencia("DESCONTO_DE_DISPONIBILIDADE")],
+    );
+    expect(resumoDaEtapa(s)).toBe("2 de 2 arquivos · 3 linhas recusadas · 1 diferença");
+  });
+
+  it("etapa sem arquivo e sem achado não inventa frase", () => {
+    const etapa1 = ROTEIRO.find((e) => e.numero === 1)!;
+    const s = situacaoDaEtapa(etapa1, {
+      catalogo: [],
+      documentos: new Map(),
+      divergencias: [],
+      quinzena: 2,
+    });
+    expect(resumoDaEtapa(s)).toBeNull();
+  });
+});
+
+describe("qual etapa a tela abre sozinha", () => {
+  const situacoesCom = (pedindo: number[]) =>
+    new Map(
+      ROTEIRO.map((e) => [
+        e.numero,
+        {
+          estado: pedindo.includes(e.numero) ? "PENDENTE" : "CONCLUIDA",
+          faltando: [],
+          chegaram: [],
+          linhasRecusadas: 0,
+          divergencias: [],
+          proximaAcao: null,
+        } as ReturnType<typeof situacaoDaEtapa>,
+      ]),
+    );
+  const ordem = ROTEIRO.map((e) => e.numero);
+
+  it("abre a primeira que pede alguma coisa, na ordem do roteiro", () => {
+    expect(primeiraEtapaQuePede(situacoesCom([5, 3]), ordem)).toBe(3);
+  });
+
+  /*
+    Nada pedindo não é "nada a fazer": é uma quinzena recém-aberta ou uma já
+    conferida. Nos dois casos a primeira etapa é o começo do processo, e abrir
+    ali não afirma nada sobre o que falta.
+  */
+  it("quando nada pede, abre a primeira", () => {
+    expect(primeiraEtapaQuePede(situacoesCom([]), ordem)).toBe(1);
+  });
+
+  it("recusa e divergência também pedem, não só arquivo faltando", () => {
+    for (const estado of ["COM_RECUSA", "DIVERGENCIA"] as const) {
+      const m = situacoesCom([]);
+      m.set(4, { ...m.get(4)!, estado });
+      expect(primeiraEtapaQuePede(m, ordem)).toBe(4);
     }
   });
 });

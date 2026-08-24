@@ -190,3 +190,74 @@ function proximaAcao(
       return null;
   }
 }
+
+/**
+ * O resumo de uma etapa fechada — o que o cabeçalho precisa dizer sozinho.
+ *
+ * **Existe porque colapsar não pode esconder estado.** Com as oito etapas
+ * abertas, a situação de cada uma estava escrita no corpo dela; com uma aberta
+ * por vez, sete ficam representadas só pelo cabeçalho. Se o cabeçalho disser
+ * apenas o nome, fechar a etapa apaga da tela a informação de que ela depende —
+ * e quem fecha a quinzena passa a ter de abrir as oito para saber onde está.
+ *
+ * O selo já dá o estado; esta frase dá o **número**: quantos arquivos chegaram,
+ * quantos faltam, quantas linhas foram recusadas. `null` quando não há nada a
+ * dizer — etapa sem arquivo e sem achado, onde uma frase vazia seria ruído.
+ */
+export function resumoDaEtapa(situacao: SituacaoDaEtapa): string | null {
+  const partes: string[] = [];
+
+  const total = situacao.chegaram.length + situacao.faltando.length;
+  if (total > 0) {
+    partes.push(
+      situacao.faltando.length === 0
+        ? `${situacao.chegaram.length} de ${total} ${total === 1 ? "arquivo" : "arquivos"}`
+        : `${situacao.chegaram.length} de ${total}`,
+    );
+  }
+
+  if (situacao.linhasRecusadas > 0) {
+    partes.push(
+      situacao.linhasRecusadas === 1
+        ? "1 linha recusada"
+        : `${situacao.linhasRecusadas} linhas recusadas`,
+    );
+  }
+
+  if (situacao.divergencias.length > 0) {
+    partes.push(
+      situacao.divergencias.length === 1
+        ? "1 diferença"
+        : `${situacao.divergencias.length} diferenças`,
+    );
+  }
+
+  return partes.length > 0 ? partes.join(" · ") : null;
+}
+
+/**
+ * A etapa que a tela abre sozinha — a primeira que pede alguma coisa.
+ *
+ * **Não é "a etapa atual", e a distinção importa.** A trilha não marca nenhuma
+ * etapa como a de agora, de propósito: a ordem de trabalho é de quem fecha, não
+ * do produto. Mas uma etapa por vez precisa começar em alguma, e abrir sempre a
+ * primeira faria a tela pedir um clique antes de mostrar o que interessa.
+ *
+ * "Pede alguma coisa" é ter arquivo faltando, linha recusada ou diferença
+ * apontada — na ordem do roteiro, que é a ordem em que o trabalho acontece.
+ * Quando nada pede (tudo conferido, ou nada importado ainda), abre a primeira:
+ * é o começo do processo, e não uma afirmação sobre o que falta.
+ */
+export function primeiraEtapaQuePede(
+  situacoes: Map<number, SituacaoDaEtapa>,
+  ordem: number[],
+): number {
+  const pedindo = ordem.find((n) => {
+    const s = situacoes.get(n);
+    return (
+      s !== undefined &&
+      (s.estado === "COM_RECUSA" || s.estado === "DIVERGENCIA" || s.estado === "PENDENTE")
+    );
+  });
+  return pedindo ?? ordem[0] ?? 1;
+}
