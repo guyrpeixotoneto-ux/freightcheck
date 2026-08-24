@@ -560,11 +560,11 @@ export default function Competencias() {
                   coisas identificam a linha para quem a procura; o que muda é
                   que o que sai daqui é o `id`.
                 */}
-                <ComboboxCriavel<UnidadeCanonica>
+                <ComboboxCriavel
                   id="unidade"
                   itens={unidadesCanonicas.data ?? []}
                   valor={unidade}
-                  aoEscolher={setUnidade}
+                  aoEscolher={(u) => setUnidade(u)}
                   rotuloDe={(u) => `${u.nome} — ${u.cnpjFormatado}`}
                   detalheDe={(u) =>
                     u.vigencias > 0
@@ -589,11 +589,11 @@ export default function Competencias() {
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="transportadora">Transportadora</Label>
-                <ComboboxCriavel<Parte>
+                <ComboboxCriavel
                   id="transportadora"
                   itens={partes.data?.transportadoras ?? []}
                   valor={transportadora}
-                  aoEscolher={setTransportadora}
+                  aoEscolher={(p) => setTransportadora(p)}
                   aoCriar={(texto) => abrirCadastro("TRANSPORTADORA", texto)}
                   erro={
                     cadastroDaTransportadora.isError
