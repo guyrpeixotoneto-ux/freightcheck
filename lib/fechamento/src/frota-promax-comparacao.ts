@@ -77,6 +77,13 @@ export interface GrupoDeFrotaComparado {
   unidade: string;
   /** O modelo/categoria, como o Promax escreve — agrupador, não fonte separada. */
   modelo: string;
+  /**
+   * `Categoria`, quando o relatório a traz — o campo que um dia poderia
+   * discriminar frota fixa de vans (ver o TODO em `dominio.ts`). Exposta aqui
+   * só para o chamador decidir a que referência do contrato o grupo se
+   * compara; este módulo não interpreta o texto.
+   */
+  categoria: string | null;
   situacao: SituacaoDaFrota;
   /**
    * Quantos veículos distintos (por placa) o Promax lista neste grupo.
@@ -117,7 +124,13 @@ function chaveDoGrupo(v: { unidade: string; modelo: string; situacao: SituacaoDa
  */
 export function agruparFrotaPromax(
   veiculos: VeiculoDaFrotaPromax[],
-): { contagens: Map<string, { unidade: string; modelo: string; situacao: SituacaoDaFrota; placas: Set<string> }>; conflitos: ConflitoDeFrotaPromax[] } {
+): {
+  contagens: Map<
+    string,
+    { unidade: string; modelo: string; categoria: string | null; situacao: SituacaoDaFrota; placas: Set<string> }
+  >;
+  conflitos: ConflitoDeFrotaPromax[];
+} {
   const porUnidadeModelo = new Map<
     string,
     Map<string, { linha: number; situacao: SituacaoDaFrota }[]>
@@ -134,7 +147,7 @@ export function agruparFrotaPromax(
 
   const contagens = new Map<
     string,
-    { unidade: string; modelo: string; situacao: SituacaoDaFrota; placas: Set<string> }
+    { unidade: string; modelo: string; categoria: string | null; situacao: SituacaoDaFrota; placas: Set<string> }
   >();
   const conflitos: ConflitoDeFrotaPromax[] = [];
 
@@ -162,6 +175,7 @@ export function agruparFrotaPromax(
         contagens.set(chaveConflito, {
           unidade: v.unidade,
           modelo: v.modelo,
+          categoria: v.categoria,
           situacao: "ATIVA",
           placas: new Set(),
         });
@@ -173,6 +187,10 @@ export function agruparFrotaPromax(
     const grupo = contagens.get(chave) ?? {
       unidade: v.unidade,
       modelo: v.modelo,
+      /* A categoria do grupo é a da primeira linha vista — o relatório não
+         deveria trazer a mesma placa com categorias diferentes, e se trouxer
+         isso não é o conflito que este módulo audita (que é de situação). */
+      categoria: v.categoria,
       situacao: v.situacao,
       placas: new Set<string>(),
     };
@@ -209,6 +227,7 @@ export function compararFrotaPromax(
   referenciasPorGrupo: (grupo: {
     unidade: string;
     modelo: string;
+    categoria: string | null;
     situacao: SituacaoDaFrota;
   }) => Referencia[],
 ): ComparacaoDeFrotaPromax {
@@ -220,11 +239,13 @@ export function compararFrotaPromax(
       const referencias = referenciasPorGrupo({
         unidade: g.unidade,
         modelo: g.modelo,
+        categoria: g.categoria,
         situacao: g.situacao,
       });
       grupos.push({
         unidade: g.unidade,
         modelo: g.modelo,
+        categoria: g.categoria,
         situacao: g.situacao,
         quantidadePromax: null,
         referencias: referencias.map((r) => ({ ...r, diferenca: null, movimento: "SEM_COMPARACAO" })),
@@ -235,11 +256,13 @@ export function compararFrotaPromax(
     const referencias = referenciasPorGrupo({
       unidade: g.unidade,
       modelo: g.modelo,
+      categoria: g.categoria,
       situacao: g.situacao,
     });
     grupos.push({
       unidade: g.unidade,
       modelo: g.modelo,
+      categoria: g.categoria,
       situacao: g.situacao,
       quantidadePromax,
       referencias: referencias.map((r) => ({
@@ -258,4 +281,75 @@ export function compararFrotaPromax(
   );
 
   return { grupos, conflitos };
+}
+
+/**
+ * Os quatro números do contrato que a v1 compara contra o Promax — nada além
+ * disto. Ver o requisito 5: "não assuma que é igual ao cadastro do contrato" —
+ * esta v1 compara só contra o que já existe (`frotaFixaAtiva`/`Inativa` e as
+ * Vans), e estrutura para um "Resumo SR Trans do FT" entrar depois sem
+ * redesenho (mais um item na lista que {@link referenciasDoContrato} monta).
+ */
+export interface ContratoParaComparacaoDeFrota {
+  frotaFixaAtiva: number;
+  frotaFixaInativa: number;
+  vansAtivas: number;
+  vansInativas: number;
+}
+
+/**
+ * Decide, a partir da `categoria` que a linha do Promax trouxe, contra qual
+ * número do contrato ela se compara.
+ *
+ * **Isto NUNCA promove a categoria a fonte separada.** É só a chave que
+ * escolhe a referência certa dentro da mesma comparação — a decisão de manter
+ * `FROTA_PROMAX_ATIVA`/`FROTA_PROMAX_INATIVA` como duas fontes, e não quatro,
+ * continua valendo (ver o TODO em `dominio.ts`).
+ *
+ * `categoria` ausente, ou que não seja reconhecidamente `FF`/fixa nem `VAN`,
+ * não recebe referência nenhuma — a `SEM_COMPARACAO` honesta de "não sei
+ * contra o que comparar este grupo", em vez de arriscar somá-lo ao lado
+ * errado.
+ */
+function referenciaDoContratoPelaCategoria(
+  categoria: string | null,
+  situacao: SituacaoDaFrota,
+  contrato: ContratoParaComparacaoDeFrota,
+): Referencia | null {
+  const texto = (categoria ?? "").trim().toUpperCase();
+  const ehFrotaFixa = texto === "FF" || texto === "FIXA" || texto === "FROTA FIXA" || texto === "PADRAO";
+  const ehVan = texto === "VAN" || texto === "VANS";
+
+  if (ehFrotaFixa) {
+    return {
+      nome: "Cadastro do contrato — frota fixa",
+      quantidade: situacao === "ATIVA" ? contrato.frotaFixaAtiva : contrato.frotaFixaInativa,
+    };
+  }
+  if (ehVan) {
+    return {
+      nome: "Cadastro do contrato — vans",
+      quantidade: situacao === "ATIVA" ? contrato.vansAtivas : contrato.vansInativas,
+    };
+  }
+  return null;
+}
+
+/**
+ * A comparação pronta para a v1: Promax contra o cadastro do contrato,
+ * agrupado por (unidade, modelo/categoria, situação).
+ *
+ * Fica aqui — e não em `persistencia.ts` — porque é regra de negócio pura
+ * (como mapear `categoria` em referência), não acesso a banco;
+ * `persistencia.ts` chama esta função depois de ler as linhas e o contrato.
+ */
+export function compararFrotaPromaxContraContrato(
+  veiculos: VeiculoDaFrotaPromax[],
+  contrato: ContratoParaComparacaoDeFrota | null,
+): ComparacaoDeFrotaPromax {
+  return compararFrotaPromax(veiculos, ({ categoria, situacao }) => {
+    if (!contrato) return [];
+    const referencia = referenciaDoContratoPelaCategoria(categoria, situacao, contrato);
+    return referencia ? [referencia] : [];
+  });
 }

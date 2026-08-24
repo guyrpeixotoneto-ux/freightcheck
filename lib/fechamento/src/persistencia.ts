@@ -75,7 +75,11 @@ import {
   type DescontoDeDisponibilidadeDoMes,
 } from "./leitores/disponibilidade";
 import { lerConciliacao } from "./leitores/conciliacao";
-import { lerFrotaPromax } from "./leitores/frota-promax";
+import { lerFrotaPromax, type VeiculoDaFrotaPromax } from "./leitores/frota-promax";
+import {
+  compararFrotaPromaxContraContrato,
+  type ComparacaoDeFrotaPromax,
+} from "./frota-promax-comparacao";
 import {
   lerPagamento,
   vbzsCitadasNoRotulo,
@@ -4031,4 +4035,100 @@ export function fraseDoPainelAusente(ausencia: PainelAusente): string {
     `o arquivo é conferido antes de valer, e um que não traga verba não substitui mais o que ` +
     `estiver de pé.`
   );
+}
+
+/* ---------------------------------------------------------------------------
+   A FROTA PROMAX — leitura e conferência, fora do motor financeiro
+   ------------------------------------------------------------------------ */
+
+/** Uma linha de frota Promax gravada, como o banco a devolve. */
+function veiculoGravado(
+  linha: typeof fechamentoFrotaPromaxTable.$inferSelect,
+): VeiculoDaFrotaPromax {
+  return {
+    linha: linha.linhaNoArquivo,
+    situacao: linha.situacao as "ATIVA" | "INATIVA",
+    unidade: linha.unidade,
+    placa: linha.placa,
+    modelo: linha.modelo,
+    categoria: linha.categoria,
+  };
+}
+
+/**
+ * A frota Promax gravada de uma competência — o retrato vigente, direto do
+ * banco.
+ *
+ * Como as demais linhas do módulo, só o documento vigente sustenta linha: uma
+ * substituição já apagou as do documento anterior (ver `apagarLinhasDoDocumento`),
+ * então um `where competencia_id = X` simples já é "o que vale hoje".
+ */
+export async function lerFrotaPromaxDaCompetencia(
+  db: Database,
+  competenciaId: string,
+): Promise<VeiculoDaFrotaPromax[]> {
+  const linhas = await db
+    .select()
+    .from(fechamentoFrotaPromaxTable)
+    .where(eq(fechamentoFrotaPromaxTable.competenciaId, competenciaId));
+  return linhas.map(veiculoGravado);
+}
+
+/**
+ * A conferência de frota da competência: o que o Promax leu contra o que o
+ * cadastro do contrato declara.
+ *
+ * **Isto não é a apuração.** `apurarCompetencia` roda o motor financeiro e
+ * nunca vê uma linha de frota Promax (ver o comentário em `apuracao.ts`, onde
+ * `FROTA_PROMAX_ATIVA`/`FROTA_PROMAX_INATIVA` entram sempre como não
+ * recebidas). Esta função é a porta de leitura própria da tela de frota —
+ * lê as linhas gravadas, resolve o contrato pela mesma porta que o resto do
+ * módulo usa (`cadastro-porta.ts`), e delega a comparação em si para
+ * `frota-promax-comparacao.ts`, que é onde a regra pura mora.
+ *
+ * `cadastro` tem o mesmo padrão de {@link lerResumoDoMes}: `SEM_CADASTRO` por
+ * padrão, que resolve `null` — e aí a comparação aparece sem nenhuma
+ * referência, nunca inventando um número de contrato que não existe.
+ *
+ * O canal usado para resolver o cadastro é `ROTA` — a frota contratada não é
+ * um número por canal, e `ROTA` é o único canal com painel hoje
+ * (`CANAIS_COM_PAINEL`).
+ */
+export async function compararFrotaDaCompetencia(
+  db: Database,
+  competenciaId: string,
+  cadastro: FonteDeCadastro = SEM_CADASTRO,
+): Promise<{ competencia: CompetenciaRegistrada; comparacao: ComparacaoDeFrotaPromax }> {
+  const competencia = await buscarCompetencia(db, competenciaId);
+  if (!competencia) {
+    throw new RecusaDeFechamento(
+      "COMPETENCIA_NAO_ENCONTRADA",
+      "A competência informada não existe.",
+    );
+  }
+
+  const veiculos = await lerFrotaPromaxDaCompetencia(db, competenciaId);
+
+  const { resposta } = await cadastro.resolver({
+    unidadeId: competencia.unidadeId,
+    unidadeCodigo: competencia.unidade.codigo,
+    transportadoraCodigo: competencia.transportadora.codigo,
+    canal: "ROTA",
+    inicio: competencia.inicio,
+    fim: competencia.fim,
+  });
+
+  const contrato = resposta
+    ? {
+        frotaFixaAtiva: resposta.parametros.frotaFixaAtiva,
+        frotaFixaInativa: resposta.parametros.frotaFixaInativa,
+        vansAtivas: resposta.parametros.vansAtivas,
+        vansInativas: resposta.parametros.vansInativas,
+      }
+    : null;
+
+  return {
+    competencia,
+    comparacao: compararFrotaPromaxContraContrato(veiculos, contrato),
+  };
 }
