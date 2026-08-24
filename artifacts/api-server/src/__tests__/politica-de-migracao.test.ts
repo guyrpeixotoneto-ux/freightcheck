@@ -70,14 +70,14 @@ describe("Production segue a política definida", () => {
     expect(decisao.motivo).toContain("DB_MIGRATE_ON_BOOT");
   });
 
-  it("o artifact de produção diz as duas coisas por extenso", () => {
+  it("o artifact de produção delega o schema ao Publish", () => {
     const artifact = readFileSync(
       path.join(RAIZ, ".replit-artifact/artifact.toml"),
       "utf8",
     );
     const producao = artifact.slice(artifact.indexOf("[services.production.run.env]"));
     expect(producao).toMatch(/NODE_ENV\s*=\s*"production"/);
-    expect(producao).toMatch(/DB_MIGRATE_ON_BOOT\s*=\s*"1"/);
+    expect(producao).toMatch(/DB_MIGRATE_ON_BOOT\s*=\s*"0"/);
   });
 
   it("um valor de chave sem sentido não derruba Production — cai no NODE_ENV", () => {

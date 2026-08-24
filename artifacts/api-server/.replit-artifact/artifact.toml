@@ -26,21 +26,13 @@ NODE_ENV = "production"
 [services.production.run]
 args = ["node", "--enable-source-maps", "artifacts/api-server/dist/index.mjs"]
 
-# `DB_MIGRATE_ON_BOOT` é dito aqui por extenso, e não deixado para o `NODE_ENV`.
-#
-# O servidor aceita os dois sinais — a chave vence, o `NODE_ENV` decide na
-# ausência dela —, e mesmo assim vale escrevê-la. Production é o único ambiente
-# que aplica a fila versionada ao subir, e essa é uma decisão de deploy: ela
-# pertence ao arquivo que descreve o deploy, onde quem publica a lê, e não a uma
-# inferência a partir de uma variável que existe para outra coisa.
-#
-# O efeito prático é o Preview e qualquer serviço futuro: nascem sem a chave,
-# caem no padrão seguro (não migram) e só passam a migrar quando alguém
-# escrever isto aqui de novo, de propósito.
+# O Publish do Replit é a única autoridade que altera o schema de produção.
+# Desligar a fila na partida evita DDL concorrente durante a janela de
+# readiness e mantém o processo HTTP independente do banco.
 [services.production.run.env]
 PORT = "8080"
 NODE_ENV = "production"
-DB_MIGRATE_ON_BOOT = "1"
+DB_MIGRATE_ON_BOOT = "0"
 
 # O startup probe fica no `/healthz`, e a prontidão **não** mora aqui.
 #
