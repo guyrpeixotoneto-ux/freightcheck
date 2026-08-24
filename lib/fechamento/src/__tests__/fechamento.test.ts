@@ -354,8 +354,18 @@ describe("o catálogo de cada quinzena", () => {
        contrário — quinzena sem requisição nenhuma não gera arquivo —, e por
        isso ele é opcional e não esperado. As duas listas não se cruzam: o que
        é esperado não é opcional, e vice-versa. */
-    expect(FONTES_OPCIONAIS_DA_QUINZENA[1]).toEqual(["REQUISICOES"]);
-    expect(FONTES_OPCIONAIS_DA_QUINZENA[2]).toEqual([]);
+    /*
+      A frota Promax entra nas duas listas de opcionais: é quinzenal, como as
+      outras fontes financeiras, mas ainda não há confirmação de que seja
+      obrigatória em toda quinzena (TODO(Rebeca)) — até lá, opcional nas duas.
+      Ver `dominio.ts` e `dominio-frota-promax.test.ts`.
+    */
+    expect(FONTES_OPCIONAIS_DA_QUINZENA[1]).toEqual([
+      "REQUISICOES",
+      "FROTA_PROMAX_ATIVA",
+      "FROTA_PROMAX_INATIVA",
+    ]);
+    expect(FONTES_OPCIONAIS_DA_QUINZENA[2]).toEqual(["FROTA_PROMAX_ATIVA", "FROTA_PROMAX_INATIVA"]);
     expect(fonteOpcionalNaQuinzena(1, "REQUISICOES")).toBe(true);
     expect(fonteEsperadaNaQuinzena(1, "REQUISICOES")).toBe(false);
     /* A conciliação continua sendo a única que não existe na primeira. */

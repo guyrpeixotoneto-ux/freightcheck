@@ -36,12 +36,22 @@
 -- somar dois valores nela, sem remover nenhum existente e sem tocar em linha
 -- de documento já gravada.
 --
+-- **Tudo aqui é reentrante, e isso é invariante do módulo, não zelo extra.**
+-- `runMigrations` pode reencontrar um banco cujo registro
+-- (`drizzle.__drizzle_migrations`) se perdeu com o schema inteiro de pé — o
+-- acidente que a `registro-perdido.test.ts` cobre — e nesse caso a fila roda
+-- de novo por cima do que já existe. Por isso `CREATE TABLE IF NOT EXISTS`,
+-- `CREATE INDEX IF NOT EXISTS` e `DROP CONSTRAINT IF EXISTS` antes de cada
+-- `ADD CONSTRAINT`: rodar duas vezes precisa ser trabalho repetido, nunca
+-- erro. Sem isso, esta migration travava a fila em `42P07`
+-- ("relation already exists") e nenhuma migration posterior entraria mais.
+--
 -- TODO(Rebeca): o layout de colunas do 01.22.02.00 e do 01.22.08.00 não foi
 -- confirmado com a amostra real do Promax — ver o TODO em
 -- `lib/fechamento/src/dominio.ts`, junto de `TipoDeFonte`, e
 -- `lib/fechamento/src/leitores/mapeamento-frota-promax.ts`.
 
-CREATE TABLE "fechamento_frota_promax" (
+CREATE TABLE IF NOT EXISTS "fechamento_frota_promax" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"documento_id" uuid NOT NULL,
 	"competencia_id" uuid NOT NULL,
@@ -54,11 +64,13 @@ CREATE TABLE "fechamento_frota_promax" (
 	CONSTRAINT "fechamento_frota_promax_situacao" CHECK ("fechamento_frota_promax"."situacao" in ('ATIVA', 'INATIVA'))
 );
 --> statement-breakpoint
-ALTER TABLE "fechamento_documento" DROP CONSTRAINT "fechamento_documento_tipo";--> statement-breakpoint
+ALTER TABLE "fechamento_documento" DROP CONSTRAINT IF EXISTS "fechamento_documento_tipo";--> statement-breakpoint
+ALTER TABLE "fechamento_frota_promax" DROP CONSTRAINT IF EXISTS "fechamento_frota_promax_documento_fk";--> statement-breakpoint
 ALTER TABLE "fechamento_frota_promax" ADD CONSTRAINT "fechamento_frota_promax_documento_fk" FOREIGN KEY ("documento_id") REFERENCES "public"."fechamento_documento"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "fechamento_frota_promax" DROP CONSTRAINT IF EXISTS "fechamento_frota_promax_competencia_fk";--> statement-breakpoint
 ALTER TABLE "fechamento_frota_promax" ADD CONSTRAINT "fechamento_frota_promax_competencia_fk" FOREIGN KEY ("competencia_id") REFERENCES "public"."fechamento_competencia"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-CREATE INDEX "fechamento_frota_promax_por_competencia" ON "fechamento_frota_promax" USING btree ("competencia_id","situacao");--> statement-breakpoint
-CREATE INDEX "fechamento_frota_promax_por_documento" ON "fechamento_frota_promax" USING btree ("documento_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "fechamento_frota_promax_por_competencia" ON "fechamento_frota_promax" USING btree ("competencia_id","situacao");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "fechamento_frota_promax_por_documento" ON "fechamento_frota_promax" USING btree ("documento_id");--> statement-breakpoint
 ALTER TABLE "fechamento_documento" ADD CONSTRAINT "fechamento_documento_tipo" CHECK ("fechamento_documento"."tipo" in ('OPERACAO', 'CTE', 'PAGAMENTO', 'DISPONIBILIDADE_FF', 'DISPONIBILIDADE_VAN', 'REQUISICOES', 'CONCILIACAO', 'FROTA_PROMAX_ATIVA', 'FROTA_PROMAX_INATIVA'));--> statement-breakpoint
 
 -- O gatilho de competência congelada, no mesmo molde reentrante da `0039` —
