@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import {
@@ -8,6 +8,7 @@ import {
   CalendarDays,
   Check,
   FileUp,
+  Info,
   Lock,
   LockOpen,
   RefreshCw,
@@ -15,6 +16,11 @@ import {
   Upload,
 } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   useBaseDoFechamento,
   useOperacaoDoFechamento,
@@ -1296,6 +1302,29 @@ function LinhaDeFonte({
 }
 
 /**
+ * O ícone de detalhe — a frase da etapa fica curta na tela, e quem quer o
+ * porquê completo clica aqui em vez de ler tudo de cara.
+ */
+function BotaoDeDetalhe({ children }: { children: ReactNode }) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          aria-label="Mais detalhes"
+          className="inline-flex align-middle text-muted-foreground/60 hover:text-foreground ml-1"
+        >
+          <Info className="w-3 h-3" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="text-xs text-muted-foreground w-80">
+        {children}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/**
  * O MIOLO DE UMA ETAPA — o que o sistema verifica, o que achou, e o que falta.
  *
  * Vem **depois** das casinhas de envio de propósito. A ordem da leitura é a da
@@ -1326,17 +1355,25 @@ function DentroDaEtapa({
           O que o sistema confere nesta etapa
         </p>
         <ul className="mt-1 space-y-0.5">
-          {etapa.verifica.map((v) => (
-            <li
-              key={v}
-              className="text-xs text-muted-foreground flex gap-1.5 max-w-2xl"
-            >
-              <span aria-hidden className="text-muted-foreground/50">
-                ·
-              </span>
-              {v}
-            </li>
-          ))}
+          {etapa.verifica.map((v) => {
+            const texto = typeof v === "string" ? v : v.texto;
+            return (
+              <li
+                key={texto}
+                className="text-xs text-muted-foreground flex gap-1.5 max-w-2xl"
+              >
+                <span aria-hidden className="text-muted-foreground/50">
+                  ·
+                </span>
+                <span>
+                  {texto}
+                  {typeof v !== "string" && (
+                    <BotaoDeDetalhe>{v.detalhe}</BotaoDeDetalhe>
+                  )}
+                </span>
+              </li>
+            );
+          })}
         </ul>
       </div>
 
@@ -1384,8 +1421,8 @@ function DentroDaEtapa({
           <ul className="mt-1 space-y-1">
             {etapa.aindaNao.map((p) => (
               <li key={p.o_que} className="text-xs max-w-2xl">
-                <span className="text-foreground/80">{p.o_que}</span>{" "}
-                <span className="text-muted-foreground">— {p.porque}</span>
+                <span className="text-foreground/80">{p.o_que}</span>
+                <BotaoDeDetalhe>{p.porque}</BotaoDeDetalhe>
               </li>
             ))}
           </ul>
