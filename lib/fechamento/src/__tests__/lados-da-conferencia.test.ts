@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   DESCRICAO_DA_FONTE,
+  FONTES_DE_CONFERENCIA_OPERACIONAL,
   FONTES_DE_FATURAMENTO,
   FONTES_QUE_FORMAM_O_DEVIDO,
   FONTE_QUE_DEMONSTRA_O_PAGAMENTO,
@@ -43,11 +44,18 @@ const doLado = (lado: LadoDaConferencia): TipoDeFonte[] =>
 const rotina = (t: TipoDeFonte) => DESCRICAO_DA_FONTE[t].rotina;
 
 describe("a classificação das fontes é declarada, e não deduzida", () => {
-  it("as três listas cobrem as seis fontes, sem sobra e sem repetição", () => {
+  it("as quatro listas cobrem as nove fontes, sem sobra e sem repetição", () => {
+    /*
+      Quatro listas e não três desde que a frota Promax entrou: ela não é
+      dinheiro (não forma devido, não demonstra pagamento) e não é faturamento
+      — é conferência operacional, o quarto grupo. Ver
+      `FONTES_DE_CONFERENCIA_OPERACIONAL` e `frota-promax-contaminacao.test.ts`.
+    */
     const classificadas = [
       ...FONTES_QUE_FORMAM_O_DEVIDO,
       FONTE_QUE_DEMONSTRA_O_PAGAMENTO,
       ...FONTES_DE_FATURAMENTO,
+      ...FONTES_DE_CONFERENCIA_OPERACIONAL,
     ];
     expect(new Set(classificadas).size, "fonte em duas listas").toBe(classificadas.length);
     expect([...classificadas].sort()).toEqual([...TIPOS_DE_FONTE].sort());
@@ -55,13 +63,16 @@ describe("a classificação das fontes é declarada, e não deduzida", () => {
 
   it("o lado é derivado das listas — não há um segundo lugar que o declare", () => {
     /*
-      A garantia estrutural: `ladoDaFonte` é a única resposta, e ela lê as três
-      listas. Enquanto `lado` era campo em `DESCRICAO_DA_FONTE`, havia duas
-      declarações e nada impedia que discordassem.
+      A garantia estrutural: `ladoDaFonte` é a única resposta, e ela lê as
+      quatro listas. Enquanto `lado` era campo em `DESCRICAO_DA_FONTE`, havia
+      duas declarações e nada impedia que discordassem.
     */
     for (const t of FONTES_QUE_FORMAM_O_DEVIDO) expect(ladoDaFonte(t)).toBe("DEVIDO");
     expect(ladoDaFonte(FONTE_QUE_DEMONSTRA_O_PAGAMENTO)).toBe("DEMONSTRADO");
     for (const t of FONTES_DE_FATURAMENTO) expect(ladoDaFonte(t)).toBe("FATURAMENTO");
+    for (const t of FONTES_DE_CONFERENCIA_OPERACIONAL) {
+      expect(ladoDaFonte(t)).toBe("CONFERENCIA_OPERACIONAL");
+    }
     expect(DESCRICAO_DA_FONTE.OPERACAO).not.toHaveProperty("lado");
   });
 
@@ -141,11 +152,12 @@ describe("a classificação bate com o que o motor declara consumir", () => {
 });
 
 describe("o texto dos grupos vem do domínio", () => {
-  it("os três lados são declarados, na ordem, com título e explicação", () => {
+  it("os quatro lados são declarados, na ordem, com título e explicação", () => {
     expect(LADOS_DA_CONFERENCIA.map((l) => l.lado)).toEqual([
       "DEVIDO",
       "DEMONSTRADO",
       "FATURAMENTO",
+      "CONFERENCIA_OPERACIONAL",
     ]);
     for (const l of LADOS_DA_CONFERENCIA) {
       expect(l.titulo.length, `${l.lado} sem título`).toBeGreaterThan(0);
@@ -166,8 +178,15 @@ describe("o texto dos grupos vem do domínio", () => {
     expect(devido.explica).toContain("nenhum produz número sozinho");
   });
 
-  it("só o grupo do devido depende do contrato", () => {
+  it("o devido e a conferência de frota dependem do contrato — os outros dois, não", () => {
+    /*
+      A frota Promax entra na lista de quem precisa do contrato: sem
+      `frotaFixaAtiva`/`Inativa`/Vans do cadastro, a comparação não tem contra
+      o que comparar (ver `frota-promax-comparacao.ts`). Isso não a torna
+      financeira — ela continua fora de `DEVIDO`/`DEMONSTRADO` — só reconhece
+      que a mesma porta do contrato alimenta os dois grupos.
+    */
     const pedem = LADOS_DA_CONFERENCIA.filter((l) => l.precisaDeContrato).map((l) => l.lado);
-    expect(pedem).toEqual(["DEVIDO"]);
+    expect(pedem.sort()).toEqual(["CONFERENCIA_OPERACIONAL", "DEVIDO"].sort());
   });
 });

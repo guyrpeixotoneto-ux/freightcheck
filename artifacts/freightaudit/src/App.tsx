@@ -48,6 +48,8 @@ import ResumoGeral from '@/pages/fechamento/resumo';
 import Conciliacao from '@/pages/fechamento/conciliacao';
 import CompetenciaAberta from '@/pages/fechamento/competencia';
 import DiaDoFechamento from '@/pages/fechamento/dia';
+import FrotaDaCompetencia from '@/pages/fechamento/frota';
+import Frotas from '@/pages/fechamento/frotas';
 import RemuneracaoCadastro from '@/pages/fechamento/remuneracao';
 import RemuneracaoUnidades from '@/pages/fechamento/remuneracao-unidades';
 import { EtapaDoFechamento } from '@/pages/fechamento/etapa';
@@ -382,6 +384,14 @@ function rotasDoFechamento(base: string) {
     <Route key={`${base}/dias`} path={`${base}/competencias/:id/dias/:dia`}>
       {(params) => <DiaDoFechamento id={params.id} dia={params.dia} />}
     </Route>,
+    /*
+      A frota, como o dia: subordinada à competência, e por isso resolvida
+      antes de `/:id` — mesma razão da nota acima sobre profundidade e ordem.
+    */
+    <Route key={`${base}/frota`} path={`${base}/competencias/:id/frota`}>
+      {(params) => <FrotaDaCompetencia id={params.id} />}
+    </Route>,
+    <Route key={`${base}/frotas`} path={`${base}/frotas`} component={Frotas} />,
     <Route key={`${base}/apuracoes`} path={`${base}/apuracoes`} component={Apuracoes} />,
     <Route key={`${base}/resumo`} path={`${base}/resumo`} component={ResumoGeral} />,
     /*

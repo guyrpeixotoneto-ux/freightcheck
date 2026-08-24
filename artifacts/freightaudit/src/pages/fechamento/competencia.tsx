@@ -365,11 +365,17 @@ export default function CompetenciaAberta({ id }: { id: string }) {
             1. Os relatórios
             --------------------------------------------------------------- */}
         <Card>
-          <CardHeader className="pb-3">
+          <CardHeader className="pb-3 flex-row items-center justify-between gap-4 space-y-0">
             <CardTitle className="text-base flex items-center gap-2">
               <FileUp className="w-4 h-4" />
               Os relatórios da quinzena
             </CardTitle>
+            <Link
+              href={`${base}/competencias/${id}/frota`}
+              className="text-sm text-muted-foreground hover:text-foreground underline-offset-4 hover:underline"
+            >
+              Ver frota (Promax × contrato)
+            </Link>
           </CardHeader>
           <CardContent className="space-y-3">
             <p className="text-sm text-muted-foreground">

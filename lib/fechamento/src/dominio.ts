@@ -73,7 +73,46 @@ export type TipoDeFonte =
    */
   | "REQUISICOES"
   /** 03.02.59.02 — a conciliação do Promax. O fecho do mês, e por isso só na 2ª quinzena. */
-  | "CONCILIACAO";
+  | "CONCILIACAO"
+  /**
+   * 01.22.02.00 — a frota do Promax marcada como **ativa**, na quinzena.
+   *
+   * **Não é fonte financeira.** Ao contrário das sete acima, ela não forma
+   * devido, não demonstra pagamento e não entra em cálculo nenhum de
+   * remuneração — é conferência operacional: o que o Promax diz que está em
+   * operação, contra o que o cadastro do contrato (`frotaFixaAtiva`,
+   * `frotaFixaInativa`, e as Vans quando existirem) diz que deveria estar. Ver
+   * {@link ladoDaFonte} e `frota-promax-comparacao.ts`.
+   *
+   * **Quinzenal, como as outras fontes financeiras — não mensal.** Chega a
+   * cada quinzena, no mesmo padrão de `CTE`/`PAGAMENTO`. Ver
+   * `FONTES_DA_QUINZENA` e `FONTES_OPCIONAIS_DA_QUINZENA`.
+   *
+   * TODO(Rebeca): confirmar se é obrigatória em toda quinzena ou apenas
+   * admitida quando chega. Hoje está tratada como opcional nas duas quinzenas
+   * (ver `FONTES_OPCIONAIS_DA_QUINZENA`), na ausência de instrução explícita —
+   * ajustar para obrigatória, se for o caso, é só tirá-la dali.
+   *
+   * TODO(Rebeca): confirmar o layout real do relatório. O leitor
+   * (`leitores/frota-promax.ts`) e o mapeamento de colunas
+   * (`leitores/mapeamento-frota-promax.ts`) foram escritos sobre um layout
+   * plausível, não sobre uma amostra real.
+   */
+  | "FROTA_PROMAX_ATIVA"
+  /**
+   * 01.22.08.00 — a frota do Promax marcada como **inativa**, na quinzena.
+   *
+   * O par de {@link FROTA_PROMAX_ATIVA}. Mesma natureza operacional, mesma
+   * periodicidade quinzenal, mesma pendência de layout real e de
+   * obrigatoriedade.
+   *
+   * TODO(Rebeca): confirmar se, no Promax, a frota fixa e as Vans vêm
+   * discriminadas em arquivos separados — o que forçaria evoluir de duas para
+   * quatro fontes, no mesmo espírito de {@link FROTA_DA_FONTE}. Hoje as duas
+   * frotas entram misturadas no mesmo arquivo/fonte, por decisão deliberada de
+   * não antecipar essa discriminação sem a amostra real.
+   */
+  | "FROTA_PROMAX_INATIVA";
 
 export const TIPOS_DE_FONTE: TipoDeFonte[] = [
   "OPERACAO",
@@ -83,6 +122,14 @@ export const TIPOS_DE_FONTE: TipoDeFonte[] = [
   "DISPONIBILIDADE_VAN",
   "REQUISICOES",
   "CONCILIACAO",
+  "FROTA_PROMAX_ATIVA",
+  "FROTA_PROMAX_INATIVA",
+];
+
+/** As duas fontes da frota Promax — o recorte que os módulos de frota usam. */
+export const TIPOS_DE_FROTA_PROMAX: readonly TipoDeFonte[] = [
+  "FROTA_PROMAX_ATIVA",
+  "FROTA_PROMAX_INATIVA",
 ];
 
 /**
@@ -117,13 +164,31 @@ export function frotaDaFonte(tipo: TipoDeFonte): TipoDeFrotaContratada | null {
 }
 
 /**
+ * De qual situação (ativa/inativa) cada casinha da frota Promax responde —
+ * o mesmo desenho de {@link FROTA_DA_FONTE}, para o par 01.22.02.00/01.22.08.00.
+ */
+export const SITUACAO_DA_FROTA_PROMAX: Partial<Record<TipoDeFonte, "ATIVA" | "INATIVA">> = {
+  FROTA_PROMAX_ATIVA: "ATIVA",
+  FROTA_PROMAX_INATIVA: "INATIVA",
+};
+
+/** A situação (ativa/inativa) que esta fonte recorta, ou `null` quando não se aplica. */
+export function situacaoDaFrotaPromax(tipo: TipoDeFonte): "ATIVA" | "INATIVA" | null {
+  return SITUACAO_DA_FROTA_PROMAX[tipo] ?? null;
+}
+
+/**
  * Quais das sete fontes cada quinzena **espera**.
  *
  * **A primeira quinzena fecha com cinco relatórios; a segunda, com os sete.**
  * A conciliação do Promax (03.02.59.02) é o fecho do mês e chega com o
  * fechamento da segunda quinzena: na primeira ela não existe. As requisições
  * (03.08.12.09) também não são esperadas ali, mas por outro motivo, e é por
- * isso que elas moram na lista de baixo em vez de nesta.
+ * isso que elas moram na lista de baixo em vez de nesta. A frota Promax
+ * (`FROTA_PROMAX_ATIVA`/`FROTA_PROMAX_INATIVA`) também mora na lista de baixo,
+ * pelo mesmo motivo das requisições — não porque seja mensal (é quinzenal,
+ * como as outras fontes financeiras), mas porque ainda não há confirmação de
+ * que seja obrigatória em toda quinzena. Ver o TODO em `TipoDeFonte`.
  *
  * A distinção importa porque `fontesAusentes` é lido pela tela: sem ela, toda
  * primeira quinzena do ano nasceria com pendências que ninguém pode resolver,
@@ -138,7 +203,13 @@ export function frotaDaFonte(tipo: TipoDeFonte): TipoDeFrotaContratada | null {
  */
 export const FONTES_DA_QUINZENA: Record<1 | 2, TipoDeFonte[]> = {
   1: ["OPERACAO", "CTE", "PAGAMENTO", "DISPONIBILIDADE_FF", "DISPONIBILIDADE_VAN"],
-  2: [...TIPOS_DE_FONTE],
+  /*
+    A frota Promax é quinzenal, não mensal — mas fica de fora da lista de
+    "esperada" pelo mesmo motivo do 03.08.12.09: hoje ela é opcional em toda
+    quinzena (ver `FONTES_OPCIONAIS_DA_QUINZENA` e o TODO em `TipoDeFonte`), e
+    "opcional" e "esperada" são a mesma fonte só quando ela é obrigatória.
+  */
+  2: TIPOS_DE_FONTE.filter((t) => !TIPOS_DE_FROTA_PROMAX.includes(t)),
 };
 
 /**
@@ -165,10 +236,17 @@ export const FONTES_DA_QUINZENA: Record<1 | 2, TipoDeFonte[]> = {
  * - a tela oferece o envio mesmo assim, e o denominador de "3 de 4 relatórios"
  *   continua sendo o das esperadas — o opcional entra na fração quando chega,
  *   pelas duas pontas, como qualquer arquivo enviado fora da quinzena dele.
+ *
+ * **A frota Promax entra aqui pelo mesmo motivo, nas duas quinzenas.** Ela é
+ * quinzenal — chega a cada quinzena, como CT-e ou pagamento — mas não há hoje
+ * instrução confirmada de que seja obrigatória em toda quinzena. Até essa
+ * confirmação (TODO(Rebeca), ver `TipoDeFonte`), ela entra como opcional nas
+ * duas: se a Rebeca confirmar a obrigatoriedade, o ajuste é remover as duas
+ * fontes daqui e somá-las à lista de cima.
  */
 export const FONTES_OPCIONAIS_DA_QUINZENA: Record<1 | 2, TipoDeFonte[]> = {
-  1: ["REQUISICOES"],
-  2: [],
+  1: ["REQUISICOES", ...TIPOS_DE_FROTA_PROMAX],
+  2: [...TIPOS_DE_FROTA_PROMAX],
 };
 
 function quinzenasEm(porQuinzena: Record<1 | 2, TipoDeFonte[]>): Record<TipoDeFonte, (1 | 2)[]> {
@@ -310,7 +388,21 @@ export type LadoDaConferencia =
   /** É o **demonstrado**: o que a Ambev declara que vai pagar. */
   | "DEMONSTRADO"
   /** Não entra na comparação: o faturamento e o fecho da quinzena. */
-  | "FATURAMENTO";
+  | "FATURAMENTO"
+  /**
+   * Conferência de frota — **não é financeira**, não entra em `DEVIDO` nem em
+   * `DEMONSTRADO`, e não alimenta cálculo de remuneração nenhum.
+   *
+   * **Existe como categoria própria, e não como um `FATURAMENTO` a mais, de
+   * propósito.** `FATURAMENTO` é "não entra na comparação entre devido e
+   * demonstrado, mas ainda é dinheiro" (CT-e emitido, ajustes do fecho). A
+   * frota Promax não é dinheiro nenhum: é contagem de veículo, ativo ou
+   * inativo, contra o cadastro do contrato. Misturar as duas faria uma leitura
+   * apressada de `FATURAMENTO` somar veículos a reais. Ver
+   * `frota-promax-comparacao.ts`, que é onde essa conferência de fato roda —
+   * fora do motor financeiro, num módulo que não é importado por ele.
+   */
+  | "CONFERENCIA_OPERACIONAL";
 
 /* ---------------------------------------------------------------------------
    A classificação — declarada aqui, e não deduzida na tela
@@ -376,6 +468,19 @@ export const FONTE_QUE_DEMONSTRA_O_PAGAMENTO: TipoDeFonte = "PAGAMENTO";
 export const FONTES_DE_FATURAMENTO: readonly TipoDeFonte[] = ["CTE", "CONCILIACAO"];
 
 /**
+ * As fontes de conferência operacional — a frota Promax, e só ela hoje.
+ *
+ * **Esta lista é o que impede a frota de cair em `DEVIDO`/`DEMONSTRADO` por
+ * omissão.** `ladoDaFonte` é `if`/`else` encadeado sobre listas fechadas; sem
+ * uma entrada própria para a frota, ela cairia no último `else` — que hoje é
+ * `FATURAMENTO` — e uma fonte de veículos passaria a ser lida como dinheiro de
+ * faturamento. Ver `dominio-frota-promax.test.ts`, que confere isto, e
+ * `contaminacao.test.ts`, que confere que nenhuma rotina financeira do módulo
+ * trata estas duas fontes como `DEVIDO` ou `DEMONSTRADO`.
+ */
+export const FONTES_DE_CONFERENCIA_OPERACIONAL: readonly TipoDeFonte[] = [...TIPOS_DE_FROTA_PROMAX];
+
+/**
  * De que lado uma fonte está — **derivado** das três listas acima.
  *
  * É função e não campo de propósito. Enquanto `lado` era um campo escrito à mão
@@ -386,6 +491,7 @@ export const FONTES_DE_FATURAMENTO: readonly TipoDeFonte[] = ["CTE", "CONCILIACA
 export function ladoDaFonte(tipo: TipoDeFonte): LadoDaConferencia {
   if (tipo === FONTE_QUE_DEMONSTRA_O_PAGAMENTO) return "DEMONSTRADO";
   if (FONTES_QUE_FORMAM_O_DEVIDO.includes(tipo)) return "DEVIDO";
+  if (FONTES_DE_CONFERENCIA_OPERACIONAL.includes(tipo)) return "CONFERENCIA_OPERACIONAL";
   return "FATURAMENTO";
 }
 
@@ -431,6 +537,15 @@ export const LADOS_DA_CONFERENCIA: {
       "Não entram na comparação entre o devido e o demonstrado: o 03.08.15 é o que foi " +
       "faturado em CT-e e o 03.02.59.02 traz os ajustes e o fecho que atravessam a quinzena.",
     precisaDeContrato: false,
+  },
+  {
+    lado: "CONFERENCIA_OPERACIONAL",
+    titulo: "Frota — conferência operacional",
+    explica:
+      "Não é dinheiro, e não entra em cálculo de remuneração nenhum: é o que o Promax diz " +
+      "que está ativo ou inativo na frota, comparado contra o que o cadastro do contrato " +
+      "declara. O sistema não decide qual número está certo — só aponta a diferença.",
+    precisaDeContrato: true,
   },
 ];
 
@@ -483,6 +598,19 @@ export const DESCRICAO_DA_FONTE: Record<
     nome: "Conciliação CT-e × SRTrans",
     papel: "O fecho: emitido contra calculado, com os saldos que atravessam a quinzena.",
   },
+  FROTA_PROMAX_ATIVA: {
+    rotina: "01.22.02.00",
+    nome: "Frota Promax — ativa",
+    papel:
+      "Os veículos que o Promax marca como ativos na quinzena — conferência operacional contra o " +
+      "cadastro do contrato, não financeira.",
+  },
+  FROTA_PROMAX_INATIVA: {
+    rotina: "01.22.08.00",
+    nome: "Frota Promax — inativa",
+    papel:
+      "Os veículos que o Promax marca como inativos na quinzena — o par de FROTA_PROMAX_ATIVA.",
+  },
 };
 
 /**
@@ -515,6 +643,14 @@ export const FORMATOS_DA_FONTE: Record<TipoDeFonte, string[]> = {
   DISPONIBILIDADE_VAN: [".xlsx", ".xls", ".csv", ".txt"],
   REQUISICOES: [".csv", ".txt", ".xlsx", ".xls"],
   CONCILIACAO: [".txt", ".csv"],
+  /*
+   * TODO(Rebeca): confirmar o formato real de exportação do 01.22.02.00 e do
+   * 01.22.08.00. A lista aceita o que o Promax costuma exportar nos outros
+   * relatórios; quem decide qual leitor abrir é sempre o conteúdo dos bytes
+   * (ver `leitores/formato.ts`), nunca a extensão.
+   */
+  FROTA_PROMAX_ATIVA: [".xlsx", ".xls", ".csv", ".txt"],
+  FROTA_PROMAX_INATIVA: [".xlsx", ".xls", ".csv", ".txt"],
 };
 
 /**

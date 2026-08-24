@@ -274,7 +274,7 @@ export const fechamentoDocumentoTable = pgTable(
     index("fechamento_documento_por_competencia").on(t.competenciaId, t.tipo),
     check(
       "fechamento_documento_tipo",
-      sql`${t.tipo} in ('OPERACAO', 'CTE', 'PAGAMENTO', 'DISPONIBILIDADE_FF', 'DISPONIBILIDADE_VAN', 'REQUISICOES', 'CONCILIACAO')`,
+      sql`${t.tipo} in ('OPERACAO', 'CTE', 'PAGAMENTO', 'DISPONIBILIDADE_FF', 'DISPONIBILIDADE_VAN', 'REQUISICOES', 'CONCILIACAO', 'FROTA_PROMAX_ATIVA', 'FROTA_PROMAX_INATIVA')`,
     ),
   ],
 );
@@ -789,6 +789,61 @@ export const fechamentoDisponibilidadeTable = pgTable(
 );
 
 /**
+ * Uma linha de veículo do relatório de frota do Promax — ativa ou inativa.
+ *
+ * **Conferência operacional, não financeira.** Ao contrário de todas as outras
+ * tabelas de linha deste arquivo, nenhuma coluna daqui alimenta
+ * `fechamento_apuracao` nem `fechamento_apuracao_verba`: é o que o Promax diz
+ * que está em operação, contra o que o cadastro do contrato declara. Ver
+ * `lib/fechamento/src/frota-promax-comparacao.ts`, que é onde a comparação
+ * roda — fora do motor financeiro.
+ *
+ * **Duas fontes, uma tabela** — o mesmo desenho de `fechamentoDisponibilidadeTable`
+ * antes da `0055`: `FROTA_PROMAX_ATIVA` e `FROTA_PROMAX_INATIVA` gravam aqui, e
+ * o que separa as duas é `documento_id` (cada casinha tem o seu documento
+ * vigente) e, dentro da mesma competência, `situacao`. Diferente do 03.08.18,
+ * aqui a v1 **não** discrimina frota fixa de vans como fontes separadas — ver o
+ * TODO em `dominio.ts`, junto de `TipoDeFonte`, sobre por que essa decisão
+ * ficou pendente da amostra real do Promax.
+ *
+ * TODO(Rebeca): o layout de colunas do 01.22.02.00 e do 01.22.08.00 não foi
+ * confirmado. Ver `lib/fechamento/src/leitores/mapeamento-frota-promax.ts`.
+ */
+export const fechamentoFrotaPromaxTable = pgTable(
+  "fechamento_frota_promax",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    documentoId: uuid("documento_id").notNull(),
+    competenciaId: uuid("competencia_id").notNull(),
+    linhaNoArquivo: integer("linha_no_arquivo").notNull(),
+    /** `ATIVA` ou `INATIVA` — a situação que o relatório de origem declara. */
+    situacao: text("situacao").notNull(),
+    /** A unidade/operação, como o Promax a identifica — `443`, `CDD Belém`. */
+    unidade: text("unidade").notNull(),
+    placa: text("placa").notNull(),
+    /** O modelo/categoria do veículo, texto livre como o relatório o escreve. */
+    modelo: text("modelo").notNull(),
+    /** `Categoria`, quando o relatório a traz — reservado para uma futura FF/Van. */
+    categoria: text("categoria"),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.documentoId],
+      foreignColumns: [fechamentoDocumentoTable.id],
+      name: "fechamento_frota_promax_documento_fk",
+    }).onDelete("cascade"),
+    foreignKey({
+      columns: [t.competenciaId],
+      foreignColumns: [fechamentoCompetenciaTable.id],
+      name: "fechamento_frota_promax_competencia_fk",
+    }).onDelete("cascade"),
+    index("fechamento_frota_promax_por_competencia").on(t.competenciaId, t.situacao),
+    index("fechamento_frota_promax_por_documento").on(t.documentoId),
+    check("fechamento_frota_promax_situacao", sql`${t.situacao} in ('ATIVA', 'INATIVA')`),
+  ],
+);
+
+/**
  * Uma linha de valor da conciliação do Promax.
  *
  * As duas colunas do relatório viram duas colunas aqui — `emitido` e
@@ -922,6 +977,50 @@ export const fechamentoPagamentoDescontoTable = pgTable(
     index("fechamento_pagamento_desconto_por_competencia").on(t.competenciaId, t.canal),
     index("fechamento_pagamento_desconto_por_documento").on(t.documentoId),
     check("fechamento_pagamento_desconto_canal", sql`${t.canal} in ('ROTA', 'AS')`),
+  ],
+);
+
+/**
+ * O `Total Remuneracao` que o próprio 03.08.20 declara, por canal.
+ *
+ * **Por que guardar um número que dá para somar.** Ele é a única conferência
+ * independente que o relatório oferece: o total que a Ambev assina, contra a
+ * soma das verbas que o sistema leu. Até esta tabela existir, o total era lido
+ * (`lerPagamento` o extrai em `totais`) e descartado na gravação — na
+ * releitura, era **recalculado** somando `valor_faturado`. Assim as duas
+ * pontas eram a mesma conta por construção, e um relatório cujo total não
+ * fechasse com as próprias linhas passava sem que ninguém pudesse notar: o
+ * sintoma mais barato de "o leitor perdeu uma linha" desaparecia justamente
+ * onde ele apareceria.
+ *
+ * Guardado por documento, e não por competência, porque é afirmação daquele
+ * arquivo: substituir o 03.08.20 substitui o total junto, e um documento em
+ * quarentena não empresta o total dele para o vigente.
+ */
+export const fechamentoPagamentoTotalTable = pgTable(
+  "fechamento_pagamento_total",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    documentoId: uuid("documento_id").notNull(),
+    competenciaId: uuid("competencia_id").notNull(),
+    canal: text("canal").notNull(),
+    /** O número tal como o relatório o declara — nunca recalculado. */
+    total: numeric("total", { precision: 14, scale: 2 }).notNull(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.documentoId],
+      foreignColumns: [fechamentoDocumentoTable.id],
+      name: "fechamento_pagamento_total_documento_fk",
+    }).onDelete("cascade"),
+    foreignKey({
+      columns: [t.competenciaId],
+      foreignColumns: [fechamentoCompetenciaTable.id],
+      name: "fechamento_pagamento_total_competencia_fk",
+    }).onDelete("cascade"),
+    index("fechamento_pagamento_total_por_competencia").on(t.competenciaId, t.canal),
+    index("fechamento_pagamento_total_por_documento").on(t.documentoId),
+    check("fechamento_pagamento_total_canal", sql`${t.canal} in ('ROTA', 'AS')`),
   ],
 );
 

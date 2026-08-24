@@ -539,6 +539,53 @@ que se espera, não o que se admite: é a mesma regra que faz a conta rodar com 
 que houver, e arquivo importado que some da tela é a forma mais rápida de
 alguém importá-lo de novo.
 
+## A frota Promax — conferência operacional, quinzenal, fora do motor financeiro
+
+Duas fontes novas entram no catálogo, e não são como as outras sete:
+`FROTA_PROMAX_ATIVA` (01.22.02.00) e `FROTA_PROMAX_INATIVA` (01.22.08.00) são
+o retrato de quais veículos o Promax marca como em operação, ou não — cada
+uma no seu relatório, a mesma placa nunca esperada nos dois ao mesmo tempo.
+
+**Quinzenal, como as outras fontes financeiras — não mensal.** Chegam a cada
+quinzena, no mesmo padrão de CT-e ou do demonstrativo de pagamento; não são
+uma fotografia mensal enviada uma vez só. O que ainda não está confirmado é
+se são **obrigatórias** em toda quinzena: até essa confirmação com a Rebeca,
+as duas entram em `FONTES_OPCIONAIS_DA_QUINZENA` nas duas quinzenas — a
+casinha existe, admite o envio, mas a ausência nunca vira pendência (o mesmo
+tratamento do 03.08.12.09 na 1ª quinzena, ver a seção acima). Se a
+obrigatoriedade for confirmada, o ajuste é remover as duas fontes dali e
+somá-las a `FONTES_DA_QUINZENA`.
+
+**Não é dinheiro, e o sistema não finge que é.** `ladoDaFonte` classifica as
+duas como `CONFERENCIA_OPERACIONAL` — uma categoria própria, ao lado de
+`DEVIDO`, `DEMONSTRADO` e `FATURAMENTO`, e não um `FATURAMENTO` a mais. Nenhuma
+das duas entra em `Fontes` (o tipo que `apurar()` recebe): o motor financeiro
+nunca vê uma linha de frota Promax, nunca soma veículo a real, e
+`contaminacao.test.ts`/`frota-promax-contaminacao.test.ts` prendem essa
+fronteira — se um dia alguma rotina financeira passar a importar
+`frota-promax-comparacao.ts`, o teste cai.
+
+**A comparação é pura Promax × contrato, e o sistema nunca escolhe um
+vencedor.** `frota-promax-comparacao.ts` agrupa os veículos lidos por
+(unidade, modelo, situação), conta placas distintas, e compara contra o que o
+cadastro do contrato declara (`frotaFixaAtiva`, `frotaFixaInativa`, e as Vans
+quando existirem) — devolvendo sempre os dois números e a diferença, nunca
+arredondando para concordância. Duas linhas do Promax discordando sobre a
+mesma placa (ativa num arquivo, inativa no outro) não produzem uma contagem
+inventada: produzem um conflito explícito, com a evidência das linhas em
+disputa.
+
+**Duas fontes, uma tabela** — `fechamento_frota_promax`, no mesmo desenho de
+`fechamento_disponibilidade` antes da separação por frota: o que distingue
+`FROTA_PROMAX_ATIVA` de `FROTA_PROMAX_INATIVA` é o `documento_id` de cada
+casinha e a coluna `situacao` de cada linha.
+
+TODO(Rebeca) pendentes, os dois registrados em `dominio.ts` junto de
+`TipoDeFonte`: (1) confirmar se as duas fontes são obrigatórias em toda
+quinzena, e (2) confirmar o layout real de colunas dos dois relatórios — o
+leitor e o mapeamento de colunas foram escritos sobre um layout plausível,
+não sobre uma amostra real do Promax.
+
 ## Descartar o que foi importado — o desfazer da competência errada
 
 Ao lado de "Apurar", a competência aberta tem **Descartar dados**: apaga os
