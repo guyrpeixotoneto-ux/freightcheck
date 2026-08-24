@@ -89,6 +89,26 @@ export type EstadoDoBanco =
    * banco sabe nomear.
    */
   | "BRIDGE_PENDENTE"
+  /**
+   * O banco tem migrations que **este build não empacota**: ele está à frente.
+   *
+   * É o sentido inverso de `MIGRATIONS_PENDENTES`, e ele não era representável
+   * aqui — a observação só media o que **falta**, então um banco à frente
+   * chegava classificado como `SAUDAVEL` e ninguém dizia nada. É o estado
+   * normal de um rollback: publica-se de novo um build anterior sobre um banco
+   * que já avançou.
+   *
+   * **Não fecha o portão, de propósito.** Rollback é saída operacional, e uma
+   * classificação que derrubasse o produto ao rolar para trás tiraria da mesa
+   * exatamente a manobra que se usa quando algo deu errado. O que este estado
+   * faz é o oposto de silenciar: `/readyz` responde não-pronto, a partida
+   * alerta, e quem opera lê que o código no ar é anterior ao schema.
+   *
+   * **E não existe ação automática para ele.** Desfazer migration é a única
+   * classe de operação irreversível deste repositório; a saída é humana —
+   * seguir com o build anterior, ou publicar de novo o mais novo.
+   */
+  | "BANCO_A_FRENTE_DO_BUILD"
   /** Não dá para saber: a variável não chegou, ou o banco não respondeu. */
   | "INDISPONIVEL";
 
@@ -105,6 +125,7 @@ export type CodigoDeAcao =
   | "ADOTAR_MIGRATIONS"
   | "INVESTIGAR_FALHA"
   | "CONFERIR_SCHEMA"
+  | "ALINHAR_BUILD"
   | "CONCLUIR_BRIDGE"
   | "CONFIGURAR_DATABASE_URL"
   | "RESTABELECER_BANCO";
@@ -209,6 +230,19 @@ export interface EstadoObservado {
   pendentes: string[];
   /** Quantas o banco tem registradas. */
   aplicadas: number;
+  /**
+   * Carimbos registrados neste banco que **este build não carrega**.
+   *
+   * Vêm como número — o registro guarda `created_at`, não a tag, e a tag de uma
+   * migration que este build não tem não existe em lugar nenhum deste processo
+   * para ser lida. Contar e datar é tudo o que honestamente se pode dizer, e é
+   * o bastante para nomear o estado.
+   *
+   * Ausente ou vazio significa a mesma coisa — nada à frente —, porque o único
+   * observador que o preenche (`observarBanco`) sempre o calcula quando
+   * consegue ler o registro.
+   */
+  aFrente?: number[];
   /**
    * O schema existe neste banco — há objeto das migrations lá dentro.
    *
@@ -510,6 +544,61 @@ export function diagnosticar(estado: EstadoObservado): Diagnostico {
           lista inteira sai do próprio `conferir-schema`.
         */
         evidencia: nomearAusentes(estado.aplicadas, conferidos),
+      };
+    }
+
+    /*
+      Nada pendente, schema conferido — e o registro tem carimbos que este build
+      não carrega. O banco está **à frente**, que é o desfecho normal de um
+      rollback e era, até aqui, indistinguível de `SAUDAVEL`.
+
+      Vem depois de `SCHEMA_DIVERGENTE` porque objeto ausente é mais urgente e
+      tem conserto; vem depois do ramo de pendências (que este bloco já exclui)
+      porque contrato divergente fecha o portão e este não fecha. Um banco que
+      esteja atrás **e** à frente ao mesmo tempo — build publicado de um branch
+      lateral — é classificado pelo que falta, que é o que quebra tela.
+    */
+    const aFrente = estado.aFrente ?? [];
+    if (aFrente.length > 0) {
+      const maisNovo = Math.max(...aFrente);
+      return {
+        estado: "BANCO_A_FRENTE_DO_BUILD",
+        humano:
+          "Este ambiente está com a estrutura mais nova do que a versão do " +
+          "sistema que está no ar. O que você já gravou continua inteiro e as " +
+          "telas seguem funcionando; o que foi criado depois desta versão é " +
+          "que ainda não aparece aqui.",
+        resumo:
+          `Este banco tem ${aFrente.length} migration${aFrente.length === 1 ? "" : "s"} ` +
+          "registrada" + (aFrente.length === 1 ? "" : "s") + " que este build não " +
+          "carrega: o schema está à frente do código no ar. É o que um rollback " +
+          "produz, e o produto continua sendo servido.",
+        risco: {
+          emRisco: false,
+          texto:
+            "Nada se perdeu e nada é desfeito: estrutura à frente não apaga " +
+            "linha. O código no ar apenas não lê nem escreve o que foi criado " +
+            "depois dele.",
+        },
+        /*
+          Sem `comando`, e a ausência é a mesma disciplina de `INVESTIGAR_FALHA`:
+          não existe comando que resolva. `migrate` não faz nada (não falta
+          nada), e desfazer migration é a única operação irreversível deste
+          repositório — oferecê-la aqui seria oferecer perda de dado como
+          conserto de um estado que não quebrou nada.
+        */
+        acao: {
+          codigo: "ALINHAR_BUILD",
+          texto:
+            "Decidir qual dos dois lados anda: seguir com este build, ou " +
+            "publicar de novo o build que corresponde a este banco. Não há " +
+            "comando que desfaça migration com segurança.",
+          quem: "plataforma",
+        },
+        evidencia:
+          `${estado.aplicadas} migrations registradas, ${aFrente.length} delas ` +
+          `desconhecidas para este build — a mais recente carimbada em ` +
+          `${new Date(maisNovo).toISOString()}.`,
       };
     }
 

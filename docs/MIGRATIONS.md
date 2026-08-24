@@ -527,3 +527,65 @@ Migration já aplicada não se reescreve por conveniência — o registro em
 não roda de novo em quem já o aplicou, e os dois ambientes passam a ter
 histórias diferentes. As exceções são as correções de segurança que **não mudam
 o resultado final** em quem já rodou, como a reentrância da `0015`.
+
+## A janela T4→T7 do deploy — e por que o `artifact.toml` ainda aponta para `/healthz`
+
+O startup probe (`[services.production.health.startup]`) decide quando a
+plataforma promove um release e passa a mandar tráfego para ele. Ele aponta
+para `/api/healthz`, liveness pura — necessária, porque `app.listen()`
+acontece antes da fila de migrations rodar (ver acima), e o probe não pode
+depender do banco para não desistir do bind. O efeito colateral: a plataforma
+pode promover o release **antes** de a fila terminar. Foi o que produziu a
+tela de 24/08/2026 — `MIGRATIONS_PENDENTES` na tela de login, com `0056` e
+`0057` nomeadas, num Development que não tinha reiniciado.
+
+`/api/startupz` (`routes/health.ts`, `lib/partida.ts`) existe para fechar essa
+janela: responde 503 enquanto a tentativa de partida deste processo ainda está
+em voo, e 200 quando ela **termina** — por qualquer desfecho, inclusive
+falha. Fail-closed sem prazo de validade: não existe teto que o faça
+responder 200 sozinho. `STARTUP_PROBE_MAX_WAIT_MS` só rotula a espera como
+anômala (`alemDoTeto`) no corpo da resposta; não muda o código HTTP.
+
+**Por que o `artifact.toml` continua apontando para `/healthz`.** Repontar o
+startup probe para `/startupz` exige saber por quanto tempo o Autoscale
+aceita 503 antes de desistir da promoção — o orçamento **total**, não o tempo
+de resposta de uma chamada. Duas buscas na documentação pública do Replit
+(24/08/2026) encontraram só isto, por escrito: uma chamada de health check
+que demore mais que ~5 s pode falhar a publicação. Nada foi encontrado sobre
+quantas tentativas o probe faz, com que intervalo, ou por quanto tempo total
+ele insiste antes de desistir — nem na documentação alcançável, nem em
+`docs.replit.com`/`replit.discourse.group` diretamente (bloqueados pelo proxy
+de rede do ambiente onde isto foi escrito).
+
+Sem esse número, repontar seria uma aposta: se o orçamento total do Autoscale
+for mais curto que o que uma fila real chega a levar num dia ruim (banco
+lento, `pg_advisory_lock` de outra instância segurando por mais tempo que o
+normal), a publicação falharia por timeout do probe — não por erro no código,
+e sem nada dizendo isso com clareza. Com `/healthz` continua valendo o
+comportamento de sempre: publicação sempre sobe, e a tela de 24/08/2026 pode
+voltar a aparecer por alguns segundos a cada deploy com migration, do jeito
+que o portão de prontidão (`middlewares/portao-de-prontidao.ts`) já responde
+— diagnosticável, nunca dado errado.
+
+Repontar é seguro assim que alguém confirmar, por medição direta contra o
+ambiente publicado (não pela documentação), que o Autoscale tolera 503 em
+`/startupz` por tempo suficiente — a fila normal leva segundos; o que importa
+medir é o pior caso tolerável antes de a plataforma desistir. Essa medição foi
+desenhada (harness descartável, sem tocar Production) e fica em espera —
+não é necessária para o que este trabalho garante hoje, que é sobre o código
+deste repositório, não sobre a plataforma.
+
+**Risco residual: a suposição de que o Autoscale respeita o startup probe
+como configurado.** Todo o desenho de `/api/startupz` — `liberar` só quando a
+tentativa de partida termina, sem exceção por tempo (`lib/partida.ts`) —
+garante o que este código promete: que **este processo nunca diz "pode
+promover" antes de a fila terminar**. O que ele não pode garantir sozinho é o
+que a plataforma faz com essa resposta depois de recebê-la; isso é
+comportamento do Autoscale, fora deste repositório, e não documentado por
+escrito em nenhum lugar alcançável (ver acima). Hoje o probe aponta para
+`/healthz`, então esse risco é adormecido — só passa a valer no dia em que
+`/startupz` for repontado. Se, depois disso, aparecer evidência de uma
+promoção pública com `/api/startupz` respondendo 503 no momento em que o
+tráfego começou a ser aceito, isso é o sinal para abrir uma investigação
+específica da plataforma — não deste código, que já teria feito sua parte
+corretamente.

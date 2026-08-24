@@ -164,6 +164,9 @@ const PUBLIC_PATHS = new Set([
   // O roteador do Replit usa /healthz como health check do deployment: exigir
   // sessão aqui faria o serviço nunca ficar de pé.
   "/healthz",
+  // O alvo do startup probe (ver `lib/partida.ts`): decide a promoção do
+  // release, e tem de responder antes de existir sessão nenhuma para ler.
+  "/startupz",
   // A prontidão é consultada por probe e por quem opera, das duas pontas e
   // sem sessão — inclusive (e principalmente) quando o banco ainda não tem o
   // schema em que a sessão vive.

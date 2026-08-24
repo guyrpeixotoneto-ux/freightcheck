@@ -340,7 +340,7 @@ function PainelDeRegistro({ aoFechar }: { aoFechar: () => void }) {
                 discordar.
               */}
               <Label htmlFor="unidade-canonica">Unidade canônica</Label>
-              <ComboboxCriavel<UnidadeCanonica>
+              <ComboboxCriavel
                 id="unidade-canonica"
                 itens={unidadesCanonicas.data ?? []}
                 valor={canonica}
