@@ -6,6 +6,7 @@ import {
   apurarCompetencia,
   buscarCompetencia,
   compararFrotaDaCompetencia,
+  totaisDoPagamentoDaCompetencia,
   TIPO_NAO_INFORMADO,
   descartarDadosDaCompetencia,
   excluirCompetencia,
@@ -999,6 +1000,33 @@ router.get("/fechamento/competencias/:id/frota", async (req, res): Promise<void>
     }
     throw erro;
   }
+});
+
+/**
+ * O `Total Remuneração` do 03.08.20 pelos dois lados — declarado e calculado.
+ *
+ * **É a porta de saída que a `0057` não tinha.** A migration passou a guardar
+ * o total que o relatório declara, mas nada o lia: todo "Total Remuneração"
+ * que a tela mostrava continuava sendo a soma de `valor_faturado` — os dois
+ * lados eram o mesmo número, e a conferência que a `0057` existe para permitir
+ * não tinha por onde acontecer.
+ *
+ * `declarado: null` num canal significa 03.08.20 importado antes da `0057`.
+ * Quem consome deve dizer "não dá para conferir", nunca "confere" — ver
+ * `totaisDoPagamentoDaCompetencia`.
+ */
+router.get("/fechamento/competencias/:id/totais", async (req, res): Promise<void> => {
+  const { id } = req.params;
+  if (!UUID.test(id)) {
+    res.status(400).json({ error: "Identificador de competência inválido." });
+    return;
+  }
+  const competencia = await buscarCompetencia(db, id);
+  if (!competencia) {
+    res.status(404).json({ error: "Competência não encontrada." });
+    return;
+  }
+  res.json(await totaisDoPagamentoDaCompetencia(db, id));
 });
 
 /**
