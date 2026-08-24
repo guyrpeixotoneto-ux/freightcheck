@@ -12,6 +12,7 @@ import {
   reconvergirNaPartida,
 } from "./lib/migrations";
 import { estadoDaProntidao } from "./lib/prontidao";
+import { tentativaComecou, tentativaTerminou } from "./lib/partida";
 
 const rawPort = process.env["PORT"];
 
@@ -295,7 +296,21 @@ app.listen(port, (err) => {
     `middlewares/portao-de-prontidao.ts`), e a partida diz alto em que dos dois
     estados ela terminou.
   */
-  void applyMigrationsInBackground().then(anunciarProntidao);
+  /*
+    O fato que `/api/startupz` publica: a tentativa começou aqui, e termina —
+    em qualquer um dos desfechos internos de `applyMigrationsInBackground`,
+    inclusive os que retornam cedo — na linha seguinte. Ver `lib/partida.ts`
+    para o que esse fato é e o que ele deliberadamente não é.
+  */
+  tentativaComecou();
+  void applyMigrationsInBackground()
+    .catch((err) => {
+      logger.error({ err }, "A tentativa de partida terminou por exceção não tratada.");
+    })
+    .finally(() => {
+      tentativaTerminou("A tentativa de partida terminou.");
+    })
+    .then(anunciarProntidao);
 
   // Depois da fila, a cópia: com BACKUP_DIR definido, toda partida confere a
   // idade do último dump e repõe o que envelheceu — ver backup-agendado.ts.

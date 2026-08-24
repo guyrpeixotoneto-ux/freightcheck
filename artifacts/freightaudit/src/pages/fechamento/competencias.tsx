@@ -560,7 +560,7 @@ export default function Competencias() {
                   coisas identificam a linha para quem a procura; o que muda é
                   que o que sai daqui é o `id`.
                 */}
-                <ComboboxCriavel
+                <ComboboxCriavel<UnidadeCanonica>
                   id="unidade"
                   itens={unidadesCanonicas.data ?? []}
                   valor={unidade}
@@ -589,7 +589,7 @@ export default function Competencias() {
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="transportadora">Transportadora</Label>
-                <ComboboxCriavel
+                <ComboboxCriavel<Parte>
                   id="transportadora"
                   itens={partes.data?.transportadoras ?? []}
                   valor={transportadora}

@@ -20,10 +20,11 @@
  * a pena continuar sendo possível.
  */
 import { spawn } from "node:child_process";
-import { existsSync, readdirSync, watch } from "node:fs";
+import { watch } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createApiSupervisor } from "./lib/api-supervisor.mjs";
+import { diretoriosObservados } from "./lib/observados.mjs";
 import {
   conferirArestas,
   explicarFalhaDeResolucao,
@@ -167,27 +168,6 @@ process.on("SIGTERM", () => shutdown(0));
 // api-server
 // ---------------------------------------------------------------------------
 
-/**
- * Diretórios de código que, ao mudarem, tornam o bundle obsoleto.
- *
- * Só os `src/`: percorrer os pacotes inteiros arrastaria `node_modules` e
- * `dist` para o watcher, e o rebuild dispararia a si mesmo.
- */
-function watchedSourceDirs() {
-  const dirs = [];
-  const apiSrc = path.join(root, "artifacts/api-server/src");
-  if (existsSync(apiSrc)) dirs.push(apiSrc);
-
-  const libRoot = path.join(root, "lib");
-  if (!existsSync(libRoot)) return dirs;
-  for (const entry of readdirSync(libRoot, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
-    const src = path.join(libRoot, entry.name, "src");
-    if (existsSync(src)) dirs.push(src);
-  }
-  return dirs;
-}
-
 async function startApi() {
   const supervisor = createApiSupervisor({
     port: API_PORT,
@@ -290,8 +270,18 @@ async function startApi() {
 
   await supervisor.start();
 
+  /*
+    O que muda no repositório tem de chegar ao processo que está de pé — e isso
+    inclui a fila versionada, não só o código. `diretoriosObservados` é quem diz
+    quais são as pastas e por quê (ver `lib/observados.mjs`); aqui fica só o
+    efeito, que é o mesmo para todas: reconstruir e reiniciar, uma vez.
+
+    Reiniciar é o passo que importa para uma migration nova: quem aplica a fila
+    é o servidor na partida (`deveMigrarNaPartida`), e sem partida não há
+    aplicação. Este arquivo continua não migrando nada por conta própria.
+  */
   let debounce = null;
-  for (const dir of watchedSourceDirs()) {
+  for (const dir of diretoriosObservados(root)) {
     watch(dir, { recursive: true }, () => {
       clearTimeout(debounce);
       debounce = setTimeout(() => void supervisor.rebuild(), 250);
