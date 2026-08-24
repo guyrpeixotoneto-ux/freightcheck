@@ -13,6 +13,7 @@ import {
   fechamentoDivergenciaTable,
   fechamentoDocumentoConteudoTable,
   fechamentoDocumentoTable,
+  fechamentoFrotaPromaxTable,
   fechamentoPagamentoDescontoTable,
   fechamentoPagamentoItemTable,
   fechamentoParteTable,
@@ -25,6 +26,7 @@ import {
   TIPOS_DE_FONTE,
   centavos,
   frotaDaFonte,
+  situacaoDaFrotaPromax,
   type Canal,
   type Frota,
   type Recusa,
@@ -73,6 +75,7 @@ import {
   type DescontoDeDisponibilidadeDoMes,
 } from "./leitores/disponibilidade";
 import { lerConciliacao } from "./leitores/conciliacao";
+import { lerFrotaPromax } from "./leitores/frota-promax";
 import {
   lerPagamento,
   vbzsCitadasNoRotulo,
@@ -839,6 +842,11 @@ async function apagarLinhasDoDocumento(tx: Transacao, documentoId: string): Prom
   await tx
     .delete(fechamentoPagamentoDescontoTable)
     .where(eq(fechamentoPagamentoDescontoTable.documentoId, documentoId));
+  /* As duas casinhas da frota Promax gravam na mesma tabela, e cada linha
+     carrega a situação dela — o mesmo desenho de `fechamentoDisponibilidadeTable`. */
+  await tx
+    .delete(fechamentoFrotaPromaxTable)
+    .where(eq(fechamentoFrotaPromaxTable.documentoId, documentoId));
 }
 
 /** A tabela em que cada fonte deixa a linha que a define. */
@@ -859,6 +867,10 @@ const LINHA_DA_FONTE = {
     coisa, e o reenvio que o conserta voltaria a ser recusado.
   */
   PAGAMENTO: fechamentoPagamentoItemTable,
+  /* Mesmo desenho da disponibilidade: uma tabela, duas casinhas, separadas
+     pelo `documento_id`. */
+  FROTA_PROMAX_ATIVA: fechamentoFrotaPromaxTable,
+  FROTA_PROMAX_INATIVA: fechamentoFrotaPromaxTable,
 } as const satisfies Record<TipoDeFonte, unknown>;
 
 /**
@@ -1266,6 +1278,11 @@ function interpretar(
         const l = lerConciliacao(conteudo);
         return { linhasLidas: l.itens.length, recusas: [] };
       }
+      case "FROTA_PROMAX_ATIVA":
+      case "FROTA_PROMAX_INATIVA": {
+        const l = lerFrotaPromax(conteudo, situacaoDaFrotaPromax(tipo)!);
+        return { linhasLidas: l.linhas.length, recusas: l.recusas };
+      }
     }
   } catch (erro) {
     throw new RecusaDeFechamento(
@@ -1637,6 +1654,24 @@ async function gravarLinhas(
           })),
         );
       }
+      return;
+    }
+    case "FROTA_PROMAX_ATIVA":
+    case "FROTA_PROMAX_INATIVA": {
+      const { linhas } = lerFrotaPromax(conteudo, situacaoDaFrotaPromax(tipo)!);
+      await emLotes(linhas, (lote) =>
+        tx.insert(fechamentoFrotaPromaxTable).values(
+          lote.map((v) => ({
+            ...comum,
+            linhaNoArquivo: v.linha,
+            situacao: v.situacao,
+            unidade: v.unidade,
+            placa: v.placa,
+            modelo: v.modelo,
+            categoria: v.categoria,
+          })),
+        ),
+      );
       return;
     }
   }
@@ -3217,6 +3252,27 @@ async function apagarOQueFoiImportado(
       await tx
         .delete(fechamentoConciliacaoItemTable)
         .where(eq(fechamentoConciliacaoItemTable.competenciaId, competenciaId)),
+    ),
+    /* Mesmo desenho da disponibilidade: uma tabela, um descarte por situação. */
+    FROTA_PROMAX_ATIVA: quantas(
+      await tx
+        .delete(fechamentoFrotaPromaxTable)
+        .where(
+          and(
+            eq(fechamentoFrotaPromaxTable.competenciaId, competenciaId),
+            eq(fechamentoFrotaPromaxTable.situacao, "ATIVA"),
+          ),
+        ),
+    ),
+    FROTA_PROMAX_INATIVA: quantas(
+      await tx
+        .delete(fechamentoFrotaPromaxTable)
+        .where(
+          and(
+            eq(fechamentoFrotaPromaxTable.competenciaId, competenciaId),
+            eq(fechamentoFrotaPromaxTable.situacao, "INATIVA"),
+          ),
+        ),
     ),
   };
 

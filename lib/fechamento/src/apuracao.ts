@@ -216,6 +216,17 @@ export function apurar(competencia: Competencia, fontes: Fontes): Apuracao {
     DISPONIBILIDADE_VAN: !!fontes.disponibilidade?.some((d) => d.tipoDeFrota === "VAN"),
     REQUISICOES: !!fontes.requisicoes,
     CONCILIACAO: !!fontes.conciliacao,
+    /*
+      A frota Promax não é financeira e não entra em `Fontes`: este motor não
+      soma, desconta nem sequer lê os veículos dela — ver
+      `frota-promax-comparacao.ts`, que roda fora daqui. `recebida` existe só
+      para os cálculos financeiros que se seguem, e por isso as duas entram
+      sempre como não recebidas aqui, independentemente do que a competência
+      realmente tenha. A presença de verdade é contada em `persistencia.ts`, a
+      partir dos documentos gravados — não a partir deste motor puro.
+    */
+    FROTA_PROMAX_ATIVA: false,
+    FROTA_PROMAX_INATIVA: false,
   };
   /*
     Ausente é o que **esta quinzena** espera e não chegou — não tudo que não
