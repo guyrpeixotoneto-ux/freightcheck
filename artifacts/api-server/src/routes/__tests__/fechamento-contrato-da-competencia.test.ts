@@ -3,6 +3,8 @@ import type { Server } from "node:http";
 import express from "express";
 import { createTestDatabase, type TestDb } from "@workspace/ingest/testing";
 import { createDb, encerrarPoolDoProcesso } from "@workspace/db";
+import { remuneracaoPlanilhaTable, remuneracaoUnidadeTable } from "@workspace/db/schema";
+import { CHAVES_DO_CONTRATO } from "@workspace/remuneracao";
 import { erroEmJson } from "../../middlewares/contrato-json";
 
 /**
@@ -116,6 +118,9 @@ describe("o contrato da quinzena chega junto da competência", () => {
     expect(body.contrato.destrava).not.toBeNull();
     expect(body.contrato.destrava.problema).toContain("501");
     expect(body.contrato.destrava.conserto.length).toBeGreaterThan(20);
+    /* Sem cadastro, os parâmetros do contrato também não existem. */
+    expect(body.contrato.parametros).toBeNull();
+    expect(body.contrato.custoVariavelPrevistoPor25Viagens).toBeNull();
   }, 60_000);
 
   it("o campo vem sempre, e não só quando há problema", async () => {
@@ -128,6 +133,37 @@ describe("o contrato da quinzena chega junto da competência", () => {
     const { body } = await pedir(`/fechamento/competencias/${id}`);
     expect(Object.keys(body)).toContain("contrato");
     expect(body.contrato.estado).toBeTruthy();
+  }, 60_000);
+
+  it("com o cadastro completo: os parâmetros do contrato vêm junto", async () => {
+    const codigo = "504";
+    const vigencia = "2026-07-16"; // dentro da 2ª quinzena de julho/2026
+
+    await ctx.db.insert(remuneracaoUnidadeTable).values({
+      scopeHash: "escopo-teste-504",
+      codigo,
+      nome: `CDD ${codigo}`,
+      canal: "ROTA",
+      vigenciaInicial: vigencia,
+    });
+    await ctx.db.insert(remuneracaoPlanilhaTable).values(
+      CHAVES_DO_CONTRATO.map((chave) => ({
+        scopeHash: "escopo-teste-504",
+        canal: "ROTA",
+        effectiveDate: vigencia,
+        chave,
+        valor: "1",
+      })),
+    );
+
+    const id = await abrirCompetencia(codigo);
+    const { body } = await pedir(`/fechamento/competencias/${id}`);
+
+    expect(body.contrato.estado).toBe("RESPONDEU");
+    expect(body.contrato.parametros).not.toBeNull();
+    expect(body.contrato.parametros.frotaFixaAtiva).toBe(1);
+    expect(body.contrato.parametros.aliquotas.pis).toBeCloseTo(0.01);
+    expect(body.contrato.custoVariavelPrevistoPor25Viagens).toBe(2);
   }, 60_000);
 
   it("a resposta continua trazendo o que já trazia", async () => {
