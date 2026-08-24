@@ -16,6 +16,7 @@ import {
   fechamentoFrotaPromaxTable,
   fechamentoPagamentoDescontoTable,
   fechamentoPagamentoItemTable,
+  fechamentoPagamentoTotalTable,
   fechamentoParteTable,
   fechamentoRequisicaoTable,
   unidadeTable,
@@ -846,6 +847,9 @@ async function apagarLinhasDoDocumento(tx: Transacao, documentoId: string): Prom
   await tx
     .delete(fechamentoPagamentoDescontoTable)
     .where(eq(fechamentoPagamentoDescontoTable.documentoId, documentoId));
+  await tx
+    .delete(fechamentoPagamentoTotalTable)
+    .where(eq(fechamentoPagamentoTotalTable.documentoId, documentoId));
   /* As duas casinhas da frota Promax gravam na mesma tabela, e cada linha
      carrega a situação dela — o mesmo desenho de `fechamentoDisponibilidadeTable`. */
   await tx
@@ -1621,6 +1625,25 @@ async function gravarLinhas(
           })),
         );
       }
+      /*
+        O total que o próprio relatório declara, guardado como ele veio.
+
+        É a única conferência independente que o 03.08.20 oferece — o rodapé
+        que a Ambev assina contra a soma das verbas que o leitor montou. Antes
+        de existir a tabela, este número era descartado aqui e **recalculado**
+        na releitura a partir de `valorFaturado`, o que fazia as duas pontas
+        serem a mesma conta por construção: nunca podiam divergir, e portanto
+        nunca podiam denunciar uma verba perdida na leitura.
+      */
+      if (pagamento.totais.length > 0) {
+        await tx.insert(fechamentoPagamentoTotalTable).values(
+          pagamento.totais.map((t) => ({
+            ...comum,
+            canal: t.canal,
+            total: String(t.total),
+          })),
+        );
+      }
       return;
     }
     case "CONCILIACAO": {
@@ -1823,7 +1846,7 @@ async function lerFontesDoBanco(db: Database, competenciaId: string): Promise<Fo
   }
 
   if (tem.has("PAGAMENTO")) {
-    const [itens, descontos] = await Promise.all([
+    const [itens, descontos, totais] = await Promise.all([
       db
         .select()
         .from(fechamentoPagamentoItemTable)
@@ -1832,6 +1855,10 @@ async function lerFontesDoBanco(db: Database, competenciaId: string): Promise<Fo
         .select()
         .from(fechamentoPagamentoDescontoTable)
         .where(eq(fechamentoPagamentoDescontoTable.competenciaId, competenciaId)),
+      db
+        .select()
+        .from(fechamentoPagamentoTotalTable)
+        .where(eq(fechamentoPagamentoTotalTable.competenciaId, competenciaId)),
     ]);
     /*
       O cabeçalho do arquivo — período, unidade, transportadora — não é
@@ -1877,7 +1904,17 @@ async function lerFontesDoBanco(db: Database, competenciaId: string): Promise<Fo
         */
         vbzDeOrigem: vbzsCitadasNoRotulo(d.rotulo, d.canal as Canal),
       })),
-      totais: [],
+      /*
+        O total declarado pelo relatório, como ele veio — nunca somado daqui.
+
+        Vazio quando o 03.08.20 foi importado antes da `0057`, que é quando
+        esta tabela passou a existir: nesses documentos o número não está em
+        lugar nenhum, e inventá-lo somando as verbas seria afirmar como
+        "declarado" algo que o relatório não disse. Quem for conferir precisa
+        tratar a ausência como "não sei", e não como "bate" — reimportar o
+        03.08.20 preenche.
+      */
+      totais: totais.map((t) => ({ canal: t.canal as Canal, total: numero(t.total) })),
     };
   }
 
@@ -3809,10 +3846,18 @@ export async function lerConteudoDoDocumento(
  * ter verba é o que esta leitura sabe; por que não tem é o que o documento
  * conta.
  *
- * **O `Total Remuneração` é remontado da soma de `valor_faturado`**, e não lido
- * de uma coluna própria — é exatamente como `lerResumoDoMes` o faz, e como o
- * próprio relatório o fecha (frete mais outros custos). Guardá-lo à parte
- * criaria uma segunda verdade sobre o mesmo total.
+ * **O `Total Remuneração` daqui é a soma de `valor_faturado`** — o lado
+ * *calculado* do total, montado como o próprio relatório o fecha (frete mais
+ * outros custos), igual ao que `lerResumoDoMes` faz.
+ *
+ * Isso é deliberado, e continua sendo depois da `0057`. A partir dela o total
+ * que o relatório **declara** passou a ser guardado em
+ * `fechamento_pagamento_total`, mas esta função segue somando, porque as duas
+ * afirmações servem a propósitos diferentes: aqui se quer o total que as
+ * linhas sustentam; lá, o que a Ambev assinou. Fazer esta leitura passar a ler
+ * a coluna apagaria o lado calculado e devolveria o problema que a `0057`
+ * resolveu — os dois números voltariam a ser o mesmo por construção, e uma
+ * verba perdida na leitura deixaria de ter sintoma.
  */
 export async function lerDeParaDaCompetencia(
   db: Database,

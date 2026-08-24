@@ -219,6 +219,35 @@ export function vbzsCitadasNoRotulo(rotulo: string, canal: Canal): number[] {
   return [...achadas].sort((a, b) => a - b);
 }
 
+/**
+ * A recusa de uma linha que **tem valor, está num bloco de desconto, e não foi
+ * reconhecida** por nenhum dos rótulos daquele bloco.
+ *
+ * **Por que isto é uma recusa e não um `continue`.** Até aqui essas linhas
+ * eram descartadas em silêncio: um desconto novo criado pela Ambev — ou um
+ * rótulo que ela renomeasse — sumia do fechamento sem deixar rastro nenhum, e
+ * o total do relatório passava a não fechar com a soma das verbas sem que
+ * ninguém pudesse dizer por quê. Descartar calado é justamente o que este
+ * módulo recusa fazer em todos os outros pontos (ver a recusa das linhas com
+ * cara de verba, logo acima): dinheiro que o relatório traz e o sistema não
+ * entende precisa aparecer como pergunta, não como ausência.
+ *
+ * A recusa não interrompe a leitura — o resto do arquivo entra normalmente, e
+ * `recusas` é a evidência que sobra, já que o fechamento não guarda o texto
+ * original.
+ */
+function descontoNaoReconhecido(linha: number, bloco: string, original: string): Recusa {
+  return {
+    linha,
+    motivo:
+      `Linha com valor dentro do bloco "${bloco}" cujo rótulo não é nenhum dos ` +
+      `descontos conhecidos desse bloco. Pode ser um desconto novo, ou um que a ` +
+      `Ambev renomeou — nos dois casos ele não entrou na conta, e precisa ser ` +
+      `conferido antes de fechar.`,
+    original,
+  };
+}
+
 /** Os quatro descontos de disponibilidade, pelo nome com que o relatório os abre. */
 const DISPONIBILIDADE: { marca: string; tipo: TipoDeDescontoDoPagamento }[] = [
   { marca: "desconto ff - custo fixo", tipo: "DISPONIBILIDADE_CUSTO_FIXO" },
@@ -414,6 +443,8 @@ export function lerPagamento(arquivo: Buffer | ArrayBuffer | string): Pagamento 
           percentual: devolucao.percentual,
           vbzDeOrigem: vbzsCitadasNoRotulo(limpa, canal),
         });
+      } else {
+        recusas.push(descontoNaoReconhecido(numeroDaLinha, "DESCONTO DEVOLUCAO", bruta));
       }
       continue;
     }
@@ -431,21 +462,28 @@ export function lerPagamento(arquivo: Buffer | ArrayBuffer | string): Pagamento 
           percentual: null,
           vbzDeOrigem: vbzsCitadasNoRotulo(limpa, canal),
         });
+      } else {
+        recusas.push(descontoNaoReconhecido(numeroDaLinha, "DESCONTO DISPONIBILIDADE", bruta));
       }
       continue;
     }
 
-    if (bloco === "FRETE_MINIMO" && rotulo.startsWith("desconto frete minimo")) {
-      descontos.push({
-        linha: numeroDaLinha,
-        canal,
-        tipo: "FRETE_MINIMO",
-        rotulo: limpa,
-        valor,
-        base: null,
-        percentual: null,
-        vbzDeOrigem: vbzsCitadasNoRotulo(limpa, canal),
-      });
+    if (bloco === "FRETE_MINIMO") {
+      if (rotulo.startsWith("desconto frete minimo")) {
+        descontos.push({
+          linha: numeroDaLinha,
+          canal,
+          tipo: "FRETE_MINIMO",
+          rotulo: limpa,
+          valor,
+          base: null,
+          percentual: null,
+          vbzDeOrigem: vbzsCitadasNoRotulo(limpa, canal),
+        });
+      } else {
+        recusas.push(descontoNaoReconhecido(numeroDaLinha, "DESCONTO FRETE MINIMO", bruta));
+      }
+      continue;
     }
   }
 

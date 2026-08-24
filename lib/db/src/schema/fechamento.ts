@@ -980,6 +980,50 @@ export const fechamentoPagamentoDescontoTable = pgTable(
   ],
 );
 
+/**
+ * O `Total Remuneracao` que o próprio 03.08.20 declara, por canal.
+ *
+ * **Por que guardar um número que dá para somar.** Ele é a única conferência
+ * independente que o relatório oferece: o total que a Ambev assina, contra a
+ * soma das verbas que o sistema leu. Até esta tabela existir, o total era lido
+ * (`lerPagamento` o extrai em `totais`) e descartado na gravação — na
+ * releitura, era **recalculado** somando `valor_faturado`. Assim as duas
+ * pontas eram a mesma conta por construção, e um relatório cujo total não
+ * fechasse com as próprias linhas passava sem que ninguém pudesse notar: o
+ * sintoma mais barato de "o leitor perdeu uma linha" desaparecia justamente
+ * onde ele apareceria.
+ *
+ * Guardado por documento, e não por competência, porque é afirmação daquele
+ * arquivo: substituir o 03.08.20 substitui o total junto, e um documento em
+ * quarentena não empresta o total dele para o vigente.
+ */
+export const fechamentoPagamentoTotalTable = pgTable(
+  "fechamento_pagamento_total",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    documentoId: uuid("documento_id").notNull(),
+    competenciaId: uuid("competencia_id").notNull(),
+    canal: text("canal").notNull(),
+    /** O número tal como o relatório o declara — nunca recalculado. */
+    total: numeric("total", { precision: 14, scale: 2 }).notNull(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.documentoId],
+      foreignColumns: [fechamentoDocumentoTable.id],
+      name: "fechamento_pagamento_total_documento_fk",
+    }).onDelete("cascade"),
+    foreignKey({
+      columns: [t.competenciaId],
+      foreignColumns: [fechamentoCompetenciaTable.id],
+      name: "fechamento_pagamento_total_competencia_fk",
+    }).onDelete("cascade"),
+    index("fechamento_pagamento_total_por_competencia").on(t.competenciaId, t.canal),
+    index("fechamento_pagamento_total_por_documento").on(t.documentoId),
+    check("fechamento_pagamento_total_canal", sql`${t.canal} in ('ROTA', 'AS')`),
+  ],
+);
+
 /* ===========================================================================
  * 4. A conta apurada
  * ======================================================================== */
