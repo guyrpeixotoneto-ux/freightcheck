@@ -43,8 +43,13 @@ export interface EtapaDoRoteiro {
   /**
    * O que o sistema **realmente** verifica nesta etapa, hoje. Cada item é uma
    * afirmação que se pode apontar no código — não uma intenção.
+   *
+   * Uma `string` é a frase inteira, para quando ela já é curta. Um objeto
+   * separa a frase (`texto`) do porquê ou da ressalva (`detalhe`) — a tela
+   * mostra só o texto, e o detalhe fica atrás do ícone de informação, para
+   * quem quiser o resto sem que todo mundo tenha que ler tudo de cara.
    */
-  verifica: string[];
+  verifica: (string | { texto: string; detalhe: string })[];
   /**
    * O que o processo pede aqui e o sistema **ainda não** sustenta, com o motivo.
    *
@@ -84,7 +89,10 @@ export const ROTEIRO: EtapaDoRoteiro[] = [
     fontes: [],
     verifica: [
       "Se existe cadastro de Remuneração para esta unidade, transportadora e operação na vigência da quinzena.",
-      "Se a competência está associada a uma unidade canônica — sem isso o cadastro não é encontrado.",
+      {
+        texto: "Se a competência está associada a uma unidade canônica.",
+        detalhe: "Sem isso, o cadastro não é encontrado.",
+      },
     ],
     aindaNao: [
       {
@@ -113,7 +121,10 @@ export const ROTEIRO: EtapaDoRoteiro[] = [
     verifica: [
       "Quantos veículos o Promax traz, agrupados por unidade, modelo/categoria e situação.",
       "A diferença contra a frota do cadastro do contrato, com o movimento de cada grupo.",
-      "Placas em conflito dentro do mesmo agrupamento — que não são resolvidas por escolha automática.",
+      {
+        texto: "Placas em conflito dentro do mesmo agrupamento.",
+        detalhe: "Não são resolvidas por escolha automática.",
+      },
     ],
     aindaNao: [
       {
@@ -138,7 +149,11 @@ export const ROTEIRO: EtapaDoRoteiro[] = [
       "mesmo arquivo nas duas: cada casinha lê a frota dela e ignora a outra, e por isso mandá-lo " +
       "duas vezes não dobra a conta.",
     verifica: [
-      "O desconto de disponibilidade do período, somado dos dias dentro da competência, e em quantos dias houve desconto.",
+      {
+        texto: "O desconto de disponibilidade do período.",
+        detalhe:
+          "Somado dos dias dentro da competência, e em quantos dias houve desconto.",
+      },
       "Se o desconto do 03.08.18 bate com o que o 03.08.20 declara como Desconto FF — Equipe Entrega.",
     ],
     aindaNao: [
@@ -166,10 +181,17 @@ export const ROTEIRO: EtapaDoRoteiro[] = [
       "que o relatório assina bate com a soma das próprias linhas.",
     fontes: ["PAGAMENTO"],
     verifica: [
-      "Quantas verbas o documento sustenta — e um 03.08.20 que não sustenta nenhuma é apontado, com diagnóstico linha a linha.",
+      {
+        texto: "Quantas verbas o documento sustenta.",
+        detalhe:
+          "Um 03.08.20 que não sustenta nenhuma é apontado, com diagnóstico linha a linha.",
+      },
       "O Total Remuneração declarado no rodapé contra o total calculado somando as verbas, por canal.",
       "Descontos de devolução, disponibilidade e frete mínimo, com a verba de que cada um já foi subtraído.",
-      "Linhas de desconto com valor que o leitor não reconheceu — recusadas em vez de descartadas.",
+      {
+        texto: "Linhas de desconto com valor que o leitor não reconheceu.",
+        detalhe: "Recusadas em vez de descartadas.",
+      },
       "Cada verba do demonstrativo contra o CT-e emitido na mesma VBZ.",
     ],
     aindaNao: [
@@ -273,7 +295,11 @@ export const ROTEIRO: EtapaDoRoteiro[] = [
     fontes: [],
     verifica: [
       "O devido pelo contrato contra o demonstrado pelo 03.08.20, verba a verba.",
-      "O que a planilha da operação publica no RESUMO GERAL, com a diferença e a célula de origem, quando a planilha está anexada.",
+      {
+        texto: "O que a planilha da operação publica no RESUMO GERAL.",
+        detalhe:
+          "Com a diferença e a célula de origem, quando a planilha está anexada.",
+      },
     ],
     aindaNao: [
       {
