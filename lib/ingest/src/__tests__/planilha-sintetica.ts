@@ -29,6 +29,16 @@ export interface LinhaSpec {
    * duas unidades com o mesmo cargo, na mesma vigência, no mesmo arquivo.
    */
   unidadeCnpj?: string;
+  /**
+   * O nome da unidade desta linha, quando ela não é a do arquivo.
+   *
+   * Anda junto com {@link unidadeCnpj} e existe pela mesma razão: um export
+   * consolidado traz cinco unidades na mesma aba, e cada linha diz a sua nas
+   * duas colunas. Sem isto, as cinco entravam com o nome do arquivo — escopos
+   * distintos, todos escritos "CAMACARI" — e um teste sobre unidades teria de
+   * distinguir pelo hash o que quem opera distingue pelo nome.
+   */
+  unidadeNome?: string;
   chassi?: string;
   /** código do atributo (sem o prefixo do equipamento) -> valor */
   valores?: Record<string, number | string>;
@@ -136,7 +146,7 @@ export function escreverPlanilha(spec: PlanilhaSpec, nomeArquivo?: string): stri
         spec.vigencia,
         linha.unidadeCnpj ??
           (spec.unidadeCnpj === null ? "" : (spec.unidadeCnpj ?? "07.526.557/0015-05")),
-        spec.unidadeNome ?? "CAMACARI",
+        linha.unidadeNome ?? spec.unidadeNome ?? "CAMACARI",
         spec.regional ?? "GEO NE",
         spec.operadorCnpj === null ? "" : (spec.operadorCnpj ?? "20.618.821/0007-99"),
         spec.operadorNome ?? "OPERADOR TESTE",
