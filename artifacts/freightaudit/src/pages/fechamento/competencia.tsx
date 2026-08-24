@@ -56,6 +56,7 @@ import {
   fontesDaCompetencia,
   fontesParaEnviar,
   type ContratoDaCompetencia,
+  type ParametrosDoContrato,
   lerCompetencia,
   lerDiario,
   listarFontes,
@@ -1005,6 +1006,16 @@ function LinhaDoContrato({
             </p>
           </div>
         )}
+        {respondeu && contrato.parametros && (
+          <div className="ml-6 mt-2">
+            <GradeDoContrato
+              parametros={contrato.parametros}
+              custoVariavelPrevistoPor25Viagens={
+                contrato.custoVariavelPrevistoPor25Viagens
+              }
+            />
+          </div>
+        )}
       </div>
       <div className="shrink-0">
         {!respondeu && (
@@ -1014,6 +1025,160 @@ function LinhaDoContrato({
         )}
       </div>
     </li>
+  );
+}
+
+/**
+ * A régua do cadastro — os parâmetros do contrato, categoria por categoria.
+ *
+ * O cadastro de Remuneração parte a frota em seis categorias (frota ativa e
+ * inativa, van ativa e inativa, noturna, marketing), e cada uma tem só as
+ * linhas que a aba pede para ela — uma van não tem "equipe de entrega" da
+ * mesma forma que a frota fixa, e Marketing não tem veículo nenhum. Uma
+ * célula sem linha correspondente mostra `—`, e não zero: zero afirmaria um
+ * valor contratado, e aqui não há o que afirmar.
+ *
+ * **Custo Variável e Lucro não entram na grade.** A aba os soma numa única
+ * parcela (`custoVariavelPrevistoPor25Viagens`, em `contrato.ts`) e não os
+ * guarda separados por categoria — não é uma omissão desta tela, é a forma
+ * como o cadastro os digita.
+ */
+function GradeDoContrato({
+  parametros,
+  custoVariavelPrevistoPor25Viagens,
+}: {
+  parametros: ParametrosDoContrato;
+  custoVariavelPrevistoPor25Viagens: number | null;
+}) {
+  const p = parametros;
+  const colunas: {
+    titulo: string;
+    totalVeiculos: number | null;
+    custoFixo: number | null;
+    custoEquipe: number | null;
+    custosIndiretos: number | null;
+  }[] = [
+    {
+      titulo: "Frota Ativa",
+      totalVeiculos: p.frotaFixaAtiva,
+      custoFixo: p.remuneracaoFixaDaFrotaAtiva,
+      custoEquipe: p.remuneracaoDaEquipeDeEntrega,
+      custosIndiretos: p.remuneracaoDoQlpAdministrativo + p.remuneracaoDeOutrasDespesas,
+    },
+    {
+      titulo: "Frota Inativa",
+      totalVeiculos: p.frotaFixaInativa,
+      custoFixo: p.remuneracaoDaFrotaInativa,
+      custoEquipe: null,
+      custosIndiretos: null,
+    },
+    {
+      titulo: "Van Ativa",
+      totalVeiculos: p.vansAtivas,
+      custoFixo: p.custoFixoDaVan,
+      custoEquipe: p.custoDaEquipeDeEntregaDaVan,
+      custosIndiretos: null,
+    },
+    {
+      titulo: "Van Inativa",
+      totalVeiculos: p.vansInativas,
+      custoFixo: p.remuneracaoDasVansInativas,
+      custoEquipe: null,
+      custosIndiretos: null,
+    },
+    {
+      titulo: "Noturna",
+      totalVeiculos: p.rotasNoturnas,
+      custoFixo: p.custoDaNoturnaSemImposto,
+      custoEquipe: null,
+      custosIndiretos: null,
+    },
+    {
+      titulo: "Marketing",
+      totalVeiculos: null,
+      custoFixo: p.custoDeMarketingSemImposto,
+      custoEquipe: null,
+      custosIndiretos: null,
+    },
+  ];
+
+  const linhas: {
+    rotulo: string;
+    valor: (c: (typeof colunas)[number]) => number | null;
+    dinheiro: boolean;
+  }[] = [
+    { rotulo: "Total Veículos", valor: (c) => c.totalVeiculos, dinheiro: false },
+    { rotulo: "Custo Fixo", valor: (c) => c.custoFixo, dinheiro: true },
+    { rotulo: "Custo Equipe Entrega", valor: (c) => c.custoEquipe, dinheiro: true },
+    { rotulo: "Custos Indiretos", valor: (c) => c.custosIndiretos, dinheiro: true },
+  ];
+
+  return (
+    <div className="max-w-2xl">
+      <div className="overflow-x-auto rounded-md border">
+        <table className="text-xs w-full min-w-max">
+          <thead className="bg-muted/50">
+            <tr>
+              <th className="text-left font-medium px-2 py-1.5" />
+              {colunas.map((c) => (
+                <th
+                  key={c.titulo}
+                  className="text-right font-medium px-2 py-1.5 whitespace-nowrap"
+                >
+                  {c.titulo}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {linhas.map((l) => (
+              <tr key={l.rotulo} className="border-t">
+                <td className="px-2 py-1.5 text-muted-foreground whitespace-nowrap">
+                  {l.rotulo}
+                </td>
+                {colunas.map((c) => {
+                  const v = l.valor(c);
+                  return (
+                    <td
+                      key={c.titulo}
+                      className="px-2 py-1.5 text-right tabular-nums"
+                    >
+                      {v === null ? (
+                        <span className="text-muted-foreground/40">—</span>
+                      ) : l.dinheiro ? (
+                        formatBrl(v)
+                      ) : (
+                        formatNumber(v, 0)
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="text-xs text-muted-foreground mt-1.5">
+        Custo Variável (para 25 viagens previstas), com o lucro previsto já
+        somado, como o cadastro digita:{" "}
+        {custoVariavelPrevistoPor25Viagens === null ? (
+          <span className="text-muted-foreground/60">—</span>
+        ) : (
+          <span className="font-medium text-foreground">
+            {formatBrl(custoVariavelPrevistoPor25Viagens)}
+          </span>
+        )}
+        .
+      </p>
+      <p className="text-xs text-muted-foreground mt-0.5">
+        Alíquotas — PIS {formatNumber(p.aliquotas.pis * 100)}%, COFINS{" "}
+        {formatNumber(p.aliquotas.cofins * 100)}%, ICMS{" "}
+        {formatNumber(p.aliquotas.icms * 100)}%, ISS{" "}
+        {formatNumber(p.aliquotas.iss * 100)}% — e{" "}
+        {formatNumber(p.parcelaDentroDoMunicipio * 100)}% dos documentos
+        previstos dentro do município.
+      </p>
+    </div>
   );
 }
 

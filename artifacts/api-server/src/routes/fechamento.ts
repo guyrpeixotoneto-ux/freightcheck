@@ -69,6 +69,7 @@ import {
   type MesDaReferencia,
 } from "@workspace/fechamento/referencia-persistencia";
 
+import type { ParametrosDoContrato } from "@workspace/remuneracao";
 import { cadastroDaRemuneracao } from "../lib/cadastro-da-remuneracao";
 import { conciliarIdentidadeDoCadastro } from "../lib/identidade-do-cadastro";
 
@@ -594,13 +595,18 @@ router.get("/fechamento/competencias/:id", async (req, res): Promise<void> => {
  * devido, e perguntar pelos outros produziria um diagnóstico sobre um painel
  * que não existe.
  */
-async function contratoDaCompetencia(
-  competencia: CompetenciaRegistrada,
-): Promise<{ canal: Canal; estado: string; destrava: { problema: string; conserto: string } | null } | null> {
+async function contratoDaCompetencia(competencia: CompetenciaRegistrada): Promise<{
+  canal: Canal;
+  estado: string;
+  destrava: { problema: string; conserto: string } | null;
+  /** Os parâmetros do contrato desta vigência — só quando o cadastro respondeu. */
+  parametros: ParametrosDoContrato | null;
+  custoVariavelPrevistoPor25Viagens: number | null;
+} | null> {
   const canal = CANAIS_COM_PAINEL[0];
   if (!canal || competencia.tipoDeOperacao === TIPO_NAO_INFORMADO) return null;
 
-  const { diagnostico } = await cadastroDaRemuneracao(db, {
+  const { resposta, diagnostico } = await cadastroDaRemuneracao(db, {
     tipoDeOperacao: competencia.tipoDeOperacao,
   }).resolver({
     unidadeId: competencia.unidadeId,
@@ -611,7 +617,13 @@ async function contratoDaCompetencia(
     fim: String(competencia.fim),
   });
 
-  return { canal, estado: diagnostico.estado, destrava: comoDestravar(diagnostico) };
+  return {
+    canal,
+    estado: diagnostico.estado,
+    destrava: comoDestravar(diagnostico),
+    parametros: resposta?.parametros ?? null,
+    custoVariavelPrevistoPor25Viagens: resposta?.custoVariavelPrevistoPor25Viagens ?? null,
+  };
 }
 
 /**

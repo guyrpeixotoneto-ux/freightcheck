@@ -93,15 +93,9 @@ export const ROTEIRO: EtapaDoRoteiro[] = [
         texto: "Se a competência está associada a uma unidade canônica.",
         detalhe: "Sem isso, o cadastro não é encontrado.",
       },
+      "Os valores do contrato — frota, custo fixo, equipe de entrega, custos indiretos, alíquotas e custo variável —, por categoria de veículo.",
     ],
     aindaNao: [
-      {
-        o_que: "Mostrar aqui os valores do contrato — custo fixo, equipe, impostos, custo variável.",
-        porque:
-          "A competência só recebe do cadastro um diagnóstico de presença (respondeu ou não) e as " +
-          "quatro contagens de frota que a etapa 2 usa. Os valores existem no cadastro, mas são " +
-          "endereçados por unidade e vigência, e não saem por nenhuma rota da competência.",
-      },
       {
         o_que: "Conferir a quantidade de veículos ativos contra o Resumo SR Trans do FT.",
         porque:

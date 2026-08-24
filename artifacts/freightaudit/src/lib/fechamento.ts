@@ -327,17 +327,60 @@ export interface Apuracao {
   divergencias: Divergencia[];
 }
 
+/** As quatro alíquotas do contrato, já em fração — `0,1784` para 17,84 %. */
+export interface AliquotasDoContrato {
+  pis: number;
+  cofins: number;
+  icms: number;
+  iss: number;
+}
+
+/**
+ * Os parâmetros do contrato de uma vigência — os mesmos dezessete campos que
+ * a aba `Cadastro` de Remuneração digita, na tradução que o motor consome.
+ *
+ * Os valores de dinheiro são mensais, como o contrato os fixa. Os percentuais
+ * são frações, e não pontos.
+ */
+export interface ParametrosDoContrato {
+  aliquotas: AliquotasDoContrato;
+  parcelaDentroDoMunicipio: number;
+
+  frotaFixaAtiva: number;
+  frotaFixaInativa: number;
+
+  remuneracaoFixaDaFrotaAtiva: number;
+  remuneracaoDaEquipeDeEntrega: number;
+  remuneracaoDoQlpAdministrativo: number;
+  remuneracaoDeOutrasDespesas: number;
+
+  remuneracaoDaFrotaInativa: number;
+
+  vansAtivas: number;
+  custoFixoDaVan: number;
+  custoDaEquipeDeEntregaDaVan: number;
+  vansInativas: number;
+  remuneracaoDasVansInativas: number;
+
+  rotasNoturnas: number;
+  custoDaNoturnaSemImposto: number;
+  custoDeMarketingSemImposto: number;
+}
+
 /**
  * Em que porta o cadastro desta quinzena parou.
  *
  * `null` quando a competência não tem tipo de operação informado — aí não há a
  * quem perguntar. `estado: "RESPONDEU"` é o caso bom: há contrato, e
- * `destrava` é `null` porque não há o que destravar.
+ * `destrava` é `null` porque não há o que destravar — e é só nesse caso que
+ * `parametros` vem preenchido.
  */
 export interface ContratoDaCompetencia {
   canal: string;
   estado: string;
   destrava: { problema: string; conserto: string } | null;
+  parametros: ParametrosDoContrato | null;
+  custoVariavelPrevistoPor25Viagens: number | null;
 }
 
 export interface CompetenciaAberta {
