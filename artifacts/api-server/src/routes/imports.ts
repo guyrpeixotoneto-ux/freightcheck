@@ -32,6 +32,10 @@ import {
   stage,
 } from "@workspace/ingest";
 import { semearContrato } from "@workspace/coverage";
+import {
+  garantirComparacoesDaPromocao,
+  type GarantiaDaPromocao,
+} from "@workspace/comparison";
 import { faltaSchema } from "../lib/schema-ausente";
 import { contextoDeSchema } from "../middlewares/contexto-de-schema";
 
@@ -729,7 +733,69 @@ router.post("/imports/:id/promote", async (req, res, next): Promise<void> => {
       );
     }
 
-    res.json(result);
+    /*
+      A promoção entrega as vigências **já comparadas**.
+
+      -----------------------------------------------------------------------
+      Por que isto existe
+      -----------------------------------------------------------------------
+      `change_set` é estado derivado, e até aqui ele só nascia quando alguém
+      abria a tela de Alterações — que materializa **um** par, o mais recente
+      da série (`/changes/latest`). Um arquivo consolidado com cinco unidades
+      e seis vigências entra com 25 transições possíveis e saía da importação
+      com nenhuma: a Visão Gerencial, que só lê o que está gravado, mostrava
+      "4% · 1 de 25 vigências comparada" e cinco cartões em "sem comparação",
+      sem que nada tivesse dado errado. O trabalho existia e ninguém o havia
+      pedido — e pedi-lo, uma unidade e um par de cada vez, não é trabalho de
+      quem opera.
+
+      -----------------------------------------------------------------------
+      A fronteira transacional, e por que ela é esta
+      -----------------------------------------------------------------------
+      A garantia roda **depois** do commit da promoção, e não dentro dele.
+      Três razões, na ordem em que pesam:
+
+      1. **Os fatos e a comparação não têm o mesmo dono.** A vigência é o dado
+         primário — foi conferida no preview e aprovada por uma pessoa. O
+         `change_set` é derivado dela: refazível a qualquer momento, por esta
+         mesma função, sem nenhuma perda. Desfazer uma importação correta
+         porque um par recusou seria destruir o insubstituível para proteger o
+         reconstruível.
+      2. **Comparar dentro da transação seria comparar dados que ninguém mais
+         enxerga.** O motor lê `snapshot`/`fact` por fora do `tx` em várias das
+         suas consultas; segurar a promoção aberta durante 25 comparações
+         também manteria o lock do run e a transação longa por minutos.
+      3. **Mas "depois do commit" não pode virar silêncio.** É exatamente o
+         estado que este bloco veio fechar. Por isso a garantia **não** é um
+         `catch` mudo como o do contrato de cobertura acima: o que ela fez sai
+         no corpo da resposta (`comparacoes`), par a par, com as falhas
+         nomeadas; e se ela própria falhar, a promoção responde assim mesmo —
+         os fatos estão gravados — mas com `comparacoesFalha` preenchido e um
+         `error` no log. Uma promoção nunca volta como se tudo estivesse
+         comparado quando não está.
+    */
+    let comparacoes: GarantiaDaPromocao | null = null;
+    let comparacoesFalha: string | null = null;
+    try {
+      comparacoes = await garantirComparacoesDaPromocao(db, result.snapshotIds, {
+        computedBy: "api:promocao",
+      });
+      if (comparacoes.falhas.length > 0) {
+        req.log.warn(
+          { importRunId: req.params.id, falhas: comparacoes.falhas },
+          "Pares elegíveis que o motor recusou durante a promoção",
+        );
+      }
+    } catch (err) {
+      comparacoesFalha =
+        err instanceof Error ? err.message : "Falha ao garantir as comparações.";
+      req.log.error(
+        { err, importRunId: req.params.id },
+        "Vigências promovidas sem a garantia das comparações",
+      );
+    }
+
+    res.json({ ...result, comparacoes, comparacoesFalha });
   } catch (err) {
     // Uma recusa **nomeada** é a única coisa que sai daqui com a frase inteira.
     // Ela é escrita pelo pipeline para quem opera, e o código HTTP separa as

@@ -455,3 +455,91 @@ describe("os anos", () => {
     ).toEqual([2026, 2024]);
   });
 });
+
+/**
+ * O arquivo EMPURRADA_Cavalo, como a home o lê depois da garantia da promoção.
+ *
+ * Cinco unidades, seis vigências quinzenais de junho a agosto, e portanto 25
+ * transições. Antes de a promoção garantir as comparações, a tela publicava
+ * "4% · 1 de 25 vigências comparada" — não porque algo tivesse falhado, mas
+ * porque `change_set` só nascia quando alguém abria a tela de Alterações, uma
+ * unidade e um par de cada vez. O que muda aqui é o insumo, não a aritmética:
+ * as mesmas funções, alimentadas com o que a promoção agora deixa gravado.
+ *
+ * O outro lado desta prova continua valendo, e é o que este caso não pode
+ * deixar de dizer: **as quinzenas anteriores a junho continuam sem vigência**.
+ * A fonte não publicou nada de janeiro a maio, e garantir comparação nenhuma
+ * as inventa — elas seguem como ausência de histórico (casa apagada), nunca
+ * como trabalho atrasado.
+ */
+describe("cinco unidades, seis vigências — o caso EMPURRADA_Cavalo", () => {
+  const HOJE_REAL = "2026-08-24";
+
+  const UNIDADES = ["CAMAÇARI", "PERNAMBUCO", "CDD CEBRASA", "EQUATORIAL", "MANAUS"];
+  /** As datas das seis quinzenas, como o rótulo `EMPURRADA_<q>_<mês>_2026` as gera. */
+  const DATAS = ["2026-06-01", "2026-06-02", "2026-07-01", "2026-07-02", "2026-08-01", "2026-08-02"];
+
+  /** O acervo com todas as transições materializadas — o depois da garantia. */
+  const comparadas = UNIDADES.flatMap((nome) =>
+    DATAS.map((data, i) =>
+      vigencia({
+        unidade: `scope-${nome}`,
+        nome,
+        data,
+        ativos: 15,
+        anterior: i === 0 ? null : DATAS[i - 1],
+        comparacao: i === 0 ? null : { alteracoes: 4 },
+      }),
+    ),
+  );
+
+  it("sai de 1 de 25 para 25 de 25, sem mexer no denominador", () => {
+    const unidades = resumirUnidades(comparadas, 2026, HOJE_REAL);
+    const total = resumoExecutivo(unidades);
+
+    expect(unidades).toHaveLength(5);
+    expect(total).toMatchObject({
+      unidades: 5,
+      vigencias: 30,
+      // As cinco primeiras de série não entram no denominador: elas não têm
+      // anterior, e contá-las faria toda unidade estrear reprovada.
+      comparaveis: 25,
+      auditadas: 25,
+      pendentes: 0,
+      iniciais: 5,
+      percentualAuditado: 100,
+    });
+    for (const unidade of unidades) {
+      expect(unidade).toMatchObject({ comparaveis: 5, auditadas: 5, pendentes: 0, iniciais: 1 });
+    }
+  });
+
+  it("as quinzenas anteriores a junho continuam sem vigência", () => {
+    const [unidade] = resumirUnidades(comparadas, 2026, HOJE_REAL);
+    const em = (chave: string) => unidade.quinzenas.find((q) => q.chave === chave)!.situacao;
+
+    // Dez casas de janeiro a maio, mais as duas segundas quinzenas que a fonte
+    // pulou: doze quinzenas sem vigência, e nenhuma delas em vermelho.
+    expect(unidade.lacunas).toBe(12);
+    expect(em("2026-01-Q1")).toBe("SEM_VIGENCIA");
+    expect(em("2026-05-Q2")).toBe("SEM_VIGENCIA");
+    expect(em("2026-06-Q2")).toBe("SEM_VIGENCIA");
+    // Onde a fonte publicou, a casa está auditada — e agosto/Q2 ainda corre.
+    expect(em("2026-06-Q1")).toBe("AUDITADA");
+    expect(em("2026-08-Q1")).toBe("AUDITADA");
+    expect(em("2026-08-Q2")).toBe("FUTURA");
+    expect(unidade.quinzenas.filter((q) => q.situacao === "PENDENTE")).toHaveLength(0);
+  });
+
+  it("sem a garantia, as mesmas seis vigências ficam pendentes — e as lacunas não mudam", () => {
+    // O estado que a tela mostrava: vigência com anterior e sem comparação.
+    const semComparacao = comparadas.map((v) => ({ ...v, comparacao: null }));
+    const unidades = resumirUnidades(semComparacao, 2026, HOJE_REAL);
+    const total = resumoExecutivo(unidades);
+
+    expect(total).toMatchObject({ comparaveis: 25, auditadas: 0, pendentes: 25, percentualAuditado: 0 });
+    // A diferença entre os dois estados é só a comparação: a ausência de
+    // vigência de janeiro a maio é a mesma nos dois, porque ela é da fonte.
+    expect(unidades.every((u) => u.lacunas === 12)).toBe(true);
+  });
+});

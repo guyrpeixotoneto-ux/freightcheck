@@ -14,6 +14,7 @@ import {
   encerrarPoolDoProcesso,
   taxonomyNodeTable,
 } from "@workspace/db";
+import { listarVigenciasDaAuditoria } from "@workspace/comparison";
 import {
   createTestDatabase,
   modelExportPaths,
@@ -360,6 +361,53 @@ describe("5. a segunda importação não duplica nada", () => {
     */
     expect(depois.versoes).toBe(antes.versoes);
     expect(depois.eventos).toBe(antes.eventos);
+  });
+
+  /**
+   * A promoção entrega as vigências já comparadas — e **diz** que entregou.
+   *
+   * A tela de Alterações materializava um par por vez (o mais recente da
+   * série), então a base ficava com vigências promovidas e nunca comparadas
+   * até alguém abrir unidade por unidade. A rota agora garante a série inteira
+   * de cada unidade que o arquivo tocou, e o corpo da resposta é o que
+   * transforma "rodou depois do commit" em algo conferível: quantos pares
+   * eram elegíveis, quantos já existiam, quantos nasceram agora e o que ficou
+   * para trás.
+   */
+  it("deixa as comparações materializadas e relata o que fez", async () => {
+    for (const resposta of [primeira, segunda]) {
+      expect(resposta.body).toHaveProperty("comparacoes");
+      expect(resposta.body.comparacoesFalha).toBeNull();
+      expect(resposta.body.comparacoes.falhas).toEqual([]);
+      // O denominador da Visão Gerencial fecha com as três parcelas.
+      expect(resposta.body.comparacoes.paresElegiveis).toBe(
+        resposta.body.comparacoes.jaExistiam +
+          resposta.body.comparacoes.calculados +
+          resposta.body.comparacoes.falhas.length,
+      );
+    }
+
+    // A primeira promoção é a que traz vigência nova, e ela sai comparada.
+    expect(primeira.body.comparacoes.unidades.length).toBeGreaterThan(0);
+    expect(primeira.body.comparacoes.calculados).toBeGreaterThan(0);
+
+    /*
+      A segunda é o reenvio do mesmo dado em outro arquivo: nada entrou, e por
+      isso não há contexto a garantir nem par a recalcular. Zero aqui é a
+      idempotência funcionando — e não a garantia deixando de rodar, o que a
+      conta do `paresElegiveis` acima e a leitura da home abaixo separam.
+    */
+    expect(segunda.body.comparacoes.calculados).toBe(0);
+
+    /*
+      E o que a home lê depois disso: nenhuma vigência com anterior ficou sem
+      comparação. É a conta que aparecia como "4% · 1 de 25" enquanto o
+      trabalho dependia de alguém abrir cada unidade.
+    */
+    const vigencias = await listarVigenciasDaAuditoria(ctx.db);
+    const comAnterior = vigencias.filter((v) => v.anterior !== null);
+    expect(comAnterior.length).toBeGreaterThan(0);
+    expect(comAnterior.filter((v) => v.comparacao?.status !== "DONE")).toEqual([]);
   });
 
   it("mantém a assinatura humana de quem decidiu", async () => {
