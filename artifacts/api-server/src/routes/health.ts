@@ -8,6 +8,7 @@ import {
 } from "@workspace/db/diagnostico";
 import { observarBanco } from "../lib/migrations";
 import { estadoDaProntidao } from "../lib/prontidao";
+import { estadoDaPromocao } from "../lib/partida";
 import { estadoDoBackup } from "../lib/backup-agendado";
 
 /**
@@ -15,9 +16,16 @@ import { estadoDoBackup } from "../lib/backup-agendado";
  *
  * | rota       | pergunta                                   | toca o banco |
  * | ---------- | ------------------------------------------ | ------------ |
- * | `/healthz` | este processo está de pé?                  | não          |
- * | `/readyz`  | este ambiente tem o que este build precisa? | sim          |
- * | `/build`   | de qual código ele foi feito?              | não          |
+ * | `/healthz`  | este processo está de pé?                  | não          |
+ * | `/startupz` | a promoção pode acontecer, ou a fila ainda está em voo? | não |
+ * | `/readyz`   | este ambiente tem o que este build precisa? | sim          |
+ * | `/build`    | de qual código ele foi feito?              | não          |
+ *
+ * **`/startupz` não é uma quarta autoridade sobre o banco.** Ele nunca chama
+ * `observarBanco`, e sua resposta não classifica estado nenhum — o que ele
+ * publica é um fato deste processo: a tentativa de partida terminou, ou não? A
+ * classificação continua sendo só `/readyz`. Ver `lib/partida.ts` para o
+ * porquê da separação e o que ela deliberadamente não faz.
  *
  * A fronteira entre as duas primeiras é a correção deste arquivo, e ela não é
  * arrumação. As duas perguntas têm consumidores opostos — o startup probe
@@ -178,6 +186,52 @@ router.get("/healthz", (_req, res) => {
     startedAt,
     uptimeSeconds: Math.round(process.uptime()),
   });
+});
+
+/**
+ * O alvo do startup probe — a partir de quando ele passa a apontar para cá.
+ *
+ * ---------------------------------------------------------------------------
+ * O que esta rota resolve, e o que ela continua deixando para o portão
+ * ---------------------------------------------------------------------------
+ * Até aqui o probe apontava para `/healthz`, que responde 200 sem tocar no
+ * banco — necessário para o bind não bloquear a partida, mas suficiente para a
+ * plataforma promover o release **enquanto a fila deste build ainda está
+ * rodando**. É a janela entre `app.listen()` e o fim de
+ * `applyMigrationsInBackground()`: dentro dela toda rota de produto responde
+ * 503 pelo portão de prontidão, e é exatamente o corpo que apareceu na tela de
+ * login em 24/08/2026.
+ *
+ * `/startupz` responde 503 enquanto essa tentativa está em voo, e 200 quando
+ * ela termina — convergiu, falhou de um jeito que só humano resolve, ou este
+ * ambiente não migra na partida. Os três são fins de espera: reter a promoção
+ * só faz sentido enquanto há algo em andamento.
+ *
+ * **Não fecha a porta para migration que falha.** Se fechasse — 503
+ * permanente —, o deployment nunca subiria, a versão anterior continuaria
+ * servindo e nada diria por quê; é o modo de falha que a arquitetura atual
+ * (fila em segundo plano, portão em processo) foi escolhida para evitar, e
+ * está medido em `docs/MIGRATIONS.md`. Terminar com falha ainda é terminar: o
+ * deployment sobe, e quem opera lê o motivo em `/readyz` e no alerta.
+ *
+ * **O teto impede publicação presa.** `estadoDaPromocao` libera
+ * incondicionalmente depois dele, e o portão de prontidão assume a partir daí
+ * — o comportamento é o de antes desta rota existir.
+ */
+router.get("/startupz", (_req, res) => {
+  const promocao = estadoDaPromocao();
+  const corpo = {
+    liberar: promocao.liberar,
+    fase: promocao.fase,
+    detail: promocao.motivo,
+    esperandoHaMs: promocao.esperandoHaMs,
+  };
+  if (promocao.liberar) {
+    res.json(corpo);
+    return;
+  }
+  res.setHeader("Retry-After", "2");
+  res.status(503).json(corpo);
 });
 
 /**

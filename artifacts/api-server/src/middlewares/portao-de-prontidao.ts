@@ -30,10 +30,10 @@ import { estadoDoPortao } from "../lib/prontidao";
  * Só o que serve para descobrir que ele está fechado, e por quê. Nenhuma delas
  * lê dado de produto:
  *
- * - `/healthz` — é para onde o `[services.production.health.startup]` aponta.
- *   Fechá-lo faria o deployment nunca subir, e o roteador voltaria a responder
- *   502 sem corpo: o estado exato que a rota de saúde existe para tornar
- *   legível.
+ * - `/healthz` — liveness pura, sem tocar em banco.
+ * - `/startupz` — o fato que decide a promoção do release (ver
+ *   `lib/partida.ts`); bloqueá-lo aqui criaria a mesma classe de problema que
+ *   ele existe para resolver.
  * - `/readyz` — a prontidão em si. Um portão que bloqueasse a pergunta sobre
  *   ele seria inútil.
  * - `/build` e `/` — o deployer do Replit sonda as duas antes de promover o
@@ -43,8 +43,8 @@ import { estadoDoPortao } from "../lib/prontidao";
 /** O `code` que a interface lê quando o serviço subiu e ainda não converge. */
 export const CODIGO_NAO_PRONTO = "SERVICO_NAO_PRONTO";
 
-/** Ver o cabeçalho: as quatro que existem para diagnosticar o próprio portão. */
-const SEMPRE_ABERTAS = new Set(["/healthz", "/readyz", "/build", "/"]);
+/** Ver o cabeçalho: as cinco que existem para diagnosticar o próprio portão. */
+const SEMPRE_ABERTAS = new Set(["/healthz", "/startupz", "/readyz", "/build", "/"]);
 
 /**
  * O caminho como a lista o escreve — a barra final não muda quem é a rota.

@@ -211,6 +211,24 @@ export async function observarBanco(
       .filter((migration) => !aplicadas.has(migration.when))
       .map((migration) => migration.tag);
     /*
+      E o sentido inverso, que esta função não media.
+
+      Só o que **falta** era calculado, então um banco à frente do build — o
+      desfecho normal de um rollback — saía com zero pendências e chegava a
+      `diagnosticar` indistinguível de um banco em dia. O código no ar era
+      anterior ao schema e nada dizia isso: nem a tela, nem o `/readyz`, nem a
+      partida.
+
+      A comparação é a mesma, virada: carimbo registrado no banco que a lista
+      empacotada neste bundle não contém. Sai como número porque é o que existe
+      — a tag de uma migration que este build não carrega não está em lugar
+      nenhum deste processo para ser lida.
+    */
+    const empacotadas = new Set(esperadas.map((migration) => migration.when));
+    const aFrente = [...aplicadas]
+      .filter((carimbo) => !empacotadas.has(carimbo))
+      .sort((a, b) => a - b);
+    /*
       A falha da partida vale enquanto a migration dela ainda estiver faltando
       — e **só** enquanto.
 
@@ -291,6 +309,7 @@ export async function observarBanco(
       alcancavel: true,
       pendentes,
       aplicadas: esperadas.length - pendentes.length,
+      aFrente,
       temSchema,
       ...(objetosAusentes !== undefined ? { objetosAusentes } : {}),
       ...(bridge.pendente

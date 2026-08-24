@@ -383,6 +383,66 @@ describe("a conferência de schema no diagnóstico", () => {
   });
 });
 
+/**
+ * BANCO_A_FRENTE_DO_BUILD — o sentido inverso, e o caso do rollback.
+ *
+ * Até esta prova, um banco cujo registro tem carimbos que o build não carrega
+ * saía classificado SAUDAVEL — a contagem só media o que **falta**. É o estado
+ * normal depois de publicar de novo um build anterior sobre um banco que já
+ * avançou, e ele nunca teve nome.
+ */
+describe("BANCO_A_FRENTE_DO_BUILD", () => {
+  it("banco à frente: estado próprio, e não SAUDAVEL", () => {
+    const d = diagnosticar(observado({ aFrente: [1787601247252] }));
+    expect(d.estado).toBe("BANCO_A_FRENTE_DO_BUILD");
+  });
+
+  it("não oferece comando — desfazer migration não é uma ação segura", () => {
+    const d = diagnosticar(observado({ aFrente: [1787601247252] }));
+    expect(d.acao?.codigo).toBe("ALINHAR_BUILD");
+    expect(d.acao?.comando).toBeUndefined();
+  });
+
+  it("não afirma risco a dados — nada foi perdido, e nada é revertido", () => {
+    const d = diagnosticar(observado({ aFrente: [1787601247252] }));
+    expect(d.risco.emRisco).toBe(false);
+  });
+
+  it("a evidência nomeia quantas, e a mais recente por carimbo", () => {
+    const d = diagnosticar(
+      observado({ aFrente: [1787594537100, 1787601247252] }),
+    );
+    expect(d.evidencia).toContain("2");
+    expect(d.evidencia).toMatch(/\d{4}-\d{2}-\d{2}T/);
+  });
+
+  it("schema conferido e vazio continua sendo pré-condição do ramo", () => {
+    // Sem objetosAusentes/objetoAusenteAgora, cai direto no ramo de baixo —
+    // o mesmo lugar de onde SAUDAVEL sai hoje.
+    const d = diagnosticar(observado({ aFrente: [1] }));
+    expect(d.estado).toBe("BANCO_A_FRENTE_DO_BUILD");
+  });
+
+  it("objeto ausente ainda vence — SCHEMA_DIVERGENTE é mais urgente", () => {
+    const d = diagnosticar(
+      observado({ aFrente: [1], objetosAusentes: ["attribute.cost_class"] }),
+    );
+    expect(d.estado).toBe("SCHEMA_DIVERGENTE");
+  });
+
+  it("o que falta ainda vence — atrás e à frente ao mesmo tempo é classificado pelo que quebra", () => {
+    const d = diagnosticar(
+      observado({ pendentes: ["0058_algo"], aFrente: [1] }),
+    );
+    expect(d.estado).not.toBe("BANCO_A_FRENTE_DO_BUILD");
+  });
+
+  it("aFrente vazio ou ausente não muda nada — continua SAUDAVEL", () => {
+    expect(diagnosticar(observado({ aFrente: [] })).estado).toBe("SAUDAVEL");
+    expect(diagnosticar(observado({})).estado).toBe("SAUDAVEL");
+  });
+});
+
 describe("BRIDGE_PENDENTE", () => {
   it("nomeia o estado em vez de deixar deduzir por schema ausente", () => {
     const d = diagnosticar(observado({ bridgePendente: {} }));
