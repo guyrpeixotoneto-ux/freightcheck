@@ -4177,3 +4177,57 @@ export async function compararFrotaDaCompetencia(
     comparacao: compararFrotaPromaxContraContrato(veiculos, contrato),
   };
 }
+
+/**
+ * O `Total Remuneração` do 03.08.20 pelos dois lados — declarado e calculado.
+ *
+ * **Por que uma função só, e não duas leituras que a tela junta.** Os dois
+ * números só significam alguma coisa um ao lado do outro: sozinho, cada um é
+ * "o total", e é essa ambiguidade que a `0057` existe para desfazer. Devolvê-los
+ * juntos, já pareados por canal, é o que impede a tela de mostrar um e chamá-lo
+ * de "o total do relatório" — que foi exatamente o que o sistema fazia antes.
+ *
+ * **`declarado: null` não é zero, e não é "bate".** É o 03.08.20 importado
+ * antes da `0057`, quando o número não era guardado: ele não está em lugar
+ * nenhum, e somar as verbas para preencher afirmaria como declarado algo que o
+ * relatório não disse. Quem consome precisa dizer "não dá para conferir" —
+ * nunca "confere". Reimportar o documento preenche.
+ *
+ * O canal entra na chave porque o relatório fecha um total por canal (ROTA e
+ * AS têm rodapés próprios); comparar a soma dos dois contra um dos dois
+ * acusaria diferença onde não há.
+ */
+export async function totaisDoPagamentoDaCompetencia(
+  db: Database,
+  competenciaId: string,
+): Promise<{
+  canais: { canal: Canal; declarado: number | null; calculado: number; diferenca: number | null }[];
+  temPagamento: boolean;
+}> {
+  const [declarados, calculados] = await Promise.all([
+    db
+      .select()
+      .from(fechamentoPagamentoTotalTable)
+      .where(eq(fechamentoPagamentoTotalTable.competenciaId, competenciaId)),
+    somarDemonstrativo(db, competenciaId),
+  ]);
+
+  if (calculados === null) return { canais: [], temPagamento: false };
+
+  const porCanal = new Map(declarados.map((d) => [d.canal as Canal, Number(d.total)]));
+
+  return {
+    temPagamento: true,
+    canais: calculados.map((c) => {
+      const declarado = porCanal.get(c.canal) ?? null;
+      return {
+        canal: c.canal,
+        declarado,
+        calculado: c.total,
+        /* `null` quando não há declarado: a diferença entre um número e o
+           desconhecido não é zero, é indeterminada. */
+        diferenca: declarado === null ? null : centavos(declarado - c.total),
+      };
+    }),
+  };
+}

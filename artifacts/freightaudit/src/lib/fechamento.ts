@@ -1784,3 +1784,30 @@ export interface ComparacaoDeFrotaPromax {
 export function lerFrotaDaCompetencia(competenciaId: string): Promise<ComparacaoDeFrotaPromax> {
   return fetchJson<ComparacaoDeFrotaPromax>(`/fechamento/competencias/${competenciaId}/frota`);
 }
+
+/**
+ * O `Total Remuneração` do 03.08.20 por canal, pelos dois lados.
+ *
+ * `declarado: null` num canal significa que aquele 03.08.20 foi importado antes
+ * de o total passar a ser guardado. **Isso não é zero e não é "bate"**: o
+ * número não existe em lugar nenhum, e a tela precisa dizer que não dá para
+ * conferir — reimportar o documento preenche. `diferenca` é `null` pelo mesmo
+ * motivo: a distância entre um número e o desconhecido é indeterminada, não
+ * zero.
+ */
+export interface TotalDoPagamentoNoCanal {
+  canal: string;
+  declarado: number | null;
+  calculado: number;
+  diferenca: number | null;
+}
+
+export interface TotaisDoPagamento {
+  canais: TotalDoPagamentoNoCanal[];
+  /** `false` quando o 03.08.20 não foi importado — não há o que conferir. */
+  temPagamento: boolean;
+}
+
+export function lerTotaisDaCompetencia(competenciaId: string): Promise<TotaisDoPagamento> {
+  return fetchJson<TotaisDoPagamento>(`/fechamento/competencias/${competenciaId}/totais`);
+}

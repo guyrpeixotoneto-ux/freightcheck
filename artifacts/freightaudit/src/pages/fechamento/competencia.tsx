@@ -53,15 +53,23 @@ import {
   lerCompetencia,
   lerDiario,
   listarFontes,
-  listarLadosDaConferencia,
   reimportarDocumento,
+  lerTotaisDaCompetencia,
   EXPLICACAO_DA_DIVERGENCIA,
   NOME_DO_ESTADO,
+  type Competencia,
   type DadosDescartados,
   type Documento,
   type Fonte,
   type TipoDeFonte,
+  type TotaisDoPagamento,
 } from "@/lib/fechamento";
+import { ROTEIRO, type EtapaDoRoteiro } from "./roteiro";
+import { situacaoDaEtapa, type SituacaoDaEtapa } from "./status-da-etapa";
+import {
+  SeloDaEtapa,
+  TrilhaDoRoteiro,
+} from "@/components/fechamento/trilha-do-roteiro";
 
 function textoDoErro(erro: unknown): string {
   const aviso = apresentar(erro);
@@ -121,15 +129,6 @@ export default function CompetenciaAberta({ id }: { id: string }) {
     queryFn: listarFontes,
   });
   /*
-    O agrupamento é catálogo, como as fontes: muda quando o domínio muda, não
-    quando a competência muda. Fica na mesma chave estável do react-query e é
-    buscado uma vez por sessão.
-  */
-  const lados = useQuery({
-    queryKey: ["fechamento", "lados"],
-    queryFn: listarLadosDaConferencia,
-  });
-  /*
     O diário continua sendo consulta própria, e não parte de `lerCompetencia`:
     ele muda por outro motivo (o 2Art entrou) e é lido por outra tela (a do dia).
 
@@ -146,6 +145,16 @@ export default function CompetenciaAberta({ id }: { id: string }) {
   const diario = useQuery({
     queryKey: chaveDoDiario(id),
     queryFn: () => lerDiario(id),
+  });
+  /*
+    Os dois totais do 03.08.20 — o que o relatório declara e o que as verbas
+    somam. Pendura-se na chave da competência pela mesma regra do diário: tudo
+    que se pergunta sobre uma competência é invalidado junto quando um documento
+    entra, e é o envio do 03.08.20 que muda esta resposta.
+  */
+  const totais = useQuery({
+    queryKey: [...chaveDaCompetencia(id), "totais"],
+    queryFn: () => lerTotaisDaCompetencia(id),
   });
 
   const enviar = useMutation({
@@ -311,6 +320,24 @@ export default function CompetenciaAberta({ id }: { id: string }) {
     ...vigentes.keys(),
   ]);
 
+  /*
+    O estado de cada etapa do roteiro, derivado do que a competência tem agora:
+    arquivos, recusas e divergências. Não há estado guardado de "etapa
+    conferida" — ver `status-da-etapa.ts` para por que derivar é a única leitura
+    honesta enquanto a conferência não for um ato registrado.
+  */
+  const situacoes = new Map(
+    ROTEIRO.map((etapa) => [
+      etapa.numero,
+      situacaoDaEtapa(etapa, {
+        catalogo,
+        documentos: vigentes,
+        divergencias: apuracao?.divergencias ?? [],
+        quinzena: competencia.quinzena,
+      }),
+    ]),
+  );
+
   return (
     <Layout>
       <header className="border-b bg-card px-8 py-6">
@@ -365,41 +392,32 @@ export default function CompetenciaAberta({ id }: { id: string }) {
             1. Os relatórios
             --------------------------------------------------------------- */}
         <Card>
-          <CardHeader className="pb-3 flex-row items-center justify-between gap-4 space-y-0">
+          {/*
+            O atalho da frota saiu daqui e foi para a etapa 2, que é onde a
+            pergunta dele existe. No cabeçalho ele era o único atalho de uma
+            etapa a ter destaque de tela inteira — e depois do roteiro, seria o
+            mesmo link duas vezes na mesma página.
+          */}
+          <CardHeader className="pb-3">
             <CardTitle className="text-base flex items-center gap-2">
               <FileUp className="w-4 h-4" />
-              Os relatórios da quinzena
+              O fechamento, etapa a etapa
             </CardTitle>
-            <Link
-              href={`${base}/competencias/${id}/frota`}
-              className="text-sm text-muted-foreground hover:text-foreground underline-offset-4 hover:underline"
-            >
-              Ver frota (Promax × contrato)
-            </Link>
           </CardHeader>
           <CardContent className="space-y-3">
-            <p className="text-sm text-muted-foreground">
-              {competencia.quinzena === 1
-                ? "Cinco exportações do Promax/SRTrans, e as requisições (03.08.12.09) quando a quinzena teve alguma aprovada: elas podem existir aqui, então a casinha fica de pé sem que a falta seja cobrada. A conciliação (03.02.59.02) é a única que não existe na 1ª — ela chega com o fechamento da 2ª."
-                : "Sete exportações do Promax/SRTrans."}{" "}
-              Cada relatório diz abaixo em que formatos ele é lido. A conta roda
-              com o que houver — o que faltar aparece nomeado na apuração, nunca
-              como zero.
-            </p>
             {/*
-              O 03.08.18 tem duas casinhas, e quem opera precisa saber disso
-              antes de clicar: as duas exportações do Promax chegam separadas —
-              uma da frota fixa, outra das vans — e cada uma tem a sua vigência.
-              O arquivo único de duas abas é o mesmo nas duas: cada casinha lê a
-              frota dela e ignora a outra, e por isso mandá-lo duas vezes não
-              dobra a conta.
+              Um parágrafo só, e curto. O que cada etapa confere agora está
+              escrita nela — repetir aqui a lista dos relatórios faria o topo da
+              tela competir com o roteiro pela mesma explicação.
             */}
             <p className="text-sm text-muted-foreground">
-              O 03.08.18 vem em dois — <strong>FF</strong> e{" "}
-              <strong>Vans</strong> —, e cada um tem a sua casinha nas duas
-              quinzenas: são frotas diferentes e descontos diferentes. Se a sua
-              exportação vier com as duas abas num arquivo só, mande o mesmo
-              arquivo nas duas: cada casinha lê a frota dela.
+              O fechamento na ordem em que ele é feito.{" "}
+              {competencia.quinzena === 1
+                ? "Esta é a 1ª quinzena: a conciliação (03.02.59.02) não existe aqui — ela chega com o fechamento da 2ª."
+                : "Esta é a 2ª quinzena, que recebe todos os relatórios."}{" "}
+              A conta roda com o que houver — o que faltar aparece nomeado na
+              apuração, nunca como zero —, e uma etapa com divergência não
+              impede as seguintes.
             </p>
             {/*
               A reabertura aparece aqui, e não só no painel do fim da tela,
@@ -463,35 +481,68 @@ export default function CompetenciaAberta({ id }: { id: string }) {
               </Alert>
             )}
             {/*
-              Os relatórios saem agrupados **pelo lado da conferência que eles
-              alimentam**, e não numa lista só.
+              Os relatórios saem na **ordem em que o fechamento é feito**, e não
+              agrupados pelo papel que cada um tem no cálculo.
 
-              O fechamento confere dois lados que saem de arquivos diferentes —
-              o devido, derivado do contrato e da operação, contra o demonstrado
-              do 03.08.20 —, e uma lista plana escondia isso: seis linhas iguais
-              não dizem que faltar o 2Art e faltar o 03.08.20 quebram coisas
-              opostas. O agrupamento vem do domínio (`LADOS_DA_CONFERENCIA`),
-              porque é afirmação sobre a conta, não sobre o layout.
+              Este agrupamento era por `LADOS_DA_CONFERENCIA` — devido,
+              demonstrado, faturamento —, que é afirmação sobre a conta e
+              continua sendo a verdade que o motor consome. O que ele não era é
+              a ordem de quem confere: a pessoa que fecha a quinzena começa pela
+              base contratual, passa pela frota e pela disponibilidade, e só
+              então olha o que foi emitido. Os dois eixos são reais e não
+              coincidem, e por isso o roteiro é uma leitura *sobre* o catálogo
+              (ver `roteiro.ts`) em vez de uma reclassificação dele.
 
-              E é no primeiro grupo que entra a peça que não é arquivo: o
-              contrato. Era ela que faltava numa competência real com os três
-              relatórios do devido importados, três vistos verdes, e nenhum
-              devido saindo do outro lado do produto.
+              A peça que não é arquivo — o contrato — continua na primeira
+              etapa, que é onde se pergunta quanto deveria ser pago. Era ela que
+              faltava numa competência real com os três relatórios do devido
+              importados, três vistos verdes, e nenhum devido saindo do outro
+              lado do produto.
             */}
-            {(lados.data ?? []).map(
-              ({ lado, titulo, explica, precisaDeContrato }) => {
-                const doLado = catalogo.filter((f) => f.lado === lado);
-                if (doLado.length === 0) return null;
-                return (
-                  <section key={lado} className="space-y-1">
-                    <div className="pt-2">
-                      <h3 className="text-sm font-semibold">{titulo}</h3>
-                      <p className="text-xs text-muted-foreground mt-0.5 max-w-2xl">
-                        {explica}
-                      </p>
-                    </div>
-                    <ul className="divide-y">
-                      {doLado.map((fonte) => (
+            <TrilhaDoRoteiro
+              etapas={ROTEIRO.map((etapa) => ({
+                etapa,
+                estado: situacoes.get(etapa.numero)!.estado,
+              }))}
+            />
+
+            {ROTEIRO.map((etapa) => {
+              const situacao = situacoes.get(etapa.numero)!;
+              const doRoteiro = etapa.fontes
+                .map((t) => catalogo.find((f) => f.tipo === t))
+                .filter((f): f is Fonte => !!f);
+
+              return (
+                <section
+                  key={etapa.numero}
+                  id={`etapa-${etapa.numero}`}
+                  className="pt-4 scroll-mt-4 border-t first:border-t-0"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <h3 className="text-sm font-semibold">
+                      <span className="text-muted-foreground tabular-nums mr-1.5">
+                        {etapa.numero}.
+                      </span>
+                      {etapa.titulo}
+                    </h3>
+                    <SeloDaEtapa estado={situacao.estado} />
+                  </div>
+
+                  {/* O que se confere — na língua do processo, antes do nome do arquivo. */}
+                  <p className="text-xs text-muted-foreground mt-1 max-w-2xl">
+                    {etapa.confere}
+                  </p>
+
+                  {/* O aviso operacional desta etapa, quando ela tem um. */}
+                  {etapa.nota && (
+                    <p className="text-xs text-muted-foreground mt-1.5 max-w-2xl border-l-2 border-border pl-2">
+                      {etapa.nota}
+                    </p>
+                  )}
+
+                  {doRoteiro.length > 0 && (
+                    <ul className="divide-y mt-1">
+                      {doRoteiro.map((fonte) => (
                         <LinhaDeFonte
                           key={fonte.tipo}
                           fonte={fonte}
@@ -521,17 +572,31 @@ export default function CompetenciaAberta({ id }: { id: string }) {
                           }
                         />
                       ))}
-                      {precisaDeContrato && (
+                      {/*
+                        A peça que não é arquivo. Mora na etapa 1 porque é ali
+                        que se pergunta "quanto deveria ser pago" — a mesma
+                        razão de ela viver no grupo do devido antes do roteiro.
+                      */}
+                      {etapa.numero === 1 && (
                         <LinhaDoContrato
                           contrato={dados.data?.contrato ?? null}
                           quinzena={competencia.quinzena}
                         />
                       )}
                     </ul>
-                  </section>
-                );
-              },
-            )}
+                  )}
+
+                  <DentroDaEtapa
+                    etapa={etapa}
+                    situacao={situacao}
+                    base={base}
+                    competencia={competencia}
+                    competenciaId={id}
+                    totais={totais.data}
+                  />
+                </section>
+              );
+            })}
           </CardContent>
         </Card>
 
@@ -1164,4 +1229,237 @@ function LinhaDeFonte({
       </div>
     </li>
   );
+}
+
+/**
+ * O MIOLO DE UMA ETAPA — o que o sistema verifica, o que achou, e o que falta.
+ *
+ * Vem **depois** das casinhas de envio de propósito. A ordem da leitura é a da
+ * pergunta: primeiro o que se está conferindo (no topo da etapa), depois os
+ * arquivos, e só então o que saiu deles. Pôr o resultado antes do arquivo faria
+ * a etapa parecer um relatório, e ela é um posto de trabalho.
+ */
+function DentroDaEtapa({
+  etapa,
+  situacao,
+  base,
+  competencia,
+  competenciaId,
+  totais,
+}: {
+  etapa: EtapaDoRoteiro;
+  situacao: SituacaoDaEtapa;
+  base: string;
+  competencia: Competencia;
+  competenciaId: string;
+  totais: TotaisDoPagamento | undefined;
+}) {
+  return (
+    <div className="mt-3 space-y-3">
+      {/* O que o sistema verifica aqui — afirmações que se pode apontar no código. */}
+      <div>
+        <p className="text-xs font-medium text-muted-foreground">
+          O que o sistema confere nesta etapa
+        </p>
+        <ul className="mt-1 space-y-0.5">
+          {etapa.verifica.map((v) => (
+            <li
+              key={v}
+              className="text-xs text-muted-foreground flex gap-1.5 max-w-2xl"
+            >
+              <span aria-hidden className="text-muted-foreground/50">
+                ·
+              </span>
+              {v}
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      {/* O que o motor achou nesta etapa. */}
+      {situacao.divergencias.length > 0 && (
+        <div className="rounded-md bg-amber-500/5 border border-amber-500/20 p-3">
+          <p className="text-xs font-medium text-amber-700 dark:text-amber-400">
+            {situacao.divergencias.length === 1
+              ? "O que o sistema encontrou"
+              : `O que o sistema encontrou (${situacao.divergencias.length})`}
+          </p>
+          <ul className="mt-1.5 space-y-1.5">
+            {situacao.divergencias.map((d) => (
+              <li key={d.id} className="text-xs">
+                <span className="font-medium">{d.titulo}</span>
+                {d.valor !== 0 && (
+                  <span className="tabular-nums"> · {formatBrl(d.valor)}</span>
+                )}
+                <p className="text-muted-foreground mt-0.5 max-w-2xl">
+                  {EXPLICACAO_DA_DIVERGENCIA[d.tipo] ?? d.tipo}
+                </p>
+                <p className="text-muted-foreground/70 mt-0.5">{d.onde}</p>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/*
+        A etapa 4 é a única que ganha um quadro próprio de números, e é por causa
+        da conferência que a `0057` tornou possível: o total que o relatório
+        assina contra o que as verbas somam. Sem os dois lados guardados
+        separados, esta comparação era o mesmo número duas vezes.
+      */}
+      {etapa.numero === 4 && totais?.temPagamento && (
+        <TotaisDoPagamentoNaEtapa totais={totais} />
+      )}
+
+      {/* O que o processo pede e o sistema ainda não sustenta. */}
+      {etapa.aindaNao.length > 0 && (
+        <div>
+          <p className="text-xs font-medium text-muted-foreground">
+            Ainda não conferido pelo sistema
+          </p>
+          <ul className="mt-1 space-y-1">
+            {etapa.aindaNao.map((p) => (
+              <li key={p.o_que} className="text-xs max-w-2xl">
+                <span className="text-foreground/80">{p.o_que}</span>{" "}
+                <span className="text-muted-foreground">— {p.porque}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* A próxima ação, e os atalhos que a etapa oferece. */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+        {situacao.proximaAcao && (
+          <p className="text-xs font-medium">{situacao.proximaAcao}</p>
+        )}
+        <AtalhosDaEtapa
+          etapa={etapa}
+          base={base}
+          competencia={competencia}
+          competenciaId={competenciaId}
+        />
+      </div>
+    </div>
+  );
+}
+
+/** O total declarado contra o calculado, por canal — a conferência da `0057`. */
+function TotaisDoPagamentoNaEtapa({ totais }: { totais: TotaisDoPagamento }) {
+  return (
+    <div className="rounded-md border p-3">
+      <p className="text-xs font-medium">
+        Total Remuneração — declarado contra calculado
+      </p>
+      <table className="mt-1.5 text-xs w-full max-w-lg">
+        <thead className="text-muted-foreground">
+          <tr className="text-left">
+            <th className="font-normal pr-4">Canal</th>
+            <th className="font-normal pr-4 text-right">Declarado</th>
+            <th className="font-normal pr-4 text-right">Calculado</th>
+            <th className="font-normal text-right">Diferença</th>
+          </tr>
+        </thead>
+        <tbody>
+          {totais.canais.map((c) => (
+            <tr key={c.canal} className="border-t">
+              <td className="py-1 pr-4">{c.canal}</td>
+              <td className="py-1 pr-4 text-right tabular-nums">
+                {c.declarado === null ? (
+                  <span className="text-muted-foreground">—</span>
+                ) : (
+                  formatBrl(c.declarado)
+                )}
+              </td>
+              <td className="py-1 pr-4 text-right tabular-nums">
+                {formatBrl(c.calculado)}
+              </td>
+              <td
+                className={
+                  "py-1 text-right tabular-nums " +
+                  (c.diferenca === null
+                    ? "text-muted-foreground"
+                    : c.diferenca === 0
+                      ? "text-emerald-700 dark:text-emerald-400"
+                      : "text-amber-700 dark:text-amber-400")
+                }
+              >
+                {c.diferenca === null
+                  ? "—"
+                  : c.diferenca === 0
+                    ? "bate"
+                    : formatBrl(c.diferenca)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {/*
+        A frase que impede a leitura errada. Um traço na coluna do declarado não
+        é zero e não é "bate": é o 03.08.20 importado antes de o total passar a
+        ser guardado, e o número não existe em lugar nenhum. Dizer isso por
+        extenso é o que separa "não dá para conferir" de "conferido".
+      */}
+      {totais.canais.some((c) => c.declarado === null) && (
+        <p className="text-xs text-muted-foreground mt-2 max-w-2xl">
+          Total declarado não disponível neste documento — ele foi importado
+          antes de o sistema passar a guardar o número que o relatório assina.
+          Reimporte o 03.08.20 para realizar esta conferência.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Os atalhos de uma etapa — as telas que continuam o trabalho dela.
+ *
+ * A conciliação recebe a competência inteira na URL. É o ganho mais direto do
+ * roteiro: aquelas telas são endereçadas por mês (unidade, transportadora,
+ * operação, ano, mês) e obrigavam quem vinha de uma competência a escolher de
+ * novo tudo o que a competência já sabe.
+ */
+function AtalhosDaEtapa({
+  etapa,
+  base,
+  competencia,
+  competenciaId,
+}: {
+  etapa: EtapaDoRoteiro;
+  base: string;
+  competencia: Competencia;
+  competenciaId: string;
+}) {
+  const classe =
+    "text-xs text-muted-foreground hover:text-foreground underline underline-offset-4";
+
+  if (etapa.numero === 2) {
+    return (
+      <Link href={`${base}/competencias/${competenciaId}/frota`} className={classe}>
+        Abrir a conferência de frota
+      </Link>
+    );
+  }
+
+  if (etapa.numero === 8) {
+    const busca = new URLSearchParams({
+      unidade: competencia.unidade.codigo,
+      transportadora: competencia.transportadora.codigo,
+      tipoDeOperacao: competencia.tipoDeOperacao,
+      ano: String(competencia.ano),
+      mes: String(competencia.mes),
+    }).toString();
+    return (
+      <span className="flex flex-wrap gap-x-4 gap-y-1">
+        <Link href={`${base}/resumo?${busca}`} className={classe}>
+          Abrir o resumo geral do mês
+        </Link>
+        <Link href={`${base}/conciliacao?${busca}`} className={classe}>
+          Abrir a conciliação contra a planilha
+        </Link>
+      </span>
+    );
+  }
+
+  return null;
 }
