@@ -570,4 +570,22 @@ que o portão de prontidão (`middlewares/portao-de-prontidao.ts`) já responde
 Repontar é seguro assim que alguém confirmar, por medição direta contra o
 ambiente publicado (não pela documentação), que o Autoscale tolera 503 em
 `/startupz` por tempo suficiente — a fila normal leva segundos; o que importa
-medir é o pior caso tolerável antes de a plataforma desistir.
+medir é o pior caso tolerável antes de a plataforma desistir. Essa medição foi
+desenhada (harness descartável, sem tocar Production) e fica em espera —
+não é necessária para o que este trabalho garante hoje, que é sobre o código
+deste repositório, não sobre a plataforma.
+
+**Risco residual: a suposição de que o Autoscale respeita o startup probe
+como configurado.** Todo o desenho de `/api/startupz` — `liberar` só quando a
+tentativa de partida termina, sem exceção por tempo (`lib/partida.ts`) —
+garante o que este código promete: que **este processo nunca diz "pode
+promover" antes de a fila terminar**. O que ele não pode garantir sozinho é o
+que a plataforma faz com essa resposta depois de recebê-la; isso é
+comportamento do Autoscale, fora deste repositório, e não documentado por
+escrito em nenhum lugar alcançável (ver acima). Hoje o probe aponta para
+`/healthz`, então esse risco é adormecido — só passa a valer no dia em que
+`/startupz` for repontado. Se, depois disso, aparecer evidência de uma
+promoção pública com `/api/startupz` respondendo 503 no momento em que o
+tráfego começou a ser aceito, isso é o sinal para abrir uma investigação
+específica da plataforma — não deste código, que já teria feito sua parte
+corretamente.
