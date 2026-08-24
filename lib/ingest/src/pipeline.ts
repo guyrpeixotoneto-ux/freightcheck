@@ -2792,8 +2792,14 @@ export async function promote(
       const result: PromoteResult["snapshots"] = [];
       const duplicadasPorDados: string[] = [];
 
+      const groups: { label: string; facts: typeof staged }[] = [];
       for (const label of labels) {
-        const facts = byLabel.get(label)!;
+        for (const facts of groupFactsByEntityScope(byLabel.get(label)!)) {
+          groups.push({ label, facts });
+        }
+      }
+
+      for (const { label, facts } of groups) {
         const vigencia = parseVigenciaLabel(label);
         const effectiveDate = vigencia.effectiveDate!;
         const entityTypes = [...new Set(facts.map((f) => f.entityType))].sort();
@@ -3520,6 +3526,51 @@ async function cellLocation(
     sheetName: row?.sheetName ?? "(unknown)",
     columnIndex: row?.columnIndex ?? -1,
   };
+}
+
+/**
+ * Um arquivo pode trazer mais de uma unidade sob a mesma vigência — um export
+ * consolidado, e não um por unidade. `promote` costumava tratar cada rótulo de
+ * vigência como uma identidade só, então essas linhas caíam todas num único
+ * snapshot cujo escopo era a união de todas as unidades encontradas, e a tela
+ * que lê `canonicalScope[0]` mostrava só a primeira (por ordem de byte) — as
+ * outras existiam nos fatos, mas não em lugar nenhum que alguém abrisse.
+ *
+ * Aqui as linhas de um mesmo rótulo são separadas pelo escopo que cada uma
+ * declara para si (mesma leitura de `SCOPE_COLUMNS` que `resolveScopes` faz,
+ * mas por entidade em vez de para o lote inteiro), e cada grupo vira depois um
+ * snapshot próprio — exatamente como se tivesse chegado em arquivos
+ * separados. Um arquivo de unidade única, sem essa ambiguidade, produz um
+ * grupo só e nada muda para ele.
+ */
+function groupFactsByEntityScope<T extends { entityType: string; entityKey: string; attributeCode: string; valueText: string | null; valueNumeric: string | null }>(
+  facts: T[],
+): T[][] {
+  const scopeKeyByEntity = new Map<string, string[]>();
+  for (const [foldedHeader, config] of Object.entries(SCOPE_COLUMNS)) {
+    const slug = slugifyColumn(foldedHeader);
+    for (const fact of facts) {
+      const suffix = fact.attributeCode.split(".").slice(1).join(".");
+      if (suffix !== slug) continue;
+      const code = (fact.valueText ?? fact.valueNumeric ?? "").trim();
+      if (code === "") continue;
+      const entityFullKey = `${fact.entityType}:${fact.entityKey}`;
+      const pieces = scopeKeyByEntity.get(entityFullKey) ?? [];
+      const piece = `${config.scopeType}:${code}`;
+      if (!pieces.includes(piece)) pieces.push(piece);
+      scopeKeyByEntity.set(entityFullKey, pieces);
+    }
+  }
+
+  const groups = new Map<string, T[]>();
+  for (const fact of facts) {
+    const entityFullKey = `${fact.entityType}:${fact.entityKey}`;
+    const scopeKey = (scopeKeyByEntity.get(entityFullKey) ?? []).sort().join("|");
+    const bucket = groups.get(scopeKey);
+    if (bucket) bucket.push(fact);
+    else groups.set(scopeKey, [fact]);
+  }
+  return [...groups.values()];
 }
 
 async function resolveScopes(
