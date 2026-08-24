@@ -27,6 +27,25 @@ function textoDoErro(erro: unknown): string {
  * endereço que não pergunte "de qual competência" antes — é a mesma razão de
  * `Apurações` existir ao lado de `Importações`.
  */
+
+/**
+ * O rótulo de uma competência nesta lista.
+ *
+ * **Exportado para ser testável, e não porque outra tela o use.** O mês chega
+ * 1-indexado do banco (1 = janeiro) e `MES_LONGO` é 0-indexado: o `- 1` é o
+ * mesmo de `apuracoes.tsx`, `resumo.tsx`, `unidade.tsx` e `conciliacao.tsx`.
+ * Escrito inline dentro do JSX, esse `- 1` já foi esquecido uma vez — a lista
+ * mostrava julho como agosto, e dezembro como `undefined` —, e um erro que só
+ * aparece lendo a tela é exatamente o que uma função pura com teste evita.
+ */
+export function rotuloDaCompetencia(c: {
+  mes: number;
+  ano: number;
+  quinzena: number;
+}): string {
+  return `${MES_LONGO[c.mes - 1]}/${c.ano}, ${c.quinzena}ª quinzena`;
+}
+
 export default function Frotas() {
   const base = useBaseDoFechamento();
   const operacao = useOperacaoDoFechamento();
@@ -77,7 +96,7 @@ export default function Frotas() {
                       >
                         <span>
                           {nomeDaParte(c.unidade)} · {nomeDaParte(c.transportadora)} —{" "}
-                          {MES_LONGO[c.mes]}/{c.ano}, {c.quinzena}ª quinzena
+                          {rotuloDaCompetencia(c)}
                         </span>
                         <span className="flex items-center gap-2 text-muted-foreground">
                           {NOME_DO_ESTADO[c.estado]}
