@@ -13,21 +13,23 @@ import {
  * `estadoDaPromocao` não toca banco nem relógio de verdade — recebe `agora` e
  * `tetoMs` por parâmetro, e por isso estas provas não dependem de sleep nem de
  * um Postgres do lado. O que se prova aqui é a máquina de três fases
- * (não iniciada / em voo / terminada) e o teto; o que ela publica sobre o
- * banco em si — `diagnosticar(observarBanco())` — continua em
- * `janela-da-partida.test.ts`, com o app de verdade.
+ * (não iniciada / em voo / terminada) e a garantia central: **`liberar` é
+ * verdadeiro se e somente se a fase é `TERMINADA`** — o teto nunca é o quinto
+ * caminho para chegar lá. O que ela publica sobre o banco em si —
+ * `diagnosticar(observarBanco())` — continua em `janela-da-partida.test.ts`,
+ * com o app de verdade.
  */
-describe("o fato da promoção — sem tocar banco", () => {
+describe("liberar é fase === TERMINADA, sem exceção", () => {
   beforeEach(() => esquecerPartida(1_000));
   afterEach(() => esquecerPartida());
 
-  it("não iniciada: retém, dentro do teto", () => {
+  it("não iniciada: retém", () => {
     const estado = estadoDaPromocao(1_500, 15_000);
     expect(estado.fase).toBe("NAO_INICIADA");
     expect(estado.liberar).toBe(false);
   });
 
-  it("em voo: retém, dentro do teto", () => {
+  it("em voo: retém", () => {
     tentativaComecou(1_000);
     const estado = estadoDaPromocao(2_000, 15_000);
     expect(estado.fase).toBe("EM_VOO");
@@ -35,44 +37,69 @@ describe("o fato da promoção — sem tocar banco", () => {
     expect(estado.esperandoHaMs).toBe(1_000);
   });
 
-  it("terminada: libera, qualquer que seja o motivo — inclusive falha", () => {
-    tentativaComecou(1_000);
-    tentativaTerminou("A migration 0056_frota_promax foi recusada pelo banco.");
-    const estado = estadoDaPromocao(1_050, 15_000);
-    expect(estado.fase).toBe("TERMINADA");
-    expect(estado.liberar).toBe(true);
-    expect(estado.motivo).toContain("0056_frota_promax");
-  });
-
-  it("terminada convergindo: libera", () => {
+  it("terminada por convergência: libera", () => {
     tentativaComecou(1_000);
     tentativaTerminou("Nenhuma migration pendente.");
     const estado = estadoDaPromocao(1_010, 15_000);
     expect(estado.liberar).toBe(true);
+    expect(estado.fase).toBe("TERMINADA");
   });
 
-  it("teto atingido com a tentativa ainda em voo: libera mesmo assim", () => {
+  it("terminada por migration recusada: libera — não é 'terminou de forma insegura', porque o portão continua sendo quem admite tráfego de produto", () => {
     tentativaComecou(1_000);
-    const antes = estadoDaPromocao(1_000 + 14_999, 15_000);
-    expect(antes.liberar).toBe(false);
-
-    const depois = estadoDaPromocao(1_000 + 15_000, 15_000);
-    expect(depois.liberar).toBe(true);
-    expect(depois.fase).toBe("EM_VOO");
-    expect(depois.motivo).toMatch(/teto de 15000 ms/);
-  });
-
-  it("teto atingido sem a tentativa ter começado: libera mesmo assim", () => {
-    const estado = estadoDaPromocao(1_000 + 15_000, 15_000);
+    tentativaTerminou("A migration 0056_frota_promax foi recusada pelo banco.");
+    const estado = estadoDaPromocao(1_050, 15_000);
     expect(estado.liberar).toBe(true);
-    expect(estado.fase).toBe("NAO_INICIADA");
+    expect(estado.motivo).toContain("0056_frota_promax");
+  });
+});
+
+describe("o teto NUNCA libera — só marca a espera como anômala", () => {
+  beforeEach(() => esquecerPartida(1_000));
+  afterEach(() => esquecerPartida());
+
+  it("em voo além do teto: continua retendo, e sinaliza a anomalia", () => {
+    tentativaComecou(1_000);
+
+    const dentro = estadoDaPromocao(1_000 + 14_999, 15_000);
+    expect(dentro.liberar).toBe(false);
+    expect(dentro.alemDoTeto).toBe(false);
+
+    const alem = estadoDaPromocao(1_000 + 15_000, 15_000);
+    expect(alem.liberar).toBe(false);
+    expect(alem.fase).toBe("EM_VOO");
+    expect(alem.alemDoTeto).toBe(true);
+    expect(alem.motivo).toMatch(/teto informativo de 15000 ms/);
+    expect(alem.motivo).toMatch(/nunca por tempo decorrido/);
   });
 
-  it("STARTUP_PROBE_MAX_WAIT_MS=0 libera sem esperar nada", () => {
+  it("bem além do teto — dez vezes o valor — continua fail-closed", () => {
+    tentativaComecou(1_000);
+    const estado = estadoDaPromocao(1_000 + 150_000, 15_000);
+    expect(estado.liberar).toBe(false);
+    expect(estado.alemDoTeto).toBe(true);
+  });
+
+  it("não iniciada além do teto: continua retendo", () => {
+    const estado = estadoDaPromocao(1_000 + 15_000, 15_000);
+    expect(estado.liberar).toBe(false);
+    expect(estado.fase).toBe("NAO_INICIADA");
+    expect(estado.alemDoTeto).toBe(true);
+  });
+
+  it("terminada além do teto (tarde, mas terminou): libera pela conclusão, e alemDoTeto sai false — a pergunta deixou de valer", () => {
+    tentativaComecou(1_000);
+    tentativaTerminou("Nenhuma migration pendente.");
+    const estado = estadoDaPromocao(1_000 + 999_999, 15_000);
+    expect(estado.liberar).toBe(true);
+    expect(estado.alemDoTeto).toBe(false);
+  });
+
+  it("STARTUP_PROBE_MAX_WAIT_MS não é lido como uma segunda forma de liberar — mesmo com valor 0", () => {
     tentativaComecou(1_000);
     const estado = estadoDaPromocao(1_000, 0);
-    expect(estado.liberar).toBe(true);
-    expect(estado.motivo).toContain("STARTUP_PROBE_MAX_WAIT_MS=0");
+    expect(estado.liberar).toBe(false);
+    expect(estado.alemDoTeto).toBe(true);
   });
 });
 
@@ -95,7 +122,7 @@ describe("o teto — lido do ambiente, com o padrão como rede", () => {
     expect(tetoDaPromocao({ STARTUP_PROBE_MAX_WAIT_MS: "-1" })).toBe(15_000);
   });
 
-  it("\"0\" explícito desliga a espera — não é o mesmo que ausente", () => {
+  it('"0" explícito é aceito — e, como o teto nunca libera, só faz o rótulo de anomalia aparecer desde o primeiro instante', () => {
     expect(tetoDaPromocao({ STARTUP_PROBE_MAX_WAIT_MS: "0" })).toBe(0);
   });
 });

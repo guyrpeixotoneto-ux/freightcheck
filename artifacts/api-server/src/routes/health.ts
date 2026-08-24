@@ -214,9 +214,12 @@ router.get("/healthz", (_req, res) => {
  * está medido em `docs/MIGRATIONS.md`. Terminar com falha ainda é terminar: o
  * deployment sobe, e quem opera lê o motivo em `/readyz` e no alerta.
  *
- * **O teto impede publicação presa.** `estadoDaPromocao` libera
- * incondicionalmente depois dele, e o portão de prontidão assume a partir daí
- * — o comportamento é o de antes desta rota existir.
+ * **Fail-closed sem prazo de validade.** `STARTUP_PROBE_MAX_WAIT_MS` marca a
+ * espera como anômala (`alemDoTeto`) no corpo da resposta, mas não libera
+ * nada: 503 continua sendo a resposta enquanto a tentativa não tiver
+ * terminado, por mais que ela demore. Liberar por relógio, sem saber se a fila
+ * terminou, seria mentir sobre o único fato que esta rota existe para dizer —
+ * ver o cabeçalho de `lib/partida.ts`.
  */
 router.get("/startupz", (_req, res) => {
   const promocao = estadoDaPromocao();
@@ -225,6 +228,12 @@ router.get("/startupz", (_req, res) => {
     fase: promocao.fase,
     detail: promocao.motivo,
     esperandoHaMs: promocao.esperandoHaMs,
+    /*
+      Informativo, nunca decisório: fica `false` sempre que `liberar` é
+      `true`, porque uma vez terminada a tentativa a pergunta "isto demorou
+      muito?" deixou de valer para a promoção. Ver `lib/partida.ts`.
+    */
+    alemDoTeto: promocao.alemDoTeto,
   };
   if (promocao.liberar) {
     res.json(corpo);

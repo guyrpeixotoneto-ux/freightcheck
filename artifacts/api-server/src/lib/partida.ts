@@ -27,49 +27,64 @@
  * O que ele sabe é uma coisa só, e é sobre este processo: **a tentativa de
  * partida está em voo ou já terminou?** É deliberadamente indiferente ao
  * desfecho — convergiu, o banco recusou uma migration, ou este ambiente nem
- * tenta. Os três são *terminados*, e nos três a promoção deve seguir:
+ * tenta. Os três são *terminados*, e nos três a promoção pode seguir:
  *
  *   - convergiu → promover é o certo, e é o caso normal;
  *   - falhou → o deployment tem de subir mesmo assim, para ser diagnosticável
- *     de fora. A alternativa já foi medida aqui e é pior: publicação que não
- *     sobe, versão anterior servindo, e nada dizendo por quê;
- *   - não tenta (Preview, `DB_MIGRATE_ON_BOOT=0`) → esperar seria esperar para
- *     sempre por algo que ninguém vai fazer.
- *
- * Reter a promoção só faz sentido enquanto a fila **está andando**. É por isso
- * que "terminada" é o predicado, e não "pronta".
+ *     de fora. Não é inseguro: o portão de prontidão (`prontidao.ts`) continua
+ *     recusando toda rota de produto enquanto `MIGRATION_FALHOU` valer — a
+ *     promoção do processo e a admissão de tráfego de produto são duas portas
+ *     diferentes, e só a segunda lê o banco;
+ *   - não tenta (Preview, `DB_MIGRATE_ON_BOOT=0`) → não há nada a esperar.
  *
  * ---------------------------------------------------------------------------
- * O teto, e por que ele não é um detalhe
+ * `liberar` é `fase === "TERMINADA"`, sem exceção — e é a revisão deste módulo
  * ---------------------------------------------------------------------------
- * Um probe que espera sem limite troca um modo de falha por outro: a fila
- * travada — um `pg_advisory_lock` de outra instância que não solta, um banco
- * que não responde — viraria uma publicação que nunca sobe. O teto devolve o
- * comportamento de hoje quando ele é atingido: promove, e o portão assume a
- * partir dali, exatamente como antes deste módulo existir.
+ * Uma versão anterior deste arquivo liberava a promoção também quando um teto
+ * de tempo expirava com a tentativa **ainda em voo** — o argumento era não
+ * deixar uma fila travada (lock de outra instância que não solta, banco que
+ * não responde) travar a publicação para sempre. Estava errado: fazer o probe
+ * responder 200 por causa do relógio, sem saber se a fila terminou, é romper
+ * exatamente a garantia que este módulo existe para dar — **admitir a
+ * instância nova enquanto ainda não se sabe se ela fala a mesma versão de
+ * contrato do banco**. Um teto que libera é indistinguível, do lado de fora,
+ * de "convergiu": ele mente sobre o que este processo sabe.
  *
- * **O valor do teto é uma medida, não uma opinião**, e por isso ele é lido do
- * ambiente. O orçamento real do startup probe do Autoscale não está declarado
- * no `artifact.toml` nem no `.replit`, e a documentação da plataforma não é
- * alcançável do ambiente onde este código foi escrito. O padrão abaixo é
- * conservador contra a única evidência que este repositório tem por escrito —
- * um bind de até 60 s era mais lento que o probe (`index.ts`) — e o
- * `[services.production.health.startup]` **continua apontando para `/healthz`**:
- * enquanto ele não for repontado, nada disto altera uma publicação. Repontar é
- * decisão de quem tiver medido o orçamento; ver `docs/MIGRATIONS.md`.
+ * A revisão é: `liberar` é verdadeiro se e somente se `tentativaTerminou()` foi
+ * chamada. Em voo ou não iniciada — teto estourado ou não — a resposta
+ * continua sendo 503, sempre. **Fail-closed sem prazo de validade.**
+ *
+ * O que isso custa, dito sem retoque: uma fila genuinamente travada faz este
+ * processo nunca ficar pronto para promoção, e a publicação correspondente
+ * falha (ou nunca é promovida) enquanto isso durar. É o modo de falha seguro
+ * — a versão anterior continua servindo, e nada de errado é admitido — contra
+ * o modo de falha inseguro que a versão anterior deste módulo permitia.
+ *
+ * ---------------------------------------------------------------------------
+ * O teto continua existindo — como termômetro, nunca como válvula
+ * ---------------------------------------------------------------------------
+ * `STARTUP_PROBE_MAX_WAIT_MS` não libera mais nada. O que ele faz é marcar
+ * `alemDoTeto: true` no corpo da resposta quando a espera já passou dele —
+ * puramente informativo, para quem lê o corpo ou os logs perceber que esta
+ * partida está demorando de forma anômala, sem que essa percepção mude o
+ * código HTTP. Continua lido do ambiente pela mesma razão de sempre: o
+ * orçamento real do startup probe do Autoscale não está documentado por
+ * escrito em nenhum lugar alcançável — nem o total, nem a contagem de
+ * retries —, só o teto por chamada (~5 s, segundo a documentação da
+ * plataforma). Ver `docs/MIGRATIONS.md` para o registro dessa lacuna.
  */
 
-/** A chave que fixa o teto, em milissegundos. `0` desliga a espera. */
+/** A chave que fixa o teto informativo, em milissegundos. */
 const CHAVE_TETO = "STARTUP_PROBE_MAX_WAIT_MS";
 
 /**
  * O teto padrão: 15 s.
  *
- * Escolhido **abaixo** do único limite que este repositório conhece por
- * escrito (um bind de 60 s já era tarde demais para o probe), com folga de 4×,
- * e acima do que uma fila normal custa — as duas migrations de 24/08/2026
- * entraram em menos de um segundo. Não é uma medição do orçamento da
- * plataforma, e não se apresenta como uma: é o que se pode afirmar sem ela.
+ * Não gira mais o interruptor de nada — ver o cabeçalho. É só o limiar a
+ * partir do qual `alemDoTeto` vira `true` no corpo de `/startupz`, escolhido
+ * acima do que uma fila normal custa (as migrations de 24/08/2026 entraram em
+ * menos de um segundo) e abaixo do único número que este repositório tem por
+ * escrito (um bind de até 60 s já era tarde para o probe).
  */
 const TETO_PADRAO_MS = 15_000;
 
@@ -81,11 +96,12 @@ let terminada = false;
 let motivoDoFim: string | undefined;
 
 /**
- * O teto configurado neste ambiente.
+ * O teto configurado neste ambiente — só para o campo informativo.
  *
- * Valor não reconhecido cai no padrão em vez de virar zero — a mesma regra de
- * `deveMigrarNaPartida`, e pela mesma razão: um erro de digitação numa variável
- * de deploy não pode ser o que muda o comportamento em silêncio.
+ * Valor não reconhecido cai no padrão em vez de virar zero, pela mesma razão
+ * de `deveMigrarNaPartida`: um erro de digitação numa variável de deploy não
+ * pode mudar o comportamento observável em silêncio. Como o teto não libera
+ * nada, "mudar o comportamento" aqui é só "mudar quando o rótulo aparece".
  */
 export function tetoDaPromocao(
   env: Partial<Record<string, string | undefined>> = process.env,
@@ -108,8 +124,9 @@ export function tentativaComecou(agora: number = Date.now()): void {
 /**
  * A tentativa terminou — seja qual for o desfecho.
  *
- * O `motivo` é para leitura humana no corpo do `/startupz` e no log. Ele não
- * classifica nada: quem classifica o banco é `diagnosticar`.
+ * É a **única** coisa que muda `liberar` para `true`. O `motivo` é para
+ * leitura humana no corpo do `/startupz` e no log; ele não classifica nada —
+ * quem classifica o banco é `diagnosticar`.
  */
 export function tentativaTerminou(motivo: string): void {
   comecou = true;
@@ -128,15 +145,23 @@ export interface EstadoDaPromocao {
   motivo: string;
   /** Há quanto tempo este processo está contando. */
   esperandoHaMs: number;
+  /**
+   * A espera já passou do teto configurado — sinal de anomalia, não de
+   * liberação. Só é `true` fora de `TERMINADA`: uma vez terminada, a pergunta
+   * "isto demorou muito?" deixou de importar para a promoção.
+   */
+  alemDoTeto: boolean;
 }
 
 /**
- * A resposta do probe, sem tocar em banco nenhum.
+ * A resposta do probe — síncrona, sem I/O, sem `await`, sem tocar em banco.
  *
- * `NAO_INICIADA` retém, e isso é deliberado: entre o `listen` e a primeira
- * linha de `applyMigrationsInBackground` existe um intervalo real, e liberar
- * nele seria reabrir a janela por alguns milissegundos. O teto cobre o caso
- * patológico em que a tentativa nunca começa.
+ * Lê só as variáveis locais deste módulo e o relógio recebido por parâmetro:
+ * não há como esta função segurar a conexão HTTP esperando a fila terminar —
+ * ela devolve o que sabe **agora**, e `routes/health.ts` escreve a resposta na
+ * mesma tick. `NAO_INICIADA` retém pela mesma razão de sempre: entre o
+ * `listen` e a primeira linha de `applyMigrationsInBackground` existe um
+ * intervalo real, e liberar nele reabriria a janela por alguns milissegundos.
  */
 export function estadoDaPromocao(
   agora: number = Date.now(),
@@ -149,54 +174,40 @@ export function estadoDaPromocao(
       ? "EM_VOO"
       : "NAO_INICIADA";
 
-  if (terminada) {
+  if (fase === "TERMINADA") {
     return {
       liberar: true,
       fase,
       motivo: motivoDoFim ?? "A tentativa de partida terminou.",
       esperandoHaMs,
+      alemDoTeto: false,
     };
   }
 
-  if (tetoMs === 0) {
-    return {
-      liberar: true,
-      fase,
-      motivo:
-        `${CHAVE_TETO}=0: este ambiente não retém a promoção. O portão de ` +
-        "prontidão continua recusando tráfego de produto até o banco convergir.",
-      esperandoHaMs,
-    };
-  }
-
-  if (esperandoHaMs >= tetoMs) {
-    return {
-      liberar: true,
-      fase,
-      motivo:
-        `O teto de ${tetoMs} ms foi atingido com a partida ainda em ${fase === "EM_VOO" ? "voo" : "espera"}. ` +
-        "A promoção segue para não travar a publicação, e o portão de prontidão " +
-        "assume: o tráfego de produto continua recusado até o banco convergir.",
-      esperandoHaMs,
-    };
-  }
+  const alemDoTeto = esperandoHaMs >= tetoMs;
 
   return {
     liberar: false,
     fase,
-    motivo:
-      fase === "EM_VOO"
+    motivo: alemDoTeto
+      ? `A tentativa está ${fase === "EM_VOO" ? "em voo" : "sem começar"} há ` +
+        `${esperandoHaMs} ms, além do teto informativo de ${tetoMs} ms ` +
+        `(${CHAVE_TETO}). Isto é anômalo. A promoção continua retida: ela só ` +
+        "libera quando a tentativa terminar, nunca por tempo decorrido."
+      : fase === "EM_VOO"
         ? "A fila deste build está sendo aplicada neste banco agora."
         : "A partida ainda não começou a aplicar a fila deste build.",
     esperandoHaMs,
+    alemDoTeto,
   };
 }
 
 /**
  * Volta ao começo — só os testes chamam.
  *
- * A suíte exercita "em voo → terminada" e "teto atingido" no mesmo processo, e
- * sem isto o primeiro arquivo fixaria o estado para todos os seguintes.
+ * A suíte exercita "em voo → terminada" e "além do teto, ainda retido" no
+ * mesmo processo, e sem isto o primeiro arquivo fixaria o estado para todos os
+ * seguintes.
  */
 export function esquecerPartida(agora: number = Date.now()): void {
   comecou = false;
