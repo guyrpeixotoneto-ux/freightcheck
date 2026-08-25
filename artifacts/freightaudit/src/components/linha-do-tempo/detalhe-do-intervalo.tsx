@@ -1,11 +1,14 @@
 import { useState } from "react";
 import { Link } from "wouter";
+import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight, Layers, TriangleAlert } from "lucide-react";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
-import { formatBrlShort, periodicitySuffix } from "@/lib/format";
+import { getApiUrl } from "@/lib/api";
+import { formatBrl, formatBrlShort, periodicitySuffix } from "@/lib/format";
 import { linkDeAlteracoes, type Recorte } from "@/lib/recorte";
 import type { Movimentos, RangeEntry } from "@/lib/analise";
+import type { GroupVehicle } from "@/components/inicio/types";
 
 /**
  * A gaveta dos números do intervalo — o mesmo endereço que `DetalheDoImpacto`
@@ -248,30 +251,104 @@ function LinhaDaVigencia({
             </p>
           ) : (
             grupos.map((grupo) => (
-              <div
-                key={grupo.key}
-                className="grid grid-cols-[1fr_5rem_6rem] items-center gap-3 text-xs py-1 border-t first:border-t-0"
-              >
-                <span className="min-w-0 truncate">
-                  <span className="font-medium text-foreground">{grupo.title}</span>
-                  <span className="text-muted-foreground"> — {grupo.equipment}</span>
-                </span>
-                <span className="text-muted-foreground text-right">
-                  {contar(grupo.vehicles, "veículo", "veículos")}
-                </span>
-                <span
-                  className={cn(
-                    "text-right tabular-nums font-semibold",
-                    (grupo.amount ?? 0) < 0 ? "text-red-700" : "text-emerald-700",
-                  )}
-                >
-                  {grupo.amount !== null ? formatBrlShort(grupo.amount) : "—"}
-                </span>
+              <div key={grupo.key} className="py-1.5 border-t first:border-t-0">
+                <div className="grid grid-cols-[1fr_5rem_6rem] items-center gap-3 text-xs">
+                  <span className="min-w-0 truncate">
+                    <span className="font-medium text-foreground">{grupo.title}</span>
+                    <span className="text-muted-foreground"> — {grupo.equipment}</span>
+                  </span>
+                  <span className="text-muted-foreground text-right">
+                    {contar(grupo.vehicles, "veículo", "veículos")}
+                  </span>
+                  <span
+                    className={cn(
+                      "text-right tabular-nums font-semibold",
+                      (grupo.amount ?? 0) < 0 ? "text-red-700" : "text-emerald-700",
+                    )}
+                  >
+                    {grupo.amount !== null ? formatBrlShort(grupo.amount) : "—"}
+                  </span>
+                </div>
+                <PlacasDoGrupo period={period} entrada={grupo} />
               </div>
             ))
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * A relação de placas de um grupo — quem ganhou e quem perdeu, uma linha por
+ * veículo.
+ *
+ * Busca o mesmo endpoint que o cartão de "De onde vem" usa em Visão geral
+ * (`/changes/grouped/vehicles`), porque é o mesmo grupo — só muda de onde ele
+ * é aberto. Carrega assim que a vigência é expandida, sem clique extra: é
+ * exatamente a placa que quem está aqui veio ver.
+ */
+function PlacasDoGrupo({ period, entrada }: { period: string; entrada: RangeEntry }) {
+  const grupo = entrada.group;
+  const veiculos = useQuery({
+    queryKey: ["group-vehicles", period, grupo.key],
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        period,
+        attributeCode: grupo.attributeCode ?? "",
+        entityType: grupo.entityType ?? "",
+        changeType: grupo.changeType,
+        comparability: grupo.comparability,
+        impactConfidence: grupo.impact.confidence,
+      });
+      const response = await fetch(getApiUrl(`/changes/grouped/vehicles?${params}`));
+      if (!response.ok) return [];
+      return (await response.json()) as GroupVehicle[];
+    },
+  });
+
+  if (veiculos.isLoading) {
+    return <p className="text-xs text-muted-foreground py-1.5">Carregando placas…</p>;
+  }
+  if (!veiculos.data || veiculos.data.length === 0) {
+    return null;
+  }
+
+  // Quem perdeu primeiro, quem ganhou por último — a ordem em que a
+  // desconfiança normalmente pergunta "quem foi que perdeu mais".
+  const linhas = [...veiculos.data].sort(
+    (a, b) => (a.impactAmount ?? 0) - (b.impactAmount ?? 0),
+  );
+
+  return (
+    <div className="mt-1.5 rounded border overflow-hidden">
+      <table className="w-full text-xs">
+        <tbody>
+          {linhas.map((veiculo) => (
+            <tr
+              key={veiculo.changeId}
+              className="border-t first:border-t-0 odd:bg-muted/20"
+            >
+              <td className="px-2 py-1 font-mono">{veiculo.plate ?? "—"}</td>
+              <td className="px-2 py-1 text-muted-foreground truncate max-w-[8rem]">
+                {veiculo.valueBefore ?? "—"} → {veiculo.valueAfter ?? "—"}
+              </td>
+              <td
+                className={cn(
+                  "px-2 py-1 text-right tabular-nums font-semibold whitespace-nowrap",
+                  veiculo.impactAmount === null
+                    ? "text-muted-foreground font-normal"
+                    : veiculo.impactAmount < 0
+                      ? "text-red-700"
+                      : "text-emerald-700",
+                )}
+              >
+                {veiculo.impactAmount !== null ? formatBrl(veiculo.impactAmount) : "sem preço"}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
