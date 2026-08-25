@@ -66,6 +66,7 @@ import {
   fontesParaEnviar,
   lerGradeDaImagem,
   type CelulaDaGrade,
+  type LeituraDaGrade,
   type ContratoDaCompetencia,
   type ParametrosDoContrato,
   lerCompetencia,
@@ -153,6 +154,17 @@ export default function CompetenciaAberta({ id }: { id: string }) {
   /* A etapa aberta do roteiro. `null` = ainda não houve clique; ver `aberta`. */
   const [etapaAberta, setEtapaAberta] = useState<string | null>(null);
   const [descartado, setDescartado] = useState<DadosDescartados | null>(null);
+  /*
+    O rascunho da leitura de imagem, por fonte. Mora aqui, e não dentro de
+    `LeituraDaImagemDaFrota`, porque o `Accordion` desmonta o conteúdo de uma
+    etapa fechada — `AccordionContent` não usa `forceMount` — e o que estava
+    em `useState`/`useMutation` ali dentro ia junto. A leitura em si nunca
+    grava nada (ver o comentário em `LeituraDaImagemDaFrota`); isto só faz o
+    rascunho sobreviver a trocar de etapa e voltar, sem gravar nada a mais.
+  */
+  const [leiturasDeFrota, setLeiturasDeFrota] = useState<
+    Partial<Record<TipoDeFonte, LeituraDaGrade>>
+  >({});
 
   const dados = useQuery({
     queryKey: chaveDaCompetencia(id),
@@ -667,6 +679,14 @@ export default function CompetenciaAberta({ id }: { id: string }) {
                           onArquivo={(arquivo) =>
                             enviar.mutate({ tipo: fonte.tipo, arquivo })
                           }
+                          contrato={dados.data?.contrato ?? null}
+                          leituraDeImagem={leiturasDeFrota[fonte.tipo]}
+                          onLeituraDeImagem={(leitura) =>
+                            setLeiturasDeFrota((m) => ({
+                              ...m,
+                              [fonte.tipo]: leitura,
+                            }))
+                          }
                         />
                       ))}
                       {/*
@@ -1073,22 +1093,20 @@ function LinhaDoContrato({
  * nenhuma outra categoria tem linha equivalente. Por isso a linha da grade
  * só preenche a coluna de Frota Ativa, e as demais ficam com `—`.
  */
-function GradeDoContrato({
-  parametros,
-  custoVariavelPrevistoPor25Viagens,
-}: {
-  parametros: ParametrosDoContrato;
-  custoVariavelPrevistoPor25Viagens: number | null;
-}) {
-  const p = parametros;
-  const colunas: {
-    titulo: string;
-    totalVeiculos: number | null;
-    custoFixo: number | null;
-    custoEquipe: number | null;
-    custosIndiretos: number | null;
-    custoVariavel: number | null;
-  }[] = [
+interface ColunaDoContrato {
+  titulo: string;
+  totalVeiculos: number | null;
+  custoFixo: number | null;
+  custoEquipe: number | null;
+  custosIndiretos: number | null;
+  custoVariavel: number | null;
+}
+
+function colunasDoContrato(
+  p: ParametrosDoContrato,
+  custoVariavelPrevistoPor25Viagens: number | null,
+): ColunaDoContrato[] {
+  return [
     {
       titulo: "Frota Ativa",
       totalVeiculos: p.frotaFixaAtiva,
@@ -1138,22 +1156,83 @@ function GradeDoContrato({
       custoVariavel: null,
     },
   ];
+}
 
-  const linhas: {
-    rotulo: string;
-    valor: (c: (typeof colunas)[number]) => number | null;
-    dinheiro: boolean;
-  }[] = [
-    { rotulo: "Total Veículos", valor: (c) => c.totalVeiculos, dinheiro: false },
-    { rotulo: "Custo Fixo", valor: (c) => c.custoFixo, dinheiro: true },
-    { rotulo: "Custo Equipe Entrega", valor: (c) => c.custoEquipe, dinheiro: true },
-    { rotulo: "Custos Indiretos", valor: (c) => c.custosIndiretos, dinheiro: true },
-    {
-      rotulo: "Custo Variável (25 viagens)",
-      valor: (c) => c.custoVariavel,
-      dinheiro: true,
-    },
-  ];
+const LINHAS_DO_CONTRATO: {
+  rotulo: string;
+  valor: (c: ColunaDoContrato) => number | null;
+  dinheiro: boolean;
+}[] = [
+  { rotulo: "Total Veículos", valor: (c) => c.totalVeiculos, dinheiro: false },
+  { rotulo: "Custo Fixo", valor: (c) => c.custoFixo, dinheiro: true },
+  { rotulo: "Custo Equipe Entrega", valor: (c) => c.custoEquipe, dinheiro: true },
+  { rotulo: "Custos Indiretos", valor: (c) => c.custosIndiretos, dinheiro: true },
+  {
+    rotulo: "Custo Variável (25 viagens)",
+    valor: (c) => c.custoVariavel,
+    dinheiro: true,
+  },
+];
+
+/**
+ * Tira acento, caixa e espaço a mais — só isso. Existe para que "Noturna" na
+ * imagem encontre "Noturna" no contrato mesmo com uma maiúscula ou um espaço
+ * de diferença; não existe para decidir que "Padrão" quer dizer "Frota
+ * Ativa" — essa correspondência ninguém confirmou, e por isso ela não entra
+ * aqui (ver `mapaDeComparacaoDoContrato`).
+ */
+function normalizarCategoria(texto: string): string {
+  return texto
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+interface ValorDoContratoParaComparar {
+  valor: number;
+  dinheiro: boolean;
+}
+
+/**
+ * O de-para entre a grade do contrato e a leitura por imagem — e ele não
+ * inventa nome nenhum. A chave é literalmente `linha|coluna` do contrato,
+ * normalizada; uma célula da imagem só entra na comparação quando a linha
+ * *e* a coluna que ela leu têm exatamente esse mesmo texto do lado do
+ * contrato (ex.: "Noturna" bate com "Noturna"). "Padrão" não bate com "Frota
+ * Ativa" porque ninguém confirmou que são a mesma coisa — ver o comentário
+ * de `LeituraDaImagemDaFrota`.
+ */
+function mapaDeComparacaoDoContrato(
+  parametros: ParametrosDoContrato,
+  custoVariavelPrevistoPor25Viagens: number | null,
+): Map<string, ValorDoContratoParaComparar> {
+  const colunas = colunasDoContrato(parametros, custoVariavelPrevistoPor25Viagens);
+  const mapa = new Map<string, ValorDoContratoParaComparar>();
+  for (const linha of LINHAS_DO_CONTRATO) {
+    for (const coluna of colunas) {
+      const valor = linha.valor(coluna);
+      if (valor === null) continue;
+      mapa.set(
+        `${normalizarCategoria(linha.rotulo)}|${normalizarCategoria(coluna.titulo)}`,
+        { valor, dinheiro: linha.dinheiro },
+      );
+    }
+  }
+  return mapa;
+}
+
+function GradeDoContrato({
+  parametros,
+  custoVariavelPrevistoPor25Viagens,
+}: {
+  parametros: ParametrosDoContrato;
+  custoVariavelPrevistoPor25Viagens: number | null;
+}) {
+  const p = parametros;
+  const colunas = colunasDoContrato(parametros, custoVariavelPrevistoPor25Viagens);
+  const linhas = LINHAS_DO_CONTRATO;
 
   return (
     <div className="max-w-2xl">
@@ -1348,6 +1427,9 @@ function LinhaDeFonte({
   enviando,
   travada,
   onArquivo,
+  contrato,
+  leituraDeImagem,
+  onLeituraDeImagem,
 }: {
   fonte: Fonte;
   documento: Documento | undefined;
@@ -1378,10 +1460,21 @@ function LinhaDeFonte({
   /** A competência está encerrada: nada entra nela sem reabertura. */
   travada: boolean;
   onArquivo: (arquivo: File) => void;
+  /** Para comparar a leitura da imagem com o contrato — ver `mapaDeComparacaoDoContrato`. */
+  contrato: ContratoDaCompetencia | null;
+  /** O rascunho já lido nesta etapa, se houver — sobrevive a trocar de etapa. */
+  leituraDeImagem: LeituraDaGrade | undefined;
+  onLeituraDeImagem: (leitura: LeituraDaGrade) => void;
 }) {
   const campo = useRef<HTMLInputElement>(null);
   const aceitaImagem =
     fonte.tipo === "FROTA_PROMAX_ATIVA" || fonte.tipo === "FROTA_PROMAX_INATIVA";
+  const valoresDoContrato = contrato?.parametros
+    ? mapaDeComparacaoDoContrato(
+        contrato.parametros,
+        contrato.custoVariavelPrevistoPor25Viagens,
+      )
+    : undefined;
 
   return (
     <li className="py-3 flex items-start justify-between gap-4">
@@ -1472,7 +1565,13 @@ function LinhaDeFonte({
           texto que ele explica.
         */}
         {aceitaImagem && (
-          <LeituraDaImagemDaFrota tipo={fonte.tipo} travada={travada} />
+          <LeituraDaImagemDaFrota
+            tipo={fonte.tipo}
+            travada={travada}
+            leituraSalva={leituraDeImagem}
+            onLeitura={onLeituraDeImagem}
+            valoresDoContrato={valoresDoContrato}
+          />
         )}
       </div>
       <div className="shrink-0">
@@ -1525,29 +1624,47 @@ function LinhaDeFonte({
  * (ver `compararFrotaDaCompetencia`, que lê placa a placa — a tela mostra só
  * totais por categoria, sem placa nenhuma).
  *
- * **Sem correspondência com o contrato, de propósito.** A grade mostra a
- * imagem como ela é — "Padrão", "Fixo", "MKT"… — e não tenta casar essas
- * colunas com "Frota Ativa"/"Frota Inativa" do contrato: essa correspondência
- * ainda não foi confirmada com a operação (ver o TODO em `TipoDeFonte`). É
- * por isso que a leitura fica ao lado da grade do contrato, na etapa 1, em
- * vez de somada a ela — quem compara é a pessoa, célula a célula.
+ * **A correspondência com o contrato é só a que já existe, de propósito.** A
+ * grade mostra a imagem como ela é — "Padrão", "Fixo", "MKT"… — e só marca
+ * uma célula como comparável quando a linha *e* a coluna que a imagem leu
+ * têm exatamente o mesmo texto do lado do contrato (ex.: a coluna "Noturna"
+ * bate com a coluna "Noturna" do contrato). Ela não tenta adivinhar que
+ * "Padrão" quer dizer "Frota Ativa": essa correspondência ainda não foi
+ * confirmada com a operação (ver o TODO em `TipoDeFonte`), e um de-para
+ * inventado aqui mostraria "bate" ou "não bate" sobre uma categoria que
+ * pode nem ser a mesma coisa. Ver `mapaDeComparacaoDoContrato`.
  */
 function LeituraDaImagemDaFrota({
   tipo,
   travada,
+  leituraSalva,
+  onLeitura,
+  valoresDoContrato,
 }: {
   tipo: TipoDeFonte;
   travada: boolean;
+  /** O rascunho já lido antes de a etapa fechar, se houver. */
+  leituraSalva: LeituraDaGrade | undefined;
+  onLeitura: (leitura: LeituraDaGrade) => void;
+  /** As células do contrato cujo nome de linha e coluna batem, literalmente, com os da imagem. */
+  valoresDoContrato: Map<string, ValorDoContratoParaComparar> | undefined;
 }) {
   const campo = useRef<HTMLInputElement>(null);
-  const [aberta, setAberta] = useState(false);
+  /*
+    Começa aberta se já existe um rascunho salvo — senão, voltar para a etapa
+    mostraria só o botão, como se a leitura anterior tivesse sumido.
+  */
+  const [aberta, setAberta] = useState(!!leituraSalva);
 
   const ler = useMutation({
     mutationFn: (arquivo: File) => lerGradeDaImagem(tipo, arquivo),
-    onSuccess: () => setAberta(true),
+    onSuccess: (leitura) => {
+      onLeitura(leitura);
+      setAberta(true);
+    },
   });
 
-  const leitura = ler.data;
+  const leitura = ler.data ?? leituraSalva;
 
   return (
     <div className="mt-2 ml-6">
@@ -1612,11 +1729,16 @@ function LeituraDaImagemDaFrota({
             </p>
           ) : (
             <>
-              <GradeLivre celulas={leitura.celulas} />
+              <GradeLivre
+                celulas={leitura.celulas}
+                valoresDoContrato={valoresDoContrato}
+              />
               <p className="text-xs text-muted-foreground/80 mt-1.5">
-                Rascunho da imagem — nada foi salvo. Compare com a grade do
-                contrato acima; esta tela não sabe se as categorias
-                correspondem às de lá.
+                Rascunho da imagem — nada foi salvo. As células em destaque já
+                foram comparadas com o contrato acima, porque a linha e a
+                coluna têm o mesmo nome dos dois lados; as demais têm nome
+                diferente lá e aqui, e essa correspondência ninguém confirmou
+                ainda — compare-as você mesmo.
               </p>
             </>
           )}
@@ -1627,10 +1749,17 @@ function LeituraDaImagemDaFrota({
 }
 
 /** Uma grade sem catálogo — linha e coluna são o texto que a imagem mostrou. */
-function GradeLivre({ celulas }: { celulas: CelulaDaGrade[] }) {
+function GradeLivre({
+  celulas,
+  valoresDoContrato,
+}: {
+  celulas: CelulaDaGrade[];
+  /** As células do contrato cujo nome de linha e coluna batem, literalmente, com os da imagem. */
+  valoresDoContrato: Map<string, ValorDoContratoParaComparar> | undefined;
+}) {
   const linhas = [...new Set(celulas.map((c) => c.linha))];
   const colunas = [...new Set(celulas.map((c) => c.coluna))];
-  const porCelula = new Map(celulas.map((c) => [`${c.linha} ${c.coluna}`, c]));
+  const porCelula = new Map(celulas.map((c) => [`${c.linha} ${c.coluna}`, c]));
 
   return (
     <div className="max-w-2xl overflow-x-auto rounded-md border">
@@ -1655,17 +1784,47 @@ function GradeLivre({ celulas }: { celulas: CelulaDaGrade[] }) {
                 {linha}
               </td>
               {colunas.map((coluna) => {
-                const celula = porCelula.get(`${linha} ${coluna}`);
+                const celula = porCelula.get(`${linha} ${coluna}`);
+                const doContrato = valoresDoContrato?.get(
+                  `${normalizarCategoria(linha)}|${normalizarCategoria(coluna)}`,
+                );
+                const bate =
+                  doContrato && celula
+                    ? Math.abs(celula.valor - doContrato.valor) < 0.01
+                    : undefined;
+                const tituloDoContrato = doContrato
+                  ? `Contrato: ${
+                      doContrato.dinheiro
+                        ? formatBrl(doContrato.valor)
+                        : formatNumber(doContrato.valor, 0)
+                    }`
+                  : undefined;
                 return (
                   <td
                     key={coluna}
-                    className="px-2 py-1.5 text-right tabular-nums"
+                    title={tituloDoContrato}
+                    className={
+                      "px-2 py-1.5 text-right tabular-nums" +
+                      (bate === true
+                        ? " bg-emerald-50 dark:bg-emerald-950/40"
+                        : bate === false
+                          ? " bg-amber-50 dark:bg-amber-950/40"
+                          : "")
+                    }
                   >
-                    {celula ? (
-                      celula.comoEstaNaImagem
-                    ) : (
-                      <span className="text-muted-foreground/40">—</span>
-                    )}
+                    <span className="inline-flex items-center gap-1">
+                      {celula ? (
+                        celula.comoEstaNaImagem
+                      ) : (
+                        <span className="text-muted-foreground/40">—</span>
+                      )}
+                      {bate === true && (
+                        <Check className="w-3 h-3 text-emerald-600 shrink-0" />
+                      )}
+                      {bate === false && (
+                        <AlertTriangle className="w-3 h-3 text-amber-600 shrink-0" />
+                      )}
+                    </span>
                   </td>
                 );
               })}
