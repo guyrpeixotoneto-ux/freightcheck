@@ -7,6 +7,7 @@ import { escreverPlanilha, type PlanilhaSpec } from "@workspace/ingest/testing/p
 import { seedTaxonomy } from "@workspace/curation";
 import { garantirComparacoesDaPromocao, type GarantiaDaPromocao } from "../garantia";
 import { listarVigenciasDaAuditoria } from "../gerencial";
+import { listChangeSets } from "../query";
 
 /**
  * O caso real, escrito como teste: **EMPURRADA_Cavalo**.
@@ -243,6 +244,19 @@ describe("cinco unidades, seis vigências, vinte e cinco pares", () => {
         JOIN snapshot b ON b.id = cs.snapshot_b_id AND b.status <> 'SUPERSEDED'
     `);
     expect(rows[0].total).toBe(PARES_ESPERADOS);
+  });
+
+  it("reimportar uma quinzena não a duplica no seletor de vigência", async () => {
+    // O seletor de vigência de Justificativas lê daqui (`listChangeSets`). A
+    // quinzena reimportada no teste anterior tem uma revisão SUPERSEDED e uma
+    // viva apontando pro mesmo `source_label`/`effective_date` — cada uma com
+    // um `change_set` próprio. Sem filtrar a revisão morta, ela aparecia duas
+    // vezes na lista, uma por `change_set`.
+    const comparacoes = await listChangeSets(ctx.db);
+    const rotulo = VIGENCIAS[VIGENCIAS.length - 1].label;
+    const ocorrencias = comparacoes.filter((c) => c.snapshot_b_label === rotulo);
+
+    expect(ocorrencias).toHaveLength(UNIDADES_NO_ARQUIVO);
   });
 
   it("o que não tem anterior continua sem comparação, e maio continua sem vigência", async () => {
