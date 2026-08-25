@@ -1059,6 +1059,11 @@ const TELAS_QUE_HONRAM_ESCOPO = new Set<string>([
   "/visao-gerencial",
   "/dre",
   "/composicao",
+  "/parametros",
+  "/alteracoes",
+  "/cavalo-360",
+  "/carreta-360",
+  "/trecho-360",
 ]);
 
 function enderecoDe(contexto: Contexto, pathnameAtual: string): string {
