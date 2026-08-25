@@ -84,6 +84,69 @@ export interface TypeCellOptions {
 const NUMERIC_SCALE = 6;
 
 /**
+ * `attributeCode` is `${entityType}.${slug}` (see `pipeline.ts`); only the
+ * slug says what kind of field this is.
+ */
+function fieldSlug(attributeCode: string): string {
+  const dot = attributeCode.lastIndexOf(".");
+  return dot === -1 ? attributeCode : attributeCode.slice(dot + 1);
+}
+
+/**
+ * Columns whose *name* declares them a date, via `slugifyColumn` — e.g.
+ * `dataFimContrato` becomes `data_fim_contrato`. Only these get a bare number
+ * auto-converted into a date: converting anything with a temporal-*sounding*
+ * header (see `AMBIGUOUS_DATE_SERIAL` below) would risk turning a price or a
+ * plate into a date the moment it happens to fall in the plausible range.
+ */
+const KNOWN_DATE_FIELD_SLUGS = new Set([
+  "data",
+  "data_fim_contrato",
+  "data_inicio_contrato",
+  "vigencia",
+  "competencia",
+]);
+
+function isKnownDateField(attributeCode: string): boolean {
+  return KNOWN_DATE_FIELD_SLUGS.has(fieldSlug(attributeCode));
+}
+
+/**
+ * A bare number written as text — "44805", "44805.5", "44805,5" — the shape
+ * a text-typed cell uses for what is really an Excel serial. A real date
+ * string such as "01/09/2022" or "2022-09-01" does not match this and falls
+ * through to ordinary text handling, unchanged.
+ */
+function parseNumericSerialText(value: string): number | null {
+  const trimmed = value.trim();
+  if (!/^-?\d+([.,]\d+)?$/.test(trimmed)) return null;
+  const num = Number(trimmed.replace(",", "."));
+  return Number.isFinite(num) ? num : null;
+}
+
+/**
+ * A date-only result for a field whose domain is a date, not an instant —
+ * `data`, `dataFimContrato` and friends. The fractional day (time of day) on
+ * an Excel serial is dropped rather than kept as a timestamp: these columns
+ * exist to say *which day*, and `2022-09-01T12:00:00Z` reading back as
+ * `2022-08-31` or `2022-09-02` under a reader's timezone is exactly the
+ * failure date-only storage exists to prevent.
+ */
+function dateOnlyResult(date: Date): Omit<TypedValue, "warnings"> {
+  const iso = toIsoDate(date);
+  return {
+    valueNumeric: null,
+    valueText: null,
+    valueBoolean: null,
+    valueDate: iso,
+    isNull: false,
+    nullReason: null,
+    valueHash: `d:${iso}`,
+    resolvedType: "DATE",
+  };
+}
+
+/**
  * Render a number for NUMERIC(18,6) without float artefacts leaking in.
  * Trailing zeros are trimmed so the hash of 5.50 equals the hash of 5.5.
  */
@@ -231,6 +294,16 @@ export function typeCell(
       });
       return { ...nullValue(NullReason.INVALID), warnings };
     }
+    // The column's own name says it holds a date (e.g. `dataFimContrato`),
+    // and the file just didn't format the cell as one — a bare serial like
+    // 46935.5. Convert it: this is the one case where a number becomes a
+    // date without a human confirming it first.
+    if (isKnownDateField(attributeCode) && isPlausibleDateSerial(num)) {
+      const asDate = excelSerialToDate(num);
+      if (asDate) {
+        return { ...dateOnlyResult(asDate), warnings };
+      }
+    }
     // Looks like it could be a date serial in a column named like a date, but
     // the file did not type it as one. Flag it; do not convert it.
     const headerLooksTemporal = /\b(data|date|dt)\b/i.test(
@@ -267,6 +340,21 @@ export function typeCell(
       resolvedType: "NUMERIC",
       warnings,
     };
+  }
+
+  // Text — but a known date column can still deliver its serial as a string,
+  // e.g. a CSV-derived import writing "44805,5" or "44805.5" instead of a
+  // typed cell. Only a plain numeric literal qualifies; a real date string
+  // like "01/09/2022" or "2022-09-01" fails the numeric-literal check and
+  // falls through to ordinary text handling below, unchanged.
+  if (cell.type === "s" && isKnownDateField(attributeCode)) {
+    const serial = parseNumericSerialText(rawText);
+    if (serial !== null && isPlausibleDateSerial(serial)) {
+      const asDate = excelSerialToDate(serial);
+      if (asDate) {
+        return { ...dateOnlyResult(asDate), warnings };
+      }
+    }
   }
 
   // Text.
