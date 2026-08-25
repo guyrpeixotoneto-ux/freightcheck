@@ -322,39 +322,37 @@ function PlacasDoGrupo({ period, entrada }: { period: string; entrada: RangeEntr
 
   return (
     <div className="mt-1.5 rounded border overflow-hidden">
-      <table className="w-full text-xs">
-        <tbody>
-          {linhas.map((veiculo) => (
-            <tr
-              key={veiculo.changeId}
-              className="border-t first:border-t-0 odd:bg-muted/20"
+      {linhas.map((veiculo) => (
+        <div
+          key={veiculo.changeId}
+          className="px-2 py-1.5 border-t first:border-t-0 odd:bg-muted/20 text-xs"
+        >
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="font-mono font-medium">{veiculo.plate ?? "—"}</span>
+            <span
+              className={cn(
+                "text-right tabular-nums font-semibold whitespace-nowrap shrink-0",
+                veiculo.impactAmount === null
+                  ? "text-muted-foreground font-normal"
+                  : veiculo.impactAmount < 0
+                    ? "text-red-700"
+                    : "text-emerald-700",
+              )}
             >
-              <td className="px-2 py-1 font-mono">{veiculo.plate ?? "—"}</td>
-              <td className="px-2 py-1 text-muted-foreground truncate max-w-[8rem] font-mono tabular-nums">
-                {veiculo.numericBefore !== null
-                  ? formatValue(veiculo.numericBefore, entrada.unit)
-                  : (veiculo.valueBefore ?? "—")}
-                {" → "}
-                {veiculo.numericAfter !== null
-                  ? formatValue(veiculo.numericAfter, entrada.unit)
-                  : (veiculo.valueAfter ?? "—")}
-              </td>
-              <td
-                className={cn(
-                  "px-2 py-1 text-right tabular-nums font-semibold whitespace-nowrap",
-                  veiculo.impactAmount === null
-                    ? "text-muted-foreground font-normal"
-                    : veiculo.impactAmount < 0
-                      ? "text-red-700"
-                      : "text-emerald-700",
-                )}
-              >
-                {veiculo.impactAmount !== null ? formatBrl(veiculo.impactAmount) : "sem preço"}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+              {veiculo.impactAmount !== null ? formatBrl(veiculo.impactAmount) : "sem preço"}
+            </span>
+          </div>
+          <div className="text-muted-foreground font-mono tabular-nums mt-0.5">
+            {veiculo.numericBefore !== null
+              ? formatValue(veiculo.numericBefore, entrada.unit)
+              : (veiculo.valueBefore ?? "—")}
+            {" → "}
+            {veiculo.numericAfter !== null
+              ? formatValue(veiculo.numericAfter, entrada.unit)
+              : (veiculo.valueAfter ?? "—")}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
