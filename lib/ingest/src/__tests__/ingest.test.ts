@@ -388,7 +388,11 @@ describe("zero, absence and ambiguity", () => {
     expect(reasons.map((r) => r.reason)).toContain("EMPTY");
   });
 
-  it("flags the ambiguous date serial instead of converting it", async () => {
+  it("converts the bare date serial instead of flagging it as ambiguous", async () => {
+    // dataFimContrato is a declared date column (see KNOWN_DATE_FIELD_SLUGS in
+    // values.ts), so a bare serial in it is no longer ambiguous — it is
+    // converted straight to a date, and no AMBIGUOUS_DATE_SERIAL warning
+    // survives anywhere in this export.
     const issues = await ctx.db
       .select()
       .from(validationIssueTable)
@@ -399,21 +403,31 @@ describe("zero, absence and ambiguity", () => {
         ),
       )
       .limit(1);
-    expect(issues.length).toBeGreaterThan(0);
+    expect(issues.length).toBe(0);
 
-    // In carretas the column is a bare serial in every row, so it stays
-    // NUMERIC — no silent conversion to a date happened.
+    // In carretas the column is a bare serial in every row; every one of them
+    // now resolves to DATE, not NUMERIC.
     const [carreta] = await ctx.db
       .select()
       .from(attributeTable)
       .where(eq(attributeTable.code, "carreta.data_fim_contrato"));
-    expect(carreta.dataType).toBe("NUMERIC");
+    expect(carreta.dataType).toBe("DATE");
+
+    const [sample] = await ctx.db
+      .select({ valueDate: factTable.valueDate })
+      .from(factTable)
+      .where(and(eq(factTable.attributeId, carreta.id), eq(factTable.isNull, false)))
+      .limit(1);
+    expect(sample.valueDate).toBe("2028-07-01");
   });
 
   it("reports a column the source types inconsistently, instead of picking one", async () => {
-    // dataFimContrato in `cavalos` arrives date-formatted for most rows and as
-    // a bare serial for the rest — the same column, the same sheet. Choosing a
-    // winner would silently discard one of the two representations.
+    // dataFimContrato in `cavalos` arrives date-formatted for most rows, all
+    // with a non-midnight time of day (so those stay TIMESTAMP text — see
+    // DATE_WITH_TIME_COMPONENT), and as a bare serial for the rest, which now
+    // converts straight to a date-only value. The column is still MIXED: DATE
+    // and TEXT never converge into one type, and neither representation is
+    // silently discarded.
     const [cavalo] = await ctx.db
       .select()
       .from(attributeTable)
@@ -435,12 +449,12 @@ describe("zero, absence and ambiguity", () => {
     // Both representations survived in the facts.
     const [counts] = await ctx.db
       .select({
-        numeric: sql<number>`count(*) FILTER (WHERE ${factTable.valueNumeric} IS NOT NULL)`.mapWith(Number),
+        date: sql<number>`count(*) FILTER (WHERE ${factTable.valueDate} IS NOT NULL)`.mapWith(Number),
         text: sql<number>`count(*) FILTER (WHERE ${factTable.valueText} IS NOT NULL)`.mapWith(Number),
       })
       .from(factTable)
       .where(eq(factTable.attributeId, cavalo.id));
-    expect(counts.numeric).toBeGreaterThan(0);
+    expect(counts.date).toBeGreaterThan(0);
     expect(counts.text).toBeGreaterThan(0);
   });
 
