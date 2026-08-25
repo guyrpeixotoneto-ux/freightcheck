@@ -171,6 +171,7 @@ export async function listarVigenciasDaAuditoria(
              s.entity_count
         FROM snapshot s
        WHERE s.status <> 'SUPERSEDED'
+       AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
          AND ${datasetFamilyFilter("s", opts?.datasetFamily)}
     ),
     /*

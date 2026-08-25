@@ -172,6 +172,7 @@ export async function listPeriods(db: Database, context?: SeriesContext) {
       FROM snapshot s,
            unnest(string_to_array(s.entity_type_set, '+')) t
      WHERE s.status <> 'SUPERSEDED'
+     AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND ${contextFilter("s", resolved)}
        -- Mesma régua de listContexts: uma vigência que só tem trecho não é
        -- uma entrega própria, e não deveria virar uma opção no seletor nem
@@ -207,6 +208,7 @@ export async function listPeriodLabels(
            min(s.source_label)    AS label
       FROM snapshot s
      WHERE s.status <> 'SUPERSEDED'
+     AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND ${contextFilter("s", { ...context, janela: null })}
        AND ${naoEhSoTrecho("s")}
      GROUP BY s.effective_date
@@ -236,6 +238,7 @@ export async function knownSeries(
       FROM snapshot s,
            unnest(string_to_array(s.entity_type_set, '+')) t
      WHERE s.status <> 'SUPERSEDED'
+     AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND ${contextFilter("s", resolved)}
      ORDER BY t
   `);
@@ -273,7 +276,10 @@ export async function computeMissingChangeSets(
       effectiveDate: snapshotTable.effectiveDate,
     })
     .from(snapshotTable)
-    .where(sql`${snapshotTable.status} <> 'SUPERSEDED'`)
+    .where(
+      sql`${snapshotTable.status} <> 'SUPERSEDED'
+          AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = ${snapshotTable.importRunId} AND import_run.hidden_at IS NOT NULL)`,
+    )
     .orderBy(snapshotTable.effectiveDate);
 
   // A chave inclui o canal: sem ele, a vigência de agosto do canal ROTA seria
@@ -370,6 +376,7 @@ export async function getConsolidated(
        sql`, `,
      )})
        AND s.status <> 'SUPERSEDED'
+       AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND ${contextFilter("s", context)}
      ORDER BY s.effective_date, s.entity_type_set
   `);

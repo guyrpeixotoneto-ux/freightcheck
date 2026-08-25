@@ -287,6 +287,7 @@ async function cnpjNoAcervo(db: Database, scopeHash: string): Promise<string | n
       CROSS JOIN LATERAL jsonb_array_elements(s.canonical_scope) AS escopo
      WHERE s.scope_hash = ${scopeHash}
        AND s.status <> 'SUPERSEDED'
+       AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND escopo->>'scopeType' = 'UNIDADE'
        AND escopo->>'code' ~ '^[0-9]{14}$'
      LIMIT 2

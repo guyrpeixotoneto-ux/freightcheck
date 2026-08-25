@@ -110,6 +110,7 @@ export async function historicoDosAtributos(
       SELECT s.id, s.effective_date
         FROM snapshot s
        WHERE s.status <> 'SUPERSEDED'
+       AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
          AND s.dataset_family = ${recorte.datasetFamily}
          AND s.canal = ${recorte.canal}
          AND s.scope_hash = ${recorte.scopeHash}
@@ -143,6 +144,7 @@ export async function historicoDosAtributos(
     SELECT count(*)::int AS n
       FROM snapshot s
      WHERE s.status <> 'SUPERSEDED'
+     AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND s.dataset_family = ${recorte.datasetFamily}
        AND s.canal = ${recorte.canal}
        AND s.scope_hash = ${recorte.scopeHash}

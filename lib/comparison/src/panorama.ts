@@ -353,6 +353,7 @@ export async function getPanoramaDeAlteracoes(
       FROM snapshot s,
            unnest(string_to_array(s.entity_type_set, '+')) t
      WHERE s.status <> 'SUPERSEDED'
+     AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND ${contextFilter("s", context)}
      GROUP BY 1
      ORDER BY 1
@@ -404,6 +405,7 @@ export async function getPanoramaDeAlteracoes(
       SELECT s.id, s.effective_date
         FROM snapshot s
        WHERE s.status <> 'SUPERSEDED'
+       AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
          AND ${contextFilter("s", context)}
     ),
     serie AS (
@@ -507,6 +509,7 @@ export async function getPanoramaDeAlteracoes(
        AND NOT f.is_null
        AND f.value_numeric IS NOT NULL
        AND s.status <> 'SUPERSEDED'
+       AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND ${contextFilter("s", context)}
      GROUP BY 1, 2
   `);
@@ -525,6 +528,7 @@ export async function getPanoramaDeAlteracoes(
       JOIN fact f     ON f.entity_id = e.id
       JOIN snapshot s ON s.id = f.snapshot_id
      WHERE s.status <> 'SUPERSEDED'
+     AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND ${contextFilter("s", context)}
      GROUP BY 1
   `);
@@ -557,6 +561,7 @@ export async function getPanoramaDeAlteracoes(
        AND NOT f.is_null
        AND f.value_numeric IS NOT NULL
        AND s.status <> 'SUPERSEDED'
+       AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND s.effective_date::text = ANY (${listaDeTexto(datasDePonta)})
        AND a.code = ANY (${listaDeTexto([...alterados])})
        AND ${contextFilter("s", context)}
@@ -910,6 +915,7 @@ async function medirReconciliacoes(
          AND NOT f.is_null
          AND f.value_numeric IS NOT NULL
          AND s.status <> 'SUPERSEDED'
+         AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
          AND ${contextFilter("s", context)}
     ),
     linha AS (

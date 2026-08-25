@@ -289,6 +289,7 @@ async function lerFatos(
      WHERE f.entity_id = ${entityId}::uuid
        AND s.effective_date = ${effectiveDate}::date
        AND s.status <> 'SUPERSEDED'
+       AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND ${contextFilter("s", context)}
      ORDER BY a.code
   `);
@@ -305,6 +306,7 @@ export async function listarVigencias(
            array_agg(DISTINCT s.source_label ORDER BY s.source_label) AS labels
       FROM snapshot s
      WHERE s.status <> 'SUPERSEDED'
+     AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND ${contextFilter("s", context)}
      GROUP BY 1
      ORDER BY 1
@@ -646,6 +648,7 @@ async function lerVigencia(
      WHERE e.entity_type = ${entityType}
        AND s.effective_date = ${effectiveDate}::date
        AND s.status <> 'SUPERSEDED'
+       AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND ${contextFilter("s", context)}
   `);
 

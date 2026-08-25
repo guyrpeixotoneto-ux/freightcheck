@@ -550,6 +550,7 @@ export async function historicoDoAtributo(
       LEFT JOIN snapshot_attribute sa
         ON sa.snapshot_id = s.id AND sa.attribute_id = (SELECT id FROM alvo)
      WHERE s.status <> 'SUPERSEDED'
+     AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND (${filtro.scopeHash ?? null}::text IS NULL OR s.scope_hash = ${filtro.scopeHash ?? null})
        AND (${filtro.canal === undefined ? null : filtro.canal}::text IS NULL
             OR s.canal = ${filtro.canal === undefined ? null : filtro.canal})

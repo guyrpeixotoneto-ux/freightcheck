@@ -240,6 +240,7 @@ export async function janelaDosAtributos(
                      id, effective_date, dataset_family
                 FROM snapshot
                WHERE status <> 'SUPERSEDED'
+               AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = import_run_id AND import_run.hidden_at IS NOT NULL)
                  AND (${recorte.datasetFamily ?? null}::text IS NULL
                       OR dataset_family = ${recorte.datasetFamily ?? null})
                  AND (${recorte.scopeHash ?? null}::text IS NULL
@@ -285,6 +286,7 @@ async function ultimaVigencia(
     SELECT max(effective_date)::text AS ultima
       FROM snapshot
      WHERE status <> 'SUPERSEDED'
+     AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = import_run_id AND import_run.hidden_at IS NOT NULL)
        AND (${recorte.datasetFamily ?? null}::text IS NULL
             OR dataset_family = ${recorte.datasetFamily ?? null})
        AND (${recorte.scopeHash ?? null}::text IS NULL
@@ -353,11 +355,13 @@ export async function descobertas(
              SELECT sum(sa.value_count + sa.null_count)
                FROM snapshot_attribute sa
                JOIN snapshot s ON s.id = sa.snapshot_id AND s.status <> 'SUPERSEDED'
+               AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
               WHERE sa.attribute_id = a.id
            ), 0)::int                                           AS entidades,
            (SELECT s.source_label
               FROM snapshot_attribute sa
               JOIN snapshot s ON s.id = sa.snapshot_id AND s.status <> 'SUPERSEDED'
+              AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
              WHERE sa.attribute_id = a.id
              ORDER BY s.effective_date LIMIT 1)                  AS primeiro_rotulo,
            EXISTS (

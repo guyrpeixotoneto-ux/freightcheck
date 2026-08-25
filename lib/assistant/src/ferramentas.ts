@@ -260,7 +260,9 @@ export async function panoramaDoContexto(
     WITH vig AS (
       SELECT s.id, s.effective_date
         FROM snapshot s
-       WHERE s.status <> 'SUPERSEDED' AND ${filtro}
+       WHERE s.status <> 'SUPERSEDED'
+         AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
+         AND ${filtro}
     ),
     cs AS (
       SELECT c.id

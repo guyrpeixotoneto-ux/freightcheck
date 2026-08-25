@@ -132,6 +132,7 @@ export async function medirAlteracoesDoAtivo(
        WHERE a.data_type = 'NUMERIC'
          AND f.entity_id = ${ativo.entity_id}::uuid
          AND s.status <> 'SUPERSEDED'
+         AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
          AND ${contextFilter("s", context)}
     )
     SELECT serie.code,
@@ -142,6 +143,7 @@ export async function medirAlteracoesDoAtivo(
       FROM serie
       JOIN snapshot s ON s.effective_date = serie.effective_date
                      AND s.status <> 'SUPERSEDED'
+                     AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
                      AND ${contextFilter("s", context)}
      WHERE serie.anterior IS NOT NULL
        AND serie.valor IS NOT NULL

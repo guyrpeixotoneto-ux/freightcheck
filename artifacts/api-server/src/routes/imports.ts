@@ -29,6 +29,7 @@ import {
   promote,
   receiveFile,
   reprocessImportRun,
+  setImportRunHidden,
   stage,
 } from "@workspace/ingest";
 import { semearContrato } from "@workspace/coverage";
@@ -906,6 +907,50 @@ router.delete("/imports/:id", async (req, res, next): Promise<void> => {
     );
   }
 });
+
+/**
+ * Ocultar ou reexibir uma importação em todo agregado (dashboard,
+ * comparativo, cobertura, DRE), sem apagar nada — reversível a qualquer
+ * momento, ao contrário de `DELETE /imports/:id`.
+ */
+router.patch(
+  "/imports/:id/hidden",
+  async (req, res, next): Promise<void> => {
+    if (!UUID.test(req.params.id)) {
+      res.status(400).json({ error: "Identificador de importação inválido." });
+      return;
+    }
+    if (typeof req.body?.hidden !== "boolean") {
+      res.status(400).json({ error: "Informe 'hidden' como booleano." });
+      return;
+    }
+    try {
+      const motivo =
+        typeof req.body?.reason === "string" && req.body.reason.trim() !== ""
+          ? req.body.reason.trim()
+          : null;
+
+      const result = await setImportRunHidden(db, req.params.id, req.body.hidden, {
+        by: req.user?.email ?? DEFAULT_ACTOR,
+        reason: motivo,
+      });
+      if (!result) {
+        res.status(404).json({ error: "Importação não encontrada" });
+        return;
+      }
+      res.json(result);
+    } catch (err) {
+      responderFalhaDeEscrita(
+        res,
+        next,
+        req.log,
+        err,
+        "ocultar importação",
+        req.params.id,
+      );
+    }
+  },
+);
 
 /** O histórico das exclusões — o que já não está mais aqui, e por ordem de quem. */
 router.get("/import-deletions", async (req, res, next): Promise<void> => {

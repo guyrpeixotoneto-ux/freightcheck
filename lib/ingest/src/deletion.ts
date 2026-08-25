@@ -748,3 +748,55 @@ export async function listImportDeletions(
     deletedAt: r.deleted_at,
   }));
 }
+
+export interface ImportRunHiddenState {
+  importRunId: string;
+  hiddenAt: Date | null;
+  hiddenBy: string | null;
+  hiddenReason: string | null;
+}
+
+/**
+ * Oculta ou reexibe um run — e todos os fatos de todas as suas vigências —
+ * em todo agregado, sem apagar nada. Ver `hidden_at` em `schema/raw.ts` para
+ * o porquê de não ser nem exclusão nem revisão.
+ *
+ * `hidden = false` limpa as três colunas, inclusive `hiddenReason`: quando o
+ * run volta a valer, o motivo de tê-lo escondido não é mais um fato sobre o
+ * estado atual — se precisar sobreviver, é quem chama que o registra em outro
+ * lugar (auditoria de aplicação), não este UPDATE.
+ */
+export async function setImportRunHidden(
+  db: Database,
+  importRunId: string,
+  hidden: boolean,
+  options: { by: string; reason?: string | null },
+): Promise<ImportRunHiddenState | null> {
+  const { rows } = await db.execute<{
+    id: string;
+    hidden_at: Date | null;
+    hidden_by: string | null;
+    hidden_reason: string | null;
+  }>(
+    hidden
+      ? sql`
+        UPDATE import_run
+           SET hidden_at = now(), hidden_by = ${options.by},
+               hidden_reason = ${options.reason ?? null}
+         WHERE id = ${importRunId}::uuid
+         RETURNING id, hidden_at, hidden_by, hidden_reason`
+      : sql`
+        UPDATE import_run
+           SET hidden_at = NULL, hidden_by = NULL, hidden_reason = NULL
+         WHERE id = ${importRunId}::uuid
+         RETURNING id, hidden_at, hidden_by, hidden_reason`,
+  );
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    importRunId: row.id,
+    hiddenAt: row.hidden_at,
+    hiddenBy: row.hidden_by,
+    hiddenReason: row.hidden_reason,
+  };
+}

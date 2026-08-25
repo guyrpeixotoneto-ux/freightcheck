@@ -95,6 +95,7 @@ export async function vigenciasObservadas(
            s.import_run_id
       FROM snapshot s
      WHERE s.status <> 'SUPERSEDED'
+     AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND (${filtro.datasetFamily ?? null}::text IS NULL OR s.dataset_family = ${filtro.datasetFamily ?? null})
        AND (${filtro.scopeHash ?? null}::text IS NULL OR s.scope_hash = ${filtro.scopeHash ?? null})
        AND (${filtro.canal === undefined ? null : filtro.canal}::text IS NULL

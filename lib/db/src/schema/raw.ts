@@ -113,9 +113,26 @@ export const importRunTable = pgTable(
      * errado. A razão sobrevive, porque ela é o fato de auditoria.
      */
     reprocessReason: text("reprocess_reason"),
+    /**
+     * Quando não-nulo, este run — e todos os fatos de todas as suas
+     * vigências — fica de fora de todo agregado (dashboard, comparativo,
+     * cobertura, DRE...). Reversível: `NULL` de novo mostra tudo outra vez.
+     *
+     * Não é exclusão nem é revisão. `import_deletion` (ver `deletion.ts`)
+     * apaga de verdade; `snapshot.status = SUPERSEDED` diz "uma revisão mais
+     * nova existe". Ocultar não é nenhum dos dois — o dado continua o mesmo,
+     * só para de contar enquanto quem importou está com outro arquivo em
+     * mãos.
+     */
+    hiddenAt: timestamp("hidden_at", { withTimezone: true }),
+    hiddenBy: text("hidden_by"),
+    hiddenReason: text("hidden_reason"),
   },
   (t) => [
     index("import_run_source_file_idx").on(t.sourceFileId),
+    index("import_run_hidden_at_idx")
+      .on(t.id)
+      .where(sql`${t.hiddenAt} IS NOT NULL`),
     /**
      * No máximo um run por decidir por arquivo — a trava contra o
      * reprocessamento repetido, decidida pelo banco e não por um SELECT antes
