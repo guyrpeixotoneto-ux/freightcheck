@@ -105,6 +105,13 @@ export {
   type LinhaSuspeita,
 } from "./diagnostico-pagamento";
 export { lerRequisicoes, STATUS_QUE_PAGA, type Requisicao } from "./leitores/requisicoes";
+export {
+  verbasRepetidas,
+  consolidarDuplicatasExatas,
+  type ClassificacaoDaRepeticao,
+  type VbzRepetida,
+  type DuplicataExataConsolidada,
+} from "./duplicatas";
 export { lerDisponibilidade, type DiaDeDisponibilidade } from "./leitores/disponibilidade";
 export {
   lerFrotaPromax,

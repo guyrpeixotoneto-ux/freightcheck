@@ -1,26 +1,4 @@
-import type { ItemDePagamento } from "@/lib/fechamento";
-
-/**
- * O ROTA e o AS do mesmo 03.08.20 — separados, uma vez, para toda a etapa 4.
- *
- * **Por que existe fora do componente.** `TotaisDoPagamentoNaEtapa` e
- * `VerbaAVerbaDoPagamento` liam listas diferentes (`totais.canais` e `itens`
- * do endpoint `/pagamento`) e cada uma filtrava o próprio jeito — dois lugares
- * fáceis de um herdar o filtro e o outro não, na primeira mudança que só
- * mexesse num deles. Uma função só, testada sozinha, é o que garante que "só
- * Rota nesta tela" é uma regra e não uma coincidência de dois filtros iguais
- * escritos em paralelo.
- *
- * **Isto não recalcula nada.** `calculado` e `declarado` de cada canal já
- * chegam prontos, agrupados por canal desde `totaisDoPagamentoDaCompetencia`
- * (`lib/fechamento/src/persistencia.ts`) — o servidor nunca soma ROTA e AS
- * antes de separar. Filtrar aqui só descarta a linha do AS da lista que a
- * tela itera; não há conta feita sobre os dois juntos em nenhum ponto do
- * caminho, então não há conta a desfazer.
- */
-export function apenasCanalRota<T extends { canal: string }>(itens: readonly T[]): T[] {
-  return itens.filter((i) => i.canal === "ROTA");
-}
+import type { ItemDePagamento } from "./leitores/pagamento";
 
 export type ClassificacaoDaRepeticao = "IDENTICA" | "DIVERGENTE";
 
@@ -60,24 +38,16 @@ function mesmosValores(a: ItemDePagamento, b: ItemDePagamento): boolean {
  * **As duas classificações pedem coisas diferentes de quem fecha a quinzena.**
  * Valores idênticos é o caso mais provável de o exportador ter duplicado a
  * seção — a mesma linha entrou duas vezes no arquivo, byte a byte, e é isso
- * que {@link consolidarDuplicatasExatas} resolve para a tela. Valores
- * divergentes é mais grave: a mesma verba com dois valores diferentes não tem
- * explicação óbvia — o mais provável é o 03.08.20 ter mesmo declarado a VBZ
- * duas vezes, e isso precisa voltar para a Ambev antes de fechar, não ser
- * decidido aqui.
+ * que {@link consolidarDuplicatasExatas} resolve. Valores divergentes é mais
+ * grave: a mesma verba com dois valores diferentes não tem explicação óbvia —
+ * o mais provável é o 03.08.20 ter mesmo declarado a VBZ duas vezes, e isso
+ * precisa voltar para a Ambev antes de fechar, não ser decidido aqui.
  *
  * **Esta função em si não deduplica nem soma — só relata.** Quem decide o que
  * fazer com o achado é quem chama: {@link consolidarDuplicatasExatas} usa o
  * resultado para reduzir as `IDENTICA` a uma linha só; as `DIVERGENTE`
  * continuam intactas em qualquer uso, porque ali não há linha "sobrando" para
  * remover — as duas dizem coisas diferentes.
- *
- * **Esta lógica é irmã da que roda no servidor.** `somarDemonstrativo`, em
- * `lib/fechamento/src/persistencia.ts`, deduplica do mesmo jeito antes de
- * somar o `calculado` do card do topo — ver `duplicatas.ts` naquele pacote.
- * Elas vivem em código separado, e não uma importando a outra, porque o
- * bundle da interface não carrega o motor de apuração de propósito (ver
- * `src/lib/fechamento.ts`); mudar a regra de duplicata exige mudar as duas.
  */
 export function verbasRepetidas(itens: readonly ItemDePagamento[]): VbzRepetida[] {
   const grupos = new Map<string, ItemDePagamento[]>();
@@ -108,9 +78,9 @@ export interface DuplicataExataConsolidada {
   vbz: number;
   nome: string;
   bloco: string;
-  /** A linha física que a tela mantém — a primeira, pela ordem do arquivo. */
+  /** A linha física que fica — a primeira, pela ordem do arquivo. */
   linhaMantida: number;
-  /** As linhas idênticas que a tela deixou de mostrar. */
+  /** As linhas idênticas que deixaram de contar. */
   linhasRemovidas: number[];
 }
 
@@ -121,16 +91,20 @@ export interface DuplicataExataConsolidada {
  *
  * **Por que só a `IDENTICA` some, e a `DIVERGENTE` nunca.** Duas linhas com os
  * mesmos seis valores não carregam informação nova uma da outra — é a mesma
- * afirmação, repetida, e mostrar as duas só faz a etapa 4 parecer que a Ambev
- * paga a verba em dobro quando ela não paga. Duas linhas com valores
- * diferentes são duas afirmações diferentes: reter uma e descartar a outra
- * inventaria qual delas vale, e essa decisão é da Ambev, não desta tela — por
- * isso `verbasRepetidas` continua reportando as `DIVERGENTE` e esta função as
+ * afirmação, repetida, e somá-la duas vezes faria a Ambev parecer que paga a
+ * verba em dobro quando não paga. Duas linhas com valores diferentes são duas
+ * afirmações diferentes: reter uma e descartar a outra inventaria qual delas
+ * vale, e essa decisão é da Ambev, não deste código — por isso
+ * `verbasRepetidas` continua reportando as `DIVERGENTE` e esta função as
  * deixa todas na lista.
  *
- * **Retorna o que foi consolidado, e não só a lista enxuta.** A tela precisa
- * dizer que uma redução aconteceu — sumir uma linha calado é o oposto do que
- * este módulo inteiro existe para evitar.
+ * **Retorna o que foi consolidado, e não só a lista enxuta.** Quem chama
+ * precisa poder dizer que uma redução aconteceu — sumir uma linha calado é o
+ * oposto do que este módulo existe para evitar. É o mesmo motivo por que
+ * {@link somarDemonstrativo} em `persistencia.ts` passa por aqui antes de
+ * somar: sem esta consolidação, uma VBZ duplicada no arquivo — a mesma seção
+ * gravada duas vezes — dobra o `calculado` sem dobrar o `declarado` do
+ * rodapé, e a etapa 4 mostraria uma diferença que não existe.
  */
 export function consolidarDuplicatasExatas(itens: readonly ItemDePagamento[]): {
   itens: ItemDePagamento[];
