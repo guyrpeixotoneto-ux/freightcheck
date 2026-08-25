@@ -1045,10 +1045,12 @@ function LinhaDoContrato({
  * célula sem linha correspondente mostra `—`, e não zero: zero afirmaria um
  * valor contratado, e aqui não há o que afirmar.
  *
- * **Custo Variável e Lucro não entram na grade.** A aba os soma numa única
- * parcela (`custoVariavelPrevistoPor25Viagens`, em `contrato.ts`) e não os
- * guarda separados por categoria — não é uma omissão desta tela, é a forma
- * como o cadastro os digita.
+ * **Custo Variável só existe na Frota Ativa.** No catálogo do cadastro
+ * (`lib/remuneracao/src/catalogo.ts`), `ativo_custo_variavel` e
+ * `ativo_lucro_operacional` — que a aba soma numa parcela só,
+ * `custoVariavelPrevistoPor25Viagens` — moram no bloco `VEÍCULOS ATIVOS`, e
+ * nenhuma outra categoria tem linha equivalente. Por isso a linha da grade
+ * só preenche a coluna de Frota Ativa, e as demais ficam com `—`.
  */
 function GradeDoContrato({
   parametros,
@@ -1064,6 +1066,7 @@ function GradeDoContrato({
     custoFixo: number | null;
     custoEquipe: number | null;
     custosIndiretos: number | null;
+    custoVariavel: number | null;
   }[] = [
     {
       titulo: "Frota Ativa",
@@ -1071,6 +1074,7 @@ function GradeDoContrato({
       custoFixo: p.remuneracaoFixaDaFrotaAtiva,
       custoEquipe: p.remuneracaoDaEquipeDeEntrega,
       custosIndiretos: p.remuneracaoDoQlpAdministrativo + p.remuneracaoDeOutrasDespesas,
+      custoVariavel: custoVariavelPrevistoPor25Viagens,
     },
     {
       titulo: "Frota Inativa",
@@ -1078,6 +1082,7 @@ function GradeDoContrato({
       custoFixo: p.remuneracaoDaFrotaInativa,
       custoEquipe: null,
       custosIndiretos: null,
+      custoVariavel: null,
     },
     {
       titulo: "Van Ativa",
@@ -1085,6 +1090,7 @@ function GradeDoContrato({
       custoFixo: p.custoFixoDaVan,
       custoEquipe: p.custoDaEquipeDeEntregaDaVan,
       custosIndiretos: null,
+      custoVariavel: null,
     },
     {
       titulo: "Van Inativa",
@@ -1092,6 +1098,7 @@ function GradeDoContrato({
       custoFixo: p.remuneracaoDasVansInativas,
       custoEquipe: null,
       custosIndiretos: null,
+      custoVariavel: null,
     },
     {
       titulo: "Noturna",
@@ -1099,6 +1106,7 @@ function GradeDoContrato({
       custoFixo: p.custoDaNoturnaSemImposto,
       custoEquipe: null,
       custosIndiretos: null,
+      custoVariavel: null,
     },
     {
       titulo: "Marketing",
@@ -1106,6 +1114,7 @@ function GradeDoContrato({
       custoFixo: p.custoDeMarketingSemImposto,
       custoEquipe: null,
       custosIndiretos: null,
+      custoVariavel: null,
     },
   ];
 
@@ -1118,6 +1127,11 @@ function GradeDoContrato({
     { rotulo: "Custo Fixo", valor: (c) => c.custoFixo, dinheiro: true },
     { rotulo: "Custo Equipe Entrega", valor: (c) => c.custoEquipe, dinheiro: true },
     { rotulo: "Custos Indiretos", valor: (c) => c.custosIndiretos, dinheiro: true },
+    {
+      rotulo: "Custo Variável (25 viagens)",
+      valor: (c) => c.custoVariavel,
+      dinheiro: true,
+    },
   ];
 
   return (
@@ -1142,6 +1156,13 @@ function GradeDoContrato({
               <tr key={l.rotulo} className="border-t">
                 <td className="px-2 py-1.5 text-muted-foreground whitespace-nowrap">
                   {l.rotulo}
+                  {l.rotulo === "Custo Variável (25 viagens)" && (
+                    <BotaoDeDetalhe>
+                      Com o lucro operacional previsto já somado, como o
+                      cadastro digita — a aba não guarda as duas parcelas
+                      separadas.
+                    </BotaoDeDetalhe>
+                  )}
                 </td>
                 {colunas.map((c) => {
                   const v = l.valor(c);
@@ -1166,18 +1187,6 @@ function GradeDoContrato({
         </table>
       </div>
       <p className="text-xs text-muted-foreground mt-1.5">
-        Custo Variável (para 25 viagens previstas), com o lucro previsto já
-        somado, como o cadastro digita:{" "}
-        {custoVariavelPrevistoPor25Viagens === null ? (
-          <span className="text-muted-foreground/60">—</span>
-        ) : (
-          <span className="font-medium text-foreground">
-            {formatBrl(custoVariavelPrevistoPor25Viagens)}
-          </span>
-        )}
-        .
-      </p>
-      <p className="text-xs text-muted-foreground mt-0.5">
         Alíquotas — PIS {formatNumber(p.aliquotas.pis * 100)}%, COFINS{" "}
         {formatNumber(p.aliquotas.cofins * 100)}%, ICMS{" "}
         {formatNumber(p.aliquotas.icms * 100)}%, ISS{" "}
