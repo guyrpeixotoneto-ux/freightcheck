@@ -609,7 +609,14 @@ export default function CompetenciaAberta({ id }: { id: string }) {
                     </p>
                   )}
 
-                  {doRoteiro.length > 0 && (
+                  {/*
+                    A etapa 1 não tem fonte nenhuma (`fontes: []`) e por isso
+                    `doRoteiro` é sempre vazio ali — mas é a etapa que mostra
+                    `LinhaDoContrato`, que não é arquivo. Sem o `||`, a lista
+                    inteira nunca aparecia para a etapa 1, e a peça do
+                    contrato ficava morta atrás de uma condição que nunca via.
+                  */}
+                  {(doRoteiro.length > 0 || etapa.numero === 1) && (
                     <ul className="divide-y mt-1">
                       {doRoteiro.map((fonte) => (
                         <LinhaDeFonte
