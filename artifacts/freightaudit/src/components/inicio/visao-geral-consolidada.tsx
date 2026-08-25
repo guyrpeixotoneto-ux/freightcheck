@@ -1,8 +1,10 @@
+import { useState } from "react";
 import { ChevronRight, FileText, Info, TrendingUp, Truck, type LucideIcon } from "lucide-react";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import { periodicitySuffix } from "@/lib/format";
 import { escreverImpacto, maioresImpactos, type Impacto } from "@/lib/visao-geral";
+import { DetalheDaUnidadeNaComparacao } from "@/components/inicio/detalhe-da-unidade-na-comparacao";
 import type {
   ExecutiveSummary,
   FamiliesOverview,
@@ -91,15 +93,6 @@ export function VisaoGeralConteudo({
 
   const comparando = new URLSearchParams(search).get("compararUnidades") === "1";
   const abrirComparacao = () => onTrocar({ compararUnidades: "1" });
-
-  const entrarNaUnidade = (contexto: OverviewContextRef) =>
-    onTrocar({
-      scopeHash: contexto.scopeHash,
-      canal: contexto.channel,
-      period: null,
-      visaoGeral: null,
-      compararUnidades: null,
-    });
 
   return (
     <>
@@ -202,7 +195,6 @@ export function VisaoGeralConteudo({
       {comparando && (
         <ComparacaoPorUnidade
           overview={overview}
-          onEntrar={entrarNaUnidade}
           onFechar={() => onTrocar({ compararUnidades: null })}
         />
       )}
@@ -215,21 +207,24 @@ export function VisaoGeralConteudo({
  *
  * Ranqueia as unidades incluídas pelo mesmo critério do pódio da Visão
  * Geral — maior módulo de impacto primeiro —, mostra os três números que
- * também aparecem lá em cima, mas agora um por unidade, e cada linha é a
- * porta para o Resumo executivo (ou a Linha do Tempo, dependendo de quem
- * chamou) daquela unidade sozinha — a mesma tela que já tem os cliques que
- * esta Visão Geral não tinha.
+ * também aparecem lá em cima, mas agora um por unidade, e cada linha abre o
+ * resumo executivo daquela unidade sozinha **empilhado por cima desta
+ * gaveta** (`DetalheDaUnidadeNaComparacao`), em vez de navegar para fora —
+ * fechar o detalhe da unidade volta para a comparação, e fechar a
+ * comparação continua fechando as duas de uma vez.
  */
 function ComparacaoPorUnidade({
   overview,
-  onEntrar,
   onFechar,
 }: {
   overview: FamiliesOverview;
-  onEntrar: (contexto: OverviewContextRef) => void;
   onFechar: () => void;
 }) {
   const unidades = unidadesPorImpacto(overview);
+  const [unidadeAberta, setUnidadeAberta] = useState<{
+    contexto: OverviewContextRef;
+    label: string;
+  } | null>(null);
 
   return (
     <Sheet open onOpenChange={(aberto) => !aberto && onFechar()}>
@@ -248,10 +243,24 @@ function ComparacaoPorUnidade({
 
         <div className="flex-1 overflow-y-auto px-7 py-6 space-y-2.5">
           {unidades.map(({ unidade, impacto }) => (
-            <LinhaDaUnidade key={unidade.unidade} unidade={unidade} impacto={impacto} onEntrar={onEntrar} />
+            <LinhaDaUnidade
+              key={unidade.unidade}
+              unidade={unidade}
+              impacto={impacto}
+              onEntrar={(contexto) => setUnidadeAberta({ contexto, label: unidade.label })}
+            />
           ))}
         </div>
       </SheetContent>
+
+      {unidadeAberta && (
+        <DetalheDaUnidadeNaComparacao
+          contexto={unidadeAberta.contexto}
+          label={unidadeAberta.label}
+          period={overview.period}
+          onFechar={() => setUnidadeAberta(null)}
+        />
+      )}
     </Sheet>
   );
 }
