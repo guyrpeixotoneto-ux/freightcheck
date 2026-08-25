@@ -1,6 +1,10 @@
 import { Router, type IRouter } from "express";
 import { desc, eq } from "drizzle-orm";
 import { db, justificativaTable } from "@workspace/db";
+import {
+  iniciarFase,
+  instrumentarCicloDaRequisicao,
+} from "../lib/observabilidade";
 
 const DEFAULT_ACTOR = "sistema";
 
@@ -14,20 +18,26 @@ const DEFAULT_ACTOR = "sistema";
  */
 const router: IRouter = Router();
 
+router.use("/justificativas", instrumentarCicloDaRequisicao);
+
 /** As justificativas de uma comparação, uma por placa — sempre a mais recente. */
 router.get("/justificativas", async (req, res): Promise<void> => {
   const changeSetId =
-    typeof req.query.changeSetId === "string" ? req.query.changeSetId : undefined;
+    typeof req.query.changeSetId === "string"
+      ? req.query.changeSetId
+      : undefined;
   if (!changeSetId) {
     res.status(400).json({ error: "changeSetId é obrigatório." });
     return;
   }
 
+  const faseSelect = iniciarFase(req, "db.select");
   const rows = await db
     .select()
     .from(justificativaTable)
     .where(eq(justificativaTable.changeSetId, changeSetId))
     .orderBy(desc(justificativaTable.criadoEm));
+  faseSelect.fim({ linhas: rows.length });
 
   // Uma placa pode ter sido justificada mais de uma vez; a tela mostra só a
   // mais recente, e a lista já vem ordenada da mais nova para a mais antiga.
@@ -45,11 +55,16 @@ router.get("/justificativas", async (req, res): Promise<void> => {
  */
 router.post("/justificativas", async (req, res): Promise<void> => {
   const changeSetId =
-    typeof req.body?.changeSetId === "string" ? req.body.changeSetId : undefined;
+    typeof req.body?.changeSetId === "string"
+      ? req.body.changeSetId
+      : undefined;
   const entityLabels = Array.isArray(req.body?.entityLabels)
-    ? req.body.entityLabels.filter((v: unknown): v is string => typeof v === "string" && v !== "")
+    ? req.body.entityLabels.filter(
+        (v: unknown): v is string => typeof v === "string" && v !== "",
+      )
     : [];
-  const texto = typeof req.body?.texto === "string" ? req.body.texto.trim() : "";
+  const texto =
+    typeof req.body?.texto === "string" ? req.body.texto.trim() : "";
 
   if (!changeSetId) {
     res.status(400).json({ error: "changeSetId é obrigatório." });
@@ -60,7 +75,9 @@ router.post("/justificativas", async (req, res): Promise<void> => {
     return;
   }
   if (texto === "") {
-    res.status(400).json({ error: "A justificativa não pode ficar em branco." });
+    res
+      .status(400)
+      .json({ error: "A justificativa não pode ficar em branco." });
     return;
   }
 
@@ -70,6 +87,7 @@ router.post("/justificativas", async (req, res): Promise<void> => {
       : null;
   const criadoPor = req.user?.email ?? DEFAULT_ACTOR;
 
+  const faseInsert = iniciarFase(req, "db.insert");
   const inseridas = await db
     .insert(justificativaTable)
     .values(
@@ -82,6 +100,7 @@ router.post("/justificativas", async (req, res): Promise<void> => {
       })),
     )
     .returning();
+  faseInsert.fim({ linhas: inseridas.length });
 
   res.status(201).json({ justificativas: inseridas });
 });

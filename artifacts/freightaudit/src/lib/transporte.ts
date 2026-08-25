@@ -20,6 +20,20 @@ import type { Orientacao } from "@/lib/diagnostico";
 export type EstadoDoTransporte =
   /** `fetch` rejeitou: a requisição não completou, não houve resposta. */
   | "SEM_RESPOSTA"
+  /**
+   * O teto de tempo desta função estourou antes de existir resposta.
+   *
+   * Não é `SEM_RESPOSTA`, embora pareça a mesma ausência de resposta —
+   * a diferença é **quem** decidiu parar de esperar. `SEM_RESPOSTA` é o
+   * navegador desistindo sozinho (conexão recusada, DNS, TLS); aqui fomos
+   * **nós** que desistimos, porque `fetch` não tem prazo próprio e uma
+   * conexão que abre e nunca mais escreve nada não teria como terminar de
+   * outro jeito. Separar os dois importa para quem investiga: um
+   * `TEMPO_ESGOTADO` que se repete aponta para algo específico — uma rota,
+   * uma consulta, um proxy que segura conexão em vez de fechar — e não para
+   * "a rede caiu", que é o que `SEM_RESPOSTA` já cobre.
+   */
+  | "TEMPO_ESGOTADO"
   /** 5xx de corpo vazio: não há ninguém atrás de `/api`. */
   | "API_AUSENTE"
   /** 2xx de corpo vazio: a resposta foi cortada a caminho. */
@@ -48,6 +62,16 @@ export interface DiagnosticoDeTransporte extends Orientacao {
 export interface TransporteObservado {
   /** `fetch` rejeitou antes de existir resposta. */
   naoCompletou?: boolean;
+  /**
+   * O teto de tempo de `requisitar` estourou antes de existir resposta.
+   *
+   * Mutuamente exclusivo com `cancelada`: os dois descrevem um `AbortError`,
+   * e a diferença é só quem abortou. `naoCompletou` continua `true` junto —
+   * o teto **é** um caso de "não completou", só que com causa conhecida.
+   */
+  esgotouTempo?: boolean;
+  /** Havia um deadline configurado; entra na evidência mesmo sem estourar. */
+  tempoLimiteMs?: number;
   /** O status HTTP, quando houve resposta. */
   status?: number;
   /** O corpo veio vazio. */
@@ -176,6 +200,42 @@ export function diagnosticarTransporte(
       acao: null,
       evidencia:
         "Cancelada pela própria interface; nenhuma resposta foi pedida ao servidor.",
+    };
+  }
+
+  if (observado.esgotouTempo) {
+    /*
+      Diferente de `SEM_RESPOSTA`: aqui sabemos exatamente por que paramos de
+      esperar — nós paramos, num prazo que nós escolhemos. Isso muda o que dá
+      para afirmar. `SEM_RESPOSTA` não sabe se algum dia responderia;
+      `TEMPO_ESGOTADO` sabe que **não respondeu dentro do prazo**, o que é
+      compatível tanto com "nunca ia responder" quanto com "ia responder um
+      pouco depois" — e é por isso que a política de repetição trata os dois
+      como transitórios (`resiliencia.ts`): a próxima tentativa tem um prazo
+      novo, e a causa mais comum (a origem ainda subindo) se resolve dentro
+      dele.
+    */
+    return {
+      estado: "TEMPO_ESGOTADO",
+      humano:
+        "Esta chamada demorou mais do que o esperado e foi interrompida. A " +
+        "tela tenta de novo sozinha por alguns segundos; se continuar assim, " +
+        "é o ambiente que precisa ser olhado, e não algo que você tenha " +
+        "feito. Nada do que você enviou foi gravado.",
+      resumo:
+        `O navegador esperou ${observado.tempoLimiteMs ?? "o tempo limite"}` +
+        `${typeof observado.tempoLimiteMs === "number" ? "ms" : ""} por uma ` +
+        "resposta e nenhuma chegou, então a chamada foi encerrada por " +
+        "aqui. Não é a mesma coisa que a rede recusar a conexão — a conexão " +
+        "pode até estar aberta do outro lado, só não respondeu a tempo.",
+      risco: NADA_ENVIADO,
+      acao: AGUARDAR_A_VOLTA,
+      evidencia:
+        `Prazo de ${observado.tempoLimiteMs ?? "desconhecido"}ms estourado ` +
+        "sem status, sem cabeçalho e sem corpo. Uma rota que estoura o prazo " +
+        "de forma repetida — e não só uma vez, o que cold start explica — " +
+        "aponta para algo específico dela: uma consulta sem teto próprio, ou " +
+        "um proxy segurando a conexão em vez de fechá-la.",
     };
   }
 

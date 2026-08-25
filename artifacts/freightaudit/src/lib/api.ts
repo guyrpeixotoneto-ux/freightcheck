@@ -14,6 +14,26 @@ export function getApiUrl(path: string): string {
 }
 
 /**
+ * O teto de uma tentativa, para uma chamada nunca esperar para sempre.
+ *
+ * `fetch` sem `signal` não tem prazo nenhum: se a conexão abre e ninguém do
+ * outro lado nunca escreve um byte — um processo preso, um `await` sem fim
+ * numa rota, um proxy que segura a conexão em vez de fechá-la —, a promessa
+ * fica pendurada indefinidamente, e com ela toda a política de
+ * `resiliencia.ts`: as cinco tentativas e o `TETO_DA_ESPERA` de 8s entre elas
+ * pressupõem que **cada tentativa** eventualmente resolve, uma hora ou outra.
+ * Sem um teto aqui, a primeira tentativa nunca chega a falhar, e a tela fica
+ * em "Carregando…" para sempre — pior do que o painel de indisponibilidade
+ * que existe exatamente para esse caso.
+ *
+ * 45s é generoso de propósito: a maior espera legítima medida neste produto é
+ * a promoção de uma vigência grande (dezenas de segundos, ver
+ * `opcoesDoPool` em `lib/db`), e nenhuma rota de leitura chega perto disso.
+ * O objetivo não é apertar o normal — é garantir que o anormal termine.
+ */
+const TEMPO_LIMITE_MS = 45_000;
+
+/**
  * Fazer a requisição, com a falha de transporte já classificada.
  *
  * `fetch` rejeita com `TypeError` quando a requisição não completa — conexão
@@ -36,27 +56,76 @@ export function getApiUrl(path: string): string {
  *
  * O cancelamento é separado do resto e não é falha de rede: quem cancelou fomos
  * nós (um `AbortController`, uma navegação que desmontou a tela), e repetir uma
- * chamada cancelada de propósito é o oposto do que se quer.
+ * chamada cancelada de propósito é o oposto do que se quer. O teto de tempo
+ * desta função **não** é esse caso: ele é a rede não terminando, e por isso
+ * conta como `SEM_RESPOSTA` — transitório, e a política de cima repete.
  */
 async function requisitar(path: string, init?: RequestInit): Promise<Response> {
+  const url = getApiUrl(path);
+  const inicio =
+    typeof performance !== "undefined" ? performance.now() : Date.now();
+  const decorrido = () =>
+    Math.round((typeof performance !== "undefined" ? performance.now() : Date.now()) - inicio);
+
+  const controlador = new AbortController();
+  let esgotouTempo = false;
+  const cronometro = setTimeout(() => {
+    esgotouTempo = true;
+    controlador.abort();
+  }, TEMPO_LIMITE_MS);
+
+  // Um cancelamento de quem chamou (desmontagem, navegação) continua sendo
+  // cancelamento — o teto de tempo só entra quando ninguém pediu nada.
+  const sinalDeQuemChamou = init?.signal ?? null;
+  const propagar = () => controlador.abort();
+  if (sinalDeQuemChamou) {
+    if (sinalDeQuemChamou.aborted) controlador.abort();
+    else sinalDeQuemChamou.addEventListener("abort", propagar);
+  }
+
   try {
-    return await fetch(getApiUrl(path), init);
+    return await fetch(url, { ...init, signal: controlador.signal });
   } catch (err) {
     const nome =
       typeof err === "object" && err !== null
         ? (err as { name?: unknown }).name
         : undefined;
-    if (nome === "AbortError") {
+
+    if (nome === "AbortError" && !esgotouTempo) {
+      // Cancelamento de quem chamou — não é falha de transporte, não entra
+      // no registro de falhas (`registrarFalha`, uma camada acima, também
+      // não registra `REQUISICAO_CANCELADA`: ver `chamada-resiliente.ts`).
       throw new ErroDeTransporte(diagnosticarTransporte({ cancelada: true }));
     }
-    throw new ErroDeTransporte(
-      diagnosticarTransporte({
-        naoCompletou: true,
-        ...(err instanceof Error && err.message !== ""
-          ? { motivo: err.message }
-          : {}),
-      }),
+
+    /*
+      Uma linha aqui, e não só no registro de `chamada-resiliente.ts`: esta
+      função também é chamada por fora de `useQuery` — a mutação de
+      Justificativas, `fetchArquivo` — caminhos que não passam por
+      `registrarFalha`. URL, duração e o estado que se está prestes a lançar
+      são exatamente os três fatos que o item 4 pede para toda chamada que
+      não completa, e aqui é o único lugar por onde todas passam.
+    */
+    console.warn(
+      `[transporte] ${url} — ${esgotouTempo ? "TEMPO_ESGOTADO" : "SEM_RESPOSTA"}, ` +
+        `${decorrido()}ms.`,
     );
+
+    throw new ErroDeTransporte(
+      diagnosticarTransporte(
+        esgotouTempo
+          ? { naoCompletou: true, esgotouTempo: true, tempoLimiteMs: TEMPO_LIMITE_MS }
+          : {
+              naoCompletou: true,
+              ...(err instanceof Error && err.message !== ""
+                ? { motivo: err.message }
+                : {}),
+            },
+      ),
+    );
+  } finally {
+    clearTimeout(cronometro);
+    sinalDeQuemChamou?.removeEventListener("abort", propagar);
   }
 }
 
