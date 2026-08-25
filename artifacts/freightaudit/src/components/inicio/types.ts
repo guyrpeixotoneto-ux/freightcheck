@@ -381,6 +381,53 @@ export interface FamiliesView extends GroupedView {
   freightechSemDado: { family: string; parameters: string[] }[];
 }
 
+/**
+ * `GET /changes/families/overview` — a Visão Geral: soma de todas as
+ * unidades com dado na competência pedida. Espelha `FamiliesOverview` em
+ * `lib/comparison/src/families-view-overview.ts`.
+ *
+ * Não é um `FamiliesView`: não tem `families`/`groups`/`series` (a v1 não
+ * mescla drill-down entre unidades), só o resumo executivo já somado e a
+ * lista de quem entrou e quem ficou fora.
+ */
+export type MotivoExclusaoDaVisaoGeral =
+  | "sem_vigencia_na_competencia"
+  | "contextos_sobrepostos_ambiguos"
+  | "vigencia_indisponivel_na_leitura";
+
+export interface OverviewContextRef {
+  scopeHash: string;
+  channel: string | null;
+  latestPeriod: string;
+}
+
+export interface OverviewUnitIncluded {
+  unidade: string;
+  label: string;
+  contexts: OverviewContextRef[];
+  /** Presente quando algum contexto elegível não pôde ser lido — nunca cobertura completa quando preenchido. */
+  coberturaParcial?: {
+    scopeHash: string;
+    channel: string | null;
+    motivo: "vigencia_indisponivel_na_leitura";
+  }[];
+}
+
+export interface OverviewUnitExcluded {
+  unidade: string;
+  label: string;
+  reason: MotivoExclusaoDaVisaoGeral;
+  contexts: OverviewContextRef[];
+  conflito?: { scopeHash: string; entradas: string[] }[];
+}
+
+export interface FamiliesOverview {
+  period: string;
+  summary: ExecutiveSummary;
+  unitsIncluded: OverviewUnitIncluded[];
+  unitsExcluded: OverviewUnitExcluded[];
+}
+
 export interface GroupVehicle {
   changeId: number;
   plate: string | null;
