@@ -112,6 +112,59 @@ function textoDoErro(erro: unknown): string {
 const emDiaBR = (iso: string) => iso.split("-").reverse().join("/");
 
 /**
+ * Onde o rascunho da leitura de imagem mora entre uma visita e a próxima —
+ * `localStorage`, e não o backend.
+ *
+ * O comentário de `LeituraDaImagemDaFrota` já explica por que o rascunho não
+ * vira documento: ele não passa por `receberDocumento` porque a leitura por
+ * imagem lê só totais por categoria, sem placa nenhuma, e o que sustenta a
+ * conta é o relatório, placa a placa. Guardá-lo no navegador não muda essa
+ * regra — ele continua sem valer nada para a apuração — só resolve o
+ * incômodo de a página inteira ser trocada (um link, um F5, voltar depois)
+ * e o rascunho ir embora como se ninguém tivesse conferido nada. Ele agora
+ * só some quando alguém manda: enviando outra foto ou apertando "Remover".
+ */
+const PREFIXO_DO_RASCUNHO_DE_IMAGEM = "fechamento:rascunho-de-imagem";
+
+function chaveDoRascunhoDeImagem(competenciaId: string, tipo: TipoDeFonte): string {
+  return `${PREFIXO_DO_RASCUNHO_DE_IMAGEM}:${competenciaId}:${tipo}`;
+}
+
+function lerRascunhoDeImagem(
+  competenciaId: string,
+  tipo: TipoDeFonte,
+): LeituraDaGrade | undefined {
+  try {
+    const bruto = localStorage.getItem(chaveDoRascunhoDeImagem(competenciaId, tipo));
+    return bruto ? (JSON.parse(bruto) as LeituraDaGrade) : undefined;
+  } catch {
+    /* Aba anônima, cota cheia — o rascunho some ao trocar de página, e como
+       ele nunca foi a fonte da conta, sumir aqui não quebra nada. */
+    return undefined;
+  }
+}
+
+function gravarRascunhoDeImagem(
+  competenciaId: string,
+  tipo: TipoDeFonte,
+  leitura: LeituraDaGrade | null,
+): void {
+  try {
+    const chave = chaveDoRascunhoDeImagem(competenciaId, tipo);
+    if (leitura) localStorage.setItem(chave, JSON.stringify(leitura));
+    else localStorage.removeItem(chave);
+  } catch {
+    // Mesmo caso acima — guardar é o extra, não o requisito.
+  }
+}
+
+/** As únicas duas fontes que aceitam a leitura por imagem — ver `aceitaImagem`. */
+const TIPOS_COM_LEITURA_DE_IMAGEM: TipoDeFonte[] = [
+  "FROTA_PROMAX_ATIVA",
+  "FROTA_PROMAX_INATIVA",
+];
+
+/**
  * A competência aberta — onde o fechamento acontece.
  *
  * A tela tem cinco partes, e a ordem é a do trabalho: recebe os relatórios
@@ -158,13 +211,21 @@ export default function CompetenciaAberta({ id }: { id: string }) {
     O rascunho da leitura de imagem, por fonte. Mora aqui, e não dentro de
     `LeituraDaImagemDaFrota`, porque o `Accordion` desmonta o conteúdo de uma
     etapa fechada — `AccordionContent` não usa `forceMount` — e o que estava
-    em `useState`/`useMutation` ali dentro ia junto. A leitura em si nunca
-    grava nada (ver o comentário em `LeituraDaImagemDaFrota`); isto só faz o
-    rascunho sobreviver a trocar de etapa e voltar, sem gravar nada a mais.
+    em `useState`/`useMutation` ali dentro ia junto. O estado inicial já lê o
+    que `localStorage` tiver desta competência, para sobreviver não só a
+    trocar de etapa, mas a sair da página inteira e voltar — ver
+    `lerRascunhoDeImagem`/`gravarRascunhoDeImagem`.
   */
   const [leiturasDeFrota, setLeiturasDeFrota] = useState<
     Partial<Record<TipoDeFonte, LeituraDaGrade>>
-  >({});
+  >(() => {
+    const inicial: Partial<Record<TipoDeFonte, LeituraDaGrade>> = {};
+    for (const tipo of TIPOS_COM_LEITURA_DE_IMAGEM) {
+      const rascunho = lerRascunhoDeImagem(id, tipo);
+      if (rascunho) inicial[tipo] = rascunho;
+    }
+    return inicial;
+  });
 
   const dados = useQuery({
     queryKey: chaveDaCompetencia(id),
@@ -681,12 +742,20 @@ export default function CompetenciaAberta({ id }: { id: string }) {
                           }
                           contrato={dados.data?.contrato ?? null}
                           leituraDeImagem={leiturasDeFrota[fonte.tipo]}
-                          onLeituraDeImagem={(leitura) =>
+                          onLeituraDeImagem={(leitura) => {
+                            gravarRascunhoDeImagem(id, fonte.tipo, leitura);
                             setLeiturasDeFrota((m) => ({
                               ...m,
                               [fonte.tipo]: leitura,
-                            }))
-                          }
+                            }));
+                          }}
+                          onLimparLeituraDeImagem={() => {
+                            gravarRascunhoDeImagem(id, fonte.tipo, null);
+                            setLeiturasDeFrota((m) => {
+                              const { [fonte.tipo]: _descartado, ...resto } = m;
+                              return resto;
+                            });
+                          }}
                         />
                       ))}
                       {/*
@@ -1430,6 +1499,7 @@ function LinhaDeFonte({
   contrato,
   leituraDeImagem,
   onLeituraDeImagem,
+  onLimparLeituraDeImagem,
 }: {
   fonte: Fonte;
   documento: Documento | undefined;
@@ -1462,9 +1532,11 @@ function LinhaDeFonte({
   onArquivo: (arquivo: File) => void;
   /** Para comparar a leitura da imagem com o contrato — ver `mapaDeComparacaoDoContrato`. */
   contrato: ContratoDaCompetencia | null;
-  /** O rascunho já lido nesta etapa, se houver — sobrevive a trocar de etapa. */
+  /** O rascunho já lido, se houver — sobrevive a trocar de etapa e a sair da página. */
   leituraDeImagem: LeituraDaGrade | undefined;
   onLeituraDeImagem: (leitura: LeituraDaGrade) => void;
+  /** Apaga o rascunho salvo — o outro jeito de ele sumir, além de mandar outra foto. */
+  onLimparLeituraDeImagem: () => void;
 }) {
   const campo = useRef<HTMLInputElement>(null);
   const aceitaImagem =
@@ -1570,6 +1642,7 @@ function LinhaDeFonte({
             travada={travada}
             leituraSalva={leituraDeImagem}
             onLeitura={onLeituraDeImagem}
+            onLimpar={onLimparLeituraDeImagem}
             valoresDoContrato={valoresDoContrato}
           />
         )}
@@ -1639,6 +1712,7 @@ function LeituraDaImagemDaFrota({
   travada,
   leituraSalva,
   onLeitura,
+  onLimpar,
   valoresDoContrato,
 }: {
   tipo: TipoDeFonte;
@@ -1646,6 +1720,8 @@ function LeituraDaImagemDaFrota({
   /** O rascunho já lido antes de a etapa fechar, se houver. */
   leituraSalva: LeituraDaGrade | undefined;
   onLeitura: (leitura: LeituraDaGrade) => void;
+  /** Apaga o rascunho salvo — o único outro jeito de ele sumir, além de mandar outra foto. */
+  onLimpar: () => void;
   /** As células do contrato cujo nome de linha e coluna batem, literalmente, com os da imagem. */
   valoresDoContrato: Map<string, ValorDoContratoParaComparar> | undefined;
 }) {
@@ -1705,6 +1781,23 @@ function LeituraDaImagemDaFrota({
         </Button>
       </span>
 
+      {leitura && leitura.motivo === "IA" && leitura.celulas.length > 0 && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 text-xs text-muted-foreground"
+          disabled={travada}
+          onClick={() => {
+            ler.reset();
+            setAberta(false);
+            onLimpar();
+          }}
+        >
+          <Trash2 className="w-3.5 h-3.5 mr-1.5" />
+          Remover rascunho
+        </Button>
+      )}
+
       {ler.isError && (
         <p className="text-xs text-destructive mt-1">{textoDoErro(ler.error)}</p>
       )}
@@ -1734,11 +1827,13 @@ function LeituraDaImagemDaFrota({
                 valoresDoContrato={valoresDoContrato}
               />
               <p className="text-xs text-muted-foreground/80 mt-1.5">
-                Rascunho da imagem — nada foi salvo. As células em destaque já
-                foram comparadas com o contrato acima, porque a linha e a
-                coluna têm o mesmo nome dos dois lados; as demais têm nome
-                diferente lá e aqui, e essa correspondência ninguém confirmou
-                ainda — compare-as você mesmo.
+                Rascunho da imagem — não vira documento, mas fica salvo neste
+                navegador até você mandar outra foto ou apertar "Remover
+                rascunho". As células em destaque já foram comparadas com o
+                contrato acima, porque a linha e a coluna têm o mesmo nome dos
+                dois lados; as demais têm nome diferente lá e aqui, e essa
+                correspondência ninguém confirmou ainda — compare-as você
+                mesmo.
               </p>
             </>
           )}
