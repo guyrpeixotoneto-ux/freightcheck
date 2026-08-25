@@ -6,7 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./persistencia": "./src/persistencia.ts",
-    "./referencia-persistencia": "./src/referencia-persistencia.ts"
+    "./referencia-persistencia": "./src/referencia-persistencia.ts",
+    "./frota-promax-categorias": "./src/frota-promax-categorias.ts"
   },
   "scripts": {
     "test": "vitest run",

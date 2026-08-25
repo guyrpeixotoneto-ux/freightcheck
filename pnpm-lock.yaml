@@ -288,6 +288,9 @@ importers:
       '@workspace/curation':
         specifier: workspace:*
         version: link:../../lib/curation
+      '@workspace/fechamento':
+        specifier: workspace:*
+        version: link:../../lib/fechamento
       '@workspace/ingest':
         specifier: workspace:*
         version: link:../../lib/ingest
