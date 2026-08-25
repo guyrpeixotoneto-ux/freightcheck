@@ -113,11 +113,11 @@ describe("lastro não é dinheiro", () => {
   it("conta os quatro movimentos separadamente no resumo", () => {
     const { resumo } = comparar(VAZIA, PRIMEIRA);
 
-    expect(resumo.linhas).toBe(30);
+    expect(resumo.linhas).toBe(33);
     expect(resumo.ganharamLastro).toBe(11);
     expect(resumo.perderamLastro).toBe(0);
     expect(resumo.mudaram).toBe(0);
-    expect(resumo.semComparacao).toBe(19);
+    expect(resumo.semComparacao).toBe(22);
   });
 });
 

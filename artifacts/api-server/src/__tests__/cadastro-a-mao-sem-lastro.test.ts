@@ -206,7 +206,7 @@ describe.skipIf(!temBanco)("o cadastro à mão, sem lastro nenhum", () => {
       /* Sem lastro documental: o acervo não sustenta nenhuma linha. */
       expect(c.cadastro.estado).toBe("SEM_LASTRO");
       expect(c.cadastro.comLastro).toBe(0);
-      expect(c.cadastro.linhas).toBe(30);
+      expect(c.cadastro.linhas).toBe(33);
       /*
         E o denominador honesto do lastro é onze, não trinta: as outras
         dezenove não esperam arquivo nenhum. Ver `procedencia-das-linhas`.
@@ -357,9 +357,9 @@ describe.skipIf(!temBanco)("o cadastro à mão, sem lastro nenhum", () => {
    * como zero. É a diferença entre "faltou digitar" e "falta o que o contrato
    * lê".
    */
-  it("das trinta linhas, só as vinte obrigatórias travam o contrato", () => {
+  it("das trinta e três linhas, só as vinte obrigatórias travam o contrato", () => {
     const todas = BLOCOS_DO_CADASTRO.flatMap((b) => b.linhas.map((l) => l.chave));
-    expect(todas).toHaveLength(30);
+    expect(todas).toHaveLength(33);
 
     const travam = todas.filter((ausente) => {
       const valores = new Map(ABA.filter(([c]) => c !== ausente));

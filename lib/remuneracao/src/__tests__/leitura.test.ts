@@ -276,7 +276,7 @@ describe("as duas quinzenas lado a lado", () => {
 
     expect(par.esquerda.effectiveDate).toBe(ANTERIOR);
     expect(par.direita.effectiveDate).toBe(VIGENCIA);
-    expect(par.blocos.flatMap((b) => b.linhas)).toHaveLength(30);
+    expect(par.blocos.flatMap((b) => b.linhas)).toHaveLength(33);
   });
 
   /*
