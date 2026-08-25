@@ -1,10 +1,11 @@
+import { useState } from "react";
 import { Link } from "wouter";
-import { ChevronRight, Layers, TriangleAlert } from "lucide-react";
+import { ChevronDown, ChevronRight, Layers, TriangleAlert } from "lucide-react";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import { formatBrlShort, periodicitySuffix } from "@/lib/format";
 import { linkDeAlteracoes, type Recorte } from "@/lib/recorte";
-import type { Movimentos } from "@/lib/analise";
+import type { Movimentos, RangeEntry } from "@/lib/analise";
 
 /**
  * A gaveta dos números do intervalo — o mesmo endereço que `DetalheDoImpacto`
@@ -82,7 +83,10 @@ function DetalheDoParametro({
   const valor = rollup?.impact.byPeriodicity[periodicidade] ?? 0;
   const negativo = valor < 0;
 
-  const porVigencia = new Map<string, { label: string; valor: number; changes: number }>();
+  const porVigencia = new Map<
+    string,
+    { label: string; valor: number; changes: number; entradas: RangeEntry[] }
+  >();
   let semPreco = 0;
   for (const entrada of entradas) {
     if (entrada.amount === null) {
@@ -93,9 +97,11 @@ function DetalheDoParametro({
       label: entrada.periodLabel,
       valor: 0,
       changes: 0,
+      entradas: [],
     };
     atual.valor += entrada.amount;
     atual.changes += 1;
+    atual.entradas.push(entrada);
     porVigencia.set(entrada.period, atual);
   }
   const linhas = [...porVigencia.entries()].sort(([a], [b]) => a.localeCompare(b));
@@ -137,35 +143,15 @@ function DetalheDoParametro({
           </h3>
           <div className="mt-3 space-y-1.5">
             {linhas.map(([period, linha]) => (
-              <Link
+              <LinhaDaVigencia
                 key={period}
-                href={linkDeAlteracoes({
-                  recorte: { ...recorteBase, period },
-                  filtros: attributeCode ? { attributeCode } : {},
-                })}
-                aria-label={`Ver as alterações de ${rollup?.parameterName ?? "este parâmetro"} em ${linha.label}`}
-                title="Ver as alterações desta vigência"
-                className="grid grid-cols-[7rem_1fr_7rem] items-center gap-3 text-sm rounded px-1 -mx-1 hover:bg-accent transition-colors"
-              >
-                <span className="truncate text-muted-foreground">{linha.label}</span>
-                <span className="h-2 w-full block overflow-hidden rounded-full bg-muted">
-                  <span
-                    className={cn(
-                      "block h-full rounded-full",
-                      linha.valor < 0 ? "bg-red-600" : "bg-emerald-600",
-                    )}
-                    style={{ width: `${Math.max(4, (Math.abs(linha.valor) / teto) * 100)}%` }}
-                  />
-                </span>
-                <span
-                  className={cn(
-                    "text-right tabular-nums text-xs font-semibold",
-                    linha.valor < 0 ? "text-red-700" : "text-emerald-700",
-                  )}
-                >
-                  {formatBrlShort(linha.valor)}
-                </span>
-              </Link>
+                period={period}
+                linha={linha}
+                teto={teto}
+                recorteBase={recorteBase}
+                attributeCode={attributeCode}
+                parameterName={rollup?.parameterName ?? null}
+              />
             ))}
           </div>
         </section>
@@ -181,6 +167,112 @@ function DetalheDoParametro({
         )}
       </div>
     </>
+  );
+}
+
+/**
+ * Uma vigência da lista "Por vigência" — a barra de sempre, e por baixo dela
+ * os veículos/equipamentos que compõem o valor daquele mês, um por grupo.
+ *
+ * O clique na barra continua abrindo a Planilha filtrada, como sempre; o
+ * chevron é quem abre e fecha a relação, para não obrigar quem só quer
+ * comparar meses a rolar por uma lista de placas que não pediu.
+ */
+function LinhaDaVigencia({
+  period,
+  linha,
+  teto,
+  recorteBase,
+  attributeCode,
+  parameterName,
+}: {
+  period: string;
+  linha: { label: string; valor: number; changes: number; entradas: RangeEntry[] };
+  teto: number;
+  recorteBase: Recorte;
+  attributeCode: string | null;
+  parameterName: string | null;
+}) {
+  const [aberto, setAberto] = useState(false);
+  const grupos = [...linha.entradas].sort(
+    (a, b) => Math.abs((b.amount ?? 0)) - Math.abs((a.amount ?? 0)),
+  );
+
+  return (
+    <div className="rounded hover:bg-accent/60 transition-colors">
+      <div className="grid grid-cols-[1.25rem_7rem_1fr_7rem] items-center gap-2 text-sm">
+        <button
+          type="button"
+          onClick={() => setAberto(!aberto)}
+          aria-label={aberto ? "Recolher veículos e equipamentos" : "Ver veículos e equipamentos"}
+          className="text-muted-foreground hover:text-foreground"
+        >
+          {aberto ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+        </button>
+        <Link
+          href={linkDeAlteracoes({
+            recorte: { ...recorteBase, period },
+            filtros: attributeCode ? { attributeCode } : {},
+          })}
+          aria-label={`Ver as alterações de ${parameterName ?? "este parâmetro"} em ${linha.label}`}
+          title="Ver as alterações desta vigência"
+          className="col-span-2 grid items-center gap-3 px-1 -mx-1 py-1 rounded hover:bg-accent transition-colors"
+          style={{ gridTemplateColumns: "1fr 7rem" }}
+        >
+          <span className="truncate text-muted-foreground">{linha.label}</span>
+          <span className="h-2 w-full block overflow-hidden rounded-full bg-muted">
+            <span
+              className={cn(
+                "block h-full rounded-full",
+                linha.valor < 0 ? "bg-red-600" : "bg-emerald-600",
+              )}
+              style={{ width: `${Math.max(4, (Math.abs(linha.valor) / teto) * 100)}%` }}
+            />
+          </span>
+        </Link>
+        <span
+          className={cn(
+            "text-right tabular-nums text-xs font-semibold",
+            linha.valor < 0 ? "text-red-700" : "text-emerald-700",
+          )}
+        >
+          {formatBrlShort(linha.valor)}
+        </span>
+      </div>
+
+      {aberto && (
+        <div className="pl-6 pb-2 space-y-1">
+          {grupos.length === 0 ? (
+            <p className="text-xs text-muted-foreground py-1">
+              Nenhum veículo ou equipamento apurado nesta vigência.
+            </p>
+          ) : (
+            grupos.map((grupo) => (
+              <div
+                key={grupo.key}
+                className="grid grid-cols-[1fr_5rem_6rem] items-center gap-3 text-xs py-1 border-t first:border-t-0"
+              >
+                <span className="min-w-0 truncate">
+                  <span className="font-medium text-foreground">{grupo.title}</span>
+                  <span className="text-muted-foreground"> — {grupo.equipment}</span>
+                </span>
+                <span className="text-muted-foreground text-right">
+                  {contar(grupo.vehicles, "veículo", "veículos")}
+                </span>
+                <span
+                  className={cn(
+                    "text-right tabular-nums font-semibold",
+                    (grupo.amount ?? 0) < 0 ? "text-red-700" : "text-emerald-700",
+                  )}
+                >
+                  {grupo.amount !== null ? formatBrlShort(grupo.amount) : "—"}
+                </span>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
