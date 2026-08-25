@@ -860,9 +860,16 @@ function AlcanceDoFechamento() {
  * A unidade, o canal e a vigência mais recente da seleção aberta.
  *
  * Lê `/contexts` — as unidades e canais que **já entregaram vigência**, não uma
- * lista de cadastro. Trocar a seleção leva a Parâmetros com `scopeHash` e
- * `canal` na URL, que é a tela que de fato filtra por eles; mandar para
- * qualquer outra faria o seletor mudar de rótulo sem mudar um número sequer.
+ * lista de cadastro. Trocar a seleção preserva a tela em que a pessoa está,
+ * quando ela sabe ler `scopeHash`/`canal` da própria URL (ver
+ * `TELAS_QUE_HONRAM_ESCOPO`); fora dessa lista, cai em Parâmetros, que é a
+ * garantia de sempre — a única tela que nunca deixa o par passar batido.
+ *
+ * Antes disso caía sempre em Parâmetros, mesmo saindo do Resumo executivo, que
+ * já lê os dois parâmetros havia tempo (`pages/inicio.tsx`): o comentário que
+ * justificava o destino fixo não tinha sido revisado quando essa leitura foi
+ * adicionada lá, e quem trocava de unidade no Resumo executivo era jogado para
+ * outra tela sem pedir.
  *
  * Com um contexto só, o campo não vira seletor: fica um cartão que informa. Um
  * menu de uma opção é uma promessa de variedade que o dado não tem — e obriga
@@ -870,6 +877,7 @@ function AlcanceDoFechamento() {
  */
 function UnidadeAberta() {
   const search = useSearch();
+  const [pathname] = useLocation();
   // A mesma consulta única de `lib/contextos.ts` — ver `UnidadeNaFaixa`.
   const { contextos, carregando, indisponivel } = useContextosDaCasca();
   /*
@@ -932,7 +940,7 @@ function UnidadeAberta() {
             <DropdownMenuSeparator />
             {contextos.map((contexto) => (
               <DropdownMenuItem key={`${contexto.scopeHash}|${contexto.channel ?? ""}`} asChild>
-                <Link href={enderecoDe(contexto)} className="flex flex-col items-start gap-0.5">
+                <Link href={enderecoDe(contexto, pathname)} className="flex flex-col items-start gap-0.5">
                   <span className="font-semibold">{unidadeDe(contexto)}</span>
                   <span className="text-xs text-muted-foreground">{detalheDe(contexto)}</span>
                 </Link>
@@ -1033,10 +1041,31 @@ export function detalheDe(contexto: Contexto): string {
   return `${canalDe(contexto)} · ${mesAbreviado(contexto.latestPeriod)}`;
 }
 
-function enderecoDe(contexto: Contexto): string {
+/**
+ * As telas, fora de Parâmetros, que já leem `scopeHash`/`canal` da própria
+ * URL — trocar de unidade nelas troca só o dado, sem trocar de tela.
+ *
+ * Deliberadamente uma lista fechada, e não "qualquer rota da Auditoria": uma
+ * tela de detalhe de um ativo específico (`/composicao/:id`, `/dre/:id`) não
+ * entra, porque o ativo da URL é de outra unidade e preservar o caminho
+ * levaria a um erro 404 ou a uma ficha errada — para essas, Parâmetros
+ * continua sendo o destino seguro.
+ */
+const TELAS_QUE_HONRAM_ESCOPO = new Set<string>([
+  RESUMO_EXECUTIVO,
+  "/vigencia",
+  "/qlp-administrativo",
+  "/remunerado",
+  "/visao-gerencial",
+  "/dre",
+  "/composicao",
+]);
+
+function enderecoDe(contexto: Contexto, pathnameAtual: string): string {
   const query = new URLSearchParams({ scopeHash: contexto.scopeHash });
   if (contexto.channel !== null) query.set("canal", contexto.channel);
-  return `/parametros?${query}`;
+  const destino = TELAS_QUE_HONRAM_ESCOPO.has(pathnameAtual) ? pathnameAtual : "/parametros";
+  return `${destino}?${query}`;
 }
 
 const MESES = [
