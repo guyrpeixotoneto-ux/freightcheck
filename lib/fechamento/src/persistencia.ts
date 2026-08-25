@@ -75,7 +75,7 @@ import {
   lerDisponibilidade,
   type DescontoDeDisponibilidadeDoMes,
 } from "./leitores/disponibilidade";
-import { lerConciliacao } from "./leitores/conciliacao";
+import { lerConciliacao, type ItemDaConciliacao } from "./leitores/conciliacao";
 import { lerFrotaPromax, type VeiculoDaFrotaPromax } from "./leitores/frota-promax";
 import {
   compararFrotaPromaxContraContrato,
@@ -85,6 +85,7 @@ import {
   lerPagamento,
   vbzsCitadasNoRotulo,
   type BlocoDoPagamento,
+  type ItemDePagamento,
   type TipoDeDescontoDoPagamento,
 } from "./leitores/pagamento";
 import { verbaDe, verbaDesconhecida, type Verba } from "./verbas";
@@ -3919,6 +3920,80 @@ export async function lerDeParaDaCompetencia(
     },
     opcoes,
   );
+}
+
+/**
+ * As verbas do 03.08.20 desta competência, como o arquivo as declarou.
+ *
+ * **Não é a apuração.** {@link lerDeParaDaCompetencia} usa a mesma tabela para
+ * montar o painel contra o `RESUMO`, e `apuracao.ts` usa o CT-e para chegar ao
+ * `esperado`/`diferenca` de cada verba — as duas já respondem "quanto
+ * deveria ser". Esta função responde só "o que o demonstrativo diz", linha a
+ * linha, nas seis colunas que ele abre: é o mesmo relatório que quem fecha a
+ * quinzena tem na tela ao lado, e mostrá-lo aqui evita o vaivém entre as duas.
+ *
+ * Vazio quando não há verba gravada — e não um convite a interpretar ausência
+ * como zero: quem chama decide o que dizer sobre a lista vazia.
+ */
+export async function lerItensDoPagamentoDaCompetencia(
+  db: Database,
+  competenciaId: string,
+): Promise<ItemDePagamento[]> {
+  const itens = await db
+    .select()
+    .from(fechamentoPagamentoItemTable)
+    .where(eq(fechamentoPagamentoItemTable.competenciaId, competenciaId));
+
+  const numero = (v: string | null) => (v == null ? 0 : Number(v));
+
+  return itens
+    .map((i) => ({
+      linha: i.linhaNoArquivo,
+      canal: i.canal as Canal,
+      bloco: i.bloco as BlocoDoPagamento,
+      verba: verbaGravada(i.vbz, i.canal as Canal, i.nomeNoArquivo),
+      nomeNoArquivo: i.nomeNoArquivo,
+      semImposto: numero(i.semImposto),
+      nfIss: numero(i.nfIss),
+      ctrcIcms: numero(i.ctrcIcms),
+      valorFaturado: numero(i.valorFaturado),
+      vlcNfIss: numero(i.vlcNfIss),
+      vlcCtrcIcms: numero(i.vlcCtrcIcms),
+    }))
+    .sort((a, b) => a.linha - b.linha);
+}
+
+/**
+ * As linhas do 03.02.59.02 desta competência, como o arquivo as declarou.
+ *
+ * O mesmo espírito de {@link lerItensDoPagamentoDaCompetencia}: não é a
+ * apuração — é o relatório, linha a linha (seção, bloco, rubrica, e em qual
+ * das duas colunas o número apareceu), para mostrar sem reabrir o arquivo.
+ * Os avisos do rodapé (bloco `"AVISO"`) ficam de fora: não são linha de
+ * valor, são frase solta — quem quiser os dois lados continua tendo
+ * `lerConciliacao` sobre os bytes guardados.
+ */
+export async function lerItensDaConciliacaoDaCompetencia(
+  db: Database,
+  competenciaId: string,
+): Promise<ItemDaConciliacao[]> {
+  const linhas = await db
+    .select()
+    .from(fechamentoConciliacaoItemTable)
+    .where(eq(fechamentoConciliacaoItemTable.competenciaId, competenciaId));
+
+  return linhas
+    .filter((i) => i.bloco !== "AVISO")
+    .map((i) => ({
+      linha: i.linhaNoArquivo,
+      secao: i.secao as Canal | "GERAL",
+      bloco: i.bloco ?? "",
+      rubrica: i.rubrica,
+      conciliado: (i.conciliado as "S" | "N" | null) ?? null,
+      emitido: i.emitido == null ? null : Number(i.emitido),
+      calculado: i.calculado == null ? null : Number(i.calculado),
+    }))
+    .sort((a, b) => a.linha - b.linha);
 }
 
 /**
