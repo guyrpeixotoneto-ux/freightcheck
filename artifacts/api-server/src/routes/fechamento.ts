@@ -50,10 +50,12 @@ import {
   QUINZENAS_DA_FONTE,
   QUINZENAS_OPCIONAIS_DA_FONTE,
   TIPOS_DE_FONTE,
+  TIPOS_DE_FROTA_PROMAX,
   type Canal,
   type ColunaDoPagamento,
   type TipoDeFonte,
 } from "@workspace/fechamento";
+import { ehMimeDeImagem, lerGradeDaImagem } from "@workspace/assistant";
 /*
   A guarda da régua entra por um caminho próprio, e não pela raiz do pacote,
   pela mesma razão de `persistencia`: quem só quer os tipos não arrasta o banco
@@ -843,6 +845,77 @@ router.post("/fechamento/competencias/:id/documentos", async (req, res): Promise
     }
     throw erro;
   }
+});
+
+/** O que a imagem de cada tela do Promax pergunta ao modelo, sem catálogo. */
+const CONTEXTO_DA_LEITURA: Partial<Record<TipoDeFonte, string>> = {
+  FROTA_PROMAX_ATIVA:
+    "Tela do Promax 01.22.02.00 — a frota ativa, partida em colunas por categoria de veículo " +
+    "(por exemplo Padrão, Fixo, MKT, Refrigeração, Especial, Noturna, Recarga), com linhas de " +
+    "quantidade e de custo por categoria.",
+  FROTA_PROMAX_INATIVA:
+    "Tela do Promax 01.22.08.00 — a frota inativa, partida em colunas por tipo de titularidade " +
+    "(por exemplo Quitado, Finame, Ambev, Total), com linhas de quantidade e de custo.",
+};
+
+/**
+ * Lê uma imagem da tela do Promax e devolve o que ela mostra — sem gravar nada.
+ *
+ * **É rascunho para bater o olho, não fonte da apuração.** O relatório
+ * `.xlsx`/`.csv` continua sendo o que a etapa 2 do roteiro consome — ele lê
+ * placa a placa, e é disso que `compararFrotaDaCompetencia` precisa para
+ * contar veículo distinto. A tela do Promax que se fotografa aqui mostra só
+ * totais por categoria, sem placa nenhuma: não há como esta leitura virar
+ * aquele arquivo. O que ela serve é a pergunta mais simples — "os totais que
+ * a tela mostra batem com o que o contrato diz?" — para alguém responder
+ * olhando os dois lado a lado.
+ *
+ * **Sem catálogo de colunas.** Ao contrário da leitura de imagem de
+ * Remuneração, não há um enum de categorias esperadas: o produto ainda não
+ * sabe se "Padrão" da tela do Promax é a mesma coisa que "Frota Ativa" do
+ * contrato (ver o TODO em `TipoDeFonte`, em `@workspace/fechamento`). A
+ * leitura devolve linha e coluna como a imagem as escreve, e a tela apresenta
+ * os dois lados sem afirmar a correspondência entre eles.
+ *
+ * Restrita às duas fontes da frota Promax: são as únicas cuja tela oficial é
+ * este tipo de grade por categoria.
+ */
+router.post("/fechamento/documentos/leitura-de-imagem", async (req, res): Promise<void> => {
+  const corpo = (req.body ?? {}) as Record<string, unknown>;
+  const tipo =
+    typeof corpo.tipo === "string" ? (corpo.tipo.trim().toUpperCase() as TipoDeFonte) : null;
+  if (!tipo || !TIPOS_DE_FROTA_PROMAX.includes(tipo)) {
+    res.status(400).json({
+      error: `tipo é obrigatório e precisa ser um de: ${TIPOS_DE_FROTA_PROMAX.join(", ")} — são as únicas fontes cuja tela é lida por imagem.`,
+    });
+    return;
+  }
+
+  const mimeType = corpo.mimeType;
+  const dados =
+    typeof corpo.imagem === "string" ? corpo.imagem.replace(/^data:[^,]*,/, "").trim() : "";
+
+  if (!ehMimeDeImagem(mimeType)) {
+    res.status(400).json({
+      error:
+        "mimeType precisa ser image/png, image/jpeg, image/webp ou image/gif — são os " +
+        "formatos que a leitura enxerga.",
+    });
+    return;
+  }
+  if (dados === "") {
+    res.status(400).json({
+      error: "imagem é obrigatória e vem em base64 — é o print da tela.",
+    });
+    return;
+  }
+
+  const leitura = await lerGradeDaImagem({
+    imagem: { mimeType, dados },
+    contexto: CONTEXTO_DA_LEITURA[tipo]!,
+  });
+
+  res.json(leitura);
 });
 
 /**
