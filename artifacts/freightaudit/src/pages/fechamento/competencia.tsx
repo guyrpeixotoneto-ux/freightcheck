@@ -2127,8 +2127,18 @@ function DentroDaEtapa({
   );
 }
 
-/** O total declarado contra o calculado, por canal — a conferência da `0057`. */
+/**
+ * O total declarado contra o calculado, por canal — a conferência da `0057`.
+ *
+ * **Só o canal Rota aparece aqui.** Este é o painel do Fechamento Rota, e o
+ * AS — que é dinheiro real, da área de serviço, e continua gravado e apurado
+ * por inteiro — só confunde a conferência de quem está fechando a Rota. Filtrar
+ * é só da tela: `totais.canais` continua trazendo os dois, e o AS não some do
+ * banco nem da apuração, só deixa de competir por espaço numa etapa que não é
+ * a dele.
+ */
 function TotaisDoPagamentoNaEtapa({ totais }: { totais: TotaisDoPagamento }) {
+  const canais = totais.canais.filter((c) => c.canal === "ROTA");
   return (
     <div className="rounded-md border p-3">
       <p className="text-xs font-medium">
@@ -2144,7 +2154,7 @@ function TotaisDoPagamentoNaEtapa({ totais }: { totais: TotaisDoPagamento }) {
           </tr>
         </thead>
         <tbody>
-          {totais.canais.map((c) => (
+          {canais.map((c) => (
             <tr key={c.canal} className="border-t">
               <td className="py-1 pr-4">{c.canal}</td>
               <td className="py-1 pr-4 text-right tabular-nums">
@@ -2183,7 +2193,7 @@ function TotaisDoPagamentoNaEtapa({ totais }: { totais: TotaisDoPagamento }) {
         ser guardado, e o número não existe em lugar nenhum. Dizer isso por
         extenso é o que separa "não dá para conferir" de "conferido".
       */}
-      {totais.canais.some((c) => c.declarado === null) && (
+      {canais.some((c) => c.declarado === null) && (
         <p className="text-xs text-muted-foreground mt-2 max-w-2xl">
           Total declarado não disponível neste documento — ele foi importado
           antes de o sistema passar a guardar o número que o relatório assina.
@@ -2210,19 +2220,67 @@ function VerbaAVerbaDoPagamento({ competenciaId }: { competenciaId: string }) {
   const itens = data?.itens ?? [];
   if (itens.length === 0) return null;
 
-  const canais = [...new Set(itens.map((i) => i.canal))];
+  /*
+    Só o canal Rota entra nesta etapa. O AS é dinheiro real — continua gravado,
+    continua na apuração — mas esta é a etapa 4 do Fechamento Rota, e misturar
+    os dois canais aqui só torna a conferência de quem está fechando a Rota
+    mais difícil de ler.
+  */
+  const itensDaRota = itens.filter((i) => i.canal === "ROTA");
+  if (itensDaRota.length === 0) return null;
 
   return (
     <div className="space-y-3">
-      {canais.map((canal) => (
-        <GradeDoPagamentoPorCanal
-          key={canal}
-          canal={canal}
-          itens={itens.filter((i) => i.canal === canal)}
-        />
-      ))}
+      <GradeDoPagamentoPorCanal canal="ROTA" itens={itensDaRota} />
     </div>
   );
+}
+
+/**
+ * Linhas do mesmo bloco cujas seis colunas — e a VBZ — são idênticas, byte a
+ * byte, mas vieram de linhas físicas diferentes do arquivo.
+ *
+ * **Por que isto não é resolvido calado.** Uma VBZ pode legitimamente repetir
+ * dentro do mesmo canal — mas em blocos diferentes (Frete e Outros Custos, ver
+ * `ctrcPorVerba` em `leitores/pagamento.ts`), e com valores que normalmente
+ * discordam, porque nascem de origens diferentes. Duas linhas no **mesmo**
+ * bloco com os **mesmos** seis valores é outra coisa: ou o 03.08.20 realmente
+ * trouxe a verba duas vezes (e a Ambev precisa confirmar isso), ou o arquivo
+ * saiu do exportador com uma seção repetida. Este módulo não decide qual dos
+ * dois é — só aponta as linhas físicas, para que quem fecha a quinzena julgue
+ * com o arquivo original ao lado.
+ */
+function linhasPossivelmenteDuplicadas(
+  itens: ItemDePagamento[],
+): { vbz: number; nome: string; linhas: number[] }[] {
+  const grupos = new Map<string, ItemDePagamento[]>();
+  for (const item of itens) {
+    const chave = [
+      item.bloco,
+      item.verba.vbz,
+      item.semImposto,
+      item.nfIss,
+      item.ctrcIcms,
+      item.valorFaturado,
+      item.vlcNfIss,
+      item.vlcCtrcIcms,
+    ].join("|");
+    const grupo = grupos.get(chave);
+    if (grupo) grupo.push(item);
+    else grupos.set(chave, [item]);
+  }
+
+  const achados: { vbz: number; nome: string; linhas: number[] }[] = [];
+  for (const grupo of grupos.values()) {
+    if (grupo.length < 2) continue;
+    const [primeiro] = grupo;
+    achados.push({
+      vbz: primeiro.verba.vbz,
+      nome: primeiro.nomeNoArquivo,
+      linhas: grupo.map((i) => i.linha),
+    });
+  }
+  return achados.sort((a, b) => a.vbz - b.vbz);
 }
 
 const CAMPOS_DO_PAGAMENTO = [
@@ -2247,11 +2305,34 @@ function GradeDoPagamentoPorCanal({
   canal: string;
   itens: ItemDePagamento[];
 }) {
+  const duplicadas = linhasPossivelmenteDuplicadas(itens);
   return (
     <div className="rounded-md border p-3">
       <p className="text-xs font-medium">
         Verbas do 03.08.20 — {canal}
       </p>
+      {duplicadas.length > 0 && (
+        <div className="mt-1.5 rounded-md bg-amber-500/5 border border-amber-500/20 p-2">
+          <p className="text-xs font-medium text-amber-700 dark:text-amber-400">
+            {duplicadas.length === 1
+              ? "Uma verba aparece repetida com os mesmos valores"
+              : `${duplicadas.length} verbas aparecem repetidas com os mesmos valores`}
+          </p>
+          <ul className="mt-1 space-y-0.5">
+            {duplicadas.map((d) => (
+              <li key={d.vbz} className="text-xs text-muted-foreground">
+                {String(d.vbz).padStart(2, "0")} - {d.nome}: linhas{" "}
+                {d.linhas.join(", ")} do arquivo
+              </li>
+            ))}
+          </ul>
+          <p className="text-xs text-muted-foreground/80 mt-1 max-w-2xl">
+            Pode ser o 03.08.20 trazendo a verba duas vezes de fato, ou o
+            arquivo exportado com a seção repetida. Confira as linhas
+            apontadas no arquivo original antes de fechar.
+          </p>
+        </div>
+      )}
       {BLOCOS_DO_PAGAMENTO.map(({ titulo, chave }) => {
         const doBloco = itens
           .filter((i) => i.bloco === chave)
