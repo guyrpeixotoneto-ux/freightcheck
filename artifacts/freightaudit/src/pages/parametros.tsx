@@ -548,8 +548,6 @@ export default function Parametros() {
               <>
             {data && <Ladrilhos view={data} />}
 
-            <FaixaVisaoGeral onAbrir={() => abrirCartao(CHAVE_VISAO_GERAL)} />
-
             {data && !data.complete && <VisaoParcial view={data} />}
 
             <AbasDeVista
@@ -941,39 +939,6 @@ function AbasDeVista({
         count={cartoes}
       />
     </div>
-  );
-}
-
-/**
- * A porta da visão geral.
- *
- * Faixa, e não mais um cartão na grade: ela não é gaveta de assunto nenhum, e
- * um cartão do mesmo tamanho dos outros a faria disputar atenção com CAVALO e
- * CARRETA em vez de anteceder os dois. É o primeiro degrau da hierarquia —
- * VISÃO GERAL → ESCOPO → ATRIBUTO → VEÍCULO → EVIDÊNCIA — e fica onde a leitura
- * começa, acima das duas abas, porque ela antecede as duas.
- */
-function FaixaVisaoGeral({ onAbrir }: { onAbrir: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onAbrir}
-      className="mt-4 w-full flex items-center gap-4 rounded-xl border bg-card shadow-sm px-5 py-4 text-left transition-all hover:shadow-md hover:border-brand/40"
-    >
-      <div className="h-12 w-12 rounded-xl bg-blue-50 text-blue-600 grid place-content-center shrink-0">
-        <Wallet className="w-6 h-6" />
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="font-bold tracking-tight">Remuneração total</div>
-        <p className="text-sm text-muted-foreground">
-          Todos os parâmetros somados num intervalo: quanto perdemos, quanto ganhamos, onde
-          pesou, quando aconteceu, o que foi revertido e quanto ainda está sem preço.
-        </p>
-      </div>
-      <span className="text-sm font-medium text-brand shrink-0 inline-flex items-center gap-1">
-        Abrir <ChevronRight className="w-4 h-4" />
-      </span>
-    </button>
   );
 }
 
