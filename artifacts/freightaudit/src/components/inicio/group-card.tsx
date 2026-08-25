@@ -169,6 +169,20 @@ export function BeforeAfter({ group }: { group: ChangeGroup }) {
   const a = group.aggregate;
 
   if (a.summable && a.totalBefore !== null && a.totalAfter !== null) {
+    // O total é uma soma em reais, não uma média — um único veículo com
+    // variação grande o bastante pode virar o sinal do total mesmo quando
+    // todos os outros caminharam na direção oposta. Quando isso acontece, o
+    // "+59,8%" do topo e a tabela de veículos (todos em queda) parecem se
+    // contradizer. Não é contradição, é dispersão escondida — então ela
+    // precisa aparecer aqui, e não só na tabela de baixo.
+    const puxadoPorOutlier =
+      a.deltaPercent !== null &&
+      a.minPercent !== null &&
+      a.maxPercent !== null &&
+      Math.sign(a.minPercent) === Math.sign(a.maxPercent) &&
+      Math.sign(a.minPercent) !== 0 &&
+      Math.sign(a.minPercent) !== Math.sign(a.deltaPercent);
+
     return (
       <span className="tabular-nums">
         <span className="font-mono">{formatValue(a.totalBefore, group.unit)}</span>
@@ -182,6 +196,12 @@ export function BeforeAfter({ group }: { group: ChangeGroup }) {
             )}
           >
             {formatPercent(a.deltaPercent)}
+          </span>
+        )}
+        {puxadoPorOutlier && (
+          <span className="block text-xs font-normal text-amber-800 mt-0.5">
+            total puxado por um veículo fora da curva — nos demais a variação foi de{" "}
+            {formatPercent(a.minPercent!)} a {formatPercent(a.maxPercent!)}
           </span>
         )}
       </span>
