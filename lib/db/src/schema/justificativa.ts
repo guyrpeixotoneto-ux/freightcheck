@@ -1,15 +1,18 @@
-import { pgTable, text, uuid, timestamp, index } from "drizzle-orm/pg-core";
-import { changeSetTable } from "./comparison";
+import { pgTable, text, uuid, bigint, timestamp, index } from "drizzle-orm/pg-core";
+import { changeSetTable, changeTable } from "./comparison";
 
 /**
- * Plano de Ação — a justificativa que o gestor escreve sobre o que mudou numa
- * placa, entre uma vigência e a seguinte.
+ * Plano de Ação — a justificativa que o gestor escreve sobre uma alteração
+ * específica, entre uma vigência e a seguinte.
  *
- * Uma linha por placa justificada dentro de uma comparação (`change_set_id`):
- * `entity_label` é a mesma placa que `change.entity_label` já usa, então a
- * tela de Justificativas não precisa de identidade própria para o ativo.
- * Justificar de novo a mesma placa na mesma comparação grava uma linha nova —
- * é histórico, não edição —, e a tela lê sempre a mais recente.
+ * Uma linha por alteração justificada (`change_id`) dentro de uma comparação
+ * (`change_set_id`) — não por placa: uma placa com várias alterações pode ter
+ * cada uma justificada separadamente, ou todas de uma vez pela tela (que
+ * ainda agrupa por placa para navegação). `entity_label`/`entity_type` vêm
+ * denormalizados de `change` no momento do insert, pelo mesmo motivo que
+ * `change` já denormaliza os dela: a tela lista sem precisar de join.
+ * Justificar de novo a mesma alteração grava uma linha nova — é histórico,
+ * não edição —, e a tela lê sempre a mais recente.
  */
 export const justificativaTable = pgTable(
   "justificativa",
@@ -18,6 +21,9 @@ export const justificativaTable = pgTable(
     changeSetId: uuid("change_set_id")
       .notNull()
       .references(() => changeSetTable.id, { onDelete: "cascade" }),
+    changeId: bigint("change_id", { mode: "number" })
+      .notNull()
+      .references(() => changeTable.id, { onDelete: "cascade" }),
     entityLabel: text("entity_label").notNull(),
     entityType: text("entity_type"),
     texto: text("texto").notNull(),
@@ -27,6 +33,6 @@ export const justificativaTable = pgTable(
   },
   (t) => [
     index("justificativa_change_set_idx").on(t.changeSetId),
-    index("justificativa_entity_label_idx").on(t.entityLabel),
+    index("justificativa_change_id_idx").on(t.changeId),
   ],
 );
