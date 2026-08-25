@@ -89,6 +89,7 @@ import {
   type TipoDeDescontoDoPagamento,
 } from "./leitores/pagamento";
 import { verbaDe, verbaDesconhecida, type Verba } from "./verbas";
+import { consolidarDuplicatasExatas } from "./duplicatas";
 
 /**
  * A ponte entre o motor e o banco.
@@ -3075,21 +3076,28 @@ function outrosCustosDaQuinzena(
  * como o relatório fecha o próprio total. Devolve `null` quando o 03.08.20 não
  * foi importado, e não uma lista vazia: lista vazia diria "o demonstrativo diz
  * zero", que é outra afirmação.
+ *
+ * **Passa por `consolidarDuplicatasExatas` antes de somar.** Quando o arquivo
+ * traz a mesma linha duas vezes — byte a byte, o caso que `pagamento-por-canal`
+ * já detecta e reduz a uma ocorrência para a tela "Verbas" —, somar direto do
+ * banco contava a verba em dobro: o `calculado` inflava sem o `declarado` do
+ * rodapé se mover junto, e a etapa 4 acusava uma diferença que não existia. A
+ * tela de baixo e este total agora deduplicam do mesmo jeito, e é por isso que
+ * lê a lista de itens em vez de agregar em SQL.
  */
 async function somarDemonstrativo(
   db: Database,
   competenciaId: string,
 ): Promise<{ canal: Canal; total: number }[] | null> {
-  const linhas = await db
-    .select({
-      canal: fechamentoPagamentoItemTable.canal,
-      total: sql<string>`sum(${fechamentoPagamentoItemTable.valorFaturado})`,
-    })
-    .from(fechamentoPagamentoItemTable)
-    .where(eq(fechamentoPagamentoItemTable.competenciaId, competenciaId))
-    .groupBy(fechamentoPagamentoItemTable.canal);
-  if (linhas.length === 0) return null;
-  return linhas.map((l) => ({ canal: l.canal as Canal, total: Number(l.total ?? 0) }));
+  const itens = await lerItensDoPagamentoDaCompetencia(db, competenciaId);
+  if (itens.length === 0) return null;
+
+  const { itens: semDuplicatas } = consolidarDuplicatasExatas(itens);
+  const porCanal = new Map<Canal, number>();
+  for (const item of semDuplicatas) {
+    porCanal.set(item.canal, (porCanal.get(item.canal) ?? 0) + item.valorFaturado);
+  }
+  return [...porCanal.entries()].map(([canal, total]) => ({ canal, total: centavos(total) }));
 }
 
 /**
