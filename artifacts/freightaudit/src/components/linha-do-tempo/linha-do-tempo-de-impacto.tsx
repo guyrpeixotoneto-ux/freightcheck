@@ -1,8 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "wouter";
 import { ChartNoAxesCombined } from "lucide-react";
 import { fetchJsonOrNull } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { formatBrlShort, periodicitySuffix } from "@/lib/format";
+import { linkDeAlteracoes, type Recorte } from "@/lib/recorte";
 import type { Movimentos, RangeMovement } from "@/lib/analise";
 
 const CARTAO = "bg-card border rounded-xl shadow-sm";
@@ -29,6 +31,14 @@ export function LinhaDoTempoDeImpacto({
 }) {
   const ordenadas = [...periods].sort((a, b) => a.date.localeCompare(b.date));
   const primeira = ordenadas[0]?.date;
+
+  // A mesma unidade e canal em toda a linha do tempo — só a vigência muda de
+  // linha para linha, e é ela que cada linha acrescenta ao clicar.
+  const recorteBase: Recorte = {
+    period: null,
+    scopeHash: consulta.get("scopeHash"),
+    canal: consulta.get("canal"),
+  };
 
   const query = new URLSearchParams(consulta);
   query.delete("period");
@@ -86,7 +96,7 @@ export function LinhaDoTempoDeImpacto({
       )}
 
       {periodicidades.length === 0 ? (
-        <ContagemPorVigencia linhas={linhas} />
+        <ContagemPorVigencia linhas={linhas} recorteBase={recorteBase} />
       ) : (
         <div className="space-y-5">
           {periodicidades.map((periodicidade) => (
@@ -94,6 +104,7 @@ export function LinhaDoTempoDeImpacto({
               key={periodicidade}
               periodicidade={periodicidade}
               linhas={linhas}
+              recorteBase={recorteBase}
             />
           ))}
         </div>
@@ -105,9 +116,11 @@ export function LinhaDoTempoDeImpacto({
 function BarraDaPeriodicidade({
   periodicidade,
   linhas,
+  recorteBase,
 }: {
   periodicidade: string;
   linhas: RangeMovement[];
+  recorteBase: Recorte;
 }) {
   const teto = Math.max(
     ...linhas.map((l) => Math.abs(l.impact.byPeriodicity[periodicidade] ?? 0)),
@@ -134,9 +147,14 @@ function BarraDaPeriodicidade({
           const largura = valor === undefined ? 0 : (Math.abs(valor) / teto) * 100;
           const destaque = maior && linha.period === maior.period && largura > 0;
           return (
-            <div
+            <Link
               key={linha.period}
-              className="grid grid-cols-[7rem_1fr_9rem_5.5rem] items-center gap-3 text-sm"
+              href={linkDeAlteracoes({
+                recorte: { ...recorteBase, period: linha.period },
+              })}
+              aria-label={`Ver as alterações de ${linha.label}`}
+              title="Ver as alterações desta vigência"
+              className="grid grid-cols-[7rem_1fr_9rem_5.5rem] items-center gap-3 text-sm rounded px-1 -mx-1 hover:bg-accent transition-colors"
             >
               <span
                 className={cn("truncate", destaque ? "font-bold" : "text-muted-foreground")}
@@ -189,7 +207,7 @@ function BarraDaPeriodicidade({
                 {linha.changes.toLocaleString("pt-BR")}{" "}
                 {linha.changes === 1 ? "alteração" : "alterações"}
               </span>
-            </div>
+            </Link>
           );
         })}
       </div>
@@ -198,7 +216,13 @@ function BarraDaPeriodicidade({
 }
 
 /** Quando nenhuma vigência do intervalo tem impacto apurado: a mesma linha do tempo, contando alterações. */
-function ContagemPorVigencia({ linhas }: { linhas: RangeMovement[] }) {
+function ContagemPorVigencia({
+  linhas,
+  recorteBase,
+}: {
+  linhas: RangeMovement[];
+  recorteBase: Recorte;
+}) {
   const teto = Math.max(...linhas.map((l) => l.changes), 1);
   const maior = linhas.reduce((a, b) => (b.changes > a.changes ? b : a), linhas[0]);
 
@@ -211,9 +235,14 @@ function ContagemPorVigencia({ linhas }: { linhas: RangeMovement[] }) {
         {linhas.map((linha) => {
           const destaque = linha.period === maior.period && maior.changes > 0;
           return (
-            <div
+            <Link
               key={linha.period}
-              className="grid grid-cols-[7rem_1fr_5.5rem] items-center gap-3 text-sm"
+              href={linkDeAlteracoes({
+                recorte: { ...recorteBase, period: linha.period },
+              })}
+              aria-label={`Ver as alterações de ${linha.label}`}
+              title="Ver as alterações desta vigência"
+              className="grid grid-cols-[7rem_1fr_5.5rem] items-center gap-3 text-sm rounded px-1 -mx-1 hover:bg-accent transition-colors"
             >
               <span
                 className={cn("truncate", destaque ? "font-bold" : "text-muted-foreground")}
@@ -229,7 +258,7 @@ function ContagemPorVigencia({ linhas }: { linhas: RangeMovement[] }) {
               <span className="text-right tabular-nums text-xs">
                 {linha.changes.toLocaleString("pt-BR")}
               </span>
-            </div>
+            </Link>
           );
         })}
       </div>

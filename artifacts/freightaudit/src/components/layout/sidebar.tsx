@@ -62,6 +62,7 @@ import {
   descricaoDoAmbiente,
   ehFechamento,
   ENTRADA_DA_AUDITORIA,
+  LINHA_DO_TEMPO,
   RESUMO_EXECUTIVO,
   type Ambiente,
 } from "@/lib/ambiente";
@@ -177,6 +178,15 @@ export const NAV_GROUPS: NavGroup[] = [
       */
       { href: ENTRADA_DA_AUDITORIA, label: "Visão Gerencial", icon: LayoutDashboard },
       { href: RESUMO_EXECUTIVO, label: "Resumo executivo", icon: House },
+      /*
+        A Linha do tempo vem logo abaixo do Resumo executivo: era um cartão
+        dentro dele ("Impacto líquido ao longo do tempo") e virou tela
+        própria, porque a pergunta que responde — como o impacto se moveu
+        vigência a vigência, e o que mudou em cada uma — é uma leitura de
+        todo o histórico, e não do instante atual que o Resumo executivo
+        mostra.
+      */
+      { href: LINHA_DO_TEMPO, label: "Linha do Tempo", icon: History },
       { href: "/vigencia", label: "Acompanhamento", icon: TrendingUp },
       /*
         A Análise de frota saiu daqui e passou a abrir a seção **Frota**, ao lado
@@ -1053,6 +1063,7 @@ export function detalheDe(contexto: Contexto): string {
  */
 const TELAS_QUE_HONRAM_ESCOPO = new Set<string>([
   RESUMO_EXECUTIVO,
+  LINHA_DO_TEMPO,
   "/vigencia",
   "/qlp-administrativo",
   "/remunerado",
