@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
-import { ArrowLeft, Pause, Play } from "lucide-react";
+import { ArrowLeft, ChevronLeft, ChevronRight, Pause, Play } from "lucide-react";
 import {
   CartesianGrid,
   Line,
@@ -74,13 +74,18 @@ export default function GestaoAVista() {
 
   const [indiceDoSlide, setIndiceDoSlide] = useState(0);
 
+  // Trocar de slide na mão reinicia a contagem até o próximo — sem isto o
+  // autoplay poderia avançar de novo poucos segundos depois de alguém já ter
+  // ido para a tela seguinte, ou voltar sozinho logo após um "anterior".
+  const [reinicioDoAutoplay, setReinicioDoAutoplay] = useState(0);
+
   useEffect(() => {
     if (!autoplay || sequencia.length <= 1) return;
     const id = setInterval(() => {
       setIndiceDoSlide((indice) => (indice + 1) % sequencia.length);
     }, intervaloSegundos * 1000);
     return () => clearInterval(id);
-  }, [autoplay, sequencia.length, intervaloSegundos]);
+  }, [autoplay, sequencia.length, intervaloSegundos, reinicioDoAutoplay]);
 
   // A volta pode encolher entre uma leitura do overview e outra (uma unidade
   // saiu da soma) — sem isto o índice ficaria apontando para um slide que não
@@ -147,6 +152,14 @@ export default function GestaoAVista() {
     navegar(texto ? `${GESTAO_A_VISTA}?${texto}` : GESTAO_A_VISTA, { replace: true });
   };
 
+  const irParaSlide = (calcularProximoIndice: (indice: number) => number) => {
+    setIndiceDoSlide(calcularProximoIndice);
+    setReinicioDoAutoplay((n) => n + 1);
+  };
+  const irParaSlideAnterior = () =>
+    irParaSlide((indice) => (indice - 1 + sequencia.length) % sequencia.length);
+  const irParaProximoSlide = () => irParaSlide((indice) => (indice + 1) % sequencia.length);
+
   const status: StatusGeral = visaoGeral
     ? overview
       ? statusDaVisaoGeral(overview)
@@ -166,6 +179,9 @@ export default function GestaoAVista() {
           status={status}
           autoplay={autoplay}
           onAlternarAutoplay={alternarAutoplay}
+          navegacaoDeSlides={autoplay && sequencia.length > 1}
+          onSlideAnterior={irParaSlideAnterior}
+          onProximoSlide={irParaProximoSlide}
         />
 
         {autoplay && sequencia.length > 1 && (
@@ -258,6 +274,9 @@ function Topo({
   status,
   autoplay,
   onAlternarAutoplay,
+  navegacaoDeSlides,
+  onSlideAnterior,
+  onProximoSlide,
 }: {
   titulo: string;
   competencia?: string | null;
@@ -266,6 +285,9 @@ function Topo({
   status: StatusGeral;
   autoplay: boolean;
   onAlternarAutoplay: () => void;
+  navegacaoDeSlides: boolean;
+  onSlideAnterior: () => void;
+  onProximoSlide: () => void;
 }) {
   return (
     <header className="flex items-center justify-between gap-6">
@@ -289,6 +311,16 @@ function Topo({
           {STATUS_LABEL[status]}
         </span>
         <Relogio atualizadaEm={atualizadaEm} />
+        {navegacaoDeSlides && (
+          <button
+            type="button"
+            onClick={onSlideAnterior}
+            title="Tela anterior"
+            className="flex items-center justify-center w-9 h-9 rounded-lg border border-slate-800 text-slate-500 hover:text-slate-200 hover:bg-slate-900 transition-colors"
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+        )}
         <button
           type="button"
           onClick={onAlternarAutoplay}
@@ -302,6 +334,16 @@ function Topo({
         >
           {autoplay ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
         </button>
+        {navegacaoDeSlides && (
+          <button
+            type="button"
+            onClick={onProximoSlide}
+            title="Próxima tela"
+            className="flex items-center justify-center w-9 h-9 rounded-lg border border-slate-800 text-slate-500 hover:text-slate-200 hover:bg-slate-900 transition-colors"
+          >
+            <ChevronRight className="w-4 h-4" />
+          </button>
+        )}
         <Link
           href={paraDashboard}
           title="Voltar ao Dashboard"
