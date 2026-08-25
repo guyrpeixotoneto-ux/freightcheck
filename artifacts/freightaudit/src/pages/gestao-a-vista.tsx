@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link, useSearch } from "wouter";
-import { ArrowLeft } from "lucide-react";
+import { Link, useLocation, useSearch } from "wouter";
+import { ArrowLeft, Pause, Play } from "lucide-react";
 import {
   CartesianGrid,
   Line,
@@ -13,7 +13,7 @@ import {
 } from "recharts";
 import { ApiError, fetchJson, fetchJsonOrNull } from "@/lib/api";
 import { useFamiliesOverviewQuery } from "@/lib/families-overview";
-import { DASHBOARD } from "@/lib/ambiente";
+import { DASHBOARD, GESTAO_A_VISTA } from "@/lib/ambiente";
 import { cn } from "@/lib/utils";
 import { formatBrlShort, formatPercent, periodicitySuffix } from "@/lib/format";
 import { escreverImpacto, ladosDoImpacto, type Impacto } from "@/lib/visao-geral";
@@ -21,6 +21,7 @@ import { lerRecorte, linkDeAlteracoes, nomeDaUnidade, type Recorte } from "@/lib
 import { juntarPrioridades, SEVERITY_LABEL } from "@/lib/cockpit";
 import { unidadesPorImpacto, impactoDominante } from "@/components/inicio/visao-geral-consolidada";
 import { seriesDoIntervalo } from "@/components/linha-do-tempo/linha-do-tempo-de-alteracoes";
+import { lerIntervaloSegundos, montarSequenciaDoAutoplay } from "@/lib/gestao-a-vista-autoplay";
 import type {
   ExecutiveSummary,
   FamiliesOverview,
@@ -43,16 +44,70 @@ import type { Movimentos } from "@/lib/analise";
  */
 export default function GestaoAVista() {
   const search = useSearch();
+  const [, navegar] = useLocation();
   const parametros = new URLSearchParams(search);
 
+  const periodoPedido = parametros.get("period");
+  const visaoGeralPedida = parametros.get("visaoGeral") === "1";
+
+  /*
+    O autoplay — a rotação automática entre unidades, para quem pendura a tela
+    e não fica trocando de recorte na mão. `?autoplay=1` liga a volta: a
+    Visão Geral primeiro, depois cada unidade incluída na soma, sozinho.
+    Enquanto ele está ligado, o `scopeHash`/`canal`/`visaoGeral` do endereço
+    não decidem mais o que aparece — quem decide é o slide da vez
+    (`lib/gestao-a-vista-autoplay.ts`), e por isso a Visão Geral precisa do
+    overview mesmo fora do modo Geral: é dela que a sequência sai.
+  */
+  const autoplay = parametros.get("autoplay") === "1";
+  const intervaloSegundos = lerIntervaloSegundos(parametros.get("intervalo"));
+
+  const overviewQuery = useFamiliesOverviewQuery(periodoPedido, {
+    enabled: visaoGeralPedida || autoplay,
+    refetchInterval: 30_000,
+  });
+
+  const sequencia = useMemo(
+    () => montarSequenciaDoAutoplay(overviewQuery.data),
+    [overviewQuery.data],
+  );
+
+  const [indiceDoSlide, setIndiceDoSlide] = useState(0);
+
+  useEffect(() => {
+    if (!autoplay || sequencia.length <= 1) return;
+    const id = setInterval(() => {
+      setIndiceDoSlide((indice) => (indice + 1) % sequencia.length);
+    }, intervaloSegundos * 1000);
+    return () => clearInterval(id);
+  }, [autoplay, sequencia.length, intervaloSegundos]);
+
+  // A volta pode encolher entre uma leitura do overview e outra (uma unidade
+  // saiu da soma) — sem isto o índice ficaria apontando para um slide que não
+  // existe mais em vez de voltar ao começo da volta.
+  useEffect(() => {
+    setIndiceDoSlide((indice) => (indice < sequencia.length ? indice : 0));
+  }, [sequencia.length]);
+
+  const slideDoAutoplay = autoplay ? (sequencia[indiceDoSlide] ?? { tipo: "geral" as const }) : null;
+
+  const visaoGeral = autoplay ? slideDoAutoplay?.tipo !== "unidade" : visaoGeralPedida;
+
   const consulta = new URLSearchParams();
-  for (const chave of ["period", "scopeHash", "canal"]) {
-    const valor = parametros.get(chave);
-    if (valor !== null) consulta.set(chave, valor);
+  if (periodoPedido !== null) consulta.set("period", periodoPedido);
+  if (autoplay) {
+    if (slideDoAutoplay?.tipo === "unidade") {
+      consulta.set("scopeHash", slideDoAutoplay.scopeHash);
+      if (slideDoAutoplay.canal !== null) consulta.set("canal", slideDoAutoplay.canal);
+    }
+  } else {
+    for (const chave of ["scopeHash", "canal"]) {
+      const valor = parametros.get(chave);
+      if (valor !== null) consulta.set(chave, valor);
+    }
   }
   const sufixo = consulta.toString() ? `?${consulta}` : "";
-  const visaoGeral = parametros.get("visaoGeral") === "1";
-  const recorte = lerRecorte(search);
+  const recorte = lerRecorte(consulta);
 
   const vigencia = useQuery({
     queryKey: ["families", "gestao-a-vista", consulta.toString()],
@@ -68,17 +123,29 @@ export default function GestaoAVista() {
     },
   });
 
-  const periodoPedido = parametros.get("period");
-  const overviewQuery = useFamiliesOverviewQuery(periodoPedido, {
-    enabled: visaoGeral,
-    refetchInterval: 30_000,
-  });
-
   const view = visaoGeral ? null : (vigencia.data ?? null);
   const overview = visaoGeral ? (overviewQuery.data ?? null) : null;
   const atualizadaEm = visaoGeral ? overviewQuery.dataUpdatedAt : vigencia.dataUpdatedAt;
 
-  const paraDashboard = consulta.toString() ? `${DASHBOARD}?${consulta}` : DASHBOARD;
+  // O botão de voltar ao Dashboard leva o recorte de origem do telão — o que
+  // a URL pediu, nunca o slide da vez, porque o autoplay é um jeito de olhar
+  // a Gestão à Vista, e não uma escolha para o Dashboard herdar.
+  const consultaDeOrigem = new URLSearchParams();
+  for (const chave of ["period", "scopeHash", "canal"]) {
+    const valor = parametros.get(chave);
+    if (valor !== null) consultaDeOrigem.set(chave, valor);
+  }
+  const paraDashboard = consultaDeOrigem.toString()
+    ? `${DASHBOARD}?${consultaDeOrigem}`
+    : DASHBOARD;
+
+  const alternarAutoplay = () => {
+    const proximo = new URLSearchParams(search);
+    if (autoplay) proximo.delete("autoplay");
+    else proximo.set("autoplay", "1");
+    const texto = proximo.toString();
+    navegar(texto ? `${GESTAO_A_VISTA}?${texto}` : GESTAO_A_VISTA, { replace: true });
+  };
 
   const status: StatusGeral = visaoGeral
     ? overview
@@ -97,7 +164,13 @@ export default function GestaoAVista() {
           paraDashboard={paraDashboard}
           atualizadaEm={atualizadaEm}
           status={status}
+          autoplay={autoplay}
+          onAlternarAutoplay={alternarAutoplay}
         />
+
+        {autoplay && sequencia.length > 1 && (
+          <BarraDoAutoplay chave={indiceDoSlide} intervaloSegundos={intervaloSegundos} />
+        )}
 
         {visaoGeral ? (
           overview ? (
@@ -183,12 +256,16 @@ function Topo({
   paraDashboard,
   atualizadaEm,
   status,
+  autoplay,
+  onAlternarAutoplay,
 }: {
   titulo: string;
   competencia?: string | null;
   paraDashboard: string;
   atualizadaEm: number;
   status: StatusGeral;
+  autoplay: boolean;
+  onAlternarAutoplay: () => void;
 }) {
   return (
     <header className="flex items-center justify-between gap-6">
@@ -212,6 +289,19 @@ function Topo({
           {STATUS_LABEL[status]}
         </span>
         <Relogio atualizadaEm={atualizadaEm} />
+        <button
+          type="button"
+          onClick={onAlternarAutoplay}
+          title={autoplay ? "Parar a rotação automática" : "Girar entre unidades automaticamente"}
+          className={cn(
+            "flex items-center justify-center w-9 h-9 rounded-lg border transition-colors",
+            autoplay
+              ? "border-emerald-500/40 text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/15"
+              : "border-slate-800 text-slate-500 hover:text-slate-200 hover:bg-slate-900",
+          )}
+        >
+          {autoplay ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+        </button>
         <Link
           href={paraDashboard}
           title="Voltar ao Dashboard"
@@ -221,6 +311,34 @@ function Topo({
         </Link>
       </div>
     </header>
+  );
+}
+
+/**
+ * O tempo até o próximo slide, em barra — a única pista de que o telão está
+ * girando sozinho, para quem chega no meio de uma volta.
+ *
+ * `chave` é o índice do slide: trocá-la remonta a barra do zero a cada
+ * troca, que é o jeito mais simples de reiniciar uma animação CSS sem
+ * orquestrar `requestAnimationFrame` para um detalhe puramente decorativo.
+ */
+function BarraDoAutoplay({ chave, intervaloSegundos }: { chave: number; intervaloSegundos: number }) {
+  return (
+    <div className="h-0.5 -mt-3 bg-slate-800/60 rounded-full overflow-hidden">
+      <div
+        key={chave}
+        className="h-full bg-slate-500 origin-left"
+        style={{
+          animation: `gestao-a-vista-autoplay ${intervaloSegundos}s linear forwards`,
+        }}
+      />
+      <style>{`
+        @keyframes gestao-a-vista-autoplay {
+          from { transform: scaleX(0); }
+          to { transform: scaleX(1); }
+        }
+      `}</style>
+    </div>
   );
 }
 
