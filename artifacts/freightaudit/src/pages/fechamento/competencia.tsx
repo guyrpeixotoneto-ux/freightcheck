@@ -66,6 +66,7 @@ import {
   fontesParaEnviar,
   lerGradeDaImagem,
   type CelulaDaGrade,
+  type LeituraDaGrade,
   type ContratoDaCompetencia,
   type ParametrosDoContrato,
   lerCompetencia,
@@ -153,6 +154,17 @@ export default function CompetenciaAberta({ id }: { id: string }) {
   /* A etapa aberta do roteiro. `null` = ainda não houve clique; ver `aberta`. */
   const [etapaAberta, setEtapaAberta] = useState<string | null>(null);
   const [descartado, setDescartado] = useState<DadosDescartados | null>(null);
+  /*
+    O rascunho da leitura de imagem, por fonte. Mora aqui, e não dentro de
+    `LeituraDaImagemDaFrota`, porque o `Accordion` desmonta o conteúdo de uma
+    etapa fechada — `AccordionContent` não usa `forceMount` — e o que estava
+    em `useState`/`useMutation` ali dentro ia junto. A leitura em si nunca
+    grava nada (ver o comentário em `LeituraDaImagemDaFrota`); isto só faz o
+    rascunho sobreviver a trocar de etapa e voltar, sem gravar nada a mais.
+  */
+  const [leiturasDeFrota, setLeiturasDeFrota] = useState<
+    Partial<Record<TipoDeFonte, LeituraDaGrade>>
+  >({});
 
   const dados = useQuery({
     queryKey: chaveDaCompetencia(id),
@@ -666,6 +678,13 @@ export default function CompetenciaAberta({ id }: { id: string }) {
                           travada={encerrada}
                           onArquivo={(arquivo) =>
                             enviar.mutate({ tipo: fonte.tipo, arquivo })
+                          }
+                          leituraDeImagem={leiturasDeFrota[fonte.tipo]}
+                          onLeituraDeImagem={(leitura) =>
+                            setLeiturasDeFrota((m) => ({
+                              ...m,
+                              [fonte.tipo]: leitura,
+                            }))
                           }
                         />
                       ))}
@@ -1348,6 +1367,8 @@ function LinhaDeFonte({
   enviando,
   travada,
   onArquivo,
+  leituraDeImagem,
+  onLeituraDeImagem,
 }: {
   fonte: Fonte;
   documento: Documento | undefined;
@@ -1378,6 +1399,9 @@ function LinhaDeFonte({
   /** A competência está encerrada: nada entra nela sem reabertura. */
   travada: boolean;
   onArquivo: (arquivo: File) => void;
+  /** O rascunho já lido nesta etapa, se houver — sobrevive a trocar de etapa. */
+  leituraDeImagem: LeituraDaGrade | undefined;
+  onLeituraDeImagem: (leitura: LeituraDaGrade) => void;
 }) {
   const campo = useRef<HTMLInputElement>(null);
   const aceitaImagem =
@@ -1472,7 +1496,12 @@ function LinhaDeFonte({
           texto que ele explica.
         */}
         {aceitaImagem && (
-          <LeituraDaImagemDaFrota tipo={fonte.tipo} travada={travada} />
+          <LeituraDaImagemDaFrota
+            tipo={fonte.tipo}
+            travada={travada}
+            leituraSalva={leituraDeImagem}
+            onLeitura={onLeituraDeImagem}
+          />
         )}
       </div>
       <div className="shrink-0">
@@ -1535,19 +1564,31 @@ function LinhaDeFonte({
 function LeituraDaImagemDaFrota({
   tipo,
   travada,
+  leituraSalva,
+  onLeitura,
 }: {
   tipo: TipoDeFonte;
   travada: boolean;
+  /** O rascunho já lido antes de a etapa fechar, se houver. */
+  leituraSalva: LeituraDaGrade | undefined;
+  onLeitura: (leitura: LeituraDaGrade) => void;
 }) {
   const campo = useRef<HTMLInputElement>(null);
-  const [aberta, setAberta] = useState(false);
+  /*
+    Começa aberta se já existe um rascunho salvo — senão, voltar para a etapa
+    mostraria só o botão, como se a leitura anterior tivesse sumido.
+  */
+  const [aberta, setAberta] = useState(!!leituraSalva);
 
   const ler = useMutation({
     mutationFn: (arquivo: File) => lerGradeDaImagem(tipo, arquivo),
-    onSuccess: () => setAberta(true),
+    onSuccess: (leitura) => {
+      onLeitura(leitura);
+      setAberta(true);
+    },
   });
 
-  const leitura = ler.data;
+  const leitura = ler.data ?? leituraSalva;
 
   return (
     <div className="mt-2 ml-6">
