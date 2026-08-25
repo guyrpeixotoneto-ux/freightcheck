@@ -23,12 +23,14 @@ import { cn } from "@/lib/utils";
 /**
  * Plano de Ação — Justificativas.
  *
- * A pergunta é uma só: o que mudou de uma vigência para a outra, placa a
- * placa, e por que. A tela lê a mesma comparação que a aba Planilha de
- * Alterações lê (`/changes/latest`) e reagrupa as linhas por placa — o
- * gestor não olha "o atributo X mudou em 40 ativos", olha "o que mudou nesta
- * placa" — com a opção de marcar uma ou várias placas e justificar todas de
- * uma vez.
+ * A pergunta é uma só: o que mudou de uma vigência para a outra, e por quê —
+ * mas quem justifica é a alteração, não a placa. A tela lê a mesma comparação
+ * que a aba Planilha de Alterações lê (`/changes/latest`) e agrupa as linhas
+ * por placa só para navegação — é assim que o gestor reconhece o ativo —,
+ * mas cada alteração dentro do grupo tem sua própria seleção, seu próprio
+ * status e sua própria justificativa. Marcar o cabeçalho da placa seleciona
+ * todas as alterações dela de uma vez; marcar uma alteração isolada permite
+ * justificar só aquela, mesmo que a placa tenha outras pendentes.
  */
 
 interface ChangesLatestResponse {
@@ -40,6 +42,7 @@ interface ChangesLatestResponse {
 interface Justificativa {
   id: string;
   changeSetId: string;
+  changeId: number;
   entityLabel: string;
   entityType: string | null;
   texto: string;
@@ -116,31 +119,44 @@ export default function Justificativas() {
   const justificativasData = justificativasConsulta.dados;
 
   const justificadaPor = useMemo(() => {
-    const mapa = new Map<string, Justificativa>();
-    for (const j of justificativasData?.justificativas ?? []) mapa.set(j.entityLabel, j);
+    const mapa = new Map<number, Justificativa>();
+    for (const j of justificativasData?.justificativas ?? []) mapa.set(j.changeId, j);
     return mapa;
   }, [justificativasData]);
 
-  const [selecionadas, setSelecionadas] = useState<Set<string>>(new Set());
-  const [dialogAlvo, setDialogAlvo] = useState<string[] | null>(null);
+  const [selecionadas, setSelecionadas] = useState<Set<number>>(new Set());
+  const [dialogAlvo, setDialogAlvo] = useState<ChangeRow[] | null>(null);
 
-  const alternarSelecao = (placa: string) => {
+  const alternarSelecao = (changeId: number) => {
     setSelecionadas((atual) => {
       const proximo = new Set(atual);
-      if (proximo.has(placa)) proximo.delete(placa);
-      else proximo.add(placa);
+      if (proximo.has(changeId)) proximo.delete(changeId);
+      else proximo.add(changeId);
+      return proximo;
+    });
+  };
+
+  const alternarSelecaoGrupo = (grupo: PlacaGroup) => {
+    const ids = grupo.changes.map((c) => c.id);
+    const todasSelecionadas = ids.every((id) => selecionadas.has(id));
+    setSelecionadas((atual) => {
+      const proximo = new Set(atual);
+      for (const id of ids) {
+        if (todasSelecionadas) proximo.delete(id);
+        else proximo.add(id);
+      }
       return proximo;
     });
   };
 
   const mutation = useMutation({
-    mutationFn: (input: { entityLabels: string[]; texto: string }) =>
+    mutationFn: (input: { changeIds: number[]; texto: string }) =>
       fetchJson<{ justificativas: Justificativa[] }>("/justificativas", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           changeSetId,
-          entityLabels: input.entityLabels,
+          changeIds: input.changeIds,
           texto: input.texto,
         }),
       }),
@@ -148,7 +164,7 @@ export default function Justificativas() {
       queryClient.invalidateQueries({ queryKey: ["justificativas", changeSetId] });
       setSelecionadas((atual) => {
         const proximo = new Set(atual);
-        for (const placa of input.entityLabels) proximo.delete(placa);
+        for (const changeId of input.changeIds) proximo.delete(changeId);
         return proximo;
       });
       setDialogAlvo(null);
@@ -163,9 +179,9 @@ export default function Justificativas() {
         </p>
         <h1 className="text-4xl font-bold tracking-tight mt-1">Justificativas</h1>
         <p className="text-sm text-muted-foreground mt-2 max-w-2xl">
-          O que mudou nesta vigência, agrupado por placa. Marque uma ou várias e
-          justifique de uma vez — a justificativa fica registrada com quem escreveu e
-          quando.
+          O que mudou nesta vigência, agrupado por placa. Marque uma ou várias
+          alterações e justifique de uma vez — a justificativa fica registrada com
+          quem escreveu e quando.
         </p>
       </header>
 
@@ -229,12 +245,19 @@ export default function Justificativas() {
                 <div className="flex items-center gap-2 sticky top-2 z-10">
                   <span className="font-semibold text-foreground">
                     {selecionadas.size}{" "}
-                    {selecionadas.size === 1 ? "placa selecionada" : "placas selecionadas"}
+                    {selecionadas.size === 1 ? "alteração selecionada" : "alterações selecionadas"}
                   </span>
                   <Button variant="ghost" size="sm" onClick={() => setSelecionadas(new Set())}>
                     limpar
                   </Button>
-                  <Button size="sm" onClick={() => setDialogAlvo([...selecionadas])}>
+                  <Button
+                    size="sm"
+                    onClick={() =>
+                      setDialogAlvo(
+                        grupos.flatMap((g) => g.changes).filter((c) => selecionadas.has(c.id)),
+                      )
+                    }
+                  >
                     <FileCheck2 className="w-3.5 h-3.5 mr-1.5" />
                     Justificar selecionadas
                   </Button>
@@ -247,10 +270,12 @@ export default function Justificativas() {
                 <LinhaPlaca
                   key={grupo.entityLabel}
                   grupo={grupo}
-                  selecionada={selecionadas.has(grupo.entityLabel)}
-                  justificativa={justificadaPor.get(grupo.entityLabel) ?? null}
-                  onSelecionar={() => alternarSelecao(grupo.entityLabel)}
-                  onJustificar={() => setDialogAlvo([grupo.entityLabel])}
+                  selecionadas={selecionadas}
+                  justificadaPor={justificadaPor}
+                  onSelecionarGrupo={() => alternarSelecaoGrupo(grupo)}
+                  onSelecionarChange={alternarSelecao}
+                  onJustificarGrupo={() => setDialogAlvo(grupo.changes)}
+                  onJustificarChange={(change) => setDialogAlvo([change])}
                 />
               ))}
             </div>
@@ -259,7 +284,7 @@ export default function Justificativas() {
       </div>
 
       <JustificarDialog
-        placas={dialogAlvo}
+        alvo={dialogAlvo}
         pendente={mutation.isPending}
         erro={mutation.error}
         onClose={() => {
@@ -268,7 +293,7 @@ export default function Justificativas() {
         }}
         onConfirmar={(texto) => {
           if (!dialogAlvo) return;
-          mutation.mutate({ entityLabels: dialogAlvo, texto });
+          mutation.mutate({ changeIds: dialogAlvo.map((c) => c.id), texto });
         }}
       />
     </Layout>
@@ -277,29 +302,38 @@ export default function Justificativas() {
 
 function LinhaPlaca({
   grupo,
-  selecionada,
-  justificativa,
-  onSelecionar,
-  onJustificar,
+  selecionadas,
+  justificadaPor,
+  onSelecionarGrupo,
+  onSelecionarChange,
+  onJustificarGrupo,
+  onJustificarChange,
 }: {
   grupo: PlacaGroup;
-  selecionada: boolean;
-  justificativa: Justificativa | null;
-  onSelecionar: () => void;
-  onJustificar: () => void;
+  selecionadas: Set<number>;
+  justificadaPor: Map<number, Justificativa>;
+  onSelecionarGrupo: () => void;
+  onSelecionarChange: (changeId: number) => void;
+  onJustificarGrupo: () => void;
+  onJustificarChange: (change: ChangeRow) => void;
 }) {
+  const multiplas = grupo.changes.length > 1;
+  const todasJustificadas = grupo.changes.every((c) => justificadaPor.has(c.id));
+  const algumaJustificada = grupo.changes.some((c) => justificadaPor.has(c.id));
+  const grupoSelecionado = grupo.changes.every((c) => selecionadas.has(c.id));
+
   return (
     <section
       className={cn(
         "bg-card border rounded-xl shadow-sm overflow-hidden",
-        selecionada && "ring-2 ring-brand",
+        grupoSelecionado && "ring-2 ring-brand",
       )}
     >
       <div className="flex items-start gap-3 px-5 py-4">
         <Checkbox
-          checked={selecionada}
-          onCheckedChange={onSelecionar}
-          aria-label={`Selecionar placa ${grupo.entityLabel}`}
+          checked={grupoSelecionado}
+          onCheckedChange={onSelecionarGrupo}
+          aria-label={`Selecionar todas as alterações da placa ${grupo.entityLabel}`}
           className="mt-1"
         />
 
@@ -311,42 +345,78 @@ function LinhaPlaca({
               {grupo.changes.length}{" "}
               {grupo.changes.length === 1 ? "alteração" : "alterações"}
             </span>
-            {justificativa ? (
+            {todasJustificadas ? (
               <Badge variant="success" className="gap-1">
                 <CheckCircle2 className="w-3 h-3" /> Justificada
               </Badge>
+            ) : algumaJustificada ? (
+              <Badge variant="warning">Parcialmente justificada</Badge>
             ) : (
               <Badge variant="warning">Pendente</Badge>
             )}
           </div>
 
-          <ul className="mt-3 space-y-1.5">
-            {grupo.changes.map((change) => (
-              <li key={change.id} className="text-sm flex flex-wrap items-baseline gap-x-2">
-                <span className="font-medium">
-                  {change.attributeName ?? change.attributeCode ?? "—"}
-                </span>
-                <span className="text-muted-foreground font-mono text-xs">
-                  {change.valueBefore ?? "—"} → {change.valueAfter ?? "—"}
-                </span>
-              </li>
-            ))}
-          </ul>
+          <ul className="mt-3 space-y-2">
+            {grupo.changes.map((change) => {
+              const justificativa = justificadaPor.get(change.id) ?? null;
+              return (
+                <li key={change.id} className="text-sm">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    {multiplas && (
+                      <Checkbox
+                        checked={selecionadas.has(change.id)}
+                        onCheckedChange={() => onSelecionarChange(change.id)}
+                        aria-label={`Selecionar alteração ${change.attributeName ?? change.attributeCode ?? change.id}`}
+                      />
+                    )}
+                    <span className="font-medium">
+                      {change.attributeName ?? change.attributeCode ?? "—"}
+                    </span>
+                    <span className="text-muted-foreground font-mono text-xs">
+                      {change.valueBefore ?? "—"} → {change.valueAfter ?? "—"}
+                    </span>
+                    {multiplas &&
+                      (justificativa ? (
+                        <Badge variant="success" className="gap-1">
+                          <CheckCircle2 className="w-3 h-3" /> Justificada
+                        </Badge>
+                      ) : (
+                        <Badge variant="warning">Pendente</Badge>
+                      ))}
+                    {multiplas && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 px-2 text-xs"
+                        onClick={() => onJustificarChange(change)}
+                      >
+                        {justificativa ? "Justificar de novo" : "Justificar"}
+                      </Button>
+                    )}
+                  </div>
 
-          {justificativa && (
-            <div className="mt-3 rounded-lg bg-muted/40 px-3 py-2 text-sm">
-              <p>{justificativa.texto}</p>
-              <p className="text-xs text-muted-foreground mt-1">
-                {justificativa.criadoPor} ·{" "}
-                {new Date(justificativa.criadoEm).toLocaleString("pt-BR")}
-              </p>
-            </div>
-          )}
+                  {justificativa && (
+                    <div className="mt-1.5 rounded-lg bg-muted/40 px-3 py-2 text-sm">
+                      <p>{justificativa.texto}</p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {justificativa.criadoPor} ·{" "}
+                        {new Date(justificativa.criadoEm).toLocaleString("pt-BR")}
+                      </p>
+                    </div>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
         </div>
 
-        <Button variant="outline" size="sm" onClick={onJustificar} className="shrink-0">
+        <Button variant="outline" size="sm" onClick={onJustificarGrupo} className="shrink-0">
           <ClipboardList className="w-3.5 h-3.5 mr-1.5" />
-          {justificativa ? "Justificar de novo" : "Justificar"}
+          {multiplas
+            ? "Justificar todas"
+            : todasJustificadas
+              ? "Justificar de novo"
+              : "Justificar"}
         </Button>
       </div>
     </section>
@@ -354,13 +424,13 @@ function LinhaPlaca({
 }
 
 function JustificarDialog({
-  placas,
+  alvo,
   pendente,
   erro,
   onClose,
   onConfirmar,
 }: {
-  placas: string[] | null;
+  alvo: ChangeRow[] | null;
   pendente: boolean;
   erro: unknown;
   onClose: () => void;
@@ -370,7 +440,7 @@ function JustificarDialog({
 
   return (
     <Dialog
-      open={placas !== null}
+      open={alvo !== null}
       onOpenChange={(open) => {
         if (!open) {
           onClose();
@@ -378,24 +448,27 @@ function JustificarDialog({
         }
       }}
     >
-      {placas && (
+      {alvo && (
         <>
           <DialogHeader>
             <DialogTitle>
-              Justificar {placas.length === 1 ? placas[0] : `${placas.length} placas`}
+              Justificar{" "}
+              {alvo.length === 1
+                ? `${alvo[0].entityLabel} — ${alvo[0].attributeName ?? alvo[0].attributeCode ?? "alteração"}`
+                : `${alvo.length} alterações`}
             </DialogTitle>
             <DialogDescription>
-              {placas.length === 1
-                ? "O texto abaixo fica registrado com o que mudou nesta placa."
-                : "O mesmo texto vale para todas as placas selecionadas, uma justificativa por placa."}
+              {alvo.length === 1
+                ? "O texto abaixo fica registrado com esta alteração."
+                : "O mesmo texto vale para todas as alterações selecionadas, uma justificativa por alteração."}
             </DialogDescription>
           </DialogHeader>
 
-          {placas.length > 1 && (
+          {alvo.length > 1 && (
             <div className="flex flex-wrap gap-1.5 mb-3">
-              {placas.map((placa) => (
-                <Badge key={placa} variant="secondary" className="font-mono">
-                  {placa}
+              {alvo.map((change) => (
+                <Badge key={change.id} variant="secondary" className="font-mono">
+                  {change.entityLabel} · {change.attributeName ?? change.attributeCode ?? "—"}
                 </Badge>
               ))}
             </div>

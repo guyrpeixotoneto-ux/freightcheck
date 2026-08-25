@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
-import { desc, eq } from "drizzle-orm";
-import { db, justificativaTable } from "@workspace/db";
+import { and, desc, eq, inArray } from "drizzle-orm";
+import { db, changeTable, justificativaTable } from "@workspace/db";
 import {
   iniciarFase,
   instrumentarCicloDaRequisicao,
@@ -13,14 +13,14 @@ const DEFAULT_ACTOR = "sistema";
  *
  * A tela lê `/changes/latest` (mesma rota da aba Planilha de Alterações) para
  * saber o que mudou, agrupa por placa no cliente e usa esta rota só para o
- * que é próprio dela: a justificativa que o gestor escreveu sobre cada placa,
- * dentro de uma comparação (`changeSetId`).
+ * que é próprio dela: a justificativa que o gestor escreveu sobre cada
+ * alteração (`change.id`), dentro de uma comparação (`changeSetId`).
  */
 const router: IRouter = Router();
 
 router.use("/justificativas", instrumentarCicloDaRequisicao);
 
-/** As justificativas de uma comparação, uma por placa — sempre a mais recente. */
+/** As justificativas de uma comparação, uma por alteração — sempre a mais recente. */
 router.get("/justificativas", async (req, res): Promise<void> => {
   const changeSetId =
     typeof req.query.changeSetId === "string"
@@ -39,28 +39,28 @@ router.get("/justificativas", async (req, res): Promise<void> => {
     .orderBy(desc(justificativaTable.criadoEm));
   faseSelect.fim({ linhas: rows.length });
 
-  // Uma placa pode ter sido justificada mais de uma vez; a tela mostra só a
-  // mais recente, e a lista já vem ordenada da mais nova para a mais antiga.
-  const porPlaca = new Map<string, (typeof rows)[number]>();
+  // Uma alteração pode ter sido justificada mais de uma vez; a tela mostra só
+  // a mais recente, e a lista já vem ordenada da mais nova para a mais antiga.
+  const porAlteracao = new Map<number, (typeof rows)[number]>();
   for (const row of rows) {
-    if (!porPlaca.has(row.entityLabel)) porPlaca.set(row.entityLabel, row);
+    if (!porAlteracao.has(row.changeId)) porAlteracao.set(row.changeId, row);
   }
 
-  res.json({ justificativas: [...porPlaca.values()] });
+  res.json({ justificativas: [...porAlteracao.values()] });
 });
 
 /**
- * Justificar uma ou mais placas de uma vez — o mesmo texto vale para todas as
- * selecionadas, uma linha por placa.
+ * Justificar uma ou mais alterações de uma vez — o mesmo texto vale para
+ * todas as selecionadas, uma linha por alteração.
  */
 router.post("/justificativas", async (req, res): Promise<void> => {
   const changeSetId =
     typeof req.body?.changeSetId === "string"
       ? req.body.changeSetId
       : undefined;
-  const entityLabels = Array.isArray(req.body?.entityLabels)
-    ? req.body.entityLabels.filter(
-        (v: unknown): v is string => typeof v === "string" && v !== "",
+  const changeIds = Array.isArray(req.body?.changeIds)
+    ? req.body.changeIds.filter(
+        (v: unknown): v is number => typeof v === "number" && Number.isFinite(v),
       )
     : [];
   const texto =
@@ -70,8 +70,8 @@ router.post("/justificativas", async (req, res): Promise<void> => {
     res.status(400).json({ error: "changeSetId é obrigatório." });
     return;
   }
-  if (entityLabels.length === 0) {
-    res.status(400).json({ error: "Selecione ao menos uma placa." });
+  if (changeIds.length === 0) {
+    res.status(400).json({ error: "Selecione ao menos uma alteração." });
     return;
   }
   if (texto === "") {
@@ -81,20 +81,45 @@ router.post("/justificativas", async (req, res): Promise<void> => {
     return;
   }
 
-  const entityType =
-    typeof req.body?.entityType === "string" && req.body.entityType !== ""
-      ? req.body.entityType
-      : null;
   const criadoPor = req.user?.email ?? DEFAULT_ACTOR;
+
+  // `entity_label`/`entity_type` vêm de `change`, não do corpo da requisição:
+  // o cliente não é fonte confiável para o que fica gravado como auditoria, e
+  // o filtro por `changeSetId` garante que só alterações desta comparação
+  // entram, mesmo que o cliente mande um id de outra.
+  const faseChanges = iniciarFase(req, "db.select.changes");
+  const changes: { id: number; entityLabel: string | null; entityType: string | null }[] =
+    await db
+      .select({
+        id: changeTable.id,
+        entityLabel: changeTable.entityLabel,
+        entityType: changeTable.entityType,
+      })
+      .from(changeTable)
+      .where(
+        and(
+          eq(changeTable.changeSetId, changeSetId),
+          inArray(changeTable.id, changeIds),
+        ),
+      );
+  faseChanges.fim({ linhas: changes.length });
+
+  if (changes.length === 0) {
+    res
+      .status(400)
+      .json({ error: "Nenhuma das alterações selecionadas pertence a esta comparação." });
+    return;
+  }
 
   const faseInsert = iniciarFase(req, "db.insert");
   const inseridas = await db
     .insert(justificativaTable)
     .values(
-      entityLabels.map((entityLabel: string) => ({
+      changes.map((change) => ({
         changeSetId,
-        entityLabel,
-        entityType,
+        changeId: change.id,
+        entityLabel: change.entityLabel ?? "",
+        entityType: change.entityType,
         texto,
         criadoPor,
       })),
