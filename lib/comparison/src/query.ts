@@ -825,6 +825,14 @@ export async function situacaoPorAtivo(
  * explica e a data que o contador usa. A de baixo não precisa de cláusula: o
  * motor não compara famílias diferentes — `findPreviousSnapshot` já as separa
  * pela cobertura —, então as duas pontas são sempre da mesma.
+ *
+ * **Uma linha por vigência de destino.** `computeChangeSet` só é idempotente
+ * por par (`snapshot_a_id`, `snapshot_b_id`) — quando a vigência de origem é
+ * reprocessada e ganha um novo `snapshot.id`, nasce um novo `change_set`
+ * apontando para a mesma `sb`. Pra quem lista aqui (o seletor de vigência de
+ * Justificativas), a identidade é só `sb`: por isso `DISTINCT ON` mantém a
+ * comparação mais recente por vigência de destino, em vez de uma linha por
+ * `change_set`.
  */
 export async function listChangeSets(
   db: Database,
@@ -833,7 +841,8 @@ export async function listChangeSets(
 ) {
   const sa = sql`sa`;
   const { rows } = await db.execute<Record<string, unknown>>(sql`
-    SELECT cs.*,
+    SELECT DISTINCT ON (cs.snapshot_b_id)
+           cs.*,
            sa.source_label   AS snapshot_a_label,
            sa.effective_date AS snapshot_a_date,
            sb.source_label   AS snapshot_b_label,
@@ -842,9 +851,13 @@ export async function listChangeSets(
       JOIN snapshot sa ON sa.id = cs.snapshot_a_id
       JOIN snapshot sb ON sb.id = cs.snapshot_b_id
      WHERE ${datasetFamilyFilter("sb", opts?.datasetFamily)}
-     ORDER BY sb.effective_date DESC
+     ORDER BY cs.snapshot_b_id, cs.id DESC
   `);
-  return rows;
+  return rows.sort(
+    (x, y) =>
+      new Date(y.snapshot_b_date as string).getTime() -
+      new Date(x.snapshot_b_date as string).getTime(),
+  );
 }
 
 /**

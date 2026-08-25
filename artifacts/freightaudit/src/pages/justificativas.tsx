@@ -16,7 +16,6 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { ApiErrorNotice } from "@/components/api-error";
 import { JustificarDialog } from "@/components/justificativas/justificar-dialog";
-import { LinhaDeAlteracao } from "@/components/justificativas/linha-de-alteracao";
 import { fetchJson } from "@/lib/api";
 import { useConsultaResiliente } from "@/lib/consulta-resiliente";
 import { dataCurta, useComparacoes, useJustificadaPor, type Justificativa } from "@/lib/justificativas";
@@ -106,15 +105,6 @@ export default function Justificativas() {
 
   const [selecionadas, setSelecionadas] = useState<Set<number>>(new Set());
   const [dialogAlvo, setDialogAlvo] = useState<ChangeRow[] | null>(null);
-
-  const alternarSelecao = (changeId: number) => {
-    setSelecionadas((atual) => {
-      const proximo = new Set(atual);
-      if (proximo.has(changeId)) proximo.delete(changeId);
-      else proximo.add(changeId);
-      return proximo;
-    });
-  };
 
   const alternarSelecaoGrupo = (grupo: PlacaGroup) => {
     const ids = grupo.changes.map((c) => c.id);
@@ -284,9 +274,7 @@ export default function Justificativas() {
                   selecionadas={selecionadas}
                   justificadaPor={justificadaPor}
                   onSelecionarGrupo={() => alternarSelecaoGrupo(grupo)}
-                  onSelecionarChange={alternarSelecao}
                   onJustificarGrupo={() => setDialogAlvo(grupo.changes)}
-                  onJustificarChange={(change) => setDialogAlvo([change])}
                   onAbrirDetalhe={() =>
                     navegar(
                       `/justificativas/placa/${encodeURIComponent(grupo.entityLabel)}?changeSetId=${changeSetId}`,
@@ -321,18 +309,14 @@ function LinhaPlaca({
   selecionadas,
   justificadaPor,
   onSelecionarGrupo,
-  onSelecionarChange,
   onJustificarGrupo,
-  onJustificarChange,
   onAbrirDetalhe,
 }: {
   grupo: PlacaGroup;
   selecionadas: Set<number>;
   justificadaPor: Map<number, Justificativa>;
   onSelecionarGrupo: () => void;
-  onSelecionarChange: (changeId: number) => void;
   onJustificarGrupo: () => void;
-  onJustificarChange: (change: ChangeRow) => void;
   onAbrirDetalhe: () => void;
 }) {
   const multiplas = grupo.changes.length > 1;
@@ -377,20 +361,6 @@ function LinhaPlaca({
               <Badge variant="warning">Pendente</Badge>
             )}
           </div>
-
-          <ul className="mt-3 space-y-2" onClick={(e) => e.stopPropagation()}>
-            {grupo.changes.map((change) => (
-              <LinhaDeAlteracao
-                key={change.id}
-                change={change}
-                justificativa={justificadaPor.get(change.id) ?? null}
-                mostrarSelecao={multiplas}
-                selecionada={selecionadas.has(change.id)}
-                onSelecionar={() => onSelecionarChange(change.id)}
-                onJustificar={() => onJustificarChange(change)}
-              />
-            ))}
-          </ul>
         </div>
 
         <div className="flex flex-col items-end gap-2 shrink-0">
