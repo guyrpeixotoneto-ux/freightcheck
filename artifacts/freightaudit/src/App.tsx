@@ -48,6 +48,7 @@ import Configuracoes from '@/pages/configuracoes';
 import Frota360 from '@/pages/frota-360';
 import QlpAdministrativo from '@/pages/qlp-administrativo';
 import Remunerado from '@/pages/remunerado';
+import Justificativas from '@/pages/justificativas';
 import { EmPreparo } from '@/pages/em-preparo';
 import { TELAS_EM_PREPARO } from '@/pages/telas-em-preparo';
 import VisaoGerencial from '@/pages/fechamento/visao';
@@ -253,6 +254,7 @@ function Router() {
       <Route path="/apresentacao" component={ApresentacaoVideo} />
       <Route path="/parametros" component={Parametros} />
       <Route path="/remunerado" component={Remunerado} />
+      <Route path="/justificativas" component={Justificativas} />
       <Route path="/book-operador" component={BookOperador} />
       <Route path="/assistente" component={Assistente} />
       {/*

@@ -17,6 +17,7 @@ import {
   CloudDownload,
   Container,
   Database,
+  FileCheck2,
   FileSearch,
   FolderTree,
   FileSpreadsheet,
@@ -249,6 +250,19 @@ export const NAV_GROUPS: NavGroup[] = [
     icon: ShoppingCart,
     cor: "text-nav-compras",
     itens: [{ href: "/remunerado", label: "Remunerado", icon: Tags }],
+  },
+  {
+    /*
+      Plano de Ação fica logo depois de Compras porque é o mesmo tipo de
+      trabalho de mesa: alguém olhou o que mudou de uma vigência para a outra
+      e precisa registrar, placa a placa, por que aquilo mudou — antes de a
+      alteração seguir para Auditoria ou Recuperação.
+    */
+    titulo: "Plano de Ação",
+    descricao: "O que mudou por placa, e a justificativa de cada mudança",
+    icon: FileCheck2,
+    cor: "text-nav-plano-de-acao",
+    itens: [{ href: "/justificativas", label: "Justificativas", icon: FileCheck2 }],
   },
   {
     titulo: "Auditoria",

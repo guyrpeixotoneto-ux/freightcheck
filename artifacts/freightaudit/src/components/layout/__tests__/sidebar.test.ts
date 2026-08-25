@@ -199,13 +199,13 @@ describe("a lateral", () => {
     }
   });
 
-  it("mantém as dez seções do desenho, na ordem", () => {
+  it("mantém as onze seções do desenho, na ordem", () => {
     const lista = listaDaAuditoria();
     /*
-      Oito títulos são literais no arquivo; o nono — a Administração — é o grupo
-      compartilhado, escrito ali como `GRUPO_ADMINISTRACAO`. Somá-lo pelo módulo
-      é o que faz o teste conferir a lista que a lateral monta, e não a grafia
-      de quem a escreveu.
+      Nove títulos são literais no arquivo; o décimo — a Administração — é o
+      grupo compartilhado, escrito ali como `GRUPO_ADMINISTRACAO`. Somá-lo pelo
+      módulo é o que faz o teste conferir a lista que a lateral monta, e não a
+      grafia de quem a escreveu.
     */
     const titulos = [
       ...[...lista.matchAll(/titulo:\s*"([^"]+)"/g)].map((m) => m[1]),
@@ -225,6 +225,12 @@ describe("a lateral", () => {
         seção em `sidebar.tsx`.
       */
       "Compras",
+      /*
+        Plano de Ação vem logo depois de Compras pelo mesmo motivo: é trabalho
+        de mesa sobre o que já mudou, não uma descoberta de auditoria — ver o
+        comentário da seção em `sidebar.tsx`.
+      */
+      "Plano de Ação",
       "Auditoria",
       "Recuperação",
       "QLP",
