@@ -30,9 +30,17 @@ export function Layout({ children }: { children: ReactNode }) {
   const { aberto, alternar } = useMenuAberto();
 
   return (
-    <div className="min-h-[100dvh] flex flex-col bg-background">
+    <div className="flex flex-col bg-background">
       <Topbar menuAberto={aberto} onToggleSidebar={alternar} />
-      <div className="flex flex-1 min-h-0">
+      {/*
+        Sem `min-h-[100dvh]` no contêiner de fora nem `flex-1` nesta faixa:
+        página longa já cresce sozinha, sem precisar de altura mínima nenhuma —
+        era só a curta (poucas linhas, sem gráfico) que sobrava esticada até o
+        fim da viewport, trocando conteúdo por fundo cinza vazio embaixo do
+        último cartão. O `body` já tem o mesmo `bg-background` (`index.css`),
+        então terminar a casca no fim do conteúdo não deixa costura de cor.
+      */}
+      <div className="flex min-h-0">
         <Sidebar open={aberto} />
         {/*
           O espaço reservado embaixo é a altura da barra do celular, que é
