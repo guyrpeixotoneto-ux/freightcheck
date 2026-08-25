@@ -308,7 +308,7 @@ export default function VisaoGerencialDaAuditoria() {
       <header className="border-b bg-card px-8 py-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight">Visão Gerencial</h1>
+            <h1 className="text-2xl font-bold tracking-tight">Painel de Unidades</h1>
             <p className="text-muted-foreground mt-2 max-w-3xl">
               Quanto do ano já foi auditado, em cada unidade — o que chegou, o que
               foi comparado com a vigência anterior, o que mudou e quanto isso

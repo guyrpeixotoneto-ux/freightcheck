@@ -102,7 +102,7 @@ export function barraMobile(ambiente: Ambiente): BarraMobile {
         href: ENTRADA_DA_AUDITORIA,
         label: "Início",
         icon: LayoutDashboard,
-        descricao: "Visão Gerencial de todas as unidades",
+        descricao: "Painel de Unidades — todas de uma vez",
       },
       /*
         Alterações é a primeira tela de quem audita e a única da barra que

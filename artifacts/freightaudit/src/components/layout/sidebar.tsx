@@ -176,7 +176,7 @@ export const NAV_GROUPS: NavGroup[] = [
         primeiro destes dois itens, e o segundo tem endereço próprio desde que
         deixou a raiz. Ver `lib/ambiente.ts`.
       */
-      { href: ENTRADA_DA_AUDITORIA, label: "Visão Gerencial", icon: LayoutDashboard },
+      { href: ENTRADA_DA_AUDITORIA, label: "Painel de Unidades", icon: LayoutDashboard },
       { href: RESUMO_EXECUTIVO, label: "Resumo executivo", icon: House },
       /*
         A Linha do tempo vem logo abaixo do Resumo executivo: era um cartão
