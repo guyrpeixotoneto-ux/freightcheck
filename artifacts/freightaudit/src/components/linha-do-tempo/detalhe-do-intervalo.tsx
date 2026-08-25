@@ -332,12 +332,14 @@ function PlacasDoGrupo({ period, entrada }: { period: string; entrada: RangeEntr
             <span
               className={cn(
                 "text-right tabular-nums font-semibold whitespace-nowrap shrink-0",
+                veiculo.foraDoTotal && "line-through opacity-60",
                 veiculo.impactAmount === null
                   ? "text-muted-foreground font-normal"
                   : veiculo.impactAmount < 0
                     ? "text-red-700"
                     : "text-emerald-700",
               )}
+              title={veiculo.foraDoTotal?.explicacao}
             >
               {veiculo.impactAmount !== null ? formatBrl(veiculo.impactAmount) : "sem preço"}
             </span>
@@ -351,6 +353,11 @@ function PlacasDoGrupo({ period, entrada }: { period: string; entrada: RangeEntr
               ? formatValue(veiculo.numericAfter, entrada.unit)
               : (veiculo.valueAfter ?? "—")}
           </div>
+          {veiculo.foraDoTotal && (
+            <p className="text-[0.6875rem] text-amber-700 mt-0.5">
+              Fora do total — {veiculo.foraDoTotal.explicacao}
+            </p>
+          )}
         </div>
       ))}
     </div>
