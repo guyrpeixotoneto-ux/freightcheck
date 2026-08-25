@@ -1,0 +1,333 @@
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { sql } from "drizzle-orm";
+import type { Database } from "@workspace/db";
+import { createTestDatabase, type TestDb } from "@workspace/ingest/testing";
+import { seedTaxonomy } from "@workspace/curation";
+import { computeMissingChangeSets } from "../consolidated";
+import { getFamiliesView } from "../families-view";
+import { getFamiliesOverview } from "../families-view-overview";
+import { buildFixture, type AttributeSpec } from "../testing";
+
+/**
+ * A Visão Geral soma unidades, nunca contextos — e só quando dá para provar
+ * que somar não é contar duas vezes o mesmo veículo.
+ *
+ * O elenco de unidades sintéticas cobre exatamente os casos que a
+ * investigação por trás deste arquivo levantou:
+ *
+ * - A, B, C: uma unidade, um contexto, a competência pedida — o caso comum.
+ * - D, E: têm um mês *anterior* à competência pedida, mas não a competência
+ *   em si — provam que `latestPeriod` nunca é usado como substituto.
+ * - G: uma unidade real (mesmo código de escopo `UNIDADE`) entregue em dois
+ *   **canais** diferentes (EMPURRADA e ROTA) — soma normalmente, porque
+ *   canal é a partição que o resto do produto já trata como distinta.
+ * - H: uma unidade com **dois contextos no mesmo canal** — o cenário que a
+ *   investigação de `lib/ingest/src/pipeline.ts` mostrou não ter garantia
+ *   de partição nenhuma. Fica de fora, sinalizada como ambígua.
+ */
+
+let ctx: TestDb;
+
+const AGOSTO = "2026-08-02";
+const JULHO = "2026-07-02";
+const SETEMBRO = "2026-09-02";
+
+const CUSTO: AttributeSpec[] = [
+  {
+    code: "carreta.custo_fixo",
+    dataType: "NUMERIC",
+    semanticsStatus: "CONFIRMED",
+    unit: "BRL",
+    periodicity: "MENSAL",
+    aggregation: "SUM",
+    isMonetary: true,
+    taxonomyCode: "cf_frota_carreta",
+  },
+];
+
+async function anexarEscopo(
+  db: Database,
+  snapshotIds: string[],
+  entradas: { scopeType: string; code: string }[],
+): Promise<void> {
+  for (const entrada of entradas) {
+    await db.execute(sql`
+      INSERT INTO "scope" ("scope_type", "code") VALUES (${entrada.scopeType}, ${entrada.code})
+      ON CONFLICT ("scope_type", "code") DO NOTHING
+    `);
+  }
+  for (const snapshotId of snapshotIds) {
+    for (const entrada of entradas) {
+      await db.execute(sql`
+        INSERT INTO "snapshot_scope" ("snapshot_id", "scope_id")
+        SELECT ${snapshotId}::uuid, id FROM "scope"
+         WHERE scope_type = ${entrada.scopeType} AND code = ${entrada.code}
+        ON CONFLICT DO NOTHING
+      `);
+    }
+  }
+}
+
+beforeAll(async () => {
+  ctx = await createTestDatabase("families_view_overview");
+  await seedTaxonomy(ctx.db, "test");
+
+  // A, B, C: uma unidade, um contexto, jul -> ago (a competência pedida).
+  await buildFixture(
+    ctx.db,
+    CUSTO,
+    [
+      { label: "EMPURRADA_2_7_2026", effectiveDate: JULHO, data: { AAA0001: { "carreta.custo_fixo": 1000 } } },
+      { label: "EMPURRADA_2_8_2026", effectiveDate: AGOSTO, data: { AAA0001: { "carreta.custo_fixo": 1200 } } },
+    ],
+    { entityType: "CARRETA", scopeHash: "overview-unit-a", canal: "EMPURRADA" },
+  );
+  await buildFixture(
+    ctx.db,
+    CUSTO,
+    [
+      { label: "EMPURRADA_2_7_2026", effectiveDate: JULHO, data: { BBB0002: { "carreta.custo_fixo": 5000 } } },
+      { label: "EMPURRADA_2_8_2026", effectiveDate: AGOSTO, data: { BBB0002: { "carreta.custo_fixo": 4000 } } },
+    ],
+    { entityType: "CARRETA", scopeHash: "overview-unit-b", canal: "EMPURRADA" },
+  );
+  await buildFixture(
+    ctx.db,
+    CUSTO,
+    [
+      { label: "EMPURRADA_2_7_2026", effectiveDate: JULHO, data: { CCC0003: { "carreta.custo_fixo": 2000 } } },
+      { label: "EMPURRADA_2_8_2026", effectiveDate: AGOSTO, data: { CCC0003: { "carreta.custo_fixo": 2600 } } },
+    ],
+    { entityType: "CARRETA", scopeHash: "overview-unit-c", canal: "EMPURRADA" },
+  );
+
+  // D, E: jun -> jul. Nunca chegam a agosto — a competência pedida nos
+  // testes principais não existe para elas, ponto.
+  await buildFixture(
+    ctx.db,
+    CUSTO,
+    [
+      { label: "EMPURRADA_2_6_2026", effectiveDate: "2026-06-02", data: { DDD0004: { "carreta.custo_fixo": 3000 } } },
+      { label: "EMPURRADA_2_7_2026", effectiveDate: JULHO, data: { DDD0004: { "carreta.custo_fixo": 3500 } } },
+    ],
+    { entityType: "CARRETA", scopeHash: "overview-unit-d", canal: "EMPURRADA" },
+  );
+  await buildFixture(
+    ctx.db,
+    CUSTO,
+    [
+      { label: "EMPURRADA_2_6_2026", effectiveDate: "2026-06-02", data: { EEE0005: { "carreta.custo_fixo": 1000 } } },
+      { label: "EMPURRADA_2_7_2026", effectiveDate: JULHO, data: { EEE0005: { "carreta.custo_fixo": 1100 } } },
+    ],
+    { entityType: "CARRETA", scopeHash: "overview-unit-e", canal: "EMPURRADA" },
+  );
+
+  // G: uma unidade real, dois canais — soma normalmente.
+  const gEmpurrada = await buildFixture(
+    ctx.db,
+    CUSTO,
+    [
+      { label: "EMPURRADA_2_7_2026", effectiveDate: JULHO, data: { GEE0006: { "carreta.custo_fixo": 800 } } },
+      { label: "EMPURRADA_2_8_2026", effectiveDate: AGOSTO, data: { GEE0006: { "carreta.custo_fixo": 900 } } },
+    ],
+    { entityType: "CARRETA", scopeHash: "overview-unit-g-empurrada", canal: "EMPURRADA" },
+  );
+  const gRota = await buildFixture(
+    ctx.db,
+    CUSTO,
+    [
+      { label: "ROTA_2_7_2026", effectiveDate: JULHO, data: { GRR0007: { "carreta.custo_fixo": 300 } } },
+      { label: "ROTA_2_8_2026", effectiveDate: AGOSTO, data: { GRR0007: { "carreta.custo_fixo": 500 } } },
+    ],
+    { entityType: "CARRETA", scopeHash: "overview-unit-g-rota", canal: "ROTA" },
+  );
+  await anexarEscopo(
+    ctx.db,
+    [...Object.values(gEmpurrada.snapshotIds), ...Object.values(gRota.snapshotIds)],
+    [{ scopeType: "UNIDADE", code: "unidade-g" }],
+  );
+
+  // H: uma unidade com dois contextos no MESMO canal — jul, ago e set, para
+  // também sobrar como a única unidade viva em setembro (isolando o caso
+  // "existe competência, ninguém consolidável").
+  const h1 = await buildFixture(
+    ctx.db,
+    CUSTO,
+    [
+      { label: "EMPURRADA_2_7_2026", effectiveDate: JULHO, data: { HHH0008: { "carreta.custo_fixo": 100 } } },
+      { label: "EMPURRADA_2_8_2026", effectiveDate: AGOSTO, data: { HHH0008: { "carreta.custo_fixo": 150 } } },
+      { label: "EMPURRADA_2_9_2026", effectiveDate: SETEMBRO, data: { HHH0008: { "carreta.custo_fixo": 200 } } },
+    ],
+    { entityType: "CARRETA", scopeHash: "overview-unit-h-1", canal: "EMPURRADA" },
+  );
+  const h2 = await buildFixture(
+    ctx.db,
+    CUSTO,
+    [
+      { label: "EMPURRADA_2_7_2026", effectiveDate: JULHO, data: { HHH0009: { "carreta.custo_fixo": 400 } } },
+      { label: "EMPURRADA_2_8_2026", effectiveDate: AGOSTO, data: { HHH0009: { "carreta.custo_fixo": 450 } } },
+      { label: "EMPURRADA_2_9_2026", effectiveDate: SETEMBRO, data: { HHH0009: { "carreta.custo_fixo": 500 } } },
+    ],
+    { entityType: "CARRETA", scopeHash: "overview-unit-h-2", canal: "EMPURRADA" },
+  );
+  await anexarEscopo(ctx.db, Object.values(h1.snapshotIds), [{ scopeType: "UNIDADE", code: "unidade-h" }]);
+  await anexarEscopo(ctx.db, Object.values(h2.snapshotIds), [
+    { scopeType: "UNIDADE", code: "unidade-h" },
+    { scopeType: "OPERADOR", code: "operador-h2" },
+  ]);
+
+  await computeMissingChangeSets(ctx.db, "test");
+}, 180_000);
+
+afterAll(async () => {
+  await ctx?.drop();
+});
+
+describe("getFamiliesOverview — quem entra e quem fica de fora", () => {
+  it("inclui só quem tem a competência exata, exclui quem não tem — nunca por latestPeriod", async () => {
+    const overview = (await getFamiliesOverview(ctx.db, AGOSTO))!;
+    expect(overview).not.toBeNull();
+
+    const incluidas = overview.unitsIncluded.map((u) => u.unidade).sort();
+    expect(incluidas).toEqual(
+      ["overview-unit-a", "overview-unit-b", "overview-unit-c", "unidade-g"].sort(),
+    );
+
+    const semVigencia = overview.unitsExcluded
+      .filter((u) => u.reason === "sem_vigencia_na_competencia")
+      .map((u) => u.unidade)
+      .sort();
+    // D e E têm jun->jul, não agosto: excluídas, e não por terem "um período
+    // mais antigo" — por não terem ESTA competência.
+    expect(semVigencia).toEqual(["overview-unit-d", "overview-unit-e"].sort());
+  });
+
+  it("nenhuma unidade aparece em unitsIncluded e unitsExcluded ao mesmo tempo", async () => {
+    const overview = (await getFamiliesOverview(ctx.db, AGOSTO))!;
+    const incluidas = new Set(overview.unitsIncluded.map((u) => u.unidade));
+    const excluidas = new Set(overview.unitsExcluded.map((u) => u.unidade));
+    for (const u of incluidas) expect(excluidas.has(u)).toBe(false);
+  });
+
+  it("devolve null quando nenhuma unidade tem essa competência — nunca um objeto vazio", async () => {
+    const overview = await getFamiliesOverview(ctx.db, "2019-01-01");
+    expect(overview).toBeNull();
+  });
+});
+
+describe("getFamiliesOverview — sobreposição entre contextos da mesma unidade", () => {
+  it("dois contextos no mesmo canal são recusados, com o conflito nomeado por scopeType:code", async () => {
+    const overview = (await getFamiliesOverview(ctx.db, AGOSTO))!;
+    const ambigua = overview.unitsExcluded.find((u) => u.unidade === "unidade-h");
+    expect(ambigua).toBeDefined();
+    expect(ambigua!.reason).toBe("contextos_sobrepostos_ambiguos");
+    expect(ambigua!.conflito).toHaveLength(2);
+
+    const entradas = new Set(ambigua!.conflito!.flatMap((c) => c.entradas));
+    // A diferença entre os dois contextos é o OPERADOR — não um "aninhamento"
+    // de tipos que uma comparação só por scopeType confundiria com um dos
+    // dois sendo fatia do outro.
+    expect([...entradas].some((e) => e.startsWith("OPERADOR:"))).toBe(true);
+    expect([...entradas].filter((e) => e.startsWith("UNIDADE:"))).toHaveLength(1);
+
+    expect(overview.unitsIncluded.some((u) => u.unidade === "unidade-h")).toBe(false);
+  });
+
+  it("contextos da mesma unidade em canais diferentes somam normalmente", async () => {
+    const overview = (await getFamiliesOverview(ctx.db, AGOSTO))!;
+    const g = overview.unitsIncluded.find((u) => u.unidade === "unidade-g");
+    expect(g).toBeDefined();
+    expect(g!.contexts).toHaveLength(2);
+    expect(new Set(g!.contexts.map((c) => c.channel))).toEqual(new Set(["EMPURRADA", "ROTA"]));
+    expect(g!.coberturaParcial).toBeUndefined();
+  });
+
+  it("existe competência, mas nada é consolidável: 200 com 0 incluídas, nunca null", async () => {
+    // Em setembro, só H tem dado — e H é ambígua. A competência existe; só
+    // não há nada para somar com segurança.
+    const overview = await getFamiliesOverview(ctx.db, SETEMBRO);
+    expect(overview).not.toBeNull();
+    expect(overview!.unitsIncluded).toHaveLength(0);
+    expect(
+      overview!.unitsExcluded.some(
+        (u) => u.unidade === "unidade-h" && u.reason === "contextos_sobrepostos_ambiguos",
+      ),
+    ).toBe(true);
+    // Nenhum card financeiro finge que o resultado é zero por falta de dado —
+    // é zero porque `mergeSummaries([])` soma um conjunto vazio, e a tela
+    // decide como mostrar isso a partir de `unitsIncluded.length === 0`.
+    expect(overview!.summary.impact.byPeriodicity).toEqual({});
+    expect(overview!.summary.changes).toBe(0);
+  });
+});
+
+describe("getFamiliesOverview — a soma bate com a soma manual", () => {
+  it("impact, changes e vehiclesTouched equivalem à soma dos endpoints individuais", async () => {
+    const overview = (await getFamiliesOverview(ctx.db, AGOSTO))!;
+    const individuais = (
+      await Promise.all(
+        overview.unitsIncluded.flatMap((u) =>
+          u.contexts.map((c) =>
+            getFamiliesView(ctx.db, AGOSTO, { scopeHash: c.scopeHash, channel: c.channel }),
+          ),
+        ),
+      )
+    ).filter((v) => v !== null);
+
+    const somaManual = (extrair: (v: NonNullable<typeof individuais[number]>) => number) =>
+      individuais.reduce((soma, v) => soma + extrair(v), 0);
+
+    expect(overview.summary.impact.byPeriodicity.MENSAL).toBeCloseTo(
+      somaManual((v) => v.summary.impact.byPeriodicity.MENSAL ?? 0),
+      2,
+    );
+    expect(overview.summary.changes).toBe(somaManual((v) => v.summary.changes));
+    // Soma simples, não deduplicada — cada unidade usa placas próprias nesta
+    // fixture, então o valor bate com a soma; o ponto do teste é que é
+    // literalmente `sum(...)`, não uma dedução por `entity_id`.
+    expect(overview.summary.vehiclesTouched).toBe(somaManual((v) => v.summary.vehiclesTouched));
+  });
+
+  it("topParameters mescla o mesmo parâmetro entre unidades em vez de duplicá-lo", async () => {
+    const overview = (await getFamiliesOverview(ctx.db, AGOSTO))!;
+    const individuais = (
+      await Promise.all(
+        overview.unitsIncluded.flatMap((u) =>
+          u.contexts.map((c) =>
+            getFamiliesView(ctx.db, AGOSTO, { scopeHash: c.scopeHash, channel: c.channel }),
+          ),
+        ),
+      )
+    ).filter((v) => v !== null);
+
+    const somaEsperada = individuais.reduce(
+      (soma, v) => soma + (v.summary.topParameters[0]?.byPeriodicity.MENSAL ?? 0),
+      0,
+    );
+
+    // Um parâmetro só existe na fixture (carreta.custo_fixo): se a mesclagem
+    // concatenasse em vez de somar por (family, key), haveria uma entrada por
+    // unidade em vez de uma.
+    expect(overview.summary.topParameters).toHaveLength(1);
+    expect(overview.summary.topParameters[0].byPeriodicity.MENSAL).toBeCloseTo(somaEsperada, 2);
+  });
+});
+
+describe("getFamiliesOverview — troca de competência", () => {
+  it("muda quais unidades entram, sem misturar as duas leituras", async () => {
+    const overviewJulho = (await getFamiliesOverview(ctx.db, JULHO))!;
+    const overviewAgosto = (await getFamiliesOverview(ctx.db, AGOSTO))!;
+
+    const incluidasJulho = overviewJulho.unitsIncluded.map((u) => u.unidade).sort();
+    const incluidasAgosto = overviewAgosto.unitsIncluded.map((u) => u.unidade).sort();
+
+    // D e E têm julho (jun->jul); em agosto, não têm.
+    expect(incluidasJulho).toContain("overview-unit-d");
+    expect(incluidasJulho).toContain("overview-unit-e");
+    expect(incluidasAgosto).not.toContain("overview-unit-d");
+    expect(incluidasAgosto).not.toContain("overview-unit-e");
+
+    expect(overviewJulho.period).toBe(JULHO);
+    expect(overviewAgosto.period).toBe(AGOSTO);
+  });
+});

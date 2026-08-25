@@ -83,7 +83,15 @@ import {
   type Recorte,
 } from "@/lib/recorte";
 import { formatBrlShort } from "@/lib/format";
-import type { FamiliesView, GroupedView, SeriesContext } from "@/components/inicio/types";
+import type {
+  FamiliesOverview,
+  FamiliesView,
+  GroupedView,
+  MotivoExclusaoDaVisaoGeral,
+  OverviewUnitExcluded,
+  OverviewUnitIncluded,
+  SeriesContext,
+} from "@/components/inicio/types";
 import type { BalancoResumo } from "@/components/balanco/tipos";
 
 /**
@@ -150,8 +158,18 @@ export default function Inicio() {
   }
   const sufixo = consulta.toString() ? `?${consulta}` : "";
 
+  /*
+    "Visão Geral" é uma opção de unidade/escopo — vive só no dropdown "Trocar
+    unidade" — nunca um valor de `period`. Os dois seletores continuam
+    ortogonais: ligar Visão Geral não mexe na competência que já estava
+    aberta (ver `Cabecalho`, que materializa `period` na troca), e trocar de
+    competência dentro da Visão Geral nunca desliga `visaoGeral`.
+  */
+  const visaoGeral = parametros.get("visaoGeral") === "1";
+
   const vigencia = useQuery({
     queryKey: ["families", "visao-geral", consulta.toString()],
+    enabled: !visaoGeral,
     queryFn: async () => {
       try {
         return await fetchJson<FamiliesView>(`/changes/families${sufixo}`);
@@ -165,7 +183,7 @@ export default function Inicio() {
     },
   });
 
-  const view = vigencia.data ?? null;
+  const view = visaoGeral ? null : (vigencia.data ?? null);
   const anterior = vigenciaAnterior(view);
 
   /*
@@ -217,6 +235,43 @@ export default function Inicio() {
     tela. Ver `lib/contextos.ts`.
   */
   const contextos = useContextosDaCasca();
+
+  /*
+    A união de competências de todas as unidades — o que "Trocar vigência"
+    lista quando Visão Geral está ativa, no lugar de `view.periods` (que não
+    existe em modo overview, porque não há um único `FamiliesView` por trás).
+  */
+  const periodosOverview = useMemo(
+    () =>
+      Array.from(new Set(contextos.contextos.flatMap((c) => c.periodosDisponiveis))).sort(
+        (a, b) => b.localeCompare(a),
+      ),
+    [contextos.contextos],
+  );
+
+  const periodoOverviewEfetivo =
+    parametros.get("period") ?? periodosOverview[periodosOverview.length - 1] ?? null;
+
+  const overviewQuery = useQuery({
+    queryKey: ["families", "overview", periodoOverviewEfetivo],
+    enabled: visaoGeral && periodoOverviewEfetivo !== null,
+    queryFn: async () => {
+      try {
+        return await fetchJson<FamiliesOverview>(
+          `/changes/families/overview?period=${encodeURIComponent(periodoOverviewEfetivo!)}`,
+        );
+      } catch (erro) {
+        // Aqui, 404 quer dizer "nenhuma unidade tem essa competência" de
+        // verdade — o servidor só devolve isso quando não há vigência
+        // nenhuma para o período pedido, nunca quando existe mas não deu
+        // para consolidar (aí a resposta é 200 com `unitsIncluded: []`).
+        if (erro instanceof ApiError && erro.status === 404) return null;
+        throw erro;
+      }
+    },
+  });
+
+  const overview = visaoGeral ? (overviewQuery.data ?? null) : null;
 
   const coberturaAuditada = useMemo(() => cobertura(balancos.data), [balancos.data]);
   const integridadeDosDados = useMemo(() => integridade(balancos.data), [balancos.data]);
@@ -351,21 +406,44 @@ export default function Inicio() {
     <Layout>
       <Cabecalho
         view={view}
+        overview={overview}
+        visaoGeral={visaoGeral}
+        periodosOverview={periodosOverview}
         ultima={ultima}
         contextos={contextos.contextos}
         onTrocar={trocarPara}
       />
 
       <div className="px-8 py-6 space-y-5 max-w-[1600px]">
-        {vigencia.isLoading && (
-          <p className="text-sm text-muted-foreground">Carregando a vigência…</p>
-        )}
+        {visaoGeral ? (
+          <>
+            {overviewQuery.isLoading && (
+              <p className="text-sm text-muted-foreground">Carregando a Visão Geral…</p>
+            )}
+            {overviewQuery.error && (
+              <ApiErrorNotice
+                error={overviewQuery.error}
+                what="Não foi possível montar a Visão Geral."
+              />
+            )}
+            {!overviewQuery.isLoading && !overviewQuery.error && overview === null && (
+              <BancoVazio />
+            )}
+            {overview && <VisaoGeralConteudo overview={overview} />}
+          </>
+        ) : (
+          <>
+            {vigencia.isLoading && (
+              <p className="text-sm text-muted-foreground">Carregando a vigência…</p>
+            )}
 
-        {vigencia.error && (
-          <ApiErrorNotice error={vigencia.error} what="Não foi possível montar a visão geral." />
-        )}
+            {vigencia.error && (
+              <ApiErrorNotice error={vigencia.error} what="Não foi possível montar a visão geral." />
+            )}
 
-        {!vigencia.isLoading && !vigencia.error && view === null && <BancoVazio />}
+            {!vigencia.isLoading && !vigencia.error && view === null && <BancoVazio />}
+          </>
+        )}
 
         {view && (
           <>
@@ -484,21 +562,43 @@ export default function Inicio() {
  */
 function Cabecalho({
   view,
+  overview,
+  visaoGeral,
+  periodosOverview,
   ultima,
   contextos,
   onTrocar,
 }: {
   view: FamiliesView | null;
+  overview: FamiliesOverview | null;
+  visaoGeral: boolean;
+  /** União de `periodosDisponiveis` de todas as unidades, mais recente primeiro. */
+  periodosOverview: string[];
   ultima: ReturnType<typeof ultimaImportacao>;
   contextos: SeriesContext[];
   onTrocar: (mudancas: Record<string, string | null>) => void;
 }) {
   const unidade = view ? nomeDaUnidade(view.context) : null;
-  const partes = [
-    view?.context.channel ?? null,
-    view?.periodLabel ?? null,
-    ultima ? `última importação ${ultima.relativo}` : null,
-  ].filter((p): p is string => p !== null);
+  const partes = visaoGeral
+    ? overview
+      ? [
+          `${overview.unitsIncluded.length} de ${overview.unitsIncluded.length + overview.unitsExcluded.length} unidades incluídas`,
+          ultima ? `última importação ${ultima.relativo}` : null,
+        ].filter((p): p is string => p !== null)
+      : []
+    : [
+        view?.context.channel ?? null,
+        view?.periodLabel ?? null,
+        ultima ? `última importação ${ultima.relativo}` : null,
+      ].filter((p): p is string => p !== null);
+
+  /*
+    A competência que está de fato na tela agora — a que "Visão Geral" leva
+    consigo ao ligar, para a rota de overview nunca receber `period` vazio
+    mesmo quando o usuário nunca escolheu uma vigência explicitamente (a tela
+    já estava mostrando a mais recente por padrão).
+  */
+  const periodoAtual = visaoGeral ? (overview?.period ?? null) : (view?.period ?? null);
 
   return (
     /*
@@ -513,7 +613,7 @@ function Cabecalho({
       <div className="flex flex-wrap items-start justify-between gap-4 max-w-[1600px]">
         <div className="min-w-0">
           <h1 className="text-[2rem] font-extrabold tracking-tight leading-tight">
-            Resumo executivo{unidade ? ` — ${unidade}` : ""}
+            Resumo executivo — {visaoGeral ? "Visão Geral" : (unidade ?? "")}
           </h1>
           {partes.length > 0 && (
             <p className="text-sm text-muted-foreground mt-1.5">{partes.join(" · ")}</p>
@@ -528,6 +628,23 @@ function Cabecalho({
                 Trocar unidade
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-72">
+                <DropdownMenuItem
+                  onSelect={() =>
+                    onTrocar({
+                      visaoGeral: "1",
+                      scopeHash: null,
+                      canal: null,
+                      ...(periodoAtual ? { period: periodoAtual } : {}),
+                    })
+                  }
+                  className={cn("flex flex-col items-start gap-0.5", visaoGeral && "font-bold text-brand")}
+                >
+                  <span className="font-semibold">Visão Geral</span>
+                  <span className="text-xs text-muted-foreground">
+                    Soma de todas as unidades com dado na competência
+                  </span>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
                 <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
                   {contextos.length} unidades com vigência importada
                 </DropdownMenuLabel>
@@ -540,11 +657,14 @@ function Cabecalho({
                         A vigência sai da URL junto com a unidade: a data de uma
                         unidade não existe necessariamente na outra, e insistir
                         nela levaria a uma tela vazia com aparência de defeito.
+                        `visaoGeral` some da URL pelo mesmo motivo — trocar para
+                        uma unidade específica é sair do modo consolidado.
                       */
                       onTrocar({
                         scopeHash: contexto.scopeHash,
                         canal: contexto.channel,
                         period: null,
+                        visaoGeral: null,
                       })
                     }
                     className="flex flex-col items-start gap-0.5"
@@ -560,31 +680,56 @@ function Cabecalho({
             </DropdownMenu>
           )}
 
-          {view && view.periods.length > 1 && (
-            <DropdownMenu>
-              <DropdownMenuTrigger className={BOTAO_DE_TROCA}>
-                <CalendarDays className="w-4 h-4" />
-                Trocar vigência
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-56 max-h-80 overflow-y-auto">
-                <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
-                  {view.periods.length} vigências no histórico
-                </DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                {[...view.periods]
-                  .sort((a, b) => b.date.localeCompare(a.date))
-                  .map((periodo) => (
-                    <DropdownMenuItem
-                      key={periodo.date}
-                      onSelect={() => onTrocar({ period: periodo.date })}
-                      className={cn(periodo.date === view.period && "font-bold text-brand")}
-                    >
-                      {periodo.label}
-                    </DropdownMenuItem>
-                  ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
+          {visaoGeral
+            ? periodosOverview.length > 1 && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger className={BOTAO_DE_TROCA}>
+                    <CalendarDays className="w-4 h-4" />
+                    Trocar vigência
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-56 max-h-80 overflow-y-auto">
+                    <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+                      {periodosOverview.length} competências disponíveis
+                    </DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    {periodosOverview.map((data) => (
+                      <DropdownMenuItem
+                        key={data}
+                        onSelect={() => onTrocar({ period: data })}
+                        className={cn(data === overview?.period && "font-bold text-brand")}
+                      >
+                        {data}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )
+            : view &&
+              view.periods.length > 1 && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger className={BOTAO_DE_TROCA}>
+                    <CalendarDays className="w-4 h-4" />
+                    Trocar vigência
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-56 max-h-80 overflow-y-auto">
+                    <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+                      {view.periods.length} vigências no histórico
+                    </DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    {[...view.periods]
+                      .sort((a, b) => b.date.localeCompare(a.date))
+                      .map((periodo) => (
+                        <DropdownMenuItem
+                          key={periodo.date}
+                          onSelect={() => onTrocar({ period: periodo.date })}
+                          className={cn(periodo.date === view.period && "font-bold text-brand")}
+                        >
+                          {periodo.label}
+                        </DropdownMenuItem>
+                      ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
         </div>
       </div>
     </header>
@@ -602,6 +747,205 @@ function Cabecalho({
 const BOTAO_DE_TROCA =
   "flex items-center gap-2 rounded-lg border border-brand bg-card px-4 py-2.5 " +
   "text-sm font-bold text-brand hover:bg-accent transition-colors";
+
+// ---------------------------------------------------------------------------
+// Visão Geral — consolidado por competência entre unidades
+// ---------------------------------------------------------------------------
+
+const MOTIVO_EXCLUSAO_LABEL: Record<MotivoExclusaoDaVisaoGeral, string> = {
+  sem_vigencia_na_competencia: "sem vigência nesta competência",
+  contextos_sobrepostos_ambiguos:
+    "dois ou mais contextos no mesmo canal — não dá para somar com segurança",
+  vigencia_indisponivel_na_leitura: "a vigência ficou indisponível durante a leitura",
+};
+
+/**
+ * O conteúdo da Visão Geral: cobertura primeiro, sempre — e os cartões
+ * financeiros só quando há ao menos uma unidade consolidada.
+ *
+ * A v1 não mescla `families`/`groups`/`series` entre unidades (ver
+ * `getFamiliesOverview` no servidor), então nenhuma gaveta de drill-down
+ * abre aqui — só o resumo já somado e a lista de quem entrou e quem ficou
+ * fora, com o motivo escrito.
+ */
+function VisaoGeralConteudo({ overview }: { overview: FamiliesOverview }) {
+  const semConsolidacaoSegura = overview.unitsIncluded.length === 0;
+  const impactos = Object.entries(overview.summary.impact.byPeriodicity)
+    .map(([periodicity, amount]) => ({ periodicity, amount }))
+    .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
+  const ranking = maioresImpactos(overview.summary);
+
+  return (
+    <>
+      <CoberturaDaVisaoGeral overview={overview} />
+
+      {semConsolidacaoSegura ? (
+        <div className={cn(CARTAO, "px-6 py-8 text-center")}>
+          <p className="text-base font-bold">
+            Nenhuma unidade pôde ser consolidada com segurança nesta competência.
+          </p>
+          <p className="text-sm text-muted-foreground mt-1.5 max-w-md mx-auto">
+            A competência existe — a lista acima diz quais unidades ficaram de fora e por quê.
+          </p>
+        </div>
+      ) : (
+        <>
+          <div className="grid gap-5 sm:grid-cols-3">
+            <CartaoNumero
+              icone={TrendingUp}
+              titulo="Impacto líquido"
+              valor={impactos[0] ? escreverImpacto(impactos[0]) : "—"}
+              tom={impactos[0] ? (impactos[0].amount < 0 ? "desfavoravel" : "favoravel") : undefined}
+            />
+            <CartaoNumero
+              icone={FileText}
+              titulo="Alterações"
+              valor={String(overview.summary.changes)}
+            />
+            <CartaoNumero
+              icone={Truck}
+              titulo="Veículos afetados"
+              valor={String(overview.summary.vehiclesTouched)}
+              nota="soma simples entre unidades, não deduplicada por placa"
+            />
+          </div>
+
+          <section className={cn(CARTAO, "px-6 py-5")}>
+            <div className="flex items-center gap-2">
+              <h2 className="text-base font-bold">Maiores impactos</h2>
+              {ranking && (
+                <span className="text-xs font-semibold text-muted-foreground">
+                  em R${periodicitySuffix(ranking.periodicity)}
+                </span>
+              )}
+            </div>
+            {ranking === null ? (
+              <p className="text-sm text-muted-foreground mt-3">
+                Nenhum parâmetro tem impacto apurado nesta consolidação.
+              </p>
+            ) : (
+              <ol className="mt-4 space-y-3">
+                {ranking.linhas.map((linha) => (
+                  <li key={linha.key} className="flex items-center gap-3">
+                    <span
+                      className="w-40 shrink-0 min-w-0 text-sm font-semibold truncate"
+                      title={linha.name}
+                    >
+                      {linha.name}
+                    </span>
+                    <span className="flex-1 h-2.5 bg-muted overflow-hidden min-w-8">
+                      <span
+                        className={cn(
+                          "block h-full",
+                          linha.amount < 0 ? "bg-red-600" : "bg-emerald-600",
+                        )}
+                        style={{ width: `${Math.max(2, linha.proporcao * 100)}%` }}
+                      />
+                    </span>
+                    <span
+                      className={cn(
+                        "text-sm font-bold tabular-nums w-28 text-right",
+                        linha.amount < 0 ? "text-red-700" : "text-emerald-700",
+                      )}
+                    >
+                      {escreverImpacto({ periodicity: ranking.periodicity, amount: linha.amount })}
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </section>
+
+          <p className="text-xs text-muted-foreground">
+            Detalhamento por família, alterações em destaque e drill-down por parâmetro não
+            estão disponíveis na Visão Geral nesta versão — troque para uma unidade específica
+            em "Trocar unidade" para ver o detalhe.
+          </p>
+        </>
+      )}
+    </>
+  );
+}
+
+/** "N de M unidades incluídas", com a lista de quem ficou fora e por quê. */
+function CoberturaDaVisaoGeral({ overview }: { overview: FamiliesOverview }) {
+  const total = overview.unitsIncluded.length + overview.unitsExcluded.length;
+  const parciais = overview.unitsIncluded.filter(
+    (u): u is OverviewUnitIncluded & { coberturaParcial: NonNullable<OverviewUnitIncluded["coberturaParcial"]> } =>
+      (u.coberturaParcial?.length ?? 0) > 0,
+  );
+
+  return (
+    <section className={cn(CARTAO, "px-6 py-5")}>
+      <div className="flex items-center gap-2">
+        <Info className="w-4 h-4 text-muted-foreground shrink-0" />
+        <h2 className="text-base font-bold">
+          {overview.unitsIncluded.length} de {total} unidades incluídas
+        </h2>
+      </div>
+
+      {parciais.length > 0 && (
+        <ul className="mt-3 space-y-1 text-xs text-amber-700">
+          {parciais.map((u) => (
+            <li key={u.unidade}>
+              <span className="font-semibold">{u.label}</span>: cobertura parcial — um contexto
+              elegível não pôde ser lido, a soma reflete só o que respondeu.
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {overview.unitsExcluded.length > 0 && (
+        <details className="mt-3 text-sm">
+          <summary className="cursor-pointer text-muted-foreground font-medium">
+            {overview.unitsExcluded.length} unidade(s) fora da soma
+          </summary>
+          <ul className="mt-2 space-y-1.5">
+            {overview.unitsExcluded.map((u: OverviewUnitExcluded) => (
+              <li key={u.unidade} className="text-xs text-muted-foreground">
+                <span className="font-semibold text-foreground">{u.label}</span> —{" "}
+                {MOTIVO_EXCLUSAO_LABEL[u.reason]}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </section>
+  );
+}
+
+function CartaoNumero({
+  icone: Icone,
+  titulo,
+  valor,
+  nota,
+  tom,
+}: {
+  icone: LucideIcon;
+  titulo: string;
+  valor: string;
+  nota?: string;
+  tom?: "favoravel" | "desfavoravel";
+}) {
+  return (
+    <div className={cn(CARTAO, "px-5 py-4")}>
+      <div className="flex items-center gap-2 text-muted-foreground">
+        <Icone className="w-4 h-4" />
+        <span className="text-xs font-semibold uppercase tracking-wide">{titulo}</span>
+      </div>
+      <p
+        className={cn(
+          "text-2xl font-extrabold mt-2",
+          tom === "desfavoravel" && "text-red-700",
+          tom === "favoravel" && "text-emerald-700",
+        )}
+      >
+        {valor}
+      </p>
+      {nota && <p className="text-[0.6875rem] text-muted-foreground mt-1">{nota}</p>}
+    </div>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Os cinco números

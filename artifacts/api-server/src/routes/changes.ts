@@ -11,6 +11,7 @@ import {
   getChangeProvenance,
   getChangeSetBreakdown,
   getChangeSetForPair,
+  getFamiliesOverview,
   getFamiliesView,
   getGroupedView,
   getGroupVehicles,
@@ -329,6 +330,36 @@ router.get("/changes/families", async (req, res): Promise<void> => {
     return;
   }
   res.json({ ...view, freightechSemDado: FREIGHTECH_SEM_DADO });
+});
+
+/**
+ * A Visão Geral — soma de todas as unidades numa única competência.
+ *
+ * Camada nova por cima de `/changes/families`, não uma variação dela: aqui
+ * `scopeHash`/`canal` não fazem sentido (a resposta é sobre todas as
+ * unidades), e por isso a rota não passa por `parseContext`. Unidade sem essa
+ * competência exata fica de fora — nunca cai para a vigência mais recente que
+ * ela tem — e a resposta sempre nomeia quem entrou e quem ficou fora.
+ *
+ * O 404 abaixo só acontece quando **nenhuma** unidade tem essa competência —
+ * `getFamiliesOverview` devolve `null` exclusivamente nesse caso.  Quando a
+ * competência existe mas nada pôde ser consolidado com segurança (ex.: toda
+ * unidade elegível tinha contextos ambíguos no mesmo canal), a resposta é
+ * 200 com `unitsIncluded: []` e `unitsExcluded` explicando o motivo — nunca
+ * um 404 que diria, errado, que a competência não existe.
+ */
+router.get("/changes/families/overview", async (req, res): Promise<void> => {
+  const period = typeof req.query.period === "string" ? req.query.period : undefined;
+  if (!period) {
+    res.status(400).json({ error: "period é obrigatório em Visão Geral." });
+    return;
+  }
+  const view = await getFamiliesOverview(db, period);
+  if (!view) {
+    res.status(404).json({ error: "Nenhuma unidade tem vigência nesta competência." });
+    return;
+  }
+  res.json(view);
 });
 
 /**

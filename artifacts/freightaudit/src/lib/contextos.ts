@@ -58,6 +58,13 @@ export interface Contexto {
   scopes: { scopeType: string; code: string; name: string | null }[];
   latestPeriod: string;
   periods: number;
+  /**
+   * Todas as vigências deste contexto, da mais antiga à mais recente — já
+   * chega no JSON de `/contexts` (`ContextInfo.periodosDisponiveis` no
+   * servidor), só faltava o tipo aqui reconhecer. A Visão Geral usa isto
+   * para montar o seletor de competência sem uma segunda chamada.
+   */
+  periodosDisponiveis: string[];
 }
 
 /**
