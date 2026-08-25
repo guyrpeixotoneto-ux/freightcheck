@@ -88,6 +88,7 @@ import {
   type TotaisDoPagamento,
 } from "@/lib/fechamento";
 import { ROTEIRO, type EtapaDoRoteiro } from "./roteiro";
+import { apenasCanalRota, verbasRepetidas } from "./pagamento-por-canal";
 import {
   normalizarCategoria,
   resolverValorDoContrato,
@@ -2138,7 +2139,7 @@ function DentroDaEtapa({
  * a dele.
  */
 function TotaisDoPagamentoNaEtapa({ totais }: { totais: TotaisDoPagamento }) {
-  const canais = totais.canais.filter((c) => c.canal === "ROTA");
+  const canais = apenasCanalRota(totais.canais);
   return (
     <div className="rounded-md border p-3">
       <p className="text-xs font-medium">
@@ -2226,7 +2227,7 @@ function VerbaAVerbaDoPagamento({ competenciaId }: { competenciaId: string }) {
     os dois canais aqui só torna a conferência de quem está fechando a Rota
     mais difícil de ler.
   */
-  const itensDaRota = itens.filter((i) => i.canal === "ROTA");
+  const itensDaRota = apenasCanalRota(itens);
   if (itensDaRota.length === 0) return null;
 
   return (
@@ -2234,53 +2235,6 @@ function VerbaAVerbaDoPagamento({ competenciaId }: { competenciaId: string }) {
       <GradeDoPagamentoPorCanal canal="ROTA" itens={itensDaRota} />
     </div>
   );
-}
-
-/**
- * Linhas do mesmo bloco cujas seis colunas — e a VBZ — são idênticas, byte a
- * byte, mas vieram de linhas físicas diferentes do arquivo.
- *
- * **Por que isto não é resolvido calado.** Uma VBZ pode legitimamente repetir
- * dentro do mesmo canal — mas em blocos diferentes (Frete e Outros Custos, ver
- * `ctrcPorVerba` em `leitores/pagamento.ts`), e com valores que normalmente
- * discordam, porque nascem de origens diferentes. Duas linhas no **mesmo**
- * bloco com os **mesmos** seis valores é outra coisa: ou o 03.08.20 realmente
- * trouxe a verba duas vezes (e a Ambev precisa confirmar isso), ou o arquivo
- * saiu do exportador com uma seção repetida. Este módulo não decide qual dos
- * dois é — só aponta as linhas físicas, para que quem fecha a quinzena julgue
- * com o arquivo original ao lado.
- */
-function linhasPossivelmenteDuplicadas(
-  itens: ItemDePagamento[],
-): { vbz: number; nome: string; linhas: number[] }[] {
-  const grupos = new Map<string, ItemDePagamento[]>();
-  for (const item of itens) {
-    const chave = [
-      item.bloco,
-      item.verba.vbz,
-      item.semImposto,
-      item.nfIss,
-      item.ctrcIcms,
-      item.valorFaturado,
-      item.vlcNfIss,
-      item.vlcCtrcIcms,
-    ].join("|");
-    const grupo = grupos.get(chave);
-    if (grupo) grupo.push(item);
-    else grupos.set(chave, [item]);
-  }
-
-  const achados: { vbz: number; nome: string; linhas: number[] }[] = [];
-  for (const grupo of grupos.values()) {
-    if (grupo.length < 2) continue;
-    const [primeiro] = grupo;
-    achados.push({
-      vbz: primeiro.verba.vbz,
-      nome: primeiro.nomeNoArquivo,
-      linhas: grupo.map((i) => i.linha),
-    });
-  }
-  return achados.sort((a, b) => a.vbz - b.vbz);
 }
 
 const CAMPOS_DO_PAGAMENTO = [
@@ -2305,31 +2259,58 @@ function GradeDoPagamentoPorCanal({
   canal: string;
   itens: ItemDePagamento[];
 }) {
-  const duplicadas = linhasPossivelmenteDuplicadas(itens);
+  const repetidas = verbasRepetidas(itens);
+  const identicas = repetidas.filter((r) => r.classificacao === "IDENTICA");
+  const divergentes = repetidas.filter((r) => r.classificacao === "DIVERGENTE");
   return (
     <div className="rounded-md border p-3">
       <p className="text-xs font-medium">
         Verbas do 03.08.20 — {canal}
       </p>
-      {duplicadas.length > 0 && (
-        <div className="mt-1.5 rounded-md bg-amber-500/5 border border-amber-500/20 p-2">
-          <p className="text-xs font-medium text-amber-700 dark:text-amber-400">
-            {duplicadas.length === 1
-              ? "Uma verba aparece repetida com os mesmos valores"
-              : `${duplicadas.length} verbas aparecem repetidas com os mesmos valores`}
+      {divergentes.length > 0 && (
+        <div className="mt-1.5 rounded-md bg-red-500/5 border border-red-500/20 p-2">
+          <p className="text-xs font-medium text-red-700 dark:text-red-400">
+            {divergentes.length === 1
+              ? "Uma VBZ aparece repetida com valores divergentes"
+              : `${divergentes.length} VBZs aparecem repetidas com valores divergentes`}
           </p>
           <ul className="mt-1 space-y-0.5">
-            {duplicadas.map((d) => (
-              <li key={d.vbz} className="text-xs text-muted-foreground">
-                {String(d.vbz).padStart(2, "0")} - {d.nome}: linhas{" "}
-                {d.linhas.join(", ")} do arquivo
+            {divergentes.map((d) => (
+              <li key={`${d.bloco}-${d.vbz}`} className="text-xs text-muted-foreground">
+                {String(d.vbz).padStart(2, "0")} - {d.nome} ({d.bloco}):{" "}
+                {d.ocorrencias
+                  .map((o) => `linha ${o.linha} = ${formatBrl(o.valorFaturado)}`)
+                  .join("; ")}
+              </li>
+            ))}
+          </ul>
+          <p className="text-xs text-muted-foreground/80 mt-1 max-w-2xl">
+            A mesma verba, no mesmo bloco, com valores diferentes não tem
+            explicação óbvia — confira com a Ambev antes de fechar. Nenhuma
+            linha foi somada ou removida.
+          </p>
+        </div>
+      )}
+      {identicas.length > 0 && (
+        <div className="mt-1.5 rounded-md bg-amber-500/5 border border-amber-500/20 p-2">
+          <p className="text-xs font-medium text-amber-700 dark:text-amber-400">
+            {identicas.length === 1
+              ? "Uma verba aparece repetida com os mesmos valores — possível duplicidade"
+              : `${identicas.length} verbas aparecem repetidas com os mesmos valores — possível duplicidade`}
+          </p>
+          <ul className="mt-1 space-y-0.5">
+            {identicas.map((d) => (
+              <li key={`${d.bloco}-${d.vbz}`} className="text-xs text-muted-foreground">
+                {String(d.vbz).padStart(2, "0")} - {d.nome} ({d.bloco}): linhas{" "}
+                {d.ocorrencias.map((o) => o.linha).join(", ")} do arquivo
               </li>
             ))}
           </ul>
           <p className="text-xs text-muted-foreground/80 mt-1 max-w-2xl">
             Pode ser o 03.08.20 trazendo a verba duas vezes de fato, ou o
             arquivo exportado com a seção repetida. Confira as linhas
-            apontadas no arquivo original antes de fechar.
+            apontadas no arquivo original antes de fechar. Nenhuma linha foi
+            somada ou removida.
           </p>
         </div>
       )}
