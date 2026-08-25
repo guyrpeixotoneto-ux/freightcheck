@@ -130,6 +130,10 @@ export {
   type SituacaoDaFrota,
 } from "./frota-promax-comparacao";
 export {
+  classificarCategoriaDeFrotaPromax,
+  type ReferenciaDeFrotaPromax,
+} from "./frota-promax-categorias";
+export {
   lerConciliacao,
   valorDe,
   ColunasDaConciliacaoIndefinidas,

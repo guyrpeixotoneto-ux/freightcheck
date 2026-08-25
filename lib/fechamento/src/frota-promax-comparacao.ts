@@ -1,4 +1,5 @@
 import type { VeiculoDaFrotaPromax } from "./leitores/frota-promax";
+import { classificarCategoriaDeFrotaPromax } from "./frota-promax-categorias";
 
 /**
  * A CONFERÊNCIA DE FROTA — Promax contra o que o contrato declara.
@@ -306,27 +307,26 @@ export interface ContratoParaComparacaoDeFrota {
  * `FROTA_PROMAX_ATIVA`/`FROTA_PROMAX_INATIVA` como duas fontes, e não quatro,
  * continua valendo (ver o TODO em `dominio.ts`).
  *
- * `categoria` ausente, ou que não seja reconhecidamente `FF`/fixa nem `VAN`,
- * não recebe referência nenhuma — a `SEM_COMPARACAO` honesta de "não sei
- * contra o que comparar este grupo", em vez de arriscar somá-lo ao lado
- * errado.
+ * A classificação em si mora em `frota-promax-categorias.ts` — a mesma regra
+ * que a leitura por imagem em `competencia.tsx` usa para destacar células.
+ * `categoria` ausente, ou que não seja reconhecida, não recebe referência
+ * nenhuma — a `SEM_COMPARACAO` honesta de "não sei contra o que comparar
+ * este grupo", em vez de arriscar somá-lo ao lado errado.
  */
 function referenciaDoContratoPelaCategoria(
   categoria: string | null,
   situacao: SituacaoDaFrota,
   contrato: ContratoParaComparacaoDeFrota,
 ): Referencia | null {
-  const texto = (categoria ?? "").trim().toUpperCase();
-  const ehFrotaFixa = texto === "FF" || texto === "FIXA" || texto === "FROTA FIXA" || texto === "PADRAO";
-  const ehVan = texto === "VAN" || texto === "VANS";
+  const referencia = classificarCategoriaDeFrotaPromax(categoria);
 
-  if (ehFrotaFixa) {
+  if (referencia === "FROTA_FIXA") {
     return {
       nome: "Cadastro do contrato — frota fixa",
       quantidade: situacao === "ATIVA" ? contrato.frotaFixaAtiva : contrato.frotaFixaInativa,
     };
   }
-  if (ehVan) {
+  if (referencia === "VAN") {
     return {
       nome: "Cadastro do contrato — vans",
       quantidade: situacao === "ATIVA" ? contrato.vansAtivas : contrato.vansInativas,

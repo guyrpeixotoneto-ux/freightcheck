@@ -89,6 +89,12 @@ import {
 } from "@/lib/fechamento";
 import { ROTEIRO, type EtapaDoRoteiro } from "./roteiro";
 import {
+  normalizarCategoria,
+  resolverValorDoContrato,
+  type SituacaoDaFrota,
+  type ValorDoContratoParaComparar,
+} from "./grade-comparacao-frota";
+import {
   resumoDaEtapa,
   situacaoDaEtapa,
   type SituacaoDaEtapa,
@@ -1175,34 +1181,12 @@ const LINHAS_DO_CONTRATO: {
 ];
 
 /**
- * Tira acento, caixa e espaço a mais — só isso. Existe para que "Noturna" na
- * imagem encontre "Noturna" no contrato mesmo com uma maiúscula ou um espaço
- * de diferença; não existe para decidir que "Padrão" quer dizer "Frota
- * Ativa" — essa correspondência ninguém confirmou, e por isso ela não entra
- * aqui (ver `mapaDeComparacaoDoContrato`).
- */
-function normalizarCategoria(texto: string): string {
-  return texto
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, " ");
-}
-
-interface ValorDoContratoParaComparar {
-  valor: number;
-  dinheiro: boolean;
-}
-
-/**
- * O de-para entre a grade do contrato e a leitura por imagem — e ele não
- * inventa nome nenhum. A chave é literalmente `linha|coluna` do contrato,
- * normalizada; uma célula da imagem só entra na comparação quando a linha
- * *e* a coluna que ela leu têm exatamente esse mesmo texto do lado do
- * contrato (ex.: "Noturna" bate com "Noturna"). "Padrão" não bate com "Frota
- * Ativa" porque ninguém confirmou que são a mesma coisa — ver o comentário
- * de `LeituraDaImagemDaFrota`.
+ * O de-para entre a grade do contrato e a leitura por imagem — ver
+ * `grade-comparacao-frota.ts` para a regra completa: nome literal primeiro
+ * (ex.: "Noturna" bate com "Noturna"), e a via por categoria confirmada por
+ * amostra real depois (ex.: "Padrão" -> "Frota Ativa" — ver
+ * `resolverValorDoContrato`). A chave aqui e `linha|coluna` do contrato,
+ * normalizada por `normalizarCategoria`.
  */
 function mapaDeComparacaoDoContrato(
   parametros: ParametrosDoContrato,
@@ -1624,15 +1608,18 @@ function LinhaDeFonte({
  * (ver `compararFrotaDaCompetencia`, que lê placa a placa — a tela mostra só
  * totais por categoria, sem placa nenhuma).
  *
- * **A correspondência com o contrato é só a que já existe, de propósito.** A
- * grade mostra a imagem como ela é — "Padrão", "Fixo", "MKT"… — e só marca
- * uma célula como comparável quando a linha *e* a coluna que a imagem leu
- * têm exatamente o mesmo texto do lado do contrato (ex.: a coluna "Noturna"
- * bate com a coluna "Noturna" do contrato). Ela não tenta adivinhar que
- * "Padrão" quer dizer "Frota Ativa": essa correspondência ainda não foi
- * confirmada com a operação (ver o TODO em `TipoDeFonte`), e um de-para
- * inventado aqui mostraria "bate" ou "não bate" sobre uma categoria que
- * pode nem ser a mesma coisa. Ver `mapaDeComparacaoDoContrato`.
+ * **A correspondência com o contrato é só a que já foi confirmada.** A grade
+ * mostra a imagem como ela é — "Padrão", "Fixo", "MKT"… — e marca uma célula
+ * como comparável quando a linha *e* a coluna que a imagem leu têm
+ * exatamente o mesmo texto do lado do contrato (ex.: "Noturna" bate com
+ * "Noturna"), ou quando a coluna é uma categoria que
+ * `classificarCategoriaDeFrotaPromax` já reconhece por amostra real — hoje,
+ * "Padrão" como Frota Ativa e "Fixo" como Van Ativa (ver o comentário desse
+ * módulo para a print que confirmou os dois). Categorias sem amostra
+ * confirmada ("MKT", "Refrigeração", "Especial", "Recarga", e o lado
+ * inativo inteiro) continuam sem marcação — um de-para inventado aqui
+ * mostraria "bate"/"não bate" sobre uma categoria que pode nem ser a mesma
+ * coisa. Ver `resolverValorDoContrato` em `grade-comparacao-frota.ts`.
  */
 function LeituraDaImagemDaFrota({
   tipo,
@@ -1665,6 +1652,12 @@ function LeituraDaImagemDaFrota({
   });
 
   const leitura = ler.data ?? leituraSalva;
+  const situacao: SituacaoDaFrota | null =
+    tipo === "FROTA_PROMAX_ATIVA"
+      ? "ATIVA"
+      : tipo === "FROTA_PROMAX_INATIVA"
+        ? "INATIVA"
+        : null;
 
   return (
     <div className="mt-2 ml-6">
@@ -1732,13 +1725,15 @@ function LeituraDaImagemDaFrota({
               <GradeLivre
                 celulas={leitura.celulas}
                 valoresDoContrato={valoresDoContrato}
+                situacao={situacao}
               />
               <p className="text-xs text-muted-foreground/80 mt-1.5">
                 Rascunho da imagem — nada foi salvo. As células em destaque já
-                foram comparadas com o contrato acima, porque a linha e a
-                coluna têm o mesmo nome dos dois lados; as demais têm nome
-                diferente lá e aqui, e essa correspondência ninguém confirmou
-                ainda — compare-as você mesmo.
+                foram comparadas com o contrato acima, porque a linha tem o
+                mesmo nome dos dois lados e a coluna também — ou é uma
+                categoria já confirmada contra o contrato ("Padrão" = Frota
+                Ativa, "Fixo" = Van Ativa); as demais colunas ainda não têm
+                essa correspondência confirmada — compare-as você mesmo.
               </p>
             </>
           )}
@@ -1752,10 +1747,13 @@ function LeituraDaImagemDaFrota({
 function GradeLivre({
   celulas,
   valoresDoContrato,
+  situacao,
 }: {
   celulas: CelulaDaGrade[];
-  /** As células do contrato cujo nome de linha e coluna batem, literalmente, com os da imagem. */
+  /** As células do contrato contra as quais a leitura por imagem pode comparar — ver `resolverValorDoContrato`. */
   valoresDoContrato: Map<string, ValorDoContratoParaComparar> | undefined;
+  /** Ativa ou inativa — decide, na correspondência por categoria, se "Padrão" é Frota Ativa ou Frota Inativa. `null` quando o tipo da fonte não é um dos dois (não deveria acontecer, `GradeLivre` só é usada para frota). */
+  situacao: SituacaoDaFrota | null;
 }) {
   const linhas = [...new Set(celulas.map((c) => c.linha))];
   const colunas = [...new Set(celulas.map((c) => c.coluna))];
@@ -1785,15 +1783,18 @@ function GradeLivre({
               </td>
               {colunas.map((coluna) => {
                 const celula = porCelula.get(`${linha} ${coluna}`);
-                const doContrato = valoresDoContrato?.get(
-                  `${normalizarCategoria(linha)}|${normalizarCategoria(coluna)}`,
+                const doContrato = resolverValorDoContrato(
+                  valoresDoContrato,
+                  linha,
+                  coluna,
+                  situacao,
                 );
                 const bate =
                   doContrato && celula
                     ? Math.abs(celula.valor - doContrato.valor) < 0.01
                     : undefined;
                 const tituloDoContrato = doContrato
-                  ? `Contrato: ${
+                  ? `Contrato${doContrato.porCategoria ? " (por categoria)" : ""}: ${
                       doContrato.dinheiro
                         ? formatBrl(doContrato.valor)
                         : formatNumber(doContrato.valor, 0)

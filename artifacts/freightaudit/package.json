@@ -79,6 +79,7 @@
   "dependencies": {
     "@workspace/comparison": "workspace:*",
     "@workspace/curation": "workspace:*",
+    "@workspace/fechamento": "workspace:*",
     "@workspace/ingest": "workspace:*",
     "@workspace/knowledge": "workspace:*"
   }
