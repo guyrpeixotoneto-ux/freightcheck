@@ -826,13 +826,16 @@ export async function situacaoPorAtivo(
  * motor não compara famílias diferentes — `findPreviousSnapshot` já as separa
  * pela cobertura —, então as duas pontas são sempre da mesma.
  *
- * **Uma linha por vigência de destino.** `computeChangeSet` só é idempotente
- * por par (`snapshot_a_id`, `snapshot_b_id`) — quando a vigência de origem é
- * reprocessada e ganha um novo `snapshot.id`, nasce um novo `change_set`
- * apontando para a mesma `sb`. Pra quem lista aqui (o seletor de vigência de
- * Justificativas), a identidade é só `sb`: por isso `DISTINCT ON` mantém a
- * comparação mais recente por vigência de destino, em vez de uma linha por
- * `change_set`.
+ * **Uma linha por vigência de destino.** Reprocessar a vigência de origem
+ * não atualiza o `snapshot` existente — ele grava um `snapshot` novo
+ * (`revision` +1, o antigo marcado `SUPERSEDED`; ver `snapshot_canonical_live_uq`
+ * em `lib/db/src/schema/canonical.ts`). `computeChangeSet` é idempotente só
+ * por par (`snapshot_a_id`, `snapshot_b_id`), então cada reprocessamento
+ * nasce com um `snapshot_b_id` novo e um `change_set` novo — os antigos, que
+ * apontam pra revisões já `SUPERSEDED`, continuam na tabela. `DISTINCT ON
+ * (cs.snapshot_b_id)` não pega isso (cada linha tem um `snapshot_b_id`
+ * genuinamente diferente); o filtro certo é `sb.status <> 'SUPERSEDED'` — só
+ * a revisão viva de cada identidade canônica.
  */
 export async function listChangeSets(
   db: Database,
@@ -841,7 +844,7 @@ export async function listChangeSets(
 ) {
   const sa = sql`sa`;
   const { rows } = await db.execute<Record<string, unknown>>(sql`
-    SELECT DISTINCT ON (cs.snapshot_b_id)
+    SELECT DISTINCT ON (sb.canonical_snapshot_key)
            cs.*,
            sa.source_label   AS snapshot_a_label,
            sa.effective_date AS snapshot_a_date,
@@ -850,8 +853,9 @@ export async function listChangeSets(
       FROM change_set cs
       JOIN snapshot sa ON sa.id = cs.snapshot_a_id
       JOIN snapshot sb ON sb.id = cs.snapshot_b_id
-     WHERE ${datasetFamilyFilter("sb", opts?.datasetFamily)}
-     ORDER BY cs.snapshot_b_id, cs.id DESC
+     WHERE sb.status <> 'SUPERSEDED'
+       AND ${datasetFamilyFilter("sb", opts?.datasetFamily)}
+     ORDER BY sb.canonical_snapshot_key, cs.id DESC
   `);
   return rows.sort(
     (x, y) =>
