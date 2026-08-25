@@ -16,6 +16,7 @@ import {
   getGroupedView,
   getGroupVehicles,
   getRangeAnalysis,
+  getRangeOverview,
   getEndToEndAnalysis,
   FREIGHTECH_SEM_DADO,
   listChangeSets,
@@ -381,6 +382,25 @@ router.get("/changes/range", async (req, res): Promise<void> => {
     return;
   }
   res.json(analysis);
+});
+
+/**
+ * A Visão Geral do intervalo — soma de todas as unidades entre duas vigências.
+ *
+ * Mesma régua de `/changes/families/overview`, mas por intervalo: usa
+ * `getRangeAnalysis` por unidade em vez de `getFamiliesView`, e por isso
+ * aceita `from`/`to` como `/changes/range` — sem eles, cada unidade cai no
+ * seu próprio padrão (mais recente e a anterior).
+ */
+router.get("/changes/range/overview", async (req, res): Promise<void> => {
+  const from = typeof req.query.from === "string" ? req.query.from : undefined;
+  const to = typeof req.query.to === "string" ? req.query.to : undefined;
+  const overview = await getRangeOverview(db, from, to);
+  if (!overview) {
+    res.status(404).json({ error: "Nenhuma unidade tem histórico neste intervalo." });
+    return;
+  }
+  res.json(overview);
 });
 
 /**

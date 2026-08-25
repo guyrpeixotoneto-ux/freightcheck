@@ -2,11 +2,13 @@ import type { Database } from "@workspace/db";
 import type { FamilyCode } from "./families";
 import {
   getFamiliesView,
+  getRangeAnalysis,
   type ExecutiveSummary,
   type FamiliesView,
   type ImpactContributor,
   type ImpactSide,
   type ImpactSides,
+  type RangeAnalysis,
 } from "./families-view";
 import { listContexts, type ContextInfo } from "./series";
 
@@ -432,6 +434,166 @@ export async function getFamiliesOverview(
   return {
     period,
     summary: mergeSummaries(views.map((v) => v.summary)),
+    unitsIncluded,
+    unitsExcluded,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// A Visão Geral do intervalo — soma de todas as unidades, entre duas vigências
+// ---------------------------------------------------------------------------
+
+/**
+ * `getFamiliesOverview` acima soma unidades numa única competência.  Esta é a
+ * mesma pergunta para um intervalo: quem entrou, quem ficou de fora, e quanto
+ * cada unidade somou de líquido, ganho e perda entre `from` e `to`.
+ *
+ * Nasce mais simples do que a irmã de competência única: aqui o consumo é o
+ * ranking "onde está o impacto", que só precisa do total por unidade — não da
+ * árvore de famílias, do `topParameters` nem dos `entries` linha a linha que
+ * `RangeAnalysis` carrega por unidade. Somar esses campos entre unidades é
+ * trabalho que ninguém pediu ainda; se pedir, é aqui que ele entra.
+ *
+ * A régua de agrupamento é a mesma de `getFamiliesOverview`
+ * (`agruparPorUnidade`, `agruparPorCanal`) — o que muda é a leitura por
+ * contexto, que aqui é `getRangeAnalysis` em vez de `getFamiliesView`, sem
+ * filtro de competência: uma unidade sem contexto elegível só é excluída por
+ * ambiguidade de canal, nunca por não ter a competência exata (que não existe
+ * como conceito num intervalo).
+ */
+
+export type MotivoExclusaoRange = "contextos_sobrepostos_ambiguos" | "sem_leitura_no_intervalo";
+
+export interface RangeOverviewUnitExcluded {
+  unidade: string;
+  label: string;
+  reason: MotivoExclusaoRange;
+  contexts: OverviewContextRef[];
+  /** Só quando `reason === "contextos_sobrepostos_ambiguos"`. Ver `agruparPorCanal`. */
+  conflito?: { scopeHash: string; entradas: string[] }[];
+}
+
+export interface RangeOverviewUnit {
+  unidade: string;
+  label: string;
+  contexts: OverviewContextRef[];
+  /** Já sem dupla contagem, por periodicidade — soma dos contextos desta unidade. */
+  impact: { byPeriodicity: Record<string, number> };
+  gainsByPeriodicity: Record<string, number>;
+  lossesByPeriodicity: Record<string, number>;
+  changes: number;
+  vehiclesTouched: number;
+}
+
+export interface RangeOverview {
+  from: string;
+  fromLabel: string;
+  to: string;
+  toLabel: string;
+  unitsIncluded: RangeOverviewUnit[];
+  unitsExcluded: RangeOverviewUnitExcluded[];
+}
+
+export async function getRangeOverview(
+  db: Database,
+  from?: string,
+  to?: string,
+): Promise<RangeOverview | null> {
+  const contexts = await listContexts(db);
+  const porUnidade = agruparPorUnidade(contexts);
+
+  const unitsExcluded: RangeOverviewUnitExcluded[] = [];
+  const candidatas: { unidade: string; label: string; matched: ContextInfo[] }[] = [];
+
+  for (const [unidade, grupo] of porUnidade) {
+    const porCanal = agruparPorCanal(grupo);
+    const canalAmbiguo = [...porCanal.values()].find((lista) => lista.length > 1);
+    if (canalAmbiguo) {
+      unitsExcluded.push({
+        unidade,
+        label: grupo[0].label,
+        reason: "contextos_sobrepostos_ambiguos",
+        contexts: grupo.map(refDe),
+        conflito: canalAmbiguo.map((c) => ({
+          scopeHash: c.scopeHash,
+          entradas: [...conjuntoDeEntradas(c)],
+        })),
+      });
+      continue;
+    }
+    candidatas.push({ unidade, label: grupo[0].label, matched: grupo });
+  }
+
+  if (candidatas.length === 0) return null;
+
+  const leituras = await Promise.all(
+    candidatas.flatMap((cand) =>
+      cand.matched.map(async (contexto) => ({
+        unidade: cand.unidade,
+        analysis: await getRangeAnalysis(db, from, to, {
+          scopeHash: contexto.scopeHash,
+          channel: contexto.channel,
+        }),
+      })),
+    ),
+  );
+
+  const leiturasPorUnidade = new Map<string, typeof leituras>();
+  for (const leitura of leituras) {
+    const lista = leiturasPorUnidade.get(leitura.unidade) ?? [];
+    lista.push(leitura);
+    leiturasPorUnidade.set(leitura.unidade, lista);
+  }
+
+  const unitsIncluded: RangeOverviewUnit[] = [];
+  // As pontas do intervalo que a resposta anuncia — a primeira unidade que
+  // conseguiu ler. Cada unidade resolve `from`/`to` contra o próprio
+  // histórico (mesmo padrão de `getRangeAnalysis`), e pode divergir de uma
+  // unidade para outra quando uma das pontas falta no histórico dela; a
+  // resposta anuncia a leitura de quem respondeu primeiro, e não finge uma
+  // ponta única onde ela pode não existir para todo mundo.
+  let referencia: RangeAnalysis | null = null;
+
+  for (const cand of candidatas) {
+    const leiturasDaUnidade = leiturasPorUnidade.get(cand.unidade) ?? [];
+    const sucesso = leiturasDaUnidade
+      .map((l) => l.analysis)
+      .filter((a): a is RangeAnalysis => a !== null);
+
+    if (sucesso.length === 0) {
+      unitsExcluded.push({
+        unidade: cand.unidade,
+        label: cand.label,
+        reason: "sem_leitura_no_intervalo",
+        contexts: cand.matched.map(refDe),
+      });
+      continue;
+    }
+
+    for (const a of sucesso) {
+      if (!referencia) referencia = a;
+    }
+
+    unitsIncluded.push({
+      unidade: cand.unidade,
+      label: cand.label,
+      contexts: cand.matched.map(refDe),
+      impact: { byPeriodicity: somarRecords(sucesso.map((a) => a.impact.byPeriodicity)) },
+      gainsByPeriodicity: somarRecords(sucesso.map((a) => a.gainsByPeriodicity)),
+      lossesByPeriodicity: somarRecords(sucesso.map((a) => a.lossesByPeriodicity)),
+      changes: sucesso.reduce((soma, a) => soma + a.totals.changes, 0),
+      vehiclesTouched: sucesso.reduce((soma, a) => soma + a.totals.vehiclesTouched, 0),
+    });
+  }
+
+  if (!referencia) return null;
+  const ref: RangeAnalysis = referencia;
+
+  return {
+    from: ref.from,
+    fromLabel: ref.fromLabel,
+    to: ref.to,
+    toLabel: ref.toLabel,
     unitsIncluded,
     unitsExcluded,
   };
