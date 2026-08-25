@@ -24,6 +24,13 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import {
+  Dialog,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
   useBaseDoFechamento,
   useOperacaoDoFechamento,
 } from "@/lib/base-do-fechamento";
@@ -605,17 +612,23 @@ export default function CompetenciaAberta({ id }: { id: string }) {
                   </AccordionTrigger>
 
                   <AccordionContent>
-                  {/* O que se confere — na língua do processo, antes do nome do arquivo. */}
-                  <p className="text-xs text-muted-foreground max-w-2xl">
-                    {etapa.confere}
-                  </p>
-
-                  {/* O aviso operacional desta etapa, quando ela tem um. */}
-                  {etapa.nota && (
-                    <p className="text-xs text-muted-foreground mt-1.5 max-w-2xl border-l-2 border-border pl-2">
-                      {etapa.nota}
-                    </p>
-                  )}
+                  {/*
+                    O que se confere, o que já foi verificado e o que ainda
+                    falta ficam atrás do ícone — a etapa em si mostra os
+                    arquivos, e só eles. O aviso operacional (`nota`) é a
+                    exceção: ele muda como alguém envia o arquivo, então
+                    continua à vista, ao lado do ícone.
+                  */}
+                  <div className="flex items-start justify-between gap-3">
+                    {etapa.nota ? (
+                      <p className="text-xs text-muted-foreground max-w-2xl border-l-2 border-border pl-2">
+                        {etapa.nota}
+                      </p>
+                    ) : (
+                      <span />
+                    )}
+                    <SobreAEtapa etapa={etapa} />
+                  </div>
 
                   {/*
                     A etapa 1 não tem fonte nenhuma (`fontes: []`) e por isso
@@ -1688,6 +1701,90 @@ function BotaoDeDetalhe({ children }: { children: ReactNode }) {
 }
 
 /**
+ * SOBRE ESTA ETAPA — o que se confere, o que o sistema verifica hoje e o que
+ * ainda falta, tudo atrás de um clique.
+ *
+ * **Por que sair da tela.** As oito etapas, com a explicação inteira sempre
+ * visível, competiam com os arquivos pela atenção — a pessoa que só quer
+ * enviar um relatório tinha que rolar por parágrafos de contexto para achar o
+ * botão de enviar. O texto continua existindo e continua completo; só deixou
+ * de ser a primeira coisa que a etapa mostra.
+ */
+function SobreAEtapa({ etapa }: { etapa: EtapaDoRoteiro }) {
+  const [aberto, setAberto] = useState(false);
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setAberto(true)}
+        className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground shrink-0"
+      >
+        <Info className="w-3.5 h-3.5" />
+        Sobre esta etapa
+      </button>
+      <Dialog open={aberto} onOpenChange={setAberto}>
+        <DialogHeader>
+          <DialogTitle>{etapa.titulo}</DialogTitle>
+          <DialogDescription>{etapa.confere}</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 max-h-[60vh] overflow-y-auto">
+          <div>
+            <p className="text-xs font-medium text-muted-foreground">
+              O que o sistema confere nesta etapa
+            </p>
+            <ul className="mt-1.5 space-y-1.5">
+              {etapa.verifica.map((v) => {
+                const texto = typeof v === "string" ? v : v.texto;
+                const detalhe = typeof v === "string" ? null : v.detalhe;
+                return (
+                  <li key={texto} className="text-sm flex gap-1.5">
+                    <span aria-hidden className="text-muted-foreground/50">
+                      ·
+                    </span>
+                    <span>
+                      {texto}
+                      {detalhe && (
+                        <span className="block text-xs text-muted-foreground/80 mt-0.5">
+                          {detalhe}
+                        </span>
+                      )}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+
+          {etapa.aindaNao.length > 0 && (
+            <div>
+              <p className="text-xs font-medium text-muted-foreground">
+                Ainda não conferido pelo sistema
+              </p>
+              <ul className="mt-1.5 space-y-1.5">
+                {etapa.aindaNao.map((p) => (
+                  <li key={p.o_que} className="text-sm">
+                    <span>{p.o_que}</span>
+                    <span className="block text-xs text-muted-foreground/80 mt-0.5">
+                      {p.porque}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setAberto(false)}>
+            Fechar
+          </Button>
+        </DialogFooter>
+      </Dialog>
+    </>
+  );
+}
+
+/**
  * O MIOLO DE UMA ETAPA — o que o sistema verifica, o que achou, e o que falta.
  *
  * Vem **depois** das casinhas de envio de propósito. A ordem da leitura é a da
@@ -1712,34 +1809,6 @@ function DentroDaEtapa({
 }) {
   return (
     <div className="mt-3 space-y-3">
-      {/* O que o sistema verifica aqui — afirmações que se pode apontar no código. */}
-      <div>
-        <p className="text-xs font-medium text-muted-foreground">
-          O que o sistema confere nesta etapa
-        </p>
-        <ul className="mt-1 space-y-0.5">
-          {etapa.verifica.map((v) => {
-            const texto = typeof v === "string" ? v : v.texto;
-            return (
-              <li
-                key={texto}
-                className="text-xs text-muted-foreground flex gap-1.5 max-w-2xl"
-              >
-                <span aria-hidden className="text-muted-foreground/50">
-                  ·
-                </span>
-                <span>
-                  {texto}
-                  {typeof v !== "string" && (
-                    <BotaoDeDetalhe>{v.detalhe}</BotaoDeDetalhe>
-                  )}
-                </span>
-              </li>
-            );
-          })}
-        </ul>
-      </div>
-
       {/* O que o motor achou nesta etapa. */}
       {situacao.divergencias.length > 0 && (
         <div className="rounded-md bg-amber-500/5 border border-amber-500/20 p-3">
@@ -1785,23 +1854,6 @@ function DentroDaEtapa({
       */}
       {etapa.numero === 5 && (
         <ConciliacaoDoArquivoNaEtapa competenciaId={competenciaId} />
-      )}
-
-      {/* O que o processo pede e o sistema ainda não sustenta. */}
-      {etapa.aindaNao.length > 0 && (
-        <div>
-          <p className="text-xs font-medium text-muted-foreground">
-            Ainda não conferido pelo sistema
-          </p>
-          <ul className="mt-1 space-y-1">
-            {etapa.aindaNao.map((p) => (
-              <li key={p.o_que} className="text-xs max-w-2xl">
-                <span className="text-foreground/80">{p.o_que}</span>
-                <BotaoDeDetalhe>{p.porque}</BotaoDeDetalhe>
-              </li>
-            ))}
-          </ul>
-        </div>
       )}
 
       {/* A próxima ação, e os atalhos que a etapa oferece. */}
