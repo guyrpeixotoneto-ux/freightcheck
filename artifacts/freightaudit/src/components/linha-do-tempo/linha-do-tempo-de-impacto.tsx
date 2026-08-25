@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { ArrowDownRight, ArrowUpRight, BarChart3, ChartNoAxesCombined } from "lucide-react";
@@ -6,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { formatBrlShort, periodicitySuffix } from "@/lib/format";
 import { linkDeAlteracoes, type Recorte } from "@/lib/recorte";
 import type { Movimentos, ParameterRollup, RangeMovement } from "@/lib/analise";
+import { DetalheDoIntervalo, type AberturaDoIntervalo } from "@/components/linha-do-tempo/detalhe-do-intervalo";
 
 const CARTAO = "bg-card border rounded-xl shadow-sm";
 
@@ -44,6 +46,10 @@ export function LinhaDoTempoDeImpacto({
   query.delete("period");
   if (primeira) query.set("from", primeira);
   query.set("to", currentPeriod);
+
+  const [abertura, setAbertura] = useState<AberturaDoIntervalo | null>(null);
+  const abrirParametro = (parameterKey: string, periodicidade: string) =>
+    setAbertura({ tipo: "parametro", parameterKey, periodicidade });
 
   const movimentos = useQuery({
     queryKey: ["linha-do-tempo-de-impacto", query.toString()],
@@ -96,7 +102,11 @@ export function LinhaDoTempoDeImpacto({
           </p>
         )}
 
-        <ResumoDoIntervalo dados={dados} periodicidades={periodicidades} />
+        <ResumoDoIntervalo
+          dados={dados}
+          periodicidades={periodicidades}
+          onAbrir={(periodicidade) => setAbertura({ tipo: "consolidado", periodicidade })}
+        />
 
         {periodicidades.length === 0 ? (
           <ContagemPorVigencia linhas={linhas} recorteBase={recorteBase} />
@@ -114,7 +124,19 @@ export function LinhaDoTempoDeImpacto({
         )}
       </section>
 
-      <AtributosDeMaiorImpacto byParameter={dados.byParameter} periodicidades={periodicidades} />
+      <AtributosDeMaiorImpacto
+        byParameter={dados.byParameter}
+        periodicidades={periodicidades}
+        onAbrir={abrirParametro}
+      />
+
+      <DetalheDoIntervalo
+        abertura={abertura}
+        dados={dados}
+        recorteBase={recorteBase}
+        onFechar={() => setAbertura(null)}
+        onAbrirParametro={abrirParametro}
+      />
     </>
   );
 }
@@ -133,9 +155,11 @@ export function LinhaDoTempoDeImpacto({
 function ResumoDoIntervalo({
   dados,
   periodicidades,
+  onAbrir,
 }: {
   dados: Movimentos;
   periodicidades: string[];
+  onAbrir: (periodicidade: string) => void;
 }) {
   if (periodicidades.length === 0) return null;
 
@@ -149,7 +173,13 @@ function ResumoDoIntervalo({
         const fatiaVerde = movimento === 0 ? null : (ganhos / movimento) * 100;
 
         return (
-          <div key={periodicidade} className="flex-1 min-w-[13rem] rounded-lg border p-4">
+          <button
+            key={periodicidade}
+            type="button"
+            onClick={() => onAbrir(periodicidade)}
+            aria-label={`Ver o detalhe do líquido consolidado em R$${periodicitySuffix(periodicidade)}`}
+            className="flex-1 min-w-[13rem] rounded-lg border p-4 text-left hover:bg-accent hover:border-brand/40 transition-colors"
+          >
             <div className="text-xs uppercase tracking-wider text-muted-foreground">
               Líquido consolidado em R${periodicitySuffix(periodicidade)}
             </div>
@@ -173,7 +203,7 @@ function ResumoDoIntervalo({
               <span className="text-emerald-700">{formatBrlShort(ganhos)}</span>
               <span className="text-red-700">{formatBrlShort(perdas)}</span>
             </div>
-          </div>
+          </button>
         );
       })}
 
@@ -361,16 +391,19 @@ const TOPO = 6;
  * vigências do intervalo. Sai de `byParameter`, o mesmo rollup que a resposta
  * de `/changes/range` já calcula, e não de um pedido novo.
  *
- * Cada lista é a **soma no intervalo**, não uma vigência só — por isso as linhas
- * não levam a lugar nenhum: um clique que abrisse Planilha filtraria por uma
- * vigência que a soma acima já deixou de ser.
+ * Cada lista é a **soma no intervalo**, não uma vigência só — por isso o clique
+ * numa linha não abre direto a Planilha (que filtraria por uma vigência que a
+ * soma acima já deixou de ser). Em vez disso abre `DetalheDoIntervalo`, que
+ * decompõe a soma vigência a vigência, e só ali oferece o link para cada uma.
  */
 function AtributosDeMaiorImpacto({
   byParameter,
   periodicidades,
+  onAbrir,
 }: {
   byParameter: ParameterRollup[];
   periodicidades: string[];
+  onAbrir: (parameterKey: string, periodicidade: string) => void;
 }) {
   if (byParameter.length === 0 || periodicidades.length === 0) return null;
 
@@ -396,6 +429,7 @@ function AtributosDeMaiorImpacto({
             key={periodicidade}
             periodicidade={periodicidade}
             byParameter={byParameter}
+            onAbrir={onAbrir}
           />
         ))}
       </div>
@@ -410,9 +444,11 @@ interface ItemDoRanking extends ParameterRollup {
 function RankingDaPeriodicidade({
   periodicidade,
   byParameter,
+  onAbrir,
 }: {
   periodicidade: string;
   byParameter: ParameterRollup[];
+  onAbrir: (parameterKey: string, periodicidade: string) => void;
 }) {
   const comValor: ItemDoRanking[] = byParameter
     .map((p) => ({ ...p, valor: p.impact.byPeriodicity[periodicidade] ?? 0 }))
@@ -430,8 +466,22 @@ function RankingDaPeriodicidade({
         Impacto em R${periodicitySuffix(periodicidade)}
       </div>
       <div className="grid md:grid-cols-2 gap-x-8 gap-y-6">
-        <ColunaDeAtributos titulo="O que mais somou" ganho itens={positivos} teto={teto} />
-        <ColunaDeAtributos titulo="O que mais tirou" ganho={false} itens={negativos} teto={teto} />
+        <ColunaDeAtributos
+          titulo="O que mais somou"
+          ganho
+          itens={positivos}
+          teto={teto}
+          periodicidade={periodicidade}
+          onAbrir={onAbrir}
+        />
+        <ColunaDeAtributos
+          titulo="O que mais tirou"
+          ganho={false}
+          itens={negativos}
+          teto={teto}
+          periodicidade={periodicidade}
+          onAbrir={onAbrir}
+        />
       </div>
     </div>
   );
@@ -442,11 +492,15 @@ function ColunaDeAtributos({
   ganho,
   itens,
   teto,
+  periodicidade,
+  onAbrir,
 }: {
   titulo: string;
   ganho: boolean;
   itens: ItemDoRanking[];
   teto: number;
+  periodicidade: string;
+  onAbrir: (parameterKey: string, periodicidade: string) => void;
 }) {
   const cor = ganho ? "text-emerald-700" : "text-red-700";
   const barra = ganho ? "bg-emerald-600" : "bg-red-600";
@@ -471,27 +525,34 @@ function ColunaDeAtributos({
           <ol className="space-y-3">
             {itens.slice(0, TOPO).map((item) => (
               <li key={item.parameterKey}>
-                <span className="flex-1 min-w-0 block">
-                  <span
-                    className="block text-sm font-semibold truncate"
-                    title={item.parameterName}
-                  >
-                    {item.parameterName}
+                <button
+                  type="button"
+                  onClick={() => onAbrir(item.parameterKey, periodicidade)}
+                  aria-label={`Ver o detalhe de ${item.parameterName}`}
+                  className="w-full text-left rounded px-1.5 py-1 -mx-1.5 hover:bg-accent transition-colors"
+                >
+                  <span className="flex-1 min-w-0 block">
+                    <span
+                      className="block text-sm font-semibold truncate"
+                      title={item.parameterName}
+                    >
+                      {item.parameterName}
+                    </span>
+                    <span className="block text-[0.6875rem] text-muted-foreground truncate">
+                      {item.familyName} · {contar(item.changes, "alteração", "alterações")} em{" "}
+                      {contar(item.vehicles, "ativo", "ativos")}
+                    </span>
                   </span>
-                  <span className="block text-[0.6875rem] text-muted-foreground truncate">
-                    {item.familyName} · {contar(item.changes, "alteração", "alterações")} em{" "}
-                    {contar(item.vehicles, "ativo", "ativos")}
+                  <span className="mt-1.5 h-2 w-full block overflow-hidden rounded-full bg-muted">
+                    <span
+                      className={cn("block h-full rounded-full", barra)}
+                      style={{ width: `${Math.max(2, (Math.abs(item.valor) / teto) * 100)}%` }}
+                    />
                   </span>
-                </span>
-                <span className="mt-1.5 h-2 w-full block overflow-hidden rounded-full bg-muted">
-                  <span
-                    className={cn("block h-full rounded-full", barra)}
-                    style={{ width: `${Math.max(2, (Math.abs(item.valor) / teto) * 100)}%` }}
-                  />
-                </span>
-                <span className={cn("mt-1 block text-xs font-bold tabular-nums", cor)}>
-                  {formatBrlShort(item.valor)}
-                </span>
+                  <span className={cn("mt-1 block text-xs font-bold tabular-nums", cor)}>
+                    {formatBrlShort(item.valor)}
+                  </span>
+                </button>
               </li>
             ))}
           </ol>
