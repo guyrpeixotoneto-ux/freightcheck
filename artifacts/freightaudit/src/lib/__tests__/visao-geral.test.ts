@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { formatBrlShort } from "@/lib/format";
 import {
   cobertura,
   composicaoDasAlteracoes,
@@ -1234,7 +1235,7 @@ describe("de onde vem uma alteração em destaque", () => {
     expect(detalhe.grupo.title).toBe("IPVA");
     expect(detalhe.titulo).toBe("Valor reduzido em IPVA — Cavalo");
     expect(detalhe.tipo).toBe("queda");
-    expect(detalhe.valor).toBe(`${(-18420).toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 })}/mês`);
+    expect(detalhe.valor).toBe(`${formatBrlShort(-18420)}/mês`);
     expect(detalhe.prioridade?.rank).toBe(2);
     expect(detalhe.semPreco).toBeNull();
   });
