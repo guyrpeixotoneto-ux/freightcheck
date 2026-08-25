@@ -201,8 +201,15 @@ export interface LadosDoImpacto {
  * zerado que não existe e um lado zerado que existe são coisas diferentes, e o
  * cartão que recebe a lista vazia diz "nenhum valor apurável" em vez de
  * desenhar uma balança equilibrada.
+ *
+ * O parâmetro pede só `summary`, e não `FamiliesView` inteiro — `FamiliesOverview`
+ * também tem um `summary` (`ExecutiveSummary`) na mesma forma, e o Dashboard em
+ * modo Geral lê os dois lados de lá com a mesma função, em vez de duplicar a
+ * conta para a soma de unidades.
  */
-export function ladosDoImpacto(view: FamiliesView | null | undefined): LadosDoImpacto[] {
+export function ladosDoImpacto(
+  view: Pick<FamiliesView, "summary"> | null | undefined,
+): LadosDoImpacto[] {
   return (view?.summary.sides ?? []).map((lado) => {
     const movimento = lado.gains.total + Math.abs(lado.losses.total);
     return {
@@ -1191,6 +1198,15 @@ export interface LinhaDeAlteracao {
   titulo: string;
   detalhe: string;
   direita: string;
+  /**
+   * O recorte deste grupo em Alterações — o mesmo que `detalheDaAlteracao`
+   * monta para o mesmo grupo (`href` lá dentro).
+   *
+   * Existe para quem lista estas linhas fora da Visão geral (o Dashboard e a
+   * Gestão à Vista): lá não há gaveta para abrir, e a linha precisa de um
+   * destino que a mesma disciplina de recorte já garante.
+   */
+  href: string;
 }
 
 /**
@@ -1216,7 +1232,11 @@ export interface LinhaDeAlteracao {
  * verdadeiro para pôr à direita é o tamanho do fato: em quantos ativos ele
  * aconteceu.
  */
-export function ultimasAlteracoes(view: GroupedView, limite = 4): LinhaDeAlteracao[] {
+export function ultimasAlteracoes(
+  view: GroupedView,
+  limite = 4,
+  recorte: Recorte = RECORTE_VAZIO,
+): LinhaDeAlteracao[] {
   const fila = juntarPrioridades(view);
   /*
     A fila vazia com grupos na mão não deveria acontecer — as duas listas nascem
@@ -1225,6 +1245,7 @@ export function ultimasAlteracoes(view: GroupedView, limite = 4): LinhaDeAlterac
     as alterações da vigência.
   */
   const grupos = fila.length > 0 ? fila.map((entrada) => entrada.group) : view.groups;
+  const daVigencia: Recorte = { ...recorte, period: view.period };
 
   return grupos.slice(0, limite).map((grupo) => ({
     chave: grupo.key,
@@ -1232,6 +1253,7 @@ export function ultimasAlteracoes(view: GroupedView, limite = 4): LinhaDeAlterac
     titulo: tituloDaLinha(grupo),
     detalhe: detalheDaLinha(grupo),
     direita: `${inteiro(grupo.vehicles)} ${grupo.vehicles === 1 ? "ativo" : "ativos"}`,
+    href: linkDaAlteracao(grupo, daVigencia),
   }));
 }
 

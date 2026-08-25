@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation, useSearch } from "wouter";
-import { CalendarDays, GitCompareArrows } from "lucide-react";
+import { CalendarDays } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
 import { ApiErrorNotice } from "@/components/api-error";
 import {
@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ApiError, fetchJson } from "@/lib/api";
 import { useContextosDaCasca } from "@/lib/contextos";
+import { useFamiliesOverviewQuery } from "@/lib/families-overview";
 import { LINHA_DO_TEMPO } from "@/lib/ambiente";
 import { cn } from "@/lib/utils";
 import { LinhaDoTempoDeImpacto } from "@/components/linha-do-tempo/linha-do-tempo-de-impacto";
@@ -21,7 +22,7 @@ import { LinhaDoTempoDeAlteracoes } from "@/components/linha-do-tempo/linha-do-t
 import { nomeDaUnidade } from "@/lib/recorte";
 import { VisaoGeralConteudo } from "@/components/inicio/visao-geral-consolidada";
 import { useAlteracoesPorVigencia } from "@/hooks/use-alteracoes-por-vigencia";
-import type { FamiliesOverview, FamiliesView, SeriesContext } from "@/components/inicio/types";
+import type { FamiliesOverview, FamiliesView } from "@/components/inicio/types";
 
 /**
  * Linha do Tempo — o histórico de vigências da unidade aberta.
@@ -32,9 +33,9 @@ import type { FamiliesOverview, FamiliesView, SeriesContext } from "@/components
  * mudou em cada uma. Cada linha do histórico agora leva até as alterações
  * daquela vigência, o que faltava quando isto era só um cartão de leitura.
  *
- * A unidade e o canal moram na URL, como no Resumo executivo: "Trocar
- * unidade" é o que permite ver a linha do tempo de outra unidade sem sair
- * da tela.
+ * A unidade e o canal moram na URL, como no Resumo executivo: o seletor da
+ * lateral (`components/layout/sidebar.tsx`) é o que permite ver a linha do
+ * tempo de outra unidade, ou a Visão Geral, sem sair da tela.
  */
 export default function LinhaDoTempo() {
   const search = useSearch();
@@ -49,7 +50,7 @@ export default function LinhaDoTempo() {
   const sufixo = consulta.toString() ? `?${consulta}` : "";
 
   /*
-    "Visão Geral" é uma opção de unidade — vive no dropdown "Trocar unidade" —
+    "Visão Geral" é uma opção de unidade — vive no seletor da lateral —
     nunca um valor de `period`. Ver a mesma decisão em `inicio.tsx`.
   */
   const visaoGeral = parametros.get("visaoGeral") === "1";
@@ -92,19 +93,8 @@ export default function LinhaDoTempo() {
     `ExecutiveSummary` que o Resumo executivo já consolida. Não é um
     histórico: é o mesmo `/changes/families/overview`, reaproveitado.
   */
-  const overviewQuery = useQuery({
-    queryKey: ["families", "overview", periodoOverviewEfetivo],
-    enabled: visaoGeral && periodoOverviewEfetivo !== null,
-    queryFn: async () => {
-      try {
-        return await fetchJson<FamiliesOverview>(
-          `/changes/families/overview?period=${encodeURIComponent(periodoOverviewEfetivo!)}`,
-        );
-      } catch (erro) {
-        if (erro instanceof ApiError && erro.status === 404) return null;
-        throw erro;
-      }
-    },
+  const overviewQuery = useFamiliesOverviewQuery(periodoOverviewEfetivo, {
+    enabled: visaoGeral,
   });
 
   const overview = visaoGeral ? (overviewQuery.data ?? null) : null;
@@ -126,7 +116,6 @@ export default function LinhaDoTempo() {
         overview={overview}
         visaoGeral={visaoGeral}
         periodosOverview={periodosOverview}
-        contextos={contextos.contextos}
         consulta={consulta}
         onTrocar={trocarPara}
       />
@@ -211,7 +200,6 @@ function Cabecalho({
   overview,
   visaoGeral,
   periodosOverview,
-  contextos,
   consulta,
   onTrocar,
 }: {
@@ -219,7 +207,6 @@ function Cabecalho({
   overview: FamiliesOverview | null;
   visaoGeral: boolean;
   periodosOverview: string[];
-  contextos: SeriesContext[];
   consulta: URLSearchParams;
   onTrocar: (mudancas: Record<string, string | null>) => void;
 }) {
@@ -238,12 +225,6 @@ function Cabecalho({
           : null,
       ].filter((p): p is string => p !== null);
 
-  /*
-    A competência que "Visão Geral" leva consigo ao ligar — mesma decisão de
-    `inicio.tsx`, para a rota de overview nunca receber `period` vazio.
-  */
-  const periodoAtual = visaoGeral ? (overview?.period ?? null) : (view?.period ?? null);
-
   return (
     <header className="px-8 pt-7 pb-2">
       <div className="flex flex-wrap items-start justify-between gap-4 max-w-[1600px]">
@@ -257,58 +238,6 @@ function Cabecalho({
         </div>
 
         <div className="flex items-center gap-3 shrink-0">
-          {contextos.length > 1 && (
-            <DropdownMenu>
-              <DropdownMenuTrigger className={BOTAO_DE_TROCA}>
-                <GitCompareArrows className="w-4 h-4" />
-                Trocar unidade
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-72">
-                <DropdownMenuItem
-                  onSelect={() =>
-                    onTrocar({
-                      visaoGeral: "1",
-                      scopeHash: null,
-                      canal: null,
-                      ...(periodoAtual ? { period: periodoAtual } : {}),
-                    })
-                  }
-                  className={cn("flex flex-col items-start gap-0.5", visaoGeral && "font-bold text-brand")}
-                >
-                  <span className="font-semibold">Visão Geral</span>
-                  <span className="text-xs text-muted-foreground">
-                    Último passo de todas as unidades com dado na competência
-                  </span>
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
-                  {contextos.length} unidades com vigência importada
-                </DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                {contextos.map((contexto) => (
-                  <DropdownMenuItem
-                    key={`${contexto.scopeHash}|${contexto.channel ?? ""}`}
-                    onSelect={() =>
-                      onTrocar({
-                        scopeHash: contexto.scopeHash,
-                        canal: contexto.channel,
-                        period: null,
-                        visaoGeral: null,
-                      })
-                    }
-                    className="flex flex-col items-start gap-0.5"
-                  >
-                    <span className="font-semibold">{nomeDaUnidade(contexto)}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {contexto.channel ?? "sem canal no rótulo"} · {contexto.periods}{" "}
-                      {contexto.periods === 1 ? "vigência" : "vigências"}
-                    </span>
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
-
           {visaoGeral
             ? periodosOverview.length > 1 && (
                 <DropdownMenu>

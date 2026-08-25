@@ -7,12 +7,21 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import NotFound from '@/pages/not-found';
 import { Route, Switch, useLocation, useSearch, Router as WouterRouter } from 'wouter';
 import { AuthProvider, useAuth } from '@/lib/auth';
-import { BASES_DE_FECHAMENTO, destinoDaRaiz, LINHA_DO_TEMPO, RESUMO_EXECUTIVO } from '@/lib/ambiente';
+import {
+  BASES_DE_FECHAMENTO,
+  DASHBOARD,
+  destinoDaRaiz,
+  GESTAO_A_VISTA,
+  LINHA_DO_TEMPO,
+  RESUMO_EXECUTIVO,
+} from '@/lib/ambiente';
 import { publicarNoConsole } from '@/lib/registro-de-falhas';
 import { PADRAO_DAS_CONSULTAS } from '@/lib/chamada-resiliente';
 import Login from '@/pages/login';
 
 import Inicio from '@/pages/inicio';
+import Dashboard from '@/pages/dashboard';
+import GestaoAVista from '@/pages/gestao-a-vista';
 import LinhaDoTempo from '@/pages/linha-do-tempo';
 import VisaoGerencialDaAuditoria from '@/pages/visao-gerencial';
 import Vigencia from '@/pages/vigencia';
@@ -229,6 +238,15 @@ function Router() {
         chega, que agora é a do trabalho: o acervo, depois a unidade.
       */}
       <Route path={RESUMO_EXECUTIVO} component={Inicio} />
+      {/*
+        O Dashboard e a Gestão à Vista, a dupla que vigia mudança de vigência.
+
+        Endereço próprio nos dois, como o Resumo executivo: a lateral aponta
+        para o primeiro, e o segundo é o destino do botão "Gestão à Vista" —
+        um telão que carrega o mesmo recorte, e por isso não aparece no menu.
+      */}
+      <Route path={DASHBOARD} component={Dashboard} />
+      <Route path={GESTAO_A_VISTA} component={GestaoAVista} />
       <Route path={LINHA_DO_TEMPO} component={LinhaDoTempo} />
       <Route path="/vigencia" component={Vigencia} />
       <Route path="/dados" component={Dados} />

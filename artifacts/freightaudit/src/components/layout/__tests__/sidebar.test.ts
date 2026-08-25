@@ -199,7 +199,7 @@ describe("a lateral", () => {
     }
   });
 
-  it("mantém as nove seções do desenho, na ordem", () => {
+  it("mantém as dez seções do desenho, na ordem", () => {
     const lista = listaDaAuditoria();
     /*
       Oito títulos são literais no arquivo; o nono — a Administração — é o grupo
@@ -213,6 +213,11 @@ describe("a lateral", () => {
     ];
 
     expect(titulos).toEqual([
+      /*
+        O Dashboard abre a lista: é a tela de vigilância — o que mudou desde a
+        última competência — antes de qualquer outra ferramenta.
+      */
+      "Dashboard",
       "Visão executiva",
       /*
         Compras vem antes de Auditoria porque é um portão antes de o dinheiro

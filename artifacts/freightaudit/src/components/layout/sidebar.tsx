@@ -30,6 +30,7 @@ import {
   LayoutDashboard,
   Layers,
   MapPin,
+  Radar,
   RefreshCcwDot,
   Route,
   Scale,
@@ -59,9 +60,11 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import {
   ambienteDe,
   BASES_DE_FECHAMENTO,
+  DASHBOARD,
   descricaoDoAmbiente,
   ehFechamento,
   ENTRADA_DA_AUDITORIA,
+  GESTAO_A_VISTA,
   LINHA_DO_TEMPO,
   RESUMO_EXECUTIVO,
   type Ambiente,
@@ -155,6 +158,19 @@ import { useSecoesRecolhidas } from "./preferencias";
  * lugar informa é o que ainda não se sabe.
  */
 export const NAV_GROUPS: NavGroup[] = [
+  {
+    /*
+      O Dashboard abre a lista, na frente da Visão executiva: é a tela de
+      vigilância — o que a Ambev mudou de uma vigência para a outra, antes de
+      se aprofundar em qualquer outra ferramenta. Um item só, como Compras:
+      quem entra aqui vem checar mudança, não navegar uma seção inteira.
+    */
+    titulo: "Dashboard",
+    descricao: "O que mudou desde a última competência, antes de tudo",
+    icon: Radar,
+    cor: "text-nav-executiva",
+    itens: [{ href: DASHBOARD, label: "Dashboard", icon: Radar }],
+  },
   {
     titulo: "Visão executiva",
     descricao: "O retrato do conjunto e o valor apurado",
@@ -884,6 +900,14 @@ function AlcanceDoFechamento() {
  * Com um contexto só, o campo não vira seletor: fica um cartão que informa. Um
  * menu de uma opção é uma promessa de variedade que o dado não tem — e obriga
  * um clique para descobrir que não havia escolha.
+ *
+ * Com mais de um contexto, a lista abre com **Visão Geral** — a soma de todas
+ * as unidades — antes das unidades em si. Ela morava só no botão "Trocar
+ * unidade" de `pages/inicio.tsx` e `pages/linha-do-tempo.tsx`; ter dois
+ * seletores de unidade na mesma tela (este e aquele botão) obrigava a mesma
+ * pergunta duas vezes. Este é agora o único lugar, e as duas páginas leem
+ * `visaoGeral=1` da URL do mesmo jeito que já liam antes — só o botão que
+ * escrevia esse parâmetro mudou de endereço.
  */
 function UnidadeAberta() {
   const search = useSearch();
@@ -897,6 +921,14 @@ function UnidadeAberta() {
   */
   const pedido = new URLSearchParams(search).get("scopeHash");
   const atual = contextos.find((c) => c.scopeHash === pedido) ?? contextos[0];
+  /*
+    Visão Geral é a outra altura do mesmo seletor, não uma unidade — por isso
+    não muda `atual` acima. `TELAS_QUE_HONRAM_ESCOPO` continua resolvendo
+    `atual` do jeito de sempre; só o que a caixa mostra muda quando o modo está
+    ligado.
+  */
+  const visaoGeralAtiva = new URLSearchParams(search).get("visaoGeral") === "1";
+  const periodoDaUrl = new URLSearchParams(search).get("period");
 
   return (
     <div className="p-4 pb-3">
@@ -935,15 +967,49 @@ function UnidadeAberta() {
       ) : (
         <DropdownMenu>
           <DropdownMenuTrigger className="w-full text-left rounded-xl border border-sidebar-border bg-sidebar p-3.5 hover:border-brand transition-colors">
-            <CaixaDaUnidade
-              titulo={unidadeDe(atual)}
-              detalhe={canalDe(atual)}
-              vigencia={mesAbreviado(atual.latestPeriod)}
-              seta
-              semMoldura
-            />
+            {visaoGeralAtiva ? (
+              <CaixaDaUnidade
+                icone={Layers}
+                titulo="Visão Geral"
+                detalhe={`Soma de ${contextos.length} unidades com vigência importada`}
+                vigencia={periodoDaUrl !== null ? mesAbreviado(periodoDaUrl) : undefined}
+                seta
+                semMoldura
+              />
+            ) : (
+              <CaixaDaUnidade
+                titulo={unidadeDe(atual)}
+                detalhe={canalDe(atual)}
+                vigencia={mesAbreviado(atual.latestPeriod)}
+                seta
+                semMoldura
+              />
+            )}
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-64">
+            {/*
+              Visão Geral abre a lista — é a outra altura da mesma pergunta, e
+              antes só existia dentro do botão "Trocar unidade" de cada página.
+              Some quando a tela aberta não sabe ler `visaoGeral=1`
+              (`TELAS_QUE_HONRAM_VISAO_GERAL`): o link ainda funciona — cai no
+              Resumo executivo —, mas oferecê-lo como se ficasse na tela atual
+              seria a mesma promessa vazia que a lista de unidades já recusa.
+            */}
+            <DropdownMenuItem asChild>
+              <Link
+                href={enderecoDeVisaoGeral(pathname, search)}
+                className={cn(
+                  "flex flex-col items-start gap-0.5",
+                  visaoGeralAtiva && "font-bold text-brand",
+                )}
+              >
+                <span className="font-semibold">Visão Geral</span>
+                <span className="text-xs text-muted-foreground">
+                  Soma de todas as unidades com dado na competência
+                </span>
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
             <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
               {contextos.length} unidades com vigência importada
             </DropdownMenuLabel>
@@ -1063,6 +1129,8 @@ export function detalheDe(contexto: Contexto): string {
  */
 const TELAS_QUE_HONRAM_ESCOPO = new Set<string>([
   RESUMO_EXECUTIVO,
+  DASHBOARD,
+  GESTAO_A_VISTA,
   LINHA_DO_TEMPO,
   "/vigencia",
   "/qlp-administrativo",
@@ -1081,6 +1149,33 @@ function enderecoDe(contexto: Contexto, pathnameAtual: string): string {
   const query = new URLSearchParams({ scopeHash: contexto.scopeHash });
   if (contexto.channel !== null) query.set("canal", contexto.channel);
   const destino = TELAS_QUE_HONRAM_ESCOPO.has(pathnameAtual) ? pathnameAtual : "/parametros";
+  return `${destino}?${query}`;
+}
+
+/**
+ * As telas que sabem ler `visaoGeral=1` — hoje só duas, porque só duas
+ * consomem `/changes/families/overview`. Fora delas o destino é sempre o
+ * Resumo executivo: não existe "Visão Geral de Parâmetros" nem de Composição,
+ * então oferecer o link ali seria a mesma promessa vazia que
+ * `TELAS_QUE_HONRAM_ESCOPO` já recusa para uma unidade específica.
+ */
+const TELAS_QUE_HONRAM_VISAO_GERAL = new Set<string>([RESUMO_EXECUTIVO, LINHA_DO_TEMPO]);
+
+/**
+ * O endereço da Visão Geral — a soma de todas as unidades com dado na
+ * competência, antes um item do dropdown "Trocar unidade" de cada página, e
+ * agora uma opção do mesmo seletor que já mora aqui.
+ *
+ * A vigência da URL atual segue junto quando existe: trocar para Visão Geral
+ * não deve trocar de mês só porque trocou de escopo. Sem vigência na URL, a
+ * rota de overview cai na mais recente comum, do mesmo jeito que caía no
+ * dropdown que este seletor substitui.
+ */
+function enderecoDeVisaoGeral(pathnameAtual: string, searchAtual: string): string {
+  const query = new URLSearchParams({ visaoGeral: "1" });
+  const periodoAtual = new URLSearchParams(searchAtual).get("period");
+  if (periodoAtual !== null) query.set("period", periodoAtual);
+  const destino = TELAS_QUE_HONRAM_VISAO_GERAL.has(pathnameAtual) ? pathnameAtual : RESUMO_EXECUTIVO;
   return `${destino}?${query}`;
 }
 

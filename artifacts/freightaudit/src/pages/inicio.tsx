@@ -12,7 +12,7 @@ import {
   CloudDownload,
   Database,
   FileText,
-  GitCompareArrows,
+  History,
   Info,
   ReceiptText,
   Search,
@@ -35,6 +35,7 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ApiError, fetchJson } from "@/lib/api";
 import { useContextosDaCasca } from "@/lib/contextos";
+import { useFamiliesOverviewQuery } from "@/lib/families-overview";
 import { RESUMO_EXECUTIVO } from "@/lib/ambiente";
 import { cn } from "@/lib/utils";
 import { periodicitySuffix } from "@/lib/format";
@@ -88,7 +89,6 @@ import type {
   FamiliesOverview,
   FamiliesView,
   GroupedView,
-  SeriesContext,
 } from "@/components/inicio/types";
 import type { BalancoResumo } from "@/components/balanco/tipos";
 import { useAlteracoesPorVigencia } from "@/hooks/use-alteracoes-por-vigencia";
@@ -144,11 +144,11 @@ export default function Inicio() {
   /*
     A unidade e a vigência abertas moram na URL, e não no estado do componente.
 
-    É o que faz "Trocar unidade" e "Trocar vigência" funcionarem como o resto do
-    produto: o endereço descreve o que está na tela, dá para mandar para alguém,
-    e o botão de voltar do navegador desfaz a troca. Os três parâmetros são os
-    mesmos que Parâmetros usa, de propósito — sair daqui para lá leva o recorte
-    junto.
+    É o que faz o seletor de unidade da lateral e o botão "Trocar vigência"
+    funcionarem como o resto do produto: o endereço descreve o que está na
+    tela, dá para mandar para alguém, e o botão de voltar do navegador desfaz
+    a troca. Os três parâmetros são os mesmos que Parâmetros usa, de
+    propósito — sair daqui para lá leva o recorte junto.
   */
   const consulta = new URLSearchParams();
   for (const chave of ["period", "scopeHash", "canal"]) {
@@ -158,11 +158,11 @@ export default function Inicio() {
   const sufixo = consulta.toString() ? `?${consulta}` : "";
 
   /*
-    "Visão Geral" é uma opção de unidade/escopo — vive só no dropdown "Trocar
-    unidade" — nunca um valor de `period`. Os dois seletores continuam
-    ortogonais: ligar Visão Geral não mexe na competência que já estava
-    aberta (ver `Cabecalho`, que materializa `period` na troca), e trocar de
-    competência dentro da Visão Geral nunca desliga `visaoGeral`.
+    "Visão Geral" é uma opção de unidade/escopo — vive no seletor da lateral
+    (`components/layout/sidebar.tsx`), nunca um valor de `period`. Os dois
+    seletores continuam ortogonais: ligar Visão Geral não mexe na competência
+    que já estava aberta, e trocar de competência dentro da Visão Geral nunca
+    desliga `visaoGeral`.
   */
   const visaoGeral = parametros.get("visaoGeral") === "1";
 
@@ -251,23 +251,8 @@ export default function Inicio() {
   const periodoOverviewEfetivo =
     parametros.get("period") ?? periodosOverview[periodosOverview.length - 1] ?? null;
 
-  const overviewQuery = useQuery({
-    queryKey: ["families", "overview", periodoOverviewEfetivo],
-    enabled: visaoGeral && periodoOverviewEfetivo !== null,
-    queryFn: async () => {
-      try {
-        return await fetchJson<FamiliesOverview>(
-          `/changes/families/overview?period=${encodeURIComponent(periodoOverviewEfetivo!)}`,
-        );
-      } catch (erro) {
-        // Aqui, 404 quer dizer "nenhuma unidade tem essa competência" de
-        // verdade — o servidor só devolve isso quando não há vigência
-        // nenhuma para o período pedido, nunca quando existe mas não deu
-        // para consolidar (aí a resposta é 200 com `unitsIncluded: []`).
-        if (erro instanceof ApiError && erro.status === 404) return null;
-        throw erro;
-      }
-    },
+  const overviewQuery = useFamiliesOverviewQuery(periodoOverviewEfetivo, {
+    enabled: visaoGeral,
   });
 
   const overview = visaoGeral ? (overviewQuery.data ?? null) : null;
@@ -409,7 +394,6 @@ export default function Inicio() {
         visaoGeral={visaoGeral}
         periodosOverview={periodosOverview}
         ultima={ultima}
-        contextos={contextos.contextos}
         consulta={consulta}
         onTrocar={trocarPara}
       />
@@ -568,7 +552,6 @@ function Cabecalho({
   visaoGeral,
   periodosOverview,
   ultima,
-  contextos,
   consulta,
   onTrocar,
 }: {
@@ -578,11 +561,21 @@ function Cabecalho({
   /** União de `periodosDisponiveis` de todas as unidades, mais recente primeiro. */
   periodosOverview: string[];
   ultima: ReturnType<typeof ultimaImportacao>;
-  contextos: SeriesContext[];
   consulta: URLSearchParams;
   onTrocar: (mudancas: Record<string, string | null>) => void;
 }) {
   const alteracoesPorVigencia = useAlteracoesPorVigencia(view, consulta);
+  const ultimaComparacao = useMemo(() => {
+    if (!view) return null;
+    return (
+      [...view.periods]
+        .sort((a, b) => b.date.localeCompare(a.date))
+        .find(
+          (periodo) =>
+            periodo.date !== view.period && (alteracoesPorVigencia.get(periodo.date) ?? 0) > 0,
+        ) ?? null
+    );
+  }, [view, alteracoesPorVigencia]);
   const unidade = view ? nomeDaUnidade(view.context) : null;
   const partes = visaoGeral
     ? overview
@@ -596,14 +589,6 @@ function Cabecalho({
         view?.periodLabel ?? null,
         ultima ? `última importação ${ultima.relativo}` : null,
       ].filter((p): p is string => p !== null);
-
-  /*
-    A competência que está de fato na tela agora — a que "Visão Geral" leva
-    consigo ao ligar, para a rota de overview nunca receber `period` vazio
-    mesmo quando o usuário nunca escolheu uma vigência explicitamente (a tela
-    já estava mostrando a mais recente por padrão).
-  */
-  const periodoAtual = visaoGeral ? (overview?.period ?? null) : (view?.period ?? null);
 
   return (
     /*
@@ -626,65 +611,17 @@ function Cabecalho({
         </div>
 
         <div className="flex items-center gap-3 shrink-0">
-          {contextos.length > 1 && (
-            <DropdownMenu>
-              <DropdownMenuTrigger className={BOTAO_DE_TROCA}>
-                <GitCompareArrows className="w-4 h-4" />
-                Trocar unidade
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-72">
-                <DropdownMenuItem
-                  onSelect={() =>
-                    onTrocar({
-                      visaoGeral: "1",
-                      scopeHash: null,
-                      canal: null,
-                      ...(periodoAtual ? { period: periodoAtual } : {}),
-                    })
-                  }
-                  className={cn("flex flex-col items-start gap-0.5", visaoGeral && "font-bold text-brand")}
-                >
-                  <span className="font-semibold">Visão Geral</span>
-                  <span className="text-xs text-muted-foreground">
-                    Soma de todas as unidades com dado na competência
-                  </span>
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
-                  {contextos.length} unidades com vigência importada
-                </DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                {contextos.map((contexto) => (
-                  <DropdownMenuItem
-                    key={`${contexto.scopeHash}|${contexto.channel ?? ""}`}
-                    onSelect={() =>
-                      /*
-                        A vigência sai da URL junto com a unidade: a data de uma
-                        unidade não existe necessariamente na outra, e insistir
-                        nela levaria a uma tela vazia com aparência de defeito.
-                        `visaoGeral` some da URL pelo mesmo motivo — trocar para
-                        uma unidade específica é sair do modo consolidado.
-                      */
-                      onTrocar({
-                        scopeHash: contexto.scopeHash,
-                        canal: contexto.channel,
-                        period: null,
-                        visaoGeral: null,
-                      })
-                    }
-                    className="flex flex-col items-start gap-0.5"
-                  >
-                    <span className="font-semibold">{nomeDaUnidade(contexto)}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {contexto.channel ?? "sem canal no rótulo"} · {contexto.periods}{" "}
-                      {contexto.periods === 1 ? "vigência" : "vigências"}
-                    </span>
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
+          {!visaoGeral && ultimaComparacao && (
+            <button
+              type="button"
+              onClick={() => onTrocar({ period: ultimaComparacao.date })}
+              className={BOTAO_DE_TROCA}
+              title={`Ir para ${ultimaComparacao.label}, a vigência mais recente com comparação disponível`}
+            >
+              <History className="w-4 h-4" />
+              Última comparação · {ultimaComparacao.label}
+            </button>
           )}
-
           {visaoGeral
             ? periodosOverview.length > 1 && (
                 <DropdownMenu>
@@ -754,12 +691,13 @@ function Cabecalho({
 }
 
 /**
- * Os dois botões de troca do cabeçalho, com a mesma casca.
+ * Os botões de troca do cabeçalho, com a mesma casca.
  *
- * Contorno vermelho e fundo branco: são as duas únicas ações desta tela, e o
+ * Contorno vermelho e fundo branco: são as únicas ações desta tela, e o
  * laranja cheio está reservado para a ação que cria trabalho — "Enviar a
- * primeira planilha", no banco vazio. Trocar de unidade e trocar de vigência
- * não mudam nada no banco; mudam o recorte do que se está lendo.
+ * primeira planilha", no banco vazio. Trocar de unidade, trocar de vigência
+ * e ir para a última comparação não mudam nada no banco; mudam o recorte do
+ * que se está lendo.
  */
 const BOTAO_DE_TROCA =
   "flex items-center gap-2 rounded-lg border border-brand bg-card px-4 py-2.5 " +
@@ -1097,7 +1035,11 @@ function Indicador({
     <section
       className={cn(
         CARTAO,
-        "p-5 flex flex-col",
+        // `min-w-0` porque o cartão é item de grid: sem ele, o número grande
+        // em `whitespace-nowrap` (ValorGrande) força o tamanho mínimo pelo
+        // conteúdo e vaza a borda do cartão em telas estreitas, em vez de
+        // respeitar a coluna que o grid reservou.
+        "p-5 flex flex-col min-w-0",
         abre && "relative group focus-within:border-brand hover:border-brand transition-colors",
       )}
     >
@@ -1133,7 +1075,7 @@ function Indicador({
           />
         )}
       </div>
-      <div className="mt-5">{children}</div>
+      <div className="mt-5 min-w-0">{children}</div>
       {/*
         O link cobre o cartão inteiro (`absolute inset-0`) em vez de embrulhá-lo:
         assim o alvo do clique é o cartão todo — que é o que o olho vê como um

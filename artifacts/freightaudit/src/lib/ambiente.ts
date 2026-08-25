@@ -110,6 +110,18 @@ export const RESUMO_EXECUTIVO = "/resumo-executivo";
 export const LINHA_DO_TEMPO = "/linha-do-tempo";
 
 /**
+ * O Dashboard — a tela de vigilância de mudanças, Geral ou por unidade.
+ *
+ * É onde a pergunta "a Ambev mudou algo sem avisar?" tem resposta em um
+ * clique, e a porta para a Gestão à Vista. Endereço próprio, como o Resumo
+ * executivo e a Linha do Tempo, porque a lateral aponta para ele.
+ */
+export const DASHBOARD = "/dashboard";
+
+/** A Gestão à Vista — o mesmo recorte do Dashboard, em formato de telão. */
+export const GESTAO_A_VISTA = "/gestao-a-vista";
+
+/**
  * A base de endereço de cada fechamento — a única coisa que separa os dois.
  *
  * Toda tela do fechamento monta os próprios links a partir da base do ambiente
