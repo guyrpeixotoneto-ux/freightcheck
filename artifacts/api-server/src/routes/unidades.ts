@@ -86,6 +86,7 @@ async function detectadasNoAcervo(): Promise<
       LEFT JOIN scope sc          ON sc.id = ss.scope_id
                                  AND sc.scope_type = 'UNIDADE'
      WHERE s.status <> 'SUPERSEDED'
+     AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND escopo->>'scopeType' = 'UNIDADE'
        AND escopo->>'code' ~ '^[0-9]{14}$'
      GROUP BY 1

@@ -97,7 +97,12 @@ async function latestSnapshotId(db: Database): Promise<string | null> {
   const [snapshot] = await db
     .select({ id: snapshotTable.id })
     .from(snapshotTable)
-    .where(sql`${snapshotTable.status} <> 'SUPERSEDED'`)
+    .where(
+      and(
+        sql`${snapshotTable.status} <> 'SUPERSEDED'`,
+        sql`NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = ${snapshotTable.importRunId} AND import_run.hidden_at IS NOT NULL)`,
+      ),
+    )
     .orderBy(desc(snapshotTable.effectiveDate))
     .limit(1);
   return snapshot?.id ?? null;

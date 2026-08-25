@@ -163,6 +163,7 @@ export async function serieFoiEntregue(
       FROM snapshot s
      WHERE s.effective_date = ${effectiveDate}::date
        AND s.status <> 'SUPERSEDED'
+       AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND ${contextFilter("s", context)}
   `);
   return rows.some((r) => r.entity_type_set.split("+").includes(entityType));

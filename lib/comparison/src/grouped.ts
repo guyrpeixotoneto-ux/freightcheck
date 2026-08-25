@@ -882,6 +882,7 @@ export async function getGroupedView(
       JOIN snapshot sa ON sa.id = cs.snapshot_a_id
      WHERE sb.effective_date = ${target.effective_date}::date
        AND sb.status <> 'SUPERSEDED'
+       AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = sb.import_run_id AND import_run.hidden_at IS NOT NULL)
        -- Sem este filtro, duas unidades que entregam na mesma data caem no
        -- mesmo cartão e no mesmo total, sem que nada na tela diga que caíram.
        AND ${contextFilter("sb", context)}
@@ -930,6 +931,7 @@ export async function getGroupedView(
       CROSS JOIN LATERAL unnest(string_to_array(sb.entity_type_set, '+')) AS t
      WHERE sb.effective_date = ${target.effective_date}::date
        AND sb.status <> 'SUPERSEDED'
+       AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = sb.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND ${contextFilter("sb", context)}
      ORDER BY t
   `);
@@ -953,6 +955,7 @@ export async function getGroupedView(
       CROSS JOIN LATERAL unnest(string_to_array(s.entity_type_set, '+')) AS t
      WHERE s.effective_date = ${target.effective_date}::date
        AND s.status <> 'SUPERSEDED'
+       AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND ${contextFilter("s", context)}
      ORDER BY t
   `);
@@ -1244,6 +1247,7 @@ export async function getGroupVehicles(
       JOIN snapshot sa ON sa.id = cs.snapshot_a_id
      WHERE sb.effective_date = ${selector.period}::date
        AND sb.status <> 'SUPERSEDED'
+       AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = sb.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND ${contextFilter("sb", context)}
   `);
   const ids = sets.map((s) => s.id);
@@ -1417,6 +1421,7 @@ export async function getAttributeSeries(
       JOIN attribute a ON a.id = f.attribute_id
      WHERE a.code = ${attributeCode}
        AND s.status <> 'SUPERSEDED'
+       AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND ${contextFilter("s", context)}
      GROUP BY 1, 2
      ORDER BY 1
@@ -1539,6 +1544,7 @@ export async function getAttributeDomain(
     SELECT max(s.effective_date)::text AS effective_date
       FROM snapshot s
      WHERE s.status <> 'SUPERSEDED'
+     AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND ${contextFilter("s", context)}
        AND (${period ?? null}::date IS NULL OR s.effective_date = ${period ?? null}::date)
   `);
@@ -1569,6 +1575,7 @@ export async function getAttributeDomain(
       JOIN snapshot s  ON s.id = f.snapshot_id
      WHERE a.code = ${attributeCode}
        AND s.status <> 'SUPERSEDED'
+       AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND s.effective_date = ${effectiveDate}::date
        AND ${contextFilter("s", context)}
      GROUP BY 1, 2, 3
@@ -1771,6 +1778,7 @@ async function findElsewhere(
       FROM snapshot s
       CROSS JOIN LATERAL unnest(string_to_array(s.entity_type_set, '+')) AS t
      WHERE s.status <> 'SUPERSEDED'
+     AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND t IN (${lista})
      ORDER BY s.effective_date DESC, s.source_label, t
   `);
@@ -1807,6 +1815,7 @@ async function findElsewhere(
                FROM snapshot s
               WHERE s.import_run_id = ir.id
                 AND s.status <> 'SUPERSEDED'
+                AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
                 AND ${entityType} = ANY(string_to_array(s.entity_type_set, '+'))
            )
      ORDER BY ir.started_at DESC, rs.sheet_index
@@ -1864,6 +1873,7 @@ export async function getEntityTable(
     SELECT max(s.effective_date)::text AS effective_date
       FROM snapshot s
      WHERE s.status <> 'SUPERSEDED'
+     AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND ${contextFilter("s", context)}
        AND (${period ?? null}::date IS NULL OR s.effective_date = ${period ?? null}::date)
   `);
@@ -1913,6 +1923,7 @@ export async function getEntityTable(
        AND e.entity_type = ${entityType}
        AND s.effective_date = ${effectiveDate}::date
        AND s.status <> 'SUPERSEDED'
+       AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND ${contextFilter("s", context)}
   `);
 
@@ -1939,6 +1950,7 @@ export async function getEntityTable(
       FROM snapshot s
      WHERE s.effective_date = ${effectiveDate}::date
        AND s.status <> 'SUPERSEDED'
+       AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND ${contextFilter("s", context)}
   `);
   const { rows: conhecidasDoTipo } = await db.execute<{ n: number }>(sql`

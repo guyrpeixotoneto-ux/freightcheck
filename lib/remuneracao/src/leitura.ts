@@ -1350,6 +1350,7 @@ async function serieEntregueEmLote(
            s.entity_type_set
       FROM snapshot s
      WHERE s.status <> 'SUPERSEDED'
+     AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND (${filtroDosAlvos("s", alvos)})
   `);
 
@@ -1396,6 +1397,7 @@ async function lerFatosDoTipo(
          sql`, `,
        )})
        AND s.status <> 'SUPERSEDED'
+       AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND (${filtroDosAlvos("s", alvos)})
   `);
 
@@ -1495,6 +1497,7 @@ async function lerCavalosEmLote(
       JOIN entity e   ON e.id = f.entity_id
      WHERE e.entity_type = ${TIPO_CAVALO}
        AND s.status <> 'SUPERSEDED'
+       AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND (${filtroDosAlvos("s", alvos)})
   `);
 

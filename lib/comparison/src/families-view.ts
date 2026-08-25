@@ -517,6 +517,7 @@ export async function getRangeAnalysis(
      WHERE sb.effective_date > ${inicio}::date
        AND sb.effective_date <= ${fim}::date
        AND sb.status <> 'SUPERSEDED'
+       AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = sb.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND ${contextFilter("sb", context)}
      ORDER BY sb.effective_date DESC, sb.entity_type_set
   `);

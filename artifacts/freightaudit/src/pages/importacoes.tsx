@@ -8,6 +8,8 @@ import {
   ChevronDown,
   ChevronRight,
   Database,
+  Eye,
+  EyeOff,
   FileDown,
   FileSpreadsheet,
   Layers,
@@ -136,6 +138,14 @@ interface ImportRun {
   reprocessadoPor: string[];
   /** Quantas leituras este mesmo arquivo já teve, contando esta. */
   leiturasDoArquivo: number;
+  /**
+   * Quando não-nulo, esta importação está oculta: fora do dashboard, do
+   * comparativo, da cobertura e do DRE — mas nada foi apagado, e o botão do
+   * cartão a reexibe a qualquer momento.
+   */
+  hiddenAt: string | null;
+  hiddenBy: string | null;
+  hiddenReason: string | null;
 }
 
 /*
@@ -404,6 +414,18 @@ export default function Importacoes() {
       ? runs
       : runs.filter((run) => tiposVindosDoArquivo(run).includes(aba));
 
+  /*
+    Oculta por padrão: é o que faz o botão do cartão cumprir o pedido de
+    quem opera — importar as carretas sem ver os cartões do cavalo que já
+    conferiu. "Mostrar ocultas" existe porque ocultar tem que dar para
+    desfazer, e desfazer exige achar o cartão de novo.
+  */
+  const [mostrarOcultos, setMostrarOcultos] = useState(false);
+  const ocultos = doRecorte.filter((run) => run.hiddenAt !== null);
+  const visiveis = mostrarOcultos
+    ? doRecorte
+    : doRecorte.filter((run) => run.hiddenAt === null);
+
   const esperandoDecisao = [
     ...new Set([
       ...pendingIds,
@@ -585,6 +607,38 @@ export default function Importacoes() {
     },
   });
 
+  /**
+   * Ocultar/reexibir — reversível, ao contrário de `remove` acima.
+   *
+   * Sem diálogo de confirmação: a ação não tira nada do sistema, só de vista,
+   * e o próprio botão vira "Reexibir" assim que o cartão está oculto.
+   */
+  const toggleHidden = useMutation({
+    mutationFn: async ({
+      importRunId,
+      hidden,
+    }: {
+      importRunId: string;
+      hidden: boolean;
+    }) => {
+      const response = await fetch(getApiUrl(`/imports/${importRunId}/hidden`), {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ hidden }),
+      });
+      const body = await readJson(response);
+      if (!response.ok) throw erroDaResposta(response, body);
+      return body;
+    },
+    onSuccess: () => {
+      setError(null);
+      queryClient.invalidateQueries();
+    },
+    onError: (err: Error) => {
+      setError(err.message);
+    },
+  });
+
   return (
     <Layout>
       <header className="border-b bg-card px-8 py-6">
@@ -705,9 +759,25 @@ export default function Importacoes() {
         )}
         {/* "Nenhuma importação ainda" ao lado de um arquivo sendo lido é falso
             de um jeito que confunde: o que falta é aprovar, não enviar. */}
+        {ocultos.length > 0 && (
+          <button
+            onClick={() => setMostrarOcultos((v) => !v)}
+            className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5"
+          >
+            {mostrarOcultos ? (
+              <EyeOff className="w-3.5 h-3.5" />
+            ) : (
+              <Eye className="w-3.5 h-3.5" />
+            )}
+            {mostrarOcultos
+              ? "Esconder as ocultas de novo"
+              : `Mostrar ${plural(ocultos.length, "importação oculta", "importações ocultas")}`}
+          </button>
+        )}
+
         {!isLoading &&
           !listError &&
-          doRecorte.length === 0 &&
+          visiveis.length === 0 &&
           esperandoDecisao.length === 0 && (
             <div className="rounded-xl border bg-card px-8 py-10 text-center text-sm text-muted-foreground shadow-sm">
               {tipoDaAba === null ? (
@@ -733,7 +803,7 @@ export default function Importacoes() {
             </div>
           )}
 
-        {doRecorte.map((run) => (
+        {visiveis.map((run) => (
           <RunCard
             key={run.importRunId}
             run={run}
@@ -756,6 +826,16 @@ export default function Importacoes() {
               setRemoved(null);
               setReprocessOf(run);
             }}
+            onToggleHidden={() =>
+              toggleHidden.mutate({
+                importRunId: run.importRunId,
+                hidden: run.hiddenAt === null,
+              })
+            }
+            togglingHidden={
+              toggleHidden.isPending &&
+              toggleHidden.variables?.importRunId === run.importRunId
+            }
           />
         ))}
 
@@ -986,6 +1066,8 @@ function RunCard({
   onDetails,
   onDelete,
   onReprocess,
+  onToggleHidden,
+  togglingHidden,
 }: {
   run: ImportRun;
   /** A lista inteira: é dela que sai a história do arquivo deste run. */
@@ -995,11 +1077,19 @@ function RunCard({
   onDetails: () => void;
   onDelete: () => void;
   onReprocess: () => void;
+  onToggleHidden: () => void;
+  togglingHidden: boolean;
 }) {
   const leitura = leituraDoRun(run);
   const historico = historicoDoArquivo(todos, run);
+  const oculta = run.hiddenAt !== null;
   return (
-    <div className="rounded-xl border bg-card px-6 py-5 shadow-sm space-y-5">
+    <div
+      className={cn(
+        "rounded-xl border bg-card px-6 py-5 shadow-sm space-y-5",
+        oculta && "opacity-60",
+      )}
+    >
       <div className="flex items-start justify-between gap-4">
         <div className="flex items-start gap-3 min-w-0">
           <div className="w-11 h-11 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center shrink-0">
@@ -1042,8 +1132,26 @@ function RunCard({
             <TipoDaImportacao run={run} />
           </div>
         </div>
-        <StatusPill status={run.status} />
+        <div className="flex items-center gap-2 shrink-0">
+          {oculta && (
+            <span className="text-xs font-medium px-2.5 py-1 rounded-full border border-slate-300 bg-slate-100 text-slate-700 inline-flex items-center gap-1">
+              <EyeOff className="w-3 h-3" />
+              oculta
+            </span>
+          )}
+          <StatusPill status={run.status} />
+        </div>
       </div>
+
+      {oculta && (
+        <p className="text-sm border border-slate-200 bg-slate-50 text-slate-700 rounded-xl px-4 py-3">
+          Esta importação está oculta: os fatos dela não entram no dashboard,
+          no comparativo, na cobertura nem no DRE.
+          {run.hiddenBy && <> Ocultada por {run.hiddenBy}.</>}
+          {run.hiddenReason && <> Motivo: {run.hiddenReason}</>} Use{" "}
+          <strong>Reexibir</strong> abaixo para voltar a contar.
+        </p>
+      )}
 
       {/* O que este run leu — e a frase precisa ser verdade sobre ele.
 
@@ -1194,6 +1302,24 @@ function RunCard({
           >
             <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
             Reprocessar
+          </Button>
+          {/*
+            Ocultar não pede confirmação, ao contrário de Excluir: nada sai do
+            sistema, e o próprio botão desfaz a ação virando "Reexibir".
+          */}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onToggleHidden}
+            disabled={togglingHidden}
+            className="text-slate-700 hover:text-slate-900 hover:bg-slate-100"
+          >
+            {oculta ? (
+              <Eye className="w-3.5 h-3.5 mr-1.5" />
+            ) : (
+              <EyeOff className="w-3.5 h-3.5 mr-1.5" />
+            )}
+            {oculta ? "Reexibir" : "Ocultar"}
           </Button>
           <Button
             variant="ghost"

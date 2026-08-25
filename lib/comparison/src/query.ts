@@ -878,6 +878,7 @@ export async function listComparableSnapshots(
     .from(snapshotTable)
     .where(
       sql`${snapshotTable.status} <> 'SUPERSEDED'
+          AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = ${snapshotTable.importRunId} AND import_run.hidden_at IS NOT NULL)
           AND ${datasetFamilyFilter("snapshot", opts?.datasetFamily)}`,
     )
     .orderBy(snapshotTable.effectiveDate);
@@ -893,7 +894,10 @@ export async function listComparableSnapshots(
 export async function getOverview(db: Database) {
   const { rows } = await db.execute<Record<string, unknown>>(sql`
     SELECT
-      (SELECT count(*) FROM snapshot WHERE status <> 'SUPERSEDED')          AS vigencias,
+      (SELECT count(*) FROM snapshot
+        WHERE status <> 'SUPERSEDED'
+          AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = snapshot.import_run_id AND import_run.hidden_at IS NOT NULL))
+                                                                            AS vigencias,
       (SELECT min(effective_date) FROM snapshot)                            AS primeira_vigencia,
       (SELECT max(effective_date) FROM snapshot)                            AS ultima_vigencia,
       (SELECT count(*) FROM entity)                                         AS ativos,

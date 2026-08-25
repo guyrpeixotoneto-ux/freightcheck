@@ -226,6 +226,7 @@ export async function getEndToEndAnalysis(
       FROM snapshot s
      WHERE s.effective_date IN (${inicio}::date, ${fim}::date)
        AND s.status <> 'SUPERSEDED'
+       AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND ${contextFilter("s", context)}
   `);
 
@@ -419,6 +420,7 @@ export async function getEndToEndAnalysis(
      WHERE sb.effective_date > ${inicio}::date
        AND sb.effective_date <= ${fim}::date
        AND sb.status <> 'SUPERSEDED'
+       AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = sb.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND c.change_type = 'VALUE_CHANGED'
        AND c.entity_id IS NOT NULL
        AND c.attribute_code IS NOT NULL

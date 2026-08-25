@@ -369,6 +369,7 @@ export async function listImpactEntityTypes(
       FROM snapshot s,
            unnest(string_to_array(s.entity_type_set, '+')) t
      WHERE s.status <> 'SUPERSEDED'
+     AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND ${contextFilter("s", context)}
      ORDER BY 1
   `);
@@ -731,6 +732,7 @@ export async function getQuinzenaMatrix(
            bool_or(${entityType} = ANY (string_to_array(s.entity_type_set, '+'))) AS delivered
       FROM snapshot s
      WHERE s.status <> 'SUPERSEDED'
+     AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND ${contextFilter("s", context)}
      GROUP BY 1
      ORDER BY 1
@@ -755,6 +757,7 @@ export async function getQuinzenaMatrix(
       JOIN entity e   ON e.id = f.entity_id
      WHERE e.entity_type = ${entityType}
        AND s.status <> 'SUPERSEDED'
+       AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND ${contextFilter("s", context)}
      GROUP BY 1, 2
   `);
@@ -775,6 +778,7 @@ export async function getQuinzenaMatrix(
       JOIN attribute a  ON a.id = f.attribute_id
      WHERE a.code = ${escolhido.code}
        AND s.status <> 'SUPERSEDED'
+       AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND ${contextFilter("s", context)}
   `);
 
@@ -846,6 +850,7 @@ export async function getQuinzenaMatrix(
      WHERE a.code = ${groupCode}
        AND NOT f.is_null
        AND s.status <> 'SUPERSEDED'
+       AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND ${contextFilter("s", context)}
      ORDER BY f.entity_id, s.effective_date DESC
   `);

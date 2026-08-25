@@ -111,6 +111,13 @@ export interface ImportRunSummary {
    * precisa saber que não está sozinho mesmo carregando um run só.
    */
   leiturasDoArquivo: number;
+  /**
+   * Quando não-nulo, este run está oculto: fora do dashboard, do comparativo,
+   * da cobertura e do DRE, mas nada foi apagado — ver `setImportRunHidden`.
+   */
+  hiddenAt: Date | null;
+  hiddenBy: string | null;
+  hiddenReason: string | null;
 }
 
 /**
@@ -211,6 +218,9 @@ function selectRunSummary(db: Database) {
       leiturasDoArquivo: sql<number>`
         (SELECT count(*)::int FROM import_run r
           WHERE r.source_file_id = ${importRunTable.sourceFileId})`,
+      hiddenAt: importRunTable.hiddenAt,
+      hiddenBy: importRunTable.hiddenBy,
+      hiddenReason: importRunTable.hiddenReason,
     })
     .from(importRunTable)
     .innerJoin(sourceFileTable, eq(sourceFileTable.id, importRunTable.sourceFileId));

@@ -73,6 +73,7 @@ export async function medirTransicoes(
        WHERE a.data_type = 'NUMERIC'
          AND a.code = ANY (${lista})
          AND s.status <> 'SUPERSEDED'
+         AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
          AND ${contextFilter("s", context)}
     )
     SELECT serie.code,
@@ -84,6 +85,7 @@ export async function medirTransicoes(
       FROM serie
       JOIN snapshot s ON s.effective_date = serie.effective_date
                      AND s.status <> 'SUPERSEDED'
+                     AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
                      AND ${contextFilter("s", context)}
      WHERE serie.anterior IS NOT NULL
        AND serie.valor IS NOT NULL
@@ -116,6 +118,7 @@ export async function medirTransicoes(
            AND NOT f.is_null
            AND f.value_numeric IS NOT NULL
            AND s.status <> 'SUPERSEDED'
+           AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
            AND ${contextFilter("s", context)}
       ),
       marcado AS (

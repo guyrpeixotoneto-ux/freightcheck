@@ -243,6 +243,7 @@ async function lerVigencias(
            bool_or(${entityType} = ANY (string_to_array(s.entity_type_set, '+'))) AS delivered
       FROM snapshot s
      WHERE s.status <> 'SUPERSEDED'
+     AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND ${contextFilter("s", context)}
      GROUP BY 1
      ORDER BY 1
@@ -268,6 +269,7 @@ async function lerPresencas(
       JOIN entity e   ON e.id = f.entity_id
      WHERE e.entity_type = ${entityType}
        AND s.status <> 'SUPERSEDED'
+       AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND ${contextFilter("s", context)}
      GROUP BY 1, 2
   `);
@@ -327,6 +329,7 @@ async function lerDobra(
      WHERE a.code = ${code}
        AND NOT f.is_null
        AND s.status <> 'SUPERSEDED'
+       AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND ${contextFilter("s", context)}
      ORDER BY f.entity_id, s.effective_date DESC
   `);
@@ -385,6 +388,7 @@ async function lerValores(
       JOIN attribute a  ON a.id = f.attribute_id
      WHERE a.code = ANY (${listaDeTexto(codes)})
        AND s.status <> 'SUPERSEDED'
+       AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND ${contextFilter("s", context)}
   `);
 

@@ -278,7 +278,8 @@ export async function listContexts(
            array_agg(DISTINCT s.effective_date::text ORDER BY s.effective_date::text)
              AS all_periods
       FROM snapshot s
-     WHERE s.status <> 'SUPERSEDED'${familia}${semCasca}
+     WHERE s.status <> 'SUPERSEDED'
+       AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)${familia}${semCasca}
      GROUP BY 1, 2
      ORDER BY max(s.effective_date) DESC, s.scope_hash, 2 NULLS LAST
   `);
@@ -296,7 +297,8 @@ export async function listContexts(
       FROM snapshot s
       JOIN snapshot_scope ss ON ss.snapshot_id = s.id
       JOIN scope sc          ON sc.id = ss.scope_id
-     WHERE s.status <> 'SUPERSEDED'${familia}
+     WHERE s.status <> 'SUPERSEDED'
+       AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)${familia}
      ORDER BY s.scope_hash, 2 NULLS LAST, sc.scope_type, sc.code
   `);
 

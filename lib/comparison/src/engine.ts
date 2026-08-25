@@ -111,6 +111,7 @@ export async function findPreviousSnapshot(
         eq(snapshotTable.entityTypeSet, target.entityTypeSet),
         sql`${channelSql("snapshot.source_label")} IS NOT DISTINCT FROM ${channelOf(target.sourceLabel)}::text`,
         sql`${snapshotTable.status} <> 'SUPERSEDED'`,
+        sql`NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = ${snapshotTable.importRunId} AND import_run.hidden_at IS NOT NULL)`,
         sql`${snapshotTable.effectiveDate} < ${target.effectiveDate}`,
       ),
     )

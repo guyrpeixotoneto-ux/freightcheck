@@ -141,6 +141,7 @@ async function pendenciasDoContexto(
       FROM snapshot s
       JOIN validation_issue vi ON vi.import_run_id = s.import_run_id
      WHERE s.status <> 'SUPERSEDED'
+     AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND s.dataset_family = ${DATASET_FAMILY_QUADRO_DE_PESSOAL}
        AND ${contextFilter("s", context)}
        AND vi.code IN ${codigos}

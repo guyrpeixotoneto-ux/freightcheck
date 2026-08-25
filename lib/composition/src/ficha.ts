@@ -121,6 +121,7 @@ async function lerHistorico(
       JOIN snapshot s  ON s.id = f.snapshot_id
      WHERE f.entity_id = ${entityId}::uuid
        AND s.status <> 'SUPERSEDED'
+       AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND ${contextFilter("s", context)}
      ORDER BY s.effective_date, a.code
   `);
@@ -321,6 +322,7 @@ async function snapshotsDaSerie(
     SELECT s.id::text, s.effective_date::text AS effective_date, s.source_label
       FROM snapshot s
      WHERE s.status <> 'SUPERSEDED'
+     AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND ${contextFilter("s", context)}
        AND ${entityType} = ANY(string_to_array(s.entity_type_set, '+'))
      ORDER BY s.effective_date
@@ -516,6 +518,7 @@ async function lerFatosSimples(
      WHERE f.entity_id = ${entityId}::uuid
        AND s.effective_date = ${effectiveDate}::date
        AND s.status <> 'SUPERSEDED'
+       AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND ${contextFilter("s", context)}
   `);
   return rows;
@@ -613,6 +616,7 @@ export async function getVinculoDoCavalo(
          AND a.code = ${codigoDoVinculo}
          AND s.effective_date = ${effectiveDate}::date
          AND s.status <> 'SUPERSEDED'
+         AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
          AND ${contextFilter("s", context)}
          AND NOT f.is_null
        ORDER BY s.revision DESC, f.id DESC
@@ -643,6 +647,7 @@ export async function getVinculoDoCavalo(
                AND a.code = ${totalDoConjunto ?? ""}
                AND s.effective_date = ${effectiveDate}::date
                AND s.status <> 'SUPERSEDED'
+               AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
                AND ${contextFilter("s", context)}
                AND NOT f.is_null
              ORDER BY s.revision DESC, f.id DESC

@@ -129,6 +129,7 @@ async function contagens(
   context: SeriesContext,
 ): Promise<LinhaDeContagem[]> {
   const doContexto = sql`s.status <> 'SUPERSEDED'
+      AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
       AND s.scope_hash = ${context.scopeHash}
       AND ${channelSql("s.source_label")} IS NOT DISTINCT FROM ${context.channel}::text`;
 

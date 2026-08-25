@@ -1544,6 +1544,7 @@ async function valoresVigentes(
       SELECT DISTINCT ON (s.scope_hash, s.entity_type_set) s.id
         FROM snapshot s
        WHERE s.status <> 'SUPERSEDED'
+       AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
        ORDER BY s.scope_hash, s.entity_type_set, s.effective_date DESC
     ),
     alvo AS (
@@ -1553,6 +1554,7 @@ async function valoresVigentes(
         FROM snapshot s
         LEFT JOIN recentes r ON r.id = s.id
        WHERE s.status <> 'SUPERSEDED'
+       AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
          AND (r.id IS NOT NULL OR s.source_label IN (${listaVigencias}))
     )
     SELECT ei.identifier_value AS placa,

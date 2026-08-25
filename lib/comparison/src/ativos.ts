@@ -84,6 +84,7 @@ export async function listarFrota(
       FROM snapshot s,
            unnest(string_to_array(s.entity_type_set, '+')) t
      WHERE s.status <> 'SUPERSEDED'
+     AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND ${contextFilter("s", context)}
      ORDER BY 1
   `);
@@ -94,6 +95,7 @@ export async function listarFrota(
     SELECT string_agg(DISTINCT s.source_label, ' · ') AS source_label
       FROM snapshot s
      WHERE s.status <> 'SUPERSEDED'
+     AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND ${entityType} = ANY (string_to_array(s.entity_type_set, '+'))
        AND ${contextFilter("s", context)}
      GROUP BY s.effective_date
@@ -127,6 +129,7 @@ export async function listarFrota(
         JOIN entity e   ON e.id = f.entity_id
        WHERE e.entity_type = ${entityType}
          AND s.status <> 'SUPERSEDED'
+         AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
          AND ${contextFilter("s", context)}
     )
     SELECT p.entity_id::text AS entity_id,

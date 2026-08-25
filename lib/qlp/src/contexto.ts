@@ -102,6 +102,7 @@ async function listarVigenciasDoQuadro(
            array_agg(DISTINCT s.source_label ORDER BY s.source_label) AS labels
       FROM snapshot s
      WHERE s.status <> 'SUPERSEDED'
+     AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND s.dataset_family = ${DATASET_FAMILY_QUADRO_DE_PESSOAL}
        AND ${contextFilter("s", context)}
      GROUP BY 1

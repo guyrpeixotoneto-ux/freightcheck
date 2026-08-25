@@ -139,6 +139,7 @@ export async function getDetalheDoCargo(
       LEFT JOIN source_file sf ON sf.id = ir.source_file_id
      WHERE f.entity_id = ${entityId}::uuid
        AND s.status <> 'SUPERSEDED'
+       AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND s.dataset_family = ${DATASET_FAMILY_QUADRO_DE_PESSOAL}
        AND s.effective_date = ${effectiveDate}::date
        AND ${contextFilter("s", context)}
@@ -186,6 +187,7 @@ export async function getDetalheDoCargo(
       JOIN snapshot s ON s.id = f.snapshot_id
      WHERE f.entity_id = ${entityId}::uuid
        AND s.status <> 'SUPERSEDED'
+       AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND s.dataset_family = ${DATASET_FAMILY_QUADRO_DE_PESSOAL}
        AND ${contextFilter("s", context)}
      ORDER BY 1

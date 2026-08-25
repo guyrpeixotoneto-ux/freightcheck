@@ -331,6 +331,7 @@ export async function provenienciaDoValor(
      WHERE f.entity_id = ${entityId}::uuid
        AND a.code = ${pedido.atributo}
        AND s.status <> 'SUPERSEDED'
+       AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
        ${pedido.vigencia ? sql`AND s.effective_date = ${pedido.vigencia}::date` : sql``}
        ${pedido.scopeHash ? sql`AND s.scope_hash = ${pedido.scopeHash}` : sql``}
      ORDER BY s.effective_date DESC
@@ -351,6 +352,7 @@ export async function provenienciaDoValor(
         JOIN snapshot s  ON s.id = f.snapshot_id
        WHERE f.entity_id = ${entityId}::uuid
          AND s.status <> 'SUPERSEDED'
+         AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
          ${pedido.vigencia ? sql`AND s.effective_date = ${pedido.vigencia}::date` : sql``}
        ORDER BY a.code
        LIMIT 40

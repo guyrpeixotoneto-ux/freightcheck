@@ -94,6 +94,7 @@ export async function getEvolucaoDoQuadro(
         ON se.snapshot_id = s.id
        AND se.entity_type = ${TIPO_QLP_ADMINISTRATIVO}
      WHERE s.status <> 'SUPERSEDED'
+     AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND s.dataset_family = ${DATASET_FAMILY_QUADRO_DE_PESSOAL}
        AND ${contextFilter("s", context)}
      GROUP BY 1
@@ -119,6 +120,7 @@ export async function getEvolucaoDoQuadro(
        AND ei.identifier_type = 'PLACA'
        AND ei.is_current
      WHERE s.status <> 'SUPERSEDED'
+     AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND s.dataset_family = ${DATASET_FAMILY_QUADRO_DE_PESSOAL}
        AND e.entity_type = ${TIPO_QLP_ADMINISTRATIVO}
        AND ${contextFilter("s", context)}
