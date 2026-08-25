@@ -131,6 +131,7 @@ export async function provenienciaDoFato(
       JOIN import_run ir ON ir.id = rs.import_run_id
       JOIN source_file sf ON sf.id = ir.source_file_id
      WHERE f.id = ${factId}
+       AND ir.hidden_at IS NULL
   `);
 
   const r = rows[0];
@@ -235,6 +236,7 @@ export async function contribuintesDaVigencia(
       JOIN import_run ir ON ir.id = rs.import_run_id
       JOIN source_file sf ON sf.id = ir.source_file_id
      WHERE f.snapshot_id = ${snapshotId}::uuid
+       AND ir.hidden_at IS NULL
      GROUP BY 1, 2, 3, 4
      ORDER BY 4
   `);

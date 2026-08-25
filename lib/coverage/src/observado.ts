@@ -296,8 +296,10 @@ export async function entidadesDoAtributo(
       SELECT DISTINCT f.entity_id
         FROM fact f
         JOIN entity e ON e.id = f.entity_id
+        JOIN snapshot s ON s.id = f.snapshot_id
        WHERE f.snapshot_id = ${snapshotId}::uuid
          AND e.entity_type = (SELECT entity_type FROM alvo)
+         AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
     )
     SELECT u.entity_id,
            coalesce(

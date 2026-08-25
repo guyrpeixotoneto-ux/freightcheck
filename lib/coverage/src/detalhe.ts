@@ -344,6 +344,7 @@ export async function detalheDaLacuna(
       FROM snapshot s
       LEFT JOIN attribute a ON a.code = ${attributeCode}
      WHERE s.id = ${snapshotId}::uuid
+       AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
   `);
   const cabecalho = rows[0];
   if (!cabecalho) return null;
