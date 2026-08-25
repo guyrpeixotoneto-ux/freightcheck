@@ -656,12 +656,12 @@ function Indicadores({
         )}
       </Cartao>
 
-      <Cartao icone={ReceiptText} titulo="Impacto líquido" destaque>
+      <Cartao icone={ReceiptText} titulo="Impacto líquido" destaque className="min-w-0">
         {principal ? (
           <>
             <p
               className={cn(
-                "text-5xl font-extrabold tabular-nums leading-none",
+                "text-3xl sm:text-4xl xl:text-5xl font-extrabold tabular-nums leading-none break-words",
                 principal.liquido < 0 ? "text-red-700" : "text-emerald-700",
               )}
             >
