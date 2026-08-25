@@ -1893,3 +1893,53 @@ export interface TotaisDoPagamento {
 export function lerTotaisDaCompetencia(competenciaId: string): Promise<TotaisDoPagamento> {
   return fetchJson<TotaisDoPagamento>(`/fechamento/competencias/${competenciaId}/totais`);
 }
+
+/** Uma verba do 03.08.20, como o arquivo a declarou — as seis colunas que ele abre. */
+export interface ItemDePagamento {
+  linha: number;
+  canal: string;
+  bloco: "FRETE" | "OUTROS_CUSTOS";
+  verba: { vbz: number; nome: string };
+  /** O nome como o arquivo o escreve — pode trazer o código da linha junto. */
+  nomeNoArquivo: string;
+  semImposto: number;
+  nfIss: number;
+  ctrcIcms: number;
+  valorFaturado: number;
+  vlcNfIss: number;
+  vlcCtrcIcms: number;
+}
+
+/**
+ * As verbas do 03.08.20 desta competência, linha a linha — o mesmo relatório
+ * que quem fecha a quinzena tem na tela ao lado, sem precisar abri-lo de novo
+ * depois de importado. Lista vazia quando ninguém importou ainda.
+ */
+export function lerItensDoPagamento(
+  competenciaId: string,
+): Promise<{ itens: ItemDePagamento[] }> {
+  return fetchJson(`/fechamento/competencias/${competenciaId}/pagamento`);
+}
+
+/** Uma linha do 03.02.59.02, como o arquivo a declarou. */
+export interface ItemDaConciliacao {
+  linha: number;
+  secao: "ROTA" | "AS" | "GERAL";
+  bloco: string;
+  rubrica: string;
+  /** A marca da coluna "Conciliado": `S`, `N`, ou nulo quando a linha não a tem. */
+  conciliado: "S" | "N" | null;
+  emitido: number | null;
+  calculado: number | null;
+}
+
+/**
+ * As linhas do 03.02.59.02 desta competência — o mesmo relatório que quem
+ * fecha a quinzena tem na tela ao lado, sem precisar abri-lo de novo depois
+ * de importado. Lista vazia quando ninguém importou ainda.
+ */
+export function lerItensDaConciliacao(
+  competenciaId: string,
+): Promise<{ itens: ItemDaConciliacao[] }> {
+  return fetchJson(`/fechamento/competencias/${competenciaId}/conciliacao-do-arquivo`);
+}

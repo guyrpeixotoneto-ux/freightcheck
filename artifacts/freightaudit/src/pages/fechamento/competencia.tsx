@@ -66,12 +66,16 @@ import {
   listarFontes,
   reimportarDocumento,
   lerTotaisDaCompetencia,
+  lerItensDoPagamento,
+  lerItensDaConciliacao,
   EXPLICACAO_DA_DIVERGENCIA,
   NOME_DO_ESTADO,
   type Competencia,
   type DadosDescartados,
   type Documento,
   type Fonte,
+  type ItemDaConciliacao,
+  type ItemDePagamento,
   type TipoDeFonte,
   type TotaisDoPagamento,
 } from "@/lib/fechamento";
@@ -1768,7 +1772,19 @@ function DentroDaEtapa({
         separados, esta comparação era o mesmo número duas vezes.
       */}
       {etapa.numero === 4 && totais?.temPagamento && (
-        <TotaisDoPagamentoNaEtapa totais={totais} />
+        <>
+          <TotaisDoPagamentoNaEtapa totais={totais} />
+          <VerbaAVerbaDoPagamento competenciaId={competenciaId} />
+        </>
+      )}
+
+      {/*
+        A etapa 5 mostra o 03.02.59.02 seção por seção, pelo mesmo motivo da
+        etapa 4: é o relatório que quem fecha a quinzena tem na tela ao lado,
+        e mostrá-lo aqui evita reabri-lo depois de importado.
+      */}
+      {etapa.numero === 5 && (
+        <ConciliacaoDoArquivoNaEtapa competenciaId={competenciaId} />
       )}
 
       {/* O que o processo pede e o sistema ainda não sustenta. */}
@@ -1867,6 +1883,255 @@ function TotaisDoPagamentoNaEtapa({ totais }: { totais: TotaisDoPagamento }) {
           Reimporte o 03.08.20 para realizar esta conferência.
         </p>
       )}
+    </div>
+  );
+}
+
+/**
+ * O 03.08.20 verba a verba — o mesmo relatório que quem fecha a quinzena tem
+ * na tela ao lado, sem precisar abri-lo de novo depois de importado.
+ *
+ * Busca à parte da `totais` (que o pai já carrega): esta tabela é maior e só
+ * interessa a quem abriu a etapa 4, e ninguém paga o custo dela ao abrir a
+ * lista das oito etapas.
+ */
+function VerbaAVerbaDoPagamento({ competenciaId }: { competenciaId: string }) {
+  const { data } = useQuery({
+    queryKey: ["fechamento", "pagamento", competenciaId],
+    queryFn: () => lerItensDoPagamento(competenciaId),
+  });
+  const itens = data?.itens ?? [];
+  if (itens.length === 0) return null;
+
+  const canais = [...new Set(itens.map((i) => i.canal))];
+
+  return (
+    <div className="space-y-3">
+      {canais.map((canal) => (
+        <GradeDoPagamentoPorCanal
+          key={canal}
+          canal={canal}
+          itens={itens.filter((i) => i.canal === canal)}
+        />
+      ))}
+    </div>
+  );
+}
+
+const CAMPOS_DO_PAGAMENTO = [
+  "semImposto",
+  "nfIss",
+  "ctrcIcms",
+  "valorFaturado",
+  "vlcNfIss",
+  "vlcCtrcIcms",
+] as const;
+
+const BLOCOS_DO_PAGAMENTO: { titulo: string; chave: "FRETE" | "OUTROS_CUSTOS" }[] = [
+  { titulo: "Frete", chave: "FRETE" },
+  { titulo: "Outros Custos", chave: "OUTROS_CUSTOS" },
+];
+
+/** As verbas de um canal, por bloco (Frete e Outros Custos), com o total de cada. */
+function GradeDoPagamentoPorCanal({
+  canal,
+  itens,
+}: {
+  canal: string;
+  itens: ItemDePagamento[];
+}) {
+  return (
+    <div className="rounded-md border p-3">
+      <p className="text-xs font-medium">
+        Verbas do 03.08.20 — {canal}
+      </p>
+      {BLOCOS_DO_PAGAMENTO.map(({ titulo, chave }) => {
+        const doBloco = itens
+          .filter((i) => i.bloco === chave)
+          .sort((a, b) => a.verba.vbz - b.verba.vbz);
+        if (doBloco.length === 0) return null;
+
+        const total = (campo: (typeof CAMPOS_DO_PAGAMENTO)[number]) =>
+          doBloco.reduce((soma, i) => soma + i[campo], 0);
+
+        return (
+          <div key={chave} className="mt-2 overflow-x-auto">
+            <p className="text-xs text-muted-foreground">{titulo}</p>
+            <table className="mt-1 text-xs w-full min-w-max">
+              <thead className="text-muted-foreground">
+                <tr className="text-left">
+                  <th className="font-normal pr-4 py-1">VBZ</th>
+                  <th className="font-normal pr-4 py-1 text-right">
+                    S/Imposto
+                  </th>
+                  <th className="font-normal pr-4 py-1 text-right">NF-ISS</th>
+                  <th className="font-normal pr-4 py-1 text-right">
+                    CTRC-ICMS
+                  </th>
+                  <th className="font-normal pr-4 py-1 text-right">
+                    Valor Faturado
+                  </th>
+                  <th className="font-normal pr-4 py-1 text-right">
+                    Valor VLC NF-ISS
+                  </th>
+                  <th className="font-normal py-1 text-right">
+                    Valor VLC CTRC-ICMS
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {doBloco.map((i) => (
+                  <tr key={`${i.bloco}-${i.linha}`} className="border-t">
+                    <td className="py-1 pr-4">
+                      {String(i.verba.vbz).padStart(2, "0")} -{" "}
+                      {i.nomeNoArquivo}
+                    </td>
+                    <td className="py-1 pr-4 text-right tabular-nums">
+                      {formatBrl(i.semImposto)}
+                    </td>
+                    <td className="py-1 pr-4 text-right tabular-nums">
+                      {formatBrl(i.nfIss)}
+                    </td>
+                    <td className="py-1 pr-4 text-right tabular-nums">
+                      {formatBrl(i.ctrcIcms)}
+                    </td>
+                    <td className="py-1 pr-4 text-right tabular-nums">
+                      {formatBrl(i.valorFaturado)}
+                    </td>
+                    <td className="py-1 pr-4 text-right tabular-nums">
+                      {formatBrl(i.vlcNfIss)}
+                    </td>
+                    <td className="py-1 text-right tabular-nums">
+                      {formatBrl(i.vlcCtrcIcms)}
+                    </td>
+                  </tr>
+                ))}
+                <tr className="border-t font-medium">
+                  <td className="py-1 pr-4">Total {titulo}</td>
+                  <td className="py-1 pr-4 text-right tabular-nums">
+                    {formatBrl(total("semImposto"))}
+                  </td>
+                  <td className="py-1 pr-4 text-right tabular-nums">
+                    {formatBrl(total("nfIss"))}
+                  </td>
+                  <td className="py-1 pr-4 text-right tabular-nums">
+                    {formatBrl(total("ctrcIcms"))}
+                  </td>
+                  <td className="py-1 pr-4 text-right tabular-nums">
+                    {formatBrl(total("valorFaturado"))}
+                  </td>
+                  <td className="py-1 pr-4 text-right tabular-nums">
+                    {formatBrl(total("vlcNfIss"))}
+                  </td>
+                  <td className="py-1 text-right tabular-nums">
+                    {formatBrl(total("vlcCtrcIcms"))}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * O 03.02.59.02 seção por seção — o mesmo relatório que quem fecha a quinzena
+ * tem na tela ao lado, sem precisar abri-lo de novo depois de importado.
+ */
+function ConciliacaoDoArquivoNaEtapa({
+  competenciaId,
+}: {
+  competenciaId: string;
+}) {
+  const { data } = useQuery({
+    queryKey: ["fechamento", "conciliacao-do-arquivo", competenciaId],
+    queryFn: () => lerItensDaConciliacao(competenciaId),
+  });
+  const itens = data?.itens ?? [];
+  if (itens.length === 0) return null;
+
+  const secoes = [...new Set(itens.map((i) => i.secao))];
+
+  return (
+    <div className="space-y-3">
+      {secoes.map((secao) => (
+        <GradeDaConciliacaoPorSecao
+          key={secao}
+          secao={secao}
+          itens={itens.filter((i) => i.secao === secao)}
+        />
+      ))}
+    </div>
+  );
+}
+
+/** As linhas de uma seção (ROTA, AS ou GERAL), por bloco, na ordem em que o arquivo os traz. */
+function GradeDaConciliacaoPorSecao({
+  secao,
+  itens,
+}: {
+  secao: string;
+  itens: ItemDaConciliacao[];
+}) {
+  const blocos = [...new Set(itens.map((i) => i.bloco))];
+
+  return (
+    <div className="rounded-md border p-3">
+      <p className="text-xs font-medium">
+        Conciliação CT-e × SRTrans — {secao}
+      </p>
+      {blocos.map((bloco) => {
+        const doBloco = itens.filter((i) => i.bloco === bloco);
+        return (
+          <div key={bloco} className="mt-2 overflow-x-auto">
+            <p className="text-xs text-muted-foreground">{bloco}</p>
+            <table className="mt-1 text-xs w-full min-w-max">
+              <thead className="text-muted-foreground">
+                <tr className="text-left">
+                  <th className="font-normal pr-4 py-1">Rubrica</th>
+                  <th className="font-normal pr-4 py-1 text-center">
+                    Conciliado
+                  </th>
+                  <th className="font-normal pr-4 py-1 text-right">
+                    R$ CT-e (Emitido)
+                  </th>
+                  <th className="font-normal py-1 text-right">
+                    R$ SRTrans (Calculado)
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {doBloco.map((i) => (
+                  <tr key={i.linha} className="border-t">
+                    <td className="py-1 pr-4">{i.rubrica}</td>
+                    <td className="py-1 pr-4 text-center">
+                      {i.conciliado ?? (
+                        <span className="text-muted-foreground/40">—</span>
+                      )}
+                    </td>
+                    <td className="py-1 pr-4 text-right tabular-nums">
+                      {i.emitido === null ? (
+                        <span className="text-muted-foreground/40">—</span>
+                      ) : (
+                        formatBrl(i.emitido)
+                      )}
+                    </td>
+                    <td className="py-1 text-right tabular-nums">
+                      {i.calculado === null ? (
+                        <span className="text-muted-foreground/40">—</span>
+                      ) : (
+                        formatBrl(i.calculado)
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
+      })}
     </div>
   );
 }

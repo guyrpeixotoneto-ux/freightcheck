@@ -18,6 +18,8 @@ import {
   lerDeParaDaCompetencia,
   lerDiaDaCompetencia,
   lerDiarioDaCompetencia,
+  lerItensDaConciliacaoDaCompetencia,
+  lerItensDoPagamentoDaCompetencia,
   associarUnidadeDaCompetencia,
   lerResumoDoMes,
   listarApuracoes,
@@ -1112,6 +1114,50 @@ router.get("/fechamento/competencias/:id/totais", async (req, res): Promise<void
     return;
   }
   res.json(await totaisDoPagamentoDaCompetencia(db, id));
+});
+
+/**
+ * As verbas do 03.08.20 desta competência, linha a linha, como o arquivo as
+ * declarou.
+ *
+ * Não é `totais` (que soma por canal) nem `de-para` (que confere contra o
+ * `RESUMO`): é o mesmo relatório que quem fecha a quinzena tem na tela ao
+ * lado, verba a verba — para mostrar sem que a pessoa precise abrir o arquivo
+ * de novo depois de importado.
+ */
+router.get("/fechamento/competencias/:id/pagamento", async (req, res): Promise<void> => {
+  const { id } = req.params;
+  if (!UUID.test(id)) {
+    res.status(400).json({ error: "Identificador de competência inválido." });
+    return;
+  }
+  const competencia = await buscarCompetencia(db, id);
+  if (!competencia) {
+    res.status(404).json({ error: "Competência não encontrada." });
+    return;
+  }
+  res.json({ itens: await lerItensDoPagamentoDaCompetencia(db, id) });
+});
+
+/**
+ * As linhas do 03.02.59.02 desta competência, como o arquivo as declarou.
+ *
+ * O mesmo espírito de `.../pagamento`: nem a apuração nem a lista de
+ * divergências — o relatório em si, seção por seção, para mostrar sem reabrir
+ * o arquivo.
+ */
+router.get("/fechamento/competencias/:id/conciliacao-do-arquivo", async (req, res): Promise<void> => {
+  const { id } = req.params;
+  if (!UUID.test(id)) {
+    res.status(400).json({ error: "Identificador de competência inválido." });
+    return;
+  }
+  const competencia = await buscarCompetencia(db, id);
+  if (!competencia) {
+    res.status(404).json({ error: "Competência não encontrada." });
+    return;
+  }
+  res.json({ itens: await lerItensDaConciliacaoDaCompetencia(db, id) });
 });
 
 /**

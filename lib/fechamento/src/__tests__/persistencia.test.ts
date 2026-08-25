@@ -32,6 +32,8 @@ import {
   reimportarDocumento,
   lerConteudoDoDocumento,
   lerDeParaDaCompetencia,
+  lerItensDaConciliacaoDaCompetencia,
+  lerItensDoPagamentoDaCompetencia,
   receberDocumento,
   registrarParte,
   RecusaDeFechamento,
@@ -861,6 +863,83 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
     expect(recebido.motivoDaQuarentena).toBeNull();
     expect(recebido.recusas).toEqual([]);
     expect(await lerDeParaDaCompetencia(db, comp.id, { canal: "ROTA" })).not.toBeNull();
+  });
+
+  it("as verbas do 03.08.20 saem como o arquivo as declarou, linha a linha", async () => {
+    const comp = await competenciaSo();
+    await receberDocumento(db, {
+      competenciaId: comp.id,
+      tipo: "PAGAMENTO",
+      nomeDoArquivo: "03.08.20.txt",
+      conteudo: fixturePagamentoDoPainel(),
+    });
+
+    const itens = await lerItensDoPagamentoDaCompetencia(db, comp.id);
+
+    /* 7 verbas em FRETE (VBZ 01-07) e 2 em OUTROS CUSTOS (VBZ 07 e 09). */
+    expect(itens).toHaveLength(9);
+    expect(itens.filter((i) => i.bloco === "FRETE")).toHaveLength(7);
+    expect(itens.filter((i) => i.bloco === "OUTROS_CUSTOS")).toHaveLength(2);
+
+    const frotaFixaAtiva = itens.find((i) => i.verba.vbz === 1 && i.bloco === "FRETE")!;
+    expect(frotaFixaAtiva.canal).toBe("ROTA");
+    expect(frotaFixaAtiva.semImposto).toBe(100_000);
+    expect(frotaFixaAtiva.nfIss).toBe(0);
+    expect(frotaFixaAtiva.ctrcIcms).toBe(100_000);
+    expect(frotaFixaAtiva.valorFaturado).toBe(100_000);
+  });
+
+  it("sem verba gravada, a lista é vazia — não `null`", async () => {
+    /*
+      Ao contrário de `lerDeParaDaCompetencia`, que devolve `null` para
+      distinguir "sem verba" de "painel zerado": esta função não monta painel
+      nenhum, então a lista vazia já é a resposta inteira.
+    */
+    const comp = await competenciaSo();
+    expect(await lerItensDoPagamentoDaCompetencia(db, comp.id)).toEqual([]);
+  });
+
+  it("as linhas do 03.02.59.02 saem como o arquivo as declarou, seção por seção", async () => {
+    const comp = await competenciaSo();
+    const recebido = await receberDocumento(db, {
+      competenciaId: comp.id,
+      tipo: "CONCILIACAO",
+      nomeDoArquivo: "03.02.59.02.txt",
+      conteudo: Buffer.from(fixtureConciliacao(), "latin1"),
+    });
+    expect(recebido.desfecho).toBe("PROMOVIDO");
+
+    const itens = await lerItensDaConciliacaoDaCompetencia(db, comp.id);
+
+    /* Os avisos do rodapé ("Encontrado Notas Fiscais...") não são linha de
+       valor e ficam de fora. */
+    expect(itens.some((i) => i.bloco === "AVISO")).toBe(false);
+
+    const saldoProximaQuinzena = itens.find(
+      (i) => i.rubrica === "Saldo Proxima Quinzena" && i.secao === "ROTA",
+    )!;
+    expect(saldoProximaQuinzena.bloco).toBe("RESUMO PENDENCIAS");
+    expect(saldoProximaQuinzena.calculado).toBe(325);
+    expect(saldoProximaQuinzena.emitido).toBeNull();
+
+    const frotaFixa = itens.find(
+      (i) => i.rubrica === "Frota Fixa" && i.bloco === "RESUMO DA QUINZENA ATUAL",
+    )!;
+    expect(frotaFixa.secao).toBe("ROTA");
+    expect(frotaFixa.conciliado).toBe("S");
+    expect(frotaFixa.emitido).toBe(1000);
+    expect(frotaFixa.calculado).toBe(1000);
+
+    const totalGeral = itens.find(
+      (i) => i.rubrica === "Saldo Proxima Quinzena" && i.secao === "GERAL",
+    )!;
+    expect(totalGeral.bloco).toBe("TOTAL GERAL");
+    expect(totalGeral.calculado).toBe(325);
+  });
+
+  it("sem linha gravada, a lista da conciliação também é vazia", async () => {
+    const comp = await competenciaSo();
+    expect(await lerItensDaConciliacaoDaCompetencia(db, comp.id)).toEqual([]);
   });
 
   it("reenvio inválido não destrói a importação válida anterior", async () => {
