@@ -204,7 +204,7 @@ export const ROTEIRO: EtapaDoRoteiro[] = [
     confere:
       "O fecho da quinzena: o que foi emitido contra o que o SRTrans calculou, os complementares, " +
       "o freteiro e o custo variável.",
-    fontes: ["CONCILIACAO"],
+    fontes: ["CONCILIACAO", "OPERACAO"],
     verifica: [
       "O total variável calculado pelo SRTrans contra o frete que o 2Art registrou na operação.",
       "O desconto de frete mínimo e o saldo que atravessa para a próxima quinzena.",
@@ -314,9 +314,10 @@ export function etapaDaFonte(tipo: TipoDeFonte): EtapaDoRoteiro | undefined {
 /**
  * As fontes que o roteiro não cobre.
  *
- * Hoje é o 2Art: ele não é uma etapa da conferência da Rebeca — é o registro da
- * operação, que a seção "Os dias da quinzena" já mostra inteiro. Fica fora do
- * roteiro e continua na tela, em vez de ganhar uma etapa que o processo não tem.
+ * O 2Art (OPERACAO) hoje entra pela etapa 5, junto com a conciliação — é
+ * contra ele que o total variável da quinzena é conferido. Uma fonte nova
+ * que ainda não ganhou etapa continua aparecendo por aqui, na seção "Os dias
+ * da quinzena", em vez de sumir da tela.
  *
  * A função existe para que **acrescentar uma fonte nova ao domínio sem colocá-la
  * no roteiro seja visível**, em vez de fazê-la sumir da tela: quem não está em

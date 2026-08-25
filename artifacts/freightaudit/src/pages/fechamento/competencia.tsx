@@ -434,10 +434,9 @@ export default function CompetenciaAberta({ id }: { id: string }) {
   ]);
 
   /*
-    O 2Art não tem etapa no roteiro (ver `fontesForaDoRoteiro`), mas continua
-    sendo um arquivo que alguém importa — e precisa de um lugar pra isso. Fica
-    aqui, e não em `doRoteiro`, para não reaparecer como uma etapa que o
-    processo não tem.
+    Rede de segurança para uma fonte nova no catálogo que ainda não ganhou
+    etapa (ver `fontesForaDoRoteiro`): sem isso ela sumiria da tela em vez de
+    aparecer nomeada aqui, ao lado dos dias da quinzena.
   */
   const foraDoRoteiro = fontesForaDoRoteiro(catalogo.map((f) => f.tipo))
     .map((t) => catalogo.find((f) => f.tipo === t))
