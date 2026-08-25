@@ -87,7 +87,7 @@ import {
   type TipoDeFonte,
   type TotaisDoPagamento,
 } from "@/lib/fechamento";
-import { ROTEIRO, type EtapaDoRoteiro } from "./roteiro";
+import { ROTEIRO, fontesForaDoRoteiro, type EtapaDoRoteiro } from "./roteiro";
 import {
   normalizarCategoria,
   resolverValorDoContrato,
@@ -432,6 +432,15 @@ export default function CompetenciaAberta({ id }: { id: string }) {
   const catalogo = fontesParaEnviar(fontes.data ?? [], competencia.quinzena, [
     ...vigentes.keys(),
   ]);
+
+  /*
+    Rede de segurança para uma fonte nova no catálogo que ainda não ganhou
+    etapa (ver `fontesForaDoRoteiro`): sem isso ela sumiria da tela em vez de
+    aparecer nomeada aqui, ao lado dos dias da quinzena.
+  */
+  const foraDoRoteiro = fontesForaDoRoteiro(catalogo.map((f) => f.tipo))
+    .map((t) => catalogo.find((f) => f.tipo === t))
+    .filter((f): f is Fonte => !!f);
 
   /*
     O estado de cada etapa do roteiro, derivado do que a competência tem agora:
@@ -862,6 +871,52 @@ export default function CompetenciaAberta({ id }: { id: string }) {
                   .
                 </p>
               </>
+            )}
+            {foraDoRoteiro.length > 0 && (
+              <ul className="divide-y border-t mt-1">
+                {foraDoRoteiro.map((fonte) => (
+                  <LinhaDeFonte
+                    key={fonte.tipo}
+                    fonte={fonte}
+                    documento={vigentes.get(fonte.tipo)}
+                    competenciaId={id}
+                    semVerba={
+                      estadoDaFonte(vigentes.get(fonte.tipo)) === "SEM_VERBA"
+                    }
+                    foraDaQuinzena={
+                      !fonte.quinzenas.includes(competencia.quinzena) &&
+                      !fonte.quinzenasOpcionais.includes(competencia.quinzena)
+                    }
+                    opcionalNaQuinzena={fonte.quinzenasOpcionais.includes(
+                      competencia.quinzena,
+                    )}
+                    quinzena={competencia.quinzena}
+                    enviando={
+                      enviar.isPending && enviar.variables?.tipo === fonte.tipo
+                    }
+                    travada={encerrada}
+                    onArquivo={(arquivo) =>
+                      enviar.mutate({ tipo: fonte.tipo, arquivo })
+                    }
+                    contrato={dados.data?.contrato ?? null}
+                    leituraDeImagem={leiturasDeFrota[fonte.tipo]}
+                    onLeituraDeImagem={(leitura) => {
+                      gravarRascunhoDeImagem(id, fonte.tipo, leitura);
+                      setLeiturasDeFrota((m) => ({
+                        ...m,
+                        [fonte.tipo]: leitura,
+                      }));
+                    }}
+                    onLimparLeituraDeImagem={() => {
+                      gravarRascunhoDeImagem(id, fonte.tipo, null);
+                      setLeiturasDeFrota((m) => {
+                        const { [fonte.tipo]: _descartado, ...resto } = m;
+                        return resto;
+                      });
+                    }}
+                  />
+                ))}
+              </ul>
             )}
           </CardContent>
         </Card>

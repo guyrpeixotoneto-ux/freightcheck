@@ -231,12 +231,12 @@ describe("o roteiro em si", () => {
   });
 
   /*
-    O 2Art fica de fora de propósito: ele é o registro da operação, que "Os dias
-    da quinzena" já mostra inteiro, e não uma etapa da conferência. O teste fixa
-    isso para que acrescentar uma fonte nova ao domínio sem colocá-la no roteiro
-    apareça aqui, em vez de a fonte sumir calada da tela.
+    O 2Art entra pela etapa 5, junto com a conciliação, e por isso não conta
+    mais como fora do roteiro. O teste fixa que o catálogo inteiro cai em
+    alguma etapa, para que acrescentar uma fonte nova ao domínio sem
+    colocá-la no roteiro apareça aqui, em vez de a fonte sumir calada da tela.
   */
-  it("o 2Art é a única fonte fora do roteiro", () => {
+  it("todo o catálogo conhecido está em alguma etapa do roteiro", () => {
     const todas: TipoDeFonte[] = [
       "OPERACAO",
       "CTE",
@@ -248,7 +248,7 @@ describe("o roteiro em si", () => {
       "FROTA_PROMAX_ATIVA",
       "FROTA_PROMAX_INATIVA",
     ];
-    expect(fontesForaDoRoteiro(todas)).toEqual(["OPERACAO"]);
+    expect(fontesForaDoRoteiro(todas)).toEqual([]);
   });
 
   /*
