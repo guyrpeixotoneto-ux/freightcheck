@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, ClipboardList, FileCheck2 } from "lucide-react";
+import { CheckCircle2, ClipboardList, FileCheck2, WifiOff } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ApiErrorNotice } from "@/components/api-error";
 import { fetchJson } from "@/lib/api";
+import { useConsultaResiliente } from "@/lib/consulta-resiliente";
 import type { ChangeRow } from "@/components/changes/change-table";
 import { cn } from "@/lib/utils";
 
@@ -73,11 +74,25 @@ function agruparPorPlaca(rows: ChangeRow[]): PlacaGroup[] {
 export default function Justificativas() {
   const queryClient = useQueryClient();
 
-  const { data, isLoading, error } = useQuery({
+  /*
+    Resiliente, como as demais consultas que abrem uma tela inteira (ver
+    `pages/unidades.tsx`). Antes esta tela usava `useQuery` cru: uma falha de
+    transporte — a origem acordando, um soluço de rede — chegava como painel
+    de erro sem botão de repetir, e sem nada em tela para além dele. `useQuery`
+    já repete sozinho por conta da política global (`App.tsx`); o que faltava
+    era o desfecho de quando as tentativas se esgotam: `indisponivel` diz
+    quando não há nada para mostrar, `avisarSobreDadoGuardado` diz quando há
+    uma lista válida e só a atualização falhou, e as duas trazem
+    `tentarDeNovo` — a única forma de recuperar sem recarregar a página.
+  */
+  const consulta = useConsultaResiliente<ChangesLatestResponse>({
     queryKey: ["changes-latest", "justificativas"],
-    queryFn: () => fetchJson<ChangesLatestResponse>("/changes/latest"),
+    endpoint: "/changes/latest",
+    buscar: () => fetchJson<ChangesLatestResponse>("/changes/latest"),
   });
 
+  const data = consulta.dados;
+  const isLoading = consulta.carregando;
   const changeSetId = data?.set.id;
   const grupos = useMemo(() => agruparPorPlaca(data?.rows ?? []), [data]);
 
@@ -153,7 +168,37 @@ export default function Justificativas() {
           </div>
         )}
 
-        {error && <ApiErrorNotice error={error} what="As placas alteradas não puderam ser carregadas." />}
+        {consulta.indisponivel && (
+          <ApiErrorNotice
+            error={consulta.erro}
+            what="As placas alteradas não puderam ser carregadas."
+            onTentarDeNovo={consulta.tentarDeNovo}
+            tentando={consulta.atualizando}
+          />
+        )}
+
+        {consulta.avisarSobreDadoGuardado && (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-amber-200 bg-amber-50/70 px-4 py-2 text-sm text-amber-900">
+            <WifiOff className="w-4 h-4 shrink-0" />
+            <span>
+              A atualização não completou. O que está em tela é de{" "}
+              {new Date(consulta.respondidoEm ?? 0).toLocaleTimeString("pt-BR", {
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+              , e continua válido.
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7"
+              disabled={consulta.atualizando}
+              onClick={consulta.tentarDeNovo}
+            >
+              {consulta.atualizando ? "Tentando…" : "Tentar de novo"}
+            </Button>
+          </div>
+        )}
 
         {data && grupos.length === 0 && (
           <section className="bg-card border rounded-xl shadow-sm px-6 py-10 text-center">

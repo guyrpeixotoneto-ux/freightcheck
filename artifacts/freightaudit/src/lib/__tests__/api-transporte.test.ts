@@ -122,4 +122,76 @@ describe("fetchJson classifica o que impede a resposta", () => {
     expect((erro as ErroDeTransporte).diagnostico.status).toBe(502);
     expect((erro as ErroDeTransporte).diagnostico.acao?.codigo).toBe("RESTABELECER_API");
   });
+
+  /**
+   * Uma chamada que nunca termina — a conexão abre e ninguém do outro lado
+   * escreve um byte — não pode ficar pendurada para sempre. Antes desta
+   * função ter um teto próprio, `fetch` sem `signal` não tinha prazo nenhum:
+   * a promessa nunca resolvia, nunca rejeitava, e a tela ficava em
+   * "Carregando…" para sempre — pior do que o painel de indisponibilidade que
+   * existe exatamente para este caso. Reproduzia sempre: nenhum `fetch` mockado
+   * aqui jamais resolve, então sem o teto este teste nunca terminaria.
+   *
+   * O desfecho tem de ser `SEM_RESPOSTA` — e não `REQUISICAO_CANCELADA`: quem
+   * abortou fomos nós, pelo teto, e não quem chamou. `REQUISICAO_CANCELADA` não
+   * é repetida; `SEM_RESPOSTA` é, e uma chamada que nunca respondeu é
+   * exatamente o caso banal que a política de `resiliencia.ts` existe para
+   * atravessar.
+   */
+  it("uma chamada que nunca responde estoura o teto e vira SEM_RESPOSTA, repetível", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        (_url: string, init?: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () => {
+              reject(new DOMException("The operation was aborted.", "AbortError"));
+            });
+          }),
+      ),
+    );
+
+    const promessa = fetchJson("/contexts").catch((e: unknown) => e);
+    await vi.advanceTimersByTimeAsync(45_000);
+    const erro = await promessa;
+
+    expect(erro).toBeInstanceOf(ErroDeTransporte);
+    const { diagnostico } = erro as ErroDeTransporte;
+    expect(diagnostico.estado).toBe("SEM_RESPOSTA");
+    expect(diagnostico.evidencia).toMatch(/45s/);
+    expect(ehFalhaTransitoria(erro)).toBe(true);
+
+    vi.useRealTimers();
+  });
+
+  /**
+   * O cancelamento de quem chamou continua sendo cancelamento, mesmo agora que
+   * esta função também tem o seu próprio `AbortController` por baixo — os dois
+   * sinais precisam compor, e o que decide a classificação é **quem** abortou
+   * primeiro, não que um `AbortController` qualquer abortou.
+   */
+  it("o cancelamento de quem chamou continua sendo cancelamento, não SEM_RESPOSTA", async () => {
+    const controle = new AbortController();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        (_url: string, init?: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () => {
+              reject(new DOMException("The operation was aborted.", "AbortError"));
+            });
+          }),
+      ),
+    );
+
+    const promessa = fetchJson("/contexts", { signal: controle.signal }).catch(
+      (e: unknown) => e,
+    );
+    controle.abort();
+    const erro = await promessa;
+
+    expect((erro as ErroDeTransporte).diagnostico.estado).toBe("REQUISICAO_CANCELADA");
+    expect(ehFalhaTransitoria(erro)).toBe(false);
+  });
 });
