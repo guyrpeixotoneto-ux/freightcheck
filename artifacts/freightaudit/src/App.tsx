@@ -7,12 +7,13 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import NotFound from '@/pages/not-found';
 import { Route, Switch, useLocation, useSearch, Router as WouterRouter } from 'wouter';
 import { AuthProvider, useAuth } from '@/lib/auth';
-import { BASES_DE_FECHAMENTO, destinoDaRaiz, RESUMO_EXECUTIVO } from '@/lib/ambiente';
+import { BASES_DE_FECHAMENTO, destinoDaRaiz, LINHA_DO_TEMPO, RESUMO_EXECUTIVO } from '@/lib/ambiente';
 import { publicarNoConsole } from '@/lib/registro-de-falhas';
 import { PADRAO_DAS_CONSULTAS } from '@/lib/chamada-resiliente';
 import Login from '@/pages/login';
 
 import Inicio from '@/pages/inicio';
+import LinhaDoTempo from '@/pages/linha-do-tempo';
 import VisaoGerencialDaAuditoria from '@/pages/visao-gerencial';
 import Vigencia from '@/pages/vigencia';
 import Dados from '@/pages/dados';
@@ -228,6 +229,7 @@ function Router() {
         chega, que agora é a do trabalho: o acervo, depois a unidade.
       */}
       <Route path={RESUMO_EXECUTIVO} component={Inicio} />
+      <Route path={LINHA_DO_TEMPO} component={LinhaDoTempo} />
       <Route path="/vigencia" component={Vigencia} />
       <Route path="/dados" component={Dados} />
       <Route path="/apresentacao" component={ApresentacaoVideo} />

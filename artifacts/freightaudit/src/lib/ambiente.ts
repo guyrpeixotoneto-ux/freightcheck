@@ -99,6 +99,17 @@ export const ENTRADA_DA_AUDITORIA = "/visao-gerencial";
 export const RESUMO_EXECUTIVO = "/resumo-executivo";
 
 /**
+ * A Linha do tempo — o histórico de vigências da unidade aberta, uma tela
+ * própria e não mais um cartão dentro do Resumo executivo.
+ *
+ * Separada porque a pergunta que ela responde ("como o impacto se moveu ao
+ * longo das vigências, e o que mudou em cada uma") é uma leitura de todo o
+ * histórico, não do instante atual que o Resumo executivo mostra — e as duas
+ * disputavam a mesma rolagem.
+ */
+export const LINHA_DO_TEMPO = "/linha-do-tempo";
+
+/**
  * A base de endereço de cada fechamento — a única coisa que separa os dois.
  *
  * Toda tela do fechamento monta os próprios links a partir da base do ambiente
