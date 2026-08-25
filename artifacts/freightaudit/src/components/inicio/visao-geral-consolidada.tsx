@@ -14,8 +14,8 @@ import type {
 
 /**
  * O conteúdo da Visão Geral — compartilhado entre todas as telas que oferecem
- * a opção "Visão Geral" no dropdown "Trocar unidade" (Resumo executivo, Linha
- * do Tempo, e as que vierem depois).
+ * a opção "Visão Geral" no seletor de unidade da lateral (Resumo executivo,
+ * Linha do Tempo, e as que vierem depois).
  *
  * Nasceu no Resumo executivo e foi extraído para cá quando a Linha do Tempo
  * passou a precisar do mesmo bloco: mesmo `FamiliesOverview`, mesma régua de
