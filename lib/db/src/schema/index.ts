@@ -15,3 +15,4 @@ export * from "./tickets";
 export * from "./unidade";
 export * from "./fechamento";
 export * from "./remuneracao";
+export * from "./justificativa";

@@ -24,6 +24,7 @@ import qlpRouter from "./qlp";
 import remuneracaoRouter from "./remuneracao";
 import unidadesRouter from "./unidades";
 import comprasRouter from "./compras";
+import justificativasRouter from "./justificativas";
 
 /**
  * F0/F1 surface.
@@ -190,5 +191,11 @@ router.use(remuneracaoRouter);
 router.use(unidadesRouter);
 router.use(comprasRouter);
 router.use(fechamentoRouter);
+/*
+  Plano de Ação: a justificativa por placa sobre o que mudou de uma vigência
+  para a outra. Não tem leitura própria de "o que mudou" — usa `/changes/latest`,
+  de `changesRouter` — só guarda o texto que o gestor escreveu.
+*/
+router.use(justificativasRouter);
 
 export default router;
