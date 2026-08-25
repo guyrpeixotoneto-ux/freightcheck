@@ -157,14 +157,14 @@ function SeletorDePeriodo({
 // A construção das séries — a mesma lógica serve o consolidado e o atributo
 // ---------------------------------------------------------------------------
 
-interface PontoDeQuantidade {
+export interface PontoDeQuantidade {
   periodo: string;
   label: string;
   positivas: number;
   negativas: number;
 }
 
-interface PontoDeValor {
+export interface PontoDeValor {
   periodo: string;
   label: string;
   ganhos: number;
@@ -176,7 +176,14 @@ function comSinal(entradas: RangeEntry[]): RangeEntry[] {
   return entradas.filter((e) => e.confidence === "CALCULATED" && e.amount !== null && e.amount !== 0);
 }
 
-function seriesDoIntervalo(
+/**
+ * As séries de quantidade e valor de um intervalo, por periodicidade.
+ *
+ * Exportada porque a Gestão à Vista lê a mesma conta para o seu gráfico de
+ * tendência compacto — sem selects nem detalhe por atributo, mas sobre o
+ * mesmo `/changes/range` e com a mesma régua de "só sinal apurado entra".
+ */
+export function seriesDoIntervalo(
   periodosOrdenados: { date: string; label: string }[],
   entradas: RangeEntry[],
 ): {
