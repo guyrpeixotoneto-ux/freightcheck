@@ -88,7 +88,6 @@ import {
 } from "@/lib/fechamento";
 import { ROTEIRO, type EtapaDoRoteiro } from "./roteiro";
 import {
-  primeiraEtapaQuePede,
   resumoDaEtapa,
   situacaoDaEtapa,
   type SituacaoDaEtapa,
@@ -378,11 +377,12 @@ export default function CompetenciaAberta({ id }: { id: string }) {
     de rolagem para achar a que interessa, e o estado de cada uma já está no
     cabeçalho dela (ver `resumoDaEtapa`), então fechar não esconde nada.
 
-    O padrão é a primeira que pede alguma coisa — não "a etapa atual", que a
-    trilha continua não afirmando. `null` até a primeira renderização decidir,
-    e daí em diante quem manda é o clique.
+    O padrão é tudo fechado — inclusive a etapa com pendência —, porque quem
+    entra na competência quer ver o roteiro inteiro de relance antes de
+    escolher onde trabalhar, não ser levado direto a uma etapa que a tela
+    escolheu por ela. Quem manda é sempre o clique, na trilha ou no cabeçalho.
   */
-  const aberta = etapaAberta ?? `etapa-${primeiraEtapaQuePede(situacoes, ROTEIRO.map((e) => e.numero))}`;
+  const aberta = etapaAberta ?? "";
 
   return (
     <Layout>
