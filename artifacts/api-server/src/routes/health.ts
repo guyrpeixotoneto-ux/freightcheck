@@ -311,6 +311,19 @@ router.get("/build", (_req, res) => {
     revision: process.env["BUILD_REVISION"] ?? "desconhecida",
     builtAt: process.env["BUILD_TIME"] ?? "desconhecido",
     startedAt,
+    /*
+      `pid` e `uptimeSeconds` são o que fecha a prova de restart sem depender
+      de comparar dois carimbos a olho: dois acessos a `/api/build` com o
+      mesmo `pid` e `startedAt` são, sem dúvida, o mesmo processo — pids não
+      se repetem enquanto o processo anterior existe, e um `pid` novo com
+      `revision` igual é exatamente o retrato de um cold start (reiniciou o
+      mesmo build), enquanto um `revision` diferente é deploy. Ver
+      `process.start`/`process.sigterm`/etc. em `index.ts`, que gravam os
+      mesmos três campos no momento em que o processo nasce e morre — o que
+      este endpoint publica é a leitura ao vivo do mesmo fato.
+    */
+    pid: process.pid,
+    uptimeSeconds: Math.round(process.uptime()),
   });
 });
 

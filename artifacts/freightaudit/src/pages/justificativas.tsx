@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, ClipboardList, FileCheck2, WifiOff } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
 import { Badge } from "@/components/ui/badge";
@@ -96,14 +96,24 @@ export default function Justificativas() {
   const changeSetId = data?.set.id;
   const grupos = useMemo(() => agruparPorPlaca(data?.rows ?? []), [data]);
 
-  const { data: justificativasData } = useQuery({
+  /*
+    Resiliente pelo mesmo motivo da lista de alterações: uma justificativa já
+    carregada não pode sumir da tela porque uma atualização de fundo tropeçou.
+    `enabled: !!changeSetId` continua igual — só passa a buscar quando há uma
+    comparação para perguntar.
+  */
+  const justificativasConsulta = useConsultaResiliente<{
+    justificativas: Justificativa[];
+  }>({
     queryKey: ["justificativas", changeSetId],
-    queryFn: () =>
+    endpoint: "/justificativas",
+    buscar: () =>
       fetchJson<{ justificativas: Justificativa[] }>(
         `/justificativas?changeSetId=${changeSetId}`,
       ),
     enabled: !!changeSetId,
   });
+  const justificativasData = justificativasConsulta.dados;
 
   const justificadaPor = useMemo(() => {
     const mapa = new Map<string, Justificativa>();

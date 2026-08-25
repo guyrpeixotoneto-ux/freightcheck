@@ -61,6 +61,12 @@ const TEMPO_LIMITE_MS = 45_000;
  * conta como `SEM_RESPOSTA` — transitório, e a política de cima repete.
  */
 async function requisitar(path: string, init?: RequestInit): Promise<Response> {
+  const url = getApiUrl(path);
+  const inicio =
+    typeof performance !== "undefined" ? performance.now() : Date.now();
+  const decorrido = () =>
+    Math.round((typeof performance !== "undefined" ? performance.now() : Date.now()) - inicio);
+
   const controlador = new AbortController();
   let esgotouTempo = false;
   const cronometro = setTimeout(() => {
@@ -78,24 +84,44 @@ async function requisitar(path: string, init?: RequestInit): Promise<Response> {
   }
 
   try {
-    return await fetch(getApiUrl(path), { ...init, signal: controlador.signal });
+    return await fetch(url, { ...init, signal: controlador.signal });
   } catch (err) {
     const nome =
       typeof err === "object" && err !== null
         ? (err as { name?: unknown }).name
         : undefined;
+
     if (nome === "AbortError" && !esgotouTempo) {
+      // Cancelamento de quem chamou — não é falha de transporte, não entra
+      // no registro de falhas (`registrarFalha`, uma camada acima, também
+      // não registra `REQUISICAO_CANCELADA`: ver `chamada-resiliente.ts`).
       throw new ErroDeTransporte(diagnosticarTransporte({ cancelada: true }));
     }
+
+    /*
+      Uma linha aqui, e não só no registro de `chamada-resiliente.ts`: esta
+      função também é chamada por fora de `useQuery` — a mutação de
+      Justificativas, `fetchArquivo` — caminhos que não passam por
+      `registrarFalha`. URL, duração e o estado que se está prestes a lançar
+      são exatamente os três fatos que o item 4 pede para toda chamada que
+      não completa, e aqui é o único lugar por onde todas passam.
+    */
+    console.warn(
+      `[transporte] ${url} — ${esgotouTempo ? "TEMPO_ESGOTADO" : "SEM_RESPOSTA"}, ` +
+        `${decorrido()}ms.`,
+    );
+
     throw new ErroDeTransporte(
-      diagnosticarTransporte({
-        naoCompletou: true,
-        ...(esgotouTempo
-          ? { motivo: `Sem resposta em ${TEMPO_LIMITE_MS / 1000}s — a tentativa foi encerrada.` }
-          : err instanceof Error && err.message !== ""
-            ? { motivo: err.message }
-            : {}),
-      }),
+      diagnosticarTransporte(
+        esgotouTempo
+          ? { naoCompletou: true, esgotouTempo: true, tempoLimiteMs: TEMPO_LIMITE_MS }
+          : {
+              naoCompletou: true,
+              ...(err instanceof Error && err.message !== ""
+                ? { motivo: err.message }
+                : {}),
+            },
+      ),
     );
   } finally {
     clearTimeout(cronometro);

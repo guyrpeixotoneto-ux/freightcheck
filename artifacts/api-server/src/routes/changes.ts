@@ -3,6 +3,11 @@ import { db } from "@workspace/db";
 import { classificarFalha } from "../lib/classificar-falha";
 import { parseContext } from "../lib/contexto";
 import {
+  iniciarFase,
+  instrumentarCicloDaRequisicao,
+} from "../lib/observabilidade";
+import { comTetoDeRota } from "../lib/timeout-de-rota";
+import {
   computeChangeSet,
   findPreviousSnapshot,
   getAttributeDomain,
@@ -42,7 +47,9 @@ const router: IRouter = Router();
 
 function parseFilters(query: Record<string, unknown>): ChangeFilters {
   const str = (key: string) =>
-    typeof query[key] === "string" && query[key] !== "" ? (query[key] as string) : undefined;
+    typeof query[key] === "string" && query[key] !== ""
+      ? (query[key] as string)
+      : undefined;
   const num = (key: string) => {
     const value = str(key);
     if (value === undefined) return undefined;
@@ -101,7 +108,10 @@ function parseEscopo(query: Record<string, unknown>): EscopoDeFrota {
  * recorte é o número de lugares em que eles podem discordar. A tela manda o
  * escopo uma vez; a rota o espalha.
  */
-function comEscopo(filters: ChangeFilters, escopo: EscopoDeFrota): ChangeFilters {
+function comEscopo(
+  filters: ChangeFilters,
+  escopo: EscopoDeFrota,
+): ChangeFilters {
   return {
     ...filters,
     ...(escopo.entityType ? { entityType: escopo.entityType } : {}),
@@ -143,7 +153,8 @@ router.get("/contexts", async (req, res): Promise<void> => {
  */
 router.get("/snapshots", async (req, res): Promise<void> => {
   const datasetFamily =
-    typeof req.query.datasetFamily === "string" && req.query.datasetFamily !== ""
+    typeof req.query.datasetFamily === "string" &&
+    req.query.datasetFamily !== ""
       ? req.query.datasetFamily
       : undefined;
   res.json(await listComparableSnapshots(db, { datasetFamily }));
@@ -152,7 +163,8 @@ router.get("/snapshots", async (req, res): Promise<void> => {
 /** As comparações gravadas — mesma regra de família de `/snapshots`. */
 router.get("/change-sets", async (req, res): Promise<void> => {
   const datasetFamily =
-    typeof req.query.datasetFamily === "string" && req.query.datasetFamily !== ""
+    typeof req.query.datasetFamily === "string" &&
+    req.query.datasetFamily !== ""
       ? req.query.datasetFamily
       : undefined;
   res.json(await listChangeSets(db, { datasetFamily }));
@@ -161,65 +173,107 @@ router.get("/change-sets", async (req, res): Promise<void> => {
 /**
  * The newest vigência against the one before it, computing the comparison on
  * demand if it has not been made yet.
+ *
+ * Instrumentada fase a fase (`observabilidade.ts`): a suspeita a testar era
+ * que uma comparação nunca calculada antes pudesse demorar o bastante para
+ * estourar o prazo de um proxy na frente, deixando o navegador sem resposta
+ * nenhuma. Sem medição por fase, "esta rota demorou" não diz **qual** passo —
+ * `findPreviousSnapshot`, `computeChangeSet` (que pode envolver
+ * `diffSnapshots` inteiro, se a comparação for nova) ou os três agregados
+ * finais. Com ela, um cold-cálculo genuinamente lento aparece como um
+ * `computeChangeSet.end` com `duracaoMs` alto, e não como um mistério.
+ *
+ * E roda com um teto de conexão próprio (`comTetoDeRota`, `timeout-de-
+ * rota.ts`): 20s, bem abaixo do `statement_timeout` de 120s do pool
+ * inteiro — que precisa ficar largo para a promoção de vigência grande — e
+ * abaixo do teto de 45s do cliente HTTP (`lib/api.ts` no frontend). A ordem
+ * importa: se o proxy na frente tiver um teto menor que os dois, é ele quem
+ * decide primeiro, e não há nada que este servidor possa fazer sobre isso a
+ * partir daqui — mas dentro do que este processo controla, uma rota de
+ * leitura nunca deveria conseguir segurar uma conexão do pool de dez por
+ * mais que uma fração do que uma promoção legítima usa.
  */
+const TETO_DE_CHANGES_LATEST_MS = 20_000;
+
+router.use("/changes/latest", instrumentarCicloDaRequisicao);
 router.get("/changes/latest", async (req, res): Promise<void> => {
-  const snapshots = await listComparableSnapshots(db);
-  if (snapshots.length === 0) {
-    res.status(404).json({ error: "Nenhuma vigência importada ainda." });
-    return;
-  }
+  await comTetoDeRota(TETO_DE_CHANGES_LATEST_MS, async (db) => {
+    const snapshots = await listComparableSnapshots(db);
+    if (snapshots.length === 0) {
+      res.status(404).json({ error: "Nenhuma vigência importada ainda." });
+      return;
+    }
 
-  /**
-   * Vigências only compare inside their own series. When the Ambev ships
-   * carretas and cavalos as separate files there are two series, and simply
-   * taking "the newest snapshot" would answer for one equipment type while
-   * silently dropping the other.
-   */
-  const seriesKey = (s: (typeof snapshots)[number]) =>
-    `${s.scopeHash}|${s.entityTypeSet}`;
-  const series = [...new Set(snapshots.map(seriesKey))]
-    .map((key) => {
-      const members = snapshots.filter((s) => seriesKey(s) === key);
-      return {
-        key,
-        entityTypeSet: members[0].entityTypeSet,
-        latest: members[members.length - 1],
-        count: members.length,
-      };
-    })
-    // Deterministic: newest first, then by name so ties never reorder.
-    .sort(
-      (a, b) =>
-        b.latest.effectiveDate.localeCompare(a.latest.effectiveDate) ||
-        a.entityTypeSet.localeCompare(b.entityTypeSet),
-    );
+    /**
+     * Vigências only compare inside their own series. When the Ambev ships
+     * carretas and cavalos as separate files there are two series, and simply
+     * taking "the newest snapshot" would answer for one equipment type while
+     * silently dropping the other.
+     */
+    const seriesKey = (s: (typeof snapshots)[number]) =>
+      `${s.scopeHash}|${s.entityTypeSet}`;
+    const series = [...new Set(snapshots.map(seriesKey))]
+      .map((key) => {
+        const members = snapshots.filter((s) => seriesKey(s) === key);
+        return {
+          key,
+          entityTypeSet: members[0].entityTypeSet,
+          latest: members[members.length - 1],
+          count: members.length,
+        };
+      })
+      // Deterministic: newest first, then by name so ties never reorder.
+      .sort(
+        (a, b) =>
+          b.latest.effectiveDate.localeCompare(a.latest.effectiveDate) ||
+          a.entityTypeSet.localeCompare(b.entityTypeSet),
+      );
 
-  const requested = req.query.entityTypeSet;
-  const chosen =
-    (typeof requested === "string" &&
-      series.find((s) => s.entityTypeSet === requested)) ||
-    series[0];
-  const latest = chosen.latest;
-  const previousId = await findPreviousSnapshot(db, latest.id);
-  if (!previousId) {
-    res.status(409).json({
-      error: `"${latest.sourceLabel}" é a primeira vigência da série; não há anterior com que comparar.`,
+    const requested = req.query.entityTypeSet;
+    const chosen =
+      (typeof requested === "string" &&
+        series.find((s) => s.entityTypeSet === requested)) ||
+      series[0];
+    const latest = chosen.latest;
+    const faseAnterior = iniciarFase(req, "findPreviousSnapshot");
+    const previousId = await findPreviousSnapshot(db, latest.id);
+    faseAnterior.fim({ encontrado: previousId !== null });
+    if (!previousId) {
+      res.status(409).json({
+        error: `"${latest.sourceLabel}" é a primeira vigência da série; não há anterior com que comparar.`,
+      });
+      return;
+    }
+
+    const faseComputo = iniciarFase(req, "computeChangeSet");
+    const set = await computeChangeSet(db, previousId, latest.id, {
+      computedBy: "api:latest",
     });
-    return;
-  }
-
-  const set = await computeChangeSet(db, previousId, latest.id, {
-    computedBy: "api:latest",
-  });
-  const escopo = parseEscopo(req.query as Record<string, unknown>);
-  const filters = comEscopo(
-    parseFilters(req.query as Record<string, unknown>),
-    escopo,
-  );
-  const [changes, breakdown, totais] = await Promise.all([
-    listChanges(db, set.id, filters),
-    getChangeSetBreakdown(db, set.id, escopo, filters),
+    faseComputo.fim({ changeSetId: set.id, valueChanges: set.valueChanges });
+    const escopo = parseEscopo(req.query as Record<string, unknown>);
+    const filters = comEscopo(
+      parseFilters(req.query as Record<string, unknown>),
+      escopo,
+    );
     /*
+    As três fases abaixo rodam concorrentes (`Promise.all`), e cada uma marca
+    o próprio início e fim — é o que permite ler, depois, se elas de fato
+    correram em paralelo ou se uma delas segurou o pool de conexões e
+    serializou as outras sem que o código dissesse isso em lugar nenhum.
+  */
+    const faseAlteracoes = iniciarFase(req, "listChanges");
+    const faseBreakdown = iniciarFase(req, "getChangeSetBreakdown");
+    const faseTotais = iniciarFase(req, "totaisDoEscopo");
+    const [changes, breakdown, totais] = await Promise.all([
+      listChanges(db, set.id, filters).then((r) => {
+        faseAlteracoes.fim({ linhas: r.rows.length });
+        return r;
+      }),
+      getChangeSetBreakdown(db, set.id, escopo, filters).then((r) => {
+        faseBreakdown.fim();
+        return r;
+      }),
+      /*
       Os totais saem **sempre**, e com os mesmos filtros da lista.
 
       Antes eles só existiam sob `escopo=1`, e sem eles a tela caía nos totais
@@ -228,24 +282,28 @@ router.get("/changes/latest", async (req, res): Promise<void> => {
       não. "19 com impacto" embaixo de "267 alterações · R$ 39.936" eram dois
       recortes empilhados, e o de cima tinha cara de total.
     */
-    totaisDoEscopo(db, set.id, escopo, filters),
-  ]);
-  res.json({
-    set,
-    breakdown,
-    // `set` continua sendo a comparação inteira — é ela que a tela de
-    // Alterações lê, e mexer nos agregados dela mudaria o que aquela tela
-    // afirma. O escopo vem ao lado, recontado, e só quando foi pedido.
-    ...(totais ? { escopo, totais } : {}),
-    // So the screen can offer the other series instead of pretending this is
-    // the whole fleet.
-    series: series.map((s) => ({
-      entityTypeSet: s.entityTypeSet,
-      vigencias: s.count,
-      latestLabel: s.latest.sourceLabel,
-    })),
-    selectedSeries: chosen.entityTypeSet,
-    ...changes,
+      totaisDoEscopo(db, set.id, escopo, filters).then((r) => {
+        faseTotais.fim({ presente: r !== null });
+        return r;
+      }),
+    ]);
+    res.json({
+      set,
+      breakdown,
+      // `set` continua sendo a comparação inteira — é ela que a tela de
+      // Alterações lê, e mexer nos agregados dela mudaria o que aquela tela
+      // afirma. O escopo vem ao lado, recontado, e só quando foi pedido.
+      ...(totais ? { escopo, totais } : {}),
+      // So the screen can offer the other series instead of pretending this is
+      // the whole fleet.
+      series: series.map((s) => ({
+        entityTypeSet: s.entityTypeSet,
+        vigencias: s.count,
+        latestLabel: s.latest.sourceLabel,
+      })),
+      selectedSeries: chosen.entityTypeSet,
+      ...changes,
+    });
   });
 });
 
@@ -257,7 +315,8 @@ router.get("/changes/latest", async (req, res): Promise<void> => {
  * arrived, and the response names what is absent so the caller can say so.
  */
 router.get("/changes/consolidated", async (req, res): Promise<void> => {
-  const period = typeof req.query.period === "string" ? req.query.period : undefined;
+  const period =
+    typeof req.query.period === "string" ? req.query.period : undefined;
   const context = parseContext(req.query as Record<string, unknown>);
   const view = await getConsolidated(db, period, context);
   if (!view) {
@@ -304,7 +363,8 @@ router.get("/changes/consolidated", async (req, res): Promise<void> => {
  * abriu primeiro.
  */
 router.get("/changes/grouped", async (req, res): Promise<void> => {
-  const period = typeof req.query.period === "string" ? req.query.period : undefined;
+  const period =
+    typeof req.query.period === "string" ? req.query.period : undefined;
   const context = parseContext(req.query as Record<string, unknown>);
   const view = await getGroupedView(db, period, context);
   if (!view) {
@@ -323,7 +383,8 @@ router.get("/changes/grouped", async (req, res): Promise<void> => {
  * da vigência dentro de cada periodicidade.
  */
 router.get("/changes/families", async (req, res): Promise<void> => {
-  const period = typeof req.query.period === "string" ? req.query.period : undefined;
+  const period =
+    typeof req.query.period === "string" ? req.query.period : undefined;
   const context = parseContext(req.query as Record<string, unknown>);
   const view = await getFamiliesView(db, period, context);
   if (!view) {
@@ -350,14 +411,17 @@ router.get("/changes/families", async (req, res): Promise<void> => {
  * um 404 que diria, errado, que a competência não existe.
  */
 router.get("/changes/families/overview", async (req, res): Promise<void> => {
-  const period = typeof req.query.period === "string" ? req.query.period : undefined;
+  const period =
+    typeof req.query.period === "string" ? req.query.period : undefined;
   if (!period) {
     res.status(400).json({ error: "period é obrigatório em Visão Geral." });
     return;
   }
   const view = await getFamiliesOverview(db, period);
   if (!view) {
-    res.status(404).json({ error: "Nenhuma unidade tem vigência nesta competência." });
+    res
+      .status(404)
+      .json({ error: "Nenhuma unidade tem vigência nesta competência." });
     return;
   }
   res.json(view);
@@ -373,8 +437,12 @@ router.get("/changes/families/overview", async (req, res): Promise<void> => {
 router.get("/changes/range", async (req, res): Promise<void> => {
   const from = typeof req.query.from === "string" ? req.query.from : undefined;
   const to = typeof req.query.to === "string" ? req.query.to : undefined;
-  const bruto = typeof req.query.parameters === "string" ? req.query.parameters : "";
-  const parameters = bruto.split(",").map((p) => p.trim()).filter(Boolean);
+  const bruto =
+    typeof req.query.parameters === "string" ? req.query.parameters : "";
+  const parameters = bruto
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean);
   const context = parseContext(req.query as Record<string, unknown>);
   const analysis = await getRangeAnalysis(db, from, to, context, parameters);
   if (!analysis) {
@@ -397,7 +465,9 @@ router.get("/changes/range/overview", async (req, res): Promise<void> => {
   const to = typeof req.query.to === "string" ? req.query.to : undefined;
   const overview = await getRangeOverview(db, from, to);
   if (!overview) {
-    res.status(404).json({ error: "Nenhuma unidade tem histórico neste intervalo." });
+    res
+      .status(404)
+      .json({ error: "Nenhuma unidade tem histórico neste intervalo." });
     return;
   }
   res.json(overview);
@@ -417,8 +487,12 @@ router.get("/changes/range/overview", async (req, res): Promise<void> => {
 router.get("/changes/end-to-end", async (req, res): Promise<void> => {
   const from = typeof req.query.from === "string" ? req.query.from : undefined;
   const to = typeof req.query.to === "string" ? req.query.to : undefined;
-  const bruto = typeof req.query.parameters === "string" ? req.query.parameters : "";
-  const parameters = bruto.split(",").map((p) => p.trim()).filter(Boolean);
+  const bruto =
+    typeof req.query.parameters === "string" ? req.query.parameters : "";
+  const parameters = bruto
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean);
   const context = parseContext(req.query as Record<string, unknown>);
   const analysis = await getEndToEndAnalysis(db, from, to, context, parameters);
   if (!analysis) {
@@ -430,10 +504,18 @@ router.get("/changes/end-to-end", async (req, res): Promise<void> => {
 
 /** Nível 2 — os veículos por trás de um cartão, um por linha. */
 router.get("/changes/grouped/vehicles", async (req, res): Promise<void> => {
-  const { period, attributeCode, entityType, changeType, comparability, impactConfidence } =
-    req.query as Record<string, string | undefined>;
+  const {
+    period,
+    attributeCode,
+    entityType,
+    changeType,
+    comparability,
+    impactConfidence,
+  } = req.query as Record<string, string | undefined>;
   if (!period || !attributeCode || !entityType) {
-    res.status(400).json({ error: "Informe period, attributeCode e entityType." });
+    res
+      .status(400)
+      .json({ error: "Informe period, attributeCode e entityType." });
     return;
   }
   const context = parseContext(req.query as Record<string, unknown>);
@@ -473,7 +555,8 @@ router.get("/attributes/:code/series", async (req, res): Promise<void> => {
  */
 router.get("/attributes/:code/domain", async (req, res): Promise<void> => {
   const context = parseContext(req.query as Record<string, unknown>);
-  const period = typeof req.query.period === "string" ? req.query.period : undefined;
+  const period =
+    typeof req.query.period === "string" ? req.query.period : undefined;
   const domain = await getAttributeDomain(db, req.params.code, context, period);
   if (!domain) {
     res.status(404).json({ error: "Atributo não encontrado nesta vigência." });
@@ -492,16 +575,28 @@ router.get("/attributes/:code/domain", async (req, res): Promise<void> => {
  * que o dicionário não conhecer voltam em `missingColumns` em vez de sumirem.
  */
 router.get("/entities/table", async (req, res): Promise<void> => {
-  const entityType = typeof req.query.entityType === "string" ? req.query.entityType : "";
-  const bruto = typeof req.query.attributes === "string" ? req.query.attributes : "";
-  const attributes = bruto.split(",").map((c) => c.trim()).filter(Boolean);
+  const entityType =
+    typeof req.query.entityType === "string" ? req.query.entityType : "";
+  const bruto =
+    typeof req.query.attributes === "string" ? req.query.attributes : "";
+  const attributes = bruto
+    .split(",")
+    .map((c) => c.trim())
+    .filter(Boolean);
   if (!entityType || attributes.length === 0) {
     res.status(400).json({ error: "Informe entityType e attributes." });
     return;
   }
   const context = parseContext(req.query as Record<string, unknown>);
-  const period = typeof req.query.period === "string" ? req.query.period : undefined;
-  const table = await getEntityTable(db, entityType, attributes, context, period);
+  const period =
+    typeof req.query.period === "string" ? req.query.period : undefined;
+  const table = await getEntityTable(
+    db,
+    entityType,
+    attributes,
+    context,
+    period,
+  );
   if (!table) {
     res.status(404).json({ error: "Nenhuma vigência para este contexto." });
     return;

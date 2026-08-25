@@ -29,6 +29,75 @@ if (Number.isNaN(port) || port <= 0) {
 }
 
 /**
+ * O que "o processo reiniciou" precisa deixar de ser inferência.
+ *
+ * Até aqui, provar um restart do lado da API dependia de comparar `startedAt`
+ * entre duas leituras de `/api/build` — funciona, mas só depois do fato, e só
+ * se alguém pensar em olhar. O que faltava era o processo **dizer** quando
+ * nasce e quando morre, com o mesmo `pid` e `revision` que `/api/build`
+ * expõe — para que "reiniciou às 14h03" vire uma linha de log, e não uma
+ * dedução a partir de dois carimbos.
+ *
+ * As quatro saídas continuam sendo as mesmas de sempre: `SIGTERM` (o
+ * orquestrador pedindo para parar), `SIGINT` (Ctrl+C em desenvolvimento),
+ * `uncaughtException` e `unhandledRejection` (o processo caindo sozinho).
+ * Registrar um handler para `SIGTERM`/`SIGINT` desarma o comportamento padrão
+ * do Node de encerrar sem avisar — por isso os dois chamam `process.exit`
+ * explicitamente, depois de logar; sem isso o processo ignoraria o sinal e o
+ * orquestrador precisaria de um `SIGKILL` para terminar, que é estritamente
+ * pior. `uncaughtException` e `unhandledRejection` preservam o comportamento
+ * anterior (processo termina) — a mudança é só que agora fica registrado
+ * **com que `pid` e depois de quanto tempo de vida**, em vez de só no stderr
+ * cru do runtime.
+ */
+const revisaoDoBuild = process.env["BUILD_REVISION"] ?? "desconhecida";
+const partidaDoProcesso = process.hrtime.bigint();
+const iniciadoEm = new Date().toISOString();
+
+function uptimeMs(): number {
+  return Number(process.hrtime.bigint() - partidaDoProcesso) / 1e6;
+}
+
+function dadosDoProcesso(): Record<string, unknown> {
+  return {
+    pid: process.pid,
+    revision: revisaoDoBuild,
+    startedAt: iniciadoEm,
+    port,
+    uptimeMs: uptimeMs(),
+  };
+}
+
+logger.info({ ...dadosDoProcesso() }, "process.start");
+
+function encerrarPorSinal(sinal: NodeJS.Signals): void {
+  logger.info(
+    { ...dadosDoProcesso(), signal: sinal },
+    `process.${sinal.toLowerCase()}`,
+  );
+  process.exit(0);
+}
+
+process.on("SIGTERM", () => encerrarPorSinal("SIGTERM"));
+process.on("SIGINT", () => encerrarPorSinal("SIGINT"));
+
+process.on("uncaughtException", (err) => {
+  logger.error(
+    { ...dadosDoProcesso(), err },
+    "process.uncaughtException — o processo vai terminar.",
+  );
+  process.exit(1);
+});
+
+process.on("unhandledRejection", (motivo) => {
+  logger.error(
+    { ...dadosDoProcesso(), err: motivo },
+    "process.unhandledRejection — o processo vai terminar.",
+  );
+  process.exit(1);
+});
+
+/**
  * Apply migrations after the server is already listening.
  *
  * Previous approach: await ensureSchema(), then app.listen().
@@ -153,7 +222,10 @@ async function applyMigrationsInBackground(): Promise<void> {
     }
 
     logger.info(
-      { applied: report.applied, total: report.alreadyApplied.length + report.applied.length },
+      {
+        applied: report.applied,
+        total: report.alreadyApplied.length + report.applied.length,
+      },
       report.applied.length > 0
         ? "Migrations aplicadas."
         : "Nenhuma migration pendente.",
@@ -168,11 +240,16 @@ async function applyMigrationsInBackground(): Promise<void> {
     */
     const reconvergencia = await reconvergirNaPartida(url);
     if (!reconvergencia.rodou) {
-      logger.info({ motivo: reconvergencia.motivo }, "Reconvergência de schema não rodou.");
+      logger.info(
+        { motivo: reconvergencia.motivo },
+        "Reconvergência de schema não rodou.",
+      );
     } else if (reconvergencia.relatorio.aplicados.length > 0) {
       logger.warn(
         {
-          repostos: reconvergencia.relatorio.aplicados.map((aplicado) => aplicado.alvo),
+          repostos: reconvergencia.relatorio.aplicados.map(
+            (aplicado) => aplicado.alvo,
+          ),
           semComando: reconvergencia.relatorio.semComando,
           falhas: reconvergencia.relatorio.falhas,
         },
@@ -191,7 +268,9 @@ async function applyMigrationsInBackground(): Promise<void> {
         resumo:
           `${reconvergencia.relatorio.aplicados.length} objeto(s) de schema repostos na ` +
           `partida — algo os removeu por fora; o conteúdo deles não volta sozinho.`,
-        detalhe: { repostos: reconvergencia.relatorio.aplicados.map((a) => a.alvo) },
+        detalhe: {
+          repostos: reconvergencia.relatorio.aplicados.map((a) => a.alvo),
+        },
       });
     } else if (
       reconvergencia.relatorio.semComando.length > 0 ||
@@ -213,7 +292,6 @@ async function applyMigrationsInBackground(): Promise<void> {
         },
       });
     }
-
   } catch (err) {
     logger.error(
       { err },
@@ -221,7 +299,8 @@ async function applyMigrationsInBackground(): Promise<void> {
     );
     void alertar({
       tipo: "MIGRATION_FALHOU",
-      resumo: "A partida não conseguiu sequer tentar as migrations — banco fora ou pasta ausente.",
+      resumo:
+        "A partida não conseguiu sequer tentar as migrations — banco fora ou pasta ausente.",
       detalhe: { erro: err instanceof Error ? err.message : String(err) },
     });
   }
@@ -253,7 +332,10 @@ async function anunciarProntidao(): Promise<void> {
       return;
     }
     logger.error(
-      { estado: estado.diagnostico.estado, acao: estado.diagnostico.acao?.codigo },
+      {
+        estado: estado.diagnostico.estado,
+        acao: estado.diagnostico.acao?.codigo,
+      },
       "NO AR E NÃO PRONTO — as rotas de produto respondem 503 até a fila deste " +
         "build ser aplicada. /api/readyz responde 503 e /api/healthz traz ready:false.",
     );
@@ -305,7 +387,10 @@ app.listen(port, (err) => {
   tentativaComecou();
   void applyMigrationsInBackground()
     .catch((err) => {
-      logger.error({ err }, "A tentativa de partida terminou por exceção não tratada.");
+      logger.error(
+        { err },
+        "A tentativa de partida terminou por exceção não tratada.",
+      );
     })
     .finally(() => {
       tentativaTerminou("A tentativa de partida terminou.");
@@ -343,7 +428,11 @@ function agendarVarreduraDeOrfas(): void {
           resumo:
             `${relatorio.importacoes.length + relatorio.chamados.length} leitura(s) ` +
             `órfã(s) encerrada(s) — um reinício interrompeu importação em andamento.`,
-          detalhe: { momento, importacoes: relatorio.importacoes.length, chamados: relatorio.chamados.length },
+          detalhe: {
+            momento,
+            importacoes: relatorio.importacoes.length,
+            chamados: relatorio.chamados.length,
+          },
         });
       }
     } catch (err) {

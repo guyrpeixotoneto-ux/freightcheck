@@ -45,6 +45,16 @@ import { ErroDeTransporte, type EstadoDoTransporte } from "@/lib/transporte";
  * 1,6s para aparecer. O que se recebe: o cold start, que é o caso comum,
  * resolve sozinho e ninguém vê erro nenhum. A troca vale porque o custo cai
  * sobre a espera — com "Carregando…" em tela — e o ganho tira uma tela morta.
+ *
+ * **Os 13,2s são só a espera *entre* tentativas — não um teto da tentativa em
+ * si.** Cada uma das cinco chamadas passa por `requisitar` (`lib/api.ts`), que
+ * até a correção do `TEMPO_ESGOTADO` não tinha prazo próprio: um `fetch` cuja
+ * conexão abre e nunca mais recebe um byte não rejeitava nunca, e nenhuma das
+ * cinco tentativas chegava a contar como tentativa — a primeira ficava presa
+ * para sempre, e o orçamento inteiro daqui era irrelevante. Com o teto de
+ * `requisitar`, cada tentativa agora tem seu próprio prazo (`TEMPO_LIMITE_MS`),
+ * e só então os 13,2s de espera **entre** tentativas voltam a significar o que
+ * este comentário sempre disse que significavam.
  */
 export const TENTATIVAS_AUTOMATICAS = 5;
 
@@ -69,6 +79,7 @@ const TETO_DA_ESPERA = 8_000;
  */
 const TRANSITORIOS: ReadonlySet<EstadoDoTransporte> = new Set<EstadoDoTransporte>([
   "SEM_RESPOSTA",
+  "TEMPO_ESGOTADO",
   "API_AUSENTE",
   "RESPOSTA_INCOMPLETA",
   "RESPOSTA_ESTRANHA",

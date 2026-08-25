@@ -129,16 +129,23 @@ describe("fetchJson classifica o que impede a resposta", () => {
    * função ter um teto próprio, `fetch` sem `signal` não tinha prazo nenhum:
    * a promessa nunca resolvia, nunca rejeitava, e a tela ficava em
    * "Carregando…" para sempre — pior do que o painel de indisponibilidade que
-   * existe exatamente para este caso. Reproduzia sempre: nenhum `fetch` mockado
-   * aqui jamais resolve, então sem o teto este teste nunca terminaria.
+   * existe exatamente para este caso. **Reproduz sempre**: o `fetch` mockado
+   * aqui jamais resolve por conta própria — só quando o `AbortSignal` dispara
+   * —, então sem o teto de `requisitar` esta promessa fica pendente para
+   * sempre e o teste só termina pelo timeout do próprio runner (5s), nunca
+   * pela asserção. Contra o código anterior a este pacote de correções, esse
+   * é exatamente o desfecho: `Test timed out in 5000ms`.
    *
-   * O desfecho tem de ser `SEM_RESPOSTA` — e não `REQUISICAO_CANCELADA`: quem
-   * abortou fomos nós, pelo teto, e não quem chamou. `REQUISICAO_CANCELADA` não
-   * é repetida; `SEM_RESPOSTA` é, e uma chamada que nunca respondeu é
-   * exatamente o caso banal que a política de `resiliencia.ts` existe para
-   * atravessar.
+   * O desfecho tem de ser `TEMPO_ESGOTADO` — um estado **distinto** de
+   * `SEM_RESPOSTA` e de `REQUISICAO_CANCELADA`. Não é `REQUISICAO_CANCELADA`:
+   * quem abortou fomos nós, pelo teto, e não quem chamou — e cancelamento não
+   * é repetido. E não é `SEM_RESPOSTA` também, embora os dois sejam
+   * repetíveis: `SEM_RESPOSTA` é o navegador desistindo sozinho, `TEMPO_ESGOTADO`
+   * é este código desistindo depois de um prazo que ele mesmo escolheu — a
+   * distinção que separa "uma rota específica está sempre estourando o prazo"
+   * de "a rede caiu", legível em `__freightcheck_falhas`.
    */
-  it("uma chamada que nunca responde estoura o teto e vira SEM_RESPOSTA, repetível", async () => {
+  it("uma chamada que nunca responde estoura o prazo e rejeita, deterministicamente, com TEMPO_ESGOTADO", async () => {
     vi.useFakeTimers();
     vi.stubGlobal(
       "fetch",
@@ -153,13 +160,26 @@ describe("fetchJson classifica o que impede a resposta", () => {
     );
 
     const promessa = fetchJson("/contexts").catch((e: unknown) => e);
-    await vi.advanceTimersByTimeAsync(45_000);
+
+    // Instantes antes do teto: a promessa continua pendente — não é um
+    // desfecho por acaso, é o prazo específico decidindo.
+    await vi.advanceTimersByTimeAsync(44_999);
+    let resolvida = false;
+    void promessa.then(() => {
+      resolvida = true;
+    });
+    await Promise.resolve();
+    expect(resolvida).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(1);
     const erro = await promessa;
 
     expect(erro).toBeInstanceOf(ErroDeTransporte);
     const { diagnostico } = erro as ErroDeTransporte;
-    expect(diagnostico.estado).toBe("SEM_RESPOSTA");
-    expect(diagnostico.evidencia).toMatch(/45s/);
+    expect(diagnostico.estado).toBe("TEMPO_ESGOTADO");
+    expect(diagnostico.estado).not.toBe("SEM_RESPOSTA");
+    expect(diagnostico.estado).not.toBe("REQUISICAO_CANCELADA");
+    expect(diagnostico.evidencia).toMatch(/45000ms/);
     expect(ehFalhaTransitoria(erro)).toBe(true);
 
     vi.useRealTimers();
@@ -169,9 +189,14 @@ describe("fetchJson classifica o que impede a resposta", () => {
    * O cancelamento de quem chamou continua sendo cancelamento, mesmo agora que
    * esta função também tem o seu próprio `AbortController` por baixo — os dois
    * sinais precisam compor, e o que decide a classificação é **quem** abortou
-   * primeiro, não que um `AbortController` qualquer abortou.
+   * primeiro, não que um `AbortController` qualquer abortou. Um
+   * `AbortController` externo (o que o React Query passa como `ctx.signal`, ou
+   * uma desmontagem) que aborta **antes** do teto interno tem de continuar
+   * `REQUISICAO_CANCELADA` — e não virar `TEMPO_ESGOTADO` só porque as duas
+   * classes de abort agora nascem do mesmo `AbortController` combinado.
    */
-  it("o cancelamento de quem chamou continua sendo cancelamento, não SEM_RESPOSTA", async () => {
+  it("um AbortController externo que aborta antes do teto continua REQUISICAO_CANCELADA", async () => {
+    vi.useFakeTimers();
     const controle = new AbortController();
     vi.stubGlobal(
       "fetch",
@@ -188,10 +213,15 @@ describe("fetchJson classifica o que impede a resposta", () => {
     const promessa = fetchJson("/contexts", { signal: controle.signal }).catch(
       (e: unknown) => e,
     );
+    // Bem antes dos 45s do teto interno.
+    await vi.advanceTimersByTimeAsync(1_000);
     controle.abort();
     const erro = await promessa;
 
     expect((erro as ErroDeTransporte).diagnostico.estado).toBe("REQUISICAO_CANCELADA");
+    expect((erro as ErroDeTransporte).diagnostico.estado).not.toBe("TEMPO_ESGOTADO");
     expect(ehFalhaTransitoria(erro)).toBe(false);
+
+    vi.useRealTimers();
   });
 });
