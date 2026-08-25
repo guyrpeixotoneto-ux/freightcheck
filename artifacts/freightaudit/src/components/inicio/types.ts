@@ -411,6 +411,8 @@ export interface OverviewUnitIncluded {
     channel: string | null;
     motivo: "vigencia_indisponivel_na_leitura";
   }[];
+  /** O resumo executivo desta unidade sozinha — soma de canais quando ela tem mais de um contexto. */
+  summary: ExecutiveSummary;
 }
 
 export interface OverviewUnitExcluded {

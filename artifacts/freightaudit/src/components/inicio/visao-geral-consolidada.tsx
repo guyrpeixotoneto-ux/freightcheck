@@ -1,10 +1,13 @@
-import { FileText, Info, TrendingUp, Truck, type LucideIcon } from "lucide-react";
+import { ChevronRight, FileText, Info, TrendingUp, Truck, type LucideIcon } from "lucide-react";
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import { periodicitySuffix } from "@/lib/format";
-import { escreverImpacto, maioresImpactos } from "@/lib/visao-geral";
+import { escreverImpacto, maioresImpactos, type Impacto } from "@/lib/visao-geral";
 import type {
+  ExecutiveSummary,
   FamiliesOverview,
   MotivoExclusaoDaVisaoGeral,
+  OverviewContextRef,
   OverviewUnitExcluded,
   OverviewUnitIncluded,
 } from "@/components/inicio/types";
@@ -22,6 +25,14 @@ import type {
 
 const CARTAO = "bg-card border rounded-xl shadow-sm";
 
+/** O maior movimento em módulo entre as periodicidades de um resumo — mesmo critério do cartão "Impacto líquido". */
+function impactoDominante(summary: ExecutiveSummary): Impacto | null {
+  const impactos = Object.entries(summary.impact.byPeriodicity)
+    .map(([periodicity, amount]) => ({ periodicity, amount }))
+    .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
+  return impactos[0] ?? null;
+}
+
 export const MOTIVO_EXCLUSAO_LABEL: Record<MotivoExclusaoDaVisaoGeral, string> = {
   sem_vigencia_na_competencia: "sem vigência nesta competência",
   contextos_sobrepostos_ambiguos:
@@ -35,16 +46,26 @@ export const MOTIVO_EXCLUSAO_LABEL: Record<MotivoExclusaoDaVisaoGeral, string> =
  *
  * A v1 não mescla `families`/`groups`/`series`/`movements` entre unidades
  * (ver `getFamiliesOverview` no servidor), então nenhuma gaveta de
- * drill-down abre aqui — só o resumo já somado e a lista de quem entrou e
- * quem ficou fora, com o motivo escrito. `notaExtra` deixa cada tela
- * qualificar o que este resumo cobre (ex.: a Linha do Tempo só soma o
- * último passo comum, não o histórico inteiro).
+ * drill-down por parâmetro abre aqui direto sobre o total somado. O que os
+ * cartões abrem é a **comparação por unidade** (`ComparacaoPorUnidade`
+ * abaixo): cada unidade já traz o seu próprio resumo executivo
+ * (`OverviewUnitIncluded.summary`), então dá para ranquear unidade contra
+ * unidade e, dali, entrar na tela de uma unidade específica — a mesma
+ * experiência de clique que a Visão Geral não tinha antes, só que em duas
+ * etapas em vez de uma, porque o total somado não sabe de onde cada
+ * parcela veio. `notaExtra` deixa cada tela qualificar o que este resumo
+ * cobre (ex.: a Linha do Tempo só soma o último passo comum, não o
+ * histórico inteiro).
  */
 export function VisaoGeralConteudo({
   overview,
+  search,
+  onTrocar,
   notaExtra,
 }: {
   overview: FamiliesOverview;
+  search: string;
+  onTrocar: (mudancas: Record<string, string | null>) => void;
   notaExtra?: string;
 }) {
   const semConsolidacaoSegura = overview.unitsIncluded.length === 0;
@@ -52,6 +73,18 @@ export function VisaoGeralConteudo({
     .map(([periodicity, amount]) => ({ periodicity, amount }))
     .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
   const ranking = maioresImpactos(overview.summary);
+
+  const comparando = new URLSearchParams(search).get("compararUnidades") === "1";
+  const abrirComparacao = () => onTrocar({ compararUnidades: "1" });
+
+  const entrarNaUnidade = (contexto: OverviewContextRef) =>
+    onTrocar({
+      scopeHash: contexto.scopeHash,
+      canal: contexto.channel,
+      period: null,
+      visaoGeral: null,
+      compararUnidades: null,
+    });
 
   return (
     <>
@@ -74,21 +107,28 @@ export function VisaoGeralConteudo({
               titulo="Impacto líquido"
               valor={impactos[0] ? escreverImpacto(impactos[0]) : "—"}
               tom={impactos[0] ? (impactos[0].amount < 0 ? "desfavoravel" : "favoravel") : undefined}
+              onClick={abrirComparacao}
             />
             <CartaoNumero
               icone={FileText}
               titulo="Alterações"
               valor={String(overview.summary.changes)}
+              onClick={abrirComparacao}
             />
             <CartaoNumero
               icone={Truck}
               titulo="Veículos afetados"
               valor={String(overview.summary.vehiclesTouched)}
               nota="soma simples entre unidades, não deduplicada por placa"
+              onClick={abrirComparacao}
             />
           </div>
 
-          <section className={cn(CARTAO, "px-6 py-5")}>
+          <button
+            type="button"
+            onClick={abrirComparacao}
+            className={cn(CARTAO, "px-6 py-5 w-full text-left hover:bg-muted/40 transition-colors")}
+          >
             <div className="flex items-center gap-2">
               <h2 className="text-base font-bold">Maiores impactos</h2>
               {ranking && (
@@ -96,6 +136,7 @@ export function VisaoGeralConteudo({
                   em R${periodicitySuffix(ranking.periodicity)}
                 </span>
               )}
+              <ChevronRight className="w-4 h-4 text-muted-foreground ml-auto" />
             </div>
             {ranking === null ? (
               <p className="text-sm text-muted-foreground mt-3">
@@ -132,17 +173,153 @@ export function VisaoGeralConteudo({
                 ))}
               </ol>
             )}
-          </section>
+          </button>
 
           <p className="text-xs text-muted-foreground">
-            Detalhamento por família, alterações em destaque e drill-down por parâmetro não
-            estão disponíveis na Visão Geral nesta versão — troque para uma unidade específica
-            em "Trocar unidade" para ver o detalhe.
+            Clique em qualquer cartão acima para comparar unidade a unidade e entrar no
+            detalhe de uma delas — o detalhamento por família e o drill-down por parâmetro
+            só existem dentro de uma unidade específica, nunca somados entre unidades.
             {notaExtra ? ` ${notaExtra}` : ""}
           </p>
         </>
       )}
+
+      {comparando && (
+        <ComparacaoPorUnidade
+          overview={overview}
+          onEntrar={entrarNaUnidade}
+          onFechar={() => onTrocar({ compararUnidades: null })}
+        />
+      )}
     </>
+  );
+}
+
+/**
+ * A etapa intermediária entre o total somado e o detalhe de uma unidade.
+ *
+ * Ranqueia as unidades incluídas pelo mesmo critério do pódio da Visão
+ * Geral — maior módulo de impacto primeiro —, mostra os três números que
+ * também aparecem lá em cima, mas agora um por unidade, e cada linha é a
+ * porta para o Resumo executivo (ou a Linha do Tempo, dependendo de quem
+ * chamou) daquela unidade sozinha — a mesma tela que já tem os cliques que
+ * esta Visão Geral não tinha.
+ */
+function ComparacaoPorUnidade({
+  overview,
+  onEntrar,
+  onFechar,
+}: {
+  overview: FamiliesOverview;
+  onEntrar: (contexto: OverviewContextRef) => void;
+  onFechar: () => void;
+}) {
+  const unidades = overview.unitsIncluded
+    .map((u) => ({ unidade: u, impacto: impactoDominante(u.summary) }))
+    .sort((a, b) => Math.abs(b.impacto?.amount ?? 0) - Math.abs(a.impacto?.amount ?? 0));
+
+  return (
+    <Sheet open onOpenChange={(aberto) => !aberto && onFechar()}>
+      <SheetContent side="right" className="w-full sm:max-w-2xl p-0 flex flex-col gap-0">
+        <header className="px-7 pt-7 pb-5 border-b shrink-0">
+          <SheetTitle className="text-2xl font-extrabold tracking-tight">
+            Comparação por unidade
+          </SheetTitle>
+          <SheetDescription className="mt-2 max-w-xl leading-snug">
+            {unidades.length} unidade{unidades.length === 1 ? "" : "s"} entrou{unidades.length === 1 ? "" : "ram"} na
+            soma desta competência. Clique numa delas para abrir o detalhe — famílias,
+            alterações em destaque e o drill-down por parâmetro que a soma de todas juntas
+            não tem como oferecer.
+          </SheetDescription>
+        </header>
+
+        <div className="flex-1 overflow-y-auto px-7 py-6 space-y-2.5">
+          {unidades.map(({ unidade, impacto }) => (
+            <LinhaDaUnidade key={unidade.unidade} unidade={unidade} impacto={impacto} onEntrar={onEntrar} />
+          ))}
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+/**
+ * Uma linha da comparação. A maioria das unidades tem um contexto só — a
+ * linha inteira é o link. Quando há mais de um (dois canais, por exemplo),
+ * o nome da unidade não navega sozinho: cada contexto ganha o seu próprio
+ * botão, porque "entrar na unidade" sem dizer qual canal seria adivinhar.
+ */
+function LinhaDaUnidade({
+  unidade,
+  impacto,
+  onEntrar,
+}: {
+  unidade: OverviewUnitIncluded;
+  impacto: Impacto | null;
+  onEntrar: (contexto: OverviewContextRef) => void;
+}) {
+  const numeros = (
+    <div className="flex items-center gap-5 shrink-0 tabular-nums text-sm">
+      <span
+        className={cn(
+          "font-bold w-32 text-right",
+          impacto === null
+            ? "text-muted-foreground font-normal"
+            : impacto.amount < 0
+              ? "text-red-700"
+              : "text-emerald-700",
+        )}
+      >
+        {impacto ? escreverImpacto(impacto) : "—"}
+      </span>
+      <span className="text-muted-foreground w-24 text-right">
+        {unidade.summary.changes} alt.
+      </span>
+      <span className="text-muted-foreground w-24 text-right">
+        {unidade.summary.vehiclesTouched} veíc.
+      </span>
+    </div>
+  );
+
+  if (unidade.contexts.length === 1) {
+    return (
+      <button
+        type="button"
+        onClick={() => onEntrar(unidade.contexts[0])}
+        className={cn(CARTAO, "w-full px-4 py-3 flex items-center gap-4 text-left hover:bg-muted/40 transition-colors")}
+      >
+        <span className="font-semibold text-sm min-w-0 flex-1 truncate" title={unidade.label}>
+          {unidade.label}
+        </span>
+        {numeros}
+        <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
+      </button>
+    );
+  }
+
+  return (
+    <div className={cn(CARTAO, "px-4 py-3")}>
+      <div className="flex items-center gap-4">
+        <span className="font-semibold text-sm min-w-0 flex-1 truncate" title={unidade.label}>
+          {unidade.label}
+        </span>
+        {numeros}
+      </div>
+      <ul className="mt-2.5 space-y-1.5">
+        {unidade.contexts.map((contexto) => (
+          <li key={`${contexto.scopeHash}|${contexto.channel ?? ""}`}>
+            <button
+              type="button"
+              onClick={() => onEntrar(contexto)}
+              className="w-full flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors py-1"
+            >
+              <ChevronRight className="w-3.5 h-3.5 shrink-0" />
+              {contexto.channel ?? "sem canal no rótulo"}
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
@@ -199,15 +376,21 @@ function CartaoNumero({
   valor,
   nota,
   tom,
+  onClick,
 }: {
   icone: LucideIcon;
   titulo: string;
   valor: string;
   nota?: string;
   tom?: "favoravel" | "desfavoravel";
+  onClick?: () => void;
 }) {
   return (
-    <div className={cn(CARTAO, "px-5 py-4")}>
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(CARTAO, "px-5 py-4 text-left hover:bg-muted/40 transition-colors")}
+    >
       <div className="flex items-center gap-2 text-muted-foreground">
         <Icone className="w-4 h-4" />
         <span className="text-xs font-semibold uppercase tracking-wide">{titulo}</span>
@@ -222,6 +405,6 @@ function CartaoNumero({
         {valor}
       </p>
       {nota && <p className="text-[0.6875rem] text-muted-foreground mt-1">{nota}</p>}
-    </div>
+    </button>
   );
 }
