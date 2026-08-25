@@ -661,7 +661,7 @@ function Indicadores({
           <>
             <p
               className={cn(
-                "text-3xl sm:text-4xl xl:text-5xl font-extrabold tabular-nums leading-none break-words",
+                "text-2xl sm:text-3xl xl:text-4xl font-extrabold tabular-nums leading-none whitespace-nowrap",
                 principal.liquido < 0 ? "text-red-700" : "text-emerald-700",
               )}
             >
