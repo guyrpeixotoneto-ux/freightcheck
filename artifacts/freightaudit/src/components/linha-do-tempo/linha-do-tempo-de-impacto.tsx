@@ -1,12 +1,21 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
-import { ArrowDownRight, ArrowUpRight, BarChart3, ChartNoAxesCombined } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowDownRight,
+  ArrowUpRight,
+  BarChart3,
+  ChartNoAxesCombined,
+  Clock,
+  MapPin,
+  SlidersHorizontal,
+} from "lucide-react";
 import { fetchJsonOrNull } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { formatBrlShort, periodicitySuffix } from "@/lib/format";
+import { formatBrlCompacto, formatBrlShort, periodicityAdjective, periodicitySuffix } from "@/lib/format";
 import { linkDeAlteracoes, type Recorte } from "@/lib/recorte";
-import type { Movimentos, ParameterRollup, RangeMovement } from "@/lib/analise";
+import type { Movimentos, ParameterRollup, RangeMovement, RangeOverview } from "@/lib/analise";
 import { DetalheDoIntervalo, type AberturaDoIntervalo } from "@/components/linha-do-tempo/detalhe-do-intervalo";
 
 const CARTAO = "bg-card border rounded-xl shadow-sm";
@@ -58,6 +67,23 @@ export function LinhaDoTempoDeImpacto({
     staleTime: 60_000,
   });
 
+  /*
+    A mesma pergunta, entre todas as unidades — "onde está o impacto" só faz
+    sentido sobre o intervalo, não sobre unidade/canal (que aqui identificam a
+    própria pergunta). Por isso a consulta desta seção não herda `scopeHash`
+    nem `canal` de `query`: são só as pontas do intervalo.
+  */
+  const queryOverview = new URLSearchParams();
+  if (primeira) queryOverview.set("from", primeira);
+  queryOverview.set("to", currentPeriod);
+
+  const overview = useQuery({
+    queryKey: ["linha-do-tempo-overview", queryOverview.toString()],
+    queryFn: () => fetchJsonOrNull<RangeOverview>(`/changes/range/overview?${queryOverview}`),
+    enabled: ordenadas.length > 1,
+    staleTime: 60_000,
+  });
+
   // Uma vigência só não tem linha do tempo a desenhar.
   if (ordenadas.length <= 1) return null;
   if (movimentos.isLoading) {
@@ -76,6 +102,17 @@ export function LinhaDoTempoDeImpacto({
   const periodicidades = [
     ...new Set(linhas.flatMap((m) => Object.keys(m.impact.byPeriodicity))),
   ].sort();
+
+  /*
+    A periodicidade que o cabeçalho conta — a de maior movimento absoluto no
+    intervalo inteiro. As outras periodicidades continuam com sua própria
+    linha do tempo mais abaixo; o que muda aqui é só qual delas os quatro
+    cartões do topo e o parágrafo final escolhem para contar a história —
+    nunca uma soma entre elas.
+  */
+  const principal = [...periodicidades].sort(
+    (a, b) => Math.abs(dados.impact.byPeriodicity[b] ?? 0) - Math.abs(dados.impact.byPeriodicity[a] ?? 0),
+  )[0] as string | undefined;
 
   return (
     <>
@@ -102,26 +139,39 @@ export function LinhaDoTempoDeImpacto({
           </p>
         )}
 
-        <ResumoDoIntervalo
-          dados={dados}
-          periodicidades={periodicidades}
-          onAbrir={(periodicidade) => setAbertura({ tipo: "consolidado", periodicidade })}
-        />
-
-        {periodicidades.length === 0 ? (
-          <ContagemPorVigencia linhas={linhas} recorteBase={recorteBase} />
-        ) : (
-          <div className="space-y-5">
-            {periodicidades.map((periodicidade) => (
-              <BarraDaPeriodicidade
-                key={periodicidade}
-                periodicidade={periodicidade}
-                linhas={linhas}
-                recorteBase={recorteBase}
-              />
-            ))}
-          </div>
+        {principal !== undefined && (
+          <CartoesDeResumo
+            dados={dados}
+            periodicidade={principal}
+            onAbrir={() => setAbertura({ tipo: "consolidado", periodicidade: principal })}
+          />
         )}
+
+        <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_20rem]">
+          <div>
+            {periodicidades.length === 0 ? (
+              <ContagemPorVigencia linhas={linhas} recorteBase={recorteBase} />
+            ) : (
+              <div className="space-y-6">
+                {periodicidades.map((periodicidade) => (
+                  <LinhaDoTempoDaPeriodicidade
+                    key={periodicidade}
+                    periodicidade={periodicidade}
+                    linhas={linhas}
+                    recorteBase={recorteBase}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-4">
+            <OndeEstaOImpacto overview={overview.data ?? null} periodicidade={principal ?? null} />
+            <PendenciasDeValoracao dados={dados} recorteBase={recorteBase} />
+          </div>
+        </div>
+
+        {principal !== undefined && <Narrativa dados={dados} periodicidade={principal} linhas={linhas} />}
       </section>
 
       <AtributosDeMaiorImpacto
@@ -142,88 +192,123 @@ export function LinhaDoTempoDeImpacto({
 }
 
 /**
- * A balança consolidada do intervalo — o número que o resto da tela existe
- * para explicar, uma periodicidade por vez.
+ * Os quatro cartões do topo — o líquido, os dois lados que o formam e a
+ * contagem de alterações —, todos sobre a **mesma** periodicidade.
  *
- * Fica no topo, antes da lista vigência a vigência, porque é a primeira
- * pergunta de quem abre a tela: "no total, este intervalo foi bom ou ruim, e
- * por quanto?" A barra verde/vermelha mede o mesmo que `Balanca` mede no
- * painel de Composição — movimento, não saldo — e pela mesma razão: o
- * líquido sozinho não diz se ele veio de um empate quase perfeito ou de um
- * caminho sem perda nenhuma.
+ * Separar "o que somou" e "o que subtraiu" em cartões próprios, e não só numa
+ * barra dentro do cartão de líquido, é a resposta ao mesmo problema que
+ * `DoisLados` resolve na Visão geral: um líquido negativo não distingue "quase
+ * nada se moveu" de "dois movimentos grandes quase se cancelaram", e é
+ * exatamente essa segunda leitura que a conversa com o cliente precisa.
  */
-function ResumoDoIntervalo({
+function CartoesDeResumo({
   dados,
-  periodicidades,
+  periodicidade,
   onAbrir,
 }: {
   dados: Movimentos;
-  periodicidades: string[];
-  onAbrir: (periodicidade: string) => void;
+  periodicidade: string;
+  onAbrir: () => void;
 }) {
-  if (periodicidades.length === 0) return null;
+  const liquido = dados.impact.byPeriodicity[periodicidade] ?? 0;
+  const ganhos = dados.gainsByPeriodicity[periodicidade] ?? 0;
+  const perdas = dados.lossesByPeriodicity[periodicidade] ?? 0;
 
   return (
-    <div className="flex flex-wrap gap-3 mb-5">
-      {periodicidades.map((periodicidade) => {
-        const liquido = dados.impact.byPeriodicity[periodicidade] ?? 0;
-        const ganhos = dados.gainsByPeriodicity[periodicidade] ?? 0;
-        const perdas = dados.lossesByPeriodicity[periodicidade] ?? 0;
-        const movimento = ganhos + Math.abs(perdas);
-        const fatiaVerde = movimento === 0 ? null : (ganhos / movimento) * 100;
-
-        return (
-          <button
-            key={periodicidade}
-            type="button"
-            onClick={() => onAbrir(periodicidade)}
-            aria-label={`Ver o detalhe do líquido consolidado em R$${periodicitySuffix(periodicidade)}`}
-            className="flex-1 min-w-[13rem] rounded-lg border p-4 text-left hover:bg-accent hover:border-brand/40 transition-colors"
-          >
-            <div className="text-xs uppercase tracking-wider text-muted-foreground">
-              Líquido consolidado em R${periodicitySuffix(periodicidade)}
-            </div>
-            <div
-              className={cn(
-                "text-xl font-extrabold tabular-nums mt-1",
-                liquido < 0 ? "text-red-700" : liquido > 0 ? "text-emerald-700" : "",
-              )}
-            >
-              {formatBrlShort(liquido)}
-            </div>
-
-            {fatiaVerde !== null && (
-              <div className="mt-2.5 h-1.5 w-full overflow-hidden rounded-full bg-muted flex">
-                <div className="h-full bg-emerald-600" style={{ width: `${fatiaVerde}%` }} />
-                <div className="h-full bg-red-600" style={{ width: `${100 - fatiaVerde}%` }} />
-              </div>
-            )}
-
-            <div className="mt-2 flex items-center justify-between text-xs font-semibold">
-              <span className="text-emerald-700">{formatBrlShort(ganhos)}</span>
-              <span className="text-red-700">{formatBrlShort(perdas)}</span>
-            </div>
-          </button>
-        );
-      })}
-
-      <div className="flex-1 min-w-[13rem] rounded-lg border p-4 bg-muted/30">
-        <div className="text-xs uppercase tracking-wider text-muted-foreground">
-          Alterações no intervalo
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 mb-5">
+      <CartaoDeResumo
+        icone={liquido < 0 ? ArrowDownRight : ArrowUpRight}
+        tom={liquido < 0 ? "perda" : "ganho"}
+        titulo={`Impacto líquido${periodicitySuffix(periodicidade)}`}
+        valor={formatBrlShort(liquido)}
+        onClique={onAbrir}
+        rotulo="Ver o que somou e o que subtraiu"
+      />
+      <CartaoDeResumo
+        icone={Clock}
+        tom="perda"
+        titulo={`Perdas identificadas${periodicitySuffix(periodicidade)}`}
+        valor={formatBrlShort(perdas)}
+        onClique={onAbrir}
+        rotulo="Ver o que subtraiu da remuneração"
+      />
+      <CartaoDeResumo
+        icone={ArrowUpRight}
+        tom="ganho"
+        titulo={`Ganhos identificados${periodicitySuffix(periodicidade)}`}
+        valor={`+${formatBrlShort(ganhos)}`}
+        onClique={onAbrir}
+        rotulo="Ver o que somou à remuneração"
+      />
+      <div className="rounded-lg border p-4">
+        <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-muted-foreground">
+          <SlidersHorizontal className="w-3.5 h-3.5" />
+          Alterações
         </div>
-        <div className="text-xl font-extrabold tabular-nums mt-1">
+        <div className="text-xl font-extrabold tabular-nums mt-1.5">
           {dados.totals.changes.toLocaleString("pt-BR")}
         </div>
-        <div className="text-xs text-muted-foreground mt-2">
-          {contar(dados.totals.changes, "alteração", "alterações")} em{" "}
-          {contar(dados.totals.vehiclesTouched, "ativo", "ativos")}
+        <div className="text-xs text-muted-foreground mt-1">
+          em {contar(dados.totals.vehiclesTouched, "ativo", "ativos")}
         </div>
       </div>
     </div>
   );
 }
 
-function BarraDaPeriodicidade({
+function CartaoDeResumo({
+  icone: Icone,
+  tom,
+  titulo,
+  valor,
+  onClique,
+  rotulo,
+}: {
+  icone: typeof ArrowUpRight;
+  tom: "ganho" | "perda";
+  titulo: string;
+  valor: string;
+  onClique: () => void;
+  rotulo: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClique}
+      aria-label={`${titulo}: ${rotulo}`}
+      title={rotulo}
+      className="rounded-lg border p-4 text-left hover:bg-accent hover:border-brand/40 transition-colors"
+    >
+      <div
+        className={cn(
+          "w-8 h-8 rounded-lg flex items-center justify-center",
+          tom === "perda" ? "bg-red-50" : "bg-emerald-50",
+        )}
+      >
+        <Icone className={cn("w-4 h-4", tom === "perda" ? "text-red-600" : "text-emerald-600")} />
+      </div>
+      <div className="text-xs uppercase tracking-wider text-muted-foreground mt-2.5">{titulo}</div>
+      <div
+        className={cn(
+          "text-xl font-extrabold tabular-nums mt-1",
+          tom === "perda" ? "text-red-700" : "text-emerald-700",
+        )}
+      >
+        {valor}
+      </div>
+    </button>
+  );
+}
+
+/**
+ * A linha do tempo do impacto — uma vigência por linha, a mais antiga em
+ * cima, com o eixo de escala visível e o mês crítico nomeado.
+ *
+ * O eixo (`ticks`) usa o mesmo teto que dimensiona as barras — não um valor
+ * redondo escolhido à parte —, para a régua e as barras nunca discordarem
+ * sobre o que "a ponta do gráfico" significa.
+ */
+function LinhaDoTempoDaPeriodicidade({
   periodicidade,
   linhas,
   recorteBase,
@@ -245,17 +330,32 @@ function BarraDaPeriodicidade({
         : a,
     comValor[0],
   );
+  const ticks = [-teto, -teto / 2, 0, teto / 2, teto];
 
   return (
     <div>
       <div className="text-xs uppercase tracking-wider text-muted-foreground mb-2">
-        Impacto em R${periodicitySuffix(periodicidade)}
+        Impacto financeiro (R${periodicitySuffix(periodicidade)})
       </div>
-      <div className="space-y-1.5">
+      <div className="grid grid-cols-[7rem_1fr_9rem_7rem] gap-3 text-[0.6875rem] text-muted-foreground mb-1.5 px-1">
+        <span />
+        <div className="flex justify-between">
+          {ticks.map((t, i) => (
+            <span key={i}>{t === 0 ? "0" : formatBrlCompacto(t)}</span>
+          ))}
+        </div>
+        <span />
+        <span />
+      </div>
+      <div className="space-y-2">
         {linhas.map((linha) => {
           const valor = linha.impact.byPeriodicity[periodicidade];
           const largura = valor === undefined ? 0 : (Math.abs(valor) / teto) * 100;
-          const destaque = maior && linha.period === maior.period && largura > 0;
+          const critico = maior && linha.period === maior.period && largura > 0;
+          const semValoracao = valor === undefined && linha.changes > 0;
+          const parcial =
+            valor !== undefined && linha.impact.notCalculable > 0 && linha.impact.notCalculable < linha.changes;
+
           return (
             <Link
               key={linha.period}
@@ -264,12 +364,22 @@ function BarraDaPeriodicidade({
               })}
               aria-label={`Ver as alterações de ${linha.label}`}
               title="Ver as alterações desta vigência"
-              className="grid grid-cols-[7rem_1fr_9rem_5.5rem] items-center gap-3 text-sm rounded px-1 -mx-1 hover:bg-accent transition-colors"
+              className="grid grid-cols-[7rem_1fr_9rem_7rem] items-center gap-3 text-sm rounded px-1 py-1 -mx-1 hover:bg-accent transition-colors"
             >
-              <span
-                className={cn("truncate", destaque ? "font-bold" : "text-muted-foreground")}
-              >
-                {linha.label}
+              <span className="min-w-0">
+                <span className={cn("block truncate", critico ? "font-bold" : "text-muted-foreground")}>
+                  {linha.label}
+                </span>
+                {critico && (
+                  <span className="mt-0.5 inline-block rounded-full bg-red-50 px-1.5 py-0.5 text-[0.625rem] font-bold uppercase tracking-wide text-red-700">
+                    Mês crítico
+                  </span>
+                )}
+                {!critico && parcial && (
+                  <span className="mt-0.5 block text-[0.625rem] text-muted-foreground">
+                    parcialmente valorado
+                  </span>
+                )}
               </span>
 
               {/* O zero fica no meio; perda cresce para a esquerda. */}
@@ -297,25 +407,21 @@ function BarraDaPeriodicidade({
                       : "text-emerald-700",
                 )}
               >
-                {valor === undefined ? (
-                  linha.changes === 0 ? (
-                    "sem alteração"
-                  ) : (
-                    "sem valoração"
-                  )
-                ) : (
-                  <>
-                    {formatBrlShort(valor)}
-                    {destaque && (
-                      <span className="text-muted-foreground font-normal"> ← maior</span>
-                    )}
-                  </>
-                )}
+                {valor === undefined
+                  ? semValoracao
+                    ? "sem valoração"
+                    : "sem alteração"
+                  : formatBrlShort(valor)}
               </span>
 
               <span className="text-right tabular-nums text-xs text-muted-foreground">
                 {linha.changes.toLocaleString("pt-BR")}{" "}
                 {linha.changes === 1 ? "alteração" : "alterações"}
+                {linha.impact.notCalculable > 0 && (
+                  <span className="block text-[0.625rem]">
+                    {linha.impact.notCalculable} sem valoração
+                  </span>
+                )}
               </span>
             </Link>
           );
@@ -372,6 +478,204 @@ function ContagemPorVigencia({
           );
         })}
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Onde está o impacto — o ranking por unidade
+// ---------------------------------------------------------------------------
+
+const TOPO_DE_UNIDADES = 6;
+
+/**
+ * O ranking de unidades pelo líquido do intervalo — a mesma pergunta de
+ * `LinhaDoTempoDaPeriodicidade`, respondida por "onde" em vez de "quando".
+ *
+ * Vem de `/changes/range/overview`, que soma o mesmo intervalo por unidade em
+ * vez de por unidade única — ver `getRangeOverview` em
+ * `@workspace/comparison`. Sem essa resposta ainda (carregando, ou nenhuma
+ * outra unidade elegível), o cartão não aparece: um ranking de uma unidade só
+ * não é ranking, é o mesmo número que os cartões acima já mostram.
+ */
+function OndeEstaOImpacto({
+  overview,
+  periodicidade,
+}: {
+  overview: RangeOverview | null;
+  periodicidade: string | null;
+}) {
+  if (overview === null || periodicidade === null) return null;
+
+  const ranking = overview.unitsIncluded
+    .map((u) => ({ ...u, valor: u.impact.byPeriodicity[periodicidade] ?? 0 }))
+    .filter((u) => u.valor !== 0)
+    .sort((a, b) => Math.abs(b.valor) - Math.abs(a.valor));
+
+  if (ranking.length <= 1) return null;
+
+  const teto = Math.max(...ranking.map((u) => Math.abs(u.valor)), 1);
+
+  return (
+    <div className="rounded-lg border p-4">
+      <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-muted-foreground mb-3">
+        <MapPin className="w-3.5 h-3.5" />
+        Onde está o impacto?
+      </div>
+      <ol className="space-y-2.5">
+        {ranking.slice(0, TOPO_DE_UNIDADES).map((unidade, indice) => (
+          <li key={unidade.unidade}>
+            <Link
+              href={linkDeAlteracoes({
+                recorte: {
+                  period: null,
+                  scopeHash: unidade.contexts[0]?.scopeHash ?? null,
+                  canal: unidade.contexts[0]?.channel ?? null,
+                },
+              })}
+              aria-label={`Ver as alterações de ${unidade.label}`}
+              title="Ver as alterações desta unidade"
+              className="block rounded px-1 -mx-1 hover:bg-accent transition-colors"
+            >
+              <div className="flex items-center justify-between gap-2 text-sm">
+                <span className="flex items-center gap-1.5 min-w-0">
+                  <span className="text-xs text-muted-foreground w-3 shrink-0">{indice + 1}</span>
+                  <span className="font-semibold truncate">{unidade.label}</span>
+                </span>
+                <span
+                  className={cn(
+                    "text-xs font-bold tabular-nums shrink-0",
+                    unidade.valor < 0 ? "text-red-700" : "text-emerald-700",
+                  )}
+                >
+                  {formatBrlShort(unidade.valor)}
+                </span>
+              </div>
+              <span className="mt-1 block h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                <span
+                  className={cn("block h-full", unidade.valor < 0 ? "bg-red-600" : "bg-emerald-600")}
+                  style={{ width: `${Math.max(4, (Math.abs(unidade.valor) / teto) * 100)}%` }}
+                />
+              </span>
+            </Link>
+          </li>
+        ))}
+      </ol>
+      {ranking.length > TOPO_DE_UNIDADES && (
+        <p className="mt-2.5 text-xs text-muted-foreground">
+          + {contar(ranking.length - TOPO_DE_UNIDADES, "outra unidade", "outras unidades")} com
+          impacto menor que as acima.
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Pendências de valoração
+// ---------------------------------------------------------------------------
+
+/**
+ * Quantas alterações do intervalo ainda não têm impacto apurado — o mesmo
+ * `notCalculable` que o cartão "Sem impacto calculável" mostra numa vigência
+ * só, aqui somado ao intervalo inteiro.
+ */
+function PendenciasDeValoracao({
+  dados,
+  recorteBase,
+}: {
+  dados: Movimentos;
+  recorteBase: Recorte;
+}) {
+  if (dados.impact.notCalculable === 0) return null;
+
+  return (
+    <div className="rounded-lg border border-amber-300 bg-amber-50 p-4">
+      <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-amber-800">
+        <AlertTriangle className="w-3.5 h-3.5" />
+        Pendências de valoração
+      </div>
+      <div className="text-xl font-extrabold tabular-nums mt-1.5 text-amber-900">
+        {dados.impact.notCalculable.toLocaleString("pt-BR")}
+      </div>
+      <p className="text-xs text-amber-800 mt-1">
+        {contar(dados.impact.notCalculable, "alteração", "alterações")} ainda sem impacto
+        financeiro calculado.
+      </p>
+      <Link
+        href={linkDeAlteracoes({
+          recorte: recorteBase,
+          filtros: { impactConfidence: "NOT_CALCULABLE" },
+        })}
+        aria-label="Ver as alterações ainda sem valoração"
+        className="mt-3 inline-flex items-center gap-1 rounded-lg border border-amber-400 bg-white px-3 py-1.5 text-xs font-bold text-amber-900 hover:bg-amber-100 transition-colors"
+      >
+        Ver alterações
+      </Link>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// A narrativa
+// ---------------------------------------------------------------------------
+
+/**
+ * O parágrafo que resume o intervalo — a mesma leitura que os cartões e a
+ * linha do tempo já publicam, só que em frase corrida, para quem quer levar
+ * uma linha para a reunião em vez de uma tela.
+ *
+ * Monta-se inteiramente a partir do que os componentes acima já leram —
+ * nenhuma causa é inventada, só o que o motor apurou.
+ */
+function Narrativa({
+  dados,
+  periodicidade,
+  linhas,
+}: {
+  dados: Movimentos;
+  periodicidade: string;
+  linhas: RangeMovement[];
+}) {
+  const liquido = dados.impact.byPeriodicity[periodicidade] ?? 0;
+  const ganhos = dados.gainsByPeriodicity[periodicidade] ?? 0;
+  const perdas = dados.lossesByPeriodicity[periodicidade] ?? 0;
+
+  const comValor = linhas.filter((l) => l.impact.byPeriodicity[periodicidade] !== undefined);
+  const critico = comValor.reduce(
+    (a, b) =>
+      Math.abs(b.impact.byPeriodicity[periodicidade] ?? 0) >
+      Math.abs(a.impact.byPeriodicity[periodicidade] ?? 0)
+        ? b
+        : a,
+    comValor[0],
+  );
+
+  const frases: string[] = [
+    `No período, as alterações geraram impacto líquido ${liquido < 0 ? "desfavorável" : "favorável"} de ${formatBrlShort(Math.abs(liquido))}${periodicitySuffix(periodicidade)}.`,
+  ];
+
+  if (critico && ganhos !== 0 && perdas !== 0) {
+    frases.push(
+      `${critico.label} concentrou o maior impacto ${(critico.impact.byPeriodicity[periodicidade] ?? 0) < 0 ? "negativo" : "positivo"}, com perdas de ${formatBrlShort(Math.abs(perdas))} parcialmente compensadas por ${formatBrlShort(ganhos)} em ganhos.`,
+    );
+  } else if (critico) {
+    frases.push(`${critico.label} concentrou o maior impacto do período.`);
+  }
+
+  if (dados.impact.notCalculable > 0) {
+    frases.push("Existem alterações ainda sem valoração que exigem revisão.");
+  }
+
+  return (
+    <div className="mt-5 flex gap-3 rounded-lg border bg-muted/30 p-4">
+      <ChartNoAxesCombined className="w-4 h-4 mt-0.5 shrink-0 text-muted-foreground" />
+      <p className="text-sm text-muted-foreground">
+        {frases.join(" ")}
+        <span className="ml-1 text-xs uppercase tracking-wide">
+          ({periodicityAdjective(periodicidade)})
+        </span>
+      </p>
     </div>
   );
 }

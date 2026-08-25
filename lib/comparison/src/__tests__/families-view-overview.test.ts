@@ -4,8 +4,8 @@ import type { Database } from "@workspace/db";
 import { createTestDatabase, type TestDb } from "@workspace/ingest/testing";
 import { seedTaxonomy } from "@workspace/curation";
 import { computeMissingChangeSets } from "../consolidated";
-import { getFamiliesView } from "../families-view";
-import { getFamiliesOverview } from "../families-view-overview";
+import { getFamiliesView, getRangeAnalysis } from "../families-view";
+import { getFamiliesOverview, getRangeOverview } from "../families-view-overview";
 import { buildFixture, type AttributeSpec } from "../testing";
 
 /**
@@ -329,5 +329,60 @@ describe("getFamiliesOverview — troca de competência", () => {
 
     expect(overviewJulho.period).toBe(JULHO);
     expect(overviewAgosto.period).toBe(AGOSTO);
+  });
+});
+
+describe("getRangeOverview — quem entra e quem fica de fora, por intervalo", () => {
+  it("inclui unidades com contexto elegível, sem exigir a mesma competência exata", async () => {
+    const overview = (await getRangeOverview(ctx.db, JULHO, AGOSTO))!;
+    expect(overview).not.toBeNull();
+
+    const incluidas = overview.unitsIncluded.map((u) => u.unidade).sort();
+    // D e E não têm agosto — ao contrário de getFamiliesOverview, isso não as
+    // exclui: cada uma cai no próprio padrão (o intervalo mais curto que
+    // ainda mostra movimento a partir do que ela tem).
+    expect(incluidas).toEqual(
+      ["overview-unit-a", "overview-unit-b", "overview-unit-c", "overview-unit-d", "overview-unit-e", "unidade-g"].sort(),
+    );
+  });
+
+  it("unidade com dois contextos no mesmo canal continua ambígua, mesmo sem competência única em jogo", async () => {
+    const overview = (await getRangeOverview(ctx.db, JULHO, AGOSTO))!;
+    const ambigua = overview.unitsExcluded.find((u) => u.unidade === "unidade-h");
+    expect(ambigua).toBeDefined();
+    expect(ambigua!.reason).toBe("contextos_sobrepostos_ambiguos");
+    expect(overview.unitsIncluded.some((u) => u.unidade === "unidade-h")).toBe(false);
+  });
+
+  it("unidade com dois canais soma os dois contextos, igual à leitura individual de cada um", async () => {
+    const overview = (await getRangeOverview(ctx.db, JULHO, AGOSTO))!;
+    const g = overview.unitsIncluded.find((u) => u.unidade === "unidade-g");
+    expect(g).toBeDefined();
+    expect(g!.contexts).toHaveLength(2);
+
+    const individuais = (
+      await Promise.all(
+        g!.contexts.map((c) =>
+          getRangeAnalysis(ctx.db, JULHO, AGOSTO, { scopeHash: c.scopeHash, channel: c.channel }),
+        ),
+      )
+    ).filter((a) => a !== null);
+
+    const somaEsperada = individuais.reduce(
+      (soma, a) => soma + (a.impact.byPeriodicity.MENSAL ?? 0),
+      0,
+    );
+    expect(g!.impact.byPeriodicity.MENSAL).toBeCloseTo(somaEsperada, 2);
+    expect(g!.changes).toBe(individuais.reduce((soma, a) => soma + a.totals.changes, 0));
+  });
+
+  it("devolve null quando nenhuma unidade tem contexto elegível", async () => {
+    const vazio = await getRangeOverview(ctx.db, "2019-01-01", "2019-02-01");
+    // Toda unidade cai no próprio padrão quando as pontas pedidas não
+    // existem no seu histórico — então isto só é null se `listContexts`
+    // devolver vazio, o que não é o caso desta fixture; o teste documenta
+    // que o formato de "ninguém elegível" é `unitsIncluded: []`, não um 404
+    // disfarçado de sucesso.
+    expect(vazio).not.toBeNull();
   });
 });

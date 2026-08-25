@@ -107,6 +107,37 @@ export interface Movimentos {
   entries: RangeEntry[];
 }
 
+/** Uma unidade dentro da Visão Geral do intervalo — ver `RangeOverview`. */
+export interface RangeOverviewUnit {
+  unidade: string;
+  label: string;
+  contexts: { scopeHash: string; channel: string | null; latestPeriod: string }[];
+  impact: { byPeriodicity: Record<string, number> };
+  gainsByPeriodicity: Record<string, number>;
+  lossesByPeriodicity: Record<string, number>;
+  changes: number;
+  vehiclesTouched: number;
+}
+
+export interface RangeOverviewUnitExcluded {
+  unidade: string;
+  label: string;
+  reason: string;
+}
+
+/**
+ * A soma de todas as unidades, para o mesmo intervalo que `Movimentos` lê —
+ * o que sustenta "Onde está o impacto?" na linha do tempo.
+ */
+export interface RangeOverview {
+  from: string;
+  fromLabel: string;
+  to: string;
+  toLabel: string;
+  unitsIncluded: RangeOverviewUnit[];
+  unitsExcluded: RangeOverviewUnitExcluded[];
+}
+
 export interface EndToEndEntry {
   key: string;
   parameterKey: string;
