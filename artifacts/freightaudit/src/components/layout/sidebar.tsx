@@ -1167,13 +1167,18 @@ function enderecoDe(contexto: Contexto, pathnameAtual: string): string {
 }
 
 /**
- * As telas que sabem ler `visaoGeral=1` — hoje só duas, porque só duas
- * consomem `/changes/families/overview`. Fora delas o destino é sempre o
+ * As telas que sabem ler `visaoGeral=1` — as que consomem
+ * `/changes/families/overview`. Fora delas o destino é sempre o
  * Resumo executivo: não existe "Visão Geral de Parâmetros" nem de Composição,
  * então oferecer o link ali seria a mesma promessa vazia que
  * `TELAS_QUE_HONRAM_ESCOPO` já recusa para uma unidade específica.
  */
-const TELAS_QUE_HONRAM_VISAO_GERAL = new Set<string>([RESUMO_EXECUTIVO, LINHA_DO_TEMPO]);
+const TELAS_QUE_HONRAM_VISAO_GERAL = new Set<string>([
+  RESUMO_EXECUTIVO,
+  LINHA_DO_TEMPO,
+  DASHBOARD,
+  GESTAO_A_VISTA,
+]);
 
 /**
  * O endereço da Visão Geral — a soma de todas as unidades com dado na
