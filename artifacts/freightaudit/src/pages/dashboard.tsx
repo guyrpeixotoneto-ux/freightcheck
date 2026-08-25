@@ -717,7 +717,7 @@ function Cartao({
     <section
       className={cn(
         CARTAO,
-        "p-5 flex flex-col",
+        "p-5 flex flex-col overflow-hidden",
         destaque && "bg-accent/40 border-brand/30 border-2",
         className,
       )}
