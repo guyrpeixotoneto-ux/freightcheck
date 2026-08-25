@@ -12,7 +12,6 @@ import {
   CloudDownload,
   Database,
   FileText,
-  GitCompareArrows,
   Info,
   ReceiptText,
   Search,
@@ -88,7 +87,6 @@ import type {
   FamiliesOverview,
   FamiliesView,
   GroupedView,
-  SeriesContext,
 } from "@/components/inicio/types";
 import type { BalancoResumo } from "@/components/balanco/tipos";
 
@@ -143,11 +141,11 @@ export default function Inicio() {
   /*
     A unidade e a vigência abertas moram na URL, e não no estado do componente.
 
-    É o que faz "Trocar unidade" e "Trocar vigência" funcionarem como o resto do
-    produto: o endereço descreve o que está na tela, dá para mandar para alguém,
-    e o botão de voltar do navegador desfaz a troca. Os três parâmetros são os
-    mesmos que Parâmetros usa, de propósito — sair daqui para lá leva o recorte
-    junto.
+    É o que faz o seletor de unidade da lateral e o botão "Trocar vigência"
+    funcionarem como o resto do produto: o endereço descreve o que está na
+    tela, dá para mandar para alguém, e o botão de voltar do navegador desfaz
+    a troca. Os três parâmetros são os mesmos que Parâmetros usa, de
+    propósito — sair daqui para lá leva o recorte junto.
   */
   const consulta = new URLSearchParams();
   for (const chave of ["period", "scopeHash", "canal"]) {
@@ -157,11 +155,11 @@ export default function Inicio() {
   const sufixo = consulta.toString() ? `?${consulta}` : "";
 
   /*
-    "Visão Geral" é uma opção de unidade/escopo — vive só no dropdown "Trocar
-    unidade" — nunca um valor de `period`. Os dois seletores continuam
-    ortogonais: ligar Visão Geral não mexe na competência que já estava
-    aberta (ver `Cabecalho`, que materializa `period` na troca), e trocar de
-    competência dentro da Visão Geral nunca desliga `visaoGeral`.
+    "Visão Geral" é uma opção de unidade/escopo — vive no seletor da lateral
+    (`components/layout/sidebar.tsx`), nunca um valor de `period`. Os dois
+    seletores continuam ortogonais: ligar Visão Geral não mexe na competência
+    que já estava aberta, e trocar de competência dentro da Visão Geral nunca
+    desliga `visaoGeral`.
   */
   const visaoGeral = parametros.get("visaoGeral") === "1";
 
@@ -408,7 +406,6 @@ export default function Inicio() {
         visaoGeral={visaoGeral}
         periodosOverview={periodosOverview}
         ultima={ultima}
-        contextos={contextos.contextos}
         onTrocar={trocarPara}
       />
 
@@ -566,7 +563,6 @@ function Cabecalho({
   visaoGeral,
   periodosOverview,
   ultima,
-  contextos,
   onTrocar,
 }: {
   view: FamiliesView | null;
@@ -575,7 +571,6 @@ function Cabecalho({
   /** União de `periodosDisponiveis` de todas as unidades, mais recente primeiro. */
   periodosOverview: string[];
   ultima: ReturnType<typeof ultimaImportacao>;
-  contextos: SeriesContext[];
   onTrocar: (mudancas: Record<string, string | null>) => void;
 }) {
   const unidade = view ? nomeDaUnidade(view.context) : null;
@@ -591,14 +586,6 @@ function Cabecalho({
         view?.periodLabel ?? null,
         ultima ? `última importação ${ultima.relativo}` : null,
       ].filter((p): p is string => p !== null);
-
-  /*
-    A competência que está de fato na tela agora — a que "Visão Geral" leva
-    consigo ao ligar, para a rota de overview nunca receber `period` vazio
-    mesmo quando o usuário nunca escolheu uma vigência explicitamente (a tela
-    já estava mostrando a mais recente por padrão).
-  */
-  const periodoAtual = visaoGeral ? (overview?.period ?? null) : (view?.period ?? null);
 
   return (
     /*
@@ -621,65 +608,6 @@ function Cabecalho({
         </div>
 
         <div className="flex items-center gap-3 shrink-0">
-          {contextos.length > 1 && (
-            <DropdownMenu>
-              <DropdownMenuTrigger className={BOTAO_DE_TROCA}>
-                <GitCompareArrows className="w-4 h-4" />
-                Trocar unidade
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-72">
-                <DropdownMenuItem
-                  onSelect={() =>
-                    onTrocar({
-                      visaoGeral: "1",
-                      scopeHash: null,
-                      canal: null,
-                      ...(periodoAtual ? { period: periodoAtual } : {}),
-                    })
-                  }
-                  className={cn("flex flex-col items-start gap-0.5", visaoGeral && "font-bold text-brand")}
-                >
-                  <span className="font-semibold">Visão Geral</span>
-                  <span className="text-xs text-muted-foreground">
-                    Soma de todas as unidades com dado na competência
-                  </span>
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
-                  {contextos.length} unidades com vigência importada
-                </DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                {contextos.map((contexto) => (
-                  <DropdownMenuItem
-                    key={`${contexto.scopeHash}|${contexto.channel ?? ""}`}
-                    onSelect={() =>
-                      /*
-                        A vigência sai da URL junto com a unidade: a data de uma
-                        unidade não existe necessariamente na outra, e insistir
-                        nela levaria a uma tela vazia com aparência de defeito.
-                        `visaoGeral` some da URL pelo mesmo motivo — trocar para
-                        uma unidade específica é sair do modo consolidado.
-                      */
-                      onTrocar({
-                        scopeHash: contexto.scopeHash,
-                        canal: contexto.channel,
-                        period: null,
-                        visaoGeral: null,
-                      })
-                    }
-                    className="flex flex-col items-start gap-0.5"
-                  >
-                    <span className="font-semibold">{nomeDaUnidade(contexto)}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {contexto.channel ?? "sem canal no rótulo"} · {contexto.periods}{" "}
-                      {contexto.periods === 1 ? "vigência" : "vigências"}
-                    </span>
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
-
           {visaoGeral
             ? periodosOverview.length > 1 && (
                 <DropdownMenu>
