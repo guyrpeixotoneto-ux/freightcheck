@@ -149,6 +149,8 @@ export default function LinhaDoTempo() {
             {overview && (
               <VisaoGeralConteudo
                 overview={overview}
+                search={search}
+                onTrocar={trocarPara}
                 notaExtra="A Visão Geral aqui soma só o último passo — a competência contra a vigência imediatamente anterior de cada unidade — não o histórico inteiro que a Linha do Tempo de uma unidade mostra."
               />
             )}

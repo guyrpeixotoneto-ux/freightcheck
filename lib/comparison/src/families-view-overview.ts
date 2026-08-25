@@ -58,6 +58,17 @@ export interface OverviewUnitIncluded {
     channel: string | null;
     motivo: "vigencia_indisponivel_na_leitura";
   }[];
+  /**
+   * O mesmo `ExecutiveSummary` que compõe `FamiliesOverview.summary`, mas
+   * restrito aos contextos desta unidade — soma de canais quando a unidade
+   * tem mais de um contexto elegível na competência.
+   *
+   * Existe para a comparação por unidade na tela: os dados já são lidos e
+   * mesclados por unidade dentro deste laço (ver `leiturasPorUnidade`) antes
+   * de irem para `mergeSummaries` no total geral; expor o intermediário aqui
+   * não custa uma leitura a mais, só para de descartá-lo.
+   */
+  summary: ExecutiveSummary;
 }
 
 export interface OverviewUnitExcluded {
@@ -405,6 +416,7 @@ export async function getFamiliesOverview(
               motivo: "vigencia_indisponivel_na_leitura" as const,
             }))
           : undefined,
+      summary: mergeSummaries(sucesso.map((s) => (s.view as FamiliesView).summary)),
     });
   }
 

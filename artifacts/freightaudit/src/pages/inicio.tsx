@@ -427,7 +427,9 @@ export default function Inicio() {
             {!overviewQuery.isLoading && !overviewQuery.error && overview === null && (
               <BancoVazio />
             )}
-            {overview && <VisaoGeralConteudo overview={overview} />}
+            {overview && (
+              <VisaoGeralConteudo overview={overview} search={search} onTrocar={trocarPara} />
+            )}
           </>
         ) : (
           <>
