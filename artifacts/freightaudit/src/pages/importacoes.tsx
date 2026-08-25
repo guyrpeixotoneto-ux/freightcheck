@@ -12,6 +12,7 @@ import {
   EyeOff,
   FileDown,
   FileSpreadsheet,
+  Headset,
   Layers,
   RefreshCw,
   ShieldCheck,
@@ -19,8 +20,14 @@ import {
   Trash2,
   Upload,
 } from "lucide-react";
-import { TIPOS_DE_IMPORTACAO, type DefinicaoDeTipo } from "@workspace/ingest/tipos";
-import { CHAVE_DA_APRESENTACAO, apresentacaoDoDetalhe } from "@workspace/ingest/apontamentos";
+import {
+  TIPOS_DE_IMPORTACAO,
+  type DefinicaoDeTipo,
+} from "@workspace/ingest/tipos";
+import {
+  CHAVE_DA_APRESENTACAO,
+  apresentacaoDoDetalhe,
+} from "@workspace/ingest/apontamentos";
 import {
   SecoesDaApresentacao,
   SeloDeSeveridade,
@@ -48,6 +55,8 @@ import {
 } from "@/lib/importacoes";
 import { rotuloDoTipo } from "@/lib/frota";
 import { cn } from "@/lib/utils";
+import { AbaChamados } from "@/components/changes/aba-chamados";
+import { AbaBotao } from "@/components/changes/cartoes";
 
 /**
  * Importações — o histórico do que entrou.
@@ -356,6 +365,25 @@ export default function Importacoes() {
       replace: true,
     });
   };
+
+  /*
+    A seção mora no endereço pelo mesmo motivo da aba: um link para "Chamados"
+    dentro de Importações tem que abrir em Chamados amanhã. Só duas seções
+    existem — Planilha, o que já havia, e Chamados, que só lê e escreve por
+    `/ticket-imports` — e qualquer outro valor cai em Planilha.
+  */
+  const secao =
+    new URLSearchParams(search).get("secao") === "chamados"
+      ? "chamados"
+      : "planilha";
+  const setSecao = (valor: "planilha" | "chamados") => {
+    const params = new URLSearchParams(search);
+    if (valor === "chamados") params.set("secao", valor);
+    else params.delete("secao");
+    navegar(params.toString() ? `/importacoes?${params}` : "/importacoes", {
+      replace: true,
+    });
+  };
   const setExpanded = (importRunId: string | null) => {
     const params = new URLSearchParams(search);
     if (importRunId) params.set("run", importRunId);
@@ -544,11 +572,14 @@ export default function Importacoes() {
       importRunId: string;
       confirmNewEntityTypes: string[];
     }) => {
-      const response = await fetch(getApiUrl(`/imports/${importRunId}/promote`), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ confirmNewEntityTypes }),
-      });
+      const response = await fetch(
+        getApiUrl(`/imports/${importRunId}/promote`),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ confirmNewEntityTypes }),
+        },
+      );
       const body = await readJson(response);
       if (!response.ok) throw erroDaResposta(response, body);
       return body;
@@ -621,11 +652,14 @@ export default function Importacoes() {
       importRunId: string;
       hidden: boolean;
     }) => {
-      const response = await fetch(getApiUrl(`/imports/${importRunId}/hidden`), {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ hidden }),
-      });
+      const response = await fetch(
+        getApiUrl(`/imports/${importRunId}/hidden`),
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ hidden }),
+        },
+      );
       const body = await readJson(response);
       if (!response.ok) throw erroDaResposta(response, body);
       return body;
@@ -655,207 +689,242 @@ export default function Importacoes() {
               essa declaração contra o conteúdo antes de deixar entrar.
               <br className="hidden sm:inline" /> O mesmo arquivo reentregue é
               reconhecido pelo SHA-256. O mesmo <em>dado</em>, num arquivo
-              diferente, é reconhecido pela identidade da vigência — e nenhum dos
-              dois entra duas vezes.
+              diferente, é reconhecido pela identidade da vigência — e nenhum
+              dos dois entra duas vezes.
             </p>
           </div>
         </div>
+
+        {/*
+          Planilha e Chamados são as duas seções do módulo — cada uma com o
+          seu próprio pipeline, a sua própria dedup, e sem sentido nenhum de
+          somar entre si. Por isso são abas de verdade, e não um recorte
+          dentro de uma lista só: a mesma divisão que já existia em
+          Alterações, agora do lado de quem envia o arquivo.
+        */}
+        <nav className="flex items-center gap-1 mt-4" role="tablist">
+          <AbaBotao
+            active={secao === "planilha"}
+            onClick={() => setSecao("planilha")}
+            icon={<FileSpreadsheet className="w-4 h-4" />}
+            label="Planilha"
+            hint="cavalo, carreta, trecho e QLP — o pipeline com aprovação"
+          />
+          <AbaBotao
+            active={secao === "chamados"}
+            onClick={() => setSecao("chamados")}
+            icon={<Headset className="w-4 h-4" />}
+            label="Chamados"
+            hint="o export da fila de chamados do Freightech"
+          />
+        </nav>
       </header>
 
-      <div className="p-8 space-y-5">
-        {/* As abas vêm antes de tudo porque mandam em tudo: primeiro se escolhe
+      {secao === "chamados" ? (
+        <AbaChamados />
+      ) : (
+        <div className="p-8 space-y-5">
+          {/* As abas vêm antes de tudo porque mandam em tudo: primeiro se escolhe
             de que tipo se está falando, depois se envia e se lê o histórico
             daquele tipo. Na ordem inversa, o botão de enviar apareceria antes
             de a tela dizer o que ele vai declarar. */}
-        <Tabs
-          value={aba ?? TODAS}
-          onValueChange={(valor) => setAba(valor === TODAS ? null : valor)}
-        >
-          <TabsList className="flex-wrap h-auto">
-            <TabsTrigger value={TODAS}>
-              Todas
-              <span className="ml-1.5 tabular-nums text-xs text-muted-foreground">
-                {n(runs.length)}
-              </span>
-            </TabsTrigger>
-            {TIPOS_DE_IMPORTACAO.map((tipo) => (
-              <TabsTrigger key={tipo.code} value={tipo.code}>
-                {tipo.rotulo}
+          <Tabs
+            value={aba ?? TODAS}
+            onValueChange={(valor) => setAba(valor === TODAS ? null : valor)}
+          >
+            <TabsList className="flex-wrap h-auto">
+              <TabsTrigger value={TODAS}>
+                Todas
                 <span className="ml-1.5 tabular-nums text-xs text-muted-foreground">
-                  {n(
-                    runs.filter((run) =>
-                      tiposVindosDoArquivo(run).includes(tipo.code),
-                    ).length,
-                  )}
+                  {n(runs.length)}
                 </span>
               </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
+              {TIPOS_DE_IMPORTACAO.map((tipo) => (
+                <TabsTrigger key={tipo.code} value={tipo.code}>
+                  {tipo.rotulo}
+                  <span className="ml-1.5 tabular-nums text-xs text-muted-foreground">
+                    {n(
+                      runs.filter((run) =>
+                        tiposVindosDoArquivo(run).includes(tipo.code),
+                      ).length,
+                    )}
+                  </span>
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
 
-        <input
-          ref={fileInput}
-          type="file"
-          accept=".xlsx"
-          multiple
-          className="hidden"
-          onChange={(e) => {
-            const files = Array.from(e.target.files ?? []);
-            if (files.length > 0 && tipoDaAba !== null) {
-              upload.mutate({ files, declaredType: tipoDaAba.code });
-            }
-            e.target.value = "";
-          }}
-        />
+          <input
+            ref={fileInput}
+            type="file"
+            accept=".xlsx"
+            multiple
+            className="hidden"
+            onChange={(e) => {
+              const files = Array.from(e.target.files ?? []);
+              if (files.length > 0 && tipoDaAba !== null) {
+                upload.mutate({ files, declaredType: tipoDaAba.code });
+              }
+              e.target.value = "";
+            }}
+          />
 
-        {/* Em Todas não há envio porque não há tipo declarado — e enviar sem
+          {/* Em Todas não há envio porque não há tipo declarado — e enviar sem
             declarar é justamente o que esta tela deixou de fazer. */}
-        {tipoDaAba === null ? (
-          <SemAbaEscolhida />
-        ) : (
-          <Dropzone
-            tipo={tipoDaAba}
-            busy={upload.isPending}
-            onFiles={(files) =>
-              upload.mutate({ files, declaredType: tipoDaAba.code })
-            }
-            onPick={() => fileInput.current?.click()}
-          />
-        )}
-
-        {error && (
-          <p className="text-sm text-red-900 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
-            {error}
-          </p>
-        )}
-
-        {removed && (
-          <p className="text-sm text-emerald-900 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
-            {removed}
-          </p>
-        )}
-
-        {esperandoDecisao.map((id) => (
-          <PendingRun
-            key={id}
-            importRunId={id}
-            onDiscard={() => setPendingIds((c) => c.filter((x) => x !== id))}
-            onPromote={(confirmNewEntityTypes) =>
-              promote.mutate({ importRunId: id, confirmNewEntityTypes })
-            }
-            promoting={promote.isPending}
-          />
-        ))}
-
-        {isLoading && (
-          <p className="text-sm text-muted-foreground">Carregando…</p>
-        )}
-        {!isLoading && listError && (
-          <div className="rounded-xl border border-red-200 bg-red-50 px-6 py-5 text-sm text-red-900">
-            Não foi possível ler o histórico de importações:{" "}
-            {(listError as Error).message} Esta lista pode não estar vazia — o
-            que falhou foi perguntar.
-          </div>
-        )}
-        {/* "Nenhuma importação ainda" ao lado de um arquivo sendo lido é falso
-            de um jeito que confunde: o que falta é aprovar, não enviar. */}
-        {ocultos.length > 0 && (
-          <button
-            onClick={() => setMostrarOcultos((v) => !v)}
-            className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5"
-          >
-            {mostrarOcultos ? (
-              <EyeOff className="w-3.5 h-3.5" />
-            ) : (
-              <Eye className="w-3.5 h-3.5" />
-            )}
-            {mostrarOcultos
-              ? "Esconder as ocultas de novo"
-              : `Mostrar ${plural(ocultos.length, "importação oculta", "importações ocultas")}`}
-          </button>
-        )}
-
-        {!isLoading &&
-          !listError &&
-          visiveis.length === 0 &&
-          esperandoDecisao.length === 0 && (
-            <div className="rounded-xl border bg-card px-8 py-10 text-center text-sm text-muted-foreground shadow-sm">
-              {tipoDaAba === null ? (
-                <>
-                  Nenhuma importação ainda. Escolha o tipo acima e use{" "}
-                  <strong className="text-foreground">Escolher planilhas</strong>{" "}
-                  para enviar o export do Freightec.
-                </>
-              ) : (
-                <>
-                  Nenhuma importação de{" "}
-                  <strong className="text-foreground">{tipoDaAba.rotulo}</strong>{" "}
-                  nesta base.
-                  {runs.length > 0 && (
-                    <>
-                      {" "}
-                      Há {plural(runs.length, "importação", "importações")} de
-                      outros tipos — veja em <strong className="text-foreground">Todas</strong>.
-                    </>
-                  )}
-                </>
-              )}
-            </div>
+          {tipoDaAba === null ? (
+            <SemAbaEscolhida />
+          ) : (
+            <Dropzone
+              tipo={tipoDaAba}
+              busy={upload.isPending}
+              onFiles={(files) =>
+                upload.mutate({ files, declaredType: tipoDaAba.code })
+              }
+              onPick={() => fileInput.current?.click()}
+            />
           )}
 
-        {visiveis.map((run) => (
-          <RunCard
-            key={run.importRunId}
-            run={run}
-            /* A história do arquivo sai da lista inteira, não do recorte: o
+          {error && (
+            <p className="text-sm text-red-900 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+              {error}
+            </p>
+          )}
+
+          {removed && (
+            <p className="text-sm text-emerald-900 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
+              {removed}
+            </p>
+          )}
+
+          {esperandoDecisao.map((id) => (
+            <PendingRun
+              key={id}
+              importRunId={id}
+              onDiscard={() => setPendingIds((c) => c.filter((x) => x !== id))}
+              onPromote={(confirmNewEntityTypes) =>
+                promote.mutate({ importRunId: id, confirmNewEntityTypes })
+              }
+              promoting={promote.isPending}
+            />
+          ))}
+
+          {isLoading && (
+            <p className="text-sm text-muted-foreground">Carregando…</p>
+          )}
+          {!isLoading && listError && (
+            <div className="rounded-xl border border-red-200 bg-red-50 px-6 py-5 text-sm text-red-900">
+              Não foi possível ler o histórico de importações:{" "}
+              {(listError as Error).message} Esta lista pode não estar vazia — o
+              que falhou foi perguntar.
+            </div>
+          )}
+          {/* "Nenhuma importação ainda" ao lado de um arquivo sendo lido é falso
+            de um jeito que confunde: o que falta é aprovar, não enviar. */}
+          {ocultos.length > 0 && (
+            <button
+              onClick={() => setMostrarOcultos((v) => !v)}
+              className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5"
+            >
+              {mostrarOcultos ? (
+                <EyeOff className="w-3.5 h-3.5" />
+              ) : (
+                <Eye className="w-3.5 h-3.5" />
+              )}
+              {mostrarOcultos
+                ? "Esconder as ocultas de novo"
+                : `Mostrar ${plural(ocultos.length, "importação oculta", "importações ocultas")}`}
+            </button>
+          )}
+
+          {!isLoading &&
+            !listError &&
+            visiveis.length === 0 &&
+            esperandoDecisao.length === 0 && (
+              <div className="rounded-xl border bg-card px-8 py-10 text-center text-sm text-muted-foreground shadow-sm">
+                {tipoDaAba === null ? (
+                  <>
+                    Nenhuma importação ainda. Escolha o tipo acima e use{" "}
+                    <strong className="text-foreground">
+                      Escolher planilhas
+                    </strong>{" "}
+                    para enviar o export do Freightec.
+                  </>
+                ) : (
+                  <>
+                    Nenhuma importação de{" "}
+                    <strong className="text-foreground">
+                      {tipoDaAba.rotulo}
+                    </strong>{" "}
+                    nesta base.
+                    {runs.length > 0 && (
+                      <>
+                        {" "}
+                        Há {plural(runs.length, "importação", "importações")} de
+                        outros tipos — veja em{" "}
+                        <strong className="text-foreground">Todas</strong>.
+                      </>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+
+          {visiveis.map((run) => (
+            <RunCard
+              key={run.importRunId}
+              run={run}
+              /* A história do arquivo sai da lista inteira, não do recorte: o
                recebimento original de um arquivo pode ser de um tipo que a aba
                atual não mostra — foi assim no caso que originou isto, em que a
                tentativa recusada estava na aba do QLP e o recebimento, sem
                declaração nenhuma, só aparecia em Todas. */
-            todos={runs}
-            expanded={expanded === run.importRunId}
-            onToggle={() =>
-              setExpanded(expanded === run.importRunId ? null : run.importRunId)
-            }
-            onDetails={() => setDetailOf(run)}
-            onDelete={() => {
-              setRemoved(null);
-              setDeleteOf(run);
-            }}
-            onReprocess={() => {
-              setRemoved(null);
-              setReprocessOf(run);
-            }}
-            onToggleHidden={() =>
-              toggleHidden.mutate({
-                importRunId: run.importRunId,
-                hidden: run.hiddenAt === null,
-              })
-            }
-            togglingHidden={
-              toggleHidden.isPending &&
-              toggleHidden.variables?.importRunId === run.importRunId
-            }
-          />
-        ))}
+              todos={runs}
+              expanded={expanded === run.importRunId}
+              onToggle={() =>
+                setExpanded(
+                  expanded === run.importRunId ? null : run.importRunId,
+                )
+              }
+              onDetails={() => setDetailOf(run)}
+              onDelete={() => {
+                setRemoved(null);
+                setDeleteOf(run);
+              }}
+              onReprocess={() => {
+                setRemoved(null);
+                setReprocessOf(run);
+              }}
+              onToggleHidden={() =>
+                toggleHidden.mutate({
+                  importRunId: run.importRunId,
+                  hidden: run.hiddenAt === null,
+                })
+              }
+              togglingHidden={
+                toggleHidden.isPending &&
+                toggleHidden.variables?.importRunId === run.importRunId
+              }
+            />
+          ))}
 
-        <div className="rounded-xl border bg-card px-6 py-5 shadow-sm flex items-start gap-3">
-          <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
-            <ShieldCheck className="w-5 h-5 text-primary" />
-          </div>
-          <div>
-            <p className="font-semibold text-sm">Segurança e deduplicação</p>
-            <p className="text-sm text-muted-foreground mt-0.5">
-              Duas camadas. O SHA-256 reconhece o arquivo idêntico antes de
-              lê-lo. A identidade canônica da vigência — unidade, canal, data e
-              família, todas normalizadas — reconhece o mesmo dado ainda que o
-              arquivo seja outro: rótulo escrito de outro jeito, CNPJ com ou sem
-              máscara, placa com ou sem hífen, linhas ou abas em outra ordem. O
-              banco garante uma única versão ativa por vigência.
-            </p>
+          <div className="rounded-xl border bg-card px-6 py-5 shadow-sm flex items-start gap-3">
+            <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+              <ShieldCheck className="w-5 h-5 text-primary" />
+            </div>
+            <div>
+              <p className="font-semibold text-sm">Segurança e deduplicação</p>
+              <p className="text-sm text-muted-foreground mt-0.5">
+                Duas camadas. O SHA-256 reconhece o arquivo idêntico antes de
+                lê-lo. A identidade canônica da vigência — unidade, canal, data
+                e família, todas normalizadas — reconhece o mesmo dado ainda que
+                o arquivo seja outro: rótulo escrito de outro jeito, CNPJ com ou
+                sem máscara, placa com ou sem hífen, linhas ou abas em outra
+                ordem. O banco garante uma única versão ativa por vigência.
+              </p>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       <RunDetailDialog run={detailOf} onClose={() => setDetailOf(null)} />
       <ReprocessDialog
@@ -951,7 +1020,9 @@ function TipoDaImportacao({ run }: { run: ImportRun }) {
       {herdados.length > 0 && (
         <p className="flex flex-wrap items-center gap-1.5">
           <span className="text-[0.6875rem] text-muted-foreground">
-            {run.snapshots === 1 ? "Vigência resultante" : "Vigências resultantes"}
+            {run.snapshots === 1
+              ? "Vigência resultante"
+              : "Vigências resultantes"}
           </span>
           {run.entityTypes.map(chip)}
           <span className="text-[0.6875rem] text-muted-foreground">
@@ -1145,8 +1216,8 @@ function RunCard({
 
       {oculta && (
         <p className="text-sm border border-slate-200 bg-slate-50 text-slate-700 rounded-xl px-4 py-3">
-          Esta importação está oculta: os fatos dela não entram no dashboard,
-          no comparativo, na cobertura nem no DRE.
+          Esta importação está oculta: os fatos dela não entram no dashboard, no
+          comparativo, na cobertura nem no DRE.
           {run.hiddenBy && <> Ocultada por {run.hiddenBy}.</>}
           {run.hiddenReason && <> Motivo: {run.hiddenReason}</>} Use{" "}
           <strong>Reexibir</strong> abaixo para voltar a contar.
@@ -1176,7 +1247,11 @@ function RunCard({
       )}
 
       {leitura.leitura === "NAO_ABERTO_DUPLICATA" && (
-        <ArquivoNaoAberto run={run} historico={historico} onReprocess={onReprocess} />
+        <ArquivoNaoAberto
+          run={run}
+          historico={historico}
+          onReprocess={onReprocess}
+        />
       )}
 
       {/* O motivo gravado no run. A duplicata já o diz por extenso no bloco
@@ -1214,7 +1289,12 @@ function RunCard({
       )}
 
       <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3">
-        <Metric icon={Table2} accent="indigo" label="Abas" value={n(run.sheets)} />
+        <Metric
+          icon={Table2}
+          accent="indigo"
+          label="Abas"
+          value={n(run.sheets)}
+        />
         <Metric
           icon={Database}
           accent="emerald"
@@ -1380,7 +1460,12 @@ function PapelNoHistorico({
 
   return (
     <p className="text-xs text-muted-foreground mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
-      <span className={cn("rounded-md border px-1.5 py-0.5 font-medium", papel.classe)}>
+      <span
+        className={cn(
+          "rounded-md border px-1.5 py-0.5 font-medium",
+          papel.classe,
+        )}
+      >
         {papel.texto}
       </span>
       <span>
@@ -1460,7 +1545,10 @@ function ArquivoNaoAberto({
         <p>
           O recebimento original não está nesta lista — procure em{" "}
           <strong>Todas</strong> pelo mesmo sha256{" "}
-          <span className="font-mono text-xs">{run.contentSha256.slice(0, 16)}…</span>.
+          <span className="font-mono text-xs">
+            {run.contentSha256.slice(0, 16)}…
+          </span>
+          .
         </p>
       )}
       <p>
@@ -1642,7 +1730,9 @@ function Apontamentos({ importRunId }: { importRunId: string }) {
   const [aberto, setAberto] = useState<string | null>(null);
 
   if (isLoading) {
-    return <p className="text-sm text-muted-foreground">Lendo os apontamentos…</p>;
+    return (
+      <p className="text-sm text-muted-foreground">Lendo os apontamentos…</p>
+    );
   }
   if (error) {
     return (
@@ -1681,9 +1771,14 @@ function Apontamentos({ importRunId }: { importRunId: string }) {
           de cada ocorrência. O código cru só aparece quando não há título,
           isto é, num apontamento gravado antes do contrato de apresentação.
         */
-        const titulo = apresentacaoDoDetalhe(grupo.ocorrencias[0]?.detail ?? null)?.titulo;
+        const titulo = apresentacaoDoDetalhe(
+          grupo.ocorrencias[0]?.detail ?? null,
+        )?.titulo;
         return (
-          <div key={id} className={cn("rounded-xl border", tom(grupo.severity))}>
+          <div
+            key={id}
+            className={cn("rounded-xl border", tom(grupo.severity))}
+          >
             <button
               type="button"
               onClick={() => setAberto(expandido ? null : id)}
@@ -1710,7 +1805,10 @@ function Apontamentos({ importRunId }: { importRunId: string }) {
             {expandido && (
               <ul className="px-4 pb-3 space-y-3 text-sm">
                 {grupo.ocorrencias.map((o, i) => (
-                  <li key={i} className="border-t border-current/10 pt-3 first:border-t-0 first:pt-0">
+                  <li
+                    key={i}
+                    className="border-t border-current/10 pt-3 first:border-t-0 first:pt-0"
+                  >
                     <Apontamento
                       ocorrencia={o}
                       code={grupo.code}
@@ -1766,7 +1864,11 @@ function Apontamento({
             {ocorrencia.rowIndex !== null && <>linha {ocorrencia.rowIndex}</>}
           </p>
         )}
-        <DetalhesTecnicos ocorrencia={ocorrencia} code={code} comMensagem={false} />
+        <DetalhesTecnicos
+          ocorrencia={ocorrencia}
+          code={code}
+          comMensagem={false}
+        />
       </div>
     );
   }
@@ -1776,7 +1878,9 @@ function Apontamento({
       apresentacao={apresentacao}
       severity={severity}
       code={code}
-      rodape={<DetalhesTecnicos ocorrencia={ocorrencia} code={code} comMensagem />}
+      rodape={
+        <DetalhesTecnicos ocorrencia={ocorrencia} code={code} comMensagem />
+      }
     />
   );
 }
@@ -1872,7 +1976,8 @@ function DeleteDialog({
 
   const { data: plan, error } = useQuery({
     queryKey: ["imports", run?.importRunId, "deletion"],
-    queryFn: () => fetchJson<DeletionPlan>(`/imports/${run!.importRunId}/deletion`),
+    queryFn: () =>
+      fetchJson<DeletionPlan>(`/imports/${run!.importRunId}/deletion`),
     enabled: run !== null,
     // O que sai depende do resto do banco — outra importação promovida no
     // meio-tempo muda a conta. Sem cache: esta prévia é lida uma vez e agida
@@ -2118,7 +2223,10 @@ function ReprocessDialog({
             <dl className="rounded-xl border divide-y overflow-hidden text-sm">
               {[
                 ["O arquivo", "não é reenviado — o original guardado é relido"],
-                ["Esta importação", "continua no histórico, com o que produziu"],
+                [
+                  "Esta importação",
+                  "continua no histórico, com o que produziu",
+                ],
                 ["A releitura", "para em “conferida”; aprovar é outro clique"],
                 ["Publicar", "nada entra na base sem essa aprovação"],
               ].map(([label, texto]) => (
@@ -2155,8 +2263,8 @@ function ReprocessDialog({
                   "Este arquivo não tem nenhuma leitura para reler."
                 ) : (
                   <>
-                    A leitura que será relida é a de{" "}
-                    {dateTime(alvo.startedAt)}, que entrou{" "}
+                    A leitura que será relida é a de {dateTime(alvo.startedAt)},
+                    que entrou{" "}
                     {tipoDoAlvo
                       ? `como ${rotuloDoTipo(tipoDoAlvo)}.`
                       : "sem declaração — o tipo saiu do conteúdo do arquivo."}
@@ -2178,7 +2286,9 @@ function ReprocessDialog({
                 <strong>A releitura muda o tipo declarado</strong>
                 {tipoDoAlvo
                   ? ` — de ${rotuloDoTipo(tipoDoAlvo)} para ${
-                      tipoEscolhido ? rotuloDoTipo(tipoEscolhido) : "sem declaração"
+                      tipoEscolhido
+                        ? rotuloDoTipo(tipoEscolhido)
+                        : "sem declaração"
                     }.`
                   : `: a leitura anterior não declarava tipo, e esta declara ${
                       tipoEscolhido ? rotuloDoTipo(tipoEscolhido) : "nenhum"
@@ -2242,13 +2352,7 @@ function ReprocessDialog({
   );
 }
 
-function Field({
-  label,
-  children,
-}: {
-  label: string;
-  children: ReactNode;
-}) {
+function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="grid grid-cols-[8rem_1fr] gap-3">
       <dt className="text-xs uppercase tracking-wider text-muted-foreground pt-0.5">
@@ -2412,8 +2516,9 @@ function PendingRun({
                         enviou nada — o arquivo já estava aqui, e o tipo foi
                         declarado no pedido de reprocessamento. */}
                     {data.reprocessOfRunId ? "relido como" : "enviado como"}{" "}
-                    {TIPOS_DE_IMPORTACAO.find((t) => t.code === data.declaredType)
-                      ?.rotulo ?? data.declaredType}
+                    {TIPOS_DE_IMPORTACAO.find(
+                      (t) => t.code === data.declaredType,
+                    )?.rotulo ?? data.declaredType}
                   </span>
                 )}
               </p>
@@ -2424,7 +2529,9 @@ function PendingRun({
                 <>
                   {/* O rótulo de ESTADOS, nunca o enum cru: "na fila…",
                       "lendo…", "preparada…" — não "validation_error…". */}
-                  {data ? `${estadoDaImportacao(data.status).rotulo}…` : "recebido…"}{" "}
+                  {data
+                    ? `${estadoDaImportacao(data.status).rotulo}…`
+                    : "recebido…"}{" "}
                   nada entra sem sua aprovação.
                 </>
               ) : ready ? (
@@ -2454,7 +2561,9 @@ function PendingRun({
                       — corrija a origem antes de aprovar.
                     </strong>
                   ) : (
-                    decisao.ressalva && <strong>{decisao.ressalva.frase}</strong>
+                    decisao.ressalva && (
+                      <strong>{decisao.ressalva.frase}</strong>
+                    )
                   )}
                 </>
               ) : (
@@ -2495,7 +2604,8 @@ function PendingRun({
       */}
       {ready && decisao.ressalva && (
         <div className="bg-white/70 border border-amber-300 rounded-lg px-4 py-3 text-sm">
-          <strong>{decisao.ressalva.frase}</strong> {decisao.ressalva.consequencia}
+          <strong>{decisao.ressalva.frase}</strong>{" "}
+          {decisao.ressalva.consequencia}
         </div>
       )}
 
@@ -2513,13 +2623,14 @@ function PendingRun({
               {identidadesNovas.length === 1
                 ? "um equipamento novo"
                 : "equipamentos novos"}
-              : <span className="font-mono">{identidadesNovas.join(", ")}</span>.
+              : <span className="font-mono">{identidadesNovas.join(", ")}</span>
+              .
             </strong>{" "}
             As colunas desta planilha não bateram com nenhum equipamento que já
-            existe, então a identidade veio do nome da aba. Se for equipamento novo
-            mesmo, confirme. Se for um que já existe com a aba nomeada de outro
-            jeito, cancele e confira as colunas — aprovar aqui cria uma frota
-            paralela, com os dados certos e a identidade errada.
+            existe, então a identidade veio do nome da aba. Se for equipamento
+            novo mesmo, confirme. Se for um que já existe com a aba nomeada de
+            outro jeito, cancele e confira as colunas — aprovar aqui cria uma
+            frota paralela, com os dados certos e a identidade errada.
           </span>
         </label>
       )}
@@ -2567,7 +2678,8 @@ function SheetList({ runId }: { runId: string }) {
     );
   }
 
-  if (!data) return <p className="text-xs text-muted-foreground">Carregando…</p>;
+  if (!data)
+    return <p className="text-xs text-muted-foreground">Carregando…</p>;
 
   // Um run recusado como duplicata — ou que falhou antes da leitura — não tem
   // abas. Uma moldura vazia deixaria isso parecendo carregamento travado.

@@ -246,7 +246,11 @@ export default function Alteracoes({
         />
       )}
       {aba === "chamados" && (
-        <AbaChamados vigencias={janela} onVigencias={setJanela} />
+        <AbaChamados
+          vigencias={janela}
+          onVigencias={setJanela}
+          somenteLeitura
+        />
       )}
       {aba === "impacto" && (
         <div className="p-8">
