@@ -1725,6 +1725,45 @@ export async function enviarDocumento(
   return corpo as unknown as DocumentoRecebido;
 }
 
+/** Uma célula que a leitura por imagem transcreveu — linha e coluna livres. */
+export interface CelulaDaGrade {
+  linha: string;
+  coluna: string;
+  valor: number;
+  comoEstaNaImagem: string;
+}
+
+/** O que `POST /fechamento/documentos/leitura-de-imagem` devolve. */
+export interface LeituraDaGrade {
+  celulas: CelulaDaGrade[];
+  motivo: "IA" | "SEM_CHAVE" | "RECUSA" | "ERRO";
+  erro: string | null;
+  modelo: string;
+}
+
+/**
+ * Lê a tela do Promax fotografada — a frota Padrão/Fixo/MKT… em vez do
+ * relatório. Nada é gravado: é rascunho para comparar contra o contrato.
+ *
+ * Só as duas fontes da frota Promax aceitam isto — o servidor recusa as
+ * outras, e a tela não oferece o botão para elas.
+ */
+export async function lerGradeDaImagem(
+  tipo: TipoDeFonte,
+  arquivo: File,
+): Promise<LeituraDaGrade> {
+  const imagem = await lerComoBase64(arquivo);
+  const resposta = await fetch(getApiUrl("/fechamento/documentos/leitura-de-imagem"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ tipo, mimeType: arquivo.type, imagem }),
+  });
+  const corpo = await readJson(resposta);
+  if (!resposta.ok) throw erroDaResposta(resposta, corpo);
+  return corpo as unknown as LeituraDaGrade;
+}
+
 function lerComoBase64(arquivo: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const leitor = new FileReader();

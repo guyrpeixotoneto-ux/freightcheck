@@ -5,6 +5,7 @@ export * from "./definicao";
 export * from "./ferramentas";
 export * from "./formato";
 export * from "./formula";
+export * from "./grade-por-imagem";
 export * from "./interpretacao";
 export * from "./normalizar";
 export * from "./observabilidade";

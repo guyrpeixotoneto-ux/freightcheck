@@ -8,10 +8,12 @@ import {
   CalendarDays,
   Check,
   FileUp,
+  ImageUp,
   Info,
   Lock,
   LockOpen,
   RefreshCw,
+  ScanLine,
   Trash2,
   Upload,
 } from "lucide-react";
@@ -55,6 +57,8 @@ import {
   enviarDocumento,
   fontesDaCompetencia,
   fontesParaEnviar,
+  lerGradeDaImagem,
+  type CelulaDaGrade,
   type ContratoDaCompetencia,
   type ParametrosDoContrato,
   lerCompetencia,
@@ -1359,6 +1363,8 @@ function LinhaDeFonte({
   onArquivo: (arquivo: File) => void;
 }) {
   const campo = useRef<HTMLInputElement>(null);
+  const aceitaImagem =
+    fonte.tipo === "FROTA_PROMAX_ATIVA" || fonte.tipo === "FROTA_PROMAX_INATIVA";
 
   return (
     <li className="py-3 flex items-start justify-between gap-4">
@@ -1442,6 +1448,15 @@ function LinhaDeFonte({
             travada={travada}
           />
         )}
+        {/*
+          A tela do Promax fotografada, para quem confere sem esperar o
+          relatório — mora no corpo da linha, não na coluna de botões, porque
+          o que ela produz é rascunho de leitura, e o rascunho fica perto do
+          texto que ele explica.
+        */}
+        {aceitaImagem && (
+          <LeituraDaImagemDaFrota tipo={fonte.tipo} travada={travada} />
+        )}
       </div>
       <div className="shrink-0">
         <input
@@ -1479,6 +1494,169 @@ function LinhaDeFonte({
         </span>
       </div>
     </li>
+  );
+}
+
+/**
+ * A TELA DO PROMAX FOTOGRAFADA — rascunho para bater o olho, não fonte da conta.
+ *
+ * Existe porque quem fecha a quinzena às vezes tem a tela do Promax aberta e
+ * não o relatório exportado — e esperar pelo `.xlsx` para conferir os totais
+ * é um passo a mais que a foto resolve na hora. O que sai daqui **não vira
+ * documento**: a leitura por imagem não passa por `receberDocumento`, não
+ * grava nada, e o relatório continua sendo o que a apuração de fato consome
+ * (ver `compararFrotaDaCompetencia`, que lê placa a placa — a tela mostra só
+ * totais por categoria, sem placa nenhuma).
+ *
+ * **Sem correspondência com o contrato, de propósito.** A grade mostra a
+ * imagem como ela é — "Padrão", "Fixo", "MKT"… — e não tenta casar essas
+ * colunas com "Frota Ativa"/"Frota Inativa" do contrato: essa correspondência
+ * ainda não foi confirmada com a operação (ver o TODO em `TipoDeFonte`). É
+ * por isso que a leitura fica ao lado da grade do contrato, na etapa 1, em
+ * vez de somada a ela — quem compara é a pessoa, célula a célula.
+ */
+function LeituraDaImagemDaFrota({
+  tipo,
+  travada,
+}: {
+  tipo: TipoDeFonte;
+  travada: boolean;
+}) {
+  const campo = useRef<HTMLInputElement>(null);
+  const [aberta, setAberta] = useState(false);
+
+  const ler = useMutation({
+    mutationFn: (arquivo: File) => lerGradeDaImagem(tipo, arquivo),
+    onSuccess: () => setAberta(true),
+  });
+
+  const leitura = ler.data;
+
+  return (
+    <div className="mt-2 ml-6">
+      <input
+        ref={campo}
+        type="file"
+        className="hidden"
+        accept="image/png,image/jpeg,image/webp,image/gif"
+        onChange={(e) => {
+          const arquivo = e.target.files?.[0];
+          e.target.value = "";
+          if (arquivo) ler.mutate(arquivo);
+        }}
+      />
+      <span
+        title={
+          travada ? "A quinzena está fechada — reabra para conferir." : undefined
+        }
+      >
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 text-xs text-muted-foreground"
+          disabled={ler.isPending || travada}
+          onClick={() => campo.current?.click()}
+        >
+          {ler.isPending ? (
+            <>
+              <ScanLine className="w-3.5 h-3.5 mr-1.5 animate-pulse" />
+              Lendo a imagem…
+            </>
+          ) : (
+            <>
+              <ImageUp className="w-3.5 h-3.5 mr-1.5" />
+              Conferir com uma foto da tela do Promax
+            </>
+          )}
+        </Button>
+      </span>
+
+      {ler.isError && (
+        <p className="text-xs text-destructive mt-1">{textoDoErro(ler.error)}</p>
+      )}
+
+      {leitura && leitura.motivo === "SEM_CHAVE" && (
+        <p className="text-xs text-muted-foreground mt-1">
+          A leitura de imagem não está configurada neste ambiente.
+        </p>
+      )}
+      {leitura && (leitura.motivo === "RECUSA" || leitura.motivo === "ERRO") && (
+        <p className="text-xs text-muted-foreground mt-1">
+          {leitura.erro ??
+            "Não consegui ler esta imagem. Um print da tela inteira, sem corte, costuma resolver."}
+        </p>
+      )}
+      {leitura && leitura.motivo === "IA" && aberta && (
+        <div className="mt-2">
+          {leitura.celulas.length === 0 ? (
+            <p className="text-xs text-muted-foreground">
+              Não achei nenhuma célula nesta imagem — confira se é a tela de
+              frota do Promax.
+            </p>
+          ) : (
+            <>
+              <GradeLivre celulas={leitura.celulas} />
+              <p className="text-xs text-muted-foreground/80 mt-1.5">
+                Rascunho da imagem — nada foi salvo. Compare com a grade do
+                contrato acima; esta tela não sabe se as categorias
+                correspondem às de lá.
+              </p>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Uma grade sem catálogo — linha e coluna são o texto que a imagem mostrou. */
+function GradeLivre({ celulas }: { celulas: CelulaDaGrade[] }) {
+  const linhas = [...new Set(celulas.map((c) => c.linha))];
+  const colunas = [...new Set(celulas.map((c) => c.coluna))];
+  const porCelula = new Map(celulas.map((c) => [`${c.linha} ${c.coluna}`, c]));
+
+  return (
+    <div className="max-w-2xl overflow-x-auto rounded-md border">
+      <table className="text-xs w-full min-w-max">
+        <thead className="bg-muted/50">
+          <tr>
+            <th className="text-left font-medium px-2 py-1.5" />
+            {colunas.map((coluna) => (
+              <th
+                key={coluna}
+                className="text-right font-medium px-2 py-1.5 whitespace-nowrap"
+              >
+                {coluna}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {linhas.map((linha) => (
+            <tr key={linha} className="border-t">
+              <td className="px-2 py-1.5 text-muted-foreground whitespace-nowrap">
+                {linha}
+              </td>
+              {colunas.map((coluna) => {
+                const celula = porCelula.get(`${linha} ${coluna}`);
+                return (
+                  <td
+                    key={coluna}
+                    className="px-2 py-1.5 text-right tabular-nums"
+                  >
+                    {celula ? (
+                      celula.comoEstaNaImagem
+                    ) : (
+                      <span className="text-muted-foreground/40">—</span>
+                    )}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
