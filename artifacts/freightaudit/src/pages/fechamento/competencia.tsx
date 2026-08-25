@@ -699,7 +699,7 @@ export default function CompetenciaAberta({ id }: { id: string }) {
                     continua à vista, ao lado do ícone.
                   */}
                   <div className="flex items-start justify-between gap-3">
-                    {etapa.nota ? (
+                    {etapa.nota && etapa.numero !== 3 ? (
                       <p className="text-xs text-muted-foreground max-w-2xl border-l-2 border-border pl-2">
                         {etapa.nota}
                       </p>
@@ -716,66 +716,75 @@ export default function CompetenciaAberta({ id }: { id: string }) {
                     inteira nunca aparecia para a etapa 1, e a peça do
                     contrato ficava morta atrás de uma condição que nunca via.
                   */}
-                  {(doRoteiro.length > 0 || etapa.numero === 1) && (
-                    <ul className="divide-y mt-1">
-                      {doRoteiro.map((fonte) => (
-                        <LinhaDeFonte
-                          key={fonte.tipo}
-                          fonte={fonte}
-                          documento={vigentes.get(fonte.tipo)}
-                          competenciaId={id}
-                          semVerba={
-                            estadoDaFonte(vigentes.get(fonte.tipo)) ===
-                            "SEM_VERBA"
-                          }
-                          foraDaQuinzena={
-                            !fonte.quinzenas.includes(competencia.quinzena) &&
-                            !fonte.quinzenasOpcionais.includes(
+                  {/*
+                    A etapa 3 não recebe mais arquivo por aqui: a
+                    disponibilidade vai ganhar um módulo próprio, e até lá
+                    esta etapa só avisa disso — ver `PlaceholderDaDisponibilidade`.
+                  */}
+                  {etapa.numero === 3 ? (
+                    <PlaceholderDaDisponibilidade />
+                  ) : (
+                    (doRoteiro.length > 0 || etapa.numero === 1) && (
+                      <ul className="divide-y mt-1">
+                        {doRoteiro.map((fonte) => (
+                          <LinhaDeFonte
+                            key={fonte.tipo}
+                            fonte={fonte}
+                            documento={vigentes.get(fonte.tipo)}
+                            competenciaId={id}
+                            semVerba={
+                              estadoDaFonte(vigentes.get(fonte.tipo)) ===
+                              "SEM_VERBA"
+                            }
+                            foraDaQuinzena={
+                              !fonte.quinzenas.includes(competencia.quinzena) &&
+                              !fonte.quinzenasOpcionais.includes(
+                                competencia.quinzena,
+                              )
+                            }
+                            opcionalNaQuinzena={fonte.quinzenasOpcionais.includes(
                               competencia.quinzena,
-                            )
-                          }
-                          opcionalNaQuinzena={fonte.quinzenasOpcionais.includes(
-                            competencia.quinzena,
-                          )}
-                          quinzena={competencia.quinzena}
-                          enviando={
-                            enviar.isPending &&
-                            enviar.variables?.tipo === fonte.tipo
-                          }
-                          travada={encerrada}
-                          onArquivo={(arquivo) =>
-                            enviar.mutate({ tipo: fonte.tipo, arquivo })
-                          }
-                          contrato={dados.data?.contrato ?? null}
-                          leituraDeImagem={leiturasDeFrota[fonte.tipo]}
-                          onLeituraDeImagem={(leitura) => {
-                            gravarRascunhoDeImagem(id, fonte.tipo, leitura);
-                            setLeiturasDeFrota((m) => ({
-                              ...m,
-                              [fonte.tipo]: leitura,
-                            }));
-                          }}
-                          onLimparLeituraDeImagem={() => {
-                            gravarRascunhoDeImagem(id, fonte.tipo, null);
-                            setLeiturasDeFrota((m) => {
-                              const { [fonte.tipo]: _descartado, ...resto } = m;
-                              return resto;
-                            });
-                          }}
-                        />
-                      ))}
-                      {/*
-                        A peça que não é arquivo. Mora na etapa 1 porque é ali
-                        que se pergunta "quanto deveria ser pago" — a mesma
-                        razão de ela viver no grupo do devido antes do roteiro.
-                      */}
-                      {etapa.numero === 1 && (
-                        <LinhaDoContrato
-                          contrato={dados.data?.contrato ?? null}
-                          quinzena={competencia.quinzena}
-                        />
-                      )}
-                    </ul>
+                            )}
+                            quinzena={competencia.quinzena}
+                            enviando={
+                              enviar.isPending &&
+                              enviar.variables?.tipo === fonte.tipo
+                            }
+                            travada={encerrada}
+                            onArquivo={(arquivo) =>
+                              enviar.mutate({ tipo: fonte.tipo, arquivo })
+                            }
+                            contrato={dados.data?.contrato ?? null}
+                            leituraDeImagem={leiturasDeFrota[fonte.tipo]}
+                            onLeituraDeImagem={(leitura) => {
+                              gravarRascunhoDeImagem(id, fonte.tipo, leitura);
+                              setLeiturasDeFrota((m) => ({
+                                ...m,
+                                [fonte.tipo]: leitura,
+                              }));
+                            }}
+                            onLimparLeituraDeImagem={() => {
+                              gravarRascunhoDeImagem(id, fonte.tipo, null);
+                              setLeiturasDeFrota((m) => {
+                                const { [fonte.tipo]: _descartado, ...resto } = m;
+                                return resto;
+                              });
+                            }}
+                          />
+                        ))}
+                        {/*
+                          A peça que não é arquivo. Mora na etapa 1 porque é ali
+                          que se pergunta "quanto deveria ser pago" — a mesma
+                          razão de ela viver no grupo do devido antes do roteiro.
+                        */}
+                        {etapa.numero === 1 && (
+                          <LinhaDoContrato
+                            contrato={dados.data?.contrato ?? null}
+                            quinzena={competencia.quinzena}
+                          />
+                        )}
+                      </ul>
+                    )
                   )}
 
                   <DentroDaEtapa
@@ -1056,6 +1065,33 @@ export default function CompetenciaAberta({ id }: { id: string }) {
         )}
       </div>
     </Layout>
+  );
+}
+
+/**
+ * A ETAPA DE DISPONIBILIDADE, sem envio — até o módulo próprio existir.
+ *
+ * O envio do 03.08.18 (FF e Vans) saiu desta etapa: a disponibilidade vai
+ * ganhar uma tela própria, fora do fechamento, e até lá não há para onde
+ * enviar o arquivo aqui. O botão fica desabilitado de propósito — não há
+ * rota ainda para prometer, e um link morto seria pior que nenhum link.
+ */
+function PlaceholderDaDisponibilidade() {
+  return (
+    <div className="py-4 flex items-start gap-3">
+      <Info className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
+      <div className="min-w-0 space-y-2">
+        <p className="text-sm text-muted-foreground">
+          Em breve dará para acompanhar a disponibilidade de veículos — frota
+          fixa e vans — num módulo próprio, fora do fechamento.
+        </p>
+        <span title="Ainda não existe — o módulo está a caminho.">
+          <Button variant="outline" size="sm" disabled>
+            Ir para Disponibilidade de veículos
+          </Button>
+        </span>
+      </div>
+    </div>
   );
 }
 
