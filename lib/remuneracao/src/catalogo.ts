@@ -154,6 +154,36 @@ const SEM_RUBRICA = (rubrica: string, candidatas: string): Origem => ({
 });
 
 /**
+ * As categorias do Promax sem contrapartida confirmada no contrato.
+ *
+ * Refrigeração, Especial e Recarga aparecem na tela de frota do Promax (ver
+ * `@workspace/fechamento/frota-promax-categorias`) e nenhuma delas corresponde
+ * a uma célula confirmada da aba `Cadastro` real, nem a uma fórmula do
+ * `RESUMO GERAL` que a some ao devido — ao contrário de Marketing, cuja
+ * célula e fórmula (`CUSTO FIXO - ESPECIAIS`) estão confirmadas. Registrar o
+ * número aqui é cadastro puro, para que exista registro; `contrato.ts` não lê
+ * estas três chaves, e inventar a fórmula que as levaria ao devido seria
+ * exatamente o erro que este catálogo recusa.
+ */
+const SEM_FORMULA_PROMAX = (categoria: string): Origem => ({
+  tipo: "SEM_ORIGEM",
+  motivo:
+    `"${categoria}" é uma categoria da tela de frota do Promax, sem célula ` +
+    "confirmada na aba `Cadastro` real e sem fórmula do `RESUMO GERAL` que a " +
+    "some ao devido. O valor fica registrado no cadastro — não entra em " +
+    "nenhuma conta.",
+  destrava:
+    `A confirmação, na curadoria, de qual célula da planilha real (se ` +
+    `houver) corresponde a "${categoria}", e a fórmula do RESUMO GERAL que a ` +
+    "soma ao devido.",
+  hoje: {
+    href: "/frota-360",
+    label: "Frota 360°",
+    porque: "A frota da vigência por categoria do Promax, como a tela a mostra hoje.",
+  },
+});
+
+/**
  * O cadastro, bloco a bloco, na ordem em que a aba os apresenta.
  *
  * A ordem é a da planilha e não a da facilidade: quem confere abre as duas
@@ -161,6 +191,11 @@ const SEM_RUBRICA = (rubrica: string, candidatas: string): Origem => ({
  * mesmo vale para os rótulos, que são os literais da aba — inclusive
  * "SRTRANS FIXO" e "(PADRÃO)", que só significam alguma coisa para quem já
  * usa a planilha, e que por isso mesmo não podem ser "melhorados" aqui.
+ *
+ * **Os três últimos blocos são a exceção deliberada.** Refrigeração, Especial
+ * e Recarga não vêm da aba `Cadastro` — vêm da tela de frota do Promax, e por
+ * isso ficam depois dos que a planilha define, na ordem em que a decisão de
+ * incluí-los foi tomada, e não intercalados como se fossem parte dela.
  */
 export const BLOCOS_DO_CADASTRO: BlocoDoCadastro[] = [
   {
@@ -522,6 +557,51 @@ export const BLOCOS_DO_CADASTRO: BlocoDoCadastro[] = [
         medida: "PERCENTUAL",
         preenchimento: "AUTOMATICO",
         origem: { tipo: "RESUMO_DE_IMPOSTOS", tributo: "ICMS" },
+      },
+    ],
+  },
+  {
+    titulo: "REFRIGERAÇÃO (PROMAX)",
+    resumo:
+      "O valor da categoria Refrigeração na tela de frota do Promax — cadastro puro, sem " +
+      "fórmula confirmada que a leve ao devido (ver a nota acima de SEM_FORMULA_PROMAX).",
+    linhas: [
+      {
+        chave: "promax_refrigeracao",
+        rotulo: "Refrigeração",
+        medida: "DINHEIRO",
+        preenchimento: "INFORMADO",
+        origem: SEM_FORMULA_PROMAX("Refrigeração"),
+      },
+    ],
+  },
+  {
+    titulo: "ESPECIAL (PROMAX)",
+    resumo:
+      "O valor da categoria Especial na tela de frota do Promax — cadastro puro, sem fórmula " +
+      "confirmada que a leve ao devido.",
+    linhas: [
+      {
+        chave: "promax_especial",
+        rotulo: "Especial",
+        medida: "DINHEIRO",
+        preenchimento: "INFORMADO",
+        origem: SEM_FORMULA_PROMAX("Especial"),
+      },
+    ],
+  },
+  {
+    titulo: "RECARGA (PROMAX)",
+    resumo:
+      "O valor da categoria Recarga na tela de frota do Promax — cadastro puro, sem fórmula " +
+      "confirmada que a leve ao devido.",
+    linhas: [
+      {
+        chave: "promax_recarga",
+        rotulo: "Recarga",
+        medida: "DINHEIRO",
+        preenchimento: "INFORMADO",
+        origem: SEM_FORMULA_PROMAX("Recarga"),
       },
     ],
   },

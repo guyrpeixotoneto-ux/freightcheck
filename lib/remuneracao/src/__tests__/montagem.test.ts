@@ -124,13 +124,13 @@ describe("o cadastro montado", () => {
     medidas, o par PIS + COFINS, os três recortes de frota, as duas proporções
     de documento e as duas linhas do resumo de impostos.
   */
-  it("apura onze das trinta linhas sobre um acervo completo", () => {
+  it("apura onze das trinta e três linhas sobre um acervo completo", () => {
     expect(montarCadastro(VIGENCIA_COMPLETA).resumo).toEqual({
-      linhas: 30,
+      linhas: 33,
       apuradas: 9,
       informadas: 0,
       emConjunto: 2,
-      semLastro: 19,
+      semLastro: 22,
       comLastro: 11,
       conferidas: 0,
       divergentes: 0,
@@ -146,13 +146,13 @@ describe("o cadastro montado", () => {
     É a diferença entre uma tela vazia e uma tela que explica por que está
     vazia.
   */
-  it("não apura nada sem acervo, e ainda assim entrega as trinta linhas", () => {
+  it("não apura nada sem acervo, e ainda assim entrega as trinta e três linhas", () => {
     expect(montarCadastro(VIGENCIA_VAZIA).resumo).toEqual({
-      linhas: 30,
+      linhas: 33,
       apuradas: 0,
       informadas: 0,
       emConjunto: 0,
-      semLastro: 30,
+      semLastro: 33,
       comLastro: 0,
       conferidas: 0,
       divergentes: 0,
