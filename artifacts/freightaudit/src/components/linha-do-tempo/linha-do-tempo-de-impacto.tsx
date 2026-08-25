@@ -60,6 +60,11 @@ export function LinhaDoTempoDeImpacto({
   const abrirParametro = (parameterKey: string, periodicidade: string) =>
     setAbertura({ tipo: "parametro", parameterKey, periodicidade });
 
+  // Qual periodicidade a linha do tempo mostra — MENSAL e ANUAL contam a
+  // mesma vigência de formas diferentes, então mostrá-las ao mesmo tempo faz
+  // o mesmo mês parecer repetido. Uma aba de cada vez resolve isso.
+  const [periodicidadeDaAba, setPeriodicidadeDaAba] = useState<string | null>(null);
+
   const movimentos = useQuery({
     queryKey: ["linha-do-tempo-de-impacto", query.toString()],
     queryFn: () => fetchJsonOrNull<Movimentos>(`/changes/range?${query}`),
@@ -102,6 +107,7 @@ export function LinhaDoTempoDeImpacto({
   const periodicidades = [
     ...new Set(linhas.flatMap((m) => Object.keys(m.impact.byPeriodicity))),
   ].sort();
+  const periodicidadeSelecionada = periodicidadeDaAba ?? periodicidades[0];
 
   /*
     A periodicidade que o cabeçalho conta — a de maior movimento absoluto no
@@ -152,15 +158,32 @@ export function LinhaDoTempoDeImpacto({
             {periodicidades.length === 0 ? (
               <ContagemPorVigencia linhas={linhas} recorteBase={recorteBase} />
             ) : (
-              <div className="space-y-6">
-                {periodicidades.map((periodicidade) => (
-                  <LinhaDoTempoDaPeriodicidade
-                    key={periodicidade}
-                    periodicidade={periodicidade}
-                    linhas={linhas}
-                    recorteBase={recorteBase}
-                  />
-                ))}
+              <div className="space-y-3">
+                {periodicidades.length > 1 && (
+                  <div className="inline-flex rounded-lg border p-0.5 text-xs font-semibold">
+                    {periodicidades.map((periodicidade) => (
+                      <button
+                        key={periodicidade}
+                        type="button"
+                        onClick={() => setPeriodicidadeDaAba(periodicidade)}
+                        aria-pressed={periodicidade === periodicidadeSelecionada}
+                        className={cn(
+                          "rounded-md px-3 py-1 transition-colors",
+                          periodicidade === periodicidadeSelecionada
+                            ? "bg-accent text-foreground"
+                            : "text-muted-foreground hover:text-foreground",
+                        )}
+                      >
+                        R${periodicitySuffix(periodicidade)}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <LinhaDoTempoDaPeriodicidade
+                  periodicidade={periodicidadeSelecionada}
+                  linhas={linhas}
+                  recorteBase={recorteBase}
+                />
               </div>
             )}
           </div>
@@ -540,7 +563,9 @@ function OndeEstaOImpacto({
               <div className="flex items-center justify-between gap-2 text-sm">
                 <span className="flex items-center gap-1.5 min-w-0">
                   <span className="text-xs text-muted-foreground w-3 shrink-0">{indice + 1}</span>
-                  <span className="font-semibold truncate">{unidade.label}</span>
+                  <span className="font-semibold truncate" title={unidade.label}>
+                    {unidade.label}
+                  </span>
                 </span>
                 <span
                   className={cn(
