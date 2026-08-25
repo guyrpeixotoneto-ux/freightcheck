@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   apenasCanalRota,
+  consolidarDuplicatasExatas,
   verbasRepetidas,
   type VbzRepetida,
 } from "../pagamento-por-canal";
@@ -184,5 +185,124 @@ describe("verbasRepetidas", () => {
     const achadasSemFiltro = verbasRepetidas(itens);
     expect(achadasSemFiltro.map((a) => a.vbz)).toEqual([1, 20]);
     expect(achadasSemFiltro.find((a) => a.vbz === 20)?.classificacao).toBe("DIVERGENTE");
+  });
+});
+
+describe("consolidarDuplicatasExatas", () => {
+  it("sem repetição nenhuma, devolve a lista intacta e nenhuma consolidação", () => {
+    const itens = [
+      item({ linha: 1, verba: { vbz: 1, nome: "Frota Fixa Ativa" } }),
+      item({ linha: 2, verba: { vbz: 2, nome: "Equipe Entrega Ativa" } }),
+    ];
+
+    const resultado = consolidarDuplicatasExatas(itens);
+
+    expect(resultado.itens).toEqual(itens);
+    expect(resultado.consolidadas).toEqual([]);
+  });
+
+  it("duas linhas idênticas → sobra uma, a de menor linha física", () => {
+    const linha9 = item({
+      linha: 9,
+      verba: { vbz: 1, nome: "Frota Fixa Ativa" },
+      valorFaturado: 17_039.35,
+    });
+    const linha10 = item({
+      linha: 10,
+      verba: { vbz: 1, nome: "Frota Fixa Ativa" },
+      valorFaturado: 17_039.35,
+    });
+
+    const resultado = consolidarDuplicatasExatas([linha9, linha10]);
+
+    expect(resultado.itens).toEqual([linha9]);
+    expect(resultado.consolidadas).toEqual([
+      { vbz: 1, nome: "Frota Fixa Ativa", bloco: "FRETE", linhaMantida: 9, linhasRemovidas: [10] },
+    ]);
+  });
+
+  it("mantém a linha física mais baixa mesmo quando o array chega fora de ordem", () => {
+    const linha15 = item({ linha: 15, verba: { vbz: 3, nome: "Despesa Administrativa" } });
+    const linha6 = item({ linha: 6, verba: { vbz: 3, nome: "Despesa Administrativa" } });
+
+    /* Ordem proposital: a maior linha física chega primeiro no array. */
+    const resultado = consolidarDuplicatasExatas([linha15, linha6]);
+
+    expect(resultado.itens).toEqual([linha6]);
+    expect(resultado.consolidadas[0]).toMatchObject({ linhaMantida: 6, linhasRemovidas: [15] });
+  });
+
+  it("três ocorrências idênticas → sobra uma, as outras duas ficam em linhasRemovidas", () => {
+    const itens = [
+      item({ linha: 1, verba: { vbz: 4, nome: "Frota Fixa Inativa" } }),
+      item({ linha: 2, verba: { vbz: 4, nome: "Frota Fixa Inativa" } }),
+      item({ linha: 3, verba: { vbz: 4, nome: "Frota Fixa Inativa" } }),
+    ];
+
+    const resultado = consolidarDuplicatasExatas(itens);
+
+    expect(resultado.itens).toHaveLength(1);
+    expect(resultado.itens[0].linha).toBe(1);
+    expect(resultado.consolidadas[0].linhasRemovidas).toEqual([2, 3]);
+  });
+
+  it("valores divergentes não são consolidados — as duas linhas continuam", () => {
+    const linha9 = item({
+      linha: 9,
+      verba: { vbz: 1, nome: "Frota Fixa Ativa" },
+      valorFaturado: 17_039.35,
+    });
+    const linha10 = item({
+      linha: 10,
+      verba: { vbz: 1, nome: "Frota Fixa Ativa" },
+      valorFaturado: 20_000.0,
+    });
+
+    const resultado = consolidarDuplicatasExatas([linha9, linha10]);
+
+    expect(resultado.itens).toEqual([linha9, linha10]);
+    expect(resultado.consolidadas).toEqual([]);
+  });
+
+  it("mesma VBZ em blocos diferentes não é consolidada — as duas pertencem a naturezas distintas", () => {
+    const frete = item({ linha: 5, bloco: "FRETE", verba: { vbz: 7, nome: "Freteiro" } });
+    const outros = item({
+      linha: 15,
+      bloco: "OUTROS_CUSTOS",
+      verba: { vbz: 7, nome: "Freteiro" },
+    });
+
+    const resultado = consolidarDuplicatasExatas([frete, outros]);
+
+    expect(resultado.itens).toEqual([frete, outros]);
+    expect(resultado.consolidadas).toEqual([]);
+  });
+
+  it("um bloco com duplicata idêntica e outra VBZ divergente — só a idêntica é reduzida", () => {
+    const itens = [
+      item({ linha: 1, verba: { vbz: 1, nome: "Frota Fixa Ativa" }, valorFaturado: 100 }),
+      item({ linha: 2, verba: { vbz: 1, nome: "Frota Fixa Ativa" }, valorFaturado: 100 }),
+      item({ linha: 3, verba: { vbz: 2, nome: "Equipe Entrega Ativa" }, valorFaturado: 200 }),
+      item({ linha: 4, verba: { vbz: 2, nome: "Equipe Entrega Ativa" }, valorFaturado: 999 }),
+    ];
+
+    const resultado = consolidarDuplicatasExatas(itens);
+
+    expect(resultado.itens.map((i) => i.linha)).toEqual([1, 3, 4]);
+    expect(resultado.consolidadas).toEqual([
+      { vbz: 1, nome: "Frota Fixa Ativa", bloco: "FRETE", linhaMantida: 1, linhasRemovidas: [2] },
+    ]);
+  });
+
+  it("o total do bloco, somado sobre o resultado consolidado, conta a verba uma vez só", () => {
+    const itens = [
+      item({ linha: 9, verba: { vbz: 1, nome: "Frota Fixa Ativa" }, valorFaturado: 17_039.35 }),
+      item({ linha: 10, verba: { vbz: 1, nome: "Frota Fixa Ativa" }, valorFaturado: 17_039.35 }),
+    ];
+
+    const { itens: consolidados } = consolidarDuplicatasExatas(itens);
+    const total = consolidados.reduce((soma, i) => soma + i.valorFaturado, 0);
+
+    expect(total).toBe(17_039.35);
   });
 });

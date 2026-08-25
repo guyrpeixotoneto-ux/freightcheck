@@ -59,16 +59,18 @@ function mesmosValores(a: ItemDePagamento, b: ItemDePagamento): boolean {
  *
  * **As duas classificações pedem coisas diferentes de quem fecha a quinzena.**
  * Valores idênticos é o caso mais provável de o exportador ter duplicado a
- * seção — conferir as linhas apontadas contra o arquivo original geralmente
- * resolve rápido. Valores divergentes é mais grave: a mesma verba com dois
- * valores diferentes não tem explicação óbvia — o mais provável é o 03.08.20
- * ter mesmo declarado a VBZ duas vezes, e isso precisa voltar para a Ambev
- * antes de fechar, não ser decidido aqui.
+ * seção — a mesma linha entrou duas vezes no arquivo, byte a byte, e é isso
+ * que {@link consolidarDuplicatasExatas} resolve para a tela. Valores
+ * divergentes é mais grave: a mesma verba com dois valores diferentes não tem
+ * explicação óbvia — o mais provável é o 03.08.20 ter mesmo declarado a VBZ
+ * duas vezes, e isso precisa voltar para a Ambev antes de fechar, não ser
+ * decidido aqui.
  *
- * **Nunca deduplica, nunca soma.** As duas classificações só relatam o que o
- * arquivo trouxe; a tabela abaixo continua mostrando toda linha, e o total do
- * bloco continua somando todas elas. Escolher qual linha "vale" seria inventar
- * um dado que o 03.08.20 não decidiu.
+ * **Esta função em si não deduplica nem soma — só relata.** Quem decide o que
+ * fazer com o achado é quem chama: {@link consolidarDuplicatasExatas} usa o
+ * resultado para reduzir as `IDENTICA` a uma linha só; as `DIVERGENTE`
+ * continuam intactas em qualquer uso, porque ali não há linha "sobrando" para
+ * remover — as duas dizem coisas diferentes.
  */
 export function verbasRepetidas(itens: readonly ItemDePagamento[]): VbzRepetida[] {
   const grupos = new Map<string, ItemDePagamento[]>();
@@ -93,4 +95,53 @@ export function verbasRepetidas(itens: readonly ItemDePagamento[]): VbzRepetida[
     });
   }
   return achadas.sort((a, b) => a.vbz - b.vbz);
+}
+
+export interface DuplicataExataConsolidada {
+  vbz: number;
+  nome: string;
+  bloco: string;
+  /** A linha física que a tela mantém — a primeira, pela ordem do arquivo. */
+  linhaMantida: number;
+  /** As linhas idênticas que a tela deixou de mostrar. */
+  linhasRemovidas: number[];
+}
+
+/**
+ * A mesma lista de itens, com toda VBZ **exatamente** repetida no mesmo bloco
+ * reduzida a uma única linha — mantendo a de menor linha física, pela ordem em
+ * que o arquivo as trouxe.
+ *
+ * **Por que só a `IDENTICA` some, e a `DIVERGENTE` nunca.** Duas linhas com os
+ * mesmos seis valores não carregam informação nova uma da outra — é a mesma
+ * afirmação, repetida, e mostrar as duas só faz a etapa 4 parecer que a Ambev
+ * paga a verba em dobro quando ela não paga. Duas linhas com valores
+ * diferentes são duas afirmações diferentes: reter uma e descartar a outra
+ * inventaria qual delas vale, e essa decisão é da Ambev, não desta tela — por
+ * isso `verbasRepetidas` continua reportando as `DIVERGENTE` e esta função as
+ * deixa todas na lista.
+ *
+ * **Retorna o que foi consolidado, e não só a lista enxuta.** A tela precisa
+ * dizer que uma redução aconteceu — sumir uma linha calado é o oposto do que
+ * este módulo inteiro existe para evitar.
+ */
+export function consolidarDuplicatasExatas(itens: readonly ItemDePagamento[]): {
+  itens: ItemDePagamento[];
+  consolidadas: DuplicataExataConsolidada[];
+} {
+  const identicas = verbasRepetidas(itens).filter((r) => r.classificacao === "IDENTICA");
+  if (identicas.length === 0) return { itens: [...itens], consolidadas: [] };
+
+  const linhasARemover = new Set<number>();
+  const consolidadas: DuplicataExataConsolidada[] = identicas.map((r) => {
+    const linhas = r.ocorrencias.map((o) => o.linha).sort((a, b) => a - b);
+    const [linhaMantida, ...linhasRemovidas] = linhas;
+    for (const linha of linhasRemovidas) linhasARemover.add(linha);
+    return { vbz: r.vbz, nome: r.nome, bloco: r.bloco, linhaMantida, linhasRemovidas };
+  });
+
+  return {
+    itens: itens.filter((i) => !linhasARemover.has(i.linha)),
+    consolidadas,
+  };
 }

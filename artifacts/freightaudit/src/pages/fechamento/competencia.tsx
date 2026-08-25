@@ -88,7 +88,11 @@ import {
   type TotaisDoPagamento,
 } from "@/lib/fechamento";
 import { ROTEIRO, type EtapaDoRoteiro } from "./roteiro";
-import { apenasCanalRota, verbasRepetidas } from "./pagamento-por-canal";
+import {
+  apenasCanalRota,
+  consolidarDuplicatasExatas,
+  verbasRepetidas,
+} from "./pagamento-por-canal";
 import {
   normalizarCategoria,
   resolverValorDoContrato,
@@ -2259,9 +2263,15 @@ function GradeDoPagamentoPorCanal({
   canal: string;
   itens: ItemDePagamento[];
 }) {
-  const repetidas = verbasRepetidas(itens);
-  const identicas = repetidas.filter((r) => r.classificacao === "IDENTICA");
-  const divergentes = repetidas.filter((r) => r.classificacao === "DIVERGENTE");
+  /*
+    As DIVERGENTE são relatadas sobre a lista inteira, antes de consolidar —
+    nenhuma linha delas some, então não importa se `consolidarDuplicatasExatas`
+    ainda não rodou. As IDENTICA, em vez de só relatadas, são reduzidas a uma
+    linha: é o pedido de quem opera — "se é a mesma informação duas vezes,
+    mostra só uma vez".
+  */
+  const divergentes = verbasRepetidas(itens).filter((r) => r.classificacao === "DIVERGENTE");
+  const { itens: itensExibidos, consolidadas } = consolidarDuplicatasExatas(itens);
   return (
     <div className="rounded-md border p-3">
       <p className="text-xs font-medium">
@@ -2287,35 +2297,36 @@ function GradeDoPagamentoPorCanal({
           <p className="text-xs text-muted-foreground/80 mt-1 max-w-2xl">
             A mesma verba, no mesmo bloco, com valores diferentes não tem
             explicação óbvia — confira com a Ambev antes de fechar. Nenhuma
-            linha foi somada ou removida.
+            linha foi somada ou removida; as duas continuam na tabela abaixo.
           </p>
         </div>
       )}
-      {identicas.length > 0 && (
-        <div className="mt-1.5 rounded-md bg-amber-500/5 border border-amber-500/20 p-2">
-          <p className="text-xs font-medium text-amber-700 dark:text-amber-400">
-            {identicas.length === 1
-              ? "Uma verba aparece repetida com os mesmos valores — possível duplicidade"
-              : `${identicas.length} verbas aparecem repetidas com os mesmos valores — possível duplicidade`}
+      {consolidadas.length > 0 && (
+        <div className="mt-1.5 rounded-md bg-blue-500/5 border border-blue-500/20 p-2">
+          <p className="text-xs font-medium text-blue-700 dark:text-blue-400">
+            {consolidadas.length === 1
+              ? "Uma verba estava duplicada no arquivo — mostrando uma só ocorrência"
+              : `${consolidadas.length} verbas estavam duplicadas no arquivo — mostrando uma só ocorrência de cada`}
           </p>
           <ul className="mt-1 space-y-0.5">
-            {identicas.map((d) => (
+            {consolidadas.map((d) => (
               <li key={`${d.bloco}-${d.vbz}`} className="text-xs text-muted-foreground">
-                {String(d.vbz).padStart(2, "0")} - {d.nome} ({d.bloco}): linhas{" "}
-                {d.ocorrencias.map((o) => o.linha).join(", ")} do arquivo
+                {String(d.vbz).padStart(2, "0")} - {d.nome} ({d.bloco}): mantida a linha{" "}
+                {d.linhaMantida}, idêntica à{" "}
+                {d.linhasRemovidas.length === 1 ? "linha" : "linhas"}{" "}
+                {d.linhasRemovidas.join(", ")}
               </li>
             ))}
           </ul>
           <p className="text-xs text-muted-foreground/80 mt-1 max-w-2xl">
-            Pode ser o 03.08.20 trazendo a verba duas vezes de fato, ou o
-            arquivo exportado com a seção repetida. Confira as linhas
-            apontadas no arquivo original antes de fechar. Nenhuma linha foi
-            somada ou removida.
+            As linhas tinham os seis valores idênticos — a mesma informação
+            duas vezes no arquivo. A tabela e os totais abaixo contam cada
+            verba uma única vez.
           </p>
         </div>
       )}
       {BLOCOS_DO_PAGAMENTO.map(({ titulo, chave }) => {
-        const doBloco = itens
+        const doBloco = itensExibidos
           .filter((i) => i.bloco === chave)
           .sort((a, b) => a.verba.vbz - b.verba.vbz);
         if (doBloco.length === 0) return null;
