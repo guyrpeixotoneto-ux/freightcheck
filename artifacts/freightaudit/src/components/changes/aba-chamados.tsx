@@ -201,12 +201,19 @@ export function AbaChamados({
   escopo,
   vigencias = {},
   onVigencias,
+  somenteLeitura = false,
 }: {
   escopo?: EscopoDeFrota;
   /** O recorte De/Até, partilhado com as outras abas de Alterações. */
   vigencias?: JanelaDeVigencias;
   /** Ausente nas telas 360°, que não oferecem o recorte. */
   onVigencias?: (j: JanelaDeVigencias) => void;
+  /**
+   * Alterações e as telas 360° só leem — importar e excluir um envio de
+   * chamados agora é coisa exclusiva do módulo Importações, que concentra
+   * todo tipo de envio numa aba só.
+   */
+  somenteLeitura?: boolean;
 } = {}) {
   const [filters, setFilters] = useState<TicketFilterState>(emptyTicketFilters);
   const [visao, setVisao] = useState<Visao>("resumo");
@@ -431,17 +438,19 @@ export function AbaChamados({
 
   return (
     <>
-      <input
-        ref={fileInput}
-        type="file"
-        accept=".xlsx,.csv"
-        className="hidden"
-        onChange={(e) => {
-          const file = e.target.files?.[0];
-          if (file) upload.mutate(file);
-          e.target.value = "";
-        }}
-      />
+      {!somenteLeitura && (
+        <input
+          ref={fileInput}
+          type="file"
+          accept=".xlsx,.csv"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) upload.mutate(file);
+            e.target.value = "";
+          }}
+        />
+      )}
 
       <div className="p-8 space-y-5">
         {/* De que arquivo saiu tudo o que está abaixo. Fica numa linha, e não
@@ -512,7 +521,7 @@ export function AbaChamados({
               botão, e sim a caixa seguinte, que diz quantos chamados saem antes
               de perguntar.
             */}
-            {run && (
+            {!somenteLeitura && run && (
               <Button
                 size="sm"
                 variant="ghost"
@@ -523,15 +532,17 @@ export function AbaChamados({
                 Excluir
               </Button>
             )}
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={escolherArquivo}
-              disabled={upload.isPending}
-            >
-              <Upload className="w-4 h-4 mr-1.5" />
-              {upload.isPending ? "Enviando…" : "Importar chamados"}
-            </Button>
+            {!somenteLeitura && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={escolherArquivo}
+                disabled={upload.isPending}
+              >
+                <Upload className="w-4 h-4 mr-1.5" />
+                {upload.isPending ? "Enviando…" : "Importar chamados"}
+              </Button>
+            )}
           </div>
         </div>
 
@@ -799,15 +810,18 @@ export function AbaChamados({
                       Um envio que falhou não aparece no seletor do topo — ele
                       lista só os lidos —, então este é o único lugar de onde
                       ele pode sair. Sem o botão aqui, o aviso do arquivo que
-                      não serviu ficaria na tela para sempre.
+                      não serviu ficaria na tela para sempre. Só existe fora do
+                      modo somente leitura: excluir é coisa de Importações.
                     */}
-                    <button
-                      onClick={() => setExcluindo(i)}
-                      className="ml-auto inline-flex items-center gap-1 text-xs font-medium text-red-700 underline underline-offset-2 hover:no-underline"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                      Excluir
-                    </button>
+                    {!somenteLeitura && (
+                      <button
+                        onClick={() => setExcluindo(i)}
+                        className="ml-auto inline-flex items-center gap-1 text-xs font-medium text-red-700 underline underline-offset-2 hover:no-underline"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        Excluir
+                      </button>
+                    )}
                     <p className="w-full text-muted-foreground">
                       {i.failureReason ?? "Sem motivo registrado."}
                     </p>
@@ -941,10 +955,22 @@ export function AbaChamados({
                 nome, e o que não for reconhecido aparece listado em vez de
                 sumir.
               </p>
-              <Button onClick={escolherArquivo} disabled={upload.isPending}>
-                <Upload className="w-4 h-4 mr-1.5" />
-                {upload.isPending ? "Enviando…" : "Importar export de chamados"}
-              </Button>
+              {somenteLeitura ? (
+                <p className="text-sm text-muted-foreground">
+                  Envie o arquivo em{" "}
+                  <strong className="text-foreground">
+                    Importações › Chamados
+                  </strong>
+                  .
+                </p>
+              ) : (
+                <Button onClick={escolherArquivo} disabled={upload.isPending}>
+                  <Upload className="w-4 h-4 mr-1.5" />
+                  {upload.isPending
+                    ? "Enviando…"
+                    : "Importar export de chamados"}
+                </Button>
+              )}
             </CardContent>
           </Card>
         )}
