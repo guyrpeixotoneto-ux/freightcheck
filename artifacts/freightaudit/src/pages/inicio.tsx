@@ -46,6 +46,7 @@ import {
 import { DetalheDoImpacto } from "@/components/inicio/detalhe-do-impacto";
 import { ComposicaoDoImpacto } from "@/components/inicio/composicao-do-impacto";
 import { ComposicaoDasAlteracoes } from "@/components/inicio/composicao-das-alteracoes";
+import { LinhaDoTempoDeImpacto } from "@/components/inicio/linha-do-tempo-de-impacto";
 import {
   cobertura,
   composicaoDasAlteracoes,
@@ -378,6 +379,12 @@ export default function Inicio() {
                 abrirGaveta({ composicao: periodicity, lado: lado ?? null })
               }
               onAbrirDetectadas={(foco) => abrirGaveta({ detectadas: foco })}
+            />
+
+            <LinhaDoTempoDeImpacto
+              consulta={consulta}
+              periods={view.periods}
+              currentPeriod={view.period}
             />
 
             <Atencao
