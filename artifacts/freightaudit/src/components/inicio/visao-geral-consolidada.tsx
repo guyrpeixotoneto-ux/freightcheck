@@ -411,7 +411,7 @@ function CartaoNumero({
     <button
       type="button"
       onClick={onClick}
-      className={cn(CARTAO, "px-5 py-4 text-left hover:bg-muted/40 transition-colors")}
+      className={cn(CARTAO, "px-5 py-4 text-left hover:bg-muted/40 transition-colors min-w-0")}
     >
       <div className="flex items-center gap-2 text-muted-foreground">
         <Icone className="w-4 h-4" />
@@ -419,7 +419,7 @@ function CartaoNumero({
       </div>
       <p
         className={cn(
-          "text-2xl font-extrabold mt-2",
+          "text-2xl font-extrabold mt-2 break-words",
           tom === "desfavoravel" && "text-red-700",
           tom === "favoravel" && "text-emerald-700",
         )}
