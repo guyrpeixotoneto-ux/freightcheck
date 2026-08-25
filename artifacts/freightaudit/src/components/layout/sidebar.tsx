@@ -30,6 +30,7 @@ import {
   LayoutDashboard,
   Layers,
   MapPin,
+  Radar,
   RefreshCcwDot,
   Route,
   Scale,
@@ -59,9 +60,11 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import {
   ambienteDe,
   BASES_DE_FECHAMENTO,
+  DASHBOARD,
   descricaoDoAmbiente,
   ehFechamento,
   ENTRADA_DA_AUDITORIA,
+  GESTAO_A_VISTA,
   LINHA_DO_TEMPO,
   RESUMO_EXECUTIVO,
   type Ambiente,
@@ -155,6 +158,19 @@ import { useSecoesRecolhidas } from "./preferencias";
  * lugar informa é o que ainda não se sabe.
  */
 export const NAV_GROUPS: NavGroup[] = [
+  {
+    /*
+      O Dashboard abre a lista, na frente da Visão executiva: é a tela de
+      vigilância — o que a Ambev mudou de uma vigência para a outra, antes de
+      se aprofundar em qualquer outra ferramenta. Um item só, como Compras:
+      quem entra aqui vem checar mudança, não navegar uma seção inteira.
+    */
+    titulo: "Dashboard",
+    descricao: "O que mudou desde a última competência, antes de tudo",
+    icon: Radar,
+    cor: "text-nav-executiva",
+    itens: [{ href: DASHBOARD, label: "Dashboard", icon: Radar }],
+  },
   {
     titulo: "Visão executiva",
     descricao: "O retrato do conjunto e o valor apurado",
@@ -1113,6 +1129,8 @@ export function detalheDe(contexto: Contexto): string {
  */
 const TELAS_QUE_HONRAM_ESCOPO = new Set<string>([
   RESUMO_EXECUTIVO,
+  DASHBOARD,
+  GESTAO_A_VISTA,
   LINHA_DO_TEMPO,
   "/vigencia",
   "/qlp-administrativo",

@@ -34,6 +34,7 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ApiError, fetchJson } from "@/lib/api";
 import { useContextosDaCasca } from "@/lib/contextos";
+import { useFamiliesOverviewQuery } from "@/lib/families-overview";
 import { RESUMO_EXECUTIVO } from "@/lib/ambiente";
 import { cn } from "@/lib/utils";
 import { periodicitySuffix } from "@/lib/format";
@@ -249,23 +250,8 @@ export default function Inicio() {
   const periodoOverviewEfetivo =
     parametros.get("period") ?? periodosOverview[periodosOverview.length - 1] ?? null;
 
-  const overviewQuery = useQuery({
-    queryKey: ["families", "overview", periodoOverviewEfetivo],
-    enabled: visaoGeral && periodoOverviewEfetivo !== null,
-    queryFn: async () => {
-      try {
-        return await fetchJson<FamiliesOverview>(
-          `/changes/families/overview?period=${encodeURIComponent(periodoOverviewEfetivo!)}`,
-        );
-      } catch (erro) {
-        // Aqui, 404 quer dizer "nenhuma unidade tem essa competência" de
-        // verdade — o servidor só devolve isso quando não há vigência
-        // nenhuma para o período pedido, nunca quando existe mas não deu
-        // para consolidar (aí a resposta é 200 com `unitsIncluded: []`).
-        if (erro instanceof ApiError && erro.status === 404) return null;
-        throw erro;
-      }
-    },
+  const overviewQuery = useFamiliesOverviewQuery(periodoOverviewEfetivo, {
+    enabled: visaoGeral,
   });
 
   const overview = visaoGeral ? (overviewQuery.data ?? null) : null;

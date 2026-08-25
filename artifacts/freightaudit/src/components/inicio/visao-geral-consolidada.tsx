@@ -26,11 +26,26 @@ import type {
 const CARTAO = "bg-card border rounded-xl shadow-sm";
 
 /** O maior movimento em módulo entre as periodicidades de um resumo — mesmo critério do cartão "Impacto líquido". */
-function impactoDominante(summary: ExecutiveSummary): Impacto | null {
+export function impactoDominante(summary: ExecutiveSummary): Impacto | null {
   const impactos = Object.entries(summary.impact.byPeriodicity)
     .map(([periodicity, amount]) => ({ periodicity, amount }))
     .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
   return impactos[0] ?? null;
+}
+
+/**
+ * As unidades incluídas, ranqueadas pelo mesmo critério do pódio da Visão
+ * Geral — maior módulo de impacto primeiro.
+ *
+ * Extraída de `ComparacaoPorUnidade` para que a Gestão à Vista monte "Unidades
+ * que exigem atenção" com a mesma conta, em vez de reordenar por conta própria.
+ */
+export function unidadesPorImpacto(
+  overview: FamiliesOverview,
+): { unidade: OverviewUnitIncluded; impacto: Impacto | null }[] {
+  return overview.unitsIncluded
+    .map((u) => ({ unidade: u, impacto: impactoDominante(u.summary) }))
+    .sort((a, b) => Math.abs(b.impacto?.amount ?? 0) - Math.abs(a.impacto?.amount ?? 0));
 }
 
 export const MOTIVO_EXCLUSAO_LABEL: Record<MotivoExclusaoDaVisaoGeral, string> = {
@@ -214,9 +229,7 @@ function ComparacaoPorUnidade({
   onEntrar: (contexto: OverviewContextRef) => void;
   onFechar: () => void;
 }) {
-  const unidades = overview.unitsIncluded
-    .map((u) => ({ unidade: u, impacto: impactoDominante(u.summary) }))
-    .sort((a, b) => Math.abs(b.impacto?.amount ?? 0) - Math.abs(a.impacto?.amount ?? 0));
+  const unidades = unidadesPorImpacto(overview);
 
   return (
     <Sheet open onOpenChange={(aberto) => !aberto && onFechar()}>

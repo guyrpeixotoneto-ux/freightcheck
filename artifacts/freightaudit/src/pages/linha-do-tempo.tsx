@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ApiError, fetchJson } from "@/lib/api";
 import { useContextosDaCasca } from "@/lib/contextos";
+import { useFamiliesOverviewQuery } from "@/lib/families-overview";
 import { LINHA_DO_TEMPO } from "@/lib/ambiente";
 import { cn } from "@/lib/utils";
 import { LinhaDoTempoDeImpacto } from "@/components/linha-do-tempo/linha-do-tempo-de-impacto";
@@ -92,19 +93,8 @@ export default function LinhaDoTempo() {
     `ExecutiveSummary` que o Resumo executivo já consolida. Não é um
     histórico: é o mesmo `/changes/families/overview`, reaproveitado.
   */
-  const overviewQuery = useQuery({
-    queryKey: ["families", "overview", periodoOverviewEfetivo],
-    enabled: visaoGeral && periodoOverviewEfetivo !== null,
-    queryFn: async () => {
-      try {
-        return await fetchJson<FamiliesOverview>(
-          `/changes/families/overview?period=${encodeURIComponent(periodoOverviewEfetivo!)}`,
-        );
-      } catch (erro) {
-        if (erro instanceof ApiError && erro.status === 404) return null;
-        throw erro;
-      }
-    },
+  const overviewQuery = useFamiliesOverviewQuery(periodoOverviewEfetivo, {
+    enabled: visaoGeral,
   });
 
   const overview = visaoGeral ? (overviewQuery.data ?? null) : null;
