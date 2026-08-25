@@ -5,7 +5,7 @@ import { ChevronDown, ChevronRight, Layers, TriangleAlert } from "lucide-react";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import { getApiUrl } from "@/lib/api";
-import { formatBrl, formatBrlShort, periodicitySuffix } from "@/lib/format";
+import { formatBrl, formatBrlShort, formatValue, periodicitySuffix } from "@/lib/format";
 import { linkDeAlteracoes, type Recorte } from "@/lib/recorte";
 import type { Movimentos, RangeEntry } from "@/lib/analise";
 import type { GroupVehicle } from "@/components/inicio/types";
@@ -330,8 +330,14 @@ function PlacasDoGrupo({ period, entrada }: { period: string; entrada: RangeEntr
               className="border-t first:border-t-0 odd:bg-muted/20"
             >
               <td className="px-2 py-1 font-mono">{veiculo.plate ?? "—"}</td>
-              <td className="px-2 py-1 text-muted-foreground truncate max-w-[8rem]">
-                {veiculo.valueBefore ?? "—"} → {veiculo.valueAfter ?? "—"}
+              <td className="px-2 py-1 text-muted-foreground truncate max-w-[8rem] font-mono tabular-nums">
+                {veiculo.numericBefore !== null
+                  ? formatValue(veiculo.numericBefore, entrada.unit)
+                  : (veiculo.valueBefore ?? "—")}
+                {" → "}
+                {veiculo.numericAfter !== null
+                  ? formatValue(veiculo.numericAfter, entrada.unit)
+                  : (veiculo.valueAfter ?? "—")}
               </td>
               <td
                 className={cn(
