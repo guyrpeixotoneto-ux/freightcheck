@@ -18,22 +18,35 @@ const UNIT_SUFFIX: Record<string, string> = {
   QTD: "",
 };
 
+/**
+ * Montado à mão pela mesma razão de `formatBrlShort`: o hífen que
+ * `toLocaleString({style: "currency"})` usa para o sinal negativo é um ponto
+ * de quebra de linha válido, então um cartão estreito quebra "-R$ 61.006,00"
+ * em "-" numa linha e "R$ 61.006,00" na seguinte. O sinal tipográfico (−) não
+ * quebra.
+ */
 export function formatBrl(value: number, digits = 2): string {
-  return value.toLocaleString("pt-BR", {
-    style: "currency",
-    currency: "BRL",
+  const sinal = value < 0 ? "−" : "";
+  const numero = Math.abs(value).toLocaleString("pt-BR", {
     minimumFractionDigits: digits,
     maximumFractionDigits: digits,
   });
+  return `${sinal}R$ ${numero}`;
 }
 
-/** Dinheiro sem centavos, para os números grandes do cabeçalho. */
+/**
+ * Dinheiro sem centavos, para os números grandes do cabeçalho.
+ *
+ * Montado à mão, e não por `toLocaleString({style: "currency"})`: o hífen que
+ * o Intl usa para o sinal negativo é um ponto de quebra de linha válido (regra
+ * de quebra do Unicode), então "-R$ 61.006" quebra em "-" numa linha e
+ * "R$ 61.006" na seguinte assim que o cartão aperta — o "−" solto e enorme
+ * flutuando sozinho. O sinal tipográfico (−) não tem essa regra, e o espaço
+ * fino entre "R$" e o número é sem quebra — a mesma solução de `formatBrlCompacto`.
+ */
 export function formatBrlShort(value: number): string {
-  return value.toLocaleString("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-    maximumFractionDigits: 0,
-  });
+  const sinal = value < 0 ? "−" : "";
+  return `${sinal}R$ ${formatNumber(Math.abs(value), 0)}`;
 }
 
 export function formatNumber(value: number, digits = 2): string {
