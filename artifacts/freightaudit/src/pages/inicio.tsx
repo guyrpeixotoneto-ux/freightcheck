@@ -12,6 +12,7 @@ import {
   CloudDownload,
   Database,
   FileText,
+  History,
   Info,
   ReceiptText,
   Search,
@@ -578,6 +579,17 @@ function Cabecalho({
   onTrocar: (mudancas: Record<string, string | null>) => void;
 }) {
   const alteracoesPorVigencia = useAlteracoesPorVigencia(view, consulta);
+  const ultimaComparacao = useMemo(() => {
+    if (!view) return null;
+    return (
+      [...view.periods]
+        .sort((a, b) => b.date.localeCompare(a.date))
+        .find(
+          (periodo) =>
+            periodo.date !== view.period && (alteracoesPorVigencia.get(periodo.date) ?? 0) > 0,
+        ) ?? null
+    );
+  }, [view, alteracoesPorVigencia]);
   const unidade = view ? nomeDaUnidade(view.context) : null;
   const partes = visaoGeral
     ? overview
@@ -613,6 +625,17 @@ function Cabecalho({
         </div>
 
         <div className="flex items-center gap-3 shrink-0">
+          {!visaoGeral && ultimaComparacao && (
+            <button
+              type="button"
+              onClick={() => onTrocar({ period: ultimaComparacao.date })}
+              className={BOTAO_DE_TROCA}
+              title={`Ir para ${ultimaComparacao.label}, a vigência mais recente com comparação disponível`}
+            >
+              <History className="w-4 h-4" />
+              Última comparação · {ultimaComparacao.label}
+            </button>
+          )}
           {visaoGeral
             ? periodosOverview.length > 1 && (
                 <DropdownMenu>
@@ -682,12 +705,13 @@ function Cabecalho({
 }
 
 /**
- * Os dois botões de troca do cabeçalho, com a mesma casca.
+ * Os botões de troca do cabeçalho, com a mesma casca.
  *
- * Contorno vermelho e fundo branco: são as duas únicas ações desta tela, e o
+ * Contorno vermelho e fundo branco: são as únicas ações desta tela, e o
  * laranja cheio está reservado para a ação que cria trabalho — "Enviar a
- * primeira planilha", no banco vazio. Trocar de unidade e trocar de vigência
- * não mudam nada no banco; mudam o recorte do que se está lendo.
+ * primeira planilha", no banco vazio. Trocar de unidade, trocar de vigência
+ * e ir para a última comparação não mudam nada no banco; mudam o recorte do
+ * que se está lendo.
  */
 const BOTAO_DE_TROCA =
   "flex items-center gap-2 rounded-lg border border-brand bg-card px-4 py-2.5 " +
