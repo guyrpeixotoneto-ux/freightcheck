@@ -89,6 +89,11 @@ import {
 } from "@/lib/fechamento";
 import { ROTEIRO, fontesForaDoRoteiro, type EtapaDoRoteiro } from "./roteiro";
 import {
+  apenasCanalRota,
+  consolidarDuplicatasExatas,
+  verbasRepetidas,
+} from "./pagamento-por-canal";
+import {
   normalizarCategoria,
   resolverValorDoContrato,
   type SituacaoDaFrota,
@@ -2218,8 +2223,18 @@ function DentroDaEtapa({
   );
 }
 
-/** O total declarado contra o calculado, por canal — a conferência da `0057`. */
+/**
+ * O total declarado contra o calculado, por canal — a conferência da `0057`.
+ *
+ * **Só o canal Rota aparece aqui.** Este é o painel do Fechamento Rota, e o
+ * AS — que é dinheiro real, da área de serviço, e continua gravado e apurado
+ * por inteiro — só confunde a conferência de quem está fechando a Rota. Filtrar
+ * é só da tela: `totais.canais` continua trazendo os dois, e o AS não some do
+ * banco nem da apuração, só deixa de competir por espaço numa etapa que não é
+ * a dele.
+ */
 function TotaisDoPagamentoNaEtapa({ totais }: { totais: TotaisDoPagamento }) {
+  const canais = apenasCanalRota(totais.canais);
   return (
     <div className="rounded-md border p-3">
       <p className="text-xs font-medium">
@@ -2235,7 +2250,7 @@ function TotaisDoPagamentoNaEtapa({ totais }: { totais: TotaisDoPagamento }) {
           </tr>
         </thead>
         <tbody>
-          {totais.canais.map((c) => (
+          {canais.map((c) => (
             <tr key={c.canal} className="border-t">
               <td className="py-1 pr-4">{c.canal}</td>
               <td className="py-1 pr-4 text-right tabular-nums">
@@ -2274,7 +2289,7 @@ function TotaisDoPagamentoNaEtapa({ totais }: { totais: TotaisDoPagamento }) {
         ser guardado, e o número não existe em lugar nenhum. Dizer isso por
         extenso é o que separa "não dá para conferir" de "conferido".
       */}
-      {totais.canais.some((c) => c.declarado === null) && (
+      {canais.some((c) => c.declarado === null) && (
         <p className="text-xs text-muted-foreground mt-2 max-w-2xl">
           Total declarado não disponível neste documento — ele foi importado
           antes de o sistema passar a guardar o número que o relatório assina.
@@ -2301,17 +2316,18 @@ function VerbaAVerbaDoPagamento({ competenciaId }: { competenciaId: string }) {
   const itens = data?.itens ?? [];
   if (itens.length === 0) return null;
 
-  const canais = [...new Set(itens.map((i) => i.canal))];
+  /*
+    Só o canal Rota entra nesta etapa. O AS é dinheiro real — continua gravado,
+    continua na apuração — mas esta é a etapa 4 do Fechamento Rota, e misturar
+    os dois canais aqui só torna a conferência de quem está fechando a Rota
+    mais difícil de ler.
+  */
+  const itensDaRota = apenasCanalRota(itens);
+  if (itensDaRota.length === 0) return null;
 
   return (
     <div className="space-y-3">
-      {canais.map((canal) => (
-        <GradeDoPagamentoPorCanal
-          key={canal}
-          canal={canal}
-          itens={itens.filter((i) => i.canal === canal)}
-        />
-      ))}
+      <GradeDoPagamentoPorCanal canal="ROTA" itens={itensDaRota} />
     </div>
   );
 }
@@ -2338,13 +2354,70 @@ function GradeDoPagamentoPorCanal({
   canal: string;
   itens: ItemDePagamento[];
 }) {
+  /*
+    As DIVERGENTE são relatadas sobre a lista inteira, antes de consolidar —
+    nenhuma linha delas some, então não importa se `consolidarDuplicatasExatas`
+    ainda não rodou. As IDENTICA, em vez de só relatadas, são reduzidas a uma
+    linha: é o pedido de quem opera — "se é a mesma informação duas vezes,
+    mostra só uma vez".
+  */
+  const divergentes = verbasRepetidas(itens).filter((r) => r.classificacao === "DIVERGENTE");
+  const { itens: itensExibidos, consolidadas } = consolidarDuplicatasExatas(itens);
   return (
     <div className="rounded-md border p-3">
       <p className="text-xs font-medium">
         Verbas do 03.08.20 — {canal}
       </p>
+      {divergentes.length > 0 && (
+        <div className="mt-1.5 rounded-md bg-red-500/5 border border-red-500/20 p-2">
+          <p className="text-xs font-medium text-red-700 dark:text-red-400">
+            {divergentes.length === 1
+              ? "Uma VBZ aparece repetida com valores divergentes"
+              : `${divergentes.length} VBZs aparecem repetidas com valores divergentes`}
+          </p>
+          <ul className="mt-1 space-y-0.5">
+            {divergentes.map((d) => (
+              <li key={`${d.bloco}-${d.vbz}`} className="text-xs text-muted-foreground">
+                {String(d.vbz).padStart(2, "0")} - {d.nome} ({d.bloco}):{" "}
+                {d.ocorrencias
+                  .map((o) => `linha ${o.linha} = ${formatBrl(o.valorFaturado)}`)
+                  .join("; ")}
+              </li>
+            ))}
+          </ul>
+          <p className="text-xs text-muted-foreground/80 mt-1 max-w-2xl">
+            A mesma verba, no mesmo bloco, com valores diferentes não tem
+            explicação óbvia — confira com a Ambev antes de fechar. Nenhuma
+            linha foi somada ou removida; as duas continuam na tabela abaixo.
+          </p>
+        </div>
+      )}
+      {consolidadas.length > 0 && (
+        <div className="mt-1.5 rounded-md bg-blue-500/5 border border-blue-500/20 p-2">
+          <p className="text-xs font-medium text-blue-700 dark:text-blue-400">
+            {consolidadas.length === 1
+              ? "Uma verba estava duplicada no arquivo — mostrando uma só ocorrência"
+              : `${consolidadas.length} verbas estavam duplicadas no arquivo — mostrando uma só ocorrência de cada`}
+          </p>
+          <ul className="mt-1 space-y-0.5">
+            {consolidadas.map((d) => (
+              <li key={`${d.bloco}-${d.vbz}`} className="text-xs text-muted-foreground">
+                {String(d.vbz).padStart(2, "0")} - {d.nome} ({d.bloco}): mantida a linha{" "}
+                {d.linhaMantida}, idêntica à{" "}
+                {d.linhasRemovidas.length === 1 ? "linha" : "linhas"}{" "}
+                {d.linhasRemovidas.join(", ")}
+              </li>
+            ))}
+          </ul>
+          <p className="text-xs text-muted-foreground/80 mt-1 max-w-2xl">
+            As linhas tinham os seis valores idênticos — a mesma informação
+            duas vezes no arquivo. A tabela e os totais abaixo contam cada
+            verba uma única vez.
+          </p>
+        </div>
+      )}
       {BLOCOS_DO_PAGAMENTO.map(({ titulo, chave }) => {
-        const doBloco = itens
+        const doBloco = itensExibidos
           .filter((i) => i.bloco === chave)
           .sort((a, b) => a.verba.vbz - b.verba.vbz);
         if (doBloco.length === 0) return null;
