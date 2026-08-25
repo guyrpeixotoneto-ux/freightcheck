@@ -1011,7 +1011,11 @@ function Indicador({
     <section
       className={cn(
         CARTAO,
-        "p-5 flex flex-col",
+        // `min-w-0` porque o cartão é item de grid: sem ele, o número grande
+        // em `whitespace-nowrap` (ValorGrande) força o tamanho mínimo pelo
+        // conteúdo e vaza a borda do cartão em telas estreitas, em vez de
+        // respeitar a coluna que o grid reservou.
+        "p-5 flex flex-col min-w-0",
         abre && "relative group focus-within:border-brand hover:border-brand transition-colors",
       )}
     >
@@ -1047,7 +1051,7 @@ function Indicador({
           />
         )}
       </div>
-      <div className="mt-5">{children}</div>
+      <div className="mt-5 min-w-0">{children}</div>
       {/*
         O link cobre o cartão inteiro (`absolute inset-0`) em vez de embrulhá-lo:
         assim o alvo do clique é o cartão todo — que é o que o olho vê como um
