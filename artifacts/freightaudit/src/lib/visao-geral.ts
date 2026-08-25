@@ -201,8 +201,15 @@ export interface LadosDoImpacto {
  * zerado que não existe e um lado zerado que existe são coisas diferentes, e o
  * cartão que recebe a lista vazia diz "nenhum valor apurável" em vez de
  * desenhar uma balança equilibrada.
+ *
+ * O parâmetro pede só `summary`, e não `FamiliesView` inteiro — `FamiliesOverview`
+ * também tem um `summary` (`ExecutiveSummary`) na mesma forma, e o Dashboard em
+ * modo Geral lê os dois lados de lá com a mesma função, em vez de duplicar a
+ * conta para a soma de unidades.
  */
-export function ladosDoImpacto(view: FamiliesView | null | undefined): LadosDoImpacto[] {
+export function ladosDoImpacto(
+  view: Pick<FamiliesView, "summary"> | null | undefined,
+): LadosDoImpacto[] {
   return (view?.summary.sides ?? []).map((lado) => {
     const movimento = lado.gains.total + Math.abs(lado.losses.total);
     return {

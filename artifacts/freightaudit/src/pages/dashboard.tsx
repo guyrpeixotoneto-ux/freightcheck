@@ -2,12 +2,13 @@ import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
 import {
-  AlertTriangle,
   CalendarDays,
   FileText,
   GitCompareArrows,
   Info,
   ReceiptText,
+  TrendingDown,
+  TrendingUp,
   Tv,
   Truck,
 } from "lucide-react";
@@ -33,23 +34,37 @@ import {
   impactosDaVigencia,
   ladosDoImpacto,
   participacao,
-  ultimasAlteracoes,
+  type LadosDoImpacto,
 } from "@/lib/visao-geral";
-import { lerRecorte, nomeDaUnidade } from "@/lib/recorte";
-import { VisaoGeralConteudo } from "@/components/inicio/visao-geral-consolidada";
-import { ListaDeAlteracoesRecentes } from "@/components/dashboard/lista-de-alteracoes-recentes";
+import { juntarPrioridades } from "@/lib/cockpit";
+import { lerRecorte, linkDeAlteracoes, nomeDaUnidade } from "@/lib/recorte";
+import { unidadesPorImpacto } from "@/components/inicio/visao-geral-consolidada";
+import { BeforeAfter } from "@/components/inicio/group-card";
 import { LinhaDoTempoDeAlteracoes } from "@/components/linha-do-tempo/linha-do-tempo-de-alteracoes";
-import type { FamiliesOverview, FamiliesView, SeriesContext } from "@/components/inicio/types";
+import type {
+  ChangeGroup,
+  FamiliesOverview,
+  FamiliesView,
+  OverviewContextRef,
+  SeriesContext,
+} from "@/components/inicio/types";
 
 /**
  * O Dashboard — a tela de vigilância: o que a Ambev mudou, e o que isso custou.
  *
- * É a mesma leitura do Resumo executivo, recortada para uma pergunta só —
- * "algo mudou sem eu saber?" — e por isso não reimplementa nada da apuração:
- * Geral chama `<VisaoGeralConteudo>` (o mesmo bloco que o Resumo executivo e a
- * Linha do Tempo já usam) e Unidade lê os mesmos campos de `FamiliesView` que
- * `lib/visao-geral.ts` já sabe explicar. O que esta tela acrescenta é a frase
- * de abertura e o botão para a Gestão à Vista — o mesmo recorte, em telão.
+ * A informação está ordenada pela pergunta que ela responde, na ordem em que
+ * um executivo faria as perguntas: o que mudou (o cabeçalho e o número de
+ * alterações), quanto isso custou (a régua de dinheiro, com o líquido em
+ * destaque), onde aconteceu (a linha do tempo e a composição por família) e o
+ * que precisa de atenção agora (a tabela de alterações e a faixa de
+ * pendências, por último e nunca competindo com o financeiro pelo olho de
+ * quem abre a tela).
+ *
+ * Nada aqui reimplementa a apuração: os cinco números somam `summary.sides`,
+ * a tabela lê a mesma fila de prioridade do Acompanhamento
+ * (`juntarPrioridades`, `lib/cockpit.ts`), e a composição por família lê
+ * `view.families` — os mesmos campos que `lib/visao-geral.ts` já sabia
+ * explicar antes desta tela existir.
  */
 export default function Dashboard() {
   const search = useSearch();
@@ -134,17 +149,7 @@ export default function Dashboard() {
               <ApiErrorNotice error={overviewQuery.error} what="Não foi possível montar o Dashboard." />
             )}
             {!overviewQuery.isLoading && !overviewQuery.error && overview === null && <BancoVazio />}
-            {overview && (
-              <>
-                <FaixaGeral overview={overview} />
-                <VisaoGeralConteudo
-                  overview={overview}
-                  search={search}
-                  onTrocar={trocarPara}
-                  notaExtra="A linha do tempo e as alterações recentes por unidade abrem dentro de cada unidade — a soma Geral não mescla o histórico entre elas."
-                />
-              </>
-            )}
+            {overview && <ConteudoGeral overview={overview} onTrocar={trocarPara} />}
           </>
         ) : (
           <>
@@ -155,34 +160,7 @@ export default function Dashboard() {
               <ApiErrorNotice error={vigencia.error} what="Não foi possível montar o Dashboard." />
             )}
             {!vigencia.isLoading && !vigencia.error && view === null && <BancoVazio />}
-          </>
-        )}
-
-        {view && (
-          <>
-            <FaixaDaUnidade view={view} />
-            <Indicadores view={view} />
-            <QuantidadeAfetada view={view} />
-
-            <div className="grid gap-5 lg:grid-cols-2">
-              <ComposicaoDasAlteracoes view={view} />
-              <div className={cn(CARTAO, "px-6 py-5 flex flex-col")}>
-                <h2 className="text-base font-bold mb-1">Alterações recentes</h2>
-                <p className="text-xs text-muted-foreground mb-3">
-                  As mesmas alterações desta vigência, na ordem do Acompanhamento — dinheiro
-                  primeiro, ruído por último.
-                </p>
-                <ListaDeAlteracoesRecentes linhas={ultimasAlteracoes(view, 6, recorte)} />
-              </div>
-            </div>
-
-            {view.periods.length > 1 && (
-              <LinhaDoTempoDeAlteracoes
-                consulta={consulta}
-                periods={view.periods}
-                currentPeriod={view.period}
-              />
-            )}
+            {view && <ConteudoDaUnidade view={view} recorte={recorte} consulta={consulta} />}
           </>
         )}
       </div>
@@ -366,6 +344,100 @@ function BancoVazio() {
 }
 
 // ---------------------------------------------------------------------------
+// Unidade — o corpo inteiro da tela
+// ---------------------------------------------------------------------------
+
+function ConteudoDaUnidade({
+  view,
+  recorte,
+  consulta,
+}: {
+  view: FamiliesView;
+  recorte: ReturnType<typeof lerRecorte>;
+  consulta: URLSearchParams;
+}) {
+  const cobertura = coberturaDePreco(view.totals.changes, view.impact.notCalculable);
+
+  return (
+    <>
+      <FaixaDaUnidade view={view} />
+
+      <Indicadores
+        changes={view.totals.changes}
+        coberturaLabel={cobertura}
+        vehiclesTouched={view.totals.vehiclesTouched}
+        veiculosPercent={participacao(view.totals.vehiclesTouched, frotaTotal(view))}
+        lados={ladosDoImpacto(view)}
+      />
+
+      {view.periods.length > 1 && (
+        <LinhaDoTempoDeAlteracoes
+          consulta={consulta}
+          periods={view.periods}
+          currentPeriod={view.period}
+        />
+      )}
+
+      <div className="grid gap-5 lg:grid-cols-5">
+        <div className="lg:col-span-2">
+          <ComposicaoDasAlteracoes view={view} />
+        </div>
+        <div className="lg:col-span-3">
+          <PrincipaisAlteracoes view={view} recorte={recorte} />
+        </div>
+      </div>
+
+      <Pendencias
+        changes={view.totals.changes}
+        notCalculable={view.impact.notCalculable}
+        inconclusive={view.totals.inconclusive}
+      />
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Geral — o corpo inteiro da tela
+// ---------------------------------------------------------------------------
+
+function ConteudoGeral({
+  overview,
+  onTrocar,
+}: {
+  overview: FamiliesOverview;
+  onTrocar: (mudancas: Record<string, string | null>) => void;
+}) {
+  const cobertura = coberturaDePreco(overview.summary.changes, overview.summary.notCalculable);
+
+  return (
+    <>
+      <FaixaGeral overview={overview} />
+
+      <Indicadores
+        changes={overview.summary.changes}
+        coberturaLabel={cobertura}
+        vehiclesTouched={overview.summary.vehiclesTouched}
+        veiculosPercent={null}
+        lados={ladosDoImpacto(overview)}
+      />
+
+      <RankingDeUnidades overview={overview} onTrocar={onTrocar} />
+
+      <Pendencias
+        changes={overview.summary.changes}
+        notCalculable={overview.summary.notCalculable}
+        inconclusive={null}
+      />
+
+      <p className="text-xs text-muted-foreground">
+        A linha do tempo, a composição por família e a tabela de alterações abrem dentro de
+        cada unidade — a soma Geral não mescla o histórico nem os grupos entre elas.
+      </p>
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // A faixa de abertura — Geral
 // ---------------------------------------------------------------------------
 
@@ -437,65 +509,127 @@ function FaixaDaUnidade({ view }: { view: FamiliesView }) {
 }
 
 // ---------------------------------------------------------------------------
-// Os indicadores da unidade
+// Cobertura de preço — "18/37 com preço apurado"
 // ---------------------------------------------------------------------------
 
-function Indicadores({ view }: { view: FamiliesView }) {
-  const lados = ladosDoImpacto(view).filter((l) => l.fatiaDeGanho !== null);
-  const frota = frotaTotal(view);
-  const veiculos = participacao(view.totals.vehiclesTouched, frota);
+/**
+ * "18 de 37 com preço apurado" — a fração de alterações que já viraram
+ * dinheiro (apurado ou excluído por já contar noutra parcela), sobre o total.
+ *
+ * A identidade `apurado + semPreco = total` é a mesma que `porApuracao`
+ * (`composicaoDasAlteracoes`) garante nas suas três fatias — aqui só a conta
+ * mais simples dela, para uma linha de subtítulo e não um painel inteiro.
+ * `null` sem alteração nenhuma: uma fração `0/0` não é cobertura, é ausência
+ * de vigência.
+ */
+function coberturaDePreco(total: number, semPreco: number): string | null {
+  if (total === 0) return null;
+  const apurado = total - semPreco;
+  return `${apurado.toLocaleString("pt-BR")}/${total.toLocaleString("pt-BR")} com preço apurado`;
+}
+
+// ---------------------------------------------------------------------------
+// Os indicadores — o financeiro tem o peso visual maior
+// ---------------------------------------------------------------------------
+
+/**
+ * Os cinco números que respondem "o que mudou" e "quanto custou" — na mesma
+ * régua para a Unidade e para o Geral, porque `FamiliesOverview.summary` tem a
+ * mesma forma de `ExecutiveSummary` que `FamiliesView.summary`.
+ *
+ * O Impacto líquido ocupa o dobro da largura dos outros e tem o corpo maior —
+ * é o número que a Ambev perguntada em reunião primeiro, e a régua visual diz
+ * isso antes de qualquer um ler o rótulo.
+ */
+function Indicadores({
+  changes,
+  coberturaLabel,
+  vehiclesTouched,
+  veiculosPercent,
+  lados,
+}: {
+  changes: number;
+  coberturaLabel: string | null;
+  vehiclesTouched: number;
+  veiculosPercent: number | null;
+  lados: LadosDoImpacto[];
+}) {
+  const principal = lados[0] ?? null;
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-      <Cartao icone={FileText} titulo="Alterações detectadas">
-        <p className="text-3xl font-extrabold tabular-nums">
-          {view.totals.changes.toLocaleString("pt-BR")}
-        </p>
-        <p className="text-xs text-muted-foreground mt-3">
-          {view.totals.groups} pontos da remuneração tocados
-        </p>
+    <div className="grid gap-4 grid-cols-2 lg:grid-cols-6">
+      <Cartao icone={FileText} titulo="Alterações detectadas" className="lg:col-span-1">
+        <p className="text-3xl font-extrabold tabular-nums">{changes.toLocaleString("pt-BR")}</p>
+        {coberturaLabel && (
+          <p className="text-xs text-muted-foreground mt-3">{coberturaLabel}</p>
+        )}
       </Cartao>
 
-      <Cartao icone={Truck} titulo="Itens impactados">
+      <Cartao icone={Truck} titulo="Itens afetados" className="lg:col-span-1">
         <p className="text-3xl font-extrabold tabular-nums">
-          {view.totals.vehiclesTouched.toLocaleString("pt-BR")}
+          {vehiclesTouched.toLocaleString("pt-BR")}
         </p>
-        {veiculos !== null && (
+        {veiculosPercent !== null && (
           <p className="text-xs text-muted-foreground mt-3">
-            {veiculos.toLocaleString("pt-BR", { maximumFractionDigits: 0 })}% da frota (
-            {frota.toLocaleString("pt-BR")} ativos)
+            {veiculosPercent.toLocaleString("pt-BR", { maximumFractionDigits: 0 })}% da frota
           </p>
         )}
       </Cartao>
 
-      <Cartao icone={ReceiptText} titulo="Impacto líquido">
-        {lados.length === 0 ? (
-          <p className="text-xl font-extrabold text-muted-foreground">Nenhum valor apurável</p>
-        ) : (
-          <>
-            <p
-              className={cn(
-                "text-3xl font-extrabold tabular-nums",
-                lados[0].liquido < 0 ? "text-red-700" : "text-emerald-700",
-              )}
-            >
-              {formatBrlShort(lados[0].liquido)}
-              <span className="text-sm font-normal text-muted-foreground">
-                {periodicitySuffix(lados[0].periodicity)}
+      <Cartao icone={TrendingDown} titulo="Perdas/mês" className="lg:col-span-1">
+        {principal ? (
+          <p className="text-3xl font-extrabold tabular-nums text-red-700">
+            {formatBrlShort(principal.perdas)}
+            {principal.periodicity !== "MENSAL" && (
+              <span className="text-xs font-normal text-muted-foreground block mt-1">
+                {periodicitySuffix(principal.periodicity)}
               </span>
-            </p>
-            <p className="text-xs text-muted-foreground mt-3">
-              +{formatBrlShort(lados[0].ganhos)} / {formatBrlShort(lados[0].perdas)}
-            </p>
-          </>
+            )}
+          </p>
+        ) : (
+          <p className="text-sm text-muted-foreground">sem valor apurado</p>
         )}
       </Cartao>
 
-      <Cartao icone={AlertTriangle} titulo="Sem impacto calculável">
-        <p className="text-3xl font-extrabold tabular-nums">
-          {view.impact.notCalculable.toLocaleString("pt-BR")}
-        </p>
-        <p className="text-xs text-muted-foreground mt-3">alterações reais sem preço apurado</p>
+      <Cartao icone={TrendingUp} titulo="Ganhos/mês" className="lg:col-span-1">
+        {principal ? (
+          <p className="text-3xl font-extrabold tabular-nums text-emerald-700">
+            {formatBrlShort(principal.ganhos)}
+            {principal.periodicity !== "MENSAL" && (
+              <span className="text-xs font-normal text-muted-foreground block mt-1">
+                {periodicitySuffix(principal.periodicity)}
+              </span>
+            )}
+          </p>
+        ) : (
+          <p className="text-sm text-muted-foreground">sem valor apurado</p>
+        )}
+      </Cartao>
+
+      <Cartao
+        icone={ReceiptText}
+        titulo="Impacto líquido/mês"
+        className="col-span-2 lg:col-span-2"
+        destaque
+      >
+        {principal ? (
+          <>
+            <p
+              className={cn(
+                "text-5xl font-extrabold tabular-nums leading-none",
+                principal.liquido < 0 ? "text-red-700" : "text-emerald-700",
+              )}
+            >
+              {formatBrlShort(principal.liquido)}
+            </p>
+            <p className="text-xs text-muted-foreground mt-3">
+              {periodicitySuffix(principal.periodicity) || " valor único"} · +
+              {formatBrlShort(principal.ganhos)} / {formatBrlShort(principal.perdas)}
+            </p>
+          </>
+        ) : (
+          <p className="text-xl font-extrabold text-muted-foreground">Nenhum valor apurável</p>
+        )}
       </Cartao>
     </div>
   );
@@ -505,13 +639,24 @@ function Cartao({
   icone: Icone,
   titulo,
   children,
+  className,
+  destaque = false,
 }: {
   icone: typeof FileText;
   titulo: string;
   children: React.ReactNode;
+  className?: string;
+  destaque?: boolean;
 }) {
   return (
-    <section className={cn(CARTAO, "p-5 flex flex-col")}>
+    <section
+      className={cn(
+        CARTAO,
+        "p-5 flex flex-col",
+        destaque && "bg-accent/40 border-brand/30",
+        className,
+      )}
+    >
       <div className="flex items-center gap-2.5">
         <span className="w-9 h-9 rounded-xl bg-accent flex items-center justify-center shrink-0">
           <Icone className="w-[1.125rem] h-[1.125rem] text-brand" strokeWidth={2.25} />
@@ -524,78 +669,61 @@ function Cartao({
 }
 
 // ---------------------------------------------------------------------------
-// Quantidade afetada
-// ---------------------------------------------------------------------------
-
-function QuantidadeAfetada({ view }: { view: FamiliesView }) {
-  const { entitiesAdded, entitiesRemoved, unchanged, inconclusive } = view.totals;
-
-  return (
-    <section className={cn(CARTAO, "px-6 py-5")}>
-      <h2 className="text-base font-bold mb-4">Quantidade afetada</h2>
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <Numero rotulo="Entraram" valor={entitiesAdded} />
-        <Numero rotulo="Saíram" valor={entitiesRemoved} />
-        <Numero rotulo="Sem mudança" valor={unchanged} />
-        <Numero rotulo="Inconclusivo" valor={inconclusive} />
-      </div>
-    </section>
-  );
-}
-
-function Numero({ rotulo, valor }: { rotulo: string; valor: number }) {
-  return (
-    <div>
-      <p className="text-[0.6875rem] font-bold uppercase tracking-wide text-muted-foreground">
-        {rotulo}
-      </p>
-      <p className="text-2xl font-extrabold tabular-nums mt-1">{valor.toLocaleString("pt-BR")}</p>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Composição das alterações, por família
+// Onde a Ambev alterou — composição por família
 // ---------------------------------------------------------------------------
 
 /**
- * As famílias mais tocadas, na periodicidade dominante da vigência.
+ * As famílias mais tocadas, na periodicidade dominante da vigência — a mesma
+ * disciplina do pódio do Resumo executivo: o ranking existe dentro de uma
+ * periodicidade só, nunca somando R$/mês com R$/ano.
  *
- * A mesma disciplina do pódio do Resumo executivo: o ranking existe dentro de
- * uma periodicidade só, nunca somando R$/mês com R$/ano.
+ * Cada linha traz a contagem de alterações ao lado da barra de R$, porque
+ * "onde a Ambev alterou" é tanto uma pergunta de dinheiro quanto de
+ * quantidade — uma família pode concentrar metade das alterações e não ter
+ * ainda nenhum preço apurado.
  */
 function ComposicaoDasAlteracoes({ view }: { view: FamiliesView }) {
   const dominante = impactosDaVigencia(view)[0]?.periodicity ?? null;
-  const linhas = (dominante === null
+  const comImpacto = (dominante === null
     ? []
     : view.families
-        .map((f) => ({ nome: f.name, amount: f.impact.byPeriodicity[dominante] ?? 0 }))
+        .map((f) => ({ nome: f.name, changes: f.changes, amount: f.impact.byPeriodicity[dominante] ?? 0 }))
         .filter((f) => f.amount !== 0)
         .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount))
-  ).slice(0, 8);
-  const teto = linhas.reduce((maior, l) => Math.max(maior, Math.abs(l.amount)), 0);
+  ).slice(0, 6);
+
+  // Sem impacto apurado nenhum, a família ainda tem o que dizer: quantas
+  // alterações ela concentrou. Uma barra de quantidade substitui a de R$ em
+  // vez de deixar o cartão vazio.
+  const porQuantidade =
+    comImpacto.length === 0
+      ? [...view.families]
+          .filter((f) => f.changes > 0)
+          .sort((a, b) => b.changes - a.changes)
+          .slice(0, 6)
+      : [];
+
+  const teto = comImpacto.reduce((maior, l) => Math.max(maior, Math.abs(l.amount)), 0);
+  const tetoQuantidade = porQuantidade.reduce((maior, f) => Math.max(maior, f.changes), 0);
+  const { entitiesAdded, entitiesRemoved } = view.totals;
 
   return (
-    <section className={cn(CARTAO, "px-6 py-5 flex flex-col")}>
+    <section className={cn(CARTAO, "px-6 py-5 flex flex-col h-full")}>
       <div className="flex items-center gap-2 mb-1">
-        <h2 className="text-base font-bold">Composição das alterações</h2>
-        {dominante && (
+        <h2 className="text-base font-bold">Onde a Ambev alterou</h2>
+        {dominante && comImpacto.length > 0 && (
           <span className="text-xs font-semibold text-muted-foreground">
             em R${periodicitySuffix(dominante)}
           </span>
         )}
       </div>
-      <p className="text-xs text-muted-foreground mb-4">Por família, a de maior impacto primeiro.</p>
+      <p className="text-xs text-muted-foreground mb-4">Por família da remuneração.</p>
 
-      {linhas.length === 0 ? (
-        <p className="text-sm text-muted-foreground flex-1">
-          Nenhuma família tem impacto apurado nesta vigência.
-        </p>
-      ) : (
+      {comImpacto.length > 0 ? (
         <ol className="space-y-3 flex-1">
-          {linhas.map((linha) => (
+          {comImpacto.map((linha) => (
             <li key={linha.nome} className="flex items-center gap-3">
-              <span className="w-40 shrink-0 min-w-0 text-sm font-semibold truncate" title={linha.nome}>
+              <span className="w-28 shrink-0 min-w-0 text-sm font-semibold truncate" title={linha.nome}>
                 {linha.nome}
               </span>
               <span className="flex-1 h-2.5 bg-muted overflow-hidden min-w-8">
@@ -606,16 +734,329 @@ function ComposicaoDasAlteracoes({ view }: { view: FamiliesView }) {
               </span>
               <span
                 className={cn(
-                  "text-sm font-bold tabular-nums w-28 text-right",
+                  "text-xs font-bold tabular-nums w-24 text-right",
                   linha.amount < 0 ? "text-red-700" : "text-emerald-700",
                 )}
               >
                 {escreverImpacto({ periodicity: dominante, amount: linha.amount })}
               </span>
+              <span className="text-[0.6875rem] text-muted-foreground w-14 text-right shrink-0">
+                {linha.changes} alt.
+              </span>
             </li>
           ))}
         </ol>
+      ) : porQuantidade.length > 0 ? (
+        <ol className="space-y-3 flex-1">
+          {porQuantidade.map((familia) => (
+            <li key={familia.code} className="flex items-center gap-3">
+              <span className="w-28 shrink-0 min-w-0 text-sm font-semibold truncate" title={familia.name}>
+                {familia.name}
+              </span>
+              <span className="flex-1 h-2.5 bg-muted overflow-hidden min-w-8">
+                <span
+                  className="block h-full bg-brand"
+                  style={{
+                    width: `${tetoQuantidade === 0 ? 0 : Math.max(2, (familia.changes / tetoQuantidade) * 100)}%`,
+                  }}
+                />
+              </span>
+              <span className="text-xs font-bold tabular-nums w-24 text-right">
+                {familia.changes} {familia.changes === 1 ? "alteração" : "alterações"}
+              </span>
+            </li>
+          ))}
+        </ol>
+      ) : (
+        <p className="text-sm text-muted-foreground flex-1">
+          Nenhuma família registrou alteração nesta vigência.
+        </p>
       )}
+
+      {(entitiesAdded > 0 || entitiesRemoved > 0) && (
+        <p className="text-[0.6875rem] text-muted-foreground border-t pt-3 mt-4">
+          {entitiesAdded > 0 && `${entitiesAdded} ${entitiesAdded === 1 ? "ativo entrou" : "ativos entraram"}`}
+          {entitiesAdded > 0 && entitiesRemoved > 0 && " · "}
+          {entitiesRemoved > 0 && `${entitiesRemoved} ${entitiesRemoved === 1 ? "ativo saiu" : "ativos saíram"}`}
+          {" "}na frota, além das alterações de valor.
+        </p>
+      )}
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Principais alterações — a tabela, nomes de negócio sempre
+// ---------------------------------------------------------------------------
+
+/**
+ * As alterações mais relevantes desta vigência, na ordem de prioridade do
+ * cockpit — a mesma fila que o Acompanhamento e `ultimasAlteracoes` já usam
+ * (`juntarPrioridades`, `lib/cockpit.ts`). Reordenar aqui por conta própria
+ * faria esta tabela discordar da lista de "Alterações recentes" que já existe
+ * no produto sobre os mesmos dados.
+ *
+ * Cada linha mostra `grupo.title` — a etiqueta de negócio já curada por
+ * `attributeLabel()` no servidor — e nunca `attributeCode` cru. O par
+ * antes/depois vem de `<BeforeAfter>`, o mesmo componente que os cartões de
+ * alteração usam, para não reescrever a regra de quando um total existe e
+ * quando só existe faixa de variação.
+ */
+function PrincipaisAlteracoes({
+  view,
+  recorte,
+}: {
+  view: FamiliesView;
+  recorte: ReturnType<typeof lerRecorte>;
+}) {
+  const fila = juntarPrioridades(view);
+  const grupos: ChangeGroup[] = (fila.length > 0 ? fila.map((e) => e.group) : view.groups).slice(
+    0,
+    8,
+  );
+  const daVigencia = { ...recorte, period: view.period };
+
+  return (
+    <section className={cn(CARTAO, "px-6 py-5 flex flex-col h-full")}>
+      <h2 className="text-base font-bold mb-1">Principais alterações</h2>
+      <p className="text-xs text-muted-foreground mb-4">
+        Na ordem do Acompanhamento — dinheiro e criticidade primeiro.
+      </p>
+
+      {grupos.length === 0 ? (
+        <p className="text-sm text-muted-foreground flex-1">
+          Nenhuma alteração nesta vigência.
+        </p>
+      ) : (
+        <div className="overflow-x-auto -mx-2">
+          <table className="w-full text-sm border-collapse">
+            <thead>
+              <tr className="text-left text-[0.6875rem] uppercase tracking-wide text-muted-foreground">
+                <th className="font-semibold px-2 pb-2">Alteração</th>
+                <th className="font-semibold px-2 pb-2">Antes → agora</th>
+                <th className="font-semibold px-2 pb-2 text-right">Veíc.</th>
+                <th className="font-semibold px-2 pb-2 text-right">Impacto</th>
+              </tr>
+            </thead>
+            <tbody>
+              {grupos.map((grupo) => {
+                const filtros: Record<string, string> = {};
+                if (grupo.attributeCode) filtros.attributeCode = grupo.attributeCode;
+                if (grupo.entityType) filtros.entityType = grupo.entityType;
+                const href = linkDeAlteracoes({ recorte: daVigencia, filtros });
+                const comPreco = grupo.impact.confidence === "CALCULATED" && grupo.impact.amount !== null;
+
+                return (
+                  <tr key={grupo.key} className="border-t hover:bg-accent/30 transition-colors">
+                    <td className="px-2 py-2.5 align-top">
+                      <Link href={href} className="font-semibold hover:text-brand transition-colors">
+                        {grupo.title}
+                      </Link>
+                      <div className="text-xs text-muted-foreground">{grupo.equipment}</div>
+                    </td>
+                    <td className="px-2 py-2.5 align-top text-xs">
+                      <BeforeAfter group={grupo} />
+                    </td>
+                    <td className="px-2 py-2.5 align-top text-right tabular-nums text-xs text-muted-foreground">
+                      {grupo.vehicles.toLocaleString("pt-BR")}
+                    </td>
+                    <td className="px-2 py-2.5 align-top text-right tabular-nums">
+                      {comPreco ? (
+                        <span className={cn("font-bold", grupo.impact.amount! < 0 ? "text-red-700" : "text-emerald-700")}>
+                          {formatBrlShort(grupo.impact.amount!)}
+                          <span className="font-normal text-muted-foreground">
+                            {periodicitySuffix(grupo.impact.periodicity)}
+                          </span>
+                        </span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground italic">sem preço</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Ranking de unidades — Geral, sempre visível
+// ---------------------------------------------------------------------------
+
+/**
+ * O ranking de unidades da Visão Geral, sempre visível — nunca atrás de um
+ * clique ou de uma gaveta (`Sheet`). É o que substitui, neste modo, as duas
+ * colunas "Onde a Ambev alterou" / "Principais alterações": a soma Geral não
+ * mescla `families`/`groups` entre unidades (`FamiliesOverview` não os tem —
+ * ver o limite documentado em `lib/comparison/src/families-view-overview.ts`),
+ * então o que existe para mostrar aqui é a comparação unidade a unidade, e não
+ * o detalhe de uma soma que não pode ser aberta.
+ *
+ * A ordem é a mesma de `unidadesPorImpacto` — maior módulo de impacto
+ * primeiro —, e cada linha leva à Dashboard daquela unidade.
+ */
+function RankingDeUnidades({
+  overview,
+  onTrocar,
+}: {
+  overview: FamiliesOverview;
+  onTrocar: (mudancas: Record<string, string | null>) => void;
+}) {
+  const unidades = unidadesPorImpacto(overview);
+  const total = overview.unitsIncluded.length + overview.unitsExcluded.length;
+
+  const entrarNaUnidade = (contexto: OverviewContextRef) =>
+    onTrocar({
+      scopeHash: contexto.scopeHash,
+      canal: contexto.channel,
+      period: null,
+      visaoGeral: null,
+    });
+
+  return (
+    <section className={cn(CARTAO, "px-6 py-5")}>
+      <div className="flex items-center gap-2 mb-4">
+        <h2 className="text-base font-bold">Unidades, por impacto líquido</h2>
+        <span className="text-xs text-muted-foreground">
+          {overview.unitsIncluded.length} de {total} unidades incluídas
+        </span>
+      </div>
+
+      {unidades.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          Nenhuma unidade entrou na soma desta competência.
+        </p>
+      ) : (
+        <div className="overflow-x-auto -mx-2">
+          <table className="w-full text-sm border-collapse">
+            <thead>
+              <tr className="text-left text-[0.6875rem] uppercase tracking-wide text-muted-foreground">
+                <th className="font-semibold px-2 pb-2">Unidade</th>
+                <th className="font-semibold px-2 pb-2 text-right">Alterações</th>
+                <th className="font-semibold px-2 pb-2 text-right">Perdas</th>
+                <th className="font-semibold px-2 pb-2 text-right">Ganhos</th>
+                <th className="font-semibold px-2 pb-2 text-right">Líquido</th>
+              </tr>
+            </thead>
+            <tbody>
+              {unidades.map(({ unidade, impacto }) => {
+                const perdas =
+                  impacto && impacto.periodicity !== null
+                    ? (unidade.summary.lossesByPeriodicity[impacto.periodicity] ?? 0)
+                    : 0;
+                const ganhos =
+                  impacto && impacto.periodicity !== null
+                    ? (unidade.summary.gainsByPeriodicity[impacto.periodicity] ?? 0)
+                    : 0;
+                const unico = unidade.contexts.length === 1;
+
+                return (
+                  <tr
+                    key={unidade.unidade}
+                    className={cn(
+                      "border-t transition-colors",
+                      unico && "hover:bg-accent/30 cursor-pointer",
+                    )}
+                    onClick={unico ? () => entrarNaUnidade(unidade.contexts[0]) : undefined}
+                  >
+                    <td className="px-2 py-2.5 font-semibold">
+                      {unico ? (
+                        unidade.label
+                      ) : (
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                          <span>{unidade.label}</span>
+                          {unidade.contexts.map((contexto) => (
+                            <button
+                              key={`${contexto.scopeHash}|${contexto.channel ?? ""}`}
+                              type="button"
+                              onClick={(evento) => {
+                                evento.stopPropagation();
+                                entrarNaUnidade(contexto);
+                              }}
+                              className="text-xs font-normal text-brand hover:underline"
+                            >
+                              {contexto.channel ?? "sem canal"}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-2 py-2.5 text-right tabular-nums text-muted-foreground">
+                      {unidade.summary.changes.toLocaleString("pt-BR")}
+                    </td>
+                    <td className="px-2 py-2.5 text-right tabular-nums text-red-700">
+                      {perdas !== 0 ? formatBrlShort(perdas) : "—"}
+                    </td>
+                    <td className="px-2 py-2.5 text-right tabular-nums text-emerald-700">
+                      {ganhos !== 0 ? formatBrlShort(ganhos) : "—"}
+                    </td>
+                    <td
+                      className={cn(
+                        "px-2 py-2.5 text-right tabular-nums font-bold",
+                        impacto === null
+                          ? "text-muted-foreground font-normal"
+                          : impacto.amount < 0
+                            ? "text-red-700"
+                            : "text-emerald-700",
+                      )}
+                    >
+                      {impacto ? escreverImpacto(impacto) : "—"}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Pendências — faixa secundária, sempre visível, nunca compete com o financeiro
+// ---------------------------------------------------------------------------
+
+/**
+ * O que ainda falta apurar — de propósito discreta: números pequenos, sem
+ * cartão de destaque, para que a régua financeira lá em cima continue sendo a
+ * primeira coisa que se lê. É trabalho pendente, não uma falha da tela.
+ */
+function Pendencias({
+  changes,
+  notCalculable,
+  inconclusive,
+}: {
+  changes: number;
+  notCalculable: number;
+  inconclusive: number | null;
+}) {
+  if (changes === 0) return null;
+  const coberturaPercent = ((changes - notCalculable) / changes) * 100;
+
+  return (
+    <section className="flex flex-wrap items-center gap-x-8 gap-y-2 px-2 py-1 text-xs text-muted-foreground">
+      <span className="font-semibold uppercase tracking-wide text-[0.6875rem]">Pendências</span>
+      <span>
+        <strong className="text-foreground tabular-nums">{notCalculable.toLocaleString("pt-BR")}</strong>{" "}
+        sem preço apurado
+      </span>
+      {inconclusive !== null && (
+        <span>
+          <strong className="text-foreground tabular-nums">{inconclusive.toLocaleString("pt-BR")}</strong>{" "}
+          {inconclusive === 1 ? "inconclusiva" : "inconclusivas"}
+        </span>
+      )}
+      <span>
+        <strong className="text-foreground tabular-nums">
+          {coberturaPercent.toLocaleString("pt-BR", { maximumFractionDigits: 0 })}%
+        </strong>{" "}
+        de cobertura de apuração
+      </span>
     </section>
   );
 }
