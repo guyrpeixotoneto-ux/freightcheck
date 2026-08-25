@@ -307,6 +307,28 @@ export function diagnose(group: ChangeGroup): string {
     conferir 62 contratos que não mudaram.
   */
   if (group.formatOnly) {
+    const ehPrecisaoDeData = group.anomalies.every(
+      (a) => a.kind === "DATA_HORA_COMO_SOMENTE_DATA" || a.kind === "SOMENTE_DATA_COMO_DATA_HORA",
+    );
+
+    /*
+      Grupo cujo formato mudou de data-e-hora para só-data (ou o inverso) — o
+      gêmeo do caso do serial, só que os dois lados já são datas. Aqui não faz
+      sentido falar em "mesmo instante" nem em fração de segundo: o que se
+      perdeu foi a hora inteira, e o que se preservou foi o dia.
+    */
+    if (ehPrecisaoDeData) {
+      const direcao = group.anomalies.every((a) => a.kind === "DATA_HORA_COMO_SOMENTE_DATA")
+        ? "deixou de vir com hora e passou a vir só com a data"
+        : "deixou de vir só com a data e passou a vir com hora";
+      return (
+        `A coluna ${direcao} em ${veiculos}, e os dois lados continuam no mesmo dia. A hora que ` +
+        `um dos dois lados não guarda é o que o formato date-only não representa, não uma data ` +
+        `nova. Mudou o formato do arquivo, não o contrato: não há aqui alteração contratual a ` +
+        `cobrar do cliente.`
+      );
+    }
+
     const precision = group.anomalies
       .filter((a) => !a.sameInstant)
       .reduce((total, a) => total + a.vehicles, 0);
@@ -337,17 +359,26 @@ export function diagnose(group: ChangeGroup): string {
     const driftVehicles = group.anomalies
       .filter((a) => !a.formatOnly)
       .reduce((total, a) => total + a.vehicles, 0);
-    const base =
-      `O valor deixou de vir como data e passou a vir como número em ${veiculos}. ` +
-      `O número é compatível com o formato serial que o Excel usa para datas, ` +
-      `o que é indício de mudança de formato no arquivo e não necessariamente ` +
-      `de alteração contratual.`;
+    const ehPrecisaoDeData = group.anomalies.every(
+      (a) => a.kind === "DATA_HORA_COMO_SOMENTE_DATA" || a.kind === "SOMENTE_DATA_COMO_DATA_HORA",
+    );
+    const base = ehPrecisaoDeData
+      ? `A coluna mudou de precisão em ${veiculos}: um lado tem hora, o outro só tem a data. ` +
+        `A hora que falta é indício de mudança de formato no arquivo e não necessariamente de ` +
+        `alteração contratual.`
+      : `O valor deixou de vir como data e passou a vir como número em ${veiculos}. ` +
+        `O número é compatível com o formato serial que o Excel usa para datas, ` +
+        `o que é indício de mudança de formato no arquivo e não necessariamente ` +
+        `de alteração contratual.`;
     if (formatVehicles > 0 && driftVehicles > 0) {
-      return (
-        `${base} Em ${pt(formatVehicles)}, o número é o mesmo instante da data anterior; ` +
-        `em ${pt(driftVehicles)} a data por trás dele é outra, e é essa parte que ` +
-        `precisa ser conferida.`
-      );
+      const detalhe = ehPrecisaoDeData
+        ? `Em ${pt(formatVehicles)}, é o mesmo dia da data anterior; ` +
+          `em ${pt(driftVehicles)} o dia por trás dele é outro, e é essa parte que ` +
+          `precisa ser conferida.`
+        : `Em ${pt(formatVehicles)}, o número é o mesmo instante da data anterior; ` +
+          `em ${pt(driftVehicles)} a data por trás dele é outra, e é essa parte que ` +
+          `precisa ser conferida.`;
+      return `${base} ${detalhe}`;
     }
     return base;
   }

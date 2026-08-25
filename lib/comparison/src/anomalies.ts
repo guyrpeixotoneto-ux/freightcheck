@@ -1,6 +1,7 @@
 import {
   excelSerialToDate,
   isPlausibleDateSerial,
+  toIsoDate,
   toIsoDateTime,
 } from "@workspace/ingest/excel-dates";
 
@@ -30,9 +31,23 @@ import {
  * embaixo de cada uma das 62 linhas. `formatOnly` é o campo que desfaz essa
  * contradição na origem — ver `grouped.ts` (selo `FORMATO`) e `cockpit.ts`
  * (score), que é onde ele produz efeito.
+ *
+ * Um segundo caso chegou depois, e é o gêmeo deste: `@workspace/ingest`
+ * passou a converter um serial cru numa coluna de data conhecida direto em
+ * data (ver `values.ts`), e por design essa conversão é *date-only* — a
+ * fração vira só o dia, sem hora. Isso resolve o problema deste módulo (o
+ * serial nunca mais chega numérico numa coluna de data conhecida), mas cria
+ * outro exatamente da mesma família: um lado com hora (o formato antigo,
+ * legado nas vigências anteriores) contra um lado só com o dia (o formato
+ * novo). Mesma pergunta — "isso é o mesmo dia, ou o contrato mudou de fato?"
+ * —, e por isso a resposta mora aqui, não num segundo detector paralelo.
  */
 
-export type AnomalyKind = "DATA_COMO_SERIAL_EXCEL" | "SERIAL_EXCEL_COMO_DATA";
+export type AnomalyKind =
+  | "DATA_COMO_SERIAL_EXCEL"
+  | "SERIAL_EXCEL_COMO_DATA"
+  | "DATA_HORA_COMO_SOMENTE_DATA"
+  | "SOMENTE_DATA_COMO_DATA_HORA";
 
 export interface Anomaly {
   kind: AnomalyKind;
@@ -110,8 +125,25 @@ function asNumber(side: AnomalySide): number | null {
   return null;
 }
 
+/** Um instante resolvido de um lado, e a precisão com que a fonte o escreveu. */
+interface ResolvedInstant {
+  instant: Date;
+  /** `"dia"` quando a fonte só tinha o dia para dar (10 caracteres, sem hora). */
+  precision: "dia" | "instante";
+}
+
+function resolveInstant(side: AnomalySide): ResolvedInstant | null {
+  for (const raw of [side.date, side.text, side.display]) {
+    const parsed = parseInstant(raw);
+    if (parsed !== null) {
+      return { instant: parsed, precision: raw!.length === 10 ? "dia" : "instante" };
+    }
+  }
+  return null;
+}
+
 function asInstant(side: AnomalySide): Date | null {
-  return parseInstant(side.date) ?? parseInstant(side.text) ?? parseInstant(side.display);
+  return resolveInstant(side)?.instant ?? null;
 }
 
 /**
@@ -119,31 +151,83 @@ function asInstant(side: AnomalySide): Date | null {
  *
  * Deliberadamente conservador: só acusa quando um lado é reconhecidamente uma
  * data e o outro é um número dentro da faixa que `@workspace/ingest` já
- * considera plausível para serial (1990–2100). Um número fora dessa faixa não
- * vira suspeita, porque adivinhar aqui produziria alarme falso numa tela cuja
- * função é ser confiável.
+ * considera plausível para serial (1990–2100) — ou quando os dois lados já são
+ * datas, mas com precisões diferentes (uma tem hora, a outra só o dia). Um
+ * número fora da faixa plausível não vira suspeita, porque adivinhar aqui
+ * produziria alarme falso numa tela cuja função é ser confiável.
  */
 export function detectFormatAnomaly(
   before: AnomalySide,
   after: AnomalySide,
 ): Anomaly | null {
-  const beforeInstant = asInstant(before);
-  const afterInstant = asInstant(after);
+  const beforeResolved = resolveInstant(before);
+  const afterResolved = resolveInstant(after);
+  const beforeInstant = beforeResolved?.instant ?? null;
+  const afterInstant = afterResolved?.instant ?? null;
   const beforeNumber = asNumber(before);
   const afterNumber = asNumber(after);
 
   // Data → número
   if (beforeInstant !== null && afterInstant === null && afterNumber !== null) {
-    return describe("DATA_COMO_SERIAL_EXCEL", beforeInstant, afterNumber);
+    return describeSerial("DATA_COMO_SERIAL_EXCEL", beforeInstant, afterNumber);
   }
   // Número → data
   if (afterInstant !== null && beforeInstant === null && beforeNumber !== null) {
-    return describe("SERIAL_EXCEL_COMO_DATA", afterInstant, beforeNumber);
+    return describeSerial("SERIAL_EXCEL_COMO_DATA", afterInstant, beforeNumber);
+  }
+  // Data-e-hora → só o dia, ou o inverso: os dois lados já são datas, mas um
+  // guarda hora e o outro nunca teve hora para guardar.
+  if (
+    beforeResolved !== null &&
+    afterResolved !== null &&
+    beforeResolved.precision !== afterResolved.precision
+  ) {
+    return describePrecisionChange(beforeResolved, afterResolved);
   }
   return null;
 }
 
-function describe(kind: AnomalyKind, instant: Date, serial: number): Anomaly | null {
+function describePrecisionChange(
+  before: ResolvedInstant,
+  after: ResolvedInstant,
+): Anomaly {
+  const beforeDay = toIsoDate(before.instant);
+  const afterDay = toIsoDate(after.instant);
+  const differenceMs = Math.abs(after.instant.getTime() - before.instant.getTime());
+  const sameInstant = differenceMs === 0;
+  // O dia é o que sobra quando um dos dois lados nunca teve hora para
+  // guardar: um lado com 23:59:59 e o outro sem hora nenhuma diferem por quase
+  // um dia inteiro em milissegundos, e isso não é uma data nova — é a hora que
+  // o formato date-only não representa.
+  const formatOnly = beforeDay === afterDay;
+
+  const kind: AnomalyKind =
+    before.precision === "instante" ? "DATA_HORA_COMO_SOMENTE_DATA" : "SOMENTE_DATA_COMO_DATA_HORA";
+  const direction =
+    kind === "DATA_HORA_COMO_SOMENTE_DATA"
+      ? "Esta coluna vinha com data e hora e passou a vir só com a data"
+      : "Esta coluna vinha só com a data e passou a vir com data e hora";
+
+  const tail = formatOnly
+    ? `${toIsoDateTime(before.instant)} e ${toIsoDateTime(after.instant)} são o mesmo dia ` +
+      `(${beforeDay}). A hora que um dos dois lados não guarda é o que o formato date-only não ` +
+      `representa, e não uma data nova. Continua sendo troca de formato.`
+    : `${toIsoDateTime(before.instant)} é ${beforeDay}, contra ${toIsoDateTime(after.instant)} ` +
+      `(${afterDay}) do outro lado — dias diferentes. Há troca de formato e mudança de data na ` +
+      `mesma célula; confira o original antes de concluir qual das duas importa.`;
+
+  return {
+    kind,
+    sameInstant,
+    differenceMs,
+    formatOnly,
+    interpretation: `${beforeDay} e ${afterDay} lidos com precisões diferentes`,
+    explanation:
+      `${direction}. ${tail} O valor original de cada lado continua guardado como veio.`,
+  };
+}
+
+function describeSerial(kind: AnomalyKind, instant: Date, serial: number): Anomaly | null {
   if (!isPlausibleDateSerial(serial)) return null;
   const asDate = excelSerialToDate(serial);
   if (asDate === null) return null;

@@ -240,8 +240,8 @@ describe("cobertura — determinística, sem piso financeiro", () => {
   });
 });
 
-describe("anomalia de formato — o serial do Excel", () => {
-  it("separa os 54 do mesmo instante dos 8 que também mudaram de valor", async () => {
+describe("anomalia de formato — o serial do Excel virou data", () => {
+  it("reconhece que os 62 continuam no mesmo dia, só com precisão diferente", async () => {
     const view = await getGroupedView(ctx.db, AGOSTO);
     const contrato = view!.groups.find(
       (g) => g.attributeCode === "cavalo.data_fim_contrato",
@@ -249,27 +249,40 @@ describe("anomalia de formato — o serial do Excel", () => {
     expect(contrato).toBeDefined();
     expect(contrato!.vehicles).toBe(62);
     /*
-      As 62 são troca de formato e nada mais — 54 no mesmo instante, 8 com um
-      milissegundo de precisão perdida —, e é por isso que o grupo inteiro sai
-      da leitura de risco. Enquanto era `RUPTURA`, ele valia 85 pontos e abria
-      a fila de agosto/2026: a tela dizia "62 veículos afetados, crítico" no
-      cabeçalho e "nada mudou" embaixo de cada uma das 62 linhas.
+      A ingestão (values.ts, KNOWN_DATE_FIELD_SLUGS) converte o serial cru
+      direto em data — "2028-07-01", sem hora — então o que chega em Ago/2026
+      já não é mais número. A vigência anterior guarda a mesma data com hora
+      (12:00:00 para 54 cavalos, 23:59:59.999 para 8), então os dois lados
+      caem no mesmo dia mas em precisões diferentes, e é essa diferença de
+      precisão — não mais "número vs. data" — que a anomalia agora nomeia.
+      Continua saindo da leitura de risco pelo mesmo motivo de sempre: nada
+      mudou no contrato, só o formato do arquivo.
     */
     expect(contrato!.badge).toBe("FORMATO");
     expect(contrato!.formatOnly).toBe(true);
     expect(contrato!.anomalies.every((a) => a.formatOnly)).toBe(true);
+    expect(
+      contrato!.anomalies.every((a) => a.kind === "DATA_HORA_COMO_SOMENTE_DATA"),
+    ).toBe(true);
+    // Nenhuma é "o mesmo instante": o lado novo não guarda hora nenhuma para
+    // bater com a hora do lado antigo. Todas são, ainda assim, o mesmo dia.
+    expect(contrato!.anomalies.every((a) => !a.sameInstant)).toBe(true);
 
-    const same = contrato!.anomalies.find((a) => a.sameInstant);
-    const different = contrato!.anomalies.find((a) => !a.sameInstant);
-    expect(same?.vehicles).toBe(54);
-    expect(different?.vehicles).toBe(8);
-    expect(same?.interpretation).toContain("2028-07-01T12:00:00Z");
+    const total = contrato!.anomalies.reduce((soma, a) => soma + a.vehicles, 0);
+    expect(total).toBe(62);
 
-    // Os 8 diferem por UM milissegundo: 2028-07-01T23:59:59.999Z não cabe num
-    // serial do Excel. É perda de precisão do formato, e a frase precisa dizer
-    // isso — chamar de mudança de data alarmaria oito contratos sem motivo.
-    expect(different?.differenceMs).toBe(1);
-    expect(different?.explanation).toContain("precisão que o formato perdeu");
+    const porDiferenca = new Map(contrato!.anomalies.map((a) => [a.differenceMs, a.vehicles]));
+    // 12h de diferença: a hora legada era meio-dia contra a meia-noite que o
+    // formato date-only assume.
+    expect(porDiferenca.get(12 * 3600 * 1000)).toBe(54);
+    // Quase 24h de diferença: a hora legada era 23:59:59.999 — o último
+    // instante do dia —, mas o dia continua sendo o mesmo.
+    expect(porDiferenca.get(24 * 3600 * 1000 - 1)).toBe(8);
+
+    for (const anomaly of contrato!.anomalies) {
+      expect(anomaly.explanation).toContain("mesmo dia");
+      expect(anomaly.explanation).not.toContain("mudança de data");
+    }
   });
 
   it("sai da fila de risco, sem sair da lista nem do total", async () => {
@@ -304,16 +317,18 @@ describe("anomalia de formato — o serial do Excel", () => {
     expect(view!.cockpit.kpis.anomalies.formatOnlyChanges).toBe(62);
   });
 
-  it("o valor original de cada lado continua rastreável até a célula", async () => {
+  it("o serial cru não sobrevive à ingestão — o lado novo já chega como data", async () => {
     const vehicles = await getGroupVehicles(ctx.db, {
       period: AGOSTO,
       attributeCode: "cavalo.data_fim_contrato",
       entityType: "CAVALO",
     });
     expect(vehicles).toHaveLength(62);
-    // Nada foi convertido: os dois lados continuam como a fonte os entregou.
+    // A coluna é uma data conhecida (KNOWN_DATE_FIELD_SLUGS em values.ts), e a
+    // ingestão converte o serial na hora: nenhum dos dois lados mostra mais
+    // `469xx` cru na tela — só a anomalia sabe que um dos lados perdeu a hora.
     expect(vehicles[0].valueBefore).toMatch(/^2028-/);
-    expect(vehicles[0].valueAfter).toMatch(/^469\d\d/);
+    expect(vehicles[0].valueAfter).toBe("2028-07-01");
     expect(vehicles[0].anomaly).not.toBeNull();
   });
 });
@@ -358,16 +373,21 @@ describe("série do atributo — numerador, denominador e frota", () => {
   });
 
   it("coluna de data conta os ativos que têm valor, não só os numéricos", async () => {
-    // A série contava apenas valores numéricos e devolvia zero veículos em oito
-    // das nove vigências para `dataFimContrato` — dizia que ninguém tinha data
-    // de fim de contrato até agosto, quando todos tinham.
+    // `numericVehicles` só conta valores numéricos, e uma coluna de data pura
+    // nunca tem nenhum — a ingestão converte todo bare serial de uma coluna de
+    // data conhecida direto em data (values.ts), inclusive o de agosto/2026,
+    // que antes chegava cru e maquiava esta contagem como se aquela vigência
+    // fosse diferente das outras oito. `vehicles` é quem conta os ativos que
+    // têm valor de verdade, e mostra as nove vigências consistentes: 62 em
+    // todas, zero numéricos em todas.
     const series = await getAttributeSeries(ctx.db, "cavalo.data_fim_contrato");
     const julho = series!.points.find((p) => p.effectiveDate === "2026-07-02")!;
     expect(julho.vehicles).toBe(62);
     expect(julho.numericVehicles).toBe(0);
     const agosto = series!.points.find((p) => p.effectiveDate === "2026-08-01")!;
     expect(agosto.vehicles).toBe(62);
-    expect(agosto.numericVehicles).toBe(62);
+    expect(agosto.numericVehicles).toBe(0);
+    expect(series!.points.every((p) => p.numericVehicles === 0)).toBe(true);
   });
 
   it("atributo sem agregação não devolve nem total nem média", async () => {
