@@ -16,6 +16,7 @@ import { useContextosDaCasca } from "@/lib/contextos";
 import { LINHA_DO_TEMPO } from "@/lib/ambiente";
 import { cn } from "@/lib/utils";
 import { LinhaDoTempoDeImpacto } from "@/components/linha-do-tempo/linha-do-tempo-de-impacto";
+import { LinhaDoTempoDeAlteracoes } from "@/components/linha-do-tempo/linha-do-tempo-de-alteracoes";
 import { nomeDaUnidade } from "@/lib/recorte";
 import type { FamiliesView, SeriesContext } from "@/components/inicio/types";
 
@@ -90,6 +91,14 @@ export default function LinhaDoTempo() {
 
         {view && (
           <LinhaDoTempoDeImpacto
+            consulta={consulta}
+            periods={view.periods}
+            currentPeriod={view.period}
+          />
+        )}
+
+        {view && (
+          <LinhaDoTempoDeAlteracoes
             consulta={consulta}
             periods={view.periods}
             currentPeriod={view.period}
