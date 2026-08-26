@@ -6,7 +6,12 @@ import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/
 import { cn } from "@/lib/utils";
 import { getApiUrl } from "@/lib/api";
 import { formatBrl, formatBrlShort, formatValue, periodicitySuffix } from "@/lib/format";
-import { linkDeAlteracoes, type Recorte } from "@/lib/recorte";
+import {
+  linkDeAlteracoes,
+  paramsDoRecorte,
+  paramsDosVeiculosDoGrupo,
+  type Recorte,
+} from "@/lib/recorte";
 import type { Movimentos, RangeEntry } from "@/lib/analise";
 import type { GroupVehicle } from "@/components/inicio/types";
 
@@ -269,7 +274,7 @@ function LinhaDaVigencia({
                     {grupo.amount !== null ? formatBrlShort(grupo.amount) : "—"}
                   </span>
                 </div>
-                <PlacasDoGrupo period={period} entrada={grupo} />
+                <PlacasDoGrupo period={period} entrada={grupo} recorte={recorteBase} />
               </div>
             ))
           )}
@@ -288,19 +293,33 @@ function LinhaDaVigencia({
  * é aberto. Carrega assim que a vigência é expandida, sem clique extra: é
  * exatamente a placa que quem está aqui veio ver.
  */
-function PlacasDoGrupo({ period, entrada }: { period: string; entrada: RangeEntry }) {
+function PlacasDoGrupo({
+  period,
+  entrada,
+  recorte,
+}: {
+  period: string;
+  entrada: RangeEntry;
+  /**
+   * O mesmo recorte que produziu o total lá em cima.
+   *
+   * Sem ele a chamada abaixo não fica "sem filtro": o servidor cai em
+   * `contexts[0]` — a unidade com a vigência mais recente — e a gaveta passava
+   * a listar placas de outra unidade por baixo de um total que continuava certo,
+   * porque `/changes/range` recebe o contexto e esta chamada não recebia. A
+   * vigência daqui é `period`, a da linha aberta, e é ela que sobrescreve a do
+   * recorte.
+   */
+  recorte: Recorte;
+}) {
   const grupo = entrada.group;
+  const contexto = paramsDoRecorte(recorte, { comPeriodo: false });
   const veiculos = useQuery({
-    queryKey: ["group-vehicles", period, grupo.key],
+    // O contexto entra na chave, e não só na URL: sem ele duas unidades na
+    // mesma vigência dividiriam a mesma entrada de cache.
+    queryKey: ["group-vehicles", period, grupo.key, contexto.toString()],
     queryFn: async () => {
-      const params = new URLSearchParams({
-        period,
-        attributeCode: grupo.attributeCode ?? "",
-        entityType: grupo.entityType ?? "",
-        changeType: grupo.changeType,
-        comparability: grupo.comparability,
-        impactConfidence: grupo.impact.confidence,
-      });
+      const params = paramsDosVeiculosDoGrupo(contexto, period, grupo);
       const response = await fetch(getApiUrl(`/changes/grouped/vehicles?${params}`));
       if (!response.ok) return [];
       return (await response.json()) as GroupVehicle[];

@@ -61,6 +61,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useFavoritos } from "@/lib/favoritos";
 import { formatBrlCompacto, periodicitySuffix } from "@/lib/format";
+import type { Recorte } from "@/lib/recorte";
 import {
   ESCOPOS,
   ORDENS,
@@ -138,6 +139,7 @@ function ladrilhoDe(grupo: ChangeGroup): { tom: string; icone: React.ReactNode }
 }
 
 export function GradeDeAtributos({
+  recorte,
   view,
   atributos,
   escopo,
@@ -152,6 +154,8 @@ export function GradeDeAtributos({
   onAbrir,
   onIrParaCartao,
 }: {
+  /** De quem é a grade — unidade e canal, que o nível 2 do cartão precisa. */
+  recorte: Recorte;
   view: FamiliesView | null;
   atributos: AtributoRender[];
   /** `null` é "todos" — a grade sai partida por escopo, na ordem de peso. */
@@ -221,6 +225,7 @@ export function GradeDeAtributos({
       <DetalheDoAtributo
         atributo={aberto}
         period={view?.period ?? ""}
+        recorte={recorte}
         temCartao={temCartao}
         onVoltar={() => onAbrir(null)}
         onIrParaCartao={onIrParaCartao}
@@ -959,12 +964,14 @@ function CartaoDeAtributo({
 function DetalheDoAtributo({
   atributo,
   period,
+  recorte,
   temCartao,
   onVoltar,
   onIrParaCartao,
 }: {
   atributo: AtributoRender;
   period: string;
+  recorte: Recorte;
   temCartao: (parametroChave: string) => boolean;
   onVoltar: () => void;
   onIrParaCartao: (parametroChave: string) => void;
@@ -1039,7 +1046,12 @@ function DetalheDoAtributo({
       )}
 
       <div className="mt-5">
-        <GroupCard group={atributo.grupo} period={period} inicialmenteAberto />
+        <GroupCard
+          group={atributo.grupo}
+          period={period}
+          recorte={recorte}
+          inicialmenteAberto
+        />
       </div>
     </div>
   );

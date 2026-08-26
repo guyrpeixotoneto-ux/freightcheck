@@ -19,6 +19,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { GroupCard } from "@/components/inicio/group-card";
+import type { Recorte } from "@/lib/recorte";
 import { cn } from "@/lib/utils";
 import type { Severity } from "@/components/inicio/types";
 import type { DetalheDeAlteracao, TipoDeLinha } from "@/lib/visao-geral";
@@ -80,11 +81,14 @@ export function DetalheDaAlteracao({
   detalhe,
   period,
   periodLabel,
+  recorte,
   onFechar,
 }: {
   detalhe: DetalheDeAlteracao | null;
   period: string;
   periodLabel: string | null;
+  /** De quem é a alteração — unidade e canal, que o cartão precisa no nível 2. */
+  recorte: Recorte;
   onFechar: () => void;
 }) {
   if (!detalhe) return null;
@@ -167,7 +171,12 @@ export function DetalheDaAlteracao({
               Acompanhamento e os Parâmetros abrem, com a célula de origem no fim da linha.
             </p>
             <div className="mt-4">
-              <GroupCard group={grupo} period={period} inicialmenteAberto />
+              <GroupCard
+                group={grupo}
+                period={period}
+                recorte={recorte}
+                inicialmenteAberto
+              />
             </div>
           </section>
 

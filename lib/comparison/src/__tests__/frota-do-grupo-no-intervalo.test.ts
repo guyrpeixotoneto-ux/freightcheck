@@ -4,6 +4,7 @@ import { criarBancoComModelosCurados } from "../testing";
 import { listPeriods } from "../consolidated";
 import { getRangeAnalysis } from "../families-view";
 import { getGroupedView } from "../grouped";
+import { getEndToEndAnalysis } from "../end-to-end";
 
 /**
  * A frota de um grupo, lida pelo intervalo e lida pela vigência.
@@ -18,9 +19,9 @@ import { getGroupedView } from "../grouped";
  *
  * Nenhum valor financeiro depende de `fleet` — só o selo de cobertura.
  *
- * Está marcado `it.fails` porque a correção ainda não foi decidida: enquanto o
- * defeito existir, a asserção falha e o teste passa. Corrigidas as chaves, este
- * teste quebra — e a correção é trocar `it.fails` por `it`.
+ * Corrigido: a chave passou a ser uma função só ({@link chaveDaFrota}), e os
+ * três chamadores gravam com ela. Este teste é o que impede a divergência de
+ * voltar.
  */
 
 let ctx: TestDb;
@@ -33,7 +34,7 @@ afterAll(async () => {
   await ctx?.drop();
 });
 
-it.fails("o intervalo e a vigência dão a mesma frota para o mesmo grupo", async () => {
+it("o intervalo e a vigência dão a mesma frota para o mesmo grupo", async () => {
   const periodos = await listPeriods(ctx.db);
   const fim = periodos[0].effective_date;
   const inicio = periodos[1].effective_date;
@@ -70,6 +71,21 @@ it.fails("o intervalo e a vigência dão a mesma frota para o mesmo grupo", asyn
   for (const d of divergentes.slice(0, 12)) console.log("  -", d);
 
   // Nenhum grupo do intervalo pode contradizer a mesma leitura na vigência.
-  // Hoje 17 dos 20 contradizem.
   expect(divergentes).toEqual([]);
+
+  /*
+    A leitura ponta a ponta tinha o mesmo defeito de chave, e um segundo por
+    cima: gravava `snapshot.entity_count`, a soma das frotas do arquivo. Ela
+    compara vigências que não se sucedem, então o denominador é o da ponta
+    final — mas continua sendo o do equipamento, nunca a soma.
+  */
+  const frotaDaSerie = new Map(vigencia!.series.map((s) => [s.entityTypeSet, s.fleet]));
+  const pontaAPonta = await getEndToEndAnalysis(ctx.db, inicio, fim);
+  const foraDaFrota = pontaAPonta!.entries
+    .filter((e) => e.group.entityType !== null)
+    .filter((e) => e.group.fleet !== frotaDaSerie.get(e.group.entityType!))
+    .map((e) => `${e.group.attributeCode}: ${e.group.fleet} (esperado ${frotaDaSerie.get(e.group.entityType!)})`);
+  console.log(`PONTA A PONTA — grupos com frota errada: ${foraDaFrota.length}`);
+  for (const f of foraDaFrota.slice(0, 5)) console.log("  -", f);
+  expect(foraDaFrota).toEqual([]);
 });

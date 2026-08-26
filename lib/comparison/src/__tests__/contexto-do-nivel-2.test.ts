@@ -8,18 +8,22 @@ import { listContexts } from "../series";
 import { buildFixture, type AttributeSpec } from "./fixtures";
 
 /**
- * A lista de placas do nível 2 é do mesmo contexto que o total que a abriu?
+ * O que `getGroupVehicles` responde com contexto e sem contexto.
  *
- * Hoje **não é**, e este arquivo é a prova. `detalhe-do-intervalo.tsx` e
- * `group-card.tsx` chamam `/changes/grouped/vehicles` sem `scopeHash` nem
- * `canal`; sem eles, `resolveContext` cai em `contexts[0]` em silêncio
- * (`series.ts:382`) — que é a unidade com a vigência mais recente, não a que
- * está na tela. O total continua certo, porque `/changes/range` recebe o
- * contexto; só a lista muda de assunto.
+ * Escrito para diagnosticar um defeito de tela: `detalhe-do-intervalo.tsx` e
+ * `group-card.tsx` pediam a lista de placas sem `scopeHash` nem `canal`, e a
+ * gaveta passava a listar placas de outra unidade por baixo de um total que
+ * continuava certo — `/changes/range` recebia o contexto e a lista não. A
+ * correção é nas telas (ver `paramsDosVeiculosDoGrupo` e o teste que obriga
+ * todas a usá-la), e não aqui: o servidor sempre se comportou como o
+ * documentado.
  *
- * Está marcado `it.fails` porque a correção ainda não foi decidida: enquanto o
- * defeito existir, a asserção falha e o teste passa. No dia em que o contexto
- * for repassado, este teste quebra — e a correção é trocar `it.fails` por `it`.
+ * O que fica preso aqui é justamente esse comportamento, porque ele é a razão
+ * de o defeito ter sido invisível. **Contexto ausente não quer dizer "sem
+ * filtro"**: `resolveContext` cai em `contexts[0]` — a unidade com a vigência
+ * mais recente —, devolve uma resposta plausível e não avisa ninguém. Enquanto
+ * for assim, toda chamada tem de mandar o contexto, e é o custo desse padrão
+ * que os dois casos abaixo deixam medido.
  */
 
 let ctx: TestDb;
@@ -73,7 +77,7 @@ afterAll(async () => {
   await ctx?.drop();
 });
 
-it.fails("as placas do nível 2 são do contexto que o total abriu", async () => {
+it("sem contexto, a resposta é do contexts[0] — plausível e de outra unidade", async () => {
   const contextos = await listContexts(ctx.db);
   console.log("CONTEXTOS (ordem de listContexts):", contextos.map((c) => `${c.scopeHash}|${c.channel}`));
 
@@ -114,7 +118,17 @@ it.fails("as placas do nível 2 são do contexto que o total abriu", async () =>
     comContexto.map((v) => `${v.plate}: ${v.numericBefore} -> ${v.numericAfter} = ${v.impactAmount}`),
   );
 
-  // A lista de placas tem de ser a do contexto do total. Hoje devolve AAA1A11
-  // — a placa da unidade A — sob um total de −1.000 que é da unidade B.
-  expect(semContexto.map((v) => v.plate)).toEqual(["BBB2B22"]);
+  /*
+    O total é da unidade B: −1.000, uma carreta. Sem contexto, a mesma pergunta
+    devolve a placa da unidade A com +200 — nem a placa, nem o valor, nem o
+    sinal. Nada na resposta diz que o assunto mudou, e é por isso que a tela
+    tem de mandar o contexto.
+  */
+  expect(entrada.amount).toBe(-1000);
+  expect(semContexto.map((v) => v.plate)).toEqual(["AAA1A11"]);
+  expect(semContexto.map((v) => v.impactAmount)).toEqual([200]);
+
+  // Com o contexto — o que as telas passaram a fazer —, a lista é a do total.
+  expect(comContexto.map((v) => v.plate)).toEqual(["BBB2B22"]);
+  expect(comContexto.map((v) => v.impactAmount)).toEqual([-1000]);
 });

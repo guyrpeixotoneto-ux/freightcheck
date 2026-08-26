@@ -266,6 +266,7 @@ export function DetalheDaUnidadeNaComparacao({
             detalhe={alteracaoAbertaDetalhe}
             period={view.period}
             periodLabel={view.periodLabel}
+            recorte={recorte}
             onFechar={() => setAlteracaoAberta(null)}
           />
         </>

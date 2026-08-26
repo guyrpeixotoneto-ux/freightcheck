@@ -118,6 +118,45 @@ export function paramsDoRecorte(
   return params;
 }
 
+/**
+ * O endereço dos veículos de um grupo — o nível 2 de um cartão.
+ *
+ * Existe por um defeito que custou caro e é fácil de repetir: três telas
+ * montavam esta consulta à mão, e só uma delas mandava o contexto. Quem não
+ * manda `scopeHash`/`canal` não fica sem filtro — o servidor cai em
+ * `contexts[0]`, a unidade com a vigência mais recente (ver `resolveContext` em
+ * `@workspace/comparison`). O total do cartão continuava certo, porque a
+ * leitura que o produziu recebe o contexto, e a lista por baixo dele passava a
+ * ser de outra unidade: placas que não existem ali, às vezes com o sinal
+ * oposto ao do número em cima.
+ *
+ * O contexto entra como `URLSearchParams` e não como {@link Recorte} porque
+ * nem toda tela fala em recorte: a de vigência carrega também o `de`/`ate`, e
+ * esse recorte de janela tem de sobreviver à viagem. Quem tem um `Recorte`
+ * converte com `paramsDoRecorte(recorte, { comPeriodo: false })` — a vigência
+ * do grupo é `period`, a da comparação que o produziu, e é ela que manda.
+ */
+export function paramsDosVeiculosDoGrupo(
+  contexto: URLSearchParams,
+  period: string,
+  grupo: {
+    attributeCode: string | null;
+    entityType: string | null;
+    changeType: string;
+    comparability: string;
+    impact: { confidence: string };
+  },
+): URLSearchParams {
+  const params = new URLSearchParams(contexto);
+  params.set("period", period);
+  params.set("attributeCode", grupo.attributeCode ?? "");
+  params.set("entityType", grupo.entityType ?? "");
+  params.set("changeType", grupo.changeType);
+  params.set("comparability", grupo.comparability);
+  params.set("impactConfidence", grupo.impact.confidence);
+  return params;
+}
+
 // ---------------------------------------------------------------------------
 // Os filtros de linha
 // ---------------------------------------------------------------------------
