@@ -13,7 +13,12 @@ import {
 import { getApiUrl } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { formatBrl, formatValue, periodicitySuffix } from "@/lib/format";
-import { lerRecorte, linkDeAlteracoes } from "@/lib/recorte";
+import {
+  lerRecorte,
+  linkDeAlteracoes,
+  paramsDosVeiculosDoGrupo,
+} from "@/lib/recorte";
+import { useSerieDoAtributo } from "@/lib/serie-do-atributo";
 import {
   HistoricoAtributo,
   TabelaVeiculos,
@@ -293,33 +298,14 @@ function Investigacao({
   const vehicles = useQuery({
     queryKey: ["group-vehicles", period, group.key, contexto.toString()],
     queryFn: async () => {
-      const params = new URLSearchParams(contexto);
-      params.set("period", period);
-      params.set("attributeCode", group.attributeCode ?? "");
-      params.set("entityType", group.entityType ?? "");
-      params.set("changeType", group.changeType);
-      params.set("comparability", group.comparability);
-      params.set("impactConfidence", group.impact.confidence);
+      const params = paramsDosVeiculosDoGrupo(contexto, period, group);
       const response = await fetch(getApiUrl(`/changes/grouped/vehicles?${params}`));
       if (!response.ok) return [];
       return (await response.json()) as GroupVehicle[];
     },
   });
 
-  const series = useQuery({
-    queryKey: ["attribute-series", group.attributeCode, contexto.toString()],
-    queryFn: async () => {
-      const suffix = contexto.toString() ? `?${contexto}` : "";
-      const response = await fetch(
-        getApiUrl(
-          `/attributes/${encodeURIComponent(group.attributeCode ?? "")}/series${suffix}`,
-        ),
-      );
-      if (!response.ok) return null;
-      return (await response.json()) as AttributeSeries;
-    },
-    enabled: group.attributeCode !== null,
-  });
+  const series = useSerieDoAtributo(group.attributeCode, contexto);
 
   return (
     <div className="bg-card px-6 py-5 space-y-5 text-sm">

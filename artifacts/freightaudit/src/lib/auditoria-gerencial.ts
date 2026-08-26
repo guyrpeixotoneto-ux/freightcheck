@@ -291,7 +291,21 @@ export function quinzenasDoAno(
 
 export interface ResumoDaUnidade {
   scopeHash: string;
+  /**
+   * O canal deste cartão, quando ele tem **um**.
+   *
+   * `null` tem dois significados que só `canais` separa: o contexto cujo rótulo
+   * não declara canal (uma partição real da base) e o cartão que agrega mais de
+   * um canal, no modo unidade do Painel. Quem monta link usa `canais`, nunca
+   * este campo sozinho — mandar um canal escolhido a esmo abriria Parâmetros
+   * numa partição que o cartão não estava mostrando.
+   */
   channel: string | null;
+  /**
+   * Os canais que este cartão soma, em ordem. Um só na Visão Geral; pode ser
+   * mais de um quando o Painel abre uma unidade inteira.
+   */
+  canais: (string | null)[];
   /** "CAMAÇARI · EMPURRADA" — o contexto inteiro, para o rodapé do cartão. */
   label: string;
   /** Só a unidade, para o título do cartão. */
@@ -330,6 +344,61 @@ export interface ResumoDaUnidade {
   percentualAuditado: number | null;
 }
 
+/**
+ * O nome de uma unidade lido do acervo inteiro, e não de um ano.
+ *
+ * É o que o vazio do Painel precisa: quando a unidade não publicou nada no ano
+ * escolhido não há cartão nenhum de onde tirar o nome — é a definição do
+ * estado —, e o `scopeHash` não é nome de nada para quem lê. Sem nenhuma
+ * vigência em ano nenhum, "A unidade" é o mais honesto que se pode dizer.
+ */
+export function nomeDoEscopo(linhas: VigenciaDaAuditoria[], scopeHash: string): string {
+  const linha = linhas.find((v) => v.contexto.scopeHash === scopeHash);
+  return linha ? nomeDaUnidade(linha.contexto) : "A unidade";
+}
+
+/**
+ * A vigência mais recente de um conjunto de linhas — a que o cartão anuncia e
+ * para a qual ele linka.
+ *
+ * Uma casca de TRECHO (`entityTypeSet === "TRECHO"`) não é uma vigência
+ * navegável — é a mesma exclusão de `naoEhSoTrecho` (`series.ts`), aqui refeita
+ * em JS porque o cartão nunca vê o SQL. Sem isto, uma casca mais recente que a
+ * vigência de equipamento vira a última, o cartão linka para uma data que o
+ * Parâmetros não reconhece como período, e a tela abre vazia mesmo a unidade
+ * tendo dado real e auditado.
+ */
+function ultimaVigenciaDe(linhas: VigenciaDaAuditoria[]): string | undefined {
+  const navegaveis = linhas.filter((v) => v.entityTypeSet !== "TRECHO");
+  return (navegaveis.length > 0 ? navegaveis : linhas)
+    .map((v) => v.effectiveDate)
+    .sort((a, b) => b.localeCompare(a))[0];
+}
+
+/**
+ * A frota que um conjunto de linhas declarou — a última de cada canal, somadas.
+ *
+ * Ver o comentário de `ativos`, em `resumirPor`: a última vigência é lida por
+ * canal justamente porque canais publicam em ritmos diferentes.
+ */
+function frotaDeclarada(linhas: VigenciaDaAuditoria[]): number {
+  const porCanal = new Map<string, VigenciaDaAuditoria[]>();
+  for (const linha of linhas) {
+    const chave = chaveDoContexto(linha.contexto);
+    const lista = porCanal.get(chave);
+    if (lista) lista.push(linha);
+    else porCanal.set(chave, [linha]);
+  }
+  let total = 0;
+  for (const doCanal of porCanal.values()) {
+    const ultima = ultimaVigenciaDe(doCanal);
+    total += doCanal
+      .filter((v) => v.effectiveDate === ultima)
+      .reduce((soma, v) => soma + v.ativos, 0);
+  }
+  return total;
+}
+
 /** O nome da unidade dentro do contexto; sem escopo cadastrado, vale o rótulo. */
 export function nomeDaUnidade(contexto: ContextoDaVigencia): string {
   const unidade = contexto.scopes.find((s) => s.scopeType === "UNIDADE");
@@ -366,10 +435,53 @@ export function resumirUnidades(
   ano: number,
   diaDeHoje: string,
 ): ResumoDaUnidade[] {
+  return resumirPor(linhas, ano, diaDeHoje, chaveDoContexto);
+}
+
+/**
+ * O ano de **uma** unidade, com os canais dela somados num cartão só.
+ *
+ * É o modo que o Painel de Unidades usa quando a lateral abre uma unidade. A
+ * regra de agrupamento muda — a chave passa a ser o `scopeHash`, e o canal deixa
+ * de partir o cartão — e é uma decisão de produto, não um detalhe: neste Painel
+ * o conceito é a unidade, e ver "CAMAÇARI · ROTA" e "CAMAÇARI · EMPURRADA" como
+ * dois cartões depois de pedir CAMAÇARI é responder outra pergunta.
+ *
+ * **Isto não desmente a nota de `resumirUnidades`.** O que o motor recusa é
+ * *comparar* uma vigência de um canal com a do outro, e nada aqui compara: a
+ * comparação já aconteceu dentro de cada série, e o cartão soma resultados
+ * prontos — exatamente como `resumoExecutivo` já somava os contextos do acervo
+ * inteiro na faixa do topo. O que o cartão agregado não pode fazer é esconder de
+ * quantos canais ele veio, e é para isso que serve `canais`.
+ *
+ * Devolve uma lista de zero ou um cartão: zero quando a unidade não publicou
+ * nada no ano pedido, que é um estado que a tela precisa saber distinguir de
+ * "esta unidade não existe".
+ */
+export function resumirEscopo(
+  linhas: VigenciaDaAuditoria[],
+  ano: number,
+  diaDeHoje: string,
+  scopeHash: string,
+): ResumoDaUnidade[] {
+  return resumirPor(
+    linhas.filter((l) => l.contexto.scopeHash === scopeHash),
+    ano,
+    diaDeHoje,
+    (c) => c.scopeHash,
+  );
+}
+
+function resumirPor(
+  linhas: VigenciaDaAuditoria[],
+  ano: number,
+  diaDeHoje: string,
+  chaveDe: (c: { scopeHash: string; channel: string | null }) => string,
+): ResumoDaUnidade[] {
   const porContexto = new Map<string, VigenciaDaAuditoria[]>();
   for (const linha of linhas) {
     if (anoDa(linha) !== ano) continue;
-    const chave = chaveDoContexto(linha.contexto);
+    const chave = chaveDe(linha.contexto);
     const lista = porContexto.get(chave);
     if (lista) lista.push(linha);
     else porContexto.set(chave, [linha]);
@@ -378,24 +490,34 @@ export function resumirUnidades(
   const unidades = [...porContexto.values()].map((daUnidade) => {
     const contexto = daUnidade[0].contexto;
     const quinzenas = quinzenasDoAno(daUnidade, ano, diaDeHoje);
+    const ultimaVigencia = ultimaVigenciaDe(daUnidade);
     /*
-      Uma casca de TRECHO (`entityTypeSet === "TRECHO"`) não é uma vigência
-      navegável — é a mesma exclusão de `naoEhSoTrecho` (`series.ts`), aqui
-      refeita em JS porque o cartão nunca vê o SQL. Sem isto, uma casca mais
-      recente que a vigência de equipamento vira `ultimaVigencia`, o cartão
-      linka para uma data que o Parâmetros não reconhece como período, e a
-      tela abre vazia mesmo a unidade tendo dado real e auditado.
+      Os canais que este cartão soma: um só quando a chave de agrupamento é o
+      contexto, possivelmente vários quando o Painel abre a unidade inteira. A
+      ordem é estável para que o rótulo não dance entre dois renders.
     */
-    const comVigenciaNavegavel = daUnidade.filter((v) => v.entityTypeSet !== "TRECHO");
-    const ultimaVigencia = (comVigenciaNavegavel.length > 0 ? comVigenciaNavegavel : daUnidade)
-      .map((v) => v.effectiveDate)
-      .sort((a, b) => b.localeCompare(a))[0];
+    const canais = [...new Set(daUnidade.map((v) => v.contexto.channel))].sort((a, b) =>
+      (a ?? "").localeCompare(b ?? "", "pt-BR"),
+    );
+    const nome = nomeDaUnidade(contexto);
 
     const resumo: ResumoDaUnidade = {
       scopeHash: contexto.scopeHash,
-      channel: contexto.channel,
-      label: contexto.label,
-      nome: nomeDaUnidade(contexto),
+      channel: canais.length === 1 ? canais[0] : null,
+      canais,
+      /*
+        O rodapé do cartão diz de onde vem o que está nele. Com um canal só, é o
+        rótulo que o servidor mandou; com vários, o rótulo de um deles nomearia
+        uma partição e mostraria a soma de todas — então o cartão os lista.
+        `sem canal` é o nome legível do contexto cujo rótulo não declara um: ele
+        é uma partição de verdade, e omiti-lo faria a soma parecer vir só dos
+        canais nomeados.
+      */
+      label:
+        canais.length === 1
+          ? contexto.label
+          : `${nome} · ${canais.map((c) => c ?? "sem canal").join(" + ")}`,
+      nome,
       coberturas: [...new Set(daUnidade.map((v) => v.entityTypeSet))].sort((a, b) =>
         a.localeCompare(b, "pt-BR"),
       ),
@@ -419,10 +541,14 @@ export function resumirUnidades(
         séries daquela data — cavalos e carretas chegam em snapshots separados,
         e a frota da unidade é a soma dos dois. Somar todas as vigências do ano
         contaria o mesmo caminhão nove vezes.
+
+        **A conta é por canal, e depois somada.** Cada canal publica no ritmo
+        dele: um cartão que agregasse dois e filtrasse pela data mais recente
+        entre eles zeraria a frota de quem publicou antes — a unidade apareceria
+        com metade dos caminhões por um detalhe de calendário. Com um canal só,
+        isto é exatamente a conta de sempre.
       */
-      ativos: daUnidade
-        .filter((v) => v.effectiveDate === ultimaVigencia)
-        .reduce((soma, v) => soma + v.ativos, 0),
+      ativos: frotaDeclarada(daUnidade),
       percentualAuditado: null,
     };
 

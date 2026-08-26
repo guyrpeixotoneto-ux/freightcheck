@@ -15,6 +15,7 @@ import {
 import { periodLabel } from "./labels";
 import {
   buildGroup,
+  chaveDaFrota,
   compareGroups,
   getGroupedView,
   groupKey,
@@ -506,12 +507,10 @@ export async function getRangeAnalysis(
     change_set_id: string;
     period: string;
     entity_type_set: string;
-    fleet: number;
   }>(sql`
     SELECT cs.id AS change_set_id,
            sb.effective_date::text AS period,
-           sb.entity_type_set,
-           sb.entity_count AS fleet
+           sb.entity_type_set
       FROM change_set cs
       JOIN snapshot sb ON sb.id = cs.snapshot_b_id
      WHERE sb.effective_date > ${inicio}::date
@@ -520,6 +519,53 @@ export async function getRangeAnalysis(
        AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = sb.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND ${contextFilter("sb", context)}
      ORDER BY sb.effective_date DESC, sb.entity_type_set
+  `);
+
+  /*
+    A frota de cada grupo, por (comparação, equipamento) — a mesma consulta que
+    a leitura da vigência faz, e pela mesma razão.
+
+    Uma consulta própria, e não mais uma coluna em `sets`: há uma linha por
+    equipamento, e `sets` é também quem conta as comparações do intervalo
+    (`comparisons`, `totals.comparisons`). Somar equipamento como se fosse
+    comparação inflaria os dois.
+
+    A forma é um semi-join, e não a subconsulta correlacionada por tipo que a
+    leitura de uma vigência usa: lá são dois tipos de um snapshot só; aqui é o
+    histórico inteiro da unidade. Medido no export real, sobre as nove
+    vigências: 428 ms correlacionada, 117 ms agregando as linhas de fato numa
+    passada, 44 ms perguntando a cada ativo se ele tem fato visível — que é a
+    pergunta que a frota de fato faz, e a única das três que não precisa
+    percorrer os fatos para depois desduplicá-los.
+
+    Um equipamento sem nenhum fato visível não aparece aqui — e também não
+    produz grupo, então não há denominador a perder.
+
+    `snapshot.entity_count` ocupava este lugar e não servia: é a contagem do
+    snapshot inteiro, então um arquivo com cavalo e carreta media a cobertura de
+    um atributo de cavalo contra as duas frotas. O denominador de um grupo é a
+    frota do equipamento a que o atributo pertence.
+  */
+  const { rows: frotas } = await db.execute<{
+    change_set_id: string;
+    entity_type: string;
+    fleet: number;
+  }>(sql`
+    SELECT cs.id AS change_set_id,
+           e.entity_type,
+           count(*)::int AS fleet
+      FROM change_set cs
+      JOIN snapshot sb ON sb.id = cs.snapshot_b_id
+      JOIN entity e ON EXISTS (
+             SELECT 1 FROM fato_visivel f
+              WHERE f.snapshot_id = sb.id AND f.entity_id = e.id
+           )
+     WHERE sb.effective_date > ${inicio}::date
+       AND sb.effective_date <= ${fim}::date
+       AND sb.status <> 'SUPERSEDED'
+       AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = sb.import_run_id AND import_run.hidden_at IS NOT NULL)
+       AND ${contextFilter("sb", context)}
+     GROUP BY cs.id, e.entity_type
   `);
 
   const changeSetIds = sets.map((s) => s.change_set_id);
@@ -558,7 +604,9 @@ export async function getRangeAnalysis(
       : todasAsLinhas;
 
   const periodoDoSet = new Map(sets.map((s) => [s.change_set_id, s.period]));
-  const fleetByChangeSet = new Map(sets.map((s) => [s.change_set_id, s.fleet]));
+  const fleetByChangeSet = new Map(
+    frotas.map((f) => [chaveDaFrota(f.change_set_id, f.entity_type), f.fleet]),
+  );
 
   // ---- movimento por vigência ---------------------------------------------
   /*

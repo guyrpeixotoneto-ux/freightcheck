@@ -5,6 +5,12 @@ import { getApiUrl } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { formatBrl, formatPercent, formatValue, periodicitySuffix } from "@/lib/format";
 import {
+  paramsDoRecorte,
+  paramsDosVeiculosDoGrupo,
+  type Recorte,
+} from "@/lib/recorte";
+import { useSerieDoAtributo } from "@/lib/serie-do-atributo";
+import {
   HistoricoAtributo,
   TabelaVeiculos,
 } from "@/components/changes/detalhe-alteracao";
@@ -39,10 +45,26 @@ const BADGE_STYLE: Record<string, string> = {
 export function GroupCard({
   group,
   period,
+  recorte,
   inicialmenteAberto = false,
 }: {
   group: ChangeGroup;
   period: string;
+  /**
+   * De quem é o cartão — unidade e canal.
+   *
+   * Obrigatório, e não opcional com um padrão: o nível 2 do cartão pede a lista
+   * de veículos e a série do atributo ao servidor, e quem não manda contexto
+   * não fica sem filtro — cai em `contexts[0]`, a unidade com a vigência mais
+   * recente. O total do cabeçalho continuava certo (a leitura que o produziu
+   * recebe o contexto) e a lista por baixo passava a ser de outra unidade, com
+   * placas que não existem aqui. Um padrão opcional traria esse defeito de
+   * volta em silêncio no primeiro chamador que esquecesse de passar.
+   *
+   * A vigência daqui é `period`, não `recorte.period`: o cartão é de uma
+   * comparação, e é ela que a lista tem de responder.
+   */
+  recorte: Recorte;
   /**
    * Se o cartão já nasce aberto.
    *
@@ -148,7 +170,7 @@ export function GroupCard({
         </div>
       </button>
 
-      {open && <GroupDetail group={group} period={period} />}
+      {open && <GroupDetail group={group} period={period} recorte={recorte} />}
     </div>
   );
 }
@@ -231,35 +253,37 @@ export function BeforeAfter({ group }: { group: ChangeGroup }) {
 // Nível 2
 // ---------------------------------------------------------------------------
 
-function GroupDetail({ group, period }: { group: ChangeGroup; period: string }) {
+function GroupDetail({
+  group,
+  period,
+  recorte,
+}: {
+  group: ChangeGroup;
+  period: string;
+  recorte: Recorte;
+}) {
+  /*
+    Unidade e canal, na forma que a API recebe. `comPeriodo: false` porque a
+    vigência deste cartão é `period` — a da comparação que o produziu —, e não
+    a que estiver no recorte da tela.
+
+    O contexto entra também na `queryKey`, e não só na URL: sem ele, duas
+    unidades na mesma vigência compartilhariam a mesma entrada de cache, e
+    trocar de unidade serviria a lista da anterior sem ir ao servidor.
+  */
+  const contexto = paramsDoRecorte(recorte, { comPeriodo: false });
+
   const vehicles = useQuery({
-    queryKey: ["group-vehicles", period, group.key],
+    queryKey: ["group-vehicles", period, group.key, contexto.toString()],
     queryFn: async () => {
-      const params = new URLSearchParams({
-        period,
-        attributeCode: group.attributeCode ?? "",
-        entityType: group.entityType ?? "",
-        changeType: group.changeType,
-        comparability: group.comparability,
-        impactConfidence: group.impact.confidence,
-      });
+      const params = paramsDosVeiculosDoGrupo(contexto, period, group);
       const response = await fetch(getApiUrl(`/changes/grouped/vehicles?${params}`));
       if (!response.ok) return [];
       return (await response.json()) as GroupVehicle[];
     },
   });
 
-  const series = useQuery({
-    queryKey: ["attribute-series", group.attributeCode],
-    queryFn: async () => {
-      const response = await fetch(
-        getApiUrl(`/attributes/${encodeURIComponent(group.attributeCode ?? "")}/series`),
-      );
-      if (!response.ok) return null;
-      return (await response.json()) as AttributeSeries;
-    },
-    enabled: group.attributeCode !== null,
-  });
+  const series = useSerieDoAtributo(group.attributeCode, contexto);
 
   return (
     <div className="border-t px-5 py-4 space-y-5 text-sm">

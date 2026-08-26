@@ -11,6 +11,7 @@ import {
   formatValue,
   periodicitySuffix,
 } from "@/lib/format";
+import { lerRecorte, type Recorte } from "@/lib/recorte";
 import {
   bloqueiosDaApuracao,
   comparativoDeLeituras,
@@ -149,6 +150,14 @@ export function AnaliseCartao({
   */
   const ateEfetivo = ate ?? periodo;
 
+  // Unidade e canal como o resto do produto os nomeia. O nível 2 do cartão
+  // precisa deles para pedir a lista de veículos do contexto certo.
+  //
+  // `recorteDaTela` e não `recorte`: logo abaixo, `recorte` é a query com o
+  // recorte de parâmetros do cartão — outro sentido da mesma palavra, e os dois
+  // convivem neste arquivo desde antes.
+  const recorteDaTela = lerRecorte(contexto);
+
   const base = new URLSearchParams(contexto);
   base.delete("period");
   if (de) base.set("from", de);
@@ -250,6 +259,7 @@ export function AnaliseCartao({
         </div>
       ) : leitura === "movimentos" ? (
         <LeituraMovimentos
+          recorte={recorteDaTela}
           mov={mov}
           p2p={p2p}
           doCartao={doCartao}
@@ -438,6 +448,7 @@ function Lacunas({ gaps }: { gaps: { label: string; reason: string }[] }) {
 /* ------------------------------------------------------------------ */
 
 function LeituraMovimentos({
+  recorte,
   mov,
   p2p,
   doCartao,
@@ -447,6 +458,7 @@ function LeituraMovimentos({
   onAbrirCartao,
   temCartao,
 }: {
+  recorte: Recorte;
   mov: Movimentos;
   p2p: PontaAPonta | null;
   doCartao: RangeEntry[];
@@ -540,6 +552,7 @@ function LeituraMovimentos({
       {aberto && (
         <Detalhe
           entrada={doCartao.find((e) => e.key === aberto) ?? null}
+          recorte={recorte}
           onFechar={() => onAbrir(null)}
         />
       )}
@@ -2038,9 +2051,11 @@ function Revertidos({ p2p }: { p2p: PontaAPonta }) {
  */
 function Detalhe({
   entrada,
+  recorte,
   onFechar,
 }: {
   entrada: RangeEntry | null;
+  recorte: Recorte;
   onFechar: () => void;
 }) {
   if (!entrada) return null;
@@ -2056,7 +2071,11 @@ function Detalhe({
           Fechar
         </button>
       </div>
-      <GroupCard group={entrada.group as unknown as ChangeGroup} period={entrada.period} />
+      <GroupCard
+        group={entrada.group as unknown as ChangeGroup}
+        period={entrada.period}
+        recorte={recorte}
+      />
     </section>
   );
 }

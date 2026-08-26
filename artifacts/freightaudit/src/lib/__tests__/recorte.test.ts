@@ -9,6 +9,7 @@ import {
   nomeDaUnidade,
   paramsDeAlteracoes,
   paramsDoRecorte,
+  paramsDosVeiculosDoGrupo,
   temRecorte,
   RECORTE_VAZIO,
   type Recorte,
@@ -305,5 +306,93 @@ describe("a aba pedida no endereço", () => {
     expect(abaValida("cliente")).toBe(true);
     expect(abaValida("curadoria")).toBe(false);
     expect(abaValida(null)).toBe(false);
+  });
+});
+
+/**
+ * O nível 2 de um cartão — a relação de placas por trás de um total.
+ *
+ * O defeito que estes casos impedem é o mesmo do resto do arquivo, num degrau
+ * mais fundo: um endereço que funciona e responde por outra unidade. Três
+ * telas montavam esta consulta à mão e só uma mandava o contexto; sem ele o
+ * servidor não fica sem filtro — cai em `contexts[0]`, a unidade com a
+ * vigência mais recente. Numa base com duas unidades, o cabeçalho dizia
+ * −R$ 1.000 da unidade B e a lista por baixo trazia a placa da unidade A com
+ * +R$ 200: placa inexistente ali, com o sinal oposto ao do número em cima.
+ */
+describe("o endereço dos veículos de um grupo", () => {
+  const GRUPO = {
+    attributeCode: "carreta.custo_fixo",
+    entityType: "CARRETA",
+    changeType: "VALUE_CHANGE",
+    comparability: "COMPARABLE",
+    impact: { confidence: "CALCULATED" },
+  };
+
+  it("leva unidade e canal — sem eles o servidor responde por outra unidade", () => {
+    const params = paramsDosVeiculosDoGrupo(
+      paramsDoRecorte(
+        { period: "2026-08-01", scopeHash: "unidade-b", canal: "EMPURRADA" },
+        { comPeriodo: false },
+      ),
+      "2026-07-02",
+      GRUPO,
+    );
+
+    expect(params.get("scopeHash")).toBe("unidade-b");
+    expect(params.get("canal")).toBe("EMPURRADA");
+  });
+
+  it("a vigência é a do grupo, não a do recorte da tela", () => {
+    const params = paramsDosVeiculosDoGrupo(
+      paramsDoRecorte(
+        { period: "2026-08-01", scopeHash: "unidade-b", canal: null },
+        { comPeriodo: false },
+      ),
+      "2026-07-02",
+      GRUPO,
+    );
+
+    // O cartão é de uma comparação, e é ela que a lista tem de responder.
+    expect(params.get("period")).toBe("2026-07-02");
+  });
+
+  it("identifica o grupo pelas cinco chaves que o servidor agrupa", () => {
+    const params = paramsDosVeiculosDoGrupo(new URLSearchParams(), "2026-07-02", GRUPO);
+
+    expect(params.get("attributeCode")).toBe("carreta.custo_fixo");
+    expect(params.get("entityType")).toBe("CARRETA");
+    expect(params.get("changeType")).toBe("VALUE_CHANGE");
+    expect(params.get("comparability")).toBe("COMPARABLE");
+    expect(params.get("impactConfidence")).toBe("CALCULATED");
+  });
+
+  /*
+    `canal=` vazio é uma partição real — "as vigências sem canal legível no
+    rótulo" —, e não a ausência de escolha. Perdê-lo no caminho devolveria a
+    lista de todas as vigências da unidade sob o total de uma partição só.
+  */
+  it("preserva o canal vazio, que quer dizer 'sem canal no rótulo'", () => {
+    const params = paramsDosVeiculosDoGrupo(
+      paramsDoRecorte({ period: null, scopeHash: "unidade-a", canal: "" }, { comPeriodo: false }),
+      "2026-07-02",
+      GRUPO,
+    );
+
+    expect(params.has("canal")).toBe(true);
+    expect(params.get("canal")).toBe("");
+  });
+
+  /*
+    A tela de vigência manda também o recorte De/Até. Ele não é do recorte de
+    unidade e por isso não passa por `paramsDoRecorte`; tem de atravessar
+    mesmo assim, porque `contextFilter` filtra os snapshots por ele.
+  */
+  it("deixa passar o que a tela já tinha no contexto, como o De/Até", () => {
+    const contexto = new URLSearchParams({ scopeHash: "unidade-a", de: "2026-06-01" });
+    const params = paramsDosVeiculosDoGrupo(contexto, "2026-07-02", GRUPO);
+
+    expect(params.get("de")).toBe("2026-06-01");
+    expect(params.get("scopeHash")).toBe("unidade-a");
   });
 });
