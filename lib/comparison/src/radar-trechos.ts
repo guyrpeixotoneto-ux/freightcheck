@@ -265,21 +265,33 @@ export async function resolverComparacaoDeTrecho(
   const context = await resolveContext(db, requested, contexts).catch(() => null);
   if (!context) return { erro: "SEM_CONTEXTO" };
 
+  /*
+    A vigência é achada por **presença de fato** — o mesmo método de
+    `listarFrota` (`ativos.ts`), que já é o que Trecho 360° usa. Não filtra
+    por `snapshot.entity_type_set = 'TRECHO'`: essa comparação exata falha
+    sempre que o trecho chega na mesma vigência que cavalo/carreta (um
+    `entity_type_set` composto, tipo `CAVALO+CARRETA+TRECHO`), que é um
+    formato real de entrega — a Ambev não promete um arquivo por
+    equipamento. A entidade é que sabe o próprio tipo; a vigência não
+    precisa saber que só carrega um.
+  */
   const { rows } = await db.execute<{
     id: string;
     effective_date: string;
     source_label: string;
   }>(sql`
-    SELECT id, effective_date::text AS effective_date, source_label
-      FROM snapshot
-     WHERE status <> 'SUPERSEDED'
-       AND entity_type_set = 'TRECHO'
+    SELECT s.id, s.effective_date::text AS effective_date, s.source_label
+      FROM snapshot s
+      JOIN fato_visivel f ON f.snapshot_id = s.id
+      JOIN entity e       ON e.id = f.entity_id
+     WHERE e.entity_type = 'TRECHO'
+       AND s.status <> 'SUPERSEDED'
        AND NOT EXISTS (
              SELECT 1 FROM import_run
-              WHERE import_run.id = snapshot.import_run_id AND import_run.hidden_at IS NOT NULL
+              WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL
            )
-       AND ${contextFilter("snapshot", context)}
-     ORDER BY effective_date DESC
+       AND ${contextFilter("s", context)}
+     ORDER BY s.effective_date DESC
      LIMIT 1
   `);
   const latest = rows[0];
