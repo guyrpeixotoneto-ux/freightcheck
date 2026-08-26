@@ -1,6 +1,17 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
+import {
+  and,
+  Column,
+  desc,
+  eq,
+  getTableColumns,
+  inArray,
+  is,
+  ne,
+  SQL,
+  sql,
+} from "drizzle-orm";
 import type { Database } from "@workspace/db";
 import {
   codigoDoPostgres,
@@ -331,7 +342,164 @@ const AVISO_DE_CELULA: Record<
 };
 
 /** Postgres caps a statement at 65535 bound parameters. */
-const INSERT_CHUNK = 1_000;
+const MAX_BIND_PARAMS = 65_535;
+
+/**
+ * Margem sobre o teto, para o que o drizzle vincula além das chaves escritas.
+ *
+ * A conta abaixo mede as colunas que *este* código escreve. Uma coluna com
+ * valor gerado no cliente (`$defaultFn`) entra como parâmetro sem aparecer nas
+ * chaves, e encostar no teto exato faria o statement estourar em produção por
+ * uma coluna que ninguém somou. Dez por cento de folga cabem várias delas.
+ */
+const FOLGA_DE_PARAMETROS = 0.9;
+
+/**
+ * Teto de linhas por statement, independente de quantas colunas cabem.
+ *
+ * Existe pela memória: um statement de dezenas de milhares de linhas monta a
+ * query inteira como string antes de mandar. O ganho de round-trip já está
+ * quase todo tomado bem antes disso.
+ */
+const MAX_LINHAS_POR_STATEMENT = 10_000;
+
+/**
+ * Quantas linhas cabem num INSERT — pelas colunas que ele escreve.
+ *
+ * Era 1.000 fixo, escolhido para nunca chegar perto do teto com a tabela mais
+ * larga; o preço era a tabela estreita mandar dez statements onde cabia um. A
+ * conta é a do protocolo: 65.535 parâmetros por statement, divididos pelas
+ * colunas de uma linha. Uma tabela larga continua com lote pequeno — o limite
+ * é o mesmo de antes —, e uma estreita passa a usar o espaço que sempre teve.
+ *
+ * Isto vale para o caminho de sempre. O volume — dezenas de milhares de linhas
+ * — não passa por aqui: vai pelo INSERT em massa logo abaixo, onde o número de
+ * parâmetros não depende do número de linhas.
+ */
+function linhasPorStatement(rows: Record<string, unknown>[]): number {
+  const colunas = new Set<string>();
+  for (const row of rows) {
+    for (const coluna of Object.keys(row)) colunas.add(coluna);
+  }
+  const porLinha = Math.max(1, colunas.size);
+  return Math.max(
+    1,
+    Math.min(
+      MAX_LINHAS_POR_STATEMENT,
+      Math.floor((MAX_BIND_PARAMS * FOLGA_DE_PARAMETROS) / porLinha),
+    ),
+  );
+}
+
+/**
+ * A partir de quantas linhas vale a pena montar o INSERT por colunas.
+ *
+ * Abaixo disso o caminho normal do drizzle é mais barato de ler e não custa
+ * nada de medível: o problema que o caminho em massa resolve só aparece nas
+ * dezenas de milhares de valores.
+ */
+const LINHAS_PARA_INSERIR_EM_MASSA = 200;
+
+/** Linhas por statement no caminho em massa — o limite aqui é memória, não protocolo. */
+const MAX_LINHAS_EM_MASSA = 20_000;
+
+/**
+ * O INSERT em massa: uma array por coluna, e `unnest` monta as linhas no banco.
+ *
+ * ---------------------------------------------------------------------------
+ * Por que não é o INSERT de várias linhas que o drizzle escreve
+ * ---------------------------------------------------------------------------
+ * `VALUES ($1,$2,…),($8,$9,…)` gasta um parâmetro por célula. Uma planilha de
+ * 14 mil linhas por dez colunas são 140 mil células, e cada parâmetro passa
+ * pelo construtor de SQL do drizzle — que, para cada um, pergunta o que ele é.
+ * Medido num Postgres local, a leitura inteira levava 33s, e **15s** eram
+ * exatamente isso: montar a string do INSERT em JavaScript. O banco respondia
+ * em menos de um segundo. Aumentar o chunk não resolve; o custo é por valor,
+ * não por statement.
+ *
+ * Uma array por coluna troca 140 mil parâmetros por sete — um por coluna,
+ * qualquer que seja o número de linhas. A montagem deixa de aparecer no perfil,
+ * e o statement que chega ao banco é curto: o volume viaja como dado, não como
+ * texto de query.
+ *
+ * ---------------------------------------------------------------------------
+ * Onde este caminho se recusa a rodar
+ * ---------------------------------------------------------------------------
+ * `unnest` escreve exatamente as colunas listadas: não existe `DEFAULT` no meio
+ * de uma array. Então ele só aceita lotes **uniformes** — todas as linhas com
+ * as mesmas chaves. Uma linha que omite uma chave que outra tem está pedindo o
+ * default do banco para uma e um valor para a outra, e isso o caminho normal
+ * do drizzle sabe fazer e este não. Chave que não é coluna, ou valor que já é
+ * um fragmento de SQL, caem pela mesma porta. `null` continua sendo `null`:
+ * ausência declarada não é o mesmo que chave ausente.
+ *
+ * Coluna que a linha nunca menciona fica fora da lista do INSERT, e o banco
+ * aplica o default dela — igual ao que o drizzle faria.
+ */
+function planoEmMassa<T extends Record<string, unknown>>(
+  table: Parameters<Database["insert"]>[0],
+  rows: T[],
+): { chave: string; coluna: Column }[] | null {
+  if (rows.length < LINHAS_PARA_INSERIR_EM_MASSA) return null;
+
+  const colunas = getTableColumns(table);
+  const chaves = Object.keys(rows[0]);
+  if (chaves.length === 0) return null;
+
+  const plano: { chave: string; coluna: Column }[] = [];
+  for (const chave of chaves) {
+    const coluna = colunas[chave];
+    if (!coluna) return null;
+    // Coluna que já é array não cabe aqui: a array de valores viraria uma
+    // dimensão a mais, e `unnest` devolveria os elementos soltos em vez das
+    // linhas. Uma coluna dessas manda o lote inteiro pelo caminho de sempre.
+    if (coluna.getSQLType().endsWith("[]")) return null;
+    plano.push({ chave, coluna });
+  }
+
+  const esperadas = new Set(chaves);
+  for (const row of rows) {
+    const suas = Object.keys(row);
+    if (suas.length !== esperadas.size) return null;
+    for (const chave of suas) {
+      if (!esperadas.has(chave)) return null;
+      if (is(row[chave], SQL) || is(row[chave], SQL.Aliased)) return null;
+    }
+  }
+
+  return plano;
+}
+
+/** As arrays de um lote, já no formato que o driver manda: uma por coluna. */
+function arraysDoLote<T extends Record<string, unknown>>(
+  plano: { chave: string; coluna: Column }[],
+  lote: T[],
+): SQL {
+  return sql.join(
+    plano.map(({ chave, coluna }) => {
+      const valores = lote.map((row) => {
+        const valor = row[chave];
+        return valor === undefined || valor === null
+          ? null
+          : coluna.mapToDriverValue(valor);
+      });
+      return sql`${sql.param(valores)}::${sql.raw(coluna.getSQLType())}[]`;
+    }),
+    sql`, `,
+  );
+}
+
+function comandoEmMassa<T extends Record<string, unknown>>(
+  table: Parameters<Database["insert"]>[0],
+  plano: { chave: string; coluna: Column }[],
+  lote: T[],
+): SQL {
+  const nomes = sql.join(
+    plano.map(({ coluna }) => sql.identifier(coluna.name)),
+    sql`, `,
+  );
+  return sql`insert into ${table} (${nomes}) select * from unnest(${arraysDoLote(plano, lote)})`;
+}
 
 /**
  * De quantas linhas por vez a captura materializa células.
@@ -352,10 +520,23 @@ async function insertChunked<T extends Record<string, unknown>>(
   table: Parameters<Database["insert"]>[0],
   rows: T[],
 ): Promise<void> {
-  for (let i = 0; i < rows.length; i += INSERT_CHUNK) {
+  if (rows.length === 0) return;
+
+  const plano = planoEmMassa(table, rows);
+  if (plano) {
+    for (let i = 0; i < rows.length; i += MAX_LINHAS_EM_MASSA) {
+      await db.execute(
+        comandoEmMassa(table, plano, rows.slice(i, i + MAX_LINHAS_EM_MASSA)),
+      );
+    }
+    return;
+  }
+
+  const chunk = linhasPorStatement(rows);
+  for (let i = 0; i < rows.length; i += chunk) {
     await db
       .insert(table)
-      .values(rows.slice(i, i + INSERT_CHUNK) as never)
+      .values(rows.slice(i, i + chunk) as never)
       .execute();
   }
 }
@@ -370,10 +551,55 @@ async function insertChunkedReturning<
   returning: R,
 ): Promise<Record<string, unknown>[]> {
   const out: Record<string, unknown>[] = [];
-  for (let i = 0; i < rows.length; i += INSERT_CHUNK) {
+  if (rows.length === 0) return out;
+
+  const plano = planoEmMassa(table, rows);
+  if (plano) {
+    const pedidas = Object.entries(returning).map(
+      ([apelido, coluna]) => [apelido, coluna as unknown as Column] as const,
+    );
+    const devolvidas = sql.join(
+      pedidas.map(
+        ([apelido, coluna]) =>
+          sql`${sql.identifier(coluna.name)} as ${sql.identifier(apelido)}`,
+      ),
+      sql`, `,
+    );
+    for (let i = 0; i < rows.length; i += MAX_LINHAS_EM_MASSA) {
+      const lote = rows.slice(i, i + MAX_LINHAS_EM_MASSA);
+      const resultado = await db.execute(
+        sql`${comandoEmMassa(table, plano, lote)} returning ${devolvidas}`,
+      );
+      /*
+        Traduzir o que o driver devolveu, coluna por coluna.
+
+        `db.execute` entrega o valor cru do Postgres — e um `bigserial` cru é
+        **string**, não número. O `.returning()` do drizzle converte; este
+        caminho, se não convertesse, devolveria `"42"` onde o outro devolve
+        `42`, e a diferença só apareceria longe daqui, no dia em que alguém
+        comparasse dois ids ou somasse um. É a mesma função que o drizzle usa,
+        pedida à mesma coluna.
+      */
+      for (const linha of resultado.rows as Record<string, unknown>[]) {
+        const convertida: Record<string, unknown> = {};
+        for (const [apelido, coluna] of pedidas) {
+          const valor = linha[apelido];
+          convertida[apelido] =
+            valor === null || valor === undefined
+              ? null
+              : coluna.mapFromDriverValue(valor);
+        }
+        out.push(convertida);
+      }
+    }
+    return out;
+  }
+
+  const chunk = linhasPorStatement(rows);
+  for (let i = 0; i < rows.length; i += chunk) {
     const batch = await db
       .insert(table)
-      .values(rows.slice(i, i + INSERT_CHUNK) as never)
+      .values(rows.slice(i, i + chunk) as never)
       .returning(returning as never);
     out.push(...(batch as Record<string, unknown>[]));
   }
@@ -1288,15 +1514,22 @@ export async function stage(
       .orderBy(rawRowTable.rowIndex);
     if (rows.length === 0) continue;
 
-    const rowIds = rows.map((r) => r.id);
-    const cells: (typeof rawCellTable.$inferSelect)[] = [];
-    for (let i = 0; i < rowIds.length; i += 500) {
-      const chunk = await db
-        .select()
-        .from(rawCellTable)
-        .where(inArray(rawCellTable.rawRowId, rowIds.slice(i, i + 500)));
-      cells.push(...chunk);
-    }
+    /*
+      As células da aba, numa consulta só.
+
+      Eram lotes de 500 ids: 14 mil linhas viravam 28 consultas, cada uma
+      carregando 500 parâmetros com os ids que o banco acabara de devolver.
+      A aba é o recorte que interessa, e `raw_row.raw_sheet_id` já é o caminho
+      até ela — perguntar pela aba pede uma vez o que pedir pelos ids pedia
+      vinte e oito.
+    */
+    const cells = (await db
+      .select(getTableColumns(rawCellTable))
+      .from(rawCellTable)
+      .innerJoin(rawRowTable, eq(rawCellTable.rawRowId, rawRowTable.id))
+      .where(
+        eq(rawRowTable.rawSheetId, sheet.id),
+      )) as (typeof rawCellTable.$inferSelect)[];
 
     const cellsByRow = new Map<number, Map<number, typeof rawCellTable.$inferSelect>>();
     for (const cell of cells) {
