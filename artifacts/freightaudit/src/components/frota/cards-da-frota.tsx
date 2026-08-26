@@ -69,9 +69,12 @@ export interface AtivoDoPanorama extends LinhaDaFrota {
 export interface PanoramaDaFrota {
   entityType: string;
   rotuloDoTipo: string;
+  context: { label: string };
   effectiveDate: string;
   periodLabel: string;
   anterior: { effectiveDate: string; periodLabel: string } | null;
+  /** Todas as vigências deste contexto, para o seletor do cabeçalho. */
+  vigencias: { effectiveDate: string; periodLabel: string }[];
   serieEntregue: boolean;
   resumo: {
     equipamentos: number;
@@ -129,16 +132,22 @@ const RECORTES: { chave: Recorte; rotulo: string }[] = [
 export function CardsDaFrota({
   equipamento,
   contexto,
+  periodo,
   onAbrir,
   onVerFrotaInteira,
+  onPeriodo,
 }: {
   equipamento: Equipamento;
   /** Unidade e canal — o mesmo recorte que atravessa o módulo. */
   contexto: URLSearchParams;
+  /** A vigência escolhida no seletor do cabeçalho; `null` pede a mais recente. */
+  periodo: string | null;
   /** Abrir um ativo: é o nível 2, com as quatro abas recortadas nele. */
   onAbrir: (placa: string) => void;
   /** A leitura da frota inteira — as quatro abas de todos os ativos. */
   onVerFrotaInteira: () => void;
+  /** Trocar de vigência — o mesmo seletor da Composição. */
+  onPeriodo: (period: string) => void;
 }) {
   const tela = TELA_DO_EQUIPAMENTO[equipamento];
   const [busca, setBusca] = useState("");
@@ -151,10 +160,11 @@ export function CardsDaFrota({
   const [ordem, setOrdem] = useState<Ordem>("movimento");
 
   const query = useQuery({
-    queryKey: ["frota", "panorama", equipamento, contexto.toString()],
+    queryKey: ["frota", "panorama", equipamento, contexto.toString(), periodo],
     queryFn: () => {
       const consulta = new URLSearchParams(contexto);
       consulta.set("entityType", equipamento);
+      if (periodo !== null) consulta.set("period", periodo);
       return fetchJson<PanoramaDaFrota>(`/frota/panorama?${consulta}`);
     },
   });
@@ -224,7 +234,12 @@ export function CardsDaFrota({
 
   return (
     <div className="space-y-5">
-      <Resumo panorama={data} equipamento={equipamento} onVerFrotaInteira={onVerFrotaInteira} />
+      <Resumo
+        panorama={data}
+        equipamento={equipamento}
+        onVerFrotaInteira={onVerFrotaInteira}
+        onPeriodo={onPeriodo}
+      />
 
       <BarraDeFiltros
         busca={busca}
@@ -319,16 +334,36 @@ function Resumo({
   panorama,
   equipamento,
   onVerFrotaInteira,
+  onPeriodo,
 }: {
   panorama: PanoramaDaFrota;
   equipamento: Equipamento;
   onVerFrotaInteira: () => void;
+  onPeriodo: (period: string) => void;
 }) {
   const tela = TELA_DO_EQUIPAMENTO[equipamento];
   const { resumo } = panorama;
 
   return (
     <section className="bg-card border rounded-md">
+      {/*
+        O seletor de vigência, no mesmo lugar da Composição: a tela lê a mesma
+        `getVisaoDeFrota`, então quem troca de vigência aqui espera o mesmo
+        controle que já viu lá. Some quando só há uma vigência — não há troca
+        a oferecer.
+      */}
+      {panorama.vigencias.length > 1 && (
+        <div className="flex items-center justify-end gap-2 px-6 pt-4">
+          <div className="text-right">
+            <Rotulo>{panorama.context.label}</Rotulo>
+            <VigenciaSelect
+              vigencias={panorama.vigencias}
+              atual={panorama.effectiveDate}
+              onEscolher={onPeriodo}
+            />
+          </div>
+        </div>
+      )}
       <div className="grid grid-cols-2 lg:grid-cols-4 divide-x divide-y lg:divide-y-0">
         <div className="px-6 py-5">
           <Rotulo>Remuneração apurada</Rotulo>
@@ -416,6 +451,32 @@ function Resumo({
         </div>
       </div>
     </section>
+  );
+}
+
+/** O seletor de vigência do cabeçalho — o mesmo componente de `pages/composicao.tsx`. */
+function VigenciaSelect({
+  vigencias,
+  atual,
+  onEscolher,
+}: {
+  vigencias: { effectiveDate: string; periodLabel: string }[];
+  atual: string;
+  onEscolher: (v: string) => void;
+}) {
+  return (
+    <Select value={atual} onValueChange={onEscolher}>
+      <SelectTrigger className="w-52 mt-1 font-semibold">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {[...vigencias].reverse().map((v) => (
+          <SelectItem key={v.effectiveDate} value={v.effectiveDate}>
+            {v.periodLabel}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }
 
