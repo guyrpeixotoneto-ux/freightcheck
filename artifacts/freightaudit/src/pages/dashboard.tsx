@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
 import {
@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
 import { ApiErrorNotice } from "@/components/api-error";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -848,11 +849,41 @@ function MaioresImpactos({ view }: { view: FamiliesView }) {
 // ---------------------------------------------------------------------------
 
 /**
+ * As abas de equipamento da tabela — uma por tipo presente na vigência.
+ *
+ * Cavalo e Carreta respondem a perguntas diferentes (um consome diesel e
+ * amortiza financiamento, o outro nem sempre tem tração), e misturá-los numa
+ * fila só fazia a tabela alternar de assunto linha a linha. As abas saem dos
+ * próprios grupos, e não de uma lista fixa: só aparece a aba que tem conteúdo,
+ * na ordem de prioridade em que o primeiro grupo dela chegou — a mesma do
+ * Acompanhamento. Um grupo sem `entityType` cai numa aba própria, com a
+ * etiqueta que o servidor já deu a ele, em vez de sumir da tela.
+ */
+export function abasDeEquipamento(
+  grupos: ChangeGroup[],
+): { chave: string; rotulo: string; grupos: ChangeGroup[] }[] {
+  const abas = new Map<string, { chave: string; rotulo: string; grupos: ChangeGroup[] }>();
+  for (const grupo of grupos) {
+    const chave = grupo.entityType ?? "SEM_EQUIPAMENTO";
+    const aba = abas.get(chave);
+    if (aba) aba.grupos.push(grupo);
+    else abas.set(chave, { chave, rotulo: grupo.equipment, grupos: [grupo] });
+  }
+  return [...abas.values()];
+}
+
+/**
  * As alterações mais relevantes desta vigência, na ordem de prioridade do
  * cockpit — a mesma fila que o Acompanhamento e `ultimasAlteracoes` já usam
  * (`juntarPrioridades`, `lib/cockpit.ts`). Reordenar aqui por conta própria
  * faria esta tabela discordar da lista de "Alterações recentes" que já existe
  * no produto sobre os mesmos dados.
+ *
+ * A tabela abre numa aba por equipamento (`abasDeEquipamento`), porque uma
+ * fila única alternava entre Cavalo e Carreta a cada linha; a fatia de oito
+ * linhas passa a ser das oito maiores prioridades **daquele** equipamento. Com
+ * um equipamento só na vigência, as abas somem e o equipamento volta a
+ * aparecer sob o título da linha, como antes.
  *
  * Cada linha mostra `grupo.title` — a etiqueta de negócio já curada por
  * `attributeLabel()` no servidor — e nunca `attributeCode` cru. O par
@@ -870,10 +901,11 @@ function PrincipaisAlteracoes({
   recorte: ReturnType<typeof lerRecorte>;
 }) {
   const fila = juntarPrioridades(view);
-  const grupos: ChangeGroup[] = (fila.length > 0 ? fila.map((e) => e.group) : view.groups).slice(
-    0,
-    8,
-  );
+  const ordenados: ChangeGroup[] = fila.length > 0 ? fila.map((e) => e.group) : view.groups;
+  const abas = abasDeEquipamento(ordenados);
+  const [escolhida, escolher] = useState<string | null>(null);
+  const ativa = abas.find((aba) => aba.chave === escolhida) ?? abas[0];
+  const grupos = (ativa ? ativa.grupos : ordenados).slice(0, 8);
   const daVigencia = { ...recorte, period: view.period };
 
   return (
@@ -882,6 +914,21 @@ function PrincipaisAlteracoes({
       <p className="text-xs text-muted-foreground mb-4">
         Na ordem do Acompanhamento — dinheiro e criticidade primeiro.
       </p>
+
+      {abas.length > 1 && ativa && (
+        <Tabs value={ativa.chave} onValueChange={escolher} className="mb-4">
+          <TabsList>
+            {abas.map((aba) => (
+              <TabsTrigger key={aba.chave} value={aba.chave}>
+                {aba.rotulo}
+                <span className="ml-1.5 tabular-nums text-xs text-muted-foreground">
+                  {aba.grupos.length}
+                </span>
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
+      )}
 
       {grupos.length === 0 ? (
         <p className="text-sm text-muted-foreground flex-1">
@@ -918,7 +965,9 @@ function PrincipaisAlteracoes({
                           <Link href={href} className="font-semibold hover:text-brand transition-colors">
                             {grupo.title}
                           </Link>
-                          <div className="text-xs text-muted-foreground">{grupo.equipment}</div>
+                          {abas.length <= 1 && (
+                            <div className="text-xs text-muted-foreground">{grupo.equipment}</div>
+                          )}
                         </div>
                       </div>
                     </td>
