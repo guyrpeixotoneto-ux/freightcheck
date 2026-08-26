@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createTestDatabase, type TestDb } from "@workspace/ingest/testing";
 import { seedTaxonomy } from "@workspace/curation";
 import { buildFixture, type AttributeSpec } from "@workspace/comparison/testing";
+import { LINHAS_DO_CADASTRO } from "../catalogo";
 import { COLUNA } from "../colunas";
 import { LinhaDaPlanilhaInvalida, PlanilhaVazia } from "../planilha";
 import {
@@ -339,13 +340,21 @@ describe("um canal que o acervo não entregou", () => {
       ContextNotFoundError,
     );
 
-    // A tela que cadastra pede explicitamente, e recebe as trinta em branco.
+    /*
+      A tela que cadastra pede explicitamente, e recebe a aba inteira em branco.
+
+      O número sai de `LINHAS_DO_CADASTRO`, e não de um literal: o que se afirma
+      aqui é "a aba **toda**, e nenhuma linha a menos" — quantas linhas a aba tem
+      é assunto do catálogo. Escrito à mão, o literal envelheceu na primeira
+      linha nova e reprovou uma mudança correta, dizendo `expected 33 to be 30`
+      sobre um catálogo que havia crescido de propósito.
+    */
     const emBranco = await lerCadastroDaUnidade(ctx.db, {
       ...NOVO,
       period: VIGENCIA,
       aceitarCanalNovo: true,
     });
-    expect(emBranco!.resumo.linhas).toBe(30);
+    expect(emBranco!.resumo.linhas).toBe(LINHAS_DO_CADASTRO.length);
     expect(emBranco!.resumo.comLastro).toBe(0);
     expect(emBranco!.contexto.channel).toBe("TRANSFERENCIA");
   });
