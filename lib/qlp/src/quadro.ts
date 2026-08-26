@@ -1,7 +1,6 @@
 import { sql } from "drizzle-orm";
 import type { Database } from "@workspace/db";
 import {
-  contextFilter,
   loadAttributeClassificationsAt,
   type AttributeClassification,
   type RequestedContext,
@@ -16,6 +15,7 @@ import {
   TIPO_QLP_ADMINISTRATIVO,
   resolverContextoDoQuadro,
   type ContextoDoQuadro,
+  filtroDosEscopos,
 } from "./contexto";
 import { contarRegistrosFaltando } from "./inconsistencias";
 
@@ -110,7 +110,13 @@ export interface FiltrosDoQuadro {
   unidade?: string;
 }
 
-export interface VisaoDoQuadro extends ContextoDoQuadro {
+/*
+  `Omit<..., "escopos">`: o quadro herda tudo o que o contexto resolveu **menos**
+  a lista de escopos autorizados. Ela é a autorização da consulta, não conteúdo
+  da resposta — e esta rota devolve o objeto inteiro por `res.json`, então o que
+  estiver aqui vai para o cliente.
+*/
+export interface VisaoDoQuadro extends Omit<ContextoDoQuadro, "escopos"> {
   resumo: ResumoDoQuadro;
   atributos: AtributoDoQuadro[];
   unidades: UnidadeDoQuadro[];
@@ -183,7 +189,7 @@ export async function getQuadroAdministrativo(
     ...(options.period !== undefined ? { period: options.period } : {}),
   });
   if (!resolvido) return null;
-  const { context, effectiveDate } = resolvido;
+  const { escopos, effectiveDate } = resolvido;
 
   const { rows } = await db.execute<FatoDoQuadro>(sql`
     SELECT f.entity_id::text       AS entity_id,
@@ -211,7 +217,7 @@ export async function getQuadroAdministrativo(
        AND s.dataset_family = ${DATASET_FAMILY_QUADRO_DE_PESSOAL}
        AND e.entity_type = ${TIPO_QLP_ADMINISTRATIVO}
        AND s.effective_date = ${effectiveDate}::date
-       AND ${contextFilter("s", context)}
+       AND ${filtroDosEscopos("s", escopos)}
      ORDER BY ei.identifier_value_raw, a.code
   `);
 
@@ -384,14 +390,21 @@ export async function getQuadroAdministrativo(
     unidade.cargos.sort((a, b) => a.cargo.localeCompare(b.cargo, "pt-BR"));
   }
 
+  /*
+    `escopos` fica de fora do corpo: ele é a autorização desta leitura, não
+    conteúdo dela. Espalhar `resolvido` inteiro o publicaria no JSON da rota —
+    a lista de contextos que o servidor consultou, num payload que a tela não
+    pede e não usa.
+  */
+  const { escopos: _autorizacao, ...doContexto } = resolvido;
   return {
-    ...resolvido,
+    ...doContexto,
     resumo,
     atributos: [...atributos.values()].sort((a, b) => a.code.localeCompare(b.code)),
     unidades: [...unidades.values()].sort((a, b) =>
       (a.nome ?? a.cnpj).localeCompare(b.nome ?? b.cnpj, "pt-BR"),
     ),
     filtros,
-    registrosFaltando: await contarRegistrosFaltando(db, context, effectiveDate),
+    registrosFaltando: await contarRegistrosFaltando(db, escopos, effectiveDate),
   };
 }

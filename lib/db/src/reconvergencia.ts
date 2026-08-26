@@ -64,11 +64,26 @@ import {
  * `/healthz` continua vermelha sobre ele: convergência que não se pode
  * garantir não vira verde.
  *
- * **Dado nenhum é tocado.** Só DDL aditivo. O conteúdo que o Provision
- * destruiu junto com uma coluna não volta por aqui nem por lugar nenhum — a
- * estrutura volta, o dado derivado é recomputável pelos caminhos do produto, e
- * o dado de decisão humana perdido é exatamente o motivo de a prevenção
- * (`publicar:conferir` antes de todo Publish) continuar valendo.
+ * **Dado de negócio nenhum é tocado**, e a fronteira é esta: o conteúdo que o
+ * Provision destruiu junto com uma coluna não volta por aqui nem por lugar
+ * nenhum — a estrutura volta, o dado derivado é recomputável pelos caminhos do
+ * produto, e o dado de decisão humana perdido é exatamente o motivo de a
+ * prevenção (`publicar:conferir` antes de todo Publish) continuar valendo.
+ *
+ * **O que pode ser reparado é metadado de proveniência deterministicamente
+ * reconstruível**, e a única entrada hoje é `fact.origin_import_run_id` (ver
+ * `PROVENIENCIA_DO_FATO`). A distinção não é de grau, é de natureza:
+ *
+ * - dado de negócio e decisão humana respondem "quanto" e "o que se decidiu".
+ *   Não há de onde relê-los; inventá-los seria fabricar;
+ * - proveniência responde "de onde veio esta linha", e a resposta já está no
+ *   banco em toda linha — aqui, na cadeia `raw_cell → raw_row → raw_sheet →
+ *   import_run`. Reconstruí-la é reler, não decidir.
+ *
+ * Uma entrada nova nesta segunda categoria precisa de três coisas, e o reparo
+ * da proveniência as tem: a fonte da verdade dentro do próprio banco, o SQL
+ * canônico levantado da migration em vez de reescrito aqui, e conferência
+ * dentro da transação que falha fechado quando a reconstrução não é total.
  *
  * ---------------------------------------------------------------------------
  * Quando rodar
@@ -206,6 +221,65 @@ export function viewsDaFila(
   }
   return views;
 }
+
+/**
+ * Um statement da fila, levantado verbatim pela marca — nunca reescrito aqui.
+ *
+ * É o mesmo contrato de `comandoQueRepoe` e de `levantar`, em `bridge.ts`: o
+ * texto que roda é o texto que a migration escreveu. Uma segunda implementação
+ * do mesmo backfill, escrita à mão neste arquivo, divergiria da canônica no
+ * primeiro ajuste que alguém fizesse lá e não aqui — e divergiria em silêncio,
+ * sobre proveniência de fato.
+ *
+ * Exige **exatamente um** casamento: zero significa que a migration mudou de
+ * forma, mais de um significa que a marca ficou ambígua. Nos dois casos o
+ * reparo não roda, e quem chama trata isso como falha.
+ */
+function statementDaFila(
+  migrations: MigrationFile[],
+  tag: string,
+  marca: RegExp,
+): string | undefined {
+  const m = migrations.find((x) => x.tag === tag);
+  if (!m) return undefined;
+  const achados = m.statements
+    .map(semComentarioDeAbertura)
+    .filter((c) => marca.test(c));
+  return achados.length === 1 ? achados[0]!.replace(/;\s*$/, "") : undefined;
+}
+
+/**
+ * A proveniência do fato — a única reconstrução de dado que a reconvergência faz.
+ *
+ * `fact.origin_import_run_id` é `NOT NULL` **sem** default: o Provision a
+ * derruba com o resto, e repor a coluna pelo `ADD COLUMN` da `0061` a devolve
+ * anulável e vazia. Parar aí é pior do que parece — `fato_visivel` filtra por
+ * `origin_import_run_id NOT IN (...)`, e `NULL NOT IN (...)` é desconhecido:
+ * toda leitura de fato do produto passaria a devolver zero linha sobre um banco
+ * que tem todos os fatos.
+ *
+ * **O que autoriza reconstruir isto, e só isto.** A coluna não é dado de
+ * negócio: é proveniência, e a cadeia `raw_cell → raw_row → raw_sheet →
+ * import_run` já a contém em toda linha. Reconstruí-la é reler o que o banco
+ * sempre soube, não decidir nada — a diferença que separa este reparo de
+ * qualquer outro toque em dado, e a razão de ele ser nomeado aqui em vez de
+ * derivado de uma regra geral sobre colunas `NOT NULL`.
+ *
+ * Os quatro statements saem da própria `0061`, verbatim: o par de gatilho que
+ * ela abre e fecha em volta do backfill (`fact_immutable` recusa `UPDATE` em
+ * fato), o `UPDATE` da cadeia, e o `SET NOT NULL`. O backfill é reentrante por
+ * construção — `WHERE origin_import_run_id IS NULL` —, e o reparo inteiro roda
+ * numa transação: ou a coluna volta trancada e completa, ou nada muda.
+ */
+const PROVENIENCIA_DO_FATO = {
+  migration: "0061_origem_do_fato",
+  tabela: "fact",
+  coluna: "origin_import_run_id",
+  desligarGatilho: /^ALTER TABLE "fact" DISABLE TRIGGER "fact_immutable"/i,
+  backfill: /^UPDATE "fact" f/i,
+  ligarGatilho: /^ALTER TABLE "fact" ENABLE TRIGGER "fact_immutable"/i,
+  trancar: /^ALTER TABLE "fact" ALTER COLUMN "origin_import_run_id" SET NOT NULL/i,
+} as const;
 
 /**
  * O bloco reentrante de constraint — a outra forma que a fila usa desde a
@@ -391,6 +465,86 @@ function objetosDe(migrations: MigrationFile[]): {
 }
 
 /**
+ * Repõe a proveniência do fato e tranca a coluna de novo — ou não mexe em nada.
+ *
+ * Ver `PROVENIENCIA_DO_FATO` para o que autoriza esta reconstrução. Aqui está a
+ * mecânica, e ela é toda de recusa:
+ *
+ * 1. **só quando precisa** — a coluna existe, está anulável, e a fila diz que
+ *    ela é `NOT NULL`. Qualquer uma das três falsa e o reparo não roda;
+ * 2. **só com os statements da fila** — os quatro saem da `0061` por
+ *    `statementDaFila`. Se algum não for encontrado exatamente uma vez, o
+ *    reparo não roda e o alvo entra em `falhas`: uma reconstrução de
+ *    proveniência com SQL improvisado é o que este arquivo não faz;
+ * 3. **tudo numa transação** — o `SET NOT NULL` só entra depois de a conferência
+ *    passar, e a conferência é dentro da mesma transação;
+ * 4. **falha fechado** — sobrou `NULL`, ou o banco recusou qualquer passo, e a
+ *    transação volta atrás inteira. O relatório não fica limpo, o `/healthz`
+ *    continua vermelho, e ninguém é levado a achar que convergiu.
+ *
+ * Escreve no relatório por conta própria, e não pelo `aplicar` das outras
+ * passadas: `aplicar` é um comando por linha do relatório, e o que precisa ser
+ * atômico aqui são os quatro juntos com a conferência no meio.
+ */
+async function repararProveniencia(
+  client: Executor,
+  migrations: MigrationFile[],
+  relatorio: RelatorioDeReconvergencia,
+): Promise<void> {
+  const { tabela, coluna, migration } = PROVENIENCIA_DO_FATO;
+  const alvo = `${tabela}.${coluna} (proveniência)`;
+
+  const { rows } = await client.query<{ anulavel: string }>(
+    `select is_nullable as anulavel from information_schema.columns
+      where table_schema = 'public' and table_name = $1 and column_name = $2`,
+    [tabela, coluna],
+  );
+  // Coluna ausente é assunto da passada 2; coluna já trancada não precisa de nada.
+  if (rows[0]?.anulavel !== "YES") return;
+
+  const trancar = statementDaFila(migrations, migration, PROVENIENCIA_DO_FATO.trancar);
+  // Sem o `SET NOT NULL` na fila, a coluna anulável **é** o estado declarado.
+  if (!trancar) return;
+
+  const desligar = statementDaFila(
+    migrations,
+    migration,
+    PROVENIENCIA_DO_FATO.desligarGatilho,
+  );
+  const backfill = statementDaFila(migrations, migration, PROVENIENCIA_DO_FATO.backfill);
+  const ligar = statementDaFila(migrations, migration, PROVENIENCIA_DO_FATO.ligarGatilho);
+  if (!desligar || !backfill || !ligar) {
+    relatorio.semComando.push(alvo);
+    return;
+  }
+
+  const passos = [desligar, backfill, ligar];
+  try {
+    await client.query("BEGIN");
+    for (const comando of passos) await client.query(comando);
+
+    const { rows: restantes } = await client.query<{ n: string }>(
+      `select count(*)::text as n from "${tabela}" where "${coluna}" is null`,
+    );
+    if (restantes[0]?.n !== "0") {
+      await client.query("ROLLBACK");
+      relatorio.falhas.push({ alvo, code: "PROVENIENCIA_INCOMPLETA" });
+      return;
+    }
+
+    await client.query(trancar);
+    await client.query("COMMIT");
+    relatorio.aplicados.push({ alvo, comando: [...passos, trancar].join(";\n") });
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    relatorio.falhas.push({
+      alvo,
+      ...(codigoDe(err) ? { code: codigoDe(err)! } : {}),
+    });
+  }
+}
+
+/**
  * A reconvergência em si. Idempotente: num banco íntegro não aplica nada, e a
  * segunda passada num banco reparado devolve o relatório vazio.
  */
@@ -459,6 +613,21 @@ export async function reconvergirSchema(
       }
       await aplicar(`coluna ${coluna.tabela}.${coluna.coluna}`, comando);
     }
+
+    /*
+      2b. A proveniência do fato — ver `PROVENIENCIA_DO_FATO`.
+
+      Só quando precisa: a coluna existe e está anulável, e a fila declara que
+      ela é `NOT NULL`. Num banco íntegro nada disso é verdade e o bloco não
+      executa comando nenhum, que é o que mantém a reconvergência idempotente.
+
+      Falha fechado, e essa é a parte que não pode ser suavizada: se o backfill
+      não alcançar toda linha, a transação volta atrás e o alvo entra em
+      `falhas`. Uma coluna trancada por engano seria pior do que a coluna
+      anulável, e uma reconvergência que dissesse "reparei" sobre uma
+      proveniência incompleta seria pior do que as duas.
+    */
+    await repararProveniencia(client, migrations, relatorio);
 
     /*
       3. Índices. O `DROP COLUMN` do Provision leva junto, em cascata, todo

@@ -1,7 +1,6 @@
 import { sql } from "drizzle-orm";
 import type { Database } from "@workspace/db";
 import {
-  contextFilter,
   loadAttributeClassificationsAt,
   periodLabel,
   type RequestedContext,
@@ -11,6 +10,7 @@ import {
   TIPO_QLP_ADMINISTRATIVO,
   resolverContextoDoQuadro,
   type ContextoDoQuadro,
+  filtroDosEscopos,
 } from "./contexto";
 import { separarChaveLegivel, type SemanticaDaColuna, type ValorDeFato } from "./quadro";
 
@@ -49,7 +49,7 @@ export interface FatoDoCargo {
   origem: OrigemDoFato;
 }
 
-export interface DetalheDoCargo extends ContextoDoQuadro {
+export interface DetalheDoCargo extends Omit<ContextoDoQuadro, "escopos"> {
   entityId: string;
   cargo: string;
   unidadeCnpjLegivel: string;
@@ -107,7 +107,7 @@ export async function getDetalheDoCargo(
     ...(options.period !== undefined ? { period: options.period } : {}),
   });
   if (!resolvido) return null;
-  const { context, effectiveDate } = resolvido;
+  const { escopos, effectiveDate } = resolvido;
 
   const { rows } = await db.execute<LinhaDeFato>(sql`
     SELECT a.id::text            AS attribute_id,
@@ -142,7 +142,7 @@ export async function getDetalheDoCargo(
        AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND s.dataset_family = ${DATASET_FAMILY_QUADRO_DE_PESSOAL}
        AND s.effective_date = ${effectiveDate}::date
-       AND ${contextFilter("s", context)}
+       AND ${filtroDosEscopos("s", escopos)}
      ORDER BY a.code
   `);
 
@@ -189,12 +189,14 @@ export async function getDetalheDoCargo(
        AND s.status <> 'SUPERSEDED'
        AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND s.dataset_family = ${DATASET_FAMILY_QUADRO_DE_PESSOAL}
-       AND ${contextFilter("s", context)}
+       AND ${filtroDosEscopos("s", escopos)}
      ORDER BY 1
   `);
 
+  /* Ver `VisaoDoQuadro`: `escopos` é autorização, não conteúdo da resposta. */
+  const { escopos: _autorizacao, ...doContexto } = resolvido;
   return {
-    ...resolvido,
+    ...doContexto,
     entityId,
     cargo,
     unidadeCnpjLegivel: cnpjLegivel,
