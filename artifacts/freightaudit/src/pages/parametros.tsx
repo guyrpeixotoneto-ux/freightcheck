@@ -40,6 +40,7 @@ import {
 } from "@/components/ui/select";
 import { ApiErrorNotice } from "@/components/api-error";
 import { fetchJsonOrNull } from "@/lib/api";
+import { lerRecorte } from "@/lib/recorte";
 import { cn } from "@/lib/utils";
 import { useFavoritos } from "@/lib/favoritos";
 import {
@@ -519,6 +520,7 @@ export default function Parametros() {
             se mexeu neste recorte.
           */
           <GradeDeAtributos
+            recorte={lerRecorte(query)}
             view={data ?? null}
             atributos={atributos}
             escopo={escopo}
@@ -568,6 +570,7 @@ export default function Parametros() {
 
             {vista === "atributos" ? (
               <GradeDeAtributos
+                recorte={lerRecorte(query)}
                 view={data ?? null}
                 atributos={atributos}
                 escopo={escopo}
@@ -2102,7 +2105,12 @@ function DetalheCartao({
               {cartao.groups
                 .filter((grupo) => grupo.key === grupoAberto)
                 .map((grupo) => (
-                  <GroupCard key={grupo.key} group={grupo} period={period} />
+                  <GroupCard
+                    key={grupo.key}
+                    group={grupo}
+                    period={period}
+                    recorte={lerRecorte(contexto)}
+                  />
                 ))}
             </div>
           )}

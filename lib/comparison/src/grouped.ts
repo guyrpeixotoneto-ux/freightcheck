@@ -503,8 +503,31 @@ export function groupKey(row: RawChange): string {
   ].join("|");
 }
 
+/**
+ * A chave do mapa de frota: (comparação, equipamento).
+ *
+ * Existe como função, e exportada, porque a chave já foi escrita à mão nos dois
+ * lados e os dois lados discordaram. `buildGroup` compunha
+ * `change_set_id + equipamento`; dois dos três chamadores gravavam o mapa só
+ * com o `change_set_id`. Uma chave com sufixo nunca é igual a uma sem, então o
+ * `get` errava em 100% das linhas, o `?? 0` abaixo disparava, e a frota desabava
+ * para o número de veículos do próprio grupo — "5 de 71 carretas" virava "toda
+ * a frota · 5 de 5". O dinheiro nunca dependeu disto; o selo de cobertura,
+ * sempre.
+ *
+ * Quem grava e quem lê agora chamam a mesma função, e uma divergência nova
+ * exigiria mudar a função — que é o ponto.
+ */
+export function chaveDaFrota(
+  changeSetId: string,
+  entityType: string | null,
+): string {
+  return `${changeSetId}\u001f${entityType ?? ""}`;
+}
+
 export function buildGroup(
   rows: RawChange[],
+  /** Indexado por {@link chaveDaFrota}. */
   fleetByChangeSet: Map<string, number>,
   dedup: Deduplicador,
 ): ChangeGroup {
@@ -516,7 +539,7 @@ export function buildGroup(
   // uma comparação (não acontece hoje, mas nada impede), toma-se a maior.
   const fleet = Math.max(
     ...rows.map(
-      (r) => fleetByChangeSet.get(`${r.change_set_id}\u001f${r.entity_type}`) ?? 0,
+      (r) => fleetByChangeSet.get(chaveDaFrota(r.change_set_id, r.entity_type)) ?? 0,
     ),
     vehicles,
   );
@@ -999,7 +1022,7 @@ export async function getGroupedView(
   // Indexada por (comparação, equipamento): a frota de um grupo é a do
   // equipamento a que o atributo pertence.
   const fleetByChangeSet = new Map(
-    seriesRows.map((s) => [`${s.change_set_id}\u001f${s.entity_type}`, s.fleet]),
+    seriesRows.map((s) => [chaveDaFrota(s.change_set_id, s.entity_type), s.fleet]),
   );
   const rows = await loadChanges(db, changeSetIds);
 
