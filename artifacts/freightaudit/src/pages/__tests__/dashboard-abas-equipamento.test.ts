@@ -9,16 +9,16 @@ import type { ChangeGroup } from "@/components/inicio/types";
  * A tabela mostrava a fila do cockpit inteira, alternando Cavalo e Carreta a
  * cada linha — `amortizacaoCavalo` seguido de `amortizacaoImplemento` — e as
  * oito linhas visíveis podiam esconder as maiores prioridades de um dos dois
- * atrás das do outro. As abas resolvem isso sem reordenar nada: a ordem de
- * prioridade do servidor se preserva dentro de cada aba, e a ordem das próprias
- * abas é a de chegada — quem tem a prioridade mais alta aparece primeiro.
+ * atrás das do outro. As abas resolvem isso sem reordenar nada dentro de cada
+ * uma: a ordem de prioridade do servidor se preserva dentro de cada aba. Entre
+ * as abas, Cavalo vem sempre primeiro, Carreta em seguida.
  */
 
 const grupo = (chave: string, entityType: string | null, equipment: string): ChangeGroup =>
   ({ key: chave, entityType, equipment }) as ChangeGroup;
 
 describe("as abas saem dos grupos, não de uma lista fixa", () => {
-  it("separa Cavalo de Carreta preservando a ordem de prioridade dentro de cada um", () => {
+  it("separa Cavalo de Carreta preservando a ordem de prioridade dentro de cada um, com Cavalo primeiro", () => {
     const abas = abasDeEquipamento([
       grupo("a", "CARRETA", "Carreta"),
       grupo("b", "CAVALO", "Cavalo"),
@@ -26,9 +26,9 @@ describe("as abas saem dos grupos, não de uma lista fixa", () => {
       grupo("d", "CARRETA", "Carreta"),
     ]);
 
-    expect(abas.map((aba) => aba.rotulo)).toEqual(["Carreta", "Cavalo"]);
-    expect(abas[0].grupos.map((g) => g.key)).toEqual(["a", "d"]);
-    expect(abas[1].grupos.map((g) => g.key)).toEqual(["b", "c"]);
+    expect(abas.map((aba) => aba.rotulo)).toEqual(["Cavalo", "Carreta"]);
+    expect(abas[0].grupos.map((g) => g.key)).toEqual(["b", "c"]);
+    expect(abas[1].grupos.map((g) => g.key)).toEqual(["a", "d"]);
   });
 
   it("uma vigência de um equipamento só rende uma aba — e a tela então não as mostra", () => {
