@@ -21,7 +21,7 @@ import { LinhaDoTempoDeImpacto } from "@/components/linha-do-tempo/linha-do-temp
 import { LinhaDoTempoDeAlteracoes } from "@/components/linha-do-tempo/linha-do-tempo-de-alteracoes";
 import { nomeDaUnidade } from "@/lib/recorte";
 import { VisaoGeralConteudo } from "@/components/inicio/visao-geral-consolidada";
-import { useAlteracoesPorVigencia } from "@/hooks/use-alteracoes-por-vigencia";
+import { SeletorDeVigencia } from "@/components/vigencia/seletor-de-vigencia";
 import type { FamiliesOverview, FamiliesView } from "@/components/inicio/types";
 
 /**
@@ -210,7 +210,6 @@ function Cabecalho({
   consulta: URLSearchParams;
   onTrocar: (mudancas: Record<string, string | null>) => void;
 }) {
-  const alteracoesPorVigencia = useAlteracoesPorVigencia(view, consulta);
   const unidade = view ? nomeDaUnidade(view.context) : null;
   const partes = visaoGeral
     ? overview
@@ -262,43 +261,14 @@ function Cabecalho({
                   </DropdownMenuContent>
                 </DropdownMenu>
               )
-            : view &&
-              view.periods.length > 1 && (
-                <DropdownMenu>
-                  <DropdownMenuTrigger className={BOTAO_DE_TROCA}>
-                    <CalendarDays className="w-4 h-4" />
-                    Ir para vigência
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-56 max-h-80 overflow-y-auto">
-                    <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
-                      {view.periods.length} vigências no histórico
-                    </DropdownMenuLabel>
-                    <DropdownMenuSeparator />
-                    {[...view.periods]
-                      .sort((a, b) => b.date.localeCompare(a.date))
-                      .map((periodo) => {
-                        const alteracoes = alteracoesPorVigencia.get(periodo.date) ?? null;
-                        return (
-                          <DropdownMenuItem
-                            key={periodo.date}
-                            onSelect={() => onTrocar({ period: periodo.date })}
-                            className={cn(
-                              "flex items-center justify-between gap-2",
-                              periodo.date === view.period && "font-bold text-brand",
-                            )}
-                          >
-                            <span>{periodo.label}</span>
-                            {alteracoes !== null && (
-                              <span className="text-xs font-normal text-muted-foreground tabular-nums">
-                                {alteracoes.toLocaleString("pt-BR")}{" "}
-                                {alteracoes === 1 ? "alteração" : "alterações"}
-                              </span>
-                            )}
-                          </DropdownMenuItem>
-                        );
-                      })}
-                  </DropdownMenuContent>
-                </DropdownMenu>
+            : (
+                <SeletorDeVigencia
+                  view={view}
+                  consulta={consulta}
+                  onTrocar={onTrocar}
+                  className={BOTAO_DE_TROCA}
+                  rotulo="Ir para vigência"
+                />
               )}
         </div>
       </div>

@@ -405,3 +405,21 @@
     @apply font-sans antialiased bg-background text-foreground;
   }
 }
+
+/*
+ * O brilho que atravessa a barra de leitura do cartão de upload.
+ *
+ * O progresso que o pipeline publica é em degraus — PENDING, READING, STAGED —,
+ * e entre um e outro a largura da barra fica parada por segundos. Sem nenhum
+ * movimento, parado e travado ficam iguais na tela justamente enquanto o
+ * arquivo está sendo lido. Quem pediu menos animação no sistema não vê este
+ * brilho: a classe leva `motion-reduce:animate-none`.
+ */
+@keyframes shimmer {
+  from {
+    background-position: -20% 0;
+  }
+  to {
+    background-position: 120% 0;
+  }
+}

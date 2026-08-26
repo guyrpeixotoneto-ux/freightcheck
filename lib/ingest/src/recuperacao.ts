@@ -1,6 +1,7 @@
 import { and, inArray, lt, sql } from "drizzle-orm";
 import type { Database } from "@workspace/db";
 import { importRunTable, ticketImportTable } from "@workspace/db";
+import { progressoLimpo } from "./progresso";
 
 /**
  * A varredura que devolve a saída a quem ficou preso atrás de um reinício.
@@ -59,6 +60,10 @@ export async function varrerLeiturasOrfas(
       status: "ABORTED",
       failureReason: MOTIVO_IMPORTACAO,
       finishedAt: sql`now()`,
+      // O processo que media morreu com o reinício: o que ele deixou escrito
+      // é a foto de um trabalho que não continua. Apagá-la é o que impede a
+      // coluna de descrever um andamento que não existe mais.
+      ...progressoLimpo(),
     })
     .where(
       and(

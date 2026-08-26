@@ -113,6 +113,21 @@ export {
   type DuplicataExataConsolidada,
 } from "./duplicatas";
 export { lerDisponibilidade, type DiaDeDisponibilidade } from "./leitores/disponibilidade";
+/*
+  A abertura da disponibilidade para leitura é pura e fica fora do motor
+  financeiro, como a conferência de frota — ver o topo de
+  `disponibilidade-da-competencia.ts`. Quem transforma disponibilidade em
+  dinheiro continua sendo só `descontoDeDisponibilidadeDoMes`, em
+  `leitores/disponibilidade.ts`.
+*/
+export {
+  abrirDisponibilidade,
+  type FrotaNaDisponibilidade,
+  type LinhaDeDisponibilidade,
+  type TotaisDeDisponibilidade,
+  type DescontosDaDisponibilidade,
+  type GapDaTransportadora,
+} from "./disponibilidade-da-competencia";
 export {
   lerFrotaPromax,
   type VeiculoDaFrotaPromax,

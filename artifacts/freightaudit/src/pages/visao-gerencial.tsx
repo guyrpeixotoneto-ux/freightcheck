@@ -16,12 +16,15 @@ import {
   anosComVigencia,
   impactoDominante,
   impactosOrdenados,
+  nomeDoEscopo,
+  resumirEscopo,
   resumirUnidades,
   resumoExecutivo,
   type ResumoDaUnidade,
   type VigenciaDaAuditoria,
 } from "@/lib/auditoria-gerencial";
 import { formatBrlCompacto, formatNumber, periodicitySuffix } from "@/lib/format";
+import { enderecoDeVisaoGeral, enderecoDoAno } from "@/lib/navegacao-do-escopo";
 import { linkDosParametros } from "@/lib/recorte";
 import { cn } from "@/lib/utils";
 
@@ -123,8 +126,13 @@ function CartaoDaUnidade({ unidade, ano }: { unidade: ResumoDaUnidade; ano: numb
           rótulo não declara um. É a mesma distinção que `parseContext` faz do
           outro lado, e mandar `null` aqui faria o link abrir a unidade com o
           canal que o servidor escolher, que pode ser outro.
+
+          Com mais de um canal no cartão — o modo unidade — não há canal a
+          mandar, e aí `null` é a resposta certa e não uma omissão: o cartão está
+          mostrando a soma dos dois, e escolher um deles no link abriria
+          Parâmetros numa metade do que se acabou de ler.
         */
-        canal: unidade.channel ?? "",
+        canal: unidade.canais.length === 1 ? (unidade.canais[0] ?? "") : null,
       })}
       className="rounded-lg border bg-card p-5 block transition-colors hover:border-primary/50 hover:bg-muted/30"
       data-testid={`cartao-unidade-${unidade.scopeHash}`}
@@ -285,23 +293,53 @@ export default function VisaoGerencialDaAuditoria() {
   const ano = anos.includes(pedido) ? pedido : (anos[0] ?? null);
 
   /*
+    O escopo, quando a lateral abriu uma unidade — e por que o `canal` da URL
+    **não** entra na conta.
+
+    A lateral escreve `scopeHash` e `canal` juntos, porque a lista dela é de
+    contextos (unidade + canal) e o par é o vocabulário das outras telas. Neste
+    Painel o conceito é a unidade: pedir CAMAÇARI e receber um cartão de
+    "CAMAÇARI · ROTA", com a metade EMPURRADA fora da tela e sem uma palavra,
+    responde outra pergunta — e responde enganando, porque o cartão não teria
+    como dizer o que ficou de fora. Então o `canal` é lido e descartado de
+    propósito: os canais da unidade viram um cartão só, que declara quais são
+    (ver `resumirEscopo`).
+
+    `visaoGeral=1` não precisa ser lido para nada aqui: a ausência de escopo já
+    é a Visão Geral. Ele existe na URL para a lateral se desenhar e para o
+    histórico do navegador ter o que desfazer — ver `visaoGeralAtiva`.
+  */
+  const escopo = new URLSearchParams(busca).get("scopeHash") || null;
+
+  /*
     O dia é lido uma vez por render e entra nas dependências do memo: as funções
     puras não leem o relógio por conta própria, para que o mesmo dado dê sempre a
     mesma tela no teste.
   */
   const diaDeHoje = hojeEm();
-  const unidades = useMemo(
-    () => (ano === null ? [] : resumirUnidades(todas, ano, diaDeHoje)),
-    [todas, ano, diaDeHoje],
-  );
+  const unidades = useMemo(() => {
+    if (ano === null) return [];
+    return escopo === null
+      ? resumirUnidades(todas, ano, diaDeHoje)
+      : resumirEscopo(todas, ano, diaDeHoje, escopo);
+  }, [todas, ano, diaDeHoje, escopo]);
   const total = useMemo(() => resumoExecutivo(unidades), [unidades]);
   const impactoDoAno = impactoDominante(total.impacto);
   const periodicidades = impactosOrdenados(total.impacto).length;
 
+  /*
+    O título conta o que está na tela. No modo unidade não há o que contar — há
+    um cartão, e o que quem lê precisa saber é de **qual** unidade —, e o
+    subtítulo "em ordem do que falta auditar" some junto: ordenar um item é
+    prometer uma ordem que ninguém pode ver.
+  */
+  const aberta = escopo === null ? null : (unidades[0] ?? null);
   const titulo =
-    total.contextos === total.unidades
-      ? `${total.unidades} unidade${total.unidades === 1 ? "" : "s"} em ${ano}`
-      : `${total.contextos} seleções (unidade + canal) em ${ano}`;
+    escopo !== null
+      ? `${aberta?.nome ?? "Unidade"} em ${ano}`
+      : total.contextos === total.unidades
+        ? `${total.unidades} unidade${total.unidades === 1 ? "" : "s"} em ${ano}`
+        : `${total.contextos} seleções (unidade + canal) em ${ano}`;
 
   return (
     <Layout>
@@ -320,7 +358,13 @@ export default function VisaoGerencialDaAuditoria() {
             {anos.length > 0 && (
               <Select
                 value={String(ano)}
-                onValueChange={(v) => navegar(`${ENTRADA_DA_AUDITORIA}?ano=${v}`)}
+                /*
+                  O ano troca; o escopo fica. Trocar de ano é uma pergunta sobre
+                  tempo, e devolver quem está lendo uma unidade para o acervo
+                  inteiro responderia uma que ninguém fez — além de apagar da
+                  lateral a unidade que continua escrita na caixa.
+                */
+                onValueChange={(v) => navegar(enderecoDoAno(v, busca))}
               >
                 <SelectTrigger
                   className="h-auto w-auto gap-2 rounded-full px-4 py-2 shadow-none"
@@ -379,90 +423,113 @@ export default function VisaoGerencialDaAuditoria() {
 
         {ano !== null && unidades.length > 0 && (
           <>
-            <Card>
-              <CardContent className="p-0 flex flex-wrap divide-x divide-y sm:divide-y-0">
-                <Numero
-                  rotulo="Vigências auditadas"
-                  valor={
-                    total.percentualAuditado === null
-                      ? "—"
-                      : `${Math.round(total.percentualAuditado)}%`
-                  }
-                  barra={total.percentualAuditado ?? 0}
-                  detalhe={
-                    total.percentualAuditado === null
-                      ? `${total.vigencias} vigência${total.vigencias === 1 ? "" : "s"} em ${ano} — nenhuma com anterior a comparar`
-                      : `${total.auditadas} de ${total.comparaveis} vigência${total.comparaveis === 1 ? "" : "s"} comparada${total.auditadas === 1 ? "" : "s"} em ${ano}`
-                  }
-                />
-                <Numero
-                  rotulo="Sem comparação"
-                  valor={String(total.pendentes)}
-                  detalhe={
-                    total.pendentes === 0
-                      ? "toda vigência com anterior foi comparada"
-                      : `vigência${total.pendentes === 1 ? "" : "s"} que ${total.pendentes === 1 ? "chegou" : "chegaram"} e ninguém comparou`
-                  }
-                  alerta={total.pendentes > 0}
-                />
-                <Numero
-                  rotulo="Alterações"
-                  valor={total.auditadas === 0 ? "—" : formatNumber(total.alteracoes, 0)}
-                  detalhe={
-                    total.auditadas === 0
-                      ? "nenhuma comparação no ano"
-                      : `apuradas em ${total.auditadas} comparaç${total.auditadas === 1 ? "ão" : "ões"} · ${total.entrantes} ativo${total.entrantes === 1 ? "" : "s"} entr${total.entrantes === 1 ? "ou" : "aram"}, ${total.saintes} sa${total.saintes === 1 ? "iu" : "íram"}`
-                  }
-                />
-                <Numero
-                  rotulo="Impacto apurado"
-                  /*
-                    Compacto, e não o valor cheio: um `−R$ 735.312` com a
-                    periodicidade ao lado não cabe em nenhum corpo que este
-                    tijolo comporte. A precisão exata não se perde — ela está na
-                    unidade aberta e em Alterações, que é onde o número é
-                    discutido —, e a periodicidade vai no `sufixo`, que é o que
-                    a impede de sumir junto com os dígitos.
-                  */
-                  valor={
-                    impactoDoAno === null ? "—" : formatBrlCompacto(impactoDoAno.amount)
-                  }
-                  sufixo={
-                    impactoDoAno === null
-                      ? undefined
-                      : periodicitySuffix(impactoDoAno.periodicity)
-                  }
-                  detalhe={
-                    impactoDoAno === null
-                      ? "nenhum impacto apurável no ano"
-                      : periodicidades === 1
-                        ? "o dinheiro contado uma vez só, já deduplicado"
-                        : `e mais ${periodicidades - 1} periodicidade${periodicidades === 2 ? "" : "s"} — nunca somadas entre si`
-                  }
-                />
-                <Numero
-                  rotulo="Sem preço"
-                  valor={total.auditadas === 0 ? "—" : formatNumber(total.semPreco, 0)}
-                  detalhe={
-                    total.auditadas === 0
-                      ? "nenhuma comparação no ano"
-                      : `alterações sem impacto apurável · ${formatNumber(total.inconclusivas, 0)} inconclusivas`
-                  }
-                />
-              </CardContent>
-            </Card>
+            {/*
+              A faixa de cinco números é do **acervo**, e por isso só existe na
+              Visão Geral. Com uma unidade aberta ela repetiria, número por
+              número, o cartão logo abaixo — a mesma verdade dita duas vezes com
+              dois desenhos, que é como quem lê passa a duvidar de qual das duas
+              é a boa.
+            */}
+            {escopo === null && (
+              <Card>
+                <CardContent className="p-0 flex flex-wrap divide-x divide-y sm:divide-y-0">
+                  <Numero
+                    rotulo="Vigências auditadas"
+                    valor={
+                      total.percentualAuditado === null
+                        ? "—"
+                        : `${Math.round(total.percentualAuditado)}%`
+                    }
+                    barra={total.percentualAuditado ?? 0}
+                    detalhe={
+                      total.percentualAuditado === null
+                        ? `${total.vigencias} vigência${total.vigencias === 1 ? "" : "s"} em ${ano} — nenhuma com anterior a comparar`
+                        : `${total.auditadas} de ${total.comparaveis} vigência${total.comparaveis === 1 ? "" : "s"} comparada${total.auditadas === 1 ? "" : "s"} em ${ano}`
+                    }
+                  />
+                  <Numero
+                    rotulo="Sem comparação"
+                    valor={String(total.pendentes)}
+                    detalhe={
+                      total.pendentes === 0
+                        ? "toda vigência com anterior foi comparada"
+                        : `vigência${total.pendentes === 1 ? "" : "s"} que ${total.pendentes === 1 ? "chegou" : "chegaram"} e ninguém comparou`
+                    }
+                    alerta={total.pendentes > 0}
+                  />
+                  <Numero
+                    rotulo="Alterações"
+                    valor={total.auditadas === 0 ? "—" : formatNumber(total.alteracoes, 0)}
+                    detalhe={
+                      total.auditadas === 0
+                        ? "nenhuma comparação no ano"
+                        : `apuradas em ${total.auditadas} comparaç${total.auditadas === 1 ? "ão" : "ões"} · ${total.entrantes} ativo${total.entrantes === 1 ? "" : "s"} entr${total.entrantes === 1 ? "ou" : "aram"}, ${total.saintes} sa${total.saintes === 1 ? "iu" : "íram"}`
+                    }
+                  />
+                  <Numero
+                    rotulo="Impacto apurado"
+                    /*
+                      Compacto, e não o valor cheio: um `−R$ 735.312` com a
+                      periodicidade ao lado não cabe em nenhum corpo que este
+                      tijolo comporte. A precisão exata não se perde — ela está na
+                      unidade aberta e em Alterações, que é onde o número é
+                      discutido —, e a periodicidade vai no `sufixo`, que é o que
+                      a impede de sumir junto com os dígitos.
+                    */
+                    valor={
+                      impactoDoAno === null ? "—" : formatBrlCompacto(impactoDoAno.amount)
+                    }
+                    sufixo={
+                      impactoDoAno === null
+                        ? undefined
+                        : periodicitySuffix(impactoDoAno.periodicity)
+                    }
+                    detalhe={
+                      impactoDoAno === null
+                        ? "nenhum impacto apurável no ano"
+                        : periodicidades === 1
+                          ? "o dinheiro contado uma vez só, já deduplicado"
+                          : `e mais ${periodicidades - 1} periodicidade${periodicidades === 2 ? "" : "s"} — nunca somadas entre si`
+                    }
+                  />
+                  <Numero
+                    rotulo="Sem preço"
+                    valor={total.auditadas === 0 ? "—" : formatNumber(total.semPreco, 0)}
+                    detalhe={
+                      total.auditadas === 0
+                        ? "nenhuma comparação no ano"
+                        : `alterações sem impacto apurável · ${formatNumber(total.inconclusivas, 0)} inconclusivas`
+                    }
+                  />
+                </CardContent>
+              </Card>
+            )}
 
             <div>
               <div className="flex flex-wrap items-baseline justify-between gap-3 mb-3">
-                <h2 className="text-base font-bold">
-                  {titulo}{" "}
-                  <span className="font-normal text-muted-foreground text-sm">
-                    — em ordem do que falta auditar
-                  </span>
+                <h2 className="text-base font-bold" data-testid="titulo-dos-cartoes">
+                  {titulo}
+                  {escopo === null && (
+                    <span className="font-normal text-muted-foreground text-sm">
+                      {" "}
+                      — em ordem do que falta auditar
+                    </span>
+                  )}
                 </h2>
                 <LegendaDasSituacoes />
               </div>
-              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {/*
+                Um cartão sozinho numa grade de três colunas fica com um terço da
+                largura e dois terços de vazio ao lado, e o vazio parece conteúdo
+                que não carregou. No modo unidade a grade dá lugar a uma coluna
+                com largura de leitura.
+              */}
+              <div
+                className={cn(
+                  "grid gap-4",
+                  escopo === null ? "md:grid-cols-2 xl:grid-cols-3" : "max-w-md",
+                )}
+              >
                 {unidades.map((unidade) => (
                   <CartaoDaUnidade
                     key={`${unidade.scopeHash}|${unidade.channel ?? ""}`}
@@ -475,11 +542,42 @@ export default function VisaoGerencialDaAuditoria() {
           </>
         )}
 
-        {ano !== null && todas.length > 0 && unidades.length === 0 && (
-          <p className="text-sm text-muted-foreground">
-            Nenhuma vigência em {ano}. Escolha outro ano no seletor acima.
-          </p>
-        )}
+        {/*
+          Dois vazios, e não um. "Nenhuma vigência em 2025" é verdade sobre o
+          acervo; dita com uma unidade aberta, ela vira mentira — o acervo pode
+          estar cheio, e quem está sem dado é a unidade escolhida. O segundo
+          texto nomeia a unidade e oferece as duas saídas que existem (outro ano,
+          ou todas as unidades), porque um vazio que não diz o que fazer parece
+          defeito.
+        */}
+        {ano !== null &&
+          todas.length > 0 &&
+          unidades.length === 0 &&
+          (escopo === null ? (
+            <p className="text-sm text-muted-foreground">
+              Nenhuma vigência em {ano}. Escolha outro ano no seletor acima.
+            </p>
+          ) : (
+            <div
+              className="rounded-lg border bg-card p-6 text-sm max-w-2xl space-y-2"
+              data-testid="vazio-da-unidade"
+            >
+              <p className="font-semibold">
+                {nomeDoEscopo(todas, escopo)} não publicou vigência em {ano}.
+              </p>
+              <p className="text-muted-foreground">
+                O acervo tem vigência em {ano} — de outras unidades. Escolha outro
+                ano no seletor acima, ou{" "}
+                <Link
+                  href={enderecoDeVisaoGeral(ENTRADA_DA_AUDITORIA, busca)}
+                  className="text-primary hover:underline"
+                >
+                  veja todas as unidades
+                </Link>
+                .
+              </p>
+            </div>
+          ))}
 
         <div className="grid gap-6 lg:grid-cols-2 items-start">
           <Card>

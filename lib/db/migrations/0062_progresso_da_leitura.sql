@@ -1,0 +1,51 @@
+-- ---------------------------------------------------------------------------
+-- Quanto da leitura já passou — medido, e não estimado pela tela.
+-- ---------------------------------------------------------------------------
+--
+-- O cartão de upload dizia "lendo…" do primeiro segundo ao último. Num arquivo
+-- de dezenas de milhares de células isso são minutos com a mesma frase, e nela
+-- não há como distinguir um leitor trabalhando de um processo que morreu — que
+-- é justamente a dúvida de quem está esperando para aprovar. A primeira versão
+-- da barra saiu daí, e ela só sabia o que o estado já dizia: um degrau por
+-- estado, parado entre um e outro.
+--
+-- O que faltava não era desenho, era dado. `import_run` só descrevia trabalho
+-- **terminado**: `raw_cell_count` é escrito quando a cópia acaba,
+-- `staged_fact_count` quando o preparo acaba. Nada ali descrevia trabalho em
+-- curso, e por isso não havia número honesto para mostrar enquanto ele corre.
+--
+-- Estas três colunas são esse número, escritas pelo próprio pipeline enquanto
+-- ele trabalha:
+--
+--   progress_step   em que trecho ele está — 'CAPTURA' (copiar o workbook para
+--                   o RAW) ou 'PREPARO' (tipar e validar linha a linha). É o
+--                   trecho, e não o estado, porque os dois acontecem dentro de
+--                   READING: uma porcentagem que subisse e voltasse a zero na
+--                   virada seria pior que porcentagem nenhuma.
+--   progress_total  o tamanho do trecho, em linhas de planilha, como o
+--                   pipeline o conhece ao começá-lo.
+--   progress_done   quantas dessas linhas já passaram.
+--
+-- Nulo em `progress_step` quer dizer "nenhum trecho medido agora" — antes de
+-- começar, e em todo estado terminal —, e é o que toda importação anterior a
+-- esta migration continua dizendo. A tela trata essa ausência como o que ela
+-- é: sem trecho medido, ela volta ao degrau do estado, que é o que ela sabia
+-- fazer antes. Nenhum backfill, portanto: não existe medida a inventar para
+-- uma leitura que já terminou, e escrever 100% em runs antigos seria afirmar
+-- um progresso que ninguém observou.
+--
+-- Por que em `import_run` e não numa tabela de eventos: é estado corrente, de
+-- uma linha só, sobrescrito ~100 vezes por trecho e lido por um `SELECT` que
+-- a tela já faz a cada 1,2 s. Uma tabela de progresso acumularia histórico que
+-- ninguém lê, e a leitura passaria a precisar de um agregado para responder o
+-- que aqui é uma coluna. `import_run` não é imutável (é ele que muda de estado
+-- a cada passo), então não há trigger a contornar — ao contrário de `snapshot`,
+-- que foi o que mandou `hidden_at` para cá na 0060.
+ALTER TABLE "import_run" ADD COLUMN IF NOT EXISTS "progress_step" text;
+--> statement-breakpoint
+ALTER TABLE "import_run" ADD COLUMN IF NOT EXISTS "progress_done" integer DEFAULT 0 NOT NULL;
+--> statement-breakpoint
+ALTER TABLE "import_run" ADD COLUMN IF NOT EXISTS "progress_total" integer DEFAULT 0 NOT NULL;
+--> statement-breakpoint
+COMMENT ON COLUMN "import_run"."progress_step" IS
+  'Em que trecho da leitura este run está agora — CAPTURA ou PREPARO. Nulo em todo estado terminal: é a única coluna deste esquema que descreve trabalho em curso.';

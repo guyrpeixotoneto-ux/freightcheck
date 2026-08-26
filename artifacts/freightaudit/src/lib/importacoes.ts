@@ -135,6 +135,120 @@ export function faceDoCartao(status: string | undefined): FaceDoCartao {
 }
 
 /**
+ * Quanto da leitura já passou, para a barra do cartão de upload.
+ *
+ * ---------------------------------------------------------------------------
+ * O número é medido, e é o pipeline que o mede
+ * ---------------------------------------------------------------------------
+ * A primeira versão desta barra andava em degraus, um por estado, porque era
+ * só isso que existia para ler: `import_run` descrevia trabalho terminado, e
+ * nada nele dizia o tamanho do que estava em curso. Hoje o pipeline publica
+ * `progress_step`, `progress_done` e `progress_total` **enquanto** trabalha
+ * (ver `lib/ingest/src/progresso.ts`), e esta função só traduz isso em faixa
+ * de barra. Nada aqui estima: sem medida publicada, ela não inventa uma.
+ *
+ * ---------------------------------------------------------------------------
+ * Por que a faixa é do trecho, e não do estado
+ * ---------------------------------------------------------------------------
+ * `CAPTURA` (copiar o arquivo para o RAW) e `PREPARO` (tipar linha a linha)
+ * acontecem os dois dentro de READING. Fossem os dois pintados na mesma faixa,
+ * a barra iria a 100% e voltaria a zero na virada — e uma barra que volta
+ * atrás não é uma medida imprecisa, é uma medida em que ninguém acredita mais.
+ * Cada trecho tem a sua faixa, e as faixas se sucedem sem se sobrepor.
+ *
+ * ---------------------------------------------------------------------------
+ * O que acontece sem medida
+ * ---------------------------------------------------------------------------
+ * `progress_step` é nulo antes do primeiro trecho abrir, em todo estado
+ * terminal e em toda importação anterior à `0062`. Nesses casos vale o degrau
+ * do estado — o que esta função sabia fazer antes de existir medida —, e cada
+ * degrau foi posto no começo da faixa que ele representa, para que a chegada
+ * da primeira medida nunca faça a barra recuar.
+ *
+ * `null` para todo estado terminal (ali o cartão tem cara própria, e uma barra
+ * cheia ao lado de uma recusa diria que deu certo) e para qualquer estado ou
+ * trecho novo que este arquivo ainda não conheça: não saber é melhor dito com
+ * ausência do que com uma porcentagem escolhida no chute.
+ */
+export interface ProgressoDaLeitura {
+  /** Quanto da leitura já passou, de 0 a 100. */
+  pct: number;
+  /** O que está acontecendo agora, na palavra de quem opera. */
+  rotulo: string;
+  /** Verdadeiro quando o número saiu de medida do pipeline, e não do estado. */
+  medido: boolean;
+}
+
+/** O pedaço de uma importação de que a barra depende. */
+export interface AndamentoDoRun {
+  status: string;
+  progressStep?: string | null;
+  progressDone?: number | null;
+  progressTotal?: number | null;
+}
+
+/**
+ * A faixa da barra que cada trecho ocupa, na ordem em que o pipeline os
+ * percorre. Elas se encostam mas não se sobrepõem: o fim de uma é o começo da
+ * seguinte, e é isso que faz a barra só andar para a frente.
+ *
+ * A leitura não vai a 100 porque ela não é a última coisa a acontecer: depois
+ * dela vem a pré-visualização, e depois a aprovação, que é de quem decide.
+ */
+const FAIXA_DO_TRECHO: Record<
+  string,
+  { inicio: number; fim: number; rotulo: string }
+> = {
+  CAPTURA: { inicio: 10, fim: 55, rotulo: "lendo" },
+  PREPARO: { inicio: 55, fim: 85, rotulo: "preparando" },
+};
+
+/**
+ * O degrau de cada estado, para quando não há trecho medido.
+ *
+ * PENDING não é zero de propósito: o arquivo já subiu e já está no sistema, e
+ * uma barra vazia contaria o contrário. READING sem trecho é a janela de
+ * milissegundos entre o estado virar READING e o primeiro trecho abrir — vale
+ * o começo da faixa dele, e não um meio inventado, senão a primeira medida
+ * publicada faria a barra recuar. PROMOTING chega a 100 porque a leitura, a
+ * essa altura, terminou: quem ainda anda é a aprovação.
+ */
+const DEGRAUS_DA_LEITURA: Record<string, number> = {
+  PENDING: 10,
+  READING: 10,
+  STAGED: 90,
+  PROMOTING: 100,
+};
+
+export function progressoDaLeitura(
+  run: AndamentoDoRun | undefined,
+): ProgressoDaLeitura | null {
+  // Sem resposta do servidor ainda: o arquivo acabou de subir, e o primeiro
+  // estado que ele terá é PENDING — mostrar o degrau dele agora é mais fiel
+  // do que esconder a barra e fazê-la aparecer meio segundo depois.
+  const status = run?.status ?? "PENDING";
+
+  const faixa = run?.progressStep ? FAIXA_DO_TRECHO[run.progressStep] : undefined;
+  if (faixa) {
+    const total = run?.progressTotal ?? 0;
+    const feito = run?.progressDone ?? 0;
+    // Total zero é trecho sem tamanho — uma planilha vazia, ou o instante
+    // entre abrir o trecho e medi-lo. A fração seria uma divisão por zero, e
+    // o começo da faixa é a única coisa verdadeira que se pode dizer dele.
+    const fracao = total > 0 ? Math.min(1, Math.max(0, feito / total)) : 0;
+    return {
+      pct: Math.round(faixa.inicio + (faixa.fim - faixa.inicio) * fracao),
+      rotulo: faixa.rotulo,
+      medido: true,
+    };
+  }
+
+  const pct = DEGRAUS_DA_LEITURA[status];
+  if (pct === undefined) return null;
+  return { pct, rotulo: estadoDaImportacao(status).rotulo, medido: false };
+}
+
+/**
  * O que se pode afirmar, com verdade, sobre o que o pipeline leu deste run.
  *
  * ---------------------------------------------------------------------------

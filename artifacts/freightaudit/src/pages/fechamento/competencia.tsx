@@ -731,12 +731,12 @@ export default function CompetenciaAberta({ id }: { id: string }) {
                     contrato ficava morta atrás de uma condição que nunca via.
                   */}
                   {/*
-                    A etapa 3 não recebe mais arquivo por aqui: a
-                    disponibilidade vai ganhar um módulo próprio, e até lá
-                    esta etapa só avisa disso — ver `PlaceholderDaDisponibilidade`.
+                    A etapa 3 não recebe arquivo por aqui: a disponibilidade
+                    tem módulo próprio, e esta etapa leva até ele — ver
+                    `PlaceholderDaDisponibilidade`.
                   */}
                   {etapa.numero === 3 ? (
-                    <PlaceholderDaDisponibilidade />
+                    <PlaceholderDaDisponibilidade base={base} competenciaId={id} />
                   ) : (
                     (doRoteiro.length > 0 || etapa.numero === 1) && (
                       <ul className="divide-y mt-1">
@@ -1129,27 +1129,38 @@ export default function CompetenciaAberta({ id }: { id: string }) {
 }
 
 /**
- * A ETAPA DE DISPONIBILIDADE, sem envio — até o módulo próprio existir.
+ * A ETAPA DE DISPONIBILIDADE, que agora aponta para o módulo próprio.
  *
- * O envio do 03.08.18 (FF e Vans) saiu desta etapa: a disponibilidade vai
- * ganhar uma tela própria, fora do fechamento, e até lá não há para onde
- * enviar o arquivo aqui. O botão fica desabilitado de propósito — não há
- * rota ainda para prometer, e um link morto seria pior que nenhum link.
+ * O envio do 03.08.18 (FF e Vans) saiu desta etapa quando se decidiu que a
+ * disponibilidade teria tela própria; enquanto o módulo não existia, o botão
+ * ficava desabilitado, porque link morto é pior que nenhum link. O módulo
+ * existe — seção Frota, na lateral —, e o botão passa a levar a ele.
+ *
+ * **Ele leva à disponibilidade *desta* competência, e não à lista.** Quem está
+ * com a competência aberta já respondeu "qual período"; mandá-lo à lista para
+ * escolher de novo o que a tela já sabe é o que o roteiro existe para evitar.
  */
-function PlaceholderDaDisponibilidade() {
+function PlaceholderDaDisponibilidade({
+  base,
+  competenciaId,
+}: {
+  base: string;
+  competenciaId: string;
+}) {
   return (
     <div className="py-4 flex items-start gap-3">
       <Info className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
       <div className="min-w-0 space-y-2">
         <p className="text-sm text-muted-foreground">
-          Em breve dará para acompanhar a disponibilidade de veículos — frota
-          fixa e vans — num módulo próprio, fora do fechamento.
+          A disponibilidade de veículos — frota fixa e vans — tem módulo
+          próprio, na seção Frota: o 03.08.18 aberto dia a dia, com o gap de
+          cada lado e o desconto que ele produz.
         </p>
-        <span title="Ainda não existe — o módulo está a caminho.">
-          <Button variant="outline" size="sm" disabled>
+        <Button variant="outline" size="sm" asChild>
+          <Link href={`${base}/competencias/${competenciaId}/disponibilidade`}>
             Ir para Disponibilidade de veículos
-          </Button>
-        </span>
+          </Link>
+        </Button>
       </div>
     </div>
   );

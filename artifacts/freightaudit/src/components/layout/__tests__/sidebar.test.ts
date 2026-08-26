@@ -243,8 +243,8 @@ describe("a lateral", () => {
 
   /*
     A lateral do Fechamento segue a ordem do processo — o fechamento que se
-    abre, a apuração dele, a decisão sobre o que foi apurado, o registro do que
-    fechou.
+    abre, a apuração dele, a conferência do que a operação entregou, a decisão
+    sobre o que foi apurado, o registro do que fechou.
     O teste guarda a ordem pela mesma razão do teste acima: ela é desenho, não
     acaso.
 
@@ -253,7 +253,7 @@ describe("a lateral", () => {
     o cadastro da unidade, que a apuração consome. Entre Fechamento e Apuração é
     onde ela é consultada, e é onde ela fica.
   */
-  it("mantém as cinco seções do Fechamento, na ordem do processo, e a casa no fim", () => {
+  it("mantém as seis seções do Fechamento, na ordem do processo, e a casa no fim", () => {
     /*
       A primeira seção leva o nome do ambiente: é ali que o menu diz em qual dos
       dois fechamentos se está, já que as outras quatro são idênticas nos dois.
@@ -262,6 +262,13 @@ describe("a lateral", () => {
       "Fechamento Rota",
       "Remuneração",
       "Apuração",
+      /*
+        Frota vem depois de Apuração e não dentro dela: as duas telas são
+        conferência operacional — quantos veículos existem, quantos rodaram — e
+        nenhuma entra em cálculo de remuneração. Enquanto a conferência de
+        frota era um item solto na seção da conta, o menu dizia o contrário.
+      */
+      "Frota",
       "Decisão",
       "Registro",
       /*

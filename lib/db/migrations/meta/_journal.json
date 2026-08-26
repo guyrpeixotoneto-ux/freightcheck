@@ -435,6 +435,13 @@
       "when": 1787693394674,
       "tag": "0061_origem_do_fato",
       "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1787739965147,
+      "tag": "0062_progresso_da_leitura",
+      "breakpoints": true
     }
   ]
 }

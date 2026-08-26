@@ -78,6 +78,33 @@ export const importRunTable = pgTable(
     snapshotCount: integer("snapshot_count").notNull().default(0),
     failureReason: text("failure_reason"),
     /**
+     * Em que trecho da leitura este run está, e quanto dele já passou.
+     *
+     * O estado responde "em que etapa"; estas três colunas respondem "quanto
+     * desta etapa". A diferença é a que existe entre a tela dizer "lendo…"
+     * pelos quatro minutos inteiros de um arquivo grande — sem distinguir um
+     * leitor trabalhando de um processo morto — e ela dizer 12%, 38%, 61%.
+     *
+     * `progress_step` é o trecho ('CAPTURA', a cópia do workbook para o RAW;
+     * 'PREPARO', a tipagem linha a linha), e não o estado: os dois trechos
+     * acontecem dentro de READING, e um número que subisse e voltasse a zero
+     * na virada seria pior que número nenhum. Nulo quer dizer "nenhum trecho
+     * medido agora" — antes de começar, e em todo estado terminal.
+     *
+     * `progress_total` é a estimativa que o próprio pipeline tem do tamanho
+     * do trecho, em linhas de planilha, e `progress_done` é quanto ele já
+     * percorreu. As duas são gravadas **durante** o trabalho, e não no fim
+     * dele; são a única coisa neste esquema que descreve trabalho em curso, e
+     * por isso a única que pode ser lida como desatualizada sem ser lida como
+     * errada. Quem as escreve não é o caminho quente: `relatorDeProgresso`
+     * (lib/ingest/src/progresso.ts) publica no máximo cerca de cem vezes por
+     * trecho, porque a tela pergunta a cada 1,2 s e mais que isso seria
+     * escrita paga sem leitor.
+     */
+    progressStep: text("progress_step"),
+    progressDone: integer("progress_done").notNull().default(0),
+    progressTotal: integer("progress_total").notNull().default(0),
+    /**
      * O tipo que quem enviou declarou — a aba da tela em que ele escolheu.
      *
      * Nulo quer dizer "ninguém declarou", que é como toda importação anterior
