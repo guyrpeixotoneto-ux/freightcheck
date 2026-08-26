@@ -834,16 +834,21 @@ function MaioresImpactos({ view }: { view: FamiliesView }) {
 // Principais alterações — a tabela, nomes de negócio sempre
 // ---------------------------------------------------------------------------
 
+/** Cavalo sempre à frente de Carreta — as demais abas seguem a ordem de chegada. */
+const PRIORIDADE_ABA: Record<string, number> = { CAVALO: 0, CARRETA: 1 };
+
 /**
  * As abas de equipamento da tabela — uma por tipo presente na vigência.
  *
  * Cavalo e Carreta respondem a perguntas diferentes (um consome diesel e
  * amortiza financiamento, o outro nem sempre tem tração), e misturá-los numa
  * fila só fazia a tabela alternar de assunto linha a linha. As abas saem dos
- * próprios grupos, e não de uma lista fixa: só aparece a aba que tem conteúdo,
- * na ordem de prioridade em que o primeiro grupo dela chegou — a mesma do
- * Acompanhamento. Um grupo sem `entityType` cai numa aba própria, com a
- * etiqueta que o servidor já deu a ele, em vez de sumir da tela.
+ * próprios grupos, e não de uma lista fixa: só aparece a aba que tem conteúdo.
+ * A ordem de prioridade do servidor se preserva dentro de cada aba; entre as
+ * abas, Cavalo vem sempre primeiro, Carreta em seguida, e qualquer outro
+ * equipamento na ordem em que chegou. Um grupo sem `entityType` cai numa aba
+ * própria, com a etiqueta que o servidor já deu a ele, em vez de sumir da
+ * tela.
  */
 export function abasDeEquipamento(
   grupos: ChangeGroup[],
@@ -855,7 +860,9 @@ export function abasDeEquipamento(
     if (aba) aba.grupos.push(grupo);
     else abas.set(chave, { chave, rotulo: grupo.equipment, grupos: [grupo] });
   }
-  return [...abas.values()];
+  return [...abas.values()].sort(
+    (a, b) => (PRIORIDADE_ABA[a.chave] ?? 99) - (PRIORIDADE_ABA[b.chave] ?? 99),
+  );
 }
 
 /**
@@ -867,9 +874,10 @@ export function abasDeEquipamento(
  *
  * A tabela abre numa aba por equipamento (`abasDeEquipamento`), porque uma
  * fila única alternava entre Cavalo e Carreta a cada linha; a fatia de oito
- * linhas passa a ser das oito maiores prioridades **daquele** equipamento. Com
- * um equipamento só na vigência, as abas somem e o equipamento volta a
- * aparecer sob o título da linha, como antes.
+ * linhas passa a ser das oito maiores prioridades **daquele** equipamento. A
+ * aba de Cavalo vem sempre primeiro. Com um equipamento só na vigência, as
+ * abas somem e o equipamento volta a aparecer sob o título da linha, como
+ * antes.
  *
  * Cada linha mostra `grupo.title` — a etiqueta de negócio já curada por
  * `attributeLabel()` no servidor — e nunca `attributeCode` cru. O par
