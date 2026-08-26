@@ -357,8 +357,8 @@ function Cabecalho({
             O botão da Gestão à Vista é o único cheio desta tela — a mesma
             régua de `pages/inicio.tsx`, que reserva a cor sólida da marca para
             a ação que a tela existe para oferecer. Agora abre um menu porque a
-            Gestão à Vista tem mais de um template: o Financeiro (o telão de
-            sempre) e o Alertas (só nome da unidade + teve alteração ou não).
+            Gestão à Vista tem mais de um template: o Financeiro (o telão escuro
+            de sempre) e o Alertas (a tabela clara de unidades, por competência).
           */}
           <DropdownMenu>
             <DropdownMenuTrigger className="flex items-center gap-2 rounded-lg bg-brand px-4 py-2.5 text-sm font-bold text-brand-foreground hover:opacity-90 transition-opacity">
@@ -388,7 +388,7 @@ function Cabecalho({
                   <span>
                     <span className="block font-semibold">Alertas</span>
                     <span className="block text-xs text-muted-foreground">
-                      Só o nome de cada unidade e se teve alteração.
+                      Tabela por unidade: alterações, impacto e a que teve mais mudança.
                     </span>
                   </span>
                 </Link>
