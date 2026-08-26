@@ -170,6 +170,38 @@ export const ALLOWLIST: {
     a ganha quando rodar a fila; até lá o `down` a mantém, para que a proposta
     do Publishing continue sendo só o que esta lista nomeia.
   */
+  /*
+    As três da `0060` — ocultar uma importação dos agregados sem apagar nada.
+
+    Aditivas e nulas por definição: `NULL` em `hidden_at` é "esta importação
+    conta", que é o estado de toda importação que ninguém escondeu, e as outras
+    duas só existem para dizer quem escondeu e por quê. Entram na allowlist, e
+    não em `COLUNAS_REMOVIDAS`, pelo mesmo critério que decide isso desde a
+    `0035`: a forma. Nulável, sem default, em tabela que Production já tem — é
+    exatamente o que o Publishing sabe criar sem risco, e o que a `0015`
+    confere por tipo.
+
+    O índice parcial delas é outra história e sai no `down`: o Publishing o
+    proporia, e um índice não é conferido por tipo nenhum.
+  */
+  {
+    tabela: "import_run",
+    coluna: "hidden_at",
+    tipo: "timestamp with time zone",
+    aindaPodeNaoExistir: true,
+  },
+  {
+    tabela: "import_run",
+    coluna: "hidden_by",
+    tipo: "text",
+    aindaPodeNaoExistir: true,
+  },
+  {
+    tabela: "import_run",
+    coluna: "hidden_reason",
+    tipo: "text",
+    aindaPodeNaoExistir: true,
+  },
   {
     tabela: "assistant_message",
     coluna: "trace",
@@ -496,6 +528,27 @@ export const COLUNAS_REMOVIDAS: [string, string][] = [
     estado pós-migration, nunca a um estado sem papel.
   */
   ["app_user", "role"],
+  /*
+    A `0061` — a origem do fato. `NOT NULL`, e é isso que decide: a allowlist é
+    uma lista fechada de colunas **nuláveis e sem default**, conferida por tipo
+    pela `0015`, e uma coluna obrigatória não cabe nela. O Publishing que
+    tentasse criá-la em Production morreria na primeira linha de `fact`.
+
+    Sai junto com as três views que a leem (`VIEWS_REMOVIDAS`), que é a ordem
+    que o RESTRICT aceita, e volta pela `0063` com o mesmo backfill e a mesma
+    conferência da `0061` — não com um `ADD COLUMN` mais fraco.
+  */
+  ["fact", "origin_import_run_id"],
+  /*
+    As três da `0062` — o progresso da leitura. Duas são `NOT NULL DEFAULT 0`,
+    forma que a allowlist não aceita, e a terceira sai com elas de propósito:
+    são um valor só repartido em três colunas, e uma barra restaurada pela
+    metade — a etapa sem o tamanho — descreveria um andamento que ninguém
+    mediu. Voltam pela `0063`.
+  */
+  ["import_run", "progress_step"],
+  ["import_run", "progress_done"],
+  ["import_run", "progress_total"],
 ];
 
 /** Índices que o `down` remove. Exportada pelo motivo de `COLUNAS_REMOVIDAS`. */
@@ -511,6 +564,13 @@ export const INDICES_REMOVIDOS = [
   // não a modela, e um índice único que ele tentasse criar em Production
   // encontraria dados que ele não sabe explicar.
   "import_run_leitura_aberta_uq",
+  // A `0060`: o índice parcial de importação oculta. As colunas dele ficam (a
+  // allowlist as aceita), o índice não — o Publishing o proporia, e é ele que
+  // esta lista existe para tirar do caminho.
+  "import_run_hidden_at_idx",
+  // A `0061`: o índice da origem. Cai junto com a coluna, e é nomeado aqui
+  // para que a verificação do `down` o cobre por escrito.
+  "fact_origin_import_run_idx",
 ];
 
 /**
@@ -1415,6 +1475,41 @@ function planoUp(): PassoUp[] {
     "fact.origin_import_run_id",
     levantar(M61, /ADD COLUMN IF NOT EXISTS "origin_import_run_id"/),
   );
+  /*
+    O backfill vem junto, e é escrita de linha — como o da `0021`.
+
+    A coluna é `NOT NULL`, e repô-la nulável seria repor outra coisa: o `down`
+    a removeu de uma tabela com dado dentro, e devolvê-la vazia deixaria toda
+    leitura de fato sem origem. O statement é o da própria `0061` — a cadeia
+    `raw_cell → raw_row → raw_sheet → import_run` —, e ele é repetível por
+    construção (`WHERE origin_import_run_id IS NULL`).
+
+    A conferência da migration vem depois dele e antes do `SET NOT NULL`, pela
+    mesma razão que ela existe lá: `SET NOT NULL` provaria só que ninguém ficou
+    nulo; o que precisa ser provado é que cada fato aponta para a importação
+    que o trouxe.
+  */
+  p.push({
+    migration: M61,
+    objeto: "fact.origin_import_run_id (backfill pela cadeia do RAW)",
+    sql: reconstruir(M61, /UPDATE "fact" f/),
+    reconstroiDados: true,
+  });
+  add(
+    M61,
+    "conferência do backfill da origem",
+    levantar(M61, /ficaram sem origem depois do backfill/),
+  );
+  add(
+    M61,
+    "fact.origin_import_run_id (obrigatória)",
+    levantar(M61, /ALTER COLUMN "origin_import_run_id" SET NOT NULL/),
+  );
+  add(
+    M61,
+    "FK fact_origin_import_run_id_import_run_id_fk",
+    levantar(M61, /ADD CONSTRAINT "fact_origin_import_run_id_import_run_id_fk"/),
+  );
   add(
     M61,
     "índice fact_origin_import_run_idx",
@@ -1435,6 +1530,33 @@ function planoUp(): PassoUp[] {
   add(M61, "view fato_visivel", levantar(M61, /CREATE VIEW "fato_visivel"/));
   add(M61, "view fato_oculto", levantar(M61, /CREATE VIEW "fato_oculto"/));
   add(M61, "view alteracao_visivel", levantar(M61, /CREATE VIEW "alteracao_visivel"/));
+
+  /*
+    A `0060` — o índice de importação oculta. As três colunas dele não voltam
+    aqui porque nunca saíram: estão na allowlist.
+  */
+  const M60 = "0060_ocultar_import_run";
+  add(
+    M60,
+    "índice import_run_hidden_at_idx",
+    levantar(M60, /INDEX IF NOT EXISTS "import_run_hidden_at_idx"/),
+  );
+
+  /*
+    A `0062` — as três do progresso da leitura, na ordem da migration.
+
+    São `ADD COLUMN` puros: `progress_done` e `progress_total` nascem `NOT NULL
+    DEFAULT 0`, o que o Postgres resolve sem reescrever a tabela e sem precisar
+    de backfill — zero é a verdade sobre uma leitura que não está acontecendo.
+  */
+  const M62 = "0062_progresso_da_leitura";
+  for (const col of ["progress_step", "progress_done", "progress_total"]) {
+    add(
+      M62,
+      `import_run.${col}`,
+      levantar(M62, new RegExp(`ADD COLUMN IF NOT EXISTS "${col}"`)),
+    );
+  }
 
   // A `0020` — a função antes do gatilho que a chama, e a tabela antes dos dois.
   add(
@@ -1883,10 +2005,25 @@ function planoUp(): PassoUp[] {
     "fechamento_frota_promax",
     levantar(M56, /CREATE TABLE IF NOT EXISTS "fechamento_frota_promax" \(/),
   );
+  /*
+    O `DROP` de cada FK entra antes do `ADD`, e é o que torna este trecho
+    repetível.
+
+    A `0056` e a `0057` escrevem as chaves estrangeiras em dois statements —
+    `DROP CONSTRAINT IF EXISTS` e `ADD CONSTRAINT` — em vez do bloco `DO` com
+    guarda que a `0043` usa. Levantar só o `ADD` fazia o segundo `up` morrer em
+    `constraint … already exists`, e um `up` que só funciona uma vez não é
+    restauração, é sorte.
+  */
   for (const fk of [
     "fechamento_frota_promax_documento_fk",
     "fechamento_frota_promax_competencia_fk",
   ]) {
+    add(
+      M56,
+      `FK ${fk} (drop)`,
+      levantar(M56, new RegExp(`DROP CONSTRAINT IF EXISTS "${fk}"`)),
+    );
     add(M56, `FK ${fk}`, levantar(M56, new RegExp(`ADD CONSTRAINT "${fk}"`)));
   }
   for (const i of [
@@ -1923,6 +2060,11 @@ function planoUp(): PassoUp[] {
     "fechamento_pagamento_total_documento_fk",
     "fechamento_pagamento_total_competencia_fk",
   ]) {
+    add(
+      M57,
+      `FK ${fk} (drop)`,
+      levantar(M57, new RegExp(`DROP CONSTRAINT IF EXISTS "${fk}"`)),
+    );
     add(M57, `FK ${fk}`, levantar(M57, new RegExp(`ADD CONSTRAINT "${fk}"`)));
   }
   for (const i of [

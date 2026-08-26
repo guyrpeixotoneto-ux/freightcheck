@@ -177,17 +177,31 @@ describe("o contrato da quinzena chega junto da competência", () => {
 });
 
 describe("GET /fechamento/lados", () => {
-  it("publica os três lados, com o texto que a tela mostra", async () => {
+  it("publica os quatro lados, com o texto que a tela mostra", async () => {
     const { status, body } = await pedir("/fechamento/lados");
 
     expect(status).toBe(200);
+    /*
+      Quatro, e não três, desde que a frota Promax entrou (`0056`): ela não
+      forma o devido nem demonstra o pagamento — é conferência operacional, e
+      foi por não ter lado próprio que ela chegou a ser lida como se fosse uma
+      das outras. `lados-da-conferencia.test.ts`, em `lib/fechamento`, é quem
+      confronta essa classificação com o que o motor de fato usa; aqui o que se
+      prende é que a rota publica a lista inteira, na ordem da tela.
+    */
     expect(body.map((l: { lado: string }) => l.lado)).toEqual([
       "DEVIDO",
       "DEMONSTRADO",
       "FATURAMENTO",
+      "CONFERENCIA_OPERACIONAL",
     ]);
-    /* Só o grupo do devido depende do contrato — ver `LADOS_DA_CONFERENCIA`. */
-    expect(body.filter((l: { precisaDeContrato: boolean }) => l.precisaDeContrato)).toHaveLength(1);
+    /*
+      Dois grupos dependem do contrato — ver `LADOS_DA_CONFERENCIA`. Era um só
+      (o devido) até a frota Promax entrar: ela é comparada contra o que o
+      cadastro do contrato declara, então sem contrato ela não tem contra o quê
+      conferir.
+    */
+    expect(body.filter((l: { precisaDeContrato: boolean }) => l.precisaDeContrato)).toHaveLength(2);
     for (const l of body) {
       expect(l.titulo.length).toBeGreaterThan(0);
       expect(l.explica.length).toBeGreaterThan(20);
