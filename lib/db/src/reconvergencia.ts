@@ -286,6 +286,153 @@ export function triggersDaFila(
   return triggers;
 }
 
+const SET_NOT_NULL =
+  /^alter\s+table\s+(?:only\s+)?"?([a-z_][a-z0-9_]*)"?\s+alter\s+column\s+"?([a-z_][a-z0-9_]*)"?\s+set\s+not\s+null/i;
+
+/**
+ * As colunas que a fila torna obrigatórias **depois** de criar.
+ *
+ * `ADD COLUMN` nulável, backfill, `SET NOT NULL` é o único jeito de acrescentar
+ * uma coluna obrigatória a uma tabela com dado dentro, e a fila usa esse
+ * caminho desde a `0059`. Quem repõe pelo `ADD COLUMN` sozinho — que é o que
+ * este módulo faz — devolve a coluna **nulável**, e um banco reconvergido
+ * ficava com a estrutura quase certa: a coluna de volta, a obrigatoriedade
+ * não. "Quase" aqui é o bastante para o `estruturaDe` acusar diferença, e é o
+ * bastante para o Publishing seguinte propor a mudança de novo.
+ *
+ * O comando é levantado verbatim da migration, como todo o resto deste módulo.
+ */
+export function naoNulosDaFila(
+  migrations: MigrationFile[] = readMigrations(),
+): Map<string, string> {
+  const obrigatorias = new Map<string, string>();
+  for (const m of migrations) {
+    for (const bruto of m.statements) {
+      const comando = semComentarioDeAbertura(bruto);
+      const achado = SET_NOT_NULL.exec(comando);
+      if (achado) {
+        obrigatorias.set(
+          `${achado[1]}.${achado[2]}`,
+          comando.replace(/;\s*$/, ""),
+        );
+      }
+    }
+  }
+  return obrigatorias;
+}
+
+/**
+ * O preenchimento declarado de uma coluna **derivada** que voltou vazia.
+ *
+ * A regra deste módulo é estrutura, e ela continua valendo: conteúdo que o
+ * Provision destruiu não volta, porque decisão humana não é recuperável por
+ * ninguém. Uma coluna derivada é o caso em que a regra não se aplica — o valor
+ * dela não foi escrito por gente, é uma leitura de dado que continua no banco,
+ * e é por isso que a própria fila sabe recalculá-la.
+ *
+ * A lista é **nominal**, e é o ponto: cada entrada é alguém dizendo, por
+ * escrito, que aquele comando reconstrói a coluna a partir do que sobrou, e
+ * que rodá-lo de novo num banco íntegro não faz nada. Uma varredura que
+ * decidisse isso sozinha acabaria rodando o `DELETE FROM "justificativa"` da
+ * `0059` — que é a resposta certa para uma migration de mudança de grão e a
+ * errada para um reparo, porque apagaria a frase que alguém escreveu.
+ *
+ * Sem entrada aqui, uma coluna obrigatória que volte vazia numa tabela com
+ * linhas simplesmente falha no `SET NOT NULL` e aparece em `falhas`. É o
+ * desfecho certo: a coluna está de volta, a garantia não, e quem opera fica
+ * sabendo em vez de descobrir depois.
+ */
+const PREENCHIMENTOS: { coluna: string; migration: string; marcas: RegExp[] }[] = [
+  {
+    /*
+      A origem do fato, da `0061`: a materialização da cadeia
+      `raw_cell → raw_row → raw_sheet → import_run`, que continua inteira no
+      banco. O `UPDATE` é o da `0063` — a reconciliação —, com o gatilho de
+      imutabilidade saindo de cena e voltando em torno dele, exatamente como lá:
+      o que se escreve é uma coluna derivada, e nenhum valor de fato é tocado.
+      `WHERE origin_import_run_id IS NULL` faz dele um não-evento onde a coluna
+      já está preenchida.
+    */
+    coluna: "fact.origin_import_run_id",
+    migration: "0063_reconciliar_progresso_e_origem",
+    marcas: [
+      /DISABLE TRIGGER "fact_immutable"/,
+      /UPDATE "fact" f/,
+      /ENABLE TRIGGER "fact_immutable"/,
+    ],
+  },
+];
+
+/** Os comandos de um preenchimento, levantados da migration que o declara. */
+function comandosDoPreenchimento(
+  coluna: string,
+  migrations: MigrationFile[],
+): { alvo: string; comando: string }[] {
+  const declarado = PREENCHIMENTOS.find((p) => p.coluna === coluna);
+  if (!declarado) return [];
+  const m = migrations.find((x) => x.tag === declarado.migration);
+  if (!m) return [];
+  const passos: { alvo: string; comando: string }[] = [];
+  for (const marca of declarado.marcas) {
+    const achados = m.statements
+      .map(semComentarioDeAbertura)
+      .filter((s) => marca.test(s));
+    // Casar mais de um — ou nenhum — significa que a migration mudou de forma
+    // debaixo desta lista. Repor pela metade seria pior que não repor.
+    if (achados.length !== 1) return [];
+    passos.push({
+      alvo: `preenchimento de ${coluna}`,
+      comando: achados[0]!.replace(/;\s*$/, ""),
+    });
+  }
+  return passos;
+}
+
+const CREATE_VIEW =
+  /^create\s+(?:or\s+replace\s+)?view\s+"?([a-z_][a-z0-9_]*)"?\s+as\b/i;
+
+const DROP_VIEW = /^drop\s+view\s+(?:if\s+exists\s+)?"?([a-z_][a-z0-9_]*)"?/i;
+
+/**
+ * As views que a fila deixa de pé ao final, na ordem em que ela as cria.
+ *
+ * Views não estavam neste módulo, e a ausência tinha explicação: as três da
+ * `0015` são de diagnóstico, e um banco sem elas continua servindo o produto.
+ * A `0061` mudou isso — `fato_visivel` é por onde passa **toda** leitura de
+ * fato, em setenta e tantas consultas de treze pacotes. Um Provision
+ * destrutivo derruba as três em cascata junto com a coluna que elas leem, e um
+ * banco com o schema completo e sem elas é um banco de pé com o produto morto.
+ *
+ * A leitura é sequencial e o último `CREATE` reposiciona a view no fim, como
+ * em {@link indicesDaFila}: um `DROP` posterior a apaga, e a ordem final é a
+ * ordem em que a fila as criou — que é, por construção, uma ordem em que cada
+ * uma encontra de pé aquilo que lê.
+ */
+export function viewsDaFila(
+  migrations: MigrationFile[] = readMigrations(),
+): Map<string, string> {
+  const views = new Map<string, string>();
+  for (const m of migrations) {
+    for (const bruto of m.statements) {
+      const comando = semComentarioDeAbertura(bruto);
+      const criada = CREATE_VIEW.exec(comando);
+      if (criada) {
+        // Recriada mais tarde vai para o fim: quem depende dela foi escrito
+        // depois, e repor na posição antiga inverteria a dependência.
+        views.delete(criada[1]!);
+        views.set(criada[1]!, comando.replace(/;\s*$/, ""));
+        continue;
+      }
+      const removida = DROP_VIEW.exec(comando);
+      // `DROP VIEW` seguido de `CREATE VIEW` no mesmo par é o jeito de a fila
+      // redefinir uma view; só apaga do mapa o `DROP` que não tem `CREATE`
+      // depois — e isso é o que a ordem sequencial resolve sozinha.
+      if (removida) views.delete(removida[1]!);
+    }
+  }
+  return views;
+}
+
 type Executor = Pick<pg.Pool, "query">;
 
 async function colunasReais(c: Executor): Promise<Map<string, Set<string>>> {
@@ -413,6 +560,38 @@ export async function reconvergirSchema(
     }
 
     /*
+      2b. A obrigatoriedade das colunas que a passada 2 repôs.
+
+      `comandoQueRepoe` levanta o `ADD COLUMN` da migration, e desde a `0059`
+      isso não é a coluna inteira: uma coluna obrigatória acrescentada a tabela
+      com dado nasce nulável e só vira `NOT NULL` alguns comandos depois, com
+      um backfill no meio. Repor só o primeiro deixa a coluna de volta e a
+      garantia fora, e o `SET NOT NULL` da própria fila é o que fecha isso.
+
+      Só nas colunas que este reparo acabou de repor: uma coluna que já estava
+      lá não é assunto da reconvergência, e reafirmar obrigatoriedade sobre
+      dado que ninguém tocou seria mexer onde não houve estrago. Quando a
+      coluna volta vazia numa tabela com linhas, o `SET NOT NULL` é recusado
+      pelo banco e entra em `falhas` — alto, como todo resto que este módulo
+      não consegue: é a mesma honestidade do conteúdo que não volta.
+    */
+    const obrigatorias = naoNulosDaFila(migrations);
+    const repostasAgora = relatorio.aplicados
+      .map((a) => /^coluna (\S+)$/.exec(a.alvo)?.[1])
+      .filter((c): c is string => c !== undefined);
+    for (const chave of repostasAgora) {
+      const comando = obrigatorias.get(chave);
+      if (!comando) continue;
+      // O preenchimento declarado, quando existe, vem antes: `SET NOT NULL`
+      // sobre coluna derivada que voltou vazia é recusado pelo banco, e a
+      // coluna existe justamente porque a cadeia que a produz continua lá.
+      for (const passo of comandosDoPreenchimento(chave, migrations)) {
+        await aplicar(passo.alvo, passo.comando);
+      }
+      await aplicar(`obrigatoriedade de ${chave}`, comando);
+    }
+
+    /*
       3. Índices. O `DROP COLUMN` do Provision leva junto, em cascata, todo
       índice que a citava — repor a coluna não os traz de volta, e um índice
       único ausente não é lentidão: é o `ON CONFLICT` da importação morrendo
@@ -481,6 +660,31 @@ export async function reconvergirSchema(
     for (const [nome, { tabela, comando }] of triggersDaFila(migrations)) {
       if (triggersReais.has(nome) || !tabelasReais.has(tabela)) continue;
       await aplicar(`trigger ${nome}`, comando);
+    }
+
+    /*
+      6. Views, por último — elas leem o que os cinco passos acima repuseram.
+
+      Um `DROP COLUMN … CASCADE` do Provision leva junto toda view que citava a
+      coluna, e repor a coluna não as traz de volta. Enquanto as views deste
+      esquema eram só as três de diagnóstico da `0015`, a ausência era um
+      incômodo; desde a `0061` não é: `fato_visivel` é o caminho de toda
+      leitura de fato, e sem ela o banco fica com o schema completo e o produto
+      morto — que é o modo de falha mais confuso possível, porque `/healthz`
+      não teria do que reclamar.
+
+      Na ordem da fila, e só as que faltam: recriar uma view que está de pé
+      trocaria a definição por outra igual sem motivo, e num boot íntegro este
+      passo não aplica nada.
+    */
+    const viewsReais = await nomesDe(
+      client,
+      `select table_name as nome from information_schema.views
+        where table_schema = 'public'`,
+    );
+    for (const [nome, comando] of viewsDaFila(migrations)) {
+      if (viewsReais.has(nome)) continue;
+      await aplicar(`view ${nome}`, comando);
     }
 
     return relatorio;
