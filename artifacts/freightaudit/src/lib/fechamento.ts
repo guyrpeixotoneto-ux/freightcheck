@@ -85,11 +85,11 @@ export interface Competencia {
   unidade: { codigo: string; nome: string | null };
   transportadora: { codigo: string; nome: string | null };
   /**
-   * `EMPURRADA`, `ROTA` — a operação que este fechamento fecha, e o quarto eixo
-   * da chave dele desde a `0046`.
+   * `EMPURRADA`, `ROTA`, `AS`, `APOIO` — a operação que este fechamento fecha, e
+   * o quarto eixo da chave dele desde a `0046`.
    *
-   * Não confundir com o `Canal` (`ROTA` | `AS`) das verbas: as duas palavras
-   * colidem em "ROTA" e querem dizer coisas diferentes. `NAO_INFORMADO` são as
+   * Não confundir com o `Canal` (`ROTA` | `AS`) das verbas: as palavras colidem
+   * em "ROTA" e em "AS" e querem dizer coisas diferentes. `NAO_INFORMADO` são as
    * competências abertas antes de o campo existir.
    */
   tipoDeOperacao: string;
@@ -117,8 +117,8 @@ export const TIPO_NAO_INFORMADO = "NAO_INFORMADO";
  * Lista fechada, ao contrário dos campos de unidade e transportadora, e a razão
  * é o que cada um protege: lá o vocabulário é da operação e cresce; aqui ele é
  * o eixo de uma **chave**, e um campo livre faria "Empurrada" e "EMPURRADA"
- * virarem dois fechamentos do mesmo mês. Um terceiro tipo é uma linha nesta
- * lista no dia em que ele existir.
+ * virarem dois fechamentos do mesmo mês. Um tipo novo é uma linha nesta lista
+ * no dia em que ele existir — foi assim que AS e Apoio entraram.
  *
  * `NAO_INFORMADO` não está aqui de propósito: só o backfill pode escrevê-lo, e
  * `normalizarTipoDeOperacao` o recusa na porta de entrada. Quem **lê** precisa
@@ -139,10 +139,24 @@ export const TIPOS_DE_OPERACAO: { valor: string; rotulo: string; explicacao: str
       "A operação de rota da mesma unidade. É um fechamento separado do de empurrada, com a " +
       "sua própria planilha de remuneração.",
   },
+  {
+    valor: "AS",
+    rotulo: "AS",
+    explicacao:
+      "A operação de AS da mesma unidade. É um fechamento separado dos demais, com a sua " +
+      "própria planilha de remuneração.",
+  },
+  {
+    valor: "APOIO",
+    rotulo: "Apoio",
+    explicacao:
+      "A operação de apoio da mesma unidade. É um fechamento separado dos demais, com a sua " +
+      "própria planilha de remuneração.",
+  },
 ];
 
 /**
- * Os tipos que se pode **consultar** — os dois de cima, mais o do backfill.
+ * Os tipos que se pode **consultar** — os de cima, mais o do backfill.
  *
  * Ler e abrir pedem listas diferentes, e a diferença não é descuido. Abrir com
  * `NAO_INFORMADO` seria dar a quem abre uma forma de dizer "não sei" num campo
@@ -150,7 +164,7 @@ export const TIPOS_DE_OPERACAO: { valor: string; rotulo: string; explicacao: str
  * `0046` carrega esse carimbo, e uma tela de consulta que não o oferecesse
  * deixaria o acervo inteiro sem endereço: a trinca certa, o mês certo, e mesmo
  * assim nada na tela — que foi exatamente o que aconteceu quando o seletor de
- * Tipo chegou ao Resumo geral oferecendo só os dois tipos novos.
+ * Tipo chegou ao Resumo geral oferecendo só os tipos que se pode abrir.
  */
 export const TIPOS_PARA_LER: { valor: string; rotulo: string }[] = [
   ...TIPOS_DE_OPERACAO.map(({ valor, rotulo }) => ({ valor, rotulo })),
@@ -161,13 +175,13 @@ export const TIPOS_PARA_LER: { valor: string; rotulo: string }[] = [
  * Os tipos que uma tela de leitura oferece **dentro de um ambiente**.
  *
  * São dois: a operação do fechamento aberto e o `NAO_INFORMADO` do backfill.
- * O terceiro — a operação do outro fechamento — não é escolha desta tela: o
- * Fechamento Rota responde pela conta da rota, e oferecer a da empurrada num
- * seletor era deixar o ambiente ser desmentido por um dropdown. Quem quer o
- * outro troca de ambiente no topo, que é onde essa escolha mora.
+ * As operações dos outros fechamentos não são escolha desta tela: o Fechamento
+ * Rota responde pela conta da rota, e oferecer a da empurrada num seletor era
+ * deixar o ambiente ser desmentido por um dropdown. Quem quer outro troca de
+ * ambiente no topo, que é onde essa escolha mora.
  *
- * `NAO_INFORMADO` fica nos dois pela razão de sempre: ele não é de nenhum dos
- * dois, e sem ele o acervo anterior à `0046` não teria endereço em tela nenhuma.
+ * `NAO_INFORMADO` fica em todos pela razão de sempre: ele não é de nenhum
+ * deles, e sem ele o acervo anterior à `0046` não teria endereço em tela nenhuma.
  */
 export function tiposParaLerNoAmbiente(
   operacao: string,
@@ -181,7 +195,7 @@ export function tiposParaLerNoAmbiente(
  * O tipo que uma tela de leitura deve usar, dado o que veio na URL.
  *
  * Um endereço colado de outro ambiente — ou guardado de antes desta separação —
- * traz o tipo do outro fechamento na consulta, e obedecê-lo faria o Fechamento
+ * traz o tipo de outro fechamento na consulta, e obedecê-lo faria o Fechamento
  * Rota mostrar a conta da empurrada com a lateral e o topo dizendo "Rota". A
  * regra é: o que este ambiente alcança, vale; o que não alcança vira a operação
  * do ambiente, que é a resposta certa para "o mês deste fechamento".
@@ -213,7 +227,7 @@ export function rotuloDoTipo(tipo: string): string {
 export function explicacaoDoTipo(tipo: string): string {
   return (
     TIPOS_DE_OPERACAO.find((t) => t.valor === tipo)?.explicacao ??
-    "EMPURRADA e ROTA são fechamentos separados na mesma quinzena."
+    "Cada operação é um fechamento separado na mesma quinzena."
   );
 }
 

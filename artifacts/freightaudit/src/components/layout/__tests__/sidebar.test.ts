@@ -297,12 +297,12 @@ describe("a lateral", () => {
   });
 
   /*
-    A casa é a mesma nos três ambientes: os mesmos itens, na mesma ordem, com os
-    mesmos endereços. Era isso que faltava enquanto ela vivia só na lista da
+    A casa é a mesma em todos os ambientes: os mesmos itens, na mesma ordem, com
+    os mesmos endereços. Era isso que faltava enquanto ela vivia só na lista da
     Auditoria — trocar para um fechamento escondia o cadastro de que o
     fechamento depende.
   */
-  it("põe a mesma Administração nos três ambientes", () => {
+  it("põe a mesma Administração em todos os ambientes", () => {
     const daAuditoria = GRUPO_ADMINISTRACAO.itens.map((item) => item.href);
 
     for (const base of Object.values(BASES_DE_FECHAMENTO)) {

@@ -1,8 +1,8 @@
 /**
- * Os três ambientes de trabalho do FreightCheck.
+ * Os cinco ambientes de trabalho do FreightCheck.
  *
  * O produto é um só — mesmo login, mesma unidade, mesma base de frota, mesma
- * infraestrutura — mas os processos que ele atende são três, e cada um tem a
+ * infraestrutura — mas os processos que ele atende são cinco, e cada um tem a
  * sua pergunta:
  *
  * - **Auditoria de Remuneração — Empurrada**: o que mudou? está correto? qual
@@ -10,19 +10,23 @@
  * - **Fechamento Rota**: quanto devemos receber nesta competência?
  *   o que está pendente? o que precisa ser conferido? podemos fechar?
  * - **Fechamento Empurrada**: a mesma pergunta, sobre a operação de empurrada.
+ * - **Fechamento AS**: a mesma pergunta, sobre a operação de AS.
+ * - **Fechamento Apoio**: a mesma pergunta, sobre a operação de apoio.
  *
- * **Os dois fechamentos são o mesmo processo sobre operações diferentes.**
+ * **Os fechamentos são o mesmo processo sobre operações diferentes.**
  * Abre-se a competência, apura-se, resolve-se o que impede a conta de fechar,
  * decide-se e encerra-se — a ordem do trabalho é uma só, e por isso a lateral,
- * as telas e o desenho são os mesmos nos dois. O que muda entre eles é o
+ * as telas e o desenho são os mesmos em todos. O que muda entre eles é o
  * racional da apuração, não a forma de trabalhar; e é justamente por serem a
- * mesma forma que eles não são dois códigos, e sim o mesmo código montado sob
- * duas bases de endereço. Ver `BASES_DE_FECHAMENTO`, abaixo, e as rotas em
- * `App.tsx`, que nascem de um laço sobre essas bases.
+ * mesma forma que eles não são quatro códigos, e sim o mesmo código montado sob
+ * quatro bases de endereço. Ver `BASES_DE_FECHAMENTO`, abaixo, e as rotas em
+ * `App.tsx`, que nascem de um laço sobre essas bases — um fechamento novo é
+ * uma linha naquele mapa, e nasce inteiro.
  *
  * **A URL é a única fonte da verdade sobre o ambiente aberto.** Tudo o que
- * vive sob `/fechamento` é Fechamento Rota; tudo sob `/fechamento-empurrada` é
- * Fechamento Empurrada; todo o resto é a Auditoria de sempre. Essa regra tem
+ * vive sob `/fechamento` é Fechamento Rota; tudo sob `/fechamento-empurrada`,
+ * `/fechamento-as` e `/fechamento-apoio` é o fechamento que o próprio endereço
+ * nomeia; todo o resto é a Auditoria de sempre. Essa regra tem
  * três consequências deliberadas:
  *
  * 1. **A Auditoria não foi movida para um prefixo.** As rotas atuais
@@ -40,8 +44,9 @@
  * 2. **O Fechamento Rota ficou em `/fechamento`, e não em `/fechamento/rota`.**
  *    Pela mesma razão da Auditoria: quando a Empurrada nasceu, o Rota já era o
  *    produto em uso, com endereços guardados por aí. Quem paga o prefixo é
- *    sempre quem chega agora — a Empurrada nasce dizendo o próprio nome no
- *    endereço, e nenhum link existente muda de significado.
+ *    sempre quem chega agora — a Empurrada nasceu dizendo o próprio nome no
+ *    endereço, o AS e o Apoio nascem do mesmo jeito, e nenhum link existente
+ *    muda de significado.
  * 3. **Não há estado paralelo de ambiente** — nada em `localStorage`, nada em
  *    contexto React que possa divergir do endereço. Compartilhar um link é
  *    compartilhar o ambiente; voltar no histórico volta o ambiente junto. Um
@@ -54,9 +59,22 @@
  * `lib/base-do-fechamento.ts` para que este arquivo continue puro.
  */
 
-export type Ambiente = "auditoria" | "fechamento-rota" | "fechamento-empurrada";
+export type Ambiente =
+  | "auditoria"
+  | "fechamento-rota"
+  | "fechamento-empurrada"
+  | "fechamento-as"
+  | "fechamento-apoio";
 
-/** Os ambientes que rodam o processo de fechamento — hoje, Rota e Empurrada. */
+/**
+ * Os ambientes que rodam o processo de fechamento — Rota, Empurrada, AS e Apoio.
+ *
+ * São quatro porque são quatro as operações que se fecha, e não porque o
+ * processo tenha quatro formas: ele tem uma só (ver a nota do topo). O tipo é
+ * derivado de {@link Ambiente} em vez de escrito à mão para que acrescentar a
+ * quinta operação seja acrescentar uma linha lá, e não duas em lugares que
+ * podem discordar.
+ */
 export type AmbienteDeFechamento = Exclude<Ambiente, "auditoria">;
 
 export interface DescricaoDeAmbiente {
@@ -122,38 +140,47 @@ export const DASHBOARD = "/dashboard";
 export const GESTAO_A_VISTA = "/gestao-a-vista";
 
 /**
- * A base de endereço de cada fechamento — a única coisa que separa os dois.
+ * A base de endereço de cada fechamento — a única coisa que os separa.
  *
  * Toda tela do fechamento monta os próprios links a partir da base do ambiente
  * em que está (`lib/base-do-fechamento.ts`), e é só por isso que o mesmo
- * componente serve aos dois: `${base}/competencias` é a lista de importações do
- * Rota ou da Empurrada conforme a porta pela qual se entrou. Uma tela que
- * escrevesse `/fechamento/...` à mão jogaria quem está na Empurrada de volta
- * para o Rota no primeiro clique — e sem erro nenhum na tela, que é o pior
- * jeito de essa regressão aparecer.
+ * componente serve a todos: `${base}/competencias` é a lista de importações do
+ * Rota, da Empurrada, do AS ou do Apoio conforme a porta pela qual se entrou.
+ * Uma tela que escrevesse `/fechamento/...` à mão jogaria quem está em qualquer
+ * um dos outros de volta para o Rota no primeiro clique — e sem erro nenhum na
+ * tela, que é o pior jeito de essa regressão aparecer.
  */
 export const BASES_DE_FECHAMENTO: Record<AmbienteDeFechamento, string> = {
   "fechamento-rota": "/fechamento",
   "fechamento-empurrada": "/fechamento-empurrada",
+  /*
+    AS e Apoio nascem com o nome no endereço, como a Empurrada nasceu — e pela
+    mesma razão da regra 2, acima: quem paga o prefixo é sempre quem chega
+    agora. Nenhum link guardado de `/fechamento` muda de significado por causa
+    delas.
+  */
+  "fechamento-as": "/fechamento-as",
+  "fechamento-apoio": "/fechamento-apoio",
 };
 
 /** A base do ambiente aberto quando não se está em fechamento nenhum. */
 export const BASE_PADRAO_DE_FECHAMENTO = BASES_DE_FECHAMENTO["fechamento-rota"];
 
 /**
- * A operação de cada fechamento — o recorte que separa os dois acervos.
+ * A operação de cada fechamento — o recorte que separa os acervos.
  *
  * O tipo de operação entra na chave da competência desde a `0046`
  * (`lib/db/migrations/0046_tipo_de_operacao.sql`): a mesma unidade, com a mesma
- * transportadora, na mesma quinzena, fecha EMPURRADA e ROTA como **dois**
- * fechamentos, cada um com a sua planilha, os seus relatórios e a sua conta.
- * Este mapa é o que liga aquele eixo do banco a este eixo da tela.
+ * transportadora, na mesma quinzena, fecha EMPURRADA, ROTA, AS e APOIO como
+ * fechamentos **separados**, cada um com a sua planilha, os seus relatórios e a
+ * sua conta. Este mapa é o que liga aquele eixo do banco a este eixo da tela.
  *
- * **Sem ele os dois ambientes eram o mesmo acervo com dois nomes.** As listas
+ * **Sem ele os ambientes seriam o mesmo acervo com nomes diferentes.** As listas
  * pediam o Fechamento inteiro, então o Rota mostrava as competências da
  * Empurrada e vice-versa — e excluir uma importação num ambiente a apagava do
  * outro, que é a mesma linha vista duas vezes e apagada uma vez só. O que muda
- * entre Rota e Empurrada nunca foi só o endereço: é de qual operação é a conta.
+ * entre um fechamento e outro nunca foi só o endereço: é de qual operação é a
+ * conta.
  *
  * A Administração é a exceção conhecida, e continua sendo: unidades,
  * transportadoras e usuários valem para o produto inteiro, e é por isso que elas
@@ -162,6 +189,15 @@ export const BASE_PADRAO_DE_FECHAMENTO = BASES_DE_FECHAMENTO["fechamento-rota"];
 export const OPERACAO_DO_AMBIENTE: Record<AmbienteDeFechamento, string> = {
   "fechamento-rota": "ROTA",
   "fechamento-empurrada": "EMPURRADA",
+  /*
+    `AS` colide com o `Canal` (`ROTA` | `AS`) das verbas, e a colisão é só de
+    palavra: lá ele diz de qual canal é a **verba** dentro de uma planilha;
+    aqui, de qual operação é o **fechamento**. É a mesma ambiguidade que `ROTA`
+    já carrega desde a `0046`, e ela se resolve do mesmo jeito — pelo eixo em
+    que o valor está, nunca pelo texto.
+  */
+  "fechamento-as": "AS",
+  "fechamento-apoio": "APOIO",
 };
 
 /**
@@ -193,10 +229,10 @@ export const AMBIENTES: DescricaoDeAmbiente[] = [
   {
     id: "auditoria",
     /*
-      O nome diz a operação, como o dos outros dois. O acervo que esta Auditoria
+      O nome diz a operação, como o dos fechamentos. O acervo que esta Auditoria
       lê é o da empurrada, e o seletor é o único lugar do produto onde isso cabe
-      escrito: um menu que diz só "Auditoria" ao lado de dois fechamentos que
-      dizem qual operação são deixa a pergunta "de qual delas?" sem resposta na
+      escrito: um menu que diz só "Auditoria" ao lado de fechamentos que dizem
+      qual operação são deixa a pergunta "de qual delas?" sem resposta na
       tela. O `id` continua `auditoria` — ele é a chave do ambiente, não o
       rótulo, e trocá-lo seria renomear o eixo por causa do nome.
     */
@@ -220,6 +256,20 @@ export const AMBIENTES: DescricaoDeAmbiente[] = [
     descricao: "O mesmo processo sobre a operação de empurrada.",
     home: BASES_DE_FECHAMENTO["fechamento-empurrada"],
   },
+  {
+    id: "fechamento-as",
+    nome: "Fechamento AS",
+    nomeCompleto: "Fechamento de Remuneração — AS",
+    descricao: "O mesmo processo sobre a operação de AS.",
+    home: BASES_DE_FECHAMENTO["fechamento-as"],
+  },
+  {
+    id: "fechamento-apoio",
+    nome: "Fechamento Apoio",
+    nomeCompleto: "Fechamento de Remuneração — Apoio",
+    descricao: "O mesmo processo sobre a operação de apoio.",
+    home: BASES_DE_FECHAMENTO["fechamento-apoio"],
+  },
 ];
 
 /**
@@ -227,8 +277,9 @@ export const AMBIENTES: DescricaoDeAmbiente[] = [
  *
  * A comparação é exata ou seguida de barra, e nunca `startsWith` cru: sem isso
  * `/fechamentos` — que não existe, mas poderia — cairia no fechamento, e
- * `/fechamento-empurrada` cairia no Rota, que é o engano que este produto não
- * pode cometer em silêncio.
+ * `/fechamento-empurrada`, `/fechamento-as` e `/fechamento-apoio` cairiam todos
+ * no Rota, que é o engano que este produto não pode cometer em silêncio. Três
+ * bases começam com a do Rota; nenhuma delas *é* a do Rota.
  */
 function sobA(base: string, location: string): boolean {
   return location === base || location.startsWith(`${base}/`);

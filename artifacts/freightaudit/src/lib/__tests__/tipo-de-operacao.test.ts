@@ -25,7 +25,12 @@ import {
 
 describe("as duas listas de Tipo", () => {
   it("abrir oferece só os tipos que alguém pode declarar", () => {
-    expect(TIPOS_DE_OPERACAO.map((t) => t.valor)).toEqual(["EMPURRADA", "ROTA"]);
+    expect(TIPOS_DE_OPERACAO.map((t) => t.valor)).toEqual([
+      "EMPURRADA",
+      "ROTA",
+      "AS",
+      "APOIO",
+    ]);
   });
 
   it("abrir nunca oferece o carimbo do backfill", () => {
@@ -36,6 +41,8 @@ describe("as duas listas de Tipo", () => {
     expect(TIPOS_PARA_LER.map((t) => t.valor)).toEqual([
       "EMPURRADA",
       "ROTA",
+      "AS",
+      "APOIO",
       TIPO_NAO_INFORMADO,
     ]);
   });
@@ -52,9 +59,16 @@ describe("rotuloDoTipo", () => {
     expect(rotuloDoTipo(TIPO_NAO_INFORMADO)).toBe("Não informado");
   });
 
-  it("escreve os dois tipos reais como a tela os mostra", () => {
+  it("escreve os tipos reais como a tela os mostra", () => {
     expect(rotuloDoTipo("EMPURRADA")).toBe("Empurrada");
     expect(rotuloDoTipo("ROTA")).toBe("Rota");
+    /*
+      "AS" fica em caixa alta porque é sigla, e não palavra: escrito "As" ele
+      vira o artigo, e o seletor passaria a oferecer um rótulo que ninguém
+      reconhece.
+    */
+    expect(rotuloDoTipo("AS")).toBe("AS");
+    expect(rotuloDoTipo("APOIO")).toBe("Apoio");
   });
 
   it("devolve o valor cru para um tipo que ainda não tem rótulo, sem inventar um", () => {
@@ -66,10 +80,10 @@ describe("rotuloDoTipo", () => {
  * O terceiro recorte de Tipo: o que uma tela de **leitura** oferece dentro de um
  * ambiente.
  *
- * Rota e Empurrada são dois fechamentos, e o seletor que oferecia os dois tipos
- * em qualquer um deles deixava a tela desmentir a porta pela qual a pessoa
- * entrou — o Fechamento Rota mostrando a conta da empurrada, com "Fechamento
- * Rota" escrito no topo.
+ * Rota, Empurrada, AS e Apoio são fechamentos distintos, e o seletor que
+ * oferecia todos os tipos em qualquer um deles deixava a tela desmentir a porta
+ * pela qual a pessoa entrou — o Fechamento Rota mostrando a conta da empurrada,
+ * com "Fechamento Rota" escrito no topo.
  */
 describe("os tipos de leitura dentro de um ambiente", () => {
   it("oferece a operação do ambiente e o carimbo do backfill — nada mais", () => {
@@ -81,12 +95,20 @@ describe("os tipos de leitura dentro de um ambiente", () => {
       "EMPURRADA",
       TIPO_NAO_INFORMADO,
     ]);
+    expect(tiposParaLerNoAmbiente("AS").map((t) => t.valor)).toEqual([
+      "AS",
+      TIPO_NAO_INFORMADO,
+    ]);
+    expect(tiposParaLerNoAmbiente("APOIO").map((t) => t.valor)).toEqual([
+      "APOIO",
+      TIPO_NAO_INFORMADO,
+    ]);
   });
 
-  it("nunca oferece a operação do outro fechamento", () => {
-    expect(tiposParaLerNoAmbiente("ROTA").some((t) => t.valor === "EMPURRADA")).toBe(
-      false,
-    );
+  it("nunca oferece a operação de outro fechamento", () => {
+    for (const outro of ["EMPURRADA", "AS", "APOIO"]) {
+      expect(tiposParaLerNoAmbiente("ROTA").some((t) => t.valor === outro)).toBe(false);
+    }
   });
 });
 
@@ -102,9 +124,11 @@ describe("tipoDaLeitura", () => {
     consulta. Obedecê-lo faria a tela ler a conta da outra operação sem nada
     dizer que ela é de lá.
   */
-  it("um endereço do outro fechamento não muda a operação desta tela", () => {
+  it("um endereço de outro fechamento não muda a operação desta tela", () => {
     expect(tipoDaLeitura("EMPURRADA", "ROTA")).toBe("ROTA");
     expect(tipoDaLeitura("ROTA", "EMPURRADA")).toBe("EMPURRADA");
+    expect(tipoDaLeitura("ROTA", "AS")).toBe("AS");
+    expect(tipoDaLeitura("EMPURRADA", "APOIO")).toBe("APOIO");
   });
 
   it("sem tipo na URL, vale a operação do ambiente", () => {
