@@ -502,33 +502,122 @@ function comandoEmMassa<T extends Record<string, unknown>>(
 }
 
 /**
+ * Afinações da leitura — o número medido, e um nome para desmedi-lo.
+ *
+ * As três constantes abaixo saíram de benchmark, não de intuição, e cada uma
+ * lê uma variável de ambiente com o mesmo nome do que ela afina. Não é
+ * configuração de produto: é o que permite ao `perfil-de-importacao` rodar o
+ * cenário anterior e o novo no mesmo binário e comparar os dois sem `git
+ * stash` no meio. Ninguém precisa definir nenhuma delas para o produto
+ * funcionar — o padrão é o número escolhido. Mesma forma do `limite()` que
+ * `@workspace/db` usa para o pool.
+ */
+function afinacao(nome: string, padrao: number): number {
+  const bruto = Number(process.env[nome]);
+  return Number.isFinite(bruto) && bruto >= 0 ? bruto : padrao;
+}
+
+/**
  * De quantas linhas por vez a captura materializa células.
  *
- * O número não é sobre o banco — `insertChunked` já quebra por
- * {@link INSERT_CHUNK} —, é sobre memória e sobre progresso: é o tamanho do
- * pedaço de planilha que fica vivo de uma vez, e a granularidade com que a
- * barra do cartão pode andar. Duzentas linhas de uma planilha larga são alguns
- * milhares de células por volta, e num arquivo de 40 mil linhas dão 200
- * oportunidades de publicar — mais do que as ~100 que
- * `devePublicar` deixa passar, que é o que se quer: quem decide a frequência
- * é o relator, não o tamanho do bloco.
+ * O número não é sobre o banco — `insertChunked` já quebra pelo teto de
+ * parâmetros —, é sobre memória e sobre progresso: é o tamanho do pedaço de
+ * planilha que fica vivo de uma vez.
+ *
+ * Era 200, e 200 linhas de uma planilha de dez colunas são 2.000 células: um
+ * statement por bloco, 71 statements num arquivo de 14 mil linhas. Localmente
+ * isso custa pouco; num banco de rede custa 71 vezes o RTT — medido, 1,8s a
+ * 25ms. Duas mil linhas fazem o mesmo trabalho em 7 statements e mantêm o
+ * bloco em 20 mil células vivas, que é o teto que o INSERT em massa já usa.
+ * A granularidade da barra não vem daqui: quem decide a frequência de
+ * publicação é o relator, e ele publica por passo e por tempo.
  */
-const LINHAS_POR_BLOCO = 200;
+const LINHAS_POR_BLOCO = afinacao("IMPORT_LINHAS_POR_BLOCO", 2_000);
 
+/**
+ * Quantas escritas em massa podem estar no ar ao mesmo tempo.
+ *
+ * Um por padrão: a leitura escreve em série, como sempre escreveu. O número
+ * existe porque o benchmark precisa medir o contrário — e porque, se um dia a
+ * medição justificar, o lugar de mudar isso é uma linha, não um refatoramento.
+ *
+ * Cada escrita em voo ocupa uma conexão do mesmo pool que atende a API
+ * (`DB_POOL_MAX`, dez por padrão). Duas importações simultâneas com quatro
+ * conexões cada tomariam oito das dez: é este o custo que o número esconde, e
+ * é por isso que ele não sobe sem medida de concorrência junto.
+ */
+/**
+ * De quantas em quantas linhas lidas o relator de progresso é avisado.
+ *
+ * Não é o passo de publicação — quem decide publicar é o relator, por passo do
+ * trecho e por tempo. É só a frequência com que ele fica sabendo, e ela
+ * precisa ser mais fina que o bloco de escrita para que uma planilha menor
+ * que um bloco não publique apenas 0% e 100%. Cem linhas dão cento e quarenta
+ * avisos num arquivo de 14 mil, e cada aviso que não vira escrita é uma
+ * comparação de inteiros.
+ */
+const LINHAS_POR_AVISO = 100;
+
+const CONEXOES_DE_ESCRITA = Math.max(
+  1,
+  Math.trunc(afinacao("IMPORT_CONEXOES_DE_ESCRITA", 1)),
+);
+
+/**
+ * Rodar tarefas com um teto de quantas ficam no ar ao mesmo tempo.
+ *
+ * `Promise.all` sobre tudo lançaria uma consulta por bloco de uma vez só e
+ * esvaziaria o pool; o teto é o que mantém a conta de conexões previsível.
+ * A primeira rejeição derruba a espera inteira, como faria a versão em série.
+ */
+async function emParalelo(
+  tarefas: (() => Promise<void>)[],
+  teto: number,
+): Promise<void> {
+  if (teto <= 1 || tarefas.length <= 1) {
+    for (const tarefa of tarefas) await tarefa();
+    return;
+  }
+  let proxima = 0;
+  const trabalhadores = Array.from(
+    { length: Math.min(teto, tarefas.length) },
+    async () => {
+      while (proxima < tarefas.length) {
+        const minha = tarefas[proxima++];
+        await minha();
+      }
+    },
+  );
+  await Promise.all(trabalhadores);
+}
+
+/**
+ * @param paralelismo Quantos statements deste lote podem estar no ar juntos.
+ *   Só o caminho em massa o usa, e **nunca** passe mais que 1 dentro de uma
+ *   transação: os statements de uma transação correm numa conexão só, e
+ *   dispará-los concorrentes os enfileiraria na mesma conexão — mais promessas
+ *   vivas, nenhum ganho. Quem escreve em transação aqui é a promoção.
+ */
 async function insertChunked<T extends Record<string, unknown>>(
   db: Database,
   table: Parameters<Database["insert"]>[0],
   rows: T[],
+  paralelismo = 1,
 ): Promise<void> {
   if (rows.length === 0) return;
 
   const plano = planoEmMassa(table, rows);
   if (plano) {
+    const lotes: T[][] = [];
     for (let i = 0; i < rows.length; i += MAX_LINHAS_EM_MASSA) {
-      await db.execute(
-        comandoEmMassa(table, plano, rows.slice(i, i + MAX_LINHAS_EM_MASSA)),
-      );
+      lotes.push(rows.slice(i, i + MAX_LINHAS_EM_MASSA));
     }
+    await emParalelo(
+      lotes.map((lote) => async () => {
+        await db.execute(comandoEmMassa(table, plano, lote));
+      }),
+      paralelismo,
+    );
     return;
   }
 
@@ -1137,6 +1226,37 @@ export async function captureRaw(
   const linhasPrevistas = plans.reduce((soma, p) => soma + (p.rowCount ?? 0), 0);
   const progresso = await abrirProgresso(db, importRunId, "CAPTURA", linhasPrevistas);
 
+  /*
+    As escritas em voo — no máximo {@link CONEXOES_DE_ESCRITA} ao mesmo tempo.
+
+    Com o padrão de uma, isto é exatamente o laço em série de sempre: entra
+    uma, o `race` espera por ela, sai. O que a fila acrescenta é a
+    possibilidade de medir o contrário sem outro caminho de código — e o teto
+    é o que impede que "medir o contrário" vire esvaziar o pool.
+
+    O erro de uma escrita não se perde nem vira rejeição sem dono: fica
+    guardado e é relançado na primeira parada, que é onde a falha da leitura
+    já era tratada.
+  */
+  const emVoo = new Set<Promise<void>>();
+  let falhaDaEscrita: unknown;
+  const escrever = async (tarefa: () => Promise<void>): Promise<void> => {
+    const promessa: Promise<void> = tarefa()
+      .catch((err) => {
+        falhaDaEscrita ??= err;
+      })
+      .finally(() => {
+        emVoo.delete(promessa);
+      });
+    emVoo.add(promessa);
+    if (emVoo.size >= CONEXOES_DE_ESCRITA) await Promise.race(emVoo);
+    if (falhaDaEscrita) throw falhaDaEscrita;
+  };
+  const esperarAsEscritas = async (): Promise<void> => {
+    await Promise.all(emVoo);
+    if (falhaDaEscrita) throw falhaDaEscrita;
+  };
+
   let totalRows = 0;
   let totalCells = 0;
 
@@ -1192,6 +1312,7 @@ export async function captureRaw(
       colunas é a mesma, e `insertChunked` já quebrava por 1.000 de qualquer
       forma.
     */
+    let avisadas = 0;
     for (let inicio = range.s.r; inicio <= range.e.r; inicio += LINHAS_POR_BLOCO) {
       const fim = Math.min(inicio + LINHAS_POR_BLOCO - 1, range.e.r);
       const cells: {
@@ -1205,6 +1326,26 @@ export async function captureRaw(
       }[] = [];
 
       for (let r = inicio; r <= fim; r++) {
+        /*
+          A barra anda enquanto se lê, e não só quando o bloco é gravado.
+
+          Com blocos grandes — e eles são grandes de propósito, para não
+          multiplicar idas ao banco —, avisar só depois da escrita faria uma
+          planilha menor que um bloco publicar exatamente dois números: 0% e
+          100%, que é o que o relator existe para acabar. Avisar por linha
+          lida separa as duas coisas que estavam presas uma na outra: o
+          tamanho do statement é sobre o banco, a granularidade da barra é
+          sobre quem olha.
+
+          O que a barra passa a afirmar é "linhas lidas", e não "linhas
+          gravadas" — a diferença é, no máximo, um bloco, e ela nunca vira
+          afirmação sobre dado que entrou: quem afirma isso é `raw_cell_count`,
+          escrito no fim, depois de toda escrita ter voltado do banco.
+        */
+        if ((r - inicio) % LINHAS_POR_AVISO === 0 && r > inicio) {
+          await progresso.avancar(LINHAS_POR_AVISO);
+          avisadas += LINHAS_POR_AVISO;
+        }
         const rawRowId = rowIdByIndex.get(r + 1)!;
         for (let c = range.s.c; c <= range.e.c; c++) {
           const cell = readCell(sheet, r, c);
@@ -1228,11 +1369,19 @@ export async function captureRaw(
         }
       }
 
-      await insertChunked(db, rawCellTable, cells);
       totalCells += cells.length;
-      await progresso.avancar(fim - inicio + 1);
+      const faltando = fim - inicio + 1 - avisadas;
+      if (faltando > 0) await progresso.avancar(faltando);
+      avisadas = 0;
+      await escrever(async () => {
+        await insertChunked(db, rawCellTable, cells, CONEXOES_DE_ESCRITA);
+      });
     }
   }
+
+  // O que ainda estiver no ar tem de estar no banco antes de a contagem ser
+  // escrita: é ela que afirma, para quem lê depois, quantas células existem.
+  await esperarAsEscritas();
 
   /*
     O trecho fecha cheio, e não no ponto em que a contagem parou.
@@ -2421,7 +2570,12 @@ export async function stage(
     });
   }
 
-  await insertChunked(db, stagedFactTable, consolidados as never[]);
+  await insertChunked(
+    db,
+    stagedFactTable,
+    consolidados as never[],
+    CONEXOES_DE_ESCRITA,
+  );
   await insertChunked(
     db,
     validationIssueTable,
