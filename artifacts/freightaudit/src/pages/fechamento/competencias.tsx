@@ -1182,10 +1182,10 @@ function TipoDaLinha({
           </>
         ) : (
           <>
-            EMPURRADA e ROTA são dois fechamentos da mesma quinzena, cada um com
-            a sua planilha de remuneração. Trocar o tipo move esta competência
-            de um <strong>Resumo do mês</strong> para o outro; os valores
-            apurados seguem os mesmos.
+            Cada operação — EMPURRADA, ROTA, AS, APOIO — é um fechamento da
+            mesma quinzena, com a sua própria planilha de remuneração. Trocar o
+            tipo move esta competência de um <strong>Resumo do mês</strong> para
+            o outro; os valores apurados seguem os mesmos.
           </>
         )}
       </p>

@@ -61,14 +61,14 @@ import type { NavGroup } from "./nav";
  * aqui desde o primeiro dia.
  */
 /**
- * A lista é uma função, e não uma constante, porque há dois fechamentos.
+ * A lista é uma função, e não uma constante, porque há mais de um fechamento.
  *
- * Rota e Empurrada são o mesmo processo sobre operações diferentes
- * (`lib/ambiente.ts`), e por isso a lateral dos dois é a mesma lateral: as
+ * Rota, Empurrada, AS e Apoio são o mesmo processo sobre operações diferentes
+ * (`lib/ambiente.ts`), e por isso a lateral de todos é a mesma lateral: as
  * mesmas cinco seções, na mesma ordem, com os mesmos rótulos. O que muda é a
  * base dos endereços — e o nome da primeira seção, que é onde o menu diz em
- * qual dos dois se está. Duas listas escritas à mão divergiriam no primeiro
- * item que alguém acrescentasse a uma e esquecesse na outra; uma função sobre
+ * qual deles se está. Quatro listas escritas à mão divergiriam no primeiro
+ * item que alguém acrescentasse a uma e esquecesse nas outras; uma função sobre
  * a base não tem como divergir.
  */
 export function navGroupsFechamento(base: string, nome: string): NavGroup[] {

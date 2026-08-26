@@ -20,8 +20,8 @@ import {
  * A regra que separa os espaços de trabalho é uma só — cada base de fechamento
  * manda no que vive abaixo dela, o resto é Auditoria — e este teste a guarda
  * nos pontos onde ela quebraria em silêncio: o prefixo que casa por engano
- * (`/fechamentos` não é o ambiente), a base da Empurrada, que começa com a do
- * Rota sem ser ela, e a raiz exata.
+ * (`/fechamentos` não é o ambiente), as bases da Empurrada, do AS e do Apoio,
+ * que começam com a do Rota sem serem ela, e a raiz exata.
  */
 describe("ambienteDe", () => {
   it("lê a raiz do Rota e tudo abaixo dela como Fechamento Rota", () => {
@@ -42,6 +42,17 @@ describe("ambienteDe", () => {
     expect(ambienteDe("/fechamento-empurrada/competencias/abc")).toBe("fechamento-empurrada");
   });
 
+  /*
+    AS e Apoio entram pela mesma porta e caem na mesma armadilha: as três bases
+    novas começam com `/fechamento`, e nenhuma delas é o Rota.
+  */
+  it("lê as bases de AS e Apoio como os ambientes delas, e não como Rota", () => {
+    expect(ambienteDe("/fechamento-as")).toBe("fechamento-as");
+    expect(ambienteDe("/fechamento-as/apuracao")).toBe("fechamento-as");
+    expect(ambienteDe("/fechamento-apoio")).toBe("fechamento-apoio");
+    expect(ambienteDe("/fechamento-apoio/competencias/abc")).toBe("fechamento-apoio");
+  });
+
   it("lê todo o resto como Auditoria — inclusive o quase-prefixo", () => {
     expect(ambienteDe("/")).toBe("auditoria");
     expect(ambienteDe("/alteracoes")).toBe("auditoria");
@@ -51,7 +62,7 @@ describe("ambienteDe", () => {
 });
 
 /**
- * A base é o que faz o mesmo componente servir aos dois fechamentos: toda tela
+ * A base é o que faz o mesmo componente servir a todos os fechamentos: toda tela
  * monta os próprios links a partir dela (`lib/base-do-fechamento.ts`).
  */
 describe("baseDoFechamento", () => {
@@ -75,19 +86,23 @@ describe("baseDoFechamento", () => {
 });
 
 describe("ehFechamento", () => {
-  it("separa a Auditoria dos dois fechamentos", () => {
+  it("separa a Auditoria de todos os fechamentos", () => {
     expect(ehFechamento("auditoria")).toBe(false);
     expect(ehFechamento("fechamento-rota")).toBe(true);
     expect(ehFechamento("fechamento-empurrada")).toBe(true);
+    expect(ehFechamento("fechamento-as")).toBe(true);
+    expect(ehFechamento("fechamento-apoio")).toBe(true);
   });
 });
 
 describe("os ambientes", () => {
-  it("são três, e a home de cada um vive no ambiente que ela abre", () => {
+  it("são cinco, e a home de cada um vive no ambiente que ela abre", () => {
     expect(AMBIENTES.map((a) => a.id)).toEqual([
       "auditoria",
       "fechamento-rota",
       "fechamento-empurrada",
+      "fechamento-as",
+      "fechamento-apoio",
     ]);
     for (const ambiente of AMBIENTES) {
       expect(ambienteDe(ambiente.home)).toBe(ambiente.id);
@@ -98,6 +113,25 @@ describe("os ambientes", () => {
     expect(descricaoDoAmbiente("auditoria").nome).toBe("Auditoria Empurrada");
     expect(descricaoDoAmbiente("fechamento-rota").nome).toBe("Fechamento Rota");
     expect(descricaoDoAmbiente("fechamento-empurrada").nome).toBe("Fechamento Empurrada");
+    expect(descricaoDoAmbiente("fechamento-as").nome).toBe("Fechamento AS");
+    expect(descricaoDoAmbiente("fechamento-apoio").nome).toBe("Fechamento Apoio");
+  });
+
+  /*
+    O seletor do topo escreve o nome por extenso, e é ele que diz de qual
+    remuneração o ambiente fala. "Fechamento de Remuneração — AS" é o nome do
+    produto; "Fechamento AS", o rótulo curto do botão.
+  */
+  it("nomeia cada fechamento por extenso, como o seletor do topo o lista", () => {
+    expect(descricaoDoAmbiente("fechamento-rota").nomeCompleto).toBe(
+      "Fechamento de Remuneração — Rota",
+    );
+    expect(descricaoDoAmbiente("fechamento-as").nomeCompleto).toBe(
+      "Fechamento de Remuneração — AS",
+    );
+    expect(descricaoDoAmbiente("fechamento-apoio").nomeCompleto).toBe(
+      "Fechamento de Remuneração — Apoio",
+    );
   });
 
   /*
@@ -110,6 +144,8 @@ describe("os ambientes", () => {
     expect(descricaoDoAmbiente("auditoria").home).toBe(ENTRADA_DA_AUDITORIA);
     expect(descricaoDoAmbiente("fechamento-rota").home).toBe("/fechamento");
     expect(descricaoDoAmbiente("fechamento-empurrada").home).toBe("/fechamento-empurrada");
+    expect(descricaoDoAmbiente("fechamento-as").home).toBe("/fechamento-as");
+    expect(descricaoDoAmbiente("fechamento-apoio").home).toBe("/fechamento-apoio");
   });
 });
 
@@ -170,16 +206,20 @@ describe("operacaoDoFechamento", () => {
     expect(operacaoDoFechamento("/fechamento-empurrada/apuracoes")).toBe(
       "EMPURRADA",
     );
+    expect(operacaoDoFechamento("/fechamento-as")).toBe("AS");
+    expect(operacaoDoFechamento("/fechamento-as/competencias")).toBe("AS");
+    expect(operacaoDoFechamento("/fechamento-apoio")).toBe("APOIO");
+    expect(operacaoDoFechamento("/fechamento-apoio/apuracoes")).toBe("APOIO");
   });
 
   /*
     A mesma armadilha de `ambienteDe`: `/fechamento-empurrada` começa com
     `/fechamento`, e um `startsWith` cru faria a Empurrada apurar como rota.
   */
-  it("não confunde a base da Empurrada com a do Rota", () => {
-    expect(operacaoDoFechamento("/fechamento-empurrada")).not.toBe(
-      operacaoDoFechamento("/fechamento"),
-    );
+  it("não confunde nenhuma das bases derivadas com a do Rota", () => {
+    for (const base of ["/fechamento-empurrada", "/fechamento-as", "/fechamento-apoio"]) {
+      expect(operacaoDoFechamento(base)).not.toBe(operacaoDoFechamento("/fechamento"));
+    }
   });
 
   it("nenhum ambiente compartilha operação com o outro", () => {
@@ -201,6 +241,8 @@ describe("ambienteDaOperacao", () => {
   it("aceita o tipo como o acervo o escreve, em qualquer caixa", () => {
     expect(ambienteDaOperacao(" rota ")).toBe("fechamento-rota");
     expect(ambienteDaOperacao("Empurrada")).toBe("fechamento-empurrada");
+    expect(ambienteDaOperacao(" as ")).toBe("fechamento-as");
+    expect(ambienteDaOperacao("Apoio")).toBe("fechamento-apoio");
   });
 
   /*
@@ -219,6 +261,10 @@ describe("ambienteDaOperacao", () => {
     );
     expect(nomeDoFechamentoDa("EMPURRADA")).toBe(
       descricaoDoAmbiente("fechamento-empurrada").nome,
+    );
+    expect(nomeDoFechamentoDa("AS")).toBe(descricaoDoAmbiente("fechamento-as").nome);
+    expect(nomeDoFechamentoDa("APOIO")).toBe(
+      descricaoDoAmbiente("fechamento-apoio").nome,
     );
   });
 });

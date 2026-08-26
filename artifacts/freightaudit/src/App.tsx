@@ -353,15 +353,17 @@ function Router() {
       ))}
 
       {/*
-        Os dois ambientes de fechamento, cada um inteiro sob a própria base.
+        Os ambientes de fechamento, cada um inteiro sob a própria base.
 
-        `/fechamento/...` é o Fechamento Rota e `/fechamento-empurrada/...` é o
-        Fechamento Empurrada — ver `lib/ambiente.ts` para a regra e o porquê de
-        a Auditoria ter ficado nos endereços de sempre. As rotas dos dois saem
-        do **mesmo** `rotasDoFechamento`, e é isso que garante o que se pediu
-        deles: mesma estrutura, mesmas telas, mesmo desenho. Uma tela nova entra
-        uma vez e nasce nos dois; uma tela escrita duas vezes começaria a
-        divergir no primeiro conserto feito só de um lado.
+        `/fechamento/...` é o Fechamento Rota; `/fechamento-empurrada/...`,
+        `/fechamento-as/...` e `/fechamento-apoio/...` são os outros três — ver
+        `lib/ambiente.ts` para a regra e o porquê de a Auditoria ter ficado nos
+        endereços de sempre. As rotas de todos saem do **mesmo**
+        `rotasDoFechamento`, e é isso que garante o que se pediu deles: mesma
+        estrutura, mesmas telas, mesmo desenho. Uma tela nova entra uma vez e
+        nasce nos quatro; uma tela escrita quatro vezes começaria a divergir no
+        primeiro conserto feito só de um lado — e um fechamento novo é uma linha
+        em `BASES_DE_FECHAMENTO`, não um arquivo novo aqui.
 
         O laço devolve um vetor de `<Route>`, e não um fragmento: o `Switch` do
         wouter examina os próprios filhos para achar o que casa, e um fragmento
@@ -378,7 +380,8 @@ function Router() {
  * Todas as rotas de um fechamento, montadas sobre a base que recebe.
  *
  * Chamada uma vez por ambiente de fechamento (`BASES_DE_FECHAMENTO`), é ela que
- * faz o Rota e a Empurrada serem o mesmo produto em dois endereços. As etapas
+ * faz Rota, Empurrada, AS e Apoio serem o mesmo produto em endereços
+ * diferentes. As etapas
  * ainda sem tela vêm do catálogo pela mesma razão que as telas em preparo vêm
  * do delas: construir a tela de verdade é tirar a entrada de lá e escrever o
  * `<Route>` explícito aqui, e enquanto os dois coexistirem a linha explícita

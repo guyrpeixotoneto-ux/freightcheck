@@ -158,7 +158,7 @@ export interface CompetenciaRegistrada extends Competencia {
   unidadeId: string | null;
   transportadora: { codigo: string; nome: string | null };
   /**
-   * `EMPURRADA`, `ROTA` — a operação que este fechamento fecha.
+   * `EMPURRADA`, `ROTA`, `AS`, `APOIO` — a operação que este fechamento fecha.
    *
    * Não confundir com `Canal` (`ROTA` | `AS`), que é outro eixo deste mesmo
    * módulo. Ver `schema/fechamento.ts`. `NAO_INFORMADO` são as competências
@@ -184,9 +184,9 @@ export interface CompetenciaRegistrada extends Competencia {
 export class TipoDeOperacaoAusente extends Error {
   constructor() {
     super(
-      "O tipo de operação é obrigatório para abrir um fechamento: EMPURRADA e ROTA são " +
-        "operações diferentes, com planilhas de remuneração diferentes, e o fechamento é de " +
-        "uma delas.",
+      "O tipo de operação é obrigatório para abrir um fechamento: EMPURRADA, ROTA, AS e " +
+        "APOIO são operações diferentes, com planilhas de remuneração diferentes, e o " +
+        "fechamento é de uma delas.",
     );
     this.name = "TipoDeOperacaoAusente";
   }
