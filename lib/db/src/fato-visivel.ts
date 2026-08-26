@@ -15,10 +15,8 @@ import { changeTable, factTable } from "./schema";
  * mesmo número. Se um dia não der, é porque a regra passou a morar em dois
  * lugares — que é exatamente o que este arquivo existe para evitar.
  */
-export const FATO_DE_ORIGEM_VISIVEL: SQL = sql`NOT EXISTS (
-  SELECT 1 FROM import_run ir
-   WHERE ir.id = ${factTable.originImportRunId}
-     AND ir.hidden_at IS NOT NULL
+export const FATO_DE_ORIGEM_VISIVEL: SQL = sql`${factTable.originImportRunId} NOT IN (
+  SELECT ir.id FROM import_run ir WHERE ir.hidden_at IS NOT NULL
 )`;
 
 /**
@@ -29,10 +27,8 @@ export const FATO_DE_ORIGEM_VISIVEL: SQL = sql`NOT EXISTS (
  * atributo (entrou, saiu) não têm fato dos dois lados, e o `NOT EXISTS` só
  * alcança a linha que existe e nasceu oculta.
  */
-export const ALTERACAO_DE_ORIGEM_VISIVEL: SQL = sql`NOT EXISTS (
-  SELECT 1
-    FROM fact f
-    JOIN import_run ir ON ir.id = f.origin_import_run_id
-   WHERE f.id IN (${changeTable.factAId}, ${changeTable.factBId})
-     AND ir.hidden_at IS NOT NULL
+export const ALTERACAO_DE_ORIGEM_VISIVEL: SQL = sql`(
+  (${changeTable.factAId} IS NULL OR ${changeTable.factAId} NOT IN (SELECT id FROM fato_oculto))
+  AND
+  (${changeTable.factBId} IS NULL OR ${changeTable.factBId} NOT IN (SELECT id FROM fato_oculto))
 )`;

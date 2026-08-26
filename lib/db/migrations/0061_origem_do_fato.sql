@@ -141,13 +141,31 @@ CREATE INDEX IF NOT EXISTS "fact_origin_import_run_idx"
 -- arquivo oculto.
 DROP VIEW IF EXISTS "fato_visivel";--> statement-breakpoint
 
+-- `NOT IN` sobre o conjunto oculto, e não `NOT EXISTS` correlacionado.
+--
+-- As duas formas dizem a mesma coisa; o plano que elas produzem, não. O
+-- `NOT EXISTS` amarra um anti-join a **cada** leitura de fato, e o planejador
+-- passa a ter de reordená-lo junto com o resto da consulta. Numa consulta que
+-- junta a view com ela mesma — `gatherPairRatios`, o par mensal/base da
+-- curadoria — isso são dois anti-joins sobre a maior tabela do sistema, e o
+-- plano escolhido não terminava dentro do `statement_timeout` de 120 s sobre o
+-- export real. Medido: a suíte da curadoria e a do assistente estouravam por
+-- tempo, com `57014`, sem nenhum erro de correção.
+--
+-- `NOT IN` sobre uma subconsulta sem correlação é avaliado uma vez, numa tabela
+-- de hash, e o conjunto é minúsculo por natureza: são as importações ocultas,
+-- que quase sempre são zero e nunca são muitas. O índice parcial
+-- `import_run_hidden_at_idx` (`0060`) existe exatamente para essa leitura.
+--
+-- A armadilha clássica do `NOT IN` — um NULL do lado de dentro fazer a condição
+-- devolver desconhecido para toda linha — não se aplica aqui, e não por sorte:
+-- `origin_import_run_id` é NOT NULL desde alguns comandos acima, e `id` é chave
+-- primária. Nenhum dos dois lados admite nulo.
 CREATE VIEW "fato_visivel" AS
   SELECT f.*
     FROM "fact" f
-   WHERE NOT EXISTS (
-     SELECT 1 FROM "import_run" ir
-      WHERE ir."id" = f."origin_import_run_id"
-        AND ir."hidden_at" IS NOT NULL
+   WHERE f."origin_import_run_id" NOT IN (
+     SELECT ir."id" FROM "import_run" ir WHERE ir."hidden_at" IS NOT NULL
    );--> statement-breakpoint
 
 COMMENT ON VIEW "fato_visivel" IS
@@ -172,17 +190,32 @@ COMMENT ON VIEW "fato_visivel" IS
 -- (entrou, saiu), e nulo aqui não esconde: o `NOT EXISTS` só alcança a linha que
 -- existe e nasceu oculta.
 DROP VIEW IF EXISTS "alteracao_visivel";--> statement-breakpoint
+DROP VIEW IF EXISTS "fato_oculto";--> statement-breakpoint
 
+-- Os fatos que uma importação oculta trouxe. Quase sempre vazio.
+--
+-- Existe para a view de alterações não ter de repetir a junção duas vezes (uma
+-- por lado da comparação), e é lida pelo índice parcial da `0060` seguido do
+-- índice de origem criado acima.
+CREATE VIEW "fato_oculto" AS
+  SELECT f."id"
+    FROM "fact" f
+    JOIN "import_run" ir ON ir."id" = f."origin_import_run_id"
+   WHERE ir."hidden_at" IS NOT NULL;--> statement-breakpoint
+
+-- Pelo mesmo motivo da view acima, o conjunto oculto é resolvido uma vez.
+--
+-- Aqui o `NOT IN` é sobre os **fatos** de origem oculta, e não sobre os runs: a
+-- alteração não guarda a origem, guarda os dois fatos que compara. Nulo é o
+-- caso normal (os eixos de entidade e de atributo não têm fato dos dois lados),
+-- e nulo do lado de fora do `NOT IN` não esconde nada — `NULL NOT IN (...)` é
+-- desconhecido, que o `WHERE` descarta, então os dois lados são escritos com
+-- `IS NULL OR`, explícito, em vez de depender da regra.
 CREATE VIEW "alteracao_visivel" AS
   SELECT c.*
     FROM "change" c
-   WHERE NOT EXISTS (
-     SELECT 1
-       FROM "fact" f
-       JOIN "import_run" ir ON ir."id" = f."origin_import_run_id"
-      WHERE f."id" IN (c."fact_a_id", c."fact_b_id")
-        AND ir."hidden_at" IS NOT NULL
-   );--> statement-breakpoint
+   WHERE (c."fact_a_id" IS NULL OR c."fact_a_id" NOT IN (SELECT id FROM "fato_oculto"))
+     AND (c."fact_b_id" IS NULL OR c."fact_b_id" NOT IN (SELECT id FROM "fato_oculto"));--> statement-breakpoint
 
 COMMENT ON VIEW "alteracao_visivel" IS
   'As alterações que contam. Exclui as que citam um fato nascido em importação oculta — sem recalcular nem apagar o `change_set` gravado, que volta inteiro quando a importação reaparece.';

@@ -3367,6 +3367,31 @@ export async function promote(
         })
         .where(eq(importRunTable.id, importRunId));
 
+      /*
+        A promoção deixa o planejador sabendo o que acabou de entrar.
+
+        `fact` sai de zero para dezenas de milhares de linhas nesta transação, e
+        até o `autovacuum` passar o Postgres planeja sobre a estimativa que usa
+        quando não sabe nada — algumas centenas de linhas. Enquanto toda leitura
+        de fato era um `nested loop` por índice, o erro não aparecia: o plano
+        certo era o óbvio. Deixou de ser quando a leitura passou pela view
+        `fato_visivel`, que acrescenta um anti-join; sobre um banco recém-criado
+        e sem estatística nenhuma, `gatherPairRatios` — que junta a view com ela
+        mesma — escolhia um plano que não terminava dentro do
+        `statement_timeout` de 120 s. Medido no CI: as suítes da curadoria e do
+        assistente estouravam por tempo (`57014`) na construção do banco de
+        fixture, e o mesmo `EXPLAIN ANALYZE` sobre um banco com estatísticas
+        roda em 4 ms.
+
+        Uma importação sempre foi o momento em que a distribuição da maior
+        tabela do sistema muda por completo, e é onde `ANALYZE` custa menos:
+        os dados estão quentes, e a conta é uma passada de amostragem contra os
+        minutos que a promoção inteira já leva.
+      */
+      await tx.execute(
+        sql`ANALYZE fact, snapshot, snapshot_attribute, snapshot_entity_type, entity, attribute`,
+      );
+
       return {
         snapshotIds: result.map((s) => s.id),
         snapshots: result,
