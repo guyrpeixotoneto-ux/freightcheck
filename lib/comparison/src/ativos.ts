@@ -124,7 +124,7 @@ export async function listarFrota(
   }>(sql`
     WITH presenca AS (
       SELECT DISTINCT f.entity_id, s.effective_date, s.source_label
-        FROM fact f
+        FROM fato_visivel f
         JOIN snapshot s ON s.id = f.snapshot_id
         JOIN entity e   ON e.id = f.entity_id
        WHERE e.entity_type = ${entityType}

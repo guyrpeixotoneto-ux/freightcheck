@@ -471,7 +471,7 @@ export async function diffSnapshots(
   const { rows: paired } = await executor.execute<PairedFact>(sql`
     WITH fa AS (
       SELECT f.*, i.identifier_value AS entity_label
-        FROM fact f
+        FROM fato_visivel f
         LEFT JOIN entity_identifier i
           ON i.entity_id = f.entity_id
          AND i.identifier_type = 'PLACA'
@@ -480,7 +480,7 @@ export async function diffSnapshots(
     ),
     fb AS (
       SELECT f.*, i.identifier_value AS entity_label
-        FROM fact f
+        FROM fato_visivel f
         LEFT JOIN entity_identifier i
           ON i.entity_id = f.entity_id
          AND i.identifier_type = 'PLACA'
@@ -592,8 +592,8 @@ export async function diffSnapshots(
     entity_type: string;
     direction: string;
   }>(sql`
-    WITH ea AS (SELECT DISTINCT entity_id FROM fact WHERE snapshot_id = ${a.id}),
-         eb AS (SELECT DISTINCT entity_id FROM fact WHERE snapshot_id = ${b.id})
+    WITH ea AS (SELECT DISTINCT entity_id FROM fato_visivel WHERE snapshot_id = ${a.id}),
+         eb AS (SELECT DISTINCT entity_id FROM fato_visivel WHERE snapshot_id = ${b.id})
     SELECT COALESCE(ea.entity_id, eb.entity_id) AS entity_id,
            i.identifier_value AS entity_label,
            e.entity_type,

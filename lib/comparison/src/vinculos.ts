@@ -49,7 +49,7 @@ export async function carregarVinculosDeConjunto(
     SELECT DISTINCT
            carreta.entity_id::text          AS entity_id,
            "fact".entity_id::text           AS embute_entity_id
-      FROM "fact"
+      FROM fato_visivel "fact"
       JOIN attribute a ON a.id = "fact".attribute_id
       JOIN entity_identifier carreta
         ON carreta.identifier_type = 'PLACA'

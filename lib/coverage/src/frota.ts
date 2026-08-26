@@ -341,7 +341,7 @@ export async function rosterDasVigencias(
         ON p.dataset_family = s.dataset_family
        AND p.canal = s.canal
        AND p.scope_hash = s.scope_hash
-      JOIN fact f ON f.snapshot_id = s.id
+      JOIN fato_visivel f ON f.snapshot_id = s.id
       JOIN entity e ON e.id = f.entity_id
      WHERE s.status <> 'SUPERSEDED'
      AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)

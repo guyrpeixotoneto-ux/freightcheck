@@ -273,7 +273,7 @@ export async function panoramaDoContexto(
       (SELECT count(*) FROM vig)                                    AS vigencias,
       (SELECT min(effective_date)::text FROM vig)                   AS primeira,
       (SELECT max(effective_date)::text FROM vig)                   AS ultima,
-      (SELECT count(DISTINCT f.entity_id) FROM fact f
+      (SELECT count(DISTINCT f.entity_id) FROM fato_visivel f
         JOIN vig ON vig.id = f.snapshot_id)                         AS ativos,
       (SELECT count(DISTINCT sa.attribute_id) FROM snapshot_attribute sa
         JOIN vig ON vig.id = sa.snapshot_id)                        AS atributos,

@@ -1,6 +1,12 @@
 import { and, eq, inArray, sql, type SQL } from "drizzle-orm";
 import type { Database } from "@workspace/db";
-import { attributeTable, changeSetTable, changeTable, snapshotTable } from "@workspace/db";
+import {
+  ALTERACAO_DE_ORIGEM_VISIVEL,
+  attributeTable,
+  changeSetTable,
+  changeTable,
+  snapshotTable,
+} from "@workspace/db";
 import type { EscopoDeFrota } from "./escopo";
 import { attributeLabel, periodLabel } from "./labels";
 import { impactoApurado, linhasApuradas } from "./impacto-apurado";
@@ -136,6 +142,7 @@ function buildWhere(changeSetId: string | string[], f: ChangeFilters): SQL {
     ids.length === 1
       ? eq(changeTable.changeSetId, ids[0])
       : inArray(changeTable.changeSetId, ids),
+    ALTERACAO_DE_ORIGEM_VISIVEL,
     ...condicoesDoFiltro(f),
   )!;
 }
@@ -311,15 +318,15 @@ export async function getChangeProvenance(
            rcb.column_header AS header_after,
            rcb.raw_value   AS raw_after,
            rcb.source_type AS type_after
-      FROM "change" c
+      FROM "alteracao_visivel" c
       JOIN change_set cs ON cs.id = c.change_set_id
       JOIN snapshot sa ON sa.id = cs.snapshot_a_id
       JOIN snapshot sb ON sb.id = cs.snapshot_b_id
-      LEFT JOIN fact fa ON fa.id = c.fact_a_id
+      LEFT JOIN fato_visivel fa ON fa.id = c.fact_a_id
       LEFT JOIN raw_cell rca ON rca.id = fa.raw_cell_id
       LEFT JOIN raw_row rra ON rra.id = rca.raw_row_id
       LEFT JOIN raw_sheet sha ON sha.id = rra.raw_sheet_id
-      LEFT JOIN fact fb ON fb.id = c.fact_b_id
+      LEFT JOIN fato_visivel fb ON fb.id = c.fact_b_id
       LEFT JOIN raw_cell rcb ON rcb.id = fb.raw_cell_id
       LEFT JOIN raw_row rrb ON rrb.id = rcb.raw_row_id
       LEFT JOIN raw_sheet shb ON shb.id = rrb.raw_sheet_id
@@ -398,7 +405,11 @@ export async function getChangeSetBreakdown(
     };
   }
   const recorte = [...escopoDeFrota(escopo), ...condicoesDoFiltro(filtros)];
-  const scope = and(inArray(changeTable.changeSetId, ids), ...recorte)!;
+  const scope = and(
+    inArray(changeTable.changeSetId, ids),
+    ALTERACAO_DE_ORIGEM_VISIVEL,
+    ...recorte,
+  )!;
 
   /*
     As decisões de dupla contagem, tomadas uma vez para a comparação inteira e
@@ -645,7 +656,11 @@ export async function totaisDoEscopo(
   if (ids.length === 0) return { ...TOTAIS_VAZIOS };
 
   const recorte = [...escopoDeFrota(escopo), ...condicoesDoFiltro(filtros)];
-  const scope = and(inArray(changeTable.changeSetId, ids), ...recorte)!;
+  const scope = and(
+    inArray(changeTable.changeSetId, ids),
+    ALTERACAO_DE_ORIGEM_VISIVEL,
+    ...recorte,
+  )!;
   const conta = (condicao: SQL) =>
     sql<number>`count(*) FILTER (WHERE ${condicao})`.mapWith(Number);
 
@@ -739,6 +754,7 @@ export async function situacaoPorAtivo(
 
   const scope = and(
     inArray(changeTable.changeSetId, ids),
+    ALTERACAO_DE_ORIGEM_VISIVEL,
     sql`${changeTable.entityLabel} IS NOT NULL`,
     ...escopoDeFrota(escopo),
   )!;
@@ -924,9 +940,9 @@ export async function getOverview(db: Database) {
       (SELECT count(*) FROM attribute
         WHERE is_monetary IS TRUE AND semantics_status <> 'CONFIRMED')      AS monetarios_pendentes,
       (SELECT count(*) FROM change_set)                                     AS comparacoes,
-      (SELECT count(*) FROM "change" WHERE change_type = 'VALUE_CHANGED')   AS alteracoes,
-      (SELECT count(*) FROM "change" WHERE impact_confidence = 'CALCULATED') AS com_impacto,
-      (SELECT count(*) FROM "change" WHERE comparability = 'INCONCLUSIVE')  AS inconclusivas
+      (SELECT count(*) FROM "alteracao_visivel" WHERE change_type = 'VALUE_CHANGED')   AS alteracoes,
+      (SELECT count(*) FROM "alteracao_visivel" WHERE impact_confidence = 'CALCULATED') AS com_impacto,
+      (SELECT count(*) FROM "alteracao_visivel" WHERE comparability = 'INCONCLUSIVE')  AS inconclusivas
   `);
   const totals = rows[0] ?? {};
 

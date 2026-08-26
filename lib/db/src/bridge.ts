@@ -504,6 +504,18 @@ const VIEWS_REMOVIDAS = [
   "freightcheck_snapshot_ativo_duplicado",
   "freightcheck_identidade_vigencia",
   "freightcheck_fato_duplicado",
+  /*
+    A da `0061`, e a única que não é de diagnóstico: `fato_visivel` é por onde
+    passa toda leitura de fato. Ela sai no `down` pelo mesmo critério das
+    outras — na dúvida o bridge remove —, e aqui há uma razão a mais, medida: a
+    view depende de `fact.origin_import_run_id`, e uma view de pé recusa que a
+    coluna seja derrubada. Sem ela nesta lista, o espelho do Provision parava
+    na primeira coluna que precisasse sair, e o `down` deixava o schema no meio
+    do caminho.
+  */
+  "fato_visivel",
+  "fato_oculto",
+  "alteracao_visivel",
 ];
 
 /**
@@ -1349,12 +1361,38 @@ function planoUp(): PassoUp[] {
   add(M15, "índice snapshot_canonical_key_idx", levantar(M15, /snapshot_canonical_key_idx/));
   add(M16, "índices únicos da identidade", levantar(M16, /snapshot_canonical_live_uq/));
   for (const v of VIEWS_REMOVIDAS) {
+    // As duas da 0061 voltam abaixo, junto da coluna que elas leem.
+    if (v === "fato_visivel" || v === "fato_oculto" || v === "alteracao_visivel") continue;
     // O `DROP` antes do `CREATE` é o que torna o `up` repetível: a `0015` tem
     // os dois como statements separados, e levantar só o `CREATE` faria a
     // segunda execução morrer em `relation already exists`.
     add(M15, `view ${v}`, `DROP VIEW IF EXISTS "${v}" RESTRICT`);
     add(M15, `view ${v}`, levantar(M15, new RegExp(`CREATE VIEW "${v}"`)));
   }
+
+  /*
+    A `0061` — a coluna de origem antes da view que a lê, e o índice junto.
+
+    A ordem importa: `fato_visivel` referencia `fact.origin_import_run_id`, e um
+    `up` que criasse a view antes da coluna morreria em `column does not exist`.
+  */
+  const M61 = "0061_origem_do_fato";
+  add(
+    M61,
+    "fact.origin_import_run_id",
+    levantar(M61, /ADD COLUMN IF NOT EXISTS "origin_import_run_id"/),
+  );
+  add(
+    M61,
+    "índice fact_origin_import_run_idx",
+    levantar(M61, /INDEX IF NOT EXISTS "fact_origin_import_run_idx"/),
+  );
+  add(M61, "view fato_visivel", `DROP VIEW IF EXISTS "fato_visivel" RESTRICT`);
+  add(M61, "view fato_visivel", levantar(M61, /CREATE VIEW "fato_visivel"/));
+  add(M61, "view fato_oculto", `DROP VIEW IF EXISTS "fato_oculto" RESTRICT`);
+  add(M61, "view fato_oculto", levantar(M61, /CREATE VIEW "fato_oculto"/));
+  add(M61, "view alteracao_visivel", `DROP VIEW IF EXISTS "alteracao_visivel" RESTRICT`);
+  add(M61, "view alteracao_visivel", levantar(M61, /CREATE VIEW "alteracao_visivel"/));
 
   // A `0020` — a função antes do gatilho que a chama, e a tabela antes dos dois.
   add(

@@ -416,7 +416,7 @@ export async function getPanoramaDeAlteracoes(
                PARTITION BY f.entity_id, f.attribute_id
                ORDER BY v.effective_date
              ) AS anterior
-        FROM fact f
+        FROM fato_visivel f
         JOIN vig v       ON v.id = f.snapshot_id
         JOIN attribute a ON a.id = f.attribute_id
        WHERE a.data_type = 'NUMERIC'
@@ -502,7 +502,7 @@ export async function getPanoramaDeAlteracoes(
            s.effective_date::text AS effective_date,
            SUM(f.value_numeric)::text AS total,
            COUNT(*)::int AS com_valor
-      FROM fact f
+      FROM fato_visivel f
       JOIN snapshot s  ON s.id = f.snapshot_id
       JOIN attribute a ON a.id = f.attribute_id
      WHERE a.data_type = 'NUMERIC'
@@ -525,7 +525,7 @@ export async function getPanoramaDeAlteracoes(
   const { rows: frota } = await db.execute<{ entity_type: string; ativos: number }>(sql`
     SELECT e.entity_type, COUNT(DISTINCT e.id)::int AS ativos
       FROM entity e
-      JOIN fact f     ON f.entity_id = e.id
+      JOIN fato_visivel f     ON f.entity_id = e.id
       JOIN snapshot s ON s.id = f.snapshot_id
      WHERE s.status <> 'SUPERSEDED'
      AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
@@ -554,7 +554,7 @@ export async function getPanoramaDeAlteracoes(
            f.entity_id::text AS entity_id,
            s.effective_date::text AS effective_date,
            f.value_numeric::text AS value_numeric
-      FROM fact f
+      FROM fato_visivel f
       JOIN snapshot s  ON s.id = f.snapshot_id
       JOIN attribute a ON a.id = f.attribute_id
      WHERE a.data_type = 'NUMERIC'
@@ -908,7 +908,7 @@ async function medirReconciliacoes(
     ),
     v AS (
       SELECT a.code, f.entity_id, s.effective_date, f.value_numeric
-        FROM fact f
+        FROM fato_visivel f
         JOIN snapshot s  ON s.id = f.snapshot_id
         JOIN attribute a ON a.id = f.attribute_id
        WHERE a.code = ANY (${listaDeTexto(envolvidos)})

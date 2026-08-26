@@ -331,6 +331,7 @@ export async function buildFixture(
           isNull,
           nullReason: isNull ? (value as { missing: string }).missing : null,
           rawCellId: cell.id,
+          originImportRunId: run.id,
         });
 
         fatosDaVigencia++;

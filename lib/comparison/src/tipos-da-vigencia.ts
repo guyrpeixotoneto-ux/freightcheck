@@ -144,7 +144,7 @@ async function contagens(
     por_entidade AS (
       SELECT sn.d, e.entity_type AS tipo, count(DISTINCT f.entity_id)::int AS entidades
         FROM snaps sn
-        JOIN fact f   ON f.snapshot_id = sn.id
+        JOIN fato_visivel f   ON f.snapshot_id = sn.id
         JOIN entity e ON e.id = f.entity_id
        GROUP BY 1, 2
     ),
@@ -155,7 +155,7 @@ async function contagens(
       SELECT sn.d, 'CONJUNTO' AS tipo,
              count(DISTINCT (f.entity_id, carreta.entity_id))::int AS entidades
         FROM snaps sn
-        JOIN fact f      ON f.snapshot_id = sn.id
+        JOIN fato_visivel f      ON f.snapshot_id = sn.id
         JOIN attribute a ON a.id = f.attribute_id AND a.code = ${CODIGO_DO_VINCULO}
         JOIN entity_identifier carreta
           ON carreta.identifier_type = 'PLACA'

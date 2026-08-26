@@ -1387,7 +1387,7 @@ async function lerFatosDoTipo(
            f.value_text,
            f.value_boolean,
            f.is_null
-      FROM fact f
+      FROM fato_visivel f
       JOIN attribute a ON a.id = f.attribute_id
       JOIN snapshot s  ON s.id = f.snapshot_id
       JOIN entity e    ON e.id = f.entity_id
@@ -1492,7 +1492,7 @@ async function lerCavalosEmLote(
   const { rows } = await db.execute<LinhaComAlvo & { entity_id: string }>(sql`
     SELECT DISTINCT ${colunasDoAlvo("s")},
            f.entity_id::text AS entity_id
-      FROM fact f
+      FROM fato_visivel f
       JOIN snapshot s ON s.id = f.snapshot_id
       JOIN entity e   ON e.id = f.entity_id
      WHERE e.entity_type = ${TIPO_CAVALO}

@@ -752,7 +752,7 @@ export async function getQuinzenaMatrix(
   }>(sql`
     SELECT s.effective_date::text AS effective_date,
            f.entity_id::text AS entity_id
-      FROM fact f
+      FROM fato_visivel f
       JOIN snapshot s ON s.id = f.snapshot_id
       JOIN entity e   ON e.id = f.entity_id
      WHERE e.entity_type = ${entityType}
@@ -773,7 +773,7 @@ export async function getQuinzenaMatrix(
            f.entity_id::text AS entity_id,
            f.value_numeric::text AS value_numeric,
            f.is_null
-      FROM fact f
+      FROM fato_visivel f
       JOIN snapshot s   ON s.id = f.snapshot_id
       JOIN attribute a  ON a.id = f.attribute_id
      WHERE a.code = ${escolhido.code}
@@ -844,7 +844,7 @@ export async function getQuinzenaMatrix(
            f.value_numeric::text AS value_numeric,
            f.value_text,
            a.source_name, a.display_name
-      FROM fact f
+      FROM fato_visivel f
       JOIN snapshot s  ON s.id = f.snapshot_id
       JOIN attribute a ON a.id = f.attribute_id
      WHERE a.code = ${groupCode}
