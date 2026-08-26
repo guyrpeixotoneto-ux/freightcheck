@@ -43,7 +43,28 @@ export type EstadoDoTransporte =
   /** Erro de status conhecido, sem corpo que o explique. */
   | "ERRO_SEM_CORPO"
   /** Fomos nós que cancelamos: navegação, desmontagem, `AbortController`. */
-  | "REQUISICAO_CANCELADA";
+  | "REQUISICAO_CANCELADA"
+  /**
+   * A chamada foi **desviada**: alguém no meio respondeu com um redirect, e a
+   * nossa API nunca foi alcançada.
+   *
+   * **Esta API não redireciona em rota nenhuma** — toda resposta dela é JSON,
+   * com status próprio. Um 3xx em `/api/*` é, por definição, uma camada
+   * intermediária falando no lugar dela: o roteador da plataforma, um proxy
+   * corporativo, um portal de autenticação. Em produção já se observou
+   * exatamente isso — `freightcheck.com.br/api/…` respondendo 302 para
+   * `replit.com/__replshield`.
+   *
+   * Separá-lo de `SEM_RESPOSTA` é a diferença entre um diagnóstico e um chute.
+   * Seguindo o redirect, o navegador barra a leitura por CORS (outra origem) e
+   * `fetch` rejeita com `TypeError: Failed to fetch` — indistinguível, ali, de
+   * um cabo solto. Aí a política de repetição gastava as cinco tentativas e
+   * treze segundos numa chamada que ia ser desviada de novo em todas elas. Com
+   * `redirect: "manual"` (ver `api.ts`) o desvio chega como fato observável, e
+   * este estado existe para dizer o que ele é: **não adianta insistir, e o
+   * problema não está na API.**
+   */
+  | "DESVIADA";
 
 export interface DiagnosticoDeTransporte extends Orientacao {
   estado: EstadoDoTransporte;
@@ -90,6 +111,12 @@ export interface TransporteObservado {
   motivo?: string;
   /** A chamada foi cancelada por nós, e não pela rede. */
   cancelada?: boolean;
+  /**
+   * Quem respondeu foi um redirect, e não a API. Traz o destino quando o
+   * navegador deixa lê-lo — num redirect opaco (outra origem) ele não deixa,
+   * e a ausência já é o próprio fato.
+   */
+  desviadaPara?: string | null;
 }
 
 /**
@@ -200,6 +227,42 @@ export function diagnosticarTransporte(
       acao: null,
       evidencia:
         "Cancelada pela própria interface; nenhuma resposta foi pedida ao servidor.",
+    };
+  }
+
+  /*
+    O desvio vem logo depois do cancelamento, e antes de tudo que fala em rede,
+    porque ele **exclui** as outras explicações em vez de competir com elas:
+    houve resposta, ela veio de alguém, e esse alguém não é a nossa API. Nenhuma
+    das classificações abaixo se aplica — não é ausência de resposta, não é
+    corpo estranho, não é status da API — e nenhuma delas diria a coisa certa.
+  */
+  if (observado.desviadaPara !== undefined) {
+    const destino = observado.desviadaPara;
+    return {
+      estado: "DESVIADA",
+      humano:
+        "O pedido não chegou ao FreightCheck: alguma camada entre o seu " +
+        "navegador e a aplicação o desviou para outro endereço. Não é a " +
+        "aplicação que está fora do ar — ela não chegou a ser consultada.",
+      resumo:
+        "A chamada foi redirecionada para fora da aplicação antes de alcançar " +
+        "a API. Insistir devolve o mesmo desvio.",
+      risco: NADA_ENVIADO,
+      acao: {
+        codigo: "DESVIO_NA_PLATAFORMA",
+        texto:
+          "Conferir a camada de rede da publicação — roteador, proxy ou " +
+          "portal de autenticação da plataforma. Entrar de novo no endereço " +
+          "principal costuma restabelecer a sessão dessa camada; recarregar " +
+          "esta tela, não.",
+        quem: "plataforma",
+      },
+      evidencia:
+        `A API respondeu com um redirect${
+          destino ? ` para ${destino}` : " para outra origem (destino opaco por CORS)"
+        }, e esta API não redireciona em rota nenhuma — toda resposta dela é ` +
+        "JSON. Quem respondeu foi uma camada intermediária.",
     };
   }
 

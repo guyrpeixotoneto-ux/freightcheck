@@ -33,6 +33,11 @@ export function getApiUrl(path: string): string {
  */
 const TEMPO_LIMITE_MS = 45_000;
 
+/** Os status que significam "vá procurar noutro endereço". */
+function ehRedirect(status: number): boolean {
+  return status >= 300 && status < 400;
+}
+
 /**
  * Fazer a requisição, com a falha de transporte já classificada.
  *
@@ -84,8 +89,59 @@ async function requisitar(path: string, init?: RequestInit): Promise<Response> {
   }
 
   try {
-    return await fetch(url, { ...init, signal: controlador.signal });
+    /*
+      `redirect: "manual"` — e é isto que transforma o desvio da plataforma de
+      sintoma opaco em diagnóstico.
+
+      Esta API não redireciona em rota nenhuma: toda resposta dela é JSON, com
+      status próprio. Um 3xx em `/api/*` é sempre uma camada intermediária
+      falando no lugar dela, e em produção já se observou o caso concreto —
+      `freightcheck.com.br/api/…` respondendo 302 para
+      `replit.com/__replshield`.
+
+      Com o padrão (`"follow"`), o navegador segue o redirect para outra origem,
+      a leitura é barrada por CORS e `fetch` rejeita com `TypeError: Failed to
+      fetch`. Nesse ponto o desvio é **indistinguível** de um cabo solto: o erro
+      não diz para onde foi, nem que houve resposta. E como `TypeError` é a
+      falha mais transitória que existe, a política de repetição gastava as
+      cinco tentativas e treze segundos numa chamada que ia ser desviada
+      exatamente igual em todas elas.
+
+      Com `"manual"` o navegador não segue nada: devolve uma resposta opaca
+      (`type: "opaqueredirect"`, `status: 0`) e o desvio vira fato observável,
+      classificado como `DESVIADA` — que a política não repete. Não se perde
+      nada ao não seguir: não há uma única rota desta API atrás de um redirect.
+    */
+    const resposta = await fetch(url, {
+      redirect: "manual",
+      ...init,
+      signal: controlador.signal,
+    });
+
+    if (resposta.type === "opaqueredirect" || ehRedirect(resposta.status)) {
+      /*
+        Num redirect opaco o navegador não deixa ler nem o destino nem o
+        `Location` — e essa ausência é o próprio fato, então `null` entra como
+        destino. Quando o redirect é da mesma origem, o `Location` está lá.
+      */
+      const destino =
+        resposta.type === "opaqueredirect"
+          ? null
+          : resposta.headers.get("location");
+      console.warn(
+        `[transporte] ${url} — DESVIADA${destino ? ` para ${destino}` : ""}, ` +
+          `${decorrido()}ms. A chamada não chegou à API.`,
+      );
+      throw new ErroDeTransporte(
+        diagnosticarTransporte({ desviadaPara: destino }),
+      );
+    }
+
+    return resposta;
   } catch (err) {
+    // Um desvio já foi classificado acima; não é falha de rede.
+    if (err instanceof ErroDeTransporte) throw err;
+
     const nome =
       typeof err === "object" && err !== null
         ? (err as { name?: unknown }).name
