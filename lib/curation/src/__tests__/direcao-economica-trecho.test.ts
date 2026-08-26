@@ -1,32 +1,30 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { sql } from "drizzle-orm";
-import { criarBancoComExportRealPromovido, type TestDb } from "@workspace/ingest/testing";
+import { describe, expect, it } from "vitest";
+import { CATALOGO_DECLARADO } from "../catalogo-declarado";
 import {
-  aplicarDirecaoEconomicaTrecho,
   DIRECAO_ECONOMICA_TRECHO,
+  type DirecaoEconomicaTrechoEntrada,
 } from "../direcao-economica-trecho";
 
 /**
- * A primeira rodada de curadoria de TRECHO, aplicada de ponta a ponta.
+ * A rodada de curadoria de TRECHO conferida contra o dicionário declarado.
  *
- * O que este arquivo prova não é a regra de escrita (isso já é
- * `direcao-economica.test.ts`) — é que a LISTA declarada em
- * `direcao-economica-trecho.ts` é consistente com o dicionário real: todo
- * `code` existe, nenhum é repetido, e aplicar duas vezes não grava duas vezes.
- * Sem este teste, um `code` digitado errado (ex.: um `s` a mais) falharia em
- * silêncio dentro do `try/catch` de `aplicarDirecaoEconomicaTrecho` e o
- * atributo continuaria sem direção sem que ninguém percebesse.
+ * O risco real desta lista não é a regra — é o **código digitado errado**.
+ * `aplicarDirecaoEconomicaTrecho` coleta as falhas em vez de parar na
+ * primeira (para não deixar a curadoria pela metade em silêncio), e o preço
+ * disso é que um `trecho.frete_liquidoo` sumiria dentro do resumo sem que
+ * ninguém olhasse. Aqui cada código é conferido contra `CATALOGO_DECLARADO`,
+ * que é a mesma fonte de onde a importação deriva os atributos.
+ *
+ * Sem banco de propósito: o export real da Ambev commitado como fixture só
+ * traz CAVALO e CARRETA, então um teste de integração aqui provaria apenas
+ * que o fixture não tem trecho — não que a lista está certa.
  */
 
-let ctx: TestDb;
-const ATOR = "guy@operalog.com.br";
+const DECLARADOS_DE_TRECHO = CATALOGO_DECLARADO.filter((a) => a.entityType === "TRECHO");
+const CODIGOS_DECLARADOS = new Set(DECLARADOS_DE_TRECHO.map((a) => a.code));
 
-beforeAll(async () => {
-  ctx = await criarBancoComExportRealPromovido("direcao_economica_trecho");
-}, 300_000);
-
-afterAll(async () => {
-  await ctx?.drop();
+it("o dicionário declara atributos de TRECHO — a régua deste arquivo existe", () => {
+  expect(DECLARADOS_DE_TRECHO.length).toBeGreaterThan(0);
 });
 
 it("a lista não repete nenhum atributo", () => {
@@ -40,59 +38,60 @@ it("todo atributo listado começa com 'trecho.'", () => {
   }
 });
 
-describe("aplicada contra o export real", () => {
-  it("todos os códigos existem no dicionário — nenhuma falha por atributo inexistente", async () => {
-    const resumo = await aplicarDirecaoEconomicaTrecho(ctx.db, ATOR);
-    expect(resumo.falhas).toEqual([]);
-    expect(resumo.gravadas).toBe(DIRECAO_ECONOMICA_TRECHO.length);
-    expect(resumo.jaEstavam).toBe(0);
-  });
+/*
+  O teste que pega o erro de digitação. Um código que não existe no dicionário
+  nunca vai ser encontrado no banco, e a curadoria dele seria uma linha de
+  falha no resumo do script — silenciosa para quem não lê a saída inteira.
+*/
+it("todo código curado existe no dicionário declarado", () => {
+  const desconhecidos = DIRECAO_ECONOMICA_TRECHO.filter((e) => !CODIGOS_DECLARADOS.has(e.code));
+  expect(desconhecidos.map((e) => e.code)).toEqual([]);
+});
 
-  it("rodar de novo não regrava nada — idempotente", async () => {
-    const resumo = await aplicarDirecaoEconomicaTrecho(ctx.db, ATOR);
-    expect(resumo.falhas).toEqual([]);
-    expect(resumo.gravadas).toBe(0);
-    expect(resumo.jaEstavam).toBe(DIRECAO_ECONOMICA_TRECHO.length);
-  });
-
-  it("os quatro valores do vocabulário aparecem, e nenhum outro", async () => {
-    const { rows } = await ctx.db.execute<{ d: string }>(sql`
-      SELECT DISTINCT economic_direction AS d
-        FROM attribute
-       WHERE entity_type = 'TRECHO' AND economic_direction IS NOT NULL
-       ORDER BY d
-    `);
-    const valores = rows.map((r) => r.d).sort();
-    expect(valores).toEqual(
-      ["DEPENDS_ON_FORMULA", "HIGHER_IS_BETTER", "HIGHER_IS_WORSE", "NEUTRAL"].sort(),
+it("os quatro valores do vocabulário são os únicos usados", () => {
+  const usados = new Set(DIRECAO_ECONOMICA_TRECHO.map((e) => e.direcao));
+  for (const direcao of usados) {
+    expect(["HIGHER_IS_BETTER", "HIGHER_IS_WORSE", "NEUTRAL", "DEPENDS_ON_FORMULA"]).toContain(
+      direcao,
     );
+  }
+});
+
+it("toda entrada tem o efeito escrito — a direção sem o porquê não é curadoria", () => {
+  for (const entrada of DIRECAO_ECONOMICA_TRECHO) {
+    expect(entrada.efeito.trim().length).toBeGreaterThan(0);
+  }
+});
+
+describe("as decisões que sustentam o veredito do Radar", () => {
+  const porCode = new Map<string, DirecaoEconomicaTrechoEntrada>(
+    DIRECAO_ECONOMICA_TRECHO.map((e) => [e.code, e]),
+  );
+
+  it("frete líquido é maior-é-melhor — é a receita do trecho", () => {
+    expect(porCode.get("trecho.frete_liquido")?.direcao).toBe("HIGHER_IS_BETTER");
   });
 
-  it("frete líquido é maior-é-melhor, e pedágio é maior-é-pior", async () => {
-    const { rows } = await ctx.db.execute<{ code: string; d: string }>(sql`
-      SELECT code, economic_direction AS d FROM attribute
-       WHERE code IN ('trecho.frete_liquido', 'trecho.frete_reais_km_pedagio')
-    `);
-    const porCode = Object.fromEntries(rows.map((r) => [r.code, r.d]));
-    expect(porCode["trecho.frete_liquido"]).toBe("HIGHER_IS_BETTER");
-    expect(porCode["trecho.frete_reais_km_pedagio"]).toBe("HIGHER_IS_WORSE");
+  it("pedágio é maior-é-pior — é custo pago pela transportadora", () => {
+    expect(porCode.get("trecho.frete_reais_km_pedagio")?.direcao).toBe("HIGHER_IS_WORSE");
+    expect(porCode.get("trecho.pedagio")?.direcao).toBe("HIGHER_IS_WORSE");
   });
 
-  it("a chave do trecho é neutra — não pode influenciar o veredito", async () => {
-    const { rows } = await ctx.db.execute<{ d: string }>(
-      sql`SELECT economic_direction AS d FROM attribute WHERE code = 'trecho.chave_trecho'`,
-    );
-    expect(rows[0].d).toBe("NEUTRAL");
+  it("a chave do trecho é neutra — cadastro não move veredito", () => {
+    expect(porCode.get("trecho.chave_trecho")?.direcao).toBe("NEUTRAL");
   });
 
-  it("ainda restam atributos de TRECHO sem curadoria — a cobertura desta rodada é parcial e sabida", async () => {
-    const { rows } = await ctx.db.execute<{ curados: number; total: number }>(sql`
-      SELECT count(*) FILTER (WHERE economic_direction IS NOT NULL)::int AS curados,
-             count(*)::int AS total
-        FROM attribute WHERE entity_type = 'TRECHO'
-    `);
-    const { curados, total } = rows[0];
-    expect(curados).toBeGreaterThan(0);
-    expect(curados).toBeLessThanOrEqual(total);
+  /*
+    O caso que prova que a seção da DRE não basta: `diesel_consumo_km_l` está
+    declarado em "(−) Custo variável / Combustível", e mesmo assim subir é
+    **bom** — mais km por litro é menos custo. Classificá-lo por atalho a
+    partir da seção inverteria o sinal dele no Radar.
+  */
+  it("km/l não é classificado por atalho da seção de custo", () => {
+    expect(porCode.get("trecho.diesel_consumo_km_l")?.direcao).toBe("DEPENDS_ON_FORMULA");
+  });
+
+  it("a cobertura é parcial e sabida — nem todo atributo declarado foi curado", () => {
+    expect(DIRECAO_ECONOMICA_TRECHO.length).toBeLessThanOrEqual(DECLARADOS_DE_TRECHO.length);
   });
 });

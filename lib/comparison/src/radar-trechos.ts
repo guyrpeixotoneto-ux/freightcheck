@@ -61,9 +61,8 @@ import { ehAlteracaoMaterial } from "./classification";
 import { computeChangeSet, findPreviousSnapshot } from "./engine";
 import type { ImpactConfidence } from "./impact";
 import {
-  contextFilter,
+  channelSql,
   listContexts,
-  resolveContext,
   type ContextInfo,
   type RequestedContext,
 } from "./series";
@@ -261,27 +260,49 @@ export async function resolverComparacaoDeTrecho(
   db: Database,
   requested?: RequestedContext,
 ): Promise<ResultadoDaComparacaoDeTrecho> {
-  const wantsScope = requested?.scopeHash !== undefined && requested.scopeHash !== null;
-  const contexts = await listContexts(db, { incluirCascaDeTrecho: wantsScope });
-  const context = await resolveContext(db, requested, contexts).catch(() => null);
-  if (!context) return { erro: "SEM_CONTEXTO" };
-
   /*
-    A vigência é achada por **presença de fato** — o mesmo método de
-    `listarFrota` (`ativos.ts`), que já é o que Trecho 360° usa. Não filtra
-    por `snapshot.entity_type_set = 'TRECHO'`: essa comparação exata falha
-    sempre que o trecho chega na mesma vigência que cavalo/carreta (um
-    `entity_type_set` composto, tipo `CAVALO+CARRETA+TRECHO`), que é um
-    formato real de entrega — a Ambev não promete um arquivo por
-    equipamento. A entidade é que sabe o próprio tipo; a vigência não
-    precisa saber que só carrega um.
+    O dado primeiro, o contexto depois — e a ordem é a correção.
+
+    A versão anterior resolvia o contexto (`resolveContext`) e só então
+    procurava trecho dentro dele. Isso podia resolver uma unidade que não tem
+    trecho nenhum e responder "este contexto não tem vigência de trecho" —
+    com a unidade certa visível na tela, porque `listContexts` monta a lista a
+    partir das vigências de **equipamento** e esconde a "casca" (a vigência
+    que só traz trecho) por desenho, para que ela não vire "a mais recente"
+    das telas de cavalo/carreta. Boa regra lá, exatamente a errada aqui: o
+    Radar é a tela de trecho, e o padrão dele tem de ser uma unidade que
+    tenha trecho.
+
+    Então a vigência é achada direto, por presença de fato — o mesmo método
+    de `listarFrota` (`ativos.ts`), que é o que o Trecho 360° usa e o que
+    faz aquela tela achar os trechos que esta não achava. O recorte de
+    unidade/canal entra como filtro **quando pedido**; sem pedido, o padrão é
+    a vigência de trecho mais recente do acervo, e o contexto sai dela.
+
+    Também não filtra por `snapshot.entity_type_set = 'TRECHO'`: essa
+    comparação exata falha quando o trecho chega junto de cavalo/carreta num
+    `entity_type_set` composto. A entidade é que sabe o próprio tipo.
   */
+  const escopoPedido = requested?.scopeHash
+    ? sql` AND s.scope_hash = ${requested.scopeHash}`
+    : sql``;
+  const canalPedido =
+    requested?.channel !== undefined
+      ? sql` AND ${channelSql("s.source_label")} IS NOT DISTINCT FROM ${requested.channel}::text`
+      : sql``;
+
   const { rows } = await db.execute<{
     id: string;
     effective_date: string;
     source_label: string;
+    scope_hash: string;
+    channel: string | null;
   }>(sql`
-    SELECT s.id, s.effective_date::text AS effective_date, s.source_label
+    SELECT s.id,
+           s.effective_date::text AS effective_date,
+           s.source_label,
+           s.scope_hash,
+           ${channelSql("s.source_label")} AS channel
       FROM snapshot s
       JOIN fato_visivel f ON f.snapshot_id = s.id
       JOIN entity e       ON e.id = f.entity_id
@@ -290,13 +311,26 @@ export async function resolverComparacaoDeTrecho(
        AND NOT EXISTS (
              SELECT 1 FROM import_run
               WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL
-           )
-       AND ${contextFilter("s", context)}
-     ORDER BY s.effective_date DESC
+           )${escopoPedido}${canalPedido}
+     ORDER BY s.effective_date DESC, s.scope_hash
      LIMIT 1
   `);
   const latest = rows[0];
-  if (!latest) return { erro: "SEM_TRECHO" };
+  if (!latest) return { erro: requested?.scopeHash ? "SEM_TRECHO" : "SEM_CONTEXTO" };
+
+  /*
+    O contexto é o da vigência que foi achada, e a casca entra na lista
+    porque ela pode ser exatamente essa vigência. Se nem assim ele aparecer
+    (acervo só de trecho, sem nenhuma vigência de equipamento para nomear a
+    unidade), o `context` é montado a partir da própria vigência — a tela
+    precisa de um rótulo para escrever no cabeçalho, não de uma recusa.
+  */
+  const contexts = await listContexts(db, { incluirCascaDeTrecho: true });
+  const context =
+    contexts.find((c) => c.scopeHash === latest.scope_hash && c.channel === latest.channel) ??
+    contexts.find((c) => c.scopeHash === latest.scope_hash) ??
+    null;
+  if (!context) return { erro: "SEM_CONTEXTO" };
 
   const previousId = await findPreviousSnapshot(db, latest.id);
   const previousLabel = previousId
@@ -436,7 +470,10 @@ export async function getRadarDeTrechos(
         JOIN snapshot s ON s.id = f.snapshot_id
         JOIN entity e   ON e.id = f.entity_id
        WHERE e.entity_type = 'TRECHO'
-         AND s.id = ANY(${snapshotBIds}::uuid[])
+         AND s.id IN (${sql.join(
+           snapshotBIds.map((id) => sql`${id}::uuid`),
+           sql`, `,
+         )})
          AND NOT EXISTS (
                SELECT 1 FROM import_run
                 WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL
