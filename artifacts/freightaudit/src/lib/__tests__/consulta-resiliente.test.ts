@@ -512,6 +512,78 @@ describe("os gatilhos: foco e reconexão", () => {
   });
 });
 
+describe("a sondagem depois de esgotar as tentativas", () => {
+  /**
+   * O buraco que `INTERVALO_DE_RECUPERACAO_MS` documenta: um cold start mais
+   * lento que os 13,2s do orçamento automático esgotava as tentativas,
+   * mostrava o painel de indisponibilidade, e então **parava de tentar** — sem
+   * foco a repor (desligado de propósito) e sem reconexão a anunciar (o
+   * navegador nunca viu a rede cair, só uma origem que não respondia). O
+   * painel ficava preso até alguém clicar em "Tentar de novo", ainda que a
+   * origem já tivesse voltado a responder.
+   *
+   * Aqui a origem volta sozinha, sem clique nenhum: é `refetchInterval` que
+   * dispara a sondagem seguinte depois do esgotamento.
+   */
+  it("depois de esgotar as tentativas, a query se recupera sozinha quando a origem volta", async () => {
+    let respondendo = false;
+    const buscar = async () => {
+      if (!respondendo) throw falhouAntesDeResponder();
+      return FILA;
+    };
+
+    // `retryDelay` e `refetchInterval` comprimidos pelo mesmo motivo que
+    // `observador()` já comprime `retryDelay`: os valores reais (até 8s de
+    // degrau, 8s de sondagem de fundo) são o que se está provando existir —
+    // não é isto que muda com o tamanho do intervalo — e comprimi-los é o
+    // que mantém o arquivo rápido.
+    const obs = new QueryObserver<typeof FILA, Error, typeof FILA>(client, {
+      queryKey: ["curation", "queue", "recuperacao"],
+      ...chamadaResiliente<typeof FILA>({
+        endpoint: ENDPOINT,
+        buscar,
+        carimbo: async () => CARIMBO,
+      }),
+      retryDelay: 0,
+      refetchInterval: (query) => (query.state.status === "error" ? 20 : false),
+    });
+
+    const esgotada = await ateAssentar(obs);
+    expect(esgotada.error).toBeInstanceOf(TypeError);
+    expect(deveApresentarIndisponibilidade(false, esgotada.error)).toBe(true);
+
+    respondendo = true;
+    const cancelar = obs.subscribe(() => {});
+    const recuperada = await ateAssentar(obs, { limiteMs: 2_000 });
+    cancelar();
+
+    expect(recuperada.data).toEqual(FILA);
+    expect(recuperada.error).toBeNull();
+  });
+
+  it("enquanto a query está com dado válido, a sondagem de fundo não roda", async () => {
+    let n = 0;
+    const obs = observador(client, async () => {
+      n += 1;
+      return FILA;
+    });
+
+    // A assinatura fica viva do início ao fim, como no teste de foco acima:
+    // reassinar depois de já ter resolvido dispararia um refetch por
+    // `staleTime: 0`, que entraria na conta como se fosse da sondagem de
+    // fundo.
+    const cancelar = obs.subscribe(() => {});
+    await ateAssentar(obs);
+    const antes = n;
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    cancelar();
+
+    // Uma segunda chamada aqui seria a prova de que `refetchInterval` também
+    // dispara fora do estado de erro — o que gastaria rede sem motivo.
+    expect(n).toBe(antes);
+  });
+});
+
 describe("a instrumentação", () => {
   it("cada falha traz endpoint, horário, duração, ambiente, tentativa, online e origem", async () => {
     marcarOrigem(ENDPOINT, "montagem");
