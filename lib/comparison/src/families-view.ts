@@ -18,6 +18,7 @@ import {
   chaveDaFrota,
   compareGroups,
   getGroupedView,
+  getGroupedViewComDados,
   groupKey,
   loadChanges,
   summariseImpact,
@@ -254,19 +255,29 @@ export async function getFamiliesView(
    */
   preloaded?: { contexts?: ContextInfo[]; inventory?: Map<FamilyCode, Set<string>> },
 ): Promise<FamiliesView | null> {
-  const view = await getGroupedView(db, period, requestedContext, preloaded?.contexts);
-  if (!view) return null;
+  /*
+    O material vem da leitura agrupada, e não de um segundo carregamento.
 
-  const changeSetIds = view.series
-    .map((s) => s.changeSetId)
-    .filter((id): id is string => id !== null);
-  const rows = await loadChanges(db, changeSetIds);
+    Esta função pedia `loadChanges`, `snapshotsDosChangeSets` e
+    `carregarVinculosDeConjunto` sobre os mesmos change sets que
+    `getGroupedView` acabara de carregar — três round trips e a montagem de um
+    segundo deduplicador para chegar ao mesmo resultado.
 
-  // Sobre o conjunto inteiro, uma vez só. Cada fatia recebe este índice.
-  const dedup = criarDeduplicador(
-    rows.map(daLinhaDoBanco),
-    await carregarVinculosDeConjunto(db, await snapshotsDosChangeSets(db, changeSetIds)),
+    Os ids não são obtidos do mesmo lugar nas duas — lá saem da consulta das
+    comparações, aqui saíam de `view.series`, que é por equipamento e repete o
+    mesmo id quando CAVALO e CARRETA dividem um snapshot. Como conjunto, os dois
+    coincidem: a série é ou 'TRECHO' inteira (excluída dos dois lados) ou não
+    tem componente TRECHO nenhum. Há teste travando essa igualdade — se um dia
+    TRECHO passar a se combinar, ele quebra antes de a conta mudar em silêncio.
+  */
+  const leitura = await getGroupedViewComDados(
+    db,
+    period,
+    requestedContext,
+    preloaded?.contexts,
   );
+  if (!leitura) return null;
+  const { view, rows, dedup } = leitura;
 
   const inventory = preloaded?.inventory ?? (await parametersWithData(db));
 
