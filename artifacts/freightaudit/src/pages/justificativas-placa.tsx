@@ -38,8 +38,22 @@ export default function JustificativasPlaca() {
   const [, navegar] = useLocation();
   const queryClient = useQueryClient();
 
-  const changeSetId = new URLSearchParams(search).get("changeSetId") || undefined;
-  const voltar = changeSetId ? `/justificativas?changeSetId=${changeSetId}` : "/justificativas";
+  const params = new URLSearchParams(search);
+  const changeSetId = params.get("changeSetId") || undefined;
+
+  /*
+    O voltar devolve a fila como ela estava — a vigência **e** a aba de tipo.
+    Sem o `tipo`, quem abriu uma placa a partir da aba Trecho voltava para
+    "Todas" e tinha de reencontrar onde estava, que é a mesma perda que o
+    `changeSetId` no endereço já existia para evitar.
+  */
+  const voltarParams = new URLSearchParams();
+  if (changeSetId) voltarParams.set("changeSetId", changeSetId);
+  const tipo = params.get("tipo");
+  if (tipo) voltarParams.set("tipo", tipo);
+  const voltar = voltarParams.toString()
+    ? `/justificativas?${voltarParams.toString()}`
+    : "/justificativas";
 
   const consulta = useConsultaResiliente<ChangesResponse>({
     queryKey: ["change-set-changes", changeSetId, "placa", placa],
