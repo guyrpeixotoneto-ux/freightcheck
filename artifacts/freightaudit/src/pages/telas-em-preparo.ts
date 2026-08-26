@@ -422,6 +422,11 @@ export const TELAS_EM_PREPARO: TelaEmPreparo[] = [
     ],
     hoje: [
       {
+        href: "/unidades",
+        label: "Unidades",
+        porque: "Que unidades existem — o cadastro que os ajustes da instalação também vão precisar.",
+      },
+      {
         href: "/configuracoes",
         label: "Usuários",
         porque: "A administração que já existe: quem pode entrar, e em nome de quem cada ação fica.",
