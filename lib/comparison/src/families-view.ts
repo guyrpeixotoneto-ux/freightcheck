@@ -12,7 +12,7 @@ import {
   placementOf,
   type FamilyCode,
 } from "./families";
-import { periodLabel } from "./labels";
+import { rotuloCurtoDaVigencia } from "./labels";
 import {
   buildGroup,
   chaveDaFrota,
@@ -654,7 +654,7 @@ export async function getRangeAnalysis(
       const linhas = rowsPorPeriodo.get(periodo) ?? [];
       return {
         period: periodo,
-        label: periodLabel(periodo),
+        label: rotuloCurtoDaVigencia(periodo, datas),
         comparisons: sets.filter((s) => s.period === periodo).length,
         changes: linhas.length,
         vehicles: new Set(
@@ -668,7 +668,7 @@ export async function getRangeAnalysis(
     .filter((periodo) => !sets.some((s) => s.period === periodo))
     .map((periodo) => ({
       period: periodo,
-      label: periodLabel(periodo),
+      label: rotuloCurtoDaVigencia(periodo, datas),
       reason:
         "Vigência importada sem comparação: é a primeira da série, ou a " +
         "comparação ainda não foi calculada. O que houve aqui não está " +
@@ -693,7 +693,7 @@ export async function getRangeAnalysis(
       return {
         key: chave,
         period: periodo,
-        periodLabel: periodLabel(periodo),
+        periodLabel: rotuloCurtoDaVigencia(periodo, datas),
         parameterKey: placement.parameterKey,
         parameterName: placement.parameterKey.split("|").slice(1).join("|"),
         family: placement.family,
@@ -783,10 +783,10 @@ export async function getRangeAnalysis(
   return {
     context,
     from: inicio,
-    fromLabel: periodLabel(inicio),
+    fromLabel: rotuloCurtoDaVigencia(inicio, datas),
     to: fim,
-    toLabel: periodLabel(fim),
-    periods: datas.map((d) => ({ date: d, label: periodLabel(d) })),
+    toLabel: rotuloCurtoDaVigencia(fim, datas),
+    periods: datas.map((d) => ({ date: d, label: rotuloCurtoDaVigencia(d, datas) })),
     movements,
     gaps,
     impact: summariseImpact(rows, dedup),

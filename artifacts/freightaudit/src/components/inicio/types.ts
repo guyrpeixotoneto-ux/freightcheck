@@ -46,7 +46,17 @@ export interface ChangeGroup {
   comparability: string;
   /** Linhas de alteração no grupo. Não confundir com `vehicles`. */
   changes: number;
+  /** Ativos distintos **deste grupo**. Não soma entre grupos — ver `entityIds`. */
   vehicles: number;
+  /**
+   * Quais ativos — a identidade por trás de `vehicles`.
+   *
+   * É o que permite a uma tela que empilha grupos dizer "veículos" sem
+   * contar o mesmo caminhão uma vez por atributo que mudou nele: a resposta é
+   * o tamanho da **união** destes conjuntos, nunca a soma de `vehicles`.
+   * Ver `@workspace/comparison`, `grouped.ts`.
+   */
+  entityIds: string[];
   fleet: number;
   coverage: "TOTAL" | "MAIORIA" | "PARCIAL";
   coverageLabel: string;

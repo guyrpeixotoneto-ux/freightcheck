@@ -278,15 +278,63 @@ function comoDia(data: string): string {
  * razão de sempre: duas concordariam no dia em que fossem escritas.
  */
 export function rotuloDaVigencia(data: string, doContexto: readonly string[]): string {
-  if (!DATA_ISO.test(data)) return periodLabel(data);
-
-  const mes = data.slice(0, 7);
-  const doMes = new Set(doContexto.filter((d) => DATA_ISO.test(d) && d.slice(0, 7) === mes));
-  doMes.add(data);
-  if (doMes.size < 2) return periodLabel(data);
+  const doMes = vigenciasDoMesmoMes(data, doContexto);
+  if (doMes === null || doMes.size < 2) return periodLabel(data);
 
   const quinzenas = new Set([...doMes].map(quinzenaDe));
   return quinzenas.size === doMes.size
     ? `${quinzenaDe(data)}ª quinzena de ${periodLabel(data)}`
     : comoDia(data);
+}
+
+/**
+ * O mesmo rótulo de {@link rotuloDaVigencia}, na largura de um tick de eixo.
+ *
+ * Existe porque o eixo X do gráfico de impacto não cabe
+ * `1ª quinzena de agosto/2026`: ele desenha seis rótulos lado a lado, e a
+ * alternativa a encurtar era o que estava no ar — `periodLabel` puro, que
+ * escreve `agosto/2026` duas vezes seguidas quando a unidade entrega duas
+ * vigências no mesmo mês. Duas colunas com o mesmo nome não são um eixo: são
+ * duas barras que o leitor não consegue separar, e foi assim que a tela
+ * apresentou seis vigências como se fossem três competências.
+ *
+ * A régua é a mesma de {@link rotuloDaVigencia} — mês com uma entrega continua
+ * `agosto/2026`, porque inventar dia onde não há ambiguidade só gasta tinta.
+ * O que muda é o desempate: aqui é **sempre** o dia (`01/08/2026`,
+ * `15/08/2026`), nunca a ordinal da quinzena. O dia distingue com a mesma
+ * garantia (duas vigências do mesmo contexto nunca compartilham data), cabe no
+ * tick, e não afirma um grão quinzenal que o gráfico não está lendo.
+ *
+ * As duas funções repartem {@link vigenciasDoMesmoMes} de propósito: é a
+ * decisão "este mês é ambíguo?" que precisa ser uma só. Duas cópias
+ * concordariam no dia em que fossem escritas e divergiriam no primeiro mês com
+ * três entregas — e o seletor passaria a nomear uma vigência que o eixo do
+ * gráfico chama de outra coisa.
+ */
+export function rotuloCurtoDaVigencia(data: string, doContexto: readonly string[]): string {
+  const doMes = vigenciasDoMesmoMes(data, doContexto);
+  return doMes === null || doMes.size < 2 ? periodLabel(data) : comoDia(data);
+}
+
+/**
+ * As vigências do contexto que caem no mesmo mês que `data`, `data` inclusa —
+ * o denominador de "este mês precisa de desempate?".
+ *
+ * `null` quando `data` não é uma vigência ISO: aí não há mês a comparar, e
+ * quem chama devolve o texto como veio.
+ *
+ * A própria `data` entra no conjunto mesmo fora de `doContexto` pelo motivo
+ * que {@link rotuloDaVigencia} documenta: sem ela, uma chamada de fora do
+ * conjunto afirmaria "mês com uma entrega" para uma data que o contexto nem
+ * conhece.
+ */
+function vigenciasDoMesmoMes(
+  data: string,
+  doContexto: readonly string[],
+): Set<string> | null {
+  if (!DATA_ISO.test(data)) return null;
+  const mes = data.slice(0, 7);
+  const doMes = new Set(doContexto.filter((d) => DATA_ISO.test(d) && d.slice(0, 7) === mes));
+  doMes.add(data);
+  return doMes;
 }

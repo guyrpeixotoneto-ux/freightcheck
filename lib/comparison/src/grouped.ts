@@ -149,6 +149,27 @@ export interface ChangeGroup {
   changes: number;
   /** Quantos ativos distintos deste equipamento têm esta alteração. */
   vehicles: number;
+  /**
+   * **Quais** ativos — a identidade por trás de `vehicles`, e não a contagem.
+   *
+   * Existe porque `vehicles` não soma: uma tela que empilha grupos e quer
+   * dizer "veículos" precisa da união dos conjuntos, e somar as contagens dá
+   * mais caminhões do que a frota tem (o mesmo ativo conta uma vez em cada
+   * atributo que mudou nele). O Dashboard publicava "42 veículos impactados"
+   * somando oito linhas ao lado de "91 veículos afetados" contados como
+   * distintos — dois números com a mesma palavra e universos diferentes.
+   *
+   * São as mesmas chaves de `vehicles` (`entity_id`, com o id da linha como
+   * substituto quando o fato não tem entidade), para que
+   * `entityIds.length === vehicles` sempre, e para que a união de vários
+   * grupos seja comparável com `totals.vehiclesTouched`, que sai do mesmo
+   * `entity_id`.
+   *
+   * Cabe no payload por construção: os grupos particionam as linhas da
+   * vigência, então a soma de todos os `entityIds` nunca passa de
+   * `totals.changes`.
+   */
+  entityIds: string[];
   /** Quantos ativos a série tinha na vigência nova. */
   fleet: number;
   coverage: Coverage;
@@ -717,6 +738,7 @@ export function buildGroup(
     comparability: first.comparability,
     changes: rows.length,
     vehicles,
+    entityIds: [...entities],
     fleet,
     coverage,
     coverageLabel: coverageLabel(coverage, vehicles, fleet, first.entity_type),

@@ -463,7 +463,9 @@ function ConteudoDaUnidade({
     <>
       <FaixaSlim
         changes={view.totals.changes}
+        grupos={view.groups.length}
         vehiclesTouched={view.totals.vehiclesTouched}
+        veiculosDeduplicados
         atualizadoEm={atualizadoEm}
       />
 
@@ -472,9 +474,10 @@ function ConteudoDaUnidade({
       <div className="grid gap-5 lg:grid-cols-5">
         <div className="lg:col-span-3">
           <section className={cn(CARTAO, "px-6 py-5 h-full")}>
-            <h2 className="text-base font-bold mb-1">Impacto das alterações por competência</h2>
+            <h2 className="text-base font-bold mb-1">Impacto das alterações por vigência</h2>
             <p className="text-xs text-muted-foreground mb-4">
-              Ganhos e perdas divergindo do zero, com o líquido por cima.
+              Ganhos e perdas divergindo do zero, com o líquido por cima. Uma barra por
+              vigência entregue — duas no mesmo mês aparecem pelo dia, nunca somadas.
             </p>
             <GraficoDeImpacto pontos={pontos} periodicity={periodicity} />
           </section>
@@ -517,7 +520,18 @@ function ConteudoGeral({
     <>
       <FaixaSlim
         changes={overview.summary.changes}
+        grupos={overview.summary.groups}
         vehiclesTouched={overview.summary.vehiclesTouched}
+        /*
+          Falso de propósito no Geral. `vehiclesTouched` da Visão Geral é a
+          soma dos `vehiclesTouched` de cada unidade, e não um `Set` cruzado:
+          `entity_id` é por unidade, e nada no produto hoje prova que dois
+          contextos irmãos de canais diferentes não compartilham o mesmo
+          caminhão físico (ver `families-view-overview.ts`). Escrever
+          "distintos" aqui seria a tela afirmando uma deduplicação que o
+          servidor documenta não fazer.
+        */
+        veiculosDeduplicados={false}
         atualizadoEm={atualizadoEm}
       />
 
@@ -540,13 +554,27 @@ function ConteudoGeral({
 // ---------------------------------------------------------------------------
 
 /**
- * "33 alterações detectadas desde a competência anterior · 27 veículos
- * afetados", com o relógio da última atualização do outro lado.
+ * "355 alterações em 91 veículos distintos, agrupadas em 31 tipos — desde a
+ * vigência anterior", com o relógio da última atualização do outro lado.
  *
  * Substitui o cartão grande de abertura das duas primeiras versões desta tela
- * — os mesmos dois números (`changes`/`vehiclesTouched`), sem a frase de
- * impacto: o líquido já tem cartão próprio logo abaixo, com corpo maior do que
- * uma frase soubesse dar a ele.
+ * — os mesmos números (`changes`/`vehiclesTouched`), sem a frase de impacto: o
+ * líquido já tem cartão próprio logo abaixo, com corpo maior do que uma frase
+ * soubesse dar a ele.
+ *
+ * A faixa nomeia os **três universos** da tela numa frase só, e é por isso que
+ * ela ganhou o terceiro número. Eles estavam todos publicados, cada um num
+ * canto, com a mesma palavra:
+ *
+ * - `changes` (355) conta **linhas** — uma por (veículo, atributo) que mudou;
+ * - `grupos` (31) conta **tipos de alteração** — é o que a tabela de
+ *   "Principais alterações" lista e o que as abas Cavalo/Carreta somam
+ *   (17 + 14), e não tem como bater com 355;
+ * - `vehiclesTouched` (91) conta **ativos distintos**, e por isso é sempre
+ *   menor que 355: o mesmo caminhão entra em cada atributo que mudou nele.
+ *
+ * Escrever "355 alterações" ao lado de uma aba escrita "Cavalo 17" sem dizer
+ * isto era a tela oferecendo três respostas para "quantas alterações?".
  *
  * O relógio nunca fabrica hora: é `dataUpdatedAt` da própria consulta
  * (`useQuery`), a mesma leitura da Gestão à Vista — `0` antes da primeira
@@ -554,31 +582,68 @@ function ConteudoGeral({
  */
 function FaixaSlim({
   changes,
+  grupos,
   vehiclesTouched,
+  veiculosDeduplicados,
   atualizadoEm,
 }: {
   changes: number;
+  grupos: number;
   vehiclesTouched: number;
+  /**
+   * Se `vehiclesTouched` é a cardinalidade de um conjunto ou a soma de vários.
+   *
+   * Verdadeiro na Unidade, onde o servidor conta `entity_id` distintos numa
+   * varredura só; falso no Geral, onde ele soma as unidades sem deduplicar
+   * entre elas. A palavra na tela muda junto — "distintos" é uma afirmação
+   * sobre o método, não um enfeite do rótulo.
+   */
+  veiculosDeduplicados: boolean;
   atualizadoEm: number;
 }) {
+  const veiculos = veiculosDeduplicados
+    ? vehiclesTouched === 1
+      ? "veículo distinto"
+      : "veículos distintos"
+    : vehiclesTouched === 1
+      ? "veículo afetado (soma das unidades)"
+      : "veículos afetados (soma das unidades)";
   return (
     <section className="flex flex-wrap items-center justify-between gap-x-6 gap-y-1.5 px-1 py-1 text-xs text-muted-foreground">
       <span className="flex items-center gap-1.5">
         <Clock className="w-3.5 h-3.5 shrink-0" />
-        <span>
+        <span
+          title={
+            `${changes.toLocaleString("pt-BR")} linhas de alteração: uma por veículo e atributo que mudou. ` +
+            `${grupos.toLocaleString("pt-BR")} tipos de alteração: o mesmo atributo em vários veículos conta uma vez — ` +
+            "é o que a tabela de Principais alterações lista e o que as abas de equipamento somam. " +
+            `${vehiclesTouched.toLocaleString("pt-BR")} ${veiculos}: ` +
+            (veiculosDeduplicados
+              ? "o mesmo veículo conta uma vez, mesmo tendo várias alterações."
+              : "soma das unidades, sem deduplicar entre elas — é uma aproximação, não uma contagem de ativos distintos.")
+          }
+        >
           <strong className="text-foreground tabular-nums">{changes.toLocaleString("pt-BR")}</strong>{" "}
-          {changes === 1 ? "alteração detectada" : "alterações detectadas"} desde a competência
-          anterior
+          {changes === 1 ? "alteração detectada" : "alterações detectadas"}
           {vehiclesTouched > 0 && (
             <>
-              {" "}
-              ·{" "}
+              {" em "}
               <strong className="text-foreground tabular-nums">
                 {vehiclesTouched.toLocaleString("pt-BR")}
               </strong>{" "}
-              {vehiclesTouched === 1 ? "veículo afetado" : "veículos afetados"}
+              {veiculos}
             </>
           )}
+          {grupos > 0 && (
+            <>
+              {", em "}
+              <strong className="text-foreground tabular-nums">
+                {grupos.toLocaleString("pt-BR")}
+              </strong>{" "}
+              {grupos === 1 ? "tipo de alteração" : "tipos de alteração"}
+            </>
+          )}
+          {" — desde a vigência anterior"}
         </span>
       </span>
       <span className="flex items-center gap-1.5 shrink-0">
@@ -645,7 +710,15 @@ function Indicadores({
 }) {
   return (
     <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
-      <Cartao icone={TrendingDown} titulo="Perdas mensais">
+      <Cartao
+        icone={TrendingDown}
+        titulo="Perdas mensais"
+        explicacao={
+          `Soma só do que reduziu a remuneração, na periodicidade dominante. ` +
+          "Cobre a vigência inteira — todas as alterações precificadas, e não só as " +
+          "linhas da tabela de Principais alterações."
+        }
+      >
         {principal ? (
           <div className="flex items-end justify-between gap-2">
             <p className="text-3xl font-extrabold tabular-nums text-red-700">
@@ -665,7 +738,15 @@ function Indicadores({
         )}
       </Cartao>
 
-      <Cartao icone={TrendingUp} titulo="Ganhos mensais">
+      <Cartao
+        icone={TrendingUp}
+        titulo="Ganhos mensais"
+        explicacao={
+          `Soma só do que aumentou a remuneração, na periodicidade dominante. ` +
+          "Cobre a vigência inteira — todas as alterações precificadas, e não só as " +
+          "linhas da tabela de Principais alterações."
+        }
+      >
         {principal ? (
           <div className="flex items-end justify-between gap-2">
             <p className="text-3xl font-extrabold tabular-nums text-emerald-700">
@@ -685,7 +766,17 @@ function Indicadores({
         )}
       </Cartao>
 
-      <Cartao icone={ReceiptText} titulo="Impacto líquido" destaque className="min-w-0">
+      <Cartao
+        icone={ReceiptText}
+        titulo="Impacto líquido"
+        explicacao={
+          "Ganhos menos perdas da vigência inteira, na mesma periodicidade. É o mesmo " +
+          "número que a barra de líquido do gráfico marca na vigência aberta, e o mesmo " +
+          "que as famílias de Maiores impactos somam."
+        }
+        destaque
+        className="min-w-0"
+      >
         {principal ? (
           <>
             <p
@@ -706,7 +797,15 @@ function Indicadores({
         )}
       </Cartao>
 
-      <Cartao icone={Gauge} titulo="Cobertura financeira">
+      <Cartao
+        icone={Gauge}
+        titulo="Cobertura financeira"
+        explicacao={
+          "Fração das linhas de alteração da vigência que já viraram dinheiro — o mesmo " +
+          "universo do primeiro número da faixa do topo, e não o dos tipos de alteração " +
+          "que a tabela lista."
+        }
+      >
         {cobertura ? (
           <div className="flex items-center gap-3">
             <AnelDeCobertura percentual={cobertura.percentual} />
@@ -732,18 +831,22 @@ function Indicadores({
 function Cartao({
   icone: Icone,
   titulo,
+  explicacao,
   children,
   className,
   destaque = false,
 }: {
   icone: typeof FileText;
   titulo: string;
+  /** O universo que o cartão mede, por extenso — ver `Indicador.titulo`. */
+  explicacao?: string;
   children: React.ReactNode;
   className?: string;
   destaque?: boolean;
 }) {
   return (
     <section
+      title={explicacao}
       className={cn(
         CARTAO,
         "p-5 flex flex-col overflow-hidden",
@@ -763,7 +866,7 @@ function Cartao({
 }
 
 // ---------------------------------------------------------------------------
-// Maiores impactos desta competência — antiga "Onde a Ambev alterou"
+// Maiores impactos desta vigência — antiga "Onde a Ambev alterou"
 // ---------------------------------------------------------------------------
 
 /**
@@ -803,14 +906,16 @@ function MaioresImpactos({ view }: { view: FamiliesView }) {
   return (
     <section className={cn(CARTAO, "px-6 py-5 flex flex-col h-full")}>
       <div className="flex items-center gap-2 mb-1">
-        <h2 className="text-base font-bold">Maiores impactos desta competência</h2>
+        <h2 className="text-base font-bold">Maiores impactos desta vigência</h2>
         {dominante && comImpacto.length > 0 && (
           <span className="text-xs font-semibold text-muted-foreground">
             em R${periodicitySuffix(dominante)}
           </span>
         )}
       </div>
-      <p className="text-xs text-muted-foreground mb-4">Por família da remuneração.</p>
+      <p className="text-xs text-muted-foreground mb-4">
+        Por família da remuneração — o líquido de cada uma (ganhos menos perdas), até cinco.
+      </p>
 
       {comImpacto.length > 0 ? (
         <ol className="space-y-3.5 flex-1">
@@ -993,12 +1098,22 @@ function Indicador({
   tom,
   valor,
   rotulo,
+  titulo,
   ordem = "valor-rotulo",
 }: {
   icone: LucideIcon;
   tom: keyof typeof TOM_INDICADOR;
   valor: React.ReactNode;
   rotulo: string;
+  /**
+   * O universo que o número mede, por extenso.
+   *
+   * Não é decoração: três indicadores lado a lado com "alterações",
+   * "veículos" e "impacto" cabem em duas palavras cada, e duas palavras não
+   * distinguem "as 8 linhas que você está vendo" de "as 355 da vigência". O
+   * rótulo diz o que é, e isto diz de onde saiu.
+   */
+  titulo?: string;
   ordem?: "valor-rotulo" | "rotulo-valor";
 }) {
   const linhas =
@@ -1014,13 +1129,46 @@ function Indicador({
       </>
     );
   return (
-    <div className="flex items-center gap-2.5 rounded-lg border bg-card px-3.5 py-2.5">
+    <div
+      className="flex items-center gap-2.5 rounded-lg border bg-card px-3.5 py-2.5"
+      title={titulo}
+    >
       <span className={cn("w-9 h-9 rounded-full flex items-center justify-center shrink-0", TOM_INDICADOR[tom])}>
         <Icone className="w-4 h-4" strokeWidth={2.25} />
       </span>
       <div>{linhas}</div>
     </div>
   );
+}
+
+/**
+ * Quantos veículos **distintos** as linhas visíveis tocaram — a união dos
+ * ativos, e nunca a soma de `grupo.vehicles`.
+ *
+ * Somar era o que estava no ar, e o número resultante não tinha nome: oito
+ * linhas rendiam "42 veículos impactados" ao lado de "91 veículos afetados" na
+ * faixa de cima, e os dois diziam "veículos". 42 não era um subconjunto de 91
+ * — era 91 contado várias vezes e cortado em oito linhas, porque o mesmo
+ * caminhão entra uma vez em cada atributo que mudou nele. A soma podia até
+ * passar a frota inteira.
+ *
+ * A união só é possível porque o grupo carrega **quais** ativos
+ * (`entityIds`), e não só quantos. São as mesmas chaves que o servidor usa em
+ * `totals.vehiclesTouched`, então este número é comparável com o da faixa: é
+ * sempre um subconjunto dele.
+ *
+ * `null` quando algum grupo chega sem `entityIds` — resposta de uma versão
+ * anterior da API ainda em cache. Uma união parcial subestimaria em silêncio,
+ * e este produto não publica número que não sabe defender: a tela diz que não
+ * sabe.
+ */
+export function veiculosDistintos(grupos: ChangeGroup[]): number | null {
+  const ativos = new Set<string>();
+  for (const grupo of grupos) {
+    if (!Array.isArray(grupo.entityIds)) return null;
+    for (const id of grupo.entityIds) ativos.add(id);
+  }
+  return ativos.size;
 }
 
 /**
@@ -1081,10 +1229,12 @@ function PrincipaisAlteracoes({
   const abas = abasDeEquipamento(ordenados);
   const [escolhida, escolher] = useState<string | null>(null);
   const ativa = abas.find((aba) => aba.chave === escolhida) ?? abas[0];
-  const grupos = (ativa ? ativa.grupos : ordenados).slice(0, 8);
+  const daAba = ativa ? ativa.grupos : ordenados;
+  const grupos = daAba.slice(0, 8);
   const daVigencia = { ...recorte, period: view.period };
-  const totalVeiculos = grupos.reduce((soma, g) => soma + g.vehicles, 0);
+  const veiculos = veiculosDistintos(grupos);
   const impacto = impactoLiquidoDaTabela(grupos);
+  const escopo = ativa && abas.length > 1 ? ` de ${ativa.rotulo}` : "";
 
   return (
     <section className={cn(CARTAO, "px-6 py-5 flex flex-col h-full")}>
@@ -1092,7 +1242,8 @@ function PrincipaisAlteracoes({
         <div>
           <h2 className="text-base font-bold">Principais alterações</h2>
           <p className="text-xs text-muted-foreground mt-1">
-            Na ordem do Acompanhamento — dinheiro e criticidade primeiro.
+            Na ordem do Acompanhamento — dinheiro e criticidade primeiro. Uma linha por tipo
+            de alteração (atributo × equipamento), não por veículo.
           </p>
         </div>
 
@@ -1101,14 +1252,31 @@ function PrincipaisAlteracoes({
             <Indicador
               icone={SlidersHorizontal}
               tom="azul"
-              valor={grupos.length}
-              rotulo={grupos.length === 1 ? "alteração" : "alterações"}
+              valor={`${grupos.length} de ${daAba.length}`}
+              rotulo={`tipos de alteração${escopo} exibidos`}
+              titulo={
+                `A tabela mostra no máximo os 8 de maior prioridade. ${daAba.length} ` +
+                `${daAba.length === 1 ? "tipo de alteração existe" : "tipos de alteração existem"}` +
+                `${escopo} nesta vigência${
+                  abas.length > 1 ? ` (${abas.map((a) => `${a.rotulo} ${a.grupos.length}`).join(", ")})` : ""
+                }. Um tipo é um atributo num equipamento; a faixa do topo conta linhas — ` +
+                "uma por veículo e atributo —, por isso o número de lá é maior."
+              }
             />
             <Indicador
               icone={Truck}
               tom="violeta"
-              valor={totalVeiculos.toLocaleString("pt-BR")}
-              rotulo="veículos impactados"
+              valor={veiculos === null ? "—" : veiculos.toLocaleString("pt-BR")}
+              rotulo={
+                veiculos === null
+                  ? "veículos — recarregue a página"
+                  : "veículos distintos nas linhas exibidas"
+              }
+              titulo={
+                veiculos === null
+                  ? "Esta resposta veio de uma versão anterior da API, sem a identidade dos ativos. Sem ela, só daria para somar as linhas — e a soma contaria o mesmo veículo uma vez por alteração."
+                  : "Ativos distintos tocados pelas linhas acima: o mesmo veículo conta uma vez, mesmo aparecendo em várias delas. É um subconjunto dos veículos distintos da faixa do topo, que cobre a vigência inteira."
+              }
             />
             <Indicador
               icone={impacto && !impacto.misturado && impacto.total < 0 ? TrendingDown : TrendingUp}
@@ -1120,7 +1288,12 @@ function PrincipaisAlteracoes({
                     : "positivo"
               }
               ordem="rotulo-valor"
-              rotulo="Impacto líquido"
+              rotulo="Impacto líquido das linhas exibidas"
+              titulo={
+                "Soma do impacto das linhas acima, e só delas — trocar de aba ou de vigência " +
+                "troca este número junto. O Impacto líquido dos cartões do topo cobre a " +
+                "vigência inteira, e é sempre o número maior."
+              }
               valor={
                 impacto === null ? (
                   "sem preço"
@@ -1144,7 +1317,13 @@ function PrincipaisAlteracoes({
         <Tabs value={ativa.chave} onValueChange={escolher} className="mb-4">
           <TabsList>
             {abas.map((aba) => (
-              <TabsTrigger key={aba.chave} value={aba.chave}>
+              <TabsTrigger
+                key={aba.chave}
+                value={aba.chave}
+                title={`${aba.grupos.length} ${
+                  aba.grupos.length === 1 ? "tipo de alteração" : "tipos de alteração"
+                } em ${aba.rotulo} nesta vigência. As abas somam os tipos, não as linhas: a faixa do topo conta uma linha por veículo e atributo, e por isso é um número maior.`}
+              >
                 {aba.rotulo}
                 <span className="ml-1.5 tabular-nums text-xs text-muted-foreground">
                   {aba.grupos.length}

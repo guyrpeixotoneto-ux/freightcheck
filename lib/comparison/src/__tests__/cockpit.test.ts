@@ -32,6 +32,7 @@ function group(overrides: Partial<ChangeGroup> = {}): ChangeGroup {
     comparability: "COMPARABLE",
     changes: 1,
     vehicles: 1,
+    entityIds: ["entidade-1"],
     fleet: 62,
     coverage: "PARCIAL",
     coverageLabel: "1 de 62 cavalos",
