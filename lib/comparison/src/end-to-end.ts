@@ -13,6 +13,7 @@ import { FAMILIES, placementOf, type FamilyCode } from "./families";
 import type { ParameterRollup } from "./families-view";
 import {
   buildGroup,
+  chaveDaFrota,
   compareGroups,
   groupKey,
   summariseImpact,
@@ -252,6 +253,37 @@ export async function getEndToEndAnalysis(
     })),
   ];
 
+  /*
+    A frota por (snapshot, equipamento) das pontas finais — o denominador de
+    cobertura de cada grupo. Mesma conta da leitura por vigência: ativos
+    *daquele equipamento* com fato visível no snapshot. Ver a nota em
+    `families-view.ts` sobre por que a pergunta é feita ao ativo, e não aos
+    fatos.
+  */
+  const { rows: frotasPorTipo } = await db.execute<{
+    snapshot_id: string;
+    entity_type: string;
+    fleet: number;
+  }>(sql`
+    SELECT s.id::text AS snapshot_id,
+           e.entity_type,
+           count(*)::int AS fleet
+      FROM snapshot s
+      JOIN entity e ON EXISTS (
+             SELECT 1 FROM fato_visivel f
+              WHERE f.snapshot_id = s.id AND f.entity_id = e.id
+           )
+     WHERE s.effective_date = ${fim}::date
+       AND s.status <> 'SUPERSEDED'
+       AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
+       AND ${contextFilter("s", context)}
+     GROUP BY s.id, e.entity_type
+  `);
+  const frotasDaPonta = (snapshotId: string) =>
+    frotasPorTipo
+      .filter((f) => f.snapshot_id === snapshotId)
+      .map((f) => [f.entity_type, f.fleet] as const);
+
   const semanticsA = await loadAttributeClassificationsAt(db, inicio);
   const semanticsB = await loadAttributeClassificationsAt(db, fim);
 
@@ -277,11 +309,20 @@ export async function getEndToEndAnalysis(
     entitiesCompared += b.entity_count - diff.entitiesAdded;
     /*
       `buildGroup` usa a frota da série para dizer a cobertura do grupo, e a
-      chave que ele consulta é o `change_set_id` da linha. Aqui não existe
-      `change_set` — o nome da série ocupa esse lugar, que é o que a chave
+      chave que ele consulta é (comparação, equipamento). Aqui não existe
+      `change_set` — o nome da série ocupa o primeiro lugar, que é o que a chave
       significa nesta leitura: de qual arquivo aquele grupo veio.
+
+      O segundo lugar é o equipamento, e ele não é decorativo: uma série
+      `CAVALO+CARRETA` tem duas frotas, e `snapshot.entity_count` — que ocupava
+      esta linha — é a soma das duas. Medir a cobertura de um atributo de cavalo
+      contra cavalos e carretas juntos infla o denominador; escrever a chave sem
+      o equipamento fazia o `get` errar sempre e desabava o denominador para o
+      próprio grupo. Os dois erros moravam nesta linha só.
     */
-    fleetByChangeSet.set(serie, b.entity_count);
+    for (const [entityType, frota] of frotasDaPonta(b.id)) {
+      fleetByChangeSet.set(chaveDaFrota(serie, entityType), frota);
+    }
   }
 
   // ---- traduz para a forma que o agrupamento já sabe ler --------------------

@@ -221,18 +221,18 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
         "fechamento_referencia_conteudo",
         "fechamento_referencia_linha",
         /*
-          A frota Promax (`0056`) e o total do pagamento (`0057`) — duas leituras
-          novas do mesmo documento de fechamento. Aditivas como as demais:
-          nenhuma tabela existente muda de forma, e Production as ganha quando o
-          servidor novo aplicar a fila na partida.
+          A frota Promax, da `0056`, e o total do pagamento, da `0057` — as duas
+          últimas filhas do documento de fechamento. Aditivas como as demais:
+          Production não tem nenhuma das tabelas desse ambiente, e elas chegam
+          inteiras quando o servidor novo aplicar a fila na partida.
         */
         "fechamento_frota_promax",
         "fechamento_pagamento_total",
         /*
-          A justificativa, da `0058`/`0059` — por que o gestor deixou registrado
-          que uma placa mudou daquele jeito. Aditiva pelo mesmo critério, e a
-          única desta lista que não é do Fechamento: ela pende de `change` e
-          `change_set`, que Production já tem.
+          A justificativa, da `0058`/`0059` — a frase que explica uma alteração.
+          Aditiva pelo mesmo critério: tabela nova, que Production ganha pela
+          fila. O que ela guarda é decisão humana, e é por isso que o `down` do
+          bridge exige encontrá-la vazia antes de derrubá-la.
         */
         "justificativa",
       ]),
@@ -249,22 +249,6 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
       o que faz este diff atravessável — o servidor novo aplica a fila na partida
       e Production as ganha lá.
 
-      As sete seguintes são da ocultação de importação e do progresso da leitura.
-      Quatro delas — as três `hidden_*` da `0060` e `progress_step` da `0062` —
-      são aditivas e nulas como as cinco acima. As outras três não são, e é
-      justamente por isso que estão escritas aqui separadas:
-
-      - `progress_done` e `progress_total` (`0062`) são `NOT NULL` **com
-        default**: Production as ganha preenchidas com zero, que é a resposta
-        certa para uma leitura terminada antes de a medida existir;
-      - `fact.origin_import_run_id` (`0061`) é `NOT NULL` **sem** default, a
-        forma mais dura. Ela atravessa porque a própria `0061` a atravessa: a
-        coluna nasce nula, recebe a origem pela cadeia `raw_cell → raw_sheet`,
-        e só então é trancada. Nenhum passo disso é do diff — é da fila.
-
-      As três estão fora da `ALLOWLIST` do bridge pelo mesmo motivo, e é o `up`
-      (e a `0063`) que as repõe depois de um `down`.
-
       Prendê-las aqui é o ponto: uma coluna nova que apareça neste diff sem
       alguém ter vindo escrevê-la nesta linha é uma mudança de schema que
       ninguém avaliou contra a política de deploy.
@@ -276,13 +260,40 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
         "import_run.reprocess_reason",
         "assistant_message.trace",
         "attribute.change_rule",
+        /*
+          As três da `0060` — ocultar uma importação dos agregados. Aditivas e
+          nulas como as cinco acima: `NULL` em `hidden_at` é "esta importação
+          conta", que é o estado de toda importação que ninguém escondeu.
+        */
         "import_run.hidden_at",
         "import_run.hidden_by",
         "import_run.hidden_reason",
+        /*
+          A origem do fato, da `0061` — e esta **não** é aditiva e nula, que é
+          a informação que esta linha existe para dar.
+
+          A coluna é `NOT NULL`, e a `0061` só a fecha depois de um backfill
+          pela cadeia `raw_cell → raw_row → raw_sheet → import_run` e de uma
+          conferência linha a linha. O gerador do Publishing não sabe nada
+          disso: a proposta dele para esta coluna é um `ADD COLUMN` que a
+          primeira linha de `fact` em Production recusaria.
+
+          É exatamente por isso que a política deste cenário é **recusar a
+          proposta** e deixar a fila aplicar na partida — e o dia em que
+          alguém aceitá-la, é aqui que está escrito por que não devia.
+        */
+        "fact.origin_import_run_id",
+        /*
+          As três da `0062` — o progresso da leitura. `progress_step` é nula;
+          as outras duas são `NOT NULL DEFAULT 0`, e o default é o que as torna
+          aplicáveis mesmo assim: o Postgres não reescreve a tabela, e zero é a
+          verdade sobre uma leitura que não está acontecendo. Ainda assim
+          valem a mesma regra das de cima: quem aplica a fila é o servidor
+          novo, não o Provision.
+        */
         "import_run.progress_step",
         "import_run.progress_done",
         "import_run.progress_total",
-        "fact.origin_import_run_id",
         /*
           A coluna que a `0046` acrescentou a `fechamento_competencia` **não**
           entra aqui, e a ausência é a informação: o diff a reporta pela tabela,
@@ -311,11 +322,7 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
             /* A `unidade`, da `0049`, pela mesma regra: as constraints dela vêm
                junto com a tabela nova, e nomeá-las uma a uma congelaria a
                nomenclatura interna num teste que não fala sobre ela. */
-            !c.startsWith("unidade_") &&
-            /* A `justificativa`, da `0058`/`0059`, pela mesma regra das
-               anteriores: chave primária e as duas estrangeiras vêm junto com a
-               tabela nova. */
-            !c.startsWith("justificativa_"),
+            !c.startsWith("unidade_"),
         ),
       ),
     ).toEqual(
@@ -327,48 +334,42 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
         "import_run_reprocess_of_fk",
         "import_run_reprocess_completo",
         /*
-          A da `0061`, e esta é sobre tabela que já existe — por isso está aqui
-          nomeada, e não coberta pelo filtro de prefixo acima. É aditiva pelo
-          mesmo argumento das duas de cima: a FK nasce sobre uma coluna que a
-          própria `0061` acabou de preencher pela cadeia, então não há linha em
-          Production que ela possa recusar.
+          A FK da origem do fato, da `0061`, e as três da justificativa, da
+          `0058`/`0059`. Vêm com as colunas e a tabela novas, e nascem sobre
+          dado que Production não tem — não há linha lá que elas possam
+          recusar.
+
+          A chave primária da justificativa aparece nominalmente porque o
+          filtro acima só dispensa as constraints das tabelas do Fechamento, da
+          remuneração e da unidade: nomear é o preço de a tabela nova não estar
+          entre essas famílias, e é ele que faz uma constraint inesperada
+          continuar aparecendo neste teste.
         */
         "fact_origin_import_run_id_import_run_id_fk",
+        "justificativa_pkey",
+        "justificativa_change_set_id_fk",
+        "justificativa_change_id_fk",
       ]),
     );
 
     // A partida do servidor novo: exatamente as migrations que faltavam.
     const report = await runMigrations(prod.url);
     expect(report.failure).toBeUndefined();
-    expect(report.applied).toEqual([
-      "0037_papeis",
-      "0038_reconciliar_papeis",
-      "0039_fechamento",
-      "0040_reprocessamento",
-      "0041_reconciliar_reprocessamento",
-      "0042_viagem_completa",
-      "0043_pagamento",
-      "0044_partes_cadastradas",
-      "0045_planilha_de_remuneracao",
-      "0046_tipo_de_operacao",
-      "0047_conteudo_da_importacao",
-      "0048_unidade_sem_acervo",
-      "0049_unidade_canonica",
-      "0050_reconciliar_unidade_canonica",
-      "0051_referencia_da_planilha",
-      "0052_reconciliar_referencia_da_planilha",
-      "0053_rastro_da_resposta",
-      "0054_regra_de_alteracao",
-      "0055_disponibilidade_por_frota",
-      "0056_frota_promax",
-      "0057_total_do_pagamento",
-      "0058_justificativa",
-      "0059_justificativa_por_alteracao",
-      "0060_ocultar_import_run",
-      "0061_origem_do_fato",
-      "0062_progresso_da_leitura",
-      "0063_reconciliar_ocultacao",
-    ]);
+    /*
+      A fila inteira a partir da `0037`, e nem uma a menos.
+
+      Estava escrita à mão e parou na `0055`: as sete migrations seguintes
+      derrubavam este teste sem que houvesse defeito no que ele mede — a falha
+      dizia "0056 sobrando" sobre uma partida que aplicou exatamente o que
+      devia. O que a prova quer é que o servidor novo aplique **tudo** o que
+      faltava, em ordem; quem sabe isso é o journal, e a lista literal apenas
+      o repetia com direito a discordar dele.
+    */
+    const daFilaAPartirDa0037 = readMigrations()
+      .map((m) => m.tag)
+      .filter((tag) => tag >= "0037_papeis");
+    expect(daFilaAPartirDa0037[0]).toBe("0037_papeis");
+    expect(report.applied).toEqual(daFilaAPartirDa0037);
 
     // Preservação + backfill: as três contas continuam com o hash original e
     // viram ADMIN — era o que todas já podiam fazer.

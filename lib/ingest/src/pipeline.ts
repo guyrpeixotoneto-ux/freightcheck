@@ -1,6 +1,17 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
+import {
+  and,
+  Column,
+  desc,
+  eq,
+  getTableColumns,
+  inArray,
+  is,
+  ne,
+  SQL,
+  sql,
+} from "drizzle-orm";
 import type { Database } from "@workspace/db";
 import {
   codigoDoPostgres,
@@ -331,31 +342,290 @@ const AVISO_DE_CELULA: Record<
 };
 
 /** Postgres caps a statement at 65535 bound parameters. */
-const INSERT_CHUNK = 1_000;
+const MAX_BIND_PARAMS = 65_535;
+
+/**
+ * Margem sobre o teto, para o que o drizzle vincula além das chaves escritas.
+ *
+ * A conta abaixo mede as colunas que *este* código escreve. Uma coluna com
+ * valor gerado no cliente (`$defaultFn`) entra como parâmetro sem aparecer nas
+ * chaves, e encostar no teto exato faria o statement estourar em produção por
+ * uma coluna que ninguém somou. Dez por cento de folga cabem várias delas.
+ */
+const FOLGA_DE_PARAMETROS = 0.9;
+
+/**
+ * Teto de linhas por statement, independente de quantas colunas cabem.
+ *
+ * Existe pela memória: um statement de dezenas de milhares de linhas monta a
+ * query inteira como string antes de mandar. O ganho de round-trip já está
+ * quase todo tomado bem antes disso.
+ */
+const MAX_LINHAS_POR_STATEMENT = 10_000;
+
+/**
+ * Quantas linhas cabem num INSERT — pelas colunas que ele escreve.
+ *
+ * Era 1.000 fixo, escolhido para nunca chegar perto do teto com a tabela mais
+ * larga; o preço era a tabela estreita mandar dez statements onde cabia um. A
+ * conta é a do protocolo: 65.535 parâmetros por statement, divididos pelas
+ * colunas de uma linha. Uma tabela larga continua com lote pequeno — o limite
+ * é o mesmo de antes —, e uma estreita passa a usar o espaço que sempre teve.
+ *
+ * Isto vale para o caminho de sempre. O volume — dezenas de milhares de linhas
+ * — não passa por aqui: vai pelo INSERT em massa logo abaixo, onde o número de
+ * parâmetros não depende do número de linhas.
+ */
+function linhasPorStatement(rows: Record<string, unknown>[]): number {
+  const colunas = new Set<string>();
+  for (const row of rows) {
+    for (const coluna of Object.keys(row)) colunas.add(coluna);
+  }
+  const porLinha = Math.max(1, colunas.size);
+  return Math.max(
+    1,
+    Math.min(
+      MAX_LINHAS_POR_STATEMENT,
+      Math.floor((MAX_BIND_PARAMS * FOLGA_DE_PARAMETROS) / porLinha),
+    ),
+  );
+}
+
+/**
+ * A partir de quantas linhas vale a pena montar o INSERT por colunas.
+ *
+ * Abaixo disso o caminho normal do drizzle é mais barato de ler e não custa
+ * nada de medível: o problema que o caminho em massa resolve só aparece nas
+ * dezenas de milhares de valores.
+ */
+const LINHAS_PARA_INSERIR_EM_MASSA = 200;
+
+/** Linhas por statement no caminho em massa — o limite aqui é memória, não protocolo. */
+const MAX_LINHAS_EM_MASSA = 20_000;
+
+/**
+ * O INSERT em massa: uma array por coluna, e `unnest` monta as linhas no banco.
+ *
+ * ---------------------------------------------------------------------------
+ * Por que não é o INSERT de várias linhas que o drizzle escreve
+ * ---------------------------------------------------------------------------
+ * `VALUES ($1,$2,…),($8,$9,…)` gasta um parâmetro por célula. Uma planilha de
+ * 14 mil linhas por dez colunas são 140 mil células, e cada parâmetro passa
+ * pelo construtor de SQL do drizzle — que, para cada um, pergunta o que ele é.
+ * Medido num Postgres local, a leitura inteira levava 33s, e **15s** eram
+ * exatamente isso: montar a string do INSERT em JavaScript. O banco respondia
+ * em menos de um segundo. Aumentar o chunk não resolve; o custo é por valor,
+ * não por statement.
+ *
+ * Uma array por coluna troca 140 mil parâmetros por sete — um por coluna,
+ * qualquer que seja o número de linhas. A montagem deixa de aparecer no perfil,
+ * e o statement que chega ao banco é curto: o volume viaja como dado, não como
+ * texto de query.
+ *
+ * ---------------------------------------------------------------------------
+ * Onde este caminho se recusa a rodar
+ * ---------------------------------------------------------------------------
+ * `unnest` escreve exatamente as colunas listadas: não existe `DEFAULT` no meio
+ * de uma array. Então ele só aceita lotes **uniformes** — todas as linhas com
+ * as mesmas chaves. Uma linha que omite uma chave que outra tem está pedindo o
+ * default do banco para uma e um valor para a outra, e isso o caminho normal
+ * do drizzle sabe fazer e este não. Chave que não é coluna, ou valor que já é
+ * um fragmento de SQL, caem pela mesma porta. `null` continua sendo `null`:
+ * ausência declarada não é o mesmo que chave ausente.
+ *
+ * Coluna que a linha nunca menciona fica fora da lista do INSERT, e o banco
+ * aplica o default dela — igual ao que o drizzle faria.
+ */
+function planoEmMassa<T extends Record<string, unknown>>(
+  table: Parameters<Database["insert"]>[0],
+  rows: T[],
+): { chave: string; coluna: Column }[] | null {
+  if (rows.length < LINHAS_PARA_INSERIR_EM_MASSA) return null;
+
+  const colunas = getTableColumns(table);
+  const chaves = Object.keys(rows[0]);
+  if (chaves.length === 0) return null;
+
+  const plano: { chave: string; coluna: Column }[] = [];
+  for (const chave of chaves) {
+    const coluna = colunas[chave];
+    if (!coluna) return null;
+    // Coluna que já é array não cabe aqui: a array de valores viraria uma
+    // dimensão a mais, e `unnest` devolveria os elementos soltos em vez das
+    // linhas. Uma coluna dessas manda o lote inteiro pelo caminho de sempre.
+    if (coluna.getSQLType().endsWith("[]")) return null;
+    plano.push({ chave, coluna });
+  }
+
+  const esperadas = new Set(chaves);
+  for (const row of rows) {
+    const suas = Object.keys(row);
+    if (suas.length !== esperadas.size) return null;
+    for (const chave of suas) {
+      if (!esperadas.has(chave)) return null;
+      if (is(row[chave], SQL) || is(row[chave], SQL.Aliased)) return null;
+    }
+  }
+
+  return plano;
+}
+
+/** As arrays de um lote, já no formato que o driver manda: uma por coluna. */
+function arraysDoLote<T extends Record<string, unknown>>(
+  plano: { chave: string; coluna: Column }[],
+  lote: T[],
+): SQL {
+  return sql.join(
+    plano.map(({ chave, coluna }) => {
+      const valores = lote.map((row) => {
+        const valor = row[chave];
+        return valor === undefined || valor === null
+          ? null
+          : coluna.mapToDriverValue(valor);
+      });
+      return sql`${sql.param(valores)}::${sql.raw(coluna.getSQLType())}[]`;
+    }),
+    sql`, `,
+  );
+}
+
+function comandoEmMassa<T extends Record<string, unknown>>(
+  table: Parameters<Database["insert"]>[0],
+  plano: { chave: string; coluna: Column }[],
+  lote: T[],
+): SQL {
+  const nomes = sql.join(
+    plano.map(({ coluna }) => sql.identifier(coluna.name)),
+    sql`, `,
+  );
+  return sql`insert into ${table} (${nomes}) select * from unnest(${arraysDoLote(plano, lote)})`;
+}
+
+/**
+ * Afinações da leitura — o número medido, e um nome para desmedi-lo.
+ *
+ * As três constantes abaixo saíram de benchmark, não de intuição, e cada uma
+ * lê uma variável de ambiente com o mesmo nome do que ela afina. Não é
+ * configuração de produto: é o que permite ao `perfil-de-importacao` rodar o
+ * cenário anterior e o novo no mesmo binário e comparar os dois sem `git
+ * stash` no meio. Ninguém precisa definir nenhuma delas para o produto
+ * funcionar — o padrão é o número escolhido. Mesma forma do `limite()` que
+ * `@workspace/db` usa para o pool.
+ */
+function afinacao(nome: string, padrao: number): number {
+  const bruto = Number(process.env[nome]);
+  return Number.isFinite(bruto) && bruto >= 0 ? bruto : padrao;
+}
 
 /**
  * De quantas linhas por vez a captura materializa células.
  *
- * O número não é sobre o banco — `insertChunked` já quebra por
- * {@link INSERT_CHUNK} —, é sobre memória e sobre progresso: é o tamanho do
- * pedaço de planilha que fica vivo de uma vez, e a granularidade com que a
- * barra do cartão pode andar. Duzentas linhas de uma planilha larga são alguns
- * milhares de células por volta, e num arquivo de 40 mil linhas dão 200
- * oportunidades de publicar — mais do que as ~100 que
- * `devePublicar` deixa passar, que é o que se quer: quem decide a frequência
- * é o relator, não o tamanho do bloco.
+ * O número não é sobre o banco — `insertChunked` já quebra pelo teto de
+ * parâmetros —, é sobre memória e sobre progresso: é o tamanho do pedaço de
+ * planilha que fica vivo de uma vez.
+ *
+ * Era 200, e 200 linhas de uma planilha de dez colunas são 2.000 células: um
+ * statement por bloco, 71 statements num arquivo de 14 mil linhas. Localmente
+ * isso custa pouco; num banco de rede custa 71 vezes o RTT — medido, 1,8s a
+ * 25ms. Duas mil linhas fazem o mesmo trabalho em 7 statements e mantêm o
+ * bloco em 20 mil células vivas, que é o teto que o INSERT em massa já usa.
+ * A granularidade da barra não vem daqui: quem decide a frequência de
+ * publicação é o relator, e ele publica por passo e por tempo.
  */
-const LINHAS_POR_BLOCO = 200;
+const LINHAS_POR_BLOCO = afinacao("IMPORT_LINHAS_POR_BLOCO", 2_000);
 
+/**
+ * Quantas escritas em massa podem estar no ar ao mesmo tempo.
+ *
+ * Um por padrão: a leitura escreve em série, como sempre escreveu. O número
+ * existe porque o benchmark precisa medir o contrário — e porque, se um dia a
+ * medição justificar, o lugar de mudar isso é uma linha, não um refatoramento.
+ *
+ * Cada escrita em voo ocupa uma conexão do mesmo pool que atende a API
+ * (`DB_POOL_MAX`, dez por padrão). Duas importações simultâneas com quatro
+ * conexões cada tomariam oito das dez: é este o custo que o número esconde, e
+ * é por isso que ele não sobe sem medida de concorrência junto.
+ */
+/**
+ * De quantas em quantas linhas lidas o relator de progresso é avisado.
+ *
+ * Não é o passo de publicação — quem decide publicar é o relator, por passo do
+ * trecho e por tempo. É só a frequência com que ele fica sabendo, e ela
+ * precisa ser mais fina que o bloco de escrita para que uma planilha menor
+ * que um bloco não publique apenas 0% e 100%. Cem linhas dão cento e quarenta
+ * avisos num arquivo de 14 mil, e cada aviso que não vira escrita é uma
+ * comparação de inteiros.
+ */
+const LINHAS_POR_AVISO = 100;
+
+const CONEXOES_DE_ESCRITA = Math.max(
+  1,
+  Math.trunc(afinacao("IMPORT_CONEXOES_DE_ESCRITA", 1)),
+);
+
+/**
+ * Rodar tarefas com um teto de quantas ficam no ar ao mesmo tempo.
+ *
+ * `Promise.all` sobre tudo lançaria uma consulta por bloco de uma vez só e
+ * esvaziaria o pool; o teto é o que mantém a conta de conexões previsível.
+ * A primeira rejeição derruba a espera inteira, como faria a versão em série.
+ */
+async function emParalelo(
+  tarefas: (() => Promise<void>)[],
+  teto: number,
+): Promise<void> {
+  if (teto <= 1 || tarefas.length <= 1) {
+    for (const tarefa of tarefas) await tarefa();
+    return;
+  }
+  let proxima = 0;
+  const trabalhadores = Array.from(
+    { length: Math.min(teto, tarefas.length) },
+    async () => {
+      while (proxima < tarefas.length) {
+        const minha = tarefas[proxima++];
+        await minha();
+      }
+    },
+  );
+  await Promise.all(trabalhadores);
+}
+
+/**
+ * @param paralelismo Quantos statements deste lote podem estar no ar juntos.
+ *   Só o caminho em massa o usa, e **nunca** passe mais que 1 dentro de uma
+ *   transação: os statements de uma transação correm numa conexão só, e
+ *   dispará-los concorrentes os enfileiraria na mesma conexão — mais promessas
+ *   vivas, nenhum ganho. Quem escreve em transação aqui é a promoção.
+ */
 async function insertChunked<T extends Record<string, unknown>>(
   db: Database,
   table: Parameters<Database["insert"]>[0],
   rows: T[],
+  paralelismo = 1,
 ): Promise<void> {
-  for (let i = 0; i < rows.length; i += INSERT_CHUNK) {
+  if (rows.length === 0) return;
+
+  const plano = planoEmMassa(table, rows);
+  if (plano) {
+    const lotes: T[][] = [];
+    for (let i = 0; i < rows.length; i += MAX_LINHAS_EM_MASSA) {
+      lotes.push(rows.slice(i, i + MAX_LINHAS_EM_MASSA));
+    }
+    await emParalelo(
+      lotes.map((lote) => async () => {
+        await db.execute(comandoEmMassa(table, plano, lote));
+      }),
+      paralelismo,
+    );
+    return;
+  }
+
+  const chunk = linhasPorStatement(rows);
+  for (let i = 0; i < rows.length; i += chunk) {
     await db
       .insert(table)
-      .values(rows.slice(i, i + INSERT_CHUNK) as never)
+      .values(rows.slice(i, i + chunk) as never)
       .execute();
   }
 }
@@ -370,10 +640,55 @@ async function insertChunkedReturning<
   returning: R,
 ): Promise<Record<string, unknown>[]> {
   const out: Record<string, unknown>[] = [];
-  for (let i = 0; i < rows.length; i += INSERT_CHUNK) {
+  if (rows.length === 0) return out;
+
+  const plano = planoEmMassa(table, rows);
+  if (plano) {
+    const pedidas = Object.entries(returning).map(
+      ([apelido, coluna]) => [apelido, coluna as unknown as Column] as const,
+    );
+    const devolvidas = sql.join(
+      pedidas.map(
+        ([apelido, coluna]) =>
+          sql`${sql.identifier(coluna.name)} as ${sql.identifier(apelido)}`,
+      ),
+      sql`, `,
+    );
+    for (let i = 0; i < rows.length; i += MAX_LINHAS_EM_MASSA) {
+      const lote = rows.slice(i, i + MAX_LINHAS_EM_MASSA);
+      const resultado = await db.execute(
+        sql`${comandoEmMassa(table, plano, lote)} returning ${devolvidas}`,
+      );
+      /*
+        Traduzir o que o driver devolveu, coluna por coluna.
+
+        `db.execute` entrega o valor cru do Postgres — e um `bigserial` cru é
+        **string**, não número. O `.returning()` do drizzle converte; este
+        caminho, se não convertesse, devolveria `"42"` onde o outro devolve
+        `42`, e a diferença só apareceria longe daqui, no dia em que alguém
+        comparasse dois ids ou somasse um. É a mesma função que o drizzle usa,
+        pedida à mesma coluna.
+      */
+      for (const linha of resultado.rows as Record<string, unknown>[]) {
+        const convertida: Record<string, unknown> = {};
+        for (const [apelido, coluna] of pedidas) {
+          const valor = linha[apelido];
+          convertida[apelido] =
+            valor === null || valor === undefined
+              ? null
+              : coluna.mapFromDriverValue(valor);
+        }
+        out.push(convertida);
+      }
+    }
+    return out;
+  }
+
+  const chunk = linhasPorStatement(rows);
+  for (let i = 0; i < rows.length; i += chunk) {
     const batch = await db
       .insert(table)
-      .values(rows.slice(i, i + INSERT_CHUNK) as never)
+      .values(rows.slice(i, i + chunk) as never)
       .returning(returning as never);
     out.push(...(batch as Record<string, unknown>[]));
   }
@@ -911,6 +1226,37 @@ export async function captureRaw(
   const linhasPrevistas = plans.reduce((soma, p) => soma + (p.rowCount ?? 0), 0);
   const progresso = await abrirProgresso(db, importRunId, "CAPTURA", linhasPrevistas);
 
+  /*
+    As escritas em voo — no máximo {@link CONEXOES_DE_ESCRITA} ao mesmo tempo.
+
+    Com o padrão de uma, isto é exatamente o laço em série de sempre: entra
+    uma, o `race` espera por ela, sai. O que a fila acrescenta é a
+    possibilidade de medir o contrário sem outro caminho de código — e o teto
+    é o que impede que "medir o contrário" vire esvaziar o pool.
+
+    O erro de uma escrita não se perde nem vira rejeição sem dono: fica
+    guardado e é relançado na primeira parada, que é onde a falha da leitura
+    já era tratada.
+  */
+  const emVoo = new Set<Promise<void>>();
+  let falhaDaEscrita: unknown;
+  const escrever = async (tarefa: () => Promise<void>): Promise<void> => {
+    const promessa: Promise<void> = tarefa()
+      .catch((err) => {
+        falhaDaEscrita ??= err;
+      })
+      .finally(() => {
+        emVoo.delete(promessa);
+      });
+    emVoo.add(promessa);
+    if (emVoo.size >= CONEXOES_DE_ESCRITA) await Promise.race(emVoo);
+    if (falhaDaEscrita) throw falhaDaEscrita;
+  };
+  const esperarAsEscritas = async (): Promise<void> => {
+    await Promise.all(emVoo);
+    if (falhaDaEscrita) throw falhaDaEscrita;
+  };
+
   let totalRows = 0;
   let totalCells = 0;
 
@@ -966,6 +1312,7 @@ export async function captureRaw(
       colunas é a mesma, e `insertChunked` já quebrava por 1.000 de qualquer
       forma.
     */
+    let avisadas = 0;
     for (let inicio = range.s.r; inicio <= range.e.r; inicio += LINHAS_POR_BLOCO) {
       const fim = Math.min(inicio + LINHAS_POR_BLOCO - 1, range.e.r);
       const cells: {
@@ -979,6 +1326,26 @@ export async function captureRaw(
       }[] = [];
 
       for (let r = inicio; r <= fim; r++) {
+        /*
+          A barra anda enquanto se lê, e não só quando o bloco é gravado.
+
+          Com blocos grandes — e eles são grandes de propósito, para não
+          multiplicar idas ao banco —, avisar só depois da escrita faria uma
+          planilha menor que um bloco publicar exatamente dois números: 0% e
+          100%, que é o que o relator existe para acabar. Avisar por linha
+          lida separa as duas coisas que estavam presas uma na outra: o
+          tamanho do statement é sobre o banco, a granularidade da barra é
+          sobre quem olha.
+
+          O que a barra passa a afirmar é "linhas lidas", e não "linhas
+          gravadas" — a diferença é, no máximo, um bloco, e ela nunca vira
+          afirmação sobre dado que entrou: quem afirma isso é `raw_cell_count`,
+          escrito no fim, depois de toda escrita ter voltado do banco.
+        */
+        if ((r - inicio) % LINHAS_POR_AVISO === 0 && r > inicio) {
+          await progresso.avancar(LINHAS_POR_AVISO);
+          avisadas += LINHAS_POR_AVISO;
+        }
         const rawRowId = rowIdByIndex.get(r + 1)!;
         for (let c = range.s.c; c <= range.e.c; c++) {
           const cell = readCell(sheet, r, c);
@@ -1002,11 +1369,19 @@ export async function captureRaw(
         }
       }
 
-      await insertChunked(db, rawCellTable, cells);
       totalCells += cells.length;
-      await progresso.avancar(fim - inicio + 1);
+      const faltando = fim - inicio + 1 - avisadas;
+      if (faltando > 0) await progresso.avancar(faltando);
+      avisadas = 0;
+      await escrever(async () => {
+        await insertChunked(db, rawCellTable, cells, CONEXOES_DE_ESCRITA);
+      });
     }
   }
+
+  // O que ainda estiver no ar tem de estar no banco antes de a contagem ser
+  // escrita: é ela que afirma, para quem lê depois, quantas células existem.
+  await esperarAsEscritas();
 
   /*
     O trecho fecha cheio, e não no ponto em que a contagem parou.
@@ -1288,15 +1663,22 @@ export async function stage(
       .orderBy(rawRowTable.rowIndex);
     if (rows.length === 0) continue;
 
-    const rowIds = rows.map((r) => r.id);
-    const cells: (typeof rawCellTable.$inferSelect)[] = [];
-    for (let i = 0; i < rowIds.length; i += 500) {
-      const chunk = await db
-        .select()
-        .from(rawCellTable)
-        .where(inArray(rawCellTable.rawRowId, rowIds.slice(i, i + 500)));
-      cells.push(...chunk);
-    }
+    /*
+      As células da aba, numa consulta só.
+
+      Eram lotes de 500 ids: 14 mil linhas viravam 28 consultas, cada uma
+      carregando 500 parâmetros com os ids que o banco acabara de devolver.
+      A aba é o recorte que interessa, e `raw_row.raw_sheet_id` já é o caminho
+      até ela — perguntar pela aba pede uma vez o que pedir pelos ids pedia
+      vinte e oito.
+    */
+    const cells = (await db
+      .select(getTableColumns(rawCellTable))
+      .from(rawCellTable)
+      .innerJoin(rawRowTable, eq(rawCellTable.rawRowId, rawRowTable.id))
+      .where(
+        eq(rawRowTable.rawSheetId, sheet.id),
+      )) as (typeof rawCellTable.$inferSelect)[];
 
     const cellsByRow = new Map<number, Map<number, typeof rawCellTable.$inferSelect>>();
     for (const cell of cells) {
@@ -2188,7 +2570,12 @@ export async function stage(
     });
   }
 
-  await insertChunked(db, stagedFactTable, consolidados as never[]);
+  await insertChunked(
+    db,
+    stagedFactTable,
+    consolidados as never[],
+    CONEXOES_DE_ESCRITA,
+  );
   await insertChunked(
     db,
     validationIssueTable,

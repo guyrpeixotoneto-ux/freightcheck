@@ -119,7 +119,7 @@ export function DetalheDoImpacto({
         </header>
 
         <div className="flex-1 overflow-y-auto px-7 py-6 space-y-8">
-          <Origem detalhe={detalhe} period={period} />
+          <Origem detalhe={detalhe} period={period} recorte={recorte} />
           <ForaDoNumero detalhe={detalhe} recorte={daVigencia} />
 
           <section className="flex flex-wrap gap-3 border-t pt-6">
@@ -161,7 +161,16 @@ export function DetalheDoImpacto({
  * veio da planilha. Reaproveitá-lo não é economia de código: é a garantia de
  * que o grupo lido aqui e o grupo lido lá dizem a mesma coisa.
  */
-function Origem({ detalhe, period }: { detalhe: DetalheDeImpacto; period: string }) {
+function Origem({
+  detalhe,
+  period,
+  recorte,
+}: {
+  detalhe: DetalheDeImpacto;
+  period: string;
+  /** De quem é a origem — unidade e canal, que o cartão precisa no nível 2. */
+  recorte: Recorte;
+}) {
   return (
     <section>
       <h3 className="text-sm font-bold uppercase tracking-wide flex items-center gap-2">
@@ -185,7 +194,12 @@ function Origem({ detalhe, period }: { detalhe: DetalheDeImpacto; period: string
       ) : (
         <div className="mt-4 space-y-2.5">
           {detalhe.grupos.map((grupo) => (
-            <GroupCard key={grupo.key} group={grupo} period={period} />
+            <GroupCard
+              key={grupo.key}
+              group={grupo}
+              period={period}
+              recorte={recorte}
+            />
           ))}
         </div>
       )}

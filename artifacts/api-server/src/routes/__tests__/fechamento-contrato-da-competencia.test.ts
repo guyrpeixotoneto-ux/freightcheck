@@ -182,11 +182,12 @@ describe("GET /fechamento/lados", () => {
 
     expect(status).toBe(200);
     /*
-      Quatro, e não três: `CONFERENCIA_OPERACIONAL` entrou com a frota Promax e
-      é categoria própria de propósito — não é dinheiro nenhum, é contagem de
-      veículo contra o cadastro do contrato. Ver a nota de `ladoDaFonte` em
-      `lib/fechamento/src/dominio.ts`: tratá-la como mais um `FATURAMENTO` faria
-      uma leitura apressada somar veículos a reais.
+      Quatro, e não três, desde que a frota Promax entrou (`0056`): ela não
+      forma o devido nem demonstra o pagamento — é conferência operacional, e
+      foi por não ter lado próprio que ela chegou a ser lida como se fosse uma
+      das outras. `lados-da-conferencia.test.ts`, em `lib/fechamento`, é quem
+      confronta essa classificação com o que o motor de fato usa; aqui o que se
+      prende é que a rota publica a lista inteira, na ordem da tela.
     */
     expect(body.map((l: { lado: string }) => l.lado)).toEqual([
       "DEVIDO",
@@ -195,16 +196,12 @@ describe("GET /fechamento/lados", () => {
       "CONFERENCIA_OPERACIONAL",
     ]);
     /*
-      Dois dependem do contrato, e não só o devido — ver `LADOS_DA_CONFERENCIA`.
-      O devido depende dele para calcular; a conferência operacional depende
-      dele para ter contra o que comparar: a frota que o Promax declara ativa só
-      diz alguma coisa contra a frota que o cadastro do contrato registra.
+      Dois grupos dependem do contrato — ver `LADOS_DA_CONFERENCIA`. Era um só
+      (o devido) até a frota Promax entrar: ela é comparada contra o que o
+      cadastro do contrato declara, então sem contrato ela não tem contra o quê
+      conferir.
     */
-    expect(
-      body
-        .filter((l: { precisaDeContrato: boolean }) => l.precisaDeContrato)
-        .map((l: { lado: string }) => l.lado),
-    ).toEqual(["DEVIDO", "CONFERENCIA_OPERACIONAL"]);
+    expect(body.filter((l: { precisaDeContrato: boolean }) => l.precisaDeContrato)).toHaveLength(2);
     for (const l of body) {
       expect(l.titulo.length).toBeGreaterThan(0);
       expect(l.explica.length).toBeGreaterThan(20);

@@ -524,6 +524,7 @@ export default function Inicio() {
               detalhe={alteracao}
               period={view.period}
               periodLabel={view.periodLabel}
+              recorte={recorte}
               onFechar={() => trocarPara({ alteracao: null })}
             />
           </>

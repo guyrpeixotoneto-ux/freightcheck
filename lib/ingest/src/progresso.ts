@@ -23,8 +23,9 @@
  * O laço que este relator acompanha roda uma vez por linha de planilha, e um
  * UPDATE por linha somaria dezenas de milhares de escritas ao caminho mais
  * quente do produto — para alimentar uma tela que pergunta a cada 1,2 s.
- * Publicar cada 1% do trecho responde à mesma pergunta com cerca de cem
- * escritas, e é o que {@link devePublicar} decide.
+ * Publicar por passo do trecho responde à mesma pergunta com algumas dezenas
+ * de escritas, e é o que {@link devePublicar} decide. Quantas, e por que esse
+ * número e não outro, está em {@link PASSOS_POR_TRECHO}.
  *
  * A regra é pura, e mora aqui em vez de dentro do laço, porque ela tem dois
  * casos que só se enxergam separados: o leitor rápido, que precisa ser
@@ -52,15 +53,39 @@ export type EtapaDoProgresso = "CAPTURA" | "PREPARO";
 export const INTERVALO_DE_PUBLICACAO_MS = 2_000;
 
 /**
- * De quantas linhas é o passo de publicação deste trecho — 1% dele.
+ * Quantas publicações um trecho pode fazer, do começo ao fim.
  *
- * Cem escritas por trecho é a conta: mais que isso não chega a ser lido (a
- * tela pergunta a cada 1,2 s), e menos deixa a barra saltando de dez em dez
- * por cento num arquivo grande. O piso de 1 existe porque `total` pode ser
- * menor que cem — e aí cada linha é mais de 1%.
+ * Eram cem — 1% por escrita —, e a conta que as justificava é a mesma que as
+ * derruba: **a tela pergunta a cada 1,2 s**. Uma leitura de dez segundos com
+ * cem publicações escreve uma a cada 100 ms, e noventa delas nunca são lidas
+ * por ninguém. O preço não é a escrita em si: é a ida ao banco. Medido numa
+ * importação de 14 mil linhas, as duas etapas somavam 175 UPDATEs de
+ * progresso de 281 idas ao banco no total — a maior parte do tráfego da
+ * leitura era a barra. Local isso custa 0,32 s; num banco a 25 ms de RTT,
+ * custa 4,4 s de relógio, mais do que a gravação das células.
+ *
+ * Vinte passos publicam a cada 5% e continuam à frente da tela: numa leitura
+ * de dez segundos é uma escrita a cada meio segundo, e quem pergunta a cada
+ * 1,2 s vê a barra andar em toda pergunta. O leitor lento continua coberto
+ * pela porta de tempo, que é de quem ela sempre foi.
+ *
+ * O nome de ambiente existe para o `perfil-de-importacao` reproduzir o
+ * cenário anterior (cem passos) e comparar os dois; ninguém precisa defini-lo
+ * para o produto funcionar.
+ */
+export const PASSOS_POR_TRECHO = (() => {
+  const bruto = Number(process.env.IMPORT_PASSOS_DE_PROGRESSO);
+  return Number.isFinite(bruto) && bruto >= 1 ? Math.trunc(bruto) : 20;
+})();
+
+/**
+ * De quantas linhas é o passo de publicação deste trecho.
+ *
+ * O piso de 1 existe porque `total` pode ser menor que o número de passos — e
+ * aí cada linha já é mais que um passo.
  */
 export function passoDe(total: number): number {
-  return Math.max(1, Math.ceil(total / 100));
+  return Math.max(1, Math.ceil(total / PASSOS_POR_TRECHO));
 }
 
 /**

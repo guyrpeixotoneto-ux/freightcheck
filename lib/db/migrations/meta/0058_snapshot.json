@@ -1,4 +1,6 @@
 {
+  "id": "c4cdafad-eb7e-4c4b-972f-c95f0229afb9",
+  "prevId": "0d98c24b-9cc6-44b7-9c5d-cecd6f319630",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -6848,19 +6850,6 @@
           ],
           "onDelete": "cascade",
           "onUpdate": "no action"
-        },
-        "justificativa_change_id_change_id_fk": {
-          "name": "justificativa_change_id_change_id_fk",
-          "tableFrom": "justificativa",
-          "tableTo": "change",
-          "columnsFrom": [
-            "change_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -10178,7 +10167,5 @@
     "schemas": {},
     "tables": {},
     "columns": {}
-  },
-  "id": "eb8b9fec-f888-464e-8946-bba9e92922aa",
-  "prevId": "0d98c24b-9cc6-44b7-9c5d-cecd6f319630"
+  }
 }

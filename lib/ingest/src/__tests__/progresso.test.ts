@@ -5,6 +5,7 @@ import { captureRaw, preview, receiveFile, stage } from "../pipeline";
 import { getImportRunStatus } from "../history";
 import {
   INTERVALO_DE_PUBLICACAO_MS,
+  PASSOS_POR_TRECHO,
   devePublicar,
   passoDe,
 } from "../progresso";
@@ -122,14 +123,25 @@ function doTrecho(amostras: Amostra[], step: string): Amostra[] {
 }
 
 describe("a regra de publicação", () => {
-  it("cabe em ~100 escritas por trecho, qualquer que seja o tamanho", () => {
+  it("cabe nos passos declarados, qualquer que seja o tamanho", () => {
     for (const total of [50, 1_000, 40_000, 1_000_000]) {
-      expect(Math.ceil(total / passoDe(total)), String(total)).toBeLessThanOrEqual(100);
+      expect(
+        Math.ceil(total / passoDe(total)),
+        String(total),
+      ).toBeLessThanOrEqual(PASSOS_POR_TRECHO);
     }
   });
 
-  it("uma planilha menor que cem linhas publica linha a linha", () => {
-    expect(passoDe(30)).toBe(1);
+  /*
+    O piso é o que faz a planilha pequena continuar publicando.
+
+    Com vinte passos, trinta linhas dão um passo de duas — e quinze linhas, de
+    uma. O número de escritas de uma planilha pequena nunca foi o problema: o
+    que este piso impede é o passo virar zero e a barra parar.
+  */
+  it("uma planilha pequena publica quase linha a linha", () => {
+    expect(passoDe(30)).toBe(2);
+    expect(passoDe(15)).toBe(1);
   });
 
   it("não publica de novo quando nada andou", () => {
@@ -144,11 +156,17 @@ describe("a regra de publicação", () => {
   });
 
   it("segura o leitor rápido: meio passo não publica", () => {
+    const passo = passoDe(1_000);
     expect(
-      devePublicar({ feito: 5, publicado: 0, total: 1_000, desdeAUltimaMs: 0 }),
+      devePublicar({
+        feito: Math.floor(passo / 2),
+        publicado: 0,
+        total: 1_000,
+        desdeAUltimaMs: 0,
+      }),
     ).toBe(false);
     expect(
-      devePublicar({ feito: 10, publicado: 0, total: 1_000, desdeAUltimaMs: 0 }),
+      devePublicar({ feito: passo, publicado: 0, total: 1_000, desdeAUltimaMs: 0 }),
     ).toBe(true);
   });
 
