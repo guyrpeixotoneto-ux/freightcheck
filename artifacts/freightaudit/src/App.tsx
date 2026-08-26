@@ -62,6 +62,8 @@ import CompetenciaAberta from '@/pages/fechamento/competencia';
 import DiaDoFechamento from '@/pages/fechamento/dia';
 import FrotaDaCompetencia from '@/pages/fechamento/frota';
 import Frotas from '@/pages/fechamento/frotas';
+import DisponibilidadeDaCompetencia from '@/pages/fechamento/disponibilidade';
+import Disponibilidades from '@/pages/fechamento/disponibilidades';
 import RemuneracaoCadastro from '@/pages/fechamento/remuneracao';
 import RemuneracaoUnidades from '@/pages/fechamento/remuneracao-unidades';
 import { EtapaDoFechamento } from '@/pages/fechamento/etapa';
@@ -419,6 +421,20 @@ function rotasDoFechamento(base: string) {
       {(params) => <FrotaDaCompetencia id={params.id} />}
     </Route>,
     <Route key={`${base}/frotas`} path={`${base}/frotas`} component={Frotas} />,
+    /*
+      A disponibilidade, como a frota e o dia: subordinada à competência, e por
+      isso resolvida antes de `/:id`. A lista por competência fica em
+      `/disponibilidade` pelo mesmo motivo de `/frotas` — a lateral precisa de
+      um endereço que não pergunte "de qual competência" antes.
+    */
+    <Route key={`${base}/disponibilidade`} path={`${base}/competencias/:id/disponibilidade`}>
+      {(params) => <DisponibilidadeDaCompetencia id={params.id} />}
+    </Route>,
+    <Route
+      key={`${base}/disponibilidades`}
+      path={`${base}/disponibilidade`}
+      component={Disponibilidades}
+    />,
     <Route key={`${base}/apuracoes`} path={`${base}/apuracoes`} component={Apuracoes} />,
     <Route key={`${base}/resumo`} path={`${base}/resumo`} component={ResumoGeral} />,
     /*

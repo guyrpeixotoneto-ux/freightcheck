@@ -4,6 +4,7 @@ import {
   Calculator,
   ClipboardCheck,
   FileSpreadsheet,
+  GaugeCircle,
   History,
   House,
   ListTodo,
@@ -24,9 +25,16 @@ import type { NavGroup } from "./nav";
  * O Fechamento de Remuneração é um processo com começo, meio e fim: abre-se a
  * competência, apura-se quanto a remuneração daquela quinzena/mês vale,
  * resolve-se o que impede a conta de fechar, decide-se sobre o que sobrou, e
- * fecha-se o período — que então vira registro. Quatro das cinco seções são
- * esses quatro momentos, na ordem em que o trabalho acontece, pela mesma razão
- * que as oito da Auditoria seguem a ordem de uma auditoria completa.
+ * fecha-se o período — que então vira registro. Quatro seções são esses quatro
+ * momentos, na ordem em que o trabalho acontece, pela mesma razão que as oito
+ * da Auditoria seguem a ordem de uma auditoria completa.
+ *
+ * **Duas seções não são momentos do processo, e as duas entraram no meio.**
+ * Remuneração é a base contra a qual o processo roda; Frota é o que a operação
+ * tinha e quanto dela rodou — conferência operacional, que não apura nada. As
+ * duas ficam entre o começo e o fim porque é ali que se consulta o cadastro e
+ * se confere o que aconteceu, e não no fim, quando já não há o que fazer com a
+ * resposta.
  *
  * **Remuneração entrou depois, e entrou no meio.** Ela não é um momento do
  * processo: é a base contra a qual o processo roda — as alíquotas, o tamanho da
@@ -65,7 +73,7 @@ import type { NavGroup } from "./nav";
  *
  * Rota, Empurrada, AS e Apoio são o mesmo processo sobre operações diferentes
  * (`lib/ambiente.ts`), e por isso a lateral de todos é a mesma lateral: as
- * mesmas cinco seções, na mesma ordem, com os mesmos rótulos. O que muda é a
+ * mesmas seis seções, na mesma ordem, com os mesmos rótulos. O que muda é a
  * base dos endereços — e o nome da primeira seção, que é onde o menu diz em
  * qual deles se está. Quatro listas escritas à mão divergiriam no primeiro
  * item que alguém acrescentasse a uma e esquecesse nas outras; uma função sobre
@@ -144,14 +152,38 @@ export function navGroupsFechamento(base: string, nome: string): NavGroup[] {
         { href: `${base}/apuracao`, label: "Apuração", icon: Calculator },
         { href: `${base}/pendencias`, label: "Pendências", icon: ListTodo },
         { href: `${base}/conferencias`, label: "Conferências", icon: ClipboardCheck },
-        /*
-          Frota é conferência operacional — o Promax contra o cadastro do
-          contrato —, e não financeira: por isso mora aqui e não na conta
-          apurada. Aponta para a lista por competência
-          (`pages/fechamento/frotas.tsx`), no mesmo padrão de "Apurações": a
-          tela de dentro é sempre a frota *de um período*.
-        */
-        { href: `${base}/frotas`, label: "Frota", icon: Truck },
+      ],
+    },
+    {
+      /*
+        FROTA — o que a operação tinha e o que ela entregou.
+
+        A seção nasceu do item solto que morava em Apuração: a conferência de
+        frota estava ali porque não havia outro lugar, e ficava ao lado de três
+        telas que falam de dinheiro sem falar de dinheiro nenhuma vez. Ela e a
+        Disponibilidade respondem a mesma pergunta em dois tempos — **quantos
+        veículos existem** e **quantos deles rodaram** —, e é essa parentesco
+        que a seção nomeia.
+
+        **As duas são conferência operacional, e nenhuma delas apura.** A Frota
+        compara o Promax (01.22.02.00 / 01.22.08.00) com o cadastro do
+        contrato; a Disponibilidade abre o 03.08.18 dia a dia. Nenhum número
+        das duas entra em cálculo de remuneração na tela — quem transforma
+        disponibilidade em desconto é a apuração, uma vez por mês, no
+        fechamento da 2ª quinzena. Manter as duas fora da seção de Apuração é o
+        que impede o menu de sugerir o contrário.
+
+        Os dois itens apontam para a lista por competência, no mesmo padrão de
+        "Apurações": a tela de dentro é sempre a frota — ou a disponibilidade —
+        *de um período*.
+      */
+      titulo: "Frota",
+      descricao: "O que a operação tinha e quanto dela rodou",
+      icon: Truck,
+      cor: "text-nav-fechamento",
+      itens: [
+        { href: `${base}/frotas`, label: "Conferência", icon: Truck },
+        { href: `${base}/disponibilidade`, label: "Disponibilidade", icon: GaugeCircle },
       ],
     },
     {

@@ -151,18 +151,19 @@ export const ROTEIRO: EtapaDoRoteiro[] = [
       "Se o desconto do 03.08.18 bate com o que o 03.08.20 declara como Desconto FF — Equipe Entrega.",
     ],
     aindaNao: [
+      /*
+        O acompanhamento dia a dia saiu desta lista quando deixou de faltar: o
+        módulo de Disponibilidade (seção Frota) lê o grão diário gravado —
+        contratada, real da 1ª e da 2ª viagem, gap dos dois lados e desconto —
+        e o abre por frota e por canal. O que continua faltando é o de baixo, e
+        é outra coisa: lá é a **conta** que ignora de quem é o gap.
+      */
       {
-        o_que: "O acompanhamento dia a dia — contratada contra realizada, com histórico.",
+        o_que: "Separar o gap da Ambev do gap da transportadora **na conta**.",
         porque:
-          "O dado é gravado com grão diário (frota contratada, real da 1ª e da 2ª viagem, percentual " +
-          "de disponibilidade), mas nenhuma rota o lê: hoje só o desconto consolidado do período sai " +
-          "para a tela. Mostrar o diário exige uma leitura nova.",
-      },
-      {
-        o_que: "Separar o gap da Ambev do gap da transportadora.",
-        porque:
-          "Os campos são lidos e gravados, mas nenhum cálculo os usa — a apuração soma o desconto " +
-          "total sem olhar de quem é a responsabilidade.",
+          "Os campos são lidos, gravados e agora mostrados dia a dia no módulo de " +
+          "Disponibilidade, mas nenhum cálculo os usa — a apuração soma o desconto total sem " +
+          "olhar de quem é a responsabilidade.",
       },
     ],
   },
