@@ -447,6 +447,13 @@ export async function loadChanges(
        changeSetIds.map((id) => sql`${id}::uuid`),
        sql`, `,
      )})
+       -- TRECHO só aparece no Trecho 360, que lê pela rota própria de frota
+       -- (/frota/ativos) e nunca passa por esta leitura agrupada. As telas
+       -- que chamam loadChanges (Dashboard, Resumo executivo, Painel de
+       -- Unidades, Linha do Tempo, Acompanhamento) leem a vigência inteira sem
+       -- recorte de equipamento, e sem esta linha o trecho vazava para dentro
+       -- delas junto com cavalo e carreta.
+       AND c.entity_type IS DISTINCT FROM 'TRECHO'
   `);
   return rows;
 }
@@ -916,6 +923,10 @@ export async function getGroupedView(
        -- Sem este filtro, duas unidades que entregam na mesma data caem no
        -- mesmo cartão e no mesmo total, sem que nada na tela diga que caíram.
        AND ${contextFilter("sb", context)}
+       -- TRECHO é sempre a série inteira de um snapshot (nunca combinado com
+       -- CAVALO/CARRETA), então basta comparar o conjunto inteiro. Ver a nota
+       -- em loadChanges sobre por que esta leitura não deve conhecer trecho.
+       AND sb.entity_type_set IS DISTINCT FROM 'TRECHO'
      -- Determinístico: a mesma vigência tem uma comparação por série, e a
      -- ordem não pode depender do que o Postgres devolver primeiro. Foi
      -- assim que o Painel passou a mostrar a série de menor impacto e a
@@ -963,6 +974,8 @@ export async function getGroupedView(
        AND sb.status <> 'SUPERSEDED'
        AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = sb.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND ${contextFilter("sb", context)}
+       -- Ver a nota em loadChanges sobre trecho não pertencer a esta leitura.
+       AND t <> 'TRECHO'
      ORDER BY t
   `);
 
@@ -987,6 +1000,7 @@ export async function getGroupedView(
        AND s.status <> 'SUPERSEDED'
        AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND ${contextFilter("s", context)}
+       AND t <> 'TRECHO'
      ORDER BY t
   `);
 
@@ -1174,6 +1188,7 @@ export async function getAccumulatedImpact(
       JOIN snapshot sb ON sb.id = cs.snapshot_b_id
       CROSS JOIN LATERAL unnest(string_to_array(sb.entity_type_set, '+')) AS t
      WHERE ${contextFilter("sb", context)}
+       AND t <> 'TRECHO'
   `);
   const { rows: span } = await db.execute<{ from: string | null; to: string | null }>(sql`
     SELECT min(sb.effective_date)::text AS from, max(sb.effective_date)::text AS to

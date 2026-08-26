@@ -528,6 +528,9 @@ export async function getRangeAnalysis(
        AND sb.status <> 'SUPERSEDED'
        AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = sb.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND ${contextFilter("sb", context)}
+       -- Trecho só existe no Trecho 360, que não passa por esta leitura de
+       -- intervalo (Linha do Tempo). Ver a mesma nota em loadChanges.
+       AND sb.entity_type_set IS DISTINCT FROM 'TRECHO'
      ORDER BY sb.effective_date DESC, sb.entity_type_set
   `);
 
@@ -575,6 +578,7 @@ export async function getRangeAnalysis(
        AND sb.status <> 'SUPERSEDED'
        AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = sb.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND ${contextFilter("sb", context)}
+       AND e.entity_type <> 'TRECHO'
      GROUP BY cs.id, e.entity_type
   `);
 

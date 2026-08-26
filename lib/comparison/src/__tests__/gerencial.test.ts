@@ -29,10 +29,24 @@ let ctx: TestDb;
 
 const UNIDADE_A = "scope-gerencial-a";
 const UNIDADE_B = "scope-gerencial-b";
+const UNIDADE_C = "scope-gerencial-c";
 
 const CUSTO: AttributeSpec[] = [
   {
     code: "carreta.custo_fixo",
+    dataType: "NUMERIC",
+    semanticsStatus: "CONFIRMED",
+    unit: "BRL",
+    periodicity: "MENSAL",
+    aggregation: "SUM",
+    isMonetary: true,
+    taxonomyCode: "cf_frota_carreta",
+  },
+];
+
+const CUSTO_TRECHO: AttributeSpec[] = [
+  {
+    code: "trecho.valor_frete",
     dataType: "NUMERIC",
     semanticsStatus: "CONFIRMED",
     unit: "BRL",
@@ -106,6 +120,27 @@ beforeAll(async () => {
     { entityType: "CAVALO", scopeHash: UNIDADE_B },
   );
 
+  // Unidade C, só trecho: a série que não deve aparecer nesta leitura — ela é
+  // a do Trecho 360, e a Visão Gerencial da Auditoria é uma das telas de onde
+  // o trecho foi retirado.
+  const c = await buildFixture(
+    ctx.db,
+    CUSTO_TRECHO,
+    [
+      {
+        label: "EMPURRADA_2_2_2026",
+        effectiveDate: "2026-02-02",
+        data: { T1: { "trecho.valor_frete": 300 } },
+      },
+      {
+        label: "EMPURRADA_2_3_2026",
+        effectiveDate: "2026-03-02",
+        data: { T1: { "trecho.valor_frete": 350 } },
+      },
+    ],
+    { entityType: "TRECHO", scopeHash: UNIDADE_C },
+  );
+
   ids = {
     aJan: a.snapshotIds.EMPURRADA_2_1_2026,
     aFev: a.snapshotIds.EMPURRADA_2_2_2026,
@@ -113,6 +148,8 @@ beforeAll(async () => {
     rotaMar: rota.snapshotIds.ROTA_2_3_2026,
     bFev: b.snapshotIds.EMPURRADA_2_2_2026,
     bMar: b.snapshotIds.EMPURRADA_2_3_2026,
+    cFev: c.snapshotIds.EMPURRADA_2_2_2026,
+    cMar: c.snapshotIds.EMPURRADA_2_3_2026,
   };
 
   /*
@@ -122,6 +159,7 @@ beforeAll(async () => {
   */
   await computeChangeSet(ctx.db, ids.aJan, ids.aFev, { computedBy: "test" });
   await computeChangeSet(ctx.db, ids.bFev, ids.bMar, { computedBy: "test" });
+  await computeChangeSet(ctx.db, ids.cFev, ids.cMar, { computedBy: "test" });
 
   /*
     E uma comparação avulsa, como a tela Comparar grava: janeiro contra março,
@@ -227,5 +265,28 @@ describe("a leitura gerencial da auditoria", () => {
     expect(de(linhas, ids.aMar).ativos).toBe(1);
     expect(de(linhas, ids.aMar).entityTypeSet).toBe("CARRETA");
     expect(de(linhas, ids.bMar).entityTypeSet).toBe("CAVALO");
+  });
+});
+
+/**
+ * Trecho só aparece no Trecho 360. Esta leitura é a Visão Gerencial da
+ * Auditoria (Painel de Unidades), e a unidade C — que só tem trecho — não
+ * deve contribuir vigência, comparação nem impacto nenhum aqui.
+ */
+describe("trecho não aparece na Visão Gerencial da Auditoria", () => {
+  it("não lista as vigências de trecho", async () => {
+    const linhas = await listarVigenciasDaAuditoria(ctx.db);
+
+    expect(linhas.some((l) => l.snapshotId === ids.cFev)).toBe(false);
+    expect(linhas.some((l) => l.snapshotId === ids.cMar)).toBe(false);
+    expect(linhas.some((l) => l.entityTypeSet === "TRECHO")).toBe(false);
+  });
+
+  it("não conta a unidade C entre as vigências vivas", async () => {
+    const linhas = await listarVigenciasDaAuditoria(ctx.db);
+
+    // As mesmas 6 linhas de sempre (unidades A e B) — a unidade C, só de
+    // trecho, não soma uma sétima.
+    expect(linhas).toHaveLength(6);
   });
 });

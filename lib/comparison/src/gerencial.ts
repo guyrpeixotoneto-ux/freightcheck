@@ -173,6 +173,12 @@ export async function listarVigenciasDaAuditoria(
        WHERE s.status <> 'SUPERSEDED'
        AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
          AND ${datasetFamilyFilter("s", opts?.datasetFamily)}
+         -- Trecho só aparece no Trecho 360. A Visão Gerencial soma vigências e
+         -- alterações por unidade a partir daqui — sem este filtro, a série de
+         -- trecho de uma unidade virava mais uma "vigência" no cartão dela,
+         -- inflando a contagem e os totais de alterações/impacto que o cartão
+         -- publica.
+         AND s.entity_type_set IS DISTINCT FROM 'TRECHO'
     ),
     /*
       A anterior da série, pela mesma definição de findPreviousSnapshot: mesma
