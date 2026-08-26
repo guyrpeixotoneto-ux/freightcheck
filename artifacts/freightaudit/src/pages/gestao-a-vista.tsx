@@ -4,6 +4,7 @@ import { Link, useLocation, useSearch } from "wouter";
 import {
   ArrowLeft,
   ArrowRight,
+  BarChart3,
   Building2,
   ChevronLeft,
   ChevronRight,
@@ -261,6 +262,7 @@ function TemplateFinanceiro() {
  */
 function TemplateDeAlertas() {
   const search = useSearch();
+  const [, navegar] = useLocation();
   const parametros = new URLSearchParams(search);
   const periodoPedido = parametros.get("period");
 
@@ -283,6 +285,17 @@ function TemplateDeAlertas() {
     [contextos.contextos],
   );
   const periodo = periodoPedido ?? periodosDisponiveis[0] ?? null;
+
+  // As últimas três competências disponíveis, da mais antiga à mais recente —
+  // o equivalente honesto ao "7/30 /90 dias" de um mockup genérico: este
+  // produto não tem uma janela contínua de dias (a apuração é por vigência
+  // inteira), então quem troca a janela aqui troca de competência de verdade.
+  const periodosRecentes = periodosDisponiveis.slice(0, 3).reverse();
+  const trocarPeriodo = (novoPeriodo: string) => {
+    const proximo = new URLSearchParams(search);
+    proximo.set("period", novoPeriodo);
+    navegar(`${GESTAO_A_VISTA}?${proximo}`, { replace: true });
+  };
 
   const overviewQuery = useFamiliesOverviewQuery(periodo, { refetchInterval: 30_000 });
   const overview = overviewQuery.data ?? null;
@@ -318,30 +331,45 @@ function TemplateDeAlertas() {
   return (
     <div className="w-full min-h-[100dvh] bg-slate-50 text-slate-900 font-sans">
       <div className="px-10 py-7 max-w-[1800px] mx-auto space-y-6">
-        <header className="flex items-center justify-between gap-6">
+        <header className="flex items-start justify-between gap-6">
           <div className="min-w-0">
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-              Gestão à Vista · Alertas
-            </p>
             <h1 className="text-3xl font-extrabold tracking-tight truncate">
-              Alterações de Remuneração
-              {overview?.period && (
-                <span className="text-slate-400 font-normal"> · {overview.period}</span>
-              )}
+              Gestão à Vista — Alterações de Remuneração
             </h1>
             <p className="text-sm text-slate-500 mt-1">
-              Planilha de remuneração · unidades desta competência
+              Planilha de remuneração · {overview?.period ?? "última competência"}
             </p>
           </div>
-          <div className="flex items-center gap-5 shrink-0">
-            <RelogioClaro atualizadaEm={overviewQuery.dataUpdatedAt} />
-            <Link
-              href={paraDashboard}
-              title="Voltar ao Dashboard"
-              className="flex items-center justify-center w-9 h-9 rounded-lg border border-slate-200 bg-white text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors"
-            >
-              <ArrowLeft className="w-4 h-4" />
-            </Link>
+          <div className="flex flex-col items-end gap-2.5 shrink-0">
+            {periodosRecentes.length > 1 && (
+              <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white p-1">
+                {periodosRecentes.map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => trocarPeriodo(p)}
+                    className={cn(
+                      "rounded-md px-3 py-1.5 text-sm font-semibold transition-colors",
+                      p === periodo
+                        ? "bg-blue-600 text-white"
+                        : "text-slate-500 hover:bg-slate-100 hover:text-slate-900",
+                    )}
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="flex items-center gap-3">
+              <RelogioClaro atualizadaEm={overviewQuery.dataUpdatedAt} />
+              <Link
+                href={paraDashboard}
+                title="Voltar ao Dashboard"
+                className="flex items-center justify-center w-9 h-9 rounded-lg border border-slate-200 bg-white text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors"
+              >
+                <ArrowLeft className="w-4 h-4" />
+              </Link>
+            </div>
           </div>
         </header>
 
@@ -594,7 +622,10 @@ function LegendaDeAlertas() {
         <span className="w-2.5 h-2.5 rounded-full bg-slate-300" />
         sem alteração
       </span>
-      <span>Quanto maior a barra, mais mudanças</span>
+      <span className="flex items-center gap-1.5">
+        <BarChart3 className="w-3.5 h-3.5" />
+        Quanto maior a barra, mais mudanças
+      </span>
       <span className="flex items-center gap-1.5">
         <Info className="w-3.5 h-3.5" />
         Impacto = variação na remuneração, não custo
