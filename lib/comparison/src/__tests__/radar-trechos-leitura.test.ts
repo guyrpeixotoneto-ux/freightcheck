@@ -5,7 +5,7 @@ import { createTestDatabase, type TestDb } from "@workspace/ingest/testing";
 import { seedTaxonomy } from "@workspace/curation";
 import { setImportRunHidden } from "@workspace/ingest";
 import { computeChangeSet } from "../engine";
-import { getRadarDeTrechos } from "../radar-trechos";
+import { getRadarDeTrechos, resolverComparacaoDeTrecho } from "../radar-trechos";
 import { buildFixture, type AttributeSpec } from "./fixtures";
 
 /**
@@ -195,6 +195,72 @@ describe("isolamento — entity_type <> 'TRECHO' nunca aparece", () => {
   it("o cavalo da mesma unidade e do mesmo period não entra no Radar", async () => {
     const radar = await getRadarDeTrechos(ctx.db, changeSetId);
     expect(radar.trechos.every((t) => t.entityLabel !== "AAA1A11")).toBe(true);
+  });
+});
+
+/**
+ * A resolução do contexto — o caminho que produziu, em produção, "este
+ * contexto não tem nenhuma vigência de trecho importada" numa unidade que o
+ * Trecho 360° mostrava com centenas de trechos.
+ *
+ * A causa é a "casca": um acervo em que o trecho vem no próprio snapshot
+ * (`entity_type_set = 'TRECHO'`) é invisível para `listContexts` sem
+ * `incluirCascaDeTrecho` — e essa exclusão existe por um bom motivo (a casca
+ * não deve virar "a vigência mais recente" das telas de equipamento). Só que
+ * **o Radar é a tela de trecho**: pedir a lista sem a casca faz o padrão dele
+ * cair numa unidade de equipamento e não achar trecho nenhum.
+ */
+describe("resolverComparacaoDeTrecho acha a vigência de trecho", () => {
+  it("sem scopeHash pedido, cai numa unidade que tem trecho — não numa de equipamento", async () => {
+    const r = await resolverComparacaoDeTrecho(ctx.db);
+    expect(r.erro).toBeNull();
+  });
+
+  it("com o scopeHash da unidade de trecho, acha a comparação", async () => {
+    const r = await resolverComparacaoDeTrecho(ctx.db, { scopeHash: "scope-radar" });
+    expect(r.erro).toBeNull();
+    if (r.erro === null) {
+      expect(r.changeSetId).toBeTruthy();
+      expect(r.context.scopeHash).toBe("scope-radar");
+    }
+  });
+
+  /*
+    A reprodução do defeito de produção: uma unidade **só de equipamento**,
+    com vigência mais recente que a de trecho. Ela é a primeira da lista que
+    `listContexts` devolve (ordenada por data), então era ela que o padrão do
+    Radar resolvia — e dentro dela não há trecho nenhum. O Trecho 360° da
+    outra unidade seguia mostrando centenas de trechos ao lado.
+  */
+  it("uma unidade de equipamento mais recente não rouba o padrão do Radar", async () => {
+    await buildFixture(
+      ctx.db,
+      CUSTO_CAVALO,
+      [
+        {
+          label: "EMPURRADA_9_1_2027",
+          effectiveDate: "2027-01-01",
+          data: { ZZZ9Z99: { "cavalo.ipva": 100 } },
+        },
+        {
+          label: "EMPURRADA_9_2_2027",
+          effectiveDate: "2027-02-01",
+          data: { ZZZ9Z99: { "cavalo.ipva": 150 } },
+        },
+      ],
+      { entityType: "CAVALO", scopeHash: "scope-so-equipamento", canal: "SO_EQUIPAMENTO" },
+    );
+
+    const r = await resolverComparacaoDeTrecho(ctx.db);
+    expect(r.erro).toBeNull();
+    if (r.erro === null) {
+      expect(r.context.scopeHash).not.toBe("scope-so-equipamento");
+    }
+  });
+
+  it("um scopeHash que não tem trecho recusa dizendo isso, sem inventar outra unidade", async () => {
+    const r = await resolverComparacaoDeTrecho(ctx.db, { scopeHash: "scope-so-equipamento" });
+    expect(r.erro).toBe("SEM_TRECHO");
   });
 });
 
