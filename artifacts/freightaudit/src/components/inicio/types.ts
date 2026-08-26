@@ -182,6 +182,13 @@ export interface GroupedView {
     formatOnlyChanges: number;
     groups: number;
     vehiclesTouched: number;
+    /**
+     * Quais ativos — a identidade por trás de `vehiclesTouched`, mesmo filtro,
+     * então `entityIdsTouched.length === vehiclesTouched`. É o que permite
+     * unir leituras: somar `vehiclesTouched` de várias contaria o mesmo
+     * caminhão em cada uma.
+     */
+    entityIdsTouched: string[];
     entitiesAdded: number;
     entitiesRemoved: number;
     unchanged: number;
@@ -436,6 +443,15 @@ export interface OverviewUnitExcluded {
 export interface FamiliesOverview {
   period: string;
   summary: ExecutiveSummary;
+  /**
+   * Veículos distintos no consolidado inteiro — a **união** dos ativos das
+   * unidades, não a soma delas (que é `summary.vehiclesTouched`).
+   *
+   * Opcional no tipo, e não no servidor: uma resposta de versão anterior
+   * ainda em cache não traz o campo, e a tela precisa poder dizer que está
+   * mostrando a soma em vez de chamar de "distinto" um número que não é.
+   */
+  vehiclesTouchedDistinct?: number;
   unitsIncluded: OverviewUnitIncluded[];
   unitsExcluded: OverviewUnitExcluded[];
 }

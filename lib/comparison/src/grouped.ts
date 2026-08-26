@@ -369,6 +369,21 @@ export interface GroupedView {
     formatOnlyChanges: number;
     groups: number;
     vehiclesTouched: number;
+    /**
+     * **Quais** ativos — a identidade por trás de `vehiclesTouched`.
+     *
+     * Mesmo `Set`, mesmo filtro: `entityIdsTouched.length` é sempre
+     * `vehiclesTouched`. Existe porque somar `vehiclesTouched` de várias
+     * leituras não dá uma contagem de ativos (o mesmo caminhão pode aparecer
+     * em duas unidades), e a única forma de responder "quantos veículos ao
+     * todo" entre leituras é unir os conjuntos. `entity.id` é global e é
+     * casado por placa/chassi (`entity_identifier`), então a união é
+     * deduplicação de verdade, e não de rótulo.
+     *
+     * Linha sem entidade fica de fora, exatamente como em `vehiclesTouched`:
+     * ela é uma alteração, não um veículo.
+     */
+    entityIdsTouched: string[];
     entitiesAdded: number;
     entitiesRemoved: number;
     unchanged: number;
@@ -1091,9 +1106,9 @@ export async function getGroupedView(
     .map((bucket) => buildGroup(bucket, fleetByChangeSet, dedup))
     .sort(compareGroups);
 
-  const vehiclesTouched = new Set(
+  const ativosTocados = new Set(
     rows.map((r) => r.entity_id).filter((v): v is string => v !== null),
-  ).size;
+  );
 
   /*
     `NAO_MATERIALIZADA` exige as duas metades: nenhuma comparação termina nesta
@@ -1147,7 +1162,8 @@ export async function getGroupedView(
         .filter((g) => g.formatOnly)
         .reduce((total, g) => total + g.changes, 0),
       groups: groups.length,
-      vehiclesTouched,
+      vehiclesTouched: ativosTocados.size,
+      entityIdsTouched: [...ativosTocados],
       entitiesAdded: sets.reduce((s, r) => s + r.entities_added, 0),
       entitiesRemoved: sets.reduce((s, r) => s + r.entities_removed, 0),
       unchanged: sets.reduce((s, r) => s + r.unchanged, 0),

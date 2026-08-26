@@ -444,9 +444,27 @@ function ConteudoDaUnidade({
   const principal = ladosDoImpacto(view)[0] ?? null;
   const dominante = impactosDaVigencia(view)[0]?.periodicity ?? null;
 
+  /*
+    As vigências do gráfico são as do **intervalo pedido**, e não todas as que o
+    contexto tem.
+
+    `movimentos.periods` lista o histórico inteiro do contexto; `entries` traz
+    só o que foi comparado entre `from` e `to` (a janela de seis vigências que
+    esta tela monta). Cruzar os dois desenhava um ponto para cada vigência
+    antiga com `ganhos: 0, perdas: 0` — e zero aqui não é "não mudou nada", é
+    "não foi perguntado". Num banco com dez vigências, quatro barras nasciam
+    encostadas no zero afirmando estabilidade sobre um trecho que a consulta
+    nem cobriu; numa delas o dado real era −R$ 75.903/mês.
+
+    Filtrar pelas próprias pontas que a resposta anuncia mantém a janela e o
+    desenho na mesma fonte: se `from`/`to` mudarem, o eixo muda junto, sem uma
+    segunda régua de recorte escrita aqui.
+  */
   const { pontos, periodicity } = useMemo(() => {
     if (!movimentos) return { pontos: [] as PontoDeImpacto[], periodicity: null as string | null };
-    const ordenadas = [...movimentos.periods].sort((a, b) => a.date.localeCompare(b.date));
+    const ordenadas = movimentos.periods
+      .filter((p) => p.date >= movimentos.from && p.date <= movimentos.to)
+      .sort((a, b) => a.date.localeCompare(b.date));
     return pontosDeImpacto(ordenadas, movimentos.entries, dominante);
   }, [movimentos, dominante]);
 
@@ -521,17 +539,21 @@ function ConteudoGeral({
       <FaixaSlim
         changes={overview.summary.changes}
         grupos={overview.summary.groups}
-        vehiclesTouched={overview.summary.vehiclesTouched}
         /*
-          Falso de propósito no Geral. `vehiclesTouched` da Visão Geral é a
-          soma dos `vehiclesTouched` de cada unidade, e não um `Set` cruzado:
-          `entity_id` é por unidade, e nada no produto hoje prova que dois
-          contextos irmãos de canais diferentes não compartilham o mesmo
-          caminhão físico (ver `families-view-overview.ts`). Escrever
-          "distintos" aqui seria a tela afirmando uma deduplicação que o
-          servidor documenta não fazer.
+          `vehiclesTouchedDistinct` é a união dos ativos das unidades;
+          `summary.vehiclesTouched` é a soma delas, e o servidor documenta que
+          a soma não é uma cardinalidade global — o mesmo caminhão exportado
+          por duas unidades entra duas vezes. A faixa publica a união, que é o
+          que a palavra "veículos" promete quando aparece sozinha.
+
+          A soma continua sendo o que a tela mostra quando a resposta é de uma
+          versão anterior da API, ainda em cache e sem o campo novo — e aí o
+          rótulo diz "soma das unidades" em vez de "distintos", porque um
+          número somado com nome de conjunto é exatamente a confusão que esta
+          faixa existe para desfazer.
         */
-        veiculosDeduplicados={false}
+        vehiclesTouched={overview.vehiclesTouchedDistinct ?? overview.summary.vehiclesTouched}
+        veiculosDeduplicados={overview.vehiclesTouchedDistinct !== undefined}
         atualizadoEm={atualizadoEm}
       />
 
@@ -619,8 +641,8 @@ function FaixaSlim({
             "é o que a tabela de Principais alterações lista e o que as abas de equipamento somam. " +
             `${vehiclesTouched.toLocaleString("pt-BR")} ${veiculos}: ` +
             (veiculosDeduplicados
-              ? "o mesmo veículo conta uma vez, mesmo tendo várias alterações."
-              : "soma das unidades, sem deduplicar entre elas — é uma aproximação, não uma contagem de ativos distintos.")
+              ? "o mesmo veículo conta uma vez, por mais alterações que tenha. A identidade do ativo é global (casada por placa e chassi), então ele também não conta duas vezes quando aparece em mais de uma unidade."
+              : "soma das unidades, sem deduplicar entre elas — é uma aproximação, e não uma contagem de ativos distintos.")
           }
         >
           <strong className="text-foreground tabular-nums">{changes.toLocaleString("pt-BR")}</strong>{" "}
