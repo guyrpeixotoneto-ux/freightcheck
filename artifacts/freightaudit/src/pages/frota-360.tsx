@@ -323,10 +323,16 @@ export default function Frota360({ equipamento }: { equipamento: Equipamento }) 
           <CardsDaFrota
             equipamento={equipamento}
             contexto={paramsDoRecorte(recorte, { comPeriodo: false })}
+            periodo={recorte.period}
             onAbrir={(proxima) => irPara({ placa: proxima, aba: "planilha" })}
             onVerFrotaInteira={() =>
               irPara({ frotaInteira: true, aba: "planilha" })
             }
+            onPeriodo={(period) => {
+              const destino = new URLSearchParams(search);
+              destino.set("period", period);
+              navegar(`${caminho}?${destino}`);
+            }}
           />
         </div>
       )}
