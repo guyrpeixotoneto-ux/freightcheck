@@ -3,6 +3,7 @@ import type { FamilyCode } from "./families";
 import {
   getFamiliesView,
   getRangeAnalysis,
+  parametersWithData,
   type ExecutiveSummary,
   type FamiliesView,
   type ImpactContributor,
@@ -363,6 +364,13 @@ export async function getFamiliesOverview(
 
   if (!existeVigenciaParaAlgumaUnidade) return null;
 
+  // Uma vez para todo o fan-out abaixo, e não uma vez por unidade: os dois são
+  // iguais para qualquer unidade e canal (o inventário é `SELECT code FROM
+  // attribute`, sem filtro de escopo; `contexts` já foi carregado acima).
+  // Repeti-los por unidade multiplicava por unidade um custo que não muda por
+  // unidade — quanto mais unidades cadastradas, mais lenta a Visão Geral.
+  const inventory = candidatas.length > 0 ? await parametersWithData(db) : null;
+
   const leituras =
     candidatas.length > 0
       ? await Promise.all(
@@ -370,10 +378,12 @@ export async function getFamiliesOverview(
             cand.matched.map(async (contexto) => ({
               unidade: cand.unidade,
               contexto,
-              view: await getFamiliesView(db, period, {
-                scopeHash: contexto.scopeHash,
-                channel: contexto.channel,
-              }),
+              view: await getFamiliesView(
+                db,
+                period,
+                { scopeHash: contexto.scopeHash, channel: contexto.channel },
+                { contexts, inventory: inventory ?? undefined },
+              ),
             })),
           ),
         )

@@ -223,7 +223,7 @@ function emptyImpact(): ImpactSummary {
  * de virar cartão: se o export não traz nenhum atributo dela, ela não existe
  * nesta tela — a nota de rodapé (`FREIGHTECH_SEM_DADO`) é onde ela é dita.
  */
-async function parametersWithData(
+export async function parametersWithData(
   db: Database,
 ): Promise<Map<FamilyCode, Set<string>>> {
   const { rows } = await db.execute<{ code: string }>(sql`
@@ -243,8 +243,18 @@ export async function getFamiliesView(
   db: Database,
   period?: string,
   requestedContext?: RequestedContext,
+  /**
+   * O que `getFamiliesOverview` já tem antes de chamar esta função uma vez por
+   * unidade: a lista de contextos e o inventário de atributos, ambos iguais
+   * para toda unidade e canal.
+   *
+   * Sem isto, cada unidade da Visão Geral refazia as duas consultas do zero —
+   * `listContexts` (dentro de `getGroupedView`) e `SELECT code FROM attribute`
+   * — multiplicando por unidade um custo que não muda por unidade.
+   */
+  preloaded?: { contexts?: ContextInfo[]; inventory?: Map<FamilyCode, Set<string>> },
 ): Promise<FamiliesView | null> {
-  const view = await getGroupedView(db, period, requestedContext);
+  const view = await getGroupedView(db, period, requestedContext, preloaded?.contexts);
   if (!view) return null;
 
   const changeSetIds = view.series
@@ -258,7 +268,7 @@ export async function getFamiliesView(
     await carregarVinculosDeConjunto(db, await snapshotsDosChangeSets(db, changeSetIds)),
   );
 
-  const inventory = await parametersWithData(db);
+  const inventory = preloaded?.inventory ?? (await parametersWithData(db));
 
   // ---- grupos e linhas, arrumados por parâmetro ----------------------------
   const groupsByParameter = new Map<string, ChangeGroup[]>();
