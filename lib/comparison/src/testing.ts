@@ -46,6 +46,9 @@ export interface AttributeSpec {
    * mesma coisa sem precisarem ser reescritas uma a uma.
    */
   costClass?: string | null;
+  /** HIGHER_IS_BETTER | HIGHER_IS_WORSE | NEUTRAL | DEPENDS_ON_FORMULA | null. */
+  economicDirection?: string | null;
+  economicEffect?: string | null;
 }
 
 /**
@@ -194,6 +197,8 @@ export async function buildFixture(
         semanticsStatus: spec.semanticsStatus ?? "UNKNOWN",
         taxonomyNodeId: node?.id ?? null,
         costClass,
+        economicDirection: spec.economicDirection ?? null,
+        economicEffect: spec.economicEffect ?? null,
         confirmedBy: spec.semanticsStatus === "CONFIRMED" ? "fixture@test" : null,
         confirmedAt: spec.semanticsStatus === "CONFIRMED" ? new Date() : null,
       })

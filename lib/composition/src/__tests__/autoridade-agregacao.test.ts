@@ -75,6 +75,8 @@ const base: AttributeClassification = {
   costClass: "FIXO",
   taxonomyPath: null,
   taxonomyName: null,
+  economicDirection: null,
+  economicEffect: null,
 };
 
 /** A matriz cobre um caso de cada decisão possível, e os três estados absurdos. */

@@ -11,6 +11,7 @@ import { contextoDeSchema } from "../middlewares/contexto-de-schema";
 import {
   aplicarPreenchimento,
   definirClasseDeCusto,
+  definirDirecaoEconomica,
   moverCategoriaParaFamilia,
   confirmAttribute,
   conferirPreenchimento,
@@ -804,6 +805,43 @@ router.patch(
         return;
       }
       req.log.warn({ err }, "Cost class refused");
+      res.status(422).json({ error: desfecho.mensagem });
+    }
+  },
+);
+
+/**
+ * A direção econômica — para que lado o dinheiro anda quando o atributo anda.
+ *
+ * Rota irmã de `classe-de-custo`, mesmo molde: por atributo, não por
+ * categoria, porque a mesma natureza pode ter direções diferentes conforme o
+ * contexto. Ver `definirDirecaoEconomica`.
+ */
+router.patch(
+  "/curation/attributes/:code/direcao-economica",
+  async (req, res, next): Promise<void> => {
+    try {
+      const { direcao, efeito, reason } = req.body ?? {};
+      if (!direcao) {
+        res.status(400).json({ error: "Informe a direção (direcao)." });
+        return;
+      }
+      res.json(
+        await definirDirecaoEconomica(db, {
+          code: req.params.code,
+          direcao,
+          efeito,
+          actor: req.user!.email,
+          reason,
+        }),
+      );
+    } catch (err) {
+      const desfecho = classificarFalha(err);
+      if (desfecho.tipo !== "REGRA") {
+        next(err);
+        return;
+      }
+      req.log.warn({ err }, "Economic direction refused");
       res.status(422).json({ error: desfecho.mensagem });
     }
   },

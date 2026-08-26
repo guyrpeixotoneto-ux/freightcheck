@@ -719,6 +719,8 @@ function classificationColumns(c: AttributeClassification) {
     taxonomyPath: c.taxonomyPath,
     taxonomyName: c.taxonomyName,
     semanticsStatus: c.semanticsStatus,
+    economicDirection: c.economicDirection,
+    economicEffect: c.economicEffect,
     attributeCode: c.attributeCode,
     attributeName: c.attributeName,
     entityType: c.entityType,

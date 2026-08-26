@@ -32,6 +32,8 @@ export function classificacao(
     costClass: "FIXO",
     taxonomyPath: "remuneracao/custo_fixo/cf_outros",
     taxonomyName: "Outros custos fixos",
+    economicDirection: null,
+    economicEffect: null,
     ...over,
   };
 }

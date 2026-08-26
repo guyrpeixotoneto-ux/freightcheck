@@ -27,3 +27,4 @@ export * from "./chamados";
 export * from "./escopo";
 export * from "./ativos";
 export * from "./alteracoes-do-ativo";
+export * from "./radar-trechos";
