@@ -12,7 +12,11 @@ import {
   type Carimbo,
   type OrigemDoRefetch,
 } from "@/lib/registro-de-falhas";
-import { deveTentarDeNovo, esperaDaTentativa } from "@/lib/resiliencia";
+import {
+  deveTentarDeNovo,
+  esperaDaTentativa,
+  INTERVALO_DE_RECUPERACAO_MS,
+} from "@/lib/resiliencia";
 
 /**
  * Uma chamada que sobrevive a um soluço de rede — e que conta o que houve.
@@ -221,5 +225,25 @@ export function chamadaResiliente<T>({
      * linha, e ele ainda afirma o limite (`depois.data` sai `undefined`).
      */
     placeholderData: keepPreviousData,
+
+    /**
+     * Depois de esgotadas as tentativas automáticas, a sondagem continua —
+     * mais devagar, e sem depender de a pessoa clicar em nada.
+     *
+     * É o que fecha o buraco que `INTERVALO_DE_RECUPERACAO_MS` documenta: um
+     * cold start mais lento que os 13,2s do orçamento automático esgotava as
+     * tentativas, mostrava o painel, e então parava de tentar — porque o foco
+     * da aba está desligado de propósito e a reconexão só dispara quando o
+     * navegador de fato via a rede cair, o que não é o caso de uma origem que
+     * nunca chegou a responder. A tela ficava com o painel de indisponibilidade
+     * em cima de uma origem que já tinha voltado a responder minutos antes.
+     *
+     * A condição olha `query.state.status`, não o `error` do callback: é o
+     * mesmo estado que sobrevive à repetição interna do React Query, e
+     * `refetchInterval` já esperou o ciclo de tentativas terminar antes de
+     * perguntar de novo — não é uma sondagem extra por cima das cinco.
+     */
+    refetchInterval: (query: { state: { status: string } }) =>
+      query.state.status === "error" ? INTERVALO_DE_RECUPERACAO_MS : false,
   };
 }

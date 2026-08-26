@@ -69,6 +69,26 @@ export const TENTATIVAS_AUTOMATICAS = 5;
 const TETO_DA_ESPERA = 8_000;
 
 /**
+ * De quanto em quanto tempo sondar de novo depois que as tentativas
+ * automáticas já se esgotaram e a tela está mostrando o painel de
+ * indisponibilidade.
+ *
+ * As tentativas automáticas cobrem os primeiros 13,2s de um cold start; o que
+ * elas não cobrem é um cold start mais lento que isso — migração pendente,
+ * pool de conexão a reconstruir. Sem uma sondagem depois do esgotamento, o
+ * painel ficava preso até alguém clicar em "Tentar de novo": `refetchOnWindowFocus`
+ * é `false` por decisão (ver `chamada-resiliente.ts`), e não sobrava nenhum
+ * outro gatilho automático — a pessoa podia estar com a aba aberta e focada, e
+ * mesmo assim o painel não saía sozinho do lugar depois de a origem voltar.
+ *
+ * Reaproveita o teto da progressão (`TETO_DA_ESPERA`) em vez de um número
+ * novo: é o intervalo que a política já considera "esperar mais não compra
+ * mais nada", e sondar nesse ritmo depois do esgotamento é a mesma decisão
+ * aplicada ao mesmo problema, só que sem prazo de validade.
+ */
+export const INTERVALO_DE_RECUPERACAO_MS = TETO_DA_ESPERA;
+
+/**
  * Os estados de transporte que valem uma segunda tentativa.
  *
  * Fora `ERRO_SEM_CORPO`, que é um 4xx — o pedido está errado, e repeti-lo dá o
