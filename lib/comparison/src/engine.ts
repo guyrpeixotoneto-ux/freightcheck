@@ -6,6 +6,7 @@ import {
   snapshotTable,
 } from "@workspace/db";
 import {
+  ehAlteracaoMaterial,
   loadAttributeClassifications,
   loadAttributeClassificationsAt,
   type AttributeClassification,
@@ -370,7 +371,17 @@ export async function computeChangeSet(
       .update(changeSetTable)
       .set({
         status: "DONE",
-        valueChanges: rows.filter((r) => r.category === "SOURCE_CHANGE").length,
+        /*
+          NEUTRAL fica de fora: cadastro/identificação (`trecho.origem`,
+          `operador_nome`, placa) não mede grandeza econômica, e contá-lo aqui
+          infla o número que o Painel de Unidades soma sem que nenhuma dessas
+          trocas vire dinheiro ou mude veredito nenhum. A linha em `change`
+          continua gravada para todas — só o agregado que o cartão publica
+          exclui.
+        */
+        valueChanges: rows.filter(
+          (r) => r.category === "SOURCE_CHANGE" && ehAlteracaoMaterial(r.economicDirection),
+        ).length,
         entitiesAdded,
         entitiesRemoved,
         attributesAdded,

@@ -80,6 +80,21 @@ export interface AttributeClassification {
 }
 
 /**
+ * Uma alteração é material quando o atributo mede grandeza econômica.
+ *
+ * `NEUTRAL` é cadastro ou identificação — `trecho.origem`, `trecho.destino`,
+ * `unidade_nome`, `operador_nome`, `chave_trecho`, placa, chassi — e o Radar de
+ * Trechos já faz esta mesma distinção (`classificarTrecho`) para separar o que
+ * conta como sinal de negócio do que é só forma. `null` continua contando: é o
+ * estado de quem nunca foi classificado, e não é a mesma coisa que "curado como
+ * neutro" — tratar os dois igual faria todo atributo não confirmado sumir dos
+ * contadores até alguém revisá-lo.
+ */
+export function ehAlteracaoMaterial(economicDirection: string | null | undefined): boolean {
+  return economicDirection !== "NEUTRAL";
+}
+
+/**
  * Classifications as they stood on a given date, resolved from
  * `attribute_semantics`.
  *

@@ -57,6 +57,7 @@ import {
   changeSetTable,
   changeTable,
 } from "@workspace/db";
+import { ehAlteracaoMaterial } from "./classification";
 import { computeChangeSet, findPreviousSnapshot } from "./engine";
 import type { ImpactConfidence } from "./impact";
 import {
@@ -127,7 +128,7 @@ function sinalDaLinha(l: AlteracaoDoTrecho): 1 | -1 | null {
  */
 export function classificarTrecho(todasAsLinhas: AlteracaoDoTrecho[]): ResumoDoTrecho {
   const totalAlteracoes = todasAsLinhas.length;
-  const materiais = todasAsLinhas.filter((l) => l.economicDirection !== "NEUTRAL");
+  const materiais = todasAsLinhas.filter((l) => ehAlteracaoMaterial(l.economicDirection));
   const alteracoesMateriais = materiais.length;
 
   if (alteracoesMateriais === 0) {
