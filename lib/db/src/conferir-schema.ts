@@ -117,13 +117,35 @@ export function comandoQueRepoe(
   alvo: ColunaAusente,
   migrations = readMigrations(),
 ): string | undefined {
+  return migrationQueRepoe(alvo, migrations)?.comando;
+}
+
+/** De onde o comando veio, além do próprio comando. */
+export interface OrigemDoComando {
+  /** `0054_regra_de_alteracao` — o arquivo, sem extensão. */
+  tag: string;
+  comando: string;
+}
+
+/**
+ * O mesmo achado de {@link comandoQueRepoe}, com o nome da migration junto.
+ *
+ * Existe porque "falta uma coluna" e "falta a migration `0054`" são frases de
+ * utilidade muito diferente para quem opera: a primeira manda procurar, a
+ * segunda manda rodar. Quem só quer o DDL continua chamando `comandoQueRepoe`,
+ * que agora delega aqui — a varredura é uma só, e não duas que podem divergir.
+ */
+export function migrationQueRepoe(
+  alvo: ColunaAusente,
+  migrations = readMigrations(),
+): OrigemDoComando | undefined {
   for (let i = migrations.length - 1; i >= 0; i--) {
     for (const bruto of migrations[i]!.statements) {
       const comando = semComentarioDeAbertura(bruto);
       const achado = ADD_COLUMN.exec(comando);
       if (!achado) continue;
       if (achado[1] === alvo.tabela && achado[2] === alvo.coluna) {
-        return comando.replace(/;\s*$/, "");
+        return { tag: migrations[i]!.tag, comando: comando.replace(/;\s*$/, "") };
       }
     }
   }

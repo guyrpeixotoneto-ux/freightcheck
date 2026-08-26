@@ -1,4 +1,5 @@
 import type { Database } from "@workspace/db";
+import { descreverFalhaDoBanco, type FalhaDoBanco } from "@workspace/db/falha-do-banco";
 import { definirDirecaoEconomica, type DirecaoEconomica } from "./direcao-economica";
 
 /**
@@ -225,23 +226,48 @@ export interface AplicarDirecaoEconomicaTrechoResumo {
   gravadas: number;
   jaEstavam: number;
   falhas: { code: string; erro: string }[];
+  /**
+   * A falha estrutural que fez a rodada parar, quando ela parou.
+   *
+   * Presente = o banco recusou por um motivo que vale para toda linha
+   * (schema atrasado, conexão, timeout), e insistir só repetiria o erro.
+   */
+  interrompidaPor?: { code: string; falha: FalhaDoBanco };
+  /** Atributos que nem chegaram a ser tentados por causa da interrupção. */
+  naoTentadas: number;
 }
 
 /**
  * Aplica a rodada acima, uma vez por `code`, de forma idempotente
- * (`definirDirecaoEconomica` já resolve "já estava" sem regravar). Uma falha
- * num atributo (ex.: código que não existe mais no dicionário) não interrompe
- * os demais — ela é coletada e reportada, porque parar no meio deixaria a
- * curadoria parcialmente aplicada sem que ninguém percebesse.
+ * (`definirDirecaoEconomica` já resolve "já estava" sem regravar).
+ *
+ * **Duas falhas diferentes, dois comportamentos.** Uma falha *do atributo* —
+ * um código que não existe mais no dicionário — não interrompe os demais: ela
+ * é coletada e reportada, porque parar no meio deixaria a curadoria
+ * parcialmente aplicada sem que ninguém percebesse, e porque a próxima linha
+ * tem chance real de dar certo.
+ *
+ * Uma falha *do banco* interrompe. Em 26/08/2026 esta função tentou 110 vezes
+ * contra um banco que recusou a primeira consulta inteira, e devolveu 110
+ * cópias do mesmo envelope sem causa — uma saída longa que não permitia
+ * decidir nada. Quando `descreverFalhaDoBanco` diz que a causa é estrutural,
+ * a 2ª tentativa não pode informar nada que a 1ª não tenha informado: a
+ * rodada para, guarda a causa real (SQLSTATE ou código de rede) e diz quantas
+ * ficaram sem tentativa.
  */
 export async function aplicarDirecaoEconomicaTrecho(
   db: Database,
   actor: string,
   reason = "Curadoria inicial de direção econômica de TRECHO — Radar de Trechos.",
 ): Promise<AplicarDirecaoEconomicaTrechoResumo> {
-  const resumo: AplicarDirecaoEconomicaTrechoResumo = { gravadas: 0, jaEstavam: 0, falhas: [] };
+  const resumo: AplicarDirecaoEconomicaTrechoResumo = {
+    gravadas: 0,
+    jaEstavam: 0,
+    falhas: [],
+    naoTentadas: 0,
+  };
 
-  for (const entrada of DIRECAO_ECONOMICA_TRECHO) {
+  for (const [indice, entrada] of DIRECAO_ECONOMICA_TRECHO.entries()) {
     try {
       const r = await definirDirecaoEconomica(db, {
         code: entrada.code,
@@ -253,7 +279,13 @@ export async function aplicarDirecaoEconomicaTrecho(
       if (r.desfecho === "GRAVADA") resumo.gravadas++;
       else resumo.jaEstavam++;
     } catch (err) {
-      resumo.falhas.push({ code: entrada.code, erro: err instanceof Error ? err.message : String(err) });
+      const falha = descreverFalhaDoBanco(err);
+      if (falha.estrutural) {
+        resumo.interrompidaPor = { code: entrada.code, falha };
+        resumo.naoTentadas = DIRECAO_ECONOMICA_TRECHO.length - indice - 1;
+        return resumo;
+      }
+      resumo.falhas.push({ code: entrada.code, erro: falha.mensagem });
     }
   }
 

@@ -9,6 +9,7 @@
     "./migrate": "./src/migrate.ts",
     "./fila": "./src/fila.ts",
     "./diagnostico": "./src/diagnostico.ts",
+    "./falha-do-banco": "./src/falha-do-banco.ts",
     "./conferir-schema": "./src/conferir-schema.ts",
     "./reconvergencia": "./src/reconvergencia.ts",
     "./bridge": "./src/bridge.ts",
