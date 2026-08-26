@@ -19,6 +19,7 @@ import { Paginacao } from "@/components/ui/paginacao";
 import { LoadingSpinner } from "@/components/ui/loading";
 import { fetchJson } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { lerRecorte, paramsDoRecorte } from "@/lib/recorte";
 import { DiagnosticoDoTrecho } from "@/components/radar-trechos/diagnostico-do-trecho";
 
 /**
@@ -143,7 +144,20 @@ export default function RadarTrechos() {
     setLocation(`/radar-trechos?${novo}`, { replace: true });
   }
 
-  const queryParams = new URLSearchParams();
+  /*
+    scopeHash/canal vêm da própria URL — o mesmo par que a barra lateral lê
+    para decidir "unidade atual" (`UnidadeAberta`, em `sidebar.tsx`). Sem eles
+    o servidor cairia no contexto mais recente por conta própria, que pode não
+    ser o mesmo que a caixa da lateral mostra: foi exatamente esse
+    descompasso que produzia "este contexto não tem trecho importado" com a
+    unidade certa visível na tela. `/radar-trechos` está em
+    `TELAS_QUE_HONRAM_ESCOPO`, então trocar de unidade na lateral preserva
+    esta tela e só troca o par na URL.
+  */
+  const recorte = lerRecorte(search);
+  const contexto = paramsDoRecorte(recorte, { comPeriodo: false });
+
+  const queryParams = new URLSearchParams(contexto);
   if (status) queryParams.set("status", status);
   if (busca) queryParams.set("busca", busca);
   queryParams.set("limit", String(porPagina));

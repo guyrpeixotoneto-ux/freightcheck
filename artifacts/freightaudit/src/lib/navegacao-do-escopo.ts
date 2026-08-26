@@ -62,6 +62,7 @@ export const TELAS_QUE_HONRAM_ESCOPO = new Set<string>([
   "/cavalo-360",
   "/carreta-360",
   "/trecho-360",
+  "/radar-trechos",
 ]);
 
 /**

@@ -237,6 +237,18 @@ export interface ComparacaoDeTrecho {
  * Retorna `null` quando o contexto não existe, ou quando ele existe mas não
  * tem nenhuma vigência de TRECHO — os dois casos viram 404 na rota, com
  * mensagens diferentes.
+ *
+ * **A lista de contextos usada para o "padrão, sem pedido" é a mesma de
+ * `/contexts`** — a que a barra lateral lê para decidir qual unidade é "a
+ * atual". Usar aqui uma lista diferente (mesmo que só para incluir a casca de
+ * trecho) faria o "mais recente" desta rota divergir do que a barra lateral
+ * mostra: a caixa "Unidade atual" diria uma unidade, e o Radar, sem receber
+ * `scopeHash` nenhum, resolveria silenciosamente outra — foi exatamente o
+ * defeito que produziu "este contexto não tem trecho importado" com a
+ * unidade certa visível na tela. A casca só entra quando alguém **pede** um
+ * `scopeHash` explícito (o seletor de unidade, depois de trocar), porque aí
+ * a pergunta deixou de ser "qual é o padrão" e passou a ser "este que foi
+ * pedido existe" — e um scope só-de-trecho é uma resposta legítima a ela.
  */
 export type ResultadoDaComparacaoDeTrecho =
   | ({ erro: null } & ComparacaoDeTrecho)
@@ -248,7 +260,8 @@ export async function resolverComparacaoDeTrecho(
   db: Database,
   requested?: RequestedContext,
 ): Promise<ResultadoDaComparacaoDeTrecho> {
-  const contexts = await listContexts(db, { incluirCascaDeTrecho: true });
+  const wantsScope = requested?.scopeHash !== undefined && requested.scopeHash !== null;
+  const contexts = await listContexts(db, { incluirCascaDeTrecho: wantsScope });
   const context = await resolveContext(db, requested, contexts).catch(() => null);
   if (!context) return { erro: "SEM_CONTEXTO" };
 
