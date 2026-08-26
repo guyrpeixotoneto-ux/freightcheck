@@ -220,6 +220,21 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
         "fechamento_referencia",
         "fechamento_referencia_conteudo",
         "fechamento_referencia_linha",
+        /*
+          A frota Promax (`0056`) e o total do pagamento (`0057`) — duas leituras
+          novas do mesmo documento de fechamento. Aditivas como as demais:
+          nenhuma tabela existente muda de forma, e Production as ganha quando o
+          servidor novo aplicar a fila na partida.
+        */
+        "fechamento_frota_promax",
+        "fechamento_pagamento_total",
+        /*
+          A justificativa, da `0058`/`0059` — por que o gestor deixou registrado
+          que uma placa mudou daquele jeito. Aditiva pelo mesmo critério, e a
+          única desta lista que não é do Fechamento: ela pende de `change` e
+          `change_set`, que Production já tem.
+        */
+        "justificativa",
       ]),
     );
     /*
@@ -234,6 +249,22 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
       o que faz este diff atravessável — o servidor novo aplica a fila na partida
       e Production as ganha lá.
 
+      As sete seguintes são da ocultação de importação e do progresso da leitura.
+      Quatro delas — as três `hidden_*` da `0060` e `progress_step` da `0062` —
+      são aditivas e nulas como as cinco acima. As outras três não são, e é
+      justamente por isso que estão escritas aqui separadas:
+
+      - `progress_done` e `progress_total` (`0062`) são `NOT NULL` **com
+        default**: Production as ganha preenchidas com zero, que é a resposta
+        certa para uma leitura terminada antes de a medida existir;
+      - `fact.origin_import_run_id` (`0061`) é `NOT NULL` **sem** default, a
+        forma mais dura. Ela atravessa porque a própria `0061` a atravessa: a
+        coluna nasce nula, recebe a origem pela cadeia `raw_cell → raw_sheet`,
+        e só então é trancada. Nenhum passo disso é do diff — é da fila.
+
+      As três estão fora da `ALLOWLIST` do bridge pelo mesmo motivo, e é o `up`
+      (e a `0063`) que as repõe depois de um `down`.
+
       Prendê-las aqui é o ponto: uma coluna nova que apareça neste diff sem
       alguém ter vindo escrevê-la nesta linha é uma mudança de schema que
       ninguém avaliou contra a política de deploy.
@@ -245,6 +276,13 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
         "import_run.reprocess_reason",
         "assistant_message.trace",
         "attribute.change_rule",
+        "import_run.hidden_at",
+        "import_run.hidden_by",
+        "import_run.hidden_reason",
+        "import_run.progress_step",
+        "import_run.progress_done",
+        "import_run.progress_total",
+        "fact.origin_import_run_id",
         /*
           A coluna que a `0046` acrescentou a `fechamento_competencia` **não**
           entra aqui, e a ausência é a informação: o diff a reporta pela tabela,
@@ -273,7 +311,11 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
             /* A `unidade`, da `0049`, pela mesma regra: as constraints dela vêm
                junto com a tabela nova, e nomeá-las uma a uma congelaria a
                nomenclatura interna num teste que não fala sobre ela. */
-            !c.startsWith("unidade_"),
+            !c.startsWith("unidade_") &&
+            /* A `justificativa`, da `0058`/`0059`, pela mesma regra das
+               anteriores: chave primária e as duas estrangeiras vêm junto com a
+               tabela nova. */
+            !c.startsWith("justificativa_"),
         ),
       ),
     ).toEqual(
@@ -284,6 +326,14 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
         // por isso não há linha em Production que elas possam recusar.
         "import_run_reprocess_of_fk",
         "import_run_reprocess_completo",
+        /*
+          A da `0061`, e esta é sobre tabela que já existe — por isso está aqui
+          nomeada, e não coberta pelo filtro de prefixo acima. É aditiva pelo
+          mesmo argumento das duas de cima: a FK nasce sobre uma coluna que a
+          própria `0061` acabou de preencher pela cadeia, então não há linha em
+          Production que ela possa recusar.
+        */
+        "fact_origin_import_run_id_import_run_id_fk",
       ]),
     );
 
@@ -310,6 +360,14 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
       "0053_rastro_da_resposta",
       "0054_regra_de_alteracao",
       "0055_disponibilidade_por_frota",
+      "0056_frota_promax",
+      "0057_total_do_pagamento",
+      "0058_justificativa",
+      "0059_justificativa_por_alteracao",
+      "0060_ocultar_import_run",
+      "0061_origem_do_fato",
+      "0062_progresso_da_leitura",
+      "0063_reconciliar_ocultacao",
     ]);
 
     // Preservação + backfill: as três contas continuam com o hash original e

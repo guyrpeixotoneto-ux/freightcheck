@@ -635,9 +635,9 @@ export const factTable = pgTable(
      * **Custo.** O filtro precisa valer em toda leitura de fato; resolvê-lo pela
      * cadeia exigiria três junções por consulta sobre a maior tabela do sistema.
      */
-    originImportRunId: uuid("origin_import_run_id").references(
-      () => importRunTable.id,
-    ),
+    originImportRunId: uuid("origin_import_run_id")
+      .notNull()
+      .references(() => importRunTable.id),
   },
   (t) => [
     uniqueIndex("fact_grain_uq").on(t.snapshotId, t.entityId, t.attributeId),

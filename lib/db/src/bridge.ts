@@ -191,6 +191,31 @@ export const ALLOWLIST: {
     tipo: "text",
     aindaPodeNaoExistir: true,
   },
+  /*
+    As três da `0060` e a `progress_step` da `0062` — a ocultação de importação e
+    o passo da leitura. Aditivas e nulas por definição: toda importação anterior
+    a elas não foi ocultada e não publicou progresso, e é isso que `NULL` diz.
+    Production as ganha quando rodar a fila, e até lá o `down` as mantém para
+    que a proposta do Publishing não tenha nada além delas.
+
+    As quatro são `aindaPodeNaoExistir`, como toda coluna de migration recente:
+    um Development parado antes da `0060` não as tem, e não tê-las é o estado
+    correto — não um `down` que removeu o que não devia.
+
+    `progress_done` e `progress_total` **não** entram aqui: são `NOT NULL` com
+    default, forma que a allowlist não aceita, e por isso saem em
+    `COLUNAS_REMOVIDAS` — como as três da `0032`, e pela mesma razão de fundo:
+    são medida derivada, que a leitura seguinte reescreve.
+  */
+  {
+    tabela: "import_run",
+    coluna: "hidden_at",
+    tipo: "timestamp with time zone",
+    aindaPodeNaoExistir: true,
+  },
+  { tabela: "import_run", coluna: "hidden_by", tipo: "text", aindaPodeNaoExistir: true },
+  { tabela: "import_run", coluna: "hidden_reason", tipo: "text", aindaPodeNaoExistir: true },
+  { tabela: "import_run", coluna: "progress_step", tipo: "text", aindaPodeNaoExistir: true },
 ];
 
 /**
@@ -251,6 +276,22 @@ const TABELAS_REMOVIDAS = [
   "fechamento_cte",
   "fechamento_viagem",
   /*
+    A frota Promax (`0056`) e o total do pagamento (`0057`) — as duas mais novas
+    do ambiente, e as duas que faltavam aqui.
+
+    Elas entram pela mesma razão das treze acima: Production não as conhece até
+    rodar a fila. E entram **antes** de `fechamento_documento` e
+    `fechamento_competencia` porque são filhas das duas — cada uma tem FK para
+    ambas —, que é a ordem que o `RESTRICT` do `down` aceita.
+
+    O bridge falhou fechado enquanto elas estiveram de fora, e isso é o desenho
+    funcionando: a varredura de dependências viu duas FKs que ninguém havia
+    declarado e recusou-se a descer. O conserto é declarar as tabelas, nunca
+    calar a varredura.
+  */
+  "fechamento_frota_promax",
+  "fechamento_pagamento_total",
+  /*
     O conteúdo guardado da importação, da `0047`. Vem **antes** do documento
     porque é filha dele: derrubar o pai primeiro esbarraria na chave
     estrangeira, que é o que esta ordem existe para evitar.
@@ -275,6 +316,20 @@ const TABELAS_REMOVIDAS = [
     comportamento correto: encolher o diff descartando o que alguém digitou é
     exatamente o que o bridge não pode fazer.
   */
+  /*
+    O Plano de Ação — Justificativas, da `0058`/`0059`. Production não a conhece,
+    como as demais desta lista, e por isso ela é uma tabela que a proposta do
+    Publishing proporia criar enquanto estivesse aqui de pé.
+
+    Não é filha de nada que esta lista derrube — `change_set` e `change` ficam —,
+    então a posição dela é livre.
+
+    **A pré-condição de vazia é a certa, e é dura pela mesma razão da planilha
+    abaixo:** cada linha é um texto que um gestor escreveu explicando por que uma
+    placa mudou, e não existe consulta que o reconstrua. Um Development com
+    justificativa gravada trava o `down`, e travar é o comportamento correto.
+  */
+  "justificativa",
   "remuneracao_planilha",
   /*
     A unidade cadastrada à mão, da `0047` — o mesmo caso da planilha acima, e a
@@ -472,6 +527,26 @@ export const COLUNAS_REMOVIDAS: [string, string][] = [
     estado pós-migration, nunca a um estado sem papel.
   */
   ["app_user", "role"],
+  /*
+    A `0062` — `progress_done` e `progress_total` são `NOT NULL DEFAULT 0`, a
+    mesma forma que tirou as três colunas da `0032` daqui para cá. E o motivo de
+    fundo é o mesmo: são medida do próprio pipeline, reescrita pela leitura
+    seguinte, não dado que alguém digitou.
+  */
+  ["import_run", "progress_done"],
+  ["import_run", "progress_total"],
+  /*
+    A `0061` — `fact.origin_import_run_id` é `NOT NULL` **sem** default, a forma
+    mais dura de todas: nem a allowlist a aceita, nem existe valor neutro para
+    Production preencher. Sai daqui e volta no `up` pelo caminho da própria
+    migration — coluna nula, backfill pela cadeia, e só então `SET NOT NULL` —,
+    que é o mesmo desenho da `0038` para `app_user.role`.
+
+    Ela sai **depois** das views em `VIEWS_REMOVIDAS`: `fato_visivel` e
+    `fato_oculto` a leem, e uma view de pé recusa que a coluna seja derrubada. A
+    ordem do `down` já é essa — views, índices, constraints, colunas.
+  */
+  ["fact", "origin_import_run_id"],
 ];
 
 /** Índices que o `down` remove. Exportada pelo motivo de `COLUNAS_REMOVIDAS`. */
@@ -487,6 +562,21 @@ export const INDICES_REMOVIDOS = [
   // não a modela, e um índice único que ele tentasse criar em Production
   // encontraria dados que ele não sabe explicar.
   "import_run_leitura_aberta_uq",
+  /*
+    A `0060` e a `0061` — os dois índices da ocultação de importação.
+
+    `import_run_hidden_at_idx` é parcial (`WHERE hidden_at IS NOT NULL`) e
+    `fact_origin_import_run_idx` é comum, e nenhum dos dois é modelado pelo
+    Publishing: o `schema.ts` declara o segundo, mas o primeiro só existe no SQL.
+    Saem os dois pelo critério de sempre — o que o diff proporia criar em
+    Production tem de sair daqui antes.
+
+    As colunas que eles indexam não entram em `COLUNAS_REMOVIDAS`: as três de
+    `import_run` são anuláveis e sem default, que é exatamente a forma que a
+    `ALLOWLIST` aceita, e por isso podem ficar.
+  */
+  "import_run_hidden_at_idx",
+  "fact_origin_import_run_idx",
 ];
 
 /**
@@ -514,8 +604,19 @@ const VIEWS_REMOVIDAS = [
     do caminho.
   */
   "fato_visivel",
-  "fato_oculto",
+  /*
+    `alteracao_visivel` vem **antes** de `fato_oculto`, e a ordem aqui é a do
+    `DROP`: a primeira lê a segunda (`NOT IN (SELECT id FROM "fato_oculto")`), e
+    o `down` derruba sem `CASCADE` — derrubar a lida antes da leitora esbarra em
+    `cannot drop view fato_oculto because other objects depend on it` e deixa o
+    schema no meio do caminho.
+
+    As três nasceram juntas na `0061` e entraram nesta lista na ordem em que o
+    arquivo as cria, que é a ordem de dependência **ao contrário**: para criar,
+    a lida vem primeiro; para derrubar, a leitora.
+  */
   "alteracao_visivel",
+  "fato_oculto",
 ];
 
 /**
@@ -1376,11 +1477,70 @@ function planoUp(): PassoUp[] {
     A ordem importa: `fato_visivel` referencia `fact.origin_import_run_id`, e um
     `up` que criasse a view antes da coluna morreria em `column does not exist`.
   */
+  /*
+    A `0060` — o índice parcial dos runs ocultos. As três colunas que ele
+    acompanha ficam de pé no `down` (ver `INDICES_REMOVIDOS`), então só o índice
+    precisa voltar.
+  */
+  const M60 = "0060_ocultar_import_run";
+  add(
+    M60,
+    "índice import_run_hidden_at_idx",
+    levantar(M60, /INDEX IF NOT EXISTS "import_run_hidden_at_idx"/),
+  );
+
+  /*
+    A `0062` — as duas medidas do progresso da leitura, que saem por serem
+    `NOT NULL` com default. Voltam pelo próprio `ADD COLUMN` da migration, que
+    já traz o default: nenhuma linha existente precisa de backfill, porque zero
+    é a resposta certa para uma leitura que terminou antes de a medida existir.
+  */
+  const M62 = "0062_progresso_da_leitura";
+  for (const coluna of ["progress_done", "progress_total"]) {
+    add(
+      M62,
+      `import_run.${coluna}`,
+      levantar(M62, new RegExp(`ADD COLUMN IF NOT EXISTS "${coluna}"`)),
+    );
+  }
+
   const M61 = "0061_origem_do_fato";
   add(
     M61,
     "fact.origin_import_run_id",
     levantar(M61, /ADD COLUMN IF NOT EXISTS "origin_import_run_id"/),
+  );
+  /*
+    O backfill e o `SET NOT NULL`, nesta ordem e os dois levantados do arquivo.
+
+    A coluna nasce nula, recebe a origem pela cadeia snapshot → import_run e só
+    então é trancada — é o desenho da própria `0061`, e repeti-lo aqui é o que
+    faz um Development que passou por `down` voltar ao estado pós-migration em
+    vez de a um estado com a coluna anulável.
+
+    O backfill entra marcado como `reconstroiDados`, e não por `levantar`: o
+    plano do `up` recusa `INSERT`/`UPDATE`/`DELETE` por padrão — restaurar
+    estrutura não é dele reaplicar transformação de dado —, e esta é a segunda
+    exceção declarada, ao lado do backfill de `app_user.role` na `0037`. A razão
+    é a mesma nas duas: sem ele a coluna não pode ser trancada, e um `up` que
+    parasse antes do `SET NOT NULL` devolveria um schema diferente do que a fila
+    produz.
+  */
+  p.push({
+    migration: M61,
+    objeto: "fact.origin_import_run_id (backfill)",
+    sql: reconstruir(M61, /UPDATE "fact" f/),
+    reconstroiDados: true,
+  });
+  add(
+    M61,
+    "fact.origin_import_run_id NOT NULL",
+    levantar(M61, /ALTER COLUMN "origin_import_run_id" SET NOT NULL/),
+  );
+  add(
+    M61,
+    "FK fact_origin_import_run_id_import_run_id_fk",
+    levantar(M61, /ADD CONSTRAINT "fact_origin_import_run_id_import_run_id_fk"/),
   );
   add(
     M61,
@@ -1389,9 +1549,17 @@ function planoUp(): PassoUp[] {
   );
   add(M61, "view fato_visivel", `DROP VIEW IF EXISTS "fato_visivel" RESTRICT`);
   add(M61, "view fato_visivel", levantar(M61, /CREATE VIEW "fato_visivel"/));
+  /*
+    `alteracao_visivel` é derrubada **antes** de `fato_oculto`, e só depois as
+    duas são criadas na ordem inversa. É o que torna o `up` repetível: num banco
+    que já passou por ele, as três views estão de pé, e o `DROP ... RESTRICT` de
+    `fato_oculto` com a leitora ainda em cima morre em `cannot drop view
+    fato_oculto because other objects depend on it`. Criar exige a lida
+    primeiro; derrubar exige a leitora primeiro.
+  */
+  add(M61, "view alteracao_visivel", `DROP VIEW IF EXISTS "alteracao_visivel" RESTRICT`);
   add(M61, "view fato_oculto", `DROP VIEW IF EXISTS "fato_oculto" RESTRICT`);
   add(M61, "view fato_oculto", levantar(M61, /CREATE VIEW "fato_oculto"/));
-  add(M61, "view alteracao_visivel", `DROP VIEW IF EXISTS "alteracao_visivel" RESTRICT`);
   add(M61, "view alteracao_visivel", levantar(M61, /CREATE VIEW "alteracao_visivel"/));
 
   // A `0020` — a função antes do gatilho que a chama, e a tabela antes dos dois.
@@ -1815,6 +1983,122 @@ function planoUp(): PassoUp[] {
     M55,
     "fechamento_documento_tipo (0055)",
     levantar(M55, /ADD CONSTRAINT "fechamento_documento_tipo"/),
+  );
+
+  /*
+    A `0056` e a `0057` — a frota Promax e o total do pagamento.
+
+    Entram **depois** da `0055` porque as três disputam a mesma constraint: cada
+    uma derruba `fechamento_documento_tipo` e a repõe com a lista de tipos que a
+    sua migration passou a aceitar. Quem escreve por último vence, e por último
+    tem de ser a `0056`, que é a que acrescenta os dois tipos de FROTA_PROMAX.
+
+    A ordem dentro de cada bloco é a da própria migration: tabela, chaves,
+    índices, e o gatilho de competência congelada por último — ele chama
+    `fechamento_recusar_escrita_em_encerrada()`, que a `0039` já levantou acima.
+  */
+  const M56 = "0056_frota_promax";
+  add(M56, "fechamento_frota_promax", levantar(M56, /CREATE TABLE IF NOT EXISTS "fechamento_frota_promax" \(/));
+  add(
+    M56,
+    "fechamento_documento_tipo (drop, 0056)",
+    levantar(M56, /DROP CONSTRAINT IF EXISTS "fechamento_documento_tipo"/),
+  );
+  /*
+    O `DROP` antes do `ADD`, e os dois levantados do arquivo: diferente da
+    `0039`, que escreve cada chave num bloco `DO ... IF NOT EXISTS`, a `0056` e a
+    `0057` são reentrantes pelo par drop/add. Levantar só o `ADD` faz o segundo
+    `up` morrer em `constraint ... already exists` — a tabela sobrevive ao
+    `CREATE TABLE IF NOT EXISTS`, e a chave junto com ela.
+  */
+  for (const nome of [
+    "fechamento_frota_promax_documento_fk",
+    "fechamento_frota_promax_competencia_fk",
+  ]) {
+    add(M56, `FK ${nome} (drop)`, levantar(M56, new RegExp(`DROP CONSTRAINT IF EXISTS "${nome}"`)));
+    add(M56, `FK ${nome}`, levantar(M56, new RegExp(`ADD CONSTRAINT "${nome}"`)));
+  }
+  for (const i of [
+    "fechamento_frota_promax_por_competencia",
+    "fechamento_frota_promax_por_documento",
+  ]) {
+    add(M56, `índice ${i}`, levantar(M56, new RegExp(`INDEX IF NOT EXISTS "${i}"`)));
+  }
+  add(
+    M56,
+    "fechamento_documento_tipo (0056)",
+    levantar(M56, /ADD CONSTRAINT "fechamento_documento_tipo"/),
+  );
+  add(
+    M56,
+    "gatilho fechamento_frota_promax_congelada",
+    levantar(M56, /CREATE TRIGGER "fechamento_frota_promax_congelada"/),
+  );
+
+  const M57 = "0057_total_do_pagamento";
+  add(M57, "fechamento_pagamento_total", levantar(M57, /CREATE TABLE IF NOT EXISTS "fechamento_pagamento_total" \(/));
+  for (const nome of [
+    "fechamento_pagamento_total_documento_fk",
+    "fechamento_pagamento_total_competencia_fk",
+  ]) {
+    add(M57, `FK ${nome} (drop)`, levantar(M57, new RegExp(`DROP CONSTRAINT IF EXISTS "${nome}"`)));
+    add(M57, `FK ${nome}`, levantar(M57, new RegExp(`ADD CONSTRAINT "${nome}"`)));
+  }
+  for (const i of [
+    "fechamento_pagamento_total_por_competencia",
+    "fechamento_pagamento_total_por_documento",
+  ]) {
+    add(M57, `índice ${i}`, levantar(M57, new RegExp(`INDEX IF NOT EXISTS "${i}"`)));
+  }
+  add(
+    M57,
+    "gatilho fechamento_pagamento_total_congelada",
+    levantar(M57, /CREATE TRIGGER "fechamento_pagamento_total_congelada"/),
+  );
+
+  /*
+    A `0058`/`0059` — a justificativa, que nasce numa migration e muda de chave
+    na seguinte.
+
+    O `up` repõe o **estado final**, e não a história: a tabela e a chave da
+    `0058`, e por cima o `change_id` da `0059` com a chave e o índice dele. O
+    índice `justificativa_entity_label_idx` fica de fora dos dois lados de
+    propósito — a `0058` o cria e a `0059` o derruba, e um banco criado do zero
+    hoje não o tem. Levantá-lo aqui para derrubá-lo em seguida seria escrever a
+    história de novo só para chegar no mesmo lugar.
+  */
+  const M58 = "0058_justificativa";
+  const M59 = "0059_justificativa_por_alteracao";
+  add(M58, "justificativa", levantar(M58, /CREATE TABLE IF NOT EXISTS "justificativa" \(/));
+  add(
+    M58,
+    "FK justificativa_change_set_id_fk",
+    levantar(M58, /ADD CONSTRAINT "justificativa_change_set_id_fk"/),
+  );
+  add(
+    M58,
+    "índice justificativa_change_set_idx",
+    levantar(M58, /INDEX IF NOT EXISTS "justificativa_change_set_idx"/),
+  );
+  add(
+    M59,
+    "justificativa.change_id",
+    levantar(M59, /ADD COLUMN IF NOT EXISTS "change_id"/),
+  );
+  add(
+    M59,
+    "justificativa.change_id NOT NULL",
+    levantar(M59, /ALTER COLUMN "change_id" SET NOT NULL/),
+  );
+  add(
+    M59,
+    "FK justificativa_change_id_fk",
+    levantar(M59, /ADD CONSTRAINT "justificativa_change_id_fk"/),
+  );
+  add(
+    M59,
+    "índice justificativa_change_id_idx",
+    levantar(M59, /INDEX IF NOT EXISTS "justificativa_change_id_idx"/),
   );
 
   /*

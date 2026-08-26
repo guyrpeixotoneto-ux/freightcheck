@@ -245,6 +245,14 @@ describe("0015 sobre um banco parado na 0014", () => {
       "0053_rastro_da_resposta",
       "0054_regra_de_alteracao",
       "0055_disponibilidade_por_frota",
+      "0056_frota_promax",
+      "0057_total_do_pagamento",
+      "0058_justificativa",
+      "0059_justificativa_por_alteracao",
+      "0060_ocultar_import_run",
+      "0061_origem_do_fato",
+      "0062_progresso_da_leitura",
+      "0063_reconciliar_ocultacao",
     ]);
 
     const linhas = await retrato(pool);
