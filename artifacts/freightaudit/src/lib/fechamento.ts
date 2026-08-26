@@ -1881,6 +1881,96 @@ export function lerFrotaDaCompetencia(competenciaId: string): Promise<Comparacao
   return fetchJson<ComparacaoDeFrotaPromax>(`/fechamento/competencias/${competenciaId}/frota`);
 }
 
+/* ---------------------------------------------------------------------------
+   A DISPONIBILIDADE — o 03.08.18 dia a dia
+   ------------------------------------------------------------------------ */
+
+/** O gap da transportadora, aberto como o relatório o abre, e somado. */
+export interface GapDaTransportadora {
+  frotaCancelada: number;
+  outrosCancelados: number;
+  frotaNaoCancelada: number;
+  outrosNaoCancelados: number;
+  total: number;
+}
+
+export interface DescontosDaDisponibilidade {
+  custoFixo: number;
+  equipe: number;
+  indiretos: number;
+  fatorAjudante: number;
+  /** O total que o relatório declara — não a soma das parcelas. */
+  total: number;
+}
+
+/** Um dia de um canal, numa frota — a linha do 03.08.18. */
+export interface LinhaDeDisponibilidade {
+  dia: string;
+  canal: string;
+  frotaTotal: number;
+  contratada: number;
+  realPrimeiraViagem: number;
+  realSegundaViagem: number;
+  gapTotal: number;
+  /** A parte do gap que é da Ambev — **não** desconta. */
+  gapDaCia: number;
+  gapDaTransportadora: GapDaTransportadora;
+  descontos: DescontosDaDisponibilidade;
+  /** `null` quando a coluna não veio no arquivo — não é zero. */
+  percentualDeUtilizacao: number | null;
+  percentualDeDisponibilidade: number | null;
+}
+
+export interface TotaisDeDisponibilidade {
+  /** Dias distintos, não linhas. */
+  dias: number;
+  linhas: number;
+  contratada: number;
+  realizada: number;
+  gapTotal: number;
+  gapDaCia: number;
+  gapDaTransportadora: number;
+  descontos: DescontosDaDisponibilidade;
+}
+
+/** Uma das duas casinhas do 03.08.18: os caminhões (`FF`) ou as vans. */
+export interface FrotaNaDisponibilidade {
+  tipoDeFrota: "FF" | "VAN";
+  linhas: LinhaDeDisponibilidade[];
+  totais: TotaisDeDisponibilidade;
+}
+
+export interface FonteDaDisponibilidade extends FonteDoDiario {
+  tipo: "DISPONIBILIDADE_FF" | "DISPONIBILIDADE_VAN";
+  tipoDeFrota: "FF" | "VAN";
+}
+
+export interface DisponibilidadeDaCompetencia {
+  competencia: Competencia;
+  /** Vazia enquanto nenhum 03.08.18 foi enviado. */
+  fontes: FonteDaDisponibilidade[];
+  frotas: FrotaNaDisponibilidade[];
+  /** Linhas do arquivo mensal que caíram fora da quinzena — contadas, nunca somadas. */
+  linhasForaDoPeriodo: number;
+}
+
+/**
+ * A disponibilidade da competência: o 03.08.18 aberto por frota, dia e canal.
+ *
+ * **Não é a apuração** — é leitura própria, fora do motor financeiro, como a
+ * conferência de frota. O desconto que estas linhas produzem é cobrado uma vez
+ * por mês, no fechamento da 2ª quinzena; esta tela mostra de que dia cada
+ * parcela veio. Ver `routes/fechamento.ts` e `disponibilidade-da-competencia.ts`,
+ * em `@workspace/fechamento`.
+ */
+export function lerDisponibilidadeDaCompetencia(
+  competenciaId: string,
+): Promise<DisponibilidadeDaCompetencia> {
+  return fetchJson<DisponibilidadeDaCompetencia>(
+    `/fechamento/competencias/${competenciaId}/disponibilidade`,
+  );
+}
+
 /**
  * O `Total Remuneração` do 03.08.20 por canal, pelos dois lados.
  *

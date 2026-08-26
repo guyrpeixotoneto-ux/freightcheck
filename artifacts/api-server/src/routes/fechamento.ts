@@ -18,6 +18,7 @@ import {
   lerDeParaDaCompetencia,
   lerDiaDaCompetencia,
   lerDiarioDaCompetencia,
+  lerDisponibilidadeDaCompetencia,
   lerItensDaConciliacaoDaCompetencia,
   lerItensDoPagamentoDaCompetencia,
   associarUnidadeDaCompetencia,
@@ -1087,6 +1088,32 @@ router.get("/fechamento/competencias/:id/frota", async (req, res): Promise<void>
     }
     throw erro;
   }
+});
+
+/**
+ * A DISPONIBILIDADE — o 03.08.18 aberto dia a dia, por frota e canal.
+ *
+ * **Não é a apuração, e não passa por ela**, como a conferência de frota:
+ * `lerDisponibilidadeDaCompetencia` lê as linhas gravadas de
+ * `DISPONIBILIDADE_FF`/`DISPONIBILIDADE_VAN`, corta pelo período da
+ * competência e abre por frota — fora do motor financeiro. O desconto que
+ * essas linhas produzem continua sendo somado uma vez só, pela regra do mês,
+ * dentro de `apurarCompetencia`.
+ *
+ * `GET` porque não recalcula nada: lê o que está gravado e reorganiza.
+ */
+router.get("/fechamento/competencias/:id/disponibilidade", async (req, res): Promise<void> => {
+  const { id } = req.params;
+  if (!UUID.test(id)) {
+    res.status(400).json({ error: "Identificador de competência inválido." });
+    return;
+  }
+  const disponibilidade = await lerDisponibilidadeDaCompetencia(db, id);
+  if (!disponibilidade) {
+    res.status(404).json({ error: "Competência não encontrada." });
+    return;
+  }
+  res.json(disponibilidade);
 });
 
 /**

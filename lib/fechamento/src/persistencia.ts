@@ -74,7 +74,14 @@ import {
   descontoDeDisponibilidadeDoMes,
   lerDisponibilidade,
   type DescontoDeDisponibilidadeDoMes,
+  type DiaDeDisponibilidade,
 } from "./leitores/disponibilidade";
+/* A abertura da disponibilidade para leitura — pura, e fora do motor
+   financeiro. Ver o topo de `disponibilidade-da-competencia.ts`. */
+import {
+  abrirDisponibilidade,
+  type FrotaNaDisponibilidade,
+} from "./disponibilidade-da-competencia";
 import { lerConciliacao, type ItemDaConciliacao } from "./leitores/conciliacao";
 import { lerFrotaPromax, type VeiculoDaFrotaPromax } from "./leitores/frota-promax";
 import {
@@ -4260,6 +4267,149 @@ export async function compararFrotaDaCompetencia(
     comparacao: compararFrotaPromaxContraContrato(veiculos, contrato),
   };
 }
+
+/* ---------------------------------------------------------------------------
+   A DISPONIBILIDADE — leitura do 03.08.18, fora do motor financeiro
+   ------------------------------------------------------------------------ */
+
+/** A casinha do 03.08.18 de uma frota: o documento vigente, quando há um. */
+export interface FonteDaDisponibilidade extends FonteDoDiario {
+  tipoDeFrota: TipoDeFrotaContratada;
+  tipo: "DISPONIBILIDADE_FF" | "DISPONIBILIDADE_VAN";
+}
+
+export interface DisponibilidadeDaCompetencia {
+  competencia: CompetenciaRegistrada;
+  /**
+   * As casinhas que chegaram — vazia enquanto nenhum 03.08.18 foi enviado.
+   *
+   * São duas fontes distintas (`DISPONIBILIDADE_FF` e `DISPONIBILIDADE_VAN`),
+   * e é por isso que elas vêm separadas de `frotas`: uma frota sem linha
+   * nenhuma pode ser um relatório que não chegou ou um relatório que chegou
+   * sem dias no período, e só a fonte separa as duas.
+   */
+  fontes: FonteDaDisponibilidade[];
+  frotas: FrotaNaDisponibilidade[];
+  /**
+   * Linhas do 03.08.18 que caíram fora do período, contadas e nunca somadas.
+   *
+   * O 03.08.18 é exportado por mês e a competência é meia: metade do arquivo
+   * pertence à outra quinzena. O número existe pela mesma razão do
+   * `viagensForaDoPeriodo` do diário — para que "o arquivo tem 62 linhas e a
+   * tela soma 30" tenha resposta na própria tela.
+   */
+  linhasForaDoPeriodo: number;
+}
+
+/** O 03.08.18 vigente de uma das duas frotas, quando há um. */
+async function fonteDaDisponibilidade(
+  db: Database,
+  competenciaId: string,
+  tipo: "DISPONIBILIDADE_FF" | "DISPONIBILIDADE_VAN",
+): Promise<FonteDaDisponibilidade | null> {
+  const [documento] = await db
+    .select({
+      nomeDoArquivo: fechamentoDocumentoTable.nomeDoArquivo,
+      linhasLidas: fechamentoDocumentoTable.linhasLidas,
+      enviadoEm: fechamentoDocumentoTable.enviadoEm,
+    })
+    .from(fechamentoDocumentoTable)
+    .where(
+      and(
+        eq(fechamentoDocumentoTable.competenciaId, competenciaId),
+        eq(fechamentoDocumentoTable.tipo, tipo),
+        eq(fechamentoDocumentoTable.vigente, true),
+      ),
+    )
+    .limit(1);
+  if (!documento) return null;
+  return { ...documento, tipo, tipoDeFrota: frotaDaFonte(tipo) as TipoDeFrotaContratada };
+}
+
+/**
+ * A DISPONIBILIDADE DA COMPETÊNCIA — o 03.08.18 dia a dia, por frota e canal.
+ *
+ * **Não é a apuração, e não passa por ela.** Como a conferência de frota, esta
+ * é uma porta de leitura própria: lê as linhas que a importação gravou, corta
+ * pelo período da competência e delega a abertura para
+ * `disponibilidade-da-competencia.ts`, que é puro. `apurarCompetencia` continua
+ * sendo o único caminho pelo qual disponibilidade vira dinheiro, e continua
+ * fazendo isso pela regra do mês (`disponibilidadeDoMes`, acima).
+ *
+ * **O corte por período é o mesmo `WHERE` de `disponibilidadeDoMes`, e não
+ * outro.** A gravação não filtra por dia — o relatório é mensal e recusar o
+ * arquivo inteiro por metade dele cair fora seria pior —, então quem lê é que
+ * corta. Um segundo critério de corte aqui faria a tela mostrar dias que a
+ * conta não somou, ou esconder dias que ela somou; as linhas que sobram são
+ * contadas em `linhasForaDoPeriodo` em vez de sumirem em silêncio.
+ *
+ * `null` quando a competência não existe — o mesmo contrato de
+ * `lerDiarioDaCompetencia`.
+ */
+export async function lerDisponibilidadeDaCompetencia(
+  db: Database,
+  competenciaId: string,
+): Promise<DisponibilidadeDaCompetencia | null> {
+  const competencia = await buscarCompetencia(db, competenciaId);
+  if (!competencia) return null;
+
+  const [ff, van, linhas] = await Promise.all([
+    fonteDaDisponibilidade(db, competenciaId, "DISPONIBILIDADE_FF"),
+    fonteDaDisponibilidade(db, competenciaId, "DISPONIBILIDADE_VAN"),
+    db
+      .select()
+      .from(fechamentoDisponibilidadeTable)
+      .where(eq(fechamentoDisponibilidadeTable.competenciaId, competenciaId)),
+  ]);
+
+  const noPeriodo = linhas.filter((d) => dentroDaCompetencia(competencia, d.dia));
+
+  return {
+    competencia,
+    fontes: [ff, van].filter((f): f is FonteDaDisponibilidade => f !== null),
+    frotas: abrirDisponibilidade(noPeriodo.map(disponibilidadeGravada)),
+    linhasForaDoPeriodo: linhas.length - noPeriodo.length,
+  };
+}
+
+/** Uma linha de disponibilidade gravada, como o banco a devolve. */
+function disponibilidadeGravada(
+  d: typeof fechamentoDisponibilidadeTable.$inferSelect,
+): DiaDeDisponibilidade {
+  const numero = (v: string | null) => (v == null ? 0 : Number(v));
+  return {
+    linha: d.linhaNoArquivo,
+    aba: d.tipoDeFrota,
+    tipoDeFrota: d.tipoDeFrota as TipoDeFrotaContratada,
+    dia: d.dia,
+    canal: d.canal as Canal,
+    frotaTotal: d.frotaTotal,
+    contratada: numero(d.contratada),
+    realPrimeiraViagem: numero(d.realPrimeiraViagem),
+    realSegundaViagem: numero(d.realSegundaViagem),
+    gapTotal: numero(d.gapTotal),
+    gapDaCia: numero(d.gapDaCia),
+    gapDaTransportadora: {
+      frotaCancelada: 0,
+      outrosCancelados: 0,
+      frotaNaoCancelada: 0,
+      outrosNaoCancelados: 0,
+      ...((d.gapDaTransportadora ?? {}) as Record<string, number>),
+    },
+    descontos: {
+      custoFixo: numero(d.descontoCustoFixo),
+      equipe: numero(d.descontoEquipe),
+      indiretos: numero(d.descontoIndiretos),
+      fatorAjudante: numero(d.descontoFatorAjudante),
+      total: numero(d.descontoTotal),
+    },
+    percentualDeUtilizacao:
+      d.percentualDeUtilizacao == null ? null : Number(d.percentualDeUtilizacao),
+    percentualDeDisponibilidade:
+      d.percentualDeDisponibilidade == null ? null : Number(d.percentualDeDisponibilidade),
+  };
+}
+
 
 /**
  * O `Total Remuneração` do 03.08.20 pelos dois lados — declarado e calculado.
