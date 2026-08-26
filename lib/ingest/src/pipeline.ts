@@ -3495,51 +3495,92 @@ export async function promote(
         }
 
         // --- entidades ------------------------------------------------------
-        const entityKeys = new Map<string, { entityType: string; entityKey: string }>();
+        //
+        // A maioria das placas de um arquivo já existe no sistema — é o mesmo
+        // veículo reaparecendo num mês seguinte. Checar uma de cada vez custava
+        // uma ida ao banco por placa, existente ou não, e num arquivo com
+        // dezenas de milhares de placas distintas isso sozinho já é a maior
+        // parte do tempo de promoção. Aqui a existência de todas é resolvida
+        // numa única consulta (`= ANY(...)`, um parâmetro, não um por placa);
+        // só as placas realmente novas continuam pedindo idas individuais, e
+        // essas são raras perto do total.
+        const entityKeys = new Map<
+          string,
+          { entityType: string; entityKey: string; entityKeyRaw: string }
+        >();
         for (const fact of facts) {
-          entityKeys.set(`${fact.entityType}:${fact.entityKey}`, {
-            entityType: fact.entityType,
-            entityKey: fact.entityKey,
-          });
+          const cacheKey = `${fact.entityType}:${fact.entityKey}`;
+          if (!entityKeys.has(cacheKey)) {
+            entityKeys.set(cacheKey, {
+              entityType: fact.entityType,
+              entityKey: fact.entityKey,
+              entityKeyRaw: fact.entityKeyRaw ?? fact.entityKey,
+            });
+          }
         }
 
-        for (const [cacheKey, info] of entityKeys) {
-          if (entityCache.has(cacheKey)) continue;
-          const [existing] = await tx
-            .select({ entityId: entityIdentifierTable.entityId })
-            .from(entityIdentifierTable)
-            .where(
-              and(
-                eq(entityIdentifierTable.identifierType, "PLACA"),
-                eq(entityIdentifierTable.identifierValue, info.entityKey),
-                eq(entityIdentifierTable.isCurrent, true),
-              ),
-            );
-          if (existing) {
-            entityCache.set(cacheKey, existing.entityId);
-            continue;
-          }
-          const [entity] = await tx
-            .insert(entityTable)
-            .values({
-              entityType: info.entityType,
-              firstSeenImportRunId: importRunId,
-            })
-            .returning();
-          await tx.insert(entityIdentifierTable).values({
-            entityId: entity.id,
-            identifierType: "PLACA",
-            identifierValue: info.entityKey,
-            identifierValueRaw:
-              facts.find(
-                (f) => f.entityType === info.entityType && f.entityKey === info.entityKey,
-              )?.entityKeyRaw ?? info.entityKey,
-            effectiveFrom: effectiveDate,
-            isCurrent: true,
-            sourceImportRunId: importRunId,
+        const entidadesPendentes = [...entityKeys.entries()].filter(
+          ([cacheKey]) => !entityCache.has(cacheKey),
+        );
+
+        if (entidadesPendentes.length > 0) {
+          const placasPendentes = entidadesPendentes.map(([, info]) => info.entityKey);
+          const existentes = (
+            await tx.execute(sql`
+              SELECT entity_id, identifier_value
+              FROM ${entityIdentifierTable}
+              WHERE identifier_type = 'PLACA'
+                AND is_current = true
+                AND identifier_value = ANY(${sql.param(placasPendentes)}::text[])
+            `)
+          ).rows as { entity_id: string; identifier_value: string }[];
+          const entityIdPorPlaca = new Map(
+            existentes.map((e) => [e.identifier_value, e.entity_id]),
+          );
+
+          const novasEntidades = entidadesPendentes.filter(([, info]) => {
+            const entityId = entityIdPorPlaca.get(info.entityKey);
+            return entityId === undefined;
           });
-          entityCache.set(cacheKey, entity.id);
-          entitiesCreated++;
+          for (const [cacheKey, info] of entidadesPendentes) {
+            const entityId = entityIdPorPlaca.get(info.entityKey);
+            if (entityId !== undefined) entityCache.set(cacheKey, entityId);
+          }
+
+          // Uma mesma placa pode aparecer sob mais de um tipo de entidade no
+          // mesmo arquivo (cavalo e carreta com o mesmo texto, por exemplo). O
+          // primeiro tipo a precisar dela cria a entidade; os seguintes
+          // reaproveitam o id — como a versão sequencial fazia ao enxergar,
+          // dentro da mesma transação, o que o tipo anterior acabara de gravar.
+          const claimedNesteLote = new Map<string, string>();
+          const novasIdentifierRows: Record<string, unknown>[] = [];
+          for (const [cacheKey, info] of novasEntidades) {
+            const jaCriada = claimedNesteLote.get(info.entityKey);
+            if (jaCriada !== undefined) {
+              entityCache.set(cacheKey, jaCriada);
+              continue;
+            }
+            const [entity] = await tx
+              .insert(entityTable)
+              .values({
+                entityType: info.entityType,
+                firstSeenImportRunId: importRunId,
+              })
+              .returning();
+            entityCache.set(cacheKey, entity.id);
+            claimedNesteLote.set(info.entityKey, entity.id);
+            entitiesCreated++;
+            novasIdentifierRows.push({
+              entityId: entity.id,
+              identifierType: "PLACA",
+              identifierValue: info.entityKey,
+              identifierValueRaw: info.entityKeyRaw,
+              effectiveFrom: effectiveDate,
+              isCurrent: true,
+              sourceImportRunId: importRunId,
+            });
+          }
+          await insertChunked(tx, entityIdentifierTable, novasIdentifierRows as never[]);
         }
 
         await recordChassisIdentifiers(tx, facts, entityCache, effectiveDate, importRunId);
@@ -4200,23 +4241,39 @@ async function recordChassisIdentifiers(
       legivel: fact.entityKeyRaw ?? fact.entityKey,
     });
   }
+  if (chassisByEntity.size === 0) return;
+
+  // Mesma ideia da resolução de placas: uma consulta só para todos os chassis
+  // do arquivo, em vez de uma por veículo.
+  const chassisPendentes = [...new Set([...chassisByEntity.values()].map((v) => v.chassis))];
+  const existentesResult = await tx.execute(sql`
+    SELECT entity_id, identifier_value
+    FROM ${entityIdentifierTable}
+    WHERE identifier_type = 'CHASSI'
+      AND is_current = true
+      AND identifier_value = ANY(${sql.param(chassisPendentes)}::text[])
+  `);
+  const entityIdPorChassi = new Map(
+    (existentesResult.rows as { entity_id: string; identifier_value: string }[]).map((e) => [
+      e.identifier_value,
+      e.entity_id,
+    ]),
+  );
+
+  // Um chassi novo pode se repetir para duas entidades diferentes dentro do
+  // mesmo arquivo; a primeira a reivindicá-lo neste lote "existe" para a
+  // segunda, do mesmo jeito que a versão sequencial via o que acabara de
+  // gravar.
+  const claimedNesteLote = new Map<string, string>();
+  const novasRows: Record<string, unknown>[] = [];
 
   for (const [cacheKey, { chassis, legivel }] of chassisByEntity) {
     const entityId = entityCache.get(cacheKey);
     if (!entityId) continue;
     const [entityType] = cacheKey.split(":");
-    const [existing] = await tx
-      .select()
-      .from(entityIdentifierTable)
-      .where(
-        and(
-          eq(entityIdentifierTable.identifierType, "CHASSI"),
-          eq(entityIdentifierTable.identifierValue, chassis),
-          eq(entityIdentifierTable.isCurrent, true),
-        ),
-      );
-    if (existing) {
-      if (existing.entityId !== entityId) {
+    const existingEntityId = entityIdPorChassi.get(chassis) ?? claimedNesteLote.get(chassis);
+    if (existingEntityId !== undefined) {
+      if (existingEntityId !== entityId) {
         const rotulo = tipoDeImportacao(entityType)?.rotulo ?? entityType;
         await tx.insert(validationIssueTable).values({
           importRunId,
@@ -4228,7 +4285,7 @@ async function recordChassisIdentifiers(
             `entraram normalmente.`,
           detail: {
             chassis,
-            existingEntityId: existing.entityId,
+            existingEntityId,
             entityId,
             apresentacao: {
               titulo: "Um chassi do arquivo já pertence a outro veículo",
@@ -4253,7 +4310,8 @@ async function recordChassisIdentifiers(
       }
       continue;
     }
-    await tx.insert(entityIdentifierTable).values({
+    claimedNesteLote.set(chassis, entityId);
+    novasRows.push({
       entityId,
       identifierType: "CHASSI",
       identifierValue: chassis,
@@ -4262,4 +4320,6 @@ async function recordChassisIdentifiers(
       sourceImportRunId: importRunId,
     });
   }
+
+  await insertChunked(tx, entityIdentifierTable, novasRows as never[]);
 }
