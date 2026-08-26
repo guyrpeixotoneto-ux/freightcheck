@@ -1,7 +1,20 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
-import { ArrowLeft, ChevronLeft, ChevronRight, Pause, Play } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  BarChart3,
+  Building2,
+  ChevronLeft,
+  ChevronRight,
+  DollarSign,
+  FileText,
+  Info,
+  Pause,
+  Play,
+  type LucideIcon,
+} from "lucide-react";
 import {
   CartesianGrid,
   Line,
@@ -12,6 +25,7 @@ import {
   YAxis,
 } from "recharts";
 import { ApiError, fetchJson, fetchJsonOrNull } from "@/lib/api";
+import { useContextosDaCasca } from "@/lib/contextos";
 import { useFamiliesOverviewQuery } from "@/lib/families-overview";
 import { DASHBOARD, GESTAO_A_VISTA } from "@/lib/ambiente";
 import { cn } from "@/lib/utils";
@@ -26,6 +40,7 @@ import type {
   ExecutiveSummary,
   FamiliesOverview,
   FamiliesView,
+  OverviewUnitIncluded,
 } from "@/components/inicio/types";
 import type { Movimentos } from "@/lib/analise";
 
@@ -42,7 +57,22 @@ import type { Movimentos } from "@/lib/analise";
  * da URL) com `refetchInterval: 30s`. O que muda aqui é só a composição da
  * tela sobre esses mesmos dados.
  */
+/**
+ * A Gestão à Vista tem dois templates hoje: o Financeiro (o telão de sempre,
+ * abaixo) e o Alertas — só o nome de cada unidade e se ela teve alguma
+ * alteração nesta competência, para quem só quer saber "mexeu ou não mexeu"
+ * de relance. `?template=alertas` escolhe o segundo; qualquer outro valor
+ * (ou a ausência dele) é o Financeiro, para não quebrar links já salvos.
+ */
 export default function GestaoAVista() {
+  const search = useSearch();
+  const parametros = new URLSearchParams(search);
+  const template = parametros.get("template") === "alertas" ? "alertas" : "financeiro";
+
+  return template === "alertas" ? <TemplateDeAlertas /> : <TemplateFinanceiro />;
+}
+
+function TemplateFinanceiro() {
   const search = useSearch();
   const [, navegar] = useLocation();
   const parametros = new URLSearchParams(search);
@@ -203,6 +233,442 @@ export default function GestaoAVista() {
           <MensagemDeEstado carregando={vigencia.isLoading} erro={vigencia.error !== null} />
         )}
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Template Alertas — quais unidades mudaram, numa tela só
+// ---------------------------------------------------------------------------
+
+/**
+ * O template Alertas — uma tabela de unidades em vez do wallboard escuro do
+ * Financeiro. Cada linha é uma unidade: quantas alterações teve, o impacto
+ * dominante, e uma barra proporcional ao volume de mudanças. Clicar numa
+ * linha abre o detalhe ao lado: as famílias que mexeram e o link para as
+ * alterações em si.
+ *
+ * Lê o mesmo `/changes/families/overview` que a Visão Geral do Financeiro —
+ * mesmas unidades incluídas (`unitsIncluded`) e de fora (`unitsExcluded`, sem
+ * vigência nesta competência, listadas à parte porque "sem dado" não é
+ * "sem alteração"). O detalhe da unidade selecionada não pede nada novo à
+ * API: as famílias com mudança já vêm em `summary.topParameters`, que a
+ * Visão Geral sempre carregou.
+ *
+ * Não existe "alteração de hoje" ou "de ontem" neste produto — a apuração é
+ * por vigência inteira, não por linha (ver o comentário de `MudancasRecentes`
+ * mais acima). Por isso a coluna de tempo aqui é a competência apurada, e
+ * não uma data fabricada.
+ */
+function TemplateDeAlertas() {
+  const search = useSearch();
+  const [, navegar] = useLocation();
+  const parametros = new URLSearchParams(search);
+  const periodoPedido = parametros.get("period");
+
+  /*
+    O Dashboard só põe `period` na URL quando o usuário escolheu uma
+    competência que não é a mais recente — abrindo a partir de uma unidade
+    específica (o caso comum), a Gestão à Vista chega sem `period` nenhum.
+    O template Financeiro não sente falta porque, fora do modo Geral, ele
+    busca a vigência da unidade sem depender de competência. A Visão Geral
+    exige uma, e aqui o padrão é a mais recente entre as que existem — é
+    "Alertas" quem se abre sozinho, então a competência que ele mostra sem
+    ninguém escolher nada precisa ser a última, não a mais antiga.
+  */
+  const contextos = useContextosDaCasca();
+  const periodosDisponiveis = useMemo(
+    () =>
+      Array.from(new Set(contextos.contextos.flatMap((c) => c.periodosDisponiveis))).sort(
+        (a, b) => b.localeCompare(a),
+      ),
+    [contextos.contextos],
+  );
+  const periodo = periodoPedido ?? periodosDisponiveis[0] ?? null;
+
+  // As últimas três competências disponíveis, da mais antiga à mais recente —
+  // o equivalente honesto ao "7/30 /90 dias" de um mockup genérico: este
+  // produto não tem uma janela contínua de dias (a apuração é por vigência
+  // inteira), então quem troca a janela aqui troca de competência de verdade.
+  const periodosRecentes = periodosDisponiveis.slice(0, 3).reverse();
+  const trocarPeriodo = (novoPeriodo: string) => {
+    const proximo = new URLSearchParams(search);
+    proximo.set("period", novoPeriodo);
+    navegar(`${GESTAO_A_VISTA}?${proximo}`, { replace: true });
+  };
+
+  const overviewQuery = useFamiliesOverviewQuery(periodo, { refetchInterval: 30_000 });
+  const overview = overviewQuery.data ?? null;
+
+  const consultaDeOrigem = new URLSearchParams();
+  for (const chave of ["period", "scopeHash", "canal"]) {
+    const valor = parametros.get(chave);
+    if (valor !== null) consultaDeOrigem.set(chave, valor);
+  }
+  const paraDashboard = consultaDeOrigem.toString()
+    ? `${DASHBOARD}?${consultaDeOrigem}`
+    : DASHBOARD;
+
+  const unidades = useMemo(
+    () =>
+      overview
+        ? [...overview.unitsIncluded].sort((a, b) => b.summary.changes - a.summary.changes)
+        : [],
+    [overview],
+  );
+  const excluidas = overview
+    ? [...overview.unitsExcluded].sort((a, b) => a.label.localeCompare(b.label, "pt-BR"))
+    : [];
+  const comAlteracao = unidades.filter((u) => u.summary.changes > 0).length;
+  const maiorVolume = unidades.reduce((maior, u) => Math.max(maior, u.summary.changes), 0);
+
+  const [selecionada, setSelecionada] = useState<string | null>(null);
+  const unidadeSelecionada =
+    unidades.find((u) => u.unidade === selecionada) ?? unidades[0] ?? null;
+
+  const dominante = overview ? impactoDominante(overview.summary) : null;
+
+  return (
+    <div className="w-full min-h-[100dvh] bg-slate-50 text-slate-900 font-sans">
+      <div className="px-10 py-7 max-w-[1800px] mx-auto space-y-6">
+        <header className="flex items-start justify-between gap-6">
+          <div className="min-w-0">
+            <h1 className="text-3xl font-extrabold tracking-tight truncate">
+              Gestão à Vista — Alterações de Remuneração
+            </h1>
+            <p className="text-sm text-slate-500 mt-1">
+              Planilha de remuneração · {overview?.period ?? "última competência"}
+            </p>
+          </div>
+          <div className="flex flex-col items-end gap-2.5 shrink-0">
+            {periodosRecentes.length > 1 && (
+              <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white p-1">
+                {periodosRecentes.map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => trocarPeriodo(p)}
+                    className={cn(
+                      "rounded-md px-3 py-1.5 text-sm font-semibold transition-colors",
+                      p === periodo
+                        ? "bg-blue-600 text-white"
+                        : "text-slate-500 hover:bg-slate-100 hover:text-slate-900",
+                    )}
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="flex items-center gap-3">
+              <RelogioClaro atualizadaEm={overviewQuery.dataUpdatedAt} />
+              <Link
+                href={paraDashboard}
+                title="Voltar ao Dashboard"
+                className="flex items-center justify-center w-9 h-9 rounded-lg border border-slate-200 bg-white text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors"
+              >
+                <ArrowLeft className="w-4 h-4" />
+              </Link>
+            </div>
+          </div>
+        </header>
+
+        {overviewQuery.isLoading ? (
+          <MensagemDeEstadoClara carregando erro={false} />
+        ) : overviewQuery.error ? (
+          <MensagemDeEstadoClara carregando={false} erro />
+        ) : unidades.length === 0 && excluidas.length === 0 ? (
+          <MensagemDeEstadoClara carregando={false} erro={false} />
+        ) : (
+          <>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <CartaoDeIndicador
+                icone={FileText}
+                rotulo="Alterações"
+                valor={overview?.summary.changes.toLocaleString("pt-BR") ?? "—"}
+              />
+              <CartaoDeIndicador
+                icone={Building2}
+                rotulo="Unidades alteradas"
+                valor={`${comAlteracao} de ${unidades.length}`}
+              />
+              <CartaoDeIndicador
+                icone={DollarSign}
+                rotulo="Impacto / mês"
+                valor={dominante ? escreverImpacto(dominante) : "—"}
+                tom={dominante === null ? undefined : dominante.amount < 0 ? "desfavoravel" : "favoravel"}
+              />
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+              <div className="lg:col-span-2 rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-[0.6875rem] uppercase tracking-wide text-slate-500 border-b border-slate-100">
+                        <th className="py-3 pl-5 pr-4 font-semibold">Unidade</th>
+                        <th className="py-3 px-4 font-semibold text-right">Alterações</th>
+                        <th className="py-3 px-4 font-semibold text-right">Impacto / mês</th>
+                        <th className="py-3 pr-5 pl-4 font-semibold text-right">Competência</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {unidades.map((unidade) => {
+                        const impacto = impactoDominante(unidade.summary);
+                        const selecionadaAtual = unidade.unidade === unidadeSelecionada?.unidade;
+                        const cor: "azul" | "verde" | "amarelo" | "cinza" = selecionadaAtual
+                          ? "azul"
+                          : unidade.summary.changes === 0
+                            ? "cinza"
+                            : impacto !== null && impacto.amount >= 0
+                              ? "verde"
+                              : "amarelo";
+                        return (
+                          <tr
+                            key={unidade.unidade}
+                            onClick={() => setSelecionada(unidade.unidade)}
+                            className={cn(
+                              "border-t border-slate-100 cursor-pointer transition-colors",
+                              selecionadaAtual ? "bg-blue-50/70" : "hover:bg-slate-50",
+                            )}
+                          >
+                            <td className="py-3 pl-5 pr-4">
+                              <div className="flex items-center gap-2.5">
+                                <span className={cn("w-2.5 h-2.5 rounded-full shrink-0", PONTO_COR[cor])} />
+                                <span className="min-w-0">
+                                  <span
+                                    className="block font-semibold truncate max-w-[14rem]"
+                                    title={unidade.label}
+                                  >
+                                    {unidade.label}
+                                  </span>
+                                  <span className="block h-1 w-32 rounded-full bg-slate-100 overflow-hidden mt-1.5">
+                                    <span
+                                      className={cn("block h-full rounded-full", BARRA_COR[cor])}
+                                      style={{
+                                        width: `${maiorVolume === 0 ? 0 : Math.max(4, (unidade.summary.changes / maiorVolume) * 100)}%`,
+                                      }}
+                                    />
+                                  </span>
+                                </span>
+                              </div>
+                            </td>
+                            <td className="py-3 px-4 text-right tabular-nums font-semibold">
+                              {unidade.summary.changes.toLocaleString("pt-BR")}
+                            </td>
+                            <td
+                              className={cn(
+                                "py-3 px-4 text-right tabular-nums font-semibold",
+                                impacto === null
+                                  ? "text-slate-400 font-normal"
+                                  : impacto.amount < 0
+                                    ? "text-red-600"
+                                    : "text-emerald-600",
+                              )}
+                            >
+                              {impacto ? escreverImpacto(impacto) : "R$ 0"}
+                            </td>
+                            <td className="py-3 pr-5 pl-4 text-right text-slate-500">
+                              {unidade.contexts[0]?.latestPeriod ?? "—"}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {excluidas.length > 0 && (
+                  <p className="px-5 py-3 text-xs text-slate-500 border-t border-slate-100 bg-slate-50/60">
+                    {excluidas.length === 1 ? "1 unidade" : `${excluidas.length} unidades`} sem
+                    vigência nesta competência:{" "}
+                    {excluidas.map((u) => u.label).join(", ")}.
+                  </p>
+                )}
+              </div>
+
+              {unidadeSelecionada && (
+                <DetalheDaUnidade unidade={unidadeSelecionada} periodo={overview?.period ?? null} />
+              )}
+            </div>
+
+            <LegendaDeAlertas />
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const PONTO_COR: Record<"azul" | "verde" | "amarelo" | "cinza", string> = {
+  azul: "bg-blue-500",
+  verde: "bg-emerald-500",
+  amarelo: "bg-amber-400",
+  cinza: "bg-slate-300",
+};
+
+const BARRA_COR: Record<"azul" | "verde" | "amarelo" | "cinza", string> = {
+  azul: "bg-blue-500",
+  verde: "bg-emerald-500",
+  amarelo: "bg-amber-400",
+  cinza: "bg-slate-300",
+};
+
+function CartaoDeIndicador({
+  icone: Icone,
+  rotulo,
+  valor,
+  tom,
+}: {
+  icone: LucideIcon;
+  rotulo: string;
+  valor: string;
+  tom?: "favoravel" | "desfavoravel";
+}) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white shadow-sm px-6 py-5 flex items-center gap-4">
+      <span className="flex items-center justify-center w-11 h-11 rounded-full bg-blue-50 text-blue-600 shrink-0">
+        <Icone className="w-5 h-5" />
+      </span>
+      <div className="min-w-0">
+        <p className="text-[0.6875rem] font-semibold uppercase tracking-wide text-slate-500">
+          {rotulo}
+        </p>
+        <p
+          className={cn(
+            "text-2xl font-extrabold tabular-nums mt-0.5",
+            tom === "favoravel" && "text-emerald-600",
+            tom === "desfavoravel" && "text-red-600",
+          )}
+        >
+          {valor}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * As famílias que mexeram vêm de `summary.topParameters` — o mesmo campo que
+ * o Resumo Executivo usa para "maiores impactos", sem pedir nada novo à API.
+ */
+function DetalheDaUnidade({
+  unidade,
+  periodo,
+}: {
+  unidade: OverviewUnitIncluded;
+  periodo: string | null;
+}) {
+  const impacto = impactoDominante(unidade.summary);
+  const familias = Array.from(new Set(unidade.summary.topParameters.map((p) => p.familyName))).slice(
+    0,
+    4,
+  );
+  const contexto = unidade.contexts[0];
+  const recorte: Recorte = {
+    period: periodo,
+    scopeHash: contexto?.scopeHash ?? null,
+    canal: contexto?.channel ?? null,
+  };
+
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white shadow-sm px-6 py-6 lg:sticky lg:top-6">
+      <p className="text-lg font-extrabold text-blue-600 truncate" title={unidade.label}>
+        {unidade.label}
+      </p>
+      <p className="text-sm text-slate-600 mt-1">
+        {unidade.summary.changes.toLocaleString("pt-BR")}{" "}
+        {unidade.summary.changes === 1 ? "alteração" : "alterações"}
+        {impacto && (
+          <>
+            {" · impacto "}
+            <span className={cn("font-semibold", impacto.amount < 0 ? "text-red-600" : "text-emerald-600")}>
+              {escreverImpacto(impacto)}
+            </span>
+          </>
+        )}
+      </p>
+
+      {familias.length > 0 && (
+        <div className="flex flex-wrap gap-2 mt-4">
+          {familias.map((nome) => (
+            <span
+              key={nome}
+              className="rounded-full bg-blue-50 text-blue-700 text-xs font-semibold px-3 py-1.5"
+            >
+              {nome}
+            </span>
+          ))}
+        </div>
+      )}
+
+      <div className="border-t border-slate-100 mt-5 pt-4">
+        <Link
+          href={linkDeAlteracoes({ recorte })}
+          className="inline-flex items-center gap-1.5 text-sm font-semibold text-blue-600 hover:text-blue-700"
+        >
+          Ver alterações
+          <ArrowRight className="w-3.5 h-3.5" />
+        </Link>
+      </div>
+    </div>
+  );
+}
+
+function LegendaDeAlertas() {
+  return (
+    <div className="flex flex-wrap items-center gap-x-8 gap-y-2 text-xs text-slate-500 px-1">
+      <span className="flex items-center gap-2">
+        <span className="w-2.5 h-2.5 rounded-full bg-slate-300" />
+        sem alteração
+      </span>
+      <span className="flex items-center gap-1.5">
+        <BarChart3 className="w-3.5 h-3.5" />
+        Quanto maior a barra, mais mudanças
+      </span>
+      <span className="flex items-center gap-1.5">
+        <Info className="w-3.5 h-3.5" />
+        Impacto = variação na remuneração, não custo
+      </span>
+    </div>
+  );
+}
+
+function RelogioClaro({ atualizadaEm }: { atualizadaEm: number }) {
+  const [, forcarRenderizacao] = useState(0);
+
+  useEffect(() => {
+    const id = setInterval(() => forcarRenderizacao((n) => n + 1), 30_000);
+    return () => clearInterval(id);
+  }, []);
+
+  if (atualizadaEm === 0) {
+    return <p className="text-sm text-slate-500">aguardando a primeira resposta…</p>;
+  }
+
+  return (
+    <div className="text-right">
+      <p className="text-[0.6875rem] uppercase tracking-wide text-slate-500">Última atualização</p>
+      <p className="text-lg font-bold tabular-nums">
+        {new Date(atualizadaEm).toLocaleTimeString("pt-BR")}
+      </p>
+    </div>
+  );
+}
+
+function MensagemDeEstadoClara({ carregando, erro }: { carregando: boolean; erro: boolean }) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white shadow-sm px-8 py-16 text-center">
+      <p className="text-2xl font-bold">
+        {carregando
+          ? "Carregando…"
+          : erro
+            ? "Não foi possível ler esta competência agora."
+            : "Nenhuma vigência para mostrar nesta competência."}
+      </p>
+      {erro && (
+        <p className="text-slate-400 mt-2">A tela tenta de novo sozinha na próxima atualização.</p>
+      )}
     </div>
   );
 }

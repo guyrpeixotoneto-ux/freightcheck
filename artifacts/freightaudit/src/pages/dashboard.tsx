@@ -4,11 +4,14 @@ import { Link, useLocation, useSearch } from "wouter";
 import {
   ArrowDownRight,
   ArrowUpRight,
+  Bell,
   CalendarDays,
+  ChevronDown,
   Clock,
   FileText,
   Gauge,
   GitCompareArrows,
+  LayoutDashboard,
   ReceiptText,
   TrendingDown,
   TrendingUp,
@@ -353,19 +356,57 @@ function Cabecalho({
           {/*
             O botão da Gestão à Vista é o único cheio desta tela — a mesma
             régua de `pages/inicio.tsx`, que reserva a cor sólida da marca para
-            a ação que a tela existe para oferecer.
+            a ação que a tela existe para oferecer. Agora abre um menu porque a
+            Gestão à Vista tem mais de um template: o Financeiro (o telão escuro
+            de sempre) e o Alertas (a tabela clara de unidades, por competência).
           */}
-          <Link
-            href={paraGestaoAVista}
-            className="flex items-center gap-2 rounded-lg bg-brand px-4 py-2.5 text-sm font-bold text-brand-foreground hover:opacity-90 transition-opacity"
-          >
-            <Tv className="w-4 h-4" />
-            Gestão à Vista
-          </Link>
+          <DropdownMenu>
+            <DropdownMenuTrigger className="flex items-center gap-2 rounded-lg bg-brand px-4 py-2.5 text-sm font-bold text-brand-foreground hover:opacity-90 transition-opacity">
+              <Tv className="w-4 h-4" />
+              Gestão à Vista
+              <ChevronDown className="w-3.5 h-3.5 opacity-80" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-64">
+              <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+                Escolha o template
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem asChild>
+                <Link href={comTemplate(paraGestaoAVista, "financeiro")} className="flex items-start gap-2.5">
+                  <LayoutDashboard className="w-4 h-4 mt-0.5 shrink-0" />
+                  <span>
+                    <span className="block font-semibold">Financeiro</span>
+                    <span className="block text-xs text-muted-foreground">
+                      O telão completo: impacto, ranking, pendências e tendência.
+                    </span>
+                  </span>
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link href={comTemplate(paraGestaoAVista, "alertas")} className="flex items-start gap-2.5">
+                  <Bell className="w-4 h-4 mt-0.5 shrink-0" />
+                  <span>
+                    <span className="block font-semibold">Alertas</span>
+                    <span className="block text-xs text-muted-foreground">
+                      Tabela por unidade: alterações, impacto e a que teve mais mudança.
+                    </span>
+                  </span>
+                </Link>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
     </header>
   );
+}
+
+/** Anexa `?template=` (ou acrescenta, se já houver uma consulta) ao link da Gestão à Vista. */
+function comTemplate(paraGestaoAVista: string, template: "financeiro" | "alertas"): string {
+  const [caminho, consulta] = paraGestaoAVista.split("?");
+  const parametros = new URLSearchParams(consulta);
+  parametros.set("template", template);
+  return `${caminho}?${parametros}`;
 }
 
 const BOTAO_DE_TROCA =
