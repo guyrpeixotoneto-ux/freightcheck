@@ -10,10 +10,12 @@ import {
   Gauge,
   GitCompareArrows,
   ReceiptText,
+  SlidersHorizontal,
   TrendingDown,
   TrendingUp,
   Truck,
   Tv,
+  type LucideIcon,
 } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
 import { ApiErrorNotice } from "@/components/api-error";
@@ -31,7 +33,7 @@ import { useContextosDaCasca } from "@/lib/contextos";
 import { useFamiliesOverviewQuery } from "@/lib/families-overview";
 import { DASHBOARD, GESTAO_A_VISTA } from "@/lib/ambiente";
 import { cn } from "@/lib/utils";
-import { formatBrlShort, periodicitySuffix } from "@/lib/format";
+import { formatBrlShort, formatPercent, formatValue, periodicitySuffix } from "@/lib/format";
 import {
   escreverImpacto,
   frotaTotal,
@@ -43,7 +45,6 @@ import {
 import { juntarPrioridades } from "@/lib/cockpit";
 import { lerRecorte, linkDeAlteracoes, nomeDaUnidade } from "@/lib/recorte";
 import { unidadesPorImpacto } from "@/components/inicio/visao-geral-consolidada";
-import { BeforeAfter } from "@/components/inicio/group-card";
 import { Sparkline } from "@/components/dashboard/sparkline";
 import { AnelDeCobertura } from "@/components/dashboard/anel-de-cobertura";
 import { GraficoDeImpacto, pontosDeImpacto, type PontoDeImpacto } from "@/components/dashboard/grafico-de-impacto";
@@ -866,6 +867,142 @@ export function abasDeEquipamento(
 }
 
 /**
+ * As colunas Antes / Agora / Diferença de uma linha da tabela.
+ *
+ * Espelha os mesmos ramos de `<BeforeAfter>` (`components/inicio/group-card.tsx`):
+ * só existe total de Antes e Agora quando `aggregation = SUM` — somar km/l ou
+ * litros/100km de dezenas de veículos produziria um número que não significa
+ * nada. Fora desse caso, Antes e Agora ficam em branco e a Diferença carrega a
+ * mesma faixa de variação (ou o padrão dominante) que o cartão de alteração já
+ * mostra, para as duas telas nunca se contradizerem sobre o mesmo grupo.
+ */
+export function celulasAntesDepois(grupo: ChangeGroup) {
+  const a = grupo.aggregate;
+
+  if (a.summable && a.totalBefore !== null && a.totalAfter !== null) {
+    const alta = a.totalAfter >= a.totalBefore;
+    return {
+      antes: formatValue(a.totalBefore, grupo.unit),
+      agora: formatValue(a.totalAfter, grupo.unit),
+      diferenca: (
+        <span className={cn("font-semibold whitespace-nowrap", alta ? "text-emerald-700" : "text-red-700")}>
+          {alta ? "+" : ""}
+          {formatValue(a.totalAfter - a.totalBefore, grupo.unit)}
+          {a.deltaPercent !== null && (
+            <span
+              className={cn(
+                "ml-1.5 rounded-full px-1.5 py-0.5 text-[0.6875rem] font-bold",
+                alta ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-800",
+              )}
+            >
+              {formatPercent(a.deltaPercent)}
+            </span>
+          )}
+        </span>
+      ),
+    };
+  }
+
+  if (a.minPercent !== null && a.maxPercent !== null) {
+    return {
+      antes: "—",
+      agora: "—",
+      diferenca: (
+        <span className="text-xs text-muted-foreground">
+          variação de {formatPercent(a.minPercent)} a {formatPercent(a.maxPercent)} por veículo
+          <br />
+          <span className="italic">não somável ({a.aggregation ?? "agregação não definida"})</span>
+        </span>
+      ),
+    };
+  }
+
+  if (grupo.dominantPattern) {
+    return {
+      antes: grupo.dominantPattern.before ?? "—",
+      agora: grupo.dominantPattern.after ?? "—",
+      diferenca: <span className="text-muted-foreground">—</span>,
+    };
+  }
+
+  return {
+    antes: "—",
+    agora: "—",
+    diferenca: <span className="text-muted-foreground italic">sem variação numérica</span>,
+  };
+}
+
+/** O selo de cor de um indicador do cabeçalho — a mesma paleta de `BADGE_STYLE` (group-card.tsx). */
+const TOM_INDICADOR = {
+  azul: "bg-sky-50 text-sky-600",
+  violeta: "bg-violet-50 text-violet-600",
+  positivo: "bg-emerald-50 text-emerald-700",
+  negativo: "bg-red-50 text-red-700",
+} as const;
+
+/**
+ * Um indicador do cabeçalho — contagem ou impacto, com o valor em destaque.
+ *
+ * `ordem` inverte valor e rótulo: as contagens leem "8, alterações" (o número
+ * primeiro, porque é a resposta), o impacto lê "Impacto líquido, −R$ 53.256"
+ * (o rótulo primeiro, porque só o número não diz de quê).
+ */
+function Indicador({
+  icone: Icone,
+  tom,
+  valor,
+  rotulo,
+  ordem = "valor-rotulo",
+}: {
+  icone: LucideIcon;
+  tom: keyof typeof TOM_INDICADOR;
+  valor: React.ReactNode;
+  rotulo: string;
+  ordem?: "valor-rotulo" | "rotulo-valor";
+}) {
+  const linhas =
+    ordem === "valor-rotulo" ? (
+      <>
+        <div className="font-bold tabular-nums text-lg leading-tight">{valor}</div>
+        <div className="text-xs text-muted-foreground leading-tight">{rotulo}</div>
+      </>
+    ) : (
+      <>
+        <div className="text-xs text-muted-foreground leading-tight">{rotulo}</div>
+        <div className="font-bold tabular-nums text-lg leading-tight">{valor}</div>
+      </>
+    );
+  return (
+    <div className="flex items-center gap-2.5 rounded-lg border bg-card px-3.5 py-2.5">
+      <span className={cn("w-9 h-9 rounded-full flex items-center justify-center shrink-0", TOM_INDICADOR[tom])}>
+        <Icone className="w-4 h-4" strokeWidth={2.25} />
+      </span>
+      <div>{linhas}</div>
+    </div>
+  );
+}
+
+/**
+ * O impacto líquido das linhas visíveis — só quando todas compartilham a
+ * mesma periodicidade.
+ *
+ * Somar R$/mês com R$/ano no mesmo total é o erro que este produto existe
+ * para pegar (ver o comentário do Painel de Impacto, no topo do arquivo); um
+ * indicador de cabeçalho não ganha isenção dessa regra só por ser um resumo.
+ * Vindo períodos misturados, o indicador diz isso em vez de mostrar um número.
+ */
+export function impactoLiquidoDaTabela(grupos: ChangeGroup[]) {
+  const precificados = grupos.filter(
+    (g) => g.impact.confidence === "CALCULATED" && g.impact.amount !== null,
+  );
+  if (precificados.length === 0) return null;
+  const periodicidades = new Set(precificados.map((g) => g.impact.periodicity));
+  if (periodicidades.size > 1) return { misturado: true as const };
+  const total = precificados.reduce((soma, g) => soma + g.impact.amount!, 0);
+  return { misturado: false as const, total, periodicidade: precificados[0].impact.periodicity };
+}
+
+/**
  * As alterações mais relevantes desta vigência, na ordem de prioridade do
  * cockpit — a mesma fila que o Acompanhamento e `ultimasAlteracoes` já usam
  * (`juntarPrioridades`, `lib/cockpit.ts`). Reordenar aqui por conta própria
@@ -879,13 +1016,17 @@ export function abasDeEquipamento(
  * abas somem e o equipamento volta a aparecer sob o título da linha, como
  * antes.
  *
+ * Os três indicadores do cabeçalho resumem só a fatia visível (as linhas da
+ * aba aberta, até oito) — trocar de aba troca o resumo junto, porque ele
+ * responde "o que estou vendo", não "o que existe na vigência inteira".
+ *
  * Cada linha mostra `grupo.title` — a etiqueta de negócio já curada por
- * `attributeLabel()` no servidor — e nunca `attributeCode` cru. O par
- * antes/depois vem de `<BeforeAfter>`, o mesmo componente que os cartões de
- * alteração usam. O ícone à esquerda do título é só decorativo
- * (`iconeDaAlteracao`): uma pista de que tipo de mudança é aquela, com uma
- * etiqueta neutra sempre que a régua de palavras-chave não reconhece nada —
- * nunca um ícone específico arriscado por adivinhação.
+ * `attributeLabel()` no servidor — e nunca `attributeCode` cru. O ícone à
+ * esquerda do título é só decorativo (`iconeDaAlteracao`): uma pista de que
+ * tipo de mudança é aquela, com uma etiqueta neutra sempre que a régua de
+ * palavras-chave não reconhece nada — nunca um ícone específico arriscado por
+ * adivinhação. A cor de fundo da linha (e da coluna Impacto/mês, sempre
+ * destacada) segue o sinal do impacto; sem preço, a linha fica neutra.
  */
 function PrincipaisAlteracoes({
   view,
@@ -901,13 +1042,62 @@ function PrincipaisAlteracoes({
   const ativa = abas.find((aba) => aba.chave === escolhida) ?? abas[0];
   const grupos = (ativa ? ativa.grupos : ordenados).slice(0, 8);
   const daVigencia = { ...recorte, period: view.period };
+  const totalVeiculos = grupos.reduce((soma, g) => soma + g.vehicles, 0);
+  const impacto = impactoLiquidoDaTabela(grupos);
 
   return (
     <section className={cn(CARTAO, "px-6 py-5 flex flex-col h-full")}>
-      <h2 className="text-base font-bold mb-1">Principais alterações</h2>
-      <p className="text-xs text-muted-foreground mb-4">
-        Na ordem do Acompanhamento — dinheiro e criticidade primeiro.
-      </p>
+      <div className="flex flex-wrap items-start justify-between gap-4 mb-4">
+        <div>
+          <h2 className="text-base font-bold">Principais alterações</h2>
+          <p className="text-xs text-muted-foreground mt-1">
+            Na ordem do Acompanhamento — dinheiro e criticidade primeiro.
+          </p>
+        </div>
+
+        {grupos.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            <Indicador
+              icone={SlidersHorizontal}
+              tom="azul"
+              valor={grupos.length}
+              rotulo={grupos.length === 1 ? "alteração" : "alterações"}
+            />
+            <Indicador
+              icone={Truck}
+              tom="violeta"
+              valor={totalVeiculos.toLocaleString("pt-BR")}
+              rotulo="veículos impactados"
+            />
+            <Indicador
+              icone={impacto && !impacto.misturado && impacto.total < 0 ? TrendingDown : TrendingUp}
+              tom={
+                impacto === null || impacto.misturado
+                  ? "azul"
+                  : impacto.total < 0
+                    ? "negativo"
+                    : "positivo"
+              }
+              ordem="rotulo-valor"
+              rotulo="Impacto líquido"
+              valor={
+                impacto === null ? (
+                  "sem preço"
+                ) : impacto.misturado ? (
+                  "periodicidades diferentes"
+                ) : (
+                  <span className={impacto.total < 0 ? "text-red-700" : "text-emerald-700"}>
+                    {formatBrlShort(impacto.total)}
+                    <span className="font-normal text-muted-foreground">
+                      {periodicitySuffix(impacto.periodicidade)}
+                    </span>
+                  </span>
+                )
+              }
+            />
+          </div>
+        )}
+      </div>
 
       {abas.length > 1 && ativa && (
         <Tabs value={ativa.chave} onValueChange={escolher} className="mb-4">
@@ -934,9 +1124,13 @@ function PrincipaisAlteracoes({
             <thead>
               <tr className="text-left text-[0.6875rem] uppercase tracking-wide text-muted-foreground">
                 <th className="font-semibold px-2 pb-2">Alteração</th>
-                <th className="font-semibold px-2 pb-2">Antes → agora</th>
+                <th className="font-semibold px-2 pb-2">Antes</th>
+                <th className="font-semibold px-2 pb-2">Agora</th>
+                <th className="font-semibold px-2 pb-2">Diferença</th>
                 <th className="font-semibold px-2 pb-2 text-right">Veíc.</th>
-                <th className="font-semibold px-2 pb-2 text-right">Impacto</th>
+                <th className="font-semibold px-2 pb-2 pl-3 text-right bg-muted/50 rounded-t-md">
+                  Impacto/mês
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -946,10 +1140,18 @@ function PrincipaisAlteracoes({
                 if (grupo.entityType) filtros.entityType = grupo.entityType;
                 const href = linkDeAlteracoes({ recorte: daVigencia, filtros });
                 const comPreco = grupo.impact.confidence === "CALCULATED" && grupo.impact.amount !== null;
+                const negativo = comPreco && grupo.impact.amount! < 0;
                 const Icone = iconeDaAlteracao(grupo);
+                const { antes, agora, diferenca } = celulasAntesDepois(grupo);
 
                 return (
-                  <tr key={grupo.key} className="border-t hover:bg-accent/30 transition-colors">
+                  <tr
+                    key={grupo.key}
+                    className={cn(
+                      "border-t transition-colors",
+                      comPreco ? (negativo ? "bg-red-50/50" : "bg-emerald-50/50") : "hover:bg-accent/30",
+                    )}
+                  >
                     <td className="px-2 py-2.5 align-top">
                       <div className="flex items-start gap-2">
                         <span className="w-6 h-6 rounded-md bg-accent flex items-center justify-center shrink-0 mt-0.5">
@@ -965,15 +1167,24 @@ function PrincipaisAlteracoes({
                         </div>
                       </div>
                     </td>
-                    <td className="px-2 py-2.5 align-top text-xs">
-                      <BeforeAfter group={grupo} />
+                    <td className="px-2 py-2.5 align-top text-xs font-mono text-muted-foreground whitespace-nowrap">
+                      {antes}
                     </td>
+                    <td className="px-2 py-2.5 align-top text-xs font-mono font-medium whitespace-nowrap">
+                      {agora}
+                    </td>
+                    <td className="px-2 py-2.5 align-top text-xs">{diferenca}</td>
                     <td className="px-2 py-2.5 align-top text-right tabular-nums text-xs text-muted-foreground">
                       {grupo.vehicles.toLocaleString("pt-BR")}
                     </td>
-                    <td className="px-2 py-2.5 align-top text-right tabular-nums">
+                    <td
+                      className={cn(
+                        "px-2 py-2.5 pl-3 align-top text-right tabular-nums bg-muted/25",
+                        comPreco && (negativo ? "bg-red-100/40" : "bg-emerald-100/40"),
+                      )}
+                    >
                       {comPreco ? (
-                        <span className={cn("font-bold", grupo.impact.amount! < 0 ? "text-red-700" : "text-emerald-700")}>
+                        <span className={cn("font-bold", negativo ? "text-red-700" : "text-emerald-700")}>
                           {formatBrlShort(grupo.impact.amount!)}
                           <span className="font-normal text-muted-foreground">
                             {periodicitySuffix(grupo.impact.periodicity)}
