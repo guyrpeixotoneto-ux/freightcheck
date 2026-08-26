@@ -22,6 +22,7 @@ import {
   FolderTree,
   FileSpreadsheet,
   FileText,
+  Gauge,
   Gavel,
   GitCompareArrows,
   Handshake,
@@ -349,6 +350,13 @@ export const NAV_GROUPS: NavGroup[] = [
         parecer um terceiro equipamento.
       */
       { href: "/trecho-360", label: "Trecho 360°", icon: Route },
+      /*
+        O Radar fecha logo depois do Trecho 360° — é a camada gerencial acima
+        dele: enquanto o 360° responde "o que mudou neste trecho", o Radar
+        responde "de centenas, quais preciso olhar", com um veredito por
+        trecho em vez de uma tabela de atributos.
+      */
+      { href: "/radar-trechos", label: "Radar de Trechos", icon: Gauge },
       { href: "/dre-veiculo", label: "DRE do veículo", icon: FileSpreadsheet },
       { href: "/benchmark-unidades", label: "Benchmark de unidades", icon: ChartColumn },
     ],

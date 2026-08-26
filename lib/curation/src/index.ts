@@ -2,6 +2,8 @@ export * from "./agregacao";
 export * from "./significado";
 export * from "./linha-da-dre";
 export * from "./catalogo";
+export * from "./direcao-economica";
+export * from "./direcao-economica-trecho";
 export * from "./semantics";
 export * from "./taxonomy";
 export * from "./engine";

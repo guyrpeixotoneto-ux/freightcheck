@@ -202,6 +202,14 @@ export const changeTable = pgTable(
     taxonomyPath: text("taxonomy_path"),
     taxonomyName: text("taxonomy_name"),
     semanticsStatus: text("semantics_status"),
+    /**
+     * HIGHER_IS_BETTER | HIGHER_IS_WORSE | NEUTRAL | DEPENDS_ON_FORMULA | null —
+     * same snapshot rationale as `costClass`: a later curation of
+     * `attribute.economic_direction` must not silently repaint a verdict
+     * (Radar de Trechos) computed from a past change-set.
+     */
+    economicDirection: text("economic_direction"),
+    economicEffect: text("economic_effect"),
 
     /**
      * Which semantics version applied on each side.

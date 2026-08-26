@@ -25,6 +25,7 @@ import remuneracaoRouter from "./remuneracao";
 import unidadesRouter from "./unidades";
 import comprasRouter from "./compras";
 import justificativasRouter from "./justificativas";
+import trechosRouter from "./trechos";
 
 /**
  * F0/F1 surface.
@@ -148,6 +149,14 @@ import justificativasRouter from "./justificativas";
  * ela acrescenta é o eixo do comprador: da rubrica do modelo para a coisa que
  * se compra. O que ela deliberadamente **não** faz é comparar com o preço do
  * pedido, que não está no banco.
+ *
+ * `trechos` é o Radar de Trechos: a camada gerencial acima de Trecho 360° e
+ * de Alterações — centenas de trechos, um veredito por trecho
+ * (Piorou/Melhorou/Igual/Misto/Inconclusivo), não centenas de atributos para
+ * o usuário interpretar sozinho. Não recalcula a comparação — chama a mesma
+ * engine (`computeChangeSet`) e consolida o que ela já apurou por
+ * `economic_direction` do atributo. Rota própria porque os motores
+ * compartilhados de `changes` excluem TRECHO desde o commit #345.
  */
 const router: IRouter = Router();
 
@@ -197,5 +206,11 @@ router.use(fechamentoRouter);
   de `changesRouter` — só guarda o texto que o gestor escreveu.
 */
 router.use(justificativasRouter);
+/*
+  Radar de Trechos: camada gerencial acima de Trecho 360°/Alterações — uma
+  linha por trecho, com o veredito Piorou/Melhorou/Igual/Misto/Inconclusivo
+  consolidado por `@workspace/comparison`. Ver `routes/trechos.ts`.
+*/
+router.use(trechosRouter);
 
 export default router;

@@ -42,6 +42,8 @@ function classificacao(
     costClass: null,
     taxonomyPath: null,
     taxonomyName: null,
+    economicDirection: null,
+    economicEffect: null,
     ...parcial,
   };
 }

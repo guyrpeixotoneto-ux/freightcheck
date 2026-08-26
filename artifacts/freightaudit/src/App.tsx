@@ -46,6 +46,7 @@ import Versoes from '@/pages/versoes';
 import Unidades from '@/pages/unidades';
 import Configuracoes from '@/pages/configuracoes';
 import Frota360 from '@/pages/frota-360';
+import RadarTrechos from '@/pages/radar-trechos';
 import QlpAdministrativo from '@/pages/qlp-administrativo';
 import Remunerado from '@/pages/remunerado';
 import Justificativas from '@/pages/justificativas';
@@ -313,6 +314,14 @@ function Router() {
       <Route path="/trecho-360">
         <Frota360 key="trecho-360" equipamento="TRECHO" />
       </Route>
+      {/*
+        Radar de Trechos: a camada gerencial acima de Trecho 360°. Onde
+        Trecho 360° responde "o que mudou neste trecho", o Radar responde
+        "quais dos centenas de trechos preciso olhar" — um veredito por
+        trecho, não uma tabela de atributos. Rota própria porque a pergunta é
+        outra; o "Ver diagnóstico" de cada linha linka de volta para cá.
+      */}
+      <Route path="/radar-trechos" component={RadarTrechos} />
       <Route path="/comparar" component={Comparar} />
       {/*
         QLP Administrativo saiu de `TELAS_EM_PREPARO` quando a importação

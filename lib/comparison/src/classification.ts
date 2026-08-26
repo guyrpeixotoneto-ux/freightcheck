@@ -74,6 +74,9 @@ export interface AttributeClassification {
   costClass: string | null;
   taxonomyPath: string | null;
   taxonomyName: string | null;
+  /** HIGHER_IS_BETTER | HIGHER_IS_WORSE | NEUTRAL | DEPENDS_ON_FORMULA | null. */
+  economicDirection: string | null;
+  economicEffect: string | null;
 }
 
 /**
@@ -104,6 +107,8 @@ export async function loadAttributeClassificationsAt(
     cost_class: string | null;
     path: string | null;
     name: string | null;
+    economic_direction: string | null;
+    economic_effect: string | null;
   }>(sql`
     SELECT v.attribute_id,
            v.version,
@@ -115,7 +120,9 @@ export async function loadAttributeClassificationsAt(
            v.semantics_status,
            inherited.cost_class,
            node.path,
-           node.name
+           node.name,
+           v.economic_direction,
+           v.economic_effect
       FROM attribute_semantics v
       LEFT JOIN taxonomy_node node ON node.id = v.taxonomy_node_id
       ${inheritedCostClassJoin("v")}
@@ -139,6 +146,8 @@ export async function loadAttributeClassificationsAt(
       costClass: row.cost_class,
       taxonomyPath: row.path,
       taxonomyName: row.name,
+      economicDirection: row.economic_direction,
+      economicEffect: row.economic_effect,
     });
   }
   return resolved;
@@ -162,6 +171,8 @@ export async function loadAttributeClassifications(
     cost_class: string | null;
     path: string | null;
     name: string | null;
+    economic_direction: string | null;
+    economic_effect: string | null;
   }>(sql`
     SELECT a.id,
            a.code,
@@ -176,7 +187,9 @@ export async function loadAttributeClassifications(
            a.semantics_status::text AS semantics_status,
            inherited.cost_class,
            node.path,
-           node.name
+           node.name,
+           a.economic_direction,
+           a.economic_effect
       FROM attribute a
       LEFT JOIN taxonomy_node node ON node.id = a.taxonomy_node_id
       ${inheritedCostClassJoin("a")}
@@ -199,6 +212,8 @@ export async function loadAttributeClassifications(
       costClass: row.cost_class,
       taxonomyPath: row.path,
       taxonomyName: row.name,
+      economicDirection: row.economic_direction,
+      economicEffect: row.economic_effect,
     });
   }
   return map;
