@@ -6,6 +6,7 @@ import { createTestDatabase, type TestDb } from "@workspace/ingest/testing";
 import { seedTaxonomy } from "@workspace/curation";
 import { buildFixture, type AttributeSpec } from "@workspace/comparison/testing";
 import { createDb, encerrarPoolDoProcesso } from "@workspace/db";
+import { LINHAS_DO_CADASTRO } from "@workspace/remuneracao";
 
 /**
  * `/remuneracao/planilha*` — o contrato da única superfície do módulo que
@@ -232,12 +233,13 @@ describe("a planilha informada, pela borda", () => {
     expect(status).toBe(200);
     expect(body.canal).toBe("ROTA");
 
-    // E ele passa a ter cadastro próprio, com as trinta linhas e sem lastro.
+    // E ele passa a ter cadastro próprio, com a aba inteira e sem lastro.
     const cadastro = await get(
       `/remuneracao/cadastro?scopeHash=${ESCOPO}&canal=ROTA&period=${VIGENCIA}`,
     );
     expect(cadastro.status).toBe(200);
-    expect(cadastro.body.resumo.linhas).toBe(30);
+    // Do catálogo, e não de um literal — ver a nota em `planilha.test.ts`.
+    expect(cadastro.body.resumo.linhas).toBe(LINHAS_DO_CADASTRO.length);
     expect(cadastro.body.resumo.comLastro).toBe(0);
     expect(cadastro.body.resumo.informadas).toBe(1);
   });
