@@ -14,12 +14,21 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ApiErrorNotice } from "@/components/api-error";
 import { JustificarDialog } from "@/components/justificativas/justificar-dialog";
 import { fetchJson } from "@/lib/api";
 import { useConsultaResiliente } from "@/lib/consulta-resiliente";
-import { dataCurta, useComparacoes, useJustificadaPor, type Justificativa } from "@/lib/justificativas";
+import {
+  abasDeTipo,
+  dataCurta,
+  placasDaAba,
+  useComparacoes,
+  useJustificadaPor,
+  type Justificativa,
+} from "@/lib/justificativas";
 import type { ChangeRow } from "@/components/changes/change-table";
+import { palavrasDoTipo, rotuloDoTipo, rotuloEmFrase } from "@/lib/frota";
 import { cn } from "@/lib/utils";
 
 /**
@@ -34,11 +43,25 @@ import { cn } from "@/lib/utils";
  * só aquela. Clicar no card (fora dos controles) abre o detalhe completo da
  * placa, em `/justificativas/placa/:placa`.
  *
+ * As abas recortam por tipo de ativo — Cavalo, Carreta, Trecho — porque
+ * justificar é trabalho por tipo: quem explica o reajuste de um cavalo não é
+ * quem explica a quilometragem de um trecho, e sem o recorte a fila chega
+ * misturada. A escolha vive na URL (`?tipo=`), como a da vigência e pelo mesmo
+ * motivo. A regra das abas é `abasDeTipo` / `placasDaAba`, em
+ * `lib/justificativas.ts`.
+ *
  * A vigência é escolhida aqui, não fixa na mais recente: o seletor lê
  * `/change-sets` (comparações já calculadas — nunca `/changes/latest`, que
  * calcularia sob demanda só por a tela estar aberta) e a escolha vive na URL,
  * para sobreviver a ir para o detalhe de uma placa e voltar.
  */
+
+/**
+ * O valor da aba "Todas" no `Tabs`, que não aceita string vazia — o mesmo
+ * recurso da Curadoria, e pelo mesmo motivo: `null` é o recorte que não
+ * recorta, e ele precisa de um nome para viajar pelo componente.
+ */
+const TODAS = "__todas__";
 
 interface ChangesResponse {
   total: number;
@@ -76,11 +99,24 @@ export default function Justificativas() {
 
   const comparacoes = useComparacoes();
   const opcoes = comparacoes.data ?? [];
-  const changeSetIdDaUrl = new URLSearchParams(search).get("changeSetId") || undefined;
+  const params = new URLSearchParams(search);
+  const changeSetIdDaUrl = params.get("changeSetId") || undefined;
   const changeSetId = changeSetIdDaUrl ?? opcoes[0]?.id;
+  /* `null` é a aba "Todas" — um endereço truncado abre a fila inteira. */
+  const tipo = params.get("tipo") || null;
+
+  const endereco = (proximo: { changeSetId?: string; tipo?: string | null }) => {
+    const q = new URLSearchParams();
+    const id = proximo.changeSetId ?? changeSetId;
+    const t = proximo.tipo === undefined ? tipo : proximo.tipo;
+    if (id) q.set("changeSetId", id);
+    if (t) q.set("tipo", t);
+    const query = q.toString();
+    return query ? `/justificativas?${query}` : "/justificativas";
+  };
 
   const escolherVigencia = (id: string) => {
-    navegar(`/justificativas?changeSetId=${id}`);
+    navegar(endereco({ changeSetId: id }));
   };
 
   /*
@@ -100,11 +136,24 @@ export default function Justificativas() {
   const data = consulta.dados;
   const isLoading = comparacoes.isLoading || (!!changeSetId && consulta.carregando);
   const grupos = useMemo(() => agruparPorPlaca(data?.rows ?? []), [data]);
+  const abas = useMemo(() => abasDeTipo(grupos), [grupos]);
+  const visiveis = useMemo(() => placasDaAba(grupos, tipo), [grupos, tipo]);
 
   const { justificadaPor } = useJustificadaPor(changeSetId);
 
   const [selecionadas, setSelecionadas] = useState<Set<number>>(new Set());
   const [dialogAlvo, setDialogAlvo] = useState<ChangeRow[] | null>(null);
+
+  /*
+    Trocar de aba limpa a seleção de propósito. A barra "Justificar
+    selecionadas" fala do que está em tela; guardar seleção de uma aba que o
+    gestor não está mais vendo faria o diálogo abrir com alterações de trecho
+    dentro de uma justificativa escrita sobre cavalos.
+  */
+  const escolherTipo = (proximo: string | null) => {
+    setSelecionadas(new Set());
+    navegar(endereco({ tipo: proximo }));
+  };
 
   const alternarSelecaoGrupo = (grupo: PlacaGroup) => {
     const ids = grupo.changes.map((c) => c.id);
@@ -174,6 +223,31 @@ export default function Justificativas() {
             </Select>
           </div>
         )}
+
+        {/* As abas vêm depois da vigência e antes da lista, na ordem em que a
+            pergunta se faz: primeiro de que vigência se fala, depois de que
+            tipo de ativo, e só então o que mudou nele. Ficam mesmo quando a
+            vigência não tem nada a mostrar — é a aba com zero que diz que
+            nenhum trecho mudou, em vez de deixar a dúvida de se a tela sabe
+            mostrá-lo. */}
+        {grupos.length > 0 && (
+          <Tabs
+            value={tipo ?? TODAS}
+            onValueChange={(valor) => escolherTipo(valor === TODAS ? null : valor)}
+            className="mt-4"
+          >
+            <TabsList>
+              {abas.map((aba) => (
+                <TabsTrigger key={aba.tipo ?? TODAS} value={aba.tipo ?? TODAS}>
+                  {aba.rotulo}
+                  <span className="ml-1.5 tabular-nums text-xs text-muted-foreground">
+                    {aba.total}
+                  </span>
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
+        )}
       </header>
 
       <div className="px-8 pb-10 space-y-4 max-w-[1400px]">
@@ -236,11 +310,30 @@ export default function Justificativas() {
           </section>
         )}
 
-        {grupos.length > 0 && (
+        {/* A vigência mexeu em alguma coisa, mas não neste tipo. A frase diz
+            de qual — "nenhum trecho" —, porque a mesma tela vazia sem o nome
+            do tipo se lê como se a vigência inteira não tivesse mudado nada,
+            que é o oposto do que as outras abas mostram. */}
+        {grupos.length > 0 && visiveis.length === 0 && (
+          <section className="bg-card border rounded-xl shadow-sm px-6 py-10 text-center">
+            <p className="text-lg font-bold">
+              {tipo
+                ? `Nenhum${palavrasDoTipo(tipo).artigo === "a" ? "a" : ""} ${rotuloEmFrase(tipo)}`
+                : "Nenhuma placa"}{" "}
+              mudou nesta vigência.
+            </p>
+            <p className="text-sm text-muted-foreground mt-1">
+              Há alterações em outros tipos de ativo — troque de aba para vê-las.
+            </p>
+          </section>
+        )}
+
+        {visiveis.length > 0 && (
           <>
             <div className="flex items-center justify-between gap-3 text-sm text-muted-foreground">
               <span>
-                {grupos.length} {grupos.length === 1 ? "placa alterada" : "placas alteradas"}
+                {visiveis.length} {visiveis.length === 1 ? "placa alterada" : "placas alteradas"}
+                {tipo ? ` · ${rotuloDoTipo(tipo)}` : ""}
               </span>
               {selecionadas.size > 0 && (
                 <div className="flex items-center gap-2 sticky top-2 z-10">
@@ -255,7 +348,7 @@ export default function Justificativas() {
                     size="sm"
                     onClick={() =>
                       setDialogAlvo(
-                        grupos.flatMap((g) => g.changes).filter((c) => selecionadas.has(c.id)),
+                        visiveis.flatMap((g) => g.changes).filter((c) => selecionadas.has(c.id)),
                       )
                     }
                   >
@@ -267,7 +360,7 @@ export default function Justificativas() {
             </div>
 
             <div className="space-y-3">
-              {grupos.map((grupo) => (
+              {visiveis.map((grupo) => (
                 <LinhaPlaca
                   key={grupo.entityLabel}
                   grupo={grupo}
@@ -277,7 +370,7 @@ export default function Justificativas() {
                   onJustificarGrupo={() => setDialogAlvo(grupo.changes)}
                   onAbrirDetalhe={() =>
                     navegar(
-                      `/justificativas/placa/${encodeURIComponent(grupo.entityLabel)}?changeSetId=${changeSetId}`,
+                      `/justificativas/placa/${encodeURIComponent(grupo.entityLabel)}?changeSetId=${changeSetId}${tipo ? `&tipo=${encodeURIComponent(tipo)}` : ""}`,
                     )
                   }
                 />
