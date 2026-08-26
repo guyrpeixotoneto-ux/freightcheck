@@ -634,10 +634,20 @@ export const factTable = pgTable(
      *
      * **Custo.** O filtro precisa valer em toda leitura de fato; resolvê-lo pela
      * cadeia exigiria três junções por consulta sobre a maior tabela do sistema.
+     *
+     * **`NOT NULL`, e o banco já dizia isso.** A `0061` prova que todo fato tem
+     * origem — `raw_cell_id` é obrigatório, toda célula pertence a uma
+     * importação — e fecha a coluna com `SET NOT NULL` depois de conferir o
+     * backfill linha a linha. Aqui a obrigatoriedade tinha ficado de fora, e a
+     * diferença não era cosmética: o passo de schema do Publishing compara este
+     * arquivo com o banco, e o que ele proporia é `DROP NOT NULL` — desfazer,
+     * em Production e por fora da fila, a garantia que a migration estabeleceu.
+     * Quem encontrou a divergência foi `meta-snapshots`, comparando o snapshot
+     * com um banco criado pelas migrations até aquele ponto.
      */
-    originImportRunId: uuid("origin_import_run_id").references(
-      () => importRunTable.id,
-    ),
+    originImportRunId: uuid("origin_import_run_id")
+      .notNull()
+      .references(() => importRunTable.id),
   },
   (t) => [
     uniqueIndex("fact_grain_uq").on(t.snapshotId, t.entityId, t.attributeId),

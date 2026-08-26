@@ -203,49 +203,23 @@ describe("0015 sobre um banco parado na 0014", () => {
 
     const relatorio = await runMigrations(url);
     expect(relatorio.failure).toBeUndefined();
-    expect(relatorio.applied).toEqual([
-      "0015_canonical_identity",
-      "0016_canonical_identity_enforcement",
-      "0017_fato_herdado",
-      "0018_identidade_forte",
-      "0019_assistant_feedback",
-      "0020_chamados_exclusao",
-      "0021_cobertura",
-      "0022_significado",
-      "0023_semantica_coerente",
-      "0024_reconciliar_bridge",
-      "0025_semantica_inicial",
-      "0026_direcao_economica",
-      "0027_reconciliar_direcao_economica",
-      "0028_significado_economico",
-      "0029_reconciliar_significado",
-      "0030_classe_de_custo_no_atributo",
-      "0031_taxonomia_semantica",
-      "0032_universo_esperado",
-      "0033_verdade_financeira_unica",
-      "0034_reconciliar_verdade_financeira",
-      "0035_tipo_declarado",
-      "0036_funcoes_restauraveis",
-      "0037_papeis",
-      "0038_reconciliar_papeis",
-      "0039_fechamento",
-      "0040_reprocessamento",
-      "0041_reconciliar_reprocessamento",
-      "0042_viagem_completa",
-      "0043_pagamento",
-      "0044_partes_cadastradas",
-      "0045_planilha_de_remuneracao",
-      "0046_tipo_de_operacao",
-      "0047_conteudo_da_importacao",
-      "0048_unidade_sem_acervo",
-      "0049_unidade_canonica",
-      "0050_reconciliar_unidade_canonica",
-      "0051_referencia_da_planilha",
-      "0052_reconciliar_referencia_da_planilha",
-      "0053_rastro_da_resposta",
-      "0054_regra_de_alteracao",
-      "0055_disponibilidade_por_frota",
-    ]);
+    /*
+      A fila inteira depois da `0014`, e nem uma a menos.
+
+      A lista estava escrita à mão, e envelheceu do jeito previsível: parou na
+      `0055`, e as sete migrations seguintes começaram a derrubar este teste
+      sem ter defeito nenhum — a falha dizia "0056 sobrando" sobre uma fila que
+      estava certa. O que a prova quer é que rodar sobre um banco parado na
+      `0014` aplique **tudo** que vem depois dela, em ordem, sem pular nem
+      repetir; quem sabe isso é o journal, e é dele que a expectativa sai
+      agora. A lista literal não acrescentava conferência: repetia o journal e
+      podia discordar dele.
+    */
+    const depoisDa0014 = readMigrations()
+      .map((m) => m.tag)
+      .filter((tag) => tag > "0014_chamados_formato_real");
+    expect(depoisDa0014[0]).toBe("0015_canonical_identity");
+    expect(relatorio.applied).toEqual(depoisDa0014);
 
     const linhas = await retrato(pool);
     expect(linhas).toHaveLength(3);

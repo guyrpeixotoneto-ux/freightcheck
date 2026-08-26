@@ -6,6 +6,7 @@ import {
   ArrowRight,
   BarChart3,
   Building2,
+  CalendarDays,
   ChevronLeft,
   ChevronRight,
   DollarSign,
@@ -29,6 +30,14 @@ import { useContextosDaCasca } from "@/lib/contextos";
 import { useFamiliesOverviewQuery } from "@/lib/families-overview";
 import { DASHBOARD, GESTAO_A_VISTA } from "@/lib/ambiente";
 import { cn } from "@/lib/utils";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { formatBrlShort, formatPercent, periodicitySuffix } from "@/lib/format";
 import { escreverImpacto, ladosDoImpacto, type Impacto } from "@/lib/visao-geral";
 import { lerRecorte, linkDeAlteracoes, nomeDaUnidade, type Recorte } from "@/lib/recorte";
@@ -243,39 +252,28 @@ function TemplateFinanceiro() {
 
 /**
  * O template Alertas — uma tabela de unidades em vez do wallboard escuro do
- * Financeiro. Cada linha é uma unidade: quantas alterações teve, o impacto
- * dominante, e uma barra proporcional ao volume de mudanças. Clicar numa
- * linha abre o detalhe ao lado: as famílias que mexeram e o link para as
- * alterações em si.
+ * Financeiro. Cada linha é uma unidade: quantas alterações teve na vigência
+ * escolhida, o impacto mensal corrente, e uma barra proporcional ao volume de
+ * mudanças. Clicar numa linha abre o detalhe ao lado: as famílias que
+ * mexeram e o link para as alterações em si.
  *
- * Lê o mesmo `/changes/families/overview` que a Visão Geral do Financeiro —
- * mesmas unidades incluídas (`unitsIncluded`) e de fora (`unitsExcluded`, sem
- * vigência nesta competência, listadas à parte porque "sem dado" não é
- * "sem alteração"). O detalhe da unidade selecionada não pede nada novo à
- * API: as famílias com mudança já vêm em `summary.topParameters`, que a
- * Visão Geral sempre carregou.
+ * A vigência escolhida é sempre uma competência de verdade — este produto
+ * apura por vigência (uma vez por competência, normalmente mensal), nunca
+ * por dia corrido —, e o seletor é o mesmo botão "Trocar vigência" de
+ * `pages/dashboard.tsx` em modo Visão Geral: uma competência por vez, sem
+ * somar várias.
  *
- * Não existe "alteração de hoje" ou "de ontem" neste produto — a apuração é
- * por vigência inteira, não por linha (ver o comentário de `MudancasRecentes`
- * mais acima). Por isso a coluna de tempo aqui é a competência apurada, e
- * não uma data fabricada.
+ * A coluna "Última" é honesta: não existe timestamp por alteração individual
+ * (ver `MudancasRecentes` mais acima), então "Hoje/Ontem/N dias" mede a
+ * distância real, em dias, entre a competência mais recente do produto e a
+ * última vigência que aquela unidade de fato teve — dado real, só formatado
+ * como texto relativo.
  */
 function TemplateDeAlertas() {
   const search = useSearch();
   const [, navegar] = useLocation();
   const parametros = new URLSearchParams(search);
-  const periodoPedido = parametros.get("period");
 
-  /*
-    O Dashboard só põe `period` na URL quando o usuário escolheu uma
-    competência que não é a mais recente — abrindo a partir de uma unidade
-    específica (o caso comum), a Gestão à Vista chega sem `period` nenhum.
-    O template Financeiro não sente falta porque, fora do modo Geral, ele
-    busca a vigência da unidade sem depender de competência. A Visão Geral
-    exige uma, e aqui o padrão é a mais recente entre as que existem — é
-    "Alertas" quem se abre sozinho, então a competência que ele mostra sem
-    ninguém escolher nada precisa ser a última, não a mais antiga.
-  */
   const contextos = useContextosDaCasca();
   const periodosDisponiveis = useMemo(
     () =>
@@ -284,21 +282,23 @@ function TemplateDeAlertas() {
       ),
     [contextos.contextos],
   );
-  const periodo = periodoPedido ?? periodosDisponiveis[0] ?? null;
+  const periodoMaisRecente = periodosDisponiveis[0] ?? null;
+  const periodoSelecionado = parametros.get("period") ?? periodoMaisRecente;
 
-  // As últimas três competências disponíveis, da mais antiga à mais recente —
-  // o equivalente honesto ao "7/30 /90 dias" de um mockup genérico: este
-  // produto não tem uma janela contínua de dias (a apuração é por vigência
-  // inteira), então quem troca a janela aqui troca de competência de verdade.
-  const periodosRecentes = periodosDisponiveis.slice(0, 3).reverse();
-  const trocarPeriodo = (novoPeriodo: string) => {
+  const trocarVigencia = (period: string) => {
     const proximo = new URLSearchParams(search);
-    proximo.set("period", novoPeriodo);
+    proximo.set("period", period);
     navegar(`${GESTAO_A_VISTA}?${proximo}`, { replace: true });
   };
 
-  const overviewQuery = useFamiliesOverviewQuery(periodo, { refetchInterval: 30_000 });
+  const overviewQuery = useFamiliesOverviewQuery(periodoSelecionado, { refetchInterval: 30_000 });
   const overview = overviewQuery.data ?? null;
+
+  const unidades = useMemo(
+    () => [...(overview?.unitsIncluded ?? [])].sort((a, b) => b.summary.changes - a.summary.changes),
+    [overview],
+  );
+  const excluidas = overview?.unitsExcluded ?? [];
 
   const consultaDeOrigem = new URLSearchParams();
   for (const chave of ["period", "scopeHash", "canal"]) {
@@ -309,24 +309,18 @@ function TemplateDeAlertas() {
     ? `${DASHBOARD}?${consultaDeOrigem}`
     : DASHBOARD;
 
-  const unidades = useMemo(
-    () =>
-      overview
-        ? [...overview.unitsIncluded].sort((a, b) => b.summary.changes - a.summary.changes)
-        : [],
-    [overview],
-  );
-  const excluidas = overview
-    ? [...overview.unitsExcluded].sort((a, b) => a.label.localeCompare(b.label, "pt-BR"))
-    : [];
   const comAlteracao = unidades.filter((u) => u.summary.changes > 0).length;
+  const totalDeAlteracoes = unidades.reduce((soma, u) => soma + u.summary.changes, 0);
   const maiorVolume = unidades.reduce((maior, u) => Math.max(maior, u.summary.changes), 0);
 
   const [selecionada, setSelecionada] = useState<string | null>(null);
-  const unidadeSelecionada =
-    unidades.find((u) => u.unidade === selecionada) ?? unidades[0] ?? null;
+  const unidadeSelecionada = unidades.find((u) => u.unidade === selecionada) ?? unidades[0] ?? null;
 
   const dominante = overview ? impactoDominante(overview.summary) : null;
+
+  const carregando = overviewQuery.isLoading;
+  const erro = overviewQuery.error !== null;
+  const semNada = !carregando && !erro && unidades.length === 0 && excluidas.length === 0;
 
   return (
     <div className="w-full min-h-[100dvh] bg-slate-50 text-slate-900 font-sans">
@@ -336,29 +330,31 @@ function TemplateDeAlertas() {
             <h1 className="text-3xl font-extrabold tracking-tight truncate">
               Gestão à Vista — Alterações de Remuneração
             </h1>
-            <p className="text-sm text-slate-500 mt-1">
-              Planilha de remuneração · {overview?.period ?? "última competência"}
-            </p>
+            <p className="text-sm text-slate-500 mt-1">Planilha de remuneração · últimas alterações</p>
           </div>
           <div className="flex flex-col items-end gap-2.5 shrink-0">
-            {periodosRecentes.length > 1 && (
-              <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white p-1">
-                {periodosRecentes.map((p) => (
-                  <button
-                    key={p}
-                    type="button"
-                    onClick={() => trocarPeriodo(p)}
-                    className={cn(
-                      "rounded-md px-3 py-1.5 text-sm font-semibold transition-colors",
-                      p === periodo
-                        ? "bg-blue-600 text-white"
-                        : "text-slate-500 hover:bg-slate-100 hover:text-slate-900",
-                    )}
-                  >
-                    {p}
-                  </button>
-                ))}
-              </div>
+            {periodosDisponiveis.length > 1 && (
+              <DropdownMenu>
+                <DropdownMenuTrigger className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors">
+                  <CalendarDays className="w-4 h-4" />
+                  Trocar vigência
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56 max-h-80 overflow-y-auto">
+                  <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+                    {periodosDisponiveis.length} competências disponíveis
+                  </DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  {periodosDisponiveis.map((data) => (
+                    <DropdownMenuItem
+                      key={data}
+                      onSelect={() => trocarVigencia(data)}
+                      className={cn(data === periodoSelecionado && "font-bold text-brand")}
+                    >
+                      {data}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
             )}
             <div className="flex items-center gap-3">
               <RelogioClaro atualizadaEm={overviewQuery.dataUpdatedAt} />
@@ -373,11 +369,11 @@ function TemplateDeAlertas() {
           </div>
         </header>
 
-        {overviewQuery.isLoading ? (
+        {carregando ? (
           <MensagemDeEstadoClara carregando erro={false} />
-        ) : overviewQuery.error ? (
+        ) : erro ? (
           <MensagemDeEstadoClara carregando={false} erro />
-        ) : unidades.length === 0 && excluidas.length === 0 ? (
+        ) : semNada ? (
           <MensagemDeEstadoClara carregando={false} erro={false} />
         ) : (
           <>
@@ -385,7 +381,7 @@ function TemplateDeAlertas() {
               <CartaoDeIndicador
                 icone={FileText}
                 rotulo="Alterações"
-                valor={overview?.summary.changes.toLocaleString("pt-BR") ?? "—"}
+                valor={totalDeAlteracoes.toLocaleString("pt-BR")}
               />
               <CartaoDeIndicador
                 icone={Building2}
@@ -409,7 +405,7 @@ function TemplateDeAlertas() {
                         <th className="py-3 pl-5 pr-4 font-semibold">Unidade</th>
                         <th className="py-3 px-4 font-semibold text-right">Alterações</th>
                         <th className="py-3 px-4 font-semibold text-right">Impacto / mês</th>
-                        <th className="py-3 pr-5 pl-4 font-semibold text-right">Competência</th>
+                        <th className="py-3 pr-5 pl-4 font-semibold text-right">Última</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -469,7 +465,10 @@ function TemplateDeAlertas() {
                               {impacto ? escreverImpacto(impacto) : "R$ 0"}
                             </td>
                             <td className="py-3 pr-5 pl-4 text-right text-slate-500">
-                              {unidade.contexts[0]?.latestPeriod ?? "—"}
+                              {rotuloDeRecencia(
+                                unidade.contexts[0]?.latestPeriod,
+                                periodoMaisRecente,
+                              )}
                             </td>
                           </tr>
                         );
@@ -481,14 +480,17 @@ function TemplateDeAlertas() {
                 {excluidas.length > 0 && (
                   <p className="px-5 py-3 text-xs text-slate-500 border-t border-slate-100 bg-slate-50/60">
                     {excluidas.length === 1 ? "1 unidade" : `${excluidas.length} unidades`} sem
-                    vigência nesta competência:{" "}
-                    {excluidas.map((u) => u.label).join(", ")}.
+                    vigência na competência mais recente: {excluidas.map((u) => u.label).join(", ")}.
                   </p>
                 )}
               </div>
 
               {unidadeSelecionada && (
-                <DetalheDaUnidade unidade={unidadeSelecionada} periodo={overview?.period ?? null} />
+                <DetalheDaUnidade
+                  unidade={unidadeSelecionada}
+                  alteracoes={unidadeSelecionada.summary.changes}
+                  periodo={unidadeSelecionada.contexts[0]?.latestPeriod ?? periodoMaisRecente}
+                />
               )}
             </div>
 
@@ -498,6 +500,22 @@ function TemplateDeAlertas() {
       </div>
     </div>
   );
+}
+
+/**
+ * "Hoje / Ontem / N dias" — a distância real, em dias corridos, entre a
+ * competência mais recente do produto e a última vigência que essa unidade
+ * de fato teve. Não é a hora da alteração (que este produto não guarda por
+ * linha, só por vigência inteira — ver `MudancasRecentes`); é a idade real da
+ * vigência mais recente da unidade, formatada como texto relativo.
+ */
+function rotuloDeRecencia(dataDaUnidade: string | undefined, referencia: string | null): string {
+  if (!dataDaUnidade || !referencia) return "—";
+  const dias = Math.round((new Date(referencia).getTime() - new Date(dataDaUnidade).getTime()) / 86_400_000);
+  if (Number.isNaN(dias)) return "—";
+  if (dias <= 0) return "Hoje";
+  if (dias === 1) return "Ontem";
+  return `${dias} dias`;
 }
 
 const PONTO_COR: Record<"azul" | "verde" | "amarelo" | "cinza", string> = {
@@ -554,9 +572,12 @@ function CartaoDeIndicador({
  */
 function DetalheDaUnidade({
   unidade,
+  alteracoes,
   periodo,
 }: {
   unidade: OverviewUnitIncluded;
+  /** A soma da janela escolhida — não `unidade.summary.changes`, que é só da última competência. */
+  alteracoes: number;
   periodo: string | null;
 }) {
   const impacto = impactoDominante(unidade.summary);
@@ -577,8 +598,7 @@ function DetalheDaUnidade({
         {unidade.label}
       </p>
       <p className="text-sm text-slate-600 mt-1">
-        {unidade.summary.changes.toLocaleString("pt-BR")}{" "}
-        {unidade.summary.changes === 1 ? "alteração" : "alterações"}
+        {alteracoes.toLocaleString("pt-BR")} {alteracoes === 1 ? "alteração" : "alterações"}
         {impacto && (
           <>
             {" · impacto "}
