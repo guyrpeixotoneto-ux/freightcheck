@@ -21,6 +21,7 @@ import {
   lerDisponibilidadeDaCompetencia,
   lerItensDaConciliacaoDaCompetencia,
   lerItensDoPagamentoDaCompetencia,
+  resumoDoCtePorVerbaDaCompetencia,
   associarUnidadeDaCompetencia,
   lerResumoDoMes,
   listarApuracoes,
@@ -1185,6 +1186,26 @@ router.get("/fechamento/competencias/:id/conciliacao-do-arquivo", async (req, re
     return;
   }
   res.json({ itens: await lerItensDaConciliacaoDaCompetencia(db, id) });
+});
+
+/**
+ * O 03.08.15 somado por VBZ — quanto foi emitido em cada verba, com o número
+ * de documentos e as colunas que o arquivo abre. É a mesma leitura de
+ * `.../pagamento`, para o CT-e: o relatório em si, sem reabri-lo depois de
+ * importado.
+ */
+router.get("/fechamento/competencias/:id/cte-por-verba", async (req, res): Promise<void> => {
+  const { id } = req.params;
+  if (!UUID.test(id)) {
+    res.status(400).json({ error: "Identificador de competência inválido." });
+    return;
+  }
+  const competencia = await buscarCompetencia(db, id);
+  if (!competencia) {
+    res.status(404).json({ error: "Competência não encontrada." });
+    return;
+  }
+  res.json({ itens: await resumoDoCtePorVerbaDaCompetencia(db, id) });
 });
 
 /**

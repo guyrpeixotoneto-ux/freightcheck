@@ -76,6 +76,7 @@ import {
   lerTotaisDaCompetencia,
   lerItensDoPagamento,
   lerItensDaConciliacao,
+  lerResumoDoCtePorVerba,
   EXPLICACAO_DA_DIVERGENCIA,
   NOME_DO_ESTADO,
   type Competencia,
@@ -2215,7 +2216,21 @@ function DentroDaEtapa({
         e mostrá-lo aqui evita reabri-lo depois de importado.
       */}
       {etapa.numero === 5 && (
-        <ConciliacaoDoArquivoNaEtapa competenciaId={competenciaId} />
+        <>
+          <ConciliacaoDoArquivoNaEtapa competenciaId={competenciaId} />
+          <GradeDoCtePorVerbaNaEtapa competenciaId={competenciaId} apenasVariavel />
+        </>
+      )}
+
+      {/*
+        A etapa 6 confere o CT-e por VBZ, e é o CT-e — não a apuração, não a
+        conciliação do Promax — que quem confere quer ver aberto: o mesmo
+        03.08.15 que a etapa recebeu, somado por verba em vez de por linha,
+        porque uma verba de frete variável passa de dez mil documentos na
+        quinzena.
+      */}
+      {etapa.numero === 6 && (
+        <GradeDoCtePorVerbaNaEtapa competenciaId={competenciaId} />
       )}
 
       {/* A próxima ação, e os atalhos que a etapa oferece. */}
@@ -2614,6 +2629,92 @@ function GradeDaConciliacaoPorSecao({
           </div>
         );
       })}
+    </div>
+  );
+}
+
+/**
+ * O 03.08.15 somado por VBZ — busca à parte da lista de etapas, pela mesma
+ * razão de `VerbaAVerbaDoPagamento`: só quem abriu a etapa paga o custo dela.
+ *
+ * `apenasVariavel` é o recorte da etapa 5: ali a pergunta é o custo variável,
+ * e misturar as verbas de frota fixa e administrativas — que não se confrontam
+ * contra o 2Art — só tornaria a tabela maior sem responder a etapa.
+ */
+function GradeDoCtePorVerbaNaEtapa({
+  competenciaId,
+  apenasVariavel,
+}: {
+  competenciaId: string;
+  apenasVariavel?: boolean;
+}) {
+  const { data } = useQuery({
+    queryKey: ["fechamento", "cte-por-verba", competenciaId],
+    queryFn: () => lerResumoDoCtePorVerba(competenciaId),
+  });
+  const todos = data?.itens ?? [];
+  const itens = apenasCanalRota(
+    apenasVariavel ? todos.filter((i) => i.natureza === "VARIAVEL") : todos,
+  );
+  if (itens.length === 0) return null;
+
+  const total = (campo: "semImposto" | "icms" | "pis" | "cofins" | "imposto" | "valorFaturado") =>
+    itens.reduce((soma, i) => soma + i[campo], 0);
+
+  return (
+    <div className="rounded-md border p-3">
+      <p className="text-xs font-medium">
+        {apenasVariavel ? "Custo variável — CT-e por VBZ" : "CT-e por VBZ — 03.08.15"}
+      </p>
+      <div className="mt-1.5 overflow-x-auto">
+        <table className="text-xs w-full min-w-max">
+          <thead className="text-muted-foreground">
+            <tr className="text-left">
+              <th className="font-normal pr-4 py-1">VBZ</th>
+              <th className="font-normal pr-4 py-1 text-right">Documentos</th>
+              <th className="font-normal pr-4 py-1 text-right">S/Imposto</th>
+              <th className="font-normal pr-4 py-1 text-right">Imposto</th>
+              <th className="font-normal py-1 text-right">Valor Faturado</th>
+            </tr>
+          </thead>
+          <tbody>
+            {itens.map((i) => (
+              <tr key={`${i.canal}-${i.vbz}`} className="border-t">
+                <td className="py-1 pr-4">
+                  {String(i.vbz).padStart(2, "0")} - {i.nome}
+                </td>
+                <td className="py-1 pr-4 text-right tabular-nums">
+                  {formatNumber(i.documentos)}
+                </td>
+                <td className="py-1 pr-4 text-right tabular-nums">
+                  {formatBrl(i.semImposto)}
+                </td>
+                <td className="py-1 pr-4 text-right tabular-nums">
+                  {formatBrl(i.imposto)}
+                </td>
+                <td className="py-1 text-right tabular-nums">
+                  {formatBrl(i.valorFaturado)}
+                </td>
+              </tr>
+            ))}
+            <tr className="border-t font-medium">
+              <td className="py-1 pr-4">Total</td>
+              <td className="py-1 pr-4 text-right tabular-nums">
+                {formatNumber(itens.reduce((soma, i) => soma + i.documentos, 0))}
+              </td>
+              <td className="py-1 pr-4 text-right tabular-nums">
+                {formatBrl(total("semImposto"))}
+              </td>
+              <td className="py-1 pr-4 text-right tabular-nums">
+                {formatBrl(total("imposto"))}
+              </td>
+              <td className="py-1 text-right tabular-nums">
+                {formatBrl(total("valorFaturado"))}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
