@@ -7,6 +7,8 @@ import {
   Calculator,
   CalendarDays,
   Check,
+  ChevronDown,
+  ChevronRight,
   FileUp,
   ImageUp,
   Info,
@@ -111,6 +113,11 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import {
   SeloDaEtapa,
   TrilhaDoRoteiro,
@@ -2372,6 +2379,42 @@ const BLOCOS_DO_PAGAMENTO: { titulo: string; chave: "FRETE" | "OUTROS_CUSTOS" }[
   { titulo: "Outros Custos", chave: "OUTROS_CUSTOS" },
 ];
 
+/**
+ * Um achado que começa fechado, mostrando só o título e a contagem — quem
+ * confere abre o que quer investigar em vez de rolar por explicação que não
+ * pediu.
+ */
+function AchadoRecolhivel({
+  corClasse,
+  titulo,
+  children,
+}: {
+  corClasse: string;
+  titulo: ReactNode;
+  children: ReactNode;
+}) {
+  const [aberto, setAberto] = useState(false);
+  return (
+    <Collapsible
+      open={aberto}
+      onOpenChange={setAberto}
+      className={`mt-1.5 rounded-md border p-2 ${corClasse}`}
+    >
+      <CollapsibleTrigger className="flex w-full items-center justify-between gap-2 text-left">
+        {titulo}
+        {aberto ? (
+          <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        ) : (
+          <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        )}
+      </CollapsibleTrigger>
+      <CollapsibleContent className="mt-1 space-y-1">
+        {children}
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
 /** As verbas de um canal, por bloco (Frete e Outros Custos), com o total de cada. */
 function GradeDoPagamentoPorCanal({
   canal,
@@ -2395,13 +2438,17 @@ function GradeDoPagamentoPorCanal({
         Verbas do 03.08.20 — {canal}
       </p>
       {divergentes.length > 0 && (
-        <div className="mt-1.5 rounded-md bg-red-500/5 border border-red-500/20 p-2">
-          <p className="text-xs font-medium text-red-700 dark:text-red-400">
-            {divergentes.length === 1
-              ? "Uma VBZ aparece repetida com valores divergentes"
-              : `${divergentes.length} VBZs aparecem repetidas com valores divergentes`}
-          </p>
-          <ul className="mt-1 space-y-0.5">
+        <AchadoRecolhivel
+          corClasse="bg-red-500/5 border-red-500/20"
+          titulo={
+            <p className="text-xs font-medium text-red-700 dark:text-red-400">
+              {divergentes.length === 1
+                ? "Uma VBZ aparece repetida com valores divergentes"
+                : `${divergentes.length} VBZs aparecem repetidas com valores divergentes`}
+            </p>
+          }
+        >
+          <ul className="space-y-0.5">
             {divergentes.map((d) => (
               <li key={`${d.bloco}-${d.vbz}`} className="text-xs text-muted-foreground">
                 {String(d.vbz).padStart(2, "0")} - {d.nome} ({d.bloco}):{" "}
@@ -2416,16 +2463,20 @@ function GradeDoPagamentoPorCanal({
             explicação óbvia — confira com a Ambev antes de fechar. Nenhuma
             linha foi somada ou removida; as duas continuam na tabela abaixo.
           </p>
-        </div>
+        </AchadoRecolhivel>
       )}
       {consolidadas.length > 0 && (
-        <div className="mt-1.5 rounded-md bg-blue-500/5 border border-blue-500/20 p-2">
-          <p className="text-xs font-medium text-blue-700 dark:text-blue-400">
-            {consolidadas.length === 1
-              ? "Uma verba estava duplicada no arquivo — mostrando uma só ocorrência"
-              : `${consolidadas.length} verbas estavam duplicadas no arquivo — mostrando uma só ocorrência de cada`}
-          </p>
-          <ul className="mt-1 space-y-0.5">
+        <AchadoRecolhivel
+          corClasse="bg-blue-500/5 border-blue-500/20"
+          titulo={
+            <p className="text-xs font-medium text-blue-700 dark:text-blue-400">
+              {consolidadas.length === 1
+                ? "Uma verba estava duplicada no arquivo — mostrando uma só ocorrência"
+                : `${consolidadas.length} verbas estavam duplicadas no arquivo — mostrando uma só ocorrência de cada`}
+            </p>
+          }
+        >
+          <ul className="space-y-0.5">
             {consolidadas.map((d) => (
               <li key={`${d.bloco}-${d.vbz}`} className="text-xs text-muted-foreground">
                 {String(d.vbz).padStart(2, "0")} - {d.nome} ({d.bloco}): mantida a linha{" "}
@@ -2440,7 +2491,7 @@ function GradeDoPagamentoPorCanal({
             duas vezes no arquivo. A tabela e os totais abaixo contam cada
             verba uma única vez.
           </p>
-        </div>
+        </AchadoRecolhivel>
       )}
       {BLOCOS_DO_PAGAMENTO.map(({ titulo, chave }) => {
         const doBloco = itensExibidos
