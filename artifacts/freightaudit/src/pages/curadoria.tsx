@@ -876,6 +876,8 @@ function AttributePanel({
         </CardContent>
       </Card>
 
+      <MeaningCard detail={detail} onSaved={onConfirmed} />
+
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Valores reais e origem</CardTitle>
@@ -920,8 +922,6 @@ function AttributePanel({
           </div>
         </CardContent>
       </Card>
-
-      <MeaningCard detail={detail} onSaved={onConfirmed} />
 
       <ConfirmarInterpretacao detail={detail} onConfirmed={onConfirmed} />
 
@@ -1065,22 +1065,6 @@ function ConfirmarInterpretacao({
    * o filtro da segunda lista enquanto a resposta não existe.
    */
   const [sinteticoPendente, setSinteticoPendente] = useState<string | null>(null);
-  /**
-   * A regra pela qual este valor muda — e por que ela é texto, e não lista.
-   *
-   * Esta pergunta ocupa o lugar em que a tela perguntava a classe de custo
-   * ("como este valor se comporta?", fixo ou variável). A troca não é de
-   * rótulo: a classe é uma escolha entre três, e o que quem cura de fato sabe
-   * sobre uma coluna como o IPVA é uma frase — "revisão semestral" — que
-   * nenhuma das três guarda. A classe continua existindo em
-   * `attribute.cost_class`, proposta pela família da categoria; o que saiu foi
-   * a pergunta, não a coluna.
-   *
-   * Texto livre pelo mesmo motivo de `calculation_basis`: o vocabulário das
-   * regras de reajuste é da operação do cliente, e uma lista fechada faria quem
-   * sabe a regra escolher a opção menos errada.
-   */
-  const [changeRule, setChangeRule] = useState(detail.changeRule ?? "");
   const [periodicity, setPeriodicity] = useState<string | null>(detail.periodicity);
   const [error, setError] = useState<string | null>(null);
   const [erroDoCadastro, setErroDoCadastro] = useState<string | null>(null);
@@ -1233,37 +1217,6 @@ function ConfirmarInterpretacao({
       );
       const body = await response.json();
       if (!response.ok) throw new Error(body.error ?? "Falha ao confirmar");
-
-      /*
-        A regra de alteração vai numa chamada própria, e de propósito.
-
-        Ela não é um dos campos que a confirmação assina: confirmar destrava
-        soma de dinheiro — unidade, periodicidade, agregação —, e escrever por
-        que o valor muda não destrava nada. É prosa, e prosa vai pela mesma rota
-        que grava o nome gerencial e o "o que é": `saveMeaning`, que por
-        contrato não toca `semantics_status`.
-
-        Só sobe se mudou. Mandá-la em toda confirmação faria a caixa em que
-        ninguém tocou chegar ao servidor como uma escrita, e um evento de
-        curadoria por confirmação para um texto que ninguém digitou.
-
-        Nenhuma das duas pede justificativa em prosa: a tela deixou de ter o
-        campo, e quem assina as duas é a mesma sessão.
-      */
-      if (changeRule.trim() !== (detail.changeRule ?? "").trim()) {
-        const regra = await fetch(
-          getApiUrl(`/curation/attributes/${detail.code}/meaning`),
-          {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ changeRule }),
-          },
-        );
-        const corpo = await regra.json();
-        if (!regra.ok) {
-          throw new Error(corpo.error ?? "Falha ao gravar a regra de alteração");
-        }
-      }
       return body;
     },
     onSuccess: () => {
@@ -1685,30 +1638,6 @@ function ConfirmarInterpretacao({
           />
         </Field>
 
-        {/* A regra de alteração fica **depois** da categoria e é outra
-            pergunta: a de cima diz o que o valor é, esta diz o que o faz
-            mudar. Aqui ficava a classe de custo — fixo ou variável —, e a
-            troca não é de rótulo: o que quem cura sabe sobre uma coluna como
-            o IPVA é uma frase, e nenhuma das três opções guardava frase
-            nenhuma. */}
-        <Field
-          label="Regra de Alteração"
-          hint="O que faz esta coluna mudar de valor: revisão semestral, reajuste anual por índice, renegociação de tabela. Não é a fórmula do número de hoje — é o que faz a fórmula de hoje deixar de valer."
-        >
-          <Textarea
-            value={changeRule}
-            onChange={(e) => setChangeRule(e.target.value)}
-            placeholder="Ex.: revisão semestral do percentual sobre o valor da nota de compra."
-            rows={2}
-          />
-          {/* A consequência da escrita, dita antes de confirmar — a mesma
-              honestidade do rodapé do card "Significado". É prosa: entra no
-              cadastro do atributo e não move `semantics_status`. */}
-          <p className="text-xs text-muted-foreground">
-            Texto livre, e não destrava cálculo: é o registro de por que este
-            número muda, para quem for ler a série depois.
-          </p>
-        </Field>
       </div>
 
       {/* 8. Estado incompleto — dito por extenso, e não por um botão cinza
@@ -1900,21 +1829,25 @@ function GavetaDeCadastro({
           )}
 
           {detail && (
-            /* Chaveado pelo código pelo mesmo motivo do painel da direita: os
+            /* Chaveadas pelo código pelo mesmo motivo do painel da direita: os
                campos nascem de `useState(detail…)`, e sem a chave a gaveta
                reaberta em outro atributo mostraria as respostas do anterior. */
-            <ConfirmarInterpretacao
-              key={detail.code}
-              detail={detail}
-              emGaveta
-              onConfirmed={() => {
-                aoConfirmar();
-                /* Fecha ao confirmar: a gaveta existe para responder e seguir
-                   para a próxima linha, e deixá-la aberta sobre o formulário já
-                   assinado convida a confirmar duas vezes o mesmo atributo. */
-                aoFechar();
-              }}
-            />
+            <div className="space-y-6">
+              <MeaningCard key={detail.code} detail={detail} onSaved={aoConfirmar} />
+
+              <ConfirmarInterpretacao
+                key={detail.code}
+                detail={detail}
+                emGaveta
+                onConfirmed={() => {
+                  aoConfirmar();
+                  /* Fecha ao confirmar: a gaveta existe para responder e seguir
+                     para a próxima linha, e deixá-la aberta sobre o formulário já
+                     assinado convida a confirmar duas vezes o mesmo atributo. */
+                  aoFechar();
+                }}
+              />
+            </div>
           )}
         </div>
       </SheetContent>
@@ -2103,6 +2036,18 @@ function MeaningCard({
   const [displayName, setDisplayName] = useState(detail.displayName ?? "");
   const [definition, setDefinition] = useState(detail.definition ?? "");
   const [basis, setBasis] = useState(detail.calculationBasis ?? "");
+  /**
+   * A regra pela qual este valor muda — e por que ela é texto, e não lista.
+   *
+   * Fica logo abaixo da fórmula de cálculo porque responde a uma pergunta
+   * diferente da dela: a fórmula diz de que o número de hoje é feito, esta
+   * diz o que faz a fórmula de hoje deixar de valer. Ambas são prosa sobre a
+   * coluna — o vocabulário das regras de reajuste é da operação do cliente,
+   * e uma lista fechada faria quem sabe a regra escolher a opção menos
+   * errada — e por isso sobem juntas pela mesma rota, sem tocar
+   * `semantics_status`.
+   */
+  const [changeRule, setChangeRule] = useState(detail.changeRule ?? "");
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   /*
@@ -2129,6 +2074,7 @@ function MeaningCard({
     displayName?: string;
     definition?: string;
     calculationBasis?: string;
+    changeRule?: string;
   } = {};
   if (displayName.trim() !== (detail.displayName ?? "").trim())
     edits.displayName = displayName;
@@ -2136,6 +2082,8 @@ function MeaningCard({
     edits.definition = definition;
   if (basis.trim() !== (detail.calculationBasis ?? "").trim())
     edits.calculationBasis = basis;
+  if (changeRule.trim() !== (detail.changeRule ?? "").trim())
+    edits.changeRule = changeRule;
 
   const dirty = Object.keys(edits).length > 0;
 
@@ -2251,6 +2199,25 @@ function MeaningCard({
               setSaved(false);
             }}
           />
+        </Field>
+
+        <Field
+          label="Regra de alteração"
+          hint="O que faz esta coluna mudar de valor: revisão semestral, reajuste anual por índice, renegociação de tabela. Não é a fórmula do número de hoje — é o que faz a fórmula de hoje deixar de valer."
+        >
+          <Textarea
+            value={changeRule}
+            onChange={(e) => {
+              setChangeRule(e.target.value);
+              setSaved(false);
+            }}
+            placeholder="Ex.: revisão semestral do percentual sobre o valor da nota de compra."
+            rows={2}
+          />
+          <p className="text-xs text-muted-foreground">
+            Texto livre, e não destrava cálculo: é o registro de por que este
+            número muda, para quem for ler a série depois.
+          </p>
         </Field>
 
         {error && (
