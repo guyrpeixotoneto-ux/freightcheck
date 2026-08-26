@@ -6,6 +6,7 @@ import {
   ArrowRight,
   BarChart3,
   Building2,
+  CalendarDays,
   ChevronLeft,
   ChevronRight,
   DollarSign,
@@ -29,6 +30,14 @@ import { useContextosDaCasca } from "@/lib/contextos";
 import { useFamiliesOverviewQuery } from "@/lib/families-overview";
 import { DASHBOARD, GESTAO_A_VISTA } from "@/lib/ambiente";
 import { cn } from "@/lib/utils";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { formatBrlShort, formatPercent, periodicitySuffix } from "@/lib/format";
 import { escreverImpacto, ladosDoImpacto, type Impacto } from "@/lib/visao-geral";
 import { lerRecorte, linkDeAlteracoes, nomeDaUnidade, type Recorte } from "@/lib/recorte";
@@ -243,27 +252,22 @@ function TemplateFinanceiro() {
 
 /**
  * O template Alertas — uma tabela de unidades em vez do wallboard escuro do
- * Financeiro. Cada linha é uma unidade: quantas alterações teve na janela
+ * Financeiro. Cada linha é uma unidade: quantas alterações teve na vigência
  * escolhida, o impacto mensal corrente, e uma barra proporcional ao volume de
  * mudanças. Clicar numa linha abre o detalhe ao lado: as famílias que
  * mexeram e o link para as alterações em si.
  *
- * A janela (7/30/90 dias) é real, não decorativa: este produto apura por
- * vigência (uma vez por competência, normalmente mensal), não por dia
- * corrido, então "7 dias" não é um filtro contínuo — é a soma das
- * competências cuja data cai dentro dos últimos N dias a partir da mais
- * recente disponível. Com vigências mensais, "7 dias" tende a mostrar só a
- * última; "90 dias" já soma as últimas três. `janelaDeCompetencias` faz essa
- * conta; `combinarJanela` soma `changes` por unidade através das
- * competências da janela.
+ * A vigência escolhida é sempre uma competência de verdade — este produto
+ * apura por vigência (uma vez por competência, normalmente mensal), nunca
+ * por dia corrido —, e o seletor é o mesmo botão "Trocar vigência" de
+ * `pages/dashboard.tsx` em modo Visão Geral: uma competência por vez, sem
+ * somar várias.
  *
- * O impacto mostrado é sempre o da competência mais recente da janela — somar
- * "impacto por mês" de vários meses deixaria de ser "por mês", então a régua
- * aqui é: alterações somam, impacto não. A coluna "Última" também é honesta:
- * não existe timestamp por alteração individual (ver `MudancasRecentes` mais
- * acima), então "Hoje/Ontem/N dias" mede a distância real, em dias, entre a
- * competência mais recente do produto e a última vigência que aquela unidade
- * de fato teve — dado real, só formatado como texto relativo.
+ * A coluna "Última" é honesta: não existe timestamp por alteração individual
+ * (ver `MudancasRecentes` mais acima), então "Hoje/Ontem/N dias" mede a
+ * distância real, em dias, entre a competência mais recente do produto e a
+ * última vigência que aquela unidade de fato teve — dado real, só formatado
+ * como texto relativo.
  */
 function TemplateDeAlertas() {
   const search = useSearch();
@@ -279,40 +283,22 @@ function TemplateDeAlertas() {
     [contextos.contextos],
   );
   const periodoMaisRecente = periodosDisponiveis[0] ?? null;
+  const periodoSelecionado = parametros.get("period") ?? periodoMaisRecente;
 
-  const janelaPedida = Number(parametros.get("janela"));
-  const janelaDias: 7 | 30 | 90 = janelaPedida === 7 || janelaPedida === 90 ? janelaPedida : 30;
-  const trocarJanela = (dias: 7 | 30 | 90) => {
+  const trocarVigencia = (period: string) => {
     const proximo = new URLSearchParams(search);
-    proximo.set("janela", String(dias));
+    proximo.set("period", period);
     navegar(`${GESTAO_A_VISTA}?${proximo}`, { replace: true });
   };
 
-  const periodosDaJanela = useMemo(
-    () => janelaDeCompetencias(periodosDisponiveis, periodoMaisRecente, janelaDias),
-    [periodosDisponiveis, periodoMaisRecente, janelaDias],
-  );
+  const overviewQuery = useFamiliesOverviewQuery(periodoSelecionado, { refetchInterval: 30_000 });
+  const overview = overviewQuery.data ?? null;
 
-  const janelaQuery = useQuery({
-    queryKey: ["gestao-a-vista-alertas-janela", periodosDaJanela.join(",")],
-    enabled: periodosDaJanela.length > 0,
-    refetchInterval: 30_000,
-    queryFn: async () => {
-      const respostas = await Promise.all(
-        periodosDaJanela.map((p) =>
-          fetchJsonOrNull<FamiliesOverview>(`/changes/families/overview?period=${encodeURIComponent(p)}`),
-        ),
-      );
-      return respostas.filter((r): r is FamiliesOverview => r !== null);
-    },
-  });
-
-  const overviews = janelaQuery.data ?? [];
-  const { unidades: unidadesNaJanela, excluidas } = useMemo(() => combinarJanela(overviews), [overviews]);
   const unidades = useMemo(
-    () => [...unidadesNaJanela].sort((a, b) => b.changes - a.changes),
-    [unidadesNaJanela],
+    () => [...(overview?.unitsIncluded ?? [])].sort((a, b) => b.summary.changes - a.summary.changes),
+    [overview],
   );
+  const excluidas = overview?.unitsExcluded ?? [];
 
   const consultaDeOrigem = new URLSearchParams();
   for (const chave of ["period", "scopeHash", "canal"]) {
@@ -323,19 +309,17 @@ function TemplateDeAlertas() {
     ? `${DASHBOARD}?${consultaDeOrigem}`
     : DASHBOARD;
 
-  const comAlteracao = unidades.filter((u) => u.changes > 0).length;
-  const totalDeAlteracoes = unidades.reduce((soma, u) => soma + u.changes, 0);
-  const maiorVolume = unidades.reduce((maior, u) => Math.max(maior, u.changes), 0);
+  const comAlteracao = unidades.filter((u) => u.summary.changes > 0).length;
+  const totalDeAlteracoes = unidades.reduce((soma, u) => soma + u.summary.changes, 0);
+  const maiorVolume = unidades.reduce((maior, u) => Math.max(maior, u.summary.changes), 0);
 
   const [selecionada, setSelecionada] = useState<string | null>(null);
   const unidadeSelecionada = unidades.find((u) => u.unidade === selecionada) ?? unidades[0] ?? null;
 
-  // O impacto do cartão principal é o da competência mais recente da janela —
-  // a mesma régua de "impacto não soma" da tabela, no total da operação.
-  const dominante = overviews[0] ? impactoDominante(overviews[0].summary) : null;
+  const dominante = overview ? impactoDominante(overview.summary) : null;
 
-  const carregando = janelaQuery.isLoading;
-  const erro = janelaQuery.error !== null;
+  const carregando = overviewQuery.isLoading;
+  const erro = overviewQuery.error !== null;
   const semNada = !carregando && !erro && unidades.length === 0 && excluidas.length === 0;
 
   return (
@@ -349,25 +333,31 @@ function TemplateDeAlertas() {
             <p className="text-sm text-slate-500 mt-1">Planilha de remuneração · últimas alterações</p>
           </div>
           <div className="flex flex-col items-end gap-2.5 shrink-0">
-            <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white p-1">
-              {([7, 30, 90] as const).map((dias) => (
-                <button
-                  key={dias}
-                  type="button"
-                  onClick={() => trocarJanela(dias)}
-                  className={cn(
-                    "rounded-md px-3 py-1.5 text-sm font-semibold transition-colors",
-                    dias === janelaDias
-                      ? "bg-blue-600 text-white"
-                      : "text-slate-500 hover:bg-slate-100 hover:text-slate-900",
-                  )}
-                >
-                  {dias} dias
-                </button>
-              ))}
-            </div>
+            {periodosDisponiveis.length > 1 && (
+              <DropdownMenu>
+                <DropdownMenuTrigger className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors">
+                  <CalendarDays className="w-4 h-4" />
+                  Trocar vigência
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56 max-h-80 overflow-y-auto">
+                  <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+                    {periodosDisponiveis.length} competências disponíveis
+                  </DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  {periodosDisponiveis.map((data) => (
+                    <DropdownMenuItem
+                      key={data}
+                      onSelect={() => trocarVigencia(data)}
+                      className={cn(data === periodoSelecionado && "font-bold text-brand")}
+                    >
+                      {data}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
             <div className="flex items-center gap-3">
-              <RelogioClaro atualizadaEm={janelaQuery.dataUpdatedAt} />
+              <RelogioClaro atualizadaEm={overviewQuery.dataUpdatedAt} />
               <Link
                 href={paraDashboard}
                 title="Voltar ao Dashboard"
@@ -420,11 +410,11 @@ function TemplateDeAlertas() {
                     </thead>
                     <tbody>
                       {unidades.map((unidade) => {
-                        const impacto = impactoDominante(unidade.ultimaOcorrencia.summary);
+                        const impacto = impactoDominante(unidade.summary);
                         const selecionadaAtual = unidade.unidade === unidadeSelecionada?.unidade;
                         const cor: "azul" | "verde" | "amarelo" | "cinza" = selecionadaAtual
                           ? "azul"
-                          : unidade.changes === 0
+                          : unidade.summary.changes === 0
                             ? "cinza"
                             : impacto !== null && impacto.amount >= 0
                               ? "verde"
@@ -452,7 +442,7 @@ function TemplateDeAlertas() {
                                     <span
                                       className={cn("block h-full rounded-full", BARRA_COR[cor])}
                                       style={{
-                                        width: `${maiorVolume === 0 ? 0 : Math.max(4, (unidade.changes / maiorVolume) * 100)}%`,
+                                        width: `${maiorVolume === 0 ? 0 : Math.max(4, (unidade.summary.changes / maiorVolume) * 100)}%`,
                                       }}
                                     />
                                   </span>
@@ -460,7 +450,7 @@ function TemplateDeAlertas() {
                               </div>
                             </td>
                             <td className="py-3 px-4 text-right tabular-nums font-semibold">
-                              {unidade.changes.toLocaleString("pt-BR")}
+                              {unidade.summary.changes.toLocaleString("pt-BR")}
                             </td>
                             <td
                               className={cn(
@@ -476,7 +466,7 @@ function TemplateDeAlertas() {
                             </td>
                             <td className="py-3 pr-5 pl-4 text-right text-slate-500">
                               {rotuloDeRecencia(
-                                unidade.ultimaOcorrencia.contexts[0]?.latestPeriod,
+                                unidade.contexts[0]?.latestPeriod,
                                 periodoMaisRecente,
                               )}
                             </td>
@@ -497,9 +487,9 @@ function TemplateDeAlertas() {
 
               {unidadeSelecionada && (
                 <DetalheDaUnidade
-                  unidade={unidadeSelecionada.ultimaOcorrencia}
-                  alteracoes={unidadeSelecionada.changes}
-                  periodo={unidadeSelecionada.ultimaOcorrencia.contexts[0]?.latestPeriod ?? periodoMaisRecente}
+                  unidade={unidadeSelecionada}
+                  alteracoes={unidadeSelecionada.summary.changes}
+                  periodo={unidadeSelecionada.contexts[0]?.latestPeriod ?? periodoMaisRecente}
                 />
               )}
             </div>
@@ -510,57 +500,6 @@ function TemplateDeAlertas() {
       </div>
     </div>
   );
-}
-
-interface UnidadeNaJanela {
-  unidade: string;
-  label: string;
-  /** Soma de `summary.changes` por todas as competências da janela. */
-  changes: number;
-  /** A ocorrência mais recente desta unidade na janela — de onde vêm impacto, famílias e contexto. */
-  ultimaOcorrencia: OverviewUnitIncluded;
-}
-
-/**
- * As competências cuja data cai dentro dos últimos `dias` a partir da mais
- * recente disponível — sempre incluindo a mais recente, mesmo que sozinha.
- */
-function janelaDeCompetencias(
-  periodosDisponiveis: string[],
-  maisRecente: string | null,
-  dias: number,
-): string[] {
-  if (maisRecente === null) return [];
-  const referencia = new Date(maisRecente).getTime();
-  if (Number.isNaN(referencia)) return [maisRecente];
-  return periodosDisponiveis.filter((p) => {
-    const data = new Date(p).getTime();
-    if (Number.isNaN(data)) return false;
-    return (referencia - data) / 86_400_000 <= dias;
-  });
-}
-
-/**
- * Soma `changes` por unidade através das competências da janela — a primeira
- * ocorrência de cada unidade (as competências chegam da mais recente para a
- * mais antiga) fica registrada como `ultimaOcorrencia`, o resto só soma.
- */
-function combinarJanela(overviews: FamiliesOverview[]): {
-  unidades: UnidadeNaJanela[];
-  excluidas: FamiliesOverview["unitsExcluded"];
-} {
-  const porUnidade = new Map<string, UnidadeNaJanela>();
-  for (const overview of overviews) {
-    for (const u of overview.unitsIncluded) {
-      const atual = porUnidade.get(u.unidade);
-      if (atual) atual.changes += u.summary.changes;
-      else porUnidade.set(u.unidade, { unidade: u.unidade, label: u.label, changes: u.summary.changes, ultimaOcorrencia: u });
-    }
-  }
-  return {
-    unidades: Array.from(porUnidade.values()),
-    excluidas: overviews[0]?.unitsExcluded ?? [],
-  };
 }
 
 /**
