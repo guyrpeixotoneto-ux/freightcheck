@@ -65,8 +65,18 @@ export function LinhaDoTempoDeImpacto({
   // o mesmo mês parecer repetido. Uma aba de cada vez resolve isso.
   const [periodicidadeDaAba, setPeriodicidadeDaAba] = useState<string | null>(null);
 
+  /*
+    A chave é a mesma que `LinhaDoTempoDeAlteracoes` e `useAlteracoesPorVigencia`
+    usam para este mesmo endpoint — as três leem `/changes/range` para o mesmo
+    contexto e, no carregamento inicial da tela, para o mesmo `from`/`to`
+    (histórico inteiro). Chaves próprias por componente faziam o React Query
+    tratá-las como três perguntas diferentes e disparar três requisições
+    idênticas ao abrir a tela; com a chave alinhada por parâmetros, elas
+    compartilham cache e a requisição em voo — uma só chamada cara ao invés de
+    três.
+  */
   const movimentos = useQuery({
-    queryKey: ["linha-do-tempo-de-impacto", query.toString()],
+    queryKey: ["changes-range", query.toString()],
     queryFn: () => fetchJsonOrNull<Movimentos>(`/changes/range?${query}`),
     enabled: ordenadas.length > 1,
     staleTime: 60_000,
