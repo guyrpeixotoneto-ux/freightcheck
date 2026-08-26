@@ -177,17 +177,34 @@ describe("o contrato da quinzena chega junto da competência", () => {
 });
 
 describe("GET /fechamento/lados", () => {
-  it("publica os três lados, com o texto que a tela mostra", async () => {
+  it("publica os quatro lados, com o texto que a tela mostra", async () => {
     const { status, body } = await pedir("/fechamento/lados");
 
     expect(status).toBe(200);
+    /*
+      Quatro, e não três: `CONFERENCIA_OPERACIONAL` entrou com a frota Promax e
+      é categoria própria de propósito — não é dinheiro nenhum, é contagem de
+      veículo contra o cadastro do contrato. Ver a nota de `ladoDaFonte` em
+      `lib/fechamento/src/dominio.ts`: tratá-la como mais um `FATURAMENTO` faria
+      uma leitura apressada somar veículos a reais.
+    */
     expect(body.map((l: { lado: string }) => l.lado)).toEqual([
       "DEVIDO",
       "DEMONSTRADO",
       "FATURAMENTO",
+      "CONFERENCIA_OPERACIONAL",
     ]);
-    /* Só o grupo do devido depende do contrato — ver `LADOS_DA_CONFERENCIA`. */
-    expect(body.filter((l: { precisaDeContrato: boolean }) => l.precisaDeContrato)).toHaveLength(1);
+    /*
+      Dois dependem do contrato, e não só o devido — ver `LADOS_DA_CONFERENCIA`.
+      O devido depende dele para calcular; a conferência operacional depende
+      dele para ter contra o que comparar: a frota que o Promax declara ativa só
+      diz alguma coisa contra a frota que o cadastro do contrato registra.
+    */
+    expect(
+      body
+        .filter((l: { precisaDeContrato: boolean }) => l.precisaDeContrato)
+        .map((l: { lado: string }) => l.lado),
+    ).toEqual(["DEVIDO", "CONFERENCIA_OPERACIONAL"]);
     for (const l of body) {
       expect(l.titulo.length).toBeGreaterThan(0);
       expect(l.explica.length).toBeGreaterThan(20);

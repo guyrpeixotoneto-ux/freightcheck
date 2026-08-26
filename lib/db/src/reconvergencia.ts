@@ -121,6 +121,16 @@ const CREATE_INDEX =
 
 const DROP_INDEX = /^drop\s+index\s+(?:if\s+exists\s+)?"?([a-z_][a-z0-9_]*)"?/i;
 
+/*
+  A view, pelas duas formas que a fila usa. `CREATE OR REPLACE` é idempotente e
+  `CREATE` puro não é — as duas são levantadas do mesmo jeito porque a
+  reconvergência só aplica o comando quando a view **não existe**.
+*/
+const CREATE_VIEW =
+  /^create\s+(?:or\s+replace\s+)?view\s+(?:if\s+not\s+exists\s+)?"?([a-z_][a-z0-9_]*)"?/i;
+
+const DROP_VIEW = /^drop\s+view\s+(?:if\s+exists\s+)?"?([a-z_][a-z0-9_]*)"?/i;
+
 const ADD_CONSTRAINT =
   /^alter\s+table\s+(?:only\s+)?"?([a-z_][a-z0-9_]*)"?\s+add\s+constraint\s+"?([a-z_][a-z0-9_]*)"?/i;
 
@@ -157,6 +167,44 @@ export function indicesDaFila(
     }
   }
   return indices;
+}
+
+/**
+ * As views que a fila deixa de pé ao final — mesma leitura sequencial de
+ * {@link indicesDaFila}, e pelo mesmo motivo: um `DROP` posterior apaga o
+ * `CREATE` anterior, e o mapa final é o estado que a fila declara.
+ *
+ * **A ordem do mapa é a ordem de criação, e isso não é detalhe.** Uma view pode
+ * ler outra — `alteracao_visivel` lê `fato_oculto` (`0061`) —, e criar a
+ * leitora antes da lida morre em `relation does not exist`. Como a fila as
+ * escreve na ordem em que podem ser criadas, percorrer o mapa na ordem de
+ * inserção é percorrer a ordem de dependência. O `delete` do `DROP` é o que
+ * mantém isso verdadeiro quando a fila derruba e recria: a view volta ao fim do
+ * mapa, que é onde a fila a recria.
+ *
+ * Views são autoridade exclusiva do SQL — o `schema.ts` não as modela, e por
+ * isso `compararSchema` não as vê. Sem esta leitura, um Provision que derrubasse
+ * `fato_visivel` deixava toda leitura de fato do produto sem a view por onde ela
+ * passa, e a reconvergência terminava dizendo que estava tudo no lugar.
+ */
+export function viewsDaFila(
+  migrations: MigrationFile[] = readMigrations(),
+): Map<string, string> {
+  const views = new Map<string, string>();
+  for (const m of migrations) {
+    for (const bruto of m.statements) {
+      const comando = semComentarioDeAbertura(bruto);
+      const criada = CREATE_VIEW.exec(comando);
+      if (criada) {
+        views.delete(criada[1]!);
+        views.set(criada[1]!, comando.replace(/;\s*$/, ""));
+        continue;
+      }
+      const removida = DROP_VIEW.exec(comando);
+      if (removida) views.delete(removida[1]!);
+    }
+  }
+  return views;
 }
 
 /**
@@ -428,6 +476,28 @@ export async function reconvergirSchema(
     for (const [nome, { tabela, comando }] of indicesDaFila(migrations)) {
       if (indicesReais.has(nome) || !tabelasReais.has(tabela)) continue;
       await aplicar(`índice ${nome}`, comando);
+    }
+
+    /*
+      3b. Views. O Provision as derruba como derruba tabela — e nenhuma delas
+      está no `schema.ts`, que é a régua de `compararSchema`: repor coluna e
+      índice deixava o banco sem `fato_visivel`, por onde passa toda leitura de
+      fato do produto, e a reconvergência terminava dizendo que não faltava
+      nada.
+
+      Só as que faltam, e na ordem da fila — que é a ordem em que uma view que
+      lê outra pode ser criada (ver `viewsDaFila`). Uma view cuja base ainda não
+      existe falha, e a falha aparece em `relatorio.falhas`: é o comportamento
+      certo, porque convergência que não se pode garantir não vira verde.
+    */
+    const viewsReais = await nomesDe(
+      client,
+      `select table_name as nome from information_schema.views
+        where table_schema = 'public'`,
+    );
+    for (const [nome, comando] of viewsDaFila(migrations)) {
+      if (viewsReais.has(nome)) continue;
+      await aplicar(`view ${nome}`, comando);
     }
 
     /*

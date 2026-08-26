@@ -238,6 +238,17 @@ describe("GET /impacto/exportacao.xlsx", () => {
     };
   }
 
+  /*
+    Os seis testes desta aba declaram o próprio tempo, e o número não é folga
+    defensiva: cada um monta a matriz inteira do panorama e escreve um workbook
+    de verdade sobre o banco de fixture — o mais rápido deles mediu 4,5 s contra
+    o teto padrão de 5 s do vitest. Passavam por um fio, e num runner carregado
+    o CI os via estourar sem que nada tivesse mudado no código.
+
+    O teto real é o `beforeAll` deste arquivo, que já declara 600 s pelo mesmo
+    motivo. Um teste que leva segundos e diz que leva cinco não está sendo
+    rigoroso — está medindo a máquina em vez do código.
+  */
   it("responde um arquivo que abre, com uma aba por parâmetro alterado", async () => {
     const { body: panorama } = await get("/impacto/panorama");
     const { status, wb, nome } = await baixar("/impacto/exportacao.xlsx");
@@ -249,7 +260,7 @@ describe("GET /impacto/exportacao.xlsx", () => {
     expect(wb!.SheetNames).toHaveLength(panorama.totais.parametrosAlterados + 1);
     expect(nome).toContain("filename");
     expect(nome).toContain(".xlsx");
-  });
+  }, 60_000);
 
   it("põe uma coluna por vigência, com o rótulo do arquivo no cabeçalho", async () => {
     const { wb } = await baixar("/impacto/exportacao.xlsx");
@@ -263,7 +274,7 @@ describe("GET /impacto/exportacao.xlsx", () => {
     expect(cabecalho.slice(2, -2)).toEqual(
       matriz.periods.map((p: { sourceLabel: string }) => p.sourceLabel),
     );
-  });
+  }, 60_000);
 
   it("diz o mesmo que a matriz, célula por célula", async () => {
     const { wb } = await baixar("/impacto/exportacao.xlsx");
@@ -291,7 +302,7 @@ describe("GET /impacto/exportacao.xlsx", () => {
       cheia.cells.map((c) => c.value),
     );
     expect(linha[2 + matriz.periods.length]).toBe(cheia.total);
-  });
+  }, 60_000);
 
   it("recorta as abas pela classe de custo, como o seletor da tela", async () => {
     const { body: panorama } = await get("/impacto/panorama");
@@ -300,7 +311,7 @@ describe("GET /impacto/exportacao.xlsx", () => {
     const { wb } = await baixar("/impacto/exportacao.xlsx?classe=FIXO");
     expect(wb!.SheetNames).toHaveLength(fixo.totais.parametrosAlterados + 1);
     expect(wb!.SheetNames.length).toBeLessThan(panorama.totais.parametrosAlterados + 1);
-  });
+  }, 60_000);
 
   it("respeita o recorte De/Até: menos vigências, menos colunas", async () => {
     const { body: panorama } = await get("/impacto/panorama");
@@ -314,7 +325,7 @@ describe("GET /impacto/exportacao.xlsx", () => {
 
     // Duas vigências, mais as duas colunas de identificação e as duas de total.
     expect(cabecalho).toHaveLength(6);
-  });
+  }, 60_000);
 
   it("um escopo que não existe para em 404 com JSON, e não num arquivo vazio", async () => {
     const { status, body } = await baixar("/impacto/exportacao.xlsx?scopeHash=naoexiste");
@@ -323,5 +334,5 @@ describe("GET /impacto/exportacao.xlsx", () => {
     // feliz — a união das duas não tem `.error` para ler. O que este caso
     // afirma é o contrato do 404: JSON com motivo, e não um arquivo vazio.
     expect((body as { error?: string } | null)?.error).toBeTruthy();
-  });
+  }, 60_000);
 });
