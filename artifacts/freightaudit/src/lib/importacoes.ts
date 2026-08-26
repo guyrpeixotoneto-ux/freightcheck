@@ -135,6 +135,56 @@ export function faceDoCartao(status: string | undefined): FaceDoCartao {
 }
 
 /**
+ * Quanto da leitura já aconteceu, para a barra do cartão de upload.
+ *
+ * A porcentagem é de **etapa**, e não de bytes: o pipeline não publica
+ * progresso dentro de uma etapa — ele grava os contadores no fim de cada uma
+ * (`rawCellCount` ao terminar de capturar, `stagedFactCount` ao terminar de
+ * preparar) —, então não existe, hoje, número mais fino que este para mostrar
+ * sem inventá-lo. Por isso a barra anda em degraus e o rótulo ao lado diz em
+ * que etapa o arquivo está: uma barra que subisse sozinha, contínua, estaria
+ * afirmando um andamento que ninguém mediu.
+ *
+ * `null` para todo estado que não é uma etapa conhecida da leitura — os
+ * terminais (que têm cara própria no cartão) e qualquer estado novo do
+ * pipeline que este arquivo ainda não conheça. Nesse último caso o cartão
+ * segue dizendo que está lendo, só que sem barra: não saber a etapa é melhor
+ * dito com ausência do que com uma porcentagem escolhida no chute.
+ */
+export interface ProgressoDaLeitura {
+  /** Quanto da leitura já passou, de 0 a 100. */
+  pct: number;
+  /** Em que etapa o arquivo está, na palavra de {@link ESTADOS}. */
+  rotulo: string;
+}
+
+/**
+ * Os degraus da leitura, na ordem em que o pipeline os percorre.
+ *
+ * PENDING não é zero de propósito: o arquivo já subiu e já está no sistema,
+ * e uma barra vazia contaria o contrário. PROMOTING chega a 100 porque a
+ * leitura, a essa altura, terminou: quem ainda anda é a aprovação.
+ */
+const DEGRAUS_DA_LEITURA: Record<string, number> = {
+  PENDING: 10,
+  READING: 45,
+  STAGED: 80,
+  PROMOTING: 100,
+};
+
+export function progressoDaLeitura(
+  status: string | undefined,
+): ProgressoDaLeitura | null {
+  // Sem resposta do servidor ainda: o arquivo acabou de subir, e o primeiro
+  // estado que ele terá é PENDING — mostrar o degrau dele agora é mais fiel
+  // do que esconder a barra e fazê-la aparecer meio segundo depois.
+  const chave = status ?? "PENDING";
+  const pct = DEGRAUS_DA_LEITURA[chave];
+  if (pct === undefined) return null;
+  return { pct, rotulo: estadoDaImportacao(chave).rotulo };
+}
+
+/**
  * O que se pode afirmar, com verdade, sobre o que o pipeline leu deste run.
  *
  * ---------------------------------------------------------------------------

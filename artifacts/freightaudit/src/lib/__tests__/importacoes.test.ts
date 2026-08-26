@@ -16,6 +16,7 @@ import {
   faceDoCartao,
   historicoDoArquivo,
   leituraDoRun,
+  progressoDaLeitura,
   type RunNoHistorico,
 } from "@/lib/importacoes";
 
@@ -97,6 +98,52 @@ describe("estadoDaImportacao", () => {
       rotulo: "rebalancing",
       tom: "espera",
     });
+  });
+});
+
+/**
+ * A barra de progresso do cartão de upload.
+ *
+ * O que se testa aqui não é a largura da barra: é que ela só existe onde há
+ * etapa medida. Uma barra é uma afirmação — "tanto já passou" —, e mostrá-la
+ * num run recusado, ou num estado que este código ainda não conhece, seria
+ * afirmar andamento sobre algo que ninguém mediu (o mesmo defeito que
+ * `faceDoCartao` fechou quando todo estado desconhecido virava "lendo").
+ */
+describe("progressoDaLeitura", () => {
+  it("sobe em degraus, na ordem em que o pipeline percorre as etapas", () => {
+    const etapas = ["PENDING", "READING", "STAGED", "PROMOTING"] as const;
+    const pcts = etapas.map((s) => progressoDaLeitura(s)!.pct);
+    for (const [i, pct] of pcts.entries()) {
+      expect(pct, etapas[i]).toBeGreaterThan(i === 0 ? 0 : pcts[i - 1]);
+      expect(pct, etapas[i]).toBeLessThanOrEqual(100);
+    }
+  });
+
+  it("mostra a etapa na palavra de quem opera, nunca o enum cru", () => {
+    expect(progressoDaLeitura("READING")!.rotulo).toBe("lendo");
+    expect(progressoDaLeitura("STAGED")!.rotulo).toBe("preparada");
+  });
+
+  it("sem resposta do servidor, mostra o primeiro degrau — o arquivo já subiu", () => {
+    expect(progressoDaLeitura(undefined)).toEqual(progressoDaLeitura("PENDING"));
+  });
+
+  it("não existe barra em estado terminal: ali o desfecho está escrito em palavras", () => {
+    for (const status of IMPORT_RUN_STATUS) {
+      if (EM_ANDAMENTO.has(status)) continue;
+      expect(progressoDaLeitura(status), status).toBeNull();
+    }
+  });
+
+  it("um estado que este código não conhece fica sem barra, e não com um chute", () => {
+    expect(progressoDaLeitura("REBALANCING")).toBeNull();
+  });
+
+  it("toda etapa em andamento tem degrau — um estado novo do pipeline falha aqui", () => {
+    for (const status of EM_ANDAMENTO) {
+      expect(progressoDaLeitura(status), status).not.toBeNull();
+    }
   });
 });
 
