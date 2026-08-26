@@ -48,6 +48,7 @@ import { Sparkline } from "@/components/dashboard/sparkline";
 import { AnelDeCobertura } from "@/components/dashboard/anel-de-cobertura";
 import { GraficoDeImpacto, pontosDeImpacto, type PontoDeImpacto } from "@/components/dashboard/grafico-de-impacto";
 import { iconeDaAlteracao } from "@/components/dashboard/icone-da-alteracao";
+import { SeletorDeVigencia } from "@/components/vigencia/seletor-de-vigencia";
 import type {
   ChangeGroup,
   FamiliesOverview,
@@ -180,6 +181,7 @@ export default function Dashboard() {
         visaoGeral={visaoGeral}
         periodosOverview={periodosOverview}
         contextos={contextos.contextos}
+        consulta={consulta}
         onTrocar={trocarPara}
         paraGestaoAVista={paraGestaoAVista}
       />
@@ -234,6 +236,7 @@ function Cabecalho({
   visaoGeral,
   periodosOverview,
   contextos,
+  consulta,
   onTrocar,
   paraGestaoAVista,
 }: {
@@ -242,6 +245,7 @@ function Cabecalho({
   visaoGeral: boolean;
   periodosOverview: string[];
   contextos: SeriesContext[];
+  consulta: URLSearchParams;
   onTrocar: (mudancas: Record<string, string | null>) => void;
   paraGestaoAVista: string;
 }) {
@@ -337,31 +341,13 @@ function Cabecalho({
                   </DropdownMenuContent>
                 </DropdownMenu>
               )
-            : view &&
-              view.periods.length > 1 && (
-                <DropdownMenu>
-                  <DropdownMenuTrigger className={BOTAO_DE_TROCA}>
-                    <CalendarDays className="w-4 h-4" />
-                    Trocar vigência
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-56 max-h-80 overflow-y-auto">
-                    <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
-                      {view.periods.length} vigências no histórico
-                    </DropdownMenuLabel>
-                    <DropdownMenuSeparator />
-                    {[...view.periods]
-                      .sort((a, b) => b.date.localeCompare(a.date))
-                      .map((periodo) => (
-                        <DropdownMenuItem
-                          key={periodo.date}
-                          onSelect={() => onTrocar({ period: periodo.date })}
-                          className={cn(periodo.date === view.period && "font-bold text-brand")}
-                        >
-                          {periodo.label}
-                        </DropdownMenuItem>
-                      ))}
-                  </DropdownMenuContent>
-                </DropdownMenu>
+            : (
+                <SeletorDeVigencia
+                  view={view}
+                  consulta={consulta}
+                  onTrocar={onTrocar}
+                  className={BOTAO_DE_TROCA}
+                />
               )}
 
           {/*
