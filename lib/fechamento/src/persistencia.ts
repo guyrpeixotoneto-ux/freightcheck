@@ -4011,6 +4011,80 @@ export async function lerItensDaConciliacaoDaCompetencia(
     .sort((a, b) => a.linha - b.linha);
 }
 
+/** O 03.08.15 somado por VBZ — quantos documentos, e o que eles somam nas seis colunas do arquivo. */
+export interface ResumoDoCtePorVerba {
+  vbz: number;
+  nome: string;
+  canal: Canal;
+  natureza: string;
+  /** Quantos CT-es a verba tem na competência — 1 nas verbas de valor fechado, milhares nas de frete variável. */
+  documentos: number;
+  /** A base: o frete somado, sem imposto. */
+  semImposto: number;
+  icms: number;
+  pis: number;
+  cofins: number;
+  /** ICMS + PIS + COFINS, como o arquivo os declara. */
+  imposto: number;
+  /** O total dos documentos, com imposto. */
+  valorFaturado: number;
+}
+
+/**
+ * O 03.08.15 desta competência, somado por VBZ — a mesma leitura de
+ * {@link lerItensDoPagamentoDaCompetencia}, mas para o CT-e, que não pode sair
+ * linha a linha: uma verba de frete variável chega a dezenas de milhares de
+ * documentos na quinzena, e a tela que confere quer o total de cada verba, não
+ * o extrato inteiro. A soma é feita no banco — não no navegador — pelo mesmo
+ * motivo de sempre: um total calculado na tela seria uma segunda opinião sobre
+ * o que o arquivo diz.
+ */
+export async function resumoDoCtePorVerbaDaCompetencia(
+  db: Database,
+  competenciaId: string,
+): Promise<ResumoDoCtePorVerba[]> {
+  const linhas = await db
+    .select({
+      vbz: fechamentoCteTable.vbz,
+      nome: fechamentoCteTable.verbaNome,
+      canal: fechamentoCteTable.canal,
+      natureza: fechamentoCteTable.verbaNatureza,
+      documentos: sql<number>`count(*)::int`,
+      semImposto: sql<string>`sum(${fechamentoCteTable.valorFrete})`,
+      icms: sql<string>`sum(${fechamentoCteTable.icms})`,
+      pis: sql<string>`sum(${fechamentoCteTable.pis})`,
+      cofins: sql<string>`sum(${fechamentoCteTable.cofins})`,
+      imposto: sql<string>`sum(${fechamentoCteTable.imposto})`,
+      valorFaturado: sql<string>`sum(${fechamentoCteTable.valorCte})`,
+    })
+    .from(fechamentoCteTable)
+    .where(eq(fechamentoCteTable.competenciaId, competenciaId))
+    .groupBy(
+      fechamentoCteTable.vbz,
+      fechamentoCteTable.verbaNome,
+      fechamentoCteTable.canal,
+      fechamentoCteTable.verbaNatureza,
+    );
+
+  const numero = (v: string | null) => (v == null ? 0 : Number(v));
+
+  return linhas
+    .map((l) => ({
+      vbz: l.vbz,
+      nome: l.nome,
+      canal: l.canal as Canal,
+      natureza: l.natureza,
+      documentos: l.documentos,
+      semImposto: numero(l.semImposto),
+      icms: numero(l.icms),
+      pis: numero(l.pis),
+      cofins: numero(l.cofins),
+      imposto: numero(l.imposto),
+      valorFaturado: numero(l.valorFaturado),
+    }))
+    .sort((a, b) => a.canal.localeCompare(b.canal) || a.vbz - b.vbz);
+}
+
 /**
  * Por que esta competência não tem painel da planilha.
  *

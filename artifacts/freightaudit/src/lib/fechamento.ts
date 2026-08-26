@@ -2047,3 +2047,29 @@ export function lerItensDaConciliacao(
 ): Promise<{ itens: ItemDaConciliacao[] }> {
   return fetchJson(`/fechamento/competencias/${competenciaId}/conciliacao-do-arquivo`);
 }
+
+/** O 03.08.15 somado por VBZ — quantos documentos, e o que eles somam nas seis colunas do arquivo. */
+export interface ResumoDoCtePorVerba {
+  vbz: number;
+  nome: string;
+  canal: string;
+  natureza: string;
+  documentos: number;
+  semImposto: number;
+  icms: number;
+  pis: number;
+  cofins: number;
+  imposto: number;
+  valorFaturado: number;
+}
+
+/**
+ * O 03.08.15 desta competência, somado por VBZ — o mesmo relatório que quem
+ * fecha a quinzena tem na tela ao lado, sem precisar somar as dezenas de
+ * milhares de linhas dele na mão. Lista vazia quando ninguém importou ainda.
+ */
+export function lerResumoDoCtePorVerba(
+  competenciaId: string,
+): Promise<{ itens: ResumoDoCtePorVerba[] }> {
+  return fetchJson(`/fechamento/competencias/${competenciaId}/cte-por-verba`);
+}
