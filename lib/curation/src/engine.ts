@@ -7,6 +7,7 @@ import {
   attributeTable,
   curationEventTable,
   factTable,
+  FATO_DE_ORIGEM_VISIVEL,
   gravarSemanticaConfirmada,
   rawCellTable,
   rawRowTable,
@@ -137,7 +138,10 @@ export async function gatherEvidence(db: Database): Promise<AttributeEvidence[]>
         : sql<string | null>`NULL`,
     })
     .from(attributeTable)
-    .leftJoin(factTable, eq(factTable.attributeId, attributeTable.id))
+    .leftJoin(
+      factTable,
+      and(eq(factTable.attributeId, attributeTable.id), FATO_DE_ORIGEM_VISIVEL),
+    )
     .groupBy(
       attributeTable.code,
       attributeTable.sourceName,
@@ -191,11 +195,11 @@ export async function gatherPairRatios(
         FROM attribute monthly
         JOIN attribute base
           ON base.code = left(monthly.code, length(monthly.code) - length('_mensal'))
-        JOIN fact f_month
+        JOIN fato_visivel f_month
           ON f_month.attribute_id = monthly.id
          AND f_month.snapshot_id = ${snapshotId}
          AND NOT f_month.is_null
-        JOIN fact f_base
+        JOIN fato_visivel f_base
           ON f_base.attribute_id = base.id
          AND f_base.snapshot_id = ${snapshotId}
          AND f_base.entity_id = f_month.entity_id
@@ -818,7 +822,7 @@ export async function getAttributeDetail(
     .innerJoin(rawCellTable, eq(factTable.rawCellId, rawCellTable.id))
     .innerJoin(rawRowTable, eq(rawCellTable.rawRowId, rawRowTable.id))
     .innerJoin(rawSheetTable, eq(rawRowTable.rawSheetId, rawSheetTable.id))
-    .where(eq(factTable.attributeId, attribute.id))
+    .where(and(eq(factTable.attributeId, attribute.id), FATO_DE_ORIGEM_VISIVEL))
     .orderBy(desc(snapshotTable.effectiveDate))
     .limit(12);
 
@@ -831,7 +835,7 @@ export async function getAttributeDetail(
     })
     .from(factTable)
     .innerJoin(snapshotTable, eq(factTable.snapshotId, snapshotTable.id))
-    .where(eq(factTable.attributeId, attribute.id))
+    .where(and(eq(factTable.attributeId, attribute.id), FATO_DE_ORIGEM_VISIVEL))
     .groupBy(snapshotTable.sourceLabel, snapshotTable.effectiveDate)
     .orderBy(snapshotTable.effectiveDate);
 

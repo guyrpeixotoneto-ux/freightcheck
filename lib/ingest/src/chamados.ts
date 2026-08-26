@@ -1569,7 +1569,7 @@ async function valoresVigentes(
            END                 AS valor,
            t.source_label      AS label,
            t.recente           AS recente
-      FROM fact f
+      FROM fato_visivel f
       JOIN alvo t              ON t.id = f.snapshot_id
       JOIN attribute a         ON a.id = f.attribute_id
       JOIN entity_identifier ei ON ei.entity_id = f.entity_id

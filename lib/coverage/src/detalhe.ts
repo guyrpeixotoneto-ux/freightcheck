@@ -539,7 +539,7 @@ export async function historicoDoAtributo(
            sa.value_count,
            sa.null_count,
            coalesce((
-             SELECT count(*) FROM fact f
+             SELECT count(*) FROM fato_visivel f
               WHERE f.snapshot_id = s.id
                 AND f.attribute_id = (SELECT id FROM alvo)
                 AND f.null_reason = 'NOT_APPLICABLE'

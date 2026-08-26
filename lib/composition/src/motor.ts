@@ -280,7 +280,7 @@ async function lerFatos(
            c.column_letter,
            c.column_header,
            c.raw_value
-      FROM fact f
+      FROM fato_visivel f
       JOIN attribute a  ON a.id = f.attribute_id
       JOIN snapshot s   ON s.id = f.snapshot_id
       LEFT JOIN raw_cell c  ON c.id = f.raw_cell_id
@@ -641,7 +641,7 @@ async function lerVigencia(
            NULL::text AS column_letter,
            NULL::text AS column_header,
            NULL::text AS raw_value
-      FROM fact f
+      FROM fato_visivel f
       JOIN attribute a ON a.id = f.attribute_id
       JOIN snapshot s  ON s.id = f.snapshot_id
       JOIN entity e    ON e.id = f.entity_id

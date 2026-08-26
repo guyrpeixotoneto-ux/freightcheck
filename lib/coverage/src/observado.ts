@@ -225,7 +225,7 @@ export async function atributosObservados(
              fact table para descobrir isso.
            */
            coalesce((
-             SELECT count(*) FROM fact f
+             SELECT count(*) FROM fato_visivel f
               WHERE f.snapshot_id = sa.snapshot_id
                 AND f.attribute_id = sa.attribute_id
                 AND f.null_reason = 'NOT_APPLICABLE'
@@ -294,7 +294,7 @@ export async function entidadesDoAtributo(
     ),
     universo AS (
       SELECT DISTINCT f.entity_id
-        FROM fact f
+        FROM fato_visivel f
         JOIN entity e ON e.id = f.entity_id
         JOIN snapshot s ON s.id = f.snapshot_id
        WHERE f.snapshot_id = ${snapshotId}::uuid
@@ -321,7 +321,7 @@ export async function entidadesDoAtributo(
            f.id::text                                   AS fact_id
       FROM universo u
       JOIN entity e ON e.id = u.entity_id
-      LEFT JOIN fact f
+      LEFT JOIN fato_visivel f
         ON f.snapshot_id = ${snapshotId}::uuid
        AND f.entity_id = u.entity_id
        AND f.attribute_id = (SELECT id FROM alvo)

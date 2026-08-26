@@ -75,10 +75,22 @@ async function aplicarAte(pool: Pool, ate: string): Promise<void> {
   throw new Error(`migration ${ate} não existe`);
 }
 
+/**
+ * As views ficam de fora do espelho, e o `down` do bridge é quem as remove.
+ *
+ * `information_schema.columns` não separa tabela de view, e o espelho abaixo
+ * derruba com `DROP TABLE` o que Development não tem — sobre uma view isso é
+ * `"x" is not a table`, e o Provision real não tenta administrar view nenhuma
+ * (é a razão de `VIEWS_REMOVIDAS` existir no bridge). Filtrar aqui é descrever
+ * o incidente como ele foi, não afrouxar a prova.
+ */
 async function colunasDe(pool: Pool): Promise<Map<string, Set<string>>> {
   const { rows } = await pool.query<{ t: string; c: string }>(
-    `select table_name as t, column_name as c
-       from information_schema.columns where table_schema = 'public'`,
+    `select c.table_name as t, c.column_name as c
+       from information_schema.columns c
+       join information_schema.tables t
+         on t.table_schema = c.table_schema and t.table_name = c.table_name
+      where c.table_schema = 'public' and t.table_type = 'BASE TABLE'`,
   );
   const mapa = new Map<string, Set<string>>();
   for (const r of rows) {

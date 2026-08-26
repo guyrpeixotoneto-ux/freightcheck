@@ -3072,6 +3072,8 @@ export async function promote(
           isNull: f.isNull,
           nullReason: f.nullReason,
           rawCellId: f.rawCellId,
+          // Nasceu deste arquivo, então a origem é esta importação.
+          originImportRunId: importRunId,
         }));
         await insertChunked(tx, factTable, factRows as never[]);
         factsInserted += factRows.length;
@@ -3086,11 +3088,15 @@ export async function promote(
             INSERT INTO ${factTable} (
               snapshot_id, entity_id, attribute_id, value_numeric, value_text,
               value_boolean, value_date, value_hash, is_null, null_reason, raw_cell_id,
-              inherited_from_snapshot_id
+              inherited_from_snapshot_id, origin_import_run_id
             )
             SELECT ${snapshot.id}::uuid, f.entity_id, f.attribute_id, f.value_numeric, f.value_text,
                    f.value_boolean, f.value_date, f.value_hash, f.is_null, f.null_reason, f.raw_cell_id,
-                   ${herdarDe}::uuid
+                   ${herdarDe}::uuid,
+                   -- A origem vem junto com o fato, e não é a desta importação:
+                   -- herdar carrega o dado adiante, não o adota. É o que faz
+                   -- ocultar a importação de origem alcançar o fato herdado.
+                   f.origin_import_run_id
               FROM ${factTable} f
               JOIN ${entityTable} e ON e.id = f.entity_id
              WHERE f.snapshot_id = ${herdarDe}::uuid

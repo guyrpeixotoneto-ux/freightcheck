@@ -112,7 +112,7 @@ export async function getEvolucaoDoQuadro(
     SELECT DISTINCT s.effective_date::text AS effective_date,
            f.entity_id::text               AS entity_id,
            ei.identifier_value_raw
-      FROM fact f
+      FROM fato_visivel f
       JOIN snapshot s ON s.id = f.snapshot_id
       JOIN entity e   ON e.id = f.entity_id
       JOIN entity_identifier ei

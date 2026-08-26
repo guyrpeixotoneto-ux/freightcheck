@@ -128,7 +128,7 @@ export async function getDetalheDoCargo(
            c.column_header,
            c.raw_value,
            sf.filename
-      FROM fact f
+      FROM fato_visivel f
       JOIN snapshot s   ON s.id = f.snapshot_id
       JOIN attribute a  ON a.id = f.attribute_id
       LEFT JOIN snapshot origem ON origem.id = f.inherited_from_snapshot_id
@@ -183,7 +183,7 @@ export async function getDetalheDoCargo(
 
   const { rows: presencas } = await db.execute<{ effective_date: string }>(sql`
     SELECT DISTINCT s.effective_date::text AS effective_date
-      FROM fact f
+      FROM fato_visivel f
       JOIN snapshot s ON s.id = f.snapshot_id
      WHERE f.entity_id = ${entityId}::uuid
        AND s.status <> 'SUPERSEDED'

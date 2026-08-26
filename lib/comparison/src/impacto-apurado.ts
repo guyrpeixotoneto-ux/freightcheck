@@ -136,7 +136,7 @@ export async function linhasApuradas(
            "change".impact_amount::text AS impact_amount,
            "change".impact_periodicity  AS impact_periodicity,
            (${doRecorte})               AS no_recorte
-      FROM "change"
+      FROM "alteracao_visivel" "change"
       LEFT JOIN "attribute" ON ${ATRIBUTO_ATUAL}
      WHERE ${inArray(changeTable.changeSetId, changeSetIds)}
   `);
@@ -198,7 +198,7 @@ export async function impactoApurado(
            "change".impact_amount::text AS impact_amount,
            "change".impact_periodicity  AS impact_periodicity,
            (${doRecorte})               AS no_recorte
-      FROM "change"
+      FROM "alteracao_visivel" "change"
       LEFT JOIN "attribute" ON ${ATRIBUTO_ATUAL}
      WHERE ${inArray(changeTable.changeSetId, changeSetIds)}
   `);

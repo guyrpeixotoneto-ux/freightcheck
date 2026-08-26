@@ -146,7 +146,7 @@ async function lerFatosDaVigencia(
            NULL::text AS column_letter,
            NULL::text AS column_header,
            NULL::text AS raw_value
-      FROM fact f
+      FROM fato_visivel f
       JOIN attribute a ON a.id = f.attribute_id
       JOIN snapshot s  ON s.id = f.snapshot_id
      WHERE s.effective_date = ${effectiveDate}::date

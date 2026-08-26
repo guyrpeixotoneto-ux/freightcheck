@@ -198,7 +198,7 @@ export async function getQuadroAdministrativo(
            f.value_boolean,
            f.value_date::text      AS value_date,
            f.is_null
-      FROM fact f
+      FROM fato_visivel f
       JOIN snapshot s  ON s.id = f.snapshot_id
       JOIN entity e    ON e.id = f.entity_id
       JOIN entity_identifier ei

@@ -441,7 +441,7 @@ export async function loadChanges(
            c.impact_periodicity, c.impact_reason,
            c.cost_class, c.taxonomy_name, c.semantics_status,
            a.aggregation, a.is_monetary, a.unit
-      FROM "change" c
+      FROM "alteracao_visivel" c
       LEFT JOIN attribute a ON a.code = c.attribute_code
      WHERE c.change_set_id IN (${sql.join(
        changeSetIds.map((id) => sql`${id}::uuid`),
@@ -921,7 +921,7 @@ export async function getGroupedView(
            sa.effective_date::text AS previous_date,
            (
              SELECT count(DISTINCT f.entity_id)::int
-               FROM fact f
+               FROM fato_visivel f
                JOIN entity e ON e.id = f.entity_id
               WHERE f.snapshot_id = sb.id AND e.entity_type = t
            ) AS fleet
@@ -947,7 +947,7 @@ export async function getGroupedView(
            s.source_label,
            (
              SELECT count(DISTINCT f.entity_id)::int
-               FROM fact f
+               FROM fato_visivel f
                JOIN entity e ON e.id = f.entity_id
               WHERE f.snapshot_id = s.id AND e.entity_type = t
            ) AS fleet
@@ -1416,7 +1416,7 @@ export async function getAttributeSeries(
            sum(f.value_numeric)::text AS total,
            min(f.value_numeric)::text AS min,
            max(f.value_numeric)::text AS max
-      FROM fact f
+      FROM fato_visivel f
       JOIN snapshot s ON s.id = f.snapshot_id
       JOIN attribute a ON a.id = f.attribute_id
      WHERE a.code = ${attributeCode}
@@ -1570,7 +1570,7 @@ export async function getAttributeDomain(
            f.null_reason,
            count(DISTINCT f.entity_id)::int      AS entities,
            array_agg(DISTINCT s.source_label)    AS source_labels
-      FROM fact f
+      FROM fato_visivel f
       JOIN attribute a ON a.id = f.attribute_id
       JOIN snapshot s  ON s.id = f.snapshot_id
      WHERE a.code = ${attributeCode}
@@ -1915,7 +1915,7 @@ export async function getEntityTable(
            f.is_null,
            f.null_reason,
            s.source_label
-      FROM fact f
+      FROM fato_visivel f
       JOIN attribute a ON a.id = f.attribute_id
       JOIN snapshot s  ON s.id = f.snapshot_id
       JOIN entity e    ON e.id = f.entity_id

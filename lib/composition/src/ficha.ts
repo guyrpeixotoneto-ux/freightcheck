@@ -116,7 +116,7 @@ async function lerHistorico(
            NULL::text AS column_letter,
            NULL::text AS column_header,
            NULL::text AS raw_value
-      FROM fact f
+      FROM fato_visivel f
       JOIN attribute a ON a.id = f.attribute_id
       JOIN snapshot s  ON s.id = f.snapshot_id
      WHERE f.entity_id = ${entityId}::uuid
@@ -512,7 +512,7 @@ async function lerFatosSimples(
            NULL::text AS sheet_name, NULL::int AS row_index,
            NULL::text AS column_letter, NULL::text AS column_header,
            NULL::text AS raw_value
-      FROM fact f
+      FROM fato_visivel f
       JOIN attribute a ON a.id = f.attribute_id
       JOIN snapshot s  ON s.id = f.snapshot_id
      WHERE f.entity_id = ${entityId}::uuid
@@ -609,7 +609,7 @@ export async function getVinculoDoCavalo(
   }>(sql`
     WITH vinculo AS (
       SELECT f.value_text AS placa_carreta
-        FROM fact f
+        FROM fato_visivel f
         JOIN attribute a ON a.id = f.attribute_id
         JOIN snapshot s  ON s.id = f.snapshot_id
        WHERE f.entity_id = ${entityId}::uuid
@@ -640,7 +640,7 @@ export async function getVinculoDoCavalo(
     SELECT v.placa_carreta,
            c.entity_id::text AS carreta_entity_id,
            (SELECT f.value_numeric::text
-              FROM fact f
+              FROM fato_visivel f
               JOIN attribute a ON a.id = f.attribute_id
               JOIN snapshot s  ON s.id = f.snapshot_id
              WHERE f.entity_id = c.entity_id

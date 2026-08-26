@@ -126,7 +126,7 @@ export async function medirAlteracoesDoAtivo(
                PARTITION BY f.attribute_id
                ORDER BY s.effective_date
              ) AS anterior
-        FROM fact f
+        FROM fato_visivel f
         JOIN snapshot s  ON s.id = f.snapshot_id
         JOIN attribute a ON a.id = f.attribute_id
        WHERE a.data_type = 'NUMERIC'

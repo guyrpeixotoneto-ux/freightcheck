@@ -155,6 +155,7 @@ export function codigoDoPostgres(err: unknown): string | undefined {
 }
 
 export * from "./schema";
+export * from "./fato-visivel";
 export * from "./unidade";
 /*
   A invariante mora aqui, e não na curadoria, porque quem a precisa são dois

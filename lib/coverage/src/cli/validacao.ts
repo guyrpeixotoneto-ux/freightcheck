@@ -161,7 +161,7 @@ try {
 
   /* Um fato herdado: a prova de que a consolidação não quebrou a cadeia. */
   const { rows: herdado } = await ctx.db.execute<{ id: string }>(sql`
-    SELECT f.id::text AS id FROM fact f
+    SELECT f.id::text AS id FROM fato_visivel f
      WHERE f.snapshot_id = ${celula.vigencia.snapshotId}::uuid
        AND f.inherited_from_snapshot_id IS NOT NULL
      LIMIT 1

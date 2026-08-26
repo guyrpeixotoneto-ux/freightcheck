@@ -617,6 +617,27 @@ export const factTable = pgTable(
     rawCellId: bigint("raw_cell_id", { mode: "number" })
       .notNull()
       .references(() => rawCellTable.id),
+
+    /**
+     * A importação que de fato trouxe este fato — nunca a que o carregou adiante.
+     *
+     * É o mesmo que a cadeia `raw_cell → raw_row → raw_sheet → import_run` já
+     * responde, materializado aqui por uma razão de semântica e outra de custo.
+     *
+     * **Semântica.** `snapshot.import_run_id` é um valor só por vigência, e vira
+     * o da última revisão que a tocou. Uma revisão parcial que herda os
+     * componentes que não toca faz os fatos herdados passarem a viver sob o
+     * `import_run_id` dela, embora tenham nascido em outro arquivo. Ocultar a
+     * importação de origem, então, não os alcançava: o filtro olhava o dono da
+     * vigência, não a origem do fato. Herdar um fato não pode trocar a origem
+     * dele, e esta coluna é o que faz a origem sobreviver à herança.
+     *
+     * **Custo.** O filtro precisa valer em toda leitura de fato; resolvê-lo pela
+     * cadeia exigiria três junções por consulta sobre a maior tabela do sistema.
+     */
+    originImportRunId: uuid("origin_import_run_id").references(
+      () => importRunTable.id,
+    ),
   },
   (t) => [
     uniqueIndex("fact_grain_uq").on(t.snapshotId, t.entityId, t.attributeId),
@@ -631,6 +652,8 @@ export const factTable = pgTable(
     /** History of one variable for one asset, across vigências. */
     index("fact_entity_attribute_idx").on(t.entityId, t.attributeId),
     index("fact_raw_cell_idx").on(t.rawCellId),
+    /* O filtro de importação oculta entra por aqui, em toda leitura de fato. */
+    index("fact_origin_import_run_idx").on(t.originImportRunId),
     /*
       Chave estrangeira sem índice é varredura por linha apagada.
 

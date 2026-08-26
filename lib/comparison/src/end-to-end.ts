@@ -414,7 +414,7 @@ export async function getEndToEndAnalysis(
     periodos: number;
   }>(sql`
     SELECT c.entity_id::text AS entity_id, c.attribute_code, count(DISTINCT sb.effective_date)::int AS periodos
-      FROM "change" c
+      FROM "alteracao_visivel" c
       JOIN change_set cs ON cs.id = c.change_set_id
       JOIN snapshot sb   ON sb.id = cs.snapshot_b_id
      WHERE sb.effective_date > ${inicio}::date
