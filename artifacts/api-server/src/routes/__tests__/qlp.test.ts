@@ -6,6 +6,10 @@ import { captureRaw, preview, promote, receiveFile, stage } from "@workspace/ing
 import { createTestDatabase, type TestDb } from "@workspace/ingest/testing";
 import { escreverPlanilha, planilhaPadrao } from "@workspace/ingest/testing/planilha";
 import { createDb, encerrarPoolDoProcesso } from "@workspace/db";
+import { sql } from "drizzle-orm";
+import { listContexts } from "@workspace/comparison";
+import { DATASET_FAMILY_QUADRO_DE_PESSOAL } from "@workspace/ingest";
+import { filtroDosEscopos } from "@workspace/qlp";
 
 /**
  * `/qlp/administrativo*` — o contrato da superfície, sobre o pipeline real.
@@ -72,6 +76,8 @@ const COLUNAS = [
 ];
 
 const UNIDADE_B = "20.618.821/0007-99";
+/** A terceira unidade existe só para o teste de escopo do fim do arquivo. */
+const UNIDADE_C = "33.041.260/0652-90";
 
 const cargo = (
   nome: string,
@@ -433,19 +439,57 @@ describe("a superfície do QLP Administrativo, na ordem em que a vida acontece",
     const doQuadro = snapshots.body.filter(
       (s: any) => s.entityTypeSet === "QLP_ADMINISTRATIVO",
     );
-    expect(doQuadro).toHaveLength(2);
+    /*
+      Quatro, e não dois: **duas unidades × duas quinzenas**. O snapshot é
+      particionado por `scope_hash`, e uma planilha com duas unidades forma uma
+      série por unidade — o quadro da tela é que consolida as duas na leitura
+      (ver `filtroDosEscopos`), e a comparação não consolida nada.
 
-    const criado = await post("/change-sets", {
-      snapshotAId: doQuadro[0].id,
-      snapshotBId: doQuadro[1].id,
-    });
-    expect(criado.status).toBeLessThan(300);
-    changeSetId = criado.body.id;
-    expect(criado.body.entitiesAdded).toBe(1);
-    expect(criado.body.entitiesRemoved).toBe(1);
+      Daí duas comparações, e não uma. O motor recusa-se a comparar escopos
+      diferentes (`series.ts`), e é a recusa certa: "o AUXILIAR saiu da unidade
+      A e entrou na B" não é uma alteração, são duas — uma saída na série de A e
+      uma entrada na série de B. Uma comparação só, atravessando as duas, diria
+      que a mesma pessoa mudou de unidade, que é uma afirmação que nem o arquivo
+      nem o motor fazem.
+    */
+    expect(doQuadro).toHaveLength(4);
+
+    const porEscopo = new Map<string, any[]>();
+    for (const s of doQuadro) {
+      porEscopo.set(s.scopeHash, [...(porEscopo.get(s.scopeHash) ?? []), s]);
+    }
+    expect([...porEscopo.values()].map((serie) => serie.length)).toEqual([2, 2]);
+
+    const comparar = async (serie: any[]) => {
+      const ordenada = [...serie].sort((a, b) =>
+        a.effectiveDate.localeCompare(b.effectiveDate),
+      );
+      const criado = await post("/change-sets", {
+        snapshotAId: ordenada[0].id,
+        snapshotBId: ordenada[1].id,
+      });
+      expect(criado.status).toBeLessThan(300);
+      return criado.body;
+    };
+    const comparacoes = [];
+    for (const serie of porEscopo.values()) comparacoes.push(await comparar(serie));
+
+    /*
+      Qual é qual sai do que cada uma encontrou, e não da ordem do `scope_hash`:
+      a série da unidade A perde o AUXILIAR, a da B o ganha.
+    */
+    const daUnidadeA = comparacoes.find((c) => c.entitiesRemoved === 1)!;
+    const daUnidadeB = comparacoes.find((c) => c.entitiesAdded === 1)!;
+    expect(daUnidadeA).toBeDefined();
+    expect(daUnidadeB).toBeDefined();
+    expect(daUnidadeA.id).not.toBe(daUnidadeB.id);
+    expect(daUnidadeA.entitiesAdded).toBe(0);
+    expect(daUnidadeB.entitiesRemoved).toBe(0);
+
+    changeSetId = daUnidadeA.id;
 
     const entradas = await get(
-      `/change-sets/${changeSetId}/changes?changeType=ENTITY_ADDED`,
+      `/change-sets/${daUnidadeB.id}/changes?changeType=ENTITY_ADDED`,
     );
     expect(entradas.body.rows).toHaveLength(1);
     // O motor rotula a linha com a chave normalizada da entidade — a tradução
@@ -545,4 +589,71 @@ describe("a superfície do QLP Administrativo, na ordem em que a vida acontece",
     const agosto = await get("/qlp/administrativo?period=2026-08-01");
     expect(agosto.body.registrosFaltando).toBe(0);
   });
+
+  /*
+    A fronteira da leitura consolidada.
+
+    O quadro atravessa unidades de propósito — é o que `resumo.unidades` prova
+    lá em cima. O risco que isso cria é o oposto do defeito que corrigiu: uma
+    consulta que trocasse o `scope_hash` único por "toda a família" passaria a
+    mostrar unidade que quem lê não deveria enxergar, e o sintoma seria dado a
+    mais, que ninguém estranha.
+
+    Por isso o filtro não é removido, é **trocado pelo conjunto autorizado**
+    (`filtroDosEscopos`). Este teste é a prova de que o conjunto manda: com uma
+    terceira unidade no acervo e fora da lista, ela não entra no resultado.
+  */
+  it("a leitura consolidada não atravessa escopo fora do conjunto autorizado", async () => {
+    await importarQlp(
+      escreverPlanilha({
+        vigencia: "EMPURRADA_1_11_2026",
+        abas: [
+          {
+            nome: "TABELA DE QLP ADM",
+            identificador: "Cargo",
+            colunas: COLUNAS,
+            linhas: [
+              cargo("COORDENADOR ADM", { qtd: 1, salario: 9800, despesa: 9800, benchmark: 1 }),
+              cargo(
+                "COORDENADOR ADM",
+                { qtd: 1, salario: 12000, despesa: 12000, benchmark: 1 },
+                UNIDADE_C,
+              ),
+            ],
+          },
+        ],
+      }),
+    );
+
+    const contextos = await listContexts(ctx.db, {
+      datasetFamily: DATASET_FAMILY_QUADRO_DE_PESSOAL,
+    });
+    expect(contextos.length).toBe(3);
+
+    const escoposDe = async (autorizados: typeof contextos) => {
+      const { rows } = await ctx.db.execute<{ scope_hash: string }>(sql`
+        SELECT DISTINCT s.scope_hash
+          FROM snapshot s
+         WHERE s.dataset_family = ${DATASET_FAMILY_QUADRO_DE_PESSOAL}
+           AND ${filtroDosEscopos("s", autorizados)}
+      `);
+      return new Set(rows.map((r) => r.scope_hash));
+    };
+
+    const deFora = contextos[2]!;
+    const autorizados = [contextos[0]!, contextos[1]!];
+
+    const alcancados = await escoposDe(autorizados);
+    expect(alcancados).toEqual(
+      new Set(autorizados.map((c) => c.scopeHash)),
+    );
+    expect(alcancados.has(deFora.scopeHash)).toBe(false);
+
+    /*
+      E o conjunto vazio não degenera em "tudo": um filtro que virasse verdadeiro
+      sem autorização nenhuma varreria o acervo inteiro, que é o pior desfecho
+      possível para esta troca.
+    */
+    expect(await escoposDe([])).toEqual(new Set());
+  }, 120_000);
 });

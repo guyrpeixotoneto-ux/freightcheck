@@ -1,7 +1,6 @@
 import { sql } from "drizzle-orm";
 import type { Database } from "@workspace/db";
 import {
-  contextFilter,
   listContexts,
   periodLabel,
   resolveContext,
@@ -9,7 +8,7 @@ import {
   type RequestedContext,
 } from "@workspace/comparison";
 import { DATASET_FAMILY_QUADRO_DE_PESSOAL, normalizeDocumento } from "@workspace/ingest";
-import { TIPO_QLP_ADMINISTRATIVO } from "./contexto";
+import { filtroDosEscopos, TIPO_QLP_ADMINISTRATIVO } from "./contexto";
 import { separarChaveLegivel } from "./quadro";
 
 /**
@@ -66,6 +65,13 @@ export async function getEvolucaoDoQuadro(
   if (contexts.length === 0) return null;
 
   const context = (await resolveContext(db, options.context, contexts))!;
+  /*
+    Os escopos autorizados desta leitura — os mesmos de `ContextoDoQuadro`, e
+    pela mesma razão: a evolução conta presença de cargo no quadro, e o quadro é
+    consolidado. Ler só o contexto de referência faria a série mostrar a
+    presença de uma unidade sob o título de todas.
+  */
+  const escopos = contexts;
 
   const datas = context.janela
     ? context.periodosDisponiveis.filter(
@@ -96,7 +102,7 @@ export async function getEvolucaoDoQuadro(
      WHERE s.status <> 'SUPERSEDED'
      AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND s.dataset_family = ${DATASET_FAMILY_QUADRO_DE_PESSOAL}
-       AND ${contextFilter("s", context)}
+       AND ${filtroDosEscopos("s", escopos)}
      GROUP BY 1
      ORDER BY 1
   `);
@@ -123,7 +129,7 @@ export async function getEvolucaoDoQuadro(
      AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND s.dataset_family = ${DATASET_FAMILY_QUADRO_DE_PESSOAL}
        AND e.entity_type = ${TIPO_QLP_ADMINISTRATIVO}
-       AND ${contextFilter("s", context)}
+       AND ${filtroDosEscopos("s", escopos)}
      ORDER BY 1
   `);
 

@@ -48,7 +48,30 @@ export interface VigenciaDoQuadro {
 }
 
 export interface ContextoDoQuadro {
+  /**
+   * O contexto de referência — quem nomeia a leitura e dá a régua de vigências.
+   *
+   * Continua sendo **um**: o título da tela, o rótulo do período e a navegação
+   * entre quinzenas falam de uma série. O que deixou de ser um é o conjunto que
+   * a consulta varre — ver {@link ContextoDoQuadro.escopos}.
+   */
   context: ContextInfo;
+  /**
+   * Os escopos que esta leitura pode atravessar — a autorização da visão.
+   *
+   * **O quadro é consolidado por desenho.** Uma planilha de QLP traz várias
+   * unidades, e o snapshot é particionado por `scope_hash` — que é o
+   * comportamento estrutural correto e não muda por causa de uma tela. Prender a
+   * consulta ao `scope_hash` do contexto de referência fazia o quadro mostrar os
+   * cargos de uma unidade e anunciar o total de todas.
+   *
+   * A correção não é remover o filtro de escopo: é trocá-lo por **este
+   * conjunto**, que sai de `listContexts` para a família do quadro. Ele é a
+   * fronteira, e a consulta não a atravessa — uma unidade fora daqui não entra
+   * no resultado, e `filtroDosEscopos` sobre lista vazia não devolve nada em vez
+   * de devolver tudo.
+   */
+  escopos: ContextInfo[];
   effectiveDate: string;
   periodLabel: string;
   /** A vigência imediatamente anterior da série do quadro, para navegação. */
@@ -85,17 +108,47 @@ export async function resolverContextoDoQuadro(
 
   return {
     context,
+    escopos: contexts,
     effectiveDate,
     periodLabel: periodLabel(effectiveDate),
     anterior,
-    vigencias: await listarVigenciasDoQuadro(db, context),
+    vigencias: await listarVigenciasDoQuadro(db, contexts),
   };
 }
 
-/** As vigências do quadro neste contexto, da mais antiga para a mais nova. */
+/**
+ * O filtro de uma leitura consolidada — a união dos escopos autorizados.
+ *
+ * É `contextFilter` aplicado a cada escopo e ligado por `OR`, e não uma segunda
+ * forma de filtrar escrita aqui: cada contexto continua trazendo o próprio
+ * canal e a própria família, exatamente como em toda outra leitura do produto.
+ * O que muda é quantos contextos entram, nunca a regra de cada um.
+ *
+ * **Lista vazia devolve `false`, e isso é a parte que importa.** Um filtro que
+ * degenerasse em verdadeiro sobre conjunto vazio faria uma leitura sem
+ * autorização nenhuma varrer o acervo inteiro — o defeito exato que este
+ * parâmetro existe para impedir.
+ */
+export function filtroDosEscopos(alias: string, escopos: ContextInfo[]) {
+  if (escopos.length === 0) return sql`false`;
+  return sql`(${sql.join(
+    escopos.map((escopo) => sql`(${contextFilter(alias, escopo)})`),
+    sql` OR `,
+  )})`;
+}
+
+/**
+ * As vigências do quadro nos escopos autorizados, da mais antiga para a mais nova.
+ *
+ * Consolidada como o quadro que ela indexa: uma quinzena existe para esta
+ * leitura quando qualquer unidade autorizada publicou nela, e `sourceLabels`
+ * junta os rótulos das que publicaram. Listar só as do contexto de referência
+ * esconderia a quinzena em que a unidade A não entregou e a B entregou — e o
+ * quadro daquela data, que tem dado, apareceria como vigência inexistente.
+ */
 async function listarVigenciasDoQuadro(
   db: Database,
-  context: ContextInfo,
+  escopos: ContextInfo[],
 ): Promise<VigenciaDoQuadro[]> {
   const { rows } = await db.execute<{ effective_date: string; labels: string[] }>(sql`
     SELECT s.effective_date::text AS effective_date,
@@ -104,7 +157,7 @@ async function listarVigenciasDoQuadro(
      WHERE s.status <> 'SUPERSEDED'
      AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND s.dataset_family = ${DATASET_FAMILY_QUADRO_DE_PESSOAL}
-       AND ${contextFilter("s", context)}
+       AND ${filtroDosEscopos("s", escopos)}
      GROUP BY 1
      ORDER BY 1
   `);

@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 import type { Database } from "@workspace/db";
-import { contextFilter, periodLabel, type ContextInfo } from "@workspace/comparison";
+import { periodLabel, type ContextInfo } from "@workspace/comparison";
 import { DATASET_FAMILY_QUADRO_DE_PESSOAL } from "@workspace/ingest";
 import {
   CODIGOS_QUE_ISOLAM_A_CHAVE,
@@ -10,6 +10,7 @@ import {
   resolverContextoDoQuadro,
   TIPO_QLP_ADMINISTRATIVO,
   type ContextoDoQuadro,
+  filtroDosEscopos,
 } from "./contexto";
 
 /**
@@ -75,7 +76,7 @@ export interface VigenciaComPendencia {
   registros: RegistroInconsistente[];
 }
 
-export interface InconsistenciasDoQuadro extends ContextoDoQuadro {
+export interface InconsistenciasDoQuadro extends Omit<ContextoDoQuadro, "escopos"> {
   /**
    * Todas as vigências do contexto que têm registro faltando, da mais nova
    * para a mais antiga.
@@ -122,7 +123,7 @@ type LinhaDePendencia = {
  */
 async function pendenciasDoContexto(
   db: Database,
-  context: ContextInfo,
+  escopos: ContextInfo[],
   effectiveDate?: string,
 ): Promise<LinhaDePendencia[]> {
   /*
@@ -143,14 +144,40 @@ async function pendenciasDoContexto(
      WHERE s.status <> 'SUPERSEDED'
      AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND s.dataset_family = ${DATASET_FAMILY_QUADRO_DE_PESSOAL}
-       AND ${contextFilter("s", context)}
+       AND ${filtroDosEscopos("s", escopos)}
        AND vi.code IN ${codigos}
        AND vi.detail->>'entityType' = ${TIPO_QLP_ADMINISTRATIVO}
        AND vi.detail->>'vigencia' = s.source_label
        ${effectiveDate ? sql`AND s.effective_date = ${effectiveDate}::date` : sql``}
      ORDER BY s.effective_date DESC, vi.detail->>'chave'
   `);
-  return rows;
+  /*
+    A pendência é da **importação**, não do snapshot — e a leitura é consolidada.
+
+    Um arquivo com duas unidades produz dois snapshots que dividem o mesmo
+    `import_run`, e a junção devolve a mesma pendência uma vez por unidade: a
+    tela diria "2 registros ficaram de fora" sobre uma linha só. As duplicatas
+    são idênticas em todas as colunas — mesmo arquivo, mesma vigência —, então
+    eliminá-las não perde nenhuma pendência distinta.
+
+    Fora do SQL de propósito: `SELECT DISTINCT` não convive com o `ORDER BY` por
+    `detail->>'chave'`, que não está na lista de colunas, e trazê-la para a lista
+    só para poder deduplicar mudaria o formato da linha que a tela lê. Deduplicar
+    aqui preserva a ordem que o banco já devolveu.
+  */
+  const vistas = new Set<string>();
+  return rows.filter((linha) => {
+    const chave = JSON.stringify([
+      linha.source_label,
+      linha.effective_date,
+      linha.code,
+      linha.message,
+      linha.detail,
+    ]);
+    if (vistas.has(chave)) return false;
+    vistas.add(chave);
+    return true;
+  });
 }
 
 /**
@@ -163,10 +190,10 @@ async function pendenciasDoContexto(
  */
 export async function contarRegistrosFaltando(
   db: Database,
-  context: ContextInfo,
+  escopos: ContextInfo[],
   effectiveDate: string,
 ): Promise<number> {
-  return (await pendenciasDoContexto(db, context, effectiveDate)).length;
+  return (await pendenciasDoContexto(db, escopos, effectiveDate)).length;
 }
 
 /**
@@ -186,7 +213,7 @@ export async function getInconsistenciasDoQuadro(
   });
   if (!resolvido) return null;
 
-  const linhas = await pendenciasDoContexto(db, resolvido.context);
+  const linhas = await pendenciasDoContexto(db, resolvido.escopos);
 
   const porVigencia = new Map<string, VigenciaComPendencia>();
   for (const linha of linhas) {
@@ -210,8 +237,10 @@ export async function getInconsistenciasDoQuadro(
     porVigencia.set(linha.source_label, grupo);
   }
 
+  /* Ver `VisaoDoQuadro`: `escopos` é autorização, não conteúdo da resposta. */
+  const { escopos: _autorizacao, ...doContexto } = resolvido;
   return {
-    ...resolvido,
+    ...doContexto,
     pendencias: [...porVigencia.values()],
     total: linhas.length,
   };
