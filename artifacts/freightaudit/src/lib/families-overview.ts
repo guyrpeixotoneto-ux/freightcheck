@@ -24,6 +24,11 @@ export function useFamiliesOverviewQuery(
     queryKey: ["families", "overview", period],
     enabled: enabled && period !== null,
     refetchInterval,
+    // Mesmo padrão das outras queries desta tela (`comparacao`, `balancos`,
+    // `importacoes`): a leitura soma todas as unidades no servidor e é cara —
+    // sem isto, cada navegação de volta à Visão Geral reprocessava tudo do
+    // zero mesmo que nada tivesse mudado nos últimos segundos.
+    staleTime: 60_000,
     queryFn: async () => {
       try {
         return await fetchJson<FamiliesOverview>(

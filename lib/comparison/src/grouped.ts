@@ -865,8 +865,15 @@ export async function getGroupedView(
   db: Database,
   period?: string,
   requestedContext?: RequestedContext,
+  /**
+   * Lista já carregada por quem chama — ver `resolveContext`. A Visão Geral
+   * chama esta função uma vez por unidade elegível na mesma competência; sem
+   * isto, `listContexts` — duas consultas que enxergam **todo** o banco, não
+   * só a unidade em questão — era refeita do zero em cada uma dessas chamadas.
+   */
+  preloadedContexts?: ContextInfo[],
 ): Promise<GroupedView | null> {
-  const contexts = await listContexts(db);
+  const contexts = preloadedContexts ?? (await listContexts(db));
   const context = await resolveContext(db, requestedContext, contexts);
   if (!context) return null;
 
