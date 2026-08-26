@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   anosComVigencia,
+  nomeDoEscopo,
   impactoDominante,
   impactosOrdenados,
   quinzenasDoAno,
+  resumirEscopo,
   resumirUnidades,
   resumoExecutivo,
   type ComparacaoDaVigencia,
@@ -541,5 +543,162 @@ describe("cinco unidades, seis vigências — o caso EMPURRADA_Cavalo", () => {
     // A diferença entre os dois estados é só a comparação: a ausência de
     // vigência de janeiro a maio é a mesma nos dois, porque ela é da fonte.
     expect(unidades.every((u) => u.lacunas === 12)).toBe(true);
+  });
+});
+
+/**
+ * O Painel de Unidades aberto numa unidade só.
+ *
+ * A lateral sempre escreveu `scopeHash` no endereço do Painel, e o Painel sempre
+ * resumiu o acervo inteiro: o filtro era prometido e não aplicado. O que roda
+ * aqui são as decisões que a correção tomou, e que erradas fariam a tela mentir
+ * com aparência de recorte:
+ *
+ * 1. o cartão é **da unidade**, e o canal não o parte — pedir CAMAÇARI e receber
+ *    "CAMAÇARI · ROTA", com a metade EMPURRADA fora da tela e sem uma palavra,
+ *    responde outra pergunta;
+ * 2. a unidade sem vigência no ano devolve lista vazia, e não um cartão zerado:
+ *    a tela precisa distinguir "não publicou" de "publicou e não mudou nada";
+ * 3. o resto do acervo fica de fora inteiro — inclusive da aritmética, porque a
+ *    faixa do topo se calcula da mesma lista.
+ */
+describe("o Painel aberto numa unidade", () => {
+  const acervo = [
+    vigencia({ data: "2026-08-01", comparacao: { alteracoes: 10 } }),
+    vigencia({ data: "2026-07-16", anterior: null }),
+    vigencia({
+      unidade: "scope-manaus",
+      nome: "MANAUS",
+      data: "2026-08-01",
+      comparacao: { alteracoes: 99 },
+    }),
+  ];
+
+  /* O requisito 1: sem escopo, o acervo inteiro. É a porta de entrada. */
+  it("sem escopo, resume todas as unidades", () => {
+    const todas = resumirUnidades(acervo, 2026, HOJE);
+
+    expect(todas.map((u) => u.nome).sort()).toEqual(["CAMAÇARI", "MANAUS"]);
+  });
+
+  /* O requisito 2: com escopo, só ela. */
+  it("com escopo, resume só a unidade pedida", () => {
+    const so = resumirEscopo(acervo, 2026, HOJE, "scope-camacari");
+
+    expect(so).toHaveLength(1);
+    expect(so[0].nome).toBe("CAMAÇARI");
+    expect(so[0].alteracoes).toBe(10);
+  });
+
+  /*
+    O requisito 3, pelo lado da aritmética: a faixa do topo lê a mesma lista que
+    os cartões, então filtrar os cartões e não a conta produziria um cartão de
+    CAMAÇARI sob um total que inclui MANAUS.
+  */
+  it("deixa o resto do acervo fora também da soma", () => {
+    const total = resumoExecutivo(resumirEscopo(acervo, 2026, HOJE, "scope-camacari"));
+
+    expect(total.unidades).toBe(1);
+    expect(total.alteracoes).toBe(10);
+  });
+
+  /* O requisito 5. Lista vazia, e não um cartão de zeros que pareceria dado. */
+  it("devolve nada quando a unidade não publicou no ano pedido", () => {
+    const deDoisAnos = [
+      vigencia({ data: "2026-08-01", comparacao: { alteracoes: 10 } }),
+      vigencia({
+        unidade: "scope-manaus",
+        nome: "MANAUS",
+        data: "2025-08-01",
+        anterior: "2025-07-16",
+        comparacao: { alteracoes: 4 },
+      }),
+    ];
+
+    expect(resumirEscopo(deDoisAnos, 2026, HOJE, "scope-manaus")).toEqual([]);
+    /* E o vazio sabe de quem está falando, mesmo sem cartão de onde tirar o nome. */
+    expect(nomeDoEscopo(deDoisAnos, "scope-manaus")).toBe("MANAUS");
+    /* O acervo continua tendo o ano — é o que separa os dois textos de vazio. */
+    expect(resumirUnidades(deDoisAnos, 2026, HOJE)).toHaveLength(1);
+  });
+
+  it("chama a unidade desconhecida pelo que ela é, e não pelo scopeHash", () => {
+    expect(nomeDoEscopo([], "scope-fantasma")).toBe("A unidade");
+  });
+});
+
+/**
+ * O requisito 6 — a unidade com mais de um canal.
+ *
+ * Na Visão Geral o cartão é do contexto, e dois canais são dois cartões: o motor
+ * recusa-se a comparar uma série com a outra, e é a decisão que `resumirUnidades`
+ * documenta. No modo unidade a pergunta é outra — "como está CAMAÇARI" —, e a
+ * resposta é um cartão só. Nada aqui compara canal com canal: soma resultados
+ * que já estavam prontos, como a faixa do topo sempre somou os contextos do
+ * acervo inteiro.
+ */
+describe("a unidade com dois canais", () => {
+  const doisCanais = [
+    vigencia({
+      canal: "EMPURRADA",
+      data: "2026-08-01",
+      ativos: 100,
+      comparacao: { alteracoes: 10, impacto: { MONTHLY: -1000 } },
+    }),
+    vigencia({
+      canal: "ROTA",
+      data: "2026-07-16",
+      anterior: "2026-07-01",
+      ativos: 30,
+      comparacao: { alteracoes: 5, impacto: { MONTHLY: -500 } },
+    }),
+  ];
+
+  it("continua sendo dois cartões na Visão Geral", () => {
+    expect(resumirUnidades(doisCanais, 2026, HOJE)).toHaveLength(2);
+  });
+
+  it("vira um cartão só quando a unidade é o recorte", () => {
+    const [cartao] = resumirEscopo(doisCanais, 2026, HOJE, "scope-camacari");
+
+    expect(cartao.nome).toBe("CAMAÇARI");
+    expect(cartao.canais).toEqual(["EMPURRADA", "ROTA"]);
+    expect(cartao.alteracoes).toBe(15);
+    expect(cartao.impacto).toEqual({ MONTHLY: -1500 });
+    expect(cartao.comparaveis).toBe(2);
+  });
+
+  /*
+    O cartão não pode esconder de quantos canais ele veio: o rodapé é o único
+    lugar em que "esta soma tem duas origens" cabe escrito, e sem ele o número
+    parece de uma partição só.
+  */
+  it("declara no rótulo os canais que somou", () => {
+    const [cartao] = resumirEscopo(doisCanais, 2026, HOJE, "scope-camacari");
+
+    expect(cartao.label).toBe("CAMAÇARI · EMPURRADA + ROTA");
+    /* `channel` nulo é o que impede o link de abrir Parâmetros numa das metades. */
+    expect(cartao.channel).toBeNull();
+  });
+
+  /*
+    A frota é a última **de cada canal**, somada. Filtrar pela data mais recente
+    entre os dois zeraria quem publicou antes — CAMAÇARI apareceria com 100
+    ativos em vez de 130 por um detalhe de calendário.
+  */
+  it("soma a última frota de cada canal, e não só a do que publicou por último", () => {
+    const [cartao] = resumirEscopo(doisCanais, 2026, HOJE, "scope-camacari");
+
+    expect(cartao.ativos).toBe(130);
+  });
+
+  /* Com um canal só, `canais` tem um item e nada muda em relação ao de sempre. */
+  it("não mexe no cartão de quem tem um canal só", () => {
+    const [cartao] = resumirEscopo([doisCanais[0]], 2026, HOJE, "scope-camacari");
+
+    expect(cartao.canais).toEqual(["EMPURRADA"]);
+    expect(cartao.channel).toBe("EMPURRADA");
+    expect(cartao.label).toBe("CAMAÇARI · EMPURRADA");
+    expect(cartao.ativos).toBe(100);
   });
 });

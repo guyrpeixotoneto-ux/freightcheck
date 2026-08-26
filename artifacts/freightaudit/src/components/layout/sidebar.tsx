@@ -72,6 +72,11 @@ import {
 } from "@/lib/ambiente";
 import { useAuth } from "@/lib/auth";
 import { useContextosDaCasca, type Contexto } from "@/lib/contextos";
+import {
+  enderecoDe,
+  enderecoDeVisaoGeral,
+  visaoGeralAtiva,
+} from "@/lib/navegacao-do-escopo";
 import { cn } from "@/lib/utils";
 import { enderecoDoAssistente } from "@/lib/entrada-do-assistente";
 import {
@@ -902,8 +907,9 @@ function AlcanceDoFechamento() {
  * Lê `/contexts` — as unidades e canais que **já entregaram vigência**, não uma
  * lista de cadastro. Trocar a seleção preserva a tela em que a pessoa está,
  * quando ela sabe ler `scopeHash`/`canal` da própria URL (ver
- * `TELAS_QUE_HONRAM_ESCOPO`); fora dessa lista, cai em Parâmetros, que é a
- * garantia de sempre — a única tela que nunca deixa o par passar batido.
+ * `TELAS_QUE_HONRAM_ESCOPO`, em `lib/navegacao-do-escopo.ts`); fora dessa lista,
+ * cai em Parâmetros, que é a garantia de sempre — a única tela que nunca deixa
+ * o par passar batido.
  *
  * Antes disso caía sempre em Parâmetros, mesmo saindo do Resumo executivo, que
  * já lê os dois parâmetros havia tempo (`pages/inicio.tsx`): o comentário que
@@ -940,8 +946,13 @@ function UnidadeAberta() {
     não muda `atual` acima. `TELAS_QUE_HONRAM_ESCOPO` continua resolvendo
     `atual` do jeito de sempre; só o que a caixa mostra muda quando o modo está
     ligado.
+
+    Quem decide é `visaoGeralAtiva` (`lib/navegacao-do-escopo.ts`), e não mais um
+    `visaoGeral === "1"` escrito aqui: no Painel de Unidades a ausência de
+    `scopeHash` já é a Visão Geral, e sem essa segunda forma a caixa nomeava a
+    primeira unidade da lista enquanto a tela mostrava todas.
   */
-  const visaoGeralAtiva = new URLSearchParams(search).get("visaoGeral") === "1";
+  const emVisaoGeral = visaoGeralAtiva(pathname, search);
   const periodoDaUrl = new URLSearchParams(search).get("period");
 
   return (
@@ -981,7 +992,7 @@ function UnidadeAberta() {
       ) : (
         <DropdownMenu>
           <DropdownMenuTrigger className="w-full text-left rounded-xl border border-sidebar-border bg-sidebar p-3.5 hover:border-brand transition-colors">
-            {visaoGeralAtiva ? (
+            {emVisaoGeral ? (
               <CaixaDaUnidade
                 icone={Layers}
                 titulo="Visão Geral"
@@ -1004,17 +1015,21 @@ function UnidadeAberta() {
             {/*
               Visão Geral abre a lista — é a outra altura da mesma pergunta, e
               antes só existia dentro do botão "Trocar unidade" de cada página.
-              Some quando a tela aberta não sabe ler `visaoGeral=1`
-              (`TELAS_QUE_HONRAM_VISAO_GERAL`): o link ainda funciona — cai no
-              Resumo executivo —, mas oferecê-lo como se ficasse na tela atual
-              seria a mesma promessa vazia que a lista de unidades já recusa.
+
+              O item aparece sempre, e este comentário já afirmou o contrário:
+              dizia que ele "some quando a tela aberta não sabe ler
+              `visaoGeral=1`" — uma condição que nunca chegou a ser escrita
+              embaixo. Onde ela mais fazia falta era justamente o Painel de
+              Unidades, que agora está em `TELAS_QUE_HONRAM_VISAO_GERAL` e fica
+              onde está. Nas telas que continuam de fora o link ainda leva ao
+              Resumo executivo, que é o comportamento de sempre.
             */}
             <DropdownMenuItem asChild>
               <Link
                 href={enderecoDeVisaoGeral(pathname, search)}
                 className={cn(
                   "flex flex-col items-start gap-0.5",
-                  visaoGeralAtiva && "font-bold text-brand",
+                  emVisaoGeral && "font-bold text-brand",
                 )}
               >
                 <span className="font-semibold">Visão Geral</span>
@@ -1030,7 +1045,10 @@ function UnidadeAberta() {
             <DropdownMenuSeparator />
             {contextos.map((contexto) => (
               <DropdownMenuItem key={`${contexto.scopeHash}|${contexto.channel ?? ""}`} asChild>
-                <Link href={enderecoDe(contexto, pathname)} className="flex flex-col items-start gap-0.5">
+                <Link
+                  href={enderecoDe(contexto, pathname, search)}
+                  className="flex flex-col items-start gap-0.5"
+                >
                   <span className="font-semibold">{unidadeDe(contexto)}</span>
                   <span className="text-xs text-muted-foreground">{detalheDe(contexto)}</span>
                 </Link>
@@ -1129,73 +1147,6 @@ function canalDe(contexto: Contexto): string {
 /** `EMPURRADA · ago/2026` — canal e vigência numa linha, para rótulo e menu. */
 export function detalheDe(contexto: Contexto): string {
   return `${canalDe(contexto)} · ${mesAbreviado(contexto.latestPeriod)}`;
-}
-
-/**
- * As telas, fora de Parâmetros, que já leem `scopeHash`/`canal` da própria
- * URL — trocar de unidade nelas troca só o dado, sem trocar de tela.
- *
- * Deliberadamente uma lista fechada, e não "qualquer rota da Auditoria": uma
- * tela de detalhe de um ativo específico (`/composicao/:id`, `/dre/:id`) não
- * entra, porque o ativo da URL é de outra unidade e preservar o caminho
- * levaria a um erro 404 ou a uma ficha errada — para essas, Parâmetros
- * continua sendo o destino seguro.
- */
-const TELAS_QUE_HONRAM_ESCOPO = new Set<string>([
-  RESUMO_EXECUTIVO,
-  DASHBOARD,
-  GESTAO_A_VISTA,
-  LINHA_DO_TEMPO,
-  "/vigencia",
-  "/qlp-administrativo",
-  "/remunerado",
-  "/visao-gerencial",
-  "/dre",
-  "/composicao",
-  "/parametros",
-  "/alteracoes",
-  "/cavalo-360",
-  "/carreta-360",
-  "/trecho-360",
-]);
-
-function enderecoDe(contexto: Contexto, pathnameAtual: string): string {
-  const query = new URLSearchParams({ scopeHash: contexto.scopeHash });
-  if (contexto.channel !== null) query.set("canal", contexto.channel);
-  const destino = TELAS_QUE_HONRAM_ESCOPO.has(pathnameAtual) ? pathnameAtual : "/parametros";
-  return `${destino}?${query}`;
-}
-
-/**
- * As telas que sabem ler `visaoGeral=1` — as que consomem
- * `/changes/families/overview`. Fora delas o destino é sempre o
- * Resumo executivo: não existe "Visão Geral de Parâmetros" nem de Composição,
- * então oferecer o link ali seria a mesma promessa vazia que
- * `TELAS_QUE_HONRAM_ESCOPO` já recusa para uma unidade específica.
- */
-const TELAS_QUE_HONRAM_VISAO_GERAL = new Set<string>([
-  RESUMO_EXECUTIVO,
-  LINHA_DO_TEMPO,
-  DASHBOARD,
-  GESTAO_A_VISTA,
-]);
-
-/**
- * O endereço da Visão Geral — a soma de todas as unidades com dado na
- * competência, antes um item do dropdown "Trocar unidade" de cada página, e
- * agora uma opção do mesmo seletor que já mora aqui.
- *
- * A vigência da URL atual segue junto quando existe: trocar para Visão Geral
- * não deve trocar de mês só porque trocou de escopo. Sem vigência na URL, a
- * rota de overview cai na mais recente comum, do mesmo jeito que caía no
- * dropdown que este seletor substitui.
- */
-function enderecoDeVisaoGeral(pathnameAtual: string, searchAtual: string): string {
-  const query = new URLSearchParams({ visaoGeral: "1" });
-  const periodoAtual = new URLSearchParams(searchAtual).get("period");
-  if (periodoAtual !== null) query.set("period", periodoAtual);
-  const destino = TELAS_QUE_HONRAM_VISAO_GERAL.has(pathnameAtual) ? pathnameAtual : RESUMO_EXECUTIVO;
-  return `${destino}?${query}`;
 }
 
 const MESES = [
