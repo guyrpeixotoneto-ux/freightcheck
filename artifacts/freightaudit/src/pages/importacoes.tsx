@@ -317,6 +317,18 @@ interface RunStatus {
   declaredType: string | null;
   /** Preenchido quando este run é uma releitura, e não um envio. */
   reprocessOfRunId: string | null;
+  /**
+   * Quanto da leitura já passou — medido pelo pipeline enquanto ele trabalha.
+   *
+   * É o único trio deste objeto que fala de trabalho em curso: todos os outros
+   * contadores só existem depois que a etapa deles terminou. Nulo em
+   * `progressStep` quer dizer "nenhum trecho medido agora", e é o que toda
+   * importação anterior à `0062` responde. Quem traduz isso em barra é
+   * `progressoDaLeitura`.
+   */
+  progressStep: string | null;
+  progressDone: number;
+  progressTotal: number;
 }
 
 /**
@@ -2454,7 +2466,7 @@ function PendingRun({
 
   const cara = faceDoCartao(data?.status);
   const cores = CORES_DA_FACE[cara.face];
-  const progresso = progressoDaLeitura(data?.status);
+  const progresso = progressoDaLeitura(data);
   const Icone = ICONE_DA_FACE[cara.face];
   const ready = cara.face === "conferida";
   const recusada = cara.face === "recusada";
@@ -2615,7 +2627,20 @@ function PendingRun({
       {cara.face === "lendo" && progresso && (
         <div className="space-y-1.5">
           <div className="flex items-baseline justify-between gap-3 text-xs font-medium text-amber-900">
-            <span>{progresso.rotulo}…</span>
+            <span>
+              {progresso.rotulo}…
+              {/* De onde sai a porcentagem, dito em números que a pessoa pode
+                  conferir contra a planilha dela. Sem isto, "38%" é um número
+                  de que ninguém sabe a origem; com isto, é 4.512 de 11.760
+                  linhas. Só aparece quando há medida: no degrau por estado não
+                  existem linhas a citar. */}
+              {progresso.medido && data && data.progressTotal > 0 && (
+                <span className="ml-2 font-normal text-amber-900/70">
+                  {n(Math.min(data.progressDone, data.progressTotal))} de{" "}
+                  {n(data.progressTotal)} linhas
+                </span>
+              )}
+            </span>
             <span className="tabular-nums">{progresso.pct}%</span>
           </div>
           <div

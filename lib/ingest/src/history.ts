@@ -315,6 +315,22 @@ export interface ImportRunStatus {
    * pela recusa depois do clique.
    */
   pendingIdentities: string[];
+  /**
+   * Quanto da leitura já passou — a medida do próprio pipeline, em curso.
+   *
+   * Todos os outros números deste objeto descrevem trabalho terminado. Estes
+   * três descrevem o que está acontecendo agora, e por isso são os únicos que
+   * podem estar desatualizados sem estarem errados: o pipeline publica a cada
+   * ~1% do trecho, e a tela pergunta a cada 1,2 s.
+   *
+   * `progressStep` nulo quer dizer "nenhum trecho medido" — antes de começar,
+   * em todo estado terminal, e em toda importação anterior à
+   * `0062_progresso_da_leitura`. A tela trata a ausência como ausência: sem
+   * trecho, ela volta a mostrar o degrau do estado.
+   */
+  progressStep: string | null;
+  progressDone: number;
+  progressTotal: number;
 }
 
 export async function getImportRunStatus(
@@ -334,6 +350,9 @@ export async function getImportRunStatus(
       warningCount: importRunTable.warningCount,
       declaredType: importRunTable.declaredType,
       reprocessOfRunId: importRunTable.reprocessOfRunId,
+      progressStep: importRunTable.progressStep,
+      progressDone: importRunTable.progressDone,
+      progressTotal: importRunTable.progressTotal,
       filename: sourceFileTable.filename,
     })
     .from(importRunTable)
@@ -398,6 +417,9 @@ export async function getImportRunStatus(
     chavesEmQuarentena: somar(apontamentos.filter(isolaAChave)),
     labels,
     pendingIdentities: await identidadesPendentes(db, importRunId),
+    progressStep: run.progressStep,
+    progressDone: run.progressDone,
+    progressTotal: run.progressTotal,
   };
 }
 

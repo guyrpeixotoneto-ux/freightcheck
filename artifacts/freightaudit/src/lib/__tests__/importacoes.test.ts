@@ -17,6 +17,7 @@ import {
   historicoDoArquivo,
   leituraDoRun,
   progressoDaLeitura,
+  type AndamentoDoRun,
   type RunNoHistorico,
 } from "@/lib/importacoes";
 
@@ -104,45 +105,111 @@ describe("estadoDaImportacao", () => {
 /**
  * A barra de progresso do cartão de upload.
  *
- * O que se testa aqui não é a largura da barra: é que ela só existe onde há
- * etapa medida. Uma barra é uma afirmação — "tanto já passou" —, e mostrá-la
- * num run recusado, ou num estado que este código ainda não conhece, seria
- * afirmar andamento sobre algo que ninguém mediu (o mesmo defeito que
- * `faceDoCartao` fechou quando todo estado desconhecido virava "lendo").
+ * Duas coisas se provam aqui, e a segunda é a que custa. A primeira é que a
+ * barra traduz a medida do pipeline — `progress_step`/`done`/`total` — na
+ * faixa certa. A segunda é que ela **nunca anda para trás**: a virada de
+ * CAPTURA para PREPARO, a janela sem trecho medido no começo de READING e a
+ * chegada em STAGED são três pontos em que uma faixa mal escolhida faria a
+ * porcentagem recuar na cara de quem espera — e uma barra que volta atrás não
+ * é uma medida imprecisa, é uma medida em que ninguém acredita mais.
  */
 describe("progressoDaLeitura", () => {
-  it("sobe em degraus, na ordem em que o pipeline percorre as etapas", () => {
-    const etapas = ["PENDING", "READING", "STAGED", "PROMOTING"] as const;
-    const pcts = etapas.map((s) => progressoDaLeitura(s)!.pct);
-    for (const [i, pct] of pcts.entries()) {
-      expect(pct, etapas[i]).toBeGreaterThan(i === 0 ? 0 : pcts[i - 1]);
-      expect(pct, etapas[i]).toBeLessThanOrEqual(100);
-    }
+  const lendo = (sobrepor: Partial<AndamentoDoRun> = {}): AndamentoDoRun => ({
+    status: "READING",
+    progressStep: "CAPTURA",
+    progressDone: 0,
+    progressTotal: 100,
+    ...sobrepor,
   });
 
-  it("mostra a etapa na palavra de quem opera, nunca o enum cru", () => {
-    expect(progressoDaLeitura("READING")!.rotulo).toBe("lendo");
-    expect(progressoDaLeitura("STAGED")!.rotulo).toBe("preparada");
+  it("traduz a medida do pipeline em porcentagem dentro da faixa do trecho", () => {
+    const meio = progressoDaLeitura(lendo({ progressDone: 50 }))!;
+    expect(meio.medido).toBe(true);
+    expect(meio.pct).toBeGreaterThan(progressoDaLeitura(lendo())!.pct);
+    expect(meio.pct).toBeLessThan(
+      progressoDaLeitura(lendo({ progressDone: 100 }))!.pct,
+    );
+  });
+
+  it("não anda para trás em nenhuma virada do caminho de leitura", () => {
+    const caminho: AndamentoDoRun[] = [
+      { status: "PENDING", progressStep: null },
+      // A janela entre o estado virar READING e o primeiro trecho abrir.
+      { status: "READING", progressStep: null },
+      lendo({ progressDone: 0 }),
+      lendo({ progressDone: 100 }),
+      lendo({ progressStep: "PREPARO", progressDone: 0 }),
+      lendo({ progressStep: "PREPARO", progressDone: 100 }),
+      { status: "STAGED", progressStep: null },
+      { status: "PROMOTING", progressStep: null },
+    ];
+    const pcts = caminho.map((run) => progressoDaLeitura(run)!.pct);
+    for (let i = 1; i < pcts.length; i++) {
+      expect(pcts[i], `${caminho[i].status}/${caminho[i].progressStep}`)
+        .toBeGreaterThanOrEqual(pcts[i - 1]!);
+    }
+    expect(pcts.at(-1)).toBe(100);
+  });
+
+  it("nomeia o trecho, e não o enum: 'lendo' e 'preparando'", () => {
+    expect(progressoDaLeitura(lendo())!.rotulo).toBe("lendo");
+    expect(progressoDaLeitura(lendo({ progressStep: "PREPARO" }))!.rotulo).toBe(
+      "preparando",
+    );
+  });
+
+  it("mede acima de 100% sem passar do fim da faixa", () => {
+    // A previsão do cabeçalho pode ficar abaixo do que a planilha traz. Uma
+    // barra em 103% contradiz, na tela, a única coisa que ela afirma.
+    const estourado = progressoDaLeitura(lendo({ progressDone: 250 }))!;
+    expect(estourado.pct).toBe(progressoDaLeitura(lendo({ progressDone: 100 }))!.pct);
+  });
+
+  it("trecho sem tamanho não vira divisão por zero", () => {
+    const vazio = progressoDaLeitura(lendo({ progressDone: 0, progressTotal: 0 }))!;
+    expect(Number.isFinite(vazio.pct)).toBe(true);
+    expect(vazio.pct).toBe(progressoDaLeitura(lendo({ progressDone: 0 }))!.pct);
+  });
+
+  it("sem medida, vale o degrau do estado — e ele se diz não-medido", () => {
+    const semTrecho = progressoDaLeitura({ status: "READING", progressStep: null })!;
+    expect(semTrecho.medido).toBe(false);
+    expect(semTrecho.rotulo).toBe("lendo");
   });
 
   it("sem resposta do servidor, mostra o primeiro degrau — o arquivo já subiu", () => {
-    expect(progressoDaLeitura(undefined)).toEqual(progressoDaLeitura("PENDING"));
+    expect(progressoDaLeitura(undefined)).toEqual(
+      progressoDaLeitura({ status: "PENDING" }),
+    );
   });
 
   it("não existe barra em estado terminal: ali o desfecho está escrito em palavras", () => {
     for (const status of IMPORT_RUN_STATUS) {
       if (EM_ANDAMENTO.has(status)) continue;
-      expect(progressoDaLeitura(status), status).toBeNull();
+      expect(progressoDaLeitura({ status }), status).toBeNull();
     }
   });
 
-  it("um estado que este código não conhece fica sem barra, e não com um chute", () => {
-    expect(progressoDaLeitura("REBALANCING")).toBeNull();
+  it("um trecho que este código não conhece cai no degrau do estado, e não num chute", () => {
+    const desconhecido = progressoDaLeitura({
+      status: "READING",
+      progressStep: "CONFERENCIA",
+      progressDone: 3,
+      progressTotal: 4,
+    })!;
+    expect(desconhecido.medido).toBe(false);
+    expect(desconhecido.pct).toBe(
+      progressoDaLeitura({ status: "READING", progressStep: null })!.pct,
+    );
   });
 
-  it("toda etapa em andamento tem degrau — um estado novo do pipeline falha aqui", () => {
+  it("um estado que este código não conhece fica sem barra", () => {
+    expect(progressoDaLeitura({ status: "REBALANCING" })).toBeNull();
+  });
+
+  it("toda etapa em andamento tem barra — um estado novo do pipeline falha aqui", () => {
     for (const status of EM_ANDAMENTO) {
-      expect(progressoDaLeitura(status), status).not.toBeNull();
+      expect(progressoDaLeitura({ status }), status).not.toBeNull();
     }
   });
 });
