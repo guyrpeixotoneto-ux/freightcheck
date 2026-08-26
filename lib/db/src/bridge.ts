@@ -222,6 +222,15 @@ const TABELAS_REMOVIDAS = [
   "coverage_expectation",
   "entity_expectation",
   /*
+    `justificativa`, da `0058`/`0059` — e ela é do mesmo tipo de
+    `coverage_expectation`: o que guarda é decisão humana. Quem escreveu "a
+    carreta ficou parada em manutenção" escreveu algo que nenhuma consulta
+    reconstrói, e por isso a pré-condição de tabela vazia não é um transtorno
+    aqui, é a proteção: o `down` para e diz o que encontrou, em vez de apagar a
+    frase de alguém para caber num espelho.
+  */
+  "justificativa",
+  /*
     As treze do Fechamento — as dez da `0039`, as duas do 03.08.20 (`0043`) e o
     cadastro de partes (`0044`).
     Elas entram aqui inteiras, e na ordem em
@@ -256,6 +265,21 @@ const TABELAS_REMOVIDAS = [
     estrangeira, que é o que esta ordem existe para evitar.
   */
   "fechamento_documento_conteudo",
+  /*
+    As duas que entraram depois — a frota Promax (`0056`) e o total do
+    pagamento (`0057`) —, e o motivo de estarem aqui é o mesmo das outras: são
+    filhas de `fechamento_documento`, o ambiente inteiro é posterior a
+    Production, e o `down` remove sem CASCADE.
+
+    Elas não estavam, e o preço apareceu no teste do bridge: a varredura de
+    dependências encontrava as FKs delas apontando para um alvo que ela estava
+    prestes a derrubar, não as reconhecia como previstas e abortava — o
+    comportamento certo diante de uma dependência que ninguém declarou. O
+    bridge não estava errado; estava desatualizado, e a recusa foi ele dizendo
+    isso.
+  */
+  "fechamento_frota_promax",
+  "fechamento_pagamento_total",
   "fechamento_documento",
   "fechamento_competencia",
   "fechamento_parte",
@@ -514,8 +538,17 @@ const VIEWS_REMOVIDAS = [
     do caminho.
   */
   "fato_visivel",
-  "fato_oculto",
+  /*
+    `alteracao_visivel` vem **antes** de `fato_oculto` porque lê dela.
+
+    É a mesma ordem "filha antes de mãe" das tabelas removidas, e pelo mesmo
+    motivo: o `down` derruba com RESTRICT, de propósito, e derrubar a view lida
+    primeiro não falha por falta de CASCADE — falha porque quem depende dela
+    ainda está de pé. O erro que isso produzia era literal: `cannot drop view
+    fato_oculto because other objects depend on it`.
+  */
   "alteracao_visivel",
+  "fato_oculto",
 ];
 
 /**
@@ -1387,11 +1420,20 @@ function planoUp(): PassoUp[] {
     "índice fact_origin_import_run_idx",
     levantar(M61, /INDEX IF NOT EXISTS "fact_origin_import_run_idx"/),
   );
-  add(M61, "view fato_visivel", `DROP VIEW IF EXISTS "fato_visivel" RESTRICT`);
-  add(M61, "view fato_visivel", levantar(M61, /CREATE VIEW "fato_visivel"/));
-  add(M61, "view fato_oculto", `DROP VIEW IF EXISTS "fato_oculto" RESTRICT`);
-  add(M61, "view fato_oculto", levantar(M61, /CREATE VIEW "fato_oculto"/));
+  /*
+    Os `DROP` das três vêm antes dos três `CREATE`, e nesta ordem.
+
+    É o que torna o `up` repetível — rodá-lo sobre um banco que já o recebeu não
+    pode morrer em `relation already exists` — e a ordem é a mesma questão de
+    dependência do `down`: `alteracao_visivel` lê `fato_oculto`, então cai
+    primeiro. Intercalar `DROP`/`CREATE` view a view derrubava `fato_oculto`
+    com `alteracao_visivel` recém-criada em cima dela, e o RESTRICT recusava.
+  */
   add(M61, "view alteracao_visivel", `DROP VIEW IF EXISTS "alteracao_visivel" RESTRICT`);
+  add(M61, "view fato_visivel", `DROP VIEW IF EXISTS "fato_visivel" RESTRICT`);
+  add(M61, "view fato_oculto", `DROP VIEW IF EXISTS "fato_oculto" RESTRICT`);
+  add(M61, "view fato_visivel", levantar(M61, /CREATE VIEW "fato_visivel"/));
+  add(M61, "view fato_oculto", levantar(M61, /CREATE VIEW "fato_oculto"/));
   add(M61, "view alteracao_visivel", levantar(M61, /CREATE VIEW "alteracao_visivel"/));
 
   // A `0020` — a função antes do gatilho que a chama, e a tabela antes dos dois.
@@ -1818,6 +1860,84 @@ function planoUp(): PassoUp[] {
   );
 
   /*
+    A `0056` — a frota Promax, e a terceira escrita da mesma lista fechada.
+
+    O `tipo` do documento ganhou `FROTA_PROMAX_ATIVA` e `FROTA_PROMAX_INATIVA`,
+    e vale aqui exatamente o que vale para a `0055`: as versões entram todas, na
+    ordem cronológica, e cada uma só roda se a migration dela estiver carimbada.
+    Um banco parado na `0055` recebe a lista daquele dia; um que atravessou a
+    `0056` recebe as duas, a nova por último.
+
+    A tabela vem depois da lista porque não depende dela, e o gatilho vem depois
+    da tabela porque depende. `fechamento_recusar_escrita_em_encerrada()` já foi
+    reposta pela `0039`, acima.
+  */
+  const M56 = "0056_frota_promax";
+  add(
+    M56,
+    "fechamento_documento_tipo (drop, 0056)",
+    levantar(M56, /DROP CONSTRAINT IF EXISTS "fechamento_documento_tipo"/),
+  );
+  add(
+    M56,
+    "fechamento_frota_promax",
+    levantar(M56, /CREATE TABLE IF NOT EXISTS "fechamento_frota_promax" \(/),
+  );
+  for (const fk of [
+    "fechamento_frota_promax_documento_fk",
+    "fechamento_frota_promax_competencia_fk",
+  ]) {
+    add(M56, `FK ${fk}`, levantar(M56, new RegExp(`ADD CONSTRAINT "${fk}"`)));
+  }
+  for (const i of [
+    "fechamento_frota_promax_por_competencia",
+    "fechamento_frota_promax_por_documento",
+  ]) {
+    add(M56, `índice ${i}`, levantar(M56, new RegExp(`INDEX IF NOT EXISTS "${i}"`)));
+  }
+  add(
+    M56,
+    "gatilho fechamento_frota_promax_congelada",
+    levantar(M56, /CREATE TRIGGER "fechamento_frota_promax_congelada"/),
+  );
+  add(
+    M56,
+    "fechamento_documento_tipo (0056)",
+    levantar(M56, /ADD CONSTRAINT "fechamento_documento_tipo"/),
+  );
+
+  /*
+    A `0057` — o total do pagamento, o valor que a Ambev fechou na quinzena.
+
+    Não mexe na lista de tipos: ela pendura mais uma filha no documento de
+    PAGAMENTO, que já existia. Volta como as outras — tabela, as duas chaves
+    estrangeiras, os dois índices e o gatilho que a congela com a competência.
+  */
+  const M57 = "0057_total_do_pagamento";
+  add(
+    M57,
+    "fechamento_pagamento_total",
+    levantar(M57, /CREATE TABLE IF NOT EXISTS "fechamento_pagamento_total" \(/),
+  );
+  for (const fk of [
+    "fechamento_pagamento_total_documento_fk",
+    "fechamento_pagamento_total_competencia_fk",
+  ]) {
+    add(M57, `FK ${fk}`, levantar(M57, new RegExp(`ADD CONSTRAINT "${fk}"`)));
+  }
+  for (const i of [
+    "fechamento_pagamento_total_por_competencia",
+    "fechamento_pagamento_total_por_documento",
+  ]) {
+    add(M57, `índice ${i}`, levantar(M57, new RegExp(`INDEX IF NOT EXISTS "${i}"`)));
+  }
+  add(
+    M57,
+    "gatilho fechamento_pagamento_total_congelada",
+    levantar(M57, /CREATE TRIGGER "fechamento_pagamento_total_congelada"/),
+  );
+
+  /*
     A `0044` — o cadastro de unidade e transportadora, pela mesma razão das
     outras: o `down` o derruba com o resto do ambiente, e o `up` tem de
     devolvê-lo inteiro, com o índice único que o torna um cadastro em vez de uma
@@ -1825,6 +1945,58 @@ function planoUp(): PassoUp[] {
     depende de competência nenhuma, e é exatamente isso que ela existe para
     dizer.
   */
+  /*
+    A `0058` e a `0059` — a justificativa, e o grão dela.
+
+    A `0058` a criou por placa; a `0059` mudou o grão para a alteração, e nesse
+    caminho apagou as linhas existentes (o grão anterior não tinha como ser
+    convertido). O `DELETE` daquela migration **não** entra aqui: o plano do
+    `up` não escreve linha, e o `down` já exige a tabela vazia — não há dado a
+    apagar quando este plano roda.
+
+    As duas entram em sequência, como a `0043` e a `0055` fazem com a lista de
+    tipos: um banco parado na `0058` recebe a tabela por placa, e o que
+    atravessou a `0059` recebe também a coluna nova, a chave estrangeira dela e
+    a troca de índice.
+  */
+  const M58 = "0058_justificativa";
+  add(M58, "justificativa", levantar(M58, /CREATE TABLE IF NOT EXISTS "justificativa" \(/));
+  add(
+    M58,
+    "FK justificativa_change_set_id_fk",
+    levantar(M58, /ADD CONSTRAINT "justificativa_change_set_id_fk"/),
+  );
+  for (const i of ["justificativa_change_set_idx", "justificativa_entity_label_idx"]) {
+    add(M58, `índice ${i}`, levantar(M58, new RegExp(`INDEX IF NOT EXISTS "${i}"`)));
+  }
+
+  const M59 = "0059_justificativa_por_alteracao";
+  add(
+    M59,
+    "justificativa.change_id",
+    levantar(M59, /ADD COLUMN IF NOT EXISTS "change_id"/),
+  );
+  add(
+    M59,
+    "justificativa.change_id (obrigatória)",
+    levantar(M59, /ALTER COLUMN "change_id" SET NOT NULL/),
+  );
+  add(
+    M59,
+    "FK justificativa_change_id_fk",
+    levantar(M59, /ADD CONSTRAINT "justificativa_change_id_fk"/),
+  );
+  add(
+    M59,
+    "índice justificativa_entity_label_idx (drop)",
+    levantar(M59, /DROP INDEX IF EXISTS "justificativa_entity_label_idx"/),
+  );
+  add(
+    M59,
+    "índice justificativa_change_id_idx",
+    levantar(M59, /INDEX IF NOT EXISTS "justificativa_change_id_idx"/),
+  );
+
   const M44 = "0044_partes_cadastradas";
   add(M44, "fechamento_parte", levantar(M44, /CREATE TABLE IF NOT EXISTS "fechamento_parte" \(/));
   add(
