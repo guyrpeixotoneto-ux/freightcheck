@@ -1,7 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
-import { ArrowLeft, ChevronLeft, ChevronRight, Pause, Play } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  MinusCircle,
+  Pause,
+  Play,
+} from "lucide-react";
 import {
   CartesianGrid,
   Line,
@@ -19,7 +28,11 @@ import { formatBrlShort, formatPercent, periodicitySuffix } from "@/lib/format";
 import { escreverImpacto, ladosDoImpacto, type Impacto } from "@/lib/visao-geral";
 import { lerRecorte, linkDeAlteracoes, nomeDaUnidade, type Recorte } from "@/lib/recorte";
 import { juntarPrioridades, SEVERITY_LABEL } from "@/lib/cockpit";
-import { unidadesPorImpacto, impactoDominante } from "@/components/inicio/visao-geral-consolidada";
+import {
+  unidadesPorImpacto,
+  impactoDominante,
+  MOTIVO_EXCLUSAO_LABEL,
+} from "@/components/inicio/visao-geral-consolidada";
 import { seriesDoIntervalo } from "@/components/linha-do-tempo/linha-do-tempo-de-alteracoes";
 import { lerIntervaloSegundos, montarSequenciaDoAutoplay } from "@/lib/gestao-a-vista-autoplay";
 import type {
@@ -42,7 +55,22 @@ import type { Movimentos } from "@/lib/analise";
  * da URL) com `refetchInterval: 30s`. O que muda aqui é só a composição da
  * tela sobre esses mesmos dados.
  */
+/**
+ * A Gestão à Vista tem dois templates hoje: o Financeiro (o telão de sempre,
+ * abaixo) e o Alertas — só o nome de cada unidade e se ela teve alguma
+ * alteração nesta competência, para quem só quer saber "mexeu ou não mexeu"
+ * de relance. `?template=alertas` escolhe o segundo; qualquer outro valor
+ * (ou a ausência dele) é o Financeiro, para não quebrar links já salvos.
+ */
 export default function GestaoAVista() {
+  const search = useSearch();
+  const parametros = new URLSearchParams(search);
+  const template = parametros.get("template") === "alertas" ? "alertas" : "financeiro";
+
+  return template === "alertas" ? <TemplateDeAlertas /> : <TemplateFinanceiro />;
+}
+
+function TemplateFinanceiro() {
   const search = useSearch();
   const [, navegar] = useLocation();
   const parametros = new URLSearchParams(search);
@@ -202,6 +230,161 @@ export default function GestaoAVista() {
         ) : (
           <MensagemDeEstado carregando={vigencia.isLoading} erro={vigencia.error !== null} />
         )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Template Alertas — só o nome de cada unidade e se ela teve alteração
+// ---------------------------------------------------------------------------
+
+/**
+ * O template mais simples possível: uma linha por unidade, o nome, e um
+ * selo dizendo se ela teve alguma alteração nesta competência. Nada de
+ * valores, ranking, tendência ou pendência — quem pendura esta tela só quer
+ * responder "mexeu ou não mexeu" com um olhar de longe.
+ *
+ * Lê o mesmo `/changes/families/overview` que a Visão Geral do template
+ * Financeiro, então cobre exatamente as mesmas unidades: as incluídas
+ * (`unitsIncluded`, com `summary.changes`) e as de fora (`unitsExcluded`,
+ * sem vigência nesta competência — nem "sem alteração" nem "com alteração",
+ * simplesmente sem dado, e a tela diz isso).
+ */
+function TemplateDeAlertas() {
+  const search = useSearch();
+  const parametros = new URLSearchParams(search);
+  const periodoPedido = parametros.get("period");
+
+  const overviewQuery = useFamiliesOverviewQuery(periodoPedido, { refetchInterval: 30_000 });
+  const overview = overviewQuery.data ?? null;
+
+  const consultaDeOrigem = new URLSearchParams();
+  for (const chave of ["period", "scopeHash", "canal"]) {
+    const valor = parametros.get(chave);
+    if (valor !== null) consultaDeOrigem.set(chave, valor);
+  }
+  const paraDashboard = consultaDeOrigem.toString()
+    ? `${DASHBOARD}?${consultaDeOrigem}`
+    : DASHBOARD;
+
+  const unidades = overview
+    ? [...overview.unitsIncluded].sort((a, b) => a.label.localeCompare(b.label, "pt-BR"))
+    : [];
+  const excluidas = overview
+    ? [...overview.unitsExcluded].sort((a, b) => a.label.localeCompare(b.label, "pt-BR"))
+    : [];
+  const comAlteracao = unidades.filter((u) => u.summary.changes > 0).length;
+
+  return (
+    <div className="w-full min-h-[100dvh] bg-slate-950 text-slate-50 font-sans">
+      <div className="px-10 py-7 max-w-[1800px] mx-auto space-y-6">
+        <header className="flex items-center justify-between gap-6">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+              Gestão à Vista · Alertas
+            </p>
+            <h1 className="text-3xl font-extrabold tracking-tight truncate">
+              Unidades
+              {overview?.period && (
+                <span className="text-slate-400 font-normal"> · {overview.period}</span>
+              )}
+            </h1>
+          </div>
+          <div className="flex items-center gap-5 shrink-0">
+            <Relogio atualizadaEm={overviewQuery.dataUpdatedAt} />
+            <Link
+              href={paraDashboard}
+              title="Voltar ao Dashboard"
+              className="flex items-center justify-center w-9 h-9 rounded-lg border border-slate-800 text-slate-500 hover:text-slate-200 hover:bg-slate-900 transition-colors"
+            >
+              <ArrowLeft className="w-4 h-4" />
+            </Link>
+          </div>
+        </header>
+
+        {overviewQuery.isLoading ? (
+          <MensagemDeEstado carregando erro={false} />
+        ) : overviewQuery.error ? (
+          <MensagemDeEstado carregando={false} erro />
+        ) : unidades.length === 0 && excluidas.length === 0 ? (
+          <MensagemDeEstado carregando={false} erro={false} />
+        ) : (
+          <>
+            <p className="text-sm text-slate-400">
+              {comAlteracao} de {unidades.length}{" "}
+              {unidades.length === 1 ? "unidade teve" : "unidades tiveram"} alguma alteração nesta
+              competência.
+            </p>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {unidades.map((unidade) => (
+                <CartaoDeAlerta
+                  key={unidade.unidade}
+                  nome={unidade.label}
+                  teveAlteracao={unidade.summary.changes > 0}
+                />
+              ))}
+              {excluidas.map((unidade) => (
+                <CartaoDeAlerta
+                  key={unidade.unidade}
+                  nome={unidade.label}
+                  teveAlteracao={null}
+                  motivo={MOTIVO_EXCLUSAO_LABEL[unidade.reason]}
+                />
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CartaoDeAlerta({
+  nome,
+  teveAlteracao,
+  motivo,
+}: {
+  nome: string;
+  /** `null` quando a unidade não tem vigência nesta competência — nem sim, nem não. */
+  teveAlteracao: boolean | null;
+  motivo?: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "flex items-center gap-4 rounded-2xl border px-6 py-5",
+        teveAlteracao === null
+          ? "border-slate-800 bg-slate-900/60"
+          : teveAlteracao
+            ? "border-amber-500/30 bg-amber-500/[0.06]"
+            : "border-slate-800 bg-slate-900",
+      )}
+    >
+      {teveAlteracao === null ? (
+        <MinusCircle className="w-8 h-8 text-slate-600 shrink-0" />
+      ) : teveAlteracao ? (
+        <AlertTriangle className="w-8 h-8 text-amber-400 shrink-0" />
+      ) : (
+        <CheckCircle2 className="w-8 h-8 text-emerald-500 shrink-0" />
+      )}
+      <div className="min-w-0">
+        <p className="text-lg font-bold truncate" title={nome}>
+          {nome}
+        </p>
+        <p
+          className={cn(
+            "text-sm font-semibold",
+            teveAlteracao === null
+              ? "text-slate-500"
+              : teveAlteracao
+                ? "text-amber-400"
+                : "text-emerald-400",
+          )}
+        >
+          {teveAlteracao === null ? (motivo ?? "Sem dado nesta competência") : teveAlteracao ? "Teve alteração" : "Sem alteração"}
+        </p>
       </div>
     </div>
   );
