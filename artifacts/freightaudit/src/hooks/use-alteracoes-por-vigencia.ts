@@ -29,8 +29,16 @@ export function useAlteracoesPorVigencia(
     query.set("to", view.period);
   }
 
+  /*
+    Mesma chave de `LinhaDoTempoDeImpacto` e `LinhaDoTempoDeAlteracoes` — as
+    três leem `/changes/range` do início ao fim do histórico do contexto no
+    carregamento inicial da tela. Chaves próprias por componente faziam o
+    React Query disparar a mesma requisição cara três vezes; com a chave
+    alinhada por parâmetros, a primeira a resolver serve as outras duas do
+    cache.
+  */
   const movimentos = useQuery({
-    queryKey: ["alteracoes-por-vigencia", query.toString()],
+    queryKey: ["changes-range", query.toString()],
     queryFn: () => fetchJsonOrNull<Movimentos>(`/changes/range?${query}`),
     enabled: ordenadas.length > 1,
     staleTime: 60_000,

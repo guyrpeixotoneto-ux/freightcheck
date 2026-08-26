@@ -59,8 +59,14 @@ export function LinhaDoTempoDeAlteracoes({
   query.set("from", de);
   query.set("to", ate);
 
+  /*
+    Mesma chave de `LinhaDoTempoDeImpacto` e `useAlteracoesPorVigencia` — ver a
+    nota lá. No carregamento inicial `de`/`ate` cobrem o histórico inteiro,
+    igual às outras duas leituras; alinhar a chave por parâmetros faz o React
+    Query reaproveitar essa primeira chamada em vez de repeti-la.
+  */
   const movimentos = useQuery({
-    queryKey: ["linha-do-tempo-de-alteracoes", query.toString()],
+    queryKey: ["changes-range", query.toString()],
     queryFn: () => fetchJsonOrNull<Movimentos>(`/changes/range?${query}`),
     enabled: ordenadas.length > 1,
     staleTime: 60_000,
