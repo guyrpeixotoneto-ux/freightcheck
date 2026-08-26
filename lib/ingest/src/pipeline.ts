@@ -77,6 +77,7 @@ import {
   type CampoDeRegistro,
   type OndeDoApontamento,
 } from "./apontamentos";
+import { abrirProgresso, progressoLimpo } from "./progresso";
 
 /**
  * F1 — ingestion.
@@ -331,6 +332,20 @@ const AVISO_DE_CELULA: Record<
 
 /** Postgres caps a statement at 65535 bound parameters. */
 const INSERT_CHUNK = 1_000;
+
+/**
+ * De quantas linhas por vez a captura materializa células.
+ *
+ * O número não é sobre o banco — `insertChunked` já quebra por
+ * {@link INSERT_CHUNK} —, é sobre memória e sobre progresso: é o tamanho do
+ * pedaço de planilha que fica vivo de uma vez, e a granularidade com que a
+ * barra do cartão pode andar. Duzentas linhas de uma planilha larga são alguns
+ * milhares de células por volta, e num arquivo de 40 mil linhas dão 200
+ * oportunidades de publicar — mais do que as ~100 que
+ * `devePublicar` deixa passar, que é o que se quer: quem decide a frequência
+ * é o relator, não o tamanho do bloco.
+ */
+const LINHAS_POR_BLOCO = 200;
 
 async function insertChunked<T extends Record<string, unknown>>(
   db: Database,
@@ -885,6 +900,17 @@ export async function captureRaw(
 
   const { sheets: plans, workbook } = readWorkbook(file.storagePath);
 
+  /*
+    O tamanho do trecho, sabido antes de percorrê-lo.
+
+    `readWorkbook` já mediu cada aba para decidir o papel dela, então a conta
+    de linhas está na mão de graça — e é ela, e não bytes do arquivo, que
+    descreve o trabalho que vem: o custo daqui para a frente é uma volta por
+    linha, com uma escrita por bloco delas.
+  */
+  const linhasPrevistas = plans.reduce((soma, p) => soma + (p.rowCount ?? 0), 0);
+  const progresso = await abrirProgresso(db, importRunId, "CAPTURA", linhasPrevistas);
+
   let totalRows = 0;
   let totalCells = 0;
 
@@ -926,43 +952,71 @@ export async function captureRaw(
     const rowIdByIndex = new Map(insertedRows.map((r) => [r.rowIndex, r.id]));
     totalRows += insertedRows.length;
 
-    const cells: {
-      rawRowId: number;
-      columnIndex: number;
-      columnLetter: string;
-      columnHeader: string | null;
-      rawValue: string | null;
-      sourceType: string;
-      formattedText: string | null;
-    }[] = [];
+    /*
+      As células vão para o banco em blocos de linhas, e não de aba inteira.
 
-    for (let r = range.s.r; r <= range.e.r; r++) {
-      const rawRowId = rowIdByIndex.get(r + 1)!;
-      for (let c = range.s.c; c <= range.e.c; c++) {
-        const cell = readCell(sheet, r, c);
-        const header = plan.headers[c - range.s.c] ?? null;
-        // Pivot sheets: keep only cells that actually exist.
-        if (cell.type === "z" && plan.role !== "SOURCE") continue;
-        cells.push({
-          rawRowId,
-          columnIndex: c,
-          columnLetter: columnLetter(c),
-          columnHeader: header,
-          rawValue:
-            cell.value === undefined || cell.value === null
-              ? null
-              : cell.value instanceof Date
-                ? cell.value.toISOString()
-                : String(cell.value),
-          sourceType: cell.type,
-          formattedText: cell.formatted ?? null,
-        });
+      Duas coisas saem disso, e a segunda é a que motivou. A primeira é
+      memória: a aba inteira materializada de uma vez são centenas de milhares
+      de objetos vivos ao mesmo tempo, e o bloco os libera a cada volta. A
+      segunda é o progresso — um arquivo de uma aba só publicava, antes,
+      exatamente dois números: 0% e 100%, e o que a barra existe para mostrar
+      acontece entre eles.
+
+      O que entra no banco é idêntico ao que entrava: a ordem das linhas e das
+      colunas é a mesma, e `insertChunked` já quebrava por 1.000 de qualquer
+      forma.
+    */
+    for (let inicio = range.s.r; inicio <= range.e.r; inicio += LINHAS_POR_BLOCO) {
+      const fim = Math.min(inicio + LINHAS_POR_BLOCO - 1, range.e.r);
+      const cells: {
+        rawRowId: number;
+        columnIndex: number;
+        columnLetter: string;
+        columnHeader: string | null;
+        rawValue: string | null;
+        sourceType: string;
+        formattedText: string | null;
+      }[] = [];
+
+      for (let r = inicio; r <= fim; r++) {
+        const rawRowId = rowIdByIndex.get(r + 1)!;
+        for (let c = range.s.c; c <= range.e.c; c++) {
+          const cell = readCell(sheet, r, c);
+          const header = plan.headers[c - range.s.c] ?? null;
+          // Pivot sheets: keep only cells that actually exist.
+          if (cell.type === "z" && plan.role !== "SOURCE") continue;
+          cells.push({
+            rawRowId,
+            columnIndex: c,
+            columnLetter: columnLetter(c),
+            columnHeader: header,
+            rawValue:
+              cell.value === undefined || cell.value === null
+                ? null
+                : cell.value instanceof Date
+                  ? cell.value.toISOString()
+                  : String(cell.value),
+            sourceType: cell.type,
+            formattedText: cell.formatted ?? null,
+          });
+        }
       }
-    }
 
-    await insertChunked(db, rawCellTable, cells);
-    totalCells += cells.length;
+      await insertChunked(db, rawCellTable, cells);
+      totalCells += cells.length;
+      await progresso.avancar(fim - inicio + 1);
+    }
   }
+
+  /*
+    O trecho fecha cheio, e não no ponto em que a contagem parou.
+
+    Uma aba sem intervalo (`sheetRange` nulo) é pulada sem percorrer linha
+    nenhuma, e o previsto do cabeçalho pode ser maior que o percorrido. Fechar
+    em 92% um trabalho que terminou seria mentir na direção mais confusa: a
+    barra pararia para sempre num número que não é o fim.
+  */
+  await progresso.encerrar();
 
   await db
     .update(importRunTable)
@@ -1120,6 +1174,19 @@ export async function stage(
   */
   const conhecidos = await tiposConhecidos(db);
 
+  /*
+    O tamanho do preparo, e por que ele é medido em linhas de aba-fonte.
+
+    O trabalho daqui para a frente é uma volta por linha de planilha: tipar
+    cada célula, montar a chave, decidir a vigência. As abas rebaixadas não
+    entram na conta porque não entram no laço — contá-las faria a barra parar
+    antes do fim num arquivo que tem uma aba de resumo.
+  */
+  const linhasDoPreparo = sheets.reduce((soma, s) => soma + (s.rowCount ?? 0), 0);
+  const progresso = await abrirProgresso(db, importRunId, "PREPARO", linhasDoPreparo);
+  /** Quantas linhas ficaram para trás nas abas já visitadas. */
+  let linhasDasAbasAnteriores = 0;
+
   const issues: PendingIssue[] = [];
   const stagedRows: Record<string, unknown>[] = [];
   /*
@@ -1201,6 +1268,19 @@ export async function stage(
   }
 
   for (const sheet of sheets) {
+    /*
+      A barra é reposicionada no começo de cada aba, em vez de só somar.
+
+      Uma aba pode ser abandonada em qualquer um dos `continue` abaixo — sem
+      cabeçalho, sem coluna de vigência, sem colunas de identidade — e as
+      linhas dela não chegam a ser percorridas. Somando apenas o que o laço de
+      linhas anda, cada aba assim deixaria a barra devendo um pedaço até o fim
+      da importação, e um arquivo com duas abas rebaixadas terminaria o trecho
+      em 60%.
+    */
+    await progresso.posicionar(linhasDasAbasAnteriores);
+    linhasDasAbasAnteriores += sheet.rowCount ?? 0;
+
     const rows = await db
       .select()
       .from(rawRowTable)
@@ -1501,6 +1581,15 @@ export async function stage(
 
     // --- rows ---------------------------------------------------------------
     for (const row of rows) {
+      /*
+        Uma linha percorrida é uma linha percorrida, entre ou não.
+
+        O `avancar` vem antes de qualquer `continue` de propósito: linha em
+        branco, cabeçalho e linha rejeitada custam a mesma volta de laço que
+        uma linha que vira fato, e uma barra que só contasse as que entram
+        andaria mais devagar justamente no arquivo com mais problemas.
+      */
+      await progresso.avancar();
       if (row.isHeader) continue;
       const bucket = cellsByRow.get(row.id);
       if (!bucket) continue;
@@ -2118,6 +2207,14 @@ export async function stage(
   const errors = issues.filter((i) => i.severity === "ERROR").length;
   const warnings = issues.filter((i) => i.severity === "WARNING").length;
 
+  /*
+    Fim do caminho medido: o progresso é apagado junto com a última escrita.
+
+    Daqui para a frente quem descreve o run é o estado — STAGED, e logo
+    PREVIEWED —, e um progresso que sobrevivesse a este ponto seria uma
+    afirmação sobre trabalho em curso que não existe mais. Vai na mesma
+    atualização do estado porque são o mesmo fato.
+  */
   await db
     .update(importRunTable)
     .set({
@@ -2125,6 +2222,7 @@ export async function stage(
       stagedFactCount: consolidados.length,
       errorCount: errors,
       warningCount: warnings,
+      ...progressoLimpo(),
     })
     .where(eq(importRunTable.id, importRunId));
 
@@ -3456,7 +3554,15 @@ export async function markRunFailed(
 ): Promise<void> {
   await db
     .update(importRunTable)
-    .set({ status: "FAILED", failureReason: reason, finishedAt: new Date() })
+    // O progresso é apagado junto: um trecho pela metade preservado numa
+    // leitura que falhou faria a tela mostrar barra ao lado do motivo da
+    // recusa — "38%" embaixo de "falhou ao ler o arquivo".
+    .set({
+      status: "FAILED",
+      failureReason: reason,
+      finishedAt: new Date(),
+      ...progressoLimpo(),
+    })
     .where(eq(importRunTable.id, importRunId));
 }
 

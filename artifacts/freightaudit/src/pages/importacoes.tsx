@@ -49,6 +49,7 @@ import {
   faceDoCartao,
   historicoDoArquivo,
   leituraDoRun,
+  progressoDaLeitura,
   type FaceDoCartao,
   type HistoricoDoArquivo,
   type PapelNoArquivo,
@@ -316,6 +317,18 @@ interface RunStatus {
   declaredType: string | null;
   /** Preenchido quando este run é uma releitura, e não um envio. */
   reprocessOfRunId: string | null;
+  /**
+   * Quanto da leitura já passou — medido pelo pipeline enquanto ele trabalha.
+   *
+   * É o único trio deste objeto que fala de trabalho em curso: todos os outros
+   * contadores só existem depois que a etapa deles terminou. Nulo em
+   * `progressStep` quer dizer "nenhum trecho medido agora", e é o que toda
+   * importação anterior à `0062` responde. Quem traduz isso em barra é
+   * `progressoDaLeitura`.
+   */
+  progressStep: string | null;
+  progressDone: number;
+  progressTotal: number;
 }
 
 /**
@@ -2453,6 +2466,7 @@ function PendingRun({
 
   const cara = faceDoCartao(data?.status);
   const cores = CORES_DA_FACE[cara.face];
+  const progresso = progressoDaLeitura(data);
   const Icone = ICONE_DA_FACE[cara.face];
   const ready = cara.face === "conferida";
   const recusada = cara.face === "recusada";
@@ -2527,11 +2541,18 @@ function PendingRun({
             <p className={cn("text-xs mt-0.5", cores.detalhe)}>
               {cara.face === "lendo" ? (
                 <>
-                  {/* O rótulo de ESTADOS, nunca o enum cru: "na fila…",
-                      "lendo…", "preparada…" — não "validation_error…". */}
-                  {data
-                    ? `${estadoDaImportacao(data.status).rotulo}…`
-                    : "recebido…"}{" "}
+                  {/* A etapa só é dita aqui quando não há barra — um estado
+                      que `progressoDaLeitura` ainda não conhece. Com a barra
+                      na tela, repeti-la deixava "lendo… lendo… 45%" em duas
+                      linhas coladas; o que sobra nesta é a promessa, que a
+                      barra não faz.
+
+                      E é o rótulo de ESTADOS, nunca o enum cru: "na fila…",
+                      "preparada…" — não "validation_error…". */}
+                  {!progresso &&
+                    (data
+                      ? `${estadoDaImportacao(data.status).rotulo}… `
+                      : "recebido… ")}
                   nada entra sem sua aprovação.
                 </>
               ) : ready ? (
@@ -2592,6 +2613,57 @@ function PendingRun({
           </Button>
         </div>
       </div>
+
+      {/*
+        Quanto da leitura já passou — em degraus, porque é assim que o pipeline
+        publica o que fez (ver `progressoDaLeitura`).
+
+        A barra só existe enquanto o cartão está lendo: nas outras caras o que
+        importa já está escrito em palavras, e uma barra cheia ao lado de uma
+        recusa diria que deu certo. O `aria-*` está aqui porque uma barra que
+        só informa por cor e largura não informa quem usa leitor de tela — e o
+        texto ao lado dela repete o mesmo número, para quem não vê a animação.
+      */}
+      {cara.face === "lendo" && progresso && (
+        <div className="space-y-1.5">
+          <div className="flex items-baseline justify-between gap-3 text-xs font-medium text-amber-900">
+            <span>
+              {progresso.rotulo}…
+              {/* De onde sai a porcentagem, dito em números que a pessoa pode
+                  conferir contra a planilha dela. Sem isto, "38%" é um número
+                  de que ninguém sabe a origem; com isto, é 4.512 de 11.760
+                  linhas. Só aparece quando há medida: no degrau por estado não
+                  existem linhas a citar. */}
+              {progresso.medido && data && data.progressTotal > 0 && (
+                <span className="ml-2 font-normal text-amber-900/70">
+                  {n(Math.min(data.progressDone, data.progressTotal))} de{" "}
+                  {n(data.progressTotal)} linhas
+                </span>
+              )}
+            </span>
+            <span className="tabular-nums">{progresso.pct}%</span>
+          </div>
+          <div
+            role="progressbar"
+            aria-valuenow={progresso.pct}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-label={`Leitura do arquivo: ${progresso.rotulo}`}
+            className="h-1.5 w-full overflow-hidden rounded-full bg-amber-200"
+          >
+            {/*
+              A faixa clara que atravessa o trecho já andado é o que separa
+              "processando" de "travado" para quem olha: entre um degrau e o
+              seguinte a largura não muda por segundos, e sem movimento nenhum
+              o cartão parece parado justamente quando está trabalhando.
+            */}
+            <div
+              className="h-full rounded-full bg-amber-500 bg-[linear-gradient(90deg,transparent,rgba(255,255,255,0.6),transparent)] bg-[length:40%_100%] bg-no-repeat animate-[shimmer_1.6s_linear_infinite] transition-[width] duration-700 ease-out motion-reduce:animate-none"
+              style={{ width: `${progresso.pct}%` }}
+            />
+          </div>
+        </div>
+      )}
 
       {/*
         O preço de aprovar assim mesmo, à vista enquanto ainda dá para escolher.
