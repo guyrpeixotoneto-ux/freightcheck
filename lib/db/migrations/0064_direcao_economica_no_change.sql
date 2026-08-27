@@ -11,5 +11,10 @@
 -- Radar já trata como "não classificado" — o mesmo estado de quem nunca foi
 -- curado.
 
-ALTER TABLE "change" ADD COLUMN "economic_direction" text;--> statement-breakpoint
-ALTER TABLE "change" ADD COLUMN "economic_effect" text;
+-- `IF NOT EXISTS` como toda a fila: `runMigrations` roda a fila inteira sobre
+-- qualquer banco, e um banco que perdeu o registro (mas não o schema) a
+-- atravessa de novo do começo. Sem a guarda, esta migration era a única da
+-- fila que abortava nesse caminho com `42701 column already exists` — e uma
+-- migration que falha trava todas as seguintes.
+ALTER TABLE "change" ADD COLUMN IF NOT EXISTS "economic_direction" text;--> statement-breakpoint
+ALTER TABLE "change" ADD COLUMN IF NOT EXISTS "economic_effect" text;

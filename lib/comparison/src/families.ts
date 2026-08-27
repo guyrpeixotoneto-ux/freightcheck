@@ -461,17 +461,37 @@ export interface FamilyPlacement {
  * Onde um atributo aparece. Nunca devolve nulo: o que o mapa não conhece cai em
  * `SEM_FAMILIA`, com o próprio código como parâmetro, para ficar visível.
  */
+/**
+ * A colocação de cada atributo, guardada.
+ *
+ * `placementOf` é função pura sobre um mapa constante — o mesmo código de
+ * atributo devolve sempre a mesma colocação —, e mesmo assim montava um objeto
+ * novo e concatenava uma chave a cada chamada. No perfil de CPU de
+ * `/api/dre/history` isso dava 4,3% do tempo do processo, e alimentava o
+ * coletor de lixo com milhares de objetos idênticos e descartáveis.
+ *
+ * Guardar é seguro porque o resultado é imutável na prática: nada no produto
+ * escreve em `FamilyPlacement`, e as chaves possíveis são os códigos do
+ * dicionário mais `null`.
+ */
+const COLOCACOES = new Map<string | null, FamilyPlacement>();
+
 export function placementOf(attributeCode: string | null): FamilyPlacement {
+  const guardada = COLOCACOES.get(attributeCode);
+  if (guardada !== undefined) return guardada;
+
   const entry = attributeCode === null ? undefined : MAP[attributeCode];
   const [family, parameter] = entry ?? ["SEM_FAMILIA" as FamilyCode, attributeCode ?? "(sem atributo)"];
   const parameterKey = `${family}|${parameter}`;
-  return {
+  const colocacao: FamilyPlacement = {
     family,
     familyName: FAMILIES[family].name,
     parameter,
     parameterKey,
     pending: PENDING_PARAMETERS[parameterKey] ?? null,
   };
+  COLOCACOES.set(attributeCode, colocacao);
+  return colocacao;
 }
 
 /** Os códigos que o mapa conhece. Usado pelos testes de cobertura. */

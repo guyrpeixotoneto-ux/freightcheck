@@ -20,6 +20,7 @@ import {
   formatFactor,
   type Periodicity,
 } from "@workspace/simulation";
+import { DUAS_CASAS } from "@workspace/knowledge/formato";
 
 /** A competência em que a DRE é apurada. Hoje só existe mensal. */
 export type CompetenciaDaDRE = "MENSAL";
@@ -112,8 +113,5 @@ export function normalizarParaCompetencia(
 }
 
 export function formatarNumero(valor: number): string {
-  return valor.toLocaleString("pt-BR", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
+  return DUAS_CASAS.format(valor);
 }

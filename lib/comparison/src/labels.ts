@@ -88,13 +88,33 @@ const ATTRIBUTE_LABELS: Record<string, string> = {
  * entendeu o campo — a alternativa seria mostrar o slug, que é pior, ou omitir
  * o atributo, que é inaceitável.
  */
+/**
+ * O que já foi humanizado, guardado.
+ *
+ * O universo de entradas é o dicionário de atributos — 138 nomes neste acervo,
+ * fechado por importação. O que varia é quantas vezes cada um é pedido: uma
+ * leitura da DRE chama `attributeLabel` por atributo, por ativo e por
+ * vigência, e no perfil de CPU de `/api/dre/history` `humanise` respondia por
+ * 5,7% do tempo do processo — três expressões regulares e quatro cópias de
+ * string, refeitas milhares de vezes sobre a mesma dúzia de nomes.
+ *
+ * Um `Map` sem teto é seguro justamente porque o universo é fechado: a chave é
+ * o `source_name` do atributo, não um valor vindo do usuário.
+ */
+const JA_HUMANIZADOS = new Map<string, string>();
+
 function humanise(sourceName: string): string {
+  const guardado = JA_HUMANIZADOS.get(sourceName);
+  if (guardado !== undefined) return guardado;
+
   const spaced = sourceName
     .replace(/([a-z\d])([A-Z])/g, "$1 $2")
     .replace(/[_-]+/g, " ")
     .trim()
     .toLowerCase();
-  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+  const legivel = spaced.charAt(0).toUpperCase() + spaced.slice(1);
+  JA_HUMANIZADOS.set(sourceName, legivel);
+  return legivel;
 }
 
 /**

@@ -40,6 +40,7 @@ import {
   type MotivoDeExclusao,
 } from "./regras";
 import { avaliarStatus, type StatusDoEquipamento } from "./status";
+import { DUAS_CASAS } from "@workspace/knowledge/formato";
 
 /** Diferença até a qual um total e as suas parcelas são considerados iguais. */
 export const TOLERANCIA_CENTAVO = 0.01;
@@ -930,10 +931,7 @@ function semMarcacao(texto: string): string {
 }
 
 function formatarNumero(valor: number): string {
-  return valor.toLocaleString("pt-BR", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
+  return DUAS_CASAS.format(valor);
 }
 
 /** O total mensal de uma composição já montada, ou nulo quando não há nenhum. */
