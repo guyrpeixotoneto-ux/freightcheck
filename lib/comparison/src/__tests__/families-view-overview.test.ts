@@ -451,6 +451,28 @@ describe("getRangeOverview — a série consolidada do gráfico", () => {
     expect(perdas).toBeLessThan(0);
   });
 
+  it("conta as alterações da competência somando as unidades incluídas", async () => {
+    const overview = (await getRangeOverview(ctx.db, JULHO, AGOSTO))!;
+    const individuais = (
+      await Promise.all(
+        overview.unitsIncluded.flatMap((u) =>
+          u.contexts.map((c) =>
+            getRangeAnalysis(ctx.db, JULHO, AGOSTO, { scopeHash: c.scopeHash, channel: c.channel }),
+          ),
+        ),
+      )
+    ).filter((a) => a !== null);
+
+    const esperado = individuais
+      .flatMap((a) => a.movements)
+      .filter((m) => m.period === AGOSTO)
+      .reduce((soma, m) => soma + m.changes, 0);
+
+    const ponto = overview.serie.find((p) => p.period === AGOSTO)!;
+    expect(esperado).toBeGreaterThan(0);
+    expect(ponto.changes).toBe(esperado);
+  });
+
   it("a série está ordenada por competência e não repete nenhuma", async () => {
     const overview = (await getRangeOverview(ctx.db, JULHO, AGOSTO))!;
     const periodos = overview.serie.map((p) => p.period);

@@ -1,4 +1,6 @@
+import { useState } from "react";
 import { CalendarDays } from "lucide-react";
+import { rotuloCurtoDaVigencia } from "@workspace/comparison/labels";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -8,7 +10,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
-import { useAlteracoesPorVigencia } from "@/hooks/use-alteracoes-por-vigencia";
+import {
+  useAlteracoesPorVigencia,
+  useAlteracoesPorVigenciaGeral,
+} from "@/hooks/use-alteracoes-por-vigencia";
 import type { FamiliesView } from "@/components/inicio/types";
 
 /**
@@ -52,39 +57,134 @@ export function SeletorDeVigencia({
   if (!view || view.periods.length <= 1) return null;
 
   return (
-    <DropdownMenu>
+    <MenuDeVigencias
+      rotulo={rotulo}
+      className={className}
+      cabecalho={`${view.periods.length} vigências no histórico`}
+      opcoes={[...view.periods]
+        .sort((a, b) => b.date.localeCompare(a.date))
+        .map((periodo) => ({
+          data: periodo.date,
+          rotulo: periodo.label,
+          alteracoes: alteracoesPorVigencia.get(periodo.date) ?? null,
+        }))}
+      ativa={view.period}
+      onEscolher={(data) => onTrocar({ period: data })}
+    />
+  );
+}
+
+/**
+ * O mesmo seletor em Visão Geral, onde não existe um `FamiliesView` por trás.
+ *
+ * Ele lista a união das competências de todas as unidades (`periodosOverview`)
+ * e vinha desenhado à mão em quatro telas — Visão Geral, Linha do Tempo,
+ * Dashboard e Gestão à Vista —, nas quatro com a data crua do banco
+ * (`2026-08-02`) e sem contagem nenhuma. Duas listas de vigência que se abrem
+ * do mesmo botão, no mesmo cabeçalho, e escrevem a data de dois jeitos
+ * diferentes obrigam quem lê a traduzir entre elas; e sem a contagem a lista
+ * só oferece seis datas, sem dizer o que houve em cada uma.
+ *
+ * A contagem aqui é a soma entre unidades, e vem de `/changes/range/overview`
+ * — a mesma leitura que a Linha do Tempo já faz para o ranking de unidades,
+ * agora também com `changes` por competência. **Ela só sai quando o menu
+ * abre**: é uma análise do intervalo inteiro por unidade × contexto, cara
+ * demais para disparar no carregamento de quatro telas por causa de uma
+ * coluna de um menu que pode nunca ser aberto.
+ */
+export function SeletorDeVigenciaGeral({
+  periodos,
+  ativa,
+  onTrocar,
+  className,
+  rotulo = "Trocar vigência",
+}: {
+  /** A união das competências das unidades, mais recente primeiro. */
+  periodos: string[];
+  ativa: string | null;
+  onTrocar: (mudancas: Record<string, string | null>) => void;
+  className?: string;
+  rotulo?: string;
+}) {
+  const [aberto, setAberto] = useState(false);
+  const alteracoesPorVigencia = useAlteracoesPorVigenciaGeral(periodos, aberto);
+
+  if (periodos.length <= 1) return null;
+
+  return (
+    <MenuDeVigencias
+      rotulo={rotulo}
+      className={className}
+      cabecalho={`${periodos.length} competências disponíveis`}
+      /*
+        `rotuloCurtoDaVigencia` é a mesma regra que o servidor aplica ao montar
+        `view.periods` — mês com uma entrega vira `agosto/2026`, mês com duas
+        vira `02/08/2026` —, aqui aplicada no navegador porque
+        `periodosOverview` chega de `/contexts` como data crua. Uma função só,
+        para que os dois seletores nunca chamem a mesma vigência de dois nomes.
+      */
+      opcoes={periodos.map((data) => ({
+        data,
+        rotulo: rotuloCurtoDaVigencia(data, periodos),
+        alteracoes: alteracoesPorVigencia.get(data) ?? null,
+      }))}
+      ativa={ativa}
+      onEscolher={(data) => onTrocar({ period: data })}
+      aberto={aberto}
+      onAbrir={setAberto}
+    />
+  );
+}
+
+/** A casca comum dos dois seletores — o que faz as duas listas serem uma só. */
+function MenuDeVigencias({
+  rotulo,
+  className,
+  cabecalho,
+  opcoes,
+  ativa,
+  onEscolher,
+  aberto,
+  onAbrir,
+}: {
+  rotulo: string;
+  className?: string;
+  cabecalho: string;
+  opcoes: { data: string; rotulo: string; alteracoes: number | null }[];
+  ativa: string | null;
+  onEscolher: (data: string) => void;
+  aberto?: boolean;
+  onAbrir?: (aberto: boolean) => void;
+}) {
+  return (
+    <DropdownMenu open={aberto} onOpenChange={onAbrir}>
       <DropdownMenuTrigger className={className}>
         <CalendarDays className="w-4 h-4" />
         {rotulo}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-64 max-h-80 overflow-y-auto">
         <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
-          {view.periods.length} vigências no histórico
+          {cabecalho}
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
-        {[...view.periods]
-          .sort((a, b) => b.date.localeCompare(a.date))
-          .map((periodo) => {
-            const alteracoes = alteracoesPorVigencia.get(periodo.date) ?? null;
-            return (
-              <DropdownMenuItem
-                key={periodo.date}
-                onSelect={() => onTrocar({ period: periodo.date })}
-                className={cn(
-                  "flex items-center justify-between gap-2",
-                  periodo.date === view.period && "font-bold text-brand",
-                )}
-              >
-                <span>{periodo.label}</span>
-                {alteracoes !== null && (
-                  <span className="text-xs font-normal text-muted-foreground tabular-nums">
-                    {alteracoes.toLocaleString("pt-BR")}{" "}
-                    {alteracoes === 1 ? "alteração" : "alterações"}
-                  </span>
-                )}
-              </DropdownMenuItem>
-            );
-          })}
+        {opcoes.map((opcao) => (
+          <DropdownMenuItem
+            key={opcao.data}
+            onSelect={() => onEscolher(opcao.data)}
+            className={cn(
+              "flex items-center justify-between gap-2",
+              opcao.data === ativa && "font-bold text-brand",
+            )}
+          >
+            <span>{opcao.rotulo}</span>
+            {opcao.alteracoes !== null && (
+              <span className="text-xs font-normal text-muted-foreground tabular-nums">
+                {opcao.alteracoes.toLocaleString("pt-BR")}{" "}
+                {opcao.alteracoes === 1 ? "alteração" : "alterações"}
+              </span>
+            )}
+          </DropdownMenuItem>
+        ))}
       </DropdownMenuContent>
     </DropdownMenu>
   );

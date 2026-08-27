@@ -53,7 +53,10 @@ import { Sparkline } from "@/components/dashboard/sparkline";
 import { AnelDeCobertura } from "@/components/dashboard/anel-de-cobertura";
 import { GraficoDeImpacto, pontosDeImpacto, type PontoDeImpacto } from "@/components/dashboard/grafico-de-impacto";
 import { iconeDaAlteracao } from "@/components/dashboard/icone-da-alteracao";
-import { SeletorDeVigencia } from "@/components/vigencia/seletor-de-vigencia";
+import {
+  SeletorDeVigencia,
+  SeletorDeVigenciaGeral,
+} from "@/components/vigencia/seletor-de-vigencia";
 import type {
   ChangeGroup,
   FamiliesOverview,
@@ -384,28 +387,13 @@ function Cabecalho({
           )}
 
           {visaoGeral
-            ? periodosOverview.length > 1 && (
-                <DropdownMenu>
-                  <DropdownMenuTrigger className={BOTAO_DE_TROCA}>
-                    <CalendarDays className="w-4 h-4" />
-                    Trocar vigência
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-56 max-h-80 overflow-y-auto">
-                    <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
-                      {periodosOverview.length} competências disponíveis
-                    </DropdownMenuLabel>
-                    <DropdownMenuSeparator />
-                    {periodosOverview.map((data) => (
-                      <DropdownMenuItem
-                        key={data}
-                        onSelect={() => onTrocar({ period: data })}
-                        className={cn(data === overview?.period && "font-bold text-brand")}
-                      >
-                        {data}
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuContent>
-                </DropdownMenu>
+            ? (
+                <SeletorDeVigenciaGeral
+                  periodos={periodosOverview}
+                  ativa={overview?.period ?? null}
+                  onTrocar={onTrocar}
+                  className={BOTAO_DE_TROCA}
+                />
               )
             : (
                 <SeletorDeVigencia

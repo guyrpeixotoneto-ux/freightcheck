@@ -137,6 +137,8 @@ export interface RangeOverviewPoint {
   period: string;
   label: string;
   byPeriodicity: Record<string, { gains: number; losses: number }>;
+  /** Alterações da competência, somadas entre as unidades — o seletor de vigência da Visão Geral. */
+  changes: number;
 }
 
 export interface RangeOverview {
