@@ -441,7 +441,7 @@ export interface RangeAnalysis {
   periods: { date: string; label: string }[];
   movements: RangeMovement[];
   /** Vigências dentro do intervalo sem comparação nenhuma. Nomeadas, nunca zero. */
-  gaps: { period: string; label: string; reason: string }[];
+  gaps: RangeGap[];
   /** O impacto do intervalo inteiro, já sem dupla contagem, por periodicidade. */
   impact: ImpactSummary;
   /** Só o que reduz a remuneração. Nunca somado ao ganho, nem entre periodicidades. */
@@ -478,34 +478,61 @@ export interface ParameterRollup {
   notCalculable: number;
 }
 
-export async function getRangeAnalysis(
+/**
+ * O que toda leitura de intervalo precisa antes de decidir o que devolver.
+ *
+ * Extraído de `getRangeAnalysis` quando o Radar de Alterações passou a ter uma
+ * rota própria (`getRadarDaUnidade`). As duas leituras respondem perguntas
+ * diferentes — uma monta a análise inteira, a outra só a grade — mas partem do
+ * **mesmo** ponto: qual contexto, quais vigências, quais comparações caem no
+ * intervalo, quais linhas de mudança elas produzem, e o índice de composição
+ * que decide o que não pode ser somado duas vezes.
+ *
+ * Esse índice (`dedup`) é regra financeira, não otimização. Se as duas leituras
+ * o construíssem cada uma do seu jeito, a grade do Radar e a Linha do Tempo
+ * poderiam mostrar dinheiros diferentes para o mesmo intervalo — e o produto
+ * inteiro é construído para que isso não aconteça. Uma função, dois chamadores.
+ *
+ * O que **não** está aqui é a consulta de frota por comparação: ela só serve
+ * para montar os grupos de `entries`, e o Radar não pede grupos. Deixá-la fora
+ * é o que permite à rota da grade não pagá-la — medido, é a segunda consulta
+ * mais cara desta leitura.
+ */
+/**
+ * Uma vigência do intervalo que foi importada e **não** foi comparada.
+ *
+ * Ganhou nome quando o Radar passou a ter rota própria: os dois construtores de
+ * grade precisam do mesmo tipo, e um literal repetido em dois lugares é a
+ * versão em tipos do mesmo problema que este arquivo evita em código.
+ */
+export interface RangeGap {
+  period: string;
+  label: string;
+  reason: string;
+}
+
+export interface BaseDoIntervalo {
+  context: ContextInfo;
+  datas: string[];
+  inicio: string;
+  fim: string;
+  sets: { change_set_id: string; period: string; entity_type_set: string }[];
+  changeSetIds: string[];
+  todasAsLinhas: Awaited<ReturnType<typeof loadChanges>>;
+  dedup: Deduplicador;
+  /** De qual vigência veio cada comparação. */
+  periodoDoSet: Map<string, string>;
+  /** As vigências do intervalo, da mais recente para a mais antiga. */
+  noIntervalo: string[];
+}
+
+export async function baseDoIntervalo(
   db: Database,
   from?: string,
   to?: string,
   requestedContext?: RequestedContext,
-  /**
-   * Recorte do cartão: só estes parâmetros.
-   *
-   * Filtrar aqui e não na tela não é economia de tráfego — é a única forma de
-   * `vehiclesTouched` significar o que o rótulo promete. A tela sabe quantos
-   * veículos cada grupo tocou, mas não *quais*; somar os grupos dá 182 numa
-   * frota de 144, porque o mesmo caminhão conta em cada parâmetro que mudou.
-   * O conjunto de ativos distintos só existe aqui.
-   */
-  parameterKeys?: string[],
-  /**
-   * A lista de contextos já carregada, para quem vai chamar isto em série.
-   *
-   * `getRangeOverview` chama esta função uma vez por unidade × contexto, e cada
-   * chamada refazia `listContexts` — duas consultas idênticas por unidade,
-   * respondendo à mesma pergunta sobre o banco inteiro, todas ao mesmo tempo e
-   * disputando o mesmo pool. A lista não depende do intervalo nem da unidade:
-   * uma leitura serve todas.
-   *
-   * Sem o argumento, nada muda — quem chama de fora continua lendo a lista.
-   */
   contextosCarregados?: ContextInfo[],
-): Promise<RangeAnalysis | null> {
+): Promise<BaseDoIntervalo | null> {
   const contexts = contextosCarregados ?? (await listContexts(db));
   const context = await resolveContext(db, requestedContext, contexts);
   if (!context) return null;
@@ -557,6 +584,139 @@ export async function getRangeAnalysis(
      ORDER BY sb.effective_date DESC, sb.entity_type_set
   `);
 
+  const changeSetIds = sets.map((s) => s.change_set_id);
+  const todasAsLinhas = await loadChanges(db, changeSetIds);
+
+  /*
+    O índice de composição é montado sobre **todas** as linhas do intervalo, e
+    não sobre o recorte do cartão: `carreta.custo_fixo` mora num cartão e a sua
+    parcela `lucro_fixomodelo_novo_ciclo` mora noutro. Um índice só do recorte
+    não veria a parcela mudar, o titular voltaria para dentro da soma, e o
+    cartão mostraria o mesmo dinheiro duas vezes.
+
+    O que ele **não** faz é atravessar vigências. Este comentário já disse o
+    contrário — "é do intervalo inteiro, e não por vigência" —, e a afirmação
+    ficou de pé depois de o código mudar: `criarDeduplicador` indexa por
+    (comparação, ativo), então as regras decidem dentro de cada comparação e
+    nunca entre duas.
+
+    A mudança foi deliberada, e o motivo é que a leitura antiga perdia dinheiro:
+    um total que se moveu **sozinho** em junho sairia da soma porque uma parcela
+    dele se moveu em julho — uma dupla contagem que não existe em nenhum dos dois
+    meses, descontada mesmo assim. As duas regras são internas a um par de
+    vigências (um total e as parcelas dele, um cavalo e a carreta dele), e é
+    nesse grão que elas fecham.
+  */
+  const dedup = criarDeduplicador(
+    todasAsLinhas.map(daLinhaDoBanco),
+    await carregarVinculosDeConjunto(db, await snapshotsDosChangeSets(db, changeSetIds)),
+  );
+
+  const periodoDoSet = new Map(sets.map((s) => [s.change_set_id, s.period]));
+  const noIntervalo = datas.filter((d) => d > inicio && d <= fim).sort().reverse();
+
+  return {
+    context,
+    datas,
+    inicio,
+    fim,
+    sets,
+    changeSetIds,
+    todasAsLinhas,
+    dedup,
+    periodoDoSet,
+    noIntervalo,
+  };
+}
+
+/**
+ * Os movimentos e as lacunas do intervalo — a grade do Radar e o gráfico da
+ * Linha do Tempo saem daqui, do mesmo código.
+ *
+ * Uma vigência do intervalo ou tem comparação calculada (vira `movement`) ou
+ * não tem (vira `gap`). A distinção é a promessa central do produto: uma
+ * vigência sem comparação **não é zero**, e nunca pode ser desenhada como se
+ * fosse. Ver `EstadoDaCelula` no Radar, que carrega a mesma distinção até o
+ * pixel.
+ */
+export function montarMovimentosEGaps(
+  base: Pick<BaseDoIntervalo, "sets" | "datas" | "periodoDoSet" | "noIntervalo" | "dedup">,
+  rows: Awaited<ReturnType<typeof loadChanges>>,
+): { movements: RangeMovement[]; gaps: RangeGap[] } {
+  const { sets, datas, periodoDoSet, noIntervalo, dedup } = base;
+
+  const rowsPorPeriodo = new Map<string, typeof rows>();
+  for (const row of rows) {
+    const periodo = periodoDoSet.get(row.change_set_id);
+    if (!periodo) continue;
+    const lista = rowsPorPeriodo.get(periodo) ?? [];
+    lista.push(row);
+    rowsPorPeriodo.set(periodo, lista);
+  }
+
+  const movements: RangeMovement[] = noIntervalo
+    .filter((periodo) => sets.some((s) => s.period === periodo))
+    .map((periodo) => {
+      const linhas = rowsPorPeriodo.get(periodo) ?? [];
+      return {
+        period: periodo,
+        label: rotuloCurtoDaVigencia(periodo, datas),
+        comparisons: sets.filter((s) => s.period === periodo).length,
+        changes: linhas.length,
+        vehicles: new Set(
+          linhas.map((r) => r.entity_id).filter((v): v is string => v !== null),
+        ).size,
+        impact: summariseImpact(linhas, dedup),
+      };
+    });
+
+  const gaps: RangeGap[] = noIntervalo
+    .filter((periodo) => !sets.some((s) => s.period === periodo))
+    .map((periodo) => ({
+      period: periodo,
+      label: rotuloCurtoDaVigencia(periodo, datas),
+      reason:
+        "Vigência importada sem comparação: é a primeira da série, ou a " +
+        "comparação ainda não foi calculada. O que houve aqui não está " +
+        "somado — e não está contado como zero.",
+    }));
+
+  return { movements, gaps };
+}
+
+
+export async function getRangeAnalysis(
+  db: Database,
+  from?: string,
+  to?: string,
+  requestedContext?: RequestedContext,
+  /**
+   * Recorte do cartão: só estes parâmetros.
+   *
+   * Filtrar aqui e não na tela não é economia de tráfego — é a única forma de
+   * `vehiclesTouched` significar o que o rótulo promete. A tela sabe quantos
+   * veículos cada grupo tocou, mas não *quais*; somar os grupos dá 182 numa
+   * frota de 144, porque o mesmo caminhão conta em cada parâmetro que mudou.
+   * O conjunto de ativos distintos só existe aqui.
+   */
+  parameterKeys?: string[],
+  /**
+   * A lista de contextos já carregada, para quem vai chamar isto em série.
+   *
+   * `getRangeOverview` chama esta função uma vez por unidade × contexto, e cada
+   * chamada refazia `listContexts` — duas consultas idênticas por unidade,
+   * respondendo à mesma pergunta sobre o banco inteiro, todas ao mesmo tempo e
+   * disputando o mesmo pool. A lista não depende do intervalo nem da unidade:
+   * uma leitura serve todas.
+   *
+   * Sem o argumento, nada muda — quem chama de fora continua lendo a lista.
+   */
+  contextosCarregados?: ContextInfo[],
+): Promise<RangeAnalysis | null> {
+  const base = await baseDoIntervalo(db, from, to, requestedContext, contextosCarregados);
+  if (!base) return null;
+  const { context, datas, inicio, fim, sets, changeSetIds, todasAsLinhas, dedup, periodoDoSet } = base;
+
   /*
     A frota de cada grupo, por (comparação, equipamento) — a mesma consulta que
     a leitura da vigência faz, e pela mesma razão.
@@ -605,33 +765,6 @@ export async function getRangeAnalysis(
      GROUP BY cs.id, e.entity_type
   `);
 
-  const changeSetIds = sets.map((s) => s.change_set_id);
-  const todasAsLinhas = await loadChanges(db, changeSetIds);
-
-  /*
-    O índice de composição é montado sobre **todas** as linhas do intervalo, e
-    não sobre o recorte do cartão: `carreta.custo_fixo` mora num cartão e a sua
-    parcela `lucro_fixomodelo_novo_ciclo` mora noutro. Um índice só do recorte
-    não veria a parcela mudar, o titular voltaria para dentro da soma, e o
-    cartão mostraria o mesmo dinheiro duas vezes.
-
-    O que ele **não** faz é atravessar vigências. Este comentário já disse o
-    contrário — "é do intervalo inteiro, e não por vigência" —, e a afirmação
-    ficou de pé depois de o código mudar: `criarDeduplicador` indexa por
-    (comparação, ativo), então as regras decidem dentro de cada comparação e
-    nunca entre duas.
-
-    A mudança foi deliberada, e o motivo é que a leitura antiga perdia dinheiro:
-    um total que se moveu **sozinho** em junho sairia da soma porque uma parcela
-    dele se moveu em julho — uma dupla contagem que não existe em nenhum dos dois
-    meses, descontada mesmo assim. As duas regras são internas a um par de
-    vigências (um total e as parcelas dele, um cavalo e a carreta dele), e é
-    nesse grão que elas fecham.
-  */
-  const dedup = criarDeduplicador(
-    todasAsLinhas.map(daLinhaDoBanco),
-    await carregarVinculosDeConjunto(db, await snapshotsDosChangeSets(db, changeSetIds)),
-  );
 
   const rows =
     parameterKeys && parameterKeys.length > 0
@@ -640,63 +773,15 @@ export async function getRangeAnalysis(
         )
       : todasAsLinhas;
 
-  const periodoDoSet = new Map(sets.map((s) => [s.change_set_id, s.period]));
   const fleetByChangeSet = new Map(
     frotas.map((f) => [chaveDaFrota(f.change_set_id, f.entity_type), f.fleet]),
   );
 
   // ---- movimento por vigência ---------------------------------------------
-  /*
-    O intervalo são as transições que **vão** de `inicio` até `fim` — a ponta
-    inicial é o ponto de partida, não um período cujo movimento se soma.
-
-    Era o contrário, e a tela mostrou o preço: escolher "de julho até agosto"
-    somava também a transição que produziu julho (junho→julho), e ainda
-    acusava julho de "vigência que ficou de fora" quando ela era justamente a
-    referência escolhida. O texto dizia "1 comparação" e o alerta dizia que
-    faltava uma — as duas frases descreviam semânticas diferentes na mesma
-    tela.
-
-    Agora a seta do seletor quer dizer o que parece: julho → agosto é uma
-    comparação. E as duas leituras passam a cobrir o mesmo trecho, que é o que
-    permite subtrair uma da outra para dizer o que foi revertido.
-  */
-  const noIntervalo = datas.filter((d) => d > inicio && d <= fim).sort().reverse();
-  const rowsPorPeriodo = new Map<string, typeof rows>();
-  for (const row of rows) {
-    const periodo = periodoDoSet.get(row.change_set_id);
-    if (!periodo) continue;
-    const lista = rowsPorPeriodo.get(periodo) ?? [];
-    lista.push(row);
-    rowsPorPeriodo.set(periodo, lista);
-  }
-
-  const movements: RangeMovement[] = noIntervalo
-    .filter((periodo) => sets.some((s) => s.period === periodo))
-    .map((periodo) => {
-      const linhas = rowsPorPeriodo.get(periodo) ?? [];
-      return {
-        period: periodo,
-        label: rotuloCurtoDaVigencia(periodo, datas),
-        comparisons: sets.filter((s) => s.period === periodo).length,
-        changes: linhas.length,
-        vehicles: new Set(
-          linhas.map((r) => r.entity_id).filter((v): v is string => v !== null),
-        ).size,
-        impact: summariseImpact(linhas, dedup),
-      };
-    });
-
-  const gaps = noIntervalo
-    .filter((periodo) => !sets.some((s) => s.period === periodo))
-    .map((periodo) => ({
-      period: periodo,
-      label: rotuloCurtoDaVigencia(periodo, datas),
-      reason:
-        "Vigência importada sem comparação: é a primeira da série, ou a " +
-        "comparação ainda não foi calculada. O que houve aqui não está " +
-        "somado — e não está contado como zero.",
-    }));
+  // O mesmo construtor que o Radar usa (`montarMovimentosEGaps`): a distinção
+  // entre "comparado" e "sem comparação" é a mesma pergunta nas duas telas, e
+  // duas escritas dela poderiam divergir sem ninguém notar.
+  const { movements, gaps } = montarMovimentosEGaps(base, rows);
 
   // ---- ranking, um item por grupo dentro de cada vigência ------------------
   const baldes = new Map<string, typeof rows>();

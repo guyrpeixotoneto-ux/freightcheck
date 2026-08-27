@@ -21,6 +21,8 @@ import {
   getGroupedView,
   getGroupVehicles,
   getRangeAnalysis,
+  getRadarDaCelula,
+  getRadarDaUnidade,
   getRangeOverview,
   getEndToEndAnalysis,
   FREIGHTECH_SEM_DADO,
@@ -450,6 +452,46 @@ router.get("/changes/range", async (req, res): Promise<void> => {
     return;
   }
   res.json(analysis);
+});
+
+/**
+ * O Radar de Alterações — a grade de uma unidade, e só o que a grade desenha.
+ *
+ * Rota própria, e não um parâmetro de `/changes/range`, porque o que muda não é
+ * o recorte da resposta: é o trabalho que o servidor faz para produzi-la.
+ * `/changes/range` monta `entries` (uma consulta de frota por comparação ×
+ * equipamento, e um grupo por balde) e `byParameter`, que respondem por 97% dos
+ * 517 KB que ela devolve. A grade do Radar lê `movements` e `gaps` — 6,4 KB — e
+ * pagava o resto uma vez por unidade.
+ *
+ * Os números são os mesmos por construção, não por conferência: as duas rotas
+ * partem da mesma `baseDoIntervalo` e chamam o mesmo `montarMovimentosEGaps`.
+ *
+ * `period` liga a gaveta de uma célula: com ele a resposta é a lista de
+ * atributos daquela vigência, já projetada no que a gaveta desenha.
+ */
+router.get("/changes/radar", async (req, res): Promise<void> => {
+  const from = typeof req.query.from === "string" ? req.query.from : undefined;
+  const to = typeof req.query.to === "string" ? req.query.to : undefined;
+  const period = typeof req.query.period === "string" ? req.query.period : undefined;
+  const context = parseContext(req.query as Record<string, unknown>);
+
+  if (period) {
+    const entradas = await getRadarDaCelula(db, period, from, to, context);
+    if (!entradas) {
+      res.status(404).json({ error: "Nenhuma vigência importada ainda." });
+      return;
+    }
+    res.json({ period, entradas });
+    return;
+  }
+
+  const grade = await getRadarDaUnidade(db, from, to, context);
+  if (!grade) {
+    res.status(404).json({ error: "Nenhuma vigência importada ainda." });
+    return;
+  }
+  res.json(grade);
 });
 
 /**

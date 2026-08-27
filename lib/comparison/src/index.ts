@@ -28,3 +28,4 @@ export * from "./escopo";
 export * from "./ativos";
 export * from "./alteracoes-do-ativo";
 export * from "./radar-trechos";
+export * from "./radar";

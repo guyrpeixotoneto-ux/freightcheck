@@ -8,9 +8,10 @@ import {
   montarRadar,
   periodicidadesDoRadar,
   resumoDoRadar,
+  type EntradaDaCelula,
   type UnidadeDoRadar,
 } from "../gestao-a-vista-radar";
-import type { Movimentos, RangeEntry } from "@/lib/analise";
+
 
 /** Um `/changes/range` com só o que o Radar lê: movimentos e lacunas. */
 function movimentos(
@@ -45,6 +46,7 @@ function unidade(
     contextos: leituras.map((_, i) => ({ scopeHash: `${nome}-${i}`, canal: null })),
     movimentos: leituras,
     estado: "pronta",
+    tentativas: 0,
   };
 }
 
@@ -56,6 +58,7 @@ function pendente(nome: string, contextos = 1): UnidadeDoRadar {
     contextos: Array.from({ length: contextos }, (_, i) => ({ scopeHash: `${nome}-${i}`, canal: null })),
     movimentos: Array.from({ length: contextos }, () => undefined),
     estado: "pendente",
+    tentativas: 0,
   };
 }
 
@@ -228,8 +231,11 @@ describe("montarRadar com unidades ainda carregando", () => {
       ],
       "MENSAL",
     );
-    expect(linhas.map((l) => l.label)).toEqual(["PRONTA", "LENTA"]);
-    expect(linhas[0].totalDeImpacto).toBe(-900);
+    // A ordem enquanto falta unidade é de nome (ver o teste do pódio); o que
+    // este exercita é que a linha pronta continua desenhando o número dela.
+    expect(linhas.map((l) => l.label).sort()).toEqual(["LENTA", "PRONTA"]);
+    expect(linhas.find((l) => l.label === "PRONTA")?.totalDeImpacto).toBe(-900);
+    expect(linhas.find((l) => l.label === "LENTA")?.estado).toBe("pendente");
   });
 
   it("uma unidade com erro não apaga as que responderam", () => {
@@ -238,11 +244,14 @@ describe("montarRadar com unidades ainda carregando", () => {
       [comErro("CAIU"), unidade("PRONTA", movimentos([{ period: "2026-02", changes: 4 }]))],
       "MENSAL",
     );
-    expect(linhas.map((l) => l.label)).toEqual(["PRONTA", "CAIU"]);
+    expect(linhas.map((l) => l.label).sort()).toEqual(["CAIU", "PRONTA"]);
     expect(linhas.find((l) => l.label === "PRONTA")?.totalDeAlteracoes).toBe(4);
+    expect(linhas.find((l) => l.label === "CAIU")?.estado).toBe("erro");
   });
 
-  it("pendentes ficam embaixo, em ordem de nome, sem disputar o pódio", () => {
+  it("enquanto falta unidade, a grade fica em ordem de nome — não há pódio a mostrar", () => {
+    // Ordenar por impacto aqui ranquearia por quem respondeu primeiro e
+    // apresentaria esse acaso com a autoridade da ordem final.
     const linhas = montarRadar(
       periodos,
       [
@@ -253,7 +262,25 @@ describe("montarRadar com unidades ainda carregando", () => {
       ],
       "MENSAL",
     );
-    expect(linhas.map((l) => l.label)).toEqual(["PESADA", "LEVE", "A-LENTA", "Z-LENTA"]);
+    expect(linhas.map((l) => l.label)).toEqual(["A-LENTA", "LEVE", "PESADA", "Z-LENTA"]);
+  });
+
+  it("assim que a última chega, o pódio aparece — e é o de sempre", () => {
+    const todas = [
+      unidade("LEVE", movimentos([{ period: "2026-02", changes: 1, impact: { MENSAL: 10 } }])),
+      unidade("PESADA", movimentos([{ period: "2026-02", changes: 1, impact: { MENSAL: -8000 } }])),
+      unidade("MEDIA", movimentos([{ period: "2026-02", changes: 1, impact: { MENSAL: 300 } }])),
+    ];
+    expect(montarRadar(periodos, todas, "MENSAL").map((l) => l.label)).toEqual([
+      "PESADA",
+      "MEDIA",
+      "LEVE",
+    ]);
+    // Uma única pendente basta para não haver pódio: o ranking seria de quem
+    // respondeu, não de quem pesa.
+    expect(
+      montarRadar(periodos, [...todas, pendente("ZZ")], "MENSAL").map((l) => l.label),
+    ).toEqual(["LEVE", "MEDIA", "PESADA", "ZZ"]);
   });
 
   it("com todas prontas, a grade é exatamente a de antes do progressivo", () => {
@@ -433,43 +460,40 @@ describe("intensidade da grade", () => {
 });
 
 /** Um `/changes/range` com só o que a abertura de célula lê: as entradas. */
-function comEntradas(
-  entradas: {
-    period: string;
+/**
+ * As entradas de uma célula, como `/changes/radar?period=` as devolve.
+ *
+ * Não têm mais `period` variável: a rota responde por **uma** vigência, e o
+ * recorte que antes era feito aqui saiu para o servidor. O teste que provava o
+ * recorte mudou de camada junto — ver `radar.test.ts` em `lib/comparison`.
+ */
+function entradas(
+  lista: {
     parameterKey: string;
     amount?: number | null;
     periodicity?: string | null;
   }[],
-): Movimentos {
-  return {
-    movements: [],
-    gaps: [],
-    entries: entradas.map((e, i) => ({
-      key: `${e.parameterKey}-${i}`,
-      period: e.period,
-      periodLabel: e.period,
-      parameterKey: e.parameterKey,
-      parameterName: e.parameterKey,
-      family: "REMUNERACAO",
-      attributeCode: null,
-      amount: e.amount === undefined ? null : e.amount,
-      periodicity: e.periodicity === undefined ? "MENSAL" : e.periodicity,
-    })) as unknown as RangeEntry[],
-  } as unknown as Movimentos;
+  period = "2026-02",
+): EntradaDaCelula[] {
+  return lista.map((e) => ({
+    period,
+    parameterKey: e.parameterKey,
+    parameterName: e.parameterKey,
+    family: "REMUNERACAO",
+    attributeCode: null,
+    amount: e.amount === undefined ? null : e.amount,
+    periodicity: e.periodicity === undefined ? "MENSAL" : e.periodicity,
+  }));
 }
 
 describe("atributosDaCelula", () => {
   it("separa os lados do impacto e ordena pelo módulo", () => {
     const abertura = atributosDaCelula(
-      unidade(
-        "A",
-        comEntradas([
-          { period: "2026-02", parameterKey: "pedagio", amount: -300 },
-          { period: "2026-02", parameterKey: "diesel", amount: -5000 },
-          { period: "2026-02", parameterKey: "bonus", amount: 900 },
-        ]),
-      ),
-      "2026-02",
+      entradas([
+        { parameterKey: "pedagio", amount: -300 },
+        { parameterKey: "diesel", amount: -5000 },
+        { parameterKey: "bonus", amount: 900 },
+      ]),
       "MENSAL",
     );
 
@@ -478,31 +502,14 @@ describe("atributosDaCelula", () => {
     expect(abertura.impacto).toBe(-4400);
   });
 
-  it("não deixa vazar entrada de outra vigência para dentro da célula", () => {
-    const abertura = atributosDaCelula(
-      unidade(
-        "A",
-        comEntradas([
-          { period: "2026-01", parameterKey: "diesel", amount: -9000 },
-          { period: "2026-02", parameterKey: "diesel", amount: -100 },
-        ]),
-      ),
-      "2026-02",
-      "MENSAL",
-    );
-
-    expect(abertura.impacto).toBe(-100);
-    expect(abertura.desfavoraveis[0].alteracoes).toBe(1);
-  });
-
   it("soma os canais da unidade, porque a célula clicada é a soma deles", () => {
+    // Quem chama concatena as leituras dos contextos da unidade — uma chamada
+    // por canal, uma lista só aqui.
     const abertura = atributosDaCelula(
-      unidade(
-        "A",
-        comEntradas([{ period: "2026-02", parameterKey: "diesel", amount: -1000 }]),
-        comEntradas([{ period: "2026-02", parameterKey: "diesel", amount: -500 }]),
-      ),
-      "2026-02",
+      [
+        ...entradas([{ parameterKey: "diesel", amount: -1000 }]),
+        ...entradas([{ parameterKey: "diesel", amount: -500 }]),
+      ],
       "MENSAL",
     );
 
@@ -513,14 +520,10 @@ describe("atributosDaCelula", () => {
 
   it("sem preço não vira zero — o atributo aparece com a contagem que tem", () => {
     const abertura = atributosDaCelula(
-      unidade(
-        "A",
-        comEntradas([
-          { period: "2026-02", parameterKey: "manutencao", amount: null },
-          { period: "2026-02", parameterKey: "manutencao", amount: null },
-        ]),
-      ),
-      "2026-02",
+      entradas([
+        { parameterKey: "manutencao", amount: null },
+        { parameterKey: "manutencao", amount: null },
+      ]),
       "MENSAL",
     );
 
@@ -538,13 +541,7 @@ describe("atributosDaCelula", () => {
     // A grade inteira é desenhada numa periodicidade de cada vez: somar o
     // anual aqui seria o mesmo erro que `montarRadar` recusa na célula.
     const abertura = atributosDaCelula(
-      unidade(
-        "A",
-        comEntradas([
-          { period: "2026-02", parameterKey: "seguro", amount: -12000, periodicity: "ANUAL" },
-        ]),
-      ),
-      "2026-02",
+      entradas([{ parameterKey: "seguro", amount: -12000, periodicity: "ANUAL" }]),
       "MENSAL",
     );
 
@@ -559,12 +556,22 @@ describe("atributosDaCelula", () => {
 
   it("sem periodicidade escolhida, nenhuma entrada entra na soma", () => {
     const abertura = atributosDaCelula(
-      unidade("A", comEntradas([{ period: "2026-02", parameterKey: "diesel", amount: -1000 }])),
-      "2026-02",
+      entradas([{ parameterKey: "diesel", amount: -1000 }]),
       null,
     );
 
     expect(abertura.impacto).toBe(0);
     expect(abertura.semDinheiro).toHaveLength(1);
+  });
+
+  it("uma célula sem detalhe carregado ainda não é uma célula vazia", () => {
+    // A gaveta pede o detalhe ao abrir. Enquanto ele não chega, a lista é
+    // vazia — e quem chama precisa distinguir isso de "não havia nada",
+    // exatamente como a grade distingue pendente de zero.
+    const abertura = atributosDaCelula([], "MENSAL");
+    expect(abertura.favoraveis).toEqual([]);
+    expect(abertura.desfavoraveis).toEqual([]);
+    expect(abertura.semDinheiro).toEqual([]);
+    expect(abertura.impacto).toBe(0);
   });
 });

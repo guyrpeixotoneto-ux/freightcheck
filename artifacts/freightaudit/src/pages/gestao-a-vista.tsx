@@ -52,6 +52,7 @@ import {
 } from "@/lib/format";
 import { escreverImpacto, ladosDoImpacto, type Impacto } from "@/lib/visao-geral";
 import { lerRecorte, linkDeAlteracoes, nomeDaUnidade, type Recorte } from "@/lib/recorte";
+import type { Movimentos } from "@/lib/analise";
 import { juntarPrioridades, SEVERITY_LABEL } from "@/lib/cockpit";
 import { unidadesPorImpacto, impactoDominante } from "@/components/inicio/visao-geral-consolidada";
 import { seriesDoIntervalo } from "@/components/linha-do-tempo/linha-do-tempo-de-alteracoes";
@@ -73,6 +74,8 @@ import {
   resumoDoRadar,
   type AtributoDaCelula,
   type CelulaDoRadar,
+  type EntradaDaCelula,
+  type LeituraDoRadar,
   type LinhaDoRadar,
   type ResumoDoRadar,
   type UnidadeDoRadar,
@@ -83,7 +86,7 @@ import type {
   FamiliesView,
   OverviewUnitIncluded,
 } from "@/components/inicio/types";
-import type { Movimentos } from "@/lib/analise";
+
 
 /**
  * A Gestão à Vista — um wallboard, não um resumo do Dashboard.
@@ -1826,9 +1829,12 @@ function TemplateDeRadar() {
       // A mesma chave de `LinhaDoTempoDeAlteracoes` e da Tendência para este
       // endpoint — três telas perguntando o mesmo compartilham cache em vez de
       // disparar três requisições idênticas.
-      queryKey: ["changes-range", query],
+      // Chave própria, e não mais a de `/changes/range`: são rotas diferentes
+      // com respostas diferentes, e compartilhar cache entre elas entregaria à
+      // grade um objeto sem `movements` (ou à Linha do Tempo um sem `entries`).
+      queryKey: ["changes-radar", query],
       queryFn: ({ signal }: { signal: AbortSignal }) =>
-        fetchJsonOrNull<Movimentos>(`/changes/range?${query}`, { signal }),
+        fetchJsonOrNull<LeituraDoRadar>(`/changes/radar?${query}`, { signal }),
       staleTime: 60_000,
       refetchInterval: 30_000,
     })),
@@ -1886,6 +1892,9 @@ function TemplateDeRadar() {
         contextos: contextosDaUnidade,
         movimentos: consultas.map((c) => c?.data ?? null),
         estado,
+        // A pior das leituras da unidade: uma linha que soma dois canais está
+        // insistindo enquanto qualquer um dos dois estiver insistindo.
+        tentativas: consultas.reduce((maior, c) => Math.max(maior, c?.failureCount ?? 0), 0),
       });
     }
 
@@ -2175,7 +2184,11 @@ function TemplateDeRadar() {
                                 linha.estado === "erro" ? "text-amber-700" : "text-slate-400",
                               )}
                             >
-                              {linha.estado === "erro" ? "não respondeu" : "carregando…"}
+                              {linha.estado === "erro"
+                                ? "não respondeu"
+                                : linha.tentativas > 0
+                                  ? `tentando de novo (${linha.tentativas + 1}ª)`
+                                  : "carregando…"}
                             </span>
                           ) : (
                           <>
@@ -2213,6 +2226,7 @@ function TemplateDeRadar() {
                   celula={abertura}
                   periodicidade={periodicidade}
                   rotuloDaColuna={rotuloCurtoDaVigencia(abertura.periodo, periodosDisponiveis)}
+                  intervalo={consultaDoIntervalo}
                   onFechar={() => setCelulaAberta(null)}
                 />
               )}
@@ -2423,6 +2437,7 @@ function AberturaDaCelulaNaTela({
   celula,
   periodicidade,
   rotuloDaColuna,
+  intervalo,
   onFechar,
 }: {
   linha: LinhaDoRadar;
@@ -2430,11 +2445,44 @@ function AberturaDaCelulaNaTela({
   celula: CelulaDoRadar;
   periodicidade: string | null;
   rotuloDaColuna: string;
+  /** O `from`/`to` da janela — o detalhe é pedido no mesmo intervalo da grade. */
+  intervalo: URLSearchParams;
   onFechar: () => void;
 }) {
+  /*
+    O detalhe da célula é pedido quando a célula abre — uma leitura por contexto
+    da unidade, recortada na vigência da coluna.
+
+    É a contrapartida de tirar `entries` da grade: o que era "de graça" (viajava
+    na resposta que desenhava a tabela, a 517 KB por unidade) passou a custar uma
+    chamada de ~5 KB, e só quando alguém clica. `staleTime` de 60 s porque
+    reabrir a mesma célula duas vezes é o gesto mais comum aqui.
+  */
+  const detalhes = useQueries({
+    queries: unidade.contextos.map((contexto) => {
+      const query = new URLSearchParams(intervalo);
+      query.set("scopeHash", contexto.scopeHash);
+      if (contexto.canal !== null) query.set("canal", contexto.canal);
+      query.set("period", celula.periodo);
+      return {
+        queryKey: ["radar-celula", query.toString()],
+        queryFn: ({ signal }: { signal: AbortSignal }) =>
+          fetchJsonOrNull<{ entradas: EntradaDaCelula[] }>(`/changes/radar?${query}`, { signal }),
+        staleTime: 60_000,
+      };
+    }),
+  });
+
+  const carregandoDetalhe = detalhes.some((d) => d.isLoading);
+  const erroNoDetalhe = detalhes.some((d) => d.isError);
+  const entradas = useMemo(
+    () => detalhes.flatMap((d) => d.data?.entradas ?? []),
+    [detalhes.map((d) => d.dataUpdatedAt).join("|")],
+  );
+
   const abertura = useMemo(
-    () => atributosDaCelula(unidade, celula.periodo, periodicidade),
-    [unidade, celula.periodo, periodicidade],
+    () => atributosDaCelula(entradas, periodicidade),
+    [entradas, periodicidade],
   );
 
   const recorte: Recorte | null =
@@ -2494,7 +2542,30 @@ function AberturaDaCelulaNaTela({
         </div>
       </div>
 
-      {nada ? (
+      {/*
+        Três estados antes do vazio, e a ordem importa.
+
+        Com o detalhe carregado sob demanda, uma lista vazia deixou de ter um
+        significado só. "Ainda não chegou" e "chegou e não havia nada" são
+        respostas opostas à pergunta que o clique faz, e desenhá-las igual seria
+        repetir na gaveta o defeito que a Parte V corrigiu na grade — o zero
+        que na verdade era ausência de leitura.
+      */}
+      {carregandoDetalhe ? (
+        <p
+          data-testid="detalhe-carregando"
+          className="px-5 pb-5 text-sm text-slate-500"
+          role="status"
+          aria-live="polite"
+        >
+          Lendo os atributos desta vigência…
+        </p>
+      ) : erroNoDetalhe ? (
+        <p data-testid="detalhe-erro" className="px-5 pb-5 text-sm text-amber-700">
+          Não foi possível ler os atributos desta vigência. O total da célula acima continua
+          valendo — ele veio da leitura da grade, que chegou.
+        </p>
+      ) : nada ? (
         <p className="px-5 pb-5 text-sm text-slate-500">
           A comparação desta vigência não trouxe atributo nenhum detalhado — a célula tem o total,
           e a lista por trás dele não veio nesta leitura.

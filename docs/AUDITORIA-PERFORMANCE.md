@@ -1326,3 +1326,229 @@ uma linha de código — é configuração da hospedagem.
    linha vazia — que é a régua que o próprio `montarRadar` já escrevia para
    esse caso. Mudança de comportamento pequena e declarada, não acidental.
 5. **`/api/build` continua saindo em toda tela** (Parte IV §25.4). Intocado.
+
+---
+
+# Parte VI — o Radar deixa de pedir o que não desenha
+
+**Data:** 27/08/2026 · **Escopo:** os quatro itens que a Parte V deixou abertos
+(§34): o payload por unidade, os 13,2 s até uma unidade morta se declarar, a
+reordenação da grade, e a mudança de comportamento de `sem_leitura_no_intervalo`.
+
+Mesmo ambiente da Parte V: Postgres 16 local, seed do produto com as comparações
+calculadas (5 unidades, 457.596 fatos, 40 `change_set`), API em modo produção,
+bundle de produção num Chromium real. As duas versões compiladas — a da Parte V
+e esta — servidas lado a lado contra o mesmo banco.
+
+## 35. O que a grade recebia, e o que ela lia
+
+`/changes/range` responde a análise inteira do intervalo. Composição medida de
+uma resposta (uma unidade, 12 vigências):
+
+| Campo | Bytes | % |
+|---|--:|--:|
+| `entries[]` (com o `group` inteiro em cada) | 538.276 | 97,3% |
+| `byParameter[]` | 13.474 | 2,4% |
+| **`movements[]`** | **6.386** | **1,2%** |
+| **`gaps[]`** | **2** | 0,0% |
+| o resto (`context`, `periods`, `totals`, …) | ~2.100 | 0,4% |
+| **total** | **517.238** | |
+
+**A grade do Radar lê `movements` e `gaps`.** Consumia 1,2% do que recebia, uma
+vez por unidade — 2,17 MB descomprimidos para desenhar 45 células.
+
+E não era só tráfego: montar `entries` custa uma consulta de frota por
+comparação × equipamento e um `buildGroup` por balde. Trabalho que a grade nunca
+olha, feito cinco vezes a cada abertura do telão.
+
+## 36. A rota mínima, e por que ela não é um filtro
+
+`GET /changes/radar?from&to&scopeHash&canal` devolve `{ from, to, movements,
+gaps }`. Não é `/changes/range` com um recorte na saída: é uma leitura que **não
+produz** o que não devolve.
+
+O risco óbvio de uma segunda rota é ela responder números *parecidos*. Aqui isso
+não pode acontecer por construção, e não por conferência:
+
+- `baseDoIntervalo` — contexto, vigências, comparações do intervalo, linhas de
+  mudança e o índice de composição (`dedup`) — foi extraída de
+  `getRangeAnalysis` e é **a mesma função** para as duas rotas. O `dedup` é
+  regra financeira: se cada leitura montasse o seu, a grade e a Linha do Tempo
+  poderiam mostrar dinheiros diferentes do mesmo intervalo.
+- `montarMovimentosEGaps` — a distinção entre "comparado" e "sem comparação" —
+  também é a mesma função para as duas.
+
+O que a rota mínima faz de diferente é **não chamar** a consulta de frota e não
+montar `entries`, `byParameter`, perdas e ganhos.
+
+A gaveta de uma célula, que lia `entries`, passou a pedir
+`/changes/radar?…&period=` ao abrir — projetada nos sete campos que ela desenha,
+contra o `RangeEntry` que carregava o `GroupView` inteiro. A régua continua sendo
+`buildGroup`, chamada como ela é: uma entrada por **grupo**, não por linha de
+mudança. (Por linha, a coluna "N alterações" de um atributo que mudou em dez
+veículos com o mesmo padrão saltaria de 1 para 10.)
+
+### Medido, por endpoint (uma unidade, 12 vigências, p-mínimo de 3)
+
+| | `/changes/range` | `/changes/radar` | ganho |
+|---|--:|--:|--:|
+| consultas ao banco | 20 | 18 | −2 |
+| **tempo de banco** | 134,7 ms | **24,7 ms** | **−82%** |
+| **processamento + serialização** | 95,6 ms | **41,2 ms** | **−57%** |
+| **TTFB** | 230,2 ms | **65,9 ms** | **−71%** |
+| download | 0,3 ms | 0,1 ms | — |
+| **bruto** | 517.238 B | **5.901 B** | **88× menor** |
+| **gzip** | 49.774 B | **993 B** | **50× menor** |
+
+A queda do tempo de banco com só duas consultas a menos é a consulta de frota:
+um `EXISTS` por ativo por comparação, que só `entries` precisava.
+
+Gaveta (`?period=`): TTFB 55,9 ms · 5.684 B brutos · 804 B em gzip.
+
+### Medido, na tela (5 unidades, entrada fria)
+
+| | ANTES (Parte V) | DEPOIS |
+|---|--:|--:|
+| chamadas `/api` | 9 | 8 |
+| **bytes na rede** | 115.437 B | **5.073 B** (22,8× menos) |
+| **bytes descomprimidos** | 2.174.789 B | **28.516 B** (76× menos) |
+| **por unidade** | 434.958 B | **5.703 B** |
+
+## 37. Marcos de tela — antes × depois
+
+Mediana de 3 entradas frias. "1ª linha com dado" é a métrica principal: quando o
+primeiro número verdadeiro aparece.
+
+| Cenário | conteúdo útil | 1ª linha na tela | **1ª linha com dado** | consolidação | req | ondas |
+|---|--:|--:|--:|--:|--:|--:|
+| ANTES · normal | 734 ms | 734 ms | 1.353 ms | 1.353 ms | 9 | 2 |
+| **DEPOIS · normal** | **236 ms** | **236 ms** | **470 ms** | **528 ms** | 8 | 1 |
+| ANTES · banco a 15 ms | 924 ms | 924 ms | 1.624 ms | 1.624 ms | 9 | 2 |
+| **DEPOIS · banco a 15 ms** | **276 ms** | **276 ms** | **636 ms** | **667 ms** | 8 | 1 |
+| ANTES · unidade lenta (+3 s) | 692 ms | 692 ms | 1.139 ms | 4.002 ms | 9 | 2 |
+| **DEPOIS · unidade lenta** | **226 ms** | **226 ms** | **422 ms** | **3.368 ms** | 8 | 1 |
+| ANTES · unidade em 500 | 645 ms | 645 ms | 1.060 ms | — | 18 | 8 |
+| **DEPOIS · unidade em 500** | **204 ms** | **204 ms** | **426 ms** | — | 16 | 6 |
+
+Primeiro dado real: **−65%** no caso normal, **−61%** com o banco a 15 ms de RTT.
+
+## 38. Prova de equivalência
+
+Três níveis, todos contra o banco de medição:
+
+| Prova | Resultado |
+|---|---|
+| `movements`/`gaps`/pontas de `/changes/radar` × `/changes/range` — 5 unidades × 4 janelas | **20 pares, 0 divergências** |
+| atributos de `?period=` × os `entries` daquela vigência — 5 unidades × 3 vigências | **15 células, 0 divergências** |
+| DOM das duas versões compiladas, grade consolidada | **cartões, cabeçalho e as 45 células idênticos** |
+
+Os quatro cartões, nas duas versões: `13.320` alterações · `5 de 5` unidades ·
+`−R$ 724.373/ano` · `12.210` sem impacto apurado.
+
+No nível da função, `radar-real.test.ts` compara as duas leituras **entre si**
+sobre o mesmo banco, em todas as combinações de pontas — um valor esperado
+escrito à mão só provaria que alguém escreveu o mesmo número duas vezes.
+
+## 39. `sem_leitura_no_intervalo`: a exclusão é inalcançável
+
+A Parte V registrou como "mudança de comportamento pequena e declarada" o fato
+de o Radar ter deixado de aplicar esta exclusão. Declarar não é provar, e a
+investigação mudou a conclusão: **não há mudança de comportamento nenhuma.**
+
+`getRangeOverview` excluía a unidade cuja leitura do intervalo voltasse `null`.
+`getRangeAnalysis` devolve `null` em dois casos: contexto não resolvido, e
+`listPeriods` vazio. Pelo caminho do overview o contexto vem de `listContexts`,
+então sempre resolve — sobra `listPeriods` vazio. E as duas consultas aplicam
+**os mesmos três filtros**: `status <> 'SUPERSEDED'`, import não escondido, e
+`naoEhSoTrecho`. Um contexto que saiu da primeira tem, por construção, ao menos
+uma vigência na segunda.
+
+Verificado, não deduzido:
+
+- Contra o banco de medição, todos os contextos × três janelas: **0 leituras
+  nulas**, e `unitsExcluded` vazio em todas as janelas.
+- Tentando forçar o caso num banco descartável: esconder o import faz a unidade
+  sumir **também** de `listContexts`. Não sobra a combinação que a exclusão
+  descreve — estar na grade e não ter leitura.
+
+Os dois estão em `radar-real.test.ts`. Se algum dia falharem, a exclusão virou
+real e o Radar precisa voltar a aplicá-la.
+
+## 40. Os 13,2 s: o conserto é o silêncio, não a política
+
+Uma unidade que responde 500 leva 13,2 s para virar `"erro"` — cinco tentativas
+de `resiliencia.ts`. A política foi calibrada para cold start (§2 daquele
+arquivo) e é global; encurtá-la só para o Radar seria a segunda política que
+`resiliencia.ts` existe para não ter. Confirmado que o caso é dela:
+`ehFalhaTransitoria` repete um 500 sem `code`.
+
+O que **não** era da política era a linha ficar dizendo "carregando…" o tempo
+todo, indistinguível de uma unidade só lenta. `UnidadeDoRadar.tentativas` traz o
+`failureCount` da consulta para a grade: com uma falha já contada, a linha diz
+que está insistindo.
+
+Medido, cenário da unidade em 500:
+
+| | antes | depois |
+|---|--:|--:|
+| a linha avisa que está insistindo | nunca | **269 ms** |
+| a linha assume que não respondeu | 13,5 s | 13,5 s |
+
+A política decide quando parar; a linha conta o que está acontecendo. Nada de
+`resiliencia.ts` foi tocado.
+
+## 41. A reordenação: o argumento não é a agitação, é a correção
+
+Medido na Parte V, a grade se reordenava 2 a 3 vezes durante a carga. O conserto
+podia ser cosmético — e o argumento que decidiu não é esse.
+
+**Um pódio com unidades faltando não é um pódio.** Ordenar por impacto com três
+das cinco lidas ranqueia por quem respondeu primeiro, e apresenta esse acaso com
+a mesma autoridade visual da ordem final. É a mesma família do zero falso que a
+Parte V tirou da célula: uma posição que parece resposta e é artefato de
+carregamento.
+
+Enquanto falta unidade, a grade fica em ordem de nome; o pódio é montado quando
+ele existe — no mesmo instante em que a faixa "N de M unidades carregadas" some.
+
+| Cenário | ANTES | DEPOIS |
+|---|--:|--:|
+| normal (5 unidades) | 3 | **0** |
+| uma unidade lenta e mais pesada, primeira em ordem de nome | 2 | **0** |
+| uma unidade lenta e mais pesada, última em ordem de nome | 1 | 1 |
+
+O limite é o que mudou: antes, até **N−1** reordenações (cada resposta podia
+mover linhas); agora **no máximo 1**, porque o comparador troca uma vez só. Os
+zeros acima são desta fixture, onde as unidades clonadas empatam no impacto e o
+desempate já é o nome — a terceira linha é o caso em que a troca de fato
+acontece.
+
+## 42. O que se paga
+
+- **A gaveta virou uma chamada.** Abrir uma célula custa ~56 ms e 5,7 KB, onde
+  antes era instantâneo porque o dado já estava na memória — comprado a 435 KB
+  por unidade em toda abertura do telão. A troca é deliberada: a grade é sempre
+  carregada, a gaveta é aberta às vezes.
+- **Três estados novos na gaveta.** "Ainda não chegou" e "chegou e não havia
+  nada" deixaram de ser a mesma tela vazia, pelo mesmo motivo que a célula
+  distingue pendente de zero.
+
+## 43. Testes acrescentados
+
+| Arquivo | Cobertura | n |
+|---|---|--:|
+| `lib/comparison/src/__tests__/radar-real.test.ts` (novo) | equivalência `movements`/`gaps` com `getRangeAnalysis` em todas as janelas; contrato mínimo (sem `entries`/`byParameter`); lacuna continua lacuna; erro idêntico ao da leitura grande; gaveta idêntica aos `entries` da vigência; uma entrada por grupo; recorte por vigência no servidor; atributo sem preço não some; `sem_leitura_no_intervalo` inalcançável (dois testes) | +12 |
+| `artifacts/freightaudit/.../gestao-a-vista-radar.test.ts` | ordem de nome enquanto parcial; pódio ao completar; gaveta sobre entradas já recortadas; gaveta vazia ≠ gaveta não carregada | +2, 6 reescritos |
+
+Suítes: `comparison` inteira e serializada com banco de verdade **589 testes**;
+`api-server` **725**; `freightaudit` **1.050**; typecheck do workspace limpo.
+
+## 44. O que continua aberto
+
+1. **A compressão do bundle em produção** (§33) continua não verificada — a
+   política de rede desta sessão recusa a saída para o domínio.
+2. **O bundle continua um arquivo só de 2,59 MB** (§25.1). Intocado.
+3. **`/api/build` continua saindo em toda tela** (§25.4). Intocado.
+4. **`/changes/range` continua devolvendo 517 KB** para quem de fato precisa
+   dela — Linha do Tempo e Resumo executivo. O `group` inteiro dentro de cada
+   `entry` é a próxima gordura óbvia, e não foi tocada aqui.

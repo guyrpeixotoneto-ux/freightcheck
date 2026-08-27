@@ -1,4 +1,42 @@
-import type { Movimentos } from "@/lib/analise";
+/**
+ * O que o Radar lê de uma unidade — e é tudo o que ele lê.
+ *
+ * Era `Movimentos`, o contrato inteiro de `/changes/range`: `entries` com o
+ * grupo completo em cada uma, `byParameter`, `context`, `periods`, `totals`.
+ * A grade usa dois campos. Medido no seed do produto, a resposta grande tinha
+ * 517.238 B e estes dois somavam 6.388 — a grade consumia 1,2% do que recebia,
+ * uma vez por unidade.
+ *
+ * Tipar pelo que se usa é o que torna a rota mínima (`/changes/radar`)
+ * verificável: se amanhã a grade precisar de mais um campo, ele entra aqui e o
+ * compilador cobra a rota. Enquanto isso, nada que a rota não mande pode ser
+ * lido por engano.
+ */
+export interface LeituraDoRadar {
+  movements: {
+    period: string;
+    label: string;
+    changes: number;
+    impact: { byPeriodicity: Record<string, number>; notCalculable: number };
+  }[];
+  gaps: { period: string; label: string }[];
+}
+
+/**
+ * Um atributo de uma vigência, como `/changes/radar?period=` devolve.
+ *
+ * Espelha `EntradaDaCelula` no servidor (`lib/comparison/src/radar.ts`) — sete
+ * campos, contra o `RangeEntry` que carregava o `GroupView` inteiro.
+ */
+export interface EntradaDaCelula {
+  period: string;
+  parameterKey: string;
+  parameterName: string;
+  family: string;
+  attributeCode: string | null;
+  amount: number | null;
+  periodicity: string | null;
+}
 
 /**
  * O Radar de Alterações — a terceira leitura da Gestão à Vista, em matriz.
@@ -110,7 +148,7 @@ export interface UnidadeDoRadar {
   unidade: string;
   label: string;
   contextos: { scopeHash: string; canal: string | null }[];
-  movimentos: (Movimentos | null | undefined)[];
+  movimentos: (LeituraDoRadar | null | undefined)[];
   /**
    * Se a leitura desta unidade já chegou — e o campo é **obrigatório** de
    * propósito.
@@ -129,6 +167,24 @@ export interface UnidadeDoRadar {
    * nisso. Obrigatório, o compilador pergunta.
    */
   estado: EstadoDaUnidade;
+  /**
+   * Quantas tentativas desta leitura já falharam.
+   *
+   * Existe por causa de um número medido: uma unidade que responde 500 leva
+   * **13,2 s** para virar `"erro"`, porque a política de repetição do produto
+   * (`resiliencia.ts`) gasta cinco tentativas antes de desistir — orçamento
+   * deliberado, que existe para cobrir cold start e é global.
+   *
+   * Encurtá-lo só para o Radar seria criar uma segunda política, que é
+   * exatamente o defeito que `resiliencia.ts` foi escrito para fechar. O que dá
+   * para consertar sem tocar nela é o silêncio: durante esses 13,2 s a linha
+   * dizia "carregando…", indistinguível de uma unidade só lenta. Com este
+   * número a tela diz que já falhou e está insistindo — a política decide
+   * quando parar, a linha conta o que está acontecendo.
+   *
+   * `0` numa linha pendente é uma leitura que ainda não falhou nenhuma vez.
+   */
+  tentativas: number;
 }
 
 /**
@@ -181,6 +237,8 @@ export interface LinhaDoRadar {
    * o zero aqui é ausência de leitura, não resultado de leitura.
    */
   estado: EstadoDaUnidade;
+  /** Tentativas já falhadas desta leitura. Ver `UnidadeDoRadar.tentativas`. */
+  tentativas: number;
 }
 
 /**
@@ -275,6 +333,7 @@ export function montarRadar(
         totalDeImpacto: 0,
         totalSemApuracao: 0,
         estado,
+        tentativas: unidade.tentativas,
       };
     }
 
@@ -309,31 +368,39 @@ export function montarRadar(
       totalDeImpacto: celulas.reduce((soma, c) => soma + c.impacto, 0),
       totalSemApuracao: celulas.reduce((soma, c) => soma + c.semApuracao, 0),
       estado: "pronta" as const,
+      tentativas: unidade.tentativas,
     };
   });
 
   /*
-    O pódio é das linhas prontas; as que ainda não leram ficam embaixo, em
-    ordem de nome.
+    Enquanto falta unidade, a grade fica em ordem de nome. O pódio só é montado
+    quando ele existe.
 
-    Ordenar tudo junto pelo impacto colocaria as pendentes — impacto `0` — no
-    meio da grade, entre uma unidade que perdeu R$ 3 mil e outra que ganhou
-    R$ 2 mil, dizendo por posição que elas ficaram no zero. E a ordem delas
-    dançaria a cada resposta que chegasse.
+    Isto começou como um problema de agitação — medido, a grade se reordenava 2
+    a 3 vezes durante a carga, e cada resposta que chegava movia linhas debaixo
+    de quem estava lendo. Mas o argumento que decidiu não é o incômodo: é que
+    **um pódio com unidades faltando não é um pódio.** Ordenar por impacto com
+    três das cinco lidas ranqueia por quem respondeu primeiro, e apresenta esse
+    acaso com a mesma autoridade visual da ordem final. É a mesma família do
+    zero falso que a Parte V tirou da célula: um número (aqui, uma posição) que
+    parece resposta e é artefato de carregamento.
 
-    Com todas prontas esta função devolve **exatamente** o que devolvia antes:
-    o segundo grupo fica vazio e o primeiro passa pelo mesmo comparador de
-    sempre. É o que `gestao-a-vista-radar.test.ts` exercita como equivalência.
+    Em ordem de nome nada disso é afirmado, a ordem é previsível para quem
+    procura uma unidade, e a grade se reordena **uma vez só** — no momento em
+    que a faixa "N de M unidades carregadas" some, que é o aviso de que agora há
+    pódio.
+
+    Com todas prontas esta função devolve **exatamente** o que devolvia antes do
+    progressivo: o mesmo comparador de sempre, sobre as mesmas linhas.
   */
   const porImpacto = (a: LinhaDoRadar, b: LinhaDoRadar) =>
     Math.abs(b.totalDeImpacto) - Math.abs(a.totalDeImpacto) ||
     b.totalDeAlteracoes - a.totalDeAlteracoes ||
     a.label.localeCompare(b.label);
+  const porNome = (a: LinhaDoRadar, b: LinhaDoRadar) => a.label.localeCompare(b.label);
 
-  return [
-    ...linhas.filter((l) => l.estado === "pronta").sort(porImpacto),
-    ...linhas.filter((l) => l.estado !== "pronta").sort((a, b) => a.label.localeCompare(b.label)),
-  ];
+  const parcial = linhas.some((l) => l.estado !== "pronta");
+  return [...linhas].sort(parcial ? porNome : porImpacto);
 }
 
 export interface ResumoDoRadar {
@@ -453,15 +520,17 @@ export interface AberturaDaCelula {
 /**
  * Os atributos por trás de uma célula, separados por lado do impacto.
  *
- * Nada aqui pede dado novo: `entries` de `/changes/range` já viaja na mesma
- * resposta que desenhou a grade, e cada entrada carrega a vigência em que caiu
- * (`period`). Abrir uma célula é filtrar essa lista pela vigência da coluna e
- * agrupar por parâmetro — a mesma régua que `DetalheDoIntervalo` usa na Linha
- * do Tempo, com a diferença de que lá o recorte é o intervalo inteiro e aqui é
- * uma vigência só.
+ * As entradas chegam **já recortadas na vigência**, de `/changes/radar?period=`,
+ * pedidas quando a célula é aberta.
  *
- * A unidade entra inteira — os dois canais de uma linha somada somam aqui
- * também, porque a célula que foi clicada é a soma deles.
+ * Antes elas vinham de graça: `entries` viajava na resposta que desenhava a
+ * grade. "De graça" custava 517 KB por unidade para desenhar 45 células, e a
+ * gaveta é aberta em uma delas, às vezes. O recorte por vigência mudou de lugar
+ * — saiu daqui e foi para o servidor —, e o agrupamento por parâmetro, que é a
+ * régua de leitura, ficou.
+ *
+ * A unidade entra inteira: quem chama passa as entradas dos dois canais de uma
+ * linha somada concatenadas, porque a célula que foi clicada é a soma deles.
  *
  * **Três lados, não dois.** Favorável e desfavorável são o que o clique
  * pergunta; o terceiro grupo existe porque a alternativa a mostrá-lo era
@@ -471,35 +540,30 @@ export interface AberturaDaCelula {
  * aguentar responder.
  */
 export function atributosDaCelula(
-  unidade: UnidadeDoRadar,
-  periodo: string,
+  entradas: EntradaDaCelula[],
   periodicidade: string | null,
 ): AberturaDaCelula {
   const porParametro = new Map<string, AtributoDaCelula>();
 
-  for (const movimentos of unidade.movimentos) {
-    for (const entrada of movimentos?.entries ?? []) {
-      if (entrada.period !== periodo) continue;
+  for (const entrada of entradas) {
+    const atual = porParametro.get(entrada.parameterKey) ?? {
+      parameterKey: entrada.parameterKey,
+      parameterName: entrada.parameterName,
+      familia: entrada.family,
+      attributeCode: entrada.attributeCode,
+      alteracoes: 0,
+      impacto: 0,
+      semApuracao: 0,
+      outraPeriodicidade: 0,
+    };
 
-      const atual = porParametro.get(entrada.parameterKey) ?? {
-        parameterKey: entrada.parameterKey,
-        parameterName: entrada.parameterName,
-        familia: entrada.family,
-        attributeCode: entrada.attributeCode,
-        alteracoes: 0,
-        impacto: 0,
-        semApuracao: 0,
-        outraPeriodicidade: 0,
-      };
+    atual.alteracoes += 1;
+    if (entrada.amount === null) atual.semApuracao += 1;
+    else if (periodicidade !== null && entrada.periodicity === periodicidade)
+      atual.impacto += entrada.amount;
+    else atual.outraPeriodicidade += 1;
 
-      atual.alteracoes += 1;
-      if (entrada.amount === null) atual.semApuracao += 1;
-      else if (periodicidade !== null && entrada.periodicity === periodicidade)
-        atual.impacto += entrada.amount;
-      else atual.outraPeriodicidade += 1;
-
-      porParametro.set(entrada.parameterKey, atual);
-    }
+    porParametro.set(entrada.parameterKey, atual);
   }
 
   const ordenar = (a: AtributoDaCelula, b: AtributoDaCelula) =>
