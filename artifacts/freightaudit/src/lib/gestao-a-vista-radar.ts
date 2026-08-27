@@ -262,3 +262,109 @@ export function maiorImpactoDaGrade(linhas: LinhaDoRadar[]): number {
     0,
   );
 }
+
+// ---------------------------------------------------------------------------
+// A abertura de uma célula
+// ---------------------------------------------------------------------------
+
+/**
+ * Um atributo dentro de uma célula — o degrau entre "esta unidade perdeu
+ * R$ 32,6 mil em agosto" e a Planilha de alterações.
+ *
+ * `alteracoes` conta **tudo** o que aquele parâmetro mexeu na vigência;
+ * `impacto` soma só o que foi apurado na periodicidade que a grade está
+ * desenhando. Os dois números não se derivam um do outro de propósito: é o que
+ * impede a linha de parecer calma quando as dez alterações dela estão em
+ * `semApuracao`, ou de parecer apurada quando o dinheiro dela é anual e a
+ * grade está em mensal.
+ */
+export interface AtributoDaCelula {
+  parameterKey: string;
+  parameterName: string;
+  familia: string;
+  attributeCode: string | null;
+  alteracoes: number;
+  /** Na periodicidade da grade. `0` quando nada ali foi apurado nela. */
+  impacto: number;
+  /** Alterações do parâmetro que a comparação viu e não conseguiu precificar. */
+  semApuracao: number;
+  /** Alterações precificadas em **outra** periodicidade — dinheiro que existe e não está nesta grade. */
+  outraPeriodicidade: number;
+}
+
+export interface AberturaDaCelula {
+  /** Atributos que empurraram o número para cima, o maior primeiro. */
+  favoraveis: AtributoDaCelula[];
+  /** Atributos que empurraram o número para baixo, o maior primeiro. */
+  desfavoraveis: AtributoDaCelula[];
+  /** Mexeu e não moveu dinheiro nesta grade — sem preço, ou preço em outra periodicidade. */
+  semDinheiro: AtributoDaCelula[];
+  /** A soma dos atributos apurados, para conferir contra a célula da grade. */
+  impacto: number;
+}
+
+/**
+ * Os atributos por trás de uma célula, separados por lado do impacto.
+ *
+ * Nada aqui pede dado novo: `entries` de `/changes/range` já viaja na mesma
+ * resposta que desenhou a grade, e cada entrada carrega a vigência em que caiu
+ * (`period`). Abrir uma célula é filtrar essa lista pela vigência da coluna e
+ * agrupar por parâmetro — a mesma régua que `DetalheDoIntervalo` usa na Linha
+ * do Tempo, com a diferença de que lá o recorte é o intervalo inteiro e aqui é
+ * uma vigência só.
+ *
+ * A unidade entra inteira — os dois canais de uma linha somada somam aqui
+ * também, porque a célula que foi clicada é a soma deles.
+ *
+ * **Três lados, não dois.** Favorável e desfavorável são o que o clique
+ * pergunta; o terceiro grupo existe porque a alternativa a mostrá-lo era
+ * escondê-lo, e um parâmetro que mexeu trinta veículos sem preço apurado
+ * sumindo da abertura faria a soma dos itens não bater com a contagem de
+ * alterações da célula — que é exatamente a pergunta que a tela deve
+ * aguentar responder.
+ */
+export function atributosDaCelula(
+  unidade: UnidadeDoRadar,
+  periodo: string,
+  periodicidade: string | null,
+): AberturaDaCelula {
+  const porParametro = new Map<string, AtributoDaCelula>();
+
+  for (const movimentos of unidade.movimentos) {
+    for (const entrada of movimentos?.entries ?? []) {
+      if (entrada.period !== periodo) continue;
+
+      const atual = porParametro.get(entrada.parameterKey) ?? {
+        parameterKey: entrada.parameterKey,
+        parameterName: entrada.parameterName,
+        familia: entrada.family,
+        attributeCode: entrada.attributeCode,
+        alteracoes: 0,
+        impacto: 0,
+        semApuracao: 0,
+        outraPeriodicidade: 0,
+      };
+
+      atual.alteracoes += 1;
+      if (entrada.amount === null) atual.semApuracao += 1;
+      else if (periodicidade !== null && entrada.periodicity === periodicidade)
+        atual.impacto += entrada.amount;
+      else atual.outraPeriodicidade += 1;
+
+      porParametro.set(entrada.parameterKey, atual);
+    }
+  }
+
+  const ordenar = (a: AtributoDaCelula, b: AtributoDaCelula) =>
+    Math.abs(b.impacto) - Math.abs(a.impacto) ||
+    b.alteracoes - a.alteracoes ||
+    a.parameterName.localeCompare(b.parameterName);
+
+  const atributos = [...porParametro.values()];
+  return {
+    favoraveis: atributos.filter((a) => a.impacto > 0).sort(ordenar),
+    desfavoraveis: atributos.filter((a) => a.impacto < 0).sort(ordenar),
+    semDinheiro: atributos.filter((a) => a.impacto === 0).sort(ordenar),
+    impacto: atributos.reduce((soma, a) => soma + a.impacto, 0),
+  };
+}
