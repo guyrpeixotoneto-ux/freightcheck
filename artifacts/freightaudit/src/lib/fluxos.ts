@@ -381,6 +381,22 @@ export function filtrarFluxos(
   });
 }
 
+/**
+ * Quantas etapas o roteiro digitado vai criar — o contador embaixo da caixa.
+ *
+ * **Não é o interpretador.** A gramática (tipos entre colchetes, `|`, `+`) mora
+ * no servidor, em `interpretarRoteiro`, e é lá que ela é validada; aqui só se
+ * conta o que conta como linha, para a pessoa ver "13 etapas" enquanto digita
+ * em vez de descobrir o número depois de gravar. As duas definições de "linha
+ * que vale" precisam coincidir, e é por isso que esta função tem teste.
+ */
+export function etapasDoRoteiro(texto: string): number {
+  return texto
+    .split(/\r?\n/)
+    .map((linha) => linha.trim())
+    .filter((linha) => linha !== "" && !linha.startsWith("#")).length;
+}
+
 /** `2026-08-27T12:00:00Z` → `27/08/2026`. Sem biblioteca, e sem recuar o dia. */
 export function comoData(iso: string): string {
   const [data] = iso.split("T");
@@ -475,6 +491,39 @@ export const escritas = {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ modelo }),
+    }),
+  /*
+    Criar a partir de um roteiro em texto — uma etapa por linha.
+
+    O texto vai cru para o servidor e é lá que ele é interpretado, por
+    `interpretarRoteiro`. A tela **não** tem a gramática: uma segunda cópia dela
+    aqui aceitaria hoje o que o servidor recusa amanhã, e a pessoa descobriria
+    isso com o texto já digitado.
+  */
+  criarDeRoteiro: (empresaId: string | null, corpo: unknown) =>
+    fetchJson<Fluxo>(comEmpresa("/fluxos/roteiro", empresaId), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(corpo),
+    }),
+  acrescentarRoteiro: (
+    empresaId: string | null,
+    fluxoId: string,
+    corpo: { roteiro: string; origem?: string | null },
+  ) =>
+    fetchJson<{ etapasCriadas: number; conexoesCriadas: number }>(
+      comEmpresa(`/fluxos/${fluxoId}/roteiro`, empresaId),
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(corpo),
+      },
+    ),
+  organizar: (empresaId: string | null, fluxoId: string, refazerTudo: boolean) =>
+    fetchJson<{ movidas: number }>(comEmpresa(`/fluxos/${fluxoId}/organizar`, empresaId), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refazerTudo }),
     }),
   atualizarFluxo: (empresaId: string | null, fluxoId: string, corpo: unknown) =>
     fetchJson<Fluxo>(comEmpresa(`/fluxos/${fluxoId}`, empresaId), {

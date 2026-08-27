@@ -14,6 +14,13 @@ export * from "./catalogo";
 export * from "./modelo";
 export * from "./validacao";
 export * from "./layout";
+export * from "./roteiro";
 export * from "./repositorio";
 export * from "./semear";
-export { MODELOS, CTE_ATE_RECEBIMENTO, NF_ATE_PAGAMENTO, type ModeloDeFluxo } from "./exemplos";
+export {
+  MODELOS,
+  CTE_ATE_RECEBIMENTO,
+  NF_ATE_PAGAMENTO,
+  OPERACAO_EMPURRADA,
+  type ModeloDeFluxo,
+} from "./exemplos";

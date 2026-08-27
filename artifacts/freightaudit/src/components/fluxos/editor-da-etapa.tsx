@@ -104,7 +104,8 @@ export function EditorDaEtapa({
   empresaId: string | null;
   catalogo: Catalogo | undefined;
   aoFechar: () => void;
-  aoSalvar: () => void;
+  /** Recebe a etapa gravada — quem chamou pode ligá-la a outra, por exemplo. */
+  aoSalvar: (etapa: Etapa) => void;
 }) {
   const especies = catalogo?.especiesDeItem ?? [];
 
@@ -204,9 +205,11 @@ export function EditorDaEtapa({
         gravada.id,
         acoes.filter((a) => a.titulo.trim() !== "").map((a, ordem) => ({ ...a, ordem })),
       );
+
+      return gravada;
     },
-    onSuccess: () => {
-      aoSalvar();
+    onSuccess: (gravada) => {
+      aoSalvar(gravada);
       aoFechar();
     },
   });

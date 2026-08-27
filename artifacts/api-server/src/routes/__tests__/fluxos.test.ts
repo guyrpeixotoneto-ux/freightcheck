@@ -561,3 +561,178 @@ describe("importar uma declaração inteira", () => {
     expect(r.status).toBe(400);
   });
 });
+
+/**
+ * O ROTEIRO PELA API — o caminho que existe para o processo de treze etapas não
+ * custar treze formulários.
+ *
+ * O que só aqui se prova: que o texto chega cru e é o servidor quem o
+ * interpreta, que uma gramática errada volta 400 com frase legível em vez de
+ * 500, que a recusa acontece **antes** de gravar meio fluxo, e que a empresa
+ * continua vindo do escopo — inclusive neste caminho novo.
+ */
+describe("montar um fluxo por roteiro em texto", () => {
+  it("cria fluxo, etapas e ligações a partir de uma etapa por linha", async () => {
+    const r = await post(`/api/fluxos/roteiro?empresaId=${empresaA}`, {
+      nome: "Operação empurrada — colada",
+      categoria: "Faturamento",
+      roteiro: [
+        "[inicio] Origem da tarifa | Operação | Freitec",
+        "[validacao] Validação da tarifa | Ambev | SAP",
+        "[documento] Emissão do documento | Ambev | Unidox",
+        "Integração com Rodopar | TI | Rodopar",
+        "+ Integração com Connect | TI | Connect",
+        "[fim] Auditoria fiscal | Fiscal",
+      ].join("\n"),
+    });
+    expect(r.status).toBe(201);
+
+    const id = (r.json as { id: string }).id;
+    const completo = await chamar(`/api/fluxos/${id}?empresaId=${empresaA}`);
+    const etapas = completo.json.etapas as {
+      nome: string;
+      tipo: string;
+      area: string | null;
+      sistemaPrincipal: string | null;
+      posX: number;
+      posY: number;
+    }[];
+    const conexoes = completo.json.conexoes as { origemEtapaId: string; destinoEtapaId: string }[];
+
+    expect(etapas).toHaveLength(6);
+    expect(etapas[0]).toMatchObject({
+      nome: "Origem da tarifa",
+      tipo: "INICIO",
+      area: "Operação",
+      sistemaPrincipal: "Freitec",
+    });
+    /* Cinco ligações: quatro em sequência, e o ramo paralelo abrindo e fechando. */
+    expect(conexoes).toHaveLength(6);
+    /* Nasce desenhado, como todo fluxo importado — não empilhado na origem. */
+    expect(etapas.filter((e) => e.posX === 0 && e.posY === 0).length).toBeLessThan(2);
+  });
+
+  it("uma gramática errada é 400 com frase legível, e não 500", async () => {
+    const r = await post(`/api/fluxos/roteiro?empresaId=${empresaA}`, {
+      nome: "Roteiro torto",
+      categoria: "Teste",
+      roteiro: "Primeira\n[carimbo] Segunda",
+    });
+    expect(r.status).toBe(400);
+    expect(r.tipo).toContain("application/json");
+    expect(JSON.stringify(r.json)).toContain("Linha 2");
+
+    /* E o fluxo não ficou criado e vazio: a recusa vem antes de qualquer escrita. */
+    const lista = await chamar(`/api/fluxos?empresaId=${empresaA}&incluirArquivados=1`);
+    expect((lista.json.fluxos as { nome: string }[]).map((f) => f.nome)).not.toContain(
+      "Roteiro torto",
+    );
+  });
+
+  it("roteiro vazio é 400", async () => {
+    const r = await post(`/api/fluxos/roteiro?empresaId=${empresaA}`, {
+      nome: "Nada",
+      categoria: "Teste",
+      roteiro: "   \n# só comentário\n",
+    });
+    expect(r.status).toBe(400);
+  });
+
+  it("acrescenta etapas a um fluxo que já existe, ligadas na etapa escolhida", async () => {
+    const criado = await post(`/api/fluxos?empresaId=${empresaA}`, {
+      nome: "Fluxo que nasceu vazio",
+      categoria: "Faturamento",
+    });
+    const id = (criado.json as { id: string }).id;
+    const primeira = await post(`/api/fluxos/${id}/etapas?empresaId=${empresaA}`, {
+      nome: "Já existia",
+      tipo: "INICIO",
+    });
+    const origem = (primeira.json as { id: string }).id;
+
+    const r = await post(`/api/fluxos/${id}/roteiro?empresaId=${empresaA}`, {
+      roteiro: "Segunda\nTerceira",
+      origem,
+    });
+    expect(r.status).toBe(201);
+    expect(r.json).toEqual({ etapasCriadas: 2, conexoesCriadas: 2 });
+
+    const completo = await chamar(`/api/fluxos/${id}?empresaId=${empresaA}`);
+    const etapas = completo.json.etapas as { id: string; nome: string }[];
+    const conexoes = completo.json.conexoes as { origemEtapaId: string; destinoEtapaId: string }[];
+    expect(etapas.map((e) => e.nome)).toEqual(["Já existia", "Segunda", "Terceira"]);
+    expect(conexoes.some((c) => c.origemEtapaId === origem)).toBe(true);
+  });
+
+  it("a empresa vem do escopo, e o corpo não a troca", async () => {
+    const r = await post(`/api/fluxos/roteiro?empresaId=${empresaA}`, {
+      nome: "Roteiro com empresa no corpo",
+      categoria: "Teste",
+      empresaId: empresaB,
+      roteiro: "Única",
+    });
+    expect(r.status).toBe(201);
+    expect((r.json as { empresaId: string }).empresaId).toBe(empresaA);
+  });
+
+  it("acrescentar num fluxo da outra empresa é 404", async () => {
+    const daB = await post(`/api/fluxos?empresaId=${empresaB}`, {
+      nome: "Alvo do roteiro alheio",
+      categoria: "Teste",
+    });
+    const id = (daB.json as { id: string }).id;
+    const r = await post(`/api/fluxos/${id}/roteiro?empresaId=${empresaA}`, {
+      roteiro: "Invasora",
+    });
+    expect(r.status).toBe(404);
+
+    const completo = await chamar(`/api/fluxos/${id}?empresaId=${empresaB}`);
+    expect(completo.json.etapas).toHaveLength(0);
+  });
+});
+
+describe("organizar o desenho", () => {
+  it("posiciona quem ficou na origem sem desmanchar o que foi arrastado", async () => {
+    const criado = await post(`/api/fluxos?empresaId=${empresaA}`, {
+      nome: "Organizar pela API",
+      categoria: "Teste",
+    });
+    const id = (criado.json as { id: string }).id;
+    const a = await post(`/api/fluxos/${id}/etapas?empresaId=${empresaA}`, { nome: "a", ordem: 0 });
+    const b = await post(`/api/fluxos/${id}/etapas?empresaId=${empresaA}`, { nome: "b", ordem: 1 });
+    const idA = (a.json as { id: string }).id;
+    const idB = (b.json as { id: string }).id;
+    await post(`/api/fluxos/${id}/conexoes?empresaId=${empresaA}`, {
+      origemEtapaId: idA,
+      destinoEtapaId: idB,
+    });
+    await put(`/api/fluxos/${id}/posicoes?empresaId=${empresaA}`, {
+      posicoes: [{ etapaId: idA, posX: 800, posY: 800 }],
+    });
+
+    const r = await post(`/api/fluxos/${id}/organizar?empresaId=${empresaA}`, {});
+    expect(r.status).toBe(200);
+
+    const completo = await chamar(`/api/fluxos/${id}?empresaId=${empresaA}`);
+    const etapas = completo.json.etapas as { id: string; posX: number; posY: number }[];
+    expect(etapas.find((e) => e.id === idA)).toMatchObject({ posX: 800, posY: 800 });
+    expect(etapas.find((e) => e.id === idB)!.posY).toBeGreaterThan(0);
+
+    /* Com `refazerTudo`, aí sim o arranjo à mão é desfeito. */
+    await post(`/api/fluxos/${id}/organizar?empresaId=${empresaA}`, { refazerTudo: true });
+    const depois = await chamar(`/api/fluxos/${id}?empresaId=${empresaA}`);
+    expect(
+      (depois.json.etapas as { id: string; posX: number }[]).find((e) => e.id === idA)!.posX,
+    ).toBe(0);
+  });
+
+  it("organizar o fluxo da outra empresa é 404", async () => {
+    const daB = await post(`/api/fluxos?empresaId=${empresaB}`, {
+      nome: "Arranjo alheio",
+      categoria: "Teste",
+    });
+    const id = (daB.json as { id: string }).id;
+    const r = await post(`/api/fluxos/${id}/organizar?empresaId=${empresaA}`, {});
+    expect(r.status).toBe(404);
+  });
+});

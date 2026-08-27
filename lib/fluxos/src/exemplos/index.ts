@@ -1,6 +1,7 @@
 import type { FluxoDeclarado } from "../modelo";
 import { CTE_ATE_RECEBIMENTO } from "./cte-ate-recebimento";
 import { NF_ATE_PAGAMENTO } from "./nf-ate-pagamento";
+import { OPERACAO_EMPURRADA } from "./operacao-empurrada";
 
 /**
  * Os modelos de fluxo que acompanham o produto — e o que os separa.
@@ -32,6 +33,12 @@ export const MODELOS: readonly ModeloDeFluxo[] = [
     semeado: false,
     resumo: "Da chegada da nota do fornecedor à baixa do pagamento.",
   },
+  {
+    declarado: OPERACAO_EMPURRADA,
+    semeado: false,
+    resumo:
+      "O macrofluxo da operação empurrada: origem da tarifa, emissão, integrações em paralelo, pendências e conciliação.",
+  },
 ];
 
-export { CTE_ATE_RECEBIMENTO, NF_ATE_PAGAMENTO };
+export { CTE_ATE_RECEBIMENTO, NF_ATE_PAGAMENTO, OPERACAO_EMPURRADA };

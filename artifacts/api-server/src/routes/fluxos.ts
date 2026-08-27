@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
 import {
+  acrescentarRoteiro,
   arquivarFluxo,
   atualizarConexao,
   atualizarEtapa,
@@ -16,10 +17,12 @@ import {
   excluirEtapa,
   FluxoNaoEncontrado,
   importarFluxo,
+  interpretarRoteiro,
   lerFluxo,
   listarFluxos,
   MODELOS,
   modeloPorSlug,
+  organizarFluxo,
   RecusaDeFluxo,
   reposicionarEtapas,
   semearModelos,
@@ -188,6 +191,42 @@ router.post("/fluxos/importar", async (req, res): Promise<void> => {
   res.status(201).json(fluxo);
 });
 
+/**
+ * Um fluxo inteiro a partir de um **roteiro em texto** — uma etapa por linha.
+ *
+ * É a mesma criação de sempre: o texto vira `EtapaDeclarada`/`ConexaoDeclarada`
+ * por `interpretarRoteiro` (função pura do motor) e entra por `importarFluxo`,
+ * na mesma transação e com as mesmas validações do `POST /fluxos`. A rota não
+ * interpreta nada: se a gramática mudar, muda no motor, e o CLI que um dia
+ * existir herda a mudança sem copiá-la.
+ *
+ * Por que uma rota e não duas chamadas da tela (criar, depois acrescentar):
+ * porque duas chamadas deixam um fluxo vazio gravado quando a segunda falha, e
+ * um cadastro que nasce quebrado é o que ninguém volta para limpar.
+ */
+router.post("/fluxos/roteiro", async (req, res): Promise<void> => {
+  const empresaId = await resolverEmpresa(req);
+  const corpo = (req.body ?? {}) as Record<string, unknown>;
+  const { etapas, conexoes } = interpretarRoteiro(corpo.roteiro);
+  const fluxo = await importarFluxo(
+    db,
+    empresaId,
+    {
+      nome: String(corpo.nome ?? ""),
+      slug: typeof corpo.slug === "string" ? corpo.slug : "",
+      categoria: String(corpo.categoria ?? ""),
+      descricao: typeof corpo.descricao === "string" ? corpo.descricao : null,
+      objetivo: typeof corpo.objetivo === "string" ? corpo.objetivo : null,
+      dono: typeof corpo.dono === "string" ? corpo.dono : null,
+      ...(ehStatusDoFluxo(corpo.status) ? { status: corpo.status } : {}),
+      etapas,
+      conexoes,
+    },
+    autorDaRequisicao(req),
+  );
+  res.status(201).json(fluxo);
+});
+
 router.put("/fluxos/:id", async (req, res): Promise<void> => {
   const empresaId = await resolverEmpresa(req);
   const fluxo = await atualizarFluxo(db, empresaId, req.params.id, req.body, autorDaRequisicao(req));
@@ -236,6 +275,53 @@ router.delete("/fluxos/:id/etapas/:etapaId", async (req, res): Promise<void> => 
   const empresaId = await resolverEmpresa(req);
   await excluirEtapa(db, empresaId, req.params.id, req.params.etapaId);
   res.status(204).end();
+});
+
+/**
+ * Acrescentar um roteiro a um fluxo que já existe.
+ *
+ * O caminho do fluxo criado e ainda vazio — e o de quem levantou mais dez
+ * etapas depois da reunião. As etapas novas entram no fim, ligadas em
+ * sequência, e `origem` permite pendurá-las numa etapa que já está no desenho
+ * em vez de começar uma ilha solta.
+ */
+router.post("/fluxos/:id/roteiro", async (req, res): Promise<void> => {
+  const empresaId = await resolverEmpresa(req);
+  const corpo = (req.body ?? {}) as Record<string, unknown>;
+  const { etapas, conexoes } = interpretarRoteiro(corpo.roteiro);
+  /*
+    A etapa de onde o trecho novo pende, quando quem pediu escolheu uma. Vai
+    para o motor como mais uma conexão declarada — a ponta `de` é um `id`, que
+    `acrescentarRoteiro` aceita ao lado das chaves locais e confere contra as
+    etapas deste fluxo. Uma origem inventada é recusada lá, com nome.
+  */
+  const origem = typeof corpo.origem === "string" && corpo.origem !== "" ? corpo.origem : null;
+  const ligacoes = origem
+    ? [{ de: origem, para: etapas[0].chave, ordem: -1 }, ...conexoes]
+    : conexoes;
+
+  const resumo = await acrescentarRoteiro(
+    db,
+    empresaId,
+    req.params.id,
+    { etapas, conexoes: ligacoes },
+    autorDaRequisicao(req),
+  );
+  res.status(201).json(resumo);
+});
+
+/**
+ * "Organizar" — o layout automático aplicado ao que já está gravado.
+ *
+ * Sem `refazerTudo`, arruma só quem nunca foi arrastado; com ele, refaz o
+ * desenho inteiro. Ter a decisão no corpo, e não duas rotas, é o único caso
+ * deste arquivo em que o corpo muda o comportamento: os dois são o mesmo ato
+ * ("organize"), com um alcance diferente.
+ */
+router.post("/fluxos/:id/organizar", async (req, res): Promise<void> => {
+  const empresaId = await resolverEmpresa(req);
+  const refazerTudo = req.body?.refazerTudo === true;
+  res.json(await organizarFluxo(db, empresaId, req.params.id, { refazerTudo }));
 });
 
 /** O salvamento do arrastar: todas as posições de uma vez, ou nenhuma. */

@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { Link, useRoute } from "wouter";
 import { useMutation } from "@tanstack/react-query";
-import { ArrowLeft, Loader2, Pencil, Plus, Trash2, Wand2 } from "lucide-react";
+import { ArrowLeft, LayoutGrid, ListPlus, Loader2, Pencil, Plus, Trash2, Wand2 } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
 import { ApiErrorNotice } from "@/components/api-error";
 import { Badge } from "@/components/ui/badge";
@@ -18,6 +18,7 @@ import {
 import { CanvasDoFluxo } from "@/components/fluxos/canvas";
 import { EditorDaEtapa } from "@/components/fluxos/editor-da-etapa";
 import { EditorDoFluxo } from "@/components/fluxos/editor-do-fluxo";
+import { MontadorPorTexto } from "@/components/fluxos/montador-por-texto";
 import { PainelDaEtapa } from "@/components/fluxos/painel-da-etapa";
 import { useEmpresaDosFluxos } from "@/components/fluxos/seletor-de-empresa";
 import {
@@ -28,6 +29,7 @@ import {
   useFluxo,
   useRecarregarFluxos,
   type Conexao,
+  type Etapa,
 } from "@/lib/fluxos";
 
 /**
@@ -74,6 +76,13 @@ export default function TelaDoFluxo() {
     etapaId: null,
   });
   const [editandoFluxo, setEditandoFluxo] = useState(false);
+  const [colando, setColando] = useState(false);
+  /*
+    De qual etapa a próxima nasce ligada. É preenchido pelo botão "Etapa
+    seguinte" do painel e consumido uma vez, quando a gravação volta — o
+    diálogo de etapa continua sendo o mesmo, sem um segundo modo escondido.
+  */
+  const [seguinteDe, setSeguinteDe] = useState<string | null>(null);
   const [somenteLeitura, setSomenteLeitura] = useState(false);
   const [conexaoAberta, setConexaoAberta] = useState<Conexao | null>(null);
 
@@ -92,6 +101,11 @@ export default function TelaDoFluxo() {
   const conectar = useMutation({
     mutationFn: (ligacao: { origemEtapaId: string; destinoEtapaId: string }) =>
       escritas.criarConexao(empresaId, fluxoId, ligacao),
+    onSuccess: () => recarregar(fluxoId),
+  });
+
+  const organizar = useMutation({
+    mutationFn: (refazerTudo: boolean) => escritas.organizar(empresaId, fluxoId, refazerTudo),
     onSuccess: () => recarregar(fluxoId),
   });
 
@@ -193,6 +207,41 @@ export default function TelaDoFluxo() {
             Editar fluxo
           </Button>
 
+          {/*
+            "Organizar" é o botão que faltava: `posicionarEtapas` já era função
+            pura e testada, e nada na tela a chamava — quem montasse um fluxo à
+            mão ficava com o arranjo que arrastou, e quem esquecesse de arrastar
+            ficava com os cartões empilhados na origem.
+
+            O clique normal arruma só o que nunca foi posicionado. Com a tecla
+            Shift, refaz o desenho inteiro — o pedido destrutivo fica atrás de
+            um gesto deliberado, e o rótulo do botão o anuncia.
+          */}
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={somenteLeitura || organizar.isPending || !completo?.etapas.length}
+            title="Organizar o desenho. Com Shift, refaz o arranjo inteiro."
+            onClick={(evento) => organizar.mutate(evento.shiftKey)}
+          >
+            {organizar.isPending ? (
+              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <LayoutGrid className="mr-1.5 h-3.5 w-3.5" />
+            )}
+            Organizar
+          </Button>
+
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={somenteLeitura}
+            onClick={() => setColando(true)}
+          >
+            <ListPlus className="mr-1.5 h-3.5 w-3.5" />
+            Colar etapas
+          </Button>
+
           <Button
             size="sm"
             disabled={somenteLeitura}
@@ -203,10 +252,12 @@ export default function TelaDoFluxo() {
           </Button>
         </div>
 
-        {(mover.isError || conectar.isError || excluirEtapa.isError) && (
+        {(mover.isError || conectar.isError || excluirEtapa.isError || organizar.isError) && (
           <Alert variant="destructive" className="mt-2">
             <AlertDescription>
-              {fraseDoErro(mover.error ?? conectar.error ?? excluirEtapa.error)}
+              {fraseDoErro(
+                mover.error ?? conectar.error ?? excluirEtapa.error ?? organizar.error,
+              )}
             </AlertDescription>
           </Alert>
         )}
@@ -224,6 +275,7 @@ export default function TelaDoFluxo() {
           {completo && completo.etapas.length === 0 && (
             <FluxoSemEtapas
               aoCriar={() => setEditandoEtapa({ aberto: true, etapaId: null })}
+              aoColar={() => setColando(true)}
               bloqueado={somenteLeitura}
             />
           )}
@@ -256,6 +308,10 @@ export default function TelaDoFluxo() {
               onEditar={() =>
                 setEditandoEtapa({ aberto: true, etapaId: etapaSelecionada.id })
               }
+              onSeguinte={() => {
+                setSeguinteDe(etapaSelecionada.id);
+                setEditandoEtapa({ aberto: true, etapaId: null });
+              }}
               onExcluir={() => excluirEtapa.mutate(etapaSelecionada.id)}
               onFechar={() => setSelecionada(null)}
             />
@@ -284,8 +340,32 @@ export default function TelaDoFluxo() {
           fluxoId={fluxoId}
           empresaId={empresaId}
           catalogo={catalogo.data}
-          aoFechar={() => setEditandoEtapa({ aberto: false, etapaId: null })}
-          aoSalvar={() => recarregar(fluxoId)}
+          aoFechar={() => {
+            setEditandoEtapa({ aberto: false, etapaId: null });
+            setSeguinteDe(null);
+          }}
+          aoSalvar={(gravada: Etapa) => {
+            /*
+              Ligar e posicionar acontecem aqui, e não dentro do editor: o
+              editor grava uma etapa e não sabe de onde o pedido veio. A
+              organização é chamada com o padrão (só quem está na origem), então
+              ela coloca a etapa recém-nascida no lugar sem desmanchar nada do
+              que já foi arrastado.
+            */
+            const origem = seguinteDe;
+            setSeguinteDe(null);
+            if (!origem || origem === gravada.id) {
+              recarregar(fluxoId);
+              return;
+            }
+            void escritas
+              .criarConexao(empresaId, fluxoId, {
+                origemEtapaId: origem,
+                destinoEtapaId: gravada.id,
+              })
+              .then(() => escritas.organizar(empresaId, fluxoId, false))
+              .finally(() => recarregar(fluxoId));
+          }}
         />
       )}
 
@@ -298,6 +378,19 @@ export default function TelaDoFluxo() {
           categoriasConhecidas={[completo.fluxo.categoria]}
           aoFechar={() => setEditandoFluxo(false)}
           aoSalvar={() => recarregar(fluxoId)}
+        />
+      )}
+
+      {colando && completo && (
+        <MontadorPorTexto
+          empresaId={empresaId}
+          fluxoId={fluxoId}
+          categoriasConhecidas={[completo.fluxo.categoria]}
+          origem={
+            etapaSelecionada ? { id: etapaSelecionada.id, nome: etapaSelecionada.nome } : null
+          }
+          aoFechar={() => setColando(false)}
+          aoConcluir={() => recarregar(fluxoId)}
         />
       )}
 
@@ -315,19 +408,43 @@ export default function TelaDoFluxo() {
   );
 }
 
-function FluxoSemEtapas({ aoCriar, bloqueado }: { aoCriar: () => void; bloqueado: boolean }) {
+/**
+ * O fluxo vazio — e a saída que ele passou a oferecer primeiro.
+ *
+ * Antes, a única porta era "criar a primeira etapa", uma de cada vez: quem
+ * chegava aqui com um processo de treze passos na mão via um convite para abrir
+ * treze formulários. O caminho de cima agora é colar a lista inteira; criar uma
+ * etapa por vez continua ali, para quem está descobrindo o processo enquanto o
+ * desenha.
+ */
+function FluxoSemEtapas({
+  aoCriar,
+  aoColar,
+  bloqueado,
+}: {
+  aoCriar: () => void;
+  aoColar: () => void;
+  bloqueado: boolean;
+}) {
   return (
     <div className="flex h-full items-center justify-center bg-muted/20">
-      <div className="max-w-sm text-center">
+      <div className="max-w-md text-center">
         <Wand2 className="mx-auto h-8 w-8 text-muted-foreground/50" />
         <p className="mt-3 text-sm font-medium text-foreground">Este fluxo ainda não tem etapas.</p>
         <p className="mt-1 text-sm text-muted-foreground">
-          Crie a primeira etapa e depois ligue uma na outra arrastando das bordas dos cartões.
+          Cole a lista de etapas de uma vez — uma por linha, na ordem do processo — e elas nascem
+          ligadas e organizadas. Ou crie uma a uma e ligue arrastando das bordas dos cartões.
         </p>
-        <Button className="mt-4" onClick={aoCriar} disabled={bloqueado}>
-          <Plus className="mr-1.5 h-4 w-4" />
-          Criar a primeira etapa
-        </Button>
+        <div className="mt-4 flex flex-wrap justify-center gap-2">
+          <Button onClick={aoColar} disabled={bloqueado}>
+            <ListPlus className="mr-1.5 h-4 w-4" />
+            Colar as etapas
+          </Button>
+          <Button variant="outline" onClick={aoCriar} disabled={bloqueado}>
+            <Plus className="mr-1.5 h-4 w-4" />
+            Criar a primeira etapa
+          </Button>
+        </div>
       </div>
     </div>
   );

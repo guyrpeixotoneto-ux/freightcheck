@@ -7,6 +7,7 @@ import {
   Gauge,
   Hourglass,
   Pencil,
+  Plus,
   Scale,
   Server,
   Trash2,
@@ -83,6 +84,7 @@ export function PainelDaEtapa({
   catalogo,
   podeEditar,
   onEditar,
+  onSeguinte,
   onExcluir,
   onFechar,
 }: {
@@ -90,6 +92,8 @@ export function PainelDaEtapa({
   catalogo: Catalogo | undefined;
   podeEditar: boolean;
   onEditar: () => void;
+  /** Cria a próxima etapa **já ligada** a esta. */
+  onSeguinte: () => void;
   onExcluir: () => void;
   onFechar: () => void;
 }) {
@@ -135,6 +139,19 @@ export function PainelDaEtapa({
             <Button variant="outline" size="sm" onClick={onEditar}>
               <Pencil className="mr-1.5 h-3.5 w-3.5" />
               Editar etapa
+            </Button>
+            {/*
+              "Etapa seguinte" cria e liga num gesto só.
+
+              Sem ele, acrescentar um passo no fim do processo é: abrir o
+              diálogo pelo cabeçalho, preencher, fechar, achar o cartão novo no
+              canvas (ele nasce onde couber), arrastar da borda de um até a
+              borda do outro. São cinco atos para dizer "e depois disto vem
+              aquilo", que é a frase mais comum de quem levanta um processo.
+            */}
+            <Button variant="outline" size="sm" onClick={onSeguinte}>
+              <Plus className="mr-1.5 h-3.5 w-3.5" />
+              Etapa seguinte
             </Button>
             <Button variant="ghost" size="sm" onClick={onExcluir}>
               <Trash2 className="mr-1.5 h-3.5 w-3.5" />
