@@ -19,7 +19,7 @@ import { CanvasDoFluxo } from "@/components/fluxos/canvas";
 import { EditorDaEtapa } from "@/components/fluxos/editor-da-etapa";
 import { EditorDoFluxo } from "@/components/fluxos/editor-do-fluxo";
 import { PainelDaEtapa } from "@/components/fluxos/painel-da-etapa";
-import { useEmpresaEscolhida } from "@/components/fluxos/seletor-de-empresa";
+import { useEmpresaDosFluxos } from "@/components/fluxos/seletor-de-empresa";
 import {
   escritas,
   fraseDoErro,
@@ -63,7 +63,7 @@ export default function TelaDoFluxo() {
   const [, params] = useRoute("/fluxos/:id");
   const fluxoId = params?.id ?? "";
 
-  const { empresaId } = useEmpresaEscolhida(null);
+  const { empresaId } = useEmpresaDosFluxos();
   const catalogo = useCatalogoDeFluxos();
   const consulta = useFluxo(empresaId, fluxoId);
   const recarregar = useRecarregarFluxos(empresaId);
