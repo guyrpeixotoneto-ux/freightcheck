@@ -494,6 +494,7 @@ export function corpoDaEtapa(etapa: Etapa): Record<string, unknown> {
     regras: etapa.regras ?? "",
     observacoes: etapa.observacoes ?? "",
     chaveMonitoramento: etapa.chaveMonitoramento ?? "",
+    informacoesConsultadas: etapa.informacoesConsultadas ?? "",
     ordem: etapa.ordem,
     posX: etapa.posX,
     posY: etapa.posY,
