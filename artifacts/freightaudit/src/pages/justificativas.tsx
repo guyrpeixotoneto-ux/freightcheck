@@ -21,11 +21,13 @@ import { fetchJson } from "@/lib/api";
 import { useConsultaResiliente } from "@/lib/consulta-resiliente";
 import { useContextosDaCasca } from "@/lib/contextos";
 import {
-  abasDeTipo,
-  opcoesDeVigencia,
+  abaDoTipo,
+  abasDaVigencia,
   placasDaAba,
   useComparacoes,
+  useContagensPorTipo,
   useJustificadaPor,
+  vigenciasDaAba,
   type Justificativa,
 } from "@/lib/justificativas";
 import type { ChangeRow } from "@/components/changes/change-table";
@@ -49,13 +51,23 @@ import { cn } from "@/lib/utils";
  * justificar é trabalho por tipo: quem explica o reajuste de um cavalo não é
  * quem explica a quilometragem de um trecho, e sem o recorte a fila chega
  * misturada. A escolha vive na URL (`?tipo=`), como a da vigência e pelo mesmo
- * motivo. A regra das abas é `abasDeTipo` / `placasDaAba`, em
+ * motivo. A regra das abas é `abasDaVigencia` / `placasDaAba`, em
  * `lib/justificativas.ts`.
  *
- * A vigência é escolhida aqui, não fixa na mais recente: o seletor lê
- * `/change-sets` (comparações já calculadas — nunca `/changes/latest`, que
- * calcularia sob demanda só por a tela estar aberta) e a escolha vive na URL,
- * para sobreviver a ir para o detalhe de uma placa e voltar.
+ * A vigência é escolhida **dentro da aba**, e não acima dela. Uma comparação
+ * pertence a uma série — `(escopo, entity_type_set)` —, então o arquivo de
+ * trecho e o de equipamento da mesma unidade na mesma data são duas
+ * comparações, que um seletor único listava como duas linhas idênticas: a
+ * lista crescia misturando cavalo, carreta e trecho, e escolher ali era
+ * chutar. Dentro da aba, cada lista só oferece as vigências que têm o que a
+ * aba mostra, e a contagem à direita é a do tipo. Quem sabe disso é
+ * `/change-sets/tipos`; a regra é `vigenciasDaAba` / `abasDaVigencia`, em
+ * `lib/justificativas.ts`.
+ *
+ * O seletor continua lendo `/change-sets` (comparações já calculadas — nunca
+ * `/changes/latest`, que calcularia sob demanda só por a tela estar aberta) e
+ * a escolha continua vivendo na URL, para sobreviver a ir para o detalhe de
+ * uma placa e voltar.
  */
 
 /**
@@ -107,15 +119,32 @@ export default function Justificativas() {
     `opcoesDeVigencia`.
   */
   const contextos = useContextosDaCasca();
-  const opcoesDoSeletor = useMemo(
-    () => opcoesDeVigencia(opcoes, contextos.contextos),
-    [opcoes, contextos.contextos],
-  );
+  /* Quantas placas e alterações de cada tipo cada vigência tem — o que faz a
+     lista da aba Trecho oferecer só vigências com trecho. */
+  const { contagens } = useContagensPorTipo();
+
   const params = new URLSearchParams(search);
   const changeSetIdDaUrl = params.get("changeSetId") || undefined;
-  const changeSetId = changeSetIdDaUrl ?? opcoes[0]?.id;
   /* `null` é a aba "Todas" — um endereço truncado abre a fila inteira. */
   const tipo = params.get("tipo") || null;
+
+  const abas = useMemo(
+    () => abasDaVigencia(opcoes, contagens, changeSetIdDaUrl),
+    [opcoes, contagens, changeSetIdDaUrl],
+  );
+  /*
+    A vigência aberta é a **da aba**: a do endereço quando ela tem deste tipo,
+    e a mais recente que tem quando não. É o que impede a aba Trecho de abrir
+    sobre uma comparação de equipamento — que existe, tem a mesma data e o
+    mesmo nome de unidade, e não tem trecho nenhum.
+  */
+  const abaAtual = abaDoTipo(abas, tipo);
+  const changeSetId = abaAtual?.changeSetId ?? changeSetIdDaUrl ?? opcoes[0]?.id;
+
+  const opcoesDoSeletor = useMemo(
+    () => vigenciasDaAba(opcoes, contextos.contextos, contagens, tipo),
+    [opcoes, contextos.contextos, contagens, tipo],
+  );
 
   const endereco = (proximo: { changeSetId?: string; tipo?: string | null }) => {
     const q = new URLSearchParams();
@@ -148,7 +177,6 @@ export default function Justificativas() {
   const data = consulta.dados;
   const isLoading = comparacoes.isLoading || (!!changeSetId && consulta.carregando);
   const grupos = useMemo(() => agruparPorPlaca(data?.rows ?? []), [data]);
-  const abas = useMemo(() => abasDeTipo(grupos), [grupos]);
   const visiveis = useMemo(() => placasDaAba(grupos, tipo), [grupos, tipo]);
 
   const { justificadaPor } = useJustificadaPor(changeSetId);
@@ -164,7 +192,14 @@ export default function Justificativas() {
   */
   const escolherTipo = (proximo: string | null) => {
     setSelecionadas(new Set());
-    navegar(endereco({ tipo: proximo }));
+    /*
+      A vigência viaja junto: a aba de destino já sabe qual comparação abre —
+      a mesma, quando ela também tem deste tipo, e a mais recente que tem,
+      quando não. Sem isso o endereço levaria a vigência da aba de origem e a
+      tela abriria vazia, com um seletor que nem oferece a linha que ela está
+      mostrando.
+    */
+    navegar(endereco({ tipo: proximo, changeSetId: abaDoTipo(abas, proximo)?.changeSetId }));
   };
 
   const alternarSelecaoGrupo = (grupo: PlacaGroup) => {
@@ -210,18 +245,53 @@ export default function Justificativas() {
         </p>
         <h1 className="text-4xl font-bold tracking-tight mt-1">Justificativas</h1>
         <p className="text-sm text-muted-foreground mt-2 max-w-2xl">
-          O que mudou nesta vigência, agrupado por placa. Marque uma ou várias
-          alterações e justifique de uma vez — a justificativa fica registrada com
-          quem escreveu e quando.
+          O que mudou por tipo de ativo, agrupado por placa: escolha a aba e,
+          dentro dela, a vigência. Marque uma ou várias alterações e justifique
+          de uma vez — a justificativa fica registrada com quem escreveu e
+          quando.
         </p>
 
-        {opcoes.length > 1 && (
-          <div className="flex items-center gap-2 mt-4">
+        {/* As abas vêm primeiro, e a vigência dentro delas — na ordem em que a
+            pergunta se faz para quem justifica: primeiro de que tipo de ativo
+            se fala, e só então de que vigência dele. Invertida, a lista de
+            vigências era a mesma para as três abas e trazia as comparações de
+            todas as séries juntas: cavalo, carreta e trecho da mesma unidade e
+            da mesma data escreviam linhas idênticas, e nenhuma dizia qual
+            tinha o que a aba mostra.
+
+            As três abas ficam mesmo quando nenhuma vigência tem aquele tipo —
+            é a aba com zero que diz que nenhum trecho mudou, em vez de deixar
+            a dúvida de se a tela sabe mostrá-lo. */}
+        <Tabs
+          value={tipo ?? TODAS}
+          onValueChange={(valor) => escolherTipo(valor === TODAS ? null : valor)}
+          className="mt-4"
+        >
+          <TabsList>
+            {abas.map((aba) => (
+              <TabsTrigger key={aba.tipo ?? TODAS} value={aba.tipo ?? TODAS}>
+                {aba.rotulo}
+                {aba.total !== null && (
+                  <span className="ml-1.5 tabular-nums text-xs text-muted-foreground">
+                    {aba.total}
+                  </span>
+                )}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
+
+        {opcoesDoSeletor.length > 0 && (
+          <div className="flex items-center gap-2 mt-3">
             <span className="inline-flex items-center gap-1.5 text-xs uppercase tracking-wide text-muted-foreground">
               <CalendarRange className="w-3.5 h-3.5" />
               Vigência
             </span>
-            <Select value={changeSetId ?? ""} onValueChange={escolherVigencia}>
+            <Select
+              value={changeSetId ?? ""}
+              onValueChange={escolherVigencia}
+              disabled={opcoesDoSeletor.length === 1}
+            >
               <SelectTrigger className="h-8 w-80 text-sm">
                 <SelectValue placeholder="Selecionar vigência…" />
               </SelectTrigger>
@@ -245,31 +315,6 @@ export default function Justificativas() {
               </SelectContent>
             </Select>
           </div>
-        )}
-
-        {/* As abas vêm depois da vigência e antes da lista, na ordem em que a
-            pergunta se faz: primeiro de que vigência se fala, depois de que
-            tipo de ativo, e só então o que mudou nele. Ficam mesmo quando a
-            vigência não tem nada a mostrar — é a aba com zero que diz que
-            nenhum trecho mudou, em vez de deixar a dúvida de se a tela sabe
-            mostrá-lo. */}
-        {grupos.length > 0 && (
-          <Tabs
-            value={tipo ?? TODAS}
-            onValueChange={(valor) => escolherTipo(valor === TODAS ? null : valor)}
-            className="mt-4"
-          >
-            <TabsList>
-              {abas.map((aba) => (
-                <TabsTrigger key={aba.tipo ?? TODAS} value={aba.tipo ?? TODAS}>
-                  {aba.rotulo}
-                  <span className="ml-1.5 tabular-nums text-xs text-muted-foreground">
-                    {aba.total}
-                  </span>
-                </TabsTrigger>
-              ))}
-            </TabsList>
-          </Tabs>
         )}
       </header>
 
@@ -337,6 +382,22 @@ export default function Justificativas() {
             de qual — "nenhum trecho" —, porque a mesma tela vazia sem o nome
             do tipo se lê como se a vigência inteira não tivesse mudado nada,
             que é o oposto do que as outras abas mostram. */}
+        {/* A aba não tem vigência nenhuma: nenhuma comparação do acervo mexeu
+            neste tipo. É diferente de "não mudou nesta vigência" — não há
+            vigência para oferecer, e o seletor ao lado está vazio de fato. */}
+        {tipo && opcoesDoSeletor.length === 0 && !!contagens && (
+          <section className="bg-card border rounded-xl shadow-sm px-6 py-10 text-center">
+            <p className="text-lg font-bold">
+              Nenhum{palavrasDoTipo(tipo).artigo === "a" ? "a" : ""}{" "}
+              {rotuloEmFrase(tipo)} mudou em nenhuma vigência.
+            </p>
+            <p className="text-sm text-muted-foreground mt-1">
+              Nenhuma comparação calculada até aqui alterou este tipo de ativo —
+              troque de aba para ver as que alteraram.
+            </p>
+          </section>
+        )}
+
         {grupos.length > 0 && visiveis.length === 0 && (
           <section className="bg-card border rounded-xl shadow-sm px-6 py-10 text-center">
             <p className="text-lg font-bold">
