@@ -1239,7 +1239,7 @@ export async function orquestrar(
       break;
 
     case "BALANCO":
-      juntar("Consultando o balanço de massa", balancoDasImportacoes(db));
+      juntar("Consultando o rastreio de dados", balancoDasImportacoes(db));
       break;
 
     case "CELULAS":

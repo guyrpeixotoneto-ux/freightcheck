@@ -34,7 +34,7 @@ O que faz o produto parecer lento, em ordem de impacto medido:
    distante custa `nº de consultas × RTT`. Medido: `/api/changes/families` sai
    de 222 ms para 538 ms só levando o RTT de 0 a 15 ms.
 4. **A API não comprime nada.** 165 KB indo pela rede onde caberiam 5 KB (31,7×).
-5. **JIT do Postgres domina o Balanço de Massa:** 1.017 ms → 285 ms com `jit=off`.
+5. **JIT do Postgres domina o Rastreio de Dados:** 1.017 ms → 285 ms com `jit=off`.
 6. **`toLocaleString` por chamada** custa 44,5× o de um `Intl.NumberFormat`
    reutilizado — e é o topo do perfil de CPU da DRE.
 
@@ -45,9 +45,13 @@ O que faz o produto parecer lento, em ordem de impacto medido:
 Navegação SPA (clique no menu → tela pronta), mediana de 3 medições, warm,
 localhost. `bloqueio` é Total Blocking Time da main thread.
 
+> As medições são de quando o Rastreio de Dados ainda se chamava *Balanço de
+> Massa* e morava em `/balanco-massa`. Só o nome mudou: a tela, a consulta e os
+> números são os mesmos.
+
 | # | Tela | Respostas | Texto pronto | Bloqueio | Requests | Ondas | API mais lenta | Payload | Nota |
 |--:|------|----------:|-------------:|---------:|---------:|------:|---------------:|--------:|------|
-| 1 | `/balanco-massa` | **1.399 ms** | 58 ms | 0 ms | 2 | 1 | 1.203 ms | 12 KB | Ruim |
+| 1 | `/rastreio-de-dados` | **1.399 ms** | 58 ms | 0 ms | 2 | 1 | 1.203 ms | 12 KB | Ruim |
 | 2 | `/dre` | **1.130 ms** | 63 ms | 0 ms | 2 | 1 | 1.049 ms | 86 KB | Ruim |
 | 3 | `/fechamento/remuneracao` | 284 ms | 50 ms | 0 ms | 1 | 1 | 315 ms | 8 KB | Excelente |
 | 4 | `/impacto-financeiro` | 279 ms | 51 ms | 0 ms | 2 | 1 | 232 ms | 39 KB | Excelente |
@@ -92,7 +96,7 @@ uma única long task — a main thread está parada, esperando a rede.
 | 1 | `<link>`/`@import` do Google Fonts bloqueiam a primeira pintura | **+12.412 ms** (pior caso) · +100–300 ms (caso normal) | A/B no navegador: 12.732 → 320 ms | **COMPROVADO** |
 | 2 | Backoff do retry: 5 tentativas, 400/1.200/3.600/8.000 ms | **+4.893 ms** com 3 falhas · **+13.200 ms** no limite | 503 injetado: 350 → 454 → 1.706 → 5.243 ms | **COMPROVADO** |
 | 3 | Round trips serializados ao banco (22–49 por endpoint) | **+21 ms por ms de RTT** em `/changes/families` | Proxy TCP com atraso: 0/5/15 ms | **COMPROVADO** |
-| 4 | JIT do Postgres na consulta do Balanço de Massa | **+732 ms** em `/api/balance` | `jit=off`: 1.017 → 285 ms; `EXPLAIN`: 1.302 → 416 ms | **COMPROVADO** |
+| 4 | JIT do Postgres na consulta do Rastreio de Dados | **+732 ms** em `/api/balance` | `jit=off`: 1.017 → 285 ms; `EXPLAIN`: 1.302 → 416 ms | **COMPROVADO** |
 | 5 | `toLocaleString` por chamada (DRE, Composição, Frota) | **−254 a −325 ms** por endpoint da DRE | Perfil de CPU (15,9% em `formatarNumero`) + A/B | **COMPROVADO** |
 | 6 | API sem compressão HTTP | 8,3× a 31,7× de banda desperdiçada | `content-encoding: nenhuma` em todos os endpoints | **COMPROVADO** |
 | 7 | `staleTime: 0` em 126 das 144 consultas | 95 KB + 180 ms + 22 consultas a cada revisita | A→B→A→B: `/changes/families` refeita toda vez | **COMPROVADO** |
@@ -140,7 +144,7 @@ TELA PRONTA: ~14.400 ms   (dos quais ~1.700 ms são o FreightCheck)
 
 Sem as fontes bloqueando, a mesma sequência termina em **~1.900 ms**.
 
-### 4.2 `/balanco-massa` — 1.399 ms
+### 4.2 `/rastreio-de-dados` — 1.399 ms
 
 ```
 0 ms      troca de rota
@@ -335,7 +339,7 @@ com RTT de 60 ms —, o mesmo endpoint passa de 222 ms para **~1,5 s**, e
 
 **Esta é a primeira coisa a conferir no ambiente real** (§10).
 
-### 7.2 A consulta do Balanço de Massa e o JIT
+### 7.2 A consulta do Rastreio de Dados e o JIT
 
 `EXPLAIN (ANALYZE, BUFFERS)` da consulta de `lib/balance/src/balanco.ts:169`:
 
@@ -580,7 +584,7 @@ Todo ganho abaixo é **medido**, exceto onde diz "estimado".
 | # | Mudança | Onde | Segundos que tira | Esforço | Evidência |
 |--:|---|---|--:|---|---|
 | 1 | Fontes servidas do próprio domínio; remover a Inter não usada | `index.html:16-18`, `src/index.css:1` | **até −12,4 s** na entrada (pior caso) · −0,1 a −0,3 s no caso normal | ~1 h | A/B: FCP 12.732 → 320 ms |
-| 2 | `jit=off` na conexão + `compression()` no Express | `ALTER DATABASE`, `app.ts` | **−0,73 s** no Balanço de Massa · **−0,6 s** em `/balance/:id` · até 31,7× menos banda em todas as telas | ~1 h | 1.017 → 285 ms; 165 KB → 5 KB |
+| 2 | `jit=off` na conexão + `compression()` no Express | `ALTER DATABASE`, `app.ts` | **−0,73 s** no Rastreio de Dados · **−0,6 s** em `/balance/:id` · até 31,7× menos banda em todas as telas | ~1 h | 1.017 → 285 ms; 165 KB → 5 KB |
 | 3 | `Intl.NumberFormat` no módulo + memoizar `humanise`/`placementOf` | `dre/normalizacao.ts`, `composition/motor.ts`, `comparison/labels.ts`, `comparison/families.ts` | **−0,25 s** em `/dre` · **−0,33 s** na DRE do veículo · −0,06 s no restante da DRE/Frota/Composição | ~2 h | 747 → 492 ms; 753 → 428 ms |
 
 **Sobra do dia:** `staleTime` nos catálogos (−0,18 s por revisita em 5 telas) e
@@ -649,7 +653,7 @@ mesmo ambiente da Parte I. Reverter qualquer uma isoladamente é `git revert`.
 | — o mesmo, com o Google respondendo | FCP 248 ms | FCP **236 ms** | −5% | mesmo A/B, terceiro mockado | — |
 | **2. Retry por classe de falha** (`0659970`) | 14.325 ms · 5 tentativas | **36 ms · 1 tentativa** | **−99,7%** | 302 para `replit.com/__replshield` reproduzido no navegador | Nenhum — as 3 classes de "origem subindo" mantêm as 5 tentativas e os 13,2 s |
 | **3. Round trips de `/changes/families`** (`c13a81b`) | 22 consultas · 478 ms @RTT 15 ms | 17 consultas · **396 ms** | **−17%** | proxy TCP com atraso injetado, 0/5/15 ms | Nenhum — respostas byte a byte idênticas em 6 endpoints |
-| **4. JIT do Balanço de Massa** (`4ba5121`) | 877 ms / 944 ms | **239 ms / 364 ms** | **−73% / −61%** | `EXPLAIN (ANALYZE, BUFFERS)` 1.036 → 347 ms | Baixo — `SET LOCAL`, escopo de transação |
+| **4. JIT do Rastreio de Dados** (`4ba5121`) | 877 ms / 944 ms | **239 ms / 364 ms** | **−73% / −61%** | `EXPLAIN (ANALYZE, BUFFERS)` 1.036 → 347 ms | Baixo — `SET LOCAL`, escopo de transação |
 | **5. `Intl.NumberFormat` centralizado** (`fab84bb`) | 22.047 ms de CPU / 25 req | **11.269 ms** | **−49%** | perfil de CPU do Node, antes e depois | Nenhum — 9 endpoints byte a byte idênticos |
 | **6. Compressão HTTP** (`414baf7`) | 277.450 B por navegação | **29.068 B** | **9,5×** | navegação real em Chromium com banda em 2 Mb/s | Nenhum — conteúdo idêntico; +0,2 a 0,9 ms de CPU por resposta |
 
@@ -675,7 +679,7 @@ Telas que já respondiam abaixo de 50 ms estão omitidas.
 
 | Tela | Antes | Depois | Ganho | Gargalo restante |
 |---|---:|---:|---:|---|
-| `/balanco-massa` | 1.399 ms | **411 ms** | −71% | a consulta de classificação, 347 ms de SQL real |
+| `/rastreio-de-dados` | 1.399 ms | **411 ms** | −71% | a consulta de classificação, 347 ms de SQL real |
 | `/dre` | 1.130 ms | **587 ms** | −48% | `/dre/history`: 49 consultas e 302 ms de Node |
 | `/fechamento/remuneracao` | 284 ms | 237 ms | −17% | `/remuneracao/situacao`: 248 ms de SQL |
 | `/curadoria` | 274 ms | 232 ms | −15% | `/curation/queue`: uma consulta de 188 ms |

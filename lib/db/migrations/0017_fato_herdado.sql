@@ -7,7 +7,7 @@
 -- carretas daquela vigência desapareceriam. Esses fatos são legítimos e são
 -- parte do snapshot, mas **não nasceram deste arquivo**.
 --
--- Sem essa distinção, o balanço de massa passa a contar como "promovido por
+-- Sem essa distinção, o Rastreio de Dados passa a contar como "promovido por
 -- esta importação" um fato cuja célula de origem está em outra, e a invariante
 -- "uma célula, um fato" deixa de fechar — não porque algo se perdeu, mas porque
 -- a conta somava duas coisas diferentes. A coluna é o que permite somar cada

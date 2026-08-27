@@ -99,8 +99,8 @@ export function etapasDoFechamento(base: string): EtapaFechamento[] {
           ambiente: "auditoria",
         },
         {
-          href: "/balanco-massa",
-          label: "Balanço de massa",
+          href: "/rastreio-de-dados",
+          label: "Rastreio de Dados",
           porque: "A conferência de que tudo que o arquivo trouxe chegou a algum lugar.",
           ambiente: "auditoria",
         },

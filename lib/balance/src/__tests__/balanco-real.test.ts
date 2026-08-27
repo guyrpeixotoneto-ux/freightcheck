@@ -21,7 +21,7 @@ import { balancoDaImportacao, listarBalancos } from "../balanco";
 import { DESTINOS, ORDEM_DESTINOS } from "../destinos";
 
 /**
- * O balanço de massa sobre o export real.
+ * O Rastreio de Dados sobre o export real.
  *
  * Este arquivo é o que dá direito à tela de existir. Um balanço que não fecha
  * sobre o próprio arquivo do cliente não é uma tela imprecisa: é uma tela que

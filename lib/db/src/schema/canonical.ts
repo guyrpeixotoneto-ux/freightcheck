@@ -610,7 +610,7 @@ export const factTable = pgTable(
      *
      * Preenchido quando uma revisão parcial carrega junto os componentes que o
      * arquivo não tocou — as carretas de uma vigência corrigida só nos cavalos.
-     * O fato é do snapshot, mas não nasceu deste arquivo, e o balanço de massa
+     * O fato é do snapshot, mas não nasceu deste arquivo, e o Rastreio de Dados
      * precisa dessa diferença para fechar.
      */
     inheritedFromSnapshotId: uuid("inherited_from_snapshot_id"),

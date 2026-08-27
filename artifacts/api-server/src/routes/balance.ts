@@ -3,7 +3,8 @@ import { db } from "@workspace/db";
 import { balancoDaImportacao, listarBalancos } from "@workspace/balance";
 
 /**
- * Balanço de Massa — a conta de conservação de cada importação.
+ * Rastreio de Dados — a conta de conservação de cada importação (o balanço
+ * de massa).
  *
  * Duas rotas, e a diferença entre elas é a pergunta: a lista responde *se* a
  * massa fecha, em todas as importações; o detalhe responde *onde* ela não

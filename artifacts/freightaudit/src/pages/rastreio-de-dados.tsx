@@ -15,7 +15,7 @@ import {
 } from "@/components/balanco/tipos";
 
 /**
- * Balanço de Massa — a conta de conservação da importação.
+ * Rastreio de Dados — a conta de conservação da importação (o balanço de massa).
  *
  * Todas as outras telas deste produto respondem à mesma pergunta, cada uma do
  * seu jeito: *de onde veio este número?* É a pergunta certa, e a rastreabilidade
@@ -46,7 +46,7 @@ import {
  *    arquivo é de uma importação só. Um recorte aqui sugeriria que existe massa
  *    "de outra unidade" explicando a que falta.
  */
-export default function BalancoMassa() {
+export default function RastreioDeDados() {
   const [escolhida, setEscolhida] = useState<string | null>(null);
 
   const lista = useQuery({
@@ -73,7 +73,7 @@ export default function BalancoMassa() {
       <header className="border-b bg-card px-8 py-6">
         <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
           <Scale className="w-6 h-6 text-primary" />
-          Balanço de Massa
+          Rastreio de Dados
         </h1>
         <p className="text-muted-foreground mt-1 max-w-3xl">
           Toda célula que entrou por um arquivo tem de sair por um destino
