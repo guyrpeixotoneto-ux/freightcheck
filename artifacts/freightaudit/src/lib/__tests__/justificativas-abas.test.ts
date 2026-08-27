@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import { abasDeTipo, placasDaAba } from "../justificativas";
-import { EQUIPAMENTOS } from "../frota";
+import { EQUIPAMENTOS_DO_AMBIENTE } from "../frota";
+
+/*
+  Os tipos fixos das abas são os da operação auditada, e o padrão é a lista da
+  Empurrada — o ambiente em que esta tela nasceu. Os casos abaixo usam esse
+  padrão; o último guarda o que muda quando a operação é outra.
+*/
+const DA_EMPURRADA = EQUIPAMENTOS_DO_AMBIENTE.auditoria;
 
 /**
  * O Plano de Ação agrupa por placa, e a placa sozinha não diz de que tipo de
@@ -25,7 +32,7 @@ describe("abasDeTipo", () => {
 
   it("traz os três tipos com tela 360°, na ordem do produto", () => {
     const abas = abasDeTipo([]);
-    expect(abas.slice(1).map((a) => a.tipo)).toEqual(EQUIPAMENTOS);
+    expect(abas.slice(1).map((a) => a.tipo)).toEqual(DA_EMPURRADA);
     expect(abas.slice(1).map((a) => a.rotulo)).toEqual(["Cavalo", "Carreta", "Trecho"]);
   });
 
@@ -49,7 +56,7 @@ describe("abasDeTipo", () => {
   it("normaliza o tipo como o banco o guarda, para não abrir duas abas do mesmo", () => {
     const abas = abasDeTipo([placa("cavalo"), placa(" CAVALO ")]);
     expect(abas.find((a) => a.tipo === "CAVALO")?.total).toBe(2);
-    expect(abas.filter((a) => a.tipo !== null)).toHaveLength(EQUIPAMENTOS.length);
+    expect(abas.filter((a) => a.tipo !== null)).toHaveLength(DA_EMPURRADA.length);
   });
 
   it("põe um tipo desconhecido depois dos três, em ordem alfabética", () => {
@@ -65,6 +72,21 @@ describe("abasDeTipo", () => {
     // Sem tela e sem importação, o nome volta como veio — "Ativo" sumiria ao
     // lado de Cavalo e Carreta, e inventar capitalização erraria a sigla.
     expect(abas.find((a) => a.tipo === "DOLLY")?.rotulo).toBe("DOLLY");
+  });
+
+  /*
+    No Apoio as abas fixas são as da operação dele: uma só, a empilhadeira. Uma
+    aba "Carreta 0" ali prometeria uma fila que aquela operação nunca vai ter, e
+    a empilhadeira — que é o ativo de lá — ficaria de fora dos fixos.
+  */
+  it("fixa, em cada auditoria, os tipos da operação dela", () => {
+    const abas = abasDeTipo(
+      [placa("EMPILHADEIRA")],
+      EQUIPAMENTOS_DO_AMBIENTE["auditoria-apoio"],
+    );
+
+    expect(abas.map((a) => a.tipo)).toEqual([null, "EMPILHADEIRA"]);
+    expect(abas[1].total).toBe(1);
   });
 });
 

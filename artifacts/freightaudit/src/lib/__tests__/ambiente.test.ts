@@ -7,8 +7,13 @@ import {
   nomeDoFechamentoDa,
   OPERACAO_DO_AMBIENTE,
   operacaoDoFechamento,
+  baseDaAuditoria,
   baseDoFechamento,
+  BASES_DE_AUDITORIA,
   BASES_DE_FECHAMENTO,
+  ehAuditoria,
+  homeDaAuditoria,
+  OPERACAO_DA_AUDITORIA,
   descricaoDoAmbiente,
   destinoDaRaiz,
   ehFechamento,
@@ -53,11 +58,71 @@ describe("ambienteDe", () => {
     expect(ambienteDe("/fechamento-apoio/competencias/abc")).toBe("fechamento-apoio");
   });
 
-  it("lê todo o resto como Auditoria — inclusive o quase-prefixo", () => {
+  /*
+    As auditorias prefixadas caem na mesma armadilha do outro lado: `/auditoria-rota`
+    e `/auditoria-rotas` são endereços diferentes, e ler o segundo como o primeiro
+    abriria o menu de uma operação sobre o acervo de outra — sem erro na tela.
+  */
+  it("lê as bases das auditorias novas como os ambientes delas", () => {
+    expect(ambienteDe("/auditoria-rota")).toBe("auditoria-rota");
+    expect(ambienteDe("/auditoria-rota/alteracoes")).toBe("auditoria-rota");
+    expect(ambienteDe("/auditoria-as")).toBe("auditoria-as");
+    expect(ambienteDe("/auditoria-as/caminhao-360")).toBe("auditoria-as");
+    expect(ambienteDe("/auditoria-apoio")).toBe("auditoria-apoio");
+    expect(ambienteDe("/auditoria-apoio/empilhadeira-360")).toBe("auditoria-apoio");
+  });
+
+  it("lê todo o resto como Auditoria Empurrada — inclusive os quase-prefixos", () => {
     expect(ambienteDe("/")).toBe("auditoria");
     expect(ambienteDe("/alteracoes")).toBe("auditoria");
     expect(ambienteDe("/dre/abc-123")).toBe("auditoria");
     expect(ambienteDe("/fechamentos")).toBe("auditoria");
+    expect(ambienteDe("/auditoria-rotas")).toBe("auditoria");
+    expect(ambienteDe("/auditoria")).toBe("auditoria");
+  });
+});
+
+/**
+ * A base da auditoria é o par da do fechamento, com uma diferença que é o
+ * desenho inteiro: a da Empurrada é **vazia**, porque ela ficou nos endereços
+ * que já estavam em uso.
+ */
+describe("baseDaAuditoria", () => {
+  it("devolve a base do ambiente em que o endereço está", () => {
+    expect(baseDaAuditoria("/alteracoes")).toBe("");
+    expect(baseDaAuditoria("/auditoria-rota/alteracoes")).toBe("/auditoria-rota");
+    expect(baseDaAuditoria("/auditoria-apoio")).toBe("/auditoria-apoio");
+  });
+
+  it("fora das auditorias devolve a da Empurrada, que ninguém chega a usar", () => {
+    expect(baseDaAuditoria("/fechamento/competencias")).toBe("");
+  });
+
+  it("é a base de cada ambiente, e não uma segunda lista", () => {
+    for (const [id, base] of Object.entries(BASES_DE_AUDITORIA)) {
+      expect(ambienteDe(base === "" ? "/" : base)).toBe(id);
+      expect(baseDaAuditoria(`${base}/qualquer/coisa`)).toBe(base);
+    }
+  });
+
+  /*
+    A home de cada auditoria é a Visão Gerencial **dela**: quem troca de ambiente
+    no seletor do topo tem de cair no ambiente que escolheu, e não na Empurrada
+    com outro nome escrito no botão.
+  */
+  it("põe a home de cada auditoria dentro do ambiente dela", () => {
+    for (const id of Object.keys(BASES_DE_AUDITORIA)) {
+      const home = homeDaAuditoria(id as keyof typeof BASES_DE_AUDITORIA);
+      expect(ambienteDe(home)).toBe(id);
+      expect(home.endsWith(ENTRADA_DA_AUDITORIA)).toBe(true);
+    }
+  });
+
+  /* Uma operação por auditoria, e as quatro distintas — o eixo dos acervos. */
+  it("nomeia a operação de cada auditoria, sem repetir nenhuma", () => {
+    expect(OPERACAO_DA_AUDITORIA.auditoria).toBe("EMPURRADA");
+    expect(OPERACAO_DA_AUDITORIA["auditoria-rota"]).toBe("ROTA");
+    expect(new Set(Object.values(OPERACAO_DA_AUDITORIA)).size).toBe(4);
   });
 });
 
@@ -86,19 +151,36 @@ describe("baseDoFechamento", () => {
 });
 
 describe("ehFechamento", () => {
-  it("separa a Auditoria de todos os fechamentos", () => {
+  it("separa as auditorias de todos os fechamentos", () => {
     expect(ehFechamento("auditoria")).toBe(false);
+    expect(ehFechamento("auditoria-rota")).toBe(false);
+    expect(ehFechamento("auditoria-as")).toBe(false);
+    expect(ehFechamento("auditoria-apoio")).toBe(false);
     expect(ehFechamento("fechamento-rota")).toBe(true);
     expect(ehFechamento("fechamento-empurrada")).toBe(true);
     expect(ehFechamento("fechamento-as")).toBe(true);
     expect(ehFechamento("fechamento-apoio")).toBe(true);
   });
+
+  /*
+    Os dois lados cobrem os oito ambientes e não se sobrepõem: um ambiente que
+    não fosse nenhum dos dois cairia da lateral — nem a lista da Auditoria nem a
+    do Fechamento o atenderiam.
+  */
+  it("é o complemento exato de ehAuditoria", () => {
+    for (const ambiente of AMBIENTES) {
+      expect(ehAuditoria(ambiente.id)).toBe(!ehFechamento(ambiente.id));
+    }
+  });
 });
 
 describe("os ambientes", () => {
-  it("são cinco, e a home de cada um vive no ambiente que ela abre", () => {
+  it("são oito, e a home de cada um vive no ambiente que ela abre", () => {
     expect(AMBIENTES.map((a) => a.id)).toEqual([
       "auditoria",
+      "auditoria-rota",
+      "auditoria-as",
+      "auditoria-apoio",
       "fechamento-rota",
       "fechamento-empurrada",
       "fechamento-as",
@@ -111,6 +193,15 @@ describe("os ambientes", () => {
 
   it("descreve cada id com o próprio registro", () => {
     expect(descricaoDoAmbiente("auditoria").nome).toBe("Auditoria Empurrada");
+    expect(descricaoDoAmbiente("auditoria-rota").nome).toBe("Auditoria Rota");
+    expect(descricaoDoAmbiente("auditoria-as").nome).toBe("Auditoria AS");
+    expect(descricaoDoAmbiente("auditoria-apoio").nome).toBe("Auditoria Apoio");
+    expect(descricaoDoAmbiente("auditoria-rota").nomeCompleto).toBe(
+      "Auditoria de Remuneração — Rota",
+    );
+    expect(descricaoDoAmbiente("auditoria-apoio").nomeCompleto).toBe(
+      "Auditoria de Remuneração — Apoio",
+    );
     expect(descricaoDoAmbiente("fechamento-rota").nome).toBe("Fechamento Rota");
     expect(descricaoDoAmbiente("fechamento-empurrada").nome).toBe("Fechamento Empurrada");
     expect(descricaoDoAmbiente("fechamento-as").nome).toBe("Fechamento AS");

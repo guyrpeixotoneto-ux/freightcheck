@@ -1,4 +1,4 @@
-import { Link, useLocation } from "wouter";
+import { Link } from "wouter";
 import { Check, ChevronDown, Menu } from "lucide-react";
 import {
   DropdownMenu,
@@ -8,7 +8,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { AMBIENTES, ambienteDe, descricaoDoAmbiente } from "@/lib/ambiente";
+import { AMBIENTES, descricaoDoAmbiente } from "@/lib/ambiente";
+import { useAmbiente } from "@/lib/ambiente-aberto";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import { Logotipo } from "./logotipo";
@@ -46,8 +47,7 @@ export function Topbar({
   onToggleSidebar: () => void;
 }) {
   const { user, logout, isSubmitting } = useAuth();
-  const [location] = useLocation();
-  const ambiente = descricaoDoAmbiente(ambienteDe(location));
+  const ambiente = descricaoDoAmbiente(useAmbiente());
 
   return (
     <header className="h-16 bg-topbar text-topbar-foreground flex items-center gap-2 md:gap-4 px-3 md:px-4 shrink-0 sticky top-0 z-40">
@@ -72,7 +72,15 @@ export function Topbar({
         avisar — e "voltar ao início" não pode significar "voltar para outro
         espaço de trabalho".
       */}
-      <Link href={ambiente.home} className="shrink-0 min-w-0">
+      {/*
+        `~` diz ao wouter que o endereço é absoluto, e não relativo ao roteador
+        aberto. Dentro de uma auditoria prefixada — `/auditoria-rota`, por
+        exemplo — os links são resolvidos sobre a base do ambiente (`App.tsx`),
+        e um `home` já absoluto viraria `/auditoria-rota/auditoria-rota/...`. É
+        o mesmo motivo do `~` no seletor, logo abaixo, e na Administração
+        (`nav-administracao.ts`).
+      */}
+      <Link href={`~${ambiente.home}`} className="shrink-0 min-w-0">
         <Logotipo soSimboloNoCelular />
       </Link>
 
@@ -104,7 +112,7 @@ export function Topbar({
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuItem asChild>
-              <Link href="/configuracoes">Configurações</Link>
+              <Link href="~/configuracoes">Configurações</Link>
             </DropdownMenuItem>
             <DropdownMenuItem
               disabled={isSubmitting}
@@ -122,11 +130,12 @@ export function Topbar({
 }
 
 /**
- * O seletor de ambiente — `FreightCheck | Auditoria ▾`.
+ * O seletor de ambiente — `FreightCheck | Auditoria Empurrada ▾`.
  *
- * O produto tem dois espaços de trabalho, Auditoria e Fechamento
- * (`lib/ambiente.ts`), e este é o único lugar onde se troca de um para o
- * outro. Ele fica colado à marca, e não no menu lateral, de propósito: o
+ * O produto tem oito espaços de trabalho — quatro auditorias e quatro
+ * fechamentos, uma de cada operação (`lib/ambiente.ts`) —, e este é o único
+ * lugar onde se troca de um para o outro. Ele fica colado à marca, e não no
+ * menu lateral, de propósito: o
  * lateral lista as telas **de um** ambiente, e o que está acima dele decide
  * **qual**. Pôr a troca dentro da lista rebaixaria um espaço de trabalho a
  * mais um item de menu.
@@ -158,7 +167,7 @@ function SeletorDeAmbiente({ atual }: { atual: (typeof AMBIENTES)[number]["id"] 
           <DropdownMenuSeparator />
           {AMBIENTES.map((ambiente) => (
             <DropdownMenuItem key={ambiente.id} asChild>
-              <Link href={ambiente.home} className="flex items-start gap-2.5 py-2.5">
+              <Link href={`~${ambiente.home}`} className="flex items-start gap-2.5 py-2.5">
                 <Check
                   className={cn(
                     "w-4 h-4 mt-0.5 shrink-0 text-brand",

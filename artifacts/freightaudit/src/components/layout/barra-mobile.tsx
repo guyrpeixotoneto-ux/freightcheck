@@ -9,11 +9,12 @@ import {
 } from "lucide-react";
 import { Drawer, DrawerContent, DrawerTitle } from "@/components/ui/drawer";
 import {
-  ambienteDe,
   BASES_DE_FECHAMENTO,
   descricaoDoAmbiente,
   ehFechamento,
+  type Ambiente,
 } from "@/lib/ambiente";
+import { useAmbiente } from "@/lib/ambiente-aberto";
 import { useAuth } from "@/lib/auth";
 import { useContextosDaCasca } from "@/lib/contextos";
 import { enderecoDoAssistente } from "@/lib/entrada-do-assistente";
@@ -24,9 +25,10 @@ import {
   useImportacoesEmAndamento,
 } from "./contadores";
 import type { NavGroup, NavItem } from "./nav";
+import { navGroupsAuditoria } from "./nav-auditoria";
 import { navGroupsFechamento } from "./nav-fechamento";
 import { barraMobile, type AtalhoMobile } from "./nav-mobile";
-import { detalheDe, estaAtivo, NAV_GROUPS, unidadeDe } from "./sidebar";
+import { detalheDe, estaAtivo, unidadeDe } from "./sidebar";
 
 /**
  * O menu do celular: uma barra na borda de baixo e a folha "Mais".
@@ -66,7 +68,7 @@ export function BarraMobile() {
   const busca = useSearch();
   const [maisAberto, setMaisAberto] = useState(false);
 
-  const ambiente = ambienteDe(location);
+  const ambiente = useAmbiente();
   const { esquerda, centro, direita } = barraMobile(ambiente);
 
   const alteracoes = useAlteracoesDaVigencia();
@@ -300,10 +302,10 @@ function FolhaDoMais({
   contadores: Contadores;
   enderecoDoItem: (item: NavItem) => string;
 }) {
-  const ambiente = ambienteDe(location);
+  const ambiente = useAmbiente();
   const grupos = ehFechamento(ambiente)
     ? navGroupsFechamento(BASES_DE_FECHAMENTO[ambiente], descricaoDoAmbiente(ambiente).nome)
-    : NAV_GROUPS;
+    : navGroupsAuditoria(ambiente);
 
   return (
     <Drawer open={aberto} onOpenChange={(estado) => !estado && onFechar()}>
@@ -345,7 +347,7 @@ function FolhaDoMais({
  * não sabe. "Nenhuma vigência importada" é afirmação sobre o banco, e só vale
  * quando o servidor respondeu.
  */
-function ContextoNaFolha({ ambiente }: { ambiente: ReturnType<typeof ambienteDe> }) {
+function ContextoNaFolha({ ambiente }: { ambiente: Ambiente }) {
   const { contextos, indisponivel } = useContextosDaCasca();
 
   if (ehFechamento(ambiente)) {
@@ -542,7 +544,7 @@ function RodapeDaFolha() {
         </div>
         <div className="border-t border-sidebar-border grid grid-cols-2">
           <Link
-            href="/configuracoes"
+            href="~/configuracoes"
             className="flex items-center justify-center gap-2 min-h-12 text-sm font-semibold text-sidebar-foreground"
           >
             <Settings className="w-4 h-4" />

@@ -19,9 +19,15 @@ import type { NavGroup } from "./nav";
  * o componente que a renderiza sem criar um ciclo (é a mesma razão de `nav.ts`
  * guardar os tipos).
  *
- * **Os endereços são absolutos, e continuam sendo.** Estas telas não têm versão
- * por ambiente: `/unidades` é a mesma tela vinda de onde se vier, porque o
- * cadastro é um só. Duplicá-las sob a base de cada fechamento criaria três
+ * **Os endereços são absolutos, e continuam sendo — agora com o `~` que diz
+ * isso ao roteador.** Estas telas não têm versão por ambiente: `/unidades` é a
+ * mesma tela vinda de onde se vier, porque o cadastro é um só. O til é a marca
+ * de "endereço absoluto" do wouter, e ele passou a ser necessário quando as
+ * auditorias ganharam base própria: dentro de `/auditoria-rota` um `href`
+ * escrito `/unidades` seria resolvido como `/auditoria-rota/unidades`, que é
+ * uma tela que não existe — a lateral prometeria a casa e entregaria um 404.
+ * Fora das auditorias prefixadas o `~` não muda nada: `~/unidades` e
+ * `/unidades` chegam ao mesmo lugar. Duplicá-las sob a base de cada fechamento criaria três
  * cadastros de unidade na cabeça de quem usa — e um só no banco. O efeito é
  * que abrir um item daqui sai do fechamento e cai na tela da instalação, que é
  * exatamente o que ela é: sair do processo para mexer na casa.
@@ -35,7 +41,7 @@ export const GRUPO_ADMINISTRACAO: NavGroup = {
   icon: Cog,
   cor: "text-nav-admin",
   itens: [
-    { href: "/unidades", label: "Unidades", icon: Building2 },
+    { href: "~/unidades", label: "Unidades", icon: Building2 },
     /*
       "Usuários" continua em `/configuracoes`, que é onde a tela sempre esteve
       e para onde o menu da faixa vermelha e o assistente já apontam. A
@@ -44,9 +50,9 @@ export const GRUPO_ADMINISTRACAO: NavGroup = {
       o nome bonito a uma que ainda não existe, quebraria os dois links por
       uma questão de nomenclatura.
     */
-    { href: "/configuracoes", label: "Usuários", icon: Users },
-    { href: "/ajustes", label: "Configurações", icon: Settings2 },
-    { href: "/integracoes", label: "Integrações", icon: Plug },
-    { href: "/seguranca", label: "Segurança", icon: Shield },
+    { href: "~/configuracoes", label: "Usuários", icon: Users },
+    { href: "~/ajustes", label: "Configurações", icon: Settings2 },
+    { href: "~/integracoes", label: "Integrações", icon: Plug },
+    { href: "~/seguranca", label: "Segurança", icon: Shield },
   ],
 };

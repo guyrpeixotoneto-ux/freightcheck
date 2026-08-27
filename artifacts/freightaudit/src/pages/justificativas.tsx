@@ -29,7 +29,13 @@ import {
   type Justificativa,
 } from "@/lib/justificativas";
 import type { ChangeRow } from "@/components/changes/change-table";
-import { palavrasDoTipo, rotuloDoTipo, rotuloEmFrase } from "@/lib/frota";
+import {
+  equipamentosDoAmbiente,
+  palavrasDoTipo,
+  rotuloDoTipo,
+  rotuloEmFrase,
+} from "@/lib/frota";
+import { useAmbiente } from "@/lib/ambiente-aberto";
 import { cn } from "@/lib/utils";
 
 /**
@@ -95,6 +101,7 @@ function agruparPorPlaca(rows: ChangeRow[]): PlacaGroup[] {
 }
 
 export default function Justificativas() {
+  const ambiente = useAmbiente();
   const queryClient = useQueryClient();
   const [, navegar] = useLocation();
   const search = useSearch();
@@ -148,7 +155,15 @@ export default function Justificativas() {
   const data = consulta.dados;
   const isLoading = comparacoes.isLoading || (!!changeSetId && consulta.carregando);
   const grupos = useMemo(() => agruparPorPlaca(data?.rows ?? []), [data]);
-  const abas = useMemo(() => abasDeTipo(grupos), [grupos]);
+  /*
+    As abas fixas são as da operação auditada — cavalo e carreta na Empurrada,
+    caminhão e carroceria na Rota e no AS, empilhadeira no Apoio. Ver
+    `EQUIPAMENTOS_DO_AMBIENTE`, em `lib/frota.ts`.
+  */
+  const abas = useMemo(
+    () => abasDeTipo(grupos, equipamentosDoAmbiente(ambiente)),
+    [grupos, ambiente],
+  );
   const visiveis = useMemo(() => placasDaAba(grupos, tipo), [grupos, tipo]);
 
   const { justificadaPor } = useJustificadaPor(changeSetId);
