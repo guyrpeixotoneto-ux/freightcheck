@@ -129,6 +129,16 @@ export interface RangeOverviewUnitExcluded {
  * A soma de todas as unidades, para o mesmo intervalo que `Movimentos` lê —
  * o que sustenta "Onde está o impacto?" na linha do tempo.
  */
+/**
+ * Um ponto da série consolidada do intervalo — espelha `RangeOverviewPoint` em
+ * `lib/comparison/src/families-view-overview.ts`. `losses` vem negativo.
+ */
+export interface RangeOverviewPoint {
+  period: string;
+  label: string;
+  byPeriodicity: Record<string, { gains: number; losses: number }>;
+}
+
 export interface RangeOverview {
   from: string;
   fromLabel: string;
@@ -136,6 +146,8 @@ export interface RangeOverview {
   toLabel: string;
   unitsIncluded: RangeOverviewUnit[];
   unitsExcluded: RangeOverviewUnitExcluded[];
+  /** A série do intervalo somada entre as unidades incluídas — o gráfico do Dashboard em Visão Geral. */
+  serie: RangeOverviewPoint[];
 }
 
 export interface EndToEndEntry {

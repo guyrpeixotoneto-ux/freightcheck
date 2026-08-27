@@ -17,6 +17,21 @@ function resumo(amount: number): ExecutiveSummary {
 }
 
 describe("montarSequenciaDoAutoplay", () => {
+  /** O consolidado não entra nesta pergunta — a sequência do autoplay só lê as unidades. */
+  const VAZIO: FamiliesOverview["consolidado"] = {
+    families: [],
+    totals: {
+      changes: 0,
+      vehiclesTouched: 0,
+      entitiesAdded: 0,
+      entitiesRemoved: 0,
+      inconclusive: 0,
+      fleet: 0,
+    },
+    groups: [],
+    gruposNoTotal: 0,
+  };
+
   it("sem overview, a volta é só a Visão Geral", () => {
     expect(montarSequenciaDoAutoplay(null)).toEqual([{ tipo: "geral" }]);
     expect(montarSequenciaDoAutoplay(undefined)).toEqual([{ tipo: "geral" }]);
@@ -41,6 +56,7 @@ describe("montarSequenciaDoAutoplay", () => {
         },
       ],
       unitsExcluded: [],
+      consolidado: VAZIO,
     };
 
     expect(montarSequenciaDoAutoplay(overview)).toEqual([
@@ -66,6 +82,7 @@ describe("montarSequenciaDoAutoplay", () => {
         },
       ],
       unitsExcluded: [],
+      consolidado: VAZIO,
     };
 
     expect(montarSequenciaDoAutoplay(overview)).toEqual([

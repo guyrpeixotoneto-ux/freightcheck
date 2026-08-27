@@ -407,9 +407,11 @@ export interface FamiliesView extends GroupedView {
  * unidades com dado na competência pedida. Espelha `FamiliesOverview` em
  * `lib/comparison/src/families-view-overview.ts`.
  *
- * Não é um `FamiliesView`: não tem `families`/`groups`/`series` (a v1 não
- * mescla drill-down entre unidades), só o resumo executivo já somado e a
- * lista de quem entrou e quem ficou fora.
+ * Não é um `FamiliesView`: `series` e a árvore de parâmetros continuam de
+ * fora (a Visão Geral não mescla drill-down por parâmetro entre unidades). O
+ * que ela tem é o resumo executivo já somado, a lista de quem entrou e quem
+ * ficou fora, e o `consolidado` — famílias somadas, fila de alterações
+ * enfileirada unidade a unidade, e a frota.
  */
 export type MotivoExclusaoDaVisaoGeral =
   | "sem_vigencia_na_competencia"
@@ -444,6 +446,48 @@ export interface OverviewUnitExcluded {
   conflito?: { scopeHash: string; entradas: string[] }[];
 }
 
+/** Uma família somada entre as unidades incluídas — espelha `OverviewFamilyTotal`. */
+export interface OverviewFamilyTotal {
+  code: string;
+  name: string;
+  changes: number;
+  vehicles: number;
+  impact: { byPeriodicity: Record<string, number> };
+}
+
+/**
+ * Um grupo de alteração de uma unidade dentro da fila consolidada — espelha
+ * `OverviewGroup`. O grupo continua sendo de uma unidade só: a Visão Geral
+ * enfileira, nunca mescla dois grupos de unidades diferentes.
+ */
+export interface OverviewGroup {
+  unidade: string;
+  label: string;
+  scopeHash: string;
+  channel: string | null;
+  score: number;
+  group: ChangeGroup;
+}
+
+/**
+ * O corpo de tela consolidado — espelha `OverviewConsolidado`. É o que
+ * permite ao Dashboard desenhar, em Visão Geral, o mesmo layout que desenha
+ * para uma unidade.
+ */
+export interface OverviewConsolidado {
+  families: OverviewFamilyTotal[];
+  totals: {
+    changes: number;
+    vehiclesTouched: number;
+    entitiesAdded: number;
+    entitiesRemoved: number;
+    inconclusive: number;
+    fleet: number;
+  };
+  groups: OverviewGroup[];
+  gruposNoTotal: number;
+}
+
 export interface FamiliesOverview {
   period: string;
   summary: ExecutiveSummary;
@@ -458,6 +502,7 @@ export interface FamiliesOverview {
   vehiclesTouchedDistinct?: number;
   unitsIncluded: OverviewUnitIncluded[];
   unitsExcluded: OverviewUnitExcluded[];
+  consolidado: OverviewConsolidado;
 }
 
 export interface GroupVehicle {

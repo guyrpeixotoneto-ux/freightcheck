@@ -313,6 +313,170 @@ describe("getFamiliesOverview — a soma bate com a soma manual", () => {
   });
 });
 
+describe("getFamiliesOverview — o consolidado que o Dashboard desenha", () => {
+  it("famílias somam entre unidades em vez de aparecerem uma vez por unidade", async () => {
+    const overview = (await getFamiliesOverview(ctx.db, AGOSTO))!;
+    const individuais = (
+      await Promise.all(
+        overview.unitsIncluded.flatMap((u) =>
+          u.contexts.map((c) =>
+            getFamiliesView(ctx.db, AGOSTO, { scopeHash: c.scopeHash, channel: c.channel }),
+          ),
+        ),
+      )
+    ).filter((v) => v !== null);
+
+    // Uma família só existe na fixture: se o consolidado concatenasse em vez
+    // de somar por `code`, haveria uma linha por unidade — e o pódio da tela
+    // mostraria a mesma família cinco vezes.
+    const carreta = overview.consolidado.families.filter((f) => f.changes > 0);
+    expect(carreta).toHaveLength(1);
+    expect(carreta[0].impact.byPeriodicity.MENSAL).toBeCloseTo(
+      individuais.reduce(
+        (soma, v) =>
+          soma +
+          v.families
+            .filter((f) => f.code === carreta[0].code)
+            .reduce((s, f) => s + (f.impact.byPeriodicity.MENSAL ?? 0), 0),
+        0,
+      ),
+      2,
+    );
+    expect(carreta[0].changes).toBe(
+      individuais.reduce(
+        (soma, v) =>
+          soma + v.families.filter((f) => f.code === carreta[0].code).reduce((s, f) => s + f.changes, 0),
+        0,
+      ),
+    );
+  });
+
+  it("a fila enfileira os grupos de cada unidade sem mesclá-los, e cada linha diz de quem é", async () => {
+    const overview = (await getFamiliesOverview(ctx.db, AGOSTO))!;
+    const { groups, gruposNoTotal } = overview.consolidado;
+
+    expect(groups.length).toBeGreaterThan(0);
+    expect(gruposNoTotal).toBeGreaterThanOrEqual(groups.length);
+
+    // Mais de uma unidade na fila — é o que distingue "consolidado" de "a
+    // primeira unidade que respondeu".
+    const unidadesNaFila = new Set(groups.map((g) => g.unidade));
+    expect(unidadesNaFila.size).toBeGreaterThan(1);
+
+    // Cada linha aponta para um contexto real da unidade dela: é isso que o
+    // link de detalhe da tela usa para abrir Alterações no recorte certo.
+    for (const linha of groups) {
+      const unidade = overview.unitsIncluded.find((u) => u.unidade === linha.unidade);
+      expect(unidade).toBeDefined();
+      expect(unidade!.contexts.some((c) => c.scopeHash === linha.scopeHash)).toBe(true);
+      expect(linha.label).toBe(unidade!.label);
+    }
+
+    // Nenhum grupo aparece duas vezes sob a mesma unidade e canal — a chave
+    // que a tela usa para desenhar a linha tem de ser única.
+    const chaves = groups.map((g) => `${g.unidade}|${g.channel ?? ""}|${g.group.key}`);
+    expect(new Set(chaves).size).toBe(chaves.length);
+  });
+
+  it("a fila está na ordem do Acompanhamento — score primeiro, nunca a ordem de chegada das unidades", async () => {
+    const overview = (await getFamiliesOverview(ctx.db, AGOSTO))!;
+    const scores = overview.consolidado.groups.map((g) => g.score);
+    expect([...scores].sort((a, b) => b - a)).toEqual(scores);
+  });
+
+  it("totais de frota e de movimento somam as unidades incluídas", async () => {
+    const overview = (await getFamiliesOverview(ctx.db, AGOSTO))!;
+    const individuais = (
+      await Promise.all(
+        overview.unitsIncluded.flatMap((u) =>
+          u.contexts.map((c) =>
+            getFamiliesView(ctx.db, AGOSTO, { scopeHash: c.scopeHash, channel: c.channel }),
+          ),
+        ),
+      )
+    ).filter((v) => v !== null);
+
+    const { totals } = overview.consolidado;
+    expect(totals.changes).toBe(individuais.reduce((s, v) => s + v.totals.changes, 0));
+    expect(totals.fleet).toBe(individuais.reduce((s, v) => s + v.cockpit.kpis.fleet, 0));
+    expect(totals.entitiesAdded).toBe(individuais.reduce((s, v) => s + v.totals.entitiesAdded, 0));
+    expect(totals.entitiesRemoved).toBe(
+      individuais.reduce((s, v) => s + v.totals.entitiesRemoved, 0),
+    );
+    expect(totals.inconclusive).toBe(individuais.reduce((s, v) => s + v.totals.inconclusive, 0));
+  });
+
+  it("nada do consolidado vem de unidade excluída — setembro só tem a unidade ambígua", async () => {
+    const overview = (await getFamiliesOverview(ctx.db, SETEMBRO))!;
+    expect(overview.unitsIncluded).toHaveLength(0);
+    expect(overview.consolidado.groups).toEqual([]);
+    expect(overview.consolidado.families).toEqual([]);
+    expect(overview.consolidado.totals.changes).toBe(0);
+    expect(overview.consolidado.totals.fleet).toBe(0);
+  });
+});
+
+describe("getRangeOverview — a série consolidada do gráfico", () => {
+  it("soma ganhos e perdas de todas as unidades incluídas, competência a competência", async () => {
+    const overview = (await getRangeOverview(ctx.db, JULHO, AGOSTO))!;
+    const individuais = (
+      await Promise.all(
+        overview.unitsIncluded.flatMap((u) =>
+          u.contexts.map((c) =>
+            getRangeAnalysis(ctx.db, JULHO, AGOSTO, { scopeHash: c.scopeHash, channel: c.channel }),
+          ),
+        ),
+      )
+    ).filter((a) => a !== null);
+
+    const ponto = overview.serie.find((p) => p.period === AGOSTO);
+    expect(ponto).toBeDefined();
+
+    const esperado = individuais
+      .flatMap((a) => a.entries)
+      .filter(
+        (e) =>
+          e.period === AGOSTO &&
+          e.periodicity === "MENSAL" &&
+          e.confidence === "CALCULATED" &&
+          e.amount !== null &&
+          e.amount !== 0,
+      );
+    const ganhos = esperado.filter((e) => e.amount! > 0).reduce((s, e) => s + e.amount!, 0);
+    const perdas = esperado.filter((e) => e.amount! < 0).reduce((s, e) => s + e.amount!, 0);
+
+    expect(ponto!.byPeriodicity.MENSAL.gains).toBeCloseTo(ganhos, 2);
+    // Perda continua negativa aqui, como em toda parte do produto.
+    expect(ponto!.byPeriodicity.MENSAL.losses).toBeCloseTo(perdas, 2);
+    expect(perdas).toBeLessThan(0);
+  });
+
+  it("a série está ordenada por competência e não repete nenhuma", async () => {
+    const overview = (await getRangeOverview(ctx.db, JULHO, AGOSTO))!;
+    const periodos = overview.serie.map((p) => p.period);
+    expect([...periodos].sort()).toEqual(periodos);
+    expect(new Set(periodos).size).toBe(periodos.length);
+  });
+
+  it("a unidade ambígua não entra na série — nem pelo lado do gráfico", async () => {
+    const overview = (await getRangeOverview(ctx.db, JULHO, AGOSTO))!;
+    const soDaAmbigua = await getRangeAnalysis(ctx.db, JULHO, AGOSTO, {
+      scopeHash: "overview-unit-h-1",
+      channel: "EMPURRADA",
+    });
+    const daAmbigua = (soDaAmbigua?.entries ?? [])
+      .filter((e) => e.period === AGOSTO && e.confidence === "CALCULATED")
+      .reduce((s, e) => s + (e.amount ?? 0), 0);
+    expect(daAmbigua).not.toBe(0);
+
+    const ponto = overview.serie.find((p) => p.period === AGOSTO)!;
+    const liquido =
+      ponto.byPeriodicity.MENSAL.gains + ponto.byPeriodicity.MENSAL.losses;
+    const comAmbigua = liquido + daAmbigua;
+    expect(liquido).not.toBeCloseTo(comAmbigua, 2);
+  });
+});
+
 describe("getFamiliesOverview — troca de competência", () => {
   it("muda quais unidades entram, sem misturar as duas leituras", async () => {
     const overviewJulho = (await getFamiliesOverview(ctx.db, JULHO))!;

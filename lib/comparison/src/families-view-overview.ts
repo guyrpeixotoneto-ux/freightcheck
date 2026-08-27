@@ -11,6 +11,8 @@ import {
   type ImpactSides,
   type RangeAnalysis,
 } from "./families-view";
+import { comparePriorities } from "./cockpit";
+import type { ChangeGroup } from "./grouped";
 import { listContexts, type ContextInfo } from "./series";
 
 /**
@@ -111,6 +113,15 @@ export interface FamiliesOverview {
   vehiclesTouchedDistinct: number;
   unitsIncluded: OverviewUnitIncluded[];
   unitsExcluded: OverviewUnitExcluded[];
+  /**
+   * O corpo de tela consolidado — famílias, fila de alterações e frota.
+   *
+   * Nasceu para o Dashboard: em Visão Geral ele mostrava quatro cartões e o
+   * ranking de unidades, e o resto da tela — gráfico, pódio, tabela,
+   * movimentação — só existia dentro de uma unidade. Ver `OverviewConsolidado`
+   * para o que cada peça soma e o que ela deliberadamente não soma.
+   */
+  consolidado: OverviewConsolidado;
 }
 
 /**
@@ -336,6 +347,172 @@ function mergeSummaries(summaries: ExecutiveSummary[]): ExecutiveSummary {
   };
 }
 
+// ---------------------------------------------------------------------------
+// O consolidado da competência — o mesmo corpo de tela que uma unidade tem
+// ---------------------------------------------------------------------------
+
+/**
+ * Uma família somada entre as unidades incluídas.
+ *
+ * Não é um `FamilyView`: `parametersWithData`/`parametersChanged` e a árvore de
+ * parâmetros ficam de fora de propósito — "4 de 10 parâmetros" é uma fração de
+ * uma unidade, e somá-la entre unidades produziria um denominador que não
+ * existe em lugar nenhum. O que entra aqui é o que a soma sustenta: quantas
+ * alterações, quantos veículos, e quanto de impacto por periodicidade.
+ */
+export interface OverviewFamilyTotal {
+  code: FamilyCode;
+  name: string;
+  changes: number;
+  vehicles: number;
+  impact: { byPeriodicity: Record<string, number> };
+}
+
+/**
+ * Um grupo de alteração de uma unidade, dentro da fila consolidada.
+ *
+ * O grupo **não é mesclado** com o de outra unidade, e nem poderia ser: a
+ * mesma alteração de `carreta.custo_fixo` em PERNAMBUCO e em CAMAÇARI são dois
+ * fatos, sobre duas frotas, com dois valores. O que a Visão Geral faz é
+ * enfileirar os grupos das unidades numa lista só, na mesma ordem de
+ * prioridade que o Acompanhamento usa dentro de uma unidade — e cada linha
+ * carrega de quem ela é, para a tela nomear a unidade e para o link de
+ * detalhe abrir no recorte certo.
+ */
+export interface OverviewGroup {
+  unidade: string;
+  label: string;
+  scopeHash: string;
+  channel: string | null;
+  /** O score da fila do Acompanhamento (`cockpit.priorities`), ou `0` para um grupo fora dela. */
+  score: number;
+  group: ChangeGroup;
+}
+
+/**
+ * O que o Dashboard precisa para desenhar, em Visão Geral, o mesmo corpo de
+ * tela que desenha para uma unidade: o pódio de famílias, a fila de
+ * alterações e a movimentação de frota.
+ *
+ * Vive num campo próprio, e não espalhado por `FamiliesOverview`, porque cada
+ * peça daqui tem uma régua de soma diferente da do `summary` — e a diferença
+ * precisa ficar legível: `families` soma, `groups` **enfileira sem somar**, e
+ * `totals` soma o que é contagem de unidade disjunta (frota, entradas e
+ * saídas de ativo), nunca cardinalidade que pediria deduplicação por placa.
+ */
+export interface OverviewConsolidado {
+  families: OverviewFamilyTotal[];
+  totals: {
+    changes: number;
+    vehiclesTouched: number;
+    entitiesAdded: number;
+    entitiesRemoved: number;
+    inconclusive: number;
+    /** A frota das séries de todas as unidades incluídas — `cockpit.kpis.fleet` somado. */
+    fleet: number;
+  };
+  /** Os primeiros `LIMITE_DE_GRUPOS` da fila consolidada. */
+  groups: OverviewGroup[];
+  /** Quantos grupos existem ao todo, antes do corte — para a tela nunca dizer "todos" sobre uma fatia. */
+  gruposNoTotal: number;
+}
+
+/**
+ * Quantos grupos a fila consolidada carrega.
+ *
+ * O Dashboard mostra oito por aba de equipamento; o teto aqui é folgado o
+ * bastante para as abas terem o que mostrar e apertado o bastante para a
+ * resposta não crescer com o número de unidades cadastradas — um `ChangeGroup`
+ * carrega a lista de veículos dele, e enviar a fila inteira de N unidades
+ * seria N vezes o corpo de uma tela de unidade.
+ */
+const LIMITE_DE_GRUPOS = 40;
+
+function mergeFamilies(views: FamiliesView[]): OverviewFamilyTotal[] {
+  const acumulado = new Map<FamilyCode, OverviewFamilyTotal>();
+  for (const view of views) {
+    for (const familia of view.families) {
+      const atual = acumulado.get(familia.code);
+      if (atual) {
+        atual.changes += familia.changes;
+        // Mesma aproximação de `vehiclesTouched`: soma simples, sem `Set`
+        // cruzado entre unidades.
+        atual.vehicles += familia.vehicles;
+        atual.impact.byPeriodicity = somarRecords([
+          atual.impact.byPeriodicity,
+          familia.impact.byPeriodicity,
+        ]);
+      } else {
+        acumulado.set(familia.code, {
+          code: familia.code,
+          name: familia.name,
+          changes: familia.changes,
+          vehicles: familia.vehicles,
+          impact: { byPeriodicity: { ...familia.impact.byPeriodicity } },
+        });
+      }
+    }
+  }
+  return [...acumulado.values()];
+}
+
+/**
+ * A fila consolidada — a fila do Acompanhamento de cada unidade, numa lista só.
+ *
+ * A ordem é `comparePriorities`, a mesma que ordena a fila dentro de uma
+ * unidade: score, veículos, módulo do impacto, chave. Uma unidade cuja
+ * vigência não produziu fila (sem cockpit de prioridades) ainda entra, com os
+ * seus grupos em `score: 0` — é o mesmo degrau que a tela já fazia sozinha
+ * quando `juntarPrioridades` voltava vazia.
+ */
+function filaConsolidada(
+  leituras: { unidade: string; label: string; contexto: ContextInfo; view: FamiliesView }[],
+): { groups: OverviewGroup[]; gruposNoTotal: number } {
+  const fila: OverviewGroup[] = [];
+  for (const leitura of leituras) {
+    const porChave = new Map(leitura.view.groups.map((g) => [g.key, g]));
+    const daUnidade =
+      leitura.view.cockpit.priorities.length > 0
+        ? leitura.view.cockpit.priorities.flatMap((item) => {
+            const group = porChave.get(item.key);
+            return group ? [{ score: item.score, group }] : [];
+          })
+        : leitura.view.groups.map((group) => ({ score: 0, group }));
+    for (const { score, group } of daUnidade) {
+      fila.push({
+        unidade: leitura.unidade,
+        label: leitura.label,
+        scopeHash: leitura.contexto.scopeHash,
+        channel: leitura.contexto.channel,
+        score,
+        group,
+      });
+    }
+  }
+  fila.sort(comparePriorities);
+  return { groups: fila.slice(0, LIMITE_DE_GRUPOS), gruposNoTotal: fila.length };
+}
+
+function consolidar(
+  leituras: { unidade: string; label: string; contexto: ContextInfo; view: FamiliesView }[],
+): OverviewConsolidado {
+  const views = leituras.map((l) => l.view);
+  const { groups, gruposNoTotal } = filaConsolidada(leituras);
+  return {
+    families: mergeFamilies(views),
+    totals: {
+      changes: views.reduce((soma, v) => soma + v.totals.changes, 0),
+      vehiclesTouched: views.reduce((soma, v) => soma + v.totals.vehiclesTouched, 0),
+      entitiesAdded: views.reduce((soma, v) => soma + v.totals.entitiesAdded, 0),
+      entitiesRemoved: views.reduce((soma, v) => soma + v.totals.entitiesRemoved, 0),
+      inconclusive: views.reduce((soma, v) => soma + v.totals.inconclusive, 0),
+      fleet: views.reduce((soma, v) => soma + v.cockpit.kpis.fleet, 0),
+    },
+    groups,
+    gruposNoTotal,
+  };
+}
+
 export async function getFamiliesOverview(
   db: Database,
   period: string,
@@ -422,6 +599,15 @@ export async function getFamiliesOverview(
 
   const unitsIncluded: OverviewUnitIncluded[] = [];
   const views: FamiliesView[] = [];
+  // As mesmas leituras de `views`, sem perder de quem elas são — é o que o
+  // consolidado precisa para nomear a unidade de cada grupo da fila e para o
+  // link de detalhe abrir no recorte certo.
+  const consolidaveis: {
+    unidade: string;
+    label: string;
+    contexto: ContextInfo;
+    view: FamiliesView;
+  }[] = [];
 
   for (const cand of candidatas) {
     const leiturasDaUnidade = leiturasPorUnidade.get(cand.unidade) ?? [];
@@ -438,7 +624,15 @@ export async function getFamiliesOverview(
       continue;
     }
 
-    for (const s of sucesso) views.push(s.view as FamiliesView);
+    for (const s of sucesso) {
+      views.push(s.view as FamiliesView);
+      consolidaveis.push({
+        unidade: cand.unidade,
+        label: cand.label,
+        contexto: s.contexto,
+        view: s.view as FamiliesView,
+      });
+    }
 
     unitsIncluded.push({
       unidade: cand.unidade,
@@ -471,6 +665,7 @@ export async function getFamiliesOverview(
     vehiclesTouchedDistinct: new Set(views.flatMap((v) => v.entityIdsTouched)).size,
     unitsIncluded,
     unitsExcluded,
+    consolidado: consolidar(consolidaveis),
   };
 }
 
@@ -520,6 +715,27 @@ export interface RangeOverviewUnit {
   vehiclesTouched: number;
 }
 
+/**
+ * Um ponto da série consolidada — uma competência, os dois lados do impacto
+ * somados entre as unidades incluídas.
+ *
+ * Existe para o gráfico "Impacto das alterações por competência" do Dashboard
+ * poder ser desenhado em Visão Geral. A conta é a mesma que a tela faz para
+ * uma unidade (`seriesDoIntervalo`, em `linha-do-tempo-de-alteracoes.tsx`): só
+ * entra alteração com sinal apurado (`CALCULATED`, valor diferente de zero), e
+ * os dois lados nunca se misturam entre periodicidades. `losses` vem negativo,
+ * como em toda parte do produto.
+ *
+ * Vem somado do servidor em vez de a tela somar as `entries` de cada unidade
+ * porque a alternativa era despejar a lista de alterações de N unidades no
+ * navegador para desenhar seis pontos.
+ */
+export interface RangeOverviewPoint {
+  period: string;
+  label: string;
+  byPeriodicity: Record<string, { gains: number; losses: number }>;
+}
+
 export interface RangeOverview {
   from: string;
   fromLabel: string;
@@ -527,6 +743,41 @@ export interface RangeOverview {
   toLabel: string;
   unitsIncluded: RangeOverviewUnit[];
   unitsExcluded: RangeOverviewUnitExcluded[];
+  /** A série do intervalo, competência a competência, somada entre as unidades incluídas. */
+  serie: RangeOverviewPoint[];
+}
+
+/** A mesma régua de `comSinal` na tela: sem sinal apurado, a linha não é ganho nem perda. */
+function comSinalApurado(analysis: RangeAnalysis) {
+  return analysis.entries.filter(
+    (e) => e.confidence === "CALCULATED" && e.amount !== null && e.amount !== 0,
+  );
+}
+
+function serieConsolidada(analises: RangeAnalysis[]): RangeOverviewPoint[] {
+  const rotulos = new Map<string, string>();
+  for (const analysis of analises) {
+    for (const m of analysis.movements) if (!rotulos.has(m.period)) rotulos.set(m.period, m.label);
+    for (const e of analysis.entries) if (!rotulos.has(e.period)) rotulos.set(e.period, e.periodLabel);
+  }
+
+  const pontos = new Map<string, RangeOverviewPoint>();
+  for (const [period, label] of rotulos) {
+    pontos.set(period, { period, label, byPeriodicity: {} });
+  }
+  for (const analysis of analises) {
+    for (const e of comSinalApurado(analysis)) {
+      const ponto = pontos.get(e.period);
+      if (!ponto) continue;
+      const chave = e.periodicity ?? "SEM_PERIODICIDADE";
+      const lado = (ponto.byPeriodicity[chave] ??= { gains: 0, losses: 0 });
+      const valor = e.amount as number;
+      if (valor > 0) lado.gains = round(lado.gains + valor);
+      else lado.losses = round(lado.losses + valor);
+    }
+  }
+
+  return [...pontos.values()].sort((a, b) => a.period.localeCompare(b.period));
 }
 
 export async function getRangeOverview(
@@ -592,6 +843,9 @@ export async function getRangeOverview(
   }
 
   const unitsIncluded: RangeOverviewUnit[] = [];
+  // As leituras que entraram na soma — a série consolidada sai delas, e nunca
+  // de uma unidade que ficou de fora do ranking acima.
+  const analisesIncluidas: RangeAnalysis[] = [];
   // As pontas do intervalo que a resposta anuncia — a primeira unidade que
   // conseguiu ler. Cada unidade resolve `from`/`to` contra o próprio
   // histórico (mesmo padrão de `getRangeAnalysis`), e pode divergir de uma
@@ -618,6 +872,7 @@ export async function getRangeOverview(
 
     for (const a of sucesso) {
       if (!referencia) referencia = a;
+      analisesIncluidas.push(a);
     }
 
     unitsIncluded.push({
@@ -642,5 +897,6 @@ export async function getRangeOverview(
     toLabel: ref.toLabel,
     unitsIncluded,
     unitsExcluded,
+    serie: serieConsolidada(analisesIncluidas),
   };
 }
