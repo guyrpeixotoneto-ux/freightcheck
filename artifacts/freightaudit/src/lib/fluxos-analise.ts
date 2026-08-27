@@ -137,6 +137,7 @@ function temSubstancia(etapa: Etapa): boolean {
     texto(etapa.descricao) !== "" ||
     texto(etapa.objetivo) !== "" ||
     texto(etapa.regras) !== "" ||
+    texto(etapa.informacoesConsultadas) !== "" ||
     texto(etapa.observacoes) !== "" ||
     etapa.itens.length > 0 ||
     etapa.indicadores.length > 0

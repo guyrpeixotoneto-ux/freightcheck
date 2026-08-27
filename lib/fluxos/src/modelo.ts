@@ -83,6 +83,8 @@ export interface Etapa {
   objetivo: string | null;
   sistemaPrincipal: string | null;
   regras: string | null;
+  /** O que a etapa consulta para ser executada — relatórios, telas, planilhas. */
+  informacoesConsultadas: string | null;
   observacoes: string | null;
   status: StatusDaEtapa;
   posX: number;
@@ -161,6 +163,7 @@ export interface EntradaDeEtapa {
   objetivo?: string | null;
   sistemaPrincipal?: string | null;
   regras?: string | null;
+  informacoesConsultadas?: string | null;
   observacoes?: string | null;
   status?: StatusDaEtapa;
   posX?: number;

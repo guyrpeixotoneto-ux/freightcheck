@@ -67,6 +67,7 @@ function etapa(parcial: Partial<Etapa> & { id: string; nome: string }): Etapa {
     objetivo: null,
     sistemaPrincipal: null,
     regras: null,
+    informacoesConsultadas: null,
     observacoes: null,
     status: "ATIVO",
     posX: 0,

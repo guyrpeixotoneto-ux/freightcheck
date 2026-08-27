@@ -9,6 +9,7 @@ import {
   Pencil,
   Plus,
   Scale,
+  Search,
   Server,
   Timer,
   Trash2,
@@ -67,6 +68,7 @@ const ICONES: Record<string, typeof Server> = {
   Hourglass,
   Scale,
   Gauge,
+  Search,
   Timer,
 };
 
@@ -280,6 +282,12 @@ export function PainelDaEtapa({
         {etapa.regras && (
           <Secao titulo="Regras de negócio" icone="Scale">
             <Texto>{etapa.regras}</Texto>
+          </Secao>
+        )}
+
+        {etapa.informacoesConsultadas && (
+          <Secao titulo="Informações que consulta" icone="Search">
+            <Texto>{etapa.informacoesConsultadas}</Texto>
           </Secao>
         )}
 
