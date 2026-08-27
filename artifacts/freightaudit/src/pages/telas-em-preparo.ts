@@ -4,14 +4,11 @@ import {
   ClipboardCheck,
   Database,
   FileSpreadsheet,
-  Gavel,
-  Handshake,
   HardHat,
   History,
   Plug,
   Settings2,
   Shield,
-  ShieldCheck,
   SquareActivity,
   SquareTerminal,
   TriangleAlert,
@@ -106,67 +103,6 @@ export const TELAS_EM_PREPARO: TelaEmPreparo[] = [
         href: "/alteracoes",
         label: "Alterações",
         porque: "A fila do que mudou na vigência aberta, que é de onde os achados nascem.",
-      },
-    ],
-  },
-
-  // -------------------------------------------------------------------------
-  // Recuperação
-  // -------------------------------------------------------------------------
-  {
-    href: "/contestacao",
-    label: "Contestação & Recuperação",
-    icon: Gavel,
-    cor: "text-nav-recuperacao",
-    pergunta:
-      "Que valores cabem contestar junto à Freightec, em que estágio está cada pedido e quanto já voltou.",
-    depende: [
-      "O impacto financeiro apurado — não se contesta uma variação de parâmetro, contesta-se um valor pago a mais.",
-      "O estágio de cada pedido como estado no banco: aberto, enviado, aceito, recusado, recuperado — com o documento que sustenta cada transição.",
-    ],
-    hoje: [
-      {
-        href: "/comparar",
-        label: "Comparar vigências",
-        porque: "A prova documental de que o parâmetro mudou, que é o anexo de qualquer contestação.",
-      },
-    ],
-  },
-  {
-    href: "/reconciliacao",
-    label: "Reconciliação",
-    icon: Handshake,
-    cor: "text-nav-recuperacao",
-    pergunta:
-      "O que a tabela manda pagar bate com o que foi efetivamente pago, viagem a viagem.",
-    depende: [
-      "A entrada do realizado — fatura, pagamento ou espelho de frete. Hoje só entra a tabela de remuneração; sem o outro lado não há o que reconciliar.",
-      "A chave que liga um pagamento à linha de tabela que o justifica. Sem ela a comparação vira soma contra soma, que fecha por acaso e esconde erro compensado.",
-    ],
-    hoje: [
-      {
-        href: "/rastreio-de-dados",
-        label: "Rastreio de Dados",
-        porque: "A conferência que já existe: toda célula que o arquivo trouxe chegou a algum lugar.",
-      },
-    ],
-  },
-  {
-    href: "/risco-materialidade",
-    label: "Risco & Materialidade",
-    icon: ShieldCheck,
-    cor: "text-nav-recuperacao",
-    pergunta:
-      "Onde vale gastar a hora de auditoria — qual desvio é grande o bastante para pagar o trabalho de contestá-lo.",
-    depende: [
-      "O impacto financeiro apurado, que é o numerador de qualquer conta de materialidade.",
-      "O limiar por unidade, decidido e registrado no produto. Materialidade herdada de outra empresa é chute com aparência de norma.",
-    ],
-    hoje: [
-      {
-        href: "/analise-equipamentos",
-        label: "Análise de frota",
-        porque: "Onde a frota se concentra — a exposição que hoje dá para ver sem o valor em reais.",
       },
     ],
   },

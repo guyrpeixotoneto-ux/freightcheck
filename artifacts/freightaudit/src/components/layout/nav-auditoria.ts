@@ -20,9 +20,7 @@ import {
   FolderTree,
   Forklift,
   Gauge,
-  Gavel,
   GitCompareArrows,
-  Handshake,
   HardHat,
   History,
   House,
@@ -34,7 +32,6 @@ import {
   Route,
   Scale,
   ScanSearch,
-  ShieldCheck,
   ShoppingCart,
   SlidersVertical,
   Sparkles,
@@ -236,26 +233,29 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
     {
       /*
         Processos é seção própria, e não a cauda da Auditoria, porque é outro
-        trabalho e quase sempre outra pessoa: auditar é descobrir, recuperar é
-        cobrar. Quem passa o dia numa das duas fecha a outra.
+        trabalho e quase sempre outra pessoa: auditar é descobrir, desenhar o
+        processo é dizer como se trabalha. Quem passa o dia numa das duas fecha
+        a outra.
+
+        A seção tinha três telas em preparo — Contestação & Recuperação,
+        Reconciliação e Risco & Materialidade — e elas saíram junto com as
+        entradas de `pages/telas-em-preparo.ts` que as sustentavam: um menu que
+        anuncia três telas e entrega três avisos de "ainda não" é ruído para
+        quem trabalha aqui todo dia. Voltam quando forem telas de verdade.
       */
       titulo: "Processos",
-      descricao: "A cobrança do desvio já apurado",
+      descricao: "O mapa dos processos da empresa",
       icon: RefreshCcwDot,
       cor: "text-nav-recuperacao",
       itens: [
         /*
-          Fluxos Operacionais saiu da Administração e abre esta seção: o mapa
-          dos processos não é cadastro da casa, é o desenho do trabalho que a
-          seção cobra — e quem entra aqui procura primeiro o fluxo, depois o
-          caso. O endereço continua sem prefixo, como o resto desta lista: é o
-          roteador aninhado que põe a base do ambiente na frente (`App.tsx`), e
-          `/fluxos` está no mesmo `Switch` das outras telas da auditoria.
+          Fluxos Operacionais saiu da Administração: o mapa dos processos não é
+          cadastro da casa, é o desenho do trabalho. O endereço continua sem
+          prefixo, como o resto desta lista: é o roteador aninhado que põe a
+          base do ambiente na frente (`App.tsx`), e `/fluxos` está no mesmo
+          `Switch` das outras telas da auditoria.
         */
         { href: "/fluxos", label: "Fluxos Operacionais", icon: Workflow },
-        { href: "/contestacao", label: "Contestação & Recuperação", icon: Gavel },
-        { href: "/reconciliacao", label: "Reconciliação", icon: Handshake },
-        { href: "/risco-materialidade", label: "Risco & Materialidade", icon: ShieldCheck },
       ],
     },
     {
