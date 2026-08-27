@@ -167,6 +167,11 @@ export function validarEntradaDeEtapa(bruto: unknown): Required<
     objetivo: longo(corpo.objetivo, "O objetivo", "ETAPA_TEXTO_LONGO"),
     sistemaPrincipal: textoOpcional(corpo.sistemaPrincipal),
     regras: longo(corpo.regras, "As regras", "ETAPA_TEXTO_LONGO"),
+    informacoesConsultadas: longo(
+      corpo.informacoesConsultadas,
+      "As informações consultadas",
+      "ETAPA_TEXTO_LONGO",
+    ),
     observacoes: longo(corpo.observacoes, "As observações", "ETAPA_TEXTO_LONGO"),
     chaveMonitoramento: textoOpcional(corpo.chaveMonitoramento),
   };

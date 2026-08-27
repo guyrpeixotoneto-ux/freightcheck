@@ -214,7 +214,7 @@ router.use(justificativasRouter);
 */
 router.use(trechosRouter);
 /*
-  Fluxos Operacionais: o mapa dos processos da empresa, em Administração. É a
+  Fluxos Operacionais: o mapa dos processos da empresa, na seção Processos. É a
   única superfície deste servidor escopada por **empresa** — a unidade canônica
   —, e o escopo é resolvido em `lib/empresa-da-requisicao.ts`, nunca lido do
   corpo. O motor inteiro mora em `@workspace/fluxos`; esta rota só traduz.

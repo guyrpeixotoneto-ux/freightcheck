@@ -257,7 +257,7 @@ describe("a lateral", () => {
       */
       "Plano de Ação",
       "Auditoria",
-      "Recuperação",
+      "Processos",
       "QLP",
       "Frota",
       "Inteligência",
@@ -446,7 +446,11 @@ describe("o catálogo de telas em preparo", () => {
     `/cavalo-360` e `/carreta-360` saíram ao virar `pages/frota-360.tsx`, e
     `/qlp-administrativo` saiu quando a importação passou a receber o export
     próprio do QLP ADM e a tela de verdade nasceu em
-    `pages/qlp-administrativo.tsx`. As rotas passaram a ser `<Route>` de
+    `pages/qlp-administrativo.tsx`. As três da antiga Recuperação —
+    `/contestacao`, `/reconciliacao` e `/risco-materialidade` — saíram por outra
+    razão, e é a única baixa deste número que não é uma tela entregue: os itens
+    delas saíram do menu (`nav-auditoria.ts`), e uma tela em preparo sem item
+    que a alcance é catálogo que ninguém lê. As rotas passaram a ser `<Route>` de
     verdade em `App.tsx`, e o teste acima, o dos órfãos, garante que nenhum item do
     menu ficou apontando para o vazio na troca. Baixá-lo aqui é o último passo
     de entregar uma tela; subi-lo sem acrescentar `pergunta` e `depende` é o que
@@ -456,7 +460,7 @@ describe("o catálogo de telas em preparo", () => {
     const catalogo = fonte("pages/telas-em-preparo.ts");
     const telas = [...catalogo.matchAll(/^\s{4}href:\s*"([^"]+)"/gm)].length;
 
-    expect(telas).toBe(16);
+    expect(telas).toBe(13);
     expect([...catalogo.matchAll(/^\s{4}depende:\s*\[/gm)]).toHaveLength(telas);
     expect([...catalogo.matchAll(/^\s{4}pergunta:/gm)]).toHaveLength(telas);
   });

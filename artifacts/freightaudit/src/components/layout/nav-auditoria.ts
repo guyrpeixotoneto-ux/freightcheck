@@ -20,9 +20,7 @@ import {
   FolderTree,
   Forklift,
   Gauge,
-  Gavel,
   GitCompareArrows,
-  Handshake,
   HardHat,
   History,
   House,
@@ -34,7 +32,6 @@ import {
   Route,
   Scale,
   ScanSearch,
-  ShieldCheck,
   ShoppingCart,
   SlidersVertical,
   Sparkles,
@@ -46,6 +43,7 @@ import {
   TriangleAlert,
   Truck,
   UsersRound,
+  Workflow,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -94,7 +92,7 @@ import type { NavGroup } from "./nav";
  * (**Dashboard**), o retrato (**Visão executiva**), libera-se o que precisa ser
  * comprado hoje (**Compras**), registra-se o que mudou (**Plano de Ação**),
  * procura-se o desvio (**Auditoria**), cobra-se o desvio achado
- * (**Recuperação**), confere-se o quadro de gente que o modelo remunera
+ * (**Processos**), confere-se o quadro de gente que o modelo remunera
  * (**QLP**), desce-se ao ativo que o sofreu (**Frota**), pergunta-se ao
  * assistente o que sobrou (**Inteligência**), e por baixo de tudo estão o
  * material (**Dados & governança**) e a casa (**Administração**).
@@ -234,18 +232,30 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
     },
     {
       /*
-        Recuperação é seção própria, e não a cauda da Auditoria, porque é outro
-        trabalho e quase sempre outra pessoa: auditar é descobrir, recuperar é
-        cobrar. Quem passa o dia numa das duas fecha a outra.
+        Processos é seção própria, e não a cauda da Auditoria, porque é outro
+        trabalho e quase sempre outra pessoa: auditar é descobrir, desenhar o
+        processo é dizer como se trabalha. Quem passa o dia numa das duas fecha
+        a outra.
+
+        A seção tinha três telas em preparo — Contestação & Recuperação,
+        Reconciliação e Risco & Materialidade — e elas saíram junto com as
+        entradas de `pages/telas-em-preparo.ts` que as sustentavam: um menu que
+        anuncia três telas e entrega três avisos de "ainda não" é ruído para
+        quem trabalha aqui todo dia. Voltam quando forem telas de verdade.
       */
-      titulo: "Recuperação",
-      descricao: "A cobrança do desvio já apurado",
+      titulo: "Processos",
+      descricao: "O mapa dos processos da empresa",
       icon: RefreshCcwDot,
       cor: "text-nav-recuperacao",
       itens: [
-        { href: "/contestacao", label: "Contestação & Recuperação", icon: Gavel },
-        { href: "/reconciliacao", label: "Reconciliação", icon: Handshake },
-        { href: "/risco-materialidade", label: "Risco & Materialidade", icon: ShieldCheck },
+        /*
+          Fluxos Operacionais saiu da Administração: o mapa dos processos não é
+          cadastro da casa, é o desenho do trabalho. O endereço continua sem
+          prefixo, como o resto desta lista: é o roteador aninhado que põe a
+          base do ambiente na frente (`App.tsx`), e `/fluxos` está no mesmo
+          `Switch` das outras telas da auditoria.
+        */
+        { href: "/fluxos", label: "Fluxos Operacionais", icon: Workflow },
       ],
     },
     {

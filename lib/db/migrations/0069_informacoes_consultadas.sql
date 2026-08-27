@@ -1,0 +1,13 @@
+-- O que a etapa consulta, em texto livre.
+--
+-- Os itens da espécie `DOCUMENTO` já dizem o material que a etapa exige ou
+-- produz; nenhuma coluna dizia onde a pessoa vai *olhar* para executá-la — o
+-- relatório, a tela, a planilha, o e-mail. Cabia em `observacoes`, e é
+-- justamente o que faz um campo de observações virar depósito: a informação
+-- fica escrita, mas não é consultável nem aparece com um título próprio no
+-- painel da etapa.
+--
+-- `IF NOT EXISTS` porque o diff do Publishing pode ter criado a coluna antes da
+-- fila chegar aqui: sem ele a migration morre com 42701 num banco que já está
+-- exatamente onde ela queria deixá-lo, e a fila inteira para atrás dela.
+ALTER TABLE "fluxo_etapa" ADD COLUMN IF NOT EXISTS "informacoes_consultadas" text;

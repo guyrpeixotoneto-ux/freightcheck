@@ -8,17 +8,20 @@ import { VisaoLista, vizinhaNaOrdem } from "@/components/fluxos/visao-lista";
 import { montarProjecao } from "@/lib/fluxos-canvas";
 import {
   analisarFluxo,
+  cartaoDaJornada,
   edicaoNaLista,
   etapaNovaVazia,
   filtrarLinhas,
   linhasDaLista,
   ordenarLinhas,
   podeCriarEtapaNaLista,
+  resumoDaLente,
   slaDaEtapa,
   tipoSugeridoNaLista,
   valoresDaColuna,
 } from "@/lib/fluxos-analise";
 import {
+  LENTES_DA_JORNADA,
   normalizarPreferencia,
   numeracaoDoFluxo,
   ordemDeLeitura,
@@ -64,6 +67,7 @@ function etapa(parcial: Partial<Etapa> & { id: string; nome: string }): Etapa {
     objetivo: null,
     sistemaPrincipal: null,
     regras: null,
+    informacoesConsultadas: null,
     observacoes: null,
     status: "ATIVO",
     posX: 0,
@@ -427,12 +431,17 @@ describe("caso 6 — alternar visualização não escreve no banco", () => {
       visualizacao: "fluxo",
       orientacao: "vertical",
       agrupamento: "area",
+      lente: "operacao",
     });
     expect(normalizarPreferencia({ visualizacao: "raias", agrupamento: "sistema" })).toEqual({
       visualizacao: "raias",
       orientacao: "vertical",
       agrupamento: "sistema",
+      lente: "operacao",
     });
+    /* Um tipo de jornada inventado cai no padrão em vez de esvaziar o cartão. */
+    expect(normalizarPreferencia({ lente: "inventada" }).lente).toBe("operacao");
+    expect(normalizarPreferencia({ lente: "falhas" }).lente).toBe("falhas");
   });
 });
 
@@ -611,6 +620,139 @@ describe("a Lista filtra, ordena e numera pelo processo", () => {
       "Operação",
       "Sistema",
     ]);
+  });
+});
+
+describe("a Jornada lê o mesmo caminho por uma lente de cada vez", () => {
+  /*
+    Três etapas com cadastros diferentes de propósito: uma documentada, uma com
+    falha e gargalo, e uma em que só o nome foi preenchido. É o que distingue
+    uma lente que mostra o campo certo de uma que mostra o que estiver à mão.
+  */
+  function fluxoDeTres(): FluxoCompleto {
+    const etapas = [
+      etapa({
+        id: "e1",
+        nome: "Origem da tarifa",
+        ordem: 0,
+        tipo: "INICIO",
+        area: "Operação",
+        responsavel: "Faturamento",
+        sistemaPrincipal: "TMS",
+        objetivo: "Garantir que a tarifa aplicada é a vigente.",
+        regras: "Tarifa fora da tabela volta para a Operação.",
+        itens: [item("PRAZO", "4 horas"), item("DOCUMENTO", "Tabela vigente")],
+      }),
+      etapa({
+        id: "e2",
+        nome: "Auditoria fiscal",
+        ordem: 1,
+        area: "Fiscal",
+        status: "ATENCAO",
+        itens: [item("FALHA", "CT-e sem XML"), item("GARGALO", "Conferência manual")],
+        indicadores: [
+          {
+            id: "i1",
+            nome: "CT-e conferidos",
+            descricao: null,
+            unidade: "%",
+            sentido: "MAIOR_MELHOR" as const,
+            origem: null,
+            ordem: 0,
+          },
+        ],
+      }),
+      etapa({ id: "e3", nome: "Fechamento", ordem: 2, tipo: "FIM" }),
+    ];
+    const conexoes = [
+      conexao({ id: "c1", origemEtapaId: "e1", destinoEtapaId: "e2" }),
+      conexao({ id: "c2", origemEtapaId: "e2", destinoEtapaId: "e3" }),
+    ];
+    return { fluxo: fluxoDeQuinze().fluxo, etapas, conexoes };
+  }
+
+  it("o seletor oferece cinco tipos de jornada, e a Operação é o padrão", () => {
+    expect(LENTES_DA_JORNADA.map((l) => l.valor)).toEqual([
+      "operacao",
+      "documentacao",
+      "falhas",
+      "gargalos",
+      "informacoes",
+    ]);
+    expect(normalizarPreferencia({}).lente).toBe("operacao");
+  });
+
+  it("trocar de lente não muda o processo, a ordem nem a numeração", () => {
+    const completo = fluxoDeTres();
+    const antes = JSON.stringify(completo);
+    const linhas = linhasDaLista(completo);
+
+    for (const lente of LENTES_DA_JORNADA) {
+      const cartoes = linhas.map((linha) => cartaoDaJornada(linha, lente.valor));
+      /* Sempre três cartões, sempre três campos: a jornada não muda de forma. */
+      expect(cartoes).toHaveLength(3);
+      for (const cartao of cartoes) expect(cartao.campos).toHaveLength(3);
+    }
+
+    expect(linhas.map((l) => l.numero)).toEqual([1, 2, 3]);
+    expect(linhas.map((l) => l.etapa.nome)).toEqual([
+      "Origem da tarifa",
+      "Auditoria fiscal",
+      "Fechamento",
+    ]);
+    expect(JSON.stringify(completo)).toBe(antes);
+  });
+
+  it("cada lente mostra o campo dela — e não o da vizinha", () => {
+    const linhas = linhasDaLista(fluxoDeTres());
+    const valores = (indice: number, lente: Parameters<typeof cartaoDaJornada>[1]) =>
+      cartaoDaJornada(linhas[indice], lente).campos.flatMap((c) => c.valores).join(" | ");
+
+    expect(valores(0, "operacao")).toContain("Operação · Faturamento");
+    expect(valores(0, "operacao")).toContain("TMS");
+    expect(valores(0, "operacao")).toContain("4 horas");
+
+    expect(valores(0, "documentacao")).toContain("Garantir que a tarifa aplicada é a vigente.");
+    expect(valores(0, "documentacao")).toContain("Tabela vigente");
+    /* A documentação não mostra o prazo: prazo é operação. */
+    expect(valores(0, "documentacao")).not.toContain("4 horas");
+
+    expect(valores(1, "falhas")).toContain("CT-e sem XML");
+    expect(valores(1, "falhas")).toContain("Etapa marcada como atenção");
+    expect(valores(1, "falhas")).not.toContain("Conferência manual");
+
+    expect(valores(1, "gargalos")).toContain("Conferência manual");
+    expect(valores(1, "gargalos")).not.toContain("CT-e sem XML");
+
+    expect(valores(1, "informacoes")).toContain("Origem da tarifa");
+    expect(valores(1, "informacoes")).toContain("Fechamento");
+    expect(valores(1, "informacoes")).toContain("CT-e conferidos (%)");
+  });
+
+  it("o que não foi cadastrado é ausência declarada, nunca um valor inventado", () => {
+    const linhas = linhasDaLista(fluxoDeTres());
+    const cartao = cartaoDaJornada(linhas[2], "documentacao");
+
+    expect(cartao.achados).toBe(0);
+    expect(cartao.campos.every((c) => c.valores.length === 0)).toBe(true);
+    expect(cartao.campos.map((c) => c.vazio)).toEqual([
+      "sem objetivo descrito",
+      "sem regras registradas",
+      "sem documentos cadastrados",
+    ]);
+  });
+
+  it("o resumo conta as etapas cadastradas, e o que vem do grafo não conta", () => {
+    const linhas = linhasDaLista(fluxoDeTres());
+
+    expect(resumoDaLente(linhas, "documentacao")).toEqual({ etapas: 1, total: 3, achados: 3 });
+    expect(resumoDaLente(linhas, "falhas").etapas).toBe(1);
+    /*
+      Uma só etapa mede alguma coisa. Se "vem de"/"segue para" contassem, o
+      resumo diria "3 de 3" num fluxo sem indicador nenhum — o oposto do que o
+      número existe para revelar.
+    */
+    expect(resumoDaLente(linhas, "informacoes")).toEqual({ etapas: 1, total: 3, achados: 1 });
   });
 });
 

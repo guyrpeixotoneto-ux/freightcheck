@@ -460,9 +460,10 @@ function RotasDaAuditoria() {
       <Route path="/unidades" component={Unidades} />
       <Route path="/configuracoes" component={Configuracoes} />
       {/*
-        Administração → Fluxos Operacionais. A rota do fluxo aberto vem depois
-        da lista, e as duas são absolutas como o resto da seção: o mapa dos
-        processos é o mesmo venha-se de qual ambiente for.
+        Processos → Fluxos Operacionais. A rota do fluxo aberto vem depois da
+        lista, e as duas vivem neste mesmo `Switch`: montado sob a base de cada
+        auditoria, `/fluxos` atende tanto `/fluxos` quanto
+        `/auditoria-rota/fluxos`.
       */}
       <Route path="/fluxos" component={Fluxos} />
       <Route path="/fluxos/:id" component={TelaDoFluxo} />
