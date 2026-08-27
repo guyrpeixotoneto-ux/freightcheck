@@ -40,8 +40,9 @@ import { cn } from "@/lib/utils";
  * alteração dentro do grupo tem sua própria seleção, seu próprio status e sua
  * própria justificativa. Marcar o cabeçalho da placa seleciona todas as
  * alterações dela de uma vez; marcar uma alteração isolada permite justificar
- * só aquela. Clicar no card (fora dos controles) abre o detalhe completo da
- * placa, em `/justificativas/placa/:placa`.
+ * só aquela. Clicar no card (fora dos controles) abre a placa em
+ * `/justificativas/placa/:placa` — a grade atributo × vigência, onde a mesma
+ * alteração aparece ao lado do histórico dela nas vigências anteriores.
  *
  * As abas recortam por tipo de ativo — Cavalo, Carreta, Trecho — porque
  * justificar é trabalho por tipo: quem explica o reajuste de um cavalo não é
