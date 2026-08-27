@@ -633,3 +633,125 @@ nesse caminho `Client.query` não devolve Promise. A versão final mede no `Pool
 conta os dois caminhos sem duplicar, e **foi conferida contra o log do
 Postgres** endpoint a endpoint (ex.: `/api/coverage` — 27 consultas nos dois).
 Os números deste relatório são os da versão conferida.
+
+---
+
+# Parte II — implementação
+
+Seis mudanças, seis commits independentes, cada uma medida antes e depois no
+mesmo ambiente da Parte I. Reverter qualquer uma isoladamente é `git revert`.
+
+## 13. Resultado por mudança
+
+| Mudança | Métrica antes | Métrica depois | Ganho | Evidência | Risco |
+|---|---:|---:|---:|---|---|
+| **1. Fontes fora do caminho crítico** (`c906ff1`) | FCP 12.668 ms · 2 requisições externas | FCP **188 ms** · **0 externas** | **−98,5%** | A/B em Chromium com o domínio inalcançável; regressão visual pixel a pixel em 6 telas | Nenhum — 5 telas idênticas, a 6ª difere em 826 px (0,064%) porque o peso 600 da mono agora existe de verdade |
+| — o mesmo, com o Google respondendo | FCP 248 ms | FCP **236 ms** | −5% | mesmo A/B, terceiro mockado | — |
+| **2. Retry por classe de falha** (`0659970`) | 14.325 ms · 5 tentativas | **36 ms · 1 tentativa** | **−99,7%** | 302 para `replit.com/__replshield` reproduzido no navegador | Nenhum — as 3 classes de "origem subindo" mantêm as 5 tentativas e os 13,2 s |
+| **3. Round trips de `/changes/families`** (`c13a81b`) | 22 consultas · 478 ms @RTT 15 ms | 17 consultas · **396 ms** | **−17%** | proxy TCP com atraso injetado, 0/5/15 ms | Nenhum — respostas byte a byte idênticas em 6 endpoints |
+| **4. JIT do Balanço de Massa** (`4ba5121`) | 877 ms / 944 ms | **239 ms / 364 ms** | **−73% / −61%** | `EXPLAIN (ANALYZE, BUFFERS)` 1.036 → 347 ms | Baixo — `SET LOCAL`, escopo de transação |
+| **5. `Intl.NumberFormat` centralizado** (`fab84bb`) | 22.047 ms de CPU / 25 req | **11.269 ms** | **−49%** | perfil de CPU do Node, antes e depois | Nenhum — 9 endpoints byte a byte idênticos |
+| **6. Compressão HTTP** (`414baf7`) | 277.450 B por navegação | **29.068 B** | **9,5×** | navegação real em Chromium com banda em 2 Mb/s | Nenhum — conteúdo idêntico; +0,2 a 0,9 ms de CPU por resposta |
+
+### O que cada uma custou de CPU sob carga
+
+A compressão foi a única que **acrescenta** trabalho ao servidor. Medido com
+20 usuários simultâneos, antes de tudo e depois de tudo:
+
+| Usuários | p50 antes | p50 depois | p95 antes | p95 depois | Vazão antes | Vazão depois |
+|--:|--:|--:|--:|--:|--:|--:|
+| 1 | 52 ms | **42 ms** | 192 ms | **155 ms** | 11,7/s | **14,6/s** |
+| 5 | 71 ms | **75 ms** | 296 ms | **242 ms** | 40,8/s | **45,6/s** |
+| 10 | 129 ms | **134 ms** | 556 ms | **439 ms** | 46,0/s | **50,8/s** |
+| 20 | 210 ms | **286 ms** | 1.017 ms | **837 ms** | 48,2/s | **51,0/s** |
+
+O p95 melhora em toda a faixa e a vazão sobe 6%: o que a compressão cobre de
+CPU é menos do que as outras cinco mudanças devolvem.
+
+## 14. Resultado por tela
+
+Navegação SPA (clique no menu → última resposta), mediana de 3, warm.
+Telas que já respondiam abaixo de 50 ms estão omitidas.
+
+| Tela | Antes | Depois | Ganho | Gargalo restante |
+|---|---:|---:|---:|---|
+| `/balanco-massa` | 1.399 ms | **411 ms** | −71% | a consulta de classificação, 347 ms de SQL real |
+| `/dre` | 1.130 ms | **587 ms** | −48% | `/dre/history`: 49 consultas e 302 ms de Node |
+| `/fechamento/remuneracao` | 284 ms | 237 ms | −17% | `/remuneracao/situacao`: 248 ms de SQL |
+| `/curadoria` | 274 ms | 232 ms | −15% | `/curation/queue`: uma consulta de 188 ms |
+| `/impacto-financeiro` | 279 ms | 202 ms | −28% | `/impacto/panorama`: 201 ms de SQL |
+| `/dashboard` | 265 ms | 189 ms | −29% | `/changes/families`: 114 ms de SQL |
+| `/parametros` | 261 ms | 192 ms | −26% | idem |
+| `/vigencia` | 248 ms | 171 ms | −31% | `/changes/grouped`: 114 ms de SQL |
+| `/resumo-executivo` | 235 ms | 185 ms | −21% | idem `/changes/families` |
+| `/gestao-a-vista` | 226 ms | 195 ms | −14% | idem |
+| `/linha-do-tempo` | 219 ms | 193 ms | −12% | idem |
+| `/cavalo-360` | 175 ms | 125 ms | −29% | `/frota/panorama`: 25 consultas |
+| `/dados` | 146 ms | 124 ms | −15% | `/coverage`: 27 consultas, 57 ms de SQL |
+| `/carreta-360` | 142 ms | 102 ms | −28% | idem 360° |
+| `/composicao` | 141 ms | 110 ms | −22% | — |
+| `/justificativas` | 108 ms | 91 ms | −16% | 3 ondas (cascata legítima por `changeSetId`) |
+| `/alteracoes` | 105 ms | 82 ms | −22% | — |
+
+**Nenhuma tela comum passa de 600 ms**, e a meta de "utilizável em menos de 1 s
+em warm" está cumprida em todas — inclusive nas duas que estavam em 1,1 s e
+1,4 s. A primeira carga saiu de 12,7 s para 188 ms.
+
+## 15. Separando o que foi corrigido do que explica a lentidão em produção
+
+Isto precisa ficar explícito, porque as duas coisas não são a mesma.
+
+**O que está comprovado e corrigido** é o que foi medido aqui: o bloqueio da
+primeira pintura, o custo do retry sobre um desvio, os round trips
+duplicados, o JIT, o formatador e a compressão. Todos reproduzidos e medidos
+neste ambiente, com evidência anexada a cada commit.
+
+**O que NÃO está corrigido, e não pode ser corrigido por código, é o desvio em
+si.** A ocorrência de produção — `freightcheck.com.br/api/*` respondendo 302
+para `replit.com/__replshield` — continua acontecendo exatamente como antes. O
+302 é da camada de rede da publicação, e quem o resolve é a configuração dela.
+
+O que mudou é o que o produto faz **diante** dele:
+
+| | Antes | Depois |
+|---|---|---|
+| Tempo até a tela dizer algo | 14.325 ms | 36 ms |
+| Tentativas gastas | 5 | 1 |
+| O que a tela diz | "não foi possível montar a visão geral" | "o pedido não chegou ao FreightCheck: alguma camada entre o seu navegador e a aplicação o desviou para outro endereço. Não é a aplicação que está fora do ar — ela não chegou a ser consultada." |
+| O que o console registra | `TypeError: Failed to fetch` | `[transporte] /api/… — DESVIADA, 7ms. A chamada não chegou à API.` |
+| Como o diagnóstico classifica | falha de rede, indistinguível de cabo solto | `DESVIADA`, ação `DESVIO_NA_PLATAFORMA`, dirigida à plataforma |
+
+E o mesmo mecanismo — o navegador preso num terceiro que não responde — era o
+que produzia os 12,7 s de tela branca pelas fontes. Esse foi eliminado na
+origem: não há mais nenhum terceiro no caminho da primeira pintura.
+
+**A pergunta que continua aberta**: quanto da lentidão que os usuários relatam
+é este desvio e quanto é o que foi corrigido aqui. Não há como responder daqui —
+seria preciso a proporção de requisições que recebem 302 em produção. O que dá
+para afirmar é que, quando ele acontecer, ele custará 36 ms em vez de 14 s, e
+dirá o que é.
+
+## 16. O que continua não medido
+
+Sem mudança em relação ao §10: Replit/ReplShield na origem, a latência real até
+o Neon (a inclinação medida diz que ela custa ~1 ms por consulta por ms de RTT
+— com 17 consultas em `/changes/families`, um Neon a 60 ms de distância ainda
+custaria ~1 s), o cold start do contêiner, e as telas sem dado no seed (Radar de
+Trechos, QLP, Fechamento).
+
+**Sobre as suítes.** `pnpm test` na raiz não completa neste ambiente, e não
+completava antes destas mudanças: as suítes `-real` montam bancos descartáveis
+em paralelo contra um único Postgres e colidem entre si (chave duplicada em
+`snapshot`, template parcial de importação). Por isso cada etapa foi conferida
+**por pacote, com e sem a mudança**, e o que este relatório afirma é a
+diferença entre os dois — não um número absoluto de falhas:
+
+| Pacote | Sem a mudança | Com a mudança |
+|---|---|---|
+| `freightaudit` | 952 passando | **969 passando** (17 novos) |
+| `comparison` | 34 falhas | 34 falhas (+4 novos passando) |
+| `api-server` | 11 falhas | 11 falhas |
+| `balance` | 16 pulados | 16 pulados |
+| `dre` / `composition` / `knowledge` | — | 56 / 31 / 11 passando |
+
+Typecheck do workspace inteiro limpo em todas as etapas.
