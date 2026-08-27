@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import {
   Background,
   BackgroundVariant,
@@ -17,6 +17,7 @@ import "@xyflow/react/dist/style.css";
 import { NoDaEtapa } from "@/components/fluxos/no-da-etapa";
 import { NoDaRaia } from "@/components/fluxos/no-da-raia";
 import { montarProjecao, type OpcoesDaProjecao } from "@/lib/fluxos-canvas";
+import { ajustarSolto, lerArrasto } from "@/lib/fluxos-paleta";
 import { type Catalogo, type FluxoCompleto } from "@/lib/fluxos";
 
 /**
@@ -75,6 +76,12 @@ export interface CanvasDoFluxoProps {
   onMoverEtapas: (posicoes: { etapaId: string; posX: number; posY: number }[]) => void;
   onConectar: (origemEtapaId: string, destinoEtapaId: string) => void;
   onAbrirConexao: (conexaoId: string) => void;
+  /**
+   * Um elemento veio da paleta e foi solto no desenho. A posição é a do ponto
+   * solto, em coordenadas do fluxo — e é `null` quando o desenho desta
+   * visualização é calculado, caso em que quem grava decide onde a etapa cai.
+   */
+  onSoltarElemento?: (tipo: string, posicao: { posX: number; posY: number } | null) => void;
   /** A projeção desta visualização. Vazia, é o Fluxo vertical de sempre. */
   projecao?: OpcoesDaProjecao;
   /**
@@ -99,6 +106,7 @@ function CanvasInterno({
   onMoverEtapas,
   onConectar,
   onAbrirConexao,
+  onSoltarElemento,
   projecao,
   posicoesPersistidas = true,
   chaveDoEnquadramento,
@@ -108,7 +116,7 @@ function CanvasInterno({
     () => montarProjecao(completo, catalogo, projecao ?? {}),
     [completo, catalogo, projecao],
   );
-  const { fitView } = useReactFlow();
+  const { fitView, screenToFlowPosition } = useReactFlow();
 
   const podeArrastar = !somenteLeitura && posicoesPersistidas;
 
@@ -173,6 +181,43 @@ function CanvasInterno({
   );
 
   /*
+    O SOLTE DA PALETA — o gesto do quadro branco, e a conversão que ele exige.
+    O navegador entrega a posição em pixels da janela; o fluxo pensa em
+    coordenadas próprias, que mudam com o pan e o zoom. `screenToFlowPosition` é
+    quem faz a ponte, e ela só existe dentro do provider — este é o único lugar
+    da tela em que essa conta pode ser feita.
+
+    Onde as posições desenhadas não são as gravadas, o ponto é descartado (e não
+    o solte): a etapa nasce mesmo assim, no fim do fluxo, porque gravar a
+    coordenada de um desenho derivado sobrescreveria o arranjo real — a mesma
+    razão pela qual o arrasto de cartão fica desligado nessas visualizações.
+  */
+  const aoArrastarSobre = useCallback(
+    (evento: DragEvent<HTMLDivElement>) => {
+      if (somenteLeitura || !onSoltarElemento) return;
+      evento.preventDefault();
+      evento.dataTransfer.dropEffect = "copy";
+    },
+    [somenteLeitura, onSoltarElemento],
+  );
+
+  const aoSoltar = useCallback(
+    (evento: DragEvent<HTMLDivElement>) => {
+      if (somenteLeitura || !onSoltarElemento) return;
+      const tipo = lerArrasto(evento.dataTransfer);
+      if (!tipo) return;
+      evento.preventDefault();
+      if (!posicoesPersistidas) {
+        onSoltarElemento(tipo, null);
+        return;
+      }
+      const ponto = screenToFlowPosition({ x: evento.clientX, y: evento.clientY });
+      onSoltarElemento(tipo, ajustarSolto(ponto));
+    },
+    [somenteLeitura, onSoltarElemento, posicoesPersistidas, screenToFlowPosition],
+  );
+
+  /*
     As faixas entram na frente da lista para ficarem atrás no desenho, e ficam
     **fora** do estado local: elas não se movem, não se selecionam e não podem
     entrar no lote que o arrasto grava — uma faixa é a leitura de um campo da
@@ -202,6 +247,8 @@ function CanvasInterno({
         if (!somenteLeitura) onAbrirConexao(seta.id);
       }}
       onPaneClick={() => onSelecionarEtapa(null)}
+      onDragOver={aoArrastarSobre}
+      onDrop={aoSoltar}
       nodesDraggable={podeArrastar}
       nodesConnectable={!somenteLeitura}
       edgesFocusable={!somenteLeitura}

@@ -44,6 +44,11 @@ export interface PropsDaVisaoNoCanvas extends PropsDaVisao {
   onMoverEtapas: (posicoes: { etapaId: string; posX: number; posY: number }[]) => void;
   onConectar: (origemEtapaId: string, destinoEtapaId: string) => void;
   onAbrirConexao: (conexaoId: string) => void;
+  /**
+   * Um elemento da paleta foi solto no desenho. Opcional porque só as
+   * visualizações que desenham num canvas têm onde soltar.
+   */
+  onSoltarElemento?: (tipo: string, posicao: { posX: number; posY: number } | null) => void;
 }
 
 export type { Catalogo, FluxoCompleto, CampoEditavelNaLista };

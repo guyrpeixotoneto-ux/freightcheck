@@ -40,6 +40,7 @@ export function VisaoRaias({
   onMoverEtapas,
   onConectar,
   onAbrirConexao,
+  onSoltarElemento,
   agrupamento,
 }: PropsDaVisaoNoCanvas & { agrupamento: AgrupamentoDeRaia }) {
   const { projecao, resumo, raias } = useMemo(() => {
@@ -97,6 +98,7 @@ export function VisaoRaias({
           onMoverEtapas={onMoverEtapas}
           onConectar={onConectar}
           onAbrirConexao={onAbrirConexao}
+      onSoltarElemento={onSoltarElemento}
           projecao={projecao}
           posicoesPersistidas={false}
           chaveDoEnquadramento={`${completo.fluxo.id}:raias:${agrupamento}`}

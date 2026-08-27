@@ -1,7 +1,17 @@
 import { useCallback, useMemo, useState } from "react";
 import { Link, useRoute } from "wouter";
 import { useMutation } from "@tanstack/react-query";
-import { ArrowLeft, LayoutGrid, ListPlus, Loader2, Pencil, Plus, Trash2, Wand2 } from "lucide-react";
+import {
+  ArrowLeft,
+  LayoutGrid,
+  ListPlus,
+  Loader2,
+  Pencil,
+  Plus,
+  Shapes,
+  Trash2,
+  Wand2,
+} from "lucide-react";
 import { Layout } from "@/components/layout/layout";
 import { ApiErrorNotice } from "@/components/api-error";
 import { Badge } from "@/components/ui/badge";
@@ -20,6 +30,7 @@ import { EditorDaEtapa } from "@/components/fluxos/editor-da-etapa";
 import { BotaoDeExportar } from "@/components/fluxos/botao-de-exportar";
 import { EditorDoFluxo } from "@/components/fluxos/editor-do-fluxo";
 import { MontadorPorTexto } from "@/components/fluxos/montador-por-texto";
+import { PaletaDeElementos } from "@/components/fluxos/paleta-de-elementos";
 import { useEmpresaDosFluxos } from "@/components/fluxos/seletor-de-empresa";
 import { SeletorDeVisualizacao } from "@/components/fluxos/seletor-de-visualizacao";
 import { VisaoFluxo } from "@/components/fluxos/visao-fluxo";
@@ -30,6 +41,7 @@ import { VisaoMapa } from "@/components/fluxos/visao-mapa";
 import { VisaoRaias } from "@/components/fluxos/visao-raias";
 import { useVisualizacaoDeFluxo } from "@/hooks/use-visualizacao-de-fluxo";
 import { analisarFluxo } from "@/lib/fluxos-analise";
+import { nomeSugerido, proximaPosicaoLivre } from "@/lib/fluxos-paleta";
 import {
   AGRUPAMENTOS_DE_RAIA,
   VISUALIZACOES,
@@ -133,6 +145,13 @@ export default function TelaDoFluxo() {
     useVisualizacaoDeFluxo();
   /* O sinal recortado na visualização de Gargalos. Vazio: todos. */
   const [sinal, setSinal] = useState("");
+  /*
+    A janela de elementos começa aberta: ela é o convite a desenhar, e uma
+    paleta escondida atrás de um botão faz o canvas continuar parecendo um
+    visualizador. Quem quer a tela inteira para ler fecha uma vez — e o botão do
+    cabeçalho a traz de volta.
+  */
+  const [paletaAberta, setPaletaAberta] = useState(true);
 
   const completo = consulta.data;
   const etapaSelecionada = useMemo(
@@ -237,6 +256,30 @@ export default function TelaDoFluxo() {
     onSuccess: () => recarregar(fluxoId),
   });
 
+  /*
+    O elemento arrastado vira etapa numa chamada só, sem passar por formulário.
+    O nome e a posição saem de funções puras (`lib/fluxos-paleta.ts`), e a etapa
+    recém-criada já abre selecionada no painel de detalhe: é lá que se dá o nome
+    de verdade, com o cartão à vista, em vez de num diálogo por cima do desenho.
+  */
+  const criarElemento = useMutation({
+    mutationFn: (elemento: { tipo: string; posicao: { posX: number; posY: number } | null }) => {
+      const tipo = catalogo.data?.tiposDeEtapa.find((t) => t.valor === elemento.tipo);
+      const etapas = completo?.etapas ?? [];
+      const posicao = elemento.posicao ?? proximaPosicaoLivre(etapas);
+      return escritas.criarEtapa(empresaId, fluxoId, {
+        nome: tipo ? nomeSugerido(tipo, etapas) : "Nova etapa",
+        tipo: elemento.tipo,
+        ordem: etapas.length,
+        ...posicao,
+      });
+    },
+    onSuccess: (gravada: Etapa) => {
+      setSelecionada(gravada.id);
+      recarregar(fluxoId);
+    },
+  });
+
   const excluirEtapa = useMutation({
     mutationFn: (etapaId: string) => escritas.excluirEtapa(empresaId, fluxoId, etapaId),
     onSuccess: () => {
@@ -263,6 +306,11 @@ export default function TelaDoFluxo() {
     (etapaId: string, campo: CampoEditavelNaLista, valor: string) =>
       editarCampo.mutateAsync({ etapaId, campo, valor }).then(() => undefined),
     [editarCampo],
+  );
+  const aoSoltarElemento = useCallback(
+    (tipo: string, posicao: { posX: number; posY: number } | null) =>
+      criarElemento.mutate({ tipo, posicao }),
+    [criarElemento],
   );
   const aoAbrirConexao = useCallback(
     (conexaoId: string) => {
@@ -363,6 +411,24 @@ export default function TelaDoFluxo() {
             </div>
           )}
 
+          {/*
+            O interruptor da janela de elementos. Ele só aparece onde há canvas:
+            na Jornada e na Lista não existe desenho para receber um elemento, e
+            um botão que abre uma paleta inútil é pior do que a ausência dele.
+          */}
+          {entrada.ehCanvas && (
+            <Button
+              variant={paletaAberta ? "secondary" : "ghost"}
+              size="sm"
+              disabled={somenteLeitura}
+              aria-pressed={paletaAberta}
+              onClick={() => setPaletaAberta((v) => !v)}
+            >
+              <Shapes className="mr-1.5 h-3.5 w-3.5" />
+              Elementos
+            </Button>
+          )}
+
           <Button variant="ghost" size="sm" onClick={() => setSomenteLeitura((v) => !v)}>
             {somenteLeitura ? "Liberar edição" : "Só leitura"}
           </Button>
@@ -432,11 +498,19 @@ export default function TelaDoFluxo() {
           </Button>
         </div>
 
-        {(mover.isError || conectar.isError || excluirEtapa.isError || organizar.isError) && (
+        {(mover.isError ||
+          conectar.isError ||
+          excluirEtapa.isError ||
+          organizar.isError ||
+          criarElemento.isError) && (
           <Alert variant="destructive" className="mt-2">
             <AlertDescription>
               {fraseDoErro(
-                mover.error ?? conectar.error ?? excluirEtapa.error ?? organizar.error,
+                mover.error ??
+                  conectar.error ??
+                  excluirEtapa.error ??
+                  organizar.error ??
+                  criarElemento.error,
               )}
             </AlertDescription>
           </Alert>
@@ -450,6 +524,22 @@ export default function TelaDoFluxo() {
         defeito mais comum de quem monta um canvas dentro de layout flexível.
       */}
       <div className="flex h-[calc(100dvh-13rem)] min-h-[420px] w-full sm:h-[calc(100dvh-8.5rem)]">
+        {/*
+          A paleta fica **fora** do canvas, como coluna irmã, e não flutuando por
+          cima dele: sobreposta, ela taparia justamente a faixa do desenho em que
+          o começo do processo costuma estar, e o pan para desviar dela viraria
+          parte do trabalho. Fora, ela também continua no lugar quando o fluxo
+          ainda está vazio — que é exatamente quando ela mais serve.
+        */}
+        {paletaAberta && entrada.ehCanvas && !somenteLeitura && (
+          <PaletaDeElementos
+            catalogo={catalogo.data}
+            aceitaArrasto={arranjoPersistido}
+            aoEscolher={(tipo) => criarElemento.mutate({ tipo, posicao: null })}
+            aoFechar={() => setPaletaAberta(false)}
+          />
+        )}
+
         <div className="relative min-w-0 flex-1">
           {consulta.isLoading && <Skeleton className="h-full w-full" />}
           {completo && completo.etapas.length === 0 && (
@@ -475,12 +565,13 @@ export default function TelaDoFluxo() {
               onMoverEtapas={aoMover}
               onConectar={aoConectar}
               onAbrirConexao={aoAbrirConexao}
+              onSoltarElemento={aoSoltarElemento}
             />
           )}
-          {mover.isPending && (
+          {(mover.isPending || criarElemento.isPending) && (
             <div className="pointer-events-none absolute bottom-3 right-3 flex items-center gap-1.5 rounded-md bg-card/90 px-2 py-1 text-xs text-muted-foreground shadow">
               <Loader2 className="h-3 w-3 animate-spin" />
-              salvando posição
+              {criarElemento.isPending ? "criando a etapa" : "salvando posição"}
             </div>
           )}
         </div>
@@ -673,7 +764,8 @@ function FluxoSemEtapas({
         <p className="mt-3 text-sm font-medium text-foreground">Este fluxo ainda não tem etapas.</p>
         <p className="mt-1 text-sm text-muted-foreground">
           Cole a lista de etapas de uma vez — uma por linha, na ordem do processo — e elas nascem
-          ligadas e organizadas. Ou crie uma a uma e ligue arrastando das bordas dos cartões.
+          ligadas e organizadas. Ou puxe um elemento da janela ao lado para o desenho e ligue os
+          cartões arrastando das bordas.
         </p>
         <div className="mt-4 flex flex-wrap justify-center gap-2">
           <Button onClick={aoColar} disabled={bloqueado}>

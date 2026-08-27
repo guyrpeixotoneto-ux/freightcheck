@@ -414,8 +414,28 @@ export function erroDaResposta(
   );
 }
 
+/**
+ * O sucesso que **não tem corpo** — e por isso não passa por `readJson`.
+ *
+ * Um 204 é a resposta certa de quem apagou: não há o que devolver sobre uma
+ * coisa que deixou de existir. Mas `readJson` trata corpo vazio como defeito de
+ * transporte, porque é isso que ele é em toda rota que promete JSON — e essa
+ * regra, aplicada também ao 204, transformava a exclusão bem-sucedida de uma
+ * conexão de fluxo em "A resposta do servidor chegou pela metade — a conexão
+ * foi interrompida no caminho": o registro tinha sido apagado no banco, e a
+ * tela dizia que nada tinha sido enviado e mandava tentar de novo.
+ *
+ * O corte é pelo status, e não por corpo vazio: 204 e 205 são os dois códigos
+ * em que a ausência de corpo é o contrato do HTTP, e não a metade de uma
+ * resposta que se perdeu. Qualquer outro status vazio continua sendo defeito.
+ */
+function semConteudo(response: Response): boolean {
+  return response.status === 204 || response.status === 205;
+}
+
 export async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await requisitar(path, init);
+  if (response.ok && semConteudo(response)) return undefined as T;
   const body = await readJson(response);
   if (!response.ok) throw erroDaResposta(response, body);
   // `readJson` descreve o corpo como objeto porque é assim que os erros desta
