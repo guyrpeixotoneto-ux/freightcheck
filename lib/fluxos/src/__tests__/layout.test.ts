@@ -24,6 +24,7 @@ function etapa(id: string, ordem: number, posX = 0, posY = 0): Etapa {
     objetivo: null,
     sistemaPrincipal: null,
     regras: null,
+    informacoesConsultadas: null,
     observacoes: null,
     status: "ATIVO",
     posX,

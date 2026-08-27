@@ -90,6 +90,7 @@ export interface Etapa {
   objetivo: string | null;
   sistemaPrincipal: string | null;
   regras: string | null;
+  informacoesConsultadas: string | null;
   observacoes: string | null;
   status: StatusDaEtapa;
   posX: number;

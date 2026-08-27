@@ -484,6 +484,13 @@
       "when": 1787834037934,
       "tag": "0068_fluxos_operacionais",
       "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1787872071678,
+      "tag": "0069_informacoes_consultadas",
+      "breakpoints": true
     }
   ]
 }

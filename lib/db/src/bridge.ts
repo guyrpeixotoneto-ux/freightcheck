@@ -2441,6 +2441,23 @@ function planoUp(): PassoUp[] {
     add(M68, `índice ${indice}`, levantar(M68, new RegExp(`INDEX IF NOT EXISTS "${indice}"`)));
   }
 
+  /*
+    A coluna que a `0069` acrescenta a `fluxo_etapa`, logo depois da tabela que
+    a `0068` repõe — e não dentro do bloco acima, porque a fonte é outra
+    migration e é dela que o texto tem de sair.
+
+    Sem este passo o `up` devolveria uma `fluxo_etapa` do tamanho que ela tinha
+    na `0068`, e o Development restaurado divergiria de um banco migrado do zero
+    por uma coluna — a divergência exata que o bridge existe para não deixar
+    passar, e que os testes comparam estrutura a estrutura para pegar.
+  */
+  const M69 = "0069_informacoes_consultadas";
+  add(
+    M69,
+    "fluxo_etapa.informacoes_consultadas",
+    levantar(M69, /ADD COLUMN IF NOT EXISTS "informacoes_consultadas"/),
+  );
+
   const M42 = "0042_viagem_completa";
   for (const coluna of COLUNAS_DO_RETRATO_DA_VIAGEM) {
     add(

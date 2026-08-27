@@ -176,6 +176,15 @@ export const fluxoEtapaTable = pgTable(
     objetivo: text("objetivo"),
     sistemaPrincipal: text("sistema_principal"),
     regras: text("regras"),
+    /**
+     * O que se consulta aqui — as informações que a pessoa (ou o sistema) vai
+     * buscar para conseguir executar a etapa: um relatório, uma tela, uma
+     * tabela, um e-mail. É texto livre e não é a mesma coisa que os itens da
+     * espécie `DOCUMENTO`: aqueles são o material que a etapa **produz ou
+     * exige** como entregável, enquanto isto é o que ela **olha** — e o que se
+     * olha raramente cabe numa lista de nomes com link.
+     */
+    informacoesConsultadas: text("informacoes_consultadas"),
     observacoes: text("observacoes"),
     status: text("status").notNull().default("ATIVO"),
     /**

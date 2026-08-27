@@ -118,6 +118,9 @@ export function EditorDaEtapa({
   const [descricao, setDescricao] = useState(etapa?.descricao ?? "");
   const [objetivo, setObjetivo] = useState(etapa?.objetivo ?? "");
   const [regras, setRegras] = useState(etapa?.regras ?? "");
+  const [informacoesConsultadas, setInformacoesConsultadas] = useState(
+    etapa?.informacoesConsultadas ?? "",
+  );
   const [observacoes, setObservacoes] = useState(etapa?.observacoes ?? "");
   const [chave, setChave] = useState(etapa?.chaveMonitoramento ?? "");
 
@@ -154,6 +157,7 @@ export function EditorDaEtapa({
         descricao,
         objetivo,
         regras,
+        informacoesConsultadas,
         observacoes,
         chaveMonitoramento: chave,
         /* A posição é preservada: quem edita o texto não move o cartão. */
@@ -333,6 +337,22 @@ export function EditorDaEtapa({
                   value={regras}
                   onChange={(e) => setRegras(e.target.value)}
                 />
+              </div>
+
+              <div className="sm:col-span-2">
+                <Label htmlFor="etapa-informacoes">Informações que consulta</Label>
+                <Textarea
+                  id="etapa-informacoes"
+                  rows={3}
+                  value={informacoesConsultadas}
+                  onChange={(e) => setInformacoesConsultadas(e.target.value)}
+                  placeholder="Tabela de frete mínimo no SAP, relatório de tarifas do mês, e-mail de aprovação do cliente"
+                />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Onde quem executa a etapa vai olhar para conseguir fazê-la — relatório, tela,
+                  planilha, e-mail. O que a etapa exige como entregável continua na aba Detalhes,
+                  em Documentos.
+                </p>
               </div>
 
               <div className="sm:col-span-2">
