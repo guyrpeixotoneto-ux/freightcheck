@@ -1,5 +1,10 @@
 import type { Conexao, Etapa, FluxoCompleto } from "@/lib/fluxos";
-import { numeracaoDoFluxo, ordemDeLeitura, raiaDaEtapa } from "@/lib/fluxos-visoes";
+import {
+  numeracaoDoFluxo,
+  ordemDeLeitura,
+  raiaDaEtapa,
+  type LenteDaJornada,
+} from "@/lib/fluxos-visoes";
 
 /**
  * A CAMADA ANALÍTICA — o que o processo cadastrado já denuncia sobre si mesmo.
@@ -489,6 +494,249 @@ export function valoresDaColuna(
   return [...new Set(linhas.map(de).filter((v) => v !== ""))].sort((a, b) =>
     a.localeCompare(b, "pt-BR"),
   );
+}
+
+// ---------------------------------------------------------------------------
+// A Jornada — a mesma etapa, lida por uma lente de cada vez
+// ---------------------------------------------------------------------------
+
+export interface CampoDaJornada {
+  chave: string;
+  /** O rótulo do campo — some do visual e fica para o leitor de tela. */
+  rotulo: string;
+  /** O nome do ícone `lucide-react`. */
+  icone: string;
+  valores: string[];
+  /** O que a etapa mostra quando ninguém cadastrou nada aqui. */
+  vazio: string;
+  /**
+   * O campo conta como "conteúdo desta lente"?
+   *
+   * Falso no que sai do grafo (de onde vem, para onde vai): esses campos estão
+   * sempre preenchidos em qualquer etapa ligada, e contá-los faria o resumo
+   * dizer "15 de 15 etapas têm informações" num fluxo em que ninguém cadastrou
+   * indicador nenhum — o oposto do que o número existe para revelar.
+   */
+  conta: boolean;
+}
+
+export interface CartaoDaJornada {
+  campos: CampoDaJornada[];
+  /** Quantos itens a lente achou nesta etapa — zero quer dizer "não cadastrado". */
+  achados: number;
+}
+
+const naoVazio = (v: string | null | undefined): v is string => texto(v) !== "";
+
+/** Os itens de uma espécie, na ordem cadastrada. */
+function itensDaEspecie(etapa: Etapa, especie: string): string[] {
+  return etapa.itens
+    .filter((i) => i.especie === especie && texto(i.nome) !== "")
+    .sort((a, b) => a.ordem - b.ordem)
+    .map((i) => (i.obrigatorio ? `${i.nome} (obrigatório)` : i.nome));
+}
+
+/** A frase de um sinal do diagnóstico, quando ele existe na etapa. */
+function sinalComoTexto(linha: LinhaDaEtapa, chave: string): string[] {
+  const sinal = linha.diagnostico.sinais.find((s) => s.chave === chave);
+  return sinal ? [sinal.rotulo] : [];
+}
+
+/**
+ * O CARTÃO DA JORNADA — o que cada lente mostra da mesma etapa.
+ *
+ * Uma função pura sobre a linha que a Lista já monta: a lente não busca dado,
+ * não reordena o processo e não esconde etapa. Trocar de lente troca **as três
+ * linhas de dentro do cartão**, e nada mais — a sequência, a numeração e o
+ * clique que abre o painel continuam idênticos, que é o que mantém a Jornada
+ * sendo uma jornada em vez de virar cinco telas parecidas.
+ *
+ * O que não estiver cadastrado é dito com todas as letras ("sem documentação
+ * registrada"), nunca preenchido com estimativa — a mesma regra do SLA. Numa
+ * lente, um cartão vazio é a informação: é ali que o levantamento parou.
+ */
+export function cartaoDaJornada(linha: LinhaDaEtapa, lente: LenteDaJornada): CartaoDaJornada {
+  const etapa = linha.etapa;
+
+  const campos: CampoDaJornada[] = ((): CampoDaJornada[] => {
+    switch (lente) {
+      case "documentacao":
+        return [
+          {
+            chave: "objetivo",
+            rotulo: "Objetivo",
+            icone: "Target",
+            valores: [etapa.objetivo, etapa.descricao].filter(naoVazio).slice(0, 1),
+            vazio: "sem objetivo descrito",
+            conta: true,
+          },
+          {
+            chave: "regras",
+            rotulo: "Regras",
+            icone: "BookOpen",
+            valores: [etapa.regras].filter(naoVazio),
+            vazio: "sem regras registradas",
+            conta: true,
+          },
+          {
+            chave: "documentos",
+            rotulo: "Documentos",
+            icone: "FileText",
+            valores: itensDaEspecie(etapa, "DOCUMENTO"),
+            vazio: "sem documentos cadastrados",
+            conta: true,
+          },
+        ];
+
+      case "falhas":
+        return [
+          {
+            chave: "falhas",
+            rotulo: "Falhas possíveis",
+            icone: "AlertTriangle",
+            valores: itensDaEspecie(etapa, "FALHA"),
+            vazio: "sem falhas registradas",
+            conta: true,
+          },
+          {
+            chave: "retorno",
+            rotulo: "Retornos",
+            icone: "Undo2",
+            valores: sinalComoTexto(linha, "retorno"),
+            vazio: "nenhum retrabalho chega aqui",
+            conta: true,
+          },
+          {
+            chave: "status",
+            rotulo: "Status",
+            icone: "Flag",
+            valores: sinalComoTexto(linha, "status"),
+            vazio: "etapa não marcada como atenção",
+            conta: true,
+          },
+        ];
+
+      case "gargalos":
+        return [
+          {
+            chave: "gargalos",
+            rotulo: "Gargalos",
+            icone: "Hourglass",
+            valores: itensDaEspecie(etapa, "GARGALO"),
+            vazio: "sem gargalos apontados",
+            conta: true,
+          },
+          {
+            chave: "handoffs",
+            rotulo: "Trocas de área",
+            icone: "Shuffle",
+            valores: sinalComoTexto(linha, "handoffs"),
+            vazio: "sem troca de área em volta",
+            conta: true,
+          },
+          {
+            chave: "prazo",
+            rotulo: "Prazo",
+            icone: "Timer",
+            valores: linha.sla === null ? [] : [linha.sla],
+            vazio: "sem prazo definido",
+            conta: false,
+          },
+        ];
+
+      case "informacoes":
+        return [
+          {
+            chave: "entradas",
+            rotulo: "Vem de",
+            icone: "ArrowDownLeft",
+            valores: linha.entradas,
+            vazio: "início do processo",
+            conta: false,
+          },
+          {
+            chave: "saidas",
+            rotulo: "Segue para",
+            icone: "ArrowUpRight",
+            valores: linha.saidas,
+            vazio: "fim do processo",
+            conta: false,
+          },
+          {
+            chave: "indicadores",
+            rotulo: "Indicadores",
+            icone: "Activity",
+            valores: etapa.indicadores
+              .slice()
+              .sort((a, b) => a.ordem - b.ordem)
+              .map((i) => (naoVazio(i.unidade) ? `${i.nome} (${i.unidade})` : i.nome)),
+            vazio: "a etapa não mede nada",
+            conta: true,
+          },
+        ];
+
+      case "operacao":
+      default:
+        return [
+          {
+            chave: "responsavel",
+            rotulo: "Responsável",
+            icone: "Users",
+            valores: [[linha.area, linha.responsavel].filter(naoVazio).join(" · ")].filter(naoVazio),
+            vazio: "sem responsável",
+            conta: true,
+          },
+          {
+            chave: "sistema",
+            rotulo: "Sistema",
+            icone: "Server",
+            valores: [linha.sistema].filter(naoVazio),
+            vazio: "sem sistema",
+            conta: true,
+          },
+          {
+            chave: "prazo",
+            rotulo: "Prazo",
+            icone: "Timer",
+            valores: [linha.sla].filter(naoVazio),
+            vazio: "sem prazo definido",
+            conta: true,
+          },
+        ];
+    }
+  })();
+
+  const achados = campos
+    .filter((c) => c.conta)
+    .reduce((total, campo) => total + campo.valores.length, 0);
+
+  return { campos, achados };
+}
+
+export interface ResumoDaLente {
+  /** Quantas etapas têm alguma coisa cadastrada nesta lente. */
+  etapas: number;
+  total: number;
+  /** Quantos itens ao todo — falhas, documentos, indicadores. */
+  achados: number;
+}
+
+/**
+ * A linha do cabeçalho da Jornada: "documentação em 4 de 15 etapas".
+ *
+ * É a pergunta que a lente responde antes de qualquer cartão ser lido — e, num
+ * fluxo recém-levantado, costuma ser a informação mais útil da tela: mostra em
+ * quantas etapas o levantamento de fato chegou.
+ */
+export function resumoDaLente(linhas: LinhaDaEtapa[], lente: LenteDaJornada): ResumoDaLente {
+  let etapas = 0;
+  let achados = 0;
+  for (const linha of linhas) {
+    const cartao = cartaoDaJornada(linha, lente);
+    if (cartao.achados > 0) etapas += 1;
+    achados += cartao.achados;
+  }
+  return { etapas, total: linhas.length, achados };
 }
 
 // ---------------------------------------------------------------------------

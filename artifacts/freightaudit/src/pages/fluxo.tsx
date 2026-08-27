@@ -44,8 +44,10 @@ import { analisarFluxo } from "@/lib/fluxos-analise";
 import { nomeSugerido, proximaPosicaoLivre } from "@/lib/fluxos-paleta";
 import {
   AGRUPAMENTOS_DE_RAIA,
+  LENTES_DA_JORNADA,
   VISUALIZACOES,
   type AgrupamentoDeRaia,
+  type LenteDaJornada,
   type Orientacao,
   type Visualizacao,
 } from "@/lib/fluxos-visoes";
@@ -141,8 +143,16 @@ export default function TelaDoFluxo() {
   const [seguinteDe, setSeguinteDe] = useState<string | null>(null);
   const [somenteLeitura, setSomenteLeitura] = useState(false);
   const [conexaoAberta, setConexaoAberta] = useState<Conexao | null>(null);
-  const { visualizacao, orientacao, agrupamento, trocarVisualizacao, trocarOrientacao, trocarAgrupamento } =
-    useVisualizacaoDeFluxo();
+  const {
+    visualizacao,
+    orientacao,
+    agrupamento,
+    lente,
+    trocarVisualizacao,
+    trocarOrientacao,
+    trocarAgrupamento,
+    trocarLente,
+  } = useVisualizacaoDeFluxo();
   /* O sinal recortado na visualização de Gargalos. Vazio: todos. */
   const [sinal, setSinal] = useState("");
   /*
@@ -493,6 +503,32 @@ export default function TelaDoFluxo() {
           </div>
 
           {/*
+            O tipo de jornada. Fica ao lado do seletor de visualização, e não
+            dentro dele, porque não é uma sétima visualização: a jornada
+            continua sendo uma só — o que se escolhe aqui é qual campo das
+            etapas o cartão mostra.
+          */}
+          {visualizacao === "jornada" && (
+            <div className="flex items-center gap-1.5">
+              <span className="hidden text-xs text-muted-foreground lg:inline">
+                Tipo de jornada
+              </span>
+              <Select value={lente} onValueChange={(v) => trocarLente(v as never)}>
+                <SelectTrigger className="h-8 w-[150px]" aria-label="Tipo de jornada">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {LENTES_DA_JORNADA.map((l) => (
+                    <SelectItem key={l.valor} value={l.valor}>
+                      {l.rotulo}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          {/*
             O interruptor da janela de elementos. Ele só aparece onde há canvas:
             na Jornada e na Lista não existe desenho para receber um elemento, e
             um botão que abre uma paleta inútil é pior do que a ausência dele.
@@ -609,6 +645,7 @@ export default function TelaDoFluxo() {
               visualizacao={visualizacao}
               orientacao={orientacao}
               agrupamento={agrupamento}
+              lente={lente}
               sinal={sinal}
               onTrocarSinal={setSinal}
               etapaSelecionada={selecionada}
@@ -758,6 +795,7 @@ function MotorDeVisualizacao({
   visualizacao,
   orientacao,
   agrupamento,
+  lente,
   sinal,
   onTrocarSinal,
   ...props
@@ -765,6 +803,7 @@ function MotorDeVisualizacao({
   visualizacao: Visualizacao;
   orientacao: Orientacao;
   agrupamento: AgrupamentoDeRaia;
+  lente: LenteDaJornada;
   sinal: string;
   onTrocarSinal: (sinal: string) => void;
 }) {
@@ -772,7 +811,7 @@ function MotorDeVisualizacao({
     case "raias":
       return <VisaoRaias {...props} agrupamento={agrupamento} />;
     case "jornada":
-      return <VisaoJornada {...props} />;
+      return <VisaoJornada {...props} lente={lente} />;
     case "mapa":
       return <VisaoMapa {...props} />;
     case "lista":

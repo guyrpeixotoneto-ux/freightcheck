@@ -3,6 +3,7 @@ import {
   gravarPreferencia,
   lerPreferencia,
   type AgrupamentoDeRaia,
+  type LenteDaJornada,
   type Orientacao,
   type PreferenciaDeVisualizacao,
   type Visualizacao,
@@ -46,5 +47,6 @@ export function useVisualizacaoDeFluxo() {
       (agrupamento: AgrupamentoDeRaia) => atualizar({ agrupamento }),
       [atualizar],
     ),
+    trocarLente: useCallback((lente: LenteDaJornada) => atualizar({ lente }), [atualizar]),
   };
 }

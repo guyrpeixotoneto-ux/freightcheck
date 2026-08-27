@@ -48,6 +48,26 @@ export type Orientacao = "vertical" | "horizontal";
 /** Por qual coluna da etapa as raias são agrupadas. */
 export type AgrupamentoDeRaia = "area" | "responsavel" | "sistema";
 
+/**
+ * Qual leitura a Jornada faz do mesmo caminho.
+ *
+ * A Jornada é a linha do tempo do processo, e a linha do tempo não muda: as
+ * etapas são as mesmas, na mesma ordem, com a mesma numeração. O que a lente
+ * troca é **qual campo da etapa** cada cartão mostra — quem responde e em que
+ * sistema, o que está documentado, o que costuma falhar, o que trava, o que a
+ * etapa mede.
+ *
+ * É a mesma decisão do resto do motor: nenhuma lente tem dado próprio. Cada uma
+ * é uma função pura sobre a linha que a Lista já monta, e por isso trocar de
+ * lente não busca nada, não grava nada e não pode discordar do processo.
+ */
+export type LenteDaJornada =
+  | "operacao"
+  | "documentacao"
+  | "falhas"
+  | "gargalos"
+  | "informacoes";
+
 export interface EntradaDeVisualizacao {
   valor: Visualizacao;
   rotulo: string;
@@ -115,6 +135,59 @@ const VISUALIZACOES_VALIDAS = new Set(VISUALIZACOES.map((v) => v.valor));
 export const ehVisualizacao = (v: unknown): v is Visualizacao =>
   typeof v === "string" && VISUALIZACOES_VALIDAS.has(v as Visualizacao);
 
+export interface EntradaDeLente {
+  valor: LenteDaJornada;
+  rotulo: string;
+  descricao: string;
+  /** O nome do ícone `lucide-react` que o seletor monta. */
+  icone: string;
+}
+
+/**
+ * As lentes da Jornada, num lugar só — dado, e não um `switch` na tela.
+ *
+ * "Operação" é a primeira porque é a leitura executiva de sempre, a que a
+ * Jornada já fazia: quem, onde, em quanto tempo. As outras quatro respondem
+ * perguntas que antes obrigavam a abrir etapa por etapa no painel.
+ */
+export const LENTES_DA_JORNADA: readonly EntradaDeLente[] = [
+  {
+    valor: "operacao",
+    rotulo: "Operação",
+    descricao: "Quem responde, em que sistema, em quanto tempo.",
+    icone: "Users",
+  },
+  {
+    valor: "documentacao",
+    rotulo: "Documentação",
+    descricao: "O objetivo, as regras e os documentos de cada etapa.",
+    icone: "FileText",
+  },
+  {
+    valor: "falhas",
+    rotulo: "Falhas",
+    descricao: "O que costuma dar errado, e os retornos que voltam.",
+    icone: "AlertTriangle",
+  },
+  {
+    valor: "gargalos",
+    rotulo: "Gargalos",
+    descricao: "O que trava a etapa mesmo quando nada falha.",
+    icone: "Hourglass",
+  },
+  {
+    valor: "informacoes",
+    rotulo: "Informações",
+    descricao: "O que entra, o que sai e o que a etapa mede.",
+    icone: "Activity",
+  },
+];
+
+const LENTES_VALIDAS = new Set(LENTES_DA_JORNADA.map((l) => l.valor));
+
+export const ehLenteDaJornada = (v: unknown): v is LenteDaJornada =>
+  typeof v === "string" && LENTES_VALIDAS.has(v as LenteDaJornada);
+
 export const AGRUPAMENTOS_DE_RAIA: readonly { valor: AgrupamentoDeRaia; rotulo: string }[] = [
   { valor: "area", rotulo: "Área" },
   { valor: "responsavel", rotulo: "Responsável" },
@@ -131,12 +204,15 @@ export interface PreferenciaDeVisualizacao {
   visualizacao: Visualizacao;
   orientacao: Orientacao;
   agrupamento: AgrupamentoDeRaia;
+  /** O tipo de jornada — só a Jornada usa. */
+  lente: LenteDaJornada;
 }
 
 export const PREFERENCIA_PADRAO: PreferenciaDeVisualizacao = {
   visualizacao: "fluxo",
   orientacao: "vertical",
   agrupamento: "area",
+  lente: "operacao",
 };
 
 /**
@@ -178,6 +254,7 @@ export function normalizarPreferencia(cru: unknown): PreferenciaDeVisualizacao {
     agrupamento: AGRUPAMENTOS_DE_RAIA.some((a) => a.valor === objeto.agrupamento)
       ? (objeto.agrupamento as AgrupamentoDeRaia)
       : PREFERENCIA_PADRAO.agrupamento,
+    lente: ehLenteDaJornada(objeto.lente) ? objeto.lente : PREFERENCIA_PADRAO.lente,
   };
 }
 
