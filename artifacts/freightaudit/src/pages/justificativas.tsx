@@ -19,9 +19,10 @@ import { ApiErrorNotice } from "@/components/api-error";
 import { JustificarDialog } from "@/components/justificativas/justificar-dialog";
 import { fetchJson } from "@/lib/api";
 import { useConsultaResiliente } from "@/lib/consulta-resiliente";
+import { useContextosDaCasca } from "@/lib/contextos";
 import {
   abasDeTipo,
-  dataCurta,
+  opcoesDeVigencia,
   placasDaAba,
   useComparacoes,
   useJustificadaPor,
@@ -99,6 +100,16 @@ export default function Justificativas() {
 
   const comparacoes = useComparacoes();
   const opcoes = comparacoes.data ?? [];
+  /*
+    Os nomes das unidades vêm da mesma `/contexts` que a casca já leu — é o que
+    separa cinco comparações da mesma data umas das outras. Ver
+    `opcoesDeVigencia`.
+  */
+  const contextos = useContextosDaCasca();
+  const opcoesDoSeletor = useMemo(
+    () => opcoesDeVigencia(opcoes, contextos.contextos),
+    [opcoes, contextos.contextos],
+  );
   const params = new URLSearchParams(search);
   const changeSetIdDaUrl = params.get("changeSetId") || undefined;
   const changeSetId = changeSetIdDaUrl ?? opcoes[0]?.id;
@@ -210,13 +221,24 @@ export default function Justificativas() {
               Vigência
             </span>
             <Select value={changeSetId ?? ""} onValueChange={escolherVigencia}>
-              <SelectTrigger className="h-8 w-72 text-sm">
+              <SelectTrigger className="h-8 w-80 text-sm">
                 <SelectValue placeholder="Selecionar vigência…" />
               </SelectTrigger>
               <SelectContent>
-                {opcoes.map((o) => (
+                {opcoesDoSeletor.map((o) => (
                   <SelectItem key={o.id} value={o.id}>
-                    {o.snapshotBLabel} · {dataCurta(o.snapshotBDate)}
+                    <span className="flex w-full items-center justify-between gap-3">
+                      <span>
+                        {o.competencia}
+                        {o.unidade && (
+                          <span className="text-muted-foreground"> · {o.unidade}</span>
+                        )}
+                      </span>
+                      <span className="text-xs text-muted-foreground tabular-nums">
+                        {o.alteracoes.toLocaleString("pt-BR")}{" "}
+                        {o.alteracoes === 1 ? "alteração" : "alterações"}
+                      </span>
+                    </span>
                   </SelectItem>
                 ))}
               </SelectContent>

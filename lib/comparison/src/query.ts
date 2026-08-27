@@ -865,7 +865,8 @@ export async function listChangeSets(
            sa.source_label   AS snapshot_a_label,
            sa.effective_date AS snapshot_a_date,
            sb.source_label   AS snapshot_b_label,
-           sb.effective_date AS snapshot_b_date
+           sb.effective_date AS snapshot_b_date,
+           sb.scope_hash     AS snapshot_b_scope_hash
       FROM change_set cs
       JOIN snapshot sa ON sa.id = cs.snapshot_a_id
       JOIN snapshot sb ON sb.id = cs.snapshot_b_id

@@ -734,6 +734,17 @@ export interface RangeOverviewPoint {
   period: string;
   label: string;
   byPeriodicity: Record<string, { gains: number; losses: number }>;
+  /**
+   * Quantas alterações a competência trouxe, somadas entre as unidades
+   * incluídas — a mesma contagem que `movements[].changes` dá por unidade.
+   *
+   * Vem junto da série porque o seletor de vigência da Visão Geral faz a
+   * mesma pergunta que o da unidade responde há tempos: entre seis datas
+   * iguais, é a contagem que diz onde algo aconteceu. Sem ela, a soma entre
+   * unidades exigiria uma segunda varredura do intervalo inteiro para
+   * escrever seis números que esta já tem em mãos.
+   */
+  changes: number;
 }
 
 export interface RangeOverview {
@@ -763,7 +774,18 @@ function serieConsolidada(analises: RangeAnalysis[]): RangeOverviewPoint[] {
 
   const pontos = new Map<string, RangeOverviewPoint>();
   for (const [period, label] of rotulos) {
-    pontos.set(period, { period, label, byPeriodicity: {} });
+    pontos.set(period, { period, label, byPeriodicity: {}, changes: 0 });
+  }
+  /*
+    A contagem sai de `movements` e não das `entries` filtradas por sinal: uma
+    alteração sem impacto apurado continua sendo uma alteração, e é a mesma
+    régua que a unidade usa no seu próprio seletor.
+  */
+  for (const analysis of analises) {
+    for (const m of analysis.movements) {
+      const ponto = pontos.get(m.period);
+      if (ponto) ponto.changes += m.changes;
+    }
   }
   for (const analysis of analises) {
     for (const e of comSinalApurado(analysis)) {
