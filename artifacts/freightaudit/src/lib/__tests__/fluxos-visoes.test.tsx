@@ -9,10 +9,13 @@ import { montarProjecao } from "@/lib/fluxos-canvas";
 import {
   analisarFluxo,
   edicaoNaLista,
+  etapaNovaVazia,
   filtrarLinhas,
   linhasDaLista,
   ordenarLinhas,
+  podeCriarEtapaNaLista,
   slaDaEtapa,
+  tipoSugeridoNaLista,
   valoresDaColuna,
 } from "@/lib/fluxos-analise";
 import {
@@ -921,5 +924,142 @@ describe("caso 9 — a Lista edita na célula, e só onde a edição é verdade"
     */
     expect(texto).toMatch(/onEditarCampoDaEtapa/);
     expect(texto).not.toMatch(/\bescritas\./);
+  });
+});
+
+/**
+ * CASO 10 — A LISTA CADASTRA, e o fluxo vazio abre nela.
+ *
+ * O critério de aceite tem duas metades e as duas são cobradas aqui: um fluxo
+ * recém-criado abre na tabela (e não num canvas em branco), e a tabela tem por
+ * onde cadastrar a primeira etapa com as colunas que a etapa vai precisar.
+ *
+ * A parte de tela é renderizada; a parte de regra é função pura; e a parte de
+ * arquitetura — a Lista continua sem gravar — é texto-fonte, como no caso 6.
+ */
+describe("caso 10 — cadastrar etapa na própria Lista", () => {
+  const fluxoVazio = (): FluxoCompleto => ({
+    fluxo: fluxoDeQuinze().fluxo,
+    etapas: [],
+    conexoes: [],
+  });
+
+  const listaDoVazio = (props: Partial<React.ComponentProps<typeof VisaoLista>> = {}) =>
+    renderToStaticMarkup(
+      <VisaoLista
+        completo={fluxoVazio()}
+        catalogo={CATALOGO}
+        etapaSelecionada={null}
+        onSelecionarEtapa={() => undefined}
+        onEditarCampoDaEtapa={async () => undefined}
+        onCriarEtapa={async () => undefined}
+        somenteLeitura={false}
+        {...props}
+      />,
+    );
+
+  it("o fluxo sem etapa nenhuma abre a tabela, com o convite para cadastrar", () => {
+    const html = listaDoVazio();
+    /* O cabeçalho das colunas continua lá: é ele que diz o que a etapa pede. */
+    for (const rotulo of ["Etapa", "Tipo", "Área", "Responsável", "Sistema", "Prazo (SLA)"]) {
+      expect(html).toContain(rotulo);
+    }
+    expect(html).toContain("Adicionar nova etapa");
+    expect(html).toContain("Nenhuma etapa ainda. Adicione a primeira acima.");
+  });
+
+  it("em modo de leitura não há convite nenhum para cadastrar", () => {
+    const html = listaDoVazio({ somenteLeitura: true });
+    expect(html).not.toContain("Adicionar nova etapa");
+    expect(html).toContain("Este fluxo ainda não tem etapas.");
+  });
+
+  it("sem uma página que saiba gravar, a linha nova não aparece", () => {
+    /*
+      A projeção não inventa caminho de escrita: sem `onCriarEtapa` ela é a
+      tabela de sempre — que é o que mantém os testes do caso 9 valendo.
+    */
+    const html = listaDoVazio({ onCriarEtapa: undefined });
+    expect(html).not.toContain("Adicionar nova etapa");
+  });
+
+  it("a linha nova não entra na ordem do Tab das células", () => {
+    /*
+      As células do Tab são as que **gravam um campo de uma etapa que existe**.
+      A linha nova tem campos próprios e um botão de cadastrar: marcá-la como
+      célula editável faria o Tab da última linha cair num formulário de
+      criação, que não é a próxima coisa a corrigir.
+    */
+    const html = renderToStaticMarkup(
+      <VisaoLista
+        completo={fluxoDeQuinze()}
+        catalogo={CATALOGO}
+        etapaSelecionada={null}
+        onSelecionarEtapa={() => undefined}
+        onEditarCampoDaEtapa={async () => undefined}
+        onCriarEtapa={async () => undefined}
+        somenteLeitura={false}
+      />,
+    );
+    const semLinhaNova = renderToStaticMarkup(
+      <VisaoLista
+        completo={fluxoDeQuinze()}
+        catalogo={CATALOGO}
+        etapaSelecionada={null}
+        onSelecionarEtapa={() => undefined}
+        onEditarCampoDaEtapa={async () => undefined}
+        somenteLeitura={false}
+      />,
+    );
+    const marcadas = (texto: string) => texto.split("data-celula-editavel").length - 1;
+    expect(marcadas(html)).toBe(marcadas(semLinhaNova));
+  });
+
+  it("a linha nova só pede o que a Lista sabe gravar", () => {
+    /*
+      A guarda contra o formulário de seis abas deitado: os campos da linha nova
+      são exatamente os seis que a célula edita. No dia em que alguém acrescentar
+      "objetivo" aqui, este teste falha — e o lugar do objetivo continua sendo o
+      painel da etapa.
+    */
+    expect(Object.keys(etapaNovaVazia([])).sort()).toEqual(
+      ["area", "nome", "responsavel", "sistema", "sla", "tipo"].sort(),
+    );
+  });
+
+  it("a primeira etapa de um fluxo vazio já nasce como Início", () => {
+    expect(tipoSugeridoNaLista([])).toBe("INICIO");
+    expect(tipoSugeridoNaLista(fluxoDeQuinze().etapas)).toBe("PROCESSO");
+    expect(etapaNovaVazia([]).tipo).toBe("INICIO");
+  });
+
+  it("só o nome é obrigatório — o resto é o que a auditoria aponta depois", () => {
+    const vazia = etapaNovaVazia([]);
+    expect(podeCriarEtapaNaLista(vazia)).toBe(false);
+    expect(podeCriarEtapaNaLista({ ...vazia, nome: "   " })).toBe(false);
+    expect(podeCriarEtapaNaLista({ ...vazia, nome: "Receber a NF" })).toBe(true);
+    /* Sem tipo o servidor recusaria — e a linha nem chega a pedir. */
+    expect(podeCriarEtapaNaLista({ ...vazia, nome: "Receber a NF", tipo: "" })).toBe(false);
+  });
+
+  it("cadastrar pela tabela passa pela MESMA porta de criar etapa", () => {
+    /*
+      Mesma pergunta do caso 9, do outro lado: se a Lista tivesse um caminho de
+      criação próprio, a etapa nascida na tabela e a nascida no editor teriam
+      dois corpos e dois pontos de validação. A página é quem chama
+      `escritas.criarEtapa`, e a projeção continua sem saber o que é `escritas`.
+    */
+    const raiz = path.resolve(import.meta.dirname, "..", "..");
+    const pagina = readFileSync(path.join(raiz, "pages/fluxo.tsx"), "utf8");
+    const lista = readFileSync(path.join(raiz, "components/fluxos/visao-lista.tsx"), "utf8");
+    expect(pagina).toMatch(/escritas\.criarEtapa\(/);
+    expect(lista).toMatch(/onCriarEtapa/);
+    expect(lista).not.toMatch(/\bescritas\./);
+
+    /* E a página é quem decide que o fluxo vazio abre na Lista. */
+    expect(pagina).toMatch(/sugerirVisualizacao\("lista"\)/);
+    /* Criar um fluxo leva direto para ele — sem procurar a linha na lista. */
+    const listaDeFluxos = readFileSync(path.join(raiz, "pages/fluxos.tsx"), "utf8");
+    expect(listaDeFluxos).toMatch(/navegar\(`\/fluxos\/\$\{gravado\.id\}`\)/);
   });
 });

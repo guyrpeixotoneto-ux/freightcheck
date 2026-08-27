@@ -560,3 +560,67 @@ export function edicaoNaLista(
     }
   }
 }
+
+// ---------------------------------------------------------------------------
+// A linha nova da Lista — cadastrar etapa na própria tabela
+// ---------------------------------------------------------------------------
+
+/**
+ * O QUE A LINHA NOVA PEDE — e por que é exatamente o que a tabela mostra.
+ *
+ * Um fluxo recém-criado abre vazio, e o único caminho para sair do zero era
+ * abrir o editor da etapa (um formulário de seis abas) uma vez por etapa, ou
+ * colar a lista inteira e depois voltar em cada uma para dizer área,
+ * responsável e prazo. A Lista já é a tela onde essas colunas se preenchem em
+ * série; faltava poder **criar** a linha ali, e não só corrigi-la.
+ *
+ * Os campos são os mesmos seis que a célula edita (`CampoEditavelNaLista`), e a
+ * coincidência não é feliz — é a regra: a linha nova só pode oferecer o que a
+ * tabela sabe gravar depois, senão cadastrar pela Lista e conferir pela Lista
+ * seriam dois conjuntos de campos diferentes. Entrada e saída continuam de
+ * fora, porque saem do grafo; os sinais, porque são calculados.
+ */
+export interface EtapaNovaNaLista {
+  nome: string;
+  tipo: string;
+  area: string;
+  responsavel: string;
+  sistema: string;
+  sla: string;
+}
+
+/**
+ * O tipo que a linha nova já vem marcando.
+ *
+ * A primeira etapa de um fluxo vazio é o começo do processo — em quinze fluxos
+ * cadastrados, é sempre. Depois que já existe um início, o padrão vira
+ * "Processo", que é o que a esmagadora maioria das etapas seguintes é. Quem
+ * discordar troca no seletor da própria linha; o padrão só evita o gesto na
+ * vez em que ele seria certo.
+ */
+export function tipoSugeridoNaLista(etapas: Etapa[]): string {
+  return etapas.some((e) => e.tipo === "INICIO") ? "PROCESSO" : "INICIO";
+}
+
+export function etapaNovaVazia(etapas: Etapa[]): EtapaNovaNaLista {
+  return {
+    nome: "",
+    tipo: tipoSugeridoNaLista(etapas),
+    area: "",
+    responsavel: "",
+    sistema: "",
+    sla: "",
+  };
+}
+
+/**
+ * Só o nome é obrigatório — e é o único que poderia ser.
+ *
+ * Área, responsável, sistema e prazo em branco são justamente o que a coluna de
+ * sinais existe para apontar depois: exigi-los aqui transformaria "anotar as
+ * treze etapas da reunião" em treze cadastros completos, que é o gesto que a
+ * Lista veio encurtar. Uma etapa sem nome, essa sim, não é etapa nenhuma.
+ */
+export function podeCriarEtapaNaLista(nova: EtapaNovaNaLista): boolean {
+  return nova.nome.trim() !== "" && nova.tipo.trim() !== "";
+}

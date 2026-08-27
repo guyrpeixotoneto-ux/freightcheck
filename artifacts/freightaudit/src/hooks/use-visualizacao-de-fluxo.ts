@@ -32,8 +32,26 @@ export function useVisualizacaoDeFluxo() {
     });
   }, []);
 
+  /**
+   * A visualização que a **tela** propõe — e por que ela não é gravada.
+   *
+   * Um fluxo recém-criado não tem o que desenhar: abrir no fluxograma vazio é
+   * mostrar um quadro em branco a quem acabou de dizer que quer cadastrar um
+   * processo. A Lista é onde as etapas nascem com nome, área, responsável e
+   * prazo, então é ela que abre.
+   *
+   * A sugestão **não** vai para o `localStorage`: quem trabalha o dia inteiro
+   * nas Raias não pode perder essa preferência porque passou por um fluxo
+   * vazio. Ela vale para a tela aberta; a próxima escolha de verdade, feita no
+   * seletor, é que grava.
+   */
+  const sugerirVisualizacao = useCallback((visualizacao: Visualizacao) => {
+    setPreferencia((atual) => (atual.visualizacao === visualizacao ? atual : { ...atual, visualizacao }));
+  }, []);
+
   return {
     ...preferencia,
+    sugerirVisualizacao,
     trocarVisualizacao: useCallback(
       (visualizacao: Visualizacao) => atualizar({ visualizacao }),
       [atualizar],

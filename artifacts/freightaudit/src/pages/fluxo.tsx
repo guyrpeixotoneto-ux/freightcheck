@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useRoute } from "wouter";
 import { useMutation } from "@tanstack/react-query";
 import {
@@ -44,13 +44,14 @@ import { analisarFluxo } from "@/lib/fluxos-analise";
 import { nomeSugerido, proximaPosicaoLivre } from "@/lib/fluxos-paleta";
 import {
   AGRUPAMENTOS_DE_RAIA,
+  ordemDeLeitura,
   VISUALIZACOES,
   type AgrupamentoDeRaia,
   type Orientacao,
   type Visualizacao,
 } from "@/lib/fluxos-visoes";
 import type { PropsDaVisaoNoCanvas } from "@/components/fluxos/visao";
-import type { CampoEditavelNaLista } from "@/lib/fluxos-analise";
+import type { CampoEditavelNaLista, EtapaNovaNaLista } from "@/lib/fluxos-analise";
 import {
   corpoDaEtapa,
   escritas,
@@ -141,8 +142,15 @@ export default function TelaDoFluxo() {
   const [seguinteDe, setSeguinteDe] = useState<string | null>(null);
   const [somenteLeitura, setSomenteLeitura] = useState(false);
   const [conexaoAberta, setConexaoAberta] = useState<Conexao | null>(null);
-  const { visualizacao, orientacao, agrupamento, trocarVisualizacao, trocarOrientacao, trocarAgrupamento } =
-    useVisualizacaoDeFluxo();
+  const {
+    visualizacao,
+    orientacao,
+    agrupamento,
+    sugerirVisualizacao,
+    trocarVisualizacao,
+    trocarOrientacao,
+    trocarAgrupamento,
+  } = useVisualizacaoDeFluxo();
   /* O sinal recortado na visualização de Gargalos. Vazio: todos. */
   const [sinal, setSinal] = useState("");
   /*
@@ -154,6 +162,28 @@ export default function TelaDoFluxo() {
   const [paletaAberta, setPaletaAberta] = useState(true);
 
   const completo = consulta.data;
+
+  /**
+   * O FLUXO VAZIO ABRE NA LISTA — uma vez por fluxo, e nunca por cima da
+   * escolha de quem está olhando.
+   *
+   * Criar um fluxo e cair num canvas em branco é o pior primeiro minuto que
+   * este módulo tem: o gesto seguinte é sempre cadastrar as etapas, e é a Lista
+   * que cadastra em série. Então um fluxo sem etapa nenhuma abre na tabela, com
+   * a linha de "Adicionar nova etapa" à vista.
+   *
+   * A referência guarda de qual fluxo a sugestão já foi dada, e é o que faz
+   * disso uma sugestão e não uma prisão: quem trocar para o Fluxo para arrastar
+   * um elemento continua no Fluxo — o efeito não roda de novo enquanto o fluxo
+   * aberto for o mesmo, mesmo que ele siga vazio.
+   */
+  const fluxoJaSugerido = useRef<string | null>(null);
+  useEffect(() => {
+    if (!completo || fluxoJaSugerido.current === fluxoId) return;
+    fluxoJaSugerido.current = fluxoId;
+    if (completo.etapas.length === 0) sugerirVisualizacao("lista");
+  }, [completo, fluxoId, sugerirVisualizacao]);
+
   const etapaSelecionada = useMemo(
     () => completo?.etapas.find((e) => e.id === selecionada) ?? null,
     [completo, selecionada],
@@ -280,6 +310,70 @@ export default function TelaDoFluxo() {
     },
   });
 
+  /**
+   * A ETAPA QUE NASCE NA TABELA — uma linha digitada, quatro coisas gravadas.
+   *
+   * A Lista monta o que foi digitado; quem grava é esta página, como todas as
+   * outras escritas — e pela **mesma porta** do editor da etapa
+   * (`escritas.criarEtapa`), para que cadastrar pela tabela e cadastrar pelo
+   * formulário não sejam dois caminhos com dois comportamentos.
+   *
+   * Quatro coisas acontecem, nesta ordem, e cada uma tem um motivo:
+   *
+   * 1. **A etapa**, com as colunas que a linha oferece. Nome, tipo, área,
+   *    responsável e sistema são colunas da etapa e vão no mesmo corpo.
+   * 2. **O prazo**, se houver, que não é coluna: é a espécie `PRAZO` da lista
+   *    de itens, com caminho próprio — o mesmo que a célula de SLA usa.
+   * 3. **A ligação com a etapa anterior**, quando já existe uma. A Lista é a
+   *    leitura do processo em ordem; cadastrar a quarta etapa e receber um
+   *    cartão solto no desenho obrigaria a voltar ao Fluxo para ligar cada uma
+   *    à mão — que é exatamente o trabalho que "Colar etapas" já não pede.
+   * 4. **O arranjo**, com o padrão (só quem nunca foi posicionado), para a
+   *    etapa nova aparecer no lugar sem desmanchar o que já foi arrastado.
+   *
+   * O prazo, a ligação e o arranjo não derrubam a criação: se algum falhar, a
+   * etapa já existe e recarregar mostra isso. Falhar aqui e a tabela dizer que
+   * não cadastrou seria a mentira mais cara desta tela — quem visse o erro
+   * digitaria tudo de novo e ficaria com a etapa em duplicidade.
+   */
+  const criarEtapaNaLista = useMutation({
+    mutationFn: async (nova: EtapaNovaNaLista) => {
+      const etapas = completo?.etapas ?? [];
+      /* A última na ordem de leitura — a mesma que a tabela numera por último. */
+      const anterior = completo ? (ordemDeLeitura(completo).at(-1) ?? null) : null;
+      const gravada = await escritas.criarEtapa(empresaId, fluxoId, {
+        nome: nova.nome.trim(),
+        tipo: nova.tipo,
+        area: nova.area.trim(),
+        responsavel: nova.responsavel.trim(),
+        sistemaPrincipal: nova.sistema.trim(),
+        ordem: etapas.length,
+        ...proximaPosicaoLivre(etapas),
+      });
+
+      const prazo = nova.sla.trim();
+      if (prazo !== "") {
+        await escritas
+          .salvarItens(empresaId, fluxoId, gravada.id, "PRAZO", [
+            { nome: prazo, descricao: "", ordem: 0 },
+          ])
+          .catch(() => undefined);
+      }
+
+      if (anterior && anterior.id !== gravada.id) {
+        await escritas
+          .criarConexao(empresaId, fluxoId, {
+            origemEtapaId: anterior.id,
+            destinoEtapaId: gravada.id,
+          })
+          .then(() => escritas.organizar(empresaId, fluxoId, false))
+          .catch(() => undefined);
+      }
+      return gravada;
+    },
+    onSuccess: () => recarregar(fluxoId),
+  });
+
   const excluirEtapa = useMutation({
     mutationFn: (etapaId: string) => escritas.excluirEtapa(empresaId, fluxoId, etapaId),
     onSuccess: () => {
@@ -306,6 +400,10 @@ export default function TelaDoFluxo() {
     (etapaId: string, campo: CampoEditavelNaLista, valor: string) =>
       editarCampo.mutateAsync({ etapaId, campo, valor }).then(() => undefined),
     [editarCampo],
+  );
+  const aoCriarEtapaNaLista = useCallback(
+    (nova: EtapaNovaNaLista) => criarEtapaNaLista.mutateAsync(nova).then(() => undefined),
+    [criarEtapaNaLista],
   );
   const aoSoltarElemento = useCallback(
     (tipo: string, posicao: { posX: number; posY: number } | null) =>
@@ -595,14 +693,24 @@ export default function TelaDoFluxo() {
 
         <div className="relative min-w-0 flex-1">
           {consulta.isLoading && <Skeleton className="h-full w-full" />}
-          {completo && completo.etapas.length === 0 && (
+          {/*
+            O CONVITE E A TABELA — quem atende o fluxo vazio, e quando.
+
+            Nas cinco visualizações que desenham, um fluxo sem etapa é uma tela
+            em branco, e o convite é o que a preenche. Na Lista, não: a tabela
+            **é** o caminho de cadastro, com o cabeçalho das colunas dizendo o
+            que a etapa vai precisar e a linha de "Adicionar nova etapa" no
+            topo. Trocar a tabela vazia por um cartão de convite ali seria
+            esconder justamente o lugar onde o trabalho começa.
+          */}
+          {completo && completo.etapas.length === 0 && visualizacao !== "lista" && (
             <FluxoSemEtapas
               aoCriar={() => setEditandoEtapa({ aberto: true, etapaId: null })}
               aoColar={() => setColando(true)}
               bloqueado={somenteLeitura}
             />
           )}
-          {completo && completo.etapas.length > 0 && (
+          {completo && (completo.etapas.length > 0 || visualizacao === "lista") && (
             <MotorDeVisualizacao
               completo={completo}
               catalogo={catalogo.data}
@@ -615,6 +723,7 @@ export default function TelaDoFluxo() {
               onSelecionarEtapa={setSelecionada}
               somenteLeitura={somenteLeitura}
               onEditarCampoDaEtapa={aoEditarCampoDaEtapa}
+              onCriarEtapa={aoCriarEtapaNaLista}
               onMoverEtapas={aoMover}
               onConectar={aoConectar}
               onAbrirConexao={aoAbrirConexao}

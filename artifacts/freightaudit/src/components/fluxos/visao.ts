@@ -1,5 +1,5 @@
 import type { Catalogo, FluxoCompleto } from "@/lib/fluxos";
-import type { CampoEditavelNaLista } from "@/lib/fluxos-analise";
+import type { CampoEditavelNaLista, EtapaNovaNaLista } from "@/lib/fluxos-analise";
 
 /**
  * O CONTRATO DE UMA VISUALIZAÇÃO — o que toda projeção recebe, e nada além.
@@ -37,6 +37,16 @@ export interface PropsDaVisao {
     campo: CampoEditavelNaLista,
     valor: string,
   ) => Promise<void>;
+  /**
+   * Criar uma etapa a partir da própria visualização — hoje, a linha nova da
+   * Lista.
+   *
+   * Opcional pelo mesmo motivo de `onSoltarElemento`: só quem tem onde cadastrar
+   * recebe. Quem recebe continua sem saber gravar — monta o que foi digitado e
+   * espera a promessa, que é da página. É o que faz criar pela tabela e criar
+   * pelo editor passarem pela mesma porta.
+   */
+  onCriarEtapa?: (nova: EtapaNovaNaLista) => Promise<void>;
 }
 
 /** O que as visualizações desenhadas no canvas precisam a mais. */
@@ -51,4 +61,4 @@ export interface PropsDaVisaoNoCanvas extends PropsDaVisao {
   onSoltarElemento?: (tipo: string, posicao: { posX: number; posY: number } | null) => void;
 }
 
-export type { Catalogo, FluxoCompleto, CampoEditavelNaLista };
+export type { Catalogo, FluxoCompleto, CampoEditavelNaLista, EtapaNovaNaLista };
