@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  acentoDaCategoria,
   categoriasDaLista,
   comoData,
+  comoTempoRelativo,
+  ordenarPorAtualizacao,
   enderecoDaAcao,
   etapasDoRoteiro,
   filtrarFluxos,
@@ -487,5 +490,98 @@ describe("o contador do roteiro", () => {
   it("texto vazio conta zero, sem reclamar — a caixa começa vazia", () => {
     expect(etapasDoRoteiro("")).toBe(0);
     expect(etapasDoRoteiro("  \n\n  ")).toBe(0);
+  });
+});
+
+/**
+ * O tempo relativo — a etiqueta que a lista mostra no lugar da data exata.
+ *
+ * A conta é de dias de calendário, e não de horas: o fluxo salvo ontem às 23h
+ * precisa continuar sendo "ontem" para quem abre a tela às 8h da manhã. É a
+ * diferença entre uma etiqueta que se lê de relance e uma que muda de texto
+ * enquanto a pessoa olha.
+ */
+describe("o tempo desde a última mudança", () => {
+  const agora = new Date(2026, 7, 27); // 27/08/2026, hora local
+
+  it("hoje e ontem têm nome, não número", () => {
+    expect(comoTempoRelativo("2026-08-27T23:30:00.000Z", agora)).toBe("hoje");
+    expect(comoTempoRelativo("2026-08-26T23:30:00.000Z", agora)).toBe("ontem");
+  });
+
+  it("dentro da semana conta em dias", () => {
+    expect(comoTempoRelativo("2026-08-25T10:00:00.000Z", agora)).toBe("há 2 dias");
+    expect(comoTempoRelativo("2026-08-21T10:00:00.000Z", agora)).toBe("há 6 dias");
+  });
+
+  it("passando da semana, do mês e do ano, a unidade sobe — e o singular é singular", () => {
+    expect(comoTempoRelativo("2026-08-20T10:00:00.000Z", agora)).toBe("há 1 semana");
+    expect(comoTempoRelativo("2026-08-06T10:00:00.000Z", agora)).toBe("há 3 semanas");
+    expect(comoTempoRelativo("2026-07-20T10:00:00.000Z", agora)).toBe("há 1 mês");
+    expect(comoTempoRelativo("2025-01-10T10:00:00.000Z", agora)).toBe("há 1 ano");
+  });
+
+  it("data futura não vira número negativo", () => {
+    expect(comoTempoRelativo("2026-09-10T10:00:00.000Z", agora)).toBe("hoje");
+  });
+});
+
+/**
+ * A cor da categoria sai do nome, e não do sorteio nem da posição: a mesma
+ * categoria precisa ficar com a mesma tarja depois de recarregar a página e
+ * depois de reordenar a lista, senão a cor não serve para achar nada.
+ */
+describe("o acento da categoria", () => {
+  it("a mesma categoria dá sempre a mesma cor", () => {
+    expect(acentoDaCategoria("Financeiro")).toEqual(acentoDaCategoria("Financeiro"));
+  });
+
+  it("maiúscula e espaço em volta não mudam a cor", () => {
+    expect(acentoDaCategoria("  financeiro ")).toEqual(acentoDaCategoria("Financeiro"));
+  });
+
+  it("categorias diferentes do módulo não caem todas na mesma cor", () => {
+    const cores = new Set(
+      ["Faturamento", "Financeiro", "Operação", "Fiscal"].map((c) => acentoDaCategoria(c).barra),
+    );
+    expect(cores.size).toBeGreaterThan(1);
+  });
+});
+
+/**
+ * A ordem da lista é a da última mexida — quem entra aqui volta ao que estava
+ * editando. Arquivado vai para o fim: continua no acervo, sai do caminho.
+ */
+describe("a ordem da lista", () => {
+  const em = (id: string, atualizadoEm: string, status: FluxoNaLista["status"] = "ATIVO") => ({
+    ...FLUXO.fluxo,
+    id,
+    status,
+    atualizadoEm,
+    etapas: 1,
+    conexoes: 0,
+  });
+
+  it("o mais recente vem primeiro", () => {
+    const lista = [
+      em("antigo", "2026-01-02T00:00:00.000Z"),
+      em("novo", "2026-08-20T00:00:00.000Z"),
+      em("meio", "2026-05-05T00:00:00.000Z"),
+    ];
+    expect(ordenarPorAtualizacao(lista).map((f) => f.id)).toEqual(["novo", "meio", "antigo"]);
+  });
+
+  it("o arquivado desce, mesmo tendo sido mexido ontem", () => {
+    const lista = [
+      em("arquivado", "2026-08-26T00:00:00.000Z", "ARQUIVADO"),
+      em("ativo", "2026-01-01T00:00:00.000Z"),
+    ];
+    expect(ordenarPorAtualizacao(lista).map((f) => f.id)).toEqual(["ativo", "arquivado"]);
+  });
+
+  it("não mexe na lista que recebeu", () => {
+    const lista = [em("a", "2026-01-01T00:00:00.000Z"), em("b", "2026-08-01T00:00:00.000Z")];
+    ordenarPorAtualizacao(lista);
+    expect(lista.map((f) => f.id)).toEqual(["a", "b"]);
   });
 });
