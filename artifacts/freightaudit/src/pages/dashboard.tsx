@@ -46,7 +46,7 @@ import {
   type LadosDoImpacto,
 } from "@/lib/visao-geral";
 import { juntarPrioridades } from "@/lib/cockpit";
-import { lerRecorte, linkDeAlteracoes, nomeDaUnidade } from "@/lib/recorte";
+import { lerRecorte, linkDeAlteracoes, nomeDaUnidade, type Recorte } from "@/lib/recorte";
 import { unidadesPorImpacto } from "@/components/inicio/visao-geral-consolidada";
 import { Sparkline } from "@/components/dashboard/sparkline";
 import { AnelDeCobertura } from "@/components/dashboard/anel-de-cobertura";
@@ -60,7 +60,7 @@ import type {
   OverviewContextRef,
   SeriesContext,
 } from "@/components/inicio/types";
-import type { Movimentos } from "@/lib/analise";
+import type { Movimentos, RangeOverview } from "@/lib/analise";
 
 /**
  * O Dashboard — a tela de vigilância: o que a Ambev mudou, e o que isso custou.
@@ -72,6 +72,13 @@ import type { Movimentos } from "@/lib/analise";
  * impactos) e o que precisa de atenção agora (a tabela de alterações, a
  * movimentação da frota e a faixa de qualidade da apuração, por último e nunca
  * competindo com o financeiro pelo olho de quem abre a tela).
+ *
+ * A Visão Geral desenha exatamente este mesmo corpo, com os números de todas
+ * as unidades somados no servidor (`FamiliesOverview.consolidado`) e o
+ * ranking de unidades a mais. Trocar de unidade para "Visão Geral" muda o
+ * recorte, nunca a forma da tela — foi o defeito da primeira versão, onde a
+ * Visão Geral mostrava quatro cartões e o resto abria só dentro de uma
+ * unidade.
  *
  * Nada aqui reimplementa a apuração: os indicadores somam `summary.sides`, a
  * tabela lê a mesma fila de prioridade do Acompanhamento (`juntarPrioridades`,
@@ -141,14 +148,63 @@ export default function Dashboard() {
 
   // A janela do gráfico de impacto — as últimas competências que a própria
   // vigência já lista, nunca mais que seis e nunca uma competência que não
-  // exista. Só existe em modo Unidade: a Visão Geral não mescla histórico
-  // entre unidades (mesmo limite documentado em `ConteudoGeral`), então não
-  // há intervalo a pedir.
+  // exista.
   const janela = useMemo(() => {
     if (!view || view.periods.length <= 1) return null;
     const ordenadas = [...view.periods].sort((a, b) => a.date.localeCompare(b.date));
     return ordenadas.slice(-6);
   }, [view]);
+
+  /*
+    A mesma janela em Visão Geral, tirada das competências que **alguma**
+    unidade entregou (`periodosOverview`) e nunca do histórico de uma unidade
+    só: a Visão Geral não tem uma unidade a quem perguntar, e usar a primeira
+    da lista faria o eixo do gráfico depender de quem chegou primeiro no
+    banco. Termina na competência aberta — competência posterior à que a tela
+    está mostrando não entra num gráfico que fala dela.
+  */
+  const janelaGeral = useMemo(() => {
+    if (!visaoGeral || periodoOverviewEfetivo === null) return null;
+    const ate = [...periodosOverview]
+      .sort((a, b) => a.localeCompare(b))
+      .filter((data) => data <= periodoOverviewEfetivo);
+    return ate.length > 1 ? ate.slice(-6) : null;
+  }, [visaoGeral, periodosOverview, periodoOverviewEfetivo]);
+
+  const rangeGeralQuery = useQuery({
+    queryKey: ["dashboard-impacto-geral", janelaGeral?.[0] ?? "", periodoOverviewEfetivo ?? ""],
+    queryFn: () => {
+      const q = new URLSearchParams({ from: janelaGeral![0], to: periodoOverviewEfetivo! });
+      return fetchJsonOrNull<RangeOverview>(`/changes/range/overview?${q}`);
+    },
+    enabled: visaoGeral && !!janelaGeral && periodoOverviewEfetivo !== null,
+    staleTime: 60_000,
+  });
+
+  /*
+    A série do gráfico em Visão Geral, na periodicidade dominante da soma —
+    a mesma que manda no cartão de Impacto líquido logo acima dele. Sem esse
+    acordo o gráfico desenharia R$/ano embaixo de um número em R$/mês, que é
+    a mistura de escala que o produto recusa em toda tela.
+  */
+  const serieGeral = useMemo<PontoDeImpacto[]>(() => {
+    const dominante = ladosDoImpacto(overview)[0]?.periodicity ?? null;
+    const pontos = rangeGeralQuery.data?.serie;
+    if (!dominante || !pontos || !janelaGeral) return [];
+    const naJanela = new Set(janelaGeral);
+    return pontos
+      .filter((ponto) => naJanela.has(ponto.period))
+      .map((ponto) => {
+        const lado = ponto.byPeriodicity[dominante] ?? { gains: 0, losses: 0 };
+        return {
+          periodo: ponto.period,
+          label: ponto.label,
+          ganhos: lado.gains,
+          perdas: lado.losses,
+          liquido: Number((lado.gains + lado.losses).toFixed(2)),
+        };
+      });
+  }, [rangeGeralQuery.data, overview, janelaGeral]);
 
   const rangeQuery = useQuery({
     queryKey: ["dashboard-impacto", consulta.toString(), janela?.[0]?.date ?? "", view?.period ?? ""],
@@ -201,7 +257,12 @@ export default function Dashboard() {
             )}
             {!overviewQuery.isLoading && !overviewQuery.error && overview === null && <BancoVazio />}
             {overview && (
-              <ConteudoGeral overview={overview} atualizadoEm={atualizadoEm} onTrocar={trocarPara} />
+              <ConteudoGeral
+                overview={overview}
+                atualizadoEm={atualizadoEm}
+                onTrocar={trocarPara}
+                serie={serieGeral}
+              />
             )}
           </>
         ) : (
@@ -469,24 +530,20 @@ function ConteudoDaUnidade({
 
       <Indicadores principal={principal} cobertura={cobertura} sparklines={sparklines} />
 
-      <div className="grid gap-5 lg:grid-cols-5">
-        <div className="lg:col-span-3">
-          <section className={cn(CARTAO, "px-6 py-5 h-full")}>
-            <h2 className="text-base font-bold mb-1">Impacto das alterações por competência</h2>
-            <p className="text-xs text-muted-foreground mb-4">
-              Ganhos e perdas divergindo do zero, com o líquido por cima.
-            </p>
-            <GraficoDeImpacto pontos={pontos} periodicity={periodicity} />
-          </section>
-        </div>
-        <div className="lg:col-span-2">
-          <MaioresImpactos view={view} />
-        </div>
-      </div>
+      <ImpactoEPodio
+        pontos={pontos}
+        periodicity={periodicity}
+        familias={view.families}
+        dominante={dominante}
+      />
 
-      <PrincipaisAlteracoes view={view} recorte={recorte} />
+      <PrincipaisAlteracoes linhas={linhasDaUnidade(view, recorte)} />
 
-      <MovimentacaoDaFrota view={view} />
+      <MovimentacaoDaFrota
+        entitiesAdded={view.totals.entitiesAdded}
+        entitiesRemoved={view.totals.entitiesRemoved}
+        ativos={frotaTotal(view)}
+      />
 
       <QualidadeDaApuracao
         cobertura={cobertura}
@@ -497,21 +554,128 @@ function ConteudoDaUnidade({
   );
 }
 
+/**
+ * O gráfico de impacto por competência e o pódio de famílias, lado a lado —
+ * a mesma faixa nas duas leituras.
+ *
+ * Fica num componente próprio porque é literalmente o mesmo bloco: o que muda
+ * entre Unidade e Visão Geral são os dados que chegam nele, e um bloco escrito
+ * duas vezes é onde as duas leituras começam a divergir no visual sem que
+ * ninguém decida isso.
+ */
+function ImpactoEPodio({
+  pontos,
+  periodicity,
+  familias,
+  dominante,
+  notaDoGrafico,
+}: {
+  pontos: PontoDeImpacto[];
+  periodicity: string | null;
+  familias: FamiliaNoPodio[];
+  dominante: string | null;
+  notaDoGrafico?: string;
+}) {
+  return (
+    <div className="grid gap-5 lg:grid-cols-5">
+      <div className="lg:col-span-3">
+        <section className={cn(CARTAO, "px-6 py-5 h-full")}>
+          <h2 className="text-base font-bold mb-1">Impacto das alterações por competência</h2>
+          <p className="text-xs text-muted-foreground mb-4">
+            {notaDoGrafico ?? "Ganhos e perdas divergindo do zero, com o líquido por cima."}
+          </p>
+          <GraficoDeImpacto pontos={pontos} periodicity={periodicity} />
+        </section>
+      </div>
+      <div className="lg:col-span-2">
+        <MaioresImpactos familias={familias} dominante={dominante} />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * As linhas da tabela em modo Unidade — a fila do Acompanhamento, e o recorte
+ * da tela em todas elas.
+ *
+ * `unidade: null` de propósito: a tela inteira já é de uma unidade, e repetir
+ * o nome dela em cada linha é ruído.
+ */
+function linhasDaUnidade(view: FamiliesView, recorte: Recorte): LinhaDaTabela[] {
+  const fila = juntarPrioridades(view);
+  const grupos: ChangeGroup[] = fila.length > 0 ? fila.map((e) => e.group) : view.groups;
+  const daVigencia = { ...recorte, period: view.period };
+  return grupos.map((grupo) => ({
+    chave: grupo.key,
+    grupo,
+    unidade: null,
+    recorte: daVigencia,
+  }));
+}
+
+/**
+ * As linhas da tabela em Visão Geral — a fila já consolidada pelo servidor.
+ *
+ * Cada linha leva o recorte da **sua** unidade, e não o da tela: clicar numa
+ * alteração de CAMAÇARI abre Alterações em CAMAÇARI, na competência aberta.
+ * Um link que caísse no recorte da Visão Geral (que não tem unidade) abriria a
+ * unidade padrão — a mesma promessa vazia que `lib/recorte.ts` existe para
+ * evitar.
+ */
+export function linhasDaVisaoGeral(overview: FamiliesOverview): LinhaDaTabela[] {
+  return overview.consolidado.groups.map((linha) => ({
+    chave: `${linha.unidade}|${linha.channel ?? ""}|${linha.group.key}`,
+    grupo: linha.group,
+    unidade: linha.label,
+    recorte: {
+      period: overview.period,
+      scopeHash: linha.scopeHash,
+      canal: linha.channel,
+    },
+  }));
+}
+
 // ---------------------------------------------------------------------------
 // Geral — o corpo inteiro da tela
 // ---------------------------------------------------------------------------
 
+/**
+ * O mesmo corpo de tela da unidade, com as informações de todas elas.
+ *
+ * A tela não muda de forma quando se troca uma unidade pela Visão Geral: os
+ * mesmos quatro indicadores, o mesmo gráfico por competência, o mesmo pódio de
+ * famílias, a mesma tabela de alterações e a mesma movimentação de frota —
+ * mais o ranking de unidades, que só a Visão Geral tem para dar.
+ *
+ * O que muda é a régua de cada peça, e ela está escrita em
+ * `OverviewConsolidado` (servidor), não aqui: famílias somam, alterações
+ * enfileiram sem mesclar (cada linha diz de que unidade é), frota soma porque
+ * as populações são disjuntas. As duas ressalvas que sobrevivem à consolidação
+ * — veículos tocados é soma sem deduplicação entre unidades, e o pódio de
+ * parâmetros não abre gaveta — continuam ditas onde aparecem.
+ */
 function ConteudoGeral({
   overview,
   atualizadoEm,
   onTrocar,
+  serie,
 }: {
   overview: FamiliesOverview;
   atualizadoEm: number;
   onTrocar: (mudancas: Record<string, string | null>) => void;
+  serie: PontoDeImpacto[];
 }) {
   const cobertura = coberturaDePreco(overview.summary.changes, overview.summary.notCalculable);
   const principal = ladosDoImpacto(overview)[0] ?? null;
+  const dominante = principal?.periodicity ?? null;
+  const { totals } = overview.consolidado;
+
+  // A mesma disciplina do modo Unidade: a sparkline só acompanha o número
+  // grande quando as duas descrevem a mesma periodicidade.
+  const sparklines =
+    principal && serie.length >= 2
+      ? { ganhos: serie.map((p) => p.ganhos), perdas: serie.map((p) => p.perdas) }
+      : null;
 
   return (
     <>
@@ -521,15 +685,43 @@ function ConteudoGeral({
         atualizadoEm={atualizadoEm}
       />
 
-      <Indicadores principal={principal} cobertura={cobertura} sparklines={null} />
+      <Indicadores principal={principal} cobertura={cobertura} sparklines={sparklines} />
+
+      <ImpactoEPodio
+        pontos={serie}
+        periodicity={dominante}
+        familias={overview.consolidado.families}
+        dominante={dominante}
+        notaDoGrafico="Ganhos e perdas de todas as unidades incluídas, com o líquido por cima."
+      />
+
+      <MovimentacaoDaFrota
+        entitiesAdded={totals.entitiesAdded}
+        entitiesRemoved={totals.entitiesRemoved}
+        ativos={totals.fleet}
+      />
+
+      <PrincipaisAlteracoes
+        linhas={linhasDaVisaoGeral(overview)}
+        nota={
+          overview.consolidado.gruposNoTotal > overview.consolidado.groups.length
+            ? `Na ordem do Acompanhamento — as ${overview.consolidado.groups.length} primeiras de ${overview.consolidado.gruposNoTotal.toLocaleString("pt-BR")} alterações de todas as unidades.`
+            : "Na ordem do Acompanhamento — todas as unidades, dinheiro e criticidade primeiro."
+        }
+      />
 
       <RankingDeUnidades overview={overview} onTrocar={onTrocar} />
 
-      <QualidadeDaApuracao cobertura={cobertura} notCalculable={overview.summary.notCalculable} semCorrespondencia={null} />
+      <QualidadeDaApuracao
+        cobertura={cobertura}
+        notCalculable={overview.summary.notCalculable}
+        semCorrespondencia={totals.inconclusive}
+      />
 
       <p className="text-xs text-muted-foreground">
-        O gráfico de impacto por competência, o pódio de maiores impactos e a tabela de alterações
-        abrem dentro de cada unidade — a soma Geral não mescla o histórico nem os grupos entre elas.
+        A gaveta de detalhe por parâmetro abre dentro de cada unidade: a soma Geral não mescla a
+        árvore de parâmetros entre elas, e "veículos afetados" é soma por unidade, sem
+        deduplicação de placa entre unidades.
       </p>
     </>
   );
@@ -767,6 +959,22 @@ function Cartao({
 // ---------------------------------------------------------------------------
 
 /**
+ * Uma linha do pódio — o mínimo que ele lê, e por isso o que Unidade e Visão
+ * Geral conseguem entregar com a mesma forma.
+ *
+ * `FamilyView` (unidade) tem tudo isto e mais; `OverviewFamilyTotal` (a soma
+ * entre unidades) tem só isto, de propósito — "4 de 10 parâmetros" é uma
+ * fração de uma unidade e não sobrevive à soma. Tipar pelo mínimo é o que
+ * deixa o mesmo pódio servir às duas sem um `as` no meio.
+ */
+export interface FamiliaNoPodio {
+  code: string;
+  name: string;
+  changes: number;
+  impact: { byPeriodicity: Record<string, number> };
+}
+
+/**
  * As famílias mais tocadas, na periodicidade dominante da vigência — a mesma
  * disciplina do pódio do Resumo executivo: o ranking existe dentro de uma
  * periodicidade só, nunca somando R$/mês com R$/ano.
@@ -776,11 +984,16 @@ function Cartao({
  * ranqueada. A regra de recair em quantidade quando nada tem preço apurado
  * ainda continua igual: uma família sem impacto ainda tem o que dizer.
  */
-function MaioresImpactos({ view }: { view: FamiliesView }) {
-  const dominante = impactosDaVigencia(view)[0]?.periodicity ?? null;
+function MaioresImpactos({
+  familias,
+  dominante,
+}: {
+  familias: FamiliaNoPodio[];
+  dominante: string | null;
+}) {
   const comImpacto = (dominante === null
     ? []
-    : view.families
+    : familias
         .map((f) => ({ nome: f.name, changes: f.changes, amount: f.impact.byPeriodicity[dominante] ?? 0 }))
         .filter((f) => f.amount !== 0)
         .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount))
@@ -791,7 +1004,7 @@ function MaioresImpactos({ view }: { view: FamiliesView }) {
   // vez de deixar o cartão vazio.
   const porQuantidade =
     comImpacto.length === 0
-      ? [...view.families]
+      ? [...familias]
           .filter((f) => f.changes > 0)
           .sort((a, b) => b.changes - a.changes)
           .slice(0, 5)
@@ -875,6 +1088,24 @@ function MaioresImpactos({ view }: { view: FamiliesView }) {
 // ---------------------------------------------------------------------------
 // Principais alterações — a tabela, nomes de negócio sempre
 // ---------------------------------------------------------------------------
+
+/**
+ * Uma linha da tabela de Principais alterações.
+ *
+ * O grupo continua sendo o que o servidor apurou; o que a linha acrescenta é
+ * **de quem ele é** — `unidade` (preenchida só em Visão Geral, onde a tabela
+ * mistura unidades) e o `recorte` que o link de detalhe abre, que em Visão
+ * Geral é o da unidade daquela linha e não o da tela. `chave` existe porque
+ * `ChangeGroup.key` só é única dentro de uma unidade: a mesma alteração em
+ * duas unidades tem a mesma chave, e duas linhas com a mesma `key` no React
+ * são uma linha só.
+ */
+interface LinhaDaTabela {
+  chave: string;
+  grupo: ChangeGroup;
+  unidade: string | null;
+  recorte: Recorte;
+}
 
 /** Cavalo sempre à frente de Carreta — as demais abas seguem a ordem de chegada. */
 const PRIORIDADE_ABA: Record<string, number> = { CAVALO: 0, CARRETA: 1 };
@@ -1069,20 +1300,13 @@ export function impactoLiquidoDaTabela(grupos: ChangeGroup[]) {
  * adivinhação. A cor de fundo da linha (e da coluna Impacto/mês, sempre
  * destacada) segue o sinal do impacto; sem preço, a linha fica neutra.
  */
-function PrincipaisAlteracoes({
-  view,
-  recorte,
-}: {
-  view: FamiliesView;
-  recorte: ReturnType<typeof lerRecorte>;
-}) {
-  const fila = juntarPrioridades(view);
-  const ordenados: ChangeGroup[] = fila.length > 0 ? fila.map((e) => e.group) : view.groups;
+function PrincipaisAlteracoes({ linhas, nota }: { linhas: LinhaDaTabela[]; nota?: string }) {
+  const porGrupo = new Map(linhas.map((l) => [l.grupo, l]));
+  const ordenados: ChangeGroup[] = linhas.map((l) => l.grupo);
   const abas = abasDeEquipamento(ordenados);
   const [escolhida, escolher] = useState<string | null>(null);
   const ativa = abas.find((aba) => aba.chave === escolhida) ?? abas[0];
   const grupos = (ativa ? ativa.grupos : ordenados).slice(0, 8);
-  const daVigencia = { ...recorte, period: view.period };
   const totalVeiculos = grupos.reduce((soma, g) => soma + g.vehicles, 0);
   const impacto = impactoLiquidoDaTabela(grupos);
 
@@ -1092,7 +1316,7 @@ function PrincipaisAlteracoes({
         <div>
           <h2 className="text-base font-bold">Principais alterações</h2>
           <p className="text-xs text-muted-foreground mt-1">
-            Na ordem do Acompanhamento — dinheiro e criticidade primeiro.
+            {nota ?? "Na ordem do Acompanhamento — dinheiro e criticidade primeiro."}
           </p>
         </div>
 
@@ -1176,10 +1400,11 @@ function PrincipaisAlteracoes({
             </thead>
             <tbody>
               {grupos.map((grupo) => {
+                const linha = porGrupo.get(grupo)!;
                 const filtros: Record<string, string> = {};
                 if (grupo.attributeCode) filtros.attributeCode = grupo.attributeCode;
                 if (grupo.entityType) filtros.entityType = grupo.entityType;
-                const href = linkDeAlteracoes({ recorte: daVigencia, filtros });
+                const href = linkDeAlteracoes({ recorte: linha.recorte, filtros });
                 const comPreco = grupo.impact.confidence === "CALCULATED" && grupo.impact.amount !== null;
                 const negativo = comPreco && grupo.impact.amount! < 0;
                 const Icone = iconeDaAlteracao(grupo);
@@ -1187,7 +1412,7 @@ function PrincipaisAlteracoes({
 
                 return (
                   <tr
-                    key={grupo.key}
+                    key={linha.chave}
                     className={cn(
                       "border-t transition-colors",
                       comPreco ? (negativo ? "bg-red-50/50" : "bg-emerald-50/50") : "hover:bg-accent/30",
@@ -1202,8 +1427,21 @@ function PrincipaisAlteracoes({
                           <Link href={href} className="font-semibold hover:text-brand transition-colors">
                             {grupo.title}
                           </Link>
-                          {abas.length <= 1 && (
-                            <div className="text-xs text-muted-foreground">{grupo.equipment}</div>
+                          {/*
+                            De quem é a linha vem primeiro em Visão Geral: sem
+                            isso a tabela mistura unidades sem dizer, e duas
+                            linhas do mesmo parâmetro com valores diferentes
+                            viram contradição em vez de duas unidades.
+                          */}
+                          {linha.unidade !== null ? (
+                            <div className="text-xs text-muted-foreground">
+                              {linha.unidade}
+                              {abas.length <= 1 && ` · ${grupo.equipment}`}
+                            </div>
+                          ) : (
+                            abas.length <= 1 && (
+                              <div className="text-xs text-muted-foreground">{grupo.equipment}</div>
+                            )
                           )}
                         </div>
                       </div>
@@ -1260,14 +1498,20 @@ function PrincipaisAlteracoes({
  * mostrar sem inventar um número. Quando esse sinal existir de verdade, o
  * quarto cartão entra aqui.
  *
- * Só aparece em modo Unidade: a Visão Geral não soma `entitiesAdded`/
- * `entitiesRemoved` entre unidades (o mesmo limite de `FamiliesOverview` que
- * já tira families/groups da soma).
+ * Vale nas duas leituras: entrada e saída de ativo e frota são contagens de
+ * populações disjuntas (uma placa é de uma unidade), e por isso somam entre
+ * unidades sem a ressalva de dupla contagem que `vehiclesTouched` carrega. Em
+ * Visão Geral os números vêm de `consolidado.totals`, somados no servidor.
  */
-function MovimentacaoDaFrota({ view }: { view: FamiliesView }) {
-  const { entitiesAdded, entitiesRemoved } = view.totals;
-  const ativos = frotaTotal(view);
-
+function MovimentacaoDaFrota({
+  entitiesAdded,
+  entitiesRemoved,
+  ativos,
+}: {
+  entitiesAdded: number;
+  entitiesRemoved: number;
+  ativos: number;
+}) {
   if (entitiesAdded === 0 && entitiesRemoved === 0 && ativos === 0) return null;
 
   return (
@@ -1358,12 +1602,11 @@ function situacaoDaUnidade(impacto: Impacto | null, piorNegativo: number): Situa
 
 /**
  * O ranking de unidades da Visão Geral, sempre visível — nunca atrás de um
- * clique ou de uma gaveta (`Sheet`). É o que substitui, neste modo, o gráfico
- * de impacto e o pódio de maiores impactos: a soma Geral não mescla
- * `families`/`groups` entre unidades (`FamiliesOverview` não os tem — ver o
- * limite documentado em `lib/comparison/src/families-view-overview.ts`),
- * então o que existe para mostrar aqui é a comparação unidade a unidade, e não
- * o detalhe de uma soma que não pode ser aberta.
+ * clique ou de uma gaveta (`Sheet`). É o único bloco que só existe neste modo:
+ * o resto da tela é o mesmo corpo da unidade, com os números consolidados
+ * (`OverviewConsolidado`, em `lib/comparison/src/families-view-overview.ts`).
+ * Ele fica logo abaixo do gráfico porque responde a pergunta seguinte à dele —
+ * *onde* aconteceu — antes de a tabela entrar no *o quê*.
  *
  * A ordem é a mesma de `unidadesPorImpacto` — maior módulo de impacto
  * primeiro —, e cada linha leva à Dashboard daquela unidade. O selo de
