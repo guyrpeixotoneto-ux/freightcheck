@@ -464,6 +464,38 @@ export function useFluxo(empresaId: string | null, fluxoId: string) {
 }
 
 /**
+ * O CORPO DE UMA ETAPA JÁ GRAVADA — e por que ele é montado inteiro.
+ *
+ * `PUT /fluxos/:id/etapas/:etapaId` é substituição, não remendo: o servidor
+ * valida o corpo inteiro e o que não vem volta nulo. Mandar `{ area: "Fiscal" }`
+ * para corrigir uma área apagaria descrição, objetivo, regras, observações e a
+ * posição do cartão — sem erro nenhum na tela, que é a pior forma.
+ *
+ * Quem só quer trocar um campo monta `{ ...corpoDaEtapa(etapa), area: "Fiscal" }`.
+ * As listas (itens, indicadores, ações) não entram aqui porque não entram nessa
+ * rota: cada uma tem o seu caminho, e é o que faz gravar uma coluna não tocar em
+ * nada que esteja fora dela.
+ */
+export function corpoDaEtapa(etapa: Etapa): Record<string, unknown> {
+  return {
+    nome: etapa.nome,
+    tipo: etapa.tipo,
+    status: etapa.status,
+    area: etapa.area ?? "",
+    responsavel: etapa.responsavel ?? "",
+    sistemaPrincipal: etapa.sistemaPrincipal ?? "",
+    descricao: etapa.descricao ?? "",
+    objetivo: etapa.objetivo ?? "",
+    regras: etapa.regras ?? "",
+    observacoes: etapa.observacoes ?? "",
+    chaveMonitoramento: etapa.chaveMonitoramento ?? "",
+    ordem: etapa.ordem,
+    posX: etapa.posX,
+    posY: etapa.posY,
+  };
+}
+
+/**
  * As escritas, todas por aqui — e cada uma com o seu caminho nomeado.
  *
  * Nenhuma delas monta URL fora deste arquivo, e nenhuma manda `empresaId` no
