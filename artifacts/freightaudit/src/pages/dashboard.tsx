@@ -12,6 +12,7 @@ import {
   Gauge,
   GitCompareArrows,
   LayoutDashboard,
+  LayoutGrid,
   ReceiptText,
   SlidersHorizontal,
   TrendingDown,
@@ -359,7 +360,8 @@ function Cabecalho({
             régua de `pages/inicio.tsx`, que reserva a cor sólida da marca para
             a ação que a tela existe para oferecer. Agora abre um menu porque a
             Gestão à Vista tem mais de um template: o Financeiro (o telão escuro
-            de sempre) e o Alertas (a tabela clara de unidades, por competência).
+            de sempre), o Alertas (a tabela clara de unidades, por competência) e
+            o Radar (a grade unidade × vigência, com o impacto de cada célula).
           */}
           <DropdownMenu>
             <DropdownMenuTrigger className="flex items-center gap-2 rounded-lg bg-brand px-4 py-2.5 text-sm font-bold text-brand-foreground hover:opacity-90 transition-opacity">
@@ -394,6 +396,17 @@ function Cabecalho({
                   </span>
                 </Link>
               </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link href={comTemplate(paraGestaoAVista, "radar")} className="flex items-start gap-2.5">
+                  <LayoutGrid className="w-4 h-4 mt-0.5 shrink-0" />
+                  <span>
+                    <span className="block font-semibold">Radar</span>
+                    <span className="block text-xs text-muted-foreground">
+                      Grade unidade × vigência: quando cada uma mexeu e quanto custou.
+                    </span>
+                  </span>
+                </Link>
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -403,7 +416,10 @@ function Cabecalho({
 }
 
 /** Anexa `?template=` (ou acrescenta, se já houver uma consulta) ao link da Gestão à Vista. */
-function comTemplate(paraGestaoAVista: string, template: "financeiro" | "alertas"): string {
+function comTemplate(
+  paraGestaoAVista: string,
+  template: "financeiro" | "alertas" | "radar",
+): string {
   const [caminho, consulta] = paraGestaoAVista.split("?");
   const parametros = new URLSearchParams(consulta);
   parametros.set("template", template);
