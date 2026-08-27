@@ -105,7 +105,7 @@ router.get("/fluxos/catalogo", (_req, res): void => {
   });
 });
 
-/** A lista da tela de Administração → Fluxos Operacionais. */
+/** A lista da tela de Processos → Fluxos Operacionais. */
 router.get("/fluxos", async (req, res): Promise<void> => {
   const empresaId = await resolverEmpresa(req);
   const status = typeof req.query.status === "string" ? req.query.status : undefined;
