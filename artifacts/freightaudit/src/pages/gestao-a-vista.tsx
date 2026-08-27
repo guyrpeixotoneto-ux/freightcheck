@@ -55,6 +55,7 @@ import { juntarPrioridades, SEVERITY_LABEL } from "@/lib/cockpit";
 import { unidadesPorImpacto, impactoDominante } from "@/components/inicio/visao-geral-consolidada";
 import { seriesDoIntervalo } from "@/components/linha-do-tempo/linha-do-tempo-de-alteracoes";
 import { lerIntervaloSegundos, montarSequenciaDoAutoplay } from "@/lib/gestao-a-vista-autoplay";
+import { rotuloCurtoDaVigencia } from "@workspace/comparison/labels";
 import {
   COLUNAS_PADRAO,
   intensidadeDaCelula,
@@ -1798,14 +1799,18 @@ function TemplateDeRadar() {
         </header>
 
         <div className="flex flex-wrap items-center gap-3">
-          <FiltroDoRadar icone={CalendarDays} rotulo={`Até: ${periodoSelecionado ?? "—"}`}>
+          <FiltroDoRadar icone={CalendarDays} rotulo={`Até: ${
+              periodoSelecionado === null
+                ? "—"
+                : rotuloCurtoDaVigencia(periodoSelecionado, periodosDisponiveis)
+            }`}>
             {periodosDisponiveis.map((data) => (
               <DropdownMenuItem
                 key={data}
                 onSelect={() => trocar({ period: data })}
                 className={cn(data === periodoSelecionado && "font-bold text-brand")}
               >
-                {data}
+                {rotuloCurtoDaVigencia(data, periodosDisponiveis)}
               </DropdownMenuItem>
             ))}
           </FiltroDoRadar>
@@ -1895,7 +1900,7 @@ function TemplateDeRadar() {
                       </th>
                       {janela.periodos.map((periodo) => (
                         <th key={periodo} className="py-3 px-2 font-semibold text-center">
-                          {periodo}
+                          {rotuloCurtoDaVigencia(periodo, periodosDisponiveis)}
                         </th>
                       ))}
                       <th className="py-3 pr-5 pl-4 font-semibold text-right">
