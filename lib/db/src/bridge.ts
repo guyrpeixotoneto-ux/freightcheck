@@ -549,6 +549,20 @@ export const COLUNAS_REMOVIDAS: [string, string][] = [
   ["import_run", "progress_step"],
   ["import_run", "progress_done"],
   ["import_run", "progress_total"],
+  /*
+    As duas da `0064` — a direção econômica snapshotada em `change`.
+
+    Nuláveis e sem default, que é exatamente a forma que a allowlist aceita, e
+    mesmo assim saem: é a mesma decisão da `0023`, que criou as homônimas em
+    `attribute` e `attribute_semantics`. A allowlist é uma lista fechada
+    conferida por tipo, e não um lugar onde coluna nova cabe.
+
+    Saem depois de `alteracao_visivel` (em `VIEWS_REMOVIDAS`), que as lê desde
+    a `0065` — a ordem que o `down` já tem, views antes de colunas, é a que o
+    RESTRICT aceita. Voltam pela `0066`, junto com a view.
+  */
+  ["change", "economic_direction"],
+  ["change", "economic_effect"],
 ];
 
 /** Índices que o `down` remove. Exportada pelo motivo de `COLUNAS_REMOVIDAS`. */
@@ -1529,7 +1543,33 @@ function planoUp(): PassoUp[] {
   add(M61, "view fato_oculto", `DROP VIEW IF EXISTS "fato_oculto" RESTRICT`);
   add(M61, "view fato_visivel", levantar(M61, /CREATE VIEW "fato_visivel"/));
   add(M61, "view fato_oculto", levantar(M61, /CREATE VIEW "fato_oculto"/));
-  add(M61, "view alteracao_visivel", levantar(M61, /CREATE VIEW "alteracao_visivel"/));
+
+  /*
+    A `0064` e a `0065`, nesta ordem e antes da view — que as lê.
+
+    As duas colunas vêm da `0066`, e não da `0064`, pelo motivo que vale para
+    todo este plano: o `up` levanta a definição do disco, e a `0066` é a
+    reconciliação — o único arquivo que uma coluna criada depois da última
+    reconciliação pode usar para voltar por dois caminhos (o `up` e a fila).
+    Levantá-las da `0064` daria o mesmo DDL hoje e deixaria os dois caminhos
+    livres para divergir amanhã.
+
+    `alteracao_visivel` volta com a definição da **`0065`**, e é essa a
+    correção. O plano levantava o `CREATE VIEW` da `0061`, anterior ao filtro
+    NEUTRAL: um banco que passasse por `down` e `up` ficava com a view antiga
+    enquanto um banco novo nascia com a nova, as duas com o mesmo nome e
+    contando coisas diferentes. É o que `bridge.test.ts` mede quando compara o
+    schema pós-`up` com o de um banco criado do zero.
+  */
+  const M66 = "0066_reconciliar_direcao_economica_no_change";
+  for (const col of ["economic_direction", "economic_effect"]) {
+    add(
+      M66,
+      `change.${col}`,
+      levantar(M66, new RegExp(`ALTER TABLE "change" ADD COLUMN IF NOT EXISTS "${col}"`)),
+    );
+  }
+  add(M66, "view alteracao_visivel", levantar(M66, /CREATE VIEW "alteracao_visivel"/));
 
   /*
     A `0060` — o índice de importação oculta. As três colunas dele não voltam
