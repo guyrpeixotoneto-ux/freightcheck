@@ -13,7 +13,7 @@
  * ferramenta ser escrita na camada errada por proximidade.
  *
  * **Nada aqui inventa cálculo.** Toda função abaixo chama o mesmo serviço que a
- * tela correspondente chama — Curadoria, Importações, Balanço de massa — e
+ * tela correspondente chama — Curadoria, Importações, Rastreio de Dados — e
  * embrulha o resultado em `Evidencia`. É o que garante que o assistente e a
  * tela nunca discordem: quando discordarem, é bug de um serviço só, não de dois
  * caminhos que calculam a mesma coisa de jeitos diferentes.
@@ -184,12 +184,12 @@ export async function importacoesRecentes(db: Database): Promise<Evidencia> {
   };
 }
 
-// ── Balanço de massa ────────────────────────────────────────────────────────
+// ── Rastreio de Dados ───────────────────────────────────────────────────────
 
 /**
  * Quantas células entraram e quantas viraram fato — e o que se perdeu no meio.
  *
- * É a pergunta que o Balanço de massa existe para responder, e a que separa
+ * É a pergunta que o Rastreio de Dados existe para responder, e a que separa
  * "o dado não mudou" de "o dado não chegou". Quando uma importação não promove,
  * `porQueNaoPromoveu` traduz o status em uma frase — escrita lá, não aqui, para
  * a tela e o assistente dizerem a mesma coisa.
@@ -213,12 +213,12 @@ export async function balancoDasImportacoes(db: Database): Promise<Evidencia> {
 
   return {
     ferramenta: "balancoDasImportacoes",
-    titulo: "Balanço de massa",
-    fatos: fatos.length > 0 ? fatos : [{ rotulo: "Balanço", valor: "nenhuma importação registrada" }],
+    titulo: "Rastreio de Dados",
+    fatos: fatos.length > 0 ? fatos : [{ rotulo: "Rastreio", valor: "nenhuma importação registrada" }],
     numeros: recentes.map((b) =>
       Number((b as unknown as Record<string, unknown>).rawCellCount ?? 0),
     ),
-    origem: "import_run + raw_cell · o mesmo cálculo da tela de Balanço de massa",
+    origem: "import_run + raw_cell · o mesmo cálculo da tela de Rastreio de Dados",
     tela: { label: "Rastreio de Dados", href: "/rastreio-de-dados" },
   };
 }

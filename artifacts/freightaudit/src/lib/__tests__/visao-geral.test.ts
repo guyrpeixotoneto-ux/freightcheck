@@ -1429,7 +1429,7 @@ describe("os pontos de atenção da Visão Geral", () => {
     expect(pontos.some((p) => p.chave === "unidade")).toBe(false);
   });
 
-  it("a integridade da massa continua levando ao Balanço, que não recorta por unidade", () => {
+  it("a integridade da massa continua levando ao Rastreio de Dados, que não recorta por unidade", () => {
     const pontos = pontosDeAtencaoDaVisaoGeral(overview(), null, {
       ok: false,
       titulo: "Massa sem destino",

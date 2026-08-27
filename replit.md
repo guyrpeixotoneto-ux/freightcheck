@@ -166,7 +166,7 @@ toda leitura — nos moldes do que `conversas.ts` já faz por `owner_id`.
 - `lib/advisory` — a aba Cliente: das alterações apuradas, o que propor, o que
   investigar e o que não levar. Não calcula dinheiro — compõe o panorama de
   `lib/comparison` com o comportamento econômico de `lib/knowledge`
-- `lib/balance` — o balanço de massa da importação: os destinos declarados de
+- `lib/balance` — o Rastreio de Dados da importação: os destinos declarados de
   cada célula (`destinos.ts`) e a conta que os confere (`balanco.ts`)
 - `artifacts/api-server` — HTTP; autenticação em `src/lib/auth.ts` (as
   primitivas, sem banco), `src/lib/session.ts` (sessões e contas) e
@@ -188,13 +188,13 @@ toda leitura — nos moldes do que `conversas.ts` já faz por `owner_id`.
   dado próprio: responde a partir do conhecimento do produto escrito em código e
   de consultas às **mesmas funções que as telas usam**, e devolve as duas coisas
   junto com o texto. Ver a seção *Assistente de IA* abaixo.
-- **Rastreio de Dados** (o balanço de massa; a tela se chamava *Balanço de
-  Massa* até o nome mudar) — `lib/balance`, rota em
+- **Rastreio de Dados** (a conta de conservação — o balanço de massa; a tela
+  se chamou *Balanço de Massa* até o nome mudar) — `lib/balance`, rota em
   `artifacts/api-server/src/routes/balance.ts`, tela em
   `artifacts/freightaudit/src/pages/rastreio-de-dados.tsx`, em
   `/rastreio-de-dados` (o antigo `/balanco-massa` redireciona). É a única
-  superfície que pergunta pelo que **não** está na tela. Ver a seção *Balanço de
-  Massa* abaixo.
+  superfície que pergunta pelo que **não** está na tela. Ver a seção *Rastreio
+  de Dados* abaixo.
 - **Cobertura de dados** — `lib/coverage`, rotas em
   `artifacts/api-server/src/routes/coverage.ts`, tela em
   `artifacts/freightaudit/src/pages/dados.tsx` com os componentes em
@@ -641,7 +641,7 @@ transcrição da tela do Freightech e vive na interface; o assistente conhece o
 que foi registrado em `book_entry` e diz isso, em vez de manter uma segunda
 cópia do índice que sairia de sincronia no primeiro rename.
 
-## Balanço de Massa
+## Rastreio de Dados
 
 **A pergunta inversa da rastreabilidade.** Todas as outras telas respondem *de
 onde veio este número*, e a resposta vai até a célula da planilha. Esta responde

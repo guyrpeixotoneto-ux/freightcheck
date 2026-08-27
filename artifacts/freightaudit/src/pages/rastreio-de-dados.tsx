@@ -15,7 +15,7 @@ import {
 } from "@/components/balanco/tipos";
 
 /**
- * Balanço de Massa — a conta de conservação da importação.
+ * Rastreio de Dados — a conta de conservação da importação (o balanço de massa).
  *
  * Todas as outras telas deste produto respondem à mesma pergunta, cada uma do
  * seu jeito: *de onde veio este número?* É a pergunta certa, e a rastreabilidade

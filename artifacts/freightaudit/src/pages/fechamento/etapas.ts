@@ -100,7 +100,7 @@ export function etapasDoFechamento(base: string): EtapaFechamento[] {
         },
         {
           href: "/rastreio-de-dados",
-          label: "Balanço de massa",
+          label: "Rastreio de Dados",
           porque: "A conferência de que tudo que o arquivo trouxe chegou a algum lugar.",
           ambiente: "auditoria",
         },

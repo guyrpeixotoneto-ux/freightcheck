@@ -670,7 +670,7 @@ export function composicaoDasAlteracoes(
 }
 
 // ---------------------------------------------------------------------------
-// Cobertura e integridade — o que vem do Balanço de Massa
+// Cobertura e integridade — o que vem do Rastreio de Dados
 // ---------------------------------------------------------------------------
 
 export interface Cobertura {
@@ -728,7 +728,7 @@ export interface Integridade {
 /**
  * A conservação da importação, reduzida a uma linha.
  *
- * Os três desfechos são os mesmos do Balanço de Massa, na mesma ordem de
+ * Os três desfechos são os mesmos do Rastreio de Dados, na mesma ordem de
  * gravidade: célula sem destino, importação que não fecha, e a conta fechada.
  * Reduzir os três a "ok / não ok" seria perder justamente a distinção entre
  * "sumiu massa" e "o que está gravado não é o que a importação disse ter
