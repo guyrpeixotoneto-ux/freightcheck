@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { useMutation } from "@tanstack/react-query";
 import {
   Archive,
@@ -56,6 +56,7 @@ import {
  */
 export default function Fluxos() {
   const { empresaId, semEmpresaCadastrada } = useEmpresaDosFluxos();
+  const [, navegar] = useLocation();
 
   const [busca, setBusca] = useState("");
   const [incluirArquivados, setIncluirArquivados] = useState(false);
@@ -207,7 +208,17 @@ export default function Fluxos() {
           catalogo={catalogo.data}
           categoriasConhecidas={categorias}
           aoFechar={() => setCriando(false)}
-          aoSalvar={() => recarregar()}
+          /*
+            Criar um fluxo e continuar na lista era o passo que faltava: o que
+            se quer depois de dar nome ao processo é cadastrar as etapas dele,
+            e não procurar a linha recém-criada no meio das outras. O fluxo novo
+            abre direto — e abre na Lista, porque é lá que as etapas nascem
+            (ver o efeito de sugestão em `pages/fluxo.tsx`).
+          */
+          aoSalvar={(gravado) => {
+            recarregar();
+            navegar(`/fluxos/${gravado.id}`);
+          }}
         />
       )}
     </Layout>

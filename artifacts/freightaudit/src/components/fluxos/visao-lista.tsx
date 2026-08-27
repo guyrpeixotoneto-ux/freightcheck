@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { ArrowDownUp, Loader2, Pencil, Search, X } from "lucide-react";
+import { ArrowDownUp, Check, Loader2, Pencil, Plus, Search, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,13 +20,16 @@ import {
 } from "@/lib/fluxos-celula";
 import {
   edicaoNaLista,
+  etapaNovaVazia,
   filtrarLinhas,
   linhasDaLista,
   ordenarLinhas,
+  podeCriarEtapaNaLista,
   severidadeNoCatalogo,
   valoresDaColuna,
   type CampoEditavelNaLista,
   type ColunaDaLista,
+  type EtapaNovaNaLista,
   type FiltrosDaLista,
 } from "@/lib/fluxos-analise";
 import type { PropsDaVisao } from "@/components/fluxos/visao";
@@ -78,6 +81,22 @@ import type { PropsDaVisao } from "@/components/fluxos/visao";
  *
  * Quem só quer consultar continua consultando: em modo de leitura nada abre, e
  * clicar na linha abre o painel como sempre.
+ *
+ * ---------------------------------------------------------------------------
+ * Cadastrar na tabela — a linha nova, no topo
+ * ---------------------------------------------------------------------------
+ *
+ * Editar na célula resolvia a correção; faltava o começo. Um fluxo recém-criado
+ * abre sem etapa nenhuma, e a única porta era o editor de seis abas, uma vez
+ * por etapa. A linha "Adicionar nova etapa" fica no **topo** da tabela — e não
+ * no fim — pelo motivo do modelo do pedido: é uma ação, e uma ação que só
+ * aparece depois de rolar duzentas linhas é uma ação que ninguém acha.
+ *
+ * Ela oferece exatamente as seis colunas que a célula sabe gravar, `Enter`
+ * cadastra e o campo do nome volta a receber foco já limpo: anotar as treze
+ * etapas de uma reunião é digitar treze vezes, sem tirar a mão do teclado. E,
+ * como todo o resto desta tela, ela **não grava** — monta o que foi digitado e
+ * chama `onCriarEtapa`, que é da página.
  */
 
 const COLUNAS: { chave: ColunaDaLista; rotulo: string; classe?: string }[] = [
@@ -105,6 +124,7 @@ export function VisaoLista({
   etapaSelecionada,
   onSelecionarEtapa,
   onEditarCampoDaEtapa,
+  onCriarEtapa,
   somenteLeitura,
 }: PropsDaVisao) {
   const [filtros, setFiltros] = useState<FiltrosDaLista>({});
@@ -140,6 +160,14 @@ export function VisaoLista({
 
   const filtrando =
     Object.values(filtros).some((v) => v !== undefined && v !== null && v !== "") ;
+
+  /*
+    Cadastrar exige as duas coisas: uma página que saiba gravar e a edição
+    liberada. Em modo de leitura a linha some — e não fica desabilitada —, pelo
+    mesmo motivo de as células não abrirem: um convite morto na primeira linha
+    da tabela sugere que a tela grava quando ela não grava.
+  */
+  const podeCadastrar = Boolean(onCriarEtapa) && !somenteLeitura;
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col bg-background">
@@ -237,6 +265,17 @@ export function VisaoLista({
             </TableRow>
           </TableHeader>
           <TableBody>
+            {podeCadastrar && (
+              <LinhaNova
+                catalogo={catalogo}
+                etapas={completo.etapas}
+                areas={areas}
+                responsaveis={responsaveis}
+                sistemas={sistemas}
+                colunas={COLUNAS.length + 3}
+                aoCriar={onCriarEtapa!}
+              />
+            )}
             {visiveis.map((linha) => {
               const severidade = severidadeNoCatalogo(linha.diagnostico.severidade);
               const tipo = catalogo?.tiposDeEtapa.find((t) => t.valor === linha.etapa.tipo);
@@ -345,11 +384,267 @@ export function VisaoLista({
 
         {visiveis.length === 0 && (
           <p className="px-6 py-10 text-center text-sm text-muted-foreground">
-            Nenhuma etapa atende a este recorte.
+            {linhas.length === 0
+              ? podeCadastrar
+                ? "Nenhuma etapa ainda. Adicione a primeira acima."
+                : "Este fluxo ainda não tem etapas."
+              : "Nenhuma etapa atende a este recorte."}
           </p>
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * A LINHA NOVA — cadastrar a etapa sem sair da tabela.
+ *
+ * Fechada, é uma linha só com um convite; aberta, é a linha da tabela com os
+ * campos no lugar das colunas — a mesma ordem, a mesma largura, a mesma coluna
+ * escondida quando a tela é estreita. O alinhamento não é enfeite: é o que faz
+ * quem digita saber que o que está preenchendo é "Área", sem ler rótulo nenhum.
+ *
+ * **O que ela oferece é exatamente o que a Lista sabe gravar.** Descrição,
+ * objetivo, regras, indicadores e as listas de itens continuam no editor da
+ * etapa — oferecê-los aqui faria a linha virar o formulário de seis abas
+ * deitado, que é justamente o que este caminho existe para evitar. A etapa
+ * nasce com o essencial e cresce no painel, quando (e se) precisar.
+ *
+ * `Enter` cadastra e deixa a linha aberta com o nome já em foco: quem chegou da
+ * reunião com treze etapas digita treze vezes seguidas. `Esc` fecha. O tipo
+ * repete o da última cadastrada, menos o "Início", que vira "Processo" — um
+ * fluxo tem um começo, e não treze.
+ *
+ * Ela **não grava**: monta o objeto e chama `aoCriar`, que é da página. Se a
+ * gravação falhar, o que foi digitado continua nos campos com a frase do
+ * servidor embaixo — perder as seis colunas por causa de um erro de rede é o
+ * jeito mais rápido de alguém voltar a cadastrar pelo formulário.
+ */
+function LinhaNova({
+  catalogo,
+  etapas,
+  areas,
+  responsaveis,
+  sistemas,
+  colunas,
+  aoCriar,
+}: {
+  catalogo: PropsDaVisao["catalogo"];
+  etapas: PropsDaVisao["completo"]["etapas"];
+  areas: string[];
+  responsaveis: string[];
+  sistemas: string[];
+  /** Quantas colunas a tabela tem — para a linha fechada atravessar todas. */
+  colunas: number;
+  aoCriar: (nova: EtapaNovaNaLista) => Promise<void>;
+}) {
+  const listaDeAreas = useId();
+  const listaDeResponsaveis = useId();
+  const listaDeSistemas = useId();
+
+  const [aberta, setAberta] = useState(false);
+  const [nova, setNova] = useState<EtapaNovaNaLista>(() => etapaNovaVazia(etapas));
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+  const campoDoNome = useRef<HTMLInputElement>(null);
+
+  const trocar = (parcial: Partial<EtapaNovaNaLista>) =>
+    setNova((atual) => ({ ...atual, ...parcial }));
+
+  const fechar = () => {
+    setAberta(false);
+    setErro(null);
+    setNova(etapaNovaVazia(etapas));
+  };
+
+  const criar = async () => {
+    if (salvando || !podeCriarEtapaNaLista(nova)) return;
+    setSalvando(true);
+    setErro(null);
+    try {
+      await aoCriar({ ...nova, nome: nova.nome.trim() });
+      /*
+        Os campos voltam ao vazio, o tipo permanece (menos o Início, que é um
+        por fluxo) e o foco volta para o nome: a próxima etapa começa a ser
+        digitada onde a anterior terminou de ser gravada.
+      */
+      setNova({
+        nome: "",
+        tipo: nova.tipo === "INICIO" ? "PROCESSO" : nova.tipo,
+        area: "",
+        responsavel: "",
+        sistema: "",
+        sla: "",
+      });
+      campoDoNome.current?.focus();
+    } catch (falha) {
+      setErro(fraseDoErro(falha));
+    } finally {
+      setSalvando(false);
+    }
+  };
+
+  const aoTeclar = (evento: React.KeyboardEvent) => {
+    if (evento.key === "Enter") {
+      evento.preventDefault();
+      void criar();
+      return;
+    }
+    if (evento.key === "Escape") {
+      evento.preventDefault();
+      fechar();
+    }
+  };
+
+  if (!aberta) {
+    return (
+      <TableRow className="hover:bg-transparent">
+        <TableCell colSpan={colunas} className="p-0">
+          <button
+            type="button"
+            data-testid="abrir-linha-nova"
+            className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm font-medium text-primary hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+            onClick={() => {
+              setNova(etapaNovaVazia(etapas));
+              setAberta(true);
+            }}
+          >
+            <Plus className="h-4 w-4" aria-hidden />
+            Adicionar nova etapa
+          </button>
+        </TableCell>
+      </TableRow>
+    );
+  }
+
+  const campo = (
+    rotulo: string,
+    valor: string,
+    aoMudar: (v: string) => void,
+    opcoes?: { lista?: string; placeholder?: string; referencia?: boolean },
+  ) => (
+    <Input
+      ref={opcoes?.referencia ? campoDoNome : undefined}
+      autoFocus={opcoes?.referencia}
+      className="h-8"
+      aria-label={rotulo}
+      placeholder={opcoes?.placeholder}
+      list={opcoes?.lista}
+      readOnly={salvando}
+      value={valor}
+      onChange={(evento) => aoMudar(evento.target.value)}
+      onKeyDown={aoTeclar}
+    />
+  );
+
+  return (
+    <>
+      <TableRow className="bg-accent/30 hover:bg-accent/30">
+        <TableCell className="text-center text-muted-foreground">
+          <Plus className="mx-auto h-3.5 w-3.5" aria-hidden />
+        </TableCell>
+        <TableCell className="px-2 py-2">
+          {campo("Nome da nova etapa", nova.nome, (v) => trocar({ nome: v }), {
+            placeholder: "Nome da etapa",
+            referencia: true,
+          })}
+        </TableCell>
+        <TableCell className="hidden px-2 py-2 lg:table-cell">
+          <Select value={nova.tipo} onValueChange={(v) => trocar({ tipo: v })}>
+            <SelectTrigger className="h-8" aria-label="Tipo da nova etapa">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {(catalogo?.tiposDeEtapa ?? []).map((t) => (
+                <SelectItem key={t.valor} value={t.valor}>
+                  {t.rotulo}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </TableCell>
+        <TableCell className="hidden px-2 py-2 md:table-cell">
+          {campo("Área da nova etapa", nova.area, (v) => trocar({ area: v }), {
+            lista: listaDeAreas,
+            placeholder: "Fiscal",
+          })}
+          <datalist id={listaDeAreas}>
+            {areas.map((a) => (
+              <option key={a} value={a} />
+            ))}
+          </datalist>
+        </TableCell>
+        <TableCell className="hidden px-2 py-2 lg:table-cell">
+          {campo("Responsável pela nova etapa", nova.responsavel, (v) => trocar({ responsavel: v }), {
+            lista: listaDeResponsaveis,
+            placeholder: "Analista fiscal",
+          })}
+          <datalist id={listaDeResponsaveis}>
+            {responsaveis.map((r) => (
+              <option key={r} value={r} />
+            ))}
+          </datalist>
+        </TableCell>
+        <TableCell className="hidden px-2 py-2 lg:table-cell">
+          {campo("Sistema da nova etapa", nova.sistema, (v) => trocar({ sistema: v }), {
+            lista: listaDeSistemas,
+            placeholder: "Rodopar",
+          })}
+          <datalist id={listaDeSistemas}>
+            {sistemas.map((s) => (
+              <option key={s} value={s} />
+            ))}
+          </datalist>
+        </TableCell>
+        <TableCell className="hidden px-2 py-2 xl:table-cell">
+          {campo("Prazo (SLA) da nova etapa", nova.sla, (v) => trocar({ sla: v }), {
+            placeholder: "24 h úteis",
+          })}
+        </TableCell>
+        {/*
+          Entrada e saída ficam em branco de propósito: elas saem do grafo, e
+          quem acabou de nascer ainda não foi ligado a ninguém. A ligação com a
+          etapa anterior é feita pela página, na gravação.
+        */}
+        <TableCell className="hidden xl:table-cell" />
+        <TableCell className="hidden xl:table-cell" />
+        <TableCell className="px-2 py-2">
+          <div className="flex items-center gap-1">
+            <Button
+              size="icon"
+              className="h-8 w-8"
+              aria-label="Cadastrar a etapa"
+              disabled={salvando || !podeCriarEtapaNaLista(nova)}
+              onClick={() => void criar()}
+            >
+              {salvando ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+              ) : (
+                <Check className="h-3.5 w-3.5" aria-hidden />
+              )}
+            </Button>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-8 w-8"
+              aria-label="Cancelar a nova etapa"
+              disabled={salvando}
+              onClick={fechar}
+            >
+              <X className="h-3.5 w-3.5" aria-hidden />
+            </Button>
+          </div>
+        </TableCell>
+      </TableRow>
+
+      {erro && (
+        <TableRow className="bg-accent/30 hover:bg-accent/30">
+          <TableCell colSpan={colunas} className="px-4 pb-2 pt-0 text-xs text-destructive">
+            {erro}
+          </TableCell>
+        </TableRow>
+      )}
+    </>
   );
 }
 

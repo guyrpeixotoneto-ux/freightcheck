@@ -493,6 +493,7 @@ export function corpoDaEtapa(etapa: Etapa): Record<string, unknown> {
     objetivo: etapa.objetivo ?? "",
     regras: etapa.regras ?? "",
     observacoes: etapa.observacoes ?? "",
+    informacoesConsultadas: etapa.informacoesConsultadas ?? "",
     chaveMonitoramento: etapa.chaveMonitoramento ?? "",
     ordem: etapa.ordem,
     posX: etapa.posX,
