@@ -295,6 +295,19 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
         "import_run.progress_done",
         "import_run.progress_total",
         /*
+          As duas da `0064` — a direção econômica snapshotada em `change`.
+
+          Aditivas e nulas, como as cinco primeiras, e sem backfill nenhum: a
+          `0064` as deixa `NULL` de propósito em todo change-set anterior, que
+          é o estado "não classificado" que o Radar já lê. É a forma que
+          atravessa este diff sem que Production precise reescrever linha.
+
+          Elas chegam aqui porque este cenário mede o diff **antes** da fila:
+          o servidor novo aplica a `0064` na partida, e Production as ganha lá.
+        */
+        "change.economic_direction",
+        "change.economic_effect",
+        /*
           A coluna que a `0046` acrescentou a `fechamento_competencia` **não**
           entra aqui, e a ausência é a informação: o diff a reporta pela tabela,
           não pela coluna, porque Production não tem nenhuma das treze do

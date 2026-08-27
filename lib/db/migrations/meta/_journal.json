@@ -463,6 +463,13 @@
       "when": 1787757675580,
       "tag": "0065_alteracao_material",
       "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1787757675581,
+      "tag": "0066_reconciliar_direcao_economica_no_change",
+      "breakpoints": true
     }
   ]
 }

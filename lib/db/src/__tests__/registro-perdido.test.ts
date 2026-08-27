@@ -128,6 +128,12 @@ describe("registro de migrations perdido", () => {
       // do schema prova que a versão restaurável é a que está lá. Rodar é o
       // certo, e é no-op estrutural — a segunda passada deixa tudo no lugar.
       "0036_funcoes_restauraveis",
+      // A 0065 redefine `alteracao_visivel` e nada mais. View não é objeto que
+      // a adoção saiba inspecionar — `objetosCriadosPor` modela tabela, tipo,
+      // índice, coluna e gatilho —, e a forma do schema não distingue a view
+      // com o filtro NEUTRAL da anterior. Rodar é o certo e é idempotente:
+      // `DROP VIEW IF EXISTS` antes do `CREATE`.
+      "0065_alteracao_material",
     ];
     expect(segunda.adopted).toEqual(
       primeira.applied.filter((tag) => !semObjetoNovo.includes(tag)),
