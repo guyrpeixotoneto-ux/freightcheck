@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
 import {
   ArrowLeft,
@@ -7,13 +7,17 @@ import {
   BarChart3,
   Building2,
   CalendarDays,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   DollarSign,
   FileText,
+  HelpCircle,
   Info,
+  LayoutGrid,
   Pause,
   Play,
+  Tag,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -38,20 +42,37 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { formatBrlShort, formatPercent, periodicitySuffix } from "@/lib/format";
+import {
+  formatBrlCompacto,
+  formatBrlShort,
+  formatPercent,
+  periodicityAdjective,
+  periodicitySuffix,
+} from "@/lib/format";
 import { escreverImpacto, ladosDoImpacto, type Impacto } from "@/lib/visao-geral";
 import { lerRecorte, linkDeAlteracoes, nomeDaUnidade, type Recorte } from "@/lib/recorte";
 import { juntarPrioridades, SEVERITY_LABEL } from "@/lib/cockpit";
 import { unidadesPorImpacto, impactoDominante } from "@/components/inicio/visao-geral-consolidada";
 import { seriesDoIntervalo } from "@/components/linha-do-tempo/linha-do-tempo-de-alteracoes";
 import { lerIntervaloSegundos, montarSequenciaDoAutoplay } from "@/lib/gestao-a-vista-autoplay";
+import {
+  COLUNAS_PADRAO,
+  intensidadeDaCelula,
+  janelaDoRadar,
+  maiorImpactoDaGrade,
+  montarRadar,
+  periodicidadesDoRadar,
+  resumoDoRadar,
+  type CelulaDoRadar,
+  type UnidadeDoRadar,
+} from "@/lib/gestao-a-vista-radar";
 import type {
   ExecutiveSummary,
   FamiliesOverview,
   FamiliesView,
   OverviewUnitIncluded,
 } from "@/components/inicio/types";
-import type { Movimentos } from "@/lib/analise";
+import type { Movimentos, RangeOverview } from "@/lib/analise";
 
 /**
  * A Gestão à Vista — um wallboard, não um resumo do Dashboard.
@@ -67,18 +88,28 @@ import type { Movimentos } from "@/lib/analise";
  * tela sobre esses mesmos dados.
  */
 /**
- * A Gestão à Vista tem dois templates hoje: o Financeiro (o telão de sempre,
- * abaixo) e o Alertas — só o nome de cada unidade e se ela teve alguma
- * alteração nesta competência, para quem só quer saber "mexeu ou não mexeu"
- * de relance. `?template=alertas` escolhe o segundo; qualquer outro valor
- * (ou a ausência dele) é o Financeiro, para não quebrar links já salvos.
+ * A Gestão à Vista tem três templates hoje, e cada um responde uma pergunta
+ * diferente sobre os mesmos dados:
+ *
+ *   - **Financeiro** (o telão de sempre, abaixo) — *quanto* está em jogo agora.
+ *   - **Alertas** (`?template=alertas`) — *quem* mexeu nesta competência, só o
+ *     nome de cada unidade e o volume, para quem quer saber "mexeu ou não
+ *     mexeu" de relance.
+ *   - **Radar** (`?template=radar`) — *quando* cada unidade mexeu: a grade
+ *     unidade × vigência, com o impacto de cada célula.
+ *
+ * Qualquer outro valor (ou a ausência dele) é o Financeiro, para não quebrar
+ * links já salvos.
  */
 export default function GestaoAVista() {
   const search = useSearch();
   const parametros = new URLSearchParams(search);
-  const template = parametros.get("template") === "alertas" ? "alertas" : "financeiro";
+  const pedido = parametros.get("template");
+  const template = pedido === "alertas" || pedido === "radar" ? pedido : "financeiro";
 
-  return template === "alertas" ? <TemplateDeAlertas /> : <TemplateFinanceiro />;
+  if (template === "alertas") return <TemplateDeAlertas />;
+  if (template === "radar") return <TemplateDeRadar />;
+  return <TemplateFinanceiro />;
 }
 
 function TemplateFinanceiro() {
@@ -1589,5 +1620,518 @@ function Legenda({ cor, rotulo }: { cor: string; rotulo: string }) {
       <span className="w-2.5 h-0.5 rounded-full" style={{ background: cor }} />
       {rotulo}
     </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Template Radar — quando cada unidade mexeu, ao longo das vigências
+// ---------------------------------------------------------------------------
+
+/**
+ * O template Radar — a grade unidade × vigência.
+ *
+ * O Financeiro responde "quanto", o Alertas responde "quem mexeu"; nenhum dos
+ * dois responde **quando**. Aqui cada linha é uma unidade, cada coluna é uma
+ * competência da janela, e a célula diz quantas alterações houve ali, quanto
+ * custaram e quantas ficaram sem impacto apurado — o histórico e a foto na
+ * mesma tela, para quem quer ver de longe se o prejuízo veio de uma vigência
+ * só ou pingando ao longo do semestre.
+ *
+ * As colunas são **vigências**, não dias corridos: este produto apura por
+ * competência (normalmente uma por mês) e uma grade de dias inventaria
+ * granularidade que o dado não tem. `?colunas=` muda quantas cabem, o seletor
+ * de vigência move o fim da janela, e `?periodicidade=` escolhe em qual
+ * grandeza a grade é desenhada — uma de cada vez, porque R$/mês e R$/ano
+ * somados numa célula produziriam o número mais lido e menos verdadeiro do
+ * produto (a régua mora em `lib/gestao-a-vista-radar.ts`, com testes).
+ *
+ * A leitura é a mesma da Linha do Tempo: `/changes/range/overview` para saber
+ * quais unidades existem no intervalo e `/changes/range` por contexto para o
+ * que aconteceu em cada vigência. Uma unidade com dois canais vira duas
+ * leituras somadas numa linha só — nunca duas linhas com o mesmo nome.
+ */
+function TemplateDeRadar() {
+  const search = useSearch();
+  const [, navegar] = useLocation();
+  const parametros = new URLSearchParams(search);
+
+  const contextos = useContextosDaCasca();
+  const periodosDisponiveis = useMemo(
+    () =>
+      Array.from(new Set(contextos.contextos.flatMap((c) => c.periodosDisponiveis))).sort(
+        (a, b) => b.localeCompare(a),
+      ),
+    [contextos.contextos],
+  );
+  const periodoSelecionado = parametros.get("period") ?? periodosDisponiveis[0] ?? null;
+
+  const trocar = (mudancas: Record<string, string | null>) => {
+    const proximo = new URLSearchParams(search);
+    for (const [chave, valor] of Object.entries(mudancas)) {
+      if (valor === null) proximo.delete(chave);
+      else proximo.set(chave, valor);
+    }
+    navegar(`${GESTAO_A_VISTA}?${proximo}`, { replace: true });
+  };
+
+  const colunas = lerColunasDoRadar(parametros.get("colunas"));
+  const janela = useMemo(
+    () => janelaDoRadar(periodosDisponiveis, periodoSelecionado, colunas),
+    [periodosDisponiveis, periodoSelecionado, colunas],
+  );
+
+  const consultaDoIntervalo = new URLSearchParams();
+  if (janela.from) consultaDoIntervalo.set("from", janela.from);
+  if (janela.to) consultaDoIntervalo.set("to", janela.to);
+
+  const overviewQuery = useQuery({
+    queryKey: ["radar-overview", consultaDoIntervalo.toString()],
+    queryFn: () => fetchJsonOrNull<RangeOverview>(`/changes/range/overview?${consultaDoIntervalo}`),
+    enabled: janela.to !== null,
+    refetchInterval: 30_000,
+  });
+
+  /*
+    Uma leitura por contexto, e não por unidade: `/changes/range` responde por
+    um `scopeHash`/`canal` de cada vez. A lista precisa ser estável entre
+    renderizações — `useQueries` monta um observador por item, e uma ordem que
+    dança faria cada refetch reembaralhar o cache.
+  */
+  const leituras = useMemo(
+    () =>
+      (overviewQuery.data?.unitsIncluded ?? []).flatMap((unidade) =>
+        unidade.contexts.map((contexto) => ({
+          unidade: unidade.unidade,
+          label: unidade.label,
+          scopeHash: contexto.scopeHash,
+          canal: contexto.channel,
+        })),
+      ),
+    [overviewQuery.data],
+  );
+
+  const consultasPorContexto = leituras.map((leitura) => {
+    const query = new URLSearchParams(consultaDoIntervalo);
+    query.set("scopeHash", leitura.scopeHash);
+    if (leitura.canal !== null) query.set("canal", leitura.canal);
+    return query.toString();
+  });
+
+  const movimentosPorContexto = useQueries({
+    queries: consultasPorContexto.map((query) => ({
+      // A mesma chave de `LinhaDoTempoDeAlteracoes` e da Tendência para este
+      // endpoint — três telas perguntando o mesmo compartilham cache em vez de
+      // disparar três requisições idênticas.
+      queryKey: ["changes-range", query],
+      queryFn: () => fetchJsonOrNull<Movimentos>(`/changes/range?${query}`),
+      staleTime: 60_000,
+      refetchInterval: 30_000,
+    })),
+  });
+
+  const unidadesDoRadar: UnidadeDoRadar[] = useMemo(() => {
+    const porUnidade = new Map<string, UnidadeDoRadar>();
+    leituras.forEach((leitura, indice) => {
+      const linha = porUnidade.get(leitura.unidade) ?? {
+        unidade: leitura.unidade,
+        label: leitura.label,
+        contextos: [],
+        movimentos: [],
+      };
+      linha.contextos.push({ scopeHash: leitura.scopeHash, canal: leitura.canal });
+      linha.movimentos.push(movimentosPorContexto[indice]?.data ?? null);
+      porUnidade.set(leitura.unidade, linha);
+    });
+    return [...porUnidade.values()];
+  }, [leituras, movimentosPorContexto.map((q) => q.dataUpdatedAt).join("|")]);
+
+  const periodicidades = useMemo(() => periodicidadesDoRadar(unidadesDoRadar), [unidadesDoRadar]);
+  const periodicidadePedida = parametros.get("periodicidade");
+  const periodicidade =
+    periodicidadePedida !== null && periodicidades.includes(periodicidadePedida)
+      ? periodicidadePedida
+      : (periodicidades[0] ?? null);
+
+  const linhas = useMemo(
+    () => montarRadar(janela.periodos, unidadesDoRadar, periodicidade),
+    [janela.periodos, unidadesDoRadar, periodicidade],
+  );
+  const resumo = resumoDoRadar(linhas);
+  const maiorDaGrade = maiorImpactoDaGrade(linhas);
+
+  const consultaDeOrigem = new URLSearchParams();
+  for (const chave of ["period", "scopeHash", "canal"]) {
+    const valor = parametros.get(chave);
+    if (valor !== null) consultaDeOrigem.set(chave, valor);
+  }
+  const paraDashboard = consultaDeOrigem.toString() ? `${DASHBOARD}?${consultaDeOrigem}` : DASHBOARD;
+
+  const carregando =
+    overviewQuery.isLoading || movimentosPorContexto.some((consulta) => consulta.isLoading);
+  const erro = overviewQuery.error !== null;
+  const atualizadaEm = movimentosPorContexto.reduce(
+    (maior, consulta) => Math.max(maior, consulta.dataUpdatedAt),
+    overviewQuery.dataUpdatedAt,
+  );
+  const excluidas = overviewQuery.data?.unitsExcluded ?? [];
+
+  return (
+    <div className="w-full min-h-[100dvh] bg-slate-50 text-slate-900 font-sans">
+      <div className="px-10 py-7 max-w-[1800px] mx-auto space-y-6">
+        <header className="flex items-start justify-between gap-6">
+          <div className="min-w-0">
+            <h1 className="text-3xl font-extrabold tracking-tight truncate">Radar de Alterações</h1>
+            <p className="text-sm text-slate-500 mt-1">
+              Quando cada unidade mexeu — uma coluna por vigência apurada.
+            </p>
+          </div>
+          <div className="flex items-center gap-3 shrink-0">
+            <RelogioClaro atualizadaEm={atualizadaEm} />
+            <Link
+              href={paraDashboard}
+              title="Voltar ao Dashboard"
+              className="flex items-center justify-center w-9 h-9 rounded-lg border border-slate-200 bg-white text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors"
+            >
+              <ArrowLeft className="w-4 h-4" />
+            </Link>
+          </div>
+        </header>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <FiltroDoRadar icone={CalendarDays} rotulo={`Até: ${periodoSelecionado ?? "—"}`}>
+            {periodosDisponiveis.map((data) => (
+              <DropdownMenuItem
+                key={data}
+                onSelect={() => trocar({ period: data })}
+                className={cn(data === periodoSelecionado && "font-bold text-brand")}
+              >
+                {data}
+              </DropdownMenuItem>
+            ))}
+          </FiltroDoRadar>
+
+          <FiltroDoRadar
+            icone={LayoutGrid}
+            rotulo={`Janela: ${colunas} ${colunas === 1 ? "vigência" : "vigências"}`}
+          >
+            {OPCOES_DE_COLUNAS.map((opcao) => (
+              <DropdownMenuItem
+                key={opcao}
+                onSelect={() => trocar({ colunas: String(opcao) })}
+                className={cn(opcao === colunas && "font-bold text-brand")}
+              >
+                {opcao} vigências
+              </DropdownMenuItem>
+            ))}
+          </FiltroDoRadar>
+
+          {periodicidades.length > 0 && (
+            <FiltroDoRadar
+              icone={Tag}
+              rotulo={`Impacto: ${periodicidade === null ? "—" : periodicityAdjective(periodicidade)}`}
+            >
+              {periodicidades.map((p) => (
+                <DropdownMenuItem
+                  key={p}
+                  onSelect={() => trocar({ periodicidade: p })}
+                  className={cn(p === periodicidade && "font-bold text-brand")}
+                >
+                  {periodicityAdjective(p)}
+                </DropdownMenuItem>
+              ))}
+            </FiltroDoRadar>
+          )}
+        </div>
+
+        {carregando && linhas.length === 0 ? (
+          <MensagemDeEstadoClara carregando erro={false} />
+        ) : erro ? (
+          <MensagemDeEstadoClara carregando={false} erro />
+        ) : linhas.length === 0 ? (
+          <MensagemDeEstadoClara carregando={false} erro={false} />
+        ) : (
+          <>
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+              <CartaoDeIndicador
+                icone={FileText}
+                rotulo={`Alterações (${janela.periodos.length} ${janela.periodos.length === 1 ? "vigência" : "vigências"})`}
+                valor={resumo.alteracoes.toLocaleString("pt-BR")}
+              />
+              <CartaoDeIndicador
+                icone={Building2}
+                rotulo="Unidades afetadas"
+                valor={`${resumo.unidadesAfetadas} de ${linhas.length}`}
+              />
+              <CartaoDeIndicador
+                icone={DollarSign}
+                rotulo={`Impacto líquido${periodicidade === null ? "" : ` ${periodicityAdjective(periodicidade)}`}`}
+                valor={
+                  periodicidade === null
+                    ? "não apurado"
+                    : escreverImpacto({ periodicity: periodicidade, amount: resumo.impacto })
+                }
+                tom={
+                  periodicidade === null || resumo.impacto === 0
+                    ? undefined
+                    : resumo.impacto < 0
+                      ? "desfavoravel"
+                      : "favoravel"
+                }
+              />
+              <CartaoDeIndicador
+                icone={HelpCircle}
+                rotulo="Sem impacto apurado"
+                valor={resumo.semApuracao.toLocaleString("pt-BR")}
+              />
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm border-collapse">
+                  <thead>
+                    <tr className="text-[0.6875rem] uppercase tracking-wide text-slate-500 border-b border-slate-100">
+                      <th className="py-3 pl-5 pr-4 font-semibold text-left sticky left-0 bg-white">
+                        Unidade
+                      </th>
+                      {janela.periodos.map((periodo) => (
+                        <th key={periodo} className="py-3 px-2 font-semibold text-center">
+                          {periodo}
+                        </th>
+                      ))}
+                      <th className="py-3 pr-5 pl-4 font-semibold text-right">
+                        {janela.periodos.length} vigências
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {linhas.map((linha) => (
+                      <tr key={linha.unidade} className="border-t border-slate-100">
+                        <td className="py-2 pl-5 pr-4 sticky left-0 bg-white">
+                          <span
+                            className="block font-bold truncate max-w-[13rem]"
+                            title={linha.label}
+                          >
+                            {linha.label}
+                          </span>
+                          {linha.contextos.length > 1 && (
+                            <span className="block text-[0.6875rem] text-slate-400">
+                              {linha.contextos.length} canais somados
+                            </span>
+                          )}
+                        </td>
+                        {linha.celulas.map((celula) => (
+                          <td key={celula.periodo} className="py-1.5 px-1.5 align-middle">
+                            <CelulaDoRadarNaTela
+                              celula={celula}
+                              periodicidade={periodicidade}
+                              intensidade={intensidadeDaCelula(celula.impacto, maiorDaGrade)}
+                              recorte={
+                                linha.contextos.length === 1
+                                  ? {
+                                      period: celula.periodo,
+                                      scopeHash: linha.contextos[0].scopeHash,
+                                      canal: linha.contextos[0].canal,
+                                    }
+                                  : null
+                              }
+                            />
+                          </td>
+                        ))}
+                        <td className="py-2 pr-5 pl-4 text-right whitespace-nowrap">
+                          <span className="text-slate-500 tabular-nums">
+                            {linha.totalDeAlteracoes.toLocaleString("pt-BR")} alt.
+                          </span>
+                          <span className="text-slate-300 px-1.5">·</span>
+                          <span
+                            className={cn(
+                              "font-bold tabular-nums",
+                              periodicidade === null || linha.totalDeImpacto === 0
+                                ? "text-slate-400"
+                                : linha.totalDeImpacto < 0
+                                  ? "text-red-600"
+                                  : "text-emerald-600",
+                            )}
+                          >
+                            {periodicidade === null
+                              ? "—"
+                              : `${formatBrlCompacto(linha.totalDeImpacto)}${periodicitySuffix(periodicidade)}`}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {excluidas.length > 0 && (
+                <p className="px-5 py-3 text-xs text-slate-500 border-t border-slate-100 bg-slate-50/60">
+                  {excluidas.length === 1 ? "1 unidade" : `${excluidas.length} unidades`} fora da
+                  grade neste intervalo: {excluidas.map((u) => u.label).join(", ")}.
+                </p>
+              )}
+            </div>
+
+            <LegendaDoRadar />
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const OPCOES_DE_COLUNAS = [4, 7, 12] as const;
+
+/** `?colunas=` — quantas vigências cabem na grade. Fora da lista, o padrão. */
+function lerColunasDoRadar(valor: string | null): number {
+  const numero = Number(valor);
+  return OPCOES_DE_COLUNAS.includes(numero as (typeof OPCOES_DE_COLUNAS)[number])
+    ? numero
+    : COLUNAS_PADRAO;
+}
+
+function FiltroDoRadar({
+  icone: Icone,
+  rotulo,
+  children,
+}: {
+  icone: LucideIcon;
+  rotulo: string;
+  children: ReactNode;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors">
+        <Icone className="w-4 h-4 text-slate-400" />
+        {rotulo}
+        <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-56 max-h-80 overflow-y-auto">
+        {children}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/**
+ * Uma célula da grade.
+ *
+ * O desenho carrega os quatro estados sem depender da cor sozinha — quem lê de
+ * longe (ou não distingue vermelho de verde) precisa do texto:
+ *
+ *   - **sem vigência**: um traço. A unidade não entregou aquela competência.
+ *   - **sem comparação**: a vigência existe e o que houve nela não está somado
+ *     (`gaps` de `/changes/range`). Nunca vira "R$ 0" — seria afirmar calma
+ *     onde há desconhecimento.
+ *   - **apurado sem dinheiro**: "N alt. · R$ 0", em cinza.
+ *   - **apurado com dinheiro**: o valor com o sinal, e o fundo mais forte
+ *     quanto maior o impacto contra a célula mais pesada da grade.
+ *
+ * `semApuracao` sai numa terceira linha quando existe: uma competência com dez
+ * alterações sem preço não pode aparecer como uma competência calma.
+ */
+function CelulaDoRadarNaTela({
+  celula,
+  periodicidade,
+  intensidade,
+  recorte,
+}: {
+  celula: CelulaDoRadar;
+  periodicidade: string | null;
+  intensidade: number;
+  recorte: Recorte | null;
+}) {
+  if (celula.estado === "sem-vigencia") {
+    return <div className="text-center text-slate-300 select-none">—</div>;
+  }
+
+  if (celula.estado === "sem-comparacao") {
+    return (
+      <div
+        className="rounded-lg border border-dashed border-slate-300 bg-white px-2 py-2 text-center text-[0.6875rem] text-slate-400"
+        title="Vigência importada sem comparação calculada — o que houve aqui não está somado, e não está contado como zero."
+      >
+        sem comparação
+      </div>
+    );
+  }
+
+  const favoravel = celula.impacto > 0;
+  const neutra = celula.impacto === 0 || periodicidade === null;
+  const conteudo = (
+    <div
+      className={cn(
+        "rounded-lg px-2 py-2 text-center border transition-colors",
+        neutra
+          ? "border-slate-200 bg-slate-50 text-slate-600"
+          : favoravel
+            ? "border-emerald-200 text-emerald-800"
+            : "border-red-200 text-red-800",
+        recorte && "hover:border-slate-400 cursor-pointer",
+      )}
+      style={
+        neutra
+          ? undefined
+          : {
+              // O fundo é o mesmo tom da borda, com opacidade proporcional ao
+              // peso da célula: a grade inteira vira um mapa de calor sem
+              // trocar de paleta entre "grande" e "pequeno".
+              backgroundColor: favoravel
+                ? `rgba(16, 185, 129, ${0.08 + intensidade * 0.32})`
+                : `rgba(239, 68, 68, ${0.08 + intensidade * 0.32})`,
+            }
+      }
+    >
+      <span className="block text-xs font-bold tabular-nums">
+        {celula.alteracoes.toLocaleString("pt-BR")} alt.
+      </span>
+      <span className="block text-[0.6875rem] font-semibold tabular-nums whitespace-nowrap">
+        {periodicidade === null
+          ? "—"
+          : `${formatBrlCompacto(celula.impacto)}${periodicitySuffix(periodicidade)}`}
+      </span>
+      {celula.semApuracao > 0 && (
+        <span className="block text-[0.625rem] text-slate-500 whitespace-nowrap">
+          {celula.semApuracao} s/ apuração
+        </span>
+      )}
+    </div>
+  );
+
+  if (!recorte) return conteudo;
+  return (
+    <Link href={linkDeAlteracoes({ recorte })} className="block">
+      {conteudo}
+    </Link>
+  );
+}
+
+function LegendaDoRadar() {
+  return (
+    <div className="flex flex-wrap items-center gap-x-8 gap-y-2 text-xs text-slate-500 px-1">
+      <span className="flex items-center gap-2">
+        <span className="w-3 h-3 rounded" style={{ background: "rgba(239, 68, 68, 0.32)" }} />
+        impacto desfavorável
+      </span>
+      <span className="flex items-center gap-2">
+        <span className="w-3 h-3 rounded" style={{ background: "rgba(16, 185, 129, 0.32)" }} />
+        impacto favorável
+      </span>
+      <span className="flex items-center gap-2">
+        <span className="w-3 h-3 rounded bg-slate-100 border border-slate-200" />
+        alterou sem mexer no dinheiro
+      </span>
+      <span className="flex items-center gap-2">
+        <span className="w-3 h-3 rounded border border-dashed border-slate-300" />
+        vigência sem comparação
+      </span>
+      <span className="flex items-center gap-2">
+        <span className="text-slate-300">—</span>
+        sem vigência na competência
+      </span>
+      <span className="flex items-center gap-1.5">
+        <Info className="w-3.5 h-3.5" />
+        Cor mais forte, impacto maior — a escala é a maior célula da grade
+      </span>
+    </div>
   );
 }
