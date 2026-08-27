@@ -73,7 +73,7 @@ export default function BalancoMassa() {
       <header className="border-b bg-card px-8 py-6">
         <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
           <Scale className="w-6 h-6 text-primary" />
-          Balanço de Massa
+          Rastreio de Dados
         </h1>
         <p className="text-muted-foreground mt-1 max-w-3xl">
           Toda célula que entrou por um arquivo tem de sair por um destino
