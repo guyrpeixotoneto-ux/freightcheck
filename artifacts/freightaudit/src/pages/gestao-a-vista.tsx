@@ -18,6 +18,7 @@ import {
   Pause,
   Play,
   Tag,
+  X,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -49,17 +50,16 @@ import {
   periodicityAdjective,
   periodicitySuffix,
 } from "@/lib/format";
-import {
-  rotuloDaCompetencia,
-  SeletorDeVigenciaGeral,
-} from "@/components/vigencia/seletor-de-vigencia";
+import { SeletorDeVigenciaGeral } from "@/components/vigencia/seletor-de-vigencia";
 import { escreverImpacto, ladosDoImpacto, type Impacto } from "@/lib/visao-geral";
 import { lerRecorte, linkDeAlteracoes, nomeDaUnidade, type Recorte } from "@/lib/recorte";
 import { juntarPrioridades, SEVERITY_LABEL } from "@/lib/cockpit";
 import { unidadesPorImpacto, impactoDominante } from "@/components/inicio/visao-geral-consolidada";
 import { seriesDoIntervalo } from "@/components/linha-do-tempo/linha-do-tempo-de-alteracoes";
 import { lerIntervaloSegundos, montarSequenciaDoAutoplay } from "@/lib/gestao-a-vista-autoplay";
+import { rotuloCurtoDaVigencia } from "@workspace/comparison/labels";
 import {
+  atributosDaCelula,
   COLUNAS_PADRAO,
   intensidadeDaCelula,
   janelaDoRadar,
@@ -67,7 +67,9 @@ import {
   montarRadar,
   periodicidadesDoRadar,
   resumoDoRadar,
+  type AtributoDaCelula,
   type CelulaDoRadar,
+  type LinhaDoRadar,
   type UnidadeDoRadar,
 } from "@/lib/gestao-a-vista-radar";
 import type {
@@ -1664,6 +1666,15 @@ function TemplateDeRadar() {
   };
 
   const colunas = lerColunasDoRadar(parametros.get("colunas"));
+  /*
+    A célula aberta é estado de tela, e não da URL, por uma razão só: o Radar
+    roda em telão com autoplay, e um recorte na query string voltaria a abrir a
+    gaveta a cada volta do carrossel. Quem clicou está na frente da tela; quem
+    chegou pelo link quer a grade inteira.
+  */
+  const [celulaAberta, setCelulaAberta] = useState<{ unidade: string; periodo: string } | null>(
+    null,
+  );
   const janela = useMemo(
     () => janelaDoRadar(periodosDisponiveis, periodoSelecionado, colunas),
     [periodosDisponiveis, periodoSelecionado, colunas],
@@ -1748,6 +1759,25 @@ function TemplateDeRadar() {
   const resumo = resumoDoRadar(linhas);
   const maiorDaGrade = maiorImpactoDaGrade(linhas);
 
+  /*
+    A abertura só sobrevive enquanto a célula dela continuar na grade. Trocar a
+    janela, a vigência final ou a periodicidade redesenha a tabela inteira — e
+    um painel de atributos pendurado numa coluna que saiu da tela estaria
+    dizendo "agosto" embaixo de uma grade que agora mostra junho.
+  */
+  const linhaAberta = celulaAberta
+    ? (linhas.find((l) => l.unidade === celulaAberta.unidade) ?? null)
+    : null;
+  const abertura =
+    celulaAberta && linhaAberta
+      ? (linhaAberta.celulas.find(
+          (c) => c.periodo === celulaAberta.periodo && c.estado === "apurado",
+        ) ?? null)
+      : null;
+  const unidadeAberta = celulaAberta
+    ? (unidadesDoRadar.find((u) => u.unidade === celulaAberta.unidade) ?? null)
+    : null;
+
   const consultaDeOrigem = new URLSearchParams();
   for (const chave of ["period", "scopeHash", "canal"]) {
     const valor = parametros.get(chave);
@@ -1787,21 +1817,18 @@ function TemplateDeRadar() {
         </header>
 
         <div className="flex flex-wrap items-center gap-3">
-          <FiltroDoRadar
-            icone={CalendarDays}
-            rotulo={`Até: ${
-              periodoSelecionado
-                ? rotuloDaCompetencia(periodoSelecionado, periodosDisponiveis)
-                : "—"
-            }`}
-          >
+          <FiltroDoRadar icone={CalendarDays} rotulo={`Até: ${
+              periodoSelecionado === null
+                ? "—"
+                : rotuloCurtoDaVigencia(periodoSelecionado, periodosDisponiveis)
+            }`}>
             {periodosDisponiveis.map((data) => (
               <DropdownMenuItem
                 key={data}
                 onSelect={() => trocar({ period: data })}
                 className={cn(data === periodoSelecionado && "font-bold text-brand")}
               >
-                {rotuloDaCompetencia(data, periodosDisponiveis)}
+                {rotuloCurtoDaVigencia(data, periodosDisponiveis)}
               </DropdownMenuItem>
             ))}
           </FiltroDoRadar>
@@ -1891,7 +1918,7 @@ function TemplateDeRadar() {
                       </th>
                       {janela.periodos.map((periodo) => (
                         <th key={periodo} className="py-3 px-2 font-semibold text-center">
-                          {periodo}
+                          {rotuloCurtoDaVigencia(periodo, periodosDisponiveis)}
                         </th>
                       ))}
                       <th className="py-3 pr-5 pl-4 font-semibold text-right">
@@ -1921,14 +1948,17 @@ function TemplateDeRadar() {
                               celula={celula}
                               periodicidade={periodicidade}
                               intensidade={intensidadeDaCelula(celula.impacto, maiorDaGrade)}
-                              recorte={
-                                linha.contextos.length === 1
-                                  ? {
-                                      period: celula.periodo,
-                                      scopeHash: linha.contextos[0].scopeHash,
-                                      canal: linha.contextos[0].canal,
-                                    }
-                                  : null
+                              selecionada={
+                                celulaAberta?.unidade === linha.unidade &&
+                                celulaAberta?.periodo === celula.periodo
+                              }
+                              onAbrir={() =>
+                                setCelulaAberta((atual) =>
+                                  atual?.unidade === linha.unidade &&
+                                  atual?.periodo === celula.periodo
+                                    ? null
+                                    : { unidade: linha.unidade, periodo: celula.periodo },
+                                )
                               }
                             />
                           </td>
@@ -1958,6 +1988,17 @@ function TemplateDeRadar() {
                   </tbody>
                 </table>
               </div>
+
+              {abertura && linhaAberta && unidadeAberta && (
+                <AberturaDaCelulaNaTela
+                  linha={linhaAberta}
+                  unidade={unidadeAberta}
+                  celula={abertura}
+                  periodicidade={periodicidade}
+                  rotuloDaColuna={rotuloCurtoDaVigencia(abertura.periodo, periodosDisponiveis)}
+                  onFechar={() => setCelulaAberta(null)}
+                />
+              )}
 
               {excluidas.length > 0 && (
                 <p className="px-5 py-3 text-xs text-slate-500 border-t border-slate-100 bg-slate-50/60">
@@ -2029,12 +2070,14 @@ function CelulaDoRadarNaTela({
   celula,
   periodicidade,
   intensidade,
-  recorte,
+  selecionada,
+  onAbrir,
 }: {
   celula: CelulaDoRadar;
   periodicidade: string | null;
   intensidade: number;
-  recorte: Recorte | null;
+  selecionada: boolean;
+  onAbrir: () => void;
 }) {
   if (celula.estado === "sem-vigencia") {
     return <div className="text-center text-slate-300 select-none">—</div>;
@@ -2062,7 +2105,8 @@ function CelulaDoRadarNaTela({
           : favoravel
             ? "border-emerald-200 text-emerald-800"
             : "border-red-200 text-red-800",
-        recorte && "hover:border-slate-400 cursor-pointer",
+        "hover:border-slate-400 cursor-pointer",
+        selecionada && "ring-2 ring-slate-900 ring-offset-1 border-transparent",
       )}
       style={
         neutra
@@ -2093,11 +2137,258 @@ function CelulaDoRadarNaTela({
     </div>
   );
 
-  if (!recorte) return conteudo;
   return (
-    <Link href={linkDeAlteracoes({ recorte })} className="block">
+    <button
+      type="button"
+      onClick={onAbrir}
+      aria-expanded={selecionada}
+      className="block w-full text-left"
+      title="Abrir os atributos desta vigência"
+    >
       {conteudo}
-    </Link>
+    </button>
+  );
+}
+
+/**
+ * O que está por trás de uma célula — os atributos que moveram o número.
+ *
+ * A grade responde "quando" e "quanto"; a pergunta seguinte, feita na frente
+ * do telão, é sempre **o que** mexeu. O painel abre embaixo da tabela em vez
+ * de numa gaveta lateral porque a grade continua na tela: quem clicou está
+ * comparando a célula aberta com as vizinhas, e uma gaveta que cobre metade da
+ * matriz tira justamente a comparação que motivou o clique.
+ *
+ * **Dois lados e um resto.** Favoráveis e desfavoráveis são o que o clique
+ * pergunta. O terceiro bloco — o que mexeu sem mover dinheiro nesta grade —
+ * existe para a soma fechar: sem ele, um parâmetro sem preço apurado sumiria, e
+ * a conta dos itens não bateria com as `N alt.` da célula que está logo acima,
+ * ainda selecionada.
+ *
+ * Nada aqui pede dado novo ao servidor: `atributosDaCelula` lê os `entries` da
+ * mesma resposta de `/changes/range` que desenhou a grade.
+ */
+function AberturaDaCelulaNaTela({
+  linha,
+  unidade,
+  celula,
+  periodicidade,
+  rotuloDaColuna,
+  onFechar,
+}: {
+  linha: LinhaDoRadar;
+  unidade: UnidadeDoRadar;
+  celula: CelulaDoRadar;
+  periodicidade: string | null;
+  rotuloDaColuna: string;
+  onFechar: () => void;
+}) {
+  const abertura = useMemo(
+    () => atributosDaCelula(unidade, celula.periodo, periodicidade),
+    [unidade, celula.periodo, periodicidade],
+  );
+
+  const recorte: Recorte | null =
+    linha.contextos.length === 1
+      ? {
+          period: celula.periodo,
+          scopeHash: linha.contextos[0].scopeHash,
+          canal: linha.contextos[0].canal,
+        }
+      : null;
+
+  const nada =
+    abertura.favoraveis.length === 0 &&
+    abertura.desfavoraveis.length === 0 &&
+    abertura.semDinheiro.length === 0;
+
+  return (
+    <div className="border-t border-slate-200 bg-slate-50/70">
+      <div className="px-5 py-4 flex items-start justify-between gap-6">
+        <div className="min-w-0">
+          <p className="text-[0.6875rem] font-semibold uppercase tracking-wide text-slate-500">
+            Atributos da vigência
+          </p>
+          <p className="text-lg font-extrabold tracking-tight truncate">
+            {linha.label}
+            <span className="text-slate-400 font-normal"> · {rotuloDaColuna}</span>
+          </p>
+          <p className="text-xs text-slate-500 mt-0.5">
+            {celula.alteracoes.toLocaleString("pt-BR")} alterações
+            {celula.semApuracao > 0 && ` · ${celula.semApuracao} sem apuração`}
+            {linha.contextos.length > 1 && ` · ${linha.contextos.length} canais somados`}
+          </p>
+        </div>
+        <div className="flex items-center gap-3 shrink-0">
+          <span
+            className={cn(
+              "text-xl font-extrabold tabular-nums",
+              periodicidade === null || celula.impacto === 0
+                ? "text-slate-400"
+                : celula.impacto < 0
+                  ? "text-red-600"
+                  : "text-emerald-600",
+            )}
+          >
+            {periodicidade === null
+              ? "—"
+              : `${formatBrlShort(celula.impacto)}${periodicitySuffix(periodicidade)}`}
+          </span>
+          <button
+            type="button"
+            onClick={onFechar}
+            className="rounded-md p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-200/70"
+            aria-label="Fechar os atributos desta vigência"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      {nada ? (
+        <p className="px-5 pb-5 text-sm text-slate-500">
+          A comparação desta vigência não trouxe atributo nenhum detalhado — a célula tem o total,
+          e a lista por trás dele não veio nesta leitura.
+        </p>
+      ) : (
+        <div className="px-5 pb-5 grid gap-5 md:grid-cols-2">
+          <ListaDeAtributos
+            titulo="Impacto desfavorável"
+            tom="desfavoravel"
+            atributos={abertura.desfavoraveis}
+            periodicidade={periodicidade}
+            vazio="Nenhum atributo puxou o número para baixo nesta vigência."
+          />
+          <ListaDeAtributos
+            titulo="Impacto favorável"
+            tom="favoravel"
+            atributos={abertura.favoraveis}
+            periodicidade={periodicidade}
+            vazio="Nenhum atributo puxou o número para cima nesta vigência."
+          />
+          {abertura.semDinheiro.length > 0 && (
+            <div className="md:col-span-2">
+              <ListaDeAtributos
+                titulo="Mexeu sem mover dinheiro nesta grade"
+                tom="neutro"
+                atributos={abertura.semDinheiro}
+                periodicidade={periodicidade}
+                vazio=""
+              />
+            </div>
+          )}
+        </div>
+      )}
+
+      {recorte && (
+        <div className="px-5 pb-5">
+          <Link
+            href={linkDeAlteracoes({ recorte })}
+            className="inline-flex items-center gap-1.5 text-sm font-semibold text-brand hover:underline"
+          >
+            Ver as alterações desta vigência
+            <ArrowRight className="w-3.5 h-3.5" />
+          </Link>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Um lado da abertura.
+ *
+ * Cada linha diz o valor **e** a contagem porque os dois respondem perguntas
+ * diferentes: o valor é o que entrou na célula, a contagem é o tamanho do
+ * movimento por trás dele. Uma alteração de R$ 40 mil e quarenta de mil reais
+ * pedem conversas diferentes com a unidade, e um painel que mostrasse só o
+ * dinheiro faria as duas parecerem a mesma coisa.
+ *
+ * `sem apuração` e `apurado em outra periodicidade` saem escritos na linha, e
+ * não somados a zero: um parâmetro cujo dinheiro é anual não é um parâmetro
+ * sem dinheiro — ele está na outra grade, e dizer "R$ 0" aqui seria afirmar
+ * calma onde há valor que esta tela não está desenhando.
+ */
+function ListaDeAtributos({
+  titulo,
+  tom,
+  atributos,
+  periodicidade,
+  vazio,
+}: {
+  titulo: string;
+  tom: "favoravel" | "desfavoravel" | "neutro";
+  atributos: AtributoDaCelula[];
+  periodicidade: string | null;
+  vazio: string;
+}) {
+  return (
+    <div>
+      <p
+        className={cn(
+          "text-[0.6875rem] font-semibold uppercase tracking-wide mb-2",
+          tom === "desfavoravel"
+            ? "text-red-600"
+            : tom === "favoravel"
+              ? "text-emerald-600"
+              : "text-slate-500",
+        )}
+      >
+        {titulo}
+        {atributos.length > 0 && (
+          <span className="text-slate-400 font-normal"> · {atributos.length}</span>
+        )}
+      </p>
+
+      {atributos.length === 0 ? (
+        <p className="text-sm text-slate-500">{vazio}</p>
+      ) : (
+        <ul className="space-y-1.5">
+          {atributos.map((atributo) => (
+            <li
+              key={atributo.parameterKey}
+              className={cn(
+                "flex items-baseline justify-between gap-4 rounded-lg border bg-white px-3 py-2",
+                tom === "desfavoravel"
+                  ? "border-red-100"
+                  : tom === "favoravel"
+                    ? "border-emerald-100"
+                    : "border-slate-200",
+              )}
+            >
+              <span className="min-w-0">
+                <span className="block text-sm font-semibold truncate" title={atributo.parameterName}>
+                  {atributo.parameterName}
+                </span>
+                <span className="block text-[0.6875rem] text-slate-500">
+                  {atributo.alteracoes.toLocaleString("pt-BR")}{" "}
+                  {atributo.alteracoes === 1 ? "alteração" : "alterações"}
+                  {atributo.semApuracao > 0 && ` · ${atributo.semApuracao} sem apuração`}
+                  {atributo.outraPeriodicidade > 0 &&
+                    ` · ${atributo.outraPeriodicidade} apurada${
+                      atributo.outraPeriodicidade === 1 ? "" : "s"
+                    } em outra periodicidade`}
+                </span>
+              </span>
+              <span
+                className={cn(
+                  "text-sm font-bold tabular-nums whitespace-nowrap",
+                  tom === "desfavoravel"
+                    ? "text-red-600"
+                    : tom === "favoravel"
+                      ? "text-emerald-600"
+                      : "text-slate-400",
+                )}
+              >
+                {periodicidade === null || atributo.impacto === 0
+                  ? "—"
+                  : `${formatBrlCompacto(atributo.impacto)}${periodicitySuffix(periodicidade)}`}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 

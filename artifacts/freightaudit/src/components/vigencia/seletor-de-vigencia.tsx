@@ -116,9 +116,16 @@ export function SeletorDeVigenciaGeral({
       rotulo={rotulo}
       className={className}
       cabecalho={`${periodos.length} competências disponíveis`}
+      /*
+        `rotuloCurtoDaVigencia` é a mesma regra que o servidor aplica ao montar
+        `view.periods` — mês com uma entrega vira `agosto/2026`, mês com duas
+        vira `02/08/2026` —, aqui aplicada no navegador porque
+        `periodosOverview` chega de `/contexts` como data crua. Uma função só,
+        para que os dois seletores nunca chamem a mesma vigência de dois nomes.
+      */
       opcoes={periodos.map((data) => ({
         data,
-        rotulo: rotuloDaCompetencia(data, periodos),
+        rotulo: rotuloCurtoDaVigencia(data, periodos),
         alteracoes: alteracoesPorVigencia.get(data) ?? null,
       }))}
       ativa={ativa}
@@ -127,19 +134,6 @@ export function SeletorDeVigenciaGeral({
       onAbrir={setAberto}
     />
   );
-}
-
-/**
- * `2026-08-02` como a tela chama a vigência.
- *
- * É a mesma regra que o servidor aplica ao montar `view.periods` — mês com uma
- * entrega vira `agosto/2026`, mês com duas vira `02/08/2026` —, aqui aplicada
- * no navegador porque `periodosOverview` chega de `/contexts` como data crua.
- * Uma função só (`rotuloCurtoDaVigencia`, em `@workspace/comparison`) para que
- * os dois seletores nunca chamem a mesma vigência de dois nomes.
- */
-export function rotuloDaCompetencia(data: string, doConjunto: readonly string[]): string {
-  return rotuloCurtoDaVigencia(data, doConjunto);
 }
 
 /** A casca comum dos dois seletores — o que faz as duas listas serem uma só. */

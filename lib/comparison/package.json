@@ -7,8 +7,8 @@
     ".": "./src/index.ts",
     "./testing": "./src/testing.ts",
     "./deduplicacao": "./src/deduplicacao.ts",
-    "./composition": "./src/composition.ts",
     "./labels": "./src/labels.ts",
+    "./composition": "./src/composition.ts",
     "./tipos": "./src/tipos.ts",
     "./tipos-da-vigencia": "./src/tipos-da-vigencia.ts"
   },
