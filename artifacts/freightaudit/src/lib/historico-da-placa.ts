@@ -87,6 +87,10 @@ export interface AlteracaoDaPlaca {
   attributeName: string | null;
   valueBefore: string | null;
   valueAfter: string | null;
+  /** `CALCULATED` quando a comparação conseguiu precificar a alteração. */
+  impactConfidence: string;
+  impactAmount: number | null;
+  impactPeriodicity: string | null;
 }
 
 /** Uma coluna da grade: a vigência, o que mudou nela, e o que já foi explicado. */
@@ -267,4 +271,96 @@ export function pendentesDaVigencia<T extends AlteracaoDaPlaca>(
     }
   }
   return pendentes;
+}
+
+// ---------------------------------------------------------------------------
+// A direção do dinheiro
+// ---------------------------------------------------------------------------
+
+export type DirecaoDoImpacto =
+  /** Apurado e a favor — o produto pinta ganho de verde em toda parte. */
+  | "favoravel"
+  /** Apurado e contra. */
+  | "desfavoravel"
+  /** Apurado e não moveu dinheiro, ou moveu para os dois lados e não há direção única. */
+  | "neutro"
+  /** A comparação viu a alteração e não conseguiu precificá-la. */
+  | "sem-apuracao";
+
+export interface ImpactoDaCelula {
+  direcao: DirecaoDoImpacto;
+  /** A soma apurada, quando somar é legítimo. `null` quando não é. */
+  amount: number | null;
+  periodicity: string | null;
+  /**
+   * A célula tem impactos em periodicidades diferentes — R$/mês e R$/ano não
+   * somam (a mesma recusa do Radar), então `amount` fica `null` e só a direção
+   * sobrevive, e mesmo assim apenas quando todos os sinais concordam.
+   */
+  misturado: boolean;
+  /** Quantas alterações da célula a comparação não conseguiu precificar. */
+  semApuracao: number;
+}
+
+/**
+ * O dinheiro por trás de uma célula, e para que lado ele foi.
+ *
+ * Verde é ganho e vermelho é perda no produto inteiro — Dashboard, Gestão à
+ * Vista, Planilha de Alterações. A grade da placa nasceu usando verde para
+ * "justificada", e as duas leituras se atropelavam na mesma célula: um
+ * `5210,40 → 0` verde parecia dizer que zerar o lucro variável foi bom. Aqui a
+ * cor volta a significar só uma coisa — a direção do dinheiro —, e o estado da
+ * justificativa passa a ser dito por forma (ver `pages/justificativas-placa.
+ * tsx`).
+ *
+ * Três recusas herdadas do resto da casa:
+ *
+ * 1. **Periodicidade não soma.** Duas alterações na mesma célula, uma mensal e
+ *    outra anual, não viram um número só. Sobra a direção, e só quando os
+ *    sinais concordam.
+ * 2. **Sem preço não é zero.** Uma alteração que a comparação não conseguiu
+ *    precificar sai como `"sem-apuracao"`, com a contagem à mão — nunca
+ *    pintada como uma alteração que não custou nada.
+ * 3. **Zero apurado é uma resposta.** `"neutro"` é a comparação dizendo que
+ *    olhou e não achou dinheiro ali; é diferente de não ter olhado.
+ */
+export function impactoDaCelula(alteracoes: readonly AlteracaoDaPlaca[]): ImpactoDaCelula {
+  const apuradas = alteracoes.filter(
+    (a) => a.impactConfidence === "CALCULATED" && a.impactAmount !== null,
+  );
+  const semApuracao = alteracoes.length - apuradas.length;
+
+  if (apuradas.length === 0) {
+    return {
+      direcao: "sem-apuracao",
+      amount: null,
+      periodicity: null,
+      misturado: false,
+      semApuracao,
+    };
+  }
+
+  const periodicidades = new Set(apuradas.map((a) => a.impactPeriodicity));
+  const sinais = new Set(apuradas.map((a) => Math.sign(a.impactAmount ?? 0)));
+
+  if (periodicidades.size > 1) {
+    const direcao: DirecaoDoImpacto =
+      sinais.size === 1
+        ? sinais.has(1)
+          ? "favoravel"
+          : sinais.has(-1)
+            ? "desfavoravel"
+            : "neutro"
+        : "neutro";
+    return { direcao, amount: null, periodicity: null, misturado: true, semApuracao };
+  }
+
+  const amount = apuradas.reduce((soma, a) => soma + (a.impactAmount ?? 0), 0);
+  return {
+    direcao: amount > 0 ? "favoravel" : amount < 0 ? "desfavoravel" : "neutro",
+    amount,
+    periodicity: apuradas[0].impactPeriodicity,
+    misturado: false,
+    semApuracao,
+  };
 }

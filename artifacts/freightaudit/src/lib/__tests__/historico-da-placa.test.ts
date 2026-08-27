@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  impactoDaCelula,
   janelaDeVigencias,
   lerJanela,
   montarGradeDaPlaca,
@@ -26,6 +27,8 @@ const comparacao = (id: string, data: string): Comparacao => ({
   id,
   snapshotBLabel: id,
   snapshotBDate: data,
+  alteracoes: 0,
+  scopeHash: null,
 });
 
 /** As comparações como `/change-sets` as devolve: da mais recente para a mais antiga. */
@@ -36,12 +39,21 @@ const COMPARACOES = [
   comparacao("set-mai", "2026-05-01"),
 ];
 
-const alteracao = (id: number, code: string, antes: string, depois: string): AlteracaoDaPlaca => ({
+const alteracao = (
+  id: number,
+  code: string,
+  antes: string,
+  depois: string,
+  impacto?: { amount: number | null; periodicity?: string; confidence?: string },
+): AlteracaoDaPlaca => ({
   id,
   attributeCode: code,
   attributeName: code,
   valueBefore: antes,
   valueAfter: depois,
+  impactConfidence: impacto?.confidence ?? (impacto ? "CALCULATED" : "NOT_CALCULABLE"),
+  impactAmount: impacto?.amount ?? null,
+  impactPeriodicity: impacto?.periodicity ?? (impacto ? "MONTHLY" : null),
 });
 
 function vigencia(
@@ -192,5 +204,66 @@ describe("pendentesDaVigencia", () => {
     ]);
     expect(pendentesDaVigencia(linhas, "set-ago").map((a) => a.id)).toEqual([2]);
     expect(pendentesDaVigencia(linhas, "set-jul")).toEqual([]);
+  });
+});
+
+/**
+ * A cor da célula é o dinheiro, e não o estado da justificativa — o conserto
+ * que esta régua existe para sustentar. Verde é ganho e vermelho é perda no
+ * produto inteiro; a grade não pode dizer outra coisa com as mesmas cores.
+ */
+describe("impactoDaCelula", () => {
+  it("apurado e a favor é favorável; apurado e contra é desfavorável", () => {
+    expect(impactoDaCelula([alteracao(1, "a", "0", "1", { amount: 1200 })])).toMatchObject({
+      direcao: "favoravel",
+      amount: 1200,
+      periodicity: "MONTHLY",
+    });
+    expect(impactoDaCelula([alteracao(2, "a", "1", "0", { amount: -900 })])).toMatchObject({
+      direcao: "desfavoravel",
+      amount: -900,
+    });
+  });
+
+  it("sem preço não é zero — sai como sem apuração, com a contagem à mão", () => {
+    const impacto = impactoDaCelula([alteracao(3, "a", "PARADO", "ATIVO")]);
+    expect(impacto.direcao).toBe("sem-apuracao");
+    expect(impacto.amount).toBeNull();
+    expect(impacto.semApuracao).toBe(1);
+  });
+
+  it("zero apurado é uma resposta, e não a ausência dela", () => {
+    expect(impactoDaCelula([alteracao(4, "a", "1", "1", { amount: 0 })]).direcao).toBe("neutro");
+  });
+
+  it("periodicidades diferentes não somam — sobra a direção quando os sinais concordam", () => {
+    const impacto = impactoDaCelula([
+      alteracao(5, "a", "0", "1", { amount: -100, periodicity: "MONTHLY" }),
+      alteracao(6, "a", "0", "1", { amount: -1200, periodicity: "YEARLY" }),
+    ]);
+    expect(impacto).toMatchObject({ direcao: "desfavoravel", amount: null, misturado: true });
+  });
+
+  it("sinais em desacordo não inventam direção", () => {
+    const impacto = impactoDaCelula([
+      alteracao(7, "a", "0", "1", { amount: -100, periodicity: "MONTHLY" }),
+      alteracao(8, "a", "0", "1", { amount: 300, periodicity: "YEARLY" }),
+    ]);
+    expect(impacto.direcao).toBe("neutro");
+    expect(impacto.misturado).toBe(true);
+  });
+
+  it("soma o que é da mesma periodicidade, e conta à parte o que não tem preço", () => {
+    const impacto = impactoDaCelula([
+      alteracao(9, "a", "0", "1", { amount: -100 }),
+      alteracao(10, "a", "1", "2", { amount: -250 }),
+      alteracao(11, "a", "x", "y"),
+    ]);
+    expect(impacto).toMatchObject({
+      direcao: "desfavoravel",
+      amount: -350,
+      periodicity: "MONTHLY",
+      semApuracao: 1,
+    });
   });
 });
