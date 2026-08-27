@@ -1,10 +1,11 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
 import {
   AlertTriangle,
   ArrowDownRight,
   ArrowUpRight,
+  Building2,
   CalendarDays,
   ChartNoAxesCombined,
   ChevronRight,
@@ -64,6 +65,7 @@ import {
   participacao,
   partesDoImpacto,
   pontosDeAtencao,
+  pontosDeAtencaoDaVisaoGeral,
   qualidadeDaCobertura,
   ultimaImportacao,
   ultimasAlteracoes,
@@ -71,6 +73,7 @@ import {
   vigenciaAnterior,
   type ExecucaoDeImportacao,
   type FocoDeAlteracoes,
+  type Impacto,
   type Lado,
   type LadosDoImpacto,
   type LinhaDeAlteracao,
@@ -84,11 +87,18 @@ import {
   type Recorte,
 } from "@/lib/recorte";
 import { formatBrlShort } from "@/lib/format";
-import { VisaoGeralConteudo } from "@/components/inicio/visao-geral-consolidada";
+import {
+  ComparacaoPorUnidade,
+  CoberturaDaVisaoGeral,
+  unidadesPorImpacto,
+} from "@/components/inicio/visao-geral-consolidada";
+import { DetalheDaUnidadeNaComparacao } from "@/components/inicio/detalhe-da-unidade-na-comparacao";
 import type {
   FamiliesOverview,
   FamiliesView,
   GroupedView,
+  OverviewContextRef,
+  OverviewUnitIncluded,
 } from "@/components/inicio/types";
 import type { BalancoResumo } from "@/components/balanco/tipos";
 import { useAlteracoesPorVigencia } from "@/hooks/use-alteracoes-por-vigencia";
@@ -120,6 +130,13 @@ import { SeletorDeVigencia } from "@/components/vigencia/seletor-de-vigencia";
  *    lugar; sem resposta do servidor, o cartão some e a grade fecha.
  * 3. **Nenhuma comparação inventada.** "vs vigência anterior" só aparece quando
  *    existe vigência anterior e ela foi de fato consultada.
+ *
+ * **A Visão Geral é esta mesma tela, sobre a soma das unidades.** Trocar
+ * PERNAMBUCO por Visão Geral no seletor da lateral troca o assunto, não o
+ * desenho: a mesma régua de cinco cartões, a mesma faixa de atenção, o mesmo
+ * pódio e o mesmo painel de qualidade — com o que a soma sustenta dentro, e
+ * sem o que ela não sustenta. O corpo dela é `ConteudoDaVisaoGeral`, lá
+ * embaixo, e cada diferença entre as duas leituras tem o motivo escrito ali.
  */
 
 /**
@@ -415,7 +432,14 @@ export default function Inicio() {
               <BancoVazio />
             )}
             {overview && (
-              <VisaoGeralConteudo overview={overview} search={search} onTrocar={trocarPara} />
+              <ConteudoDaVisaoGeral
+                overview={overview}
+                search={search}
+                cobertura={coberturaAuditada}
+                integridade={integridadeDosDados}
+                ultima={ultima}
+                onTrocar={trocarPara}
+              />
             )}
           </>
         ) : (
@@ -482,7 +506,7 @@ export default function Inicio() {
 
             <div className="grid gap-5 lg:grid-cols-2">
               <QualidadeDaAuditoria
-                view={view}
+                semPreco={view.impact.notCalculable}
                 cobertura={coberturaAuditada}
                 ultima={ultima}
               />
@@ -1371,7 +1395,21 @@ const ICONES_DO_PONTO: Record<string, LucideIcon> = {
  * vigências diferentes. Uma faixa que só sabe ficar vermelha ensina o olho a
  * pular por cima dela.
  */
-function Atencao({ pontos }: { pontos: PontoDeAtencao[] }) {
+function Atencao({
+  pontos,
+  onAbrir,
+}: {
+  pontos: PontoDeAtencao[];
+  /**
+   * O que fazer com um ponto sem destino (`href: null`).
+   *
+   * Só a Visão Geral produz pontos assim, e a razão está em `PontoDeAtencao`:
+   * as telas de destino recortam por unidade, e a soma de unidades não tem uma
+   * unidade para mandar. Sem esta função, o ponto continua aparecendo — ele é
+   * uma leitura verdadeira do estado —, só que sem clique.
+   */
+  onAbrir?: () => void;
+}) {
   if (pontos.length === 0) return null;
 
   return (
@@ -1398,15 +1436,12 @@ function Atencao({ pontos }: { pontos: PontoDeAtencao[] }) {
         >
           {pontos.map((ponto, indice) => {
             const Icone = ICONES_DO_PONTO[ponto.chave] ?? Info;
-            return (
-              <Link
-                key={ponto.chave}
-                href={ponto.href}
-                className={cn(
-                  "group flex items-start gap-2.5 min-w-0",
-                  indice > 0 && "xl:pl-6",
-                )}
-              >
+            const classe = cn(
+              "group flex items-start gap-2.5 min-w-0 text-left",
+              indice > 0 && "xl:pl-6",
+            );
+            const corpo = (
+              <>
                 <span
                   className={cn(
                     "w-2.5 h-2.5 rounded-full shrink-0 mt-1.5",
@@ -1432,7 +1467,27 @@ function Atencao({ pontos }: { pontos: PontoDeAtencao[] }) {
                     </span>
                   )}
                 </span>
-              </Link>
+              </>
+            );
+
+            if (ponto.href !== null) {
+              return (
+                <Link key={ponto.chave} href={ponto.href} className={classe}>
+                  {corpo}
+                </Link>
+              );
+            }
+
+            return (
+              <button
+                key={ponto.chave}
+                type="button"
+                onClick={onAbrir}
+                disabled={onAbrir === undefined}
+                className={cn(classe, onAbrir === undefined && "cursor-default")}
+              >
+                {corpo}
+              </button>
             );
           })}
         </div>
@@ -1482,11 +1537,23 @@ function MaioresImpactos({
   ranking,
   period,
   onAbrir,
+  tituloDaLinha = (nome) => `De onde vem o impacto de ${nome}`,
 }: {
   ranking: ReturnType<typeof maioresImpactos>;
-  period: string;
+  /**
+   * A vigência que o botão do rodapé leva para Parâmetros — `null` na Visão
+   * Geral, e aí o botão some.
+   *
+   * Parâmetros recorta por unidade, e um endereço sem `scopeHash` cai em
+   * `contexts[0]`: o botão prometeria "todos os impactos" e entregaria os de
+   * uma unidade só, debaixo de um pódio que somou todas. É a mesma recusa de
+   * `PontoDeAtencao.href`.
+   */
+  period: string | null;
   /** Abre a conta por trás de uma linha. Ver `DetalheDoImpacto`. */
   onAbrir: (key: string) => void;
+  /** O `title` de cada linha — o que o clique promete, que muda com o destino. */
+  tituloDaLinha?: (nome: string) => string;
 }) {
   return (
     <section className={cn(CARTAO, "px-6 py-5 flex flex-col")}>
@@ -1518,7 +1585,7 @@ function MaioresImpactos({
                 <button
                   type="button"
                   onClick={() => onAbrir(linha.key)}
-                  title={`De onde vem o impacto de ${linha.name}`}
+                  title={tituloDaLinha(linha.name)}
                   className="w-full flex items-center gap-3 text-left rounded-lg px-2 -mx-2 py-1.5 -my-1.5 hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand transition-colors group"
                 >
                   <span className="w-6 h-6 rounded-full border text-[0.6875rem] font-bold flex items-center justify-center shrink-0 text-muted-foreground">
@@ -1575,13 +1642,15 @@ function MaioresImpactos({
         </>
       )}
 
-      <Link
-        href={`/parametros?period=${period}`}
-        className="mt-5 self-start inline-flex items-center gap-1.5 rounded-lg border border-brand px-5 py-2.5 text-sm font-bold text-brand hover:bg-accent transition-colors"
-      >
-        Ver todos os impactos
-        <ChevronRight className="w-4 h-4" />
-      </Link>
+      {period !== null && (
+        <Link
+          href={`/parametros?period=${period}`}
+          className="mt-5 self-start inline-flex items-center gap-1.5 rounded-lg border border-brand px-5 py-2.5 text-sm font-bold text-brand hover:bg-accent transition-colors"
+        >
+          Ver todos os impactos
+          <ChevronRight className="w-4 h-4" />
+        </Link>
+      )}
     </section>
   );
 }
@@ -1814,11 +1883,19 @@ function LeiturasDeAlteracoes({
  * fácil de mentir numa tela e a mais difícil de conferir.
  */
 function QualidadeDaAuditoria({
-  view,
+  semPreco,
   cobertura: coberturaAuditada,
   ultima,
 }: {
-  view: FamiliesView;
+  /**
+   * As alterações sem preço — `view.impact.notCalculable` numa unidade,
+   * `overview.summary.notCalculable` na soma de unidades.
+   *
+   * O painel pedia o `FamiliesView` inteiro para ler um número só, e era esse
+   * pedido que impedia a Visão Geral de mostrar o mesmo painel: ela tem o
+   * número e não tem a vigência.
+   */
+  semPreco: number;
   cobertura: ReturnType<typeof cobertura>;
   ultima: ReturnType<typeof ultimaImportacao>;
 }) {
@@ -1854,7 +1931,7 @@ function QualidadeDaAuditoria({
         )}
 
         <Medida
-          valor={view.impact.notCalculable.toLocaleString("pt-BR")}
+          valor={semPreco.toLocaleString("pt-BR")}
           rotulo="Alterações sem preço"
           nota="requerem análise"
         />
@@ -2024,6 +2101,479 @@ function Explorar() {
           </Link>
         ))}
       </div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// A Visão Geral — a mesma tela, sobre a soma das unidades
+// ---------------------------------------------------------------------------
+
+/**
+ * O corpo do Resumo executivo quando o seletor da lateral está em **Visão
+ * Geral**.
+ *
+ * Ele é a mesma tela de uma unidade, e é essa a decisão: trocar de PERNAMBUCO
+ * para Visão Geral trocava o assunto **e** o desenho — cinco cartões viravam
+ * três, a faixa de atenção sumia, o pódio virava um botão e a qualidade da
+ * apuração desaparecia. Quem trocava tinha de reaprender onde cada número mora
+ * a cada ida e volta, e a impressão que sobrava era a de que a Visão Geral sabe
+ * menos do que sabe: `ExecutiveSummary` é o mesmo tipo nos dois lados, com os
+ * dois lados do impacto, o pódio de parâmetros e as alterações sem preço
+ * dentro.
+ *
+ * O que muda entre as duas telas é só o que o dado não sustenta, e cada
+ * diferença tem motivo escrito:
+ *
+ * 1. **Nada aqui abre uma tela recortada por unidade.** Parâmetros e Alterações
+ *    filtram por `scopeHash`; sem ele o servidor cai em `contexts[0]` e a lista
+ *    seria de uma unidade só, debaixo de um número que somou todas. Onde a tela
+ *    de uma unidade navega, esta abre a **comparação por unidade** — que é onde
+ *    a soma se desfaz nas parcelas que a produziram, e de onde se entra numa
+ *    unidade com o recorte certo.
+ * 2. **"Alterações em destaque" vira "Unidades em destaque".** O destaque sai
+ *    de `cockpit`/`groups`, e a v1 do overview não mescla nem um nem outro
+ *    entre unidades (ver `getFamiliesOverview` no servidor). O que existe
+ *    somado é o resumo de cada unidade — então o painel da direita responde a
+ *    pergunta que só a Visão Geral tem: *qual unidade puxa este número*.
+ * 3. **A partição "no valor / só formato" não aparece**, porque
+ *    `formatOnlyChanges` mora em `totals`, que é por vigência. O cartão mostra
+ *    a contagem sem a barra em vez de estimar a divisão.
+ *
+ * A faixa amarela de "visão parcial" também sobrevive à troca, com o outro
+ * sentido: lá é série que faltou chegar, aqui é unidade que ficou fora da soma.
+ * A recusa é a mesma — o que falta nunca é contado como zero.
+ */
+function ConteudoDaVisaoGeral({
+  overview,
+  search,
+  cobertura: coberturaAuditada,
+  integridade: integridadeDosDados,
+  ultima,
+  onTrocar,
+}: {
+  overview: FamiliesOverview;
+  search: string;
+  cobertura: ReturnType<typeof cobertura>;
+  integridade: ReturnType<typeof integridade>;
+  ultima: ReturnType<typeof ultimaImportacao>;
+  onTrocar: (mudancas: Record<string, string | null>) => void;
+}) {
+  const semConsolidacaoSegura = overview.unitsIncluded.length === 0;
+  const ranking = maioresImpactos(overview.summary);
+  const unidades = unidadesPorImpacto(overview);
+
+  /*
+    A comparação mora na URL, como as gavetas da tela de uma unidade; a unidade
+    aberta por cima dela, não.
+
+    A gaveta de uma unidade é uma leitura de dentro da comparação — fechá-la
+    volta para a lista —, e é assim que `ComparacaoPorUnidade` já a trata. Duas
+    telas guardando a mesma gaveta em lugares diferentes seria a contradição que
+    o próximo endereço colado revelaria.
+  */
+  const comparando = new URLSearchParams(search).get("compararUnidades") === "1";
+  const abrirComparacao = () => onTrocar({ compararUnidades: "1" });
+  const [unidadeAberta, setUnidadeAberta] = useState<{
+    contexto: OverviewContextRef;
+    label: string;
+  } | null>(null);
+
+  return (
+    <>
+      <CoberturaDaVisaoGeral overview={overview} />
+
+      {semConsolidacaoSegura ? (
+        <section className={cn(CARTAO, "px-6 py-8 text-center")}>
+          <p className="text-base font-bold">
+            Nenhuma unidade pôde ser consolidada com segurança nesta competência.
+          </p>
+          <p className="text-sm text-muted-foreground mt-1.5 max-w-md mx-auto">
+            A competência existe — a lista acima diz quais unidades ficaram de fora e por quê.
+          </p>
+        </section>
+      ) : (
+        <>
+          <IndicadoresDaVisaoGeral
+            overview={overview}
+            cobertura={coberturaAuditada}
+            onComparar={abrirComparacao}
+          />
+
+          <Atencao
+            pontos={pontosDeAtencaoDaVisaoGeral(overview, ranking, integridadeDosDados)}
+            onAbrir={abrirComparacao}
+          />
+
+          <SomaParcial overview={overview} />
+
+          <div className="grid gap-5 lg:grid-cols-2">
+            <MaioresImpactos
+              ranking={ranking}
+              period={null}
+              onAbrir={abrirComparacao}
+              tituloDaLinha={(nome) =>
+                `${nome} soma unidades diferentes — abrir a comparação por unidade`
+              }
+            />
+            <UnidadesEmDestaque
+              unidades={unidades}
+              onVerTodas={abrirComparacao}
+              onEntrar={(contexto, label) => setUnidadeAberta({ contexto, label })}
+            />
+          </div>
+
+          <div className="grid gap-5 lg:grid-cols-2">
+            <QualidadeDaAuditoria
+              semPreco={overview.summary.notCalculable}
+              cobertura={coberturaAuditada}
+              ultima={ultima}
+            />
+            <Explorar />
+          </div>
+
+          <p className="text-xs text-muted-foreground">
+            O detalhamento por família e o drill-down por parâmetro só existem dentro de uma
+            unidade específica, nunca somados entre unidades — cada número acima abre a
+            comparação por unidade, e é de lá que se entra no detalhe de uma delas.
+          </p>
+        </>
+      )}
+
+      {comparando && (
+        <ComparacaoPorUnidade
+          overview={overview}
+          onFechar={() => onTrocar({ compararUnidades: null })}
+        />
+      )}
+
+      {unidadeAberta && (
+        <DetalheDaUnidadeNaComparacao
+          contexto={unidadeAberta.contexto}
+          label={unidadeAberta.label}
+          period={overview.period}
+          onFechar={() => setUnidadeAberta(null)}
+        />
+      )}
+    </>
+  );
+}
+
+/**
+ * A régua de cinco, sobre a soma — os mesmos cartões, com o que o overview
+ * sustenta dentro.
+ *
+ * Os quatro primeiros abrem a comparação por unidade em vez de uma tela
+ * recortada; o quinto (cobertura) continua indo ao Balanço de massa, porque
+ * `/balance` já é a leitura de todas as importações e não recorta por unidade
+ * nenhuma — é o mesmo número que a tela de uma unidade mostra, pela mesma
+ * razão. "Veículos afetados" continua sem destino, como lá.
+ */
+function IndicadoresDaVisaoGeral({
+  overview,
+  cobertura: coberturaAuditada,
+  onComparar,
+}: {
+  overview: FamiliesOverview;
+  cobertura: ReturnType<typeof cobertura>;
+  onComparar: () => void;
+}) {
+  const impactos = Object.entries(overview.summary.impact.byPeriodicity)
+    .map(([periodicity, amount]) => ({ periodicity, amount }))
+    .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
+  const lados = ladosDoImpacto(overview).filter((l) => l.fatiaDeGanho !== null);
+  const semPreco = participacao(overview.summary.notCalculable, overview.summary.changes);
+  const qualidade = coberturaAuditada ? qualidadeDaCobertura(coberturaAuditada.percentual) : null;
+  const somadas = `${overview.unitsIncluded.length} ${
+    overview.unitsIncluded.length === 1 ? "unidade somada" : "unidades somadas"
+  }`;
+
+  return (
+    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+      <Indicador
+        icone={ReceiptText}
+        titulo="Impacto líquido"
+        ajuda="A soma, por periodicidade, do impacto apurado em cada unidade incluída — o que somou menos o que subtraiu. R$/mês e R$/ano nunca são somados: são grandezas diferentes."
+        aoAbrir={onComparar}
+        abrir="ver o impacto unidade a unidade"
+      >
+        {impactos.length === 0 ? (
+          <>
+            <ValorGrande texto="Nenhum valor apurável" apagado />
+            <Nota
+              texto={`${overview.summary.notCalculable.toLocaleString("pt-BR")} ${
+                overview.summary.notCalculable === 1
+                  ? "alteração sem preço"
+                  : "alterações sem preço"
+              }`}
+            />
+          </>
+        ) : (
+          <>
+            {impactos.map((impacto) => {
+              const partes = partesDoImpacto(impacto);
+              return (
+                <ValorGrande
+                  key={impacto.periodicity ?? "sem-periodicidade"}
+                  texto={partes.valor}
+                  sufixo={partes.sufixo}
+                  tom={impacto.amount < 0 ? "grave" : "ok"}
+                />
+              );
+            })}
+            <p
+              className={cn(
+                "text-sm font-semibold mt-1 flex items-center gap-1",
+                impactos[0].amount < 0 ? "text-red-700" : "text-emerald-700",
+              )}
+            >
+              {impactos[0].amount < 0 ? (
+                <ArrowDownRight className="w-4 h-4" />
+              ) : (
+                <ArrowUpRight className="w-4 h-4" />
+              )}
+              {impactos[0].amount < 0 ? "desfavorável" : "favorável"}
+            </p>
+            {/*
+              Os dois lados abrem a comparação, e não a balança da vigência: a
+              balança parte o líquido por parâmetro, e parâmetro é o eixo que a
+              soma de unidades não mescla. Os números ficam — eles saem de
+              `summary.sides`, que o servidor soma —, o destino é que muda.
+            */}
+            <DoisLados lados={lados} onAbrir={onComparar} />
+            {/*
+              "vs vigência anterior" não aparece aqui, e a ausência é
+              deliberada: a competência anterior da soma pode ter incluído outro
+              conjunto de unidades, e a variação entre as duas seria lida como
+              movimento da remuneração quando pode ser troca de população. O que
+              se pode afirmar é quantas unidades este número soma.
+            */}
+            <Nota texto={somadas} />
+          </>
+        )}
+      </Indicador>
+
+      <Indicador
+        icone={FileText}
+        titulo="Alterações detectadas"
+        ajuda="Cada célula que veio diferente da vigência anterior de cada unidade, contada uma vez por ativo e por parâmetro, somada entre as unidades incluídas."
+        aoAbrir={overview.summary.changes === 0 ? undefined : onComparar}
+        abrir="ver as alterações unidade a unidade"
+      >
+        <ValorGrande texto={overview.summary.changes.toLocaleString("pt-BR")} />
+        <Nota texto={`${overview.summary.groups} pontos da remuneração tocados`} />
+      </Indicador>
+
+      <Indicador
+        icone={Truck}
+        titulo="Veículos afetados"
+        ajuda="Ativos com pelo menos uma alteração, somados entre as unidades incluídas. É soma simples: um mesmo ativo que aparecesse em duas unidades seria contado duas vezes, e a Visão Geral não deduplica por placa."
+        /* Sem destino, como na tela de uma unidade — a razão está em `Indicadores`. */
+      >
+        <ValorGrande texto={overview.summary.vehiclesTouched.toLocaleString("pt-BR")} />
+        <Nota texto="soma simples entre unidades, não deduplicada por placa" />
+      </Indicador>
+
+      <Indicador
+        icone={CircleHelp}
+        titulo="Sem impacto calculável"
+        ajuda="Alterações reais que o sistema não sabe valorar — falta semântica confirmada ou preço. Elas não entram no impacto acima, e nenhuma delas foi arredondada para zero."
+        aoAbrir={overview.summary.notCalculable === 0 ? undefined : onComparar}
+        abrir="ver em que unidades elas estão"
+      >
+        <ValorGrande texto={overview.summary.notCalculable.toLocaleString("pt-BR")} />
+        {semPreco !== null && <Nota texto={`${escreverPercentual(semPreco)} das alterações`} />}
+      </Indicador>
+
+      <Indicador
+        icone={ShieldCheck}
+        titulo="Cobertura auditada"
+        ajuda="Das células que as planilhas trouxeram, quanto a auditoria alcança: tudo menos a perda declarada e o resíduo sem destino. É percentual de célula, não de dinheiro, e já é a leitura de todas as importações."
+        tom="ok"
+        href={coberturaAuditada === null ? undefined : "/balanco-massa"}
+        abrir="ver a conservação célula a célula"
+      >
+        {coberturaAuditada === null ? (
+          <>
+            <ValorGrande texto="sem importação" apagado />
+            <Nota texto="nenhuma planilha conferida ainda" />
+          </>
+        ) : (
+          <>
+            <ValorGrande
+              texto={escreverPercentual(coberturaAuditada.percentual, 1)}
+              tom={qualidade?.tom}
+            />
+            <Nota texto="das células importadas" />
+            <Barra proporcao={coberturaAuditada.percentual / 100} tom={qualidade?.tom ?? "ok"} />
+          </>
+        )}
+      </Indicador>
+    </div>
+  );
+}
+
+/**
+ * A faixa amarela da Visão Geral — a mesma recusa da "visão parcial" de uma
+ * unidade, sobre outro eixo.
+ *
+ * Lá é série que não chegou; aqui é unidade que não entrou na soma. Nos dois
+ * casos o que falta **não** é contado como zero, e a faixa existe para que o
+ * número grande logo acima não seja lido como o total da operação inteira.
+ *
+ * Some quando todas as unidades entraram inteiras — e aí o silêncio é a
+ * afirmação de que a soma está completa.
+ */
+function SomaParcial({ overview }: { overview: FamiliesOverview }) {
+  const parciais = overview.unitsIncluded.filter((u) => (u.coberturaParcial?.length ?? 0) > 0);
+  if (overview.unitsExcluded.length === 0 && parciais.length === 0) return null;
+
+  return (
+    <div className="flex gap-3 rounded-xl border border-amber-400 bg-amber-50 px-5 py-4 text-sm text-amber-900">
+      <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+      <p>
+        <strong>Soma parcial.</strong>{" "}
+        {overview.unitsExcluded.length > 0 && (
+          <>
+            {overview.unitsExcluded.length}{" "}
+            {overview.unitsExcluded.length === 1
+              ? "unidade ficou fora"
+              : "unidades ficaram fora"}{" "}
+            desta competência —{" "}
+            <strong>
+              {overview.unitsExcluded.map((u) => u.label).join(", ")}
+            </strong>
+            .{" "}
+          </>
+        )}
+        {parciais.length > 0 && (
+          <>
+            {parciais.map((u) => u.label).join(", ")}{" "}
+            {parciais.length === 1 ? "entrou" : "entraram"} com cobertura parcial: um contexto
+            elegível não pôde ser lido.{" "}
+          </>
+        )}
+        Os números acima cobrem só o que foi consolidado, e o que ficou de fora não está contado
+        como zero. A lista completa, com o motivo de cada exclusão, está no cartão do topo.
+      </p>
+    </div>
+  );
+}
+
+/**
+ * O painel da direita, no lugar de "Alterações em destaque".
+ *
+ * A pergunta que a soma provoca não é *qual alteração* — essa mora dentro de
+ * uma vigência —, é *qual unidade*. Cada linha traz os três números que os
+ * cartões de cima mostram somados, agora um por unidade, e abre o resumo
+ * executivo daquela unidade sozinha, empilhado sobre esta tela: o mesmo
+ * `DetalheDaUnidadeNaComparacao` que a comparação abre, sem a escala
+ * intermediária.
+ *
+ * Quatro linhas, e o resto atrás de "Ver todas" — é o mesmo corte de
+ * `ultimasAlteracoes`, pela mesma razão: o painel divide a altura com o pódio
+ * ao lado, e uma lista que cresce com o número de unidades faria a linha
+ * inteira dançar a cada competência.
+ */
+function UnidadesEmDestaque({
+  unidades,
+  onVerTodas,
+  onEntrar,
+}: {
+  unidades: { unidade: OverviewUnitIncluded; impacto: Impacto | null }[];
+  onVerTodas: () => void;
+  onEntrar: (contexto: OverviewContextRef, label: string) => void;
+}) {
+  const linhas = unidades.slice(0, 4);
+
+  return (
+    <section className={cn(CARTAO, "px-6 py-5 flex flex-col")}>
+      <div className="flex items-center gap-2">
+        <h2 className="text-base font-bold">Unidades em destaque</h2>
+        <Ajuda texto="As unidades que entraram na soma, a de maior movimento primeiro — mesmo critério do pódio: maior impacto em módulo, seja ele a favor ou contra. Clique numa delas para abrir o resumo executivo dela sozinha." />
+        <button
+          type="button"
+          onClick={onVerTodas}
+          className="ml-auto text-[0.8125rem] font-bold text-brand hover:underline shrink-0"
+        >
+          Ver todas
+        </button>
+      </div>
+
+      {linhas.length === 0 ? (
+        <p className="text-sm text-muted-foreground mt-4 flex-1">
+          Nenhuma unidade entrou na soma desta competência.
+        </p>
+      ) : (
+        <ol className="mt-3 divide-y flex-1">
+          {linhas.map(({ unidade, impacto }, indice) => (
+            <li key={unidade.unidade}>
+              {/*
+                Uma unidade com dois canais não navega pelo nome: qual dos dois
+                abrir seria adivinhação, e é a mesma recusa que
+                `LinhaDaUnidade` faz na comparação. A linha continua clicável e
+                leva à comparação, que lista os contextos um a um.
+              */}
+              <button
+                type="button"
+                onClick={() =>
+                  unidade.contexts.length === 1
+                    ? onEntrar(unidade.contexts[0], unidade.label)
+                    : onVerTodas()
+                }
+                title={
+                  unidade.contexts.length === 1
+                    ? `Abrir o resumo executivo de ${unidade.label}`
+                    : `${unidade.label} tem mais de um canal — escolher qual na comparação`
+                }
+                className="w-full text-left group flex items-start gap-3 py-3.5 -mx-2 px-2 rounded-lg hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand transition-colors"
+              >
+                <span className="w-8 h-8 rounded-full bg-accent text-brand flex items-center justify-center shrink-0">
+                  <Building2 className="w-4 h-4" />
+                </span>
+                <span className="text-sm font-bold text-muted-foreground tabular-nums shrink-0 pt-1">
+                  {indice + 1}.
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-semibold leading-snug group-hover:text-brand transition-colors">
+                    {unidade.label}
+                  </span>
+                  <span className="block text-xs text-muted-foreground mt-1 leading-snug">
+                    {unidade.summary.changes.toLocaleString("pt-BR")}{" "}
+                    {unidade.summary.changes === 1 ? "alteração" : "alterações"} ·{" "}
+                    {unidade.summary.vehiclesTouched.toLocaleString("pt-BR")}{" "}
+                    {unidade.summary.vehiclesTouched === 1 ? "veículo" : "veículos"}
+                    {unidade.contexts.length > 1
+                      ? ` · ${unidade.contexts.length} canais`
+                      : ""}
+                  </span>
+                </span>
+                <span
+                  className={cn(
+                    "shrink-0 rounded-lg border px-2.5 py-1.5 text-xs font-bold tabular-nums",
+                    impacto === null
+                      ? "text-muted-foreground font-normal"
+                      : impacto.amount < 0
+                        ? "text-red-700"
+                        : "text-emerald-700",
+                  )}
+                >
+                  {impacto ? escreverImpacto(impacto) : "—"}
+                </span>
+                <ChevronRight className="w-4 h-4 shrink-0 mt-1.5 text-muted-foreground opacity-40 group-hover:opacity-100 transition-opacity" />
+              </button>
+            </li>
+          ))}
+        </ol>
+      )}
+
+      {unidades.length > linhas.length && (
+        <p className="text-xs text-muted-foreground mt-auto pt-4 border-t">
+          Mais {unidades.length - linhas.length}{" "}
+          {unidades.length - linhas.length === 1 ? "unidade entrou" : "unidades entraram"} nesta
+          soma — “Ver todas” abre a comparação completa, com os mesmos três números por unidade.
+        </p>
+      )}
     </section>
   );
 }

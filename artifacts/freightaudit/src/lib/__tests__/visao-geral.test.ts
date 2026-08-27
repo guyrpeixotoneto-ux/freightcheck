@@ -15,6 +15,7 @@ import {
   maioresImpactos,
   participacao,
   pontosDeAtencao,
+  pontosDeAtencaoDaVisaoGeral,
   qualidadeDaCobertura,
   tempoRelativo,
   ultimaImportacao,
@@ -27,9 +28,11 @@ import type {
   ChangeGroup,
   CockpitView,
   ExecutiveSummary,
+  FamiliesOverview,
   FamiliesView,
   GroupedView,
   ImpactSummary,
+  OverviewUnitIncluded,
   PriorityItem,
 } from "@/components/inicio/types";
 
@@ -1318,5 +1321,120 @@ describe("de onde vem uma alteração em destaque", () => {
     expect(detalheDaAlteracao(view, "outra", recorte)).toBeNull();
     expect(detalheDaAlteracao(view, null, recorte)).toBeNull();
     expect(detalheDaAlteracao(null, "a", recorte)).toBeNull();
+  });
+});
+
+/**
+ * A faixa de atenção da Visão Geral.
+ *
+ * Ela repete o desenho da faixa de uma unidade, e é justamente por isso que os
+ * destinos precisam de teste: um `href` que parecesse igual ao de lá levaria a
+ * uma lista de **uma** unidade debaixo de um número que somou todas — e nada na
+ * tela diria que o assunto mudou no caminho. `href: null` é a recusa, e é ela
+ * que faz o ponto abrir a comparação por unidade.
+ */
+describe("os pontos de atenção da Visão Geral", () => {
+  const resumo = (parcial: Partial<ExecutiveSummary> = {}): ExecutiveSummary => ({
+    impact: impacto(),
+    lossesByPeriodicity: {},
+    gainsByPeriodicity: {},
+    sides: [],
+    changes: 0,
+    groups: 0,
+    critical: 0,
+    locked: 0,
+    notCalculable: 0,
+    vehiclesTouched: 0,
+    topParameters: [],
+    topVehicles: [],
+    ...parcial,
+  });
+
+  const unidade = (
+    nome: string,
+    byPeriodicity: Record<string, number>,
+  ): OverviewUnitIncluded => ({
+    unidade: nome,
+    label: nome,
+    contexts: [{ scopeHash: `hash-${nome}`, channel: "EMPURRADA", latestPeriod: "2026-08-01" }],
+    summary: resumo({ impact: impacto({ byPeriodicity }) }),
+  });
+
+  const overview = (parcial: Partial<FamiliesOverview> = {}): FamiliesOverview => ({
+    period: "2026-08-01",
+    summary: resumo(),
+    unitsIncluded: [],
+    unitsExcluded: [],
+    ...parcial,
+  });
+
+  it("nenhum ponto que conte alterações leva a uma tela recortada por unidade", () => {
+    const pontos = pontosDeAtencaoDaVisaoGeral(
+      overview({
+        summary: resumo({ changes: 300, notCalculable: 95 }),
+        unitsIncluded: [unidade("PERNAMBUCO", { MENSAL: 21931 })],
+      }),
+      maioresImpactos(
+        resumo({
+          topParameters: [
+            {
+              key: "fin",
+              name: "Financiamento",
+              family: "F",
+              familyName: "Aquisição",
+              changes: 3,
+              byPeriodicity: { MENSAL: 21905 },
+            },
+          ],
+        }),
+      ),
+      null,
+    );
+
+    // Sem `scopeHash`, `/alteracoes` e `/parametros` caem em `contexts[0]`.
+    for (const ponto of pontos) {
+      expect(ponto.href ?? "").not.toContain("/alteracoes");
+      expect(ponto.href ?? "").not.toContain("/parametros");
+    }
+    expect(pontos.find((p) => p.chave === "sem-preco")!.href).toBeNull();
+    expect(pontos.find((p) => p.chave === "maior-impacto")!.href).toBeNull();
+  });
+
+  it("o quarto ponto é a unidade que mais pesa, e não o equipamento mais tocado", () => {
+    const pontos = pontosDeAtencaoDaVisaoGeral(
+      overview({
+        unitsIncluded: [
+          unidade("PERNAMBUCO", { MENSAL: 21931 }),
+          unidade("CAMAÇARI", { MENSAL: -61253 }),
+        ],
+      }),
+      null,
+      null,
+    );
+
+    const ponto = pontos.find((p) => p.chave === "unidade")!;
+    expect(ponto.titulo).toBe("CAMAÇARI");
+    expect(ponto.tom).toBe("grave");
+    expect(ponto.valor).toBe(`${formatBrlShort(-61253)}/mês`);
+  });
+
+  it("sem impacto apurado em unidade nenhuma, o ponto de unidade some", () => {
+    const pontos = pontosDeAtencaoDaVisaoGeral(
+      overview({ unitsIncluded: [unidade("PERNAMBUCO", {})] }),
+      null,
+      null,
+    );
+    // Um empate de zeros não elege ninguém — nomear uma unidade ali seria
+    // afirmar um movimento que não houve.
+    expect(pontos.some((p) => p.chave === "unidade")).toBe(false);
+  });
+
+  it("a integridade da massa continua levando ao Balanço, que não recorta por unidade", () => {
+    const pontos = pontosDeAtencaoDaVisaoGeral(overview(), null, {
+      ok: false,
+      titulo: "Massa sem destino",
+      detalhe: "165.743 células sem destino",
+    });
+    expect(pontos.find((p) => p.chave === "integridade")!.href).toBe("/balanco-massa");
   });
 });
