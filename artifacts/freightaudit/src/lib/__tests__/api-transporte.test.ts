@@ -225,3 +225,42 @@ describe("fetchJson classifica o que impede a resposta", () => {
     vi.useRealTimers();
   });
 });
+
+/**
+ * O 204 é sucesso, e não meia resposta.
+ *
+ * Este bloco existe por um defeito de campo: no editor de conexões do fluxo,
+ * "Remover" apagava a conexão no banco e devolvia, na tela, "A resposta do
+ * servidor chegou pela metade — a conexão foi interrompida no caminho. Tentar
+ * de novo costuma bastar". As duas metades da frase estavam erradas ao mesmo
+ * tempo — nada tinha se interrompido, e tentar de novo encontrava uma conexão
+ * que já não existia —, e a exclusão parecia ter falhado quando tinha dado
+ * certo.
+ *
+ * A causa não era da tela: `DELETE` nessas rotas responde `204 … end()`, e
+ * `readJson` classifica corpo vazio como transporte quebrado. É uma regra certa
+ * para toda rota que promete JSON, e o 204 é justamente a que não promete.
+ */
+describe("fetchJson entende o sucesso sem corpo", () => {
+  it("um 204 resolve, e não vira ErroDeTransporte", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 204 })));
+
+    const apagada = fetchJson("/fluxos/f1/conexoes/c1", { method: "DELETE" });
+
+    await expect(apagada).resolves.toBeUndefined();
+  });
+
+  /**
+   * O corte é pelo status. Um 200 sem corpo continua sendo defeito: aí a rota
+   * prometeu JSON e não entregou, e apagar essa distinção devolveria `undefined`
+   * a quem espera dados — a tela branca que `readJson` existe para evitar.
+   */
+  it("um 200 de corpo vazio continua sendo resposta incompleta", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("", { status: 200 })));
+
+    const erro = await fetchJson("/contexts").catch((e: unknown) => e);
+
+    expect(erro).toBeInstanceOf(ErroDeTransporte);
+    expect((erro as ErroDeTransporte).diagnostico.estado).toBe("RESPOSTA_INCOMPLETA");
+  });
+});
