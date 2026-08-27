@@ -257,7 +257,7 @@ describe("a lateral", () => {
       */
       "Plano de Ação",
       "Auditoria",
-      "Recuperação",
+      "Processos",
       "QLP",
       "Frota",
       "Inteligência",

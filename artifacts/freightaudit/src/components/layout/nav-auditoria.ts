@@ -46,6 +46,7 @@ import {
   TriangleAlert,
   Truck,
   UsersRound,
+  Workflow,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -94,7 +95,7 @@ import type { NavGroup } from "./nav";
  * (**Dashboard**), o retrato (**Visão executiva**), libera-se o que precisa ser
  * comprado hoje (**Compras**), registra-se o que mudou (**Plano de Ação**),
  * procura-se o desvio (**Auditoria**), cobra-se o desvio achado
- * (**Recuperação**), confere-se o quadro de gente que o modelo remunera
+ * (**Processos**), confere-se o quadro de gente que o modelo remunera
  * (**QLP**), desce-se ao ativo que o sofreu (**Frota**), pergunta-se ao
  * assistente o que sobrou (**Inteligência**), e por baixo de tudo estão o
  * material (**Dados & governança**) e a casa (**Administração**).
@@ -234,15 +235,24 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
     },
     {
       /*
-        Recuperação é seção própria, e não a cauda da Auditoria, porque é outro
+        Processos é seção própria, e não a cauda da Auditoria, porque é outro
         trabalho e quase sempre outra pessoa: auditar é descobrir, recuperar é
         cobrar. Quem passa o dia numa das duas fecha a outra.
       */
-      titulo: "Recuperação",
+      titulo: "Processos",
       descricao: "A cobrança do desvio já apurado",
       icon: RefreshCcwDot,
       cor: "text-nav-recuperacao",
       itens: [
+        /*
+          Fluxos Operacionais saiu da Administração e abre esta seção: o mapa
+          dos processos não é cadastro da casa, é o desenho do trabalho que a
+          seção cobra — e quem entra aqui procura primeiro o fluxo, depois o
+          caso. O endereço continua sem prefixo, como o resto desta lista: é o
+          roteador aninhado que põe a base do ambiente na frente (`App.tsx`), e
+          `/fluxos` está no mesmo `Switch` das outras telas da auditoria.
+        */
+        { href: "/fluxos", label: "Fluxos Operacionais", icon: Workflow },
         { href: "/contestacao", label: "Contestação & Recuperação", icon: Gavel },
         { href: "/reconciliacao", label: "Reconciliação", icon: Handshake },
         { href: "/risco-materialidade", label: "Risco & Materialidade", icon: ShieldCheck },
