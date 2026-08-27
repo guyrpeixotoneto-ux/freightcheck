@@ -493,8 +493,20 @@ export async function getRangeAnalysis(
    * O conjunto de ativos distintos só existe aqui.
    */
   parameterKeys?: string[],
+  /**
+   * A lista de contextos já carregada, para quem vai chamar isto em série.
+   *
+   * `getRangeOverview` chama esta função uma vez por unidade × contexto, e cada
+   * chamada refazia `listContexts` — duas consultas idênticas por unidade,
+   * respondendo à mesma pergunta sobre o banco inteiro, todas ao mesmo tempo e
+   * disputando o mesmo pool. A lista não depende do intervalo nem da unidade:
+   * uma leitura serve todas.
+   *
+   * Sem o argumento, nada muda — quem chama de fora continua lendo a lista.
+   */
+  contextosCarregados?: ContextInfo[],
 ): Promise<RangeAnalysis | null> {
-  const contexts = await listContexts(db);
+  const contexts = contextosCarregados ?? (await listContexts(db));
   const context = await resolveContext(db, requestedContext, contexts);
   if (!context) return null;
 

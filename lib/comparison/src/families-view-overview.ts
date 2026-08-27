@@ -540,10 +540,21 @@ export async function getRangeOverview(
     candidatas.flatMap((cand) =>
       cand.matched.map(async (contexto) => ({
         unidade: cand.unidade,
-        analysis: await getRangeAnalysis(db, from, to, {
-          scopeHash: contexto.scopeHash,
-          channel: contexto.channel,
-        }),
+        /*
+          `contexts` vai junto de propósito: sem ele, cada uma destas leituras
+          recomeça por `listContexts` — a mesma pergunta sobre o banco inteiro,
+          repetida uma vez por unidade × contexto, todas em paralelo contra o
+          mesmo pool. A lista já está aqui em cima, e não muda entre uma
+          unidade e outra.
+        */
+        analysis: await getRangeAnalysis(
+          db,
+          from,
+          to,
+          { scopeHash: contexto.scopeHash, channel: contexto.channel },
+          undefined,
+          contexts,
+        ),
       })),
     ),
   );

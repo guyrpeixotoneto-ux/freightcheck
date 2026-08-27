@@ -755,3 +755,128 @@ diferença entre os dois — não um número absoluto de falhas:
 | `dre` / `composition` / `knowledge` | — | 56 / 31 / 11 passando |
 
 Typecheck do workspace inteiro limpo em todas as etapas.
+
+---
+
+# Parte III — a Linha do Tempo
+
+**Data:** 27/08/2026 · mesmo ambiente da Parte I (Postgres 16 local, seed do
+produto, API em modo produção, bundle de produção num Chromium real).
+
+## 17. Por que esta tela ficou de fora do ranking
+
+`/linha-do-tempo` aparece na tabela da Parte I com **1 requisição e 1 onda** —
+e é verdade, para a medição que foi feita: uma **troca de tela** partindo do
+Resumo executivo. Vindo de lá, `/changes/range` já está no cache (o Resumo lê o
+mesmo intervalo pela mesma chave, `staleTime` de 60 s), e a única chamada que
+sobra é o `/changes/families`, que não tinha `staleTime` nenhum.
+
+O que a medição não cobriu foi a **entrada fria** nesta tela — abrir o link
+direto, recarregar, ou chegar nela como primeira tela do dia. É essa que o
+usuário relatou, e é outra tela: com o cache vazio, ela faz três leituras, duas
+delas caras, e **em série**.
+
+Medido, entrada fria em `/linha-do-tempo` (mediana de 3, warm no servidor):
+
+| | antes |
+|---|--:|
+| conteúdo principal | **570 ms** |
+| tela inteira (última resposta) | **682 ms** |
+| ondas de `/api` | 3 |
+
+O waterfall diz onde o tempo estava:
+
+```
+  155 →  345 ms   98 KB  /changes/families          ← ninguém pode começar antes
+  356 →  458 ms  389 KB  /changes/range             ← só então, e disputando
+  356 →  472 ms    562 B  /changes/range/overview   ←   o mesmo pool, uma com a outra
+```
+
+Três fatos, nesta ordem de peso:
+
+1. **A cascata.** `/changes/range` precisa de duas datas — a primeira vigência
+   do histórico e a aberta. Elas chegavam pelo `/changes/families`, e por isso
+   a leitura cara do intervalo esperava outra leitura cara terminar.
+2. **`/changes/range/overview` no caminho crítico.** Ele roda a análise
+   completa do intervalo **uma vez por unidade × contexto**, todas de uma vez
+   (`Promise.all` em `getRangeOverview`), contra um pool de 10 conexões. Sai no
+   load para alimentar um cartão lateral ("Onde está o impacto?"), e cada uma
+   dessas análises ainda recomeçava por `listContexts` — a mesma pergunta sobre
+   o banco inteiro, repetida por unidade.
+3. **`/changes/families` sem `staleTime`.** 165 ms e 49 consultas refeitos a
+   cada montagem, no topo de uma cascata.
+
+## 18. As três correções
+
+| # | O que mudou | Onde |
+|--:|---|---|
+| 1 | O overview sai só depois que a leitura da unidade chega — e recebe a lista de contextos já carregada em vez de relê-la por unidade | `linha-do-tempo-de-impacto.tsx`, `families-view-overview.ts`, `families-view.ts` |
+| 2 | As pontas do intervalo saem do `/contexts`, que a casca já tem: a página faz `prefetch` de `/changes/range` sem esperar o `families` | `pages/linha-do-tempo.tsx`, `lib/intervalo-da-linha-do-tempo.ts` |
+| 3 | `staleTime` de 60 s no `/changes/families` desta tela | `pages/linha-do-tempo.tsx` |
+
+A chave de `/changes/range` passou a ser montada num lugar só
+(`opcoesDoIntervalo`): os dois cartões e o prefetch precisam produzir a **mesma**
+chave, ou o prefetch vira uma segunda chamada cara em vez de economia.
+
+## 19. Resultado
+
+Entrada fria em `/linha-do-tempo`, mediana de 3:
+
+| | antes | depois | ganho |
+|---|--:|--:|--:|
+| conteúdo principal | 570 ms | **502 ms** | −12% |
+| tela inteira | 682 ms | **613 ms** | −10% |
+| `/changes/range` começa em | 356 ms | **183 ms** | — |
+| `/changes/range` leva | 102 ms | **105 ms** | — |
+| `/changes/range/overview` leva | 116 ms | **89 ms** | −23% |
+
+Troca de tela (SPA), Resumo executivo → Linha do Tempo → Resumo → Linha do Tempo:
+
+| | antes | depois |
+|---|--:|--:|
+| 1ª ida | 315 ms · 2 chamadas | 300 ms · 2 chamadas |
+| revisita | 77 ms · **1 chamada** (`/changes/families`, 98 KB) | 90 ms · **0 chamadas** |
+
+A revisita não fica mais rápida no relógio, e não deveria: com dado em cache o
+React Query já pintava a tela na hora e refazia a chamada por baixo. O que muda
+é que a chamada deixa de existir — 165 ms de servidor, 49 consultas e 98 KB por
+revisita, num ambiente onde o RTT é ~0 ms. Em produção esse é o custo que some.
+
+Por endpoint (p50 de 9, warm):
+
+| Endpoint | antes | depois |
+|---|--:|--:|
+| `/changes/range/overview` | 79 ms · **33 consultas** | 73 ms · **27 consultas** |
+| `/changes/range` | 77 ms · 27 consultas | 75 ms · 27 consultas |
+| `/changes/families` | 175 ms · 49 consultas | 165 ms · 49 consultas |
+
+## 20. O que estes números **não** dizem
+
+**O seed tem uma unidade só.** É o limite mais importante deste capítulo:
+`getRangeOverview` custa uma análise completa de intervalo **por unidade ×
+contexto**, e aqui N = 1. As 6 consultas que a lista de contextos pré-carregada
+economiza são 6 por unidade — com 10 unidades seriam 60, e as ~75 ms de análise
+por unidade viram 10 análises disputando 10 conexões. É por isso que tirar o
+overview do caminho crítico vale mais em produção do que os 27 ms medidos aqui,
+e o quanto mais não dá para afirmar deste ambiente.
+
+**Nada disto toca o 302 do ReplShield** (§15). Continua valendo.
+
+**O payload de `/changes/range` não foi mexido:** 389 KB, porque cada `entries[]`
+carrega o `group` inteiro. Enxugá-lo é a quarta correção candidata, e não está
+feita.
+
+## 21. Regressão
+
+- As respostas de `/changes/range`, `/changes/range/overview` e
+  `/changes/families` são **byte a byte idênticas** antes e depois (mesmo banco,
+  mesma consulta, `cmp` nos três).
+- `comparison`, suíte inteira e serializada (`--no-file-parallelism`), antes e
+  depois: **201 passando, 100 falhando, os mesmos 31 arquivos** — nenhum
+  arquivo entra ou sai da lista. As falhas são as que a Parte I já descreve
+  (fixtures colidindo em banco descartável), e existem sem a mudança.
+- `freightaudit`: 978 passando, 0 falhando.
+- `api-server`: a suíte é instável neste ambiente pelo mesmo motivo (14 e 15
+  falhas em duas execuções, com contagens de "passando" diferentes); nenhuma
+  falha nova identificável.
+- Typecheck do workspace inteiro limpo.
