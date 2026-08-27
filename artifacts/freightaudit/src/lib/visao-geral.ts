@@ -1164,7 +1164,7 @@ export function pontosDeAtencao(
       titulo: integridadeDosDados.titulo,
       detalhe: integridadeDosDados.detalhe,
       valor: null,
-      href: "/balanco-massa",
+      href: "/rastreio-de-dados",
     });
   }
 
@@ -1239,7 +1239,7 @@ export function pontosDeAtencaoDaVisaoGeral(
       titulo: integridadeDosDados.titulo,
       detalhe: integridadeDosDados.detalhe,
       valor: null,
-      href: "/balanco-massa",
+      href: "/rastreio-de-dados",
     });
   }
 

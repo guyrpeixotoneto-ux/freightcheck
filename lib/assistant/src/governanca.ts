@@ -219,7 +219,7 @@ export async function balancoDasImportacoes(db: Database): Promise<Evidencia> {
       Number((b as unknown as Record<string, unknown>).rawCellCount ?? 0),
     ),
     origem: "import_run + raw_cell · o mesmo cálculo da tela de Balanço de massa",
-    tela: { label: "Balanço de massa", href: "/balanco-de-massa" },
+    tela: { label: "Rastreio de Dados", href: "/rastreio-de-dados" },
   };
 }
 

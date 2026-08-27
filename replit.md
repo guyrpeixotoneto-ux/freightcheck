@@ -188,10 +188,13 @@ toda leitura — nos moldes do que `conversas.ts` já faz por `owner_id`.
   dado próprio: responde a partir do conhecimento do produto escrito em código e
   de consultas às **mesmas funções que as telas usam**, e devolve as duas coisas
   junto com o texto. Ver a seção *Assistente de IA* abaixo.
-- **Balanço de Massa** — `lib/balance`, rota em
+- **Rastreio de Dados** (o balanço de massa; a tela se chamava *Balanço de
+  Massa* até o nome mudar) — `lib/balance`, rota em
   `artifacts/api-server/src/routes/balance.ts`, tela em
-  `artifacts/freightaudit/src/pages/balanco-massa.tsx`. É a única superfície que
-  pergunta pelo que **não** está na tela. Ver a seção *Balanço de Massa* abaixo.
+  `artifacts/freightaudit/src/pages/rastreio-de-dados.tsx`, em
+  `/rastreio-de-dados` (o antigo `/balanco-massa` redireciona). É a única
+  superfície que pergunta pelo que **não** está na tela. Ver a seção *Balanço de
+  Massa* abaixo.
 - **Cobertura de dados** — `lib/coverage`, rotas em
   `artifacts/api-server/src/routes/coverage.ts`, tela em
   `artifacts/freightaudit/src/pages/dados.tsx` com os componentes em

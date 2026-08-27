@@ -753,7 +753,7 @@ export const ARTIGOS: Artigo[] = [
       "que sumiu sem destino, e é a única das três que significa defeito: o balanço " +
       "fecha quando ele é zero, e uma importação pode fechar tendo perdas.",
     fonte: "lib/balance/src/destinos.ts",
-    tela: { label: "Balanço de massa", href: "/balanco-massa" },
+    tela: { label: "Rastreio de Dados", href: "/rastreio-de-dados" },
   },
 
   // ══════════════════════════════════════════════════════════════════════════

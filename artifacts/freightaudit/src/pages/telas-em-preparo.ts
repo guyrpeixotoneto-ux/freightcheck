@@ -145,7 +145,7 @@ export const TELAS_EM_PREPARO: TelaEmPreparo[] = [
     ],
     hoje: [
       {
-        href: "/balanco-massa",
+        href: "/rastreio-de-dados",
         label: "Balanço de massa",
         porque: "A conferência que já existe: toda célula que o arquivo trouxe chegou a algum lugar.",
       },
@@ -327,7 +327,7 @@ export const TELAS_EM_PREPARO: TelaEmPreparo[] = [
     ],
     hoje: [
       {
-        href: "/balanco-massa",
+        href: "/rastreio-de-dados",
         label: "Balanço de massa",
         porque: "A regra de qualidade que já roda: toda célula do arquivo chegou a algum lugar.",
       },

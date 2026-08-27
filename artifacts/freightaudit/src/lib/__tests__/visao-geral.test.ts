@@ -1435,6 +1435,6 @@ describe("os pontos de atenção da Visão Geral", () => {
       titulo: "Massa sem destino",
       detalhe: "165.743 células sem destino",
     });
-    expect(pontos.find((p) => p.chave === "integridade")!.href).toBe("/balanco-massa");
+    expect(pontos.find((p) => p.chave === "integridade")!.href).toBe("/rastreio-de-dados");
   });
 });

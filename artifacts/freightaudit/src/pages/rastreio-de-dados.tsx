@@ -46,7 +46,7 @@ import {
  *    arquivo é de uma importação só. Um recorte aqui sugeriria que existe massa
  *    "de outra unidade" explicando a que falta.
  */
-export default function BalancoMassa() {
+export default function RastreioDeDados() {
   const [escolhida, setEscolhida] = useState<string | null>(null);
 
   const lista = useQuery({

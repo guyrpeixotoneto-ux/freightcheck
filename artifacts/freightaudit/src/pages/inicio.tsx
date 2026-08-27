@@ -945,7 +945,7 @@ function Indicadores({
         titulo="Cobertura auditada"
         ajuda="Das células que as planilhas trouxeram, quanto a auditoria alcança: tudo menos a perda declarada e o resíduo sem destino. É percentual de célula, não de dinheiro."
         tom="ok"
-        href={coberturaAuditada === null ? undefined : "/balanco-massa"}
+        href={coberturaAuditada === null ? undefined : "/rastreio-de-dados"}
         abrir="ver a conservação célula a célula"
       >
         {coberturaAuditada === null ? (
@@ -2390,7 +2390,7 @@ function IndicadoresDaVisaoGeral({
         titulo="Cobertura auditada"
         ajuda="Das células que as planilhas trouxeram, quanto a auditoria alcança: tudo menos a perda declarada e o resíduo sem destino. É percentual de célula, não de dinheiro, e já é a leitura de todas as importações."
         tom="ok"
-        href={coberturaAuditada === null ? undefined : "/balanco-massa"}
+        href={coberturaAuditada === null ? undefined : "/rastreio-de-dados"}
         abrir="ver a conservação célula a célula"
       >
         {coberturaAuditada === null ? (
@@ -2604,7 +2604,7 @@ function Rodape() {
           </p>
         </div>
         <Link
-          href="/balanco-massa"
+          href="/rastreio-de-dados"
           className="text-[0.8125rem] font-bold uppercase tracking-wide text-brand hover:underline shrink-0 inline-flex items-center gap-1"
         >
           Saiba como funciona
