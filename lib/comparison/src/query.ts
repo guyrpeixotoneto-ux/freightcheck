@@ -1050,3 +1050,67 @@ export async function getChangeSetForPair(
     );
   return set ?? null;
 }
+
+/**
+ * Quantas placas — e quantas alterações — de cada tipo de ativo cada
+ * comparação carrega.
+ *
+ * O Plano de Ação escolhe a vigência **dentro da aba** de Cavalo, Carreta ou
+ * Trecho, e para isso o seletor precisa saber, antes de abrir comparação
+ * nenhuma, quais delas têm trecho. A lista de `/change-sets` não diz: um
+ * `change_set` é de uma série, e a série é `(escopo, entity_type_set)` — a
+ * mesma data da mesma unidade aparece nela duas vezes, uma com o arquivo de
+ * equipamento e outra com o de trecho, sem nada que distinga uma da outra.
+ * Sem este recorte o seletor listava as duas linhas iguais e escolher era
+ * chutar qual das duas tinha o que a aba mostra.
+ *
+ * O tipo sai da **linha alterada** (`change.entity_type`), e não do
+ * `snapshot.entity_type_set`: a comparação exata com o conjunto falha sempre
+ * que trecho chega junto de cavalo e carreta na mesma vigência, que é um
+ * formato real de entrega — o mesmo motivo pelo qual `resolverComparacaoDeTrecho`
+ * deixou de olhá-lo (ver `radar-trechos.ts`).
+ *
+ * As placas contam `DISTINCT entity_label` porque é a placa que o card do
+ * Plano de Ação representa: a aba escrita `Trecho 6` abre com seis cards.
+ * As alterações contam linhas, que é o que o seletor mostra à direita de cada
+ * vigência. Linha sem placa (`LAYOUT_CHANGE`) não é assunto desta tela e fica
+ * de fora das duas contagens — como já fica da lista.
+ *
+ * Mesma `ALTERACAO_DE_ORIGEM_VISIVEL` da listagem: uma importação ocultada não
+ * pode continuar enchendo a aba com placas que a lista não mostra.
+ */
+export interface ContagemPorTipo {
+  changeSetId: string;
+  /** Cru, como a linha o gravou — quem normaliza é quem monta as abas. */
+  entityType: string | null;
+  placas: number;
+  alteracoes: number;
+}
+
+export async function contagemPorTipo(
+  db: Database,
+  changeSetIds: string[],
+): Promise<ContagemPorTipo[]> {
+  if (changeSetIds.length === 0) return [];
+
+  const rows = await db
+    .select({
+      changeSetId: changeTable.changeSetId,
+      entityType: changeTable.entityType,
+      placas: sql<number>`count(DISTINCT ${changeTable.entityLabel})`.mapWith(
+        Number,
+      ),
+      alteracoes: sql<number>`count(*)`.mapWith(Number),
+    })
+    .from(changeTable)
+    .where(
+      and(
+        inArray(changeTable.changeSetId, changeSetIds),
+        sql`${changeTable.entityLabel} IS NOT NULL`,
+        ALTERACAO_DE_ORIGEM_VISIVEL,
+      )!,
+    )
+    .groupBy(changeTable.changeSetId, changeTable.entityType);
+
+  return rows;
+}
