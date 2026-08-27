@@ -25,6 +25,7 @@
     "@workspace/db": "workspace:*",
     "@workspace/dre": "workspace:*",
     "@workspace/fechamento": "workspace:*",
+    "@workspace/fluxos": "workspace:*",
     "@workspace/ingest": "workspace:*",
     "@workspace/knowledge": "workspace:*",
     "@workspace/qlp": "workspace:*",

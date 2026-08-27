@@ -382,6 +382,38 @@ const TABELAS_REMOVIDAS = [
   "fechamento_referencia_linha",
   "fechamento_referencia_conteudo",
   "fechamento_referencia",
+  /*
+    As seis de Fluxos Operacionais, da `0068` — e elas entram pela mesma razão
+    das treze do Fechamento: o módulo é posterior a Production, então até a fila
+    rodar lá toda tabela dele é uma tabela que a proposta do Publishing proporia
+    criar.
+
+    **A ordem é filha antes de mãe, e aqui ela é obrigatória**: o `down` derruba
+    com `RESTRICT`, e as chaves compostas deste módulo formam uma corrente de
+    três níveis — ação, indicador e item penduram na etapa; etapa e conexão
+    penduram no fluxo; conexão pendura também nas duas pontas em etapa. A ordem
+    abaixo é a única que o `RESTRICT` aceita.
+
+    E elas vêm **antes de `unidade`** pelo mesmo motivo que
+    `fechamento_referencia`: `fluxo_operacional.empresa_id` aponta para lá, e a
+    mãe só sai depois da filha. Foi exatamente isto que o teste do bridge
+    acusou quando a `0068` entrou sem esta lista — "dependência inesperada em
+    unidade: FK fluxo_operacional_empresa_id_unidade_id_fk". O bridge não estava
+    errado; estava desatualizado, e a recusa foi ele dizendo isso.
+
+    A pré-condição de tabela vazia é a certa, e é da mesma família de
+    `remuneracao_planilha` e `coverage_expectation`: cada linha aqui é
+    **levantamento de processo** — alguém escreveu quem faz o quê, com que
+    sistema, o que costuma falhar. Não existe consulta que reconstrua isso a
+    partir do acervo. Um Development com fluxo cadastrado trava o `down`, e
+    travar é o comportamento correto.
+  */
+  "fluxo_etapa_acao",
+  "fluxo_etapa_indicador",
+  "fluxo_etapa_item",
+  "fluxo_conexao",
+  "fluxo_etapa",
+  "fluxo_operacional",
   "unidade",
 ];
 
@@ -2356,6 +2388,57 @@ function planoUp(): PassoUp[] {
     "fechamento_referencia_por_mes",
   ]) {
     add(M51, `índice ${indice}`, levantar(M51, new RegExp(`INDEX IF NOT EXISTS "${indice}"`)));
+  }
+
+  /*
+    Fluxos Operacionais, da `0068` — as seis tabelas, o bloco de chaves
+    estrangeiras e os dez índices.
+
+    Vem **depois** da `0049` na ordem do `up`, que é a inversa da do `down`:
+    `fluxo_operacional.empresa_id` aponta para `unidade`, e a mãe tem de existir
+    antes da filha. Entre si, a ordem é mãe antes de filha, pelo mesmo motivo —
+    as chaves compostas deste módulo formam uma corrente de três níveis.
+
+    O bloco de FKs é **um** statement `DO $$ … END $$` na migration, e por isso
+    entra como um passo só: `levantar` casa por marca e devolve o statement
+    inteiro, que é o que se quer — reescrever as doze chaves aqui seria uma
+    segunda definição, que concorda no dia em que é escrita e discorda no dia em
+    que a migration muda.
+
+    O `up` repõe as tabelas **vazias**, e isso não é omissão: cada linha é
+    levantamento de processo — quem faz o quê, com que sistema, o que costuma
+    falhar. Nenhuma consulta reconstrói isso, e é por isso que as seis exigem
+    tabela vazia no `down`: ele só desce quando não há mapa a perder.
+  */
+  const M68 = "0068_fluxos_operacionais";
+  for (const tabela of [
+    "fluxo_operacional",
+    "fluxo_etapa",
+    "fluxo_conexao",
+    "fluxo_etapa_item",
+    "fluxo_etapa_indicador",
+    "fluxo_etapa_acao",
+  ]) {
+    add(M68, tabela, levantar(M68, new RegExp(`CREATE TABLE IF NOT EXISTS "${tabela}" \\(`)));
+  }
+  add(
+    M68,
+    "FKs dos fluxos operacionais",
+    levantar(M68, /fluxo_operacional_empresa_id_unidade_id_fk/),
+  );
+  for (const indice of [
+    "fluxo_operacional_empresa_slug_uq",
+    "fluxo_operacional_empresa_idx",
+    "fluxo_etapa_fluxo_idx",
+    "fluxo_etapa_empresa_idx",
+    "fluxo_conexao_par_uq",
+    "fluxo_conexao_fluxo_idx",
+    "fluxo_etapa_item_etapa_idx",
+    "fluxo_etapa_item_especie_idx",
+    "fluxo_etapa_indicador_etapa_idx",
+    "fluxo_etapa_acao_etapa_idx",
+  ]) {
+    add(M68, `índice ${indice}`, levantar(M68, new RegExp(`INDEX IF NOT EXISTS "${indice}"`)));
   }
 
   const M42 = "0042_viagem_completa";

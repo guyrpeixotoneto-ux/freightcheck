@@ -21,7 +21,20 @@ import {
   VigenciaForaDaQuinzena,
 } from "@workspace/remuneracao";
 import { TipoDeOperacaoAusente } from "@workspace/fechamento/persistencia";
+import {
+  ConexaoDuplicada,
+  ConexaoNaoEncontrada,
+  EmpresaDesconhecida,
+  EtapaNaoEncontrada,
+  FluxoNaoEncontrado,
+  RecusaDeFluxo,
+  SlugJaUsado,
+} from "@workspace/fluxos";
 import { EmailAlreadyUsedError } from "./session";
+import {
+  EmpresaNaoPermitida,
+  EscopoDeEmpresaAusente,
+} from "./empresa-da-requisicao";
 
 /**
  * As recusas que têm nome, e o número HTTP de cada uma — numa tabela só.
@@ -120,6 +133,34 @@ const RECUSAS: { classe: new (...args: never[]) => Error; status: number }[] = [
   { classe: ExclusaoRecusada, status: 409 },
   /* Conflito de estado, não defeito do pedido: o e-mail já é de outra conta. */
   { classe: EmailAlreadyUsedError, status: 409 },
+  /*
+    Fluxos Operacionais. As filhas vêm **antes** da base, e a ordem é o
+    contrato: `statusDaRecusa` devolve o primeiro `instanceof` que casar, e
+    `RecusaDeFluxo` casa com todas as filhas. Invertê-las faria todo "não
+    existe" virar 400.
+
+    Não encontrado é 404 — e é a mesma resposta para "não existe" e para "é de
+    outra empresa", de propósito: confirmar que o registro existe noutra empresa
+    já é vazamento. Ver `lib/fluxos/src/repositorio.ts`.
+  */
+  { classe: FluxoNaoEncontrado, status: 404 },
+  { classe: EtapaNaoEncontrada, status: 404 },
+  { classe: ConexaoNaoEncontrada, status: 404 },
+  /* A empresa citada não está cadastrada em Unidades — 404, e a frase manda lá. */
+  { classe: EmpresaDesconhecida, status: 404 },
+  /* Estado, não pedido: o endereço já é de outro fluxo desta empresa. */
+  { classe: SlugJaUsado, status: 409 },
+  /* Idem: as duas etapas já estão ligadas por uma seta deste tipo. */
+  { classe: ConexaoDuplicada, status: 409 },
+  /* Qualquer outra recusa do motor é defeito do pedido, com a frase do domínio. */
+  { classe: RecusaDeFluxo, status: 400 },
+  /*
+    O escopo de empresa. Ausente é 400 — falta um dado do pedido, e a frase diz
+    qual e onde escolhê-lo. Não permitida é 403: o pedido está completo, e é a
+    conta que não alcança. Ver `lib/empresa-da-requisicao.ts`.
+  */
+  { classe: EscopoDeEmpresaAusente, status: 400 },
+  { classe: EmpresaNaoPermitida, status: 403 },
 ];
 
 /**
