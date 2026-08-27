@@ -17,7 +17,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { JustificarDialog } from "@/components/justificativas/justificar-dialog";
 import type { ChangeRow } from "@/components/changes/change-table";
 import { fetchJson } from "@/lib/api";
-import { dataCurta, useComparacoes, type Justificativa } from "@/lib/justificativas";
+import { useComparacoes, type Justificativa } from "@/lib/justificativas";
 import {
   janelaDeVigencias,
   lerJanela,
@@ -73,6 +73,20 @@ interface AlvoDaJustificativa {
   changes: ChangeRow[];
   /** A justificativa que já existe, quando se está reescrevendo uma célula verde. */
   atual: Justificativa | null;
+}
+
+/**
+ * `2026-08-01` → `01/08/26`, como a planilha do cliente escreve.
+ *
+ * Vivia em `lib/justificativas.ts` até o seletor de vigências passar a nomear
+ * as competências por extenso (`rotuloCurtoDaVigencia`) e levá-la junto. Aqui o
+ * rótulo é cabeçalho de coluna de uma grade de até doze vigências, onde "agosto
+ * de 2026" não cabe — e a data curta é a que a planilha de origem usa, que é a
+ * régua desta tela.
+ */
+function dataCurta(iso: string): string {
+  const [ano, mes, dia] = iso.slice(0, 10).split("-");
+  return ano && mes && dia ? `${dia}/${mes}/${ano.slice(2)}` : iso;
 }
 
 export default function JustificativasPlaca() {
