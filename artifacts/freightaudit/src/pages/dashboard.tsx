@@ -7,6 +7,7 @@ import {
   Bell,
   CalendarDays,
   ChevronDown,
+  ChevronRight,
   Clock,
   FileText,
   Gauge,
@@ -39,15 +40,19 @@ import { DASHBOARD, GESTAO_A_VISTA } from "@/lib/ambiente";
 import { cn } from "@/lib/utils";
 import { formatBrlShort, formatPercent, formatValue, periodicitySuffix } from "@/lib/format";
 import {
+  detalheDaFamilia,
   escreverImpacto,
   frotaTotal,
+  impactoPorFamilia,
   impactosDaVigencia,
   ladosDoImpacto,
   type Impacto,
+  type ImpactoDeFamilia,
   type LadosDoImpacto,
 } from "@/lib/visao-geral";
 import { juntarPrioridades } from "@/lib/cockpit";
 import { lerRecorte, linkDeAlteracoes, nomeDaUnidade, type Recorte } from "@/lib/recorte";
+import { DetalheDaFamilia } from "@/components/inicio/detalhe-da-familia";
 import { unidadesPorImpacto } from "@/components/inicio/visao-geral-consolidada";
 import { Sparkline } from "@/components/dashboard/sparkline";
 import { AnelDeCobertura } from "@/components/dashboard/anel-de-cobertura";
@@ -143,6 +148,16 @@ export default function Dashboard() {
 
   const overview = visaoGeral ? (overviewQuery.data ?? null) : null;
   const recorte = lerRecorte(search);
+
+  /*
+    Qual família tem a gaveta aberta — na URL, e não num `useState`.
+
+    O endereço com `?familia=AQUISICAO` é colável num chat e volta abrindo o
+    mesmo painel sobre a mesma vigência, que é a promessa que o resto do produto
+    já faz com `?impacto=` e `?alteracao=`. Um estado só de React perderia a
+    gaveta a cada recarga e não teria como ser mandado a ninguém.
+  */
+  const familiaAberta = parametros.get("familia");
 
   // O relógio da faixa fina — a mesma leitura da Gestão à Vista
   // (`dataUpdatedAt` da própria consulta, nunca `new Date()` fabricado no
@@ -266,6 +281,9 @@ export default function Dashboard() {
                 atualizadoEm={atualizadoEm}
                 onTrocar={trocarPara}
                 serie={serieGeral}
+                familiaAberta={familiaAberta}
+                onAbrirFamilia={(code) => trocarPara({ familia: code })}
+                onFecharFamilia={() => trocarPara({ familia: null })}
               />
             )}
           </>
@@ -284,6 +302,9 @@ export default function Dashboard() {
                 recorte={recorte}
                 atualizadoEm={atualizadoEm}
                 movimentos={rangeQuery.data ?? null}
+                familiaAberta={familiaAberta}
+                onAbrirFamilia={(code) => trocarPara({ familia: code })}
+                onFecharFamilia={() => trocarPara({ familia: null })}
               />
             )}
           </>
@@ -499,11 +520,17 @@ function ConteudoDaUnidade({
   recorte,
   atualizadoEm,
   movimentos,
+  familiaAberta,
+  onAbrirFamilia,
+  onFecharFamilia,
 }: {
   view: FamiliesView;
   recorte: ReturnType<typeof lerRecorte>;
   atualizadoEm: number;
   movimentos: Movimentos | null;
+  familiaAberta: string | null;
+  onAbrirFamilia: (code: string) => void;
+  onFecharFamilia: () => void;
 }) {
   const cobertura = coberturaDePreco(view.totals.changes, view.impact.notCalculable);
   const principal = ladosDoImpacto(view)[0] ?? null;
@@ -557,8 +584,15 @@ function ConteudoDaUnidade({
       <ImpactoEPodio
         pontos={pontos}
         periodicity={periodicity}
+        resumo={view}
         familias={view.families}
         dominante={dominante}
+        period={view.period}
+        periodLabel={view.periodLabel}
+        recorte={recorte}
+        familiaAberta={familiaAberta}
+        onAbrirFamilia={onAbrirFamilia}
+        onFecharFamilia={onFecharFamilia}
       />
 
       <PrincipaisAlteracoes linhas={linhasDaUnidade(view, recorte)} />
@@ -590,16 +624,42 @@ function ConteudoDaUnidade({
 function ImpactoEPodio({
   pontos,
   periodicity,
+  resumo,
   familias,
   dominante,
+  period,
+  periodLabel,
+  recorte,
+  familiaAberta,
+  onAbrirFamilia,
+  onFecharFamilia,
   notaDoGrafico,
 }: {
   pontos: PontoDeImpacto[];
   periodicity: string | null;
+  /** A vigência ou o consolidado — o pódio lê `summary.sides` dos dois. */
+  resumo: Pick<FamiliesView, "summary"> | null;
   familias: FamiliaNoPodio[];
   dominante: string | null;
+  /** A vigência aberta — `null` na Visão Geral, e aí a gaveta não abre portas. */
+  period: string | null;
+  periodLabel: string | null;
+  recorte?: Recorte;
+  familiaAberta: string | null;
+  onAbrirFamilia: (code: string) => void;
+  onFecharFamilia: () => void;
   notaDoGrafico?: string;
 }) {
+  /*
+    A gaveta lê a **mesma** resposta que desenhou o pódio, e na mesma
+    periodicidade dele. Dois pedidos seriam duas vigências possíveis, e é assim
+    que o número da gaveta deixaria de bater com o número da linha.
+  */
+  const sides = resumo?.summary.sides ?? [];
+  const periodicidade =
+    sides.find((s) => s.periodicity === dominante)?.periodicity ?? sides[0]?.periodicity ?? null;
+  const detalhe = detalheDaFamilia(resumo, familiaAberta, periodicidade);
+
   return (
     <div className="grid gap-5 lg:grid-cols-5">
       <div className="lg:col-span-3">
@@ -613,8 +673,22 @@ function ImpactoEPodio({
         </section>
       </div>
       <div className="lg:col-span-2">
-        <MaioresImpactos familias={familias} dominante={dominante} />
+        <MaioresImpactos
+          resumo={resumo}
+          familias={familias}
+          dominante={dominante}
+          familiaAberta={familiaAberta}
+          onAbrirFamilia={onAbrirFamilia}
+        />
       </div>
+
+      <DetalheDaFamilia
+        detalhe={detalhe}
+        period={period}
+        periodLabel={periodLabel}
+        recorte={recorte}
+        onFechar={onFecharFamilia}
+      />
     </div>
   );
 }
@@ -685,11 +759,17 @@ function ConteudoGeral({
   atualizadoEm,
   onTrocar,
   serie,
+  familiaAberta,
+  onAbrirFamilia,
+  onFecharFamilia,
 }: {
   overview: FamiliesOverview;
   atualizadoEm: number;
   onTrocar: (mudancas: Record<string, string | null>) => void;
   serie: PontoDeImpacto[];
+  familiaAberta: string | null;
+  onAbrirFamilia: (code: string) => void;
+  onFecharFamilia: () => void;
 }) {
   const cobertura = coberturaDePreco(overview.summary.changes, overview.summary.notCalculable);
   const principal = ladosDoImpacto(overview)[0] ?? null;
@@ -731,8 +811,19 @@ function ConteudoGeral({
       <ImpactoEPodio
         pontos={serie}
         periodicity={dominante}
+        resumo={overview}
         familias={overview.consolidado.families}
         dominante={dominante}
+        /*
+          Sem `period` e sem recorte: a Visão Geral não tem uma unidade a quem
+          perguntar, e a gaveta que ela abre recusa a porta para Parâmetros em
+          vez de prometer "esta família" e entregar a de `contexts[0]`.
+        */
+        period={null}
+        periodLabel={null}
+        familiaAberta={familiaAberta}
+        onAbrirFamilia={onAbrirFamilia}
+        onFecharFamilia={onFecharFamilia}
         notaDoGrafico="Ganhos e perdas de todas as unidades incluídas, com o líquido por cima. Uma barra por competência — a unidade sem vigência naquela competência não entra nela."
       />
 
@@ -1119,19 +1210,34 @@ export interface FamiliaNoPodio {
  * ainda continua igual: uma família sem impacto ainda tem o que dizer.
  */
 function MaioresImpactos({
+  resumo,
   familias,
   dominante,
+  familiaAberta,
+  onAbrirFamilia,
 }: {
+  /** A vigência ou o consolidado — os dois têm `summary.sides` na mesma forma. */
+  resumo: Pick<FamiliesView, "summary"> | null;
   familias: FamiliaNoPodio[];
   dominante: string | null;
+  /** A família cuja gaveta está aberta, para a linha ficar marcada atrás dela. */
+  familiaAberta: string | null;
+  onAbrirFamilia: (code: string) => void;
 }) {
-  const comImpacto = (dominante === null
-    ? []
-    : familias
-        .map((f) => ({ nome: f.name, changes: f.changes, amount: f.impact.byPeriodicity[dominante] ?? 0 }))
-        .filter((f) => f.amount !== 0)
-        .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount))
-  ).slice(0, 5);
+  const sides = resumo?.summary.sides ?? [];
+  /*
+    A periodicidade em que este pódio acontece.
+
+    A dominante da tela, quando a vigência de fato tem lados nela — é a mesma
+    que manda no cartão de Impacto líquido logo acima, e um pódio em R$/ano
+    debaixo de um número em R$/mês seria a mistura de escala que o produto
+    recusa. Quando não tem, vale a maior das que existem, para o pódio não sumir
+    por uma divergência entre `impact.byPeriodicity` e `sides`.
+  */
+  const periodicidade =
+    sides.find((s) => s.periodicity === dominante)?.periodicity ?? sides[0]?.periodicity ?? null;
+
+  const comImpacto = impactoPorFamilia(resumo, periodicidade).slice(0, 5);
 
   // Sem impacto apurado nenhum, a família ainda tem o que dizer: quantas
   // alterações ela concentrou. Uma barra de quantidade substitui a de R$ em
@@ -1144,47 +1250,95 @@ function MaioresImpactos({
           .slice(0, 5)
       : [];
 
-  const teto = comImpacto.reduce((maior, l) => Math.max(maior, Math.abs(l.amount)), 0);
   const tetoQuantidade = porQuantidade.reduce((maior, f) => Math.max(maior, f.changes), 0);
 
   return (
     <section className={cn(CARTAO, "px-6 py-5 flex flex-col h-full")}>
       <div className="flex items-center gap-2 mb-1">
         <h2 className="text-base font-bold">Maiores impactos desta vigência</h2>
-        {dominante && comImpacto.length > 0 && (
+        {periodicidade && comImpacto.length > 0 && (
           <span className="text-xs font-semibold text-muted-foreground">
-            em R${periodicitySuffix(dominante)}
+            em R${periodicitySuffix(periodicidade)}
           </span>
         )}
       </div>
       <p className="text-xs text-muted-foreground mb-4">
-        Por família da remuneração — o líquido de cada uma (ganhos menos perdas), até cinco.
+        Por família da remuneração — o que somou e o que tirou em cada uma, com o líquido ao
+        lado. Até cinco, pelas que mais movimentaram dinheiro. Clique para ver de onde vem.
       </p>
 
-      {comImpacto.length > 0 ? (
-        <ol className="space-y-3.5 flex-1">
-          {comImpacto.map((linha, indice) => (
-            <li key={linha.nome} className="flex items-center gap-3">
-              <span className="w-5 shrink-0 text-xs font-bold text-muted-foreground tabular-nums">
-                {indice + 1}
-              </span>
-              <span className="w-28 shrink-0 min-w-0 text-sm font-semibold truncate" title={linha.nome}>
-                {linha.nome}
-              </span>
-              <span className="flex-1 h-3 bg-muted overflow-hidden min-w-8 rounded-sm">
-                <span
-                  className={cn("block h-full", linha.amount < 0 ? "bg-red-600" : "bg-emerald-600")}
-                  style={{ width: `${teto === 0 ? 0 : Math.max(2, (Math.abs(linha.amount) / teto) * 100)}%` }}
-                />
-              </span>
-              <span
+      {comImpacto.length > 0 && periodicidade !== null ? (
+        <ol className="space-y-3 flex-1">
+          {comImpacto.map((familia, indice) => (
+            <li key={familia.code}>
+              {/*
+                A linha inteira é o botão, e não uma seta no fim dela — a mesma
+                régua do pódio do Resumo executivo: o que se quer clicar aqui é
+                o número, e um alvo de 16 pixels na borda direita obrigaria a
+                mirar para fazer a pergunta mais óbvia da tela.
+              */}
+              <button
+                type="button"
+                onClick={() => onAbrirFamilia(familia.code)}
+                title={`De onde vem o impacto de ${familia.name}`}
+                aria-expanded={familiaAberta === familia.code}
                 className={cn(
-                  "text-xs font-bold tabular-nums w-24 text-right",
-                  linha.amount < 0 ? "text-red-700" : "text-emerald-700",
+                  "w-full flex items-center gap-3 text-left rounded-lg px-2 -mx-2 py-1.5 -my-1.5",
+                  "hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand transition-colors group",
+                  familiaAberta === familia.code && "bg-muted/60",
                 )}
               >
-                {escreverImpacto({ periodicity: dominante, amount: linha.amount })}
-              </span>
+                <span className="w-5 shrink-0 text-xs font-bold text-muted-foreground tabular-nums">
+                  {indice + 1}
+                </span>
+                <span className="w-28 shrink-0 min-w-0">
+                  <span
+                    className="block text-sm font-semibold truncate group-hover:underline"
+                    title={familia.name}
+                  >
+                    {familia.name}
+                  </span>
+                  <span className="block text-[0.6875rem] text-muted-foreground truncate">
+                    {familia.alteracoes.toLocaleString("pt-BR")}{" "}
+                    {familia.alteracoes === 1 ? "alteração" : "alterações"} com preço
+                  </span>
+                </span>
+                <BarraDeMovimento familia={familia} />
+                <span className="w-28 shrink-0 text-right">
+                  <span
+                    className={cn(
+                      "block text-xs font-bold tabular-nums",
+                      familia.liquido < 0 ? "text-red-700" : "text-emerald-700",
+                    )}
+                  >
+                    {escreverImpacto({ periodicity: periodicidade, amount: familia.liquido })}
+                  </span>
+                  {/*
+                    Os dois lados embaixo do líquido, e não no lugar dele.
+
+                    O líquido é a subtração, e a subtração esconde as parcelas:
+                    esta linha dizia "R$ 21.905/mês" num verde inteiro enquanto o
+                    cartão de Perdas, dois palmos acima, dizia "−R$ 4.652" — e a
+                    perda estava dentro desta mesma família. Um lado que não
+                    existe some em vez de sair como "R$ 0": zero apurado e lado
+                    inexistente são coisas diferentes.
+                  */}
+                  <span className="block text-[0.6875rem] tabular-nums leading-tight">
+                    {familia.ganhos !== 0 && (
+                      <span className="text-emerald-700">
+                        +{formatBrlShort(familia.ganhos)}
+                      </span>
+                    )}
+                    {familia.ganhos !== 0 && familia.perdas !== 0 && (
+                      <span className="text-muted-foreground"> · </span>
+                    )}
+                    {familia.perdas !== 0 && (
+                      <span className="text-red-700">{formatBrlShort(familia.perdas)}</span>
+                    )}
+                  </span>
+                </span>
+                <ChevronRight className="w-4 h-4 shrink-0 text-muted-foreground opacity-40 group-hover:opacity-100 transition-opacity" />
+              </button>
             </li>
           ))}
         </ol>
@@ -1218,6 +1372,32 @@ function MaioresImpactos({
         </p>
       )}
     </section>
+  );
+}
+
+/**
+ * A barra de uma família — verde e vermelha na mesma barra.
+ *
+ * O comprimento total mede **movimento** (`ganhos + |perdas|`) na escala do
+ * maior movimento do pódio, e a divisão interna diz quanto dele foi para cada
+ * lado. Uma barra do líquido diria que a família que subiu R$ 40 mil e caiu
+ * R$ 39 mil quase não se mexeu, quando ali aconteceram os dois maiores
+ * movimentos da vigência.
+ *
+ * Um lado sem valor não recebe fatia nenhuma: a família inteiramente de ganho
+ * fica inteiramente verde, como estava antes — o vermelho aparece quando há
+ * vermelho, e nunca como um fiapo decorativo.
+ */
+function BarraDeMovimento({ familia }: { familia: ImpactoDeFamilia }) {
+  const largura = familia.proporcao === 0 ? 0 : Math.max(2, familia.proporcao * 100);
+  const verde = familia.fatiaDeGanho === null ? 0 : familia.fatiaDeGanho * 100;
+  return (
+    <span className="flex-1 h-3 bg-muted overflow-hidden min-w-8 rounded-sm">
+      <span className="flex h-full" style={{ width: `${largura}%` }}>
+        <span className="block h-full bg-emerald-600" style={{ width: `${verde}%` }} />
+        <span className="block h-full bg-red-600" style={{ width: `${100 - verde}%` }} />
+      </span>
+    </span>
   );
 }
 
