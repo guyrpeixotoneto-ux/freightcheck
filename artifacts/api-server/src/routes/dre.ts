@@ -16,6 +16,8 @@ import {
   type FiltrosDaFrota,
 } from "@workspace/dre";
 
+import { parseContext as parseContextoDaConsulta } from "../lib/contexto";
+import { exigirAtivoNaOperacao } from "../lib/operacao";
 /**
  * DRE — o resultado por unidade econômica.
  *
@@ -37,18 +39,26 @@ const router: IRouter = Router();
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** Mesma convenção das demais rotas — ver `routes/changes.ts`. */
+/**
+ * O contexto pedido — **a mesma leitura de `lib/contexto.ts`**, sem a janela.
+ *
+ * Era uma cópia local, e a cópia era inofensiva enquanto o contexto fosse
+ * unidade e canal. Deixou de ser quando a operação entrou: quatro rotas com
+ * quatro parsers próprios são quatro chances de uma delas não recortar por
+ * operação — e a que não recortasse mostraria, dentro da Auditoria Rota, a
+ * composição, a DRE ou o balcão de compras da empurrada, sem nada na tela
+ * dizendo isso. Agora o parser é um só, e é o mesmo que as onze outras rotas
+ * usam.
+ *
+ * A janela sai porque estas leituras não a aceitam: elas respondem por **uma**
+ * vigência, e um recorte de série aqui mudaria a lista do seletor sem que a
+ * resposta mudasse junto — ver o cabeçalho de `routes/frota.ts`.
+ */
 function parseContext(query: Record<string, unknown>): Partial<SeriesContext> | undefined {
-  const scopeHash =
-    typeof query.scopeHash === "string" && query.scopeHash !== "" ? query.scopeHash : undefined;
-  const hasCanal = typeof query.canal === "string";
-  if (scopeHash === undefined && !hasCanal) return undefined;
-  return {
-    ...(scopeHash !== undefined ? { scopeHash } : {}),
-    ...(hasCanal
-      ? { channel: (query.canal as string) === "" ? null : (query.canal as string) }
-      : {}),
-  };
+  const pedido = parseContextoDaConsulta(query);
+  if (pedido === undefined) return undefined;
+  const { janela: _janela, ...semJanela } = pedido;
+  return semJanela;
 }
 
 function parsePeriod(query: Record<string, unknown>): string | undefined {
@@ -125,6 +135,13 @@ router.get("/dre/unit/:entityId", async (req, res): Promise<void> => {
     res.status(400).json({ error: "Identificador de equipamento inválido." });
     return;
   }
+  /*
+    O ativo é pedido por id, e o ativo é a única coisa deste modelo que
+    atravessa operações: a mesma placa pode ser remunerada na empurrada e na
+    rota. Por isso a pergunta não é "de qual operação ele é", e sim "ele aparece
+    na que está perguntando" — ver `operacoesDaEntidade`.
+  */
+  await exigirAtivoNaOperacao(req, entityId);
   const query = req.query as Record<string, unknown>;
   const escopo = parseEscopo(query, res);
   if (!escopo) return;
@@ -157,6 +174,13 @@ router.get("/dre/unit/:entityId/bridge", async (req, res): Promise<void> => {
     res.status(400).json({ error: "Identificador de equipamento inválido." });
     return;
   }
+  /*
+    O ativo é pedido por id, e o ativo é a única coisa deste modelo que
+    atravessa operações: a mesma placa pode ser remunerada na empurrada e na
+    rota. Por isso a pergunta não é "de qual operação ele é", e sim "ele aparece
+    na que está perguntando" — ver `operacoesDaEntidade`.
+  */
+  await exigirAtivoNaOperacao(req, entityId);
   const query = req.query as Record<string, unknown>;
   const escopo = parseEscopo(query, res);
   if (!escopo) return;
@@ -178,6 +202,13 @@ router.get("/dre/unit/:entityId/history", async (req, res): Promise<void> => {
     res.status(400).json({ error: "Identificador de equipamento inválido." });
     return;
   }
+  /*
+    O ativo é pedido por id, e o ativo é a única coisa deste modelo que
+    atravessa operações: a mesma placa pode ser remunerada na empurrada e na
+    rota. Por isso a pergunta não é "de qual operação ele é", e sim "ele aparece
+    na que está perguntando" — ver `operacoesDaEntidade`.
+  */
+  await exigirAtivoNaOperacao(req, entityId);
   const query = req.query as Record<string, unknown>;
   const escopo = parseEscopo(query, res);
   if (!escopo) return;

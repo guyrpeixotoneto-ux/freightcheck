@@ -190,7 +190,7 @@ export async function getEndToEndAnalysis(
   /** Recorte do cartão: só estes parâmetros. Vazio = tudo. */
   parameterKeys?: string[],
 ): Promise<EndToEndAnalysis | null> {
-  const contexts = await listContexts(db);
+  const contexts = await listContexts(db, { operacao: requestedContext?.operacao });
   const context = await resolveContext(db, requestedContext, contexts);
   if (!context) return null;
 

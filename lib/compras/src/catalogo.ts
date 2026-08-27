@@ -50,6 +50,16 @@ export interface EscopoDaConsulta {
   scopeHash?: string;
   /** Nulo é um canal, e não a ausência de um: ver `SeriesContext.channel`. */
   channel?: string | null;
+  /**
+   * A operação de quem consulta — o recorte das quatro auditorias.
+   *
+   * O balcão de compras responde "quanto a Ambev remunera este produto", e a
+   * resposta é do contrato da operação: o mesmo pneu tem um valor na empurrada
+   * e outro na rota. Sem esta chave a consulta cairia no contexto padrão do
+   * acervo inteiro, e o comprador liberaria a compra pelo número de outra
+   * operação — ver `SeriesContext.operacao`.
+   */
+  operacao?: string | null;
 }
 
 /**

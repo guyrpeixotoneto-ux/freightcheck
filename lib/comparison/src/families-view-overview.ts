@@ -13,7 +13,7 @@ import {
 } from "./families-view";
 import { comparePriorities } from "./cockpit";
 import type { ChangeGroup } from "./grouped";
-import { listContexts, type ContextInfo } from "./series";
+import { listContexts, type ContextInfo, type Operacao } from "./series";
 
 /**
  * A soma de todas as unidades, para uma única competência — a "Visão Geral".
@@ -516,8 +516,13 @@ function consolidar(
 export async function getFamiliesOverview(
   db: Database,
   period: string,
-  opts?: { datasetFamily?: string },
+  opts?: { datasetFamily?: string; operacao?: Operacao | null },
 ): Promise<FamiliesOverview | null> {
+  /*
+    A Visão Geral soma todas as unidades da competência, e é por `listContexts`
+    que ela sabe quais são: recortada a lista pela operação, tudo o que vem
+    depois — as leituras por unidade, os grupos, os totais — já nasce dela.
+  */
   const contexts = await listContexts(db, opts);
   const porUnidade = agruparPorUnidade(contexts);
 
@@ -582,7 +587,11 @@ export async function getFamiliesOverview(
               view: await getFamiliesView(
                 db,
                 period,
-                { scopeHash: contexto.scopeHash, channel: contexto.channel },
+                {
+                  scopeHash: contexto.scopeHash,
+                  channel: contexto.channel,
+                  operacao: opts?.operacao ?? null,
+                },
                 { contexts, inventory: inventory ?? undefined },
               ),
             })),
@@ -806,8 +815,9 @@ export async function getRangeOverview(
   db: Database,
   from?: string,
   to?: string,
+  opts?: { operacao?: Operacao | null },
 ): Promise<RangeOverview | null> {
-  const contexts = await listContexts(db);
+  const contexts = await listContexts(db, opts);
   const porUnidade = agruparPorUnidade(contexts);
 
   const unitsExcluded: RangeOverviewUnitExcluded[] = [];
@@ -849,7 +859,11 @@ export async function getRangeOverview(
           db,
           from,
           to,
-          { scopeHash: contexto.scopeHash, channel: contexto.channel },
+          {
+            scopeHash: contexto.scopeHash,
+            channel: contexto.channel,
+            operacao: opts?.operacao ?? null,
+          },
           undefined,
           contexts,
         ),

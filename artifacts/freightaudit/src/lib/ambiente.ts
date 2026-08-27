@@ -15,8 +15,9 @@
  * diferentes.** Abre-se a vigência, compara-se com a anterior, mede-se o
  * impacto e cobra-se o que houver a recuperar — a ordem do trabalho é uma só, e
  * por isso a lateral, as telas e o desenho são os mesmos nas quatro. O que muda
- * entre elas é **de que operação é o acervo** e, na lateral, **que ativo a
- * operação usa**: a empurrada roda com cavalo e carreta, a rota e o AS com
+ * entre elas é **de que operação é o acervo** — o recorte real, em
+ * `snapshot.canal`, ver {@link OPERACAO_DA_AUDITORIA} — e, na lateral, **que
+ * ativo a operação usa**: a empurrada roda com cavalo e carreta, a rota e o AS com
  * caminhão e carroceria, e o apoio com empilhadeira — que não puxa carreta nem
  * roda trecho. Ver `EQUIPAMENTOS_DO_AMBIENTE`, em `lib/frota.ts`, que é onde
  * esse vocabulário mora, e `navGroupsAuditoria`, em
@@ -145,14 +146,19 @@ export const BASES_DE_AUDITORIA: Record<AmbienteDeAuditoria, string> = {
 };
 
 /**
- * A operação de cada auditoria — o que o ambiente audita.
+ * A operação de cada auditoria — **o recorte do acervo, e não só o nome**.
  *
- * O par de {@link OPERACAO_DO_AMBIENTE}, do lado da Auditoria. Ele nomeia a
- * operação para quem precisa escrevê-la numa frase, e é o eixo pelo qual os
- * quatro acervos **devem** ser separados quando a importação passar a declarar
- * de qual operação é cada planilha. Enquanto ela não declara, este mapa é o que
- * há: o nome da operação, dito na tela, sem nenhum filtro fingido por trás dele
- * — a mesma regra que impede um número sem lastro impede um recorte sem lastro.
+ * O par de {@link OPERACAO_DO_AMBIENTE}, do lado da Auditoria. Ele é o valor que
+ * viaja em `?operacao=` em **toda** chamada deste produto (`lib/api.ts`, no
+ * carimbo de `getApiUrl`), e do outro lado ele recorta `snapshot.canal` — a
+ * coluna que o banco deriva do rótulo da vigência (`EMPURRADA_1_8_2026` →
+ * `EMPURRADA`), que é `NOT NULL` e compõe a chave canônica da vigência.
+ *
+ * É por isso que uma vigência de empurrada não aparece, nem contribui com um
+ * centavo, para nenhum número de rota: não é a tela que esconde — é a consulta
+ * que não a alcança. A prova ponta a ponta, sobre um banco com as duas operações
+ * misturadas na mesma unidade, está em
+ * `artifacts/api-server/src/routes/__tests__/isolamento-por-operacao.test.ts`.
  */
 export const OPERACAO_DA_AUDITORIA: Record<AmbienteDeAuditoria, string> = {
   auditoria: "EMPURRADA",

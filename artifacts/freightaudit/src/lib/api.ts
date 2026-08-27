@@ -1,3 +1,4 @@
+import { ambienteDe, ehAuditoria, OPERACAO_DA_AUDITORIA } from "@/lib/ambiente";
 import { ehDiagnostico, type Diagnostico } from "@/lib/diagnostico";
 import { ErroDeTransporte, diagnosticarTransporte } from "@/lib/transporte";
 
@@ -10,7 +11,60 @@ import { ErroDeTransporte, diagnosticarTransporte } from "@/lib/transporte";
 export function getApiUrl(path: string): string {
   const base = "/api";
   const normalized = path.startsWith("/") ? path : `/${path}`;
-  return `${base}${normalized}`;
+  return `${base}${comOperacao(normalized, enderecoAberto())}`;
+}
+
+/**
+ * A operação da auditoria aberta, em **toda** chamada — e por que aqui.
+ *
+ * As quatro auditorias leem o mesmo produto sobre acervos diferentes
+ * (`lib/ambiente.ts`), e o servidor separa os acervos por `?operacao=`
+ * (`snapshot.canal`, a coluna canônica). A pergunta é onde o cliente carimba
+ * isso, e a resposta não podia ser "em cada tela": são mais de cem consultas, e
+ * a que alguém esquecesse seria uma tela de Rota mostrando números da Empurrada
+ * — sem erro nenhum na tela, que é a forma mais cara de essa regressão
+ * aparecer. É a mesma razão pela qual a família do dataset vive dentro de
+ * `contextFilter`, do lado do servidor, e não em sessenta consultas.
+ *
+ * Então o carimbo é aqui, no único lugar por onde todas passam: `getApiUrl`
+ * monta o endereço de toda chamada deste produto — as consultas, as mutações,
+ * os downloads de planilha, o `EventSource` do assistente.
+ *
+ * **A operação vem do endereço do navegador, e não de um estado.** É a mesma
+ * regra que `lib/ambiente.ts` já declara: a URL é a única fonte da verdade sobre
+ * o ambiente aberto. Um estado guardado seria uma segunda verdade, e a errada —
+ * bastaria uma navegação sem re-render para a tela pedir o acervo do ambiente
+ * anterior.
+ *
+ * Fora das auditorias — nos fechamentos — nada é carimbado: lá o recorte é
+ * `tipoDeOperacao` na competência, que é outro eixo, e um `operacao` a mais na
+ * consulta seria ruído. Quem já manda o parâmetro por conta própria também
+ * passa intacto: o carimbo nunca sobrescreve o que a chamada pediu.
+ */
+function enderecoAberto(): string {
+  if (typeof window === "undefined") return "/";
+  /*
+    Sem a base da aplicação: `ambienteDe` fala a língua das rotas, e não a do
+    servidor que as hospeda. Quando o produto é servido sob um subcaminho, o
+    `pathname` do navegador o traz na frente — a mesma correção que
+    `lib/ambiente-aberto.ts` faz do lado dos componentes.
+  */
+  const daAplicacao = import.meta.env.BASE_URL.replace(/\/$/, "");
+  const caminho = window.location.pathname;
+  return daAplicacao !== "" && caminho.startsWith(daAplicacao)
+    ? caminho.slice(daAplicacao.length) || "/"
+    : caminho;
+}
+
+export function comOperacao(caminho: string, enderecoDoNavegador: string): string {
+  const ambiente = ambienteDe(enderecoDoNavegador);
+  if (!ehAuditoria(ambiente)) return caminho;
+
+  const [semQuery, query = ""] = caminho.split("?");
+  const params = new URLSearchParams(query);
+  if (params.has("operacao")) return caminho;
+  params.set("operacao", OPERACAO_DA_AUDITORIA[ambiente]);
+  return `${semQuery}?${params}`;
 }
 
 /**

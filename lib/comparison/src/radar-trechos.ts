@@ -63,6 +63,7 @@ import type { ImpactConfidence } from "./impact";
 import {
   channelSql,
   listContexts,
+  operacaoFilter,
   type ContextInfo,
   type RequestedContext,
 } from "./series";
@@ -290,6 +291,14 @@ export async function resolverComparacaoDeTrecho(
     requested?.channel !== undefined
       ? sql` AND ${channelSql("s.source_label")} IS NOT DISTINCT FROM ${requested.channel}::text`
       : sql``;
+  /*
+    A operação recorta **antes** do padrão, e é isso que a torna diferente do
+    filtro de unidade acima. Sem ela, "a vigência de trecho mais recente do
+    acervo" é a mais recente de **qualquer** operação: quem abrisse o Radar na
+    Auditoria Rota, sem escolher unidade, cairia no trecho da empurrada — com o
+    cabeçalho escrevendo a unidade certa e a comparação sendo de outro contrato.
+  */
+  const daOperacao = sql` AND ${operacaoFilter("s", requested?.operacao)}`;
 
   const { rows } = await db.execute<{
     id: string;
@@ -311,7 +320,7 @@ export async function resolverComparacaoDeTrecho(
        AND NOT EXISTS (
              SELECT 1 FROM import_run
               WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL
-           )${escopoPedido}${canalPedido}
+           )${escopoPedido}${canalPedido}${daOperacao}
      ORDER BY s.effective_date DESC, s.scope_hash
      LIMIT 1
   `);
@@ -325,7 +334,10 @@ export async function resolverComparacaoDeTrecho(
     unidade), o `context` é montado a partir da própria vigência — a tela
     precisa de um rótulo para escrever no cabeçalho, não de uma recusa.
   */
-  const contexts = await listContexts(db, { incluirCascaDeTrecho: true });
+  const contexts = await listContexts(db, {
+    incluirCascaDeTrecho: true,
+    operacao: requested?.operacao,
+  });
   const context =
     contexts.find((c) => c.scopeHash === latest.scope_hash && c.channel === latest.channel) ??
     contexts.find((c) => c.scopeHash === latest.scope_hash) ??

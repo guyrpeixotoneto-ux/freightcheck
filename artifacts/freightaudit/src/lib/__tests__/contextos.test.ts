@@ -141,7 +141,14 @@ describe("a consulta de /contexts é uma só", () => {
     const { casca, tela } = await montar();
 
     expect(fetchFalso).toHaveBeenCalledTimes(1);
-    expect(fetchFalso.mock.calls[0]?.[0]).toBe("/api/contexts");
+    /*
+      O endereço leva a operação da auditoria aberta — carimbada em `getApiUrl`,
+      no único lugar por onde toda chamada deste produto passa (`lib/api.ts`).
+      Fora de qualquer ambiente prefixado, como aqui, a operação é a da
+      Empurrada, que é a auditoria da raiz. O que este caso guarda continua sendo
+      o mesmo: **uma** chamada, e a mesma para a casca e para a tela.
+    */
+    expect(fetchFalso.mock.calls[0]?.[0]).toBe("/api/contexts?operacao=EMPURRADA");
     expect(tela.data).toEqual(CONTEXTOS);
     expect(casca.data).toEqual(CONTEXTOS);
   });

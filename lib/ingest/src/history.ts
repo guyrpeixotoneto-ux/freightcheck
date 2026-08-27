@@ -11,6 +11,7 @@ import {
 } from "@workspace/db";
 import { impedePromocao, isolaAChave } from "./apontamentos";
 import { identidadesPendentes } from "./pipeline";
+import { normalizeChannel } from "./canonical-identity";
 import { parseVigenciaLabel } from "./vigencia";
 
 /**
@@ -226,8 +227,51 @@ function selectRunSummary(db: Database) {
     .innerJoin(sourceFileTable, eq(sourceFileTable.id, importRunTable.sourceFileId));
 }
 
-export async function listImportRuns(db: Database): Promise<ImportRunSummary[]> {
-  return selectRunSummary(db).orderBy(desc(importRunTable.startedAt));
+/**
+ * O histórico de importações — recortado pela operação, quando há uma.
+ *
+ * **Uma importação não tem canal; ela produz vigências que têm.** O recorte,
+ * então, é pelo que ela promoveu: `snapshot.canal`, a coluna canônica que a
+ * `0015` derivou do rótulo. Um arquivo que trouxe rótulos `ROTA_*` é uma
+ * importação de rota, e é assim que a tela de Importações da Auditoria Rota
+ * deixa de listar os envios da empurrada.
+ *
+ * **A importação que ainda não promoveu nada aparece em todas as operações**, e
+ * isso é decisão, não sobra: enquanto ela não promove, o rótulo ainda não virou
+ * vigência e não há de qual operação ela é. Escondê-la faria quem acabou de
+ * enviar o arquivo — ou de vê-lo falhar na validação — achar que o envio se
+ * perdeu, que é o oposto do que esta tela existe para responder.
+ */
+export async function listImportRuns(
+  db: Database,
+  opts?: { operacao?: string | null },
+): Promise<ImportRunSummary[]> {
+  const operacao = normalizarCanal(opts?.operacao ?? null);
+  const consulta = selectRunSummary(db);
+  const recortada =
+    operacao === null
+      ? consulta
+      : consulta.where(sql`
+          NOT EXISTS (SELECT 1 FROM snapshot s WHERE s.import_run_id = ${importRunTable.id})
+          OR EXISTS (
+            SELECT 1 FROM snapshot s
+             WHERE s.import_run_id = ${importRunTable.id} AND s.canal = ${operacao}
+          )`);
+  return recortada.orderBy(desc(importRunTable.startedAt));
+}
+
+/**
+ * A mesma normalização de `freightcheck_norm_canal`, para comparar com a coluna.
+ *
+ * Escrita aqui, e não importada de `@workspace/comparison`, porque este pacote
+ * é a ingestão: ele não depende da leitura, e inverter isso criaria um ciclo
+ * entre os dois. A gramática é a de `normalizeChannel`, em `canonical-identity.ts`,
+ * que é de onde o valor da coluna saiu.
+ */
+function normalizarCanal(valor: string | null): string | null {
+  if (valor === null) return null;
+  const normalizado = normalizeChannel(valor);
+  return normalizado === "" ? null : normalizado;
 }
 
 /** One run, or null when no run carries that id. */

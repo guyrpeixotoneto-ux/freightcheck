@@ -37,6 +37,7 @@ import {
   garantirComparacoesDaPromocao,
   type GarantiaDaPromocao,
 } from "@workspace/comparison";
+import { operacaoDaConsulta } from "../lib/operacao";
 import { faltaSchema } from "../lib/schema-ausente";
 import { contextoDeSchema } from "../middlewares/contexto-de-schema";
 
@@ -465,9 +466,22 @@ async function readInBackground(importRunId: string, log: Log): Promise<void> {
   }
 }
 
+/**
+ * O histórico de importações — recortado pela operação de quem pergunta.
+ *
+ * Uma importação não tem canal; ela **produz** vigências que têm, e o recorte é
+ * por elas (`listImportRuns`, em `@workspace/ingest`). A que ainda não promoveu
+ * nada aparece em todas as operações, porque ainda não declarou de qual é —
+ * esconder o arquivo que acabou de subir faria quem o enviou achar que se
+ * perdeu.
+ */
 router.get("/imports", async (req, res, next): Promise<void> => {
   try {
-    res.json(await listImportRuns(db));
+    res.json(
+      await listImportRuns(db, {
+        operacao: operacaoDaConsulta(req.query as Record<string, unknown>),
+      }),
+    );
   } catch (err) {
     responderFalhaDeLeitura(next, req.log, err, "listagem de importações");
   }

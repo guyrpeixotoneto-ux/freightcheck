@@ -69,6 +69,7 @@ async function contexto(ctx: ContextoDaFerramenta): Promise<ContextoResolvido> {
   const resolvido = await resolverContexto(ctx.db, {
     ...(ctx.recorte.scopeHash ? { scopeHash: ctx.recorte.scopeHash } : {}),
     ...(ctx.recorte.channel !== undefined ? { channel: ctx.recorte.channel } : {}),
+    ...(ctx.recorte.operacao ? { operacao: ctx.recorte.operacao } : {}),
   });
   /*
     Sem recorte não há consulta, e o jeito de dizer isso é lançar.

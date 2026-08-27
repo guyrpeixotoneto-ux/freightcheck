@@ -64,14 +64,42 @@ uma operação não trouxer o ativo dela, a tela 360° diz que aquele tipo não
 existe neste contexto, em vez de mostrar o ativo de outra operação com o rótulo
 trocado.
 
-**O que ainda não as separa: o acervo.** A operação de cada auditoria está em
-`OPERACAO_DA_AUDITORIA` (`lib/ambiente.ts`), mas nenhuma consulta da Auditoria
-recebe esse recorte hoje — as quatro leem as mesmas vigências, e a separação por
-operação existe no eixo do canal da vigência (`EMPURRADA_1_8_2026`,
-`ROTA_…`), não em um filtro que as telas mandem. Enquanto isso não for decidido
-e escrito, o que os quatro ambientes garantem é o vocabulário e o menu da
-operação — e é o que este documento afirma, para que ninguém leia mais do que
-está construído.
+**O que as separa de verdade: o acervo.** O campo canônico da operação é
+**`snapshot.canal`** — derivado do rótulo da vigência pelo banco
+(`freightcheck_canal_do_rotulo`, migration `0015`), `NOT NULL`, sem vazio, e
+componente de `canonical_snapshot_key`. Não é nome de arquivo: é a dimensão que
+já mantinha EMPURRADA e ROTA como identidades distintas na mesma unidade e na
+mesma data.
+
+A leitura carrega esse recorte assim:
+
+- **o cliente carimba** `?operacao=` em toda chamada, num lugar só —
+  `getApiUrl`, em `lib/api.ts`, por onde passam consultas, mutações e downloads.
+  A operação vem do endereço do navegador, que é a única fonte da verdade sobre
+  o ambiente aberto;
+- **o servidor recorta**: `parseContext` (`lib/contexto.ts`) põe a operação no
+  contexto pedido, `resolveContext` filtra a lista de contextos por ela — de modo
+  que o padrão de quem não escolhe unidade já é da operação aberta —, e
+  `contextFilter` a aplica junto com unidade, canal e família, alcançando de uma
+  vez as mais de sessenta consultas que passam por ele;
+- **as leituras que atravessam contextos** (Visão Gerencial, Visão Geral por
+  competência, Comparar, Importações, Cobertura, Radar de Trechos, o retrato da
+  Home) recebem `operacaoFilter` explicitamente;
+- **as rotas que perguntam por id** (uma comparação, uma vigência, uma
+  alteração, uma justificativa) **recusam** o recurso de outra operação com 404
+  e uma frase que diz de qual operação ele é — é o caso do link antigo colado no
+  ambiente errado.
+
+Três famílias ficam **fora** do recorte, de propósito: a casa (sessão, usuários,
+unidades), o vocabulário (curadoria, categorias, significados, versões — o
+atributo `carreta.custo_fixo` é o mesmo nas quatro operações) e as populações
+próprias (chamados, Book). A lista, com o motivo de cada uma, é
+`isolamento-cobre-as-rotas.test.ts`, que reprova a rota nova que não decidir.
+
+A prova é `isolamento-por-operacao.test.ts`: um banco com empurrada e rota **na
+mesma unidade e nas mesmas datas**, e dezenove casos sobre a cadeia inteira —
+vigências, alterações, famílias, impacto, DRE, frota, cobertura, radar,
+importações, justificativas e a troca de ambiente.
 
 ## Os quatro fechamentos — mesma forma, operações diferentes
 

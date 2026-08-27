@@ -79,6 +79,9 @@ export type TipoDeImportacao =
   | "CAVALO"
   | "CARRETA"
   | "TRECHO"
+  | "CAMINHAO"
+  | "CARROCERIA"
+  | "EMPILHADEIRA"
   | "QLP_ADMINISTRATIVO"
   | "QLP_OPERACIONAL";
 
@@ -210,6 +213,53 @@ export const TIPOS_DE_IMPORTACAO: DefinicaoDeTipo[] = [
       "O export do lado variável da remuneração — origem, destino e quilometragem —, " +
       "identificado pela chave do trecho e não por placa.",
     identidade: [CHAVE_TRECHO],
+  },
+  /*
+    Os três ativos das outras operações.
+
+    Cavalo, carreta e trecho são o que a **empurrada** roda; a rota e o AS rodam
+    com caminhão e carroceria, e o apoio, com empilhadeira. Eles entram aqui
+    porque a auditoria daquelas operações existe (`lib/ambiente.ts`, no cliente)
+    e a importação precisava poder **receber** o export delas — enquanto não
+    podia, a única forma de aquelas telas mostrarem alguma coisa seria chamar o
+    cavalo de caminhão, que é o oposto do que este produto faz.
+
+    **Nenhum deles inventa dado.** `entity_type` é texto livre no banco, então
+    não há migration: o que muda é o contrato da importação, que passa a aceitar
+    a declaração desses tipos e a conferi-la contra o que o arquivo traz — a
+    mesma promessa/conferência dos três primeiros. Até chegar o primeiro arquivo,
+    a tela 360° de cada um diz que aquele tipo não existe neste contexto, que é a
+    verdade.
+
+    A identidade é a placa nos dois primeiros, como no cavalo e na carreta. A
+    empilhadeira também entra por placa: é o que o cadastro de pátio usa como
+    chave hoje, e trocá-la por número de série exigiria saber qual coluna o
+    export traz — o que só o primeiro arquivo dirá. Se vier diferente, muda-se
+    aqui, num lugar só.
+  */
+  {
+    code: "CAMINHAO",
+    rotulo: "Caminhão",
+    descricao:
+      "O export de remuneração do caminhão — o ativo que tração e AS rodam no " +
+      "lugar do cavalo mecânico —, por placa e quinzena.",
+    identidade: [PLACA],
+  },
+  {
+    code: "CARROCERIA",
+    rotulo: "Carroceria",
+    descricao:
+      "O export de remuneração da carroceria — o implemento do caminhão, no " +
+      "lugar da carreta —, por placa e quinzena.",
+    identidade: [PLACA],
+  },
+  {
+    code: "EMPILHADEIRA",
+    rotulo: "Empilhadeira",
+    descricao:
+      "O export de remuneração da empilhadeira, o ativo da operação de apoio: " +
+      "trabalha dentro do pátio, não puxa implemento e não roda trecho.",
+    identidade: [PLACA],
   },
   {
     code: "QLP_ADMINISTRATIVO",

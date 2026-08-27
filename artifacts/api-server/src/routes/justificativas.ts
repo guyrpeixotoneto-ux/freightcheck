@@ -1,10 +1,12 @@
 import { Router, type IRouter } from "express";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { db, changeTable, justificativaTable } from "@workspace/db";
+import { operacaoDoChangeSet } from "@workspace/comparison";
 import {
   iniciarFase,
   instrumentarCicloDaRequisicao,
 } from "../lib/observabilidade";
+import { exigirOperacaoDoRecurso } from "../lib/operacao";
 
 const DEFAULT_ACTOR = "sistema";
 
@@ -30,6 +32,15 @@ router.get("/justificativas", async (req, res): Promise<void> => {
     res.status(400).json({ error: "changeSetId é obrigatório." });
     return;
   }
+  /*
+    A justificativa é sempre *de uma comparação*, e a comparação é de uma
+    operação. Ler ou escrever a de outra é o mesmo vazamento das rotas por id —
+    aqui com a agravante de a escrita gravar, na comparação alheia, um texto que
+    o gestor achava estar escrevendo na dele.
+  */
+  await exigirOperacaoDoRecurso(req, "comparação", changeSetId, () =>
+    operacaoDoChangeSet(db, changeSetId),
+  );
 
   const faseSelect = iniciarFase(req, "db.select");
   const rows = await db
@@ -70,6 +81,9 @@ router.post("/justificativas", async (req, res): Promise<void> => {
     res.status(400).json({ error: "changeSetId é obrigatório." });
     return;
   }
+  await exigirOperacaoDoRecurso(req, "comparação", changeSetId, () =>
+    operacaoDoChangeSet(db, changeSetId),
+  );
   if (changeIds.length === 0) {
     res.status(400).json({ error: "Selecione ao menos uma alteração." });
     return;

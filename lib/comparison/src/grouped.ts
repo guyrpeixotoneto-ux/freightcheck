@@ -38,6 +38,7 @@ import {
   channelSql,
   contextFilter,
   listContexts,
+  operacaoFilter,
   resolveContext,
   type ContextInfo,
   type RequestedContext,
@@ -962,7 +963,14 @@ export async function getGroupedViewComDados(
   requestedContext?: RequestedContext,
   preloadedContexts?: ContextInfo[],
 ): Promise<LeituraAgrupada | null> {
-  const contexts = preloadedContexts ?? (await listContexts(db));
+  /*
+    A lista carrega o recorte de operação de quem perguntou — e não é detalhe de
+    desempenho: é dela que sai `otherContexts`, o "outras unidades" que a tela
+    oferece ao lado da aberta. Sem o recorte, a Auditoria Rota anunciava, na
+    própria resposta, o contexto da empurrada como um lugar para onde ir.
+  */
+  const contexts =
+    preloadedContexts ?? (await listContexts(db, { operacao: requestedContext?.operacao }));
   const context = await resolveContext(db, requestedContext, contexts);
   if (!context) return null;
 
@@ -1920,6 +1928,10 @@ async function findElsewhere(
      WHERE s.status <> 'SUPERSEDED'
      AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND t IN (${lista})
+       -- "Onde mais este equipamento foi entregue" é uma pergunta **dentro da
+       -- operação aberta**: apontar a vigência de outra mandaria quem procura
+       -- carreta na rota abrir o acervo da empurrada, com o menu dizendo Rota.
+       AND ${operacaoFilter("s", context.operacao)}
      ORDER BY s.effective_date DESC, s.source_label, t
   `);
 
@@ -1962,7 +1974,7 @@ async function findElsewhere(
      LIMIT 10
   `);
 
-  const contextos = await listContexts(db);
+  const contextos = await listContexts(db, { operacao: context.operacao });
   const rotuloDe = (scopeHash: string, channel: string | null) =>
     contextos.find((c) => c.scopeHash === scopeHash && c.channel === channel)?.label ??
     scopeHash;

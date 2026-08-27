@@ -73,12 +73,24 @@ const fila = [
 ];
 
 describe("abasDeEquipamento", () => {
+  /*
+    A fileira cresceu com os ativos das outras operações — caminhão e carroceria
+    (rota e AS) e empilhadeira (apoio) —, e cresceu **aqui** de propósito: a
+    Curadoria é vocabulário, e vocabulário é um só para o produto inteiro. O
+    atributo `carreta.custo_fixo` é o mesmo nas quatro operações, e a fila de
+    significados também; recortá-la por operação faria a mesma pendência
+    aparecer quatro vezes, uma por ambiente. É a razão pela qual esta tela está
+    na lista de exceções de `isolamento-cobre-as-rotas.test.ts`.
+  */
   it("abre com Todos e uma aba por tipo importável, nessa ordem", () => {
     expect(abasDeEquipamento(fila).map((a) => a.rotulo)).toEqual([
       "Todos",
       "Cavalo",
       "Carreta",
       "Trecho",
+      "Caminhão",
+      "Carroceria",
+      "Empilhadeira",
       "QLP Administrativo",
       "QLP Operacional",
     ]);
@@ -135,6 +147,9 @@ describe("abasDeEquipamento", () => {
       "CAVALO",
       "CARRETA",
       "TRECHO",
+      "CAMINHAO",
+      "CARROCERIA",
+      "EMPILHADEIRA",
       "QLP_ADMINISTRATIVO",
       "QLP_OPERACIONAL",
       "REBOQUE",
@@ -148,6 +163,9 @@ describe("abasDeEquipamento", () => {
       "CAVALO",
       "CARRETA",
       "TRECHO",
+      "CAMINHAO",
+      "CARROCERIA",
+      "EMPILHADEIRA",
       "QLP_ADMINISTRATIVO",
       "QLP_OPERACIONAL",
     ]);

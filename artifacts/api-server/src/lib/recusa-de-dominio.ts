@@ -1,6 +1,7 @@
 import {
   ContextNotFoundError,
   JanelaInvalidaError,
+  RecursoDeOutraOperacaoError,
 } from "@workspace/comparison";
 import {
   BaixaRecusada,
@@ -66,6 +67,10 @@ const RECUSAS: { classe: new (...args: never[]) => Error; status: number }[] = [
      dois faria a tela oferecer "importe alguma coisa" a quem só precisa
      escolher outra ponta da janela. */
   { classe: JanelaInvalidaError, status: 400 },
+  /* O recurso existe, e é de outra operação. 404 — do ponto de vista de quem
+     pergunta, ele não está no acervo desta auditoria; e a mensagem diz qual é a
+     operação dele, para quem colou o link saber onde abrir. */
+  { classe: RecursoDeOutraOperacaoError, status: 404 },
   { classe: CelulaNaoEncontrada, status: 404 },
   /* O contexto de QLP existe; a quinzena pedida é que não foi importada. 404 —
      a ausência é da vigência, e responder a mais próxima seria o número certo

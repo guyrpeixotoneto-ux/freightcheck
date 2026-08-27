@@ -75,6 +75,16 @@ export async function buscarPlacas(
   db: Database,
   termo: string,
   limite = 12,
+  /**
+   * A operação de quem procura — o recorte das quatro auditorias.
+   *
+   * A busca é por identificador, e o identificador é do **ativo**, que não tem
+   * operação: a mesma placa pode ser remunerada em duas. O que tem operação é o
+   * fato — e é por ele que o recorte entra. Sem isto, digitar três letras no
+   * balcão de compras da Auditoria Rota sugeria placas que só existem na
+   * empurrada, e o comprador abriria uma ficha vazia sem entender por quê.
+   */
+  operacao?: string | null,
 ): Promise<PlacaEncontrada[]> {
   const alvo = normalizeIdentifier(termo);
   if (alvo.length < 2) return [];
@@ -96,6 +106,11 @@ export async function buscarPlacas(
       JOIN entity e ON e.id = i.entity_id
      WHERE i.identifier_type = 'PLACA'
        AND i.identifier_value LIKE ${`${alvo}%`}
+       AND (${operacao ?? null}::text IS NULL OR EXISTS (
+             SELECT 1 FROM fact f
+               JOIN snapshot s ON s.id = f.snapshot_id
+              WHERE f.entity_id = i.entity_id AND s.canal = ${operacao ?? null}
+           ))
      ORDER BY i.identifier_value, i.is_current DESC, i.effective_from DESC
      LIMIT ${limite}
   `);

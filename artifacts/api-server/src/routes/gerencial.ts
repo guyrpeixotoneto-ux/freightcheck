@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
 import { listarVigenciasDaAuditoria } from "@workspace/comparison";
+import { operacaoDaConsulta } from "../lib/operacao";
 
 /**
  * A Visão Gerencial da Auditoria — o acervo inteiro, numa leitura só.
@@ -23,8 +24,16 @@ import { listarVigenciasDaAuditoria } from "@workspace/comparison";
  */
 const router: IRouter = Router();
 
-router.get("/gerencial/vigencias", async (_req, res): Promise<void> => {
-  res.json(await listarVigenciasDaAuditoria(db));
+router.get("/gerencial/vigencias", async (req, res): Promise<void> => {
+  /*
+    O único parâmetro é a operação, e ele não é recorte de tela: é o ambiente.
+    Esta é a leitura que atravessa contextos, então é também a que mais
+    facilmente somaria duas operações no mesmo cartão — a unidade que entrega
+    empurrada e rota apareceria uma vez só, com as vigências das duas contadas
+    juntas e o impacto do ano somando dois contratos diferentes.
+  */
+  const operacao = operacaoDaConsulta(req.query as Record<string, unknown>);
+  res.json(await listarVigenciasDaAuditoria(db, { operacao }));
 });
 
 export default router;

@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
 import { classificarFalha } from "../lib/classificar-falha";
 import { parseContext } from "../lib/contexto";
+import { exigirOperacaoDoRecurso, operacaoDaConsulta } from "../lib/operacao";
 import {
   iniciarFase,
   instrumentarCicloDaRequisicao,
@@ -30,6 +31,9 @@ import {
   getConsolidated,
   listContexts,
   listPeriods,
+  operacaoDaAlteracao,
+  operacaoDoChangeSet,
+  operacaoDoSnapshot,
   lerEscopo,
   totaisDoEscopo,
   type ChangeFilters,
@@ -136,9 +140,18 @@ function comEscopo(
   é 400 com a lista das vigências que existem, não 500.
 */
 
-/** As unidades e canais que já entregaram vigência — o seletor de contexto. */
+/**
+ * As unidades e canais que já entregaram vigência — o seletor de contexto.
+ *
+ * **Da operação de quem pergunta, e só dela.** É a primeira porta do recorte
+ * das quatro auditorias: o seletor de unidade da Auditoria Rota lista unidades
+ * de rota, e `contexts[0]` — o contexto padrão de quem abre uma tela sem
+ * escolher nada — é de rota por construção. Sem isto, a tela abriria no acervo
+ * de outra operação com o menu dizendo "Rota".
+ */
 router.get("/contexts", async (req, res): Promise<void> => {
-  res.json(await listContexts(db));
+  const operacao = operacaoDaConsulta(req.query as Record<string, unknown>);
+  res.json(await listContexts(db, { operacao }));
 });
 
 /**
@@ -157,7 +170,8 @@ router.get("/snapshots", async (req, res): Promise<void> => {
     req.query.datasetFamily !== ""
       ? req.query.datasetFamily
       : undefined;
-  res.json(await listComparableSnapshots(db, { datasetFamily }));
+  const operacao = operacaoDaConsulta(req.query as Record<string, unknown>);
+  res.json(await listComparableSnapshots(db, { datasetFamily, operacao }));
 });
 
 /** As comparações gravadas — mesma regra de família de `/snapshots`. */
@@ -167,7 +181,8 @@ router.get("/change-sets", async (req, res): Promise<void> => {
     req.query.datasetFamily !== ""
       ? req.query.datasetFamily
       : undefined;
-  res.json(await listChangeSets(db, { datasetFamily }));
+  const operacao = operacaoDaConsulta(req.query as Record<string, unknown>);
+  res.json(await listChangeSets(db, { datasetFamily, operacao }));
 });
 
 /**
@@ -197,8 +212,9 @@ const TETO_DE_CHANGES_LATEST_MS = 20_000;
 
 router.use("/changes/latest", instrumentarCicloDaRequisicao);
 router.get("/changes/latest", async (req, res): Promise<void> => {
+  const operacao = operacaoDaConsulta(req.query as Record<string, unknown>);
   await comTetoDeRota(TETO_DE_CHANGES_LATEST_MS, async (db) => {
-    const snapshots = await listComparableSnapshots(db);
+    const snapshots = await listComparableSnapshots(db, { operacao });
     if (snapshots.length === 0) {
       res.status(404).json({ error: "Nenhuma vigência importada ainda." });
       return;
@@ -417,7 +433,9 @@ router.get("/changes/families/overview", async (req, res): Promise<void> => {
     res.status(400).json({ error: "period é obrigatório em Visão Geral." });
     return;
   }
-  const view = await getFamiliesOverview(db, period);
+  const view = await getFamiliesOverview(db, period, {
+    operacao: operacaoDaConsulta(req.query as Record<string, unknown>),
+  });
   if (!view) {
     res
       .status(404)
@@ -463,7 +481,9 @@ router.get("/changes/range", async (req, res): Promise<void> => {
 router.get("/changes/range/overview", async (req, res): Promise<void> => {
   const from = typeof req.query.from === "string" ? req.query.from : undefined;
   const to = typeof req.query.to === "string" ? req.query.to : undefined;
-  const overview = await getRangeOverview(db, from, to);
+  const overview = await getRangeOverview(db, from, to, {
+    operacao: operacaoDaConsulta(req.query as Record<string, unknown>),
+  });
   if (!overview) {
     res
       .status(404)
@@ -636,6 +656,14 @@ router.post("/change-sets", async (req, res, next): Promise<void> => {
 
 router.get("/change-sets/:id/changes", async (req, res): Promise<void> => {
   const filters = parseFilters(req.query as Record<string, unknown>);
+  /*
+    A comparação é pedida por id, e o id não sabe de que ambiente veio quem
+    clicou — um link antigo, de quando a auditoria era uma só, abriria a lista da
+    empurrada dentro da rota. Ver `operacao-do-recurso.ts`.
+  */
+  await exigirOperacaoDoRecurso(req, "comparação", req.params.id, () =>
+    operacaoDoChangeSet(db, req.params.id),
+  );
   const [changes, breakdown] = await Promise.all([
     listChanges(db, req.params.id, filters),
     getChangeSetBreakdown(db, req.params.id),
@@ -644,6 +672,9 @@ router.get("/change-sets/:id/changes", async (req, res): Promise<void> => {
 });
 
 router.get("/change-sets/pair/:aId/:bId", async (req, res): Promise<void> => {
+  for (const id of [req.params.aId, req.params.bId]) {
+    await exigirOperacaoDoRecurso(req, "vigência", id, () => operacaoDoSnapshot(db, id));
+  }
   const set = await getChangeSetForPair(db, req.params.aId, req.params.bId);
   if (!set) {
     res.status(404).json({ error: "Comparação ainda não calculada." });
@@ -654,6 +685,9 @@ router.get("/change-sets/pair/:aId/:bId", async (req, res): Promise<void> => {
 
 /** Both sides of one change, down to the originating cell. */
 router.get("/changes/:id/provenance", async (req, res): Promise<void> => {
+  await exigirOperacaoDoRecurso(req, "alteração", req.params.id, () =>
+    operacaoDaAlteracao(db, Number(req.params.id)),
+  );
   const provenance = await getChangeProvenance(db, Number(req.params.id));
   if (!provenance) {
     res.status(404).json({ error: "Alteração não encontrada." });

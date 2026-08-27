@@ -49,6 +49,29 @@ export async function comTetoDeRota<T>(
     const dbComTeto = drizzle(client, { schema }) as unknown as Database;
     return await fn(dbComTeto);
   } finally {
-    client.release(true);
+    /*
+      A conexão volta ao pool **com o teto desfeito**, e não destruída.
+
+      Era `client.release(true)`, que descarta a conexão — o jeito mais direto de
+      garantir que o teto apertado não pegasse carona na próxima requisição. Só
+      que descartar assim, no `pg` 8.22, deixa o pool com uma conexão que ele
+      nunca dá por encerrada: `pool.end()` fica esperando para sempre. Medido —
+      um `connect()`, um `release(true)`, e o `end()` seguinte não resolve. Em
+      produção isso é o processo que não desliga sozinho depois de a primeira
+      requisição passar por aqui; a suíte de isolamento foi onde apareceu,
+      porque ela é a primeira a exercitar `/changes/latest` e a fechar o pool
+      logo em seguida.
+      Desfazer o `SET` explicitamente resolve o mesmo problema pelo caminho
+      direto: a sessão volta ao padrão do pool, e a conexão volta inteira. Se o
+      `RESET` falhar — conexão já morta, transação abortada —, aí sim ela é
+      descartada, porque devolver uma sessão em estado desconhecido é pior do
+      que perder uma conexão.
+    */
+    try {
+      await client.query("SET statement_timeout = DEFAULT");
+      client.release();
+    } catch {
+      client.release(true);
+    }
   }
 }

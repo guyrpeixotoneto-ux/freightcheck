@@ -108,12 +108,17 @@ export const equipamentoValido = (valor: string | null): valor is Equipamento =>
  * isso a lista dele tem um item só.
  *
  * **Não é tradução.** "Caminhão" não é como o Rota chama o cavalo: é outro
- * ativo, com outro `entity_type` na planilha que a Ambev exporta, e as telas de
- * lá pedem à API justamente esse tipo. Enquanto o export de uma operação não
- * trouxer o ativo dela, a tela 360° correspondente diz que aquele tipo não
- * existe neste contexto — que é o que `pages/frota-360.tsx` já faz, e é a
- * resposta honesta: melhor uma tela que diz "não há caminhão importado" do que
- * uma que mostra cavalos com o rótulo trocado.
+ * ativo, com outro `entity_type`, e as telas de lá pedem à API justamente esse
+ * tipo. Os três entraram em `TIPOS_DE_IMPORTACAO` (`@workspace/ingest/tipos`)
+ * para que a importação possa **receber** o export de cada operação — foi uma
+ * decisão explícita, e aditiva: `entity_type` é texto livre no banco, então não
+ * houve migration, e nada do que já entrava mudou.
+ *
+ * Enquanto o export de uma operação não trouxer o ativo dela, a tela 360°
+ * correspondente diz que aquele tipo não existe neste contexto — que é o que
+ * `pages/frota-360.tsx` já faz, e é a resposta honesta: melhor uma tela que diz
+ * "não há caminhão importado" do que uma que mostra cavalos com o rótulo
+ * trocado.
  *
  * O mapa vive aqui, e não em `lib/ambiente.ts`, porque é vocabulário de frota —
  * e é daqui que o menu (`components/layout/nav-auditoria.ts`), as abas do Plano
