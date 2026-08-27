@@ -2,10 +2,21 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { GRUPO_ADMINISTRACAO } from "../nav-administracao";
+import { navGroupsAuditoria } from "../nav-auditoria";
 import { navGroupsFechamento } from "../nav-fechamento";
 import { barraMobile } from "../nav-mobile";
 import { etapasDoFechamento } from "@/pages/fechamento/etapas";
-import { BASES_DE_FECHAMENTO, ENTRADA_DA_AUDITORIA } from "@/lib/ambiente";
+import {
+  BASES_DE_AUDITORIA,
+  BASES_DE_FECHAMENTO,
+  DASHBOARD,
+  ENTRADA_DA_AUDITORIA,
+  GESTAO_A_VISTA,
+  LINHA_DO_TEMPO,
+  RESUMO_EXECUTIVO,
+  type AmbienteDeAuditoria,
+} from "@/lib/ambiente";
+import { EQUIPAMENTOS_DO_AMBIENTE, TELA_DO_EQUIPAMENTO } from "@/lib/frota";
 
 /**
  * O teste que guarda a única promessa que a lateral faz: **clicar leva a algum
@@ -28,29 +39,32 @@ const raiz = path.resolve(import.meta.dirname, "../../..");
 const fonte = (relativo: string) =>
   readFileSync(path.join(raiz, relativo), "utf8");
 
-/** O trecho de `sidebar.tsx` onde a lista da Auditoria é escrita. */
-function listaDaAuditoria(): string {
-  const texto = fonte("components/layout/sidebar.tsx");
-  return texto.slice(
-    texto.indexOf("const NAV_GROUPS"),
-    texto.indexOf("export function Sidebar"),
+/**
+ * Os `href` da lateral da Auditoria, lidos do módulo.
+ *
+ * Eram lidos do texto de `sidebar.tsx` enquanto a lista era uma constante
+ * escrita ali. Desde que ela virou função do ambiente — porque há quatro
+ * auditorias, e a seção Frota mostra o ativo da operação (`nav-auditoria.ts`) —,
+ * ler o texto conferiria a grafia de um template e não o endereço que sai dele,
+ * que é a mesma razão pela qual a lista do Fechamento sempre foi lida assim.
+ * `nav-auditoria.ts` só importa ícones e vocabulário, então lê-lo não traz React
+ * nem roteador para esta suíte.
+ *
+ * O `~` da Administração é a marca de endereço absoluto do wouter
+ * (`nav-administracao.ts`), e não faz parte do endereço: some aqui, para que a
+ * conferência seja contra a rota que o roteador registra.
+ */
+const semTil = (href: string) => (href.startsWith("~") ? href.slice(1) : href);
+
+function hrefsDoMenu(ambiente: AmbienteDeAuditoria = "auditoria"): string[] {
+  return navGroupsAuditoria(ambiente).flatMap((grupo) =>
+    grupo.itens.map((item) => semTil(item.href)),
   );
 }
 
-/**
- * Os `href:` da lateral da Auditoria — os itens do menu, sem os atalhos
- * internos.
- *
- * A Administração não é literal no arquivo desde que passou a ser a mesma
- * seção nos três ambientes (`nav-administracao.ts`); os itens dela entram aqui
- * pelo módulo, como os do Fechamento, para que este teste continue conferindo
- * a lateral inteira contra o roteador.
- */
-function hrefsDoMenu(): string[] {
-  return [
-    ...[...listaDaAuditoria().matchAll(/href:\s*"([^"]+)"/g)].map((m) => m[1]),
-    ...GRUPO_ADMINISTRACAO.itens.map((item) => item.href),
-  ];
+/** Os títulos das seções da lateral da Auditoria, na ordem em que ela as mostra. */
+function secoesDaAuditoria(ambiente: AmbienteDeAuditoria = "auditoria"): string[] {
+  return navGroupsAuditoria(ambiente).map((grupo) => grupo.titulo);
 }
 
 /**
@@ -75,7 +89,7 @@ const BASE = BASES_DE_FECHAMENTO["fechamento-rota"];
  */
 function hrefsDoMenuDoFechamento(): string[] {
   return navGroupsFechamento(BASE, "Fechamento Rota").flatMap((grupo) =>
-    grupo.itens.map((item) => item.href),
+    grupo.itens.map((item) => semTil(item.href)),
   );
 }
 
@@ -98,12 +112,32 @@ function atalhosDaBarra(ambiente: Parameters<typeof barraMobile>[0]): string[] {
   return [...barra.esquerda, barra.centro, ...barra.direita].map((a) => a.href);
 }
 
+/** As constantes de endereço que o roteador usa no lugar do literal. */
+const CONSTANTES_DE_ROTA: Record<string, string> = {
+  DASHBOARD,
+  GESTAO_A_VISTA,
+  LINHA_DO_TEMPO,
+  RESUMO_EXECUTIVO,
+  ENTRADA_DA_AUDITORIA,
+};
+
 function rotasRegistradas(): Set<string> {
   const app = fonte("App.tsx");
   const catalogo = fonte("pages/telas-em-preparo.ts");
 
   return new Set([
     ...[...app.matchAll(/<Route\s+path="([^"]+)"/g)].map((m) => m[1]),
+    /*
+      Quatro rotas da Auditoria são escritas com a constante, e não com o
+      literal — `<Route path={DASHBOARD}>` e as três irmãs dela. Traduzi-las
+      aqui é o que faz este teste conferir endereços, e não grafias: a lateral
+      também as escreve pela constante, e as duas só podem discordar se alguém
+      trocar o valor num lugar só — que é exatamente o que não existe, porque o
+      valor é um.
+    */
+    ...[...app.matchAll(/<Route\s+path=\{([A-Z_]+)\}/g)].map(
+      (m) => CONSTANTES_DE_ROTA[m[1]] ?? m[1],
+    ),
     ...rotasDoFechamentoNoRoteador(),
     ...[...catalogo.matchAll(/href:\s*"([^"]+)"/g)].map((m) => m[1]),
     ...etapasDoFechamento(BASE).map((etapa) => etapa.href),
@@ -132,7 +166,10 @@ function rotasDoFechamentoNoRoteador(): string[] {
 describe("a lateral", () => {
   it("não oferece nenhum item que o roteador não atenda", () => {
     const rotas = rotasRegistradas();
-    const orfaos = [...hrefsDoMenu(), ...hrefsDoMenuDoFechamento()].filter(
+    const daAuditoria = Object.keys(BASES_DE_AUDITORIA).flatMap((ambiente) =>
+      hrefsDoMenu(ambiente as AmbienteDeAuditoria),
+    );
+    const orfaos = [...daAuditoria, ...hrefsDoMenuDoFechamento()].filter(
       (href) => !rotas.has(href),
     );
 
@@ -200,19 +237,7 @@ describe("a lateral", () => {
   });
 
   it("mantém as onze seções do desenho, na ordem", () => {
-    const lista = listaDaAuditoria();
-    /*
-      Nove títulos são literais no arquivo; o décimo — a Administração — é o
-      grupo compartilhado, escrito ali como `GRUPO_ADMINISTRACAO`. Somá-lo pelo
-      módulo é o que faz o teste conferir a lista que a lateral monta, e não a
-      grafia de quem a escreveu.
-    */
-    const titulos = [
-      ...[...lista.matchAll(/titulo:\s*"([^"]+)"/g)].map((m) => m[1]),
-      ...(lista.includes("GRUPO_ADMINISTRACAO") ? [GRUPO_ADMINISTRACAO.titulo] : []),
-    ];
-
-    expect(titulos).toEqual([
+    expect(secoesDaAuditoria()).toEqual([
       /*
         O Dashboard abre a lista: é a tela de vigilância — o que mudou desde a
         última competência — antes de qualquer outra ferramenta.
@@ -239,6 +264,60 @@ describe("a lateral", () => {
       "Dados & governança",
       "Administração",
     ]);
+
+    /* As quatro auditorias têm as mesmas seções, na mesma ordem. */
+    for (const ambiente of Object.keys(BASES_DE_AUDITORIA)) {
+      expect(secoesDaAuditoria(ambiente as AmbienteDeAuditoria)).toEqual(
+        secoesDaAuditoria(),
+      );
+    }
+  });
+
+  /*
+    As quatro auditorias são o mesmo produto — o mesmo menu, item a item —, e a
+    única diferença é a seção Frota, que mostra o ativo da operação. Este teste
+    guarda as duas metades: tudo o que não é Frota é idêntico, e a Frota é a
+    lista de `EQUIPAMENTOS_DO_AMBIENTE`.
+  */
+  it("dá às quatro auditorias o mesmo menu, menos a Frota", () => {
+    const foraDaFrota = (ambiente: AmbienteDeAuditoria) =>
+      navGroupsAuditoria(ambiente)
+        .filter((grupo) => grupo.titulo !== "Frota")
+        .flatMap((grupo) => grupo.itens.map((item) => item.href));
+
+    for (const ambiente of Object.keys(BASES_DE_AUDITORIA)) {
+      expect(foraDaFrota(ambiente as AmbienteDeAuditoria)).toEqual(foraDaFrota("auditoria"));
+    }
+  });
+
+  it("põe, na Frota de cada auditoria, as telas 360° da operação dela", () => {
+    const frotaDe = (ambiente: AmbienteDeAuditoria) =>
+      navGroupsAuditoria(ambiente)
+        .find((grupo) => grupo.titulo === "Frota")!
+        .itens.map((item) => item.href);
+
+    for (const ambiente of Object.keys(BASES_DE_AUDITORIA) as AmbienteDeAuditoria[]) {
+      const doAmbiente = EQUIPAMENTOS_DO_AMBIENTE[ambiente].map(
+        (equipamento) => TELA_DO_EQUIPAMENTO[equipamento].href,
+      );
+      const das360 = frotaDe(ambiente).filter((href) => href.endsWith("-360"));
+
+      expect(das360).toEqual(doAmbiente);
+    }
+
+    /*
+      Rota e AS trocam cavalo e carreta por caminhão e carroceria; o Apoio troca
+      por empilhadeira e perde carreta e trecho — e com o trecho perde o Radar,
+      que é a camada gerencial acima dele.
+    */
+    expect(frotaDe("auditoria-rota")).toContain("/caminhao-360");
+    expect(frotaDe("auditoria-rota")).toContain("/carroceria-360");
+    expect(frotaDe("auditoria-rota")).not.toContain("/cavalo-360");
+    expect(frotaDe("auditoria-as")).toEqual(frotaDe("auditoria-rota"));
+    expect(frotaDe("auditoria-apoio")).toContain("/empilhadeira-360");
+    expect(frotaDe("auditoria-apoio")).not.toContain("/carreta-360");
+    expect(frotaDe("auditoria-apoio")).not.toContain("/trecho-360");
+    expect(frotaDe("auditoria-apoio")).not.toContain("/radar-trechos");
   });
 
   /*
@@ -321,7 +400,7 @@ describe("a lateral", () => {
     }
 
     /* E os itens dela continuam sendo os que a lista da Auditoria oferece. */
-    expect(daAuditoria.filter((href) => !hrefsDoMenu().includes(href))).toEqual([]);
+    expect(daAuditoria.map(semTil).filter((href) => !hrefsDoMenu().includes(href))).toEqual([]);
   });
 
   /*
@@ -334,7 +413,7 @@ describe("a lateral", () => {
   it("dá às duas bases o mesmo menu, item a item", () => {
     const empurrada = BASES_DE_FECHAMENTO["fechamento-empurrada"];
     const daEmpurrada = navGroupsFechamento(empurrada, "Fechamento Empurrada").flatMap((g) =>
-      g.itens.map((item) => item.href),
+      g.itens.map((item) => semTil(item.href)),
     );
 
     expect(daEmpurrada).toEqual(

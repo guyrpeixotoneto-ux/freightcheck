@@ -28,6 +28,7 @@ import {
   type TurnoAnterior,
 } from "@workspace/assistant";
 
+import { operacaoDaConsulta } from "../lib/operacao";
 /**
  * Assistente — a superfície HTTP, e o portão do dono.
  *
@@ -311,6 +312,16 @@ router.post("/assistant/ask", async (req, res): Promise<void> => {
         ...(typeof scopeHash === "string" ? { scopeHash } : {}),
         ...(typeof canal === "string" ? { channel: canal } : {}),
         ...(typeof period === "string" ? { period } : {}),
+        /*
+          A operação da auditoria de onde a pergunta saiu. Ela não vem do corpo
+          da pergunta: vem da consulta, carimbada pelo cliente em toda chamada
+          (`lib/api.ts`), como em qualquer outra rota — e daqui ela desce ao
+          executor das ferramentas, que é o ponto único de isolamento do
+          assistente (`ferramentas/catalogo.ts`).
+        */
+        ...(operacaoDaConsulta(req.query as Record<string, unknown>) !== null
+          ? { operacao: operacaoDaConsulta(req.query as Record<string, unknown>) }
+          : {}),
       },
       estado,
       semIa: semIa === true,

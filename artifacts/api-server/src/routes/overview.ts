@@ -16,6 +16,7 @@ import {
   stage,
 } from "@workspace/ingest";
 import { getOverview } from "@workspace/comparison";
+import { operacaoDaConsulta } from "../lib/operacao";
 import { classificarFalha } from "../lib/classificar-falha";
 
 /** O motivo gravado num run cuja causa não se sabe explicar a quem opera. */
@@ -33,11 +34,29 @@ const MOTIVO_INESPERADO =
 const router: IRouter = Router();
 
 router.get("/overview", async (req, res): Promise<void> => {
-  res.json(await getOverview(db));
+  res.json(
+    await getOverview(db, {
+      operacao: operacaoDaConsulta(req.query as Record<string, unknown>),
+    }),
+  );
 });
 
+/**
+ * As importações — **as que produziram vigência desta operação**.
+ *
+ * Uma importação não tem canal próprio: ela tem um arquivo, e o canal nasce do
+ * rótulo das vigências que ela promoveu. Por isso o recorte é pelo que ela
+ * produziu, e por isso a importação que ainda não promoveu nada — a que acabou
+ * de subir, a que falhou na validação — **aparece em todas**: ela ainda não
+ * declarou de qual operação é, e escondê-la faria quem enviou o arquivo achar
+ * que ele se perdeu.
+ */
 router.get("/imports", async (req, res): Promise<void> => {
-  res.json(await listImportRuns(db));
+  res.json(
+    await listImportRuns(db, {
+      operacao: operacaoDaConsulta(req.query as Record<string, unknown>),
+    }),
+  );
 });
 
 router.get("/imports/:id", async (req, res): Promise<void> => {

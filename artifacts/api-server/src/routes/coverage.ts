@@ -1,5 +1,7 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
+import { operacaoDoSnapshot } from "@workspace/comparison";
+import { exigirOperacaoDoRecurso, operacaoDaConsulta } from "../lib/operacao";
 import {
   BaixaRecusada,
   CelulaNaoEncontrada,
@@ -71,6 +73,7 @@ router.get("/coverage", async (req, res): Promise<void> => {
       datasetFamily: texto(q.familia),
       scopeHash: texto(q.escopo),
       canal: q.canal === undefined ? undefined : (texto(q.canal) ?? null),
+      operacao: operacaoDaConsulta(q),
       entityType: texto(q.equipamento),
       vigencias: numero(q.vigencias, 6, 36),
       criticidadeMinima: criticidade(q.criticidade),
@@ -85,6 +88,10 @@ router.get("/coverage/cell/:snapshotId/:entityType", async (req, res): Promise<v
     res.status(400).json({ error: "Identificador de vigência inválido." });
     return;
   }
+  /* A célula é pedida por id de vigência — a mesma porta das rotas por id. */
+  await exigirOperacaoDoRecurso(req, "vigência", req.params.snapshotId, () =>
+    operacaoDoSnapshot(db, req.params.snapshotId),
+  );
   res.json(
     await detalheDaCelula(
       db,

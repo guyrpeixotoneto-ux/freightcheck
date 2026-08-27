@@ -8,6 +8,7 @@ import NotFound from '@/pages/not-found';
 import { Redirect, Route, Switch, useLocation, useSearch, Router as WouterRouter } from 'wouter';
 import { AuthProvider, useAuth } from '@/lib/auth';
 import {
+  BASES_DE_AUDITORIA,
   BASES_DE_FECHAMENTO,
   DASHBOARD,
   destinoDaRaiz,
@@ -214,7 +215,93 @@ function EntradaDaAuditoria() {
   return null;
 }
 
+/**
+ * O roteador de cima — quem decide **em qual ambiente** o endereço cai.
+ *
+ * Três blocos, do prefixo mais específico para o mais geral, exatamente como
+ * `ambienteDe` lê o endereço (`lib/ambiente.ts`):
+ *
+ * 1. **os quatro fechamentos**, cada um inteiro sob a própria base;
+ * 2. **as três auditorias prefixadas** — Rota, AS e Apoio —, cada uma um
+ *    roteador **aninhado** sobre a base dela;
+ * 3. **a Auditoria Empurrada**, que é o que sobra: a rota sem `path` casa com
+ *    tudo o que não casou acima, e é ela que mantém `/alteracoes`, `/dre` e
+ *    todos os outros endereços de sempre exatamente onde estavam.
+ *
+ * **O aninhamento é o que faz as quatro auditorias serem uma só.** Dentro de um
+ * `<Route nest>`, o wouter resolve os endereços relativos à base: as telas de
+ * `rotasDaAuditoria` continuam escritas `/alteracoes`, e quem está no Rota
+ * navega para `/auditoria-rota/alteracoes` sem que nenhuma delas saiba disso. É
+ * a mesma garantia que `lib/base-do-fechamento.ts` dá do outro lado, só que sem
+ * custo nenhum para quem escreve a tela — e a regressão que ela impede é a
+ * mesma: um `href` literal que devolve para a Empurrada quem clicou no Rota, sem
+ * erro nenhum na tela, que é o pior jeito de isso aparecer.
+ *
+ * A Empurrada não é caso especial: ela é a base vazia (`BASES_DE_AUDITORIA`),
+ * e por isso não precisa de aninhamento — o roteador de cima já é o dela.
+ */
 function Router() {
+  return (
+    <Switch>
+      {/*
+        Os ambientes de fechamento, cada um inteiro sob a própria base.
+
+        `/fechamento/...` é o Fechamento Rota; `/fechamento-empurrada/...`,
+        `/fechamento-as/...` e `/fechamento-apoio/...` são os outros três. As
+        rotas de todos saem do **mesmo** `rotasDoFechamento`, e é isso que
+        garante o que se pediu deles: mesma estrutura, mesmas telas, mesmo
+        desenho. Uma tela nova entra uma vez e nasce nos quatro; uma tela escrita
+        quatro vezes começaria a divergir no primeiro conserto feito só de um
+        lado — e um fechamento novo é uma linha em `BASES_DE_FECHAMENTO`, não um
+        arquivo novo aqui.
+
+        Eles vêm primeiro porque a leitura é do mais específico para o mais
+        geral: a Auditoria Empurrada é a rota sem `path`, lá embaixo, e ela
+        engoliria `/fechamento` se viesse antes.
+
+        O laço devolve um vetor de `<Route>`, e não um fragmento: o `Switch` do
+        wouter examina os próprios filhos para achar o que casa, e um fragmento
+        chegaria a ele como um filho só, que não casa com nada.
+      */}
+      {Object.values(BASES_DE_FECHAMENTO).flatMap((base) => rotasDoFechamento(base))}
+
+      {/*
+        As auditorias que nasceram com o nome no endereço — Rota, AS e Apoio.
+
+        `nest` é o que monta o roteador aninhado sobre a base: daí para dentro,
+        `/alteracoes` quer dizer `/auditoria-rota/alteracoes`, e o mesmo
+        `RotasDaAuditoria` serve às quatro. A Empurrada fica de fora deste laço
+        porque a base dela é vazia — ver o bloco final.
+      */}
+      {Object.values(BASES_DE_AUDITORIA)
+        .filter((base) => base !== "")
+        .map((base) => (
+          <Route key={base} path={base} nest>
+            <RotasDaAuditoria />
+          </Route>
+        ))}
+
+      {/*
+        A Auditoria Empurrada: tudo o que não é fechamento nem auditoria
+        prefixada. Sem `path`, esta rota casa com qualquer endereço — inclusive
+        os que não existem, e é por isso que o `NotFound` mora **dentro** de
+        `RotasDaAuditoria`, no fim do `Switch` de lá.
+      */}
+      <Route>
+        <RotasDaAuditoria />
+      </Route>
+    </Switch>
+  );
+}
+
+/**
+ * Todas as telas de uma auditoria — as mesmas nas quatro.
+ *
+ * Os endereços são escritos sem base nenhuma, de propósito: montado sob
+ * `<Route nest>`, este mesmo `Switch` atende `/alteracoes` na Empurrada e
+ * `/auditoria-rota/alteracoes` no Rota. Ver `Router`, acima.
+ */
+function RotasDaAuditoria() {
   return (
     <Switch>
       {/*
@@ -317,6 +404,26 @@ function Router() {
         <Frota360 key="trecho-360" equipamento="TRECHO" />
       </Route>
       {/*
+        Caminhão, carroceria e empilhadeira são as mesmas telas, nos tipos que as
+        outras operações usam: a rota e o AS rodam com caminhão e carroceria, e o
+        apoio, com empilhadeira. As rotas existem nas quatro auditorias — é o
+        mesmo `Switch` montado sob quatro bases —, e quem decide **quais**
+        aparecem no menu de cada uma é `EQUIPAMENTOS_DO_AMBIENTE`
+        (`lib/frota.ts`). Não é incoerência: uma rota que existe e não está no
+        menu é um endereço que continua abrindo quando alguém o tem guardado, e
+        a tela dele diz a verdade sobre o contexto — "não há caminhão importado
+        aqui" — em vez de dar 404.
+      */}
+      <Route path="/caminhao-360">
+        <Frota360 key="caminhao-360" equipamento="CAMINHAO" />
+      </Route>
+      <Route path="/carroceria-360">
+        <Frota360 key="carroceria-360" equipamento="CARROCERIA" />
+      </Route>
+      <Route path="/empilhadeira-360">
+        <Frota360 key="empilhadeira-360" equipamento="EMPILHADEIRA" />
+      </Route>
+      {/*
         Radar de Trechos: a camada gerencial acima de Trecho 360°. Onde
         Trecho 360° responde "o que mudou neste trecho", o Radar responde
         "quais dos centenas de trechos preciso olhar" — um veredito por
@@ -379,25 +486,6 @@ function Router() {
           <EmPreparo tela={tela} />
         </Route>
       ))}
-
-      {/*
-        Os ambientes de fechamento, cada um inteiro sob a própria base.
-
-        `/fechamento/...` é o Fechamento Rota; `/fechamento-empurrada/...`,
-        `/fechamento-as/...` e `/fechamento-apoio/...` são os outros três — ver
-        `lib/ambiente.ts` para a regra e o porquê de a Auditoria ter ficado nos
-        endereços de sempre. As rotas de todos saem do **mesmo**
-        `rotasDoFechamento`, e é isso que garante o que se pediu deles: mesma
-        estrutura, mesmas telas, mesmo desenho. Uma tela nova entra uma vez e
-        nasce nos quatro; uma tela escrita quatro vezes começaria a divergir no
-        primeiro conserto feito só de um lado — e um fechamento novo é uma linha
-        em `BASES_DE_FECHAMENTO`, não um arquivo novo aqui.
-
-        O laço devolve um vetor de `<Route>`, e não um fragmento: o `Switch` do
-        wouter examina os próprios filhos para achar o que casa, e um fragmento
-        chegaria a ele como um filho só, que não casa com nada.
-      */}
-      {Object.values(BASES_DE_FECHAMENTO).flatMap((base) => rotasDoFechamento(base))}
 
       <Route component={NotFound} />
     </Switch>

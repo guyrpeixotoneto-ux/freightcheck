@@ -10,7 +10,7 @@ import {
 import type { EscopoDeFrota } from "./escopo";
 import { attributeLabel, periodLabel } from "./labels";
 import { impactoApurado, linhasApuradas } from "./impacto-apurado";
-import { datasetFamilyFilter } from "./series";
+import { datasetFamilyFilter, operacaoFilter, type Operacao } from "./series";
 import type { RastroDaDeducao } from "./deduplicacao";
 
 /**
@@ -856,7 +856,7 @@ export async function situacaoPorAtivo(
 export async function listChangeSets(
   db: Database,
   /** Qual família listar (`snapshot.dataset_family`). Padrão: equipamento. */
-  opts?: { datasetFamily?: string },
+  opts?: { datasetFamily?: string; operacao?: Operacao | null },
 ) {
   const sa = sql`sa`;
   const { rows } = await db.execute<Record<string, unknown>>(sql`
@@ -872,6 +872,8 @@ export async function listChangeSets(
       JOIN snapshot sb ON sb.id = cs.snapshot_b_id
      WHERE sb.status <> 'SUPERSEDED'
        AND ${datasetFamilyFilter("sb", opts?.datasetFamily)}
+       AND ${operacaoFilter("sb", opts?.operacao)}
+       AND ${operacaoFilter("sa", opts?.operacao)}
      ORDER BY sb.canonical_snapshot_key, cs.id DESC
   `);
   return rows.sort(
@@ -891,11 +893,18 @@ export async function listChangeSets(
  * do quadro de pessoal entrando aqui muda qual série a tela de Alterações abre.
  * É o mesmo defeito que a família fechou no `contextFilter`, numa consulta que
  * não passa por ele.
+ *
+ * **E de uma operação por vez, quando quem pergunta é uma auditoria.** Os
+ * seletores de "Comparar vigências" ofereciam o acervo inteiro: dentro da
+ * Auditoria Rota dava para escolher uma vigência de empurrada de um lado e uma
+ * de rota do outro. O motor recusaria o par (`engine.ts` não compara canais
+ * diferentes), mas a recusa chegaria depois do clique, e a lista já teria
+ * mostrado o que não é de lá.
  */
 export async function listComparableSnapshots(
   db: Database,
   /** Qual família listar (`snapshot.dataset_family`). Padrão: equipamento. */
-  opts?: { datasetFamily?: string },
+  opts?: { datasetFamily?: string; operacao?: Operacao | null },
 ) {
   return db
     .select({
@@ -913,7 +922,8 @@ export async function listComparableSnapshots(
     .where(
       sql`${snapshotTable.status} <> 'SUPERSEDED'
           AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = ${snapshotTable.importRunId} AND import_run.hidden_at IS NOT NULL)
-          AND ${datasetFamilyFilter("snapshot", opts?.datasetFamily)}`,
+          AND ${datasetFamilyFilter("snapshot", opts?.datasetFamily)}
+          AND ${operacaoFilter("snapshot", opts?.operacao)}`,
     )
     .orderBy(snapshotTable.effectiveDate);
 }
@@ -925,25 +935,55 @@ export async function listComparableSnapshots(
  * page shows what the system currently knows, and says plainly how much of the
  * remuneration it still cannot price.
  */
-export async function getOverview(db: Database) {
+export async function getOverview(db: Database, opts?: { operacao?: Operacao | null }) {
+  /*
+    O retrato da Home é o lugar onde o recorte por operação mais precisa ser
+    literal, e onde ele é mais fácil de esquecer: são doze contagens que não
+    passam por `contextFilter` nenhum, três delas sobre tabelas que não têm
+    canal (`entity`, `fact`, `change`). O caminho até o canal existe em todas —
+    o fato pertence a um snapshot, a entidade só aparece no acervo por um fato,
+    a alteração pertence a uma comparação entre dois snapshots — e é ele que
+    está escrito abaixo, sub-consulta por sub-consulta.
+
+    `attribute` é a exceção declarada: atributo é vocabulário, global por
+    código, e é o mesmo `carreta.custo_fixo` na empurrada e na rota. Contar
+    atributos por operação seria inventar uma partição que o modelo não tem —
+    e a fila de curadoria que esses números anunciam é uma só, para o produto
+    inteiro.
+  */
+  const daOperacao = operacaoFilter("s", opts?.operacao);
+  const alteracoesDaOperacao = sql`
+    EXISTS (
+      SELECT 1 FROM change_set cs
+        JOIN snapshot s ON s.id = cs.snapshot_b_id
+       WHERE cs.id = "alteracao_visivel".change_set_id AND ${daOperacao}
+    )`;
+
   const { rows } = await db.execute<Record<string, unknown>>(sql`
     SELECT
-      (SELECT count(*) FROM snapshot
-        WHERE status <> 'SUPERSEDED'
-          AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = snapshot.import_run_id AND import_run.hidden_at IS NOT NULL))
+      (SELECT count(*) FROM snapshot s
+        WHERE s.status <> 'SUPERSEDED'
+          AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
+          AND ${daOperacao})
                                                                             AS vigencias,
-      (SELECT min(effective_date) FROM snapshot)                            AS primeira_vigencia,
-      (SELECT max(effective_date) FROM snapshot)                            AS ultima_vigencia,
-      (SELECT count(*) FROM entity)                                         AS ativos,
-      (SELECT count(*) FROM fact)                                           AS fatos,
+      (SELECT min(s.effective_date) FROM snapshot s WHERE ${daOperacao})     AS primeira_vigencia,
+      (SELECT max(s.effective_date) FROM snapshot s WHERE ${daOperacao})     AS ultima_vigencia,
+      (SELECT count(DISTINCT f.entity_id) FROM fact f
+         JOIN snapshot s ON s.id = f.snapshot_id WHERE ${daOperacao})        AS ativos,
+      (SELECT count(*) FROM fact f
+         JOIN snapshot s ON s.id = f.snapshot_id WHERE ${daOperacao})        AS fatos,
       (SELECT count(*) FROM attribute)                                      AS atributos,
       (SELECT count(*) FROM attribute WHERE semantics_status = 'CONFIRMED') AS atributos_confirmados,
       (SELECT count(*) FROM attribute
         WHERE is_monetary IS TRUE AND semantics_status <> 'CONFIRMED')      AS monetarios_pendentes,
-      (SELECT count(*) FROM change_set)                                     AS comparacoes,
-      (SELECT count(*) FROM "alteracao_visivel" WHERE change_type = 'VALUE_CHANGED')   AS alteracoes,
-      (SELECT count(*) FROM "alteracao_visivel" WHERE impact_confidence = 'CALCULATED') AS com_impacto,
-      (SELECT count(*) FROM "alteracao_visivel" WHERE comparability = 'INCONCLUSIVE')  AS inconclusivas
+      (SELECT count(*) FROM change_set cs JOIN snapshot s ON s.id = cs.snapshot_b_id
+        WHERE ${daOperacao})                                                AS comparacoes,
+      (SELECT count(*) FROM "alteracao_visivel"
+        WHERE change_type = 'VALUE_CHANGED' AND ${alteracoesDaOperacao})    AS alteracoes,
+      (SELECT count(*) FROM "alteracao_visivel"
+        WHERE impact_confidence = 'CALCULATED' AND ${alteracoesDaOperacao}) AS com_impacto,
+      (SELECT count(*) FROM "alteracao_visivel"
+        WHERE comparability = 'INCONCLUSIVE' AND ${alteracoesDaOperacao})   AS inconclusivas
   `);
   const totals = rows[0] ?? {};
 
@@ -973,7 +1013,16 @@ export async function getOverview(db: Database) {
            cs.inconclusive,
            cs.impact_not_calculable,
            cs.impacto_oficial_by_periodicity,
-           cs.impacto_bruto_by_periodicity,
+           /*
+             O nome físico é o antigo (calculated_impact_by_periodicity), e a
+             migration 0033 explica por que ele não foi renomeado. Quem se chama
+             impacto_bruto é o campo do schema do drizzle; esta consulta é SQL
+             cru e lia o nome do campo — quebrava com "column
+             cs.impacto_bruto_by_periodicity does not exist" em qualquer base,
+             503 na Home. O apelido põe os dois de acordo sem tocar na fila de
+             migrations.
+           */
+           cs.calculated_impact_by_periodicity AS impacto_bruto_by_periodicity,
            cs.mudancas_fora_do_total
       FROM change_set cs
       JOIN snapshot sa ON sa.id = cs.snapshot_a_id
@@ -981,7 +1030,9 @@ export async function getOverview(db: Database) {
      WHERE sb.effective_date = (
        SELECT max(s.effective_date)
          FROM change_set c JOIN snapshot s ON s.id = c.snapshot_b_id
+        WHERE ${operacaoFilter("s", opts?.operacao)}
      )
+       AND ${operacaoFilter("sb", opts?.operacao)}
      ORDER BY sb.entity_type_set
   `);
 
@@ -996,7 +1047,17 @@ export async function getOverview(db: Database) {
 
     Continuam apartados por periodicidade e nunca totalizados entre si.
   */
-  const todosOsSets = await db.select({ id: changeSetTable.id }).from(changeSetTable);
+  /*
+    O acumulado soma **as comparações desta operação**, e nada mais. Era um
+    `SELECT id FROM change_set` sem cláusula: numa base com duas operações, o
+    impacto acumulado da rota trazia dentro dele cada centavo da empurrada.
+  */
+  const { rows: setsDaOperacao } = await db.execute<{ id: string }>(sql`
+    SELECT cs.id FROM change_set cs
+      JOIN snapshot s ON s.id = cs.snapshot_b_id
+     WHERE ${operacaoFilter("s", opts?.operacao)}
+  `);
+  const todosOsSets = setsDaOperacao;
   const decididas = await linhasApuradas(
     db,
     todosOsSets.map((s) => s.id),

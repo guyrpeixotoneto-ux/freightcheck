@@ -184,7 +184,12 @@ export async function resolverContexto(
   db: Database,
   pedido: Partial<SeriesContext> = {},
 ): Promise<ContextoResolvido | null> {
-  const contextos = await listContexts(db);
+  /*
+    A lista já vem recortada pela operação: é ela que vira `outros`, o "existem
+    outras duas" que a resposta escreve — e anunciar o contexto de outra operação
+    ali seria o assistente oferecendo o acervo alheio como alternativa.
+  */
+  const contextos = await listContexts(db, { operacao: pedido.operacao });
   const contexto = await resolveContext(db, pedido, contextos);
   if (!contexto) return null;
   const info = contextos.find(

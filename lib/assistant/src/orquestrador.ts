@@ -450,7 +450,13 @@ function lacunaDoQualificador(termoPerguntado: string, alvo: Alvo): Lacuna | nul
 
 export interface OpcoesDeOrquestracao {
   /** O recorte que a tela mandou junto. */
-  recorte?: { scopeHash?: string; channel?: string | null; period?: string };
+  recorte?: {
+    scopeHash?: string;
+    channel?: string | null;
+    period?: string;
+    /** A auditoria de onde a pergunta saiu — ver `ContextoDaFerramenta`. */
+    operacao?: string | null;
+  };
   /** O estado da conversa, para herdar em perguntas de continuação. */
   estado?: EstadoDaConversa | null;
   /**
@@ -508,14 +514,19 @@ export async function contextoDoTurno(
   pergunta: string,
   opcoes: { recorte?: OpcoesDeOrquestracao["recorte"]; estado?: EstadoDaConversa | null },
 ): Promise<{ resolvido: ContextoResolvido | null; recorte: RecorteDoTurno }> {
-  const contextos: ContextInfo[] = await listContexts(db).catch(() => []);
+  const contextos: ContextInfo[] = await listContexts(db, {
+    operacao: opcoes.recorte?.operacao,
+  }).catch(() => []);
   const recorte = resolverRecorteDoTurno({
     pergunta,
     pedidoDaTela: opcoes.recorte,
     estado: opcoes.estado ?? null,
     contextos,
   });
-  const resolvido = await resolverContexto(db, recorte.pedido).catch(() => null);
+  const resolvido = await resolverContexto(db, {
+    ...recorte.pedido,
+    ...(opcoes.recorte?.operacao ? { operacao: opcoes.recorte.operacao } : {}),
+  }).catch(() => null);
   return { resolvido, recorte };
 }
 

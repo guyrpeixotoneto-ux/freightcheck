@@ -147,6 +147,8 @@ export interface FiltroDaCobertura {
   datasetFamily?: string;
   scopeHash?: string;
   canal?: string | null;
+  /** A operação de quem pergunta — escopo, e não filtro. Ver `vigenciasObservadas`. */
+  operacao?: string | null;
   entityType?: string;
   /** Só as N vigências mais recentes. A matriz não é um arquivo histórico. */
   vigencias?: number;
@@ -174,6 +176,7 @@ export async function visaoDaCobertura(
     datasetFamily: filtro.datasetFamily,
     scopeHash: filtro.scopeHash,
     canal: filtro.canal,
+    operacao: filtro.operacao,
   });
 
   const janela = filtro.vigencias ?? 6;

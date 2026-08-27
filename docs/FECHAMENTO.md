@@ -1,4 +1,4 @@
-# FreightCheck — Os ambientes: Auditoria Empurrada, Fechamento Rota e Fechamento Empurrada
+# FreightCheck — Os ambientes: quatro auditorias e quatro fechamentos
 
 > **Status:** fundação implementada. Estrutura de navegação, rotas e telas do
 > Fechamento existem; nenhuma lógica financeira de fechamento foi construída.
@@ -9,20 +9,99 @@
 ## O que são os ambientes
 
 O FreightCheck é **um** produto — um login, uma empresa/unidade, uma base de
-frota, uma infraestrutura, um design system — que atende **três** processos:
+frota, uma infraestrutura, um design system — que atende **dois** processos,
+cada um sobre **quatro** operações (Empurrada, Rota, AS e Apoio). São oito
+ambientes, e o seletor do topo é o único lugar onde se troca de um para o outro.
 
-| | Auditoria de Remuneração — Empurrada | Fechamento Rota | Fechamento Empurrada |
-|---|---|---|---|
-| Pergunta | O que mudou? Está correto? Qual o impacto? Há valor a recuperar? | Quanto devemos receber nesta competência? O que está pendente? Podemos fechar? | A mesma pergunta, sobre a operação de empurrada. |
-| Eixo | A vigência (o retrato que o Freightec exporta) | A competência (o período de apuração, com estado e ciclo de vida) | A competência, idem |
-| Natureza | Investigação contínua | Fluxo com começo, meio e fim | Fluxo com começo, meio e fim |
+| | Auditoria de Remuneração | Fechamento de Remuneração |
+|---|---|---|
+| Pergunta | O que mudou? Está correto? Qual o impacto? Há valor a recuperar? | Quanto devemos receber nesta competência? O que está pendente? Podemos fechar? |
+| Eixo | A vigência (o retrato que o Freightech exporta) | A competência (o período de apuração, com estado e ciclo de vida) |
+| Natureza | Investigação contínua | Fluxo com começo, meio e fim |
+| Ambientes | Empurrada (na raiz), Rota, AS e Apoio | Rota (em `/fechamento`), Empurrada, AS e Apoio |
 
 A relação entre eles é de mão dupla e vive **no modelo, não nas telas**:
 o Fechamento apura o valor da competência; a Auditoria confere se aquele valor
 se sustenta; a divergência encontrada volta ao Fechamento como pendência ou
 ajuste, e o que for cobrável segue para Recuperação.
 
-## Os dois fechamentos — mesma forma, operações diferentes
+## As quatro auditorias — mesma forma, ativos diferentes
+
+Empurrada, Rota, AS e Apoio correm **a mesma auditoria**: abre-se a vigência,
+compara-se com a anterior, mede-se o impacto e cobra-se o que houver a
+recuperar. Por isso elas também não são quatro códigos:
+
+- O menu sai de `navGroupsAuditoria(ambiente)`
+  (`components/layout/nav-auditoria.ts`) — as mesmas onze seções, na mesma
+  ordem, nas quatro.
+- As rotas saem de `RotasDaAuditoria`, em `App.tsx`, montada uma vez por base
+  (`BASES_DE_AUDITORIA`, em `lib/ambiente.ts`).
+- **A Empurrada ficou na raiz**, sem prefixo: `/alteracoes`, `/comparar`, `/dre`
+  são o produto em uso, com links guardados por aí. Quem paga o prefixo é sempre
+  quem chega agora — daí `/auditoria-rota`, `/auditoria-as` e
+  `/auditoria-apoio`.
+- **As telas continuam escrevendo os endereços sem base.** Quem põe o prefixo é
+  o roteador aninhado do wouter (`<Route path={base} nest>`), e é isso que faz o
+  mesmo `href="/alteracoes"` levar ao ambiente em que a pessoa está. A
+  Administração é a exceção declarada: os endereços dela levam `~` na frente,
+  a marca de endereço absoluto, porque unidades, usuários e ajustes valem para o
+  produto inteiro (`components/layout/nav-administracao.ts`).
+
+**O que as separa na tela: o ativo da operação.** A seção **Frota** é a única
+que muda de uma para a outra, e o mapa é `EQUIPAMENTOS_DO_AMBIENTE`
+(`lib/frota.ts`):
+
+| Ambiente | Telas 360° | Radar de Trechos |
+|---|---|---|
+| Auditoria Empurrada | Cavalo, Carreta, Trecho | sim |
+| Auditoria Rota | Caminhão, Carroceria, Trecho | sim |
+| Auditoria AS | Caminhão, Carroceria, Trecho | sim |
+| Auditoria Apoio | Empilhadeira | não — sem trecho, o Radar não teria população |
+
+Não é tradução: "Caminhão" não é como a Rota chama o cavalo. É outro
+`entity_type`, e a tela pede à API justamente esse tipo — enquanto o export de
+uma operação não trouxer o ativo dela, a tela 360° diz que aquele tipo não
+existe neste contexto, em vez de mostrar o ativo de outra operação com o rótulo
+trocado.
+
+**O que as separa de verdade: o acervo.** O campo canônico da operação é
+**`snapshot.canal`** — derivado do rótulo da vigência pelo banco
+(`freightcheck_canal_do_rotulo`, migration `0015`), `NOT NULL`, sem vazio, e
+componente de `canonical_snapshot_key`. Não é nome de arquivo: é a dimensão que
+já mantinha EMPURRADA e ROTA como identidades distintas na mesma unidade e na
+mesma data.
+
+A leitura carrega esse recorte assim:
+
+- **o cliente carimba** `?operacao=` em toda chamada, num lugar só —
+  `getApiUrl`, em `lib/api.ts`, por onde passam consultas, mutações e downloads.
+  A operação vem do endereço do navegador, que é a única fonte da verdade sobre
+  o ambiente aberto;
+- **o servidor recorta**: `parseContext` (`lib/contexto.ts`) põe a operação no
+  contexto pedido, `resolveContext` filtra a lista de contextos por ela — de modo
+  que o padrão de quem não escolhe unidade já é da operação aberta —, e
+  `contextFilter` a aplica junto com unidade, canal e família, alcançando de uma
+  vez as mais de sessenta consultas que passam por ele;
+- **as leituras que atravessam contextos** (Visão Gerencial, Visão Geral por
+  competência, Comparar, Importações, Cobertura, Radar de Trechos, o retrato da
+  Home) recebem `operacaoFilter` explicitamente;
+- **as rotas que perguntam por id** (uma comparação, uma vigência, uma
+  alteração, uma justificativa) **recusam** o recurso de outra operação com 404
+  e uma frase que diz de qual operação ele é — é o caso do link antigo colado no
+  ambiente errado.
+
+Três famílias ficam **fora** do recorte, de propósito: a casa (sessão, usuários,
+unidades), o vocabulário (curadoria, categorias, significados, versões — o
+atributo `carreta.custo_fixo` é o mesmo nas quatro operações) e as populações
+próprias (chamados, Book). A lista, com o motivo de cada uma, é
+`isolamento-cobre-as-rotas.test.ts`, que reprova a rota nova que não decidir.
+
+A prova é `isolamento-por-operacao.test.ts`: um banco com empurrada e rota **na
+mesma unidade e nas mesmas datas**, e dezenove casos sobre a cadeia inteira —
+vigências, alterações, famílias, impacto, DRE, frota, cobertura, radar,
+importações, justificativas e a troca de ambiente.
+
+## Os quatro fechamentos — mesma forma, operações diferentes
 
 Rota e Empurrada correm **o mesmo processo**: abre-se a competência, apura-se,
 resolve-se o que impede a conta de fechar, decide-se e encerra-se. Por isso eles

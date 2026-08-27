@@ -30,14 +30,21 @@ import {
  * na errada, sem um caminhão sequer. Nada tinha sido apagado — o Resumo
  * executivo é que estava respondendo por outra família.
  *
- * **O canal não é coluna.** `snapshot` é congelado por trigger quando fecha, de
- * modo que uma coluna nova não poderia ser preenchida nas vigências já
- * importadas — e o produto ainda só viu um canal, então não há o que uma coluna
- * distinguisse hoje. O canal é derivado do rótulo, aqui em SQL e em
- * `lib/ingest/src/vigencia.ts` em TypeScript; os dois são obrigados a
- * concordar por um teste que roda os dois lados sobre os mesmos rótulos. No dia
- * em que existir um segundo canal no banco, persistir a derivação passa a valer
- * a migration — e o teste continua sendo o que prova a equivalência.
+ * **O canal é coluna desde a `0015`, e é ela que recorta a operação.**
+ * `snapshot.canal` nasce do rótulo por `freightcheck_canal_do_rotulo`, é
+ * `NOT NULL`, não admite vazio e **entra na chave canônica da vigência** —
+ * EMPURRADA e ROTA na mesma data, na mesma unidade, são duas identidades, e o
+ * banco as mantém separadas sem depender de nenhum caminho da aplicação estar
+ * certo. É por isso que o recorte por operação ({@link operacaoFilter}) lê essa
+ * coluna, e não o rótulo: filtrar por texto de rótulo seria decidir a operação
+ * por nome de arquivo, tendo a dimensão pronta ao lado.
+ *
+ * A derivação em SQL sobre o rótulo ({@link channelSql}) continua existindo, e
+ * continua sendo o que forma o **contexto** — ela devolve NULL para o rótulo
+ * que não declara canal, e esse NULL é uma partição legítima ("as vigências sem
+ * canal legível"), enquanto a coluna, que não admite vazio, guarda o rótulo
+ * inteiro nesse caso. As duas concordam em todo rótulo bem formado, e um teste
+ * roda os dois lados sobre os mesmos rótulos para que continuem concordando.
  */
 
 /**
@@ -56,6 +63,69 @@ export function channelSql(labelColumn: string) {
 }
 
 export { channelOf };
+
+// ---------------------------------------------------------------------------
+// A operação
+// ---------------------------------------------------------------------------
+
+/**
+ * A operação de uma leitura — **o recorte que separa as quatro auditorias**.
+ *
+ * EMPURRADA, ROTA, AS e APOIO são quatro realidades de negócio sobre a mesma
+ * unidade: a mesma placa, na mesma quinzena, remunerada por contratos
+ * diferentes. Uma vigência de empurrada nunca pode aparecer — nem contribuir com
+ * um centavo — para um número de rota, e é isso que este recorte garante.
+ *
+ * **Ele não é filtro; é escopo.** A distinção é a mesma de `lib/frota.ts` do
+ * lado da tela: o filtro estreita a lista dentro de uma população anunciada, e
+ * some com um ×; o escopo **troca a população**, e por isso alcança também os
+ * cartões, os totais, os gráficos e as agregações. Uma tela chamada "Auditoria
+ * Rota" com o total da empurrada em cima de uma lista de rota seria a mentira
+ * mais cara que este produto pode contar.
+ *
+ * **A coluna é `snapshot.canal`, e a escolha tem motivo.** Ela é derivada do
+ * rótulo pelo banco (`freightcheck_canal_do_rotulo`), é `NOT NULL`, não admite
+ * vazio e compõe `canonical_snapshot_key` — quem separa as operações no banco
+ * é a identidade da vigência, não um `LIKE` sobre nome de arquivo.
+ */
+export type Operacao = string;
+
+/**
+ * A operação em forma canônica — a mesma normalização que a coluna sofreu.
+ *
+ * `freightcheck_norm_canal` sobe a caixa, tira acento e troca o que não é
+ * alfanumérico por `_`. Comparar sem normalizar faria `?operacao=rota` não
+ * casar com nada e a tela abrir vazia, dizendo "não há vigência" sobre um acervo
+ * cheio — a pior forma de este recorte falhar, porque parece dado e é erro de
+ * grafia.
+ */
+export function normalizarOperacao(valor: string | null | undefined): Operacao | null {
+  if (valor === null || valor === undefined) return null;
+  const normalizada = valor
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return normalizada === "" ? null : normalizada;
+}
+
+/**
+ * O predicado da operação, para um alias de `snapshot`.
+ *
+ * Sem operação pedida devolve `TRUE` — e isso **não** é uma brecha escondida: é
+ * o que mantém honesta a resposta de quem não perguntou por operação nenhuma (o
+ * fechamento, o assistente, as ferramentas de manutenção). Quem separa as
+ * quatro auditorias é a auditoria, e ela manda a operação em toda leitura; do
+ * lado da tela isso é garantido num lugar só, e não rota a rota — ver
+ * `lib/api.ts`, no cliente, e `lib/operacao.ts`, no servidor.
+ */
+export function operacaoFilter(snapshotAlias: string, operacao?: Operacao | null) {
+  const canonica = normalizarOperacao(operacao ?? null);
+  return canonica === null
+    ? sql`TRUE`
+    : sql`${sql.raw(`${snapshotAlias}.canal`)} = ${canonica}`;
+}
 
 /**
  * Uma vigência conta para navegação só se tiver algo além de Trecho.
@@ -107,6 +177,24 @@ export interface SeriesContext {
   /** Null quando o rótulo da vigência não declara canal. */
   channel: string | null;
   /**
+   * A operação a que esta leitura pertence — EMPURRADA, ROTA, AS ou APOIO.
+   *
+   * Ausente quer dizer "sem recorte de operação", que é o que valia antes das
+   * quatro auditorias e continua valendo para quem não é auditoria. Presente,
+   * ela entra em {@link contextFilter} junto com unidade, canal e família: as
+   * mais de sessenta consultas que já passam por aquele predicado passam a
+   * recortar por operação sem uma linha nova em cada uma — que é a única forma
+   * de não haver a esquecida.
+   *
+   * **Ela é redundante com `channel` no caso normal, e a redundância é o
+   * ponto.** O canal do contexto vem do rótulo e pode ser NULL; a operação vem
+   * da coluna canônica e nunca é vazia. Um contexto de empurrada resolvido por
+   * engano dentro da auditoria de rota morre aqui, no SQL, mesmo que a escolha
+   * do contexto tenha errado — é a segunda linha de defesa, e é ela que torna o
+   * vazamento impossível em vez de improvável.
+   */
+  operacao?: Operacao | null;
+  /**
    * Sobre qual família de dados esta leitura responde.
    *
    * Ausente quer dizer {@link DATASET_FAMILY_REMUNERACAO_EQUIPAMENTO}, e o
@@ -147,6 +235,12 @@ export interface SeriesContext {
 export interface RequestedContext {
   scopeHash?: string;
   channel?: string | null;
+  /**
+   * A operação de quem pergunta. Não é escolha do usuário dentro da tela: é o
+   * ambiente em que ele está (`?operacao=ROTA`), e nenhuma tela da auditoria
+   * pergunta sem ela — ver `lib/operacao.ts`, no servidor.
+   */
+  operacao?: Operacao | null;
   janela?: { de?: string; ate?: string } | null;
 }
 
@@ -258,11 +352,22 @@ export async function listContexts(
      * ver `lib/remuneracao/src/leitura.ts`, `contextosEProcedencia`.
      */
     incluirCascaDeTrecho?: boolean;
+    /**
+     * Só os contextos desta operação — o recorte das quatro auditorias.
+     *
+     * É o que faz o seletor de unidade da Auditoria Rota listar unidades de
+     * rota e mais nada. Sem ele a lista traz as quatro operações misturadas, e
+     * `contexts[0]` — o padrão de quem não pede contexto — poderia ser de
+     * outra: a tela abriria com o menu de uma operação e os números de outra.
+     */
+    operacao?: Operacao | null;
   },
 ): Promise<ContextInfo[]> {
   const datasetFamily = opts?.datasetFamily ?? DATASET_FAMILY_REMUNERACAO_EQUIPAMENTO;
   const familia = sql` AND ${datasetFamilyFilter("s", datasetFamily)}`;
   const semCasca = opts?.incluirCascaDeTrecho ? sql`` : sql` AND ${naoEhSoTrecho("s")}`;
+  const operacao = normalizarOperacao(opts?.operacao ?? null);
+  const daOperacao = sql` AND ${operacaoFilter("s", operacao)}`;
 
   const { rows } = await db.execute<{
     scope_hash: string;
@@ -279,7 +384,7 @@ export async function listContexts(
              AS all_periods
       FROM snapshot s
      WHERE s.status <> 'SUPERSEDED'
-       AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)${familia}${semCasca}
+       AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)${familia}${semCasca}${daOperacao}
      GROUP BY 1, 2
      ORDER BY max(s.effective_date) DESC, s.scope_hash, 2 NULLS LAST
   `);
@@ -298,7 +403,7 @@ export async function listContexts(
       JOIN snapshot_scope ss ON ss.snapshot_id = s.id
       JOIN scope sc          ON sc.id = ss.scope_id
      WHERE s.status <> 'SUPERSEDED'
-       AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)${familia}
+       AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)${familia}${daOperacao}
      ORDER BY s.scope_hash, 2 NULLS LAST, sc.scope_type, sc.code
   `);
 
@@ -316,6 +421,13 @@ export async function listContexts(
     return {
       scopeHash: row.scope_hash,
       channel: row.channel,
+      /*
+        A operação viaja junto com o contexto, como a família: quem resolveu a
+        lista de uma auditoria leva o recorte dela para toda consulta seguinte,
+        via `contextFilter`. Sem isto o contexto seria da operação certa e a
+        leitura, do acervo inteiro — o mesmo defeito, uma camada adiante.
+      */
+      operacao,
       // A família viaja junto com o contexto, e não fica só nesta chamada: quem
       // resolveu a lista do quadro leva contextos de quadro, e o `contextFilter`
       // de toda consulta seguinte lê a família daqui em vez de supor a de
@@ -373,7 +485,20 @@ export async function resolveContext(
   /** Lista já carregada, para quem vai precisar dela inteira de todo jeito. */
   preloaded?: ContextInfo[],
 ): Promise<ContextInfo | null> {
-  const contexts = preloaded ?? (await listContexts(db));
+  const operacao = normalizarOperacao(requested?.operacao ?? null);
+  /*
+    A operação recorta **antes** de qualquer escolha, e recorta a lista inteira
+    — inclusive a que veio pronta em `preloaded`. É o que garante as duas metades
+    da regra num lugar só: o padrão de quem não pede contexto (`contexts[0]`) é
+    da operação aberta, e um `scopeHash` de outra operação — um link da Empurrada
+    colado dentro da Rota — não acha contexto e vira recusa escrita, nunca uma
+    tela de rota mostrando números de empurrada.
+  */
+  const todos = preloaded ?? (await listContexts(db, { operacao }));
+  const contexts =
+    operacao === null
+      ? todos
+      : todos.filter((c) => normalizarOperacao(c.operacao ?? c.channel) === operacao);
   if (contexts.length === 0) return null;
 
   const wantsScope = requested?.scopeHash !== undefined && requested.scopeHash !== null;
@@ -388,7 +513,12 @@ export async function resolveContext(
       );
   if (!base) throw new ContextNotFoundError(requested!, contexts);
 
-  return aplicarJanela(base, requested?.janela ?? null);
+  /*
+    O contexto resolvido carrega a operação mesmo quando a lista veio pronta de
+    outro lugar: é ela que `contextFilter` aplica, e é ela a segunda linha de
+    defesa contra um contexto escolhido errado.
+  */
+  return aplicarJanela({ ...base, operacao: operacao ?? base.operacao ?? null }, requested?.janela ?? null);
 }
 
 /**
@@ -466,6 +596,12 @@ export function aplicarJanela(
  * que, um dia, mostraria cargos onde deveria mostrar placas. O contexto que
  * não nomeia família fala de equipamento, que é o que todas elas sempre
  * quiseram dizer.
+ *
+ * **E a operação entra pela mesma razão, com a regra oposta no padrão.** Um
+ * contexto sem operação não recorta — porque nem toda leitura deste produto é
+ * de uma auditoria —, mas toda leitura *de auditoria* chega com ela, e aí as
+ * mesmas sessenta consultas passam a recortar por `snapshot.canal` sem uma
+ * linha nova em nenhuma delas. Ver {@link operacaoFilter}.
  */
 export function contextFilter(snapshotAlias: string, context: SeriesContext) {
   const alias = sql.raw(`${snapshotAlias}.effective_date`);
@@ -477,6 +613,7 @@ export function contextFilter(snapshotAlias: string, context: SeriesContext) {
   return sql`${sql.raw(`${snapshotAlias}.scope_hash`)} = ${context.scopeHash}
              AND ${channelSql(`${snapshotAlias}.source_label`)}
                  IS NOT DISTINCT FROM ${context.channel}::text
+             AND ${operacaoFilter(snapshotAlias, context.operacao)}
              AND ${datasetFamilyFilter(snapshotAlias, context.datasetFamily)}${janela}`;
 }
 

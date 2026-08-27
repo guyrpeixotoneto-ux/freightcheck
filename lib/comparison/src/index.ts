@@ -1,4 +1,5 @@
 export * from "./series";
+export * from "./operacao-do-recurso";
 export * from "./classification";
 export * from "./impact";
 export * from "./engine";

@@ -212,8 +212,16 @@ export function validar(
  */
 export interface ContextoDaFerramenta {
   db: Database;
-  /** O recorte da tela — a fronteira de isolamento desta conversa. */
-  recorte: { scopeHash?: string; channel?: string | null };
+  /**
+   * O recorte da tela — a fronteira de isolamento desta conversa.
+   *
+   * `operacao` é a auditoria de onde a pergunta saiu (EMPURRADA, ROTA, AS,
+   * APOIO). Ela entra pelo mesmo caminho e pela mesma razão que a unidade: o
+   * modelo não a escolhe, o executor a impõe. Sem ela, perguntar "o que mudou?"
+   * dentro da Auditoria Rota podia ser respondido com a vigência da empurrada —
+   * a resposta citaria o rótulo certo e ninguém leria aquilo como engano.
+   */
+  recorte: { scopeHash?: string; channel?: string | null; operacao?: string | null };
   /** A vigência em foco, quando a tela ou a conversa fixou uma. */
   periodo?: string | undefined;
   /**

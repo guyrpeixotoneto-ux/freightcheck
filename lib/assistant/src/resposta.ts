@@ -707,7 +707,13 @@ function sugerir(dossie: Dossie): string[] {
 // ── Entrada pública ─────────────────────────────────────────────────────────
 
 export interface PerguntaOptions {
-  recorte?: { scopeHash?: string; channel?: string | null; period?: string };
+  recorte?: {
+    scopeHash?: string;
+    channel?: string | null;
+    period?: string;
+    /** A auditoria de onde a pergunta saiu — ver `ContextoDaFerramenta`. */
+    operacao?: string | null;
+  };
   estado?: EstadoDaConversa | null;
   /** Desliga o modelo mesmo com chave — usado pelas evals e pelo painel. */
   semIa?: boolean;
@@ -1219,12 +1225,21 @@ export async function responder(
             ? {
                 scopeHash: dossie.plano.contexto.contexto.scopeHash,
                 channel: dossie.plano.contexto.contexto.channel,
+                /*
+                  A operação acompanha o contexto resolvido **e** o caminho sem
+                  contexto: ela é a auditoria de onde a pergunta saiu, e não uma
+                  escolha do turno. Perdê-la aqui devolveria às ferramentas o
+                  acervo inteiro, com a unidade certa — o vazamento mais difícil
+                  de ver, porque a resposta cita o rótulo que a pessoa esperava.
+                */
+                ...(opcoes.recorte?.operacao ? { operacao: opcoes.recorte.operacao } : {}),
               }
             : {
                 ...(opcoes.recorte?.scopeHash ? { scopeHash: opcoes.recorte.scopeHash } : {}),
                 ...(opcoes.recorte?.channel !== undefined
                   ? { channel: opcoes.recorte.channel }
                   : {}),
+                ...(opcoes.recorte?.operacao ? { operacao: opcoes.recorte.operacao } : {}),
               },
           ...(dossie.plano.periodo ? { periodo: dossie.plano.periodo } : {}),
           /*

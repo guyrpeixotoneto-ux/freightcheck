@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   aoPlural,
   EQUIPAMENTOS,
+  EQUIPAMENTOS_DO_AMBIENTE,
+  equipamentosDoAmbiente,
   equipamentoValido,
+  temTrecho,
   frasesDoEscopo,
   lerPlaca,
   linkDaFrota,
@@ -53,11 +56,21 @@ const recorte = (patch: Partial<Recorte> = {}): Recorte => ({
 });
 
 describe("os equipamentos", () => {
-  it("são os três que têm tela, e nada além", () => {
-    expect(EQUIPAMENTOS).toEqual(["CAVALO", "CARRETA", "TRECHO"]);
+  it("são os seis que têm tela, e nada além", () => {
+    expect(EQUIPAMENTOS).toEqual([
+      "CAVALO",
+      "CARRETA",
+      "TRECHO",
+      "CAMINHAO",
+      "CARROCERIA",
+      "EMPILHADEIRA",
+    ]);
     expect(equipamentoValido("CAVALO")).toBe(true);
     expect(equipamentoValido("CARRETA")).toBe(true);
     expect(equipamentoValido("TRECHO")).toBe(true);
+    expect(equipamentoValido("CAMINHAO")).toBe(true);
+    expect(equipamentoValido("CARROCERIA")).toBe(true);
+    expect(equipamentoValido("EMPILHADEIRA")).toBe(true);
     // Um quarto tipo vindo do Freightech aparece nas outras telas sozinho —
     // `entity_type` é texto livre no banco. Ganhar uma tela 360° é decisão de
     // produto, com entrada de menu e nome.
@@ -69,6 +82,58 @@ describe("os equipamentos", () => {
     expect(TELA_DO_EQUIPAMENTO.CAVALO.href).toBe("/cavalo-360");
     expect(TELA_DO_EQUIPAMENTO.CARRETA.href).toBe("/carreta-360");
     expect(TELA_DO_EQUIPAMENTO.TRECHO.href).toBe("/trecho-360");
+    expect(TELA_DO_EQUIPAMENTO.CAMINHAO.href).toBe("/caminhao-360");
+    expect(TELA_DO_EQUIPAMENTO.CARROCERIA.href).toBe("/carroceria-360");
+    expect(TELA_DO_EQUIPAMENTO.EMPILHADEIRA.href).toBe("/empilhadeira-360");
+  });
+
+  /*
+    O endereço e a chave não têm acento; o rótulo tem. É a distinção que impede
+    um link colado num e-mail de deixar de abrir — e a que impede a tela de
+    escrever "CAMINHAO" para quem lê.
+  */
+  it("põe o acento no rótulo, e nunca na chave nem no endereço", () => {
+    expect(TELA_DO_EQUIPAMENTO.CAMINHAO.titulo).toBe("Caminhão 360°");
+    expect(TELA_DO_EQUIPAMENTO.CAMINHAO.plural).toBe("caminhões");
+    expect(TELA_DO_EQUIPAMENTO.CAMINHAO.href).toMatch(/^[a-z0-9/-]+$/);
+  });
+
+  /*
+    Cada auditoria mostra os ativos da operação dela — é a única seção da
+    lateral que muda de um ambiente para o outro. O Apoio é o caso que prova a
+    regra: uma tela só, sem carreta e sem trecho.
+  */
+  it("dá a cada auditoria os ativos da operação dela", () => {
+    expect(EQUIPAMENTOS_DO_AMBIENTE.auditoria).toEqual(["CAVALO", "CARRETA", "TRECHO"]);
+    expect(EQUIPAMENTOS_DO_AMBIENTE["auditoria-rota"]).toEqual([
+      "CAMINHAO",
+      "CARROCERIA",
+      "TRECHO",
+    ]);
+    expect(EQUIPAMENTOS_DO_AMBIENTE["auditoria-as"]).toEqual(
+      EQUIPAMENTOS_DO_AMBIENTE["auditoria-rota"],
+    );
+    expect(EQUIPAMENTOS_DO_AMBIENTE["auditoria-apoio"]).toEqual(["EMPILHADEIRA"]);
+
+    /* Nenhum ambiente inventa um tipo que não tenha tela. */
+    for (const lista of Object.values(EQUIPAMENTOS_DO_AMBIENTE)) {
+      expect(lista.filter((tipo) => !EQUIPAMENTOS.includes(tipo))).toEqual([]);
+    }
+  });
+
+  it("sabe qual auditoria trabalha com trecho, e o Apoio não trabalha", () => {
+    expect(temTrecho("auditoria")).toBe(true);
+    expect(temTrecho("auditoria-rota")).toBe(true);
+    expect(temTrecho("auditoria-as")).toBe(true);
+    expect(temTrecho("auditoria-apoio")).toBe(false);
+  });
+
+  /* Fora das auditorias — num fechamento — vale a lista da Empurrada. */
+  it("cai na lista da Empurrada fora das auditorias", () => {
+    expect(equipamentosDoAmbiente("fechamento-rota")).toEqual(
+      EQUIPAMENTOS_DO_AMBIENTE.auditoria,
+    );
+    expect(equipamentosDoAmbiente("auditoria-apoio")).toEqual(["EMPILHADEIRA"]);
   });
 
   /*
@@ -148,6 +213,21 @@ describe("os equipamentos", () => {
   it("oferece todas as outras telas, e nunca a própria", () => {
     expect(outrasTelas("CAVALO")).toEqual(["CARRETA", "TRECHO"]);
     expect(outrasTelas("TRECHO")).toEqual(["CAVALO", "CARRETA"]);
+  });
+
+  /*
+    "As outras" são as do ambiente aberto, e não as outras cinco: no Apoio não
+    há nenhuma, e oferecer carretas ali levaria a uma tela que o menu de lá não
+    lista, sobre um ativo que aquela operação não tem.
+  */
+  it("oferece só as outras telas da operação auditada", () => {
+    expect(outrasTelas("CAMINHAO", EQUIPAMENTOS_DO_AMBIENTE["auditoria-rota"])).toEqual([
+      "CARROCERIA",
+      "TRECHO",
+    ]);
+    expect(
+      outrasTelas("EMPILHADEIRA", EQUIPAMENTOS_DO_AMBIENTE["auditoria-apoio"]),
+    ).toEqual([]);
   });
 });
 

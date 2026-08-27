@@ -1,8 +1,10 @@
 /**
- * O escopo de frota — a língua das telas Cavalo 360°, Carreta 360° e Trecho 360°.
+ * O escopo de frota — a língua das telas 360°.
  *
- * As três fazem as mesmas quatro perguntas de Alterações sobre uma população
- * menor: os cavalos, as carretas, os trechos, ou um só deles. Este arquivo é o
+ * Elas fazem as mesmas quatro perguntas de Alterações sobre uma população
+ * menor: os cavalos, as carretas, os trechos — ou os caminhões, as carrocerias
+ * e as empilhadeiras, conforme a operação que a auditoria aberta audita —, ou um
+ * só deles. Este arquivo é o
  * vocabulário disso do lado da tela, e o par de `lib/comparison/src/escopo.ts`
  * do lado do servidor — os dois carregam a mesma distinção, que é a que mantém
  * estas telas honestas:
@@ -31,6 +33,7 @@
 
 import { tipoDeImportacao } from "@workspace/ingest/tipos";
 
+import { ehAuditoria, type Ambiente, type AmbienteDeAuditoria } from "@/lib/ambiente";
 import { paramsDoRecorte, type Recorte } from "@/lib/recorte";
 
 // ---------------------------------------------------------------------------
@@ -66,13 +69,86 @@ import { paramsDoRecorte, type Recorte } from "@/lib/recorte";
  * coluna para curar como o cavalo tem, sem ter tela 360° nenhuma. O que ela
  * acrescenta continua sendo dela: a ordem das abas, a contagem por fila, e a
  * decisão de mostrar a aba vazia em vez de escondê-la.
+ *
+ * **A lista cresceu com as auditorias, e não com o produto.** Cavalo, carreta e
+ * trecho são o que a **empurrada** rodava; a rota e o AS rodam com caminhão e
+ * carroceria, e o apoio, com empilhadeira. São nomes de operação, não sinônimos:
+ * quem confere o AS procura "Caminhão" no menu e não reconhece "Cavalo" como a
+ * mesma coisa. Qual dos seis cada ambiente mostra é
+ * {@link EQUIPAMENTOS_DO_AMBIENTE}, logo abaixo — esta lista é o conjunto de
+ * todos, que é o que `equipamentoValido` precisa saber para aceitar um endereço.
  */
-export type Equipamento = "CAVALO" | "CARRETA" | "TRECHO";
+export type Equipamento =
+  | "CAVALO"
+  | "CARRETA"
+  | "TRECHO"
+  | "CAMINHAO"
+  | "CARROCERIA"
+  | "EMPILHADEIRA";
 
-export const EQUIPAMENTOS: Equipamento[] = ["CAVALO", "CARRETA", "TRECHO"];
+export const EQUIPAMENTOS: Equipamento[] = [
+  "CAVALO",
+  "CARRETA",
+  "TRECHO",
+  "CAMINHAO",
+  "CARROCERIA",
+  "EMPILHADEIRA",
+];
 
 export const equipamentoValido = (valor: string | null): valor is Equipamento =>
   valor !== null && (EQUIPAMENTOS as string[]).includes(valor);
+
+/**
+ * Que ativos cada auditoria mostra — o vocabulário da operação, num lugar só.
+ *
+ * As quatro auditorias são o mesmo processo sobre operações diferentes
+ * (`lib/ambiente.ts`), e o que as separa na lateral é isto: a **empurrada** roda
+ * com cavalo e carreta; a **rota** e o **AS** rodam com caminhão e carroceria; o
+ * **apoio** roda com empilhadeira, que não puxa nada e não roda trecho — por
+ * isso a lista dele tem um item só.
+ *
+ * **Não é tradução.** "Caminhão" não é como o Rota chama o cavalo: é outro
+ * ativo, com outro `entity_type`, e as telas de lá pedem à API justamente esse
+ * tipo. Os três entraram em `TIPOS_DE_IMPORTACAO` (`@workspace/ingest/tipos`)
+ * para que a importação possa **receber** o export de cada operação — foi uma
+ * decisão explícita, e aditiva: `entity_type` é texto livre no banco, então não
+ * houve migration, e nada do que já entrava mudou.
+ *
+ * Enquanto o export de uma operação não trouxer o ativo dela, a tela 360°
+ * correspondente diz que aquele tipo não existe neste contexto — que é o que
+ * `pages/frota-360.tsx` já faz, e é a resposta honesta: melhor uma tela que diz
+ * "não há caminhão importado" do que uma que mostra cavalos com o rótulo
+ * trocado.
+ *
+ * O mapa vive aqui, e não em `lib/ambiente.ts`, porque é vocabulário de frota —
+ * e é daqui que o menu (`components/layout/nav-auditoria.ts`), as abas do Plano
+ * de Ação e o rodapé de "ver as outras telas" o leem, para que os três nunca
+ * discordem sobre o que a operação tem.
+ */
+export const EQUIPAMENTOS_DO_AMBIENTE: Record<AmbienteDeAuditoria, Equipamento[]> = {
+  auditoria: ["CAVALO", "CARRETA", "TRECHO"],
+  "auditoria-rota": ["CAMINHAO", "CARROCERIA", "TRECHO"],
+  "auditoria-as": ["CAMINHAO", "CARROCERIA", "TRECHO"],
+  /*
+    O apoio não tem carreta nem trecho: a empilhadeira trabalha dentro do pátio,
+    não puxa implemento e não roda perna de rota. Um "Trecho 360°" no menu dele
+    seria uma tela que nunca terá linha — e o **Radar de Trechos**, que é a
+    camada gerencial acima dela, sai do menu do apoio pela mesma razão.
+  */
+  "auditoria-apoio": ["EMPILHADEIRA"],
+};
+
+/** Os ativos da auditoria aberta — o atalho de quem já tem o ambiente. */
+export function equipamentosDoAmbiente(ambiente: Ambiente): Equipamento[] {
+  return ehAuditoria(ambiente)
+    ? EQUIPAMENTOS_DO_AMBIENTE[ambiente]
+    : EQUIPAMENTOS_DO_AMBIENTE.auditoria;
+}
+
+/** Se a auditoria aberta trabalha com trecho — o que o apoio não faz. */
+export function temTrecho(ambiente: Ambiente): boolean {
+  return equipamentosDoAmbiente(ambiente).includes("TRECHO");
+}
 
 /** O vocabulário de um tipo — o que a tela precisa para escrever as frases. */
 export interface PalavrasDoTipo {
@@ -144,6 +220,53 @@ export const TELA_DO_EQUIPAMENTO: Record<Equipamento, PalavrasDoTipo> = {
     buscaPor: "Placa ou chassi",
     precoNaGrade: "quanto ela custa por mês",
     href: "/carreta-360",
+  },
+  CAMINHAO: {
+    /*
+      O acento vive no texto, e nunca na chave nem no endereço: `CAMINHAO` é o
+      `entity_type` como o banco o guarda, `/caminhao-360` é o endereço, e
+      "Caminhão" é o que a pessoa lê. Misturar os três é o jeito mais fácil de
+      um link colado num e-mail deixar de abrir.
+    */
+    titulo: "Caminhão 360°",
+    singular: "caminhão",
+    plural: "caminhões",
+    pronome: "ele",
+    este: "este",
+    artigo: "o",
+    identificador: "Placa",
+    buscaPor: "Placa ou chassi",
+    precoNaGrade: "quanto ele custa por mês",
+    href: "/caminhao-360",
+  },
+  CARROCERIA: {
+    titulo: "Carroceria 360°",
+    singular: "carroceria",
+    plural: "carrocerias",
+    pronome: "ela",
+    este: "esta",
+    artigo: "a",
+    identificador: "Placa",
+    buscaPor: "Placa ou chassi",
+    precoNaGrade: "quanto ela custa por mês",
+    href: "/carroceria-360",
+  },
+  EMPILHADEIRA: {
+    titulo: "Empilhadeira 360°",
+    singular: "empilhadeira",
+    plural: "empilhadeiras",
+    pronome: "ela",
+    este: "esta",
+    artigo: "a",
+    /*
+      A empilhadeira não tem placa: ela é identificada pelo número de série ou
+      pelo patrimônio. Pedir "Placa" numa tela de apoio é pedir um dado que a
+      operação não tem — a mesma razão de o trecho não pedir chassi.
+    */
+    identificador: "Identificador",
+    buscaPor: "Identificador ou chassi",
+    precoNaGrade: "quanto ela custa por mês",
+    href: "/empilhadeira-360",
   },
   TRECHO: {
     titulo: "Trecho 360°",
@@ -299,8 +422,17 @@ export function todosOsPlural(tipo: PalavrasDoTipo): string {
  * mudou no trecho que eles rodam. Era um ternário entre dois enquanto eram
  * dois, e um ternário é exatamente o que não sobrevive ao terceiro.
  */
-export function outrasTelas(equipamento: Equipamento): Equipamento[] {
-  return EQUIPAMENTOS.filter((outro) => outro !== equipamento);
+export function outrasTelas(
+  equipamento: Equipamento,
+  /*
+    As outras telas **do mesmo ambiente**, e não as outras cinco: oferecer
+    "ver carretas" dentro da Auditoria Apoio levaria a uma tela que o menu de lá
+    não lista — e que fala de um ativo que aquela operação não tem. O padrão é a
+    lista da Empurrada, que é o ambiente em que estas telas nasceram.
+  */
+  disponiveis: readonly Equipamento[] = EQUIPAMENTOS_DO_AMBIENTE.auditoria,
+): Equipamento[] {
+  return disponiveis.filter((outro) => outro !== equipamento);
 }
 
 // ---------------------------------------------------------------------------

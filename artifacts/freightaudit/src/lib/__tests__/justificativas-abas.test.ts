@@ -7,7 +7,14 @@ import {
   vigenciasDaAba,
   type Comparacao,
 } from "../justificativas";
-import { EQUIPAMENTOS } from "../frota";
+import { EQUIPAMENTOS_DO_AMBIENTE } from "../frota";
+
+/*
+  Os tipos fixos das abas são os da operação auditada, e o padrão é a lista da
+  Empurrada — o ambiente em que esta tela nasceu. Os casos abaixo usam esse
+  padrão; o último guarda o que muda quando a operação é outra.
+*/
+const DA_EMPURRADA = EQUIPAMENTOS_DO_AMBIENTE.auditoria;
 
 /**
  * O Plano de Ação agrupa por placa, e a placa sozinha não diz de que tipo de
@@ -73,7 +80,7 @@ describe("abasDaVigencia", () => {
 
   it("traz os três tipos com tela 360°, na ordem do produto", () => {
     const abas = abasDaVigencia([], contagens(), undefined);
-    expect(abas.slice(1).map((a) => a.tipo)).toEqual(EQUIPAMENTOS);
+    expect(abas.slice(1).map((a) => a.tipo)).toEqual(DA_EMPURRADA);
     expect(abas.slice(1).map((a) => a.rotulo)).toEqual([
       "Cavalo",
       "Carreta",
@@ -115,7 +122,7 @@ describe("abasDaVigencia", () => {
     );
     expect(abas.find((a) => a.tipo === "CAVALO")?.total).toBe(2);
     expect(abas.filter((a) => a.tipo !== null)).toHaveLength(
-      EQUIPAMENTOS.length,
+      DA_EMPURRADA.length,
     );
   });
 
@@ -140,6 +147,24 @@ describe("abasDaVigencia", () => {
     // Sem tela e sem importação, o nome volta como veio — "Ativo" sumiria ao
     // lado de Cavalo e Carreta, e inventar capitalização erraria a sigla.
     expect(abas.find((a) => a.tipo === "DOLLY")?.rotulo).toBe("DOLLY");
+  });
+
+  /*
+    No Apoio as abas fixas são as da operação dele: uma só, a empilhadeira. Uma
+    aba "Carreta 0" ali prometeria uma fila que aquela operação nunca vai ter, e
+    a empilhadeira — que é o ativo de lá — ficaria de fora dos fixos, aparecendo
+    só quando alguma vigência trouxesse uma.
+  */
+  it("fixa, em cada auditoria, os tipos da operação dela", () => {
+    const abas = abasDaVigencia(
+      [comparacao("v1", "2026-08-02")],
+      contagens(["v1", "EMPILHADEIRA", 1, 1]),
+      "v1",
+      EQUIPAMENTOS_DO_AMBIENTE["auditoria-apoio"],
+    );
+
+    expect(abas.map((a) => a.tipo)).toEqual([null, "EMPILHADEIRA"]);
+    expect(abas[1].total).toBe(1);
   });
 
   /*

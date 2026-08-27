@@ -62,7 +62,21 @@ export interface VigenciaObservada {
  */
 export async function vigenciasObservadas(
   db: Database,
-  filtro: { datasetFamily?: string; scopeHash?: string; canal?: string | null } = {},
+  filtro: {
+    datasetFamily?: string;
+    scopeHash?: string;
+    canal?: string | null;
+    /**
+     * A operação de quem pergunta — o recorte das quatro auditorias.
+     *
+     * Distinto de `canal`, que é **filtro de tela** (o seletor da Cobertura
+     * oferece os canais do acervo e o × desfaz). Este é **escopo**: a Auditoria
+     * Rota não tem o × que traria a empurrada de volta, porque a empurrada não
+     * é dela. Os dois convivem numa consulta só — o filtro estreita dentro do
+     * escopo, nunca para fora dele.
+     */
+    operacao?: string | null;
+  } = {},
 ): Promise<VigenciaObservada[]> {
   const { rows } = await db.execute<{
     id: string;
@@ -100,6 +114,7 @@ export async function vigenciasObservadas(
        AND (${filtro.scopeHash ?? null}::text IS NULL OR s.scope_hash = ${filtro.scopeHash ?? null})
        AND (${filtro.canal === undefined ? null : filtro.canal}::text IS NULL
             OR s.canal = ${filtro.canal === undefined ? null : filtro.canal})
+       AND (${filtro.operacao ?? null}::text IS NULL OR s.canal = ${filtro.operacao ?? null})
      ORDER BY s.effective_date, s.dataset_family, s.canal
   `);
 

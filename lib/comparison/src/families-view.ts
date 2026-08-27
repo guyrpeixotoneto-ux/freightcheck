@@ -506,7 +506,8 @@ export async function getRangeAnalysis(
    */
   contextosCarregados?: ContextInfo[],
 ): Promise<RangeAnalysis | null> {
-  const contexts = contextosCarregados ?? (await listContexts(db));
+  const contexts =
+    contextosCarregados ?? (await listContexts(db, { operacao: requestedContext?.operacao }));
   const context = await resolveContext(db, requestedContext, contexts);
   if (!context) return null;
 

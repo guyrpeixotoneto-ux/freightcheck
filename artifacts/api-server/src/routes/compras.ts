@@ -9,6 +9,8 @@ import {
   type EscopoDaConsulta,
 } from "@workspace/compras";
 
+import { parseContext as parseContextoDaConsulta } from "../lib/contexto";
+import { operacaoDaConsulta } from "../lib/operacao";
 /**
  * Compras — o remunerado de um produto, antes de o pedido ser liberado.
  *
@@ -37,23 +39,25 @@ import {
 const router: IRouter = Router();
 
 /**
- * Mesma convenção das demais rotas — ver `routes/composition.ts`.
+ * O contexto pedido — **a mesma leitura de `lib/contexto.ts`**, sem a janela.
  *
- * O tipo é o do módulo, e não o de nenhum dos dois fornecedores dele: os
- * balcões de compra respondem por uma vigência só e não aceitam janela — ver
- * `EscopoDaConsulta`. É o que permite uma função só servir às duas rotas.
+ * Era uma cópia local, e a cópia era inofensiva enquanto o contexto fosse
+ * unidade e canal. Deixou de ser quando a operação entrou: quatro rotas com
+ * quatro parsers próprios são quatro chances de uma delas não recortar por
+ * operação — e a que não recortasse mostraria, dentro da Auditoria Rota, a
+ * composição, a DRE ou o balcão de compras da empurrada, sem nada na tela
+ * dizendo isso. Agora o parser é um só, e é o mesmo que as onze outras rotas
+ * usam.
+ *
+ * A janela sai porque estas leituras não a aceitam: elas respondem por **uma**
+ * vigência, e um recorte de série aqui mudaria a lista do seletor sem que a
+ * resposta mudasse junto — ver o cabeçalho de `routes/frota.ts`.
  */
 function parseContext(query: Record<string, unknown>): EscopoDaConsulta | undefined {
-  const scopeHash =
-    typeof query.scopeHash === "string" && query.scopeHash !== "" ? query.scopeHash : undefined;
-  const hasCanal = typeof query.canal === "string";
-  if (scopeHash === undefined && !hasCanal) return undefined;
-  return {
-    ...(scopeHash !== undefined ? { scopeHash } : {}),
-    ...(hasCanal
-      ? { channel: (query.canal as string) === "" ? null : (query.canal as string) }
-      : {}),
-  };
+  const pedido = parseContextoDaConsulta(query);
+  if (pedido === undefined) return undefined;
+  const { janela: _janela, ...semJanela } = pedido;
+  return semJanela;
 }
 
 function parsePeriod(query: Record<string, unknown>): string | undefined {
@@ -79,7 +83,9 @@ router.get("/compras/placas", async (req, res): Promise<void> => {
     letra não cometeu falha nenhuma, e um 400 a cada tecla encheria o log de
     ruído. A regra de quantas letras bastam mora em `buscarPlacas`.
   */
-  res.json({ placas: await buscarPlacas(db, termo) });
+  res.json({
+    placas: await buscarPlacas(db, termo, undefined, operacaoDaConsulta(query)),
+  });
 });
 
 router.get("/compras/remunerado/frota", async (req, res): Promise<void> => {

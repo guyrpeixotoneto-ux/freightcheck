@@ -4,7 +4,9 @@ import {
   channelSql,
   datasetFamilyFilter,
   listContexts,
+  operacaoFilter,
   type ContextInfo,
+  type Operacao,
 } from "./series";
 
 /**
@@ -154,7 +156,7 @@ function impactoEmNumeros(bruto: Record<string, unknown> | null): Record<string,
 export async function listarVigenciasDaAuditoria(
   db: Database,
   /** Qual família ler (`snapshot.dataset_family`). Padrão: equipamento. */
-  opts?: { datasetFamily?: string },
+  opts?: { datasetFamily?: string; operacao?: Operacao | null },
 ): Promise<VigenciaDaAuditoria[]> {
   const contextos = await listContexts(db, opts);
   if (contextos.length === 0) return [];
@@ -173,6 +175,12 @@ export async function listarVigenciasDaAuditoria(
        WHERE s.status <> 'SUPERSEDED'
        AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
          AND ${datasetFamilyFilter("s", opts?.datasetFamily)}
+         -- A operação da auditoria aberta. A Visão Gerencial é a tela que soma
+         -- **todas** as unidades de uma vez, e sem este recorte ela é o lugar
+         -- mais fácil de a empurrada entrar num cartão de rota: o cartão da
+         -- unidade contaria as duas séries como uma, e o total do ano seria a
+         -- soma de dois contratos diferentes.
+         AND ${operacaoFilter("s", opts?.operacao)}
          -- Trecho só aparece no Trecho 360. A Visão Gerencial soma vigências e
          -- alterações por unidade a partir daqui — sem este filtro, a série de
          -- trecho de uma unidade virava mais uma "vigência" no cartão dela,

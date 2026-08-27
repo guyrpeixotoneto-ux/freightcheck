@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { Link } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Layout } from "@/components/layout/layout";
 import { ApiErrorNotice } from "@/components/api-error";
@@ -152,9 +153,9 @@ export default function Dados() {
         <p className="text-sm text-muted-foreground mt-1 max-w-4xl">
           O que já temos versus o que deveríamos ter, consolidando todas as importações. O que
           entrou está em{" "}
-          <a href="/importacoes" className="text-brand hover:underline">
+          <Link href="/importacoes" className="text-brand hover:underline">
             Importações
-          </a>
+          </Link>
           ; o que chegou com problema, em Qualidade de dados.
         </p>
 
@@ -174,9 +175,9 @@ export default function Dados() {
           <div className="mt-8 bg-card border border-l-[6px] border-l-brand px-6 py-4 text-sm">
             <strong>Nenhuma vigência importada ainda.</strong> Não há cobertura a medir — a
             primeira planilha promovida abre esta tela.{" "}
-            <a href="/importacoes" className="text-brand font-semibold hover:underline">
+            <Link href="/importacoes" className="text-brand font-semibold hover:underline">
               Enviar a primeira
-            </a>
+            </Link>
             .
           </div>
         )}

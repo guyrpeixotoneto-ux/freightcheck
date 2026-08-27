@@ -4,12 +4,14 @@ import { Link, useLocation, useSearch } from "wouter";
 import {
   Container,
   DollarSign,
+  Forklift,
   FileSpreadsheet,
   Handshake,
   Headset,
   Route,
   Search,
   Tractor,
+  Truck,
   X,
 } from "lucide-react";
 import { ApiErrorNotice } from "@/components/api-error";
@@ -28,6 +30,7 @@ import type { TicketTotals } from "@/components/changes/ticket-table";
 import { fetchJson } from "@/lib/api";
 import {
   aoPlural,
+  equipamentosDoAmbiente,
   frasesDoEscopo,
   lerPlaca,
   outrasTelas,
@@ -37,6 +40,7 @@ import {
   type EscopoDeFrota,
   type NivelDaTela,
 } from "@/lib/frota";
+import { useAmbiente } from "@/lib/ambiente-aberto";
 import { lerRecorte, paramsDoRecorte } from "@/lib/recorte";
 import { cn } from "@/lib/utils";
 
@@ -117,6 +121,11 @@ const abaValida = (valor: string | null): valor is AbaDaFrota =>
 const ICONE: Record<Equipamento, typeof Tractor> = {
   CAVALO: Tractor,
   CARRETA: Container,
+  // Os ativos das outras operações: caminhão e carroceria na rota e no AS,
+  // empilhadeira no apoio. Ver `EQUIPAMENTOS_DO_AMBIENTE`, em `lib/frota.ts`.
+  CAMINHAO: Truck,
+  CARROCERIA: Container,
+  EMPILHADEIRA: Forklift,
   // O trecho é caminho, e não veículo: o ícone precisa dizer isso à distância,
   // senão a terceira entrada do menu vira o terceiro caminhão da fileira.
   TRECHO: Route,
@@ -416,6 +425,7 @@ function SeletorDoAtivo({
   onVoltarAosCards: () => void;
 }) {
   const [rascunho, setRascunho] = useState(placa ?? "");
+  const ambiente = useAmbiente();
   const tela = TELA_DO_EQUIPAMENTO[equipamento];
 
   const query = useQuery({
@@ -504,9 +514,14 @@ function SeletorDoAtivo({
           Eram um `Link` e um ternário enquanto eram duas telas. O ternário não
           sobrevive à terceira: ele escolheria uma das outras duas e esconderia
           a outra sem dizer.
+
+          As outras telas são as **da operação auditada**: no Apoio há uma só
+          tela 360°, e a fileira fica vazia em vez de oferecer carretas que
+          aquela operação não tem. Ver `EQUIPAMENTOS_DO_AMBIENTE`,
+          em `lib/frota.ts`.
         */}
         <div className="ml-auto flex items-center gap-3">
-          {outrasTelas(equipamento).map((outra) => (
+          {outrasTelas(equipamento, equipamentosDoAmbiente(ambiente)).map((outra) => (
             <Link
               key={outra}
               href={TELA_DO_EQUIPAMENTO[outra].href}

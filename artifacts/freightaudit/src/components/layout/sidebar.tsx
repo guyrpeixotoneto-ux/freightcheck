@@ -60,7 +60,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
-  ambienteDe,
   BASES_DE_FECHAMENTO,
   DASHBOARD,
   descricaoDoAmbiente,
@@ -71,6 +70,7 @@ import {
   RESUMO_EXECUTIVO,
   type Ambiente,
 } from "@/lib/ambiente";
+import { useAmbiente } from "@/lib/ambiente-aberto";
 import { useAuth } from "@/lib/auth";
 import { useContextosDaCasca, type Contexto } from "@/lib/contextos";
 import {
@@ -86,7 +86,7 @@ import {
   useImportacoesEmAndamento,
 } from "./contadores";
 import type { NavGroup, NavItem } from "./nav";
-import { GRUPO_ADMINISTRACAO } from "./nav-administracao";
+import { navGroupsAuditoria } from "./nav-auditoria";
 import { navGroupsFechamento } from "./nav-fechamento";
 import { useSecoesRecolhidas } from "./preferencias";
 
@@ -129,286 +129,16 @@ import { useSecoesRecolhidas } from "./preferencias";
  * **nenhum item daqui leva a lugar nenhum, e nenhum leva a um número
  * inventado.** Os dezoito itens que ainda não têm tela abrem uma página que
  * diz o que falta no banco para respondê-los e para onde ir enquanto isso — ver
- * o comentário de `NAV_GROUPS` e `pages/telas-em-preparo.ts`.
+ * o comentário de `navGroupsAuditoria` e `pages/telas-em-preparo.ts`.
  */
 
 /*
-  `NavItem` e `NavGroup` moram em `nav.ts`: a mesma forma descreve a lista da
-  Auditoria (abaixo) e a do Fechamento (`nav-fechamento.ts`), e qual das duas a
-  lateral mostra é decidido pelo ambiente que a URL declara — ver
-  `lib/ambiente.ts`.
+  `NavItem` e `NavGroup` moram em `nav.ts`; as listas, em arquivo próprio — a da
+  Auditoria em `nav-auditoria.ts`, a do Fechamento em `nav-fechamento.ts` —, e
+  qual das duas a lateral mostra é decidido pelo ambiente que a URL declara. As
+  duas são funções do ambiente aberto, porque há quatro auditorias e quatro
+  fechamentos: ver `lib/ambiente.ts`.
 */
-
-/**
- * As nove seções, e a ordem em que se lê o trabalho de um dia.
- *
- * A lista dobrou — de dezessete itens em cinco seções para trinta e cinco em sete —
- * e nenhum item saiu: as duas seções novas, **Recuperação** e **Frota**, e os
- * itens acrescentados às cinco antigas nomeiam trabalho que o produto vai
- * fazer; nada do que já existia mudou de nome, de lugar relativo ou de endereço.
- *
- * A ordem é a de uma auditoria completa, de cima para baixo: vê-se o retrato
- * (**Visão executiva**), libera-se o que precisa ser comprado hoje
- * (**Compras**), procura-se o desvio (**Auditoria**), cobra-se o desvio achado
- * (**Recuperação**), confere-se o quadro de gente que o modelo remunera
- * (**QLP**), desce-se ao ativo que o sofreu (**Frota**),
- * pergunta-se ao assistente o que sobrou (**Inteligência**), e por baixo de
- * tudo estão o material (**Dados & governança**) e a casa (**Administração**).
- *
- * Dezessete destes itens ainda não têm tela — e é aqui que a regra antiga desta
- * lateral, *item que não funciona não entra na lista*, precisou de uma emenda
- * em vez de uma exceção. Todos eles **abrem**, e o que abrem diz a verdade: a
- * pergunta que a tela vai responder, o dado que falta no banco para respondê-la
- * e a tela que hoje chega mais perto — ver `pages/telas-em-preparo.ts`. O que a
- * regra proíbe continua proibido, e ficou mais explícito: não há, em nenhuma
- * dessas telas, um número de exemplo. Clicar leva a algum lugar; o que aquele
- * lugar informa é o que ainda não se sabe.
- */
-export const NAV_GROUPS: NavGroup[] = [
-  {
-    /*
-      O Dashboard abre a lista, na frente da Visão executiva: é a tela de
-      vigilância — o que a Ambev mudou de uma vigência para a outra, antes de
-      se aprofundar em qualquer outra ferramenta. Um item só, como Compras:
-      quem entra aqui vem checar mudança, não navegar uma seção inteira.
-    */
-    titulo: "Dashboard",
-    descricao: "O que mudou desde a última competência, antes de tudo",
-    icon: Radar,
-    cor: "text-nav-executiva",
-    itens: [{ href: DASHBOARD, label: "Dashboard", icon: Radar }],
-  },
-  {
-    titulo: "Visão executiva",
-    descricao: "O retrato do conjunto e o valor apurado",
-    icon: ChartNoAxesCombined,
-    cor: "text-nav-executiva",
-    itens: [
-      /*
-        A Visão Gerencial abre a seção porque é a leitura mais alta que o
-        ambiente tem: todas as unidades de uma vez, em ordem do que falta
-        auditar. O Resumo executivo vem logo abaixo e responde pela unidade
-        aberta — é a mesma escada da lateral do Fechamento, onde a Visão
-        Gerencial também é o primeiro item.
-
-        As duas ficam coladas, e nesta ordem, porque são a mesma pergunta em
-        duas alturas: o conjunto e a unidade. Separá-las por três itens faria
-        parecer que falam de coisas diferentes.
-
-        A ordem do menu agora é também a ordem da entrada: `/` encaminha para o
-        primeiro destes dois itens, e o segundo tem endereço próprio desde que
-        deixou a raiz. Ver `lib/ambiente.ts`.
-      */
-      { href: ENTRADA_DA_AUDITORIA, label: "Painel de Unidades", icon: LayoutDashboard },
-      { href: RESUMO_EXECUTIVO, label: "Resumo executivo", icon: House },
-      /*
-        A Linha do tempo vem logo abaixo do Resumo executivo: era um cartão
-        dentro dele ("Impacto líquido ao longo do tempo") e virou tela
-        própria, porque a pergunta que responde — como o impacto se moveu
-        vigência a vigência, e o que mudou em cada uma — é uma leitura de
-        todo o histórico, e não do instante atual que o Resumo executivo
-        mostra.
-      */
-      { href: LINHA_DO_TEMPO, label: "Linha do Tempo", icon: History },
-      { href: "/vigencia", label: "Acompanhamento", icon: TrendingUp },
-      /*
-        A Análise de frota saiu daqui e passou a abrir a seção **Frota**, ao lado
-        das telas que descem ao ativo: é o mesmo assunto lido de duas alturas, e
-        o olho procura as duas no mesmo bloco.
-
-        A Composição ficou. Ela continua sendo o drill-down da análise — a
-        análise diz como a frota se comporta, e a composição responde, para um
-        equipamento, por que ele recebe o que recebe —, mas mora na visão
-        executiva, e não na auditoria nem na Frota, por ser a porta de entrada:
-        quem abre procura um valor, e só depois procura a inconsistência dele.
-      */
-      { href: "/composicao", label: "Composição", icon: Calculator },
-      /*
-        A DRE vem depois da Composição porque é a pergunta seguinte. A Composição
-        responde "por que este equipamento recebe este valor"; a DRE responde "o
-        que sobra depois dos custos" — e usa exatamente a mesma apuração, com as
-        linhas reorganizadas em seções contábeis. Duas telas e um motor.
-
-        Fica aqui, e não na seção **Frota**, pelo mesmo motivo que a Composição:
-        as duas partem de um valor apurado e só então descem ao ativo — entra-se
-        nelas pela conta, não pela placa. Na Frota vive o `/dre-veiculo` ainda em
-        preparo, que continua em preparo porque o que falta a ele é custo
-        operacional, e não esta apuração.
-      */
-      { href: "/dre", label: "DRE", icon: Receipt },
-    ],
-  },
-  {
-    /*
-      Compras fica entre a Visão executiva e a Auditoria, e a posição é a do
-      gesto que ela serve: alguém está com um pedido de compra parado na mesa e
-      precisa saber, agora, quanto a Ambev remunera aquele produto. Não é
-      auditoria — auditar é descobrir o que mudou, e aqui nada mudou; é um
-      portão antes de o dinheiro sair, e por isso vem antes.
-
-      Um item só, como a seção Remuneração da lateral do Fechamento. A seção
-      existe mesmo assim porque o trabalho é outro: quem passa o dia comprando
-      não abre nenhuma das sete telas de Auditoria, e um item de compra perdido
-      no meio delas seria encontrado por quem já sabia que ele existia.
-    */
-    titulo: "Compras",
-    descricao: "Quanto a Ambev remunera o que se vai comprar",
-    icon: ShoppingCart,
-    cor: "text-nav-compras",
-    itens: [{ href: "/remunerado", label: "Remunerado", icon: Tags }],
-  },
-  {
-    /*
-      Plano de Ação fica logo depois de Compras porque é o mesmo tipo de
-      trabalho de mesa: alguém olhou o que mudou de uma vigência para a outra
-      e precisa registrar, placa a placa, por que aquilo mudou — antes de a
-      alteração seguir para Auditoria ou Recuperação.
-    */
-    titulo: "Plano de Ação",
-    descricao: "O que mudou por placa, e a justificativa de cada mudança",
-    icon: FileCheck2,
-    cor: "text-nav-plano-de-acao",
-    itens: [{ href: "/justificativas", label: "Justificativas", icon: FileCheck2 }],
-  },
-  {
-    titulo: "Auditoria",
-    descricao: "O que mudou na vigência e quanto custou",
-    icon: ScanSearch,
-    cor: "text-nav-auditoria",
-    itens: [
-      { href: "/alteracoes", label: "Alterações", icon: ArrowRightLeft, contador: "alteracoes" },
-      { href: "/comparar", label: "Comparar vigências", icon: GitCompareArrows },
-      { href: "/parametros", label: "Parâmetros", icon: SlidersVertical },
-      { href: "/vigencias", label: "Vigências", icon: CalendarDays },
-      /*
-        Os três novos vêm depois dos quatro que funcionam, e nessa ordem, porque
-        é a ordem da pergunta: o que mudou (Alterações) vira quanto custou
-        (Impacto financeiro), quanto custou vira o que disso é anormal
-        (Anomalias), e o anormal vira um caso com dono (Auditorias).
-      */
-      { href: "/impacto-financeiro", label: "Impacto financeiro", icon: CircleDollarSign },
-      { href: "/anomalias", label: "Anomalias", icon: TriangleAlert },
-      { href: "/auditorias", label: "Auditorias", icon: ClipboardCheck },
-    ],
-  },
-  {
-    /*
-      Recuperação é seção própria, e não a cauda da Auditoria, porque é outro
-      trabalho e quase sempre outra pessoa: auditar é descobrir, recuperar é
-      cobrar. Quem passa o dia numa das duas fecha a outra.
-    */
-    titulo: "Recuperação",
-    descricao: "A cobrança do desvio já apurado",
-    icon: RefreshCcwDot,
-    cor: "text-nav-recuperacao",
-    itens: [
-      { href: "/contestacao", label: "Contestação & Recuperação", icon: Gavel },
-      { href: "/reconciliacao", label: "Reconciliação", icon: Handshake },
-      { href: "/risco-materialidade", label: "Risco & Materialidade", icon: ShieldCheck },
-    ],
-  },
-  {
-    /*
-      QLP — o quadro de lotação de pessoal que o modelo remunera — é seção
-      própria, acima da Frota, porque é a outra metade da mesma conta: a Frota
-      carrega o custo do ativo, e o QLP carrega o custo da estrutura de gente,
-      lida nas duas alturas em que o Freightech a publica — a operação e a
-      administração. Os dois itens abrem telas em preparo: a regra vive no Book,
-      mas o export que abastece este banco ainda não traz os valores de QLP —
-      ver `pages/telas-em-preparo.ts`, onde cada um diz o que falta.
-    */
-    titulo: "QLP",
-    descricao: "O quadro de gente que o modelo remunera",
-    icon: UsersRound,
-    cor: "text-nav-qlp",
-    itens: [
-      { href: "/qlp-operacional", label: "QLP Operacional", icon: HardHat },
-      { href: "/qlp-administrativo", label: "QLP Administrativo", icon: Briefcase },
-    ],
-  },
-  {
-    /*
-      A seção reúne as duas alturas da mesma pergunta: a Análise de frota olha a
-      categoria, e as telas 360° olham o ativo individual. Por isso ela abre pela
-      análise — lê-se a frota inteira, e só então se desce à placa —, e por isso
-      o ícone da seção é o mesmo caminhão do item que a abre: o olho reconhece o
-      assunto, e a posição na lista diz de que altura ele está sendo visto.
-    */
-    titulo: "Frota",
-    descricao: "Do comportamento da frota à placa",
-    icon: Truck,
-    cor: "text-nav-frota",
-    itens: [
-      { href: "/analise-equipamentos", label: "Análise de frota", icon: Truck },
-      { href: "/cavalo-360", label: "Cavalo 360°", icon: Tractor },
-      { href: "/carreta-360", label: "Carreta 360°", icon: Container },
-      /*
-        O trecho fecha a fileira, e fecha por ser o outro lado da conta: cavalo
-        e carreta carregam o fixo — o que se paga por o ativo existir —, e o
-        trecho carrega o variável, o que se paga por ele rodar. O ícone não é
-        veículo de propósito; três caminhões seguidos fariam a terceira entrada
-        parecer um terceiro equipamento.
-      */
-      { href: "/trecho-360", label: "Trecho 360°", icon: Route },
-      /*
-        O Radar fecha logo depois do Trecho 360° — é a camada gerencial acima
-        dele: enquanto o 360° responde "o que mudou neste trecho", o Radar
-        responde "de centenas, quais preciso olhar", com um veredito por
-        trecho em vez de uma tabela de atributos.
-      */
-      { href: "/radar-trechos", label: "Radar de Trechos", icon: Gauge },
-      { href: "/dre-veiculo", label: "DRE do veículo", icon: FileSpreadsheet },
-      { href: "/benchmark-unidades", label: "Benchmark de unidades", icon: ChartColumn },
-    ],
-  },
-  {
-    titulo: "Inteligência",
-    descricao: "Perguntas ao assistente e o Book do Operador",
-    icon: Sparkles,
-    cor: "text-nav-inteligencia",
-    itens: [
-      { href: "/assistente", label: "Assistente IA", icon: Bot },
-      { href: "/book-operador", label: "Book do Operador", icon: FileText },
-      { href: "/monitor-ia", label: "Monitor de IA", icon: SquareActivity },
-    ],
-  },
-  {
-    titulo: "Dados & governança",
-    descricao: "De onde vêm os números e o que os sustenta",
-    icon: Database,
-    cor: "text-nav-dados",
-    itens: [
-      { href: "/importacoes", label: "Importações", icon: CloudDownload, contador: "importacoes" },
-      /*
-        O Rastreio de Dados vem logo depois de Importações porque é a conferência
-        dela: a pergunta que ele faz — toda célula que o arquivo trouxe chegou a
-        algum lugar? — só existe a respeito do arquivo que acabou de entrar.
-      */
-      { href: "/rastreio-de-dados", label: "Rastreio de Dados", icon: Scale },
-      { href: "/curadoria", label: "Curadoria", icon: FileSearch, contador: "curadoria" },
-      { href: "/categorias", label: "Categorias", icon: FolderTree },
-      /*
-        Cobertura de dados não estava no desenho do menu, e entrou aqui porque a
-        tela existe e funciona: tirá-la da lista não a apagaria, apenas a
-        tornaria inalcançável por navegação.
-      */
-      { href: "/dados", label: "Cobertura de dados", icon: ClipboardList },
-      { href: "/versoes", label: "Versões", icon: Layers },
-      { href: "/qualidade-dados", label: "Qualidade de dados", icon: BadgeCheck },
-      { href: "/fontes-dados", label: "Fontes de dados", icon: Database },
-      { href: "/historico-decisoes", label: "Histórico de decisões", icon: History },
-      { href: "/logs-sistema", label: "Logs de sistema", icon: SquareTerminal },
-    ],
-  },
-  /*
-    A casa fecha a lista, e é a mesma lista que fecha a lateral do Fechamento —
-    ver `nav-administracao.ts`. O grupo saiu daqui para lá quando deixou de ser
-    exclusivo da Auditoria: unidades, usuários e ajustes da instalação são o que
-    os três ambientes consomem, e escondê-los ao trocar de ambiente tirava da
-    mão de quem fecha a competência o cadastro de que o fechamento depende.
-  */
-  GRUPO_ADMINISTRACAO,
-];
 
 export function Sidebar({ open }: { open: boolean }) {
   const [location] = useLocation();
@@ -429,15 +159,20 @@ export function Sidebar({ open }: { open: boolean }) {
   const contadores = { alteracoes, importacoes, curadoria };
 
   /*
-    A lateral é a mesma nos dois ambientes; o conteúdo é que troca. Quem decide
-    é a URL (`lib/ambiente.ts`): sob a base de um dos fechamentos — Rota ou
-    Empurrada —, as cinco seções do processo, com o nome do ambiente na
-    primeira; em todo o resto, as oito da Auditoria de sempre.
+    A lateral é a mesma nos oito ambientes; o conteúdo é que troca. Quem decide
+    é a URL (`lib/ambiente.ts`): sob a base de um dos quatro fechamentos, as
+    seções do processo, com o nome do ambiente na primeira; sob a de uma das
+    quatro auditorias, as onze da Auditoria — iguais entre si, menos a Frota,
+    que mostra o ativo da operação (`nav-auditoria.ts`).
+
+    O ambiente vem de `useAmbiente`, e não de `ambienteDe(location)`: dentro de
+    uma auditoria prefixada a localização chega relativa à base, e a leitura crua
+    diria "Empurrada" nas quatro. Ver `lib/ambiente-aberto.ts`.
   */
-  const ambiente = ambienteDe(location);
+  const ambiente = useAmbiente();
   const grupos = ehFechamento(ambiente)
     ? navGroupsFechamento(BASES_DE_FECHAMENTO[ambiente], descricaoDoAmbiente(ambiente).nome)
-    : NAV_GROUPS;
+    : navGroupsAuditoria(ambiente);
 
   if (!open) {
     return <FaixaDeIcones location={location} grupos={grupos} ambiente={ambiente} contadores={contadores} paraOAssistente={paraOAssistente} />;
@@ -765,9 +500,18 @@ function normalizar(texto: string): string {
  * acender no dia em que alguém reaproveitar "/" como href de algum item.
  */
 export function estaAtivo(location: string, href: string): boolean {
+  /*
+    O `~` é a marca de endereço absoluto do wouter, e é só isso: ele diz ao
+    `Link` para não resolver o endereço sobre a base do roteador aberto (ver
+    `nav-administracao.ts`). Para saber se o item está aceso, o que importa é o
+    caminho — dentro de uma auditoria prefixada a localização vem relativa à
+    base, e `~/unidades` simplesmente não casa com ela, que é o certo: a casa
+    fica fora do ambiente.
+  */
+  const caminho = href.startsWith("~") ? href.slice(1) : href;
   const raizes: string[] = ["/", ...Object.values(BASES_DE_FECHAMENTO)];
-  if (raizes.includes(href)) return location === href;
-  return location === href || location.startsWith(`${href}/`);
+  if (raizes.includes(caminho)) return location === caminho;
+  return location === caminho || location.startsWith(`${caminho}/`);
 }
 
 function ItemDoMenu({
@@ -1208,7 +952,7 @@ function RodapeDoUsuario() {
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
           <DropdownMenuItem asChild>
-            <Link href="/configuracoes">Configurações</Link>
+            <Link href="~/configuracoes">Configurações</Link>
           </DropdownMenuItem>
           <DropdownMenuItem
             disabled={isSubmitting}

@@ -59,8 +59,20 @@ export const TELAS_QUE_HONRAM_ESCOPO = new Set<string>([
   "/composicao",
   "/parametros",
   "/alteracoes",
+  /*
+    As telas 360° das quatro auditorias. Elas são a mesma tela parametrizada
+    pelo tipo (`pages/frota-360.tsx`), e as seis leem o par unidade/canal do
+    endereço — trocar de unidade numa delas troca o dado, não a tela.
+
+    Os caminhos são relativos à base do ambiente, como todos os desta lista:
+    dentro de uma auditoria prefixada a localização chega sem a base
+    (`lib/ambiente-aberto.ts`), e é por isso que uma lista só serve às quatro.
+  */
   "/cavalo-360",
   "/carreta-360",
+  "/caminhao-360",
+  "/carroceria-360",
+  "/empilhadeira-360",
   "/trecho-360",
   "/radar-trechos",
 ]);

@@ -1,4 +1,5 @@
 import { CheckCircle2, CircleAlert, Info, Sparkles, TriangleAlert } from "lucide-react";
+import { Link } from "wouter";
 import { cn } from "@/lib/utils";
 import { numero, percentual, type ResumoDaCobertura } from "./tipos";
 
@@ -253,9 +254,9 @@ export function MedicaoIncompleta({
           <p className="mt-2 text-xs text-muted-foreground">
             Não havia contagem a refazer: as vigências acima não têm fato gravado, e o que falta
             nelas não é a medição. A importação que as abriu está em{" "}
-            <a href="/importacoes" className="text-brand hover:underline">
+            <Link href="/importacoes" className="text-brand hover:underline">
               Importações
-            </a>
+            </Link>
             .
           </p>
         )}

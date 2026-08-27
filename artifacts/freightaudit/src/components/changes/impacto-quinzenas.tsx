@@ -277,7 +277,21 @@ interface QuinzenaMatrix {
  * estiver nomeado aqui vem por último, em ordem, para que um tipo novo apareça
  * sozinho sem precisar de mudança nenhuma.
  */
-const ORDEM_DOS_EQUIPAMENTOS = ["CAVALO", "CARRETA", "TRECHO"];
+/*
+  Os ativos das outras operações entram na mesma ordem e pela mesma razão: o que
+  puxa vem primeiro (cavalo, caminhão, empilhadeira), depois o que é puxado
+  (carreta, carroceria), e o trecho por último, que é o variável. Um tipo fora
+  desta lista continua vindo depois de todos, em ordem — nada aqui precisa mudar
+  para ele aparecer.
+*/
+const ORDEM_DOS_EQUIPAMENTOS = [
+  "CAVALO",
+  "CARRETA",
+  "CAMINHAO",
+  "CARROCERIA",
+  "EMPILHADEIRA",
+  "TRECHO",
+];
 
 const ordemDe = (tipo: string) => {
   const i = ORDEM_DOS_EQUIPAMENTOS.indexOf(tipo);

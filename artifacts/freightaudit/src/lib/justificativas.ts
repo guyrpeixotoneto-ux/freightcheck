@@ -5,7 +5,7 @@ import { rotuloCurtoDaVigencia } from "@workspace/comparison/labels";
 
 import { fetchJson } from "@/lib/api";
 import { useConsultaResiliente } from "@/lib/consulta-resiliente";
-import { EQUIPAMENTOS, rotuloDoTipo } from "@/lib/frota";
+import { EQUIPAMENTOS_DO_AMBIENTE, rotuloDoTipo, type Equipamento } from "@/lib/frota";
 
 /**
  * O que o Plano de Ação — Justificativas e a tela de detalhe por placa têm em
@@ -52,7 +52,16 @@ export interface Comparacao {
  * `/changes/latest`. O seletor de vigência não pode disparar esse cálculo só
  * por estar em tela.
  */
-/** `2026-08-01` → `01/08/26`, como a planilha do cliente escreve. */
+/**
+ * `2026-08-01` → `01/08/26`, como a planilha do cliente escreve.
+ *
+ * Mora aqui, e não no seletor de janela onde nasceu, porque as duas telas do
+ * Plano de Ação escrevem a mesma data: a lista (`pages/justificativas.tsx`,
+ * pelo seletor) e a grade por placa (`pages/justificativas-placa.tsx`, nos
+ * cabeçalhos das colunas). Duas cópias do mesmo formato concordam no dia em que
+ * são escritas e discordam no seguinte — e a data da coluna precisa ser a mesma
+ * data do seletor logo acima dela.
+ */
 export function dataCurta(iso: string): string {
   const [ano, mes, dia] = iso.split("-");
   return ano && mes && dia ? `${dia}/${mes}/${ano.slice(2)}` : iso;
@@ -302,8 +311,8 @@ export interface AbaDeTipo {
 }
 
 /**
- * As abas do Plano de Ação: "Todas", os três tipos com tela 360° e o que mais
- * o acervo trouxer — **cada uma com a vigência dela**.
+ * As abas do Plano de Ação: "Todas", os tipos com tela 360° **da operação
+ * auditada** e o que mais o acervo trouxer — **cada uma com a vigência dela**.
  *
  * A tela agrupava por placa e mostrava o tipo como etiqueta dentro do card —
  * o que respondia "de que é esta placa" e não "o que mudou nos trechos". São
@@ -337,6 +346,15 @@ export function abasDaVigencia(
   comparacoes: readonly Comparacao[],
   contagens: ContagensPorVigencia | null,
   escolhida: string | undefined,
+  /*
+    Os tipos fixos são os **da operação auditada**, e não os seis que existem: no
+    Apoio, uma aba "Carreta 0" prometeria uma fila que aquela operação nunca vai
+    ter, e a empilhadeira — que é o ativo de lá — ficaria fora dos fixos,
+    aparecendo só quando alguma vigência trouxesse uma. Ver
+    `EQUIPAMENTOS_DO_AMBIENTE`, em `lib/frota.ts`. O padrão é a lista da
+    Empurrada, que é o ambiente em que esta tela nasceu.
+  */
+  fixos: readonly Equipamento[] = EQUIPAMENTOS_DO_AMBIENTE.auditoria,
 ): AbaDeTipo[] {
   const vistos = new Set<string>();
   if (contagens) {
@@ -344,7 +362,7 @@ export function abasDaVigencia(
       for (const tipo of porTipo.keys()) if (tipo !== null) vistos.add(tipo);
     }
   }
-  const fixas: string[] = [...EQUIPAMENTOS];
+  const fixas: string[] = [...fixos];
   const extras = [...vistos]
     .filter((tipo) => !fixas.includes(tipo))
     .sort((a, b) => a.localeCompare(b, "pt-BR"));
