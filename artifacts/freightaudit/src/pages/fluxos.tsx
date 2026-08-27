@@ -28,10 +28,7 @@ import {
 } from "@/components/ui/select";
 import { EditorDoFluxo } from "@/components/fluxos/editor-do-fluxo";
 import { MontadorPorTexto } from "@/components/fluxos/montador-por-texto";
-import {
-  SeletorDeEmpresa,
-  useEmpresaDosFluxos,
-} from "@/components/fluxos/seletor-de-empresa";
+import { useEmpresaDosFluxos } from "@/components/fluxos/seletor-de-empresa";
 import {
   categoriasDaLista,
   comoData,
@@ -60,7 +57,7 @@ import {
  * da fila, não do acervo.
  */
 export default function Fluxos() {
-  const { empresaId, escolher, semEmpresaCadastrada } = useEmpresaDosFluxos();
+  const { empresaId, semEmpresaCadastrada } = useEmpresaDosFluxos();
 
   const [busca, setBusca] = useState("");
   const [categoria, setCategoria] = useState<string>("todas");
@@ -104,7 +101,27 @@ export default function Fluxos() {
           </div>
 
           <div className="flex items-center gap-2">
-            <SeletorDeEmpresa empresaId={empresaId} aoTrocar={escolher} />
+            {/*
+              O recorte que abre a tela é a **categoria do processo**, não a
+              unidade. Quem chega aqui procura "o financeiro" ou "o
+              faturamento" — a unidade é cadastro, e é resolvida sozinha
+              (`useEmpresaDosFluxos`), sem pedir um clique antes da primeira
+              pergunta.
+            */}
+            <Select value={categoria} onValueChange={setCategoria}>
+              <SelectTrigger className="w-[220px]" aria-label="Categoria">
+                <Filter className="mr-1.5 h-4 w-4 text-muted-foreground" />
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todas">Todas as categorias</SelectItem>
+                {categorias.map((c) => (
+                  <SelectItem key={c} value={c}>
+                    {c}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             {/*
               Duas portas, e a diferença entre elas é o que a pessoa tem em mãos.
               "Novo fluxo" é o cabeçalho vazio, para quem vai desenhar
@@ -161,21 +178,6 @@ export default function Fluxos() {
                   aria-label="Procurar fluxo"
                 />
               </div>
-
-              <Select value={categoria} onValueChange={setCategoria}>
-                <SelectTrigger className="w-[190px]" aria-label="Categoria">
-                  <Filter className="mr-1.5 h-3.5 w-3.5 text-muted-foreground" />
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="todas">Todas as categorias</SelectItem>
-                  {categorias.map((c) => (
-                    <SelectItem key={c} value={c}>
-                      {c}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
 
               <Button
                 variant={incluirArquivados ? "secondary" : "ghost"}

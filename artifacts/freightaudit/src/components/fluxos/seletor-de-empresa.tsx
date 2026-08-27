@@ -1,75 +1,36 @@
 import { useCallback, useState } from "react";
-import { Building2 } from "lucide-react";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { useEmpresas } from "@/lib/fluxos";
 
 /**
- * O SELETOR DE EMPRESA — e por que ele nunca bloqueia o trabalho.
+ * A EMPRESA DOS FLUXOS — resolvida, não perguntada.
  *
  * Um fluxo pertence a uma empresa (a unidade canônica, por CNPJ), e o servidor
- * escopa toda leitura e toda escrita por ela. A tela precisa dizer qual é.
+ * escopa toda leitura e toda escrita por ela. A tela precisa dizer qual é — mas
+ * **não é por unidade que se procura um processo**. Quem abre Fluxos
+ * Operacionais procura "o financeiro", "o faturamento": a categoria. A unidade
+ * é cadastro, e um seletor dela na barra pedia um clique para uma decisão que
+ * ninguém estava tomando ali.
  *
- * Numa instalação com **uma** unidade cadastrada, um seletor de uma opção só é
- * ruído puro: ocupa a barra, pede um clique e não oferece escolha. Então ele
- * não aparece, e a empresa é resolvida sozinha dos dois lados: aqui e em
- * `resolverEmpresa`, no servidor.
- *
- * Com duas ou mais ele aparece — mas **escolher não é pré-requisito para
- * mapear um processo**. Antes, "nenhuma escolhida" desligava as consultas e
- * apagava a tela inteira: lista vazia, "Novo fluxo" cinza e, ao abrir um fluxo
- * pelo endereço, uma página em branco onde "Nova etapa" não abria nada. Um
- * módulo que existe para descrever processos não pode exigir uma decisão de
- * cadastro antes da primeira frase.
- *
- * Então há um padrão: a primeira unidade da lista (ordenada por nome, a mesma
- * ordem do servidor). O seletor continua trocando, a troca é lembrada entre as
- * telas e entre visitas, e a empresa do fluxo fica sempre visível na barra —
- * ninguém grava às cegas, e ninguém fica parado.
+ * Por isso não há seletor: a empresa é resolvida sozinha, aqui e em
+ * `resolverEmpresa`, no servidor. Vale a lembrada entre visitas; na falta dela,
+ * a primeira da lista (ordenada por nome, a mesma ordem do servidor). Escolher
+ * nunca foi pré-requisito para mapear um processo — antes, "nenhuma escolhida"
+ * desligava as consultas e apagava a tela inteira: lista vazia, "Novo fluxo"
+ * cinza e, ao abrir um fluxo pelo endereço, uma página em branco.
  */
-export function SeletorDeEmpresa({
-  empresaId,
-  aoTrocar,
-}: {
-  empresaId: string | null;
-  aoTrocar: (id: string) => void;
-}) {
-  const empresas = useEmpresas();
-  const lista = empresas.data ?? [];
-
-  if (lista.length <= 1) return null;
-
-  return (
-    <div className="flex items-center gap-2">
-      <Building2 className="h-4 w-4 text-muted-foreground" />
-      <Select value={empresaId ?? ""} onValueChange={aoTrocar}>
-        <SelectTrigger className="w-[220px]" aria-label="Empresa">
-          <SelectValue placeholder="Escolha a empresa" />
-        </SelectTrigger>
-        <SelectContent>
-          {lista.map((empresa) => (
-            <SelectItem key={empresa.id!} value={empresa.id!}>
-              {empresa.nome}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </div>
-  );
-}
 
 /**
  * Onde a escolha é lembrada.
  *
  * A lista e a tela de um fluxo são duas rotas, e cada uma monta o seu próprio
- * estado. Sem um lugar comum, trocar de empresa na lista e clicar num fluxo
- * abriria o fluxo com a empresa anterior — que é exatamente o pedido que o
+ * estado. Sem um lugar comum, uma empresa escolhida na lista e um fluxo aberto
+ * em seguida sairiam de empresas diferentes — que é exatamente o pedido que o
  * servidor recusa, aparecendo como "este fluxo não existe".
+ *
+ * Hoje nenhuma tela chama `escolher` (a barra filtra por categoria, não por
+ * unidade), então a memória fica sem escritor e vale sempre o padrão da lista.
+ * O seam continua aqui de propósito: é por onde a troca de unidade volta, se
+ * voltar, sem que as duas rotas discordem de novo.
  *
  * `localStorage` pode lançar (navegação privada, cookies bloqueados), e a falha
  * não pode derrubar a tela: sem memória, vale o padrão da lista.
