@@ -49,6 +49,10 @@ import {
   periodicityAdjective,
   periodicitySuffix,
 } from "@/lib/format";
+import {
+  rotuloDaCompetencia,
+  SeletorDeVigenciaGeral,
+} from "@/components/vigencia/seletor-de-vigencia";
 import { escreverImpacto, ladosDoImpacto, type Impacto } from "@/lib/visao-geral";
 import { lerRecorte, linkDeAlteracoes, nomeDaUnidade, type Recorte } from "@/lib/recorte";
 import { juntarPrioridades, SEVERITY_LABEL } from "@/lib/cockpit";
@@ -364,29 +368,14 @@ function TemplateDeAlertas() {
             <p className="text-sm text-slate-500 mt-1">Planilha de remuneração · últimas alterações</p>
           </div>
           <div className="flex flex-col items-end gap-2.5 shrink-0">
-            {periodosDisponiveis.length > 1 && (
-              <DropdownMenu>
-                <DropdownMenuTrigger className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors">
-                  <CalendarDays className="w-4 h-4" />
-                  Trocar vigência
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-56 max-h-80 overflow-y-auto">
-                  <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
-                    {periodosDisponiveis.length} competências disponíveis
-                  </DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  {periodosDisponiveis.map((data) => (
-                    <DropdownMenuItem
-                      key={data}
-                      onSelect={() => trocarVigencia(data)}
-                      className={cn(data === periodoSelecionado && "font-bold text-brand")}
-                    >
-                      {data}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )}
+            <SeletorDeVigenciaGeral
+              periodos={periodosDisponiveis}
+              ativa={periodoSelecionado}
+              onTrocar={(mudancas) => {
+                if (mudancas.period) trocarVigencia(mudancas.period);
+              }}
+              className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"
+            />
             <div className="flex items-center gap-3">
               <RelogioClaro atualizadaEm={overviewQuery.dataUpdatedAt} />
               <Link
@@ -1798,14 +1787,21 @@ function TemplateDeRadar() {
         </header>
 
         <div className="flex flex-wrap items-center gap-3">
-          <FiltroDoRadar icone={CalendarDays} rotulo={`Até: ${periodoSelecionado ?? "—"}`}>
+          <FiltroDoRadar
+            icone={CalendarDays}
+            rotulo={`Até: ${
+              periodoSelecionado
+                ? rotuloDaCompetencia(periodoSelecionado, periodosDisponiveis)
+                : "—"
+            }`}
+          >
             {periodosDisponiveis.map((data) => (
               <DropdownMenuItem
                 key={data}
                 onSelect={() => trocar({ period: data })}
                 className={cn(data === periodoSelecionado && "font-bold text-brand")}
               >
-                {data}
+                {rotuloDaCompetencia(data, periodosDisponiveis)}
               </DropdownMenuItem>
             ))}
           </FiltroDoRadar>

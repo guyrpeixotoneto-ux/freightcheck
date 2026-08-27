@@ -1,17 +1,8 @@
 import { useEffect, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useSearch } from "wouter";
-import { CalendarDays } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
 import { ApiErrorNotice } from "@/components/api-error";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { ApiError, fetchJson } from "@/lib/api";
 import { useContextosDaCasca } from "@/lib/contextos";
 import { useFamiliesOverviewQuery } from "@/lib/families-overview";
@@ -22,7 +13,10 @@ import { LinhaDoTempoDeImpacto } from "@/components/linha-do-tempo/linha-do-temp
 import { LinhaDoTempoDeAlteracoes } from "@/components/linha-do-tempo/linha-do-tempo-de-alteracoes";
 import { nomeDaUnidade } from "@/lib/recorte";
 import { VisaoGeralConteudo } from "@/components/inicio/visao-geral-consolidada";
-import { SeletorDeVigencia } from "@/components/vigencia/seletor-de-vigencia";
+import {
+  SeletorDeVigencia,
+  SeletorDeVigenciaGeral,
+} from "@/components/vigencia/seletor-de-vigencia";
 import type { FamiliesOverview, FamiliesView } from "@/components/inicio/types";
 
 /**
@@ -300,28 +294,14 @@ function Cabecalho({
 
         <div className="flex items-center gap-3 shrink-0">
           {visaoGeral
-            ? periodosOverview.length > 1 && (
-                <DropdownMenu>
-                  <DropdownMenuTrigger className={BOTAO_DE_TROCA}>
-                    <CalendarDays className="w-4 h-4" />
-                    Ir para vigência
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-56 max-h-80 overflow-y-auto">
-                    <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
-                      {periodosOverview.length} competências disponíveis
-                    </DropdownMenuLabel>
-                    <DropdownMenuSeparator />
-                    {periodosOverview.map((data) => (
-                      <DropdownMenuItem
-                        key={data}
-                        onSelect={() => onTrocar({ period: data })}
-                        className={cn(data === overview?.period && "font-bold text-brand")}
-                      >
-                        {data}
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuContent>
-                </DropdownMenu>
+            ? (
+                <SeletorDeVigenciaGeral
+                  periodos={periodosOverview}
+                  ativa={overview?.period ?? null}
+                  onTrocar={onTrocar}
+                  className={BOTAO_DE_TROCA}
+                  rotulo="Ir para vigência"
+                />
               )
             : (
                 <SeletorDeVigencia

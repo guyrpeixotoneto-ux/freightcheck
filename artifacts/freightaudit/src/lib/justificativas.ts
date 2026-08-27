@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { normalizarEquipamento } from "@workspace/curation/equipamento";
+import { rotuloCurtoDaVigencia } from "@workspace/comparison/labels";
 
 import { fetchJson } from "@/lib/api";
 import { useConsultaResiliente } from "@/lib/consulta-resiliente";
@@ -29,19 +30,19 @@ interface ChangeSetRow {
   id: string;
   snapshot_b_label: string | null;
   snapshot_b_date: string | null;
+  /** Quantas alterações de valor a comparação apurou — a mesma coluna que a bolinha do menu soma. */
+  value_changes: number | string | null;
+  /** De qual contexto é esta comparação — o que dá nome à unidade no seletor. */
+  snapshot_b_scope_hash: string | null;
 }
 
 export interface Comparacao {
   id: string;
   snapshotBLabel: string;
   snapshotBDate: string;
-}
-
-/** `2026-08-01` → `01/08/26`. */
-export function dataCurta(iso: string): string {
-  const dia = iso.slice(0, 10);
-  const [ano, mes, d] = dia.split("-");
-  return ano && mes && d ? `${d}/${mes}/${ano.slice(2)}` : iso;
+  /** Ver `ChangeSetRow.value_changes`. */
+  alteracoes: number;
+  scopeHash: string | null;
 }
 
 /**
@@ -61,10 +62,59 @@ export function useComparacoes() {
           id: String(r.id),
           snapshotBLabel: r.snapshot_b_label ?? "",
           snapshotBDate: r.snapshot_b_date ?? "",
+          alteracoes: Number(r.value_changes ?? 0),
+          scopeHash: r.snapshot_b_scope_hash ?? null,
         }),
       );
     },
   });
+}
+
+/**
+ * As comparações como o seletor de vigência as escreve.
+ *
+ * O seletor listava `EMPURRADA_2_8_2026 · 02/08/26` — o rótulo do arquivo
+ * importado, que é o mesmo texto em todas as unidades da mesma data. Com cinco
+ * unidades no acervo, a lista abria com cinco linhas idênticas para cada
+ * competência e nenhuma pista de qual era qual: escolher ali era chutar.
+ *
+ * O formato agora é o dos demais seletores de vigência do produto (ver
+ * `components/vigencia/seletor-de-vigencia.tsx`): a competência à esquerda, no
+ * mesmo `rotuloCurtoDaVigencia` que o resto da casa usa, e quantas alterações
+ * a comparação apurou à direita. A unidade entra junto da data porque aqui —
+ * ao contrário do cabeçalho, que já está dentro de uma unidade — a lista
+ * atravessa todas elas, e sem ela duas linhas continuariam indistinguíveis.
+ *
+ * O nome da unidade vem de `/contexts`, casado pelo `scope_hash` da vigência
+ * comparada. Quando a lista de contextos ainda não chegou (ou a vigência é
+ * anterior à coluna), a linha fica só com a data e a contagem — nada aqui
+ * inventa nome de unidade.
+ */
+export interface OpcaoDeVigencia {
+  id: string;
+  /** `02/08/2026` — a mesma régua dos outros seletores. */
+  competencia: string;
+  /** `PERNAMBUCO · EMPURRADA`, quando `/contexts` sabe dizer. */
+  unidade: string | null;
+  alteracoes: number;
+}
+
+export function opcoesDeVigencia(
+  comparacoes: Comparacao[],
+  contextos: { scopeHash: string; label: string }[],
+): OpcaoDeVigencia[] {
+  const datas = comparacoes.map((c) => c.snapshotBDate.slice(0, 10));
+  const nomePorEscopo = new Map<string, string>();
+  for (const contexto of contextos) {
+    if (!nomePorEscopo.has(contexto.scopeHash)) nomePorEscopo.set(contexto.scopeHash, contexto.label);
+  }
+
+  return comparacoes.map((comparacao) => ({
+    id: comparacao.id,
+    competencia: rotuloCurtoDaVigencia(comparacao.snapshotBDate.slice(0, 10), datas),
+    unidade: comparacao.scopeHash ? (nomePorEscopo.get(comparacao.scopeHash) ?? null) : null,
+    alteracoes: comparacao.alteracoes,
+  }));
 }
 
 /** As justificativas de uma comparação, por `changeId` — sempre a mais recente. */
