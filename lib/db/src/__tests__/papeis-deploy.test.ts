@@ -235,6 +235,24 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
           bridge exige encontrá-la vazia antes de derrubá-la.
         */
         "justificativa",
+        /*
+          As seis de Fluxos Operacionais, da `0068` — o mapa dos processos da
+          empresa. Aditivas pelo mesmo critério de todas as acima: nenhuma
+          tabela existente muda de forma (a única referência para fora é
+          `fluxo_operacional.empresa_id → unidade.id`, e `unidade` também é
+          nova aqui), nenhuma coluna nova sai de tabela do cálculo, e Production
+          as ganha quando o servidor novo aplicar a fila na partida.
+
+          O que elas guardam é decisão humana — levantamento de processo —, e é
+          por isso que o `down` do bridge exige encontrá-las vazias antes de
+          derrubá-las.
+        */
+        "fluxo_operacional",
+        "fluxo_etapa",
+        "fluxo_conexao",
+        "fluxo_etapa_item",
+        "fluxo_etapa_indicador",
+        "fluxo_etapa_acao",
       ]),
     );
     /*
@@ -335,7 +353,13 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
             /* A `unidade`, da `0049`, pela mesma regra: as constraints dela vêm
                junto com a tabela nova, e nomeá-las uma a uma congelaria a
                nomenclatura interna num teste que não fala sobre ela. */
-            !c.startsWith("unidade_"),
+            !c.startsWith("unidade_") &&
+            /* As de Fluxos Operacionais, da `0068`, pela mesma regra: são
+               dezenas — chave primária, seis chaves compostas, as `CHECK` de
+               nome não vazio e a de rota interna — e todas vêm junto com as
+               seis tabelas novas. Nomeá-las uma a uma congelaria a nomenclatura
+               interna do módulo num teste que não fala sobre ele. */
+            !c.startsWith("fluxo_"),
         ),
       ),
     ).toEqual(

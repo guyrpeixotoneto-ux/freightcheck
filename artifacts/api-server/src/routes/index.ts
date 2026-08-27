@@ -26,6 +26,7 @@ import unidadesRouter from "./unidades";
 import comprasRouter from "./compras";
 import justificativasRouter from "./justificativas";
 import trechosRouter from "./trechos";
+import fluxosRouter from "./fluxos";
 
 /**
  * F0/F1 surface.
@@ -212,5 +213,12 @@ router.use(justificativasRouter);
   consolidado por `@workspace/comparison`. Ver `routes/trechos.ts`.
 */
 router.use(trechosRouter);
+/*
+  Fluxos Operacionais: o mapa dos processos da empresa, em Administração. É a
+  única superfície deste servidor escopada por **empresa** — a unidade canônica
+  —, e o escopo é resolvido em `lib/empresa-da-requisicao.ts`, nunca lido do
+  corpo. O motor inteiro mora em `@workspace/fluxos`; esta rota só traduz.
+*/
+router.use(fluxosRouter);
 
 export default router;

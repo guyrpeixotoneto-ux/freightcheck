@@ -36,6 +36,9 @@
     },
     {
       "path": "../../lib/remuneracao"
+    },
+    {
+      "path": "../../lib/fluxos"
     }
   ]
 }

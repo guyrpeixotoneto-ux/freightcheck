@@ -54,6 +54,8 @@ const SEM_ACERVO: Record<string, string> = {
     "o cadastro de remuneração é lido pelo Fechamento, por unidade e canal da planilha.",
   "fleet-analysis.ts":
     "lê uma planilha do disco, e não o banco — não há vigência nem canal a recortar.",
+  "fluxos.ts":
+    "o mapa dos processos é escopado por empresa (`resolverEmpresa`), e não toca em `snapshot`: um fluxo não pertence a uma vigência.",
 };
 
 const arquivosDeRota = () =>

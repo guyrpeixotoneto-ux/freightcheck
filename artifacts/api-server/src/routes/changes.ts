@@ -25,6 +25,7 @@ import {
   getRangeOverview,
   getEndToEndAnalysis,
   FREIGHTECH_SEM_DADO,
+  contagemPorTipo,
   listChangeSets,
   listChanges,
   listComparableSnapshots,
@@ -183,6 +184,33 @@ router.get("/change-sets", async (req, res): Promise<void> => {
       : undefined;
   const operacao = operacaoDaConsulta(req.query as Record<string, unknown>);
   res.json(await listChangeSets(db, { datasetFamily, operacao }));
+});
+
+/**
+ * Quantas placas e quantas alterações de cada tipo de ativo cada comparação
+ * tem — o que o seletor de vigência do Plano de Ação precisa saber **antes**
+ * de abrir comparação nenhuma.
+ *
+ * Lá a vigência é escolhida dentro da aba (Cavalo, Carreta, Trecho), e a lista
+ * de `/change-sets` sozinha não sabe dizer quais vigências têm trecho: a mesma
+ * data da mesma unidade aparece nela uma vez por série, e duas linhas iguais
+ * não dizem qual é qual. Com esta contagem, cada aba oferece só as vigências
+ * que têm o que ela mostra, e diz quantas alterações são as dela.
+ *
+ * Uma resposta para o acervo inteiro, e não uma por vigência: são poucas
+ * comparações e a tela precisa de todas para montar o seletor — N chamadas
+ * dariam a mesma resposta e N vezes o custo. A regra é `contagemPorTipo`, em
+ * `lib/comparison/src/query.ts`.
+ */
+router.get("/change-sets/tipos", async (req, res): Promise<void> => {
+  const datasetFamily =
+    typeof req.query.datasetFamily === "string" &&
+    req.query.datasetFamily !== ""
+      ? req.query.datasetFamily
+      : undefined;
+  const changeSets = await listChangeSets(db, { datasetFamily });
+  const ids = changeSets.map((cs) => String(cs.id));
+  res.json({ contagens: await contagemPorTipo(db, ids) });
 });
 
 /**

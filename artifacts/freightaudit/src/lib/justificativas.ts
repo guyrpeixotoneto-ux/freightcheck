@@ -154,11 +154,136 @@ export function useJustificadaPor(changeSetId: string | undefined) {
 }
 
 // ---------------------------------------------------------------------------
+// O que cada vigência tem, por tipo de ativo
+// ---------------------------------------------------------------------------
+
+/**
+ * Uma linha de `/change-sets/tipos`: quantas placas e quantas alterações de um
+ * tipo de ativo uma comparação carrega. `entityType` vem cru, como a alteração
+ * o gravou — quem normaliza é `indexarContagens`.
+ */
+export interface ContagemPorTipo {
+  changeSetId: string;
+  entityType: string | null;
+  placas: number;
+  alteracoes: number;
+}
+
+export interface TotalDoTipo {
+  placas: number;
+  alteracoes: number;
+}
+
+/** `changeSetId → tipo normalizado → totais`. `null` é o tipo que a linha não declarou. */
+export type ContagensPorVigencia = Map<string, Map<string | null, TotalDoTipo>>;
+
+/**
+ * As contagens do acervo inteiro, uma vez só.
+ *
+ * O seletor de vigência de cada aba precisa saber, **antes** de abrir
+ * comparação nenhuma, quais vigências têm trecho — e a lista de `/change-sets`
+ * não diz: um `change_set` é de uma série, e a série é `(escopo,
+ * entity_type_set)`, então a mesma data da mesma unidade aparece nela uma vez
+ * com o arquivo de equipamento e outra com o de trecho, sem nada que
+ * distinga uma linha da outra. Era daí que vinha a lista gigante de vigências
+ * repetidas, misturando cavalo, carreta e trecho.
+ */
+export function useContagensPorTipo() {
+  const consulta = useQuery({
+    queryKey: ["change-sets", "tipos"],
+    queryFn: () =>
+      fetchJson<{ contagens: ContagemPorTipo[] }>("/change-sets/tipos"),
+  });
+
+  const contagens = useMemo(
+    () => (consulta.data ? indexarContagens(consulta.data.contagens) : null),
+    [consulta.data],
+  );
+
+  /*
+    `null` enquanto a resposta não chegou — e não um mapa vazio, que se leria
+    como "nenhuma vigência tem nada" e esvaziaria o seletor no meio do
+    carregamento. Ver `vigenciasDaAba`.
+  */
+  return { contagens, consulta };
+}
+
+export function indexarContagens(
+  linhas: ContagemPorTipo[],
+): ContagensPorVigencia {
+  const porVigencia: ContagensPorVigencia = new Map();
+  for (const linha of linhas) {
+    const porTipo = porVigencia.get(linha.changeSetId) ?? new Map();
+    const tipo = normalizarEquipamento(linha.entityType);
+    const atual = porTipo.get(tipo) ?? { placas: 0, alteracoes: 0 };
+    porTipo.set(tipo, {
+      placas: atual.placas + linha.placas,
+      alteracoes: atual.alteracoes + linha.alteracoes,
+    });
+    porVigencia.set(linha.changeSetId, porTipo);
+  }
+  return porVigencia;
+}
+
+/** Os totais de uma vigência na aba pedida — `null` é "Todas", que soma os tipos. */
+export function totalDaVigencia(
+  contagens: ContagensPorVigencia,
+  changeSetId: string,
+  tipo: string | null,
+): TotalDoTipo {
+  const porTipo = contagens.get(changeSetId);
+  if (!porTipo) return { placas: 0, alteracoes: 0 };
+  if (tipo !== null) {
+    return (
+      porTipo.get(normalizarEquipamento(tipo)) ?? { placas: 0, alteracoes: 0 }
+    );
+  }
+  let placas = 0;
+  let alteracoes = 0;
+  for (const total of porTipo.values()) {
+    placas += total.placas;
+    alteracoes += total.alteracoes;
+  }
+  return { placas, alteracoes };
+}
+
+/**
+ * As vigências que a aba pode abrir — e só elas.
+ *
+ * A vigência é escolhida **dentro da aba** porque é a aba que dá sentido à
+ * lista: uma comparação de trecho e uma de equipamento da mesma data da mesma
+ * unidade escrevem a mesma linha no seletor, e escolher entre as duas era
+ * chutar. Recortada pelo tipo, a lista da aba Trecho só oferece as vigências
+ * que têm trecho, e a contagem à direita é a de trecho — não a da comparação
+ * inteira.
+ *
+ * `contagens` nulo é "ainda não sei": a lista sai inteira, com a contagem da
+ * comparação. É o estado de carregamento, e nele esconder vigência seria pior
+ * do que mostrar todas — o seletor apareceria vazio por um instante e quem
+ * estava escolhendo perderia a linha que estava mirando.
+ */
+export function vigenciasDaAba(
+  comparacoes: Comparacao[],
+  contextos: { scopeHash: string; label: string }[],
+  contagens: ContagensPorVigencia | null,
+  tipo: string | null,
+): OpcaoDeVigencia[] {
+  const opcoes = opcoesDeVigencia(comparacoes, contextos);
+  if (!contagens) return opcoes;
+  return opcoes
+    .map((opcao) => ({
+      ...opcao,
+      alteracoes: totalDaVigencia(contagens, opcao.id, tipo).alteracoes,
+    }))
+    .filter((opcao) => opcao.alteracoes > 0);
+}
+
+// ---------------------------------------------------------------------------
 // As abas por tipo de ativo
 // ---------------------------------------------------------------------------
 
 /**
- * O mínimo de que a divisão em abas precisa de cada placa agrupada.
+ * O mínimo de que o recorte por aba precisa de cada placa agrupada.
  *
  * `entityType` é `string | null` porque é assim que a comparação o devolve —
  * `entity_type` é texto livre no banco de propósito, e a linha pode vir sem
@@ -172,65 +297,108 @@ export interface AbaDeTipo {
   /** `null` na aba "Todas" — o recorte que não recorta. */
   tipo: string | null;
   rotulo: string;
-  /** Quantas placas da vigência caem nela. */
-  total: number;
+  /**
+   * Quantas placas esperam nesta aba, na vigência **dela**. `null` enquanto as
+   * contagens não chegaram: um zero ali seria uma afirmação que ainda não se
+   * pode fazer.
+   */
+  total: number | null;
+  /**
+   * A vigência que a aba abre — a escolhida, quando ela tem deste tipo, e a
+   * mais recente que tem, quando não. `undefined` quando nenhuma tem.
+   */
+  changeSetId: string | undefined;
 }
 
 /**
- * As abas do Plano de Ação: "Todas", os tipos com tela 360° da operação
- * auditada e o que mais a vigência trouxer.
+ * As abas do Plano de Ação: "Todas", os tipos com tela 360° **da operação
+ * auditada** e o que mais o acervo trouxer — **cada uma com a vigência dela**.
  *
  * A tela agrupava por placa e mostrava o tipo como etiqueta dentro do card —
  * o que respondia "de que é esta placa" e não "o que mudou nos trechos". São
  * perguntas diferentes: justificar é um trabalho por tipo de ativo (quem
  * explica reajuste de cavalo não é quem explica quilometragem de trecho), e
- * sem o recorte a fila chegava misturada, com o gestor rolando 36 cards para
- * achar os seis que são dele.
+ * sem o recorte a fila chegava misturada.
+ *
+ * A vigência vive dentro da aba pelo mesmo motivo, um andar acima: a série de
+ * uma comparação é `(escopo, entity_type_set)`, então o arquivo de trecho e o
+ * de equipamento da mesma unidade na mesma data são duas comparações — e o
+ * seletor único as listava como duas linhas idênticas, misturando cavalo,
+ * carreta e trecho numa lista que só crescia. Cada aba oferece agora as
+ * vigências que têm o que ela mostra, e a escolhida acompanha a troca de aba
+ * quando serve às duas: quem está numa vigência que tem cavalo e trecho não é
+ * jogado para outra data por trocar de aba.
  *
  * Os três fixos aparecem **mesmo vazios**, pela razão de
  * `abasDeEquipamento` (`lib/curadoria.ts`): uma aba escrita `Trecho 0` diz
- * "nenhum trecho mudou nesta vigência"; a ausência da aba deixa em aberto se
- * a vigência não mexeu em trecho ou se a tela não sabe mostrá-lo. Um tipo que
- * não está na lista — o `DOLLY` que um dia venha do Freightech — entra depois
- * deles, em ordem alfabética, sem mudança nenhuma aqui.
+ * "nenhum trecho mudou"; a ausência da aba deixa em aberto se não houve trecho
+ * ou se a tela não sabe mostrá-lo. Um tipo que não está na lista — o `DOLLY`
+ * que um dia venha do Freightech — entra depois deles, em ordem alfabética,
+ * sem mudança nenhuma aqui.
  *
  * O total conta **placas**, e não alterações, porque é a placa que o card
  * representa: `Trecho 6` que abre com seis cards é a aba dizendo a verdade
  * sobre o que há atrás dela; contando alterações, ela prometeria dezesseis
  * cards e mostraria seis.
  */
-export function abasDeTipo(
-  placas: readonly PlacaComTipo[],
+export function abasDaVigencia(
+  /** As comparações como `/change-sets` as devolve: da mais recente para a mais antiga. */
+  comparacoes: readonly Comparacao[],
+  contagens: ContagensPorVigencia | null,
+  escolhida: string | undefined,
   /*
-    Os tipos fixos são os **da operação auditada**, e não os três de sempre: no
-    Apoio, uma aba "Carreta 0" prometeria uma fila que nunca terá linha, e a
-    empilhadeira — que é o ativo de lá — ficaria fora dos fixos, aparecendo só
-    quando a vigência trouxesse alguma. Ver `EQUIPAMENTOS_DO_AMBIENTE`, em
-    `lib/frota.ts`. O padrão é a lista da Empurrada, que é o ambiente em que esta
-    tela nasceu.
+    Os tipos fixos são os **da operação auditada**, e não os seis que existem: no
+    Apoio, uma aba "Carreta 0" prometeria uma fila que aquela operação nunca vai
+    ter, e a empilhadeira — que é o ativo de lá — ficaria fora dos fixos,
+    aparecendo só quando alguma vigência trouxesse uma. Ver
+    `EQUIPAMENTOS_DO_AMBIENTE`, em `lib/frota.ts`. O padrão é a lista da
+    Empurrada, que é o ambiente em que esta tela nasceu.
   */
   fixos: readonly Equipamento[] = EQUIPAMENTOS_DO_AMBIENTE.auditoria,
 ): AbaDeTipo[] {
-  const contagem = new Map<string, number>();
-  for (const placa of placas) {
-    const tipo = normalizarEquipamento(placa.entityType);
-    if (tipo === null) continue;
-    contagem.set(tipo, (contagem.get(tipo) ?? 0) + 1);
+  const vistos = new Set<string>();
+  if (contagens) {
+    for (const porTipo of contagens.values()) {
+      for (const tipo of porTipo.keys()) if (tipo !== null) vistos.add(tipo);
+    }
   }
-
   const fixas: string[] = [...fixos];
-  const extras = [...contagem.keys()]
+  const extras = [...vistos]
     .filter((tipo) => !fixas.includes(tipo))
     .sort((a, b) => a.localeCompare(b, "pt-BR"));
 
-  return [
-    { tipo: null, rotulo: "Todas", total: placas.length },
-    ...[...fixas, ...extras].map((tipo) => ({
+  const aba = (tipo: string | null, rotulo: string): AbaDeTipo => {
+    if (!contagens) {
+      return { tipo, rotulo, total: null, changeSetId: escolhida };
+    }
+    const temAqui = (id: string | undefined) =>
+      !!id && totalDaVigencia(contagens, id, tipo).placas > 0;
+    const changeSetId = temAqui(escolhida)
+      ? escolhida
+      : comparacoes.find((c) => temAqui(c.id))?.id;
+    return {
       tipo,
-      rotulo: rotuloDoTipo(tipo),
-      total: contagem.get(tipo) ?? 0,
-    })),
+      rotulo,
+      total: changeSetId
+        ? totalDaVigencia(contagens, changeSetId, tipo).placas
+        : 0,
+      changeSetId,
+    };
+  };
+
+  return [
+    aba(null, "Todas"),
+    ...[...fixas, ...extras].map((tipo) => aba(tipo, rotuloDoTipo(tipo))),
   ];
+}
+
+/** A aba de um tipo, achada pela mesma normalização que as monta. */
+export function abaDoTipo(
+  abas: readonly AbaDeTipo[],
+  tipo: string | null,
+): AbaDeTipo | undefined {
+  const alvo = tipo === null ? null : normalizarEquipamento(tipo);
+  return abas.find((aba) => aba.tipo === alvo);
 }
 
 /**

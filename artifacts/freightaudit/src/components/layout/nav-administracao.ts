@@ -1,4 +1,4 @@
-import { Building2, Cog, Plug, Settings2, Shield, Users } from "lucide-react";
+import { Building2, Cog, Plug, Settings2, Shield, Users, Workflow } from "lucide-react";
 import type { NavGroup } from "./nav";
 
 /**
@@ -42,6 +42,14 @@ export const GRUPO_ADMINISTRACAO: NavGroup = {
   cor: "text-nav-admin",
   itens: [
     { href: "~/unidades", label: "Unidades", icon: Building2 },
+    /*
+      Fluxos Operacionais entra logo abaixo de Unidades, e a ordem tem razão:
+      um fluxo pertence a uma empresa — a unidade canônica —, então quem chega
+      sem cadastro nenhum encontra primeiro a tela que o módulo exige. Como as
+      outras desta lista, o endereço é absoluto: o mapa dos processos é um só,
+      venha-se de qual ambiente for.
+    */
+    { href: "/fluxos", label: "Fluxos Operacionais", icon: Workflow },
     /*
       "Usuários" continua em `/configuracoes`, que é onde a tela sempre esteve
       e para onde o menu da faixa vermelha e o assistente já apontam. A

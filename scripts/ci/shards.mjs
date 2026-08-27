@@ -86,6 +86,11 @@ export const SHARDS = {
     // banco descartável a partir das migrations, sem template e sem seed. 4,7s
     // medidos com o banco local.
     "@workspace/remuneracao",
+    // `fluxos` é o motor de Fluxos Operacionais: metade função pura (catálogo,
+    // validação, layout, o endereço de uma ação) e metade banco descartável
+    // criado a partir das migrations — o mesmo perfil de `fechamento` e
+    // `remuneracao`, e por isso o mesmo lugar. Sem template e sem seed.
+    "@workspace/fluxos",
   ],
   ingest: ["@workspace/ingest"],
   curado: [

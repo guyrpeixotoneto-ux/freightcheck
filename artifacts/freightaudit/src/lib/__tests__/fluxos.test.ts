@@ -1,0 +1,460 @@
+import { describe, expect, it } from "vitest";
+import {
+  categoriasDaLista,
+  comoData,
+  enderecoDaAcao,
+  filtrarFluxos,
+  itensPorEspecie,
+  montarCanvas,
+  resumoDoCartao,
+  resumoDoFluxo,
+  type Catalogo,
+  type Conexao,
+  type Etapa,
+  type FluxoCompleto,
+  type FluxoNaLista,
+} from "@/lib/fluxos";
+
+/**
+ * O que a tela de Fluxos Operacionais **decide** — provado sem DOM.
+ *
+ * Este pacote testa lógica, não pixel (ver `vitest.config.ts`), e o módulo foi
+ * escrito para caber nessa régua: a montagem do fluxograma, o recorte do que o
+ * cartão mostra, o agrupamento do painel lateral, o endereço de cada botão de
+ * consulta e os filtros da lista são todos função pura em `lib/fluxos.ts`.
+ *
+ * As afirmações abaixo são as do critério de aceite, traduzidas: o fluxo
+ * renderiza (todo cartão e toda seta), a etapa selecionada mostra o que
+ * cadastraram, e o botão de consulta leva ao endereço certo do FreightCheck.
+ */
+
+function etapa(parcial: Partial<Etapa> & { id: string; nome: string }): Etapa {
+  return {
+    fluxoId: "f",
+    descricao: null,
+    tipo: "PROCESSO",
+    ordem: 0,
+    responsavel: null,
+    area: null,
+    objetivo: null,
+    sistemaPrincipal: null,
+    regras: null,
+    observacoes: null,
+    status: "ATIVO",
+    posX: 0,
+    posY: 0,
+    chaveMonitoramento: null,
+    itens: [],
+    indicadores: [],
+    acoes: [],
+    ...parcial,
+  };
+}
+
+function conexao(parcial: Partial<Conexao> & { id: string; origemEtapaId: string; destinoEtapaId: string }): Conexao {
+  return { fluxoId: "f", tipo: "SEQUENCIA", rotulo: null, ordem: 0, ...parcial };
+}
+
+const CATALOGO: Catalogo = {
+  tiposDeEtapa: [
+    {
+      valor: "PROCESSO",
+      rotulo: "Processo",
+      descricao: "",
+      forma: "retangulo",
+      classe: "border-border",
+      icone: "Square",
+    },
+    {
+      valor: "DECISAO",
+      rotulo: "Decisão",
+      descricao: "",
+      forma: "losango",
+      classe: "border-amber-300",
+      icone: "GitBranch",
+    },
+  ],
+  tiposDeConexao: [
+    { valor: "SEQUENCIA", rotulo: "Sequência", descricao: "", tracejada: false, classe: "" },
+    { valor: "RETRABALHO", rotulo: "Retrabalho", descricao: "", tracejada: true, classe: "" },
+  ],
+  especiesDeItem: [
+    {
+      valor: "SISTEMA",
+      rotulo: "Sistema",
+      titulo: "Sistemas",
+      descricao: "",
+      icone: "Server",
+      usaLink: true,
+      usaObrigatorio: false,
+    },
+    {
+      valor: "FALHA",
+      rotulo: "Falha possível",
+      titulo: "Falhas possíveis",
+      descricao: "",
+      icone: "AlertTriangle",
+      usaLink: false,
+      usaObrigatorio: false,
+    },
+  ],
+  statusDoFluxo: [],
+  statusDaEtapa: [],
+  sentidosDoIndicador: [],
+  modelos: [],
+};
+
+const FLUXO: FluxoCompleto = {
+  fluxo: {
+    id: "f",
+    empresaId: "e",
+    nome: "Emissão de CTe até Recebimento",
+    slug: "cte-ate-recebimento",
+    descricao: null,
+    objetivo: null,
+    categoria: "Faturamento",
+    status: "ATIVO",
+    versao: 1,
+    dono: "Faturamento",
+    criadoEm: "2026-08-01T10:00:00.000Z",
+    atualizadoEm: "2026-08-27T10:00:00.000Z",
+    criadoPor: null,
+    atualizadoPor: null,
+  },
+  etapas: [
+    etapa({ id: "validacao", nome: "Validação das regras", ordem: 0, posX: 0, posY: 0 }),
+    etapa({
+      id: "decide",
+      nome: "Passou?",
+      tipo: "DECISAO",
+      ordem: 1,
+      posX: 0,
+      posY: 150,
+    }),
+    etapa({ id: "correcao", nome: "Correção", ordem: 2, posX: 200, posY: 300, status: "ATENCAO" }),
+  ],
+  conexoes: [
+    conexao({ id: "c1", origemEtapaId: "validacao", destinoEtapaId: "decide" }),
+    conexao({
+      id: "c2",
+      origemEtapaId: "decide",
+      destinoEtapaId: "correcao",
+      tipo: "DECISAO_NAO",
+      rotulo: "Não",
+    }),
+    conexao({
+      id: "c3",
+      origemEtapaId: "correcao",
+      destinoEtapaId: "validacao",
+      tipo: "RETRABALHO",
+      rotulo: "Corrigido",
+    }),
+  ],
+};
+
+describe("o fluxo renderiza — todo cartão e toda seta", () => {
+  it("uma etapa cadastrada vira um nó, na posição gravada", () => {
+    const { nos } = montarCanvas(FLUXO, CATALOGO);
+    expect(nos).toHaveLength(3);
+    expect(nos.map((n) => n.id)).toEqual(["validacao", "decide", "correcao"]);
+    expect(nos[1].position).toEqual({ x: 0, y: 150 });
+  });
+
+  it("cada nó carrega o tipo do catálogo, e não uma cópia local", () => {
+    const { nos } = montarCanvas(FLUXO, CATALOGO);
+    expect(nos[1].data.tipo?.forma).toBe("losango");
+    expect(nos[1].data.tipo?.rotulo).toBe("Decisão");
+  });
+
+  it("um tipo que a tela não conhece não derruba o desenho", () => {
+    // O catálogo vem do servidor; um tipo novo lá e um bundle antigo aqui é
+    // exatamente o caso em que a tela não pode quebrar.
+    const comTipoNovo: FluxoCompleto = {
+      ...FLUXO,
+      etapas: [etapa({ id: "x", nome: "X", tipo: "SUBPROCESSO" })],
+      conexoes: [],
+    };
+    const { nos } = montarCanvas(comTipoNovo, CATALOGO);
+    expect(nos).toHaveLength(1);
+    expect(nos[0].data.tipo).toBeUndefined();
+    expect(nos[0].data.resumo.tipo).toBe("SUBPROCESSO");
+  });
+
+  it("a volta do retrabalho vira seta, e não some", () => {
+    const { setas } = montarCanvas(FLUXO, CATALOGO);
+    const volta = setas.find((s) => s.id === "c3")!;
+    expect(volta.source).toBe("correcao");
+    expect(volta.target).toBe("validacao");
+    expect(volta.label).toBe("Corrigido");
+    expect(volta.style.strokeDasharray).toBe("6 4");
+    expect(volta.animated).toBe(true);
+  });
+
+  it("as saídas de uma decisão saem em cores diferentes", () => {
+    const { setas } = montarCanvas(FLUXO, CATALOGO);
+    const nao = setas.find((s) => s.id === "c2")!;
+    const normal = setas.find((s) => s.id === "c1")!;
+    expect(nao.style.stroke).not.toBe(normal.style.stroke);
+    expect(nao.markerEnd.color).toBe(nao.style.stroke);
+  });
+
+  it("uma seta cuja etapa não existe mais é descartada, não desenhada para o nada", () => {
+    const quebrado: FluxoCompleto = {
+      ...FLUXO,
+      conexoes: [...FLUXO.conexoes, conexao({ id: "c9", origemEtapaId: "decide", destinoEtapaId: "fantasma" })],
+    };
+    const { setas } = montarCanvas(quebrado, CATALOGO);
+    expect(setas.map((s) => s.id)).not.toContain("c9");
+    expect(setas).toHaveLength(3);
+  });
+
+  it("sem catálogo (ainda carregando) o desenho sai, sem cor de tipo", () => {
+    const { nos, setas } = montarCanvas(FLUXO, undefined);
+    expect(nos).toHaveLength(3);
+    expect(setas).toHaveLength(3);
+  });
+
+  it("o resumo do cabeçalho diz que o processo tem retorno", () => {
+    expect(resumoDoFluxo(FLUXO)).toBe("3 etapas · 3 conexões · com retorno");
+  });
+
+  it("um processo linear não é anunciado como tendo retorno", () => {
+    const linear: FluxoCompleto = { ...FLUXO, conexoes: [FLUXO.conexoes[0]] };
+    expect(resumoDoFluxo(linear)).toBe("3 etapas · 1 conexão");
+  });
+});
+
+describe("o cartão mostra pouco, de propósito", () => {
+  it("nome, tipo e quem responde — e o resto vira um contador", () => {
+    const cheia = etapa({
+      id: "sefaz",
+      nome: "Autorização SEFAZ",
+      tipo: "SISTEMA",
+      area: "Faturamento",
+      responsavel: "Analista",
+      itens: Array.from({ length: 10 }, (_, i) => ({
+        id: `i${i}`,
+        especie: "FALHA",
+        nome: `Falha ${i}`,
+        descricao: null,
+        obrigatorio: null,
+        link: null,
+        ordem: i,
+      })),
+      acoes: [
+        {
+          id: "a1",
+          titulo: "Ver rejeitados",
+          descricao: null,
+          rota: "/alteracoes",
+          parametros: null,
+          icone: null,
+          ordem: 0,
+        },
+      ],
+    });
+
+    const resumo = resumoDoCartao(cheia);
+    expect(resumo.nome).toBe("Autorização SEFAZ");
+    expect(resumo.quemResponde).toBe("Faturamento · Analista");
+    expect(resumo.detalhes).toBe(11);
+    /* O cartão não recebe as dez falhas — só o número. */
+    expect(Object.keys(resumo).sort()).toEqual([
+      "atencao",
+      "detalhes",
+      "nome",
+      "quemResponde",
+      "tipo",
+    ]);
+  });
+
+  it("sem área e sem responsável, a linha não aparece em branco", () => {
+    expect(resumoDoCartao(etapa({ id: "x", nome: "X" })).quemResponde).toBeNull();
+  });
+
+  it("só a área basta", () => {
+    expect(resumoDoCartao(etapa({ id: "x", nome: "X", area: "Financeiro" })).quemResponde).toBe(
+      "Financeiro",
+    );
+  });
+
+  it("a etapa marcada como atenção é sinalizada", () => {
+    expect(resumoDoCartao(FLUXO.etapas[2]).atencao).toBe(true);
+    expect(resumoDoCartao(FLUXO.etapas[0]).atencao).toBe(false);
+  });
+});
+
+describe("o painel lateral agrupa o material por espécie", () => {
+  const comMaterial = etapa({
+    id: "sefaz",
+    nome: "Autorização SEFAZ",
+    itens: [
+      {
+        id: "f2",
+        especie: "FALHA",
+        nome: "Rejeição por tributação",
+        descricao: null,
+        obrigatorio: null,
+        link: null,
+        ordem: 1,
+      },
+      {
+        id: "s1",
+        especie: "SISTEMA",
+        nome: "SEFAZ",
+        descricao: "Ambiente autorizador",
+        obrigatorio: null,
+        link: "https://www.cte.fazenda.gov.br",
+        ordem: 0,
+      },
+      {
+        id: "f1",
+        especie: "FALHA",
+        nome: "Rejeição por cadastro",
+        descricao: null,
+        obrigatorio: null,
+        link: null,
+        ordem: 0,
+      },
+    ],
+  });
+
+  it("agrupa na ordem do catálogo, e ordena dentro do grupo", () => {
+    const grupos = itensPorEspecie(comMaterial, CATALOGO.especiesDeItem);
+    expect(grupos.map((g) => g.especie.valor)).toEqual(["SISTEMA", "FALHA"]);
+    expect(grupos[1].itens.map((i) => i.nome)).toEqual([
+      "Rejeição por cadastro",
+      "Rejeição por tributação",
+    ]);
+  });
+
+  it("espécie sem item não vira seção vazia", () => {
+    const so = etapa({
+      id: "x",
+      nome: "X",
+      itens: [
+        {
+          id: "s",
+          especie: "SISTEMA",
+          nome: "ERP",
+          descricao: null,
+          obrigatorio: null,
+          link: null,
+          ordem: 0,
+        },
+      ],
+    });
+    expect(itensPorEspecie(so, CATALOGO.especiesDeItem).map((g) => g.especie.valor)).toEqual([
+      "SISTEMA",
+    ]);
+  });
+
+  it("etapa sem material nenhum não produz seção alguma", () => {
+    expect(itensPorEspecie(etapa({ id: "x", nome: "X" }), CATALOGO.especiesDeItem)).toEqual([]);
+  });
+});
+
+describe("a navegação por ação interna", () => {
+  it("um caminho simples vira o próprio endereço", () => {
+    expect(enderecoDaAcao({ rota: "/fechamento/conciliacao" })).toBe("/fechamento/conciliacao");
+  });
+
+  it("os parâmetros viram query string, sempre na mesma ordem", () => {
+    expect(
+      enderecoDaAcao({ rota: "/alteracoes", parametros: { status: "REJEITADO", pagina: "2" } }),
+    ).toBe("/alteracoes?pagina=2&status=REJEITADO");
+  });
+
+  it("preserva a query que já vinha na rota", () => {
+    expect(enderecoDaAcao({ rota: "/dre?ano=2026", parametros: { unidade: "belem" } })).toBe(
+      "/dre?ano=2026&unidade=belem",
+    );
+  });
+
+  it("escapa acento e espaço", () => {
+    expect(enderecoDaAcao({ rota: "/x", parametros: { q: "CDD Belém" } })).toBe(
+      "/x?q=CDD+Bel%C3%A9m",
+    );
+  });
+
+  it("um endereço externo devolve nulo — a tela não oferece o botão", () => {
+    expect(enderecoDaAcao({ rota: "https://exemplo.com" })).toBeNull();
+  });
+
+  it("`//host` devolve nulo — é outro domínio para o navegador", () => {
+    expect(enderecoDaAcao({ rota: "//evil.com/x" })).toBeNull();
+  });
+
+  it("javascript: devolve nulo", () => {
+    expect(enderecoDaAcao({ rota: "javascript:alert(1)" })).toBeNull();
+  });
+
+  it("parâmetros vazios não deixam um `?` solto no fim", () => {
+    expect(enderecoDaAcao({ rota: "/x", parametros: {} })).toBe("/x");
+  });
+});
+
+describe("a lista", () => {
+  const linhas: FluxoNaLista[] = [
+    {
+      ...FLUXO.fluxo,
+      id: "1",
+      nome: "Emissão de CTe até Recebimento",
+      categoria: "Faturamento",
+      dono: "Faturamento",
+      descricao: "Da negociação ao extrato.",
+      etapas: 16,
+      conexoes: 20,
+    },
+    {
+      ...FLUXO.fluxo,
+      id: "2",
+      nome: "NF até pagamento",
+      categoria: "Financeiro",
+      dono: "Contas a pagar",
+      descricao: null,
+      etapas: 7,
+      conexoes: 7,
+    },
+    {
+      ...FLUXO.fluxo,
+      id: "3",
+      nome: "Conciliação bancária",
+      categoria: "Financeiro",
+      dono: null,
+      descricao: null,
+      etapas: 4,
+      conexoes: 3,
+    },
+  ];
+
+  it("as categorias saem sem repetição e em ordem", () => {
+    expect(categoriasDaLista(linhas)).toEqual(["Faturamento", "Financeiro"]);
+  });
+
+  it("o filtro por categoria recorta", () => {
+    expect(filtrarFluxos(linhas, { categoria: "Financeiro" }).map((f) => f.id)).toEqual(["2", "3"]);
+  });
+
+  it("a busca acha por nome, por categoria e por dono", () => {
+    expect(filtrarFluxos(linhas, { busca: "cte" }).map((f) => f.id)).toEqual(["1"]);
+    expect(filtrarFluxos(linhas, { busca: "financeiro" }).map((f) => f.id)).toEqual(["2", "3"]);
+    expect(filtrarFluxos(linhas, { busca: "contas a pagar" }).map((f) => f.id)).toEqual(["2"]);
+  });
+
+  it("busca em branco não esconde nada", () => {
+    expect(filtrarFluxos(linhas, { busca: "   " })).toHaveLength(3);
+  });
+
+  it("os dois filtros se combinam", () => {
+    expect(
+      filtrarFluxos(linhas, { busca: "conciliação", categoria: "Faturamento" }),
+    ).toHaveLength(0);
+  });
+});
+
+describe("a data", () => {
+  it("sai no formato do produto, sem recuar o dia pelo fuso", () => {
+    expect(comoData("2026-08-27T02:00:00.000Z")).toBe("27/08/2026");
+  });
+});
