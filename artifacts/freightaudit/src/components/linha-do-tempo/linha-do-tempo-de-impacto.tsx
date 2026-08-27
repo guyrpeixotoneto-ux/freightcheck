@@ -12,6 +12,7 @@ import {
   SlidersHorizontal,
 } from "lucide-react";
 import { fetchJsonOrNull } from "@/lib/api";
+import { opcoesDoIntervalo } from "@/lib/intervalo-da-linha-do-tempo";
 import { cn } from "@/lib/utils";
 import { formatBrlCompacto, formatBrlShort, periodicityAdjective, periodicitySuffix } from "@/lib/format";
 import { linkDeAlteracoes, type Recorte } from "@/lib/recorte";
@@ -51,11 +52,6 @@ export function LinhaDoTempoDeImpacto({
     canal: consulta.get("canal"),
   };
 
-  const query = new URLSearchParams(consulta);
-  query.delete("period");
-  if (primeira) query.set("from", primeira);
-  query.set("to", currentPeriod);
-
   const [abertura, setAbertura] = useState<AberturaDoIntervalo | null>(null);
   const abrirParametro = (parameterKey: string, periodicidade: string) =>
     setAbertura({ tipo: "parametro", parameterKey, periodicidade });
@@ -66,20 +62,20 @@ export function LinhaDoTempoDeImpacto({
   const [periodicidadeDaAba, setPeriodicidadeDaAba] = useState<string | null>(null);
 
   /*
-    A chave é a mesma que `LinhaDoTempoDeAlteracoes` e `useAlteracoesPorVigencia`
-    usam para este mesmo endpoint — as três leem `/changes/range` para o mesmo
-    contexto e, no carregamento inicial da tela, para o mesmo `from`/`to`
-    (histórico inteiro). Chaves próprias por componente faziam o React Query
-    tratá-las como três perguntas diferentes e disparar três requisições
-    idênticas ao abrir a tela; com a chave alinhada por parâmetros, elas
-    compartilham cache e a requisição em voo — uma só chamada cara ao invés de
-    três.
+    A chave é a mesma que `LinhaDoTempoDeAlteracoes`, `useAlteracoesPorVigencia`
+    e o prefetch da página usam para este mesmo endpoint — todos leem
+    `/changes/range` para o mesmo contexto e, no carregamento inicial da tela,
+    para o mesmo `from`/`to` (histórico inteiro). Chaves próprias por
+    componente faziam o React Query tratá-las como perguntas diferentes e
+    disparar requisições idênticas ao abrir a tela; com a chave montada por
+    `opcoesDoIntervalo`, elas compartilham cache e a requisição em voo — uma só
+    chamada cara. É por esse compartilhamento que o prefetch da página
+    (`pages/linha-do-tempo.tsx`) chega aqui: quando este componente monta, a
+    resposta ou já está no cache, ou está a caminho.
   */
   const movimentos = useQuery({
-    queryKey: ["changes-range", query.toString()],
-    queryFn: () => fetchJsonOrNull<Movimentos>(`/changes/range?${query}`),
+    ...opcoesDoIntervalo(consulta, primeira ?? currentPeriod, currentPeriod),
     enabled: ordenadas.length > 1,
-    staleTime: 60_000,
   });
 
   /*
@@ -92,10 +88,24 @@ export function LinhaDoTempoDeImpacto({
   if (primeira) queryOverview.set("from", primeira);
   queryOverview.set("to", currentPeriod);
 
+  /*
+    E ela só sai **depois** que a leitura desta unidade chegou.
+
+    Não é atraso por precaução: `/changes/range/overview` roda a análise
+    completa do intervalo uma vez por unidade × contexto, todas de uma vez
+    (ver `getRangeOverview`). Disparada junto com a leitura da unidade aberta,
+    ela disputa o mesmo pool de conexões com a resposta que a tela de fato
+    espera — e atrasa o conteúdo principal para adiantar um cartão lateral.
+
+    O cartão que ela alimenta não some por esperar: `OndeEstaOImpacto` não
+    desenha nada enquanto a resposta não chega, e passa a desenhar quando ela
+    chega. O que muda é a ordem — primeiro o que a tela veio mostrar, depois o
+    ranking entre unidades.
+  */
   const overview = useQuery({
     queryKey: ["linha-do-tempo-overview", queryOverview.toString()],
     queryFn: () => fetchJsonOrNull<RangeOverview>(`/changes/range/overview?${queryOverview}`),
-    enabled: ordenadas.length > 1,
+    enabled: ordenadas.length > 1 && movimentos.isSuccess,
     staleTime: 60_000,
   });
 
