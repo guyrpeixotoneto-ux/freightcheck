@@ -52,8 +52,11 @@ import {
   type Visualizacao,
 } from "@/lib/fluxos-visoes";
 import type { PropsDaVisaoNoCanvas } from "@/components/fluxos/visao";
+import type { CampoEditavelNaLista } from "@/lib/fluxos-analise";
 import {
+  corpoDaEtapa,
   escritas,
+  lerFluxoAgora,
   fraseDoErro,
   resumoDoFluxo,
   useCatalogoDeFluxos,
@@ -199,6 +202,70 @@ export default function TelaDoFluxo() {
     onSuccess: () => recarregar(fluxoId),
   });
 
+  /**
+   * A EDIÇÃO EM CÉLULA DA LISTA — uma gravação de campo, aqui e não lá.
+   *
+   * A Lista pede; quem grava é esta página, como todas as outras escritas. O
+   * corpo vai inteiro (`corpoDaEtapa`), porque a rota é substituição: corrigir a
+   * área mandando só a área apagaria descrição, objetivo, regras, observações e
+   * a posição do cartão.
+   *
+   * E é justamente por ir inteiro que a etapa é **relida do servidor** logo
+   * antes de gravar, em vez de sair do cache da tela. O cache pode estar velho:
+   * alguém que ficou com a Lista aberta enquanto outra pessoa trocou o
+   * responsável mandaria de volta o responsável antigo junto com a sua área
+   * nova — uma alteração desfeita sem que ninguém visse. Reler encolhe essa
+   * janela para o tempo de uma ida ao servidor. Ela **não fecha**: fechar de
+   * verdade exige versão na linha e recusa no servidor (um `If-Match`), que é
+   * mudança de contrato e não cabe aqui. O que cabe é não perder por minutos o
+   * que se pode não perder por milissegundos.
+   *
+   * O prazo é o caso à parte, e é o que faz a coluna de SLA valer a pena numa
+   * tela de auditoria: ele não é coluna da etapa, é a espécie `PRAZO` da lista
+   * de itens, com caminho próprio. A Lista só oferece a edição quando há no
+   * máximo um prazo cadastrado (ver `edicaoNaLista`), então gravar aqui é
+   * substituir a lista por um item — ou esvaziá-la, quando o campo fica em
+   * branco.
+   */
+  const editarCampo = useMutation({
+    mutationFn: async ({
+      etapaId,
+      campo,
+      valor,
+    }: {
+      etapaId: string;
+      campo: CampoEditavelNaLista;
+      valor: string;
+    }) => {
+      const limpo = valor.trim();
+      const agora = await lerFluxoAgora(empresaId, fluxoId);
+      const etapa = agora.etapas.find((e) => e.id === etapaId);
+      /*
+        A etapa sumiu entre abrir a célula e gravar: quem apagou foi outra
+        pessoa, e recriá-la por um PUT seria pior do que não gravar.
+      */
+      if (!etapa) throw new Error("Esta etapa não existe mais — recarregue o fluxo.");
+
+      if (campo === "sla") {
+        await escritas.salvarItens(
+          empresaId,
+          fluxoId,
+          etapaId,
+          "PRAZO",
+          limpo === "" ? [] : [{ nome: limpo, descricao: "", ordem: 0 }],
+        );
+        return;
+      }
+
+      const coluna = campo === "sistema" ? "sistemaPrincipal" : campo;
+      await escritas.atualizarEtapa(empresaId, fluxoId, etapaId, {
+        ...corpoDaEtapa(etapa),
+        [coluna]: limpo,
+      });
+    },
+    onSuccess: () => recarregar(fluxoId),
+  });
+
   /*
     O elemento arrastado vira etapa numa chamada só, sem passar por formulário.
     O nome e a posição saem de funções puras (`lib/fluxos-paleta.ts`), e a etapa
@@ -240,6 +307,16 @@ export default function TelaDoFluxo() {
       conectar.mutate({ origemEtapaId, destinoEtapaId }),
     [conectar],
   );
+  /*
+    A promessa é devolvida crua — inclusive a rejeição. É o que permite a célula
+    manter o que foi digitado e mostrar a frase do servidor, em vez de perder o
+    texto e voltar ao valor antigo sem explicação.
+  */
+  const aoEditarCampoDaEtapa = useCallback(
+    (etapaId: string, campo: CampoEditavelNaLista, valor: string) =>
+      editarCampo.mutateAsync({ etapaId, campo, valor }).then(() => undefined),
+    [editarCampo],
+  );
   const aoSoltarElemento = useCallback(
     (tipo: string, posicao: { posX: number; posY: number } | null) =>
       criarElemento.mutate({ tipo, posicao }),
@@ -265,6 +342,22 @@ export default function TelaDoFluxo() {
 
   return (
     <Layout>
+      {/*
+        O CABEÇALHO — duas faixas com papéis fixos.
+
+        Antes tudo dividia um `flex-wrap` só: identidade, opções da visualização
+        e ações do fluxo. Como as opções mudam com a visualização, trocar de
+        ângulo remontava o cabeçalho inteiro — o título ganhava e perdia largura
+        (e reticências), e "Editar fluxo", "Colar etapas", "Exportar" e "Nova
+        etapa" trocavam de lugar a cada troca. Um cabeçalho que se remonta faz
+        parecer que se mudou de tela quando o fluxo é o mesmo.
+
+        Agora cada faixa tem um dono. A de cima é a identidade do fluxo e as
+        ações que existem nas seis visualizações — ela é idêntica em todas. A de
+        baixo é a barra da visualização, e é a única que muda. Nada foi
+        removido: o que era específico continua específico, só que confinado à
+        faixa que pode mudar.
+      */}
       <header className="border-b bg-card px-6 py-3">
         <div className="flex flex-wrap items-center gap-3">
           <Button variant="ghost" size="icon" asChild aria-label="Voltar para a lista de fluxos">
@@ -291,58 +384,123 @@ export default function TelaDoFluxo() {
                     </Badge>
                   )}
                 </div>
-                <p className="text-xs text-muted-foreground">
+                {/*
+                  A descrição da visualização saiu daqui e foi para a barra de
+                  baixo: ela é a única parte desta linha que dependia do ângulo
+                  escolhido, e era o que fazia o resumo do fluxo quebrar em duas
+                  linhas numa visualização e em uma noutra.
+                */}
+                <p className="truncate text-xs text-muted-foreground">
                   {completo ? resumoDoFluxo(completo) : null}
                   {completo?.fluxo.dono ? ` · ${completo.fluxo.dono}` : ""}
-                  {` · ${entrada.descricao}`}
                 </p>
               </>
             )}
           </div>
 
           {/*
-            O seletor de visualização, e os controles que só existem para
-            algumas delas. Eles trocam com a visualização em vez de ficarem
-            todos na barra: uma barra com orientação, agrupamento e sinal
-            visíveis o tempo todo obrigaria a ler seis controles para usar um.
+            As ações do fluxo. Todas valem nas seis visualizações, então todas
+            ficam aqui, sempre na mesma ordem e sempre no mesmo lugar — quem
+            clica em "Nova etapa" não precisa procurá-la de novo depois de
+            trocar de ângulo.
           */}
+          <div className="flex flex-wrap items-center justify-end gap-1.5">
+            <Button variant="ghost" size="sm" onClick={() => setSomenteLeitura((v) => !v)}>
+              {somenteLeitura ? "Liberar edição" : "Só leitura"}
+            </Button>
+
+            <Button variant="outline" size="sm" onClick={() => setEditandoFluxo(true)}>
+              <Pencil className="mr-1.5 h-3.5 w-3.5" />
+              Editar fluxo
+            </Button>
+
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={somenteLeitura}
+              onClick={() => setColando(true)}
+            >
+              <ListPlus className="mr-1.5 h-3.5 w-3.5" />
+              Colar etapas
+            </Button>
+
+            {completo && (
+              <BotaoDeExportar
+                completo={completo}
+                catalogo={catalogo.data}
+                empresa={nomeDaEmpresa}
+              />
+            )}
+
+            <Button
+              size="sm"
+              disabled={somenteLeitura}
+              onClick={() => setEditandoEtapa({ aberto: true, etapaId: null })}
+            >
+              <Plus className="mr-1.5 h-3.5 w-3.5" />
+              Nova etapa
+            </Button>
+          </div>
+        </div>
+
+        {/*
+          A BARRA DA VISUALIZAÇÃO — a única faixa que muda com o ângulo.
+
+          A ordem dos lugares é fixa: seletor, opção da visualização, ferramentas
+          do canvas, descrição. O segundo lugar tem largura mínima reservada
+          mesmo quando está vazio, senão "Elementos" e "Organizar" andariam para
+          a esquerda na Jornada e voltariam nas Raias — que é o mesmo defeito, só
+          que menor.
+        */}
+        <div className="mt-2 flex flex-wrap items-center gap-3 border-t pt-2">
           <div className="flex items-center gap-1.5">
-            <span className="hidden text-xs text-muted-foreground lg:inline">Visualização</span>
+            <span className="text-xs text-muted-foreground">Visualização</span>
             <SeletorDeVisualizacao valor={visualizacao} aoTrocar={trocarVisualizacao} />
           </div>
 
-          {(visualizacao === "fluxo" || visualizacao === "gargalos") && (
-            <div className="flex items-center gap-1.5">
-              <span className="hidden text-xs text-muted-foreground lg:inline">Orientação</span>
-              <Select value={orientacao} onValueChange={(v) => trocarOrientacao(v as "vertical" | "horizontal")}>
-                <SelectTrigger className="h-8 w-[130px]" aria-label="Orientação do fluxo">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="vertical">Vertical</SelectItem>
-                  <SelectItem value="horizontal">Horizontal</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          )}
+          {/*
+            O controle que só existe para algumas visualizações. Ele ocupa um
+            lugar só — orientação no Fluxo e nos Gargalos, agrupamento nas Raias
+            — em vez de os dois ficarem visíveis o tempo todo: uma barra com
+            todas as opções das seis obrigaria a ler seis controles para usar um.
+          */}
+          <div className="flex min-h-8 min-w-[196px] items-center gap-1.5">
+            {(visualizacao === "fluxo" || visualizacao === "gargalos") && (
+              <>
+                <span className="text-xs text-muted-foreground">Orientação</span>
+                <Select
+                  value={orientacao}
+                  onValueChange={(v) => trocarOrientacao(v as "vertical" | "horizontal")}
+                >
+                  <SelectTrigger className="h-8 w-[130px]" aria-label="Orientação do fluxo">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="vertical">Vertical</SelectItem>
+                    <SelectItem value="horizontal">Horizontal</SelectItem>
+                  </SelectContent>
+                </Select>
+              </>
+            )}
 
-          {visualizacao === "raias" && (
-            <div className="flex items-center gap-1.5">
-              <span className="hidden text-xs text-muted-foreground lg:inline">Agrupar por</span>
-              <Select value={agrupamento} onValueChange={(v) => trocarAgrupamento(v as never)}>
-                <SelectTrigger className="h-8 w-[140px]" aria-label="Agrupar raias por">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {AGRUPAMENTOS_DE_RAIA.map((a) => (
-                    <SelectItem key={a.valor} value={a.valor}>
-                      {a.rotulo}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
+            {visualizacao === "raias" && (
+              <>
+                <span className="text-xs text-muted-foreground">Agrupar por</span>
+                <Select value={agrupamento} onValueChange={(v) => trocarAgrupamento(v as never)}>
+                  <SelectTrigger className="h-8 w-[130px]" aria-label="Agrupar raias por">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {AGRUPAMENTOS_DE_RAIA.map((a) => (
+                      <SelectItem key={a.valor} value={a.valor}>
+                        {a.rotulo}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </>
+            )}
+          </div>
 
           {/*
             O tipo de jornada. Fica ao lado do seletor de visualização, e não
@@ -388,15 +546,6 @@ export default function TelaDoFluxo() {
             </Button>
           )}
 
-          <Button variant="ghost" size="sm" onClick={() => setSomenteLeitura((v) => !v)}>
-            {somenteLeitura ? "Liberar edição" : "Só leitura"}
-          </Button>
-
-          <Button variant="outline" size="sm" onClick={() => setEditandoFluxo(true)}>
-            <Pencil className="mr-1.5 h-3.5 w-3.5" />
-            Editar fluxo
-          </Button>
-
           {/*
             "Organizar" é o botão que faltava: `posicionarEtapas` já era função
             pura e testada, e nada na tela a chamava — quem montasse um fluxo à
@@ -406,8 +555,7 @@ export default function TelaDoFluxo() {
             O clique normal arruma só o que nunca foi posicionado. Com a tecla
             Shift, refaz o desenho inteiro — o pedido destrutivo fica atrás de
             um gesto deliberado, e o rótulo do botão o anuncia.
-          */}
-          {/*
+
             Fora do Fluxo vertical o botão some em vez de ficar desabilitado:
             nas projeções calculadas não existe "arranjo para organizar", e um
             botão morto na barra sugere que existe.
@@ -429,32 +577,14 @@ export default function TelaDoFluxo() {
             </Button>
           )}
 
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={somenteLeitura}
-            onClick={() => setColando(true)}
-          >
-            <ListPlus className="mr-1.5 h-3.5 w-3.5" />
-            Colar etapas
-          </Button>
-
-          {completo && (
-            <BotaoDeExportar
-              completo={completo}
-              catalogo={catalogo.data}
-              empresa={nomeDaEmpresa}
-            />
-          )}
-
-          <Button
-            size="sm"
-            disabled={somenteLeitura}
-            onClick={() => setEditandoEtapa({ aberto: true, etapaId: null })}
-          >
-            <Plus className="mr-1.5 h-3.5 w-3.5" />
-            Nova etapa
-          </Button>
+          {/*
+            A descrição fica no fim da barra, encostada à direita: é o texto que
+            explica o ângulo escolhido, e o lugar dela é junto do seletor que o
+            escolheu — não na linha do nome do fluxo, que não muda.
+          */}
+          <p className="ml-auto hidden max-w-[38ch] truncate text-xs text-muted-foreground lg:block">
+            {entrada.descricao}
+          </p>
         </div>
 
         {(mover.isError ||
@@ -482,7 +612,7 @@ export default function TelaDoFluxo() {
         um contêiner que se resolve em zero deixa o fluxograma invisível — o
         defeito mais comum de quem monta um canvas dentro de layout flexível.
       */}
-      <div className="flex h-[calc(100dvh-13rem)] min-h-[420px] w-full sm:h-[calc(100dvh-8.5rem)]">
+      <div className="flex h-[calc(100dvh-16rem)] min-h-[420px] w-full sm:h-[calc(100dvh-11.5rem)]">
         {/*
           A paleta fica **fora** do canvas, como coluna irmã, e não flutuando por
           cima dele: sobreposta, ela taparia justamente a faixa do desenho em que
@@ -521,6 +651,7 @@ export default function TelaDoFluxo() {
               etapaSelecionada={selecionada}
               onSelecionarEtapa={setSelecionada}
               somenteLeitura={somenteLeitura}
+              onEditarCampoDaEtapa={aoEditarCampoDaEtapa}
               onMoverEtapas={aoMover}
               onConectar={aoConectar}
               onAbrirConexao={aoAbrirConexao}

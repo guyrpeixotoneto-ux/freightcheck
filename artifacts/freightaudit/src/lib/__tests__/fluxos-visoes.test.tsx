@@ -1,13 +1,15 @@
 import { renderToStaticMarkup } from "react-dom/server";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { PainelDaEtapa } from "@/components/fluxos/painel-da-etapa";
+import { VisaoLista, vizinhaNaOrdem } from "@/components/fluxos/visao-lista";
 import { montarProjecao } from "@/lib/fluxos-canvas";
 import {
   analisarFluxo,
   cartaoDaJornada,
+  edicaoNaLista,
   filtrarLinhas,
   linhasDaLista,
   ordenarLinhas,
@@ -26,6 +28,7 @@ import {
   resumoDeResponsabilidade,
   VISUALIZACOES,
 } from "@/lib/fluxos-visoes";
+import { corpoDaEtapa } from "@/lib/fluxos";
 import type { Catalogo, Conexao, Etapa, FluxoCompleto } from "@/lib/fluxos";
 
 /**
@@ -42,7 +45,8 @@ import type { Catalogo, Conexao, Etapa, FluxoCompleto } from "@/lib/fluxos";
  * 5. criar conexão aparece em todas as projeções que usam conexão;
  * 6. alternar visualização não escreve — provado no texto-fonte;
  * 7. só-leitura vale em todas, porque o painel é um só;
- * 8. um fluxo legado (sem posição, sem área, sem prazo) abre sem migração.
+ * 8. um fluxo legado (sem posição, sem área, sem prazo) abre sem migração;
+ * 9. a Lista edita na célula — e só onde editar a célula é gravar a verdade.
  *
  * As projeções são funções puras, e é por isso que tudo isto cabe num teste sem
  * DOM e sem servidor: se elas precisassem de canvas para serem verificadas, a
@@ -385,19 +389,21 @@ describe("caso 6 — alternar visualização não escreve no banco", () => {
   });
 
   /*
-    Só as visualizações desenhadas recebem o interruptor: Jornada e Lista não
-    editam nada por si — o que elas abrem é o painel de detalhe, e é a página
-    que decide ali se ele pode editar. Cobrar `somenteLeitura` delas seria
-    cobrar uma propriedade que não teria o que fazer.
+    Quem edita alguma coisa por si tem de respeitar o interruptor: as quatro do
+    canvas, que arrastam e ligam, e a Lista, que edita célula. A Jornada fica de
+    fora porque o que ela abre é o painel de detalhe, e é a página que decide
+    ali se ele pode editar — cobrar `somenteLeitura` dela seria cobrar uma
+    propriedade que não teria o que fazer.
   */
   const NO_CANVAS = [
     "components/fluxos/visao-fluxo.tsx",
     "components/fluxos/visao-raias.tsx",
     "components/fluxos/visao-mapa.tsx",
     "components/fluxos/visao-gargalos.tsx",
+    "components/fluxos/visao-lista.tsx",
   ];
 
-  it("toda visualização de canvas repassa o modo de leitura", () => {
+  it("toda visualização que edita repassa o modo de leitura", () => {
     for (const arquivo of NO_CANVAS) {
       const texto = readFileSync(path.join(raiz, arquivo), "utf8");
       expect(texto, arquivo).toMatch(/somenteLeitura/);
@@ -769,5 +775,292 @@ describe("desempenho — o processo grande continua sendo uma passada", () => {
       passaria de quadrática e estouraria isto por muito.
     */
     expect(gasto).toBeLessThan(2000);
+  });
+});
+
+describe("caso 9 — a Lista edita na célula, e só onde a edição é verdade", () => {
+  /*
+    A regra vive fora da tela porque é regra: qual célula aceita edição não
+    depende de pixel nenhum, depende do que está gravado na etapa. É o que
+    permite prová-la aqui, sem DOM.
+  */
+  it("nome, tipo e área são campos da etapa — sempre editáveis", () => {
+    const e = etapa({ id: "e1", nome: "Auditoria fiscal", tipo: "PROCESSO", area: " Fiscal " });
+    expect(edicaoNaLista(e, "nome")).toEqual({ editavel: true, valor: "Auditoria fiscal" });
+    expect(edicaoNaLista(e, "tipo")).toEqual({ editavel: true, valor: "PROCESSO" });
+    expect(edicaoNaLista(e, "area")).toEqual({ editavel: true, valor: "Fiscal" });
+  });
+
+  it("responsável e sistema editam a coluna da etapa quando é ela que aparece", () => {
+    const e = etapa({
+      id: "e1",
+      nome: "Emissão",
+      responsavel: "Fiscal",
+      sistemaPrincipal: "SAP",
+      itens: [item("SISTEMA", "Unidox")],
+    });
+    expect(edicaoNaLista(e, "responsavel").editavel).toBe(true);
+    expect(edicaoNaLista(e, "responsavel").valor).toBe("Fiscal");
+    /* O item existe, mas quem aparece na coluna é o sistema principal. */
+    expect(edicaoNaLista(e, "sistema")).toEqual({ editavel: true, valor: "SAP" });
+  });
+
+  it("o valor que vem da lista de itens não é editável na célula", () => {
+    const e = etapa({ id: "e1", nome: "Emissão", itens: [item("SISTEMA", "Unidox")] });
+    const edicao = edicaoNaLista(e, "sistema");
+    expect(edicao.editavel).toBe(false);
+    /*
+      Editar aqui gravaria `sistemaPrincipal` e a tabela continuaria mostrando
+      "Unidox" — a pessoa veria a edição não pegar. O motivo escrito é o que
+      manda ela para o painel, onde a lista inteira aparece.
+    */
+    expect(edicao.motivo).toMatch(/lista de sistemas/i);
+  });
+
+  it("a célula vazia é editável — é ela que preenche a coluna", () => {
+    const e = etapa({ id: "e1", nome: "Emissão" });
+    expect(edicaoNaLista(e, "responsavel")).toEqual({ editavel: true, valor: "" });
+    expect(edicaoNaLista(e, "sla")).toEqual({ editavel: true, valor: "" });
+  });
+
+  it("o prazo é editável enquanto for um só, e some da célula quando são dois", () => {
+    const um = etapa({ id: "e1", nome: "Emissão", itens: [item("PRAZO", "24 h úteis")] });
+    expect(edicaoNaLista(um, "sla")).toEqual({ editavel: true, valor: "24 h úteis" });
+
+    const dois = etapa({
+      id: "e2",
+      nome: "Emissão",
+      itens: [item("PRAZO", "24 h úteis"), item("PRAZO", "D+2", 1)],
+    });
+    expect(edicaoNaLista(dois, "sla").editavel).toBe(false);
+    expect(slaDaEtapa(dois)).toBe("24 h úteis · D+2");
+  });
+
+  it("gravar um campo manda a etapa inteira — a rota é substituição", () => {
+    /*
+      A prova do defeito que `corpoDaEtapa` existe para impedir: um PUT com
+      `{ area }` só apagaria descrição, objetivo, regras, observações e a
+      posição do cartão, sem erro nenhum na tela.
+    */
+    const e = etapa({
+      id: "e1",
+      nome: "Auditoria fiscal",
+      area: "Fiscal",
+      descricao: "Confere XML contra o pedido",
+      objetivo: "Não pagar frete indevido",
+      regras: "Divergência acima de 2% volta",
+      observacoes: "Rodopar × Unidox",
+      chaveMonitoramento: "auditoria",
+      ordem: 7,
+      posX: 120,
+      posY: 480,
+    });
+
+    const corpo = { ...corpoDaEtapa(e), area: "Contas a pagar" };
+
+    expect(corpo).toMatchObject({
+      nome: "Auditoria fiscal",
+      area: "Contas a pagar",
+      descricao: "Confere XML contra o pedido",
+      objetivo: "Não pagar frete indevido",
+      regras: "Divergência acima de 2% volta",
+      observacoes: "Rodopar × Unidox",
+      chaveMonitoramento: "auditoria",
+      ordem: 7,
+      posX: 120,
+      posY: 480,
+    });
+    /* As listas não entram: elas têm caminho próprio no servidor. */
+    expect(corpo).not.toHaveProperty("itens");
+    expect(corpo).not.toHaveProperty("indicadores");
+  });
+
+  function listaRenderizada(somenteLeitura: boolean): string {
+    const completo = fluxoDeQuinze();
+    return renderToStaticMarkup(
+      <VisaoLista
+        completo={completo}
+        catalogo={CATALOGO}
+        etapaSelecionada={null}
+        onSelecionarEtapa={() => undefined}
+        onEditarCampoDaEtapa={async () => undefined}
+        somenteLeitura={somenteLeitura}
+      />,
+    );
+  }
+
+  it("com edição liberada, a célula anuncia que edita", () => {
+    const html = listaRenderizada(false);
+    expect(html).toContain("clique numa célula para editar");
+    expect(html).toContain("aria-label=\"Editar Área da etapa");
+    expect(html).toContain("aria-label=\"Editar Tipo da etapa");
+  });
+
+  it("em modo de leitura, nenhuma célula abre", () => {
+    const html = listaRenderizada(true);
+    /* O dado continua todo lá — o que some é o convite a mexer nele. */
+    expect(html).toContain("Etapa 1");
+    expect(html).toContain("Analista Fiscal");
+    expect(html).not.toContain("clique numa célula para editar");
+    expect(html).not.toContain("aria-label=\"Editar ");
+  });
+
+  /*
+    Um fluxo de duas etapas montado para o caso do Tab: na segunda, o sistema
+    vem da lista de itens e há dois prazos — as duas células que a Lista não
+    pode editar sem mentir sobre o que grava.
+  */
+  function fluxoComListaDeItens(): FluxoCompleto {
+    const etapas = [
+      etapa({ id: "e1", nome: "Etapa 1", ordem: 0, area: "Operação", sistemaPrincipal: "SAP" }),
+      etapa({
+        id: "e2",
+        nome: "Etapa 2",
+        ordem: 1,
+        area: "Fiscal",
+        itens: [item("SISTEMA", "Unidox"), item("PRAZO", "24 h"), item("PRAZO", "D+2", 1)],
+      }),
+    ];
+    return { fluxo: fluxoDeQuinze().fluxo, etapas, conexoes: [] };
+  }
+
+  const marcadas = (html: string) => html.split("data-celula-editavel").length - 1;
+
+  it("só as células que editam de verdade entram na ordem do Tab", () => {
+    const html = renderToStaticMarkup(
+      <VisaoLista
+        completo={fluxoComListaDeItens()}
+        catalogo={CATALOGO}
+        etapaSelecionada={null}
+        onSelecionarEtapa={() => undefined}
+        onEditarCampoDaEtapa={async () => undefined}
+        somenteLeitura={false}
+      />,
+    );
+    /*
+      Seis por linha (nome, tipo, área, responsável, sistema, prazo), menos as
+      duas da segunda etapa que vêm de lista. Número, entrada, saída e sinais
+      nunca entram: não são campos, e um Tab que parasse neles prometeria uma
+      edição que não existe.
+    */
+    expect(marcadas(html)).toBe(10);
+
+    /*
+      E cada uma diz o que é: o `Tab` abre a de texto já digitável e apenas
+      **foca** a de escolha. Abrir um menu suspenso por causa de um `Tab`
+      prenderia o foco dentro dele e acabaria com a corrida pela linha.
+    */
+    expect(html.split('data-celula-editavel="escolha"').length - 1).toBe(2);
+    expect(html.split('data-celula-editavel="texto"').length - 1).toBe(8);
+  });
+
+  it("em modo de leitura não há célula nenhuma na ordem do Tab", () => {
+    const html = renderToStaticMarkup(
+      <VisaoLista
+        completo={fluxoComListaDeItens()}
+        catalogo={CATALOGO}
+        etapaSelecionada={null}
+        onSelecionarEtapa={() => undefined}
+        onEditarCampoDaEtapa={async () => undefined}
+        somenteLeitura
+      />,
+    );
+    expect(marcadas(html)).toBe(0);
+  });
+
+  it("o Tab anda uma célula por vez e para nas pontas", () => {
+    const celulas = ["a", "b", "c"];
+    expect(vizinhaNaOrdem(celulas, "a", 1)).toBe("b");
+    expect(vizinhaNaOrdem(celulas, "b", -1)).toBe("a");
+    /*
+      Na última, `null` — e o componente devolve o Tab ao navegador em vez de
+      segurá-lo: sair da tabela pelo teclado continua possível.
+    */
+    expect(vizinhaNaOrdem(celulas, "c", 1)).toBeNull();
+    expect(vizinhaNaOrdem(celulas, "a", -1)).toBeNull();
+    expect(vizinhaNaOrdem(celulas, "fora", 1)).toBeNull();
+  });
+
+  it("o campo de texto sugere, mas não fecha o vocabulário", () => {
+    const html = renderToStaticMarkup(
+      <VisaoLista
+        completo={fluxoDeQuinze()}
+        catalogo={CATALOGO}
+        etapaSelecionada={null}
+        onSelecionarEtapa={() => undefined}
+        onEditarCampoDaEtapa={async () => undefined}
+        somenteLeitura={false}
+      />,
+    );
+    /*
+      Área, responsável e sistema são vocabulário da operação, não catálogo
+      fechado: a célula é um campo de texto com sugestões (o `datalist` só
+      aparece com o campo aberto), e nunca um seletor que recusaria uma área
+      nova legítima. O tipo é o contrário, e por isso é `Select`.
+    */
+    expect(html).toContain("aria-label=\"Editar Área da etapa");
+    expect(html).not.toContain("aria-label=\"Área da etapa");
+  });
+
+  it("corpoDaEtapa leva TODO campo gravável — inclusive os que ainda não existem", () => {
+    /*
+      A guarda contra o defeito futuro: no dia em que a etapa ganhar uma coluna
+      nova, este teste falha se `corpoDaEtapa` não a levar junto — e falhar aqui
+      é muito melhor do que descobrir em produção que editar a área apaga a
+      coluna nova de todo mundo, em silêncio, porque a rota é substituição.
+
+      As três listas ficam de fora por contrato: itens, indicadores e ações têm
+      caminho próprio no servidor e não entram neste PUT.
+    */
+    const completa = etapa({ id: "e1", nome: "Etapa" });
+    const forasDoCorpo = ["id", "fluxoId", "itens", "indicadores", "acoes"];
+    const gravaveis = Object.keys(completa).filter((c) => !forasDoCorpo.includes(c));
+    expect(Object.keys(corpoDaEtapa(completa)).sort()).toEqual(gravaveis.sort());
+  });
+
+  it("editar na célula e editar no painel passam pela MESMA porta", () => {
+    /*
+      A pergunta é de auditoria, não de estilo: se a Lista tivesse um caminho de
+      gravação próprio, a mesma alteração passaria a ter dois comportamentos
+      conforme o lugar em que foi feita — dois corpos, dois pontos de validação
+      e, no dia em que houver carimbo de autor, dois registros diferentes.
+
+      Existe uma função só que monta o caminho da etapa (`escritas.atualizarEtapa`,
+      em `lib/fluxos.ts`), e tanto o editor quanto a página chamam ela. O teste
+      varre o pacote inteiro atrás de qualquer outro que monte o caminho por
+      fora.
+    */
+    const raiz = path.resolve(import.meta.dirname, "..", "..");
+    const editor = readFileSync(path.join(raiz, "components/fluxos/editor-da-etapa.tsx"), "utf8");
+    const pagina = readFileSync(path.join(raiz, "pages/fluxo.tsx"), "utf8");
+    expect(editor).toMatch(/escritas\.atualizarEtapa\(/);
+    expect(pagina).toMatch(/escritas\.atualizarEtapa\(/);
+
+    const fontes: string[] = [];
+    const varrer = (dir: string) => {
+      for (const entrada of readdirSync(dir, { withFileTypes: true })) {
+        const caminho = path.join(dir, entrada.name);
+        if (entrada.isDirectory()) varrer(caminho);
+        else if (/\.tsx?$/.test(entrada.name)) fontes.push(caminho);
+      }
+    };
+    varrer(raiz);
+
+    const montamOCaminho = fontes.filter((f) =>
+      /etapas\/\$\{/.test(readFileSync(f, "utf8")),
+    );
+    expect(montamOCaminho.map((f) => path.relative(raiz, f))).toEqual(["lib/fluxos.ts"]);
+  });
+
+  it("a Lista continua sem gravar por conta própria", () => {
+    const raiz = path.resolve(import.meta.dirname, "..", "..");
+    const texto = readFileSync(path.join(raiz, "components/fluxos/visao-lista.tsx"), "utf8");
+    /*
+      A célula edita, e mesmo assim a projeção não escreve: ela recebe
+      `onEditarCampoDaEtapa` e devolve a promessa. É o que mantém as escritas
+      num lugar só — e o teste de texto-fonte acima é quem cobra isso.
+    */
+    expect(texto).toMatch(/onEditarCampoDaEtapa/);
+    expect(texto).not.toMatch(/\bescritas\./);
   });
 });

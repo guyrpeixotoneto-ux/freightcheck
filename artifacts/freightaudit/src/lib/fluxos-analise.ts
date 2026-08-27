@@ -737,3 +737,74 @@ export function resumoDaLente(linhas: LinhaDaEtapa[], lente: LenteDaJornada): Re
   }
   return { etapas, total: linhas.length, achados };
 }
+
+// ---------------------------------------------------------------------------
+// A Lista editável — quais células aceitam edição direta, e quais não aceitam
+// ---------------------------------------------------------------------------
+
+/** Os campos que a Lista sabe gravar sem abrir o editor da etapa. */
+export type CampoEditavelNaLista = "nome" | "tipo" | "area" | "responsavel" | "sistema" | "sla";
+
+/**
+ * POR QUE NEM TODA CÉLULA DA LISTA É EDITÁVEL.
+ *
+ * Quatro colunas da tabela são colunas da etapa (`nome`, `tipo`, `area`) ou
+ * derivam de uma coluna quando a lista da espécie está vazia (`responsavel`,
+ * `sistema`, `sla`). Nessas, editar a célula é gravar o campo, e o que aparece
+ * depois é exatamente o que foi digitado.
+ *
+ * As outras não são campos: `entrada` e `saída` saem do grafo — quem quiser
+ * mudá-las cria ou apaga uma conexão, e um `<input>` ali prometeria uma
+ * gravação que não existe. Os `sinais` são calculados a partir de tudo o mais.
+ *
+ * Sobra o caso que exige cuidado: `responsavel`, `sistema` e `sla` mostram o
+ * **primeiro** valor de uma lista que pode ter vários (a coluna da etapa mais
+ * os itens da espécie). Quando o valor à vista vem de um item — ou quando há
+ * mais de um —, editar a célula gravaria a coluna e a tabela continuaria
+ * mostrando o item: a pessoa veria a edição "não pegar". Nesse caso a célula
+ * fica de leitura, com o motivo escrito no `title`, e o caminho é o painel da
+ * etapa, onde a lista inteira aparece.
+ */
+export function edicaoNaLista(
+  etapa: Etapa,
+  campo: CampoEditavelNaLista,
+): { editavel: boolean; valor: string; motivo?: string } {
+  const coluna = (v: string | null | undefined) => (v ?? "").trim();
+
+  switch (campo) {
+    case "nome":
+      return { editavel: true, valor: etapa.nome };
+    case "tipo":
+      return { editavel: true, valor: etapa.tipo };
+    case "area":
+      return { editavel: true, valor: coluna(etapa.area) };
+    case "responsavel":
+    case "sistema": {
+      const especie = campo === "responsavel" ? "RESPONSAVEL" : "SISTEMA";
+      const propria = coluna(campo === "responsavel" ? etapa.responsavel : etapa.sistemaPrincipal);
+      const itens = etapa.itens.filter((i) => i.especie === especie && coluna(i.nome) !== "");
+      if (itens.length > 0 && propria === "") {
+        return {
+          editavel: false,
+          valor: "",
+          motivo:
+            campo === "responsavel"
+              ? "Este responsável vem da lista de responsáveis da etapa. Abra a etapa para editá-la."
+              : "Este sistema vem da lista de sistemas da etapa. Abra a etapa para editá-la.",
+        };
+      }
+      return { editavel: true, valor: propria };
+    }
+    case "sla": {
+      const prazos = prazosDaEtapa(etapa);
+      if (prazos.length > 1) {
+        return {
+          editavel: false,
+          valor: "",
+          motivo: "Esta etapa tem mais de um prazo cadastrado. Abra a etapa para editá-los.",
+        };
+      }
+      return { editavel: true, valor: prazos[0] ?? "" };
+    }
+  }
+}
