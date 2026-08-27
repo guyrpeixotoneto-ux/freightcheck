@@ -24,6 +24,7 @@ lib/fluxos                      O MOTOR GENÉRICO
   modelo.ts                       o que entra e o que sai
   validacao.ts                    o que é aceito, e as recusas com nome
   layout.ts                       onde os cartões ficam (função pura)
+  roteiro.ts                      o texto colado vira etapas e setas (função pura)
   repositorio.ts                  toda leitura e escrita, escopada por empresa
   exemplos/                       fluxos declarados — DADO, não código
   semear.ts                       plantar um modelo numa empresa
@@ -130,6 +131,9 @@ manda `empresaId` no `POST` e confirma que ele é ignorado.
 | POST | `/fluxos` | cria |
 | POST | `/fluxos/de-modelo` | cria a partir de um modelo do catálogo |
 | POST | `/fluxos/importar` | cria fluxo + etapas + conexões numa transação |
+| POST | `/fluxos/roteiro` | cria o fluxo inteiro a partir de um texto, uma etapa por linha |
+| POST | `/fluxos/:id/roteiro` | acrescenta etapas por texto a um fluxo que já existe |
+| POST | `/fluxos/:id/organizar` | aplica o layout automático ao que já está gravado |
 | PUT | `/fluxos/:id` | edita o cabeçalho |
 | POST | `/fluxos/:id/arquivar` · `/desarquivar` | muda o status, com verbo nomeado |
 | POST | `/fluxos/:id/duplicar` | cópia completa, nasce rascunho |
@@ -231,6 +235,48 @@ monitoramento). As listas usam um componente só, `ListaEditavel`, cuja diferen�
 entre elas é dado — uma espécie nova no catálogo do servidor não exige nada da
 interface.
 
+### Os três atalhos que fazem o cadastro caber numa reunião
+
+O diálogo de etapa é bom para **descrever uma** etapa e péssimo para
+**levantar treze**: treze aberturas, treze fechamentos e doze arrastos para
+ligar um cartão no outro. Era a fricção que deixava um fluxo criado e vazio.
+
+- **Montar por texto** — a lista que saiu da reunião, uma etapa por linha,
+  vira o esqueleto inteiro ligado e posicionado. Na lista de fluxos ("Montar
+  por texto") cria um fluxo novo; dentro do fluxograma ("Colar etapas")
+  acrescenta ao que já existe, opcionalmente pendurado na etapa selecionada.
+  A gramática cabe em quatro regras:
+
+  ```
+  # comentário
+  [inicio] Origem da tarifa / trecho | Operação | Freitec/TMS
+  Validação da tarifa | Ambev / Operação | SAP
+  [documento] Emissão do documento | Ambev / Sistema | Unidox
+  Integração com Rodopar | Sistemas / TI | Rodopar
+  + Integração com Connect | Sistemas / TI | Connect
+  ```
+
+  `nome | área | sistema` (os dois últimos opcionais), `[tipo]` escolhendo o
+  tipo do catálogo, `+` pondo a linha **em paralelo** com a de cima — as duas
+  nascem da mesma etapa anterior e a próxima linha recebe as duas —, e `#`
+  para comentário. Nada é inferido além disso: a primeira linha não vira
+  `INICIO` sozinha, porque corrigir o que o computador inventou custa mais do
+  que escrever `[inicio]`.
+
+  Quem interpreta é `interpretarRoteiro`, no motor, e **só** ele: a tela manda
+  o texto cru e conta linhas para mostrar "13 etapas" enquanto se digita. Uma
+  segunda gramática no front aceitaria hoje o que o servidor recusa amanhã.
+
+- **Etapa seguinte** — no painel da etapa: cria a próxima **já ligada** a esta
+  e já posicionada. É a frase mais comum de quem levanta um processo ("e
+  depois disto vem aquilo") em um gesto, em vez de cinco.
+
+- **Organizar** — no cabeçalho do fluxograma: aplica `posicionarEtapas` ao que
+  está gravado. O clique arruma só quem nunca foi arrastado; com **Shift**,
+  refaz o arranjo inteiro. Até aqui a função era pura, testada e não chamada
+  por ninguém fora da importação — quem esquecesse de arrastar ficava com os
+  cartões empilhados na origem.
+
 Gravação: uma chamada de identidade e uma por lista, **em série**. Em paralelo,
 uma recusa deixaria a etapa com metade do que a pessoa digitou. Erro mantém o
 diálogo aberto com o conteúdo preservado.
@@ -239,12 +285,23 @@ diálogo aberto com o conteúdo preservado.
 
 ## 8. Como adicionar um novo tipo de fluxo
 
-**Pela tela, sem tocar em código** — que é o critério de aceite:
-Administração → Fluxos Operacionais → + Novo fluxo → nome e categoria → criar
-etapas → ligar → cadastrar detalhes → adicionar consultas. Nenhuma tabela nova,
-nenhuma página nova, nenhum componente novo.
+**Pela tela, sem tocar em código** — que é o critério de aceite. Dois caminhos,
+e a diferença é o que a pessoa tem em mãos:
 
-**Como modelo que acompanha o produto** (opcional): crie
+- *com a lista pronta* — **Montar por texto**: nome, categoria, colar as etapas
+  uma por linha, criar. O fluxo nasce ligado e desenhado, e o detalhe de cada
+  etapa entra depois pelo painel;
+- *descobrindo o processo enquanto desenha* — **+ Novo fluxo** → criar etapas →
+  ligar → cadastrar detalhes → adicionar consultas.
+
+Nenhuma tabela nova, nenhuma página nova, nenhum componente novo em nenhum dos
+dois.
+
+**Como modelo que acompanha o produto** (opcional) — é o que
+`exemplos/operacao-empurrada.ts` faz com o macrofluxo da operação empurrada
+(origem da tarifa, emissão no Unidox, as integrações Rodopar e Connect em
+paralelo, auditoria fiscal, pendências, conciliação, e a volta do retrabalho):
+crie
 `lib/fluxos/src/exemplos/<slug>.ts` exportando um `FluxoDeclarado`, e some uma
 entrada em `exemplos/index.ts`. `semeado: false` o deixa disponível como ponto
 de partida sem plantá-lo em instalação nenhuma.
@@ -260,12 +317,13 @@ interface — a tela lê o catálogo do servidor.
 | onde | arquivos | casos |
 | --- | --- | --- |
 | motor — puro | `lib/fluxos/src/__tests__/catalogo-e-validacao.test.ts` | 43 |
+| motor — roteiro em texto | `lib/fluxos/src/__tests__/roteiro.test.ts` | 20 |
 | motor — layout | `lib/fluxos/src/__tests__/layout.test.ts` | 14 |
-| motor — banco e multi-tenant | `lib/fluxos/src/__tests__/isolamento.test.ts` | 43 |
-| API sobre HTTP | `artifacts/api-server/src/routes/__tests__/fluxos.test.ts` | 36 |
-| interface | `artifacts/freightaudit/src/lib/__tests__/fluxos.test.ts` | 30 |
+| motor — banco e multi-tenant | `lib/fluxos/src/__tests__/isolamento.test.ts` | 53 |
+| API sobre HTTP | `artifacts/api-server/src/routes/__tests__/fluxos.test.ts` | 44 |
+| interface | `artifacts/freightaudit/src/lib/__tests__/fluxos.test.ts` | 34 |
 
-**166 casos.** O que eles cobrem, por eixo do pedido:
+**208 casos.** O que eles cobrem, por eixo do pedido:
 
 - **Banco** — criação de fluxo, etapa e conexão; contagens da lista (incluindo a
   armadilha do join em leque); unicidade de slug por empresa; seta duplicada;
@@ -277,6 +335,15 @@ interface — a tela lê o catálogo do servidor.
 - **API** — portão de sessão; catálogo; escopo ausente/inválido; empresa vinda
   do corpo ignorada; ciclo completo; cada recusa com o status certo; lote
   inválido que não grava metade; importação transacional.
+- **Roteiro** — uma linha vira uma etapa, os campos separados por barra, o
+  marcador de tipo com e sem acento, o `+` abrindo e fechando o paralelo (dois
+  e três ramos), o prefixo de chave que evita colisão ao acrescentar, e cada
+  recusa com o número da linha; mais o macrofluxo da operação empurrada escrito
+  como texto, com a bifurcação das integrações conferida.
+- **Acrescentar e organizar** — a ordem continuando de onde parou, a ponta
+  inventada recusada antes de gravar, o lote inválido que não entra pela
+  metade, a empresa alheia recusada nas duas operações, e o arranjo à mão que
+  só `refazerTudo` desmancha.
 - **Interface** — montagem do canvas (todo cartão, toda seta, inclusive a volta
   do retrabalho); tipo desconhecido não derruba o desenho; o recorte do cartão;
   o agrupamento do painel; **o endereço de cada ação de navegação**, incluindo a
@@ -305,11 +372,11 @@ régua — daí `montarCanvas`, `resumoDoCartao`, `itensPorEspecie` e
    isso explicitamente em vez de mostrar um número sem lastro.
 4. **Modo Monitoramento não existe.** A opção aparece desabilitada no seletor —
    o lugar dela está decidido, nada foi implementado por antecipação.
-5. **Layout automático não é aplicado sozinho.** `posicionarEtapas` existe,
-   é puro e testado; um fluxo importado nasce com as posições que a declaração
-   trouxer (a seed do CTe não traz posição, então as etapas nascem na origem e
-   precisam ser arrastadas, ou o layout precisa ser chamado). Ligar um botão
-   "Organizar" é trabalho pequeno e não foi pedido.
+5. **O layout automático é simples, e assume um processo em corrente.**
+   `posicionarEtapas` distribui por níveis a partir das raízes; não minimiza
+   cruzamento de arestas. Ele é aplicado na importação, ao acrescentar um
+   roteiro e pelo botão **Organizar** — o que restou de limitação é o
+   algoritmo, não o gatilho.
 6. **Sem exportação.** Não há PNG, PDF nem impressão do fluxograma.
 7. **Sem reordenação por arrastar dentro das listas** do editor — a ordem é a de
    inserção, e reordenar é remover e adicionar.

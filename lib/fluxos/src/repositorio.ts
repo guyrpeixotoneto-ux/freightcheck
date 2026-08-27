@@ -22,6 +22,8 @@ import type {
   Fluxo,
   FluxoCompleto,
   FluxoDeclarado,
+  ConexaoDeclarada,
+  EtapaDeclarada,
   FluxoNaLista,
   IndicadorDaEtapa,
   ItemDaEtapa,
@@ -1042,6 +1044,212 @@ export async function importarFluxo(
 
     return comoFluxo(fluxo);
   });
+}
+
+// ---------------------------------------------------------------------------
+// Acrescentar em lote, e organizar — os dois atalhos do desenho
+// ---------------------------------------------------------------------------
+
+/**
+ * Acrescenta etapas e ligações a um fluxo que já existe — numa transação só.
+ *
+ * É o irmão de `importarFluxo` para o fluxo que já nasceu: a mesma declaração,
+ * as mesmas validações, e a diferença de que as chaves locais podem citar
+ * etapas **que já estão no banco** pelo `id`. É o que faz "colar mais dez
+ * etapas no fim do processo" custar uma chamada em vez de dez formulários.
+ *
+ * Três decisões, e cada uma tem um jeito conhecido de dar errado:
+ *
+ * - **A ordem continua de onde parou.** Uma etapa acrescentada nasce depois da
+ *   última que existe, e não em `0` — senão o painel e o layout passariam a
+ *   discordar da ordem em que o processo é contado.
+ * - **A ligação com o que já existe é por `id`.** `de`/`para` aceitam uma chave
+ *   da declaração ou o `id` de uma etapa deste fluxo; qualquer outra coisa é
+ *   recusada com nome, e não silenciosamente ignorada.
+ * - **O layout roda no fim, só sobre quem está na origem.** Quem já foi
+ *   arrastado fica onde está; as etapas novas nascem posicionadas, que é a
+ *   diferença entre um desenho e uma pilha no canto.
+ */
+export async function acrescentarRoteiro(
+  db: Database,
+  empresaId: string,
+  fluxoId: string,
+  declarado: { etapas: EtapaDeclarada[]; conexoes: ConexaoDeclarada[] },
+  autor: Autor,
+): Promise<{ etapasCriadas: number; conexoesCriadas: number }> {
+  await exigirFluxo(db, empresaId, fluxoId);
+
+  const etapas = declarado.etapas.map((etapa) => ({
+    chave: etapa.chave,
+    colunas: validarEntradaDeEtapa(etapa),
+    itens: (etapa.itens ?? []).map((item, i) => validarItem(item, i)),
+    indicadores: (etapa.indicadores ?? []).map((item, i) => validarIndicador(item, i)),
+    acoes: (etapa.acoes ?? []).map((item, i) => validarAcao(item, i)),
+  }));
+  if (etapas.length === 0) {
+    throw new RecusaDeFluxo("ROTEIRO_VAZIO", "Não há nenhuma etapa para acrescentar.");
+  }
+  const chaves = new Set(etapas.map((e) => e.chave));
+  if (chaves.size !== etapas.length) {
+    throw new RecusaDeFluxo("ETAPA_CHAVE_REPETIDA", "Duas etapas da declaração usam a mesma chave.");
+  }
+
+  const existentes = await db
+    .select({ id: fluxoEtapaTable.id, ordem: fluxoEtapaTable.ordem })
+    .from(fluxoEtapaTable)
+    .where(and(eq(fluxoEtapaTable.fluxoId, fluxoId), eq(fluxoEtapaTable.empresaId, empresaId)));
+  const idsExistentes = new Set(existentes.map((e) => e.id));
+  const proximaOrdem = existentes.reduce((maior, e) => Math.max(maior, e.ordem + 1), 0);
+
+  for (const conexao of declarado.conexoes) {
+    for (const ponta of [conexao.de, conexao.para]) {
+      if (!chaves.has(ponta) && !idsExistentes.has(ponta)) {
+        throw new RecusaDeFluxo(
+          "CONEXAO_ETAPA_DESCONHECIDA",
+          `A conexão ${conexao.de} → ${conexao.para} cita "${ponta}", que não é etapa deste fluxo nem chave da declaração.`,
+        );
+      }
+    }
+  }
+
+  return db.transaction(async (tx) => {
+    const idPorChave = new Map<string, string>();
+    for (const [indice, etapa] of etapas.entries()) {
+      const [linha] = await tx
+        .insert(fluxoEtapaTable)
+        .values({
+          ...paraColunasDeEtapa(etapa.colunas),
+          ordem: proximaOrdem + indice,
+          empresaId,
+          fluxoId,
+        })
+        .returning();
+      idPorChave.set(etapa.chave, linha.id);
+
+      if (etapa.itens.length > 0) {
+        await tx
+          .insert(fluxoEtapaItemTable)
+          .values(
+            etapa.itens.map((item) => ({ empresaId, fluxoId, etapaId: linha.id, ...item })),
+          );
+      }
+      if (etapa.indicadores.length > 0) {
+        await tx
+          .insert(fluxoEtapaIndicadorTable)
+          .values(
+            etapa.indicadores.map((item) => ({ empresaId, fluxoId, etapaId: linha.id, ...item })),
+          );
+      }
+      if (etapa.acoes.length > 0) {
+        await tx
+          .insert(fluxoEtapaAcaoTable)
+          .values(
+            etapa.acoes.map((item) => ({ empresaId, fluxoId, etapaId: linha.id, ...item })),
+          );
+      }
+    }
+
+    /* Uma chave da declaração vira o `id` recém-criado; um `id` já era um. */
+    const identidade = (ponta: string): string => idPorChave.get(ponta) ?? ponta;
+
+    let conexoesCriadas = 0;
+    for (const [indice, conexao] of declarado.conexoes.entries()) {
+      const entrada = validarEntradaDeConexao({
+        origemEtapaId: identidade(conexao.de),
+        destinoEtapaId: identidade(conexao.para),
+        tipo: conexao.tipo,
+        rotulo: conexao.rotulo,
+        ordem: conexao.ordem ?? indice,
+      });
+      await tx.insert(fluxoConexaoTable).values({
+        empresaId,
+        fluxoId,
+        origemEtapaId: entrada.origemEtapaId,
+        destinoEtapaId: entrada.destinoEtapaId,
+        tipo: entrada.tipo,
+        rotulo: entrada.rotulo ?? null,
+        ordem: entrada.ordem,
+      });
+      conexoesCriadas += 1;
+    }
+
+    await tx
+      .update(fluxoOperacionalTable)
+      .set({ atualizadoEm: new Date(), atualizadoPor: autor.email })
+      .where(
+        and(eq(fluxoOperacionalTable.id, fluxoId), eq(fluxoOperacionalTable.empresaId, empresaId)),
+      );
+
+    await aplicarLayout(tx, empresaId, fluxoId, { somenteSemPosicao: true });
+    return { etapasCriadas: etapas.length, conexoesCriadas };
+  });
+}
+
+/**
+ * "Organizar" — o layout automático aplicado ao fluxo que já está no banco.
+ *
+ * `posicionarEtapas` é puro e testado desde o começo do módulo, e até aqui
+ * ninguém o chamava fora da importação: quem montasse um fluxo à mão ficava com
+ * o que arrastou, e quem esquecesse de arrastar ficava com a pilha na origem.
+ *
+ * `refazerTudo` é a diferença entre os dois pedidos que a palavra "organizar"
+ * carrega: *arrume o que ficou para trás* (padrão, respeita todo cartão que
+ * alguém posicionou) e *desmanche e refaça* (explícito, e a tela pergunta antes).
+ */
+export async function organizarFluxo(
+  db: Database,
+  empresaId: string,
+  fluxoId: string,
+  opcoes: { refazerTudo?: boolean } = {},
+): Promise<{ movidas: number }> {
+  await exigirFluxo(db, empresaId, fluxoId);
+  return db.transaction(async (tx) =>
+    aplicarLayout(tx, empresaId, fluxoId, {
+      somenteSemPosicao: !(opcoes.refazerTudo ?? false),
+    }),
+  );
+}
+
+/**
+ * O layout, gravado — a parte que as duas funções acima compartilham.
+ *
+ * Lê as etapas e as conexões de dentro da transação em curso, chama a função
+ * pura e grava o que ela devolveu. Ler aqui, e não receber pronto, é o que
+ * garante que o cálculo enxergue as etapas que a mesma transação acabou de
+ * criar.
+ */
+async function aplicarLayout(
+  tx: Database,
+  empresaId: string,
+  fluxoId: string,
+  opcoes: { somenteSemPosicao: boolean },
+): Promise<{ movidas: number }> {
+  const etapas = await tx
+    .select()
+    .from(fluxoEtapaTable)
+    .where(and(eq(fluxoEtapaTable.fluxoId, fluxoId), eq(fluxoEtapaTable.empresaId, empresaId)))
+    .orderBy(asc(fluxoEtapaTable.ordem));
+  const conexoes = await tx
+    .select()
+    .from(fluxoConexaoTable)
+    .where(and(eq(fluxoConexaoTable.fluxoId, fluxoId), eq(fluxoConexaoTable.empresaId, empresaId)))
+    .orderBy(asc(fluxoConexaoTable.ordem));
+
+  const posicoes = posicionarEtapas(
+    etapas.map((e) => ({ ...comoEtapa(e), itens: [], indicadores: [], acoes: [] })),
+    conexoes.map(comoConexao),
+    { somenteSemPosicao: opcoes.somenteSemPosicao },
+  );
+
+  for (const posicao of posicoes) {
+    await tx
+      .update(fluxoEtapaTable)
+      .set({ posX: posicao.posX, posY: posicao.posY })
+      .where(
+        and(eq(fluxoEtapaTable.id, posicao.etapaId), eq(fluxoEtapaTable.fluxoId, fluxoId)),
+      );
+  }
+  return { movidas: posicoes.length };
 }
 
 // ---------------------------------------------------------------------------

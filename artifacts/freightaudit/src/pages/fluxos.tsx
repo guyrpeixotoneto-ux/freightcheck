@@ -6,6 +6,7 @@ import {
   ArchiveRestore,
   Copy,
   Filter,
+  ListPlus,
   Pencil,
   Plus,
   Search,
@@ -26,6 +27,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { EditorDoFluxo } from "@/components/fluxos/editor-do-fluxo";
+import { MontadorPorTexto } from "@/components/fluxos/montador-por-texto";
 import {
   SeletorDeEmpresa,
   useEmpresaDosFluxos,
@@ -64,6 +66,7 @@ export default function Fluxos() {
   const [categoria, setCategoria] = useState<string>("todas");
   const [incluirArquivados, setIncluirArquivados] = useState(false);
   const [criando, setCriando] = useState(false);
+  const [colando, setColando] = useState(false);
 
   const catalogo = useCatalogoDeFluxos();
   const consulta = useFluxos(empresaId, incluirArquivados);
@@ -102,6 +105,21 @@ export default function Fluxos() {
 
           <div className="flex items-center gap-2">
             <SeletorDeEmpresa empresaId={empresaId} aoTrocar={escolher} />
+            {/*
+              Duas portas, e a diferença entre elas é o que a pessoa tem em mãos.
+              "Novo fluxo" é o cabeçalho vazio, para quem vai desenhar
+              descobrindo. "Montar por texto" é para quem sai de uma reunião com
+              a lista de etapas pronta — e era o caminho que faltava: sem ele,
+              treze etapas levantadas viravam treze formulários.
+            */}
+            <Button
+              variant="outline"
+              onClick={() => setColando(true)}
+              disabled={empresaId === null}
+            >
+              <ListPlus className="mr-1.5 h-4 w-4" />
+              Montar por texto
+            </Button>
             <Button
               onClick={() => setCriando(true)}
               disabled={empresaId === null}
@@ -181,6 +199,7 @@ export default function Fluxos() {
                 temFluxos={fluxos.length > 0}
                 modelos={catalogo.data?.modelos ?? []}
                 aoUsarModelo={(slug) => doModelo.mutate(slug)}
+                aoMontarPorTexto={() => setColando(true)}
                 usando={doModelo.isPending}
               />
             )}
@@ -198,6 +217,16 @@ export default function Fluxos() {
           </>
         )}
       </main>
+
+      {colando && (
+        <MontadorPorTexto
+          empresaId={empresaId}
+          fluxoId={null}
+          categoriasConhecidas={categorias}
+          aoFechar={() => setColando(false)}
+          aoConcluir={() => recarregar()}
+        />
+      )}
 
       {criando && catalogo.data && (
         <EditorDoFluxo
@@ -328,11 +357,13 @@ function ListaVazia({
   temFluxos,
   modelos,
   aoUsarModelo,
+  aoMontarPorTexto,
   usando,
 }: {
   temFluxos: boolean;
   modelos: { slug: string; nome: string; resumo: string; etapas: number }[];
   aoUsarModelo: (slug: string) => void;
+  aoMontarPorTexto: () => void;
   usando: boolean;
 }) {
   if (temFluxos) {
@@ -351,8 +382,13 @@ function ListaVazia({
         <div>
           <p className="text-sm font-medium text-foreground">Nenhum processo mapeado ainda.</p>
           <p className="mt-1 text-sm text-muted-foreground">
-            Crie um fluxo do zero, ou comece de um modelo e adapte ao processo real.
+            Cole a lista de etapas que saiu da reunião, comece de um modelo pronto e adapte, ou
+            desenhe do zero.
           </p>
+          <Button variant="outline" size="sm" className="mt-3" onClick={aoMontarPorTexto}>
+            <ListPlus className="mr-1.5 h-4 w-4" />
+            Montar por texto
+          </Button>
         </div>
         <div className="mx-auto flex max-w-2xl flex-wrap justify-center gap-2">
           {modelos.map((modelo) => (

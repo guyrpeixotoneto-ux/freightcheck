@@ -3,6 +3,7 @@ import {
   categoriasDaLista,
   comoData,
   enderecoDaAcao,
+  etapasDoRoteiro,
   filtrarFluxos,
   itensPorEspecie,
   montarCanvas,
@@ -456,5 +457,34 @@ describe("a lista", () => {
 describe("a data", () => {
   it("sai no formato do produto, sem recuar o dia pelo fuso", () => {
     expect(comoData("2026-08-27T02:00:00.000Z")).toBe("27/08/2026");
+  });
+});
+
+/**
+ * O contador do roteiro — a única coisa que a tela sabe sobre o texto colado.
+ *
+ * A gramática mora no servidor (`interpretarRoteiro`, em `@workspace/fluxos`), e
+ * é lá que ela é validada. Aqui só se conta o que vai virar etapa, para a caixa
+ * dizer "13 etapas" enquanto se digita. A regra de "linha que conta" é a mesma
+ * dos dois lados, e o teste gêmeo deste vive em
+ * `lib/fluxos/src/__tests__/roteiro.test.ts` — as duas contagens precisam
+ * concordar, e é por isso que ambas são afirmadas.
+ */
+describe("o contador do roteiro", () => {
+  it("conta uma etapa por linha", () => {
+    expect(etapasDoRoteiro("Primeira\nSegunda\nTerceira")).toBe(3);
+  });
+
+  it("linha em branco e comentário não contam", () => {
+    expect(etapasDoRoteiro("# nota\n\nPrimeira\n   \nSegunda\n")).toBe(2);
+  });
+
+  it("a linha paralela conta como etapa — ela é uma", () => {
+    expect(etapasDoRoteiro("Emissão\nRodopar\n+ Connect")).toBe(3);
+  });
+
+  it("texto vazio conta zero, sem reclamar — a caixa começa vazia", () => {
+    expect(etapasDoRoteiro("")).toBe(0);
+    expect(etapasDoRoteiro("  \n\n  ")).toBe(0);
   });
 });

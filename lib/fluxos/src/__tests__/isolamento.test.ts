@@ -11,6 +11,7 @@ import {
 } from "@workspace/db";
 import { runMigrations } from "@workspace/db/migrate";
 import {
+  acrescentarRoteiro,
   arquivarFluxo,
   atualizarConexao,
   atualizarEtapa,
@@ -25,6 +26,7 @@ import {
   lerFluxo,
   lerFluxoPorSlug,
   listarFluxos,
+  organizarFluxo,
   reposicionarEtapas,
   substituirAcoes,
   substituirIndicadores,
@@ -36,7 +38,8 @@ import {
   SlugJaUsado,
 } from "../repositorio";
 import { RecusaDeFluxo } from "../validacao";
-import { CTE_ATE_RECEBIMENTO, NF_ATE_PAGAMENTO } from "../exemplos";
+import { CTE_ATE_RECEBIMENTO, NF_ATE_PAGAMENTO, OPERACAO_EMPURRADA } from "../exemplos";
+import { interpretarRoteiro } from "../roteiro";
 import { semearModelos } from "../semear";
 
 /**
@@ -687,6 +690,145 @@ describe.skipIf(!temBanco)("Fluxos Operacionais sobre o banco", () => {
       const naB = await lerFluxoPorSlug(db, empresaB, "cte-ate-recebimento");
       expect(naA.id).not.toBe(naB!.fluxo.id);
       expect(naA.empresaId).toBe(empresaA);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Roteiro e organização — os dois atalhos do desenho
+  // -------------------------------------------------------------------------
+
+  describe("acrescentar um roteiro a um fluxo que já existe", () => {
+    it("as etapas entram ligadas, na ordem, depois das que já estavam", async () => {
+      const fluxo = await criarFluxo(db, empresaA, { nome: "Colagem", categoria: "Teste" }, AUTOR);
+      const primeira = await criarEtapa(db, empresaA, fluxo.id, { nome: "Já existia", ordem: 0 });
+
+      const roteiro = interpretarRoteiro("Segunda\nTerceira", { prefixoDaChave: "nova" });
+      const resumo = await acrescentarRoteiro(
+        db,
+        empresaA,
+        fluxo.id,
+        {
+          etapas: roteiro.etapas,
+          conexoes: [
+            { de: primeira.id, para: "nova-1" },
+            ...roteiro.conexoes,
+          ],
+        },
+        AUTOR,
+      );
+
+      expect(resumo).toEqual({ etapasCriadas: 2, conexoesCriadas: 2 });
+
+      const completo = (await lerFluxo(db, empresaA, fluxo.id))!;
+      expect(completo.etapas.map((e) => e.nome)).toEqual(["Já existia", "Segunda", "Terceira"]);
+      expect(completo.etapas.map((e) => e.ordem)).toEqual([0, 1, 2]);
+      expect(completo.conexoes).toHaveLength(2);
+      /* E o trecho novo nasce posicionado, não empilhado na origem. */
+      expect(completo.etapas.filter((e) => e.posX === 0 && e.posY === 0)).toHaveLength(1);
+    });
+
+    it("uma ponta que não é etapa deste fluxo nem chave da declaração é recusada com nome", async () => {
+      const fluxo = await criarFluxo(db, empresaA, { nome: "Ponta solta", categoria: "Teste" }, AUTOR);
+      const roteiro = interpretarRoteiro("Uma");
+      await expect(
+        acrescentarRoteiro(
+          db,
+          empresaA,
+          fluxo.id,
+          { etapas: roteiro.etapas, conexoes: [{ de: "inexistente", para: "linha-1" }] },
+          AUTOR,
+        ),
+      ).rejects.toMatchObject({ codigo: "CONEXAO_ETAPA_DESCONHECIDA" });
+
+      /* E nada foi gravado: a recusa acontece antes da transação. */
+      expect((await lerFluxo(db, empresaA, fluxo.id))!.etapas).toHaveLength(0);
+    });
+
+    it("a empresa A não acrescenta etapas num fluxo da B", async () => {
+      const daB = await criarFluxo(db, empresaB, { nome: "Só da B", categoria: "Teste" }, OUTRO);
+      const roteiro = interpretarRoteiro("Invasora");
+      await expect(
+        acrescentarRoteiro(db, empresaA, daB.id, roteiro, AUTOR),
+      ).rejects.toBeInstanceOf(FluxoNaoEncontrado);
+      expect((await lerFluxo(db, empresaB, daB.id))!.etapas).toHaveLength(0);
+    });
+
+    it("uma etapa inválida derruba o lote inteiro — nada entra pela metade", async () => {
+      const fluxo = await criarFluxo(db, empresaA, { nome: "Lote do roteiro", categoria: "Teste" }, AUTOR);
+      await expect(
+        acrescentarRoteiro(
+          db,
+          empresaA,
+          fluxo.id,
+          { etapas: [{ chave: "a", nome: "Boa" }, { chave: "b", nome: "  " }], conexoes: [] },
+          AUTOR,
+        ),
+      ).rejects.toBeInstanceOf(RecusaDeFluxo);
+      expect((await lerFluxo(db, empresaA, fluxo.id))!.etapas).toHaveLength(0);
+    });
+  });
+
+  describe("organizar", () => {
+    it("posiciona quem está na origem e não desmancha quem foi arrastado", async () => {
+      const fluxo = await criarFluxo(db, empresaA, { nome: "Arrumar", categoria: "Teste" }, AUTOR);
+      const a = await criarEtapa(db, empresaA, fluxo.id, { nome: "a", ordem: 0 });
+      const b = await criarEtapa(db, empresaA, fluxo.id, { nome: "b", ordem: 1 });
+      await criarConexao(db, empresaA, fluxo.id, { origemEtapaId: a.id, destinoEtapaId: b.id });
+      await reposicionarEtapas(db, empresaA, fluxo.id, [
+        { etapaId: a.id, posX: 900, posY: 900 },
+      ]);
+
+      await organizarFluxo(db, empresaA, fluxo.id);
+
+      const completo = (await lerFluxo(db, empresaA, fluxo.id))!;
+      const depoisA = completo.etapas.find((e) => e.id === a.id)!;
+      const depoisB = completo.etapas.find((e) => e.id === b.id)!;
+      expect([depoisA.posX, depoisA.posY]).toEqual([900, 900]);
+      expect(depoisB.posY).toBeGreaterThan(0);
+    });
+
+    it("refazerTudo desmancha o arranjo à mão — e só ele faz isso", async () => {
+      const fluxo = await criarFluxo(db, empresaA, { nome: "Refazer", categoria: "Teste" }, AUTOR);
+      const a = await criarEtapa(db, empresaA, fluxo.id, { nome: "a", ordem: 0 });
+      const b = await criarEtapa(db, empresaA, fluxo.id, { nome: "b", ordem: 1 });
+      await criarConexao(db, empresaA, fluxo.id, { origemEtapaId: a.id, destinoEtapaId: b.id });
+      await reposicionarEtapas(db, empresaA, fluxo.id, [
+        { etapaId: a.id, posX: 900, posY: 900 },
+        { etapaId: b.id, posX: 950, posY: 950 },
+      ]);
+
+      const { movidas } = await organizarFluxo(db, empresaA, fluxo.id, { refazerTudo: true });
+      expect(movidas).toBe(2);
+
+      const completo = (await lerFluxo(db, empresaA, fluxo.id))!;
+      const depoisA = completo.etapas.find((e) => e.id === a.id)!;
+      expect([depoisA.posX, depoisA.posY]).toEqual([0, 0]);
+    });
+
+    it("a empresa A não organiza o fluxo da B", async () => {
+      const daB = await criarFluxo(db, empresaB, { nome: "Arranjo da B", categoria: "Teste" }, OUTRO);
+      await expect(organizarFluxo(db, empresaA, daB.id)).rejects.toBeInstanceOf(FluxoNaoEncontrado);
+    });
+  });
+
+  describe("o macrofluxo da operação empurrada", () => {
+    it("entra inteiro pelo mesmo caminho da seed, com o paralelo e o retrabalho", async () => {
+      const fluxo = await importarFluxo(db, empresaA, OPERACAO_EMPURRADA, AUTOR);
+      const completo = (await lerFluxo(db, empresaA, fluxo.id))!;
+
+      expect(completo.etapas).toHaveLength(OPERACAO_EMPURRADA.etapas.length);
+      expect(completo.conexoes).toHaveLength(OPERACAO_EMPURRADA.conexoes.length);
+
+      /* As duas integrações saem da mesma etapa — é o paralelo do quadro. */
+      const integracoes = completo.etapas.find((e) => e.nome === "Integrações pós-emissão")!;
+      const ramos = completo.conexoes.filter((c) => c.origemEtapaId === integracoes.id);
+      expect(ramos).toHaveLength(2);
+
+      /* E a volta das pendências continua sendo uma seta, não uma anotação. */
+      expect(completo.conexoes.some((c) => c.tipo === "RETRABALHO")).toBe(true);
+
+      /* Nasce desenhado, como todo fluxo importado. */
+      expect(completo.etapas.filter((e) => e.posX === 0 && e.posY === 0).length).toBeLessThan(2);
     });
   });
 
