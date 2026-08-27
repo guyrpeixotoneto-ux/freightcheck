@@ -35,6 +35,7 @@ artifacts/api-server            A SUPERFÍCIE HTTP
 
 artifacts/freightaudit          A TELA
   lib/fluxos.ts                   tipos, consultas, e as funções puras testadas
+  lib/fluxos-exportar.ts          o desenho virando PNG, PDF e SVG (função pura)
   components/fluxos/*             canvas, cartão, painel, editores
   pages/fluxos.tsx                a lista
   pages/fluxo.tsx                 o fluxograma + painel lateral + editor
@@ -283,6 +284,37 @@ diálogo aberto com o conteúdo preservado.
 
 ---
 
+### Exportar — o desenho saindo do produto
+
+Botão **Exportar** no cabeçalho do fluxograma: **PNG** (colar num slide),
+**PDF** (anexar e imprimir) e **SVG** (abrir num editor de vetor). Os três saem
+do mesmo SVG montado por `montarSvgDoFluxo`, então nenhum pode divergir dos
+outros.
+
+O arquivo é montado **do dado**, e não raspado do DOM do canvas:
+
+- toda etapa e toda seta cadastradas aparecem, e isso é afirmado em teste sem
+  navegador — o que sai é decisão, e decisão neste pacote vira função pura;
+- zoom, rolagem, painel aberto, tema escuro e cartão selecionado não vazam para
+  o arquivo: exporta-se o fluxo inteiro, enquadrado;
+- o arquivo sai sempre claro, porque o tema é preferência de quem lê a tela e
+  não propriedade do processo;
+- o cabeçalho leva nome, categoria, tamanho, dono, empresa e a data — um
+  fluxograma que circula fora do produto precisa dizer de quem ele é;
+- a legenda traz **só** os tipos de seta que aquele fluxo usa.
+
+Duas decisões de desenho vieram de olhar o arquivo gerado, não do código: a
+folha tem uma largura mínima ditada pelo cabeçalho (um processo em corrente é
+estreito, e o nome por extenso saía cortado), e a seta de retrabalho que sobe
+mais de uma faixa sai por um **canal à direita** de todos os cartões, com o
+rótulo dentro dele — em linha reta ela atravessava meia dúzia de etapas.
+
+Nada disso passa pelo servidor: não há rota de exportação, fila nem arquivo
+guardado. E nenhuma dependência nova — o PDF de uma página com uma imagem
+dentro são seis objetos e uma tabela de deslocamentos, escritos em
+`montarPdfDeImagem` e conferidos em teste; a imagem entra sem perda via
+`FlateDecode` (`CompressionStream`), com JPEG como caminho alternativo.
+
 ## 8. Como adicionar um novo tipo de fluxo
 
 **Pela tela, sem tocar em código** — que é o critério de aceite. Dois caminhos,
@@ -322,8 +354,9 @@ interface — a tela lê o catálogo do servidor.
 | motor — banco e multi-tenant | `lib/fluxos/src/__tests__/isolamento.test.ts` | 53 |
 | API sobre HTTP | `artifacts/api-server/src/routes/__tests__/fluxos.test.ts` | 44 |
 | interface | `artifacts/freightaudit/src/lib/__tests__/fluxos.test.ts` | 34 |
+| interface — exportação | `artifacts/freightaudit/src/lib/__tests__/fluxos-exportar.test.ts` | 39 |
 
-**208 casos.** O que eles cobrem, por eixo do pedido:
+**247 casos.** O que eles cobrem, por eixo do pedido:
 
 - **Banco** — criação de fluxo, etapa e conexão; contagens da lista (incluindo a
   armadilha do join em leque); unicidade de slug por empresa; seta duplicada;
@@ -344,6 +377,14 @@ interface — a tela lê o catálogo do servidor.
   inventada recusada antes de gravar, o lote inválido que não entra pela
   metade, a empresa alheia recusada nas duas operações, e o arranjo à mão que
   só `refazerTudo` desmancha.
+- **Exportação** — toda etapa e toda seta no arquivo; o rótulo da condição; o
+  cabeçalho com data e empresa; o fundo claro; o XML escapado; a conexão órfã
+  que não vira seta para o nada; o fluxo vazio que ainda produz arquivo; o tipo
+  fora do catálogo que continua desenhado; a volta longa saindo pelo canal e a
+  curta seguindo em linha; a largura mínima do cabeçalho; e o PDF — cabeçalho,
+  objetos, a tabela de deslocamentos batendo byte a byte com o arquivo, a
+  imagem embutida intacta, a orientação escolhida pela forma do desenho e o
+  parêntese escapado no título.
 - **Interface** — montagem do canvas (todo cartão, toda seta, inclusive a volta
   do retrabalho); tipo desconhecido não derruba o desenho; o recorte do cartão;
   o agrupamento do painel; **o endereço de cada ação de navegação**, incluindo a
@@ -377,7 +418,10 @@ régua — daí `montarCanvas`, `resumoDoCartao`, `itensPorEspecie` e
    cruzamento de arestas. Ele é aplicado na importação, ao acrescentar um
    roteiro e pelo botão **Organizar** — o que restou de limitação é o
    algoritmo, não o gatilho.
-6. **Sem exportação.** Não há PNG, PDF nem impressão do fluxograma.
+6. **A exportação é de uma página só.** PNG, PDF e SVG saem inteiros, e o PDF
+   encaixa o desenho numa página A4 — um processo muito longo sai legível na
+   tela e pequeno no papel. Repartir em várias páginas com emenda não foi
+   feito.
 7. **Sem reordenação por arrastar dentro das listas** do editor — a ordem é a de
    inserção, e reordenar é remover e adicionar.
 8. **O canvas não é usável em tela de celular.** É responsivo no sentido de se

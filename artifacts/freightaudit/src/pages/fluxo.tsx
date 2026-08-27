@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/select";
 import { CanvasDoFluxo } from "@/components/fluxos/canvas";
 import { EditorDaEtapa } from "@/components/fluxos/editor-da-etapa";
+import { BotaoDeExportar } from "@/components/fluxos/botao-de-exportar";
 import { EditorDoFluxo } from "@/components/fluxos/editor-do-fluxo";
 import { MontadorPorTexto } from "@/components/fluxos/montador-por-texto";
 import { PainelDaEtapa } from "@/components/fluxos/painel-da-etapa";
@@ -27,6 +28,7 @@ import {
   resumoDoFluxo,
   useCatalogoDeFluxos,
   useFluxo,
+  useEmpresas,
   useRecarregarFluxos,
   type Conexao,
   type Etapa,
@@ -69,6 +71,14 @@ export default function TelaDoFluxo() {
   const catalogo = useCatalogoDeFluxos();
   const consulta = useFluxo(empresaId, fluxoId);
   const recarregar = useRecarregarFluxos(empresaId);
+  /*
+    O nome da empresa entra no cabeçalho do arquivo exportado. A consulta já é
+    a mesma que o seletor usa e vem do cache — o custo é zero, e um fluxograma
+    que circula fora do produto sem dizer de quem ele é vale bem menos.
+  */
+  const empresas = useEmpresas();
+  const nomeDaEmpresa =
+    empresas.data?.find((e) => e.id === empresaId)?.nome ?? null;
 
   const [selecionada, setSelecionada] = useState<string | null>(null);
   const [editandoEtapa, setEditandoEtapa] = useState<{ aberto: boolean; etapaId: string | null }>({
@@ -241,6 +251,14 @@ export default function TelaDoFluxo() {
             <ListPlus className="mr-1.5 h-3.5 w-3.5" />
             Colar etapas
           </Button>
+
+          {completo && (
+            <BotaoDeExportar
+              completo={completo}
+              catalogo={catalogo.data}
+              empresa={nomeDaEmpresa}
+            />
+          )}
 
           <Button
             size="sm"
