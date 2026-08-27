@@ -164,7 +164,7 @@ existiria se alguém escrevesse um detector para ela).
 
 - cálculo de impacto por periodicidade, **nunca somado entre periodicidades**;
 - o portão `CONFIRMED` — nada abaixo dele entra em agregação financeira;
-- DRE, composição de remuneração, ponte de resultado, balanço de massa;
+- DRE, composição de remuneração, ponte de resultado, rastreio de dados;
 - o isolamento por recorte `(unidade, canal)`;
 - a trava de lastro — com a origem dos números trocada (ver §3);
 - comparação e agrupamento de alterações (`engine`, `grouped`, `cockpit`).

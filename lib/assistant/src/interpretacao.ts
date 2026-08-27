@@ -96,7 +96,7 @@ export type Intencao =
   | "CURADORIA"
   /** "quais importações", "quando o arquivo entrou" */
   | "IMPORTACOES"
-  /** "balanço de massa", "por que não promoveu" */
+  /** "rastreio de dados", "por que não promoveu" */
   | "BALANCO"
   /** "onde aparece esta placa na planilha", "em que célula está X" */
   | "CELULAS"

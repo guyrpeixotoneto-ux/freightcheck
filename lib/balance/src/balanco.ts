@@ -9,7 +9,8 @@ import {
 } from "./destinos";
 
 /**
- * Balanço de massa — a conta de conservação da importação.
+ * Rastreio de Dados — a conta de conservação da importação (o balanço de
+ * massa).
  *
  * O produto inteiro se apoia numa promessa: nenhum número aparece sem que se
  * consiga segui-lo até a célula da planilha de origem. Este módulo faz a

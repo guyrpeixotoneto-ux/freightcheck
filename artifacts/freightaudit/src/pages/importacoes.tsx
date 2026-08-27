@@ -347,9 +347,9 @@ export default function Importacoes() {
   /*
     Qual execução está aberta mora no endereço.
 
-    O Balanço de massa nomeia a importação que não fechou — arquivo, células,
+    O Rastreio de Dados nomeia a importação que não fechou — arquivo, células,
     resíduo — e a explicação de *por quê* está aqui: o mapeamento de colunas, os
-    avisos de leitura, o que foi ignorado. Sem endereço, o Balanço só podia
+    avisos de leitura, o que foi ignorado. Sem endereço, o Rastreio só podia
     mandar para a lista, e quem chegava tinha de reencontrar entre dezenas de
     envios o que acabara de ler o nome. `?run=` fecha essa ponta, e de quebra
     torna o cartão aberto compartilhável.

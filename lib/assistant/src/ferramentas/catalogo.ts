@@ -679,7 +679,7 @@ export const estadoDoDado: Ferramenta = {
       return de(await importacoesRecentes(ctx.db), "Nenhuma importação registrada.");
     }
     if (aspecto === "balanco") {
-      return de(await balancoDasImportacoes(ctx.db), "Nenhum balanço de massa disponível.");
+      return de(await balancoDasImportacoes(ctx.db), "Nenhum rastreio de dados disponível.");
     }
     if (aspecto === "celula") {
       if (!termo) {

@@ -698,7 +698,7 @@ const BOTAO_DE_TROCA =
  * - *Alterações detectadas* → a vigência inteira, sem filtro;
  * - *Sem impacto calculável* → as mesmas alterações, filtradas em `NOT_CALCULABLE`.
  *
- * *Cobertura auditada* leva ao Balanço de massa, que é de onde a conta dela sai.
+ * *Cobertura auditada* leva ao Rastreio de Dados, que é de onde a conta dela sai.
  *
  * **Veículos afetados não abre nada, e é a decisão mais deliberada das cinco.**
  * Ele chegou a apontar para a Análise de frota — "é lá que se lê ativo por
@@ -924,7 +924,7 @@ function Indicadores({
         titulo="Cobertura auditada"
         ajuda="Das células que as planilhas trouxeram, quanto a auditoria alcança: tudo menos a perda declarada e o resíduo sem destino. É percentual de célula, não de dinheiro."
         tom="ok"
-        href={coberturaAuditada === null ? undefined : "/balanco-massa"}
+        href={coberturaAuditada === null ? undefined : "/rastreio-de-dados"}
         abrir="ver a conservação célula a célula"
       >
         {coberturaAuditada === null ? (
@@ -1930,7 +1930,7 @@ function QualidadeDaAuditoria({
           ) : (
             <>
               ; {coberturaAuditada.foraDaAuditoria.toLocaleString("pt-BR")} ficaram fora da
-              auditoria — o Balanço de massa diz quais e por quê.
+              auditoria — o Rastreio de Dados diz quais e por quê.
             </>
           )}
         </p>
@@ -2243,7 +2243,7 @@ function ConteudoDaVisaoGeral({
  * sustenta dentro.
  *
  * Os quatro primeiros abrem a comparação por unidade em vez de uma tela
- * recortada; o quinto (cobertura) continua indo ao Balanço de massa, porque
+ * recortada; o quinto (cobertura) continua indo ao Rastreio de Dados, porque
  * `/balance` já é a leitura de todas as importações e não recorta por unidade
  * nenhuma — é o mesmo número que a tela de uma unidade mostra, pela mesma
  * razão. "Veículos afetados" continua sem destino, como lá.
@@ -2369,7 +2369,7 @@ function IndicadoresDaVisaoGeral({
         titulo="Cobertura auditada"
         ajuda="Das células que as planilhas trouxeram, quanto a auditoria alcança: tudo menos a perda declarada e o resíduo sem destino. É percentual de célula, não de dinheiro, e já é a leitura de todas as importações."
         tom="ok"
-        href={coberturaAuditada === null ? undefined : "/balanco-massa"}
+        href={coberturaAuditada === null ? undefined : "/rastreio-de-dados"}
         abrir="ver a conservação célula a célula"
       >
         {coberturaAuditada === null ? (
@@ -2566,7 +2566,7 @@ function UnidadesEmDestaque({
  *
  * Ela fica aqui e não no topo de propósito: é a frase que se lê depois de olhar
  * os números, quando a pergunta que aparece é "de onde saiu isso?". O link leva
- * ao Balanço de massa, que é onde a resposta é verificável — e não a um texto
+ * ao Rastreio de Dados, que é onde a resposta é verificável — e não a um texto
  * que repetiria a promessa com outras palavras.
  */
 function Rodape() {
@@ -2583,7 +2583,7 @@ function Rodape() {
           </p>
         </div>
         <Link
-          href="/balanco-massa"
+          href="/rastreio-de-dados"
           className="text-[0.8125rem] font-bold uppercase tracking-wide text-brand hover:underline shrink-0 inline-flex items-center gap-1"
         >
           Saiba como funciona

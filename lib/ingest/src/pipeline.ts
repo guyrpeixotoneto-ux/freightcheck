@@ -1612,7 +1612,7 @@ export async function stage(
     de Vigência ou as colunas de identidade — que é exatamente o que a origem
     renomear uma coluna estrutural produz. Sem esta guarda, o cenário nº 1 do
     produto terminava assim: todas as abas rebaixadas em silêncio, zero fatos,
-    importação "verde", e o balanço de massa fechando porque PIVOT é DESCARTE.
+    importação "verde", e o Rastreio de Dados fechando porque PIVOT é DESCARTE.
     Quem declara o tipo está afirmando "este arquivo é o export deste
     equipamento" — uma aba com linhas que não entra como fonte contradiz a
     declaração, e a contradição precisa parar a importação com o motivo à vista.

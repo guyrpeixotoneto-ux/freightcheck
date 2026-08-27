@@ -52,6 +52,21 @@ export interface Comparacao {
  * `/changes/latest`. O seletor de vigência não pode disparar esse cálculo só
  * por estar em tela.
  */
+/**
+ * `2026-08-01` → `01/08/26`, como a planilha do cliente escreve.
+ *
+ * Mora aqui, e não no seletor de janela onde nasceu, porque as duas telas do
+ * Plano de Ação escrevem a mesma data: a lista (`pages/justificativas.tsx`,
+ * pelo seletor) e a grade por placa (`pages/justificativas-placa.tsx`, nos
+ * cabeçalhos das colunas). Duas cópias do mesmo formato concordam no dia em que
+ * são escritas e discordam no seguinte — e a data da coluna precisa ser a mesma
+ * data do seletor logo acima dela.
+ */
+export function dataCurta(iso: string): string {
+  const [ano, mes, dia] = iso.split("-");
+  return ano && mes && dia ? `${dia}/${mes}/${ano.slice(2)}` : iso;
+}
+
 export function useComparacoes() {
   return useQuery({
     queryKey: ["change-sets", "justificativas"],
@@ -159,21 +174,6 @@ export interface AbaDeTipo {
   rotulo: string;
   /** Quantas placas da vigência caem nela. */
   total: number;
-}
-
-/**
- * `2026-08-01` → `01/08/26`, como a planilha do cliente escreve.
- *
- * Mora aqui, e não no seletor de janela onde nasceu, porque as duas telas do
- * Plano de Ação escrevem a mesma data: a lista (`pages/justificativas.tsx`,
- * pelo seletor) e a grade por placa (`pages/justificativas-placa.tsx`, nos
- * cabeçalhos das colunas). Duas cópias do mesmo formato concordam no dia em que
- * são escritas e discordam no seguinte — e a data da coluna precisa ser a mesma
- * data do seletor logo acima dela.
- */
-export function dataCurta(iso: string): string {
-  const [ano, mes, dia] = iso.split("-");
-  return ano && mes && dia ? `${dia}/${mes}/${ano.slice(2)}` : iso;
 }
 
 /**

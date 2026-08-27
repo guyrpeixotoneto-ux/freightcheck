@@ -21,7 +21,7 @@ import { createTestDatabase, type TestDb } from "../testing";
  * A origem renomeia uma coluna estrutural ("Vigencia" vira "Quinzena"), o
  * leitor rebaixa a aba a PIVOT sem nenhum ERRO, zero fatos entram, e a
  * importação terminava PREVIEWED → PROMOTED com cara de sucesso. Pior: no
- * balanço de massa a aba PIVOT é DESCARTE, então até o alarme desenhado para
+ * Rastreio de Dados a aba PIVOT é DESCARTE, então até o alarme desenhado para
  * pegar sumiço "fechava". Era exatamente o defeito que o produto existe para
  * denunciar na origem, acontecendo dentro dele.
  *

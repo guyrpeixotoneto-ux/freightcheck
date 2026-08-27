@@ -1,7 +1,7 @@
 /**
  * Os destinos possíveis de uma célula do arquivo — e nada além destes.
  *
- * O balanço de massa é uma conta de conservação: a massa que entra tem de
+ * O Rastreio de Dados é uma conta de conservação: a massa que entra tem de
  * aparecer inteira do outro lado, distribuída entre destinos **declarados**. A
  * lista abaixo é essa declaração. Ela mora em código, e não numa tabela, pelo
  * mesmo motivo de `labels.ts` e `families.ts`: é decisão de produto, precisa
