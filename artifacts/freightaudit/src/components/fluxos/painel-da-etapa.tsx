@@ -10,6 +10,7 @@ import {
   Plus,
   Scale,
   Server,
+  Timer,
   Trash2,
   Users,
   X,
@@ -17,12 +18,14 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { cn } from "@/lib/utils";
 import {
   enderecoDaAcao,
   itensPorEspecie,
   type Catalogo,
   type Etapa,
 } from "@/lib/fluxos";
+import { severidadeNoCatalogo, type DiagnosticoDaEtapa } from "@/lib/fluxos-analise";
 
 /**
  * O PAINEL DA ETAPA — tudo o que o cartão não mostra, sem perder o fluxo de vista.
@@ -38,6 +41,19 @@ import {
  * costuma dar errado → o que trava → o que mediríamos → onde eu olho isso no
  * FreightCheck. A última é a que transforma um documento num mapa navegável.
  *
+ * ---------------------------------------------------------------------------
+ * Um painel só, para as seis visualizações
+ * ---------------------------------------------------------------------------
+ *
+ * Fluxo, Raias, Jornada, Mapa, Lista e Gargalos abrem **este** componente. Não
+ * existe um detalhe por visualização, e essa é a decisão que impede a
+ * divergência futura: um painel por aba seria seis lugares para lembrar de
+ * acrescentar um campo novo, e cinco lugares para esquecer.
+ *
+ * A única coisa que varia é o `diagnostico`, que a visualização de Gargalos
+ * passa e as outras não — a resposta a "por que esta etapa está destacada?",
+ * escrita com os sinais que a análise de fato encontrou.
+ *
  * **Seção sem conteúdo não aparece.** Nem como título vazio, nem como "nenhum
  * item cadastrado": num painel com oito seções, sete avisos de vazio afogam o
  * que existe. O convite a cadastrar está no botão de editar, no cabeçalho.
@@ -51,6 +67,7 @@ const ICONES: Record<string, typeof Server> = {
   Hourglass,
   Scale,
   Gauge,
+  Timer,
 };
 
 function Secao({
@@ -83,6 +100,7 @@ export function PainelDaEtapa({
   etapa,
   catalogo,
   podeEditar,
+  diagnostico,
   onEditar,
   onSeguinte,
   onExcluir,
@@ -91,6 +109,8 @@ export function PainelDaEtapa({
   etapa: Etapa;
   catalogo: Catalogo | undefined;
   podeEditar: boolean;
+  /** Só a visualização de Gargalos passa: por que esta etapa está destacada. */
+  diagnostico?: DiagnosticoDaEtapa;
   onEditar: () => void;
   /** Cria a próxima etapa **já ligada** a esta. */
   onSeguinte: () => void;
@@ -162,6 +182,45 @@ export function PainelDaEtapa({
       </header>
 
       <div className="divide-y">
+        {diagnostico && (
+          <Secao titulo="Por que esta etapa está destacada?" icone="AlertTriangle">
+            <div className="mb-2 flex items-center gap-2">
+              <span
+                className={cn(
+                  "h-2 w-2 rounded-full",
+                  severidadeNoCatalogo(diagnostico.severidade).ponto,
+                )}
+              />
+              <span className="text-sm font-medium text-foreground">
+                {severidadeNoCatalogo(diagnostico.severidade).rotulo}
+              </span>
+            </div>
+            {diagnostico.sinais.length > 0 ? (
+              <ul className="space-y-1">
+                {diagnostico.sinais.map((sinal) => (
+                  <li key={sinal.chave} className="flex gap-2 text-sm text-foreground">
+                    <span aria-hidden className="text-muted-foreground">
+                      •
+                    </span>
+                    {sinal.rotulo}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              /*
+                Sem sinal e sem cadastro é "dados insuficientes", não "tudo
+                certo". A frase é a informação verdadeira, e é ela que diz a
+                quem lê o que falta preencher.
+              */
+              <p className="text-sm text-muted-foreground">
+                {diagnostico.severidade === "sem-avaliacao"
+                  ? "Dados insuficientes — esta etapa não tem responsável, sistema, prazo nem descrição cadastrados."
+                  : "Nenhum sinal encontrado no que está cadastrado."}
+              </p>
+            )}
+          </Secao>
+        )}
+
         {etapa.descricao && (
           <Secao titulo="O que acontece aqui">
             <Texto>{etapa.descricao}</Texto>
