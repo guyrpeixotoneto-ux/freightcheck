@@ -1,0 +1,617 @@
+import { useQuery, useQueryClient, type QueryKey } from "@tanstack/react-query";
+import { fetchJson } from "@/lib/api";
+import { apresentar } from "@/lib/apresentar-erro";
+
+/**
+ * FLUXOS OPERACIONAIS — o que a tela sabe sobre o módulo, num arquivo só.
+ *
+ * Aqui moram os tipos que a API promete, as consultas, as mutações e — a parte
+ * que os testes cobrem — as **funções puras** que transformam o fluxo guardado
+ * no que o canvas desenha e no que o painel lateral mostra.
+ *
+ * A divisão é a mesma do resto deste pacote (`vitest.config.ts` a explica): o
+ * que é decisão vira função pura e é provado; o que é pixel fica no componente.
+ * Por isso a montagem dos nós e das setas, o agrupamento do material da etapa e
+ * o endereço de uma ação estão neste arquivo, e não dentro do `.tsx`.
+ *
+ * **O catálogo não é copiado aqui.** Ele vem de `/api/fluxos/catalogo`, servido
+ * pelo mesmo motor que valida a gravação. Uma segunda lista no front é o jeito
+ * conhecido de um tipo novo existir no banco e não aparecer na tela.
+ */
+
+// ---------------------------------------------------------------------------
+// O que a API promete
+// ---------------------------------------------------------------------------
+
+export type StatusDoFluxo = "RASCUNHO" | "ATIVO" | "ARQUIVADO";
+export type StatusDaEtapa = "ATIVO" | "ATENCAO" | "INATIVO";
+
+export interface Fluxo {
+  id: string;
+  empresaId: string;
+  nome: string;
+  slug: string;
+  descricao: string | null;
+  objetivo: string | null;
+  categoria: string;
+  status: StatusDoFluxo;
+  versao: number;
+  dono: string | null;
+  criadoEm: string;
+  atualizadoEm: string;
+  criadoPor: string | null;
+  atualizadoPor: string | null;
+}
+
+export interface FluxoNaLista extends Fluxo {
+  etapas: number;
+  conexoes: number;
+}
+
+export interface ItemDaEtapa {
+  id: string;
+  especie: string;
+  nome: string;
+  descricao: string | null;
+  obrigatorio: boolean | null;
+  link: string | null;
+  ordem: number;
+}
+
+export interface IndicadorDaEtapa {
+  id: string;
+  nome: string;
+  descricao: string | null;
+  unidade: string | null;
+  sentido: string;
+  origem: string | null;
+  ordem: number;
+}
+
+export interface AcaoDaEtapa {
+  id: string;
+  titulo: string;
+  descricao: string | null;
+  rota: string;
+  parametros: Record<string, string> | null;
+  icone: string | null;
+  ordem: number;
+}
+
+export interface Etapa {
+  id: string;
+  fluxoId: string;
+  nome: string;
+  descricao: string | null;
+  tipo: string;
+  ordem: number;
+  responsavel: string | null;
+  area: string | null;
+  objetivo: string | null;
+  sistemaPrincipal: string | null;
+  regras: string | null;
+  observacoes: string | null;
+  status: StatusDaEtapa;
+  posX: number;
+  posY: number;
+  chaveMonitoramento: string | null;
+  itens: ItemDaEtapa[];
+  indicadores: IndicadorDaEtapa[];
+  acoes: AcaoDaEtapa[];
+}
+
+export interface Conexao {
+  id: string;
+  fluxoId: string;
+  origemEtapaId: string;
+  destinoEtapaId: string;
+  tipo: string;
+  rotulo: string | null;
+  ordem: number;
+}
+
+export interface FluxoCompleto {
+  fluxo: Fluxo;
+  etapas: Etapa[];
+  conexoes: Conexao[];
+}
+
+export interface EntradaDoCatalogo {
+  valor: string;
+  rotulo: string;
+  descricao: string;
+}
+
+export interface TipoDeEtapaNoCatalogo extends EntradaDoCatalogo {
+  forma: "retangulo" | "losango" | "pilula";
+  classe: string;
+  icone: string;
+}
+
+export interface TipoDeConexaoNoCatalogo extends EntradaDoCatalogo {
+  tracejada: boolean;
+  classe: string;
+}
+
+export interface EspecieNoCatalogo extends EntradaDoCatalogo {
+  titulo: string;
+  icone: string;
+  usaLink: boolean;
+  usaObrigatorio: boolean;
+}
+
+export interface ModeloNoCatalogo {
+  slug: string;
+  nome: string;
+  categoria: string;
+  resumo: string;
+  semeado: boolean;
+  etapas: number;
+}
+
+export interface Catalogo {
+  tiposDeEtapa: TipoDeEtapaNoCatalogo[];
+  tiposDeConexao: TipoDeConexaoNoCatalogo[];
+  especiesDeItem: EspecieNoCatalogo[];
+  statusDoFluxo: EntradaDoCatalogo[];
+  statusDaEtapa: EntradaDoCatalogo[];
+  sentidosDoIndicador: EntradaDoCatalogo[];
+  modelos: ModeloNoCatalogo[];
+}
+
+// ---------------------------------------------------------------------------
+// Funções puras — o que os testes cobrem
+// ---------------------------------------------------------------------------
+
+/**
+ * O endereço de uma ação, montado num lugar só.
+ *
+ * A regra é a mesma do servidor (`enderecoDaAcao` em `@workspace/fluxos`), e a
+ * repetição é deliberada: o servidor precisa dela para **recusar** a gravação, e
+ * a tela precisa dela para **navegar**. O que não pode existir é uma terceira
+ * cópia dentro de um componente, montando `?` e `&` à mão — que é como um botão
+ * acaba levando para o lugar errado sem ninguém notar.
+ *
+ * Devolve `null` quando a rota não é um caminho interno. Nulo aqui significa
+ * "não ofereça este botão": mesmo que uma linha antiga do banco carregue algo
+ * estranho, a tela não monta navegação para fora.
+ */
+export function enderecoDaAcao(acao: {
+  rota: string;
+  parametros?: Record<string, string> | null;
+}): string | null {
+  const rota = acao.rota?.trim() ?? "";
+  if (!rota.startsWith("/") || rota.startsWith("//") || /\s/.test(rota)) return null;
+
+  const parametros = acao.parametros ?? null;
+  if (!parametros) return rota;
+  const query = new URLSearchParams();
+  /* Ordenado, para que o mesmo conjunto produza sempre o mesmo endereço. */
+  for (const chave of Object.keys(parametros).sort()) query.set(chave, parametros[chave]);
+  const texto = query.toString();
+  if (texto === "") return rota;
+  return rota.includes("?") ? `${rota}&${texto}` : `${rota}?${texto}`;
+}
+
+/**
+ * A frase de uma falha, para o rodapé de um formulário.
+ *
+ * Usa a mesma autoridade do resto do produto (`apresentar-erro.ts`) e escolhe a
+ * frase mais próxima que houver: a orientação quando existe, a mensagem do
+ * servidor quando não — que é onde caem as recusas nomeadas deste módulo, com o
+ * texto que o motor escreveu. O último degrau é genérico e existe para nunca
+ * ficar em branco: um formulário que recusa em silêncio é o pior desfecho.
+ */
+export function fraseDoErro(erro: unknown): string {
+  const a = apresentar(erro);
+  return a.principal ?? a.mensagemCrua ?? "Não foi possível concluir. Tente de novo.";
+}
+
+/** O material da etapa, agrupado por espécie, na ordem do catálogo. */
+export function itensPorEspecie(
+  etapa: Pick<Etapa, "itens">,
+  especies: EspecieNoCatalogo[],
+): { especie: EspecieNoCatalogo; itens: ItemDaEtapa[] }[] {
+  return especies
+    .map((especie) => ({
+      especie,
+      itens: etapa.itens
+        .filter((i) => i.especie === especie.valor)
+        .sort((a, b) => a.ordem - b.ordem),
+    }))
+    .filter((grupo) => grupo.itens.length > 0);
+}
+
+/**
+ * O que o cartão mostra, e nada além.
+ *
+ * Nome, tipo e — quando há — quem responde. É a regra de UX escrita como
+ * função: o resto do que a etapa guarda aparece no painel lateral, sob demanda.
+ * Estar aqui, e não no JSX, é o que a torna verificável: um teste afirma que
+ * uma etapa com dez falhas cadastradas continua produzindo um cartão de três
+ * linhas.
+ */
+export interface ResumoDoCartao {
+  nome: string;
+  tipo: string;
+  /** `Faturamento · Analista` — área e responsável, o que houver. */
+  quemResponde: string | null;
+  /** Quantos "detalhes" existem por trás, para o discreto contador do rodapé. */
+  detalhes: number;
+  atencao: boolean;
+}
+
+export function resumoDoCartao(etapa: Etapa): ResumoDoCartao {
+  const partes = [etapa.area, etapa.responsavel].filter(
+    (p): p is string => typeof p === "string" && p.trim() !== "",
+  );
+  return {
+    nome: etapa.nome,
+    tipo: etapa.tipo,
+    quemResponde: partes.length > 0 ? partes.join(" · ") : null,
+    detalhes: etapa.itens.length + etapa.indicadores.length + etapa.acoes.length,
+    atencao: etapa.status === "ATENCAO",
+  };
+}
+
+/** Um nó do canvas — o formato que o `@xyflow/react` consome. */
+export interface NoDoCanvas {
+  id: string;
+  type: "etapa";
+  position: { x: number; y: number };
+  data: { etapa: Etapa; resumo: ResumoDoCartao; tipo: TipoDeEtapaNoCatalogo | undefined };
+}
+
+/** Uma seta do canvas. */
+export interface SetaDoCanvas {
+  id: string;
+  source: string;
+  target: string;
+  label: string | undefined;
+  animated: boolean;
+  style: { stroke: string; strokeWidth: number; strokeDasharray?: string };
+  markerEnd: { type: "arrowclosed"; color: string };
+  data: { conexao: Conexao };
+}
+
+/**
+ * As cores das setas — literais, e não classes do Tailwind.
+ *
+ * É a única exceção à regra de "cor vem do tema", e ela tem motivo: o SVG que o
+ * canvas desenha recebe `stroke` como propriedade, não como classe, e a ponta da
+ * flecha (`markerEnd`) precisa da mesma cor como valor. Ficam aqui, ao lado do
+ * mapeamento, em vez de espalhadas pelo componente.
+ */
+const COR_DA_CONEXAO: Record<string, string> = {
+  SEQUENCIA: "#94a3b8",
+  DECISAO_SIM: "#10b981",
+  DECISAO_NAO: "#f43f5e",
+  EXCECAO: "#f59e0b",
+  RETRABALHO: "#8b5cf6",
+};
+
+const COR_PADRAO = "#94a3b8";
+
+/**
+ * O fluxo guardado vira o que o canvas desenha.
+ *
+ * Função pura, e é o coração da tela de visualização: dela sai a afirmação de
+ * que **toda** etapa cadastrada aparece e de que **toda** conexão vira seta —
+ * inclusive a de retrabalho, que volta. Uma conexão cujas pontas não existem
+ * mais é descartada em vez de virar uma seta para o nada.
+ */
+export function montarCanvas(
+  completo: FluxoCompleto,
+  catalogo: Pick<Catalogo, "tiposDeEtapa" | "tiposDeConexao"> | undefined,
+): { nos: NoDoCanvas[]; setas: SetaDoCanvas[] } {
+  const tipos = new Map((catalogo?.tiposDeEtapa ?? []).map((t) => [t.valor, t]));
+  const tiposDeConexao = new Map((catalogo?.tiposDeConexao ?? []).map((t) => [t.valor, t]));
+  const existe = new Set(completo.etapas.map((e) => e.id));
+
+  const nos: NoDoCanvas[] = completo.etapas.map((etapa) => ({
+    id: etapa.id,
+    type: "etapa",
+    position: { x: etapa.posX, y: etapa.posY },
+    data: { etapa, resumo: resumoDoCartao(etapa), tipo: tipos.get(etapa.tipo) },
+  }));
+
+  const setas: SetaDoCanvas[] = completo.conexoes
+    .filter((c) => existe.has(c.origemEtapaId) && existe.has(c.destinoEtapaId))
+    .map((conexao) => {
+      const cor = COR_DA_CONEXAO[conexao.tipo] ?? COR_PADRAO;
+      const tracejada = tiposDeConexao.get(conexao.tipo)?.tracejada ?? false;
+      return {
+        id: conexao.id,
+        source: conexao.origemEtapaId,
+        target: conexao.destinoEtapaId,
+        label: conexao.rotulo ?? undefined,
+        /* Só o desvio se move: animar tudo vira ruído e some com a distinção. */
+        animated: conexao.tipo === "RETRABALHO",
+        style: {
+          stroke: cor,
+          strokeWidth: 1.5,
+          ...(tracejada ? { strokeDasharray: "6 4" } : {}),
+        },
+        markerEnd: { type: "arrowclosed" as const, color: cor },
+        data: { conexao },
+      };
+    });
+
+  return { nos, setas };
+}
+
+/**
+ * O texto que resume o fluxo no cabeçalho: "16 etapas · 20 conexões · com
+ * retorno".
+ *
+ * "Com retorno" é a leitura de que o processo não é linear — a informação mais
+ * útil de um mapa operacional, e a que some quando o desenho é uma lista.
+ */
+export function resumoDoFluxo(completo: FluxoCompleto): string {
+  const partes = [
+    `${completo.etapas.length} ${completo.etapas.length === 1 ? "etapa" : "etapas"}`,
+    `${completo.conexoes.length} ${completo.conexoes.length === 1 ? "conexão" : "conexões"}`,
+  ];
+  if (completo.conexoes.some((c) => c.tipo === "RETRABALHO" || c.tipo === "EXCECAO")) {
+    partes.push("com retorno");
+  }
+  return partes.join(" · ");
+}
+
+/** As categorias presentes na lista, para o filtro — sem repetição e ordenadas. */
+export function categoriasDaLista(fluxos: FluxoNaLista[]): string[] {
+  return [...new Set(fluxos.map((f) => f.categoria))].sort((a, b) => a.localeCompare(b, "pt-BR"));
+}
+
+/** O recorte da lista — o que a tela mostra depois dos filtros. */
+export function filtrarFluxos(
+  fluxos: FluxoNaLista[],
+  filtro: { busca?: string; categoria?: string | null },
+): FluxoNaLista[] {
+  const busca = (filtro.busca ?? "").trim().toLowerCase();
+  return fluxos.filter((f) => {
+    if (filtro.categoria && f.categoria !== filtro.categoria) return false;
+    if (busca === "") return true;
+    return (
+      f.nome.toLowerCase().includes(busca) ||
+      f.categoria.toLowerCase().includes(busca) ||
+      (f.descricao ?? "").toLowerCase().includes(busca) ||
+      (f.dono ?? "").toLowerCase().includes(busca)
+    );
+  });
+}
+
+/** `2026-08-27T12:00:00Z` → `27/08/2026`. Sem biblioteca, e sem recuar o dia. */
+export function comoData(iso: string): string {
+  const [data] = iso.split("T");
+  const [ano, mes, dia] = data.split("-");
+  return dia && mes && ano ? `${dia}/${mes}/${ano}` : iso;
+}
+
+// ---------------------------------------------------------------------------
+// Consultas e mutações
+// ---------------------------------------------------------------------------
+
+/**
+ * A empresa vai na query string de **toda** chamada, e faz parte da chave do
+ * cache.
+ *
+ * Sem ela na chave, trocar de empresa mostraria o fluxo da anterior enquanto a
+ * consulta nova não voltasse — o único jeito de esta tela exibir dado de outra
+ * empresa, e justamente o que o módulo inteiro existe para não fazer.
+ */
+function comEmpresa(caminho: string, empresaId: string | null, extra?: Record<string, string>) {
+  const query = new URLSearchParams(extra ?? {});
+  if (empresaId) query.set("empresaId", empresaId);
+  const texto = query.toString();
+  return texto === "" ? caminho : `${caminho}?${texto}`;
+}
+
+export const chaveDosFluxos = (empresaId: string | null, incluirArquivados: boolean): QueryKey => [
+  "fluxos",
+  empresaId,
+  incluirArquivados,
+];
+
+export const chaveDoFluxo = (empresaId: string | null, fluxoId: string): QueryKey => [
+  "fluxo",
+  empresaId,
+  fluxoId,
+];
+
+export function useCatalogoDeFluxos() {
+  return useQuery({
+    queryKey: ["fluxos", "catalogo"],
+    queryFn: () => fetchJson<Catalogo>("/fluxos/catalogo"),
+    /* O vocabulário só muda quando o código muda: não vale reconsultar. */
+    staleTime: Infinity,
+  });
+}
+
+export function useFluxos(empresaId: string | null, incluirArquivados: boolean) {
+  return useQuery({
+    queryKey: chaveDosFluxos(empresaId, incluirArquivados),
+    enabled: empresaId !== null,
+    queryFn: () =>
+      fetchJson<{ empresaId: string; fluxos: FluxoNaLista[] }>(
+        comEmpresa("/fluxos", empresaId, incluirArquivados ? { incluirArquivados: "1" } : {}),
+      ),
+  });
+}
+
+export function useFluxo(empresaId: string | null, fluxoId: string) {
+  return useQuery({
+    queryKey: chaveDoFluxo(empresaId, fluxoId),
+    enabled: empresaId !== null && fluxoId !== "",
+    queryFn: () => fetchJson<FluxoCompleto>(comEmpresa(`/fluxos/${fluxoId}`, empresaId)),
+  });
+}
+
+/**
+ * As escritas, todas por aqui — e cada uma com o seu caminho nomeado.
+ *
+ * Nenhuma delas monta URL fora deste arquivo, e nenhuma manda `empresaId` no
+ * corpo: o escopo é query string, sempre, porque é assim que o servidor o lê e
+ * é o único jeito de as duas pontas não discordarem.
+ */
+/*
+  O cabeçalho é escrito **literalmente** em cada chamada, e não por uma
+  constante compartilhada. Parece repetição e é uma regra deste repositório com
+  teste próprio: `lib/__tests__/corpo-json.test.ts` varre o texto-fonte
+  procurando todo `body: JSON.stringify` sem `Content-Type: application/json` no
+  mesmo objeto de opções. Uma constante passaria batido pela varredura — e a
+  varredura existe porque, sem o cabeçalho, o `express.json()` não desserializa
+  e a rota roda com `req.body` vazio, sem erro nenhum.
+*/
+export const escritas = {
+  criarFluxo: (empresaId: string | null, corpo: unknown) =>
+    fetchJson<Fluxo>(comEmpresa("/fluxos", empresaId), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(corpo),
+    }),
+  criarDeModelo: (empresaId: string | null, modelo: string) =>
+    fetchJson<Fluxo>(comEmpresa("/fluxos/de-modelo", empresaId), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ modelo }),
+    }),
+  atualizarFluxo: (empresaId: string | null, fluxoId: string, corpo: unknown) =>
+    fetchJson<Fluxo>(comEmpresa(`/fluxos/${fluxoId}`, empresaId), {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(corpo),
+    }),
+  arquivar: (empresaId: string | null, fluxoId: string) =>
+    fetchJson<Fluxo>(comEmpresa(`/fluxos/${fluxoId}/arquivar`, empresaId), { method: "POST" }),
+  desarquivar: (empresaId: string | null, fluxoId: string) =>
+    fetchJson<Fluxo>(comEmpresa(`/fluxos/${fluxoId}/desarquivar`, empresaId), { method: "POST" }),
+  duplicar: (empresaId: string | null, fluxoId: string, nome: string) =>
+    fetchJson<Fluxo>(comEmpresa(`/fluxos/${fluxoId}/duplicar`, empresaId), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ nome }),
+    }),
+  criarEtapa: (empresaId: string | null, fluxoId: string, corpo: unknown) =>
+    fetchJson<Etapa>(comEmpresa(`/fluxos/${fluxoId}/etapas`, empresaId), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(corpo),
+    }),
+  atualizarEtapa: (empresaId: string | null, fluxoId: string, etapaId: string, corpo: unknown) =>
+    fetchJson<Etapa>(comEmpresa(`/fluxos/${fluxoId}/etapas/${etapaId}`, empresaId), {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(corpo),
+    }),
+  excluirEtapa: (empresaId: string | null, fluxoId: string, etapaId: string) =>
+    fetchJson<void>(comEmpresa(`/fluxos/${fluxoId}/etapas/${etapaId}`, empresaId), {
+      method: "DELETE",
+    }),
+  salvarPosicoes: (
+    empresaId: string | null,
+    fluxoId: string,
+    posicoes: { etapaId: string; posX: number; posY: number }[],
+  ) =>
+    fetchJson<{ gravadas: number }>(comEmpresa(`/fluxos/${fluxoId}/posicoes`, empresaId), {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ posicoes }),
+    }),
+  criarConexao: (empresaId: string | null, fluxoId: string, corpo: unknown) =>
+    fetchJson<Conexao>(comEmpresa(`/fluxos/${fluxoId}/conexoes`, empresaId), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(corpo),
+    }),
+  atualizarConexao: (
+    empresaId: string | null,
+    fluxoId: string,
+    conexaoId: string,
+    corpo: unknown,
+  ) =>
+    fetchJson<Conexao>(comEmpresa(`/fluxos/${fluxoId}/conexoes/${conexaoId}`, empresaId), {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(corpo),
+    }),
+  excluirConexao: (empresaId: string | null, fluxoId: string, conexaoId: string) =>
+    fetchJson<void>(comEmpresa(`/fluxos/${fluxoId}/conexoes/${conexaoId}`, empresaId), {
+      method: "DELETE",
+    }),
+  salvarItens: (
+    empresaId: string | null,
+    fluxoId: string,
+    etapaId: string,
+    especie: string,
+    itens: unknown[],
+  ) =>
+    fetchJson<Etapa>(
+      comEmpresa(`/fluxos/${fluxoId}/etapas/${etapaId}/itens/${especie}`, empresaId),
+      { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itens }) },
+    ),
+  salvarIndicadores: (
+    empresaId: string | null,
+    fluxoId: string,
+    etapaId: string,
+    indicadores: unknown[],
+  ) =>
+    fetchJson<Etapa>(comEmpresa(`/fluxos/${fluxoId}/etapas/${etapaId}/indicadores`, empresaId), {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ indicadores }),
+    }),
+  salvarAcoes: (empresaId: string | null, fluxoId: string, etapaId: string, acoes: unknown[]) =>
+    fetchJson<Etapa>(comEmpresa(`/fluxos/${fluxoId}/etapas/${etapaId}/acoes`, empresaId), {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ acoes }),
+    }),
+};
+
+/**
+ * Depois de escrever, a leitura do fluxo é invalidada — e a lista também.
+ *
+ * Uma só função porque toda escrita deste módulo muda as duas coisas: o desenho
+ * aberto e a contagem de etapas que a listagem mostra. Espalhar dois
+ * `invalidateQueries` por mutação é como uma delas acaba esquecida.
+ */
+export function useRecarregarFluxos(empresaId: string | null) {
+  const cliente = useQueryClient();
+  return (fluxoId?: string) => {
+    void cliente.invalidateQueries({ queryKey: ["fluxos", empresaId] });
+    void cliente.invalidateQueries({ queryKey: chaveDosFluxos(empresaId, true) });
+    void cliente.invalidateQueries({ queryKey: chaveDosFluxos(empresaId, false) });
+    if (fluxoId) void cliente.invalidateQueries({ queryKey: chaveDoFluxo(empresaId, fluxoId) });
+  };
+}
+
+// ---------------------------------------------------------------------------
+// A empresa
+// ---------------------------------------------------------------------------
+
+export interface EmpresaCadastrada {
+  id: string | null;
+  nome: string;
+  cnpj: string;
+  cnpjFormatado: string;
+  estado: string;
+}
+
+/**
+ * As empresas que este módulo aceita — as unidades **cadastradas**.
+ *
+ * A rota `/unidades/canonicas` também devolve as unidades apenas detectadas no
+ * acervo, que têm `id` nulo: elas não são identidade ainda, e um fluxo não pode
+ * pertencer a algo que ninguém confirmou. Filtrar aqui é o que faz o seletor
+ * não oferecer uma escolha que a gravação recusaria.
+ */
+export function useEmpresas() {
+  return useQuery({
+    queryKey: ["fluxos", "empresas"],
+    queryFn: async () => {
+      const linhas = await fetchJson<EmpresaCadastrada[]>("/unidades/canonicas");
+      return linhas.filter((u): u is EmpresaCadastrada & { id: string } => u.id !== null);
+    },
+  });
+}

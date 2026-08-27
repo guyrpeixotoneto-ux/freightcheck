@@ -45,6 +45,8 @@ import Vigencias from '@/pages/vigencias';
 import Versoes from '@/pages/versoes';
 import Unidades from '@/pages/unidades';
 import Configuracoes from '@/pages/configuracoes';
+import Fluxos from '@/pages/fluxos';
+import TelaDoFluxo from '@/pages/fluxo';
 import Frota360 from '@/pages/frota-360';
 import RadarTrechos from '@/pages/radar-trechos';
 import QlpAdministrativo from '@/pages/qlp-administrativo';
@@ -342,6 +344,13 @@ function Router() {
       <Route path="/versoes" component={Versoes} />
       <Route path="/unidades" component={Unidades} />
       <Route path="/configuracoes" component={Configuracoes} />
+      {/*
+        Administração → Fluxos Operacionais. A rota do fluxo aberto vem depois
+        da lista, e as duas são absolutas como o resto da seção: o mapa dos
+        processos é o mesmo venha-se de qual ambiente for.
+      */}
+      <Route path="/fluxos" component={Fluxos} />
+      <Route path="/fluxos/:id" component={TelaDoFluxo} />
 
       {/*
         As telas que o menu anuncia e o banco ainda não sustenta.

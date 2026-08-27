@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils"
  * "Excluir importação". Por isso a rolagem mora aqui, na camada de fora: a
  * caixa fica presa à altura da janela, e o que não couber se alcança rolando.
  */
-const Dialog = ({ open, onOpenChange, children }: { open?: boolean, onOpenChange?: (open: boolean) => void, children: React.ReactNode }) => {
+const Dialog = ({ open, onOpenChange, className, children }: { open?: boolean, onOpenChange?: (open: boolean) => void, className?: string, children: React.ReactNode }) => {
   // Com a caixa aberta, a roda do mouse é dela. Sem isto a página de trás
   // rola por baixo do modal e a leitura se perde.
   React.useEffect(() => {
@@ -38,7 +38,16 @@ const Dialog = ({ open, onOpenChange, children }: { open?: boolean, onOpenChange
         className="relative flex min-h-full items-center justify-center p-4"
         onClick={(e) => { if (e.target === e.currentTarget) onOpenChange?.(false) }}
       >
-        <div className="relative z-50 w-full max-w-lg rounded-xl border bg-background p-6 shadow-lg animate-in fade-in zoom-in-95">
+        {/*
+            `max-w-lg` continua sendo o padrão de toda caixa deste produto — o
+            `className` só existe para quem precisa de outra largura, e é
+            aplicado depois para poder vencê-la. Foi o editor de etapa de Fluxos
+            Operacionais que pediu: três abas de formulário em 32rem viram uma
+            coluna estreita com rolagem de metro. Sem esta propriedade, a saída
+            seria uma segunda caixa modal copiada desta — e aí seriam duas
+            regras de rolagem, duas de foco e duas de tecla Escape.
+        */}
+        <div className={cn("relative z-50 w-full max-w-lg rounded-xl border bg-background p-6 shadow-lg animate-in fade-in zoom-in-95", className)}>
           {children}
         </div>
       </div>
