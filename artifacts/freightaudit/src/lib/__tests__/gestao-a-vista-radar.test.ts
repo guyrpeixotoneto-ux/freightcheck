@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  atributosDaCelula,
   intensidadeDaCelula,
   janelaDoRadar,
   maiorImpactoDaGrade,
@@ -8,7 +9,7 @@ import {
   resumoDoRadar,
   type UnidadeDoRadar,
 } from "../gestao-a-vista-radar";
-import type { Movimentos } from "@/lib/analise";
+import type { Movimentos, RangeEntry } from "@/lib/analise";
 
 /** Um `/changes/range` com só o que o Radar lê: movimentos e lacunas. */
 function movimentos(
@@ -216,5 +217,142 @@ describe("intensidade da grade", () => {
   it("sem impacto apurado nenhum, ninguém acende — nem a célula com mais alterações", () => {
     expect(intensidadeDaCelula(0, 0)).toBe(0);
     expect(maiorImpactoDaGrade([])).toBe(0);
+  });
+});
+
+/** Um `/changes/range` com só o que a abertura de célula lê: as entradas. */
+function comEntradas(
+  entradas: {
+    period: string;
+    parameterKey: string;
+    amount?: number | null;
+    periodicity?: string | null;
+  }[],
+): Movimentos {
+  return {
+    movements: [],
+    gaps: [],
+    entries: entradas.map((e, i) => ({
+      key: `${e.parameterKey}-${i}`,
+      period: e.period,
+      periodLabel: e.period,
+      parameterKey: e.parameterKey,
+      parameterName: e.parameterKey,
+      family: "REMUNERACAO",
+      attributeCode: null,
+      amount: e.amount === undefined ? null : e.amount,
+      periodicity: e.periodicity === undefined ? "MENSAL" : e.periodicity,
+    })) as unknown as RangeEntry[],
+  } as unknown as Movimentos;
+}
+
+describe("atributosDaCelula", () => {
+  it("separa os lados do impacto e ordena pelo módulo", () => {
+    const abertura = atributosDaCelula(
+      unidade(
+        "A",
+        comEntradas([
+          { period: "2026-02", parameterKey: "pedagio", amount: -300 },
+          { period: "2026-02", parameterKey: "diesel", amount: -5000 },
+          { period: "2026-02", parameterKey: "bonus", amount: 900 },
+        ]),
+      ),
+      "2026-02",
+      "MENSAL",
+    );
+
+    expect(abertura.desfavoraveis.map((a) => a.parameterKey)).toEqual(["diesel", "pedagio"]);
+    expect(abertura.favoraveis.map((a) => a.parameterKey)).toEqual(["bonus"]);
+    expect(abertura.impacto).toBe(-4400);
+  });
+
+  it("não deixa vazar entrada de outra vigência para dentro da célula", () => {
+    const abertura = atributosDaCelula(
+      unidade(
+        "A",
+        comEntradas([
+          { period: "2026-01", parameterKey: "diesel", amount: -9000 },
+          { period: "2026-02", parameterKey: "diesel", amount: -100 },
+        ]),
+      ),
+      "2026-02",
+      "MENSAL",
+    );
+
+    expect(abertura.impacto).toBe(-100);
+    expect(abertura.desfavoraveis[0].alteracoes).toBe(1);
+  });
+
+  it("soma os canais da unidade, porque a célula clicada é a soma deles", () => {
+    const abertura = atributosDaCelula(
+      unidade(
+        "A",
+        comEntradas([{ period: "2026-02", parameterKey: "diesel", amount: -1000 }]),
+        comEntradas([{ period: "2026-02", parameterKey: "diesel", amount: -500 }]),
+      ),
+      "2026-02",
+      "MENSAL",
+    );
+
+    expect(abertura.desfavoraveis).toHaveLength(1);
+    expect(abertura.desfavoraveis[0].impacto).toBe(-1500);
+    expect(abertura.desfavoraveis[0].alteracoes).toBe(2);
+  });
+
+  it("sem preço não vira zero — o atributo aparece com a contagem que tem", () => {
+    const abertura = atributosDaCelula(
+      unidade(
+        "A",
+        comEntradas([
+          { period: "2026-02", parameterKey: "manutencao", amount: null },
+          { period: "2026-02", parameterKey: "manutencao", amount: null },
+        ]),
+      ),
+      "2026-02",
+      "MENSAL",
+    );
+
+    expect(abertura.favoraveis).toEqual([]);
+    expect(abertura.desfavoraveis).toEqual([]);
+    expect(abertura.semDinheiro[0]).toMatchObject({
+      parameterKey: "manutencao",
+      alteracoes: 2,
+      semApuracao: 2,
+      impacto: 0,
+    });
+  });
+
+  it("dinheiro de outra periodicidade fica de fora da soma e dito na linha", () => {
+    // A grade inteira é desenhada numa periodicidade de cada vez: somar o
+    // anual aqui seria o mesmo erro que `montarRadar` recusa na célula.
+    const abertura = atributosDaCelula(
+      unidade(
+        "A",
+        comEntradas([
+          { period: "2026-02", parameterKey: "seguro", amount: -12000, periodicity: "ANUAL" },
+        ]),
+      ),
+      "2026-02",
+      "MENSAL",
+    );
+
+    expect(abertura.impacto).toBe(0);
+    expect(abertura.semDinheiro[0]).toMatchObject({
+      parameterKey: "seguro",
+      alteracoes: 1,
+      outraPeriodicidade: 1,
+      semApuracao: 0,
+    });
+  });
+
+  it("sem periodicidade escolhida, nenhuma entrada entra na soma", () => {
+    const abertura = atributosDaCelula(
+      unidade("A", comEntradas([{ period: "2026-02", parameterKey: "diesel", amount: -1000 }])),
+      "2026-02",
+      null,
+    );
+
+    expect(abertura.impacto).toBe(0);
+    expect(abertura.semDinheiro).toHaveLength(1);
   });
 });
