@@ -670,7 +670,7 @@ export function composicaoDasAlteracoes(
 }
 
 // ---------------------------------------------------------------------------
-// Cobertura e integridade — o que vem do Balanço de Massa
+// Cobertura e integridade — o que vem do Rastreio de Dados
 // ---------------------------------------------------------------------------
 
 export interface Cobertura {
@@ -728,7 +728,7 @@ export interface Integridade {
 /**
  * A conservação da importação, reduzida a uma linha.
  *
- * Os três desfechos são os mesmos do Balanço de Massa, na mesma ordem de
+ * Os três desfechos são os mesmos do Rastreio de Dados, na mesma ordem de
  * gravidade: célula sem destino, importação que não fecha, e a conta fechada.
  * Reduzir os três a "ok / não ok" seria perder justamente a distinção entre
  * "sumiu massa" e "o que está gravado não é o que a importação disse ter
@@ -905,6 +905,230 @@ export function maioresImpactos(
     linhas,
     outras: [...porPeriodicidade.keys()].filter((p) => p !== dominante),
   };
+}
+
+// ---------------------------------------------------------------------------
+// O impacto de uma família, aberto nos dois lados
+// ---------------------------------------------------------------------------
+
+/** Um parâmetro dentro de um dos lados de uma família. */
+export interface LinhaDaFamilia {
+  key: string;
+  name: string;
+  /** Alterações com preço deste parâmetro **deste lado**. */
+  changes: number;
+  vehicles: number;
+  amount: number;
+  /** O comprimento da barra: 0 a 1 do maior valor **das duas listas da família**. */
+  proporcao: number;
+}
+
+/**
+ * Uma família da remuneração com os dois movimentos que ela produziu, dentro de
+ * uma periodicidade só.
+ *
+ * O pódio do Dashboard mostrava o líquido de cada família e mais nada, e o
+ * líquido é uma subtração — uma subtração esconde as duas parcelas. Medido em
+ * agosto/2026: `Aquisição e financiamento` aparecia como "+R$ 21.905/mês", e o
+ * que aconteceu foi R$ 26.557 entrando e R$ 4.652 saindo. A tela publicava
+ * "R$ 4.652 de perdas" num cartão do topo e, logo abaixo, um pódio inteiramente
+ * verde onde nenhuma perda existia — quem lesse as duas coisas não teria como
+ * saber onde a perda estava.
+ *
+ * Por isso a família viaja com `ganhos`, `perdas` e `liquido`, e os três fecham
+ * por construção: os dois lados saem da mesma varredura de linhas do servidor
+ * (`ExecutiveSummary.sides`), somados aqui por família. A soma dos `ganhos` de
+ * todas as famílias é o `gains.total` da periodicidade, e o mesmo vale para as
+ * perdas.
+ */
+export interface ImpactoDeFamilia {
+  code: string;
+  name: string;
+  /** O que somou. Sempre ≥ 0. */
+  ganhos: number;
+  /** O que tirou. Sempre ≤ 0 — o sinal fica, porque é ele que diz o que faz. */
+  perdas: number;
+  liquido: number;
+  /**
+   * Quanto dinheiro se mexeu — `ganhos + |perdas|`.
+   *
+   * É por ele que o pódio ordena, e não pelo líquido. Uma família que subiu
+   * R$ 40 mil num lugar e caiu R$ 39 mil noutro tem líquido de R$ 1.000 e é o
+   * maior acontecimento da vigência; ranqueada pelo saldo, ela apareceria em
+   * último ou (com saldo exatamente zero) sumiria da lista.
+   */
+  movimento: number;
+  /** Alterações com preço da família nesta periodicidade, dos dois lados. */
+  alteracoes: number;
+  /** Do maior movimento do ranking: 0 a 1. É o comprimento da barra, e nada mais. */
+  proporcao: number;
+  /**
+   * A fatia verde da barra, de 0 a 1 — `ganhos ÷ movimento`.
+   *
+   * Proporção de movimento, e não de saldo, pela mesma razão de
+   * `LadosDoImpacto.fatiaDeGanho`. `null` quando nada se mexeu.
+   */
+  fatiaDeGanho: number | null;
+  /** Os parâmetros de cada lado, o maior em módulo primeiro. */
+  parametros: { ganhos: LinhaDaFamilia[]; perdas: LinhaDaFamilia[] };
+}
+
+/**
+ * As famílias da vigência com os seus dois lados, a de maior movimento
+ * primeiro — dentro de uma periodicidade só.
+ *
+ * Lê `summary.sides`, e não `families[].impact`: a árvore de famílias publica
+ * só o líquido de cada uma, e é exatamente o líquido que apaga a perda dentro
+ * de uma família que também ganhou. `sides` traz as linhas partidas por sinal,
+ * que é o único lugar do contrato onde os dois números existem separados.
+ *
+ * Pede `Pick<FamiliesView, "summary">` porque `FamiliesOverview` tem um
+ * `summary` na mesma forma: o Dashboard em modo Geral lê o mesmo pódio da soma
+ * de unidades com esta função, sem uma segunda conta escrita para ele.
+ *
+ * Devolve `[]` quando a periodicidade pedida não existe na vigência — nunca uma
+ * lista de famílias zeradas, que se leria como "nada mexeu" no lugar de "esta
+ * pergunta não tem resposta aqui".
+ */
+export function impactoPorFamilia(
+  view: Pick<FamiliesView, "summary"> | null | undefined,
+  periodicidade: string | null,
+): ImpactoDeFamilia[] {
+  const sides = view?.summary.sides ?? [];
+  if (periodicidade === null || sides.length === 0) return [];
+  const escolhido = sides.find((s) => s.periodicity === periodicidade);
+  if (!escolhido) return [];
+
+  interface Acumulado {
+    code: string;
+    name: string;
+    ganhos: number;
+    perdas: number;
+    alteracoes: number;
+    parametros: { ganhos: Omit<LinhaDaFamilia, "proporcao">[]; perdas: Omit<LinhaDaFamilia, "proporcao">[] };
+  }
+
+  const porFamilia = new Map<string, Acumulado>();
+  const acumular = (lado: Lado, side: ImpactSide) => {
+    for (const parametro of side.parameters) {
+      const atual =
+        porFamilia.get(parametro.family) ??
+        {
+          code: parametro.family,
+          name: parametro.familyName,
+          ganhos: 0,
+          perdas: 0,
+          alteracoes: 0,
+          parametros: { ganhos: [], perdas: [] },
+        };
+      if (lado === "ganhos") atual.ganhos += parametro.amount;
+      else atual.perdas += parametro.amount;
+      atual.alteracoes += parametro.changes;
+      atual.parametros[lado].push({
+        key: parametro.key,
+        name: parametro.name,
+        changes: parametro.changes,
+        vehicles: parametro.vehicles,
+        amount: parametro.amount,
+      });
+      porFamilia.set(parametro.family, atual);
+    }
+  };
+  acumular("ganhos", escolhido.gains);
+  acumular("perdas", escolhido.losses);
+
+  const arredondar = (valor: number) => Number(valor.toFixed(2));
+  const cruas = [...porFamilia.values()].map((f) => {
+    const ganhos = arredondar(f.ganhos);
+    const perdas = arredondar(f.perdas);
+    return { ...f, ganhos, perdas, movimento: arredondar(ganhos + Math.abs(perdas)) };
+  });
+  const teto = cruas.reduce((maior, f) => Math.max(maior, f.movimento), 0);
+
+  return cruas
+    .map((f) => {
+      // A escala das duas listas é a mesma, e é a da própria família: dentro de
+      // uma periodicidade a comparação entre um ganho e uma perda é legítima, e
+      // uma escala por lado faria a maior perda e o maior ganho terminarem no
+      // mesmo lugar, dizendo com a figura que os dois pesam igual.
+      const tetoInterno = Math.max(
+        ...f.parametros.ganhos.map((p) => Math.abs(p.amount)),
+        ...f.parametros.perdas.map((p) => Math.abs(p.amount)),
+        0,
+      );
+      const comBarra = (linhas: Omit<LinhaDaFamilia, "proporcao">[]): LinhaDaFamilia[] =>
+        linhas
+          .map((p) => ({ ...p, proporcao: tetoInterno === 0 ? 0 : Math.abs(p.amount) / tetoInterno }))
+          .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
+      return {
+        code: f.code,
+        name: f.name,
+        ganhos: f.ganhos,
+        perdas: f.perdas,
+        liquido: arredondar(f.ganhos + f.perdas),
+        movimento: f.movimento,
+        alteracoes: f.alteracoes,
+        proporcao: teto === 0 ? 0 : f.movimento / teto,
+        fatiaDeGanho: f.movimento === 0 ? null : f.ganhos / f.movimento,
+        parametros: { ganhos: comBarra(f.parametros.ganhos), perdas: comBarra(f.parametros.perdas) },
+      };
+    })
+    .sort(
+      (a, b) =>
+        b.movimento - a.movimento ||
+        Math.abs(b.liquido) - Math.abs(a.liquido) ||
+        a.name.localeCompare(b.name, "pt-BR"),
+    );
+}
+
+/**
+ * A conta por trás de uma linha do pódio de famílias — o painel que ela abre.
+ *
+ * Mesma disciplina do `DetalheDoImpacto` de um parâmetro: sai da **mesma
+ * resposta** que desenhou o pódio, nunca de um pedido novo. O número lido na
+ * linha e o número lido na gaveta têm de ser o mesmo número, e dois pedidos a
+ * vigências diferentes é exatamente como eles deixariam de ser.
+ *
+ * `null` quando a família pedida não mexeu nesta periodicidade — um endereço
+ * com `?familia=` colado depois de trocar a vigência fecha a gaveta em vez de
+ * abrir um painel vazio.
+ */
+export interface DetalheDaFamilia {
+  periodicity: string;
+  familia: ImpactoDeFamilia;
+  /**
+   * A mesma família nas outras periodicidades da vigência.
+   *
+   * Em linha própria e sempre: R$/mês e R$/ano não somam, aqui nem em lugar
+   * nenhum do produto. Aparecem como troca de assunto em vez de sumirem.
+   */
+  outras: { periodicity: string; ganhos: number; perdas: number; liquido: number }[];
+}
+
+export function detalheDaFamilia(
+  view: Pick<FamiliesView, "summary"> | null | undefined,
+  code: string | null,
+  periodicidade: string | null,
+): DetalheDaFamilia | null {
+  if (!view || code === null || periodicidade === null) return null;
+  const familia = impactoPorFamilia(view, periodicidade).find((f) => f.code === code);
+  if (!familia) return null;
+  const outras = (view.summary.sides ?? [])
+    .filter((s) => s.periodicity !== periodicidade)
+    .flatMap((s) => {
+      const naOutra = impactoPorFamilia(view, s.periodicity).find((f) => f.code === code);
+      return naOutra
+        ? [
+            {
+              periodicity: s.periodicity,
+              ganhos: naOutra.ganhos,
+              perdas: naOutra.perdas,
+              liquido: naOutra.liquido,
+            },
+          ]
+        : [];
+    });
+  return { periodicity: periodicidade, familia, outras };
 }
 
 // ---------------------------------------------------------------------------
@@ -1164,7 +1388,7 @@ export function pontosDeAtencao(
       titulo: integridadeDosDados.titulo,
       detalhe: integridadeDosDados.detalhe,
       valor: null,
-      href: "/balanco-massa",
+      href: "/rastreio-de-dados",
     });
   }
 
@@ -1239,7 +1463,7 @@ export function pontosDeAtencaoDaVisaoGeral(
       titulo: integridadeDosDados.titulo,
       detalhe: integridadeDosDados.detalhe,
       valor: null,
-      href: "/balanco-massa",
+      href: "/rastreio-de-dados",
     });
   }
 

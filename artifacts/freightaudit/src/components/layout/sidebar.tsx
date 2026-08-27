@@ -380,11 +380,11 @@ export const NAV_GROUPS: NavGroup[] = [
     itens: [
       { href: "/importacoes", label: "Importações", icon: CloudDownload, contador: "importacoes" },
       /*
-        O Balanço de Massa vem logo depois de Importações porque é a conferência
+        O Rastreio de Dados vem logo depois de Importações porque é a conferência
         dela: a pergunta que ele faz — toda célula que o arquivo trouxe chegou a
         algum lugar? — só existe a respeito do arquivo que acabou de entrar.
       */
-      { href: "/balanco-massa", label: "Balanço de massa", icon: Scale },
+      { href: "/rastreio-de-dados", label: "Rastreio de Dados", icon: Scale },
       { href: "/curadoria", label: "Curadoria", icon: FileSearch, contador: "curadoria" },
       { href: "/categorias", label: "Categorias", icon: FolderTree },
       /*

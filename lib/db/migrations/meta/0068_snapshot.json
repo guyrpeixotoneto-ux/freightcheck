@@ -1,6 +1,6 @@
 {
-  "id": "fbb30eb3-0ae2-416b-a6ab-7b0e49a52081",
-  "prevId": "0da31176-aa62-4634-9b83-139ea9ef4ec0",
+  "id": "30a0dcae-8ee7-49d1-a2c3-1562150dbc1b",
+  "prevId": "fbb30eb3-0ae2-416b-a6ab-7b0e49a52081",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -10181,6 +10181,983 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.fluxo_conexao": {
+      "name": "fluxo_conexao",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "empresa_id": {
+          "name": "empresa_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "fluxo_id": {
+          "name": "fluxo_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "origem_etapa_id": {
+          "name": "origem_etapa_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "destino_etapa_id": {
+          "name": "destino_etapa_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "tipo": {
+          "name": "tipo",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'SEQUENCIA'"
+        },
+        "rotulo": {
+          "name": "rotulo",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ordem": {
+          "name": "ordem",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "criado_em": {
+          "name": "criado_em",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "atualizado_em": {
+          "name": "atualizado_em",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "fluxo_conexao_par_uq": {
+          "name": "fluxo_conexao_par_uq",
+          "columns": [
+            {
+              "expression": "origem_etapa_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "destino_etapa_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "tipo",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "fluxo_conexao_fluxo_idx": {
+          "name": "fluxo_conexao_fluxo_idx",
+          "columns": [
+            {
+              "expression": "fluxo_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "fluxo_conexao_fluxo_empresa_fk": {
+          "name": "fluxo_conexao_fluxo_empresa_fk",
+          "tableFrom": "fluxo_conexao",
+          "tableTo": "fluxo_operacional",
+          "columnsFrom": [
+            "fluxo_id",
+            "empresa_id"
+          ],
+          "columnsTo": [
+            "id",
+            "empresa_id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "fluxo_conexao_origem_fk": {
+          "name": "fluxo_conexao_origem_fk",
+          "tableFrom": "fluxo_conexao",
+          "tableTo": "fluxo_etapa",
+          "columnsFrom": [
+            "origem_etapa_id",
+            "fluxo_id"
+          ],
+          "columnsTo": [
+            "id",
+            "fluxo_id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "fluxo_conexao_destino_fk": {
+          "name": "fluxo_conexao_destino_fk",
+          "tableFrom": "fluxo_conexao",
+          "tableTo": "fluxo_etapa",
+          "columnsFrom": [
+            "destino_etapa_id",
+            "fluxo_id"
+          ],
+          "columnsTo": [
+            "id",
+            "fluxo_id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "fluxo_conexao_sem_laco": {
+          "name": "fluxo_conexao_sem_laco",
+          "value": "\"fluxo_conexao\".\"origem_etapa_id\" <> \"fluxo_conexao\".\"destino_etapa_id\""
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.fluxo_etapa_acao": {
+      "name": "fluxo_etapa_acao",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "empresa_id": {
+          "name": "empresa_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "fluxo_id": {
+          "name": "fluxo_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "etapa_id": {
+          "name": "etapa_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "titulo": {
+          "name": "titulo",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "descricao": {
+          "name": "descricao",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "rota": {
+          "name": "rota",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "parametros": {
+          "name": "parametros",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "icone": {
+          "name": "icone",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ordem": {
+          "name": "ordem",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "criado_em": {
+          "name": "criado_em",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "fluxo_etapa_acao_etapa_idx": {
+          "name": "fluxo_etapa_acao_etapa_idx",
+          "columns": [
+            {
+              "expression": "etapa_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "fluxo_etapa_acao_etapa_fk": {
+          "name": "fluxo_etapa_acao_etapa_fk",
+          "tableFrom": "fluxo_etapa_acao",
+          "tableTo": "fluxo_etapa",
+          "columnsFrom": [
+            "etapa_id",
+            "fluxo_id"
+          ],
+          "columnsTo": [
+            "id",
+            "fluxo_id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "fluxo_etapa_acao_fluxo_empresa_fk": {
+          "name": "fluxo_etapa_acao_fluxo_empresa_fk",
+          "tableFrom": "fluxo_etapa_acao",
+          "tableTo": "fluxo_operacional",
+          "columnsFrom": [
+            "fluxo_id",
+            "empresa_id"
+          ],
+          "columnsTo": [
+            "id",
+            "empresa_id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "fluxo_etapa_acao_titulo_nao_vazio": {
+          "name": "fluxo_etapa_acao_titulo_nao_vazio",
+          "value": "length(btrim(\"fluxo_etapa_acao\".\"titulo\")) > 0"
+        },
+        "fluxo_etapa_acao_rota_interna": {
+          "name": "fluxo_etapa_acao_rota_interna",
+          "value": "\"fluxo_etapa_acao\".\"rota\" ~ '^/'"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.fluxo_etapa_indicador": {
+      "name": "fluxo_etapa_indicador",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "empresa_id": {
+          "name": "empresa_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "fluxo_id": {
+          "name": "fluxo_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "etapa_id": {
+          "name": "etapa_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "nome": {
+          "name": "nome",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "descricao": {
+          "name": "descricao",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "unidade": {
+          "name": "unidade",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "sentido": {
+          "name": "sentido",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'NEUTRO'"
+        },
+        "origem": {
+          "name": "origem",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ordem": {
+          "name": "ordem",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "criado_em": {
+          "name": "criado_em",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "fluxo_etapa_indicador_etapa_idx": {
+          "name": "fluxo_etapa_indicador_etapa_idx",
+          "columns": [
+            {
+              "expression": "etapa_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "fluxo_etapa_indicador_etapa_fk": {
+          "name": "fluxo_etapa_indicador_etapa_fk",
+          "tableFrom": "fluxo_etapa_indicador",
+          "tableTo": "fluxo_etapa",
+          "columnsFrom": [
+            "etapa_id",
+            "fluxo_id"
+          ],
+          "columnsTo": [
+            "id",
+            "fluxo_id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "fluxo_etapa_indicador_fluxo_empresa_fk": {
+          "name": "fluxo_etapa_indicador_fluxo_empresa_fk",
+          "tableFrom": "fluxo_etapa_indicador",
+          "tableTo": "fluxo_operacional",
+          "columnsFrom": [
+            "fluxo_id",
+            "empresa_id"
+          ],
+          "columnsTo": [
+            "id",
+            "empresa_id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "fluxo_etapa_indicador_nome_nao_vazio": {
+          "name": "fluxo_etapa_indicador_nome_nao_vazio",
+          "value": "length(btrim(\"fluxo_etapa_indicador\".\"nome\")) > 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.fluxo_etapa_item": {
+      "name": "fluxo_etapa_item",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "empresa_id": {
+          "name": "empresa_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "fluxo_id": {
+          "name": "fluxo_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "etapa_id": {
+          "name": "etapa_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "especie": {
+          "name": "especie",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "nome": {
+          "name": "nome",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "descricao": {
+          "name": "descricao",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "obrigatorio": {
+          "name": "obrigatorio",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "link": {
+          "name": "link",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ordem": {
+          "name": "ordem",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "criado_em": {
+          "name": "criado_em",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "fluxo_etapa_item_etapa_idx": {
+          "name": "fluxo_etapa_item_etapa_idx",
+          "columns": [
+            {
+              "expression": "etapa_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "especie",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "fluxo_etapa_item_especie_idx": {
+          "name": "fluxo_etapa_item_especie_idx",
+          "columns": [
+            {
+              "expression": "empresa_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "especie",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "fluxo_etapa_item_etapa_fk": {
+          "name": "fluxo_etapa_item_etapa_fk",
+          "tableFrom": "fluxo_etapa_item",
+          "tableTo": "fluxo_etapa",
+          "columnsFrom": [
+            "etapa_id",
+            "fluxo_id"
+          ],
+          "columnsTo": [
+            "id",
+            "fluxo_id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "fluxo_etapa_item_fluxo_empresa_fk": {
+          "name": "fluxo_etapa_item_fluxo_empresa_fk",
+          "tableFrom": "fluxo_etapa_item",
+          "tableTo": "fluxo_operacional",
+          "columnsFrom": [
+            "fluxo_id",
+            "empresa_id"
+          ],
+          "columnsTo": [
+            "id",
+            "empresa_id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "fluxo_etapa_item_nome_nao_vazio": {
+          "name": "fluxo_etapa_item_nome_nao_vazio",
+          "value": "length(btrim(\"fluxo_etapa_item\".\"nome\")) > 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.fluxo_etapa": {
+      "name": "fluxo_etapa",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "empresa_id": {
+          "name": "empresa_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "fluxo_id": {
+          "name": "fluxo_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "nome": {
+          "name": "nome",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "descricao": {
+          "name": "descricao",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tipo": {
+          "name": "tipo",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'PROCESSO'"
+        },
+        "ordem": {
+          "name": "ordem",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "responsavel": {
+          "name": "responsavel",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "area": {
+          "name": "area",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "objetivo": {
+          "name": "objetivo",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "sistema_principal": {
+          "name": "sistema_principal",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "regras": {
+          "name": "regras",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "observacoes": {
+          "name": "observacoes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'ATIVO'"
+        },
+        "pos_x": {
+          "name": "pos_x",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "pos_y": {
+          "name": "pos_y",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "chave_monitoramento": {
+          "name": "chave_monitoramento",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "criado_em": {
+          "name": "criado_em",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "atualizado_em": {
+          "name": "atualizado_em",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "fluxo_etapa_fluxo_idx": {
+          "name": "fluxo_etapa_fluxo_idx",
+          "columns": [
+            {
+              "expression": "fluxo_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "fluxo_etapa_empresa_idx": {
+          "name": "fluxo_etapa_empresa_idx",
+          "columns": [
+            {
+              "expression": "empresa_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "fluxo_etapa_fluxo_empresa_fk": {
+          "name": "fluxo_etapa_fluxo_empresa_fk",
+          "tableFrom": "fluxo_etapa",
+          "tableTo": "fluxo_operacional",
+          "columnsFrom": [
+            "fluxo_id",
+            "empresa_id"
+          ],
+          "columnsTo": [
+            "id",
+            "empresa_id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "fluxo_etapa_id_fluxo_uq": {
+          "name": "fluxo_etapa_id_fluxo_uq",
+          "nullsNotDistinct": false,
+          "columns": [
+            "id",
+            "fluxo_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "fluxo_etapa_nome_nao_vazio": {
+          "name": "fluxo_etapa_nome_nao_vazio",
+          "value": "length(btrim(\"fluxo_etapa\".\"nome\")) > 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.fluxo_operacional": {
+      "name": "fluxo_operacional",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "empresa_id": {
+          "name": "empresa_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "nome": {
+          "name": "nome",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "slug": {
+          "name": "slug",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "descricao": {
+          "name": "descricao",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "objetivo": {
+          "name": "objetivo",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "categoria": {
+          "name": "categoria",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'RASCUNHO'"
+        },
+        "versao": {
+          "name": "versao",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "dono": {
+          "name": "dono",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "criado_em": {
+          "name": "criado_em",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "atualizado_em": {
+          "name": "atualizado_em",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "criado_por": {
+          "name": "criado_por",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "atualizado_por": {
+          "name": "atualizado_por",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "fluxo_operacional_empresa_slug_uq": {
+          "name": "fluxo_operacional_empresa_slug_uq",
+          "columns": [
+            {
+              "expression": "empresa_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "slug",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "fluxo_operacional_empresa_idx": {
+          "name": "fluxo_operacional_empresa_idx",
+          "columns": [
+            {
+              "expression": "empresa_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "fluxo_operacional_empresa_id_unidade_id_fk": {
+          "name": "fluxo_operacional_empresa_id_unidade_id_fk",
+          "tableFrom": "fluxo_operacional",
+          "tableTo": "unidade",
+          "columnsFrom": [
+            "empresa_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "fluxo_operacional_id_empresa_uq": {
+          "name": "fluxo_operacional_id_empresa_uq",
+          "nullsNotDistinct": false,
+          "columns": [
+            "id",
+            "empresa_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "fluxo_operacional_nome_nao_vazio": {
+          "name": "fluxo_operacional_nome_nao_vazio",
+          "value": "length(btrim(\"fluxo_operacional\".\"nome\")) > 0"
+        },
+        "fluxo_operacional_slug_nao_vazio": {
+          "name": "fluxo_operacional_slug_nao_vazio",
+          "value": "length(btrim(\"fluxo_operacional\".\"slug\")) > 0"
+        },
+        "fluxo_operacional_versao_positiva": {
+          "name": "fluxo_operacional_versao_positiva",
+          "value": "\"fluxo_operacional\".\"versao\" >= 1"
+        }
+      },
       "isRLSEnabled": false
     }
   },

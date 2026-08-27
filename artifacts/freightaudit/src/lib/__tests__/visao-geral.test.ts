@@ -5,10 +5,12 @@ import {
   composicaoDasAlteracoes,
   composicaoDoImpacto,
   detalheDaAlteracao,
+  detalheDaFamilia,
   detalheDoImpacto,
   equipamentoMaisTocado,
   escreverVariacao,
   frotaTotal,
+  impactoPorFamilia,
   impactosDaVigencia,
   integridade,
   ladosDoImpacto,
@@ -1429,12 +1431,207 @@ describe("os pontos de atenção da Visão Geral", () => {
     expect(pontos.some((p) => p.chave === "unidade")).toBe(false);
   });
 
-  it("a integridade da massa continua levando ao Balanço, que não recorta por unidade", () => {
+  it("a integridade da massa continua levando ao Rastreio de Dados, que não recorta por unidade", () => {
     const pontos = pontosDeAtencaoDaVisaoGeral(overview(), null, {
       ok: false,
       titulo: "Massa sem destino",
       detalhe: "165.743 células sem destino",
     });
-    expect(pontos.find((p) => p.chave === "integridade")!.href).toBe("/balanco-massa");
+    expect(pontos.find((p) => p.chave === "integridade")!.href).toBe("/rastreio-de-dados");
+  });
+});
+
+/**
+ * O impacto de uma família, aberto nos dois lados.
+ *
+ * O pódio do Dashboard mostrava o líquido de cada família, e o líquido é uma
+ * subtração — a subtração esconde as parcelas. Medido em agosto/2026: a tela
+ * publicava "Perdas mensais −R$ 4.652" no topo e, logo abaixo, um pódio
+ * inteiramente verde, porque a perda estava *dentro* de uma família que também
+ * ganhou. O que roda aqui são as quatro maneiras de essa leitura mentir:
+ *
+ * 1. Publicar um lado que não fecha com a lista que o explica.
+ * 2. Deixar a perda desaparecer dentro do líquido da família.
+ * 3. Sumir com uma família cujos dois lados se anulam.
+ * 4. Somar periodicidades para produzir "o impacto da família".
+ */
+describe("o impacto por família", () => {
+  const contribuidor = (
+    key: string,
+    name: string,
+    family: string,
+    familyName: string,
+    amount: number,
+    changes = 1,
+  ) => ({ key, name, family, familyName, changes, vehicles: 1, amount });
+
+  const lado = (parametros: ReturnType<typeof contribuidor>[]) => ({
+    total: Number(parametros.reduce((soma, p) => soma + p.amount, 0).toFixed(2)),
+    changes: parametros.reduce((soma, p) => soma + p.changes, 0),
+    vehicles: parametros.length,
+    parameters: parametros,
+  });
+
+  const comLados = (sides: FamiliesView["summary"]["sides"]): Pick<FamiliesView, "summary"> => ({
+    summary: {
+      impact: {
+        byPeriodicity: {},
+        brutoByPeriodicity: {},
+        rastro: { brutoByPeriodicity: {}, degraus: [], oficialByPeriodicity: {} },
+        excludedChanges: 0,
+        calculatedChanges: 0,
+        notCalculable: 0,
+      },
+      lossesByPeriodicity: {},
+      gainsByPeriodicity: {},
+      sides,
+      changes: 0,
+      groups: 0,
+      critical: 0,
+      locked: 0,
+      notCalculable: 0,
+      vehiclesTouched: 0,
+      topParameters: [],
+      topVehicles: [],
+    } as FamiliesView["summary"],
+  });
+
+  /*
+    O caso real de agosto/2026: `Aquisição e financiamento` somou R$ 26.557 e
+    tirou R$ 4.652 na mesma vigência, e o pódio publicava só o líquido de
+    R$ 21.905 — em verde, sem sinal nenhum da perda.
+  */
+  const agosto = comLados([
+    {
+      periodicity: "MENSAL",
+      net: 21931.0,
+      gains: lado([
+        contribuidor("AQUISICAO|Financiamento", "Financiamento", "AQUISICAO", "Aquisição e financiamento", 26557.0, 5),
+        contribuidor("REMUNERACAO|Lucro fixo", "Lucro fixo", "REMUNERACAO", "Modelos de remuneração", 26.0),
+      ]),
+      losses: lado([
+        contribuidor("AQUISICAO|Depreciação", "Depreciação", "AQUISICAO", "Aquisição e financiamento", -4652.0, 2),
+      ]),
+    },
+  ]);
+
+  it("publica os dois lados de cada família, e os três fecham", () => {
+    const [primeira] = impactoPorFamilia(agosto, "MENSAL");
+    expect(primeira.code).toBe("AQUISICAO");
+    expect(primeira.ganhos).toBe(26557);
+    expect(primeira.perdas).toBe(-4652);
+    expect(primeira.liquido).toBeCloseTo(primeira.ganhos + primeira.perdas, 2);
+    expect(primeira.liquido).toBe(21905);
+  });
+
+  it("não deixa a perda sumir dentro do líquido da família", () => {
+    // A soma das perdas das famílias é a perda da vigência: era ela que o pódio
+    // não tinha onde mostrar.
+    const perdas = impactoPorFamilia(agosto, "MENSAL").reduce((soma, f) => soma + f.perdas, 0);
+    expect(perdas).toBe(-4652);
+    const ganhos = impactoPorFamilia(agosto, "MENSAL").reduce((soma, f) => soma + f.ganhos, 0);
+    expect(ganhos).toBe(26583);
+  });
+
+  it("cada lado da família é a soma exata da lista que o explica", () => {
+    const [primeira] = impactoPorFamilia(agosto, "MENSAL");
+    const somaDosGanhos = primeira.parametros.ganhos.reduce((t, l) => t + l.amount, 0);
+    const somaDasPerdas = primeira.parametros.perdas.reduce((t, l) => t + l.amount, 0);
+    expect(somaDosGanhos).toBeCloseTo(primeira.ganhos, 2);
+    expect(somaDasPerdas).toBeCloseTo(primeira.perdas, 2);
+  });
+
+  it("ordena por movimento, e não por saldo", () => {
+    /*
+      Duas famílias: uma que mexeu R$ 79 mil e terminou em R$ 1.000, outra que
+      mexeu R$ 5 mil e terminou nos mesmos R$ 5 mil. Pelo saldo, a segunda
+      lideraria o pódio e a primeira apareceria como um fiapo — quando o que
+      aconteceu na vigência foi, sobretudo, a primeira.
+    */
+    const quaseEmpate = comLados([
+      {
+        periodicity: "MENSAL",
+        net: 6000,
+        gains: lado([
+          contribuidor("A|x", "x", "A", "Grande movimento", 40000),
+          contribuidor("B|y", "y", "B", "Só ganho", 5000),
+        ]),
+        losses: lado([contribuidor("A|z", "z", "A", "Grande movimento", -39000)]),
+      },
+    ]);
+    const podio = impactoPorFamilia(quaseEmpate, "MENSAL");
+    expect(podio.map((f) => f.code)).toEqual(["A", "B"]);
+    expect(podio[0].liquido).toBe(1000);
+    expect(podio[0].movimento).toBe(79000);
+    // A barra mede movimento: a família de saldo maior é a barra menor, porque
+    // foi ela que mexeu menos dinheiro.
+    expect(podio[0].proporcao).toBe(1);
+    expect(podio[1].proporcao).toBeCloseTo(5000 / 79000, 4);
+  });
+
+  it("não some com a família cujos dois lados se anulam", () => {
+    // Saldo zero e R$ 20 mil movimentados: com o filtro antigo (`amount !== 0`)
+    // esta família não existia na tela.
+    const anulada = comLados([
+      {
+        periodicity: "MENSAL",
+        net: 0,
+        gains: lado([contribuidor("A|x", "x", "A", "Anulada", 10000)]),
+        losses: lado([contribuidor("A|z", "z", "A", "Anulada", -10000)]),
+      },
+    ]);
+    const [familia] = impactoPorFamilia(anulada, "MENSAL");
+    expect(familia.liquido).toBe(0);
+    expect(familia.movimento).toBe(20000);
+    expect(familia.fatiaDeGanho).toBeCloseTo(0.5, 4);
+  });
+
+  it("põe as duas listas da família na mesma escala", () => {
+    const [primeira] = impactoPorFamilia(agosto, "MENSAL");
+    expect(primeira.parametros.ganhos[0].proporcao).toBe(1);
+    expect(primeira.parametros.perdas[0].proporcao).toBeCloseTo(4652 / 26557, 4);
+  });
+
+  it("não responde sobre periodicidade que esta vigência não tem", () => {
+    expect(impactoPorFamilia(agosto, "ANUAL")).toEqual([]);
+    expect(impactoPorFamilia(agosto, null)).toEqual([]);
+    expect(impactoPorFamilia(null, "MENSAL")).toEqual([]);
+  });
+
+  describe("a gaveta que a linha do pódio abre", () => {
+    it("abre a mesma família, com os mesmos dois lados da linha", () => {
+      const detalhe = detalheDaFamilia(agosto, "AQUISICAO", "MENSAL")!;
+      const [primeira] = impactoPorFamilia(agosto, "MENSAL");
+      expect(detalhe.periodicity).toBe("MENSAL");
+      expect(detalhe.familia).toEqual(primeira);
+    });
+
+    it("nunca soma periodicidades — as outras saem em linha própria", () => {
+      const comAnual = comLados([
+        ...agosto.summary.sides,
+        {
+          periodicity: "ANUAL",
+          net: -2100,
+          gains: lado([]),
+          losses: lado([
+            contribuidor("AQUISICAO|Seguro", "Seguro", "AQUISICAO", "Aquisição e financiamento", -2100),
+          ]),
+        },
+      ]);
+      const detalhe = detalheDaFamilia(comAnual, "AQUISICAO", "MENSAL")!;
+      expect(detalhe.familia.liquido).toBe(21905);
+      expect(detalhe.outras).toEqual([
+        { periodicity: "ANUAL", ganhos: 0, perdas: -2100, liquido: -2100 },
+      ]);
+    });
+
+    it("fica fechada quando a família pedida não mexeu nesta periodicidade", () => {
+      // O endereço com `?familia=` colado depois de trocar a vigência fecha a
+      // gaveta em vez de abrir um painel vazio.
+      expect(detalheDaFamilia(agosto, "MANUTENCAO", "MENSAL")).toBeNull();
+      expect(detalheDaFamilia(agosto, null, "MENSAL")).toBeNull();
+      expect(detalheDaFamilia(agosto, "AQUISICAO", null)).toBeNull();
+      expect(detalheDaFamilia(null, "AQUISICAO", "MENSAL")).toBeNull();
+    });
   });
 });

@@ -75,7 +75,7 @@ router.use("/fluxos", instrumentarCicloDaRequisicao);
 router.use(
   "/fluxos",
   contextoDeSchema(
-    "Fluxos Operacionais não tem onde guardar os processos: as tabelas que a migration 0067_fluxos_operacionais cria não existem neste banco.",
+    "Fluxos Operacionais não tem onde guardar os processos: as tabelas que a migration 0068_fluxos_operacionais cria não existem neste banco.",
   ),
 );
 

@@ -707,7 +707,7 @@ export const ARTIGOS: Artigo[] = [
       "*Book do Operador* — as regras, por bloco.\n\n" +
       "**Dados & governança**\n" +
       "*Importações* — subir a planilha e promover.\n" +
-      "*Balanço de massa* — se toda célula do arquivo chegou a algum lugar.\n" +
+      "*Rastreio de Dados* — se toda célula do arquivo chegou a algum lugar.\n" +
       "*Curadoria* — a semântica dos atributos e as confirmações.\n" +
       "*Cobertura de dados* — o que foi importado e o que falta.\n" +
       "*Versões* — mudança na fonte e correção da interpretação.\n\n" +
@@ -723,20 +723,22 @@ export const ARTIGOS: Artigo[] = [
   {
     id: "balanco-de-massa",
     area: "CONCEITO",
-    titulo: "O que o Balanço de Massa confere",
+    titulo: "O que o Rastreio de Dados confere",
     perguntas: [
+      "o que é o rastreio de dados",
       "o que é o balanço de massa",
       "como sei que nenhum dado se perdeu na importação",
       "a planilha inteira entrou no sistema",
       "o que o sistema descartou do arquivo",
     ],
     termos: [
-      "balanco", "balanco de massa", "conservacao", "sumiu", "perdeu", "perda",
-      "descarte", "residuo", "celula", "celulas", "conferencia", "fechamento",
-      "conciliacao", "o que nao entrou",
+      "rastreio", "rastreio de dados", "balanco", "balanco de massa",
+      "conservacao", "sumiu", "perdeu", "perda", "descarte", "residuo",
+      "celula", "celulas", "conferencia", "fechamento", "conciliacao",
+      "o que nao entrou",
     ],
     corpo:
-      "Todas as outras telas respondem *de onde veio este número*. O Balanço de Massa " +
+      "Todas as outras telas respondem *de onde veio este número*. O Rastreio de Dados " +
       "responde à pergunta inversa: **toda célula que o arquivo trouxe chegou a algum " +
       "lugar?** As duas importam, e só a segunda pega o defeito que não se vê — dado " +
       "que some não aparece em tela nenhuma, porque o que falta não é exibido.\n\n" +
@@ -753,7 +755,7 @@ export const ARTIGOS: Artigo[] = [
       "que sumiu sem destino, e é a única das três que significa defeito: o balanço " +
       "fecha quando ele é zero, e uma importação pode fechar tendo perdas.",
     fonte: "lib/balance/src/destinos.ts",
-    tela: { label: "Balanço de massa", href: "/balanco-massa" },
+    tela: { label: "Rastreio de Dados", href: "/rastreio-de-dados" },
   },
 
   // ══════════════════════════════════════════════════════════════════════════

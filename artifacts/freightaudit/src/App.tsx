@@ -5,7 +5,7 @@ import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import NotFound from '@/pages/not-found';
-import { Route, Switch, useLocation, useSearch, Router as WouterRouter } from 'wouter';
+import { Redirect, Route, Switch, useLocation, useSearch, Router as WouterRouter } from 'wouter';
 import { AuthProvider, useAuth } from '@/lib/auth';
 import {
   BASES_DE_FECHAMENTO,
@@ -30,7 +30,7 @@ import Alteracoes from '@/pages/alteracoes';
 import Parametros from '@/pages/parametros';
 import Comparar from '@/pages/comparar';
 import Importacoes from '@/pages/importacoes';
-import BalancoMassa from '@/pages/balanco-massa';
+import RastreioDeDados from '@/pages/rastreio-de-dados';
 import Composicao from '@/pages/composicao';
 import ComposicaoEquipamento from '@/pages/composicao-equipamento';
 import DRE from '@/pages/dre';
@@ -336,7 +336,15 @@ function Router() {
       <Route path="/composicao/:entityId" component={ComposicaoEquipamento} />
       <Route path="/dre" component={DRE} />
       <Route path="/dre/:entityId" component={DREVeiculo} />
-      <Route path="/balanco-massa" component={BalancoMassa} />
+      <Route path="/rastreio-de-dados" component={RastreioDeDados} />
+      {/*
+        A tela se chamava Balanço de Massa e morava em `/balanco-massa`. O
+        nome mudou, mas o endereço antigo continua vivo como redirecionamento
+        porque ele está em links já compartilhados e em abas abertas.
+      */}
+      <Route path="/balanco-massa">
+        <Redirect to="/rastreio-de-dados" />
+      </Route>
       <Route path="/analise-equipamentos" component={AnaliseEquipamentos} />
       <Route path="/curadoria" component={Curadoria} />
       <Route path="/categorias" component={Categorias} />

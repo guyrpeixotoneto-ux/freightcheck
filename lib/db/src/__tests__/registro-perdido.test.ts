@@ -134,6 +134,11 @@ describe("registro de migrations perdido", () => {
       // com o filtro NEUTRAL da anterior. Rodar é o certo e é idempotente:
       // `DROP VIEW IF EXISTS` antes do `CREATE`.
       "0065_alteracao_material",
+      // A 0067 só reemite o `COMMENT ON VIEW "fato_visivel"` com o nome novo da
+      // tela. Comentário não é objeto — a forma do schema é a mesma com o texto
+      // velho e com o novo, e nenhuma inspeção distingue os dois. Rodar é o
+      // certo e é idempotente: `COMMENT ON` substitui, não acumula.
+      "0067_rastreio_de_dados_no_comentario",
     ];
     expect(segunda.adopted).toEqual(
       primeira.applied.filter((tag) => !semObjetoNovo.includes(tag)),

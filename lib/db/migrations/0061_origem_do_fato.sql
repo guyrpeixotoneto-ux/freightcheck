@@ -130,7 +130,7 @@ CREATE INDEX IF NOT EXISTS "fact_origin_import_run_idx"
 -- que foi escondido, sem nada apontando o erro.
 --
 -- A view é a definição única. Quem lê fato lê `fato_visivel`; quem precisa da
--- tabela inteira — a escrita, a exclusão, o balanço de massa e as ferramentas
+-- tabela inteira — a escrita, a exclusão, o Rastreio de Dados e as ferramentas
 -- de proveniência, que existem justamente para enxergar o que está oculto —
 -- continua em `fact`, e a diferença fica visível no próprio texto da consulta.
 --

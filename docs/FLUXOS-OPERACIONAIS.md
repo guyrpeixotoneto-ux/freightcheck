@@ -101,7 +101,7 @@ Indicadores e ações ficam fora daquela tabela porque têm campos que só elas 
 
 ## 3. A migration
 
-`lib/db/migrations/0067_fluxos_operacionais.sql`, gerada por
+`lib/db/migrations/0068_fluxos_operacionais.sql`, gerada por
 `drizzle-kit generate` a partir do schema e depois tornada reentrante à mão, no
 padrão da `0015`, `0048` e `0049`: `CREATE TABLE IF NOT EXISTS`,
 `CREATE INDEX IF NOT EXISTS`, e as chaves estrangeiras dentro de um
@@ -111,8 +111,8 @@ Nenhuma migration anterior foi tocada. O journal e o snapshot foram atualizados
 pelo gerador; o arquivo foi renomeado para o nome descritivo e o journal
 acompanhou.
 
-Verificado: a fila inteira aplica do zero (`0000` … `0067`), e aplicar o
-`0067` duas vezes sobre o mesmo banco não produz erro.
+Verificado: a fila inteira aplica do zero (`0000` … `0068`), e aplicar o
+`0068` duas vezes sobre o mesmo banco não produz erro.
 
 ---
 

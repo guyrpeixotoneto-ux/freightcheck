@@ -66,7 +66,7 @@ import fluxosRouter from "./fluxos";
  * Não calcula nada — a aritmética inteira mora em `@workspace/fechamento`,
  * testada sem banco e sem HTTP.
  *
- * `balance` é o Balanço de Massa: a conta de conservação da importação —
+ * `balance` é o Rastreio de Dados: a conta de conservação da importação —
  * quantas células o arquivo trouxe, por quais destinos declarados elas saíram,
  * e o que sobrou sem destino. É a pergunta inversa da rastreabilidade, e a
  * única superfície que responde "sumiu alguma coisa?" em vez de "de onde veio

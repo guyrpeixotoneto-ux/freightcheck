@@ -236,7 +236,7 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
         */
         "justificativa",
         /*
-          As seis de Fluxos Operacionais, da `0067` — o mapa dos processos da
+          As seis de Fluxos Operacionais, da `0068` — o mapa dos processos da
           empresa. Aditivas pelo mesmo critério de todas as acima: nenhuma
           tabela existente muda de forma (a única referência para fora é
           `fluxo_operacional.empresa_id → unidade.id`, e `unidade` também é
@@ -354,7 +354,7 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
                junto com a tabela nova, e nomeá-las uma a uma congelaria a
                nomenclatura interna num teste que não fala sobre ela. */
             !c.startsWith("unidade_") &&
-            /* As de Fluxos Operacionais, da `0067`, pela mesma regra: são
+            /* As de Fluxos Operacionais, da `0068`, pela mesma regra: são
                dezenas — chave primária, seis chaves compostas, as `CHECK` de
                nome não vazio e a de rota interna — e todas vêm junto com as
                seis tabelas novas. Nomeá-las uma a uma congelaria a nomenclatura

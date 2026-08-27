@@ -383,7 +383,7 @@ const TABELAS_REMOVIDAS = [
   "fechamento_referencia_conteudo",
   "fechamento_referencia",
   /*
-    As seis de Fluxos Operacionais, da `0067` — e elas entram pela mesma razão
+    As seis de Fluxos Operacionais, da `0068` — e elas entram pela mesma razão
     das treze do Fechamento: o módulo é posterior a Production, então até a fila
     rodar lá toda tabela dele é uma tabela que a proposta do Publishing proporia
     criar.
@@ -397,7 +397,7 @@ const TABELAS_REMOVIDAS = [
     E elas vêm **antes de `unidade`** pelo mesmo motivo que
     `fechamento_referencia`: `fluxo_operacional.empresa_id` aponta para lá, e a
     mãe só sai depois da filha. Foi exatamente isto que o teste do bridge
-    acusou quando a `0067` entrou sem esta lista — "dependência inesperada em
+    acusou quando a `0068` entrou sem esta lista — "dependência inesperada em
     unidade: FK fluxo_operacional_empresa_id_unidade_id_fk". O bridge não estava
     errado; estava desatualizado, e a recusa foi ele dizendo isso.
 
@@ -2391,7 +2391,7 @@ function planoUp(): PassoUp[] {
   }
 
   /*
-    Fluxos Operacionais, da `0067` — as seis tabelas, o bloco de chaves
+    Fluxos Operacionais, da `0068` — as seis tabelas, o bloco de chaves
     estrangeiras e os dez índices.
 
     Vem **depois** da `0049` na ordem do `up`, que é a inversa da do `down`:
@@ -2410,7 +2410,7 @@ function planoUp(): PassoUp[] {
     falhar. Nenhuma consulta reconstrói isso, e é por isso que as seis exigem
     tabela vazia no `down`: ele só desce quando não há mapa a perder.
   */
-  const M67 = "0067_fluxos_operacionais";
+  const M68 = "0068_fluxos_operacionais";
   for (const tabela of [
     "fluxo_operacional",
     "fluxo_etapa",
@@ -2419,12 +2419,12 @@ function planoUp(): PassoUp[] {
     "fluxo_etapa_indicador",
     "fluxo_etapa_acao",
   ]) {
-    add(M67, tabela, levantar(M67, new RegExp(`CREATE TABLE IF NOT EXISTS "${tabela}" \\(`)));
+    add(M68, tabela, levantar(M68, new RegExp(`CREATE TABLE IF NOT EXISTS "${tabela}" \\(`)));
   }
   add(
-    M67,
+    M68,
     "FKs dos fluxos operacionais",
-    levantar(M67, /fluxo_operacional_empresa_id_unidade_id_fk/),
+    levantar(M68, /fluxo_operacional_empresa_id_unidade_id_fk/),
   );
   for (const indice of [
     "fluxo_operacional_empresa_slug_uq",
@@ -2438,7 +2438,7 @@ function planoUp(): PassoUp[] {
     "fluxo_etapa_indicador_etapa_idx",
     "fluxo_etapa_acao_etapa_idx",
   ]) {
-    add(M67, `índice ${indice}`, levantar(M67, new RegExp(`INDEX IF NOT EXISTS "${indice}"`)));
+    add(M68, `índice ${indice}`, levantar(M68, new RegExp(`INDEX IF NOT EXISTS "${indice}"`)));
   }
 
   const M42 = "0042_viagem_completa";
