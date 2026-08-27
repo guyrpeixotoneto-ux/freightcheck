@@ -1086,3 +1086,243 @@ continua custando 36 ms em vez de 14 s quando acontece.
 - `lib/comparison`, suíte inteira e serializada, com banco de verdade:
   **48 arquivos, 567 testes, todos passando.**
 - Typecheck do workspace inteiro: limpo.
+
+---
+
+# Parte V — o Radar de Alterações: a cascata e o portão
+
+**Data:** 27/08/2026 · **Escopo:** os itens 2 e 3 que a Parte IV deixou abertos
+(§25.2 e §25.3), no Radar de Alterações (`/gestao-a-vista?template=radar`).
+
+Ambiente da Parte IV, com uma diferença que importa: as comparações do seed
+foram **calculadas** (`computeMissingChangeSets`, 40 `change_set`, 5 séries).
+Sem elas o Radar desenhava uma grade vazia e nenhuma medição de tela dizia nada.
+Cada `/changes/range` passa a devolver 517 KB, 8 movimentos e 179 entradas — que
+é o tamanho que a Parte IV §26 declarou não ter medido.
+
+## 28. A cascata: três ondas, e a do meio era trabalho repetido
+
+Waterfall da entrada fria, timestamps reais (ms desde a navegação):
+
+```
+    162 →   183   /contexts                    ← a casca
+    190 →   762   /changes/range/overview      ← espera o /contexts
+    777 →  1279   /changes/range  287fcd4b     ┐
+    777 →  1211   /changes/range  787d163e     │ as cinco esperam
+    777 →  1242   /changes/range  ab8eddb1     │ o overview terminar
+    777 →  1239   /changes/range  ae920348     │
+    777 →  1282   /changes/range  d01ab038     ┘
+```
+
+### Quais dependências são reais
+
+| Aresta | Real? | Por quê |
+|---|---|---|
+| `/contexts` → janela (`from`/`to`) | **sim** | as vigências da janela saem de `periodosDisponiveis` |
+| janela → `/changes/range/overview` | **sim** | a rota recebe `from`/`to` |
+| janela → `/changes/range` | **sim** | idem |
+| `/changes/range/overview` → `/changes/range` | **não** | a lista `(unidade, scopeHash, canal)` do fan-out já está no `/contexts` |
+
+A última foi conferida contra o banco de medição, e não por leitura: os pares
+`(unidade, scopeHash, canal)` de `/contexts` e os de `unitsIncluded` são **o
+mesmo conjunto**, cinco a cinco — os dois nascem de `listContexts` no servidor.
+
+### Paralelizar foi a primeira tentativa, e piorou a tela
+
+Disparando o overview junto com as cinco leituras, a cascata some — uma onda só,
+tudo partindo aos 214 ms. E a tela vai de 760 ms para **1.363 ms**.
+
+O motivo está no servidor: `getRangeOverview` roda `getRangeAnalysis` uma vez
+por unidade × contexto — exatamente a conta que as cinco chamadas de
+`/changes/range` já pedem. Medido:
+
+| | tempo |
+|---|--:|
+| as 5 `/changes/range` sozinhas, em paralelo | 0,60 s |
+| `/changes/range/overview` sozinho | 0,49 s |
+| os dois juntos | **1,04 s** |
+
+Não havia onda a paralelizar. Havia trabalho a **não pedir duas vezes**. Serializar
+as ondas estava, por acidente, funcionando como limitador de vazão.
+
+### O conserto: o overview saiu da tela
+
+O overview entregava ao Radar duas coisas — `unitsIncluded` e `unitsExcluded` —,
+e as duas são agrupamento puro sobre o que o `/contexts` já traz. As três funções
+que o servidor usa para isso (`agruparPorUnidade`, `agruparPorCanal`,
+`chaveDaUnidade`) eram privadas de `families-view-overview.ts`, ao lado do código
+de banco. Saíram para `lib/comparison/src/agrupamento-de-unidades.ts`, sem
+nenhuma dependência de banco, e agora **servidor e tela chamam a mesma função** —
+que é o oposto de reescrever a régua no cliente. São genéricas (`<T extends
+ContextoAgrupavel>`) para os dois lados recuperarem o próprio tipo sem `as`.
+
+Waterfall depois — uma onda, oito requisições, sem o overview:
+
+```
+    187 →   204   /contexts
+    243 →   715   /changes/range  287fcd4b   ┐
+    243 →   951   /changes/range  787d163e   │ todas partem
+    243 →   937   /changes/range  ab8eddb1   │ assim que a janela existe
+    243 →   940   /changes/range  ae920348   │
+    243 →   940   /changes/range  d01ab038   ┘
+```
+
+## 29. O portão tudo-ou-nada, e o zero que ele escondia
+
+O portão era `overviewQuery.isLoading || movimentosPorContexto.some(isLoading)`.
+Mas o defeito pior não era a espera — era o que aparecia **depois** dela.
+
+`UnidadeDoRadar.movimentos` era `(Movimentos | null | undefined)[]`, e
+`montarRadar` tratava `undefined` (não respondeu) igual a "respondeu vazio":
+a unidade saía com todas as células em `sem-vigencia` e a linha em
+`0 alt. · R$ 0,00`. Uma unidade pendente era desenhada com a cara de uma unidade
+calma — e os quatro cartões do topo somavam esse zero como apuração fechada.
+Medido: a grade passava **477 ms exibindo zeros que ainda iam mudar**; com uma
+unidade que respondia 500, o zero ficava na tela **para sempre**.
+
+O que mudou:
+
+| # | Mudança | Onde |
+|--:|---|---|
+| 1 | `UnidadeDoRadar.estado` (`pendente`/`pronta`/`erro`), **obrigatório** | `lib/gestao-a-vista-radar.ts` |
+| 2 | Células `pendente` e `erro`, com desenho próprio, nunca `sem-vigencia` | idem |
+| 3 | `resumoDoRadar` soma só o que chegou e declara `parcial` + a cobertura | idem |
+| 4 | Linha pendente não imprime totais; imprime "carregando…" / "não respondeu" | `pages/gestao-a-vista.tsx` |
+| 5 | Faixa "N de M unidades carregadas" e "até agora" nos quatro cartões | idem |
+| 6 | Erro da tela = falha do `/contexts`; falha de uma unidade é da linha dela | idem |
+| 7 | `chaveDaLeitura` — a query de `/changes/range` montada num lugar só | `lib/gestao-a-vista-radar.ts` |
+| 8 | Resultado casado por **chave**, não por índice | `pages/gestao-a-vista.tsx` |
+| 9 | `signal` propagado: leitura de janela antiga é cancelada | idem |
+| 10 | Periodicidade dominante travada por janela | idem |
+
+Sobre o **10**: é uma dívida que o próprio progressivo criou.
+`periodicidadesDoRadar` ordena pelo módulo do total, e o total cresce a cada
+unidade que chega — a grade podia abrir em MENSAL com duas unidades lidas e
+virar para ANUAL na terceira, trocando a unidade de conta de todos os números
+sem ninguém pedir. A dominante agora trava na primeira que valer, por janela; o
+filtro continua com a última palavra.
+
+Sobre o **8**: a versão anterior casava `leituras[i]` com
+`movimentosPorContexto[i]` — duas listas montadas em momentos diferentes,
+alinhadas por índice, com `dataUpdatedAt.join("|")` como dependência do `useMemo`.
+Bastava a lista de contextos mudar de ordem entre dois refetches para a leitura
+de uma unidade aparecer na linha de outra.
+
+## 30. Medições — antes × depois
+
+Mediana de 3 entradas frias, Chromium real, bundle de produção, 5 unidades.
+"1ª linha com dado" é a métrica principal: **quando o primeiro número
+verdadeiro aparece**, não quando aparece um esqueleto.
+
+| Cenário | conteúdo útil | 1ª linha na tela | **1ª linha com dado** | consolidação | req | ondas |
+|---|--:|--:|--:|--:|--:|--:|
+| ANTES · localhost | 688 ms | 688 ms | 1.143 ms | 1.218 ms | 9 | 2 |
+| **DEPOIS · localhost** | **199 ms** | **199 ms** | **660 ms** | **734 ms** | 8 | **1** |
+| ANTES · banco a 15 ms de RTT | 820 ms | 820 ms | 1.426 ms | 1.505 ms | 9 | 2 |
+| **DEPOIS · banco a 15 ms** | **269 ms** | **269 ms** | **838 ms** | **883 ms** | 8 | **1** |
+
+Ganho: primeiro dado real **−42%** (1.143 → 660 ms), consolidação **−40%**,
+primeiro conteúdo na tela **−71%**.
+
+### Uma unidade lenta (+3 s numa das cinco)
+
+| | ANTES | DEPOIS |
+|---|--:|--:|
+| conteúdo útil | 684 ms | **236 ms** |
+| 1ª linha com dado | 1.106 ms | **613 ms** |
+| consolidação (a lenta chega) | 3.970 ms | 3.553 ms |
+| quatro unidades legíveis em | **só no fim, 3.970 ms** | **772 ms** |
+
+A diferença que interessa não está na última coluna: antes, as quatro unidades
+rápidas ficavam invisíveis até a lenta chegar. Agora estão na tela em 772 ms,
+com a quinta anunciada como pendente e a faixa marcando `0 → 1 → 2 → 4 de 5`.
+
+### Uma unidade respondendo 500
+
+| | ANTES | DEPOIS |
+|---|---|---|
+| o que fica na linha dela | `CAMAÇARI · EMPURRADA — 0 alt. · R$ 0/ano` | `CAMAÇARI · EMPURRADA — NÃO RESPONDEU` |
+| entra nos cartões do topo? | **sim, como zero** | não, e os cartões dizem "até agora" |
+| as outras quatro | 1.078 ms | **607 ms** |
+| requisições / ondas | 18 / 8 | 12 / 5 |
+
+O zero silencioso era o pior desfecho possível: a tela afirmava, com a mesma
+tipografia dos números verdadeiros, que uma unidade não teve alteração nenhuma —
+sobre uma leitura que falhou.
+
+## 31. Prova de equivalência
+
+Com as cinco unidades carregadas, a grade renderizada é **idêntica** à de antes.
+Comparação do DOM das duas versões compiladas, servidas lado a lado contra o
+mesmo banco:
+
+| | igual? |
+|---|---|
+| os quatro cartões do topo | **sim** (`13.320` alterações · `5 de 5` unidades · `−R$ 724.373/ano` · `12.210` sem apuração) |
+| cabeçalho das 9 colunas | **sim** |
+| as 45 células da grade | **sim** |
+
+No nível da função, `montarRadar` sobre um conjunto todo-pronto devolve
+exatamente o que devolvia antes — mesma ordem, mesmas células, mesmos totais
+(`gestao-a-vista-radar.test.ts`). E a soma parcial é, em cada passo, a soma
+exata das unidades já lidas: um teste percorre `0 → 5` unidades chegando e
+confere o consolidado a cada passo contra a soma direta.
+
+## 32. Testes acrescentados
+
+| Arquivo | O que passa a estar coberto | n |
+|---|---|--:|
+| `lib/__tests__/gestao-a-vista-radar.test.ts` | pendente ≠ zero ≠ sem-vigência; erro ≠ pendente; unidade lenta e unidade com erro não apagam as demais; ordem (pendentes fora do pódio); equivalência com tudo pronto; `parcial` e a cobertura; soma parcial passo a passo; `chaveDaLeitura` (mesma chave, canais distintos, canal nulo, não muta o intervalo, janelas não colidem) | +16 |
+| `lib/comparison/src/__tests__/agrupamento-de-unidades.test.ts` | a régua extraída, agora com dois chamadores: `chaveDaUnidade` (UNIDADE, não scopeHash), agrupamento por unidade entre canais, genérica preservando o tipo do chamador, canal ambíguo (mesmo canal colide, canais diferentes não, nulo é canal) | +10 |
+
+Suítes: `freightaudit` **1.049 passando, 0 falhando**; `comparison` inteira e
+serializada com banco de verdade **49 arquivos, 577 testes, todos passando**;
+typecheck do workspace limpo.
+
+## 33. Compressão do bundle em produção — **não verificado**
+
+A verificação barata do §25.1 **não pôde ser feita desta sessão**: a política de
+rede do ambiente recusa a saída para o domínio de produção — o gateway responde
+`403` ao `CONNECT freightcheck.com.br:443`. Não é um achado sobre o produto, é
+um limite desta medição, e o número continua desconhecido.
+
+O comando, para rodar de uma máquina com acesso:
+
+```bash
+curl -sI -H 'Accept-Encoding: gzip, br' https://freightcheck.com.br/assets/index-*.js
+```
+
+Como ler o resultado, com o impacto já medido na Parte IV §25.1 (bundle atual:
+2.586 KB, 702 KB em gzip):
+
+| Resposta | Situação | Custo na primeira carga (4G, 9 Mbps) |
+|---|---|--:|
+| `content-encoding: br` ou `gzip` | comprimindo | ~850 ms de download |
+| cabeçalho ausente | **não comprimindo** | ~2.650 ms de download |
+
+A diferença entre as duas linhas é 3,1× na primeira carga do dia, e não custa
+uma linha de código — é configuração da hospedagem.
+
+## 34. O que continua aberto
+
+1. **13,2 s até uma unidade morta se declarar.** A linha fica "carregando…"
+   enquanto a política de `resiliencia.ts` gasta as cinco tentativas; só então
+   ela vira "não respondeu". O orçamento é deliberado (cobre cold start, ver
+   §2 daquele arquivo) e é **global**: encurtá-lo só para o Radar significaria
+   uma segunda política, que é o defeito que `resiliencia.ts` existe para
+   fechar. Fica declarado, não consertado.
+2. **517 KB por unidade, 2,5 MB na grade.** O Radar baixa `entries[]` inteiro de
+   cada unidade para desenhar 45 células e abrir uma gaveta sob demanda. É o
+   payload que a Parte IV §26 apontou, agora medido. Um recorte no servidor
+   (`/changes/range` sem `entries`, ou com eles sob demanda) é a correção, e é
+   trabalho de endpoint.
+3. **A grade reordena quando uma unidade chega.** Linhas pendentes ficam
+   embaixo, em ordem de nome, e sobem para o pódio ao carregar. É o preço de
+   ranquear por impacto desenhando antes da hora; a alternativa (ordem fixa por
+   nome) trocaria o pódio por estabilidade, e o pódio é o que a tela existe
+   para mostrar.
+4. **`sem_leitura_no_intervalo` deixou de excluir.** O servidor tirava da grade
+   a unidade cuja leitura do intervalo voltasse vazia; agora ela aparece com a
+   linha vazia — que é a régua que o próprio `montarRadar` já escrevia para
+   esse caso. Mudança de comportamento pequena e declarada, não acidental.
+5. **`/api/build` continua saindo em toda tela** (Parte IV §25.4). Intocado.

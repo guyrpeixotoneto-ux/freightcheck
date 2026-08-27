@@ -1,4 +1,10 @@
 import type { Database } from "@workspace/db";
+import {
+  agruparPorCanal,
+  agruparPorUnidade,
+  chaveDaUnidade,
+  conjuntoDeEntradas,
+} from "./agrupamento-de-unidades";
 import type { FamilyCode } from "./families";
 import {
   getFamiliesView,
@@ -124,68 +130,9 @@ export interface FamiliesOverview {
   consolidado: OverviewConsolidado;
 }
 
-/**
- * A identidade real de uma unidade — o código do escopo `UNIDADE`, não o
- * `scopeHash` (que já mistura REGIONAL/OPERADOR/canal). Mesmo fallback de
- * `contextLabel` em `series.ts`, para nunca ficar sem chave.
- */
-function chaveDaUnidade(c: ContextInfo): string {
-  return c.scopes.find((s) => s.scopeType === "UNIDADE")?.code ?? c.scopeHash;
-}
-
-function agruparPorUnidade(contexts: ContextInfo[]): Map<string, ContextInfo[]> {
-  const porUnidade = new Map<string, ContextInfo[]>();
-  for (const c of contexts) {
-    const chave = chaveDaUnidade(c);
-    const grupo = porUnidade.get(chave) ?? [];
-    grupo.push(c);
-    porUnidade.set(chave, grupo);
-  }
-  return porUnidade;
-}
 
 function refDe(c: ContextInfo): OverviewContextRef {
   return { scopeHash: c.scopeHash, channel: c.channel, latestPeriod: c.latestPeriod };
-}
-
-/**
- * `scopeType:code` de cada entrada do contexto — não só o tipo. Dois
- * contextos com o mesmo conjunto de *tipos* de escopo (ex. `{UNIDADE,
- * OPERADOR}` e `{UNIDADE, OPERADOR}`) mas códigos de operador diferentes são
- * irmãos, não um a fatia do outro; comparar só por tipo confundiria os dois
- * casos.
- */
-function conjuntoDeEntradas(c: ContextInfo): Set<string> {
-  return new Set(c.scopes.map((s) => `${s.scopeType}:${s.code}`));
-}
-
-/**
- * Se dois ou mais contextos elegíveis da mesma unidade caem no **mesmo
- * canal**, a unidade é recusada — mesmo sem aninhamento visível entre os
- * conjuntos de escopo.
- *
- * Confirmado por investigação de `lib/ingest/src/pipeline.ts`
- * (`groupFactsByEntityScope`): o agrupamento de escopo na importação é feito
- * por linha, conforme quais colunas (unidade/operador/regional) aquela linha
- * trouxe preenchidas, **dentro de um mesmo canal**. Nada no pipeline garante
- * que os contextos resultantes particionam a frota sem sobreposição — "não
- * detectei aninhamento" não é o mesmo que "provei que são disjuntos". Por
- * isso a régua aqui não tenta provar disjunção (exigiria comparar frota
- * total, fora do escopo desta v1): qualquer canal com mais de um contexto
- * elegível é tratado como ambíguo, ponto. Contextos de **canais diferentes**
- * continuam somáveis entre si — cada `(scopeHash, channel)` já é a partição
- * que o resto do produto usa para tratar séries como distintas (`series.ts`),
- * e nada na investigação apontou risco de sobreposição *entre* canais.
- */
-function agruparPorCanal(matched: ContextInfo[]): Map<string, ContextInfo[]> {
-  const porCanal = new Map<string, ContextInfo[]>();
-  for (const c of matched) {
-    const canal = c.channel ?? "";
-    const lista = porCanal.get(canal) ?? [];
-    lista.push(c);
-    porCanal.set(canal, lista);
-  }
-  return porCanal;
 }
 
 function somarRecords(records: Record<string, number>[]): Record<string, number> {

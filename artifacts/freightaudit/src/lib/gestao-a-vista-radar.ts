@@ -67,6 +67,32 @@ export function janelaDoRadar(
   return { from: anterior ?? periodos[0] ?? null, to: fim, periodos };
 }
 
+/**
+ * A query de `/changes/range` para um contexto — e a chave de cache dela.
+ *
+ * Existe como função porque a tela precisa da **mesma** string em dois
+ * momentos: ao montar a lista de `useQueries` (onde ela vira `queryKey`) e ao
+ * procurar o resultado de um contexto para preencher a linha da unidade. Eram
+ * dois trechos gêmeos escritos à mão, e gêmeos que precisam ser idênticos para
+ * o produto funcionar são gêmeos que uma hora deixam de ser: bastaria um dos
+ * dois ordenar os parâmetros diferente, ou omitir o canal nulo de outro jeito,
+ * para toda unidade ficar pendente para sempre — sem erro, sem log, só uma
+ * grade que nunca fecha.
+ *
+ * Uma função, um teste, dois chamadores.
+ *
+ * @param intervalo  o `from`/`to` da janela, já montado
+ */
+export function chaveDaLeitura(
+  intervalo: URLSearchParams,
+  contexto: { scopeHash: string; canal: string | null },
+): string {
+  const query = new URLSearchParams(intervalo);
+  query.set("scopeHash", contexto.scopeHash);
+  if (contexto.canal !== null) query.set("canal", contexto.canal);
+  return query.toString();
+}
+
 // ---------------------------------------------------------------------------
 // A grade
 // ---------------------------------------------------------------------------
@@ -85,7 +111,34 @@ export interface UnidadeDoRadar {
   label: string;
   contextos: { scopeHash: string; canal: string | null }[];
   movimentos: (Movimentos | null | undefined)[];
+  /**
+   * Se a leitura desta unidade já chegou — e o campo é **obrigatório** de
+   * propósito.
+   *
+   * `/changes/range` responde uma unidade de cada vez, e antes deste campo o
+   * Radar não tinha como distinguir "ainda não respondeu" de "respondeu e não
+   * havia nada": as duas chegavam aqui como `movimentos: [undefined]` e saíam
+   * de `montarRadar` como uma linha de zeros. O efeito na tela era uma unidade
+   * pendente desenhada com a mesma cara de uma unidade calma — `0 alt. ·
+   * R$ 0,00` —, e os quatro cartões do topo somando esse zero como se fosse
+   * apuração fechada. Medido: com cinco unidades, a grade passava 477 ms
+   * exibindo zeros que ainda iam mudar.
+   *
+   * Opcional com padrão `"pronta"` teria sido menos invasivo e teria trazido o
+   * defeito de volta na primeira vez que alguém montasse a lista sem pensar
+   * nisso. Obrigatório, o compilador pergunta.
+   */
+  estado: EstadoDaUnidade;
 }
+
+/**
+ * O que se sabe da leitura de uma unidade.
+ *
+ * `"erro"` é separado de `"pendente"` porque as duas terminam diferente: uma
+ * pendente vira número, uma com erro não vira — e a linha precisa dizer qual
+ * das duas é, em vez de ficar para sempre num "carregando" que não vai chegar.
+ */
+export type EstadoDaUnidade = "pendente" | "pronta" | "erro";
 
 export type EstadoDaCelula =
   /** A unidade não tem essa vigência — nada aconteceu porque nada foi entregue. */
@@ -93,7 +146,11 @@ export type EstadoDaCelula =
   /** Vigência importada sem comparação calculada — o que houve ali não está somado. */
   | "sem-comparacao"
   /** Houve comparação: `alteracoes` e `impacto` são fato apurado, inclusive quando zero. */
-  | "apurado";
+  | "apurado"
+  /** A leitura desta unidade ainda está em voo. **Não é zero**, e não pode ser somada. */
+  | "pendente"
+  /** A leitura desta unidade falhou. Também não é zero, e também não soma. */
+  | "erro";
 
 export interface CelulaDoRadar {
   periodo: string;
@@ -115,6 +172,15 @@ export interface LinhaDoRadar {
   totalDeAlteracoes: number;
   totalDeImpacto: number;
   totalSemApuracao: number;
+  /**
+   * O estado da unidade, repetido na linha para a tela não ter de voltar à
+   * lista de entrada para saber se desenha número ou espera.
+   *
+   * Numa linha "pendente" ou "erro" os três totais acima são `0` porque não há
+   * o que somar — e é justamente por isso que a tela **não** pode imprimi-los:
+   * o zero aqui é ausência de leitura, não resultado de leitura.
+   */
+  estado: EstadoDaUnidade;
 }
 
 /**
@@ -180,6 +246,38 @@ export function montarRadar(
       }
     }
 
+    /*
+      Unidade que ainda não respondeu (ou que falhou) não tem célula apurada
+      nenhuma — a linha inteira sai no estado dela. Sem este desvio, o `map`
+      abaixo cairia em `sem-vigencia` para toda coluna, que é o desenho de
+      "esta unidade não entregou nada nesta competência": a afirmação mais
+      forte que a grade sabe fazer, feita sobre uma leitura que não aconteceu.
+    */
+    if (unidade.estado !== "pronta") {
+      // O estado sai para uma constante porque o `map` abaixo é um fechamento:
+      // dentro dele o TypeScript já não sabe que `unidade.estado` foi
+      // estreitado por este `if`, e voltaria a ser o tipo inteiro.
+      const estado: Extract<EstadoDaCelula, "pendente" | "erro"> = unidade.estado;
+      const celulas: CelulaDoRadar[] = periodos.map((periodo) => ({
+        periodo,
+        label: rotulos.get(periodo) ?? periodo,
+        estado,
+        alteracoes: 0,
+        impacto: 0,
+        semApuracao: 0,
+      }));
+      return {
+        unidade: unidade.unidade,
+        label: unidade.label,
+        contextos: unidade.contextos,
+        celulas,
+        totalDeAlteracoes: 0,
+        totalDeImpacto: 0,
+        totalSemApuracao: 0,
+        estado,
+      };
+    }
+
     const celulas: CelulaDoRadar[] = periodos.map((periodo) => {
       const apurado = movimentosPorPeriodo.get(periodo);
       if (apurado) {
@@ -210,15 +308,32 @@ export function montarRadar(
       totalDeAlteracoes: celulas.reduce((soma, c) => soma + c.alteracoes, 0),
       totalDeImpacto: celulas.reduce((soma, c) => soma + c.impacto, 0),
       totalSemApuracao: celulas.reduce((soma, c) => soma + c.semApuracao, 0),
+      estado: "pronta" as const,
     };
   });
 
-  return linhas.sort(
-    (a, b) =>
-      Math.abs(b.totalDeImpacto) - Math.abs(a.totalDeImpacto) ||
-      b.totalDeAlteracoes - a.totalDeAlteracoes ||
-      a.label.localeCompare(b.label),
-  );
+  /*
+    O pódio é das linhas prontas; as que ainda não leram ficam embaixo, em
+    ordem de nome.
+
+    Ordenar tudo junto pelo impacto colocaria as pendentes — impacto `0` — no
+    meio da grade, entre uma unidade que perdeu R$ 3 mil e outra que ganhou
+    R$ 2 mil, dizendo por posição que elas ficaram no zero. E a ordem delas
+    dançaria a cada resposta que chegasse.
+
+    Com todas prontas esta função devolve **exatamente** o que devolvia antes:
+    o segundo grupo fica vazio e o primeiro passa pelo mesmo comparador de
+    sempre. É o que `gestao-a-vista-radar.test.ts` exercita como equivalência.
+  */
+  const porImpacto = (a: LinhaDoRadar, b: LinhaDoRadar) =>
+    Math.abs(b.totalDeImpacto) - Math.abs(a.totalDeImpacto) ||
+    b.totalDeAlteracoes - a.totalDeAlteracoes ||
+    a.label.localeCompare(b.label);
+
+  return [
+    ...linhas.filter((l) => l.estado === "pronta").sort(porImpacto),
+    ...linhas.filter((l) => l.estado !== "pronta").sort((a, b) => a.label.localeCompare(b.label)),
+  ];
 }
 
 export interface ResumoDoRadar {
@@ -227,15 +342,47 @@ export interface ResumoDoRadar {
   unidadesAfetadas: number;
   impacto: number;
   semApuracao: number;
+  /** Quantas unidades da grade já responderam. */
+  unidadesProntas: number;
+  /** Quantas ainda estão em voo. */
+  unidadesPendentes: number;
+  /** Quantas falharam — não vão chegar sozinhas, e não entram na soma. */
+  unidadesComErro: number;
+  /** O tamanho da grade: prontas + pendentes + com erro. */
+  unidades: number;
+  /**
+   * `true` enquanto faltar alguma unidade.
+   *
+   * É o campo que obriga a tela a dizer que o número ainda vai mudar. Os quatro
+   * números acima continuam sendo a soma do que já chegou — o que não se pode
+   * é apresentá-los como fechados enquanto isto for `true`.
+   */
+  parcial: boolean;
 }
 
-/** Os quatro números do topo, somados da mesma grade que a tabela desenha. */
+/**
+ * Os quatro números do topo, somados da mesma grade que a tabela desenha — mais
+ * quanto da grade eles cobrem.
+ *
+ * Somar só as linhas prontas não é uma escolha de conveniência: uma linha
+ * pendente tem totais `0` (ver `montarRadar`), então incluí-la ou não dá o
+ * mesmo número. O que muda é `parcial`, e é ele que separa "R$ 25 mil" de
+ * "R$ 25 mil até agora".
+ */
 export function resumoDoRadar(linhas: LinhaDoRadar[]): ResumoDoRadar {
+  const prontas = linhas.filter((l) => l.estado === "pronta");
+  const pendentes = linhas.filter((l) => l.estado === "pendente").length;
+  const comErro = linhas.filter((l) => l.estado === "erro").length;
   return {
-    alteracoes: linhas.reduce((soma, l) => soma + l.totalDeAlteracoes, 0),
-    unidadesAfetadas: linhas.filter((l) => l.totalDeAlteracoes > 0).length,
-    impacto: linhas.reduce((soma, l) => soma + l.totalDeImpacto, 0),
-    semApuracao: linhas.reduce((soma, l) => soma + l.totalSemApuracao, 0),
+    alteracoes: prontas.reduce((soma, l) => soma + l.totalDeAlteracoes, 0),
+    unidadesAfetadas: prontas.filter((l) => l.totalDeAlteracoes > 0).length,
+    impacto: prontas.reduce((soma, l) => soma + l.totalDeImpacto, 0),
+    semApuracao: prontas.reduce((soma, l) => soma + l.totalSemApuracao, 0),
+    unidadesProntas: prontas.length,
+    unidadesPendentes: pendentes,
+    unidadesComErro: comErro,
+    unidades: linhas.length,
+    parcial: pendentes > 0 || comErro > 0,
   };
 }
 

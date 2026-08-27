@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   atributosDaCelula,
+  chaveDaLeitura,
   intensidadeDaCelula,
   janelaDoRadar,
   maiorImpactoDaGrade,
@@ -43,7 +44,24 @@ function unidade(
     label: nome,
     contextos: leituras.map((_, i) => ({ scopeHash: `${nome}-${i}`, canal: null })),
     movimentos: leituras,
+    estado: "pronta",
   };
+}
+
+/** Uma unidade cuja leitura ainda está em voo — `movimentos` sem valor nenhum. */
+function pendente(nome: string, contextos = 1): UnidadeDoRadar {
+  return {
+    unidade: nome,
+    label: nome,
+    contextos: Array.from({ length: contextos }, (_, i) => ({ scopeHash: `${nome}-${i}`, canal: null })),
+    movimentos: Array.from({ length: contextos }, () => undefined),
+    estado: "pendente",
+  };
+}
+
+/** Uma unidade cuja leitura falhou — não vai chegar sozinha. */
+function comErro(nome: string, contextos = 1): UnidadeDoRadar {
+  return { ...pendente(nome, contextos), estado: "erro" };
 }
 
 describe("janelaDoRadar", () => {
@@ -147,10 +165,11 @@ describe("montarRadar", () => {
     });
   });
 
-  it("um contexto que ainda não respondeu não vira zero apurado", () => {
+  it("um contexto que respondeu vazio é 'sem vigência' — respondeu, e não havia nada", () => {
     const linhas = montarRadar(periodos, [unidade("A", null)], "MENSAL");
     expect(linhas[0].celulas.every((c) => c.estado === "sem-vigencia")).toBe(true);
     expect(linhas[0].totalDeAlteracoes).toBe(0);
+    expect(linhas[0].estado).toBe("pronta");
   });
 
   it("ordena por módulo de impacto, e o volume desempata", () => {
@@ -173,6 +192,192 @@ describe("montarRadar", () => {
   });
 });
 
+/*
+  O desenho progressivo — o que estes testes protegem.
+
+  O Radar passou a desenhar antes de ter todas as unidades. A troca compra
+  tempo de tela e traz dois riscos que não existiam enquanto a grade era
+  tudo-ou-nada: uma leitura que não chegou pode ser desenhada como zero
+  apurado, e um consolidado de três unidades pode ser lido como o consolidado
+  das cinco. Os dois estão cobertos aqui, e a equivalência final também.
+*/
+describe("montarRadar com unidades ainda carregando", () => {
+  const periodos = ["2026-01", "2026-02", "2026-03"];
+
+  it("unidade pendente não vira zero apurado — nem 'sem vigência'", () => {
+    const linhas = montarRadar(periodos, [pendente("A")], "MENSAL");
+    expect(linhas[0].estado).toBe("pendente");
+    expect(linhas[0].celulas.map((c) => c.estado)).toEqual(["pendente", "pendente", "pendente"]);
+    // "sem-vigencia" é uma afirmação sobre o que a unidade entregou. Sobre uma
+    // leitura que não chegou não se afirma nada.
+    expect(linhas[0].celulas.some((c) => c.estado === "sem-vigencia")).toBe(false);
+  });
+
+  it("unidade com erro é distinguível de unidade pendente", () => {
+    const linhas = montarRadar(periodos, [comErro("A")], "MENSAL");
+    expect(linhas[0].estado).toBe("erro");
+    expect(linhas[0].celulas.every((c) => c.estado === "erro")).toBe(true);
+  });
+
+  it("uma unidade lenta não apaga as que já responderam", () => {
+    const linhas = montarRadar(
+      periodos,
+      [
+        unidade("PRONTA", movimentos([{ period: "2026-02", changes: 4, impact: { MENSAL: -900 } }])),
+        pendente("LENTA"),
+      ],
+      "MENSAL",
+    );
+    expect(linhas.map((l) => l.label)).toEqual(["PRONTA", "LENTA"]);
+    expect(linhas[0].totalDeImpacto).toBe(-900);
+  });
+
+  it("uma unidade com erro não apaga as que responderam", () => {
+    const linhas = montarRadar(
+      periodos,
+      [comErro("CAIU"), unidade("PRONTA", movimentos([{ period: "2026-02", changes: 4 }]))],
+      "MENSAL",
+    );
+    expect(linhas.map((l) => l.label)).toEqual(["PRONTA", "CAIU"]);
+    expect(linhas.find((l) => l.label === "PRONTA")?.totalDeAlteracoes).toBe(4);
+  });
+
+  it("pendentes ficam embaixo, em ordem de nome, sem disputar o pódio", () => {
+    const linhas = montarRadar(
+      periodos,
+      [
+        pendente("Z-LENTA"),
+        unidade("LEVE", movimentos([{ period: "2026-02", changes: 1, impact: { MENSAL: 10 } }])),
+        pendente("A-LENTA"),
+        unidade("PESADA", movimentos([{ period: "2026-02", changes: 1, impact: { MENSAL: -8000 } }])),
+      ],
+      "MENSAL",
+    );
+    expect(linhas.map((l) => l.label)).toEqual(["PESADA", "LEVE", "A-LENTA", "Z-LENTA"]);
+  });
+
+  it("com todas prontas, a grade é exatamente a de antes do progressivo", () => {
+    // A prova de equivalência: o mesmo conjunto, montado de uma vez, tem de
+    // sair idêntico ao que sai depois de todas as pendentes virarem prontas —
+    // mesma ordem, mesmas células, mesmos totais.
+    const prontas = [
+      unidade("CALMA", movimentos([{ period: "2026-02", changes: 9, impact: { MENSAL: 0 } }])),
+      unidade("PESADA", movimentos([{ period: "2026-02", changes: 1, impact: { MENSAL: -8000 } }])),
+      unidade("MEDIA", movimentos([{ period: "2026-02", changes: 2, impact: { MENSAL: 300 } }])),
+    ];
+    const deUmaVez = montarRadar(periodos, prontas, "MENSAL");
+    const depoisDeChegarem = montarRadar(periodos, [...prontas].reverse(), "MENSAL");
+
+    expect(depoisDeChegarem).toEqual(deUmaVez);
+    expect(deUmaVez.every((l) => l.estado === "pronta")).toBe(true);
+    expect(deUmaVez.flatMap((l) => l.celulas).some((c) => c.estado === "pendente")).toBe(false);
+  });
+});
+
+describe("chaveDaLeitura", () => {
+  const intervalo = new URLSearchParams({ from: "2026-01", to: "2026-03" });
+
+  it("é a mesma para o mesmo contexto — é o que casa a resposta com a linha", () => {
+    const contexto = { scopeHash: "abc", canal: "EMPURRADA" };
+    expect(chaveDaLeitura(intervalo, contexto)).toBe(chaveDaLeitura(intervalo, { ...contexto }));
+  });
+
+  it("separa contextos diferentes, inclusive só pelo canal", () => {
+    expect(chaveDaLeitura(intervalo, { scopeHash: "abc", canal: "EMPURRADA" })).not.toBe(
+      chaveDaLeitura(intervalo, { scopeHash: "abc", canal: "PUXADA" }),
+    );
+    expect(chaveDaLeitura(intervalo, { scopeHash: "abc", canal: null })).not.toBe(
+      chaveDaLeitura(intervalo, { scopeHash: "def", canal: null })
+    );
+  });
+
+  it("canal nulo não vira o texto 'null' na query", () => {
+    expect(chaveDaLeitura(intervalo, { scopeHash: "abc", canal: null })).not.toContain("null");
+  });
+
+  it("não altera o intervalo que recebeu", () => {
+    // O mesmo objeto é usado para montar N chaves; mutá-lo faria a segunda
+    // leitura herdar o scopeHash da primeira.
+    const antes = intervalo.toString();
+    chaveDaLeitura(intervalo, { scopeHash: "abc", canal: "EMPURRADA" });
+    chaveDaLeitura(intervalo, { scopeHash: "def", canal: "PUXADA" });
+    expect(intervalo.toString()).toBe(antes);
+  });
+
+  it("a chave da janela A não colide com a da janela B", () => {
+    const outra = new URLSearchParams({ from: "2025-06", to: "2026-03" });
+    expect(chaveDaLeitura(intervalo, { scopeHash: "abc", canal: null })).not.toBe(
+      chaveDaLeitura(outra, { scopeHash: "abc", canal: null }),
+    );
+  });
+});
+
+describe("resumoDoRadar durante o carregamento", () => {
+  const periodos = ["2026-01", "2026-02", "2026-03"];
+  const umaPronta = (nome: string, impacto: number, alteracoes: number) =>
+    unidade(nome, movimentos([{ period: "2026-02", changes: alteracoes, impact: { MENSAL: impacto } }]));
+
+  it("marca o consolidado como parcial enquanto faltar unidade", () => {
+    const linhas = montarRadar(periodos, [umaPronta("A", -100, 3), pendente("B")], "MENSAL");
+    const resumo = resumoDoRadar(linhas);
+    expect(resumo).toMatchObject({
+      parcial: true,
+      unidadesProntas: 1,
+      unidadesPendentes: 1,
+      unidadesComErro: 0,
+      unidades: 2,
+    });
+  });
+
+  it("uma unidade com erro deixa o consolidado parcial e se declara", () => {
+    const linhas = montarRadar(periodos, [umaPronta("A", -100, 3), comErro("B")], "MENSAL");
+    expect(resumoDoRadar(linhas)).toMatchObject({
+      parcial: true,
+      unidadesProntas: 1,
+      unidadesComErro: 1,
+      unidadesPendentes: 0,
+    });
+  });
+
+  it("com todas prontas, deixa de ser parcial", () => {
+    const linhas = montarRadar(periodos, [umaPronta("A", -100, 3), umaPronta("B", 40, 1)], "MENSAL");
+    expect(resumoDoRadar(linhas)).toMatchObject({
+      parcial: false,
+      unidadesProntas: 2,
+      unidadesPendentes: 0,
+      unidadesComErro: 0,
+    });
+  });
+
+  it("a soma parcial é sempre a soma do que chegou, e a final bate com a de uma vez só", () => {
+    /*
+      A garantia que sustenta desenhar antes da hora: em nenhum passo o número
+      exibido é outra coisa senão a soma exata das unidades já lidas — e o
+      último passo é idêntico ao consolidado que a tela mostrava quando esperava
+      tudo.
+    */
+    const todas = [umaPronta("A", -100, 3), umaPronta("B", 40, 1), umaPronta("C", -7, 5)];
+    const finalDeUmaVez = resumoDoRadar(montarRadar(periodos, todas, "MENSAL"));
+
+    for (let chegaram = 0; chegaram <= todas.length; chegaram++) {
+      const entrada = todas.map((u, i) => (i < chegaram ? u : pendente(u.label)));
+      const resumo = resumoDoRadar(montarRadar(periodos, entrada, "MENSAL"));
+      const esperado = todas.slice(0, chegaram);
+
+      expect(resumo.impacto).toBeCloseTo(
+        esperado.reduce((soma, u) => soma + (u.movimentos[0]?.movements[0]?.impact.byPeriodicity.MENSAL ?? 0), 0),
+        6,
+      );
+      expect(resumo.unidadesProntas).toBe(chegaram);
+      expect(resumo.parcial).toBe(chegaram < todas.length);
+    }
+
+    const final = resumoDoRadar(montarRadar(periodos, todas, "MENSAL"));
+    expect(final).toEqual(finalDeUmaVez);
+    expect(final.parcial).toBe(false);
+  });
+});
+
 describe("resumoDoRadar", () => {
   it("conta unidades afetadas, não unidades na grade", () => {
     const linhas = montarRadar(
@@ -184,11 +389,18 @@ describe("resumoDoRadar", () => {
       ],
       "MENSAL",
     );
+    // Os quatro números originais são os mesmos de sempre; o que o progressivo
+    // acrescentou é a cobertura deles — e com tudo lido ela é total.
     expect(resumoDoRadar(linhas)).toEqual({
       alteracoes: 3,
       unidadesAfetadas: 1,
       impacto: -900,
       semApuracao: 2,
+      unidadesProntas: 3,
+      unidadesPendentes: 0,
+      unidadesComErro: 0,
+      unidades: 3,
+      parcial: false,
     });
   });
 });

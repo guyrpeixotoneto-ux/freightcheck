@@ -31,7 +31,7 @@ import {
   YAxis,
 } from "recharts";
 import { ApiError, fetchJson, fetchJsonOrNull } from "@/lib/api";
-import { useContextosDaCasca } from "@/lib/contextos";
+import { useContextosDaCasca, type Contexto } from "@/lib/contextos";
 import { useFamiliesOverviewQuery } from "@/lib/families-overview";
 import { DASHBOARD, GESTAO_A_VISTA } from "@/lib/ambiente";
 import { cn } from "@/lib/utils";
@@ -58,7 +58,12 @@ import { seriesDoIntervalo } from "@/components/linha-do-tempo/linha-do-tempo-de
 import { lerIntervaloSegundos, montarSequenciaDoAutoplay } from "@/lib/gestao-a-vista-autoplay";
 import { rotuloCurtoDaVigencia } from "@workspace/comparison/labels";
 import {
+  agruparPorUnidade,
+  canalAmbiguo,
+} from "@workspace/comparison/agrupamento-de-unidades";
+import {
   atributosDaCelula,
+  chaveDaLeitura,
   COLUNAS_PADRAO,
   intensidadeDaCelula,
   janelaDoRadar,
@@ -69,6 +74,7 @@ import {
   type AtributoDaCelula,
   type CelulaDoRadar,
   type LinhaDoRadar,
+  type ResumoDoRadar,
   type UnidadeDoRadar,
 } from "@/lib/gestao-a-vista-radar";
 import type {
@@ -77,7 +83,7 @@ import type {
   FamiliesView,
   OverviewUnitIncluded,
 } from "@/components/inicio/types";
-import type { Movimentos, RangeOverview } from "@/lib/analise";
+import type { Movimentos } from "@/lib/analise";
 
 /**
  * A Gestão à Vista — um wallboard, não um resumo do Dashboard.
@@ -573,11 +579,21 @@ function CartaoDeIndicador({
   rotulo,
   valor,
   tom,
+  parcial = false,
 }: {
   icone: LucideIcon;
   rotulo: string;
   valor: string;
   tom?: "favoravel" | "desfavoravel";
+  /**
+   * O número ainda vai mudar porque falta unidade para chegar.
+   *
+   * Não é decoração: um consolidado parcial impresso com a mesma cara do
+   * fechado é a forma mais eficiente de fazer alguém decidir sobre um número
+   * que não existe. O "até agora" fica **junto do número**, e não numa nota de
+   * rodapé, porque é ele que está sendo lido de longe.
+   */
+  parcial?: boolean;
 }) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-white shadow-sm px-6 py-5 flex items-center gap-4">
@@ -596,8 +612,46 @@ function CartaoDeIndicador({
           )}
         >
           {valor}
+          {parcial && (
+            <span className="ml-2 text-xs font-semibold uppercase tracking-wide text-amber-600 align-middle">
+              até agora
+            </span>
+          )}
         </p>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Quantas unidades já entraram na conta — e quantas ainda não.
+ *
+ * A faixa existe porque o Radar passou a desenhar antes de ter tudo. Sem ela, a
+ * diferença entre "o consolidado das cinco" e "o consolidado de três, com duas
+ * a caminho" seria invisível para quem chega na frente do telão no meio do
+ * carregamento. Ela some sozinha quando `parcial` deixa de ser verdade.
+ */
+function ProgressoDoRadar({ resumo }: { resumo: ResumoDoRadar }) {
+  const { unidadesProntas, unidades, unidadesComErro } = resumo;
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      data-testid="progresso-do-radar"
+      className="flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-900"
+    >
+      <span className="relative flex h-2.5 w-2.5 shrink-0">
+        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-75" />
+        <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-amber-500" />
+      </span>
+      <span className="font-semibold tabular-nums">
+        {unidadesProntas} de {unidades} {unidades === 1 ? "unidade carregada" : "unidades carregadas"}
+      </span>
+      <span className="text-amber-700">
+        {unidadesComErro > 0
+          ? `${unidadesComErro} não respondeu — o consolidado abaixo é do que chegou.`
+          : "o consolidado abaixo ainda está sendo somado."}
+      </span>
     </div>
   );
 }
@@ -1698,38 +1752,74 @@ function TemplateDeRadar() {
   if (janela.from) consultaDoIntervalo.set("from", janela.from);
   if (janela.to) consultaDoIntervalo.set("to", janela.to);
 
-  const overviewQuery = useQuery({
-    queryKey: ["radar-overview", consultaDoIntervalo.toString()],
-    queryFn: () => fetchJsonOrNull<RangeOverview>(`/changes/range/overview?${consultaDoIntervalo}`),
-    enabled: janela.to !== null,
-    refetchInterval: 30_000,
-  });
+  /*
+    As unidades da grade saem do `/contexts`, e o `/changes/range/overview` saiu
+    da tela — este é o conserto da cascata, e ele não é "paralelizar".
+
+    Paralelizar foi a primeira tentativa, e foi medida: disparando o overview
+    junto com as cinco leituras, a cascata sumiu (uma onda só) e a tela **piorou**
+    — 760 ms para 1.363 ms. A razão é que `getRangeOverview` roda
+    `getRangeAnalysis` uma vez por unidade × contexto, que é exatamente o que as
+    cinco chamadas de `/changes/range` já pedem. Medido no servidor: as cinco
+    leituras sozinhas custam 0,60 s, o overview sozinho 0,49 s, e os dois juntos
+    1,04 s. Não havia onda a paralelizar; havia trabalho a não pedir duas vezes.
+
+    O overview entregava ao Radar duas coisas, e só duas: `unitsIncluded` (a
+    lista de unidades e os contextos de cada uma) e `unitsExcluded` (as que a
+    régua de canal ambíguo recusa). As duas são agrupamento puro sobre o que o
+    `/contexts` já traz — e agora saem das **mesmas funções** que o servidor
+    usa, importadas de `@workspace/comparison/agrupamento-de-unidades`, e não de
+    uma segunda escrita da regra aqui.
+
+    O que muda de comportamento, e está declarado: o servidor também excluía
+    uma unidade cuja leitura do intervalo voltasse vazia
+    (`sem_leitura_no_intervalo`). Aqui ela aparece na grade com a linha vazia —
+    que é a régua que o próprio `montarRadar` já escreve para esse caso
+    ("sumir com ela faria o telão dizer que a unidade não existe").
+  */
+  const unidadesDaGrade = useMemo(() => {
+    const incluidas: { unidade: string; label: string; contextos: Contexto[] }[] = [];
+    const excluidasPorAmbiguidade: { unidade: string; label: string }[] = [];
+
+    for (const [unidade, grupo] of agruparPorUnidade(contextos.contextos)) {
+      if (canalAmbiguo(grupo)) {
+        excluidasPorAmbiguidade.push({ unidade, label: grupo[0].label });
+        continue;
+      }
+      incluidas.push({ unidade, label: grupo[0].label, contextos: grupo });
+    }
+    return { incluidas, excluidas: excluidasPorAmbiguidade };
+  }, [contextos.contextos]);
 
   /*
-    Uma leitura por contexto, e não por unidade: `/changes/range` responde por
-    um `scopeHash`/`canal` de cada vez. A lista precisa ser estável entre
-    renderizações — `useQueries` monta um observador por item, e uma ordem que
-    dança faria cada refetch reembaralhar o cache.
-  */
-  const leituras = useMemo(
-    () =>
-      (overviewQuery.data?.unitsIncluded ?? []).flatMap((unidade) =>
-        unidade.contexts.map((contexto) => ({
-          unidade: unidade.unidade,
-          label: unidade.label,
-          scopeHash: contexto.scopeHash,
-          canal: contexto.channel,
-        })),
-      ),
-    [overviewQuery.data],
-  );
+    O fan-out sai do `/contexts`, e é isto que tira uma onda inteira do caminho.
 
-  const consultasPorContexto = leituras.map((leitura) => {
-    const query = new URLSearchParams(consultaDoIntervalo);
-    query.set("scopeHash", leitura.scopeHash);
-    if (leitura.canal !== null) query.set("canal", leitura.canal);
-    return query.toString();
-  });
+    `/changes/range` responde por um `scopeHash`/`canal` de cada vez, então são
+    N leituras. A lista dessas N saía de `overviewQuery.data.unitsIncluded` — e
+    por causa disso a terceira onda só começava quando a segunda terminava.
+    Medido: `/contexts` respondia aos 183 ms e a primeira `/changes/range` só
+    partia aos 777 ms, esperando um `/changes/range/overview` de 572 ms cuja
+    única contribuição para esta lista era repetir o que o `/contexts` já
+    tinha dito.
+
+    E tinha mesmo: o par (unidade, scopeHash, canal) de `/contexts` e o de
+    `unitsIncluded` são **o mesmo conjunto** — os dois nascem de `listContexts`
+    no servidor. Conferido contra o banco de medição, os cinco pares batem um a
+    um.
+
+    O que **não** se faz aqui é decidir quem entra na grade a partir desta
+    lista. Quem decide continua sendo o overview (é ele que aplica a régua de
+    canal ambíguo e devolve `unitsExcluded`), e as linhas continuam saindo de
+    `unitsIncluded`, como antes. Isto aqui é adiantamento de leitura, não
+    mudança de regra: no pior caso pede-se uma leitura de um contexto que o
+    overview vai excluir — uma requisição a mais, nenhuma linha a mais.
+  */
+  const consultasPorContexto = useMemo(() => {
+    if (janela.to === null) return [];
+    return contextos.contextos.map((contexto) =>
+      chaveDaLeitura(consultaDoIntervalo, { scopeHash: contexto.scopeHash, canal: contexto.channel }),
+    );
+  }, [contextos.contextos, consultaDoIntervalo.toString(), janela.to]);
 
   const movimentosPorContexto = useQueries({
     queries: consultasPorContexto.map((query) => ({
@@ -1737,34 +1827,106 @@ function TemplateDeRadar() {
       // endpoint — três telas perguntando o mesmo compartilham cache em vez de
       // disparar três requisições idênticas.
       queryKey: ["changes-range", query],
-      queryFn: () => fetchJsonOrNull<Movimentos>(`/changes/range?${query}`),
+      queryFn: ({ signal }: { signal: AbortSignal }) =>
+        fetchJsonOrNull<Movimentos>(`/changes/range?${query}`, { signal }),
       staleTime: 60_000,
       refetchInterval: 30_000,
     })),
   });
 
+  /*
+    O resultado de cada leitura, encontrado pela **chave** e não pela posição.
+
+    A versão anterior casava `leituras[i]` com `movimentosPorContexto[i]`: duas
+    listas montadas em momentos diferentes, alinhadas por índice, com
+    `dataUpdatedAt.join("|")` como dependência do `useMemo`. Funcionava
+    enquanto as duas fossem recalculadas no mesmo render; bastava a lista de
+    contextos mudar de tamanho ou de ordem entre um refetch e outro para a
+    leitura de uma unidade aparecer na linha de outra. Indexado pela query — que
+    é a mesma string que virou `queryKey` —, o par não tem como se desencontrar.
+  */
+  const leiturasPorQuery = useMemo(() => {
+    const mapa = new Map<string, (typeof movimentosPorContexto)[number]>();
+    consultasPorContexto.forEach((query, indice) => {
+      const consulta = movimentosPorContexto[indice];
+      if (consulta) mapa.set(query, consulta);
+    });
+    return mapa;
+  }, [consultasPorContexto, movimentosPorContexto]);
+
   const unidadesDoRadar: UnidadeDoRadar[] = useMemo(() => {
     const porUnidade = new Map<string, UnidadeDoRadar>();
-    leituras.forEach((leitura, indice) => {
-      const linha = porUnidade.get(leitura.unidade) ?? {
-        unidade: leitura.unidade,
-        label: leitura.label,
-        contextos: [],
-        movimentos: [],
-      };
-      linha.contextos.push({ scopeHash: leitura.scopeHash, canal: leitura.canal });
-      linha.movimentos.push(movimentosPorContexto[indice]?.data ?? null);
-      porUnidade.set(leitura.unidade, linha);
-    });
+
+    for (const unidade of unidadesDaGrade.incluidas) {
+      const contextosDaUnidade = unidade.contextos.map((contexto) => ({
+        scopeHash: contexto.scopeHash,
+        canal: contexto.channel,
+      }));
+
+      const consultas = contextosDaUnidade.map(
+        (contexto) => leiturasPorQuery.get(chaveDaLeitura(consultaDoIntervalo, contexto)) ?? null,
+      );
+
+      /*
+        Uma unidade é o que a mais atrasada dos contextos dela permitir — a
+        linha soma os canais, e somar um canal que chegou com outro que não
+        chegou daria um número que não é nem parcial nem final. Um erro em
+        qualquer canal condena a linha ao estado de erro pelo mesmo motivo, e
+        não as outras unidades: cada uma tem a sua leitura.
+      */
+      const estado: UnidadeDoRadar["estado"] = consultas.some((c) => c?.isError)
+        ? "erro"
+        : consultas.some((c) => c === null || c.data === undefined)
+          ? "pendente"
+          : "pronta";
+
+      porUnidade.set(unidade.unidade, {
+        unidade: unidade.unidade,
+        label: unidade.label,
+        contextos: contextosDaUnidade,
+        movimentos: consultas.map((c) => c?.data ?? null),
+        estado,
+      });
+    }
+
     return [...porUnidade.values()];
-  }, [leituras, movimentosPorContexto.map((q) => q.dataUpdatedAt).join("|")]);
+  }, [unidadesDaGrade, leiturasPorQuery, consultaDoIntervalo.toString()]);
 
   const periodicidades = useMemo(() => periodicidadesDoRadar(unidadesDoRadar), [unidadesDoRadar]);
   const periodicidadePedida = parametros.get("periodicidade");
+
+  /*
+    A periodicidade dominante trava na primeira que valer — e isto é uma dívida
+    que o desenho progressivo criou.
+
+    `periodicidadesDoRadar` ordena pelo módulo do total, e o total cresce a cada
+    unidade que chega. Com a grade desenhando antes de ter tudo, a dominante
+    podia virar no meio do carregamento: a tabela abria em MENSAL com duas
+    unidades lidas e passava para ANUAL quando a terceira chegasse com um
+    impacto anual maior. Todos os números da grade trocariam de unidade de
+    conta sem ninguém ter pedido — o pior tipo de inconsistência, porque os
+    números continuam ali, plausíveis, e só o significado deles muda.
+
+    A trava vale para **uma janela**: trocar a vigência final ou o número de
+    colunas redesenha a grade inteira, e ali a dominante é uma pergunta nova. O
+    filtro de periodicidade continua tendo a última palavra em qualquer caso.
+  */
+  const chaveDaJanela = consultaDoIntervalo.toString();
+  const [travada, setTravada] = useState<{ janela: string; periodicidade: string } | null>(null);
+  const travadaValida =
+    travada !== null && travada.janela === chaveDaJanela && periodicidades.includes(travada.periodicidade)
+      ? travada.periodicidade
+      : null;
   const periodicidade =
     periodicidadePedida !== null && periodicidades.includes(periodicidadePedida)
       ? periodicidadePedida
-      : (periodicidades[0] ?? null);
+      : (travadaValida ?? periodicidades[0] ?? null);
+
+  useEffect(() => {
+    if (periodicidade === null) return;
+    if (travada?.janela === chaveDaJanela && travada.periodicidade === periodicidade) return;
+    setTravada({ janela: chaveDaJanela, periodicidade });
+  }, [periodicidade, chaveDaJanela, travada]);
 
   const linhas = useMemo(
     () => montarRadar(janela.periodos, unidadesDoRadar, periodicidade),
@@ -1799,14 +1961,29 @@ function TemplateDeRadar() {
   }
   const paraDashboard = consultaDeOrigem.toString() ? `${DASHBOARD}?${consultaDeOrigem}` : DASHBOARD;
 
-  const carregando =
-    overviewQuery.isLoading || movimentosPorContexto.some((consulta) => consulta.isLoading);
-  const erro = overviewQuery.error !== null;
+  /*
+    O portão espera **só** o que a grade não pode desenhar sem: a lista de
+    unidades.
+
+    Antes ele era `overviewQuery.isLoading || movimentosPorContexto.some(isLoading)`
+    — a grade inteira segurada pela unidade mais lenta, com quatro já
+    respondidas do outro lado da espera. Agora cada linha carrega o próprio
+    estado (`UnidadeDoRadar.estado`), a linha pronta desenha na hora, e a que
+    falta se anuncia como pendente em vez de como zero.
+  */
+  /*
+    Erro da tela é o que impede a grade de existir — a falha do `/contexts`,
+    que é de onde saem as unidades e a janela. A falha da leitura de **uma**
+    unidade não é erro da tela: ela vira o estado `"erro"` daquela linha, e as
+    outras quatro continuam desenhando. Era exatamente essa distinção que
+    faltava.
+  */
+  const erro = contextos.indisponivel;
   const atualizadaEm = movimentosPorContexto.reduce(
     (maior, consulta) => Math.max(maior, consulta.dataUpdatedAt),
-    overviewQuery.dataUpdatedAt,
+    0,
   );
-  const excluidas = overviewQuery.data?.unitsExcluded ?? [];
+  const excluidas = unidadesDaGrade.excluidas;
 
   return (
     <div className="w-full min-h-[100dvh] bg-slate-50 text-slate-900 font-sans">
@@ -1880,7 +2057,7 @@ function TemplateDeRadar() {
           )}
         </div>
 
-        {carregando && linhas.length === 0 ? (
+        {contextos.carregando && linhas.length === 0 ? (
           <MensagemDeEstadoClara carregando erro={false} />
         ) : erro ? (
           <MensagemDeEstadoClara carregando={false} erro />
@@ -1888,16 +2065,20 @@ function TemplateDeRadar() {
           <MensagemDeEstadoClara carregando={false} erro={false} />
         ) : (
           <>
+            {resumo.parcial && <ProgressoDoRadar resumo={resumo} />}
+
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
               <CartaoDeIndicador
                 icone={FileText}
                 rotulo={`Alterações (${janela.periodos.length} ${janela.periodos.length === 1 ? "vigência" : "vigências"})`}
                 valor={resumo.alteracoes.toLocaleString("pt-BR")}
+                parcial={resumo.parcial}
               />
               <CartaoDeIndicador
                 icone={Building2}
                 rotulo="Unidades afetadas"
                 valor={`${resumo.unidadesAfetadas} de ${linhas.length}`}
+                parcial={resumo.parcial}
               />
               <CartaoDeIndicador
                 icone={DollarSign}
@@ -1914,11 +2095,13 @@ function TemplateDeRadar() {
                       ? "desfavoravel"
                       : "favoravel"
                 }
+                parcial={resumo.parcial}
               />
               <CartaoDeIndicador
                 icone={HelpCircle}
                 rotulo="Sem impacto apurado"
                 valor={resumo.semApuracao.toLocaleString("pt-BR")}
+                parcial={resumo.parcial}
               />
             </div>
 
@@ -1978,6 +2161,24 @@ function TemplateDeRadar() {
                           </td>
                         ))}
                         <td className="py-2 pr-5 pl-4 text-right whitespace-nowrap">
+                          {/*
+                            Os totais da linha só saem quando a linha está
+                            pronta. Numa pendente eles valem `0` por ausência de
+                            leitura, e imprimir "0 alt. · R$ 0,00" seria a
+                            mesma mentira da célula, agora somada.
+                          */}
+                          {linha.estado !== "pronta" ? (
+                            <span
+                              data-testid={`total-${linha.estado}`}
+                              className={cn(
+                                "text-[0.6875rem] font-semibold uppercase tracking-wide",
+                                linha.estado === "erro" ? "text-amber-700" : "text-slate-400",
+                              )}
+                            >
+                              {linha.estado === "erro" ? "não respondeu" : "carregando…"}
+                            </span>
+                          ) : (
+                          <>
                           <span className="text-slate-500 tabular-nums">
                             {linha.totalDeAlteracoes.toLocaleString("pt-BR")} alt.
                           </span>
@@ -1996,6 +2197,8 @@ function TemplateDeRadar() {
                               ? "—"
                               : `${formatBrlCompacto(linha.totalDeImpacto)}${periodicitySuffix(periodicidade)}`}
                           </span>
+                          </>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -2093,6 +2296,38 @@ function CelulaDoRadarNaTela({
   selecionada: boolean;
   onAbrir: () => void;
 }) {
+  if (celula.estado === "pendente") {
+    /*
+      Pendente tem desenho próprio, e **não** é o traço de "sem vigência".
+
+      Os dois estados chegavam aqui iguais, porque a unidade sem resposta
+      produzia célula `sem-vigencia`. Um traço cinza numa grade de wallboard lê
+      como afirmação: "esta unidade não entregou nada nesta competência". A
+      barra pulsante diz a única coisa verdadeira enquanto a leitura não chega —
+      que ela não chegou.
+    */
+    return (
+      <div
+        data-testid="celula-pendente"
+        className="h-9 rounded-lg bg-slate-100 animate-pulse"
+        title="Leitura desta unidade ainda em andamento — o que houve aqui não está somado."
+        aria-label="carregando"
+      />
+    );
+  }
+
+  if (celula.estado === "erro") {
+    return (
+      <div
+        data-testid="celula-erro"
+        className="rounded-lg border border-dashed border-amber-300 bg-amber-50 px-2 py-2 text-center text-[0.6875rem] text-amber-700"
+        title="A leitura desta unidade falhou — o que houve aqui não está somado, e não está contado como zero."
+      >
+        não respondeu
+      </div>
+    );
+  }
+
   if (celula.estado === "sem-vigencia") {
     return <div className="text-center text-slate-300 select-none">—</div>;
   }
