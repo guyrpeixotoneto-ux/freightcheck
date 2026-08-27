@@ -141,11 +141,25 @@ async function contagens(
     ),
     -- Os tipos que são entidade: a presença sai do fato gravado, e a contagem
     -- é de entidades distintas — não de fatos, que multiplicariam por coluna.
-    por_entidade AS (
-      SELECT sn.d, e.entity_type AS tipo, count(DISTINCT f.entity_id)::int AS entidades
+    --
+    -- O par (vigência, entidade) é destilado **antes** do agrupamento, e essa
+    -- separação é a diferença entre ler 83 mil linhas e ler 144. Escrito como
+    -- count(DISTINCT f.entity_id) sobre o join, o Postgres precisa ordenar
+    -- todos os fatos das vigências do contexto — 83.241 linhas no export real,
+    -- 3,6 MB derramados em disco (external merge) — para devolver 18. O
+    -- DISTINCT prévio agrega pelo índice fact (snapshot_id, entity_id), que
+    -- já existe, e entrega o mesmo resultado. Medido no seed do produto:
+    -- 146 ms → 45 ms, e essa consulta é o maior custo isolado de
+    -- /changes/families — que a Visão Geral executa uma vez por unidade.
+    pares AS (
+      SELECT DISTINCT sn.d, f.entity_id
         FROM snaps sn
-        JOIN fato_visivel f   ON f.snapshot_id = sn.id
-        JOIN entity e ON e.id = f.entity_id
+        JOIN fato_visivel f ON f.snapshot_id = sn.id
+    ),
+    por_entidade AS (
+      SELECT p.d, e.entity_type AS tipo, count(*)::int AS entidades
+        FROM pares p
+        JOIN entity e ON e.id = p.entity_id
        GROUP BY 1, 2
     ),
     -- O conjunto não é entidade: é o par, contado pelo vínculo **da própria

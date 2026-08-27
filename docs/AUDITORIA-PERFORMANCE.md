@@ -880,3 +880,209 @@ feita.
   falhas em duas execuções, com contagens de "passando" diferentes); nenhuma
   falha nova identificável.
 - Typecheck do workspace inteiro limpo.
+
+---
+
+# Parte IV — por que ainda há tela que demora
+
+**Data:** 27/08/2026 · **Motivo:** duas telas relatadas com "Carregando…" na
+frente: o **Radar de Alterações** e o **Dashboard — Visão Geral**. As duas
+nasceram *depois* da Parte I, e nenhuma das seis correções de lá passou por
+elas.
+
+## 22. O que mudou no ambiente de medição (e por que importa)
+
+As Partes I a III mediram um seed com **uma unidade**. As duas telas
+relatadas somam **cinco** — a Visão Geral diz isso na própria tela ("Soma de 5
+unidades com vigência importada") — e o custo delas é `uma leitura completa por
+unidade × contexto`, em `Promise.all`, contra um pool de 10 conexões. Medir com
+N = 1 era medir a tela errada; o §20 já apontava isso como o limite mais
+importante daquele capítulo.
+
+Este capítulo mede com **N = 5**. As quatro unidades extras são clones das
+vigências do seed sob outro `scope_hash` (457.596 fatos, 54 vigências, 5
+contextos) — mesma forma de dado, mesmo caminho de código, o fan-out real.
+
+Ambiente: Postgres 16 local, seed do produto pelo caminho do produto, API
+compilada em modo produção, bundle de produção servido a um Chromium real
+dirigido por Playwright.
+
+## 23. O maior custo isolado do produto é uma consulta que ordena 83 mil linhas para devolver 18
+
+`/changes/families` faz **11 consultas, todas em série na mesma conexão**. Uma
+delas responde por dois terços do tempo:
+
+```
+  38 ms   SELECT cs.id AS change_set_id …
+ 123 ms   WITH snaps AS … por_entidade …     ← contagens() em tipos-da-vigencia.ts
+```
+
+O `EXPLAIN (ANALYZE, BUFFERS)` diz o que ela faz:
+
+```
+GroupAggregate  (actual time=142..161 rows=18)
+  -> Sort  (actual time=141..150 rows=83241)
+       Sort Key: sn.d, e.entity_type, f.entity_id
+       Sort Method: external merge  Disk: 3632kB
+```
+
+Escrita como `count(DISTINCT f.entity_id)` sobre o join com `fato_visivel`, ela
+obriga o Postgres a **ordenar todos os fatos de todas as vigências do contexto**
+— 83.241 linhas, derramadas em disco — para produzir 18 linhas de resposta.
+Não é falta de índice: `fact (snapshot_id, entity_id)` já existe. É a forma da
+consulta que impede o planejador de usá-lo.
+
+Destilando o par `(vigência, entidade)` **antes** do agrupamento, o mesmo
+resultado sai pelo índice:
+
+| | atual | proposta |
+|---|--:|--:|
+| tempo da consulta | 146 ms | **45 ms** |
+| linhas ordenadas | 83.241 (3,6 MB em disco) | 0 |
+
+**Equivalência provada, não argumentada:** `EXCEPT` nos dois sentidos, sobre
+**todas** as vigências do banco — 0 linhas de diferença.
+
+Esta consulta roda **uma vez por unidade × contexto**. Na Visão Geral com 5
+unidades, são 5 delas por requisição.
+
+### O efeito, medido
+
+| Endpoint (5 unidades) | antes | depois | com banco a 15 ms de RTT (antes → depois) |
+|---|--:|--:|--:|
+| `/changes/families` | 158 ms | **71 ms** | 328 → **248 ms** |
+| `/changes/families/overview` | 235 ms | **105 ms** | 406 → **278 ms** |
+
+Telas inteiras num Chromium real, mediana de 3, entrada fria em cada uma:
+
+| Tela | antes | depois |
+|---|--:|--:|
+| Gestão à Vista — Radar | 477 ms | **230 ms** |
+| Dashboard — Visão Geral | 569 ms | **373 ms** |
+| Resumo executivo | 573 ms | **367 ms** |
+| Linha do Tempo | 522 ms | **303 ms** |
+| Dashboard — unidade | 459 ms | **328 ms** |
+| Balanço de massa | 355 ms | **299 ms** |
+
+## 24. O que o usuário sozinho não vê: a tela cai com quem está do lado
+
+O ganho maior não está no relógio de uma pessoa — está na vazão. Com 5
+unidades, `/changes/families/overview` **satura em ~5 req/s**: a partir de 3
+usuários simultâneos a vazão para de subir e só a fila cresce.
+
+| Usuários simultâneos | p50 antes | p95 antes | p50 depois | p95 depois |
+|--:|--:|--:|--:|--:|
+| 1 | 253 ms | 312 ms | **106 ms** | **131 ms** |
+| 3 | 639 ms | 748 ms | **219 ms** | **279 ms** |
+| 5 | 1.008 ms | 1.286 ms | **352 ms** | **477 ms** |
+| 10 | 1.842 ms | 2.203 ms | **674 ms** | **758 ms** |
+| 20 | 3.645 ms | 4.257 ms | **1.469 ms** | **1.619 ms** |
+
+Vazão: **5,1 → 14,0 req/s** (2,7×).
+
+Isto explica o relato melhor do que qualquer número de tela isolada: **a mesma
+tela demora coisas diferentes conforme quem mais está com ela aberta.** E o
+produto se auto-carrega — a Gestão à Vista tem `refetchInterval: 30 s`, então
+cada telão pendurado é um usuário simultâneo permanente.
+
+## 25. O que **não** foi corrigido, em ordem de impacto
+
+### 25.1 O bundle continua um arquivo só de 2,58 MB
+
+O gargalo nº 8 da Parte I nunca foi mexido, e cresceu: **2.582 KB, 700 KB em
+gzip, sem code splitting**. É o que separa a primeira carga do dia de todas as
+outras. Medido com cache frio, mesma tela (`/dashboard?visaoGeral=1`), quatro
+perfis de rede:
+
+| Rede | JS baixado | FCP | tela pronta |
+|---|--:|--:|--:|
+| localhost | 27 ms | 144 ms | 610 ms |
+| banda larga (20 Mbps, 30 ms) | 1.234 ms | 1.324 ms | **1.751 ms** |
+| 4G (9 Mbps, 85 ms) | 2.652 ms | 2.744 ms | **3.271 ms** |
+| 4G ruim (1,6 Mbps, 300 ms) | 14.465 ms | 14.584 ms | **15.620 ms** |
+
+Servido comprimido (700 KB), a mesma medição:
+
+| Rede | JS baixado | FCP | tela pronta |
+|---|--:|--:|--:|
+| banda larga | 428 ms | 500 ms | **1.016 ms** |
+| 4G | 847 ms | 924 ms | **1.420 ms** |
+| 4G ruim | 4.266 ms | 4.332 ms | **5.334 ms** |
+
+Duas conclusões separadas, e as duas acionáveis:
+
+1. **Comprimir o estático vale 3,7×** na primeira carga. A correção nº 6 da
+   Parte I ligou `compression` no **api-server**; o bundle não passa por ele —
+   `artifact.toml` declara `serve = "static"`, e quem o serve é a hospedagem.
+   **Conferir se ela comprime é o item mais barato desta lista**, e é
+   verificável de fora: `curl -sI -H 'Accept-Encoding: gzip' <url>/assets/index-*.js`
+   tem de responder `content-encoding`.
+2. **Mesmo comprimido, 700 KB num arquivo só** custa 0,85 s de download em 4G
+   antes de a primeira requisição de API sair. Dividir o bundle por rota é o
+   que tira esse custo das telas que não precisam dele.
+
+### 25.2 As telas novas voltaram a empilhar ondas
+
+A Parte III desfez a cascata da Linha do Tempo. As telas nascidas depois
+recriaram o padrão:
+
+```
+Radar de Alterações
+  onda 1   /contexts                    ← a casca
+  onda 2   /changes/range/overview      ← precisa das vigências da onda 1
+  onda 3   /changes/range × 5           ← precisa da lista de unidades da onda 2
+```
+
+O Radar só desenha alguma coisa quando a **onda 2** chega: as linhas da grade
+saem de `overviewQuery.data.unitsIncluded`. É exatamente o quadro relatado —
+cartão vazio, "Carregando…", "aguardando a primeira resposta…". As três ondas
+somam `nº de consultas × RTT` em cascata, e o RTT aqui não é o do navegador: é o
+do banco, multiplicado pelas consultas serializadas de cada endpoint.
+
+Medida da inclinação, com um proxy TCP atrasando o banco:
+
+| Endpoint | ms por ms de RTT | round trips implícitos |
+|---|--:|--:|
+| `/changes/families` | +11,8 | ~12 em série |
+| `/changes/range/overview` | +6,2 | ~6 em série |
+| `/contexts` | +3,1 | ~3 em série |
+
+O gargalo nº 3 da Parte I continua vivo em toda rota que não foi tocada.
+
+### 25.3 O portão tudo-ou-nada
+
+No template de Alertas da Gestão à Vista, `carregando = overviewQuery.isLoading`
+governa a tela inteira. No Radar, `carregando` é verdadeiro enquanto **qualquer
+uma** das 5 leituras de `/changes/range` estiver em voo — a grade inteira espera
+a unidade mais lenta, mesmo com quatro já respondidas. Uma tela que desenha o
+que já chegou e completa o resto parece rápida sem que nada fique mais rápido.
+
+### 25.4 `/api/build` sai em toda tela
+
+O carimbo do servidor é lido a cada ciclo de chamada resiliente, em todas as
+telas medidas. É barato por vez e é ruído constante no caminho crítico.
+
+### 25.5 O 302 do ReplShield
+
+Sem mudança em relação ao §15. Continua sendo da camada de rede da publicação, e
+continua custando 36 ms em vez de 14 s quando acontece.
+
+## 26. Limites desta medição
+
+- **O seed tem 0 alterações apuradas.** As 5 unidades exercitam o fan-out, o
+  número de consultas e o custo por vigência — não o volume de `entries`. O
+  payload de 389 KB por `/changes/range` medido no §20 não foi remedido aqui, e
+  com 5 unidades o Radar carrega cinco desses para desenhar uma grade de
+  números.
+- **A rede da publicação não é reprodutível daqui.** Os perfis do §25.1 são
+  emulação de navegador, não a hospedagem real.
+- **Latência real até o banco de produção:** não medida. A inclinação do §25.2
+  permite projetar, não afirmar.
+
+## 27. Regressão da correção do §23
+
+- `EXCEPT` nos dois sentidos entre a consulta antiga e a nova, sobre todas as
+  vigências do banco: **0 linhas de diferença**.
+- `lib/comparison`, suíte inteira e serializada, com banco de verdade:
+  **48 arquivos, 567 testes, todos passando.**
+- Typecheck do workspace inteiro: limpo.
