@@ -15,13 +15,29 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { CanvasDoFluxo } from "@/components/fluxos/canvas";
+import { DetalheDaEtapa } from "@/components/fluxos/detalhe-da-etapa";
 import { EditorDaEtapa } from "@/components/fluxos/editor-da-etapa";
 import { BotaoDeExportar } from "@/components/fluxos/botao-de-exportar";
 import { EditorDoFluxo } from "@/components/fluxos/editor-do-fluxo";
 import { MontadorPorTexto } from "@/components/fluxos/montador-por-texto";
-import { PainelDaEtapa } from "@/components/fluxos/painel-da-etapa";
 import { useEmpresaDosFluxos } from "@/components/fluxos/seletor-de-empresa";
+import { SeletorDeVisualizacao } from "@/components/fluxos/seletor-de-visualizacao";
+import { VisaoFluxo } from "@/components/fluxos/visao-fluxo";
+import { VisaoGargalos } from "@/components/fluxos/visao-gargalos";
+import { VisaoJornada } from "@/components/fluxos/visao-jornada";
+import { VisaoLista } from "@/components/fluxos/visao-lista";
+import { VisaoMapa } from "@/components/fluxos/visao-mapa";
+import { VisaoRaias } from "@/components/fluxos/visao-raias";
+import { useVisualizacaoDeFluxo } from "@/hooks/use-visualizacao-de-fluxo";
+import { analisarFluxo } from "@/lib/fluxos-analise";
+import {
+  AGRUPAMENTOS_DE_RAIA,
+  VISUALIZACOES,
+  type AgrupamentoDeRaia,
+  type Orientacao,
+  type Visualizacao,
+} from "@/lib/fluxos-visoes";
+import type { PropsDaVisaoNoCanvas } from "@/components/fluxos/visao";
 import {
   escritas,
   fraseDoErro,
@@ -44,15 +60,23 @@ import {
  * aparece sob demanda.
  *
  * ---------------------------------------------------------------------------
- * Dois modos, e o segundo já tem lugar reservado
+ * Seis visualizações, um processo
  * ---------------------------------------------------------------------------
  *
- * O seletor do cabeçalho oferece hoje **Processo** — como o processo funciona —
- * e nomeia o que virá: **Monitoramento**, com o farol por etapa e os números
- * reais. A opção existe desabilitada, e isso é deliberado: o lugar dela na
- * interface está decidido, e nada foi implementado por antecipação. Ligar o
- * modo, quando houver coletor, é preencher `data` do nó com o farol — o cartão,
- * o painel e o canvas não mudam.
+ * Esta página é o **workspace** do processo: ela carrega o fluxo uma vez, cuida
+ * das escritas e escolhe qual projeção desenhar. Fluxo, Raias, Jornada, Mapa,
+ * Lista e Gargalos são componentes irmãos que recebem o mesmo `FluxoCompleto` —
+ * não há uma segunda consulta, um segundo cache nem um segundo formato.
+ *
+ * A consequência é o critério de aceite inteiro: trocar de visualização não
+ * recarrega, não navega, não duplica e não perde a etapa selecionada; e uma
+ * alteração feita em qualquer lugar aparece nas outras porque "as outras" não
+ * existem — existe um objeto no cache e seis funções que o desenham.
+ *
+ * O que era o seletor "Modo Processo" virou o seletor de visualização. O Modo
+ * Monitoramento não sumiu do plano: ele é uma **camada** sobre estas seis
+ * (como os Gargalos já são), e não uma sétima aba — quando houver coletor, o
+ * farol entra em `montarProjecao` do mesmo jeito que a severidade entrou.
  *
  * ---------------------------------------------------------------------------
  * Editar é o estado normal, não uma tela à parte
@@ -62,6 +86,13 @@ import {
  * arrastar e o ligar ligados. Duas telas fariam quem cadastra alternar entre
  * elas para ver o que fez. O que existe é um interruptor de leitura, para quem
  * só quer consultar sem risco de mover um cartão sem querer.
+ *
+ * O que muda por visualização é **quanto** se edita direto no desenho. Arrastar
+ * cartão só grava onde as coordenadas desenhadas são as gravadas — o Fluxo
+ * vertical. Nas projeções calculadas (horizontal, raias, mapa) o arrasto fica
+ * desligado, porque o que ele gravaria seria uma coordenada derivada por cima
+ * do arranjo real. Editar conteúdo, esse sim, funciona igual nas seis: é o
+ * mesmo painel de detalhe, com o mesmo formulário.
  */
 export default function TelaDoFluxo() {
   const [, params] = useRoute("/fluxos/:id");
@@ -95,12 +126,32 @@ export default function TelaDoFluxo() {
   const [seguinteDe, setSeguinteDe] = useState<string | null>(null);
   const [somenteLeitura, setSomenteLeitura] = useState(false);
   const [conexaoAberta, setConexaoAberta] = useState<Conexao | null>(null);
+  const { visualizacao, orientacao, agrupamento, trocarVisualizacao, trocarOrientacao, trocarAgrupamento } =
+    useVisualizacaoDeFluxo();
+  /* O sinal recortado na visualização de Gargalos. Vazio: todos. */
+  const [sinal, setSinal] = useState("");
 
   const completo = consulta.data;
   const etapaSelecionada = useMemo(
     () => completo?.etapas.find((e) => e.id === selecionada) ?? null,
     [completo, selecionada],
   );
+
+  /*
+    A análise só é calculada quando alguém está olhando os Gargalos — e é
+    memoizada pelo fluxo, não pela renderização. Num processo de duzentas etapas
+    ela é uma passada linear; recalculá-la a cada clique de seleção seria o tipo
+    de custo que só aparece quando o processo cresce.
+  */
+  const analise = useMemo(
+    () => (completo && visualizacao === "gargalos" ? analisarFluxo(completo) : null),
+    [completo, visualizacao],
+  );
+
+  const entrada = VISUALIZACOES.find((v) => v.valor === visualizacao) ?? VISUALIZACOES[0];
+  /* "Organizar" só faz sentido onde o desenho é o gravado. */
+  const arranjoPersistido =
+    (visualizacao === "fluxo" || visualizacao === "gargalos") && orientacao === "vertical";
 
   const mover = useMutation({
     mutationFn: (posicoes: { etapaId: string; posX: number; posY: number }[]) =>
@@ -185,28 +236,55 @@ export default function TelaDoFluxo() {
                 <p className="text-xs text-muted-foreground">
                   {completo ? resumoDoFluxo(completo) : null}
                   {completo?.fluxo.dono ? ` · ${completo.fluxo.dono}` : ""}
+                  {` · ${entrada.descricao}`}
                 </p>
               </>
             )}
           </div>
 
-          <Select value="processo" onValueChange={() => undefined}>
-            <SelectTrigger className="w-[190px]" aria-label="Modo de leitura">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="processo">Modo Processo</SelectItem>
-              {/*
-                Desabilitado, e presente. O lugar do Modo Monitoramento na
-                interface está decidido; ligar o farol depende de um coletor de
-                métricas que ainda não existe, e um seletor que trocasse para
-                uma tela vazia seria pior do que um que diz "ainda não".
-              */}
-              <SelectItem value="monitoramento" disabled>
-                Modo Monitoramento (em breve)
-              </SelectItem>
-            </SelectContent>
-          </Select>
+          {/*
+            O seletor de visualização, e os controles que só existem para
+            algumas delas. Eles trocam com a visualização em vez de ficarem
+            todos na barra: uma barra com orientação, agrupamento e sinal
+            visíveis o tempo todo obrigaria a ler seis controles para usar um.
+          */}
+          <div className="flex items-center gap-1.5">
+            <span className="hidden text-xs text-muted-foreground lg:inline">Visualização</span>
+            <SeletorDeVisualizacao valor={visualizacao} aoTrocar={trocarVisualizacao} />
+          </div>
+
+          {(visualizacao === "fluxo" || visualizacao === "gargalos") && (
+            <div className="flex items-center gap-1.5">
+              <span className="hidden text-xs text-muted-foreground lg:inline">Orientação</span>
+              <Select value={orientacao} onValueChange={(v) => trocarOrientacao(v as "vertical" | "horizontal")}>
+                <SelectTrigger className="h-8 w-[130px]" aria-label="Orientação do fluxo">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="vertical">Vertical</SelectItem>
+                  <SelectItem value="horizontal">Horizontal</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          {visualizacao === "raias" && (
+            <div className="flex items-center gap-1.5">
+              <span className="hidden text-xs text-muted-foreground lg:inline">Agrupar por</span>
+              <Select value={agrupamento} onValueChange={(v) => trocarAgrupamento(v as never)}>
+                <SelectTrigger className="h-8 w-[140px]" aria-label="Agrupar raias por">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {AGRUPAMENTOS_DE_RAIA.map((a) => (
+                    <SelectItem key={a.valor} value={a.valor}>
+                      {a.rotulo}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
           <Button variant="ghost" size="sm" onClick={() => setSomenteLeitura((v) => !v)}>
             {somenteLeitura ? "Liberar edição" : "Só leitura"}
@@ -227,20 +305,27 @@ export default function TelaDoFluxo() {
             Shift, refaz o desenho inteiro — o pedido destrutivo fica atrás de
             um gesto deliberado, e o rótulo do botão o anuncia.
           */}
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled={somenteLeitura || organizar.isPending || !completo?.etapas.length}
-            title="Organizar o desenho. Com Shift, refaz o arranjo inteiro."
-            onClick={(evento) => organizar.mutate(evento.shiftKey)}
-          >
-            {organizar.isPending ? (
-              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <LayoutGrid className="mr-1.5 h-3.5 w-3.5" />
-            )}
-            Organizar
-          </Button>
+          {/*
+            Fora do Fluxo vertical o botão some em vez de ficar desabilitado:
+            nas projeções calculadas não existe "arranjo para organizar", e um
+            botão morto na barra sugere que existe.
+          */}
+          {arranjoPersistido && (
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={somenteLeitura || organizar.isPending || !completo?.etapas.length}
+              title="Organizar o desenho. Com Shift, refaz o arranjo inteiro."
+              onClick={(evento) => organizar.mutate(evento.shiftKey)}
+            >
+              {organizar.isPending ? (
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <LayoutGrid className="mr-1.5 h-3.5 w-3.5" />
+              )}
+              Organizar
+            </Button>
+          )}
 
           <Button
             variant="outline"
@@ -287,7 +372,7 @@ export default function TelaDoFluxo() {
         um contêiner que se resolve em zero deixa o fluxograma invisível — o
         defeito mais comum de quem monta um canvas dentro de layout flexível.
       */}
-      <div className="flex h-[calc(100vh-8.5rem)] w-full">
+      <div className="flex h-[calc(100dvh-13rem)] min-h-[420px] w-full sm:h-[calc(100dvh-8.5rem)]">
         <div className="relative min-w-0 flex-1">
           {consulta.isLoading && <Skeleton className="h-full w-full" />}
           {completo && completo.etapas.length === 0 && (
@@ -298,9 +383,14 @@ export default function TelaDoFluxo() {
             />
           )}
           {completo && completo.etapas.length > 0 && (
-            <CanvasDoFluxo
+            <MotorDeVisualizacao
               completo={completo}
               catalogo={catalogo.data}
+              visualizacao={visualizacao}
+              orientacao={orientacao}
+              agrupamento={agrupamento}
+              sinal={sinal}
+              onTrocarSinal={setSinal}
               etapaSelecionada={selecionada}
               onSelecionarEtapa={setSelecionada}
               somenteLeitura={somenteLeitura}
@@ -317,23 +407,26 @@ export default function TelaDoFluxo() {
           )}
         </div>
 
+        {/*
+          Um detalhe só, para as seis visualizações — coluna no desktop, gaveta
+          no celular. Ele fica **aqui**, na página, e não dentro de cada visão:
+          é assim que clicar num cartão do Fluxo, numa linha da Lista ou num
+          passo da Jornada abre exatamente a mesma coisa.
+        */}
         {etapaSelecionada && (
-          <div className="w-[380px] shrink-0">
-            <PainelDaEtapa
-              etapa={etapaSelecionada}
-              catalogo={catalogo.data}
-              podeEditar={!somenteLeitura}
-              onEditar={() =>
-                setEditandoEtapa({ aberto: true, etapaId: etapaSelecionada.id })
-              }
-              onSeguinte={() => {
-                setSeguinteDe(etapaSelecionada.id);
-                setEditandoEtapa({ aberto: true, etapaId: null });
-              }}
-              onExcluir={() => excluirEtapa.mutate(etapaSelecionada.id)}
-              onFechar={() => setSelecionada(null)}
-            />
-          </div>
+          <DetalheDaEtapa
+            etapa={etapaSelecionada}
+            catalogo={catalogo.data}
+            podeEditar={!somenteLeitura}
+            diagnostico={analise?.porEtapa.get(etapaSelecionada.id)}
+            onEditar={() => setEditandoEtapa({ aberto: true, etapaId: etapaSelecionada.id })}
+            onSeguinte={() => {
+              setSeguinteDe(etapaSelecionada.id);
+              setEditandoEtapa({ aberto: true, etapaId: null });
+            }}
+            onExcluir={() => excluirEtapa.mutate(etapaSelecionada.id)}
+            onFechar={() => setSelecionada(null)}
+          />
         )}
       </div>
 
@@ -424,6 +517,57 @@ export default function TelaDoFluxo() {
       )}
     </Layout>
   );
+}
+
+/**
+ * O MOTOR DE VISUALIZAÇÃO — o único lugar onde "qual visualização" é decidido.
+ *
+ * Uma função de despacho, e não uma página cheia de condicionais espalhadas: a
+ * escolha aparece **uma vez**, aqui, e cada projeção é um componente irmão que
+ * recebe o mesmo `FluxoCompleto`. Acrescentar uma sétima visualização é uma
+ * entrada em `VISUALIZACOES` e um `case` — nunca um `if` novo em cada trecho da
+ * tela.
+ *
+ * As seis recebem `somenteLeitura` e nenhuma delas escreve: as mutações vivem
+ * na página. É o que faz o modo de leitura valer nas seis sem que cada uma
+ * precise lembrar de respeitá-lo.
+ */
+function MotorDeVisualizacao({
+  visualizacao,
+  orientacao,
+  agrupamento,
+  sinal,
+  onTrocarSinal,
+  ...props
+}: PropsDaVisaoNoCanvas & {
+  visualizacao: Visualizacao;
+  orientacao: Orientacao;
+  agrupamento: AgrupamentoDeRaia;
+  sinal: string;
+  onTrocarSinal: (sinal: string) => void;
+}) {
+  switch (visualizacao) {
+    case "raias":
+      return <VisaoRaias {...props} agrupamento={agrupamento} />;
+    case "jornada":
+      return <VisaoJornada {...props} />;
+    case "mapa":
+      return <VisaoMapa {...props} />;
+    case "lista":
+      return <VisaoLista {...props} />;
+    case "gargalos":
+      return (
+        <VisaoGargalos
+          {...props}
+          orientacao={orientacao}
+          sinal={sinal}
+          onTrocarSinal={onTrocarSinal}
+        />
+      );
+    case "fluxo":
+    default:
+      return <VisaoFluxo {...props} orientacao={orientacao} />;
+  }
 }
 
 /**

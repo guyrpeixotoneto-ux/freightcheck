@@ -1,0 +1,516 @@
+import type { Conexao, Etapa, FluxoCompleto } from "@/lib/fluxos";
+
+/**
+ * O MOTOR DE VISUALIZAÇÃO — o mesmo processo, projetado de seis jeitos.
+ *
+ * Este arquivo é a resposta à única regra que o módulo não pode quebrar: existe
+ * **uma** fonte de verdade do processo, e ela é o `FluxoCompleto` que a API
+ * devolve — o fluxo, as etapas e as conexões. Nenhuma visualização tem fluxo
+ * próprio, etapa própria, conexão própria ou versão própria. O que cada uma tem
+ * é uma **projeção**: uma função pura que recebe o mesmo `FluxoCompleto` e
+ * devolve coordenadas, faixas ou uma lista ordenada.
+ *
+ * Daí a consequência que os testes cobrem: trocar de visualização não escreve
+ * nada. Não há mutação aqui dentro, não há `fetch`, não há `escritas`. Alternar
+ * Fluxo → Raias → Lista → Gargalos → Fluxo é recalcular funções puras sobre o
+ * objeto que já está no cache do React Query, e por isso não pode criar linha
+ * nenhuma no banco: não existe caminho de código por onde isso aconteceria.
+ *
+ * ---------------------------------------------------------------------------
+ * O que é persistido, e o que é calculado
+ * ---------------------------------------------------------------------------
+ *
+ * `pos_x`/`pos_y` continuam sendo o arranjo que a pessoa montou **no Fluxo
+ * vertical**, e continuam sendo a única posição gravada. Todas as outras
+ * disposições — o fluxo horizontal, as raias, o mapa — são **derivadas na
+ * hora**, de forma determinística, a partir do grafo.
+ *
+ * A alternativa seria guardar um layout por visualização (`layout.raias.area`,
+ * `layout.fluxo.horizontal`…), e ela foi recusada de propósito: seriam N
+ * conjuntos de coordenadas para manter em dia a cada etapa criada, movida ou
+ * excluída, com N chances de o desenho de uma visualização discordar do
+ * processo. Como as projeções são determinísticas, ir para as Raias e voltar
+ * devolve exatamente o arranjo arrastado — sem guardar nada — que é a garantia
+ * que o pedido de fato precisa. Se um dia alguém precisar arrastar cartão
+ * **dentro** das raias, o lugar de guardar isso é uma tabela de layout à parte
+ * (`fluxo_etapa_layout`, com `visualizacao` na chave), nunca uma segunda cópia
+ * da etapa.
+ */
+
+// ---------------------------------------------------------------------------
+// O vocabulário das visualizações
+// ---------------------------------------------------------------------------
+
+export type Visualizacao = "fluxo" | "raias" | "jornada" | "mapa" | "lista" | "gargalos";
+
+export type Orientacao = "vertical" | "horizontal";
+
+/** Por qual coluna da etapa as raias são agrupadas. */
+export type AgrupamentoDeRaia = "area" | "responsavel" | "sistema";
+
+export interface EntradaDeVisualizacao {
+  valor: Visualizacao;
+  rotulo: string;
+  descricao: string;
+  /** O nome do ícone `lucide-react` que o seletor monta. */
+  icone: string;
+  /** A visualização desenha no canvas (pan, zoom, setas)? */
+  ehCanvas: boolean;
+}
+
+/**
+ * As seis visualizações, num lugar só.
+ *
+ * Mesma decisão do catálogo do motor: a lista é dado, e não um `switch`
+ * espalhado por componente. Acrescentar uma sétima projeção é uma entrada aqui
+ * e um componente — nunca uma condicional nova em cada arquivo da tela.
+ */
+export const VISUALIZACOES: readonly EntradaDeVisualizacao[] = [
+  {
+    valor: "fluxo",
+    rotulo: "Fluxo",
+    descricao: "O fluxograma: etapas, decisões, retornos e exceções.",
+    icone: "Workflow",
+    ehCanvas: true,
+  },
+  {
+    valor: "raias",
+    rotulo: "Raias",
+    descricao: "O processo separado por quem responde — os handoffs à vista.",
+    icone: "Rows3",
+    ehCanvas: true,
+  },
+  {
+    valor: "jornada",
+    rotulo: "Jornada",
+    descricao: "A linha do tempo do processo, para leitura executiva.",
+    icone: "Milestone",
+    ehCanvas: false,
+  },
+  {
+    valor: "mapa",
+    rotulo: "Mapa",
+    descricao: "O processo inteiro de uma vez, em cartões compactos.",
+    icone: "Map",
+    ehCanvas: true,
+  },
+  {
+    valor: "lista",
+    rotulo: "Lista",
+    descricao: "A tabela das etapas — busca, filtros e auditoria.",
+    icone: "Table2",
+    ehCanvas: false,
+  },
+  {
+    valor: "gargalos",
+    rotulo: "Gargalos",
+    descricao: "O mesmo desenho, com os sinais de risco em cima.",
+    icone: "AlertTriangle",
+    ehCanvas: true,
+  },
+];
+
+const VISUALIZACOES_VALIDAS = new Set(VISUALIZACOES.map((v) => v.valor));
+
+export const ehVisualizacao = (v: unknown): v is Visualizacao =>
+  typeof v === "string" && VISUALIZACOES_VALIDAS.has(v as Visualizacao);
+
+export const AGRUPAMENTOS_DE_RAIA: readonly { valor: AgrupamentoDeRaia; rotulo: string }[] = [
+  { valor: "area", rotulo: "Área" },
+  { valor: "responsavel", rotulo: "Responsável" },
+  { valor: "sistema", rotulo: "Sistema" },
+];
+
+// ---------------------------------------------------------------------------
+// A preferência de quem está olhando
+// ---------------------------------------------------------------------------
+
+const CHAVE_DA_PREFERENCIA = "freightcheck.fluxos.visualizacao";
+
+export interface PreferenciaDeVisualizacao {
+  visualizacao: Visualizacao;
+  orientacao: Orientacao;
+  agrupamento: AgrupamentoDeRaia;
+}
+
+export const PREFERENCIA_PADRAO: PreferenciaDeVisualizacao = {
+  visualizacao: "fluxo",
+  orientacao: "vertical",
+  agrupamento: "area",
+};
+
+/**
+ * A última escolha volta na próxima abertura — e uma leitura que falhe nunca
+ * derruba a tela.
+ *
+ * Fica em `localStorage`, e não no banco, porque é preferência de quem olha e
+ * não fato do processo: guardá-la ao lado do fluxo faria a escolha de uma pessoa
+ * mudar a tela de outra. `try/catch` porque `localStorage` lança em janela
+ * privada e em contexto sem DOM — e um seletor de visualização não é motivo
+ * para uma tela inteira não abrir.
+ */
+export function lerPreferencia(): PreferenciaDeVisualizacao {
+  try {
+    const cru = globalThis.localStorage?.getItem(CHAVE_DA_PREFERENCIA);
+    if (!cru) return PREFERENCIA_PADRAO;
+    return normalizarPreferencia(JSON.parse(cru));
+  } catch {
+    return PREFERENCIA_PADRAO;
+  }
+}
+
+export function gravarPreferencia(preferencia: PreferenciaDeVisualizacao): void {
+  try {
+    globalThis.localStorage?.setItem(CHAVE_DA_PREFERENCIA, JSON.stringify(preferencia));
+  } catch {
+    /* Sem armazenamento, a preferência simplesmente não sobrevive à sessão. */
+  }
+}
+
+/** Um valor guardado por uma versão anterior nunca quebra a tela de hoje. */
+export function normalizarPreferencia(cru: unknown): PreferenciaDeVisualizacao {
+  const objeto = (cru ?? {}) as Record<string, unknown>;
+  return {
+    visualizacao: ehVisualizacao(objeto.visualizacao)
+      ? objeto.visualizacao
+      : PREFERENCIA_PADRAO.visualizacao,
+    orientacao: objeto.orientacao === "horizontal" ? "horizontal" : "vertical",
+    agrupamento: AGRUPAMENTOS_DE_RAIA.some((a) => a.valor === objeto.agrupamento)
+      ? (objeto.agrupamento as AgrupamentoDeRaia)
+      : PREFERENCIA_PADRAO.agrupamento,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// A topologia — calculada uma vez, usada por todas as projeções
+// ---------------------------------------------------------------------------
+
+/**
+ * Os níveis do grafo, por distância da origem.
+ *
+ * É a mesma busca em largura de `@workspace/fluxos/layout.ts`, e a repetição é
+ * consciente: aquele pacote exporta o repositório junto (drizzle, banco), e
+ * importá-lo aqui arrastaria o servidor inteiro para dentro do bundle da tela.
+ * O que se repete são trinta linhas de grafo puro, com teste dos dois lados —
+ * o que **não** se repete é regra de negócio: o desenho continua saindo do
+ * mesmo dado, e o layout gravado continua sendo calculado só no servidor.
+ */
+export function niveisDoFluxo(etapas: Etapa[], conexoes: Conexao[]): string[][] {
+  if (etapas.length === 0) return [];
+
+  const existe = new Set(etapas.map((e) => e.id));
+  const saidas = new Map<string, string[]>();
+  const grauDeEntrada = new Map<string, number>();
+  for (const etapa of etapas) {
+    saidas.set(etapa.id, []);
+    grauDeEntrada.set(etapa.id, 0);
+  }
+  for (const conexao of conexoes) {
+    if (!existe.has(conexao.origemEtapaId) || !existe.has(conexao.destinoEtapaId)) continue;
+    saidas.get(conexao.origemEtapaId)!.push(conexao.destinoEtapaId);
+    grauDeEntrada.set(conexao.destinoEtapaId, (grauDeEntrada.get(conexao.destinoEtapaId) ?? 0) + 1);
+  }
+
+  const porOrdem = [...etapas].sort(
+    (a, b) => a.ordem - b.ordem || a.nome.localeCompare(b.nome, "pt-BR"),
+  );
+
+  const raizes = porOrdem.filter((e) => (grauDeEntrada.get(e.id) ?? 0) === 0).map((e) => e.id);
+  const fila: string[] = raizes.length > 0 ? [...raizes] : [porOrdem[0].id];
+
+  const nivelDe = new Map<string, number>();
+  for (const id of fila) nivelDe.set(id, 0);
+
+  for (let i = 0; i < fila.length; i += 1) {
+    const atual = fila[i];
+    const nivel = nivelDe.get(atual)!;
+    for (const destino of saidas.get(atual) ?? []) {
+      if (nivelDe.has(destino)) continue;
+      nivelDe.set(destino, nivel + 1);
+      fila.push(destino);
+    }
+  }
+
+  /* O que não é alcançável vai para o fim, em níveis próprios — nunca some. */
+  let proximo = Math.max(-1, ...nivelDe.values()) + 1;
+  for (const etapa of porOrdem) {
+    if (!nivelDe.has(etapa.id)) {
+      nivelDe.set(etapa.id, proximo);
+      proximo += 1;
+    }
+  }
+
+  const niveis: string[][] = [];
+  for (const etapa of porOrdem) {
+    const nivel = nivelDe.get(etapa.id)!;
+    (niveis[nivel] ??= []).push(etapa.id);
+  }
+  return niveis.map((n) => n ?? []);
+}
+
+/**
+ * A ordem de leitura do processo — a mesma para Jornada, Mapa, Lista e a
+ * numeração dos cartões.
+ *
+ * É a topologia, e não `ordem`: a numeração "01, 02, 03" que a Jornada mostra
+ * precisa seguir o caminho real do processo, e `ordem` é só o desempate de
+ * quem foi cadastrado antes. Uma função só, usada por todas as projeções, é o
+ * que impede a etapa 4 da Jornada de ser a etapa 6 da Lista.
+ */
+export function ordemDeLeitura(completo: FluxoCompleto): Etapa[] {
+  const porId = new Map(completo.etapas.map((e) => [e.id, e]));
+  return niveisDoFluxo(completo.etapas, completo.conexoes)
+    .flat()
+    .map((id) => porId.get(id))
+    .filter((e): e is Etapa => e !== undefined);
+}
+
+/** A posição de leitura de cada etapa — `01`, `02`… — indexada por id. */
+export function numeracaoDoFluxo(completo: FluxoCompleto): Map<string, number> {
+  const numeros = new Map<string, number>();
+  ordemDeLeitura(completo).forEach((etapa, indice) => numeros.set(etapa.id, indice + 1));
+  return numeros;
+}
+
+// ---------------------------------------------------------------------------
+// Projeção 1 e 2 — o Fluxo, vertical e horizontal
+// ---------------------------------------------------------------------------
+
+/** A largura de um cartão mais o respiro. Espelha o CSS do nó no canvas. */
+export const PASSO_X = 260;
+/** A altura de uma faixa. Sobra para o rótulo da seta caber entre duas. */
+export const PASSO_Y = 150;
+
+export type Posicoes = Map<string, { x: number; y: number }>;
+
+/**
+ * Onde cada cartão fica no Fluxo.
+ *
+ * **Vertical** devolve o que está gravado: é o arranjo que a pessoa arrastou, e
+ * respeitá-lo é o motivo de ele existir. **Horizontal** é derivado na hora —
+ * mesmos níveis, eixos trocados —, porque ninguém deveria ter que reposicionar
+ * cem etapas à mão para ler o mesmo processo da esquerda para a direita.
+ *
+ * Nada aqui grava: a projeção horizontal não sobrescreve `pos_x`/`pos_y`, e por
+ * isso voltar para o vertical devolve o desenho intacto.
+ */
+export function posicoesDoFluxo(completo: FluxoCompleto, orientacao: Orientacao): Posicoes {
+  const posicoes: Posicoes = new Map();
+
+  if (orientacao === "vertical") {
+    for (const etapa of completo.etapas) posicoes.set(etapa.id, { x: etapa.posX, y: etapa.posY });
+    return posicoes;
+  }
+
+  const niveis = niveisDoFluxo(completo.etapas, completo.conexoes);
+  niveis.forEach((idsDoNivel, indiceDoNivel) => {
+    const deslocamento = ((idsDoNivel.length - 1) * PASSO_Y) / 2;
+    idsDoNivel.forEach((id, indice) => {
+      posicoes.set(id, {
+        x: indiceDoNivel * PASSO_X,
+        y: Math.round(indice * PASSO_Y - deslocamento),
+      });
+    });
+  });
+  return posicoes;
+}
+
+// ---------------------------------------------------------------------------
+// Projeção 3 — as Raias
+// ---------------------------------------------------------------------------
+
+/** A altura de um cartão empilhado dentro de uma raia. */
+export const ALTURA_DO_CARTAO = 110;
+/** O respiro de cima e de baixo dentro de uma raia. */
+export const RESPIRO_DA_RAIA = 28;
+/** A largura da coluna de rótulos, à esquerda das raias. */
+export const LARGURA_DO_ROTULO = 190;
+
+export interface Raia {
+  chave: string;
+  rotulo: string;
+  /** A raia é o "não preenchido" desta coluna? */
+  semInformacao: boolean;
+  y: number;
+  altura: number;
+  etapas: string[];
+}
+
+export interface ProjecaoDeRaias {
+  raias: Raia[];
+  posicoes: Posicoes;
+  largura: number;
+  altura: number;
+  /** As trocas de responsabilidade — as conexões que atravessam raias. */
+  handoffs: { conexaoId: string; de: string; para: string }[];
+}
+
+const ROTULO_SEM = {
+  area: "Sem área definida",
+  responsavel: "Sem responsável definido",
+  sistema: "Sem sistema definido",
+} as const;
+
+/**
+ * A qual raia a etapa pertence.
+ *
+ * Para "sistema", o sistema principal vem primeiro e o primeiro item da espécie
+ * SISTEMA é o degrau seguinte — quem cadastrou o sistema como item, e não como
+ * coluna, não pode cair no balde do "sem sistema".
+ */
+export function raiaDaEtapa(etapa: Etapa, agrupamento: AgrupamentoDeRaia): string {
+  const texto = (v: string | null | undefined) => (v ?? "").trim();
+  if (agrupamento === "area") return texto(etapa.area);
+  if (agrupamento === "responsavel") return texto(etapa.responsavel);
+  const principal = texto(etapa.sistemaPrincipal);
+  if (principal !== "") return principal;
+  const item = etapa.itens.find((i) => i.especie === "SISTEMA" && texto(i.nome) !== "");
+  return texto(item?.nome);
+}
+
+/**
+ * O processo organizado por quem responde.
+ *
+ * A coluna de uma etapa é o nível dela no grafo — a mesma que o Fluxo usa —, e
+ * por isso o desenho continua andando da esquerda para a direita na ordem do
+ * processo. A linha é a raia. O handoff, que é o que esta visualização existe
+ * para mostrar, é o que sobra: toda conexão cujas duas pontas caem em raias
+ * diferentes.
+ *
+ * A ordem das raias é a de **primeira aparição** no processo, não alfabética:
+ * lido de cima para baixo, o desenho conta a história na ordem em que ela
+ * acontece. A raia do "não preenchido" vai sempre para o fim — ela é uma
+ * pendência de cadastro, não uma etapa do processo.
+ */
+export function projetarRaias(
+  completo: FluxoCompleto,
+  agrupamento: AgrupamentoDeRaia,
+): ProjecaoDeRaias {
+  const niveis = niveisDoFluxo(completo.etapas, completo.conexoes);
+  const colunaDe = new Map<string, number>();
+  niveis.forEach((ids, coluna) => ids.forEach((id) => colunaDe.set(id, coluna)));
+
+  const porId = new Map(completo.etapas.map((e) => [e.id, e]));
+  const emOrdem = ordemDeLeitura(completo);
+
+  const chaveDe = new Map<string, string>();
+  const ordemDasRaias: string[] = [];
+  for (const etapa of emOrdem) {
+    const chave = raiaDaEtapa(etapa, agrupamento);
+    chaveDe.set(etapa.id, chave);
+    if (!ordemDasRaias.includes(chave)) ordemDasRaias.push(chave);
+  }
+  /* O balde do não preenchido por último — é pendência, não etapa. */
+  ordemDasRaias.sort((a, b) => (a === "" ? 1 : 0) - (b === "" ? 1 : 0));
+
+  const posicoes: Posicoes = new Map();
+  const raias: Raia[] = [];
+  let y = 0;
+
+  for (const chave of ordemDasRaias) {
+    const daRaia = emOrdem.filter((e) => chaveDe.get(e.id) === chave);
+    /* Duas etapas da mesma raia na mesma coluna empilham em vez de se cobrir. */
+    const usoPorColuna = new Map<number, number>();
+    let pilhaMaxima = 1;
+    for (const etapa of daRaia) {
+      const coluna = colunaDe.get(etapa.id) ?? 0;
+      const usados = usoPorColuna.get(coluna) ?? 0;
+      usoPorColuna.set(coluna, usados + 1);
+      pilhaMaxima = Math.max(pilhaMaxima, usados + 1);
+      posicoes.set(etapa.id, {
+        x: LARGURA_DO_ROTULO + coluna * PASSO_X,
+        y: y + RESPIRO_DA_RAIA + usados * ALTURA_DO_CARTAO,
+      });
+    }
+    const altura = pilhaMaxima * ALTURA_DO_CARTAO + RESPIRO_DA_RAIA * 2 - (ALTURA_DO_CARTAO - 72);
+    raias.push({
+      chave,
+      rotulo: chave === "" ? ROTULO_SEM[agrupamento] : chave,
+      semInformacao: chave === "",
+      y,
+      altura,
+      etapas: daRaia.map((e) => e.id),
+    });
+    y += altura;
+  }
+
+  const handoffs = completo.conexoes
+    .filter((c) => porId.has(c.origemEtapaId) && porId.has(c.destinoEtapaId))
+    .filter((c) => chaveDe.get(c.origemEtapaId) !== chaveDe.get(c.destinoEtapaId))
+    .map((c) => ({
+      conexaoId: c.id,
+      de: chaveDe.get(c.origemEtapaId) ?? "",
+      para: chaveDe.get(c.destinoEtapaId) ?? "",
+    }));
+
+  const colunas = Math.max(1, niveis.length);
+  return {
+    raias,
+    posicoes,
+    largura: LARGURA_DO_ROTULO + colunas * PASSO_X,
+    altura: y,
+    handoffs,
+  };
+}
+
+/**
+ * Os números do cabeçalho das Raias: quantas trocas de responsabilidade,
+ * quantas áreas, quantos responsáveis, quantos sistemas.
+ *
+ * São contagens do que **está cadastrado** — nada de estimativa. Quando a
+ * coluna está vazia em toda etapa, a contagem é zero e a tela diz isso em vez
+ * de inventar um número.
+ */
+export interface ResumoDeResponsabilidade {
+  trocas: number;
+  areas: number;
+  responsaveis: number;
+  sistemas: number;
+}
+
+export function resumoDeResponsabilidade(
+  completo: FluxoCompleto,
+  agrupamento: AgrupamentoDeRaia,
+): ResumoDeResponsabilidade {
+  const distintos = (agrupar: AgrupamentoDeRaia) =>
+    new Set(
+      completo.etapas.map((e) => raiaDaEtapa(e, agrupar)).filter((v) => v !== ""),
+    ).size;
+
+  return {
+    trocas: projetarRaias(completo, agrupamento).handoffs.length,
+    areas: distintos("area"),
+    responsaveis: distintos("responsavel"),
+    sistemas: distintos("sistema"),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Projeção 4 — o Mapa
+// ---------------------------------------------------------------------------
+
+/** O passo do mapa — cartão compacto, para caber processo grande na tela. */
+export const PASSO_X_COMPACTO = 168;
+export const PASSO_Y_COMPACTO = 84;
+
+/**
+ * O processo inteiro de uma vez.
+ *
+ * Mesmos níveis, escala menor: o mapa não é uma visualização diferente do
+ * fluxo, é o **mesmo desenho** com cartão compacto e passo curto. Em duzentas
+ * etapas é a diferença entre navegar e se perder.
+ */
+export function posicoesDoMapa(completo: FluxoCompleto): Posicoes {
+  const posicoes: Posicoes = new Map();
+  const niveis = niveisDoFluxo(completo.etapas, completo.conexoes);
+  niveis.forEach((idsDoNivel, indiceDoNivel) => {
+    const deslocamento = ((idsDoNivel.length - 1) * PASSO_X_COMPACTO) / 2;
+    idsDoNivel.forEach((id, indice) => {
+      posicoes.set(id, {
+        x: Math.round(indice * PASSO_X_COMPACTO - deslocamento),
+        y: indiceDoNivel * PASSO_Y_COMPACTO,
+      });
+    });
+  });
+  return posicoes;
+}

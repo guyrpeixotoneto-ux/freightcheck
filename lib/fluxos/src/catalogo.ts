@@ -38,6 +38,7 @@ export type EspecieDeItem =
   | "SISTEMA"
   | "DOCUMENTO"
   | "RESPONSAVEL"
+  | "PRAZO"
   | "FALHA"
   | "GARGALO";
 
@@ -213,6 +214,30 @@ export const ESPECIES_DE_ITEM: readonly EntradaDeEspecie[] = [
     titulo: "Responsáveis",
     descricao: "Área, função ou pessoa que executa a etapa.",
     icone: "Users",
+    usaLink: false,
+    usaObrigatorio: false,
+  },
+  {
+    /*
+      O prazo acordado da etapa — o "SLA" das visualizações de Lista, Jornada e
+      Gargalos.
+
+      Entra como **espécie de item**, e não como coluna nova em `fluxo_etapa`,
+      porque é exatamente a forma que a tabela `fluxo_etapa_item` foi desenhada
+      para receber: nome, descrição, ordem, uma linha consultável por etapa. O
+      ganho é que "quais etapas não têm prazo definido" passa a ser uma consulta
+      — e o custo é esta entrada de catálogo, sem migration, sem `ALTER TABLE` e
+      sem redeploy coordenado do banco. Uma etapa pode ter mais de um prazo
+      (o acordado com o cliente e o interno), e por isso é lista e não campo.
+
+      Enquanto uma etapa não tiver nenhum, as visualizações dizem "sem prazo
+      definido" — nunca um número inventado.
+    */
+    valor: "PRAZO",
+    rotulo: "Prazo",
+    titulo: "Prazos e SLA",
+    descricao: "Quanto tempo a etapa deveria levar — “4 horas”, “D+1 útil”.",
+    icone: "Timer",
     usaLink: false,
     usaObrigatorio: false,
   },

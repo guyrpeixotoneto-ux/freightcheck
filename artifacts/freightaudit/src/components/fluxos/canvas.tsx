@@ -15,7 +15,9 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { NoDaEtapa } from "@/components/fluxos/no-da-etapa";
-import { montarCanvas, type Catalogo, type FluxoCompleto } from "@/lib/fluxos";
+import { NoDaRaia } from "@/components/fluxos/no-da-raia";
+import { montarProjecao, type OpcoesDaProjecao } from "@/lib/fluxos-canvas";
+import { type Catalogo, type FluxoCompleto } from "@/lib/fluxos";
 
 /**
  * O CANVAS — o fluxograma de verdade, e por que ele usa uma biblioteca.
@@ -34,14 +36,15 @@ import { montarCanvas, type Catalogo, type FluxoCompleto } from "@/lib/fluxos";
  * dependência transitiva pesada e é a mesma família que o pedido citou.
  *
  * ---------------------------------------------------------------------------
- * Duas responsabilidades, e a fronteira entre elas
+ * Um canvas, quatro visualizações
  * ---------------------------------------------------------------------------
  *
- * O que **desenhar** sai de `montarCanvas` (`lib/fluxos.ts`), função pura e
- * testada. O que este componente faz é o que só um componente faz: guardar as
- * posições enquanto o dedo está no botão do mouse, e avisar quem cuida do
- * servidor quando ele solta. Manter a montagem aqui dentro tornaria a regra
- * "toda etapa vira cartão, toda conexão vira seta" intestável.
+ * Fluxo, Raias, Mapa e Gargalos são este mesmo componente com uma `projecao`
+ * diferente — posições calculadas, variante do cartão, faixas de raia,
+ * severidade. O que **desenhar** sai de `montarProjecao` (função pura, testada);
+ * o que este componente faz é o que só um componente faz: guardar as posições
+ * enquanto o dedo está no botão do mouse, e avisar quem cuida do servidor
+ * quando ele solta.
  *
  * ---------------------------------------------------------------------------
  * O salvamento do arrastar
@@ -51,21 +54,40 @@ import { montarCanvas, type Catalogo, type FluxoCompleto } from "@/lib/fluxos";
  * posições, numa chamada. Um `PUT` por quadro seria dezenas de requisições para
  * mover um cartão, e um `PUT` por cartão deixaria o desenho pela metade se a
  * terceira falhasse. Ver `reposicionarEtapas` no motor: ou entra tudo, ou nada.
+ *
+ * E só grava quando as posições desenhadas **são** as gravadas — isto é, no
+ * Fluxo vertical. Nas projeções calculadas (horizontal, raias, mapa) o arrasto
+ * fica desligado: gravar ali sobrescreveria com uma coordenada derivada o
+ * arranjo que alguém montou à mão no fluxo, e voltar para o Fluxo mostraria um
+ * desenho que ninguém pediu.
  */
 
-const TIPOS_DE_NO = { etapa: NoDaEtapa };
+const TIPOS_DE_NO = { etapa: NoDaEtapa, raia: NoDaRaia };
 
 export interface CanvasDoFluxoProps {
   completo: FluxoCompleto;
   catalogo: Catalogo | undefined;
-  /** A etapa aberta no painel lateral, para o cartão aparecer selecionado. */
+  /** A etapa aberta no painel de detalhe, para o cartão aparecer selecionado. */
   etapaSelecionada: string | null;
   onSelecionarEtapa: (etapaId: string | null) => void;
-  /** Modo leitura: sem arrastar, sem ligar. Clique continua abrindo o painel. */
+  /** Modo leitura: sem arrastar, sem ligar. Clique continua abrindo o detalhe. */
   somenteLeitura: boolean;
   onMoverEtapas: (posicoes: { etapaId: string; posX: number; posY: number }[]) => void;
   onConectar: (origemEtapaId: string, destinoEtapaId: string) => void;
   onAbrirConexao: (conexaoId: string) => void;
+  /** A projeção desta visualização. Vazia, é o Fluxo vertical de sempre. */
+  projecao?: OpcoesDaProjecao;
+  /**
+   * As posições desenhadas são as gravadas? Só então arrastar grava.
+   * Padrão: `true` — o Fluxo vertical.
+   */
+  posicoesPersistidas?: boolean;
+  /**
+   * Muda quando a visualização muda, para o enquadramento ser refeito. O fluxo
+   * aberto entra nela: trocar de fluxo também reenquadra.
+   */
+  chaveDoEnquadramento?: string;
+  mostrarMinimapa?: boolean;
 }
 
 function CanvasInterno({
@@ -77,9 +99,18 @@ function CanvasInterno({
   onMoverEtapas,
   onConectar,
   onAbrirConexao,
+  projecao,
+  posicoesPersistidas = true,
+  chaveDoEnquadramento,
+  mostrarMinimapa,
 }: CanvasDoFluxoProps) {
-  const { nos, setas } = useMemo(() => montarCanvas(completo, catalogo), [completo, catalogo]);
+  const { nos, faixas, setas } = useMemo(
+    () => montarProjecao(completo, catalogo, projecao ?? {}),
+    [completo, catalogo, projecao],
+  );
   const { fitView } = useReactFlow();
+
+  const podeArrastar = !somenteLeitura && posicoesPersistidas;
 
   /*
     As posições vivem em estado local **enquanto** se arrasta, e voltam a ser as
@@ -97,21 +128,24 @@ function CanvasInterno({
   }, []);
 
   /*
-    O ajuste automático acontece uma vez por fluxo aberto, e não a cada
+    O ajuste automático acontece uma vez por visualização aberta, e não a cada
     renderização: refazer o enquadramento depois de cada gravação jogaria de
-    volta para a visão geral quem acabou de dar zoom numa etapa.
+    volta para a visão geral quem acabou de dar zoom numa etapa. Trocar de
+    visualização, ao contrário, **precisa** reenquadrar — o desenho novo pode
+    estar inteiro fora da janela em que o anterior cabia.
   */
+  const chave = chaveDoEnquadramento ?? completo.fluxo.id;
   const jaAjustou = useRef<string | null>(null);
   useEffect(() => {
-    if (jaAjustou.current === completo.fluxo.id) return;
+    if (jaAjustou.current === chave) return;
     if (nosLocais.length === 0) return;
-    jaAjustou.current = completo.fluxo.id;
+    jaAjustou.current = chave;
     const t = setTimeout(() => void fitView({ padding: 0.2, duration: 300 }), 60);
     return () => clearTimeout(t);
-  }, [completo.fluxo.id, nosLocais.length, fitView]);
+  }, [chave, nosLocais.length, fitView]);
 
   const aoTerminarArrasto = useCallback(() => {
-    if (somenteLeitura) return;
+    if (!podeArrastar) return;
     const posicoes = nosLocais.map((no) => ({
       etapaId: no.id,
       posX: Math.round(no.position.x),
@@ -127,7 +161,7 @@ function CanvasInterno({
       return original && (original.posX !== p.posX || original.posY !== p.posY);
     });
     if (mudou) onMoverEtapas(posicoes);
-  }, [nosLocais, completo.etapas, onMoverEtapas, somenteLeitura]);
+  }, [nosLocais, completo.etapas, onMoverEtapas, podeArrastar]);
 
   const aoConectar = useCallback(
     (ligacao: Connection) => {
@@ -138,9 +172,18 @@ function CanvasInterno({
     [onConectar, somenteLeitura],
   );
 
+  /*
+    As faixas entram na frente da lista para ficarem atrás no desenho, e ficam
+    **fora** do estado local: elas não se movem, não se selecionam e não podem
+    entrar no lote que o arrasto grava — uma faixa é a leitura de um campo da
+    etapa, não uma etapa.
+  */
   const comSelecao = useMemo(
-    () => nosLocais.map((no) => ({ ...no, selected: no.id === etapaSelecionada })),
-    [nosLocais, etapaSelecionada],
+    () => [
+      ...(faixas as unknown as Node[]),
+      ...nosLocais.map((no) => ({ ...no, selected: no.id === etapaSelecionada })),
+    ],
+    [faixas, nosLocais, etapaSelecionada],
   );
 
   return (
@@ -151,12 +194,15 @@ function CanvasInterno({
       onNodesChange={aoMudarNos}
       onNodeDragStop={aoTerminarArrasto}
       onConnect={aoConectar}
-      onNodeClick={(_evento, no) => onSelecionarEtapa(no.id)}
+      onNodeClick={(_evento, no) => {
+        if (no.type === "raia") return;
+        onSelecionarEtapa(no.id);
+      }}
       onEdgeClick={(_evento, seta) => {
         if (!somenteLeitura) onAbrirConexao(seta.id);
       }}
       onPaneClick={() => onSelecionarEtapa(null)}
-      nodesDraggable={!somenteLeitura}
+      nodesDraggable={podeArrastar}
       nodesConnectable={!somenteLeitura}
       edgesFocusable={!somenteLeitura}
       elementsSelectable
@@ -165,7 +211,7 @@ function CanvasInterno({
         a versão declarativa reenquadra em toda troca de nós, que é o
         comportamento que o efeito existe para evitar.
       */
-      minZoom={0.15}
+      minZoom={0.1}
       maxZoom={2}
       proOptions={{ hideAttribution: false }}
       className="bg-muted/20"
@@ -173,12 +219,12 @@ function CanvasInterno({
       <Background variant={BackgroundVariant.Dots} gap={16} size={1} className="opacity-40" />
       <Controls showInteractive={false} />
       {/*
-        O mapa aparece só quando o fluxo passa de doze etapas. Num processo
-        pequeno ele é um retângulo redundante ocupando canto de tela; num de
-        dezesseis, é o que impede a navegação de se perder — que é o "fluxograma
-        horizontal infinito sem navegação adequada" que o módulo recusa ser.
+        O mapa aparece só quando o fluxo passa de doze etapas — ou quando a
+        visualização pede. Num processo pequeno ele é um retângulo redundante
+        ocupando canto de tela; num de dezesseis, é o que impede a navegação de
+        se perder.
       */}
-      {completo.etapas.length > 12 && (
+      {(mostrarMinimapa ?? completo.etapas.length > 12) && (
         <MiniMap pannable zoomable className="!bg-card" nodeStrokeWidth={2} />
       )}
     </ReactFlow>
