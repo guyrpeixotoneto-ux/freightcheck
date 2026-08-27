@@ -5,7 +5,6 @@ import {
   Archive,
   ArchiveRestore,
   Copy,
-  Filter,
   ListPlus,
   Pencil,
   Plus,
@@ -19,19 +18,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { EditorDoFluxo } from "@/components/fluxos/editor-do-fluxo";
 import { MontadorPorTexto } from "@/components/fluxos/montador-por-texto";
-import {
-  SeletorDeEmpresa,
-  useEmpresaDosFluxos,
-} from "@/components/fluxos/seletor-de-empresa";
+import { useEmpresaDosFluxos } from "@/components/fluxos/seletor-de-empresa";
 import {
   categoriasDaLista,
   comoData,
@@ -55,15 +44,20 @@ import {
  * cada etapa guarda mora lá dentro, e trazer amostra disso para cá encheria a
  * lista de informação que ninguém consegue comparar entre linhas.
  *
+ * **Não há seletor na barra.** Nem de unidade (é cadastro, e é resolvida
+ * sozinha por `useEmpresaDosFluxos`) nem de categoria: com poucos processos
+ * mapeados, um seletor de categoria é um clique a mais para esconder uma lista
+ * que cabe inteira na tela. A busca já acha por categoria — "financeiro"
+ * digitado ali faz o mesmo recorte. Quando a lista crescer, o seletor volta.
+ *
  * **Arquivados ficam fora por padrão**, com um interruptor para trazê-los. Um
  * processo arquivado continua explicando o que a empresa fazia até ontem — some
  * da fila, não do acervo.
  */
 export default function Fluxos() {
-  const { empresaId, escolher, semEmpresaCadastrada } = useEmpresaDosFluxos();
+  const { empresaId, semEmpresaCadastrada } = useEmpresaDosFluxos();
 
   const [busca, setBusca] = useState("");
-  const [categoria, setCategoria] = useState<string>("todas");
   const [incluirArquivados, setIncluirArquivados] = useState(false);
   const [criando, setCriando] = useState(false);
   const [colando, setColando] = useState(false);
@@ -74,14 +68,7 @@ export default function Fluxos() {
 
   const fluxos = useMemo(() => consulta.data?.fluxos ?? [], [consulta.data]);
   const categorias = useMemo(() => categoriasDaLista(fluxos), [fluxos]);
-  const visiveis = useMemo(
-    () =>
-      filtrarFluxos(fluxos, {
-        busca,
-        categoria: categoria === "todas" ? null : categoria,
-      }),
-    [fluxos, busca, categoria],
-  );
+  const visiveis = useMemo(() => filtrarFluxos(fluxos, { busca }), [fluxos, busca]);
 
   const doModelo = useMutation({
     mutationFn: (modelo: string) => escritas.criarDeModelo(empresaId, modelo),
@@ -104,7 +91,6 @@ export default function Fluxos() {
           </div>
 
           <div className="flex items-center gap-2">
-            <SeletorDeEmpresa empresaId={empresaId} aoTrocar={escolher} />
             {/*
               Duas portas, e a diferença entre elas é o que a pessoa tem em mãos.
               "Novo fluxo" é o cabeçalho vazio, para quem vai desenhar
@@ -161,21 +147,6 @@ export default function Fluxos() {
                   aria-label="Procurar fluxo"
                 />
               </div>
-
-              <Select value={categoria} onValueChange={setCategoria}>
-                <SelectTrigger className="w-[190px]" aria-label="Categoria">
-                  <Filter className="mr-1.5 h-3.5 w-3.5 text-muted-foreground" />
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="todas">Todas as categorias</SelectItem>
-                  {categorias.map((c) => (
-                    <SelectItem key={c} value={c}>
-                      {c}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
 
               <Button
                 variant={incluirArquivados ? "secondary" : "ghost"}
