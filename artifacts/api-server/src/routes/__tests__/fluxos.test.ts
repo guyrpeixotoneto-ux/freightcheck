@@ -146,10 +146,11 @@ describe("o catálogo", () => {
 });
 
 describe("o escopo de empresa", () => {
-  it("com mais de uma unidade cadastrada, exige a escolha em vez de adivinhar", async () => {
+  it("sem escopo, responde pela primeira unidade por nome — o mesmo padrão da tela", async () => {
     const r = await chamar("/api/fluxos");
-    expect(r.status).toBe(400);
-    expect(String(r.json.error)).toContain("Escolha a empresa");
+    expect(r.status).toBe(200);
+    /* "Transportes A" vem antes de "Transportes B" — a ordem é por nome. */
+    expect(r.json.empresaId).toBe(empresaA);
   });
 
   it("uma empresa que não existe é recusada com a frase que manda para Unidades", async () => {

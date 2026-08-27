@@ -28,7 +28,7 @@ import {
 import { EditorDoFluxo } from "@/components/fluxos/editor-do-fluxo";
 import {
   SeletorDeEmpresa,
-  useEmpresaEscolhida,
+  useEmpresaDosFluxos,
 } from "@/components/fluxos/seletor-de-empresa";
 import {
   categoriasDaLista,
@@ -58,8 +58,7 @@ import {
  * da fila, não do acervo.
  */
 export default function Fluxos() {
-  const [empresaEscolhida, setEmpresaEscolhida] = useState<string | null>(null);
-  const { empresaId, semEmpresaCadastrada } = useEmpresaEscolhida(empresaEscolhida);
+  const { empresaId, escolher, semEmpresaCadastrada } = useEmpresaDosFluxos();
 
   const [busca, setBusca] = useState("");
   const [categoria, setCategoria] = useState<string>("todas");
@@ -102,7 +101,7 @@ export default function Fluxos() {
           </div>
 
           <div className="flex items-center gap-2">
-            <SeletorDeEmpresa empresaId={empresaId} aoTrocar={setEmpresaEscolhida} />
+            <SeletorDeEmpresa empresaId={empresaId} aoTrocar={escolher} />
             <Button
               onClick={() => setCriando(true)}
               disabled={empresaId === null}

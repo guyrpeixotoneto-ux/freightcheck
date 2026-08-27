@@ -44,9 +44,11 @@ import { asc } from "drizzle-orm";
  * sessão, exige que a unidade exista e chama `podeOperar`. Nenhuma rota lê
  * `req.body.empresaId`, e o repositório recebe o escopo como argumento
  * separado do corpo justamente para que confundir os dois seja impossível de
- * escrever. Sem `empresaId`, e com exatamente uma unidade cadastrada, ela é a
- * escolhida — não é fallback para "empresa 0": é a única resposta possível, e
- * com duas ou mais o pedido é recusado pedindo a escolha, em vez de adivinhar.
+ * escrever. Sem `empresaId`, vale a primeira unidade cadastrada por nome — o
+ * mesmo padrão que a tela usa, para que os dois lados nunca discordem sobre
+ * qual empresa está sendo operada. Com `empresaId` informado, ele é conferido
+ * contra as unidades cadastradas: o padrão preenche a ausência, nunca corrige
+ * um valor errado.
  */
 
 export class EscopoDeEmpresaAusente extends Error {
@@ -111,12 +113,22 @@ export async function resolverEmpresa(req: Request): Promise<string> {
     );
   }
 
-  if (pedida === "") {
-    if (cadastradas.length === 1) return cadastradas[0].id;
-    throw new EscopoDeEmpresaAusente(
-      "Escolha a empresa: esta instalação tem mais de uma unidade cadastrada.",
-    );
-  }
+  /*
+    Sem `empresaId`, vale a primeira unidade cadastrada — a primeira por nome,
+    que é a ordem desta consulta e a mesma que a tela mostra no seletor.
+
+    Antes, com duas ou mais, o pedido era recusado pedindo a escolha. A recusa
+    era coerente no papel e ruim na prática: quem abre Fluxos Operacionais para
+    descrever um processo topava com uma tela sem lista, um "Novo fluxo" cinza e
+    um fluxo que não carregava — uma decisão de cadastro cobrada antes da
+    primeira frase do mapa. Um padrão determinístico, o mesmo dos dois lados,
+    deixa começar; o seletor continua na barra dizendo qual é e trocando.
+
+    O padrão vale só para a **ausência** de escopo. `empresaId` informado
+    continua conferido um a um logo abaixo: nada é adivinhado a partir de um
+    valor que a requisição mandou, e nenhuma empresa responde pela outra.
+  */
+  if (pedida === "") return cadastradas[0].id;
 
   const encontrada = cadastradas.find((u) => u.id === pedida);
   /*

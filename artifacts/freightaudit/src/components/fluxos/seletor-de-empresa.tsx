@@ -1,3 +1,4 @@
+import { useCallback, useState } from "react";
 import { Building2 } from "lucide-react";
 import {
   Select,
@@ -9,19 +10,27 @@ import {
 import { useEmpresas } from "@/lib/fluxos";
 
 /**
- * O SELETOR DE EMPRESA — e por que ele some quando só há uma.
+ * O SELETOR DE EMPRESA — e por que ele nunca bloqueia o trabalho.
  *
  * Um fluxo pertence a uma empresa (a unidade canônica, por CNPJ), e o servidor
  * escopa toda leitura e toda escrita por ela. A tela precisa dizer qual é.
  *
- * Numa instalação com **uma** unidade cadastrada — que é o caso hoje — um
- * seletor de uma opção só é ruído puro: ocupa a barra, pede um clique e não
- * oferece escolha. Então ele não aparece, e a empresa é resolvida sozinha, dos
- * dois lados: aqui e em `resolverEmpresa`, no servidor.
+ * Numa instalação com **uma** unidade cadastrada, um seletor de uma opção só é
+ * ruído puro: ocupa a barra, pede um clique e não oferece escolha. Então ele
+ * não aparece, e a empresa é resolvida sozinha dos dois lados: aqui e em
+ * `resolverEmpresa`, no servidor.
  *
- * Com duas ou mais, ele aparece e **nada é adivinhado**: nem aqui, nem lá. O
- * servidor recusa a chamada sem escopo pedindo a escolha, em vez de responder
- * pela primeira que encontrar.
+ * Com duas ou mais ele aparece — mas **escolher não é pré-requisito para
+ * mapear um processo**. Antes, "nenhuma escolhida" desligava as consultas e
+ * apagava a tela inteira: lista vazia, "Novo fluxo" cinza e, ao abrir um fluxo
+ * pelo endereço, uma página em branco onde "Nova etapa" não abria nada. Um
+ * módulo que existe para descrever processos não pode exigir uma decisão de
+ * cadastro antes da primeira frase.
+ *
+ * Então há um padrão: a primeira unidade da lista (ordenada por nome, a mesma
+ * ordem do servidor). O seletor continua trocando, a troca é lembrada entre as
+ * telas e entre visitas, e a empresa do fluxo fica sempre visível na barra —
+ * ninguém grava às cegas, e ninguém fica parado.
  */
 export function SeletorDeEmpresa({
   empresaId,
@@ -55,24 +64,58 @@ export function SeletorDeEmpresa({
 }
 
 /**
- * A empresa escolhida — a única sozinha, ou a que a pessoa selecionou.
+ * Onde a escolha é lembrada.
  *
- * Devolve `null` enquanto a lista não chegou, e as consultas ficam desligadas
- * até lá (`enabled: empresaId !== null`). É o que impede a tela de disparar uma
- * chamada sem escopo que o servidor recusaria — e de mostrar aquela recusa como
- * se fosse um problema.
+ * A lista e a tela de um fluxo são duas rotas, e cada uma monta o seu próprio
+ * estado. Sem um lugar comum, trocar de empresa na lista e clicar num fluxo
+ * abriria o fluxo com a empresa anterior — que é exatamente o pedido que o
+ * servidor recusa, aparecendo como "este fluxo não existe".
+ *
+ * `localStorage` pode lançar (navegação privada, cookies bloqueados), e a falha
+ * não pode derrubar a tela: sem memória, vale o padrão da lista.
  */
-export function useEmpresaEscolhida(escolhida: string | null): {
+const CHAVE_DA_EMPRESA = "fluxos.empresa";
+
+function empresaLembrada(): string | null {
+  try {
+    return window.localStorage.getItem(CHAVE_DA_EMPRESA);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A empresa destas telas — a lembrada, ou a primeira cadastrada.
+ *
+ * Devolve `null` só enquanto a lista não chegou, e quando não há nenhuma
+ * unidade cadastrada. As consultas ficam desligadas nesses dois casos
+ * (`enabled: empresaId !== null`), que é o que impede a tela de disparar uma
+ * chamada sem escopo e de mostrar a recusa como se fosse um defeito.
+ */
+export function useEmpresaDosFluxos(): {
   empresaId: string | null;
+  escolher: (id: string) => void;
   semEmpresaCadastrada: boolean;
   carregando: boolean;
 } {
   const empresas = useEmpresas();
   const lista = empresas.data ?? [];
+  const [escolhida, setEscolhida] = useState<string | null>(() => empresaLembrada());
+
+  const escolher = useCallback((id: string) => {
+    setEscolhida(id);
+    try {
+      window.localStorage.setItem(CHAVE_DA_EMPRESA, id);
+    } catch {
+      /* Sem memória entre visitas; a escolha desta sessão continua valendo. */
+    }
+  }, []);
+
   const valida = escolhida !== null && lista.some((e) => e.id === escolhida);
 
   return {
-    empresaId: valida ? escolhida : (lista.length === 1 ? lista[0].id! : null),
+    empresaId: valida ? escolhida : (lista.length > 0 ? lista[0].id! : null),
+    escolher,
     semEmpresaCadastrada: empresas.isSuccess && lista.length === 0,
     carregando: empresas.isLoading,
   };
