@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQueries, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, CheckCircle2, FileCheck2, LayoutGrid } from "lucide-react";
+import { ArrowLeft, Check, Circle, CircleDot, FileCheck2, LayoutGrid } from "lucide-react";
 import { Link, useLocation, useParams, useSearch } from "wouter";
 import { Layout } from "@/components/layout/layout";
 import { ApiErrorNotice } from "@/components/api-error";
@@ -17,15 +17,20 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { JustificarDialog } from "@/components/justificativas/justificar-dialog";
 import type { ChangeRow } from "@/components/changes/change-table";
 import { fetchJson } from "@/lib/api";
-import { dataCurta, useComparacoes, type Justificativa } from "@/lib/justificativas";
+import { useComparacoes, type Justificativa } from "@/lib/justificativas";
+import { rotuloCurtoDaVigencia } from "@workspace/comparison/labels";
+import { formatBrlShort, periodicitySuffix } from "@/lib/format";
 import {
   janelaDeVigencias,
   lerJanela,
   montarGradeDaPlaca,
   OPCOES_DE_JANELA,
+  impactoDaCelula,
   pendentesDaVigencia,
   resumoDaPlaca,
   type CelulaDaPlaca,
+  type DirecaoDoImpacto,
+  type ImpactoDaCelula,
   type VigenciaDaGrade,
 } from "@/lib/historico-da-placa";
 import { cn } from "@/lib/utils";
@@ -107,6 +112,16 @@ export default function JustificativasPlaca() {
   };
 
   const comparacoes = useComparacoes();
+  /*
+    As datas de todas as comparações, e não só as da janela: `rotuloCurtoDaVigencia`
+    escreve o dia em vez do mês quando aquele mês teve mais de uma entrega, e
+    esse desempate só é verdade contra o acervo inteiro. Recortar a lista antes
+    faria a mesma vigência mudar de nome conforme a janela aberta.
+  */
+  const datasDoAcervo = useMemo(
+    () => (comparacoes.data ?? []).map((c) => c.snapshotBDate.slice(0, 10)),
+    [comparacoes.data],
+  );
   const janela = useMemo(
     () => janelaDeVigencias(comparacoes.data ?? [], colunas, changeSetId),
     [comparacoes.data, colunas, changeSetId],
@@ -164,14 +179,14 @@ export default function JustificativasPlaca() {
         const justificativas = consultasDeJustificativas[indice]?.data?.justificativas ?? [];
         return {
           changeSetId: vigencia.id,
-          rotulo: dataCurta(vigencia.snapshotBDate),
+          rotulo: rotuloCurtoDaVigencia(vigencia.snapshotBDate.slice(0, 10), datasDoAcervo),
           alteracoes,
           justificadas: new Set(justificativas.map((j) => j.changeId)),
           carregando: consultasDeAlteracoes[indice]?.isPending ?? true,
         };
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [janela, carimboDasAlteracoes, carimboDasJustificativas, carregandoAlteracoes],
+    [janela, datasDoAcervo, carimboDasAlteracoes, carimboDasJustificativas, carregandoAlteracoes],
   );
 
   const linhas = useMemo(() => montarGradeDaPlaca(vigencias), [vigencias]);
@@ -283,7 +298,11 @@ export default function JustificativasPlaca() {
 
           {janela.length > 0 && (
             <span className="text-sm text-muted-foreground">
-              {dataCurta(janela[0].snapshotBDate)} — {dataCurta(janela[janela.length - 1].snapshotBDate)}
+              {rotuloCurtoDaVigencia(janela[0].snapshotBDate.slice(0, 10), datasDoAcervo)} —{" "}
+              {rotuloCurtoDaVigencia(
+                janela[janela.length - 1].snapshotBDate.slice(0, 10),
+                datasDoAcervo,
+              )}
               {janela.length < colunas && " (todo o histórico gravado)"}
             </span>
           )}
@@ -447,13 +466,28 @@ export default function JustificativasPlaca() {
 }
 
 /**
- * Uma célula: o que mudou naquele atributo naquela vigência, e em que estado
- * está.
+ * Uma célula: o que mudou naquele atributo naquela vigência, quanto isso
+ * custou, e se já foi explicado.
  *
- * A cor vem antes do texto — quem varre a grade procura âmbar, e só então lê o
- * `antes → agora`. Célula sem alteração continua clicável? Não: não há o que
- * justificar num mês em que o atributo não mexeu, e um botão que não faz nada
- * é pior que nenhum botão.
+ * **A cor é o dinheiro; a forma é a justificativa.** A primeira versão desta
+ * grade pintava de verde a célula justificada e de âmbar a pendente — e o
+ * verde já tinha dono: no produto inteiro ele é ganho e o vermelho é perda.
+ * Um `5210,40 → 0` verde parecia dizer que zerar o lucro variável foi bom,
+ * quando o que a cor queria dizer era "alguém já explicou". Duas leituras
+ * disputando o mesmo pixel, e a que perdia era a que vale dinheiro.
+ *
+ * Agora o verde/vermelho volta a ser só a direção do impacto (cinza quando a
+ * comparação não conseguiu precificar — sem preço não é zero), e o estado da
+ * justificativa é dito por forma, que não disputa com hue nenhuma:
+ *
+ * - **pendente** — célula preenchida, borda tracejada, marcador vazado (○);
+ * - **justificada** — célula só contornada, borda sólida, ✓ preenchido;
+ * - **parcial** — preenchida como pendente, com a contagem do que falta.
+ *
+ * Preenchida é o estado que pede trabalho: numa grade de trinta células, as
+ * cheias são as que sobraram. E o marcador nunca depende de cor para ser
+ * lido, o que mantém a grade legível para quem não distingue verde de
+ * vermelho.
  */
 function CelulaNaTela({
   celula,
@@ -467,12 +501,12 @@ function CelulaNaTela({
   onAbrir: () => void;
 }) {
   if (celula.estado === "sem-leitura") {
-    return <Skeleton className="h-11 w-full rounded-lg" />;
+    return <Skeleton className="h-12 w-full rounded-lg" />;
   }
 
   if (celula.estado === "sem-alteracao") {
     return (
-      <div className="h-11 flex items-center justify-center text-muted-foreground/30" aria-hidden>
+      <div className="h-12 flex items-center justify-center text-muted-foreground/30" aria-hidden>
         ·
       </div>
     );
@@ -481,41 +515,118 @@ function CelulaNaTela({
   const primeira = celula.alteracoes[0];
   const justificativa = justificadaPor.get(primeira.id) ?? null;
   const explicada = celula.estado === "justificada";
+  const impacto = impactoDaCelula(celula.alteracoes);
+  const dinheiro = escreverImpactoDaCelula(impacto);
 
   return (
     <button
       type="button"
       onClick={onAbrir}
-      title={
+      title={[
+        `${atributo} · ${celula.rotulo}`,
+        dinheiro.completo,
         justificativa
-          ? `${justificativa.texto} — ${justificativa.criadoPor}`
-          : `Justificar ${atributo} em ${celula.rotulo}`
-      }
-      aria-label={`${atributo} em ${celula.rotulo}: ${
+          ? `Justificada: ${justificativa.texto} — ${justificativa.criadoPor}`
+          : "Sem justificativa. Clique para justificar.",
+      ].join("\n")}
+      aria-label={`${atributo} em ${celula.rotulo}: ${dinheiro.completo}, ${
         explicada ? "justificada" : "pendente"
       }. Clique para justificar.`}
       className={cn(
-        "w-full h-11 rounded-lg border px-2 flex flex-col items-center justify-center transition-colors cursor-pointer",
+        "w-full h-12 rounded-lg border px-2 flex flex-col items-center justify-center transition-colors cursor-pointer",
+        TOM_DA_DIRECAO[impacto.direcao].texto,
         explicada
-          ? "bg-emerald-50 border-emerald-200 hover:bg-emerald-100 text-emerald-900"
-          : celula.estado === "parcial"
-            ? "bg-amber-50 border-emerald-300 hover:bg-amber-100 text-amber-900"
-            : "bg-amber-50 border-amber-200 hover:bg-amber-100 text-amber-900",
+          ? cn("bg-transparent", TOM_DA_DIRECAO[impacto.direcao].borda)
+          : cn(
+              "border-dashed",
+              TOM_DA_DIRECAO[impacto.direcao].fundo,
+              TOM_DA_DIRECAO[impacto.direcao].borda,
+            ),
       )}
     >
       <span className="font-mono text-[0.6875rem] leading-tight truncate max-w-full">
         {primeira.valueBefore ?? "—"} → {primeira.valueAfter ?? "—"}
       </span>
-      <span className="text-[0.625rem] leading-tight flex items-center gap-1">
-        {explicada && <CheckCircle2 className="w-3 h-3" />}
-        {celula.alteracoes.length > 1
-          ? `${celula.alteracoes.length - celula.pendentes.length}/${celula.alteracoes.length} justificadas`
-          : explicada
-            ? "justificada"
-            : "pendente"}
+      <span className="text-[0.625rem] leading-tight flex items-center gap-1 max-w-full">
+        {explicada ? (
+          <Check className="w-3 h-3 shrink-0" strokeWidth={3} />
+        ) : celula.estado === "parcial" ? (
+          <CircleDot className="w-3 h-3 shrink-0" />
+        ) : (
+          <Circle className="w-3 h-3 shrink-0" />
+        )}
+        <span className="truncate">
+          {celula.alteracoes.length > 1
+            ? `${celula.alteracoes.length - celula.pendentes.length}/${celula.alteracoes.length} · ${dinheiro.curto}`
+            : dinheiro.curto}
+        </span>
       </span>
     </button>
   );
+}
+
+/**
+ * As três cores da direção, uma vez só.
+ *
+ * Escritas por extenso porque o Tailwind lê classes literais: montar
+ * `bg-${cor}-50` deixaria a folha de estilo sem as regras em produção.
+ */
+const TOM_DA_DIRECAO: Record<
+  DirecaoDoImpacto,
+  { texto: string; fundo: string; borda: string }
+> = {
+  favoravel: {
+    texto: "text-emerald-700",
+    fundo: "bg-emerald-50 hover:bg-emerald-100",
+    borda: "border-emerald-300",
+  },
+  desfavoravel: {
+    texto: "text-red-700",
+    fundo: "bg-red-50 hover:bg-red-100",
+    borda: "border-red-300",
+  },
+  neutro: {
+    texto: "text-slate-600",
+    fundo: "bg-slate-100 hover:bg-slate-200",
+    borda: "border-slate-300",
+  },
+  "sem-apuracao": {
+    texto: "text-slate-600",
+    fundo: "bg-slate-100 hover:bg-slate-200",
+    borda: "border-slate-300",
+  },
+};
+
+/**
+ * O dinheiro da célula em duas medidas: o que cabe dentro dela e o que o
+ * `title` pode dizer inteiro.
+ *
+ * "sem impacto apurado" e "R$ 0" são frases diferentes e continuam diferentes
+ * aqui — a primeira é a comparação dizendo que não conseguiu precificar, a
+ * segunda é ela dizendo que precificou e não achou dinheiro.
+ */
+function escreverImpactoDaCelula(impacto: ImpactoDaCelula): {
+  curto: string;
+  completo: string;
+} {
+  if (impacto.direcao === "sem-apuracao") {
+    return { curto: "sem impacto apurado", completo: "Sem impacto apurado" };
+  }
+  if (impacto.misturado) {
+    return {
+      curto: "periodicidades diferentes",
+      completo:
+        "Impactos em periodicidades diferentes — R$/mês e R$/ano não somam, então a célula mostra só a direção.",
+    };
+  }
+  const valor = `${formatBrlShort(impacto.amount ?? 0)}${periodicitySuffix(impacto.periodicity)}`;
+  return {
+    curto: valor,
+    completo:
+      impacto.semApuracao > 0
+        ? `${valor} · ${impacto.semApuracao} sem impacto apurado`
+        : valor,
+  };
 }
 
 function CartaoDoResumo({
@@ -530,38 +641,62 @@ function CartaoDoResumo({
   return (
     <div className="bg-card border rounded-xl shadow-sm px-4 py-3">
       <p className="text-[0.6875rem] uppercase tracking-wide text-muted-foreground">{rotulo}</p>
-      <p
-        className={cn(
-          "text-2xl font-bold tabular-nums mt-0.5",
-          tom === "pendente" && "text-amber-600",
-          tom === "justificada" && "text-emerald-600",
+      <p className="text-2xl font-bold tabular-nums mt-0.5 flex items-center gap-1.5">
+        {/*
+          Os cartões dizem o estado por ícone, e não por cor: âmbar e verde
+          aqui repetiriam a régua do dinheiro num número que não é dinheiro.
+        */}
+        {tom === "pendente" && <Circle className="w-4 h-4 text-muted-foreground" />}
+        {tom === "justificada" && (
+          <Check className="w-4 h-4 text-muted-foreground" strokeWidth={3} />
         )}
-      >
         {typeof valor === "number" ? valor.toLocaleString("pt-BR") : valor}
       </p>
     </div>
   );
 }
 
+/**
+ * A legenda de duas réguas, porque a grade tem duas.
+ *
+ * Uma legenda só, misturando cor e forma numa lista de quatro amostras,
+ * escondia justamente o que esta versão veio consertar: que hue e preenchimento
+ * respondem a perguntas diferentes.
+ */
 function LegendaDaGrade() {
   return (
-    <div className="flex flex-wrap items-center gap-4 px-5 py-3 border-t bg-muted/20 text-xs text-muted-foreground">
-      <span className="flex items-center gap-1.5">
-        <span className="w-3.5 h-3.5 rounded border bg-amber-50 border-amber-200" />
-        pendente
-      </span>
-      <span className="flex items-center gap-1.5">
-        <span className="w-3.5 h-3.5 rounded border bg-emerald-50 border-emerald-200" />
-        justificada
-      </span>
-      <span className="flex items-center gap-1.5">
-        <span className="w-3.5 h-3.5 rounded border bg-amber-50 border-emerald-300" />
-        parte justificada
-      </span>
-      <span className="flex items-center gap-1.5">
-        <span className="w-3.5 h-3.5 rounded border border-dashed" />
-        não mudou nesta vigência
-      </span>
+    <div className="px-5 py-3 border-t bg-muted/20 text-xs text-muted-foreground space-y-2">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <span className="font-semibold text-foreground/70">Cor — o impacto:</span>
+        <span className="flex items-center gap-1.5">
+          <span className="w-3.5 h-3.5 rounded border bg-emerald-50 border-emerald-300" />a favor
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="w-3.5 h-3.5 rounded border bg-red-50 border-red-300" />
+          contra
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="w-3.5 h-3.5 rounded border bg-slate-100 border-slate-300" />
+          sem impacto apurado
+        </span>
+      </div>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <span className="font-semibold text-foreground/70">Forma — a justificativa:</span>
+        <span className="flex items-center gap-1.5">
+          <span className="w-3.5 h-3.5 rounded border border-dashed border-slate-400 bg-slate-100" />
+          <Circle className="w-3 h-3" /> pendente
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="w-3.5 h-3.5 rounded border border-slate-400" />
+          <Check className="w-3 h-3" strokeWidth={3} /> justificada
+        </span>
+        <span className="flex items-center gap-1.5">
+          <CircleDot className="w-3 h-3" /> parte justificada
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="text-muted-foreground/40">·</span> não mudou nesta vigência
+        </span>
+      </div>
     </div>
   );
 }
