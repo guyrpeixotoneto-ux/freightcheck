@@ -880,6 +880,43 @@ export async function getGroupedView(
    */
   preloadedContexts?: ContextInfo[],
 ): Promise<GroupedView | null> {
+  return (
+    (await getGroupedViewComDados(db, period, requestedContext, preloadedContexts))?.view ??
+    null
+  );
+}
+
+/**
+ * A mesma leitura, com o material bruto que a montou.
+ *
+ * `getGroupedView` devolve só a `view`, porque é ela que vira JSON na rota.
+ * Mas quem constrói uma leitura **por cima** desta — a Visão por famílias —
+ * precisa das mesmas linhas e do mesmo deduplicador, e estava recarregando os
+ * dois: `loadChanges`, `snapshotsDosChangeSets` e `carregarVinculosDeConjunto`
+ * rodavam duas vezes por requisição, sobre os mesmos change sets, para produzir
+ * exatamente o mesmo resultado. Três round trips e a montagem do deduplicador,
+ * jogados fora.
+ *
+ * Devolver o material em vez de recarregá-lo fecha isso sem mudar nada do que a
+ * leitura responde, e sem inchar o payload da rota — que continua recebendo
+ * apenas `view`.
+ */
+export interface LeituraAgrupada {
+  view: GroupedView;
+  /** As alterações das comparações desta vigência, como o banco as devolveu. */
+  rows: Awaited<ReturnType<typeof loadChanges>>;
+  /** O deduplicador montado sobre `rows` — dupla contagem já resolvida. */
+  dedup: ReturnType<typeof criarDeduplicador>;
+  /** As comparações que esta leitura enxergou. */
+  changeSetIds: string[];
+}
+
+export async function getGroupedViewComDados(
+  db: Database,
+  period?: string,
+  requestedContext?: RequestedContext,
+  preloadedContexts?: ContextInfo[],
+): Promise<LeituraAgrupada | null> {
   const contexts = preloadedContexts ?? (await listContexts(db));
   const context = await resolveContext(db, requestedContext, contexts);
   if (!context) return null;
@@ -1132,11 +1169,12 @@ export async function getGroupedView(
       inconclusive: sets.reduce((s, r) => s + r.inconclusive, 0),
     },
     impact: summariseImpact(rows, dedup),
-    accumulated: await getAccumulatedImpact(db, context),
+    accumulated: await getAccumulatedImpact(db, context, contexts),
     groups,
   };
 
-  return { ...base, cockpit: buildCockpit(base) };
+  const view: GroupedView = { ...base, cockpit: buildCockpit(base) };
+  return { view, rows, dedup, changeSetIds };
 }
 
 export function compareGroups(a: ChangeGroup, b: ChangeGroup): number {
@@ -1159,8 +1197,19 @@ export function compareGroups(a: ChangeGroup, b: ChangeGroup): number {
 export async function getAccumulatedImpact(
   db: Database,
   requestedContext?: RequestedContext,
+  /**
+   * A lista de contextos já carregada, para quem chama de dentro de uma
+   * leitura que já a tem em mãos.
+   *
+   * Sem isto, `resolveContext` relia `listContexts` — duas consultas — para
+   * chegar ao mesmo contexto que o chamador acabara de resolver. Não é uma
+   * consulta cara, e é justamente esse o problema: 22 consultas de 0,1ms
+   * custam 0,1ms cada aqui e um round trip cada contra o Neon. Ver
+   * `docs/AUDITORIA-PERFORMANCE.md`.
+   */
+  contextosCarregados?: ContextInfo[],
 ): Promise<ImpactSummary & { comparisons: number; from: string | null; to: string | null }> {
-  const context = await resolveContext(db, requestedContext);
+  const context = await resolveContext(db, requestedContext, contextosCarregados);
   if (!context) {
     return {
       byPeriodicity: {},

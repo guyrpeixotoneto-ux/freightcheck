@@ -13,9 +13,19 @@
     <meta name="twitter:title" content="FreightCheck" />
     <meta name="twitter:description" content="Auditoria de remuneração de transporte: o que mudou entre vigências, quanto custa, e a evidência até a célula da planilha de origem." />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!--
+      Aqui havia um <link> para o `fonts.googleapis.com` (a Inter) e os dois
+      `preconnect` que o acompanhavam. Saíram por dois motivos, e o segundo
+      sozinho já bastava: uma folha de estilo de terceiro BLOQUEIA a primeira
+      pintura — medido, com o domínio inalcançável, em 12.732 ms de tela
+      branca —, e a Inter não era usada em lugar nenhum do produto. As famílias
+      são a Montserrat e a JetBrains Mono, e agora vêm deste mesmo domínio:
+      ver `src/fontes.css`.
+
+      `preconnect` não resolveria: ele adianta o handshake com um terceiro que
+      continua no caminho crítico. O que tira o terceiro do caminho é não ter
+      terceiro.
+    -->
   </head>
   <body>
     <div id="root"></div>

@@ -14,6 +14,7 @@
     "@workspace/comparison": "workspace:*",
     "@workspace/composition": "workspace:*",
     "@workspace/db": "workspace:*",
+    "@workspace/knowledge": "workspace:*",
     "@workspace/simulation": "workspace:*",
     "drizzle-orm": "catalog:"
   },

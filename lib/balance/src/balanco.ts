@@ -248,6 +248,64 @@ function classificacao(importRunId?: string): SQL {
   `;
 }
 
+/**
+ * Roda uma consulta do balanço com o JIT do Postgres desligado, e só ela.
+ *
+ * ---------------------------------------------------------------------------
+ * Por que esta consulta específica precisa disso
+ * ---------------------------------------------------------------------------
+ *
+ * `classificacao()` custa **1.036ms**, e 690 deles são o Postgres compilando a
+ * consulta em vez de executá-la. Com o JIT desligado a mesma consulta, com o
+ * mesmo plano e o mesmo resultado, responde em **347ms**. Medido com
+ * `EXPLAIN (ANALYZE, BUFFERS)` sobre o acervo real (85.813 células, 83.241
+ * fatos preparados).
+ *
+ * O gatilho é uma estimativa errada, não o tamanho do trabalho. O planejador
+ * avalia a junção entre `preparado` e `celula` em **100.016.143 linhas** —
+ * exatamente `240.305 × 83.241 / 200` — quando o resultado real são 85.813. O
+ * `200` é o palpite padrão do Postgres para o número de valores distintos de
+ * uma coluna de CTE: ele não tem estatística de `preparado.celula_id` e não
+ * sabe que a coluna é única. Com a estimativa mil vezes maior, o custo estimado
+ * passa de 14 milhões, cruza o `jit_above_cost` (100.000) por larga margem, e o
+ * Postgres decide compilar uma consulta que roda em um terço de segundo.
+ *
+ * ---------------------------------------------------------------------------
+ * Por que é isto, e não outra coisa
+ * ---------------------------------------------------------------------------
+ *
+ * As alternativas foram testadas e nenhuma resolve:
+ *
+ * - `NOT MATERIALIZED` na CTE `preparado`: estimativa idêntica (100.016.143) e
+ *   execução **pior** — 1.160ms, porque a CTE é referenciada duas vezes e passa
+ *   a ser avaliada duas vezes.
+ * - Trocar o `GROUP BY` por `SELECT DISTINCT` (a contagem `fatos` nunca é
+ *   lida): estimativa idêntica, 1.060ms. O Postgres não propaga unicidade
+ *   através de uma CTE, seja qual for a forma.
+ *
+ * Sobra desligar o JIT — e **só aqui**. `ALTER DATABASE … SET jit = off`
+ * resolveria esta consulta e mudaria o plano de todas as outras do produto,
+ * incluindo as que não foram medidas; `SET LOCAL` vale até o fim desta
+ * transação e não atravessa nem para a próxima consulta da mesma conexão.
+ *
+ * Uma transação por consulta, e não uma para todas: `balancoDaImportacao`
+ * dispara cinco leituras em `Promise.all`, e uma transação só as serializaria
+ * numa conexão — trocaria o ganho do JIT pelo custo do paralelismo perdido.
+ *
+ * Se o Postgres desta publicação já vier com `jit = off`, isto não faz nada:
+ * desligar o que já está desligado é uma linha a mais no log e nenhum efeito.
+ */
+async function semJit<T extends Record<string, unknown>>(
+  db: Database,
+  consulta: SQL,
+): Promise<{ rows: T[] }> {
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`SET LOCAL jit = off`);
+    const { rows } = await tx.execute<T>(consulta);
+    return { rows: rows as T[] };
+  });
+}
+
 type LinhaDestino = {
   run_id: string;
   destino: string;
@@ -338,12 +396,15 @@ export async function listarBalancos(db: Database): Promise<BalancoResumo[]> {
 
   if (runs.length === 0) return [];
 
-  const { rows: destinos } = await db.execute<LinhaDestino>(sql`
+  const { rows: destinos } = await semJit<LinhaDestino>(
+    db,
+    sql`
     ${classificacao()}
     SELECT run_id, destino, count(*)::int AS celulas
     FROM classificada
     GROUP BY run_id, destino
-  `);
+  `,
+  );
 
   const porRun = contarDestinos(destinos);
 
@@ -475,7 +536,9 @@ export async function balancoDaImportacao(
 
   const [porAbaRows, amostraRows, stagingRows, snapshotRows, semanticaRows] =
     await Promise.all([
-      db.execute<LinhaAba>(sql`
+      semJit<LinhaAba>(
+        db,
+        sql`
         ${classificacao(importRunId)}
         SELECT
           a.id          AS aba_id,
@@ -489,8 +552,11 @@ export async function balancoDaImportacao(
         JOIN aba a ON a.id = c.aba_id
         GROUP BY a.id, a.sheet_name, a.sheet_index, a.role, a.role_reason, c.destino
         ORDER BY a.sheet_index
-      `),
-      db.execute<LinhaAmostra>(sql`
+      `,
+      ),
+      semJit<LinhaAmostra>(
+        db,
+        sql`
         ${classificacao(importRunId)},
         perdida AS (
           SELECT
@@ -516,7 +582,8 @@ export async function balancoDaImportacao(
         JOIN raw_sheet s  ON s.id = r.raw_sheet_id
         WHERE p.posicao <= ${AMOSTRAS_POR_DESTINO}
         ORDER BY p.destino, r.row_index, rc.column_index
-      `),
+      `,
+      ),
       db.execute<LinhaVigenciaStaging>(sql`
         SELECT snapshot_label AS label, count(*)::int AS preparados
         FROM staged_fact

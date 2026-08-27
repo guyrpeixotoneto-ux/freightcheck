@@ -118,10 +118,27 @@ const TRANSITORIOS: ReadonlySet<EstadoDoTransporte> = new Set<EstadoDoTransporte
  * todas as queries, e continua valendo por aqui: um erro que o servidor
  * classificou é um erro que ele vai classificar igual na repetição.
  */
+/**
+ * O código de status que significa "você está pedindo demais".
+ *
+ * Repetir um 429 automaticamente é a única repetição que **piora** o que
+ * tentava consertar: cada tentativa conta para o mesmo limite que acabou de
+ * ser estourado, e o cliente que insiste é justamente o que o limite existe
+ * para conter. Nesta API ele vem do limite de tentativas de login
+ * (`routes/auth.ts`), acompanhado de `Retry-After` — um prazo escrito para
+ * quem está na tela ler, não para o cliente contornar sozinho.
+ */
+const PEDINDO_DEMAIS = 429;
+
 export function ehFalhaTransitoria(erro: unknown): boolean {
   /*
     `fetch` rejeitando é o caso mais transitório de todos, e é o que estava
     sendo tratado como o mais definitivo. Ver `transporte.ts`.
+
+    Este ramo cobre menos casos do que cobria, e a diferença é o desvio da
+    plataforma: um 302 para outra origem também chegava aqui como `TypeError`,
+    porque o navegador segue o redirect e barra a leitura por CORS. Agora ele
+    chega como `DESVIADA` (ver `api.ts`), e é recusado logo abaixo.
   */
   if (erro instanceof TypeError) return true;
 
@@ -138,7 +155,16 @@ export function ehFalhaTransitoria(erro: unknown): boolean {
     return true;
   }
 
-  if (erro instanceof ApiError) return erro.status >= 500 && !erro.code;
+  if (erro instanceof ApiError) {
+    /*
+      429 nunca. Não é "um 4xx entre outros": os outros 4xx não são repetidos
+      porque repetir não muda a resposta, e este não é repetido porque repetir
+      **piora** a resposta. Escrito à parte para que a razão não se perca no dia
+      em que alguém quiser repetir algum 4xx.
+    */
+    if (erro.status === PEDINDO_DEMAIS) return false;
+    return erro.status >= 500 && !erro.code;
+  }
 
   /*
     Erro que não é de nenhuma das classes acima é defeito de código nosso — um
@@ -160,7 +186,16 @@ export function ehFalhaTransitoria(erro: unknown): boolean {
  */
 export function deveTentarDeNovo(falhasAnteriores: number, erro: unknown): boolean {
   if (!ehFalhaTransitoria(erro)) return false;
-  return falhasAnteriores < TENTATIVAS_AUTOMATICAS - 1;
+  if (falhasAnteriores >= TENTATIVAS_AUTOMATICAS - 1) return false;
+  /*
+    O orçamento é o segundo portão, e é ele que impede a espera de crescer por
+    descuido: quem aumentar `TENTATIVAS_AUTOMATICAS` ou o passo da progressão
+    sem mexer aqui não ganha tentativas — ganha um teste vermelho.
+  */
+  return (
+    esperaAcumuladaMs(falhasAnteriores + 1) + esperaDaTentativa(falhasAnteriores) <=
+    ORCAMENTO_DE_ESPERA_MS
+  );
 }
 
 /**
@@ -186,6 +221,40 @@ export function deveTentarDeNovo(falhasAnteriores: number, erro: unknown): boole
 export function esperaDaTentativa(falhasAnteriores: number): number {
   return Math.min(400 * 3 ** falhasAnteriores, TETO_DA_ESPERA);
 }
+
+/**
+ * Quanto tempo a política já mandou esperar, somando as pausas até aqui.
+ *
+ * @param tentativasFeitas  quantas chamadas já saíram (1 = só a original).
+ */
+export function esperaAcumuladaMs(tentativasFeitas: number): number {
+  let total = 0;
+  for (let n = 0; n < tentativasFeitas - 1; n++) total += esperaDaTentativa(n);
+  return total;
+}
+
+/**
+ * O teto de espera que a política pode cobrar de quem está olhando a tela.
+ *
+ * Este número não é novo: 13,2s é exatamente o que `TENTATIVAS_AUTOMATICAS` e
+ * `esperaDaTentativa` já somavam. O que é novo é ele ser **declarado**, e a
+ * decisão de repetir passar a consultá-lo.
+ *
+ * A diferença importa por dois motivos. O primeiro é que um orçamento que só
+ * existe como produto de duas outras constantes não é um orçamento: mexer em
+ * qualquer uma das duas o muda sem que ninguém perceba, e não há onde escrever
+ * "mais que isto é demais". O segundo é que uma espera de treze segundos só se
+ * justifica pelo caso que ela existe para cobrir — a origem inteira subindo,
+ * `SEM_RESPOSTA` e `TEMPO_ESGOTADO` — e não podia continuar sendo gasta com
+ * falhas que não têm como passar sozinhas. Essa parte quem resolve é
+ * `ehFalhaTransitoria`, que agora recusa o desvio da plataforma e o 429; o
+ * orçamento é o outro lado da mesma decisão: o limite do que se pode cobrar
+ * **mesmo** quando repetir faz sentido.
+ *
+ * Há teste garantindo que a progressão e o número de tentativas continuam
+ * cabendo aqui — é o que impede a soma de crescer por descuido.
+ */
+export const ORCAMENTO_DE_ESPERA_MS = 13_200;
 
 /**
  * A resposta que valeu — e "valeu" não quer dizer "veio cheia".

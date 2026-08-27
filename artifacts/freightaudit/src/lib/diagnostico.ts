@@ -34,6 +34,14 @@ export type EstadoDoBanco =
  * — houve resposta, e ela veio de uma camada anterior. `IDENTIFICAR_QUEDA` é
  * para quando não houve resposta nenhuma, e por isso **não se sabe** qual
  * camada caiu; mandar subir um processo aí é chutar. Ver `SEM_RESPOSTA`.
+ *
+ * `DESVIO_NA_PLATAFORMA` é o terceiro sem par, e é o mais específico dos três:
+ * houve resposta, ela veio de uma camada anterior — e essa camada disse para
+ * onde ir. Não é `RESTABELECER_API`, porque a API pode estar perfeitamente de
+ * pé e nunca ter sido consultada; não é `IDENTIFICAR_QUEDA`, porque não há
+ * queda nenhuma a identificar. O que ele manda fazer é olhar a camada de rede
+ * da publicação — o 302 para `replit.com/__replshield` observado em produção é
+ * o caso que o batizou. Ver `DESVIADA`, em `transporte.ts`.
  */
 export type CodigoDeAcao =
   | "APLICAR_MIGRATIONS"
@@ -43,7 +51,8 @@ export type CodigoDeAcao =
   | "CONFIGURAR_DATABASE_URL"
   | "RESTABELECER_BANCO"
   | "RESTABELECER_API"
-  | "IDENTIFICAR_QUEDA";
+  | "IDENTIFICAR_QUEDA"
+  | "DESVIO_NA_PLATAFORMA";
 
 export interface Acao {
   codigo: CodigoDeAcao;

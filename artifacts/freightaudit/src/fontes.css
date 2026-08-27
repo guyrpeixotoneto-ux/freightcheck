@@ -1,0 +1,85 @@
+/*
+  As fontes do produto, servidas pelo próprio domínio.
+
+  Elas vinham do `fonts.googleapis.com` — um `<link>` no `index.html` e um
+  `@import` na primeira linha do `index.css` —, e as duas coisas bloqueiam a
+  primeira pintura: enquanto a folha de estilo de terceiro não responde, o
+  navegador não pinta. Medido num Chromium real, com o domínio inalcançável:
+  **FCP de 12.732 ms**, contra 248 ms quando ele responde na hora. Não é
+  hipótese de laboratório — é o que acontece atrás de um proxy corporativo que
+  não libera o domínio, e é a mesma classe de problema do 302 para o ReplShield
+  que já apareceu em produção. Servidas daqui, não há terceiro nenhum no
+  caminho da primeira pintura.
+
+  `preconnect` não resolveria nada: ele adianta o handshake com um terceiro que
+  continua no caminho crítico. O que tira o terceiro do caminho é não ter
+  terceiro.
+
+  ---------------------------------------------------------------------------
+  O que está aqui, e por que é tão pouco arquivo
+  ---------------------------------------------------------------------------
+
+  **Só o que o produto usa.** A Inter vinha declarada no `index.html` e não é
+  usada em lugar nenhum: a família de texto é a Montserrat
+  (`--app-font-sans`) e a de dados é a JetBrains Mono (`--app-font-mono`).
+
+  **Dois subsets dos seis.** Ficaram `latin` e `latin-ext`; cirílico, grego e
+  vietnamita não têm o que fazer num produto em português. O `unicode-range` de
+  cada regra veio do próprio Google e é ele que faz o navegador baixar só o
+  subset de que precisa — quem escreve só em português nunca busca o
+  `latin-ext`.
+
+  **Um arquivo por família e subset, não um por peso.** As duas são fontes
+  variáveis: o Google entrega um único arquivo cobrindo o eixo de peso inteiro
+  e o repete em cinco regras `@font-face` com `font-weight` diferentes. Baixar
+  "os cinco pesos" baixava cinco cópias do mesmo arquivo — foi o que a primeira
+  versão deste arquivo fez, e o build do Vite denunciou ao deduplicar por hash.
+  Aqui é uma regra por subset, declarando a faixa (`font-weight: 400 800`), que
+  é o que uma fonte variável quer. Pesos fora da faixa continuam sendo
+  limitados à borda, exatamente como antes.
+
+  `font-display: swap` é o mesmo que o Google servia: o texto aparece na hora,
+  com a fonte de sistema, e troca quando o arquivo chega.
+
+  Gerado a partir do CSS do Google Fonts; ver `docs/AUDITORIA-PERFORMANCE.md`.
+*/
+
+/* JetBrains Mono · latin-ext · pesos 400–700 num arquivo só */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('./fontes/jetbrains-mono-variavel-latin-ext.woff2') format('woff2-variations');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+/* JetBrains Mono · latin · pesos 400–700 num arquivo só */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('./fontes/jetbrains-mono-variavel-latin.woff2') format('woff2-variations');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* Montserrat · latin-ext · pesos 400–800 num arquivo só */
+@font-face {
+  font-family: 'Montserrat';
+  font-style: normal;
+  font-weight: 400 800;
+  font-display: swap;
+  src: url('./fontes/montserrat-variavel-latin-ext.woff2') format('woff2-variations');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+/* Montserrat · latin · pesos 400–800 num arquivo só */
+@font-face {
+  font-family: 'Montserrat';
+  font-style: normal;
+  font-weight: 400 800;
+  font-display: swap;
+  src: url('./fontes/montserrat-variavel-latin.woff2') format('woff2-variations');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}

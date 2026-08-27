@@ -1,5 +1,6 @@
 import express, { type Express } from "express";
 import cookieParser from "cookie-parser";
+import compression from "compression";
 import cors from "cors";
 import pinoHttp from "pino-http";
 import router from "./routes";
@@ -39,6 +40,45 @@ app.use(
   }),
 );
 app.use(cors());
+
+/**
+ * As respostas saem comprimidas — e antes não saía nenhuma.
+ *
+ * Toda resposta desta API é JSON, e JSON comprime como poucas coisas: os
+ * mesmos nomes de campo se repetem em cada registro. Medido sobre as respostas
+ * reais do acervo:
+ *
+ *   /api/changes/consolidated    87 KB →  5 KB   (19,4x)
+ *   /api/frota/panorama          46 KB →  4 KB   (11,3x)
+ *   /api/dre/unit/:id            56 KB →  6 KB    (9,3x)
+ *   /api/composition/fleet       29 KB →  3 KB    (8,6x)
+ *   /api/changes/families        95 KB → 12 KB    (8,2x)
+ *   /api/dre/fleet               84 KB → 11 KB    (7,4x)
+ *
+ * O que isso devolve depende da rede de quem está do outro lado, e é por isso
+ * que não aparecia na medição local — em `localhost` a diferença entre 95 KB e
+ * 12 KB é ruído. Numa conexão de 8 Mb/s, `/api/changes/families` cai de 98ms
+ * para 13ms de download; numa de 2 Mb/s, de 391ms para 49ms. É a tela do
+ * Resumo executivo, do Dashboard, da Linha do tempo, de Parâmetros e da Gestão
+ * à Vista.
+ *
+ * O custo é de 0,2 a 0,9ms de CPU por resposta, medido comprimindo cada uma
+ * delas vinte vezes. Contra 44 a 342ms de rede economizados, a troca não é
+ * dúvida.
+ *
+ * gzip, e não brotli: sobre estas respostas o brotli entrega 9 KB onde o gzip
+ * entrega 12 KB — não paga a CPU a mais nem a dependência a mais.
+ *
+ * O piso de 1 KB é o padrão do middleware e é decisão: abaixo disso o
+ * cabeçalho da compressão come o ganho, e a maioria das rotas deste servidor
+ * responde poucas centenas de bytes.
+ *
+ * **Antes do parser de corpo, e depois do CORS.** O middleware precisa
+ * envolver `res.write`/`res.end` antes de qualquer rota escrever, e não tem o
+ * que fazer com a requisição que chega — por isso vem cedo, mas depois do CORS,
+ * que precisa responder o preflight sem passar por aqui.
+ */
+app.use(compression());
 /**
  * The limit exists for one route: uploading a workbook, which arrives as
  * base64 inside a JSON body.
