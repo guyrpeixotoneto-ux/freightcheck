@@ -38,6 +38,7 @@ export function VisaoGargalos({
   onMoverEtapas,
   onConectar,
   onAbrirConexao,
+  onSoltarElemento,
   orientacao,
   sinal,
   onTrocarSinal,
@@ -116,6 +117,7 @@ export function VisaoGargalos({
           onMoverEtapas={onMoverEtapas}
           onConectar={onConectar}
           onAbrirConexao={onAbrirConexao}
+      onSoltarElemento={onSoltarElemento}
           projecao={projecao}
           posicoesPersistidas={orientacao === "vertical"}
           chaveDoEnquadramento={`${completo.fluxo.id}:gargalos:${orientacao}`}

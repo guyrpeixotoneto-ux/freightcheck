@@ -25,6 +25,7 @@ export function VisaoMapa({
   onMoverEtapas,
   onConectar,
   onAbrirConexao,
+  onSoltarElemento,
 }: PropsDaVisaoNoCanvas) {
   const projecao = useMemo(
     () => ({
@@ -45,6 +46,7 @@ export function VisaoMapa({
       onMoverEtapas={onMoverEtapas}
       onConectar={onConectar}
       onAbrirConexao={onAbrirConexao}
+      onSoltarElemento={onSoltarElemento}
       projecao={projecao}
       posicoesPersistidas={false}
       chaveDoEnquadramento={`${completo.fluxo.id}:mapa`}

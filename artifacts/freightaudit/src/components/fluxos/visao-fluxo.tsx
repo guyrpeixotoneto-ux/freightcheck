@@ -29,6 +29,7 @@ export function VisaoFluxo({
   onMoverEtapas,
   onConectar,
   onAbrirConexao,
+  onSoltarElemento,
   orientacao,
 }: PropsDaVisaoNoCanvas & { orientacao: Orientacao }) {
   const projecao = useMemo(
@@ -49,6 +50,7 @@ export function VisaoFluxo({
       onMoverEtapas={onMoverEtapas}
       onConectar={onConectar}
       onAbrirConexao={onAbrirConexao}
+      onSoltarElemento={onSoltarElemento}
       projecao={projecao}
       posicoesPersistidas={orientacao === "vertical"}
       chaveDoEnquadramento={`${completo.fluxo.id}:fluxo:${orientacao}`}
