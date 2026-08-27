@@ -6,6 +6,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { dataCurta } from "@/lib/justificativas";
 import { cn } from "@/lib/utils";
 
 /**
@@ -46,12 +47,6 @@ export function janelaParaQuery(janela: JanelaDeVigencias): string {
   if (janela.ate) params.set("ate", janela.ate);
   const texto = params.toString();
   return texto === "" ? "" : `&${texto}`;
-}
-
-/** `2026-08-01` → `01/08/26`, como a planilha do cliente escreve. */
-function dataCurta(iso: string): string {
-  const [ano, mes, dia] = iso.split("-");
-  return ano && mes && dia ? `${dia}/${mes}/${ano.slice(2)}` : iso;
 }
 
 export function SeletorDeJanela({

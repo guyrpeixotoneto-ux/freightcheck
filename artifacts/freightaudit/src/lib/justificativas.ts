@@ -52,6 +52,12 @@ export interface Comparacao {
  * `/changes/latest`. O seletor de vigência não pode disparar esse cálculo só
  * por estar em tela.
  */
+/** `2026-08-01` → `01/08/26`, como a planilha do cliente escreve. */
+export function dataCurta(iso: string): string {
+  const [ano, mes, dia] = iso.split("-");
+  return ano && mes && dia ? `${dia}/${mes}/${ano.slice(2)}` : iso;
+}
+
 export function useComparacoes() {
   return useQuery({
     queryKey: ["change-sets", "justificativas"],
