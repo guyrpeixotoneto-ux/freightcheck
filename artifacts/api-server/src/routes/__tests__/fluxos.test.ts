@@ -736,3 +736,220 @@ describe("organizar o desenho", () => {
     expect(r.status).toBe(404);
   });
 });
+
+/**
+ * A EDIÇÃO EM CÉLULA DA LISTA, PELO CONTRATO QUE ELA USA.
+ *
+ * A tela edita uma célula mandando um `PUT` de etapa inteira, montado por
+ * `corpoDaEtapa`. O que estes casos provam não é a tela: é o que o servidor faz
+ * com o corpo que ela manda — o que significa apagar um campo, o que acontece
+ * com quem manda um corpo parcial, e o que acontece quando duas pessoas editam
+ * a mesma etapa. Sem isto, a garantia da tela seria uma promessa.
+ */
+describe("a edição campo a campo pela rota da etapa", () => {
+  let fluxo: string;
+  let alvo: string;
+
+  const completo = {
+    nome: "Auditoria fiscal",
+    tipo: "VALIDACAO",
+    status: "ATIVO",
+    area: "Fiscal",
+    responsavel: "Analista Fiscal",
+    sistemaPrincipal: "Rodopar",
+    descricao: "Confere XML contra o pedido.",
+    objetivo: "Não pagar frete indevido.",
+    regras: "Divergência acima de 2% volta.",
+    observacoes: "Rodopar × Unidox.",
+    chaveMonitoramento: "auditoria",
+    ordem: 3,
+    posX: 120,
+    posY: 480,
+  };
+
+  const lerAlvo = async (): Promise<Record<string, unknown>> => {
+    const r = await chamar(`/api/fluxos/${fluxo}?empresaId=${empresaA}`);
+    const etapas = r.json.etapas as Record<string, unknown>[];
+    return etapas.find((e) => e.id === alvo)!;
+  };
+
+  beforeAll(async () => {
+    const criado = await post(`/api/fluxos?empresaId=${empresaA}`, {
+      nome: "Processo da edição em célula",
+      categoria: "Teste",
+    });
+    fluxo = (criado.json as { id: string }).id;
+    const etapa = await post(`/api/fluxos/${fluxo}/etapas?empresaId=${empresaA}`, completo);
+    alvo = (etapa.json as { id: string }).id;
+  });
+
+  it("trocar um campo com o corpo inteiro não apaga nenhum outro", async () => {
+    const r = await put(`/api/fluxos/${fluxo}/etapas/${alvo}?empresaId=${empresaA}`, {
+      ...completo,
+      area: "Contas a pagar",
+    });
+    expect(r.status).toBe(200);
+
+    expect(await lerAlvo()).toMatchObject({
+      area: "Contas a pagar",
+      nome: "Auditoria fiscal",
+      descricao: "Confere XML contra o pedido.",
+      objetivo: "Não pagar frete indevido.",
+      regras: "Divergência acima de 2% volta.",
+      observacoes: "Rodopar × Unidox.",
+      chaveMonitoramento: "auditoria",
+      responsavel: "Analista Fiscal",
+      sistemaPrincipal: "Rodopar",
+      ordem: 3,
+      posX: 120,
+      posY: 480,
+    });
+  });
+
+  it("o corpo PARCIAL apaga o resto — é por isso que a tela nunca manda um", async () => {
+    /*
+      A prova do defeito que `corpoDaEtapa` existe para impedir. A rota é
+      substituição, e é deliberado (não há `PATCH` neste módulo): quem mandar só
+      o campo que mudou zera descrição, objetivo, regras, observações e a posição
+      do cartão — sem erro nenhum, que é a pior forma de perder dado.
+    */
+    const so = await put(`/api/fluxos/${fluxo}/etapas/${alvo}?empresaId=${empresaA}`, {
+      nome: "Auditoria fiscal",
+      area: "Só a área",
+    });
+    expect(so.status).toBe(200);
+
+    const depois = await lerAlvo();
+    expect(depois).toMatchObject({ area: "Só a área", descricao: null, objetivo: null, posX: 0 });
+
+    /* Devolve a etapa ao estado bom para os casos seguintes. */
+    await put(`/api/fluxos/${fluxo}/etapas/${alvo}?empresaId=${empresaA}`, completo);
+  });
+
+  it("apagar um campo é sempre a mesma coisa: vazio, espaço, nulo e ausente viram nulo", async () => {
+    /*
+      Três jeitos de dizer "não tem" não podem virar três valores no banco. A
+      célula limpa manda `""`; um cliente antigo mandaria `null`; um corpo
+      montado à mão pode nem trazer a chave. `textoOpcional` normaliza os três,
+      e é isso que faz o sinal "sem responsável" e o filtro da Lista contarem a
+      mesma coisa em qualquer caminho.
+    */
+    for (const vazio of ["", "   ", null, undefined]) {
+      const corpo: Record<string, unknown> = { ...completo, responsavel: vazio };
+      if (vazio === undefined) delete corpo.responsavel;
+      const r = await put(`/api/fluxos/${fluxo}/etapas/${alvo}?empresaId=${empresaA}`, corpo);
+      expect(r.status).toBe(200);
+      expect((await lerAlvo()).responsavel).toBeNull();
+    }
+
+    await put(`/api/fluxos/${fluxo}/etapas/${alvo}?empresaId=${empresaA}`, completo);
+  });
+
+  it("o nome em branco é recusado com 400 — ele é o único campo obrigatório", async () => {
+    const r = await put(`/api/fluxos/${fluxo}/etapas/${alvo}?empresaId=${empresaA}`, {
+      ...completo,
+      nome: "   ",
+    });
+    expect(r.status).toBe(400);
+    expect(String(r.json.error)).toContain("não pode ficar em branco");
+    /* E a etapa continua com o nome que tinha. */
+    expect((await lerAlvo()).nome).toBe("Auditoria fiscal");
+  });
+
+  it("um tipo fora do catálogo é recusado com 400", async () => {
+    /*
+      É por isso que a célula de Tipo é um seletor do catálogo, e não texto
+      livre: aqui o vocabulário é fechado de verdade, e o servidor é quem manda.
+    */
+    const r = await put(`/api/fluxos/${fluxo}/etapas/${alvo}?empresaId=${empresaA}`, {
+      ...completo,
+      tipo: "VALIDACAO_INVENTADA",
+    });
+    expect(r.status).toBe(400);
+    expect(String(r.json.error)).toContain("Tipo de etapa desconhecido");
+  });
+
+  it("área, responsável e sistema aceitam valor novo — o vocabulário é da operação", async () => {
+    /*
+      O contrário do tipo. A Lista sugere o que o fluxo já usa, mas não recusa:
+      uma área que ainda não existe é o caso normal de quem está mapeando o
+      processo pela primeira vez.
+    */
+    const r = await put(`/api/fluxos/${fluxo}/etapas/${alvo}?empresaId=${empresaA}`, {
+      ...completo,
+      area: "Área que nunca existiu",
+      responsavel: "Gente nova",
+      sistemaPrincipal: "Sistema recém-comprado",
+    });
+    expect(r.status).toBe(200);
+    expect(await lerAlvo()).toMatchObject({
+      area: "Área que nunca existiu",
+      responsavel: "Gente nova",
+      sistemaPrincipal: "Sistema recém-comprado",
+    });
+
+    await put(`/api/fluxos/${fluxo}/etapas/${alvo}?empresaId=${empresaA}`, completo);
+  });
+
+  it("o prazo é lista: gravar um substitui, gravar vazio apaga", async () => {
+    const um = await put(
+      `/api/fluxos/${fluxo}/etapas/${alvo}/itens/PRAZO?empresaId=${empresaA}`,
+      { itens: [{ nome: "24 h úteis", ordem: 0 }] },
+    );
+    expect(um.status).toBe(200);
+    const comPrazo = await lerAlvo();
+    expect((comPrazo.itens as { especie: string; nome: string }[]).filter((i) => i.especie === "PRAZO")).toHaveLength(1);
+
+    await put(`/api/fluxos/${fluxo}/etapas/${alvo}/itens/PRAZO?empresaId=${empresaA}`, {
+      itens: [],
+    });
+    const semPrazo = await lerAlvo();
+    expect((semPrazo.itens as { especie: string }[]).filter((i) => i.especie === "PRAZO")).toHaveLength(0);
+    /* E o material das outras espécies não é tocado por essa gravação. */
+    expect(semPrazo.nome).toBe("Auditoria fiscal");
+  });
+
+  it("sem sessão, editar a etapa não passa — a interface não é a fechadura", async () => {
+    /*
+      O botão "Só leitura" da tela é conforto de quem está consultando, e não
+      permissão: ele não existe no servidor. O que o servidor cobra é sessão e
+      escopo de empresa, e é isso que vale para quem chamar a rota direto.
+    */
+    const r = await chamar(
+      `/api/fluxos/${fluxo}/etapas/${alvo}?empresaId=${empresaA}`,
+      { method: "PUT", body: JSON.stringify({ ...completo, area: "Sem sessão" }) },
+      false,
+    );
+    expect(r.status).toBe(401);
+    expect((await lerAlvo()).area).toBe("Fiscal");
+  });
+
+  it("duas edições a partir do mesmo retrato: a última apaga a primeira", async () => {
+    /*
+      A janela de perda que o PUT inteiro abre, escrita como teste em vez de
+      como suposição. Duas pessoas leem a mesma etapa; uma troca o responsável,
+      a outra troca a área a partir do retrato antigo — e o responsável volta ao
+      que era, sem que ninguém veja.
+
+      A tela encolhe isso relendo a etapa imediatamente antes de gravar (ver
+      `editarCampo` em `pages/fluxo.tsx`), o que reduz a janela ao tempo de uma
+      ida ao servidor. Fechá-la de vez exige versão na linha e recusa aqui —
+      mudança de contrato, registrada e ainda não feita.
+    */
+    const retrato = { ...completo };
+
+    await put(`/api/fluxos/${fluxo}/etapas/${alvo}?empresaId=${empresaA}`, {
+      ...retrato,
+      responsavel: "Quem chegou primeiro",
+    });
+    await put(`/api/fluxos/${fluxo}/etapas/${alvo}?empresaId=${empresaA}`, {
+      ...retrato,
+      area: "Quem chegou depois",
+    });
+
+    const fim = await lerAlvo();
+    expect(fim.area).toBe("Quem chegou depois");
+    expect(fim.responsavel).toBe("Analista Fiscal");
+    expect(fim.responsavel).not.toBe("Quem chegou primeiro");
+  });
+});

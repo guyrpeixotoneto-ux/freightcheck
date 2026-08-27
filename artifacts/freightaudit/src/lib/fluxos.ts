@@ -455,11 +455,15 @@ export function useFluxos(empresaId: string | null, incluirArquivados: boolean) 
   });
 }
 
+export function lerFluxoAgora(empresaId: string | null, fluxoId: string): Promise<FluxoCompleto> {
+  return fetchJson<FluxoCompleto>(comEmpresa(`/fluxos/${fluxoId}`, empresaId));
+}
+
 export function useFluxo(empresaId: string | null, fluxoId: string) {
   return useQuery({
     queryKey: chaveDoFluxo(empresaId, fluxoId),
     enabled: empresaId !== null && fluxoId !== "",
-    queryFn: () => fetchJson<FluxoCompleto>(comEmpresa(`/fluxos/${fluxoId}`, empresaId)),
+    queryFn: () => lerFluxoAgora(empresaId, fluxoId),
   });
 }
 

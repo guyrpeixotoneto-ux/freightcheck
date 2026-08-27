@@ -14,6 +14,11 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { cn } from "@/lib/utils";
 import { fraseDoErro } from "@/lib/fluxos";
 import {
+  celulaEmRepouso,
+  reduzirCelula,
+  type AcaoDaCelula,
+} from "@/lib/fluxos-celula";
+import {
   edicaoNaLista,
   filtrarLinhas,
   linhasDaLista,
@@ -349,20 +354,44 @@ export function VisaoLista({
 }
 
 /**
- * A CÉLULA QUE EDITA — e as três coisas que ela não faz.
+ * A CÉLULA QUE EDITA — e as quatro coisas que ela não faz.
  *
  * Ela **não grava**: chama `aoGravar` e espera a promessa, que é da página.
- * Ela **não desiste do que foi digitado** quando a gravação falha: o campo
- * continua aberto com o texto lá e a frase do servidor embaixo — perder a
- * digitação por causa de um erro de rede é o jeito mais rápido de alguém parar
- * de confiar na tela. E ela **não grava o que não mudou**: sair de uma célula
- * sem tocar em nada é o gesto mais comum de quem está lendo a tabela, e ele não
- * pode virar uma escrita no servidor.
+ * Ela **não desiste do que foi digitado** quando a gravação falha: o texto
+ * continua na célula, com a frase do servidor embaixo — perder a digitação por
+ * causa de um erro de rede é o jeito mais rápido de alguém parar de confiar na
+ * tela. Ela **não grava o que não mudou**: sair de uma célula sem tocar em nada
+ * é o gesto mais comum de quem está lendo a tabela, e ele não pode virar uma
+ * escrita no servidor. E ela **não grava duas vezes**.
  *
- * `Enter` grava, `Esc` desiste, sair do campo grava — a convenção de planilha,
- * que é o que a pessoa já tem na mão quando olha uma tabela dessas. A gravação
- * por saída do campo é a que evita a perda silenciosa: quem digita e clica na
+ * ---------------------------------------------------------------------------
+ * A gravação dupla, que é o defeito não óbvio deste componente
+ * ---------------------------------------------------------------------------
+ *
+ * `Enter` grava e fecha o campo; fechar o campo tira o foco dele; tirar o foco
+ * dispara o `blur`, que também grava. São duas requisições para uma edição — e,
+ * pior, duas com o mesmo corpo montado a partir de um cache que a primeira
+ * ainda não atualizou. A trava é a `travada`, uma referência (e não estado,
+ * porque precisa valer **dentro** do mesmo evento, antes de qualquer
+ * renderização) que fecha a sessão de edição na primeira gravação e só reabre
+ * quando alguém entra na célula de novo. `Esc` também tranca: desistir e
+ * escapar do campo não pode acabar gravando pelo `blur`.
+ *
+ * ---------------------------------------------------------------------------
+ * Enter, Tab, Esc — a convenção de planilha
+ * ---------------------------------------------------------------------------
+ *
+ * `Enter` grava e fica. `Tab` grava e abre a **próxima célula editável**, que é
+ * o que faz preencher uma linha inteira ser digitar, e não clicar sete vezes;
+ * `Shift+Tab` faz o caminho de volta. `Esc` desiste e restaura exatamente o que
+ * estava lá. Sair do campo com o mouse grava, porque quem digita e clica na
  * linha de baixo esperava ter gravado.
+ *
+ * Com `Tab`, o foco vai embora na hora e a gravação segue por baixo: esperar a
+ * resposta do servidor para liberar a próxima célula transformaria uma linha de
+ * sete campos em sete esperas. A célula que ficou para trás mostra o giro e,
+ * se falhar, fica com o texto digitado e a frase do erro à vista — sem puxar o
+ * foco de volta no meio da digitação.
  *
  * O clique na célula editável não abre o painel de detalhe (ele para aqui): o
  * painel continua a um clique de distância em qualquer célula que não edite —
@@ -390,50 +419,58 @@ function CelulaDeTexto({
   aoGravar: (valor: string) => Promise<void>;
 }) {
   const listaId = useId();
-  const [editando, setEditando] = useState(false);
-  const [rascunho, setRascunho] = useState(edicao.valor);
-  const [salvando, setSalvando] = useState(false);
-  const [erro, setErro] = useState<string | null>(null);
+  const [estado, setEstado] = useState(() => celulaEmRepouso(edicao.valor));
   /*
-    `Enter` grava e fecha o campo — e fechar o campo dispara o `blur`, que
-    gravaria de novo. A trava é uma referência, e não estado: ela precisa valer
-    dentro do mesmo evento, antes de qualquer renderização.
+    O estado também vive numa referência, e não é redundância: a trava contra a
+    gravação dupla precisa valer **dentro** do mesmo evento — o `blur` que o
+    `Enter` provoca acontece antes de qualquer renderização, e um estado de
+    React ainda seria o antigo quando ele chegasse aqui.
   */
-  const gravando = useRef(false);
+  const atual = useRef(estado);
 
-  /* O valor gravado mudou por fora (outra visualização, outra aba): acompanhe. */
+  const despachar = (acao: AcaoDaCelula): string | null => {
+    const passo = reduzirCelula(atual.current, acao);
+    atual.current = passo.estado;
+    setEstado(passo.estado);
+    return passo.gravar;
+  };
+
+  /* O valor gravado mudou por fora, ou a recarga trouxe o que acabou de sair. */
   useEffect(() => {
-    if (!editando) setRascunho(edicao.valor);
-  }, [edicao.valor, editando]);
+    despachar({ tipo: "sincronizar", valorGravado: edicao.valor });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `despachar` é estável por construção: lê e escreve a mesma referência.
+  }, [edicao.valor]);
 
-  const encerrar = () => {
-    setEditando(false);
-    setErro(null);
-    gravando.current = false;
-  };
-
-  const confirmar = async () => {
-    if (gravando.current) return;
-    if (rascunho.trim() === edicao.valor.trim()) {
-      encerrar();
-      return;
-    }
-    gravando.current = true;
-    setSalvando(true);
-    setErro(null);
+  const confirmar = async (saindo: boolean) => {
+    const aGravar = despachar({ tipo: "confirmar", valorGravado: edicao.valor, saindo });
+    if (aGravar === null) return;
     try {
-      await aoGravar(rascunho);
-      encerrar();
+      await aoGravar(aGravar);
+      despachar({ tipo: "gravou", valor: aGravar });
     } catch (falha) {
-      setErro(fraseDoErro(falha));
-      gravando.current = false;
-    } finally {
-      setSalvando(false);
+      despachar({ tipo: "falhou", frase: fraseDoErro(falha), saindo });
     }
   };
+
+  const { editando, rascunho, salvando, erro, salvo } = estado;
 
   if (!editando) {
-    const conteudo = exibido ?? vazio ?? <SemDado />;
+    /*
+      O que a célula fechada mostra, em ordem de precedência: o texto que falhou
+      (para não sumir com o que foi digitado), o texto que está sendo gravado
+      neste instante, o que acabou de ser gravado enquanto a recarga não chega,
+      e por fim o valor do fluxo. Sem os dois do meio, a célula voltaria a
+      mostrar o valor **antigo** durante a gravação — tempo mais que suficiente
+      para alguém achar que não pegou e digitar tudo de novo.
+    */
+    const pendente = erro !== null || salvando ? rascunho : salvo;
+    const conteudo =
+      pendente === null
+        ? (exibido ?? vazio ?? <SemDado />)
+        : pendente.trim() === ""
+          ? (vazio ?? <SemDado />)
+          : pendente;
+
     if (bloqueado || !edicao.editavel) {
       return (
         <span
@@ -447,49 +484,82 @@ function CelulaDeTexto({
         </span>
       );
     }
+
     return (
       <button
         type="button"
+        data-celula-editavel="texto"
         aria-label={`Editar ${rotulo}`}
-        title="Clique para editar"
+        title={erro ?? "Clique para editar"}
         className="group flex w-full items-center gap-1.5 rounded px-4 py-4 text-left hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         onClick={(evento) => {
           evento.stopPropagation();
-          setRascunho(edicao.valor);
-          setEditando(true);
+          despachar({ tipo: "abrir" });
         }}
       >
-        <span className="min-w-0 flex-1">{conteudo}</span>
-        <Pencil
-          className="h-3 w-3 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100"
-          aria-hidden
-        />
+        <span className="min-w-0 flex-1">
+          <span className={cn(erro && "text-destructive")}>{conteudo}</span>
+          {erro && <span className="mt-0.5 block text-xs text-destructive">{erro}</span>}
+        </span>
+        {salvando ? (
+          <Loader2 className="h-3 w-3 shrink-0 animate-spin text-muted-foreground" aria-hidden />
+        ) : (
+          <Pencil
+            className="h-3 w-3 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100"
+            aria-hidden
+          />
+        )}
       </button>
     );
   }
 
   return (
-    <div className="px-2 py-2" onClick={(evento) => evento.stopPropagation()}>
+    <div
+      data-celula-editavel="texto"
+      className="rounded-sm px-2 py-2 ring-2 ring-inset ring-ring"
+      onClick={(evento) => evento.stopPropagation()}
+    >
       <div className="relative">
         <Input
           autoFocus
-          className="h-8"
+          className="h-8 bg-background"
           aria-label={rotulo}
           list={sugestoes.length > 0 ? listaId : undefined}
           placeholder={placeholder}
-          disabled={salvando}
+          readOnly={salvando}
           value={rascunho}
-          onChange={(evento) => setRascunho(evento.target.value)}
+          onChange={(evento) => despachar({ tipo: "digitar", valor: evento.target.value })}
           onKeyDown={(evento) => {
             if (evento.key === "Enter") {
               evento.preventDefault();
-              void confirmar();
-            } else if (evento.key === "Escape") {
+              void confirmar(false);
+              return;
+            }
+            if (evento.key === "Escape") {
               evento.preventDefault();
-              encerrar();
+              despachar({ tipo: "cancelar", valorGravado: edicao.valor });
+              return;
+            }
+            if (evento.key === "Tab") {
+              /*
+                O alvo é procurado **antes** de segurar o evento: sem próxima
+                célula, o `Tab` continua sendo o `Tab` do navegador, e o foco
+                sai da tabela como em qualquer outra tela.
+              */
+              const alvo = celulaVizinha(evento.currentTarget, evento.shiftKey ? -1 : 1);
+              if (alvo) evento.preventDefault();
+              void confirmar(true);
+              /*
+                A célula de texto abre já digitável; a de escolha só recebe o
+                foco. Abrir um menu suspenso por causa de um `Tab` prenderia o
+                foco dentro dele e acabaria com a corrida da linha — `Enter`
+                abre, que é o que se espera de um seletor.
+              */
+              if (alvo?.dataset.celulaEditavel === "escolha") alvo.focus();
+              else alvo?.click();
             }
           }}
-          onBlur={() => void confirmar()}
+          onBlur={() => void confirmar(true)}
         />
         {salvando && (
           <Loader2
@@ -508,6 +578,33 @@ function CelulaDeTexto({
       {erro && <p className="mt-1 text-xs text-destructive">{erro}</p>}
     </div>
   );
+}
+
+/**
+ * A vizinha editável na ordem da tabela — a parte que se prova sem DOM.
+ *
+ * A ordem do `Tab` não é uma lista mantida à mão: é a ordem em que as células
+ * estão no documento, que é a ordem em que a pessoa as lê. Só entra quem marca
+ * `data-celula-editavel`, e só quem marca é célula que edita de verdade — a
+ * coluna escondida pelo tamanho da tela sai pelo filtro de visibilidade, e
+ * entrada, saída e sinais nunca entraram.
+ */
+export function vizinhaNaOrdem<T>(celulas: T[], atual: T, passo: 1 | -1): T | null {
+  const indice = celulas.indexOf(atual);
+  if (indice < 0) return null;
+  const alvo = indice + passo;
+  return alvo >= 0 && alvo < celulas.length ? celulas[alvo] : null;
+}
+
+function celulaVizinha(campo: HTMLElement, passo: 1 | -1): HTMLElement | null {
+  const atual = campo.closest<HTMLElement>("[data-celula-editavel]");
+  const tabela = campo.closest("table");
+  if (!atual || !tabela) return null;
+  const celulas = [...tabela.querySelectorAll<HTMLElement>("[data-celula-editavel]")].filter(
+    /* A coluna que o tamanho da tela escondeu não é destino de Tab nenhum. */
+    (elemento) => elemento === atual || elemento.offsetParent !== null,
+  );
+  return vizinhaNaOrdem(celulas, atual, passo);
 }
 
 /**
@@ -536,24 +633,50 @@ function CelulaDeEscolha({
   const [editando, setEditando] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
+  /* O mesmo motivo do texto: refletir a escolha antes de a recarga chegar. */
+  const [salvo, setSalvo] = useState<string | null>(null);
+  const gatilho = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (salvo !== null && salvo === valor) setSalvo(null);
+  }, [salvo, valor]);
+
+  /*
+    Fechado o seletor, o foco volta para a célula — sem isto ele cai no corpo do
+    documento e a próxima tecla não tem onde acontecer.
+
+    A referência guarda se ele **estava** aberto, e não é detalhe: sem ela, o
+    efeito rodaria na primeira renderização de todas as células e a última da
+    tabela puxaria o foco para si assim que a tela abrisse.
+  */
+  const estavaAberto = useRef(false);
+  useEffect(() => {
+    if (!editando && estavaAberto.current) gatilho.current?.focus({ preventScroll: true });
+    estavaAberto.current = editando;
+  }, [editando]);
+
+  const rotuloDe = (v: string) => opcoes.find((o) => o.valor === v)?.rotulo ?? v;
+  const aVista = salvo !== null ? rotuloDe(salvo) : exibido;
 
   if (bloqueado || opcoes.length === 0) {
-    return <span className="block px-4 py-4">{exibido}</span>;
+    return <span className="block px-4 py-4">{aVista}</span>;
   }
 
   if (!editando) {
     return (
       <button
+        ref={gatilho}
         type="button"
+        data-celula-editavel="escolha"
         aria-label={`Editar ${rotulo}`}
-        title="Clique para editar"
+        title={erro ?? "Clique para editar"}
         className="group flex w-full items-center gap-1.5 rounded px-4 py-4 text-left hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         onClick={(evento) => {
           evento.stopPropagation();
           setEditando(true);
         }}
       >
-        <span className="min-w-0 flex-1 truncate">{exibido}</span>
+        <span className={cn("min-w-0 flex-1 truncate", erro && "text-destructive")}>{aVista}</span>
         {salvando ? (
           <Loader2 className="h-3 w-3 shrink-0 animate-spin text-muted-foreground" aria-hidden />
         ) : (
@@ -568,7 +691,11 @@ function CelulaDeEscolha({
   }
 
   return (
-    <div className="px-2 py-2" onClick={(evento) => evento.stopPropagation()}>
+    <div
+      data-celula-editavel="escolha"
+      className="rounded-sm px-2 py-2 ring-2 ring-inset ring-ring"
+      onClick={(evento) => evento.stopPropagation()}
+    >
       <Select
         open
         value={valor}
@@ -578,6 +705,7 @@ function CelulaDeEscolha({
           setSalvando(true);
           setErro(null);
           aoGravar(novo)
+            .then(() => setSalvo(novo))
             .catch((falha: unknown) => setErro(fraseDoErro(falha)))
             .finally(() => setSalvando(false));
         }}

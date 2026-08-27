@@ -42,6 +42,7 @@ import type { CampoEditavelNaLista } from "@/lib/fluxos-analise";
 import {
   corpoDaEtapa,
   escritas,
+  lerFluxoAgora,
   fraseDoErro,
   resumoDoFluxo,
   useCatalogoDeFluxos,
@@ -175,9 +176,20 @@ export default function TelaDoFluxo() {
   /**
    * A EDIÇÃO EM CÉLULA DA LISTA — uma gravação de campo, aqui e não lá.
    *
-   * A Lista pede; quem grava é esta página, como todas as outras escritas. A
-   * etapa vem do cache e o corpo vai inteiro (`corpoDaEtapa`), porque a rota é
-   * substituição: corrigir a área mandando só a área apagaria o resto.
+   * A Lista pede; quem grava é esta página, como todas as outras escritas. O
+   * corpo vai inteiro (`corpoDaEtapa`), porque a rota é substituição: corrigir a
+   * área mandando só a área apagaria descrição, objetivo, regras, observações e
+   * a posição do cartão.
+   *
+   * E é justamente por ir inteiro que a etapa é **relida do servidor** logo
+   * antes de gravar, em vez de sair do cache da tela. O cache pode estar velho:
+   * alguém que ficou com a Lista aberta enquanto outra pessoa trocou o
+   * responsável mandaria de volta o responsável antigo junto com a sua área
+   * nova — uma alteração desfeita sem que ninguém visse. Reler encolhe essa
+   * janela para o tempo de uma ida ao servidor. Ela **não fecha**: fechar de
+   * verdade exige versão na linha e recusa no servidor (um `If-Match`), que é
+   * mudança de contrato e não cabe aqui. O que cabe é não perder por minutos o
+   * que se pode não perder por milissegundos.
    *
    * O prazo é o caso à parte, e é o que faz a coluna de SLA valer a pena numa
    * tela de auditoria: ele não é coluna da etapa, é a espécie `PRAZO` da lista
@@ -196,9 +208,14 @@ export default function TelaDoFluxo() {
       campo: CampoEditavelNaLista;
       valor: string;
     }) => {
-      const etapa = completo?.etapas.find((e) => e.id === etapaId);
-      if (!etapa) return;
       const limpo = valor.trim();
+      const agora = await lerFluxoAgora(empresaId, fluxoId);
+      const etapa = agora.etapas.find((e) => e.id === etapaId);
+      /*
+        A etapa sumiu entre abrir a célula e gravar: quem apagou foi outra
+        pessoa, e recriá-la por um PUT seria pior do que não gravar.
+      */
+      if (!etapa) throw new Error("Esta etapa não existe mais — recarregue o fluxo.");
 
       if (campo === "sla") {
         await escritas.salvarItens(
