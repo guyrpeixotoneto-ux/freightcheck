@@ -122,8 +122,30 @@ describe("entityIdsTouched é a identidade por trás de vehiclesTouched", () => 
 
     expect(views.length).toBeGreaterThan(0);
     for (const view of views) {
-      expect(view.totals.entityIdsTouched).toHaveLength(view.totals.vehiclesTouched);
-      expect(new Set(view.totals.entityIdsTouched).size).toBe(view.totals.vehiclesTouched);
+      expect(view.entityIdsTouched).toHaveLength(view.totals.vehiclesTouched);
+      expect(new Set(view.entityIdsTouched).size).toBe(view.totals.vehiclesTouched);
+    }
+  });
+
+  it("totals continua sendo só contagem — identidade não entra ali", async () => {
+    /*
+      Regressão medida, não hipótese. `entityIdsTouched` nasceu dentro de
+      `totals`, e `totals` é o balde que os consumidores despejam inteiro: a
+      ferramenta `alteracoes` do Assistente publica `totais: view.totals` no
+      conteúdo que o modelo lê, e a trava de integridade recusou a resposta
+      apontando 296 corridas de dígitos que a evidência não autorizava — os
+      UUIDs. Um número a mais em `totals` é sempre seguro; qualquer outra coisa
+      vaza para quem só esperava números.
+    */
+    const overview = (await getFamiliesOverview(ctx.db, AGOSTO))!;
+    const contexto = overview.unitsIncluded[0].contexts[0];
+    const view = (await getFamiliesView(ctx.db, AGOSTO, {
+      scopeHash: contexto.scopeHash,
+      channel: contexto.channel,
+    }))!;
+
+    for (const [campo, valor] of Object.entries(view.totals)) {
+      expect(typeof valor, `totals.${campo} deveria ser número`).toBe("number");
     }
   });
 });
@@ -172,7 +194,7 @@ describe("o consolidado Geral conta veículos, não somas", () => {
       )
     ).filter((v) => v !== null);
 
-    const uniaoManual = new Set(individuais.flatMap((v) => v.totals.entityIdsTouched)).size;
+    const uniaoManual = new Set(individuais.flatMap((v) => v.entityIdsTouched)).size;
 
     expect(overview.vehiclesTouchedDistinct).toBe(uniaoManual);
     expect(overview.vehiclesTouchedDistinct).toBeLessThanOrEqual(

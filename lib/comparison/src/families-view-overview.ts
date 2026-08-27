@@ -468,7 +468,7 @@ export async function getFamiliesOverview(
   return {
     period,
     summary: mergeSummaries(views.map((v) => v.summary)),
-    vehiclesTouchedDistinct: new Set(views.flatMap((v) => v.totals.entityIdsTouched)).size,
+    vehiclesTouchedDistinct: new Set(views.flatMap((v) => v.entityIdsTouched)).size,
     unitsIncluded,
     unitsExcluded,
   };

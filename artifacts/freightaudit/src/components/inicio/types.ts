@@ -182,18 +182,22 @@ export interface GroupedView {
     formatOnlyChanges: number;
     groups: number;
     vehiclesTouched: number;
-    /**
-     * Quais ativos — a identidade por trás de `vehiclesTouched`, mesmo filtro,
-     * então `entityIdsTouched.length === vehiclesTouched`. É o que permite
-     * unir leituras: somar `vehiclesTouched` de várias contaria o mesmo
-     * caminhão em cada uma.
-     */
-    entityIdsTouched: string[];
     entitiesAdded: number;
     entitiesRemoved: number;
     unchanged: number;
     inconclusive: number;
   };
+  /**
+   * Quais ativos — a identidade por trás de `totals.vehiclesTouched`, mesmo
+   * filtro, então `entityIdsTouched.length === totals.vehiclesTouched`. É o
+   * que permite unir leituras: somar `vehiclesTouched` de várias contaria o
+   * mesmo caminhão em cada uma.
+   *
+   * Fora de `totals` de propósito — ver `grouped.ts`: quem consome `totals` o
+   * espalha inteiro, e uma lista de UUIDs no meio das contagens vaza para
+   * lugares que só esperavam números.
+   */
+  entityIdsTouched: string[];
   impact: ImpactSummary;
   accumulated: ImpactSummary & {
     comparisons: number;
