@@ -11,7 +11,7 @@ import {
   YAxis,
 } from "recharts";
 import { ChartLine } from "lucide-react";
-import { fetchJsonOrNull } from "@/lib/api";
+import { opcoesDoIntervalo } from "@/lib/intervalo-da-linha-do-tempo";
 import { cn } from "@/lib/utils";
 import { formatBrl, formatBrlShort, periodicitySuffix } from "@/lib/format";
 import {
@@ -54,22 +54,16 @@ export function LinhaDoTempoDeAlteracoes({
   const [de, setDe] = useState(ordenadas[0]?.date ?? currentPeriod);
   const [ate, setAte] = useState(currentPeriod);
 
-  const query = new URLSearchParams(consulta);
-  query.delete("period");
-  query.set("from", de);
-  query.set("to", ate);
-
   /*
     Mesma chave de `LinhaDoTempoDeImpacto` e `useAlteracoesPorVigencia` — ver a
     nota lá. No carregamento inicial `de`/`ate` cobrem o histórico inteiro,
-    igual às outras duas leituras; alinhar a chave por parâmetros faz o React
-    Query reaproveitar essa primeira chamada em vez de repeti-la.
+    igual às outras duas leituras; montar a chave pelo mesmo
+    `opcoesDoIntervalo` faz o React Query reaproveitar essa primeira chamada em
+    vez de repeti-la.
   */
   const movimentos = useQuery({
-    queryKey: ["changes-range", query.toString()],
-    queryFn: () => fetchJsonOrNull<Movimentos>(`/changes/range?${query}`),
+    ...opcoesDoIntervalo(consulta, de, ate),
     enabled: ordenadas.length > 1,
-    staleTime: 60_000,
   });
 
   if (ordenadas.length <= 1) return null;

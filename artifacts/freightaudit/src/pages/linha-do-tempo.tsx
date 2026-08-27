@@ -1,5 +1,5 @@
-import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useMemo } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useSearch } from "wouter";
 import { CalendarDays } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
@@ -16,6 +16,7 @@ import { ApiError, fetchJson } from "@/lib/api";
 import { useContextosDaCasca } from "@/lib/contextos";
 import { useFamiliesOverviewQuery } from "@/lib/families-overview";
 import { LINHA_DO_TEMPO } from "@/lib/ambiente";
+import { opcoesDoIntervalo } from "@/lib/intervalo-da-linha-do-tempo";
 import { cn } from "@/lib/utils";
 import { LinhaDoTempoDeImpacto } from "@/components/linha-do-tempo/linha-do-tempo-de-impacto";
 import { LinhaDoTempoDeAlteracoes } from "@/components/linha-do-tempo/linha-do-tempo-de-alteracoes";
@@ -66,10 +67,71 @@ export default function LinhaDoTempo() {
         throw erro;
       }
     },
+    /*
+      Uma vigência fechada não muda entre duas importações, e esta leitura é a
+      primeira de uma cascata: enquanto ela não responde, nada mais desta tela
+      pode sair. Sem `staleTime`, voltar para cá refazia a chamada inteira —
+      e refazia a espera junto. O minuto é o mesmo das outras leituras da
+      tela; uma importação nova invalida a chave, não o relógio.
+    */
+    staleTime: 60_000,
   });
 
   const contextos = useContextosDaCasca();
   const view = visaoGeral ? null : (vigencia.data ?? null);
+
+  /*
+    O intervalo, pedido antes de a vigência responder.
+
+    `periods` e `currentPeriod` — as duas pontas que `/changes/range` precisa —
+    chegam hoje pelo `/changes/families` acima, e é só por isso que a leitura
+    do intervalo esperava por ele: duas ondas em série para uma dependência que
+    é só de dois valores. Mas esses dois valores já estão em `/contexts`, que a
+    casca carrega para montar a lateral e que a esta altura está no cache
+    (`periodosDisponiveis`, `latestPeriod`).
+
+    Então a página pergunta na hora, com a mesma chave que os dois cartões vão
+    usar (`opcoesDoIntervalo`): quando eles montarem, a resposta já está no
+    cache ou a caminho. As duas leituras caras da tela passam a sair juntas em
+    vez de uma atrás da outra.
+
+    A régua de resolução é a do servidor, e precisa continuar sendo — uma ponta
+    diferente aqui não daria resposta errada, mas viraria uma segunda chamada
+    cara em vez de um prefetch aproveitado. Contexto pedido, ou o primeiro da
+    lista (o padrão de `resolveContext`); competência pedida só se ela existe
+    no histórico daquele contexto, senão a mais recente dele (o padrão de
+    `getRangeAnalysis`).
+  */
+  const cliente = useQueryClient();
+  const contextoAberto = useMemo(() => {
+    if (visaoGeral || contextos.contextos.length === 0) return null;
+    const scopeHash = parametros.get("scopeHash");
+    const canal = parametros.get("canal");
+    if (scopeHash === null && canal === null) return contextos.contextos[0];
+    return (
+      contextos.contextos.find(
+        (c) =>
+          (scopeHash === null || c.scopeHash === scopeHash) &&
+          (canal === null || c.channel === canal),
+      ) ?? null
+    );
+  }, [visaoGeral, contextos.contextos, search]);
+
+  const chaveDaConsulta = consulta.toString();
+  useEffect(() => {
+    if (!contextoAberto) return;
+    const historico = contextoAberto.periodosDisponiveis;
+    if (historico.length <= 1) return;
+    const pedida = parametros.get("period");
+    const fim =
+      pedida !== null && historico.includes(pedida)
+        ? pedida
+        : contextoAberto.latestPeriod;
+    void cliente.prefetchQuery(
+      opcoesDoIntervalo(new URLSearchParams(chaveDaConsulta), historico[0], fim),
+    );
+    // `chaveDaConsulta` é a forma estável de `consulta`; `parametros` sai dela.
+  }, [cliente, contextoAberto, chaveDaConsulta]);
 
   /*
     A união de competências de todas as unidades — o mesmo cálculo de

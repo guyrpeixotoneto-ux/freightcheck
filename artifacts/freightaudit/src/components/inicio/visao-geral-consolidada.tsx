@@ -15,14 +15,20 @@ import type {
 } from "@/components/inicio/types";
 
 /**
- * O conteúdo da Visão Geral — compartilhado entre todas as telas que oferecem
- * a opção "Visão Geral" no seletor de unidade da lateral (Resumo executivo,
- * Linha do Tempo, e as que vierem depois).
+ * O bloco resumido da Visão Geral — a leitura da soma para as telas em que ela
+ * **não** é o assunto principal (hoje, a Linha do Tempo).
  *
  * Nasceu no Resumo executivo e foi extraído para cá quando a Linha do Tempo
  * passou a precisar do mesmo bloco: mesmo `FamiliesOverview`, mesma régua de
  * cobertura, mesmos cartões. Duas cópias da mesma tela são a mesma doença que
  * `lib/contextos.ts` já resolveu do lado do dado — aqui é o lado da tela.
+ *
+ * O Resumo executivo deixou de usá-lo, e a razão não é duplicação: lá a Visão
+ * Geral **é** a tela, e trocar de unidade para ela trocava o desenho junto com
+ * o assunto — cinco cartões viravam três, a faixa de atenção sumia, o pódio
+ * virava um botão. O corpo completo mora em `ConteudoDaVisaoGeral`, em
+ * `pages/inicio.tsx`, e reusa desta casa o que não muda entre as duas leituras:
+ * a régua de cobertura, a comparação por unidade e o ranque de unidades.
  */
 
 const CARTAO = "bg-card border rounded-xl shadow-sm";
@@ -213,7 +219,7 @@ export function VisaoGeralConteudo({
  * fechar o detalhe da unidade volta para a comparação, e fechar a
  * comparação continua fechando as duas de uma vez.
  */
-function ComparacaoPorUnidade({
+export function ComparacaoPorUnidade({
   overview,
   onFechar,
 }: {
@@ -346,7 +352,7 @@ function LinhaDaUnidade({
 }
 
 /** "N de M unidades incluídas", com a lista de quem ficou fora e por quê. */
-function CoberturaDaVisaoGeral({ overview }: { overview: FamiliesOverview }) {
+export function CoberturaDaVisaoGeral({ overview }: { overview: FamiliesOverview }) {
   const total = overview.unitsIncluded.length + overview.unitsExcluded.length;
   const parciais = overview.unitsIncluded.filter(
     (u): u is OverviewUnitIncluded & { coberturaParcial: NonNullable<OverviewUnitIncluded["coberturaParcial"]> } =>

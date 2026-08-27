@@ -46,7 +46,17 @@ export interface ChangeGroup {
   comparability: string;
   /** Linhas de alteração no grupo. Não confundir com `vehicles`. */
   changes: number;
+  /** Ativos distintos **deste grupo**. Não soma entre grupos — ver `entityIds`. */
   vehicles: number;
+  /**
+   * Quais ativos — a identidade por trás de `vehicles`.
+   *
+   * É o que permite a uma tela que empilha grupos dizer "veículos" sem
+   * contar o mesmo caminhão uma vez por atributo que mudou nele: a resposta é
+   * o tamanho da **união** destes conjuntos, nunca a soma de `vehicles`.
+   * Ver `@workspace/comparison`, `grouped.ts`.
+   */
+  entityIds: string[];
   fleet: number;
   coverage: "TOTAL" | "MAIORIA" | "PARCIAL";
   coverageLabel: string;
@@ -177,6 +187,17 @@ export interface GroupedView {
     unchanged: number;
     inconclusive: number;
   };
+  /**
+   * Quais ativos — a identidade por trás de `totals.vehiclesTouched`, mesmo
+   * filtro, então `entityIdsTouched.length === totals.vehiclesTouched`. É o
+   * que permite unir leituras: somar `vehiclesTouched` de várias contaria o
+   * mesmo caminhão em cada uma.
+   *
+   * Fora de `totals` de propósito — ver `grouped.ts`: quem consome `totals` o
+   * espalha inteiro, e uma lista de UUIDs no meio das contagens vaza para
+   * lugares que só esperavam números.
+   */
+  entityIdsTouched: string[];
   impact: ImpactSummary;
   accumulated: ImpactSummary & {
     comparisons: number;
@@ -470,6 +491,15 @@ export interface OverviewConsolidado {
 export interface FamiliesOverview {
   period: string;
   summary: ExecutiveSummary;
+  /**
+   * Veículos distintos no consolidado inteiro — a **união** dos ativos das
+   * unidades, não a soma delas (que é `summary.vehiclesTouched`).
+   *
+   * Opcional no tipo, e não no servidor: uma resposta de versão anterior
+   * ainda em cache não traz o campo, e a tela precisa poder dizer que está
+   * mostrando a soma em vez de chamar de "distinto" um número que não é.
+   */
+  vehiclesTouchedDistinct?: number;
   unitsIncluded: OverviewUnitIncluded[];
   unitsExcluded: OverviewUnitExcluded[];
   consolidado: OverviewConsolidado;

@@ -3,6 +3,7 @@ import type { BalancoResumo } from "@/components/balanco/tipos";
 import type {
   ChangeGroup,
   ExecutiveSummary,
+  FamiliesOverview,
   FamiliesView,
   GroupedView,
   ImpactSide,
@@ -1055,7 +1056,19 @@ export interface PontoDeAtencao {
   detalhe: string;
   /** A segunda linha, quando há um número para pôr nela. */
   valor: string | null;
-  href: string;
+  /**
+   * A tela que responde a este ponto — `null` quando não há uma que responda
+   * **exatamente** a população que o ponto contou.
+   *
+   * É o caso da Visão Geral: as telas de destino (Parâmetros, Alterações)
+   * recortam por unidade, e um endereço sem `scopeHash` não fica sem filtro —
+   * o servidor cai em `contexts[0]` (ver `resolveContext` em
+   * `@workspace/comparison`). O ponto abriria uma lista de **uma** unidade
+   * debaixo de um número que somou todas. Com `null`, o ponto vira botão e
+   * abre a comparação por unidade, que é onde a soma se desfaz nas parcelas
+   * que a produziram.
+   */
+  href: string | null;
 }
 
 /**
@@ -1156,6 +1169,105 @@ export function pontosDeAtencao(
   }
 
   return pontos;
+}
+
+/**
+ * Os mesmos pontos, lidos sobre a soma de unidades.
+ *
+ * A Visão Geral tem a mesma pergunta no alto da tela — *o que merece sua
+ * atenção?* —, e três das quatro respostas continuam existindo: o maior
+ * impacto, o que ficou sem preço e a integridade da massa importada. A quarta
+ * troca de assunto porque o dado que a sustenta não é somável: `byEquipment`
+ * mora no cockpit de **uma** vigência, e a v1 do overview não mescla cockpits
+ * entre unidades (ver `getFamiliesOverview` no servidor). No lugar dela entra a
+ * pergunta que só existe aqui — **qual unidade puxa o número** —, que sai de
+ * `unitsIncluded` e não precisa de mesclagem nenhuma.
+ *
+ * Nenhum dos três primeiros leva a uma tela: o motivo está em
+ * `PontoDeAtencao.href`. Eles abrem a comparação por unidade, e é de lá que se
+ * entra numa unidade com o recorte certo.
+ */
+export function pontosDeAtencaoDaVisaoGeral(
+  overview: FamiliesOverview,
+  ranking: RankingDeImpacto | null,
+  integridadeDosDados: Integridade | null,
+): PontoDeAtencao[] {
+  const pontos: PontoDeAtencao[] = [];
+
+  const negativos = (ranking?.linhas ?? []).filter((l) => l.amount < 0);
+  const maior = negativos[0] ?? ranking?.linhas[0];
+  if (maior && ranking) {
+    pontos.push({
+      chave: "maior-impacto",
+      tom: maior.amount < 0 ? "grave" : "ok",
+      titulo: maior.amount < 0 ? "Maior impacto negativo" : "Maior impacto",
+      detalhe: maior.name,
+      valor: escreverImpacto({ periodicity: ranking.periodicity, amount: maior.amount }),
+      href: null,
+    });
+  }
+
+  const semPreco = overview.summary.notCalculable;
+  pontos.push({
+    chave: "sem-preco",
+    tom: semPreco > 0 ? "atencao" : "ok",
+    titulo: semPreco > 0 ? "Mudanças sem preço" : "Toda mudança tem preço",
+    detalhe:
+      semPreco > 0
+        ? `${inteiro(semPreco)} ${semPreco === 1 ? "alteração requer" : "alterações requerem"} análise`
+        : "Nenhuma alteração ficou sem valor apurado",
+    valor: null,
+    href: semPreco > 0 ? null : "/curadoria",
+  });
+
+  const unidade = unidadeQueMaisPesa(overview);
+  if (unidade) {
+    pontos.push({
+      chave: "unidade",
+      tom: unidade.impacto.amount < 0 ? "grave" : "ok",
+      titulo: unidade.label,
+      detalhe: "unidade de maior movimento nesta competência",
+      valor: escreverImpacto(unidade.impacto),
+      href: null,
+    });
+  }
+
+  if (integridadeDosDados) {
+    pontos.push({
+      chave: "integridade",
+      tom: integridadeDosDados.ok ? "ok" : "grave",
+      titulo: integridadeDosDados.titulo,
+      detalhe: integridadeDosDados.detalhe,
+      valor: null,
+      href: "/balanco-massa",
+    });
+  }
+
+  return pontos;
+}
+
+/**
+ * A unidade com o maior movimento em módulo — o mesmo critério do pódio da
+ * comparação por unidade.
+ *
+ * `null` quando nenhuma unidade tem impacto apurado: o ponto some da faixa em
+ * vez de nomear uma unidade por um empate de zeros.
+ */
+export function unidadeQueMaisPesa(
+  overview: FamiliesOverview,
+): { label: string; impacto: Impacto } | null {
+  const candidatas = overview.unitsIncluded
+    .map((u) => {
+      const [maior] = Object.entries(u.summary.impact.byPeriodicity)
+        .map(([periodicity, amount]) => ({ periodicity, amount }))
+        .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
+      return maior ? { label: u.label, impacto: maior as Impacto } : null;
+    })
+    .filter((c): c is { label: string; impacto: Impacto } => c !== null)
+    .filter((c) => c.impacto.amount !== 0)
+    .sort((a, b) => Math.abs(b.impacto.amount) - Math.abs(a.impacto.amount));
+
+  return candidatas[0] ?? null;
 }
 
 /**

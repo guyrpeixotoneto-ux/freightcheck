@@ -93,6 +93,24 @@ export interface OverviewUnitExcluded {
 export interface FamiliesOverview {
   period: string;
   summary: ExecutiveSummary;
+  /**
+   * Veículos distintos no consolidado inteiro — a **união** dos ativos das
+   * unidades incluídas, não a soma delas.
+   *
+   * Existe ao lado de `summary.vehiclesTouched`, e não no lugar dele, porque
+   * os dois respondem perguntas diferentes e o produto publica os dois:
+   * `summary.vehiclesTouched` é a soma por unidade (ver a nota em
+   * `mergeSummaries`), útil para conferir unidade a unidade e contratada por
+   * quem já a lê; este é a cardinalidade global, que é o que a palavra
+   * "veículos" promete quando aparece sozinha numa faixa de abertura.
+   *
+   * A união é deduplicação de verdade, e não de rótulo: `entity.id` é global
+   * e casado por placa/chassi (`entity_identifier`), então o mesmo caminhão
+   * exportado por duas unidades é o mesmo id nas duas. Quando nenhuma unidade
+   * compartilha ativo com outra, este número é igual à soma — e é assim que
+   * se sabe que não havia sobreposição.
+   */
+  vehiclesTouchedDistinct: number;
   unitsIncluded: OverviewUnitIncluded[];
   unitsExcluded: OverviewUnitExcluded[];
   /**
@@ -314,6 +332,12 @@ function mergeSummaries(summaries: ExecutiveSummary[]): ExecutiveSummary {
       que dois contextos irmãos de canais diferentes nunca compartilham o
       mesmo veículo físico. Este número é uma aproximação, não uma
       cardinalidade global deduplicada — ver teste dedicado.
+
+      A cardinalidade global existe, e mora um nível acima:
+      `FamiliesOverview.vehiclesTouchedDistinct` une os `entityIdsTouched` das
+      unidades. Ela não substitui esta soma — quem lê `summary` unidade a
+      unidade continua contratando a soma —, mas é ela que a tela publica
+      quando escreve "veículos" sem qualificar.
     */
     vehiclesTouched: summaries.reduce((soma, s) => soma + s.vehiclesTouched, 0),
     topParameters: mergeTopParameters(summaries.flatMap((s) => s.sides)),
@@ -638,6 +662,7 @@ export async function getFamiliesOverview(
   return {
     period,
     summary: mergeSummaries(views.map((v) => v.summary)),
+    vehiclesTouchedDistinct: new Set(views.flatMap((v) => v.entityIdsTouched)).size,
     unitsIncluded,
     unitsExcluded,
     consolidado: consolidar(consolidaveis),
@@ -791,10 +816,21 @@ export async function getRangeOverview(
     candidatas.flatMap((cand) =>
       cand.matched.map(async (contexto) => ({
         unidade: cand.unidade,
-        analysis: await getRangeAnalysis(db, from, to, {
-          scopeHash: contexto.scopeHash,
-          channel: contexto.channel,
-        }),
+        /*
+          `contexts` vai junto de propósito: sem ele, cada uma destas leituras
+          recomeça por `listContexts` — a mesma pergunta sobre o banco inteiro,
+          repetida uma vez por unidade × contexto, todas em paralelo contra o
+          mesmo pool. A lista já está aqui em cima, e não muda entre uma
+          unidade e outra.
+        */
+        analysis: await getRangeAnalysis(
+          db,
+          from,
+          to,
+          { scopeHash: contexto.scopeHash, channel: contexto.channel },
+          undefined,
+          contexts,
+        ),
       })),
     ),
   );

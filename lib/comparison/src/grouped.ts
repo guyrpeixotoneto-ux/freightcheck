@@ -149,6 +149,27 @@ export interface ChangeGroup {
   changes: number;
   /** Quantos ativos distintos deste equipamento têm esta alteração. */
   vehicles: number;
+  /**
+   * **Quais** ativos — a identidade por trás de `vehicles`, e não a contagem.
+   *
+   * Existe porque `vehicles` não soma: uma tela que empilha grupos e quer
+   * dizer "veículos" precisa da união dos conjuntos, e somar as contagens dá
+   * mais caminhões do que a frota tem (o mesmo ativo conta uma vez em cada
+   * atributo que mudou nele). O Dashboard publicava "42 veículos impactados"
+   * somando oito linhas ao lado de "91 veículos afetados" contados como
+   * distintos — dois números com a mesma palavra e universos diferentes.
+   *
+   * São as mesmas chaves de `vehicles` (`entity_id`, com o id da linha como
+   * substituto quando o fato não tem entidade), para que
+   * `entityIds.length === vehicles` sempre, e para que a união de vários
+   * grupos seja comparável com `totals.vehiclesTouched`, que sai do mesmo
+   * `entity_id`.
+   *
+   * Cabe no payload por construção: os grupos particionam as linhas da
+   * vigência, então a soma de todos os `entityIds` nunca passa de
+   * `totals.changes`.
+   */
+  entityIds: string[];
   /** Quantos ativos a série tinha na vigência nova. */
   fleet: number;
   coverage: Coverage;
@@ -353,6 +374,29 @@ export interface GroupedView {
     unchanged: number;
     inconclusive: number;
   };
+  /**
+   * **Quais** ativos — a identidade por trás de `totals.vehiclesTouched`.
+   *
+   * Mesmo `Set`, mesmo filtro: `entityIdsTouched.length` é sempre
+   * `totals.vehiclesTouched`. Existe porque somar `vehiclesTouched` de várias
+   * leituras não dá uma contagem de ativos (o mesmo caminhão pode aparecer em
+   * duas unidades), e a única forma de responder "quantos veículos ao todo"
+   * entre leituras é unir os conjuntos. `entity.id` é global e é casado por
+   * placa/chassi (`entity_identifier`), então a união é deduplicação de
+   * verdade, e não de rótulo.
+   *
+   * Linha sem entidade fica de fora, exatamente como em `vehiclesTouched`:
+   * ela é uma alteração, não um veículo.
+   *
+   * **Fica fora de `totals`, e isso não é arrumação.** `totals` é o objeto de
+   * contagens, e quem o consome o espalha inteiro — a ferramenta `alteracoes`
+   * do Assistente publica `totais: view.totals` no conteúdo que o modelo lê.
+   * Uma lista de UUIDs ali dentro vira 296 corridas de dígitos que a evidência
+   * não autoriza, e a trava de integridade recusa a resposta inteira (ver
+   * `lib/assistant/src/__tests__/integridade-evidencia.test.ts`). Identidade
+   * não é contagem, e o lugar dela é fora do balde que todo mundo despeja.
+   */
+  entityIdsTouched: string[];
   /** O impacto **desta vigência**. */
   impact: ImpactSummary;
   /**
@@ -717,6 +761,7 @@ export function buildGroup(
     comparability: first.comparability,
     changes: rows.length,
     vehicles,
+    entityIds: [...entities],
     fleet,
     coverage,
     coverageLabel: coverageLabel(coverage, vehicles, fleet, first.entity_type),
@@ -1106,9 +1151,9 @@ export async function getGroupedViewComDados(
     .map((bucket) => buildGroup(bucket, fleetByChangeSet, dedup))
     .sort(compareGroups);
 
-  const vehiclesTouched = new Set(
+  const ativosTocados = new Set(
     rows.map((r) => r.entity_id).filter((v): v is string => v !== null),
-  ).size;
+  );
 
   /*
     `NAO_MATERIALIZADA` exige as duas metades: nenhuma comparação termina nesta
@@ -1162,12 +1207,13 @@ export async function getGroupedViewComDados(
         .filter((g) => g.formatOnly)
         .reduce((total, g) => total + g.changes, 0),
       groups: groups.length,
-      vehiclesTouched,
+      vehiclesTouched: ativosTocados.size,
       entitiesAdded: sets.reduce((s, r) => s + r.entities_added, 0),
       entitiesRemoved: sets.reduce((s, r) => s + r.entities_removed, 0),
       unchanged: sets.reduce((s, r) => s + r.unchanged, 0),
       inconclusive: sets.reduce((s, r) => s + r.inconclusive, 0),
     },
+    entityIdsTouched: [...ativosTocados],
     impact: summariseImpact(rows, dedup),
     accumulated: await getAccumulatedImpact(db, context, contexts),
     groups,
