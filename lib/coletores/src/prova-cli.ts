@@ -1,72 +1,39 @@
-import pg from "pg";
-import { drizzle } from "drizzle-orm/node-postgres";
-import {
-  fechamentoCompetenciaTable,
-  fechamentoCteTable,
-  fechamentoDocumentoTable,
-  unidadeTable,
-  type Database,
-} from "@workspace/db";
-import { runMigrations } from "@workspace/db/migrate";
-import {
-  CTE_ATE_RECEBIMENTO,
-  importarFluxo,
-  lerFluxo,
-} from "@workspace/fluxos";
 import {
   monitorarFluxo,
   registroDeColetores,
   type Coletor,
+  type Monitoramento,
 } from "@workspace/fluxos";
 import { CHAVE, coletorDeAutorizacaoSefaz } from "./cte-autorizacao-sefaz";
+import {
+  abrirBancoDeProva,
+  cadastrarFluxoDoCte,
+  criarEmpresa,
+  gravarExtrato,
+  CHAVE_DE_ACESSO,
+} from "./banco-de-prova";
 
 /**
- * A PROVA DO PRIMEIRO COLETOR — o farol de uma etapa de verdade, impresso.
+ * A PROVA DO PRIMEIRO COLETOR — a `Leitura` e o `EstadoDaEtapa` crus.
  *
- * A bateria de `__tests__` afirma; esta prova **mostra**. Ela monta um banco
- * descartável a partir das migrations reais, cadastra o fluxo CTe→Recebimento
- * pelo caminho normal (`importarFluxo`), grava um extrato 03.08.15 com a forma
- * que o Promax tem, e imprime a `Leitura` e o `EstadoDaEtapa` nos quatro
- * estados — para que a régua de cores possa ser conferida por quem entende do
- * processo, e não só por quem lê teste.
- *
- * Roda com um Postgres à mão, como a `prova-ponta-a-ponta` do fechamento:
+ * Ela imprime o objeto que o motor devolve, campo a campo, sem formatação
+ * nenhuma: é a evidência de que a régua de cores do coletor está onde os
+ * comentários dizem que está. Quem quer **ler** o estado do fluxo inteiro usa
+ * `painel-cli.ts`, que desenha a mesma apuração como tabela.
  *
  *     DATABASE_URL=postgresql://… pnpm --filter @workspace/coletores exec tsx src/prova-cli.ts
  */
 
-const ADMIN =
-  process.env.DATABASE_URL ?? "postgresql://postgres@127.0.0.1:5433/postgres";
-const NOME = `fc_prova_coletor_${process.pid}`;
-const CHAVE_DE_ACESSO = "3".repeat(44);
-
-function apontarPara(url: string, banco: string): string {
-  const alvo = new URL(url);
-  alvo.pathname = `/${banco}`;
-  return alvo.toString();
-}
-
 async function main(): Promise<void> {
-  const admin = new pg.Pool({ connectionString: ADMIN });
-  await admin.query(`DROP DATABASE IF EXISTS "${NOME}"`);
-  await admin.query(`CREATE DATABASE "${NOME}"`);
-  await admin.end();
-  const url = apontarPara(ADMIN, NOME);
-  await runMigrations(url);
-  const pool = new pg.Pool({ connectionString: url });
-  const db = drizzle(pool) as unknown as Database;
-
+  const banco = await abrirBancoDeProva("prova_coletor");
   try {
-    const [unidade] = await db
-      .insert(unidadeTable)
-      .values({ nome: "Horizonte Logística", cnpj: "11111111000191" })
-      .returning();
-    const fluxo = await importarFluxo(db, unidade.id, CTE_ATE_RECEBIMENTO, {
-      email: "prova@exemplo.com",
-    });
-
-    const completo = await lerFluxo(db, unidade.id, fluxo.id);
-    if (!completo) throw new Error("o fluxo cadastrado sumiu");
+    const { db } = banco;
+    const empresa = await criarEmpresa(
+      db,
+      "Horizonte Logística",
+      "11111111000191",
+    );
+    const completo = await cadastrarFluxoDoCte(db, empresa);
     const etapa = completo.etapas.find((e) => e.chaveMonitoramento === CHAVE);
     if (!etapa) throw new Error("o fluxo não tem a etapa da SEFAZ");
 
@@ -82,68 +49,92 @@ async function main(): Promise<void> {
     console.log(`chave   ${etapa.chaveMonitoramento}`);
     console.log(`id      ${etapa.id}`);
 
-    await gravarExtrato(
-      db,
-      unidade.id,
-      "2026-08-Q1",
-      "2026-08-01",
-      new Date("2026-08-16T09:00:00Z"),
-      [CHAVE_DE_ACESSO, CHAVE_DE_ACESSO, CHAVE_DE_ACESSO],
-    );
-
     const registro = registroDeColetores(coletorDeAutorizacaoSefaz(db));
+
+    const mostrar = async (
+      titulo: string,
+      apurar: () => Promise<Monitoramento>,
+    ) => {
+      const resultado = await apurar();
+      /* Pela chave, e não pelo id: no cenário do isolamento o fluxo é o da
+         outra empresa, e o id da etapa é outro. */
+      const alvo = resultado.etapas.find((e) => e.chave === CHAVE)!;
+      console.log("");
+      console.log("═".repeat(78));
+      console.log(titulo);
+      console.log("═".repeat(78));
+      console.log(
+        "Leitura      ",
+        recuar(JSON.stringify(alvo.leitura, null, 2)),
+      );
+      console.log(
+        "EstadoDaEtapa",
+        recuar(
+          JSON.stringify(
+            {
+              etapaNome: alvo.etapaNome,
+              chave: alvo.chave,
+              farol: alvo.farol,
+              motivo: alvo.motivo,
+              vencida: alvo.vencida,
+              idadeEmSegundos: alvo.idadeEmSegundos,
+            },
+            null,
+            2,
+          ),
+        ),
+      );
+      console.log("Resumo       ", JSON.stringify(resultado.resumo));
+      if (resultado.falhas.length)
+        console.log("Falhas       ", JSON.stringify(resultado.falhas));
+    };
+
+    await gravarExtrato(db, {
+      empresaId: empresa,
+      chave: "2026-08-Q1",
+      inicio: "2026-08-01",
+      enviadoEm: new Date("2026-08-16T09:00:00Z"),
+      controles: [CHAVE_DE_ACESSO, CHAVE_DE_ACESSO, CHAVE_DE_ACESSO],
+    });
 
     await mostrar(
       "2. LEITURA VÁLIDA — extrato íntegro, um dia depois do envio",
-      async () =>
-        monitorarFluxo(registro, unidade.id, completo, {
+      () =>
+        monitorarFluxo(registro, empresa, completo, {
           agora: new Date("2026-08-17T09:00:00Z"),
         }),
     );
 
-    await gravarExtrato(
+    await gravarExtrato(db, {
+      empresaId: empresa,
+      chave: "2026-08-Q2",
+      inicio: "2026-08-16",
+      enviadoEm: new Date("2026-08-31T09:00:00Z"),
+      controles: [CHAVE_DE_ACESSO, null, "123", CHAVE_DE_ACESSO],
+    });
+
+    await mostrar("3. AMARELO — dois documentos sem chave de acesso", () =>
+      monitorarFluxo(registro, empresa, completo, {
+        agora: new Date("2026-09-01T09:00:00Z"),
+      }),
+    );
+
+    await mostrar("4. VENCIDA — dezoito dias depois, sem extrato novo", () =>
+      monitorarFluxo(registro, empresa, completo, {
+        agora: new Date("2026-09-18T09:00:00Z"),
+      }),
+    );
+
+    const outra = await criarEmpresa(
       db,
-      unidade.id,
-      "2026-08-Q2",
-      "2026-08-16",
-      new Date("2026-08-31T09:00:00Z"),
-      [CHAVE_DE_ACESSO, null, "123", CHAVE_DE_ACESSO],
+      "Transportes Sem Extrato",
+      "22222222000172",
     );
-
-    await mostrar(
-      "3. AMARELO — dois documentos sem chave de acesso",
-      async () =>
-        monitorarFluxo(registro, unidade.id, completo, {
-          agora: new Date("2026-09-01T09:00:00Z"),
-        }),
-    );
-
-    await mostrar(
-      "4. VENCIDA — dezoito dias depois, sem extrato novo",
-      async () =>
-        monitorarFluxo(registro, unidade.id, completo, {
-          agora: new Date("2026-09-18T09:00:00Z"),
-        }),
-    );
-
-    const [outra] = await db
-      .insert(unidadeTable)
-      .values({ nome: "Transportes Sem Extrato", cnpj: "22222222000172" })
-      .returning();
-    const fluxoDaOutra = await importarFluxo(
-      db,
-      outra.id,
-      CTE_ATE_RECEBIMENTO,
-      {
-        email: "prova@exemplo.com",
-      },
-    );
-    const completoDaOutra = (await lerFluxo(db, outra.id, fluxoDaOutra.id))!;
-
+    const fluxoDaOutra = await cadastrarFluxoDoCte(db, outra);
     await mostrar(
       "5. ISOLAMENTO — outra empresa, o mesmo registro, nenhum extrato dela",
-      async () =>
-        monitorarFluxo(registro, outra.id, completoDaOutra, {
+      () =>
+        monitorarFluxo(registro, outra, fluxoDaOutra, {
           agora: new Date("2026-08-17T09:00:00Z"),
         }),
     );
@@ -157,15 +148,15 @@ async function main(): Promise<void> {
     };
     await mostrar(
       "6. FALHA — o coletor quebrado apaga o farol e se identifica",
-      async () =>
-        monitorarFluxo(registroDeColetores(quebrado), unidade.id, completo, {
+      () =>
+        monitorarFluxo(registroDeColetores(quebrado), empresa, completo, {
           agora: new Date("2026-08-17T09:00:00Z"),
         }),
     );
 
     await mostrar(
       "7. TEMPO ESGOTADO — a consulta lenta não trava a tela",
-      async () => {
+      () => {
         const real = coletorDeAutorizacaoSefaz(db);
         const lento: Coletor = {
           ...real,
@@ -174,111 +165,19 @@ async function main(): Promise<void> {
             return real.ler(pedido);
           },
         };
-        return monitorarFluxo(
-          registroDeColetores(lento),
-          unidade.id,
-          completo,
-          {
-            agora: new Date("2026-08-17T09:00:00Z"),
-            tempoLimiteEmMs: 20,
-          },
-        );
+        return monitorarFluxo(registroDeColetores(lento), empresa, completo, {
+          agora: new Date("2026-08-17T09:00:00Z"),
+          tempoLimiteEmMs: 20,
+        });
       },
     );
-
-    async function mostrar(
-      titulo: string,
-      apurar: () => Promise<Awaited<ReturnType<typeof monitorarFluxo>>>,
-    ): Promise<void> {
-      const resultado = await apurar();
-      const alvo =
-        resultado.etapas.find((e) => e.chave === CHAVE) ??
-        resultado.etapas.find((e) => e.etapaId === etapa!.id)!;
-      console.log("");
-      console.log("═".repeat(78));
-      console.log(titulo);
-      console.log("═".repeat(78));
-      console.log(
-        "Leitura      ",
-        JSON.stringify(alvo.leitura, null, 2)?.replace(
-          /\n/g,
-          "\n              ",
-        ),
-      );
-      console.log(
-        "EstadoDaEtapa",
-        JSON.stringify(
-          {
-            etapaNome: alvo.etapaNome,
-            chave: alvo.chave,
-            farol: alvo.farol,
-            motivo: alvo.motivo,
-            vencida: alvo.vencida,
-            idadeEmSegundos: alvo.idadeEmSegundos,
-          },
-          null,
-          2,
-        ).replace(/\n/g, "\n              "),
-      );
-      console.log("Resumo       ", JSON.stringify(resultado.resumo));
-      if (resultado.falhas.length)
-        console.log("Falhas       ", JSON.stringify(resultado.falhas));
-    }
   } finally {
-    await pool.end().catch(() => {});
-    const limpeza = new pg.Pool({ connectionString: ADMIN });
-    await limpeza.query(`DROP DATABASE IF EXISTS "${NOME}"`);
-    await limpeza.end();
+    await banco.fechar();
   }
 }
 
-async function gravarExtrato(
-  db: Database,
-  empresaId: string,
-  chave: string,
-  inicio: string,
-  enviadoEm: Date,
-  controles: (string | null)[],
-): Promise<void> {
-  const [competencia] = await db
-    .insert(fechamentoCompetenciaTable)
-    .values({
-      chave,
-      ano: Number(chave.slice(0, 4)),
-      mes: Number(chave.slice(5, 7)),
-      quinzena: chave.endsWith("Q1") ? 1 : 2,
-      inicio,
-      fim: inicio,
-      unidadeCodigo: empresaId.slice(0, 8),
-      unidadeId: empresaId,
-      transportadoraCodigo: "36",
-    })
-    .returning();
-  const [documento] = await db
-    .insert(fechamentoDocumentoTable)
-    .values({
-      competenciaId: competencia.id,
-      tipo: "CTE",
-      nomeDoArquivo: `03.08.15 ${chave}.xlsx`,
-      sha256: `${chave}-${empresaId}`,
-      tamanhoEmBytes: 4096,
-      enviadoEm,
-    })
-    .returning();
-  await db.insert(fechamentoCteTable).values(
-    controles.map((controle, i) => ({
-      documentoId: documento.id,
-      competenciaId: competencia.id,
-      linhaNoArquivo: i + 1,
-      vbz: 5,
-      verbaNome: "FRETE VARIAVEL",
-      verbaNatureza: "VARIAVEL",
-      canal: "ROTA",
-      numero: String(90_000 + i),
-      valorCte: "1234.56",
-      controle,
-    })),
-  );
+function recuar(json: string): string {
+  return json.replace(/\n/g, "\n              ");
 }
 
 await main();
