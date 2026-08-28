@@ -2,7 +2,7 @@ import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { PainelDaEtapa } from "@/components/fluxos/painel-da-etapa";
 import type { Catalogo, Etapa, ResumoDeSubfluxo } from "@/lib/fluxos";
-import type { DiagnosticoDaEtapa } from "@/lib/fluxos-analise";
+import type { CampoDeTextoDaEtapa, DiagnosticoDaEtapa } from "@/lib/fluxos-analise";
 
 /**
  * O DETALHE DA ETAPA — o mesmo conteúdo, na moldura que couber.
@@ -27,6 +27,7 @@ export function DetalheDaEtapa({
   podeEditar,
   diagnostico,
   onEditar,
+  onSalvarCampo,
   onSeguinte,
   onExcluir,
   onFechar,
@@ -40,6 +41,8 @@ export function DetalheDaEtapa({
   podeEditar: boolean;
   diagnostico?: DiagnosticoDaEtapa;
   onEditar: () => void;
+  /** Grava um campo de texto direto do painel — ver `PainelDaEtapa`. */
+  onSalvarCampo?: (campo: CampoDeTextoDaEtapa, valor: string) => Promise<void>;
   onSeguinte: () => void;
   onExcluir: () => void;
   onFechar: () => void;
@@ -57,6 +60,7 @@ export function DetalheDaEtapa({
       podeEditar={podeEditar}
       diagnostico={diagnostico}
       onEditar={onEditar}
+      onSalvarCampo={onSalvarCampo}
       onSeguinte={onSeguinte}
       onExcluir={onExcluir}
       onFechar={onFechar}

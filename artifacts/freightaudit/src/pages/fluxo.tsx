@@ -67,7 +67,11 @@ import {
   type Visualizacao,
 } from "@/lib/fluxos-visoes";
 import type { PropsDaVisaoNoCanvas } from "@/components/fluxos/visao";
-import type { CampoEditavelNaLista, EtapaNovaNaLista } from "@/lib/fluxos-analise";
+import type {
+  CampoDeTextoDaEtapa,
+  CampoEditavelNaLista,
+  EtapaNovaNaLista,
+} from "@/lib/fluxos-analise";
 import {
   corpoDaEtapa,
   escritas,
@@ -306,6 +310,43 @@ export default function TelaDoFluxo() {
     onSuccess: () => recarregar(fluxoId),
   });
 
+  /**
+   * A GRAVAÇÃO DE UM CAMPO PELO PAINEL — a mesma cautela da célula da Lista.
+   *
+   * Vale a mesma leitura de antes de gravar (`lerFluxoAgora`) e o mesmo corpo
+   * inteiro (`corpoDaEtapa`): a rota é substituição, e o painel pode estar
+   * aberto há um tempo. A diferença é só o conjunto de campos — aqui são as
+   * colunas de texto que o painel mostra, e não as seis colunas da tabela.
+   */
+  const editarCampoNoPainel = useMutation({
+    mutationFn: async ({
+      etapaId,
+      campo,
+      valor,
+    }: {
+      etapaId: string;
+      campo: CampoDeTextoDaEtapa;
+      valor: string;
+    }) => {
+      const agora = await lerFluxoAgora(empresaId, fluxoId);
+      const etapa = agora.etapas.find((e) => e.id === etapaId);
+      if (!etapa) throw new Error("Esta etapa não existe mais — recarregue o fluxo.");
+      /*
+        Nome em branco não é etapa: o servidor recusaria, e a frase dele é
+        genérica. Recusar aqui devolve a explicação no lugar onde a pessoa
+        está digitando, com o que ela digitou ainda na tela.
+      */
+      if (campo === "nome" && valor.trim() === "") {
+        throw new Error("O nome da etapa não pode ficar em branco.");
+      }
+      await escritas.atualizarEtapa(empresaId, fluxoId, etapaId, {
+        ...corpoDaEtapa(etapa),
+        [campo]: valor.trim(),
+      });
+    },
+    onSuccess: () => recarregar(fluxoId),
+  });
+
   /*
     O elemento arrastado vira etapa numa chamada só, sem passar por formulário.
     O nome e a posição saem de funções puras (`lib/fluxos-paleta.ts`), e a etapa
@@ -444,6 +485,12 @@ export default function TelaDoFluxo() {
     (etapaId: string, campo: CampoEditavelNaLista, valor: string) =>
       editarCampo.mutateAsync({ etapaId, campo, valor }).then(() => undefined),
     [editarCampo],
+  );
+  /* Também crua: é o que deixa o campo do painel mostrar a recusa e manter o texto. */
+  const aoSalvarCampoDoPainel = useCallback(
+    (etapaId: string, campo: CampoDeTextoDaEtapa, valor: string) =>
+      editarCampoNoPainel.mutateAsync({ etapaId, campo, valor }).then(() => undefined),
+    [editarCampoNoPainel],
   );
   const aoCriarEtapaNaLista = useCallback(
     (nova: EtapaNovaNaLista) => criarEtapaNaLista.mutateAsync(nova).then(() => undefined),
@@ -925,6 +972,9 @@ export default function TelaDoFluxo() {
               podeEditar={!somenteLeitura}
               diagnostico={analise?.porEtapa.get(etapaSelecionada.id)}
               onEditar={() => setEditandoEtapa({ aberto: true, etapaId: etapaSelecionada.id })}
+              onSalvarCampo={(campo, valor) =>
+                aoSalvarCampoDoPainel(etapaSelecionada.id, campo, valor)
+              }
               onSeguinte={() => {
                 setSeguinteDe(etapaSelecionada.id);
                 setEditandoEtapa({ aberto: true, etapaId: null });

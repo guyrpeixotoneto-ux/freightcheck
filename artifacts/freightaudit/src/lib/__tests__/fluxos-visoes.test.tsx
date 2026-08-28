@@ -11,6 +11,8 @@ import { montarProjecao } from "@/lib/fluxos-canvas";
 import {
   analisarFluxo,
   cartaoDaJornada,
+  CAMPOS_DO_PAINEL,
+  camposVaziosDoPainel,
   edicaoNaLista,
   etapaNovaVazia,
   filtrarLinhas,
@@ -20,6 +22,7 @@ import {
   resumoDaLente,
   slaDaEtapa,
   tipoSugeridoNaLista,
+  valorDoCampo,
   valoresDaColuna,
 } from "@/lib/fluxos-analise";
 import {
@@ -51,7 +54,9 @@ import type { Catalogo, Conexao, Etapa, FluxoCompleto } from "@/lib/fluxos";
  * 6. alternar visualização não escreve — provado no texto-fonte;
  * 7. só-leitura vale em todas, porque o painel é um só;
  * 8. um fluxo legado (sem posição, sem área, sem prazo) abre sem migração;
- * 9. a Lista edita na célula — e só onde editar a célula é gravar a verdade.
+ * 9. a Lista edita na célula — e só onde editar a célula é gravar a verdade;
+ * 10. o painel edita campo a campo, sem abrir o editor — e sem passar a gravar
+ *     por conta própria.
  *
  * As projeções são funções puras, e é por isso que tudo isto cabe num teste sem
  * DOM e sem servidor: se elas precisassem de canvas para serem verificadas, a
@@ -1505,5 +1510,121 @@ describe("caso 10 — cadastrar etapa na própria Lista", () => {
     /* Criar um fluxo leva direto para ele — sem procurar a linha na lista. */
     const listaDeFluxos = readFileSync(path.join(raiz, "pages/fluxos.tsx"), "utf8");
     expect(listaDeFluxos).toMatch(/navegar\(`\/fluxos\/\$\{gravado\.id\}`\)/);
+  });
+});
+
+
+describe("caso 10 — o painel edita campo a campo, sem abrir o editor", () => {
+  const preenchida = etapa({
+    id: "e1",
+    nome: "Origem da tarifa",
+    area: "Operação",
+    responsavel: "Faturamento",
+    objetivo: "Definir trecho, tarifa e parâmetros.",
+    observacoes: "A VALIDAR: quais tabelas originam a tarifa.",
+  });
+
+  const painel = (props: Record<string, unknown>) =>
+    renderToStaticMarkup(
+      <PainelDaEtapa
+        etapa={preenchida}
+        catalogo={CATALOGO}
+        podeEditar
+        onEditar={() => undefined}
+        onSeguinte={() => undefined}
+        onExcluir={() => undefined}
+        onFechar={() => undefined}
+        {...props}
+      />,
+    );
+
+  it("cada campo mostrado vira um alvo de edição quando há como gravar", () => {
+    const html = painel({ onSalvarCampo: async () => undefined });
+    expect(html).toContain("Editar Nome da etapa");
+    expect(html).toContain("Editar Objetivo da etapa");
+    expect(html).toContain("Editar Falhas, gargalos e informações");
+    expect(html).toContain("Editar Área");
+    expect(html).toContain("Editar Responsável");
+    /* E o editor completo continua onde estava — um não substitui o outro. */
+    expect(html).toContain("Editar etapa");
+  });
+
+  it("sem quem grave, o painel volta a ser o de leitura — nada de alvo clicável", () => {
+    const html = painel({});
+    expect(html).toContain("Origem da tarifa");
+    expect(html).not.toContain("Editar Objetivo da etapa");
+    expect(html).not.toContain("Ainda em branco");
+  });
+
+  it("só-leitura não ganha edição no lugar nem com quem grave", () => {
+    const html = painel({ podeEditar: false, onSalvarCampo: async () => undefined });
+    expect(html).not.toContain("Editar Objetivo da etapa");
+    expect(html).not.toContain("Ainda em branco");
+  });
+
+  it("o que está em branco vira convite — e some conforme é preenchido", () => {
+    const vazia = etapa({ id: "e2", nome: "Sem nada" });
+    const faltando = camposVaziosDoPainel(vazia).map((c) => c.campo);
+    /* Nome, área e responsável ficam de fora: o cabeçalho já os oferece. */
+    expect(faltando).not.toContain("nome");
+    expect(faltando).not.toContain("area");
+    expect(faltando).not.toContain("responsavel");
+    expect(faltando).toContain("objetivo");
+    expect(faltando).toContain("observacoes");
+
+    const depois = camposVaziosDoPainel({ ...vazia, objetivo: "Definir o trecho." });
+    expect(depois.map((c) => c.campo)).not.toContain("objetivo");
+
+    const html = renderToStaticMarkup(
+      <PainelDaEtapa
+        etapa={vazia}
+        catalogo={CATALOGO}
+        podeEditar
+        onEditar={() => undefined}
+        onSalvarCampo={async () => undefined}
+        onSeguinte={() => undefined}
+        onExcluir={() => undefined}
+        onFechar={() => undefined}
+      />,
+    );
+    expect(html).toContain("Ainda em branco");
+    expect(html).toContain("Objetivo da etapa");
+  });
+
+  it("os rótulos da lista são os mesmos títulos das seções — um nome por campo", () => {
+    const rotulos = new Map(CAMPOS_DO_PAINEL.map((c) => [c.campo, c.rotulo]));
+    const fonte = readFileSync(
+      path.resolve(import.meta.dirname, "..", "..", "components/fluxos/painel-da-etapa.tsx"),
+      "utf8",
+    );
+    /*
+      A seção não escreve mais o título à mão: ele vem de `CAMPOS_DO_PAINEL`.
+      É o que impede o título da seção e o botão do rodapé de divergirem — foi
+      exatamente assim que "Observações" e "Falhas, gargalos e informações"
+      poderiam ter virado dois nomes para o mesmo campo.
+    */
+    expect(fonte).not.toMatch(/Secao titulo="Objetivo da etapa"/);
+    expect(rotulos.get("observacoes")).toBe("Falhas, gargalos e informações");
+    expect(valorDoCampo(preenchida, "observacoes")).toContain("A VALIDAR");
+    expect(valorDoCampo(preenchida, "regras")).toBe("");
+  });
+
+  it("quem grava continua sendo a página — o painel não conhece `escritas`", () => {
+    const raiz = path.resolve(import.meta.dirname, "..", "..");
+    const painelFonte = readFileSync(
+      path.join(raiz, "components/fluxos/painel-da-etapa.tsx"),
+      "utf8",
+    );
+    const pagina = readFileSync(path.join(raiz, "pages/fluxo.tsx"), "utf8");
+    expect(painelFonte).not.toMatch(/\bescritas\.[a-z]/);
+    expect(painelFonte).toMatch(/onSalvarCampo/);
+    /*
+      E a página grava do jeito que a rota exige: relendo a etapa e mandando o
+      corpo inteiro. Mandar só o campo apagaria todos os outros, sem erro
+      nenhum na tela.
+    */
+    expect(pagina).toMatch(/editarCampoNoPainel/);
+    expect(pagina).toMatch(/lerFluxoAgora\(empresaId, fluxoId\)/);
+    expect(pagina).toMatch(/corpoDaEtapa\(etapa\),\s*\[campo\]/);
   });
 });

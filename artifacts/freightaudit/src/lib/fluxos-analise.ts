@@ -912,3 +912,110 @@ export function etapaNovaVazia(etapas: Etapa[]): EtapaNovaNaLista {
 export function podeCriarEtapaNaLista(nova: EtapaNovaNaLista): boolean {
   return nova.nome.trim() !== "" && nova.tipo.trim() !== "";
 }
+
+// ---------------------------------------------------------------------------
+// O painel editável — os campos que se corrigem sem abrir o editor da etapa
+// ---------------------------------------------------------------------------
+
+/**
+ * OS CAMPOS DE TEXTO QUE O PAINEL GRAVA SOZINHO.
+ *
+ * São exatamente as colunas de texto livre da etapa: as que o painel já mostra
+ * uma a uma, cada uma na sua seção. Corrigir uma frase do objetivo era abrir um
+ * formulário de seis abas, achar a aba, corrigir, salvar e esperar o diálogo
+ * fechar por cima do desenho — cinco gestos para trocar uma palavra que já
+ * estava à vista.
+ *
+ * O que **não** entra aqui é o que não é coluna de texto: as listas (sistemas,
+ * responsáveis, documentos, prazos, indicadores, ações) têm caminho próprio no
+ * servidor e uma ordem para manter, e o tipo e o status são escolhas de
+ * catálogo. Essas continuam no editor da etapa — que continua existindo, e
+ * continua abrindo pelo mesmo botão.
+ */
+export type CampoDeTextoDaEtapa =
+  | "nome"
+  | "area"
+  | "responsavel"
+  | "sistemaPrincipal"
+  | "descricao"
+  | "objetivo"
+  | "regras"
+  | "informacoesConsultadas"
+  | "observacoes"
+  | "chaveMonitoramento";
+
+export interface CampoDoPainel {
+  campo: CampoDeTextoDaEtapa;
+  /** O mesmo título que a seção do painel já usa — não há dois nomes. */
+  rotulo: string;
+  /** Texto livre de várias linhas, ou uma linha só. */
+  multilinha: boolean;
+  /** Aparece no rodapé da lista de "o que falta preencher"? */
+  ajuda?: string;
+}
+
+/**
+ * A ordem é a ordem do painel, e é ela que a lista de campos vazios segue.
+ */
+export const CAMPOS_DO_PAINEL: CampoDoPainel[] = [
+  { campo: "nome", rotulo: "Nome da etapa", multilinha: false },
+  { campo: "area", rotulo: "Área", multilinha: false },
+  { campo: "responsavel", rotulo: "Responsável", multilinha: false },
+  { campo: "descricao", rotulo: "O que acontece aqui", multilinha: true },
+  { campo: "objetivo", rotulo: "Objetivo da etapa", multilinha: true },
+  { campo: "sistemaPrincipal", rotulo: "Sistema principal", multilinha: false },
+  { campo: "regras", rotulo: "Regras de negócio", multilinha: true },
+  { campo: "informacoesConsultadas", rotulo: "Informações que consulta", multilinha: true },
+  { campo: "observacoes", rotulo: "Falhas, gargalos e informações", multilinha: true },
+  { campo: "chaveMonitoramento", rotulo: "Chave de monitoramento", multilinha: false },
+];
+
+/** O valor gravado de um campo de texto, já normalizado para a tela. */
+export function valorDoCampo(etapa: Etapa, campo: CampoDeTextoDaEtapa): string {
+  switch (campo) {
+    case "nome":
+      return etapa.nome;
+    case "area":
+      return etapa.area ?? "";
+    case "responsavel":
+      return etapa.responsavel ?? "";
+    case "sistemaPrincipal":
+      return etapa.sistemaPrincipal ?? "";
+    case "descricao":
+      return etapa.descricao ?? "";
+    case "objetivo":
+      return etapa.objetivo ?? "";
+    case "regras":
+      return etapa.regras ?? "";
+    case "informacoesConsultadas":
+      return etapa.informacoesConsultadas ?? "";
+    case "observacoes":
+      return etapa.observacoes ?? "";
+    case "chaveMonitoramento":
+      return etapa.chaveMonitoramento ?? "";
+  }
+}
+
+/**
+ * OS CAMPOS QUE AINDA ESTÃO EM BRANCO — e por que eles precisam de uma lista.
+ *
+ * O painel esconde seção vazia de propósito: num painel de oito seções, sete
+ * avisos de "nada cadastrado" afogam o que existe. Só que uma seção escondida
+ * também não tem onde ser clicada, e a edição no lugar deixaria de alcançar
+ * exatamente o que falta — que é o que mais importa preencher.
+ *
+ * A saída é uma lista só, no fim e uma única vez: um botão curto por campo em
+ * branco, que abre o editor daquele campo ali mesmo. Quem cadastra tudo vê a
+ * lista encolher até sumir; quem só lê nunca a vê, porque ela é de quem edita.
+ *
+ * Três campos nunca entram: nome, área e responsável já são o cabeçalho do
+ * painel, e lá cada um é o seu próprio alvo de clique mesmo em branco. Repeti-los
+ * na lista daria dois convites para o mesmo campo, em dois lugares da tela.
+ */
+const FORA_DA_LISTA: CampoDeTextoDaEtapa[] = ["nome", "area", "responsavel"];
+
+export function camposVaziosDoPainel(etapa: Etapa): CampoDoPainel[] {
+  return CAMPOS_DO_PAINEL.filter(
+    (c) => !FORA_DA_LISTA.includes(c.campo) && valorDoCampo(etapa, c.campo).trim() === "",
+  );
+}
