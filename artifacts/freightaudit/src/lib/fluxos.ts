@@ -168,6 +168,24 @@ export function subfluxoDaEtapa(
   return completo?.subfluxos?.find((s) => s.id === etapa.subfluxoId) ?? null;
 }
 
+/**
+ * O degrau de volta — o fluxo pai imediato, ou `null` quando este é raiz.
+ *
+ * A trilha vem da raiz para o pai imediato (é a ordem em que uma migalha de pão
+ * se lê), então quem volta um passo quer o **último** degrau, não o primeiro.
+ * Quem abriu um subfluxo chegou nele de dentro do pai — pela marca no cartão,
+ * pelo painel da etapa ou logo depois de "detalhar" —, e é para lá que a seta do
+ * cabeçalho tem de devolver. Um fluxo raiz não tem degrau nenhum: esse foi mesmo
+ * aberto pela listagem, e é para ela que ele volta.
+ */
+export function degrauDeVolta(
+  completo: Pick<FluxoCompleto, "trilha"> | null | undefined,
+): DegrauDaTrilha | null {
+  const trilha = completo?.trilha;
+  if (!trilha || trilha.length === 0) return null;
+  return trilha[trilha.length - 1] ?? null;
+}
+
 export interface EntradaDoCatalogo {
   valor: string;
   rotulo: string;

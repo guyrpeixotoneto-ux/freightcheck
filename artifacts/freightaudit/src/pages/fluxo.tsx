@@ -70,6 +70,7 @@ import type { PropsDaVisaoNoCanvas } from "@/components/fluxos/visao";
 import type { CampoEditavelNaLista, EtapaNovaNaLista } from "@/lib/fluxos-analise";
 import {
   corpoDaEtapa,
+  degrauDeVolta,
   escritas,
   lerFluxoAgora,
   fraseDoErro,
@@ -182,6 +183,25 @@ export default function TelaDoFluxo() {
   const [paletaAberta, setPaletaAberta] = useState(true);
 
   const completo = consulta.data;
+
+  /**
+   * O VOLTAR SEGUE A TRILHA — sai por onde se entrou.
+   *
+   * Um subfluxo quase nunca é aberto pela listagem: chega-se nele de dentro do
+   * fluxo pai, pela marca de subfluxo no cartão, pelo painel da etapa ou logo
+   * depois de "detalhar". Mandar todo mundo para `/fluxos` fazia a seta desfazer
+   * o caminho errado — quem estava lendo o processo pai perdia o lugar e tinha
+   * de reencontrar o fluxo na lista geral e a etapa dentro dele.
+   *
+   * A trilha vem da raiz para o pai imediato (`repositorio.ts`), então o degrau
+   * de volta é o último. Um fluxo raiz continua voltando para a listagem, que é
+   * de fato de onde ele foi aberto.
+   */
+  const degrau = degrauDeVolta(completo);
+  const voltarPara = degrau ? `/fluxos/${degrau.fluxoId}` : "/fluxos";
+  const rotuloDoVoltar = degrau
+    ? `Voltar para "${degrau.fluxoNome}", o fluxo que contém esta etapa`
+    : "Voltar para a lista de fluxos";
 
   /**
    * O FLUXO VAZIO ABRE NA LISTA — uma vez por fluxo, e nunca por cima da
@@ -527,8 +547,8 @@ export default function TelaDoFluxo() {
         */}
         <header className="shrink-0 border-b bg-card px-6 py-3">
           <div className="flex flex-wrap items-center gap-3">
-            <Button variant="ghost" size="icon" asChild aria-label="Voltar para a lista de fluxos">
-              <Link href="/fluxos">
+            <Button variant="ghost" size="icon" asChild aria-label={rotuloDoVoltar}>
+              <Link href={voltarPara} title={rotuloDoVoltar}>
                 <ArrowLeft className="h-4 w-4" />
               </Link>
             </Button>
