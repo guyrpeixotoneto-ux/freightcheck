@@ -17,6 +17,7 @@ export * from "./layout";
 export * from "./roteiro";
 export * from "./repositorio";
 export * from "./semear";
+export * from "./monitoramento";
 export {
   MODELOS,
   CTE_ATE_RECEBIMENTO,
