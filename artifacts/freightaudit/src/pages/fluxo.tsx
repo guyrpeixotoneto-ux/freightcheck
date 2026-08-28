@@ -42,6 +42,10 @@ import {
   BotaoDeExportar,
   SubmenuDeExportar,
 } from "@/components/fluxos/botao-de-exportar";
+import {
+  BotaoDeImportarModelo,
+  ItemDeImportarModelo,
+} from "@/components/fluxos/importador-do-modelo";
 import { EditorDoFluxo } from "@/components/fluxos/editor-do-fluxo";
 import { MontadorPorTexto } from "@/components/fluxos/montador-por-texto";
 import { PaletaDeElementos } from "@/components/fluxos/paleta-de-elementos";
@@ -591,7 +595,7 @@ export default function TelaDoFluxo() {
               clica em "Nova etapa" não precisa procurá-la de novo depois de
               trocar de ângulo.
 
-              A ordem é uma só, mas a forma muda com a largura. Cinco controles
+              A ordem é uma só, mas a forma muda com a largura. Os controles
               lado a lado cabem no computador; no telefone eles quebravam em duas
               fileiras irregulares logo abaixo do título — "Só leitura", "Editar
               fluxo" e "Colar etapas" numa, "Exportar" e "Nova etapa" noutra —, e
@@ -625,6 +629,16 @@ export default function TelaDoFluxo() {
                   completo={completo}
                   catalogo={catalogo.data}
                   empresa={nomeDaEmpresa}
+                />
+              )}
+
+              {completo && (
+                <BotaoDeImportarModelo
+                  completo={completo}
+                  catalogo={catalogo.data}
+                  empresaId={empresaId}
+                  desabilitado={somenteLeitura}
+                  aoConcluir={() => recarregar(fluxoId)}
                 />
               )}
 
@@ -678,6 +692,13 @@ export default function TelaDoFluxo() {
                         completo={completo}
                         catalogo={catalogo.data}
                         empresa={nomeDaEmpresa}
+                      />
+                      <ItemDeImportarModelo
+                        completo={completo}
+                        catalogo={catalogo.data}
+                        empresaId={empresaId}
+                        desabilitado={somenteLeitura}
+                        aoConcluir={() => recarregar(fluxoId)}
                       />
                     </>
                   )}
