@@ -20,7 +20,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { PermissoesCard } from "@/components/configuracoes/permissoes";
 import { Field, Refusal, post } from "@/components/configuracoes/campos";
 import { CHAVE_DAS_CONTAS, useContas, type ManagedUser } from "@/components/configuracoes/contas";
 import { definirLotacao, useCargos } from "@/lib/cadastro";
@@ -56,7 +55,9 @@ import { cn } from "@/lib/utils";
  * acontecer.
  *
  * A troca da **própria** senha não está aqui: ela é de Meu Perfil, porque é a
- * única coisa desta lista que um operador faz sobre si mesmo.
+ * única coisa desta lista que um operador faz sobre si mesmo. O que cada pessoa
+ * alcança também não: Permissões é seção da casa, com endereço próprio — esta
+ * responde "quem entra", e a de lá, "a quê".
  */
 
 const dateTime = (iso: string) => new Date(iso).toLocaleString("pt-BR");
@@ -234,13 +235,6 @@ export function PainelDeUsuarios() {
           com uma.
         </p>
       )}
-
-      {/*
-        Permissões vem depois da lista de contas, e a ordem é a leitura: a
-        pergunta "quem tem acesso" precede "a quê" — escolher a pessoa na caixa
-        abaixo só faz sentido depois de vê-la na lista acima.
-      */}
-      <PermissoesCard pessoas={users} />
     </div>
   );
 }

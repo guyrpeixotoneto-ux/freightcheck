@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { SECOES_GERAIS, estaEmPreparo } from "../secoes";
 
 /**
- * O índice de Configurações promete sete seções — este caso cobra as sete.
+ * O índice de Configurações promete oito seções — este caso cobra as oito.
  *
  * A lista de `secoes.ts` é um menu como outro qualquer, e vale para ela a regra
  * que vale para a lateral: item que o roteador não atende é promessa que acaba
@@ -40,16 +40,18 @@ describe("o índice de Configurações", () => {
     const sustentadas = SECOES_GERAIS.filter((s) => !estaEmPreparo(s.href));
 
     /*
-      Seis hoje. Eram três — Meu Perfil, Unidades e Usuários — e viraram seis
-      quando o cadastro da casa nasceu e Cargos, Negócio e Departamento saíram
-      do catálogo de telas em preparo. É exatamente o efeito que este `expect`
-      existe para produzir: ele caiu no dia da mudança e obrigou a olhar as duas
-      listas juntas, em vez de deixar o catálogo prometendo o que já existe.
+      Sete hoje. Eram três — Meu Perfil, Unidades e Usuários —, viraram quatro
+      quando Permissões ganhou endereço próprio, e sete quando o cadastro da
+      casa nasceu e Cargos, Negócio e Departamento saíram do catálogo de telas
+      em preparo. É exatamente o efeito que este `expect` existe para produzir:
+      ele cai no dia da mudança e obriga a olhar as duas listas juntas, em vez
+      de deixar o catálogo prometendo o que já existe.
     */
     expect(sustentadas.map((s) => s.href)).toEqual([
       "/configuracoes/perfil",
       "/configuracoes/unidades",
       "/configuracoes/usuarios",
+      "/configuracoes/permissoes",
       "/configuracoes/cargos",
       "/configuracoes/negocio",
       "/configuracoes/departamento",
