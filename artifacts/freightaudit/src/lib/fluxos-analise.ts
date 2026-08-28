@@ -522,9 +522,38 @@ export interface CampoDaJornada {
 
 export interface CartaoDaJornada {
   campos: CampoDaJornada[];
+  /**
+   * Só os campos que esta lente **de fato** achou preenchidos, na mesma ordem.
+   *
+   * É o que a Jornada desenha. Quem troca para "Documentação" quer ler a
+   * documentação do processo de ponta a ponta, e não três linhas de "sem regras
+   * registradas" repetidas em quinze cartões: a ausência já está dita pelo
+   * cartão esmaecido, pela frase única de `vazio` e pela contagem do cabeçalho.
+   * `campos` continua inteiro para quem precisar da lente completa — a Lista, um
+   * export, um teste.
+   */
+  preenchidos: CampoDaJornada[];
   /** Quantos itens a lente achou nesta etapa — zero quer dizer "não cadastrado". */
   achados: number;
+  /** A frase única do cartão em que a lente não achou nada. */
+  vazio: string;
 }
+
+/**
+ * A frase do cartão em que a lente não achou nada.
+ *
+ * Uma por lente, e não a soma das frases dos campos: no cartão focado, "sem
+ * documentação registrada" diz a mesma coisa que três linhas de "sem objetivo
+ * descrito / sem regras registradas / sem documentos cadastrados" — em uma
+ * linha, que é o que uma jornada lida de relance comporta.
+ */
+const VAZIO_DA_LENTE: Record<LenteDaJornada, string> = {
+  operacao: "sem operação cadastrada",
+  documentacao: "sem documentação registrada",
+  falhas: "sem falhas registradas",
+  gargalos: "sem gargalos apontados",
+  informacoes: "sem informações cadastradas",
+};
 
 const naoVazio = (v: string | null | undefined): v is string => texto(v) !== "";
 
@@ -554,6 +583,11 @@ function sinalComoTexto(linha: LinhaDaEtapa, chave: string): string[] {
  * O que não estiver cadastrado é dito com todas as letras ("sem documentação
  * registrada"), nunca preenchido com estimativa — a mesma regra do SLA. Numa
  * lente, um cartão vazio é a informação: é ali que o levantamento parou.
+ *
+ * A lente é **focada**: o cartão desenha só o que ela achou (`preenchidos`), e a
+ * etapa em que não achou nada vira uma linha só — `vazio`. Ler a jornada da
+ * documentação é ler documentação, não uma coluna de placeholders; o que falta
+ * continua visível no cartão esmaecido e na contagem do cabeçalho.
  */
 export function cartaoDaJornada(linha: LinhaDaEtapa, lente: LenteDaJornada): CartaoDaJornada {
   const etapa = linha.etapa;
@@ -710,7 +744,12 @@ export function cartaoDaJornada(linha: LinhaDaEtapa, lente: LenteDaJornada): Car
     .filter((c) => c.conta)
     .reduce((total, campo) => total + campo.valores.length, 0);
 
-  return { campos, achados };
+  return {
+    campos,
+    preenchidos: campos.filter((c) => c.valores.length > 0),
+    achados,
+    vazio: VAZIO_DA_LENTE[lente] ?? VAZIO_DA_LENTE.operacao,
+  };
 }
 
 export interface ResumoDaLente {

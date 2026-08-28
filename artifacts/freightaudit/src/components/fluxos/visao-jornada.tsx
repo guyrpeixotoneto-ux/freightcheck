@@ -44,10 +44,17 @@ import type { PropsDaVisao } from "@/components/fluxos/visao";
  * numeração, mesmo clique abrindo o mesmo painel com tudo. `cartaoDaJornada` é
  * função pura sobre a linha que a Lista já monta — não há dado por lente.
  *
- * O vazio continua sendo dito com todas as letras ("sem prazo definido", "sem
- * falhas registradas"), nunca preenchido com estimativa. E o cartão em que a
- * lente não achou nada aparece esmaecido: numa jornada de documentação, a
- * mancha de cartões apagados é o mapa do que ainda não foi levantado.
+ * E a lente é **focada**: o cartão desenha só o que ela achou. Trocar para
+ * "Documentação" deixa no cartão o objetivo, as regras e os documentos daquela
+ * etapa — não três linhas de "sem regras registradas" repetidas em quinze
+ * cartões. A ausência não some, muda de forma: a etapa em que a lente não achou
+ * nada vira uma frase única ("sem documentação registrada") num cartão
+ * esmaecido, e o cabeçalho continua dizendo em quantas etapas a lente achou
+ * alguma coisa. Numa jornada de documentação, a mancha de cartões apagados é o
+ * mapa do que ainda não foi levantado — e o resto é documentação legível.
+ *
+ * O vazio continua sendo dito com todas as letras, nunca preenchido com
+ * estimativa.
  *
  * No celular a jornada continua sendo a visualização que funciona sem
  * adaptação — cartões empilhados, um por linha, com o mesmo conteúdo.
@@ -91,6 +98,7 @@ export function VisaoJornada({
   const linhas = useMemo(() => linhasDaLista(completo), [completo]);
   const resumo = useMemo(() => resumoDaLente(linhas, lente), [linhas, lente]);
   const entrada = LENTES_DA_JORNADA.find((l) => l.valor === lente) ?? LENTES_DA_JORNADA[0];
+  const IconeDaLente = ICONES[entrada.icone] ?? Activity;
 
   return (
     <div className="h-full overflow-auto bg-muted/20 px-4 py-6 sm:px-8">
@@ -172,30 +180,48 @@ export function VisaoJornada({
                 </p>
 
                 <dl className="mt-2 space-y-1 text-xs text-muted-foreground">
-                  {cartao.campos.map((campo) => {
-                    const Icone = ICONES[campo.icone] ?? Activity;
-                    return (
-                      <div key={campo.chave} className="flex items-start gap-1.5">
-                        <Icone className="mt-0.5 h-3 w-3 shrink-0" />
-                        <dt className="sr-only">{campo.rotulo}</dt>
-                        <dd className="min-w-0 flex-1">
-                          {campo.valores.length === 0 ? (
-                            <span className="text-muted-foreground/60">{campo.vazio}</span>
-                          ) : (
-                            /*
-                              Duas linhas no máximo por campo: o objetivo de uma
+                  {/*
+                    A lente focada: só o que ela achou. A etapa sem nada nesta
+                    leitura não vira três linhas de placeholder — vira uma frase
+                    só, no cartão que já está esmaecido. É o que faz a jornada da
+                    documentação ser sobre documentação, e a das falhas sobre
+                    falhas, em vez de todas parecerem a mesma tela de "sem X".
+                  */}
+                  {cartao.preenchidos.length === 0 ? (
+                    <div className="flex items-start gap-1.5">
+                      <IconeDaLente className="mt-0.5 h-3 w-3 shrink-0" />
+                      <dt className="sr-only">{entrada.rotulo}</dt>
+                      <dd className="min-w-0 flex-1 text-muted-foreground/60">{cartao.vazio}</dd>
+                    </div>
+                  ) : (
+                    cartao.preenchidos.map((campo) => {
+                      const Icone = ICONES[campo.icone] ?? Activity;
+                      return (
+                        <div key={campo.chave} className="flex items-start gap-1.5">
+                          <Icone className="mt-0.5 h-3 w-3 shrink-0" />
+                          <dt className="sr-only">{campo.rotulo}</dt>
+                          <dd className="min-w-0 flex-1 space-y-0.5">
+                            {/*
+                              Um item por linha, e não tudo emendado com " · ":
+                              quando o cartão mostra só o que a lente achou,
+                              sobra altura para os três documentos da etapa
+                              aparecerem como três documentos.
+
+                              Três linhas no máximo por item: o objetivo de uma
                               etapa pode ter um parágrafo, e a jornada existe
                               para ser lida de relance. O texto inteiro está a um
                               clique, no painel de detalhe.
-                            */
-                            <span className="line-clamp-2 break-words">
-                              {campo.valores.join(" · ")}
-                            </span>
-                          )}
-                        </dd>
-                      </div>
-                    );
-                  })}
+                            */}
+                            {campo.valores.map((valor, posicao) => (
+                              <p key={`${campo.chave}-${posicao}`} className="line-clamp-3 break-words">
+                                {valor}
+                              </p>
+                            ))}
+                          </dd>
+                        </div>
+                      );
+                    })
+                  )}
                 </dl>
               </button>
 
