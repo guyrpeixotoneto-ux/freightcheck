@@ -482,6 +482,9 @@ function RotasDaAuditoria() {
       <Route path="/configuracoes/perfil">
         <Configuracoes secao="perfil" />
       </Route>
+      <Route path="/configuracoes/permissoes">
+        <Configuracoes secao="permissoes" />
+      </Route>
       {/*
         Processos → Fluxos Operacionais. A rota do fluxo aberto vem depois da
         lista, e as duas vivem neste mesmo `Switch`: montado sob a base de cada

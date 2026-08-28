@@ -1,10 +1,9 @@
 import { Link } from "wouter";
-import { useQuery } from "@tanstack/react-query";
 import { ChevronRight, Check, Hammer } from "lucide-react";
-import { fetchJson } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useContextosDaCasca } from "@/lib/contextos";
 import { cn } from "@/lib/utils";
+import { useContas } from "./contas";
 import { SECOES_GERAIS, estaEmPreparo, type SecaoDeConfiguracao } from "./secoes";
 
 /**
@@ -44,10 +43,13 @@ export function IndiceDeConfiguracoes() {
   const { user: me } = useAuth();
   const { contextos, carregando: carregandoUnidades, indisponivel } =
     useContextosDaCasca();
-  const { data: contas, isLoading: carregandoContas } = useQuery({
-    queryKey: ["users"],
-    queryFn: () => fetchJson<Array<{ disabledAt: string | null }>>("/users"),
-  });
+  /*
+    A mesma consulta da seção de Usuários — uma `queryFn` por chave, como
+    `contas.ts` explica. Duas linhas do índice vivem dela: Usuários, para dizer
+    quantas contas estão ativas, e Permissões, para dizer sobre quantas dá para
+    decidir.
+  */
+  const { data: contas, isLoading: carregandoContas } = useContas();
 
   const estados = new Map<string, EstadoDaSecao>();
 
@@ -88,6 +90,31 @@ export function IndiceDeConfiguracoes() {
             "conta ativa",
             "contas ativas",
           )} de ${contas.length}`,
+        },
+  );
+
+  const outrasContas =
+    contas === undefined || me === null
+      ? 0
+      : contas.filter((c) => c.id !== me.id).length;
+
+  estados.set(
+    "/configuracoes/permissoes",
+    /*
+      O dado da linha é sobre quantas contas dá para decidir, e não quantas
+      restrições existem: saber isso exigiria uma consulta por conta, e o índice
+      não abre sete telas para se desenhar. A própria conta fica fora da conta
+      pela mesma razão que fica fora da caixa de escolha lá dentro — ninguém
+      muda o próprio acesso.
+    */
+    carregandoContas || contas === undefined || me === null
+      ? CARREGANDO
+      : {
+          pronta: outrasContas > 0,
+          resumo:
+            outrasContas > 0
+              ? `${plural(outrasContas, "conta", "contas")} além da sua`
+              : "Só a sua conta — ninguém muda o próprio acesso",
         },
   );
 

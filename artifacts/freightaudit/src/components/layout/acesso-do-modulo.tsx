@@ -59,7 +59,7 @@ export function SemAcesso({ modulo }: { modulo: Modulo }) {
             href="~/configuracoes/usuarios"
             className="text-primary hover:underline"
           >
-            Configurações › Usuários › Permissões
+            Configurações › Permissões
           </Link>
           , escolhe a sua conta e devolve o módulo. A mudança fica registrada com
           o nome de quem a fez.

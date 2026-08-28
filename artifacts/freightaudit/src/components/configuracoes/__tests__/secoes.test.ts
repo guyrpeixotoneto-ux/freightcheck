@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { SECOES_GERAIS, estaEmPreparo } from "../secoes";
 
 /**
- * O índice de Configurações promete sete seções — este caso cobra as sete.
+ * O índice de Configurações promete oito seções — este caso cobra as oito.
  *
  * A lista de `secoes.ts` é um menu como outro qualquer, e vale para ela a regra
  * que vale para a lateral: item que o roteador não atende é promessa que acaba
@@ -40,14 +40,16 @@ describe("o índice de Configurações", () => {
     const sustentadas = SECOES_GERAIS.filter((s) => !estaEmPreparo(s.href));
 
     /*
-      Três hoje: Meu Perfil, Unidades e Usuários. O número não está aqui para
-      ser conferido — está para cair no dia em que uma seção do catálogo virar
-      tela, que é quando este `expect` obriga a olhar as duas listas juntas.
+      Quatro hoje: Meu Perfil, Unidades, Usuários e Permissões. O número não
+      está aqui para ser conferido — está para cair no dia em que uma seção do
+      catálogo virar tela, que é quando este `expect` obriga a olhar as duas
+      listas juntas.
     */
     expect(sustentadas.map((s) => s.href)).toEqual([
       "/configuracoes/perfil",
       "/configuracoes/unidades",
       "/configuracoes/usuarios",
+      "/configuracoes/permissoes",
     ]);
     for (const secao of sustentadas) {
       expect(rotasDoApp.has(secao.href)).toBe(true);

@@ -1,4 +1,4 @@
-import { Building2, Briefcase, IdCard, MapPin, Network, UserRound, Users, type LucideIcon } from "lucide-react";
+import { Building2, Briefcase, IdCard, MapPin, Network, ShieldCheck, UserRound, Users, type LucideIcon } from "lucide-react";
 import { TELAS_EM_PREPARO } from "@/pages/telas-em-preparo";
 
 /**
@@ -6,14 +6,14 @@ import { TELAS_EM_PREPARO } from "@/pages/telas-em-preparo";
  *
  * Configurações deixou de ser uma tela com duas abas e virou um índice: uma
  * lista de seções, cada uma no seu endereço. A troca não é estética. Com duas
- * abas, cabia; com sete seções, uma barra de abas obriga a ler tudo de uma vez
+ * abas, cabia; com oito seções, uma barra de abas obriga a ler tudo de uma vez
  * para achar uma — e cada aba nova estreita as outras. A lista cresce para
  * baixo, cada linha diz o que é sem ser aberta, e o endereço de cada seção é
  * compartilhável: `/configuracoes/usuarios` abre em Usuários, não em
  * "Configurações, e depois clique na segunda aba".
  *
  * **A lista mistura o que existe e o que não existe, de propósito — e diz qual
- * é qual.** Quatro destas sete seções não têm dado no banco (ver
+ * é qual.** Quatro destas oito seções não têm dado no banco (ver
  * `pages/telas-em-preparo.ts`, de onde sai o texto de cada uma). Escondê-las
  * até nascerem deixaria o índice mentindo por omissão sobre a forma da casa;
  * mostrá-las como cadastro vazio convidaria a preencher um formulário que não
@@ -55,7 +55,13 @@ export const SECOES_GERAIS: SecaoDeConfiguracao[] = [
     href: "/configuracoes/usuarios",
     label: "Usuários",
     icon: Users,
-    descricao: "Quem entra, com que papel e o que cada pessoa alcança.",
+    descricao: "Quem entra, com que papel e desde quando.",
+  },
+  {
+    href: "/configuracoes/permissoes",
+    label: "Permissões",
+    icon: ShieldCheck,
+    descricao: "O que cada pessoa alcança, módulo a módulo — aqui se tira acesso.",
   },
   {
     href: "/configuracoes/cargos",

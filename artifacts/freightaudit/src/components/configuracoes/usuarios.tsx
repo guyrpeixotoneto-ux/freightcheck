@@ -14,7 +14,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { PermissoesCard } from "@/components/configuracoes/permissoes";
 import { Field, Refusal, post } from "@/components/configuracoes/campos";
 import { CHAVE_DAS_CONTAS, useContas, type ManagedUser } from "@/components/configuracoes/contas";
 import { useAuth } from "@/lib/auth";
@@ -36,7 +35,9 @@ import { cn } from "@/lib/utils";
  * sugerir uma hierarquia por tela que não existe no servidor.
  *
  * A troca da **própria** senha não está aqui: ela é de Meu Perfil, porque é a
- * única coisa desta lista que um operador faz sobre si mesmo.
+ * única coisa desta lista que um operador faz sobre si mesmo. O que cada pessoa
+ * alcança também não: Permissões é seção da casa, com endereço próprio — esta
+ * responde "quem entra", e a de lá, "a quê".
  */
 
 const dateTime = (iso: string) => new Date(iso).toLocaleString("pt-BR");
@@ -87,13 +88,6 @@ export function PainelDeUsuarios() {
           )}
         </CardContent>
       </Card>
-
-      {/*
-        Permissões vem depois da lista de contas, e a ordem é a leitura: a
-        pergunta "quem tem acesso" precede "a quê" — escolher a pessoa na caixa
-        abaixo só faz sentido depois de vê-la na lista acima.
-      */}
-      <PermissoesCard pessoas={users} />
     </div>
   );
 }

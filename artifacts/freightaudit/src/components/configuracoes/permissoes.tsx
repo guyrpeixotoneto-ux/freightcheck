@@ -3,9 +3,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Eye, Lock, PencilLine, Search, ShieldCheck } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { ApiErrorNotice } from "@/components/api-error";
+import { useContas } from "@/components/configuracoes/contas";
 import { fetchJson } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import {
@@ -39,6 +40,15 @@ import { cn } from "@/lib/utils";
  *   sempre alcançou; o que esta tela faz é *tirar*. Por isso o resumo conta
  *   "restrições", e não "permissões concedidas": zero restrições é o estado
  *   normal, não o estado vazio.
+ *
+ * **É seção da casa, e não um cartão no rodapé de Usuários.** Era o segundo
+ * bloco daquela tela, abaixo do cadastro de contas e da lista — a pergunta "o
+ * que esta pessoa alcança" só se respondia rolando por um formulário de criar
+ * conta que não tem nada com ela. Como seção, tem endereço próprio
+ * (`/configuracoes/permissoes`), abre direto no que interessa e é
+ * compartilhável; a lista de contas continua sendo a de Usuários, buscada pela
+ * mesma consulta (`contas.ts`), então escolher aqui uma pessoa que se acabou de
+ * criar lá não pede recarga.
  */
 
 interface RespostaDePermissoes {
@@ -50,14 +60,6 @@ interface RespostaDePermissoes {
     em: string;
     por: string;
   }>;
-}
-
-export interface PessoaComAcesso {
-  id: string;
-  name: string;
-  email: string;
-  role: string;
-  disabledAt: string | null;
 }
 
 const NIVEIS_NA_TELA: Array<{
@@ -88,9 +90,10 @@ const NIVEIS_NA_TELA: Array<{
 
 const dateTime = (iso: string) => new Date(iso).toLocaleString("pt-BR");
 
-export function PermissoesCard({ pessoas }: { pessoas: PessoaComAcesso[] }) {
+export function PainelDePermissoes() {
   const { user: me } = useAuth();
   const queryClient = useQueryClient();
+  const { data: pessoas = [], error: erroDasContas } = useContas();
   const [escolhida, setEscolhida] = useState<string>("");
   const [busca, setBusca] = useState("");
   const [erro, setErro] = useState<string | null>(null);
@@ -166,202 +169,212 @@ export function PermissoesCard({ pessoas }: { pessoas: PessoaComAcesso[] }) {
   }
 
   return (
-    <Card>
-      <CardHeader className="pb-3">
-        <CardTitle className="text-base flex items-center gap-2">
-          <ShieldCheck className="w-4 h-4 text-primary" />
-          Permissões
-        </CardTitle>
-        <p className="text-xs text-muted-foreground">
-          O que cada pessoa alcança, módulo a módulo. A lista é o próprio menu do
-          produto. Quem não tem uma decisão tomada edita tudo, que é o que toda
-          conta sempre pôde — aqui se <strong>tira</strong> acesso, e cada
-          mudança fica registrada com o nome de quem a fez.
-        </p>
-      </CardHeader>
+    <div className="space-y-6 max-w-5xl">
+      {/*
+        O cabeçalho da seção já diz o nome e o que ela resolve; o que fica aqui
+        é a regra que muda a leitura de tudo abaixo — o padrão é edição, e esta
+        tela tira acesso em vez de conceder.
+      */}
+      <p className="flex items-start gap-2 text-sm text-muted-foreground max-w-3xl">
+        <ShieldCheck className="w-4 h-4 mt-0.5 shrink-0 text-primary" />
+        <span>
+          A lista de módulos é o próprio menu do produto. Quem não tem uma
+          decisão tomada edita tudo, que é o que toda conta sempre pôde — aqui se{" "}
+          <strong>tira</strong> acesso, e cada mudança fica registrada com o nome
+          de quem a fez.
+        </span>
+      </p>
 
-      <CardContent className="space-y-5">
-        <div className="flex flex-wrap items-end gap-3">
-          <label className="text-sm">
-            <span className="block text-xs font-medium text-muted-foreground mb-1">
-              Conta
-            </span>
-            {/* select nativo, como no cadastro acima: uma lista, e o navegador
-                acessível de graça. */}
-            <select
-              value={escolhida}
-              onChange={(e) => {
-                setEscolhida(e.target.value);
-                setErro(null);
-              }}
-              className="h-9 rounded-md border border-input bg-background px-3 text-sm min-w-64"
-            >
-              <option value="">Escolha uma pessoa…</option>
-              {elegiveis.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name} · {p.email}
-                  {p.disabledAt ? " (desativada)" : ""}
-                </option>
-              ))}
-            </select>
-          </label>
+      {erroDasContas && (
+        <ApiErrorNotice
+          error={erroDasContas}
+          what="A lista de contas não pôde ser carregada."
+        />
+      )}
+
+      <Card>
+        <CardContent className="space-y-5 pt-6">
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="text-sm">
+              <span className="block text-xs font-medium text-muted-foreground mb-1">
+                Conta
+              </span>
+              {/* select nativo: uma lista, e o navegador acessível de graça. */}
+              <select
+                value={escolhida}
+                onChange={(e) => {
+                  setEscolhida(e.target.value);
+                  setErro(null);
+                }}
+                className="h-9 rounded-md border border-input bg-background px-3 text-sm min-w-64"
+              >
+                <option value="">Escolha uma pessoa…</option>
+                {elegiveis.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} · {p.email}
+                    {p.disabledAt ? " (desativada)" : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            {alvo && (
+              <div className="flex items-center gap-4 text-sm">
+                <Contagem
+                  numero={resumo.EDITAR}
+                  rotulo="editam"
+                  cor="text-emerald-700"
+                />
+                <Contagem
+                  numero={resumo.VISUALIZAR}
+                  rotulo="somente leitura"
+                  cor="text-blue-700"
+                />
+                <Contagem
+                  numero={resumo.SEM_ACESSO}
+                  rotulo="sem acesso"
+                  cor="text-rose-700"
+                />
+              </div>
+            )}
+          </div>
+
+          {!alvo && (
+            <p className="text-sm text-muted-foreground">
+              Escolha uma conta para ver o que ela alcança. A sua própria não está
+              na lista: ninguém muda o próprio acesso — assim um engano aqui nunca
+              tranca a porta por dentro.
+            </p>
+          )}
+
+          {alvo && !podeMexer && (
+            <p className="text-sm text-muted-foreground">
+              A sua conta é de operador: esta lista é leitura. Quem muda acesso é
+              um administrador.
+            </p>
+          )}
+
+          {alvo && consulta.error !== null && (
+            <ApiErrorNotice
+              error={consulta.error}
+              what="As permissões desta conta não puderam ser carregadas."
+            />
+          )}
+
+          {erro && (
+            <p className="rounded-md border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-900">
+              {erro}
+            </p>
+          )}
 
           {alvo && (
-            <div className="flex items-center gap-4 text-sm">
-              <Contagem
-                numero={resumo.EDITAR}
-                rotulo="editam"
-                cor="text-emerald-700"
-              />
-              <Contagem
-                numero={resumo.VISUALIZAR}
-                rotulo="somente leitura"
-                cor="text-blue-700"
-              />
-              <Contagem
-                numero={resumo.SEM_ACESSO}
-                rotulo="sem acesso"
-                cor="text-rose-700"
-              />
-            </div>
-          )}
-        </div>
+            <>
+              <div className="flex flex-wrap items-center gap-2">
+                {podeMexer &&
+                  NIVEIS_NA_TELA.map(({ nivel, rotulo, icone: Icone }) => (
+                    <Button
+                      key={nivel}
+                      variant="outline"
+                      size="sm"
+                      disabled={definir.isPending}
+                      onClick={() => aplicarEmTodos(nivel)}
+                    >
+                      <Icone className="w-3.5 h-3.5 mr-1.5" />
+                      {nivel === "EDITAR"
+                        ? "Liberar tudo"
+                        : nivel === "VISUALIZAR"
+                          ? "Só visualizar"
+                          : "Bloquear tudo"}
+                    </Button>
+                  ))}
+                <span className="relative ml-auto">
+                  <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={busca}
+                    onChange={(e) => setBusca(e.target.value)}
+                    placeholder="Buscar módulo…"
+                    className="h-9 w-56 pl-8"
+                  />
+                </span>
+              </div>
 
-        {!alvo && (
-          <p className="text-sm text-muted-foreground">
-            Escolha uma conta para ver o que ela alcança. A sua própria não está
-            na lista: ninguém muda o próprio acesso — assim um engano aqui nunca
-            tranca a porta por dentro.
-          </p>
-        )}
-
-        {alvo && !podeMexer && (
-          <p className="text-sm text-muted-foreground">
-            A sua conta é de operador: esta lista é leitura. Quem muda acesso é
-            um administrador.
-          </p>
-        )}
-
-        {alvo && consulta.error !== null && (
-          <ApiErrorNotice
-            error={consulta.error}
-            what="As permissões desta conta não puderam ser carregadas."
-          />
-        )}
-
-        {erro && (
-          <p className="rounded-md border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-900">
-            {erro}
-          </p>
-        )}
-
-        {alvo && (
-          <>
-            <div className="flex flex-wrap items-center gap-2">
-              {podeMexer &&
-                NIVEIS_NA_TELA.map(({ nivel, rotulo, icone: Icone }) => (
-                  <Button
-                    key={nivel}
-                    variant="outline"
-                    size="sm"
-                    disabled={definir.isPending}
-                    onClick={() => aplicarEmTodos(nivel)}
-                  >
-                    <Icone className="w-3.5 h-3.5 mr-1.5" />
-                    {nivel === "EDITAR"
-                      ? "Liberar tudo"
-                      : nivel === "VISUALIZAR"
-                        ? "Só visualizar"
-                        : "Bloquear tudo"}
-                  </Button>
-                ))}
-              <span className="relative ml-auto">
-                <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  value={busca}
-                  onChange={(e) => setBusca(e.target.value)}
-                  placeholder="Buscar módulo…"
-                  className="h-9 w-56 pl-8"
-                />
-              </span>
-            </div>
-
-            {podeMexer && busca.trim() !== "" && (
-              <p className="text-xs text-muted-foreground -mt-2">
-                Os três botões acima valem para os {visiveis.length} módulos que a
-                busca deixou na lista — não para o menu inteiro.
-              </p>
-            )}
-
-            <div className="rounded-md border divide-y">
-              {consulta.isLoading && (
-                <p className="p-6 text-sm text-muted-foreground">Carregando…</p>
-              )}
-
-              {!consulta.isLoading &&
-                secoes.map((secao) => (
-                  <div key={`${secao.ambiente}|${secao.grupo}`}>
-                    <div className="flex items-center gap-2 bg-muted/50 px-4 py-2">
-                      <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                        {secao.grupo}
-                      </span>
-                      <Badge variant="outline" className="font-normal text-[0.6875rem]">
-                        {secao.ambiente}
-                      </Badge>
-                      <span className="text-xs text-muted-foreground">
-                        {secao.itens.length} módulo(s)
-                      </span>
-                    </div>
-                    {secao.itens.map((modulo) => {
-                      const nivel = permissoes[modulo.chave] ?? NIVEL_PADRAO;
-                      return (
-                        <div
-                          key={modulo.chave}
-                          className="flex flex-wrap items-center gap-3 px-4 py-2.5 border-t first:border-t-0"
-                        >
-                          <span className="min-w-0 flex-1">
-                            <span className="block text-sm font-semibold">
-                              {modulo.rotulo}
-                            </span>
-                            <span className="block text-xs text-muted-foreground">
-                              {modulo.chave} · {EXPLICACAO_DO_NIVEL[nivel]}
-                            </span>
-                          </span>
-                          <span className="flex items-center gap-1.5">
-                            {NIVEIS_NA_TELA.map(({ nivel: opcao, rotulo, icone: Icone, ativo }) => (
-                              <Button
-                                key={opcao}
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                aria-pressed={nivel === opcao}
-                                disabled={!podeMexer || definir.isPending}
-                                className={cn("h-8", nivel === opcao && ativo)}
-                                onClick={() => definir.mutate({ [modulo.chave]: opcao })}
-                              >
-                                <Icone className="w-3.5 h-3.5 mr-1.5" />
-                                {rotulo}
-                              </Button>
-                            ))}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ))}
-
-              {!consulta.isLoading && secoes.length === 0 && (
-                <p className="p-6 text-sm text-muted-foreground">
-                  Nenhum módulo com “{busca}” no nome.
+              {podeMexer && busca.trim() !== "" && (
+                <p className="text-xs text-muted-foreground -mt-2">
+                  Os três botões acima valem para os {visiveis.length} módulos que a
+                  busca deixou na lista — não para o menu inteiro.
                 </p>
               )}
-            </div>
 
-            <Historico linhas={consulta.data?.historico ?? []} />
-          </>
-        )}
-      </CardContent>
-    </Card>
+              <div className="rounded-md border divide-y">
+                {consulta.isLoading && (
+                  <p className="p-6 text-sm text-muted-foreground">Carregando…</p>
+                )}
+
+                {!consulta.isLoading &&
+                  secoes.map((secao) => (
+                    <div key={`${secao.ambiente}|${secao.grupo}`}>
+                      <div className="flex items-center gap-2 bg-muted/50 px-4 py-2">
+                        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          {secao.grupo}
+                        </span>
+                        <Badge variant="outline" className="font-normal text-[0.6875rem]">
+                          {secao.ambiente}
+                        </Badge>
+                        <span className="text-xs text-muted-foreground">
+                          {secao.itens.length} módulo(s)
+                        </span>
+                      </div>
+                      {secao.itens.map((modulo) => {
+                        const nivel = permissoes[modulo.chave] ?? NIVEL_PADRAO;
+                        return (
+                          <div
+                            key={modulo.chave}
+                            className="flex flex-wrap items-center gap-3 px-4 py-2.5 border-t first:border-t-0"
+                          >
+                            <span className="min-w-0 flex-1">
+                              <span className="block text-sm font-semibold">
+                                {modulo.rotulo}
+                              </span>
+                              <span className="block text-xs text-muted-foreground">
+                                {modulo.chave} · {EXPLICACAO_DO_NIVEL[nivel]}
+                              </span>
+                            </span>
+                            <span className="flex items-center gap-1.5">
+                              {NIVEIS_NA_TELA.map(({ nivel: opcao, rotulo, icone: Icone, ativo }) => (
+                                <Button
+                                  key={opcao}
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  aria-pressed={nivel === opcao}
+                                  disabled={!podeMexer || definir.isPending}
+                                  className={cn("h-8", nivel === opcao && ativo)}
+                                  onClick={() => definir.mutate({ [modulo.chave]: opcao })}
+                                >
+                                  <Icone className="w-3.5 h-3.5 mr-1.5" />
+                                  {rotulo}
+                                </Button>
+                              ))}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ))}
+
+                {!consulta.isLoading && secoes.length === 0 && (
+                  <p className="p-6 text-sm text-muted-foreground">
+                    Nenhum módulo com “{busca}” no nome.
+                  </p>
+                )}
+              </div>
+
+              <Historico linhas={consulta.data?.historico ?? []} />
+            </>
+          )}
+        </CardContent>
+      </Card>
+    </div>
   );
 }
 
