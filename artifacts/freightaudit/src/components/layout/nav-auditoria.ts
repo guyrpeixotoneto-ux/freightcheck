@@ -363,9 +363,9 @@ const ICONE_DO_EQUIPAMENTO: Record<Equipamento, LucideIcon> = {
  * antes de ler o rótulo, e no Apoio o assunto é uma empilhadeira.
  *
  * As telas 360° saem de `EQUIPAMENTOS_DO_AMBIENTE`, na ordem em que estão lá, e
- * o **Radar de Trechos** só entra onde há trecho: ele é a camada gerencial acima
- * do Trecho 360° — "de centenas, quais preciso olhar" —, e num ambiente sem
- * trecho ele seria um veredito sobre uma população vazia.
+ * o **Radar de Trechos** só entra onde há trecho — hoje, só na Empurrada: ele é
+ * a camada gerencial acima do Trecho 360° — "de centenas, quais preciso olhar"
+ * —, e num ambiente sem trecho ele seria um veredito sobre uma população vazia.
  */
 function secaoDaFrota(ambiente: AmbienteDeAuditoria): NavGroup {
   const equipamentos = EQUIPAMENTOS_DO_AMBIENTE[ambiente];

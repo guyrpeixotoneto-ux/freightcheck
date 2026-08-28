@@ -102,13 +102,18 @@ describe("os equipamentos", () => {
     Cada auditoria mostra os ativos da operação dela — é a única seção da
     lateral que muda de um ambiente para o outro. O Apoio é o caso que prova a
     regra: uma tela só, sem carreta e sem trecho.
+
+    O trecho é da Empurrada, e só dela: é o export dela que traz a perna de
+    rota, e é lá que ele é importado (`TIPOS_DO_AMBIENTE`, em
+    `lib/importacoes.ts`). As duas listas concordam sobre ele de propósito —
+    uma tela 360° de um tipo que o ambiente não recebe é uma promessa que a
+    importação não pode cumprir.
   */
   it("dá a cada auditoria os ativos da operação dela", () => {
     expect(EQUIPAMENTOS_DO_AMBIENTE.auditoria).toEqual(["CAVALO", "CARRETA", "TRECHO"]);
     expect(EQUIPAMENTOS_DO_AMBIENTE["auditoria-rota"]).toEqual([
       "CAMINHAO",
       "CARROCERIA",
-      "TRECHO",
     ]);
     expect(EQUIPAMENTOS_DO_AMBIENTE["auditoria-as"]).toEqual(
       EQUIPAMENTOS_DO_AMBIENTE["auditoria-rota"],
@@ -121,10 +126,10 @@ describe("os equipamentos", () => {
     }
   });
 
-  it("sabe qual auditoria trabalha com trecho, e o Apoio não trabalha", () => {
+  it("sabe qual auditoria trabalha com trecho: só a Empurrada", () => {
     expect(temTrecho("auditoria")).toBe(true);
-    expect(temTrecho("auditoria-rota")).toBe(true);
-    expect(temTrecho("auditoria-as")).toBe(true);
+    expect(temTrecho("auditoria-rota")).toBe(false);
+    expect(temTrecho("auditoria-as")).toBe(false);
     expect(temTrecho("auditoria-apoio")).toBe(false);
   });
 
@@ -223,8 +228,11 @@ describe("os equipamentos", () => {
   it("oferece só as outras telas da operação auditada", () => {
     expect(outrasTelas("CAMINHAO", EQUIPAMENTOS_DO_AMBIENTE["auditoria-rota"])).toEqual([
       "CARROCERIA",
-      "TRECHO",
     ]);
+    // O trecho não é oferecido de dentro da Rota: ele não é ativo de lá.
+    expect(
+      outrasTelas("CAVALO", EQUIPAMENTOS_DO_AMBIENTE.auditoria),
+    ).toEqual(["CARRETA", "TRECHO"]);
     expect(
       outrasTelas("EMPILHADEIRA", EQUIPAMENTOS_DO_AMBIENTE["auditoria-apoio"]),
     ).toEqual([]);

@@ -103,9 +103,19 @@ export const equipamentoValido = (valor: string | null): valor is Equipamento =>
  *
  * As quatro auditorias são o mesmo processo sobre operações diferentes
  * (`lib/ambiente.ts`), e o que as separa na lateral é isto: a **empurrada** roda
- * com cavalo e carreta; a **rota** e o **AS** rodam com caminhão e carroceria; o
- * **apoio** roda com empilhadeira, que não puxa nada e não roda trecho — por
- * isso a lista dele tem um item só.
+ * com cavalo, carreta e trecho; a **rota** e o **AS** rodam com caminhão e
+ * carroceria; o **apoio** roda com empilhadeira, que não puxa nada — por isso a
+ * lista dele tem um item só.
+ *
+ * **O trecho é da empurrada.** Ele é o lado variável da remuneração — a perna
+ * de rota, com origem, destino e quilometragem —, e quem o traz é o export da
+ * empurrada: é lá que ele é importado, e é só lá que ele tem população. Um
+ * "Trecho 360°" no menu da Rota ou do AS seria uma tela que nunca terá linha, e
+ * o mesmo vale para o **Radar de Trechos**, que é a camada gerencial acima
+ * dela. Este mapa e `TIPOS_DO_AMBIENTE` (`lib/importacoes.ts`) respondem
+ * perguntas diferentes — "que ativos a operação mostra" e "que arquivos ela
+ * recebe" —, e sobre o trecho eles precisam concordar: uma tela de um tipo que
+ * o ambiente não importa é uma promessa que a importação não pode cumprir.
  *
  * **Não é tradução.** "Caminhão" não é como o Rota chama o cavalo: é outro
  * ativo, com outro `entity_type`, e as telas de lá pedem à API justamente esse
@@ -127,13 +137,11 @@ export const equipamentoValido = (valor: string | null): valor is Equipamento =>
  */
 export const EQUIPAMENTOS_DO_AMBIENTE: Record<AmbienteDeAuditoria, Equipamento[]> = {
   auditoria: ["CAVALO", "CARRETA", "TRECHO"],
-  "auditoria-rota": ["CAMINHAO", "CARROCERIA", "TRECHO"],
-  "auditoria-as": ["CAMINHAO", "CARROCERIA", "TRECHO"],
+  "auditoria-rota": ["CAMINHAO", "CARROCERIA"],
+  "auditoria-as": ["CAMINHAO", "CARROCERIA"],
   /*
     O apoio não tem carreta nem trecho: a empilhadeira trabalha dentro do pátio,
-    não puxa implemento e não roda perna de rota. Um "Trecho 360°" no menu dele
-    seria uma tela que nunca terá linha — e o **Radar de Trechos**, que é a
-    camada gerencial acima dela, sai do menu do apoio pela mesma razão.
+    não puxa implemento e não roda perna de rota.
   */
   "auditoria-apoio": ["EMPILHADEIRA"],
 };
@@ -145,7 +153,7 @@ export function equipamentosDoAmbiente(ambiente: Ambiente): Equipamento[] {
     : EQUIPAMENTOS_DO_AMBIENTE.auditoria;
 }
 
-/** Se a auditoria aberta trabalha com trecho — o que o apoio não faz. */
+/** Se a auditoria aberta trabalha com trecho — o que só a empurrada faz. */
 export function temTrecho(ambiente: Ambiente): boolean {
   return equipamentosDoAmbiente(ambiente).includes("TRECHO");
 }
