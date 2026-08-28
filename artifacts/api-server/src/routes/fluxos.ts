@@ -22,6 +22,7 @@ import {
   listarFluxos,
   MODELOS,
   modeloPorSlug,
+  modelosJaMapeados,
   organizarFluxo,
   RecusaDeFluxo,
   reposicionarEtapas,
@@ -99,7 +100,7 @@ router.get("/fluxos/catalogo", (_req, res): void => {
       nome: m.declarado.nome,
       categoria: m.declarado.categoria,
       resumo: m.resumo,
-      semeado: m.semeado,
+      jaMapeado: m.jaMapeado,
       etapas: m.declarado.etapas.length,
     })),
   });
@@ -149,6 +150,24 @@ router.post("/fluxos/de-modelo", async (req, res): Promise<void> => {
   }
   const [fluxo] = await semearModelos(db, empresaId, autorDaRequisicao(req), [modelo]);
   res.status(201).json(fluxo);
+});
+
+/**
+ * Semear os processos que a empresa **já tem mapeados** aqui dentro.
+ *
+ * É o que a tela chama quando a lista da empresa está vazia. Não oferece
+ * escolha porque não há escolha a fazer: o que entra por aqui é o levantamento
+ * da própria empresa (`jaMapeado` em `@workspace/fluxos`), e não um exemplo.
+ * Modelo de demonstração continua só pelo `POST /fluxos/de-modelo`, com alguém
+ * clicando.
+ *
+ * Idempotente pelo slug, como toda semeadura: chamar de novo devolve os mesmos
+ * fluxos e não desfaz edição nenhuma.
+ */
+router.post("/fluxos/semear", async (req, res): Promise<void> => {
+  const empresaId = await resolverEmpresa(req);
+  const fluxos = await semearModelos(db, empresaId, autorDaRequisicao(req), modelosJaMapeados());
+  res.status(201).json({ empresaId, fluxos });
 });
 
 /**

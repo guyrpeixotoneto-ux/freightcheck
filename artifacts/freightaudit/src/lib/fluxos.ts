@@ -146,7 +146,8 @@ export interface ModeloNoCatalogo {
   nome: string;
   categoria: string;
   resumo: string;
-  semeado: boolean;
+  /** É o processo já levantado da empresa (entra na lista sozinho)? */
+  jaMapeado: boolean;
   etapas: number;
 }
 
@@ -607,6 +608,15 @@ export const escritas = {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(corpo),
+    }),
+  /*
+    Semear os processos que a empresa já tem mapeados — o que a lista vazia
+    pede uma vez, sem botão. Quem decide o que entra é o servidor: a tela não
+    tem, e não deve ter, a lista do que é mapa da empresa e do que é exemplo.
+  */
+  semearJaMapeados: (empresaId: string | null) =>
+    fetchJson<{ empresaId: string; fluxos: Fluxo[] }>(comEmpresa("/fluxos/semear", empresaId), {
+      method: "POST",
     }),
   criarDeModelo: (empresaId: string | null, modelo: string) =>
     fetchJson<Fluxo>(comEmpresa("/fluxos/de-modelo", empresaId), {
