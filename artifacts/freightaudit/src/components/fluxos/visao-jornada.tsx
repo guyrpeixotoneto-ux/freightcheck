@@ -21,6 +21,8 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { cartaoDaJornada, linhasDaLista, resumoDaLente } from "@/lib/fluxos-analise";
 import { LENTES_DA_JORNADA, type LenteDaJornada } from "@/lib/fluxos-visoes";
+import { MarcaDeSubfluxo } from "@/components/fluxos/marca-de-subfluxo";
+import { subfluxoDaEtapa } from "@/lib/fluxos";
 import type { PropsDaVisao } from "@/components/fluxos/visao";
 
 /**
@@ -81,6 +83,9 @@ export function VisaoJornada({
   catalogo,
   etapaSelecionada,
   onSelecionarEtapa,
+  onDetalharEtapa,
+  detalhando,
+  somenteLeitura,
   lente,
 }: PropsDaVisao & { lente: LenteDaJornada }) {
   const linhas = useMemo(() => linhasDaLista(completo), [completo]);
@@ -109,6 +114,14 @@ export function VisaoJornada({
           const tipo = catalogo?.tiposDeEtapa.find((t) => t.valor === linha.etapa.tipo);
           const aberta = etapaSelecionada === linha.etapa.id;
           const cartao = cartaoDaJornada(linha, lente);
+          const detalhe = subfluxoDaEtapa(completo, linha.etapa);
+          /*
+            A marca ocupa o canto de cima à direita; quando ela existe, a
+            primeira linha do cartão reserva o espaço dela. Sem a reserva, o
+            selo do tipo passaria por baixo do ícone — e num cartão de 236px é
+            o "Documento" ou o "Validação" que encosta primeiro.
+          */
+          const comMarca = detalhe !== null || (!somenteLeitura && Boolean(onDetalharEtapa));
           return (
             /*
               Cartão e seta são **um** item de fluxo, e não dois: soltos, a
@@ -117,34 +130,41 @@ export function VisaoJornada({
               seta apontando para lugar nenhum.
             */
             <li key={linha.etapa.id} className="flex items-stretch gap-3">
-              <button
-                type="button"
-                onClick={() => onSelecionarEtapa(aberta ? null : linha.etapa.id)}
-                aria-pressed={aberta}
-                className={cn(
-                  "w-full rounded-lg border bg-card px-4 py-3 text-left shadow-sm transition-shadow hover:shadow-md lg:w-[236px]",
-                  /*
-                    O cartão sem nada nesta lente esmaece, mas continua clicável
-                    e continua na sequência: esconder etapa quebraria a jornada,
-                    que é justamente o que esta visualização é.
-                  */
-                  cartao.achados === 0 && "opacity-60",
-                  aberta && "ring-2 ring-primary ring-offset-2 ring-offset-background",
-                )}
-                data-testid={`jornada-${linha.etapa.nome}`}
-              >
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-semibold tabular-nums text-muted-foreground">
-                    {String(linha.numero).padStart(2, "0")}
-                  </span>
-                  <Badge variant="secondary" className="font-normal">
-                    {tipo?.rotulo ?? linha.etapa.tipo}
-                  </Badge>
-                  {linha.etapa.status === "ATENCAO" && (
-                    <Badge variant="destructive" className="font-normal">
-                      Atenção
-                    </Badge>
+              {/*
+                O cartão e a marca de subfluxo dividem um contêiner posicionado,
+                e a marca é **irmã** do botão — nunca filha. Dentro dele o HTML
+                seria inválido (botão dentro de botão, link dentro de botão) e o
+                clique no detalhe abriria o painel da etapa junto.
+              */}
+              <div className="relative w-full lg:w-[236px]">
+                <button
+                  type="button"
+                  onClick={() => onSelecionarEtapa(aberta ? null : linha.etapa.id)}
+                  aria-pressed={aberta}
+                  className={cn(
+                    "h-full w-full rounded-lg border bg-card px-4 py-3 text-left shadow-sm transition-shadow hover:shadow-md",
+                    /*
+                      O cartão sem nada nesta lente esmaece, mas continua clicável
+                      e continua na sequência: esconder etapa quebraria a jornada,
+                      que é justamente o que esta visualização é.
+                    */
+                    cartao.achados === 0 && "opacity-60",
+                    aberta && "ring-2 ring-primary ring-offset-2 ring-offset-background",
                   )}
+                  data-testid={`jornada-${linha.etapa.nome}`}
+                >
+                  <div className={cn("flex flex-wrap items-center gap-2", comMarca && "pr-7")}>
+                    <span className="text-xs font-semibold tabular-nums text-muted-foreground">
+                      {String(linha.numero).padStart(2, "0")}
+                    </span>
+                    <Badge variant="secondary" className="font-normal">
+                      {tipo?.rotulo ?? linha.etapa.tipo}
+                    </Badge>
+                    {linha.etapa.status === "ATENCAO" && (
+                      <Badge variant="destructive" className="font-normal">
+                        Atenção
+                      </Badge>
+                    )}
                 </div>
 
                 <p className="mt-2 text-sm font-medium leading-snug text-foreground">
@@ -178,6 +198,23 @@ export function VisaoJornada({
                   })}
                 </dl>
               </button>
+
+              {/*
+                No canto de cima à direita: é o canto que quem lê um cartão
+                procura quando quer agir sobre ele, e é onde o ícone fica na
+                mesma posição em todos os cartões da jornada — uma coluna de
+                ícones alinhada, e não uma marca flutuando na altura em que o
+                texto de cada cartão terminou.
+              */}
+              <MarcaDeSubfluxo
+                subfluxo={detalhe}
+                nomeDaEtapa={linha.etapa.nome}
+                podeDetalhar={!somenteLeitura && Boolean(onDetalharEtapa)}
+                criando={detalhando === linha.etapa.id}
+                aoDetalhar={() => onDetalharEtapa?.(linha.etapa.id)}
+                className="absolute right-2 top-2"
+              />
+              </div>
 
               {/*
                 A seta entre cartões é decoração e não conteúdo: some do leitor

@@ -1,14 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useRoute } from "wouter";
+import { Link, useLocation, useRoute } from "wouter";
 import { useMutation } from "@tanstack/react-query";
 import {
   ArrowLeft,
+  ChevronRight,
   LayoutGrid,
   ListPlus,
   Loader2,
+  Lock,
+  MoreHorizontal,
   Pencil,
   Plus,
   Shapes,
+  Unlock,
   Trash2,
   Wand2,
 } from "lucide-react";
@@ -17,6 +21,13 @@ import { ApiErrorNotice } from "@/components/api-error";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   Select,
@@ -27,7 +38,10 @@ import {
 } from "@/components/ui/select";
 import { DetalheDaEtapa } from "@/components/fluxos/detalhe-da-etapa";
 import { EditorDaEtapa } from "@/components/fluxos/editor-da-etapa";
-import { BotaoDeExportar } from "@/components/fluxos/botao-de-exportar";
+import {
+  BotaoDeExportar,
+  SubmenuDeExportar,
+} from "@/components/fluxos/botao-de-exportar";
 import { EditorDoFluxo } from "@/components/fluxos/editor-do-fluxo";
 import { MontadorPorTexto } from "@/components/fluxos/montador-por-texto";
 import { PaletaDeElementos } from "@/components/fluxos/paleta-de-elementos";
@@ -60,6 +74,7 @@ import {
   lerFluxoAgora,
   fraseDoErro,
   resumoDoFluxo,
+  subfluxoDaEtapa,
   useCatalogoDeFluxos,
   useFluxo,
   useEmpresas,
@@ -114,6 +129,7 @@ import {
  */
 export default function TelaDoFluxo() {
   const [, params] = useRoute("/fluxos/:id");
+  const [, navegar] = useLocation();
   const fluxoId = params?.id ?? "";
 
   const { empresaId } = useEmpresaDosFluxos();
@@ -378,6 +394,30 @@ export default function TelaDoFluxo() {
     onSuccess: () => recarregar(fluxoId),
   });
 
+  /**
+   * DETALHAR — o fluxo do detalhe nasce, já ligado, e a tela vai para ele.
+   *
+   * A navegação é parte do pedido, e não uma cortesia: quem clicou em "detalhar"
+   * quer escrever os passos de dentro agora. Ficar no fluxo pai obrigaria a
+   * procurar o detalhe recém-criado na listagem geral para poder começar.
+   *
+   * O fluxo pai é recarregado antes da ida porque a etapa mudou aqui também —
+   * ela passou a ter marca de subfluxo, e voltar (pelo navegador, pela trilha)
+   * tem de encontrar a tela certa.
+   */
+  const detalhar = useMutation({
+    mutationFn: (etapaId: string) => escritas.detalharEtapa(empresaId, fluxoId, etapaId),
+    onSuccess: (criado) => {
+      recarregar(fluxoId);
+      navegar(`/fluxos/${criado.id}`);
+    },
+  });
+
+  const desligarSubfluxo = useMutation({
+    mutationFn: (etapaId: string) => escritas.desligarSubfluxo(empresaId, fluxoId, etapaId),
+    onSuccess: () => recarregar(fluxoId),
+  });
+
   const excluirEtapa = useMutation({
     mutationFn: (etapaId: string) => escritas.excluirEtapa(empresaId, fluxoId, etapaId),
     onSuccess: () => {
@@ -414,6 +454,20 @@ export default function TelaDoFluxo() {
       criarElemento.mutate({ tipo, posicao }),
     [criarElemento],
   );
+  /*
+    Detalhar é pedido de três lugares — o ícone do cartão da Jornada, o do nó do
+    Fluxo e o botão do painel —, e os três passam por aqui: uma mutação só, um
+    erro só no cabeçalho, uma navegação só para o detalhe recém-nascido.
+  */
+  const aoDetalharEtapa = useCallback(
+    (etapaId: string) => detalhar.mutate(etapaId),
+    [detalhar],
+  );
+  /*
+    Qual etapa está sendo detalhada agora — para o cartão que foi clicado girar
+    o seu próprio ícone, e não todos eles.
+  */
+  const detalhandoAgora = detalhar.isPending ? (detalhar.variables ?? null) : null;
   const aoAbrirConexao = useCallback(
     (conexaoId: string) => {
       const conexao = completo?.conexoes.find((c) => c.id === conexaoId) ?? null;
@@ -433,363 +487,457 @@ export default function TelaDoFluxo() {
   }
 
   return (
-    <Layout>
+    /*
+      A página inteira mede uma janela e rola por dentro, então ela dispensa o
+      espaço que a casca reserva para a barra do celular e desconta a barra da
+      sua própria altura — ver a coluna logo abaixo. Com a reserva ligada, o
+      desconto acontecia duas vezes: sobrava uma faixa cinza vazia acima da
+      barra, e o último cartão da Jornada ficava cortado ao meio para pagá-la.
+    */
+    <Layout semReservaDaBarra>
       {/*
-        O CABEÇALHO — duas faixas com papéis fixos.
+        A COLUNA DA JANELA — cabeçalho em cima, visualização ocupando o resto.
 
-        Antes tudo dividia um `flex-wrap` só: identidade, opções da visualização
-        e ações do fluxo. Como as opções mudam com a visualização, trocar de
-        ângulo remontava o cabeçalho inteiro — o título ganhava e perdia largura
-        (e reticências), e "Editar fluxo", "Colar etapas", "Exportar" e "Nova
-        etapa" trocavam de lugar a cada troca. Um cabeçalho que se remonta faz
-        parecer que se mudou de tela quando o fluxo é o mesmo.
-
-        Agora cada faixa tem um dono. A de cima é a identidade do fluxo e as
-        ações que existem nas seis visualizações — ela é idêntica em todas. A de
-        baixo é a barra da visualização, e é a única que muda. Nada foi
-        removido: o que era específico continua específico, só que confinado à
-        faixa que pode mudar.
+        A altura vem daqui, e não do contêiner do canvas: `100dvh` menos a faixa
+        vermelha do topo e, no celular, menos a barra de baixo. O cabeçalho tem
+        a altura que tiver — uma linha de ações ou duas, com descrição ou sem —
+        e o que sobra é da visualização. Antes a conta era feita ao contrário,
+        chutando a altura do cabeçalho em `16rem` no celular e `11,5rem` no
+        computador; quando o cabeçalho não media isso, a diferença virava faixa
+        vazia embaixo ou etapa cortada.
       */}
-      <header className="border-b bg-card px-6 py-3">
-        <div className="flex flex-wrap items-center gap-3">
-          <Button variant="ghost" size="icon" asChild aria-label="Voltar para a lista de fluxos">
-            <Link href="/fluxos">
-              <ArrowLeft className="h-4 w-4" />
-            </Link>
-          </Button>
-
-          <div className="min-w-0 flex-1">
-            {consulta.isLoading ? (
-              <Skeleton className="h-6 w-64" />
-            ) : (
-              <>
-                <div className="flex flex-wrap items-center gap-2">
-                  <h1 className="truncate text-lg font-semibold text-foreground">
-                    {completo?.fluxo.nome}
-                  </h1>
-                  <Badge variant="outline" className="font-normal">
-                    {completo?.fluxo.categoria}
-                  </Badge>
-                  {completo?.fluxo.status !== "ATIVO" && (
-                    <Badge variant="secondary" className="font-normal">
-                      {completo?.fluxo.status === "RASCUNHO" ? "Rascunho" : "Arquivado"}
-                    </Badge>
-                  )}
-                </div>
-                {/*
-                  A descrição da visualização saiu daqui e foi para a barra de
-                  baixo: ela é a única parte desta linha que dependia do ângulo
-                  escolhido, e era o que fazia o resumo do fluxo quebrar em duas
-                  linhas numa visualização e em uma noutra.
-                */}
-                <p className="truncate text-xs text-muted-foreground">
-                  {completo ? resumoDoFluxo(completo) : null}
-                  {completo?.fluxo.dono ? ` · ${completo.fluxo.dono}` : ""}
-                </p>
-              </>
-            )}
-          </div>
-
-          {/*
-            As ações do fluxo. Todas valem nas seis visualizações, então todas
-            ficam aqui, sempre na mesma ordem e sempre no mesmo lugar — quem
-            clica em "Nova etapa" não precisa procurá-la de novo depois de
-            trocar de ângulo.
-          */}
-          <div className="flex flex-wrap items-center justify-end gap-1.5">
-            <Button variant="ghost" size="sm" onClick={() => setSomenteLeitura((v) => !v)}>
-              {somenteLeitura ? "Liberar edição" : "Só leitura"}
-            </Button>
-
-            <Button variant="outline" size="sm" onClick={() => setEditandoFluxo(true)}>
-              <Pencil className="mr-1.5 h-3.5 w-3.5" />
-              Editar fluxo
-            </Button>
-
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={somenteLeitura}
-              onClick={() => setColando(true)}
-            >
-              <ListPlus className="mr-1.5 h-3.5 w-3.5" />
-              Colar etapas
-            </Button>
-
-            {completo && (
-              <BotaoDeExportar
-                completo={completo}
-                catalogo={catalogo.data}
-                empresa={nomeDaEmpresa}
-              />
-            )}
-
-            <Button
-              size="sm"
-              disabled={somenteLeitura}
-              onClick={() => setEditandoEtapa({ aberto: true, etapaId: null })}
-            >
-              <Plus className="mr-1.5 h-3.5 w-3.5" />
-              Nova etapa
-            </Button>
-          </div>
-        </div>
-
+      <div
+        className="flex h-[calc(100dvh-4rem-5.5rem-env(safe-area-inset-bottom))] flex-col md:h-[calc(100dvh-4rem)]"
+      >
         {/*
-          A BARRA DA VISUALIZAÇÃO — a única faixa que muda com o ângulo.
+          O CABEÇALHO — duas faixas com papéis fixos.
 
-          A ordem dos lugares é fixa: seletor, opção da visualização, ferramentas
-          do canvas, descrição. O segundo lugar tem largura mínima reservada
-          mesmo quando está vazio, senão "Elementos" e "Organizar" andariam para
-          a esquerda na Jornada e voltariam nas Raias — que é o mesmo defeito, só
-          que menor.
+          Antes tudo dividia um `flex-wrap` só: identidade, opções da visualização
+          e ações do fluxo. Como as opções mudam com a visualização, trocar de
+          ângulo remontava o cabeçalho inteiro — o título ganhava e perdia largura
+          (e reticências), e "Editar fluxo", "Colar etapas", "Exportar" e "Nova
+          etapa" trocavam de lugar a cada troca. Um cabeçalho que se remonta faz
+          parecer que se mudou de tela quando o fluxo é o mesmo.
+
+          Agora cada faixa tem um dono. A de cima é a identidade do fluxo e as
+          ações que existem nas seis visualizações — ela é idêntica em todas. A de
+          baixo é a barra da visualização, e é a única que muda. Nada foi
+          removido: o que era específico continua específico, só que confinado à
+          faixa que pode mudar.
         */}
-        <div className="mt-2 flex flex-wrap items-center gap-3 border-t pt-2">
-          <div className="flex items-center gap-1.5">
-            <span className="text-xs text-muted-foreground">Visualização</span>
-            <SeletorDeVisualizacao valor={visualizacao} aoTrocar={trocarVisualizacao} />
+        <header className="shrink-0 border-b bg-card px-6 py-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <Button variant="ghost" size="icon" asChild aria-label="Voltar para a lista de fluxos">
+              <Link href="/fluxos">
+                <ArrowLeft className="h-4 w-4" />
+              </Link>
+            </Button>
+
+            <div className="min-w-0 flex-1">
+              {consulta.isLoading ? (
+                <Skeleton className="h-6 w-64" />
+              ) : (
+                <>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h1 className="truncate text-lg font-semibold text-foreground">
+                      {completo?.fluxo.nome}
+                    </h1>
+                    <Badge variant="outline" className="font-normal">
+                      {completo?.fluxo.categoria}
+                    </Badge>
+                    {completo?.fluxo.status !== "ATIVO" && (
+                      <Badge variant="secondary" className="font-normal">
+                        {completo?.fluxo.status === "RASCUNHO" ? "Rascunho" : "Arquivado"}
+                      </Badge>
+                    )}
+                  </div>
+                  {/*
+                    A descrição da visualização saiu daqui e foi para a barra de
+                    baixo: ela é a única parte desta linha que dependia do ângulo
+                    escolhido, e era o que fazia o resumo do fluxo quebrar em duas
+                    linhas numa visualização e em uma noutra.
+                  */}
+                  <p className="truncate text-xs text-muted-foreground">
+                    {completo ? resumoDoFluxo(completo) : null}
+                    {completo?.fluxo.dono ? ` · ${completo.fluxo.dono}` : ""}
+                  </p>
+                </>
+              )}
+            </div>
+
+            {/*
+              As ações do fluxo. Todas valem nas seis visualizações, então todas
+              ficam aqui, sempre na mesma ordem e sempre no mesmo lugar — quem
+              clica em "Nova etapa" não precisa procurá-la de novo depois de
+              trocar de ângulo.
+
+              A ordem é uma só, mas a forma muda com a largura. Cinco controles
+              lado a lado cabem no computador; no telefone eles quebravam em duas
+              fileiras irregulares logo abaixo do título — "Só leitura", "Editar
+              fluxo" e "Colar etapas" numa, "Exportar" e "Nova etapa" noutra —, e
+              o cabeçalho tomava metade da tela antes de a primeira etapa
+              aparecer. Então na tela estreita fica visível só o que se usa toda
+              hora, "Nova etapa", e o resto entra em "Mais ações", na mesma ordem
+              em que está na barra larga.
+            */}
+            <div className="hidden flex-wrap items-center justify-end gap-1.5 md:flex">
+              <Button variant="ghost" size="sm" onClick={() => setSomenteLeitura((v) => !v)}>
+                {somenteLeitura ? "Liberar edição" : "Só leitura"}
+              </Button>
+
+              <Button variant="outline" size="sm" onClick={() => setEditandoFluxo(true)}>
+                <Pencil className="mr-1.5 h-3.5 w-3.5" />
+                Editar fluxo
+              </Button>
+
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={somenteLeitura}
+                onClick={() => setColando(true)}
+              >
+                <ListPlus className="mr-1.5 h-3.5 w-3.5" />
+                Colar etapas
+              </Button>
+
+              {completo && (
+                <BotaoDeExportar
+                  completo={completo}
+                  catalogo={catalogo.data}
+                  empresa={nomeDaEmpresa}
+                />
+              )}
+
+              <Button
+                size="sm"
+                disabled={somenteLeitura}
+                onClick={() => setEditandoEtapa({ aberto: true, etapaId: null })}
+              >
+                <Plus className="mr-1.5 h-3.5 w-3.5" />
+                Nova etapa
+              </Button>
+            </div>
+
+            <div className="flex items-center gap-1.5 md:hidden">
+              <Button
+                size="sm"
+                disabled={somenteLeitura}
+                onClick={() => setEditandoEtapa({ aberto: true, etapaId: null })}
+              >
+                <Plus className="mr-1.5 h-3.5 w-3.5" />
+                Nova etapa
+              </Button>
+
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="icon" className="h-8 w-8" aria-label="Mais ações">
+                    <MoreHorizontal className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuItem onSelect={() => setSomenteLeitura((v) => !v)}>
+                    {somenteLeitura ? (
+                      <Unlock className="mr-2 h-4 w-4" />
+                    ) : (
+                      <Lock className="mr-2 h-4 w-4" />
+                    )}
+                    {somenteLeitura ? "Liberar edição" : "Só leitura"}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => setEditandoFluxo(true)}>
+                    <Pencil className="mr-2 h-4 w-4" />
+                    Editar fluxo
+                  </DropdownMenuItem>
+                  <DropdownMenuItem disabled={somenteLeitura} onSelect={() => setColando(true)}>
+                    <ListPlus className="mr-2 h-4 w-4" />
+                    Colar etapas
+                  </DropdownMenuItem>
+                  {completo && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <SubmenuDeExportar
+                        completo={completo}
+                        catalogo={catalogo.data}
+                        empresa={nomeDaEmpresa}
+                      />
+                    </>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           </div>
 
           {/*
-            O controle que só existe para algumas visualizações. Ele ocupa um
-            lugar só — orientação no Fluxo e nos Gargalos, agrupamento nas Raias
-            — em vez de os dois ficarem visíveis o tempo todo: uma barra com
-            todas as opções das seis obrigaria a ler seis controles para usar um.
-          */}
-          <div className="flex min-h-8 min-w-[196px] items-center gap-1.5">
-            {(visualizacao === "fluxo" || visualizacao === "gargalos") && (
-              <>
-                <span className="text-xs text-muted-foreground">Orientação</span>
-                <Select
-                  value={orientacao}
-                  onValueChange={(v) => trocarOrientacao(v as "vertical" | "horizontal")}
-                >
-                  <SelectTrigger className="h-8 w-[130px]" aria-label="Orientação do fluxo">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="vertical">Vertical</SelectItem>
-                    <SelectItem value="horizontal">Horizontal</SelectItem>
-                  </SelectContent>
-                </Select>
-              </>
-            )}
+            A BARRA DA VISUALIZAÇÃO — a única faixa que muda com o ângulo.
 
-            {visualizacao === "raias" && (
-              <>
-                <span className="text-xs text-muted-foreground">Agrupar por</span>
-                <Select value={agrupamento} onValueChange={(v) => trocarAgrupamento(v as never)}>
-                  <SelectTrigger className="h-8 w-[130px]" aria-label="Agrupar raias por">
+            A ordem dos lugares é fixa: seletor, opção da visualização, ferramentas
+            do canvas, descrição. O segundo lugar tem largura mínima reservada
+            mesmo quando está vazio, senão "Elementos" e "Organizar" andariam para
+            a esquerda na Jornada e voltariam nas Raias — que é o mesmo defeito, só
+            que menor.
+          */}
+          <div className="mt-2 flex flex-wrap items-center gap-3 border-t pt-2">
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-muted-foreground">Visualização</span>
+              <SeletorDeVisualizacao valor={visualizacao} aoTrocar={trocarVisualizacao} />
+            </div>
+
+            {/*
+              O controle que só existe para algumas visualizações. Ele ocupa um
+              lugar só — orientação no Fluxo e nos Gargalos, agrupamento nas Raias
+              — em vez de os dois ficarem visíveis o tempo todo: uma barra com
+              todas as opções das seis obrigaria a ler seis controles para usar um.
+
+              A largura reservada para esse lugar vale a partir do computador. No
+              telefone a barra já quebra em linhas, e reservar 196px vazios só
+              empurrava o controle seguinte para uma linha sozinha — a fileira em
+              branco que aparecia entre "Visualização" e "Tipo de jornada".
+            */}
+            <div className="flex min-h-8 items-center gap-1.5 md:min-w-[196px]">
+              {(visualizacao === "fluxo" || visualizacao === "gargalos") && (
+                <>
+                  <span className="text-xs text-muted-foreground">Orientação</span>
+                  <Select
+                    value={orientacao}
+                    onValueChange={(v) => trocarOrientacao(v as "vertical" | "horizontal")}
+                  >
+                    <SelectTrigger className="h-8 w-[130px]" aria-label="Orientação do fluxo">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="vertical">Vertical</SelectItem>
+                      <SelectItem value="horizontal">Horizontal</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </>
+              )}
+
+              {visualizacao === "raias" && (
+                <>
+                  <span className="text-xs text-muted-foreground">Agrupar por</span>
+                  <Select value={agrupamento} onValueChange={(v) => trocarAgrupamento(v as never)}>
+                    <SelectTrigger className="h-8 w-[130px]" aria-label="Agrupar raias por">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {AGRUPAMENTOS_DE_RAIA.map((a) => (
+                        <SelectItem key={a.valor} value={a.valor}>
+                          {a.rotulo}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </>
+              )}
+            </div>
+
+            {/*
+              O tipo de jornada. Fica ao lado do seletor de visualização, e não
+              dentro dele, porque não é uma sétima visualização: a jornada
+              continua sendo uma só — o que se escolhe aqui é qual campo das
+              etapas o cartão mostra.
+            */}
+            {visualizacao === "jornada" && (
+              <div className="flex items-center gap-1.5">
+                <span className="hidden text-xs text-muted-foreground lg:inline">
+                  Tipo de jornada
+                </span>
+                <Select value={lente} onValueChange={(v) => trocarLente(v as never)}>
+                  <SelectTrigger className="h-8 w-[150px]" aria-label="Tipo de jornada">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {AGRUPAMENTOS_DE_RAIA.map((a) => (
-                      <SelectItem key={a.valor} value={a.valor}>
-                        {a.rotulo}
+                    {LENTES_DA_JORNADA.map((l) => (
+                      <SelectItem key={l.valor} value={l.valor}>
+                        {l.rotulo}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-              </>
+              </div>
+            )}
+
+            {/*
+              O interruptor da janela de elementos. Ele só aparece onde há canvas:
+              na Jornada e na Lista não existe desenho para receber um elemento, e
+              um botão que abre uma paleta inútil é pior do que a ausência dele.
+            */}
+            {entrada.ehCanvas && (
+              <Button
+                variant={paletaAberta ? "secondary" : "ghost"}
+                size="sm"
+                disabled={somenteLeitura}
+                aria-pressed={paletaAberta}
+                onClick={() => setPaletaAberta((v) => !v)}
+              >
+                <Shapes className="mr-1.5 h-3.5 w-3.5" />
+                Elementos
+              </Button>
+            )}
+
+            {/*
+              "Organizar" é o botão que faltava: `posicionarEtapas` já era função
+              pura e testada, e nada na tela a chamava — quem montasse um fluxo à
+              mão ficava com o arranjo que arrastou, e quem esquecesse de arrastar
+              ficava com os cartões empilhados na origem.
+
+              O clique normal arruma só o que nunca foi posicionado. Com a tecla
+              Shift, refaz o desenho inteiro — o pedido destrutivo fica atrás de
+              um gesto deliberado, e o rótulo do botão o anuncia.
+
+              Fora do Fluxo vertical o botão some em vez de ficar desabilitado:
+              nas projeções calculadas não existe "arranjo para organizar", e um
+              botão morto na barra sugere que existe.
+            */}
+            {arranjoPersistido && (
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={somenteLeitura || organizar.isPending || !completo?.etapas.length}
+                title="Organizar o desenho. Com Shift, refaz o arranjo inteiro."
+                onClick={(evento) => organizar.mutate(evento.shiftKey)}
+              >
+                {organizar.isPending ? (
+                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <LayoutGrid className="mr-1.5 h-3.5 w-3.5" />
+                )}
+                Organizar
+              </Button>
+            )}
+
+            {/*
+              A descrição fica no fim da barra, encostada à direita: é o texto que
+              explica o ângulo escolhido, e o lugar dela é junto do seletor que o
+              escolheu — não na linha do nome do fluxo, que não muda.
+            */}
+            <p className="ml-auto hidden max-w-[38ch] truncate text-xs text-muted-foreground lg:block">
+              {entrada.descricao}
+            </p>
+          </div>
+
+          {(mover.isError ||
+            conectar.isError ||
+            excluirEtapa.isError ||
+            organizar.isError ||
+            criarElemento.isError ||
+            detalhar.isError ||
+            desligarSubfluxo.isError) && (
+            <Alert variant="destructive" className="mt-2">
+              <AlertDescription>
+                {fraseDoErro(
+                  mover.error ??
+                    conectar.error ??
+                    excluirEtapa.error ??
+                    organizar.error ??
+                    criarElemento.error ??
+                    detalhar.error ??
+                    desligarSubfluxo.error,
+                )}
+              </AlertDescription>
+            </Alert>
+          )}
+        </header>
+
+        {/*
+          O `min-h-0` não é enfeite: sem ele um filho que rola por dentro estica
+          o pai em vez de rolar, e o canvas volta a empurrar a barra da tela para
+          fora da janela. Com ele, esta faixa tem altura concreta — o que o canvas
+          exige para calcular o enquadramento — sem ninguém precisar adivinhar
+          quanto o cabeçalho mede.
+        */}
+        <div className="flex min-h-0 w-full flex-1">
+          {/*
+            A paleta fica **fora** do canvas, como coluna irmã, e não flutuando por
+            cima dele: sobreposta, ela taparia justamente a faixa do desenho em que
+            o começo do processo costuma estar, e o pan para desviar dela viraria
+            parte do trabalho. Fora, ela também continua no lugar quando o fluxo
+            ainda está vazio — que é exatamente quando ela mais serve.
+          */}
+          {paletaAberta && entrada.ehCanvas && !somenteLeitura && (
+            <PaletaDeElementos
+              catalogo={catalogo.data}
+              aceitaArrasto={arranjoPersistido}
+              aoEscolher={(tipo) => criarElemento.mutate({ tipo, posicao: null })}
+              aoFechar={() => setPaletaAberta(false)}
+            />
+          )}
+
+          <div className="relative min-w-0 flex-1">
+            {consulta.isLoading && <Skeleton className="h-full w-full" />}
+            {/*
+              O CONVITE E A TABELA — quem atende o fluxo vazio, e quando.
+
+              Nas cinco visualizações que desenham, um fluxo sem etapa é uma tela
+              em branco, e o convite é o que a preenche. Na Lista, não: a tabela
+              **é** o caminho de cadastro, com o cabeçalho das colunas dizendo o
+              que a etapa vai precisar e a linha de "Adicionar nova etapa" no
+              topo. Trocar a tabela vazia por um cartão de convite ali seria
+              esconder justamente o lugar onde o trabalho começa.
+            */}
+            {completo && completo.etapas.length === 0 && visualizacao !== "lista" && (
+              <FluxoSemEtapas
+                aoCriar={() => setEditandoEtapa({ aberto: true, etapaId: null })}
+                aoColar={() => setColando(true)}
+                bloqueado={somenteLeitura}
+              />
+            )}
+            {completo && (completo.etapas.length > 0 || visualizacao === "lista") && (
+              <MotorDeVisualizacao
+                completo={completo}
+                catalogo={catalogo.data}
+                visualizacao={visualizacao}
+                orientacao={orientacao}
+                agrupamento={agrupamento}
+                lente={lente}
+                sinal={sinal}
+                onTrocarSinal={setSinal}
+                etapaSelecionada={selecionada}
+                onSelecionarEtapa={setSelecionada}
+                somenteLeitura={somenteLeitura}
+                onEditarCampoDaEtapa={aoEditarCampoDaEtapa}
+                onCriarEtapa={aoCriarEtapaNaLista}
+                onMoverEtapas={aoMover}
+                onConectar={aoConectar}
+                onAbrirConexao={aoAbrirConexao}
+                onSoltarElemento={aoSoltarElemento}
+                onDetalharEtapa={aoDetalharEtapa}
+                detalhando={detalhandoAgora}
+              />
+            )}
+            {(mover.isPending || criarElemento.isPending) && (
+              <div className="pointer-events-none absolute bottom-3 right-3 flex items-center gap-1.5 rounded-md bg-card/90 px-2 py-1 text-xs text-muted-foreground shadow">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                {criarElemento.isPending ? "criando a etapa" : "salvando posição"}
+              </div>
             )}
           </div>
 
           {/*
-            O tipo de jornada. Fica ao lado do seletor de visualização, e não
-            dentro dele, porque não é uma sétima visualização: a jornada
-            continua sendo uma só — o que se escolhe aqui é qual campo das
-            etapas o cartão mostra.
+            Um detalhe só, para as seis visualizações — coluna no desktop, gaveta
+            no celular. Ele fica **aqui**, na página, e não dentro de cada visão:
+            é assim que clicar num cartão do Fluxo, numa linha da Lista ou num
+            passo da Jornada abre exatamente a mesma coisa.
           */}
-          {visualizacao === "jornada" && (
-            <div className="flex items-center gap-1.5">
-              <span className="hidden text-xs text-muted-foreground lg:inline">
-                Tipo de jornada
-              </span>
-              <Select value={lente} onValueChange={(v) => trocarLente(v as never)}>
-                <SelectTrigger className="h-8 w-[150px]" aria-label="Tipo de jornada">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {LENTES_DA_JORNADA.map((l) => (
-                    <SelectItem key={l.valor} value={l.valor}>
-                      {l.rotulo}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
-
-          {/*
-            O interruptor da janela de elementos. Ele só aparece onde há canvas:
-            na Jornada e na Lista não existe desenho para receber um elemento, e
-            um botão que abre uma paleta inútil é pior do que a ausência dele.
-          */}
-          {entrada.ehCanvas && (
-            <Button
-              variant={paletaAberta ? "secondary" : "ghost"}
-              size="sm"
-              disabled={somenteLeitura}
-              aria-pressed={paletaAberta}
-              onClick={() => setPaletaAberta((v) => !v)}
-            >
-              <Shapes className="mr-1.5 h-3.5 w-3.5" />
-              Elementos
-            </Button>
-          )}
-
-          {/*
-            "Organizar" é o botão que faltava: `posicionarEtapas` já era função
-            pura e testada, e nada na tela a chamava — quem montasse um fluxo à
-            mão ficava com o arranjo que arrastou, e quem esquecesse de arrastar
-            ficava com os cartões empilhados na origem.
-
-            O clique normal arruma só o que nunca foi posicionado. Com a tecla
-            Shift, refaz o desenho inteiro — o pedido destrutivo fica atrás de
-            um gesto deliberado, e o rótulo do botão o anuncia.
-
-            Fora do Fluxo vertical o botão some em vez de ficar desabilitado:
-            nas projeções calculadas não existe "arranjo para organizar", e um
-            botão morto na barra sugere que existe.
-          */}
-          {arranjoPersistido && (
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={somenteLeitura || organizar.isPending || !completo?.etapas.length}
-              title="Organizar o desenho. Com Shift, refaz o arranjo inteiro."
-              onClick={(evento) => organizar.mutate(evento.shiftKey)}
-            >
-              {organizar.isPending ? (
-                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <LayoutGrid className="mr-1.5 h-3.5 w-3.5" />
-              )}
-              Organizar
-            </Button>
-          )}
-
-          {/*
-            A descrição fica no fim da barra, encostada à direita: é o texto que
-            explica o ângulo escolhido, e o lugar dela é junto do seletor que o
-            escolheu — não na linha do nome do fluxo, que não muda.
-          */}
-          <p className="ml-auto hidden max-w-[38ch] truncate text-xs text-muted-foreground lg:block">
-            {entrada.descricao}
-          </p>
-        </div>
-
-        {(mover.isError ||
-          conectar.isError ||
-          excluirEtapa.isError ||
-          organizar.isError ||
-          criarElemento.isError) && (
-          <Alert variant="destructive" className="mt-2">
-            <AlertDescription>
-              {fraseDoErro(
-                mover.error ??
-                  conectar.error ??
-                  excluirEtapa.error ??
-                  organizar.error ??
-                  criarElemento.error,
-              )}
-            </AlertDescription>
-          </Alert>
-        )}
-      </header>
-
-      {/*
-        Altura fixa em unidades de janela, e não `flex-1` dentro do Layout: o
-        canvas precisa de uma altura concreta para calcular o enquadramento, e
-        um contêiner que se resolve em zero deixa o fluxograma invisível — o
-        defeito mais comum de quem monta um canvas dentro de layout flexível.
-      */}
-      <div className="flex h-[calc(100dvh-16rem)] min-h-[420px] w-full sm:h-[calc(100dvh-11.5rem)]">
-        {/*
-          A paleta fica **fora** do canvas, como coluna irmã, e não flutuando por
-          cima dele: sobreposta, ela taparia justamente a faixa do desenho em que
-          o começo do processo costuma estar, e o pan para desviar dela viraria
-          parte do trabalho. Fora, ela também continua no lugar quando o fluxo
-          ainda está vazio — que é exatamente quando ela mais serve.
-        */}
-        {paletaAberta && entrada.ehCanvas && !somenteLeitura && (
-          <PaletaDeElementos
-            catalogo={catalogo.data}
-            aceitaArrasto={arranjoPersistido}
-            aoEscolher={(tipo) => criarElemento.mutate({ tipo, posicao: null })}
-            aoFechar={() => setPaletaAberta(false)}
-          />
-        )}
-
-        <div className="relative min-w-0 flex-1">
-          {consulta.isLoading && <Skeleton className="h-full w-full" />}
-          {/*
-            O CONVITE E A TABELA — quem atende o fluxo vazio, e quando.
-
-            Nas cinco visualizações que desenham, um fluxo sem etapa é uma tela
-            em branco, e o convite é o que a preenche. Na Lista, não: a tabela
-            **é** o caminho de cadastro, com o cabeçalho das colunas dizendo o
-            que a etapa vai precisar e a linha de "Adicionar nova etapa" no
-            topo. Trocar a tabela vazia por um cartão de convite ali seria
-            esconder justamente o lugar onde o trabalho começa.
-          */}
-          {completo && completo.etapas.length === 0 && visualizacao !== "lista" && (
-            <FluxoSemEtapas
-              aoCriar={() => setEditandoEtapa({ aberto: true, etapaId: null })}
-              aoColar={() => setColando(true)}
-              bloqueado={somenteLeitura}
-            />
-          )}
-          {completo && (completo.etapas.length > 0 || visualizacao === "lista") && (
-            <MotorDeVisualizacao
-              completo={completo}
+          {etapaSelecionada && (
+            <DetalheDaEtapa
+              etapa={etapaSelecionada}
               catalogo={catalogo.data}
-              visualizacao={visualizacao}
-              orientacao={orientacao}
-              agrupamento={agrupamento}
-              lente={lente}
-              sinal={sinal}
-              onTrocarSinal={setSinal}
-              etapaSelecionada={selecionada}
-              onSelecionarEtapa={setSelecionada}
-              somenteLeitura={somenteLeitura}
-              onEditarCampoDaEtapa={aoEditarCampoDaEtapa}
-              onCriarEtapa={aoCriarEtapaNaLista}
-              onMoverEtapas={aoMover}
-              onConectar={aoConectar}
-              onAbrirConexao={aoAbrirConexao}
-              onSoltarElemento={aoSoltarElemento}
+              podeEditar={!somenteLeitura}
+              diagnostico={analise?.porEtapa.get(etapaSelecionada.id)}
+              onEditar={() => setEditandoEtapa({ aberto: true, etapaId: etapaSelecionada.id })}
+              onSeguinte={() => {
+                setSeguinteDe(etapaSelecionada.id);
+                setEditandoEtapa({ aberto: true, etapaId: null });
+              }}
+              onExcluir={() => excluirEtapa.mutate(etapaSelecionada.id)}
+              onFechar={() => setSelecionada(null)}
+              subfluxo={subfluxoDaEtapa(completo, etapaSelecionada)}
+              onDetalhar={() => aoDetalharEtapa(etapaSelecionada.id)}
+              onDesligarSubfluxo={() => desligarSubfluxo.mutate(etapaSelecionada.id)}
+              detalhando={detalhandoAgora === etapaSelecionada.id}
             />
           )}
-          {(mover.isPending || criarElemento.isPending) && (
-            <div className="pointer-events-none absolute bottom-3 right-3 flex items-center gap-1.5 rounded-md bg-card/90 px-2 py-1 text-xs text-muted-foreground shadow">
-              <Loader2 className="h-3 w-3 animate-spin" />
-              {criarElemento.isPending ? "criando a etapa" : "salvando posição"}
-            </div>
-          )}
         </div>
-
-        {/*
-          Um detalhe só, para as seis visualizações — coluna no desktop, gaveta
-          no celular. Ele fica **aqui**, na página, e não dentro de cada visão:
-          é assim que clicar num cartão do Fluxo, numa linha da Lista ou num
-          passo da Jornada abre exatamente a mesma coisa.
-        */}
-        {etapaSelecionada && (
-          <DetalheDaEtapa
-            etapa={etapaSelecionada}
-            catalogo={catalogo.data}
-            podeEditar={!somenteLeitura}
-            diagnostico={analise?.porEtapa.get(etapaSelecionada.id)}
-            onEditar={() => setEditandoEtapa({ aberto: true, etapaId: etapaSelecionada.id })}
-            onSeguinte={() => {
-              setSeguinteDe(etapaSelecionada.id);
-              setEditandoEtapa({ aberto: true, etapaId: null });
-            }}
-            onExcluir={() => excluirEtapa.mutate(etapaSelecionada.id)}
-            onFechar={() => setSelecionada(null)}
-          />
-        )}
       </div>
 
       {/*

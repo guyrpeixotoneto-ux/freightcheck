@@ -1,4 +1,5 @@
 import { ReactNode } from "react";
+import { cn } from "@/lib/utils";
 import { BarraMobile } from "./barra-mobile";
 import { Sidebar } from "./sidebar";
 import { Topbar } from "./topbar";
@@ -31,7 +32,22 @@ import {
  * `useIsMobile`, custaria um primeiro quadro sem menu nenhum a cada montagem
  * da casca — e a casca remonta a cada navegação.
  */
-export function Layout({ children }: { children: ReactNode }) {
+export function Layout({
+  children,
+  semReservaDaBarra,
+}: {
+  children: ReactNode;
+  /**
+   * Desliga o espaço reservado para a barra do celular.
+   *
+   * Serve para a página que já tem altura própria de janela e rola por dentro
+   * — o fluxo é a única hoje. Nela a reserva não empurrava nada para cima:
+   * ficava como uma faixa cinza vazia entre o fim da área que rola e a barra,
+   * cortando o último cartão em troca de espaço em branco. Quem pedir isto
+   * assume a conta: precisa descontar a barra da própria altura.
+   */
+  semReservaDaBarra?: boolean;
+}) {
   const { aberto, alternar } = useMenuAberto();
   /*
     O acesso ao módulo é decidido na casca, e não em cada tela.
@@ -64,7 +80,12 @@ export function Layout({ children }: { children: ReactNode }) {
           acima dela, e era exatamente essa faixa que ficava por cima do texto da
           última linha.
         */}
-        <main className="flex-1 flex flex-col min-w-0 pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:pb-0">
+        <main
+          className={cn(
+            "flex-1 flex flex-col min-w-0 md:pb-0",
+            !semReservaDaBarra && "pb-[calc(5.5rem+env(safe-area-inset-bottom))]",
+          )}
+        >
           {acesso.modulo && acesso.nivel === "VISUALIZAR" && (
             <TiraDeSomenteLeitura modulo={acesso.modulo} />
           )}

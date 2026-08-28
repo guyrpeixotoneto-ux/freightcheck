@@ -40,7 +40,7 @@ import {
 import { RecusaDeFluxo } from "../validacao";
 import { CTE_ATE_RECEBIMENTO, NF_ATE_PAGAMENTO, OPERACAO_EMPURRADA } from "../exemplos";
 import { interpretarRoteiro } from "../roteiro";
-import { semearModelos } from "../semear";
+import { modeloPorSlug, modelosJaMapeados, semearModelos } from "../semear";
 
 /**
  * O ISOLAMENTO ENTRE EMPRESAS — a bateria que não pode passar por engano.
@@ -611,7 +611,9 @@ describe.skipIf(!temBanco)("Fluxos Operacionais sobre o banco", () => {
 
   describe("semear", () => {
     it("planta o fluxo do CTe com as dezesseis etapas pedidas e os retornos", async () => {
-      const [fluxo] = await semearModelos(db, empresaB, AUTOR);
+      const [fluxo] = await semearModelos(db, empresaB, AUTOR, [
+        modeloPorSlug("cte-ate-recebimento")!,
+      ]);
       const completo = (await lerFluxo(db, empresaB, fluxo.id))!;
 
       expect(completo.fluxo.nome).toBe("Emissão de CTe até Recebimento");
@@ -677,12 +679,26 @@ describe.skipIf(!temBanco)("Fluxos Operacionais sobre o banco", () => {
         nome: "Negociação (editada por gente)",
       });
 
-      const [denovo] = await semearModelos(db, empresaB, AUTOR);
+      const [denovo] = await semearModelos(db, empresaB, AUTOR, [
+        modeloPorSlug("cte-ate-recebimento")!,
+      ]);
       expect(denovo.id).toBe(antes.fluxo.id);
 
       const depois = (await lerFluxo(db, empresaB, antes.fluxo.id))!;
       expect(depois.etapas).toHaveLength(antes.etapas.length);
       expect(depois.etapas.some((e) => e.nome === "Negociação (editada por gente)")).toBe(true);
+    });
+
+    it("a semeadura padrão planta o que a empresa já mapeou — e nenhum exemplo", () => {
+      /*
+        O que entra sozinho é o levantamento da própria empresa. Um exemplo
+        entrando aqui seria o defeito que `exemplos/index.ts` descreve: cadastro
+        de gente cheio de material de demonstração.
+      */
+      const slugs = modelosJaMapeados().map((m) => m.declarado.slug);
+      expect(slugs).toContain("operacao-empurrada-faturamento-recebimento");
+      expect(slugs).not.toContain("cte-ate-recebimento");
+      expect(slugs).not.toContain("nf-ate-pagamento");
     });
 
     it("o mesmo modelo semeado em outra empresa é outro fluxo, e não o mesmo", async () => {

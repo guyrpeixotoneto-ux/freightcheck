@@ -1,8 +1,10 @@
+import { sql } from "drizzle-orm";
 import {
   pgTable,
   text,
   uuid,
   timestamp,
+  check,
   index,
   primaryKey,
 } from "drizzle-orm/pg-core";
@@ -57,6 +59,16 @@ export const permissaoDeModuloTable = pgTable(
   (t) => [
     primaryKey({ columns: [t.userId, t.modulo] }),
     index("permissao_de_modulo_user_idx").on(t.userId),
+    /*
+      Os três níveis também no banco, e não só no código que grava. É a mesma
+      razão do default fail-closed de `role`: um INSERT vindo de outro lugar —
+      um script, um backfill, um psql — não inventa um quarto nível que a
+      interface não sabe ler e o portão não sabe recusar.
+    */
+    check(
+      "permissao_de_modulo_nivel_check",
+      sql`${t.nivel} IN ('EDITAR', 'VISUALIZAR', 'SEM_ACESSO')`,
+    ),
   ],
 );
 
@@ -84,5 +96,9 @@ export const permissaoDeModuloEventoTable = pgTable(
   (t) => [
     index("permissao_de_modulo_evento_user_idx").on(t.userId),
     index("permissao_de_modulo_evento_em_idx").on(t.em),
+    check(
+      "permissao_de_modulo_evento_nivel_check",
+      sql`${t.nivel} IN ('EDITAR', 'VISUALIZAR', 'SEM_ACESSO')`,
+    ),
   ],
 );

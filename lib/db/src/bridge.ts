@@ -2458,6 +2458,26 @@ function planoUp(): PassoUp[] {
     levantar(M69, /ADD COLUMN IF NOT EXISTS "informacoes_consultadas"/),
   );
 
+  /*
+    E a `0070`, pela mesma razão da `0069` e com um passo a mais: além da
+    coluna `subfluxo_id`, ela traz a chave estrangeira composta que liga a etapa
+    ao fluxo que a detalha e o índice por onde a trilha de volta é consultada.
+    Os três saem do texto da própria migration — a FK vem dentro de um
+    `DO $$ … END $$`, e por isso entra como um passo só.
+
+    Sem eles o `up` devolveria uma `fluxo_etapa` que aceita apontar para o fluxo
+    de outra empresa e sem o índice da leitura — divergência de estrutura, que é
+    exatamente o que o bridge existe para não deixar passar.
+  */
+  const M70 = "0070_subfluxo_da_etapa";
+  add(M70, "fluxo_etapa.subfluxo_id", levantar(M70, /ADD COLUMN IF NOT EXISTS "subfluxo_id"/));
+  add(M70, "FK do subfluxo", levantar(M70, /fluxo_etapa_subfluxo_empresa_fk/));
+  add(
+    M70,
+    "índice fluxo_etapa_subfluxo_idx",
+    levantar(M70, /INDEX IF NOT EXISTS "fluxo_etapa_subfluxo_idx"/),
+  );
+
   const M42 = "0042_viagem_completa";
   for (const coluna of COLUNAS_DO_RETRATO_DA_VIAGEM) {
     add(

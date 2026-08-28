@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS "permissao_de_modulo" (
   "nivel" text NOT NULL,
   "definido_em" timestamp with time zone NOT NULL DEFAULT now(),
   "definido_por" text NOT NULL,
-  CONSTRAINT "permissao_de_modulo_pk" PRIMARY KEY ("user_id", "modulo"),
+  CONSTRAINT "permissao_de_modulo_user_id_modulo_pk" PRIMARY KEY ("user_id", "modulo"),
   CONSTRAINT "permissao_de_modulo_nivel_check"
     CHECK ("nivel" IN ('EDITAR', 'VISUALIZAR', 'SEM_ACESSO'))
 );

@@ -1,9 +1,11 @@
 import {
   montarCanvas,
+  subfluxoDaEtapa,
   type Catalogo,
   type Etapa,
   type FluxoCompleto,
   type NoDoCanvas,
+  type ResumoDeSubfluxo,
   type ResumoDoCartao,
   type SetaDoCanvas,
   type TipoDeEtapaNoCatalogo,
@@ -38,6 +40,12 @@ export interface DadosDoNo {
   numero: number | null;
   /** A severidade analítica, só na visualização de Gargalos. */
   severidade: Severidade | null;
+  /**
+   * O fluxo que detalha esta etapa, quando existe. Resolvido aqui porque é
+   * aqui que o `FluxoCompleto` inteiro está na mão — o cartão do canvas recebe
+   * só `data`, e uma consulta por cartão não teria onde acontecer.
+   */
+  subfluxo: ResumoDeSubfluxo | null;
 }
 
 export interface DadosDaRaia {
@@ -98,6 +106,7 @@ export function montarProjecao(
         variante,
         numero: opcoes.numeracao?.get(no.id) ?? null,
         severidade: opcoes.severidades?.get(no.id) ?? null,
+        subfluxo: subfluxoDaEtapa(completo, no.data.etapa),
       },
     };
   });

@@ -1,4 +1,5 @@
 import { renderToStaticMarkup } from "react-dom/server";
+import { Router } from "wouter";
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -32,7 +33,7 @@ import {
   resumoDeResponsabilidade,
   VISUALIZACOES,
 } from "@/lib/fluxos-visoes";
-import { corpoDaEtapa } from "@/lib/fluxos";
+import { corpoDaEtapa, subfluxoDaEtapa } from "@/lib/fluxos";
 import type { Catalogo, Conexao, Etapa, FluxoCompleto } from "@/lib/fluxos";
 
 /**
@@ -74,6 +75,7 @@ function etapa(parcial: Partial<Etapa> & { id: string; nome: string }): Etapa {
     posX: 0,
     posY: 0,
     chaveMonitoramento: null,
+    subfluxoId: null,
     itens: [],
     indicadores: [],
     acoes: [],
@@ -1033,6 +1035,183 @@ describe("caso 9 — a Lista edita na célula, e só onde a edição é verdade"
     expect(marcadas(html)).toBe(0);
   });
 
+  it("a etapa detalhada mostra a marca do subfluxo, com a contagem, e o link para ele", () => {
+    /*
+      A afirmação é a do módulo inteiro, um nível abaixo: o cartão diz que há
+      um processo ali dentro **e** quanto ele tem. "Abrir" sem a contagem é um
+      clique no escuro — e a contagem vem do fluxo, não de uma segunda ida ao
+      servidor por cartão.
+    */
+    const base = fluxoDeQuinze();
+    const completo: FluxoCompleto = {
+      ...base,
+      etapas: base.etapas.map((e) => (e.id === "e4" ? { ...e, subfluxoId: "sub" } : e)),
+      subfluxos: [
+        {
+          id: "sub",
+          nome: "Emissão do documento",
+          slug: "emissao-do-documento",
+          categoria: "Faturamento",
+          status: "RASCUNHO",
+          etapas: 8,
+        },
+      ],
+    };
+
+    /*
+      O `Router` com `ssrPath` existe porque a marca do subfluxo é um link, e
+      fora do navegador o wouter não tem de onde ler o endereço atual. Nada aqui
+      depende do caminho declarado — só de haver um.
+    */
+    const html = renderToStaticMarkup(
+      <Router ssrPath="/fluxos/f">
+        <VisaoJornada
+          completo={completo}
+          catalogo={CATALOGO}
+          etapaSelecionada={null}
+          onSelecionarEtapa={() => undefined}
+          onEditarCampoDaEtapa={async () => undefined}
+          somenteLeitura={false}
+          lente="operacao"
+        />
+      </Router>,
+    );
+    expect(html).toContain('href="/fluxos/sub"');
+    expect(html).toContain("Emissão do documento");
+    expect(html).toContain(">8<");
+  });
+
+  it("em só-leitura o convite de detalhar some e o link continua — ler não é escrever", () => {
+    const completo = fluxoDeQuinze();
+    const comEscrita = renderToStaticMarkup(
+      <VisaoJornada
+        completo={completo}
+        catalogo={CATALOGO}
+        etapaSelecionada={null}
+        onSelecionarEtapa={() => undefined}
+        onDetalharEtapa={() => undefined}
+        onEditarCampoDaEtapa={async () => undefined}
+        somenteLeitura={false}
+        lente="operacao"
+      />,
+    );
+    const semEscrita = renderToStaticMarkup(
+      <VisaoJornada
+        completo={completo}
+        catalogo={CATALOGO}
+        etapaSelecionada={null}
+        onSelecionarEtapa={() => undefined}
+        onDetalharEtapa={() => undefined}
+        onEditarCampoDaEtapa={async () => undefined}
+        somenteLeitura
+        lente="operacao"
+      />,
+    );
+    const convites = (html: string) => html.split("Detalhar a etapa").length - 1;
+    expect(convites(comEscrita)).toBe(completo.etapas.length);
+    expect(convites(semEscrita)).toBe(0);
+  });
+
+  it("o painel oferece detalhar quando não há subfluxo, e abrir quando há", () => {
+    const etapaQualquer = fluxoDeQuinze().etapas[3];
+    const semDetalhe = renderToStaticMarkup(
+      <PainelDaEtapa
+        etapa={etapaQualquer}
+        catalogo={CATALOGO}
+        podeEditar
+        onEditar={() => undefined}
+        onSeguinte={() => undefined}
+        onExcluir={() => undefined}
+        onFechar={() => undefined}
+        onDetalhar={() => undefined}
+      />,
+    );
+    expect(semDetalhe).toContain("Detalhar num subfluxo");
+
+    const comDetalhe = renderToStaticMarkup(
+      <Router ssrPath="/fluxos/f">
+      <PainelDaEtapa
+        etapa={{ ...etapaQualquer, subfluxoId: "sub" }}
+        catalogo={CATALOGO}
+        podeEditar
+        onEditar={() => undefined}
+        onSeguinte={() => undefined}
+        onExcluir={() => undefined}
+        onFechar={() => undefined}
+        onDetalhar={() => undefined}
+        onDesligarSubfluxo={() => undefined}
+        subfluxo={{
+          id: "sub",
+          nome: "Emissão do documento",
+          slug: "emissao-do-documento",
+          categoria: "Faturamento",
+          status: "RASCUNHO",
+          etapas: 8,
+        }}
+      />
+      </Router>,
+    );
+    expect(comDetalhe).toContain('href="/fluxos/sub"');
+    expect(comDetalhe).toContain("8 etapas");
+    /*
+      Desfazer a ligação, e não excluir: o botão do painel de uma etapa não pode
+      destruir um processo inteiro que pode ter dez etapas escritas.
+    */
+    expect(comDetalhe).toContain("Desfazer a ligação");
+    expect(comDetalhe).not.toContain("Detalhar num subfluxo");
+  });
+
+  it("a página liga o detalhar de verdade — nas visualizações e no painel", () => {
+    /*
+      O caso que este teste existe para não voltar: o cartão sabia oferecer o
+      detalhe, o painel sabia oferecer, a escrita existia e a mutação existia —
+      e mesmo assim não havia ícone nenhum na tela, porque a página nunca
+      passava `onDetalharEtapa` para as visualizações nem `onDetalhar` para o
+      painel. Com as pontas soltas, `podeDetalhar` era falso em todo cartão e o
+      recurso inteiro ficava invisível sem que nada quebrasse.
+
+      Por isso a cobrança é no texto-fonte da página: é lá, e só lá, que as
+      pontas se encontram.
+    */
+    const raiz = path.resolve(import.meta.dirname, "..", "..");
+    const pagina = readFileSync(path.join(raiz, "pages/fluxo.tsx"), "utf8");
+    expect(pagina).toMatch(/escritas\.detalharEtapa\(/);
+    expect(pagina).toMatch(/onDetalharEtapa=\{aoDetalharEtapa\}/);
+    expect(pagina).toMatch(/detalhando=\{detalhandoAgora\}/);
+    expect(pagina).toMatch(/onDetalhar=\{/);
+    expect(pagina).toMatch(/onDesligarSubfluxo=\{/);
+  });
+
+  it("na Jornada o ícone fica no canto de cima à direita do cartão", () => {
+    /*
+      O canto é o pedido, e é o que faz o ícone ser achado: no mesmo lugar em
+      todos os cartões, e não na altura em que o texto de cada um terminou.
+    */
+    const base = fluxoDeQuinze();
+    const html = renderToStaticMarkup(
+      <Router ssrPath="/fluxos/f">
+        <VisaoJornada
+          completo={base}
+          catalogo={CATALOGO}
+          etapaSelecionada={null}
+          onSelecionarEtapa={() => undefined}
+          onEditarCampoDaEtapa={async () => undefined}
+          somenteLeitura={false}
+          lente="documentacao"
+          onDetalharEtapa={() => undefined}
+        />
+      </Router>,
+    );
+    expect(html).toContain("Detalhar a etapa");
+    expect(html).toMatch(/class="[^"]*absolute right-2 top-2/);
+  });
+
+  it("subfluxoDaEtapa tolera a projeção sem a lista — e não inventa detalhe", () => {
+    const semLista = fluxoDeQuinze();
+    expect(subfluxoDaEtapa(semLista, { subfluxoId: "sub" })).toBeNull();
+    expect(subfluxoDaEtapa(semLista, { subfluxoId: null })).toBeNull();
+  });
+
   it("o Tab anda uma célula por vez e para nas pontas", () => {
     const celulas = ["a", "b", "c"];
     expect(vizinhaNaOrdem(celulas, "a", 1)).toBe("b");
@@ -1075,10 +1254,15 @@ describe("caso 9 — a Lista edita na célula, e só onde a edição é verdade"
       coluna nova de todo mundo, em silêncio, porque a rota é substituição.
 
       As três listas ficam de fora por contrato: itens, indicadores e ações têm
-      caminho próprio no servidor e não entram neste PUT.
+      caminho próprio no servidor e não entram neste PUT. `subfluxoId` fica de
+      fora pela mesma razão — quem o grava é `PUT …/subfluxo` e
+      `POST …/detalhar`, e o `paraColunasDeEtapa` do servidor não o inclui, de
+      modo que gravar a etapa inteira **preserva** a ligação em vez de apagá-la.
+      Mandá-lo aqui faria o caminho da célula desfazer um detalhamento sem que
+      ninguém tivesse pedido.
     */
     const completa = etapa({ id: "e1", nome: "Etapa" });
-    const forasDoCorpo = ["id", "fluxoId", "itens", "indicadores", "acoes"];
+    const forasDoCorpo = ["id", "fluxoId", "itens", "indicadores", "acoes", "subfluxoId"];
     const gravaveis = Object.keys(completa).filter((c) => !forasDoCorpo.includes(c));
     expect(Object.keys(corpoDaEtapa(completa)).sort()).toEqual(gravaveis.sort());
   });

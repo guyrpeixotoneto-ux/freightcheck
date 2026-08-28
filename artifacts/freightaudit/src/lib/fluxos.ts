@@ -96,6 +96,8 @@ export interface Etapa {
   posX: number;
   posY: number;
   chaveMonitoramento: string | null;
+  /** O fluxo que detalha esta etapa, quando existe — ver `subfluxos` abaixo. */
+  subfluxoId: string | null;
   itens: ItemDaEtapa[];
   indicadores: IndicadorDaEtapa[];
   acoes: AcaoDaEtapa[];
@@ -111,10 +113,59 @@ export interface Conexao {
   ordem: number;
 }
 
+/** O cabeçalho de um subfluxo — o que o cartão da etapa detalhada mostra. */
+export interface ResumoDeSubfluxo {
+  id: string;
+  nome: string;
+  slug: string;
+  categoria: string;
+  status: string;
+  etapas: number;
+}
+
+/** Um degrau do caminho de volta — o fluxo pai e a etapa que trouxe até aqui. */
+export interface DegrauDaTrilha {
+  fluxoId: string;
+  fluxoNome: string;
+  etapaId: string;
+  etapaNome: string;
+}
+
 export interface FluxoCompleto {
   fluxo: Fluxo;
   etapas: Etapa[];
   conexoes: Conexao[];
+  /*
+    Os dois campos do subfluxo são **opcionais aqui e obrigatórios no
+    servidor**, e a diferença é deliberada: uma projeção montada à mão — num
+    teste, numa exportação — continua sendo um `FluxoCompleto` legítimo sem
+    saber que subfluxo existe, e quem lê os campos já trata a ausência como
+    "não tem detalhe". Exigi-los na tela obrigaria dezenas de objetos de teste
+    a declarar duas listas vazias para provar coisas sobre desenho.
+  */
+  /** Um por `subfluxoId` distinto das etapas acima. Use `subfluxoDaEtapa`. */
+  subfluxos?: ResumoDeSubfluxo[];
+  /** De onde este fluxo é detalhe — vazio quando ele é raiz. */
+  trilha?: DegrauDaTrilha[];
+}
+
+/**
+ * O subfluxo de uma etapa, resolvido contra a lista que veio junto.
+ *
+ * A etapa guarda a referência e o fluxo carrega os cabeçalhos: quem desenha um
+ * cartão pergunta aqui em vez de procurar na lista, e nenhuma visão precisa
+ * saber que a resolução é um `find`.
+ *
+ * Tolera `subfluxos` ausente de propósito — uma resposta de servidor antigo,
+ * ou um `FluxoCompleto` montado à mão num teste, devolve "não tem detalhe" em
+ * vez de quebrar o cartão inteiro.
+ */
+export function subfluxoDaEtapa(
+  completo: Pick<FluxoCompleto, "subfluxos"> | null | undefined,
+  etapa: Pick<Etapa, "subfluxoId">,
+): ResumoDeSubfluxo | null {
+  if (!etapa.subfluxoId) return null;
+  return completo?.subfluxos?.find((s) => s.id === etapa.subfluxoId) ?? null;
 }
 
 export interface EntradaDoCatalogo {
@@ -146,7 +197,8 @@ export interface ModeloNoCatalogo {
   nome: string;
   categoria: string;
   resumo: string;
-  semeado: boolean;
+  /** É o processo já levantado da empresa (entra na lista sozinho)? */
+  jaMapeado: boolean;
   etapas: number;
 }
 
@@ -608,6 +660,15 @@ export const escritas = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(corpo),
     }),
+  /*
+    Semear os processos que a empresa já tem mapeados — o que a lista vazia
+    pede uma vez, sem botão. Quem decide o que entra é o servidor: a tela não
+    tem, e não deve ter, a lista do que é mapa da empresa e do que é exemplo.
+  */
+  semearJaMapeados: (empresaId: string | null) =>
+    fetchJson<{ empresaId: string; fluxos: Fluxo[] }>(comEmpresa("/fluxos/semear", empresaId), {
+      method: "POST",
+    }),
   criarDeModelo: (empresaId: string | null, modelo: string) =>
     fetchJson<Fluxo>(comEmpresa("/fluxos/de-modelo", empresaId), {
       method: "POST",
@@ -688,6 +749,34 @@ export const escritas = {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ posicoes }),
+    }),
+  /*
+    Detalhar a etapa — o fluxo do detalhe nasce e já fica ligado.
+
+    Duas escritas separadas para dois pedidos diferentes, como no servidor:
+    `detalharEtapa` cria, `ligarSubfluxo` aponta para um fluxo que já existe.
+    Uma função só, decidindo pelo corpo, esconderia qual das duas aconteceu.
+  */
+  detalharEtapa: (empresaId: string | null, fluxoId: string, etapaId: string, nome?: string) =>
+    fetchJson<Fluxo>(comEmpresa(`/fluxos/${fluxoId}/etapas/${etapaId}/detalhar`, empresaId), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ nome: nome ?? null }),
+    }),
+  ligarSubfluxo: (
+    empresaId: string | null,
+    fluxoId: string,
+    etapaId: string,
+    subfluxoId: string,
+  ) =>
+    fetchJson<Etapa>(comEmpresa(`/fluxos/${fluxoId}/etapas/${etapaId}/subfluxo`, empresaId), {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ subfluxoId }),
+    }),
+  desligarSubfluxo: (empresaId: string | null, fluxoId: string, etapaId: string) =>
+    fetchJson<Etapa>(comEmpresa(`/fluxos/${fluxoId}/etapas/${etapaId}/subfluxo`, empresaId), {
+      method: "DELETE",
     }),
   criarConexao: (empresaId: string | null, fluxoId: string, corpo: unknown) =>
     fetchJson<Conexao>(comEmpresa(`/fluxos/${fluxoId}/conexoes`, empresaId), {

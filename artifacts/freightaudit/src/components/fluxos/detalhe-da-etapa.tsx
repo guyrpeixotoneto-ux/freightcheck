@@ -1,7 +1,7 @@
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { PainelDaEtapa } from "@/components/fluxos/painel-da-etapa";
-import type { Catalogo, Etapa } from "@/lib/fluxos";
+import type { Catalogo, Etapa, ResumoDeSubfluxo } from "@/lib/fluxos";
 import type { DiagnosticoDaEtapa } from "@/lib/fluxos-analise";
 
 /**
@@ -30,6 +30,10 @@ export function DetalheDaEtapa({
   onSeguinte,
   onExcluir,
   onFechar,
+  subfluxo,
+  onDetalhar,
+  onDesligarSubfluxo,
+  detalhando,
 }: {
   etapa: Etapa;
   catalogo: Catalogo | undefined;
@@ -39,6 +43,10 @@ export function DetalheDaEtapa({
   onSeguinte: () => void;
   onExcluir: () => void;
   onFechar: () => void;
+  subfluxo?: ResumoDeSubfluxo | null;
+  onDetalhar?: () => void;
+  onDesligarSubfluxo?: () => void;
+  detalhando?: boolean;
 }) {
   const noCelular = useIsMobile();
 
@@ -52,6 +60,10 @@ export function DetalheDaEtapa({
       onSeguinte={onSeguinte}
       onExcluir={onExcluir}
       onFechar={onFechar}
+      subfluxo={subfluxo}
+      onDetalhar={onDetalhar}
+      onDesligarSubfluxo={onDesligarSubfluxo}
+      detalhando={detalhando}
     />
   );
 

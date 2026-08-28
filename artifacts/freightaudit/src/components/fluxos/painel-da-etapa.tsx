@@ -5,7 +5,9 @@ import {
   ExternalLink,
   FileText,
   Gauge,
+  GitBranch,
   Hourglass,
+  Loader2,
   Pencil,
   Plus,
   Scale,
@@ -13,7 +15,9 @@ import {
   Server,
   Timer,
   Trash2,
+  Unlink,
   Users,
+  Workflow,
   X,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -25,6 +29,7 @@ import {
   itensPorEspecie,
   type Catalogo,
   type Etapa,
+  type ResumoDeSubfluxo,
 } from "@/lib/fluxos";
 import { severidadeNoCatalogo, type DiagnosticoDaEtapa } from "@/lib/fluxos-analise";
 
@@ -70,6 +75,7 @@ const ICONES: Record<string, typeof Server> = {
   Gauge,
   Search,
   Timer,
+  Workflow,
 };
 
 function Secao({
@@ -107,6 +113,10 @@ export function PainelDaEtapa({
   onSeguinte,
   onExcluir,
   onFechar,
+  subfluxo,
+  onDetalhar,
+  onDesligarSubfluxo,
+  detalhando,
 }: {
   etapa: Etapa;
   catalogo: Catalogo | undefined;
@@ -118,6 +128,13 @@ export function PainelDaEtapa({
   onSeguinte: () => void;
   onExcluir: () => void;
   onFechar: () => void;
+  /** O fluxo que detalha esta etapa, quando existe. */
+  subfluxo?: ResumoDeSubfluxo | null;
+  /** Cria o fluxo do detalhe, já ligado. Ausente, a seção não convida a criar. */
+  onDetalhar?: () => void;
+  /** Desfaz a ligação — o fluxo do detalhe continua existindo. */
+  onDesligarSubfluxo?: () => void;
+  detalhando?: boolean;
 }) {
   const tipo = catalogo?.tiposDeEtapa.find((t) => t.valor === etapa.tipo);
   const status = catalogo?.statusDaEtapa.find((s) => s.valor === etapa.status);
@@ -184,6 +201,73 @@ export function PainelDaEtapa({
       </header>
 
       <div className="divide-y">
+        {/*
+          O SUBFLUXO — primeiro no painel, e antes até do diagnóstico.
+
+          Uma etapa que é um processo inteiro por dentro muda o que todo o resto
+          significa: "quem responde" e "sistema principal" descrevem a casca, e
+          o detalhe está a um clique. Quem abre o painel precisa saber disso
+          antes de ler o resto — depois das oito seções, a informação chegaria
+          tarde.
+
+          Quando não há detalhe, a seção só existe para quem pode criar: em modo
+          de leitura ela sumiria como qualquer outra seção vazia.
+        */}
+        {(subfluxo || (podeEditar && onDetalhar)) && (
+          <Secao titulo="Detalhe desta etapa" icone="Workflow">
+            {subfluxo ? (
+              <div className="space-y-2">
+                <Link
+                  href={`/fluxos/${subfluxo.id}`}
+                  className="flex items-start gap-2 rounded-md border border-primary/30 bg-primary/5 px-3 py-2 transition-colors hover:bg-primary/10"
+                >
+                  <Workflow className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-medium text-foreground">
+                      {subfluxo.nome}
+                    </span>
+                    <span className="block text-xs text-muted-foreground">
+                      {subfluxo.etapas === 0
+                        ? "nenhuma etapa ainda"
+                        : `${subfluxo.etapas} ${subfluxo.etapas === 1 ? "etapa" : "etapas"}`}
+                      {" · "}
+                      {subfluxo.categoria}
+                    </span>
+                  </span>
+                  <ArrowUpRight className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                </Link>
+                {podeEditar && onDesligarSubfluxo && (
+                  /*
+                    "Desfazer a ligação" e não "excluir": o fluxo do detalhe
+                    continua existindo e continua na listagem. Apagar por aqui
+                    faria um botão do painel de uma etapa destruir um processo
+                    inteiro que pode ter dez etapas escritas.
+                  */
+                  <Button variant="ghost" size="sm" onClick={onDesligarSubfluxo}>
+                    <Unlink className="mr-1.5 h-3.5 w-3.5" />
+                    Desfazer a ligação
+                  </Button>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <p className="text-sm text-muted-foreground">
+                  Esta etapa cabe num processo próprio? O detalhe nasce com o nome dela, ligado
+                  aqui, e é um fluxo como qualquer outro.
+                </p>
+                <Button variant="outline" size="sm" disabled={detalhando} onClick={onDetalhar}>
+                  {detalhando ? (
+                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <GitBranch className="mr-1.5 h-3.5 w-3.5" />
+                  )}
+                  Detalhar num subfluxo
+                </Button>
+              </div>
+            )}
+          </Secao>
+        )}
+
         {diagnostico && (
           <Secao titulo="Por que esta etapa está destacada?" icone="AlertTriangle">
             <div className="mb-2 flex items-center gap-2">

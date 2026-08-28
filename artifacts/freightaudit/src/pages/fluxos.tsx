@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useMutation } from "@tanstack/react-query";
 import {
@@ -86,6 +86,43 @@ export default function Fluxos() {
   const visiveis = useMemo(
     () => ordenarPorAtualizacao(filtrarFluxos(fluxos, { busca })),
     [fluxos, busca],
+  );
+
+  /*
+    O que a empresa já mapeou não é sugestão — é o mapa dela, e aparece na
+    lista sozinho.
+
+    "Operação Empurrada" foi levantada em reunião e está cadastrada como dado
+    (`jaMapeado` em `@workspace/fluxos`). Enquanto ela vivia entre os modelos
+    prontos, a tela pedia que alguém "usasse um modelo" para ter de volta o
+    processo que a própria empresa desenhou — e o mapa ficava de fora do lugar
+    onde se procura processo mapeado.
+
+    Então, na primeira lista vazia, a tela pede a semeadura desses — e só
+    desses: quem decide o que é mapa e o que é exemplo é o servidor. A chamada
+    é idempotente pelo slug, e o `pediuSemeadura` impede um segundo pedido no
+    mesmo carregamento; um fluxo arquivado volta a ser o mesmo fluxo, não uma
+    cópia.
+  */
+  const semear = useMutation({
+    mutationFn: () => escritas.semearJaMapeados(empresaId),
+    onSuccess: () => recarregar(),
+  });
+  const pediuSemeadura = useRef(false);
+
+  useEffect(() => {
+    if (empresaId === null || !consulta.isSuccess || pediuSemeadura.current) return;
+    if (fluxos.length > 0) return;
+    pediuSemeadura.current = true;
+    semear.mutate();
+    /* `semear` é estável o bastante: o guarda de execução é o ref, não a lista de dependências. */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [empresaId, consulta.isSuccess, fluxos.length]);
+
+  /* Modelos são ponto de partida; o processo já mapeado da empresa não é oferecido de novo. */
+  const modelosOferecidos = useMemo(
+    () => (catalogo.data?.modelos ?? []).filter((m) => !m.jaMapeado),
+    [catalogo.data],
   );
 
   const doModelo = useMutation({
@@ -176,14 +213,15 @@ export default function Fluxos() {
               </Button>
             </div>
 
-            {consulta.isLoading && (
+            {/* A semeadura do que já está mapeado é parte do carregamento — e não um estado vazio piscando antes dele. */}
+            {(consulta.isLoading || semear.isPending) && (
               <div className="space-y-3">
                 <Skeleton className="h-20 w-full rounded-xl" />
                 <Skeleton className="h-20 w-full rounded-xl" />
               </div>
             )}
 
-            {!consulta.isLoading && visiveis.length === 0 && (
+            {!consulta.isLoading && !semear.isPending && visiveis.length === 0 && (
               <ListaVazia temFluxos={fluxos.length > 0} aoMontarPorTexto={() => setColando(true)} />
             )}
 
@@ -208,11 +246,11 @@ export default function Fluxos() {
               primeiro fluxo, eles viram ruído no fim da lista: quem já mapeou
               sabe que existe "Novo fluxo" ali em cima.
             */}
-            {!consulta.isLoading && fluxos.length === 0 && (catalogo.data?.modelos.length ?? 0) > 0 && (
+            {!consulta.isLoading && !semear.isPending && fluxos.length === 0 && modelosOferecidos.length > 0 && (
               <section className="mt-8">
                 <CabecalhoDaSecao titulo="Comece de um modelo pronto" />
                 <div className="space-y-3">
-                  {(catalogo.data?.modelos ?? []).map((modelo) => (
+                  {modelosOferecidos.map((modelo) => (
                     <LinhaDoModelo
                       key={modelo.slug}
                       modelo={modelo}

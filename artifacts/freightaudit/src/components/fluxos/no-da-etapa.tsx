@@ -2,6 +2,7 @@ import { memo } from "react";
 import { Handle, Position, useStore, type NodeProps } from "@xyflow/react";
 import { AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { MarcaDeSubfluxo } from "@/components/fluxos/marca-de-subfluxo";
 import { severidadeNoCatalogo } from "@/lib/fluxos-analise";
 import type { DadosDoNo } from "@/lib/fluxos-canvas";
 
@@ -49,7 +50,14 @@ export const NoDaEtapa = memo(function NoDaEtapa({
   data,
   selected,
 }: NodeProps & { data: DadosDoNo }) {
-  const { resumo, tipo, variante = "completo", numero = null, severidade = null } = data;
+  const {
+    resumo,
+    tipo,
+    variante = "completo",
+    numero = null,
+    severidade = null,
+    subfluxo = null,
+  } = data;
   const forma = tipo?.forma ?? "retangulo";
   const compacto = variante === "compacto";
 
@@ -142,6 +150,22 @@ export const NoDaEtapa = memo(function NoDaEtapa({
         <p className="mt-1.5 text-[11px] text-muted-foreground/70">
           {resumo.detalhes} {resumo.detalhes === 1 ? "detalhe" : "detalhes"}
         </p>
+      )}
+
+      {/*
+        A marca do subfluxo — no canvas ela é só o caminho de ida, e por isso
+        `podeDetalhar` é falso aqui.
+
+        Criar um detalhe a partir do desenho não cabe no cartão: ele já carrega
+        alça de conexão nas quatro laterais e o gesto de arrastar, e um botão
+        que nasce debaixo do cursor no meio de uma ligação é um clique errado
+        esperando para acontecer. Quem quer detalhar clica no cartão e usa o
+        painel — o mesmo painel das seis visualizações.
+      */}
+      {subfluxo && (
+        <div className="mt-1.5 flex">
+          <MarcaDeSubfluxo subfluxo={subfluxo} nomeDaEtapa={resumo.nome} podeDetalhar={false} />
+        </div>
       )}
 
       <Handle

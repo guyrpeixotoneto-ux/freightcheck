@@ -516,6 +516,151 @@ describe("nenhuma rota permite quebrar o isolamento", () => {
   });
 });
 
+describe("o subfluxo — a etapa que é um processo inteiro por dentro", () => {
+  let pai: string;
+  let etapaPai: string;
+  let detalhe: string;
+
+  beforeAll(async () => {
+    const criado = await post(`/api/fluxos?empresaId=${empresaA}`, {
+      nome: "Operação empurrada",
+      categoria: "Faturamento",
+      dono: "Operação",
+    });
+    pai = criado.json.id as string;
+    const etapa = await post(`/api/fluxos/${pai}/etapas?empresaId=${empresaA}`, {
+      nome: "Emissão do documento",
+      objetivo: "Emitir o CTe no Unidox",
+    });
+    etapaPai = etapa.json.id as string;
+  });
+
+  it("detalhar cria o fluxo com o nome da etapa e já o liga", async () => {
+    const r = await post(`/api/fluxos/${pai}/etapas/${etapaPai}/detalhar?empresaId=${empresaA}`, {});
+    expect(r.status).toBe(201);
+    detalhe = r.json.id as string;
+
+    /* Nasce RASCUNHO e herda categoria e dono do pai — não é uma tela nova de cadastro. */
+    expect(r.json).toMatchObject({
+      nome: "Emissão do documento",
+      categoria: "Faturamento",
+      dono: "Operação",
+      status: "RASCUNHO",
+      objetivo: "Emitir o CTe no Unidox",
+    });
+
+    const completo = await chamar(`/api/fluxos/${pai}?empresaId=${empresaA}`);
+    const etapas = completo.json.etapas as { id: string; subfluxoId: string | null }[];
+    expect(etapas.find((e) => e.id === etapaPai)?.subfluxoId).toBe(detalhe);
+    /* O cabeçalho do detalhe vem junto na leitura do pai: o cartão não faz uma ida por etapa. */
+    expect(completo.json.subfluxos).toEqual([
+      expect.objectContaining({ id: detalhe, nome: "Emissão do documento", etapas: 0 }),
+    ]);
+  });
+
+  it("o detalhe sabe de onde veio — a trilha vem na leitura dele", async () => {
+    const r = await chamar(`/api/fluxos/${detalhe}?empresaId=${empresaA}`);
+    expect(r.json.trilha).toEqual([
+      {
+        fluxoId: pai,
+        fluxoNome: "Operação empurrada",
+        etapaId: etapaPai,
+        etapaNome: "Emissão do documento",
+      },
+    ]);
+    /* O pai é raiz: a trilha dele é vazia, e o cabeçalho não mostra linha nenhuma. */
+    const doPai = await chamar(`/api/fluxos/${pai}?empresaId=${empresaA}`);
+    expect(doPai.json.trilha).toEqual([]);
+  });
+
+  it("detalhar duas vezes a mesma etapa é 400 — o segundo detalhe seria órfão", async () => {
+    const r = await post(`/api/fluxos/${pai}/etapas/${etapaPai}/detalhar?empresaId=${empresaA}`, {});
+    /*
+      O corpo de uma recusa nomeada leva a **frase** do domínio em `error` — o
+      `code` é o genérico do contrato, como nos outros casos deste arquivo. É a
+      frase que a tela mostra, e por isso é ela que o teste prende.
+    */
+    expect(r.status).toBe(400);
+    expect(String(r.json.error)).toContain("já tem um subfluxo");
+  });
+
+  it("o endereço do segundo detalhe com o mesmo nome não colide", async () => {
+    const outra = await post(`/api/fluxos/${pai}/etapas?empresaId=${empresaA}`, {
+      nome: "Emissão do documento",
+    });
+    const r = await post(
+      `/api/fluxos/${pai}/etapas/${outra.json.id as string}/detalhar?empresaId=${empresaA}`,
+      {},
+    );
+    expect(r.status).toBe(201);
+    expect(r.json.slug).toBe("emissao-do-documento-2");
+  });
+
+  it("ligar a um ancestral é recusado — o ciclo quebra a trilha, não o banco", async () => {
+    const etapaDoDetalhe = await post(`/api/fluxos/${detalhe}/etapas?empresaId=${empresaA}`, {
+      nome: "Passo de dentro",
+    });
+    const r = await put(
+      `/api/fluxos/${detalhe}/etapas/${etapaDoDetalhe.json.id as string}/subfluxo?empresaId=${empresaA}`,
+      { subfluxoId: pai },
+    );
+    expect(r.status).toBe(400);
+    expect(String(r.json.error)).toContain("volta sem fim");
+  });
+
+  it("detalhar a etapa de outra empresa é 404, e ligar o fluxo de outra empresa também", async () => {
+    const daB = await post(`/api/fluxos?empresaId=${empresaB}`, {
+      nome: "Processo da B",
+      categoria: "Reservado",
+    });
+    const r = await post(
+      `/api/fluxos/${pai}/etapas/${etapaPai}/detalhar?empresaId=${empresaB}`,
+      {},
+    );
+    expect(r.status).toBe(404);
+
+    const ligar = await put(
+      `/api/fluxos/${pai}/etapas/${etapaPai}/subfluxo?empresaId=${empresaA}`,
+      { subfluxoId: daB.json.id },
+    );
+    expect(ligar.status).toBe(404);
+  });
+
+  it("desfazer a ligação deixa o detalhe de pé — ele some da etapa, não do banco", async () => {
+    const r = await chamar(
+      `/api/fluxos/${pai}/etapas/${etapaPai}/subfluxo?empresaId=${empresaA}`,
+      { method: "DELETE" },
+    );
+    expect(r.status).toBe(200);
+    expect(r.json.subfluxoId).toBeNull();
+
+    const aindaExiste = await chamar(`/api/fluxos/${detalhe}?empresaId=${empresaA}`);
+    expect(aindaExiste.status).toBe(200);
+    expect(aindaExiste.json.trilha).toEqual([]);
+
+    /* E ligar de volta é o outro caminho, sem criar nada. */
+    const religado = await put(
+      `/api/fluxos/${pai}/etapas/${etapaPai}/subfluxo?empresaId=${empresaA}`,
+      { subfluxoId: detalhe },
+    );
+    expect(religado.status).toBe(200);
+    expect(religado.json.subfluxoId).toBe(detalhe);
+  });
+
+  it("gravar a etapa inteira NÃO desfaz a ligação — o PUT de etapa não conhece a coluna", async () => {
+    const antes = await chamar(`/api/fluxos/${pai}?empresaId=${empresaA}`);
+    const etapa = (antes.json.etapas as { id: string; nome: string }[]).find(
+      (e) => e.id === etapaPai,
+    )!;
+    const r = await put(`/api/fluxos/${pai}/etapas/${etapaPai}?empresaId=${empresaA}`, {
+      nome: etapa.nome,
+      area: "Faturamento",
+    });
+    expect(r.status).toBe(200);
+    expect(r.json.subfluxoId).toBe(detalhe);
+  });
+});
+
 describe("importar uma declaração inteira", () => {
   it("cria fluxo, etapas e conexões numa chamada", async () => {
     const r = await post(`/api/fluxos/importar?empresaId=${empresaA}`, {

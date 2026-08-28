@@ -30,6 +30,7 @@ function etapa(id: string, ordem: number, posX = 0, posY = 0): Etapa {
     posX,
     posY,
     chaveMonitoramento: null,
+    subfluxoId: null,
     itens: [],
     indicadores: [],
     acoes: [],
