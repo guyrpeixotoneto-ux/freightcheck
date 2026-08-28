@@ -4,6 +4,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { PainelDaEtapa } from "@/components/fluxos/painel-da-etapa";
+import { VisaoJornada } from "@/components/fluxos/visao-jornada";
 import { VisaoLista, vizinhaNaOrdem } from "@/components/fluxos/visao-lista";
 import { montarProjecao } from "@/lib/fluxos-canvas";
 import {
@@ -727,6 +728,66 @@ describe("a Jornada lê o mesmo caminho por uma lente de cada vez", () => {
     expect(valores(1, "informacoes")).toContain("Origem da tarifa");
     expect(valores(1, "informacoes")).toContain("Fechamento");
     expect(valores(1, "informacoes")).toContain("CT-e conferidos (%)");
+  });
+
+  /*
+    Os dois testes acima provam a lente na função pura. Este prova o que quem
+    usa de fato vê: o **cartão renderizado** muda de conteúdo ao trocar o tipo
+    de jornada. É a diferença entre `cartaoDaJornada` estar certo e a Jornada
+    estar passando a lente adiante — um `lente` esquecido no caminho entre o
+    seletor e o cartão deixaria os dois primeiros testes verdes e a tela parada.
+  */
+  it("trocar o tipo de jornada troca o que o cartão mostra na tela", () => {
+    const completo = fluxoDeTres();
+    const html = (lente: Parameters<typeof cartaoDaJornada>[1]) =>
+      renderToStaticMarkup(
+        <VisaoJornada
+          completo={completo}
+          catalogo={CATALOGO}
+          etapaSelecionada={null}
+          onSelecionarEtapa={() => undefined}
+          somenteLeitura
+          onEditarCampoDaEtapa={async () => undefined}
+          lente={lente}
+        />,
+      );
+
+    const operacao = html("operacao");
+    const documentacao = html("documentacao");
+    const falhas = html("falhas");
+    const gargalos = html("gargalos");
+    const informacoes = html("informacoes");
+
+    /* A operação mostra quem, onde e em quanto tempo — e só isso. */
+    expect(operacao).toContain("Operação · Faturamento");
+    expect(operacao).toContain("4 horas");
+    expect(operacao).not.toContain("CT-e sem XML");
+
+    expect(documentacao).toContain("Garantir que a tarifa aplicada é a vigente.");
+    expect(documentacao).toContain("Tabela vigente");
+
+    expect(falhas).toContain("CT-e sem XML");
+    expect(falhas).not.toContain("Conferência manual");
+
+    expect(gargalos).toContain("Conferência manual");
+    expect(gargalos).not.toContain("CT-e sem XML");
+
+    expect(informacoes).toContain("CT-e conferidos (%)");
+
+    /* Cinco lentes, cinco leituras: nenhuma repete a de outra. */
+    expect(new Set([operacao, documentacao, falhas, gargalos, informacoes]).size).toBe(5);
+
+    /*
+      E o que a lente troca é só o miolo: a sequência, a numeração e os nomes
+      continuam os mesmos em todas.
+    */
+    for (const saida of [operacao, documentacao, falhas, gargalos, informacoes]) {
+      expect(saida).toContain("Origem da tarifa");
+      expect(saida).toContain("Auditoria fiscal");
+      expect(saida).toContain("Fechamento");
+      expect(saida).toContain("01");
+      expect(saida).toContain("03");
+    }
   });
 
   it("o que não foi cadastrado é ausência declarada, nunca um valor inventado", () => {
