@@ -7,7 +7,6 @@ import {
   HardHat,
   History,
   Plug,
-  Settings2,
   Shield,
   SquareActivity,
   SquareTerminal,
@@ -345,30 +344,6 @@ export const TELAS_EM_PREPARO: TelaEmPreparo[] = [
   // -------------------------------------------------------------------------
   // Administração
   // -------------------------------------------------------------------------
-  {
-    href: "/ajustes",
-    label: "Configurações",
-    icon: Settings2,
-    cor: "text-nav-admin",
-    pergunta:
-      "Os ajustes que valem para a instalação inteira: moeda, fuso, casas decimais, limiares e o que cada tela assume por padrão.",
-    depende: [
-      "Os ajustes como dado no banco, e não como constante no código. Hoje cada padrão está escrito onde é usado, o que é honesto e não é configurável.",
-      "O registro de quem mudou cada ajuste e quando: mexer num limiar muda o que todas as telas afirmam, e isso é decisão auditável.",
-    ],
-    hoje: [
-      {
-        href: "/unidades",
-        label: "Unidades",
-        porque: "Que unidades existem — o cadastro que os ajustes da instalação também vão precisar.",
-      },
-      {
-        href: "/configuracoes",
-        label: "Usuários",
-        porque: "A administração que já existe: quem pode entrar, e em nome de quem cada ação fica.",
-      },
-    ],
-  },
   {
     href: "/integracoes",
     label: "Integrações",

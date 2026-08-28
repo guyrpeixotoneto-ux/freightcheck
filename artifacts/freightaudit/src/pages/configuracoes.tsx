@@ -12,6 +12,8 @@ import {
   UserPlus,
 } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { PainelDeUnidades } from "@/pages/unidades";
 import { ApiErrorNotice } from "@/components/api-error";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -23,7 +25,19 @@ import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
 /**
- * Configurações — quem tem acesso, e a sua própria senha.
+ * Configurações — a casa inteira numa tela só: unidades e acesso.
+ *
+ * Eram três entradas na Administração — Unidades, Usuários e uma
+ * "Configurações" que não existia (apontava para `/ajustes`, uma tela em
+ * preparo). A terceira saiu do menu com o seu verbete do catálogo, e as duas
+ * que restaram viraram abas daqui: quem abre a casa quer o cadastro *ou* o
+ * acesso, e escolher entre dois itens de menu para isso é um passo que a aba
+ * resolve sem tirar ninguém do lugar.
+ *
+ * `/unidades` continua sendo endereço válido — está em link compartilhado e no
+ * "voltar para a casa" de `lib/ambiente-aberto.ts` — e abre esta mesma tela com
+ * a aba Unidades já aberta. É a razão de `abaInicial` existir: a rota escolhe a
+ * aba, e nenhum link antigo cai no vazio.
  *
  * Esta tela existe porque o login existe: a partir do momento em que entrar é
  * necessário, dar e tirar acesso vira trabalho do produto, e trabalho de
@@ -65,7 +79,11 @@ function post(path: string, body?: unknown): Promise<unknown> {
   });
 }
 
-export default function Configuracoes() {
+export default function Configuracoes({
+  abaInicial = "usuarios",
+}: {
+  abaInicial?: "unidades" | "usuarios";
+}) {
   const { user: me } = useAuth();
   const { data: users = [], isLoading, error } = useQuery({
     queryKey: ["users"],
@@ -82,55 +100,69 @@ export default function Configuracoes() {
           Configurações
         </h1>
         <p className="text-muted-foreground mt-1 max-w-3xl">
-          Quem pode entrar no FreightCheck. Todo acesso dado aqui fica no nome de
-          quem o deu, e é esse nome que assina cada confirmação de curadoria e
-          cada promoção de vigência feita pela pessoa.
+          A casa do produto: as unidades que existem e quem pode entrar. Todo
+          acesso dado aqui fica no nome de quem o deu, e é esse nome que assina
+          cada confirmação de curadoria e cada promoção de vigência feita pela
+          pessoa.
         </p>
       </header>
 
-      {error && (
-        <div className="px-8 pt-6">
-          <ApiErrorNotice
-            error={error}
-            what="A lista de contas não pôde ser carregada."
-          />
-        </div>
-      )}
+      <Tabs defaultValue={abaInicial} className="p-8 space-y-6">
+        <TabsList>
+          <TabsTrigger value="unidades">Unidades</TabsTrigger>
+          <TabsTrigger value="usuarios">Usuários</TabsTrigger>
+        </TabsList>
 
-      <div className="p-8 space-y-6 max-w-5xl">
-        {me?.role === "ADMIN" ? (
-          <NewUserCard />
-        ) : (
-          <p className="text-sm text-muted-foreground">
-            Somente administradores criam contas, desativam acesso e redefinem
-            senha. A sua conta é de operador — peça a um administrador.
-          </p>
-        )}
+        <TabsContent value="unidades" className="mt-0">
+          <PainelDeUnidades />
+        </TabsContent>
 
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">Pessoas com acesso</CardTitle>
-            <p className="text-xs text-muted-foreground">
-              {isLoading
-                ? "Carregando…"
-                : `${active} ativa(s) de ${users.length} conta(s).`}
+        <TabsContent value="usuarios" className="mt-0 space-y-6 max-w-5xl">
+          {/*
+            O aviso de falha é da aba, e não da tela: um erro ao carregar as
+            contas não diz nada sobre o cadastro de unidades, e mostrá-lo no
+            topo faria um pintar o outro de vermelho.
+          */}
+          {error && (
+            <ApiErrorNotice
+              error={error}
+              what="A lista de contas não pôde ser carregada."
+            />
+          )}
+          {me?.role === "ADMIN" ? (
+            <NewUserCard />
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Somente administradores criam contas, desativam acesso e redefinem
+              senha. A sua conta é de operador — peça a um administrador.
             </p>
-          </CardHeader>
-          <CardContent className="p-0">
-            {users.map((user) => (
-              <UserRow key={user.id} user={user} />
-            ))}
-            {!isLoading && users.length === 0 && (
-              <p className="px-6 py-8 text-center text-sm text-muted-foreground">
-                Nenhuma conta — o que não deveria ser possível, já que você está
-                logado com uma.
-              </p>
-            )}
-          </CardContent>
-        </Card>
+          )}
 
-        <MyPasswordCard />
-      </div>
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Pessoas com acesso</CardTitle>
+              <p className="text-xs text-muted-foreground">
+                {isLoading
+                  ? "Carregando…"
+                  : `${active} ativa(s) de ${users.length} conta(s).`}
+              </p>
+            </CardHeader>
+            <CardContent className="p-0">
+              {users.map((user) => (
+                <UserRow key={user.id} user={user} />
+              ))}
+              {!isLoading && users.length === 0 && (
+                <p className="px-6 py-8 text-center text-sm text-muted-foreground">
+                  Nenhuma conta — o que não deveria ser possível, já que você está
+                  logado com uma.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+
+          <MyPasswordCard />
+        </TabsContent>
+      </Tabs>
     </Layout>
   );
 }

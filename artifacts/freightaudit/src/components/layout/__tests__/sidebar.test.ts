@@ -450,7 +450,10 @@ describe("o catálogo de telas em preparo", () => {
     `/contestacao`, `/reconciliacao` e `/risco-materialidade` — saíram por outra
     razão, e é a única baixa deste número que não é uma tela entregue: os itens
     delas saíram do menu (`nav-auditoria.ts`), e uma tela em preparo sem item
-    que a alcance é catálogo que ninguém lê. As rotas passaram a ser `<Route>` de
+    que a alcance é catálogo que ninguém lê. `/ajustes` — os ajustes da
+    instalação — saiu pela mesma razão: o item de Configurações que a alcançava
+    deixou o menu da Administração, e o nome passou a designar a tela que existe
+    (`/configuracoes`, com Unidades e Usuários em abas). As rotas passaram a ser `<Route>` de
     verdade em `App.tsx`, e o teste acima, o dos órfãos, garante que nenhum item do
     menu ficou apontando para o vazio na troca. Baixá-lo aqui é o último passo
     de entregar uma tela; subi-lo sem acrescentar `pergunta` e `depende` é o que
@@ -460,7 +463,7 @@ describe("o catálogo de telas em preparo", () => {
     const catalogo = fonte("pages/telas-em-preparo.ts");
     const telas = [...catalogo.matchAll(/^\s{4}href:\s*"([^"]+)"/gm)].length;
 
-    expect(telas).toBe(13);
+    expect(telas).toBe(12);
     expect([...catalogo.matchAll(/^\s{4}depende:\s*\[/gm)]).toHaveLength(telas);
     expect([...catalogo.matchAll(/^\s{4}pergunta:/gm)]).toHaveLength(telas);
   });
