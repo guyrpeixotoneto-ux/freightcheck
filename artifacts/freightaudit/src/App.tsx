@@ -462,10 +462,11 @@ function RotasDaAuditoria() {
         rota não é cortesia — é o endereço que `lib/ambiente-aberto.ts` usa como
         "a casa" e que está em links já compartilhados.
 
-        As quatro seções que o banco ainda não sustenta — Minha Empresa,
-        Cargos, Negócio e Departamento — não têm `<Route>` aqui: elas vêm do
-        catálogo de telas em preparo, mais abaixo, e é de lá que saem no dia em
-        que existirem.
+        Minha Empresa é a única seção que o banco ainda não sustenta, e por
+        isso não tem `<Route>` aqui: ela vem do catálogo de telas em preparo,
+        mais abaixo. Cargos, Negócio e Departamento eram três outras e saíram
+        de lá quando o cadastro nasceu — que é exatamente o movimento que o
+        catálogo descreve.
       */}
       <Route path="/unidades">
         <Configuracoes secao="unidades" />
@@ -481,6 +482,20 @@ function RotasDaAuditoria() {
       </Route>
       <Route path="/configuracoes/perfil">
         <Configuracoes secao="perfil" />
+      </Route>
+      {/*
+        Cargos, Negócio e Departamento saíram de `TELAS_EM_PREPARO` quando o
+        cadastro da casa nasceu — o passo final descrito lá: some do catálogo, e
+        a rota passa a apontar para a tela de verdade. O menu não mudou.
+      */}
+      <Route path="/configuracoes/cargos">
+        <Configuracoes secao="cargos" />
+      </Route>
+      <Route path="/configuracoes/negocio">
+        <Configuracoes secao="negocio" />
+      </Route>
+      <Route path="/configuracoes/departamento">
+        <Configuracoes secao="departamento" />
       </Route>
       {/*
         Processos → Fluxos Operacionais. A rota do fluxo aberto vem depois da

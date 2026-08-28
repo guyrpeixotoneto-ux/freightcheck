@@ -5,6 +5,11 @@ import { PainelDeUnidades } from "@/pages/unidades";
 import { IndiceDeConfiguracoes } from "@/components/configuracoes/indice";
 import { PainelDeUsuarios } from "@/components/configuracoes/usuarios";
 import { PainelDoPerfil } from "@/components/configuracoes/perfil";
+import {
+  PainelDeCargos,
+  PainelDeDepartamentos,
+  PainelDeNegocios,
+} from "@/components/configuracoes/cadastro-da-casa";
 import { SECOES_GERAIS } from "@/components/configuracoes/secoes";
 
 /**
@@ -21,21 +26,34 @@ import { SECOES_GERAIS } from "@/components/configuracoes/secoes";
  * "voltar para a casa" de `lib/ambiente-aberto.ts` — e abre a seção de
  * Unidades. Nenhum link antigo cai no vazio.
  *
- * As seções que o banco ainda não sustenta não têm caso aqui: elas vivem no
- * catálogo de `pages/telas-em-preparo.ts` e abrem a página que diz o que falta.
- * O índice as lista marcadas — ver `components/configuracoes/secoes.ts`.
+ * Cargos, Negócio e Departamento eram três dessas seções e deixaram de ser: o
+ * cadastro da casa nasceu (`components/configuracoes/cadastro-da-casa.tsx`), as
+ * três saíram do catálogo de `pages/telas-em-preparo.ts` e ganharam caso aqui.
+ * O que ainda não tem caso — Minha Empresa — continua vindo do catálogo e abre
+ * a página que diz o que falta; o índice a lista marcada, ver
+ * `components/configuracoes/secoes.ts`.
  *
  * Toda esta tela é um módulo só para efeito de permissão (`/configuracoes`):
  * `moduloDaLocalizacao` casa por prefixo, então as seções herdam a decisão
  * tomada sobre a casa, sem pedir sete decisões onde havia uma.
  */
 
-type Secao = "indice" | "unidades" | "usuarios" | "perfil";
+type Secao =
+  | "indice"
+  | "unidades"
+  | "usuarios"
+  | "perfil"
+  | "cargos"
+  | "negocio"
+  | "departamento";
 
 const TITULO: Record<Exclude<Secao, "indice">, string> = {
   unidades: "Unidades",
   usuarios: "Usuários",
   perfil: "Meu Perfil",
+  cargos: "Cargos",
+  negocio: "Negócio",
+  departamento: "Departamento",
 };
 
 export default function Configuracoes({ secao = "indice" }: { secao?: Secao }) {
@@ -90,6 +108,15 @@ export default function Configuracoes({ secao = "indice" }: { secao?: Secao }) {
         {secao === "unidades" && <PainelDeUnidades />}
         {secao === "usuarios" && <PainelDeUsuarios />}
         {secao === "perfil" && <PainelDoPerfil />}
+        {/*
+          As três seções que saíram do catálogo de telas em preparo quando o
+          cadastro passou a existir. O menu não mudou uma vírgula: os itens já
+          estavam lá, com o nome certo — o que mudou é que abrir um deles agora
+          cadastra em vez de explicar o que falta.
+        */}
+        {secao === "cargos" && <PainelDeCargos />}
+        {secao === "negocio" && <PainelDeNegocios />}
+        {secao === "departamento" && <PainelDeDepartamentos />}
       </div>
     </Layout>
   );

@@ -41,6 +41,8 @@ const SEM_ACERVO: Record<string, string> = {
   "auth.ts": "sessão e senha — a casa, não o acervo.",
   "users.ts": "usuários — a casa.",
   "unidades.ts": "cadastro de unidades — vale para as quatro operações.",
+  "cadastro.ts":
+    "cargo, departamento e negócio — a casa, como o cadastro de unidades: o organograma da empresa é o mesmo nas quatro operações, e recortá-lo por canal daria quatro empresas.",
   "health.ts": "saúde do processo.",
   "index.ts": "o índice das rotas.",
   "curation.ts": "vocabulário: atributo e significado são globais por código.",

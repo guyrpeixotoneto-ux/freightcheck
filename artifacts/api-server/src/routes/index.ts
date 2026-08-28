@@ -23,6 +23,7 @@ import fechamentoRouter from "./fechamento";
 import qlpRouter from "./qlp";
 import remuneracaoRouter from "./remuneracao";
 import unidadesRouter from "./unidades";
+import cadastroRouter from "./cadastro";
 import comprasRouter from "./compras";
 import justificativasRouter from "./justificativas";
 import trechosRouter from "./trechos";
@@ -199,6 +200,13 @@ router.use(remuneracaoRouter);
   isso que deixou de ser duas identidades. Ver `routes/unidades.ts`.
 */
 router.use(unidadesRouter);
+/*
+  O cadastro da casa — departamento, cargo e negócio. Vem logo depois do
+  cadastro de unidades porque é a mesma família de decisão: coisas que existem
+  na empresa por ato de gente, e não porque uma planilha as nomeou. As três
+  telas eram páginas de "em preparo"; ver `routes/cadastro.ts`.
+*/
+router.use(cadastroRouter);
 router.use(comprasRouter);
 router.use(fechamentoRouter);
 /*

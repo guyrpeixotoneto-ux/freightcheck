@@ -40,14 +40,19 @@ describe("o índice de Configurações", () => {
     const sustentadas = SECOES_GERAIS.filter((s) => !estaEmPreparo(s.href));
 
     /*
-      Três hoje: Meu Perfil, Unidades e Usuários. O número não está aqui para
-      ser conferido — está para cair no dia em que uma seção do catálogo virar
-      tela, que é quando este `expect` obriga a olhar as duas listas juntas.
+      Seis hoje. Eram três — Meu Perfil, Unidades e Usuários — e viraram seis
+      quando o cadastro da casa nasceu e Cargos, Negócio e Departamento saíram
+      do catálogo de telas em preparo. É exatamente o efeito que este `expect`
+      existe para produzir: ele caiu no dia da mudança e obrigou a olhar as duas
+      listas juntas, em vez de deixar o catálogo prometendo o que já existe.
     */
     expect(sustentadas.map((s) => s.href)).toEqual([
       "/configuracoes/perfil",
       "/configuracoes/unidades",
       "/configuracoes/usuarios",
+      "/configuracoes/cargos",
+      "/configuracoes/negocio",
+      "/configuracoes/departamento",
     ]);
     for (const secao of sustentadas) {
       expect(rotasDoApp.has(secao.href)).toBe(true);
