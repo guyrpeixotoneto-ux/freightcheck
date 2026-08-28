@@ -1,6 +1,6 @@
 import type { UseQueryOptions } from "@tanstack/react-query";
 import { fetchJsonOrNull } from "@/lib/api";
-import type { Movimentos } from "@/lib/analise";
+import type { Movimentos, RangeOverview } from "@/lib/analise";
 
 /**
  * A leitura de `/changes/range` da Linha do Tempo — a pergunta, num lugar só.
@@ -40,6 +40,36 @@ export function opcoesDoIntervalo(
   return {
     queryKey: ["changes-range", query.toString()],
     queryFn: () => fetchJsonOrNull<Movimentos>(`/changes/range?${query}`),
+    staleTime: 60_000,
+  };
+}
+
+/**
+ * A mesma pergunta entre todas as unidades — `/changes/range/overview`.
+ *
+ * Vale por três telas: o ranking "Onde está o impacto?" da Linha do Tempo, o
+ * gráfico de impacto por vigência do Dashboard em Visão Geral e a coluna de
+ * alterações do seletor de vigência. As três liam o mesmo intervalo com chaves
+ * próprias — e a de menu, por ser a última a montar, pagava sozinha uma
+ * varredura do histórico que a tela já tinha feito. Com a chave num lugar só,
+ * quem abre o menu encontra a contagem pronta, como no seletor da unidade.
+ *
+ * O intervalo aqui não herda `scopeHash` nem canal de propósito: "todas as
+ * unidades" é a própria pergunta, e só as pontas a recortam.
+ */
+export function opcoesDoIntervaloGeral(
+  de: string | null,
+  ate: string | null,
+): Pick<
+  UseQueryOptions<RangeOverview | null>,
+  "queryKey" | "queryFn" | "staleTime"
+> {
+  const query = new URLSearchParams();
+  if (de) query.set("from", de);
+  if (ate) query.set("to", ate);
+  return {
+    queryKey: ["linha-do-tempo-overview", query.toString()],
+    queryFn: () => fetchJsonOrNull<RangeOverview>(`/changes/range/overview?${query}`),
     staleTime: 60_000,
   };
 }
