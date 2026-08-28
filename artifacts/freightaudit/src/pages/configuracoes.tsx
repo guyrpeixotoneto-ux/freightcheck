@@ -14,6 +14,7 @@ import {
 import { Layout } from "@/components/layout/layout";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PainelDeUnidades } from "@/pages/unidades";
+import { PermissoesCard } from "@/components/configuracoes/permissoes";
 import { ApiErrorNotice } from "@/components/api-error";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -100,10 +101,10 @@ export default function Configuracoes({
           Configurações
         </h1>
         <p className="text-muted-foreground mt-1 max-w-3xl">
-          A casa do produto: as unidades que existem e quem pode entrar. Todo
-          acesso dado aqui fica no nome de quem o deu, e é esse nome que assina
-          cada confirmação de curadoria e cada promoção de vigência feita pela
-          pessoa.
+          A casa do produto: as unidades que existem, quem pode entrar e o que
+          cada pessoa alcança. Todo acesso dado aqui fica no nome de quem o deu,
+          e é esse nome que assina cada confirmação de curadoria e cada promoção
+          de vigência feita pela pessoa.
         </p>
       </header>
 
@@ -159,6 +160,13 @@ export default function Configuracoes({
               )}
             </CardContent>
           </Card>
+
+          {/*
+            Permissões vem depois da lista de contas, e a ordem é a leitura: a
+            pergunta "quem tem acesso" precede "a quê" — escolher a pessoa na
+            caixa abaixo só faz sentido depois de vê-la na lista acima.
+          */}
+          <PermissoesCard pessoas={users} />
 
           <MyPasswordCard />
         </TabsContent>

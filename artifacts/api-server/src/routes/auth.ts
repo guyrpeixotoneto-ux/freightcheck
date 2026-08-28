@@ -15,6 +15,7 @@ import {
   setUserPassword,
   startSession,
 } from "../lib/session";
+import { permissoesDe } from "../lib/permissoes";
 
 /**
  * Entrar, sair, e trocar a própria senha.
@@ -142,7 +143,18 @@ router.get("/auth/session", async (req, res): Promise<void> => {
       ? await resolveSession(db, token)
       : null;
 
-  res.json({ user });
+  /*
+    As permissões vêm junto, e não numa segunda chamada: é a lateral que as
+    consome, e ela é montada antes de qualquer tela. Pedi-las à parte faria o
+    menu aparecer inteiro por um instante e encolher depois — mostrando a quem
+    não tem acesso exatamente o que a decisão tirou dele.
+
+    Só os módulos com decisão tomada aparecem aqui; o resto vale o padrão, que
+    é edição (ver `lib/permissoes.ts`). Sem sessão não há o que responder.
+  */
+  const permissoes = user ? await permissoesDe(db, user.id) : {};
+
+  res.json({ user, permissoes });
 });
 
 router.post("/auth/login", async (req, res): Promise<void> => {

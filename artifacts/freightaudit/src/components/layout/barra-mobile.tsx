@@ -27,6 +27,7 @@ import {
 import type { NavGroup, NavItem } from "./nav";
 import { navGroupsAuditoria } from "./nav-auditoria";
 import { navGroupsFechamento } from "./nav-fechamento";
+import { filtrarGrupos, usePermissoes } from "@/lib/permissoes";
 import { barraMobile, type AtalhoMobile } from "./nav-mobile";
 import { detalheDe, estaAtivo, unidadeDe } from "./sidebar";
 
@@ -303,9 +304,14 @@ function FolhaDoMais({
   enderecoDoItem: (item: NavItem) => string;
 }) {
   const ambiente = useAmbiente();
-  const grupos = ehFechamento(ambiente)
-    ? navGroupsFechamento(BASES_DE_FECHAMENTO[ambiente], descricaoDoAmbiente(ambiente).nome)
-    : navGroupsAuditoria(ambiente);
+  /* O mesmo filtro da lateral, pela mesma razão — ver `sidebar.tsx`. */
+  const { permissoes } = usePermissoes();
+  const grupos = filtrarGrupos(
+    ehFechamento(ambiente)
+      ? navGroupsFechamento(BASES_DE_FECHAMENTO[ambiente], descricaoDoAmbiente(ambiente).nome)
+      : navGroupsAuditoria(ambiente),
+    permissoes,
+  );
 
   return (
     <Drawer open={aberto} onOpenChange={(estado) => !estado && onFechar()}>
