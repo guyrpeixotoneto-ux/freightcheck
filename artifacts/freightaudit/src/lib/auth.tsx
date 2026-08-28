@@ -24,8 +24,19 @@ export interface SessionUser {
   role: string;
 }
 
+/**
+ * O nível de acesso a um módulo. `EDITAR` é o padrão de quem nunca teve uma
+ * decisão tomada a respeito — ver `lib/permissoes.ts`.
+ */
+export type Nivel = "EDITAR" | "VISUALIZAR" | "SEM_ACESSO";
+
 interface SessionState {
   user: SessionUser | null;
+  /**
+   * Só os módulos com decisão tomada. O que não está aqui vale o padrão, e ler
+   * a ausência como bloqueio esvaziaria o menu de quem nunca foi restringido.
+   */
+  permissoes?: Record<string, Nivel>;
 }
 
 export const SESSION_QUERY_KEY = ["auth", "session"] as const;
@@ -50,6 +61,8 @@ interface AuthContextValue {
    * vezes.
    */
   erroDaSessao: unknown;
+  /** As restrições que valem para quem está logado — ver `lib/permissoes.ts`. */
+  permissoes: Record<string, Nivel>;
   login: (input: { email: string; password: string }) => Promise<void>;
   logout: () => Promise<void>;
   isSubmitting: boolean;
@@ -94,7 +107,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(input),
       }),
-    onSuccess: ({ user }) => replaceSession({ user }),
+    onSuccess: ({ user }) => {
+      replaceSession({ user });
+      /*
+        O login responde quem entrou; quem responde o que essa pessoa alcança é
+        `/auth/session`. Sem esta releitura o menu do primeiro instante depois
+        do login seria o menu sem restrição nenhuma — e mostrar por um segundo
+        exatamente os módulos que alguém decidiu tirar é pior do que demorar um
+        segundo a mais para montá-lo.
+      */
+      void queryClient.refetchQueries({ queryKey: SESSION_QUERY_KEY });
+    },
   });
 
   const logout = useMutation({
@@ -108,6 +131,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const value: AuthContextValue = {
     user: session.data?.user ?? null,
+    permissoes: session.data?.permissoes ?? {},
     isLoading: session.isPending,
     erroDaSessao: session.isError ? session.error : null,
     login: async (input) => {

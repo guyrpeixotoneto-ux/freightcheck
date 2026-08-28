@@ -4,6 +4,11 @@ import { BarraMobile } from "./barra-mobile";
 import { Sidebar } from "./sidebar";
 import { Topbar } from "./topbar";
 import { useMenuAberto } from "./preferencias";
+import {
+  SemAcesso,
+  TiraDeSomenteLeitura,
+  useAcessoDoModulo,
+} from "./acesso-do-modulo";
 
 /**
  * A casca do Freightech: faixa vermelha em cima, lateral recolhível à esquerda,
@@ -44,6 +49,14 @@ export function Layout({
   semReservaDaBarra?: boolean;
 }) {
   const { aberto, alternar } = useMenuAberto();
+  /*
+    O acesso ao módulo é decidido na casca, e não em cada tela.
+
+    São quarenta e poucas telas; pedir a cada uma que se pergunte se pode ser
+    aberta é pedir que uma esqueça. Aqui é um lugar só, e ele já sabe qual é o
+    endereço aberto — ver `acesso-do-modulo.tsx`.
+  */
+  const acesso = useAcessoDoModulo();
 
   return (
     <div className="flex flex-col bg-background">
@@ -73,7 +86,14 @@ export function Layout({
             !semReservaDaBarra && "pb-[calc(5.5rem+env(safe-area-inset-bottom))]",
           )}
         >
-          {children}
+          {acesso.modulo && acesso.nivel === "VISUALIZAR" && (
+            <TiraDeSomenteLeitura modulo={acesso.modulo} />
+          )}
+          {acesso.modulo && acesso.nivel === "SEM_ACESSO" ? (
+            <SemAcesso modulo={acesso.modulo} />
+          ) : (
+            children
+          )}
         </main>
       </div>
       <BarraMobile />

@@ -414,6 +414,25 @@ const TABELAS_REMOVIDAS = [
   "fluxo_conexao",
   "fluxo_etapa",
   "fluxo_operacional",
+  /*
+    As duas da permissão por módulo, da `0071` — e elas entram pelo mesmo motivo
+    das outras tabelas de módulo novo: Production não as conhece até a fila
+    rodar lá, e até então toda tabela nova é uma que a proposta do Publishing
+    proporia criar.
+
+    Não há corrente entre elas: as duas penduram em `app_user`, que não sai
+    nesta lista, e por isso a ordem entre si é indiferente. Ficam juntas porque
+    falam da mesma decisão.
+
+    A pré-condição de tabela vazia é a certa, e é da família de
+    `coverage_expectation` e `justificativa`: cada linha é **decisão humana**
+    sobre o acesso de alguém, e o histórico é o único lugar onde ela existe.
+    Nenhuma consulta o reconstrói. Um Development com permissão definida trava
+    o `down`, e travar é o comportamento correto — descartar quem tirou o quê
+    de quem é exatamente o que o bridge não pode fazer.
+  */
+  "permissao_de_modulo_evento",
+  "permissao_de_modulo",
   "unidade",
 ];
 
@@ -2477,6 +2496,29 @@ function planoUp(): PassoUp[] {
     "índice fluxo_etapa_subfluxo_idx",
     levantar(M70, /INDEX IF NOT EXISTS "fluxo_etapa_subfluxo_idx"/),
   );
+
+  /*
+    E a `0071` — as duas tabelas da permissão por módulo, com as chaves
+    estrangeiras e os índices dentro do próprio `CREATE TABLE`, como a migration
+    as escreve. O `up` as repõe **vazias**, e isso não é omissão: cada linha é
+    decisão de alguém sobre o acesso de outra pessoa, e é por isso que as duas
+    exigem tabela vazia no `down` — ele só desce quando não há decisão a perder.
+
+    Os índices vêm em passos próprios porque a migration os cria fora do
+    `CREATE TABLE`, e `levantar` casa por marca: reescrevê-los aqui seria uma
+    segunda definição, que discorda no dia em que a migration muda.
+  */
+  const M71 = "0071_permissao_de_modulo";
+  for (const tabela of ["permissao_de_modulo", "permissao_de_modulo_evento"]) {
+    add(M71, tabela, levantar(M71, new RegExp(`CREATE TABLE IF NOT EXISTS "${tabela}" \\(`)));
+  }
+  for (const indice of [
+    "permissao_de_modulo_user_idx",
+    "permissao_de_modulo_evento_user_idx",
+    "permissao_de_modulo_evento_em_idx",
+  ]) {
+    add(M71, `índice ${indice}`, levantar(M71, new RegExp(`INDEX IF NOT EXISTS "${indice}"`)));
+  }
 
   const M42 = "0042_viagem_completa";
   for (const coluna of COLUNAS_DO_RETRATO_DA_VIAGEM) {

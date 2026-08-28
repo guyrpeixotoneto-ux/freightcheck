@@ -17,6 +17,13 @@ import {
   setUserPassword,
   setUserRole,
 } from "../lib/session";
+import {
+  definirPermissoes,
+  ehNivel,
+  historicoDePermissoes,
+  permissoesDe,
+  type Nivel,
+} from "../lib/permissoes";
 
 /**
  * Quem tem acesso — a superfície da tela de Configurações.
@@ -252,6 +259,127 @@ router.post("/users/:id/role", async (req, res): Promise<void> => {
     "Papel de conta alterado",
   );
   res.json(await listUsers(db));
+});
+
+/**
+ * O que uma pessoa alcança, e como se chegou nisso.
+ *
+ * Ler é aberto a quem tem sessão, pela mesma razão que a lista de contas é:
+ * saber quem pode o quê num sistema de auditoria não é privilégio — e quem
+ * abre a própria tela precisa saber por que um módulo sumiu do menu dela.
+ *
+ * O histórico vem junto porque é ele que responde a pergunta que se faz depois:
+ * não "o que vale hoje", que o mapa acima diz, mas "quem tirou isto, e quando".
+ */
+router.get("/users/:id/permissoes", async (req, res): Promise<void> => {
+  if (!UUID.test(req.params.id)) {
+    res.status(400).json({ error: "Identificador de conta inválido." });
+    return;
+  }
+
+  const target = await findUserById(db, req.params.id);
+  if (!target) {
+    res.status(404).json({ error: "Conta não encontrada." });
+    return;
+  }
+
+  res.json({
+    permissoes: await permissoesDe(db, target.id),
+    historico: await historicoDePermissoes(db, target.id),
+  });
+});
+
+/**
+ * Mudar o acesso de alguém — ADMIN, e só.
+ *
+ * O corpo é `{ niveis: { "/curadoria": "VISUALIZAR", … } }`, e é um **patch**:
+ * o que não vier fica como está. Mandar `EDITAR` devolve o módulo ao padrão, e
+ * é assim que se desfaz uma restrição.
+ *
+ * Duas recusas, e as duas evitam becos sem saída:
+ *
+ * · ninguém mexe no próprio acesso — quem se bloqueasse por engano precisaria
+ *   de outra pessoa para voltar atrás, e num produto com um administrador só
+ *   isso é a porta trancada por dentro;
+ * · Configurações (`/configuracoes`) é o módulo que gerencia contas, e tirá-lo
+ *   de um administrador é a mesma porta com outro nome — quem administra o
+ *   acesso precisa alcançar a tela onde o acesso se administra.
+ */
+router.put("/users/:id/permissoes", async (req, res): Promise<void> => {
+  const recusa = somenteAdmin(req);
+  if (recusa) {
+    res.status(403).json({ error: recusa });
+    return;
+  }
+  if (!UUID.test(req.params.id)) {
+    res.status(400).json({ error: "Identificador de conta inválido." });
+    return;
+  }
+
+  const niveis: unknown = req.body?.niveis;
+  if (typeof niveis !== "object" || niveis === null || Array.isArray(niveis)) {
+    res.status(400).json({
+      error: "Mande `niveis` como um objeto de módulo para nível de acesso.",
+    });
+    return;
+  }
+
+  const pedido: Record<string, Nivel> = {};
+  for (const [modulo, nivel] of Object.entries(niveis as Record<string, unknown>)) {
+    if (!modulo.startsWith("/")) {
+      res.status(400).json({
+        error: `"${modulo}" não é um módulo: a chave é o endereço do item no menu, começando por barra.`,
+      });
+      return;
+    }
+    if (!ehNivel(nivel)) {
+      res.status(400).json({
+        error: `Nível inválido para ${modulo}. Use EDITAR, VISUALIZAR ou SEM_ACESSO.`,
+      });
+      return;
+    }
+    pedido[modulo] = nivel;
+  }
+
+  const target = await findUserById(db, req.params.id);
+  if (!target) {
+    res.status(404).json({ error: "Conta não encontrada." });
+    return;
+  }
+
+  if (target.id === req.user!.id) {
+    res.status(409).json({
+      error:
+        "Ninguém muda o próprio acesso. Peça a outro administrador — assim um " +
+        "engano aqui nunca tranca a porta por dentro.",
+    });
+    return;
+  }
+
+  if (target.role === "ADMIN" && pedido["/configuracoes"] === "SEM_ACESSO") {
+    res.status(409).json({
+      error:
+        "Um administrador precisa alcançar Configurações, que é onde o acesso " +
+        "se administra. Rebaixe a conta para operador antes de tirar este módulo.",
+    });
+    return;
+  }
+
+  const permissoes = await definirPermissoes(db, {
+    userId: target.id,
+    niveis: pedido,
+    por: req.user!.email,
+  });
+
+  req.log.info(
+    { email: target.email, by: req.user!.email, niveis: pedido },
+    "Permissões de módulo alteradas",
+  );
+
+  res.json({
+    permissoes,
+    historico: await historicoDePermissoes(db, target.id),
+  });
 });
 
 export default router;
