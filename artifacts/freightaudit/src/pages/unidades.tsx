@@ -10,11 +10,11 @@ import { useContextos, type Contexto } from "@/lib/contextos";
 /**
  * Unidades — as seleções que existem, com o que cada uma já entregou.
  *
- * Este painel deixou de ser tela própria: ele é a aba **Unidades** de
+ * Este painel deixou de ser tela própria: ele é a seção **Unidades** de
  * Configurações (`pages/configuracoes.tsx`), que é onde a casa passou a morar
- * inteira. Por isso não há `Layout` nem cabeçalho aqui — quem monta os dois é
- * a tela que hospeda as abas, e duplicá-los daria dois títulos na mesma
- * página. O que sobrou é o conteúdo, que é o que a aba precisa.
+ * inteira. Por isso não há `Layout` nem cabeçalho aqui — quem monta os dois é a
+ * casca de Configurações, e duplicá-los daria dois títulos na mesma página. O
+ * que sobrou é o conteúdo, que é o que a seção precisa.
  *
  * Esta tela não é um cadastro, e a diferença importa: **unidade aqui é unidade
  * que entregou vigência.** A lista sai de `/contexts`, que agrupa os snapshots

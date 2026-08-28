@@ -453,17 +453,24 @@ describe("o catálogo de telas em preparo", () => {
     que a alcance é catálogo que ninguém lê. `/ajustes` — os ajustes da
     instalação — saiu pela mesma razão: o item de Configurações que a alcançava
     deixou o menu da Administração, e o nome passou a designar a tela que existe
-    (`/configuracoes`, com Unidades e Usuários em abas). As rotas passaram a ser `<Route>` de
+    (`/configuracoes`, hoje um índice de seções). As rotas passaram a ser `<Route>` de
     verdade em `App.tsx`, e o teste acima, o dos órfãos, garante que nenhum item do
     menu ficou apontando para o vazio na troca. Baixá-lo aqui é o último passo
     de entregar uma tela; subi-lo sem acrescentar `pergunta` e `depende` é o que
     este caso recusa.
+
+    Ele subiu uma vez, de doze para dezesseis, e por um motivo que o caso
+    aceita: Configurações virou índice, e as quatro seções da casa que o banco
+    ainda não sustenta — Minha Empresa, Cargos, Negócio e Departamento —
+    entraram no catálogo com `pergunta`, `depende` e `hoje`, em vez de virarem
+    quatro formulários que não gravam. É a diferença que o catálogo existe para
+    manter: anunciar o que vem, sem fingir que já veio.
   */
   it("descreve, para cada tela, o que falta antes de ela mostrar um número", () => {
     const catalogo = fonte("pages/telas-em-preparo.ts");
     const telas = [...catalogo.matchAll(/^\s{4}href:\s*"([^"]+)"/gm)].length;
 
-    expect(telas).toBe(12);
+    expect(telas).toBe(16);
     expect([...catalogo.matchAll(/^\s{4}depende:\s*\[/gm)]).toHaveLength(telas);
     expect([...catalogo.matchAll(/^\s{4}pergunta:/gm)]).toHaveLength(telas);
   });

@@ -1,11 +1,15 @@
 import {
   BadgeCheck,
+  Briefcase,
+  Building2,
   ChartColumn,
   ClipboardCheck,
   Database,
   FileSpreadsheet,
   HardHat,
   History,
+  IdCard,
+  Network,
   Plug,
   Shield,
   SquareActivity,
@@ -376,9 +380,97 @@ export const TELAS_EM_PREPARO: TelaEmPreparo[] = [
     ],
     hoje: [
       {
-        href: "/configuracoes",
-        label: "Usuários",
+        href: "/configuracoes/usuarios",
+        label: "Configurações › Usuários",
         porque: "Quem tem acesso, o último login de cada pessoa e quantas sessões estão abertas.",
+      },
+    ],
+  },
+
+  /*
+    As quatro seções da casa que o índice de Configurações anuncia e o banco
+    ainda não sustenta. Elas entram aqui, e não em telas próprias de cadastro,
+    pela regra do catálogo: uma tela de cadastro vazia convida a preencher, e o
+    que se preenchesse não teria onde ser gravado. O índice as mostra marcadas
+    "em preparo", e abrir cada uma responde o que falta.
+  */
+  {
+    href: "/configuracoes/empresa",
+    label: "Minha Empresa",
+    icon: Building2,
+    cor: "text-nav-admin",
+    pergunta:
+      "Quem é a empresa que opera este produto: razão social, CNPJ, marca e quem responde por ela.",
+    depende: [
+      "O cadastro da própria instalação no banco. Hoje o produto conhece as seleções que entregaram vigência, e nenhuma linha diz de que empresa elas são — a identidade da casa está no nome do ambiente, não em dado.",
+      "A separação entre a empresa que contrata e o embarcador que aparece nas planilhas: os dois nomes convivem na mesma coluna em vários exports, e sem distingui-los esta tela responderia duas perguntas diferentes com o mesmo campo.",
+    ],
+    hoje: [
+      {
+        href: "/configuracoes/unidades",
+        label: "Configurações › Unidades",
+        porque:
+          "As seleções que já entregaram vigência — o mais perto de um cadastro da casa que existe hoje.",
+      },
+    ],
+  },
+  {
+    href: "/configuracoes/cargos",
+    label: "Cargos",
+    icon: IdCard,
+    cor: "text-nav-admin",
+    pergunta:
+      "Que cargos existem no quadro, quanto cada um custa e em que unidade cada um está lotado.",
+    depende: [
+      "O cargo como cadastro próprio, e não como texto que chega na planilha: hoje o nome do cargo é o que a célula disser, e duas grafias do mesmo cargo são dois cargos para o motor.",
+      "A faixa salarial vigente por cargo, sem a qual esta tela listaria nomes sem saber dizer o que cada um custa — e o custo é a razão de olhar um quadro.",
+    ],
+    hoje: [
+      {
+        href: "/qlp-administrativo",
+        label: "QLP Administrativo",
+        porque:
+          "O quadro por unidade e cargo que a importação já lê, vigência a vigência, com a célula de origem de cada valor.",
+      },
+    ],
+  },
+  {
+    href: "/configuracoes/negocio",
+    label: "Negócio",
+    icon: Briefcase,
+    cor: "text-nav-admin",
+    pergunta:
+      "Que negócios a operação atende e que regra de custo e de remuneração vale em cada um.",
+    depende: [
+      "O negócio como chave do dado, e não como ambiente de tela: Rota, Empurrada, AS e Apoio são bases de fechamento escritas no código, não um cadastro que alguém edite — criar um negócio hoje é um deploy.",
+      "A vigência do próprio cadastro: trocar a regra de um negócio no meio de uma competência precisa deixar rastro datado, como toda vigência deixa aqui, senão a apuração muda de resposta sem que nada explique por quê.",
+    ],
+    hoje: [
+      {
+        href: "/vigencias",
+        label: "Vigências",
+        porque:
+          "As vigências importadas por seleção e canal, que é como o produto separa os negócios hoje.",
+      },
+    ],
+  },
+  {
+    href: "/configuracoes/departamento",
+    label: "Departamento",
+    icon: Network,
+    cor: "text-nav-admin",
+    pergunta:
+      "Como a operação se divide por dentro: que departamento responde por cada unidade e por cada gasto.",
+    depende: [
+      "O departamento como cadastro com hierarquia. O rateio administrativo de hoje chega classificado pela planilha de origem, e uma estrutura montada aqui só valeria alguma coisa se a importação passasse a ler por ela.",
+      "O vínculo entre departamento e classe de custo, sem o qual a DRE continua somando por rubrica — que é somar pelo que se gastou, nunca por quem responde pelo gasto.",
+    ],
+    hoje: [
+      {
+        href: "/dre",
+        label: "DRE",
+        porque:
+          "O resultado por rubrica e por ativo, que é o corte que existe hoje no lugar do corte por departamento.",
       },
     ],
   },

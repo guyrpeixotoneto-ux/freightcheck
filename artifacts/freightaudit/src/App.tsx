@@ -457,16 +457,30 @@ function RotasDaAuditoria() {
       <Route path="/vigencias" component={Vigencias} />
       <Route path="/versoes" component={Versoes} />
       {/*
-        Unidades e Usuários viraram abas de uma Configurações só, e `/unidades`
-        continua atendendo: ele abre a mesma tela com a aba Unidades já aberta.
-        Manter a rota não é cortesia — é o endereço que `lib/ambiente-aberto.ts`
-        usa como "a casa" e que está em links já compartilhados.
+        Configurações virou índice, e cada seção ganhou endereço próprio.
+        `/unidades` continua atendendo, abrindo a seção de Unidades: manter a
+        rota não é cortesia — é o endereço que `lib/ambiente-aberto.ts` usa como
+        "a casa" e que está em links já compartilhados.
+
+        As quatro seções que o banco ainda não sustenta — Minha Empresa,
+        Cargos, Negócio e Departamento — não têm `<Route>` aqui: elas vêm do
+        catálogo de telas em preparo, mais abaixo, e é de lá que saem no dia em
+        que existirem.
       */}
       <Route path="/unidades">
-        <Configuracoes abaInicial="unidades" />
+        <Configuracoes secao="unidades" />
       </Route>
       <Route path="/configuracoes">
         <Configuracoes />
+      </Route>
+      <Route path="/configuracoes/unidades">
+        <Configuracoes secao="unidades" />
+      </Route>
+      <Route path="/configuracoes/usuarios">
+        <Configuracoes secao="usuarios" />
+      </Route>
+      <Route path="/configuracoes/perfil">
+        <Configuracoes secao="perfil" />
       </Route>
       {/*
         Processos → Fluxos Operacionais. A rota do fluxo aberto vem depois da

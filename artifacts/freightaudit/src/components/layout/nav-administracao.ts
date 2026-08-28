@@ -48,10 +48,13 @@ export const GRUPO_ADMINISTRACAO: NavGroup = {
       `/ajustes` — tela que não existe. A terceira saiu do menu junto com o seu
       verbete do catálogo de telas em preparo: os padrões do produto continuam
       escritos onde são usados, e um item que só sabe dizer isso cobra um
-      clique para devolver a mesma frase. As duas que restaram viraram abas de
-      `/configuracoes`, porque são a mesma pergunta — o que a instalação tem
+      clique para devolver a mesma frase. As duas que restaram viraram seções
+      de `/configuracoes`, porque são a mesma pergunta — o que a instalação tem
       cadastrado — e separá-las em dois itens obrigava a escolher antes de
-      olhar. `/unidades` continua atendendo, abrindo a aba de unidades.
+      olhar. Hoje são sete seções, e `/configuracoes` é o índice delas: o item
+      do menu continua sendo um, e quem abre escolhe olhando a lista, com o
+      estado de cada seção escrito na linha. `/unidades` continua atendendo,
+      abrindo a seção de unidades.
     */
     { href: "~/configuracoes", label: "Configurações", icon: Settings2 },
     { href: "~/integracoes", label: "Integrações", icon: Plug },
