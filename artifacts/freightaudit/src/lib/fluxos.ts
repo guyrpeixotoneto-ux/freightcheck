@@ -405,6 +405,90 @@ export function comoData(iso: string): string {
   return dia && mes && ano ? `${dia}/${mes}/${ano}` : iso;
 }
 
+/**
+ * "há 2 dias", "há 1 semana" — quando o fluxo mudou pela última vez, como se
+ * fala em voz alta.
+ *
+ * A data absoluta (`comoData`) responde "quando"; esta responde "está velho?",
+ * que é a pergunta de quem bate o olho na lista para decidir o que reabrir.
+ * As duas convivem: a lista mostra a relativa, o detalhe mostra a exata.
+ *
+ * A conta é feita em dias de calendário, não em horas: um fluxo salvo ontem às
+ * 23h continua sendo "ontem" quando alguém abre a tela às 8h, e não "há 9
+ * horas" nem "hoje".
+ */
+export function comoTempoRelativo(iso: string, agora: Date = new Date()): string {
+  const [data] = iso.split("T");
+  const [ano, mes, dia] = data.split("-").map(Number);
+  if (!ano || !mes || !dia) return comoData(iso);
+
+  const entao = Date.UTC(ano, mes - 1, dia);
+  const hoje = Date.UTC(agora.getFullYear(), agora.getMonth(), agora.getDate());
+  const dias = Math.floor((hoje - entao) / 86_400_000);
+
+  if (dias <= 0) return "hoje";
+  if (dias === 1) return "ontem";
+  if (dias < 7) return `há ${dias} dias`;
+  if (dias < 30) {
+    const semanas = Math.floor(dias / 7);
+    return semanas === 1 ? "há 1 semana" : `há ${semanas} semanas`;
+  }
+  if (dias < 365) {
+    const meses = Math.floor(dias / 30);
+    return meses === 1 ? "há 1 mês" : `há ${meses} meses`;
+  }
+  const anos = Math.floor(dias / 365);
+  return anos === 1 ? "há 1 ano" : `há ${anos} anos`;
+}
+
+/**
+ * A cor da linha — a tarja à esquerda e a bolha do ícone, pela categoria.
+ *
+ * Serve para achar "aquele fluxo financeiro" varrendo a lista com o olho, antes
+ * de ler nome nenhum. Por isso a cor **não** é sorteada nem tirada da posição na
+ * lista: ela sai do nome da categoria, e assim a mesma categoria fica com a
+ * mesma cor entre sessões, entre telas e depois de reordenar.
+ */
+export function acentoDaCategoria(categoria: string): { barra: string; bolha: string } {
+  const paleta = [
+    { barra: "bg-blue-500", bolha: "bg-blue-50 text-blue-600 dark:bg-blue-950 dark:text-blue-300" },
+    {
+      barra: "bg-emerald-500",
+      bolha: "bg-emerald-50 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-300",
+    },
+    {
+      barra: "bg-violet-500",
+      bolha: "bg-violet-50 text-violet-600 dark:bg-violet-950 dark:text-violet-300",
+    },
+    {
+      barra: "bg-amber-500",
+      bolha: "bg-amber-50 text-amber-600 dark:bg-amber-950 dark:text-amber-300",
+    },
+    {
+      barra: "bg-rose-500",
+      bolha: "bg-rose-50 text-rose-600 dark:bg-rose-950 dark:text-rose-300",
+    },
+  ];
+  let soma = 0;
+  for (const letra of categoria.trim().toLowerCase()) soma = (soma * 31 + letra.charCodeAt(0)) % 9973;
+  return paleta[soma % paleta.length];
+}
+
+/**
+ * A lista na ordem em que se procura: o que mudou por último em cima.
+ *
+ * Quem abre esta tela quase sempre volta para o que estava mexendo — ordem
+ * alfabética serve para quem já sabe o nome, e essa pessoa usa a busca.
+ * Arquivados vão para o fim: continuam no acervo, saem do caminho.
+ */
+export function ordenarPorAtualizacao(fluxos: FluxoNaLista[]): FluxoNaLista[] {
+  return [...fluxos].sort((a, b) => {
+    const arquivado = Number(a.status === "ARQUIVADO") - Number(b.status === "ARQUIVADO");
+    if (arquivado !== 0) return arquivado;
+    return b.atualizadoEm.localeCompare(a.atualizadoEm);
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Consultas e mutações
 // ---------------------------------------------------------------------------
