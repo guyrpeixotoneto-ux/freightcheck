@@ -5,13 +5,14 @@ import { PainelDeUnidades } from "@/pages/unidades";
 import { IndiceDeConfiguracoes } from "@/components/configuracoes/indice";
 import { PainelDeUsuarios } from "@/components/configuracoes/usuarios";
 import { PainelDoPerfil } from "@/components/configuracoes/perfil";
+import { PainelDePermissoes } from "@/components/configuracoes/permissoes";
 import { SECOES_GERAIS } from "@/components/configuracoes/secoes";
 
 /**
  * Configurações — a casa inteira, agora como índice.
  *
  * Eram duas abas numa tela só, Unidades e Usuários, e cabia. A casa cresceu
- * para sete seções, e uma barra de abas com sete botões obriga a ler tudo para
+ * para oito seções, e uma barra de abas com oito botões obriga a ler tudo para
  * achar uma, estreitando cada aba a cada seção nova. O índice inverte isso: a
  * lista cresce para baixo, cada linha diz o que é e **o que já tem** antes de
  * ser aberta, e cada seção passa a ter endereço próprio — `/configuracoes/
@@ -27,15 +28,16 @@ import { SECOES_GERAIS } from "@/components/configuracoes/secoes";
  *
  * Toda esta tela é um módulo só para efeito de permissão (`/configuracoes`):
  * `moduloDaLocalizacao` casa por prefixo, então as seções herdam a decisão
- * tomada sobre a casa, sem pedir sete decisões onde havia uma.
+ * tomada sobre a casa, sem pedir oito decisões onde havia uma.
  */
 
-type Secao = "indice" | "unidades" | "usuarios" | "perfil";
+type Secao = "indice" | "unidades" | "usuarios" | "perfil" | "permissoes";
 
 const TITULO: Record<Exclude<Secao, "indice">, string> = {
   unidades: "Unidades",
   usuarios: "Usuários",
   perfil: "Meu Perfil",
+  permissoes: "Permissões",
 };
 
 export default function Configuracoes({ secao = "indice" }: { secao?: Secao }) {
@@ -90,6 +92,7 @@ export default function Configuracoes({ secao = "indice" }: { secao?: Secao }) {
         {secao === "unidades" && <PainelDeUnidades />}
         {secao === "usuarios" && <PainelDeUsuarios />}
         {secao === "perfil" && <PainelDoPerfil />}
+        {secao === "permissoes" && <PainelDePermissoes />}
       </div>
     </Layout>
   );
