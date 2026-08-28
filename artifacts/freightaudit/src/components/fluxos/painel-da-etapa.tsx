@@ -9,6 +9,7 @@ import {
   GitBranch,
   Hourglass,
   Check,
+  ChevronDown,
   Loader2,
   Pencil,
   Plus,
@@ -23,6 +24,12 @@ import {
   X,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -40,6 +47,8 @@ import {
   camposVaziosDoPainel,
   severidadeNoCatalogo,
   valorDoCampo,
+  type CampoDaEtapaNoPainel,
+  type CampoDeEscolhaDaEtapa,
   type CampoDeTextoDaEtapa,
   type CampoDoPainel,
   type DiagnosticoDaEtapa,
@@ -264,6 +273,74 @@ function AlvoDeEdicao({
   );
 }
 
+/**
+ * UMA ESCOLHA DE CATÁLOGO EM FORMA DE ETIQUETA.
+ *
+ * A etiqueta continua sendo etiqueta — mesmo tamanho, mesma cor, mesmo lugar —
+ * e ganha uma seta. Trocá-la por um `<select>` de formulário no cabeçalho
+ * mudaria a leitura do painel em modo edição para todo mundo que só queria
+ * olhar: o cabeçalho é o cartão da etapa, e ele deve continuar parecendo um.
+ *
+ * A escolha grava na hora, sem confirmar. É uma lista fechada de três ou quatro
+ * valores, e escolher de novo desfaz — o "Salvar" que existe nos campos de
+ * texto está lá porque ali o que se perde é o que foi digitado, e aqui não há o
+ * que perder.
+ */
+function EscolhaEmBadge({
+  rotulo,
+  exibido,
+  variante,
+  opcoes,
+  valorAtual,
+  gravando,
+  aoEscolher,
+}: {
+  rotulo: string;
+  exibido: string;
+  variante: "secondary" | "destructive" | "outline";
+  opcoes: { valor: string; rotulo: string }[];
+  valorAtual: string;
+  gravando: boolean;
+  aoEscolher: (valor: string) => void;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          aria-label={`Trocar ${rotulo}`}
+          disabled={gravando}
+          className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <Badge variant={variante} className="cursor-pointer gap-1 pr-1.5 font-normal">
+            {exibido}
+            {gravando ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <ChevronDown className="h-3 w-3 opacity-70" />
+            )}
+          </Badge>
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="min-w-[10rem]">
+        {opcoes.map((opcao) => (
+          <DropdownMenuItem
+            key={opcao.valor}
+            onSelect={() => aoEscolher(opcao.valor)}
+            className="gap-2"
+          >
+            <Check
+              aria-hidden
+              className={cn("h-3.5 w-3.5", opcao.valor === valorAtual ? "opacity-100" : "opacity-0")}
+            />
+            {opcao.rotulo}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 export function PainelDaEtapa({
   etapa,
   catalogo,
@@ -293,7 +370,7 @@ export function PainelDaEtapa({
    * é só de leitura — é o que as visualizações que ainda não gravam recebem, e
    * o que os testes montam quando o assunto é o que o painel mostra.
    */
-  onSalvarCampo?: (campo: CampoDeTextoDaEtapa, valor: string) => Promise<void>;
+  onSalvarCampo?: (campo: CampoDaEtapaNoPainel, valor: string) => Promise<void>;
   /** Cria a próxima etapa **já ligada** a esta. */
   onSeguinte: () => void;
   onExcluir: () => void;
@@ -318,9 +395,29 @@ export function PainelDaEtapa({
     dentro do `input`, e o Salvar gravaria um na outra.
   */
   const [emEdicao, setEmEdicao] = useState<CampoDeTextoDaEtapa | null>(null);
-  useEffect(() => setEmEdicao(null), [etapa.id]);
+  /* A escolha de catálogo grava sem formulário: o que se guarda é qual está no ar. */
+  const [escolhendo, setEscolhendo] = useState<CampoDeEscolhaDaEtapa | null>(null);
+  const [erroDaEscolha, setErroDaEscolha] = useState<string | null>(null);
+  useEffect(() => {
+    setEmEdicao(null);
+    setErroDaEscolha(null);
+  }, [etapa.id]);
 
   const editavel = podeEditar && onSalvarCampo !== undefined;
+
+  const escolher = (campo: CampoDeEscolhaDaEtapa, valor: string) => {
+    /* Escolher o que já está gravado não é edição — e a rota é substituição. */
+    if (!onSalvarCampo || valor === (campo === "tipo" ? etapa.tipo : etapa.status)) return;
+    setEscolhendo(campo);
+    setErroDaEscolha(null);
+    onSalvarCampo(campo, valor)
+      .catch((falha: unknown) =>
+        setErroDaEscolha(
+          falha instanceof Error ? falha.message : `Não foi possível trocar o ${campo}.`,
+        ),
+      )
+      .finally(() => setEscolhendo(null));
+  };
   const vazios = editavel ? camposVaziosDoPainel(etapa) : [];
 
   /**
@@ -389,19 +486,55 @@ export function PainelDaEtapa({
             ) : (
               <h2 className="text-base font-semibold leading-snug text-foreground">{etapa.nome}</h2>
             )}
+            {/*
+              TIPO E STATUS — as duas etiquetas que agora também se trocam aqui.
+
+              Em leitura, o status só aparece quando **não** é "Ativa": um
+              selo "Ativa" repetido em toda etapa não informa nada. Em edição
+              ele aparece sempre, porque uma etiqueta que só existe depois de
+              mudada não tem por onde ser mudada — e o catálogo em falta
+              devolve as duas para leitura, já que sem ele não há lista de
+              opções para oferecer.
+            */}
             <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-              <Badge variant="secondary" className="font-normal">
-                {tipo?.rotulo ?? etapa.tipo}
-              </Badge>
-              {etapa.status !== "ATIVO" && (
-                <Badge
-                  variant={etapa.status === "ATENCAO" ? "destructive" : "outline"}
-                  className="font-normal"
-                >
-                  {status?.rotulo ?? etapa.status}
-                </Badge>
+              {editavel && catalogo ? (
+                <>
+                  <EscolhaEmBadge
+                    rotulo="tipo da etapa"
+                    exibido={tipo?.rotulo ?? etapa.tipo}
+                    variante="secondary"
+                    opcoes={catalogo.tiposDeEtapa}
+                    valorAtual={etapa.tipo}
+                    gravando={escolhendo === "tipo"}
+                    aoEscolher={(valor) => escolher("tipo", valor)}
+                  />
+                  <EscolhaEmBadge
+                    rotulo="status da etapa"
+                    exibido={status?.rotulo ?? etapa.status}
+                    variante={etapa.status === "ATENCAO" ? "destructive" : "outline"}
+                    opcoes={catalogo.statusDaEtapa}
+                    valorAtual={etapa.status}
+                    gravando={escolhendo === "status"}
+                    aoEscolher={(valor) => escolher("status", valor)}
+                  />
+                </>
+              ) : (
+                <>
+                  <Badge variant="secondary" className="font-normal">
+                    {tipo?.rotulo ?? etapa.tipo}
+                  </Badge>
+                  {etapa.status !== "ATIVO" && (
+                    <Badge
+                      variant={etapa.status === "ATENCAO" ? "destructive" : "outline"}
+                      className="font-normal"
+                    >
+                      {status?.rotulo ?? etapa.status}
+                    </Badge>
+                  )}
+                </>
               )}
             </div>
+            {erroDaEscolha && <p className="mt-1 text-xs text-destructive">{erroDaEscolha}</p>}
             {/*
               ÁREA E RESPONSÁVEL FICAM NO CABEÇALHO — e é lá que se corrigem.
 

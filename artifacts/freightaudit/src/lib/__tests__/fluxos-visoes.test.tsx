@@ -1591,6 +1591,26 @@ describe("caso 10 — o painel edita campo a campo, sem abrir o editor", () => {
     expect(html).toContain("Objetivo da etapa");
   });
 
+  it("tipo e status viram etiqueta-menu — e voltam a ser selo em leitura", () => {
+    const html = painel({ onSalvarCampo: async () => undefined });
+    expect(html).toContain("Trocar tipo da etapa");
+    expect(html).toContain("Trocar status da etapa");
+    /*
+      Em edição o status aparece mesmo sendo "Ativa": uma etiqueta que só
+      existe depois de mudada não tem por onde ser mudada.
+    */
+    expect(html).toContain("Ativa");
+
+    const leitura = painel({ podeEditar: false });
+    expect(leitura).not.toContain("Trocar tipo da etapa");
+    expect(leitura).not.toContain("Ativa");
+    expect(leitura).toContain("Processo");
+
+    /* Sem catálogo não há lista de opções — as duas voltam a ser selo. */
+    const semCatalogo = painel({ catalogo: undefined, onSalvarCampo: async () => undefined });
+    expect(semCatalogo).not.toContain("Trocar tipo da etapa");
+  });
+
   it("os rótulos da lista são os mesmos títulos das seções — um nome por campo", () => {
     const rotulos = new Map(CAMPOS_DO_PAINEL.map((c) => [c.campo, c.rotulo]));
     const fonte = readFileSync(

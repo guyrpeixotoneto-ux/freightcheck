@@ -68,7 +68,7 @@ import {
 } from "@/lib/fluxos-visoes";
 import type { PropsDaVisaoNoCanvas } from "@/components/fluxos/visao";
 import type {
-  CampoDeTextoDaEtapa,
+  CampoDaEtapaNoPainel,
   CampoEditavelNaLista,
   EtapaNovaNaLista,
 } from "@/lib/fluxos-analise";
@@ -325,7 +325,7 @@ export default function TelaDoFluxo() {
       valor,
     }: {
       etapaId: string;
-      campo: CampoDeTextoDaEtapa;
+      campo: CampoDaEtapaNoPainel;
       valor: string;
     }) => {
       const agora = await lerFluxoAgora(empresaId, fluxoId);
@@ -488,7 +488,7 @@ export default function TelaDoFluxo() {
   );
   /* Também crua: é o que deixa o campo do painel mostrar a recusa e manter o texto. */
   const aoSalvarCampoDoPainel = useCallback(
-    (etapaId: string, campo: CampoDeTextoDaEtapa, valor: string) =>
+    (etapaId: string, campo: CampoDaEtapaNoPainel, valor: string) =>
       editarCampoNoPainel.mutateAsync({ etapaId, campo, valor }).then(() => undefined),
     [editarCampoNoPainel],
   );

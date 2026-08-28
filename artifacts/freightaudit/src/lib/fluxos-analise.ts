@@ -944,6 +944,22 @@ export type CampoDeTextoDaEtapa =
   | "observacoes"
   | "chaveMonitoramento";
 
+/**
+ * TIPO E STATUS TAMBÉM SE TROCAM NO PAINEL — e por que eles são outra coisa.
+ *
+ * Não são texto: são escolha de catálogo, com uma lista fechada de valores que
+ * o servidor conhece. Por isso não abrem um `input` com Salvar e Cancelar — um
+ * menu com as opções do catálogo grava na escolha, que é um gesto só, e é
+ * desfeito escolhendo de novo. Pedir "Salvar" depois de escolher "Início" numa
+ * lista de três seria um clique que não decide nada.
+ *
+ * Continuam sendo o mesmo campo da mesma etapa, gravados pelo mesmo caminho —
+ * daí o tipo em união, e não um segundo `onSalvar` na assinatura do painel.
+ */
+export type CampoDeEscolhaDaEtapa = "tipo" | "status";
+
+export type CampoDaEtapaNoPainel = CampoDeTextoDaEtapa | CampoDeEscolhaDaEtapa;
+
 export interface CampoDoPainel {
   campo: CampoDeTextoDaEtapa;
   /** O mesmo título que a seção do painel já usa — não há dois nomes. */
