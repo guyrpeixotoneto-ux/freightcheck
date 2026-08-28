@@ -115,8 +115,29 @@ describe("escolher a Visão Geral", () => {
     expect(consulta(destino).canal).toBeUndefined();
   });
 
+  /*
+    Parâmetros era o caso que este teste travava pelo avesso: ele afirmava que
+    escolher "Visão Geral" ali levava para outra tela, e era exatamente essa a
+    reclamação — trocar de recorte não pode trocar de assunto. A tela entrou em
+    `TELAS_QUE_HONRAM_VISAO_GERAL` quando passou a existir a soma que ela lê
+    (`FamiliesOverview.parametros`), e a vigência vai junto: quem estava em
+    agosto quer todas as unidades **em agosto**.
+  */
+  it("mantém Parâmetros, com a vigência aberta", () => {
+    const destino = enderecoDeVisaoGeral(
+      "/parametros",
+      "?period=2026-08-01&scopeHash=scope-pernambuco&canal=EMPURRADA",
+    );
+
+    expect(tela(destino)).toBe("/parametros");
+    expect(consulta(destino)).toEqual({
+      visaoGeral: "1",
+      period: "2026-08-01",
+    });
+  });
+
   it("continua desviando para o Resumo executivo onde não há Visão Geral", () => {
-    const destino = enderecoDeVisaoGeral("/parametros", "?period=2026-08-01");
+    const destino = enderecoDeVisaoGeral("/composicao", "?period=2026-08-01");
 
     expect(tela(destino)).toBe("/resumo-executivo");
     expect(consulta(destino)).toEqual({

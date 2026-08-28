@@ -463,6 +463,15 @@ router.get("/changes/families/overview", async (req, res): Promise<void> => {
   }
   const view = await getFamiliesOverview(db, period, {
     operacao: operacaoDaConsulta(req.query as Record<string, unknown>),
+    /*
+      A árvore de Parâmetros só viaja quando pedida.
+
+      Quatro telas leem esta rota e nenhuma delas desenha a árvore; a quinta —
+      Parâmetros — é a única que precisa dela, e é ela que escreve
+      `parametros=1`. Mandar sempre dobraria o corpo desta resposta para quem
+      não usa, que é a mesma conta que já corta a fila consolidada em quarenta.
+    */
+    comParametros: req.query.parametros === "1",
   });
   if (!view) {
     res

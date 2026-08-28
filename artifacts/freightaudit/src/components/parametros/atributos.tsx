@@ -51,6 +51,7 @@ import {
   X,
 } from "lucide-react";
 import { BeforeAfter, GroupCard } from "@/components/inicio/group-card";
+import { AlteracaoPorUnidade } from "@/components/parametros/visao-geral";
 import {
   Select,
   SelectContent,
@@ -1045,13 +1046,26 @@ function DetalheDoAtributo({
         </div>
       )}
 
+      {/*
+        O nível 2, e de quem ele é.
+
+        Dentro de uma unidade é o cartão de sempre, com o recorte da tela. Em
+        Visão Geral o grupo é a soma de várias, e a lista de veículos, a série do
+        atributo e a célula da planilha só existem dentro de um contexto — então
+        o detalhe abre **por unidade**, cada uma com o recorte dela. É a mesma
+        recusa de sempre: um cartão não finge cobertura que o dado não tem.
+      */}
       <div className="mt-5">
-        <GroupCard
-          group={atributo.grupo}
-          period={period}
-          recorte={recorte}
-          inicialmenteAberto
-        />
+        {atributo.grupo.porUnidade ? (
+          <AlteracaoPorUnidade grupo={atributo.grupo} period={period} />
+        ) : (
+          <GroupCard
+            group={atributo.grupo}
+            period={period}
+            recorte={recorte}
+            inicialmenteAberto
+          />
+        )}
       </div>
     </div>
   );

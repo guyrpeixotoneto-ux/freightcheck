@@ -12,6 +12,10 @@ import {
   type RangeAnalysis,
 } from "./families-view";
 import { comparePriorities } from "./cockpit";
+import {
+  consolidarParametros,
+  type FamiliesViewConsolidada,
+} from "./visao-geral-de-parametros";
 import type { ChangeGroup } from "./grouped";
 import { listContexts, type ContextInfo, type Operacao } from "./series";
 
@@ -122,6 +126,34 @@ export interface FamiliesOverview {
    * para o que cada peça soma e o que ela deliberadamente não soma.
    */
   consolidado: OverviewConsolidado;
+  /**
+   * A tela de **Parâmetros** somada — a mesma `FamiliesView` que ela consome
+   * dentro de uma unidade, montada sobre todas.
+   *
+   * Existe porque `consolidado` não bastava para aquela tela e nunca prometeu
+   * bastar: ele guarda famílias como totais rasos e uma fila de alterações
+   * cortada em quarenta, que é o que o Dashboard e a Linha do Tempo leem.
+   * Parâmetros é grade de atributo e de gaveta — precisa da árvore inteira, e
+   * sem ela escolher "Visão Geral" ali expulsava quem escolheu para outra tela.
+   *
+   * `null` em dois casos, e eles são diferentes: **ninguém pediu** (o padrão —
+   * ver `comParametros`), e nenhuma unidade pôde ser consolidada (o mesmo caso
+   * de `unitsIncluded: []`, em que a tela diz o que houve em vez de desenhar
+   * uma grade vazia que se leria como "nada mudou em lugar nenhum"). Quem
+   * distingue os dois é quem pediu: só a tela de Parâmetros pede.
+   *
+   * **Só vem quando pedido, e a razão é o tamanho.** Nada aqui custa uma
+   * *leitura* a mais — é projeção sobre as `FamiliesView` que esta função já
+   * carregou —, mas custa **corpo**: a árvore inteira, mais o grupo de cada
+   * unidade dentro de cada grupo somado. As outras quatro telas que leem a
+   * Visão Geral (Dashboard, Linha do Tempo, Resumo executivo, Gestão à Vista)
+   * não desenham nada disso, e mandá-lo para elas seria pagar o dobro do corpo
+   * em toda navegação — a mesma preocupação que já corta a fila consolidada em
+   * `LIMITE_DE_GRUPOS`.
+   *
+   * Ver `visao-geral-de-parametros.ts` para o que soma e o que se recusa a somar.
+   */
+  parametros: FamiliesViewConsolidada | null;
 }
 
 /**
@@ -516,7 +548,12 @@ function consolidar(
 export async function getFamiliesOverview(
   db: Database,
   period: string,
-  opts?: { datasetFamily?: string; operacao?: Operacao | null },
+  opts?: {
+    datasetFamily?: string;
+    operacao?: Operacao | null;
+    /** Montar `parametros` — a árvore da tela de Parâmetros. Ver o campo. */
+    comParametros?: boolean;
+  },
 ): Promise<FamiliesOverview | null> {
   /*
     A Visão Geral soma todas as unidades da competência, e é por `listContexts`
@@ -668,13 +705,21 @@ export async function getFamiliesOverview(
     A tela decide o que fazer com "0 de N"; a rota não inventa um 404 que
     diria "não existe" quando na verdade existe, só não foi consolidável.
   */
+  // Um só `mergeSummaries` para os dois consumidores: o resumo da resposta e o
+  // da `FamiliesView` consolidada são o mesmo número, e calculá-lo duas vezes é
+  // como dois números com o mesmo nome nascem diferentes.
+  const summary = mergeSummaries(views.map((v) => v.summary));
+
   return {
     period,
-    summary: mergeSummaries(views.map((v) => v.summary)),
+    summary,
     vehiclesTouchedDistinct: new Set(views.flatMap((v) => v.entityIdsTouched)).size,
     unitsIncluded,
     unitsExcluded,
     consolidado: consolidar(consolidaveis),
+    parametros: opts?.comParametros
+      ? consolidarParametros(consolidaveis, period, summary)
+      : null,
   };
 }
 

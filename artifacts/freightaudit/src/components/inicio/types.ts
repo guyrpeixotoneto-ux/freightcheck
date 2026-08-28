@@ -105,6 +105,16 @@ export interface ChangeGroup {
   composition: { total: string; parts: string[]; evidence: string } | null;
   badge: Badge;
   badgeLabel: string;
+  /**
+   * De quais unidades este grupo foi somado — **só em Visão Geral**.
+   *
+   * Ausente é o caso normal: dentro de uma unidade o grupo é dela e não há
+   * origem a declarar. Presente, ele é a soma de `porUnidade` — e é essa lista
+   * que o detalhe percorre, porque o nível 2 (veículos, série, célula da
+   * planilha) só existe dentro de um contexto. Ver
+   * `components/parametros/visao-geral.tsx`.
+   */
+  porUnidade?: OrigemDoGrupo[];
 }
 
 /*
@@ -398,6 +408,16 @@ export interface ExecutiveSummary {
 export interface FamiliesView extends GroupedView {
   summary: ExecutiveSummary;
   families: FamilyView[];
+  /**
+   * Quem entrou na soma — **só em Visão Geral**.
+   *
+   * Ausente é o caso normal: uma unidade só, nomeada em `context`. Presente, a
+   * leitura é de todas, e é este campo que a tela lê para se anunciar como soma
+   * e para abrir o detalhe de cada unidade no recorte dela. Mesmo campo de
+   * `FamiliesViewConsolidada`, opcional aqui porque as duas leituras
+   * atravessam a tela pela mesma variável.
+   */
+  visaoGeral?: FamiliesViewConsolidada["visaoGeral"];
   /** O que o Freightech publica e este export não traz. Nota de rodapé. */
   freightechSemDado: { family: string; parameters: string[] }[];
 }
@@ -447,6 +467,28 @@ export interface OverviewUnitExcluded {
 }
 
 /** Uma família somada entre as unidades incluídas — espelha `OverviewFamilyTotal`. */
+/**
+ * A tela de Parâmetros somada — o tipo do servidor, reexportado.
+ *
+ * `FamiliesViewConsolidada` **é** uma `FamiliesView`: a grade de atributos, os
+ * cartões do catálogo, a busca e a ordenação continuam lendo os mesmos campos
+ * quando o recorte é "todas as unidades". O que ela tem a mais é
+ * `visaoGeral` — quantas unidades entraram e quais — e, em cada grupo,
+ * `porUnidade`: de onde veio cada pedaço, que é o que o detalhe percorre para
+ * abrir os veículos no contexto certo. Ver
+ * `lib/comparison/src/visao-geral-de-parametros.ts` para o que soma e o que se
+ * recusa a somar.
+ */
+import type {
+  FamiliesViewConsolidada,
+  OrigemDoGrupo,
+} from "@workspace/comparison/visao-geral-de-parametros";
+export type {
+  FamiliesViewConsolidada,
+  GrupoConsolidado,
+  OrigemDoGrupo,
+} from "@workspace/comparison/visao-geral-de-parametros";
+
 export interface OverviewFamilyTotal {
   code: string;
   name: string;
@@ -503,6 +545,16 @@ export interface FamiliesOverview {
   unitsIncluded: OverviewUnitIncluded[];
   unitsExcluded: OverviewUnitExcluded[];
   consolidado: OverviewConsolidado;
+  /**
+   * A tela de **Parâmetros** somada — a árvore inteira, não os totais rasos.
+   *
+   * `consolidado` serve o Dashboard e a Linha do Tempo: famílias como totais e
+   * uma fila de alterações cortada. Parâmetros é grade de atributo e de gaveta,
+   * e sem a árvore escolher "Visão Geral" ali expulsava quem escolheu para
+   * outra tela. `null` quando nenhuma unidade pôde ser consolidada — a tela diz
+   * o que houve em vez de desenhar uma grade vazia.
+   */
+  parametros: FamiliesViewConsolidada | null;
 }
 
 export interface GroupVehicle {

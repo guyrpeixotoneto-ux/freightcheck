@@ -27,6 +27,11 @@ import { TabelaInventario } from "@/components/parametros/inventario";
 import { AnaliseCartao } from "@/components/parametros/analise";
 import { GradeDeAtributos } from "@/components/parametros/atributos";
 import {
+  AlteracaoPorUnidade,
+  FaixaDaVisaoGeral,
+  SoDentroDeUmaUnidade,
+} from "@/components/parametros/visao-geral";
+import {
   AbaBotao,
   ImpactoPorPeriodicidade,
   MetricCard,
@@ -40,6 +45,8 @@ import {
 } from "@/components/ui/select";
 import { ApiErrorNotice } from "@/components/api-error";
 import { fetchJsonOrNull } from "@/lib/api";
+import { useContextosDaCasca } from "@/lib/contextos";
+import { useFamiliesOverviewQuery } from "@/lib/families-overview";
 import { lerRecorte } from "@/lib/recorte";
 import { cn } from "@/lib/utils";
 import { useFavoritos } from "@/lib/favoritos";
@@ -80,6 +87,7 @@ import type {
   FamiliesView,
   ImpactSummary,
   ParameterView,
+  MotivoExclusaoDaVisaoGeral,
 } from "@/components/inicio/types";
 
 /**
@@ -128,10 +136,27 @@ export default function Parametros() {
   const [, navigate] = useLocation();
   const params = new URLSearchParams(search);
 
+  /**
+   * Se a tela está somando todas as unidades.
+   *
+   * A caixa "Unidade atual" da lateral escreve `visaoGeral=1`
+   * (`lib/navegacao-do-escopo.ts`), e escolher a soma estando aqui **trocava de
+   * tela**: Parâmetros não sabia ler o parâmetro, então o seletor mandava para
+   * o Resumo executivo e quem só queria trocar de recorte perdia o que estava
+   * lendo. A leitura somada existe desde `FamiliesOverview.parametros`, e é a
+   * mesma `FamiliesView` de uma unidade — por isso o resto desta função quase
+   * não distingue os dois casos.
+   *
+   * `scopeHash` e `visaoGeral` são mutuamente exclusivos por construção do
+   * seletor; se os dois chegarem juntos num endereço colado à mão, a soma vence
+   * — foi ela que a pessoa pediu por último ao escrever a chave.
+   */
+  const visaoGeral = params.get("visaoGeral") === "1";
+
   const query = new URLSearchParams();
   for (const key of ["period", "scopeHash", "canal"]) {
     const value = params.get(key);
-    if (value !== null) query.set(key, value);
+    if (value !== null && !(visaoGeral && key !== "period")) query.set(key, value);
   }
 
   const cartaoAberto = params.get("cartao");
@@ -216,13 +241,69 @@ export default function Parametros() {
    */
   const [busca, setBusca] = useState("");
 
-  const { data, isLoading, error } = useQuery({
+  const vigencia = useQuery({
     queryKey: ["families", query.toString()],
+    enabled: !visaoGeral,
     queryFn: () => {
       const suffix = query.toString() ? `?${query}` : "";
       return fetchJsonOrNull<FamiliesView>(`/changes/families${suffix}`);
     },
   });
+
+  /*
+    A vigência da soma, e por que ela não sai de `view.periods`.
+
+    Em Visão Geral não existe um `FamiliesView` antes da resposta — é a resposta
+    que o monta —, então o padrão tem de vir de fora: a união das competências
+    de todas as unidades, que `/contexts` já devolve para a lateral. A mais
+    recente é o padrão pela mesma razão que é dentro de uma unidade; quem quer
+    outra escreve `period` no endereço, e a barra de filtro faz isso.
+  */
+  const casca = useContextosDaCasca();
+  const periodosDaSoma = useMemo(
+    () =>
+      Array.from(new Set(casca.contextos.flatMap((c) => c.periodosDisponiveis))).sort((a, b) =>
+        b.localeCompare(a),
+      ),
+    [casca.contextos],
+  );
+  const periodoDaSoma = params.get("period") ?? periodosDaSoma[0] ?? null;
+
+  const soma = useFamiliesOverviewQuery(periodoDaSoma, {
+    enabled: visaoGeral,
+    comParametros: true,
+  });
+
+  /*
+    Uma variável para as duas leituras, e é isso que faz a tela ser uma só.
+
+    `soma.data.parametros` é uma `FamiliesView` como a de uma unidade — mesma
+    árvore, mesmos grupos, mesmos campos —, com `porUnidade` a mais em cada
+    grupo. Tudo o que vem daqui para baixo (ladrilhos, grades, busca, ordenação)
+    continua sem saber de qual das duas está lendo, que é a única forma de as
+    duas não divergirem com o tempo.
+  */
+  const data = visaoGeral ? (soma.data?.parametros ?? null) : (vigencia.data ?? null);
+  /*
+    Carregar a lista de contextos conta como carregar a tela.
+
+    Em Visão Geral a vigência padrão sai de `/contexts`, e enquanto ela não
+    chega não há o que pedir — a consulta fica desligada e `isLoading` dela é
+    falso. Sem esta parcela, a tela passava por "nenhuma vigência importada
+    ainda" no caminho, que é uma frase errada sobre um estado que é só espera.
+  */
+  const isLoading = visaoGeral ? casca.carregando || soma.isLoading : vigencia.isLoading;
+  const error = visaoGeral ? soma.error : vigencia.error;
+
+  /** Abrir uma unidade a partir da soma: o mesmo recorte, dentro dela. */
+  const abrirUnidade = (scopeHash: string, canal: string | null) => {
+    const next = new URLSearchParams(search);
+    next.delete("visaoGeral");
+    next.set("scopeHash", scopeHash);
+    if (canal) next.set("canal", canal);
+    else next.delete("canal");
+    navigate(`/parametros?${next}`);
+  };
 
   /**
    * O tipo escolhido que **não existe** nesta vigência.
@@ -252,8 +333,16 @@ export default function Parametros() {
    */
   const aplicar = (selecao: { scopeHash: string; canal: string | null; period: string }) => {
     const next = new URLSearchParams();
-    next.set("scopeHash", selecao.scopeHash);
-    if (selecao.canal) next.set("canal", selecao.canal);
+    /*
+      Em Visão Geral o único campo que muda a pergunta é a vigência — a unidade
+      é "todas", e escolher uma delas é o que a lateral faz. Escrever
+      `scopeHash: ""` aqui apagaria a soma em silêncio no primeiro FILTRAR.
+    */
+    if (visaoGeral) next.set("visaoGeral", "1");
+    else {
+      next.set("scopeHash", selecao.scopeHash);
+      if (selecao.canal) next.set("canal", selecao.canal);
+    }
     if (selecao.period) next.set("period", selecao.period);
     // A aba, o escopo e a ordenação são o **enquadramento**, e não o recorte:
     // trocar de unidade nunca é pedido para voltar ao catálogo, largar o escopo
@@ -414,7 +503,8 @@ export default function Parametros() {
         <p className="text-muted-foreground text-sm mt-1 max-w-3xl">
           Duas leituras da mesma vigência. <strong>Atributos</strong> é o que o cliente
           mexeu, coluna a coluna, arrumado por cavalo, carreta, conjunto, trecho e QLP —
-          cada cartão abre nos veículos desta unidade. <strong>Catálogo Freightech</strong>{" "}
+          cada cartão abre nos veículos {visaoGeral ? "de cada unidade somada" : "desta unidade"}.{" "}
+          <strong>Catálogo Freightech</strong>{" "}
           é a tela de Escolha de segmento como ela é lá, com todas as gavetas, inclusive as
           que este export ainda não alimenta.
         </p>
@@ -422,6 +512,7 @@ export default function Parametros() {
         {data && (
           <BarraFiltro
             view={data}
+            visaoGeral={visaoGeral}
             onFiltrar={aplicar}
             /* SEM_ESCOPO é recorte da grade e não tipo do domínio: na barra
                ele se lê como "Todos", que é o que ele filtra por cima. */
@@ -432,6 +523,56 @@ export default function Parametros() {
             buscaAtiva={!cartao}
             comBusca={vista === "catalogo"}
           />
+        )}
+
+        {/*
+          O recorte, escrito antes do primeiro número.
+
+          Fica aqui e não dentro de um dos ramos abaixo porque vale para todos:
+          a grade, o cartão aberto e o atributo aberto são todos a soma quando a
+          soma está ligada, e uma grade somada é visualmente idêntica à de uma
+          unidade. Sem esta faixa, quem chegou por um link não teria como saber
+          qual das duas está lendo.
+        */}
+        {data?.visaoGeral && (
+          <FaixaDaVisaoGeral
+            unidades={data.visaoGeral.unidades}
+            contextos={data.visaoGeral.contextos}
+            veiculos={data.totals.vehiclesTouched}
+            alteracoes={data.totals.changes}
+          />
+        )}
+
+        {/*
+          A soma existe e não deu para consolidar nada.
+
+          É diferente de "não há vigência nesta competência" (que vem como
+          resposta vazia) e é diferente de erro: a competência existe, e toda
+          unidade elegível foi recusada — por contextos ambíguos no mesmo canal,
+          ou porque a vigência sumiu entre a listagem e a leitura. A rota já
+          nomeia quem ficou de fora e por quê; a tela repete isso em vez de
+          desenhar uma grade vazia, que se leria como "nada mudou em lugar
+          nenhum".
+        */}
+        {visaoGeral && !isLoading && !error && soma.data && soma.data.parametros === null && (
+          <div className="mt-6 bg-card border border-l-[6px] border-l-brand-red px-6 py-4 text-sm flex gap-3 max-w-4xl">
+            <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-brand-red" />
+            <div>
+              <p>
+                <strong>Nenhuma unidade pôde entrar na soma nesta vigência.</strong> A
+                competência existe, mas todas as unidades elegíveis foram recusadas — e
+                recusa não é zero.
+              </p>
+              <ul className="mt-2 space-y-1 text-muted-foreground">
+                {soma.data.unitsExcluded.map((unidade) => (
+                  <li key={unidade.unidade}>
+                    <span className="font-medium text-foreground">{unidade.label}</span> —{" "}
+                    {MOTIVO_DA_EXCLUSAO[unidade.reason]}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
         )}
 
         {isLoading && <p className="mt-8 text-sm text-muted-foreground">Carregando…</p>}
@@ -478,6 +619,8 @@ export default function Parametros() {
           <VisaoGeral
             view={data ?? null}
             contexto={query}
+            visaoGeralDeUnidades={visaoGeral}
+            onUnidade={abrirUnidade}
             period={data?.period ?? ""}
             de={de}
             ate={ate}
@@ -494,6 +637,8 @@ export default function Parametros() {
             view={data ?? null}
             period={data?.period ?? ""}
             contexto={query}
+            visaoGeral={visaoGeral}
+            onUnidade={abrirUnidade}
             aba={aba}
             de={de}
             ate={ate}
@@ -1028,6 +1173,23 @@ function CartaoAusente({
 const CHAVE_VISAO_GERAL = "visao-geral.remuneracao-total";
 
 /**
+ * Por que uma unidade ficou fora da soma, na frase da tela.
+ *
+ * Os códigos são do servidor (`MotivoExclusaoDaVisaoGeral`) e cada um pede uma
+ * ação diferente de quem lê: um é "esta unidade não entregou este mês", outro é
+ * "o recorte desta unidade não é somável com segurança" — e o terceiro é uma
+ * corrida, que some sozinha ao recarregar. Traduzi-los para "não disponível"
+ * apagaria justamente a diferença.
+ */
+const MOTIVO_DA_EXCLUSAO: Record<MotivoExclusaoDaVisaoGeral, string> = {
+  sem_vigencia_na_competencia: "não entregou vigência nesta competência.",
+  contextos_sobrepostos_ambiguos:
+    "tem mais de um recorte no mesmo canal, e somá-los contaria a mesma frota duas vezes.",
+  vigencia_indisponivel_na_leitura:
+    "a vigência não pôde ser lida agora — recarregar costuma resolver.",
+};
+
+/**
  * Visão geral — a remuneração inteira, num intervalo.
  *
  * A hierarquia do produto é VISÃO GERAL → CARTÃO → VEÍCULO → EVIDÊNCIA, e este
@@ -1049,6 +1211,8 @@ const CHAVE_VISAO_GERAL = "visao-geral.remuneracao-total";
 function VisaoGeral({
   view,
   contexto,
+  visaoGeralDeUnidades,
+  onUnidade,
   period,
   de,
   ate,
@@ -1061,6 +1225,17 @@ function VisaoGeral({
 }: {
   view: FamiliesView | null;
   contexto: URLSearchParams;
+  /**
+   * Se a tela está somando todas as unidades — o outro sentido de "visão geral".
+   *
+   * O nome longo é deliberado: esta tela **já** se chama Visão geral, e ela é a
+   * de outro eixo (todos os parâmetros, num intervalo, dentro de um recorte).
+   * As duas se cruzam aqui, e o cruzamento não tem leitura: o intervalo é lido
+   * por contexto no servidor. Somar todas as unidades num intervalo é pergunta
+   * legítima e ainda não respondida — até lá, o caminho é por unidade.
+   */
+  visaoGeralDeUnidades: boolean;
+  onUnidade: (scopeHash: string, canal: string | null) => void;
   period: string;
   de: string | null;
   ate: string | null;
@@ -1099,6 +1274,13 @@ function VisaoGeral({
       </div>
 
       <div className="mt-6">
+        {visaoGeralDeUnidades ? (
+          <SoDentroDeUmaUnidade
+            oQue="A remuneração total num intervalo"
+            contextos={view?.visaoGeral?.contextos ?? []}
+            onUnidade={onUnidade}
+          />
+        ) : (
         <AnaliseCartao
           consolidado
           nomeDoCartao="Remuneração total"
@@ -1114,6 +1296,7 @@ function VisaoGeral({
           onAbrirCartao={onAbrirCartao}
           temCartao={temCartao}
         />
+        )}
       </div>
     </div>
   );
@@ -1318,6 +1501,7 @@ function agregar(parametros: ParameterView[]): {
  */
 function BarraFiltro({
   view,
+  visaoGeral,
   onFiltrar,
   tipo,
   onTipo,
@@ -1327,6 +1511,17 @@ function BarraFiltro({
   comBusca,
 }: {
   view: FamiliesView;
+  /**
+   * Se a leitura é a soma de todas as unidades.
+   *
+   * Muda dois campos e o botão, e não o resto: unidade e canal deixam de ser
+   * escolha (quem escolhe unidade é a caixa da lateral, que é o único lugar
+   * desde que ela absorveu o "Trocar unidade" das páginas), e FILTRAR passa a
+   * responder só pela vigência. Os campos continuam na tela, preenchidos, em
+   * vez de sumirem: um recorte que desaparece da barra é um recorte que quem
+   * chegou por um link não tem como ler.
+   */
+  visaoGeral: boolean;
   onFiltrar: (selecao: { scopeHash: string; canal: string | null; period: string }) => void;
   /** O tipo escolhido, ou `TODOS`. Ver o campo Tipo, abaixo. */
   tipo: FiltroDeTipo;
@@ -1383,11 +1578,13 @@ function BarraFiltro({
         ? contagemDoTipo(escolhido, escolhido.entidades)
         : "não há nesta vigência";
 
-  const canais = contextos.filter((c) => c.scopeHash === scopeHash);
-  const sujo =
-    scopeHash !== view.context.scopeHash ||
-    canal !== view.context.channel ||
-    period !== view.period;
+  const canais = visaoGeral ? [] : contextos.filter((c) => c.scopeHash === scopeHash);
+  const unidadesNaSoma = view.visaoGeral?.unidades ?? 0;
+  const sujo = visaoGeral
+    ? period !== view.period
+    : scopeHash !== view.context.scopeHash ||
+      canal !== view.context.channel ||
+      period !== view.period;
 
   return (
     /*
@@ -1404,7 +1601,18 @@ function BarraFiltro({
       pelo topo, os rótulos ficam numa linha e os controles noutra, sempre.
     */
     <div className="mt-5 flex flex-wrap items-start gap-4">
-      <Campo rotulo="Canal/Segmento" nota={canais.length > 1 ? null : "único canal importado"}>
+      <Campo
+        rotulo="Canal/Segmento"
+        nota={
+          visaoGeral
+            ? view.context.channel === null
+              ? "os canais das unidades somadas"
+              : "único canal nas unidades somadas"
+            : canais.length > 1
+              ? null
+              : "único canal importado"
+        }
+      >
         {canais.length > 1 ? (
           <Select value={canal ?? ""} onValueChange={(valor) => setCanal(valor || null)}>
             <SelectTrigger className="w-56 h-11 rounded-lg bg-background">
@@ -1419,7 +1627,12 @@ function BarraFiltro({
             </SelectContent>
           </Select>
         ) : (
-          <CampoFixo valor={canal ?? "sem canal no rótulo"} largura="w-56" />
+          <CampoFixo
+            valor={
+              canal ?? (visaoGeral ? "todos os canais" : "sem canal no rótulo")
+            }
+            largura="w-56"
+          />
         )}
       </Campo>
 
@@ -1438,8 +1651,17 @@ function BarraFiltro({
         </Select>
       </Campo>
 
-      <Campo rotulo="Unidade" nota={unidades.length > 1 ? null : "única unidade importada"}>
-        {unidades.length > 1 ? (
+      <Campo
+        rotulo="Unidade"
+        nota={
+          visaoGeral
+            ? `soma de ${unidadesNaSoma} ${unidadesNaSoma === 1 ? "unidade" : "unidades"}`
+            : unidades.length > 1
+              ? null
+              : "única unidade importada"
+        }
+      >
+        {!visaoGeral && unidades.length > 1 ? (
           <Select
             value={scopeHash}
             onValueChange={(valor) => {
@@ -1940,6 +2162,8 @@ function DetalheCartao({
   view,
   period,
   contexto,
+  visaoGeral,
+  onUnidade,
   aba,
   de,
   ate,
@@ -1955,6 +2179,19 @@ function DetalheCartao({
   period: string;
   /** Unidade, canal e vigência, para o cadastro ser lido do mesmo recorte. */
   contexto: URLSearchParams;
+  /**
+   * Se a leitura é a soma de todas as unidades.
+   *
+   * Aqui ele muda mais do que na grade, e por uma razão de dado: as alterações
+   * somam e o **cadastro não**. A tabela de inventário, as tabelas de domínio e
+   * a análise de intervalo leem um contexto no servidor — unidade e canal —, e
+   * juntar o cadastro de duas unidades produziria uma ficha que não é de
+   * nenhuma. Nesses três, a Visão Geral diz isso e oferece o caminho, em vez de
+   * desenhar uma tabela cujo dono ninguém sabe qual é.
+   */
+  visaoGeral: boolean;
+  /** Abrir esta mesma gaveta dentro de uma unidade. */
+  onUnidade: (scopeHash: string, canal: string | null) => void;
   /** Aba, intervalo e leitura vêm da URL — ver `Parametros`. */
   aba: "freightech" | "analise";
   de: string | null;
@@ -2064,7 +2301,13 @@ function DetalheCartao({
             três ficarem erradas.
           */}
           <div className="mt-5 space-y-5">
-            {inventario ? (
+            {visaoGeral && (inventario || cadastro) ? (
+              <SoDentroDeUmaUnidade
+                oQue={inventario ? "A tabela de inventário" : "A tabela de cadastro"}
+                contextos={view?.visaoGeral?.contextos ?? []}
+                onUnidade={onUnidade}
+              />
+            ) : inventario ? (
               <TabelaInventario
                 entidade={cartao.entidade!}
                 atributos={cartao.atributos}
@@ -2104,19 +2347,30 @@ function DetalheCartao({
             <div className="mt-5">
               {cartao.groups
                 .filter((grupo) => grupo.key === grupoAberto)
-                .map((grupo) => (
-                  <GroupCard
-                    key={grupo.key}
-                    group={grupo}
-                    period={period}
-                    recorte={lerRecorte(contexto)}
-                  />
-                ))}
+                .map((grupo) =>
+                  grupo.porUnidade ? (
+                    <AlteracaoPorUnidade key={grupo.key} grupo={grupo} period={period} />
+                  ) : (
+                    <GroupCard
+                      key={grupo.key}
+                      group={grupo}
+                      period={period}
+                      recorte={lerRecorte(contexto)}
+                    />
+                  ),
+                )}
             </div>
           )}
         </>
       ) : (
         <div className="mt-6">
+          {visaoGeral ? (
+            <SoDentroDeUmaUnidade
+              oQue="A análise de intervalo"
+              contextos={view?.visaoGeral?.contextos ?? []}
+              onUnidade={onUnidade}
+            />
+          ) : (
           <AnaliseCartao
             nomeDoCartao={cartao.nome}
             parametros={cartao.parametros}
@@ -2129,6 +2383,7 @@ function DetalheCartao({
             onAte={(v) => onIntervalo("ate", v)}
             onLeitura={onLeitura}
           />
+          )}
         </div>
       )}
     </div>

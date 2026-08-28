@@ -10,7 +10,8 @@
     "./labels": "./src/labels.ts",
     "./composition": "./src/composition.ts",
     "./tipos": "./src/tipos.ts",
-    "./tipos-da-vigencia": "./src/tipos-da-vigencia.ts"
+    "./tipos-da-vigencia": "./src/tipos-da-vigencia.ts",
+    "./visao-geral-de-parametros": "./src/visao-geral-de-parametros.ts"
   },
   "scripts": {
     "test": "vitest run",
