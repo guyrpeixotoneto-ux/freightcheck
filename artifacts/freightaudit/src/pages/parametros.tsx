@@ -20,6 +20,10 @@ import {
   Wallet,
 } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
+import {
+  BOTAO_DE_VIGENCIA,
+  MenuDeVigencias,
+} from "@/components/vigencia/seletor-de-vigencia";
 import { GroupCard } from "@/components/inicio/group-card";
 import { TabelaFreightech, type ColunaTabela } from "@/components/parametros/tabela";
 import { TabelaDominio } from "@/components/parametros/dominio";
@@ -1578,6 +1582,8 @@ function BarraFiltro({
         ? contagemDoTipo(escolhido, escolhido.entidades)
         : "não há nesta vigência";
 
+  const rotuloDoPeriodo = view.periods.find((p) => p.date === period)?.label ?? null;
+
   const canais = visaoGeral ? [] : contextos.filter((c) => c.scopeHash === scopeHash);
   const unidadesNaSoma = view.visaoGeral?.unidades ?? 0;
   const sujo = visaoGeral
@@ -1636,19 +1642,31 @@ function BarraFiltro({
         )}
       </Campo>
 
+      {/*
+        A vigência é o único campo desta barra que existe em todas as telas, e
+        aqui ela abre o mesmo menu do "Trocar vigência" do cabeçalho — mesma
+        casca, mesma lista, mesma ordem (a mais recente em cima).
+
+        O rótulo do botão carrega a data escolhida, e não o texto fixo das
+        outras telas: esta barra **não aplica na hora** — a escolha só vale no
+        FILTRAR ao lado —, e um botão que dissesse só "Trocar vigência" deixaria
+        de fora justamente a informação que o campo `Select` daqui mostrava.
+      */}
       <Campo rotulo="Vigência" nota={`${view.periods.length} no histórico`}>
-        <Select value={period} onValueChange={setPeriod}>
-          <SelectTrigger className="w-56 h-11 rounded-lg bg-background">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {view.periods.map((p) => (
-              <SelectItem key={p.date} value={p.date}>
-                {p.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <MenuDeVigencias
+          rotulo={rotuloDoPeriodo ?? "Escolher vigência"}
+          className={cn(BOTAO_DE_VIGENCIA, "w-56 h-11 whitespace-nowrap overflow-hidden")}
+          alinhamento="start"
+          descricao="Vigência"
+          cabecalho={`${view.periods.length} ${
+            view.periods.length === 1 ? "vigência" : "vigências"
+          } no histórico`}
+          opcoes={[...view.periods]
+            .sort((a, b) => b.date.localeCompare(a.date))
+            .map((p) => ({ data: p.date, rotulo: p.label }))}
+          ativa={period}
+          onEscolher={setPeriod}
+        />
       </Campo>
 
       <Campo

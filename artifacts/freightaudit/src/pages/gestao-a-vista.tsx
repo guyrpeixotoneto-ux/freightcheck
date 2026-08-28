@@ -6,7 +6,6 @@ import {
   ArrowRight,
   BarChart3,
   Building2,
-  CalendarDays,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -50,7 +49,11 @@ import {
   periodicityAdjective,
   periodicitySuffix,
 } from "@/lib/format";
-import { SeletorDeVigenciaGeral } from "@/components/vigencia/seletor-de-vigencia";
+import {
+  BOTAO_DE_VIGENCIA,
+  MenuDeVigencias,
+  SeletorDeVigenciaGeral,
+} from "@/components/vigencia/seletor-de-vigencia";
 import { escreverImpacto, ladosDoImpacto, type Impacto } from "@/lib/visao-geral";
 import { lerRecorte, linkDeAlteracoes, nomeDaUnidade, type Recorte } from "@/lib/recorte";
 import { juntarPrioridades, SEVERITY_LABEL } from "@/lib/cockpit";
@@ -1822,21 +1825,35 @@ function TemplateDeRadar() {
         </header>
 
         <div className="flex flex-wrap items-center gap-3">
-          <FiltroDoRadar icone={CalendarDays} rotulo={`Até: ${
+          {/*
+            O mesmo menu de vigência do resto do produto, e não mais um
+            `FiltroDoRadar` com a lista escrita à mão: as datas saem na mesma
+            ordem das outras telas (a mais recente em cima) e o cabeçalho diz
+            quantas são.
+
+            O rótulo continua dizendo "Até:" porque aqui a vigência é o **fim da
+            janela**, e não a vigência aberta — a grade mostra as N competências
+            que terminam nela. Chamá-lo de "Trocar vigência", como nos
+            cabeçalhos, prometeria trocar o recorte inteiro.
+          */}
+          <MenuDeVigencias
+            rotulo={`Até: ${
               periodoSelecionado === null
                 ? "—"
                 : rotuloCurtoDaVigencia(periodoSelecionado, periodosDisponiveis)
-            }`}>
-            {periodosDisponiveis.map((data) => (
-              <DropdownMenuItem
-                key={data}
-                onSelect={() => trocar({ period: data })}
-                className={cn(data === periodoSelecionado && "font-bold text-brand")}
-              >
-                {rotuloCurtoDaVigencia(data, periodosDisponiveis)}
-              </DropdownMenuItem>
-            ))}
-          </FiltroDoRadar>
+            }`}
+            className={BOTAO_DE_VIGENCIA}
+            alinhamento="start"
+            cabecalho={`${periodosDisponiveis.length} ${
+              periodosDisponiveis.length === 1 ? "vigência" : "vigências"
+            } no histórico`}
+            opcoes={periodosDisponiveis.map((data) => ({
+              data,
+              rotulo: rotuloCurtoDaVigencia(data, periodosDisponiveis),
+            }))}
+            ativa={periodoSelecionado}
+            onEscolher={(data) => trocar({ period: data })}
+          />
 
           <FiltroDoRadar
             icone={LayoutGrid}

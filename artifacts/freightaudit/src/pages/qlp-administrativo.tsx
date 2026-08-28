@@ -15,6 +15,10 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
+import {
+  BOTAO_DE_VIGENCIA,
+  MenuDeVigencias,
+} from "@/components/vigencia/seletor-de-vigencia";
 import { ApiErrorNotice } from "@/components/api-error";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -1079,6 +1083,18 @@ function AbaAlteracoes({ serie }: { serie: EvolucaoDoQuadro["quadro"] }) {
   );
 }
 
+/**
+ * A vigência do quadro, no mesmo botão do resto do produto.
+ *
+ * A lista aqui é de **importações do quadro** (o `id` do snapshot), e não de
+ * datas: duas importações da mesma quinzena existem e precisam ser distinguidas
+ * pelo rótulo da fonte. A contagem à direita é de cargos, e não de alterações —
+ * é o que `detalhe` serve para dizer sem que o menu invente o substantivo.
+ *
+ * O rótulo do botão carrega a vigência escolhida, como nos outros seletores de
+ * comparação: são dois botões lado a lado, e "Trocar vigência" nos dois não
+ * diria qual está de cada lado.
+ */
 function SeletorDeVigencia({
   rotulo,
   valor,
@@ -1090,21 +1106,26 @@ function SeletorDeVigencia({
   onMudar: (v: string) => void;
   opcoes: SnapshotComparavel[];
 }) {
+  const escolhida = opcoes.find((o) => o.id === valor) ?? null;
   return (
     <div className="space-y-1.5">
       <div className="text-xs uppercase tracking-wide text-muted-foreground">{rotulo}</div>
-      <Select value={valor} onValueChange={onMudar}>
-        <SelectTrigger className="w-72">
-          <SelectValue placeholder="Selecionar vigência…" />
-        </SelectTrigger>
-        <SelectContent>
-          {opcoes.map((s) => (
-            <SelectItem key={s.id} value={s.id}>
-              {s.sourceLabel} · {s.entityCount} cargos
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      <MenuDeVigencias
+        rotulo={escolhida?.sourceLabel ?? "Selecionar vigência…"}
+        className={cn(BOTAO_DE_VIGENCIA, "w-72 h-10 whitespace-nowrap overflow-hidden")}
+        alinhamento="start"
+        descricao={rotulo}
+        cabecalho={`${opcoes.length} ${
+          opcoes.length === 1 ? "vigência" : "vigências"
+        } no quadro`}
+        opcoes={opcoes.map((o) => ({
+          data: o.id,
+          rotulo: o.sourceLabel,
+          detalhe: `${o.entityCount.toLocaleString("pt-BR")} cargos`,
+        }))}
+        ativa={valor || null}
+        onEscolher={onMudar}
+      />
     </div>
   );
 }

@@ -164,9 +164,15 @@ export function SeletorDeVigenciaGeral({
  * A casca comum dos seletores — o que faz todas as listas serem uma só.
  *
  * Exportada porque nem toda tela escolhe a vigência por data: as Justificativas
- * escolhem uma *comparação* (`changeSetId`), e a Vigência lista as datas de uma
- * unidade só. As três abrem o mesmo menu, com o mesmo cabeçalho e a mesma
- * coluna de alterações à direita; o que muda é de onde vêm as opções.
+ * escolhem uma *comparação* (`changeSetId`), o QLP escolhe uma *importação do
+ * quadro* (o `id` do snapshot), e a Vigência lista as datas de uma unidade só.
+ * Todas abrem o mesmo menu, com o mesmo cabeçalho e a mesma coluna à direita;
+ * o que muda é de onde vêm as opções.
+ *
+ * `alinhamento` existe porque o menu nasce de dois lugares: do canto direito de
+ * um cabeçalho (o padrão, `end`) e do começo de uma fileira de filtros — o
+ * Radar, a barra de Parâmetros —, onde um menu ancorado à direita abriria
+ * para fora do botão.
  */
 export function MenuDeVigencias({
   rotulo,
@@ -177,6 +183,8 @@ export function MenuDeVigencias({
   onEscolher,
   aberto,
   onAbrir,
+  alinhamento = "end",
+  descricao,
 }: {
   rotulo: string;
   className?: string;
@@ -186,19 +194,37 @@ export function MenuDeVigencias({
    * não tem anterior contra a qual ser comparada, e nem toda tela sabe a
    * contagem. Nada aqui inventa "0 alterações" para preencher a coluna.
    */
-  opcoes: { data: string; rotulo: string; alteracoes?: number | null }[];
+  opcoes: {
+    data: string;
+    rotulo: string;
+    alteracoes?: number | null;
+    /**
+     * O que fica à direita quando a linha não conta alterações: "148 cargos",
+     * no QLP, onde a lista é de importações do quadro. Escrito pela tela porque
+     * só ela sabe o substantivo; `alteracoes` continua sendo o caminho curto
+     * para o caso comum.
+     */
+    detalhe?: string | null;
+  }[];
   ativa: string | null;
   onEscolher: (data: string) => void;
   aberto?: boolean;
   onAbrir?: (aberto: boolean) => void;
+  alinhamento?: "start" | "end";
+  /**
+   * O que o leitor de tela anuncia quando o rótulo do botão é a própria data.
+   * Nos campos que substituíram um `<label for=…>` — "Quinzena da esquerda", na
+   * Remuneração — é o que mantém a pergunta ligada ao controle.
+   */
+  descricao?: string;
 }) {
   return (
     <DropdownMenu open={aberto} onOpenChange={onAbrir}>
-      <DropdownMenuTrigger className={className}>
+      <DropdownMenuTrigger className={className} aria-label={descricao}>
         <CalendarDays className="w-4 h-4" />
         {rotulo}
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-64 max-h-80 overflow-y-auto">
+      <DropdownMenuContent align={alinhamento} className="w-72 max-h-80 overflow-y-auto">
         <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
           {cabecalho}
         </DropdownMenuLabel>
@@ -213,10 +239,13 @@ export function MenuDeVigencias({
             )}
           >
             <span>{opcao.rotulo}</span>
-            {opcao.alteracoes != null && (
+            {(opcao.alteracoes != null || opcao.detalhe) && (
               <span className="text-xs font-normal text-muted-foreground tabular-nums">
-                {opcao.alteracoes.toLocaleString("pt-BR")}{" "}
-                {opcao.alteracoes === 1 ? "alteração" : "alterações"}
+                {opcao.alteracoes != null
+                  ? `${opcao.alteracoes.toLocaleString("pt-BR")} ${
+                      opcao.alteracoes === 1 ? "alteração" : "alterações"
+                    }`
+                  : opcao.detalhe}
               </span>
             )}
           </DropdownMenuItem>

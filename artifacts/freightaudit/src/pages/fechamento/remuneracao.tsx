@@ -9,6 +9,10 @@ import {
   ScrollText,
 } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
+import {
+  BOTAO_DE_VIGENCIA,
+  MenuDeVigencias,
+} from "@/components/vigencia/seletor-de-vigencia";
 import { useBaseDoFechamento } from "@/lib/base-do-fechamento";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Card, CardContent } from "@/components/ui/card";
@@ -24,6 +28,7 @@ import { CadastrarAPlanilha } from "@/components/remuneracao/cadastrar-planilha"
 import { VistaDeDuasQuinzenas } from "@/components/remuneracao/duas-quinzenas";
 import { VistaDeUmaQuinzena } from "@/components/remuneracao/uma-quinzena";
 import { apresentar } from "@/lib/apresentar-erro";
+import { cn } from "@/lib/utils";
 import {
   chaveDoCadastro,
   lerCadastro,
@@ -301,14 +306,12 @@ export default function RemuneracaoCadastro() {
               {vista === "duas" ? (
                 <>
                   <SeletorDeVigencia
-                    id="de"
                     rotulo="Quinzena da esquerda"
                     valor={comparacao.data?.esquerda.effectiveDate ?? ""}
                     vigencias={vigencias}
                     onChange={(v) => trocar({ de: v })}
                   />
                   <SeletorDeVigencia
-                    id="ate"
                     rotulo="Quinzena da direita"
                     valor={comparacao.data?.direita.effectiveDate ?? ""}
                     vigencias={vigencias}
@@ -317,7 +320,6 @@ export default function RemuneracaoCadastro() {
                 </>
               ) : (
                 <SeletorDeVigencia
-                  id="period"
                   rotulo={
                     vista === "cadastrar"
                       ? "Vigência que você preenche"
@@ -378,43 +380,52 @@ export default function RemuneracaoCadastro() {
   );
 }
 
+/**
+ * A vigência desta tela, no mesmo botão do resto do produto.
+ *
+ * Aqui são até dois — "Quinzena da esquerda" e "Quinzena da direita" — e é o
+ * que faz o rótulo do botão carregar a data escolhida em vez do "Trocar
+ * vigência" dos cabeçalhos: uma comparação com dois botões idênticos não
+ * diria qual data está de cada lado. O que a comparação escolhe continua
+ * escrito acima de cada um.
+ */
 function SeletorDeVigencia({
-  id,
   rotulo,
   valor,
   vigencias,
   onChange,
 }: {
-  id: string;
   rotulo: string;
   valor: string;
   vigencias: { effectiveDate: string; periodLabel: string }[];
   onChange: (valor: string) => void;
 }) {
+  const escolhida = vigencias.find((v) => v.effectiveDate === valor) ?? null;
   return (
     <div className="space-y-1.5">
-      <label
-        htmlFor={id}
-        className="text-xs font-semibold uppercase tracking-wide text-muted-foreground"
-      >
+      <span className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
         {rotulo}
-      </label>
-      <Select
-        value={valor}
-        onValueChange={onChange}
-        disabled={vigencias.length === 0}
-      >
-        <SelectTrigger id={id}>
-          <SelectValue placeholder="Escolha a vigência" />
-        </SelectTrigger>
-        <SelectContent>
-          {vigencias.map((v) => (
-            <SelectItem key={v.effectiveDate} value={v.effectiveDate}>
-              {v.periodLabel}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      </span>
+      <MenuDeVigencias
+        rotulo={escolhida?.periodLabel ?? "Escolher vigência"}
+        className={cn(
+          BOTAO_DE_VIGENCIA,
+          "w-full h-10 whitespace-nowrap overflow-hidden",
+          // Sem vigência não há o que escolher, e o botão diz isso em vez de
+          // abrir um menu vazio.
+          vigencias.length === 0 && "opacity-50 pointer-events-none",
+        )}
+        alinhamento="start"
+        descricao={rotulo}
+        cabecalho={`${vigencias.length} ${
+          vigencias.length === 1 ? "vigência" : "vigências"
+        } no histórico`}
+        opcoes={[...vigencias]
+          .sort((a, b) => b.effectiveDate.localeCompare(a.effectiveDate))
+          .map((v) => ({ data: v.effectiveDate, rotulo: v.periodLabel }))}
+        ativa={valor || null}
+        onEscolher={onChange}
+      />
     </div>
   );
 }
