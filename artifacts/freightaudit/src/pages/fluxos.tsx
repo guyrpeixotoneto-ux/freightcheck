@@ -4,7 +4,9 @@ import { useMutation } from "@tanstack/react-query";
 import {
   Archive,
   ArchiveRestore,
+  ChevronRight,
   Copy,
+  CornerDownRight,
   Lightbulb,
   ListPlus,
   MoreVertical,
@@ -30,8 +32,10 @@ import { MontadorPorTexto } from "@/components/fluxos/montador-por-texto";
 import { useEmpresaDosFluxos } from "@/components/fluxos/seletor-de-empresa";
 import {
   acentoDaCategoria,
+  aninharSubfluxos,
   categoriasDaLista,
   comoTempoRelativo,
+  contarRamos,
   escritas,
   filtrarFluxos,
   ordenarPorAtualizacao,
@@ -39,6 +43,7 @@ import {
   useFluxos,
   useRecarregarFluxos,
   type FluxoNaLista,
+  type RamoDeFluxos,
 } from "@/lib/fluxos";
 
 /**
@@ -64,6 +69,15 @@ import {
  * que cabe inteira na tela. A busca já acha por categoria — "financeiro"
  * digitado ali faz o mesmo recorte. Quando a lista crescer, o seletor volta.
  *
+ * **Um subfluxo mora dentro do fluxo que ele detalha.** Quando alguém detalha
+ * uma etapa, nasce um fluxo — e ele aparecia aqui em cima, do mesmo tamanho e
+ * ao lado do processo do qual é um pedaço. A lista mostra a hierarquia: o pai
+ * traz a seta à esquerda, e ela abre os detalhes que pendem dele. Fechado por
+ * padrão, porque a pergunta desta tela é "quais processos a empresa tem", e o
+ * detalhe de uma etapa não é mais um processo — é o zoom de um. A busca abre
+ * tudo enquanto durar: uma linha que passou pelo filtro nunca fica escondida
+ * atrás de uma seta.
+ *
  * **Arquivados ficam fora por padrão**, com um interruptor para trazê-los. Um
  * processo arquivado continua explicando o que a empresa fazia até ontem — some
  * da fila, não do acervo.
@@ -84,9 +98,24 @@ export default function Fluxos() {
   const fluxos = useMemo(() => consulta.data?.fluxos ?? [], [consulta.data]);
   const categorias = useMemo(() => categoriasDaLista(fluxos), [fluxos]);
   const visiveis = useMemo(
-    () => ordenarPorAtualizacao(filtrarFluxos(fluxos, { busca })),
+    () => aninharSubfluxos(ordenarPorAtualizacao(filtrarFluxos(fluxos, { busca }))),
     [fluxos, busca],
   );
+  const quantosVisiveis = useMemo(() => contarRamos(visiveis), [visiveis]);
+
+  /*
+    Quais pais estão abertos. Enquanto há busca, todos: o filtro já escolheu o
+    que interessa, e esconder um resultado atrás de uma seta fechada faria a
+    busca parecer não ter achado o que achou.
+  */
+  const [abertos, setAbertos] = useState<Set<string>>(new Set());
+  const buscando = busca.trim() !== "";
+  const alternar = (id: string) =>
+    setAbertos((atual) => {
+      const proximo = new Set(atual);
+      if (!proximo.delete(id)) proximo.add(id);
+      return proximo;
+    });
 
   /*
     O que a empresa já mapeou não é sugestão — é o mapa dela, e aparece na
@@ -221,20 +250,22 @@ export default function Fluxos() {
               </div>
             )}
 
-            {!consulta.isLoading && !semear.isPending && visiveis.length === 0 && (
+            {!consulta.isLoading && !semear.isPending && quantosVisiveis === 0 && (
               <ListaVazia temFluxos={fluxos.length > 0} aoMontarPorTexto={() => setColando(true)} />
             )}
 
-            {visiveis.length > 0 && (
+            {quantosVisiveis > 0 && (
               <section>
-                <CabecalhoDaSecao titulo="Fluxos mais recentes" contagem={visiveis.length} />
+                <CabecalhoDaSecao titulo="Fluxos mais recentes" contagem={quantosVisiveis} />
                 <div className="space-y-3">
-                  {visiveis.map((fluxo) => (
-                    <LinhaDoFluxo
-                      key={fluxo.id}
-                      fluxo={fluxo}
+                  {visiveis.map((ramo) => (
+                    <RamoDoFluxo
+                      key={ramo.fluxo.id}
+                      ramo={ramo}
                       empresaId={empresaId}
-                      aoMudar={() => recarregar(fluxo.id)}
+                      estaAberto={(id) => buscando || abertos.has(id)}
+                      aoAlternar={alternar}
+                      aoMudar={recarregar}
                     />
                   ))}
                 </div>
@@ -318,6 +349,65 @@ function CabecalhoDaSecao({ titulo, contagem }: { titulo: string; contagem?: num
 }
 
 /**
+ * Um fluxo e o que pende dele — a linha, e as linhas dos detalhes dela.
+ *
+ * A recursão existe porque a hierarquia é de profundidade livre: uma etapa do
+ * subfluxo pode ter o seu próprio detalhe, e `ligarSubfluxo` só recusa ciclo,
+ * não profundidade. O recuo é o único sinal de nível, e ele é pequeno de
+ * propósito — o cartão do detalhe continua sendo um cartão, e não um item de
+ * lista dentro do pai, porque abrir um subfluxo é a mesma coisa que abrir
+ * qualquer fluxo.
+ */
+function RamoDoFluxo({
+  ramo,
+  empresaId,
+  estaAberto,
+  aoAlternar,
+  aoMudar,
+  nivel = 0,
+}: {
+  ramo: RamoDeFluxos;
+  empresaId: string | null;
+  estaAberto: (id: string) => boolean;
+  aoAlternar: (id: string) => void;
+  aoMudar: (fluxoId?: string) => void;
+  nivel?: number;
+}) {
+  const aberto = estaAberto(ramo.fluxo.id);
+  const temFilhos = ramo.filhos.length > 0;
+
+  return (
+    <div className="space-y-3">
+      <LinhaDoFluxo
+        fluxo={ramo.fluxo}
+        empresaId={empresaId}
+        subfluxos={ramo.filhos.length}
+        aberto={aberto}
+        eDetalhe={nivel > 0}
+        aoAlternar={temFilhos ? () => aoAlternar(ramo.fluxo.id) : undefined}
+        aoMudar={() => aoMudar(ramo.fluxo.id)}
+      />
+      {temFilhos && aberto && (
+        /* A linha vertical à esquerda é o que diz "isto é de dentro" quando o cartão do pai já rolou para fora da tela. */
+        <div className="ml-4 space-y-3 border-l-2 border-border pl-4 sm:ml-8">
+          {ramo.filhos.map((filho) => (
+            <RamoDoFluxo
+              key={filho.fluxo.id}
+              ramo={filho}
+              empresaId={empresaId}
+              estaAberto={estaAberto}
+              aoAlternar={aoAlternar}
+              aoMudar={aoMudar}
+              nivel={nivel + 1}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
  * Uma linha da lista — a tarja da categoria, o nome, e o que abre.
  *
  * As ações que não são "abrir" (duplicar, arquivar) ficam atrás do menu de três
@@ -328,10 +418,21 @@ function CabecalhoDaSecao({ titulo, contagem }: { titulo: string; contagem?: num
 function LinhaDoFluxo({
   fluxo,
   empresaId,
+  subfluxos,
+  aberto,
+  eDetalhe,
+  aoAlternar,
   aoMudar,
 }: {
   fluxo: FluxoNaLista;
   empresaId: string | null;
+  /** Quantos detalhes pendem daqui — zero esconde a seta. */
+  subfluxos: number;
+  aberto: boolean;
+  /** Esta linha é o detalhe de uma etapa de outro fluxo. */
+  eDetalhe: boolean;
+  /** Ausente quando não há o que abrir: o espaço da seta continua reservado. */
+  aoAlternar?: () => void;
   aoMudar: () => void;
 }) {
   const arquivar = useMutation({
@@ -356,7 +457,31 @@ function LinhaDoFluxo({
       }`}
     >
       <span className={`absolute inset-y-0 left-0 w-1 ${acento.barra}`} aria-hidden />
-      <CardContent className="flex flex-wrap items-center gap-4 py-4 pl-6 pr-4">
+      <CardContent className="flex flex-wrap items-center gap-4 py-4 pl-3 pr-4">
+        {/*
+          A seta ocupa o lugar mesmo quando não há o que abrir: sem isso, o nome
+          de um fluxo sem detalhes ficaria alguns pixels à esquerda do nome dos
+          outros, e a coluna dos nomes deixaria de existir.
+        */}
+        {aoAlternar ? (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 shrink-0 text-muted-foreground"
+            aria-expanded={aberto}
+            aria-label={`${aberto ? "Fechar" : "Abrir"} os ${subfluxos} ${
+              subfluxos === 1 ? "subfluxo" : "subfluxos"
+            } de ${fluxo.nome}`}
+            onClick={aoAlternar}
+          >
+            <ChevronRight
+              className={`h-4 w-4 transition-transform ${aberto ? "rotate-90" : ""}`}
+            />
+          </Button>
+        ) : (
+          <span className="h-7 w-7 shrink-0" aria-hidden />
+        )}
+
         <span
           className={`hidden h-11 w-11 shrink-0 items-center justify-center rounded-full sm:flex ${acento.bolha}`}
           aria-hidden
@@ -365,6 +490,17 @@ function LinhaDoFluxo({
         </span>
 
         <div className="min-w-[240px] flex-1">
+          {/*
+            De qual etapa este fluxo é o detalhe — a frase que faz o cartão de
+            dentro se explicar sozinho, inclusive quando a busca o promove a
+            raiz e o pai não está na tela.
+          */}
+          {eDetalhe && fluxo.pai && (
+            <p className="mb-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+              <CornerDownRight className="h-3.5 w-3.5 shrink-0" aria-hidden />
+              Detalha a etapa “{fluxo.pai.etapaNome}”
+            </p>
+          )}
           <Link
             href={`/fluxos/${fluxo.id}`}
             className="text-base font-semibold text-foreground hover:underline"
@@ -384,6 +520,12 @@ function LinhaDoFluxo({
             {fluxo.status !== "ATIVO" && (
               <Badge variant="outline" className="font-normal">
                 {arquivado ? "Arquivado" : "Rascunho"}
+              </Badge>
+            )}
+            {/* Fechado, é o único aviso de que existe coisa embaixo desta linha. */}
+            {subfluxos > 0 && (
+              <Badge variant="outline" className="font-normal text-muted-foreground">
+                {subfluxos} {subfluxos === 1 ? "subfluxo" : "subfluxos"}
               </Badge>
             )}
           </div>
