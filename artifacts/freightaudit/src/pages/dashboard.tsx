@@ -62,6 +62,7 @@ import {
   SeletorDeVigencia,
   SeletorDeVigenciaGeral,
 } from "@/components/vigencia/seletor-de-vigencia";
+import { opcoesDoIntervaloGeral } from "@/lib/intervalo-da-linha-do-tempo";
 import type {
   ChangeGroup,
   FamiliesOverview,
@@ -69,7 +70,7 @@ import type {
   OverviewContextRef,
   SeriesContext,
 } from "@/components/inicio/types";
-import type { Movimentos, RangeOverview } from "@/lib/analise";
+import type { Movimentos } from "@/lib/analise";
 
 /**
  * O Dashboard — a tela de vigilância: o que a Ambev mudou, e o que isso custou.
@@ -139,8 +140,16 @@ export default function Dashboard() {
     [contextos.contextos],
   );
 
-  const periodoOverviewEfetivo =
-    parametros.get("period") ?? periodosOverview[periodosOverview.length - 1] ?? null;
+  /*
+    Sem `?period=` a Visão Geral abre na competência **mais recente**, que é o
+    que toda outra tela do produto faz (`gestao-a-vista.tsx`, o seletor da
+    unidade) e o que alguém que abre o Dashboard veio ver. `periodosOverview`
+    vem em ordem decrescente: a mais recente é a primeira da lista, e pegar a
+    última abria a tela na competência mais antiga do histórico — a única sem
+    vigência anterior contra a qual comparar, e por isso sempre com "0
+    alterações detectadas" e nenhum valor apurado.
+  */
+  const periodoOverviewEfetivo = parametros.get("period") ?? periodosOverview[0] ?? null;
 
   const overviewQuery = useFamiliesOverviewQuery(periodoOverviewEfetivo, {
     enabled: visaoGeral,
@@ -190,14 +199,23 @@ export default function Dashboard() {
     return ate.length > 1 ? ate.slice(-6) : null;
   }, [visaoGeral, periodosOverview, periodoOverviewEfetivo]);
 
+  /*
+    O intervalo lido é o histórico inteiro, e não a janela de seis do gráfico:
+    é a mesma leitura que o seletor de "Trocar vigência" faz para contar as
+    alterações de cada competência (`opcoesDoIntervaloGeral`), e ler as duas
+    pontas do histórico faz das duas uma requisição só. O gráfico continua
+    desenhando só a janela — `serieGeral` recorta os pontos logo abaixo.
+
+    É isso que faz o menu do Dashboard abrir com a mesma coluna de alterações
+    do menu do Resumo executivo: a contagem já está no cache quando alguém
+    clica no botão, em vez de sair uma varredura nova a cada abertura.
+  */
   const rangeGeralQuery = useQuery({
-    queryKey: ["dashboard-impacto-geral", janelaGeral?.[0] ?? "", periodoOverviewEfetivo ?? ""],
-    queryFn: () => {
-      const q = new URLSearchParams({ from: janelaGeral![0], to: periodoOverviewEfetivo! });
-      return fetchJsonOrNull<RangeOverview>(`/changes/range/overview?${q}`);
-    },
-    enabled: visaoGeral && !!janelaGeral && periodoOverviewEfetivo !== null,
-    staleTime: 60_000,
+    ...opcoesDoIntervaloGeral(
+      periodosOverview[periodosOverview.length - 1] ?? null,
+      periodosOverview[0] ?? null,
+    ),
+    enabled: visaoGeral && periodosOverview.length > 1,
   });
 
   /*

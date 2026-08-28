@@ -85,6 +85,12 @@ export function SeletorDeVigencia({
  * diferentes obrigam quem lê a traduzir entre elas; e sem a contagem a lista
  * só oferece seis datas, sem dizer o que houve em cada uma.
  *
+ * O cabeçalho também é o mesmo texto do seletor da unidade ("N vigências no
+ * histórico"). Ele dizia "N competências disponíveis" — a mesma lista, do
+ * mesmo botão, com dois nomes conforme a tela tivesse ou não uma unidade
+ * escolhida, o que só obriga quem alterna entre as duas a reparar na
+ * diferença antes de concluir que não há nenhuma.
+ *
  * A contagem aqui é a soma entre unidades, e vem de `/changes/range/overview`
  * — a mesma leitura que a Linha do Tempo já faz para o ranking de unidades,
  * agora também com `changes` por competência. **Ela só sai quando o menu
@@ -115,7 +121,7 @@ export function SeletorDeVigenciaGeral({
     <MenuDeVigencias
       rotulo={rotulo}
       className={className}
-      cabecalho={`${periodos.length} competências disponíveis`}
+      cabecalho={`${periodos.length} vigências no histórico`}
       /*
         `rotuloCurtoDaVigencia` é a mesma regra que o servidor aplica ao montar
         `view.periods` — mês com uma entrega vira `agosto/2026`, mês com duas
