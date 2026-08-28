@@ -54,7 +54,7 @@ import { VisaoLista } from "@/components/fluxos/visao-lista";
 import { VisaoMapa } from "@/components/fluxos/visao-mapa";
 import { VisaoRaias } from "@/components/fluxos/visao-raias";
 import { useVisualizacaoDeFluxo } from "@/hooks/use-visualizacao-de-fluxo";
-import { analisarFluxo } from "@/lib/fluxos-analise";
+import { analisarFluxo, corpoDasLinhas, listaDoPainelPorChave } from "@/lib/fluxos-analise";
 import { nomeSugerido, proximaPosicaoLivre } from "@/lib/fluxos-paleta";
 import {
   AGRUPAMENTOS_DE_RAIA,
@@ -71,6 +71,7 @@ import type {
   CampoDaEtapaNoPainel,
   CampoEditavelNaLista,
   EtapaNovaNaLista,
+  ValoresDaLinha,
 } from "@/lib/fluxos-analise";
 import {
   corpoDaEtapa,
@@ -347,6 +348,48 @@ export default function TelaDoFluxo() {
     onSuccess: () => recarregar(fluxoId),
   });
 
+  /**
+   * A GRAVAÇÃO DE UMA LISTA PELO PAINEL — a lista inteira, como a rota exige.
+   *
+   * As três rotas de lista (itens de uma espécie, indicadores, ações) são
+   * substituição: o que chega passa a ser a lista, e a ordem das linhas é a
+   * ordem que chega. Por isso o painel manda o arranjo completo — editar,
+   * acrescentar e remover uma linha são a mesma escrita com arranjos
+   * diferentes.
+   *
+   * Aqui não há releitura antes de gravar, e a diferença em relação ao campo de
+   * texto é deliberada: o corpo **é** o que a pessoa está vendo na tela, linha
+   * por linha, e não um campo isolado carregando junto onze outros que ela não
+   * olhou. Reler para reconstruir daria a ilusão de fundir duas edições
+   * simultâneas de listas diferentes — o que essa rota não faz.
+   */
+  const editarListaNoPainel = useMutation({
+    mutationFn: async ({
+      etapaId,
+      chave,
+      linhas,
+    }: {
+      etapaId: string;
+      chave: string;
+      linhas: ValoresDaLinha[];
+    }) => {
+      const lista = listaDoPainelPorChave(catalogo.data, chave);
+      if (!lista) throw new Error("Esta lista não existe no catálogo — recarregue a página.");
+      const corpo = corpoDasLinhas(lista, linhas);
+
+      if (lista.natureza === "itens") {
+        await escritas.salvarItens(empresaId, fluxoId, etapaId, lista.especie!, corpo);
+        return;
+      }
+      if (lista.natureza === "indicadores") {
+        await escritas.salvarIndicadores(empresaId, fluxoId, etapaId, corpo);
+        return;
+      }
+      await escritas.salvarAcoes(empresaId, fluxoId, etapaId, corpo);
+    },
+    onSuccess: () => recarregar(fluxoId),
+  });
+
   /*
     O elemento arrastado vira etapa numa chamada só, sem passar por formulário.
     O nome e a posição saem de funções puras (`lib/fluxos-paleta.ts`), e a etapa
@@ -491,6 +534,11 @@ export default function TelaDoFluxo() {
     (etapaId: string, campo: CampoDaEtapaNoPainel, valor: string) =>
       editarCampoNoPainel.mutateAsync({ etapaId, campo, valor }).then(() => undefined),
     [editarCampoNoPainel],
+  );
+  const aoSalvarListaDoPainel = useCallback(
+    (etapaId: string, chave: string, linhas: ValoresDaLinha[]) =>
+      editarListaNoPainel.mutateAsync({ etapaId, chave, linhas }).then(() => undefined),
+    [editarListaNoPainel],
   );
   const aoCriarEtapaNaLista = useCallback(
     (nova: EtapaNovaNaLista) => criarEtapaNaLista.mutateAsync(nova).then(() => undefined),
@@ -974,6 +1022,9 @@ export default function TelaDoFluxo() {
               onEditar={() => setEditandoEtapa({ aberto: true, etapaId: etapaSelecionada.id })}
               onSalvarCampo={(campo, valor) =>
                 aoSalvarCampoDoPainel(etapaSelecionada.id, campo, valor)
+              }
+              onSalvarLista={(chave, linhas) =>
+                aoSalvarListaDoPainel(etapaSelecionada.id, chave, linhas)
               }
               onSeguinte={() => {
                 setSeguinteDe(etapaSelecionada.id);

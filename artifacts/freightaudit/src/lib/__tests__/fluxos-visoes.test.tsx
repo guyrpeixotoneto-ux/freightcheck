@@ -13,6 +13,12 @@ import {
   cartaoDaJornada,
   CAMPOS_DO_PAINEL,
   camposVaziosDoPainel,
+  corpoDasLinhas,
+  linhaNovaDoPainel,
+  linhasDaListaDoPainel,
+  listaDoPainelPorChave,
+  listasDoPainel,
+  listasVaziasDoPainel,
   edicaoNaLista,
   etapaNovaVazia,
   filtrarLinhas,
@@ -56,7 +62,9 @@ import type { Catalogo, Conexao, Etapa, FluxoCompleto } from "@/lib/fluxos";
  * 8. um fluxo legado (sem posição, sem área, sem prazo) abre sem migração;
  * 9. a Lista edita na célula — e só onde editar a célula é gravar a verdade;
  * 10. o painel edita campo a campo, sem abrir o editor — e sem passar a gravar
- *     por conta própria.
+ *     por conta própria;
+ * 11. as listas da etapa também se editam no painel, e a linha que vai ao
+ *     servidor é a que está na tela.
  *
  * As projeções são funções puras, e é por isso que tudo isto cabe num teste sem
  * DOM e sem servidor: se elas precisassem de canvas para serem verificadas, a
@@ -1646,5 +1654,150 @@ describe("caso 10 — o painel edita campo a campo, sem abrir o editor", () => {
     expect(pagina).toMatch(/editarCampoNoPainel/);
     expect(pagina).toMatch(/lerFluxoAgora\(empresaId, fluxoId\)/);
     expect(pagina).toMatch(/corpoDaEtapa\(etapa\),\s*\[campo\]/);
+  });
+});
+
+
+describe("caso 11 — as listas da etapa se editam no painel", () => {
+  const comItens = etapa({
+    id: "e1",
+    nome: "Conferência do CT-e",
+    itens: [item("SISTEMA", "Freitec", 0), item("SISTEMA", "Promax", 1), item("PRAZO", "D+1")],
+    indicadores: [
+      {
+        id: "i1",
+        nome: "CT-e sem conferência",
+        descricao: null,
+        unidade: "%",
+        sentido: "NEUTRO",
+        origem: null,
+        ordem: 0,
+      },
+    ],
+    acoes: [
+      { id: "a1", titulo: "Ver alterações", descricao: null, rota: "/alteracoes", parametros: null, icone: null, ordem: 0 },
+    ],
+  });
+
+  const listas = listasDoPainel(CATALOGO);
+
+  it("cada espécie do catálogo vira uma lista — e o catálogo é quem manda", () => {
+    /*
+      A pergunta arquitetural: acrescentar uma espécie no servidor precisa de
+      quantas linhas de interface? Nenhuma — e é isso que este teste trava.
+    */
+    expect(listas.map((l) => l.chave)).toEqual([
+      "itens:SISTEMA",
+      "itens:PRAZO",
+      "itens:FALHA",
+      "indicadores",
+      "acoes",
+    ]);
+    /* Sistema usa link; prazo não. A forma da linha sai da espécie. */
+    const sistema = listaDoPainelPorChave(CATALOGO, "itens:SISTEMA")!;
+    const prazo = listaDoPainelPorChave(CATALOGO, "itens:PRAZO")!;
+    expect(sistema.campos.map((c) => c.campo)).toContain("link");
+    expect(prazo.campos.map((c) => c.campo)).not.toContain("link");
+    /* Sem catálogo não há lista nenhuma — e nada explode. */
+    expect(listasDoPainel(undefined)).toEqual([]);
+  });
+
+  it("as linhas saem da etapa na ordem gravada", () => {
+    const sistema = listaDoPainelPorChave(CATALOGO, "itens:SISTEMA")!;
+    expect(linhasDaListaDoPainel(comItens, sistema).map((l) => l.nome)).toEqual([
+      "Freitec",
+      "Promax",
+    ]);
+    const indicadores = listaDoPainelPorChave(CATALOGO, "indicadores")!;
+    expect(linhasDaListaDoPainel(comItens, indicadores)[0].unidade).toBe("%");
+    const acoes = listaDoPainelPorChave(CATALOGO, "acoes")!;
+    expect(linhasDaListaDoPainel(comItens, acoes)[0].rota).toBe("/alteracoes");
+  });
+
+  it("o corpo que vai ao servidor numera a ordem pela posição na tela", () => {
+    const sistema = listaDoPainelPorChave(CATALOGO, "itens:SISTEMA")!;
+    const atuais = linhasDaListaDoPainel(comItens, sistema);
+    /* Remover a primeira: a segunda vira ordem 0, sem renumeração à mão. */
+    const semAPrimeira = corpoDasLinhas(sistema, atuais.slice(1)) as { nome: string; ordem: number }[];
+    expect(semAPrimeira).toEqual([
+      { nome: "Promax", descricao: "", link: "", obrigatorio: false, ordem: 0 },
+    ]);
+
+    /* Linha nova entra no fim, com os campos que a espécie tem. */
+    const comNova = corpoDasLinhas(sistema, [
+      ...atuais,
+      { ...linhaNovaDoPainel(sistema), nome: "Unidox", link: "https://unidox" },
+    ]) as { nome: string; ordem: number }[];
+    expect(comNova.map((l) => [l.nome, l.ordem])).toEqual([
+      ["Freitec", 0],
+      ["Promax", 1],
+      ["Unidox", 2],
+    ]);
+
+    /* Linha sem o campo obrigatório não vira item sem nome: some da gravação. */
+    expect(corpoDasLinhas(sistema, [{ nome: "   ", descricao: "sobra" }])).toEqual([]);
+
+    /* O indicador sem sentido escolhido cai no neutro, e não em vazio. */
+    const indicadores = listaDoPainelPorChave(CATALOGO, "indicadores")!;
+    const corpo = corpoDasLinhas(indicadores, [{ nome: "Reprovações", sentido: "" }]) as {
+      sentido: string;
+    }[];
+    expect(corpo[0].sentido).toBe("NEUTRO");
+  });
+
+  it("lista sem nenhuma linha vira convite, e some quando ganha a primeira", () => {
+    const vazia = etapa({ id: "e2", nome: "Sem nada" });
+    expect(listasVaziasDoPainel(vazia, CATALOGO).map((l) => l.chave)).toEqual([
+      "itens:SISTEMA",
+      "itens:PRAZO",
+      "itens:FALHA",
+      "indicadores",
+      "acoes",
+    ]);
+    expect(listasVaziasDoPainel(comItens, CATALOGO).map((l) => l.chave)).toEqual([
+      "itens:FALHA",
+    ]);
+  });
+
+  it("o painel só oferece a edição de lista para quem tem como gravá-la", () => {
+    const comum = {
+      etapa: comItens,
+      catalogo: CATALOGO,
+      onEditar: () => undefined,
+      onSeguinte: () => undefined,
+      onExcluir: () => undefined,
+      onFechar: () => undefined,
+    };
+    const html = renderToStaticMarkup(
+      <Router ssrPath="/fluxos/f">
+        <PainelDaEtapa {...comum} podeEditar onSalvarLista={async () => undefined} />
+      </Router>,
+    );
+    expect(html).toContain("Editar Sistema Freitec");
+    expect(html).toContain("Editar indicador CT-e sem conferência");
+    expect(html).toContain("Editar consulta Ver alterações");
+    expect(html).toContain("Adicionar sistema");
+    /* A espécie sem nenhuma linha aparece como convite, não como seção vazia. */
+    expect(html).toContain("Falhas possíveis");
+
+    const leitura = renderToStaticMarkup(
+      <Router ssrPath="/fluxos/f">
+        <PainelDaEtapa {...comum} podeEditar={false} />
+      </Router>,
+    );
+    expect(leitura).toContain("Freitec");
+    expect(leitura).not.toContain("Editar Sistema Freitec");
+    expect(leitura).not.toContain("Adicionar sistema");
+    expect(leitura).not.toContain("Ainda em branco");
+  });
+
+  it("quem grava a lista continua sendo a página, pelo caminho de cada uma", () => {
+    const raiz = path.resolve(import.meta.dirname, "..", "..");
+    const pagina = readFileSync(path.join(raiz, "pages/fluxo.tsx"), "utf8");
+    expect(pagina).toMatch(/escritas\.salvarItens\(empresaId, fluxoId, etapaId, lista\.especie/);
+    expect(pagina).toMatch(/escritas\.salvarIndicadores\(/);
+    expect(pagina).toMatch(/escritas\.salvarAcoes\(/);
+    /* E o corpo sai da função pura, não de um objeto montado à mão na página. */
+    expect(pagina).toMatch(/corpoDasLinhas\(lista, linhas\)/);
   });
 });

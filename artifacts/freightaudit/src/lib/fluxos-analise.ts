@@ -1,4 +1,4 @@
-import type { Conexao, Etapa, FluxoCompleto } from "@/lib/fluxos";
+import type { Catalogo, Conexao, Etapa, FluxoCompleto } from "@/lib/fluxos";
 import {
   numeracaoDoFluxo,
   ordemDeLeitura,
@@ -1033,5 +1033,220 @@ const FORA_DA_LISTA: CampoDeTextoDaEtapa[] = ["nome", "area", "responsavel"];
 export function camposVaziosDoPainel(etapa: Etapa): CampoDoPainel[] {
   return CAMPOS_DO_PAINEL.filter(
     (c) => !FORA_DA_LISTA.includes(c.campo) && valorDoCampo(etapa, c.campo).trim() === "",
+  );
+}
+
+
+// ---------------------------------------------------------------------------
+// As listas da etapa, editáveis no painel
+// ---------------------------------------------------------------------------
+
+/**
+ * AS LISTAS TAMBÉM SE EDITAM NO PAINEL — e por que elas precisam de um modelo.
+ *
+ * Sistemas, documentos, responsáveis, prazos, falhas, indicadores e consultas
+ * são sete listas de formas diferentes: uma tem link, outra tem "obrigatório",
+ * a de indicadores tem unidade e sentido, a de consultas tem rota. Escrever
+ * sete blocos de JSX no painel seria escrever sete vezes o mesmo formulário — e
+ * a oitava espécie que o catálogo do servidor ganhar não apareceria em lugar
+ * nenhum.
+ *
+ * Aqui a diferença entre elas é **dado**: `campos` descreve a linha, e o painel
+ * desenha o que o dado disser. É a mesma decisão que `ListaEditavel` já tinha
+ * tomado no editor da etapa — e a razão de este módulo devolver a descrição em
+ * vez de componentes é que assim ela é testável sem DOM, que é como o resto
+ * deste arquivo é provado.
+ *
+ * As espécies saem do catálogo do servidor, então acrescentar uma lá continua
+ * não exigindo nada da interface.
+ */
+export interface CampoDaLinhaDoPainel {
+  campo: string;
+  rotulo: string;
+  tipo: "texto" | "booleano" | "escolha";
+  placeholder?: string;
+  opcoes?: { valor: string; rotulo: string }[];
+}
+
+export interface ListaDoPainel {
+  /** Identifica a lista de ponta a ponta — é o que a gravação recebe. */
+  chave: string;
+  natureza: "itens" | "indicadores" | "acoes";
+  /** Só as listas de item têm espécie; é ela que dá o caminho no servidor. */
+  especie?: string;
+  titulo: string;
+  icone?: string;
+  rotuloDeAdicionar: string;
+  campos: CampoDaLinhaDoPainel[];
+  /** O que a linha precisa ter para valer a gravação. */
+  campoObrigatorio: string;
+}
+
+export type ValoresDaLinha = Record<string, string | boolean>;
+
+export function listasDoPainel(catalogo: Catalogo | undefined): ListaDoPainel[] {
+  if (!catalogo) return [];
+
+  const dasEspecies = catalogo.especiesDeItem.map((especie) => ({
+    chave: `itens:${especie.valor}`,
+    natureza: "itens" as const,
+    especie: especie.valor,
+    titulo: especie.titulo,
+    icone: especie.icone,
+    rotuloDeAdicionar: especie.rotulo,
+    campoObrigatorio: "nome",
+    campos: [
+      { campo: "nome", rotulo: "Nome", tipo: "texto" as const },
+      { campo: "descricao", rotulo: "Descrição", tipo: "texto" as const },
+      ...(especie.usaLink
+        ? [{ campo: "link", rotulo: "Link", tipo: "texto" as const, placeholder: "https://" }]
+        : []),
+      ...(especie.usaObrigatorio
+        ? [{ campo: "obrigatorio", rotulo: "Obrigatório", tipo: "booleano" as const }]
+        : []),
+    ],
+  }));
+
+  return [
+    ...dasEspecies,
+    {
+      chave: "indicadores",
+      natureza: "indicadores",
+      titulo: "Indicadores",
+      icone: "Gauge",
+      rotuloDeAdicionar: "indicador",
+      campoObrigatorio: "nome",
+      campos: [
+        { campo: "nome", rotulo: "Nome", tipo: "texto" },
+        { campo: "unidade", rotulo: "Unidade", tipo: "texto", placeholder: "%" },
+        {
+          campo: "sentido",
+          rotulo: "Sentido",
+          tipo: "escolha",
+          opcoes: catalogo.sentidosDoIndicador.map((s) => ({ valor: s.valor, rotulo: s.rotulo })),
+        },
+        { campo: "descricao", rotulo: "Descrição", tipo: "texto" },
+        { campo: "origem", rotulo: "Fonte prevista", tipo: "texto" },
+      ],
+    },
+    {
+      chave: "acoes",
+      natureza: "acoes",
+      titulo: "Consultar no FreightCheck",
+      rotuloDeAdicionar: "consulta",
+      campoObrigatorio: "titulo",
+      campos: [
+        { campo: "titulo", rotulo: "Título", tipo: "texto" },
+        { campo: "rota", rotulo: "Rota", tipo: "texto", placeholder: "/alteracoes" },
+        { campo: "descricao", rotulo: "Descrição", tipo: "texto" },
+      ],
+    },
+  ];
+}
+
+export function listaDoPainelPorChave(
+  catalogo: Catalogo | undefined,
+  chave: string,
+): ListaDoPainel | undefined {
+  return listasDoPainel(catalogo).find((l) => l.chave === chave);
+}
+
+/** As linhas gravadas de uma lista, na ordem em que o painel as mostra. */
+export function linhasDaListaDoPainel(etapa: Etapa, lista: ListaDoPainel): ValoresDaLinha[] {
+  const texto = (v: string | null | undefined) => v ?? "";
+
+  if (lista.natureza === "itens") {
+    return etapa.itens
+      .filter((i) => i.especie === lista.especie)
+      .sort((a, b) => a.ordem - b.ordem)
+      .map((i) => ({
+        nome: i.nome,
+        descricao: texto(i.descricao),
+        link: texto(i.link),
+        obrigatorio: i.obrigatorio === true,
+      }));
+  }
+
+  if (lista.natureza === "indicadores") {
+    return [...etapa.indicadores]
+      .sort((a, b) => a.ordem - b.ordem)
+      .map((i) => ({
+        nome: i.nome,
+        descricao: texto(i.descricao),
+        unidade: texto(i.unidade),
+        sentido: i.sentido,
+        origem: texto(i.origem),
+      }));
+  }
+
+  return [...etapa.acoes]
+    .sort((a, b) => a.ordem - b.ordem)
+    .map((a) => ({ titulo: a.titulo, descricao: texto(a.descricao), rota: a.rota }));
+}
+
+export function linhaNovaDoPainel(lista: ListaDoPainel): ValoresDaLinha {
+  const vazia: ValoresDaLinha = {};
+  for (const campo of lista.campos) {
+    if (campo.tipo === "booleano") vazia[campo.campo] = false;
+    else if (campo.tipo === "escolha") vazia[campo.campo] = campo.opcoes?.[0]?.valor ?? "";
+    else vazia[campo.campo] = "";
+  }
+  return vazia;
+}
+
+/**
+ * O corpo que a rota da lista espera — com a ordem posta pela posição.
+ *
+ * As três rotas são substituição da lista inteira, e é por isso que a `ordem`
+ * sai do índice: a lista que chega **é** a ordem. Linha sem o campo obrigatório
+ * não vai; ela existe na tela enquanto está sendo digitada, e some da gravação
+ * em vez de virar um item sem nome que ninguém consegue identificar depois.
+ */
+export function corpoDasLinhas(lista: ListaDoPainel, linhas: ValoresDaLinha[]): unknown[] {
+  const texto = (linha: ValoresDaLinha, campo: string) => String(linha[campo] ?? "").trim();
+
+  return linhas
+    .filter((linha) => texto(linha, lista.campoObrigatorio) !== "")
+    .map((linha, ordem) => {
+      if (lista.natureza === "itens") {
+        return {
+          nome: texto(linha, "nome"),
+          descricao: texto(linha, "descricao"),
+          link: texto(linha, "link"),
+          obrigatorio: linha.obrigatorio === true,
+          ordem,
+        };
+      }
+      if (lista.natureza === "indicadores") {
+        return {
+          nome: texto(linha, "nome"),
+          descricao: texto(linha, "descricao"),
+          unidade: texto(linha, "unidade"),
+          sentido: texto(linha, "sentido") || "NEUTRO",
+          origem: texto(linha, "origem"),
+          ordem,
+        };
+      }
+      return {
+        titulo: texto(linha, "titulo"),
+        descricao: texto(linha, "descricao"),
+        rota: texto(linha, "rota"),
+        ordem,
+      };
+    });
+}
+
+/**
+ * As listas que ainda não têm nenhuma linha — o convite do rodapé, de novo.
+ *
+ * Vale aqui a mesma regra dos campos de texto: seção vazia não aparece, e o que
+ * não aparece precisa de um lugar onde ser criado. A lista de "Ainda em branco"
+ * junta as duas coisas, campos e listas, porque para quem está preenchendo a
+ * etapa a diferença entre "um campo de texto" e "uma lista com uma linha" não
+ * existe — o que existe é "isto aqui ainda não foi dito".
+ */
+export function listasVaziasDoPainel(etapa: Etapa, catalogo: Catalogo | undefined): ListaDoPainel[] {
+  return listasDoPainel(catalogo).filter(
+    (lista) => linhasDaListaDoPainel(etapa, lista).length === 0,
   );
 }

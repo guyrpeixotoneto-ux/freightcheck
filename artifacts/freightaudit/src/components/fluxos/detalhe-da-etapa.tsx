@@ -2,7 +2,11 @@ import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { PainelDaEtapa } from "@/components/fluxos/painel-da-etapa";
 import type { Catalogo, Etapa, ResumoDeSubfluxo } from "@/lib/fluxos";
-import type { CampoDaEtapaNoPainel, DiagnosticoDaEtapa } from "@/lib/fluxos-analise";
+import type {
+  CampoDaEtapaNoPainel,
+  DiagnosticoDaEtapa,
+  ValoresDaLinha,
+} from "@/lib/fluxos-analise";
 
 /**
  * O DETALHE DA ETAPA — o mesmo conteúdo, na moldura que couber.
@@ -28,6 +32,7 @@ export function DetalheDaEtapa({
   diagnostico,
   onEditar,
   onSalvarCampo,
+  onSalvarLista,
   onSeguinte,
   onExcluir,
   onFechar,
@@ -43,6 +48,8 @@ export function DetalheDaEtapa({
   onEditar: () => void;
   /** Grava um campo de texto direto do painel — ver `PainelDaEtapa`. */
   onSalvarCampo?: (campo: CampoDaEtapaNoPainel, valor: string) => Promise<void>;
+  /** Grava uma lista inteira da etapa — ver `PainelDaEtapa`. */
+  onSalvarLista?: (chave: string, linhas: ValoresDaLinha[]) => Promise<void>;
   onSeguinte: () => void;
   onExcluir: () => void;
   onFechar: () => void;
@@ -61,6 +68,7 @@ export function DetalheDaEtapa({
       diagnostico={diagnostico}
       onEditar={onEditar}
       onSalvarCampo={onSalvarCampo}
+      onSalvarLista={onSalvarLista}
       onSeguinte={onSeguinte}
       onExcluir={onExcluir}
       onFechar={onFechar}

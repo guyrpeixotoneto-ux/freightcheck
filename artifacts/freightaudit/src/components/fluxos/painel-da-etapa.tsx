@@ -10,6 +10,7 @@ import {
   Hourglass,
   Check,
   ChevronDown,
+  ListPlus,
   Loader2,
   Pencil,
   Plus,
@@ -31,7 +32,15 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
@@ -45,11 +54,18 @@ import {
 import {
   CAMPOS_DO_PAINEL,
   camposVaziosDoPainel,
+  linhaNovaDoPainel,
+  linhasDaListaDoPainel,
+  listaDoPainelPorChave,
+  listasDoPainel,
+  listasVaziasDoPainel,
   severidadeNoCatalogo,
   valorDoCampo,
   type CampoDaEtapaNoPainel,
   type CampoDeEscolhaDaEtapa,
   type CampoDeTextoDaEtapa,
+  type ListaDoPainel,
+  type ValoresDaLinha,
   type CampoDoPainel,
   type DiagnosticoDaEtapa,
 } from "@/lib/fluxos-analise";
@@ -341,6 +357,138 @@ function EscolhaEmBadge({
   );
 }
 
+/**
+ * UMA LINHA DE LISTA EM EDIÇÃO — o formulário que o dado desenha.
+ *
+ * Nenhum campo está escrito aqui: eles vêm de `lista.campos`, que sai do
+ * catálogo do servidor. É o que faz sistema (com link), documento (com
+ * "obrigatório"), indicador (com unidade e sentido) e consulta (com rota)
+ * caberem no mesmo componente — e a espécie que o catálogo ganhar amanhã
+ * aparecer sozinha, sem uma linha de JSX nova.
+ *
+ * "Remover" mora aqui, e só na linha já gravada. É o gesto que precisa de um
+ * lugar previsível e de um alvo pequeno: um X em cada linha da lista em modo de
+ * leitura transformaria a leitura do painel numa fileira de botões de apagar.
+ */
+function EdicaoDeLinha({
+  lista,
+  valores,
+  aoMudar,
+  aoSalvar,
+  aoRemover,
+  aoFechar,
+  gravando,
+  erro,
+}: {
+  lista: ListaDoPainel;
+  valores: ValoresDaLinha;
+  aoMudar: (valores: ValoresDaLinha) => void;
+  aoSalvar: () => void;
+  aoRemover?: () => void;
+  aoFechar: () => void;
+  gravando: boolean;
+  erro: string | null;
+}) {
+  const texto = (campo: string) => String(valores[campo] ?? "");
+
+  return (
+    <div
+      className="space-y-2 rounded-md border border-dashed border-muted-foreground/30 p-2.5"
+      onKeyDown={(evento) => {
+        if (evento.key === "Escape") {
+          evento.stopPropagation();
+          aoFechar();
+        }
+        if (evento.key === "Enter" && !evento.shiftKey) {
+          evento.preventDefault();
+          evento.stopPropagation();
+          aoSalvar();
+        }
+      }}
+    >
+      {lista.campos.map((campo, indice) => {
+        if (campo.tipo === "booleano") {
+          return (
+            <label key={campo.campo} className="flex items-center gap-2 text-sm">
+              <Checkbox
+                checked={valores[campo.campo] === true}
+                disabled={gravando}
+                onCheckedChange={(marcado) =>
+                  aoMudar({ ...valores, [campo.campo]: marcado === true })
+                }
+              />
+              {campo.rotulo}
+            </label>
+          );
+        }
+
+        if (campo.tipo === "escolha") {
+          return (
+            <Select
+              key={campo.campo}
+              value={texto(campo.campo)}
+              disabled={gravando}
+              onValueChange={(valor) => aoMudar({ ...valores, [campo.campo]: valor })}
+            >
+              <SelectTrigger className="h-8 text-sm" aria-label={campo.rotulo}>
+                <SelectValue placeholder={campo.rotulo} />
+              </SelectTrigger>
+              <SelectContent>
+                {(campo.opcoes ?? []).map((opcao) => (
+                  <SelectItem key={opcao.valor} value={opcao.valor}>
+                    {opcao.rotulo}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          );
+        }
+
+        return (
+          <Input
+            key={campo.campo}
+            /* Só o primeiro campo pega o foco — é o nome, e é por onde se começa. */
+            autoFocus={indice === 0}
+            className="h-8 text-sm"
+            aria-label={campo.rotulo}
+            placeholder={campo.placeholder ?? campo.rotulo}
+            value={texto(campo.campo)}
+            disabled={gravando}
+            onChange={(e) => aoMudar({ ...valores, [campo.campo]: e.target.value })}
+          />
+        );
+      })}
+
+      <div className="flex flex-wrap items-center gap-2">
+        <Button size="sm" className="h-7" onClick={aoSalvar} disabled={gravando}>
+          {gravando ? (
+            <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Check className="mr-1.5 h-3.5 w-3.5" />
+          )}
+          Salvar
+        </Button>
+        <Button variant="ghost" size="sm" className="h-7" onClick={aoFechar} disabled={gravando}>
+          Cancelar
+        </Button>
+        {aoRemover && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="ml-auto h-7 text-destructive hover:text-destructive"
+            onClick={aoRemover}
+            disabled={gravando}
+          >
+            <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+            Remover
+          </Button>
+        )}
+      </div>
+      {erro && <p className="text-xs text-destructive">{erro}</p>}
+    </div>
+  );
+}
+
 export function PainelDaEtapa({
   etapa,
   catalogo,
@@ -348,6 +496,7 @@ export function PainelDaEtapa({
   diagnostico,
   onEditar,
   onSalvarCampo,
+  onSalvarLista,
   onSeguinte,
   onExcluir,
   onFechar,
@@ -371,6 +520,16 @@ export function PainelDaEtapa({
    * o que os testes montam quando o assunto é o que o painel mostra.
    */
   onSalvarCampo?: (campo: CampoDaEtapaNoPainel, valor: string) => Promise<void>;
+  /**
+   * Grava **uma lista inteira** da etapa: os itens de uma espécie, os
+   * indicadores ou as consultas.
+   *
+   * A lista vai completa porque as três rotas são substituição — é assim que o
+   * editor da etapa já grava, e é o que dá significado à ordem das linhas.
+   * Como no campo de texto, a promessa é crua: a recusa volta para a linha
+   * aberta, com o que foi digitado ainda lá.
+   */
+  onSalvarLista?: (chave: string, linhas: ValoresDaLinha[]) => Promise<void>;
   /** Cria a próxima etapa **já ligada** a esta. */
   onSeguinte: () => void;
   onExcluir: () => void;
@@ -403,7 +562,22 @@ export function PainelDaEtapa({
     setErroDaEscolha(null);
   }, [etapa.id]);
 
+  /*
+    A linha aberta é identificada por lista + posição, e não por id: `null` na
+    posição é a linha nova, que ainda não tem id nenhum. O rascunho vive fora
+    da linha gravada — é ele que sobrevive a uma recusa do servidor.
+  */
+  const [linhaAberta, setLinhaAberta] = useState<{ chave: string; indice: number | null } | null>(
+    null,
+  );
+  const [rascunhoDaLinha, setRascunhoDaLinha] = useState<ValoresDaLinha>({});
+  const [gravandoLinha, setGravandoLinha] = useState(false);
+  const [erroDaLinha, setErroDaLinha] = useState<string | null>(null);
+  useEffect(() => setLinhaAberta(null), [etapa.id]);
+
   const editavel = podeEditar && onSalvarCampo !== undefined;
+  const listasEditaveis = podeEditar && onSalvarLista !== undefined;
+  const listas = listasDoPainel(catalogo);
 
   const escolher = (campo: CampoDeEscolhaDaEtapa, valor: string) => {
     /* Escolher o que já está gravado não é edição — e a rota é substituição. */
@@ -419,6 +593,92 @@ export function PainelDaEtapa({
       .finally(() => setEscolhendo(null));
   };
   const vazios = editavel ? camposVaziosDoPainel(etapa) : [];
+  const listasVazias = listasEditaveis ? listasVaziasDoPainel(etapa, catalogo) : [];
+
+  const abrirLinha = (lista: ListaDoPainel, indice: number | null) => {
+    setEmEdicao(null);
+    setErroDaLinha(null);
+    setGravandoLinha(false);
+    setLinhaAberta({ chave: lista.chave, indice });
+    setRascunhoDaLinha(
+      indice === null ? linhaNovaDoPainel(lista) : { ...linhasDaListaDoPainel(etapa, lista)[indice] },
+    );
+  };
+
+  const fecharLinha = () => {
+    setLinhaAberta(null);
+    setErroDaLinha(null);
+    setGravandoLinha(false);
+  };
+
+  /**
+   * Gravar uma linha é gravar a lista inteira — inclusive para remover.
+   *
+   * A rota substitui a lista, então "editar a terceira linha" e "apagar a
+   * terceira linha" são a mesma escrita com um arranjo diferente. Montar o
+   * arranjo aqui, e não no servidor, é o que mantém a ordem das linhas sendo
+   * exatamente a que está na tela.
+   */
+  const gravarLinha = (lista: ListaDoPainel, remover: boolean) => {
+    if (!onSalvarLista || !linhaAberta || gravandoLinha) return;
+    const atuais = linhasDaListaDoPainel(etapa, lista);
+    const { indice } = linhaAberta;
+
+    if (!remover) {
+      const obrigatorio = String(rascunhoDaLinha[lista.campoObrigatorio] ?? "").trim();
+      if (obrigatorio === "") {
+        const campo = lista.campos.find((c) => c.campo === lista.campoObrigatorio);
+        setErroDaLinha(`${campo?.rotulo ?? "O campo"} não pode ficar em branco.`);
+        return;
+      }
+    }
+
+    const novas = remover
+      ? atuais.filter((_, i) => i !== indice)
+      : indice === null
+        ? [...atuais, rascunhoDaLinha]
+        : atuais.map((linha, i) => (i === indice ? rascunhoDaLinha : linha));
+
+    setGravandoLinha(true);
+    setErroDaLinha(null);
+    onSalvarLista(lista.chave, novas)
+      .then(() => fecharLinha())
+      .catch((falha: unknown) => {
+        setGravandoLinha(false);
+        setErroDaLinha(
+          falha instanceof Error ? falha.message : "Não foi possível gravar esta lista.",
+        );
+      });
+  };
+
+  const formularioDaLinha = (lista: ListaDoPainel) => (
+    <EdicaoDeLinha
+      lista={lista}
+      valores={rascunhoDaLinha}
+      aoMudar={setRascunhoDaLinha}
+      aoSalvar={() => gravarLinha(lista, false)}
+      aoRemover={linhaAberta?.indice === null ? undefined : () => gravarLinha(lista, true)}
+      aoFechar={fecharLinha}
+      gravando={gravandoLinha}
+      erro={erroDaLinha}
+    />
+  );
+
+  const linhaEmEdicao = (lista: ListaDoPainel, indice: number | null) =>
+    listasEditaveis && linhaAberta?.chave === lista.chave && linhaAberta.indice === indice;
+
+  const botaoDeAdicionar = (lista: ListaDoPainel) =>
+    listasEditaveis && !linhaEmEdicao(lista, null) ? (
+      <Button
+        variant="ghost"
+        size="sm"
+        className="mt-2 h-7 px-2 font-normal text-muted-foreground"
+        onClick={() => abrirLinha(lista, null)}
+      >
+        <Plus className="mr-1 h-3 w-3" />
+        Adicionar {lista.rotuloDeAdicionar.toLowerCase()}
+      </Button>
+    ) : null;
 
   /**
    * Uma seção de texto do painel — de leitura, clicável ou aberta para edição.
@@ -734,121 +994,256 @@ export function PainelDaEtapa({
 
         {secaoDeTexto("sistemaPrincipal", "Server")}
 
-        {grupos.map(({ especie, itens }) => (
-          <Secao key={especie.valor} titulo={especie.titulo} icone={especie.icone}>
-            <ul className="space-y-2">
-              {itens.map((item) => (
-                <li key={item.id} className="text-sm">
-                  <div className="flex items-baseline gap-1.5">
-                    <span className="font-medium text-foreground">{item.nome}</span>
-                    {/*
-                      "Obrigatório" só aparece em documento, e só quando é
-                      verdade. Um "opcional" etiquetado em cada linha seria
-                      ruído: a ausência da etiqueta já diz isso.
-                    */}
-                    {item.obrigatorio === true && (
-                      <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
-                        obrigatório
-                      </span>
-                    )}
-                    {item.link && (
-                      <a
-                        href={item.link}
-                        target="_blank"
-                        rel="noreferrer noopener"
-                        className="text-muted-foreground hover:text-foreground"
-                        aria-label={`Abrir ${item.nome}`}
-                      >
-                        <ExternalLink className="h-3 w-3" />
-                      </a>
-                    )}
-                  </div>
-                  {item.descricao && (
-                    <p className="text-sm text-muted-foreground">{item.descricao}</p>
-                  )}
-                </li>
-              ))}
-            </ul>
-          </Secao>
-        ))}
+        {/*
+          AS LISTAS DE ITEM — leitura igual à de antes, com a linha clicável.
+
+          A seção continua aparecendo só quando tem linha, com a exceção de
+          sempre: quando é ela que está sendo criada pela lista do rodapé. E o
+          que muda em edição é o alvo, não a leitura — o painel não vira uma
+          fileira de campos porque alguém tem permissão de escrever.
+        */}
+        {listas
+          .filter((lista) => lista.natureza === "itens")
+          .map((lista) => {
+            const linhas = linhasDaListaDoPainel(etapa, lista);
+            const criando = linhaEmEdicao(lista, null);
+            if (linhas.length === 0 && !criando) return null;
+            return (
+              <Secao key={lista.chave} titulo={lista.titulo} icone={lista.icone}>
+                <ul className="space-y-2">
+                  {linhas.map((linha, indice) => {
+                    const nome = String(linha.nome ?? "");
+                    if (linhaEmEdicao(lista, indice)) {
+                      return <li key={`${lista.chave}-${indice}`}>{formularioDaLinha(lista)}</li>;
+                    }
+                    const leitura = (
+                      <>
+                        <span className="flex flex-wrap items-baseline gap-1.5">
+                          <span className="font-medium text-foreground">{nome}</span>
+                          {/*
+                            "Obrigatório" só aparece em documento, e só quando é
+                            verdade. Um "opcional" etiquetado em cada linha seria
+                            ruído: a ausência da etiqueta já diz isso.
+                          */}
+                          {linha.obrigatorio === true && (
+                            <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                              obrigatório
+                            </span>
+                          )}
+                        </span>
+                        {linha.descricao ? (
+                          <span className="block text-sm text-muted-foreground">
+                            {String(linha.descricao)}
+                          </span>
+                        ) : null}
+                      </>
+                    );
+                    const link = String(linha.link ?? "");
+                    return (
+                      <li key={`${lista.chave}-${indice}`} className="text-sm">
+                        <div className="flex items-start gap-1.5">
+                          {listasEditaveis ? (
+                            <AlvoDeEdicao
+                              rotulo={`${lista.rotuloDeAdicionar} ${nome}`}
+                              aoAbrir={() => abrirLinha(lista, indice)}
+                            >
+                              {leitura}
+                            </AlvoDeEdicao>
+                          ) : (
+                            <span className="min-w-0 flex-1">{leitura}</span>
+                          )}
+                          {/*
+                            O link fica **fora** do alvo de edição: um botão
+                            dentro de outro é HTML inválido, e clicar para abrir
+                            o sistema não pode virar clicar para editá-lo.
+                          */}
+                          {link && (
+                            <a
+                              href={link}
+                              target="_blank"
+                              rel="noreferrer noopener"
+                              className="mt-1 shrink-0 text-muted-foreground hover:text-foreground"
+                              aria-label={`Abrir ${nome}`}
+                            >
+                              <ExternalLink className="h-3 w-3" />
+                            </a>
+                          )}
+                        </div>
+                      </li>
+                    );
+                  })}
+                  {criando && <li>{formularioDaLinha(lista)}</li>}
+                </ul>
+                {botaoDeAdicionar(lista)}
+              </Secao>
+            );
+          })}
 
         {secaoDeTexto("regras", "Scale")}
 
         {secaoDeTexto("informacoesConsultadas", "Search")}
 
-        {etapa.indicadores.length > 0 && (
-          <Secao titulo="Indicadores" icone="Gauge">
-            <ul className="space-y-2">
-              {etapa.indicadores.map((indicador) => (
-                <li key={indicador.id} className="text-sm">
-                  <div className="flex items-baseline gap-1.5">
-                    <span className="font-medium text-foreground">{indicador.nome}</span>
-                    {indicador.unidade && (
-                      <span className="text-xs text-muted-foreground">({indicador.unidade})</span>
-                    )}
-                  </div>
-                  {indicador.descricao && (
-                    <p className="text-sm text-muted-foreground">{indicador.descricao}</p>
-                  )}
-                  {/*
-                    A origem é escrita como frase, e é apresentada como
-                    promessa não cumprida de propósito: o indicador ainda é
-                    metadado, e mostrá-lo com um número inventado ao lado seria
-                    exatamente o que este produto recusa fazer.
-                  */}
-                  {indicador.origem && (
-                    <p className="text-xs text-muted-foreground/80">
-                      Fonte prevista: {indicador.origem}
-                    </p>
-                  )}
-                </li>
-              ))}
-            </ul>
-            <p className="mt-3 text-xs text-muted-foreground/70">
-              Cadastrados, ainda não calculados — o cálculo vem com o Modo Monitoramento.
-            </p>
-          </Secao>
-        )}
+        {listas
+          .filter((lista) => lista.natureza === "indicadores")
+          .map((lista) => {
+            const linhas = linhasDaListaDoPainel(etapa, lista);
+            const criando = linhaEmEdicao(lista, null);
+            if (linhas.length === 0 && !criando) return null;
+            return (
+              <Secao key={lista.chave} titulo={lista.titulo} icone={lista.icone}>
+                <ul className="space-y-2">
+                  {linhas.map((linha, indice) => {
+                    if (linhaEmEdicao(lista, indice)) {
+                      return <li key={`${lista.chave}-${indice}`}>{formularioDaLinha(lista)}</li>;
+                    }
+                    const nome = String(linha.nome ?? "");
+                    const leitura = (
+                      <>
+                        <span className="flex flex-wrap items-baseline gap-1.5">
+                          <span className="font-medium text-foreground">{nome}</span>
+                          {linha.unidade ? (
+                            <span className="text-xs text-muted-foreground">
+                              ({String(linha.unidade)})
+                            </span>
+                          ) : null}
+                        </span>
+                        {linha.descricao ? (
+                          <span className="block text-sm text-muted-foreground">
+                            {String(linha.descricao)}
+                          </span>
+                        ) : null}
+                        {/*
+                          A origem é escrita como frase, e é apresentada como
+                          promessa não cumprida de propósito: o indicador ainda é
+                          metadado, e mostrá-lo com um número inventado ao lado
+                          seria exatamente o que este produto recusa fazer.
+                        */}
+                        {linha.origem ? (
+                          <span className="block text-xs text-muted-foreground/80">
+                            Fonte prevista: {String(linha.origem)}
+                          </span>
+                        ) : null}
+                      </>
+                    );
+                    return (
+                      <li key={`${lista.chave}-${indice}`} className="text-sm">
+                        {listasEditaveis ? (
+                          <AlvoDeEdicao
+                            rotulo={`indicador ${nome}`}
+                            aoAbrir={() => abrirLinha(lista, indice)}
+                          >
+                            {leitura}
+                          </AlvoDeEdicao>
+                        ) : (
+                          leitura
+                        )}
+                      </li>
+                    );
+                  })}
+                  {criando && <li>{formularioDaLinha(lista)}</li>}
+                </ul>
+                <p className="mt-3 text-xs text-muted-foreground/70">
+                  Cadastrados, ainda não calculados — o cálculo vem com o Modo Monitoramento.
+                </p>
+                {botaoDeAdicionar(lista)}
+              </Secao>
+            );
+          })}
 
         {secaoDeTexto("observacoes", "AlertTriangle")}
 
-        {etapa.acoes.length > 0 && (
-          <Secao titulo="Consultar no FreightCheck">
-            <div className="space-y-1.5">
-              {etapa.acoes.map((acao) => {
-                const endereco = enderecoDaAcao(acao);
-                /*
-                  Endereço nulo é rota que não é caminho interno. O botão
-                  simplesmente não aparece — a alternativa seria oferecer uma
-                  navegação que leva a lugar nenhum, e um mapa que mente sobre
-                  onde as coisas estão é pior do que um mapa incompleto.
-                */
-                if (!endereco) return null;
-                return (
-                  <Button
-                    key={acao.id}
-                    variant="outline"
-                    size="sm"
-                    className="h-auto w-full justify-start py-2 text-left"
-                    asChild
-                  >
-                    <Link href={endereco}>
-                      <span className="flex-1">
-                        <span className="block text-sm font-medium">{acao.titulo}</span>
-                        {acao.descricao && (
+        {listas
+          .filter((lista) => lista.natureza === "acoes")
+          .map((lista) => {
+            const linhas = linhasDaListaDoPainel(etapa, lista);
+            const criando = linhaEmEdicao(lista, null);
+            if (linhas.length === 0 && !criando) return null;
+            return (
+              <Secao key={lista.chave} titulo={lista.titulo}>
+                <div className="space-y-1.5">
+                  {linhas.map((linha, indice) => {
+                    if (linhaEmEdicao(lista, indice)) {
+                      return <div key={`${lista.chave}-${indice}`}>{formularioDaLinha(lista)}</div>;
+                    }
+                    const rota = String(linha.rota ?? "");
+                    const titulo = String(linha.titulo ?? "");
+                    const endereco = enderecoDaAcao({ rota, parametros: null });
+                    const conteudo = (
+                      <>
+                        <span className="block text-sm font-medium">{titulo}</span>
+                        {linha.descricao ? (
                           <span className="block text-xs font-normal text-muted-foreground">
-                            {acao.descricao}
+                            {String(linha.descricao)}
+                          </span>
+                        ) : null}
+                      </>
+                    );
+
+                    /*
+                      Endereço nulo é rota que não é caminho interno. O botão de
+                      navegar não aparece — a alternativa seria oferecer uma
+                      navegação que leva a lugar nenhum, e um mapa que mente
+                      sobre onde as coisas estão é pior do que um mapa
+                      incompleto. Quem edita, porém, precisa ver a linha
+                      **justamente** quando ela está quebrada: é a única forma
+                      de consertar a rota errada em vez de procurá-la no editor.
+                    */
+                    if (!endereco && !listasEditaveis) return null;
+
+                    return (
+                      <div key={`${lista.chave}-${indice}`} className="flex items-stretch gap-1.5">
+                        {endereco ? (
+                          /*
+                            O `Button` deste repositório declara `asChild` e não
+                            o implementa: ele sempre desenha um `<button>`, e o
+                            `<Link>` embrulhado nele virava uma âncora dentro de
+                            um botão — HTML inválido, e um alvo de clique com
+                            dois donos. O link leva as classes e é ele mesmo.
+                          */
+                          <Link
+                            href={endereco}
+                            className="flex h-auto flex-1 items-center justify-start rounded-md border border-input bg-background px-3 py-2 text-left text-sm shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground"
+                          >
+                            <span className="flex-1">{conteudo}</span>
+                            <ArrowUpRight className="ml-2 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                          </Link>
+                        ) : (
+                          <span className="flex-1 rounded-md border border-dashed px-3 py-2">
+                            {conteudo}
+                            <span className="mt-0.5 block text-xs text-destructive">
+                              A rota "{rota}" não é um caminho deste produto — o botão não aparece
+                              para quem só lê.
+                            </span>
                           </span>
                         )}
-                      </span>
-                      <ArrowUpRight className="ml-2 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                    </Link>
-                  </Button>
-                );
-              })}
-            </div>
-          </Secao>
-        )}
+                        {/*
+                          A consulta é o único caso em que a linha não pode ser
+                          o alvo de edição: ela já é um botão que navega, e
+                          navegar é o que se quer dela na maior parte das vezes.
+                          Por isso o lápis fica ao lado, e não por baixo do
+                          texto.
+                        */}
+                        {listasEditaveis && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-auto shrink-0 px-2"
+                            aria-label={`Editar consulta ${titulo}`}
+                            onClick={() => abrirLinha(lista, indice)}
+                          >
+                            <Pencil className="h-3 w-3 text-muted-foreground" />
+                          </Button>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {criando && formularioDaLinha(lista)}
+                </div>
+                {botaoDeAdicionar(lista)}
+              </Secao>
+            );
+          })}
+
         {/*
           A chave de monitoramento não tem seção: ela vive no rodapé, junto do
           número da etapa. A seção só existe no instante em que ela está sendo
@@ -867,7 +1262,7 @@ export function PainelDaEtapa({
           encolhe até sumir conforme a etapa é preenchida. Quem não pode editar
           nunca a vê.
         */}
-        {vazios.length > 0 && (
+        {(vazios.length > 0 || listasVazias.length > 0) && (
           <Secao titulo="Ainda em branco">
             <div className="flex flex-wrap gap-1.5">
               {vazios.map((definicao) => (
@@ -882,10 +1277,28 @@ export function PainelDaEtapa({
                   {definicao.rotulo}
                 </Button>
               ))}
+              {/*
+                As listas entram na mesma lista de convites que os campos, e o
+                ícone é o que as separa. Para quem está preenchendo a etapa, a
+                diferença entre "um campo de texto" e "uma lista com uma linha"
+                não existe — o que existe é "isto aqui ainda não foi dito".
+              */}
+              {listasVazias.map((lista) => (
+                <Button
+                  key={lista.chave}
+                  variant="outline"
+                  size="sm"
+                  className="h-7 font-normal"
+                  onClick={() => abrirLinha(lista, null)}
+                >
+                  <ListPlus className="mr-1 h-3 w-3" />
+                  {lista.titulo}
+                </Button>
+              ))}
             </div>
             <p className="mt-2 text-xs text-muted-foreground/70">
-              Preenche aqui mesmo, sem abrir o editor. As listas — sistemas, documentos,
-              responsáveis, prazos, indicadores — continuam em "Editar etapa".
+              Preenche aqui mesmo, sem abrir o editor. "Editar etapa" continua sendo o caminho
+              para cadastrar a etapa inteira de uma vez.
             </p>
           </Secao>
         )}
