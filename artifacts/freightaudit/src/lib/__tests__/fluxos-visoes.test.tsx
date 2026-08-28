@@ -803,6 +803,63 @@ describe("a Jornada lê o mesmo caminho por uma lente de cada vez", () => {
       "sem regras registradas",
       "sem documentos cadastrados",
     ]);
+    /* E, no cartão focado, a ausência é uma frase só — não três. */
+    expect(cartao.preenchidos).toEqual([]);
+    expect(cartao.vazio).toBe("sem documentação registrada");
+  });
+
+  /*
+    A promessa da lente focada: quem troca para "Documentação" lê documentação.
+    O cartão desenha só o que a lente achou — o "sem regras registradas" de uma
+    etapa que tem objetivo e documento cadastrados vira ruído numa jornada que
+    existe para ser lida de relance, e some do desenho sem sumir do dado.
+  */
+  it("o cartão da lente mostra só o que ela achou — o campo vazio some do desenho", () => {
+    const linhas = linhasDaLista(fluxoDeTres());
+    const cartao = cartaoDaJornada(linhas[1], "falhas");
+
+    /* A etapa tem falha e está marcada como atenção, mas nada volta para ela. */
+    expect(cartao.campos.map((c) => c.chave)).toEqual(["falhas", "retorno", "status"]);
+    expect(cartao.preenchidos.map((c) => c.chave)).toEqual(["falhas", "status"]);
+
+    const completo = fluxoDeTres();
+    const html = renderToStaticMarkup(
+      <VisaoJornada
+        completo={completo}
+        catalogo={CATALOGO}
+        etapaSelecionada={null}
+        onSelecionarEtapa={() => undefined}
+        somenteLeitura
+        onEditarCampoDaEtapa={async () => undefined}
+        lente="documentacao"
+      />,
+    );
+
+    expect(html).toContain("Garantir que a tarifa aplicada é a vigente.");
+    expect(html).toContain("Tabela vigente");
+    /* Nenhum placeholder de campo vazio no meio da documentação. */
+    expect(html).not.toContain("sem regras registradas");
+    expect(html).not.toContain("sem documentos cadastrados");
+    /* A etapa em que a lente não achou nada diz isso numa linha só. */
+    expect(html).toContain("sem documentação registrada");
+
+    /* E a mesma regra vale para as outras lentes. */
+    const falhas = renderToStaticMarkup(
+      <VisaoJornada
+        completo={completo}
+        catalogo={CATALOGO}
+        etapaSelecionada={null}
+        onSelecionarEtapa={() => undefined}
+        somenteLeitura
+        onEditarCampoDaEtapa={async () => undefined}
+        lente="falhas"
+      />,
+    );
+    expect(falhas).toContain("CT-e sem XML");
+    /* A etapa sem nada nesta lente: uma frase, não três placeholders. */
+    expect(falhas).toContain("sem falhas registradas");
+    expect(falhas).not.toContain("nenhum retrabalho chega aqui");
+    expect(falhas).not.toContain("etapa não marcada como atenção");
   });
 
   it("o resumo conta as etapas cadastradas, e o que vem do grafo não conta", () => {
