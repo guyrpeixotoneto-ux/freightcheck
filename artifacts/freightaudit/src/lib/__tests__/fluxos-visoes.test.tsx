@@ -83,6 +83,9 @@ function etapa(parcial: Partial<Etapa> & { id: string; nome: string }): Etapa {
     sistemaPrincipal: null,
     regras: null,
     informacoesConsultadas: null,
+    falhas: null,
+    gargalos: null,
+    informacoes: null,
     observacoes: null,
     status: "ATIVO",
     posX: 0,
@@ -767,6 +770,8 @@ describe("a Jornada lê o mesmo caminho por uma lente de cada vez", () => {
     */
     expect(cartaoDaJornada(linhas[2], "informacoes").visiveis.map((c) => c.chave)).toEqual([
       "consulta",
+      /* "Contexto" é o campo Informações da etapa — o que é preciso saber. */
+      "contexto",
       "indicadores",
       "entradas",
     ]);
@@ -1024,7 +1029,7 @@ describe("caso 9 — a Lista edita na célula, e só onde a edição é verdade"
       descricao: "Confere XML contra o pedido",
       objetivo: "Não pagar frete indevido",
       regras: "Divergência acima de 2% volta",
-      observacoes: "Rodopar × Unidox",
+      informacoes: "Rodopar × Unidox",
       chaveMonitoramento: "auditoria",
       ordem: 7,
       posX: 120,
@@ -1039,7 +1044,7 @@ describe("caso 9 — a Lista edita na célula, e só onde a edição é verdade"
       descricao: "Confere XML contra o pedido",
       objetivo: "Não pagar frete indevido",
       regras: "Divergência acima de 2% volta",
-      observacoes: "Rodopar × Unidox",
+      informacoes: "Rodopar × Unidox",
       chaveMonitoramento: "auditoria",
       ordem: 7,
       posX: 120,
@@ -1567,7 +1572,9 @@ describe("caso 10 — o painel edita campo a campo, sem abrir o editor", () => {
     area: "Operação",
     responsavel: "Faturamento",
     objetivo: "Definir trecho, tarifa e parâmetros.",
-    observacoes: "A VALIDAR: quais tabelas originam a tarifa.",
+    falhas: "A tarifa vem sem tabela e o faturamento refaz o cálculo à mão.",
+    gargalos: "A conferência espera o retorno da Operação, que responde por e-mail.",
+    informacoes: "A VALIDAR: quais tabelas originam a tarifa.",
   });
 
   const painel = (props: Record<string, unknown>) =>
@@ -1588,7 +1595,9 @@ describe("caso 10 — o painel edita campo a campo, sem abrir o editor", () => {
     const html = painel({ onSalvarCampo: async () => undefined });
     expect(html).toContain("Editar Nome da etapa");
     expect(html).toContain("Editar Objetivo da etapa");
-    expect(html).toContain("Editar Falhas, gargalos e informações");
+    expect(html).toContain("Editar Falhas");
+    expect(html).toContain("Editar Gargalos");
+    expect(html).toContain("Editar Informações");
     expect(html).toContain("Editar Área");
     expect(html).toContain("Editar Responsável");
     /* E o editor completo continua onde estava — um não substitui o outro. */
@@ -1616,7 +1625,9 @@ describe("caso 10 — o painel edita campo a campo, sem abrir o editor", () => {
     expect(faltando).not.toContain("area");
     expect(faltando).not.toContain("responsavel");
     expect(faltando).toContain("objetivo");
-    expect(faltando).toContain("observacoes");
+    expect(faltando).toContain("falhas");
+    expect(faltando).toContain("gargalos");
+    expect(faltando).toContain("informacoes");
 
     const depois = camposVaziosDoPainel({ ...vazia, objetivo: "Definir o trecho." });
     expect(depois.map((c) => c.campo)).not.toContain("objetivo");
@@ -1670,9 +1681,49 @@ describe("caso 10 — o painel edita campo a campo, sem abrir o editor", () => {
       poderiam ter virado dois nomes para o mesmo campo.
     */
     expect(fonte).not.toMatch(/Secao titulo="Objetivo da etapa"/);
-    expect(rotulos.get("observacoes")).toBe("Falhas, gargalos e informações");
-    expect(valorDoCampo(preenchida, "observacoes")).toContain("A VALIDAR");
+    expect(rotulos.get("falhas")).toBe("Falhas");
+    expect(rotulos.get("gargalos")).toBe("Gargalos");
+    expect(rotulos.get("informacoes")).toBe("Informações");
+    expect(valorDoCampo(preenchida, "informacoes")).toContain("A VALIDAR");
+    expect(valorDoCampo(preenchida, "gargalos")).toContain("espera o retorno");
     expect(valorDoCampo(preenchida, "regras")).toBe("");
+  });
+
+  it("falhas, gargalos e informações são três seções — e o texto antigo não some", () => {
+    const html = painel({ onSalvarCampo: async () => undefined });
+
+    /*
+      Três seções, três títulos, três alvos de edição. Um textarea só com os
+      três nomes no rótulo seria o que havia antes com outro nome — e a
+      pergunta "onde estão os maiores gargalos do processo" continuaria sem
+      resposta, porque gargalo não seria campo.
+    */
+    for (const titulo of ["Falhas", "Gargalos", "Informações"]) {
+      expect(html).toContain(`Editar ${titulo}`);
+    }
+    expect(html).not.toContain("Falhas, gargalos e informações<");
+
+    /* E os três são campos independentes na camada pura. */
+    const campos = CAMPOS_DO_PAINEL.map((c) => c.campo);
+    expect(campos).toContain("falhas");
+    expect(campos).toContain("gargalos");
+    expect(campos).toContain("informacoes");
+    /* `observacoes` não é campo de tela: é o backup do texto de antes. */
+    expect(campos).not.toContain("observacoes");
+
+    /*
+      E é justamente por não ser campo de tela que ele precisa continuar no
+      corpo: a rota da etapa é substituição, e um `corpoDaEtapa` sem
+      `observacoes` faria a primeira edição de qualquer campo apagar o
+      original que a migration `0072` preservou. O mesmo vale para o editor,
+      que guarda o valor recebido e o devolve intocado.
+    */
+    expect(Object.keys(corpoDaEtapa(preenchida))).toContain("observacoes");
+    const editor = readFileSync(
+      path.resolve(import.meta.dirname, "..", "..", "components/fluxos/editor-da-etapa.tsx"),
+      "utf8",
+    );
+    expect(editor).toMatch(/observacoes: observacoesPreservadas/);
   });
 
   it("quem grava continua sendo a página — o painel não conhece `escritas`", () => {

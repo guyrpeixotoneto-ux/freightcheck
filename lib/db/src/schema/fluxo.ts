@@ -185,6 +185,42 @@ export const fluxoEtapaTable = pgTable(
      * olha raramente cabe numa lista de nomes com link.
      */
     informacoesConsultadas: text("informacoes_consultadas"),
+    /**
+     * AS TRÊS DIMENSÕES DO QUE DÁ ERRADO, DO QUE TRAVA E DO QUE É PRECISO SABER.
+     *
+     * Havia uma coluna só, `observacoes`, e ela era o depósito da etapa: o erro
+     * que costuma acontecer, a fila que atrasa e a instrução de quem executa
+     * cabiam todos ali. Com as três juntas o processo fica legível e
+     * inconsultável — "quais são as principais falhas", "onde estão os maiores
+     * gargalos" e "quais etapas concentram mais problemas" são perguntas que só
+     * se respondem se falha, gargalo e informação forem colunas diferentes.
+     *
+     * `falhas` é o que pode dar errado — erros, retrabalhos, desvios,
+     * problemas recorrentes. `gargalos` é o que atrasa mesmo quando nada dá
+     * errado — esperas, filas, dependências, limitação de capacidade.
+     * `informacoes` é o contexto: particularidades, instruções complementares,
+     * o que é preciso saber para entender ou executar a etapa.
+     *
+     * Elas **não** substituem as espécies `FALHA` e `GARGALO` de
+     * `fluxo_etapa_item`: aquelas são listas de itens nomeados, contáveis um a
+     * um; estas são o texto corrido que descreve a situação e que não cabe numa
+     * lista de nomes.
+     */
+    falhas: text("falhas"),
+    gargalos: text("gargalos"),
+    informacoes: text("informacoes"),
+    /**
+     * A coluna de antes das três acima — mantida, e não removida.
+     *
+     * A `0072` **copiou** o que estava aqui para `informacoes` e não tocou nesta
+     * linha: é o texto original de quem escreveu a etapa, guardado como estava.
+     * O produto não a escreve mais e não a mostra; o que a lê é quem precisar
+     * conferir, um dia, o que exatamente havia antes do recorte em três.
+     *
+     * Ela continua chegando e voltando pela API, e o cliente continua mandando
+     * o valor que recebeu, porque a rota da etapa é substituição: deixar de
+     * mandá-la faria a primeira edição de qualquer campo apagar o backup.
+     */
     observacoes: text("observacoes"),
     status: text("status").notNull().default("ATIVO"),
     /**

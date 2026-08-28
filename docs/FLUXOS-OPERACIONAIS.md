@@ -236,8 +236,23 @@ detalhes — e nada mais. Três formas apenas: pílula (início/fim), losango
 
 Clicar abre o **painel lateral** (coluna à direita, o fluxo continua visível):
 cabeçalho, o que acontece aqui, objetivo, sistema principal, as cinco listas de
-material, regras, indicadores, observações e **Consultar no FreightCheck** — os
-botões que navegam para as telas do produto. Seção sem conteúdo não aparece.
+material, regras, indicadores, **falhas**, **gargalos**, **informações** e
+**Consultar no FreightCheck** — os botões que navegam para as telas do produto.
+Seção sem conteúdo não aparece.
+
+As três últimas dimensões são colunas separadas da etapa, e não um campo de
+observações com três nomes: `falhas` é o que dá errado (erros, retrabalhos,
+desvios), `gargalos` é o que atrasa mesmo sem nada dar errado (esperas, filas,
+dependências, capacidade) e `informacoes` é o contexto que é preciso saber. É a
+separação que permite somar o processo inteiro — quais são as principais falhas,
+onde estão os maiores gargalos, quais etapas concentram mais problemas. O texto
+que existia antes delas, na coluna `observacoes`, foi copiado para `informacoes`
+pela migration `0072` e continua guardado onde estava.
+
+**Tudo isso se edita no próprio painel**, campo a campo e linha a linha, sem
+abrir o editor: clicar no texto abre o campo ali mesmo, tipo e status abrem o
+menu do catálogo, e cada lista tem "Adicionar" e "Remover" na linha. O botão
+**Editar etapa** continua existindo para cadastrar a etapa inteira de uma vez.
 
 ---
 

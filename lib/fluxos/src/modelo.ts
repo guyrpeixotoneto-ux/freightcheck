@@ -105,6 +105,30 @@ export interface Etapa {
   regras: string | null;
   /** O que a etapa consulta para ser executada — relatórios, telas, planilhas. */
   informacoesConsultadas: string | null;
+  /**
+   * AS TRÊS DIMENSÕES — e por que elas não são uma coluna de observações.
+   *
+   * `falhas` é o que dá errado nesta etapa: erros, retrabalhos, desvios,
+   * problemas recorrentes. `gargalos` é o que atrasa mesmo quando nada dá
+   * errado: esperas, filas, dependências, limitação de capacidade.
+   * `informacoes` é o contexto — particularidades, instruções complementares,
+   * o que é preciso saber para entender ou executar a etapa.
+   *
+   * Separadas, elas se somam pelo processo inteiro: "quais são as principais
+   * falhas", "onde estão os maiores gargalos", "quais etapas concentram mais
+   * problemas" são perguntas que uma coluna só de texto livre não responde.
+   */
+  falhas: string | null;
+  gargalos: string | null;
+  informacoes: string | null;
+  /**
+   * O texto de antes do recorte em três — preservado, não mais escrito.
+   *
+   * A migration `0072` copiou este conteúdo para `informacoes` sem tocar nele.
+   * Continua no modelo, e continua indo e voltando pela API, porque a rota da
+   * etapa é substituição: um cliente que deixasse de mandá-lo apagaria o
+   * original na primeira edição de qualquer campo.
+   */
   observacoes: string | null;
   status: StatusDaEtapa;
   posX: number;
@@ -230,6 +254,10 @@ export interface EntradaDeEtapa {
   sistemaPrincipal?: string | null;
   regras?: string | null;
   informacoesConsultadas?: string | null;
+  falhas?: string | null;
+  gargalos?: string | null;
+  informacoes?: string | null;
+  /** Ver `Etapa.observacoes`: preservado, e por isso ainda aceito na entrada. */
   observacoes?: string | null;
   status?: StatusDaEtapa;
   posX?: number;

@@ -121,7 +121,15 @@ export function EditorDaEtapa({
   const [informacoesConsultadas, setInformacoesConsultadas] = useState(
     etapa?.informacoesConsultadas ?? "",
   );
-  const [observacoes, setObservacoes] = useState(etapa?.observacoes ?? "");
+  const [falhas, setFalhas] = useState(etapa?.falhas ?? "");
+  const [gargalos, setGargalos] = useState(etapa?.gargalos ?? "");
+  const [informacoes, setInformacoes] = useState(etapa?.informacoes ?? "");
+  /*
+    O texto de antes do recorte em três não tem campo na tela — e mesmo assim
+    entra no estado. A rota da etapa é substituição: sem ele no corpo, salvar o
+    formulário apagaria o original que a migration `0072` preservou.
+  */
+  const [observacoesPreservadas] = useState(etapa?.observacoes ?? "");
   const [chave, setChave] = useState(etapa?.chaveMonitoramento ?? "");
 
   const [porEspecie, setPorEspecie] = useState<Record<string, LinhaDeItem[]>>(() =>
@@ -158,7 +166,10 @@ export function EditorDaEtapa({
         objetivo,
         regras,
         informacoesConsultadas,
-        observacoes,
+        falhas,
+        gargalos,
+        informacoes,
+        observacoes: observacoesPreservadas,
         chaveMonitoramento: chave,
         /* A posição é preservada: quem edita o texto não move o cartão. */
         ...(etapa ? { ordem: etapa.ordem, posX: etapa.posX, posY: etapa.posY } : {}),
@@ -355,14 +366,62 @@ export function EditorDaEtapa({
                 </p>
               </div>
 
+              {/*
+                TRÊS CAMPOS, E NÃO UM DE OBSERVAÇÕES.
+
+                Era um textarea só, e ele era o depósito da etapa: o erro que
+                acontece, a fila que atrasa e a instrução de quem executa
+                cabiam todos ali. Separados, os três se somam pelo processo
+                inteiro — "quais são as principais falhas", "onde estão os
+                maiores gargalos", "quais etapas concentram mais problemas" só
+                têm resposta se forem campos diferentes.
+
+                O texto que já estava escrito não se perde: a migration `0072`
+                copiou `observacoes` para Informações e guardou o original.
+              */}
               <div className="sm:col-span-2">
-                <Label htmlFor="etapa-observacoes">Falhas, gargalos e informações</Label>
+                <Label htmlFor="etapa-falhas">Falhas</Label>
                 <Textarea
-                  id="etapa-observacoes"
-                  rows={2}
-                  value={observacoes}
-                  onChange={(e) => setObservacoes(e.target.value)}
+                  id="etapa-falhas"
+                  rows={3}
+                  value={falhas}
+                  onChange={(e) => setFalhas(e.target.value)}
+                  placeholder="Tarifa lançada sem tabela, retrabalho de recálculo manual, emissão em duplicidade"
                 />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  O que dá errado aqui: erros, retrabalhos, desvios, problemas recorrentes. As
+                  falhas que se contam uma a uma continuam na aba Detalhes, em Falhas possíveis.
+                </p>
+              </div>
+
+              <div className="sm:col-span-2">
+                <Label htmlFor="etapa-gargalos">Gargalos</Label>
+                <Textarea
+                  id="etapa-gargalos"
+                  rows={3}
+                  value={gargalos}
+                  onChange={(e) => setGargalos(e.target.value)}
+                  placeholder="Espera o retorno da Operação por e-mail, fila de conferência no fim do mês, uma pessoa só habilitada"
+                />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  O que trava ou atrasa mesmo quando nada dá errado: esperas, filas, dependências,
+                  limitação de capacidade.
+                </p>
+              </div>
+
+              <div className="sm:col-span-2">
+                <Label htmlFor="etapa-informacoes-etapa">Informações</Label>
+                <Textarea
+                  id="etapa-informacoes-etapa"
+                  rows={3}
+                  value={informacoes}
+                  onChange={(e) => setInformacoes(e.target.value)}
+                  placeholder="Contexto, particularidades e instruções complementares para entender ou executar a etapa"
+                />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  O que é preciso saber. Diferente de "Informações que consulta", que é onde a
+                  pessoa vai olhar.
+                </p>
               </div>
             </div>
           </TabsContent>
