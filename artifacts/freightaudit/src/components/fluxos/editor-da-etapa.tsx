@@ -356,7 +356,7 @@ export function EditorDaEtapa({
               </div>
 
               <div className="sm:col-span-2">
-                <Label htmlFor="etapa-observacoes">Observações</Label>
+                <Label htmlFor="etapa-observacoes">Falhas, gargalos e informações</Label>
                 <Textarea
                   id="etapa-observacoes"
                   rows={2}

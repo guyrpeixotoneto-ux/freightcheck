@@ -11,6 +11,14 @@ import { montarProjecao } from "@/lib/fluxos-canvas";
 import {
   analisarFluxo,
   cartaoDaJornada,
+  CAMPOS_DO_PAINEL,
+  camposVaziosDoPainel,
+  corpoDasLinhas,
+  linhaNovaDoPainel,
+  linhasDaListaDoPainel,
+  listaDoPainelPorChave,
+  listasDoPainel,
+  listasVaziasDoPainel,
   edicaoNaLista,
   etapaNovaVazia,
   filtrarLinhas,
@@ -20,6 +28,7 @@ import {
   resumoDaLente,
   slaDaEtapa,
   tipoSugeridoNaLista,
+  valorDoCampo,
   valoresDaColuna,
 } from "@/lib/fluxos-analise";
 import {
@@ -51,7 +60,11 @@ import type { Catalogo, Conexao, Etapa, FluxoCompleto } from "@/lib/fluxos";
  * 6. alternar visualização não escreve — provado no texto-fonte;
  * 7. só-leitura vale em todas, porque o painel é um só;
  * 8. um fluxo legado (sem posição, sem área, sem prazo) abre sem migração;
- * 9. a Lista edita na célula — e só onde editar a célula é gravar a verdade.
+ * 9. a Lista edita na célula — e só onde editar a célula é gravar a verdade;
+ * 10. o painel edita campo a campo, sem abrir o editor — e sem passar a gravar
+ *     por conta própria;
+ * 11. as listas da etapa também se editam no painel, e a linha que vai ao
+ *     servidor é a que está na tela.
  *
  * As projeções são funções puras, e é por isso que tudo isto cabe num teste sem
  * DOM e sem servidor: se elas precisassem de canvas para serem verificadas, a
@@ -1543,5 +1556,286 @@ describe("caso 10 — cadastrar etapa na própria Lista", () => {
     /* Criar um fluxo leva direto para ele — sem procurar a linha na lista. */
     const listaDeFluxos = readFileSync(path.join(raiz, "pages/fluxos.tsx"), "utf8");
     expect(listaDeFluxos).toMatch(/navegar\(`\/fluxos\/\$\{gravado\.id\}`\)/);
+  });
+});
+
+
+describe("caso 10 — o painel edita campo a campo, sem abrir o editor", () => {
+  const preenchida = etapa({
+    id: "e1",
+    nome: "Origem da tarifa",
+    area: "Operação",
+    responsavel: "Faturamento",
+    objetivo: "Definir trecho, tarifa e parâmetros.",
+    observacoes: "A VALIDAR: quais tabelas originam a tarifa.",
+  });
+
+  const painel = (props: Record<string, unknown>) =>
+    renderToStaticMarkup(
+      <PainelDaEtapa
+        etapa={preenchida}
+        catalogo={CATALOGO}
+        podeEditar
+        onEditar={() => undefined}
+        onSeguinte={() => undefined}
+        onExcluir={() => undefined}
+        onFechar={() => undefined}
+        {...props}
+      />,
+    );
+
+  it("cada campo mostrado vira um alvo de edição quando há como gravar", () => {
+    const html = painel({ onSalvarCampo: async () => undefined });
+    expect(html).toContain("Editar Nome da etapa");
+    expect(html).toContain("Editar Objetivo da etapa");
+    expect(html).toContain("Editar Falhas, gargalos e informações");
+    expect(html).toContain("Editar Área");
+    expect(html).toContain("Editar Responsável");
+    /* E o editor completo continua onde estava — um não substitui o outro. */
+    expect(html).toContain("Editar etapa");
+  });
+
+  it("sem quem grave, o painel volta a ser o de leitura — nada de alvo clicável", () => {
+    const html = painel({});
+    expect(html).toContain("Origem da tarifa");
+    expect(html).not.toContain("Editar Objetivo da etapa");
+    expect(html).not.toContain("Ainda em branco");
+  });
+
+  it("só-leitura não ganha edição no lugar nem com quem grave", () => {
+    const html = painel({ podeEditar: false, onSalvarCampo: async () => undefined });
+    expect(html).not.toContain("Editar Objetivo da etapa");
+    expect(html).not.toContain("Ainda em branco");
+  });
+
+  it("o que está em branco vira convite — e some conforme é preenchido", () => {
+    const vazia = etapa({ id: "e2", nome: "Sem nada" });
+    const faltando = camposVaziosDoPainel(vazia).map((c) => c.campo);
+    /* Nome, área e responsável ficam de fora: o cabeçalho já os oferece. */
+    expect(faltando).not.toContain("nome");
+    expect(faltando).not.toContain("area");
+    expect(faltando).not.toContain("responsavel");
+    expect(faltando).toContain("objetivo");
+    expect(faltando).toContain("observacoes");
+
+    const depois = camposVaziosDoPainel({ ...vazia, objetivo: "Definir o trecho." });
+    expect(depois.map((c) => c.campo)).not.toContain("objetivo");
+
+    const html = renderToStaticMarkup(
+      <PainelDaEtapa
+        etapa={vazia}
+        catalogo={CATALOGO}
+        podeEditar
+        onEditar={() => undefined}
+        onSalvarCampo={async () => undefined}
+        onSeguinte={() => undefined}
+        onExcluir={() => undefined}
+        onFechar={() => undefined}
+      />,
+    );
+    expect(html).toContain("Ainda em branco");
+    expect(html).toContain("Objetivo da etapa");
+  });
+
+  it("tipo e status viram etiqueta-menu — e voltam a ser selo em leitura", () => {
+    const html = painel({ onSalvarCampo: async () => undefined });
+    expect(html).toContain("Trocar tipo da etapa");
+    expect(html).toContain("Trocar status da etapa");
+    /*
+      Em edição o status aparece mesmo sendo "Ativa": uma etiqueta que só
+      existe depois de mudada não tem por onde ser mudada.
+    */
+    expect(html).toContain("Ativa");
+
+    const leitura = painel({ podeEditar: false });
+    expect(leitura).not.toContain("Trocar tipo da etapa");
+    expect(leitura).not.toContain("Ativa");
+    expect(leitura).toContain("Processo");
+
+    /* Sem catálogo não há lista de opções — as duas voltam a ser selo. */
+    const semCatalogo = painel({ catalogo: undefined, onSalvarCampo: async () => undefined });
+    expect(semCatalogo).not.toContain("Trocar tipo da etapa");
+  });
+
+  it("os rótulos da lista são os mesmos títulos das seções — um nome por campo", () => {
+    const rotulos = new Map(CAMPOS_DO_PAINEL.map((c) => [c.campo, c.rotulo]));
+    const fonte = readFileSync(
+      path.resolve(import.meta.dirname, "..", "..", "components/fluxos/painel-da-etapa.tsx"),
+      "utf8",
+    );
+    /*
+      A seção não escreve mais o título à mão: ele vem de `CAMPOS_DO_PAINEL`.
+      É o que impede o título da seção e o botão do rodapé de divergirem — foi
+      exatamente assim que "Observações" e "Falhas, gargalos e informações"
+      poderiam ter virado dois nomes para o mesmo campo.
+    */
+    expect(fonte).not.toMatch(/Secao titulo="Objetivo da etapa"/);
+    expect(rotulos.get("observacoes")).toBe("Falhas, gargalos e informações");
+    expect(valorDoCampo(preenchida, "observacoes")).toContain("A VALIDAR");
+    expect(valorDoCampo(preenchida, "regras")).toBe("");
+  });
+
+  it("quem grava continua sendo a página — o painel não conhece `escritas`", () => {
+    const raiz = path.resolve(import.meta.dirname, "..", "..");
+    const painelFonte = readFileSync(
+      path.join(raiz, "components/fluxos/painel-da-etapa.tsx"),
+      "utf8",
+    );
+    const pagina = readFileSync(path.join(raiz, "pages/fluxo.tsx"), "utf8");
+    expect(painelFonte).not.toMatch(/\bescritas\.[a-z]/);
+    expect(painelFonte).toMatch(/onSalvarCampo/);
+    /*
+      E a página grava do jeito que a rota exige: relendo a etapa e mandando o
+      corpo inteiro. Mandar só o campo apagaria todos os outros, sem erro
+      nenhum na tela.
+    */
+    expect(pagina).toMatch(/editarCampoNoPainel/);
+    expect(pagina).toMatch(/lerFluxoAgora\(empresaId, fluxoId\)/);
+    expect(pagina).toMatch(/corpoDaEtapa\(etapa\),\s*\[campo\]/);
+  });
+});
+
+
+describe("caso 11 — as listas da etapa se editam no painel", () => {
+  const comItens = etapa({
+    id: "e1",
+    nome: "Conferência do CT-e",
+    itens: [item("SISTEMA", "Freitec", 0), item("SISTEMA", "Promax", 1), item("PRAZO", "D+1")],
+    indicadores: [
+      {
+        id: "i1",
+        nome: "CT-e sem conferência",
+        descricao: null,
+        unidade: "%",
+        sentido: "NEUTRO",
+        origem: null,
+        ordem: 0,
+      },
+    ],
+    acoes: [
+      { id: "a1", titulo: "Ver alterações", descricao: null, rota: "/alteracoes", parametros: null, icone: null, ordem: 0 },
+    ],
+  });
+
+  const listas = listasDoPainel(CATALOGO);
+
+  it("cada espécie do catálogo vira uma lista — e o catálogo é quem manda", () => {
+    /*
+      A pergunta arquitetural: acrescentar uma espécie no servidor precisa de
+      quantas linhas de interface? Nenhuma — e é isso que este teste trava.
+    */
+    expect(listas.map((l) => l.chave)).toEqual([
+      "itens:SISTEMA",
+      "itens:PRAZO",
+      "itens:FALHA",
+      "indicadores",
+      "acoes",
+    ]);
+    /* Sistema usa link; prazo não. A forma da linha sai da espécie. */
+    const sistema = listaDoPainelPorChave(CATALOGO, "itens:SISTEMA")!;
+    const prazo = listaDoPainelPorChave(CATALOGO, "itens:PRAZO")!;
+    expect(sistema.campos.map((c) => c.campo)).toContain("link");
+    expect(prazo.campos.map((c) => c.campo)).not.toContain("link");
+    /* Sem catálogo não há lista nenhuma — e nada explode. */
+    expect(listasDoPainel(undefined)).toEqual([]);
+  });
+
+  it("as linhas saem da etapa na ordem gravada", () => {
+    const sistema = listaDoPainelPorChave(CATALOGO, "itens:SISTEMA")!;
+    expect(linhasDaListaDoPainel(comItens, sistema).map((l) => l.nome)).toEqual([
+      "Freitec",
+      "Promax",
+    ]);
+    const indicadores = listaDoPainelPorChave(CATALOGO, "indicadores")!;
+    expect(linhasDaListaDoPainel(comItens, indicadores)[0].unidade).toBe("%");
+    const acoes = listaDoPainelPorChave(CATALOGO, "acoes")!;
+    expect(linhasDaListaDoPainel(comItens, acoes)[0].rota).toBe("/alteracoes");
+  });
+
+  it("o corpo que vai ao servidor numera a ordem pela posição na tela", () => {
+    const sistema = listaDoPainelPorChave(CATALOGO, "itens:SISTEMA")!;
+    const atuais = linhasDaListaDoPainel(comItens, sistema);
+    /* Remover a primeira: a segunda vira ordem 0, sem renumeração à mão. */
+    const semAPrimeira = corpoDasLinhas(sistema, atuais.slice(1)) as { nome: string; ordem: number }[];
+    expect(semAPrimeira).toEqual([
+      { nome: "Promax", descricao: "", link: "", obrigatorio: false, ordem: 0 },
+    ]);
+
+    /* Linha nova entra no fim, com os campos que a espécie tem. */
+    const comNova = corpoDasLinhas(sistema, [
+      ...atuais,
+      { ...linhaNovaDoPainel(sistema), nome: "Unidox", link: "https://unidox" },
+    ]) as { nome: string; ordem: number }[];
+    expect(comNova.map((l) => [l.nome, l.ordem])).toEqual([
+      ["Freitec", 0],
+      ["Promax", 1],
+      ["Unidox", 2],
+    ]);
+
+    /* Linha sem o campo obrigatório não vira item sem nome: some da gravação. */
+    expect(corpoDasLinhas(sistema, [{ nome: "   ", descricao: "sobra" }])).toEqual([]);
+
+    /* O indicador sem sentido escolhido cai no neutro, e não em vazio. */
+    const indicadores = listaDoPainelPorChave(CATALOGO, "indicadores")!;
+    const corpo = corpoDasLinhas(indicadores, [{ nome: "Reprovações", sentido: "" }]) as {
+      sentido: string;
+    }[];
+    expect(corpo[0].sentido).toBe("NEUTRO");
+  });
+
+  it("lista sem nenhuma linha vira convite, e some quando ganha a primeira", () => {
+    const vazia = etapa({ id: "e2", nome: "Sem nada" });
+    expect(listasVaziasDoPainel(vazia, CATALOGO).map((l) => l.chave)).toEqual([
+      "itens:SISTEMA",
+      "itens:PRAZO",
+      "itens:FALHA",
+      "indicadores",
+      "acoes",
+    ]);
+    expect(listasVaziasDoPainel(comItens, CATALOGO).map((l) => l.chave)).toEqual([
+      "itens:FALHA",
+    ]);
+  });
+
+  it("o painel só oferece a edição de lista para quem tem como gravá-la", () => {
+    const comum = {
+      etapa: comItens,
+      catalogo: CATALOGO,
+      onEditar: () => undefined,
+      onSeguinte: () => undefined,
+      onExcluir: () => undefined,
+      onFechar: () => undefined,
+    };
+    const html = renderToStaticMarkup(
+      <Router ssrPath="/fluxos/f">
+        <PainelDaEtapa {...comum} podeEditar onSalvarLista={async () => undefined} />
+      </Router>,
+    );
+    expect(html).toContain("Editar Sistema Freitec");
+    expect(html).toContain("Editar indicador CT-e sem conferência");
+    expect(html).toContain("Editar consulta Ver alterações");
+    expect(html).toContain("Adicionar sistema");
+    /* A espécie sem nenhuma linha aparece como convite, não como seção vazia. */
+    expect(html).toContain("Falhas possíveis");
+
+    const leitura = renderToStaticMarkup(
+      <Router ssrPath="/fluxos/f">
+        <PainelDaEtapa {...comum} podeEditar={false} />
+      </Router>,
+    );
+    expect(leitura).toContain("Freitec");
+    expect(leitura).not.toContain("Editar Sistema Freitec");
+    expect(leitura).not.toContain("Adicionar sistema");
+    expect(leitura).not.toContain("Ainda em branco");
+  });
+
+  it("quem grava a lista continua sendo a página, pelo caminho de cada uma", () => {
+    const raiz = path.resolve(import.meta.dirname, "..", "..");
+    const pagina = readFileSync(path.join(raiz, "pages/fluxo.tsx"), "utf8");
+    expect(pagina).toMatch(/escritas\.salvarItens\(empresaId, fluxoId, etapaId, lista\.especie/);
+    expect(pagina).toMatch(/escritas\.salvarIndicadores\(/);
+    expect(pagina).toMatch(/escritas\.salvarAcoes\(/);
+    /* E o corpo sai da função pura, não de um objeto montado à mão na página. */
+    expect(pagina).toMatch(/corpoDasLinhas\(lista, linhas\)/);
   });
 });
