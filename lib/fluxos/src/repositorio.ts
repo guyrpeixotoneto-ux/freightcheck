@@ -28,6 +28,8 @@ import type {
   IndicadorDaEtapa,
   ItemDaEtapa,
   PosicaoDaEtapa,
+  DegrauDaTrilha,
+  ResumoDeSubfluxo,
 } from "./modelo";
 import type { EspecieDeItem, SentidoDoIndicador, StatusDoFluxo } from "./catalogo";
 import { posicionarEtapas } from "./layout";
@@ -225,6 +227,21 @@ export async function lerFluxo(
   const indicadoresPorEtapa = porEtapa(indicadores, (i) => i.etapaId, comoIndicador);
   const acoesPorEtapa = porEtapa(acoes, (a) => a.etapaId, comoAcao);
 
+  /*
+    Os dois lados do vínculo, resolvidos aqui e não pela tela: para baixo, o
+    cabeçalho dos subfluxos que as etapas apontam; para cima, a trilha de volta.
+    Uma tela que pedisse isso sozinha faria uma requisição por cartão — e a
+    Jornada mostra quinze cartões de uma vez.
+  */
+  const [subfluxos, trilha] = await Promise.all([
+    resumirSubfluxos(
+      db,
+      empresaId,
+      etapas.map((e) => e.subfluxoId),
+    ),
+    trilhaAteARaiz(db, empresaId, fluxoId),
+  ]);
+
   return {
     fluxo: comoFluxo(linha),
     etapas: etapas.map((e) => ({
@@ -234,7 +251,113 @@ export async function lerFluxo(
       acoes: acoesPorEtapa.get(e.id) ?? [],
     })),
     conexoes: conexoes.map(comoConexao),
+    subfluxos,
+    trilha,
   };
+}
+
+/**
+ * O cabeçalho de cada subfluxo referenciado, com a contagem de etapas.
+ *
+ * Uma consulta para os fluxos e uma para a contagem, as duas com `inArray`:
+ * uma por etapa apontada seria uma ida ao banco por cartão da tela. Lista
+ * vazia não consulta nada — que é o caso da esmagadora maioria dos fluxos.
+ */
+async function resumirSubfluxos(
+  db: Database,
+  empresaId: string,
+  apontados: (string | null)[],
+): Promise<ResumoDeSubfluxo[]> {
+  const ids = [...new Set(apontados.filter((id): id is string => id !== null))];
+  if (ids.length === 0) return [];
+
+  const [linhas, contagens] = await Promise.all([
+    db
+      .select({
+        id: fluxoOperacionalTable.id,
+        nome: fluxoOperacionalTable.nome,
+        slug: fluxoOperacionalTable.slug,
+        categoria: fluxoOperacionalTable.categoria,
+        status: fluxoOperacionalTable.status,
+      })
+      .from(fluxoOperacionalTable)
+      .where(
+        and(
+          inArray(fluxoOperacionalTable.id, ids),
+          eq(fluxoOperacionalTable.empresaId, empresaId),
+        ),
+      ),
+    db
+      .select({ fluxoId: fluxoEtapaTable.fluxoId, total: sql<number>`count(*)::int` })
+      .from(fluxoEtapaTable)
+      .where(
+        and(inArray(fluxoEtapaTable.fluxoId, ids), eq(fluxoEtapaTable.empresaId, empresaId)),
+      )
+      .groupBy(fluxoEtapaTable.fluxoId),
+  ]);
+
+  const total = new Map(contagens.map((c) => [c.fluxoId, Number(c.total)]));
+  return linhas.map((l) => ({
+    id: l.id,
+    nome: l.nome,
+    slug: l.slug,
+    categoria: l.categoria,
+    status: l.status as StatusDoFluxo,
+    etapas: total.get(l.id) ?? 0,
+  }));
+}
+
+/**
+ * O caminho de volta, da raiz até o pai imediato deste fluxo.
+ *
+ * Um passo por nível, e não uma CTE recursiva: a profundidade real de um
+ * detalhamento é de dois ou três, o passo é uma consulta por índice, e um
+ * `WITH RECURSIVE` aqui trocaria três linhas legíveis por um bloco de SQL cru
+ * que ninguém revisa.
+ *
+ * O conjunto de visitados é o que impede um ciclo já gravado — por um banco
+ * mexido à mão, ou por uma corrida entre dois `ligarSubfluxo` — de virar laço
+ * infinito na leitura. `ligarSubfluxo` existe para que ele nunca seja
+ * necessário; ele existe para o dia em que for.
+ */
+async function trilhaAteARaiz(
+  db: Database,
+  empresaId: string,
+  fluxoId: string,
+): Promise<DegrauDaTrilha[]> {
+  const degraus: DegrauDaTrilha[] = [];
+  const visitados = new Set<string>([fluxoId]);
+  let atual = fluxoId;
+
+  for (;;) {
+    const [pai] = await db
+      .select({
+        fluxoId: fluxoEtapaTable.fluxoId,
+        etapaId: fluxoEtapaTable.id,
+        etapaNome: fluxoEtapaTable.nome,
+        fluxoNome: fluxoOperacionalTable.nome,
+      })
+      .from(fluxoEtapaTable)
+      .innerJoin(
+        fluxoOperacionalTable,
+        and(
+          eq(fluxoOperacionalTable.id, fluxoEtapaTable.fluxoId),
+          eq(fluxoOperacionalTable.empresaId, empresaId),
+        ),
+      )
+      .where(
+        and(eq(fluxoEtapaTable.subfluxoId, atual), eq(fluxoEtapaTable.empresaId, empresaId)),
+      )
+      .orderBy(asc(fluxoEtapaTable.ordem), asc(fluxoEtapaTable.criadoEm))
+      .limit(1);
+
+    if (!pai || visitados.has(pai.fluxoId)) break;
+    degraus.unshift(pai);
+    visitados.add(pai.fluxoId);
+    atual = pai.fluxoId;
+  }
+
+  return degraus;
 }
 
 /** O fluxo pelo slug — o endereço legível, dentro da mesma empresa. */
@@ -272,6 +395,23 @@ export class EtapaNaoEncontrada extends RecusaDeFluxo {
 export class ConexaoNaoEncontrada extends RecusaDeFluxo {
   constructor() {
     super("CONEXAO_NAO_ENCONTRADA", "Esta conexão não existe neste fluxo.");
+  }
+}
+
+/**
+ * Detalhar uma etapa com um fluxo que já está acima dela na trilha.
+ *
+ * O ciclo não quebra nenhuma chave do banco — ele quebra a leitura: a trilha
+ * do cabeçalho passa a não ter raiz, e "abrir o detalhe" leva de volta ao
+ * ponto de partida sem que nada avise. A frase nomeia o fluxo que já está no
+ * caminho, porque é o dado que resolve.
+ */
+export class SubfluxoEmCiclo extends RecusaDeFluxo {
+  constructor(nome: string) {
+    super(
+      "SUBFLUXO_EM_CICLO",
+      `"${nome}" já contém este fluxo mais acima — detalhar com ele criaria uma volta sem fim.`,
+    );
   }
 }
 
@@ -407,6 +547,12 @@ export async function trocarStatus(
 
 /**
  * Duplicar — o fluxo inteiro, com etapas, conexões e todo o material.
+ *
+ * **A ligação de subfluxo não é copiada**, e é a decisão certa das duas
+ * possíveis: a cópia apontaria para o mesmo detalhe do original, e editar o
+ * detalhe da cópia mudaria o processo original sem nenhum aviso. Copiar os
+ * subfluxos junto, recursivamente, seria a outra saída — e transformaria
+ * "duplicar" numa operação que cria cinco fluxos a partir de um clique.
  *
  * Nasce RASCUNHO e versão 1, sempre: uma cópia não herda a afirmação "é assim
  * que funciona hoje", que é o que ATIVO significa. As conexões são refeitas
@@ -567,6 +713,212 @@ export async function excluirEtapa(
     )
     .returning({ id: fluxoEtapaTable.id });
   if (linhas.length === 0) throw new EtapaNaoEncontrada();
+}
+
+// ---------------------------------------------------------------------------
+// Escrita — subfluxo
+// ---------------------------------------------------------------------------
+
+/**
+ * SUBFLUXO — a etapa que é um processo inteiro por dentro.
+ *
+ * Três funções e nenhuma entidade nova: ligar, desligar e "detalhar", que é
+ * criar o fluxo já ligado. O detalhe é um fluxo comum — herda as seis
+ * visualizações, a exportação, o versionamento e o isolamento por empresa sem
+ * uma linha de motor a mais.
+ *
+ * A regra que só o código pode impor é o ciclo: `A` detalhada por `B` detalhada
+ * por `A`. As chaves do banco não o barram (é alcançabilidade, não integridade)
+ * e a leitura sozinha não o percebe — o cabeçalho fica sem raiz e "abrir o
+ * detalhe" volta ao ponto de partida. Por isso toda ligação percorre a trilha
+ * antes de gravar.
+ */
+export async function ligarSubfluxo(
+  db: Database,
+  empresaId: string,
+  fluxoId: string,
+  etapaId: string,
+  subfluxoId: string,
+): Promise<Etapa> {
+  await exigirSubfluxoLigavel(db, empresaId, fluxoId, subfluxoId);
+  return gravarSubfluxo(db, empresaId, fluxoId, etapaId, subfluxoId);
+}
+
+/** Desfaz a ligação. O detalhe continua existindo — vira um fluxo sem pai. */
+export async function desligarSubfluxo(
+  db: Database,
+  empresaId: string,
+  fluxoId: string,
+  etapaId: string,
+): Promise<Etapa> {
+  return gravarSubfluxo(db, empresaId, fluxoId, etapaId, null);
+}
+
+/**
+ * Detalhar uma etapa — o fluxo novo, com o nome dela, já ligado.
+ *
+ * É o caminho de um clique da tela: quem está lendo "Emissão do documento" e
+ * percebe que ali dentro moram oito passos não quer preencher um formulário de
+ * fluxo antes de escrever o primeiro deles. O detalhe nasce RASCUNHO, herda a
+ * categoria e o dono do pai, e leva o objetivo da etapa como objetivo — que é
+ * exatamente o que já estava escrito sobre ele.
+ *
+ * Numa transação só: um fluxo criado e não ligado seria um órfão na listagem,
+ * sem nenhum aviso de que a ligação falhou.
+ */
+export async function detalharEtapa(
+  db: Database,
+  empresaId: string,
+  fluxoId: string,
+  etapaId: string,
+  autor: Autor,
+  nomePedido?: string | null,
+): Promise<Fluxo> {
+  const [pai] = await db
+    .select({ nome: fluxoOperacionalTable.nome, categoria: fluxoOperacionalTable.categoria, dono: fluxoOperacionalTable.dono })
+    .from(fluxoOperacionalTable)
+    .where(
+      and(eq(fluxoOperacionalTable.id, fluxoId), eq(fluxoOperacionalTable.empresaId, empresaId)),
+    )
+    .limit(1);
+  if (!pai) throw new FluxoNaoEncontrado();
+
+  const [etapa] = await db
+    .select({ nome: fluxoEtapaTable.nome, objetivo: fluxoEtapaTable.objetivo, subfluxoId: fluxoEtapaTable.subfluxoId })
+    .from(fluxoEtapaTable)
+    .where(
+      and(
+        eq(fluxoEtapaTable.id, etapaId),
+        eq(fluxoEtapaTable.fluxoId, fluxoId),
+        eq(fluxoEtapaTable.empresaId, empresaId),
+      ),
+    )
+    .limit(1);
+  if (!etapa) throw new EtapaNaoEncontrada();
+  if (etapa.subfluxoId) {
+    throw new RecusaDeFluxo(
+      "ETAPA_JA_DETALHADA",
+      "Esta etapa já tem um subfluxo. Abra o que existe ou desfaça a ligação antes de criar outro.",
+    );
+  }
+
+  const nome = (nomePedido ?? "").trim() || etapa.nome;
+  const slug = await slugLivre(db, empresaId, comoSlug(nome));
+
+  return db.transaction(async (tx) => {
+    const [criado] = await tx
+      .insert(fluxoOperacionalTable)
+      .values({
+        empresaId,
+        nome,
+        slug,
+        /*
+          A descrição diz de onde ele veio, em texto. É a única pista que
+          sobrevive à listagem geral de fluxos, onde a trilha não aparece — e
+          quem abre a lista amanhã precisa saber por que existe um fluxo
+          chamado "Emissão do documento (no Unidox)".
+        */
+        descricao: `Detalhe da etapa "${etapa.nome}" do fluxo "${pai.nome}".`,
+        objetivo: etapa.objetivo,
+        categoria: pai.categoria,
+        status: "RASCUNHO",
+        dono: pai.dono,
+        criadoPor: autor.email,
+        atualizadoPor: autor.email,
+      })
+      .returning();
+
+    await tx
+      .update(fluxoEtapaTable)
+      .set({ subfluxoId: criado.id, atualizadoEm: new Date() })
+      .where(
+        and(
+          eq(fluxoEtapaTable.id, etapaId),
+          eq(fluxoEtapaTable.fluxoId, fluxoId),
+          eq(fluxoEtapaTable.empresaId, empresaId),
+        ),
+      );
+
+    return comoFluxo(criado);
+  });
+}
+
+/** O `update` que os dois lados usam — um `where` composto, sem leitura antes. */
+async function gravarSubfluxo(
+  db: Database,
+  empresaId: string,
+  fluxoId: string,
+  etapaId: string,
+  subfluxoId: string | null,
+): Promise<Etapa> {
+  const [linha] = await db
+    .update(fluxoEtapaTable)
+    .set({ subfluxoId, atualizadoEm: new Date() })
+    .where(
+      and(
+        eq(fluxoEtapaTable.id, etapaId),
+        eq(fluxoEtapaTable.fluxoId, fluxoId),
+        eq(fluxoEtapaTable.empresaId, empresaId),
+      ),
+    )
+    .returning();
+  if (!linha) throw new EtapaNaoEncontrada();
+  return { ...comoEtapa(linha), itens: [], indicadores: [], acoes: [] };
+}
+
+/**
+ * O alvo pode detalhar este fluxo? — existe, é desta empresa, não é ele mesmo
+ * e não está acima dele.
+ *
+ * "Não está acima" é a pergunta cara, e é a que importa: ligar um ancestral
+ * fecha a volta. Ela é respondida subindo a trilha **do fluxo pai**, que é
+ * curta por natureza e já tem guarda contra laço.
+ */
+async function exigirSubfluxoLigavel(
+  db: Database,
+  empresaId: string,
+  fluxoId: string,
+  subfluxoId: string,
+): Promise<void> {
+  const [alvo] = await db
+    .select({ id: fluxoOperacionalTable.id, nome: fluxoOperacionalTable.nome })
+    .from(fluxoOperacionalTable)
+    .where(
+      and(
+        eq(fluxoOperacionalTable.id, subfluxoId),
+        eq(fluxoOperacionalTable.empresaId, empresaId),
+      ),
+    )
+    .limit(1);
+  if (!alvo) throw new FluxoNaoEncontrado();
+  if (subfluxoId === fluxoId) throw new SubfluxoEmCiclo(alvo.nome);
+
+  const acima = await trilhaAteARaiz(db, empresaId, fluxoId);
+  if (acima.some((degrau) => degrau.fluxoId === subfluxoId)) {
+    throw new SubfluxoEmCiclo(alvo.nome);
+  }
+}
+
+/**
+ * Um endereço livre a partir do desejado — `emissao-do-documento`,
+ * `emissao-do-documento-2`, …
+ *
+ * O slug é único por empresa, e detalhar duas etapas com o mesmo nome é comum
+ * (duas "Validação" em fluxos diferentes). Recusar o segundo detalhe com
+ * "endereço já usado" seria cobrar da pessoa um campo que ela não preencheu —
+ * o nome veio da etapa.
+ */
+async function slugLivre(db: Database, empresaId: string, desejado: string): Promise<string> {
+  const usados = await db
+    .select({ slug: fluxoOperacionalTable.slug })
+    .from(fluxoOperacionalTable)
+    .where(eq(fluxoOperacionalTable.empresaId, empresaId));
+  const ocupados = new Set(usados.map((u) => u.slug));
+  if (!ocupados.has(desejado)) return desejado;
+  for (let n = 2; ; n += 1) {
+    const tentativa = `${desejado}-${n}`;
+    if (!ocupados.has(tentativa)) return tentativa;
+  }
 }
 
 /**
@@ -1309,6 +1661,7 @@ function comoEtapa(linha: LinhaDeEtapa): Omit<Etapa, "itens" | "indicadores" | "
     posX: linha.posX,
     posY: linha.posY,
     chaveMonitoramento: linha.chaveMonitoramento,
+    subfluxoId: linha.subfluxoId,
   };
 }
 

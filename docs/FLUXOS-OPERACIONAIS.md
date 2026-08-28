@@ -99,6 +99,21 @@ responde "quais falhas mais aparecem nos nossos processos" — pergunta que um
 Indicadores e ações ficam fora daquela tabela porque têm campos que só elas têm
 (unidade/sentido/origem; rota/parâmetros).
 
+**`fluxo_etapa.subfluxo_id` — a etapa que é um processo por dentro.** Uma coluna
+(`0070`), e nenhuma entidade nova: **um subfluxo é um fluxo normal**. "Emissão do
+documento (no Unidox)" continua sendo uma etapa do processo pai e aponta para a
+linha de `fluxo_operacional` que a detalha — que herda as seis visualizações, a
+exportação, o versionamento e o isolamento sem uma linha de motor nova. A chave
+é composta com `empresa_id`, como as demais; `ON DELETE SET NULL` porque apagar
+o detalhe não pode levar junto a etapa do pai. **Ciclo o banco não barra** (é
+alcançabilidade, não integridade referencial): quem barra é `ligarSubfluxo`, que
+percorre a trilha antes de gravar e recusa com `SUBFLUXO_EM_CICLO`.
+
+A alternativa recusada foi desenhar grupo dentro do canvas: posicionamento,
+conexões atravessando a borda, layout e exportação todos recursivos, e a
+Jornada (que é lista) virando árvore — mesmo ganho de leitura, custo uma ordem
+de grandeza maior.
+
 ---
 
 ## 3. A migration
@@ -148,8 +163,18 @@ manda `empresaId` no `POST` e confirma que ele é ignorado.
 | PUT | `/fluxos/:id/etapas/:etapaId/itens/:especie` | substitui a lista daquela espécie |
 | PUT | `/fluxos/:id/etapas/:etapaId/indicadores` | substitui os indicadores |
 | PUT | `/fluxos/:id/etapas/:etapaId/acoes` | substitui as ações |
+| POST | `/fluxos/:id/etapas/:etapaId/detalhar` | cria o fluxo do detalhe, já ligado, e o devolve |
+| PUT | `/fluxos/:id/etapas/:etapaId/subfluxo` | aponta a etapa para um fluxo que já existe |
+| DELETE | `/fluxos/:id/etapas/:etapaId/subfluxo` | desfaz a ligação (o detalhe continua existindo) |
 
 Não há `PATCH /qualquer-coisa/:id`: cada caminho nomeia o que faz com o quê.
+
+`GET /fluxos/:id` passou a trazer dois campos a mais por causa do subfluxo:
+`subfluxos` (o cabeçalho de cada detalhe referenciado, com a contagem de etapas
+— para o cartão não fazer uma ida ao servidor por etapa) e `trilha` (de onde
+este fluxo é detalhe, da raiz até o pai imediato; vazia num fluxo raiz). O `PUT`
+de etapa **não** conhece `subfluxo_id`: gravar a etapa inteira preserva a
+ligação em vez de apagá-la, e há teste para isso.
 
 **Erros.** A rota não tem `try/catch`. As recusas do motor (`RecusaDeFluxo` e
 filhas) sobem para `middlewares/contrato-json.ts`, que as traduz pela tabela de
@@ -424,7 +449,13 @@ régua — daí `montarCanvas`, `resumoDoCartao`, `itensPorEspecie` e
    feito.
 7. **Sem reordenação por arrastar dentro das listas** do editor — a ordem é a de
    inserção, e reordenar é remover e adicionar.
-8. **O canvas não é usável em tela de celular.** É responsivo no sentido de se
+8. **O subfluxo não aparece no desenho nem na exportação.** O cartão marca que a
+   etapa tem detalhe e leva até ele com um clique, mas o PNG/PDF/SVG do fluxo
+   pai continua sendo só o fluxo pai — exportar a árvore inteira (ou embutir a
+   miniatura do detalhe) não foi feito. Duplicar um fluxo também **não** copia
+   as ligações de subfluxo: a cópia apontaria para o mesmo detalhe do original,
+   e editar o detalhe da cópia mudaria o processo original sem aviso.
+9. **O canvas não é usável em tela de celular.** É responsivo no sentido de se
    ajustar à largura, mas desenhar processo em 375px não é o caso de uso.
 
 ---

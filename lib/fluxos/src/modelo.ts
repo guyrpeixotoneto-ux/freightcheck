@@ -90,6 +90,13 @@ export interface Etapa {
   posX: number;
   posY: number;
   chaveMonitoramento: string | null;
+  /**
+   * O fluxo que detalha esta etapa, quando existe — ver `subfluxo_id` em
+   * `schema/fluxo.ts`. É só o `id`: o nome e a contagem de etapas do detalhe
+   * vêm em `FluxoCompleto.subfluxos`, porque são resultado de um join e não
+   * um campo da linha.
+   */
+  subfluxoId: string | null;
   itens: ItemDaEtapa[];
   indicadores: IndicadorDaEtapa[];
   acoes: AcaoDaEtapa[];
@@ -105,11 +112,50 @@ export interface Conexao {
   ordem: number;
 }
 
+/**
+ * O cabeçalho de um subfluxo, do ponto de vista de quem o referencia.
+ *
+ * O suficiente para o cartão da etapa dizer "isto abre um processo de 8 etapas"
+ * sem uma segunda ida ao servidor, e nada além disso: quem quer o detalhe abre
+ * o fluxo, que é uma tela que já existe.
+ */
+export interface ResumoDeSubfluxo {
+  id: string;
+  nome: string;
+  slug: string;
+  categoria: string;
+  status: StatusDoFluxo;
+  etapas: number;
+}
+
+/**
+ * Um degrau do caminho de volta — o fluxo pai e a etapa que trouxe até aqui.
+ *
+ * Sem isto, um subfluxo é um fluxo órfão: ele aparece na listagem geral sem
+ * dizer de onde veio, e quem entrou por uma etapa não tem como voltar para o
+ * processo que estava lendo. A trilha vem da raiz para o pai imediato, na ordem
+ * em que se lê.
+ */
+export interface DegrauDaTrilha {
+  fluxoId: string;
+  fluxoNome: string;
+  etapaId: string;
+  etapaNome: string;
+}
+
 /** O fluxo inteiro numa leitura só — o que a tela de visualização recebe. */
 export interface FluxoCompleto {
   fluxo: Fluxo;
   etapas: Etapa[];
   conexoes: Conexao[];
+  /**
+   * Os subfluxos referenciados pelas etapas acima, um por `subfluxoId` distinto.
+   * Fica aqui, e não dentro de cada etapa, porque é o resultado de um join: a
+   * etapa guarda a referência, a leitura resolve o que ela aponta.
+   */
+  subfluxos: ResumoDeSubfluxo[];
+  /** De onde este fluxo é detalhe — vazio quando ele é raiz. */
+  trilha: DegrauDaTrilha[];
 }
 
 // ---------------------------------------------------------------------------

@@ -47,6 +47,20 @@ export interface PropsDaVisao {
    * pelo editor passarem pela mesma porta.
    */
   onCriarEtapa?: (nova: EtapaNovaNaLista) => Promise<void>;
+  /**
+   * Detalhar uma etapa — criar o fluxo do detalhe, já ligado, e abrir.
+   *
+   * Opcional pela mesma razão de `onCriarEtapa`: a visualização não sabe
+   * gravar nem navegar, ela só diz que alguém pediu. Quem cria, guarda e
+   * navega é a página — o que mantém a promessa de que uma etapa detalhada na
+   * Jornada aparece detalhada no Fluxo, porque não existem dois caminhos.
+   *
+   * Abrir um detalhe que **já existe** não passa por aqui: é um link para o
+   * fluxo, dentro de `MarcaDeSubfluxo`. Navegação não precisa de escrita.
+   */
+  onDetalharEtapa?: (etapaId: string) => void;
+  /** A etapa cujo detalhe está sendo criado agora — para o cartão dizer que está. */
+  detalhando?: string | null;
 }
 
 /** O que as visualizações desenhadas no canvas precisam a mais. */

@@ -10,6 +10,8 @@ import {
   criarConexao,
   criarEtapa,
   criarFluxo,
+  desligarSubfluxo,
+  detalharEtapa,
   duplicarFluxo,
   ehEspecieDeItem,
   ehStatusDoFluxo,
@@ -19,6 +21,7 @@ import {
   importarFluxo,
   interpretarRoteiro,
   lerFluxo,
+  ligarSubfluxo,
   listarFluxos,
   MODELOS,
   modeloPorSlug,
@@ -275,6 +278,48 @@ router.delete("/fluxos/:id/etapas/:etapaId", async (req, res): Promise<void> => 
   const empresaId = await resolverEmpresa(req);
   await excluirEtapa(db, empresaId, req.params.id, req.params.etapaId);
   res.status(204).end();
+});
+
+// ---------------------------------------------------------------------------
+// Subfluxo — a etapa que é um processo inteiro por dentro
+// ---------------------------------------------------------------------------
+
+/**
+ * Detalhar a etapa: cria o fluxo do detalhe e já o liga.
+ *
+ * Dois caminhos separados, e não um `PUT` que aceita "cria se não existir": um
+ * diz "crie o detalhe desta etapa", o outro diz "aponte esta etapa para aquele
+ * fluxo". Fundi-los faria o corpo decidir o que a rota faz — que é a rota
+ * genérica que este arquivo recusa ter.
+ */
+router.post("/fluxos/:id/etapas/:etapaId/detalhar", async (req, res): Promise<void> => {
+  const empresaId = await resolverEmpresa(req);
+  const nome = typeof req.body?.nome === "string" ? req.body.nome : null;
+  const fluxo = await detalharEtapa(
+    db,
+    empresaId,
+    req.params.id,
+    req.params.etapaId,
+    autorDaRequisicao(req),
+    nome,
+  );
+  res.status(201).json(fluxo);
+});
+
+/** Apontar a etapa para um fluxo que já existe. */
+router.put("/fluxos/:id/etapas/:etapaId/subfluxo", async (req, res): Promise<void> => {
+  const empresaId = await resolverEmpresa(req);
+  const subfluxoId = typeof req.body?.subfluxoId === "string" ? req.body.subfluxoId : "";
+  if (subfluxoId === "") {
+    throw new RecusaDeFluxo("SUBFLUXO_AUSENTE", "Informe `subfluxoId` — o fluxo que detalha esta etapa.");
+  }
+  res.json(await ligarSubfluxo(db, empresaId, req.params.id, req.params.etapaId, subfluxoId));
+});
+
+/** Desfazer a ligação. O fluxo do detalhe continua existindo. */
+router.delete("/fluxos/:id/etapas/:etapaId/subfluxo", async (req, res): Promise<void> => {
+  const empresaId = await resolverEmpresa(req);
+  res.json(await desligarSubfluxo(db, empresaId, req.params.id, req.params.etapaId));
 });
 
 /**

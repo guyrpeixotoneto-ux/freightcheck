@@ -207,6 +207,34 @@ export const fluxoEtapaTable = pgTable(
      * prematuro de já ter acontecido.
      */
     chaveMonitoramento: text("chave_monitoramento"),
+    /**
+     * O fluxo que detalha esta etapa — o subfluxo.
+     *
+     * "Emissão do documento (no Unidox)" é uma etapa aqui e um processo inteiro
+     * lá dentro: oito passos, três sistemas e duas pessoas. Sem esta coluna, a
+     * única saída era escrever esse detalhe em `observacoes` — texto que não se
+     * navega, não se exporta e não conta etapas — ou inflar o fluxo pai com
+     * dezenas de cartões, apagando a leitura de ponta a ponta que ele existe
+     * para dar.
+     *
+     * **Um subfluxo é um fluxo normal**, e é isso que torna a coluna barata: o
+     * detalhe herda as seis visualizações, a exportação, o versionamento e o
+     * isolamento por empresa sem uma linha de motor nova. Nada aqui é
+     * "contêiner" nem "grupo" — é uma referência de uma etapa para outra linha
+     * de `fluxo_operacional`.
+     *
+     * `SET NULL` ao apagar o alvo, e não cascata: o detalhe some, a etapa fica.
+     * Apagar o subfluxo não pode levar junto a etapa do processo pai, que
+     * continua acontecendo mesmo sem ninguém ter escrito como.
+     *
+     * A chave é composta com `empresa_id` pela mesma razão das outras: um
+     * subfluxo de outra empresa deixa de ser possível de gravar, e não depende
+     * de a rota lembrar de conferir. O que o banco **não** barra é ciclo — A
+     * detalha B que detalha A —, porque isso é alcançabilidade e não
+     * integridade referencial; quem barra é `ligarSubfluxo`, em
+     * `lib/fluxos/repositorio.ts`, com o caminho inteiro na mão.
+     */
+    subfluxoId: uuid("subfluxo_id"),
     criadoEm: timestamp("criado_em", { withTimezone: true }).notNull().defaultNow(),
     atualizadoEm: timestamp("atualizado_em", { withTimezone: true })
       .notNull()
@@ -220,8 +248,15 @@ export const fluxoEtapaTable = pgTable(
     }).onDelete("cascade"),
     /** O alvo das filhas: item, indicador, ação e as duas pontas da conexão. */
     unique("fluxo_etapa_id_fluxo_uq").on(t.id, t.fluxoId),
+    foreignKey({
+      name: "fluxo_etapa_subfluxo_empresa_fk",
+      columns: [t.subfluxoId, t.empresaId],
+      foreignColumns: [fluxoOperacionalTable.id, fluxoOperacionalTable.empresaId],
+    }).onDelete("set null"),
     index("fluxo_etapa_fluxo_idx").on(t.fluxoId),
     index("fluxo_etapa_empresa_idx").on(t.empresaId),
+    /** Quem detalha quem — a consulta de "esta etapa tem subfluxo" e a da trilha de volta. */
+    index("fluxo_etapa_subfluxo_idx").on(t.subfluxoId),
     check("fluxo_etapa_nome_nao_vazio", sql`length(btrim(${t.nome})) > 0`),
   ],
 );

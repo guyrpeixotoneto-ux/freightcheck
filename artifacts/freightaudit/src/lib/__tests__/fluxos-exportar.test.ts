@@ -73,6 +73,7 @@ function etapa(parcial: Partial<Etapa> & { id: string; nome: string }): Etapa {
     posX: 0,
     posY: 0,
     chaveMonitoramento: null,
+    subfluxoId: null,
     itens: [],
     indicadores: [],
     acoes: [],
