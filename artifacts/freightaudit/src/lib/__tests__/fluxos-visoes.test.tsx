@@ -1161,6 +1161,51 @@ describe("caso 9 — a Lista edita na célula, e só onde a edição é verdade"
     expect(comDetalhe).not.toContain("Detalhar num subfluxo");
   });
 
+  it("a página liga o detalhar de verdade — nas visualizações e no painel", () => {
+    /*
+      O caso que este teste existe para não voltar: o cartão sabia oferecer o
+      detalhe, o painel sabia oferecer, a escrita existia e a mutação existia —
+      e mesmo assim não havia ícone nenhum na tela, porque a página nunca
+      passava `onDetalharEtapa` para as visualizações nem `onDetalhar` para o
+      painel. Com as pontas soltas, `podeDetalhar` era falso em todo cartão e o
+      recurso inteiro ficava invisível sem que nada quebrasse.
+
+      Por isso a cobrança é no texto-fonte da página: é lá, e só lá, que as
+      pontas se encontram.
+    */
+    const raiz = path.resolve(import.meta.dirname, "..", "..");
+    const pagina = readFileSync(path.join(raiz, "pages/fluxo.tsx"), "utf8");
+    expect(pagina).toMatch(/escritas\.detalharEtapa\(/);
+    expect(pagina).toMatch(/onDetalharEtapa=\{aoDetalharEtapa\}/);
+    expect(pagina).toMatch(/detalhando=\{detalhandoAgora\}/);
+    expect(pagina).toMatch(/onDetalhar=\{/);
+    expect(pagina).toMatch(/onDesligarSubfluxo=\{/);
+  });
+
+  it("na Jornada o ícone fica no canto de cima à direita do cartão", () => {
+    /*
+      O canto é o pedido, e é o que faz o ícone ser achado: no mesmo lugar em
+      todos os cartões, e não na altura em que o texto de cada um terminou.
+    */
+    const base = fluxoDeQuinze();
+    const html = renderToStaticMarkup(
+      <Router ssrPath="/fluxos/f">
+        <VisaoJornada
+          completo={base}
+          catalogo={CATALOGO}
+          etapaSelecionada={null}
+          onSelecionarEtapa={() => undefined}
+          onEditarCampoDaEtapa={async () => undefined}
+          somenteLeitura={false}
+          lente="documentacao"
+          onDetalharEtapa={() => undefined}
+        />
+      </Router>,
+    );
+    expect(html).toContain("Detalhar a etapa");
+    expect(html).toMatch(/class="[^"]*absolute right-2 top-2/);
+  });
+
   it("subfluxoDaEtapa tolera a projeção sem a lista — e não inventa detalhe", () => {
     const semLista = fluxoDeQuinze();
     expect(subfluxoDaEtapa(semLista, { subfluxoId: "sub" })).toBeNull();
