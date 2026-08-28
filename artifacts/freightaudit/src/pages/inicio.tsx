@@ -94,6 +94,7 @@ import type {
 import type { BalancoResumo } from "@/components/balanco/tipos";
 import { useAlteracoesPorVigencia } from "@/hooks/use-alteracoes-por-vigencia";
 import {
+  BOTAO_DE_VIGENCIA,
   SeletorDeVigencia,
   SeletorDeVigenciaGeral,
 } from "@/components/vigencia/seletor-de-vigencia";
@@ -671,17 +672,16 @@ function Cabecalho({
 }
 
 /**
- * Os botões de troca do cabeçalho, com a mesma casca.
+ * Os botões de troca do cabeçalho, com a mesma casca do seletor de vigência.
  *
- * Contorno vermelho e fundo branco: são as únicas ações desta tela, e o
- * laranja cheio está reservado para a ação que cria trabalho — "Enviar a
- * primeira planilha", no banco vazio. Trocar de unidade, trocar de vigência
- * e ir para a última comparação não mudam nada no banco; mudam o recorte do
- * que se está lendo.
+ * "Última comparação · 01/08/2026" e "Trocar vigência" ficam lado a lado neste
+ * cabeçalho: quando a casca era escrita aqui, cada tela que copiava o seletor
+ * copiava também esta linha, e elas foram se separando. Agora as duas leem
+ * `BOTAO_DE_VIGENCIA`, que mora junto do seletor — trocar de unidade, trocar
+ * de vigência e ir para a última comparação não mudam nada no banco; mudam o
+ * recorte do que se está lendo, e por isso nenhum deles leva a cor cheia.
  */
-const BOTAO_DE_TROCA =
-  "flex items-center gap-2 rounded-lg border border-brand bg-card px-4 py-2.5 " +
-  "text-sm font-bold text-brand hover:bg-accent transition-colors";
+const BOTAO_DE_TROCA = BOTAO_DE_VIGENCIA;
 
 // ---------------------------------------------------------------------------
 // Os cinco números

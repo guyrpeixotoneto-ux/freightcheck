@@ -36,11 +36,29 @@ import type { FamiliesView } from "@/components/inicio/types";
  * Um menu que se abre igual em três telas e responde diferente em uma delas é
  * um bug de leitura, não uma variação de estilo — daí este componente.
  */
+/**
+ * O formato do botão de vigência — um só, para todas as telas.
+ *
+ * Contorno da marca sobre fundo de cartão, o mesmo do "Última comparação ·
+ * 01/08/2026" ao lado dele no Resumo executivo. Trocar de vigência não muda
+ * nada no banco: muda o recorte do que se está lendo, e por isso nunca leva a
+ * cor cheia, reservada à ação que cria trabalho.
+ *
+ * Estava copiado em `inicio.tsx`, `dashboard.tsx` e `linha-do-tempo.tsx` como
+ * `BOTAO_DE_TROCA`, e escrito de outro jeito na Gestão à Vista, na Vigência e
+ * nas Justificativas. Um botão que faz a mesma coisa em seis telas e se desenha
+ * de quatro jeitos obriga quem alterna entre elas a reconhecê-lo de novo em
+ * cada uma.
+ */
+export const BOTAO_DE_VIGENCIA =
+  "flex items-center gap-2 rounded-lg border border-brand bg-card px-4 py-2.5 " +
+  "text-sm font-bold text-brand hover:bg-accent transition-colors";
+
 export function SeletorDeVigencia({
   view,
   consulta,
   onTrocar,
-  className,
+  className = BOTAO_DE_VIGENCIA,
   rotulo = "Trocar vigência",
 }: {
   view: FamiliesView | null;
@@ -102,7 +120,7 @@ export function SeletorDeVigenciaGeral({
   periodos,
   ativa,
   onTrocar,
-  className,
+  className = BOTAO_DE_VIGENCIA,
   rotulo = "Trocar vigência",
 }: {
   /** A união das competências das unidades, mais recente primeiro. */
@@ -142,8 +160,15 @@ export function SeletorDeVigenciaGeral({
   );
 }
 
-/** A casca comum dos dois seletores — o que faz as duas listas serem uma só. */
-function MenuDeVigencias({
+/**
+ * A casca comum dos seletores — o que faz todas as listas serem uma só.
+ *
+ * Exportada porque nem toda tela escolhe a vigência por data: as Justificativas
+ * escolhem uma *comparação* (`changeSetId`), e a Vigência lista as datas de uma
+ * unidade só. As três abrem o mesmo menu, com o mesmo cabeçalho e a mesma
+ * coluna de alterações à direita; o que muda é de onde vêm as opções.
+ */
+export function MenuDeVigencias({
   rotulo,
   className,
   cabecalho,
@@ -156,7 +181,12 @@ function MenuDeVigencias({
   rotulo: string;
   className?: string;
   cabecalho: string;
-  opcoes: { data: string; rotulo: string; alteracoes: number | null }[];
+  /**
+   * `alteracoes` é opcional por construção: a vigência mais antiga do histórico
+   * não tem anterior contra a qual ser comparada, e nem toda tela sabe a
+   * contagem. Nada aqui inventa "0 alterações" para preencher a coluna.
+   */
+  opcoes: { data: string; rotulo: string; alteracoes?: number | null }[];
   ativa: string | null;
   onEscolher: (data: string) => void;
   aberto?: boolean;
@@ -183,7 +213,7 @@ function MenuDeVigencias({
             )}
           >
             <span>{opcao.rotulo}</span>
-            {opcao.alteracoes !== null && (
+            {opcao.alteracoes != null && (
               <span className="text-xs font-normal text-muted-foreground tabular-nums">
                 {opcao.alteracoes.toLocaleString("pt-BR")}{" "}
                 {opcao.alteracoes === 1 ? "alteração" : "alterações"}

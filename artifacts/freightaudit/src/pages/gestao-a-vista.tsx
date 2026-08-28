@@ -370,13 +370,18 @@ function TemplateDeAlertas() {
             <p className="text-sm text-slate-500 mt-1">Planilha de remuneração · últimas alterações</p>
           </div>
           <div className="flex flex-col items-end gap-2.5 shrink-0">
+            {/*
+              Sem `className`: a casca é a do resto do produto
+              (`BOTAO_DE_VIGENCIA`). O cinza-ardósia que ficava aqui desenhava
+              o mesmo botão do Resumo executivo com outra borda e outra cor de
+              texto, e esta tela é a que se abre a partir dele.
+            */}
             <SeletorDeVigenciaGeral
               periodos={periodosDisponiveis}
               ativa={periodoSelecionado}
               onTrocar={(mudancas) => {
                 if (mudancas.period) trocarVigencia(mudancas.period);
               }}
-              className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"
             />
             <div className="flex items-center gap-3">
               <RelogioClaro atualizadaEm={overviewQuery.dataUpdatedAt} />

@@ -59,6 +59,7 @@ import { AnelDeCobertura } from "@/components/dashboard/anel-de-cobertura";
 import { GraficoDeImpacto, pontosDeImpacto, type PontoDeImpacto } from "@/components/dashboard/grafico-de-impacto";
 import { iconeDaAlteracao } from "@/components/dashboard/icone-da-alteracao";
 import {
+  BOTAO_DE_VIGENCIA,
   SeletorDeVigencia,
   SeletorDeVigenciaGeral,
 } from "@/components/vigencia/seletor-de-vigencia";
@@ -514,9 +515,7 @@ function comTemplate(
   return `${caminho}?${parametros}`;
 }
 
-const BOTAO_DE_TROCA =
-  "flex items-center gap-2 rounded-lg border border-brand bg-card px-4 py-2.5 " +
-  "text-sm font-bold text-brand hover:bg-accent transition-colors";
+const BOTAO_DE_TROCA = BOTAO_DE_VIGENCIA;
 
 function BancoVazio() {
   return (

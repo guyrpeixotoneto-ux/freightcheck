@@ -3,7 +3,6 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useSearch } from "wouter";
 import {
   AlertTriangle,
-  CalendarDays,
   ChevronDown,
   ChevronUp,
   Search,
@@ -11,12 +10,9 @@ import {
 } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  BOTAO_DE_VIGENCIA,
+  MenuDeVigencias,
+} from "@/components/vigencia/seletor-de-vigencia";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getApiUrl } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -155,30 +151,23 @@ export default function Vigencia() {
           </div>
 
           {/*
-            O seletor traz o rótulo colado nele. Fora da faixa branca do
-            cabeçalho antigo, um "Vigência" solto sobre o cinza da página não
-            teria mais a que se referir — dentro da mesma moldura do campo, tem.
+            O mesmo botão "Trocar vigência" do Resumo executivo, e não mais o
+            campo com o rótulo "Vigência" colado à esquerda: as duas telas
+            trocam a mesma coisa, e a data aberta já está no título de 36px
+            logo ao lado.
           */}
           {data && data.periods.length > 1 && (
-            <div className="flex items-stretch border rounded-lg bg-card shadow-sm overflow-hidden shrink-0">
-              <span className="flex items-center px-3 text-xs font-semibold text-muted-foreground border-r">
-                Vigência
-              </span>
-              <Select value={data.period} onValueChange={setPeriod}>
-                <SelectTrigger className="w-52 border-0 shadow-none rounded-none focus:ring-0">
-                  <span className="flex items-center gap-2 min-w-0">
-                    <CalendarDays className="w-4 h-4 shrink-0 text-muted-foreground" />
-                    <SelectValue />
-                  </span>
-                </SelectTrigger>
-                <SelectContent>
-                  {data.periods.map((p) => (
-                    <SelectItem key={p.date} value={p.date}>
-                      {p.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <div className="shrink-0">
+              <MenuDeVigencias
+                rotulo="Trocar vigência"
+                className={BOTAO_DE_VIGENCIA}
+                cabecalho={`${data.periods.length} vigências no histórico`}
+                opcoes={[...data.periods]
+                  .sort((a, b) => b.date.localeCompare(a.date))
+                  .map((p) => ({ data: p.date, rotulo: p.label }))}
+                ativa={data.period}
+                onEscolher={setPeriod}
+              />
             </div>
           )}
         </div>

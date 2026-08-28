@@ -14,6 +14,7 @@ import { LinhaDoTempoDeAlteracoes } from "@/components/linha-do-tempo/linha-do-t
 import { nomeDaUnidade } from "@/lib/recorte";
 import { VisaoGeralConteudo } from "@/components/inicio/visao-geral-consolidada";
 import {
+  BOTAO_DE_VIGENCIA,
   SeletorDeVigencia,
   SeletorDeVigenciaGeral,
 } from "@/components/vigencia/seletor-de-vigencia";
@@ -305,7 +306,6 @@ function Cabecalho({
                   ativa={overview?.period ?? null}
                   onTrocar={onTrocar}
                   className={BOTAO_DE_TROCA}
-                  rotulo="Ir para vigência"
                 />
               )
             : (
@@ -314,7 +314,6 @@ function Cabecalho({
                   consulta={consulta}
                   onTrocar={onTrocar}
                   className={BOTAO_DE_TROCA}
-                  rotulo="Ir para vigência"
                 />
               )}
         </div>
@@ -323,6 +322,4 @@ function Cabecalho({
   );
 }
 
-const BOTAO_DE_TROCA =
-  "flex items-center gap-2 rounded-lg border border-brand bg-card px-4 py-2.5 " +
-  "text-sm font-bold text-brand hover:bg-accent transition-colors";
+const BOTAO_DE_TROCA = BOTAO_DE_VIGENCIA;

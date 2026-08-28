@@ -3,16 +3,13 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { CalendarRange, CheckCircle2, ChevronRight, ClipboardList, FileCheck2, WifiOff } from "lucide-react";
 import { useLocation, useSearch } from "wouter";
 import { Layout } from "@/components/layout/layout";
+import {
+  BOTAO_DE_VIGENCIA,
+  MenuDeVigencias,
+} from "@/components/vigencia/seletor-de-vigencia";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ApiErrorNotice } from "@/components/api-error";
@@ -29,6 +26,7 @@ import {
   useJustificadaPor,
   vigenciasDaAba,
   type Justificativa,
+  type OpcaoDeVigencia,
 } from "@/lib/justificativas";
 import type { ChangeRow } from "@/components/changes/change-table";
 import {
@@ -157,6 +155,8 @@ export default function Justificativas() {
     () => vigenciasDaAba(opcoes, contextos.contextos, contagens, tipo),
     [opcoes, contextos.contextos, contagens, tipo],
   );
+
+  const vigenciaAberta = opcoesDoSeletor.find((o) => o.id === changeSetId) ?? null;
 
   const endereco = (proximo: { changeSetId?: string; tipo?: string | null }) => {
     const q = new URLSearchParams();
@@ -293,39 +293,38 @@ export default function Justificativas() {
           </TabsList>
         </Tabs>
 
+        {/*
+          O mesmo botão "Trocar vigência" do Resumo executivo, com a vigência
+          aberta escrita ao lado dele — aqui o título é "Justificativas", e sem
+          essa linha a data em que se está justificando não apareceria em lugar
+          nenhum da tela.
+
+          Era um campo `Select` de 20rem; a lista dentro dele já trazia a
+          competência e a contagem de alterações, que é o que o menu do
+          cabeçalho mostra em todas as outras telas.
+        */}
         {opcoesDoSeletor.length > 0 && (
-          <div className="flex items-center gap-2 mt-3">
-            <span className="inline-flex items-center gap-1.5 text-xs uppercase tracking-wide text-muted-foreground">
-              <CalendarRange className="w-3.5 h-3.5" />
-              Vigência
+          <div className="flex flex-wrap items-center gap-3 mt-3">
+            <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
+              <CalendarRange className="w-4 h-4" />
+              Vigência aberta · {rotuloDaOpcao(vigenciaAberta) ?? "—"}
             </span>
-            <Select
-              value={changeSetId ?? ""}
-              onValueChange={escolherVigencia}
-              disabled={opcoesDoSeletor.length === 1}
-            >
-              <SelectTrigger className="h-8 w-80 text-sm">
-                <SelectValue placeholder="Selecionar vigência…" />
-              </SelectTrigger>
-              <SelectContent>
-                {opcoesDoSeletor.map((o) => (
-                  <SelectItem key={o.id} value={o.id}>
-                    <span className="flex w-full items-center justify-between gap-3">
-                      <span>
-                        {o.competencia}
-                        {o.unidade && (
-                          <span className="text-muted-foreground"> · {o.unidade}</span>
-                        )}
-                      </span>
-                      <span className="text-xs text-muted-foreground tabular-nums">
-                        {o.alteracoes.toLocaleString("pt-BR")}{" "}
-                        {o.alteracoes === 1 ? "alteração" : "alterações"}
-                      </span>
-                    </span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {opcoesDoSeletor.length > 1 && (
+              <MenuDeVigencias
+                rotulo="Trocar vigência"
+                className={BOTAO_DE_VIGENCIA}
+                cabecalho={`${opcoesDoSeletor.length} ${
+                  opcoesDoSeletor.length === 1 ? "vigência" : "vigências"
+                } nesta aba`}
+                opcoes={opcoesDoSeletor.map((o) => ({
+                  data: o.id,
+                  rotulo: rotuloDaOpcao(o) ?? o.id,
+                  alteracoes: o.alteracoes,
+                }))}
+                ativa={changeSetId ?? null}
+                onEscolher={escolherVigencia}
+              />
+            )}
           </div>
         )}
       </header>
@@ -575,4 +574,10 @@ function LinhaPlaca({
       </div>
     </section>
   );
+}
+
+/** `02/08/2026 · PERNAMBUCO · EMPURRADA` — a opção como ela se lê no menu. */
+function rotuloDaOpcao(opcao: OpcaoDeVigencia | null): string | null {
+  if (!opcao) return null;
+  return opcao.unidade ? `${opcao.competencia} · ${opcao.unidade}` : opcao.competencia;
 }
