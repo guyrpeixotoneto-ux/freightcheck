@@ -44,7 +44,6 @@ import BookOperador from '@/pages/book-operador';
 import Assistente from '@/pages/assistente';
 import Vigencias from '@/pages/vigencias';
 import Versoes from '@/pages/versoes';
-import Unidades from '@/pages/unidades';
 import Configuracoes from '@/pages/configuracoes';
 import Fluxos from '@/pages/fluxos';
 import TelaDoFluxo from '@/pages/fluxo';
@@ -457,8 +456,18 @@ function RotasDaAuditoria() {
       <Route path="/categorias" component={Categorias} />
       <Route path="/vigencias" component={Vigencias} />
       <Route path="/versoes" component={Versoes} />
-      <Route path="/unidades" component={Unidades} />
-      <Route path="/configuracoes" component={Configuracoes} />
+      {/*
+        Unidades e Usuários viraram abas de uma Configurações só, e `/unidades`
+        continua atendendo: ele abre a mesma tela com a aba Unidades já aberta.
+        Manter a rota não é cortesia — é o endereço que `lib/ambiente-aberto.ts`
+        usa como "a casa" e que está em links já compartilhados.
+      */}
+      <Route path="/unidades">
+        <Configuracoes abaInicial="unidades" />
+      </Route>
+      <Route path="/configuracoes">
+        <Configuracoes />
+      </Route>
       {/*
         Processos → Fluxos Operacionais. A rota do fluxo aberto vem depois da
         lista, e as duas vivem neste mesmo `Switch`: montado sob a base de cada

@@ -86,6 +86,7 @@ import {
   useImportacoesEmAndamento,
 } from "./contadores";
 import type { NavGroup, NavItem } from "./nav";
+import { filtrarGrupos, usePermissoes } from "@/lib/permissoes";
 import { navGroupsAuditoria } from "./nav-auditoria";
 import { navGroupsFechamento } from "./nav-fechamento";
 import { useSecoesRecolhidas } from "./preferencias";
@@ -170,9 +171,22 @@ export function Sidebar({ open }: { open: boolean }) {
     diria "Empurrada" nas quatro. Ver `lib/ambiente-aberto.ts`.
   */
   const ambiente = useAmbiente();
-  const grupos = ehFechamento(ambiente)
-    ? navGroupsFechamento(BASES_DE_FECHAMENTO[ambiente], descricaoDoAmbiente(ambiente).nome)
-    : navGroupsAuditoria(ambiente);
+  /*
+    O menu mostra o que esta pessoa alcança, e nada além.
+
+    A lista continua sendo a do ambiente; o filtro tira dela os módulos em que
+    alguém decidiu que esta conta não entra (`lib/permissoes.ts`). Mostrar o
+    item e recusar o clique seria pior do que escondê-lo: anunciaria a tela para
+    quem não pode abri-la e transformaria a lateral num catálogo de portas
+    trancadas.
+  */
+  const { permissoes } = usePermissoes();
+  const grupos = filtrarGrupos(
+    ehFechamento(ambiente)
+      ? navGroupsFechamento(BASES_DE_FECHAMENTO[ambiente], descricaoDoAmbiente(ambiente).nome)
+      : navGroupsAuditoria(ambiente),
+    permissoes,
+  );
 
   if (!open) {
     return <FaixaDeIcones location={location} grupos={grupos} ambiente={ambiente} contadores={contadores} paraOAssistente={paraOAssistente} />;

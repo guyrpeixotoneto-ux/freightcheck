@@ -140,8 +140,13 @@ export default function LinhaDoTempo() {
     [contextos.contextos],
   );
 
-  const periodoOverviewEfetivo =
-    parametros.get("period") ?? periodosOverview[periodosOverview.length - 1] ?? null;
+  /*
+    Sem `?period=` abre na competência **mais recente**: `periodosOverview` vem
+    em ordem decrescente, e pegar a última da lista abria a tela na competência
+    mais antiga do histórico — a que não tem vigência anterior contra a qual ser
+    comparada, e por isso não tem alteração nenhuma a mostrar.
+  */
+  const periodoOverviewEfetivo = parametros.get("period") ?? periodosOverview[0] ?? null;
 
   /*
     A Visão Geral aqui soma só o último passo comum — a competência pedida

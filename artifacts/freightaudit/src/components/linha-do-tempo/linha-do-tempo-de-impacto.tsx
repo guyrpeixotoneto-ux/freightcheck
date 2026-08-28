@@ -11,8 +11,7 @@ import {
   MapPin,
   SlidersHorizontal,
 } from "lucide-react";
-import { fetchJsonOrNull } from "@/lib/api";
-import { opcoesDoIntervalo } from "@/lib/intervalo-da-linha-do-tempo";
+import { opcoesDoIntervalo, opcoesDoIntervaloGeral } from "@/lib/intervalo-da-linha-do-tempo";
 import { cn } from "@/lib/utils";
 import { formatBrlCompacto, formatBrlShort, periodicityAdjective, periodicitySuffix } from "@/lib/format";
 import { linkDeAlteracoes, type Recorte } from "@/lib/recorte";
@@ -82,13 +81,10 @@ export function LinhaDoTempoDeImpacto({
     A mesma pergunta, entre todas as unidades — "onde está o impacto" só faz
     sentido sobre o intervalo, não sobre unidade/canal (que aqui identificam a
     própria pergunta). Por isso a consulta desta seção não herda `scopeHash`
-    nem `canal` de `query`: são só as pontas do intervalo.
-  */
-  const queryOverview = new URLSearchParams();
-  if (primeira) queryOverview.set("from", primeira);
-  queryOverview.set("to", currentPeriod);
+    nem `canal` de `query`: são só as pontas do intervalo — a chave vem de
+    `opcoesDoIntervaloGeral`, a mesma que o Dashboard e o seletor de vigência
+    usam, para que as três telas façam uma requisição só.
 
-  /*
     E ela só sai **depois** que a leitura desta unidade chegou.
 
     Não é atraso por precaução: `/changes/range/overview` roda a análise
@@ -103,10 +99,8 @@ export function LinhaDoTempoDeImpacto({
     ranking entre unidades.
   */
   const overview = useQuery({
-    queryKey: ["linha-do-tempo-overview", queryOverview.toString()],
-    queryFn: () => fetchJsonOrNull<RangeOverview>(`/changes/range/overview?${queryOverview}`),
+    ...opcoesDoIntervaloGeral(primeira ?? null, currentPeriod),
     enabled: ordenadas.length > 1 && movimentos.isSuccess,
-    staleTime: 60_000,
   });
 
   // Uma vigência só não tem linha do tempo a desenhar.

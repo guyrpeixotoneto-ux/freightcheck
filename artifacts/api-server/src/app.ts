@@ -5,6 +5,7 @@ import cors from "cors";
 import pinoHttp from "pino-http";
 import router from "./routes";
 import { requireSession } from "./middlewares/require-session";
+import { portaoDePermissao } from "./middlewares/portao-de-permissao";
 import { portaoDeProntidao } from "./middlewares/portao-de-prontidao";
 import { erroEmJson, rotaDesconhecida } from "./middlewares/contrato-json";
 import { logger } from "./lib/logger";
@@ -114,6 +115,16 @@ app.use("/api", portaoDeProntidao);
  * cada rota. O que responde sem sessão está listado em `lib/auth.ts`.
  */
 app.use("/api", requireSession);
+
+/**
+ * Depois da sessão, antes das rotas: quem já entrou pode mudar o quê.
+ *
+ * A ordem é a regra: sem sessão não há permissão a consultar, e depois das
+ * rotas seria tarde — a escrita já teria acontecido. Ver
+ * `middlewares/portao-de-permissao.ts`, inclusive para o que ele
+ * deliberadamente não bloqueia.
+ */
+app.use("/api", portaoDePermissao);
 app.use("/api", router);
 
 /**

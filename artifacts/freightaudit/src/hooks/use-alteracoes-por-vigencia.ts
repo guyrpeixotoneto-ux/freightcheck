@@ -1,7 +1,8 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchJsonOrNull } from "@/lib/api";
-import type { Movimentos, RangeOverview } from "@/lib/analise";
+import { opcoesDoIntervaloGeral } from "@/lib/intervalo-da-linha-do-tempo";
+import type { Movimentos } from "@/lib/analise";
 import type { FamiliesView } from "@/components/inicio/types";
 
 /**
@@ -64,6 +65,12 @@ export function useAlteracoesPorVigencia(
  * a disparam **quando o menu abre**, e não ao carregar a tela. O menu já está
  * em tela quando a resposta chega; a coluna aparece com ela, como no seletor
  * da unidade enquanto `/changes/range` não voltou.
+ *
+ * Onde a tela já faz essa mesma leitura por conta própria — o Dashboard em
+ * Visão Geral, para o gráfico de impacto por vigência, e a Linha do Tempo,
+ * para o ranking entre unidades —, a chave compartilhada
+ * (`opcoesDoIntervaloGeral`) faz a contagem já estar no cache: lá o menu abre
+ * com a coluna preenchida, sem esperar requisição nenhuma.
  */
 export function useAlteracoesPorVigenciaGeral(
   periodos: string[],
@@ -71,22 +78,19 @@ export function useAlteracoesPorVigenciaGeral(
 ): Map<string, number> {
   const ordenadas = useMemo(() => [...periodos].sort((a, b) => a.localeCompare(b)), [periodos]);
 
-  const query = new URLSearchParams();
-  if (ordenadas.length > 1) {
-    query.set("from", ordenadas[0]);
-    query.set("to", ordenadas[ordenadas.length - 1]);
-  }
-
   /*
-    A mesma chave de `LinhaDoTempoDeImpacto` — quando as pontas do intervalo
-    coincidem, uma resposta serve as duas telas em vez de duas varreduras
-    iguais do histórico inteiro.
+    A mesma chave de `LinhaDoTempoDeImpacto` e do gráfico do Dashboard em
+    Visão Geral (`opcoesDoIntervaloGeral`) — quando as pontas do intervalo
+    coincidem, uma resposta serve as três em vez de três varreduras iguais do
+    histórico inteiro. É por esse compartilhamento que a contagem do menu do
+    Dashboard já está no cache quando alguém abre o menu.
   */
   const overview = useQuery({
-    queryKey: ["linha-do-tempo-overview", query.toString()],
-    queryFn: () => fetchJsonOrNull<RangeOverview>(`/changes/range/overview?${query}`),
+    ...opcoesDoIntervaloGeral(
+      ordenadas[0] ?? null,
+      ordenadas[ordenadas.length - 1] ?? null,
+    ),
     enabled: habilitado && ordenadas.length > 1,
-    staleTime: 60_000,
   });
 
   return useMemo(

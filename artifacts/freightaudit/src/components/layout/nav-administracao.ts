@@ -1,4 +1,4 @@
-import { Building2, Cog, Plug, Settings2, Shield, Users } from "lucide-react";
+import { Cog, Plug, Settings2, Shield } from "lucide-react";
 import type { NavGroup } from "./nav";
 
 /**
@@ -37,21 +37,23 @@ import type { NavGroup } from "./nav";
  */
 export const GRUPO_ADMINISTRACAO: NavGroup = {
   titulo: "Administração",
-  descricao: "Unidades, usuários e ajustes da instalação",
+  descricao: "Configurações, integrações e segurança da instalação",
   icon: Cog,
   cor: "text-nav-admin",
   itens: [
-    { href: "~/unidades", label: "Unidades", icon: Building2 },
     /*
-      "Usuários" continua em `/configuracoes`, que é onde a tela sempre esteve
-      e para onde o menu da faixa vermelha e o assistente já apontam. A
-      Configurações desta lista — os ajustes da instalação — nasce em
-      `/ajustes` por isso: mudar o endereço de uma tela que funciona, para dar
-      o nome bonito a uma que ainda não existe, quebraria os dois links por
-      uma questão de nomenclatura.
+      Um item só, e não três.
+
+      Havia "Unidades", "Usuários" e uma "Configurações" que apontava para
+      `/ajustes` — tela que não existe. A terceira saiu do menu junto com o seu
+      verbete do catálogo de telas em preparo: os padrões do produto continuam
+      escritos onde são usados, e um item que só sabe dizer isso cobra um
+      clique para devolver a mesma frase. As duas que restaram viraram abas de
+      `/configuracoes`, porque são a mesma pergunta — o que a instalação tem
+      cadastrado — e separá-las em dois itens obrigava a escolher antes de
+      olhar. `/unidades` continua atendendo, abrindo a aba de unidades.
     */
-    { href: "~/configuracoes", label: "Usuários", icon: Users },
-    { href: "~/ajustes", label: "Configurações", icon: Settings2 },
+    { href: "~/configuracoes", label: "Configurações", icon: Settings2 },
     { href: "~/integracoes", label: "Integrações", icon: Plug },
     { href: "~/seguranca", label: "Segurança", icon: Shield },
   ],
