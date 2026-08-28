@@ -472,19 +472,6 @@ export default function Inicio() {
               pontos={pontosDeAtencao(view, ranking, integridadeDosDados, recorte)}
             />
 
-            {!view.complete && (
-              <div className="flex gap-3 rounded-xl border border-amber-400 bg-amber-50 px-5 py-4 text-sm text-amber-900">
-                <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-                <p>
-                  <strong>Visão parcial.</strong> Nesta vigência chegou apenas{" "}
-                  {view.series.map((s) => s.equipment.toLowerCase()).join(", ")}. Falta{" "}
-                  <strong>{view.missingSeries.join(", ").toLowerCase()}</strong> — os números
-                  acima cobrem só o que foi entregue, e a série ausente não está contada como
-                  zero.
-                </p>
-              </div>
-            )}
-
             <div className="grid gap-5 lg:grid-cols-2">
               <MaioresImpactos
                 ranking={ranking}
