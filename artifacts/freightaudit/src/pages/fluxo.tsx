@@ -6,9 +6,12 @@ import {
   LayoutGrid,
   ListPlus,
   Loader2,
+  Lock,
+  MoreHorizontal,
   Pencil,
   Plus,
   Shapes,
+  Unlock,
   Trash2,
   Wand2,
 } from "lucide-react";
@@ -17,6 +20,13 @@ import { ApiErrorNotice } from "@/components/api-error";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   Select,
@@ -27,7 +37,10 @@ import {
 } from "@/components/ui/select";
 import { DetalheDaEtapa } from "@/components/fluxos/detalhe-da-etapa";
 import { EditorDaEtapa } from "@/components/fluxos/editor-da-etapa";
-import { BotaoDeExportar } from "@/components/fluxos/botao-de-exportar";
+import {
+  BotaoDeExportar,
+  SubmenuDeExportar,
+} from "@/components/fluxos/botao-de-exportar";
 import { EditorDoFluxo } from "@/components/fluxos/editor-do-fluxo";
 import { MontadorPorTexto } from "@/components/fluxos/montador-por-texto";
 import { PaletaDeElementos } from "@/components/fluxos/paleta-de-elementos";
@@ -495,8 +508,17 @@ export default function TelaDoFluxo() {
             ficam aqui, sempre na mesma ordem e sempre no mesmo lugar — quem
             clica em "Nova etapa" não precisa procurá-la de novo depois de
             trocar de ângulo.
+
+            A ordem é uma só, mas a forma muda com a largura. Cinco controles
+            lado a lado cabem no computador; no telefone eles quebravam em duas
+            fileiras irregulares logo abaixo do título — "Só leitura", "Editar
+            fluxo" e "Colar etapas" numa, "Exportar" e "Nova etapa" noutra —, e
+            o cabeçalho tomava metade da tela antes de a primeira etapa
+            aparecer. Então na tela estreita fica visível só o que se usa toda
+            hora, "Nova etapa", e o resto entra em "Mais ações", na mesma ordem
+            em que está na barra larga.
           */}
-          <div className="flex flex-wrap items-center justify-end gap-1.5">
+          <div className="hidden flex-wrap items-center justify-end gap-1.5 md:flex">
             <Button variant="ghost" size="sm" onClick={() => setSomenteLeitura((v) => !v)}>
               {somenteLeitura ? "Liberar edição" : "Só leitura"}
             </Button>
@@ -533,6 +555,53 @@ export default function TelaDoFluxo() {
               Nova etapa
             </Button>
           </div>
+
+          <div className="flex items-center gap-1.5 md:hidden">
+            <Button
+              size="sm"
+              disabled={somenteLeitura}
+              onClick={() => setEditandoEtapa({ aberto: true, etapaId: null })}
+            >
+              <Plus className="mr-1.5 h-3.5 w-3.5" />
+              Nova etapa
+            </Button>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="icon" className="h-8 w-8" aria-label="Mais ações">
+                  <MoreHorizontal className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuItem onSelect={() => setSomenteLeitura((v) => !v)}>
+                  {somenteLeitura ? (
+                    <Unlock className="mr-2 h-4 w-4" />
+                  ) : (
+                    <Lock className="mr-2 h-4 w-4" />
+                  )}
+                  {somenteLeitura ? "Liberar edição" : "Só leitura"}
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => setEditandoFluxo(true)}>
+                  <Pencil className="mr-2 h-4 w-4" />
+                  Editar fluxo
+                </DropdownMenuItem>
+                <DropdownMenuItem disabled={somenteLeitura} onSelect={() => setColando(true)}>
+                  <ListPlus className="mr-2 h-4 w-4" />
+                  Colar etapas
+                </DropdownMenuItem>
+                {completo && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <SubmenuDeExportar
+                      completo={completo}
+                      catalogo={catalogo.data}
+                      empresa={nomeDaEmpresa}
+                    />
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
 
         {/*
@@ -555,8 +624,13 @@ export default function TelaDoFluxo() {
             lugar só — orientação no Fluxo e nos Gargalos, agrupamento nas Raias
             — em vez de os dois ficarem visíveis o tempo todo: uma barra com
             todas as opções das seis obrigaria a ler seis controles para usar um.
+
+            A largura reservada para esse lugar vale a partir do computador. No
+            telefone a barra já quebra em linhas, e reservar 196px vazios só
+            empurrava o controle seguinte para uma linha sozinha — a fileira em
+            branco que aparecia entre "Visualização" e "Tipo de jornada".
           */}
-          <div className="flex min-h-8 min-w-[196px] items-center gap-1.5">
+          <div className="flex min-h-8 items-center gap-1.5 md:min-w-[196px]">
             {(visualizacao === "fluxo" || visualizacao === "gargalos") && (
               <>
                 <span className="text-xs text-muted-foreground">Orientação</span>
