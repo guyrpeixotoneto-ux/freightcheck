@@ -25,6 +25,7 @@ import {
   importarFluxo,
   lerFluxo,
   lerFluxoPorSlug,
+  ligarSubfluxo,
   listarFluxos,
   organizarFluxo,
   reposicionarEtapas,
@@ -167,6 +168,26 @@ describe.skipIf(!temBanco)("Fluxos Operacionais sobre o banco", () => {
       const linha = (await listarFluxos(db, empresaA)).find((f) => f.id === fluxo.id)!;
       expect(linha.etapas).toBe(3);
       expect(linha.conexoes).toBe(3);
+    });
+
+    /*
+      Sem o pai na linha, a listagem é plana: o detalhe de uma etapa aparece ao
+      lado do processo do qual é um pedaço, e a tela não tem como saber que os
+      dois são a mesma coisa vista de duas alturas.
+    */
+    it("a linha diz de qual etapa ela é o detalhe", async () => {
+      const pai = await criarFluxo(db, empresaA, { nome: "Macro", categoria: "Teste" }, AUTOR);
+      const etapa = await criarEtapa(db, empresaA, pai.id, { nome: "Origem da tarifa" });
+      const detalhe = await criarFluxo(db, empresaA, { nome: "Detalhe", categoria: "Teste" }, AUTOR);
+      await ligarSubfluxo(db, empresaA, pai.id, etapa.id, detalhe.id);
+
+      const lista = await listarFluxos(db, empresaA);
+      expect(lista.find((f) => f.id === pai.id)!.pai).toBeNull();
+      expect(lista.find((f) => f.id === detalhe.id)!.pai).toEqual({
+        fluxoId: pai.id,
+        etapaId: etapa.id,
+        etapaNome: "Origem da tarifa",
+      });
     });
 
     it("o slug se repetindo na mesma empresa é recusado com frase própria", async () => {

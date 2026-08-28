@@ -35,10 +35,30 @@ export interface Fluxo {
   atualizadoPor: string | null;
 }
 
-/** A linha da tela de listagem — o fluxo mais o que só um `count` responde. */
+/**
+ * A linha da tela de listagem — o fluxo mais o que só um `count` responde, e
+ * de onde ele pendura.
+ */
 export interface FluxoNaLista extends Fluxo {
   etapas: number;
   conexoes: number;
+  /**
+   * A etapa que este fluxo detalha, quando ele é subfluxo de alguém — o mesmo
+   * vínculo de `Etapa.subfluxoId`, lido do lado de baixo.
+   *
+   * Sem isto a listagem é plana e um subfluxo aparece ao lado do processo que
+   * ele detalha, como se fossem dois processos irmãos: quem abriu a tela vê
+   * "Origem da tarifa" e "Operação Empurrada" no mesmo nível, e nada diz que a
+   * primeira é um pedaço da segunda. É `null` para fluxo raiz.
+   */
+  pai: PaiNaLista | null;
+}
+
+/** O degrau de cima de uma linha da listagem: quem detalha o quê. */
+export interface PaiNaLista {
+  fluxoId: string;
+  etapaId: string;
+  etapaNome: string;
 }
 
 export interface ItemDaEtapa {

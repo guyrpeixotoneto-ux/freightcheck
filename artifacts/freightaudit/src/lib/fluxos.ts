@@ -46,6 +46,15 @@ export interface Fluxo {
 export interface FluxoNaLista extends Fluxo {
   etapas: number;
   conexoes: number;
+  /** A etapa que este fluxo detalha, quando ele é subfluxo. `null` na raiz. */
+  pai: PaiNaLista | null;
+}
+
+/** O degrau de cima de uma linha da listagem: quem detalha o quê. */
+export interface PaiNaLista {
+  fluxoId: string;
+  etapaId: string;
+  etapaNome: string;
 }
 
 export interface ItemDaEtapa {
@@ -539,6 +548,67 @@ export function ordenarPorAtualizacao(fluxos: FluxoNaLista[]): FluxoNaLista[] {
     if (arquivado !== 0) return arquivado;
     return b.atualizadoEm.localeCompare(a.atualizadoEm);
   });
+}
+
+/** Uma linha da lista com o que ela detalha pendurado embaixo. */
+export interface RamoDeFluxos {
+  fluxo: FluxoNaLista;
+  filhos: RamoDeFluxos[];
+}
+
+/**
+ * A LISTA PLANA VIRA ÁRVORE — um subfluxo aparece dentro do fluxo que o detalha.
+ *
+ * Sem isto, "Origem da tarifa e das informações do trecho" fica ao lado de
+ * "Operação Empurrada", do mesmo tamanho e no mesmo nível, como se fossem dois
+ * processos irmãos — e a lista de processos da empresa cresce um item cada vez
+ * que alguém detalha uma etapa. São a mesma coisa vista de duas alturas.
+ *
+ * Três decisões, e todas vêm de a árvore ser montada sobre uma lista que já foi
+ * filtrada e recortada:
+ *
+ * - **Órfão sobe.** Quem tem pai fora da lista (a busca pegou o filho e não o
+ *   pai, ou o pai está arquivado e escondido) vira raiz. O contrário seria
+ *   sumir com uma linha que passou pelo filtro — a busca deixaria de achar.
+ * - **Ciclo não trava.** `ligarSubfluxo` recusa ciclo na gravação, mas a tela
+ *   desenha o que vier: uma referência circular herdada de um dado antigo faria
+ *   laço infinito aqui, então quem já foi visitado não é pendurado de novo.
+ * - **A ordem de dentro é a de fora.** Os filhos saem na mesma ordem em que
+ *   chegaram, para que trocar `ordenarPorAtualizacao` não precise ser lembrado
+ *   em dois lugares.
+ */
+export function aninharSubfluxos(fluxos: FluxoNaLista[]): RamoDeFluxos[] {
+  const ramos = new Map(fluxos.map((fluxo) => [fluxo.id, { fluxo, filhos: [] as RamoDeFluxos[] }]));
+  const raizes: RamoDeFluxos[] = [];
+
+  for (const ramo of ramos.values()) {
+    const pai = ramo.fluxo.pai ? ramos.get(ramo.fluxo.pai.fluxoId) : undefined;
+    if (pai && !ehDescendente(ramos, ramo.fluxo.id, pai.fluxo)) pai.filhos.push(ramo);
+    else raizes.push(ramo);
+  }
+
+  return raizes;
+}
+
+/** `possivelPai` já pende de `id`? Então pendurar `id` nele fecharia um laço. */
+function ehDescendente(
+  ramos: Map<string, RamoDeFluxos>,
+  id: string,
+  possivelPai: FluxoNaLista,
+): boolean {
+  const visitados = new Set<string>();
+  let atual: FluxoNaLista | undefined = possivelPai;
+  while (atual && !visitados.has(atual.id)) {
+    if (atual.id === id) return true;
+    visitados.add(atual.id);
+    atual = atual.pai ? ramos.get(atual.pai.fluxoId)?.fluxo : undefined;
+  }
+  return false;
+}
+
+/** Quantas linhas a árvore tem ao todo — o contador do cabeçalho da seção. */
+export function contarRamos(ramos: RamoDeFluxos[]): number {
+  return ramos.reduce((total, ramo) => total + 1 + contarRamos(ramo.filhos), 0);
 }
 
 // ---------------------------------------------------------------------------

@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   acentoDaCategoria,
+  aninharSubfluxos,
   categoriasDaLista,
+  contarRamos,
   comoData,
   comoTempoRelativo,
   ordenarPorAtualizacao,
@@ -411,6 +413,7 @@ describe("a lista", () => {
       descricao: "Da negociação ao extrato.",
       etapas: 16,
       conexoes: 20,
+      pai: null,
     },
     {
       ...FLUXO.fluxo,
@@ -421,6 +424,7 @@ describe("a lista", () => {
       descricao: null,
       etapas: 7,
       conexoes: 7,
+      pai: null,
     },
     {
       ...FLUXO.fluxo,
@@ -431,6 +435,7 @@ describe("a lista", () => {
       descricao: null,
       etapas: 4,
       conexoes: 3,
+      pai: null,
     },
   ];
 
@@ -561,6 +566,7 @@ describe("a ordem da lista", () => {
     atualizadoEm,
     etapas: 1,
     conexoes: 0,
+    pai: null,
   });
 
   it("o mais recente vem primeiro", () => {
@@ -584,5 +590,64 @@ describe("a ordem da lista", () => {
     const lista = [em("a", "2026-01-01T00:00:00.000Z"), em("b", "2026-08-01T00:00:00.000Z")];
     ordenarPorAtualizacao(lista);
     expect(lista.map((f) => f.id)).toEqual(["a", "b"]);
+  });
+});
+
+/**
+ * A LISTA É UMA ÁRVORE — o detalhe de uma etapa mora dentro do processo que ele
+ * detalha, e não ao lado dele.
+ */
+describe("o aninhamento dos subfluxos", () => {
+  const fluxo = (id: string, pai?: { fluxoId: string; etapaNome: string }): FluxoNaLista => ({
+    ...FLUXO.fluxo,
+    id,
+    nome: id,
+    etapas: 3,
+    conexoes: 2,
+    pai: pai ? { fluxoId: pai.fluxoId, etapaId: `etapa-${id}`, etapaNome: pai.etapaNome } : null,
+  });
+
+  const ids = (ramos: ReturnType<typeof aninharSubfluxos>) => ramos.map((r) => r.fluxo.id);
+
+  it("o subfluxo sai de dentro do pai, e não ao lado dele", () => {
+    const arvore = aninharSubfluxos([
+      fluxo("pai"),
+      fluxo("detalhe", { fluxoId: "pai", etapaNome: "Origem da tarifa" }),
+    ]);
+    expect(ids(arvore)).toEqual(["pai"]);
+    expect(ids(arvore[0].filhos)).toEqual(["detalhe"]);
+  });
+
+  it("desce quantos níveis houver", () => {
+    const arvore = aninharSubfluxos([
+      fluxo("raiz"),
+      fluxo("filho", { fluxoId: "raiz", etapaNome: "A" }),
+      fluxo("neto", { fluxoId: "filho", etapaNome: "B" }),
+    ]);
+    expect(ids(arvore)).toEqual(["raiz"]);
+    expect(ids(arvore[0].filhos[0].filhos)).toEqual(["neto"]);
+    expect(contarRamos(arvore)).toBe(3);
+  });
+
+  it("o órfão vira raiz — a busca que achou o filho não pode escondê-lo", () => {
+    const arvore = aninharSubfluxos([fluxo("detalhe", { fluxoId: "fora", etapaNome: "A" })]);
+    expect(ids(arvore)).toEqual(["detalhe"]);
+  });
+
+  it("um ciclo herdado não deixa a tela em laço", () => {
+    const arvore = aninharSubfluxos([
+      fluxo("a", { fluxoId: "b", etapaNome: "vem de B" }),
+      fluxo("b", { fluxoId: "a", etapaNome: "vem de A" }),
+    ]);
+    expect(contarRamos(arvore)).toBe(2);
+  });
+
+  it("a ordem de fora é a ordem de dentro", () => {
+    const arvore = aninharSubfluxos([
+      fluxo("pai"),
+      fluxo("segundo", { fluxoId: "pai", etapaNome: "B" }),
+      fluxo("primeiro", { fluxoId: "pai", etapaNome: "A" }),
+    ]);
+    expect(ids(arvore[0].filhos)).toEqual(["segundo", "primeiro"]);
   });
 });
