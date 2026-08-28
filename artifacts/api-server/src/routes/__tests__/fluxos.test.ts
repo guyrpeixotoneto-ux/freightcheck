@@ -575,8 +575,13 @@ describe("o subfluxo — a etapa que é um processo inteiro por dentro", () => {
 
   it("detalhar duas vezes a mesma etapa é 400 — o segundo detalhe seria órfão", async () => {
     const r = await post(`/api/fluxos/${pai}/etapas/${etapaPai}/detalhar?empresaId=${empresaA}`, {});
+    /*
+      O corpo de uma recusa nomeada leva a **frase** do domínio em `error` — o
+      `code` é o genérico do contrato, como nos outros casos deste arquivo. É a
+      frase que a tela mostra, e por isso é ela que o teste prende.
+    */
     expect(r.status).toBe(400);
-    expect(r.json.codigo).toBe("ETAPA_JA_DETALHADA");
+    expect(String(r.json.error)).toContain("já tem um subfluxo");
   });
 
   it("o endereço do segundo detalhe com o mesmo nome não colide", async () => {
@@ -600,7 +605,7 @@ describe("o subfluxo — a etapa que é um processo inteiro por dentro", () => {
       { subfluxoId: pai },
     );
     expect(r.status).toBe(400);
-    expect(r.json.codigo).toBe("SUBFLUXO_EM_CICLO");
+    expect(String(r.json.error)).toContain("volta sem fim");
   });
 
   it("detalhar a etapa de outra empresa é 404, e ligar o fluxo de outra empresa também", async () => {
