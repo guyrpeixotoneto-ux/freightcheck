@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Download, FileImage, FileText, Loader2, Shapes } from "lucide-react";
+import { Download, FileImage, FileSpreadsheet, FileText, Loader2, Shapes } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -21,9 +21,10 @@ import {
   nomeDoArquivo,
   type OpcoesDaExportacao,
 } from "@/lib/fluxos-exportar";
+import { fluxoComoModeloExcel } from "@/lib/fluxos-modelo";
 import { fraseDoErro, type Catalogo, type FluxoCompleto } from "@/lib/fluxos";
 
-type Formato = "png" | "pdf" | "svg";
+type Formato = "png" | "pdf" | "svg" | "xlsx";
 
 type Exportacao = {
   completo: FluxoCompleto;
@@ -37,11 +38,11 @@ type Exportacao = {
 
   O mesmo fluxo aparece de duas maneiras conforme a largura da tela: como botão
   próprio na barra larga e como submenu dentro de "Mais ações" na estreita. O
-  que muda é onde os três formatos são listados; o trabalho de gerar o arquivo,
+  que muda é onde os formatos são listados; o trabalho de gerar o arquivo,
   o estado de "gerando" e a frase do erro são um só, escritos uma vez aqui.
 */
 function useExportacao({ completo, catalogo, empresa }: Exportacao) {
-  const [gerando, setGerando] = useState<null | "png" | "pdf" | "svg">(null);
+  const [gerando, setGerando] = useState<Formato | null>(null);
   const [erro, setErro] = useState<string | null>(null);
 
   async function exportar(formato: Formato) {
@@ -62,8 +63,23 @@ function useExportacao({ completo, catalogo, empresa }: Exportacao) {
           ? await fluxoComoPng(completo, catalogo, opcoes)
           : formato === "pdf"
             ? await fluxoComoPdf(completo, catalogo, opcoes)
-            : fluxoComoSvg(completo, catalogo, opcoes);
-      salvarArquivo(blob, nomeDoArquivo(completo.fluxo, formato, opcoes.exportadoEm!));
+            : formato === "xlsx"
+              ? fluxoComoModeloExcel(completo, catalogo, opcoes)
+              : fluxoComoSvg(completo, catalogo, opcoes);
+      /*
+        O modelo leva `-modelo` no nome. Os três formatos de desenho são o mesmo
+        fluxograma em embalagens diferentes; a planilha é outra coisa — um
+        formulário de levantamento —, e o nome do arquivo é o único lugar em que
+        isso aparece depois que o download sai do produto.
+      */
+      const identidade =
+        formato === "xlsx"
+          ? {
+              nome: `${completo.fluxo.nome} modelo`,
+              slug: completo.fluxo.slug ? `${completo.fluxo.slug}-modelo` : "",
+            }
+          : completo.fluxo;
+      salvarArquivo(blob, nomeDoArquivo(identidade, formato, opcoes.exportadoEm!));
     } catch (falha) {
       setErro(fraseDoErro(falha));
     } finally {
@@ -75,12 +91,16 @@ function useExportacao({ completo, catalogo, empresa }: Exportacao) {
 }
 
 /**
- * EXPORTAR — o fluxograma virando arquivo, em três formatos.
+ * EXPORTAR — o fluxo virando arquivo: três formatos de desenho, e um modelo.
  *
  * PNG para colar num slide ou num chamado; PDF para anexar e imprimir; SVG para
  * quem vai abrir num editor de desenho e mexer. Os três saem do **mesmo** SVG
  * montado em `lib/fluxos-exportar.ts`, então nenhum deles pode divergir dos
  * outros: o que aparece no PNG aparece no PDF.
+ *
+ * O quarto item não é desenho. É o **modelo em Excel** (`lib/fluxos-modelo.ts`):
+ * uma aba por etapa, com os campos do painel lateral — o formulário de quem vai
+ * levantar o processo numa reunião e transcrever depois.
  *
  * O trabalho acontece no navegador de quem pediu — não há rota, não há fila e
  * não há arquivo guardado no servidor. Exportar é ler o que já está na tela e
@@ -109,7 +129,7 @@ export function BotaoDeExportar(props: Exportacao) {
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-64">
           <DropdownMenuLabel className="font-normal text-xs text-muted-foreground">
-            O fluxo inteiro, enquadrado — não o que está na tela.
+            O fluxo inteiro, enquadrado — ou o modelo para levantar em campo.
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
           <ItensDeFormato exportar={exportar} />
@@ -160,7 +180,7 @@ export function SubmenuDeExportar(props: Exportacao) {
       <DropdownMenuPortal>
         <DropdownMenuSubContent className="w-64">
           <DropdownMenuLabel className="font-normal text-xs text-muted-foreground">
-            O fluxo inteiro, enquadrado — não o que está na tela.
+            O fluxo inteiro, enquadrado — ou o modelo para levantar em campo.
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
           <ItensDeFormato exportar={exportar} manterAberto />
@@ -175,7 +195,7 @@ export function SubmenuDeExportar(props: Exportacao) {
   );
 }
 
-/** Os três formatos, na mesma ordem nos dois lugares em que aparecem. */
+/** Os formatos, na mesma ordem nos dois lugares em que aparecem. */
 function ItensDeFormato({
   exportar,
   manterAberto,
@@ -204,6 +224,18 @@ function ItensDeFormato({
         <Shapes className="mr-2 h-4 w-4" />
         <span className="flex-1">Vetor (SVG)</span>
         <span className="text-xs text-muted-foreground">editar</span>
+      </DropdownMenuItem>
+      {/*
+        O modelo fica depois de um separador porque não é um quarto formato do
+        mesmo desenho: os três de cima entregam o fluxograma, e este entrega um
+        formulário para preencher. Juntá-los na mesma lista faria alguém pedir
+        "Excel" esperando a imagem numa planilha.
+      */}
+      <DropdownMenuSeparator />
+      <DropdownMenuItem onSelect={escolher("xlsx")}>
+        <FileSpreadsheet className="mr-2 h-4 w-4" />
+        <span className="flex-1">Modelo (Excel)</span>
+        <span className="text-xs text-muted-foreground">preencher</span>
       </DropdownMenuItem>
     </>
   );
