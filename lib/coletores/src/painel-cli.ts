@@ -251,6 +251,23 @@ async function main(): Promise<void> {
       console.log(painel(fluxoDoCenario, registroDoCenario, await apurar()));
     };
 
+    /*
+      O primeiro cenário é o registro **vazio**: nenhum coletor ligado, que é o
+      estado em que todo fluxo nasce. Serve para ver a função sem nenhum dado no
+      meio — o motor lê as chaves que o desenho declara, não encontra quem
+      responda por elas, e apaga as dezoito com motivo. Nenhuma vira verde, e o
+      resumo se recusa a ter um "pior".
+    */
+    const semColetorNenhum = registroDeColetores();
+    await cenario(
+      "0. SEM COLETOR NENHUM — o estado em que todo fluxo nasce",
+      () =>
+        monitorarFluxo(semColetorNenhum, empresa, completo, {
+          agora: new Date("2026-08-17T09:00:00Z"),
+        }),
+      semColetorNenhum,
+    );
+
     await cenario("1. LEITURA VÁLIDA — um dia depois do envio do extrato", () =>
       monitorarFluxo(registro, empresa, completo, {
         agora: new Date("2026-08-17T09:00:00Z"),
