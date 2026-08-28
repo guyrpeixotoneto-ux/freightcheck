@@ -86,9 +86,24 @@ export const TELAS_QUE_HONRAM_ESCOPO = new Set<string>([
  * para o Resumo executivo — a opção mais natural da tela era a única que tirava
  * dela.
  *
+ * **Parâmetros entrou, e o comentário acima dizia que ele nunca entraria.**
+ * Dizia porque era verdade: não existia "Visão Geral de Parâmetros", e a tela
+ * é grade de atributo e de gaveta — a soma que a Visão Geral publicava (o
+ * resumo executivo, as famílias como totais, uma fila cortada em quarenta) não
+ * alimentava nem uma das duas grades. O efeito era o pior possível para quem
+ * usa: escolher "Visão Geral" estando em Parâmetros **trocava de tela**, sem
+ * avisar, e quem só queria trocar de recorte perdia o que estava lendo.
+ *
+ * O que mudou não foi a régua, foi o dado: `getFamiliesOverview` agora devolve
+ * a árvore inteira somada (`FamiliesOverview.parametros`, montada em
+ * `lib/comparison/src/visao-geral-de-parametros.ts`), que é uma `FamiliesView`
+ * como a de uma unidade só. A promessa desta lista — *estar aqui é ler
+ * `visaoGeral=1` de verdade* — continua valendo para Parâmetros como vale para
+ * as outras cinco.
+ *
  * Fora desta lista o destino continua sendo o Resumo executivo: não existe
- * "Visão Geral de Parâmetros" nem de Composição, e oferecer o link ali seria a
- * mesma promessa vazia que `TELAS_QUE_HONRAM_ESCOPO` já recusa para uma unidade.
+ * Visão Geral de Composição nem de DRE, e oferecer o link ali seria a mesma
+ * promessa vazia que `TELAS_QUE_HONRAM_ESCOPO` já recusa para uma unidade.
  */
 export const TELAS_QUE_HONRAM_VISAO_GERAL = new Set<string>([
   ENTRADA_DA_AUDITORIA,
@@ -96,6 +111,7 @@ export const TELAS_QUE_HONRAM_VISAO_GERAL = new Set<string>([
   LINHA_DO_TEMPO,
   DASHBOARD,
   GESTAO_A_VISTA,
+  "/parametros",
 ]);
 
 /**

@@ -789,7 +789,14 @@ export function buildGroup(
   };
 }
 
-function coverageLabel(
+/**
+ * "Toda a frota · 12 de 12 carretas" — a frase da cobertura.
+ *
+ * Exportada porque a Visão Geral de Parâmetros recompõe a cobertura sobre a
+ * frota somada das unidades (`visao-geral-de-parametros.ts`), e uma segunda
+ * redação desta frase divergiria da desta na primeira vez que o texto mudasse.
+ */
+export function coverageLabel(
   coverage: Coverage,
   vehicles: number,
   fleet: number,
@@ -891,8 +898,12 @@ function pickBadge(input: {
  * disputa atenção com dinheiro nem com ruptura, mas continua sendo uma notícia
  * — se ninguém a vir, na vigência seguinte a coluna volta ao normal (ou muda de
  * verdade) e não haverá registro de que a exportação oscilou.
+ *
+ * Exportada por ser a régua de gravidade: a Visão Geral de Parâmetros elege,
+ * entre os selos que cada unidade deu ao mesmo ponto, o mais forte — e quem
+ * decide isso é esta ordem, não uma segunda lista.
  */
-const BADGE_ORDER: Badge[] = [
+export const BADGE_ORDER: Badge[] = [
   "DINHEIRO",
   "RUPTURA",
   "COBERTURA",

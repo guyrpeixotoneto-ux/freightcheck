@@ -18,10 +18,27 @@ import type { FamiliesOverview } from "@/components/inicio/types";
  */
 export function useFamiliesOverviewQuery(
   period: string | null,
-  { enabled = true, refetchInterval }: { enabled?: boolean; refetchInterval?: number } = {},
+  {
+    enabled = true,
+    refetchInterval,
+    comParametros = false,
+  }: {
+    enabled?: boolean;
+    refetchInterval?: number;
+    /**
+     * Pedir a árvore de Parâmetros junto — só a tela de Parâmetros pede.
+     *
+     * Ela **entra na chave**, e não só na URL: a resposta com a árvore e a sem
+     * são conteúdos diferentes, e no React Query a chave *é* a identidade da
+     * consulta. Sem isto, a tela de Parâmetros leria do cache a resposta magra
+     * que o Dashboard tivesse buscado antes — `parametros: null` — e concluiria,
+     * errado, que nenhuma unidade pôde ser consolidada.
+     */
+    comParametros?: boolean;
+  } = {},
 ): UseQueryResult<FamiliesOverview | null> {
   return useQuery({
-    queryKey: ["families", "overview", period],
+    queryKey: ["families", "overview", period, comParametros],
     enabled: enabled && period !== null,
     refetchInterval,
     // Mesmo padrão das outras queries desta tela (`comparacao`, `balancos`,
@@ -32,7 +49,8 @@ export function useFamiliesOverviewQuery(
     queryFn: async () => {
       try {
         return await fetchJson<FamiliesOverview>(
-          `/changes/families/overview?period=${encodeURIComponent(period!)}`,
+          `/changes/families/overview?period=${encodeURIComponent(period!)}` +
+            (comParametros ? "&parametros=1" : ""),
         );
       } catch (erro) {
         // 404 aqui quer dizer "nenhuma unidade tem essa competência" de
