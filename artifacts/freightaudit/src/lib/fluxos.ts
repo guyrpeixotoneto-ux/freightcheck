@@ -100,6 +100,21 @@ export interface Etapa {
   sistemaPrincipal: string | null;
   regras: string | null;
   informacoesConsultadas: string | null;
+  /**
+   * As três dimensões do que dá errado, do que trava e do que é preciso saber
+   * — ver `lib/fluxos/modelo.ts`. São colunas separadas porque é o que permite
+   * somá-las pelo processo inteiro depois.
+   */
+  falhas: string | null;
+  gargalos: string | null;
+  informacoes: string | null;
+  /**
+   * O texto de antes do recorte em três, preservado pela migration `0072`.
+   *
+   * A tela não o mostra e não o escreve — mas `corpoDaEtapa` continua mandando
+   * de volta o valor que recebeu, porque a rota é substituição: omiti-lo faria
+   * a primeira edição de qualquer campo apagar o original.
+   */
   observacoes: string | null;
   status: StatusDaEtapa;
   posX: number;
@@ -716,6 +731,10 @@ export function corpoDaEtapa(etapa: Etapa): Record<string, unknown> {
     descricao: etapa.descricao ?? "",
     objetivo: etapa.objetivo ?? "",
     regras: etapa.regras ?? "",
+    falhas: etapa.falhas ?? "",
+    gargalos: etapa.gargalos ?? "",
+    informacoes: etapa.informacoes ?? "",
+    /* Vai de volta como veio: é o backup do texto antigo, e não um campo da tela. */
     observacoes: etapa.observacoes ?? "",
     informacoesConsultadas: etapa.informacoesConsultadas ?? "",
     chaveMonitoramento: etapa.chaveMonitoramento ?? "",

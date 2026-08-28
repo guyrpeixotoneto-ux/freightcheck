@@ -2478,6 +2478,25 @@ function planoUp(): PassoUp[] {
   );
 
   /*
+    E as três colunas que a `0072` acrescenta, pela mesma razão da `0069`: sem
+    elas o `up` devolveria uma `fluxo_etapa` de antes do recorte de
+    `observacoes` em falhas, gargalos e informações.
+
+    O `UPDATE` de cópia da migration **não** entra aqui: ele é dado, e não
+    estrutura. O `down` não apaga linha de `fluxo_etapa`, então o texto que
+    estava em `informacoes` continua lá quando o `up` repõe a coluna — repetir
+    a cópia sobrescreveria o que alguém escreveu depois.
+  */
+  const M72 = "0072_falhas_gargalos_informacoes";
+  for (const coluna of ["falhas", "gargalos", "informacoes"]) {
+    add(
+      M72,
+      `fluxo_etapa.${coluna}`,
+      levantar(M72, new RegExp(`ADD COLUMN IF NOT EXISTS "${coluna}"`)),
+    );
+  }
+
+  /*
     E a `0070`, pela mesma razão da `0069` e com um passo a mais: além da
     coluna `subfluxo_id`, ela traz a chave estrangeira composta que liga a etapa
     ao fluxo que a detalha e o índice por onde a trilha de volta é consultada.

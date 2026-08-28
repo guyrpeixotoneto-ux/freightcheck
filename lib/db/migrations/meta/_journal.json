@@ -505,6 +505,13 @@
       "when": 1788000000000,
       "tag": "0071_permissao_de_modulo",
       "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1788100000000,
+      "tag": "0072_falhas_gargalos_informacoes",
+      "breakpoints": true
     }
   ]
 }

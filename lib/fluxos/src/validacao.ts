@@ -172,6 +172,9 @@ export function validarEntradaDeEtapa(bruto: unknown): Required<
       "As informações consultadas",
       "ETAPA_TEXTO_LONGO",
     ),
+    falhas: longo(corpo.falhas, "As falhas", "ETAPA_TEXTO_LONGO"),
+    gargalos: longo(corpo.gargalos, "Os gargalos", "ETAPA_TEXTO_LONGO"),
+    informacoes: longo(corpo.informacoes, "As informações", "ETAPA_TEXTO_LONGO"),
     observacoes: longo(corpo.observacoes, "As observações", "ETAPA_TEXTO_LONGO"),
     chaveMonitoramento: textoOpcional(corpo.chaveMonitoramento),
   };

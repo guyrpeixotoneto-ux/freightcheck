@@ -143,7 +143,9 @@ function temSubstancia(etapa: Etapa): boolean {
     texto(etapa.objetivo) !== "" ||
     texto(etapa.regras) !== "" ||
     texto(etapa.informacoesConsultadas) !== "" ||
-    texto(etapa.observacoes) !== "" ||
+    texto(etapa.falhas) !== "" ||
+    texto(etapa.gargalos) !== "" ||
+    texto(etapa.informacoes) !== "" ||
     etapa.itens.length > 0 ||
     etapa.indicadores.length > 0
   );
@@ -626,10 +628,18 @@ export function cartaoDaJornada(linha: LinhaDaEtapa, lente: LenteDaJornada): Car
       case "falhas":
         return [
           {
+            /*
+              O texto e a lista são as duas formas de dizer o que dá errado, e
+              a lente mostra as duas: a lista nomeia falhas contáveis uma a uma,
+              o texto descreve o que não cabe num nome — "quando a tarifa vem
+              sem tabela, o faturamento refaz o cálculo à mão". Somar as duas
+              numa linha só faria a contagem da lente mentir sobre qual delas
+              está preenchida.
+            */
             chave: "falhas",
             rotulo: "Falhas possíveis",
             icone: "AlertTriangle",
-            valores: itensDaEspecie(etapa, "FALHA"),
+            valores: [...itensDaEspecie(etapa, "FALHA"), ...[etapa.falhas].filter(naoVazio)],
             vazio: "sem falhas registradas",
             conta: true,
             essencial: true,
@@ -660,7 +670,7 @@ export function cartaoDaJornada(linha: LinhaDaEtapa, lente: LenteDaJornada): Car
             chave: "gargalos",
             rotulo: "Gargalos",
             icone: "Hourglass",
-            valores: itensDaEspecie(etapa, "GARGALO"),
+            valores: [...itensDaEspecie(etapa, "GARGALO"), ...[etapa.gargalos].filter(naoVazio)],
             vazio: "sem gargalos apontados",
             conta: true,
             essencial: true,
@@ -702,6 +712,20 @@ export function cartaoDaJornada(linha: LinhaDaEtapa, lente: LenteDaJornada): Car
             icone: "Search",
             valores: [etapa.informacoesConsultadas].filter(naoVazio),
             vazio: "sem informações consultadas",
+            conta: true,
+            essencial: true,
+          },
+          {
+            /*
+              "Consulta" é onde a pessoa vai olhar; "Contexto" é o que ela
+              precisa saber. São perguntas diferentes, e por isso duas linhas —
+              a lente das Informações existe justamente para separá-las.
+            */
+            chave: "contexto",
+            rotulo: "Contexto",
+            icone: "Info",
+            valores: [etapa.informacoes].filter(naoVazio),
+            vazio: "sem contexto anotado",
             conta: true,
             essencial: true,
           },
@@ -971,7 +995,9 @@ export type CampoDeTextoDaEtapa =
   | "objetivo"
   | "regras"
   | "informacoesConsultadas"
-  | "observacoes"
+  | "falhas"
+  | "gargalos"
+  | "informacoes"
   | "chaveMonitoramento";
 
 /**
@@ -1012,7 +1038,13 @@ export const CAMPOS_DO_PAINEL: CampoDoPainel[] = [
   { campo: "sistemaPrincipal", rotulo: "Sistema principal", multilinha: false },
   { campo: "regras", rotulo: "Regras de negócio", multilinha: true },
   { campo: "informacoesConsultadas", rotulo: "Informações que consulta", multilinha: true },
-  { campo: "observacoes", rotulo: "Falhas, gargalos e informações", multilinha: true },
+  /*
+    As três entram na ordem em que se investiga uma etapa: o que dá errado, o
+    que trava mesmo sem dar errado, e o que é preciso saber para executá-la.
+  */
+  { campo: "falhas", rotulo: "Falhas", multilinha: true },
+  { campo: "gargalos", rotulo: "Gargalos", multilinha: true },
+  { campo: "informacoes", rotulo: "Informações", multilinha: true },
   { campo: "chaveMonitoramento", rotulo: "Chave de monitoramento", multilinha: false },
 ];
 
@@ -1035,8 +1067,12 @@ export function valorDoCampo(etapa: Etapa, campo: CampoDeTextoDaEtapa): string {
       return etapa.regras ?? "";
     case "informacoesConsultadas":
       return etapa.informacoesConsultadas ?? "";
-    case "observacoes":
-      return etapa.observacoes ?? "";
+    case "falhas":
+      return etapa.falhas ?? "";
+    case "gargalos":
+      return etapa.gargalos ?? "";
+    case "informacoes":
+      return etapa.informacoes ?? "";
     case "chaveMonitoramento":
       return etapa.chaveMonitoramento ?? "";
   }

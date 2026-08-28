@@ -905,7 +905,10 @@ describe("a edição campo a campo pela rota da etapa", () => {
     descricao: "Confere XML contra o pedido.",
     objetivo: "Não pagar frete indevido.",
     regras: "Divergência acima de 2% volta.",
-    observacoes: "Rodopar × Unidox.",
+    falhas: "XML chega sem a chave do pedido.",
+    gargalos: "Espera o retorno do transportador por e-mail.",
+    informacoes: "Rodopar × Unidox.",
+    observacoes: "O texto anterior ao recorte em três.",
     chaveMonitoramento: "auditoria",
     ordem: 3,
     posX: 120,
@@ -941,7 +944,11 @@ describe("a edição campo a campo pela rota da etapa", () => {
       descricao: "Confere XML contra o pedido.",
       objetivo: "Não pagar frete indevido.",
       regras: "Divergência acima de 2% volta.",
-      observacoes: "Rodopar × Unidox.",
+      falhas: "XML chega sem a chave do pedido.",
+      gargalos: "Espera o retorno do transportador por e-mail.",
+      informacoes: "Rodopar × Unidox.",
+      /* O backup do texto de antes das três colunas volta como foi mandado. */
+      observacoes: "O texto anterior ao recorte em três.",
       chaveMonitoramento: "auditoria",
       responsavel: "Analista Fiscal",
       sistemaPrincipal: "Rodopar",
@@ -949,6 +956,39 @@ describe("a edição campo a campo pela rota da etapa", () => {
       posX: 120,
       posY: 480,
     });
+  });
+
+  it("falhas, gargalos e informações são três colunas, e uma não escreve na outra", async () => {
+    /*
+      A prova de que o recorte é de verdade. Se as três fossem a mesma coluna
+      com três rótulos, trocar o gargalo mudaria a falha — e a pergunta "onde
+      estão os maiores gargalos do processo" continuaria sem resposta.
+    */
+    const r = await put(`/api/fluxos/${fluxo}/etapas/${alvo}?empresaId=${empresaA}`, {
+      ...completo,
+      gargalos: "Uma pessoa só habilitada, e ela concilia no fim do mês.",
+    });
+    expect(r.status).toBe(200);
+
+    expect(await lerAlvo()).toMatchObject({
+      falhas: "XML chega sem a chave do pedido.",
+      gargalos: "Uma pessoa só habilitada, e ela concilia no fim do mês.",
+      informacoes: "Rodopar × Unidox.",
+      observacoes: "O texto anterior ao recorte em três.",
+    });
+
+    /* E cada uma se esvazia sozinha, sem levar as outras junto. */
+    await put(`/api/fluxos/${fluxo}/etapas/${alvo}?empresaId=${empresaA}`, {
+      ...completo,
+      falhas: "",
+    });
+    expect(await lerAlvo()).toMatchObject({
+      falhas: null,
+      gargalos: "Espera o retorno do transportador por e-mail.",
+      informacoes: "Rodopar × Unidox.",
+    });
+
+    await put(`/api/fluxos/${fluxo}/etapas/${alvo}?empresaId=${empresaA}`, completo);
   });
 
   it("o corpo PARCIAL apaga o resto — é por isso que a tela nunca manda um", async () => {

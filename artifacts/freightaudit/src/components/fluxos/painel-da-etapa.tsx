@@ -8,6 +8,7 @@ import {
   Gauge,
   GitBranch,
   Hourglass,
+  Info,
   Check,
   ChevronDown,
   ListPlus,
@@ -108,6 +109,7 @@ const ICONES: Record<string, typeof Server> = {
   Users,
   AlertTriangle,
   Hourglass,
+  Info,
   Scale,
   Gauge,
   Search,
@@ -1150,7 +1152,24 @@ export function PainelDaEtapa({
             );
           })}
 
-        {secaoDeTexto("observacoes", "AlertTriangle")}
+        {/*
+          AS TRÊS, SEPARADAS — e nesta ordem.
+
+          Era uma seção só, "Falhas, gargalos e informações", e o texto lá
+          dentro misturava o que dá errado, o que atrasa e o que é preciso
+          saber. Um painel que junta as três dimensões produz um processo
+          legível e inconsultável: some a pergunta "onde estão os maiores
+          gargalos", porque gargalo não é campo — é um parágrafo no meio de
+          outro assunto.
+
+          A ordem é a da investigação de uma etapa: o que dá errado, o que trava
+          mesmo quando nada dá errado, e o que é preciso saber para executá-la.
+        */}
+        {secaoDeTexto("falhas", "AlertTriangle")}
+
+        {secaoDeTexto("gargalos", "Hourglass")}
+
+        {secaoDeTexto("informacoes", "Info")}
 
         {listas
           .filter((lista) => lista.natureza === "acoes")

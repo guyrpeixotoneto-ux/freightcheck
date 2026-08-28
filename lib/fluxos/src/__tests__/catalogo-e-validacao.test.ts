@@ -175,6 +175,39 @@ describe("a entrada de uma etapa", () => {
     expect(etapa.posY).toBe(-81);
   });
 
+  it("falhas, gargalos e informações entram como três campos — e não como um", () => {
+    /*
+      A prova, na porta de entrada do motor: as três chegam separadas, cada uma
+      com o seu texto, e o campo antigo continua sendo aceito. Se a validação
+      as fundisse (ou se deixasse cair a que não conhece), o recorte teria
+      acontecido só na tela — e a pergunta "onde estão os maiores gargalos"
+      continuaria sem resposta no dado.
+    */
+    const etapa = validarEntradaDeEtapa({
+      nome: "Conferência do CT-e",
+      falhas: "XML chega sem a chave do pedido.",
+      gargalos: "Fila de conferência no fim do mês.",
+      informacoes: "Rodopar × Unidox.",
+      observacoes: "O texto de antes do recorte.",
+    });
+    expect(etapa.falhas).toBe("XML chega sem a chave do pedido.");
+    expect(etapa.gargalos).toBe("Fila de conferência no fim do mês.");
+    expect(etapa.informacoes).toBe("Rodopar × Unidox.");
+    /* O backup do texto antigo continua entrando: a rota é substituição. */
+    expect(etapa.observacoes).toBe("O texto de antes do recorte.");
+  });
+
+  it("cada uma das três se esvazia sozinha, e vazio vira nulo", () => {
+    const etapa = validarEntradaDeEtapa({
+      nome: "X",
+      falhas: "   ",
+      gargalos: "Espera o retorno da Operação.",
+    });
+    expect(etapa.falhas).toBeNull();
+    expect(etapa.gargalos).toBe("Espera o retorno da Operação.");
+    expect(etapa.informacoes).toBeNull();
+  });
+
   it("recusa posição que não é número, em vez de gravar zero", () => {
     // Gravar zero mandaria o cartão para o canto sem ninguém ter pedido.
     expect(recusa(() => validarEntradaDeEtapa({ nome: "X", posX: "muito à direita" })).codigo).toBe(

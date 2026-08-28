@@ -17,7 +17,7 @@ import type { FluxoDeclarado } from "../modelo";
  *
  * As treze etapas numeradas, os sistemas/bases, as áreas, o fluxo detalhado e
  * as saídas são transcrição do quadro levantado — inclusive os pontos marcados
- * como **A VALIDAR**, que ficam escritos em `observacoes` com esse nome em vez
+ * como **A VALIDAR**, que ficam escritos em `informacoes` com esse nome em vez
  * de virarem afirmação. Um mapa que apaga a própria incerteza é pior do que
  * mapa nenhum, porque ninguém volta para conferir o que parece resolvido.
  *
@@ -56,7 +56,7 @@ export const OPERACAO_EMPURRADA: FluxoDeclarado = {
       objetivo: "Definir trecho, tarifa/valor e parâmetros que deveriam originar o faturamento.",
       descricao:
         "O trecho e a tarifa nascem aqui, com os parâmetros que o faturamento vai usar depois. É a base do balanço de massa: o que deveria ser faturado começa a existir nesta etapa.",
-      observacoes:
+      informacoes:
         "Saída: informação do trecho e parâmetros validados no Freitec/TMS.\nA VALIDAR: quais tabelas e regras exatamente originam a tarifa, e quem é o responsável nomeado.",
       chaveMonitoramento: "empurrada.origem_tarifa",
       itens: [
@@ -76,7 +76,7 @@ export const OPERACAO_EMPURRADA: FluxoDeclarado = {
       descricao:
         "O SAP processa trecho a trecho contra a tabela de frete mínimo. Em situações relevantes há conferência manual.",
       regras: "A tarifa segue para emissão só depois de confrontada com a tabela de frete mínimo.",
-      observacoes:
+      informacoes:
         "Saída: tarifa validada e apta a seguir para emissão.\nA VALIDAR: em quais situações a conferência manual é obrigatória, e quem a executa.",
       chaveMonitoramento: "empurrada.validacao_tarifa",
       itens: [
@@ -96,7 +96,7 @@ export const OPERACAO_EMPURRADA: FluxoDeclarado = {
       objetivo: "Registrar no Unidox o pedido de emissão do documento.",
       descricao:
         "O envio é predominantemente automático, com exceções tratadas manualmente.",
-      observacoes:
+      informacoes:
         "Saída: solicitação registrada no Unidox.\nA VALIDAR: quais são as exceções manuais e com que frequência acontecem.",
       chaveMonitoramento: "empurrada.solicitacao_emissao",
       itens: [
@@ -116,7 +116,7 @@ export const OPERACAO_EMPURRADA: FluxoDeclarado = {
       objetivo: "Gerar o CT-e/documento fiscal e associar XML e eventos.",
       descricao:
         "O documento é emitido no Unidox; exceções manuais são tratadas aqui, e o XML e os eventos ficam associados ao documento.",
-      observacoes:
+      informacoes:
         "Saída: CT-e/documento emitido e XML/eventos associados.\nA partir daqui as integrações com Rodopar e Connect acontecem em paralelo.",
       chaveMonitoramento: "empurrada.emissao_documento",
       itens: [
@@ -137,7 +137,7 @@ export const OPERACAO_EMPURRADA: FluxoDeclarado = {
       objetivo: "Levar o documento emitido para os sistemas internos e os de pagamento.",
       descricao:
         "Depois da emissão, duas integrações partem ao mesmo tempo: Rodopar e Connect. Elas são independentes entre si e ambas precisam ter acontecido para a auditoria fiscal fechar.",
-      observacoes:
+      informacoes:
         "Saída: documento disponibilizado nos sistemas internos e de pagamento.\nA VALIDAR: prazos de cada integração e o que acontece quando uma delas falha.",
       chaveMonitoramento: "empurrada.integracoes",
       itens: [
@@ -154,7 +154,7 @@ export const OPERACAO_EMPURRADA: FluxoDeclarado = {
       sistemaPrincipal: "Rodopar",
       objetivo: "Disponibilizar o documento no sistema interno.",
       descricao: "Ramo paralelo da etapa de integrações — o que alimenta auditoria, pendências e baixa.",
-      observacoes: "Saída: documento disponível no Rodopar.",
+      informacoes: "Saída: documento disponível no Rodopar.",
       chaveMonitoramento: "empurrada.integracao_rodopar",
       itens: [
         { especie: "SISTEMA", nome: "Rodopar" },
@@ -171,7 +171,7 @@ export const OPERACAO_EMPURRADA: FluxoDeclarado = {
       sistemaPrincipal: "Connect",
       objetivo: "Disponibilizar o documento no sistema de pagamento.",
       descricao: "Ramo paralelo da etapa de integrações — é por ele que o status de pagamento passa a existir.",
-      observacoes: "Saída: documento disponível no Connect.",
+      informacoes: "Saída: documento disponível no Connect.",
       chaveMonitoramento: "empurrada.integracao_connect",
       itens: [
         { especie: "SISTEMA", nome: "Connect" },
@@ -189,7 +189,7 @@ export const OPERACAO_EMPURRADA: FluxoDeclarado = {
       objetivo: "Validar existência, status, eventos, sequência e impostos do documento.",
       descricao:
         "O documento é confrontado entre Rodopar, Unidox e o órgão fiscal: ele existe, está autorizado, os eventos estão associados, a sequência não tem buraco e os impostos batem.",
-      observacoes:
+      informacoes:
         "Saída: documento fiscal validado para cobrança/pagamento.\nPrincípio do processo: distinguir processo, falha e gargalo — nem toda incidência de imposto ou regra é uma etapa do fluxo.",
       chaveMonitoramento: "empurrada.auditoria_fiscal",
       itens: [
@@ -210,7 +210,7 @@ export const OPERACAO_EMPURRADA: FluxoDeclarado = {
       objetivo: "Acompanhar lançado, análise, bloqueio, pagamento e compensação.",
       descricao:
         "O documento passa a ter estado do lado do pagador, e é esse estado que diz se ele caminha ou está parado.",
-      observacoes: "Saída: status atualizado de pagamento.",
+      informacoes: "Saída: status atualizado de pagamento.",
       chaveMonitoramento: "empurrada.status_pagamento",
       itens: [
         { especie: "SISTEMA", nome: "Connect" },
@@ -230,7 +230,7 @@ export const OPERACAO_EMPURRADA: FluxoDeclarado = {
       objetivo: "Identificar descontos e documentos utilizados no encontro de contas.",
       descricao:
         "O que foi descontado e contra quais documentos — a etapa que explica a diferença entre o valor devido e o valor creditado.",
-      observacoes:
+      informacoes:
         "Saída: relação de descontos e documentos utilizados.\nA VALIDAR: por qual canal cada desconto chega (relatório, e-mail ou chamado) e onde essa relação fica guardada.",
       chaveMonitoramento: "empurrada.encontro_de_contas",
       itens: [
@@ -252,7 +252,7 @@ export const OPERACAO_EMPURRADA: FluxoDeclarado = {
       objetivo: "Localizar documentos lançados, não lançados e não pagos.",
       descricao:
         "A lista do que não caminhou: o que foi emitido e não foi lançado, o que foi lançado e não foi pago. É o outro lado do balanço de massa.",
-      observacoes:
+      informacoes:
         "Saída: lista de pendências pendentes de solução.\nPrincípio do processo: separar problemas sob controle da empresa daqueles que dependem de Ambev, sistemas externos ou órgãos fiscais.",
       chaveMonitoramento: "empurrada.pendencias",
       itens: [
@@ -275,7 +275,7 @@ export const OPERACAO_EMPURRADA: FluxoDeclarado = {
       objetivo: "Consolidar o que foi emitido e ajustar as classificações.",
       descricao:
         "A consolidação do período junta as bases de faturamento e corrige a classificação do que foi emitido.",
-      observacoes:
+      informacoes:
         "Saída: base consolidada e classificações ajustadas.\nA VALIDAR: o escopo desta etapa — o quadro registra \"escopo a validar\" e a planilha é hoje o meio.",
       chaveMonitoramento: "empurrada.fechamento",
       itens: [
@@ -294,7 +294,7 @@ export const OPERACAO_EMPURRADA: FluxoDeclarado = {
       sistemaPrincipal: "Automação / relatório Ambev",
       objetivo: "Informar o valor esperado antes do crédito.",
       descricao: "O valor que se espera receber é registrado antes de o dinheiro entrar — é o que permite comparar esperado e recebido.",
-      observacoes: "Saída: provisão de recebimento registrada.",
+      informacoes: "Saída: provisão de recebimento registrada.",
       chaveMonitoramento: "empurrada.provisao",
       itens: [
         { especie: "SISTEMA", nome: "Automação / relatório Ambev" },
@@ -311,7 +311,7 @@ export const OPERACAO_EMPURRADA: FluxoDeclarado = {
       sistemaPrincipal: "Banco + Rodopar",
       objetivo: "Confirmar o crédito bancário e baixar os documentos no Rodopar.",
       descricao: "O crédito é identificado no banco e os documentos correspondentes são baixados.",
-      observacoes: "Saída: documentos baixados após o crédito.",
+      informacoes: "Saída: documentos baixados após o crédito.",
       chaveMonitoramento: "empurrada.credito_baixa",
       itens: [
         { especie: "SISTEMA", nome: "Banco" },
@@ -334,7 +334,7 @@ export const OPERACAO_EMPURRADA: FluxoDeclarado = {
         "O fecho do processo: o que a Ambev pagou, o que o Rodopar mostra baixado e o que o extrato registra precisam contar a mesma história.",
       regras:
         "Princípio do processo: antes de acelerar a baixa ou a conciliação, garantir que o valor devido esteja correto.",
-      observacoes: "Saída: conciliação concluída e reconciliada.",
+      informacoes: "Saída: conciliação concluída e reconciliada.",
       chaveMonitoramento: "empurrada.conciliacao",
       itens: [
         { especie: "SISTEMA", nome: "Rodopar" },
