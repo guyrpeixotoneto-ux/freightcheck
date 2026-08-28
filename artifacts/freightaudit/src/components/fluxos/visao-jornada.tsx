@@ -9,6 +9,7 @@ import {
   Flag,
   FileText,
   Hourglass,
+  Search,
   Server,
   Shuffle,
   Target,
@@ -44,14 +45,17 @@ import type { PropsDaVisao } from "@/components/fluxos/visao";
  * numeração, mesmo clique abrindo o mesmo painel com tudo. `cartaoDaJornada` é
  * função pura sobre a linha que a Lista já monta — não há dado por lente.
  *
- * E a lente é **focada**: o cartão desenha só o que ela achou. Trocar para
- * "Documentação" deixa no cartão o objetivo, as regras e os documentos daquela
- * etapa — não três linhas de "sem regras registradas" repetidas em quinze
- * cartões. A ausência não some, muda de forma: a etapa em que a lente não achou
- * nada vira uma frase única ("sem documentação registrada") num cartão
- * esmaecido, e o cabeçalho continua dizendo em quantas etapas a lente achou
- * alguma coisa. Numa jornada de documentação, a mancha de cartões apagados é o
- * mapa do que ainda não foi levantado — e o resto é documentação legível.
+ * E a lente é **focada**, com um centro. O campo que dá nome à lente é o
+ * assunto e aparece em todo cartão: a jornada da documentação mostra a linha
+ * dos documentos em todas as etapas — com os documentos, ou com "sem documentos
+ * cadastrados" —, porque é essa a pergunta que alguém foi ali fazer, e a etapa
+ * sem documento é a resposta. Os campos de apoio (o objetivo, a regra, o
+ * retorno que chega, a troca de área) só aparecem quando existem: preenchidos
+ * enriquecem a leitura, vazios viram quinze linhas repetidas de "sem X".
+ *
+ * Assim o cartão responde as duas perguntas de uma vez — o que está cadastrado
+ * e onde falta —, e o cartão em que a lente não achou nada continua esmaecido,
+ * com o cabeçalho dizendo em quantas etapas ela achou alguma coisa.
  *
  * O vazio continua sendo dito com todas as letras, nunca preenchido com
  * estimativa.
@@ -77,6 +81,7 @@ const ICONES: Record<string, LucideIcon> = {
   Flag,
   FileText,
   Hourglass,
+  Search,
   Server,
   Shuffle,
   Target,
@@ -98,7 +103,6 @@ export function VisaoJornada({
   const linhas = useMemo(() => linhasDaLista(completo), [completo]);
   const resumo = useMemo(() => resumoDaLente(linhas, lente), [linhas, lente]);
   const entrada = LENTES_DA_JORNADA.find((l) => l.valor === lente) ?? LENTES_DA_JORNADA[0];
-  const IconeDaLente = ICONES[entrada.icone] ?? Activity;
 
   return (
     <div className="h-full overflow-auto bg-muted/20 px-4 py-6 sm:px-8">
@@ -181,47 +185,47 @@ export function VisaoJornada({
 
                 <dl className="mt-2 space-y-1 text-xs text-muted-foreground">
                   {/*
-                    A lente focada: só o que ela achou. A etapa sem nada nesta
-                    leitura não vira três linhas de placeholder — vira uma frase
-                    só, no cartão que já está esmaecido. É o que faz a jornada da
-                    documentação ser sobre documentação, e a das falhas sobre
-                    falhas, em vez de todas parecerem a mesma tela de "sem X".
+                    A lente focada, com centro: o assunto da lente aparece em
+                    todo cartão — os documentos na jornada da documentação, as
+                    falhas na das falhas —, com o que está cadastrado ou com a
+                    ausência dita. O apoio só aparece quando existe: "sem regras
+                    registradas" repetido em quinze cartões não é a resposta que
+                    alguém foi ali procurar.
                   */}
-                  {cartao.preenchidos.length === 0 ? (
-                    <div className="flex items-start gap-1.5">
-                      <IconeDaLente className="mt-0.5 h-3 w-3 shrink-0" />
-                      <dt className="sr-only">{entrada.rotulo}</dt>
-                      <dd className="min-w-0 flex-1 text-muted-foreground/60">{cartao.vazio}</dd>
-                    </div>
-                  ) : (
-                    cartao.preenchidos.map((campo) => {
-                      const Icone = ICONES[campo.icone] ?? Activity;
-                      return (
-                        <div key={campo.chave} className="flex items-start gap-1.5">
-                          <Icone className="mt-0.5 h-3 w-3 shrink-0" />
-                          <dt className="sr-only">{campo.rotulo}</dt>
-                          <dd className="min-w-0 flex-1 space-y-0.5">
-                            {/*
+                  {cartao.visiveis.map((campo) => {
+                    const Icone = ICONES[campo.icone] ?? Activity;
+                    return (
+                      <div key={campo.chave} className="flex items-start gap-1.5">
+                        <Icone className="mt-0.5 h-3 w-3 shrink-0" />
+                        <dt className="sr-only">{campo.rotulo}</dt>
+                        <dd className="min-w-0 flex-1 space-y-0.5">
+                          {campo.valores.length === 0 ? (
+                            <span className="text-muted-foreground/60">{campo.vazio}</span>
+                          ) : (
+                            /*
                               Um item por linha, e não tudo emendado com " · ":
-                              quando o cartão mostra só o que a lente achou,
-                              sobra altura para os três documentos da etapa
-                              aparecerem como três documentos.
+                              com o cartão mostrando só o que a lente pede, sobra
+                              altura para os três documentos da etapa aparecerem
+                              como três documentos.
 
                               Três linhas no máximo por item: o objetivo de uma
                               etapa pode ter um parágrafo, e a jornada existe
                               para ser lida de relance. O texto inteiro está a um
                               clique, no painel de detalhe.
-                            */}
-                            {campo.valores.map((valor, posicao) => (
-                              <p key={`${campo.chave}-${posicao}`} className="line-clamp-3 break-words">
+                            */
+                            campo.valores.map((valor, posicao) => (
+                              <p
+                                key={`${campo.chave}-${posicao}`}
+                                className="line-clamp-3 break-words"
+                              >
                                 {valor}
                               </p>
-                            ))}
-                          </dd>
-                        </div>
-                      );
-                    })
-                  )}
+                            ))
+                          )}
+                        </dd>
+                      </div>
+                    );
+                  })}
                 </dl>
               </button>
 
