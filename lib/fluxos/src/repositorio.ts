@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import {
   fluxoConexaoTable,
   fluxoEtapaAcaoTable,
@@ -27,6 +27,7 @@ import type {
   FluxoNaLista,
   IndicadorDaEtapa,
   ItemDaEtapa,
+  PaiNaLista,
   PosicaoDaEtapa,
   DegrauDaTrilha,
   ResumoDeSubfluxo,
@@ -111,7 +112,7 @@ export async function listarFluxos(
     recém-criado. Duas consultas rasas custam um round-trip a mais e não têm
     como errar.
   */
-  const [linhas, etapasPorFluxo, conexoesPorFluxo] = await Promise.all([
+  const [linhas, etapasPorFluxo, conexoesPorFluxo, vinculos] = await Promise.all([
     db
       .select()
       .from(fluxoOperacionalTable)
@@ -133,15 +134,55 @@ export async function listarFluxos(
       .from(fluxoConexaoTable)
       .where(eq(fluxoConexaoTable.empresaId, empresaId))
       .groupBy(fluxoConexaoTable.fluxoId),
+    /*
+      Quem detalha quem, numa consulta rasa sobre as etapas da empresa inteira.
+      É a mesma ligação que `trilhaAteARaiz` percorre um degrau por vez para um
+      fluxo só; aqui não dá para subir em laço — seriam N consultas para uma
+      lista — e nem é preciso: a tela monta a árvore com os pais imediatos que
+      esta leitura devolve.
+    */
+    db
+      .select({
+        subfluxoId: fluxoEtapaTable.subfluxoId,
+        fluxoId: fluxoEtapaTable.fluxoId,
+        etapaId: fluxoEtapaTable.id,
+        etapaNome: fluxoEtapaTable.nome,
+      })
+      .from(fluxoEtapaTable)
+      .where(
+        and(
+          eq(fluxoEtapaTable.empresaId, empresaId),
+          isNotNull(fluxoEtapaTable.subfluxoId),
+        ),
+      )
+      .orderBy(asc(fluxoEtapaTable.ordem), asc(fluxoEtapaTable.criadoEm)),
   ]);
 
   const etapas = new Map(etapasPorFluxo.map((l) => [l.fluxoId, l.total]));
   const conexoes = new Map(conexoesPorFluxo.map((l) => [l.fluxoId, l.total]));
 
+  /*
+    Um fluxo detalha uma etapa, e não duas: o banco não impede que a mesma
+    referência seja gravada em duas etapas, e se isso acontecer vale a primeira
+    na ordem de leitura — a mesma escolha (e a mesma ordenação) de
+    `trilhaAteARaiz`, para que a lista e a trilha nunca discordem sobre quem é
+    o pai.
+  */
+  const pais = new Map<string, PaiNaLista>();
+  for (const vinculo of vinculos) {
+    if (!vinculo.subfluxoId || pais.has(vinculo.subfluxoId)) continue;
+    pais.set(vinculo.subfluxoId, {
+      fluxoId: vinculo.fluxoId,
+      etapaId: vinculo.etapaId,
+      etapaNome: vinculo.etapaNome,
+    });
+  }
+
   return linhas.map((linha) => ({
     ...comoFluxo(linha),
     etapas: etapas.get(linha.id) ?? 0,
     conexoes: conexoes.get(linha.id) ?? 0,
+    pai: pais.get(linha.id) ?? null,
   }));
 }
 
