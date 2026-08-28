@@ -55,7 +55,10 @@ export function SemAcesso({ modulo }: { modulo: Modulo }) {
         </p>
         <p className="text-sm text-muted-foreground mt-3">
           Quem muda isso abre{" "}
-          <Link href="~/configuracoes" className="text-primary hover:underline">
+          <Link
+            href="~/configuracoes/usuarios"
+            className="text-primary hover:underline"
+          >
             Configurações › Usuários › Permissões
           </Link>
           , escolhe a sua conta e devolve o módulo. A mudança fica registrada com
