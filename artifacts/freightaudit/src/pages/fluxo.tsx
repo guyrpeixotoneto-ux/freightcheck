@@ -454,6 +454,20 @@ export default function TelaDoFluxo() {
       criarElemento.mutate({ tipo, posicao }),
     [criarElemento],
   );
+  /*
+    Detalhar é pedido de três lugares — o ícone do cartão da Jornada, o do nó do
+    Fluxo e o botão do painel —, e os três passam por aqui: uma mutação só, um
+    erro só no cabeçalho, uma navegação só para o detalhe recém-nascido.
+  */
+  const aoDetalharEtapa = useCallback(
+    (etapaId: string) => detalhar.mutate(etapaId),
+    [detalhar],
+  );
+  /*
+    Qual etapa está sendo detalhada agora — para o cartão que foi clicado girar
+    o seu próprio ícone, e não todos eles.
+  */
+  const detalhandoAgora = detalhar.isPending ? (detalhar.variables ?? null) : null;
   const aoAbrirConexao = useCallback(
     (conexaoId: string) => {
       const conexao = completo?.conexoes.find((c) => c.id === conexaoId) ?? null;
@@ -805,7 +819,9 @@ export default function TelaDoFluxo() {
             conectar.isError ||
             excluirEtapa.isError ||
             organizar.isError ||
-            criarElemento.isError) && (
+            criarElemento.isError ||
+            detalhar.isError ||
+            desligarSubfluxo.isError) && (
             <Alert variant="destructive" className="mt-2">
               <AlertDescription>
                 {fraseDoErro(
@@ -813,7 +829,9 @@ export default function TelaDoFluxo() {
                     conectar.error ??
                     excluirEtapa.error ??
                     organizar.error ??
-                    criarElemento.error,
+                    criarElemento.error ??
+                    detalhar.error ??
+                    desligarSubfluxo.error,
                 )}
               </AlertDescription>
             </Alert>
@@ -882,6 +900,8 @@ export default function TelaDoFluxo() {
                 onConectar={aoConectar}
                 onAbrirConexao={aoAbrirConexao}
                 onSoltarElemento={aoSoltarElemento}
+                onDetalharEtapa={aoDetalharEtapa}
+                detalhando={detalhandoAgora}
               />
             )}
             {(mover.isPending || criarElemento.isPending) && (
@@ -911,6 +931,10 @@ export default function TelaDoFluxo() {
               }}
               onExcluir={() => excluirEtapa.mutate(etapaSelecionada.id)}
               onFechar={() => setSelecionada(null)}
+              subfluxo={subfluxoDaEtapa(completo, etapaSelecionada)}
+              onDetalhar={() => aoDetalharEtapa(etapaSelecionada.id)}
+              onDesligarSubfluxo={() => desligarSubfluxo.mutate(etapaSelecionada.id)}
+              detalhando={detalhandoAgora === etapaSelecionada.id}
             />
           )}
         </div>

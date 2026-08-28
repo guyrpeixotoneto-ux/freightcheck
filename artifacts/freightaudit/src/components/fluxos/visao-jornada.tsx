@@ -116,10 +116,10 @@ export function VisaoJornada({
           const cartao = cartaoDaJornada(linha, lente);
           const detalhe = subfluxoDaEtapa(completo, linha.etapa);
           /*
-            A marca ocupa o canto de baixo do cartão; quando ela existe, o
-            cartão reserva a faixa. Sem a reserva, a última linha da lente
-            passaria por baixo dela — e a lente que mais tem texto é justamente
-            a que mais precisa da linha inteira.
+            A marca ocupa o canto de cima à direita; quando ela existe, a
+            primeira linha do cartão reserva o espaço dela. Sem a reserva, o
+            selo do tipo passaria por baixo do ícone — e num cartão de 236px é
+            o "Documento" ou o "Validação" que encosta primeiro.
           */
           const comMarca = detalhe !== null || (!somenteLeitura && Boolean(onDetalharEtapa));
           return (
@@ -143,7 +143,6 @@ export function VisaoJornada({
                   aria-pressed={aberta}
                   className={cn(
                     "h-full w-full rounded-lg border bg-card px-4 py-3 text-left shadow-sm transition-shadow hover:shadow-md",
-                    comMarca && "pb-8",
                     /*
                       O cartão sem nada nesta lente esmaece, mas continua clicável
                       e continua na sequência: esconder etapa quebraria a jornada,
@@ -154,7 +153,7 @@ export function VisaoJornada({
                   )}
                   data-testid={`jornada-${linha.etapa.nome}`}
                 >
-                  <div className="flex items-center gap-2">
+                  <div className={cn("flex flex-wrap items-center gap-2", comMarca && "pr-7")}>
                     <span className="text-xs font-semibold tabular-nums text-muted-foreground">
                       {String(linha.numero).padStart(2, "0")}
                     </span>
@@ -201,11 +200,11 @@ export function VisaoJornada({
               </button>
 
               {/*
-                No canto de baixo à direita, e não junto do número: ali ela
-                divide a linha com o tipo e o "Atenção", e um terceiro selo
-                naquela fileira faria o cartão parecer três etiquetas com um
-                título embaixo. Embaixo, ela fica onde a leitura termina — que é
-                onde a pergunta "e o que acontece dentro disto?" aparece.
+                No canto de cima à direita: é o canto que quem lê um cartão
+                procura quando quer agir sobre ele, e é onde o ícone fica na
+                mesma posição em todos os cartões da jornada — uma coluna de
+                ícones alinhada, e não uma marca flutuando na altura em que o
+                texto de cada cartão terminou.
               */}
               <MarcaDeSubfluxo
                 subfluxo={detalhe}
@@ -213,7 +212,7 @@ export function VisaoJornada({
                 podeDetalhar={!somenteLeitura && Boolean(onDetalharEtapa)}
                 criando={detalhando === linha.etapa.id}
                 aoDetalhar={() => onDetalharEtapa?.(linha.etapa.id)}
-                className="absolute bottom-2 right-2"
+                className="absolute right-2 top-2"
               />
               </div>
 

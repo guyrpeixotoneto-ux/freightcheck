@@ -6,6 +6,9 @@ import type { ResumoDeSubfluxo } from "@/lib/fluxos";
 /**
  * A MARCA DE SUBFLUXO — o canto do cartão que diz "isto tem um processo dentro".
  *
+ * No cartão da Jornada ela mora no canto de cima à direita, onde quem lê um
+ * cartão procura o que fazer com ele.
+ *
  * Uma etapa como "Emissão do documento (no Unidox)" é um passo aqui e oito
  * passos lá dentro. Este controle é o único lugar da tela onde esses dois
  * fatos se encontram, e por isso ele tem exatamente dois estados:
@@ -89,7 +92,13 @@ export function MarcaDeSubfluxo({
       title={`Detalhar "${nomeDaEtapa}" num fluxo próprio`}
       aria-label={`Detalhar a etapa "${nomeDaEtapa}" num fluxo próprio`}
       className={cn(
-        "inline-flex items-center rounded-md border border-transparent px-1.5 py-0.5 text-muted-foreground/60 transition-colors hover:border-border hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60",
+        /*
+          Discreto, mas visível parado: com borda transparente até o cursor
+          chegar, o convite só existia para quem já sabia que ele estava ali —
+          e quem lê a jornada pela primeira vez é justamente quem percebe que
+          uma etapa é um processo inteiro por dentro.
+        */
+        "inline-flex items-center rounded-md border border-border/70 bg-card px-1.5 py-0.5 text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/10 hover:text-primary disabled:cursor-not-allowed disabled:opacity-60",
         className,
       )}
     >
