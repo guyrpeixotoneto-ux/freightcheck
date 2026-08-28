@@ -42,6 +42,12 @@ import {
   BotaoDeExportar,
   SubmenuDeExportar,
 } from "@/components/fluxos/botao-de-exportar";
+import {
+  BotaoDeImportarModelo,
+  DialogoDaImportacao,
+  ItemDeImportarModelo,
+  useImportadorDoModelo,
+} from "@/components/fluxos/importador-do-modelo";
 import { EditorDoFluxo } from "@/components/fluxos/editor-do-fluxo";
 import { MontadorPorTexto } from "@/components/fluxos/montador-por-texto";
 import { PaletaDeElementos } from "@/components/fluxos/paleta-de-elementos";
@@ -188,6 +194,17 @@ export default function TelaDoFluxo() {
   const [paletaAberta, setPaletaAberta] = useState(true);
 
   const completo = consulta.data;
+
+  /*
+    A importação do modelo é um estado da **tela**, e não do botão: os dois
+    gatilhos (barra larga e "Mais ações") e o diálogo, lá embaixo, leem daqui.
+  */
+  const importador = useImportadorDoModelo({
+    completo,
+    catalogo: catalogo.data,
+    empresaId,
+    aoConcluir: () => recarregar(fluxoId),
+  });
 
   /**
    * O VOLTAR SEGUE A TRILHA — sai por onde se entrou.
@@ -686,7 +703,7 @@ export default function TelaDoFluxo() {
               clica em "Nova etapa" não precisa procurá-la de novo depois de
               trocar de ângulo.
 
-              A ordem é uma só, mas a forma muda com a largura. Cinco controles
+              A ordem é uma só, mas a forma muda com a largura. Os controles
               lado a lado cabem no computador; no telefone eles quebravam em duas
               fileiras irregulares logo abaixo do título — "Só leitura", "Editar
               fluxo" e "Colar etapas" numa, "Exportar" e "Nova etapa" noutra —, e
@@ -721,6 +738,10 @@ export default function TelaDoFluxo() {
                   catalogo={catalogo.data}
                   empresa={nomeDaEmpresa}
                 />
+              )}
+
+              {completo && (
+                <BotaoDeImportarModelo importador={importador} desabilitado={somenteLeitura} />
               )}
 
               <Button
@@ -774,6 +795,7 @@ export default function TelaDoFluxo() {
                         catalogo={catalogo.data}
                         empresa={nomeDaEmpresa}
                       />
+                      <ItemDeImportarModelo importador={importador} desabilitado={somenteLeitura} />
                     </>
                   )}
                 </DropdownMenuContent>
@@ -1110,6 +1132,14 @@ export default function TelaDoFluxo() {
           }}
         />
       )}
+
+      {/*
+        A importação do modelo fica aqui, com os outros diálogos da tela, e não
+        dentro do botão que a abre: o botão vive num contêiner que some por
+        largura, e um diálogo aberto não pode depender do tamanho da janela para
+        continuar na tela. Ver `importador-do-modelo.tsx`.
+      */}
+      <DialogoDaImportacao importador={importador} />
 
       {editandoFluxo && completo && catalogo.data && (
         <EditorDoFluxo

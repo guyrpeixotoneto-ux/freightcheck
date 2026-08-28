@@ -692,7 +692,7 @@ function desenharLegenda(itens: ItemDaLegenda[], x: number, y: number): string {
  */
 export function nomeDoArquivo(
   fluxo: { nome: string; slug: string },
-  extensao: "png" | "pdf" | "svg",
+  extensao: "png" | "pdf" | "svg" | "xlsx",
   emIso: string,
 ): string {
   const base =
