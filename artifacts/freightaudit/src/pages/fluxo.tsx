@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useRoute } from "wouter";
+import { Link, useLocation, useRoute } from "wouter";
 import { useMutation } from "@tanstack/react-query";
 import {
   ArrowLeft,
+  ChevronRight,
   LayoutGrid,
   ListPlus,
   Loader2,
@@ -73,6 +74,7 @@ import {
   lerFluxoAgora,
   fraseDoErro,
   resumoDoFluxo,
+  subfluxoDaEtapa,
   useCatalogoDeFluxos,
   useFluxo,
   useEmpresas,
@@ -127,6 +129,7 @@ import {
  */
 export default function TelaDoFluxo() {
   const [, params] = useRoute("/fluxos/:id");
+  const [, navegar] = useLocation();
   const fluxoId = params?.id ?? "";
 
   const { empresaId } = useEmpresaDosFluxos();
@@ -388,6 +391,30 @@ export default function TelaDoFluxo() {
       }
       return gravada;
     },
+    onSuccess: () => recarregar(fluxoId),
+  });
+
+  /**
+   * DETALHAR — o fluxo do detalhe nasce, já ligado, e a tela vai para ele.
+   *
+   * A navegação é parte do pedido, e não uma cortesia: quem clicou em "detalhar"
+   * quer escrever os passos de dentro agora. Ficar no fluxo pai obrigaria a
+   * procurar o detalhe recém-criado na listagem geral para poder começar.
+   *
+   * O fluxo pai é recarregado antes da ida porque a etapa mudou aqui também —
+   * ela passou a ter marca de subfluxo, e voltar (pelo navegador, pela trilha)
+   * tem de encontrar a tela certa.
+   */
+  const detalhar = useMutation({
+    mutationFn: (etapaId: string) => escritas.detalharEtapa(empresaId, fluxoId, etapaId),
+    onSuccess: (criado) => {
+      recarregar(fluxoId);
+      navegar(`/fluxos/${criado.id}`);
+    },
+  });
+
+  const desligarSubfluxo = useMutation({
+    mutationFn: (etapaId: string) => escritas.desligarSubfluxo(empresaId, fluxoId, etapaId),
     onSuccess: () => recarregar(fluxoId),
   });
 
