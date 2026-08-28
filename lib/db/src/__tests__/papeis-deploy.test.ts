@@ -253,6 +253,19 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
         "fluxo_etapa_item",
         "fluxo_etapa_indicador",
         "fluxo_etapa_acao",
+        /*
+          As duas da permissão por módulo, da `0071` — o que cada pessoa alcança,
+          e quem decidiu isso. Aditivas pelo mesmo critério das acima: as duas
+          referenciam `app_user`, que já existe em Production, sem mudar a forma
+          dela; nenhuma coluna nova sai de tabela do cálculo; e Production as
+          ganha quando o servidor novo aplicar a fila na partida. Nenhuma linha
+          nasce com elas, então ninguém perde acesso no deploy.
+
+          O que elas guardam é decisão humana sobre o acesso de alguém, e é por
+          isso que o `down` do bridge exige encontrá-las vazias.
+        */
+        "permissao_de_modulo",
+        "permissao_de_modulo_evento",
       ]),
     );
     /*
@@ -386,6 +399,23 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
         "justificativa_pkey",
         "justificativa_change_set_id_fk",
         "justificativa_change_id_fk",
+        /*
+          As seis da permissão por módulo, da `0071`, nomeadas pela mesma razão
+          das da justificativa: as duas tabelas não pertencem a nenhuma das
+          famílias que o filtro acima dispensa, e nomeá-las é o que faz uma
+          constraint inesperada continuar aparecendo neste teste.
+
+          As duas `CHECK` de nível estão aqui de propósito: elas são o que
+          impede um INSERT vindo de fora da interface — um script, um psql — de
+          inventar um quarto nível de acesso que o portão do servidor não sabe
+          recusar.
+        */
+        "permissao_de_modulo_user_id_modulo_pk",
+        "permissao_de_modulo_user_id_fkey",
+        "permissao_de_modulo_nivel_check",
+        "permissao_de_modulo_evento_pkey",
+        "permissao_de_modulo_evento_user_id_fkey",
+        "permissao_de_modulo_evento_nivel_check",
       ]),
     );
 
