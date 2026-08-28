@@ -410,7 +410,7 @@ export function PainelDaEtapa({
         )}
 
         {etapa.observacoes && (
-          <Secao titulo="Observações">
+          <Secao titulo="Falhas, gargalos e informações">
             <Texto>{etapa.observacoes}</Texto>
           </Secao>
         )}
