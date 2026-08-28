@@ -7,29 +7,42 @@ import {
   ArrowUpRight,
   BarChart3,
   ChartNoAxesCombined,
+  ChevronLeft,
+  ChevronRight,
   Clock,
+  Lightbulb,
   MapPin,
   SlidersHorizontal,
 } from "lucide-react";
 import { opcoesDoIntervalo, opcoesDoIntervaloGeral } from "@/lib/intervalo-da-linha-do-tempo";
 import { cn } from "@/lib/utils";
-import { formatBrlCompacto, formatBrlShort, periodicityAdjective, periodicitySuffix } from "@/lib/format";
+import { formatBrlShort, periodicityAdjective, periodicitySuffix } from "@/lib/format";
 import { linkDeAlteracoes, type Recorte } from "@/lib/recorte";
-import type { Movimentos, ParameterRollup, RangeMovement, RangeOverview } from "@/lib/analise";
+import type {
+  Movimentos,
+  ParameterRollup,
+  RangeMovement,
+  RangeOverview,
+  RangeOverviewUnit,
+} from "@/lib/analise";
 import { DetalheDoIntervalo, type AberturaDoIntervalo } from "@/components/linha-do-tempo/detalhe-do-intervalo";
 
 const CARTAO = "bg-card border rounded-xl shadow-sm";
 
 /**
- * O impacto líquido de cada vigência do histórico, uma embaixo da outra.
+ * O impacto líquido de cada vigência do histórico, no tempo.
  *
  * O cartão de Impacto líquido só mostra a vigência aberta contra a anterior a
  * ela — o resto da história (quantas vigências tiveram alteração, quando o
  * impacto foi maior, se ele vem crescendo ou oscilando) fica sem resposta
  * nesta tela. Esta seção lê `/changes/range` do início ao fim do histórico do
  * contexto, e mostra o mesmo número oficial que o cartão de cima publica —
- * `movement.impact.byPeriodicity`, já sem dupla contagem — uma linha por
- * vigência, a mais antiga em cima.
+ * `movement.impact.byPeriodicity`, já sem dupla contagem.
+ *
+ * A tela sai daqui em quatro peças, na ordem em que a reunião pergunta: o
+ * placar do intervalo (`CartoesDeResumo`), a evolução vigência a vigência com
+ * o acumulado embaixo (`EvolucaoDasVigencias`), o que ainda falta valorar e
+ * onde o impacto está na coluna ao lado, e o parágrafo que resume tudo.
  */
 export function LinhaDoTempoDeImpacto({
   consulta,
@@ -116,100 +129,82 @@ export function LinhaDoTempoDeImpacto({
   const dados = movimentos.data;
   if (!dados || dados.movements.length === 0) return null;
 
-  // Mais antiga em cima — a mesma leitura que "Quando aconteceu" já usa em Parâmetros.
+  // A mais antiga primeiro — daqui em diante a linha do tempo corre da
+  // esquerda para a direita, e é esta ordem que a janela paginada recorta.
   const linhas = [...dados.movements].reverse();
   const periodicidades = [
     ...new Set(linhas.flatMap((m) => Object.keys(m.impact.byPeriodicity))),
   ].sort();
-  const periodicidadeSelecionada = periodicidadeDaAba ?? periodicidades[0];
 
   /*
-    A periodicidade que o cabeçalho conta — a de maior movimento absoluto no
-    intervalo inteiro. As outras periodicidades continuam com sua própria
-    linha do tempo mais abaixo; o que muda aqui é só qual delas os quatro
-    cartões do topo e o parágrafo final escolhem para contar a história —
-    nunca uma soma entre elas.
+    A periodicidade que a tela conta — a de maior movimento absoluto no
+    intervalo inteiro, até o leitor escolher outra no seletor da linha do tempo.
+
+    Uma só, e a mesma para tudo: os cartões do topo, a linha do tempo, o
+    acumulado e o parágrafo final falam sempre da periodicidade selecionada.
+    Antes o seletor movia só a linha do tempo enquanto os cartões seguiam na
+    principal — duas periodicidades na mesma tela, sem a tela dizer qual era
+    qual. Somá-las nunca foi opção: MENSAL e ANUAL contam a mesma vigência de
+    formas diferentes, e somar as duas conta o mesmo mês duas vezes.
   */
   const principal = [...periodicidades].sort(
     (a, b) => Math.abs(dados.impact.byPeriodicity[b] ?? 0) - Math.abs(dados.impact.byPeriodicity[a] ?? 0),
   )[0] as string | undefined;
+  const periodicidadeSelecionada = periodicidadeDaAba ?? principal ?? periodicidades[0];
+
+  const ranking = rankingDeUnidades(overview.data ?? null, periodicidadeSelecionada ?? null);
+  const temLateral = ranking.length > 0 || dados.impact.notCalculable > 0;
 
   return (
     <>
-      <section className={cn(CARTAO, "p-5")}>
-        <div className="flex items-center gap-2.5 mb-4">
-          <span className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 bg-accent">
-            <ChartNoAxesCombined className="w-[1.125rem] h-[1.125rem] text-brand" strokeWidth={2.25} />
-          </span>
-          <div className="min-w-0">
-            <h2 className="text-[0.8125rem] font-bold leading-tight">
-              Impacto líquido ao longo do tempo
-            </h2>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              {dados.fromLabel} → {dados.toLabel} · mais antiga em cima
-            </p>
-          </div>
-        </div>
+      {periodicidadeSelecionada !== undefined && (
+        <CartoesDeResumo
+          dados={dados}
+          periodicidade={periodicidadeSelecionada}
+          onAbrir={() => setAbertura({ tipo: "consolidado", periodicidade: periodicidadeSelecionada })}
+        />
+      )}
 
-        {dados.gaps.length > 0 && (
-          <p className="text-xs text-muted-foreground mb-3">
-            {dados.gaps.length} {dados.gaps.length === 1 ? "vigência" : "vigências"} do
-            histórico sem comparação calculada — não aparecem abaixo, e não estão
-            contadas como zero.
-          </p>
+      {/*
+        A coluna lateral só reserva largura quando tem o que dizer: sem
+        pendências e sem ranking entre unidades, ela viraria 21rem de vazio ao
+        lado de uma linha do tempo espremida.
+      */}
+      <div
+        className={cn(
+          "grid gap-5 xl:items-start",
+          temLateral && "xl:grid-cols-[minmax(0,1fr)_21rem]",
         )}
-
-        {principal !== undefined && (
-          <CartoesDeResumo
-            dados={dados}
-            periodicidade={principal}
-            onAbrir={() => setAbertura({ tipo: "consolidado", periodicidade: principal })}
-          />
-        )}
-
-        <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_20rem]">
-          <div>
-            {periodicidades.length === 0 ? (
+      >
+        <section className={cn(CARTAO, "p-5")}>
+          {periodicidades.length === 0 ? (
+            <>
+              <CabecalhoDaEvolucao dados={dados} />
               <ContagemPorVigencia linhas={linhas} recorteBase={recorteBase} />
-            ) : (
-              <div className="space-y-3">
-                {periodicidades.length > 1 && (
-                  <div className="inline-flex rounded-lg border p-0.5 text-xs font-semibold">
-                    {periodicidades.map((periodicidade) => (
-                      <button
-                        key={periodicidade}
-                        type="button"
-                        onClick={() => setPeriodicidadeDaAba(periodicidade)}
-                        aria-pressed={periodicidade === periodicidadeSelecionada}
-                        className={cn(
-                          "rounded-md px-3 py-1 transition-colors",
-                          periodicidade === periodicidadeSelecionada
-                            ? "bg-accent text-foreground"
-                            : "text-muted-foreground hover:text-foreground",
-                        )}
-                      >
-                        R${periodicitySuffix(periodicidade)}
-                      </button>
-                    ))}
-                  </div>
-                )}
-                <LinhaDoTempoDaPeriodicidade
-                  periodicidade={periodicidadeSelecionada}
-                  linhas={linhas}
-                  recorteBase={recorteBase}
-                />
-              </div>
-            )}
-          </div>
+            </>
+          ) : (
+            <EvolucaoDasVigencias
+              dados={dados}
+              linhas={linhas}
+              periodicidades={periodicidades}
+              periodicidade={periodicidadeSelecionada as string}
+              onPeriodicidade={setPeriodicidadeDaAba}
+              recorteBase={recorteBase}
+            />
+          )}
+        </section>
 
+        {temLateral && (
           <div className="space-y-4">
-            <OndeEstaOImpacto overview={overview.data ?? null} periodicidade={principal ?? null} />
             <PendenciasDeValoracao dados={dados} recorteBase={recorteBase} />
+            <OndeEstaOImpacto ranking={ranking} />
           </div>
-        </div>
+        )}
+      </div>
 
-        {principal !== undefined && <Narrativa dados={dados} periodicidade={principal} linhas={linhas} />}
-      </section>
+      {periodicidadeSelecionada !== undefined && (
+        <Narrativa dados={dados} periodicidade={periodicidadeSelecionada} linhas={linhas} />
+      )}
 
       <AtributosDeMaiorImpacto
         byParameter={dados.byParameter}
@@ -229,7 +224,7 @@ export function LinhaDoTempoDeImpacto({
 }
 
 /**
- * Os quatro cartões do topo — o líquido, os dois lados que o formam e a
+ * Os quatro números do intervalo — o líquido, os dois lados que o formam e a
  * contagem de alterações —, todos sobre a **mesma** periodicidade.
  *
  * Separar "o que somou" e "o que subtraiu" em cartões próprios, e não só numa
@@ -237,6 +232,10 @@ export function LinhaDoTempoDeImpacto({
  * `DoisLados` resolve na Visão geral: um líquido negativo não distingue "quase
  * nada se moveu" de "dois movimentos grandes quase se cancelaram", e é
  * exatamente essa segunda leitura que a conversa com o cliente precisa.
+ *
+ * Ficam soltos no topo da tela, e não dentro do cartão da linha do tempo: são
+ * o placar do intervalo inteiro, não uma legenda do gráfico — e é como placar,
+ * na largura toda, que eles são lidos primeiro.
  */
 function CartoesDeResumo({
   dados,
@@ -252,7 +251,7 @@ function CartoesDeResumo({
   const perdas = dados.lossesByPeriodicity[periodicidade] ?? 0;
 
   return (
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 mb-5">
+    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
       <CartaoDeResumo
         icone={liquido < 0 ? ArrowDownRight : ArrowUpRight}
         tom={liquido < 0 ? "perda" : "ganho"}
@@ -277,16 +276,18 @@ function CartoesDeResumo({
         onClique={onAbrir}
         rotulo="Ver o que somou à remuneração"
       />
-      <div className="rounded-lg border p-4">
-        <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-muted-foreground">
-          <SlidersHorizontal className="w-3.5 h-3.5" />
-          Alterações
-        </div>
-        <div className="text-xl font-extrabold tabular-nums mt-1.5">
-          {dados.totals.changes.toLocaleString("pt-BR")}
-        </div>
-        <div className="text-xs text-muted-foreground mt-1">
-          em {contar(dados.totals.vehiclesTouched, "ativo", "ativos")}
+      <div className={cn(CARTAO, "flex items-center gap-3.5 p-5")}>
+        <span className="w-11 h-11 rounded-full flex items-center justify-center shrink-0 bg-accent">
+          <SlidersHorizontal className="w-5 h-5 text-brand" />
+        </span>
+        <div className="min-w-0">
+          <div className="text-sm text-muted-foreground">Alterações</div>
+          <div className="text-2xl font-extrabold tabular-nums leading-tight">
+            {dados.totals.changes.toLocaleString("pt-BR")}
+          </div>
+          <div className="text-xs text-muted-foreground">
+            em {contar(dados.totals.vehiclesTouched, "ativo", "ativos")}
+          </div>
         </div>
       </div>
     </div>
@@ -314,158 +315,592 @@ function CartaoDeResumo({
       onClick={onClique}
       aria-label={`${titulo}: ${rotulo}`}
       title={rotulo}
-      className="rounded-lg border p-4 text-left hover:bg-accent hover:border-brand/40 transition-colors"
+      className={cn(
+        CARTAO,
+        "flex items-center gap-3.5 p-5 text-left hover:border-brand/40 transition-colors",
+      )}
     >
-      <div
+      <span
         className={cn(
-          "w-8 h-8 rounded-lg flex items-center justify-center",
+          "w-11 h-11 rounded-full flex items-center justify-center shrink-0",
           tom === "perda" ? "bg-red-50" : "bg-emerald-50",
         )}
       >
-        <Icone className={cn("w-4 h-4", tom === "perda" ? "text-red-600" : "text-emerald-600")} />
-      </div>
-      <div className="text-xs uppercase tracking-wider text-muted-foreground mt-2.5">{titulo}</div>
-      <div
-        className={cn(
-          "text-xl font-extrabold tabular-nums mt-1",
-          tom === "perda" ? "text-red-700" : "text-emerald-700",
-        )}
-      >
-        {valor}
+        <Icone className={cn("w-5 h-5", tom === "perda" ? "text-red-600" : "text-emerald-600")} />
+      </span>
+      <div className="min-w-0">
+        <div className="text-sm text-muted-foreground">{titulo}</div>
+        <div
+          className={cn(
+            "text-2xl font-extrabold tabular-nums leading-tight",
+            tom === "perda" ? "text-red-700" : "text-emerald-700",
+          )}
+        >
+          {valor}
+        </div>
       </div>
     </button>
   );
 }
 
+/** O cabeçalho da seção — o mesmo com ou sem impacto apurado no intervalo. */
+function CabecalhoDaEvolucao({ dados, children }: { dados: Movimentos; children?: React.ReactNode }) {
+  return (
+    <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+      <div className="flex items-center gap-2.5 min-w-0">
+        <span className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 bg-accent">
+          <ChartNoAxesCombined className="w-[1.125rem] h-[1.125rem] text-brand" strokeWidth={2.25} />
+        </span>
+        <div className="min-w-0">
+          <h2 className="text-base font-bold leading-tight">Evolução das vigências</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            {dados.fromLabel} → {dados.toLabel} · da mais antiga para a mais recente
+          </p>
+        </div>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+/** Quantas vigências cabem numa janela da linha do tempo. */
+const VIGENCIAS_POR_JANELA = 5;
+
 /**
- * A linha do tempo do impacto — uma vigência por linha, a mais antiga em
- * cima, com o eixo de escala visível e o mês crítico nomeado.
+ * A evolução do intervalo — a linha do tempo na horizontal, e o acumulado
+ * logo abaixo dela.
  *
- * O eixo (`ticks`) usa o mesmo teto que dimensiona as barras — não um valor
- * redondo escolhido à parte —, para a régua e as barras nunca discordarem
- * sobre o que "a ponta do gráfico" significa.
+ * Horizontal porque é assim que o tempo se lê: a vigência mais antiga à
+ * esquerda, a mais recente à direita, e o mês crítico nomeado onde ele
+ * acontece. A versão anterior empilhava uma vigência por linha com uma barra
+ * divergente — dizia o tamanho de cada mês, mas não a **forma** do período, e
+ * era a forma que a reunião perguntava.
+ *
+ * Uma janela de {@link VIGENCIAS_POR_JANELA} vigências por vez, e não o
+ * histórico inteiro espremido: cinco colunas ainda cabem com o número, a
+ * contagem e o selo legíveis; doze viram tarja. O paginador começa na janela
+ * mais recente — a pergunta usual é "e agora?", não "e no começo?".
  */
-function LinhaDoTempoDaPeriodicidade({
-  periodicidade,
+function EvolucaoDasVigencias({
+  dados,
   linhas,
+  periodicidades,
+  periodicidade,
+  onPeriodicidade,
   recorteBase,
 }: {
-  periodicidade: string;
+  dados: Movimentos;
   linhas: RangeMovement[];
+  periodicidades: string[];
+  periodicidade: string;
+  onPeriodicidade: (periodicidade: string) => void;
   recorteBase: Recorte;
 }) {
-  const teto = Math.max(
-    ...linhas.map((l) => Math.abs(l.impact.byPeriodicity[periodicidade] ?? 0)),
-    1,
-  );
+  const janelas = Math.max(1, Math.ceil(linhas.length / VIGENCIAS_POR_JANELA));
+  const [janelaPedida, setJanela] = useState(janelas - 1);
+  // Trocar de unidade encurta o histórico sem desmontar o componente: a janela
+  // guardada pode não existir mais, e é aqui que ela volta para dentro do fim.
+  const janela = Math.min(Math.max(janelaPedida, 0), janelas - 1);
+  const inicio = janela * VIGENCIAS_POR_JANELA;
+  const visiveis = linhas.slice(inicio, inicio + VIGENCIAS_POR_JANELA);
+
+  // O mês crítico é o do intervalo inteiro, não o da janela: o selo tem de
+  // seguir apontando o mesmo mês que os cartões e o parágrafo contam.
   const comValor = linhas.filter((l) => l.impact.byPeriodicity[periodicidade] !== undefined);
-  const maior = comValor.reduce(
+  const critico = comValor.reduce<RangeMovement | undefined>(
     (a, b) =>
+      a === undefined ||
       Math.abs(b.impact.byPeriodicity[periodicidade] ?? 0) >
-      Math.abs(a.impact.byPeriodicity[periodicidade] ?? 0)
+        Math.abs(a.impact.byPeriodicity[periodicidade] ?? 0)
         ? b
         : a,
-    comValor[0],
+    undefined,
   );
-  const ticks = [-teto, -teto / 2, 0, teto / 2, teto];
 
   return (
-    <div>
-      <div className="text-xs uppercase tracking-wider text-muted-foreground mb-2">
-        Impacto financeiro (R${periodicitySuffix(periodicidade)})
-      </div>
-      <div className="grid grid-cols-[7rem_1fr_9rem_7rem] gap-3 text-[0.6875rem] text-muted-foreground mb-1.5 px-1">
-        <span />
-        <div className="flex justify-between">
-          {ticks.map((t, i) => (
-            <span key={i}>{t === 0 ? "0" : formatBrlCompacto(t)}</span>
+    <>
+      <CabecalhoDaEvolucao dados={dados}>
+        {janelas > 1 && (
+          <div className="flex items-center gap-2 shrink-0">
+            <BotaoDeJanela
+              rotulo="Vigências anteriores"
+              desabilitado={janela === 0}
+              onClique={() => setJanela(janela - 1)}
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </BotaoDeJanela>
+            <span className="rounded-lg border px-3.5 py-2 text-sm font-semibold tabular-nums">
+              {rotuloDaJanela(visiveis)}
+            </span>
+            <BotaoDeJanela
+              rotulo="Vigências seguintes"
+              desabilitado={janela === janelas - 1}
+              onClique={() => setJanela(janela + 1)}
+            >
+              <ChevronRight className="w-4 h-4" />
+            </BotaoDeJanela>
+          </div>
+        )}
+      </CabecalhoDaEvolucao>
+
+      {periodicidades.length > 1 && (
+        <div className="inline-flex rounded-lg border p-0.5 text-xs font-bold mb-4">
+          {periodicidades.map((opcao) => (
+            <button
+              key={opcao}
+              type="button"
+              onClick={() => onPeriodicidade(opcao)}
+              aria-pressed={opcao === periodicidade}
+              className={cn(
+                "rounded-md px-3 py-1.5 transition-colors",
+                opcao === periodicidade
+                  ? "bg-brand text-brand-foreground"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              R${periodicitySuffix(opcao)}
+            </button>
           ))}
         </div>
-        <span />
-        <span />
-      </div>
-      <div className="space-y-2">
-        {linhas.map((linha) => {
-          const valor = linha.impact.byPeriodicity[periodicidade];
-          const largura = valor === undefined ? 0 : (Math.abs(valor) / teto) * 100;
-          const critico = maior && linha.period === maior.period && largura > 0;
-          const semValoracao = valor === undefined && linha.changes > 0;
-          const parcial =
-            valor !== undefined && linha.impact.notCalculable > 0 && linha.impact.notCalculable < linha.changes;
+      )}
 
-          return (
-            <Link
-              key={linha.period}
-              href={linkDeAlteracoes({
-                recorte: { ...recorteBase, period: linha.period },
-              })}
-              aria-label={`Ver as alterações de ${linha.label}`}
-              title="Ver as alterações desta vigência"
-              className="grid grid-cols-[7rem_1fr_9rem_7rem] items-center gap-3 text-sm rounded px-1 py-1 -mx-1 hover:bg-accent transition-colors"
-            >
-              <span className="min-w-0">
-                <span className={cn("block truncate", critico ? "font-bold" : "text-muted-foreground")}>
-                  {linha.label}
+      {dados.gaps.length > 0 && (
+        <p className="text-xs text-muted-foreground mb-3">
+          {dados.gaps.length} {dados.gaps.length === 1 ? "vigência" : "vigências"} do histórico
+          sem comparação calculada — não aparecem abaixo, e não estão contadas como zero.
+        </p>
+      )}
+
+      <LinhaDoTempoHorizontal
+        visiveis={visiveis}
+        periodicidade={periodicidade}
+        critico={critico?.period ?? null}
+        recorteBase={recorteBase}
+      />
+
+      <ImpactoAcumulado visiveis={visiveis} periodicidade={periodicidade} />
+    </>
+  );
+}
+
+function BotaoDeJanela({
+  rotulo,
+  desabilitado,
+  onClique,
+  children,
+}: {
+  rotulo: string;
+  desabilitado: boolean;
+  onClique: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClique}
+      disabled={desabilitado}
+      aria-label={rotulo}
+      title={rotulo}
+      className="rounded-lg border p-2 text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40 disabled:hover:bg-transparent transition-colors"
+    >
+      {children}
+    </button>
+  );
+}
+
+/**
+ * A janela desenhada: data, marco, cartão e selo, uma coluna por vigência.
+ *
+ * As quatro faixas são grades independentes com o mesmo número de colunas, e
+ * não uma grade só de quatro linhas: assim o eixo horizontal pode ser um
+ * elemento absoluto dentro da sua própria faixa, atravessando os marcos, sem
+ * que nada precise adivinhar a altura das faixas de cima.
+ */
+function LinhaDoTempoHorizontal({
+  visiveis,
+  periodicidade,
+  critico,
+  recorteBase,
+}: {
+  visiveis: RangeMovement[];
+  periodicidade: string;
+  critico: string | null;
+  recorteBase: Recorte;
+}) {
+  const grade = { gridTemplateColumns: `repeat(${visiveis.length}, minmax(0, 1fr))` };
+
+  return (
+    <div className="overflow-x-auto">
+      <div className="min-w-[34rem]">
+        <div className="grid gap-3" style={grade}>
+          {visiveis.map((linha) => (
+            <div key={linha.period} className="flex justify-center h-5">
+              {linha.period === critico && (
+                <span className="rounded-full bg-red-50 px-2 py-0.5 text-[0.625rem] font-bold uppercase tracking-wide text-red-700">
+                  Mês crítico
                 </span>
-                {critico && (
-                  <span className="mt-0.5 inline-block rounded-full bg-red-50 px-1.5 py-0.5 text-[0.625rem] font-bold uppercase tracking-wide text-red-700">
-                    Mês crítico
-                  </span>
-                )}
-                {!critico && parcial && (
-                  <span className="mt-0.5 block text-[0.625rem] text-muted-foreground">
-                    parcialmente valorado
-                  </span>
-                )}
-              </span>
+              )}
+            </div>
+          ))}
+        </div>
 
-              {/* O zero fica no meio; perda cresce para a esquerda. */}
-              <div className="flex items-center h-4 relative">
-                <span className="absolute left-1/2 top-0 bottom-0 w-px bg-border" />
-                <div className="w-1/2 flex justify-end">
-                  {valor !== undefined && valor < 0 && (
-                    <span className="h-2.5 bg-red-600" style={{ width: `${largura}%` }} />
+        <div className="grid gap-3 mt-1.5" style={grade}>
+          {visiveis.map((linha) => (
+            <span
+              key={linha.period}
+              className={cn(
+                "text-center text-sm font-semibold tabular-nums truncate",
+                corDoTom(tomDaVigencia(linha, periodicidade, critico)),
+              )}
+              title={linha.label}
+            >
+              {linha.label}
+            </span>
+          ))}
+        </div>
+
+        <div className="relative grid gap-3 py-3" style={grade}>
+          <span className="absolute left-0 right-0 top-1/2 h-px -translate-y-1/2 bg-border" />
+          {visiveis.map((linha) => (
+            <span key={linha.period} className="relative flex justify-center">
+              <Marco tom={tomDaVigencia(linha, periodicidade, critico)} />
+            </span>
+          ))}
+        </div>
+
+        <div className="grid gap-3 items-stretch" style={grade}>
+          {visiveis.map((linha) => (
+            <CartaoDaVigencia
+              key={linha.period}
+              linha={linha}
+              periodicidade={periodicidade}
+              tom={tomDaVigencia(linha, periodicidade, critico)}
+              recorteBase={recorteBase}
+            />
+          ))}
+        </div>
+
+        <div className="grid gap-3 mt-2.5" style={grade}>
+          {visiveis.map((linha) => {
+            const tom = tomDaVigencia(linha, periodicidade, critico);
+            return (
+              <div key={linha.period} className="flex justify-center">
+                <span
+                  className={cn(
+                    "rounded-md px-2 py-1 text-[0.625rem] font-bold uppercase tracking-wide",
+                    tom === "perda" || tom === "critico"
+                      ? "bg-red-50 text-red-700"
+                      : tom === "ganho"
+                        ? "bg-emerald-50 text-emerald-700"
+                        : "bg-muted text-muted-foreground",
                   )}
-                </div>
-                <div className="w-1/2">
-                  {valor !== undefined && valor > 0 && (
-                    <span className="h-2.5 bg-emerald-600 block" style={{ width: `${largura}%` }} />
-                  )}
-                </div>
+                >
+                  {tom === "ganho" ? "Ganho" : tom === "neutro" ? "Sem valoração" : "Perda"}
+                </span>
               </div>
-
-              <span
-                className={cn(
-                  "text-right tabular-nums text-xs",
-                  valor === undefined
-                    ? "text-muted-foreground italic"
-                    : valor < 0
-                      ? "text-red-700"
-                      : "text-emerald-700",
-                )}
-              >
-                {valor === undefined
-                  ? semValoracao
-                    ? "sem valoração"
-                    : "sem alteração"
-                  : formatBrlShort(valor)}
-              </span>
-
-              <span className="text-right tabular-nums text-xs text-muted-foreground">
-                {linha.changes.toLocaleString("pt-BR")}{" "}
-                {linha.changes === 1 ? "alteração" : "alterações"}
-                {linha.impact.notCalculable > 0 && (
-                  <span className="block text-[0.625rem]">
-                    {linha.impact.notCalculable} sem valoração
-                  </span>
-                )}
-              </span>
-            </Link>
-          );
-        })}
+            );
+          })}
+        </div>
       </div>
     </div>
   );
+}
+
+/** O que a vigência foi na periodicidade aberta — é isto que pinta a coluna inteira. */
+type TomDaVigencia = "critico" | "perda" | "ganho" | "neutro";
+
+function tomDaVigencia(
+  linha: RangeMovement,
+  periodicidade: string,
+  critico: string | null,
+): TomDaVigencia {
+  const valor = linha.impact.byPeriodicity[periodicidade];
+  if (valor === undefined || valor === 0) return "neutro";
+  if (linha.period === critico) return "critico";
+  return valor < 0 ? "perda" : "ganho";
+}
+
+function corDoTom(tom: TomDaVigencia): string {
+  if (tom === "critico" || tom === "perda") return "text-red-700";
+  if (tom === "ganho") return "text-emerald-700";
+  return "text-foreground";
+}
+
+function Marco({ tom }: { tom: TomDaVigencia }) {
+  if (tom === "critico") {
+    return (
+      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-red-100">
+        <span className="h-3 w-3 rounded-full bg-red-600 ring-2 ring-card" />
+      </span>
+    );
+  }
+  return (
+    <span
+      className={cn(
+        "h-3.5 w-3.5 rounded-full ring-4 ring-card",
+        tom === "ganho" ? "bg-emerald-600" : tom === "perda" ? "bg-red-600" : "bg-slate-400",
+      )}
+    />
+  );
+}
+
+/** O cartão sob o marco — a contagem, o que falta valorar e o número da vigência. */
+function CartaoDaVigencia({
+  linha,
+  periodicidade,
+  tom,
+  recorteBase,
+}: {
+  linha: RangeMovement;
+  periodicidade: string;
+  tom: TomDaVigencia;
+  recorteBase: Recorte;
+}) {
+  const valor = linha.impact.byPeriodicity[periodicidade];
+  const semValoracao = valor === undefined && linha.changes > 0;
+
+  return (
+    <Link
+      href={linkDeAlteracoes({ recorte: { ...recorteBase, period: linha.period } })}
+      aria-label={`Ver as alterações de ${linha.label}`}
+      title="Ver as alterações desta vigência"
+      className={cn(
+        "block h-full rounded-lg border p-3 text-center transition-colors hover:border-brand/40 hover:bg-accent",
+        tom === "critico" && "border-red-200 bg-red-50/50",
+        tom === "ganho" && "border-emerald-200 bg-emerald-50/50",
+      )}
+    >
+      <div className={cn("text-xs font-bold tabular-nums", tom === "critico" && "text-red-700")}>
+        {contar(linha.changes, "alteração", "alterações")}
+      </div>
+      {linha.impact.notCalculable > 0 && (
+        <div className="text-[0.6875rem] text-muted-foreground mt-0.5 tabular-nums">
+          {linha.impact.notCalculable.toLocaleString("pt-BR")} sem valoração
+        </div>
+      )}
+      {/*
+        Vigência sem número apurado não ganha linha de valor: o selo embaixo do
+        cartão já diz "sem valoração", e repeti-lo aqui gastava a linha do
+        número dizendo duas vezes a mesma coisa. Sem alteração nenhuma é outro
+        caso — esse não tem selo que o conte, e continua escrito.
+      */}
+      {valor !== undefined ? (
+        <div
+          className={cn(
+            "mt-1.5 text-sm font-extrabold tabular-nums",
+            valor < 0 ? "text-red-700" : "text-emerald-700",
+          )}
+        >
+          {formatBrlShort(valor)}
+        </div>
+      ) : (
+        !semValoracao && (
+          <div className="mt-1.5 text-xs font-semibold italic text-muted-foreground">
+            sem alteração
+          </div>
+        )
+      )}
+    </Link>
+  );
+}
+
+/**
+ * O acumulado da janela — para onde o período caminhou, não só quanto cada
+ * vigência pesou.
+ *
+ * Soma as vigências visíveis na ordem em que aconteceram: a linha do tempo
+ * acima responde "quanto neste mês", e esta responde "e no fim das contas".
+ * Cada trecho é vermelho quando o acumulado desceu e verde quando subiu — a
+ * recuperação de um mês ruim aparece como subida, e não como mais uma barra.
+ *
+ * Vigência sem valoração entra como degrau zero, nunca como queda: ela não é
+ * um impacto de R$ 0, é um impacto que ninguém apurou ainda — e é o cartão de
+ * pendências, ao lado, que responde por ela.
+ */
+function ImpactoAcumulado({
+  visiveis,
+  periodicidade,
+}: {
+  visiveis: RangeMovement[];
+  periodicidade: string;
+}) {
+  if (visiveis.length < 2) return null;
+
+  let soma = 0;
+  const pontos = visiveis.map((linha) => {
+    soma += linha.impact.byPeriodicity[periodicidade] ?? 0;
+    return { linha, acumulado: soma };
+  });
+
+  const teto = Math.max(0, ...pontos.map((p) => p.acumulado));
+  const piso = Math.min(0, ...pontos.map((p) => p.acumulado));
+  const amplitude = teto - piso || 1;
+
+  const L = 900;
+  const A = 210;
+  const MARGEM_X = 46;
+  const TOPO_UTIL = 26;
+  const BASE_UTIL = 34;
+
+  const x = (i: number) => MARGEM_X + ((i + 0.5) * (L - 2 * MARGEM_X)) / pontos.length;
+  const y = (valor: number) =>
+    TOPO_UTIL + ((teto - valor) / amplitude) * (A - TOPO_UTIL - BASE_UTIL);
+
+  const minimo = pontos.reduce((a, b) => (b.acumulado < a.acumulado ? b : a), pontos[0]);
+  const ultimo = pontos[pontos.length - 1];
+  const rotulados = new Set([minimo, ultimo]);
+
+  return (
+    <div className="mt-5 rounded-lg border p-4">
+      <div className="text-xs font-bold text-muted-foreground mb-1">
+        Impacto líquido acumulado (R${periodicitySuffix(periodicidade)})
+      </div>
+      <svg
+        viewBox={`0 0 ${L} ${A}`}
+        className="w-full h-auto"
+        role="img"
+        aria-label={`Impacto líquido acumulado de ${pontos[0].linha.label} a ${ultimo.linha.label}: ${formatBrlShort(ultimo.acumulado)}`}
+      >
+        {/* O zero, para a linha ter contra o que subir e descer. */}
+        <line
+          x1={MARGEM_X / 2}
+          x2={L - MARGEM_X / 2}
+          y1={y(0)}
+          y2={y(0)}
+          stroke="currentColor"
+          strokeDasharray="4 4"
+          className="text-border"
+        />
+        <text
+          x={MARGEM_X / 2}
+          y={y(0) - 6}
+          fontSize="12"
+          fill="currentColor"
+          className="text-muted-foreground"
+        >
+          0
+        </text>
+
+        {pontos.slice(1).map((ponto, i) => (
+          <line
+            key={ponto.linha.period}
+            x1={x(i)}
+            y1={y(pontos[i].acumulado)}
+            x2={x(i + 1)}
+            y2={y(ponto.acumulado)}
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            className={ponto.acumulado < pontos[i].acumulado ? "text-red-600" : "text-emerald-600"}
+          />
+        ))}
+
+        {pontos.map((ponto, i) => (
+          <g key={ponto.linha.period}>
+            <circle
+              cx={x(i)}
+              cy={y(ponto.acumulado)}
+              r="5"
+              fill="currentColor"
+              className="text-card"
+            />
+            <circle
+              cx={x(i)}
+              cy={y(ponto.acumulado)}
+              r="5"
+              fill="none"
+              strokeWidth="2.5"
+              stroke="currentColor"
+              className={
+                ponto.acumulado < 0
+                  ? "text-red-600"
+                  : ponto.acumulado > 0
+                    ? "text-emerald-600"
+                    : "text-slate-400"
+              }
+            >
+              <title>{`${ponto.linha.label}: ${formatBrlShort(ponto.acumulado)}`}</title>
+            </circle>
+
+            {rotulados.has(ponto) && (
+              <text
+                x={x(i)}
+                /*
+                  Sempre acima do ponto: abaixo, o ponto mais baixo da série
+                  (que é justamente o que sempre ganha rótulo) escrevia por
+                  cima da data do eixo. Só desce quando não há acima — ponto
+                  colado no teto do desenho.
+                */
+                y={y(ponto.acumulado) < TOPO_UTIL + 6 ? y(ponto.acumulado) + 20 : y(ponto.acumulado) - 12}
+                fontSize="13"
+                fontWeight="700"
+                textAnchor={i === 0 ? "start" : i === pontos.length - 1 ? "end" : "middle"}
+                fill="currentColor"
+                className={ponto.acumulado < 0 ? "text-red-700" : "text-emerald-700"}
+              >
+                {formatBrlShort(ponto.acumulado)}
+              </text>
+            )}
+
+            <text
+              x={x(i)}
+              y={A - 8}
+              fontSize="12"
+              textAnchor={i === 0 ? "start" : i === pontos.length - 1 ? "end" : "middle"}
+              fill="currentColor"
+              className="text-muted-foreground"
+            >
+              {ponto.linha.label}
+            </text>
+          </g>
+        ))}
+      </svg>
+    </div>
+  );
+}
+
+const MESES_CURTOS = [
+  "Jan",
+  "Fev",
+  "Mar",
+  "Abr",
+  "Mai",
+  "Jun",
+  "Jul",
+  "Ago",
+  "Set",
+  "Out",
+  "Nov",
+  "Dez",
+];
+
+/**
+ * Como a janela aberta se chama no paginador — "Jun–Ago 2026".
+ *
+ * Mês e ano saem da data da vigência (`period`, sempre ISO), e não do rótulo,
+ * que muda de forma conforme o histórico. Data que não seja ISO cai no rótulo
+ * das pontas, que é sempre exibível.
+ */
+export function rotuloDaJanela(visiveis: { period: string; label: string }[]): string {
+  const primeira = visiveis[0];
+  const ultima = visiveis[visiveis.length - 1];
+  if (primeira === undefined || ultima === undefined) return "";
+
+  const de = mesEAno(primeira.period);
+  const ate = mesEAno(ultima.period);
+  if (de === null || ate === null) {
+    return primeira === ultima ? primeira.label : `${primeira.label} – ${ultima.label}`;
+  }
+  if (de.ano !== ate.ano) return `${de.mes} ${de.ano} – ${ate.mes} ${ate.ano}`;
+  if (de.mes === ate.mes) return `${de.mes} ${de.ano}`;
+  return `${de.mes}–${ate.mes} ${de.ano}`;
+}
+
+function mesEAno(data: string): { mes: string; ano: string } | null {
+  const [ano, mes] = data.split("-");
+  const indice = Number(mes) - 1;
+  if (ano === undefined || !Number.isInteger(indice) || indice < 0 || indice > 11) return null;
+  return { mes: MESES_CURTOS[indice], ano };
 }
 
 /** Quando nenhuma vigência do intervalo tem impacto apurado: a mesma linha do tempo, contando alterações. */
@@ -525,6 +960,32 @@ function ContagemPorVigencia({
 
 const TOPO_DE_UNIDADES = 6;
 
+interface UnidadeNoRanking extends RangeOverviewUnit {
+  valor: number;
+}
+
+/**
+ * As unidades do intervalo, da que mais moveu para a que menos moveu.
+ *
+ * Fica fora do componente porque a página precisa da resposta antes de
+ * desenhar: é ela que decide se a coluna lateral existe. Um ranking de uma
+ * unidade só não é ranking — é o mesmo número que os cartões do topo já
+ * publicam — e por isso volta vazio.
+ */
+function rankingDeUnidades(
+  overview: RangeOverview | null,
+  periodicidade: string | null,
+): UnidadeNoRanking[] {
+  if (overview === null || periodicidade === null) return [];
+
+  const ranking = overview.unitsIncluded
+    .map((u) => ({ ...u, valor: u.impact.byPeriodicity[periodicidade] ?? 0 }))
+    .filter((u) => u.valor !== 0)
+    .sort((a, b) => Math.abs(b.valor) - Math.abs(a.valor));
+
+  return ranking.length <= 1 ? [] : ranking;
+}
+
 /**
  * O ranking de unidades pelo líquido do intervalo — a mesma pergunta de
  * `LinhaDoTempoDaPeriodicidade`, respondida por "onde" em vez de "quando".
@@ -535,21 +996,8 @@ const TOPO_DE_UNIDADES = 6;
  * outra unidade elegível), o cartão não aparece: um ranking de uma unidade só
  * não é ranking, é o mesmo número que os cartões acima já mostram.
  */
-function OndeEstaOImpacto({
-  overview,
-  periodicidade,
-}: {
-  overview: RangeOverview | null;
-  periodicidade: string | null;
-}) {
-  if (overview === null || periodicidade === null) return null;
-
-  const ranking = overview.unitsIncluded
-    .map((u) => ({ ...u, valor: u.impact.byPeriodicity[periodicidade] ?? 0 }))
-    .filter((u) => u.valor !== 0)
-    .sort((a, b) => Math.abs(b.valor) - Math.abs(a.valor));
-
-  if (ranking.length <= 1) return null;
+function OndeEstaOImpacto({ ranking }: { ranking: UnidadeNoRanking[] }) {
+  if (ranking.length === 0) return null;
 
   const teto = Math.max(...ranking.map((u) => Math.abs(u.valor)), 1);
 
@@ -707,14 +1155,22 @@ function Narrativa({
   }
 
   return (
-    <div className="mt-5 flex gap-3 rounded-lg border bg-muted/30 p-4">
-      <ChartNoAxesCombined className="w-4 h-4 mt-0.5 shrink-0 text-muted-foreground" />
-      <p className="text-sm text-muted-foreground">
-        {frases.join(" ")}
-        <span className="ml-1 text-xs uppercase tracking-wide">
-          ({periodicityAdjective(periodicidade)})
-        </span>
-      </p>
+    <div className={cn(CARTAO, "flex gap-3.5 p-5")}>
+      <span className="w-11 h-11 rounded-full flex items-center justify-center shrink-0 bg-accent">
+        <Lightbulb className="w-5 h-5 text-brand" />
+      </span>
+      <div className="text-sm text-muted-foreground space-y-1">
+        {frases.map((frase, i) => (
+          <p key={i}>
+            {frase}
+            {i === frases.length - 1 && (
+              <span className="ml-1 text-xs uppercase tracking-wide">
+                ({periodicityAdjective(periodicidade)})
+              </span>
+            )}
+          </p>
+        ))}
+      </div>
     </div>
   );
 }
