@@ -8,6 +8,14 @@
  * vazar cru para a tela, que foi exatamente o defeito que este arquivo fecha.
  */
 
+import {
+  tipoDeImportacao,
+  type DefinicaoDeTipo,
+  type TipoDeImportacao,
+} from "@workspace/ingest/tipos";
+
+import { ehAuditoria, type Ambiente, type AmbienteDeAuditoria } from "@/lib/ambiente";
+
 /**
  * Como cada estado se chama e o que ele significa, para quem opera.
  *
@@ -543,4 +551,100 @@ export function historicoDoArquivo<T extends RunNoHistorico>(
       leituras.filter((r) => r.status !== "SKIPPED_DUPLICATE").at(-1) ?? null,
     leituras,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Que tipos cada auditoria recebe
+// ---------------------------------------------------------------------------
+
+/**
+ * Os tipos que a tela de Importações oferece **em cada auditoria**.
+ *
+ * `TIPOS_DE_IMPORTACAO` (`@workspace/ingest/tipos`) é a lista do que o produto
+ * inteiro sabe importar — os oito. Ela é o contrato do pipeline, e continua
+ * sendo: o servidor recusa por ela, e nada aqui afrouxa isso. O que este mapa
+ * responde é outra pergunta, e é a da tela: **de que operação é o acervo que
+ * está aberto**, e portanto que arquivos fazem sentido entrar por aqui.
+ *
+ * As quatro auditorias são o mesmo processo sobre operações diferentes
+ * (`lib/ambiente.ts`), e cada uma roda com os ativos dela: a **empurrada**, com
+ * cavalo, carreta e trecho; a **rota** e o **AS**, com caminhão e carroceria; o
+ * **apoio**, com empilhadeira. Mostrar as oito abas nas quatro fazia a
+ * Auditoria Apoio oferecer "Cavalo" e a Empurrada oferecer "Empilhadeira" — um
+ * convite a declarar, na operação errada, um tipo que aquela operação não tem.
+ * A aba **é** a declaração (é ela que diz ao pipeline o que o arquivo traz), e
+ * uma aba que não pertence ao ambiente é uma declaração que já nasce contra o
+ * recorte do acervo — `?operacao=` carimba toda chamada desta tela, então o
+ * arquivo entraria em EMPURRADA por ter sido enviado de uma tela de empurrada.
+ *
+ * **Os dois QLPs aparecem nas quatro**, e não é exceção: o quadro de lotação de
+ * pessoal existe em toda operação — a empurrada tem o dela, a rota a dela —, e
+ * o que separa um do outro é a operação do ambiente, não o tipo. Eles são o
+ * único vocabulário que as quatro compartilham.
+ *
+ * **Isto some abas, e não some importações.** O histórico continua inteiro na
+ * aba Todas: uma importação de um tipo que este ambiente não oferece — herança
+ * de antes deste recorte, ou um envio feito pela operação vizinha — continua
+ * listada, com o nome do tipo escrito no cartão. Esconder a linha seria mentir
+ * sobre o que entrou; o que se fecha é a porta de enviar mais por ela.
+ *
+ * A lista da empurrada não é derivada de `EQUIPAMENTOS_DO_AMBIENTE`
+ * (`lib/frota.ts`) de propósito, e a diferença está na rota: lá o trecho tem
+ * tela 360° também no Rota e no AS, e aqui ele é aba só na empurrada — é o
+ * export da empurrada que traz a perna de rota. Uma lista derivada da outra
+ * faria as duas concordarem por construção sobre uma coisa em que elas de fato
+ * discordam; duas listas explícitas dizem cada uma a sua verdade.
+ */
+export const TIPOS_DO_AMBIENTE: Record<AmbienteDeAuditoria, TipoDeImportacao[]> = {
+  auditoria: [
+    "CAVALO",
+    "CARRETA",
+    "TRECHO",
+    "QLP_ADMINISTRATIVO",
+    "QLP_OPERACIONAL",
+  ],
+  "auditoria-rota": [
+    "CAMINHAO",
+    "CARROCERIA",
+    "QLP_ADMINISTRATIVO",
+    "QLP_OPERACIONAL",
+  ],
+  /*
+    O AS roda os mesmos ativos da rota — caminhão e carroceria —, como já vale
+    em `EQUIPAMENTOS_DO_AMBIENTE`. As duas listas são iguais hoje e continuam
+    escritas separadas: são operações diferentes, e o dia em que uma delas
+    receber um tipo próprio é uma linha aqui, não um `if`.
+  */
+  "auditoria-as": [
+    "CAMINHAO",
+    "CARROCERIA",
+    "QLP_ADMINISTRATIVO",
+    "QLP_OPERACIONAL",
+  ],
+  "auditoria-apoio": [
+    "EMPILHADEIRA",
+    "QLP_ADMINISTRATIVO",
+    "QLP_OPERACIONAL",
+  ],
+};
+
+/**
+ * As definições dos tipos que a auditoria aberta oferece, na ordem das abas.
+ *
+ * Devolve a definição inteira — rótulo, descrição e identidade —, e não só o
+ * código, porque é isso que a tela usa para escrever a aba, o dropzone e a
+ * frase do que se declara. A ordem é a do mapa acima: os ativos da operação
+ * primeiro, os dois QLPs no fim, nas quatro.
+ *
+ * Fora das auditorias devolve a lista da empurrada, pela mesma razão de
+ * `baseDaAuditoria` (`lib/ambiente.ts`): quem chama isto é a tela de
+ * Importações, e ela só existe sob uma das quatro bases.
+ */
+export function tiposDoAmbiente(ambiente: Ambiente): DefinicaoDeTipo[] {
+  const codigos = ehAuditoria(ambiente)
+    ? TIPOS_DO_AMBIENTE[ambiente]
+    : TIPOS_DO_AMBIENTE.auditoria;
+  return codigos
+    .map((code) => tipoDeImportacao(code))
+    .filter((tipo): tipo is DefinicaoDeTipo => tipo !== null);
 }

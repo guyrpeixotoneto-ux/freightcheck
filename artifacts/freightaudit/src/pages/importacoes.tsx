@@ -20,10 +20,7 @@ import {
   Trash2,
   Upload,
 } from "lucide-react";
-import {
-  TIPOS_DE_IMPORTACAO,
-  type DefinicaoDeTipo,
-} from "@workspace/ingest/tipos";
+import { type DefinicaoDeTipo } from "@workspace/ingest/tipos";
 import {
   CHAVE_DA_APRESENTACAO,
   apresentacaoDoDetalhe,
@@ -50,10 +47,12 @@ import {
   historicoDoArquivo,
   leituraDoRun,
   progressoDaLeitura,
+  tiposDoAmbiente,
   type FaceDoCartao,
   type HistoricoDoArquivo,
   type PapelNoArquivo,
 } from "@/lib/importacoes";
+import { useAmbiente } from "@/lib/ambiente-aberto";
 import { rotuloDoTipo } from "@/lib/frota";
 import { cn } from "@/lib/utils";
 import { AbaChamados } from "@/components/changes/aba-chamados";
@@ -280,6 +279,22 @@ interface DeletionPlan {
   };
 }
 
+/**
+ * Os tipos da aba Planilha numa frase: "cavalo, carreta, trecho e QLP".
+ *
+ * Os ativos entram em minúscula, que é como se escrevem no meio de uma frase;
+ * os dois QLPs viram uma palavra só — "QLP Administrativo, QLP Operacional"
+ * dobraria o comprimento da dica para dizer o que as abas logo abaixo já
+ * mostram separado.
+ */
+const dicaDosTipos = (tipos: DefinicaoDeTipo[]): string => {
+  const ativos = tipos
+    .filter((tipo) => !tipo.code.startsWith("QLP_"))
+    .map((tipo) => tipo.rotulo.toLowerCase());
+  const temQlp = ativos.length < tipos.length;
+  return temQlp ? `${ativos.join(", ")} e QLP` : ativos.join(", ");
+};
+
 const n = (v: number) => v.toLocaleString("pt-BR");
 
 const dateTime = (iso: string) => new Date(iso).toLocaleString("pt-BR");
@@ -367,9 +382,21 @@ export default function Importacoes() {
     em Todas em vez de deixar a tela numa aba que não existe.
   */
   const abaPedida = new URLSearchParams(search).get("tipo");
-  const aba =
-    TIPOS_DE_IMPORTACAO.find((t) => t.code === abaPedida)?.code ?? null;
-  const tipoDaAba = TIPOS_DE_IMPORTACAO.find((t) => t.code === aba) ?? null;
+  /*
+    As abas são as da **auditoria aberta**, e não as oito que o pipeline sabe
+    ler: a Empurrada recebe cavalo, carreta e trecho; a Rota e o AS, caminhão e
+    carroceria; o Apoio, empilhadeira — e os dois QLPs valem para as quatro. Ver
+    `TIPOS_DO_AMBIENTE`, em `lib/importacoes.ts`, onde essa divisão está escrita
+    com a razão dela.
+
+    Um `?tipo=` que não é aba **deste** ambiente cai em Todas pela mesma regra
+    que já valia para um tipo inexistente — um link de "manda a planilha de
+    cavalo por aqui" aberto dentro da Auditoria Apoio abre no histórico inteiro,
+    e não numa aba que declararia empurrada de dentro do apoio.
+  */
+  const tipos = tiposDoAmbiente(useAmbiente());
+  const aba = tipos.find((t) => t.code === abaPedida)?.code ?? null;
+  const tipoDaAba = tipos.find((t) => t.code === aba) ?? null;
   const setAba = (code: string | null) => {
     const params = new URLSearchParams(search);
     if (code) params.set("tipo", code);
@@ -721,7 +748,10 @@ export default function Importacoes() {
             onClick={() => setSecao("planilha")}
             icon={<FileSpreadsheet className="w-4 h-4" />}
             label="Planilha"
-            hint="cavalo, carreta, trecho e QLP — o pipeline com aprovação"
+            /* Os tipos da operação aberta, e não uma lista escrita à mão: a
+               dica dizia "cavalo, carreta, trecho e QLP" dentro da Auditoria
+               Apoio, que não recebe nenhum dos três. */
+            hint={`${dicaDosTipos(tipos)} — o pipeline com aprovação`}
           />
           <AbaBotao
             active={secao === "chamados"}
@@ -752,7 +782,7 @@ export default function Importacoes() {
                   {n(runs.length)}
                 </span>
               </TabsTrigger>
-              {TIPOS_DE_IMPORTACAO.map((tipo) => (
+              {tipos.map((tipo) => (
                 <TabsTrigger key={tipo.code} value={tipo.code}>
                   {tipo.rotulo}
                   <span className="ml-1.5 tabular-nums text-xs text-muted-foreground">
@@ -946,6 +976,7 @@ export default function Importacoes() {
         key={reprocessOf?.importRunId ?? "nenhuma"}
         run={reprocessOf}
         todos={runs}
+        tipos={tipos}
         onClose={() => setReprocessOf(null)}
         onConfirm={(reason, declaredType) =>
           reprocessOf &&
@@ -2184,12 +2215,15 @@ function DeleteDialog({
 function ReprocessDialog({
   run,
   todos,
+  tipos,
   onClose,
   onConfirm,
   working,
 }: {
   run: ImportRun | null;
   todos: ImportRun[];
+  /** As abas da auditoria aberta — as mesmas que o envio oferece. */
+  tipos: DefinicaoDeTipo[];
   onClose: () => void;
   onConfirm: (reason: string, declaredType: string | null) => void;
   working: boolean;
@@ -2215,6 +2249,26 @@ function ReprocessDialog({
     // recente — e não a do run antigo que será relido.
     run?.declaredType ?? tipoDoAlvo ?? SEM_DECLARACAO,
   );
+
+  /*
+    O que a releitura pode declarar são as abas deste ambiente — a mesma lista
+    do envio, pela mesma razão: reler declarando "Cavalo" de dentro da Auditoria
+    Apoio criaria, na operação do apoio, uma vigência de um tipo que ela não
+    tem.
+
+    Com uma exceção, e ela é honestidade e não brecha: **o tipo que a leitura
+    alvo já declara continua na lista**, mesmo fora deste ambiente. Ele é o
+    valor selecionado por padrão, e um `select` sem a própria opção escolhida
+    mostraria a primeira da lista como se fosse a declaração atual — a tela
+    mentiria sobre o que está prestes a mudar, que é justamente o que o aviso de
+    troca de tipo, logo abaixo, existe para não deixar acontecer.
+  */
+  const opcoesDeTipo: { code: string }[] = [
+    ...tipos,
+    ...(tipoDoAlvo !== null && !tipos.some((t) => t.code === tipoDoAlvo)
+      ? [{ code: tipoDoAlvo }]
+      : []),
+  ];
 
   const tipoEscolhido = declaredType === SEM_DECLARACAO ? null : declaredType;
   const trocaDeTipo = tipoEscolhido !== tipoDoAlvo;
@@ -2265,9 +2319,9 @@ function ReprocessDialog({
                 <option value={SEM_DECLARACAO}>
                   Sem declaração — deduzir pelo conteúdo
                 </option>
-                {TIPOS_DE_IMPORTACAO.map((tipo) => (
+                {opcoesDeTipo.map((tipo) => (
                   <option key={tipo.code} value={tipo.code}>
-                    {tipo.rotulo}
+                    {rotuloDoTipo(tipo.code)}
                   </option>
                 ))}
               </select>
@@ -2530,9 +2584,7 @@ function PendingRun({
                         enviou nada — o arquivo já estava aqui, e o tipo foi
                         declarado no pedido de reprocessamento. */}
                     {data.reprocessOfRunId ? "relido como" : "enviado como"}{" "}
-                    {TIPOS_DE_IMPORTACAO.find(
-                      (t) => t.code === data.declaredType,
-                    )?.rotulo ?? data.declaredType}
+                    {rotuloDoTipo(data.declaredType)}
                   </span>
                 )}
               </p>
