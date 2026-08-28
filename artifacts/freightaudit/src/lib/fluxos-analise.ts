@@ -518,42 +518,39 @@ export interface CampoDaJornada {
    * indicador nenhum — o oposto do que o número existe para revelar.
    */
   conta: boolean;
+  /**
+   * O campo é **o assunto** da lente, e não o apoio dele?
+   *
+   * É o que decide o que o cartão desenha quando o campo está vazio. O assunto
+   * aparece sempre — a jornada da documentação mostra "sem documentos
+   * cadastrados" em toda etapa que não tem documento, porque é exatamente essa
+   * a pergunta que alguém foi ali fazer, e a etapa sem documento é a resposta.
+   * O apoio (o objetivo, a regra, o retorno que chega, a troca de área) só
+   * aparece quando existe: são linhas que enriquecem a leitura quando estão
+   * preenchidas e viram ruído repetido quando não estão.
+   */
+  essencial: boolean;
 }
 
 export interface CartaoDaJornada {
   campos: CampoDaJornada[];
   /**
-   * Só os campos que esta lente **de fato** achou preenchidos, na mesma ordem.
+   * O que o cartão desenha: o assunto da lente sempre, o apoio só quando existe.
    *
-   * É o que a Jornada desenha. Quem troca para "Documentação" quer ler a
-   * documentação do processo de ponta a ponta, e não três linhas de "sem regras
-   * registradas" repetidas em quinze cartões: a ausência já está dita pelo
-   * cartão esmaecido, pela frase única de `vazio` e pela contagem do cabeçalho.
-   * `campos` continua inteiro para quem precisar da lente completa — a Lista, um
-   * export, um teste.
+   * Quem troca para "Documentação" quer duas coisas ao mesmo tempo, e elas só
+   * parecem contraditórias: ler a documentação que existe, e ver onde ela não
+   * existe. O assunto da lente resolve as duas — a linha dos documentos aparece
+   * em toda etapa, com os documentos ou com "sem documentos cadastrados", e é a
+   * coluna que se lê de cima a baixo. O que fica de fora é o apoio vazio: "sem
+   * regras registradas" repetido em quinze cartões não é a resposta de ninguém.
+   *
+   * `campos` continua inteiro para quem precisar da lente completa — a Lista,
+   * um export, um teste.
    */
-  preenchidos: CampoDaJornada[];
+  visiveis: CampoDaJornada[];
   /** Quantos itens a lente achou nesta etapa — zero quer dizer "não cadastrado". */
   achados: number;
-  /** A frase única do cartão em que a lente não achou nada. */
-  vazio: string;
 }
-
-/**
- * A frase do cartão em que a lente não achou nada.
- *
- * Uma por lente, e não a soma das frases dos campos: no cartão focado, "sem
- * documentação registrada" diz a mesma coisa que três linhas de "sem objetivo
- * descrito / sem regras registradas / sem documentos cadastrados" — em uma
- * linha, que é o que uma jornada lida de relance comporta.
- */
-const VAZIO_DA_LENTE: Record<LenteDaJornada, string> = {
-  operacao: "sem operação cadastrada",
-  documentacao: "sem documentação registrada",
-  falhas: "sem falhas registradas",
-  gargalos: "sem gargalos apontados",
-  informacoes: "sem informações cadastradas",
-};
 
 const naoVazio = (v: string | null | undefined): v is string => texto(v) !== "";
 
@@ -584,10 +581,11 @@ function sinalComoTexto(linha: LinhaDaEtapa, chave: string): string[] {
  * registrada"), nunca preenchido com estimativa — a mesma regra do SLA. Numa
  * lente, um cartão vazio é a informação: é ali que o levantamento parou.
  *
- * A lente é **focada**: o cartão desenha só o que ela achou (`preenchidos`), e a
- * etapa em que não achou nada vira uma linha só — `vazio`. Ler a jornada da
- * documentação é ler documentação, não uma coluna de placeholders; o que falta
- * continua visível no cartão esmaecido e na contagem do cabeçalho.
+ * A lente é **focada**, e o foco tem um centro: o campo que dá nome à lente é o
+ * assunto e aparece sempre — com o que está cadastrado ou com a ausência dita
+ * ("sem documentos cadastrados") —, enquanto o apoio só aparece quando existe.
+ * Ler a jornada da documentação passa a ser ler os documentos do processo de
+ * ponta a ponta, e ver de relance em que etapas eles faltam.
  */
 export function cartaoDaJornada(linha: LinhaDaEtapa, lente: LenteDaJornada): CartaoDaJornada {
   const etapa = linha.etapa;
@@ -603,6 +601,7 @@ export function cartaoDaJornada(linha: LinhaDaEtapa, lente: LenteDaJornada): Car
             valores: [etapa.objetivo, etapa.descricao].filter(naoVazio).slice(0, 1),
             vazio: "sem objetivo descrito",
             conta: true,
+            essencial: false,
           },
           {
             chave: "regras",
@@ -611,6 +610,7 @@ export function cartaoDaJornada(linha: LinhaDaEtapa, lente: LenteDaJornada): Car
             valores: [etapa.regras].filter(naoVazio),
             vazio: "sem regras registradas",
             conta: true,
+            essencial: false,
           },
           {
             chave: "documentos",
@@ -619,6 +619,7 @@ export function cartaoDaJornada(linha: LinhaDaEtapa, lente: LenteDaJornada): Car
             valores: itensDaEspecie(etapa, "DOCUMENTO"),
             vazio: "sem documentos cadastrados",
             conta: true,
+            essencial: true,
           },
         ];
 
@@ -631,6 +632,7 @@ export function cartaoDaJornada(linha: LinhaDaEtapa, lente: LenteDaJornada): Car
             valores: itensDaEspecie(etapa, "FALHA"),
             vazio: "sem falhas registradas",
             conta: true,
+            essencial: true,
           },
           {
             chave: "retorno",
@@ -639,6 +641,7 @@ export function cartaoDaJornada(linha: LinhaDaEtapa, lente: LenteDaJornada): Car
             valores: sinalComoTexto(linha, "retorno"),
             vazio: "nenhum retrabalho chega aqui",
             conta: true,
+            essencial: false,
           },
           {
             chave: "status",
@@ -647,6 +650,7 @@ export function cartaoDaJornada(linha: LinhaDaEtapa, lente: LenteDaJornada): Car
             valores: sinalComoTexto(linha, "status"),
             vazio: "etapa não marcada como atenção",
             conta: true,
+            essencial: false,
           },
         ];
 
@@ -659,6 +663,7 @@ export function cartaoDaJornada(linha: LinhaDaEtapa, lente: LenteDaJornada): Car
             valores: itensDaEspecie(etapa, "GARGALO"),
             vazio: "sem gargalos apontados",
             conta: true,
+            essencial: true,
           },
           {
             chave: "handoffs",
@@ -667,6 +672,7 @@ export function cartaoDaJornada(linha: LinhaDaEtapa, lente: LenteDaJornada): Car
             valores: sinalComoTexto(linha, "handoffs"),
             vazio: "sem troca de área em volta",
             conta: true,
+            essencial: false,
           },
           {
             chave: "prazo",
@@ -675,26 +681,29 @@ export function cartaoDaJornada(linha: LinhaDaEtapa, lente: LenteDaJornada): Car
             valores: linha.sla === null ? [] : [linha.sla],
             vazio: "sem prazo definido",
             conta: false,
+            essencial: false,
           },
         ];
 
       case "informacoes":
         return [
+          /*
+            O que a etapa **consulta** abre a lente, e não o que o grafo já diz.
+            É o campo "Informações que consulta" do editor — o relatório, a tela,
+            a planilha, o e-mail que quem executa a etapa vai olhar para
+            conseguir fazê-la. Era o único campo da etapa que nenhuma lente
+            mostrava, e é a pergunta que a lente das Informações existe para
+            responder; "vem de / segue para" as setas entre os cartões já
+            contam, e por isso descem para o apoio.
+          */
           {
-            chave: "entradas",
-            rotulo: "Vem de",
-            icone: "ArrowDownLeft",
-            valores: linha.entradas,
-            vazio: "início do processo",
-            conta: false,
-          },
-          {
-            chave: "saidas",
-            rotulo: "Segue para",
-            icone: "ArrowUpRight",
-            valores: linha.saidas,
-            vazio: "fim do processo",
-            conta: false,
+            chave: "consulta",
+            rotulo: "Consulta",
+            icone: "Search",
+            valores: [etapa.informacoesConsultadas].filter(naoVazio),
+            vazio: "sem informações consultadas",
+            conta: true,
+            essencial: true,
           },
           {
             chave: "indicadores",
@@ -706,6 +715,25 @@ export function cartaoDaJornada(linha: LinhaDaEtapa, lente: LenteDaJornada): Car
               .map((i) => (naoVazio(i.unidade) ? `${i.nome} (${i.unidade})` : i.nome)),
             vazio: "a etapa não mede nada",
             conta: true,
+            essencial: true,
+          },
+          {
+            chave: "entradas",
+            rotulo: "Vem de",
+            icone: "ArrowDownLeft",
+            valores: linha.entradas,
+            vazio: "início do processo",
+            conta: false,
+            essencial: false,
+          },
+          {
+            chave: "saidas",
+            rotulo: "Segue para",
+            icone: "ArrowUpRight",
+            valores: linha.saidas,
+            vazio: "fim do processo",
+            conta: false,
+            essencial: false,
           },
         ];
 
@@ -719,6 +747,7 @@ export function cartaoDaJornada(linha: LinhaDaEtapa, lente: LenteDaJornada): Car
             valores: [[linha.area, linha.responsavel].filter(naoVazio).join(" · ")].filter(naoVazio),
             vazio: "sem responsável",
             conta: true,
+            essencial: true,
           },
           {
             chave: "sistema",
@@ -727,6 +756,7 @@ export function cartaoDaJornada(linha: LinhaDaEtapa, lente: LenteDaJornada): Car
             valores: [linha.sistema].filter(naoVazio),
             vazio: "sem sistema",
             conta: true,
+            essencial: true,
           },
           {
             chave: "prazo",
@@ -735,6 +765,7 @@ export function cartaoDaJornada(linha: LinhaDaEtapa, lente: LenteDaJornada): Car
             valores: [linha.sla].filter(naoVazio),
             vazio: "sem prazo definido",
             conta: true,
+            essencial: true,
           },
         ];
     }
@@ -746,9 +777,8 @@ export function cartaoDaJornada(linha: LinhaDaEtapa, lente: LenteDaJornada): Car
 
   return {
     campos,
-    preenchidos: campos.filter((c) => c.valores.length > 0),
+    visiveis: campos.filter((c) => c.essencial || c.valores.length > 0),
     achados,
-    vazio: VAZIO_DA_LENTE[lente] ?? VAZIO_DA_LENTE.operacao,
   };
 }
 

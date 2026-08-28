@@ -178,7 +178,7 @@ export const LENTES_DA_JORNADA: readonly EntradaDeLente[] = [
   {
     valor: "informacoes",
     rotulo: "Informações",
-    descricao: "O que entra, o que sai e o que a etapa mede.",
+    descricao: "O que a etapa consulta, o que ela mede e por onde a informação passa.",
     icone: "Activity",
   },
 ];
