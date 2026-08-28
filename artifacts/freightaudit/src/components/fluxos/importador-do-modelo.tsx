@@ -55,17 +55,46 @@ import {
  * meio deixaria metade da etapa gravada sem que a mensagem dissesse qual
  * metade. Em série, o que entrou é sempre um prefixo do que a planilha trazia, e
  * a tela mostra em que etapa parou.
+ *
+ * ---------------------------------------------------------------------------
+ * O estado é um só; o diálogo mora na página, não no botão
+ * ---------------------------------------------------------------------------
+ *
+ * A importação aparece em dois lugares — botão na barra larga, item de "Mais
+ * ações" na estreita —, e os dois são **gatilhos**: o estado vem de
+ * `useImportadorDoModelo`, chamado uma vez pela página, e o diálogo é montado
+ * uma vez, no nível dela, junto dos outros diálogos do fluxo.
+ *
+ * Não era assim, e o defeito que isso causava é a razão desta forma. Com o
+ * diálogo dentro do gatilho, ele ficava dentro do contêiner que a barra usa
+ * para aparecer só numa faixa de largura (`hidden md:flex`). Quem estivesse
+ * revisando a prévia e estreitasse a janela — arrastar a borda, girar o
+ * aparelho, uma barra lateral abrindo — via a prévia **sumir**: o contêiner
+ * virava `display:none`, o componente continuava montado e aberto, e a trava de
+ * rolagem que todo modal aplica no `body` continuava aplicada. Sobrava uma
+ * tela sem prévia, sem rolagem e sem nada explicando o que houve.
+ *
+ * Fora do contêiner, a largura da janela não tem mais o que dizer sobre um
+ * diálogo aberto — e, de brinde, começar a importação pelo menu e terminá-la na
+ * barra larga passa a ser a mesma importação, e não duas.
  */
 
 interface Importacao {
-  completo: FluxoCompleto;
+  /** `undefined` enquanto o fluxo carrega — a página chama o hook mesmo assim. */
+  completo: FluxoCompleto | undefined;
   catalogo: Catalogo | undefined;
   empresaId: string | null;
   /** Recarrega o fluxo depois de gravar. */
   aoConcluir: () => void;
 }
 
-function useImportacao({ completo, catalogo, empresaId, aoConcluir }: Importacao) {
+/**
+ * O estado da importação, para a página segurar.
+ *
+ * Chamado **uma vez** por tela. Os dois gatilhos e o diálogo recebem o que ele
+ * devolve; nenhum deles guarda estado próprio.
+ */
+export function useImportadorDoModelo({ completo, catalogo, empresaId, aoConcluir }: Importacao) {
   const entrada = useRef<HTMLInputElement | null>(null);
   const [lendo, setLendo] = useState(false);
   const [plano, setPlano] = useState<PlanoDeImportacao | null>(null);
@@ -73,6 +102,7 @@ function useImportacao({ completo, catalogo, empresaId, aoConcluir }: Importacao
   const [gravadas, setGravadas] = useState(0);
 
   async function abrirArquivo(arquivo: File) {
+    if (!completo) return;
     setLendo(true);
     setErro(null);
     try {
@@ -88,7 +118,7 @@ function useImportacao({ completo, catalogo, empresaId, aoConcluir }: Importacao
 
   const gravar = useMutation({
     mutationFn: async () => {
-      if (!plano) return;
+      if (!plano || !completo) return;
       setGravadas(0);
       for (const mudanca of plano.mudancas) {
         if (mudanca.campos.length > 0) {
@@ -177,51 +207,81 @@ function useImportacao({ completo, catalogo, empresaId, aoConcluir }: Importacao
   };
 }
 
-/** O botão da barra larga. */
-export function BotaoDeImportarModelo(props: Importacao & { desabilitado?: boolean }) {
-  const importacao = useImportacao(props);
+export type Importador = ReturnType<typeof useImportadorDoModelo>;
 
+/** O gatilho da barra larga. Só o botão: o diálogo é da página. */
+export function BotaoDeImportarModelo({
+  importador,
+  desabilitado,
+}: {
+  importador: Importador;
+  desabilitado?: boolean;
+}) {
   return (
-    <>
-      {importacao.campoDeArquivo}
-      <Button
-        variant="outline"
-        size="sm"
-        disabled={props.desabilitado || importacao.lendo}
-        onClick={importacao.escolher}
-      >
-        {importacao.lendo ? (
-          <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-        ) : (
-          <Upload className="mr-1.5 h-3.5 w-3.5" />
-        )}
-        Importar modelo
-      </Button>
-      <DialogoDaImportacao {...importacao} />
-    </>
+    <Button
+      variant="outline"
+      size="sm"
+      disabled={desabilitado || importador.lendo}
+      onClick={importador.escolher}
+    >
+      {importador.lendo ? (
+        <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+      ) : (
+        <Upload className="mr-1.5 h-3.5 w-3.5" />
+      )}
+      Importar modelo
+    </Button>
   );
 }
 
 /** O mesmo gesto dentro de "Mais ações", na tela estreita. */
-export function ItemDeImportarModelo(props: Importacao & { desabilitado?: boolean }) {
-  const importacao = useImportacao(props);
+export function ItemDeImportarModelo({
+  importador,
+  desabilitado,
+}: {
+  importador: Importador;
+  desabilitado?: boolean;
+}) {
+  return (
+    <DropdownMenuItem disabled={desabilitado} onSelect={() => importador.escolher()}>
+      <Upload className="mr-2 h-4 w-4" />
+      Importar modelo
+    </DropdownMenuItem>
+  );
+}
+
+/**
+ * O campo de arquivo e o plano na tela — montados uma vez, no nível da página.
+ *
+ * O `<input type="file">` vem junto porque ele é o par do diálogo: os dois são
+ * o que a importação mostra, e nenhum dos dois pode depender da largura da
+ * janela para existir.
+ */
+export function DialogoDaImportacao({ importador }: { importador: Importador }) {
+  const { plano, fechar, limparErro, erro, gravar, gravadas, campoDeArquivo } = importador;
 
   return (
     <>
-      {importacao.campoDeArquivo}
-      <DropdownMenuItem disabled={props.desabilitado} onSelect={() => importacao.escolher()}>
-        <Upload className="mr-2 h-4 w-4" />
-        Importar modelo
-      </DropdownMenuItem>
-      <DialogoDaImportacao {...importacao} />
+      {campoDeArquivo}
+      <ConteudoDoDialogo
+        plano={plano}
+        fechar={fechar}
+        limparErro={limparErro}
+        erro={erro}
+        gravar={gravar}
+        gravadas={gravadas}
+      />
     </>
   );
 }
 
-type Dialogo = ReturnType<typeof useImportacao>;
+type Dialogo = Pick<
+  Importador,
+  "plano" | "fechar" | "limparErro" | "erro" | "gravar" | "gravadas"
+>;
 
 /** O plano na tela: o que muda, o que não foi reconhecido, e nada gravado ainda. */
-function DialogoDaImportacao({ plano, fechar, limparErro, erro, gravar, gravadas }: Dialogo) {
+function ConteudoDoDialogo({ plano, fechar, limparErro, erro, gravar, gravadas }: Dialogo) {
   if (erro && !plano) {
     return (
       <Dialog open onOpenChange={(v) => !v && limparErro()} className="max-w-lg">
