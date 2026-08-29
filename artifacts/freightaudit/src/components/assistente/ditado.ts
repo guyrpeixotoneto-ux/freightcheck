@@ -100,6 +100,8 @@ export interface Ditado {
   ouvindo: boolean;
   erro: string | null;
   alternar: () => void;
+  /** Fecha o microfone e esquece o rascunho — ver `encerrar`. */
+  encerrar: () => void;
 }
 
 /**
@@ -137,6 +139,28 @@ export function useDitado({
     // Sair da tela com o microfone aberto o deixaria gravando; `abort` é
     // imediato e não dispara `onend` com o efeito já desmontado.
     return () => reconhecedor.current?.abort();
+  }, []);
+
+  /*
+    Enviar com o microfone aberto.
+
+    `stop()` é uma parada gentil: o reconhecedor ainda entrega o que tinha, e
+    esse resultado traz a frase **inteira** do começo da fala. Como enviar
+    esvazia o campo, esse último evento reescreveria a pergunta que acabou de
+    ser enviada — foi o que se via: a frase reaparecia sozinha no composer.
+    Aqui a parada é `abort()`, que descarta o pendente, e os callbacks são
+    desligados antes para que nem um evento já na fila volte a escrever.
+  */
+  const encerrar = useCallback(() => {
+    const r = reconhecedor.current;
+    if (!r) return;
+    reconhecedor.current = null;
+    base.current = "";
+    r.onresult = null;
+    r.onerror = null;
+    r.onend = null;
+    r.abort();
+    setOuvindo(false);
   }, []);
 
   const alternar = useCallback(() => {
@@ -182,5 +206,5 @@ export function useDitado({
     r.start();
   }, []);
 
-  return { disponivel: ditadoDisponivel(), ouvindo, erro, alternar };
+  return { disponivel: ditadoDisponivel(), ouvindo, erro, alternar, encerrar };
 }
