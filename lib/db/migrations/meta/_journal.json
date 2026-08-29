@@ -512,6 +512,20 @@
       "when": 1788100000000,
       "tag": "0072_falhas_gargalos_informacoes",
       "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1788200000000,
+      "tag": "0073_cadastro_da_casa",
+      "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1788300000000,
+      "tag": "0074_reconciliar_cadastro_da_casa",
+      "breakpoints": true
     }
   ]
 }

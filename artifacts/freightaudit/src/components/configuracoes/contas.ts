@@ -25,6 +25,19 @@ export interface ManagedUser {
   createdBy: string | null;
   disabledBy: string | null;
   openSessions: number;
+  /**
+   * A lotação da pessoa — cargo e unidade, do cadastro da casa.
+   *
+   * Vem com `id` **e** nome porque a tela usa os dois e por razões diferentes:
+   * o `id` é o que ela devolve ao editar, e o nome é o que ela mostra e por
+   * onde agrupa a lista. `null` nos dois é o estado normal de quem entrou antes
+   * de alguém dizer o que faz e onde — a lista mostra essas contas no grupo
+   * "Sem cargo" em vez de as esconder.
+   */
+  cargoId: string | null;
+  cargoNome: string | null;
+  unidadeId: string | null;
+  unidadeNome: string | null;
 }
 
 export const CHAVE_DAS_CONTAS = ["users"] as const;

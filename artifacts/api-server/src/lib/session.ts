@@ -1,6 +1,8 @@
 import { and, eq, gt, isNull, lt, ne, sql } from "drizzle-orm";
 import {
   appUserTable,
+  cargoTable,
+  unidadeTable,
   userSessionTable,
   type Database,
 } from "@workspace/db";
@@ -117,6 +119,31 @@ export async function setUserRole(
     .where(eq(appUserTable.id, userId));
 }
 
+/**
+ * Define a lotação de uma conta — o cargo e a unidade da pessoa.
+ *
+ * Fica separada de `setUserRole` de propósito, e a distância entre as duas é a
+ * coisa mais importante deste arquivo hoje: **papel é acesso, lotação é
+ * cadastro.** ADMIN e OPERADOR decidem o que a pessoa pode fazer no produto;
+ * cargo e unidade dizem o que ela faz na empresa. Juntar os dois numa rota só
+ * faria uma promoção na empresa virar uma promoção de acesso sem que ninguém
+ * tivesse pedido isso.
+ *
+ * O que não é validado aqui é validado onde tem que ser: o `id` de cargo e o de
+ * unidade existirem é problema da chave estrangeira e da rota, que checa antes
+ * para poder dizer qual dos dois está errado.
+ */
+export async function definirLotacao(
+  db: Database,
+  userId: string,
+  lotacao: { cargoId: string | null; unidadeId: string | null },
+): Promise<void> {
+  await db
+    .update(appUserTable)
+    .set({ cargoId: lotacao.cargoId, unidadeId: lotacao.unidadeId })
+    .where(eq(appUserTable.id, userId));
+}
+
 export async function createUser(
   db: Database,
   input: {
@@ -127,6 +154,13 @@ export async function createUser(
     role?: string;
     /** Quem está criando. Ausente = terminal (`create-user`). */
     createdBy?: string;
+    /**
+     * A lotação, do cadastro da casa. Ausente é legítimo: a conta nasce sem
+     * cargo e sem unidade quando quem a cria ainda não sabe, e a lista a mostra
+     * em "Sem cargo" em vez de a esconder.
+     */
+    cargoId?: string | null;
+    unidadeId?: string | null;
   },
 ): Promise<SessionUser> {
   const passwordHash = await hashPassword(input.password);
@@ -139,6 +173,8 @@ export async function createUser(
         passwordHash,
         ...(input.role ? { role: input.role } : {}),
         ...(input.createdBy ? { createdBy: input.createdBy } : {}),
+        ...(input.cargoId !== undefined ? { cargoId: input.cargoId } : {}),
+        ...(input.unidadeId !== undefined ? { unidadeId: input.unidadeId } : {}),
       })
       .returning({
         id: appUserTable.id,
@@ -285,6 +321,22 @@ export interface ManagedUser extends SessionUser {
   disabledBy: string | null;
   /** Quantas sessões vivas essa pessoa tem agora. */
   openSessions: number;
+  /**
+   * A lotação da pessoa — cargo e unidade, do cadastro da casa.
+   *
+   * Vem com `id` **e** nome porque a tela precisa dos dois e por razões
+   * diferentes: o `id` é o que ela manda de volta ao editar, e o nome é o que
+   * ela mostra e por onde agrupa. Mandar só o `id` faria a lista de contas
+   * buscar o cadastro inteiro para escrever uma linha; mandar só o nome faria
+   * a edição casar por texto, que é o defeito que o cadastro desfez.
+   *
+   * `null` nos dois é o estado normal de quem entrou antes de alguém dizer o
+   * que faz e onde. A lista mostra essas contas num grupo próprio.
+   */
+  cargoId: string | null;
+  cargoNome: string | null;
+  unidadeId: string | null;
+  unidadeNome: string | null;
 }
 
 /**
@@ -311,6 +363,10 @@ export async function listUsers(db: Database): Promise<ManagedUser[]> {
       createdBy: appUserTable.createdBy,
       disabledBy: appUserTable.disabledBy,
       openSessions: sql<number>`count(${userSessionTable.id})::int`,
+      cargoId: appUserTable.cargoId,
+      cargoNome: cargoTable.nome,
+      unidadeId: appUserTable.unidadeId,
+      unidadeNome: unidadeTable.nome,
     })
     .from(appUserTable)
     .leftJoin(
@@ -320,7 +376,15 @@ export async function listUsers(db: Database): Promise<ManagedUser[]> {
         gt(userSessionTable.expiresAt, new Date()),
       ),
     )
-    .groupBy(appUserTable.id)
+    /*
+      Junção à esquerda nos dois: conta sem cargo e conta sem unidade são o
+      estado normal de quem acabou de entrar, e uma junção interna as sumiria
+      da lista de contas — a tela de Usuários deixaria de mostrar gente que
+      tem acesso ao produto, que é o oposto do que ela existe para fazer.
+    */
+    .leftJoin(cargoTable, eq(cargoTable.id, appUserTable.cargoId))
+    .leftJoin(unidadeTable, eq(unidadeTable.id, appUserTable.unidadeId))
+    .groupBy(appUserTable.id, cargoTable.nome, unidadeTable.nome)
     .orderBy(appUserTable.name);
 
   return rows.map((row) => ({

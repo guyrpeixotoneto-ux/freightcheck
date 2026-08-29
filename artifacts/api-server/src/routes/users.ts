@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { db } from "@workspace/db";
+import { cargoPorId, db, unidadePorId } from "@workspace/db";
 import {
   describeEmailProblem,
   describeNameProblem,
@@ -8,6 +8,7 @@ import {
 } from "../lib/auth";
 import {
   EmailAlreadyUsedError,
+  definirLotacao,
   countActiveAdmins,
   countActiveUsers,
   createUser,
@@ -54,6 +55,42 @@ export function somenteAdmin(req: { user?: { role: string } }): string | null {
     : "Somente administradores gerenciam contas. Peça a um administrador.";
 }
 
+/**
+ * Lê cargo e unidade do corpo, conferindo que os dois existem.
+ *
+ * Devolve a frase da recusa quando algo está errado, e o par pronto quando não
+ * — as duas coisas por retorno, e não por exceção, porque quem chama já está
+ * dentro de uma rota que precisa responder e não relançar.
+ *
+ * **Confere aqui, e não deixa a chave estrangeira falhar.** As duas dariam o
+ * mesmo desfecho — a conta não fica com lotação inválida —, mas só esta diz
+ * *qual* dos dois campos está errado. Uma violação de chave estrangeira chega à
+ * tela como 500 e manda a pessoa adivinhar.
+ */
+async function lerLotacao(
+  corpo: Record<string, unknown>,
+): Promise<{ cargoId: string | null; unidadeId: string | null } | string> {
+  const ler = (campo: string): string | null | undefined => {
+    if (!(campo in corpo)) return null;
+    const valor = corpo[campo];
+    if (valor === null || valor === "") return null;
+    return typeof valor === "string" && UUID.test(valor) ? valor : undefined;
+  };
+
+  const cargoId = ler("cargoId");
+  if (cargoId === undefined) return "Identificador de cargo inválido.";
+  const unidadeId = ler("unidadeId");
+  if (unidadeId === undefined) return "Identificador de unidade inválido.";
+
+  if (cargoId !== null && (await cargoPorId(db, cargoId)) === null) {
+    return "O cargo informado não está cadastrado. Cadastre-o em Configurações → Cargos.";
+  }
+  if (unidadeId !== null && (await unidadePorId(db, unidadeId)) === null) {
+    return "A unidade informada não está cadastrada. Cadastre-a em Configurações → Unidades.";
+  }
+  return { cargoId, unidadeId };
+}
+
 router.get("/users", async (req, res): Promise<void> => {
   res.json(await listUsers(db));
 });
@@ -66,6 +103,11 @@ router.post("/users", async (req, res): Promise<void> => {
   }
 
   const { name, email, password, role } = req.body ?? {};
+  const lotacao = await lerLotacao(req.body ?? {});
+  if (typeof lotacao === "string") {
+    res.status(400).json({ error: lotacao });
+    return;
+  }
 
   const problem =
     describeNameProblem(name) ??
@@ -86,6 +128,8 @@ router.post("/users", async (req, res): Promise<void> => {
     password: password as string,
     ...(role !== undefined ? { role: role as string } : {}),
     createdBy: req.user!.email,
+    cargoId: lotacao.cargoId,
+    unidadeId: lotacao.unidadeId,
   });
   req.log.info(
     { email: user.email, by: req.user!.email },
@@ -257,6 +301,50 @@ router.post("/users/:id/role", async (req, res): Promise<void> => {
   req.log.info(
     { email: target.email, role, by: req.user!.email },
     "Papel de conta alterado",
+  );
+  res.json(await listUsers(db));
+});
+
+/**
+ * A lotação de uma conta — cargo e unidade, do cadastro da casa.
+ *
+ * Rota própria, e não um campo a mais em `/users/:id/role`, pela distinção que
+ * `definirLotacao` documenta: **papel é acesso, lotação é cadastro.** Promover
+ * alguém na empresa e dar-lhe poder de gerenciar contas são dois atos, e um
+ * botão que fizesse os dois juntos faria o segundo sem que ninguém o pedisse.
+ *
+ * É `PUT` e substitui os dois campos: mandar `null` é tirar a lotação, e é
+ * assim que se desfaz um engano. Um `PATCH` que só mexesse no que veio
+ * pareceria mais gentil e tornaria "tirar o cargo" indistinguível de "não
+ * mexer no cargo".
+ */
+router.put("/users/:id/lotacao", async (req, res): Promise<void> => {
+  const recusa = somenteAdmin(req);
+  if (recusa) {
+    res.status(403).json({ error: recusa });
+    return;
+  }
+  if (!UUID.test(req.params.id)) {
+    res.status(400).json({ error: "Identificador de conta inválido." });
+    return;
+  }
+
+  const target = await findUserById(db, req.params.id);
+  if (!target) {
+    res.status(404).json({ error: "Conta não encontrada." });
+    return;
+  }
+
+  const lotacao = await lerLotacao(req.body ?? {});
+  if (typeof lotacao === "string") {
+    res.status(400).json({ error: lotacao });
+    return;
+  }
+
+  await definirLotacao(db, target.id, lotacao);
+  req.log.info(
+    { email: target.email, ...lotacao, by: req.user!.email },
+    "Lotação de conta alterada",
   );
   res.json(await listUsers(db));
 });
