@@ -84,6 +84,29 @@
   --font-sans: var(--app-font-sans);
   --font-mono: var(--app-font-mono);
 
+  /*
+   * Os três degraus abaixo do `text-xs` do Tailwind.
+   *
+   * Eles existem porque a interface precisa deles — o "PARCIAL" sob o número
+   * da célula, o "3 crit." no canto, o rótulo do nó compacto do fluxo — e a
+   * escala do Tailwind termina em `text-xs`. Sem estes tokens cada um desses
+   * rótulos era escrito à mão em pixel absoluto, `text-2xs`, 46 vezes.
+   *
+   * Pixel absoluto aqui é um furo na única alavanca de escala do projeto (ver
+   * `html` no `@layer base`): quando a raiz desceu, tudo acompanhou menos estes
+   * rótulos, que ficaram parados no mesmo tamanho e, por isso, relativamente
+   * maiores do que foram desenhados. Em `rem` eles voltam a andar junto.
+   *
+   * Os valores são os antigos pixels divididos pela raiz de 15px em que foram
+   * desenhados — 11, 10 e 9 —, de modo que a proporção com o corpo do texto é
+   * exatamente a de antes. Não têm `--line-height` de propósito: `text-2xs`
+   * também não mexia na entrelinha, e herdar continua sendo o certo para um
+   * rótulo que mora dentro da linha de outro elemento.
+   */
+  --text-2xs: 0.7333rem;
+  --text-3xs: 0.6667rem;
+  --text-4xs: 0.6rem;
+
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);

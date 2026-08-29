@@ -53,14 +53,14 @@ export function LegendaDoFluxo({ catalogo }: { catalogo: Catalogo | undefined })
       {aberta && (
         <div className="grid gap-3 border-t px-3 py-2.5 sm:grid-cols-2">
           <div>
-            <p className="mb-1.5 text-[11px] uppercase tracking-wide text-muted-foreground">
+            <p className="mb-1.5 text-2xs uppercase tracking-wide text-muted-foreground">
               Elementos
             </p>
             <ul className="grid gap-1">
               {tipos.map((tipo) => {
                 const Icone = iconeDoCatalogo(tipo.icone);
                 return (
-                  <li key={tipo.valor} className="flex items-center gap-2 text-[11px]">
+                  <li key={tipo.valor} className="flex items-center gap-2 text-2xs">
                     <span
                       className={cn(
                         "flex h-4 w-6 shrink-0 items-center justify-center border",
@@ -85,12 +85,12 @@ export function LegendaDoFluxo({ catalogo }: { catalogo: Catalogo | undefined })
           </div>
 
           <div>
-            <p className="mb-1.5 text-[11px] uppercase tracking-wide text-muted-foreground">
+            <p className="mb-1.5 text-2xs uppercase tracking-wide text-muted-foreground">
               Ligações
             </p>
             <ul className="grid gap-1">
               {conexoes.map((conexao) => (
-                <li key={conexao.valor} className="flex items-center gap-2 text-[11px]">
+                <li key={conexao.valor} className="flex items-center gap-2 text-2xs">
                   <svg width="24" height="8" viewBox="0 0 24 8" aria-hidden className="shrink-0">
                     <line
                       x1="0"

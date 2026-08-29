@@ -264,13 +264,13 @@ function Selo({
         CORES[faixa(valor, completude)],
       )}
     >
-      <span className="text-[11px] font-semibold uppercase tracking-wide opacity-80">
+      <span className="text-2xs font-semibold uppercase tracking-wide opacity-80">
         {rotulo}
       </span>
       <span className="font-mono text-base font-semibold tabular-nums">
         {percentual(valor)}
       </span>
-      <span className="text-[11px] opacity-70">{resumo}</span>
+      <span className="text-2xs opacity-70">{resumo}</span>
       <ChevronRight className="h-3.5 w-3.5 self-center opacity-50 transition-transform group-hover:translate-x-0.5" />
     </button>
   );
@@ -344,7 +344,7 @@ function FaltamDados({ aferibilidade }: { aferibilidade: Aferibilidade }) {
           {porQuinzena.flatMap((g) =>
             g.itens.map((f) => (
               <li key={`${f.tipo}-${f.quinzena}`} className="text-muted-foreground">
-                <span className="font-mono text-[11px] text-foreground">{f.rotina}</span>
+                <span className="font-mono text-2xs text-foreground">{f.rotina}</span>
                 {" · "}
                 {f.quinzena}ª quinzena — {motivoDaFalta(f)}
               </li>
@@ -638,11 +638,11 @@ function Parcela({
       </div>
 
       <div className="mt-1 flex items-center gap-2">
-        <span className="text-[11px] text-muted-foreground">
+        <span className="text-2xs text-muted-foreground">
           {ROTULO_DA_CLASSE[parcela.classe]}
         </span>
         {parcela.fonteDoDevido && (
-          <code className="rounded bg-muted px-1 py-0.5 text-[10px]">
+          <code className="rounded bg-muted px-1 py-0.5 text-3xs">
             {parcela.fonteDoDevido}
           </code>
         )}
@@ -660,7 +660,7 @@ function Parcela({
               style={{ width: `${fracao * 100}%` }}
             />
           </div>
-          <p className="mt-1 text-[11px] text-muted-foreground">
+          <p className="mt-1 text-2xs text-muted-foreground">
             {comLastro === 0
               ? "sem lastro cruzado"
               : `${dinheiro(comLastro)} com lastro${
@@ -671,7 +671,7 @@ function Parcela({
           </p>
         </>
       ) : (
-        <p className="mt-1 text-[11px]">
+        <p className="mt-1 text-2xs">
           {naoExplicado > 0.005 ? (
             <span className="font-medium text-amber-700 dark:text-amber-400">
               {dinheiro(naoExplicado)} sem explicação

@@ -88,14 +88,14 @@ export const NoDaFase = memo(function NoDaFase({ data }: NodeProps & { data: Dad
       >
         <p
           className={cn(
-            "truncate text-[13px] font-semibold uppercase leading-tight tracking-wide",
+            "truncate text-[0.8667rem] font-semibold uppercase leading-tight tracking-wide",
             fase.semInformacao ? "text-muted-foreground" : cor.texto,
           )}
           title={fase.rotulo}
         >
           {fase.rotulo}
         </p>
-        <p className="mt-0.5 text-[11px] text-muted-foreground">
+        <p className="mt-0.5 text-2xs text-muted-foreground">
           {etapas} {etapas === 1 ? "etapa" : "etapas"}
         </p>
       </div>
