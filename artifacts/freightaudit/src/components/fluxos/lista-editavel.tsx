@@ -37,8 +37,22 @@ export interface ColunaDaLista<T> {
   /** Quanto espaço a coluna ocupa na linha. `1` é o padrão. */
   peso?: number;
   tipo?: "texto" | "booleano" | "escolha";
-  opcoes?: { valor: string; rotulo: string }[];
+  /**
+   * As opções da escolha — fixas, ou **função da linha** quando dependem do que
+   * já foi escolhido nela.
+   *
+   * A segunda forma existe pelo cargo: escolhido o departamento numa linha de
+   * responsáveis, a lista de cargos passa a ser a daquele departamento. Isso é
+   * por linha e não por coluna — duas linhas da mesma etapa podem estar em
+   * departamentos diferentes —, e por isso não cabia num array montado uma vez.
+   */
+  opcoes?: OpcaoDaColuna[] | ((linha: T) => OpcaoDaColuna[]);
   placeholder?: string;
+}
+
+export interface OpcaoDaColuna {
+  valor: string;
+  rotulo: string;
 }
 
 export function ListaEditavel<T extends Record<string, unknown>>({
@@ -102,6 +116,10 @@ export function ListaEditavel<T extends Record<string, unknown>>({
                   );
                 }
                 if (coluna.tipo === "escolha") {
+                  const opcoes =
+                    typeof coluna.opcoes === "function"
+                      ? coluna.opcoes(item)
+                      : (coluna.opcoes ?? []);
                   return (
                     <Select
                       key={coluna.campo}
@@ -112,7 +130,7 @@ export function ListaEditavel<T extends Record<string, unknown>>({
                         <SelectValue placeholder={coluna.rotulo} />
                       </SelectTrigger>
                       <SelectContent>
-                        {(coluna.opcoes ?? []).map((o) => (
+                        {opcoes.map((o) => (
                           <SelectItem key={o.valor} value={o.valor}>
                             {o.rotulo}
                           </SelectItem>

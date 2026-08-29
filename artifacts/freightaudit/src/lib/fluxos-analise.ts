@@ -1051,12 +1051,40 @@ export function camposVaziosDoPainel(etapa: Etapa): CampoDoPainel[] {
  * As espécies saem do catálogo do servidor, então acrescentar uma lá continua
  * não exigindo nada da interface.
  */
+export interface OpcaoDaEscolha {
+  valor: string;
+  rotulo: string;
+}
+
 export interface CampoDaLinhaDoPainel {
   campo: string;
   rotulo: string;
   tipo: "texto" | "booleano" | "escolha";
   placeholder?: string;
-  opcoes?: { valor: string; rotulo: string }[];
+  /**
+   * A lista de opções — fixa, ou **função da linha** quando ela depende do que
+   * já foi escolhido nessa mesma linha.
+   *
+   * O caso que obrigou a segunda forma é o cargo: escolhido `Faturamento` no
+   * campo de departamento, a lista de cargos deixa de ser a da casa inteira e
+   * passa a ser a daquele departamento. Isso é por linha, e não por lista — duas
+   * linhas de responsáveis da mesma etapa podem estar em departamentos
+   * diferentes —, e por isso não cabia num array montado uma vez na
+   * `listasDoPainel`.
+   *
+   * Quem lê isto nunca chama a função direto: usa `opcoesDoCampo`, que trata as
+   * duas formas.
+   */
+  opcoes?: OpcaoDaEscolha[] | ((linha: ValoresDaLinha) => OpcaoDaEscolha[]);
+}
+
+/** As opções de um campo de escolha para uma linha — as duas formas de `opcoes`. */
+export function opcoesDoCampo(
+  campo: CampoDaLinhaDoPainel,
+  linha: ValoresDaLinha,
+): OpcaoDaEscolha[] {
+  if (typeof campo.opcoes === "function") return campo.opcoes(linha);
+  return campo.opcoes ?? [];
 }
 
 /**
@@ -1078,6 +1106,14 @@ export const SEM_VINCULO = "__sem_vinculo__";
 export interface OpcaoDeCadastro {
   id: string;
   nome: string;
+  /**
+   * Onde este cadastro está pendurado — o pai, num departamento; a lotação, num
+   * cargo. É o que permite estreitar a lista de cargos pelo departamento
+   * escolhido (ver `cargosDoDepartamento`). Ausente nas pessoas, que não são
+   * filtradas.
+   */
+  paiId?: string | null;
+  departamentoId?: string | null;
 }
 
 /**
@@ -1138,6 +1174,70 @@ export type ValoresDaLinha = Record<string, string | boolean>;
  * e descrição, digitados. É o que mantém esta tela funcionando numa casa que
  * ainda não cadastrou departamento nenhum.
  */
+/**
+ * O DEPARTAMENTO ESTREITA A LISTA DE CARGOS — e o que ele deliberadamente não
+ * esconde.
+ *
+ * Escolhido `Faturamento`, oferecer os oitenta cargos da casa devolve à pessoa
+ * exatamente o trabalho que o campo de departamento acabou de tirar dela. Esta
+ * função é o estreitamento, e as três exceções abaixo são o que impede que ele
+ * vire uma lista que não contém a resposta certa.
+ *
+ * **Os departamentos abaixo do escolhido entram.** `departamento.pai_id` é
+ * hierarquia, e "quem responde por quem" é o que ela afirma: escolher
+ * *Administrativo* e não ver nenhum cargo porque todos estão lotados em
+ * *Controladoria*, que fica dentro dele, seria a tela contradizendo o cadastro.
+ * A descida é por todos os níveis, não só pelos filhos diretos.
+ *
+ * **Cargo sem lotação entra sempre.** `cargo.departamento_id` é opcional de
+ * propósito (ver `schema/cadastro.ts`: o cargo existe antes de alguém decidir
+ * onde ele fica), e escondê-lo aqui tornaria inalcançável, em toda etapa com
+ * departamento, um cargo que ninguém lotou ainda — sem nenhum aviso de que ele
+ * existe. Numa casa que não lotou nada, o filtro não filtra: é a resposta
+ * certa, porque não há por onde estreitar.
+ *
+ * **O cargo já escolhido entra, mesmo sendo de outro departamento.** Trocar o
+ * departamento de uma etapa não pode fazer o cargo gravado sumir da lista: o
+ * campo passaria a mostrar um valor que não está entre as opções, e a próxima
+ * gravação o perderia sem ninguém ter pedido. Ele fica, visível, e quem trocou
+ * decide o que fazer com ele. **Nada é limpo em silêncio.**
+ */
+export function cargosDoDepartamento(
+  opcoes: OpcoesDeResponsavel,
+  departamentoId: string | null,
+  cargoEscolhidoId?: string | null,
+): OpcaoDeCadastro[] {
+  if (departamentoId === null || departamentoId === "" || departamentoId === SEM_VINCULO) {
+    return opcoes.cargos;
+  }
+
+  /*
+    O escolhido e tudo o que está abaixo dele. A varredura repete enquanto
+    achar filho novo, em vez de recursão, porque o cadastro recusa ciclo mas
+    esta função não é quem garante isso — e um `while` que só cresce um conjunto
+    termina de qualquer jeito.
+  */
+  const doRamo = new Set([departamentoId]);
+  let cresceu = true;
+  while (cresceu) {
+    cresceu = false;
+    for (const departamento of opcoes.departamentos) {
+      const pai = departamento.paiId;
+      if (pai && doRamo.has(pai) && !doRamo.has(departamento.id)) {
+        doRamo.add(departamento.id);
+        cresceu = true;
+      }
+    }
+  }
+
+  return opcoes.cargos.filter(
+    (cargo) =>
+      !cargo.departamentoId ||
+      doRamo.has(cargo.departamentoId) ||
+      cargo.id === cargoEscolhidoId,
+  );
+}
+
 function camposDoResponsavel(opcoes: OpcoesDeResponsavel | undefined): CampoDaLinhaDoPainel[] {
   if (!opcoes) return [];
   const escolha = (
@@ -1160,9 +1260,36 @@ function camposDoResponsavel(opcoes: OpcoesDeResponsavel | undefined): CampoDaLi
           },
         ];
 
+  /*
+    O cargo é o único campo cuja lista depende da própria linha: ela é a da
+    casa inteira até alguém escolher um departamento, e a daquele departamento
+    depois disso. Por isso `opcoes` aqui é função, e não array.
+  */
+  const doCargo: CampoDaLinhaDoPainel[] =
+    opcoes.cargos.length === 0
+      ? []
+      : [
+          {
+            campo: "cargoId",
+            rotulo: "Cargo",
+            tipo: "escolha",
+            opcoes: (linha) => {
+              const escolhido = String(linha.cargoId ?? "");
+              return [
+                { valor: SEM_VINCULO, rotulo: "Sem cargo" },
+                ...cargosDoDepartamento(
+                  opcoes,
+                  String(linha.departamentoId ?? ""),
+                  escolhido,
+                ).map((o) => ({ valor: o.id, rotulo: o.nome })),
+              ];
+            },
+          },
+        ];
+
   return [
     ...escolha("departamentoId", "Departamento", "Sem departamento", opcoes.departamentos),
-    ...escolha("cargoId", "Cargo", "Sem cargo", opcoes.cargos),
+    ...doCargo,
     ...escolha("pessoaId", "Pessoa", "Sem pessoa", opcoes.pessoas),
   ];
 }
@@ -1301,7 +1428,8 @@ export function linhaNovaDoPainel(lista: ListaDoPainel): ValoresDaLinha {
   const vazia: ValoresDaLinha = {};
   for (const campo of lista.campos) {
     if (campo.tipo === "booleano") vazia[campo.campo] = false;
-    else if (campo.tipo === "escolha") vazia[campo.campo] = campo.opcoes?.[0]?.valor ?? "";
+    else if (campo.tipo === "escolha")
+      vazia[campo.campo] = opcoesDoCampo(campo, vazia)[0]?.valor ?? "";
     else vazia[campo.campo] = "";
   }
   return vazia;

@@ -2,12 +2,19 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useSearch } from "wouter";
 import {
-  ArrowUp,
+  ArrowRight,
+  BookOpen,
+  ChevronRight,
+  CircleDollarSign,
+  Fuel,
   Loader2,
-  MessageSquarePlus,
+  MessageSquare,
   MoreHorizontal,
+  Plus,
+  Send,
   Sparkles,
   Terminal,
+  TrendingUp,
 } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
 import { ApiErrorNotice } from "@/components/api-error";
@@ -43,17 +50,43 @@ import { cn } from "@/lib/utils";
  * não.
  */
 
+/**
+ * As quatro perguntas de abertura.
+ *
+ * Cada uma nomeia uma **categoria de pergunta**, não um atalho de tela: quem
+ * abre o Assistente pela primeira vez não sabe o que ele responde, e a lista
+ * existe para dizer isso. A frase de apoio descreve o que a resposta traz —
+ * sem ela o cartão é só a pergunta repetida em corpo maior.
+ */
 const SUGESTOES_INICIAIS = [
   {
     categoria: "Entender um parâmetro",
     pergunta: "Como funciona o preço de combustível?",
+    descricao: "Entenda como o parâmetro é calculado e quais fatores o influenciam.",
+    icone: Fuel,
+    tom: "bg-blue-50 text-blue-600",
   },
   {
     categoria: "Analisar alterações",
     pergunta: "O que mais mudou na última vigência?",
+    descricao: "Veja as principais alterações e seus impactos na última vigência.",
+    icone: TrendingUp,
+    tom: "bg-emerald-50 text-emerald-600",
   },
-  { categoria: "Impacto financeiro", pergunta: "Onde tivemos maior perda?" },
-  { categoria: "Book do Operador", pergunta: "O que o Book diz sobre IPVA?" },
+  {
+    categoria: "Impacto financeiro",
+    pergunta: "Onde tivemos maior perda?",
+    descricao: "Identifique os principais pontos de perda e seus impactos financeiros.",
+    icone: CircleDollarSign,
+    tom: "bg-rose-50 text-rose-600",
+  },
+  {
+    categoria: "Book do Operador",
+    pergunta: "O que o Book diz sobre IPVA?",
+    descricao: "Consulte como o IPVA é tratado no Book do Operador.",
+    icone: BookOpen,
+    tom: "bg-violet-50 text-violet-600",
+  },
 ];
 
 export default function Assistente() {
@@ -226,30 +259,32 @@ export default function Assistente() {
           aoMudar={() => void cliente.invalidateQueries({ queryKey: ["assistant-conversations"] })}
         />
 
-        <main className="flex-1 flex flex-col min-w-0">
-          <header className="border-b bg-card px-8 py-4 flex items-center justify-between gap-4">
-            <div>
-              <h1 className="text-lg font-bold tracking-tight flex items-center gap-2">
-                <Sparkles className="w-5 h-5 text-primary" />
-                Assistente FreightCheck
-              </h1>
-              <p className="text-sm text-muted-foreground">
-                Pergunte sobre parâmetros, alterações, impactos e o Book do Operador.
-              </p>
+        <main className="flex-1 flex flex-col min-w-0 bg-background">
+          <header className="border-b bg-card px-8 py-5 flex items-start justify-between gap-6">
+            <div className="flex items-start gap-3 min-w-0">
+              <Sparkles className="w-7 h-7 text-brand shrink-0 mt-0.5" aria-hidden />
+              <div className="min-w-0">
+                <h1 className="text-2xl font-bold tracking-tight">Assistente FreightCheck</h1>
+                <p className="text-sm text-muted-foreground max-w-md">
+                  Pergunte sobre parâmetros, alterações, impactos e o Book do Operador.
+                </p>
+              </div>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-start gap-3 shrink-0">
               <SeletorDeRecorte recorte={recorte} aoTrocar={trocarRecorte} />
-            <button
-              type="button"
-              onClick={() => setPainelTecnico((v) => !v)}
-              title="Painel técnico"
-              className={cn(
-                "p-2 rounded-sm transition-colors",
-                painelTecnico ? "bg-muted text-foreground" : "text-muted-foreground hover:bg-muted",
-              )}
-            >
-              <Terminal className="w-4 h-4" />
-            </button>
+              <button
+                type="button"
+                onClick={() => setPainelTecnico((v) => !v)}
+                title="Painel técnico"
+                className={cn(
+                  "p-2.5 rounded-lg border border-input transition-colors",
+                  painelTecnico
+                    ? "bg-muted text-foreground"
+                    : "bg-card text-muted-foreground hover:bg-muted",
+                )}
+              >
+                <Terminal className="w-4 h-4" />
+              </button>
             </div>
           </header>
 
@@ -349,26 +384,59 @@ export default function Assistente() {
 
 function Abertura({ aoEscolher }: { aoEscolher: (p: string) => void }) {
   return (
-    <div className="py-10">
-      <h2 className="text-xl font-semibold mb-1">Sobre o que você quer saber?</h2>
-      <p className="text-sm text-muted-foreground mb-6 max-w-xl">
-        Pergunte com suas palavras. Não é preciso saber o nome técnico do parâmetro
-        nem em que tela ele mora.
-      </p>
-      <div className="grid gap-2 sm:grid-cols-2 max-w-3xl">
-        {SUGESTOES_INICIAIS.map((s) => (
-          <button
-            key={s.pergunta}
-            type="button"
-            onClick={() => aoEscolher(s.pergunta)}
-            className="text-left border border-input rounded-sm px-4 py-3 hover:border-brand hover:bg-muted/30 transition-colors"
-          >
-            <span className="block text-[0.6875rem] uppercase tracking-wide text-muted-foreground mb-1">
-              {s.categoria}
-            </span>
-            <span className="text-sm">{s.pergunta}</span>
-          </button>
-        ))}
+    <div className="py-8">
+      <div className="flex items-center gap-6 mb-10">
+        <div className="w-24 h-24 shrink-0 rounded-3xl bg-gradient-to-br from-topbar-accent to-brand flex items-center justify-center text-white">
+          <MessageSquare className="w-10 h-10" aria-hidden />
+        </div>
+        <div className="min-w-0">
+          <h2 className="text-3xl font-bold tracking-tight mb-2">
+            Como posso te ajudar hoje?
+          </h2>
+          <p className="text-[0.9375rem] text-muted-foreground max-w-xl">
+            Faça perguntas em linguagem natural sobre parâmetros, alterações, impactos
+            financeiros e o Book do Operador.
+          </p>
+        </div>
+      </div>
+
+      <h3 className="text-base font-semibold mb-4">Perguntas frequentes</h3>
+      <div className="grid gap-4 sm:grid-cols-2">
+        {SUGESTOES_INICIAIS.map((s) => {
+          const Icone = s.icone;
+          return (
+            <button
+              key={s.pergunta}
+              type="button"
+              onClick={() => aoEscolher(s.pergunta)}
+              className="group text-left bg-card border border-card-border rounded-xl p-5 flex items-start gap-4 hover:border-brand hover:shadow-sm transition-[border-color,box-shadow]"
+            >
+              <span
+                className={cn(
+                  "w-12 h-12 shrink-0 rounded-full flex items-center justify-center",
+                  s.tom,
+                )}
+              >
+                <Icone className="w-5 h-5" aria-hidden />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-[0.6875rem] uppercase tracking-wide font-semibold text-brand mb-1.5">
+                  {s.categoria}
+                </span>
+                <span className="block text-[0.9375rem] font-semibold leading-snug mb-1.5">
+                  {s.pergunta}
+                </span>
+                <span className="block text-[0.8125rem] text-muted-foreground leading-snug">
+                  {s.descricao}
+                </span>
+              </span>
+              <ArrowRight
+                className="w-4 h-4 shrink-0 self-center text-muted-foreground group-hover:text-brand transition-colors"
+                aria-hidden
+              />
+            </button>
+          );
+        })}
       </div>
     </div>
   );
@@ -480,9 +548,9 @@ function Composer({
   }, [valor, campo]);
 
   return (
-    <div className="border-t bg-card px-8 py-4">
+    <div className="px-8 pb-6 pt-2">
       <div className="max-w-4xl mx-auto">
-        <div className="relative border border-input rounded-lg focus-within:border-brand transition-colors">
+        <div className="bg-card border border-input rounded-xl px-4 pt-3 pb-3 focus-within:border-brand transition-colors">
           <textarea
             ref={campo}
             value={valor}
@@ -495,25 +563,37 @@ function Composer({
             }}
             rows={1}
             maxLength={1000}
-            placeholder="Pergunte sobre o FreightCheck..."
-            className="w-full resize-none bg-transparent py-3 pl-4 pr-14 text-[0.9375rem] outline-none max-h-[200px]"
+            placeholder="Digite sua pergunta aqui..."
+            className="w-full resize-none bg-transparent text-[0.9375rem] outline-none max-h-[200px] placeholder:text-muted-foreground"
           />
-          <button
-            type="button"
-            onClick={onEnviar}
-            disabled={ocupado || valor.trim().length === 0}
-            aria-label="Enviar"
-            className="absolute right-2 bottom-2 w-9 h-9 rounded-md bg-brand text-brand-foreground flex items-center justify-center hover:brightness-95 transition-[filter] disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            {ocupado ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <ArrowUp className="w-4 h-4" />
-            )}
-          </button>
+          <div className="flex items-end justify-between gap-3 pt-2">
+            <p className="text-[0.6875rem] text-muted-foreground">
+              {aviso ?? "Enter envia · Shift+Enter quebra linha"}
+            </p>
+            <button
+              type="button"
+              onClick={onEnviar}
+              disabled={ocupado || valor.trim().length === 0}
+              aria-label="Enviar"
+              className="w-10 h-10 shrink-0 rounded-lg bg-brand text-brand-foreground flex items-center justify-center hover:brightness-95 transition-[filter] disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {ocupado ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Send className="w-4 h-4" />
+              )}
+            </button>
+          </div>
         </div>
-        <p className="text-[0.6875rem] text-muted-foreground mt-2">
-          {aviso ?? "Enter envia · Shift+Enter quebra linha"}
+        {/*
+          O aviso que a tela deve a quem lê a resposta.
+
+          Ele não é rodapé decorativo: as respostas saem de um modelo, e dizer
+          isso onde a pergunta é feita é a mesma honestidade que o resto da tela
+          pratica ao mostrar recorte e fontes.
+        */}
+        <p className="text-[0.6875rem] text-muted-foreground text-center mt-3">
+          As respostas podem conter imprecisões. Sempre valide as informações importantes.
         </p>
       </div>
     </div>
@@ -522,23 +602,25 @@ function Composer({
 
 // ── Histórico ───────────────────────────────────────────────────────────────
 
-function agrupar(conversas: ConversaResumo[]): { titulo: string; itens: ConversaResumo[] }[] {
-  const hoje = new Date();
+/**
+ * A data de cada conversa, dita na própria linha dela.
+ *
+ * **Por que ela saiu do cabeçalho de grupo.** Agrupar por dia dava um título
+ * para cada data, e numa lista em que quase toda conversa é de um dia diferente
+ * o título repetia a linha seguinte — metade da barra virava cabeçalho. Aqui a
+ * data acompanha o item, que é onde ela é lida: "esta conversa é de quando".
+ * "Hoje" e "Ontem" continuam por extenso porque são as duas datas que ninguém
+ * calcula de cabeça.
+ */
+export function rotuloDaData(iso: string, agora: Date = new Date()): string {
+  const data = new Date(iso);
   const ehMesmoDia = (a: Date, b: Date) => a.toDateString() === b.toDateString();
-  const ontem = new Date(hoje);
-  ontem.setDate(hoje.getDate() - 1);
+  const ontem = new Date(agora);
+  ontem.setDate(agora.getDate() - 1);
 
-  const grupos = new Map<string, ConversaResumo[]>();
-  for (const c of conversas) {
-    const data = new Date(c.updatedAt);
-    const chave = ehMesmoDia(data, hoje)
-      ? "Hoje"
-      : ehMesmoDia(data, ontem)
-        ? "Ontem"
-        : data.toLocaleDateString("pt-BR", { day: "2-digit", month: "long" });
-    grupos.set(chave, [...(grupos.get(chave) ?? []), c]);
-  }
-  return [...grupos].map(([titulo, itens]) => ({ titulo, itens }));
+  if (ehMesmoDia(data, agora)) return "Hoje";
+  if (ehMesmoDia(data, ontem)) return "Ontem";
+  return data.toLocaleDateString("pt-BR", { day: "2-digit", month: "long" });
 }
 
 function Historico({
@@ -576,67 +658,87 @@ function Historico({
   };
 
   return (
-    <aside className="w-64 border-r bg-card shrink-0 hidden lg:flex flex-col">
-      <div className="p-3">
+    <aside className="w-72 border-r bg-card shrink-0 hidden lg:flex flex-col">
+      <div className="p-4">
         <button
           type="button"
           onClick={aoNova}
-          className="w-full flex items-center gap-2 text-sm border border-input rounded-sm px-3 py-2 hover:border-brand transition-colors"
+          className="w-full flex items-center justify-center gap-2 text-sm font-semibold bg-brand text-brand-foreground rounded-lg px-3 py-3 hover:brightness-95 transition-[filter]"
         >
-          <MessageSquarePlus className="w-4 h-4" />
+          <Plus className="w-4 h-4" />
           Nova conversa
         </button>
       </div>
 
-      <nav className="flex-1 overflow-y-auto px-2 pb-4">
+      <p className="px-4 pb-2 text-sm font-semibold">Conversas recentes</p>
+
+      <nav className="flex-1 overflow-y-auto px-3 pb-4 space-y-1">
         {conversas.length === 0 && (
-          <p className="px-2 text-xs text-muted-foreground">Nenhuma conversa ainda.</p>
+          <p className="px-1 text-xs text-muted-foreground">Nenhuma conversa ainda.</p>
         )}
-        {agrupar(conversas).map((grupo) => (
-          <div key={grupo.titulo} className="mb-3">
-            <p className="px-2 py-1 text-[0.6875rem] uppercase tracking-wide text-muted-foreground">
-              {grupo.titulo}
-            </p>
-            {grupo.itens.map((c) => (
-              <div key={c.id} className="relative group">
-                <button
-                  type="button"
-                  onClick={() => aoAbrir(c.id)}
+        {conversas.map((c) => (
+          <div key={c.id} className="relative group">
+            <button
+              type="button"
+              onClick={() => aoAbrir(c.id)}
+              className={cn(
+                "w-full text-left rounded-lg px-3 py-2.5 pr-8 flex items-start gap-2.5 transition-colors",
+                atual === c.id ? "bg-muted" : "hover:bg-muted/60",
+              )}
+            >
+              <MessageSquare
+                className="w-4 h-4 shrink-0 mt-0.5 text-muted-foreground"
+                aria-hidden
+              />
+              <span className="min-w-0 flex-1">
+                <span className="block text-[0.625rem] uppercase tracking-wide font-semibold text-brand">
+                  {rotuloDaData(c.updatedAt)}
+                </span>
+                <span
                   className={cn(
-                    "w-full text-left text-sm rounded-sm px-2 py-1.5 pr-7 truncate transition-colors",
-                    atual === c.id ? "bg-muted font-medium" : "hover:bg-muted/60",
+                    "block text-[0.8125rem] leading-snug line-clamp-2",
+                    atual === c.id && "font-medium",
                   )}
                 >
                   {c.title}
+                </span>
+              </span>
+            </button>
+            {/*
+              A seta e o "…" ocupam o mesmo canto: a seta diz para onde o item
+              leva, e some no instante em que o cursor traz o menu — duas
+              affordances no mesmo pixel seriam duas miras para o mesmo clique.
+            */}
+            <ChevronRight
+              className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/60 pointer-events-none group-hover:opacity-0 transition-opacity"
+              aria-hidden
+            />
+            <button
+              type="button"
+              onClick={() => setMenuAberto(menuAberto === c.id ? null : c.id)}
+              aria-label="Opções da conversa"
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1 rounded-sm text-muted-foreground opacity-0 group-hover:opacity-100 focus:opacity-100 hover:bg-muted transition-opacity"
+            >
+              <MoreHorizontal className="w-4 h-4" />
+            </button>
+            {menuAberto === c.id && (
+              <div className="absolute right-1 top-full z-10 bg-card border rounded-sm shadow-md text-xs w-32">
+                <button
+                  type="button"
+                  onClick={() => void renomear(c)}
+                  className="block w-full text-left px-3 py-2 hover:bg-muted"
+                >
+                  Renomear
                 </button>
                 <button
                   type="button"
-                  onClick={() => setMenuAberto(menuAberto === c.id ? null : c.id)}
-                  aria-label="Opções da conversa"
-                  className="absolute right-1 top-1.5 p-0.5 text-muted-foreground opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
+                  onClick={() => void arquivar(c)}
+                  className="block w-full text-left px-3 py-2 hover:bg-muted"
                 >
-                  <MoreHorizontal className="w-4 h-4" />
+                  Arquivar
                 </button>
-                {menuAberto === c.id && (
-                  <div className="absolute right-1 top-8 z-10 bg-card border rounded-sm shadow-md text-xs w-32">
-                    <button
-                      type="button"
-                      onClick={() => void renomear(c)}
-                      className="block w-full text-left px-3 py-2 hover:bg-muted"
-                    >
-                      Renomear
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void arquivar(c)}
-                      className="block w-full text-left px-3 py-2 hover:bg-muted"
-                    >
-                      Arquivar
-                    </button>
-                  </div>
-                )}
               </div>
-            ))}
+            )}
           </div>
         ))}
       </nav>

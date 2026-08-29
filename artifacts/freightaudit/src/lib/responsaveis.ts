@@ -60,8 +60,18 @@ export function useOpcoesDeResponsavel(): OpcoesDeResponsavel | undefined {
     const porNome = (a: { nome: string }, b: { nome: string }) => a.nome.localeCompare(b.nome, "pt-BR");
 
     return {
-      departamentos: (departamentos.data ?? []).map((d) => ({ id: d.id, nome: d.nome })).sort(porNome),
-      cargos: (cargos.data ?? []).map((c) => ({ id: c.id, nome: c.nome })).sort(porNome),
+      /*
+        `paiId` e `departamentoId` vêm junto porque é deles que sai o
+        estreitamento da lista de cargos pelo departamento escolhido: a lotação
+        diz a que departamento o cargo pertence, e a hierarquia diz o que está
+        abaixo do escolhido. Ver `cargosDoDepartamento`.
+      */
+      departamentos: (departamentos.data ?? [])
+        .map((d) => ({ id: d.id, nome: d.nome, paiId: d.paiId }))
+        .sort(porNome),
+      cargos: (cargos.data ?? [])
+        .map((c) => ({ id: c.id, nome: c.nome, departamentoId: c.departamentoId }))
+        .sort(porNome),
       pessoas: (contas.data ?? [])
         .filter((c) => c.archivedAt === null)
         .map((c) => ({ id: c.id, nome: c.name }))
