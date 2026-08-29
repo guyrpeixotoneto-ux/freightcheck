@@ -14,7 +14,12 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Server } from "node:http";
 import { createTestDatabase, type TestDb } from "@workspace/ingest/testing";
-import { createDb, encerrarPoolDoProcesso, unidadeTable } from "@workspace/db";
+import {
+  createDb,
+  departamentoTable,
+  encerrarPoolDoProcesso,
+  unidadeTable,
+} from "@workspace/db";
 import { CTE_ATE_RECEBIMENTO } from "@workspace/fluxos";
 
 let ctx: TestDb;
@@ -1136,5 +1141,117 @@ describe("a edição campo a campo pela rota da etapa", () => {
     expect(fim.area).toBe("Quem chegou depois");
     expect(fim.responsavel).toBe("Analista Fiscal");
     expect(fim.responsavel).not.toBe("Quem chegou primeiro");
+  });
+});
+
+/**
+ * A ARRUMAÇÃO EM LOTE, pela rota.
+ *
+ * O motor tem a bateria dele contra Postgres em
+ * `lib/fluxos/src/__tests__/isolamento.test.ts` — o agrupamento, a sugestão, o
+ * lote e a prova de que a empresa A não arruma a B. Repetir aquilo aqui só
+ * provaria o mesmo código duas vezes.
+ *
+ * O que **só** aqui pode ser provado é o que a exposição HTTP acrescenta: que os
+ * dois endereços estão atrás do portão de sessão, que a empresa vem do escopo,
+ * que uma recusa do motor chega como 4xx e não como 5xx, e — a razão de o
+ * namespace ser `/arrumacao` e não `/fluxos/arrumacao` — que nenhum dos dois
+ * caminhos é lido como um `id` de fluxo.
+ */
+describe("a arrumação dos responsáveis em texto, pela rota", () => {
+  it("os dois endereços estão atrás da sessão", async () => {
+    const leitura = await chamar(`/api/arrumacao/responsaveis?empresaId=${empresaA}`, {}, false);
+    expect(leitura.status).toBe(401);
+
+    const escrita = await chamar(
+      `/api/arrumacao/responsaveis/aplicar?empresaId=${empresaA}`,
+      { method: "POST", body: JSON.stringify({ escopo: "AREA", textoCanonico: "X" }) },
+      false,
+    );
+    expect(escrita.status).toBe(401);
+  });
+
+  it("a leitura devolve a empresa do escopo e a lista, mesmo vazia", async () => {
+    const r = await chamar(`/api/arrumacao/responsaveis?empresaId=${empresaA}`);
+    expect(r.status).toBe(200);
+    expect(r.json.empresaId).toBe(empresaA);
+    expect(Array.isArray(r.json.achados)).toBe(true);
+  });
+
+  it("o texto que uma etapa escreveu aparece, e some depois de arrumado", async () => {
+    const fluxo = await post(`/api/fluxos?empresaId=${empresaA}`, {
+      nome: "Arrumação pela rota",
+      categoria: "Teste",
+    });
+    const fluxoId = fluxo.json.id as string;
+    await post(`/api/fluxos/${fluxoId}/etapas?empresaId=${empresaA}`, {
+      nome: "Conferir",
+      area: "Suprimentos",
+    });
+
+    const achados = () =>
+      chamar(`/api/arrumacao/responsaveis?empresaId=${empresaA}`).then(
+        (r) => r.json.achados as { escopo: string; textoCanonico: string; ocorrencias: number }[],
+      );
+
+    const antes = (await achados()).find(
+      (a) => a.escopo === "AREA" && a.textoCanonico === "SUPRIMENTOS",
+    );
+    expect(antes?.ocorrencias).toBe(1);
+
+    /*
+      O departamento entra pelo banco, e não por `POST /cadastro/departamentos`:
+      aquela rota é de ADMIN, e o que este teste tem a provar é a arrumação, não
+      o papel de quem cadastra.
+    */
+    const [departamento] = await ctx.db
+      .insert(departamentoTable)
+      .values({ nome: "Suprimentos", nomeCanonico: "SUPRIMENTOS" })
+      .returning();
+
+    const feito = await post(`/api/arrumacao/responsaveis/aplicar?empresaId=${empresaA}`, {
+      escopo: "AREA",
+      textoCanonico: "SUPRIMENTOS",
+      departamentoId: departamento.id,
+    });
+    expect(feito.status).toBe(200);
+    expect(feito.json.alteradas).toBe(1);
+
+    /* Arrumado, sai da lista: não há mais texto sem cadastro dizendo aquilo. */
+    expect(
+      (await achados()).find((a) => a.escopo === "AREA" && a.textoCanonico === "SUPRIMENTOS"),
+    ).toBeUndefined();
+  });
+
+  it("a recusa do motor chega como 4xx, e não como 5xx", async () => {
+    const r = await post(`/api/arrumacao/responsaveis/aplicar?empresaId=${empresaA}`, {
+      escopo: "AREA",
+      textoCanonico: "Qualquer",
+    });
+    expect(r.status).toBe(400);
+    expect(r.status).toBeLessThan(500);
+  });
+
+  /*
+    O namespace existe para isto: sob `/fluxos`, `arrumacao` seria um segundo
+    padrão disputando o endereço de `GET /fluxos/:id`, e quem ganharia seria a
+    ordem de declaração no arquivo — que muda num rebase sem ninguém perceber.
+  */
+  it("`arrumacao` nunca é lido como um id de fluxo", async () => {
+    /*
+      O endereço que teria colidido cai onde qualquer outro texto cairia: no
+      `GET /fluxos/:id`, tratado como um id que não é um id. O que importa é o
+      que ele **não** devolve, e que se comporte igual a um texto qualquer — o
+      que prova que "arrumacao" não tem tratamento nenhum neste roteador.
+    */
+    const comoFluxo = await chamar(`/api/fluxos/arrumacao?empresaId=${empresaA}`);
+    const textoQualquer = await chamar(`/api/fluxos/xpto-nao-eh-id?empresaId=${empresaA}`);
+    expect(comoFluxo.status).toBe(textoQualquer.status);
+    expect(comoFluxo.status).not.toBe(200);
+    expect(comoFluxo.json.achados).toBeUndefined();
+
+    /* E a prova positiva: no endereço dele, o namespace responde. */
+    const deVerdade = await chamar(`/api/arrumacao/responsaveis?empresaId=${empresaA}`);
+    expect(deVerdade.status).toBe(200);
   });
 });
