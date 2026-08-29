@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { LEITURA_DE_APURACAO } from "@/lib/frescor-das-leituras";
+import { EmAtualizacao } from "@/components/ui/em-atualizacao";
 import {
   excluidoDaSoma,
   resumoVazio,
@@ -244,6 +246,14 @@ export default function Parametros() {
   const vigencia = useQuery({
     queryKey: ["families", query.toString()],
     enabled: !visaoGeral,
+    /*
+      A chave carrega `period`, `scopeHash` e `canal`: trocar de unidade ou de
+      competência produz uma chave sem cache, e sem `placeholderData` a grade
+      inteira era substituída por "Carregando…". A leitura somada
+      (`useFamiliesOverviewQuery`, logo abaixo) já recebeu a mesma política no
+      próprio módulo — as duas faces desta tela passam a se comportar igual.
+    */
+    ...LEITURA_DE_APURACAO,
     queryFn: () => {
       const suffix = query.toString() ? `?${query}` : "";
       return fetchJsonOrNull<FamiliesView>(`/changes/families${suffix}`);
@@ -499,6 +509,7 @@ export default function Parametros() {
         <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
           <SlidersHorizontal className="w-6 h-6 text-primary" />
           Parâmetros
+          <EmAtualizacao ativo={visaoGeral ? soma.isPlaceholderData : vigencia.isPlaceholderData} />
         </h1>
         <p className="text-muted-foreground text-sm mt-1 max-w-3xl">
           Duas leituras da mesma vigência. <strong>Atributos</strong> é o que o cliente

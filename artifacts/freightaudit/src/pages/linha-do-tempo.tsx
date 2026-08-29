@@ -1,5 +1,7 @@
 import { useEffect, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { LEITURA_DE_APURACAO } from "@/lib/frescor-das-leituras";
+import { EmAtualizacao, classeDeAtualizacao } from "@/components/ui/em-atualizacao";
 import { useLocation, useSearch } from "wouter";
 import { Layout } from "@/components/layout/layout";
 import { ApiErrorNotice } from "@/components/api-error";
@@ -69,8 +71,12 @@ export default function LinhaDoTempo() {
       pode sair. Sem `staleTime`, voltar para cá refazia a chamada inteira —
       e refazia a espera junto. O minuto é o mesmo das outras leituras da
       tela; uma importação nova invalida a chave, não o relógio.
+
+      O `placeholderData` que acompanha o minuto é o que faltava: a chave
+      carrega o recorte, e trocar de unidade a esvaziava. A constante mora em
+      `lib/frescor-das-leituras.ts` — o minuto não mudou, ganhou nome.
     */
-    staleTime: 60_000,
+    ...LEITURA_DE_APURACAO,
   });
 
   const contextos = useContextosDaCasca();
@@ -191,6 +197,9 @@ export default function LinhaDoTempo() {
         periodosOverview={periodosOverview}
         consulta={consulta}
         onTrocar={trocarPara}
+        atualizando={
+          visaoGeral ? overviewQuery.isPlaceholderData : vigencia.isPlaceholderData
+        }
       />
 
       <div className="px-8 py-6 space-y-5 max-w-[1600px]">
@@ -219,7 +228,7 @@ export default function LinhaDoTempo() {
               </section>
             )}
             {overview && (
-              <>
+              <div className={cn("space-y-5", classeDeAtualizacao(overviewQuery.isPlaceholderData))}>
                 <div className="pt-2">
                   <h2 className="text-base font-bold leading-tight">
                     A competência aberta, unidade a unidade
@@ -236,7 +245,7 @@ export default function LinhaDoTempo() {
                   onTrocar={trocarPara}
                   notaExtra="Este bloco soma só o último passo — a competência contra a vigência imediatamente anterior de cada unidade. O histórico inteiro está na linha do tempo acima."
                 />
-              </>
+              </div>
             )}
           </>
         ) : (
@@ -256,14 +265,13 @@ export default function LinhaDoTempo() {
             )}
 
             {view && (
+              <div className={cn("space-y-5", classeDeAtualizacao(vigencia.isPlaceholderData))}>
               <LinhaDoTempoDeImpacto
                 consulta={consulta}
                 periods={view.periods}
                 currentPeriod={view.period}
               />
-            )}
 
-            {view && (
               <LinhaDoTempoDeAlteracoes
                 consulta={consulta}
                 periods={view.periods}
@@ -278,6 +286,7 @@ export default function LinhaDoTempo() {
                   trocarPara({ period: periodo });
                 }}
               />
+              </div>
             )}
 
             {view && view.periods.length <= 1 && (
@@ -304,6 +313,7 @@ function Cabecalho({
   periodosOverview,
   consulta,
   onTrocar,
+  atualizando,
 }: {
   view: FamiliesView | null;
   overview: FamiliesOverview | null;
@@ -311,6 +321,8 @@ function Cabecalho({
   periodosOverview: string[];
   consulta: URLSearchParams;
   onTrocar: (mudancas: Record<string, string | null>) => void;
+  /** O corpo ainda é o recorte anterior — ver `components/ui/em-atualizacao.tsx`. */
+  atualizando: boolean;
 }) {
   const unidade = view ? nomeDaUnidade(view.context) : null;
   const partes = visaoGeral
@@ -338,9 +350,12 @@ function Cabecalho({
     <header className="px-8 pt-7 pb-2">
       <div className="flex flex-wrap items-start justify-between gap-4 max-w-[1600px]">
         <div className="min-w-0">
-          <h1 className="text-[2rem] font-extrabold tracking-tight leading-tight">
-            Linha do Tempo — {visaoGeral ? "Visão Geral" : (unidade ?? "")}
-          </h1>
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="text-[2rem] font-extrabold tracking-tight leading-tight">
+              Linha do Tempo — {visaoGeral ? "Visão Geral" : (unidade ?? "")}
+            </h1>
+            <EmAtualizacao ativo={atualizando} />
+          </div>
           {partes.length > 0 && (
             <p className="text-sm text-muted-foreground mt-1.5">{partes.join(" · ")}</p>
           )}
