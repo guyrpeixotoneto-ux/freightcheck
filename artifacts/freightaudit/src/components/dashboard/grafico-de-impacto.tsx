@@ -14,6 +14,7 @@ import {
 import { formatBrl, formatBrlShort, periodicitySuffix } from "@/lib/format";
 import { seriesDoIntervalo } from "@/components/linha-do-tempo/linha-do-tempo-de-alteracoes";
 import { vigenciaDoClique, type EstadoDoClique } from "@/lib/clique-na-vigencia";
+import { BotaoDeVoltarVigencia } from "@/components/vigencia/voltar-de-vigencia";
 import type { RangeEntry } from "@/lib/analise";
 
 const COR_POSITIVA = "#059669"; // emerald-600 — o mesmo verde de ganho do resto da tela
@@ -126,6 +127,8 @@ export function GraficoDeImpacto({
   periodicity,
   vigenciaAtiva = null,
   onEscolherVigencia,
+  voltarPara = null,
+  onVoltar,
 }: {
   pontos: PontoDeImpacto[];
   periodicity: string | null;
@@ -133,6 +136,14 @@ export function GraficoDeImpacto({
   vigenciaAtiva?: string | null;
   /** Quando existe, clicar numa barra leva a tela inteira para aquela vigência. */
   onEscolherVigencia?: (periodo: string) => void;
+  /**
+   * De onde a leitura saiu, para o botão de voltar do próprio gráfico. Vem da
+   * página, e não de um estado daqui: a troca de vigência desmonta este
+   * componente enquanto a consulta nova não responde — ver
+   * `components/vigencia/voltar-de-vigencia.tsx`.
+   */
+  voltarPara?: { periodo: string; label: string } | null;
+  onVoltar?: (periodo: string) => void;
 }) {
   if (pontos.length === 0 || periodicity === null) {
     return (
@@ -171,10 +182,13 @@ export function GraficoDeImpacto({
 
   return (
     <div>
-      <div className="text-xs text-muted-foreground mb-2">
-        Ganhos e perdas por vigência, em R${periodicitySuffix(periodicity)} — últimas{" "}
-        {pontos.length} {pontos.length === 1 ? "vigência" : "vigências"} com dado.
-        {clicavel && " Clique numa vigência para abrir a tela inteira nela."}
+      <div className="flex items-start justify-between gap-3 mb-2">
+        <div className="text-xs text-muted-foreground">
+          Ganhos e perdas por vigência, em R${periodicitySuffix(periodicity)} — últimas{" "}
+          {pontos.length} {pontos.length === 1 ? "vigência" : "vigências"} com dado.
+          {clicavel && " Clique numa vigência para abrir a tela inteira nela."}
+        </div>
+        <BotaoDeVoltarVigencia destino={voltarPara} onVoltar={(periodo) => onVoltar?.(periodo)} />
       </div>
       <ResponsiveContainer width="100%" height={300}>
         <ComposedChart

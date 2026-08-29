@@ -59,6 +59,10 @@ import { unidadesPorImpacto, impactoDominante } from "@/components/inicio/visao-
 import { seriesDoIntervalo } from "@/components/linha-do-tempo/linha-do-tempo-de-alteracoes";
 import { lerIntervaloSegundos, montarSequenciaDoAutoplay } from "@/lib/gestao-a-vista-autoplay";
 import { vigenciaDoClique, type EstadoDoClique } from "@/lib/clique-na-vigencia";
+import {
+  BotaoDeVoltarVigencia,
+  useVoltaDeVigencia,
+} from "@/components/vigencia/voltar-de-vigencia";
 import { rotuloCurtoDaVigencia } from "@workspace/comparison/labels";
 import {
   atributosDaCelula,
@@ -233,7 +237,17 @@ function TemplateFinanceiro() {
     "voltar" continua sendo o caminho de saída do telão, que é o que ele já
     prometia.
   */
+  const volta = useVoltaDeVigencia({
+    periodo: view?.period ?? null,
+    label: view?.periods.find((p) => p.date === view.period)?.label ?? null,
+  });
+
   const escolherVigencia = (periodo: string) => {
+    volta.registrar();
+    trocarVigenciaNoLugar(periodo);
+  };
+
+  const trocarVigenciaNoLugar = (periodo: string) => {
     const proximo = new URLSearchParams(search);
     proximo.set("period", periodo);
     navegar(`${GESTAO_A_VISTA}?${proximo}`, { replace: true });
@@ -298,6 +312,11 @@ function TemplateFinanceiro() {
             recorte={recorte}
             consulta={consulta}
             onEscolherVigencia={escolherVigencia}
+            voltarPara={volta.destino}
+            onVoltar={(periodo) => {
+              volta.limpar();
+              trocarVigenciaNoLugar(periodo);
+            }}
           />
         ) : (
           <MensagemDeEstado carregando={vigencia.isLoading} erro={vigencia.error !== null} />
@@ -1199,11 +1218,15 @@ function ConteudoDaUnidade({
   recorte,
   consulta,
   onEscolherVigencia,
+  voltarPara,
+  onVoltar,
 }: {
   view: FamiliesView;
   recorte: Recorte;
   consulta: URLSearchParams;
   onEscolherVigencia: (periodo: string) => void;
+  voltarPara: { periodo: string; label: string } | null;
+  onVoltar: (periodo: string) => void;
 }) {
   const lados = ladosDoImpacto(view).filter((l) => l.fatiaDeGanho !== null);
   const ladoDominante = lados[0] ?? null;
@@ -1234,6 +1257,8 @@ function ConteudoDaUnidade({
         view={view}
         consulta={consulta}
         onEscolherVigencia={onEscolherVigencia}
+        voltarPara={voltarPara}
+        onVoltar={onVoltar}
       />
     </div>
   );
@@ -1516,11 +1541,21 @@ function TendenciaCompacta({
   view,
   consulta,
   onEscolherVigencia,
+  voltarPara,
+  onVoltar,
 }: {
   view: FamiliesView;
   consulta: URLSearchParams;
   /** Clicar num ponto passa o telão inteiro para aquela vigência. */
   onEscolherVigencia: (periodo: string) => void;
+  /**
+   * O caminho de volta. Ele é obrigatório aqui, e não um extra: esta tela
+   * troca de vigência com `replace`, então o "voltar" do navegador sai do
+   * telão em vez de desfazer o clique — sem este botão, entrar numa vigência
+   * antiga pelo gráfico seria uma porta sem maçaneta do outro lado.
+   */
+  voltarPara: { periodo: string; label: string } | null;
+  onVoltar: (periodo: string) => void;
 }) {
   const ordenadas = useMemo(
     () => [...view.periods].sort((a, b) => a.date.localeCompare(b.date)),
@@ -1603,10 +1638,17 @@ function TendenciaCompacta({
         <h2 className="text-sm font-bold uppercase tracking-wide text-slate-400">
           Tendência entre competências
         </h2>
-        <span className="text-xs text-slate-500">
-          {clicavel && "clique numa vigência para o telão inteiro ir até ela · "}
-          em R${periodicitySuffix(dominante)}
-        </span>
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-slate-500">
+            {clicavel && "clique numa vigência para o telão inteiro ir até ela · "}
+            em R${periodicitySuffix(dominante)}
+          </span>
+          <BotaoDeVoltarVigencia
+            destino={voltarPara}
+            onVoltar={(periodo) => onVoltar(periodo)}
+            className="border-slate-700 text-slate-300 hover:bg-slate-800"
+          />
+        </div>
       </div>
 
       <div className="flex flex-col lg:flex-row gap-6 items-stretch">
