@@ -117,6 +117,20 @@ export interface ResumoDoFluxo {
   medidas: number;
   /** Etapas sem farol, pelas cinco causas de `MotivoDaAusencia`. */
   semDado: number;
+  /**
+   * Etapas para as quais um coletor devolveu leitura — **inclusive a vencida**.
+   *
+   * Não é `medidas`, e a diferença entre as duas é a pergunta que o diagnóstico
+   * de cobertura faz: `medidas` conta farol aceso agora, `respondidas` conta
+   * quem respondeu alguma vez dentro desta colheita. Um coletor que voltou a
+   * responder depois de dias parado aparece nas duas; um que responde com dado
+   * velho aparece só aqui, e é exatamente esse o caso que se quer ver separado —
+   * "o coletor está de pé e o dado é que envelheceu" pede conserto diferente de
+   * "ninguém responde por esta chave".
+   */
+  respondidas: number;
+  /** Das respondidas, quantas passaram da validade — o `SEM_DADO` por idade. */
+  vencidas: number;
   porFarol: Record<Farol, number>;
   /** O pior entre os acesos — `null` quando não há nenhum aceso. */
   pior: FarolMedido | null;
@@ -136,6 +150,8 @@ export function resumoDoFluxo(
     etapas: estados.length,
     medidas: estados.length - porFarol.SEM_DADO,
     semDado: porFarol.SEM_DADO,
+    respondidas: estados.filter((e) => e.leitura !== null).length,
+    vencidas: estados.filter((e) => e.vencida).length,
     porFarol,
     pior: piorFarol(estados.map((e) => e.farol)),
   };
