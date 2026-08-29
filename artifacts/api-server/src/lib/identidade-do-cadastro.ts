@@ -56,7 +56,17 @@ export interface CadastroSemIdentidade {
 export interface UnidadeCandidata {
   id: string;
   nome: string;
-  cnpj: string;
+  /**
+   * `null` na unidade cadastrada só por código gerencial.
+   *
+   * A faixa `DOCUMENTO` continua sendo o que era — os dígitos do código do
+   * cadastro contra o CNPJ canônico —, e uma unidade sem documento
+   * simplesmente não é alcançada por ela. O que a alcança é a grafia afirmada,
+   * como já era para toda unidade cadastrada pelo nome.
+   */
+  cnpj: string | null;
+  /** O código do cadastro, quando ela tem um. Para o relatório nomeá-la. */
+  codigoGerencial: string | null;
 }
 
 /**
@@ -129,7 +139,13 @@ type CadastroBruto = {
   nome: string;
 };
 
-type UnidadeBruta = { id: string; nome: string; cnpj: string };
+type UnidadeBruta = {
+  id: string;
+  nome: string;
+  /** `null` na unidade cadastrada só por código gerencial — ver `unidade`. */
+  cnpj: string | null;
+  codigoGerencial: string | null;
+};
 
 /** A linha do banco como as três listas do relatório a mostram. */
 function comoEstao(linha: CadastroBruto): CadastroSemIdentidade {
@@ -183,7 +199,7 @@ export async function conciliarIdentidadeDoCadastro(
   if (pendentes.length === 0) return nada();
 
   const { rows: unidades } = await db.execute<UnidadeBruta>(sql`
-    SELECT u.id, u.nome, u.cnpj FROM unidade u
+    SELECT u.id, u.nome, u.cnpj, u.codigo_gerencial AS "codigoGerencial" FROM unidade u
   `);
   /*
     Sem unidade canônica nenhuma, nada é conciliável — e os pendentes não somem
@@ -199,7 +215,16 @@ export async function conciliarIdentidadeDoCadastro(
     como catorze dígitos — o mapa não pode ter colisão, e é por isso que a faixa
     do documento é determinística sem precisar contar candidatas.
   */
-  const porCnpj = new Map(unidades.map((u) => [u.cnpj, u]));
+  const porCnpj = new Map(
+    /*
+      As unidades sem CNPJ ficam de fora do mapa, e não com a chave `null`. A
+      faixa do documento só procura catorze dígitos, então uma chave nula nunca
+      seria consultada — mas duas unidades sem CNPJ disputariam essa chave, e um
+      mapa em que uma unidade some porque outra a sobrescreveu é uma armadilha
+      esperando a próxima leitura.
+    */
+    unidades.filter((u) => u.cnpj !== null).map((u) => [u.cnpj!, u]),
+  );
 
   /* A unidade afirmada, lida uma vez; as grafias dela são texto, não busca. */
   let afirmada: UnidadeCandidata | null = null;

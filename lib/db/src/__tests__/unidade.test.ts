@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { cnpjComMascara, lerCnpj, motivoDaRecusa } from "../unidade";
+import {
+  cnpjComMascara,
+  lerCnpj,
+  lerCodigoGerencial,
+  motivoDaRecusa,
+  motivoDaRecusaDeCodigo,
+  textoDaUnidade,
+} from "../unidade";
 
 /**
  * O CNPJ como identidade — o que entra e o que é recusado.
@@ -88,5 +95,70 @@ describe("cnpjComMascara", () => {
 
   it("devolve como veio o que não é canônico, em vez de mascarar lixo", () => {
     expect(cnpjComMascara("443")).toBe("443");
+  });
+});
+
+/**
+ * O CÓDIGO GERENCIAL — a identidade de quem não tem CNPJ para digitar.
+ *
+ * Ele existe porque exigir o documento não produzia cadastro melhor onde ele
+ * não existe: produzia cadastro nenhum, e a unidade voltava a viver como texto
+ * livre. O que estes casos guardam é o que sobrou da exigência: normalizar o
+ * bastante para a unicidade não ser furada, e recusar o que só parece código.
+ */
+describe("lerCodigoGerencial", () => {
+  it("aceita o código curto da Ambev — o caso que o CNPJ obrigatório barrava", () => {
+    expect(lerCodigoGerencial("081-0443").canonico).toBe("081-0443");
+    expect(lerCodigoGerencial("443").canonico).toBe("443");
+  });
+
+  it("apara o espaço em volta e sobe a caixa — duas grafias, um código", () => {
+    expect(lerCodigoGerencial("  cdd-belem  ").canonico).toBe("CDD-BELEM");
+    expect(lerCodigoGerencial("cdd-belem").canonico).toBe(
+      lerCodigoGerencial("CDD-BELEM ").canonico,
+    );
+  });
+
+  it("não vai além disso: pontuação e traço são preservados", () => {
+    /*
+      `081-0443` e `0810443` podem ser dois códigos diferentes na operação, e é
+      ela quem sabe. Normalizar mais aqui juntaria duas unidades por conta
+      própria, que é a adivinhação que este cadastro inteiro desfaz.
+    */
+    expect(lerCodigoGerencial("081-0443").canonico).not.toBe(
+      lerCodigoGerencial("0810443").canonico,
+    );
+  });
+
+  it("recusa um CNPJ — ele tem campo próprio, e é lá que ele encontra o acervo", () => {
+    expect(lerCodigoGerencial("11.222.333/0001-81").recusa).toBe("E_CNPJ");
+    expect(lerCodigoGerencial("11222333000181").recusa).toBe("E_CNPJ");
+  });
+
+  it("recusa vazio", () => {
+    expect(lerCodigoGerencial("").recusa).toBe("VAZIO");
+    expect(lerCodigoGerencial("   ").recusa).toBe("VAZIO");
+  });
+
+  it("recusa o que já é descrição, e não código", () => {
+    expect(lerCodigoGerencial("A".repeat(41)).recusa).toBe("LONGO");
+    expect(lerCodigoGerencial("A".repeat(40)).canonico).toBe("A".repeat(40));
+  });
+
+  it("cada recusa tem um texto próprio — elas mandam fazer coisas diferentes", () => {
+    const recusas = ["VAZIO", "E_CNPJ", "LONGO"] as const;
+    expect(new Set(recusas.map(motivoDaRecusaDeCodigo)).size).toBe(recusas.length);
+  });
+});
+
+describe("textoDaUnidade", () => {
+  it("o CNPJ primeiro — é ele que os arquivos trazem", () => {
+    expect(
+      textoDaUnidade({ cnpj: "11222333000181", codigoGerencial: "443" }),
+    ).toBe("11222333000181");
+  });
+
+  it("o código gerencial quando não há CNPJ", () => {
+    expect(textoDaUnidade({ cnpj: null, codigoGerencial: "081-0443" })).toBe("081-0443");
   });
 });

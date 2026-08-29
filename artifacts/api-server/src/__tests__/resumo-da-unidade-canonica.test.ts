@@ -283,7 +283,7 @@ describe.skipIf(!temBanco)("o Resumo, depois da unidade canônica", () => {
 
     /* A candidata aparece, com o CNPJ que a distingue de uma xará. */
     expect(porta.unidade.sugestoes).toEqual([
-      { id: u.id, nome: "CDD Belém", cnpj: "11222333000181" },
+      { id: u.id, nome: "CDD Belém", cnpj: "11222333000181", codigoGerencial: null },
     ]);
     expect(porta.destrava?.conserto).toContain("associe a competência");
     /* E o contrato continua sem responder: o nome não escolheu nada. */

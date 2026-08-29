@@ -2424,6 +2424,44 @@ function planoUp(): PassoUp[] {
   );
 
   /*
+    E a forma de hoje da mesma tabela, da `0075`: o CNPJ deixou de ser
+    obrigatório e o código gerencial passou a ser a outra identidade.
+
+    Sem estes passos o `up` reporia a `unidade` na forma da `0049` — CNPJ
+    `NOT NULL`, sem `codigo_gerencial` — e o banco voltaria estruturalmente
+    divergente do schema declarado, que é a única coisa que o bridge existe
+    para não deixar acontecer. Vêm depois da `0049` pela ordem de sempre: a
+    tabela antes do que se altera nela.
+
+    O `DROP CONSTRAINT` do `unidade_cnpj_canonico` vem antes do bloco que repõe
+    os três `check`, porque a regra desse `check` mudou: a versão da `0049`
+    recusa `NULL`, e é ela que o `CREATE TABLE` levantado acima acabou de
+    recriar.
+  */
+  const M75 = "0075_reconciliar_identidade_da_unidade";
+  add(
+    M75,
+    "unidade.codigo_gerencial",
+    levantar(M75, /ADD COLUMN IF NOT EXISTS "codigo_gerencial"/),
+  );
+  add(M75, "unidade.cnpj nullable", levantar(M75, /ALTER COLUMN "cnpj" DROP NOT NULL/));
+  add(
+    M75,
+    "índice unidade_codigo_gerencial_uq",
+    levantar(M75, /INDEX IF NOT EXISTS "unidade_codigo_gerencial_uq"/),
+  );
+  add(
+    M75,
+    "check unidade_cnpj_canonico da 0049",
+    levantar(M75, /DROP CONSTRAINT IF EXISTS "unidade_cnpj_canonico"/),
+  );
+  add(
+    M75,
+    "checks da identidade da unidade",
+    levantar(M75, /conname = 'unidade_tem_identidade'/),
+  );
+
+  /*
     A referência de conferência, da `0051`.
 
     Vem **depois** da `0049` na ordem do `up`, que é a inversa da do `down`:

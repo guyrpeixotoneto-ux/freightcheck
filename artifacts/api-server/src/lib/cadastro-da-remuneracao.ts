@@ -113,7 +113,13 @@ type CandidataBruta = {
  * extends Record<string, unknown>`, e só o alias ganha a assinatura de índice
  * implícita. Os campos são os de `UnidadeCanonicaVista`, e é ela que sai daqui.
  */
-type CanonicaBruta = { id: string; nome: string; cnpj: string };
+type CanonicaBruta = {
+  id: string;
+  nome: string;
+  /** `null` na unidade cadastrada só por código gerencial. */
+  cnpj: string | null;
+  codigoGerencial: string | null;
+};
 
 /**
  * A unidade registrada que responde por este código e tipo de operação.
@@ -314,7 +320,8 @@ async function unidadeCanonica(
   id: string,
 ): Promise<UnidadeCanonicaVista | null> {
   const { rows } = await db.execute<CanonicaBruta>(sql`
-    SELECT u.id, u.nome, u.cnpj FROM unidade u WHERE u.id = ${id} LIMIT 1
+    SELECT u.id, u.nome, u.cnpj, u.codigo_gerencial AS "codigoGerencial"
+      FROM unidade u WHERE u.id = ${id} LIMIT 1
   `);
   return rows[0] ?? null;
 }
@@ -376,10 +383,11 @@ async function sugestoesPeloTexto(
   */
   const documento = normalizeDocumento(procurado);
   const { rows } = await db.execute<CanonicaBruta>(sql`
-    SELECT u.id, u.nome, u.cnpj
+    SELECT u.id, u.nome, u.cnpj, u.codigo_gerencial AS "codigoGerencial"
       FROM unidade u
      WHERE ${nomeComparavel(sql`u.nome`)} = ${nomeComparavel(sql`${procurado}`)}
         OR u.cnpj = ${documento}
+        OR u.codigo_gerencial = ${procurado.toUpperCase()}
      ORDER BY u.nome
      LIMIT ${TETO_DE_SUGESTOES}
   `);
@@ -519,7 +527,16 @@ export function cadastroDaRemuneracao(
       if (unidade.unidadeId !== null) {
         const canonica = await unidadeCanonica(db, unidade.unidadeId);
         const doAcervo = await cnpjNoAcervo(db, unidade.scopeHash);
-        if (canonica && doAcervo !== null && doAcervo !== canonica.cnpj) {
+        /*
+          A unidade sem CNPJ cadastrado não entra neste confronto, e não é
+          descuido: `CONFLITO_DE_IDENTIDADE` é o estado de **duas afirmações
+          discordantes** — o cadastro diz um documento, o acervo diz outro —, e
+          uma unidade identificada por código gerencial não afirma documento
+          nenhum. Tratar a ausência como discordância pararia o fechamento dela
+          com a frase "o cadastro e o acervo discordam sobre qual é o CNPJ",
+          sobre um CNPJ que só uma das duas pontas sequer tem.
+        */
+        if (canonica && canonica.cnpj !== null && doAcervo !== null && doAcervo !== canonica.cnpj) {
           return {
             resposta: null,
             diagnostico: {
