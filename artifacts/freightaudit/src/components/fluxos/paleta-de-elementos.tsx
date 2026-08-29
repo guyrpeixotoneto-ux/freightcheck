@@ -126,7 +126,7 @@ export function PaletaDeElementos({
         ))}
       </div>
 
-      <p className="border-t px-3 py-2 text-[11px] leading-snug text-muted-foreground">
+      <p className="border-t px-3 py-2 text-2xs leading-snug text-muted-foreground">
         {aceitaArrasto
           ? "Arraste um elemento para o desenho — ou clique para criá-lo no fim do fluxo."
           : "Nesta visualização o desenho é calculado: clique num elemento e ele nasce no fim do fluxo."}
@@ -169,7 +169,7 @@ function Grupo({
         />
       </CollapsibleTrigger>
       <CollapsibleContent>
-        <p className="px-1 pb-2 pt-0.5 text-[11px] text-muted-foreground">
+        <p className="px-1 pb-2 pt-0.5 text-2xs text-muted-foreground">
           {descricao}
         </p>
         <div className="grid grid-cols-3 gap-1.5">
@@ -238,7 +238,7 @@ function BotaoDoElemento({
           <Icone className="h-4 w-4 text-foreground/70" />
         </span>
       )}
-      <span className="w-full truncate text-[11px] leading-tight text-muted-foreground">
+      <span className="w-full truncate text-2xs leading-tight text-muted-foreground">
         {tipo.rotulo}
       </span>
     </button>

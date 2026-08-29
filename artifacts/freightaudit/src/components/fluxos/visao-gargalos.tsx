@@ -101,7 +101,7 @@ export function VisaoGargalos({
           ))}
         </div>
 
-        <p className="ml-auto text-[11px] text-muted-foreground/80">
+        <p className="ml-auto text-2xs text-muted-foreground/80">
           Sinais calculados sobre o que está cadastrado. Atraso e SLA estourado dependem de dado de
           execução.
         </p>

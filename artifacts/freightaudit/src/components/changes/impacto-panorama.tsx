@@ -823,7 +823,7 @@ function TabelaFinanceira({
                       {comSinal(p.variacao.preco)}
                     </span>
                     {p.variacao.frota !== 0 && (
-                      <div className="text-[11px] text-muted-foreground">
+                      <div className="text-2xs text-muted-foreground">
                         frota {comSinal(p.variacao.frota)}
                       </div>
                     )}
@@ -845,7 +845,7 @@ function TabelaFinanceira({
                   )}
                 </div>
                 {p.reconciliacao && (
-                  <div className="text-[11px] whitespace-nowrap">
+                  <div className="text-2xs whitespace-nowrap">
                     {formatNumber(p.reconciliacao.percentual, 1)}% reconciliado
                   </div>
                 )}
@@ -858,7 +858,7 @@ function TabelaFinanceira({
                 {!p.impactoCalculavel && (
                   <div
                     title={p.impactoMotivo}
-                    className="mt-0.5 flex items-center gap-1 whitespace-nowrap text-[11px] text-amber-700"
+                    className="mt-0.5 flex items-center gap-1 whitespace-nowrap text-2xs text-amber-700"
                   >
                     <TriangleAlert className="w-3 h-3 shrink-0" />
                     {motivoCurto(p)}
@@ -1053,7 +1053,7 @@ function Etiqueta({
     <span
       title={title}
       className={cn(
-        "rounded px-1.5 py-px text-[10px] font-medium uppercase tracking-wide",
+        "rounded px-1.5 py-px text-3xs font-medium uppercase tracking-wide",
         ETIQUETA[tone],
       )}
     >

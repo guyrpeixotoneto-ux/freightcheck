@@ -552,7 +552,7 @@ function LinhaDeParametro({
             </span>
             {parametro.tambemEm.length > 0 && (
               <span
-                className="text-[11px] rounded-full border px-1.5 py-0 text-muted-foreground"
+                className="text-2xs rounded-full border px-1.5 py-0 text-muted-foreground"
                 title="este parâmetro mexe em mais de um valor da remuneração, e por isso conta nas duas classes"
               >
                 também no {rotuloCurto(parametro.tambemEm[0])}

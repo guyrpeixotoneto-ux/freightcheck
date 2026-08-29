@@ -232,7 +232,7 @@ export function SeletorDeRecorte({
         primeira coisa que a pessoa procura ali — a unidade. Embaixo ela lê
         como legenda dos três, que é o que ela é.
       */}
-      <span className={cn("text-[11px] text-muted-foreground", "hidden sm:inline")}>
+      <span className={cn("text-2xs text-muted-foreground", "hidden sm:inline")}>
         as respostas descrevem este recorte
       </span>
     </div>
