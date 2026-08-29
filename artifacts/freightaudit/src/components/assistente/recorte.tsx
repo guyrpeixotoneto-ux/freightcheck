@@ -120,11 +120,18 @@ export function SeletorDeRecorte({
     "flex items-center gap-2 border border-input rounded-lg px-3 py-2 bg-card";
 
   return (
+    /*
+      Alinhado à direita só quando ele está à direita.
+
+      Abaixo de `md` o cabeçalho empilha (ver `assistente.tsx`) e estes campos
+      ocupam a linha inteira: encostados na borda direita, eles ficavam
+      desalinhados do título que está logo acima, à esquerda.
+    */
     <div
-      className="flex flex-col items-end gap-1.5"
+      className="flex flex-col items-start md:items-end gap-1.5 min-w-0"
       data-testid="seletor-de-recorte"
     >
-      <div className="flex flex-wrap items-center justify-end gap-2">
+      <div className="flex flex-wrap items-center justify-start md:justify-end gap-2">
       <div className={caixa}>
         <Building2 className="w-3.5 h-3.5 text-muted-foreground shrink-0" aria-hidden />
         {unidades.length > 1 ? (
