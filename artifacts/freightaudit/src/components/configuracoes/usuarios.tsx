@@ -899,343 +899,386 @@ function UserRow({ user }: { user: ManagedUser }) {
   });
 
   return (
-    <div className="rounded-lg border bg-card">
-      <div className="flex items-center gap-3 px-4 py-3 flex-wrap">
-        <span
-          aria-hidden
-          className="w-9 h-9 shrink-0 rounded-full bg-muted flex items-center justify-center text-sm font-semibold text-muted-foreground"
-        >
-          {iniciais(user.name)}
-        </span>
-
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-semibold">{user.name}</span>
-            {user.unidadeNome && (
-              <Badge variant="secondary" className="font-normal">
-                {user.unidadeNome}
-              </Badge>
-            )}
-            {isMe && (
-              <Badge variant="outline" className="text-muted-foreground">
-                você
-              </Badge>
-            )}
-            {user.role === "ADMIN" && (
-              <Badge
-                variant="outline"
-                className="border-blue-300 text-blue-800"
-                title="Gerencia contas: cria, desativa, redefine senha e muda papel."
-              >
-                administrador
-              </Badge>
-            )}
-          </div>
-          <div className="text-sm text-muted-foreground truncate">{user.email}</div>
-        </div>
-
-        <div className="flex items-center gap-1.5 shrink-0">
-          <Badge
-            variant="outline"
-            className={
-              disabled
-                ? "text-muted-foreground"
-                : "border-emerald-300 bg-emerald-50 text-emerald-800"
-            }
+    <>
+      <div className="rounded-lg border bg-card">
+        <div className="flex items-center gap-3 px-4 py-3 flex-wrap">
+          <span
+            aria-hidden
+            className="w-9 h-9 shrink-0 rounded-full bg-muted flex items-center justify-center text-sm font-semibold text-muted-foreground"
           >
-            {disabled ? "Inativo" : "Ativo"}
-          </Badge>
+            {iniciais(user.name)}
+          </span>
 
-          {/*
-            O interruptor é o mesmo ato dos botões antigos "Desativar" e
-            "Reativar" — e a distinção entre os dois continua no servidor, em
-            duas rotas, pela razão escrita em `routes/users.ts`. O que mudou é
-            só o gesto: um clique num estado que se lê, em vez de um botão cujo
-            rótulo é a ação oposta ao que está valendo.
-          */}
-          {souAdmin && (
-            <Switch
-              checked={!disabled}
-              disabled={act.isPending}
-              aria-label={disabled ? `Reativar ${user.name}` : `Desativar ${user.name}`}
-              title={
-                isMe
-                  ? "Não dá para desativar a própria conta."
-                  : "Tira o acesso e encerra as sessões abertas. O histórico continua no nome dela."
-              }
-              onCheckedChange={(ligado) => act.mutate(ligado ? "enable" : "disable")}
-            />
-          )}
-
-          {/*
-            O olho é "ver o produto como esta pessoa"; os detalhes da conta
-            passaram para a seta ao lado. A troca é deliberada: o olho é o ícone
-            que quem desenhou a tela procura para *ver pelos olhos de alguém*, e
-            era o único gesto desta linha que não fazia nada além de abrir um
-            parágrafo de texto que a seta abre igual.
-          */}
-          {souAdmin && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8"
-              aria-label={`Ver o produto como ${user.name}`}
-              title={
-                porQueNaoVisualizar ??
-                `Abre o produto como ${user.name} vê. A sessão continua sendo a sua, e nada pode ser alterado enquanto durar.`
-              }
-              disabled={porQueNaoVisualizar !== null || olhar.isPending || isSubmitting}
-              onClick={() => olhar.mutate()}
-            >
-              <Eye className="w-4 h-4" />
-            </Button>
-          )}
-
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8"
-            aria-label={`Ver detalhes de ${user.name}`}
-            title="Último acesso, sessões abertas, quem criou a conta."
-            aria-expanded={painel === "detalhes"}
-            onClick={() => alternar("detalhes")}
-          >
-            <ChevronDown
-              className={cn(
-                "w-4 h-4 transition-transform",
-                painel === "detalhes" && "rotate-180",
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-semibold">{user.name}</span>
+              {user.unidadeNome && (
+                <Badge variant="secondary" className="font-normal">
+                  {user.unidadeNome}
+                </Badge>
               )}
-            />
-          </Button>
+              {isMe && (
+                <Badge variant="outline" className="text-muted-foreground">
+                  você
+                </Badge>
+              )}
+              {user.role === "ADMIN" && (
+                <Badge
+                  variant="outline"
+                  className="border-blue-300 text-blue-800"
+                  title="Gerencia contas: cria, desativa, redefine senha e muda papel."
+                >
+                  administrador
+                </Badge>
+              )}
+            </div>
+            <div className="text-sm text-muted-foreground truncate">{user.email}</div>
+          </div>
 
-          {souAdmin && (
-            <>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <Badge
+              variant="outline"
+              className={
+                disabled
+                  ? "text-muted-foreground"
+                  : "border-emerald-300 bg-emerald-50 text-emerald-800"
+              }
+            >
+              {disabled ? "Inativo" : "Ativo"}
+            </Badge>
+
+            {/*
+              O interruptor é o mesmo ato dos botões antigos "Desativar" e
+              "Reativar" — e a distinção entre os dois continua no servidor, em
+              duas rotas, pela razão escrita em `routes/users.ts`. O que mudou é
+              só o gesto: um clique num estado que se lê, em vez de um botão cujo
+              rótulo é a ação oposta ao que está valendo.
+            */}
+            {souAdmin && (
+              <Switch
+                checked={!disabled}
+                disabled={act.isPending}
+                aria-label={disabled ? `Reativar ${user.name}` : `Desativar ${user.name}`}
+                title={
+                  isMe
+                    ? "Não dá para desativar a própria conta."
+                    : "Tira o acesso e encerra as sessões abertas. O histórico continua no nome dela."
+                }
+                onCheckedChange={(ligado) => act.mutate(ligado ? "enable" : "disable")}
+              />
+            )}
+
+            {/*
+              O olho é "ver o produto como esta pessoa"; os detalhes da conta
+              passaram para a seta ao lado. A troca é deliberada: o olho é o ícone
+              que quem desenhou a tela procura para *ver pelos olhos de alguém*, e
+              era o único gesto desta linha que não fazia nada além de abrir um
+              parágrafo de texto que a seta abre igual.
+            */}
+            {souAdmin && (
               <Button
                 variant="ghost"
                 size="icon"
                 className="h-8 w-8"
-                aria-label={`Editar ${user.name}`}
-                onClick={() => {
-                  setRole(user.role);
-                  setCargoId(user.cargoId ?? "");
-                  setUnidadeId(user.unidadeId ?? "");
-                  alternar("edicao");
-                }}
+                aria-label={`Ver o produto como ${user.name}`}
+                title={
+                  porQueNaoVisualizar ??
+                  `Abre o produto como ${user.name} vê. A sessão continua sendo a sua, e nada pode ser alterado enquanto durar.`
+                }
+                disabled={porQueNaoVisualizar !== null || olhar.isPending || isSubmitting}
+                onClick={() => olhar.mutate()}
               >
-                <Pencil className="w-4 h-4" />
+                <Eye className="w-4 h-4" />
               </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8 text-destructive hover:text-destructive"
-                aria-label={`Desativar ${user.name}`}
-                disabled={disabled}
-                onClick={() => alternar("desativar")}
-              >
-                <Trash2 className="w-4 h-4" />
-              </Button>
-            </>
-          )}
-        </div>
-      </div>
+            )}
 
-      {painel === "detalhes" && (
-        <div className="border-t px-4 py-3 space-y-1">
-          <div className="text-xs text-muted-foreground">
-            {user.lastLoginAt
-              ? `Último acesso em ${dateTime(user.lastLoginAt)}`
-              : "Nunca entrou"}
-            {" · "}
-            {user.openSessions === 0
-              ? "sem sessão aberta"
-              : `${user.openSessions} sessão(ões) aberta(s)`}
-            {" · "}
-            criada em {date(user.createdAt)}
-            {user.createdBy ? ` por ${user.createdBy}` : " pelo terminal"}
-            {disabled && user.disabledBy ? ` · desativada por ${user.disabledBy}` : ""}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              aria-label={`Ver detalhes de ${user.name}`}
+              title="Último acesso, sessões abertas, quem criou a conta."
+              aria-expanded={painel === "detalhes"}
+              onClick={() => alternar("detalhes")}
+            >
+              <ChevronDown
+                className={cn(
+                  "w-4 h-4 transition-transform",
+                  painel === "detalhes" && "rotate-180",
+                )}
+              />
+            </Button>
+
+            {souAdmin && (
+              <>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8"
+                  aria-label={`Editar ${user.name}`}
+                  onClick={() => {
+                    setRole(user.role);
+                    setCargoId(user.cargoId ?? "");
+                    setUnidadeId(user.unidadeId ?? "");
+                    alternar("edicao");
+                  }}
+                >
+                  <Pencil className="w-4 h-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 text-destructive hover:text-destructive"
+                  aria-label={`Desativar ${user.name}`}
+                  disabled={disabled}
+                  onClick={() => alternar("desativar")}
+                >
+                  <Trash2 className="w-4 h-4" />
+                </Button>
+              </>
+            )}
           </div>
-          <div className="text-xs text-muted-foreground">
-            {user.cargoNome ?? "Sem cargo"}
-            {user.unidadeNome ? ` · ${user.unidadeNome}` : " · sem unidade"}
-            {" · "}
-            {user.role === "ADMIN" ? "administrador" : "operador"}
-          </div>
-          {/* Telefone e gestor só aparecem quando existem: uma linha que diz
-              "sem telefone · sem gestor" ocupa espaço para não informar nada —
-              e as duas são opcionais por desenho, não lacunas a cobrar. */}
-          {(user.telefone || user.gestorNome) && (
+        </div>
+
+        {painel === "detalhes" && (
+          <div className="border-t px-4 py-3 space-y-1">
             <div className="text-xs text-muted-foreground">
-              {user.telefone}
-              {user.telefone && user.gestorNome ? " · " : ""}
-              {user.gestorNome ? `reporta a ${user.gestorNome}` : ""}
+              {user.lastLoginAt
+                ? `Último acesso em ${dateTime(user.lastLoginAt)}`
+                : "Nunca entrou"}
+              {" · "}
+              {user.openSessions === 0
+                ? "sem sessão aberta"
+                : `${user.openSessions} sessão(ões) aberta(s)`}
+              {" · "}
+              criada em {date(user.createdAt)}
+              {user.createdBy ? ` por ${user.createdBy}` : " pelo terminal"}
+              {disabled && user.disabledBy ? ` · desativada por ${user.disabledBy}` : ""}
             </div>
-          )}
-          {isMe && <AccountId id={user.id} />}
-          {souAdmin && (
-            <div className="pt-2">
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-2"
-                onClick={() => alternar("senha")}
-              >
-                <KeyRound className="w-3.5 h-3.5" />
-                Redefinir senha
-              </Button>
+            <div className="text-xs text-muted-foreground">
+              {user.cargoNome ?? "Sem cargo"}
+              {user.unidadeNome ? ` · ${user.unidadeNome}` : " · sem unidade"}
+              {" · "}
+              {user.role === "ADMIN" ? "administrador" : "operador"}
             </div>
-          )}
-        </div>
-      )}
-
-      {painel === "edicao" && (
-        <form
-          className="border-t px-4 py-3 space-y-3"
-          onSubmit={(e) => {
-            e.preventDefault();
-            salvar.mutate();
-          }}
-        >
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <Field label="Papel" htmlFor={`role-${user.id}`}>
-              <Select value={role} onValueChange={setRole}>
-                <SelectTrigger id={`role-${user.id}`}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="OPERADOR">Operador — usa o produto</SelectItem>
-                  <SelectItem value="ADMIN">
-                    Administrador — também gerencia contas
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            </Field>
-            <CamposDeLotacao
-              prefixo={user.id}
-              cargoId={cargoId}
-              unidadeId={unidadeId}
-              aoTrocarCargo={setCargoId}
-              aoTrocarUnidade={setUnidadeId}
-            />
+            {/* Telefone e gestor só aparecem quando existem: uma linha que diz
+                "sem telefone · sem gestor" ocupa espaço para não informar nada —
+                e as duas são opcionais por desenho, não lacunas a cobrar. */}
+            {(user.telefone || user.gestorNome) && (
+              <div className="text-xs text-muted-foreground">
+                {user.telefone}
+                {user.telefone && user.gestorNome ? " · " : ""}
+                {user.gestorNome ? `reporta a ${user.gestorNome}` : ""}
+              </div>
+            )}
+            {isMe && <AccountId id={user.id} />}
+            {souAdmin && (
+              <div className="pt-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2"
+                  onClick={() => alternar("senha")}
+                >
+                  <KeyRound className="w-3.5 h-3.5" />
+                  Redefinir senha
+                </Button>
+              </div>
+            )}
           </div>
-          <p className="text-xs text-muted-foreground">
-            Cargo e unidade dizem o que a pessoa faz e onde; não mudam o que ela
-            alcança. O que cada conta alcança está em Permissões, mais abaixo.
-          </p>
-          <div className="flex items-center gap-2">
-            <Button type="submit" size="sm" disabled={salvar.isPending}>
-              {salvar.isPending ? "Salvando…" : "Salvar"}
+        )}
+
+        {painel === "senha" && (
+          <form
+            className="border-t px-4 py-3 flex items-end gap-3 flex-wrap"
+            onSubmit={(e) => {
+              e.preventDefault();
+              reset.mutate();
+            }}
+          >
+            <Field label="Senha nova" htmlFor={`reset-${user.id}`}>
+              <Input
+                id={`reset-${user.id}`}
+                type="password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                autoComplete="new-password"
+                placeholder="mínimo 10 caracteres"
+                className="w-64"
+                required
+              />
+            </Field>
+            <Button type="submit" size="sm" disabled={reset.isPending}>
+              {reset.isPending ? "Redefinindo…" : "Confirmar"}
             </Button>
             <Button
               type="button"
               variant="ghost"
               size="sm"
-              onClick={() => setPainel("nenhum")}
+              onClick={() => {
+                setPainel("nenhum");
+                setNewPassword("");
+                setError(null);
+              }}
             >
               Cancelar
             </Button>
-          </div>
-        </form>
-      )}
+          </form>
+        )}
 
-      {painel === "senha" && (
-        <form
-          className="border-t px-4 py-3 flex items-end gap-3 flex-wrap"
-          onSubmit={(e) => {
-            e.preventDefault();
-            reset.mutate();
-          }}
-        >
-          <Field label="Senha nova" htmlFor={`reset-${user.id}`}>
-            <Input
-              id={`reset-${user.id}`}
-              type="password"
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-              autoComplete="new-password"
-              placeholder="mínimo 10 caracteres"
-              className="w-64"
-              required
-            />
-          </Field>
-          <Button type="submit" size="sm" disabled={reset.isPending}>
-            {reset.isPending ? "Redefinindo…" : "Confirmar"}
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              setPainel("nenhum");
-              setNewPassword("");
-              setError(null);
-            }}
-          >
-            Cancelar
-          </Button>
-        </form>
-      )}
+        {/*
+          A confirmação diz o que vai acontecer de verdade — e o que não vai.
+          Quem clica numa lixeira espera apagar; aqui ela desativa, e a frase
+          precisa desfazer essa expectativa antes do clique, não depois.
+        */}
+        {painel === "desativar" && (
+          <div className="border-t px-4 py-3 space-y-2">
+            <p className="text-sm">
+              Desativar <strong>{user.name}</strong>? O acesso é cortado e as
+              sessões abertas caem na hora.
+            </p>
+            <p className="text-xs text-muted-foreground">
+              A conta não é apagada, e não há como apagá-la: cada confirmação de
+              curadoria e cada promoção de vigência que essa pessoa fez está
+              assinada com este e-mail, e apagar a linha transformaria esse
+              histórico num nome órfão. Reativar depois é um clique.
+            </p>
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="destructive"
+                disabled={act.isPending}
+                onClick={() => act.mutate("disable")}
+              >
+                <Ban className="w-3.5 h-3.5 mr-1.5" />
+                {act.isPending ? "Desativando…" : "Desativar acesso"}
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => setPainel("nenhum")}>
+                Cancelar
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {disabled && souAdmin && painel === "nenhum" && (
+          <div className="border-t px-4 py-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="gap-2 h-7"
+              disabled={act.isPending}
+              onClick={() => act.mutate("enable")}
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              Reativar acesso
+            </Button>
+          </div>
+        )}
+
+        {/* A recusa da edição aparece dentro da gaveta, onde o formulário está:
+            repeti-la aqui a esconderia atrás do painel aberto. */}
+        {error && painel !== "edicao" && (
+          <div className="border-t px-4 py-3">
+            <Refusal>{error}</Refusal>
+          </div>
+        )}
+        {done && (
+          <p className="flex items-center gap-2 text-sm text-emerald-700 border-t px-4 py-3">
+            <CheckCircle2 className="w-4 h-4 shrink-0" />
+            {done}
+          </p>
+        )}
+      </div>
 
       {/*
-        A confirmação diz o que vai acontecer de verdade — e o que não vai.
-        Quem clica numa lixeira espera apagar; aqui ela desativa, e a frase
-        precisa desfazer essa expectativa antes do clique, não depois.
+        Editar abre na gaveta lateral, como criar — e pela mesma razão que os
+        cadastros de Unidades e da Casa passaram a abrir assim: o formulário
+        crescia dentro da própria linha e empurrava para baixo as contas
+        seguintes, de modo que clicar no lápis de alguém no fim da lista movia
+        para longe a pessoa que se estava olhando. A gaveta abre por cima, e
+        fechar por `Esc` ou pelo lado de fora é o mesmo caminho do Cancelar.
+
+        Os três painéis que ficaram na linha — detalhes, senha e desativar —
+        continuam onde estavam de propósito: são uma frase, um campo e uma
+        confirmação sobre a conta que está logo acima deles, e cabem debaixo do
+        nome de quem eles falam.
       */}
-      {painel === "desativar" && (
-        <div className="border-t px-4 py-3 space-y-2">
-          <p className="text-sm">
-            Desativar <strong>{user.name}</strong>? O acesso é cortado e as
-            sessões abertas caem na hora.
-          </p>
-          <p className="text-xs text-muted-foreground">
-            A conta não é apagada, e não há como apagá-la: cada confirmação de
-            curadoria e cada promoção de vigência que essa pessoa fez está
-            assinada com este e-mail, e apagar a linha transformaria esse
-            histórico num nome órfão. Reativar depois é um clique.
-          </p>
-          <div className="flex items-center gap-2">
-            <Button
-              size="sm"
-              variant="destructive"
-              disabled={act.isPending}
-              onClick={() => act.mutate("disable")}
-            >
-              <Ban className="w-3.5 h-3.5 mr-1.5" />
-              {act.isPending ? "Desativando…" : "Desativar acesso"}
-            </Button>
-            <Button variant="ghost" size="sm" onClick={() => setPainel("nenhum")}>
-              Cancelar
-            </Button>
-          </div>
-        </div>
-      )}
+      <Sheet
+        open={painel === "edicao"}
+        onOpenChange={(aberta) => !aberta && setPainel("nenhum")}
+      >
+        <SheetContent
+          side="right"
+          className="w-full sm:max-w-lg p-0 flex flex-col gap-0"
+        >
+          <header className="px-6 pt-6 pb-4 border-b shrink-0">
+            <SheetTitle className="text-xl font-bold tracking-tight pr-8 flex items-center gap-2">
+              <Pencil className="w-5 h-5 text-primary" />
+              Editar {user.name}
+            </SheetTitle>
+            <SheetDescription className="mt-1">
+              Papel é acesso; cargo e unidade são cadastro. O e-mail não se
+              edita aqui, e a senha se redefine pelos detalhes da conta.
+            </SheetDescription>
+          </header>
 
-      {disabled && souAdmin && painel === "nenhum" && (
-        <div className="border-t px-4 py-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="gap-2 h-7"
-            disabled={act.isPending}
-            onClick={() => act.mutate("enable")}
+          <form
+            className="flex flex-col min-h-0 flex-1"
+            onSubmit={(e) => {
+              e.preventDefault();
+              salvar.mutate();
+            }}
           >
-            <RotateCcw className="w-3.5 h-3.5" />
-            Reativar acesso
-          </Button>
-        </div>
-      )}
+            <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
+              <Field label="Papel" htmlFor={`role-${user.id}`}>
+                <Select value={role} onValueChange={setRole}>
+                  <SelectTrigger id={`role-${user.id}`}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="OPERADOR">
+                      Operador — usa o produto
+                    </SelectItem>
+                    <SelectItem value="ADMIN">
+                      Administrador — também gerencia contas
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
 
-      {error && (
-        <div className="border-t px-4 py-3">
-          <Refusal>{error}</Refusal>
-        </div>
-      )}
-      {done && (
-        <p className="flex items-center gap-2 text-sm text-emerald-700 border-t px-4 py-3">
-          <CheckCircle2 className="w-4 h-4 shrink-0" />
-          {done}
-        </p>
-      )}
-    </div>
+              <CamposDeLotacao
+                prefixo={user.id}
+                cargoId={cargoId}
+                unidadeId={unidadeId}
+                aoTrocarCargo={setCargoId}
+                aoTrocarUnidade={setUnidadeId}
+              />
+
+              <p className="text-xs text-muted-foreground">
+                Cargo e unidade dizem o que a pessoa faz e onde; não mudam o que
+                ela alcança. O que cada conta alcança está em Permissões, mais
+                abaixo.
+              </p>
+
+              {error && <Refusal>{error}</Refusal>}
+            </div>
+
+            <footer className="border-t px-6 py-4 shrink-0 flex items-center gap-2">
+              <Button type="submit" className="flex-1" disabled={salvar.isPending}>
+                {salvar.isPending ? "Salvando…" : "Salvar"}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setPainel("nenhum")}
+              >
+                Cancelar
+              </Button>
+            </footer>
+          </form>
+        </SheetContent>
+      </Sheet>
+    </>
   );
 }
 
