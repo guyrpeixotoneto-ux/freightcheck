@@ -72,6 +72,8 @@ import {
   type OpcoesDeResponsavel,
   VINCULOS_DA_ETAPA,
   SEM_VINCULO,
+  cargosDoDepartamento,
+  opcoesDoCampo,
   type DiagnosticoDaEtapa,
 } from "@/lib/fluxos-analise";
 
@@ -451,7 +453,7 @@ function EdicaoDeLinha({
                 <SelectValue placeholder={campo.rotulo} />
               </SelectTrigger>
               <SelectContent>
-                {(campo.opcoes ?? []).map((opcao) => (
+                {opcoesDoCampo(campo, valores).map((opcao) => (
                   <SelectItem key={opcao.valor} value={opcao.valor}>
                     {opcao.rotulo}
                   </SelectItem>
@@ -863,10 +865,26 @@ export function PainelDaEtapa({
             {editavel && opcoesDeResponsavel ? (
               <p className="mt-1.5 flex flex-wrap items-center gap-1.5">
                 {VINCULOS_DA_ETAPA.map(({ campo, rotulo, vazio, fonte }) => {
-                  const lista = opcoesDeResponsavel[fonte];
-                  if (lista.length === 0) return null;
+                  const todas = opcoesDeResponsavel[fonte];
+                  if (todas.length === 0) return null;
                   const atual = etapa[campo] ?? "";
-                  const escolhido = lista.find((o) => o.id === atual);
+                  /*
+                    O cargo é o único que se estreita: escolhido o departamento
+                    da etapa, a lista passa a ser a dele (e a dos departamentos
+                    abaixo dele). O cargo já gravado entra mesmo sendo de outro
+                    departamento — ver `cargosDoDepartamento`, que é onde as
+                    exceções estão escritas.
+                  */
+                  const lista =
+                    campo === "cargoId"
+                      ? cargosDoDepartamento(
+                          opcoesDeResponsavel,
+                          etapa.departamentoId,
+                          etapa.cargoId,
+                        )
+                      : todas;
+                  /* O nome do escolhido sai da lista inteira, nunca da filtrada. */
+                  const escolhido = todas.find((o) => o.id === atual);
                   return (
                     <EscolhaEmBadge
                       key={campo}

@@ -521,10 +521,14 @@ régua — daí `montarCanvas`, `resumoDoCartao`, `itensPorEspecie` e
     de fato falta é a ferramenta de arrumação: não há tela que mostre os
     responsáveis ainda em texto livre e ofereça casá-los com o cadastro em
     lote. Hoje isso se faz etapa a etapa.
-11. **O cargo escolhido não é filtrado pelo departamento da etapa.** Os três
-    selects são independentes: nada impede escolher `Faturamento` e um cargo
-    lotado na Controladoria. O cadastro sabe a lotação (`cargo.departamento_id`);
-    a tela ainda não a usa para estreitar a lista.
+11. **A pessoa não é filtrada pelo departamento.** O cargo é — escolhido o
+    departamento, a lista de cargos passa a ser a dele e a dos departamentos
+    abaixo dele (`cargosDoDepartamento`), com três exceções que nunca somem: o
+    cargo sem lotação, o cargo de um ramo abaixo, e o cargo já gravado, ainda
+    que de outro departamento. A lista de pessoas continua sendo a da casa
+    inteira; `app_user` sabe o departamento **através do cargo**, e usá-lo aqui
+    esconderia de uma etapa do Faturamento a pessoa que ainda não tem cargo
+    cadastrado.
 
 ---
 

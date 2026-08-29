@@ -23,7 +23,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { ListaEditavel, type ColunaDaLista } from "@/components/fluxos/lista-editavel";
 import { escritas, fraseDoErro, type Catalogo, type Etapa } from "@/lib/fluxos";
-import { SEM_VINCULO, VINCULOS_DA_ETAPA, type OpcoesDeResponsavel } from "@/lib/fluxos-analise";
+import {
+  cargosDoDepartamento,
+  SEM_VINCULO,
+  VINCULOS_DA_ETAPA,
+  type OpcoesDeResponsavel,
+} from "@/lib/fluxos-analise";
 import { useOpcoesDeResponsavel } from "@/lib/responsaveis";
 
 /**
@@ -120,15 +125,30 @@ function colunasDoResponsavel(
   return VINCULOS_DA_ETAPA.flatMap(({ campo, rotulo, fonte }) => {
     const lista = opcoes[fonte];
     if (lista.length === 0) return [];
+    const vazio = { valor: SEM_VINCULO, rotulo: `Sem ${rotulo.toLowerCase()}` };
+    const comoOpcao = (o: { id: string; nome: string }) => ({ valor: o.id, rotulo: o.nome });
     return [
       {
         campo,
         rotulo,
         tipo: "escolha" as const,
-        opcoes: [
-          { valor: SEM_VINCULO, rotulo: `Sem ${rotulo.toLowerCase()}` },
-          ...lista.map((o) => ({ valor: o.id, rotulo: o.nome })),
-        ],
+        /*
+          O cargo é o único que se estreita, e por linha: escolhido o
+          departamento naquela linha, a lista passa a ser a dele e a dos
+          departamentos abaixo. As exceções — cargo sem lotação e o cargo já
+          escolhido — estão em `cargosDoDepartamento`.
+        */
+        opcoes:
+          campo === "cargoId"
+            ? (linha: LinhaDeItem) => [
+                vazio,
+                ...cargosDoDepartamento(
+                  opcoes,
+                  idDoVinculo(linha.departamentoId),
+                  idDoVinculo(linha.cargoId),
+                ).map(comoOpcao),
+              ]
+            : [vazio, ...lista.map(comoOpcao)],
       },
     ];
   });
@@ -386,8 +406,13 @@ export function EditorDaEtapa({
               */}
               {opcoesDeResponsavel ? (
                 VINCULOS_DA_ETAPA.map(({ campo, rotulo, fonte }) => {
-                  const lista = opcoesDeResponsavel[fonte];
-                  if (lista.length === 0) return null;
+                  const todas = opcoesDeResponsavel[fonte];
+                  if (todas.length === 0) return null;
+                  /* O cargo se estreita pelo departamento escolhido acima. */
+                  const lista =
+                    campo === "cargoId"
+                      ? cargosDoDepartamento(opcoesDeResponsavel, departamentoId, cargoId)
+                      : todas;
                   const valor =
                     campo === "departamentoId"
                       ? departamentoId
