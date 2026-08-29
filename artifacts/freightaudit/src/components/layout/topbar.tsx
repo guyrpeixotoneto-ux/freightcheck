@@ -9,6 +9,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { AMBIENTES, descricaoDoAmbiente } from "@/lib/ambiente";
+import { ambientesPermitidos, usePermissoes } from "@/lib/permissoes";
 import { useAmbiente } from "@/lib/ambiente-aberto";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
@@ -147,8 +148,26 @@ export function Topbar({
  *
  * Selecionar o ambiente já aberto só fecha o menu — o `Link` para a própria
  * home é navegação inofensiva, não um estado a proteger.
+ *
+ * **A lista é a dos ambientes que a pessoa alcança**, e não os oito. Quem
+ * trabalha só na Empurrada não tem o que fazer no Fechamento AS, e oferecer a
+ * troca para depois recusá-la na chegada é oferecer trabalho perdido — a mesma
+ * razão pela qual a própria conta fica fora da lista de Permissões. Quem
+ * recusa de verdade continua sendo a casca, na chegada, e o servidor, na
+ * escrita: esconder aqui é conveniência.
+ *
+ * O ambiente aberto entra na lista mesmo restrito, e é de propósito: ele está
+ * escrito no botão, e uma lista que não contém o que o botão diz é uma lista
+ * que parece quebrada. Quem chegou a um ambiente que não alcança já está vendo
+ * a tela que explica isso.
  */
 function SeletorDeAmbiente({ atual }: { atual: (typeof AMBIENTES)[number]["id"] }) {
+  const { permissoes } = usePermissoes();
+  const alcancaveis = ambientesPermitidos(permissoes);
+  const lista = alcancaveis.some((a) => a.id === atual)
+    ? alcancaveis
+    : AMBIENTES.filter((a) => alcancaveis.includes(a) || a.id === atual);
+
   return (
     <>
       <span aria-hidden className="h-7 w-px bg-white/25 shrink-0" />
@@ -165,7 +184,7 @@ function SeletorDeAmbiente({ atual }: { atual: (typeof AMBIENTES)[number]["id"] 
             Ambiente de trabalho
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
-          {AMBIENTES.map((ambiente) => (
+          {lista.map((ambiente) => (
             <DropdownMenuItem key={ambiente.id} asChild>
               <Link href={`~${ambiente.home}`} className="flex items-start gap-2.5 py-2.5">
                 <Check

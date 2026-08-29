@@ -19,6 +19,13 @@ import {
  * · **Quem tira responde pelo que tirou**: cada mudança grava um evento com
  *   autor e carimbo, e o evento nunca é apagado.
  *
+ * E há um segundo eixo, na mesma tabela e com as mesmas três frases: o
+ * **ambiente de trabalho** — as quatro auditorias e os quatro fechamentos.
+ * Módulo responde "que telas", ambiente responde "de qual operação", e as duas
+ * perguntas são independentes: quem edita Alterações na Empurrada pode não
+ * entrar no Fechamento AS. Ver {@link AMBIENTES}, logo abaixo, e
+ * `chaveDoAmbiente` para o formato da chave.
+ *
  * O que este arquivo **não** faz, e é melhor dizê-lo aqui do que descobrir na
  * tela: ele não esconde leitura. `escritasDoModulo` mapeia módulo → prefixo de
  * API, e o portão (`middlewares/portao-de-permissao.ts`) recusa **escrita** —
@@ -31,6 +38,99 @@ import {
  * que dá para garantir de verdade é que **ninguém escreve onde não tem
  * edição**, e é isso que está garantido.
  */
+
+/**
+ * Os oito ambientes de trabalho, e por que eles são permissão como os módulos.
+ *
+ * O produto é um só, mas os espaços de trabalho são oito — quatro auditorias e
+ * quatro fechamentos, um por operação (`artifacts/freightaudit/src/lib/
+ * ambiente.ts`, que é onde eles se chamam pelo nome). Quem trabalha só na
+ * empurrada não tem o que fazer no Fechamento AS, e até aqui o produto não
+ * tinha como dizer isso: a permissão era por módulo, e módulo é o mesmo nos
+ * quatro ambientes de propósito — `/alteracoes` na Rota e na Empurrada é a
+ * mesma tela sobre acervos diferentes.
+ *
+ * Então o ambiente é o **segundo eixo**, e ele mora na mesma tabela: a chave é
+ * `@` mais o id do ambiente, que nenhum módulo pode ter porque módulo começa
+ * por barra. Sem tabela nova, sem migration, e com o histórico, o padrão que
+ * concede e o portão de escrita valendo para os dois eixos sem uma linha a
+ * mais.
+ *
+ * A lista é escrita aqui e lá, e é curta o bastante para isso não doer: os oito
+ * ids são o eixo do produto, mudam junto com o `?operacao=` que separa os
+ * acervos, e o teste de `lib/ambiente.ts` do lado da interface os enumera um a
+ * um. O que este arquivo não pode é derivar a lista da interface — são dois
+ * pacotes, e o servidor não importa a tela.
+ */
+export const AMBIENTES = [
+  "auditoria",
+  "auditoria-rota",
+  "auditoria-as",
+  "auditoria-apoio",
+  "fechamento-rota",
+  "fechamento-empurrada",
+  "fechamento-as",
+  "fechamento-apoio",
+] as const;
+export type Ambiente = (typeof AMBIENTES)[number];
+
+/** A chave de um ambiente na tabela de permissões — `@fechamento-rota`. */
+export function chaveDoAmbiente(id: Ambiente): string {
+  return `@${id}`;
+}
+
+/** Se uma chave é de ambiente, e não de módulo. */
+export function ehChaveDeAmbiente(chave: string): boolean {
+  return (AMBIENTES as readonly string[]).some((id) => `@${id}` === chave);
+}
+
+/**
+ * O ambiente que a requisição declara, em `?ambiente=`.
+ *
+ * Quem carimba é o cliente, num lugar só (`lib/api.ts`, em `getApiUrl`), pela
+ * mesma razão pela qual `?operacao=` é carimbado lá: são mais de cem chamadas,
+ * e a que alguém esquecesse seria uma restrição que não vale numa tela — sem
+ * erro nenhum, que é a forma mais cara de isso aparecer.
+ *
+ * Valor desconhecido vira `null` — não vira recusa. Um ambiente que este
+ * servidor não conhece é um cliente mais novo do que ele, e responder 403 a
+ * isso seria transformar um deploy fora de ordem em bloqueio de trabalho
+ * legítimo.
+ */
+export function ambienteDaConsulta(
+  query: Record<string, unknown>,
+): Ambiente | null {
+  const bruto = query["ambiente"];
+  return typeof bruto === "string" &&
+    (AMBIENTES as readonly string[]).includes(bruto)
+    ? (bruto as Ambiente)
+    : null;
+}
+
+/**
+ * As escritas que **não** pertencem a ambiente nenhum.
+ *
+ * A Administração vale para o produto inteiro — contas, unidades, o cadastro da
+ * casa e a própria sessão — e é por isso que ela vive fora dos prefixos de
+ * ambiente na interface. O carimbo de `?ambiente=` não sabe disso: fora de um
+ * ambiente prefixado ele manda `auditoria`, que é o que sobra quando nenhum
+ * prefixo casa. Sem esta lista, tirar a Auditoria Empurrada de alguém tiraria
+ * junto o botão de trocar a própria senha e o cadastro de cargos — dois
+ * bloqueios que ninguém pediu e que ninguém saberia explicar.
+ */
+const ESCRITAS_FORA_DO_AMBIENTE: readonly string[] = [
+  "/auth",
+  "/users",
+  "/unidades",
+  "/cadastro",
+];
+
+/** Se um caminho de API é de Administração — ver a lista acima. */
+export function escritaForaDoAmbiente(caminho: string): boolean {
+  return ESCRITAS_FORA_DO_AMBIENTE.some(
+    (prefixo) => caminho === prefixo || caminho.startsWith(`${prefixo}/`),
+  );
+}
 
 export const NIVEIS = ["EDITAR", "VISUALIZAR", "SEM_ACESSO"] as const;
 export type Nivel = (typeof NIVEIS)[number];
@@ -105,6 +205,14 @@ export function nivelDe(
   modulo: string,
 ): Nivel {
   return permissoes[modulo] ?? NIVEL_PADRAO;
+}
+
+/** O nível de uma pessoa num ambiente, já com o padrão aplicado. */
+export function nivelDoAmbiente(
+  permissoes: Record<string, Nivel>,
+  id: Ambiente,
+): Nivel {
+  return permissoes[chaveDoAmbiente(id)] ?? NIVEL_PADRAO;
 }
 
 /**

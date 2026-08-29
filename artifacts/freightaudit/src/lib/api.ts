@@ -11,7 +11,8 @@ import { ErroDeTransporte, diagnosticarTransporte } from "@/lib/transporte";
 export function getApiUrl(path: string): string {
   const base = "/api";
   const normalized = path.startsWith("/") ? path : `/${path}`;
-  return `${base}${comOperacao(normalized, enderecoAberto())}`;
+  const endereco = enderecoAberto();
+  return `${base}${comAmbiente(comOperacao(normalized, endereco), endereco)}`;
 }
 
 /**
@@ -54,6 +55,35 @@ function enderecoAberto(): string {
   return daAplicacao !== "" && caminho.startsWith(daAplicacao)
     ? caminho.slice(daAplicacao.length) || "/"
     : caminho;
+}
+
+/**
+ * O ambiente de trabalho aberto, em **toda** chamada — o segundo carimbo.
+ *
+ * `?operacao=` diz de qual acervo é a pergunta; `?ambiente=` diz de qual dos
+ * oito espaços de trabalho ela saiu. São coisas diferentes, e por isso são dois
+ * parâmetros: a Auditoria Rota e o Fechamento Rota carimbam `ROTA` na operação
+ * e são ambientes distintos, com acessos que se decidem separadamente
+ * (`components/configuracoes/permissoes.tsx`).
+ *
+ * Serve a uma coisa só, e é honesto dizer qual: o portão do servidor
+ * (`middlewares/portao-de-permissao.ts`) recusa **escrita** de quem não tem
+ * edição no ambiente de onde a chamada saiu. Não é recorte de dado — o recorte
+ * é `?operacao=`, e ele não depende de permissão nenhuma.
+ *
+ * É carimbado nos oito, e não só nos prefixados: fora de um prefixo o ambiente
+ * é a Auditoria Empurrada, que mora na raiz (`lib/ambiente.ts`), e ela é um
+ * ambiente como os outros — restringível como os outros. Quem cuida de não
+ * bloquear a Administração por causa disso é o servidor, que conhece as
+ * escritas que valem para o produto inteiro; aqui não há como saber, porque
+ * este carimbo lê o endereço e não o menu.
+ */
+export function comAmbiente(caminho: string, enderecoDoNavegador: string): string {
+  const [semQuery, query = ""] = caminho.split("?");
+  const params = new URLSearchParams(query);
+  if (params.has("ambiente")) return caminho;
+  params.set("ambiente", ambienteDe(enderecoDoNavegador));
+  return `${semQuery}?${params}`;
 }
 
 export function comOperacao(caminho: string, enderecoDoNavegador: string): string {

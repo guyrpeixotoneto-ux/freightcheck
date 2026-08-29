@@ -20,6 +20,7 @@ import {
 } from "../lib/session";
 import {
   definirPermissoes,
+  ehChaveDeAmbiente,
   ehNivel,
   historicoDePermissoes,
   permissoesDe,
@@ -392,6 +393,11 @@ router.get("/users/:id/permissoes", async (req, res): Promise<void> => {
  * · Configurações (`/configuracoes`) é o módulo que gerencia contas, e tirá-lo
  *   de um administrador é a mesma porta com outro nome — quem administra o
  *   acesso precisa alcançar a tela onde o acesso se administra.
+ *
+ * As chaves são de duas formas: módulo, o endereço do item no menu, e ambiente,
+ * `@` mais o id de um dos oito espaços de trabalho. Nenhuma regra separa as
+ * duas aqui — a gravação, o histórico e o padrão que concede são os mesmos —,
+ * e é justamente por isso que o eixo novo não trouxe rota nova.
  */
 router.put("/users/:id/permissoes", async (req, res): Promise<void> => {
   const recusa = somenteAdmin(req);
@@ -414,9 +420,16 @@ router.put("/users/:id/permissoes", async (req, res): Promise<void> => {
 
   const pedido: Record<string, Nivel> = {};
   for (const [modulo, nivel] of Object.entries(niveis as Record<string, unknown>)) {
-    if (!modulo.startsWith("/")) {
+    /*
+      Duas formas de chave, e as duas conferidas: módulo é o endereço do item no
+      menu (começa por barra) e ambiente é `@` mais o id de um dos oito
+      (`lib/permissoes.ts`). O ambiente é conferido contra a lista, e não pelo
+      formato: `@fechamento-rotta` gravaria uma linha que ninguém lê nunca — uma
+      restrição que a tela mostra e o portão ignora é pior do que uma recusa.
+    */
+    if (!modulo.startsWith("/") && !ehChaveDeAmbiente(modulo)) {
       res.status(400).json({
-        error: `"${modulo}" não é um módulo: a chave é o endereço do item no menu, começando por barra.`,
+        error: `"${modulo}" não é um módulo nem um ambiente: a chave é o endereço do item no menu, começando por barra, ou "@" e o id do ambiente.`,
       });
       return;
     }

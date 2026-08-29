@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Eye, Lock, PencilLine, Search, ShieldCheck } from "lucide-react";
+import { Eye, Layers, Lock, PencilLine, Search, ShieldCheck } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -15,12 +15,14 @@ import {
 } from "@/components/ui/select";
 import { ApiErrorNotice } from "@/components/api-error";
 import { useContas } from "@/components/configuracoes/contas";
+import { AMBIENTES } from "@/lib/ambiente";
 import { fetchJson } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import {
   EXPLICACAO_DO_NIVEL,
   MODULOS,
   NIVEL_PADRAO,
+  chaveDoAmbiente,
   modulosPorGrupo,
   type Nivel,
 } from "@/lib/permissoes";
@@ -33,6 +35,14 @@ import { cn } from "@/lib/utils";
  * em `lib/permissoes.ts` a partir das mesmas funções que desenham as laterais.
  * É o que impede esta tela de prometer controle sobre um módulo que não existe
  * mais, ou de esquecer um que nasceu ontem.
+ *
+ * **São dois eixos, e a tela mostra os dois.** Em cima, os oito ambientes de
+ * trabalho — as quatro auditorias e os quatro fechamentos —, porque "esta
+ * pessoa só trabalha na empurrada" é uma frase que o eixo dos módulos não sabia
+ * dizer: `/alteracoes` é a mesma tela nas quatro auditorias, e é o acervo
+ * embaixo dela que muda. Embaixo, os módulos de sempre. O que vale numa tela é
+ * o **mais restritivo dos dois** — tirar o Fechamento AS de alguém não pede
+ * revisar módulo nenhum, e devolver um módulo não devolve um ambiente.
  *
  * Três decisões de desenho, e nenhuma é enfeite:
  *
@@ -182,6 +192,23 @@ export function PainelDePermissoes() {
   }, [busca]);
 
   const visiveis = secoes.flatMap((s) => s.itens.map((m) => m.chave));
+
+  /*
+    A busca vale para os dois eixos, e por isso os ambientes também são
+    filtrados por ela: quem digita "fechamento" está procurando o fechamento, e
+    uma lista de ambientes que ignora a busca deixaria oito linhas fixas em cima
+    de uma lista que encolheu.
+  */
+  const ambientesNaTela = useMemo(() => {
+    const termo = busca.trim().toLowerCase();
+    if (termo === "") return AMBIENTES;
+    return AMBIENTES.filter(
+      (a) =>
+        a.nomeCompleto.toLowerCase().includes(termo) ||
+        a.nome.toLowerCase().includes(termo) ||
+        a.id.includes(termo),
+    );
+  }, [busca]);
 
   function aplicarEmTodos(nivel: Nivel) {
     const niveis: Record<string, Nivel> = {};
@@ -350,6 +377,50 @@ export function PainelDePermissoes() {
                 </p>
               )}
 
+              {!consulta.isLoading && ambientesNaTela.length > 0 && (
+                <div className="rounded-md border">
+                  <div className="flex items-center gap-2 bg-muted/50 px-4 py-2">
+                    <Layers className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                    <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Ambientes de trabalho
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {ambientesNaTela.length} de {AMBIENTES.length}
+                    </span>
+                  </div>
+                  <p className="border-t px-4 py-2 text-xs text-muted-foreground">
+                    Onde a pessoa trabalha. Um ambiente sem acesso não aparece no
+                    seletor do topo e nenhuma tela dele abre — inclusive as que
+                    estão liberadas na lista de módulos abaixo, porque o que vale
+                    numa tela é o mais restritivo dos dois.
+                  </p>
+                  {ambientesNaTela.map((ambiente) => {
+                    const chave = chaveDoAmbiente(ambiente.id);
+                    const nivel = permissoes[chave] ?? NIVEL_PADRAO;
+                    return (
+                      <div
+                        key={ambiente.id}
+                        className="flex flex-wrap items-center gap-3 border-t px-4 py-2.5"
+                      >
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-sm font-semibold">
+                            {ambiente.nomeCompleto}
+                          </span>
+                          <span className="block text-xs text-muted-foreground">
+                            {ambiente.descricao}
+                          </span>
+                        </span>
+                        <BotoesDeNivel
+                          nivel={nivel}
+                          desabilitado={!podeMexer || definir.isPending}
+                          aoEscolher={(opcao) => definir.mutate({ [chave]: opcao })}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
               <div className="rounded-md border divide-y">
                 {consulta.isLoading && (
                   <p className="p-6 text-sm text-muted-foreground">Carregando…</p>
@@ -384,23 +455,13 @@ export function PainelDePermissoes() {
                                 {modulo.chave} · {EXPLICACAO_DO_NIVEL[nivel]}
                               </span>
                             </span>
-                            <span className="flex items-center gap-1.5">
-                              {NIVEIS_NA_TELA.map(({ nivel: opcao, rotulo, icone: Icone, ativo }) => (
-                                <Button
-                                  key={opcao}
-                                  type="button"
-                                  variant="outline"
-                                  size="sm"
-                                  aria-pressed={nivel === opcao}
-                                  disabled={!podeMexer || definir.isPending}
-                                  className={cn("h-8", nivel === opcao && ativo)}
-                                  onClick={() => definir.mutate({ [modulo.chave]: opcao })}
-                                >
-                                  <Icone className="w-3.5 h-3.5 mr-1.5" />
-                                  {rotulo}
-                                </Button>
-                              ))}
-                            </span>
+                            <BotoesDeNivel
+                              nivel={nivel}
+                              desabilitado={!podeMexer || definir.isPending}
+                              aoEscolher={(opcao) =>
+                                definir.mutate({ [modulo.chave]: opcao })
+                              }
+                            />
                           </div>
                         );
                       })}
@@ -420,6 +481,43 @@ export function PainelDePermissoes() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+/**
+ * Os três botões de nível — os mesmos para um módulo e para um ambiente.
+ *
+ * Um componente só porque são a mesma decisão sobre coisas diferentes: a ordem,
+ * as cores e o `aria-pressed` têm de ser idênticos nos dois eixos, e duas
+ * cópias divergiriam na primeira mudança de qualquer um deles.
+ */
+function BotoesDeNivel({
+  nivel,
+  desabilitado,
+  aoEscolher,
+}: {
+  nivel: Nivel;
+  desabilitado: boolean;
+  aoEscolher: (nivel: Nivel) => void;
+}) {
+  return (
+    <span className="flex items-center gap-1.5">
+      {NIVEIS_NA_TELA.map(({ nivel: opcao, rotulo, icone: Icone, ativo }) => (
+        <Button
+          key={opcao}
+          type="button"
+          variant="outline"
+          size="sm"
+          aria-pressed={nivel === opcao}
+          disabled={desabilitado}
+          className={cn("h-8", nivel === opcao && ativo)}
+          onClick={() => aoEscolher(opcao)}
+        >
+          <Icone className="w-3.5 h-3.5 mr-1.5" />
+          {rotulo}
+        </Button>
+      ))}
+    </span>
   );
 }
 
@@ -472,7 +570,9 @@ function Historico({
       <ul className="space-y-1.5">
         {linhas.slice(0, 12).map((linha, indice) => (
           <li key={`${linha.em}|${linha.modulo}|${indice}`} className="text-xs text-muted-foreground">
-            <span className="font-medium text-foreground">{linha.modulo}</span>{" "}
+            <span className="font-medium text-foreground">
+              {rotuloDaChave(linha.modulo)}
+            </span>{" "}
             {linha.nivelAnterior ? `de ${rotuloDoNivel(linha.nivelAnterior)} ` : ""}
             para {rotuloDoNivel(linha.nivel)} · {linha.por} · {dateTime(linha.em)}
           </li>
@@ -480,6 +580,19 @@ function Historico({
       </ul>
     </div>
   );
+}
+
+/**
+ * O nome do que mudou, para o histórico.
+ *
+ * A chave crua serve à tabela de cima, onde ela aparece ao lado do nome do
+ * módulo; aqui, sozinha, `@fechamento-as` seria a linha do histórico falando a
+ * língua do banco. Módulo continua sendo o endereço — é assim que ele é
+ * identificado no menu e na lista acima —, e ambiente vira o nome por extenso.
+ */
+function rotuloDaChave(chave: string): string {
+  const ambiente = AMBIENTES.find((a) => chaveDoAmbiente(a.id) === chave);
+  return ambiente ? ambiente.nomeCompleto : chave;
 }
 
 function rotuloDoNivel(nivel: string): string {
