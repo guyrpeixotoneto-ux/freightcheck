@@ -257,6 +257,7 @@ export default function LinhaDoTempo() {
                 consulta={consulta}
                 periods={view.periods}
                 currentPeriod={view.period}
+                onEscolherVigencia={(periodo) => trocarPara({ period: periodo })}
               />
             )}
 
