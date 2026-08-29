@@ -612,41 +612,29 @@ export function cartaoDaJornada(linha: LinhaDaEtapa, lente: LenteDaJornada): Car
       case "informacoes":
         return [
           /*
-            O que a etapa **consulta** abre a lente: é o campo "Informações que
-            consulta" do editor — o relatório, a tela, a planilha, o e-mail que
-            quem executa a etapa vai olhar para conseguir fazê-la.
+            O que a etapa **consulta** é a lente inteira: é o campo "Dados" do
+            editor — o relatório, a tela, a planilha, o e-mail que quem executa
+            a etapa vai olhar para conseguir fazê-la.
 
-            "Consulta" é onde a pessoa vai olhar; "Contexto" é o que ela precisa
-            saber; o indicador é o que a etapa mede. São três perguntas
-            diferentes sobre a informação da etapa, e por isso três linhas — e
-            todas as três são o assunto desta lente. O que saiu foram as setas
-            do grafo ("vem de", "segue para"): elas já estão desenhadas entre os
-            cartões, e repeti-las dentro deles enchia a lente de texto que não
-            era informação da etapa.
+            O que saiu daqui foi o campo Observações da etapa. Ele é o caderno
+            de quem levantou o processo ("A VALIDAR: quem confere"), não o dado
+            que a etapa consulta, e no cartão ocupava a linha do dado
+            respondendo outra pergunta: quem abre a lente de Dados e lê uma
+            observação acha que a etapa tem dado mapeado quando ela não tem.
+            Sem dado, a linha diz isso com todas as letras.
+
+            Pelo mesmo motivo saíram os indicadores — o que a etapa mede é
+            outra pergunta que não a do dado que ela consulta — e as setas do
+            grafo, que já estão desenhadas entre os cartões. A lente ficou de
+            uma linha só, como as de falhas, gargalos e documentação: o campo
+            que lhe dá nome, lido de relance ao longo do caminho inteiro.
           */
           {
             chave: "consulta",
             rotulo: "Dados",
             icone: "Search",
             valores: [etapa.informacoesConsultadas].filter(naoVazio),
-            vazio: "sem dados anotados",
-          },
-          {
-            chave: "contexto",
-            rotulo: "Contexto",
-            icone: "Info",
-            valores: [etapa.informacoes].filter(naoVazio),
-            vazio: "sem contexto anotado",
-          },
-          {
-            chave: "indicadores",
-            rotulo: "Indicadores",
-            icone: "Activity",
-            valores: etapa.indicadores
-              .slice()
-              .sort((a, b) => a.ordem - b.ordem)
-              .map((i) => (naoVazio(i.unidade) ? `${i.nome} (${i.unidade})` : i.nome)),
-            vazio: "a etapa não mede nada",
+            vazio: "sem dados mapeados",
           },
         ];
 

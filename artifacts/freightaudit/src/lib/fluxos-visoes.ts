@@ -224,7 +224,7 @@ export const LENTES_DA_JORNADA: readonly EntradaDeLente[] = [
   {
     valor: "informacoes",
     rotulo: "Dados",
-    descricao: "O que a etapa consulta, o contexto que ela exige e o que ela mede.",
+    descricao: "Só o que a etapa consulta para conseguir ser feita.",
     icone: "Activity",
     selos: false,
   },
