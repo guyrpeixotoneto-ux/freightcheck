@@ -3,7 +3,8 @@ import { criarBancoComExportRealPromovido, type TestDb } from "@workspace/ingest
 import { applyConfirmations, runProposalPass, seedTaxonomy } from "@workspace/curation";
 import { getVisaoDeFrota, montarComposicao } from "@workspace/composition";
 import { acharPlaca, buscarPlacas, remuneradoDaPlaca, type ConsultaDaPlaca } from "../frota";
-import { produtoDe } from "../catalogo";
+import { produtoDe, produtosDoBalcao } from "../catalogo";
+import { matrizDaFrota, type MatrizDaFrota } from "../matriz";
 
 /**
  * O balcão da frota contra o export real da Freightec.
@@ -233,5 +234,137 @@ describe("o remunerado de um cavalo", () => {
     expect(carreta.presente).toBe(true);
     /* A carreta não puxa ninguém: o atalho é de mão única, e some do outro lado. */
     expect(carreta.vinculo).toBeNull();
+  });
+});
+
+/**
+ * A matriz da frota, contra o mesmo export.
+ *
+ * O que este bloco protege é a promessa do módulo em uma frase: **a célula de
+ * uma placa na matriz e a ficha dessa placa são o mesmo número.** Tudo o mais
+ * aqui — os totais, as marcas de vazio — decorre disso; se a célula divergir da
+ * ficha, o resto é aritmética sobre um número errado.
+ */
+describe("a matriz da frota", () => {
+  let matriz: MatrizDaFrota;
+
+  beforeAll(async () => {
+    matriz = (await matrizDaFrota(ctx.db, { period: AGOSTO }))!;
+  }, 120_000);
+
+  it("traz a frota inteira, sem pedir placa nenhuma", () => {
+    expect(matriz.effectiveDate).toBe(AGOSTO);
+    expect(matriz.linhas.length).toBeGreaterThan(1);
+    expect(matriz.resumo.veiculos).toBe(matriz.linhas.length);
+    /* Cavalo e carreta juntos — a compra não conhece a fronteira entre os dois. */
+    expect(matriz.resumo.porTipo.map((t) => t.entityType)).toEqual(["CAVALO", "CARRETA"]);
+    for (const tipo of matriz.resumo.porTipo) expect(tipo.veiculos).toBeGreaterThan(0);
+  });
+
+  it("as colunas são as do catálogo, na ordem dele", () => {
+    expect(matriz.colunas.map((c) => c.produto.chave)).toEqual(
+      produtosDoBalcao("FROTA").map((p) => p.chave),
+    );
+    /* Uma célula por coluna em toda linha — a tabela não tem buraco de forma. */
+    for (const linha of matriz.linhas) {
+      expect(linha.celulas).toHaveLength(matriz.colunas.length);
+    }
+  });
+
+  /**
+   * A prova central. Percorre a ficha de uma placa e exige que cada produto dela
+   * bata com a célula correspondente — valor, gaveta e a ausência de valor.
+   */
+  it("a célula de uma placa é o destaque da ficha dela — número a número", async () => {
+    const linha = matriz.linhas.find((l) => l.placa === placaDoCavalo)!;
+    expect(linha).toBeDefined();
+
+    const ficha = (await remuneradoDaPlaca(ctx.db, placaDoCavalo, { period: AGOSTO }))!;
+    for (const [i, coluna] of matriz.colunas.entries()) {
+      const produto = ficha.produtos.find((p) => p.produto.chave === coluna.produto.chave)!;
+      const celula = linha.celulas[i]!;
+      expect(celula.valor).toBe(produto.destaque?.valor ?? null);
+      expect(celula.gaveta).toBe(produto.destaque?.gaveta ?? null);
+      expect(celula.colunas).toBe(produto.linhas.length);
+    }
+  });
+
+  /**
+   * O vazio diz de qual vazio se trata — e a classificação é fechada: onde não
+   * há número, há sempre um motivo, e onde há número não há motivo nenhum.
+   */
+  it("toda célula sem número traz o motivo, e nenhuma com número traz", () => {
+    for (const linha of matriz.linhas) {
+      for (const celula of linha.celulas) {
+        if (celula.valor === null) expect(celula.vazio).not.toBeNull();
+        else expect(celula.vazio).toBeNull();
+      }
+      /* Sem coluna é sem coluna: nenhum motivo mente sobre quantas existem. */
+      for (const celula of linha.celulas) {
+        if (celula.vazio === "SEM_COLUNA") expect(celula.colunas).toBe(0);
+        else expect(celula.colunas).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  /**
+   * O pneu — a ressalva que este produto inteiro existe para carregar. Na
+   * matriz ela viaja na coluna, porque não cabe em oitenta células.
+   */
+  it("a coluna de pneu chega ressalvada, e o total dela não é lido como preço", () => {
+    const pneu = matriz.colunas.find((c) => c.produto.chave === "pneu")!;
+    expect(pneu.produto.ressalva?.motivo).toBe("COLUNA_ZERADA_NA_SERIE");
+  });
+
+  /**
+   * A recusa que a inversão do eixo poderia ter perdido: **gavetas não se
+   * somam.** Onde há total, todas as células que o formam estão na mesma
+   * gaveta — e o total é exatamente a soma delas, sem arredondamento pelo meio.
+   */
+  it("o total de uma coluna é a soma das células, e só existe dentro de uma gaveta", () => {
+    for (const [i, coluna] of matriz.colunas.entries()) {
+      const comValor = matriz.linhas
+        .map((l) => l.celulas[i]!)
+        .filter((c) => c.valor !== null);
+
+      expect(coluna.veiculosComValor).toBe(comValor.length);
+
+      if (coluna.total === null) {
+        expect(coluna.semTotal).not.toBeNull();
+        if (coluna.semTotal === "SEM_VALOR") expect(comValor).toHaveLength(0);
+        else expect(new Set(comValor.map((c) => c.gaveta)).size).toBeGreaterThan(1);
+        continue;
+      }
+
+      expect(coluna.semTotal).toBeNull();
+      expect(new Set(comValor.map((c) => c.gaveta)).size).toBe(1);
+      expect(coluna.gaveta).toBe(comValor[0]!.gaveta);
+      expect(coluna.total).toBeCloseTo(
+        comValor.reduce((s, c) => s + c.valor!, 0),
+        2,
+      );
+    }
+  });
+
+  /**
+   * A soma não parece o todo: o que não pertence a produto nenhum sai contado,
+   * como no balcão. Sem isto, a matriz se anunciaria como tudo o que a fonte
+   * diz de um veículo, quando é o recorte do que se compra.
+   */
+  it("as rubricas fora do catálogo saem contadas, e não escondidas", () => {
+    expect(matriz.foraDoCatalogo.length).toBeGreaterThan(0);
+    for (const rubrica of matriz.foraDoCatalogo) expect(rubrica.colunas).toBeGreaterThan(0);
+  });
+
+  it("um tipo pedido de propósito recorta a matriz, sem mudar as colunas", async () => {
+    const soCarretas = (await matrizDaFrota(ctx.db, {
+      period: AGOSTO,
+      entityTypes: ["CARRETA"],
+    }))!;
+    expect(soCarretas.linhas.every((l) => l.entityType === "CARRETA")).toBe(true);
+    expect(soCarretas.linhas.length).toBeLessThan(matriz.linhas.length);
+    expect(soCarretas.colunas.map((c) => c.produto.chave)).toEqual(
+      matriz.colunas.map((c) => c.produto.chave),
+    );
   });
 });
