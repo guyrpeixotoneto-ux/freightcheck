@@ -81,6 +81,7 @@ export type ChaveDeCampo =
   | "objetivo"
   | "regras"
   | "informacoesConsultadas"
+  | "informacoes"
   | "observacoes"
   | "chaveMonitoramento";
 
@@ -139,15 +140,6 @@ export const SECOES_DE_CAMPOS: SecaoDeCampos[] = [
         rotulo: "Dados",
         ajuda: "onde quem executa vai olhar: relatório, tela, planilha, e-mail",
       },
-      /*
-        O campo antigo da etapa, preservado desde a migration `0072`: a tela
-        não o mostra mais — o texto de contexto vive em `informacoes`, que o
-        painel chama de "Observações". O rótulo diz "texto antigo" porque
-        dois "Observações" na planilha e na tela seriam dois nomes para
-        campos diferentes, que é exatamente o que o contrato de rótulos
-        existe para impedir.
-      */
-      { chave: "observacoes", rotulo: "Observações (texto antigo)" },
     ],
   },
   {
@@ -163,6 +155,49 @@ export const SECOES_DE_CAMPOS: SecaoDeCampos[] = [
 ];
 
 export const CAMPOS_DA_ETAPA: CampoDoModelo[] = SECOES_DE_CAMPOS.flatMap((s) => s.campos);
+
+/**
+ * ---------------------------------------------------------------------------
+ * O que a ida não escreve mais, e a volta continua entendendo
+ * ---------------------------------------------------------------------------
+ *
+ * Os rótulos são o contrato entre a ida e a volta, e renomear um campo quebra
+ * as planilhas que já saíram: o arquivo que voltou da reunião traz o nome de
+ * antes na coluna A, e o leitor que só conhece o nome de hoje o ignora em
+ * silêncio — a pior forma de perder um levantamento.
+ *
+ * Por isso a volta lê duas listas. `CAMPOS_DA_ETAPA` é o que a ida escreve
+ * hoje; estas duas são só de leitura:
+ *
+ * - `CAMPOS_SO_DE_LEITURA` — campos que a planilha nova não oferece, mas que a
+ *   volta grava quando o arquivo antigo os traz. `observacoes` é o depósito de
+ *   antes do recorte da migration `0072`: a tela não o mostra e não o escreve,
+ *   então oferecê-lo como campo editável na planilha era prometer uma edição
+ *   que não aparece em lugar nenhum. Ele continua sendo lido — e com o rótulo
+ *   dizendo "texto antigo", porque confundi-lo com `informacoes`, que o painel
+ *   chama de "Observações", seria escrever num campo pelo nome de outro.
+ * - `ROTULOS_ANTIGOS` — o nome de antes de cada campo renomeado, apontando para
+ *   a chave que ele sempre gravou.
+ *
+ * O caminho é de mão única: nada aqui volta para a exportação. Arquivo novo sai
+ * só com os nomes novos.
+ */
+export const CAMPOS_SO_DE_LEITURA: CampoDoModelo[] = [
+  { chave: "informacoes", rotulo: "Observações" },
+  { chave: "observacoes", rotulo: "Observações (texto antigo)" },
+];
+
+/** Um rótulo que já saiu numa planilha, e o campo que ele sempre gravou. */
+export interface RotuloAntigo {
+  rotulo: string;
+  chave: ChaveDeCampo;
+}
+
+export const ROTULOS_ANTIGOS: RotuloAntigo[] = [
+  { rotulo: "Informações que consulta", chave: "informacoesConsultadas" },
+  { rotulo: "Informações", chave: "informacoes" },
+  { rotulo: "Observações", chave: "observacoes" },
+];
 
 /** Uma coluna de tabela: o rótulo que sai na planilha, e o campo que ele grava. */
 export interface ColunaDoModelo {

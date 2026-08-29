@@ -225,10 +225,20 @@ describe("o modelo do fluxo", () => {
       "Objetivo da etapa",
       "Regras de negócio",
       "Dados",
-      "Observações (texto antigo)",
       "Chave de monitoramento",
     ]) {
       expect(conteudo).toContain(rotulo);
+    }
+
+    /*
+      E não traz o que saiu: os nomes de antes da renomeação e o campo legado
+      `observacoes`, que a tela não mostra nem grava. A volta ainda os entende
+      (ver `fluxos-modelo-leitura.test.ts`), mas arquivo novo sai só com os
+      nomes de hoje — senão a planilha ensina a preencher um campo que ninguém
+      vai ler na tela.
+    */
+    for (const saiu of ["Informações que consulta", "Observações"]) {
+      expect(conteudo).not.toContain(saiu);
     }
 
     /* As listas do catálogo — título e colunas — e as duas fixas do editor. */
