@@ -7,6 +7,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { apresentar } from "@/lib/apresentar-erro";
 import { fetchJson } from "@/lib/api";
 import {
@@ -211,35 +217,142 @@ export function CadastroCanonicoDeUnidades() {
   const salvando = cadastrar.isPending || editar.isPending;
   const erroDoFormulario = emEdicao === null ? cadastrar.error : editar.error;
 
-  return (
-    <Card>
-      <CardHeader className="pb-3 flex-row items-center justify-between gap-4 space-y-0">
-        <div>
-          <CardTitle className="text-base flex items-center gap-2">
-            <Building2 className="w-4 h-4 text-primary" />
-            Cadastro de unidades
-          </CardTitle>
-          <p className="text-xs text-muted-foreground mt-1 max-w-2xl">
-            A autoridade sobre <strong>qual unidade é esta</strong>. A
-            identidade é o CNPJ — ou um código gerencial, quando não há CNPJ a
-            informar —, dita uma vez aqui: Fechamento e Remuneração passam a
-            escolher desta lista em vez de digitar código. {cadastradas}{" "}
-            cadastrada
-            {cadastradas === 1 ? "" : "s"}.
-          </p>
-        </div>
-        <Button size="sm" onClick={() => (aberto ? fecharFormulario() : abrirParaCadastrar())}>
-          <Plus className="w-4 h-4 mr-1" />
-          Cadastrar unidade
-        </Button>
-      </CardHeader>
+  const tituloDoFormulario =
+    emEdicao === null ? "Cadastrar unidade" : "Editar cadastro";
 
-      <CardContent className="space-y-4">
-        {aberto && (
-          <div className="rounded-lg border p-4 space-y-3">
-            <p className="text-sm font-medium">
-              {emEdicao === null ? "Cadastrar unidade" : "Editar cadastro"}
+  return (
+    <>
+      <Card>
+        <CardHeader className="pb-3 flex-row items-center justify-between gap-4 space-y-0">
+          <div>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Building2 className="w-4 h-4 text-primary" />
+              Cadastro de unidades
+            </CardTitle>
+            <p className="text-xs text-muted-foreground mt-1 max-w-2xl">
+              A autoridade sobre <strong>qual unidade é esta</strong>. A
+              identidade é o CNPJ — ou um código gerencial, quando não há CNPJ a
+              informar —, dita uma vez aqui: Fechamento e Remuneração passam a
+              escolher desta lista em vez de digitar código. {cadastradas}{" "}
+              cadastrada
+              {cadastradas === 1 ? "" : "s"}.
             </p>
+          </div>
+          <Button size="sm" onClick={abrirParaCadastrar}>
+            <Plus className="w-4 h-4 mr-1" />
+            Cadastrar unidade
+          </Button>
+        </CardHeader>
+
+        <CardContent className="space-y-4">
+          {lista.isPending && (
+            <p className="text-sm text-muted-foreground">Carregando…</p>
+          )}
+
+          {!lista.isPending && linhas.length === 0 && (
+            <p className="text-sm text-muted-foreground">
+              Nenhuma unidade cadastrada e nenhuma detectada no acervo. A
+              primeira nasce aqui, com nome e CNPJ — ou com um código gerencial,
+              quando o CNPJ ainda não existe —, e não de um arquivo.
+            </p>
+          )}
+
+          {/*
+            Um cartão por unidade, e não uma linha de tabela. A tabela era uma
+            grade de cinco colunas para responder a uma pergunta que é sempre
+            sobre **uma** unidade — qual é a identidade dela, em que estado ela
+            está, e o que dá para fazer com ela agora. O cartão põe as três
+            coisas juntas no mesmo bloco, na ordem em que se lê: o nome, a
+            identidade embaixo dele, o estado, e a ação na base.
+          */}
+          {linhas.length > 0 && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+              {linhas.map((linha) => (
+                /*
+                  A chave era o CNPJ, e ele deixou de existir em toda linha —
+                  duas unidades sem documento colidiriam em `undefined` e o
+                  React remontaria a lista errada. O `id` é a identidade de
+                  verdade; a linha detectada não tem um, e aí o CNPJ que a
+                  detectou é único por construção.
+                */
+                <article
+                  key={linha.id ?? linha.cnpj}
+                  className="rounded-lg border p-4 flex flex-col gap-3 hover:border-primary/40 transition-colors"
+                >
+                  <div className="min-w-0 space-y-1">
+                    <p className="font-medium truncate" title={linha.nome}>
+                      {linha.nome || "—"}
+                    </p>
+                    <p className="font-mono text-xs text-muted-foreground truncate">
+                      {identidadeVisivel(linha) || "—"}
+                    </p>
+                  </div>
+
+                  <Badge
+                    variant="secondary"
+                    className={cn(
+                      "font-normal w-fit",
+                      ROTULO[linha.estado].classe,
+                    )}
+                  >
+                    {ROTULO[linha.estado].texto}
+                  </Badge>
+
+                  <div className="mt-auto flex items-center justify-between gap-2 border-t pt-3">
+                    <span className="text-xs text-muted-foreground tabular-nums">
+                      {linha.vigencias === 0
+                        ? "Nenhuma vigência"
+                        : `${linha.vigencias} vigência${linha.vigencias === 1 ? "" : "s"}`}
+                    </span>
+                    {linha.estado === "DETECTADA" ? (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => cadastrarDetectada(linha)}
+                      >
+                        Cadastrar unidade
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => editarCadastrada(linha)}
+                      >
+                        Editar
+                      </Button>
+                    )}
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/*
+        Cadastrar e editar acontecem numa gaveta lateral, como em Usuários e
+        pela mesma razão: o formulário abria empurrando a lista para baixo, de
+        modo que clicar em "Editar" no fim da página movia a unidade que se
+        estava olhando para fora da tela. A gaveta abre por cima, sem mexer no
+        que está atrás, e fecha por `Esc` ou pelo lado de fora.
+      */}
+      <Sheet open={aberto} onOpenChange={(a) => !a && fecharFormulario()}>
+        <SheetContent
+          side="right"
+          className="w-full sm:max-w-xl p-0 flex flex-col gap-0"
+        >
+          <header className="px-6 pt-6 pb-4 border-b shrink-0">
+            <SheetTitle className="text-xl font-bold tracking-tight pr-8 flex items-center gap-2">
+              <Building2 className="w-5 h-5 text-primary" />
+              {tituloDoFormulario}
+            </SheetTitle>
+            <SheetDescription className="mt-1">
+              A identidade da unidade — o CNPJ, um código gerencial, ou os dois
+              — e o nome pelo qual quem opera a procura.
+            </SheetDescription>
+          </header>
+
+          <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
             {erroDoFormulario !== null && (
               <Alert variant="destructive">
                 <AlertDescription className="text-xs">
@@ -258,24 +371,26 @@ export function CadastroCanonicoDeUnidades() {
                 </AlertDescription>
               </Alert>
             )}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="unidade-canonica-nome">Unidade (CDD)</Label>
-                <Input
-                  id="unidade-canonica-nome"
-                  value={nome}
-                  placeholder="CDD BELÉM"
-                  onChange={(e) => setNome(e.target.value)}
-                  className="uppercase"
-                />
-              </div>
-              {/*
-                Os dois campos de identidade, lado a lado e nesta ordem: o CNPJ
-                primeiro porque é ele que os arquivos trazem — é por ele que a
-                unidade digitada e a importada se encontram —, e o código
-                gerencial ao lado para a unidade que não tem documento a
-                digitar. Um ou outro basta; os dois juntos é o melhor caso.
-              */}
+
+            <div className="space-y-1.5">
+              <Label htmlFor="unidade-canonica-nome">Unidade (CDD)</Label>
+              <Input
+                id="unidade-canonica-nome"
+                value={nome}
+                placeholder="CDD BELÉM"
+                onChange={(e) => setNome(e.target.value)}
+                className="uppercase"
+              />
+            </div>
+
+            {/*
+              Os dois campos de identidade, lado a lado e nesta ordem: o CNPJ
+              primeiro porque é ele que os arquivos trazem — é por ele que a
+              unidade digitada e a importada se encontram —, e o código
+              gerencial ao lado para a unidade que não tem documento a digitar.
+              Um ou outro basta; os dois juntos é o melhor caso.
+            */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label htmlFor="unidade-canonica-cnpj">
                   CNPJ da unidade{" "}
@@ -306,6 +421,7 @@ export function CadastroCanonicoDeUnidades() {
                 />
               </div>
             </div>
+
             {/*
               A frase muda com o que está preenchido porque as três situações
               têm consequências diferentes, e um texto único estaria errado em
@@ -344,111 +460,32 @@ export function CadastroCanonicoDeUnidades() {
               O nome é descrição: é o que a lista mostra e o que quem opera
               procura, e nunca funciona como código.
             </p>
-            <div className="flex justify-end gap-2">
-              <Button variant="ghost" size="sm" onClick={fecharFormulario}>
-                Cancelar
-              </Button>
-              <Button
-                size="sm"
-                disabled={salvando}
-                onClick={() =>
-                  emEdicao === null
-                    ? cadastrar.mutate({ nome, cnpj, codigoGerencial })
-                    : editar.mutate({ id: emEdicao, nome, cnpj, codigoGerencial })
-                }
-              >
-                {emEdicao === null
-                  ? cadastrar.isPending
-                    ? "Cadastrando…"
-                    : "Cadastrar unidade"
-                  : editar.isPending
-                    ? "Salvando…"
-                    : "Salvar alterações"}
-              </Button>
-            </div>
           </div>
-        )}
 
-        {lista.isPending && (
-          <p className="text-sm text-muted-foreground">Carregando…</p>
-        )}
-
-        {!lista.isPending && linhas.length === 0 && (
-          <p className="text-sm text-muted-foreground">
-            Nenhuma unidade cadastrada e nenhuma detectada no acervo. A primeira
-            nasce aqui, com nome e CNPJ — ou com um código gerencial, quando o
-            CNPJ ainda não existe —, e não de um arquivo.
-          </p>
-        )}
-
-        {linhas.length > 0 && (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b text-xs uppercase text-muted-foreground">
-                  <th className="text-left py-2 font-medium">Unidade</th>
-                  <th className="text-left py-2 font-medium">Identidade</th>
-                  <th className="text-left py-2 font-medium">
-                    Situação de dados
-                  </th>
-                  <th className="text-right py-2 font-medium">Vigências</th>
-                  <th className="text-right py-2 font-medium" />
-                </tr>
-              </thead>
-              <tbody>
-                {linhas.map((linha) => (
-                  /*
-                    A chave era o CNPJ, e ele deixou de existir em toda linha —
-                    duas unidades sem documento colidiriam em `undefined` e o
-                    React remontaria a lista errada. O `id` é a identidade de
-                    verdade; a linha detectada não tem um, e aí o CNPJ que a
-                    detectou é único por construção.
-                  */
-                  <tr key={linha.id ?? linha.cnpj} className="border-b last:border-0">
-                    <td className="py-2 font-medium">{linha.nome || "—"}</td>
-                    <td className="py-2 font-mono text-xs">
-                      {identidadeVisivel(linha) || "—"}
-                    </td>
-                    <td className="py-2">
-                      <Badge
-                        variant="secondary"
-                        className={cn(
-                          "font-normal",
-                          ROTULO[linha.estado].classe,
-                        )}
-                      >
-                        {ROTULO[linha.estado].texto}
-                      </Badge>
-                    </td>
-                    <td className="py-2 text-right tabular-nums">
-                      {linha.vigencias}
-                    </td>
-                    <td className="py-2 text-right">
-                      {linha.estado === "DETECTADA" ? (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => cadastrarDetectada(linha)}
-                        >
-                          Cadastrar unidade
-                        </Button>
-                      ) : (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => editarCadastrada(linha)}
-                        >
-                          Editar
-                        </Button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </CardContent>
-    </Card>
+          <footer className="border-t px-6 py-4 shrink-0 flex items-center gap-2">
+            <Button
+              className="flex-1"
+              disabled={salvando}
+              onClick={() =>
+                emEdicao === null
+                  ? cadastrar.mutate({ nome, cnpj, codigoGerencial })
+                  : editar.mutate({ id: emEdicao, nome, cnpj, codigoGerencial })
+              }
+            >
+              {emEdicao === null
+                ? cadastrar.isPending
+                  ? "Cadastrando…"
+                  : "Cadastrar unidade"
+                : editar.isPending
+                  ? "Salvando…"
+                  : "Salvar alterações"}
+            </Button>
+            <Button variant="ghost" onClick={fecharFormulario}>
+              Cancelar
+            </Button>
+          </footer>
+        </SheetContent>
+      </Sheet>
+    </>
   );
 }
