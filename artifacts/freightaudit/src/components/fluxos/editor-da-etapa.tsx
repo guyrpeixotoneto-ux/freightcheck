@@ -351,7 +351,7 @@ export function EditorDaEtapa({
               </div>
 
               <div className="sm:col-span-2">
-                <Label htmlFor="etapa-informacoes">Informações que consulta</Label>
+                <Label htmlFor="etapa-informacoes">Dados</Label>
                 <Textarea
                   id="etapa-informacoes"
                   rows={3}
@@ -410,7 +410,7 @@ export function EditorDaEtapa({
               </div>
 
               <div className="sm:col-span-2">
-                <Label htmlFor="etapa-informacoes-etapa">Informações</Label>
+                <Label htmlFor="etapa-informacoes-etapa">Observações</Label>
                 <Textarea
                   id="etapa-informacoes-etapa"
                   rows={3}
@@ -419,8 +419,7 @@ export function EditorDaEtapa({
                   placeholder="Contexto, particularidades e instruções complementares para entender ou executar a etapa"
                 />
                 <p className="mt-1 text-xs text-muted-foreground">
-                  O que é preciso saber. Diferente de "Informações que consulta", que é onde a
-                  pessoa vai olhar.
+                  O que é preciso saber. Diferente de "Dados", que é onde a pessoa vai olhar.
                 </p>
               </div>
             </div>

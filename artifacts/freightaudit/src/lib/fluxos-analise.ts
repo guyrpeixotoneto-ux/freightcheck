@@ -626,10 +626,10 @@ export function cartaoDaJornada(linha: LinhaDaEtapa, lente: LenteDaJornada): Car
           */
           {
             chave: "consulta",
-            rotulo: "Consulta",
+            rotulo: "Dados",
             icone: "Search",
             valores: [etapa.informacoesConsultadas].filter(naoVazio),
-            vazio: "sem informações consultadas",
+            vazio: "sem dados anotados",
           },
           {
             chave: "contexto",
@@ -915,14 +915,14 @@ export const CAMPOS_DO_PAINEL: CampoDoPainel[] = [
   { campo: "objetivo", rotulo: "Objetivo da etapa", multilinha: true },
   { campo: "sistemaPrincipal", rotulo: "Sistema principal", multilinha: false },
   { campo: "regras", rotulo: "Regras de negócio", multilinha: true },
-  { campo: "informacoesConsultadas", rotulo: "Informações que consulta", multilinha: true },
+  { campo: "informacoesConsultadas", rotulo: "Dados", multilinha: true },
   /*
     As três entram na ordem em que se investiga uma etapa: o que dá errado, o
     que trava mesmo sem dar errado, e o que é preciso saber para executá-la.
   */
   { campo: "falhas", rotulo: "Falhas", multilinha: true },
   { campo: "gargalos", rotulo: "Gargalos", multilinha: true },
-  { campo: "informacoes", rotulo: "Informações", multilinha: true },
+  { campo: "informacoes", rotulo: "Observações", multilinha: true },
   { campo: "chaveMonitoramento", rotulo: "Chave de monitoramento", multilinha: false },
 ];
 

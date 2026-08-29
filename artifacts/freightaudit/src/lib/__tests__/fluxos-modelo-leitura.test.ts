@@ -102,6 +102,9 @@ function etapa(parcial: Partial<Etapa> & { id: string; nome: string }): Etapa {
     sistemaPrincipal: null,
     regras: null,
     informacoesConsultadas: null,
+    falhas: null,
+    gargalos: null,
+    informacoes: null,
     observacoes: null,
     status: "ATIVO",
     posX: 10,
@@ -218,6 +221,35 @@ function preencher(planilha: PlanilhaLida, rotulo: string, valor: string): void 
   linha[1] = valor;
 }
 
+/** Reescreve o rótulo da coluna A — o jeito de envelhecer uma planilha nova. */
+function renomearRotulo(planilha: PlanilhaLida, de: string, para: string): void {
+  const linha = planilha.linhas.find((l) => (l[0] ?? "").trim() === de);
+  if (!linha) throw new Error(`rótulo "${de}" não existe na aba`);
+  linha[0] = para;
+}
+
+/** Acrescenta uma linha de campo logo abaixo de outra, como no formato antigo. */
+function inserirDepois(planilha: PlanilhaLida, rotuloAcima: string, linha: string[]): void {
+  const indice = planilha.linhas.findIndex((l) => (l[0] ?? "").trim() === rotuloAcima);
+  if (indice < 0) throw new Error(`rótulo "${rotuloAcima}" não existe na aba`);
+  planilha.linhas.splice(indice + 1, 0, linha);
+}
+
+/**
+ * Uma planilha no formato de antes da renomeação: "Informações que consulta"
+ * onde hoje se lê "Dados", e a linha "Observações" do campo legado, que a
+ * exportação de hoje não escreve mais.
+ */
+async function planilhaAntiga(): Promise<PastaLida> {
+  const pasta = await idaEVolta();
+  for (const numero of ["01", "02"]) {
+    const planilha = aba(pasta, numero);
+    renomearRotulo(planilha, "Dados", "Informações que consulta");
+    inserirDepois(planilha, "Informações que consulta", ["Observações", ""]);
+  }
+  return pasta;
+}
+
 describe("a ida e a volta", () => {
   it("lê de volta o que a exportação escreveu", async () => {
     const pasta = await idaEVolta();
@@ -278,7 +310,7 @@ describe("a ida e a volta", () => {
 
   it("preserva a posição do cartão no corpo que vai para o servidor", async () => {
     const pasta = await idaEVolta();
-    preencher(aba(pasta, "01"), "Observações", "Levantado com a Ana.");
+    preencher(aba(pasta, "01"), "Regras de negócio", "Frete mínimo confere antes.");
 
     const { corpo } = planoDeImportacao(pasta, FLUXO, CATALOGO).mudancas[0];
 
@@ -379,6 +411,33 @@ describe("as regras que impedem apagar sem ordem", () => {
 
     expect(plano.naoReconhecidas).toEqual(["01 Origem da tarifa (cópia)"]);
     expect(plano.avisos.join(" ")).toContain("Duas abas apontam para a etapa");
+  });
+
+  it("o corpo devolve o que a planilha não edita — a rota é substituição", async () => {
+    /*
+      Falhas, gargalos, informações e o legado `observacoes` não têm linha na
+      planilha, e a rota de etapa troca a linha inteira: um corpo sem eles é uma
+      importação de "Sistema principal" que apaga o levantamento de falhas.
+    */
+    const levantada = etapa({
+      id: "e1",
+      nome: "Origem da tarifa",
+      falhas: "A tarifa vem sem tabela.",
+      gargalos: "A conferência espera o e-mail da Operação.",
+      informacoes: "A VALIDAR: quais tabelas originam a tarifa.",
+      observacoes: "O texto de antes do recorte.",
+    });
+    const fluxo: FluxoCompleto = { ...FLUXO, etapas: [levantada] };
+    const pasta = await idaEVolta(fluxo);
+    preencher(aba(pasta, "01"), "Sistema principal", "SAP");
+
+    const { corpo } = planoDeImportacao(pasta, fluxo, CATALOGO).mudancas[0];
+
+    expect(corpo.sistemaPrincipal).toBe("SAP");
+    expect(corpo.falhas).toBe("A tarifa vem sem tabela.");
+    expect(corpo.gargalos).toBe("A conferência espera o e-mail da Operação.");
+    expect(corpo.informacoes).toBe("A VALIDAR: quais tabelas originam a tarifa.");
+    expect(corpo.observacoes).toBe("O texto de antes do recorte.");
   });
 });
 
@@ -550,5 +609,66 @@ describe("o leitor de .xlsx", () => {
     expect(colunaDaReferencia("A1")).toBe(0);
     expect(colunaDaReferencia("B12")).toBe(1);
     expect(colunaDaReferencia("AA3")).toBe(26);
+  });
+});
+
+/**
+ * A retrocompatibilidade dos rótulos — o arquivo que saiu antes da renomeação.
+ *
+ * "Informações que consulta" virou "Dados", e o campo legado `observacoes`
+ * saiu do modelo. Uma planilha impressa antes disso já está numa reunião, numa
+ * pasta de downloads, num anexo de e-mail; se a volta deixasse de reconhecer
+ * esses rótulos, o arquivo continuaria importando — só que sem os campos, e sem
+ * dizer que os perdeu. É por isso que estes testes leem o formato antigo
+ * inteiro, e não só o rótulo isolado.
+ */
+describe("os rótulos das planilhas antigas", () => {
+  it("não propõe mudança nenhuma quando o arquivo antigo veio como saiu", async () => {
+    const plano = planoDeImportacao(await planilhaAntiga(), FLUXO, CATALOGO);
+
+    expect(plano.mudancas).toEqual([]);
+    expect(plano.avisos).toEqual([]);
+    expect(plano.semMudanca).toEqual(["01 Origem da tarifa", "02 Auditoria fiscal"]);
+  });
+
+  it('lê "Informações que consulta" como o campo que hoje se chama Dados', async () => {
+    const pasta = await planilhaAntiga();
+    preencher(aba(pasta, "01"), "Informações que consulta", "Tabela de frete mínimo no SAP");
+
+    const plano = planoDeImportacao(pasta, FLUXO, CATALOGO);
+
+    expect(plano.mudancas[0].corpo.informacoesConsultadas).toBe("Tabela de frete mínimo no SAP");
+    /* O plano mostra o nome de hoje: quem confirma a importação lê "Dados". */
+    expect(plano.mudancas[0].campos).toEqual([
+      { rotulo: "Dados", de: "", para: "Tabela de frete mínimo no SAP" },
+    ]);
+  });
+
+  it('lê "Observações" como o campo legado, e não como o Observações do painel', async () => {
+    const pasta = await planilhaAntiga();
+    preencher(aba(pasta, "01"), "Observações", "Levantado com a Ana.");
+
+    const plano = planoDeImportacao(pasta, FLUXO, CATALOGO);
+
+    expect(plano.mudancas[0].corpo.observacoes).toBe("Levantado com a Ana.");
+    /* O campo do painel não é tocado — são dois campos, e não dois nomes. */
+    expect(plano.mudancas[0].corpo.informacoes).toBe("");
+    expect(plano.mudancas[0].campos).toEqual([
+      { rotulo: "Observações (texto antigo)", de: "", para: "Levantado com a Ana." },
+    ]);
+  });
+
+  it('lê "Informações" como o campo que o painel hoje chama de Observações', async () => {
+    const pasta = await planilhaAntiga();
+    const planilha = aba(pasta, "01");
+    inserirDepois(planilha, "Observações", ["Informações", "A VALIDAR: quem confere."]);
+
+    const plano = planoDeImportacao(pasta, FLUXO, CATALOGO);
+
+    expect(plano.mudancas[0].corpo.informacoes).toBe("A VALIDAR: quem confere.");
+    expect(plano.mudancas[0].corpo.observacoes).toBe("");
+    expect(plano.mudancas[0].campos).toEqual([
+      { rotulo: "Observações", de: "", para: "A VALIDAR: quem confere." },
+    ]);
   });
 });

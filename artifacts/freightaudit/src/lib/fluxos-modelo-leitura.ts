@@ -2,9 +2,11 @@ import type { Catalogo, Etapa, FluxoCompleto } from "@/lib/fluxos";
 import type { PastaLida, PlanilhaLida } from "@/lib/xlsx-leitura";
 import {
   CAMPOS_DA_ETAPA,
+  CAMPOS_SO_DE_LEITURA,
   COLUNAS_DA_ACAO,
   COLUNAS_DO_INDICADOR,
   MARCA_DO_ID,
+  ROTULOS_ANTIGOS,
   SECOES_DE_CAMPOS,
   TITULO_DAS_ACOES,
   TITULO_DAS_LIGACOES,
@@ -146,9 +148,35 @@ function secoesConhecidas(catalogo: Catalogo | undefined): Map<string, Secao> {
   return mapa;
 }
 
-const CAMPO_POR_ROTULO = new Map<string, CampoDoModelo>(
-  CAMPOS_DA_ETAPA.map((c) => [chaveDoTexto(c.rotulo), c]),
-);
+/**
+ * Os campos que a volta grava: os da planilha de hoje, mais os que só ela
+ * conhece (ver `CAMPOS_SO_DE_LEITURA`, em `lib/fluxos-modelo.ts`).
+ */
+const CAMPOS_LIDOS: CampoDoModelo[] = [...CAMPOS_DA_ETAPA, ...CAMPOS_SO_DE_LEITURA];
+
+/**
+ * Rótulo na coluna A → campo.
+ *
+ * Reconhece o que a ida escreve hoje e, depois, os rótulos das planilhas
+ * antigas. A ordem importa e é esta: o nome de hoje ganha sempre. "Observações"
+ * é o caso que exige o cuidado — hoje é como o painel chama `informacoes`, mas
+ * na planilha ele nunca foi isso: era o rótulo do campo legado `observacoes`, e
+ * é o que ele continua significando aqui, porque só planilha antiga o traz. O
+ * rótulo dos campos em `CAMPOS_SO_DE_LEITURA` não entra na busca: ele é o nome
+ * pelo qual o plano mostra a mudança, e não um nome aceito na coluna A.
+ */
+const CAMPO_POR_ROTULO = ((): Map<string, CampoDoModelo> => {
+  const mapa = new Map<string, CampoDoModelo>(
+    CAMPOS_DA_ETAPA.map((c) => [chaveDoTexto(c.rotulo), c]),
+  );
+  for (const antigo of ROTULOS_ANTIGOS) {
+    const chave = chaveDoTexto(antigo.rotulo);
+    if (mapa.has(chave)) continue;
+    const campo = CAMPOS_LIDOS.find((c) => c.chave === antigo.chave);
+    if (campo) mapa.set(chave, campo);
+  }
+  return mapa;
+})();
 
 /** `01 Emissão do documento` → `1`. Sem número na frente, `null`. */
 export function numeroDaAba(nome: string): number | null {
@@ -420,6 +448,16 @@ export function planoDeImportacao(
       objetivo: etapa.objetivo ?? "",
       regras: etapa.regras ?? "",
       informacoesConsultadas: etapa.informacoesConsultadas ?? "",
+      /*
+        Falhas, gargalos e informações não são campos da planilha — e é por isso
+        mesmo que precisam estar aqui. A rota de etapa é substituição: o que
+        não vai no corpo volta nulo, e uma importação de "Sistema principal"
+        apagaria o levantamento de falhas que ninguém mandou apagar. É a mesma
+        razão pela qual `observacoes`, que a tela não mostra, viaja junto.
+      */
+      falhas: etapa.falhas ?? "",
+      gargalos: etapa.gargalos ?? "",
+      informacoes: etapa.informacoes ?? "",
       observacoes: etapa.observacoes ?? "",
       chaveMonitoramento: etapa.chaveMonitoramento ?? "",
       /* A posição é preservada: importar texto não move o cartão. */
@@ -428,7 +466,7 @@ export function planoDeImportacao(
       posY: etapa.posY,
     };
 
-    for (const campo of CAMPOS_DA_ETAPA) {
+    for (const campo of CAMPOS_LIDOS) {
       const escrito = lida.campos[campo.chave];
       if (escrito === undefined) continue;
 
