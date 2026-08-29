@@ -15,6 +15,7 @@ import { ChartLine } from "lucide-react";
 import { opcoesDoIntervalo } from "@/lib/intervalo-da-linha-do-tempo";
 import { cn } from "@/lib/utils";
 import { vigenciaDoClique, type EstadoDoClique } from "@/lib/clique-na-vigencia";
+import { BotaoDeVoltarVigencia } from "@/components/vigencia/voltar-de-vigencia";
 import { formatBrl, formatBrlShort, periodicitySuffix } from "@/lib/format";
 import {
   Select,
@@ -55,12 +56,22 @@ export function LinhaDoTempoDeAlteracoes({
   periods,
   currentPeriod,
   onEscolherVigencia,
+  voltarPara = null,
+  onVoltar,
 }: {
   consulta: URLSearchParams;
   periods: { date: string; label: string }[];
   currentPeriod: string;
   /** Quando existe, clicar num ponto leva a tela inteira para aquela vigência. */
   onEscolherVigencia?: (periodo: string) => void;
+  /**
+   * O caminho de volta, do cartão inteiro e não de cada gráfico: os quatro
+   * falam da mesma vigência, e quatro botões seriam quatro cópias do mesmo
+   * caminho. A lembrança vem da página — trocar a vigência desmonta este
+   * cartão enquanto a consulta nova não responde.
+   */
+  voltarPara?: { periodo: string; label: string } | null;
+  onVoltar?: (periodo: string) => void;
 }) {
   const ordenadas = useMemo(
     () => [...periods].sort((a, b) => a.date.localeCompare(b.date)),
@@ -81,6 +92,8 @@ export function LinhaDoTempoDeAlteracoes({
     ...opcoesDoIntervalo(consulta, de, ate),
     enabled: ordenadas.length > 1,
   });
+
+
 
   if (ordenadas.length <= 1) return null;
 
@@ -118,6 +131,7 @@ export function LinhaDoTempoDeAlteracoes({
             opcoes={opcoesAte}
             onChange={setAte}
           />
+          <BotaoDeVoltarVigencia destino={voltarPara} onVoltar={(periodo) => onVoltar?.(periodo)} />
         </div>
       </div>
 

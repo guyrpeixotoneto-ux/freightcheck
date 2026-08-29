@@ -63,7 +63,9 @@ import { DetalheDaFamilia } from "@/components/inicio/detalhe-da-familia";
 import { unidadesPorImpacto } from "@/components/inicio/visao-geral-consolidada";
 import { Sparkline } from "@/components/dashboard/sparkline";
 import { AnelDeCobertura } from "@/components/dashboard/anel-de-cobertura";
-import { GraficoDeImpacto, pontosDeImpacto, type PontoDeImpacto } from "@/components/dashboard/grafico-de-impacto";
+import { GraficoDeImpacto, type PontoDeImpacto } from "@/components/dashboard/grafico-de-impacto";
+import { useSerieDeImpacto, useSerieDeImpactoGeral } from "@/lib/serie-de-impacto";
+import { useVoltaDeVigencia } from "@/components/vigencia/voltar-de-vigencia";
 import { iconeDaAlteracao } from "@/components/dashboard/icone-da-alteracao";
 import {
   SeletorDeVigencia,
@@ -181,86 +183,31 @@ export default function Dashboard() {
   // agora.
   const atualizadoEm = visaoGeral ? overviewQuery.dataUpdatedAt : vigencia.dataUpdatedAt;
 
-  // A janela do gráfico de impacto — as últimas competências que a própria
-  // vigência já lista, nunca mais que seis e nunca uma competência que não
-  // exista.
-  const janela = useMemo(() => {
-    if (!view || view.periods.length <= 1) return null;
-    const ordenadas = [...view.periods].sort((a, b) => a.date.localeCompare(b.date));
-    return ordenadas.slice(-6);
-  }, [view]);
+  /*
+    A série do gráfico de impacto — a mesma conta que o Resumo executivo lê,
+    num hook só (`lib/serie-de-impacto.ts`). A janela de seis vigências, o
+    intervalo pedido ao servidor e a periodicidade que manda no eixo moram lá:
+    escritas em duas telas, bastaria uma delas mudar para as duas passarem a
+    desenhar gráficos diferentes do mesmo dado.
+  */
+  const serieDaUnidade = useSerieDeImpacto(visaoGeral ? null : view, consulta);
+  const serieGeral = useSerieDeImpactoGeral(
+    periodosOverview,
+    periodoOverviewEfetivo,
+    overview,
+    visaoGeral,
+  );
 
   /*
-    A mesma janela em Visão Geral, tirada das competências que **alguma**
-    unidade entregou (`periodosOverview`) e nunca do histórico de uma unidade
-    só: a Visão Geral não tem uma unidade a quem perguntar, e usar a primeira
-    da lista faria o eixo do gráfico depender de quem chegou primeiro no
-    banco. Termina na competência aberta — competência posterior à que a tela
-    está mostrando não entra num gráfico que fala dela.
+    De onde a leitura saiu, para o botão de voltar dentro do gráfico. Mora
+    aqui, e não no gráfico: trocar a vigência refaz a consulta e desmonta o
+    corpo da tela enquanto ela não responde.
   */
-  const janelaGeral = useMemo(() => {
-    if (!visaoGeral || periodoOverviewEfetivo === null) return null;
-    const ate = [...periodosOverview]
-      .sort((a, b) => a.localeCompare(b))
-      .filter((data) => data <= periodoOverviewEfetivo);
-    return ate.length > 1 ? ate.slice(-6) : null;
-  }, [visaoGeral, periodosOverview, periodoOverviewEfetivo]);
-
-  /*
-    O intervalo lido é o histórico inteiro, e não a janela de seis do gráfico:
-    é a mesma leitura que o seletor de "Trocar vigência" faz para contar as
-    alterações de cada competência (`opcoesDoIntervaloGeral`), e ler as duas
-    pontas do histórico faz das duas uma requisição só. O gráfico continua
-    desenhando só a janela — `serieGeral` recorta os pontos logo abaixo.
-
-    É isso que faz o menu do Dashboard abrir com a mesma coluna de alterações
-    do menu do Resumo executivo: a contagem já está no cache quando alguém
-    clica no botão, em vez de sair uma varredura nova a cada abertura.
-  */
-  const rangeGeralQuery = useQuery({
-    ...opcoesDoIntervaloGeral(
-      periodosOverview[periodosOverview.length - 1] ?? null,
-      periodosOverview[0] ?? null,
-    ),
-    enabled: visaoGeral && periodosOverview.length > 1,
-  });
-
-  /*
-    A série do gráfico em Visão Geral, na periodicidade dominante da soma —
-    a mesma que manda no cartão de Impacto líquido logo acima dele. Sem esse
-    acordo o gráfico desenharia R$/ano embaixo de um número em R$/mês, que é
-    a mistura de escala que o produto recusa em toda tela.
-  */
-  const serieGeral = useMemo<PontoDeImpacto[]>(() => {
-    const dominante = ladosDoImpacto(overview)[0]?.periodicity ?? null;
-    const pontos = rangeGeralQuery.data?.serie;
-    if (!dominante || !pontos || !janelaGeral) return [];
-    const naJanela = new Set(janelaGeral);
-    return pontos
-      .filter((ponto) => naJanela.has(ponto.period))
-      .map((ponto) => {
-        const lado = ponto.byPeriodicity[dominante] ?? { gains: 0, losses: 0 };
-        return {
-          periodo: ponto.period,
-          label: ponto.label,
-          ganhos: lado.gains,
-          perdas: lado.losses,
-          liquido: Number((lado.gains + lado.losses).toFixed(2)),
-        };
-      });
-  }, [rangeGeralQuery.data, overview, janelaGeral]);
-
-  const rangeQuery = useQuery({
-    queryKey: ["dashboard-impacto", consulta.toString(), janela?.[0]?.date ?? "", view?.period ?? ""],
-    queryFn: () => {
-      const q = new URLSearchParams(consulta);
-      q.delete("period");
-      q.set("from", janela![0].date);
-      q.set("to", view!.period);
-      return fetchJsonOrNull<Movimentos>(`/changes/range?${q}`);
-    },
-    enabled: !visaoGeral && !!view && !!janela,
-    staleTime: 60_000,
+  const pontosDesenhados = visaoGeral ? serieGeral : serieDaUnidade.pontos;
+  const vigenciaAberta = visaoGeral ? periodoOverviewEfetivo : (view?.period ?? null);
+  const volta = useVoltaDeVigencia({
+    periodo: vigenciaAberta,
+    label: pontosDesenhados.find((ponto) => ponto.periodo === vigenciaAberta)?.label ?? null,
   });
 
   const trocarPara = (mudancas: Record<string, string | null>) => {
@@ -309,6 +256,15 @@ export default function Dashboard() {
                 familiaAberta={familiaAberta}
                 onAbrirFamilia={(code) => trocarPara({ familia: code })}
                 onFecharFamilia={() => trocarPara({ familia: null })}
+                onEscolherVigencia={(periodo) => {
+                  volta.registrar();
+                  trocarPara({ period: periodo });
+                }}
+                voltarPara={volta.destino}
+                onVoltar={(periodo) => {
+                  volta.limpar();
+                  trocarPara({ period: periodo });
+                }}
               />
             )}
           </>
@@ -326,11 +282,19 @@ export default function Dashboard() {
                 view={view}
                 recorte={recorte}
                 atualizadoEm={atualizadoEm}
-                movimentos={rangeQuery.data ?? null}
+                serie={serieDaUnidade}
                 familiaAberta={familiaAberta}
                 onAbrirFamilia={(code) => trocarPara({ familia: code })}
                 onFecharFamilia={() => trocarPara({ familia: null })}
-                onEscolherVigencia={(periodo) => trocarPara({ period: periodo })}
+                onEscolherVigencia={(periodo) => {
+                  volta.registrar();
+                  trocarPara({ period: periodo });
+                }}
+                voltarPara={volta.destino}
+                onVoltar={(periodo) => {
+                  volta.limpar();
+                  trocarPara({ period: periodo });
+                }}
               />
             )}
           </>
@@ -545,48 +509,31 @@ function ConteudoDaUnidade({
   view,
   recorte,
   atualizadoEm,
-  movimentos,
+  serie,
   familiaAberta,
   onAbrirFamilia,
   onFecharFamilia,
   onEscolherVigencia,
+  voltarPara,
+  onVoltar,
 }: {
   view: FamiliesView;
   recorte: ReturnType<typeof lerRecorte>;
   atualizadoEm: number;
-  movimentos: Movimentos | null;
+  /** A série do gráfico, já pronta — ver `lib/serie-de-impacto.ts`. */
+  serie: { pontos: PontoDeImpacto[]; periodicity: string | null };
   familiaAberta: string | null;
   onAbrirFamilia: (code: string) => void;
   onFecharFamilia: () => void;
   onEscolherVigencia: (periodo: string) => void;
+  voltarPara: { periodo: string; label: string } | null;
+  onVoltar: (periodo: string) => void;
 }) {
   const cobertura = coberturaDePreco(view.totals.changes, view.impact.notCalculable);
   const principal = ladosDoImpacto(view)[0] ?? null;
   const dominante = impactosDaVigencia(view)[0]?.periodicity ?? null;
 
-  /*
-    As vigências do gráfico são as do **intervalo pedido**, e não todas as que o
-    contexto tem.
-
-    `movimentos.periods` lista o histórico inteiro do contexto; `entries` traz
-    só o que foi comparado entre `from` e `to` (a janela de seis vigências que
-    esta tela monta). Cruzar os dois desenhava um ponto para cada vigência
-    antiga com `ganhos: 0, perdas: 0` — e zero aqui não é "não mudou nada", é
-    "não foi perguntado". Num banco com dez vigências, quatro barras nasciam
-    encostadas no zero afirmando estabilidade sobre um trecho que a consulta
-    nem cobriu; numa delas o dado real era −R$ 75.903/mês.
-
-    Filtrar pelas próprias pontas que a resposta anuncia mantém a janela e o
-    desenho na mesma fonte: se `from`/`to` mudarem, o eixo muda junto, sem uma
-    segunda régua de recorte escrita aqui.
-  */
-  const { pontos, periodicity } = useMemo(() => {
-    if (!movimentos) return { pontos: [] as PontoDeImpacto[], periodicity: null as string | null };
-    const ordenadas = movimentos.periods
-      .filter((p) => p.date >= movimentos.from && p.date <= movimentos.to)
-      .sort((a, b) => a.date.localeCompare(b.date));
-    return pontosDeImpacto(ordenadas, movimentos.entries, dominante);
-  }, [movimentos, dominante]);
+  const { pontos, periodicity } = serie;
 
   // As sparklines dos cartões só valem quando descrevem a mesma periodicidade
   // do número grande ao lado — misturar R$/mês no número e R$/ano na linha
@@ -623,6 +570,8 @@ function ConteudoDaUnidade({
         onAbrirFamilia={onAbrirFamilia}
         onFecharFamilia={onFecharFamilia}
         onEscolherVigencia={onEscolherVigencia}
+        voltarPara={voltarPara}
+        onVoltar={onVoltar}
       />
 
       <PrincipaisAlteracoes linhas={linhasDaUnidade(view, recorte)} />
@@ -665,6 +614,8 @@ function ImpactoEPodio({
   onAbrirFamilia,
   onFecharFamilia,
   onEscolherVigencia,
+  voltarPara,
+  onVoltar,
   notaDoGrafico,
 }: {
   pontos: PontoDeImpacto[];
@@ -687,6 +638,9 @@ function ImpactoEPodio({
   /* Clicar numa barra do gráfico troca a vigência aberta — a tela inteira
      passa a falar da vigência clicada, e não só o gráfico. */
   onEscolherVigencia: (periodo: string) => void;
+  /** O caminho de volta do gráfico — a lembrança fica na página. */
+  voltarPara: { periodo: string; label: string } | null;
+  onVoltar: (periodo: string) => void;
   notaDoGrafico?: string;
 }) {
   /*
@@ -726,6 +680,8 @@ function ImpactoEPodio({
           periodicity={periodicity}
           vigenciaAtiva={vigenciaAtiva}
           onEscolherVigencia={onEscolherVigencia}
+          voltarPara={voltarPara}
+          onVoltar={onVoltar}
         />
       </section>
 
@@ -843,6 +799,9 @@ function ConteudoGeral({
   familiaAberta,
   onAbrirFamilia,
   onFecharFamilia,
+  onEscolherVigencia,
+  voltarPara,
+  onVoltar,
 }: {
   overview: FamiliesOverview;
   atualizadoEm: number;
@@ -851,6 +810,9 @@ function ConteudoGeral({
   familiaAberta: string | null;
   onAbrirFamilia: (code: string) => void;
   onFecharFamilia: () => void;
+  onEscolherVigencia: (periodo: string) => void;
+  voltarPara: { periodo: string; label: string } | null;
+  onVoltar: (periodo: string) => void;
 }) {
   const cobertura = coberturaDePreco(overview.summary.changes, overview.summary.notCalculable);
   const principal = ladosDoImpacto(overview)[0] ?? null;
@@ -911,7 +873,9 @@ function ConteudoGeral({
         familiaAberta={familiaAberta}
         onAbrirFamilia={onAbrirFamilia}
         onFecharFamilia={onFecharFamilia}
-        onEscolherVigencia={(periodo) => onTrocar({ period: periodo })}
+        onEscolherVigencia={onEscolherVigencia}
+        voltarPara={voltarPara}
+        onVoltar={onVoltar}
         notaDoGrafico="Ganhos e perdas de todas as unidades incluídas, com o líquido por cima. Uma barra por competência — a unidade sem vigência naquela competência não entra nela."
       />
 
