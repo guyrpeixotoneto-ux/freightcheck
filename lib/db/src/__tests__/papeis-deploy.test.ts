@@ -282,6 +282,22 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
         "cargo",
         "departamento",
         "negocio",
+        /*
+          O censo da importação, da `0080` — quantas células de cada leitura
+          foram para cada destino, gravado quando a importação termina de
+          preparar. Aditiva pelo mesmo critério de todas as acima: nenhuma
+          tabela existente muda de forma (a única referência para fora é
+          `import_run_id → import_run.id`, e `import_run` Production já tem),
+          nenhuma coluna nova sai de tabela do cálculo, e Production a ganha
+          quando o servidor novo aplicar a fila na partida.
+
+          Ela nasce vazia, e nascer vazia é seguro: a marca de "já recenseada"
+          são as próprias linhas, então uma importação sem linha aqui é
+          recalculada na hora pela leitura do balanço até o backfill passar.
+          Nenhuma coluna nova sai em `import_run` por causa dela — foi
+          justamente para não crescer esta lista que a marca virou linha.
+        */
+        "import_run_censo",
       ]),
     );
     /*
@@ -479,6 +495,19 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
         // por isso não há linha em Production que elas possam recusar.
         "import_run_reprocess_of_fk",
         "import_run_reprocess_completo",
+        /*
+          As duas do censo, da `0080` — a chave primária composta e a FK para
+          `import_run`. Vêm com a tabela nova, que nasce vazia, e por isso não
+          há linha em Production que elas possam recusar.
+
+          Aparecem nominalmente pela mesma razão que as da justificativa: o
+          filtro acima só dispensa as famílias do Fechamento, da remuneração,
+          da unidade, dos Fluxos e do cadastro da casa. Nomear é o preço de a
+          tabela nova não estar entre elas — e é ele que faz uma constraint
+          inesperada continuar aparecendo neste teste.
+        */
+        "import_run_censo_import_run_id_destino_pk",
+        "import_run_censo_import_run_id_import_run_id_fk",
         /*
           A FK da origem do fato, da `0061`, e as três da justificativa, da
           `0058`/`0059`. Vêm com as colunas e a tabela novas, e nascem sobre

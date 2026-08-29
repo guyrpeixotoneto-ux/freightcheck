@@ -1130,6 +1130,9 @@ importers:
 
   lib/ingest:
     dependencies:
+      '@workspace/balance':
+        specifier: workspace:*
+        version: link:../balance
       '@workspace/db':
         specifier: workspace:*
         version: link:../db

@@ -561,6 +561,13 @@
       "when": 1788800000000,
       "tag": "0079_responsavel_do_cadastro",
       "breakpoints": true
+    },
+    {
+      "idx": 80,
+      "version": "7",
+      "when": 1788900000000,
+      "tag": "0080_censo_da_importacao",
+      "breakpoints": true
     }
   ]
 }
