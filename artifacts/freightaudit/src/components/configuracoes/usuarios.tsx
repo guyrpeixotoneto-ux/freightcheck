@@ -795,6 +795,16 @@ function EscolhaDoGestor({
 /** O que a linha está mostrando abaixo dela: nada, os detalhes, ou a edição. */
 type Painel = "nenhum" | "detalhes" | "edicao" | "senha" | "desativar";
 
+/**
+ * Os painéis que abrem em gaveta, e não dentro da linha.
+ *
+ * "detalhes" é o único que ficou: é texto sobre a conta que está logo acima
+ * dele — último acesso, sessões, quem criou —, e lê-se junto com o nome. Os
+ * outros três pedem um formulário ou uma confirmação, e cresciam empurrando a
+ * lista para baixo.
+ */
+const EM_GAVETA: Painel[] = ["edicao", "senha", "desativar"];
+
 function UserRow({ user }: { user: ManagedUser }) {
   const queryClient = useQueryClient();
   const [, navegar] = useLocation();
@@ -845,6 +855,14 @@ function UserRow({ user }: { user: ManagedUser }) {
   });
 
   const recarregar = () => queryClient.invalidateQueries({ queryKey: CHAVE_DAS_CONTAS });
+
+  /* Fechar a gaveta da senha limpa o que foi digitado e a recusa que sobrou, e
+     devolve quem estava lendo os detalhes aos detalhes. */
+  const fecharSenha = () => {
+    setPainel("detalhes");
+    setNewPassword("");
+    setError(null);
+  };
 
   const alternar = (mostrar: Painel) => {
     setDone(null);
@@ -1088,78 +1106,6 @@ function UserRow({ user }: { user: ManagedUser }) {
           </div>
         )}
 
-        {painel === "senha" && (
-          <form
-            className="border-t px-4 py-3 flex items-end gap-3 flex-wrap"
-            onSubmit={(e) => {
-              e.preventDefault();
-              reset.mutate();
-            }}
-          >
-            <Field label="Senha nova" htmlFor={`reset-${user.id}`}>
-              <Input
-                id={`reset-${user.id}`}
-                type="password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                autoComplete="new-password"
-                placeholder="mínimo 10 caracteres"
-                className="w-64"
-                required
-              />
-            </Field>
-            <Button type="submit" size="sm" disabled={reset.isPending}>
-              {reset.isPending ? "Redefinindo…" : "Confirmar"}
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                setPainel("nenhum");
-                setNewPassword("");
-                setError(null);
-              }}
-            >
-              Cancelar
-            </Button>
-          </form>
-        )}
-
-        {/*
-          A confirmação diz o que vai acontecer de verdade — e o que não vai.
-          Quem clica numa lixeira espera apagar; aqui ela desativa, e a frase
-          precisa desfazer essa expectativa antes do clique, não depois.
-        */}
-        {painel === "desativar" && (
-          <div className="border-t px-4 py-3 space-y-2">
-            <p className="text-sm">
-              Desativar <strong>{user.name}</strong>? O acesso é cortado e as
-              sessões abertas caem na hora.
-            </p>
-            <p className="text-xs text-muted-foreground">
-              A conta não é apagada, e não há como apagá-la: cada confirmação de
-              curadoria e cada promoção de vigência que essa pessoa fez está
-              assinada com este e-mail, e apagar a linha transformaria esse
-              histórico num nome órfão. Reativar depois é um clique.
-            </p>
-            <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                variant="destructive"
-                disabled={act.isPending}
-                onClick={() => act.mutate("disable")}
-              >
-                <Ban className="w-3.5 h-3.5 mr-1.5" />
-                {act.isPending ? "Desativando…" : "Desativar acesso"}
-              </Button>
-              <Button variant="ghost" size="sm" onClick={() => setPainel("nenhum")}>
-                Cancelar
-              </Button>
-            </div>
-          </div>
-        )}
-
         {disabled && souAdmin && painel === "nenhum" && (
           <div className="border-t px-4 py-2">
             <Button
@@ -1175,9 +1121,12 @@ function UserRow({ user }: { user: ManagedUser }) {
           </div>
         )}
 
-        {/* A recusa da edição aparece dentro da gaveta, onde o formulário está:
-            repeti-la aqui a esconderia atrás do painel aberto. */}
-        {error && painel !== "edicao" && (
+        {/* A recusa aparece dentro da gaveta que a provocou, onde estão o
+            formulário e o botão que falhou: no pé da linha, ela ficaria atrás
+            do painel aberto, sem ser lida por quem acabou de tentar. Aqui só
+            resta a recusa dos gestos da própria linha — reativar acesso e o
+            olho de visualizar. */}
+        {error && !EM_GAVETA.includes(painel) && (
           <div className="border-t px-4 py-3">
             <Refusal>{error}</Refusal>
           </div>
@@ -1276,6 +1225,119 @@ function UserRow({ user }: { user: ManagedUser }) {
               </Button>
             </footer>
           </form>
+        </SheetContent>
+      </Sheet>
+
+      {/*
+        Redefinir senha sai dos detalhes, e volta para eles: foi de lá que ela
+        foi pedida, e fechar a gaveta em "nenhum" recolheria o painel que quem
+        redefiniu tinha aberto para ler último acesso e sessões abertas.
+      */}
+      <Sheet
+        open={painel === "senha"}
+        onOpenChange={(aberta) => !aberta && fecharSenha()}
+      >
+        <SheetContent
+          side="right"
+          className="w-full sm:max-w-md p-0 flex flex-col gap-0"
+        >
+          <header className="px-6 pt-6 pb-4 border-b shrink-0">
+            <SheetTitle className="text-xl font-bold tracking-tight pr-8 flex items-center gap-2">
+              <KeyRound className="w-5 h-5 text-primary" />
+              Redefinir a senha de {user.name}
+            </SheetTitle>
+            <SheetDescription className="mt-1">
+              A senha vale na hora e as sessões abertas dessa pessoa caem. Este
+              produto não manda e-mail: passe a senha por um canal seguro e peça
+              a troca em Meu Perfil.
+            </SheetDescription>
+          </header>
+
+          <form
+            className="flex flex-col min-h-0 flex-1"
+            onSubmit={(e) => {
+              e.preventDefault();
+              reset.mutate();
+            }}
+          >
+            <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
+              <Field label="Senha nova" htmlFor={`reset-${user.id}`}>
+                <Input
+                  id={`reset-${user.id}`}
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  autoComplete="new-password"
+                  placeholder="mínimo 10 caracteres"
+                  required
+                />
+              </Field>
+
+              {error && <Refusal>{error}</Refusal>}
+            </div>
+
+            <footer className="border-t px-6 py-4 shrink-0 flex items-center gap-2">
+              <Button type="submit" className="flex-1" disabled={reset.isPending}>
+                {reset.isPending ? "Redefinindo…" : "Confirmar"}
+              </Button>
+              <Button type="button" variant="ghost" onClick={fecharSenha}>
+                Cancelar
+              </Button>
+            </footer>
+          </form>
+        </SheetContent>
+      </Sheet>
+
+      {/*
+        A confirmação diz o que vai acontecer de verdade — e o que não vai.
+        Quem clica numa lixeira espera apagar; aqui ela desativa, e a frase
+        precisa desfazer essa expectativa antes do clique, não depois. Na
+        gaveta ela ganha o que uma confirmação pede e a linha não dava: o texto
+        inteiro à vista, sem a lista continuando por baixo dele.
+      */}
+      <Sheet
+        open={painel === "desativar"}
+        onOpenChange={(aberta) => !aberta && setPainel("nenhum")}
+      >
+        <SheetContent
+          side="right"
+          className="w-full sm:max-w-md p-0 flex flex-col gap-0"
+        >
+          <header className="px-6 pt-6 pb-4 border-b shrink-0">
+            <SheetTitle className="text-xl font-bold tracking-tight pr-8 flex items-center gap-2">
+              <Ban className="w-5 h-5 text-destructive" />
+              Desativar {user.name}?
+            </SheetTitle>
+            <SheetDescription className="mt-1">
+              O acesso é cortado e as sessões abertas caem na hora.
+            </SheetDescription>
+          </header>
+
+          <div className="flex-1 overflow-y-auto px-6 py-5 space-y-3">
+            <p className="text-sm text-muted-foreground">
+              A conta não é apagada, e não há como apagá-la: cada confirmação de
+              curadoria e cada promoção de vigência que essa pessoa fez está
+              assinada com este e-mail, e apagar a linha transformaria esse
+              histórico num nome órfão. Reativar depois é um clique.
+            </p>
+
+            {error && <Refusal>{error}</Refusal>}
+          </div>
+
+          <footer className="border-t px-6 py-4 shrink-0 flex items-center gap-2">
+            <Button
+              variant="destructive"
+              className="flex-1"
+              disabled={act.isPending}
+              onClick={() => act.mutate("disable")}
+            >
+              <Ban className="w-4 h-4 mr-1.5" />
+              {act.isPending ? "Desativando…" : "Desativar acesso"}
+            </Button>
+            <Button variant="ghost" onClick={() => setPainel("nenhum")}>
+              Cancelar
+            </Button>
+          </footer>
         </SheetContent>
       </Sheet>
     </>
