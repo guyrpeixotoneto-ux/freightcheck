@@ -7,11 +7,17 @@
     "hello": "tsx ./src/hello.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "medir:proveniencia": "tsx ./src/medicao-proveniencia.ts"
   },
   "devDependencies": {
     "@types/node": "catalog:",
     "tsx": "catalog:",
     "vitest": "^3.2.4"
+  },
+  "dependencies": {
+    "@workspace/db": "workspace:*",
+    "@workspace/balance": "workspace:*",
+    "drizzle-orm": "catalog:"
   }
 }

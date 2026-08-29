@@ -380,6 +380,20 @@ type LinhaRun = {
  * este produto existe para não exibir. Então a lista calcula: é uma agregação
  * por importação sobre células já indexadas por aba, e ela responde no tempo em
  * que uma lista responde.
+ *
+ * **Importação oculta fica de fora, e isso não é uma escolha desta função.** O
+ * contrato está escrito na coluna que a cria (`import_run.hidden_at`, em
+ * `lib/db/src/schema/raw.ts`): um run oculto — e todos os fatos de todas as
+ * vigências dele — "fica de fora de todo agregado (dashboard, comparativo,
+ * **cobertura**, DRE...)". A cobertura auditada é calculada exatamente sobre
+ * esta lista, e até aqui era o único agregado do produto que ignorava a
+ * palavra "cobertura" escrita no próprio contrato: quem ocultava um arquivo o
+ * via sumir do comparativo e continuar pesando no percentual de qualidade.
+ *
+ * Ocultar não é excluir, e nada aqui apaga: o run continua no banco, continua
+ * listado na tela de Importações e volta à conta assim que `hidden_at` for
+ * `NULL` de novo — que é a tela de onde se oculta e se reexibe, e por isso
+ * ninguém fica sem caminho de volta ao tirá-lo daqui.
  */
 export async function listarBalancos(db: Database): Promise<BalancoResumo[]> {
   const { rows: runs } = await db.execute<LinhaRun>(sql`
@@ -392,6 +406,7 @@ export async function listarBalancos(db: Database): Promise<BalancoResumo[]> {
       sf.received_at
     FROM import_run ir
     JOIN source_file sf ON sf.id = ir.source_file_id
+    WHERE ir.hidden_at IS NULL
     ORDER BY sf.received_at DESC, ir.started_at DESC
   `);
 
