@@ -28,6 +28,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
 import { Field, Refusal, post } from "@/components/configuracoes/campos";
 import { CHAVE_DAS_CONTAS, useContas, type ManagedUser } from "@/components/configuracoes/contas";
@@ -103,6 +109,20 @@ function normalizar(texto: string): string {
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase();
+}
+
+/**
+ * O apelido de um nome — `João da Silva` vira `joao.silva`.
+ *
+ * É a mesma conta de `apelidoDoNome`, no servidor, e existe aqui por uma razão
+ * só: mostrar o login que a pessoa vai receber **antes** de a conta ser criada.
+ * Quem gera o endereço de verdade continua sendo o servidor, que é quem sabe
+ * quais já estão tomados — por isso a tela mostra o previsto e não promete.
+ */
+function apelido(nome: string): string {
+  return normalizar(nome)
+    .replace(/[^a-z0-9]+/g, ".")
+    .replace(/^\.+|\.+$/g, "");
 }
 
 /** O rótulo do grupo de quem ainda não tem cargo. */
@@ -207,7 +227,7 @@ export function PainelDeUsuarios() {
       {ajuda && <ComoPreencher />}
 
       {me?.role === "ADMIN"
-        ? criando && <NewUserCard aoFechar={() => setCriando(false)} />
+        ? criando && <GavetaDeNovoUsuario aoFechar={() => setCriando(false)} />
         : !isLoading && (
             <p className="text-sm text-muted-foreground">
               Somente administradores criam contas, desativam acesso e redefinem
@@ -292,10 +312,17 @@ function ComoPreencher() {
           diferença de grafia.
         </p>
         <p>
-          <strong className="text-foreground">A senha inicial</strong> é
-          escolhida por quem cria e dita à pessoa por fora: este produto não
-          manda e-mail, e um convite por e-mail seria uma promessa que o servidor
-          não cumpre.
+          <strong className="text-foreground">Reporta a</strong> é o
+          organograma, e só ele: quem responde por quem. Não é cargo e não é
+          papel — mudar o gestor de alguém não muda nem o que a pessoa faz nem
+          o que ela alcança. Em branco é o topo.
+        </p>
+        <p>
+          <strong className="text-foreground">E-mail e senha</strong> são
+          gerados pelo sistema quando você não os informa, e aparecem uma única
+          vez ao criar a conta: este produto não manda e-mail, e um convite por
+          e-mail seria uma promessa que o servidor não cumpre. Passe os dois por
+          um canal seguro e peça que a pessoa troque a senha em Meu Perfil.
         </p>
         <p>
           <strong className="text-foreground">Ninguém é apagado.</strong> A
@@ -382,47 +409,70 @@ function CamposDeLotacao({
 }
 
 /**
- * A senha é escolhida por quem cria e dita à pessoa por fora.
+ * A gaveta de "Criar novo usuário".
  *
- * Não há e-mail neste produto, então "enviar um convite" seria uma promessa que
- * o servidor não cumpre. O que existe é a troca da própria senha, ao lado —
- * quem recebe uma conta deveria usá-la assim que entrar.
+ * **Por que gaveta, e não um cartão que empurra a lista.** O formulário nascia
+ * entre o cabeçalho e a busca, e abrir ele empurrava a lista inteira para
+ * baixo: quem clicava em "Criar novo usuário" perdia de vista as contas que
+ * estava olhando — inclusive a pessoa que ele estava conferindo se já existia.
+ * A gaveta abre por cima, pela direita, e a lista continua atrás dela; fechar
+ * devolve o leitor exatamente onde ele estava. É a mesma decisão, pela mesma
+ * razão, das gavetas de detalhe do resto do produto (ver
+ * `components/cobertura/gaveta.tsx`).
+ *
+ * **Nome e sobrenome entram separados e são gravados juntos.** O produto guarda
+ * o nome com que a pessoa assina — é ele que vai em `actor` de cada
+ * confirmação —, e duas colunas no banco só criariam a pergunta de onde põr o
+ * segundo sobrenome. A separação existe por uma razão só, e ela é desta tela: é
+ * dela que sai o `joao.silva` do login gerado.
+ *
+ * **O e-mail é opcional porque nem toda pessoa a quem se dá acesso tem um.**
+ * Quando fica em branco, o servidor monta `nome.sobrenome@` no domínio de quem
+ * está criando a conta — o domínio da casa —, e a tela mostra o endereço antes
+ * de criar, para que ninguém descubra depois qual login recebeu. Ver
+ * `routes/users.ts`.
+ *
+ * **A senha é sorteada pelo servidor e aparece uma vez.** Não há e-mail neste
+ * produto, então "enviar um convite" seria uma promessa que ninguém cumpre: o
+ * que existe é a senha inicial, ditada à pessoa por fora e trocada por ela em
+ * Meu Perfil. O banco guarda só o hash, e nenhuma rota devolve a senha depois —
+ * por isso a tela insiste que aquela é a única vez em que ela aparece.
  */
-function NewUserCard({ aoFechar }: { aoFechar: () => void }) {
+function GavetaDeNovoUsuario({ aoFechar }: { aoFechar: () => void }) {
   const queryClient = useQueryClient();
-  const [name, setName] = useState("");
+  const { user: me } = useAuth();
+  const [nome, setNome] = useState("");
+  const [sobrenome, setSobrenome] = useState("");
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [telefone, setTelefone] = useState("");
   const [role, setRole] = useState("OPERADOR");
   const [cargoId, setCargoId] = useState("");
   const [unidadeId, setUnidadeId] = useState("");
+  const [gestorId, setGestorId] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [created, setCreated] = useState<string | null>(null);
+  const [credenciais, setCredenciais] = useState<CredenciaisCriadas | null>(null);
 
   const create = useMutation({
     mutationFn: () =>
       post("/users", {
-        name,
-        email,
-        password,
+        name: nome,
+        sobrenome,
+        /* Vazio vira `null` em tudo: "não informado" é uma resposta, e não um
+           campo em branco que o servidor teria de interpretar. */
+        email: email.trim() === "" ? null : email.trim(),
+        telefone: telefone.trim() === "" ? null : telefone.trim(),
         role,
-        /* Vazio vira `null`: "sem cargo" é uma resposta, e não um campo em
-           branco que o servidor teria de interpretar. */
         cargoId: cargoId === "" ? null : cargoId,
         unidadeId: unidadeId === "" ? null : unidadeId,
-      }),
-    onSuccess: () => {
-      setCreated(email.trim().toLowerCase());
+        gestorId: gestorId === "" ? null : gestorId,
+      }) as Promise<CredenciaisCriadas>,
+    onSuccess: (conta) => {
+      setCredenciais(conta);
       setError(null);
-      setName("");
-      setEmail("");
-      setPassword("");
-      setCargoId("");
-      setUnidadeId("");
       void queryClient.invalidateQueries({ queryKey: CHAVE_DAS_CONTAS });
     },
     onError: (err: Error) => {
-      setCreated(null);
+      setCredenciais(null);
       setError(err.message);
     },
   });
@@ -432,98 +482,313 @@ function NewUserCard({ aoFechar }: { aoFechar: () => void }) {
     create.mutate();
   }
 
+  function outraConta() {
+    setCredenciais(null);
+    setNome("");
+    setSobrenome("");
+    setEmail("");
+    setTelefone("");
+    setCargoId("");
+    setUnidadeId("");
+    setGestorId("");
+  }
+
+  /* O endereço que o servidor vai montar, mostrado antes de ele o montar. A
+     conta é a mesma de `apelidoDoNome`, do lado de lá; divergir dela mostraria
+     um login que não é o que a pessoa vai receber, e por isso a tela chama o
+     que mostra de "algo como" e não de promessa. */
+  const dominio = me?.email.split("@")[1] ?? "";
+  const previsto =
+    apelido(`${nome} ${sobrenome}`) !== "" && dominio !== ""
+      ? `${apelido(`${nome} ${sobrenome}`)}@${dominio}`
+      : null;
+
   return (
-    <Card>
-      <CardHeader className="pb-3">
-        <CardTitle className="text-base flex items-center gap-2">
-          <UserPlus className="w-4 h-4 text-primary" />
-          Dar acesso a alguém
-        </CardTitle>
-        <p className="text-xs text-muted-foreground">
-          A senha inicial é escolhida por você e dita à pessoa por fora — nada
-          aqui envia e-mail. Peça que ela troque em Configurações depois de
-          entrar.
+    <Sheet open onOpenChange={(aberta) => !aberta && aoFechar()}>
+      <SheetContent
+        side="right"
+        className="w-full sm:max-w-xl p-0 flex flex-col gap-0"
+      >
+        <header className="px-6 pt-6 pb-4 border-b shrink-0">
+          <SheetTitle className="text-xl font-bold tracking-tight pr-8 flex items-center gap-2">
+            <UserPlus className="w-5 h-5 text-primary" />
+            Criar novo usuário
+          </SheetTitle>
+          <SheetDescription className="mt-1">
+            Preencha os dados da pessoa. O sistema gera o login e a senha
+            inicial, e mostra os dois aqui quando terminar.
+          </SheetDescription>
+        </header>
+
+        {credenciais ? (
+          <CredenciaisDaConta
+            credenciais={credenciais}
+            aoCriarOutra={outraConta}
+            aoFechar={aoFechar}
+          />
+        ) : (
+          <form onSubmit={submit} className="flex flex-col min-h-0 flex-1">
+            <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Field label="Nome" htmlFor="novo-nome">
+                  <Input
+                    id="novo-nome"
+                    value={nome}
+                    onChange={(e) => setNome(e.target.value)}
+                    placeholder="Ex: João"
+                    required
+                    autoFocus
+                  />
+                </Field>
+                <Field label="Sobrenome" htmlFor="novo-sobrenome">
+                  <Input
+                    id="novo-sobrenome"
+                    value={sobrenome}
+                    onChange={(e) => setSobrenome(e.target.value)}
+                    placeholder="Ex: Silva"
+                  />
+                </Field>
+              </div>
+
+              <Field label="E-mail (opcional)" htmlFor="novo-email">
+                <Input
+                  id="novo-email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder={previsto ?? "pessoa@empresa.com"}
+                />
+                <p className="text-xs text-muted-foreground">
+                  {previsto
+                    ? `Em branco, o login vira ${previsto} — é por ele que a pessoa entra.`
+                    : "Em branco, o sistema gera o login a partir do nome e do domínio da sua conta."}
+                </p>
+              </Field>
+
+              <Field label="Telefone (opcional)" htmlFor="novo-telefone">
+                <Input
+                  id="novo-telefone"
+                  type="tel"
+                  value={telefone}
+                  onChange={(e) => setTelefone(e.target.value)}
+                  placeholder="(11) 99999-9999"
+                />
+              </Field>
+
+              <CamposDeLotacao
+                prefixo="novo"
+                cargoId={cargoId}
+                unidadeId={unidadeId}
+                aoTrocarCargo={setCargoId}
+                aoTrocarUnidade={setUnidadeId}
+              />
+
+              <Field label="Papel" htmlFor="novo-papel">
+                <Select value={role} onValueChange={setRole}>
+                  <SelectTrigger id="novo-papel">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="OPERADOR">Operador — usa o produto</SelectItem>
+                    <SelectItem value="ADMIN">
+                      Administrador — também gerencia contas
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Papel é acesso, e não hierarquia: quem responde por quem é o
+                  campo abaixo.
+                </p>
+              </Field>
+
+              <EscolhaDoGestor gestorId={gestorId} aoTrocar={setGestorId} />
+
+              {error && <Refusal>{error}</Refusal>}
+            </div>
+
+            <footer className="border-t px-6 py-4 shrink-0 flex items-center gap-2">
+              <Button
+                type="submit"
+                className="gap-2 flex-1"
+                disabled={create.isPending}
+              >
+                <KeyRound className="w-4 h-4" />
+                {create.isPending
+                  ? "Criando…"
+                  : "Criar usuário e gerar credenciais"}
+              </Button>
+              <Button type="button" variant="ghost" onClick={aoFechar}>
+                Cancelar
+              </Button>
+            </footer>
+          </form>
+        )}
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+/**
+ * O que a criação devolve — a conta, e as credenciais que só existem aqui.
+ *
+ * `senhaInicial` volta uma vez e nunca mais: o banco guarda o hash, e nenhuma
+ * rota a devolve depois. `emailGerado` distingue o endereço que o servidor
+ * montou do que quem criou digitou, porque só o primeiro é novidade para quem
+ * está lendo a tela.
+ */
+interface CredenciaisCriadas {
+  id: string;
+  name: string;
+  email: string;
+  senhaInicial: string;
+  senhaGerada: boolean;
+  emailGerado: boolean;
+}
+
+/**
+ * A tela que substitui o formulário depois de criar: as duas credenciais, e o
+ * aviso de que a senha não volta.
+ *
+ * Ela ocupa a gaveta inteira de propósito. Um aviso discreto embaixo de um
+ * formulário ainda preenchido convida a fechar sem ler — e fechar sem ler,
+ * aqui, custa uma redefinição de senha e um telefonema.
+ */
+function CredenciaisDaConta({
+  credenciais,
+  aoCriarOutra,
+  aoFechar,
+}: {
+  credenciais: CredenciaisCriadas;
+  aoCriarOutra: () => void;
+  aoFechar: () => void;
+}) {
+  return (
+    <div className="flex flex-col min-h-0 flex-1">
+      <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
+        <p className="flex items-start gap-2 text-sm text-emerald-700">
+          <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0" />
+          <span>
+            Conta criada para <strong>{credenciais.name}</strong>.
+          </span>
         </p>
-      </CardHeader>
-      <CardContent>
-        <form onSubmit={submit} className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <Field label="Nome" htmlFor="new-name">
-              <Input
-                id="new-name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Como a pessoa assina"
-                required
-              />
-            </Field>
-            <Field label="E-mail" htmlFor="new-email">
-              <Input
-                id="new-email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="pessoa@empresa.com"
-                required
-              />
-            </Field>
-            <Field label="Senha inicial" htmlFor="new-password">
-              <Input
-                id="new-password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoComplete="new-password"
-                placeholder="mínimo 10 caracteres"
-                required
-              />
-            </Field>
-          </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <Field label="Papel" htmlFor="new-role">
-              <Select value={role} onValueChange={setRole}>
-                <SelectTrigger id="new-role">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="OPERADOR">Operador — usa o produto</SelectItem>
-                  <SelectItem value="ADMIN">
-                    Administrador — também gerencia contas
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            </Field>
-            <CamposDeLotacao
-              prefixo="new"
-              cargoId={cargoId}
-              unidadeId={unidadeId}
-              aoTrocarCargo={setCargoId}
-              aoTrocarUnidade={setUnidadeId}
-            />
-          </div>
+        <div className="rounded-lg border bg-muted/40 divide-y">
+          <CredencialCopiavel
+            rotulo={credenciais.emailGerado ? "Login gerado" : "Login"}
+            valor={credenciais.email}
+          />
+          <CredencialCopiavel
+            rotulo="Senha inicial"
+            valor={credenciais.senhaInicial}
+          />
+        </div>
 
-          {error && <Refusal>{error}</Refusal>}
-          {created && (
-            <p className="flex items-center gap-2 text-sm text-emerald-700">
-              <CheckCircle2 className="w-4 h-4 shrink-0" />
-              Conta criada para <strong>{created}</strong>. Passe a senha para a
-              pessoa por um canal seguro.
-            </p>
-          )}
+        <p className="text-xs text-muted-foreground">
+          {credenciais.senhaGerada
+            ? "Esta é a única vez que a senha aparece — o sistema guarda só o resumo criptográfico dela. "
+            : ""}
+          Passe as duas por um canal seguro e peça que a pessoa troque a senha em
+          Configurações → Meu Perfil assim que entrar. Se a senha se perder, use
+          “Redefinir senha” na linha da conta.
+        </p>
+      </div>
 
-          <div className="flex items-center gap-2">
-            <Button type="submit" className="gap-2" disabled={create.isPending}>
-              <UserPlus className="w-4 h-4" />
-              {create.isPending ? "Criando…" : "Criar conta"}
-            </Button>
-            <Button type="button" variant="ghost" onClick={aoFechar}>
-              Fechar
-            </Button>
-          </div>
-        </form>
-      </CardContent>
-    </Card>
+      <footer className="border-t px-6 py-4 shrink-0 flex items-center gap-2">
+        <Button type="button" variant="outline" className="gap-2" onClick={aoCriarOutra}>
+          <UserPlus className="w-4 h-4" />
+          Criar outro
+        </Button>
+        <Button type="button" onClick={aoFechar} className="flex-1">
+          Concluir
+        </Button>
+      </footer>
+    </div>
+  );
+}
+
+/** Uma credencial com o botão de copiar — ninguém digita à mão o que pode colar. */
+function CredencialCopiavel({ rotulo, valor }: { rotulo: string; valor: string }) {
+  const [copiado, setCopiado] = useState(false);
+
+  const copiar = async () => {
+    await navigator.clipboard.writeText(valor);
+    setCopiado(true);
+    window.setTimeout(() => setCopiado(false), 2000);
+  };
+
+  return (
+    <div className="flex items-center gap-3 p-3">
+      <div className="min-w-0 flex-1">
+        <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+          {rotulo}
+        </p>
+        <code className="text-sm font-mono break-all">{valor}</code>
+      </div>
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="gap-1.5 shrink-0"
+        onClick={copiar}
+        aria-label={copiado ? `${rotulo} copiado` : `Copiar ${rotulo.toLowerCase()}`}
+      >
+        {copiado ? (
+          <Check className="w-3.5 h-3.5 text-emerald-600" />
+        ) : (
+          <Copy className="w-3.5 h-3.5" />
+        )}
+        {copiado ? "Copiado" : "Copiar"}
+      </Button>
+    </div>
+  );
+}
+
+/**
+ * "Reporta a" — a linha do organograma, escolhida entre as contas ativas.
+ *
+ * Só contas ativas entram na lista: pendurar alguém em quem já não tem acesso é
+ * escrever um organograma que ninguém vai atualizar, e o servidor recusa o
+ * mesmo (ver `routes/users.ts`).
+ *
+ * "Ninguém (topo)" é a primeira opção e o padrão, porque alguém está no topo —
+ * é resposta, e não campo por preencher.
+ */
+function EscolhaDoGestor({
+  gestorId,
+  aoTrocar,
+}: {
+  gestorId: string;
+  aoTrocar: (valor: string) => void;
+}) {
+  const { data: contas = [] } = useContas();
+  const ativas = contas
+    .filter((c) => c.disabledAt === null)
+    .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+
+  return (
+    <Field label="Reporta a (opcional)" htmlFor="novo-gestor">
+      <Select
+        value={gestorId || SEM_VINCULO}
+        onValueChange={(v) => aoTrocar(v === SEM_VINCULO ? "" : v)}
+      >
+        <SelectTrigger id="novo-gestor">
+          <SelectValue placeholder="Ninguém (topo)" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={SEM_VINCULO}>Ninguém (topo)</SelectItem>
+          {ativas.map((c) => (
+            <SelectItem key={c.id} value={c.id}>
+              {c.name}
+              {c.cargoNome ? ` — ${c.cargoNome}` : ""}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <p className="text-xs text-muted-foreground">
+        Define o organograma: quem responde por esta pessoa. Não tem relação com
+        o cargo nem com o papel de acesso, e dá para mudar depois.
+      </p>
+    </Field>
   );
 }
 
@@ -795,6 +1060,16 @@ function UserRow({ user }: { user: ManagedUser }) {
             {" · "}
             {user.role === "ADMIN" ? "administrador" : "operador"}
           </div>
+          {/* Telefone e gestor só aparecem quando existem: uma linha que diz
+              "sem telefone · sem gestor" ocupa espaço para não informar nada —
+              e as duas são opcionais por desenho, não lacunas a cobrar. */}
+          {(user.telefone || user.gestorNome) && (
+            <div className="text-xs text-muted-foreground">
+              {user.telefone}
+              {user.telefone && user.gestorNome ? " · " : ""}
+              {user.gestorNome ? `reporta a ${user.gestorNome}` : ""}
+            </div>
+          )}
           {isMe && <AccountId id={user.id} />}
           {souAdmin && (
             <div className="pt-2">

@@ -1,0 +1,35 @@
+-- ---------------------------------------------------------------------------
+-- TELEFONE E GESTOR — o contato da pessoa, e quem responde por ela.
+-- ---------------------------------------------------------------------------
+--
+-- As duas nascem da gaveta de "Criar novo usuário": quem dá acesso a alguém
+-- sabe, no mesmo minuto, o telefone dessa pessoa e a quem ela reporta, e até
+-- aqui as duas informações não tinham onde morar — o telefone virava recado no
+-- WhatsApp de quem cadastrou, e o organograma era conhecimento de corredor.
+--
+-- **`telefone` é texto, e é de propósito.** O que se guarda é o que a pessoa
+-- ditou — `(11) 99999-9999`, `+55 11 99999-9999`, um ramal —, e nenhuma
+-- máscara aqui decide o que é telefone válido no mundo. Não há índice e não há
+-- unicidade: duas pessoas dividem um ramal, e isso não é defeito.
+--
+-- **`gestor_id` é o organograma: quem responde por quem.** Não é cargo (isso é
+-- `cargo_id`, do cadastro da casa) e não é acesso (isso é `role` e a tabela de
+-- permissões). É a linha da hierarquia, e ela é opcional porque alguém está no
+-- topo: `NULL` é "não reporta a ninguém", não "não se sabe".
+--
+-- **Sem chave estrangeira, pela mesma razão da `0076`.** `app_user` sobrevive
+-- ao `down` do bridge, e uma FK nova nela entraria na proposta do Publishing
+-- como restrição nova (ver `bridge.ts`). A integridade que ela daria está no
+-- código, onde ela também pode explicar-se: a rota confere que o gestor existe
+-- e está ativo antes de gravar, e a leitura da lista de contas junta à
+-- esquerda — um `gestor_id` órfão vira "sem gestor" na tela, que é o mesmo
+-- desfecho de um `ON DELETE SET NULL`, sem a restrição no banco. Ninguém é
+-- apagado deste produto, então o órfão é hipótese, não rotina.
+--
+-- As duas são nuláveis e sem default — a forma que a allowlist do bridge
+-- aceita —, e `NULL` nas duas é o estado de toda conta que já existe.
+-- ---------------------------------------------------------------------------
+
+ALTER TABLE "app_user" ADD COLUMN IF NOT EXISTS "telefone" text;
+--> statement-breakpoint
+ALTER TABLE "app_user" ADD COLUMN IF NOT EXISTS "gestor_id" uuid;

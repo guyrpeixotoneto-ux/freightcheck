@@ -1,4 +1,4 @@
-import { and, eq, gt, isNull, lt, ne, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, lt, ne, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import {
   appUserTable,
@@ -8,6 +8,7 @@ import {
   type Database,
 } from "@workspace/db";
 import {
+  apelidoDoNome,
   hashPassword,
   hashSessionToken,
   newSessionToken,
@@ -145,6 +146,57 @@ export async function definirLotacao(
     .where(eq(appUserTable.id, userId));
 }
 
+/**
+ * O e-mail que o sistema gera quando quem cria a conta não informa um.
+ *
+ * `João da Silva` + `grupohorizonte.com.br` vira
+ * `joao.silva@grupohorizonte.com.br`; um segundo João da Silva vira
+ * `joao.silva2@…`, e assim por diante. O sufixo é numérico e começa no 2
+ * porque é o que uma pessoa escreveria à mão — e porque `joao.silva1` sugere
+ * que existe um `joao.silva0`, que não existe.
+ *
+ * **Consulta antes e ainda assim pode perder a corrida**, e é por isso que
+ * quem chama continua tratando `EmailAlreadyUsedError`: duas criações no mesmo
+ * instante veriam o mesmo vago e a segunda esbarra no índice único, que é o
+ * único juiz do assunto. A consulta existe para que o caso comum saia com o
+ * endereço bonito, não para substituir o índice.
+ *
+ * Devolve `null` quando o nome não deixa nada aproveitável — um nome só de
+ * símbolos —, e quem chama pede o e-mail em vez de inventar um.
+ */
+export async function gerarEmailDisponivel(
+  db: Database,
+  nome: string,
+  dominio: string,
+): Promise<string | null> {
+  const apelido = apelidoDoNome(nome);
+  if (apelido === "") return null;
+
+  const candidatos = Array.from(
+    { length: MAXIMO_DE_HOMONIMOS },
+    (_, i) => `${apelido}${i === 0 ? "" : i + 1}@${dominio}`,
+  );
+  const tomados = new Set(
+    (
+      await db
+        .select({ email: appUserTable.email })
+        .from(appUserTable)
+        .where(inArray(appUserTable.email, candidatos))
+    ).map((linha) => linha.email),
+  );
+
+  return candidatos.find((email) => !tomados.has(email)) ?? null;
+}
+
+/**
+ * Quantos homônimos o gerador tenta antes de desistir e pedir o e-mail.
+ *
+ * Vinte é folgado para uma casa inteira e curto o bastante para que a consulta
+ * continue sendo uma só. Passando disso, a tela pede o endereço — o que é
+ * melhor do que um `joao.silva37` que ninguém vai lembrar.
+ */
+const MAXIMO_DE_HOMONIMOS = 20;
+
 export async function createUser(
   db: Database,
   input: {
@@ -162,6 +214,10 @@ export async function createUser(
      */
     cargoId?: string | null;
     unidadeId?: string | null;
+    /** O telefone, como a pessoa o ditou. Ausente ou nulo é quem não deu. */
+    telefone?: string | null;
+    /** A quem ela reporta. Nulo é o topo — uma resposta, não uma lacuna. */
+    gestorId?: string | null;
   },
 ): Promise<SessionUser> {
   const passwordHash = await hashPassword(input.password);
@@ -176,6 +232,10 @@ export async function createUser(
         ...(input.createdBy ? { createdBy: input.createdBy } : {}),
         ...(input.cargoId !== undefined ? { cargoId: input.cargoId } : {}),
         ...(input.unidadeId !== undefined ? { unidadeId: input.unidadeId } : {}),
+        ...(input.telefone !== undefined
+          ? { telefone: input.telefone === null ? null : input.telefone.trim() }
+          : {}),
+        ...(input.gestorId !== undefined ? { gestorId: input.gestorId } : {}),
       })
       .returning({
         id: appUserTable.id,
@@ -434,6 +494,19 @@ export interface ManagedUser extends SessionUser {
   cargoNome: string | null;
   unidadeId: string | null;
   unidadeNome: string | null;
+  /** O telefone, como foi ditado. `null` é quem não deu o número. */
+  telefone: string | null;
+  /**
+   * A quem a pessoa reporta — `id` e nome, pela mesma razão do cargo: o `id` é
+   * o que a tela devolve ao editar, e o nome é o que ela mostra.
+   *
+   * `null` nos dois é o topo do organograma, ou uma conta criada antes desta
+   * coluna. Como não há chave estrangeira (ver `schema/auth.ts`), a junção é à
+   * esquerda: um `gestor_id` que aponte para o que não existe vira "sem
+   * gestor" na tela em vez de sumir com a linha.
+   */
+  gestorId: string | null;
+  gestorNome: string | null;
 }
 
 /**
@@ -448,6 +521,7 @@ export interface ManagedUser extends SessionUser {
  * que este produto existe para não cometer.
  */
 export async function listUsers(db: Database): Promise<ManagedUser[]> {
+  const gestorTable = alias(appUserTable, "gestor");
   const rows = await db
     .select({
       id: appUserTable.id,
@@ -464,6 +538,9 @@ export async function listUsers(db: Database): Promise<ManagedUser[]> {
       cargoNome: cargoTable.nome,
       unidadeId: appUserTable.unidadeId,
       unidadeNome: unidadeTable.nome,
+      telefone: appUserTable.telefone,
+      gestorId: appUserTable.gestorId,
+      gestorNome: gestorTable.name,
     })
     .from(appUserTable)
     .leftJoin(
@@ -481,7 +558,11 @@ export async function listUsers(db: Database): Promise<ManagedUser[]> {
     */
     .leftJoin(cargoTable, eq(cargoTable.id, appUserTable.cargoId))
     .leftJoin(unidadeTable, eq(unidadeTable.id, appUserTable.unidadeId))
-    .groupBy(appUserTable.id, cargoTable.nome, unidadeTable.nome)
+    /* O gestor é a própria tabela sob outro nome: quem reporta a quem mora em
+       `app_user`, e sem o alias a junção seria a tabela consigo mesma sem que
+       o SQL soubesse qual das duas cada coluna está pedindo. */
+    .leftJoin(gestorTable, eq(gestorTable.id, appUserTable.gestorId))
+    .groupBy(appUserTable.id, cargoTable.nome, unidadeTable.nome, gestorTable.name)
     .orderBy(appUserTable.name);
 
   return rows.map((row) => ({
