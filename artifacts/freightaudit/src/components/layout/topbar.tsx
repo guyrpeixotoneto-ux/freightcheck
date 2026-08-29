@@ -1,5 +1,5 @@
 import { Link } from "wouter";
-import { Check, ChevronDown, Menu } from "lucide-react";
+import { Check, ChevronDown, LogOut, Menu, ShieldCheck, UserRound } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -106,21 +106,51 @@ export function Topbar({
             </span>
             <ChevronDown className="w-4 h-4 shrink-0" />
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-64">
-            <DropdownMenuLabel className="font-normal">
-              <div className="font-semibold">{user.name}</div>
+          <DropdownMenuContent align="end" className="w-72">
+            <DropdownMenuLabel className="font-normal py-3">
+              <div className="font-semibold text-base">{user.name}</div>
               <div className="text-xs text-muted-foreground truncate">{user.email}</div>
+              {/*
+                O papel escrito por extenso, e não a sigla do banco: `ADMIN` é
+                como a coluna se chama, `Administrador` é o que a pessoa é. É a
+                mesma leitura de Meu Perfil, e é aqui que ela responde a
+                pergunta que se faz antes de procurar um item que não está no
+                menu — "eu tenho como fazer isto?".
+              */}
+              <span className="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 mt-2 text-xs font-semibold text-primary">
+                {user.role === "ADMIN" ? "Administrador" : "Operador"}
+              </span>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem asChild>
-              <Link href="~/configuracoes">Configurações</Link>
+            {/*
+              Duas portas, e não uma. `Configurações` levava à casa inteira —
+              unidades, contas, permissões —, que é o lugar de quem administra,
+              e não o de quem clicou no próprio nome. Quem clica aqui está
+              perguntando por si: quem eu sou (`Minha conta`) e como entro
+              (`Segurança`). A casa continua a um clique, no menu lateral, para
+              quem a alcança.
+            */}
+            <DropdownMenuItem asChild className="py-2.5">
+              <Link href="~/configuracoes/perfil" className="flex items-center gap-2.5">
+                <UserRound className="w-4 h-4 text-muted-foreground" />
+                Minha conta
+              </Link>
             </DropdownMenuItem>
+            <DropdownMenuItem asChild className="py-2.5">
+              <Link href="~/configuracoes/seguranca" className="flex items-center gap-2.5">
+                <ShieldCheck className="w-4 h-4 text-muted-foreground" />
+                Segurança
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
             <DropdownMenuItem
               disabled={isSubmitting}
+              className="py-2.5 gap-2.5"
               onSelect={() => {
                 void logout();
               }}
             >
+              <LogOut className="w-4 h-4 text-muted-foreground" />
               Sair
             </DropdownMenuItem>
           </DropdownMenuContent>

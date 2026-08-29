@@ -40,15 +40,17 @@ describe("o índice de Configurações", () => {
     const sustentadas = SECOES_GERAIS.filter((s) => !estaEmPreparo(s.href));
 
     /*
-      Sete hoje. Eram três — Meu Perfil, Unidades e Usuários —, viraram quatro
-      quando Permissões ganhou endereço próprio, e sete quando o cadastro da
-      casa nasceu e Cargos, Negócio e Departamento saíram do catálogo de telas
-      em preparo. É exatamente o efeito que este `expect` existe para produzir:
+      Oito hoje. Eram três — Meu Perfil, Unidades e Usuários —, viraram quatro
+      quando Permissões ganhou endereço próprio, sete quando o cadastro da casa
+      nasceu e Cargos, Negócio e Departamento saíram do catálogo de telas em
+      preparo, e oito quando a troca da senha saiu de Meu Perfil e virou
+      Segurança. É exatamente o efeito que este `expect` existe para produzir:
       ele cai no dia da mudança e obriga a olhar as duas listas juntas, em vez
       de deixar o catálogo prometendo o que já existe.
     */
     expect(sustentadas.map((s) => s.href)).toEqual([
       "/configuracoes/perfil",
+      "/configuracoes/seguranca",
       "/configuracoes/unidades",
       "/configuracoes/usuarios",
       "/configuracoes/permissoes",

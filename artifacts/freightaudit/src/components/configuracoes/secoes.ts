@@ -1,4 +1,4 @@
-import { Building2, Briefcase, IdCard, MapPin, Network, ShieldCheck, UserRound, Users, type LucideIcon } from "lucide-react";
+import { Building2, Briefcase, IdCard, KeyRound, MapPin, Network, ShieldCheck, UserRound, Users, type LucideIcon } from "lucide-react";
 import { TELAS_EM_PREPARO } from "@/pages/telas-em-preparo";
 
 /**
@@ -43,7 +43,13 @@ export const SECOES_GERAIS: SecaoDeConfiguracao[] = [
     href: "/configuracoes/perfil",
     label: "Meu Perfil",
     icon: UserRound,
-    descricao: "A sua conta, o seu papel e a troca da sua senha.",
+    descricao: "A sua conta e o seu papel, como o produto os conhece.",
+  },
+  {
+    href: "/configuracoes/seguranca",
+    label: "Segurança",
+    icon: KeyRound,
+    descricao: "Altere sua senha e gerencie a segurança da sua conta.",
   },
   {
     href: "/configuracoes/unidades",
