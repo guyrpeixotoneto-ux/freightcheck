@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/select";
 import { apresentar } from "@/lib/apresentar-erro";
 import {
+  identidadeVisivel,
   listarUnidadesCanonicas,
   TIPOS_DE_OPERACAO,
   type UnidadeCanonica,
@@ -353,10 +354,10 @@ function PainelDeRegistro({ aoFechar }: { aoFechar: () => void }) {
                     Só preenche quando está vazio — sobrescrever apagaria a
                     grafia que alguém foi conferir no arquivo.
                   */
-                  if (codigo.trim() === "") setCodigo(u.cnpjFormatado);
+                  if (codigo.trim() === "") setCodigo(identidadeVisivel(u));
                 }}
-                rotuloDe={(u) => `${u.nome} — ${u.cnpjFormatado}`}
-                chaveDe={(u) => u.id ?? u.cnpj}
+                rotuloDe={(u) => `${u.nome} — ${identidadeVisivel(u)}`}
+                chaveDe={(u) => u.id ?? u.cnpj ?? u.nome}
                 placeholder="Escolha a unidade cadastrada em Administração → Unidades"
                 atalhoDeCadastro={{
                   rotulo: "Cadastrar unidade em Administração → Unidades",

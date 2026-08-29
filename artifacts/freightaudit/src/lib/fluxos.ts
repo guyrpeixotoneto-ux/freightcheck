@@ -960,8 +960,11 @@ export function useRecarregarFluxos(empresaId: string | null) {
 export interface EmpresaCadastrada {
   id: string | null;
   nome: string;
-  cnpj: string;
+  /** `null` na unidade cadastrada só por código gerencial. */
+  cnpj: string | null;
+  /** O CNPJ com máscara, ou `""` quando ela não tem CNPJ. */
   cnpjFormatado: string;
+  codigoGerencial: string | null;
   estado: string;
 }
 

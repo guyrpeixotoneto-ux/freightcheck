@@ -50,9 +50,35 @@ import type { Executor } from "./executor";
 export interface UnidadeCandidata {
   id: string;
   nome: string;
-  /** Os catorze dígitos, sem máscara. */
-  cnpj: string;
+  /**
+   * Os catorze dígitos, sem máscara. `null` na unidade cadastrada só por
+   * código gerencial — ver o schema de `unidade`.
+   *
+   * Nenhuma faixa daqui deixou de exigir CNPJ por causa disso: `porCnpjNoCodigo`
+   * continua procurando o documento, e uma unidade sem documento simplesmente
+   * não é achada por ele. O que mudou é que ela **existe**, e o `null` é como
+   * ela se diz.
+   */
+  cnpj: string | null;
 }
+
+/**
+ * As colunas de {@link UnidadeCandidata}, escritas uma vez para as três buscas.
+ *
+ * **O código gerencial não está aqui, e a ausência é deliberada.** Este arquivo
+ * roda no caminho de abrir competência — o mais quente do produto — e não
+ * compara código gerencial com nada: as faixas dele são o CNPJ no texto e a
+ * decisão já tomada sobre o mesmo texto. Ler uma coluna que ele não usa custaria
+ * exatamente o que `fechamento-fila-atrasada.test.ts` mede: num banco cuja fila
+ * ainda não chegou à migration que a cria, abrir competência falharia por uma
+ * coluna que a rota não precisava — e o defeito apareceria longe daqui, como
+ * "não consegui abrir a competência".
+ */
+const COLUNAS_DA_CANDIDATA = {
+  id: unidadeTable.id,
+  nome: unidadeTable.nome,
+  cnpj: unidadeTable.cnpj,
+} as const;
 
 /** Por que a identidade pôde ser afirmada — o que a tela mostra e o log guarda. */
 export type ComoSoube =
@@ -93,7 +119,7 @@ async function porCnpjNoCodigo(
   if (canonico === null) return null;
 
   const [achada] = await db
-    .select({ id: unidadeTable.id, nome: unidadeTable.nome, cnpj: unidadeTable.cnpj })
+    .select(COLUNAS_DA_CANDIDATA)
     .from(unidadeTable)
     .where(eq(unidadeTable.cnpj, canonico))
     .limit(1);
@@ -121,7 +147,7 @@ async function porDecisaoJaTomada(
   if (texto === "") return { tipo: "DESCONHECIDA" };
 
   const irmas = await db
-    .selectDistinct({ id: unidadeTable.id, nome: unidadeTable.nome, cnpj: unidadeTable.cnpj })
+    .selectDistinct(COLUNAS_DA_CANDIDATA)
     .from(fechamentoCompetenciaTable)
     .innerJoin(unidadeTable, eq(unidadeTable.id, fechamentoCompetenciaTable.unidadeId))
     .where(
@@ -222,7 +248,7 @@ export async function conciliarIdentidadeDasCompetencias(
   const grafias = new Set<string>();
   if (afirmacao) {
     const [canonica] = await db
-      .select({ id: unidadeTable.id, nome: unidadeTable.nome, cnpj: unidadeTable.cnpj })
+      .select(COLUNAS_DA_CANDIDATA)
       .from(unidadeTable)
       .where(eq(unidadeTable.id, afirmacao.unidadeId))
       .limit(1);

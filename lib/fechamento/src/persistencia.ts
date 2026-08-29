@@ -19,6 +19,7 @@ import {
   fechamentoPagamentoTotalTable,
   fechamentoParteTable,
   fechamentoRequisicaoTable,
+  textoDaUnidade,
   unidadeTable,
   fechamentoViagemTable,
 } from "@workspace/db";
@@ -301,7 +302,15 @@ export async function abrirCompetencia(
           "Administração → Unidades antes de abrir a competência.",
       );
     }
-    unidade = { codigo: canonica.cnpj, nome: canonica.nome };
+    /*
+      O CNPJ, ou o código gerencial na falta dele — `textoDaUnidade`, em
+      `@workspace/db`, é quem escolhe, e é ela que escolhe em todo lugar que
+      precisa escrever a unidade como texto. `unidade_codigo` é `NOT NULL` e
+      está na chave única, então a competência tem de levar **algum** texto; o
+      CNPJ vem primeiro por ser o que os arquivos trazem — é por ele que as
+      duas pontas se encontram quando o export chega.
+    */
+    unidade = { codigo: textoDaUnidade(canonica), nome: canonica.nome };
     unidadeId = canonica.id;
   }
 

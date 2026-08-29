@@ -1342,8 +1342,22 @@ export type ComoCasou = "IDENTIDADE" | "EXATO" | "ESPACO" | "DOCUMENTO";
 export interface UnidadeSugerida {
   id: string;
   nome: string;
-  /** Os catorze dígitos, sem máscara. A tela usa {@link formatarCnpj}. */
-  cnpj: string;
+  /** Os catorze dígitos, sem máscara. `null` na unidade sem CNPJ cadastrado. */
+  cnpj: string | null;
+  /** O código do cadastro, quando é ele que a identifica. */
+  codigoGerencial: string | null;
+}
+
+/**
+ * Como o botão de associação escreve a unidade — o CNPJ, ou o código.
+ *
+ * O CNPJ é o que distingue dois CDDs de mesmo nome, e continua vindo primeiro.
+ * Sem ele, o que distingue é o código gerencial — e escrever nada ali faria o
+ * botão dizer "Associar a CDD BELÉM ·" no exato momento em que a pessoa precisa
+ * ter certeza de qual das duas unidades está escolhendo.
+ */
+export function identidadeDaSugerida(u: UnidadeSugerida): string {
+  return u.cnpj !== null ? formatarCnpj(u.cnpj) : (u.codigoGerencial ?? "");
 }
 
 /** `12345678000199` → `12.345.678/0001-99`. Só para exibir. */
@@ -1429,11 +1443,32 @@ export interface DiagnosticoDoCadastro {
  */
 export interface UnidadeCanonica {
   id: string | null;
+  /** `null` na unidade cadastrada só por código gerencial. */
+  cnpj: string | null;
   nome: string;
-  cnpj: string;
+  /** O CNPJ com máscara, ou `""` quando ela não tem CNPJ. */
   cnpjFormatado: string;
+  /** O código do cadastro. `null` quando ela é identificada pelo CNPJ. */
+  codigoGerencial: string | null;
   estado: "CADASTRADA" | "CADASTRADA_E_IMPORTADA" | "DETECTADA";
   vigencias: number;
+}
+
+/**
+ * Como esta unidade se escreve — o CNPJ com máscara, ou o código gerencial.
+ *
+ * Existe porque toda tela que mostra unidade mostrava `cnpjFormatado` direto, e
+ * desde que o CNPJ deixou de ser obrigatório isso escreveria uma linha com o
+ * nome e nada ao lado — a unidade parecendo cadastro pela metade quando o
+ * cadastro está inteiro. Uma função só, e não a mesma escolha repetida em
+ * quatro lugares, porque a ordem entre as duas identidades é uma decisão do
+ * produto: o CNPJ primeiro, porque é ele que os arquivos trazem.
+ */
+export function identidadeVisivel(u: {
+  cnpjFormatado: string;
+  codigoGerencial: string | null;
+}): string {
+  return u.cnpjFormatado || u.codigoGerencial || "";
 }
 
 /** As unidades canônicas — o cadastro mestre. */
@@ -1441,10 +1476,10 @@ export async function listarUnidadesCanonicas(): Promise<UnidadeCanonica[]> {
   return fetchJson<UnidadeCanonica[]>("/unidades/canonicas");
 }
 
-/** Edita nome e/ou CNPJ de uma unidade já cadastrada. */
+/** Edita nome, CNPJ e/ou código gerencial de uma unidade já cadastrada. */
 export async function editarUnidadeCanonica(
   id: string,
-  pedido: { nome: string; cnpj: string },
+  pedido: { nome: string; cnpj: string; codigoGerencial: string },
 ): Promise<UnidadeCanonica> {
   return fetchJson<UnidadeCanonica>(`/unidades/canonicas/${id}`, {
     method: "PUT",
