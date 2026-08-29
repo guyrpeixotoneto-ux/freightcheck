@@ -302,17 +302,32 @@ export default function Assistente() {
         />
 
         <main className="flex-1 flex flex-col min-w-0 bg-background">
-          <header className="border-b bg-card px-8 py-5 flex items-start justify-between gap-6">
+          {/*
+            NO CELULAR O CABEÇALHO É DUAS LINHAS, E NÃO UMA.
+
+            Numa linha só, o lado direito era `shrink-0` — os três campos do
+            recorte não encolhem nem quebram — e num telefone eles sozinhos são
+            mais largos que a tela. O que sobrava para o título era o resto: uma
+            coluna de poucos pixels, com "Assistente" empurrado para fora, o
+            texto de apoio saindo uma palavra por linha e os campos passando por
+            cima de tudo, porque continuavam desenhando na largura que pediram.
+
+            Empilhado abaixo de `md`, cada um tem a largura da tela: o título lê
+            como título e os campos quebram entre si (o `flex-wrap` do seletor
+            só serve quando existe um limite para quebrar). De `md` para cima
+            nada muda — volta a ser a mesma linha de antes.
+          */}
+          <header className="border-b bg-card px-4 py-4 md:px-8 md:py-5 flex flex-col gap-4 md:flex-row md:items-start md:justify-between md:gap-6">
             <div className="flex items-start gap-3 min-w-0">
               <Sparkles className="w-7 h-7 text-brand shrink-0 mt-0.5" aria-hidden />
               <div className="min-w-0">
-                <h1 className="text-2xl font-bold tracking-tight">Assistente FreightCheck</h1>
+                <h1 className="text-xl md:text-2xl font-bold tracking-tight">Assistente FreightCheck</h1>
                 <p className="text-sm text-muted-foreground max-w-md">
                   Pergunte sobre parâmetros, alterações, impactos e o Book do Operador.
                 </p>
               </div>
             </div>
-            <div className="flex items-start gap-3 shrink-0">
+            <div className="flex items-start gap-3 min-w-0 md:shrink-0">
               <SeletorDeRecorte recorte={recorte} aoTrocar={trocarRecorte} />
               <button
                 type="button"
@@ -331,7 +346,7 @@ export default function Assistente() {
           </header>
 
           <div className="flex-1 overflow-y-auto">
-            <div className="max-w-4xl mx-auto px-8 py-6 space-y-6">
+            <div className="max-w-4xl mx-auto px-4 py-6 md:px-8 space-y-6">
               {/*
                 A saudação é escrita aqui dentro, e por isso ela não prova nada
                 sobre o servidor.
@@ -597,7 +612,7 @@ function Composer({
   }, [valor, campo]);
 
   return (
-    <div className="px-8 pb-6 pt-2">
+    <div className="px-4 pb-6 pt-2 md:px-8">
       <div className="max-w-4xl mx-auto">
         <div
           className={cn(
