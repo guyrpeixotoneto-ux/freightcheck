@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
 import {
   acrescentarRoteiro,
+  aplicarArrumacao,
   arquivarFluxo,
   atualizarConexao,
   atualizarEtapa,
@@ -24,6 +25,7 @@ import {
   lerFluxo,
   ligarSubfluxo,
   listarFluxos,
+  listarResponsaveisEmTexto,
   MODELOS,
   modeloPorSlug,
   modelosJaMapeados,
@@ -588,6 +590,30 @@ router.get("/monitoramento/fluxos", async (req, res): Promise<void> => {
       monitoramento,
     })),
   });
+});
+
+/**
+ * A ARRUMAÇÃO DOS RESPONSÁVEIS EM TEXTO — sob `/arrumacao`, e não sob `/fluxos`.
+ *
+ * O namespace próprio é a mesma decisão de `/monitoramento/fluxos`, e pela
+ * mesma razão: `GET /fluxos/arrumacao` seria um caminho de dois segmentos
+ * disputado por dois padrões — o literal desta rota e o `:id` de
+ * `GET /fluxos/:id` —, e bastaria alguém reordenar as declarações deste arquivo
+ * para a arrumação virar uma leitura de fluxo com `id = "arrumacao"`. Com o
+ * namespace, não existe ordem de declaração capaz de produzir essa colisão.
+ *
+ * As duas rotas são escopadas por empresa como todas as outras, e nenhuma
+ * decisão de domínio mora aqui: quem agrupa, quem sugere e quem recusa é
+ * `lib/fluxos/src/arrumacao.ts`.
+ */
+router.get("/arrumacao/responsaveis", async (req, res): Promise<void> => {
+  const empresaId = await resolverEmpresa(req);
+  res.json({ empresaId, achados: await listarResponsaveisEmTexto(db, empresaId) });
+});
+
+router.post("/arrumacao/responsaveis/aplicar", async (req, res): Promise<void> => {
+  const empresaId = await resolverEmpresa(req);
+  res.json(await aplicarArrumacao(db, empresaId, req.body));
 });
 
 export default router;

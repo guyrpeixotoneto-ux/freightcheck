@@ -42,6 +42,11 @@ import {
   SlugJaUsado,
 } from "../repositorio";
 import { RecusaDeFluxo } from "../validacao";
+import {
+  aplicarArrumacao,
+  listarResponsaveisEmTexto,
+  type ResponsavelEmTexto,
+} from "../arrumacao";
 import { CTE_ATE_RECEBIMENTO, NF_ATE_PAGAMENTO, OPERACAO_EMPURRADA } from "../exemplos";
 import { interpretarRoteiro } from "../roteiro";
 import { modeloPorSlug, modelosJaMapeados, semearModelos } from "../semear";
@@ -1093,6 +1098,217 @@ describe.skipIf(!temBanco)("Fluxos Operacionais sobre o banco", () => {
       const completo = (await lerFluxo(db, empresaA, copia.id))!;
       expect(completo.etapas[0].departamentoId).toBe(departamento);
       expect(completo.etapas[0].area).toBe("Faturamento");
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // A arrumação em lote dos responsáveis em texto
+  // -------------------------------------------------------------------------
+
+  /**
+   * O que a arrumação promete, e o que ela se recusa a fazer.
+   *
+   * Ela existe porque a `0079` não converteu nada: `Fat.` não é automaticamente
+   * `Faturamento`, e o palpite ficou de fora do banco de propósito. O que estes
+   * casos fixam é que a decisão continua sendo de gente — a máquina só agrupa,
+   * sugere quando o nome é exatamente igual, e aplica o que foi escolhido.
+   *
+   * A prova que não pode faltar é a última: **a empresa A não arruma a B**. Uma
+   * escrita em lote é o lugar mais barato para um vazamento de escopo passar
+   * despercebido, porque ninguém conta as linhas alteradas do outro lado.
+   */
+  describe("arrumar os responsáveis que ainda são texto", () => {
+    let departamento: string;
+    let cargoDaCasa: string;
+
+    beforeAll(async () => {
+      const [d] = await db
+        .insert(departamentoTable)
+        .values({ nome: "Logística", nomeCanonico: "LOGISTICA" })
+        .returning();
+      const [c] = await db
+        .insert(cargoTable)
+        .values({ nome: "Conferente", nomeCanonico: "CONFERENTE" })
+        .returning();
+      departamento = d.id;
+      cargoDaCasa = c.id;
+    });
+
+    /** Um fluxo só desta bateria, para as contagens não somarem as dos outros. */
+    async function fluxoComTextos(empresa: string, nome: string) {
+      const fluxo = await criarFluxo(db, empresa, { nome, categoria: "Arrumação" }, AUTOR);
+      return fluxo;
+    }
+
+    function achar(
+      achados: ResponsavelEmTexto[],
+      escopo: string,
+      canonico: string,
+    ) {
+      return achados.find((a) => a.escopo === escopo && a.textoCanonico === canonico);
+    }
+
+    it("agrupa as grafias pelo nome, conta as etapas e sugere o nome igual", async () => {
+      const fluxo = await fluxoComTextos(empresaA, "Grafias");
+      await criarEtapa(db, empresaA, fluxo.id, { nome: "Receber", area: "Logistica" });
+      await criarEtapa(db, empresaA, fluxo.id, { nome: "Conferir", area: "LOGÍSTICA" });
+      await criarEtapa(db, empresaA, fluxo.id, { nome: "Guardar", area: "  logística  " });
+
+      const achados = await listarResponsaveisEmTexto(db, empresaA);
+      const grupo = achar(achados, "AREA", "LOGISTICA")!;
+
+      /* Três grafias, um grupo — que é exatamente o que o fluxograma via como três raias. */
+      expect(grupo.ocorrencias).toBe(3);
+      expect(grupo.grafias).toEqual(["Logistica", "logística", "LOGÍSTICA"]);
+      expect(grupo.sugestao).toEqual({
+        tipo: "DEPARTAMENTO",
+        id: departamento,
+        nome: "Logística",
+      });
+    });
+
+    it("não expande abreviação: o que não casa exato aparece sem sugestão", async () => {
+      const fluxo = await fluxoComTextos(empresaA, "Abreviação");
+      await criarEtapa(db, empresaA, fluxo.id, { nome: "Separar", area: "Log." });
+
+      const achados = await listarResponsaveisEmTexto(db, empresaA);
+      expect(achar(achados, "AREA", "LOG.")!.sugestao).toBeNull();
+    });
+
+    it("aplicar liga todas as etapas que dizem a mesma coisa, de uma vez", async () => {
+      const fluxo = await fluxoComTextos(empresaA, "Aplicar");
+      const uma = await criarEtapa(db, empresaA, fluxo.id, { nome: "A", area: "Expedicao" });
+      const outra = await criarEtapa(db, empresaA, fluxo.id, { nome: "B", area: "EXPEDIÇÃO" });
+
+      const [expedicao] = await db
+        .insert(departamentoTable)
+        .values({ nome: "Expedição", nomeCanonico: "EXPEDICAO" })
+        .returning();
+
+      const feito = await aplicarArrumacao(db, empresaA, {
+        escopo: "AREA",
+        textoCanonico: "EXPEDICAO",
+        departamentoId: expedicao.id,
+      });
+      expect(feito.alteradas).toBe(2);
+
+      /* E a leitura passa a projetar a grafia do cadastro nas duas. */
+      const completo = (await lerFluxo(db, empresaA, fluxo.id))!;
+      const areas = completo.etapas
+        .filter((e) => [uma.id, outra.id].includes(e.id))
+        .map((e) => e.area);
+      expect(areas).toEqual(["Expedição", "Expedição"]);
+    });
+
+    it("rodar de novo não mexe em mais nada — e não desfaz escolha individual", async () => {
+      const fluxo = await fluxoComTextos(empresaA, "Repetir");
+      await criarEtapa(db, empresaA, fluxo.id, { nome: "A", responsavel: "Conferente" });
+      const jaEscolhida = await criarEtapa(db, empresaA, fluxo.id, {
+        nome: "B",
+        responsavel: "Conferente",
+        cargoId: cargoDaCasa,
+      });
+
+      /* A que já tinha vínculo nem aparece na contagem do que há para arrumar. */
+      const antes = await listarResponsaveisEmTexto(db, empresaA);
+      expect(achar(antes, "RESPONSAVEL", "CONFERENTE")!.ocorrencias).toBe(1);
+
+      const primeira = await aplicarArrumacao(db, empresaA, {
+        escopo: "RESPONSAVEL",
+        textoCanonico: "CONFERENTE",
+        cargoId: cargoDaCasa,
+      });
+      expect(primeira.alteradas).toBe(1);
+
+      const segunda = await aplicarArrumacao(db, empresaA, {
+        escopo: "RESPONSAVEL",
+        textoCanonico: "CONFERENTE",
+        cargoId: cargoDaCasa,
+      });
+      expect(segunda.alteradas).toBe(0);
+
+      const completo = (await lerFluxo(db, empresaA, fluxo.id))!;
+      expect(completo.etapas.find((e) => e.id === jaEscolhida.id)!.cargoId).toBe(cargoDaCasa);
+    });
+
+    it("a lista de responsáveis da etapa também se arruma, e o nome passa a vir do cadastro", async () => {
+      const fluxo = await fluxoComTextos(empresaA, "Itens");
+      const etapa = await criarEtapa(db, empresaA, fluxo.id, { nome: "Conferir" });
+      await substituirItens(db, empresaA, fluxo.id, etapa.id, "RESPONSAVEL", [
+        { nome: "conferente" },
+      ]);
+
+      const feito = await aplicarArrumacao(db, empresaA, {
+        escopo: "ITEM",
+        textoCanonico: "CONFERENTE",
+        cargoId: cargoDaCasa,
+      });
+      expect(feito.alteradas).toBe(1);
+
+      const completo = (await lerFluxo(db, empresaA, fluxo.id))!;
+      const itens = completo.etapas.find((e) => e.id === etapa.id)!.itens;
+      expect(itens[0].nome).toBe("Conferente");
+      expect(itens[0].cargoId).toBe(cargoDaCasa);
+    });
+
+    it("a área é departamento, e o responsável não é — cada escopo recusa o que não é dele", async () => {
+      await expect(
+        aplicarArrumacao(db, empresaA, {
+          escopo: "AREA",
+          textoCanonico: "LOGISTICA",
+          cargoId: cargoDaCasa,
+        }),
+      ).rejects.toBeInstanceOf(RecusaDeFluxo);
+
+      await expect(
+        aplicarArrumacao(db, empresaA, {
+          escopo: "RESPONSAVEL",
+          textoCanonico: "CONFERENTE",
+          departamentoId: departamento,
+        }),
+      ).rejects.toBeInstanceOf(RecusaDeFluxo);
+    });
+
+    it("dois vínculos para o mesmo texto são recusados — é uma pergunta, não duas", async () => {
+      await expect(
+        aplicarArrumacao(db, empresaA, {
+          escopo: "ITEM",
+          textoCanonico: "CONFERENTE",
+          cargoId: cargoDaCasa,
+          departamentoId: departamento,
+        }),
+      ).rejects.toBeInstanceOf(RecusaDeFluxo);
+    });
+
+    /*
+      A prova de escopo. Uma escrita em lote é onde um vazamento passa
+      despercebido, porque ninguém conta as linhas alteradas do outro lado.
+    */
+    it("a empresa A não arruma o que é da B, nem enxerga o texto dela", async () => {
+      const daB = await fluxoComTextos(empresaB, "Da outra empresa");
+      const etapaDaB = await criarEtapa(db, empresaB, daB.id, {
+        nome: "Só dela",
+        area: "Manutencao",
+      });
+      const [manutencao] = await db
+        .insert(departamentoTable)
+        .values({ nome: "Manutenção", nomeCanonico: "MANUTENCAO" })
+        .returning();
+
+      /* O texto da B não aparece na leitura da A. */
+      const daA = await listarResponsaveisEmTexto(db, empresaA);
+      expect(achar(daA, "AREA", "MANUTENCAO")).toBeUndefined();
+
+      /* E aplicar pela A não alcança nenhuma linha da B. */
+      const feito = await aplicarArrumacao(db, empresaA, {
+        escopo: "AREA",
+        textoCanonico: "MANUTENCAO",
+        departamentoId: manutencao.id,
+      });
+      expect(feito.alteradas).toBe(0);
+
+      const completo = (await lerFluxo(db, empresaB, daB.id))!;
+      expect(completo.etapas.find((e) => e.id === etapaDaB.id)!.departamentoId).toBeNull();
     });
   });
 });
