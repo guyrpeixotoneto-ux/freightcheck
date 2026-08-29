@@ -564,6 +564,16 @@ function Composer({
 }) {
   const ditado = useDitado({ valor, aoTexto: onChange });
 
+  /*
+    Enviar fecha o microfone antes de a pergunta subir. Ditar e mandar é um
+    gesto só: quem clica em enviar terminou de falar, e um microfone que
+    continua aberto escreveria a frase recém-enviada de volta no campo vazio.
+  */
+  const enviar = () => {
+    ditado.encerrar();
+    onEnviar();
+  };
+
   useEffect(() => {
     const el = campo.current;
     if (!el) return;
@@ -587,7 +597,7 @@ function Composer({
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
-                onEnviar();
+                enviar();
               }
             }}
             rows={1}
@@ -645,7 +655,7 @@ function Composer({
             )}
             <button
               type="button"
-              onClick={onEnviar}
+              onClick={enviar}
               disabled={ocupado || valor.trim().length === 0}
               aria-label="Enviar"
               className="w-10 h-10 shrink-0 rounded-lg bg-brand text-brand-foreground flex items-center justify-center hover:brightness-95 transition-[filter] disabled:opacity-40 disabled:cursor-not-allowed"
