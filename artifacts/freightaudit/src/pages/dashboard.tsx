@@ -60,6 +60,7 @@ import {
 import { juntarPrioridades } from "@/lib/cockpit";
 import { lerRecorte, linkDeAlteracoes, nomeDaUnidade, type Recorte } from "@/lib/recorte";
 import { DetalheDaFamilia } from "@/components/inicio/detalhe-da-familia";
+import type { UnidadeDoDrill } from "@/lib/drill-da-familia";
 import { unidadesPorImpacto } from "@/components/inicio/visao-geral-consolidada";
 import { Sparkline } from "@/components/dashboard/sparkline";
 import { AnelDeCobertura } from "@/components/dashboard/anel-de-cobertura";
@@ -544,6 +545,24 @@ function ConteudoDaUnidade({
       ? { ganhos: pontos.map((p) => p.ganhos), perdas: pontos.map((p) => p.perdas) }
       : null;
 
+  /*
+    A unidade aberta, na mesma forma que a Visão Geral usa para cada uma das
+    suas — uma lista de um item.
+
+    A gaveta não precisa saber em qual das duas leituras está: o degrau por
+    unidade mostra a única que existe aqui, e o degrau por placa pergunta a ela
+    com o `scopeHash` dela, que é o mesmo caminho da Visão Geral. Escrever dois
+    caminhos para o mesmo clique é como as duas leituras começariam a divergir.
+  */
+  const unidades: UnidadeDoDrill[] = [
+    {
+      chave: view.context.scopeHash,
+      label: nomeDaUnidade(view.context),
+      contexts: [{ scopeHash: view.context.scopeHash, channel: view.context.channel }],
+      summary: view.summary,
+    },
+  ];
+
   return (
     <>
       <FaixaSlim
@@ -566,6 +585,7 @@ function ConteudoDaUnidade({
         periodLabel={view.periodLabel}
         vigenciaAtiva={view.period}
         recorte={recorte}
+        unidades={unidades}
         familiaAberta={familiaAberta}
         onAbrirFamilia={onAbrirFamilia}
         onFecharFamilia={onFecharFamilia}
@@ -610,6 +630,7 @@ function ImpactoEPodio({
   periodLabel,
   recorte,
   vigenciaAtiva,
+  unidades,
   familiaAberta,
   onAbrirFamilia,
   onFecharFamilia,
@@ -632,6 +653,14 @@ function ImpactoEPodio({
      separada de `period` porque a Visão Geral tem competência aberta (e por
      isso barra acesa e clique) mesmo sem uma unidade a quem abrir a gaveta. */
   vigenciaAtiva: string | null;
+  /**
+   * As unidades por trás destes números — uma dentro de uma unidade, todas as
+   * consolidadas em Visão Geral.
+   *
+   * É o que faz cada parâmetro da gaveta abrir por unidade e, dentro dela,
+   * placa a placa. Vazia, a gaveta continua sendo a mesma leitura de antes.
+   */
+  unidades: UnidadeDoDrill[];
   familiaAberta: string | null;
   onAbrirFamilia: (code: string) => void;
   onFecharFamilia: () => void;
@@ -724,6 +753,8 @@ function ImpactoEPodio({
         period={period}
         periodLabel={periodLabel}
         recorte={recorte}
+        unidades={unidades}
+        vigencia={vigenciaAtiva}
         onFechar={onFecharFamilia}
       />
     </div>
@@ -819,6 +850,20 @@ function ConteudoGeral({
   const dominante = principal?.periodicity ?? null;
   const { totals } = overview.consolidado;
 
+  /*
+    Quem entrou na soma — e é por isso que a gaveta consegue abrir um parâmetro
+    por unidade sem pedir nada ao servidor: cada unidade incluída já viaja com o
+    seu próprio resumo executivo dentro da mesma resposta que desenhou o pódio.
+    Um segundo pedido seriam duas vigências possíveis, e é assim que o número da
+    gaveta deixaria de bater com o de cima.
+  */
+  const unidades: UnidadeDoDrill[] = overview.unitsIncluded.map((u) => ({
+    chave: u.unidade,
+    label: u.label,
+    contexts: u.contexts.map((c) => ({ scopeHash: c.scopeHash, channel: c.channel })),
+    summary: u.summary,
+  }));
+
   // A mesma disciplina do modo Unidade: a sparkline só acompanha o número
   // grande quando as duas descrevem a mesma periodicidade.
   const sparklines =
@@ -870,6 +915,7 @@ function ConteudoGeral({
           que acende a barra e recebe o clique.
         */
         vigenciaAtiva={overview.period}
+        unidades={unidades}
         familiaAberta={familiaAberta}
         onAbrirFamilia={onAbrirFamilia}
         onFecharFamilia={onFecharFamilia}
@@ -906,10 +952,11 @@ function ConteudoGeral({
       />
 
       <p className="text-xs text-muted-foreground">
-        A gaveta de detalhe por parâmetro abre dentro de cada unidade — a soma Geral não mescla a
-        árvore de parâmetros entre elas. Os números por periodicidade dos cartões continuam sendo
-        soma de unidades; a contagem de veículos da faixa do topo diz, ali mesmo, se é união de
-        ativos distintos ou soma.
+        No pódio, cada parâmetro abre por unidade e, dentro dela, placa a placa com o antes e o
+        depois — a soma Geral não mescla a árvore de parâmetros entre unidades, então esse degrau
+        é lido unidade por unidade, no recorte de cada uma. Os números por periodicidade dos
+        cartões continuam sendo soma de unidades; a contagem de veículos da faixa do topo diz, ali
+        mesmo, se é união de ativos distintos ou soma.
       </p>
     </>
   );
