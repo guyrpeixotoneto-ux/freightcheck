@@ -1,4 +1,10 @@
-import { randomBytes, createHash, scrypt, timingSafeEqual } from "node:crypto";
+import {
+  createHash,
+  randomBytes,
+  randomInt,
+  scrypt,
+  timingSafeEqual,
+} from "node:crypto";
 import { promisify } from "node:util";
 
 /**
@@ -140,6 +146,91 @@ export function describePasswordProblem(password: unknown): string | null {
     return "A senha passa de 200 caracteres.";
   }
   return null;
+}
+
+/**
+ * O telefone é opcional, e o que se guarda é o que a pessoa ditou.
+ *
+ * A validação é de tamanho e de forma grosseira, nada além: `(11) 99999-9999`,
+ * `+55 11 99999-9999` e um ramal de quatro dígitos são todos telefone, e uma
+ * regra que decidisse entre eles recusaria o número de alguém que existe.
+ */
+export function describeTelefoneProblem(telefone: unknown): string | null {
+  if (telefone === undefined || telefone === null || telefone === "") {
+    return null;
+  }
+  if (typeof telefone !== "string") return "Telefone inválido.";
+  const limpo = telefone.trim();
+  if (limpo === "") return null;
+  if (limpo.length > 40) return "Telefone longo demais.";
+  if (!/[0-9]/.test(limpo)) return "O telefone precisa ter algum número.";
+  return null;
+}
+
+/**
+ * O alfabeto da senha gerada, sem os caracteres que se confundem ao ditar.
+ *
+ * Fora `0`/`O`, `1`/`l`/`I`: a senha inicial existe para ser lida em voz alta
+ * ou colada num chat, e um caractere ambíguo transforma "não consigo entrar"
+ * numa conversa de dez minutos. O que se perde em entropia por caractere se
+ * recupera no comprimento.
+ */
+const ALFABETO_DA_SENHA =
+  "abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
+/** Dezesseis caracteres deste alfabeto passam de 90 bits — mais do que qualquer
+ * senha que uma pessoa escolheria, e ainda ditável. */
+const TAMANHO_DA_SENHA = 16;
+
+/**
+ * A senha inicial que o servidor sorteia quando quem cria não escolhe uma.
+ *
+ * `randomInt` e não `Math.random()`: a senha é credencial de acesso a um
+ * produto de auditoria, e um gerador previsível daria a quem soubesse o
+ * instante da criação um palpite bom demais.
+ *
+ * Ela volta **uma vez** na resposta da criação e nunca mais: o banco guarda só
+ * o hash, e a tela avisa que aquela é a única vez que o valor aparece.
+ */
+export function gerarSenhaInicial(): string {
+  let senha = "";
+  for (let i = 0; i < TAMANHO_DA_SENHA; i += 1) {
+    senha += ALFABETO_DA_SENHA[randomInt(ALFABETO_DA_SENHA.length)];
+  }
+  return senha;
+}
+
+/**
+ * O pedaço local de um login gerado a partir do nome: `João da Silva` vira
+ * `joao.silva`.
+ *
+ * Acento sai, caixa cai, o que não é letra ou número vira separador, e os
+ * separadores repetidos colapsam num ponto só. Devolve `""` quando não sobra
+ * nada — um nome que só tenha símbolos —, e quem chama trata isso como "não dá
+ * para gerar, peça o e-mail".
+ */
+export function apelidoDoNome(nome: string): string {
+  return nome
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ".")
+    .replace(/^\.+|\.+$/g, "")
+    .slice(0, 60);
+}
+
+/**
+ * O domínio da casa, lido do e-mail de quem está criando a conta.
+ *
+ * Não há cadastro de domínio neste produto, e inventar um campo de
+ * configuração para uma informação que já está na tela seria pedir duas vezes
+ * o mesmo dado. Quem cria a conta entrou com o e-mail da casa; é dele que o
+ * login gerado herda o domínio, e a tela mostra o endereço antes de criar para
+ * que ninguém descubra depois.
+ */
+export function dominioDoEmail(email: string): string | null {
+  const parte = normalizeEmail(email).split("@")[1];
+  return parte !== undefined && parte !== "" ? parte : null;
 }
 
 export function describeNameProblem(name: unknown): string | null {

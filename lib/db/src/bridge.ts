@@ -238,6 +238,28 @@ export const ALLOWLIST: {
     Publishing, e a integridade que ela daria já está garantida na leitura da
     sessão (ver `resolveSession`, que só honra a visualização de conta ativa).
   */
+  /*
+    As duas da `0077` — o telefone da pessoa e o gestor a quem ela reporta.
+
+    Aditivas e nulas por definição: `NULL` no telefone é quem não deu o número,
+    e `NULL` no gestor é quem está no topo — nenhuma das duas é ausência de
+    dado a corrigir. Entram aqui pela forma, como as da `0076`: nuláveis, sem
+    default, em tabela que sobrevive ao `down`.
+
+    E é pela mesma razão daquela que `gestor_id` não tem chave estrangeira para
+    `app_user`: uma restrição nova em `app_user` apareceria na proposta do
+    Publishing. A integridade está na rota, que confere o gestor antes de
+    gravar, e na leitura, que junta à esquerda. Sem índice pelo mesmo critério
+    dos `INDICES_REMOVIDOS` — um índice novo também entraria na proposta, e uma
+    lista de contas de dezenas de linhas não o pede.
+  */
+  { tabela: "app_user", coluna: "telefone", tipo: "text", aindaPodeNaoExistir: true },
+  {
+    tabela: "app_user",
+    coluna: "gestor_id",
+    tipo: "uuid",
+    aindaPodeNaoExistir: true,
+  },
   {
     tabela: "user_session",
     coluna: "impersonated_user_id",

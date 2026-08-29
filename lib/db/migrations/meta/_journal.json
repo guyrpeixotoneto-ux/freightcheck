@@ -540,6 +540,13 @@
       "when": 1788500000000,
       "tag": "0076_visualizar_como",
       "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1788600000000,
+      "tag": "0077_telefone_e_gestor",
+      "breakpoints": true
     }
   ]
 }

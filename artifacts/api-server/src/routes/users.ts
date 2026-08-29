@@ -4,6 +4,9 @@ import {
   describeEmailProblem,
   describeNameProblem,
   describePasswordProblem,
+  describeTelefoneProblem,
+  dominioDoEmail,
+  gerarSenhaInicial,
   whyCannotDisable,
 } from "../lib/auth";
 import {
@@ -13,6 +16,7 @@ import {
   countActiveUsers,
   createUser,
   findUserById,
+  gerarEmailDisponivel,
   listUsers,
   setUserDisabled,
   setUserPassword,
@@ -92,6 +96,20 @@ async function lerLotacao(
   return { cargoId, unidadeId };
 }
 
+/**
+ * Lê o `gestorId` do corpo. `undefined` é a recusa; `null` é "ninguém (topo)".
+ *
+ * Distingue os dois porque eles são coisas diferentes: um identificador
+ * malformado é erro de quem chamou, e a ausência é uma resposta legítima —
+ * alguém tem que estar no topo do organograma.
+ */
+function lerGestor(corpo: Record<string, unknown>): string | null | undefined {
+  if (!("gestorId" in corpo)) return null;
+  const valor = corpo.gestorId;
+  if (valor === null || valor === "") return null;
+  return typeof valor === "string" && UUID.test(valor) ? valor : undefined;
+}
+
 router.get("/users", async (req, res): Promise<void> => {
   res.json(await listUsers(db));
 });
@@ -103,40 +121,154 @@ router.post("/users", async (req, res): Promise<void> => {
     return;
   }
 
-  const { name, email, password, role } = req.body ?? {};
-  const lotacao = await lerLotacao(req.body ?? {});
+  const corpo = (req.body ?? {}) as Record<string, unknown>;
+  const { role } = corpo;
+  const lotacao = await lerLotacao(corpo);
   if (typeof lotacao === "string") {
     res.status(400).json({ error: lotacao });
     return;
   }
 
-  const problem =
-    describeNameProblem(name) ??
-    describeEmailProblem(email) ??
-    describePasswordProblem(password);
-  if (problem) {
-    res.status(400).json({ error: problem });
+  /*
+    Nome e sobrenome chegam separados da tela e são gravados juntos: o que o
+    produto guarda de uma pessoa é o nome com que ela assina, e `actor` é esse
+    nome inteiro. Separá-los no banco criaria a pergunta "e quem tem dois
+    sobrenomes?" para não ganhar nada — a única coisa que a separação serve é
+    montar o login, e isso acontece aqui, antes de gravar.
+  */
+  const nome = typeof corpo.name === "string" ? corpo.name.trim() : "";
+  const sobrenome =
+    typeof corpo.sobrenome === "string" ? corpo.sobrenome.trim() : "";
+  const nomeCompleto = [nome, sobrenome].filter((p) => p !== "").join(" ");
+
+  const problemaDoNome = describeNameProblem(nomeCompleto);
+  if (problemaDoNome) {
+    res.status(400).json({ error: problemaDoNome });
     return;
   }
+
+  const problemaDoTelefone = describeTelefoneProblem(corpo.telefone);
+  if (problemaDoTelefone) {
+    res.status(400).json({ error: problemaDoTelefone });
+    return;
+  }
+
+  /*
+    O gestor é conferido aqui porque não há chave estrangeira para conferi-lo
+    no banco (ver a `0077`), e porque a recusa precisa chegar à tela como
+    frase. Conta desativada não entra: o organograma que aponta para quem já
+    não tem acesso é o organograma que ninguém atualizou.
+  */
+  const gestorId = lerGestor(corpo);
+  if (gestorId === undefined) {
+    res.status(400).json({ error: "Identificador de gestor inválido." });
+    return;
+  }
+  if (gestorId !== null) {
+    const gestor = await findUserById(db, gestorId);
+    if (!gestor || gestor.disabledAt !== null) {
+      res.status(400).json({
+        error:
+          "A pessoa escolhida em “Reporta a” não tem conta ativa. Escolha " +
+          "outra, ou deixe em branco.",
+      });
+      return;
+    }
+  }
+
   if (role !== undefined && !PAPEIS.has(role as string)) {
     res.status(400).json({ error: "Papel precisa ser ADMIN ou OPERADOR." });
     return;
   }
 
+  /*
+    E-mail em branco é pedido para o servidor gerar um, e não erro: quem dá
+    acesso a um motorista ou a um conferente muitas vezes não tem endereço para
+    dar, e exigir um levava a `nome@empresa.com` inventado na hora — um login
+    que ninguém confere e que colide no segundo homônimo. O domínio é o de quem
+    está criando a conta, que é o domínio da casa (ver `dominioDoEmail`).
+  */
+  let email: string;
+  if (corpo.email === undefined || corpo.email === null || corpo.email === "") {
+    const dominio = dominioDoEmail(req.user!.email);
+    const gerado =
+      dominio === null
+        ? null
+        : await gerarEmailDisponivel(db, nomeCompleto, dominio);
+    if (gerado === null) {
+      res.status(400).json({
+        error:
+          "Não deu para gerar um e-mail a partir deste nome. Informe o " +
+          "e-mail da pessoa.",
+      });
+      return;
+    }
+    email = gerado;
+  } else {
+    const problemaDoEmail = describeEmailProblem(corpo.email);
+    if (problemaDoEmail) {
+      res.status(400).json({ error: problemaDoEmail });
+      return;
+    }
+    email = corpo.email as string;
+  }
+
+  /*
+    Senha em branco é o caminho normal desta tela — o botão diz "criar usuário
+    e gerar credenciais". Quando quem cria escolhe uma, ela é conferida pela
+    mesma régua de sempre; quando não, o servidor sorteia (`gerarSenhaInicial`)
+    e devolve o valor **uma única vez**, nesta resposta. O banco guarda só o
+    hash, e não existe rota que devolva a senha depois: perdida a resposta,
+    o caminho é redefinir.
+  */
+  const senhaEscolhida =
+    corpo.password === undefined ||
+    corpo.password === null ||
+    corpo.password === ""
+      ? null
+      : corpo.password;
+  if (senhaEscolhida !== null) {
+    const problemaDaSenha = describePasswordProblem(senhaEscolhida);
+    if (problemaDaSenha) {
+      res.status(400).json({ error: problemaDaSenha });
+      return;
+    }
+  }
+  const senha = (senhaEscolhida as string | null) ?? gerarSenhaInicial();
+
+  const telefone =
+    typeof corpo.telefone === "string" && corpo.telefone.trim() !== ""
+      ? corpo.telefone.trim()
+      : null;
+
   const user = await createUser(db, {
-    name: name as string,
-    email: email as string,
-    password: password as string,
+    name: nomeCompleto,
+    email,
+    password: senha,
     ...(role !== undefined ? { role: role as string } : {}),
     createdBy: req.user!.email,
     cargoId: lotacao.cargoId,
     unidadeId: lotacao.unidadeId,
+    telefone,
+    gestorId,
   });
   req.log.info(
     { email: user.email, by: req.user!.email },
     "Conta criada pela interface",
   );
-  res.status(201).json(user);
+  /*
+    As credenciais saem no corpo, e só aqui. `senhaGerada` diz se o valor foi
+    sorteado ou digitado por quem criou — a tela usa isso para decidir entre
+    "guarde esta senha, ela não aparece de novo" e o silêncio de quem já sabe
+    a senha que escolheu. Nada disto vai para o log: `req.log` acima carrega
+    e-mail e autor, nunca a senha.
+  */
+  res.status(201).json({
+    ...user,
+    senhaInicial: senha,
+    senhaGerada: senhaEscolhida === null,
+    emailGerado: corpo.email === undefined || corpo.email === null || corpo.email === "",
+  });
 });
 
 /**

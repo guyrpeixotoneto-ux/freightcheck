@@ -108,6 +108,35 @@ export const appUserTable = pgTable(
     unidadeId: uuid("unidade_id").references(() => unidadeTable.id, {
       onDelete: "restrict",
     }),
+    /**
+     * O telefone da pessoa, como ela o ditou.
+     *
+     * Texto, sem máscara e sem unicidade: `(11) 99999-9999`, `+55 11 …` e um
+     * ramal de quatro dígitos são todos telefone, e uma validação aqui só
+     * conseguiria recusar o que é legítimo em algum deles. Duas pessoas
+     * dividirem um ramal também não é defeito, então não há índice único.
+     *
+     * Nulo é o estado de toda conta anterior a esta coluna, e de quem não quis
+     * dar o número.
+     */
+    telefone: text("telefone"),
+    /**
+     * A quem esta pessoa reporta — o organograma, e nada além dele.
+     *
+     * Não é cargo (`cargoId`, do cadastro da casa) e não é acesso (`role`, e a
+     * tabela de permissões): é a linha da hierarquia, a que responde "quem
+     * enxerga esta pessoa na Gestão de Equipe". Nulo é `topo`, uma resposta
+     * legítima — e não "ainda não se sabe".
+     *
+     * **Sem chave estrangeira, de propósito** — o mesmo motivo de
+     * `impersonatedUserId` em `userSessionTable`: `app_user` sobrevive ao
+     * `down` do bridge, e uma restrição nova nela entraria na proposta do
+     * Publishing. A integridade mora onde ela pode explicar-se: a rota confere
+     * que o gestor existe e está ativo antes de gravar, e a lista de contas
+     * junta à esquerda — um `gestor_id` órfão vira "sem gestor" na tela, que é
+     * o desfecho que um `ON DELETE SET NULL` daria.
+     */
+    gestorId: uuid("gestor_id"),
   },
   (t) => [
     uniqueIndex("app_user_email_key").on(t.email),

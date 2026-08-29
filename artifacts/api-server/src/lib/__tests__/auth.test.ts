@@ -5,7 +5,11 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  apelidoDoNome,
   describeEmailProblem,
+  describeTelefoneProblem,
+  dominioDoEmail,
+  gerarSenhaInicial,
   describePasswordProblem,
   hashPassword,
   hashSessionToken,
@@ -161,5 +165,68 @@ describe("desativar conta", () => {
     expect(whyCannotDisable({ ...outra, activeUsers: 1 })).toMatch(
       /última conta ativa/i,
     );
+  });
+});
+
+/**
+ * As credenciais que o servidor gera quando quem cria a conta não as escolhe.
+ *
+ * O que estes testes protegem é o que a tela promete: um login previsível a
+ * partir do nome, e uma senha que ninguém consegue adivinhar sabendo a hora em
+ * que a conta nasceu.
+ */
+describe("credenciais geradas", () => {
+  it("monta o apelido do nome sem acento, sem caixa e com ponto", () => {
+    expect(apelidoDoNome("João da Silva")).toBe("joao.da.silva");
+    expect(apelidoDoNome("  Ana   Souza ")).toBe("ana.souza");
+    expect(apelidoDoNome("Ítalo Gonçalves-Reis")).toBe("italo.goncalves.reis");
+  });
+
+  it("devolve vazio quando não sobra nada de que fazer um login", () => {
+    // Quem chama trata isso pedindo o e-mail, em vez de criar `@empresa.com`
+    // sem parte local — que é um endereço que ninguém consegue usar.
+    expect(apelidoDoNome("???")).toBe("");
+    expect(apelidoDoNome("   ")).toBe("");
+  });
+
+  it("tira o domínio da casa do e-mail de quem cria a conta", () => {
+    expect(dominioDoEmail("Guy@GrupoHorizonte.com.br")).toBe(
+      "grupohorizonte.com.br",
+    );
+    expect(dominioDoEmail("sem-arroba")).toBeNull();
+  });
+
+  it("sorteia senhas distintas, longas e sem caractere ambíguo", () => {
+    const senhas = new Set(Array.from({ length: 50 }, () => gerarSenhaInicial()));
+
+    // Cinquenta sorteios iguais seriam um gerador quebrado, e é o defeito que
+    // passa despercebido: a senha *parece* aleatória em qualquer amostra de um.
+    expect(senhas.size).toBe(50);
+    for (const senha of senhas) {
+      expect(senha).toHaveLength(16);
+      // `0`, `O`, `1`, `l` e `I` ficam de fora: a senha é ditada por telefone.
+      expect(senha).toMatch(/^[a-km-zA-HJ-NP-Z2-9]+$/);
+      expect(describePasswordProblem(senha)).toBeNull();
+    }
+  });
+});
+
+describe("telefone", () => {
+  it("aceita a ausência: o campo é opcional por desenho", () => {
+    expect(describeTelefoneProblem(undefined)).toBeNull();
+    expect(describeTelefoneProblem(null)).toBeNull();
+    expect(describeTelefoneProblem("")).toBeNull();
+    expect(describeTelefoneProblem("   ")).toBeNull();
+  });
+
+  it("aceita as formas que as pessoas ditam, sem escolher uma", () => {
+    expect(describeTelefoneProblem("(11) 99999-9999")).toBeNull();
+    expect(describeTelefoneProblem("+55 11 99999-9999")).toBeNull();
+    expect(describeTelefoneProblem("ramal 4021")).toBeNull();
+  });
+
+  it("recusa o que não tem número nenhum e o que não acaba mais", () => {
+    expect(describeTelefoneProblem("liga no zap")).toMatch(/número/i);
+    expect(describeTelefoneProblem("9".repeat(41))).toMatch(/longo/i);
   });
 });

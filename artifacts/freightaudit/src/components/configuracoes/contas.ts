@@ -38,6 +38,14 @@ export interface ManagedUser {
   cargoNome: string | null;
   unidadeId: string | null;
   unidadeNome: string | null;
+  /** O telefone, como foi ditado. `null` é quem não deu o número. */
+  telefone: string | null;
+  /**
+   * A quem a pessoa reporta — o organograma, com `id` e nome pela mesma razão
+   * do cargo. `null` nos dois é o topo, que é resposta e não lacuna.
+   */
+  gestorId: string | null;
+  gestorNome: string | null;
 }
 
 export const CHAVE_DAS_CONTAS = ["users"] as const;
