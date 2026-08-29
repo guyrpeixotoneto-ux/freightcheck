@@ -448,6 +448,15 @@ export function planoDeImportacao(
       objetivo: etapa.objetivo ?? "",
       regras: etapa.regras ?? "",
       informacoesConsultadas: etapa.informacoesConsultadas ?? "",
+      /*
+        Falhas, gargalos e informações não são campos da planilha — e é por isso
+        mesmo que precisam estar aqui. A rota de etapa é substituição: o que
+        não vai no corpo volta nulo, e uma importação de "Sistema principal"
+        apagaria o levantamento de falhas que ninguém mandou apagar. É a mesma
+        razão pela qual `observacoes`, que a tela não mostra, viaja junto.
+      */
+      falhas: etapa.falhas ?? "",
+      gargalos: etapa.gargalos ?? "",
       informacoes: etapa.informacoes ?? "",
       observacoes: etapa.observacoes ?? "",
       chaveMonitoramento: etapa.chaveMonitoramento ?? "",

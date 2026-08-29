@@ -102,6 +102,9 @@ function etapa(parcial: Partial<Etapa> & { id: string; nome: string }): Etapa {
     sistemaPrincipal: null,
     regras: null,
     informacoesConsultadas: null,
+    falhas: null,
+    gargalos: null,
+    informacoes: null,
     observacoes: null,
     status: "ATIVO",
     posX: 10,
@@ -408,6 +411,33 @@ describe("as regras que impedem apagar sem ordem", () => {
 
     expect(plano.naoReconhecidas).toEqual(["01 Origem da tarifa (cópia)"]);
     expect(plano.avisos.join(" ")).toContain("Duas abas apontam para a etapa");
+  });
+
+  it("o corpo devolve o que a planilha não edita — a rota é substituição", async () => {
+    /*
+      Falhas, gargalos, informações e o legado `observacoes` não têm linha na
+      planilha, e a rota de etapa troca a linha inteira: um corpo sem eles é uma
+      importação de "Sistema principal" que apaga o levantamento de falhas.
+    */
+    const levantada = etapa({
+      id: "e1",
+      nome: "Origem da tarifa",
+      falhas: "A tarifa vem sem tabela.",
+      gargalos: "A conferência espera o e-mail da Operação.",
+      informacoes: "A VALIDAR: quais tabelas originam a tarifa.",
+      observacoes: "O texto de antes do recorte.",
+    });
+    const fluxo: FluxoCompleto = { ...FLUXO, etapas: [levantada] };
+    const pasta = await idaEVolta(fluxo);
+    preencher(aba(pasta, "01"), "Sistema principal", "SAP");
+
+    const { corpo } = planoDeImportacao(pasta, fluxo, CATALOGO).mudancas[0];
+
+    expect(corpo.sistemaPrincipal).toBe("SAP");
+    expect(corpo.falhas).toBe("A tarifa vem sem tabela.");
+    expect(corpo.gargalos).toBe("A conferência espera o e-mail da Operação.");
+    expect(corpo.informacoes).toBe("A VALIDAR: quais tabelas originam a tarifa.");
+    expect(corpo.observacoes).toBe("O texto de antes do recorte.");
   });
 });
 
