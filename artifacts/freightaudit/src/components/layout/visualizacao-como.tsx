@@ -29,12 +29,14 @@ export function FaixaDeVisualizacao() {
   return (
     <div
       /*
-        `sticky` logo abaixo da faixa do topo (`h-16`), e com `z` menor que o
-        dela: a faixa acompanha a rolagem porque o aviso não pode sair de vista
-        no meio de uma tela longa — é justamente lá embaixo, depois de rolar,
-        que se esquece de quem é a sessão.
+        A faixa acompanha a rolagem — o aviso não pode sair de vista no meio de
+        uma tela longa, porque é justamente lá embaixo, depois de rolar, que se
+        esquece de quem é a sessão. Quem gruda, porém, não é ela: ela é a
+        segunda linha do cabeçalho da casca, e o `sticky` é do bloco inteiro
+        (`layout.tsx`). Enquanto era `sticky top-16` por conta própria, este
+        `16` era a altura da faixa de cima escrita à mão num segundo lugar.
       */
-      className="sticky top-16 z-30 flex items-center gap-3 bg-amber-500 px-4 py-2.5 text-sm text-white shadow-sm"
+      className="flex items-center gap-3 bg-amber-500 px-4 py-2.5 text-sm text-white shadow-sm"
       role="status"
     >
       <Eye className="w-4 h-4 shrink-0" />

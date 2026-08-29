@@ -5,6 +5,7 @@ import {
   posicoesDoFluxo,
   projetarFases,
   projetarFluxoHorizontal,
+  projetarGrupos,
   type AgrupamentoDeRaia,
   type Orientacao,
 } from "@/lib/fluxos-visoes";
@@ -71,10 +72,13 @@ export function VisaoFluxo({
       cobrem — e uma faixa deslocada meia coluna é pior do que faixa nenhuma.
     */
     const horizontal = projetarFluxoHorizontal(completo);
+    const grupos = projetarGrupos(completo, horizontal);
     return {
       posicoes: horizontal.posicoes,
       numeracao,
-      fases: projetarFases(completo, horizontal, agrupamento),
+      /* As fases recebem os grupos para subirem a faixa e não cobrirem o título da caixa. */
+      fases: projetarFases(completo, horizontal, agrupamento, grupos),
+      grupos,
     };
   }, [completo, orientacao, agrupamento]);
 

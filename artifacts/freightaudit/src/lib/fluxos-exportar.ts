@@ -1,10 +1,13 @@
 import { montarCanvas, resumoDoFluxo, type Catalogo, type Etapa, type FluxoCompleto } from "@/lib/fluxos";
 import {
   ALTURA_DA_FASE,
+  ALTURA_DO_ROTULO_DO_GRUPO,
   projetarFases,
   projetarFluxoHorizontal,
+  projetarGrupos,
   type AgrupamentoDeRaia,
   type FaseDoFluxo,
+  type GrupoDoFluxo,
 } from "@/lib/fluxos-visoes";
 
 /**
@@ -374,7 +377,10 @@ export function montarSvgDoFluxo(
   */
   const deitado = opcoes.disposicao === "horizontal";
   const projecao = deitado ? projetarFluxoHorizontal(completo) : null;
-  const fases = projecao ? projetarFases(completo, projecao, opcoes.agrupamento ?? "area") : [];
+  const grupos = projecao ? projetarGrupos(completo, projecao) : [];
+  const fases = projecao
+    ? projetarFases(completo, projecao, opcoes.agrupamento ?? "area", grupos)
+    : [];
 
   const caixas = nos.map((no) =>
     caixaDaEtapa(
@@ -397,14 +403,26 @@ export function montarSvgDoFluxo(
     faixa sairia cortada rente ao topo — e o corte apareceria só na primeira
     exportação de um fluxo com fase, que é tarde.
   */
-  const minX = vazio ? 0 : Math.min(...caixas.map((c) => c.x), ...fases.map((f) => f.x));
-  const minY = vazio ? 0 : Math.min(...caixas.map((c) => c.y), ...fases.map((f) => f.topo));
+  const minX = vazio
+    ? 0
+    : Math.min(...caixas.map((c) => c.x), ...fases.map((f) => f.x), ...grupos.map((g) => g.x));
+  const minY = vazio
+    ? 0
+    : Math.min(...caixas.map((c) => c.y), ...fases.map((f) => f.topo), ...grupos.map((g) => g.y));
   const maxX = vazio
     ? 320
-    : Math.max(...caixas.map((c) => c.x + c.largura), ...fases.map((f) => f.x + f.largura));
+    : Math.max(
+        ...caixas.map((c) => c.x + c.largura),
+        ...fases.map((f) => f.x + f.largura),
+        ...grupos.map((g) => g.x + g.largura),
+      );
   const maxY = vazio
     ? 120
-    : Math.max(...caixas.map((c) => c.y + c.altura), ...fases.map((f) => f.topo + f.altura));
+    : Math.max(
+        ...caixas.map((c) => c.y + c.altura),
+        ...fases.map((f) => f.topo + f.altura),
+        ...grupos.map((g) => g.y + g.altura),
+      );
 
   const legenda = montarLegenda(completo, catalogo);
   const alturaDaLegenda = legenda.length === 0 ? 0 : 46;
@@ -517,6 +535,10 @@ export function montarSvgDoFluxo(
 
   /* As fases primeiro: são cenário, e ficam atrás das setas e dos cartões. */
   for (const fase of fases) partes.push(desenharFase(fase, deslocX, deslocY));
+  /* A caixa do grupo é cenário de dentro: por cima da fase, por baixo do cartão. */
+  for (const grupo of grupos) {
+    partes.push(desenharGrupo(grupo, tipos.get(grupo.tipoComum ?? "")?.plural, deslocX, deslocY));
+  }
 
   /* Depois as setas: cartão por cima de linha, e não linha por cima de nome. */
   for (const seta of setas) {
@@ -771,6 +793,38 @@ function desenharFase(fase: FaseDoFluxo, dx: number, dy: number): string {
     `<text x="${x + 14}" y="${y + 43}" font-size="10.5" fill="${TINTA_FRACA}">${etapas} ${
       etapas === 1 ? "etapa" : "etapas"
     }</text>`,
+  ].join("");
+}
+
+/**
+ * A CAIXA DO QUE ACONTECE EM PARALELO, no arquivo.
+ *
+ * Tracejada pelo mesmo motivo da tela: o traço contínuo é o contorno de uma
+ * coisa que se clica, e a caixa não é uma etapa — é a leitura de que aquelas
+ * duas saem do mesmo passo e voltam para o mesmo. Num PNG colado em slide isso
+ * pesa ainda mais do que na tela: quem recebe o arquivo não tem como clicar em
+ * nada para descobrir que as duas integrações são paralelas.
+ *
+ * O rótulo é o plural que o catálogo declara; sem tipo comum, é o que a caixa
+ * de fato afirma.
+ */
+function desenharGrupo(
+  grupo: GrupoDoFluxo,
+  plural: string | undefined,
+  dx: number,
+  dy: number,
+): string {
+  const x = arredondar(grupo.x + dx);
+  const y = arredondar(grupo.y + dy);
+  const rotulo = `${plural ?? "Em paralelo"} · ${grupo.etapas.length}`;
+
+  return [
+    `<rect x="${x}" y="${y}" width="${arredondar(grupo.largura)}" height="${arredondar(
+      grupo.altura,
+    )}" rx="14" ry="14" fill="#f8fafc" fill-opacity="0.75" stroke="#cbd5e1" stroke-width="1.5" stroke-dasharray="7 5"/>`,
+    `<text x="${x + 14}" y="${y + ALTURA_DO_ROTULO_DO_GRUPO - 10}" font-size="11" font-weight="500" fill="${TINTA_FRACA}">${escaparXml(
+      rotulo,
+    )}</text>`,
   ].join("");
 }
 

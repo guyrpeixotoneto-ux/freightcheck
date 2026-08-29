@@ -1,4 +1,4 @@
-import { ReactNode } from "react";
+import { useLayoutEffect, useRef, type CSSProperties, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { BarraMobile } from "./barra-mobile";
 import { Sidebar } from "./sidebar";
@@ -32,24 +32,37 @@ import {
  * media query que decide qual aparece: decidir em JavaScript, com
  * `useIsMobile`, custaria um primeiro quadro sem menu nenhum a cada montagem
  * da casca — e a casca remonta a cada navegação.
+ *
+ * **Ninguém aqui embaixo conta quantos rems existem acima.** O cabeçalho da
+ * casca — a faixa do topo mais a da visualização, quando ela existe — se mede
+ * sozinho e publica a própria altura em `--casca-topo`; ver `MEDIDA_DO_TOPO`.
  */
 export function Layout({
   children,
-  semReservaDaBarra,
+  alturaDeJanela,
 }: {
   children: ReactNode;
   /**
-   * Desliga o espaço reservado para a barra do celular.
+   * A tela mede uma janela e rola por dentro, em vez de crescer e rolar a
+   * página. Hoje pedem isto o fluxo e o assistente.
    *
-   * Serve para a página que já tem altura própria de janela e rola por dentro
-   * — o fluxo é a única hoje. Nela a reserva não empurrava nada para cima:
-   * ficava como uma faixa cinza vazia entre o fim da área que rola e a barra,
-   * cortando o último cartão em troca de espaço em branco. Quem pedir isto
-   * assume a conta: precisa descontar a barra da própria altura.
+   * Quem pede não faz conta nenhuma: a casca passa a medir a janela, o
+   * cabeçalho e a barra do celular saem da conta aqui, e o conteúdo recebe o
+   * que sobrou. Enquanto a conta era da página — `100dvh` menos `4rem`
+   * chutados de cabeçalho —, bastava a faixa "visualizando como" aparecer para
+   * a tela ficar mais alta que a janela: a página inteira ganhava rolagem, e o
+   * fim do conteúdo caía abaixo da dobra.
+   *
+   * Também desliga o espaço reservado para a barra do celular, porque a barra
+   * já está descontada da altura da casca. Com a reserva ligada, o desconto
+   * acontecia duas vezes: sobrava uma faixa cinza vazia acima da barra, e o
+   * último cartão ficava cortado ao meio para pagá-la.
    */
-  semReservaDaBarra?: boolean;
+  alturaDeJanela?: boolean;
 }) {
   const { aberto, alternar } = useMenuAberto();
+  const casca = useRef<HTMLDivElement>(null);
+  const topo = useRef<HTMLDivElement>(null);
   /*
     O acesso ao módulo é decidido na casca, e não em cada tela.
 
@@ -66,24 +79,76 @@ export function Layout({
   */
   const acesso = useAcessoDoModulo();
 
+  /*
+    MEDIDA DO TOPO — a única fonte de "quanto tem acima".
+
+    O cabeçalho da casca não tem altura fixa: são `4rem` quando é só a faixa do
+    topo, e mais a faixa da visualização quando alguém está vendo o produto por
+    outra conta — que ainda quebra em duas linhas em tela estreita. Tudo o que
+    precisa saber essa altura (a lateral, que gruda logo abaixo dela e mede a
+    janela menos ela) lia `4rem` escritos à mão, e ficava errado exatamente nos
+    casos em que o cabeçalho não media `4rem`.
+
+    Então quem sabe a altura passou a ser quem a tem. O `ResizeObserver` cobre
+    as duas mudanças que existem: a faixa aparecendo ou saindo, e ela mudando de
+    uma linha para duas quando a janela estreita.
+
+    `useLayoutEffect` e não `useEffect`: a medida entra antes da pintura, senão
+    o primeiro quadro de cada navegação sai com a lateral no lugar errado.
+  */
+  useLayoutEffect(() => {
+    const cabecalho = topo.current;
+    const raiz = casca.current;
+    if (!cabecalho || !raiz) return;
+
+    const medir = () =>
+      raiz.style.setProperty("--casca-topo", `${cabecalho.offsetHeight}px`);
+
+    medir();
+    const observador = new ResizeObserver(medir);
+    observador.observe(cabecalho);
+    return () => observador.disconnect();
+  }, []);
+
   return (
-    <div className="flex flex-col bg-background">
-      <Topbar menuAberto={aberto} onToggleSidebar={alternar} />
+    /*
+      Sem `min-h-[100dvh]` aqui e sem `flex-1` na faixa do conteúdo: página
+      longa já cresce sozinha, sem precisar de altura mínima nenhuma — era só a
+      curta (poucas linhas, sem gráfico) que sobrava esticada até o fim da
+      viewport, trocando conteúdo por fundo cinza vazio embaixo do último
+      cartão. O `body` já tem o mesmo `bg-background` (`index.css`), então
+      terminar a casca no fim do conteúdo não deixa costura de cor.
+
+      Quem pede `alturaDeJanela` é o contrário disto, e por isso é opt-in: a
+      casca passa a medir exatamente uma janela — menos a barra do celular, que
+      é `fixed` e cobriria o fim do conteúdo — e nada dentro dela rola a página.
+    */
+    <div
+      ref={casca}
+      style={{ "--casca-topo": "4rem" } as CSSProperties}
+      className={cn(
+        "flex flex-col bg-background",
+        alturaDeJanela &&
+          "h-[calc(100dvh-5.5rem-env(safe-area-inset-bottom))] md:h-[100dvh]",
+      )}
+    >
       {/*
-        A faixa da visualização vem antes de tudo o que está embaixo dela, e é
-        de propósito: ela muda o significado de cada número da tela — quem está
-        vendo não é quem está logado. Ver `visualizacao-como.tsx`.
+        O cabeçalho da casca é um bloco só, e gruda como um só.
+
+        As duas faixas eram `sticky` separadas, a de baixo pendurada num
+        `top-16` que repetia a altura da de cima. Juntas num bloco, a de baixo
+        não precisa saber a altura da de cima, e o bloco inteiro é o que a
+        `--casca-topo` mede.
+
+        A faixa da visualização vem depois da do topo e antes de todo o resto, e
+        é de propósito: ela muda o significado de cada número da tela — quem
+        está vendo não é quem está logado. Ver `visualizacao-como.tsx`.
       */}
-      <FaixaDeVisualizacao />
-      {/*
-        Sem `min-h-[100dvh]` no contêiner de fora nem `flex-1` nesta faixa:
-        página longa já cresce sozinha, sem precisar de altura mínima nenhuma —
-        era só a curta (poucas linhas, sem gráfico) que sobrava esticada até o
-        fim da viewport, trocando conteúdo por fundo cinza vazio embaixo do
-        último cartão. O `body` já tem o mesmo `bg-background` (`index.css`),
-        então terminar a casca no fim do conteúdo não deixa costura de cor.
-      */}
-      <div className="flex min-h-0">
+      <div ref={topo} className="sticky top-0 z-40 shrink-0">
+        <Topbar menuAberto={aberto} onToggleSidebar={alternar} />
+        <FaixaDeVisualizacao />
+      </div>
+      <div className={cn("flex min-h-0", alturaDeJanela && "flex-1")}>
         <Sidebar open={aberto} />
         {/*
           O espaço reservado embaixo é a altura da barra do celular, que é
@@ -97,7 +162,9 @@ export function Layout({
         <main
           className={cn(
             "flex-1 flex flex-col min-w-0 md:pb-0",
-            !semReservaDaBarra && "pb-[calc(5.5rem+env(safe-area-inset-bottom))]",
+            alturaDeJanela
+              ? "min-h-0"
+              : "pb-[calc(5.5rem+env(safe-area-inset-bottom))]",
           )}
         >
           {acesso.nivel === "VISUALIZAR" && (

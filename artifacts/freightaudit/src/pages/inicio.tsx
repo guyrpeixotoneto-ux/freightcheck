@@ -27,6 +27,12 @@ import { ApiErrorNotice } from "@/components/api-error";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ApiError, fetchJson } from "@/lib/api";
 import { useContextosDaCasca } from "@/lib/contextos";
+import { useSerieDeImpacto, useSerieDeImpactoGeral } from "@/lib/serie-de-impacto";
+import { GraficoDeImpacto, type PontoDeImpacto } from "@/components/dashboard/grafico-de-impacto";
+import {
+  BotaoDeVoltarVigencia,
+  useVoltaDeVigencia,
+} from "@/components/vigencia/voltar-de-vigencia";
 import { useFamiliesOverviewQuery } from "@/lib/families-overview";
 import { RESUMO_EXECUTIVO } from "@/lib/ambiente";
 import { cn } from "@/lib/utils";
@@ -274,6 +280,38 @@ export default function Inicio() {
 
   const overview = visaoGeral ? (overviewQuery.data ?? null) : null;
 
+  /*
+    O gráfico de impacto por vigência — o mesmo do Dashboard, pela mesma conta
+    (`lib/serie-de-impacto.ts`) e sobre o mesmo recorte.
+
+    Não é a volta do cartão "Impacto líquido ao longo do tempo" que virou a
+    Linha do Tempo: aquele era a leitura do histórico, com intervalo escolhido
+    a mão e detalhe por atributo, e continua sendo tela própria. Aqui ele entra
+    como **eixo de navegação** — as seis últimas vigências, para ver de onde
+    veio o número grande do topo e ir até qualquer uma delas num clique, sem
+    passar pelo menu do cabeçalho.
+  */
+  const serieDaUnidade = useSerieDeImpacto(visaoGeral ? null : view, consulta);
+  const serieGeral = useSerieDeImpactoGeral(
+    periodosOverview,
+    periodoOverviewEfetivo,
+    overview,
+    visaoGeral,
+  );
+
+  /*
+    De onde a leitura saiu, para o botão de voltar dentro do gráfico. Mora na
+    página porque trocar a vigência refaz a consulta, e o corpo da tela
+    desmonta enquanto ela não responde — ver
+    `components/vigencia/voltar-de-vigencia.tsx`.
+  */
+  const pontosDesenhados = visaoGeral ? serieGeral : serieDaUnidade.pontos;
+  const vigenciaAberta = visaoGeral ? periodoOverviewEfetivo : (view?.period ?? null);
+  const volta = useVoltaDeVigencia({
+    periodo: vigenciaAberta,
+    label: pontosDesenhados.find((ponto) => ponto.periodo === vigenciaAberta)?.label ?? null,
+  });
+
   const coberturaAuditada = useMemo(() => cobertura(balancos.data), [balancos.data]);
   const integridadeDosDados = useMemo(() => integridade(balancos.data), [balancos.data]);
   const ultima = useMemo(() => ultimaImportacao(importacoes.data), [importacoes.data]);
@@ -438,6 +476,17 @@ export default function Inicio() {
                 integridade={integridadeDosDados}
                 ultima={ultima}
                 onTrocar={trocarPara}
+                serie={serieGeral}
+                periodoAberto={periodoOverviewEfetivo}
+                onEscolherVigencia={(periodo) => {
+                  volta.registrar();
+                  trocarPara({ period: periodo });
+                }}
+                voltarPara={volta.destino}
+                onVoltar={(periodo) => {
+                  volta.limpar();
+                  trocarPara({ period: periodo });
+                }}
               />
             )}
           </>
@@ -471,6 +520,39 @@ export default function Inicio() {
             <Atencao
               pontos={pontosDeAtencao(view, ranking, integridadeDosDados, recorte)}
             />
+
+            {/*
+              O eixo do tempo da tela: de onde veio o número grande do topo, e
+              a porta para qualquer uma das seis últimas vigências. Fica logo
+              abaixo do "O que merece sua atenção" porque responde à pergunta
+              seguinte de quem leu os cartões — "e antes disso?" — antes de a
+              tela descer para o detalhe por parâmetro.
+            */}
+            <section className={cn(CARTAO, "px-6 py-5")}>
+              <div className="flex items-start justify-between gap-3 mb-1">
+                <h2 className="text-base font-bold">Impacto das alterações por vigência</h2>
+                <BotaoDeVoltarVigencia
+                  destino={volta.destino}
+                  onVoltar={(periodo) => {
+                    volta.limpar();
+                    trocarPara({ period: periodo });
+                  }}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground mb-4">
+                Ganhos e perdas divergindo do zero, com o líquido por cima. Uma barra por vigência
+                entregue — duas no mesmo mês aparecem pelo dia, nunca somadas.
+              </p>
+              <GraficoDeImpacto
+                pontos={serieDaUnidade.pontos}
+                periodicity={serieDaUnidade.periodicity}
+                vigenciaAtiva={view.period}
+                onEscolherVigencia={(periodo) => {
+                  volta.registrar();
+                  trocarPara({ period: periodo });
+                }}
+              />
+            </section>
 
             <div className="grid gap-5 lg:grid-cols-2">
               <MaioresImpactos
@@ -2122,6 +2204,11 @@ function ConteudoDaVisaoGeral({
   integridade: integridadeDosDados,
   ultima,
   onTrocar,
+  serie,
+  periodoAberto,
+  onEscolherVigencia,
+  voltarPara,
+  onVoltar,
 }: {
   overview: FamiliesOverview;
   search: string;
@@ -2129,6 +2216,13 @@ function ConteudoDaVisaoGeral({
   integridade: ReturnType<typeof integridade>;
   ultima: ReturnType<typeof ultimaImportacao>;
   onTrocar: (mudancas: Record<string, string | null>) => void;
+  /** O mesmo gráfico da unidade, aqui somado entre unidades. */
+  serie: PontoDeImpacto[];
+  /** A competência aberta — a barra acesa, e a que o clique não repete. */
+  periodoAberto: string | null;
+  onEscolherVigencia: (periodo: string) => void;
+  voltarPara: { periodo: string; label: string } | null;
+  onVoltar: (periodo: string) => void;
 }) {
   const semConsolidacaoSegura = overview.unitsIncluded.length === 0;
   const ranking = maioresImpactos(overview.summary);
@@ -2175,6 +2269,26 @@ function ConteudoDaVisaoGeral({
             pontos={pontosDeAtencaoDaVisaoGeral(overview, ranking, integridadeDosDados)}
             onAbrir={abrirComparacao}
           />
+
+          <section className={cn(CARTAO, "px-6 py-5")}>
+            <div className="flex items-start justify-between gap-3 mb-1">
+              <h2 className="text-base font-bold">Impacto das alterações por vigência</h2>
+              <BotaoDeVoltarVigencia
+                destino={voltarPara}
+                onVoltar={(periodo) => onVoltar?.(periodo)}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground mb-4">
+              Ganhos e perdas de todas as unidades incluídas, com o líquido por cima. Uma barra por
+              competência — a unidade sem vigência naquela competência não entra nela.
+            </p>
+            <GraficoDeImpacto
+              pontos={serie}
+              periodicity={serie[0] ? (ladosDoImpacto(overview)[0]?.periodicity ?? null) : null}
+              vigenciaAtiva={periodoAberto}
+              onEscolherVigencia={onEscolherVigencia}
+            />
+          </section>
 
           <SomaParcial overview={overview} />
 

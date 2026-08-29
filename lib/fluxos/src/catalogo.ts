@@ -64,6 +64,16 @@ export interface EntradaDeTipoDeEtapa extends EntradaDoCatalogo<TipoDeEtapa> {
   classe: string;
   /** O nome do ícone `lucide-react` que a interface monta. */
   icone: string;
+  /**
+   * O rótulo no plural — para quando a tela fala de um **conjunto** deste tipo.
+   *
+   * Existe por uma razão só, e vale a pena declará-la: o português não
+   * pluraliza por regra segura. "Validação" vira "Validações", "Fim" vira
+   * "Fins", e qualquer função que tente adivinhar isso vai escrever "Decisãos"
+   * no dia em que alguém acrescentar um tipo terminado em `ão`. O catálogo é a
+   * autoridade sobre o vocabulário; então o plural é dado, como o rótulo.
+   */
+  plural: string;
 }
 
 export const TIPOS_DE_ETAPA: readonly EntradaDeTipoDeEtapa[] = [
@@ -74,6 +84,7 @@ export const TIPOS_DE_ETAPA: readonly EntradaDeTipoDeEtapa[] = [
     forma: "pilula",
     classe: "border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950",
     icone: "Play",
+    plural: "Inícios",
   },
   {
     valor: "PROCESSO",
@@ -82,6 +93,7 @@ export const TIPOS_DE_ETAPA: readonly EntradaDeTipoDeEtapa[] = [
     forma: "retangulo",
     classe: "border-border bg-card",
     icone: "Square",
+    plural: "Processos",
   },
   {
     valor: "DECISAO",
@@ -90,6 +102,7 @@ export const TIPOS_DE_ETAPA: readonly EntradaDeTipoDeEtapa[] = [
     forma: "losango",
     classe: "border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950",
     icone: "GitBranch",
+    plural: "Decisões",
   },
   {
     valor: "VALIDACAO",
@@ -98,6 +111,7 @@ export const TIPOS_DE_ETAPA: readonly EntradaDeTipoDeEtapa[] = [
     forma: "retangulo",
     classe: "border-sky-300 bg-sky-50 dark:border-sky-800 dark:bg-sky-950",
     icone: "ShieldCheck",
+    plural: "Validações",
   },
   {
     valor: "DOCUMENTO",
@@ -106,6 +120,7 @@ export const TIPOS_DE_ETAPA: readonly EntradaDeTipoDeEtapa[] = [
     forma: "retangulo",
     classe: "border-violet-300 bg-violet-50 dark:border-violet-800 dark:bg-violet-950",
     icone: "FileText",
+    plural: "Documentos",
   },
   {
     valor: "SISTEMA",
@@ -114,6 +129,7 @@ export const TIPOS_DE_ETAPA: readonly EntradaDeTipoDeEtapa[] = [
     forma: "retangulo",
     classe: "border-indigo-300 bg-indigo-50 dark:border-indigo-800 dark:bg-indigo-950",
     icone: "Server",
+    plural: "Sistemas",
   },
   {
     valor: "PENDENCIA",
@@ -122,6 +138,7 @@ export const TIPOS_DE_ETAPA: readonly EntradaDeTipoDeEtapa[] = [
     forma: "retangulo",
     classe: "border-rose-300 bg-rose-50 dark:border-rose-800 dark:bg-rose-950",
     icone: "AlertTriangle",
+    plural: "Pendências",
   },
   {
     valor: "FIM",
@@ -130,6 +147,7 @@ export const TIPOS_DE_ETAPA: readonly EntradaDeTipoDeEtapa[] = [
     forma: "pilula",
     classe: "border-slate-300 bg-slate-100 dark:border-slate-700 dark:bg-slate-900",
     icone: "Flag",
+    plural: "Fins",
   },
 ];
 

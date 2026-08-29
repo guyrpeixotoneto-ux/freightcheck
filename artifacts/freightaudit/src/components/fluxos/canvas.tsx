@@ -19,6 +19,7 @@ import { LegendaDoFluxo } from "@/components/fluxos/legenda-do-fluxo";
 import { NoDaEtapa } from "@/components/fluxos/no-da-etapa";
 import { NoDaFase } from "@/components/fluxos/no-da-fase";
 import { NoDaRaia } from "@/components/fluxos/no-da-raia";
+import { NoDoGrupo } from "@/components/fluxos/no-do-grupo";
 import { montarProjecao, type OpcoesDaProjecao } from "@/lib/fluxos-canvas";
 import { ajustarSolto, lerArrasto } from "@/lib/fluxos-paleta";
 import { type Catalogo, type FluxoCompleto } from "@/lib/fluxos";
@@ -66,7 +67,7 @@ import { type Catalogo, type FluxoCompleto } from "@/lib/fluxos";
  * desenho que ninguém pediu.
  */
 
-const TIPOS_DE_NO = { etapa: NoDaEtapa, raia: NoDaRaia, fase: NoDaFase };
+const TIPOS_DE_NO = { etapa: NoDaEtapa, raia: NoDaRaia, fase: NoDaFase, grupo: NoDoGrupo };
 
 export interface CanvasDoFluxoProps {
   completo: FluxoCompleto;
@@ -246,7 +247,7 @@ function CanvasInterno({
       onNodeDragStop={aoTerminarArrasto}
       onConnect={aoConectar}
       onNodeClick={(_evento, no) => {
-        if (no.type === "raia" || no.type === "fase") return;
+        if (no.type === "raia" || no.type === "fase" || no.type === "grupo") return;
         onSelecionarEtapa(no.id);
       }}
       onEdgeClick={(_evento, seta) => {

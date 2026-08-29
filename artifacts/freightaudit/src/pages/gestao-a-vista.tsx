@@ -25,6 +25,7 @@ import {
   CartesianGrid,
   Line,
   LineChart,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -57,6 +58,11 @@ import { juntarPrioridades, SEVERITY_LABEL } from "@/lib/cockpit";
 import { unidadesPorImpacto, impactoDominante } from "@/components/inicio/visao-geral-consolidada";
 import { seriesDoIntervalo } from "@/components/linha-do-tempo/linha-do-tempo-de-alteracoes";
 import { lerIntervaloSegundos, montarSequenciaDoAutoplay } from "@/lib/gestao-a-vista-autoplay";
+import { vigenciaDoClique, type EstadoDoClique } from "@/lib/clique-na-vigencia";
+import {
+  BotaoDeVoltarVigencia,
+  useVoltaDeVigencia,
+} from "@/components/vigencia/voltar-de-vigencia";
 import { rotuloCurtoDaVigencia } from "@workspace/comparison/labels";
 import {
   atributosDaCelula,
@@ -220,6 +226,33 @@ function TemplateFinanceiro() {
     ? `${DASHBOARD}?${consultaDeOrigem}`
     : DASHBOARD;
 
+  /*
+    Trocar a vigência pelo gráfico — o mesmo gesto do Dashboard e da Linha do
+    Tempo, aqui com o `replace` que esta tela usa em toda troca sua (o
+    autoplay, o seletor do Alertas, o do Radar).
+
+    O telão é uma tela pendurada: empilhar no histórico cada vigência olhada
+    faria o "voltar" percorrer uma sessão inteira de quem passou por ali antes
+    de devolver quem chegou ao lugar de onde veio. Trocando no lugar, o
+    "voltar" continua sendo o caminho de saída do telão, que é o que ele já
+    prometia.
+  */
+  const volta = useVoltaDeVigencia({
+    periodo: view?.period ?? null,
+    label: view?.periods.find((p) => p.date === view.period)?.label ?? null,
+  });
+
+  const escolherVigencia = (periodo: string) => {
+    volta.registrar();
+    trocarVigenciaNoLugar(periodo);
+  };
+
+  const trocarVigenciaNoLugar = (periodo: string) => {
+    const proximo = new URLSearchParams(search);
+    proximo.set("period", periodo);
+    navegar(`${GESTAO_A_VISTA}?${proximo}`, { replace: true });
+  };
+
   const alternarAutoplay = () => {
     const proximo = new URLSearchParams(search);
     if (autoplay) proximo.delete("autoplay");
@@ -274,7 +307,17 @@ function TemplateFinanceiro() {
             />
           )
         ) : view ? (
-          <ConteudoDaUnidade view={view} recorte={recorte} consulta={consulta} />
+          <ConteudoDaUnidade
+            view={view}
+            recorte={recorte}
+            consulta={consulta}
+            onEscolherVigencia={escolherVigencia}
+            voltarPara={volta.destino}
+            onVoltar={(periodo) => {
+              volta.limpar();
+              trocarVigenciaNoLugar(periodo);
+            }}
+          />
         ) : (
           <MensagemDeEstado carregando={vigencia.isLoading} erro={vigencia.error !== null} />
         )}
@@ -1174,10 +1217,16 @@ function ConteudoDaUnidade({
   view,
   recorte,
   consulta,
+  onEscolherVigencia,
+  voltarPara,
+  onVoltar,
 }: {
   view: FamiliesView;
   recorte: Recorte;
   consulta: URLSearchParams;
+  onEscolherVigencia: (periodo: string) => void;
+  voltarPara: { periodo: string; label: string } | null;
+  onVoltar: (periodo: string) => void;
 }) {
   const lados = ladosDoImpacto(view).filter((l) => l.fatiaDeGanho !== null);
   const ladoDominante = lados[0] ?? null;
@@ -1204,7 +1253,13 @@ function ConteudoDaUnidade({
 
       <PendenciasCriticas view={view} recorte={recorte} />
 
-      <TendenciaCompacta view={view} consulta={consulta} />
+      <TendenciaCompacta
+        view={view}
+        consulta={consulta}
+        onEscolherVigencia={onEscolherVigencia}
+        voltarPara={voltarPara}
+        onVoltar={onVoltar}
+      />
     </div>
   );
 }
@@ -1482,7 +1537,26 @@ function CartaoDePendencia({
 // Tendência entre competências
 // ---------------------------------------------------------------------------
 
-function TendenciaCompacta({ view, consulta }: { view: FamiliesView; consulta: URLSearchParams }) {
+function TendenciaCompacta({
+  view,
+  consulta,
+  onEscolherVigencia,
+  voltarPara,
+  onVoltar,
+}: {
+  view: FamiliesView;
+  consulta: URLSearchParams;
+  /** Clicar num ponto passa o telão inteiro para aquela vigência. */
+  onEscolherVigencia: (periodo: string) => void;
+  /**
+   * O caminho de volta. Ele é obrigatório aqui, e não um extra: esta tela
+   * troca de vigência com `replace`, então o "voltar" do navegador sai do
+   * telão em vez de desfazer o clique — sem este botão, entrar numa vigência
+   * antiga pelo gráfico seria uma porta sem maçaneta do outro lado.
+   */
+  voltarPara: { periodo: string; label: string } | null;
+  onVoltar: (periodo: string) => void;
+}) {
   const ordenadas = useMemo(
     () => [...view.periods].sort((a, b) => a.date.localeCompare(b.date)),
     [view],
@@ -1536,6 +1610,24 @@ function TendenciaCompacta({ view, consulta }: { view: FamiliesView; consulta: U
     liquido: p.ganhos + p.perdas,
   }));
 
+  /*
+    A curva é o eixo do tempo navegável do telão: clicar num ponto passa a
+    tela inteira — o número protagonista, o ranking, as pendências — para
+    aquela vigência, e a vigência aberta fica marcada por uma guia vertical.
+    Sem a guia, o telão mostraria seis competências e nenhuma pista de qual
+    delas os números grandes acima estão descrevendo.
+
+    A guia é ancorada pelo rótulo, e não pela data, porque é o rótulo que o
+    eixo desenha (`dataKey="label"`).
+  */
+  const clicavel = pontos.length > 1;
+  const rotuloAtivo = pontos.find((p) => p.periodo === view.period)?.label ?? null;
+  const aoClicar = (estado: EstadoDoClique) => {
+    if (!clicavel) return;
+    const periodo = vigenciaDoClique(estado, view.period);
+    if (periodo !== null) onEscolherVigencia(periodo);
+  };
+
   const ultimo = pontos[pontos.length - 1];
   const penultimo = pontos[pontos.length - 2];
   const variacao = ultimo && penultimo ? ultimo.liquido - penultimo.liquido : null;
@@ -1546,16 +1638,35 @@ function TendenciaCompacta({ view, consulta }: { view: FamiliesView; consulta: U
         <h2 className="text-sm font-bold uppercase tracking-wide text-slate-400">
           Tendência entre competências
         </h2>
-        <span className="text-xs text-slate-500">em R${periodicitySuffix(dominante)}</span>
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-slate-500">
+            {clicavel && "clique numa vigência para o telão inteiro ir até ela · "}
+            em R${periodicitySuffix(dominante)}
+          </span>
+          <BotaoDeVoltarVigencia
+            destino={voltarPara}
+            onVoltar={(periodo) => onVoltar(periodo)}
+            className="border-slate-700 text-slate-300 hover:bg-slate-800"
+          />
+        </div>
       </div>
 
       <div className="flex flex-col lg:flex-row gap-6 items-stretch">
         <div className="flex-1 min-w-0">
           <ResponsiveContainer width="100%" height={150}>
-            <LineChart data={pontos} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
+            <LineChart
+              data={pontos}
+              margin={{ top: 4, right: 8, bottom: 0, left: 0 }}
+              onClick={aoClicar}
+              style={clicavel ? { cursor: "pointer" } : undefined}
+            >
               <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
               <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
               <YAxis hide />
+              {/* A guia da vigência aberta, na cor do telão escuro. */}
+              {rotuloAtivo !== null && (
+                <ReferenceLine x={rotuloAtivo} stroke="#94a3b8" strokeDasharray="4 4" strokeOpacity={0.8} />
+              )}
               <Tooltip
                 formatter={(v: number) => formatBrlShort(v)}
                 contentStyle={{

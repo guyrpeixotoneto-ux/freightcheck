@@ -42,13 +42,20 @@ function recusa(f: () => unknown): RecusaDeFluxo {
 }
 
 describe("o catálogo é a única lista de valores válidos", () => {
-  it("todo tipo de etapa tem rótulo, forma, classe e ícone", () => {
+  it("todo tipo de etapa tem rótulo, plural, forma, classe e ícone", () => {
     for (const tipo of TIPOS_DE_ETAPA) {
       expect(tipo.rotulo).not.toBe("");
       expect(tipo.descricao).not.toBe("");
       expect(["retangulo", "losango", "pilula"]).toContain(tipo.forma);
       expect(tipo.classe).not.toBe("");
       expect(tipo.icone).not.toBe("");
+      /*
+        O plural é dado, e não uma regra: quem acrescentar um tipo terminado em
+        `ão` sem declará-lo aqui é reprovado antes de "Decisãos" aparecer numa
+        tela.
+      */
+      expect(tipo.plural).not.toBe("");
+      expect(tipo.plural).not.toBe(tipo.rotulo);
     }
   });
 

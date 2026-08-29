@@ -276,23 +276,23 @@ export default function Assistente() {
   const vazia = turnos.length === 0;
 
   return (
-    <Layout semReservaDaBarra>
+    <Layout alturaDeJanela>
       {/*
-        A ALTURA DA JANELA VEM DAQUI.
+        A ALTURA DA JANELA VEM DA CASCA, E ESTA FAIXA TOMA O QUE SOBROU.
 
-        A casca não mede mais uma tela: ela termina no fim do conteúdo, e por
-        isso `flex-1` nesta faixa não tinha de quem herdar altura. A coluna do
-        chat ficava do tamanho das mensagens, o `overflow-y-auto` de dentro
-        nunca chegava a rolar e o campo de perguntar parava onde a conversa
-        acabasse — enquanto a lateral, essa sim de `100dvh`, esticava a página
-        até o fim da janela. A sobra entre os dois era a faixa vazia.
+        Por padrão a casca não mede uma tela: ela termina no fim do conteúdo, e
+        aí `flex-1` aqui não teria de quem herdar altura — a coluna do chat
+        ficava do tamanho das mensagens, o `overflow-y-auto` de dentro nunca
+        chegava a rolar e o campo de perguntar parava onde a conversa acabasse,
+        enquanto a lateral, essa sim de uma janela, esticava a página até o fim
+        dela. A sobra entre os dois era a faixa vazia.
 
-        Então a conta é feita aqui, como no Fluxo: uma janela menos a faixa
-        vermelha do topo e, no celular, menos a barra de baixo (que a casca
-        deixa de reservar acima). Com altura fixa, `min-h-0` volta a ter
-        sentido: quem rola é a lista de mensagens, e o campo fica colado embaixo.
+        `alturaDeJanela` liga a casca de uma janela só (ver `layout.tsx`), e daí
+        `flex-1 min-h-0` volta a ter sentido: quem rola é a lista de mensagens, e
+        o campo fica colado embaixo. A conta de quanto sobrou é da casca — esta
+        tela não sabe, e não precisa saber, quantos rems existem acima dela.
       */}
-      <div className="flex h-[calc(100dvh-4rem-5.5rem-env(safe-area-inset-bottom))] min-h-0 md:h-[calc(100dvh-4rem)]">
+      <div className="flex min-h-0 flex-1">
         <Historico
           conversas={conversas.data ?? []}
           atual={conversaId}
@@ -302,17 +302,41 @@ export default function Assistente() {
         />
 
         <main className="flex-1 flex flex-col min-w-0 bg-background">
-          <header className="border-b bg-card px-8 py-5 flex items-start justify-between gap-6">
+          {/*
+            NO CELULAR O CABEÇALHO É DUAS LINHAS, E NÃO UMA.
+
+            Numa linha só, o lado direito era `shrink-0` — os três campos do
+            recorte não encolhem nem quebram — e num telefone eles sozinhos são
+            mais largos que a tela. O que sobrava para o título era o resto: uma
+            coluna de poucos pixels, com "Assistente" empurrado para fora, o
+            texto de apoio saindo uma palavra por linha e os campos passando por
+            cima de tudo, porque continuavam desenhando na largura que pediram.
+
+            Empilhado abaixo de `md`, cada um tem a largura da tela: o título lê
+            como título e os campos quebram entre si (o `flex-wrap` do seletor
+            só serve quando existe um limite para quebrar). De `md` para cima
+            nada muda — volta a ser a mesma linha de antes.
+
+            E `shrink-0`, pelo mesmo motivo que a conversa ganhou `min-h-0`:
+            numa coluna de altura fixa, quem encolhe por padrão é todo mundo.
+            Com o cabeçalho alto demais para caber, o flex o comprimia até
+            abaixo do conteúdo dele — e o texto, que não encolhe junto,
+            continuava desenhado por cima da conversa: o cartão logo abaixo
+            aparecia cortado ao meio pela caixa branca do cabeçalho. Quem tem de
+            ceder altura aqui é a lista de mensagens, que rola; o cabeçalho e o
+            campo de perguntar valem o que medem.
+          */}
+          <header className="border-b bg-card shrink-0 px-4 py-4 md:px-8 md:py-5 flex flex-col gap-4 md:flex-row md:items-start md:justify-between md:gap-6">
             <div className="flex items-start gap-3 min-w-0">
               <Sparkles className="w-7 h-7 text-brand shrink-0 mt-0.5" aria-hidden />
               <div className="min-w-0">
-                <h1 className="text-2xl font-bold tracking-tight">Assistente FreightCheck</h1>
+                <h1 className="text-xl md:text-2xl font-bold tracking-tight">Assistente FreightCheck</h1>
                 <p className="text-sm text-muted-foreground max-w-md">
                   Pergunte sobre parâmetros, alterações, impactos e o Book do Operador.
                 </p>
               </div>
             </div>
-            <div className="flex items-start gap-3 shrink-0">
+            <div className="flex items-start gap-3 min-w-0 md:shrink-0">
               <SeletorDeRecorte recorte={recorte} aoTrocar={trocarRecorte} />
               <button
                 type="button"
@@ -330,8 +354,8 @@ export default function Assistente() {
             </div>
           </header>
 
-          <div className="flex-1 overflow-y-auto">
-            <div className="max-w-4xl mx-auto px-8 py-6 space-y-6">
+          <div className="flex-1 min-h-0 overflow-y-auto">
+            <div className="max-w-4xl mx-auto px-4 py-6 md:px-8 space-y-6">
               {/*
                 A saudação é escrita aqui dentro, e por isso ela não prova nada
                 sobre o servidor.
@@ -384,18 +408,7 @@ export default function Assistente() {
               {painelTecnico && ultima && <PainelTecnico resposta={ultima} />}
 
               {!perguntar.isPending && ultima && ultima.sugestoes.length > 0 && (
-                <div className="flex flex-wrap gap-2 pt-1">
-                  {ultima.sugestoes.map((s) => (
-                    <button
-                      key={s}
-                      type="button"
-                      onClick={() => enviar(s)}
-                      className="text-xs border border-input rounded-full px-3 py-1.5 hover:border-brand hover:bg-muted/40 transition-colors"
-                    >
-                      {s}
-                    </button>
-                  ))}
-                </div>
+                <ProximosPassos sugestoes={ultima.sugestoes} aoEscolher={enviar} />
               )}
 
               <div ref={fim} />
@@ -421,6 +434,55 @@ export default function Assistente() {
 }
 
 // ── Abertura ────────────────────────────────────────────────────────────────
+
+/**
+ * As perguntas que a resposta acabou de tornar possíveis.
+ *
+ * **Não são pílulas.** Eram: `rounded-full` com o texto centralizado, do jeito
+ * que se marca uma etiqueta de uma ou duas palavras. Estas frases têm dez, e
+ * numa coluna estreita cada uma virava um balão de duas linhas com o texto
+ * centralizado no meio — três balões empilhados, sem começo comum para o olho
+ * descer. A forma prometia algo curto e entregava uma frase.
+ *
+ * Então são linhas: alinhadas à esquerda, uma embaixo da outra, com a seta do
+ * mesmo desenho dos cartões de abertura — que também são perguntas clicáveis, e
+ * já leem assim. Quem varre a lista lê as três primeiras palavras de cada uma
+ * na mesma coluna, que é como se escolhe entre três caminhos.
+ *
+ * O rótulo em cima existe porque sem ele estas frases ficam a um passo de
+ * parecer parte da resposta — dita como pergunta, ainda por cima.
+ */
+function ProximosPassos({
+  sugestoes,
+  aoEscolher,
+}: {
+  sugestoes: string[];
+  aoEscolher: (p: string) => void;
+}) {
+  return (
+    <div className="pt-2">
+      <h3 className="text-[0.6875rem] uppercase tracking-wide font-semibold text-muted-foreground mb-2">
+        Continuar a investigação
+      </h3>
+      <div className="flex flex-col gap-2">
+        {sugestoes.map((s) => (
+          <button
+            key={s}
+            type="button"
+            onClick={() => aoEscolher(s)}
+            className="group w-full text-left text-[0.875rem] leading-snug bg-card border border-card-border rounded-xl px-4 py-3 flex items-start gap-3 hover:border-brand hover:shadow-sm transition-[border-color,box-shadow]"
+          >
+            <span className="min-w-0 flex-1">{s}</span>
+            <ArrowRight
+              className="w-4 h-4 shrink-0 mt-0.5 text-muted-foreground group-hover:text-brand transition-colors"
+              aria-hidden
+            />
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function Abertura({ aoEscolher }: { aoEscolher: (p: string) => void }) {
   return (
@@ -597,7 +659,7 @@ function Composer({
   }, [valor, campo]);
 
   return (
-    <div className="px-8 pb-6 pt-2">
+    <div className="shrink-0 px-4 pb-6 pt-2 md:px-8">
       <div className="max-w-4xl mx-auto">
         <div
           className={cn(

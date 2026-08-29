@@ -13,6 +13,7 @@ import { LinhaDoTempoDeImpacto } from "@/components/linha-do-tempo/linha-do-temp
 import { LinhaDoTempoDeAlteracoes } from "@/components/linha-do-tempo/linha-do-tempo-de-alteracoes";
 import { LinhaDoTempoConsolidada } from "@/components/linha-do-tempo/linha-do-tempo-consolidada";
 import { nomeDaUnidade } from "@/lib/recorte";
+import { useVoltaDeVigencia } from "@/components/vigencia/voltar-de-vigencia";
 import { VisaoGeralConteudo } from "@/components/inicio/visao-geral-consolidada";
 import {
   SeletorDeVigencia,
@@ -161,6 +162,16 @@ export default function LinhaDoTempo() {
 
   const overview = visaoGeral ? (overviewQuery.data ?? null) : null;
 
+  /*
+    De onde a leitura saiu, para o botão de voltar do cartão de gráficos. Mora
+    aqui porque trocar a vigência refaz a consulta e desmonta o cartão
+    enquanto ela não responde.
+  */
+  const volta = useVoltaDeVigencia({
+    periodo: view?.period ?? null,
+    label: view?.periods.find((p) => p.date === view.period)?.label ?? null,
+  });
+
   const trocarPara = (mudancas: Record<string, string | null>) => {
     const proxima = new URLSearchParams(search);
     for (const [chave, valor] of Object.entries(mudancas)) {
@@ -257,6 +268,15 @@ export default function LinhaDoTempo() {
                 consulta={consulta}
                 periods={view.periods}
                 currentPeriod={view.period}
+                onEscolherVigencia={(periodo) => {
+                  volta.registrar();
+                  trocarPara({ period: periodo });
+                }}
+                voltarPara={volta.destino}
+                onVoltar={(periodo) => {
+                  volta.limpar();
+                  trocarPara({ period: periodo });
+                }}
               />
             )}
 
