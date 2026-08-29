@@ -18,14 +18,20 @@
  * os coletores é que são as integrações lentas.
  *
  * ---------------------------------------------------------------------------
- * O painel de todos os fluxos ainda não mora aqui
+ * O painel de todos os fluxos — a função que este arquivo prometia
  * ---------------------------------------------------------------------------
  *
  * A tela cruzada — "quais etapas de todos os fluxos estão vermelhas agora" —
- * pede as chaves de muitos fluxos numa colheita só, e é uma função a mais, no
- * dia em que existir coletor de verdade para alimentá-la. Ela vai usar as mesmas
- * três peças (`distribuir`, `colher`, `estadoDasEtapas`) e não pede nada novo
- * deste desenho: é o teste de que a divisão está no lugar certo.
+ * pede as chaves de muitos fluxos numa colheita só. Ela é `monitorarFluxos`, no
+ * fim deste arquivo, e não pediu nada novo do desenho: são as mesmas três peças
+ * (`listaDeChaves`, `colher`, `montarMonitoramento`), uma colheita para todos os
+ * fluxos, e o mesmo objeto por fluxo que a leitura individual já devolvia.
+ *
+ * Uma colheita só, e não uma por fluxo, porque a chave é o grão do pedido: dois
+ * fluxos que declaram `cte.emissao` são uma pergunta ao coletor, não duas — e
+ * `distribuir` já elimina a repetição. A alternativa (chamar `monitorarFluxo` em
+ * laço) multiplicaria as integrações lentas pelo número de fluxos cadastrados,
+ * que é o único custo real desta leitura.
  */
 
 import type { FluxoCompleto } from "../modelo";
@@ -97,4 +103,31 @@ export function montarMonitoramento(
     falhas: colheita.falhas,
     semColetor: colheita.orfas,
   };
+}
+
+/**
+ * O PAINEL CRUZADO — muitos fluxos, uma colheita, o mesmo objeto por fluxo.
+ *
+ * Recebe os `FluxoCompleto` **que quem chamou já leu** pelo repositório, pela
+ * mesma razão que `monitorarFluxo`: este módulo não consulta fluxo, e por isso
+ * não tem como esquecer o `where empresa_id`.
+ *
+ * `apuradoEm` é o mesmo instante para todos — é uma colheita só —, e é isso que
+ * permite a quem lê comparar dois fluxos sem perguntar se foram medidos na mesma
+ * hora. As `falhas` e as `semColetor` da resposta de cada fluxo são as da
+ * colheita inteira, e não as "daquele fluxo": um coletor que caiu apagou etapa
+ * em todo fluxo que dependia dele, e esconder isso de um dos fluxos seria a
+ * meia-verdade que o motor inteiro evita.
+ */
+export async function monitorarFluxos(
+  registro: RegistroDeColetores,
+  empresaId: string,
+  completos: readonly FluxoCompleto[],
+  opcoes: OpcoesDoMonitoramento = {},
+): Promise<Monitoramento[]> {
+  const chaves = [...new Set(completos.flatMap((c) => listaDeChaves(c)))];
+  const colheita = await colher(registro, { empresaId, chaves }, opcoes);
+  return completos.map((completo) =>
+    montarMonitoramento(completo, colheita, opcoes),
+  );
 }

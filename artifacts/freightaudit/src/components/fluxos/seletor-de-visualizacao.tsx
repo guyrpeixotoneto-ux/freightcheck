@@ -1,4 +1,5 @@
 import {
+  Activity,
   AlertTriangle,
   Map as MapIcon,
   Milestone,
@@ -32,6 +33,7 @@ import { VISUALIZACOES, type Visualizacao } from "@/lib/fluxos-visoes";
  * aparecer no seletor.
  */
 const ICONES: Record<string, LucideIcon> = {
+  Activity,
   Workflow,
   Rows3,
   Milestone,

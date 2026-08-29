@@ -58,8 +58,13 @@ import { VisaoGargalos } from "@/components/fluxos/visao-gargalos";
 import { VisaoJornada } from "@/components/fluxos/visao-jornada";
 import { VisaoLista } from "@/components/fluxos/visao-lista";
 import { VisaoMapa } from "@/components/fluxos/visao-mapa";
+import { VisaoMonitoramento } from "@/components/fluxos/visao-monitoramento";
 import { VisaoRaias } from "@/components/fluxos/visao-raias";
 import { useVisualizacaoDeFluxo } from "@/hooks/use-visualizacao-de-fluxo";
+import {
+  useMonitoramentoDoFluxo,
+  type Monitoramento,
+} from "@/lib/monitoramento-de-fluxo";
 import { analisarFluxo, corpoDasLinhas, listaDoPainelPorChave } from "@/lib/fluxos-analise";
 import { nomeSugerido, proximaPosicaoLivre } from "@/lib/fluxos-paleta";
 import {
@@ -260,6 +265,25 @@ export default function TelaDoFluxo() {
   const analise = useMemo(
     () => (completo && visualizacao === "gargalos" ? analisarFluxo(completo) : null),
     [completo, visualizacao],
+  );
+
+  /*
+    O monitoramento segue a mesma regra da análise acima: só é buscado quando
+    alguém está olhando para ele. A diferença é que ele **não** é derivado do
+    fluxo em memória — é uma leitura do servidor, que colhe os coletores na
+    hora. Buscá-lo junto do fluxo faria uma integração lenta atrasar o desenho
+    do processo, que é o que a tela precisa mostrar primeiro e mostra bem sem
+    farol nenhum.
+
+    A consulta vive aqui, na página, e não dentro da visualização, pelo mesmo
+    motivo que as escritas vivem aqui: `PropsDaVisao` diz que nenhuma projeção
+    busca dado por conta própria, e a sétima não abre exceção — ela recebe o
+    resultado pronto, como a Jornada recebe a lente e os Gargalos a análise.
+  */
+  const monitoramento = useMonitoramentoDoFluxo(
+    empresaId,
+    fluxoId,
+    visualizacao === "monitoramento",
   );
 
   const entrada = VISUALIZACOES.find((v) => v.valor === visualizacao) ?? VISUALIZACOES[0];
@@ -1028,6 +1052,13 @@ export default function TelaDoFluxo() {
                 lente={lente}
                 sinal={sinal}
                 onTrocarSinal={setSinal}
+                monitoramento={{
+                  dado: monitoramento.data,
+                  carregando: monitoramento.isPending,
+                  erro: monitoramento.error,
+                  recarregar: () => void monitoramento.refetch(),
+                  recarregando: monitoramento.isFetching,
+                }}
                 etapaSelecionada={selecionada}
                 onSelecionarEtapa={setSelecionada}
                 somenteLeitura={somenteLeitura}
@@ -1200,6 +1231,7 @@ function MotorDeVisualizacao({
   lente,
   sinal,
   onTrocarSinal,
+  monitoramento,
   ...props
 }: PropsDaVisaoNoCanvas & {
   visualizacao: Visualizacao;
@@ -1208,6 +1240,14 @@ function MotorDeVisualizacao({
   lente: LenteDaJornada;
   sinal: string;
   onTrocarSinal: (sinal: string) => void;
+  /** O farol apurado, e o estado da busca dele. Só a sétima visualização usa. */
+  monitoramento: {
+    dado: Monitoramento | undefined;
+    carregando: boolean;
+    erro: unknown;
+    recarregar: () => void;
+    recarregando: boolean;
+  };
 }) {
   switch (visualizacao) {
     case "raias":
@@ -1225,6 +1265,17 @@ function MotorDeVisualizacao({
           orientacao={orientacao}
           sinal={sinal}
           onTrocarSinal={onTrocarSinal}
+        />
+      );
+    case "monitoramento":
+      return (
+        <VisaoMonitoramento
+          {...props}
+          monitoramento={monitoramento.dado}
+          carregando={monitoramento.carregando}
+          erro={monitoramento.erro}
+          onRecarregar={monitoramento.recarregar}
+          recarregando={monitoramento.recarregando}
         />
       );
     case "fluxo":

@@ -7,6 +7,7 @@ import {
   atualizarEtapa,
   atualizarFluxo,
   CATALOGO,
+  conferirCobertura,
   criarConexao,
   criarEtapa,
   criarFluxo,
@@ -26,6 +27,8 @@ import {
   MODELOS,
   modeloPorSlug,
   modelosJaMapeados,
+  monitorarFluxo,
+  monitorarFluxos,
   organizarFluxo,
   RecusaDeFluxo,
   reposicionarEtapas,
@@ -36,11 +39,12 @@ import {
   trocarStatus,
   validarPosicoes,
 } from "@workspace/fluxos";
-import type { FluxoDeclarado } from "@workspace/fluxos";
+import type { FluxoCompleto, FluxoDeclarado } from "@workspace/fluxos";
 import {
   autorDaRequisicao,
   resolverEmpresa,
 } from "../lib/empresa-da-requisicao";
+import { registroDeMonitoramento } from "../lib/monitoramento";
 import { instrumentarCicloDaRequisicao } from "../lib/observabilidade";
 import { contextoDeSchema } from "../middlewares/contexto-de-schema";
 
@@ -81,6 +85,20 @@ const router: IRouter = Router();
 router.use("/fluxos", instrumentarCicloDaRequisicao);
 router.use(
   "/fluxos",
+  contextoDeSchema(
+    "Fluxos Operacionais não tem onde guardar os processos: as tabelas que a migration 0068_fluxos_operacionais cria não existem neste banco.",
+  ),
+);
+
+/*
+  O painel cruzado mora em `/monitoramento/fluxos` — namespace próprio, para que
+  nenhuma ordem de declaração possa fazê-lo cair no `GET /fluxos/:id`. O porquê
+  está por extenso na rota, no fim deste arquivo. Ele ganha os mesmos dois
+  middlewares do resto da superfície: é a mesma leitura, sobre as mesmas tabelas.
+*/
+router.use("/monitoramento", instrumentarCicloDaRequisicao);
+router.use(
+  "/monitoramento",
   contextoDeSchema(
     "Fluxos Operacionais não tem onde guardar os processos: as tabelas que a migration 0068_fluxos_operacionais cria não existem neste banco.",
   ),
@@ -130,6 +148,52 @@ router.get("/fluxos/:id", async (req, res): Promise<void> => {
   const completo = await lerFluxo(db, empresaId, req.params.id);
   if (!completo) throw new FluxoNaoEncontrado();
   res.json(completo);
+});
+
+/*
+  ---------------------------------------------------------------------------
+  MONITORAMENTO — a exposição do motor, e nada além dela
+  ---------------------------------------------------------------------------
+
+  Três leituras, nenhuma escrita. O que cada uma faz é: resolver a empresa,
+  pedir o fluxo ao **repositório** (o único lugar que lê fluxo, e o único que
+  aplica o `where empresa_id`), e entregar os dois a `@workspace/fluxos`. A cor,
+  a validade, o motivo do apagado, o pior farol e o resumo saem de lá inteiros —
+  não há nesta rota um `if` sobre farol, um limiar, uma segunda tabela de cores
+  nem um valor de reserva quando o coletor não responde.
+
+  **Ausência não vira normalidade em lugar nenhum deste caminho.** A rota não
+  preenche etapa sem leitura, não converte `SEM_DADO` em verde e não esconde
+  `falhas` nem `semColetor` da resposta: os dois viajam sempre, mesmo vazios,
+  porque um farol apagado por integração fora do ar precisa dizer isso a quem
+  está olhando.
+
+  **Nada é gravado.** Não há tabela de medições, não há farol persistido e não
+  há cache: a colheita é feita na leitura, e `apuradoEm` diz de que instante ela
+  é. Uma resposta desta rota é uma foto datada, e ela nunca finge tempo real.
+*/
+
+/** O farol de cada etapa de um fluxo, apurado agora. */
+router.get("/fluxos/:id/monitoramento", async (req, res): Promise<void> => {
+  const empresaId = await resolverEmpresa(req);
+  const completo = await lerFluxo(db, empresaId, req.params.id);
+  if (!completo) throw new FluxoNaoEncontrado();
+  res.json(await monitorarFluxo(registroDeMonitoramento(), empresaId, completo));
+});
+
+/**
+ * Quanto deste fluxo alguém realmente mede — sem colher nada.
+ *
+ * É a conta estática: quantas etapas, quantas declaram chave, quantas têm
+ * coletor, quais chaves estão sem dono e quais estão fora da forma combinada.
+ * Não chama coletor, e por isso responde igual com toda integração fora do ar —
+ * que é justamente quando alguém precisa dela.
+ */
+router.get("/fluxos/:id/cobertura", async (req, res): Promise<void> => {
+  const empresaId = await resolverEmpresa(req);
+  const completo = await lerFluxo(db, empresaId, req.params.id);
+  if (!completo) throw new FluxoNaoEncontrado();
+  res.json(conferirCobertura(completo, registroDeMonitoramento()));
 });
 
 router.post("/fluxos", async (req, res): Promise<void> => {
@@ -464,6 +528,66 @@ router.put("/fluxos/:id/etapas/:etapaId/acoes", async (req, res): Promise<void> 
   await substituirAcoes(db, empresaId, req.params.id, req.params.etapaId, req.body?.acoes);
   const completo = await lerFluxo(db, empresaId, req.params.id);
   res.json(completo?.etapas.find((e) => e.id === req.params.etapaId) ?? null);
+});
+
+/**
+ * O PAINEL CRUZADO — todos os fluxos da empresa numa colheita só.
+ *
+ * ---------------------------------------------------------------------------
+ * Por que o endereço é `/monitoramento/fluxos`, e não `/fluxos/monitoramento`
+ * ---------------------------------------------------------------------------
+ *
+ * `/fluxos/monitoramento` seria um caminho de dois segmentos disputado por dois
+ * padrões: o literal desta rota e o `:id` de `GET /fluxos/:id`. O express
+ * entrega ao primeiro que casa, então bastaria alguém reordenar as declarações
+ * deste arquivo — num rebase, ao mover um bloco, ao agrupar as rotas por verbo —
+ * para o painel virar uma leitura de fluxo com `id = "monitoramento"`. O
+ * sintoma seria um 404 de fluxo não encontrado no lugar do painel, e a causa não
+ * apareceria em revisão nenhuma: as duas linhas continuariam corretas
+ * separadamente.
+ *
+ * Nada disso é hipotético neste arquivo: `/fluxos/catalogo`, `/fluxos/de-modelo`,
+ * `/fluxos/semear`, `/fluxos/importar` e `/fluxos/roteiro` já dependem dessa
+ * ordem. A diferença é que os cinco são POST ou não colidem com o `GET
+ * /fluxos/:id`; um GET literal ao lado de um GET com parâmetro é a colisão de
+ * verdade — e a resposta certa a ela não é "declare antes", é **não ter dois
+ * padrões disputando o mesmo endereço**.
+ *
+ * Com um namespace próprio a ambiguidade deixa de existir por construção: não há
+ * ordem de declaração capaz de fazer `/monitoramento/fluxos` cair no `:id`, e
+ * `o-endereco-do-painel-nao-colide` prova isso pelo app de verdade.
+ *
+ * A empresa continua vindo de `resolverEmpresa`, os fluxos continuam vindo do
+ * repositório (com `where empresa_id` aplicado uma vez, onde ele mora), e o
+ * arquivado fica de fora: um processo que a empresa desligou não tem farol a
+ * mostrar.
+ */
+router.get("/monitoramento/fluxos", async (req, res): Promise<void> => {
+  const empresaId = await resolverEmpresa(req);
+  const lista = await listarFluxos(db, empresaId);
+  const completos: FluxoCompleto[] = [];
+  for (const linha of lista) {
+    const completo = await lerFluxo(db, empresaId, linha.id);
+    if (completo) completos.push(completo);
+  }
+  const monitoramentos = await monitorarFluxos(
+    registroDeMonitoramento(),
+    empresaId,
+    completos,
+  );
+  res.json({
+    empresaId,
+    fluxos: monitoramentos.map((monitoramento, i) => ({
+      fluxo: {
+        id: completos[i].fluxo.id,
+        nome: completos[i].fluxo.nome,
+        slug: completos[i].fluxo.slug,
+        categoria: completos[i].fluxo.categoria,
+        status: completos[i].fluxo.status,
+      },
+      monitoramento,
+    })),
+  });
 });
 
 export default router;
