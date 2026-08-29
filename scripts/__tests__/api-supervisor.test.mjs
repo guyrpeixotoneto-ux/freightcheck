@@ -11,8 +11,23 @@ import { EventEmitter } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApiSupervisor, tail } from "../lib/api-supervisor.mjs";
 
-/** Uma porta alta e improvável, diferente por teste para não haver corrida. */
-let proxima = 47_600;
+/**
+ * Uma porta livre por teste — **abaixo da faixa efêmera**, e deslocada pelo pid.
+ *
+ * A base era 47.600, e 47.600 está dentro da faixa que o Linux usa para porta de
+ * origem (32768–60999). Qualquer socket de cliente aberto por outro teste
+ * rodando ao mesmo tempo pode receber exatamente aquele número, e aí o
+ * explicador não consegue ocupar a porta: o supervisor registra o aviso e segue
+ * — é o comportamento certo dele —, e este teste vê `ECONNREFUSED` no lugar do
+ * 503 que veio conferir. Foi o que aconteceu no CI, no shard que roda onze
+ * pacotes ao mesmo tempo, e não é reprodutível de propósito: depende de qual
+ * porta o kernel sorteou para outra conexão naquele instante.
+ *
+ * Abaixo de 32768 o kernel não sorteia nada, então só colide com quem escuta ali
+ * de propósito; o deslocamento pelo pid separa duas execuções simultâneas do
+ * mesmo arquivo.
+ */
+let proxima = 20_000 + (process.pid % 5_000);
 const porta = () => proxima++;
 
 /** Um processo de mentira, com o mesmo contrato de `child_process`. */
