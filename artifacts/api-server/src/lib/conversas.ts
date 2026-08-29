@@ -44,38 +44,142 @@ function daPessoa(ownerId: string, conversationId?: string) {
 /** O nome que se dá a uma conversa que ainda não disse do que trata. */
 export const CONVERSA_SEM_ASSUNTO = "Nova conversa";
 
+/*
+  ---- caixa alta ----------------------------------------------------------
+
+  Os nomes de bloco e de parâmetro chegam do Book em CAIXA ALTA, porque é
+  assim que a planilha os escreve. A barra lateral repetia isso e ficava uma
+  coluna de gritos: PREÇO COMBUSTÍVEIS, CUSTO FIXO DE EQUIPAMENTOS. Título de
+  conversa é texto para ler de relance, não cabeçalho de tabela.
+
+  A conversão só acontece quando **não há nenhuma minúscula** no texto — quem
+  escreve "Preço de combustíveis" já decidiu a caixa, e ninguém mexe. As
+  siglas do domínio sobrevivem: elas são o que distingue um título do outro.
+*/
+
+/* prettier-ignore */
+const PALAVRAS_VAZIAS = new Set([
+  // artigos, preposições e conectivos
+  "a", "à", "ao", "aos", "as", "às", "com", "da", "das", "de", "do", "dos",
+  "e", "em", "na", "nas", "no", "nos", "o", "os", "ou", "para", "pela",
+  "pelas", "pelo", "pelos", "por", "pra", "que", "se", "um", "uma", "umas",
+  "uns",
+  // o que só faz sentido diante da tela: demonstrativos e pronomes
+  "aquele", "aquela", "aquilo", "aí", "ali", "aqui", "dela", "dele", "delas",
+  "deles", "disso", "dessa", "desse", "desta", "deste", "ela", "ele", "elas",
+  "eles", "essa", "esse", "esta", "este", "isso", "isto", "me", "mim", "meu",
+  "minha", "nisso", "você", "voce", "favor",
+]);
+
+function semAcento(palavra: string): string {
+  return palavra.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
+/* prettier-ignore */
+const SIGLAS = new Set([
+  "ADM", "ANTT", "CIF", "CNH", "CRLV", "DPVAT", "FINAME", "FIPE", "FOB",
+  "GNV", "ICMS", "IPVA", "PF", "PJ", "QLP", "RNTRC", "SP",
+]);
+
+/** Uma palavra que continua em caixa alta: sigla conhecida, curta ou sem vogal. */
+function ehSigla(palavra: string): boolean {
+  const nu = palavra.replace(/[^\p{L}\p{N}]/gu, "");
+  if (!nu) return false;
+  if (SIGLAS.has(nu)) return true;
+  if (PALAVRAS_VAZIAS.has(nu.toLowerCase())) return false;
+  if (nu.length <= 3) return true;
+  return !/[AEIOUÁÉÍÓÚÂÊÔÃÕÀ]/u.test(nu);
+}
+
+/** Deixa o texto legível quando ele vem todo em caixa alta. */
+export function emCaixaDeTitulo(texto: string): string {
+  if (/\p{Ll}/u.test(texto)) return texto;
+
+  const palavras = texto.split(/(\s+)/).map((p) => (ehSigla(p) ? p : p.toLowerCase()));
+
+  /*
+    A maiúscula volta só na primeira letra da frase — e só se a frase não
+    começar por sigla, senão "IPVA e licenciamento" viraria "IPVA E ...".
+  */
+  return palavras.join("").replace(/^\p{Ll}/u, (c) => c.toUpperCase());
+}
+
+/*
+  ---- o que a pergunta precisa ter para virar nome -------------------------
+
+  "me explica isso aí" e "quanto mudou?" não nomeiam nada: elas apontam para o
+  que já estava na tela. Um título feito delas não ajuda ninguém a reencontrar
+  a conversa daqui a duas semanas — nesse caso o assunto resolvido (o bloco do
+  Book, a gaveta) diz mais.
+
+  O teste é grosseiro de propósito: tirando artigos, preposições e os
+  demonstrativos que dependem do contexto, restam pelo menos três palavras?
+  Então a frase se sustenta sozinha e é ela que batiza a conversa.
+*/
+
+function nomeiaOAssunto(frase: string): boolean {
+  const palavras = frase
+    .toLowerCase()
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter(Boolean)
+    .filter((p) => !PALAVRAS_VAZIAS.has(p) && !PALAVRAS_VAZIAS.has(semAcento(p)));
+  return palavras.length >= 3;
+}
+
 /**
- * O título de uma conversa — **o assunto dela, não a primeira coisa digitada.**
+ * O título de uma conversa — **a pergunta que a abriu, quando ela se explica.**
  *
- * A barra lateral tinha meia dúzia de conversas chamadas "ola", porque o título
- * nascia da primeira pergunta e a primeira pergunta costuma ser um cumprimento.
- * O nome de uma conversa é a única coisa que quem procura por ela vê, e "ola"
- * não distingue nada de nada.
+ * A barra lateral tinha meia dúzia de conversas chamadas "ola", porque o
+ * título nascia da primeira linha digitada e a primeira linha costuma ser um
+ * cumprimento; a correção de então passou a nomear tudo pelo bloco do Book, e
+ * a lista virou outra coisa repetida — seis conversas chamadas "CUSTO FIXO DE
+ * EQUIPAMENTOS", indistinguíveis entre si.
  *
- * A ordem é do mais específico para o menos: o bloco do Book de que se falou, a
- * gaveta que se investigou, e só então a frase digitada. Quando nada disso
- * existe — um "bom dia" solto —, devolve `null`, e quem chama guarda um nome
- * provisório que a próxima pergunta substitui.
+ * Agora a ordem é a que o ChatGPT e o Claude usam: **quem batiza é a pergunta**,
+ * desde que ela nomeie o próprio assunto. Só quando a frase se apoia no que já
+ * estava na tela ("me explica isso aí") ou é um cumprimento é que o assunto
+ * resolvido entra como nome. Quando nada disso existe, devolve `null`, e quem
+ * chama guarda um nome provisório que a próxima pergunta substitui.
  */
 export function tituloDe(
   pergunta: string,
   assunto: { bloco?: string | null; parametro?: string | null } = {},
 ): string | null {
-  if (assunto.bloco) return assunto.bloco.slice(0, 200);
-  if (assunto.parametro) return assunto.parametro.slice(0, 200);
+  const daPergunta = tituloDaPergunta(pergunta);
+  if (daPergunta) return daPergunta;
+
+  if (assunto.bloco) return emCaixaDeTitulo(assunto.bloco).slice(0, 200);
+  if (assunto.parametro) return emCaixaDeTitulo(assunto.parametro).slice(0, 200);
+  return null;
+}
+
+/** A frase digitada como título, ou `null` quando ela não se sustenta sozinha. */
+function tituloDaPergunta(pergunta: string): string | null {
   if (ehSaudacao(pergunta)) return null;
 
-  const limpo = pergunta.replace(/\s+/g, " ").trim().replace(/[?!.]+$/, "");
+  const limpo = pergunta
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/[?!.]+$/, "");
   if (limpo.length < 6) return null;
-  if (limpo.length <= 60) return limpo;
+  if (!nomeiaOAssunto(limpo)) return null;
 
-  const corte = limpo.slice(0, 60);
+  const texto = emCaixaDeTitulo(limpo);
+  if (texto.length <= 60) return texto;
+
+  const corte = texto.slice(0, 60);
   const espaco = corte.lastIndexOf(" ");
   return `${corte.slice(0, espaco > 0 ? espaco : 60)}…`;
 }
 
+/*
+  A lista suaviza a caixa alta na leitura, e não com um UPDATE: as conversas
+  que já existem foram batizadas com o nome do bloco em CAIXA ALTA, e reescrever
+  a coluna apagaria o título que a pessoa por acaso tenha dado à mão. Quem
+  escreveu qualquer minúscula não é tocado (ver `emCaixaDeTitulo`).
+*/
 export async function listarConversas(db: Database, ownerId: string) {
-  return db
+  const linhas = await db
     .select({
       id: assistantConversationTable.id,
       title: assistantConversationTable.title,
@@ -86,6 +190,8 @@ export async function listarConversas(db: Database, ownerId: string) {
     .where(daPessoa(ownerId))
     .orderBy(desc(assistantConversationTable.updatedAt))
     .limit(100);
+
+  return linhas.map((c) => ({ ...c, title: emCaixaDeTitulo(c.title) }));
 }
 
 /** A conversa, se ela for desta pessoa. `null` quando não for — nunca 403. */

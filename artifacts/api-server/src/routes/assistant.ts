@@ -5,6 +5,7 @@ import {
   arquivarConversa,
   CONVERSA_SEM_ASSUNTO,
   criarConversa,
+  emCaixaDeTitulo,
   gravarTurno,
   guardarEstado,
   listarConversas,
@@ -141,7 +142,10 @@ router.get("/assistant/conversations/:id", async (req, res): Promise<void> => {
       res.status(404).json({ error: "Conversa não encontrada." });
       return;
     }
-    res.json({ conversa, mensagens: await mensagensDaConversa(db, conversa.id) });
+    res.json({
+      conversa: { ...conversa, title: emCaixaDeTitulo(conversa.title) },
+      mensagens: await mensagensDaConversa(db, conversa.id),
+    });
   } catch (err) {
     falhou(req, res, err, "Falha ao carregar uma conversa do Assistente");
   }
@@ -381,7 +385,7 @@ router.post("/assistant/ask", async (req, res): Promise<void> => {
     const corpo = {
       ...resposta,
       conversationId: conversa.id,
-      conversationTitle: conversa.title,
+      conversationTitle: emCaixaDeTitulo(conversa.title),
       messageId: gravado.respostaId,
     };
 
