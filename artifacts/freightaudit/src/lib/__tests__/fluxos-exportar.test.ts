@@ -637,3 +637,58 @@ describe("as fases no arquivo", () => {
     expect(svg).not.toContain("Sem área definida".toUpperCase());
   });
 });
+
+describe("a caixa do que acontece em paralelo, no arquivo", () => {
+  const CATALOGO_COM_SISTEMA: Catalogo = {
+    ...CATALOGO_COM_DECISAO,
+    tiposDeEtapa: [
+      ...CATALOGO_COM_DECISAO.tiposDeEtapa,
+      {
+        valor: "SISTEMA",
+        rotulo: "Sistema",
+        descricao: "",
+        forma: "retangulo",
+        classe: "",
+        icone: "Server",
+        plural: "Sistemas",
+      },
+    ],
+  };
+
+  const COM_PARALELO: FluxoCompleto = {
+    ...FLUXO,
+    etapas: [
+      etapa({ id: "a", nome: "Solicitação de emissão", area: "Emissão" }),
+      etapa({ id: "r", nome: "Rodopar", tipo: "SISTEMA", area: "Emissão", ordem: 1 }),
+      etapa({ id: "c", nome: "Connect", tipo: "SISTEMA", area: "Emissão", ordem: 2 }),
+      etapa({ id: "e", nome: "Emissão do CT-e", area: "Emissão", ordem: 3 }),
+    ],
+    conexoes: [
+      conexao({ id: "1", origemEtapaId: "a", destinoEtapaId: "r" }),
+      conexao({ id: "2", origemEtapaId: "a", destinoEtapaId: "c" }),
+      conexao({ id: "3", origemEtapaId: "r", destinoEtapaId: "e" }),
+      conexao({ id: "4", origemEtapaId: "c", destinoEtapaId: "e" }),
+    ],
+  };
+
+  const deitado = montarSvgDoFluxo(COM_PARALELO, CATALOGO_COM_SISTEMA, {
+    disposicao: "horizontal",
+  }).svg;
+
+  it("sai tracejada, e com o plural que o catálogo declara", () => {
+    /* Uma moldura tracejada — o cartão nunca é tracejado, então basta contá-las. */
+    const molduras = deitado.match(/<rect [^>]*stroke-dasharray/g) ?? [];
+    expect(molduras).toHaveLength(1);
+    expect(deitado).toContain("Sistemas · 2");
+  });
+
+  it("envolve os dois cartões — e os dois continuam desenhados", () => {
+    expect(deitado).toContain("Rodopar");
+    expect(deitado).toContain("Connect");
+  });
+
+  it("em pé não há caixa nenhuma: o bloco é uma leitura do desenho deitado", () => {
+    const emPe = montarSvgDoFluxo(COM_PARALELO, CATALOGO_COM_SISTEMA, {}).svg;
+    expect(emPe).not.toContain("Sistemas · 2");
+  });
+});
