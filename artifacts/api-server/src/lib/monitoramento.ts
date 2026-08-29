@@ -1,5 +1,9 @@
 import { db } from "@workspace/db";
-import { coletorDeAutorizacaoSefaz } from "@workspace/coletores";
+import {
+  coletorDeAutorizacaoSefaz,
+  coletorDeEmissaoDeCte,
+  coletorDeTransporte,
+} from "@workspace/coletores";
 import {
   registroDeColetores,
   type RegistroDeColetores,
@@ -37,19 +41,33 @@ import {
  * continua recebendo o fluxo que a rota já leu pelo repositório.
  *
  * ---------------------------------------------------------------------------
- * Um coletor, e a conta honesta
+ * Três coletores, e a conta honesta
  * ---------------------------------------------------------------------------
  *
- * Hoje a lista tem **um** coletor real, e os fluxos do catálogo declaram 33
- * chaves distintas. Ligar a rota não muda esse número: 32 chaves continuam sem
- * dono e as etapas delas continuam `SEM_DADO`, com o motivo `sem_coletor` dito
- * por extenso em cada uma. É o retrato correto, e é o que `GET /fluxos/:id/cobertura`
- * existe para mostrar de frente em vez de deixar como cinza mudo no meio da
- * resposta.
+ * A lista tem **três** coletores reais, e os fluxos do catálogo declaram 33
+ * chaves distintas. As outras 30 continuam sem dono, e as etapas delas continuam
+ * `SEM_DADO` com o motivo `sem_coletor` dito por extenso — é o retrato correto, e
+ * é o que `GET /fluxos/:id/cobertura` existe para mostrar de frente em vez de
+ * deixar como cinza mudo no meio da resposta.
+ *
+ * Os três leem o mesmo acervo de fechamento e são **três objetos, e não um**, de
+ * propósito: cada um faz uma afirmação diferente, com o nome dela, e a colheita
+ * isola falha por coletor (`colheita.ts`). Um coletor único respondendo pelas
+ * três chaves apagaria as três quando qualquer uma das consultas quebrasse, e a
+ * falha na tela sairia sem dizer qual medição se perdeu.
+ *
+ * A ordem aqui não decide nada: `registroDeColetores` resolve por prefixo, e
+ * dois coletores no mesmo prefixo são recusados no arranque em vez de escolhidos
+ * em silêncio. `cte.autorizacao_sefaz` e `cte.emissao` são prefixos distintos —
+ * chaves exatas, não espaços —, e por isso convivem sobre o mesmo 03.08.15.
  */
 let registro: RegistroDeColetores | null = null;
 
 export function registroDeMonitoramento(): RegistroDeColetores {
-  registro ??= registroDeColetores(coletorDeAutorizacaoSefaz(db));
+  registro ??= registroDeColetores(
+    coletorDeAutorizacaoSefaz(db),
+    coletorDeEmissaoDeCte(db),
+    coletorDeTransporte(db),
+  );
   return registro;
 }

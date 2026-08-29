@@ -261,12 +261,12 @@ describe("a resposta do monitoramento", () => {
     expect(apuradoEm).toBeLessThanOrEqual(depois + 1_000);
   });
 
-  it("nada fica verde sem coletor: 18 chaves, 1 com dono, e nenhuma cor acesa", async () => {
+  it("nada fica verde sem dado: 18 chaves, 3 com dono, e nenhuma cor acesa", async () => {
     /*
-      O retrato honesto do estado de hoje, e a razão de esta rota poder ser
-      ligada antes de existir o segundo coletor. O único coletor real lê o
-      extrato fiscal, que neste banco não existe — então ele não devolve nada, e
-      o silêncio dele é `sem_resposta`, nunca verde.
+      O retrato honesto do estado de hoje. Os três coletores ligados leem o
+      acervo de fechamento, que neste banco está vazio — então nenhum devolve
+      nada, e o silêncio dos três é `sem_resposta`, nunca verde. As outras
+      quinze chaves não têm dono, e dizem isso com `sem_coletor`.
     */
     const r = await chamar(
       `/api/fluxos/${fluxoDaA}/monitoramento?empresaId=${empresaA}`,
@@ -283,13 +283,14 @@ describe("a resposta do monitoramento", () => {
     expect(etapas.every((e) => e.farol === "SEM_DADO")).toBe(true);
     expect(etapas.some((e) => e.farol === "VERDE")).toBe(false);
 
-    /* As 17 chaves sem dono aparecem como sem dono, e não como cinza mudo. */
+    /* As 15 chaves sem dono aparecem como sem dono, e não como cinza mudo. */
     const semColetor = r.json.semColetor as string[];
-    expect(semColetor).toHaveLength(17);
-    expect(semColetor).not.toContain("cte.autorizacao_sefaz");
-    const daSefaz = etapas.find((e) => e.chave === "cte.autorizacao_sefaz");
-    expect(daSefaz?.motivo).toBe("sem_resposta");
-    expect(etapas.filter((e) => e.motivo === "sem_coletor")).toHaveLength(17);
+    expect(semColetor).toHaveLength(15);
+    for (const comDono of ["cte.autorizacao_sefaz", "cte.emissao", "operacao.transporte"]) {
+      expect(semColetor).not.toContain(comDono);
+      expect(etapas.find((e) => e.chave === comDono)?.motivo).toBe("sem_resposta");
+    }
+    expect(etapas.filter((e) => e.motivo === "sem_coletor")).toHaveLength(15);
   });
 
   it("as falhas viajam sempre na resposta, mesmo vazias", async () => {
@@ -321,15 +322,17 @@ describe("a cobertura", () => {
       fluxoId: fluxoDaA,
       etapas: 18,
       etapasComChave: 18,
-      etapasCobertas: 1,
+      etapasCobertas: 3,
       malFormadas: [],
     });
-    expect(r.json.semColetor).toHaveLength(17);
+    expect(r.json.semColetor).toHaveLength(15);
 
     const chaves = r.json.chaves as { chave: string; coletor: string | null }[];
-    const sefaz = chaves.find((c) => c.chave === "cte.autorizacao_sefaz");
-    expect(sefaz?.coletor).toBe("extrato-fiscal-03.08.15");
-    expect(chaves.filter((c) => c.coletor === null)).toHaveLength(17);
+    const dono = (chave: string) => chaves.find((c) => c.chave === chave)?.coletor;
+    expect(dono("cte.autorizacao_sefaz")).toBe("extrato-fiscal-03.08.15");
+    expect(dono("cte.emissao")).toBe("emissao-no-extrato-03.08.15");
+    expect(dono("operacao.transporte")).toBe("diario-operacional-2art");
+    expect(chaves.filter((c) => c.coletor === null)).toHaveLength(15);
   });
 
   it("o fluxo sem chave devolve zeros, e não um erro", async () => {
