@@ -64,9 +64,9 @@ Seis, todas novas. Nenhuma tabela existente foi alterada.
 | tabela | o que guarda |
 | --- | --- |
 | `fluxo_operacional` | o processo: nome, slug, categoria, status, versão, dono, carimbos |
-| `fluxo_etapa` | a etapa: tipo, ordem, área, responsável, textos, status, posição no canvas, chave de monitoramento |
+| `fluxo_etapa` | a etapa: tipo, ordem, área, responsável (texto e vínculo de cadastro), textos, status, posição no canvas, chave de monitoramento |
 | `fluxo_conexao` | a seta: origem, destino, tipo, rótulo/condição, ordem |
-| `fluxo_etapa_item` | sistemas, documentos, responsáveis, falhas e gargalos — uma linha por item, `especie` discrimina |
+| `fluxo_etapa_item` | sistemas, documentos, responsáveis, falhas e gargalos — uma linha por item, `especie` discrimina; o responsável pode apontar para o cadastro |
 | `fluxo_etapa_indicador` | nome, unidade, sentido desejado, origem futura do dado |
 | `fluxo_etapa_acao` | as consultas no FreightCheck: título, rota interna, parâmetros, ícone |
 
@@ -109,6 +109,42 @@ o detalhe não pode levar junto a etapa do pai. **Ciclo o banco não barra** (é
 alcançabilidade, não integridade referencial): quem barra é `ligarSubfluxo`, que
 percorre a trilha antes de gravar e recusa com `SUBFLUXO_EM_CICLO`.
 
+**O responsável como cadastro, e não como grafia (`0079`).** `fluxo_etapa` e
+`fluxo_etapa_item` ganharam as mesmas três colunas nulas — `departamento_id`,
+`cargo_id` e `app_user_id` —, apontando para o cadastro da casa (`0073`) e para
+`app_user`. O problema que elas resolvem é o que a tela de Cargos já tinha
+denunciado, reproduzido no mapa dos processos: uma etapa dizendo `Faturamento`,
+outra `FATURAMENTO` e uma terceira `Fat.` são três raias no fluxograma, três
+valores no filtro da Lista, e nenhuma resposta para "quantas etapas o
+Faturamento executa".
+
+**A identidade é o `id`; o texto é projeção.** `area`, `responsavel` e o `nome`
+do item continuam existindo e continuam sendo o que a tela mostra — mas quando o
+vínculo existe, `lerFluxo` os sobrescreve com o nome que está no cadastro
+**agora**. Renomear um departamento renomeia a raia em todos os processos de uma
+vez, e nenhum leitor (raia, filtro, exportação, Assistente) precisou saber que
+as colunas existem. É o que torna a mudança barata: seis colunas e uma função de
+projeção, em vez de um `join` em cada consulta.
+
+**A pessoa vem depois do papel, nunca no lugar dele.** Um processo sobrevive a
+quem o executa: gente muda de função e sai da empresa, e é por isso que
+`app_user.archived_at` existe. Uma etapa cujo único responsável fosse uma conta
+viraria etapa órfã no dia do desligamento, e o mapa exigiria reedição em massa a
+cada troca de time. A ordem de leitura é cargo, pessoa, departamento.
+
+**Nulos, e sem backfill.** Nulo é o estado de toda etapa anterior à `0079` e de
+toda etapa cujo responsável é uma função que ninguém cadastrou. Nenhum `UPDATE`
+tenta casar o texto existente com o cadastro: a canonização que decide se duas
+grafias são a mesma coisa mora em `canonizarNome`, em TypeScript, e uma segunda
+implementação em SQL divergiria no primeiro caractere que uma tratasse e a outra
+não. `Fat.` não é automaticamente `Faturamento`; quem sabe disso é quem edita a
+etapa. Numa casa que ainda não cadastrou nada, as telas voltam ao texto livre de
+sempre — nenhuma delas fica esperando cadastro para funcionar.
+
+`ON DELETE RESTRICT` nas seis chaves. Quem recusa antes, com o número de etapas
+na frase, é `excluirDepartamento`/`excluirCargo` em `lib/db/src/cadastro.ts`; a
+chave estrangeira é a rede embaixo.
+
 A alternativa recusada foi desenhar grupo dentro do canvas: posicionamento,
 conexões atravessando a borda, layout e exportação todos recursivos, e a
 Jornada (que é lista) virando árvore — mesmo ganho de leitura, custo uma ordem
@@ -130,6 +166,13 @@ acompanhou.
 
 Verificado: a fila inteira aplica do zero (`0000` … `0068`), e aplicar o
 `0068` duas vezes sobre o mesmo banco não produz erro.
+
+As migrations seguintes do módulo seguem o mesmo padrão — `0069`
+(`informacoes_consultadas`), `0070` (`subfluxo_id`), `0072` (falhas, gargalos e
+informações) e `0079` (o responsável como cadastro) —, e cada uma delas
+acrescenta os seus objetos ao `up` do bridge em `lib/db/src/bridge.ts`: as seis
+tabelas do módulo saem inteiras no `down`, então uma coluna que não fosse
+registrada lá voltaria faltando num Development restaurado.
 
 ---
 
@@ -472,6 +515,16 @@ régua — daí `montarCanvas`, `resumoDoCartao`, `itensPorEspecie` e
    e editar o detalhe da cópia mudaria o processo original sem aviso.
 9. **O canvas não é usável em tela de celular.** É responsivo no sentido de se
    ajustar à largura, mas desenhar processo em 375px não é o caso de uso.
+10. **O vínculo de cadastro não é obrigatório, e o texto livre continua
+    aceito.** É decisão, não pendência — exigir cadastro transformaria
+    "descrever um processo" em "cadastrar a estrutura da casa primeiro". O que
+    de fato falta é a ferramenta de arrumação: não há tela que mostre os
+    responsáveis ainda em texto livre e ofereça casá-los com o cadastro em
+    lote. Hoje isso se faz etapa a etapa.
+11. **O cargo escolhido não é filtrado pelo departamento da etapa.** Os três
+    selects são independentes: nada impede escolher `Faturamento` e um cargo
+    lotado na Controladoria. O cadastro sabe a lotação (`cargo.departamento_id`);
+    a tela ainda não a usa para estreitar a lista.
 
 ---
 

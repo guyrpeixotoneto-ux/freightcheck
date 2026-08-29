@@ -69,6 +69,23 @@ export interface ItemDaEtapa {
   obrigatorio: boolean | null;
   link: string | null;
   ordem: number;
+  /**
+   * O RESPONSÁVEL COMO CADASTRO — e por que `nome` continua aqui.
+   *
+   * Os três apontam para `departamento`, `cargo` e `app_user` (ver a `0079`).
+   * Quando um deles está preenchido, **`nome` é projeção**: `lerFluxo` o
+   * sobrescreve com o nome atual do cadastro antes de devolver a etapa. Por
+   * isso nenhum leitor deste modelo — raia, filtro, exportação, Assistente —
+   * precisou mudar para que renomear um departamento renomeasse em todos os
+   * processos de uma vez.
+   *
+   * Nulos nos três é o estado legítimo de quem escreveu o responsável à mão, e
+   * aí `nome` é o que foi digitado e nada o sobrescreve.
+   */
+  departamentoId: string | null;
+  cargoId: string | null;
+  /** A pessoa nomeada — `app_user`. Vem depois do papel, nunca no lugar dele. */
+  pessoaId: string | null;
 }
 
 export interface IndicadorDaEtapa {
@@ -100,6 +117,19 @@ export interface Etapa {
   ordem: number;
   responsavel: string | null;
   area: string | null;
+  /**
+   * O responsável da etapa como cadastro — o mesmo trio de `ItemDaEtapa`, um
+   * nível acima: aqui é quem responde pela etapa inteira, que é o que a raia
+   * do fluxograma e o filtro da Lista leem.
+   *
+   * `area` é projeção de `departamentoId`, e `responsavel` é projeção de
+   * `cargoId` ou, na falta dele, de `pessoaId` — nessa ordem, porque o papel
+   * vem antes da pessoa. Quando os três são nulos, os dois textos são o que
+   * alguém digitou, e valem como sempre valeram.
+   */
+  departamentoId: string | null;
+  cargoId: string | null;
+  pessoaId: string | null;
   objetivo: string | null;
   sistemaPrincipal: string | null;
   regras: string | null;
@@ -218,11 +248,21 @@ export interface EntradaDeFluxo {
 
 export interface EntradaDeItem {
   especie: EspecieDeItem;
-  nome: string;
+  /**
+   * Opcional **só** quando vem um vínculo de cadastro junto: aí o nome é o do
+   * departamento, do cargo ou da pessoa escolhida, e exigi-lo do cliente seria
+   * pedir que ele repetisse o que o servidor já sabe — e pode digitar
+   * diferente. Sem vínculo nenhum, continua obrigatório: um item sem nome e
+   * sem referência é uma linha que ninguém consegue identificar depois.
+   */
+  nome?: string | null;
   descricao?: string | null;
   obrigatorio?: boolean | null;
   link?: string | null;
   ordem?: number;
+  departamentoId?: string | null;
+  cargoId?: string | null;
+  pessoaId?: string | null;
 }
 
 export interface EntradaDeIndicador {
@@ -250,6 +290,9 @@ export interface EntradaDeEtapa {
   ordem?: number;
   responsavel?: string | null;
   area?: string | null;
+  departamentoId?: string | null;
+  cargoId?: string | null;
+  pessoaId?: string | null;
   objetivo?: string | null;
   sistemaPrincipal?: string | null;
   regras?: string | null;

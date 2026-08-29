@@ -367,3 +367,54 @@ describe("o endereço final de uma ação — a autoridade única da navegação
     );
   });
 });
+
+/**
+ * O RESPONSÁVEL COMO CADASTRO — a porta de entrada da `0079`.
+ *
+ * O que se prova aqui é só a forma: o que a validação aceita, o que ela recusa
+ * e com que código. Se o `id` aceito corresponde a um cadastro que existe é
+ * pergunta de banco, e está provada em `isolamento.test.ts` — inclusive a
+ * projeção do nome, que é a razão de o nome poder faltar.
+ */
+describe("os vínculos de cadastro do responsável", () => {
+  const UUID = "3f6b2b7e-1f4a-4c5e-9f1a-2b3c4d5e6f70";
+
+  it("um item com vínculo dispensa o nome — quem o põe é o cadastro", () => {
+    const item = validarItem({ especie: "RESPONSAVEL", departamentoId: UUID }, 0);
+    expect(item.nome).toBeNull();
+    expect(item.departamentoId).toBe(UUID);
+  });
+
+  it("sem nome e sem vínculo, continua recusado", () => {
+    expect(recusa(() => validarItem({ especie: "RESPONSAVEL" }, 0)).codigo).toBe("ITEM_SEM_NOME");
+  });
+
+  it("o nome digitado continua valendo quando não há vínculo", () => {
+    expect(validarItem({ especie: "RESPONSAVEL", nome: "  Operação  " }, 0).nome).toBe("Operação");
+  });
+
+  it("vínculo ausente é null, e nunca string vazia", () => {
+    const item = validarItem({ especie: "RESPONSAVEL", nome: "Operação", cargoId: "" }, 0);
+    expect(item.cargoId).toBeNull();
+    expect(item.pessoaId).toBeNull();
+  });
+
+  /*
+    A forma é conferida aqui e não no driver: `invalid input syntax for type
+    uuid` sobe como 500 e não diz qual campo era.
+  */
+  it("recusa um identificador que não tem forma de identificador", () => {
+    expect(recusa(() => validarItem({ especie: "RESPONSAVEL", cargoId: "Faturamento" }, 0)).codigo)
+      .toBe("VINCULO_INVALIDO");
+    expect(recusa(() => validarEntradaDeEtapa({ nome: "X", departamentoId: "abc" })).codigo).toBe(
+      "VINCULO_INVALIDO",
+    );
+  });
+
+  it("a etapa carrega os três, e eles chegam ao corpo de colunas", () => {
+    const etapa = validarEntradaDeEtapa({ nome: "Conferir", departamentoId: UUID, pessoaId: UUID });
+    expect(etapa.departamentoId).toBe(UUID);
+    expect(etapa.cargoId).toBeNull();
+    expect(etapa.pessoaId).toBe(UUID);
+  });
+});

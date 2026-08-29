@@ -164,6 +164,7 @@ export function validarEntradaDeEtapa(bruto: unknown): Required<
     descricao: longo(corpo.descricao, "A descrição", "ETAPA_TEXTO_LONGO"),
     responsavel: textoOpcional(corpo.responsavel),
     area: textoOpcional(corpo.area),
+    ...vinculosDoCadastro(corpo),
     objetivo: longo(corpo.objetivo, "O objetivo", "ETAPA_TEXTO_LONGO"),
     sistemaPrincipal: textoOpcional(corpo.sistemaPrincipal),
     regras: longo(corpo.regras, "As regras", "ETAPA_TEXTO_LONGO"),
@@ -246,18 +247,73 @@ export function validarEntradaDeConexao(
   };
 }
 
+
+/**
+ * O `id` de um cadastro — `departamento`, `cargo` ou `app_user`.
+ *
+ * Confere a **forma**, e só ela: um `uuid` mal formado chegaria ao driver como
+ * `invalid input syntax for type uuid`, um 500 que não diz qual campo era.
+ * Se aquele `uuid` bem formado corresponde a um cadastro que existe é outra
+ * pergunta, e ela se responde no banco — em `exigirVinculosConhecidos`, no
+ * repositório, que é quem tem como perguntar.
+ */
+const FORMA_DE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function idDeCadastro(valor: unknown, campo: string): string | null {
+  const texto = textoOpcional(valor);
+  if (texto === null) return null;
+  if (!FORMA_DE_UUID.test(texto)) {
+    throw new RecusaDeFluxo(
+      "VINCULO_INVALIDO",
+      `${campo} precisa ser o identificador de um cadastro, e recebi ${JSON.stringify(texto)}.`,
+    );
+  }
+  return texto;
+}
+
+/** Os três vínculos de cadastro, lidos de um corpo qualquer. */
+export function vinculosDoCadastro(corpo: Record<string, unknown>): {
+  departamentoId: string | null;
+  cargoId: string | null;
+  pessoaId: string | null;
+} {
+  return {
+    departamentoId: idDeCadastro(corpo.departamentoId, "O departamento"),
+    cargoId: idDeCadastro(corpo.cargoId, "O cargo"),
+    pessoaId: idDeCadastro(corpo.pessoaId, "A pessoa"),
+  };
+}
+
 export function validarItem(bruto: unknown, ordem: number): Required<EntradaDeItem> {
   const corpo = (bruto ?? {}) as Record<string, unknown>;
 
   if (!ehEspecieDeItem(corpo.especie)) {
     throw new RecusaDeFluxo("ITEM_ESPECIE_INVALIDA", `Espécie desconhecida: ${String(corpo.especie)}.`);
   }
-  const nome = aparar(
-    textoObrigatorio(corpo.nome, "O nome do item", "ITEM_SEM_NOME"),
-    LIMITE_DO_NOME,
-    "O nome do item",
-    "ITEM_NOME_LONGO",
-  );
+  const vinculos = vinculosDoCadastro(corpo);
+  const temVinculo =
+    vinculos.departamentoId !== null || vinculos.cargoId !== null || vinculos.pessoaId !== null;
+
+  /*
+    O nome é obrigatório **exceto** quando veio um vínculo de cadastro junto.
+
+    Com vínculo, exigi-lo do cliente seria pedir que ele repetisse o nome que o
+    servidor já tem — e que ele pode digitar diferente, recriando dentro da
+    linha a mesma divergência de grafia que o vínculo existe para acabar. Quem
+    preenche é o repositório, com o nome que está no cadastro agora (ver
+    `projetarVinculos`).
+
+    Sem vínculo nenhum, continua obrigatório e pela razão de sempre: um item sem
+    nome e sem referência é uma linha que ninguém consegue identificar depois.
+  */
+  const nomeDigitado = textoOpcional(corpo.nome);
+  if (nomeDigitado === null && !temVinculo) {
+    throw new RecusaDeFluxo("ITEM_SEM_NOME", "O nome do item não pode ficar em branco.");
+  }
+  const nome =
+    nomeDigitado === null
+      ? null
+      : aparar(nomeDigitado, LIMITE_DO_NOME, "O nome do item", "ITEM_NOME_LONGO");
 
   return {
     especie: corpo.especie,
@@ -266,6 +322,7 @@ export function validarItem(bruto: unknown, ordem: number): Required<EntradaDeIt
     obrigatorio: typeof corpo.obrigatorio === "boolean" ? corpo.obrigatorio : null,
     link: validarLinkExterno(corpo.link),
     ordem: inteiro(corpo.ordem, ordem, "ITEM_ORDEM_INVALIDA"),
+    ...vinculos,
   };
 }
 

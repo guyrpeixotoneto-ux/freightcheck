@@ -75,7 +75,14 @@ export function ListaEditavel<T extends Record<string, unknown>>({
             // eslint-disable-next-line react/no-array-index-key -- a linha não
             // tem identidade até ser gravada; o índice É a identidade dela aqui,
             // e a lista só muda por ação de quem edita.
-            <div key={indice} className="flex items-center gap-1.5">
+            /*
+              `flex-wrap` porque a lista de responsáveis passou a ter até três
+              selects antes do nome (departamento, cargo e pessoa): sem ele, a
+              linha estoura a largura do diálogo e o campo de descrição some
+              para fora da tela. As outras listas, com dois ou três campos, não
+              quebram e continuam iguais.
+            */
+            <div key={indice} className="flex flex-wrap items-center gap-1.5">
               {colunas.map((coluna) => {
                 const valor = item[coluna.campo];
                 if (coluna.tipo === "booleano") {

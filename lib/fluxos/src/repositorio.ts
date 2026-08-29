@@ -1,5 +1,8 @@
 import { and, asc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import {
+  appUserTable,
+  cargoTable,
+  departamentoTable,
   fluxoConexaoTable,
   fluxoEtapaAcaoTable,
   fluxoEtapaIndicadorTable,
@@ -186,6 +189,205 @@ export async function listarFluxos(
   }));
 }
 
+// ---------------------------------------------------------------------------
+// O responsável como cadastro — a projeção na leitura, a conferência na escrita
+// ---------------------------------------------------------------------------
+
+/**
+ * As três referências que uma etapa (ou uma linha da lista de responsáveis) faz
+ * ao cadastro da casa. Ver a `0079` e `schema/fluxo.ts` para o porquê delas.
+ */
+interface ReferenciaDeCadastro {
+  /*
+    Opcionais, e não `string | null`, porque quem chega aqui vem dos dois lados:
+    a linha lida do banco, que tem os três em `null`, e a entrada validada, que
+    os tem como opcionais. Um tipo que só aceitasse `null` obrigaria cada ponto
+    de chamada a normalizar a mesma coisa de novo.
+  */
+  departamentoId?: string | null;
+  cargoId?: string | null;
+  pessoaId?: string | null;
+}
+
+interface NomesDoCadastro {
+  departamentos: Map<string, string>;
+  cargos: Map<string, string>;
+  pessoas: Map<string, string>;
+}
+
+const SEM_NOMES: NomesDoCadastro = {
+  departamentos: new Map(),
+  cargos: new Map(),
+  pessoas: new Map(),
+};
+
+/**
+ * Os nomes atuais dos cadastros referenciados — três consultas, e nenhuma
+ * quando não há referência nenhuma.
+ *
+ * Três `inArray` em vez de três `join` na consulta das etapas, e é decisão, não
+ * atalho: a leitura do fluxo já roda cinco consultas em paralelo, e pendurar
+ * `LEFT JOIN` de departamento, cargo e conta em duas delas mudaria o formato
+ * das linhas que `comoEtapa` e `comoItem` recebem — que é o formato que os
+ * testes deste módulo conferem. Aqui a resolução fica num lugar só, e some
+ * inteira quando o fluxo não usa cadastro, que é o caso de todo fluxo anterior
+ * à `0079`.
+ */
+async function lerNomesDoCadastro(
+  db: Database,
+  referencias: ReferenciaDeCadastro[],
+): Promise<NomesDoCadastro> {
+  const distintos = (campo: keyof ReferenciaDeCadastro) => [
+    ...new Set(
+      referencias.map((r) => r[campo]).filter((id): id is string => typeof id === "string"),
+    ),
+  ];
+  const departamentos = distintos("departamentoId");
+  const cargos = distintos("cargoId");
+  const pessoas = distintos("pessoaId");
+  if (departamentos.length === 0 && cargos.length === 0 && pessoas.length === 0) return SEM_NOMES;
+
+  const [linhasDeDepartamento, linhasDeCargo, linhasDePessoa] = await Promise.all([
+    departamentos.length === 0
+      ? []
+      : db
+          .select({ id: departamentoTable.id, nome: departamentoTable.nome })
+          .from(departamentoTable)
+          .where(inArray(departamentoTable.id, departamentos)),
+    cargos.length === 0
+      ? []
+      : db
+          .select({ id: cargoTable.id, nome: cargoTable.nome })
+          .from(cargoTable)
+          .where(inArray(cargoTable.id, cargos)),
+    pessoas.length === 0
+      ? []
+      : db
+          .select({ id: appUserTable.id, nome: appUserTable.name })
+          .from(appUserTable)
+          .where(inArray(appUserTable.id, pessoas)),
+  ]);
+
+  const mapear = (linhas: { id: string; nome: string }[]) =>
+    new Map(linhas.map((l) => [l.id, l.nome]));
+
+  return {
+    departamentos: mapear(linhasDeDepartamento),
+    cargos: mapear(linhasDeCargo),
+    pessoas: mapear(linhasDePessoa),
+  };
+}
+
+/**
+ * O papel antes da pessoa, e a pessoa antes da área.
+ *
+ * Um item que aponta para o cargo `Analista Fiscal` dentro do departamento
+ * `Faturamento` se lê `Analista Fiscal`: é o mais específico que ainda descreve
+ * uma **função**, e é o que continua verdadeiro quando quem a ocupa muda. A
+ * pessoa vem depois porque nomear alguém é mais específico ainda e menos
+ * estável; o departamento vem por último porque é o que sobra quando só a área
+ * foi dita.
+ */
+function nomeDoVinculo(ref: ReferenciaDeCadastro, nomes: NomesDoCadastro): string | null {
+  if (ref.cargoId) return nomes.cargos.get(ref.cargoId) ?? null;
+  if (ref.pessoaId) return nomes.pessoas.get(ref.pessoaId) ?? null;
+  if (ref.departamentoId) return nomes.departamentos.get(ref.departamentoId) ?? null;
+  return null;
+}
+
+/**
+ * A etapa com `area` e `responsavel` projetados do cadastro.
+ *
+ * É aqui que a decisão da `0079` fica visível: quando o vínculo existe, o texto
+ * que sai é o nome que está no cadastro **agora**, e não o que estava lá quando
+ * alguém gravou. Renomear `Faturamento` renomeia a raia de todos os processos
+ * de uma vez, e nada além destas quatro linhas precisou saber disso.
+ *
+ * Vínculo que não resolve (um cadastro apagado por fora, o que o `RESTRICT` não
+ * deixa acontecer pela porta da frente) cai no texto gravado, e não em branco:
+ * perder o nome da área seria perder mais do que a referência.
+ */
+function projetarEtapa<
+  T extends ReferenciaDeCadastro & { area: string | null; responsavel: string | null },
+>(etapa: T, nomes: NomesDoCadastro): T {
+  const area = etapa.departamentoId
+    ? (nomes.departamentos.get(etapa.departamentoId) ?? etapa.area)
+    : etapa.area;
+  /*
+    O departamento é zerado de propósito antes de perguntar pelo responsável: no
+    cartão da etapa `area` e `responsavel` são dois campos, e deixar o
+    departamento cair no segundo faria "Faturamento · Faturamento" — a área
+    repetida como se fosse também o papel de quem executa.
+  */
+  const responsavel = nomeDoVinculo({ ...etapa, departamentoId: null }, nomes);
+  return { ...etapa, area, responsavel: responsavel ?? etapa.responsavel };
+}
+
+/**
+ * O `nome` que vai para a coluna — a mesma projeção, do lado da escrita.
+ *
+ * `fluxo_etapa_item.nome` é `NOT NULL`, e a validação passou a aceitar item sem
+ * nome quando ele traz um vínculo (ver `validarItem`). É aqui que as duas
+ * coisas se encontram: com vínculo, grava-se o nome do cadastro; sem vínculo, o
+ * que foi digitado — e um item sem os dois nunca chega até aqui, porque a
+ * validação o recusou antes.
+ *
+ * Gravar o nome, e não só o `id`, é redundância deliberada: a leitura projeta o
+ * nome atual por cima, então esta coluna nunca é o que a tela mostra quando há
+ * vínculo. Ela é o que sobra se o vínculo um dia deixar de resolver, e é o que
+ * faz `SELECT nome, count(*) … GROUP BY 1` — a consulta que `schema/fluxo.ts`
+ * usa para justificar a tabela — continuar respondendo sem três `join`.
+ */
+function nomeGravavelDoItem(
+  item: ReferenciaDeCadastro & { nome: string | null },
+  nomes: NomesDoCadastro,
+): string {
+  const doCadastro = nomeDoVinculo(item, nomes);
+  const nome = doCadastro ?? item.nome;
+  if (nome === null) {
+    throw new RecusaDeFluxo("ITEM_SEM_NOME", "O nome do item não pode ficar em branco.");
+  }
+  return nome;
+}
+
+/** O item com `nome` projetado do cadastro — mesma regra da etapa. */
+function projetarItem(item: ItemDaEtapa, nomes: NomesDoCadastro): ItemDaEtapa {
+  const nome = nomeDoVinculo(item, nomes);
+  return nome === null ? item : { ...item, nome };
+}
+
+/**
+ * Recusa um vínculo que não existe — antes de o Postgres recusar.
+ *
+ * A chave estrangeira já impede gravar um `departamento_id` inventado, e ela
+ * continua sendo a rede embaixo. O que ela não faz é explicar: a violação sobe
+ * como um erro de driver que nomeia a constraint, vira 500 e não diz a quem
+ * está na tela que o departamento escolhido foi apagado enquanto o painel
+ * estava aberto. Esta conferência transforma isso numa recusa com frase.
+ */
+async function exigirVinculosConhecidos(
+  db: Database,
+  referencias: ReferenciaDeCadastro[],
+): Promise<NomesDoCadastro> {
+  const nomes = await lerNomesDoCadastro(db, referencias);
+  for (const ref of referencias) {
+    const faltando: [string, string | null | undefined, Map<string, string>][] = [
+      ["O departamento", ref.departamentoId, nomes.departamentos],
+      ["O cargo", ref.cargoId, nomes.cargos],
+      ["A pessoa", ref.pessoaId, nomes.pessoas],
+    ];
+    for (const [campo, id, mapa] of faltando) {
+      if (typeof id === "string" && !mapa.has(id)) {
+        throw new RecusaDeFluxo(
+          "VINCULO_DESCONHECIDO",
+          `${campo} escolhido não está mais no cadastro. Recarregue a tela e escolha de novo.`,
+        );
+      }
+    }
+  }
+  return nomes;
+}
+
 /** O fluxo inteiro — etapas, conexões e todo o material das etapas. */
 export async function lerFluxo(
   db: Database,
@@ -264,7 +466,16 @@ export async function lerFluxo(
     return mapa;
   };
 
-  const itensPorEtapa = porEtapa(itens, (i) => i.etapaId, comoItem);
+  /*
+    Os nomes do cadastro, numa colheita só para o fluxo inteiro — e antes de
+    montar as etapas, porque é deles que `area`, `responsavel` e o `nome` de
+    cada responsável saem quando o vínculo existe. Ver `lerNomesDoCadastro`.
+  */
+  const nomesDoCadastro = await lerNomesDoCadastro(db, [...etapas, ...itens]);
+
+  const itensPorEtapa = porEtapa(itens, (i) => i.etapaId, (linha) =>
+    projetarItem(comoItem(linha), nomesDoCadastro),
+  );
   const indicadoresPorEtapa = porEtapa(indicadores, (i) => i.etapaId, comoIndicador);
   const acoesPorEtapa = porEtapa(acoes, (a) => a.etapaId, comoAcao);
 
@@ -286,7 +497,7 @@ export async function lerFluxo(
   return {
     fluxo: comoFluxo(linha),
     etapas: etapas.map((e) => ({
-      ...comoEtapa(e),
+      ...projetarEtapa(comoEtapa(e), nomesDoCadastro),
       itens: itensPorEtapa.get(e.id) ?? [],
       indicadores: indicadoresPorEtapa.get(e.id) ?? [],
       acoes: acoesPorEtapa.get(e.id) ?? [],
@@ -626,6 +837,9 @@ export async function duplicarFluxo(
       ordem: etapa.ordem,
       responsavel: etapa.responsavel,
       area: etapa.area,
+      departamentoId: etapa.departamentoId,
+      cargoId: etapa.cargoId,
+      pessoaId: etapa.pessoaId,
       objetivo: etapa.objetivo,
       sistemaPrincipal: etapa.sistemaPrincipal,
       regras: etapa.regras,
@@ -701,12 +915,18 @@ export async function criarEtapa(
 ): Promise<Etapa> {
   await exigirFluxo(db, empresaId, fluxoId);
   const entrada = validarEntradaDeEtapa(bruto);
+  const nomes = await exigirVinculosConhecidos(db, [paraColunasDeEtapa(entrada)]);
 
   const [linha] = await db
     .insert(fluxoEtapaTable)
     .values({ ...paraColunasDeEtapa(entrada), empresaId, fluxoId })
     .returning();
-  return { ...comoEtapa(linha), itens: [], indicadores: [], acoes: [] };
+  return {
+    ...projetarEtapa(comoEtapa(linha), nomes),
+    itens: [],
+    indicadores: [],
+    acoes: [],
+  };
 }
 
 export async function atualizarEtapa(
@@ -717,6 +937,7 @@ export async function atualizarEtapa(
   bruto: unknown,
 ): Promise<Etapa> {
   const entrada = validarEntradaDeEtapa(bruto);
+  const nomes = await exigirVinculosConhecidos(db, [paraColunasDeEtapa(entrada)]);
   const [linha] = await db
     .update(fluxoEtapaTable)
     .set({ ...paraColunasDeEtapa(entrada), atualizadoEm: new Date() })
@@ -729,7 +950,12 @@ export async function atualizarEtapa(
     )
     .returning();
   if (!linha) throw new EtapaNaoEncontrada();
-  return { ...comoEtapa(linha), itens: [], indicadores: [], acoes: [] };
+  return {
+    ...projetarEtapa(comoEtapa(linha), nomes),
+    itens: [],
+    indicadores: [],
+    acoes: [],
+  };
 }
 
 /**
@@ -1171,6 +1397,7 @@ export async function substituirItens(
 ): Promise<void> {
   await exigirEtapasDoFluxo(db, empresaId, fluxoId, [etapaId]);
   const lista = comoLista(brutos).map((item, i) => validarItem({ ...(item as object), especie }, i));
+  const nomes = await exigirVinculosConhecidos(db, lista);
 
   await db.transaction(async (tx) => {
     await tx
@@ -1190,11 +1417,14 @@ export async function substituirItens(
         fluxoId,
         etapaId,
         especie: item.especie,
-        nome: item.nome,
+        nome: nomeGravavelDoItem(item, nomes),
         descricao: item.descricao,
         obrigatorio: item.obrigatorio,
         link: item.link,
         ordem: item.ordem,
+        departamentoId: item.departamentoId,
+        cargoId: item.cargoId,
+        pessoaId: item.pessoaId,
       })),
     );
   });
@@ -1311,6 +1541,18 @@ export async function importarFluxo(
     }
   }
 
+  /*
+    Os vínculos de cadastro conferidos **fora** da transação, junto das outras
+    validações e antes de qualquer `insert`. É por aqui que passa a duplicação
+    de um fluxo, que copia os vínculos do original — e é aqui que um cadastro
+    apagado entre a leitura e a cópia vira recusa com frase em vez de violação
+    de chave estrangeira no meio da gravação.
+  */
+  const nomes = await exigirVinculosConhecidos(db, [
+    ...etapas.map((e) => e.colunas),
+    ...etapas.flatMap((e) => e.itens),
+  ]);
+
   return db.transaction(async (tx) => {
     const [ja] = await tx
       .select()
@@ -1363,7 +1605,13 @@ export async function importarFluxo(
         await tx
           .insert(fluxoEtapaItemTable)
           .values(
-            etapa.itens.map((item) => ({ empresaId, fluxoId: fluxo.id, etapaId, ...item })),
+            etapa.itens.map((item) => ({
+              empresaId,
+              fluxoId: fluxo.id,
+              etapaId,
+              ...item,
+              nome: nomeGravavelDoItem(item, nomes),
+            })),
           );
       }
       if (etapa.indicadores.length > 0) {
@@ -1509,6 +1757,12 @@ export async function acrescentarRoteiro(
     }
   }
 
+  /* Os vínculos, fora da transação e pela mesma razão de `importarFluxo`. */
+  const nomes = await exigirVinculosConhecidos(db, [
+    ...etapas.map((e) => e.colunas),
+    ...etapas.flatMap((e) => e.itens),
+  ]);
+
   return db.transaction(async (tx) => {
     const idPorChave = new Map<string, string>();
     for (const [indice, etapa] of etapas.entries()) {
@@ -1527,7 +1781,13 @@ export async function acrescentarRoteiro(
         await tx
           .insert(fluxoEtapaItemTable)
           .values(
-            etapa.itens.map((item) => ({ empresaId, fluxoId, etapaId: linha.id, ...item })),
+            etapa.itens.map((item) => ({
+              empresaId,
+              fluxoId,
+              etapaId: linha.id,
+              ...item,
+              nome: nomeGravavelDoItem(item, nomes),
+            })),
           );
       }
       if (etapa.indicadores.length > 0) {
@@ -1696,6 +1956,9 @@ function comoEtapa(linha: LinhaDeEtapa): Omit<Etapa, "itens" | "indicadores" | "
     ordem: linha.ordem,
     responsavel: linha.responsavel,
     area: linha.area,
+    departamentoId: linha.departamentoId,
+    cargoId: linha.cargoId,
+    pessoaId: linha.pessoaId,
     objetivo: linha.objetivo,
     sistemaPrincipal: linha.sistemaPrincipal,
     regras: linha.regras,
@@ -1733,6 +1996,9 @@ function comoItem(linha: LinhaDeItem): ItemDaEtapa {
     obrigatorio: linha.obrigatorio,
     link: linha.link,
     ordem: linha.ordem,
+    departamentoId: linha.departamentoId,
+    cargoId: linha.cargoId,
+    pessoaId: linha.pessoaId,
   };
 }
 
@@ -1768,6 +2034,9 @@ function paraColunasDeEtapa(entrada: ReturnType<typeof validarEntradaDeEtapa>) {
     ordem: entrada.ordem ?? 0,
     responsavel: entrada.responsavel ?? null,
     area: entrada.area ?? null,
+    departamentoId: entrada.departamentoId ?? null,
+    cargoId: entrada.cargoId ?? null,
+    pessoaId: entrada.pessoaId ?? null,
     objetivo: entrada.objetivo ?? null,
     sistemaPrincipal: entrada.sistemaPrincipal ?? null,
     regras: entrada.regras ?? null,
