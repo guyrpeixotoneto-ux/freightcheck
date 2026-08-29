@@ -9,6 +9,8 @@ import {
   Fuel,
   Loader2,
   MessageSquare,
+  Mic,
+  MicOff,
   MoreHorizontal,
   Plus,
   Send,
@@ -19,6 +21,7 @@ import {
 import { Layout } from "@/components/layout/layout";
 import { ApiErrorNotice } from "@/components/api-error";
 import { Mensagem } from "@/components/assistente/mensagem";
+import { useDitado } from "@/components/assistente/ditado";
 import { SeletorDeRecorte, type RecorteEscolhido } from "@/components/assistente/recorte";
 import type {
   Capacidades,
@@ -540,6 +543,8 @@ function Composer({
   campo: React.RefObject<HTMLTextAreaElement | null>;
   aviso: string | null;
 }) {
+  const ditado = useDitado({ valor, aoTexto: onChange });
+
   useEffect(() => {
     const el = campo.current;
     if (!el) return;
@@ -550,7 +555,12 @@ function Composer({
   return (
     <div className="px-8 pb-6 pt-2">
       <div className="max-w-4xl mx-auto">
-        <div className="bg-card border border-input rounded-xl px-4 pt-3 pb-3 focus-within:border-brand transition-colors">
+        <div
+          className={cn(
+            "bg-card border rounded-xl px-4 pt-3 pb-3 transition-colors",
+            ditado.ouvindo ? "border-destructive" : "border-input focus-within:border-brand",
+          )}
+        >
           <textarea
             ref={campo}
             value={valor}
@@ -563,13 +573,57 @@ function Composer({
             }}
             rows={1}
             maxLength={1000}
-            placeholder="Digite sua pergunta aqui..."
+            placeholder={ditado.ouvindo ? "Ouvindo — pode falar." : "Digite sua pergunta aqui..."}
             className="w-full resize-none bg-transparent text-[0.9375rem] outline-none max-h-[200px] placeholder:text-muted-foreground"
           />
           <div className="flex items-end justify-between gap-3 pt-2">
-            <p className="text-[0.6875rem] text-muted-foreground">
-              {aviso ?? "Enter envia · Shift+Enter quebra linha"}
+            {/*
+              Enquanto o microfone está aberto, o rodapé diz isso e some com o
+              atalho do Enter: as duas frases no mesmo lugar disputariam a
+              única linha que confirma que a fala está sendo ouvida.
+            */}
+            <p
+              className={cn(
+                "text-[0.6875rem]",
+                ditado.erro
+                  ? "text-destructive"
+                  : ditado.ouvindo
+                    ? "text-destructive"
+                    : "text-muted-foreground",
+              )}
+            >
+              {ditado.erro ??
+                (ditado.ouvindo
+                  ? "Ouvindo… clique no microfone para parar."
+                  : (aviso ?? "Enter envia · Shift+Enter quebra linha"))}
             </p>
+            {/*
+              O microfone só existe onde o navegador transcreve. Um botão que
+              não grava manda procurar o defeito no Assistente, quando ele está
+              no navegador — ver `ditado.ts`.
+            */}
+            {ditado.disponivel && (
+              <button
+                type="button"
+                onClick={ditado.alternar}
+                disabled={ocupado}
+                aria-label={ditado.ouvindo ? "Parar de ditar" : "Ditar a pergunta"}
+                aria-pressed={ditado.ouvindo}
+                title={ditado.ouvindo ? "Parar de ditar" : "Falar em vez de digitar"}
+                className={cn(
+                  "w-10 h-10 shrink-0 ml-auto rounded-lg flex items-center justify-center transition-colors disabled:opacity-40 disabled:cursor-not-allowed",
+                  ditado.ouvindo
+                    ? "bg-destructive text-destructive-foreground"
+                    : "border border-input text-muted-foreground hover:bg-muted hover:text-foreground",
+                )}
+              >
+                {ditado.ouvindo ? (
+                  <MicOff className="w-4 h-4" />
+                ) : (
+                  <Mic className="w-4 h-4" />
+                )}
+              </button>
+            )}
             <button
               type="button"
               onClick={onEnviar}
