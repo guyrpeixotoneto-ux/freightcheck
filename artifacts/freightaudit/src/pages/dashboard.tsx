@@ -62,10 +62,16 @@ import {
 import { juntarPrioridades } from "@/lib/cockpit";
 import { lerRecorte, linkDeAlteracoes, nomeDaUnidade, type Recorte } from "@/lib/recorte";
 import { DetalheDaFamilia } from "@/components/inicio/detalhe-da-familia";
+import type { UnidadeDoDrill } from "@/lib/drill-da-familia";
 import { unidadesPorImpacto } from "@/components/inicio/visao-geral-consolidada";
 import { Sparkline } from "@/components/dashboard/sparkline";
 import { AnelDeCobertura } from "@/components/dashboard/anel-de-cobertura";
-import { GraficoDeImpacto, pontosDeImpacto, type PontoDeImpacto } from "@/components/dashboard/grafico-de-impacto";
+import { GraficoDeImpacto, type PontoDeImpacto } from "@/components/dashboard/grafico-de-impacto";
+import { useSerieDeImpacto, useSerieDeImpactoGeral } from "@/lib/serie-de-impacto";
+import {
+  BotaoDeVoltarVigencia,
+  useVoltaDeVigencia,
+} from "@/components/vigencia/voltar-de-vigencia";
 import { iconeDaAlteracao } from "@/components/dashboard/icone-da-alteracao";
 import {
   SeletorDeVigencia,
@@ -200,110 +206,52 @@ export default function Dashboard() {
   // agora.
   const atualizadoEm = visaoGeral ? overviewQuery.dataUpdatedAt : vigencia.dataUpdatedAt;
 
-  // A janela do gráfico de impacto — as últimas competências que a própria
-  // vigência já lista, nunca mais que seis e nunca uma competência que não
-  // exista.
-  const janela = useMemo(() => {
-    if (!view || view.periods.length <= 1) return null;
-    const ordenadas = [...view.periods].sort((a, b) => a.date.localeCompare(b.date));
-    return ordenadas.slice(-6);
-  }, [view]);
+  /*
+    A série do gráfico de impacto — a mesma conta que o Resumo executivo lê,
+    num hook só (`lib/serie-de-impacto.ts`). A janela de seis vigências, o
+    intervalo pedido ao servidor e a periodicidade que manda no eixo moram lá:
+    escritas em duas telas, bastaria uma delas mudar para as duas passarem a
+    desenhar gráficos diferentes do mesmo dado.
+  */
+  const serieDaUnidade = useSerieDeImpacto(visaoGeral ? null : view, consulta);
+  /*
+    O gráfico sai **depois** do conteúdo principal, não junto com ele.
+
+    `useSerieDeImpactoGeral` lê `/changes/range/overview`, e as duas leituras de
+    overview do Dashboard custam 243 ms e 21 ms quando medidas sozinhas, mas
+    625 ms e 607 ms quando disparam no mesmo instante: cada uma abre um leque de
+    consultas por unidade, e as duas disputam os mesmos núcleos e o mesmo pool.
+    Medido na abertura fria, a última resposta chegava aos 921 ms e 65% da
+    jornada era esse par (`docs/AUDITORIA-ZERO-LOADING.md`, §2 e §3.1);
+    adiando a segunda, o conteúdo útil saiu de 951 ms para 569 ms.
+
+    Esta série não alimenta a resposta principal da tela — os quatro
+    indicadores, o líquido e a fila saem de `overviewQuery`. Segurá-la até o
+    conteúdo principal existir não atrasa nada que alguém esteja esperando.
+
+    A guarda é `!overviewQuery.isLoading`, e não `overviewQuery.data`, por causa
+    do `placeholderData`: numa troca de competência `isLoading` já é `false` (há
+    o dado anterior em tela), e o gráfico acompanha a troca sem esperar de novo.
+    O adiamento vale só para a **primeira** leitura, que é a única em que havia
+    disputa.
+  */
+  const serieGeral = useSerieDeImpactoGeral(
+    periodosOverview,
+    periodoOverviewEfetivo,
+    overview,
+    visaoGeral && !overviewQuery.isLoading,
+  );
 
   /*
-    A mesma janela em Visão Geral, tirada das competências que **alguma**
-    unidade entregou (`periodosOverview`) e nunca do histórico de uma unidade
-    só: a Visão Geral não tem uma unidade a quem perguntar, e usar a primeira
-    da lista faria o eixo do gráfico depender de quem chegou primeiro no
-    banco. Termina na competência aberta — competência posterior à que a tela
-    está mostrando não entra num gráfico que fala dela.
+    De onde a leitura saiu, para o botão de voltar dentro do gráfico. Mora
+    aqui, e não no gráfico: trocar a vigência refaz a consulta e desmonta o
+    corpo da tela enquanto ela não responde.
   */
-  const janelaGeral = useMemo(() => {
-    if (!visaoGeral || periodoOverviewEfetivo === null) return null;
-    const ate = [...periodosOverview]
-      .sort((a, b) => a.localeCompare(b))
-      .filter((data) => data <= periodoOverviewEfetivo);
-    return ate.length > 1 ? ate.slice(-6) : null;
-  }, [visaoGeral, periodosOverview, periodoOverviewEfetivo]);
-
-  /*
-    O intervalo lido é o histórico inteiro, e não a janela de seis do gráfico:
-    é a mesma leitura que o seletor de "Trocar vigência" faz para contar as
-    alterações de cada competência (`opcoesDoIntervaloGeral`), e ler as duas
-    pontas do histórico faz das duas uma requisição só. O gráfico continua
-    desenhando só a janela — `serieGeral` recorta os pontos logo abaixo.
-
-    É isso que faz o menu do Dashboard abrir com a mesma coluna de alterações
-    do menu do Resumo executivo: a contagem já está no cache quando alguém
-    clica no botão, em vez de sair uma varredura nova a cada abertura.
-  */
-  /*
-    E ela sai **depois** do conteúdo principal, não junto com ele.
-
-    As duas leituras de overview do Dashboard custam 243 ms e 21 ms quando
-    medidas sozinhas, e 625 ms e 607 ms quando disparam no mesmo instante: cada
-    uma abre um leque de consultas por unidade, e as duas disputam os mesmos
-    núcleos e o mesmo pool. Medido na abertura fria: a última resposta chegava
-    aos 921 ms, e 65% da jornada inteira era esse par
-    (`docs/AUDITORIA-ZERO-LOADING.md`, §2 e §3.1).
-
-    Esta consulta não alimenta a resposta principal da tela — os quatro
-    indicadores, o líquido e a fila saem de `overviewQuery`. Ela alimenta o
-    gráfico de impacto por competência e a coluna de alterações do seletor de
-    vigência, que são o segundo e o terceiro olhar. Segurá-la até o conteúdo
-    principal existir não atrasa nada que alguém esteja esperando, e devolve ao
-    `overviewQuery` os núcleos que ela tomava.
-
-    A guarda é `!overviewQuery.isLoading`, e não `overviewQuery.data`, por
-    causa do `placeholderData`: numa troca de competência `isLoading` já é
-    `false` (há o dado anterior em tela), e o gráfico acompanha a troca sem
-    esperar de novo. O adiamento vale só para a **primeira** leitura, que é a
-    única em que havia disputa. Se `overviewQuery` falhar, esta não sai — e não
-    teria o que desenhar de qualquer forma.
-  */
-  const rangeGeralQuery = useQuery({
-    ...opcoesDoIntervaloGeral(
-      periodosOverview[periodosOverview.length - 1] ?? null,
-      periodosOverview[0] ?? null,
-    ),
-    enabled: visaoGeral && periodosOverview.length > 1 && !overviewQuery.isLoading,
-  });
-
-  /*
-    A série do gráfico em Visão Geral, na periodicidade dominante da soma —
-    a mesma que manda no cartão de Impacto líquido logo acima dele. Sem esse
-    acordo o gráfico desenharia R$/ano embaixo de um número em R$/mês, que é
-    a mistura de escala que o produto recusa em toda tela.
-  */
-  const serieGeral = useMemo<PontoDeImpacto[]>(() => {
-    const dominante = ladosDoImpacto(overview)[0]?.periodicity ?? null;
-    const pontos = rangeGeralQuery.data?.serie;
-    if (!dominante || !pontos || !janelaGeral) return [];
-    const naJanela = new Set(janelaGeral);
-    return pontos
-      .filter((ponto) => naJanela.has(ponto.period))
-      .map((ponto) => {
-        const lado = ponto.byPeriodicity[dominante] ?? { gains: 0, losses: 0 };
-        return {
-          periodo: ponto.period,
-          label: ponto.label,
-          ganhos: lado.gains,
-          perdas: lado.losses,
-          liquido: Number((lado.gains + lado.losses).toFixed(2)),
-        };
-      });
-  }, [rangeGeralQuery.data, overview, janelaGeral]);
-
-  const rangeQuery = useQuery({
-    queryKey: ["dashboard-impacto", consulta.toString(), janela?.[0]?.date ?? "", view?.period ?? ""],
-    queryFn: () => {
-      const q = new URLSearchParams(consulta);
-      q.delete("period");
-      q.set("from", janela![0].date);
-      q.set("to", view!.period);
-      return fetchJsonOrNull<Movimentos>(`/changes/range?${q}`);
-    },
-    enabled: !visaoGeral && !!view && !!janela,
-    staleTime: 60_000,
+  const pontosDesenhados = visaoGeral ? serieGeral : serieDaUnidade.pontos;
+  const vigenciaAberta = visaoGeral ? periodoOverviewEfetivo : (view?.period ?? null);
+  const volta = useVoltaDeVigencia({
+    periodo: vigenciaAberta,
+    label: pontosDesenhados.find((ponto) => ponto.periodo === vigenciaAberta)?.label ?? null,
   });
 
   const trocarPara = (mudancas: Record<string, string | null>) => {
@@ -339,15 +287,6 @@ export default function Dashboard() {
       <div className="px-8 py-6 space-y-5 max-w-[1600px]">
         {visaoGeral ? (
           <>
-            {/*
-              O loader só existe para a **primeira** leitura — aquela em que não
-              há nada em tela para preservar. `isLoading` é `isPending &&
-              isFetching`, e com `placeholderData` o status de uma chave nova já
-              nasce `success` sobre o dado anterior: numa troca de competência
-              esta linha não é mais alcançada, e é isso que faz a tela deixar de
-              piscar. Quando ela é alcançada, é porque de fato não há o que
-              mostrar, e aí um aviso é a resposta honesta.
-            */}
             {overviewQuery.isLoading && (
               <p className="text-sm text-muted-foreground">Carregando o Dashboard…</p>
             )}
@@ -361,18 +300,29 @@ export default function Dashboard() {
                 `isPlaceholderData` é o único sinal que quer dizer "a chave
                 mudou e a resposta dela ainda não chegou". Um `isFetching` no
                 lugar dele acenderia o indicador também num refetch de fundo da
-                mesma competência, onde não há nada a declarar.
+                mesma competência, onde não há nada a declarar. O `space-y-5`
+                repete o do contêiner acima: `space-y` só alcança filhos
+                diretos, e sem ele esta envoltória colaria os cartões.
               */
               <div className={cn("space-y-5", classeDeAtualizacao(overviewQuery.isPlaceholderData))}>
-                <ConteudoGeral
-                  overview={overview}
-                  atualizadoEm={atualizadoEm}
-                  onTrocar={trocarPara}
-                  serie={serieGeral}
-                  familiaAberta={familiaAberta}
-                  onAbrirFamilia={(code) => trocarPara({ familia: code })}
-                  onFecharFamilia={() => trocarPara({ familia: null })}
-                />
+              <ConteudoGeral
+                overview={overview}
+                atualizadoEm={atualizadoEm}
+                onTrocar={trocarPara}
+                serie={serieGeral}
+                familiaAberta={familiaAberta}
+                onAbrirFamilia={(code) => trocarPara({ familia: code })}
+                onFecharFamilia={() => trocarPara({ familia: null })}
+                onEscolherVigencia={(periodo) => {
+                  volta.registrar();
+                  trocarPara({ period: periodo });
+                }}
+                voltarPara={volta.destino}
+                onVoltar={(periodo) => {
+                  volta.limpar();
+                  trocarPara({ period: periodo });
+                }}
+              />
               </div>
             )}
           </>
@@ -387,16 +337,24 @@ export default function Dashboard() {
             {!vigencia.isLoading && !vigencia.error && view === null && <BancoVazio />}
             {view && (
               <div className={cn("space-y-5", classeDeAtualizacao(vigencia.isPlaceholderData))}>
-                <ConteudoDaUnidade
-                  view={view}
-                  recorte={recorte}
-                  atualizadoEm={atualizadoEm}
-                  movimentos={rangeQuery.data ?? null}
-                  familiaAberta={familiaAberta}
-                  onAbrirFamilia={(code) => trocarPara({ familia: code })}
-                  onFecharFamilia={() => trocarPara({ familia: null })}
-                  onEscolherVigencia={(periodo) => trocarPara({ period: periodo })}
-                />
+              <ConteudoDaUnidade
+                view={view}
+                recorte={recorte}
+                atualizadoEm={atualizadoEm}
+                serie={serieDaUnidade}
+                familiaAberta={familiaAberta}
+                onAbrirFamilia={(code) => trocarPara({ familia: code })}
+                onFecharFamilia={() => trocarPara({ familia: null })}
+                onEscolherVigencia={(periodo) => {
+                  volta.registrar();
+                  trocarPara({ period: periodo });
+                }}
+                voltarPara={volta.destino}
+                onVoltar={(periodo) => {
+                  volta.limpar();
+                  trocarPara({ period: periodo });
+                }}
+              />
               </div>
             )}
           </>
@@ -452,7 +410,7 @@ function Cabecalho({
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-3">
             <h1 className="text-[2rem] font-extrabold tracking-tight leading-tight">
-              Dashboard — {visaoGeral ? "Visão Geral" : (unidade ?? "")}
+              Impacto Líquido — {visaoGeral ? "Visão Geral" : (unidade ?? "")}
             </h1>
             <EmAtualizacao ativo={atualizando} />
           </div>
@@ -626,48 +584,31 @@ function ConteudoDaUnidade({
   view,
   recorte,
   atualizadoEm,
-  movimentos,
+  serie,
   familiaAberta,
   onAbrirFamilia,
   onFecharFamilia,
   onEscolherVigencia,
+  voltarPara,
+  onVoltar,
 }: {
   view: FamiliesView;
   recorte: ReturnType<typeof lerRecorte>;
   atualizadoEm: number;
-  movimentos: Movimentos | null;
+  /** A série do gráfico, já pronta — ver `lib/serie-de-impacto.ts`. */
+  serie: { pontos: PontoDeImpacto[]; periodicity: string | null };
   familiaAberta: string | null;
   onAbrirFamilia: (code: string) => void;
   onFecharFamilia: () => void;
   onEscolherVigencia: (periodo: string) => void;
+  voltarPara: { periodo: string; label: string } | null;
+  onVoltar: (periodo: string) => void;
 }) {
   const cobertura = coberturaDePreco(view.totals.changes, view.impact.notCalculable);
   const principal = ladosDoImpacto(view)[0] ?? null;
   const dominante = impactosDaVigencia(view)[0]?.periodicity ?? null;
 
-  /*
-    As vigências do gráfico são as do **intervalo pedido**, e não todas as que o
-    contexto tem.
-
-    `movimentos.periods` lista o histórico inteiro do contexto; `entries` traz
-    só o que foi comparado entre `from` e `to` (a janela de seis vigências que
-    esta tela monta). Cruzar os dois desenhava um ponto para cada vigência
-    antiga com `ganhos: 0, perdas: 0` — e zero aqui não é "não mudou nada", é
-    "não foi perguntado". Num banco com dez vigências, quatro barras nasciam
-    encostadas no zero afirmando estabilidade sobre um trecho que a consulta
-    nem cobriu; numa delas o dado real era −R$ 75.903/mês.
-
-    Filtrar pelas próprias pontas que a resposta anuncia mantém a janela e o
-    desenho na mesma fonte: se `from`/`to` mudarem, o eixo muda junto, sem uma
-    segunda régua de recorte escrita aqui.
-  */
-  const { pontos, periodicity } = useMemo(() => {
-    if (!movimentos) return { pontos: [] as PontoDeImpacto[], periodicity: null as string | null };
-    const ordenadas = movimentos.periods
-      .filter((p) => p.date >= movimentos.from && p.date <= movimentos.to)
-      .sort((a, b) => a.date.localeCompare(b.date));
-    return pontosDeImpacto(ordenadas, movimentos.entries, dominante);
-  }, [movimentos, dominante]);
+  const { pontos, periodicity } = serie;
 
   // As sparklines dos cartões só valem quando descrevem a mesma periodicidade
   // do número grande ao lado — misturar R$/mês no número e R$/ano na linha
@@ -677,6 +618,24 @@ function ConteudoDaUnidade({
     principal && periodicity === principal.periodicity && pontos.length >= 2
       ? { ganhos: pontos.map((p) => p.ganhos), perdas: pontos.map((p) => p.perdas) }
       : null;
+
+  /*
+    A unidade aberta, na mesma forma que a Visão Geral usa para cada uma das
+    suas — uma lista de um item.
+
+    A gaveta não precisa saber em qual das duas leituras está: o degrau por
+    unidade mostra a única que existe aqui, e o degrau por placa pergunta a ela
+    com o `scopeHash` dela, que é o mesmo caminho da Visão Geral. Escrever dois
+    caminhos para o mesmo clique é como as duas leituras começariam a divergir.
+  */
+  const unidades: UnidadeDoDrill[] = [
+    {
+      chave: view.context.scopeHash,
+      label: nomeDaUnidade(view.context),
+      contexts: [{ scopeHash: view.context.scopeHash, channel: view.context.channel }],
+      summary: view.summary,
+    },
+  ];
 
   return (
     <>
@@ -700,10 +659,13 @@ function ConteudoDaUnidade({
         periodLabel={view.periodLabel}
         vigenciaAtiva={view.period}
         recorte={recorte}
+        unidades={unidades}
         familiaAberta={familiaAberta}
         onAbrirFamilia={onAbrirFamilia}
         onFecharFamilia={onFecharFamilia}
         onEscolherVigencia={onEscolherVigencia}
+        voltarPara={voltarPara}
+        onVoltar={onVoltar}
       />
 
       <PrincipaisAlteracoes linhas={linhasDaUnidade(view, recorte)} />
@@ -742,10 +704,13 @@ function ImpactoEPodio({
   periodLabel,
   recorte,
   vigenciaAtiva,
+  unidades,
   familiaAberta,
   onAbrirFamilia,
   onFecharFamilia,
   onEscolherVigencia,
+  voltarPara,
+  onVoltar,
   notaDoGrafico,
 }: {
   pontos: PontoDeImpacto[];
@@ -762,12 +727,23 @@ function ImpactoEPodio({
      separada de `period` porque a Visão Geral tem competência aberta (e por
      isso barra acesa e clique) mesmo sem uma unidade a quem abrir a gaveta. */
   vigenciaAtiva: string | null;
+  /**
+   * As unidades por trás destes números — uma dentro de uma unidade, todas as
+   * consolidadas em Visão Geral.
+   *
+   * É o que faz cada parâmetro da gaveta abrir por unidade e, dentro dela,
+   * placa a placa. Vazia, a gaveta continua sendo a mesma leitura de antes.
+   */
+  unidades: UnidadeDoDrill[];
   familiaAberta: string | null;
   onAbrirFamilia: (code: string) => void;
   onFecharFamilia: () => void;
   /* Clicar numa barra do gráfico troca a vigência aberta — a tela inteira
      passa a falar da vigência clicada, e não só o gráfico. */
   onEscolherVigencia: (periodo: string) => void;
+  /** O caminho de volta do gráfico — a lembrança fica na página. */
+  voltarPara: { periodo: string; label: string } | null;
+  onVoltar: (periodo: string) => void;
   notaDoGrafico?: string;
 }) {
   /*
@@ -797,7 +773,16 @@ function ImpactoEPodio({
         para mostrar: a distância entre uma vigência e a seguinte.
       */}
       <section className={cn(CARTAO, "px-6 py-5")}>
-        <h2 className="text-base font-bold mb-1">Impacto das alterações por vigência</h2>
+        {/*
+          O botão de voltar fica no canto superior direito do cartão, na linha
+          do título: é o canto onde a tela guarda a saída, e ali ele aparece
+          mesmo quando o gráfico não tem o que desenhar — dentro do gráfico, a
+          vigência sem série levava embora o próprio caminho de volta.
+        */}
+        <div className="flex items-start justify-between gap-3 mb-1">
+          <h2 className="text-base font-bold">Impacto das alterações por vigência</h2>
+          <BotaoDeVoltarVigencia destino={voltarPara} onVoltar={(periodo) => onVoltar?.(periodo)} />
+        </div>
         <p className="text-xs text-muted-foreground mb-4">
           {notaDoGrafico ??
             "Ganhos e perdas divergindo do zero, com o líquido por cima. Uma barra por vigência entregue — duas no mesmo mês aparecem pelo dia, nunca somadas."}
@@ -849,6 +834,8 @@ function ImpactoEPodio({
         period={period}
         periodLabel={periodLabel}
         recorte={recorte}
+        unidades={unidades}
+        vigencia={vigenciaAtiva}
         onFechar={onFecharFamilia}
       />
     </div>
@@ -924,6 +911,9 @@ function ConteudoGeral({
   familiaAberta,
   onAbrirFamilia,
   onFecharFamilia,
+  onEscolherVigencia,
+  voltarPara,
+  onVoltar,
 }: {
   overview: FamiliesOverview;
   atualizadoEm: number;
@@ -932,11 +922,28 @@ function ConteudoGeral({
   familiaAberta: string | null;
   onAbrirFamilia: (code: string) => void;
   onFecharFamilia: () => void;
+  onEscolherVigencia: (periodo: string) => void;
+  voltarPara: { periodo: string; label: string } | null;
+  onVoltar: (periodo: string) => void;
 }) {
   const cobertura = coberturaDePreco(overview.summary.changes, overview.summary.notCalculable);
   const principal = ladosDoImpacto(overview)[0] ?? null;
   const dominante = principal?.periodicity ?? null;
   const { totals } = overview.consolidado;
+
+  /*
+    Quem entrou na soma — e é por isso que a gaveta consegue abrir um parâmetro
+    por unidade sem pedir nada ao servidor: cada unidade incluída já viaja com o
+    seu próprio resumo executivo dentro da mesma resposta que desenhou o pódio.
+    Um segundo pedido seriam duas vigências possíveis, e é assim que o número da
+    gaveta deixaria de bater com o de cima.
+  */
+  const unidades: UnidadeDoDrill[] = overview.unitsIncluded.map((u) => ({
+    chave: u.unidade,
+    label: u.label,
+    contexts: u.contexts.map((c) => ({ scopeHash: c.scopeHash, channel: c.channel })),
+    summary: u.summary,
+  }));
 
   // A mesma disciplina do modo Unidade: a sparkline só acompanha o número
   // grande quando as duas descrevem a mesma periodicidade.
@@ -989,10 +996,13 @@ function ConteudoGeral({
           que acende a barra e recebe o clique.
         */
         vigenciaAtiva={overview.period}
+        unidades={unidades}
         familiaAberta={familiaAberta}
         onAbrirFamilia={onAbrirFamilia}
         onFecharFamilia={onFecharFamilia}
-        onEscolherVigencia={(periodo) => onTrocar({ period: periodo })}
+        onEscolherVigencia={onEscolherVigencia}
+        voltarPara={voltarPara}
+        onVoltar={onVoltar}
         notaDoGrafico="Ganhos e perdas de todas as unidades incluídas, com o líquido por cima. Uma barra por competência — a unidade sem vigência naquela competência não entra nela."
       />
 
@@ -1023,10 +1033,11 @@ function ConteudoGeral({
       />
 
       <p className="text-xs text-muted-foreground">
-        A gaveta de detalhe por parâmetro abre dentro de cada unidade — a soma Geral não mescla a
-        árvore de parâmetros entre elas. Os números por periodicidade dos cartões continuam sendo
-        soma de unidades; a contagem de veículos da faixa do topo diz, ali mesmo, se é união de
-        ativos distintos ou soma.
+        No pódio, cada parâmetro abre por unidade e, dentro dela, placa a placa com o antes e o
+        depois — a soma Geral não mescla a árvore de parâmetros entre unidades, então esse degrau
+        é lido unidade por unidade, no recorte de cada uma. Os números por periodicidade dos
+        cartões continuam sendo soma de unidades; a contagem de veículos da faixa do topo diz, ali
+        mesmo, se é união de ativos distintos ou soma.
       </p>
     </>
   );

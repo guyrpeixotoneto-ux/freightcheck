@@ -72,7 +72,7 @@ import {
 } from "@/lib/ambiente";
 import { useAmbiente } from "@/lib/ambiente-aberto";
 import { useAuth } from "@/lib/auth";
-import { useContextosDaCasca, type Contexto } from "@/lib/contextos";
+import { contextoAberto, useContextosDaCasca, type Contexto } from "@/lib/contextos";
 import {
   enderecoDe,
   enderecoDeVisaoGeral,
@@ -711,7 +711,7 @@ function UnidadeAberta() {
     já devolve.
   */
   const pedido = new URLSearchParams(search).get("scopeHash");
-  const atual = contextos.find((c) => c.scopeHash === pedido) ?? contextos[0];
+  const atual = contextoAberto(contextos, pedido);
   /*
     Visão Geral é a outra altura do mesmo seletor, não uma unidade — por isso
     não muda `atual` acima. `TELAS_QUE_HONRAM_ESCOPO` continua resolvendo

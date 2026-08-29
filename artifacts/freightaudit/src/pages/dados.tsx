@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Link } from "wouter";
+import { Link, useLocation, useSearch } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Layout } from "@/components/layout/layout";
 import { ApiErrorNotice } from "@/components/api-error";
@@ -18,6 +18,10 @@ import type {
   VisaoDaCobertura,
 } from "@/components/cobertura/tipos";
 import { fetchJson } from "@/lib/api";
+import { escopoDaCobertura, paramsDaCobertura } from "@/lib/cobertura";
+import { useContextosDaCasca } from "@/lib/contextos";
+import { enderecoDeVisaoGeral } from "@/lib/navegacao-do-escopo";
+import { nomeDaUnidade } from "@/lib/recorte";
 import { cn } from "@/lib/utils";
 
 /**
@@ -30,6 +34,15 @@ import { cn } from "@/lib/utils";
  * E, quando a resposta é não: o que falta, onde falta, desde quando falta, por
  * que acreditamos que falta, qual análise isso afeta e de qual arquivo o dado
  * veio ou viria.
+ *
+ * **A tela é de uma unidade — a que a lateral nomeia.** Não era: `/coverage` ia
+ * sem recorte e a matriz voltava com o acervo inteiro, cinco unidades uma
+ * embaixo da outra, enquanto a caixa "Unidade atual" ao lado escrevia
+ * PERNAMBUCO. Os 89,7% eram verdade sobre uma população que a tela não
+ * nomeava, e o nome ao lado deles era de outra. O recorte agora sai do endereço
+ * e, na falta dele, da mesma `contextoAberto` que a lateral usa (ver
+ * `lib/cobertura.ts`); a soma continua existindo e passou a ser pedida por
+ * escrito, com `visaoGeral=1`.
  *
  * **A tela não calcula nada.** Uma única chamada a `/coverage` traz resumo,
  * matriz, lacunas e descobertas já medidos e já classificados por
@@ -90,14 +103,48 @@ export default function Dados() {
   const [avancados, setAvancados] = useState(false);
   const clienteDeConsultas = useQueryClient();
 
+  /*
+    De quem é esta tela — ver `lib/cobertura.ts`.
+
+    A medição segue a unidade aberta na lateral, e não o acervo inteiro: o
+    endereço manda quando traz `scopeHash`, e quando não traz vale a mesma
+    `contextoAberto` que a caixa "Unidade atual" usa para se escrever. Era a
+    peça que faltava, e a falta aparecia como contradição: cinco unidades na
+    matriz debaixo do nome de uma.
+  */
+  const search = useSearch();
+  const [pathname] = useLocation();
+  const { contextos, carregando: carregandoContextos } = useContextosDaCasca();
+  const escopo = escopoDaCobertura({
+    contextos,
+    carregando: carregandoContextos,
+    pathname,
+    search,
+  });
+  const unidade = escopo.contexto ? nomeDaUnidade(escopo.contexto) : null;
+
   const consulta = useQuery({
-    queryKey: ["coverage", vigencias, criticidade, equipamento],
-    queryFn: () => {
-      const query = new URLSearchParams({ vigencias: String(vigencias) });
-      if (criticidade !== "TODAS") query.set("criticidade", criticidade);
-      if (equipamento !== "TODOS") query.set("equipamento", equipamento);
-      return fetchJson<VisaoDaCobertura>(`/coverage?${query}`);
-    },
+    /*
+      O recorte entra na chave, e antes das opções da tela.
+
+      Sem ele, trocar de unidade devolveria do cache a medição da anterior — a
+      chave *é* a identidade da consulta no React Query, e duas populações sob a
+      mesma chave são uma só para ele.
+    */
+    queryKey: [
+      "coverage",
+      escopo.visaoGeral ? "todas" : (escopo.contexto?.scopeHash ?? null),
+      escopo.contexto?.channel ?? null,
+      vigencias,
+      criticidade,
+      equipamento,
+    ],
+    queryFn: () =>
+      fetchJson<VisaoDaCobertura>(
+        `/coverage?${paramsDaCobertura(escopo, { vigencias, criticidade, equipamento })}`,
+      ),
+    /* Medir antes de saber de quem mostraria o acervo e depois se corrigiria. */
+    enabled: !escopo.indefinido,
     retry: false,
   });
 
@@ -149,17 +196,56 @@ export default function Dados() {
   return (
     <Layout>
       <div className="px-10 py-6 max-w-[1600px]">
-        <h1 className="text-3xl font-bold uppercase tracking-tight">Cobertura de dados</h1>
+        <h1 className="text-3xl font-bold uppercase tracking-tight">
+          Cobertura de dados
+          {escopo.visaoGeral ? " — Todas as unidades" : unidade ? ` — ${unidade}` : ""}
+        </h1>
+        {/*
+          O recorte é dito no cabeçalho, e não deduzido da caixa da lateral.
+
+          Os números desta tela — cobertura geral, lacunas, conjuntos parciais —
+          são de uma população, e uma tela que não a nomeia deixa quem lê supor
+          qual é. Enquanto a medição era do acervo inteiro, a suposição natural
+          era a unidade escrita ao lado, e ela estava errada.
+        */}
         <p className="text-sm text-muted-foreground mt-1 max-w-4xl">
-          O que já temos versus o que deveríamos ter, consolidando todas as importações. O que
-          entrou está em{" "}
+          O que já temos versus o que deveríamos ter{" "}
+          {escopo.visaoGeral ? (
+            <>somando todas as unidades com vigência importada</>
+          ) : unidade !== null ? (
+            <>
+              em <span className="font-semibold text-foreground">{unidade}</span>
+              {escopo.contexto?.channel ? ` · ${escopo.contexto.channel}` : ""}
+            </>
+          ) : (
+            <>no acervo inteiro</>
+          )}
+          . O que entrou está em{" "}
           <Link href="/importacoes" className="text-brand hover:underline">
             Importações
           </Link>
           ; o que chegou com problema, em Qualidade de dados.
+          {/*
+            A soma é um link, e não um segundo seletor de unidade: quem quer
+            outra unidade usa o da lateral, que é o único lugar onde essa
+            pergunta é feita (ver `sidebar.tsx`). O caminho de volta é ele
+            mesmo — por isso aqui só existe a ida.
+          */}
+          {!escopo.visaoGeral && contextos.length > 1 && (
+            <>
+              {" "}
+              <Link
+                href={enderecoDeVisaoGeral(pathname, search)}
+                className="text-brand hover:underline"
+              >
+                Ver todas as unidades
+              </Link>
+              .
+            </>
+          )}
         </p>
 
-        {consulta.isLoading && (
+        {(consulta.isLoading || escopo.indefinido) && (
           <p className="mt-8 text-sm text-muted-foreground">Medindo a cobertura…</p>
         )}
 
@@ -173,12 +259,44 @@ export default function Dados() {
         */}
         {semMedicao && semVigencia && (
           <div className="mt-8 bg-card border border-l-[6px] border-l-brand px-6 py-4 text-sm">
-            <strong>Nenhuma vigência importada ainda.</strong> Não há cobertura a medir — a
-            primeira planilha promovida abre esta tela.{" "}
-            <Link href="/importacoes" className="text-brand font-semibold hover:underline">
-              Enviar a primeira
-            </Link>
-            .
+            {/*
+              A frase é sobre a população medida, e a população mudou.
+
+              "Nenhuma vigência importada ainda" era afirmação sobre o acervo, e
+              continuar dizendo isso numa tela recortada por unidade seria
+              anunciar um acervo vazio por causa de uma unidade que ainda não
+              entregou planilha — com as outras quatro cheias, a um clique.
+            */}
+            {unidade !== null && !escopo.visaoGeral ? (
+              <>
+                <strong>Nenhuma vigência importada em {unidade}.</strong> Não há cobertura a
+                medir nesta unidade.{" "}
+                {contextos.length > 1 && (
+                  <>
+                    <Link
+                      href={enderecoDeVisaoGeral(pathname, search)}
+                      className="text-brand font-semibold hover:underline"
+                    >
+                      Ver todas as unidades
+                    </Link>{" "}
+                    ou{" "}
+                  </>
+                )}
+                <Link href="/importacoes" className="text-brand font-semibold hover:underline">
+                  enviar a planilha dela
+                </Link>
+                .
+              </>
+            ) : (
+              <>
+                <strong>Nenhuma vigência importada ainda.</strong> Não há cobertura a medir — a
+                primeira planilha promovida abre esta tela.{" "}
+                <Link href="/importacoes" className="text-brand font-semibold hover:underline">
+                  Enviar a primeira
+                </Link>
+                .
+              </>
+            )}
           </div>
         )}
 
@@ -196,8 +314,9 @@ export default function Dados() {
               {consulta.data!.colunas.length === 1
                 ? "uma vigência importada"
                 : `${consulta.data!.colunas.length} vigências importadas`}{" "}
-              nesta janela, e nenhuma delas traz o equipamento escolhido. Volte o filtro para
-              "todos" ou amplie a janela de vigências.
+              nesta janela{unidade !== null && !escopo.visaoGeral ? ` em ${unidade}` : ""}, e
+              nenhuma delas traz o equipamento escolhido. Volte o filtro para "todos" ou amplie
+              a janela de vigências.
             </div>
 
             <Filtros
@@ -422,7 +541,9 @@ function Filtros({
 
       {avancados && (
         <p className={cn("basis-full text-xs text-muted-foreground max-w-4xl")}>
-          Unidade, canal, família, atributo e entidade são investigados pelo drill-down: clique na
+          Unidade e canal não são filtros desta fileira: eles vêm do seletor da lateral, que é o
+          único lugar do produto onde essa pergunta é feita — e a soma de todas está no link do
+          cabeçalho. Família, atributo e entidade são investigados pelo drill-down: clique na
           célula da matriz para descer ao conjunto, e na lacuna para chegar às placas. É onde a
           pergunta específica nasce, e onde ela tem contexto para ser respondida — um filtro de
           atributo aqui em cima exigiria escolher entre 138 nomes antes de saber qual procurar.

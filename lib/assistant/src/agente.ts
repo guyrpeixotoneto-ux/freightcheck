@@ -251,6 +251,8 @@ export interface Investigacao {
   parou: "RESPONDEU" | "TETO_DE_RODADAS" | "TETO_DE_TOKENS" | "RECUSA" | "ERRO";
   medicao: {
     modelo: string;
+    /** O modelo que o provedor serviu; `null` quando não houve resposta. */
+    modeloProvider: string | null;
     esforco: string;
     latenciaMs: number;
     tokensEntrada: number;
@@ -355,6 +357,8 @@ export async function investigar(pedido: PedidoDeInvestigacao): Promise<Investig
   let rodadas = 0;
   /** O próximo número de citação livre. Ver `comCabecalhoDeFonte`. */
   let proximaFonte = 1;
+  /** O modelo que o provedor serviu, lido da última resposta que chegou. */
+  let modeloProvider: string | null = null;
 
   const fim = (
     texto: string | null,
@@ -368,6 +372,7 @@ export async function investigar(pedido: PedidoDeInvestigacao): Promise<Investig
     parou,
     medicao: {
       modelo: MODELO,
+      modeloProvider,
       esforco: ESFORCO,
       latenciaMs: Date.now() - comecou,
       tokensEntrada,
@@ -418,6 +423,7 @@ export async function investigar(pedido: PedidoDeInvestigacao): Promise<Investig
         messages: mensagens,
       });
 
+      modeloProvider = resposta.model ?? modeloProvider;
       if (resposta.usage) {
         tokensEntrada += resposta.usage.input_tokens ?? 0;
         tokensSaida += resposta.usage.output_tokens ?? 0;

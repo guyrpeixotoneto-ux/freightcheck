@@ -110,12 +110,16 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
         vigilância — o que a Ambev mudou de uma vigência para a outra, antes de
         se aprofundar em qualquer outra ferramenta. Um item só, como Compras:
         quem entra aqui vem checar mudança, não navegar uma seção inteira.
+
+        A seção continua se chamando Dashboard; o módulo dentro dela chama-se
+        Impacto Líquido, que é o que a tela responde — quanto a mudança da
+        competência custou, líquido, na Visão Geral ou na unidade aberta.
       */
       titulo: "Dashboard",
       descricao: "O que mudou desde a última competência, antes de tudo",
       icon: Radar,
       cor: "text-nav-executiva",
-      itens: [{ href: DASHBOARD, label: "Dashboard", icon: Radar }],
+      itens: [{ href: DASHBOARD, label: "Impacto Líquido", icon: Radar }],
     },
     {
       titulo: "Visão executiva",

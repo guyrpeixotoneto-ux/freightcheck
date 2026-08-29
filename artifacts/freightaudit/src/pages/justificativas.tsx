@@ -6,17 +6,11 @@ import { Layout } from "@/components/layout/layout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ApiErrorNotice } from "@/components/api-error";
 import { JustificarDialog } from "@/components/justificativas/justificar-dialog";
+import { BOTAO_DE_TROCA, MenuDeVigencias } from "@/components/vigencia/seletor-de-vigencia";
 import { fetchJson } from "@/lib/api";
 import { useConsultaResiliente } from "@/lib/consulta-resiliente";
 import { useContextosDaCasca } from "@/lib/contextos";
@@ -158,6 +152,10 @@ export default function Justificativas() {
     [opcoes, contextos.contextos, contagens, tipo],
   );
 
+  /* Qual das opções está aberta — o botão diz "Trocar vigência", e é esta
+     linha ao lado dele que diz de qual se está trocando. */
+  const vigenciaAberta = opcoesDoSeletor.find((o) => o.id === changeSetId) ?? null;
+
   const endereco = (proximo: { changeSetId?: string; tipo?: string | null }) => {
     const q = new URLSearchParams();
     const id = proximo.changeSetId ?? changeSetId;
@@ -293,39 +291,50 @@ export default function Justificativas() {
           </TabsList>
         </Tabs>
 
+        {/* A vigência aberta fica escrita, e a troca é o mesmo botão das outras
+            telas — "Trocar vigência", com contorno da marca e a contagem de
+            alterações à direita de cada linha. Aqui era um `Select` desenhado
+            só para esta tela: dois controles diferentes para a mesma escolha,
+            no mesmo produto, obrigam quem alterna entre elas a reaprender onde
+            se troca de vigência. A lista continua sendo a da aba
+            (`vigenciasDaAba`) — cada linha traz a unidade porque a mesma data
+            pode ter uma comparação por unidade. */}
         {opcoesDoSeletor.length > 0 && (
-          <div className="flex items-center gap-2 mt-3">
-            <span className="inline-flex items-center gap-1.5 text-xs uppercase tracking-wide text-muted-foreground">
+          <div className="flex flex-wrap items-center gap-3 mt-3">
+            <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
               <CalendarRange className="w-3.5 h-3.5" />
-              Vigência
-            </span>
-            <Select
-              value={changeSetId ?? ""}
-              onValueChange={escolherVigencia}
-              disabled={opcoesDoSeletor.length === 1}
-            >
-              <SelectTrigger className="h-8 w-80 text-sm">
-                <SelectValue placeholder="Selecionar vigência…" />
-              </SelectTrigger>
-              <SelectContent>
-                {opcoesDoSeletor.map((o) => (
-                  <SelectItem key={o.id} value={o.id}>
-                    <span className="flex w-full items-center justify-between gap-3">
-                      <span>
-                        {o.competencia}
-                        {o.unidade && (
-                          <span className="text-muted-foreground"> · {o.unidade}</span>
-                        )}
-                      </span>
-                      <span className="text-xs text-muted-foreground tabular-nums">
-                        {o.alteracoes.toLocaleString("pt-BR")}{" "}
-                        {o.alteracoes === 1 ? "alteração" : "alterações"}
-                      </span>
+              <span className="text-xs uppercase tracking-wide">Vigência</span>
+              {vigenciaAberta && (
+                <span className="font-semibold text-foreground">
+                  {vigenciaAberta.competencia}
+                  {vigenciaAberta.unidade && (
+                    <span className="font-normal text-muted-foreground">
+                      {" "}
+                      · {vigenciaAberta.unidade}
                     </span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+                  )}
+                </span>
+              )}
+            </span>
+            {/* Com uma vigência só não há troca a oferecer — a linha acima já
+                diz qual está aberta. É a mesma regra dos outros seletores. */}
+            {opcoesDoSeletor.length > 1 && (
+              <MenuDeVigencias
+                rotulo="Trocar vigência"
+                className={BOTAO_DE_TROCA}
+                cabecalho={`${opcoesDoSeletor.length} vigências com ${
+                  tipo ? rotuloEmFrase(tipo) : "alterações"
+                }`}
+                opcoes={opcoesDoSeletor.map((o) => ({
+                  valor: o.id,
+                  rotulo: o.competencia,
+                  detalhe: o.unidade,
+                  alteracoes: o.alteracoes,
+                }))}
+                ativa={changeSetId ?? null}
+                onEscolher={escolherVigencia}
+              />
+            )}
           </div>
         )}
       </header>
