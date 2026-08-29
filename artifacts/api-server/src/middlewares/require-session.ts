@@ -62,8 +62,19 @@ export const requireSession: RequestHandler = async (req, res, next) => {
     return;
   }
 
+  /*
+    O `requestId` sai também aqui, e não só nos 5xx do contrato.
+
+    Um 401 é o desfecho que mais se parece, do lado de fora, com um desvio de
+    autenticação — e é exatamente por isso que ele precisa se identificar. Com
+    o `requestId` no corpo (e o carimbo da API no cabeçalho, ver
+    `middlewares/carimbo-da-api.ts`), "a sessão não vale" deixa de ser
+    indistinguível de "alguém no meio recusou a chamada": um tem número de
+    requisição e linha de log deste processo, o outro não tem nenhum dos dois.
+  */
   res.status(401).json({
     error: "Faça login para usar o FreightCheck.",
     code: "UNAUTHENTICATED",
+    requestId: req.id,
   });
 };

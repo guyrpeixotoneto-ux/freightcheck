@@ -142,13 +142,17 @@ describe("a consulta de /contexts é uma só", () => {
 
     expect(fetchFalso).toHaveBeenCalledTimes(1);
     /*
-      O endereço leva a operação da auditoria aberta — carimbada em `getApiUrl`,
-      no único lugar por onde toda chamada deste produto passa (`lib/api.ts`).
-      Fora de qualquer ambiente prefixado, como aqui, a operação é a da
-      Empurrada, que é a auditoria da raiz. O que este caso guarda continua sendo
-      o mesmo: **uma** chamada, e a mesma para a casca e para a tela.
+      O endereço leva os dois carimbos de `getApiUrl`, o único lugar por onde
+      toda chamada deste produto passa (`lib/api.ts`): a operação, que é o
+      recorte do acervo, e o ambiente de trabalho, que é de onde a pergunta
+      saiu — e do qual o portão do servidor decide a escrita. Fora de qualquer
+      prefixo, como aqui, os dois são os da Empurrada, que é a auditoria da
+      raiz. O que este caso guarda continua sendo o mesmo: **uma** chamada, e a
+      mesma para a casca e para a tela.
     */
-    expect(fetchFalso.mock.calls[0]?.[0]).toBe("/api/contexts?operacao=EMPURRADA");
+    expect(fetchFalso.mock.calls[0]?.[0]).toBe(
+      "/api/contexts?operacao=EMPURRADA&ambiente=auditoria",
+    );
     expect(tela.data).toEqual(CONTEXTOS);
     expect(casca.data).toEqual(CONTEXTOS);
   });

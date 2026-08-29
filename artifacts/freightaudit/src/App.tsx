@@ -16,6 +16,11 @@ import {
   LINHA_DO_TEMPO,
   RESUMO_EXECUTIVO,
 } from '@/lib/ambiente';
+import {
+  ambientesPermitidos,
+  nivelDoAmbiente,
+  usePermissoes,
+} from '@/lib/permissoes';
 import { publicarNoConsole } from '@/lib/registro-de-falhas';
 import { PADRAO_DAS_CONSULTAS } from '@/lib/chamada-resiliente';
 import Login from '@/pages/login';
@@ -205,7 +210,27 @@ publicarNoConsole();
 function EntradaDaAuditoria() {
   const busca = useSearch();
   const [, navegar] = useLocation();
-  const destino = destinoDaRaiz(busca);
+  const { permissoes } = usePermissoes();
+  /*
+    A raiz é a Auditoria Empurrada, e nem todo mundo trabalha nela.
+
+    Quem só tem o Fechamento Rota abriria o produto numa parede — a tela que
+    explica que o ambiente é de outra pessoa — e teria de descobrir sozinho que
+    o caminho é o seletor do topo. Então a porta é a primeira que a pessoa
+    alcança, na ordem do seletor: a Empurrada para quase todo mundo, e o
+    ambiente de quem foi restringido para quem foi.
+
+    Quem não alcança nenhum continua caindo na raiz, e cai na parede: são oito
+    decisões tomadas uma a uma para chegar lá, e inventar um destino para esse
+    caso seria esconder a única coisa que a pessoa precisa ver.
+  */
+  const daRaiz = destinoDaRaiz(busca);
+  const alcancaveis = ambientesPermitidos(permissoes);
+  const destino =
+    nivelDoAmbiente(permissoes, "auditoria") !== "SEM_ACESSO" ||
+    alcancaveis.length === 0
+      ? daRaiz
+      : alcancaveis[0].home;
 
   useEffect(() => {
     navegar(destino, { replace: true });
