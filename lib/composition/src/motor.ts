@@ -40,6 +40,7 @@ import {
   type MotivoDeExclusao,
 } from "./regras";
 import { avaliarStatus, type StatusDoEquipamento } from "./status";
+import { rastrearEquipamento, type RastreioDoEquipamento } from "./rastreio";
 import { DUAS_CASAS } from "@workspace/knowledge/formato";
 
 /** Diferença até a qual um total e as suas parcelas são considerados iguais. */
@@ -222,6 +223,12 @@ export interface ComposicaoDoEquipamento extends CabecalhoDoEquipamento {
      */
     parcial: boolean;
   };
+  /**
+   * A conta de conservação desta placa nesta vigência: do arquivo até esta
+   * tela. Ver `rastreio.ts` — é o que permite a ficha afirmar que nenhum valor
+   * importado ficou de fora, em vez de deixar quem lê supor que ficou tudo.
+   */
+  rastreio: RastreioDoEquipamento;
   status: StatusDoEquipamento;
 }
 
@@ -965,9 +972,10 @@ export async function montarComposicao(
   const indice = vigencias.indexOf(alvo);
   const anterior = indice > 0 ? vigencias[indice - 1] : null;
 
-  const [fatos, classificacoes] = await Promise.all([
+  const [fatos, classificacoes, rastreio] = await Promise.all([
     lerFatos(db, entityId, alvo.effectiveDate, context),
     loadAttributeClassificationsAt(db, alvo.effectiveDate),
+    rastrearEquipamento(db, entityId, alvo.effectiveDate, context),
   ]);
 
   const { linhas, naoApurados, totais, integridade } = comporDeFatos(
@@ -1055,6 +1063,7 @@ export async function montarComposicao(
       semClassificacao: semClasse,
       parcial: semRegra > 0 || semClasse > 0,
     },
+    rastreio,
     status: avaliarStatus({
       presente: fatos.length > 0,
       mensal: mensalDe(totais),

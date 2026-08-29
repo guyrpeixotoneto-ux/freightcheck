@@ -400,6 +400,72 @@ describe("a ficha de um cavalo", () => {
   });
 });
 
+/**
+ * A outra metade da rastreabilidade: **nada da placa ficou pelo caminho.**
+ *
+ * A ficha já provava, acima, que todo número exibido sabe de qual célula veio.
+ * Estes testes provam o inverso — que toda célula que o arquivo trouxe para a
+ * placa chegou à ficha —, e é o inverso que protege contra o defeito que não
+ * aparece: uma coluna renomeada na origem, ou que passe a colidir com outra,
+ * não produz erro nenhum. Produz uma ficha menor, com todas as linhas exibidas
+ * conferindo entre si.
+ */
+describe("o rastreio de um equipamento — do arquivo até a ficha", () => {
+  it("fecha a conta de conservação da placa: 77 células = 75 fatos + 2 de endereço", async () => {
+    const linha = cavalos.linhas.find((l) => l.placa === "RPH2G11")!;
+    const c = (await montarComposicao(ctx.db, linha.entityId, { period: AGOSTO }))!;
+    const r = c.rastreio;
+
+    expect(r.linhasDoArquivo).toBe(1);
+    expect(r.celulas).toBe(77);
+    expect(r.viraramFato).toBe(75);
+    /* Placa e Vigencia: não viram valor porque são o endereço do valor. */
+    expect(r.endereco).toBe(2);
+    expect(r.colunaSemCabecalho + r.colunaAmbigua + r.semDestino).toBe(0);
+    expect(r.amostras).toEqual([]);
+    expect(r.fecha).toBe(true);
+  });
+
+  it("o que virou fato é exatamente o que a ficha mostra", async () => {
+    const linha = cavalos.linhas.find((l) => l.placa === "RPH2G11")!;
+    const c = (await montarComposicao(ctx.db, linha.entityId, { period: AGOSTO }))!;
+    expect(c.rastreio.fatos).toBe(c.linhas.length + c.naoApurados.length);
+    expect(c.rastreio.fatosSemCelula).toBe(0);
+  });
+
+  /*
+    A frota inteira e não uma placa: o defeito que este rastreio existe para
+    pegar é de coluna, e uma coluna que some some para todo mundo — mas uma
+    coluna que colide com outra pode sumir só para as linhas em que as duas
+    vêm preenchidas. Uma placa só não veria a diferença.
+  */
+  it("fecha para os 133 equipamentos de agosto/2026, sem exceção", async () => {
+    const equipamentos = [...cavalos.linhas, ...carretas.linhas];
+    expect(equipamentos).toHaveLength(133);
+
+    const naoFecham: string[] = [];
+    for (const equipamento of equipamentos) {
+      const c = (await montarComposicao(ctx.db, equipamento.entityId, {
+        period: AGOSTO,
+        comAnterior: false,
+      }))!;
+      if (!c.rastreio.fecha) naoFecham.push(`${c.placa}: ${JSON.stringify(c.rastreio)}`);
+    }
+    expect(naoFecham).toEqual([]);
+  }, 120_000);
+
+  it("uma vigência em que a placa não veio não inventa conta nenhuma", async () => {
+    const linha = cavalos.linhas.find((l) => l.placa === "RPH2G11")!;
+    const c = (await montarComposicao(ctx.db, linha.entityId, { period: "2025-12-02" }))!;
+    if (!c.presente) {
+      expect(c.rastreio.celulas).toBe(0);
+      expect(c.rastreio.fatos).toBe(0);
+    } else {
+      expect(c.rastreio.fecha).toBe(true);
+    }
+  });
+});
+
 describe("o histórico e as alterações", () => {
   it("percorre as nove vigências e termina no número da ficha", async () => {
     const linha = cavalos.linhas.find((l) => l.placa === "RPH2G11")!;

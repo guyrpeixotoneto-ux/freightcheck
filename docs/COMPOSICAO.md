@@ -2,6 +2,8 @@
 
 > **Status:** implementado. `lib/composition`, `/api/composition/*`, telas
 > `/composicao` (abas Cavalos, Carretas e Conjuntos) e `/composicao/:id`.
+> **Conferência de completude:** `docs/AUDITORIA-VALORES-DA-PLACA.md` — a conta
+> que prova, placa a placa, que nada do arquivo ficou fora da ficha.
 > **Base da investigação:** o banco reconstruído do export real
 > (`Remuneração_Equipamento_Análise_FT`), 9 vigências, 83.241 fatos, 144 ativos,
 > 138 atributos, medido em 14/08/2026.
