@@ -501,3 +501,139 @@ describe("o SVG como arquivo", () => {
     for (const e of FLUXO.etapas) expect(texto).toContain(e.nome);
   });
 });
+
+// ---------------------------------------------------------------------------
+// O losango e as fases
+// ---------------------------------------------------------------------------
+
+/**
+ * O arquivo passou a saber desenhar duas coisas que só a tela sabia: a decisão
+ * como losango, e o cabeçalho das fases do processo.
+ *
+ * A segunda depende da primeira decisão de projeto deste bloco: as fases são um
+ * capítulo por **coluna de leitura**, e coluna só existe no desenho deitado. Por
+ * isso a disposição entra por opção, e por isso o arquivo em pé continua exatamente
+ * o que era — o que estes casos também provam.
+ */
+const CATALOGO_COM_DECISAO: Catalogo = {
+  ...CATALOGO,
+  tiposDeEtapa: [
+    ...CATALOGO.tiposDeEtapa,
+    {
+      valor: "DECISAO",
+      rotulo: "Decisão",
+      descricao: "",
+      forma: "losango",
+      classe: "",
+      icone: "GitBranch",
+    },
+  ],
+};
+
+const FLUXO_COM_FASES: FluxoCompleto = {
+  ...FLUXO,
+  etapas: [
+    etapa({ id: "a", nome: "Origem da tarifa", tipo: "INICIO", area: "Preparação" }),
+    etapa({ id: "b", nome: "Validação no SAP", area: "Preparação", ordem: 1 }),
+    etapa({ id: "c", nome: "Dados válidos?", tipo: "DECISAO", area: "Preparação", ordem: 2 }),
+    etapa({ id: "x", nome: "Corrigir cadastro", tipo: "PENDENCIA", area: "Preparação", ordem: 3 }),
+    etapa({ id: "d", nome: "Emissão do CT-e", area: "Emissão", ordem: 4 }),
+  ],
+  conexoes: [
+    conexao({ id: "1", origemEtapaId: "a", destinoEtapaId: "b" }),
+    conexao({ id: "2", origemEtapaId: "b", destinoEtapaId: "c" }),
+    conexao({ id: "3", origemEtapaId: "c", destinoEtapaId: "d", rotulo: "Sim" }),
+    conexao({ id: "4", origemEtapaId: "c", destinoEtapaId: "x", rotulo: "Não" }),
+    conexao({ id: "5", origemEtapaId: "x", destinoEtapaId: "b", tipo: "RETRABALHO" }),
+  ],
+};
+
+describe("a decisão sai como losango", () => {
+  const decisao = { rotulo: "Decisão", forma: "losango" as const };
+
+  it("é um polígono de quatro pontas, e não um retângulo colorido", () => {
+    const svg = montarSvgDoFluxo(FLUXO_COM_FASES, CATALOGO_COM_DECISAO, {}).svg;
+    const poligonos = svg.match(/<polygon /g) ?? [];
+    expect(poligonos).toHaveLength(1);
+    /* Quatro pontos, e as pontas no meio de cada lado da caixa do cartão. */
+    const pontos = /<polygon points="([^"]+)"/.exec(svg)![1].split(" ");
+    expect(pontos).toHaveLength(4);
+    expect(svg).toContain("Dados válidos?");
+  });
+
+  it("a caixa mantém a largura do cartão — as setas continuam chegando no lugar", () => {
+    const caixa = caixaDaEtapa(etapa({ id: "d", nome: "Aprovado?" }), decisao);
+    expect(caixa.largura).toBe(200);
+    expect(caixa.altura).toBeGreaterThanOrEqual(132);
+  });
+
+  it("carrega só a pergunta: sem tipo escrito, sem responsável, sem contador", () => {
+    const caixa = caixaDaEtapa(
+      etapa({
+        id: "d",
+        nome: "Aprovado?",
+        area: "Fiscal",
+        responsavel: "Analista",
+        itens: [
+          { id: "i", especie: "SISTEMA", nome: "SAP", descricao: null, obrigatorio: null, link: null, ordem: 0 },
+        ],
+      }),
+      decisao,
+    );
+    expect(caixa.quemResponde).toBeNull();
+    expect(caixa.detalhes).toBe(0);
+  });
+
+  it("quebra o nome numa faixa mais estreita — é o que cabe dentro da forma", () => {
+    const nome = "Passou na validação de regras fiscais do documento?";
+    const losango = caixaDaEtapa(etapa({ id: "1", nome }), decisao);
+    const retangulo = caixaDaEtapa(etapa({ id: "2", nome }), {
+      rotulo: "Processo",
+      forma: "retangulo",
+    });
+    expect(losango.linhasDoNome[0].length).toBeLessThan(retangulo.linhasDoNome[0].length);
+  });
+});
+
+describe("as fases no arquivo", () => {
+  const deitado = montarSvgDoFluxo(FLUXO_COM_FASES, CATALOGO_COM_DECISAO, {
+    disposicao: "horizontal",
+    agrupamento: "area",
+  });
+
+  it("desenha o cabeçalho de cada fase, em maiúsculas e com a contagem", () => {
+    expect(deitado.svg).toContain("PREPARAÇÃO");
+    expect(deitado.svg).toContain("EMISSÃO");
+    expect(deitado.svg).toContain("4 etapas");
+  });
+
+  it("a folha cresce para caber o cabeçalho, que fica acima do primeiro cartão", () => {
+    /* Nenhuma coordenada negativa: o que ficasse acima de zero sairia cortado. */
+    const negativas = deitado.svg.match(/(?:x|y)="-[\d.]+"/g) ?? [];
+    expect(negativas).toHaveLength(0);
+    expect(deitado.altura).toBeGreaterThan(
+      montarSvgDoFluxo(FLUXO_COM_FASES, CATALOGO_COM_DECISAO, {}).altura - 200,
+    );
+  });
+
+  it("continua trazendo toda etapa e toda conexão — o deitado não perde nada", () => {
+    for (const e of FLUXO_COM_FASES.etapas) expect(deitado.svg).toContain(e.nome);
+    const setas = deitado.svg.match(/<path [^>]*marker-end/g) ?? [];
+    expect(setas).toHaveLength(FLUXO_COM_FASES.conexoes.length);
+  });
+
+  it("em pé, não há fase nenhuma — e o arquivo continua o que era", () => {
+    const emPe = montarSvgDoFluxo(FLUXO_COM_FASES, CATALOGO_COM_DECISAO, {}).svg;
+    expect(emPe).not.toContain("PREPARAÇÃO");
+    expect(emPe).not.toContain("etapas</text>");
+  });
+
+  it("sem área cadastrada, o deitado sai sem faixa — e não com uma barra cinza", () => {
+    const semArea: FluxoCompleto = {
+      ...FLUXO_COM_FASES,
+      etapas: FLUXO_COM_FASES.etapas.map((e) => ({ ...e, area: null })),
+    };
+    const svg = montarSvgDoFluxo(semArea, CATALOGO_COM_DECISAO, { disposicao: "horizontal" }).svg;
+    expect(svg).not.toContain("Sem área definida".toUpperCase());
+  });
+});

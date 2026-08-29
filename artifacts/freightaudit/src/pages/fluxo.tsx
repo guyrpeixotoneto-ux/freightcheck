@@ -295,9 +295,10 @@ export default function TelaDoFluxo() {
   );
 
   const entrada = VISUALIZACOES.find((v) => v.valor === visualizacao) ?? VISUALIZACOES[0];
+  /* As duas visualizações que obedecem à orientação — as outras têm projeção própria. */
+  const usaOrientacao = visualizacao === "fluxo" || visualizacao === "gargalos";
   /* "Organizar" só faz sentido onde o desenho é o gravado. */
-  const arranjoPersistido =
-    (visualizacao === "fluxo" || visualizacao === "gargalos") && orientacao === "vertical";
+  const arranjoPersistido = usaOrientacao && orientacao === "vertical";
 
   const mover = useMutation({
     mutationFn: (posicoes: { etapaId: string; posX: number; posY: number }[]) =>
@@ -775,6 +776,15 @@ export default function TelaDoFluxo() {
                   completo={completo}
                   catalogo={catalogo.data}
                   empresa={nomeDaEmpresa}
+                  /*
+                    O arquivo sai com o desenho que está na tela — mas só as duas
+                    visualizações que obedecem à orientação passam a delas. As
+                    Raias e o Mapa têm projeção própria, e mandar o deitado a
+                    partir delas exportaria um terceiro desenho, que ninguém
+                    estava vendo.
+                  */
+                  disposicao={usaOrientacao ? orientacao : "vertical"}
+                  agrupamento={agrupamento}
                 />
               )}
 
@@ -832,6 +842,8 @@ export default function TelaDoFluxo() {
                         completo={completo}
                         catalogo={catalogo.data}
                         empresa={nomeDaEmpresa}
+                        disposicao={usaOrientacao ? orientacao : "vertical"}
+                        agrupamento={agrupamento}
                       />
                       <ItemDeImportarModelo importador={importador} desabilitado={somenteLeitura} />
                     </>
