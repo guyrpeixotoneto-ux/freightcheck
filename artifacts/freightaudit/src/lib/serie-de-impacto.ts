@@ -4,7 +4,7 @@ import { fetchJsonOrNull } from "@/lib/api";
 import { impactosDaVigencia, ladosDoImpacto } from "@/lib/visao-geral";
 import { opcoesDoIntervaloGeral } from "@/lib/intervalo-da-linha-do-tempo";
 import {
-  JANELAS,
+  TETO_DA_SERIE,
   pontosDeImpacto,
   type PontoDeImpacto,
 } from "@/components/dashboard/grafico-de-impacto";
@@ -27,27 +27,18 @@ import type { Movimentos } from "@/lib/analise";
  * contrário) encontra a resposta no cache em vez de esperar a mesma varredura
  * de novo.
  */
-/**
- * Quantas vigências a série carrega — o teto do seletor de janela do gráfico.
- *
- * O gráfico corta a série para a janela escolhida sem pedir nada de novo, e é
- * por isso que a consulta busca a maior delas: pedir só a janela padrão faria
- * o botão da janela maior desenhar a padrão até uma requisição nova.
- */
-const MAIOR_JANELA = Math.max(...JANELAS);
-
 export function useSerieDeImpacto(
   view: FamiliesView | null,
   consulta: URLSearchParams,
 ): { pontos: PontoDeImpacto[]; periodicity: string | null } {
   /*
     A janela carregada — as últimas competências que a própria vigência já
-    lista, nunca mais que `MAIOR_JANELA` e nunca uma competência que não
+    lista, nunca mais que `TETO_DA_SERIE` e nunca uma competência que não
     exista. Quantas dessas vão para a tela é escolha do seletor do gráfico.
   */
   const janela = useMemo(() => {
     if (!view || view.periods.length <= 1) return null;
-    return [...view.periods].sort((a, b) => a.date.localeCompare(b.date)).slice(-MAIOR_JANELA);
+    return [...view.periods].sort((a, b) => a.date.localeCompare(b.date)).slice(-TETO_DA_SERIE);
   }, [view]);
 
   const chave = consulta.toString();
@@ -107,7 +98,7 @@ export function useSerieDeImpactoGeral(
     const ate = [...periodosOverview]
       .sort((a, b) => a.localeCompare(b))
       .filter((data) => data <= periodoAberto);
-    return ate.length > 1 ? ate.slice(-MAIOR_JANELA) : null;
+    return ate.length > 1 ? ate.slice(-TETO_DA_SERIE) : null;
   }, [habilitado, periodosOverview, periodoAberto]);
 
   const range = useQuery({
