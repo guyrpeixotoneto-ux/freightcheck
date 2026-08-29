@@ -11,7 +11,7 @@ import {
   type TipoDeEtapaNoCatalogo,
 } from "@/lib/fluxos";
 import { severidadeNoCatalogo, type Severidade } from "@/lib/fluxos-analise";
-import type { Posicoes, Raia } from "@/lib/fluxos-visoes";
+import type { FaseDoFluxo, Posicoes, Raia } from "@/lib/fluxos-visoes";
 
 /**
  * DO FLUXO PARA O CANVAS — uma montagem só, para as três visualizações que
@@ -54,6 +54,22 @@ export interface DadosDaRaia {
   etapas: number;
 }
 
+export interface DadosDaFase {
+  fase: FaseDoFluxo;
+}
+
+export interface NoDaFaseNoCanvas {
+  id: string;
+  type: "fase";
+  position: { x: number; y: number };
+  data: DadosDaFase;
+  draggable: false;
+  selectable: false;
+  focusable: false;
+  zIndex: number;
+  style: { width: number; height: number };
+}
+
 export interface NoDaRaiaNoCanvas {
   id: string;
   type: "raia";
@@ -68,7 +84,7 @@ export interface NoDaRaiaNoCanvas {
 
 export interface ProjecaoDoCanvas {
   nos: (NoDoCanvas & { data: DadosDoNo })[];
-  faixas: NoDaRaiaNoCanvas[];
+  faixas: (NoDaRaiaNoCanvas | NoDaFaseNoCanvas)[];
   setas: SetaDoCanvas[];
 }
 
@@ -81,6 +97,8 @@ export interface OpcoesDaProjecao {
   severidades?: Map<string, Severidade>;
   /** As faixas das raias, desenhadas atrás dos cartões. */
   raias?: { raias: Raia[]; largura: number };
+  /** As faixas das fases, desenhadas por cima do fluxo deitado. */
+  fases?: FaseDoFluxo[];
   /** As conexões que trocam de raia — desenhadas com mais peso. */
   handoffs?: Set<string>;
 }
@@ -143,7 +161,26 @@ export function montarProjecao(
     style: { width: opcoes.raias?.largura ?? 0, height: raia.altura },
   }));
 
-  return { nos, faixas, setas };
+  /*
+    As fases entram na mesma lista das raias porque são a mesma espécie de
+    coisa: cenário atrás do desenho, montado a partir de um campo que já está na
+    etapa. O que muda é o eixo — a raia é uma faixa horizontal por responsável,
+    a fase é uma coluna por momento do processo — e por isso as duas nunca
+    aparecem juntas: as Raias projetam raias, o Fluxo deitado projeta fases.
+  */
+  const colunasDeFase: NoDaFaseNoCanvas[] = (opcoes.fases ?? []).map((fase, indice) => ({
+    id: `fase:${indice}:${fase.chave}`,
+    type: "fase" as const,
+    position: { x: fase.x, y: fase.topo },
+    data: { fase },
+    draggable: false as const,
+    selectable: false as const,
+    focusable: false as const,
+    zIndex: -1,
+    style: { width: fase.largura, height: fase.altura },
+  }));
+
+  return { nos, faixas: [...colunasDeFase, ...faixas], setas };
 }
 
 /** A cor da severidade, para quem precisa dela como valor e não como classe. */

@@ -886,11 +886,27 @@ export default function TelaDoFluxo() {
                 </>
               )}
 
-              {visualizacao === "raias" && (
+              {/*
+                O mesmo campo, dois usos: nas Raias ele decide a faixa
+                horizontal por responsável; no Fluxo deitado, o cabeçalho das
+                fases. É deliberadamente o **mesmo** controle e o mesmo valor
+                guardado — "agrupar por área" significa a mesma coisa nas duas
+                telas, e dois seletores para a mesma pergunta seriam duas
+                respostas para manter em dia.
+              */}
+              {(visualizacao === "raias" ||
+                (visualizacao === "fluxo" && orientacao === "horizontal")) && (
                 <>
-                  <span className="text-xs text-muted-foreground">Agrupar por</span>
+                  <span className="text-xs text-muted-foreground">
+                    {visualizacao === "raias" ? "Agrupar por" : "Fases por"}
+                  </span>
                   <Select value={agrupamento} onValueChange={(v) => trocarAgrupamento(v as never)}>
-                    <SelectTrigger className="h-8 w-[130px]" aria-label="Agrupar raias por">
+                    <SelectTrigger
+                      className="h-8 w-[130px]"
+                      aria-label={
+                        visualizacao === "raias" ? "Agrupar raias por" : "Agrupar as fases por"
+                      }
+                    >
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -1295,7 +1311,7 @@ function MotorDeVisualizacao({
       );
     case "fluxo":
     default:
-      return <VisaoFluxo {...props} orientacao={orientacao} />;
+      return <VisaoFluxo {...props} orientacao={orientacao} agrupamento={agrupamento} />;
   }
 }
 

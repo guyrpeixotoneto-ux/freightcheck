@@ -11,6 +11,7 @@ import {
   proximaPosicaoLivre,
   totalDaPaleta,
 } from "@/lib/fluxos-paleta";
+import { PASSO_Y } from "@/lib/fluxos-visoes";
 import type { Catalogo, Etapa, TipoDeEtapaNoCatalogo } from "@/lib/fluxos";
 
 /**
@@ -144,8 +145,9 @@ describe("proximaPosicaoLivre", () => {
   });
 
   it("nasce abaixo da etapa mais baixa, na coluna dela", () => {
+    /* Um passo abaixo — o passo é a constante do layout, não um número copiado. */
     const etapas = [etapa("a", "A", 0, 0), etapa("b", "B", 260, 150)];
-    expect(proximaPosicaoLivre(etapas)).toEqual({ posX: 260, posY: 300 });
+    expect(proximaPosicaoLivre(etapas)).toEqual({ posX: 260, posY: 150 + PASSO_Y });
   });
 
   it("não empilha: duas criações seguidas caem em alturas diferentes", () => {
