@@ -22,6 +22,7 @@ import {
   type OpcoesDaExportacao,
 } from "@/lib/fluxos-exportar";
 import { fluxoComoModeloExcel } from "@/lib/fluxos-modelo";
+import type { AgrupamentoDeRaia } from "@/lib/fluxos-visoes";
 import { fraseDoErro, type Catalogo, type FluxoCompleto } from "@/lib/fluxos";
 
 type Formato = "png" | "pdf" | "svg" | "xlsx";
@@ -31,6 +32,16 @@ type Exportacao = {
   catalogo: Catalogo | undefined;
   /** O nome da empresa dona do processo, para o cabeçalho do arquivo. */
   empresa?: string | null;
+  /**
+   * O desenho que está na tela — o arranjo gravado, ou a projeção deitada.
+   *
+   * Exportar sempre o arranjo em pé fazia o arquivo discordar da tela para quem
+   * estivesse no fluxo deitado: outro layout, sem as fases, com a pendência de
+   * volta no meio da corrente. O arquivo é o desenho que a pessoa está vendo.
+   */
+  disposicao?: "vertical" | "horizontal";
+  /** Por qual campo as fases são agrupadas — o mesmo seletor das Raias. */
+  agrupamento?: AgrupamentoDeRaia;
 };
 
 /*
@@ -41,7 +52,7 @@ type Exportacao = {
   que muda é onde os formatos são listados; o trabalho de gerar o arquivo,
   o estado de "gerando" e a frase do erro são um só, escritos uma vez aqui.
 */
-function useExportacao({ completo, catalogo, empresa }: Exportacao) {
+function useExportacao({ completo, catalogo, empresa, disposicao, agrupamento }: Exportacao) {
   const [gerando, setGerando] = useState<Formato | null>(null);
   const [erro, setErro] = useState<string | null>(null);
 
@@ -57,6 +68,8 @@ function useExportacao({ completo, catalogo, empresa }: Exportacao) {
       const opcoes: OpcoesDaExportacao = {
         exportadoEm: new Date().toISOString(),
         empresa: empresa ?? null,
+        disposicao,
+        agrupamento,
       };
       const blob =
         formato === "png"

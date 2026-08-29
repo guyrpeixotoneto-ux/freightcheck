@@ -1,4 +1,11 @@
 import { montarCanvas, resumoDoFluxo, type Catalogo, type Etapa, type FluxoCompleto } from "@/lib/fluxos";
+import {
+  ALTURA_DA_FASE,
+  projetarFases,
+  projetarFluxoHorizontal,
+  type AgrupamentoDeRaia,
+  type FaseDoFluxo,
+} from "@/lib/fluxos-visoes";
 
 /**
  * EXPORTAR O FLUXOGRAMA — o desenho saindo do produto como arquivo.
@@ -77,6 +84,27 @@ const COR_DA_CONEXAO: Record<string, string> = {
   RETRABALHO: "#8b5cf6",
 };
 
+/**
+ * As cores das fases, na mesma ordem em que a tela as gasta.
+ *
+ * É a tradução literal de `CORES` em `no-da-fase.tsx` — mesma sequência, mesmos
+ * tons no claro. A duplicação é a mesma já aberta para `PALETA_DO_TIPO` e
+ * `COR_DA_CONEXAO`: um SVG que vira arquivo não tem folha de estilo do produto
+ * por perto. O que não pode divergir é a **ordem**, porque é ela que faz a
+ * terceira fase do arquivo ter a cor da terceira fase da tela.
+ */
+const PALETA_DA_FASE: { barra: string; tinta: string; corpo: string }[] = [
+  { barra: "#d1fae5", tinta: "#047857", corpo: "#f0fdf6" },
+  { barra: "#e0f2fe", tinta: "#0369a1", corpo: "#f4faff" },
+  { barra: "#ede9fe", tinta: "#6d28d9", corpo: "#f8f6ff" },
+  { barra: "#fef3c7", tinta: "#b45309", corpo: "#fffcf0" },
+  { barra: "#ccfbf1", tinta: "#0f766e", corpo: "#f2fdfb" },
+  { barra: "#dbeafe", tinta: "#1d4ed8", corpo: "#f3f8ff" },
+  { barra: "#f1f5f9", tinta: "#334155", corpo: "#fafbfc" },
+];
+
+const FASE_SEM_INFORMACAO = { barra: "#e2e8f0", tinta: "#64748b", corpo: "#f8fafc" };
+
 const TINTA = "#0f172a";
 const TINTA_FRACA = "#64748b";
 const PAPEL = "#ffffff";
@@ -97,6 +125,22 @@ export const LARGURA_DO_CARTAO = 200;
 const RESPIRO = 12;
 const ALTURA_DA_LINHA_DO_NOME = 17;
 const MAXIMO_DE_LINHAS_DO_NOME = 3;
+
+/**
+ * A GEOMETRIA DO LOSANGO — a largura útil, e por que ela é tão menor.
+ *
+ * A caixa do losango continua com a largura do cartão, porque é dela que as
+ * setas saem e é nela que elas encostam: mudar isso deslocaria toda ligação que
+ * chega numa decisão. O que muda é o **texto**, que só pode ocupar a faixa
+ * central da forma — num losango, a linha do meio é a única que tem a largura
+ * inteira, e uma linha 20px acima já perdeu um quarto dela de cada lado.
+ *
+ * Daí os 96px: é a faixa em que três linhas de texto cabem sem encostar na
+ * aresta. E daí a altura mínima — um losango de 60px de altura não é
+ * reconhecível como losango; vira um pequeno diamante achatado.
+ */
+const LARGURA_UTIL_DO_LOSANGO = 96;
+const ALTURA_MINIMA_DO_LOSANGO = 132;
 
 /**
  * O texto quebrado em linhas — sem DOM, e por estimativa.
@@ -173,6 +217,8 @@ export interface CaixaDaEtapa {
 export function caixaDaEtapa(
   etapa: Etapa,
   tipo: { rotulo: string; forma: "retangulo" | "losango" | "pilula" } | undefined,
+  /** Onde o cartão fica, quando o desenho é projetado. Ausente, valem as gravadas. */
+  posicao?: { x: number; y: number },
 ): CaixaDaEtapa {
   /*
     A etapa em atenção tem um triângulo no canto superior direito, e o nome
@@ -180,6 +226,46 @@ export function caixaDaEtapa(
     passa por baixo do sinal e as duas coisas ficam ilegíveis.
   */
   const atencao = etapa.status === "ATENCAO";
+  const forma = tipo?.forma ?? "retangulo";
+  const x = posicao?.x ?? etapa.posX;
+  const y = posicao?.y ?? etapa.posY;
+  const cores = PALETA_DO_TIPO[etapa.tipo] ?? NEUTRO;
+
+  /*
+    O LOSANGO CARREGA SÓ A PERGUNTA.
+
+    Nem tipo, nem responsável, nem contador de detalhes — é a mesma decisão do
+    cartão da tela, e pela mesma razão: dentro da forma há espaço para uma
+    pergunta curta e mais nada. Escrever "DECISÃO" embaixo de "Dados válidos?"
+    também não acrescenta: a forma já disse isso, e é para isso que ela existe.
+
+    O que se perde continua a um clique no produto e continua na planilha do
+    modelo — o arquivo de desenho é o desenho.
+  */
+  if (forma === "losango") {
+    const linhas = quebrarEmLinhas(
+      etapa.nome,
+      LARGURA_UTIL_DO_LOSANGO,
+      5.8,
+      MAXIMO_DE_LINHAS_DO_NOME,
+    );
+    const alturaDoTexto = Math.max(1, linhas.length) * ALTURA_DA_LINHA_DO_NOME;
+    return {
+      etapa,
+      x,
+      y,
+      largura: LARGURA_DO_CARTAO,
+      altura: Math.max(ALTURA_MINIMA_DO_LOSANGO, alturaDoTexto + 72 + (atencao ? 16 : 0)),
+      linhasDoNome: linhas.length > 0 ? linhas : ["(sem nome)"],
+      rotuloDoTipo: tipo?.rotulo ?? etapa.tipo,
+      quemResponde: null,
+      detalhes: 0,
+      atencao,
+      forma,
+      cores,
+    };
+  }
+
   const linhasDoNome = quebrarEmLinhas(
     etapa.nome,
     LARGURA_DO_CARTAO - RESPIRO * 2 - (atencao ? 18 : 0),
@@ -201,8 +287,8 @@ export function caixaDaEtapa(
 
   return {
     etapa,
-    x: etapa.posX,
-    y: etapa.posY,
+    x,
+    y,
     largura: LARGURA_DO_CARTAO,
     altura,
     linhasDoNome: linhasDoNome.length > 0 ? linhasDoNome : ["(sem nome)"],
@@ -210,8 +296,8 @@ export function caixaDaEtapa(
     quemResponde: quem === "" ? null : encurtar(quem, LARGURA_DO_CARTAO - RESPIRO * 2, 5.6),
     detalhes,
     atencao,
-    forma: tipo?.forma ?? "retangulo",
-    cores: PALETA_DO_TIPO[etapa.tipo] ?? NEUTRO,
+    forma,
+    cores,
   };
 }
 
@@ -233,6 +319,27 @@ export interface OpcoesDaExportacao {
   exportadoEm?: string;
   /** O nome da empresa, quando a tela souber qual é. */
   empresa?: string | null;
+  /**
+   * QUAL DESENHO SAI NO ARQUIVO — e por que isto é uma opção.
+   *
+   * `"vertical"` (o padrão) exporta o arranjo **gravado**: as coordenadas que
+   * alguém arrastou. `"horizontal"` exporta a projeção deitada — trilho, faixa
+   * de desvios e quebra em linhas —, que é a mesma de `projetarFluxoHorizontal`
+   * e portanto a mesma que a tela desenha.
+   *
+   * A opção existe porque as fases só existem no deitado: elas são um cabeçalho
+   * por **coluna** de leitura, e no arranjo gravado não há coluna nenhuma — há
+   * as coordenadas que a pessoa escolheu. Inventar fases ali seria desenhar no
+   * arquivo uma leitura que o produto não faz.
+   *
+   * Quem exporta recebe o desenho que estava vendo: a tela passa a orientação
+   * em que está. Sem ela, alguém que passou a tarde no fluxo deitado abriria o
+   * PNG e encontraria outro desenho — e concluiria, com razão, que a exportação
+   * está errada.
+   */
+  disposicao?: "vertical" | "horizontal";
+  /** Por qual campo as fases são agrupadas. Só o desenho deitado usa. */
+  agrupamento?: AgrupamentoDeRaia;
 }
 
 export interface SvgDoFluxo {
@@ -259,7 +366,23 @@ export function montarSvgDoFluxo(
   const { nos, setas } = montarCanvas(completo, catalogo);
   const tipos = new Map((catalogo?.tiposDeEtapa ?? []).map((t) => [t.valor, t]));
 
-  const caixas = nos.map((no) => caixaDaEtapa(no.data.etapa, tipos.get(no.data.etapa.tipo)));
+  /*
+    O desenho deitado é calculado aqui, uma vez, e serve às duas coisas que
+    dependem dele: onde cada cartão fica e onde cada fase começa. Recalcular a
+    projeção dentro do desenho das fases seria a segunda chance de a faixa
+    discordar dos cartões que ela cobre.
+  */
+  const deitado = opcoes.disposicao === "horizontal";
+  const projecao = deitado ? projetarFluxoHorizontal(completo) : null;
+  const fases = projecao ? projetarFases(completo, projecao, opcoes.agrupamento ?? "area") : [];
+
+  const caixas = nos.map((no) =>
+    caixaDaEtapa(
+      no.data.etapa,
+      tipos.get(no.data.etapa.tipo),
+      projecao?.posicoes.get(no.data.etapa.id),
+    ),
+  );
   const porId = new Map(caixas.map((c) => [c.etapa.id, c]));
 
   /*
@@ -267,44 +390,94 @@ export function montarSvgDoFluxo(
     "erro" faria a pessoa achar que a exportação está quebrada; exportado como
     uma folha com o nome do processo e "sem etapas", ele diz a verdade.
   */
-  const minX = caixas.length > 0 ? Math.min(...caixas.map((c) => c.x)) : 0;
-  const minY = caixas.length > 0 ? Math.min(...caixas.map((c) => c.y)) : 0;
-  const maxX = caixas.length > 0 ? Math.max(...caixas.map((c) => c.x + c.largura)) : 320;
-  const maxY = caixas.length > 0 ? Math.max(...caixas.map((c) => c.y + c.altura)) : 120;
+  const vazio = caixas.length === 0;
+  /*
+    A caixa da folha conta as fases junto: o cabeçalho de uma fase fica **acima**
+    do primeiro cartão da linha, em coordenada negativa. Sem incluí-lo aqui, a
+    faixa sairia cortada rente ao topo — e o corte apareceria só na primeira
+    exportação de um fluxo com fase, que é tarde.
+  */
+  const minX = vazio ? 0 : Math.min(...caixas.map((c) => c.x), ...fases.map((f) => f.x));
+  const minY = vazio ? 0 : Math.min(...caixas.map((c) => c.y), ...fases.map((f) => f.topo));
+  const maxX = vazio
+    ? 320
+    : Math.max(...caixas.map((c) => c.x + c.largura), ...fases.map((f) => f.x + f.largura));
+  const maxY = vazio
+    ? 120
+    : Math.max(...caixas.map((c) => c.y + c.altura), ...fases.map((f) => f.topo + f.altura));
 
   const legenda = montarLegenda(completo, catalogo);
   const alturaDaLegenda = legenda.length === 0 ? 0 : 46;
 
   /*
-    As setas que voltam — o retrabalho — saem por um canal à direita de todos os
-    cartões, em vez de cortar em linha reta o que estiver no caminho. Num
-    processo em corrente, a volta atravessaria meia dúzia de etapas e o rótulo
-    dela ("divergência de valor") cairia em cima de um cartão, ilegível. É a
+    As setas que voltam — o retrabalho — saem por um canal fora dos cartões, em
+    vez de cortar em linha reta o que estiver no caminho. Num processo em
+    corrente, a volta atravessaria meia dúzia de etapas e o rótulo dela
+    ("divergência de valor") cairia em cima de um cartão, ilegível. É a
     diferença entre um fluxograma e um risco por cima do desenho.
+
+    Onde fica o canal depende de para onde o desenho anda. No arranjo em pé, a
+    volta sobe, e o canal é uma coluna à direita de todos os cartões. No
+    deitado, a volta anda para a **esquerda** — e um canal à direita a faria sair
+    andando na direção contrária antes de voltar. Ali o canal é uma faixa
+    embaixo, que é como um fluxograma da esquerda para a direita sempre
+    desenhou o retorno.
   */
   const retornos = setas.filter((seta) => {
     const origem = porId.get(seta.source);
     const destino = porId.get(seta.target);
-    return origem !== undefined && destino !== undefined && voltaLonga(origem, destino);
+    return origem !== undefined && destino !== undefined && ehVolta(origem, destino, deitado);
   });
   /*
     O canal fica afastado pela **metade do maior rótulo** que vai nele, e não
     por uma distância fixa: com folga fixa, "divergência de valor" escrito no
     meio do canal encostava no cartão vizinho — o rótulo é centrado na linha, e
-    metade dele avança para dentro do desenho.
+    metade dele avança para dentro do desenho. No deitado o rótulo se estende no
+    eixo do canal, e não contra ele, então a folga é a altura de uma tarja.
   */
   const maiorRotuloDeRetorno = Math.max(
     0,
     ...retornos.map((seta) => larguraDoTexto(seta.label ?? "", 5.6)),
   );
-  const afastamentoDoCanal = 40 + maiorRotuloDeRetorno / 2;
-  const canal = maxX + afastamentoDoCanal;
+  const afastamentoDoCanal = deitado ? 52 : 40 + maiorRotuloDeRetorno / 2;
+  /*
+    Uma faixa por volta, a mais longa por fora — assim as linhas se aninham em
+    vez de se cruzarem, e os rótulos deixam de ser escritos uns por cima dos
+    outros. A ordenação desempata pelo id para o arquivo ser sempre o mesmo:
+    duas exportações do mesmo fluxo têm que produzir bytes iguais.
+  */
+  const porVao = [...retornos].sort((a, b) => {
+    const vao = (seta: (typeof retornos)[number]) => {
+      const origem = porId.get(seta.source)!;
+      const destino = porId.get(seta.target)!;
+      return deitado
+        ? Math.abs(origem.x - destino.x)
+        : Math.abs(origem.y - destino.y);
+    };
+    return vao(a) - vao(b) || a.id.localeCompare(b.id);
+  });
+  const faixaDaVolta = new Map(
+    porVao.map((seta, indice) => [seta.id, afastamentoDoCanal + indice * PASSO_DA_FAIXA]),
+  );
+  const faixasDeRetorno = Math.max(1, porVao.length);
   const respiroDoRetorno =
-    retornos.length === 0 ? 0 : afastamentoDoCanal + maiorRotuloDeRetorno / 2 + 12;
+    retornos.length === 0
+      ? 0
+      : afastamentoDoCanal +
+        (faixasDeRetorno - 1) * PASSO_DA_FAIXA +
+        (deitado ? 24 : maiorRotuloDeRetorno / 2 + 12);
+  /*
+    O corredor da descida fica à esquerda do cartão de origem, e o da subida à
+    esquerda do de destino. Na primeira coluna isso é coordenada negativa: a
+    folha ganha essa faixa à esquerda, senão a volta sai cortada na borda.
+  */
+  const respiroEsquerdo =
+    deitado && retornos.length > 0 ? CORREDOR_DO_RETORNO + 12 : 0;
 
-  const deslocX = MARGEM - minX;
+  const deslocX = MARGEM + respiroEsquerdo - minX;
   const deslocY = MARGEM + ALTURA_DO_CABECALHO - minY;
-  const larguraDoDesenho = maxX - minX + respiroDoRetorno + MARGEM * 2;
+  const larguraDoDesenho =
+    maxX - minX + respiroEsquerdo + (deitado ? 0 : respiroDoRetorno) + MARGEM * 2;
   /*
     O cabeçalho também tem largura. Um processo em corrente sai estreito — uma
     coluna de cartões de 200px —, e o nome do fluxo por extenso é bem mais largo
@@ -312,7 +485,27 @@ export function montarSvgDoFluxo(
     exatamente o que a primeira exportação de verdade mostrou.
   */
   const largura = Math.round(Math.max(larguraDoDesenho, larguraDoCabecalho(completo, opcoes)));
-  const altura = Math.round(maxY - minY + MARGEM * 2 + ALTURA_DO_CABECALHO + alturaDaLegenda);
+  const altura = Math.round(
+    maxY -
+      minY +
+      (deitado ? respiroDoRetorno : 0) +
+      MARGEM * 2 +
+      ALTURA_DO_CABECALHO +
+      alturaDaLegenda,
+  );
+
+  const canal: CanalDoRetorno = {
+    eixo: deitado ? "y" : "x",
+    porSeta: new Map(
+      [...faixaDaVolta].map(([id, faixa]) => [
+        id,
+        deitado ? maxY + faixa + deslocY : maxX + faixa + deslocX,
+      ]),
+    ),
+    padrao: deitado
+      ? maxY + afastamentoDoCanal + deslocY
+      : maxX + afastamentoDoCanal + deslocX,
+  };
 
   const partes: string[] = [];
   partes.push(
@@ -322,12 +515,15 @@ export function montarSvgDoFluxo(
   partes.push(marcadoresDeSeta(setas));
   partes.push(cabecalho(completo, largura, opcoes));
 
-  /* As setas primeiro: cartão por cima de linha, e não linha por cima de nome. */
+  /* As fases primeiro: são cenário, e ficam atrás das setas e dos cartões. */
+  for (const fase of fases) partes.push(desenharFase(fase, deslocX, deslocY));
+
+  /* Depois as setas: cartão por cima de linha, e não linha por cima de nome. */
   for (const seta of setas) {
     const origem = porId.get(seta.source);
     const destino = porId.get(seta.target);
     if (!origem || !destino) continue;
-    partes.push(desenharSeta(origem, destino, seta, deslocX, deslocY, canal + deslocX));
+    partes.push(desenharSeta(origem, destino, seta, deslocX, deslocY, canal, deitado));
   }
   for (const caixa of caixas) partes.push(desenharCartao(caixa, deslocX, deslocY));
 
@@ -412,6 +608,9 @@ function comoDataCurta(iso: string): string {
 function desenharCartao(caixa: CaixaDaEtapa, dx: number, dy: number): string {
   const x = caixa.x + dx;
   const y = caixa.y + dy;
+
+  if (caixa.forma === "losango") return desenharLosango(caixa, x, y);
+
   const raio = caixa.forma === "pilula" ? caixa.altura / 2 : 8;
   const recuo = caixa.forma === "pilula" ? 16 : RESPIRO;
 
@@ -469,6 +668,112 @@ function desenharCartao(caixa: CaixaDaEtapa, dx: number, dy: number): string {
   return partes.join("");
 }
 
+/**
+ * A DECISÃO DESENHADA COMO LOSANGO — e não como um retângulo amarelo.
+ *
+ * O arquivo desenhava a decisão com a mesma forma da atividade, e a cor era a
+ * única diferença. Isso falha no que a forma existe para fazer: num desenho de
+ * vinte cartões impresso em preto e branco, ou visto de longe num slide, "onde
+ * o caminho se divide" tem que saltar aos olhos antes de qualquer leitura.
+ *
+ * Aqui é um `polygon` de quatro pontos, e não um quadrado girado como na tela:
+ * a tela usa `transform` porque precisa preservar a borda que um recorte CSS
+ * cortaria, e este arquivo não tem esse problema — um polígono do SVG tem
+ * contorno próprio, e ainda aceita a proporção deitada, que dá mais faixa de
+ * texto do que um quadrado giraria.
+ *
+ * As pontas do losango tocam o meio de cada lado da caixa, que é exatamente
+ * onde as setas encostam: a ligação continua chegando no lugar certo sem que
+ * `desenharSeta` saiba que esta forma existe.
+ */
+function desenharLosango(caixa: CaixaDaEtapa, x: number, y: number): string {
+  const cx = x + caixa.largura / 2;
+  const cy = y + caixa.altura / 2;
+  const pontos = [
+    `${arredondar(cx)},${arredondar(y)}`,
+    `${arredondar(x + caixa.largura)},${arredondar(cy)}`,
+    `${arredondar(cx)},${arredondar(y + caixa.altura)}`,
+    `${arredondar(x)},${arredondar(cy)}`,
+  ].join(" ");
+
+  const partes: string[] = [
+    `<polygon points="${pontos}" fill="${caixa.cores.fundo}" stroke="${caixa.cores.borda}" stroke-width="1.5" stroke-linejoin="round"/>`,
+  ];
+
+  /* O texto é centrado nos dois eixos — é a única faixa larga da forma. */
+  const alturaDoTexto = caixa.linhasDoNome.length * ALTURA_DA_LINHA_DO_NOME;
+  const reservaDaAtencao = caixa.atencao ? 16 : 0;
+  let linha = cy - (alturaDoTexto + reservaDaAtencao) / 2 + 12;
+  for (const texto of caixa.linhasDoNome) {
+    partes.push(
+      `<text x="${arredondar(cx)}" y="${arredondar(linha)}" font-size="12" font-weight="500" fill="${TINTA}" text-anchor="middle">${escaparXml(
+        texto,
+      )}</text>`,
+    );
+    linha += ALTURA_DA_LINHA_DO_NOME;
+  }
+
+  /*
+    A atenção fica **embaixo** do nome, e não no canto: num losango o canto
+    superior direito é fora da forma. É a mesma posição do cartão da tela.
+  */
+  if (caixa.atencao) {
+    const ay = arredondar(linha + 1);
+    partes.push(
+      `<path d="M ${arredondar(cx)} ${ay - 6} L ${arredondar(cx + 6)} ${ay + 5} L ${arredondar(
+        cx - 6,
+      )} ${ay + 5} Z" fill="none" stroke="#d97706" stroke-width="1.5" stroke-linejoin="round"/>`,
+      `<line x1="${arredondar(cx)}" y1="${ay - 2}" x2="${arredondar(cx)}" y2="${
+        ay + 1
+      }" stroke="#d97706" stroke-width="1.5" stroke-linecap="round"/>`,
+    );
+  }
+
+  return partes.join("");
+}
+
+/**
+ * A FAIXA DA FASE — o capítulo do processo, atrás dos cartões.
+ *
+ * É o cabeçalho colorido do fluxograma de parede, e no arquivo ele vale ainda
+ * mais do que na tela: quem recebe um PNG num slide não tem seletor de
+ * visualização nem painel de detalhe — tem a folha, e só. Sem a faixa, vinte
+ * cartões são vinte cartões; com ela, são sete momentos.
+ *
+ * Vai **antes** das setas na lista de partes, e portanto atrás de tudo: é
+ * cenário. Um corpo quase branco de propósito — o que precisa de cor é a barra
+ * do título, e pintar a coluna inteira brigaria com a cor do cartão, que é a
+ * que carrega significado.
+ */
+function desenharFase(fase: FaseDoFluxo, dx: number, dy: number): string {
+  const cor = fase.semInformacao
+    ? FASE_SEM_INFORMACAO
+    : PALETA_DA_FASE[fase.cor % PALETA_DA_FASE.length];
+  const x = arredondar(fase.x + dx);
+  const y = arredondar(fase.topo + dy);
+  const largura = arredondar(fase.largura);
+  const altura = arredondar(fase.altura);
+  const etapas = fase.etapas.length;
+  const rotulo = encurtar(fase.rotulo.toUpperCase(), largura - 28, 7.2);
+
+  return [
+    `<rect x="${x}" y="${y}" width="${largura}" height="${altura}" rx="10" ry="10" fill="${cor.corpo}"/>`,
+    /*
+      A barra do título tem canto arredondado em cima e reto embaixo — dois
+      retângulos sobrepostos, porque `rx` no SVG arredonda os quatro cantos e um
+      `path` com quatro comandos seria mais linha para o mesmo desenho.
+    */
+    `<rect x="${x}" y="${y}" width="${largura}" height="${ALTURA_DA_FASE}" rx="10" ry="10" fill="${cor.barra}"/>`,
+    `<rect x="${x}" y="${y + ALTURA_DA_FASE - 10}" width="${largura}" height="10" fill="${cor.barra}"/>`,
+    `<text x="${x + 14}" y="${y + 26}" font-size="12" font-weight="600" letter-spacing="0.8" fill="${
+      cor.tinta
+    }">${escaparXml(rotulo)}</text>`,
+    `<text x="${x + 14}" y="${y + 43}" font-size="10.5" fill="${TINTA_FRACA}">${etapas} ${
+      etapas === 1 ? "etapa" : "etapas"
+    }</text>`,
+  ].join("");
+}
+
 /** Um marcador de ponta de flecha por cor usada — referenciados por `marker-end`. */
 function marcadoresDeSeta(setas: { style: { stroke: string } }[]): string {
   const cores = [...new Set(setas.map((s) => s.style.stroke))];
@@ -504,21 +809,77 @@ function voltaLonga(origem: CaixaDaEtapa, destino: CaixaDaEtapa): boolean {
   return centroD < centroO && centroO - centroD > 200;
 }
 
+/**
+ * A mesma pergunta, no desenho deitado: a seta anda de volta para a esquerda?
+ *
+ * Aqui basta **uma** coluna de recuo, e não duas como na altura: a volta do
+ * retrabalho no deitado sai da faixa de desvios, embaixo, e sobe para o trilho —
+ * traçada em linha reta ela cortaria a coluna inteira de cartões que está entre
+ * as duas pontas, que é justamente o que o canal existe para evitar.
+ */
+function voltaDeitada(origem: CaixaDaEtapa, destino: CaixaDaEtapa): boolean {
+  return destino.x + destino.largura <= origem.x + 40;
+}
+
+const ehVolta = (origem: CaixaDaEtapa, destino: CaixaDaEtapa, deitado: boolean): boolean =>
+  deitado ? voltaDeitada(origem, destino) : voltaLonga(origem, destino);
+
+/**
+ * ONDE A VOLTA PASSA — e por que é uma faixa por volta, e não uma só.
+ *
+ * Um canal só funciona enquanto há um retorno. Com três, as três linhas se
+ * sobrepõem e — pior — os três rótulos são escritos no mesmo lugar: "corrigido,
+ * revalidar", "em atraso" e "recobrar" viram uma mancha, e a informação que
+ * explica por que cada volta existe é justamente a que se perde.
+ *
+ * Então cada volta ganha a sua faixa, e a ordem não é arbitrária: a volta mais
+ * longa fica na faixa mais externa, de modo que as curtas ficam **dentro** das
+ * longas. Assim as linhas se aninham em vez de se cruzarem.
+ */
+export interface CanalDoRetorno {
+  eixo: "x" | "y";
+  /** A faixa de cada volta, por id da conexão. Já em coordenadas da folha. */
+  porSeta: Map<string, number>;
+  /** A faixa de quem não estiver no mapa — a primeira. */
+  padrao: number;
+}
+
+/** O espaço entre duas faixas de retorno. Cabe a tarja de um rótulo. */
+const PASSO_DA_FAIXA = 22;
+/**
+ * O corredor entre duas colunas de cartões.
+ *
+ * A volta do desenho deitado desce, corre pela faixa e sobe — e a subida é o
+ * problema: feita no meio do cartão de destino, ela atravessa em pé todas as
+ * linhas que estiverem entre a faixa e ele. O passo do layout é 260 e o cartão
+ * tem 200, então há 60 de corredor entre duas colunas: subir por ele é o que
+ * faz a volta chegar sem riscar nenhum cartão pelo caminho.
+ */
+const CORREDOR_DO_RETORNO = 30;
+
 function desenharSeta(
   origem: CaixaDaEtapa,
   destino: CaixaDaEtapa,
-  seta: { style: { stroke: string; strokeDasharray?: string }; label: string | undefined },
+  seta: {
+    id: string;
+    style: { stroke: string; strokeDasharray?: string };
+    label: string | undefined;
+  },
   dx: number,
   dy: number,
-  canal: number,
+  canal: CanalDoRetorno,
+  deitado: boolean,
 ): string {
   const o = { x: origem.x + dx, y: origem.y + dy, w: origem.largura, h: origem.altura };
   const d = { x: destino.x + dx, y: destino.y + dy, w: destino.largura, h: destino.altura };
   const centroO = { x: o.x + o.w / 2, y: o.y + o.h / 2 };
   const centroD = { x: d.x + d.w / 2, y: d.y + d.h / 2 };
 
-  if (voltaLonga(origem, destino)) {
-    return desenharVoltaPeloCanal(o, d, centroO, centroD, seta, canal);
+  if (ehVolta(origem, destino, deitado)) {
+    const faixa = canal.porSeta.get(seta.id) ?? canal.padrao;
+    return canal.eixo === "y"
+      ? desenharVoltaPorBaixo(o, d, centroO, centroD, seta, faixa)
+      : desenharVoltaPeloCanal(o, d, centroO, centroD, seta, faixa);
   }
 
   const paraBaixo = centroD.y > centroO.y;
@@ -622,6 +983,73 @@ function desenharVoltaPeloCanal(
       largura,
     )}" height="16" rx="4" fill="${PAPEL}" fill-opacity="0.92"/>`,
     `<text x="${canal}" y="${my + 3}" font-size="10" fill="${TINTA_FRACA}" text-anchor="middle">${escaparXml(
+      seta.label,
+    )}</text>`,
+  ].join("");
+}
+
+/**
+ * A volta do desenho deitado: desce da origem, corre pela faixa de baixo e sobe
+ * pela borda inferior do destino.
+ *
+ * É o retorno como um fluxograma da esquerda para a direita sempre o desenhou —
+ * e é o espelho exato de `desenharVoltaPeloCanal`, com os eixos trocados. Duas
+ * funções, e não uma com eixo parametrizado: o que muda entre elas não é só
+ * `x` por `y`, é qual lado do cartão a seta toca e para que lado o canto
+ * arredonda, e a versão genérica ficaria com quatro ternários por comando de
+ * caminho — mais difícil de ler do que as duas escritas por extenso.
+ *
+ * O rótulo fica **no canal**, onde não há cartão nenhum — é por isso que o
+ * respiro embaixo da folha é calculado contando com ele.
+ */
+function desenharVoltaPorBaixo(
+  o: { x: number; y: number; w: number; h: number },
+  d: { x: number; y: number; w: number; h: number },
+  centroO: { x: number; y: number },
+  centroD: { x: number; y: number },
+  seta: { style: { stroke: string; strokeDasharray?: string }; label: string | undefined },
+  canal: number,
+): string {
+  const raio = 12;
+  /*
+    Sai pela esquerda da origem e entra pela esquerda do destino, descendo e
+    subindo pelos corredores entre colunas: é o que impede a linha de riscar em
+    pé os cartões das linhas que estão entre a faixa e o destino.
+  */
+  const descida = o.x - CORREDOR_DO_RETORNO;
+  const subida = d.x - CORREDOR_DO_RETORNO;
+  const saida = { x: o.x, y: centroO.y };
+  const chegada = { x: d.x, y: centroD.y };
+  const traco = seta.style.strokeDasharray
+    ? ` stroke-dasharray="${seta.style.strokeDasharray}"`
+    : "";
+
+  const caminho = [
+    `M ${arredondar(saida.x)} ${arredondar(saida.y)}`,
+    `L ${arredondar(descida + raio)} ${arredondar(saida.y)}`,
+    `Q ${arredondar(descida)} ${arredondar(saida.y)} ${arredondar(descida)} ${arredondar(saida.y + raio)}`,
+    `L ${arredondar(descida)} ${arredondar(canal - raio)}`,
+    `Q ${arredondar(descida)} ${arredondar(canal)} ${arredondar(descida - raio)} ${arredondar(canal)}`,
+    `L ${arredondar(subida + raio)} ${arredondar(canal)}`,
+    `Q ${arredondar(subida)} ${arredondar(canal)} ${arredondar(subida)} ${arredondar(canal - raio)}`,
+    `L ${arredondar(subida)} ${arredondar(chegada.y + raio)}`,
+    `Q ${arredondar(subida)} ${arredondar(chegada.y)} ${arredondar(subida + raio)} ${arredondar(chegada.y)}`,
+    `L ${arredondar(chegada.x)} ${arredondar(chegada.y)}`,
+  ].join(" ");
+
+  const linha = `<path d="${caminho}" fill="none" stroke="${seta.style.stroke}" stroke-width="1.5"${traco} marker-end="url(#${idDaPonta(
+    seta.style.stroke,
+  )})"/>`;
+  if (!seta.label) return linha;
+
+  const mx = arredondar((descida + subida) / 2);
+  const largura = Math.max(20, larguraDoTexto(seta.label, 5.6) + 10);
+  return [
+    linha,
+    `<rect x="${arredondar(mx - largura / 2)}" y="${arredondar(canal - 9)}" width="${arredondar(
+      largura,
+    )}" height="16" rx="4" fill="${PAPEL}" fill-opacity="0.92"/>`,
+    `<text x="${mx}" y="${arredondar(canal + 3)}" font-size="10" fill="${TINTA_FRACA}" text-anchor="middle">${escaparXml(
       seta.label,
     )}</text>`,
   ].join("");
