@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Server } from "node:http";
-import { createDb, encerrarPoolDoProcesso, type Database } from "@workspace/db";
+import { createDb, encerrarPoolDoProcesso } from "@workspace/db";
 import { readMigrations } from "@workspace/db/migrate";
 import { tentativaComecou, tentativaTerminou } from "../lib/partida";
 
@@ -44,7 +44,6 @@ const SENHA = "quinzena-de-julho-2026";
 let url: string;
 let servidor: Server;
 let base: string;
-let db: Database;
 let poolDoTeste: ReturnType<typeof createDb>["pool"];
 let cookie: string;
 
@@ -88,7 +87,7 @@ beforeAll(async () => {
   process.env.DB_MIGRATE_ON_BOOT = "0";
 
   const { default: app } = await import("../app");
-  ({ db, pool: poolDoTeste } = createDb(url));
+  ({ pool: poolDoTeste } = createDb(url));
 
   servidor = await new Promise<Server>((resolve) => {
     const s = app.listen(0, "127.0.0.1", () => resolve(s));
@@ -104,9 +103,27 @@ beforeAll(async () => {
      VALUES ('Guy','guy@freightcheck',$1,'OPERADOR') RETURNING id`,
     [await hashPassword(SENHA)],
   );
-  const { startSession } = await import("../lib/session");
-  const sessao = await startSession(db, rows[0]!.id);
-  cookie = `freightcheck_session=${sessao.token}`;
+  /*
+    A linha da sessão entra por SQL, e não por `startSession`, e a razão é a
+    própria premissa deste arquivo: o banco está parado antes da última
+    migration, **de propósito**, e um INSERT do Drizzle fala sempre o schema do
+    código — ele enumera toda coluna da tabela, inclusive a que a migration que
+    falta ainda não criou. Pedir isso a este banco seria exigir dele exatamente
+    o que o portão de prontidão existe para não deixar acontecer em produção, e
+    o teste morreria no fixture em vez de medir o portão.
+
+    O token continua real: `newSessionToken` e `hashSessionToken` são as mesmas
+    funções que `startSession` usa, e é o hash delas que a sessão vai resolver
+    depois da convergência.
+  */
+  const { newSessionToken, hashSessionToken } = await import("../lib/auth");
+  const token = newSessionToken();
+  await poolDoTeste.query(
+    `INSERT INTO "user_session" ("user_id","token_hash","expires_at")
+     VALUES ($1,$2, now() + interval '7 days')`,
+    [rows[0]!.id, hashSessionToken(token)],
+  );
+  cookie = `freightcheck_session=${token}`;
 
   /*
     A tentativa terminou, e terminou com falha — declarado à mão, porque é
