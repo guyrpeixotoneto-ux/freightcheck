@@ -24,6 +24,15 @@ export interface ManagedUser {
   createdAt: string;
   createdBy: string | null;
   disabledBy: string | null;
+  /**
+   * O arquivamento — quando a conta saiu da lista, e por quem.
+   *
+   * `null` nos dois é toda conta que ninguém arquivou. Arquivar não apaga e não
+   * tira acesso: só se arquiva quem já está desativado, e o que muda é a lista,
+   * que passa a esconder essas contas até alguém pedir para vê-las.
+   */
+  archivedAt: string | null;
+  archivedBy: string | null;
   openSessions: number;
   /**
    * A lotação da pessoa — cargo e unidade, do cadastro da casa.
@@ -36,6 +45,14 @@ export interface ManagedUser {
    */
   cargoId: string | null;
   cargoNome: string | null;
+  /**
+   * O departamento, lido **através do cargo** — não há coluna de departamento na
+   * conta, e é de propósito: departamento é atributo do cargo, e uma segunda
+   * cópia aqui permitiria alguém no Comercial com um cargo da Controladoria.
+   * Muda-se trocando o cargo da pessoa, ou o departamento do cargo.
+   */
+  departamentoId: string | null;
+  departamentoNome: string | null;
   unidadeId: string | null;
   unidadeNome: string | null;
   /** O telefone, como foi ditado. `null` é quem não deu o número. */

@@ -6,6 +6,7 @@ import {
   conferirCobertura,
   estadoDasEtapas,
   monitorarFluxo,
+  monitorarFluxos,
   montarMonitoramento,
   piorFarol,
   registroDeColetores,
@@ -313,6 +314,33 @@ describe("o farol", () => {
     expect(piorFarol(["VERDE", "VERMELHO", "AMARELO"])).toBe("VERMELHO");
   });
 
+  it("conta separado quem respondeu e quem respondeu velho", async () => {
+    /*
+      As duas contas existem porque pedem consertos diferentes: `respondidas`
+      diz que o coletor está de pé, `vencidas` diz que o dado dele envelheceu.
+      Somá-las em `medidas` esconderia o segundo caso — a etapa apagaria com a
+      mesma cara de quem nunca teve dono.
+    */
+    const resultado = await apurar([
+      coletorFixo([leitura("cte.emissao", "VERDE")], { nome: "fiscal" }),
+      coletorFixo([leitura("financeiro.cobranca", "VERMELHO", 60 * 5)], {
+        nome: "financeiro",
+      }),
+    ]);
+    expect(resultado.resumo).toMatchObject({
+      etapas: 3,
+      medidas: 1,
+      respondidas: 2,
+      vencidas: 1,
+      semDado: 2,
+    });
+    expect(resultado.etapas.find((e) => e.etapaId === "e2")).toMatchObject({
+      farol: "SEM_DADO",
+      motivo: "vencida",
+      vencida: true,
+    });
+  });
+
   it("mantém o farol apagado quando o coletor falha, e diz que foi ele", async () => {
     const resultado = await apurar([
       coletorFixo([leitura("cte.emissao", "VERDE")], {
@@ -373,5 +401,93 @@ describe("a cobertura", () => {
       semColetor: ["financeiro.cobranca", "taxa de rejeição"],
       malFormadas: ["taxa de rejeição"],
     });
+  });
+});
+
+describe("o painel cruzado", () => {
+  /*
+    A afirmação é uma só, e é a razão de `monitorarFluxos` existir em vez de um
+    laço de `monitorarFluxo`: dois fluxos que declaram a mesma chave são **uma**
+    pergunta ao coletor. Um laço faria duas, e o custo cresceria com o número de
+    fluxos cadastrados.
+  */
+  it("colhe uma vez só para todos os fluxos, e data todos no mesmo instante", async () => {
+    const fiscal = fluxoCom([
+      etapa("e1", "Emissão", "cte.emissao"),
+      etapa("e2", "Mesa", null),
+    ]);
+    const financeiro: FluxoCompleto = {
+      ...fluxoCom([etapa("e3", "Cobrança", "cte.emissao")]),
+      fluxo: { ...fluxoCom([]).fluxo, id: "fluxo-2", slug: "financeiro" },
+    };
+
+    let pedidos = 0;
+    const coletor: Coletor = {
+      nome: "fiscal",
+      prefixos: ["cte."],
+      async ler(pedido) {
+        pedidos += 1;
+        expect(pedido.chaves).toEqual(["cte.emissao"]);
+        return [leitura("cte.emissao", "VERMELHO")];
+      },
+    };
+
+    const painel = await monitorarFluxos(
+      registroDeColetores(coletor),
+      "empresa-1",
+      [fiscal, financeiro],
+      { agora: AGORA },
+    );
+
+    expect(pedidos).toBe(1);
+    expect(painel.map((m) => m.fluxoId)).toEqual(["fluxo-1", "fluxo-2"]);
+    expect(painel[0]!.apuradoEm).toBe(painel[1]!.apuradoEm);
+    expect(painel[0]!.resumo).toMatchObject({ pior: "VERMELHO", semDado: 1 });
+    expect(painel[1]!.resumo).toMatchObject({ pior: "VERMELHO", semDado: 0 });
+  });
+
+  it("mostra a falha do coletor em todo fluxo que dependia dele", async () => {
+    const a = fluxoCom([etapa("e1", "Emissão", "cte.emissao")]);
+    const b: FluxoCompleto = {
+      ...fluxoCom([etapa("e2", "Reemissão", "cte.emissao")]),
+      fluxo: { ...fluxoCom([]).fluxo, id: "fluxo-2", slug: "outro" },
+    };
+    const painel = await monitorarFluxos(
+      registroDeColetores(
+        coletorFixo([leitura("cte.emissao", "VERDE")], {
+          nome: "fiscal",
+          falharCom: "conexão recusada",
+        }),
+      ),
+      "empresa-1",
+      [a, b],
+      { agora: AGORA },
+    );
+    for (const monitoramento of painel) {
+      expect(monitoramento.falhas[0]?.coletor).toBe("fiscal");
+      expect(monitoramento.etapas[0]).toMatchObject({
+        farol: "SEM_DADO",
+        motivo: "coletor_falhou",
+      });
+    }
+  });
+
+  it("sem fluxo nenhum, não chama coletor e devolve lista vazia", async () => {
+    let chamou = false;
+    const painel = await monitorarFluxos(
+      registroDeColetores({
+        nome: "fiscal",
+        prefixos: ["cte."],
+        ler: async () => {
+          chamou = true;
+          return [];
+        },
+      }),
+      "empresa-1",
+      [],
+      { agora: AGORA },
+    );
+    expect(painel).toEqual([]);
+    expect(chamou).toBe(false);
   });
 });

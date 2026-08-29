@@ -1,0 +1,38 @@
+-- ---------------------------------------------------------------------------
+-- ARQUIVAR CONTA — tirar da lista sem apagar ninguém.
+-- ---------------------------------------------------------------------------
+--
+-- A tela de Usuários mostra tudo o que já existiu: quem entrou ontem e quem
+-- saiu da empresa há dois anos. Desativar resolve o acesso e não resolve a
+-- lista — a conta continua ali, no grupo do cargo que a pessoa não ocupa mais,
+-- entre as contas de quem ainda trabalha aqui. Quem procura "os analistas"
+-- passa a ler desligados junto, e a lixeira, que já desativa, não tem o que
+-- fazer numa conta desativada.
+--
+-- Apagar continua fora de questão, e pela razão de sempre: o `actor` de cada
+-- confirmação de curadoria e de cada promoção de vigência aponta para estas
+-- linhas. Arquivar não é uma exclusão mais educada — é uma decisão sobre a
+-- **lista**, e não sobre a linha: a conta sai da vista de quem administra
+-- acesso e continua inteira no banco, com o histórico assinado por ela.
+--
+-- **Arquivar pressupõe estar sem acesso.** Uma conta arquivada e ativa seria
+-- gente entrando no produto sem aparecer na tela que existe para dizer quem
+-- entra — exatamente o que uma tela de acesso não pode permitir. A rota exige
+-- a conta já desativada, e não desativa por conta própria: cortar o acesso de
+-- alguém é um ato com aviso próprio, e escondê-lo dentro de "arquivar" faria
+-- um gesto de arrumação derrubar sessão de gente trabalhando.
+--
+-- **`archived_by` pela mesma razão de `disabled_by`**: sumir com uma conta da
+-- tela é um ato administrativo, e ato administrativo sem autor é o que este
+-- produto recusa em todas as outras telas. `NULL` nos dois é o estado de toda
+-- conta que ninguém arquivou — que são todas até alguém clicar.
+--
+-- Nuláveis e sem default, a forma que a allowlist do bridge aceita (ver
+-- `bridge.ts`), e sem índice pelo mesmo critério da `0077`: uma lista de
+-- contas de dezenas de linhas não pede um índice novo na proposta do
+-- Publishing.
+-- ---------------------------------------------------------------------------
+
+ALTER TABLE "app_user" ADD COLUMN IF NOT EXISTS "archived_at" timestamp with time zone;
+--> statement-breakpoint
+ALTER TABLE "app_user" ADD COLUMN IF NOT EXISTS "archived_by" text;

@@ -433,7 +433,7 @@ describe("caso 6 — alternar visualização não escreve no banco", () => {
     }
   });
 
-  it("o seletor oferece exatamente as seis visualizações", () => {
+  it("o seletor oferece exatamente as sete visualizações", () => {
     expect(VISUALIZACOES.map((v) => v.valor)).toEqual([
       "fluxo",
       "raias",
@@ -441,7 +441,21 @@ describe("caso 6 — alternar visualização não escreve no banco", () => {
       "mapa",
       "lista",
       "gargalos",
+      "monitoramento",
     ]);
+  });
+
+  /*
+    A sétima é a única que não é projeção pura do `FluxoCompleto`: ela mostra o
+    farol apurado por `GET /fluxos/:id/monitoramento`. O que continua valendo, e
+    é o que este bloco inteiro protege, é que ela também não escreve — a rota que
+    ela consome é leitura, e a prova está do lado do servidor
+    (`fluxos-monitoramento.test.ts`, "monitorar não escreve").
+  */
+  it("a sétima é a única fora do canvas que lê do servidor, e continua sendo leitura", () => {
+    const monitoramento = VISUALIZACOES.find((v) => v.valor === "monitoramento");
+    expect(monitoramento?.ehCanvas).toBe(false);
+    expect(monitoramento?.rotulo).toBe("Monitoramento");
   });
 
   it("uma preferência guardada por outra versão não quebra a tela", () => {

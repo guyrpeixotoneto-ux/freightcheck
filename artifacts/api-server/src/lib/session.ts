@@ -3,6 +3,7 @@ import { alias } from "drizzle-orm/pg-core";
 import {
   appUserTable,
   cargoTable,
+  departamentoTable,
   unidadeTable,
   userSessionTable,
   type Database,
@@ -534,6 +535,15 @@ export interface ManagedUser extends SessionUser {
   createdAt: string;
   createdBy: string | null;
   disabledBy: string | null;
+  /**
+   * O arquivamento — quando a conta saiu da lista, e por quem.
+   *
+   * `null` nos dois é toda conta que ninguém arquivou. A tela esconde as
+   * arquivadas por padrão e as mostra sob demanda: elas não somem do produto,
+   * saem só da vista de quem administra acesso hoje.
+   */
+  archivedAt: string | null;
+  archivedBy: string | null;
   /** Quantas sessões vivas essa pessoa tem agora. */
   openSessions: number;
   /**
@@ -550,6 +560,21 @@ export interface ManagedUser extends SessionUser {
    */
   cargoId: string | null;
   cargoNome: string | null;
+  /**
+   * O departamento onde a pessoa está lotada — lido **através do cargo**, e não
+   * guardado em `app_user`.
+   *
+   * Departamento é atributo do cargo (`cargo.departamento_id`, da `0073`), e uma
+   * coluna própria aqui abriria a contradição de alguém no Comercial com um
+   * cargo lotado na Controladoria — duas respostas para a mesma pergunta, e
+   * nenhuma forma de saber qual está certa. Vem na lista porque a tela mostra e
+   * busca por ele; muda-se trocando o cargo da pessoa, ou o departamento do
+   * cargo.
+   *
+   * `null` é quem não tem cargo, e também o cargo que ninguém lotou ainda.
+   */
+  departamentoId: string | null;
+  departamentoNome: string | null;
   unidadeId: string | null;
   unidadeNome: string | null;
   /** O telefone, como foi ditado. `null` é quem não deu o número. */
@@ -591,9 +616,13 @@ export async function listUsers(db: Database): Promise<ManagedUser[]> {
       createdAt: appUserTable.createdAt,
       createdBy: appUserTable.createdBy,
       disabledBy: appUserTable.disabledBy,
+      archivedAt: appUserTable.archivedAt,
+      archivedBy: appUserTable.archivedBy,
       openSessions: sql<number>`count(${userSessionTable.id})::int`,
       cargoId: appUserTable.cargoId,
       cargoNome: cargoTable.nome,
+      departamentoId: cargoTable.departamentoId,
+      departamentoNome: departamentoTable.nome,
       unidadeId: appUserTable.unidadeId,
       unidadeNome: unidadeTable.nome,
       telefone: appUserTable.telefone,
@@ -615,12 +644,23 @@ export async function listUsers(db: Database): Promise<ManagedUser[]> {
       tem acesso ao produto, que é o oposto do que ela existe para fazer.
     */
     .leftJoin(cargoTable, eq(cargoTable.id, appUserTable.cargoId))
+    /* O departamento vem pendurado no cargo, e à esquerda pela mesma razão: um
+       cargo que ninguém lotou ainda é estado normal, e uma junção interna aqui
+       sumiria com a conta inteira da lista por causa disso. */
+    .leftJoin(departamentoTable, eq(departamentoTable.id, cargoTable.departamentoId))
     .leftJoin(unidadeTable, eq(unidadeTable.id, appUserTable.unidadeId))
     /* O gestor é a própria tabela sob outro nome: quem reporta a quem mora em
        `app_user`, e sem o alias a junção seria a tabela consigo mesma sem que
        o SQL soubesse qual das duas cada coluna está pedindo. */
     .leftJoin(gestorTable, eq(gestorTable.id, appUserTable.gestorId))
-    .groupBy(appUserTable.id, cargoTable.nome, unidadeTable.nome, gestorTable.name)
+    .groupBy(
+      appUserTable.id,
+      cargoTable.nome,
+      cargoTable.departamentoId,
+      departamentoTable.nome,
+      unidadeTable.nome,
+      gestorTable.name,
+    )
     .orderBy(appUserTable.name);
 
   return rows.map((row) => ({
@@ -628,13 +668,16 @@ export async function listUsers(db: Database): Promise<ManagedUser[]> {
     disabledAt: row.disabledAt?.toISOString() ?? null,
     lastLoginAt: row.lastLoginAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
+    archivedAt: row.archivedAt?.toISOString() ?? null,
   }));
 }
 
 export async function findUserById(
   db: Database,
   id: string,
-): Promise<(SessionUser & { disabledAt: Date | null }) | null> {
+): Promise<
+  (SessionUser & { disabledAt: Date | null; archivedAt: Date | null }) | null
+> {
   const [user] = await db
     .select({
       id: appUserTable.id,
@@ -642,6 +685,7 @@ export async function findUserById(
       email: appUserTable.email,
         role: appUserTable.role,
       disabledAt: appUserTable.disabledAt,
+      archivedAt: appUserTable.archivedAt,
     })
     .from(appUserTable)
     .where(eq(appUserTable.id, id))
@@ -665,11 +709,39 @@ export async function setUserDisabled(
     .set(
       disabled
         ? { disabledAt: new Date(), disabledBy: by }
-        : { disabledAt: null, disabledBy: null },
+        : /* Reativar desarquiva junto. Só se arquiva quem está sem acesso, e
+             uma conta que volta a entrar no produto tem de voltar à lista de
+             quem entra — devolver o acesso e deixá-la escondida seriam as duas
+             metades da mesma contradição. */
+          { disabledAt: null, disabledBy: null, archivedAt: null, archivedBy: null },
     )
     .where(eq(appUserTable.id, userId));
 
   if (disabled) await endAllSessionsForUser(db, userId);
+}
+
+/**
+ * Arquiva e desarquiva — a lista, e não a linha.
+ *
+ * Os dois moram na mesma função pela razão de `setUserDisabled`: são o mesmo
+ * ato ao contrário, e separá-los seria deixar duas funções divergirem sobre o
+ * que significa desfazer. Quem decide *se pode* é a rota — arquivar exige a
+ * conta já desativada, e a frase que recusa mora lá, onde é lida.
+ */
+export async function setUserArquivado(
+  db: Database,
+  userId: string,
+  arquivado: boolean,
+  by: string,
+): Promise<void> {
+  await db
+    .update(appUserTable)
+    .set(
+      arquivado
+        ? { archivedAt: new Date(), archivedBy: by }
+        : { archivedAt: null, archivedBy: null },
+    )
+    .where(eq(appUserTable.id, userId));
 }
 
 /**

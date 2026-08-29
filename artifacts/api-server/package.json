@@ -17,6 +17,7 @@
     "@workspace/api-zod": "workspace:*",
     "@workspace/assistant": "workspace:*",
     "@workspace/balance": "workspace:*",
+    "@workspace/coletores": "workspace:*",
     "@workspace/comparison": "workspace:*",
     "@workspace/composition": "workspace:*",
     "@workspace/compras": "workspace:*",

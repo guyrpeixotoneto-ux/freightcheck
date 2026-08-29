@@ -260,6 +260,27 @@ export const ALLOWLIST: {
     tipo: "uuid",
     aindaPodeNaoExistir: true,
   },
+  /*
+    As duas da `0078` — o arquivamento de uma conta na tela de Usuários.
+
+    Aditivas e nulas por definição: `NULL` nas duas é toda conta que ninguém
+    arquivou. Entram aqui pela forma, como as da `0077`: nuláveis, sem default,
+    em tabela que sobrevive ao `down`. Sem índice pelo mesmo critério — a lista
+    de contas tem dezenas de linhas, e um índice novo entraria na proposta do
+    Publishing para não mudar nada que se meça.
+  */
+  {
+    tabela: "app_user",
+    coluna: "archived_at",
+    tipo: "timestamp with time zone",
+    aindaPodeNaoExistir: true,
+  },
+  {
+    tabela: "app_user",
+    coluna: "archived_by",
+    tipo: "text",
+    aindaPodeNaoExistir: true,
+  },
   {
     tabela: "user_session",
     coluna: "impersonated_user_id",

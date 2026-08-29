@@ -1,7 +1,7 @@
 import type { Conexao, Etapa, FluxoCompleto } from "@/lib/fluxos";
 
 /**
- * O MOTOR DE VISUALIZAÇÃO — o mesmo processo, projetado de seis jeitos.
+ * O MOTOR DE VISUALIZAÇÃO — o mesmo processo, projetado de sete jeitos.
  *
  * Este arquivo é a resposta à única regra que o módulo não pode quebrar: existe
  * **uma** fonte de verdade do processo, e ela é o `FluxoCompleto` que a API
@@ -15,6 +15,11 @@ import type { Conexao, Etapa, FluxoCompleto } from "@/lib/fluxos";
  * Fluxo → Raias → Lista → Gargalos → Fluxo é recalcular funções puras sobre o
  * objeto que já está no cache do React Query, e por isso não pode criar linha
  * nenhuma no banco: não existe caminho de código por onde isso aconteceria.
+ *
+ * A sétima projeção, o Monitoramento, é a única que **busca** — e o que ela
+ * busca é uma leitura: `GET /fluxos/:id/monitoramento` apura o farol e não grava
+ * nada. A promessa continua de pé; o que muda é que agora ela vale por dois
+ * motivos, e não por um só.
  *
  * ---------------------------------------------------------------------------
  * O que é persistido, e o que é calculado
@@ -41,7 +46,14 @@ import type { Conexao, Etapa, FluxoCompleto } from "@/lib/fluxos";
 // O vocabulário das visualizações
 // ---------------------------------------------------------------------------
 
-export type Visualizacao = "fluxo" | "raias" | "jornada" | "mapa" | "lista" | "gargalos";
+export type Visualizacao =
+  | "fluxo"
+  | "raias"
+  | "jornada"
+  | "mapa"
+  | "lista"
+  | "gargalos"
+  | "monitoramento";
 
 export type Orientacao = "vertical" | "horizontal";
 
@@ -79,7 +91,7 @@ export interface EntradaDeVisualizacao {
 }
 
 /**
- * As seis visualizações, num lugar só.
+ * As sete visualizações, num lugar só.
  *
  * Mesma decisão do catálogo do motor: a lista é dado, e não um `switch`
  * espalhado por componente. Acrescentar uma sétima projeção é uma entrada aqui
@@ -127,6 +139,24 @@ export const VISUALIZACOES: readonly EntradaDeVisualizacao[] = [
     descricao: "O mesmo desenho, com os sinais de risco em cima.",
     icone: "AlertTriangle",
     ehCanvas: true,
+  },
+  /*
+    A sétima, e a única que não é projeção pura: ela lê o farol apurado pelo
+    servidor (`GET /fluxos/:id/monitoramento`). Entra no fim porque é a única
+    que responde sobre o **agora** — as seis acima descrevem o processo
+    desenhado, esta descreve o que os dados dizem dele hoje.
+
+    Continua sem dado próprio do processo: as etapas são as mesmas, na mesma
+    quantidade, vindas do mesmo `FluxoCompleto`. O que ela acrescenta é uma
+    leitura por etapa, e o que ela nunca faz é esconder a etapa que ninguém
+    mede — ver `visao-monitoramento.tsx`.
+  */
+  {
+    valor: "monitoramento",
+    rotulo: "Monitoramento",
+    descricao: "O farol de cada etapa, com o que os coletores mediram agora.",
+    icone: "Activity",
+    ehCanvas: false,
   },
 ];
 

@@ -188,6 +188,9 @@ importers:
       '@workspace/balance':
         specifier: workspace:*
         version: link:../../lib/balance
+      '@workspace/coletores':
+        specifier: workspace:*
+        version: link:../../lib/coletores
       '@workspace/comparison':
         specifier: workspace:*
         version: link:../../lib/comparison
@@ -300,6 +303,9 @@ importers:
       '@workspace/fechamento':
         specifier: workspace:*
         version: link:../../lib/fechamento
+      '@workspace/fluxos':
+        specifier: workspace:*
+        version: link:../../lib/fluxos
       '@workspace/ingest':
         specifier: workspace:*
         version: link:../../lib/ingest
