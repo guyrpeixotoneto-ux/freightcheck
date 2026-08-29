@@ -3,6 +3,7 @@ import { captureRaw, preview, promote, receiveFile, stage } from "@workspace/ing
 import { createTestDatabase, type TestDb } from "@workspace/ingest/testing";
 import { escreverPlanilha } from "@workspace/ingest/testing/planilha";
 import { remuneradoDoQlp, papelDaColuna, type ConsultaDoQlp } from "../qlp";
+import { matrizDoQlp, type MatrizDoQlp } from "../matriz-qlp";
 
 /**
  * O balcão do QLP administrativo, sobre o pipeline real de importação.
@@ -288,5 +289,102 @@ describe("o que não vira linha", () => {
     const c = celula("uniformes", "ANALISTA ADM", "UNITARIO");
     expect(c.semantica.status).toBe("UNKNOWN");
     expect(c.semantica.isMonetary).toBeNull();
+  });
+});
+
+/**
+ * A matriz — o mesmo balcão com o eixo virado.
+ *
+ * O que este bloco protege é que a transposição não inventa nem perde nada: a
+ * célula da matriz é o **mesmo objeto** que a linha da tabela do produto, a
+ * lista de cargos é a união de todos os produtos, e as somas recusam o que não
+ * se soma.
+ */
+describe("a matriz do QLP", () => {
+  let matriz: MatrizDoQlp;
+
+  beforeAll(() => {
+    matriz = matrizDoQlp(consulta);
+  });
+
+  it("tem um cargo por linha e um produto por coluna", () => {
+    expect(matriz.colunas.map((c) => c.produto.chave)).toEqual(
+      consulta.produtos.map((p) => p.produto.chave),
+    );
+    expect(matriz.linhas.map((l) => l.cargo).sort()).toEqual([
+      "ANALISTA ADM",
+      "AUXILIAR ADM",
+      "COORDENADOR ADM",
+    ]);
+    for (const linha of matriz.linhas) {
+      expect(linha.celulas).toHaveLength(matriz.colunas.length);
+    }
+    expect(matriz.resumo.cargos).toBe(3);
+    expect(matriz.resumo.unidades).toBe(1);
+  });
+
+  /**
+   * A união, e não a lista de um produto tomado como referência: o coordenador
+   * só tem frota leve e ordenados, e sumiria da matriz se os cargos saíssem da
+   * tabela de uniformes.
+   */
+  it("um cargo que só existe em um produto continua na matriz", () => {
+    const coordenador = matriz.linhas.find((l) => l.cargo === "COORDENADOR ADM")!;
+    const i = matriz.colunas.findIndex((c) => c.produto.chave === "frota-leve");
+    const j = matriz.colunas.findIndex((c) => c.produto.chave === "uniformes");
+    expect(coordenador.celulas[i]!.celulas.length).toBeGreaterThan(0);
+    /* Sem uniforme não é zero: é célula vazia, e a tela diz qual vazio. */
+    expect(coordenador.celulas[j]!.celulas).toEqual([]);
+  });
+
+  it("a célula da matriz é o mesmo objeto da linha do produto", () => {
+    for (const [i, coluna] of matriz.colunas.entries()) {
+      const doBalcao = produto(coluna.produto.chave);
+      for (const linha of matriz.linhas) {
+        const daTabela = doBalcao.linhas.find((l) => l.entityId === linha.entityId);
+        expect(linha.celulas[i]!.celulas).toEqual(daTabela?.celulas ?? []);
+        expect(linha.celulas[i]!.conferencia).toEqual(daTabela?.conferencia ?? null);
+      }
+    }
+  });
+
+  /**
+   * A recusa própria deste eixo: preço unitário não se soma. Somar o valor de
+   * um uniforme com o de outro cargo responde a pergunta nenhuma, e o número
+   * embaixo de "total" seria lido como o que a Ambev paga.
+   */
+  it("unitário sai sem total; quantidade e despesa somam", () => {
+    const uniformes = matriz.colunas.find((c) => c.produto.chave === "uniformes")!;
+    const unitario = uniformes.totais.find((t) => t.papel === "UNITARIO")!;
+    expect(unitario.total).toBeNull();
+    expect(unitario.semTotal).toBe("UNITARIO_NAO_SOMA");
+    /* Continua contando quantos cargos têm o preço — a recusa é da soma, não da leitura. */
+    expect(unitario.cargosComValor).toBe(2);
+
+    const quantidade = uniformes.totais.find((t) => t.papel === "QUANTIDADE")!;
+    expect(quantidade.total).toBe(6); // 2 + 4
+    const despesa = uniformes.totais.find((t) => t.papel === "DESPESA")!;
+    expect(despesa.total).toBe(1060); // 360 + 700, o que a fonte declara
+  });
+
+  it("um produto sem coluna nesta vigência sai sem papel nenhum, e não some", () => {
+    const beneficios = matriz.colunas.find((c) => c.produto.chave === "beneficios")!;
+    expect(beneficios.semColuna).toBe(true);
+    expect(beneficios.papeis).toEqual([]);
+    expect(beneficios.totais).toEqual([]);
+  });
+
+  /**
+   * A conferência sobrevive à inversão do eixo: o auxiliar declara R$ 700 onde
+   * 4 × 180 dariam 720, e o número exibido continua sendo o da fonte.
+   */
+  it("a conferência que não fecha viaja na célula e é contada no resumo", () => {
+    const auxiliar = matriz.linhas.find((l) => l.cargo === "AUXILIAR ADM")!;
+    const i = matriz.colunas.findIndex((c) => c.produto.chave === "uniformes");
+    const conferencia = auxiliar.celulas[i]!.conferencia!;
+    expect(conferencia.fecha).toBe(false);
+    expect(conferencia.declarado).toBe(700);
+    expect(conferencia.esperado).toBe(720);
+    expect(matriz.resumo.cargosComDivergencia).toBe(1);
   });
 });

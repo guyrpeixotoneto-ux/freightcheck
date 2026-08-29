@@ -138,6 +138,10 @@ describe("a superfície de Compras, na ordem em que a vida acontece", () => {
     const matriz = await get("/compras/remunerado/frota/matriz");
     expect(matriz.status).toBe(404);
     expect(matriz.body.error).toMatch(/vigência/i);
+
+    const matrizQlp = await get("/compras/remunerado/qlp/matriz");
+    expect(matrizQlp.status).toBe(404);
+    expect(matrizQlp.body.error).toMatch(/QLP Administrativo/);
   });
 
   it("sem placa: 400, e não 404 — faltou o parâmetro, não o veículo", async () => {
@@ -273,9 +277,9 @@ describe("a superfície de Compras, na ordem em que a vida acontece", () => {
      * O QLP continua 404 depois da importação de frota: são famílias de dados
      * diferentes, e uma vigência de equipamento não abre o balcão da estrutura.
      */
-    it("a frota importada não abre o balcão do QLP", async () => {
-      const qlp = await get("/compras/remunerado/qlp");
-      expect(qlp.status).toBe(404);
+    it("a frota importada não abre o balcão do QLP, nem a matriz dele", async () => {
+      expect((await get("/compras/remunerado/qlp")).status).toBe(404);
+      expect((await get("/compras/remunerado/qlp/matriz")).status).toBe(404);
     });
   });
 });

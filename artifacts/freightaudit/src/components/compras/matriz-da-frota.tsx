@@ -48,6 +48,8 @@ import {
   type MatrizDaFrota,
   type MotivoDaCelulaVazia,
 } from "./tipos";
+import { FiltroDeTipo } from "./filtro-de-tipo";
+import { totalizarColuna } from "./totais";
 
 export function TabelaDaMatriz({
   matriz,
@@ -79,7 +81,7 @@ export function TabelaDaMatriz({
     que se está lendo, e um rodapé que ignora o filtro em cima dele mente.
   */
   const colunas = useMemo(
-    () => matriz.colunas.map((coluna, i) => totalizar(coluna, linhas, i)),
+    () => matriz.colunas.map((coluna, i) => totalizarColuna(coluna, linhas, i)),
     [matriz.colunas, linhas],
   );
 
@@ -284,79 +286,6 @@ export function TabelaDaMatriz({
       )}
     </div>
   );
-}
-
-function FiltroDeTipo({
-  matriz,
-  tipo,
-  onEscolher,
-}: {
-  matriz: MatrizDaFrota;
-  tipo: string | null;
-  onEscolher: (tipo: string | null) => void;
-}) {
-  const tipos = matriz.resumo.porTipo.filter((t) => t.veiculos > 0);
-  if (tipos.length < 2) return null;
-
-  return (
-    <div className="flex items-center gap-1">
-      {[{ entityType: null, rotulo: "Todos" }, ...tipos].map((t) => (
-        <button
-          key={t.entityType ?? "todos"}
-          type="button"
-          onClick={() => onEscolher(t.entityType)}
-          className={cn(
-            "px-3 py-1.5 text-xs font-semibold rounded-md border transition-colors",
-            tipo === t.entityType
-              ? "border-brand text-brand bg-brand/5"
-              : "border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/50",
-          )}
-        >
-          {t.rotulo}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-/**
- * O total de uma coluna **no recorte da tela** — com as duas recusas do servidor.
- *
- * Repete a regra de `totalizar` em `lib/compras/src/matriz.ts` de propósito, e
- * é a única duplicação desta tela: os totais da rota são da frota inteira, e um
- * rodapé que continuasse mostrando os da frota enquanto a tabela mostra três
- * cavalos seria a pior mentira possível — um número certo debaixo de uma lista
- * que não o produz. As duas recusas viajam juntas porque são a regra, não o
- * cálculo: gavetas diferentes não somam, e coluna sem valor não vira zero.
- */
-function totalizar(
-  coluna: ColunaDaMatriz,
-  linhas: LinhaDaMatriz[],
-  indice: number,
-): ColunaDaMatriz {
-  const celulas = linhas.map((l) => l.celulas[indice]!).filter((c) => c.valor !== null);
-  if (celulas.length === 0) {
-    return { ...coluna, gaveta: null, veiculosComValor: 0, total: null, semTotal: "SEM_VALOR" };
-  }
-
-  const gavetas = new Set(celulas.map((c) => c.gaveta));
-  if (gavetas.size > 1) {
-    return {
-      ...coluna,
-      gaveta: null,
-      veiculosComValor: celulas.length,
-      total: null,
-      semTotal: "GAVETAS_DIFERENTES",
-    };
-  }
-
-  return {
-    ...coluna,
-    gaveta: celulas[0]!.gaveta,
-    veiculosComValor: celulas.length,
-    total: Number(celulas.reduce((s, c) => s + (c.valor ?? 0), 0).toFixed(2)),
-    semTotal: null,
-  };
 }
 
 /**

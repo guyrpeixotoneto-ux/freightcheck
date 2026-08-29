@@ -20,13 +20,17 @@ import { cn } from "@/lib/utils";
 import { SUFIXO_DA_GAVETA } from "@/components/composicao/tipos";
 import { formatarValor } from "@/components/qlp/apresentacao";
 import { TabelaDaMatriz } from "@/components/compras/matriz-da-frota";
+import { VisaoPorProduto } from "@/components/compras/por-produto";
+import { TabelaDaMatrizQlp } from "@/components/compras/matriz-do-qlp";
 import {
   ROTULO_DA_NATUREZA,
   ROTULO_DA_RESSALVA,
   ROTULO_DO_PAPEL,
+  type Catalogo,
   type ConsultaDaPlaca,
   type ConsultaDoQlp,
   type MatrizDaFrota,
+  type MatrizDoQlp,
   type LinhaDoProduto,
   type PlacaEncontrada,
   type ProdutoConsultado,
@@ -47,10 +51,19 @@ import {
  * opinando sobre um preço que ela não conhece — e a decisão continua sendo de
  * quem assina.
  *
- * Dois balcões, porque a pergunta chega por dois caminhos e eles pedem chaves
- * diferentes: o da **frota** abre por placa (pneu, manutenção, combustível), e o
- * do **QLP administrativo** abre pela estrutura (uniforme, telefonia, frota
- * leve, benefício). Um uniforme não tem placa, e um pneu não tem cargo.
+ * Três balcões, porque a pergunta chega por caminhos que pedem chaves
+ * diferentes: o da **frota** responde por veículo (pneu, manutenção,
+ * combustível), o do **QLP administrativo** responde por cargo (uniforme,
+ * telefonia, frota leve, benefício), e o do **QLP operacional** ainda não
+ * responde — ele aparece dizendo o que falta, em vez de sumir e fazer parecer
+ * que o produto não existe. Um uniforme não tem placa, e um pneu não tem cargo.
+ *
+ * **Cada balcão abre na matriz, e não numa busca.** Foi a correção mais cara
+ * desta tela: ela pedia uma chave — a placa — antes de responder qualquer
+ * coisa, e quem tem quinze pedidos na mesa não quer quinze consultas, quer a
+ * lista. A busca continua existindo e continua abrindo a ficha; ela deixou de
+ * ser o pedágio. A visão **por produto** é a terceira leitura da mesma
+ * resposta: um produto de cada vez, com a frota ordenada por ele.
  *
  * A regra visual que atravessa as duas: **a ressalva vem antes do número.**
  * `valorPneu` é zero em toda a série do export, e um "R$ 0,00" solo ao lado de
@@ -59,7 +72,7 @@ import {
  * que se lê primeiro.
  */
 
-type Aba = "frota" | "qlp";
+type Aba = "frota" | "qlp" | "qlp-operacional";
 
 const ABAS: { chave: Aba; rotulo: string; nota: string }[] = [
   {
@@ -72,7 +85,23 @@ const ABAS: { chave: Aba; rotulo: string; nota: string }[] = [
     rotulo: "QLP administrativo",
     nota: "Uniforme, telefonia, frota leve e benefício — com o valor unitário que a fonte declara.",
   },
+  {
+    chave: "qlp-operacional",
+    rotulo: "QLP operacional",
+    nota: "O quadro da operação — motorista, ajudante, conferente. Este balcão ainda não abriu.",
+  },
 ];
+
+/**
+ * As duas leituras que cada matriz tem, e por que são duas e não uma.
+ *
+ * A **matriz** responde "como está a frota / a estrutura": tudo de uma vez,
+ * para varrer. A visão **por produto** responde "escolhi recapagem": um produto
+ * de cada vez, ordenado, com a régua e os que ficaram de fora contados. São o
+ * mesmo dado — literalmente a mesma resposta do servidor — lido pelos dois
+ * gestos que trazem alguém aqui.
+ */
+type Visao = "matriz" | "produto";
 
 export default function Remunerado() {
   const search = useSearch();
@@ -80,6 +109,7 @@ export default function Remunerado() {
   const params = new URLSearchParams(search);
   const aba = (params.get("aba") as Aba) ?? "frota";
   const placa = params.get("placa") ?? "";
+  const visao = (params.get("visao") as Visao) ?? "matriz";
 
   /* O contexto viaja na URL, como no resto do produto — ver `composicao-equipamento.tsx`. */
   const contexto = useMemo(() => {
@@ -134,15 +164,25 @@ export default function Remunerado() {
         <p className="text-xs text-muted-foreground mb-5 max-w-3xl">
           {ABAS.find((a) => a.chave === aba)!.nota}
         </p>
-        {aba === "frota" ? (
+        {aba === "frota" && (
           <BalcaoDaFrota
             placa={placa}
+            visao={visao}
+            produto={params.get("produto") ?? ""}
             contexto={contexto}
             onEscolher={(p) => irPara({ placa: p })}
+            onVisao={(v) => irPara({ visao: v === "matriz" ? "" : v })}
+            onProduto={(chave) => irPara({ produto: chave })}
           />
-        ) : (
-          <BalcaoDoQlp contexto={contexto} />
         )}
+        {aba === "qlp" && (
+          <BalcaoDoQlp
+            visao={visao}
+            contexto={contexto}
+            onVisao={(v) => irPara({ visao: v === "matriz" ? "" : v })}
+          />
+        )}
+        {aba === "qlp-operacional" && <BalcaoOperacional contexto={contexto} />}
       </div>
     </Layout>
   );
@@ -152,21 +192,66 @@ export default function Remunerado() {
 // Balcão da frota
 // ---------------------------------------------------------------------------
 
+/**
+ * O seletor de leitura — matriz ou um produto de cada vez.
+ *
+ * Mora na URL (`?visao=`) e não no estado local pela regra desta tela inteira:
+ * o que a pessoa está vendo tem de caber num link. Quem manda "olha o pneu da
+ * frota" no chat manda um endereço que abre no pneu da frota.
+ */
+function SeletorDeVisao({
+  visao,
+  onVisao,
+  rotulos,
+}: {
+  visao: Visao;
+  onVisao: (visao: Visao) => void;
+  rotulos: Record<Visao, string>;
+}) {
+  return (
+    <div className="flex items-center gap-1">
+      {(["matriz", "produto"] as Visao[]).map((v) => (
+        <button
+          key={v}
+          type="button"
+          onClick={() => onVisao(v)}
+          className={cn(
+            "px-3 py-1.5 text-xs font-semibold rounded-md border transition-colors",
+            visao === v
+              ? "border-brand text-brand bg-brand/5"
+              : "border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/50",
+          )}
+        >
+          {rotulos[v]}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function BalcaoDaFrota({
   placa,
+  visao,
+  produto,
   contexto,
   onEscolher,
+  onVisao,
+  onProduto,
 }: {
   placa: string;
+  visao: Visao;
+  produto: string;
   contexto: string;
   onEscolher: (placa: string) => void;
+  onVisao: (visao: Visao) => void;
+  onProduto: (chave: string) => void;
 }) {
   /*
     O termo digitado sobe até aqui porque ele serve a duas coisas ao mesmo
     tempo: escolher uma placa (Enter, ou um clique na sugestão) e **estreitar a
-    matriz enquanto se digita**. Era o gesto que faltava — a tela pedia a placa
-    inteira antes de responder qualquer coisa, e quem tem quinze pedidos na mesa
-    não quer quinze consultas, quer a lista.
+    lista enquanto se digita** — nas duas leituras, matriz e por produto. Era o
+    gesto que faltava: a tela pedia a placa inteira antes de responder qualquer
+    coisa.
   */
   const [termo, setTermo] = useState(placa);
 
@@ -180,10 +265,12 @@ function BalcaoDaFrota({
   });
 
   /*
-    A matriz não é buscada enquanto uma placa está aberta: a ficha ocupa a tela
-    inteira, e uma consulta de frota rodando por trás dela é uma leitura que
-    ninguém vai ver. Ao voltar, o cache do react-query devolve a tabela sem uma
-    segunda ida ao servidor.
+    Uma consulta só serve às duas leituras. A visão por produto não pede nada ao
+    servidor: ela lê a mesma `MatrizDaFrota` de outro jeito, e é isso que
+    garante que as duas nunca discordem — não há duas respostas para comparar.
+
+    Nada é buscado enquanto uma placa está aberta: a ficha ocupa a tela inteira.
+    Ao voltar, o cache do react-query devolve a matriz sem uma segunda ida.
   */
   const matriz = useQuery({
     queryKey: ["compras", "matriz", contexto],
@@ -202,11 +289,27 @@ function BalcaoDaFrota({
           )}
           {matriz.data && (
             <>
-              <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-muted-foreground">
-                <span>{matriz.data.periodLabel}</span>
-                <span>{matriz.data.contextLabel}</span>
+              <div className="flex flex-wrap items-center gap-4">
+                <SeletorDeVisao
+                  visao={visao}
+                  onVisao={onVisao}
+                  rotulos={{ matriz: "Matriz da frota", produto: "Por produto" }}
+                />
+                <span className="text-xs text-muted-foreground">
+                  {matriz.data.periodLabel} · {matriz.data.contextLabel}
+                </span>
               </div>
-              <TabelaDaMatriz matriz={matriz.data} termo={termo} contexto={contexto} />
+              {visao === "produto" ? (
+                <VisaoPorProduto
+                  matriz={matriz.data}
+                  termo={termo}
+                  contexto={contexto}
+                  chave={produto}
+                  onEscolherProduto={onProduto}
+                />
+              ) : (
+                <TabelaDaMatriz matriz={matriz.data} termo={termo} contexto={contexto} />
+              )}
             </>
           )}
         </>
@@ -572,55 +675,146 @@ function ForaDoCatalogo({ consulta }: { consulta: ConsultaDaPlaca }) {
 // Balcão do QLP
 // ---------------------------------------------------------------------------
 
-function BalcaoDoQlp({ contexto }: { contexto: string }) {
-  const consulta = useQuery({
+function BalcaoDoQlp({
+  visao,
+  contexto,
+  onVisao,
+}: {
+  visao: Visao;
+  contexto: string;
+  onVisao: (visao: Visao) => void;
+}) {
+  /*
+    Duas rotas, e não uma com um parâmetro: a matriz é a leitura do balcão
+    transposta por uma função pura no servidor, e a transposição é dele porque é
+    ela que a garante testável contra o balcão. As duas chaves de cache são
+    distintas de propósito — trocar de leitura não invalida a outra, e voltar é
+    instantâneo.
+  */
+  const cartoes = useQuery({
     queryKey: ["compras", "qlp", contexto],
     queryFn: () => fetchJson<ConsultaDoQlp>(`/compras/remunerado/qlp?${contexto}`),
+    enabled: visao === "produto",
+  });
+  const matriz = useQuery({
+    queryKey: ["compras", "qlp", "matriz", contexto],
+    queryFn: () => fetchJson<MatrizDoQlp>(`/compras/remunerado/qlp/matriz?${contexto}`),
+    enabled: visao === "matriz",
   });
 
+  const consulta = visao === "matriz" ? matriz : cartoes;
   if (consulta.isError)
     return <ApiErrorNotice error={consulta.error} what="o remunerado da estrutura" />;
-  if (!consulta.data) return null;
-  const c = consulta.data;
+
+  const cabecalho = matriz.data ?? cartoes.data;
 
   return (
-    <div className="space-y-6 max-w-5xl">
-      <div className="bg-card border rounded-md px-6 py-4">
-        <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-muted-foreground">
-          <span>{c.periodLabel}</span>
-          <span>{c.contextLabel}</span>
-        </div>
-        {c.registrosFaltando > 0 && (
-          <p className="mt-3 flex items-start gap-2 text-xs text-brand-red">
-            <CircleAlert className="w-4 h-4 shrink-0 mt-0.5" />
-            {c.registrosFaltando}{" "}
-            {c.registrosFaltando === 1 ? "registro ficou" : "registros ficaram"} em quarentena
-            nesta vigência. Este quadro está incompleto — ver Inconsistências em QLP
-            Administrativo.
-          </p>
+    <div className={cn("space-y-6", visao === "matriz" ? "max-w-none" : "max-w-5xl")}>
+      <div className="flex flex-wrap items-center gap-4">
+        <SeletorDeVisao
+          visao={visao}
+          onVisao={onVisao}
+          rotulos={{ matriz: "Matriz do QLP", produto: "Por produto" }}
+        />
+        {cabecalho && (
+          <span className="text-xs text-muted-foreground">
+            {cabecalho.periodLabel} · {cabecalho.contextLabel}
+          </span>
         )}
       </div>
 
+      {visao === "matriz"
+        ? matriz.data && <TabelaDaMatrizQlp matriz={matriz.data} />
+        : cartoes.data && <CartoesDoQlp consulta={cartoes.data} />}
+    </div>
+  );
+}
+
+/**
+ * As tabelas por produto — a leitura completa de um produto de cada vez.
+ *
+ * Continua existindo ao lado da matriz porque é a única que mostra os três
+ * papéis juntos, e a conferência ao lado deles: quem está conferindo uma nota
+ * de uniforme quer ver o preço de um, quantos a Ambev reconhece e a despesa na
+ * mesma linha. A matriz mostra um papel de cada vez, e ganha em varredura o que
+ * perde em profundidade.
+ */
+function CartoesDoQlp({ consulta }: { consulta: ConsultaDoQlp }) {
+  return (
+    <>
+      {consulta.registrosFaltando > 0 && (
+        <p className="flex items-start gap-2 text-xs text-brand-red">
+          <CircleAlert className="w-4 h-4 shrink-0 mt-0.5" />
+          {consulta.registrosFaltando}{" "}
+          {consulta.registrosFaltando === 1 ? "registro ficou" : "registros ficaram"} em
+          quarentena nesta vigência. Este quadro está incompleto — ver Inconsistências em QLP
+          Administrativo.
+        </p>
+      )}
+
       <div className="space-y-4">
-        {c.produtos.map((p) => (
+        {consulta.produtos.map((p) => (
           <CartaoDoQlp key={p.produto.chave} produto={p} />
         ))}
       </div>
+    </>
+  );
+}
 
-      <section className="bg-card border border-dashed rounded-md px-6 py-5">
-        <h2 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">
-          QLP operacional
+/**
+ * O balcão que ainda não abriu — agora com aba própria.
+ *
+ * Ele era um rodapé dentro do QLP administrativo, e o rodapé escondia o
+ * tamanho da lacuna: quem procura o uniforme do motorista abre a tela, não
+ * rola até o fim da tabela de outro quadro. Aba própria não inventa dado
+ * nenhum — o que ela faz é pôr a ausência onde a pergunta chega.
+ *
+ * A frase é a do catálogo (`BALCAO_SEM_DADO`), a mesma de
+ * `pages/telas-em-preparo.ts`: duas telas que descrevem a mesma lacuna com
+ * palavras diferentes fazem parecer que são duas lacunas.
+ */
+function BalcaoOperacional({ contexto }: { contexto: string }) {
+  const catalogo = useQuery({
+    queryKey: ["compras", "catalogo", contexto],
+    queryFn: () => fetchJson<Catalogo>(`/compras/catalogo?${contexto}`),
+  });
+
+  if (catalogo.isError)
+    return <ApiErrorNotice error={catalogo.error} what="o catálogo de compras" />;
+  if (!catalogo.data) return null;
+  const { operacional } = catalogo.data;
+
+  return (
+    <div className="max-w-3xl space-y-5">
+      <section className="bg-card border border-dashed rounded-md px-6 py-6">
+        <h2 className="text-sm font-bold uppercase tracking-wider flex items-center gap-2">
+          <CircleAlert className="w-4 h-4 text-muted-foreground" />
+          Este balcão ainda não abriu
         </h2>
-        <p className="text-sm text-muted-foreground mt-2 leading-relaxed max-w-3xl">
-          {c.operacional.falta}
+        <p className="text-sm text-muted-foreground mt-3 leading-relaxed">
+          {operacional.falta}
         </p>
-        <p className="text-xs text-muted-foreground mt-3">
-          {c.operacional.hoje}{" "}
+        <p className="text-sm text-muted-foreground mt-4 leading-relaxed">
+          {operacional.hoje}{" "}
           <Link href="/book-operador" className="text-brand hover:underline">
             Abrir o Book do Operador
           </Link>
         </p>
       </section>
+
+      {/*
+        O que a matriz vai mostrar quando o dado chegar, dito por extenso.
+        Uma tela vazia que só diz "sem dado" deixa quem lê sem saber se o
+        produto está por fazer ou se a importação é que está incompleta — e a
+        resposta, aqui, é a segunda.
+      */}
+      <p className="text-xs text-muted-foreground leading-relaxed">
+        Quando a importação trouxer as linhas do quadro operacional, este balcão abre com o
+        mesmo desenho do administrativo: os cargos da operação em linhas, os produtos em
+        colunas, e o seletor de valor unitário, quantidade e despesa. O que falta é a fonte,
+        não a tela — e nenhum produto de QLP operacional entra no catálogo antes de existir
+        uma coluna do export que o sustente.
+      </p>
     </div>
   );
 }

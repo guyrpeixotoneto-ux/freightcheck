@@ -267,3 +267,51 @@ export interface MatrizDaFrota {
   };
   foraDoCatalogo: ForaDoCatalogo[];
 }
+
+// --- a matriz do QLP -------------------------------------------------------
+
+export type MotivoSemTotalQlp = "SEM_VALOR" | "UNITARIO_NAO_SOMA";
+
+export const ROTULO_SEM_TOTAL_QLP: Record<MotivoSemTotalQlp, string> = {
+  SEM_VALOR: "nenhum cargo com valor",
+  UNITARIO_NAO_SOMA: "preço de um — não se soma entre cargos",
+};
+
+export interface CelulaDaMatrizQlp {
+  celulas: CelulaDoProduto[];
+  conferencia: Conferencia | null;
+}
+
+export interface LinhaDaMatrizQlp {
+  entityId: string;
+  cargo: string;
+  unidadeCnpj: string;
+  unidadeCnpjLegivel: string;
+  unidadeNome: string | null;
+  celulas: CelulaDaMatrizQlp[];
+}
+
+export interface TotalDoPapel {
+  papel: Papel;
+  total: number | null;
+  cargosComValor: number;
+  semTotal: MotivoSemTotalQlp | null;
+}
+
+export interface ColunaDaMatrizQlp {
+  produto: ProdutoDeCompra;
+  papeis: Papel[];
+  semColuna: boolean;
+  totais: TotalDoPapel[];
+}
+
+export interface MatrizDoQlp {
+  effectiveDate: string;
+  periodLabel: string;
+  contextLabel: string;
+  colunas: ColunaDaMatrizQlp[];
+  linhas: LinhaDaMatrizQlp[];
+  resumo: { cargos: number; unidades: number; cargosComDivergencia: number };
+  registrosFaltando: number;
+  operacional: BalcaoSemDado;
+}
