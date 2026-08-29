@@ -11,7 +11,7 @@ import {
   type TipoDeEtapaNoCatalogo,
 } from "@/lib/fluxos";
 import { severidadeNoCatalogo, type Severidade } from "@/lib/fluxos-analise";
-import type { FaseDoFluxo, Posicoes, Raia } from "@/lib/fluxos-visoes";
+import type { FaseDoFluxo, GrupoDoFluxo, Posicoes, Raia } from "@/lib/fluxos-visoes";
 
 /**
  * DO FLUXO PARA O CANVAS — uma montagem só, para as três visualizações que
@@ -70,6 +70,24 @@ export interface NoDaFaseNoCanvas {
   style: { width: number; height: number };
 }
 
+export interface DadosDoGrupo {
+  grupo: GrupoDoFluxo;
+  /** O tipo compartilhado, já resolvido no catálogo — o rótulo da caixa. */
+  tipo: TipoDeEtapaNoCatalogo | undefined;
+}
+
+export interface NoDoGrupoNoCanvas {
+  id: string;
+  type: "grupo";
+  position: { x: number; y: number };
+  data: DadosDoGrupo;
+  draggable: false;
+  selectable: false;
+  focusable: false;
+  zIndex: number;
+  style: { width: number; height: number };
+}
+
 export interface NoDaRaiaNoCanvas {
   id: string;
   type: "raia";
@@ -84,7 +102,7 @@ export interface NoDaRaiaNoCanvas {
 
 export interface ProjecaoDoCanvas {
   nos: (NoDoCanvas & { data: DadosDoNo })[];
-  faixas: (NoDaRaiaNoCanvas | NoDaFaseNoCanvas)[];
+  faixas: (NoDaRaiaNoCanvas | NoDaFaseNoCanvas | NoDoGrupoNoCanvas)[];
   setas: SetaDoCanvas[];
 }
 
@@ -99,6 +117,8 @@ export interface OpcoesDaProjecao {
   raias?: { raias: Raia[]; largura: number };
   /** As faixas das fases, desenhadas por cima do fluxo deitado. */
   fases?: FaseDoFluxo[];
+  /** As caixas do que acontece em paralelo, em volta dos cartões. */
+  grupos?: GrupoDoFluxo[];
   /** As conexões que trocam de raia — desenhadas com mais peso. */
   handoffs?: Set<string>;
 }
@@ -113,6 +133,7 @@ export function montarProjecao(
 ): ProjecaoDoCanvas {
   const base = montarCanvas(completo, catalogo);
   const variante = opcoes.variante ?? "completo";
+  const tipos = new Map((catalogo?.tiposDeEtapa ?? []).map((t) => [t.valor, t]));
 
   const nos = base.nos.map((no) => {
     const projetada = opcoes.posicoes?.get(no.id);
@@ -180,7 +201,24 @@ export function montarProjecao(
     style: { width: fase.largura, height: fase.altura },
   }));
 
-  return { nos, faixas: [...colunasDeFase, ...faixas], setas };
+  /*
+    A caixa do grupo vem depois da fase e antes do cartão: ela é cenário como a
+    fase, mas cenário de dentro — a moldura tem que ficar por cima da coluna
+    colorida e por baixo do que ela envolve.
+  */
+  const caixasDeGrupo: NoDoGrupoNoCanvas[] = (opcoes.grupos ?? []).map((grupo, indice) => ({
+    id: `grupo:${indice}:${grupo.chave}`,
+    type: "grupo" as const,
+    position: { x: grupo.x, y: grupo.y },
+    data: { grupo, tipo: grupo.tipoComum ? tipos.get(grupo.tipoComum) : undefined },
+    draggable: false as const,
+    selectable: false as const,
+    focusable: false as const,
+    zIndex: -1,
+    style: { width: grupo.largura, height: grupo.altura },
+  }));
+
+  return { nos, faixas: [...colunasDeFase, ...caixasDeGrupo, ...faixas], setas };
 }
 
 /** A cor da severidade, para quem precisa dela como valor e não como classe. */

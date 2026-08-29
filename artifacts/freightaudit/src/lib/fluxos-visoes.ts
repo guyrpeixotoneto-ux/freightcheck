@@ -696,6 +696,16 @@ export function projetarFases(
   completo: FluxoCompleto,
   projecao: ProjecaoDoFluxoHorizontal,
   agrupamento: AgrupamentoDeRaia = "area",
+  /**
+   * As caixas de grupo da mesma projeção, quando há.
+   *
+   * A caixa escreve o rótulo dela **acima** do primeiro cartão da coluna — que é
+   * justamente onde o cabeçalho da fase termina. Sem saber disso, a faixa da
+   * fase é desenhada por cima do título da caixa, e os dois ficam ilegíveis.
+   * Então a linha que tem caixa empurra a sua faixa para cima o quanto a caixa
+   * subiu: os dois títulos ficam em alturas diferentes, cada um legível.
+   */
+  grupos: GrupoDoFluxo[] = [],
 ): FaseDoFluxo[] {
   const porId = new Map(completo.etapas.map((e) => [e.id, e]));
   const temCadastro = completo.etapas.some((e) => raiaDaEtapa(e, agrupamento) !== "");
@@ -728,7 +738,13 @@ export function projetarFases(
   };
 
   const fases: FaseDoFluxo[] = [];
-  for (const linha of projecao.linhas) {
+  projecao.linhas.forEach((linha, indiceDaLinha) => {
+    /* O topo real da linha: o do trilho, ou o da caixa mais alta que houver nela. */
+    const topoDaLinha = Math.min(
+      linha.topo,
+      ...grupos.filter((g) => g.linha === indiceDaLinha).map((g) => g.y - RESPIRO_DO_GRUPO),
+    );
+    const alturaDaLinha = linha.topo + linha.altura - topoDaLinha;
     let atual: FaseDoFluxo | null = null;
     for (let i = 0; i < linha.colunas; i += 1) {
       const coluna = linha.colunaInicial + i;
@@ -746,14 +762,135 @@ export function projetarFases(
         cor: corDe(chave),
         x: i * PASSO_X,
         largura: PASSO_X,
-        topo: linha.topo - ALTURA_DA_FASE,
-        altura: linha.altura + ALTURA_DA_FASE,
+        topo: topoDaLinha - ALTURA_DA_FASE,
+        altura: alturaDaLinha + ALTURA_DA_FASE,
         etapas: [...etapas],
       };
       fases.push(atual);
     }
-  }
+  });
   return fases;
+}
+
+// ---------------------------------------------------------------------------
+// Os grupos — o que acontece em paralelo, dentro de uma caixa
+// ---------------------------------------------------------------------------
+
+/** A largura do cartão. A caixa do grupo a envolve com um respiro de cada lado. */
+export const LARGURA_DO_CARTAO_NO_FLUXO = 200;
+/** O respiro entre a borda da caixa do grupo e os cartões dentro dela. */
+export const RESPIRO_DO_GRUPO = 16;
+/** A altura do rótulo da caixa, acima do primeiro cartão. */
+export const ALTURA_DO_ROTULO_DO_GRUPO = 30;
+/** A altura de um cartão dentro da caixa — o que sobra do passo vertical. */
+const ALTURA_ESTIMADA_DO_CARTAO = 96;
+
+export interface GrupoDoFluxo {
+  /** A chave estrutural: mesmas origens, mesmos destinos. */
+  chave: string;
+  /** O tipo que todas as etapas do grupo compartilham, quando há um só. */
+  tipoComum: string | null;
+  /** Em que linha do desenho a caixa cai — é o que faz a fase subir para caber. */
+  linha: number;
+  etapas: string[];
+  x: number;
+  y: number;
+  largura: number;
+  altura: number;
+}
+
+/**
+ * O QUE ACONTECE EM PARALELO — e por que a caixa é derivada, não desenhada.
+ *
+ * No fluxograma de parede, duas integrações que saem do mesmo passo e voltam
+ * para o mesmo passo aparecem dentro de uma caixa tracejada com um título. A
+ * caixa não é enfeite: ela responde uma pergunta que os cartões soltos não
+ * respondem — **as duas acontecem, ou é uma ou outra?** Lado a lado, sem
+ * moldura, duas etapas empilhadas na mesma coluna parecem alternativas de uma
+ * decisão que não existe.
+ *
+ * O grupo é **estrutural**, e é a única definição que não exige cadastro novo:
+ * duas ou mais etapas da mesma coluna que entram nos mesmos lugares e saem para
+ * os mesmos lugares. É literalmente a definição de "isto abre em paralelo e
+ * fecha depois" — e ela cai fora sozinha quando alguém liga uma das etapas em
+ * outro ponto, que é exatamente quando a caixa deixaria de ser verdade.
+ *
+ * O que **não** foi feito: um campo `grupo` na etapa. Seria uma segunda verdade
+ * sobre a forma do processo, que o desenho já conta — com a diferença de que
+ * o campo continuaria dizendo "estas três são um bloco" depois de alguém
+ * religar uma delas, e ninguém descobriria.
+ *
+ * Trilho e faixa de desvio nunca entram na mesma caixa: são leituras
+ * diferentes do processo, e uma moldura em volta das duas diria que o
+ * tratamento de exceção acontece em paralelo com o caminho feliz.
+ */
+export function projetarGrupos(
+  completo: FluxoCompleto,
+  projecao: ProjecaoDoFluxoHorizontal,
+): GrupoDoFluxo[] {
+  if (completo.etapas.length === 0) return [];
+
+  const existe = new Set(completo.etapas.map((e) => e.id));
+  const origens = new Map<string, string[]>();
+  const destinos = new Map<string, string[]>();
+  for (const etapa of completo.etapas) {
+    origens.set(etapa.id, []);
+    destinos.set(etapa.id, []);
+  }
+  for (const conexao of completo.conexoes) {
+    if (!existe.has(conexao.origemEtapaId) || !existe.has(conexao.destinoEtapaId)) continue;
+    origens.get(conexao.destinoEtapaId)!.push(conexao.origemEtapaId);
+    destinos.get(conexao.origemEtapaId)!.push(conexao.destinoEtapaId);
+  }
+
+  /* A chave é o vizinhança da etapa, ordenada — dois lados iguais, mesmo grupo. */
+  const vizinhanca = (id: string) => {
+    const entra = [...new Set(origens.get(id) ?? [])].sort().join(",");
+    const sai = [...new Set(destinos.get(id) ?? [])].sort().join(",");
+    return { chave: `${entra}>${sai}`, ligada: entra !== "" || sai !== "" };
+  };
+
+  const candidatos = new Map<string, string[]>();
+  for (const etapa of completo.etapas) {
+    const coluna = projecao.colunas.get(etapa.id);
+    const posicao = projecao.posicoes.get(etapa.id);
+    if (coluna === undefined || posicao === undefined) continue;
+    const { chave, ligada } = vizinhanca(etapa.id);
+    /* Uma etapa solta não forma bloco: sem ligação, "paralelo" não quer dizer nada. */
+    if (!ligada) continue;
+    const banda = projecao.desvios.has(etapa.id) ? "desvio" : "trilho";
+    const completa = `${coluna}|${banda}|${chave}`;
+    candidatos.set(completa, [...(candidatos.get(completa) ?? []), etapa.id]);
+  }
+
+  const porId = new Map(completo.etapas.map((e) => [e.id, e]));
+  const grupos: GrupoDoFluxo[] = [];
+  for (const [chave, ids] of candidatos) {
+    if (ids.length < 2) continue;
+    const pontos = ids.map((id) => projecao.posicoes.get(id)!);
+    const topo = Math.min(...pontos.map((p) => p.y));
+    const base = Math.max(...pontos.map((p) => p.y)) + ALTURA_ESTIMADA_DO_CARTAO;
+    const tipos = new Set(ids.map((id) => porId.get(id)!.tipo));
+    const coluna = projecao.colunas.get(ids[0])!;
+    grupos.push({
+      chave,
+      tipoComum: tipos.size === 1 ? [...tipos][0] : null,
+      linha: Math.max(
+        0,
+        projecao.linhas.findIndex(
+          (l) => coluna >= l.colunaInicial && coluna < l.colunaInicial + l.colunas,
+        ),
+      ),
+      etapas: ids,
+      x: pontos[0].x - RESPIRO_DO_GRUPO,
+      y: topo - RESPIRO_DO_GRUPO - ALTURA_DO_ROTULO_DO_GRUPO,
+      largura: LARGURA_DO_CARTAO_NO_FLUXO + RESPIRO_DO_GRUPO * 2,
+      altura: base - topo + RESPIRO_DO_GRUPO * 2 + ALTURA_DO_ROTULO_DO_GRUPO,
+    });
+  }
+
+  /* Ordem estável: a coluna manda, depois a altura — o desenho não pode dançar. */
+  return grupos.sort((a, b) => a.x - b.x || a.y - b.y);
 }
 
 // ---------------------------------------------------------------------------

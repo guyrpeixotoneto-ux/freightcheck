@@ -2,13 +2,16 @@ import { describe, expect, it } from "vitest";
 
 import {
   ALTURA_DA_FASE,
+  ALTURA_DO_ROTULO_DO_GRUPO,
   COLUNAS_POR_LINHA,
+  LARGURA_DO_CARTAO_NO_FLUXO,
   PASSO_X,
   PASSO_Y,
   desviosDoFluxo,
   posicoesDoFluxo,
   projetarFases,
   projetarFluxoHorizontal,
+  projetarGrupos,
 } from "@/lib/fluxos-visoes";
 import type { Conexao, Etapa, FluxoCompleto } from "@/lib/fluxos";
 
@@ -300,5 +303,98 @@ describe("o passo do desenho", () => {
   it("a altura da faixa cabe o losango da decisão", () => {
     /* O cartão de decisão mede 150; um passo menor faria dois se tocarem. */
     expect(PASSO_Y).toBeGreaterThan(150);
+  });
+});
+
+describe("a caixa do que acontece em paralelo", () => {
+  /** Duas integrações que saem do mesmo passo e voltam para o mesmo. */
+  function fluxoComParalelo(): FluxoCompleto {
+    sequencia = 0;
+    return fluxo(
+      [
+        etapa({ id: "a", nome: "Solicitação de emissão", area: "Emissão" }),
+        etapa({ id: "r", nome: "Rodopar", tipo: "SISTEMA", area: "Emissão" }),
+        etapa({ id: "c", nome: "Connect", tipo: "SISTEMA", area: "Emissão" }),
+        etapa({ id: "e", nome: "Emissão do CT-e", tipo: "DOCUMENTO", area: "Emissão" }),
+      ],
+      [
+        conexao("a", "r"),
+        conexao("a", "c"),
+        conexao("r", "e"),
+        conexao("c", "e"),
+      ],
+    );
+  }
+
+  it("junta quem entra e sai dos mesmos lugares, na mesma coluna", () => {
+    const completo = fluxoComParalelo();
+    const horizontal = projetarFluxoHorizontal(completo);
+    const grupos = projetarGrupos(completo, horizontal);
+
+    expect(grupos).toHaveLength(1);
+    expect(grupos[0].etapas.sort()).toEqual(["c", "r"]);
+    /* As duas são SISTEMA — a caixa sabe dizer de quê ela é. */
+    expect(grupos[0].tipoComum).toBe("SISTEMA");
+  });
+
+  it("a caixa envolve os cartões, com folga e espaço para o rótulo", () => {
+    const completo = fluxoComParalelo();
+    const horizontal = projetarFluxoHorizontal(completo);
+    const [caixa] = projetarGrupos(completo, horizontal);
+
+    const dentro = caixa.etapas.map((id) => horizontal.posicoes.get(id)!);
+    expect(caixa.x).toBeLessThan(Math.min(...dentro.map((p) => p.x)));
+    expect(caixa.x + caixa.largura).toBeGreaterThan(
+      Math.max(...dentro.map((p) => p.x)) + LARGURA_DO_CARTAO_NO_FLUXO,
+    );
+    /* O topo sobe o suficiente para o título caber acima do primeiro cartão. */
+    expect(Math.min(...dentro.map((p) => p.y)) - caixa.y).toBeGreaterThanOrEqual(
+      ALTURA_DO_ROTULO_DO_GRUPO,
+    );
+  });
+
+  it("religar uma delas desfaz a caixa — é o que a torna verdade", () => {
+    const completo = fluxoComParalelo();
+    const desviada: FluxoCompleto = {
+      ...completo,
+      conexoes: completo.conexoes.map((c) =>
+        c.id === "c->e" ? { ...c, destinoEtapaId: "a" } : c,
+      ),
+    };
+    expect(projetarGrupos(desviada, projetarFluxoHorizontal(desviada))).toEqual([]);
+  });
+
+  it("uma etapa sozinha não é um bloco, e nem duas que só dividem a coluna", () => {
+    const completo = fluxoComDesvio();
+    /* No fluxo com desvio nada entra e sai dos mesmos lugares. */
+    expect(projetarGrupos(completo, projetarFluxoHorizontal(completo))).toEqual([]);
+  });
+
+  it("trilho e desvio nunca entram na mesma caixa", () => {
+    sequencia = 0;
+    const completo = fluxo(
+      [
+        etapa({ id: "a", nome: "Confere" }),
+        etapa({ id: "b", nome: "Segue" }),
+        etapa({ id: "p", nome: "Pendência", tipo: "PENDENCIA" }),
+      ],
+      [conexao("a", "b"), conexao("a", "p")],
+    );
+    const horizontal = projetarFluxoHorizontal(completo);
+    /* `b` e `p` têm a mesma origem e nenhum destino, mas estão em bandas diferentes. */
+    expect(horizontal.desvios.has("p")).toBe(true);
+    expect(projetarGrupos(completo, horizontal)).toEqual([]);
+  });
+
+  it("a fase sobe para não escrever por cima do título da caixa", () => {
+    const completo = fluxoComParalelo();
+    const horizontal = projetarFluxoHorizontal(completo);
+    const grupos = projetarGrupos(completo, horizontal);
+
+    const sem = projetarFases(completo, horizontal, "area");
+    const com = projetarFases(completo, horizontal, "area", grupos);
+    expect(com[0].topo).toBeLessThan(sem[0].topo);
+    /* E a faixa continua cobrindo a linha inteira — só ficou mais alta. */
+    expect(com[0].topo + com[0].altura).toBe(sem[0].topo + sem[0].altura);
   });
 });

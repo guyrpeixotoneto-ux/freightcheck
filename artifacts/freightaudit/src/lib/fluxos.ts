@@ -240,6 +240,8 @@ export interface TipoDeEtapaNoCatalogo extends EntradaDoCatalogo {
   forma: "retangulo" | "losango" | "pilula";
   classe: string;
   icone: string;
+  /** O rótulo no plural — quando a tela fala de um conjunto deste tipo. */
+  plural: string;
 }
 
 export interface TipoDeConexaoNoCatalogo extends EntradaDoCatalogo {
