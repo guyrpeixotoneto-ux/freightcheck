@@ -248,6 +248,33 @@ export function totalDaVigencia(
 }
 
 /**
+ * As comparações da unidade aberta — e só elas.
+ *
+ * A lateral nomeia uma unidade ("Unidade atual: PERNAMBUCO"), e esta tela
+ * listava as comparações de todas: o seletor de vigência de PERNAMBUCO
+ * oferecia CAMAÇARI, MANAUS e CDD CEBRASA, e escolher uma delas trocava a
+ * unidade sem que nada em tela dissesse isso — a lateral continuava escrita
+ * PERNAMBUCO. É o mesmo desencontro que a Cobertura de dados tinha antes de
+ * ler o par (ver `TELAS_QUE_HONRAM_ESCOPO`, em `lib/navegacao-do-escopo.ts`).
+ *
+ * `escopo` nulo é a Visão Geral — a soma escolhida de propósito, em que a
+ * lista atravessa as unidades e cada linha traz o nome da sua. Não é o mesmo
+ * que "ninguém escolheu": quem não escolheu cai na unidade que a lateral
+ * nomeia, que é a primeira de `/contexts`.
+ *
+ * Comparação sem `scopeHash` — anterior à coluna — fica fora do recorte de uma
+ * unidade e só aparece na Visão Geral: atribuí-la à unidade aberta seria
+ * afirmar uma origem que o dado não tem.
+ */
+export function comparacoesDoEscopo(
+  comparacoes: Comparacao[],
+  escopo: string | null,
+): Comparacao[] {
+  if (escopo === null) return comparacoes;
+  return comparacoes.filter((c) => c.scopeHash === escopo);
+}
+
+/**
  * As vigências que a aba pode abrir — e só elas.
  *
  * A vigência é escolhida **dentro da aba** porque é a aba que dá sentido à

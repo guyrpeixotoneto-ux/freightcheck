@@ -307,9 +307,9 @@ function LinhaDaEtapa({
           <span className="truncate text-sm font-medium">{estado.etapaNome}</span>
           <span className="sr-only">{entrada.rotulo}</span>
           {estado.chave ? (
-            <code className="text-[11px] text-muted-foreground">{estado.chave}</code>
+            <code className="text-2xs text-muted-foreground">{estado.chave}</code>
           ) : (
-            <span className="text-[11px] text-muted-foreground">sem chave</span>
+            <span className="text-2xs text-muted-foreground">sem chave</span>
           )}
           {valor !== null && (
             <span className="text-xs font-semibold tabular-nums">{valor}</span>
@@ -353,7 +353,7 @@ function LinhaDaEtapa({
           {apagada && estado.motivo ? ROTULO_DO_MOTIVO[estado.motivo] : entrada.rotulo}
         </Selo>
         {idade !== null && !estado.vencida && (
-          <span className="text-[11px] text-muted-foreground">{idade}</span>
+          <span className="text-2xs text-muted-foreground">{idade}</span>
         )}
       </div>
     </button>

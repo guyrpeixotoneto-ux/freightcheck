@@ -161,7 +161,7 @@ export function TabelaVeiculos({
                       </span>
                     )}
                     {row.foraDoTotal && (
-                      <div className="text-[10px] font-sans leading-tight text-amber-700">
+                      <div className="text-3xs font-sans leading-tight text-amber-700">
                         Fora do total — impacto já representado{" "}
                         {row.foraDoTotal.motivo === "COBERTO_POR_PARCELAS"
                           ? "pelas parcelas"

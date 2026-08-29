@@ -1,5 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { LEITURA_DE_APURACAO } from "@/lib/frescor-das-leituras";
+import { EmAtualizacao, classeDeAtualizacao } from "@/components/ui/em-atualizacao";
 import { Link, useSearch } from "wouter";
 import {
   AlertTriangle,
@@ -105,8 +107,20 @@ export default function Vigencia() {
     return query;
   }, [search]);
 
-  const { data, isLoading, error, refetch, isFetching } = useQuery({
+  const { data, isLoading, error, refetch, isFetching, isPlaceholderData } = useQuery({
     queryKey: ["grouped", period, contexto.toString()],
+    /*
+      A chave carrega a vigência e o par unidade/canal, então tanto o seletor
+      de vigência daqui quanto o seletor de unidade da lateral produzem uma
+      chave nova. Sem `placeholderData`, `data` vinha `undefined` e a tela
+      inteira virava esqueleto — inclusive o título e o seletor, que somem
+      junto porque dependem de `data`. Com ele, a tabela anterior fica de pé
+      enquanto a nova chega, e `isPlaceholderData` diz que é a anterior.
+
+      O `staleTime` é o da apuração fechada: `/changes/grouped` lê 240.480
+      linhas por requisição e é refeita a cada montagem hoje.
+    */
+    ...LEITURA_DE_APURACAO,
     queryFn: async () => {
       const query = new URLSearchParams(contexto);
       if (period) query.set("period", period);
@@ -148,9 +162,17 @@ export default function Vigencia() {
                 {data.context.label}
               </p>
             )}
-            <h1 className="text-4xl font-bold tracking-tight mt-1">
-              {data ? capitalizar(data.periodLabel) : "Acompanhamento"}
-            </h1>
+            <div className="flex flex-wrap items-center gap-3">
+              <h1 className="text-4xl font-bold tracking-tight mt-1">
+                {data ? capitalizar(data.periodLabel) : "Acompanhamento"}
+              </h1>
+              {/*
+                O título nomeia a vigência **da resposta em tela**, e a linha
+                acima nomeia a unidade dela. Enquanto os dois forem os
+                anteriores, isto diz que são.
+              */}
+              <EmAtualizacao ativo={isPlaceholderData} className="mt-1" />
+            </div>
             {data && <Procedencia series={data.series} periodLabel={data.periodLabel} />}
           </div>
 
@@ -202,7 +224,7 @@ export default function Vigencia() {
         )}
 
         {data && (
-          <>
+          <div className={cn("space-y-4", classeDeAtualizacao(isPlaceholderData))}>
             <ResumoExecutivo cockpit={data.cockpit} />
 
             {data.totals.changes > 0 && <FaixaResumo cockpit={data.cockpit} />}
@@ -299,7 +321,7 @@ export default function Vigencia() {
             )}
 
             <Rodape data={data} contexto={contexto} />
-          </>
+          </div>
         )}
       </div>
     </Layout>

@@ -1,12 +1,20 @@
 import { Router, type IRouter } from "express";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { db, changeTable, justificativaTable } from "@workspace/db";
-import { operacaoDoChangeSet } from "@workspace/comparison";
+import {
+  autoresDeJustificativas,
+  coberturaDeJustificativas,
+  linhasDoPainel,
+  listChangeSets,
+  operacaoDoChangeSet,
+  type DirecaoDoImpacto,
+  type SituacaoDaJustificativa,
+} from "@workspace/comparison";
 import {
   iniciarFase,
   instrumentarCicloDaRequisicao,
 } from "../lib/observabilidade";
-import { exigirOperacaoDoRecurso } from "../lib/operacao";
+import { exigirOperacaoDoRecurso, operacaoDaConsulta } from "../lib/operacao";
 
 const DEFAULT_ACTOR = "sistema";
 
@@ -21,6 +29,136 @@ const DEFAULT_ACTOR = "sistema";
 const router: IRouter = Router();
 
 router.use("/justificativas", instrumentarCicloDaRequisicao);
+
+const SITUACOES: SituacaoDaJustificativa[] = ["TODAS", "PENDENTE", "JUSTIFICADA"];
+const DIRECOES: DirecaoDoImpacto[] = ["TODAS", "AUMENTO", "REDUCAO"];
+
+/** Dez linhas por página, como o rodapé de paginação abre; teto de cem. */
+const POR_PAGINA_PADRAO = 10;
+const POR_PAGINA_MAXIMO = 100;
+
+function limiteDaConsulta(bruto: unknown): number {
+  const n = Number(bruto);
+  if (!Number.isFinite(n) || n <= 0) return POR_PAGINA_PADRAO;
+  return Math.min(Math.trunc(n), POR_PAGINA_MAXIMO);
+}
+
+function offsetDaConsulta(bruto: unknown): number {
+  const n = Number(bruto);
+  return Number.isFinite(n) && n > 0 ? Math.trunc(n) : 0;
+}
+
+/**
+ * As comparações que o painel pode somar: a escolhida, quando há uma, e todas
+ * as da operação quando não.
+ *
+ * A recusa por operação é a mesma das rotas por id — um `changeSetId` de outra
+ * auditoria não vira painel, vira 403. Sem id nenhum, quem recorta é
+ * `listChangeSets`, que já é por operação: é o que garante que "todas" nunca
+ * queira dizer "as das quatro".
+ */
+async function idsDoPainel(
+  req: Parameters<typeof exigirOperacaoDoRecurso>[0],
+  operacao: ReturnType<typeof operacaoDaConsulta>,
+  changeSetId: string | undefined,
+): Promise<string[]> {
+  if (changeSetId) {
+    await exigirOperacaoDoRecurso(req, "comparação", changeSetId, () =>
+      operacaoDoChangeSet(db, changeSetId),
+    );
+    return [changeSetId];
+  }
+  const changeSets = await listChangeSets(db, { operacao });
+  return changeSets.map((cs) => String(cs.id));
+}
+
+/**
+ * Painel de Justificativas — a cobertura do Plano de Ação, do acervo inteiro.
+ *
+ * A fila (`GET /justificativas`) responde por uma comparação de cada vez, que é
+ * o que a tela de justificar precisa. O painel pergunta outra coisa — quanto do
+ * que mudou já está explicado e quanto falta —, e essa pergunta não tem
+ * resposta dentro de uma vigência só: quem cobra o trabalho quer o total, e
+ * depois o recorte.
+ *
+ * Uma resposta para todas as comparações da operação, e não uma por vigência,
+ * pelo mesmo motivo de `/change-sets/tipos`: são poucas comparações, a tela
+ * precisa de todas para montar os cartões e a tabela por vigência, e N chamadas
+ * dariam a mesma resposta por N vezes o custo.
+ *
+ * O recorte por operação é o das demais listagens — `listChangeSets` já o
+ * aplica, e é ele que impede o painel da Auditoria Rota de somar a cobertura da
+ * empurrada. Um `?changeSetId=` fora da operação de quem pergunta é recusado
+ * pela mesma regra por id do resto do arquivo.
+ */
+router.get("/justificativas/painel", async (req, res): Promise<void> => {
+  const operacao = operacaoDaConsulta(req.query as Record<string, unknown>);
+  const changeSetId =
+    typeof req.query.changeSetId === "string" && req.query.changeSetId !== ""
+      ? req.query.changeSetId
+      : undefined;
+
+  const ids = await idsDoPainel(req, operacao, changeSetId);
+
+  const faseCobertura = iniciarFase(req, "db.cobertura");
+  const cobertura = await coberturaDeJustificativas(db, ids);
+  faseCobertura.fim({ linhas: cobertura.length });
+
+  const faseAutores = iniciarFase(req, "db.autores");
+  const autores = await autoresDeJustificativas(db, ids);
+  faseAutores.fim({ linhas: autores.length });
+
+  res.json({ cobertura, autores });
+});
+
+/**
+ * A lista do painel: as alterações pendentes de justificativa, ou as já
+ * justificadas — paginadas no banco.
+ *
+ * Paginada no servidor, e não recortada no cliente como a fila faz, porque
+ * aqui a lista pode atravessar o acervo inteiro: "todas as pendências de todas
+ * as vigências" é justamente a pergunta que a fila não responde, e trazê-la
+ * inteira para o navegador para mostrar dez linhas seria o desenho que
+ * `components/ui/paginacao.tsx` existe para não repetir.
+ */
+router.get("/justificativas/pendencias", async (req, res): Promise<void> => {
+  const operacao = operacaoDaConsulta(req.query as Record<string, unknown>);
+  const changeSetId =
+    typeof req.query.changeSetId === "string" && req.query.changeSetId !== ""
+      ? req.query.changeSetId
+      : undefined;
+
+  const ids = await idsDoPainel(req, operacao, changeSetId);
+
+  const situacao = SITUACOES.includes(req.query.situacao as SituacaoDaJustificativa)
+    ? (req.query.situacao as SituacaoDaJustificativa)
+    : "PENDENTE";
+  const direcao = DIRECOES.includes(req.query.direcao as DirecaoDoImpacto)
+    ? (req.query.direcao as DirecaoDoImpacto)
+    : "TODAS";
+  const entityType =
+    typeof req.query.entityType === "string" && req.query.entityType !== ""
+      ? req.query.entityType
+      : undefined;
+  const autor =
+    typeof req.query.autor === "string" && req.query.autor !== ""
+      ? req.query.autor
+      : undefined;
+
+  const fase = iniciarFase(req, "db.linhas");
+  const resposta = await linhasDoPainel(db, {
+    changeSetIds: ids,
+    entityType,
+    situacao,
+    direcao,
+    autor,
+    limit: limiteDaConsulta(req.query.limit),
+    offset: offsetDaConsulta(req.query.offset),
+  });
+  fase.fim({ linhas: resposta.linhas.length, total: resposta.total });
+
+  res.json(resposta);
+});
 
 /** As justificativas de uma comparação, uma por alteração — sempre a mais recente. */
 router.get("/justificativas", async (req, res): Promise<void> => {

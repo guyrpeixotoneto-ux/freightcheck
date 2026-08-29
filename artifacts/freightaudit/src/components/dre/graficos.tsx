@@ -107,7 +107,7 @@ export function EvolucaoDoResultado({
           x={MARGEM.esquerda - 8}
           y={MARGEM.topo + 4}
           textAnchor="end"
-          className="fill-muted-foreground text-[10px]"
+          className="fill-muted-foreground text-3xs"
         >
           {formatBrlShort(max)}
         </text>
@@ -115,7 +115,7 @@ export function EvolucaoDoResultado({
           x={MARGEM.esquerda - 8}
           y={MARGEM.topo + alturaUtil}
           textAnchor="end"
-          className="fill-muted-foreground text-[10px]"
+          className="fill-muted-foreground text-3xs"
         >
           {formatBrlShort(min)}
         </text>
@@ -162,7 +162,7 @@ export function EvolucaoDoResultado({
             x={x(i)}
             y={ALTURA - 8}
             textAnchor="middle"
-            className="fill-muted-foreground text-[10px]"
+            className="fill-muted-foreground text-3xs"
           >
             {p.periodLabel.slice(0, 3)}
           </text>

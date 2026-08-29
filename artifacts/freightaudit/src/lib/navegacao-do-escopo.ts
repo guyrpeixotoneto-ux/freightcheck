@@ -83,6 +83,13 @@ export const TELAS_QUE_HONRAM_ESCOPO = new Set<string>([
   "/empilhadeira-360",
   "/trecho-360",
   "/radar-trechos",
+  /*
+    As Justificativas. Elas recortam as comparações pelo `scopeHash` aberto
+    (`comparacoesDoEscopo`, em `lib/justificativas.ts`) — antes o seletor de
+    vigência atravessava as unidades e trocar de vigência trocava de unidade
+    calada, sob a lateral escrita com o nome da anterior.
+  */
+  "/justificativas",
 ]);
 
 /**
@@ -128,6 +135,12 @@ export const TELAS_QUE_HONRAM_VISAO_GERAL = new Set<string>([
     verdade, e é o que a tela faz.
   */
   "/dados",
+  /*
+    As Justificativas entram pelas duas portas: com uma unidade aberta a fila é
+    a dela, e `visaoGeral=1` é a lista atravessando as unidades — que é o que a
+    tela fazia sempre, agora como escolha e não como padrão.
+  */
+  "/justificativas",
 ]);
 
 /**

@@ -1023,7 +1023,7 @@ function CredencialCopiavel({ rotulo, valor }: { rotulo: string; valor: string }
   return (
     <div className="flex items-center gap-3 p-3">
       <div className="min-w-0 flex-1">
-        <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+        <p className="text-3xs uppercase tracking-wide text-muted-foreground">
           {rotulo}
         </p>
         <code className="text-sm font-mono break-all">{valor}</code>
@@ -1727,7 +1727,7 @@ function AccountId({ id }: { id: string }) {
 
   return (
     <div className="flex items-center gap-1.5 mt-0.5 min-w-0">
-      <span className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
+      <span className="text-3xs uppercase tracking-wide text-muted-foreground/70">
         ID
       </span>
       <code className="text-xs text-muted-foreground/80 font-mono truncate">{id}</code>
