@@ -276,8 +276,23 @@ export default function Assistente() {
   const vazia = turnos.length === 0;
 
   return (
-    <Layout>
-      <div className="flex flex-1 min-h-0">
+    <Layout semReservaDaBarra>
+      {/*
+        A ALTURA DA JANELA VEM DAQUI.
+
+        A casca não mede mais uma tela: ela termina no fim do conteúdo, e por
+        isso `flex-1` nesta faixa não tinha de quem herdar altura. A coluna do
+        chat ficava do tamanho das mensagens, o `overflow-y-auto` de dentro
+        nunca chegava a rolar e o campo de perguntar parava onde a conversa
+        acabasse — enquanto a lateral, essa sim de `100dvh`, esticava a página
+        até o fim da janela. A sobra entre os dois era a faixa vazia.
+
+        Então a conta é feita aqui, como no Fluxo: uma janela menos a faixa
+        vermelha do topo e, no celular, menos a barra de baixo (que a casca
+        deixa de reservar acima). Com altura fixa, `min-h-0` volta a ter
+        sentido: quem rola é a lista de mensagens, e o campo fica colado embaixo.
+      */}
+      <div className="flex h-[calc(100dvh-4rem-5.5rem-env(safe-area-inset-bottom))] min-h-0 md:h-[calc(100dvh-4rem)]">
         <Historico
           conversas={conversas.data ?? []}
           atual={conversaId}
@@ -731,7 +746,7 @@ function Historico({
   };
 
   return (
-    <aside className="w-72 border-r bg-card shrink-0 hidden lg:flex flex-col">
+    <aside className="w-72 border-r bg-card shrink-0 hidden lg:flex flex-col min-h-0">
       <div className="p-4">
         <button
           type="button"
