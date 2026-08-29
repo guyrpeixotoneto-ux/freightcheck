@@ -19,6 +19,8 @@ import {
   listaDoPainelPorChave,
   listasDoPainel,
   listasVaziasDoPainel,
+  cargosDoDepartamento,
+  opcoesDoCampo,
   SEM_VINCULO,
   edicaoNaLista,
   etapaNovaVazia,
@@ -2064,5 +2066,110 @@ describe("caso 12 — responsável escolhido do cadastro", () => {
 
     const semVinculo = etapa({ id: "es", nome: "Conferir", area: "Faturamento" });
     expect(edicaoNaLista(semVinculo, "area").editavel).toBe(true);
+  });
+});
+
+/**
+ * CASO 13 — O DEPARTAMENTO ESTREITA A LISTA DE CARGOS.
+ *
+ * Escolher o departamento e continuar vendo os cargos da casa inteira devolve à
+ * pessoa o trabalho que o campo acabou de tirar dela. O que estes casos fixam
+ * não é o estreitamento em si — é o que ele **não** pode esconder: o cargo sem
+ * lotação, o cargo de um departamento abaixo do escolhido, e o cargo que já
+ * estava gravado. Cada um deles, escondido, produziria uma lista sem a resposta
+ * certa dentro; o último produziria perda silenciosa de dado.
+ */
+describe("caso 13 — o cargo se estreita pelo departamento", () => {
+  /*
+    Administrativo
+      └ Controladoria
+    Faturamento
+  */
+  const OPCOES = {
+    departamentos: [
+      { id: "adm", nome: "Administrativo", paiId: null },
+      { id: "ctrl", nome: "Controladoria", paiId: "adm" },
+      { id: "fat", nome: "Faturamento", paiId: null },
+    ],
+    cargos: [
+      { id: "c-adm", nome: "Assistente Administrativo", departamentoId: "adm" },
+      { id: "c-ctrl", nome: "Analista de Controladoria", departamentoId: "ctrl" },
+      { id: "c-fat", nome: "Analista Fiscal", departamentoId: "fat" },
+      { id: "c-solto", nome: "Estagiário", departamentoId: null },
+    ],
+    pessoas: [{ id: "p1", nome: "Ana Souza" }],
+  };
+
+  const nomes = (lista: { id: string }[]) => lista.map((c) => c.id).sort();
+
+  it("sem departamento escolhido, a lista é a da casa inteira", () => {
+    expect(nomes(cargosDoDepartamento(OPCOES, null))).toEqual([
+      "c-adm",
+      "c-ctrl",
+      "c-fat",
+      "c-solto",
+    ]);
+    /* A opção "sem departamento" da tela chega como o sentinela, não como null. */
+    expect(nomes(cargosDoDepartamento(OPCOES, SEM_VINCULO))).toHaveLength(4);
+  });
+
+  it("escolhido um departamento, os cargos dos outros saem", () => {
+    expect(nomes(cargosDoDepartamento(OPCOES, "fat"))).toEqual(["c-fat", "c-solto"]);
+  });
+
+  it("os departamentos abaixo do escolhido entram — hierarquia é hierarquia", () => {
+    /* Controladoria fica dentro de Administrativo: o cargo dela conta. */
+    expect(nomes(cargosDoDepartamento(OPCOES, "adm"))).toEqual(["c-adm", "c-ctrl", "c-solto"]);
+    /* E não o contrário: escolher a filha não traz os cargos da mãe. */
+    expect(nomes(cargosDoDepartamento(OPCOES, "ctrl"))).toEqual(["c-ctrl", "c-solto"]);
+  });
+
+  it("cargo sem lotação nunca some — senão ele fica inalcançável", () => {
+    for (const departamento of ["adm", "ctrl", "fat"]) {
+      expect(nomes(cargosDoDepartamento(OPCOES, departamento))).toContain("c-solto");
+    }
+  });
+
+  it("o cargo já escolhido fica, mesmo sendo de outro departamento", () => {
+    /*
+      Trocar o departamento da etapa não pode fazer o cargo gravado sumir da
+      lista: o campo mostraria um valor fora das opções e a próxima gravação o
+      perderia sem ninguém ter pedido.
+    */
+    expect(nomes(cargosDoDepartamento(OPCOES, "fat", "c-ctrl"))).toEqual([
+      "c-ctrl",
+      "c-fat",
+      "c-solto",
+    ]);
+  });
+
+  it("a lista do formulário é da linha, e não da lista inteira", () => {
+    const catalogoComResponsavel = {
+      ...CATALOGO,
+      especiesDeItem: [
+        ...CATALOGO.especiesDeItem,
+        {
+          valor: "RESPONSAVEL",
+          rotulo: "Responsável",
+          titulo: "Responsáveis",
+          descricao: "",
+          icone: "Users",
+          usaLink: false,
+          usaObrigatorio: false,
+        },
+      ],
+    } as unknown as Catalogo;
+
+    const lista = listaDoPainelPorChave(catalogoComResponsavel, "itens:RESPONSAVEL", OPCOES)!;
+    const campoDoCargo = lista.campos.find((c) => c.campo === "cargoId")!;
+
+    /* Duas linhas da mesma etapa, em departamentos diferentes — duas listas. */
+    const emFaturamento = opcoesDoCampo(campoDoCargo, { departamentoId: "fat" });
+    const emControladoria = opcoesDoCampo(campoDoCargo, { departamentoId: "ctrl" });
+    expect(emFaturamento.map((o) => o.valor)).toEqual([SEM_VINCULO, "c-fat", "c-solto"]);
+    expect(emControladoria.map((o) => o.valor)).toEqual([SEM_VINCULO, "c-ctrl", "c-solto"]);
+
+    /* E a linha nova nasce sem departamento, então nasce com a lista inteira. */
+    expect(opcoesDoCampo(campoDoCargo, linhaNovaDoPainel(lista))).toHaveLength(5);
   });
 });
