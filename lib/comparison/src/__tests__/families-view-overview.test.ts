@@ -499,6 +499,90 @@ describe("getRangeOverview — a série consolidada do gráfico", () => {
   });
 });
 
+describe("getRangeOverview — o histórico consolidado da Linha do Tempo", () => {
+  /*
+    A Linha do Tempo em Visão Geral desenha a soma dos `movements` de cada
+    unidade — o mesmo número que cada unidade publica na própria tela. Os
+    testes abaixo prendem essa igualdade: se a soma entre unidades deixar de
+    ser a soma do que elas mostram, a tela passa a discordar do servidor sem
+    ninguém notar.
+  */
+  const leiturasDe = async (overview: Awaited<ReturnType<typeof getRangeOverview>>) =>
+    (
+      await Promise.all(
+        overview!.unitsIncluded.flatMap((u) =>
+          u.contexts.map(async (c) => ({
+            unidade: u.unidade,
+            analysis: await getRangeAnalysis(ctx.db, JULHO, AGOSTO, {
+              scopeHash: c.scopeHash,
+              channel: c.channel,
+            }),
+          })),
+        ),
+      )
+    ).filter((l) => l.analysis !== null);
+
+  it("o líquido da competência é a soma dos movimentos de cada unidade", async () => {
+    const overview = (await getRangeOverview(ctx.db, JULHO, AGOSTO))!;
+    const leituras = await leiturasDe(overview);
+
+    const esperado = leituras
+      .flatMap((l) => l.analysis!.movements)
+      .filter((m) => m.period === AGOSTO)
+      .reduce((soma, m) => soma + (m.impact.byPeriodicity.MENSAL ?? 0), 0);
+
+    const ponto = overview.serie.find((p) => p.period === AGOSTO)!;
+    expect(esperado).not.toBe(0);
+    expect(ponto.impact.byPeriodicity.MENSAL).toBeCloseTo(esperado, 2);
+  });
+
+  it("o que ficou sem valorar é somado, na competência e na unidade", async () => {
+    const overview = (await getRangeOverview(ctx.db, JULHO, AGOSTO))!;
+    const leituras = await leiturasDe(overview);
+
+    const naCompetencia = leituras
+      .flatMap((l) => l.analysis!.movements)
+      .filter((m) => m.period === AGOSTO)
+      .reduce((soma, m) => soma + m.impact.notCalculable, 0);
+    const ponto = overview.serie.find((p) => p.period === AGOSTO)!;
+    expect(ponto.impact.notCalculable).toBe(naCompetencia);
+
+    for (const unidade of overview.unitsIncluded) {
+      const daUnidade = leituras
+        .filter((l) => l.unidade === unidade.unidade)
+        .reduce((soma, l) => soma + l.analysis!.impact.notCalculable, 0);
+      expect(unidade.notCalculable).toBe(daUnidade);
+    }
+  });
+
+  it("cada competência diz de quem é o número, uma linha por unidade", async () => {
+    const overview = (await getRangeOverview(ctx.db, JULHO, AGOSTO))!;
+    const ponto = overview.serie.find((p) => p.period === AGOSTO)!;
+
+    // Uma unidade com dois contextos (dois canais) aparece uma vez só.
+    const unidades = ponto.porUnidade.map((u) => u.unidade);
+    expect(new Set(unidades).size).toBe(unidades.length);
+    // E ninguém aparece na série sem estar entre as incluídas.
+    const incluidas = new Set(overview.unitsIncluded.map((u) => u.unidade));
+    for (const unidade of unidades) expect(incluidas.has(unidade)).toBe(true);
+
+    // As parcelas fecham com o total da competência.
+    const soma = ponto.porUnidade.reduce(
+      (total, u) => total + (u.impact.byPeriodicity.MENSAL ?? 0),
+      0,
+    );
+    expect(soma).toBeCloseTo(ponto.impact.byPeriodicity.MENSAL ?? 0, 2);
+    expect(ponto.porUnidade.reduce((total, u) => total + u.changes, 0)).toBe(ponto.changes);
+  });
+
+  it("a unidade ambígua não entra nas parcelas de nenhuma competência", async () => {
+    const overview = (await getRangeOverview(ctx.db, JULHO, AGOSTO))!;
+    for (const ponto of overview.serie) {
+      expect(ponto.porUnidade.map((u) => u.unidade)).not.toContain("overview-unit-h");
+    }
+  });
+});
+
 describe("getFamiliesOverview — troca de competência", () => {
   it("muda quais unidades entram, sem misturar as duas leituras", async () => {
     const overviewJulho = (await getFamiliesOverview(ctx.db, JULHO))!;
