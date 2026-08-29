@@ -38,7 +38,13 @@ import { useContextosDaCasca } from "@/lib/contextos";
 import { useFamiliesOverviewQuery } from "@/lib/families-overview";
 import { DASHBOARD, GESTAO_A_VISTA } from "@/lib/ambiente";
 import { cn } from "@/lib/utils";
-import { formatBrlShort, formatPercent, formatValue, periodicitySuffix } from "@/lib/format";
+import {
+  formatBrlShort,
+  formatPercent,
+  formatValue,
+  periodicitySuffix,
+  reaisPublicados,
+} from "@/lib/format";
 import {
   detalheDaFamilia,
   escreverImpacto,
@@ -1173,7 +1179,10 @@ function Indicadores({
         explicacao={
           "Fração das linhas de alteração da vigência que já viraram dinheiro — o mesmo " +
           "universo do primeiro número da faixa do topo, e não o dos tipos de alteração " +
-          "que a tabela lista."
+          "que a tabela lista. Precificada é toda linha que tem valor apurado, em qualquer " +
+          "periodicidade: entram aqui as apuradas em R$ 0,00 e as que já são contadas " +
+          "noutra parcela, que por isso não somam nem tiram nos Maiores impactos. É por " +
+          "isso que este número é maior que as contagens do pódio, e não bate com elas."
         }
       >
         {cobertura ? (
@@ -1322,6 +1331,17 @@ function MaioresImpactos({
         <ol className="space-y-3 flex-1">
           {doLado.map((familia, indice) => {
             const valor = ganho ? familia.ganhos : familia.perdas;
+            /*
+              As alterações **deste lado**, e não as da família inteira.
+
+              `ImpactoDeFamilia.alteracoes` conta os dois lados juntos, que era
+              o número certo quando o pódio era uma lista só. Partido em dois
+              cartões ele vira uma afirmação falsa: a mesma família aparece nos
+              dois, e repetir "59 alterações" em cada um diria que 118
+              alterações somaram e tiraram nesta vigência. Somadas as duas
+              contagens de agora, dá exatamente `familia.alteracoes`.
+            */
+            const doLadoContagem = familia.parametros[lado].reduce((n, l) => n + l.changes, 0);
             return (
               <li key={familia.code}>
                 {/*
@@ -1352,8 +1372,9 @@ function MaioresImpactos({
                       {familia.name}
                     </span>
                     <span className="block text-[0.6875rem] text-muted-foreground truncate">
-                      {familia.alteracoes.toLocaleString("pt-BR")}{" "}
-                      {familia.alteracoes === 1 ? "alteração" : "alterações"} com preço
+                      {doLadoContagem.toLocaleString("pt-BR")}{" "}
+                      {doLadoContagem === 1 ? "alteração" : "alterações"}{" "}
+                      {ganho ? "somaram" : "tiraram"}
                     </span>
                   </span>
                   <BarraDoLado valor={valor} teto={teto} ganho={ganho} />
@@ -1693,6 +1714,18 @@ export function veiculosDistintos(grupos: ChangeGroup[]): number | null {
  * para pegar (ver o comentário do Painel de Impacto, no topo do arquivo); um
  * indicador de cabeçalho não ganha isenção dessa regra só por ser um resumo.
  * Vindo períodos misturados, o indicador diz isso em vez de mostrar um número.
+ *
+ * **Soma os valores publicados, e não os crus.** Este indicador não é o
+ * líquido da vigência — é a soma das oito linhas que estão na tela, e é assim
+ * que ele se anuncia. Somado no cru e cortado uma vez no fim, ele discordava
+ * da própria coluna: em 01/08/2026, na aba Carreta, as três perdas terminam em
+ * −,58, −,60 e −,61, cada uma sobe um centavo ao ser escrita, e quem somasse
+ * o que estava na tela chegava a −R$ 20.463 contra os −R$ 20.462 do cartão.
+ *
+ * O dado não muda: `impact.amount` continua em centavos, o servidor continua
+ * sendo a fonte, e os cartões do topo — que resumem a vigência inteira e não
+ * uma fatia visível — continuam saindo de `summary.sides`, no cru. O que muda
+ * é de onde **este** número soma, e ele soma de onde diz que soma.
  */
 export function impactoLiquidoDaTabela(grupos: ChangeGroup[]) {
   const precificados = grupos.filter(
@@ -1701,7 +1734,7 @@ export function impactoLiquidoDaTabela(grupos: ChangeGroup[]) {
   if (precificados.length === 0) return null;
   const periodicidades = new Set(precificados.map((g) => g.impact.periodicity));
   if (periodicidades.size > 1) return { misturado: true as const };
-  const total = precificados.reduce((soma, g) => soma + g.impact.amount!, 0);
+  const total = precificados.reduce((soma, g) => soma + reaisPublicados(g.impact.amount!), 0);
   return { misturado: false as const, total, periodicidade: precificados[0].impact.periodicity };
 }
 
@@ -1797,9 +1830,10 @@ function PrincipaisAlteracoes({ linhas, nota }: { linhas: LinhaDaTabela[]; nota?
               ordem="rotulo-valor"
               rotulo="Impacto líquido das linhas exibidas"
               titulo={
-                "Soma do impacto das linhas acima, e só delas — trocar de aba ou de vigência " +
-                "troca este número junto. O Impacto líquido dos cartões do topo cobre a " +
-                "vigência inteira, e é sempre o número maior."
+                "Soma dos valores escritos nas linhas acima, e só delas — some a coluna à " +
+                "mão e chega neste número. Trocar de aba ou de vigência troca ele junto. O " +
+                "Impacto líquido dos cartões do topo cobre a vigência inteira, sai da " +
+                "apuração em centavos, e é sempre o número maior."
               }
               valor={
                 impacto === null ? (

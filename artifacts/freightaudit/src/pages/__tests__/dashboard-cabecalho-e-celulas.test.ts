@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { celulasAntesDepois, impactoLiquidoDaTabela } from "../dashboard";
+import { formatBrlShort, reaisPublicados } from "@/lib/format";
 import type { ChangeGroup } from "@/components/inicio/types";
 
 /**
@@ -136,5 +137,38 @@ describe("impactoLiquidoDaTabela", () => {
 
   it("retorna null quando nenhum grupo visível tem preço", () => {
     expect(impactoLiquidoDaTabela([grupoBase])).toBeNull();
+  });
+
+  /*
+    O caso real de 01/08/2026, aba Carreta: as três perdas terminam em −,58,
+    −,60 e −,61, e cada uma sobe um centavo ao ser escrita sem centavos. Somado
+    no cru, o total era −R$ 20.461,79 → −R$ 20.462; somando a coluna escrita,
+    −R$ 20.463. O cartão se anuncia como a soma daquelas linhas, então é dela
+    que ele tem de fechar.
+  */
+  it("fecha com a coluna escrita, e não com a soma dos centavos", () => {
+    const linhas = [
+      precificado(9042),
+      precificado(-10450.58),
+      precificado(-3340.6),
+      precificado(-15712.61),
+    ];
+    const resultado = impactoLiquidoDaTabela(linhas);
+
+    const somaDaColuna = linhas
+      .map((g) => Number(formatBrlShort(g.impact.amount!).replace(/[^0-9]/g, "")) * Math.sign(g.impact.amount!))
+      .reduce((t, n) => t + n, 0);
+
+    expect(somaDaColuna).toBe(-20463);
+    expect(resultado).toEqual({ misturado: false, total: somaDaColuna, periodicidade: "MENSAL" });
+    // E o cru continua sendo outro número — é ele que o cartão do topo publica.
+    expect(linhas.reduce((t, g) => t + g.impact.amount!, 0)).toBeCloseTo(-20461.79, 2);
+  });
+
+  it("meio centavo sobe em módulo, como o Intl escreve", () => {
+    expect(reaisPublicados(10.5)).toBe(11);
+    expect(reaisPublicados(-10.5)).toBe(-11);
+    expect(formatBrlShort(-10.5)).toBe(formatBrlShort(reaisPublicados(-10.5)));
+    expect(formatBrlShort(10.5)).toBe(formatBrlShort(reaisPublicados(10.5)));
   });
 });

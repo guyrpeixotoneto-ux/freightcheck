@@ -49,6 +49,30 @@ export function formatBrlShort(value: number): string {
   return `${sinal}R$ ${formatNumber(Math.abs(value), 0)}`;
 }
 
+/**
+ * O inteiro que `formatBrlShort` vai publicar para este valor.
+ *
+ * Existe para um total de tela fechar com as parcelas **da mesma tela**.
+ * `formatBrlShort` corta os centavos, e um total somado sobre os valores crus
+ * e cortado uma vez só no fim não bate com a soma do que está escrito: em
+ * 01/08/2026, na aba Carreta de Principais alterações, as três perdas terminam
+ * em −,58, −,60 e −,61, cada linha sobe um centavo ao ser escrita, e a coluna
+ * somava −R$ 20.463 enquanto o cartão dizia −R$ 20.462. O cartão estava certo
+ * ao centavo e errado como frase: ele se anuncia como a soma daquelas linhas.
+ *
+ * Quem soma **valores publicados** soma por aqui e fecha com a tela. Quem
+ * apura dinheiro continua somando o cru: esta função não entra em nada que
+ * saia do servidor, vá para o gráfico ou volte para o contrato — arredondar o
+ * dado seria trocar um desencontro visível por um erro invisível.
+ *
+ * Meio centavo sobe em módulo, que é o que o Intl faz (`halfExpand`) sobre o
+ * valor absoluto — a mesma conta de `formatBrlShort`, e não uma segunda régua
+ * que divergiria dela justamente no empate.
+ */
+export function reaisPublicados(value: number): number {
+  return Math.sign(value) * Math.round(Math.abs(value));
+}
+
 export function formatNumber(value: number, digits = 2): string {
   return value.toLocaleString("pt-BR", { maximumFractionDigits: digits });
 }
