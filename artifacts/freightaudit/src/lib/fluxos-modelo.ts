@@ -139,7 +139,15 @@ export const SECOES_DE_CAMPOS: SecaoDeCampos[] = [
         rotulo: "Dados",
         ajuda: "onde quem executa vai olhar: relatório, tela, planilha, e-mail",
       },
-      { chave: "observacoes", rotulo: "Observações" },
+      /*
+        O campo antigo da etapa, preservado desde a migration `0072`: a tela
+        não o mostra mais — o texto de contexto vive em `informacoes`, que o
+        painel chama de "Observações". O rótulo diz "texto antigo" porque
+        dois "Observações" na planilha e na tela seriam dois nomes para
+        campos diferentes, que é exatamente o que o contrato de rótulos
+        existe para impedir.
+      */
+      { chave: "observacoes", rotulo: "Observações (texto antigo)" },
     ],
   },
   {

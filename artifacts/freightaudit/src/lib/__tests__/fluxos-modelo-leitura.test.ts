@@ -278,7 +278,7 @@ describe("a ida e a volta", () => {
 
   it("preserva a posição do cartão no corpo que vai para o servidor", async () => {
     const pasta = await idaEVolta();
-    preencher(aba(pasta, "01"), "Observações", "Levantado com a Ana.");
+    preencher(aba(pasta, "01"), "Observações (texto antigo)", "Levantado com a Ana.");
 
     const { corpo } = planoDeImportacao(pasta, FLUXO, CATALOGO).mudancas[0];
 

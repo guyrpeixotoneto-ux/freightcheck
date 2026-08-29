@@ -225,7 +225,7 @@ describe("o modelo do fluxo", () => {
       "Objetivo da etapa",
       "Regras de negócio",
       "Dados",
-      "Observações",
+      "Observações (texto antigo)",
       "Chave de monitoramento",
     ]) {
       expect(conteudo).toContain(rotulo);
