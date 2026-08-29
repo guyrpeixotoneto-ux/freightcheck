@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { opcoesDeVigencia, type Comparacao } from "@/lib/justificativas";
+import {
+  comparacoesDoEscopo,
+  opcoesDeVigencia,
+  type Comparacao,
+} from "@/lib/justificativas";
 
 /**
  * O seletor de vigência do Plano de Ação escrevia o rótulo do arquivo
@@ -74,5 +78,34 @@ describe("opcoesDeVigencia", () => {
     );
 
     expect(opcoes[0].competencia).toBe("agosto/2026");
+  });
+});
+
+/**
+ * A tela listava as comparações de todas as unidades enquanto a lateral
+ * nomeava uma: o seletor de PERNAMBUCO oferecia CAMAÇARI e MANAUS, e escolher
+ * uma delas trocava a unidade sem que nada em tela dissesse isso.
+ */
+describe("comparacoesDoEscopo", () => {
+  const acervo = [
+    comparacao({ id: "pe", scopeHash: "h1" }),
+    comparacao({ id: "ma", scopeHash: "h2" }),
+    comparacao({ id: "pe-antiga", scopeHash: "h1" }),
+    comparacao({ id: "sem-escopo" }),
+  ];
+
+  it("fica só com as comparações da unidade aberta", () => {
+    expect(comparacoesDoEscopo(acervo, "h1").map((c) => c.id)).toEqual([
+      "pe",
+      "pe-antiga",
+    ]);
+  });
+
+  it("devolve o acervo inteiro na Visão Geral", () => {
+    expect(comparacoesDoEscopo(acervo, null)).toHaveLength(4);
+  });
+
+  it("deixa de fora a comparação sem escopo — ela não é de unidade nenhuma", () => {
+    expect(comparacoesDoEscopo(acervo, "h2").map((c) => c.id)).toEqual(["ma"]);
   });
 });
