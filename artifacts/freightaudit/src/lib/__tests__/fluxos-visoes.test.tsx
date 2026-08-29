@@ -661,6 +661,7 @@ describe("a Jornada lê o mesmo caminho por uma lente de cada vez", () => {
         objetivo: "Garantir que a tarifa aplicada é a vigente.",
         regras: "Tarifa fora da tabela volta para a Operação.",
         informacoesConsultadas: "Tabela de frete mínimo no SAP",
+        informacoes: "A VALIDAR: quem confere a tabela.",
         itens: [item("PRAZO", "4 horas"), item("DOCUMENTO", "Tabela vigente")],
       }),
       etapa({
@@ -712,8 +713,8 @@ describe("a Jornada lê o mesmo caminho por uma lente de cada vez", () => {
       /*
         Sempre três cartões, e sempre pelo menos uma linha desenhada em cada um:
         a jornada não muda de forma, e nenhuma lente devolve cartão mudo. O
-        número de campos é da lente — as focadas têm um só, a Operação e as
-        Informações têm três.
+        número de campos é da lente — as focadas têm um só, os Dados têm dois
+        e a Operação tem três.
       */
       expect(cartoes).toHaveLength(3);
       for (const cartao of cartoes) {
@@ -770,16 +771,19 @@ describe("a Jornada lê o mesmo caminho por uma lente de cada vez", () => {
     const informacoes = cartaoDaJornada(linhas[0], "informacoes");
     expect(informacoes.campos[0].chave).toBe("consulta");
     expect(informacoes.campos[0].valores).toEqual(["Tabela de frete mínimo no SAP"]);
+    /* E a Observação da etapa fica no painel: no cartão ela passava por dado. */
+    expect(valores(0, "informacoes")).not.toContain("A VALIDAR: quem confere a tabela.");
     /*
-      E a etapa que não consulta nada, não anota nada e não mede nada diz as três
-      coisas, em vez de esconder as linhas.
+      E a etapa que não consulta nada e não mede nada diz as duas coisas, em vez
+      de esconder as linhas. O que ela não diz é a Observação da etapa: o campo
+      Observações é o caderno de quem levantou o processo, e no cartão de Dados
+      passava por dado mapeado.
     */
     expect(cartaoDaJornada(linhas[2], "informacoes").campos.map((c) => c.chave)).toEqual([
       "consulta",
-      /* "Contexto" é o campo Informações da etapa — o que é preciso saber. */
-      "contexto",
       "indicadores",
     ]);
+    expect(cartaoDaJornada(linhas[2], "informacoes").campos[0].vazio).toBe("sem dados mapeados");
   });
 
   /*
