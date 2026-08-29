@@ -11,11 +11,12 @@ import {
 } from "../lib/auth";
 import {
   EmailAlreadyUsedError,
-  definirLotacao,
+  definirCadastro,
   countActiveAdmins,
   countActiveUsers,
   createUser,
   findUserById,
+  gestorFechaCiclo,
   gerarEmailDisponivel,
   listUsers,
   setUserDisabled,
@@ -267,7 +268,8 @@ router.post("/users", async (req, res): Promise<void> => {
     ...user,
     senhaInicial: senha,
     senhaGerada: senhaEscolhida === null,
-    emailGerado: corpo.email === undefined || corpo.email === null || corpo.email === "",
+    emailGerado:
+      corpo.email === undefined || corpo.email === null || corpo.email === "",
   });
 });
 
@@ -439,19 +441,32 @@ router.post("/users/:id/role", async (req, res): Promise<void> => {
 });
 
 /**
- * A lotação de uma conta — cargo e unidade, do cadastro da casa.
+ * O cadastro de uma conta — nome, cargo, unidade, telefone e a quem reporta.
  *
  * Rota própria, e não um campo a mais em `/users/:id/role`, pela distinção que
- * `definirLotacao` documenta: **papel é acesso, lotação é cadastro.** Promover
- * alguém na empresa e dar-lhe poder de gerenciar contas são dois atos, e um
- * botão que fizesse os dois juntos faria o segundo sem que ninguém o pedisse.
+ * `definirCadastro` documenta: **papel é acesso, cadastro é cadastro.**
+ * Promover alguém na empresa e dar-lhe poder de gerenciar contas são dois
+ * atos, e um botão que fizesse os dois juntos faria o segundo sem que ninguém
+ * o pedisse. A gaveta de edição chama as duas, e só manda o papel quando ele
+ * mudou de fato.
  *
- * É `PUT` e substitui os dois campos: mandar `null` é tirar a lotação, e é
- * assim que se desfaz um engano. Um `PATCH` que só mexesse no que veio
- * pareceria mais gentil e tornaria "tirar o cargo" indistinguível de "não
- * mexer no cargo".
+ * É `PUT` e substitui os campos: mandar `null` é tirar o vínculo, e é assim que
+ * se desfaz um engano. Um `PATCH` que só mexesse no que veio pareceria mais
+ * gentil e tornaria "tirar o cargo" indistinguível de "não mexer no cargo".
+ *
+ * **O e-mail não se edita aqui, nem em lugar nenhum.** Ele é quem a pessoa é
+ * para o histórico — o `actor` de cada confirmação de curadoria e de cada
+ * promoção de vigência —, e trocá-lo faria o que já foi assinado apontar para
+ * um endereço que não existe mais. Um engano no endereço se resolve criando a
+ * conta certa e desativando a errada, que é o desfecho honesto: as duas
+ * aparecem no histórico, cada uma com o que fez.
+ *
+ * Antes chamava-se `/lotacao` e mexia só em cargo e unidade. Cresceu com a
+ * gaveta de edição, que é a mesma da criação e por isso mostra os mesmos
+ * campos — e um formulário que mostra cinco campos e salva dois é um
+ * formulário que mente.
  */
-router.put("/users/:id/lotacao", async (req, res): Promise<void> => {
+router.put("/users/:id/cadastro", async (req, res): Promise<void> => {
   const recusa = somenteAdmin(req);
   if (recusa) {
     res.status(403).json({ error: recusa });
@@ -468,16 +483,84 @@ router.put("/users/:id/lotacao", async (req, res): Promise<void> => {
     return;
   }
 
-  const lotacao = await lerLotacao(req.body ?? {});
+  const corpo = (req.body ?? {}) as Record<string, unknown>;
+  const lotacao = await lerLotacao(corpo);
   if (typeof lotacao === "string") {
     res.status(400).json({ error: lotacao });
     return;
   }
 
-  await definirLotacao(db, target.id, lotacao);
+  /* Nome ausente é "não mexe no nome": a gaveta de edição sempre o manda, mas
+     quem chamar a rota só para trocar o cargo não deveria precisar repetir o
+     nome da pessoa para não o perder. */
+  let nome: string | undefined;
+  if (corpo.name !== undefined) {
+    const composto = [corpo.name, corpo.sobrenome]
+      .filter((p): p is string => typeof p === "string" && p.trim() !== "")
+      .map((p) => p.trim())
+      .join(" ");
+    const problema = describeNameProblem(composto);
+    if (problema) {
+      res.status(400).json({ error: problema });
+      return;
+    }
+    nome = composto;
+  }
+
+  const problemaDoTelefone = describeTelefoneProblem(corpo.telefone);
+  if (problemaDoTelefone) {
+    res.status(400).json({ error: problemaDoTelefone });
+    return;
+  }
+
+  const gestorId = lerGestor(corpo);
+  if (gestorId === undefined) {
+    res.status(400).json({ error: "Identificador de gestor inválido." });
+    return;
+  }
+  if (gestorId !== null) {
+    if (gestorId === target.id) {
+      res.status(400).json({
+        error:
+          "Ninguém reporta a si mesmo. Escolha outra pessoa, ou deixe em branco.",
+      });
+      return;
+    }
+    const gestor = await findUserById(db, gestorId);
+    if (!gestor || gestor.disabledAt !== null) {
+      res.status(400).json({
+        error:
+          "A pessoa escolhida em “Reporta a” não tem conta ativa. Escolha " +
+          "outra, ou deixe em branco.",
+      });
+      return;
+    }
+    /* O ciclo é recusado aqui e não no banco porque só aqui ele tem nome: uma
+       restrição não consegue dizer "isto faria A responder por B e B por A". */
+    if (await gestorFechaCiclo(db, target.id, gestorId)) {
+      res.status(400).json({
+        error:
+          "Isso fecharia um ciclo no organograma — a pessoa passaria a " +
+          "responder, por algum caminho, a quem já responde a ela.",
+      });
+      return;
+    }
+  }
+
+  const telefone =
+    typeof corpo.telefone === "string" && corpo.telefone.trim() !== ""
+      ? corpo.telefone.trim()
+      : null;
+
+  await definirCadastro(db, target.id, {
+    ...(nome !== undefined ? { name: nome } : {}),
+    ...lotacao,
+    telefone,
+    gestorId,
+  });
   req.log.info(
-    { email: target.email, ...lotacao, by: req.user!.email },
-    "Lotação de conta alterada",
+    { email: target.email, ...lotacao, gestorId, by: req.user!.email },
+    "Cadastro de conta alterado",
   );
   res.json(await listUsers(db));
 });
