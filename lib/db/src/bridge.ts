@@ -433,6 +433,30 @@ const TABELAS_REMOVIDAS = [
   */
   "permissao_de_modulo_evento",
   "permissao_de_modulo",
+  /*
+    As três do cadastro da casa, da `0073` — cargo, departamento e negócio — e
+    elas entram pelo mesmo motivo das outras tabelas de módulo novo: Production
+    não as conhece até a fila rodar lá, e até então toda tabela nova é uma que a
+    proposta do Publishing proporia criar.
+
+    **A ordem é filha antes de mãe**: `cargo.departamento_id` aponta para
+    `departamento`, e o `down` derruba com `RESTRICT`. `negocio` não pendura em
+    ninguém e fica junto porque é da mesma decisão.
+
+    Quem pendura nelas de fora é `app_user`, que **não** sai desta lista — e por
+    isso `app_user.cargo_id` sai em `COLUNAS_REMOVIDAS`, antes daqui. O mesmo
+    vale para `app_user.unidade_id`, que é a primeira dependência que `unidade`
+    ganha de uma tabela que sobrevive ao `down`.
+
+    A pré-condição de tabela vazia é a certa, e é da família de
+    `coverage_expectation` e `justificativa`: cada linha é **cadastro feito por
+    gente** — o organograma da empresa, digitado por alguém —, e nenhuma
+    consulta o reconstrói a partir do acervo. Um Development com cargo
+    cadastrado trava o `down`, e travar é o comportamento correto.
+  */
+  "cargo",
+  "departamento",
+  "negocio",
   "unidade",
 ];
 
@@ -527,6 +551,21 @@ export const COLUNAS_REMOVIDAS: [string, string][] = [
   */
   ["fechamento_competencia", "unidade_id"],
   ["remuneracao_unidade", "unidade_id"],
+  /*
+    A lotação da conta, da `0073`. As duas saem **antes** de `cargo` e de
+    `unidade` em `TABELAS_REMOVIDAS`, que é a ordem que o `RESTRICT` aceita — e
+    elas são a razão de o bridge ter precisado saber da `0073`: `app_user`
+    sobrevive ao `down`, então uma FK dela para uma tabela removida apareceria
+    na varredura como dependência inesperada, que é o bridge dizendo que está
+    desatualizado.
+
+    Nenhuma leva dado embora no sentido que importa: são `NULL` em toda conta
+    que ninguém lotou, e onde não são, o que se perde é o vínculo — que se
+    refaz na tela de Usuários, que é um ato explícito. O que **não** pode sair
+    é o cadastro em si, e por isso `cargo` e `departamento` exigem tabela vazia.
+  */
+  ["app_user", "cargo_id"],
+  ["app_user", "unidade_id"],
   ["snapshot", "canonical_snapshot_key"],
   ["ticket", "changed_parameter_count"],
   ["ticket", "vigencia_label"],
@@ -1166,6 +1205,20 @@ export async function bridgeDown(
     */
     const previstosPorAlvo: Record<string, string[]> = {
       semantic_meaning: ["attribute", "attribute_semantics"],
+      /*
+        `app_user` depende de `cargo` e de `unidade` pelas duas colunas de
+        lotação da `0073` — e as duas saem em `COLUNAS_REMOVIDAS`, antes das
+        tabelas, na seção de DDL. A varredura roda antes de qualquer DDL, então
+        veria as duas FKs como surpresa.
+
+        É o mesmo caso de `attribute` acima, e por isso vale a mesma regra: por
+        alvo, e não no conjunto global. Pôr "app_user" em `previstos` calaria a
+        varredura para todos os outros alvos — inclusive para uma FK nova de
+        `app_user` que ninguém revisou —, e é justamente ela que existe para
+        não deixar isso passar.
+      */
+      cargo: ["app_user"],
+      unidade: ["app_user"],
     };
     for (const alvo of [
       ...TABELAS_REMOVIDAS,
@@ -2537,6 +2590,48 @@ function planoUp(): PassoUp[] {
     "permissao_de_modulo_evento_em_idx",
   ]) {
     add(M71, `índice ${indice}`, levantar(M71, new RegExp(`INDEX IF NOT EXISTS "${indice}"`)));
+  }
+
+  /*
+    A `0073` — o cadastro da casa. As três tabelas voltam pelo DDL da própria
+    migration, levantado do disco: as FKs delas moram dentro de blocos `DO`
+    guardados por `pg_constraint`, e são esses blocos que voltam aqui, não uma
+    segunda escrita da mesma definição.
+
+    A ordem é mãe antes de filha — o inverso do `down` —, e as colunas de
+    `app_user` vêm por último, depois de `cargo` existir de novo.
+  */
+  const M73 = "0073_cadastro_da_casa";
+  for (const tabela of ["departamento", "cargo", "negocio"]) {
+    add(M73, tabela, levantar(M73, new RegExp(`CREATE TABLE IF NOT EXISTS "${tabela}" \\(`)));
+  }
+  for (const fk of [
+    "departamento_pai_id_departamento_id_fk",
+    "cargo_departamento_id_departamento_id_fk",
+  ]) {
+    add(M73, `FK ${fk}`, levantar(M73, new RegExp(`conname = '${fk}'`)));
+  }
+  for (const indice of [
+    "departamento_nome_canonico_uq",
+    "departamento_pai_idx",
+    "cargo_nome_canonico_uq",
+    "cargo_departamento_idx",
+    "negocio_nome_canonico_uq",
+  ]) {
+    add(M73, `índice ${indice}`, levantar(M73, new RegExp(`INDEX IF NOT EXISTS "${indice}"`)));
+  }
+  for (const coluna of ["cargo_id", "unidade_id"]) {
+    add(
+      M73,
+      `app_user.${coluna}`,
+      levantar(M73, new RegExp(`ADD COLUMN IF NOT EXISTS "${coluna}"`)),
+    );
+  }
+  for (const fk of ["app_user_cargo_id_cargo_id_fk", "app_user_unidade_id_unidade_id_fk"]) {
+    add(M73, `FK ${fk}`, levantar(M73, new RegExp(`conname = '${fk}'`)));
+  }
+  for (const indice of ["app_user_cargo_idx", "app_user_unidade_idx"]) {
+    add(M73, `índice ${indice}`, levantar(M73, new RegExp(`INDEX IF NOT EXISTS "${indice}"`)));
   }
 
   const M42 = "0042_viagem_completa";

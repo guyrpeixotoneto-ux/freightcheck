@@ -1,7 +1,14 @@
 import { useState } from "react";
 import { Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronDown, ChevronRight, Layers, TriangleAlert } from "lucide-react";
+import {
+  ArrowDownRight,
+  ArrowUpRight,
+  ChevronDown,
+  ChevronRight,
+  Layers,
+  TriangleAlert,
+} from "lucide-react";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import { getApiUrl } from "@/lib/api";
@@ -33,7 +40,9 @@ import type { GroupVehicle } from "@/components/inicio/types";
  */
 export type AberturaDoIntervalo =
   | { tipo: "parametro"; parameterKey: string; periodicidade: string }
-  | { tipo: "consolidado"; periodicidade: string };
+  | { tipo: "consolidado"; periodicidade: string }
+  /** Uma vigência da linha do tempo — o que somou e o que tirou naquele mês. */
+  | { tipo: "vigencia"; period: string; periodicidade: string };
 
 export function DetalheDoIntervalo({
   abertura,
@@ -58,6 +67,13 @@ export function DetalheDoIntervalo({
             dados={dados}
             recorteBase={recorteBase}
             parameterKey={abertura.parameterKey}
+            periodicidade={abertura.periodicidade}
+          />
+        ) : abertura.tipo === "vigencia" ? (
+          <DetalheDaVigencia
+            dados={dados}
+            recorteBase={recorteBase}
+            period={abertura.period}
             periodicidade={abertura.periodicidade}
           />
         ) : (
@@ -380,6 +396,246 @@ function PlacasDoGrupo({
         </div>
       ))}
     </div>
+  );
+}
+
+/**
+ * Uma vigência da linha do tempo — o que somou e o que tirou naquele mês.
+ *
+ * É o degrau que faltava no clique. A coluna da linha do tempo diz "714
+ * alterações, −R$ 302.261" e o clique ia direto para a Planilha: 714 linhas
+ * cruas para responder uma pergunta que tem duas linhas de resposta — *o que*
+ * puxou o mês para baixo, e o que puxou para cima. Aqui esse mês se abre em
+ * dois lados, atributo a atributo, e a Planilha continua a um clique de
+ * qualquer um deles (ou do rodapé, para a vigência inteira).
+ *
+ * O número do topo é o do motor (`movements[].impact`), o mesmo que a coluna
+ * clicada mostra e que os cartões somam — já sem dupla contagem. As linhas
+ * abaixo são os grupos apurados da vigência, somados por parâmetro: é a
+ * decomposição do mesmo mês, na mesma régua que `DetalheDoParametro` usa do
+ * outro eixo (um parâmetro, várias vigências).
+ *
+ * Nada aqui pede dado novo: tudo sai da resposta de `/changes/range` que a
+ * tela já tem em memória.
+ */
+function DetalheDaVigencia({
+  dados,
+  recorteBase,
+  period,
+  periodicidade,
+}: {
+  dados: Movimentos;
+  recorteBase: Recorte;
+  period: string;
+  periodicidade: string;
+}) {
+  const movimento = dados.movements.find((m) => m.period === period);
+  const rotulo = movimento?.label ?? period;
+  const liquido = movimento?.impact.byPeriodicity[periodicidade];
+  const negativo = (liquido ?? 0) < 0;
+
+  /*
+    Um item por parâmetro, dentro desta vigência e desta periodicidade —
+    R$/mês e R$/ano contam o mesmo mês de formas diferentes, e uma fila só com
+    as duas somaria coisas que não se somam.
+  */
+  const porParametro = new Map<
+    string,
+    { parameterKey: string; nome: string; familia: string; valor: number; changes: number; attributeCode: string | null }
+  >();
+  let semValoracao = 0;
+  for (const entrada of dados.entries) {
+    if (entrada.period !== period) continue;
+    if (entrada.amount === null || entrada.amount === 0 || entrada.periodicity !== periodicidade) {
+      if (entrada.amount === null) semValoracao += 1;
+      continue;
+    }
+    const atual = porParametro.get(entrada.parameterKey) ?? {
+      parameterKey: entrada.parameterKey,
+      nome: entrada.parameterName,
+      familia: entrada.family,
+      valor: 0,
+      changes: 0,
+      attributeCode: entrada.attributeCode,
+    };
+    atual.valor += entrada.amount;
+    atual.changes += 1;
+    porParametro.set(entrada.parameterKey, atual);
+  }
+
+  const itens = [...porParametro.values()];
+  const positivos = itens.filter((i) => i.valor > 0).sort((a, b) => b.valor - a.valor);
+  const negativos = itens.filter((i) => i.valor < 0).sort((a, b) => a.valor - b.valor);
+  const teto = Math.max(...itens.map((i) => Math.abs(i.valor)), 1);
+  const ganhos = positivos.reduce((soma, i) => soma + i.valor, 0);
+  const perdas = negativos.reduce((soma, i) => soma + i.valor, 0);
+
+  return (
+    <>
+      <header className="px-7 pt-7 pb-5 border-b shrink-0">
+        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Vigência
+        </p>
+        <SheetTitle className="text-2xl font-extrabold tracking-tight mt-1 pr-8">
+          {rotulo}
+        </SheetTitle>
+
+        {liquido === undefined ? (
+          <p className="text-lg font-bold text-muted-foreground mt-4">Sem valoração</p>
+        ) : (
+          <p
+            className={cn(
+              "text-[2rem] font-extrabold tabular-nums leading-none mt-4",
+              negativo ? "text-red-700" : "text-emerald-700",
+            )}
+          >
+            {formatBrlShort(liquido)}
+            <span className="text-base font-semibold text-muted-foreground">
+              {periodicitySuffix(periodicidade)}
+            </span>
+          </p>
+        )}
+
+        <SheetDescription className="mt-2.5 max-w-xl leading-snug">
+          {contar(movimento?.changes ?? 0, "alteração", "alterações")} nesta vigência —{" "}
+          <span className="text-emerald-700 font-semibold">{formatBrlShort(ganhos)}</span> de ganho
+          e <span className="text-red-700 font-semibold">{formatBrlShort(perdas)}</span> de perda,
+          por atributo.
+        </SheetDescription>
+      </header>
+
+      <div className="flex-1 overflow-y-auto px-7 py-6 space-y-6">
+        <ColunaDaVigencia
+          titulo="O que somou"
+          ganho
+          itens={positivos}
+          teto={teto}
+          period={period}
+          rotulo={rotulo}
+          recorteBase={recorteBase}
+        />
+        <ColunaDaVigencia
+          titulo="O que tirou"
+          ganho={false}
+          itens={negativos}
+          teto={teto}
+          period={period}
+          rotulo={rotulo}
+          recorteBase={recorteBase}
+        />
+
+        {(movimento?.impact.notCalculable ?? semValoracao) > 0 && (
+          <p className="flex gap-2 text-xs text-amber-900 bg-amber-50 border border-amber-300 rounded-lg px-4 py-3">
+            <TriangleAlert className="w-4 h-4 shrink-0 mt-px" />
+            <span>
+              {contar(
+                movimento?.impact.notCalculable ?? semValoracao,
+                "alteração",
+                "alterações",
+              )}{" "}
+              desta vigência sem impacto apurado — não estão nas listas acima, e não estão
+              contadas como zero.
+            </span>
+          </p>
+        )}
+
+        <Link
+          href={linkDeAlteracoes({ recorte: { ...recorteBase, period } })}
+          aria-label={`Ver todas as alterações de ${rotulo}`}
+          className="inline-flex items-center gap-1 rounded-lg border px-3 py-2 text-xs font-bold hover:bg-accent transition-colors"
+        >
+          Ver todas as alterações desta vigência
+          <ChevronRight className="w-3.5 h-3.5" />
+        </Link>
+      </div>
+    </>
+  );
+}
+
+/** Um dos dois lados da vigência — os atributos que somaram, ou os que tiraram. */
+function ColunaDaVigencia({
+  titulo,
+  ganho,
+  itens,
+  teto,
+  period,
+  rotulo,
+  recorteBase,
+}: {
+  titulo: string;
+  ganho: boolean;
+  itens: {
+    parameterKey: string;
+    nome: string;
+    familia: string;
+    valor: number;
+    changes: number;
+    attributeCode: string | null;
+  }[];
+  teto: number;
+  period: string;
+  rotulo: string;
+  recorteBase: Recorte;
+}) {
+  return (
+    <section>
+      <h3 className="text-sm font-bold uppercase tracking-wide flex items-center gap-2">
+        {ganho ? (
+          <ArrowUpRight className="w-4 h-4 text-emerald-600" />
+        ) : (
+          <ArrowDownRight className="w-4 h-4 text-red-600" />
+        )}
+        {titulo}
+      </h3>
+
+      {itens.length === 0 ? (
+        <p className="text-xs text-muted-foreground mt-2">
+          Nenhum atributo {ganho ? "somou" : "tirou"} nesta vigência.
+        </p>
+      ) : (
+        <div className="mt-3 space-y-1">
+          {itens.map((item) => (
+            <Link
+              key={item.parameterKey}
+              href={linkDeAlteracoes({
+                recorte: { ...recorteBase, period },
+                filtros: item.attributeCode ? { attributeCode: item.attributeCode } : {},
+              })}
+              aria-label={`Ver as alterações de ${item.nome} em ${rotulo}`}
+              title="Ver as alterações deste atributo nesta vigência"
+              className="grid grid-cols-[1fr_7rem] items-center gap-3 text-sm rounded px-2 py-2 -mx-2 hover:bg-accent transition-colors"
+            >
+              <span className="min-w-0">
+                <span className="block font-semibold truncate" title={item.nome}>
+                  {item.nome}
+                </span>
+                <span className="block text-[0.6875rem] text-muted-foreground truncate">
+                  {contar(item.changes, "alteração", "alterações")}
+                </span>
+                <span className="mt-1.5 h-1.5 w-full block overflow-hidden rounded-full bg-muted">
+                  <span
+                    className={cn(
+                      "block h-full rounded-full",
+                      ganho ? "bg-emerald-600" : "bg-red-600",
+                    )}
+                    style={{ width: `${Math.max(4, (Math.abs(item.valor) / teto) * 100)}%` }}
+                  />
+                </span>
+              </span>
+              <span
+                className={cn(
+                  "flex items-center justify-end gap-1 text-right tabular-nums text-xs font-bold",
+                  ganho ? "text-emerald-700" : "text-red-700",
+                )}
+              >
+                {formatBrlShort(item.valor)}
+                <ChevronRight className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+              </span>
+            </Link>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 

@@ -461,16 +461,25 @@ describe("o catálogo de telas em preparo", () => {
 
     Ele subiu uma vez, de doze para dezesseis, e por um motivo que o caso
     aceita: Configurações virou índice, e as quatro seções da casa que o banco
-    ainda não sustenta — Minha Empresa, Cargos, Negócio e Departamento —
+    ainda não sustentava — Minha Empresa, Cargos, Negócio e Departamento —
     entraram no catálogo com `pergunta`, `depende` e `hoje`, em vez de virarem
     quatro formulários que não gravam. É a diferença que o catálogo existe para
     manter: anunciar o que vem, sem fingir que já veio.
+
+    E caiu de novo, de dezesseis para treze, quando três daquelas quatro
+    ficaram prontas: o cadastro da casa nasceu — `cargo`, `negocio` e
+    `departamento` no banco, com identidade canônica por nome —, e Cargos,
+    Negócio e Departamento passaram a ser `<Route>` de verdade em `App.tsx`,
+    com formulário que grava. É a baixa que este número existe para medir; o
+    que cada uma **ainda** não faz — faixa salarial vigente, negócio como base
+    de fechamento, rateio por departamento — está escrito na própria tela, que
+    é onde a ressalva serve para alguma coisa. Minha Empresa é a que fica.
   */
   it("descreve, para cada tela, o que falta antes de ela mostrar um número", () => {
     const catalogo = fonte("pages/telas-em-preparo.ts");
     const telas = [...catalogo.matchAll(/^\s{4}href:\s*"([^"]+)"/gm)].length;
 
-    expect(telas).toBe(16);
+    expect(telas).toBe(13);
     expect([...catalogo.matchAll(/^\s{4}depende:\s*\[/gm)]).toHaveLength(telas);
     expect([...catalogo.matchAll(/^\s{4}pergunta:/gm)]).toHaveLength(telas);
   });

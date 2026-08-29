@@ -11,6 +11,7 @@ import { opcoesDoIntervalo } from "@/lib/intervalo-da-linha-do-tempo";
 import { cn } from "@/lib/utils";
 import { LinhaDoTempoDeImpacto } from "@/components/linha-do-tempo/linha-do-tempo-de-impacto";
 import { LinhaDoTempoDeAlteracoes } from "@/components/linha-do-tempo/linha-do-tempo-de-alteracoes";
+import { LinhaDoTempoConsolidada } from "@/components/linha-do-tempo/linha-do-tempo-consolidada";
 import { nomeDaUnidade } from "@/lib/recorte";
 import { VisaoGeralConteudo } from "@/components/inicio/visao-geral-consolidada";
 import {
@@ -184,6 +185,14 @@ export default function LinhaDoTempo() {
       <div className="px-8 py-6 space-y-5 max-w-[1600px]">
         {visaoGeral ? (
           <>
+            {/*
+              O histórico somado entre unidades vem primeiro, e não depende da
+              leitura de competência abaixo: é ele que responde à pergunta que
+              traz alguém a esta tela — como o impacto se moveu vigência a
+              vigência —, agora também quando a unidade escolhida é "todas".
+            */}
+            <LinhaDoTempoConsolidada periodos={periodosOverview} ate={periodoOverviewEfetivo} />
+
             {overviewQuery.isLoading && (
               <p className="text-sm text-muted-foreground">Carregando a Visão Geral…</p>
             )}
@@ -199,12 +208,24 @@ export default function LinhaDoTempo() {
               </section>
             )}
             {overview && (
-              <VisaoGeralConteudo
-                overview={overview}
-                search={search}
-                onTrocar={trocarPara}
-                notaExtra="A Visão Geral aqui soma só o último passo — a competência contra a vigência imediatamente anterior de cada unidade — não o histórico inteiro que a Linha do Tempo de uma unidade mostra."
-              />
+              <>
+                <div className="pt-2">
+                  <h2 className="text-base font-bold leading-tight">
+                    A competência aberta, unidade a unidade
+                  </h2>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Só o último passo — a competência aberta contra a vigência imediatamente
+                    anterior de cada unidade —, para comparar unidade com unidade e entrar no
+                    detalhe de uma delas. O histórico inteiro é o da linha do tempo acima.
+                  </p>
+                </div>
+                <VisaoGeralConteudo
+                  overview={overview}
+                  search={search}
+                  onTrocar={trocarPara}
+                  notaExtra="Este bloco soma só o último passo — a competência contra a vigência imediatamente anterior de cada unidade. O histórico inteiro está na linha do tempo acima."
+                />
+              </>
             )}
           </>
         ) : (
@@ -273,11 +294,19 @@ function Cabecalho({
 }) {
   const unidade = view ? nomeDaUnidade(view.context) : null;
   const partes = visaoGeral
-    ? overview
-      ? [
-          `${overview.unitsIncluded.length} de ${overview.unitsIncluded.length + overview.unitsExcluded.length} unidades incluídas`,
-        ]
-      : []
+    ? [
+        overview
+          ? `${overview.unitsIncluded.length} de ${overview.unitsIncluded.length + overview.unitsExcluded.length} unidades incluídas`
+          : null,
+        /*
+          A mesma linha que a unidade traz — "N vigências no histórico" —, aqui
+          sobre a união das competências: é o eixo que a linha do tempo
+          consolidada percorre.
+        */
+        periodosOverview.length > 0
+          ? `${periodosOverview.length} ${periodosOverview.length === 1 ? "vigência" : "vigências"} no histórico`
+          : null,
+      ].filter((p): p is string => p !== null)
     : [
         view?.context.channel ?? null,
         view

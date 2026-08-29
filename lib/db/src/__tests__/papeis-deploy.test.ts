@@ -266,6 +266,22 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
         */
         "permissao_de_modulo",
         "permissao_de_modulo_evento",
+        /*
+          As três do cadastro da casa, da `0073` — cargo, departamento e
+          negócio, as três seções de Configurações que deixaram de ser página de
+          "em preparo". Aditivas pelo mesmo critério das acima: nenhuma tabela
+          existente muda de forma — as duas colunas de lotação que `app_user`
+          ganha nascem nulas e aparecem na lista de colunas aditivas logo
+          abaixo —, nenhuma coluna nova sai de tabela do cálculo, e Production
+          as ganha quando o servidor novo aplicar a fila na partida.
+
+          O que elas guardam é cadastro feito por gente — o organograma da
+          empresa —, e é por isso que o `down` do bridge exige encontrá-las
+          vazias antes de derrubá-las.
+        */
+        "cargo",
+        "departamento",
+        "negocio",
       ]),
     );
     /*
@@ -339,6 +355,22 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
         "change.economic_direction",
         "change.economic_effect",
         /*
+          As duas da `0073` — a lotação da conta: o cargo e a unidade de quem
+          entra. Aditivas e nulas como as primeiras da lista, e sem backfill
+          nenhum: nenhuma conta existente ganha cargo aqui, porque adivinhar o
+          cargo de alguém a partir de e-mail ou de planilha é exatamente o
+          palpite que este cadastro existe para acabar. A lista de Usuários as
+          mostra em "Sem cargo" até alguém dizer.
+
+          As duas carregam FK para `cargo` e para `unidade`, que são tabelas
+          novas na lista acima — o que só funciona porque a fila cria as duas
+          antes das colunas, na mesma migration. A proposta do Publishing não
+          garante essa ordem, e é mais uma razão para a política deste cenário
+          continuar sendo recusá-la.
+        */
+        "app_user.cargo_id",
+        "app_user.unidade_id",
+        /*
           A coluna que a `0046` acrescentou a `fechamento_competencia` **não**
           entra aqui, e a ausência é a informação: o diff a reporta pela tabela,
           não pela coluna, porque Production não tem nenhuma das treze do
@@ -372,12 +404,35 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
                nome não vazio e a de rota interna — e todas vêm junto com as
                seis tabelas novas. Nomeá-las uma a uma congelaria a nomenclatura
                interna do módulo num teste que não fala sobre ele. */
-            !c.startsWith("fluxo_"),
+            !c.startsWith("fluxo_") &&
+            /* As do cadastro da casa, da `0073`, pela mesma regra: chave
+               primária, a FK da hierarquia, a do cargo para o departamento e as
+               três `CHECK` de nome canônico não vazio vêm junto com as três
+               tabelas novas. As duas FKs que saem de `app_user` **não** são
+               filtradas aqui e estão nomeadas abaixo: `app_user` já existe em
+               Production, e uma constraint nova sobre tabela existente é
+               exatamente o que esta conferência não pode deixar passar calada. */
+            !c.startsWith("cargo_") &&
+            !c.startsWith("departamento_") &&
+            !c.startsWith("negocio_"),
         ),
       ),
     ).toEqual(
       new Set([
         "app_user_role_ck",
+        /*
+          As duas FKs de lotação, da `0073`. Nascem sobre colunas que acabam de
+          nascer nulas, e por isso não há linha em Production que elas possam
+          recusar — a mesma forma das duas da `0040` logo abaixo.
+
+          Elas aparecem nomeadas, e não filtradas por prefixo como as das
+          tabelas novas, porque `app_user` **já existe** em Production: uma
+          constraint nova sobre tabela existente é uma mudança de forma numa
+          tabela viva, e é justamente isso que este conjunto fechado existe
+          para não deixar passar em silêncio.
+        */
+        "app_user_cargo_id_cargo_id_fk",
+        "app_user_unidade_id_unidade_id_fk",
         // As duas da `0040`. Aditivas como a de cima: o FK e o CHECK do
         // reprocessamento nascem sobre colunas que ninguém tinha preenchido, e
         // por isso não há linha em Production que elas possam recusar.

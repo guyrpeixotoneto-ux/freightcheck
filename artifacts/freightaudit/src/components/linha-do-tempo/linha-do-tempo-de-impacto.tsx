@@ -24,10 +24,11 @@ import type {
   RangeMovement,
   RangeOverview,
   RangeOverviewUnit,
+  ResumoDoIntervalo,
 } from "@/lib/analise";
 import { DetalheDoIntervalo, type AberturaDoIntervalo } from "@/components/linha-do-tempo/detalhe-do-intervalo";
 
-const CARTAO = "bg-card border rounded-xl shadow-sm";
+export const CARTAO = "bg-card border rounded-xl shadow-sm";
 
 /**
  * O impacto líquido de cada vigência do histórico, no tempo.
@@ -190,6 +191,13 @@ export function LinhaDoTempoDeImpacto({
               periodicidade={periodicidadeSelecionada as string}
               onPeriodicidade={setPeriodicidadeDaAba}
               recorteBase={recorteBase}
+              onAbrirVigencia={(linha) =>
+                setAbertura({
+                  tipo: "vigencia",
+                  period: linha.period,
+                  periodicidade: periodicidadeSelecionada as string,
+                })
+              }
             />
           )}
         </section>
@@ -237,14 +245,26 @@ export function LinhaDoTempoDeImpacto({
  * o placar do intervalo inteiro, não uma legenda do gráfico — e é como placar,
  * na largura toda, que eles são lidos primeiro.
  */
-function CartoesDeResumo({
+export function CartoesDeResumo({
   dados,
   periodicidade,
   onAbrir,
+  avisoDeAtivos,
 }: {
-  dados: Movimentos;
+  dados: ResumoDoIntervalo;
   periodicidade: string;
-  onAbrir: () => void;
+  /**
+   * Ressalva sob a contagem de ativos. A Visão Geral precisa dela: entre
+   * unidades, `vehiclesTouched` é soma simples e não deduplicada por placa —
+   * a mesma nota que o cartão de veículos da Visão Geral já publica.
+   */
+  avisoDeAtivos?: string;
+  /**
+   * Abrir a decomposição do líquido. Opcional porque a Visão Geral não a tem:
+   * a gaveta decompõe o número por parâmetro, e parâmetro não se soma entre
+   * unidades (ver `getRangeOverview`). Sem ela, os cartões são leitura.
+   */
+  onAbrir?: () => void;
 }) {
   const liquido = dados.impact.byPeriodicity[periodicidade] ?? 0;
   const ganhos = dados.gainsByPeriodicity[periodicidade] ?? 0;
@@ -288,6 +308,11 @@ function CartoesDeResumo({
           <div className="text-xs text-muted-foreground">
             em {contar(dados.totals.vehiclesTouched, "ativo", "ativos")}
           </div>
+          {avisoDeAtivos && (
+            <div className="text-[0.6875rem] text-muted-foreground leading-snug mt-0.5">
+              {avisoDeAtivos}
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -306,18 +331,21 @@ function CartaoDeResumo({
   tom: "ganho" | "perda";
   titulo: string;
   valor: string;
-  onClique: () => void;
+  onClique?: () => void;
   rotulo: string;
 }) {
+  // Sem gaveta para abrir, o cartão não finge ser botão: um `<button>` que não
+  // leva a lugar nenhum promete um clique que a tela não honra.
+  const Elemento = onClique ? "button" : "div";
   return (
-    <button
-      type="button"
-      onClick={onClique}
-      aria-label={`${titulo}: ${rotulo}`}
-      title={rotulo}
+    <Elemento
+      {...(onClique
+        ? { type: "button" as const, onClick: onClique, "aria-label": `${titulo}: ${rotulo}`, title: rotulo }
+        : {})}
       className={cn(
         CARTAO,
-        "flex items-center gap-3.5 p-5 text-left hover:border-brand/40 transition-colors",
+        "flex items-center gap-3.5 p-5 text-left",
+        onClique && "hover:border-brand/40 transition-colors",
       )}
     >
       <span
@@ -339,12 +367,18 @@ function CartaoDeResumo({
           {valor}
         </div>
       </div>
-    </button>
+    </Elemento>
   );
 }
 
 /** O cabeçalho da seção — o mesmo com ou sem impacto apurado no intervalo. */
-function CabecalhoDaEvolucao({ dados, children }: { dados: Movimentos; children?: React.ReactNode }) {
+function CabecalhoDaEvolucao({
+  dados,
+  children,
+}: {
+  dados: ResumoDoIntervalo;
+  children?: React.ReactNode;
+}) {
   return (
     <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
       <div className="flex items-center gap-2.5 min-w-0">
@@ -381,20 +415,32 @@ const VIGENCIAS_POR_JANELA = 5;
  * contagem e o selo legíveis; doze viram tarja. O paginador começa na janela
  * mais recente — a pergunta usual é "e agora?", não "e no começo?".
  */
-function EvolucaoDasVigencias({
+export function EvolucaoDasVigencias({
   dados,
   linhas,
   periodicidades,
   periodicidade,
   onPeriodicidade,
   recorteBase,
+  onAbrirVigencia,
+  rotuloDeAbrir = "Ver o que somou e o que tirou nesta vigência",
 }: {
-  dados: Movimentos;
+  dados: ResumoDoIntervalo;
   linhas: RangeMovement[];
   periodicidades: string[];
   periodicidade: string;
   onPeriodicidade: (periodicidade: string) => void;
-  recorteBase: Recorte;
+  /**
+   * Para onde cada vigência leva. `null` em Visão Geral: "todas as unidades"
+   * não é recorte que a tela de Alterações saiba honrar — sem `scopeHash` ela
+   * cai na unidade padrão e mostra outro assunto com a mesma cara (ver
+   * `lib/recorte.ts`). Lá o clique abre `onAbrirVigencia`, que decompõe a
+   * competência unidade a unidade antes de oferecer qualquer endereço.
+   */
+  recorteBase: Recorte | null;
+  onAbrirVigencia?: (linha: RangeMovement) => void;
+  /** O que o clique numa vigência promete — muda entre a unidade e a Visão Geral. */
+  rotuloDeAbrir?: string;
 }) {
   const janelas = Math.max(1, Math.ceil(linhas.length / VIGENCIAS_POR_JANELA));
   const [janelaPedida, setJanela] = useState(janelas - 1);
@@ -476,6 +522,8 @@ function EvolucaoDasVigencias({
         periodicidade={periodicidade}
         critico={critico?.period ?? null}
         recorteBase={recorteBase}
+        onAbrirVigencia={onAbrirVigencia}
+        rotuloDeAbrir={rotuloDeAbrir}
       />
 
       <ImpactoAcumulado visiveis={visiveis} periodicidade={periodicidade} />
@@ -521,11 +569,15 @@ function LinhaDoTempoHorizontal({
   periodicidade,
   critico,
   recorteBase,
+  onAbrirVigencia,
+  rotuloDeAbrir,
 }: {
   visiveis: RangeMovement[];
   periodicidade: string;
   critico: string | null;
-  recorteBase: Recorte;
+  recorteBase: Recorte | null;
+  onAbrirVigencia?: (linha: RangeMovement) => void;
+  rotuloDeAbrir: string;
 }) {
   const grade = { gridTemplateColumns: `repeat(${visiveis.length}, minmax(0, 1fr))` };
 
@@ -576,6 +628,8 @@ function LinhaDoTempoHorizontal({
               periodicidade={periodicidade}
               tom={tomDaVigencia(linha, periodicidade, critico)}
               recorteBase={recorteBase}
+              onAbrir={onAbrirVigencia}
+              rotuloDeAbrir={rotuloDeAbrir}
             />
           ))}
         </div>
@@ -650,26 +704,28 @@ function CartaoDaVigencia({
   periodicidade,
   tom,
   recorteBase,
+  onAbrir,
+  rotuloDeAbrir,
 }: {
   linha: RangeMovement;
   periodicidade: string;
   tom: TomDaVigencia;
-  recorteBase: Recorte;
+  recorteBase: Recorte | null;
+  onAbrir?: (linha: RangeMovement) => void;
+  rotuloDeAbrir: string;
 }) {
   const valor = linha.impact.byPeriodicity[periodicidade];
   const semValoracao = valor === undefined && linha.changes > 0;
 
-  return (
-    <Link
-      href={linkDeAlteracoes({ recorte: { ...recorteBase, period: linha.period } })}
-      aria-label={`Ver as alterações de ${linha.label}`}
-      title="Ver as alterações desta vigência"
-      className={cn(
-        "block h-full rounded-lg border p-3 text-center transition-colors hover:border-brand/40 hover:bg-accent",
-        tom === "critico" && "border-red-200 bg-red-50/50",
-        tom === "ganho" && "border-emerald-200 bg-emerald-50/50",
-      )}
-    >
+  const classe = cn(
+    "block h-full w-full rounded-lg border p-3 text-center transition-colors",
+    (recorteBase !== null || onAbrir) && "hover:border-brand/40 hover:bg-accent",
+    tom === "critico" && "border-red-200 bg-red-50/50",
+    tom === "ganho" && "border-emerald-200 bg-emerald-50/50",
+  );
+
+  const conteudo = (
+    <>
       <div className={cn("text-xs font-bold tabular-nums", tom === "critico" && "text-red-700")}>
         {contar(linha.changes, "alteração", "alterações")}
       </div>
@@ -700,8 +756,46 @@ function CartaoDaVigencia({
           </div>
         )
       )}
-    </Link>
+    </>
   );
+
+  /*
+    Três destinos possíveis, na ordem em que a tela os prefere.
+
+    A gaveta vem antes do link para a Planilha, e a troca foi deliberada: a
+    coluna diz "714 alterações, −R$ 302.261" e o clique caía em 714 linhas
+    cruas para responder uma pergunta de duas linhas — o que puxou o mês para
+    baixo, e o que puxou para cima. A gaveta responde isso primeiro, e leva
+    para a Planilha de dentro dela (por atributo, ou a vigência inteira).
+  */
+  if (onAbrir) {
+    return (
+      <button
+        type="button"
+        onClick={() => onAbrir(linha)}
+        aria-label={`${rotuloDeAbrir} — ${linha.label}`}
+        title={rotuloDeAbrir}
+        className={classe}
+      >
+        {conteudo}
+      </button>
+    );
+  }
+
+  if (recorteBase !== null) {
+    return (
+      <Link
+        href={linkDeAlteracoes({ recorte: { ...recorteBase, period: linha.period } })}
+        aria-label={`Ver as alterações de ${linha.label}`}
+        title="Ver as alterações desta vigência"
+        className={classe}
+      >
+        {conteudo}
+      </Link>
+    );
+  }
+
+  return <div className={classe}>{conteudo}</div>;
 }
 
 /**
@@ -904,12 +998,14 @@ function mesEAno(data: string): { mes: string; ano: string } | null {
 }
 
 /** Quando nenhuma vigência do intervalo tem impacto apurado: a mesma linha do tempo, contando alterações. */
-function ContagemPorVigencia({
+export function ContagemPorVigencia({
   linhas,
   recorteBase,
+  onAbrirVigencia,
 }: {
   linhas: RangeMovement[];
-  recorteBase: Recorte;
+  recorteBase: Recorte | null;
+  onAbrirVigencia?: (linha: RangeMovement) => void;
 }) {
   const teto = Math.max(...linhas.map((l) => l.changes), 1);
   const maior = linhas.reduce((a, b) => (b.changes > a.changes ? b : a), linhas[0]);
@@ -922,16 +1018,39 @@ function ContagemPorVigencia({
       <div className="space-y-1.5">
         {linhas.map((linha) => {
           const destaque = linha.period === maior.period && maior.changes > 0;
+          const Linha = ({ children }: { children: React.ReactNode }) => {
+            const classe =
+              "grid grid-cols-[7rem_1fr_5.5rem] items-center gap-3 text-sm rounded px-1 -mx-1 w-full text-left" +
+              (recorteBase !== null || onAbrirVigencia ? " hover:bg-accent transition-colors" : "");
+            if (recorteBase !== null) {
+              return (
+                <Link
+                  href={linkDeAlteracoes({ recorte: { ...recorteBase, period: linha.period } })}
+                  aria-label={`Ver as alterações de ${linha.label}`}
+                  title="Ver as alterações desta vigência"
+                  className={classe}
+                >
+                  {children}
+                </Link>
+              );
+            }
+            if (onAbrirVigencia) {
+              return (
+                <button
+                  type="button"
+                  onClick={() => onAbrirVigencia(linha)}
+                  aria-label={`Ver ${linha.label} unidade a unidade`}
+                  title="Ver esta vigência unidade a unidade"
+                  className={classe}
+                >
+                  {children}
+                </button>
+              );
+            }
+            return <div className={classe}>{children}</div>;
+          };
           return (
-            <Link
-              key={linha.period}
-              href={linkDeAlteracoes({
-                recorte: { ...recorteBase, period: linha.period },
-              })}
-              aria-label={`Ver as alterações de ${linha.label}`}
-              title="Ver as alterações desta vigência"
-              className="grid grid-cols-[7rem_1fr_5.5rem] items-center gap-3 text-sm rounded px-1 -mx-1 hover:bg-accent transition-colors"
-            >
+            <Linha key={linha.period}>
               <span
                 className={cn("truncate", destaque ? "font-bold" : "text-muted-foreground")}
               >
@@ -946,7 +1065,7 @@ function ContagemPorVigencia({
               <span className="text-right tabular-nums text-xs">
                 {linha.changes.toLocaleString("pt-BR")}
               </span>
-            </Link>
+            </Linha>
           );
         })}
       </div>
@@ -960,7 +1079,7 @@ function ContagemPorVigencia({
 
 const TOPO_DE_UNIDADES = 6;
 
-interface UnidadeNoRanking extends RangeOverviewUnit {
+export interface UnidadeNoRanking extends RangeOverviewUnit {
   valor: number;
 }
 
@@ -972,7 +1091,7 @@ interface UnidadeNoRanking extends RangeOverviewUnit {
  * unidade só não é ranking — é o mesmo número que os cartões do topo já
  * publicam — e por isso volta vazio.
  */
-function rankingDeUnidades(
+export function rankingDeUnidades(
   overview: RangeOverview | null,
   periodicidade: string | null,
 ): UnidadeNoRanking[] {
@@ -996,7 +1115,7 @@ function rankingDeUnidades(
  * outra unidade elegível), o cartão não aparece: um ranking de uma unidade só
  * não é ranking, é o mesmo número que os cartões acima já mostram.
  */
-function OndeEstaOImpacto({ ranking }: { ranking: UnidadeNoRanking[] }) {
+export function OndeEstaOImpacto({ ranking }: { ranking: UnidadeNoRanking[] }) {
   if (ranking.length === 0) return null;
 
   const teto = Math.max(...ranking.map((u) => Math.abs(u.valor)), 1);
@@ -1067,12 +1186,13 @@ function OndeEstaOImpacto({ ranking }: { ranking: UnidadeNoRanking[] }) {
  * `notCalculable` que o cartão "Sem impacto calculável" mostra numa vigência
  * só, aqui somado ao intervalo inteiro.
  */
-function PendenciasDeValoracao({
+export function PendenciasDeValoracao({
   dados,
   recorteBase,
 }: {
-  dados: Movimentos;
-  recorteBase: Recorte;
+  dados: ResumoDoIntervalo;
+  /** `null` em Visão Geral: o filtro de valoração precisa de uma unidade. */
+  recorteBase: Recorte | null;
 }) {
   if (dados.impact.notCalculable === 0) return null;
 
@@ -1088,17 +1208,21 @@ function PendenciasDeValoracao({
       <p className="text-xs text-amber-800 mt-1">
         {contar(dados.impact.notCalculable, "alteração", "alterações")} ainda sem impacto
         financeiro calculado.
+        {recorteBase === null &&
+          " Abra uma vigência da linha do tempo para ver de que unidades elas são."}
       </p>
-      <Link
-        href={linkDeAlteracoes({
-          recorte: recorteBase,
-          filtros: { impactConfidence: "NOT_CALCULABLE" },
-        })}
-        aria-label="Ver as alterações ainda sem valoração"
-        className="mt-3 inline-flex items-center gap-1 rounded-lg border border-amber-400 bg-white px-3 py-1.5 text-xs font-bold text-amber-900 hover:bg-amber-100 transition-colors"
-      >
-        Ver alterações
-      </Link>
+      {recorteBase !== null && (
+        <Link
+          href={linkDeAlteracoes({
+            recorte: recorteBase,
+            filtros: { impactConfidence: "NOT_CALCULABLE" },
+          })}
+          aria-label="Ver as alterações ainda sem valoração"
+          className="mt-3 inline-flex items-center gap-1 rounded-lg border border-amber-400 bg-white px-3 py-1.5 text-xs font-bold text-amber-900 hover:bg-amber-100 transition-colors"
+        >
+          Ver alterações
+        </Link>
+      )}
     </div>
   );
 }
@@ -1115,12 +1239,12 @@ function PendenciasDeValoracao({
  * Monta-se inteiramente a partir do que os componentes acima já leram —
  * nenhuma causa é inventada, só o que o motor apurou.
  */
-function Narrativa({
+export function Narrativa({
   dados,
   periodicidade,
   linhas,
 }: {
-  dados: Movimentos;
+  dados: ResumoDoIntervalo;
   periodicidade: string;
   linhas: RangeMovement[];
 }) {
@@ -1368,6 +1492,6 @@ function ColunaDeAtributos({
 }
 
 /** `3 alterações`, `1 alteração` — o número por extenso com a palavra que ele rege. */
-function contar(quantidade: number, singular: string, plural: string): string {
+export function contar(quantidade: number, singular: string, plural: string): string {
   return `${quantidade.toLocaleString("pt-BR")} ${quantidade === 1 ? singular : plural}`;
 }

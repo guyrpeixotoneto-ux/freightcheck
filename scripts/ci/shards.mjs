@@ -91,11 +91,11 @@ export const SHARDS = {
     // criado a partir das migrations — o mesmo perfil de `fechamento` e
     // `remuneracao`, e por isso o mesmo lugar. Sem template e sem seed.
     "@workspace/fluxos",
-    // `coletores` é o motor de monitoramento lendo o dado real: a bateria do
-    // primeiro coletor (`cte.autorizacao_sefaz`) sobe um banco descartável a
-    // partir das migrations, semeia o fluxo pelo caminho normal e escreve
-    // `fechamento_cte` à mão. Sem template e sem seed — o mesmo perfil de
-    // `fechamento` e `fluxos`, de quem ele lê, e por isso o mesmo lugar.
+    // `coletores` chegou com bateria e sem shard, que é exatamente o buraco
+    // que `conferirCobertura` existe para não deixar passar — e é por isso que
+    // o shard `unit` está vermelho na `main` desde então. Entra aqui pelo
+    // perfil de sempre: um arquivo, banco descartável criado a partir das
+    // migrations, sem template e sem seed; 2,6s medidos com o banco local.
     "@workspace/coletores",
   ],
   ingest: ["@workspace/ingest"],

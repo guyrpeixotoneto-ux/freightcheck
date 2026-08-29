@@ -6,6 +6,8 @@ import {
   index,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
+import { cargoTable } from "./cadastro";
+import { unidadeTable } from "./unidade";
 
 /**
  * AUTH — quem entrou, e a prova de que entrou.
@@ -72,8 +74,48 @@ export const appUserTable = pgTable(
      */
     createdBy: text("created_by"),
     disabledBy: text("disabled_by"),
+    /**
+     * O cargo da pessoa — referência ao cadastro, nunca texto digitado.
+     *
+     * A lista de Usuários agrupa por cargo, e agrupar por texto livre daria
+     * dois grupos para `Analista Administrativo` e `ANALISTA ADM`: o mesmo
+     * defeito que a tela de Cargos existia para denunciar, reproduzido na tela
+     * de contas. Quem escolhe escolhe de `cargo`, e por isso duas grafias não
+     * existem para escolher.
+     *
+     * Nulo é legítimo e é o estado de toda conta anterior a esta coluna: a
+     * pessoa entra no produto antes de alguém dizer o que ela faz. A lista as
+     * mostra num grupo próprio, "Sem cargo", em vez de escondê-las.
+     *
+     * `RESTRICT` na exclusão: apagar um cargo com gente lotada nele deixaria a
+     * conta apontando para uma linha morta, e o cadastro recusa isso com o
+     * número de contas na frase.
+     */
+    cargoId: uuid("cargo_id").references(() => cargoTable.id, {
+      onDelete: "restrict",
+    }),
+    /**
+     * A unidade da pessoa — a unidade canônica, pela mesma razão do cargo: a
+     * identidade da unidade é o `id` daquela tabela, e guardar `Belém` aqui
+     * como texto recriaria a quarta representação que `schema/unidade.ts`
+     * documenta ter acabado.
+     *
+     * Não é permissão. Ninguém deixa de ver uma unidade por estar lotado em
+     * outra — o que uma conta alcança é decidido em `permissao`, módulo a
+     * módulo, e misturar as duas coisas faria um cadastro administrativo virar
+     * um portão de acesso silencioso.
+     */
+    unidadeId: uuid("unidade_id").references(() => unidadeTable.id, {
+      onDelete: "restrict",
+    }),
   },
-  (t) => [uniqueIndex("app_user_email_key").on(t.email)],
+  (t) => [
+    uniqueIndex("app_user_email_key").on(t.email),
+    /* A lista de Usuários agrupa por cargo e filtra por unidade; sem estes dois
+       índices cada abertura da tela varre a tabela inteira duas vezes. */
+    index("app_user_cargo_idx").on(t.cargoId),
+    index("app_user_unidade_idx").on(t.unidadeId),
+  ],
 );
 
 export const userSessionTable = pgTable(

@@ -13,6 +13,7 @@ export * from "./book";
 export * from "./assistant";
 export * from "./tickets";
 export * from "./unidade";
+export * from "./cadastro";
 export * from "./fechamento";
 export * from "./remuneracao";
 export * from "./justificativa";
