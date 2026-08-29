@@ -5,6 +5,7 @@ import { PainelDeUnidades } from "@/pages/unidades";
 import { IndiceDeConfiguracoes } from "@/components/configuracoes/indice";
 import { PainelDeUsuarios } from "@/components/configuracoes/usuarios";
 import { PainelDoPerfil } from "@/components/configuracoes/perfil";
+import { PainelDeSeguranca } from "@/components/configuracoes/seguranca";
 import { PainelDePermissoes } from "@/components/configuracoes/permissoes";
 import {
   PainelDeCargos,
@@ -44,6 +45,7 @@ type Secao =
   | "unidades"
   | "usuarios"
   | "perfil"
+  | "seguranca"
   | "permissoes"
   | "cargos"
   | "negocio"
@@ -53,6 +55,7 @@ const TITULO: Record<Exclude<Secao, "indice">, string> = {
   unidades: "Unidades",
   usuarios: "Usuários",
   perfil: "Meu Perfil",
+  seguranca: "Segurança",
   permissoes: "Permissões",
   cargos: "Cargos",
   negocio: "Negócio",
@@ -111,6 +114,7 @@ export default function Configuracoes({ secao = "indice" }: { secao?: Secao }) {
         {secao === "unidades" && <PainelDeUnidades />}
         {secao === "usuarios" && <PainelDeUsuarios />}
         {secao === "perfil" && <PainelDoPerfil />}
+        {secao === "seguranca" && <PainelDeSeguranca />}
         {secao === "permissoes" && <PainelDePermissoes />}
         {/*
           As três seções que saíram do catálogo de telas em preparo quando o
