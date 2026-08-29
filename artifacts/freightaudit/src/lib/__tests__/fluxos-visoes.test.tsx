@@ -1613,7 +1613,7 @@ describe("caso 10 — o painel edita campo a campo, sem abrir o editor", () => {
     expect(html).toContain("Editar Objetivo da etapa");
     expect(html).toContain("Editar Falhas");
     expect(html).toContain("Editar Gargalos");
-    expect(html).toContain("Editar Informações");
+    expect(html).toContain("Editar Observações");
     expect(html).toContain("Editar Área");
     expect(html).toContain("Editar Responsável");
     /* E o editor completo continua onde estava — um não substitui o outro. */
@@ -1699,7 +1699,7 @@ describe("caso 10 — o painel edita campo a campo, sem abrir o editor", () => {
     expect(fonte).not.toMatch(/Secao titulo="Objetivo da etapa"/);
     expect(rotulos.get("falhas")).toBe("Falhas");
     expect(rotulos.get("gargalos")).toBe("Gargalos");
-    expect(rotulos.get("informacoes")).toBe("Informações");
+    expect(rotulos.get("informacoes")).toBe("Observações");
     expect(valorDoCampo(preenchida, "informacoes")).toContain("A VALIDAR");
     expect(valorDoCampo(preenchida, "gargalos")).toContain("espera o retorno");
     expect(valorDoCampo(preenchida, "regras")).toBe("");
@@ -1714,7 +1714,7 @@ describe("caso 10 — o painel edita campo a campo, sem abrir o editor", () => {
       pergunta "onde estão os maiores gargalos do processo" continuaria sem
       resposta, porque gargalo não seria campo.
     */
-    for (const titulo of ["Falhas", "Gargalos", "Informações"]) {
+    for (const titulo of ["Falhas", "Gargalos", "Observações"]) {
       expect(html).toContain(`Editar ${titulo}`);
     }
     expect(html).not.toContain("Falhas, gargalos e informações<");

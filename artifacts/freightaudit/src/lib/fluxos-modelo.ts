@@ -136,7 +136,7 @@ export const SECOES_DE_CAMPOS: SecaoDeCampos[] = [
       { chave: "regras", rotulo: "Regras de negócio" },
       {
         chave: "informacoesConsultadas",
-        rotulo: "Informações que consulta",
+        rotulo: "Dados",
         ajuda: "onde quem executa vai olhar: relatório, tela, planilha, e-mail",
       },
       { chave: "observacoes", rotulo: "Observações" },

@@ -224,7 +224,7 @@ describe("o modelo do fluxo", () => {
       "O que acontece aqui",
       "Objetivo da etapa",
       "Regras de negócio",
-      "Informações que consulta",
+      "Dados",
       "Observações",
       "Chave de monitoramento",
     ]) {
