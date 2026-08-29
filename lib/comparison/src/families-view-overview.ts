@@ -767,6 +767,36 @@ export interface RangeOverviewUnit {
   lossesByPeriodicity: Record<string, number>;
   changes: number;
   vehiclesTouched: number;
+  /**
+   * Alterações desta unidade sem impacto apurado no intervalo — o mesmo
+   * `impact.notCalculable` que a leitura de uma unidade publica.
+   *
+   * Vem por unidade, e não só somado, porque a Linha do Tempo em Visão Geral
+   * precisa das duas leituras: o total do cartão de pendências, e de quem é
+   * cada parcela dele quando alguém pergunta onde revisar primeiro.
+   */
+  notCalculable: number;
+}
+
+/**
+ * A parcela de uma unidade dentro de uma competência da série consolidada.
+ *
+ * O clique numa vigência da Linha do Tempo de uma unidade abre as alterações
+ * daquela vigência. Em Visão Geral esse endereço não existe — "todas as
+ * unidades" não é um recorte que a tela de Alterações saiba honrar (ver
+ * `Recorte` em `lib/recorte.ts`: sem `scopeHash`, ela cai na unidade padrão e
+ * mostra outro assunto com a mesma cara). Então a competência consolidada abre
+ * o passo intermediário que falta: de quem é o número, unidade a unidade, e
+ * dali sim o link para a unidade certa.
+ *
+ * `unidade` é a chave de `RangeOverviewUnit.unidade` — os contextos de cada uma
+ * ficam lá, e não repetidos em cada ponto da série.
+ */
+export interface RangeOverviewPointUnit {
+  unidade: string;
+  label: string;
+  changes: number;
+  impact: { byPeriodicity: Record<string, number>; notCalculable: number };
 }
 
 /**
@@ -799,6 +829,19 @@ export interface RangeOverviewPoint {
    * escrever seis números que esta já tem em mãos.
    */
   changes: number;
+  /**
+   * O líquido da competência somado entre as unidades, e o que ficou sem
+   * apurar — a mesma leitura que `RangeMovement.impact` dá para uma unidade.
+   *
+   * Não é derivável de `byPeriodicity` acima: aquele lado sai das `entries`
+   * com sinal apurado, e este sai de `movements`, que passa pelo índice de
+   * composição (`summariseImpact`) e por isso é o número que a unidade
+   * publica na própria linha do tempo. A Visão Geral usa este, para que a
+   * soma entre unidades seja a soma dos números que cada unidade mostra.
+   */
+  impact: { byPeriodicity: Record<string, number>; notCalculable: number };
+  /** De quem é o número desta competência — ver `RangeOverviewPointUnit`. */
+  porUnidade: RangeOverviewPointUnit[];
 }
 
 export interface RangeOverview {
@@ -819,29 +862,87 @@ function comSinalApurado(analysis: RangeAnalysis) {
   );
 }
 
-function serieConsolidada(analises: RangeAnalysis[]): RangeOverviewPoint[] {
+/** Uma leitura de contexto e a unidade a que ela pertence — o que a série soma. */
+interface LeituraDaUnidade {
+  unidade: string;
+  label: string;
+  analysis: RangeAnalysis;
+}
+
+function serieConsolidada(leituras: LeituraDaUnidade[]): RangeOverviewPoint[] {
   const rotulos = new Map<string, string>();
-  for (const analysis of analises) {
+  for (const { analysis } of leituras) {
     for (const m of analysis.movements) if (!rotulos.has(m.period)) rotulos.set(m.period, m.label);
     for (const e of analysis.entries) if (!rotulos.has(e.period)) rotulos.set(e.period, e.periodLabel);
   }
 
   const pontos = new Map<string, RangeOverviewPoint>();
   for (const [period, label] of rotulos) {
-    pontos.set(period, { period, label, byPeriodicity: {}, changes: 0 });
+    pontos.set(period, {
+      period,
+      label,
+      byPeriodicity: {},
+      changes: 0,
+      impact: { byPeriodicity: {}, notCalculable: 0 },
+      porUnidade: [],
+    });
   }
   /*
-    A contagem sai de `movements` e não das `entries` filtradas por sinal: uma
-    alteração sem impacto apurado continua sendo uma alteração, e é a mesma
-    régua que a unidade usa no seu próprio seletor.
+    A contagem, o líquido e o que ficou sem apurar saem de `movements`, e não
+    das `entries` filtradas por sinal: uma alteração sem impacto apurado
+    continua sendo uma alteração, e é a mesma régua que a unidade usa no seu
+    próprio seletor e na sua própria linha do tempo.
+
+    Uma unidade pode ter mais de um contexto (dois canais, um recorte de
+    operador ao lado do recorte sem operador) — as parcelas por unidade somam
+    os contextos dela antes de virar uma linha só, para que o painel da
+    competência não liste a mesma unidade duas vezes.
   */
-  for (const analysis of analises) {
+  const parcelas = new Map<string, Map<string, RangeOverviewPointUnit>>();
+  for (const { unidade, label, analysis } of leituras) {
     for (const m of analysis.movements) {
       const ponto = pontos.get(m.period);
-      if (ponto) ponto.changes += m.changes;
+      if (!ponto) continue;
+      ponto.changes += m.changes;
+      ponto.impact.notCalculable += m.impact.notCalculable;
+      for (const [chave, valor] of Object.entries(m.impact.byPeriodicity)) {
+        ponto.impact.byPeriodicity[chave] = round(
+          (ponto.impact.byPeriodicity[chave] ?? 0) + valor,
+        );
+      }
+
+      const doPonto = parcelas.get(m.period) ?? new Map<string, RangeOverviewPointUnit>();
+      parcelas.set(m.period, doPonto);
+      const parcela = doPonto.get(unidade) ?? {
+        unidade,
+        label,
+        changes: 0,
+        impact: { byPeriodicity: {}, notCalculable: 0 },
+      };
+      parcela.changes += m.changes;
+      parcela.impact.notCalculable += m.impact.notCalculable;
+      for (const [chave, valor] of Object.entries(m.impact.byPeriodicity)) {
+        parcela.impact.byPeriodicity[chave] = round(
+          (parcela.impact.byPeriodicity[chave] ?? 0) + valor,
+        );
+      }
+      doPonto.set(unidade, parcela);
     }
   }
-  for (const analysis of analises) {
+  for (const [period, doPonto] of parcelas) {
+    const ponto = pontos.get(period);
+    if (!ponto) continue;
+    // Da que mais moveu para a que menos moveu, dentro da competência — a
+    // mesma fila de "Onde está o impacto?", só que num mês só.
+    ponto.porUnidade = [...doPonto.values()].sort(
+      (a, b) =>
+        largestAbsolute(b.impact.byPeriodicity) - largestAbsolute(a.impact.byPeriodicity) ||
+        b.changes - a.changes ||
+        a.label.localeCompare(b.label, "pt-BR"),
+    );
+  }
+
+  for (const { analysis } of leituras) {
     for (const e of comSinalApurado(analysis)) {
       const ponto = pontos.get(e.period);
       if (!ponto) continue;
@@ -925,8 +1026,10 @@ export async function getRangeOverview(
 
   const unitsIncluded: RangeOverviewUnit[] = [];
   // As leituras que entraram na soma — a série consolidada sai delas, e nunca
-  // de uma unidade que ficou de fora do ranking acima.
-  const analisesIncluidas: RangeAnalysis[] = [];
+  // de uma unidade que ficou de fora do ranking acima. Cada leitura viaja com
+  // a unidade a que pertence: é o que deixa a série dizer de quem é cada
+  // parcela de uma competência, e não só o total dela.
+  const analisesIncluidas: LeituraDaUnidade[] = [];
   // As pontas do intervalo que a resposta anuncia — a primeira unidade que
   // conseguiu ler. Cada unidade resolve `from`/`to` contra o próprio
   // histórico (mesmo padrão de `getRangeAnalysis`), e pode divergir de uma
@@ -953,7 +1056,7 @@ export async function getRangeOverview(
 
     for (const a of sucesso) {
       if (!referencia) referencia = a;
-      analisesIncluidas.push(a);
+      analisesIncluidas.push({ unidade: cand.unidade, label: cand.label, analysis: a });
     }
 
     unitsIncluded.push({
@@ -965,6 +1068,7 @@ export async function getRangeOverview(
       lossesByPeriodicity: somarRecords(sucesso.map((a) => a.lossesByPeriodicity)),
       changes: sucesso.reduce((soma, a) => soma + a.totals.changes, 0),
       vehiclesTouched: sucesso.reduce((soma, a) => soma + a.totals.vehiclesTouched, 0),
+      notCalculable: sucesso.reduce((soma, a) => soma + a.impact.notCalculable, 0),
     });
   }
 

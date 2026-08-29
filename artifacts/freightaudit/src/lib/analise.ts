@@ -91,6 +91,30 @@ export interface ParameterRollup {
   notCalculable: number;
 }
 
+/**
+ * O que a Linha do Tempo precisa saber de um intervalo para desenhá-lo.
+ *
+ * Existe porque a mesma tela é montada de duas leituras diferentes: a de uma
+ * unidade (`/changes/range`, que devolve `Movimentos` inteiro, com as linhas e
+ * o rollup por parâmetro) e a consolidada de todas elas
+ * (`/changes/range/overview`, que soma unidade a unidade e por isso **não**
+ * tem linha nem parâmetro para oferecer — ver `getRangeOverview`).
+ *
+ * Os componentes que desenham o placar, a evolução e o parágrafo pedem só este
+ * recorte, e não `Movimentos`: assim a Visão Geral não precisa forjar campos
+ * vazios para caber num tipo maior, e nenhum deles pode passar a depender, sem
+ * querer, de um dado que a soma entre unidades não tem.
+ */
+export interface ResumoDoIntervalo {
+  fromLabel: string;
+  toLabel: string;
+  impact: { byPeriodicity: Record<string, number>; notCalculable: number };
+  lossesByPeriodicity: Record<string, number>;
+  gainsByPeriodicity: Record<string, number>;
+  totals: { changes: number; vehiclesTouched: number };
+  gaps: { period: string; label: string; reason: string }[];
+}
+
 export interface Movimentos {
   from: string;
   fromLabel: string;
@@ -117,6 +141,8 @@ export interface RangeOverviewUnit {
   lossesByPeriodicity: Record<string, number>;
   changes: number;
   vehiclesTouched: number;
+  /** Alterações da unidade sem impacto apurado no intervalo. */
+  notCalculable: number;
 }
 
 export interface RangeOverviewUnitExcluded {
@@ -139,6 +165,23 @@ export interface RangeOverviewPoint {
   byPeriodicity: Record<string, { gains: number; losses: number }>;
   /** Alterações da competência, somadas entre as unidades — o seletor de vigência da Visão Geral. */
   changes: number;
+  /**
+   * O líquido da competência entre as unidades, e o que ficou sem apurar — o
+   * mesmo `RangeMovement.impact` de uma unidade, somado. É este o número que a
+   * Linha do Tempo em Visão Geral desenha, para que a soma entre unidades seja
+   * a soma dos números que cada unidade mostra na própria tela.
+   */
+  impact: { byPeriodicity: Record<string, number>; notCalculable: number };
+  /** De quem é o número desta competência, da que mais moveu para a que menos. */
+  porUnidade: RangeOverviewPointUnit[];
+}
+
+/** A parcela de uma unidade dentro de uma competência consolidada. */
+export interface RangeOverviewPointUnit {
+  unidade: string;
+  label: string;
+  changes: number;
+  impact: { byPeriodicity: Record<string, number>; notCalculable: number };
 }
 
 export interface RangeOverview {
