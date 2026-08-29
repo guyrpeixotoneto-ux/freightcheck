@@ -211,7 +211,19 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
       descricao: "O que mudou por placa, e a justificativa de cada mudança",
       icon: FileCheck2,
       cor: "text-nav-plano-de-acao",
-      itens: [{ href: "/justificativas", label: "Justificativas", icon: FileCheck2 }],
+      itens: [
+        { href: "/justificativas", label: "Justificativas", icon: FileCheck2 },
+        /*
+          O painel vem **depois** da fila, e não antes: a fila é onde se
+          trabalha, o painel é onde se confere. Quem abre a seção todo dia vem
+          justificar; quem vem cobrar o que falta é quem desce um item.
+        */
+        {
+          href: "/painel-de-justificativas",
+          label: "Painel de Justificativas",
+          icon: ClipboardList,
+        },
+      ],
     },
     {
       titulo: "Auditoria",
