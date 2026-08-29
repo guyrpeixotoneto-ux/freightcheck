@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import {
   ArrowDownRight,
   ArrowUpRight,
@@ -33,9 +33,10 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { JustificarDialog } from "@/components/justificativas/justificar-dialog";
 import { fetchJson, salvarArquivo } from "@/lib/api";
 import { useAmbiente } from "@/lib/ambiente-aberto";
-import { useContextosDaCasca } from "@/lib/contextos";
+import { contextoAberto, useContextosDaCasca } from "@/lib/contextos";
 import { equipamentosDoAmbiente, rotuloDoTipo } from "@/lib/frota";
 import { formatNumber } from "@/lib/format";
+import { nomeDaUnidade } from "@/lib/recorte";
 import {
   opcoesDeVigencia,
   useComparacoes,
@@ -43,6 +44,7 @@ import {
 } from "@/lib/justificativas";
 import {
   direcaoDaLinha,
+  enderecoDasLinhas,
   iniciaisDoResponsavel,
   pendenciasPorTipo,
   responsaveisDoPainel,
@@ -140,10 +142,52 @@ export default function PainelDeJustificativas() {
   const ambiente = useAmbiente();
   const queryClient = useQueryClient();
   const [, navegar] = useLocation();
+  const search = useSearch();
 
-  const { cobertura, autores, consulta } = usePainelDeJustificativas();
   const comparacoes = useComparacoes();
   const contextos = useContextosDaCasca();
+
+  /*
+    A unidade aberta é a da lateral: a que a URL pede em `scopeHash`, e a
+    primeira de `/contexts` quando ninguém pediu — a mesma regra da fila
+    (`pages/justificativas.tsx`) e da caixa "Unidade atual". Sem este recorte o
+    painel somava a operação inteira sob a lateral escrita PERNAMBUCO: os
+    cartões traziam CAMAÇARI e MANAUS no mesmo total, e a lista abria placas de
+    uma unidade que não é a aberta. `visaoGeral=1` é a escolha de somar todas —
+    a leitura de antes, agora pedida e não presumida.
+  */
+  const params = new URLSearchParams(search);
+  const emVisaoGeral = params.get("visaoGeral") === "1";
+  const escopoAberto = emVisaoGeral
+    ? null
+    : (contextoAberto(contextos.contextos, params.get("scopeHash"))?.scopeHash ?? null);
+
+  const { cobertura, autores, consulta } = usePainelDeJustificativas(escopoAberto);
+
+  /* Qual unidade os números são — dito no cabeçalho, e não deduzido da caixa
+     da lateral. Ver o mesmo cuidado em `pages/dados.tsx`. */
+  const unidadeAberta = emVisaoGeral
+    ? null
+    : (() => {
+        const contexto = contextoAberto(contextos.contextos, params.get("scopeHash"));
+        return contexto ? nomeDaUnidade(contexto) : null;
+      })();
+
+  /*
+    O recorte de unidade viaja em todo link que sai desta tela: abrir a placa
+    numa unidade e voltar precisa reencontrar a mesma lateral, e um endereço
+    montado do zero devolveria à unidade padrão no meio do trabalho. É a mesma
+    função `endereco` da fila.
+  */
+  const recorteDoEndereco = (extra: Record<string, string>) => {
+    const q = new URLSearchParams();
+    for (const chave of ["scopeHash", "canal", "visaoGeral"]) {
+      const valor = params.get(chave);
+      if (valor) q.set(chave, valor);
+    }
+    for (const [chave, valor] of Object.entries(extra)) q.set(chave, valor);
+    return q.toString();
+  };
 
   /*
     Os filtros vivem em estado, e não no endereço como os da fila. A fila é
@@ -151,7 +195,7 @@ export default function PainelDeJustificativas() {
     voltar precisa reencontrar a mesma aba —; o painel é leitura, e o que dele
     se leva adiante é o link para a fila, que o botão de cada linha monta.
   */
-  const [changeSetId, setChangeSetId] = useState<string | null>(null);
+  const [vigenciaEscolhida, setVigenciaEscolhida] = useState<string | null>(null);
   const [tipo, setTipo] = useState<string | null>(null);
   const [direcao, setDirecao] = useState<DirecaoDoImpacto>("TODAS");
   const [autor, setAutor] = useState<string | null>(null);
@@ -161,6 +205,19 @@ export default function PainelDeJustificativas() {
   const [selecionadas, setSelecionadas] = useState<Set<number>>(new Set());
   const [dialogAlvo, setDialogAlvo] = useState<LinhaDoPainel[] | null>(null);
   const [exportando, setExportando] = useState(false);
+
+  /*
+    Trocar de unidade na lateral não desfaz o filtro de vigência, e a vigência
+    de CAMAÇARI não existe no recorte de PERNAMBUCO: honrá-la deixaria a tela
+    dizendo "nada a justificar" sobre um recorte que não é de ninguém. Enquanto
+    a cobertura não chegou, a escolha vale — não há como saber ainda.
+  */
+  const changeSetId =
+    vigenciaEscolhida === null ||
+    cobertura === null ||
+    cobertura.some((l) => l.changeSetId === vigenciaEscolhida)
+      ? vigenciaEscolhida
+      : null;
 
   const resumo = resumoDoPainel(cobertura, changeSetId, tipo);
   const barras = useMemo(
@@ -183,6 +240,7 @@ export default function PainelDeJustificativas() {
   }, [comparacoes.data, contextos.contextos]);
 
   const recorte = {
+    escopo: escopoAberto,
     changeSetId,
     tipo,
     situacao,
@@ -207,7 +265,7 @@ export default function PainelDeJustificativas() {
 
   const limparFiltros = () =>
     trocar(() => {
-      setChangeSetId(null);
+      setVigenciaEscolhida(null);
       setTipo(null);
       setDirecao("TODAS");
       setAutor(null);
@@ -278,16 +336,14 @@ export default function PainelDeJustificativas() {
       const tudo: LinhaDoPainel[] = [];
       const passo = 100;
       for (let offset = 0; ; offset += passo) {
-        const q = new URLSearchParams();
-        if (changeSetId) q.set("changeSetId", changeSetId);
-        if (tipo) q.set("entityType", tipo);
-        q.set("situacao", situacao);
-        if (direcao !== "TODAS") q.set("direcao", direcao);
-        if (autor && situacao === "JUSTIFICADA") q.set("autor", autor);
-        q.set("limit", String(passo));
-        q.set("offset", String(offset));
+        /* O mesmo endereço da lista em tela — inclusive a unidade aberta:
+           exportar não pode trazer o que a tela não mostra. */
         const pagina = await fetchJson<{ total: number; linhas: LinhaDoPainel[] }>(
-          `/justificativas/pendencias?${q.toString()}`,
+          enderecoDasLinhas({
+            ...recorte,
+            pagina: offset / passo + 1,
+            porPagina: passo,
+          }),
         );
         tudo.push(...pagina.linhas);
         if (tudo.length >= pagina.total || pagina.linhas.length === 0) break;
@@ -361,7 +417,13 @@ export default function PainelDeJustificativas() {
               <p className="text-sm text-muted-foreground mt-2 max-w-2xl">
                 Acompanhe tudo que foi justificado e o que ainda falta justificar —
                 as alterações que subiram ou desceram um valor entre uma vigência
-                e a seguinte, e a explicação que o gestor deve a cada uma.
+                e a seguinte, e a explicação que o gestor deve a cada uma
+                {emVisaoGeral
+                  ? ", somando todas as unidades"
+                  : unidadeAberta
+                    ? `, em ${unidadeAberta}`
+                    : ""}
+                .
               </p>
             </div>
           </div>
@@ -580,7 +642,7 @@ export default function PainelDeJustificativas() {
                   <Select
                     value={changeSetId ?? TODAS}
                     onValueChange={(v) =>
-                      trocar(() => setChangeSetId(v === TODAS ? null : v))
+                      trocar(() => setVigenciaEscolhida(v === TODAS ? null : v))
                     }
                   >
                     <SelectTrigger className="h-9 w-72 text-sm">
@@ -843,7 +905,7 @@ export default function PainelDeJustificativas() {
                                 size="sm"
                                 onClick={() =>
                                   navegar(
-                                    `/justificativas/placa/${encodeURIComponent(linha.entityLabel)}?changeSetId=${linha.changeSetId}`,
+                                    `/justificativas/placa/${encodeURIComponent(linha.entityLabel)}?${recorteDoEndereco({ changeSetId: linha.changeSetId })}`,
                                   )
                                 }
                               >
@@ -929,7 +991,7 @@ export default function PainelDeJustificativas() {
                         )}
                         onClick={() =>
                           trocar(() =>
-                            setChangeSetId(changeSetId === v.changeSetId ? null : v.changeSetId),
+                            setVigenciaEscolhida(changeSetId === v.changeSetId ? null : v.changeSetId),
                           )
                         }
                       >
