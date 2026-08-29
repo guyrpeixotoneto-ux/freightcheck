@@ -137,7 +137,7 @@ entrar com a conta dele: derrubar a pessoa do sistema para responder uma
 pergunta. Três decisões sustentam isto:
 
 - **A sessão continua sendo a de quem clicou.** O alvo é uma coluna da própria
-  sessão (`user_session.impersonated_user_id`, migration `0075`), não um cookie
+  sessão (`user_session.impersonated_user_id`, migration `0076`), não um cookie
   novo: voltar ao próprio perfil é um clique, e o servidor nunca perde de vista
   quem de fato entrou.
 - **Só administrador, e o papel conferido é o de quem digitou a senha.** Uma

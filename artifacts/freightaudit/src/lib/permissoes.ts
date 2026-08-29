@@ -2,9 +2,13 @@ import { navGroupsAuditoria } from "@/components/layout/nav-auditoria";
 import { navGroupsFechamento } from "@/components/layout/nav-fechamento";
 import { GRUPO_ADMINISTRACAO } from "@/components/layout/nav-administracao";
 import {
+  AMBIENTES,
   BASES_DE_AUDITORIA,
   BASES_DE_FECHAMENTO,
   BASE_PADRAO_DE_FECHAMENTO,
+  ambienteDe,
+  type Ambiente,
+  type DescricaoDeAmbiente,
 } from "@/lib/ambiente";
 import { useAuth, type Nivel } from "@/lib/auth";
 
@@ -179,6 +183,136 @@ export function filtrarGrupos<
       itens: grupo.itens.filter((item) => nivelDe(permissoes, item.href) !== "SEM_ACESSO"),
     }))
     .filter((grupo) => grupo.itens.length > 0);
+}
+
+/* =========================================================================
+ * O ambiente de trabalho — o segundo eixo
+ * ====================================================================== */
+
+/**
+ * O acesso ao **espaço de trabalho**, que é outra pergunta que a do módulo.
+ *
+ * Módulo responde "que telas esta pessoa alcança"; ambiente responde "de qual
+ * operação". As duas são independentes de propósito: `/alteracoes` é a mesma
+ * tela na Empurrada e na Rota — é o acervo embaixo dela que muda —, e por isso
+ * o módulo nunca teve como dizer "esta pessoa só trabalha na empurrada". Agora
+ * o ambiente diz, e o módulo continua dizendo o que sempre disse.
+ *
+ * **A chave é `@` mais o id do ambiente**, e mora na mesma tabela dos módulos.
+ * Nenhum módulo pode colidir com ela porque módulo é endereço e começa por
+ * barra. Sem tabela nova: o padrão que concede, o histórico com autor e o
+ * portão de escrita já existiam e passaram a valer para os dois eixos sem uma
+ * linha de banco a mais.
+ *
+ * **O nível efetivo de uma tela é o mais restritivo dos dois** ({@link
+ * maisRestritivo}). Quem tem o Fechamento AS em somente leitura não edita
+ * Competências lá, mesmo que Competências esteja em `EDITAR` — porque o
+ * "EDITAR" do módulo foi decidido sobre a tela, e não sobre aquele acervo. O
+ * caminho contrário é o mesmo: entrar num ambiente não devolve um módulo que
+ * alguém tirou.
+ */
+export function chaveDoAmbiente(id: Ambiente): string {
+  return `@${id}`;
+}
+
+/** O nível de um ambiente num mapa de permissões, já com o padrão aplicado. */
+export function nivelDoAmbiente(
+  permissoes: Record<string, Nivel>,
+  id: Ambiente,
+): Nivel {
+  return permissoes[chaveDoAmbiente(id)] ?? NIVEL_PADRAO;
+}
+
+/**
+ * O mais fechado entre dois níveis.
+ *
+ * `SEM_ACESSO` vence tudo, `VISUALIZAR` vence `EDITAR`. É a composição dos dois
+ * eixos, e ela só pode ser esta: um acesso que fosse o mais permissivo dos dois
+ * faria a decisão sobre o ambiente ser desfeita por qualquer módulo em padrão —
+ * e módulo em padrão é o estado normal de toda conta.
+ */
+export function maisRestritivo(a: Nivel, b: Nivel): Nivel {
+  if (a === "SEM_ACESSO" || b === "SEM_ACESSO") return "SEM_ACESSO";
+  if (a === "VISUALIZAR" || b === "VISUALIZAR") return "VISUALIZAR";
+  return "EDITAR";
+}
+
+/**
+ * Os ambientes que a pessoa alcança, na ordem do seletor.
+ *
+ * É o que o seletor do topo lista. Quem não alcança nenhum não é um estado que
+ * a lista precise inventar texto para: o padrão concede os oito, e chegar a
+ * zero exige oito decisões tomadas uma a uma — quem as tomou sabe o que fez.
+ */
+export function ambientesPermitidos(
+  permissoes: Record<string, Nivel>,
+): DescricaoDeAmbiente[] {
+  return AMBIENTES.filter(
+    (ambiente) => nivelDoAmbiente(permissoes, ambiente.id) !== "SEM_ACESSO",
+  );
+}
+
+/**
+ * O acesso à tela aberta — os dois eixos já compostos.
+ *
+ * A Administração fica fora do eixo do ambiente, e é por isso que ela é
+ * perguntada aqui e não no chamador: Configurações, Unidades e o cadastro da
+ * casa valem para o produto inteiro e vivem fora dos prefixos, então
+ * `ambienteDe` responde "Empurrada" por eles — o que sobra quando nenhum
+ * prefixo casa. Aplicar o eixo do ambiente ali tiraria a tela de trocar a
+ * própria senha de quem trabalha só no Fechamento, que é um bloqueio que
+ * ninguém pediu.
+ */
+export interface AcessoDaTela {
+  /** O módulo em que a tela cai, ou `null` fora de módulo (login, 404). */
+  modulo: Modulo | null;
+  /** O ambiente da tela, ou `null` quando ela é de Administração. */
+  ambiente: Ambiente | null;
+  doModulo: Nivel;
+  doAmbiente: Nivel;
+  /** Os dois compostos — o que vale na tela. */
+  nivel: Nivel;
+}
+
+/**
+ * Os módulos que valem para o produto inteiro — a Administração.
+ *
+ * Vem da mesma lista que desenha o grupo no menu, e não de um `grupo ===
+ * "Administração"`: o grupo da Administração é montado dentro da lateral da
+ * Auditoria (`nav-auditoria.ts`), então o `ambiente` desses módulos é
+ * "Auditoria" por acidente de onde eles são anexados — e um teste que
+ * confiasse nisso passaria dizendo que Configurações é tela de auditoria.
+ */
+const CHAVES_DA_ADMINISTRACAO = new Set(
+  GRUPO_ADMINISTRACAO.itens.map((item) => chaveDoModulo(item.href)),
+);
+
+export function acessoDaLocalizacao(
+  permissoes: Record<string, Nivel>,
+  location: string,
+): AcessoDaTela {
+  const modulo = moduloDaLocalizacao(location);
+  const doModulo = modulo ? nivelDe(permissoes, modulo.chave) : NIVEL_PADRAO;
+
+  if (modulo && CHAVES_DA_ADMINISTRACAO.has(modulo.chave)) {
+    return {
+      modulo,
+      ambiente: null,
+      doModulo,
+      doAmbiente: NIVEL_PADRAO,
+      nivel: doModulo,
+    };
+  }
+
+  const ambiente = ambienteDe(location.split("?")[0]);
+  const doAmbiente = nivelDoAmbiente(permissoes, ambiente);
+  return {
+    modulo,
+    ambiente,
+    doModulo,
+    doAmbiente,
+    nivel: maisRestritivo(doModulo, doAmbiente),
+  };
 }
 
 /** As permissões de quem está logado — o atalho que as telas usam. */

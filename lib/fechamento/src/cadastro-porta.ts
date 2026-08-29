@@ -197,8 +197,22 @@ export interface UnidadeCanonicaVista {
   id: string;
   /** `CDD BELÉM`. Descrição, nunca identidade — ver o schema de `unidade`. */
   nome: string;
-  /** Os catorze dígitos, sem máscara. */
-  cnpj: string;
+  /** Os catorze dígitos, sem máscara. `null` na unidade sem CNPJ cadastrado. */
+  cnpj: string | null;
+  /** O código do cadastro, quando é ele que a identifica. */
+  codigoGerencial: string | null;
+}
+
+/**
+ * Como a tela escreve a identidade desta unidade — o CNPJ, ou o código.
+ *
+ * Uma função só, e não a escolha repetida em cada frase: desde que o CNPJ
+ * deixou de ser obrigatório, `cnpjComMascara(u.cnpj)` escreveria `CNPJ null` na
+ * instrução que manda alguém associar a competência — a frase que existe
+ * justamente para nomear a unidade certa.
+ */
+export function comoSeIdentifica(u: UnidadeCanonicaVista): string {
+  return u.cnpj !== null ? `CNPJ ${cnpjComMascara(u.cnpj)}` : `código ${u.codigoGerencial}`;
 }
 
 /** Os dois CNPJs que discordam, quando discordam. */
@@ -458,7 +472,7 @@ export function comoDestravar(
       */
       if (u.sugestoes.length > 0) {
         const nomeadas = u.sugestoes
-          .map((s) => `"${s.nome}" (CNPJ ${cnpjComMascara(s.cnpj)})`)
+          .map((s) => `"${s.nome}" (${comoSeIdentifica(s)})`)
           .join(", ");
         return {
           problema,
@@ -499,7 +513,7 @@ export function comoDestravar(
         pior combinação: a pessoa faz o que a tela pede e a tela continua igual.
       */
       const nome = u.identidade
-        ? `"${u.identidade.nome}" (CNPJ ${cnpjComMascara(u.identidade.cnpj)})`
+        ? `"${u.identidade.nome}" (${comoSeIdentifica(u.identidade)})`
         : "a unidade a que ela está associada";
       return {
         problema:

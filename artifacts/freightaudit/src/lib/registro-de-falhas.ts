@@ -42,12 +42,7 @@ export interface Carimbo {
  * ensina nada.
  */
 export type OrigemDoRefetch =
-  | "montagem"
-  | "foco"
-  | "reconexao"
-  | "manual"
-  | "intervalo"
-  | "desconhecida";
+  "montagem" | "foco" | "reconexao" | "manual" | "intervalo" | "desconhecida";
 
 /** A que se atribui a interrupção, depois de comparados os dois carimbos. */
 export type Interrupcao =
@@ -83,6 +78,26 @@ export interface FalhaDeChamada {
   estado: string;
   status?: number;
   mensagem: string;
+  /**
+   * De onde a tela estava chamando: `location.origin` no instante da falha.
+   *
+   * Parece redundante — "é o nosso domínio, ora" — e é justamente a suposição
+   * que custou caro. O mesmo bundle é servido pelo domínio próprio, pelo
+   * endereço interno da plataforma e pelo preview de um deploy; as três
+   * origens têm camadas de rede diferentes na frente, e uma falha que só
+   * acontece numa delas é invisível num registro que não diz qual era.
+   */
+  origemHttp?: string;
+  /**
+   * A chamada chegou ao Express? `undefined` quando não houve resposta para
+   * dizer — ver `chegouAoServidor` em `lib/transporte.ts`.
+   *
+   * É o campo que separa, sem interpretar frase nenhuma, "o backend respondeu
+   * com erro" de "a requisição nunca chegou ao backend".
+   */
+  chegouAoServidor?: boolean;
+  /** O `requestId` do servidor, quando a resposta trouxe um. */
+  requestId?: string;
   /** Preenchido quando a chamada seguinte volta a responder. */
   desfecho?: { carimbo: Carimbo; interrupcao: Interrupcao };
 }
@@ -124,12 +139,16 @@ export function descreverErro(erro: unknown): {
   estado: string;
   status?: number;
   mensagem: string;
+  chegouAoServidor?: boolean;
+  requestId?: string;
 } {
   if (erro instanceof ErroDeTransporte) {
-    const { estado, status } = erro.diagnostico;
+    const { estado, status, chegouAoServidor, requestId } = erro.diagnostico;
     return {
       estado,
       ...(status === undefined ? {} : { status }),
+      ...(chegouAoServidor === undefined ? {} : { chegouAoServidor }),
+      ...(requestId === undefined ? {} : { requestId }),
       mensagem: erro.message,
     };
   }
@@ -137,6 +156,13 @@ export function descreverErro(erro: unknown): {
     return {
       estado: erro.code ?? "HTTP",
       status: erro.status,
+      /*
+        Um `ApiError` só existe porque houve resposta com corpo JSON lido por
+        `erroDaResposta` — a chamada chegou ao Express e voltou de lá. É a
+        metade "o backend respondeu com erro" da distinção.
+      */
+      chegouAoServidor: true,
+      ...(erro.requestId === undefined ? {} : { requestId: erro.requestId }),
       mensagem: erro.message,
     };
   }
@@ -216,6 +242,9 @@ export function registrarFalha(
     tentativa: dados.tentativa,
     online: estaOnline(),
     origem: dados.origem,
+    ...(typeof window === "undefined"
+      ? {}
+      : { origemHttp: window.location.origin }),
     ...descreverErro(dados.erro),
   };
 
@@ -232,7 +261,9 @@ export function registrarFalha(
     `[transporte] ${falha.endpoint} — tentativa ${falha.tentativa}, ` +
       `${falha.estado}${falha.status === undefined ? "" : ` ${falha.status}`}, ` +
       `${falha.duracaoMs}ms, origem ${falha.origem}, ` +
-      `${falha.online ? "online" : "offline"}. ` +
+      `${falha.online ? "online" : "offline"}, ` +
+      `chegou ao servidor: ${falha.chegouAoServidor ?? "indeterminado"}` +
+      `${falha.requestId ? `, requestId ${falha.requestId}` : ""}. ` +
       `O registro inteiro sai em ${NOME_NO_CONSOLE}.`,
   );
 

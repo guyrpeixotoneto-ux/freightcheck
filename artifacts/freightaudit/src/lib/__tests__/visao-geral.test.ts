@@ -1533,6 +1533,20 @@ describe("o impacto por família", () => {
     expect(ganhos).toBe(26583);
   });
 
+  /*
+    O pódio do Dashboard virou dois cartões — o que somou e o que tirou — e cada
+    um escreve a contagem do **seu** lado, tirada de `parametros[lado]`. Se as
+    duas não fecharem com `alteracoes`, os dois cartões passam a contar a mesma
+    alteração duas vezes, ou a perder alguma no meio.
+  */
+  it("as alterações de cada lado somam as da família", () => {
+    for (const familia of impactoPorFamilia(agosto, "MENSAL")) {
+      const doGanho = familia.parametros.ganhos.reduce((n, l) => n + l.changes, 0);
+      const daPerda = familia.parametros.perdas.reduce((n, l) => n + l.changes, 0);
+      expect(doGanho + daPerda).toBe(familia.alteracoes);
+    }
+  });
+
   it("cada lado da família é a soma exata da lista que o explica", () => {
     const [primeira] = impactoPorFamilia(agosto, "MENSAL");
     const somaDosGanhos = primeira.parametros.ganhos.reduce((t, l) => t + l.amount, 0);

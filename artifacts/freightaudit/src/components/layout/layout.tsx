@@ -56,6 +56,13 @@ export function Layout({
     São quarenta e poucas telas; pedir a cada uma que se pergunte se pode ser
     aberta é pedir que uma esqueça. Aqui é um lugar só, e ele já sabe qual é o
     endereço aberto — ver `acesso-do-modulo.tsx`.
+
+    A pergunta cobre os dois eixos: o módulo e o ambiente de trabalho de onde a
+    tela foi aberta. Uma tela fora de módulo nenhum — que antes escapava por
+    `modulo === null` — continua livre quando o ambiente também está livre, e
+    passa a ser recusada quando o ambiente inteiro é de outra pessoa: um
+    endereço solto dentro do Fechamento AS não é menos Fechamento AS por não
+    estar no menu.
   */
   const acesso = useAcessoDoModulo();
 
@@ -93,11 +100,11 @@ export function Layout({
             !semReservaDaBarra && "pb-[calc(5.5rem+env(safe-area-inset-bottom))]",
           )}
         >
-          {acesso.modulo && acesso.nivel === "VISUALIZAR" && (
-            <TiraDeSomenteLeitura modulo={acesso.modulo} />
+          {acesso.nivel === "VISUALIZAR" && (
+            <TiraDeSomenteLeitura acesso={acesso} />
           )}
-          {acesso.modulo && acesso.nivel === "SEM_ACESSO" ? (
-            <SemAcesso modulo={acesso.modulo} />
+          {acesso.nivel === "SEM_ACESSO" ? (
+            <SemAcesso acesso={acesso} />
           ) : (
             children
           )}

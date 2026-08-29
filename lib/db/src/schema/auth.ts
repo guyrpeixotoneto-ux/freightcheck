@@ -153,7 +153,7 @@ export const userSessionTable = pgTable(
      * perfil é um clique, não um login), o servidor nunca perde de vista quem
      * de fato entrou, e nada disso depende de um estado guardado no navegador.
      *
-     * Sem chave estrangeira, de propósito — o porquê está na `0075`. Nulo é o
+     * Sem chave estrangeira, de propósito — o porquê está na `0076`. Nulo é o
      * estado de toda sessão: ninguém nasce visualizando ninguém.
      */
     impersonatedUserId: uuid("impersonated_user_id"),

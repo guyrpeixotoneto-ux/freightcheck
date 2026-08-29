@@ -5,10 +5,13 @@ import {
   cnpjComMascara,
   CnpjInvalido,
   CnpjJaCadastrado,
+  CodigoGerencialInvalido,
+  CodigoGerencialJaCadastrado,
   db,
   editarUnidade,
   listarUnidadesCanonicas,
   UnidadeNaoEncontrada,
+  UnidadeSemIdentidade,
   UnidadeSemNome,
   type UnidadeCanonica,
 } from "@workspace/db";
@@ -31,8 +34,11 @@ import { conciliarIdentidadeDoCadastro } from "../lib/identidade-do-cadastro";
  *
  * **Os três estados, e por que eles não podem ser dois.**
  *
- * - `CADASTRADA` — alguém a cadastrou, com CNPJ conferido, e nenhum arquivo dela
- *   chegou ainda. É o estado do dia em que a aba de Excel vem antes do export;
+ * - `CADASTRADA` — alguém a cadastrou, com CNPJ conferido — ou com um código
+ *   gerencial, quando não há CNPJ a informar —, e nenhum arquivo dela chegou
+ *   ainda. É o estado do dia em que a aba de Excel vem antes do export, e é
+ *   também o estado permanente da unidade sem documento: o acervo declara CNPJ,
+ *   então ela nunca casa com uma linha detectada;
  * - `CADASTRADA_E_IMPORTADA` — cadastrada **e** com acervo, com os dois CNPJs
  *   coincidindo. É o estado normal de regime;
  * - `DETECTADA` — um snapshot declarou este CNPJ e ninguém a cadastrou. **Não é
@@ -54,8 +60,12 @@ interface LinhaDaAdministracao {
   /** `null` quando ela só foi detectada — ainda não há identidade canônica. */
   id: string | null;
   nome: string;
-  cnpj: string;
+  /** `null` na unidade cadastrada só por código gerencial. */
+  cnpj: string | null;
+  /** O CNPJ com máscara, ou `""` quando não há — a tela mostra o código no lugar. */
   cnpjFormatado: string;
+  /** O código do cadastro. `null` quando ela é identificada pelo CNPJ. */
+  codigoGerencial: string | null;
   estado: "CADASTRADA" | "CADASTRADA_E_IMPORTADA" | "DETECTADA";
   /** Quantas vigências o acervo tem dela. Zero é legítimo e comum. */
   vigencias: number;
@@ -110,13 +120,20 @@ router.get("/unidades/canonicas", async (_req, res): Promise<void> => {
 
   const porCnpj = new Map(detectadas.map((d) => [d.cnpj, d]));
   const linhas: LinhaDaAdministracao[] = cadastradas.map((u: UnidadeCanonica) => {
-    const noAcervo = porCnpj.get(u.cnpj);
-    porCnpj.delete(u.cnpj);
+    /*
+      A unidade sem CNPJ nunca encontra o acervo aqui, e isso é o certo: o que o
+      acervo declara é `canonical_scope`, que é documento. Ela fica
+      `CADASTRADA` — existe, e nenhum arquivo dela chegou pelo CNPJ —, e é
+      exatamente o que a coluna `vigencias` diz.
+    */
+    const noAcervo = u.cnpj === null ? undefined : porCnpj.get(u.cnpj);
+    if (u.cnpj !== null) porCnpj.delete(u.cnpj);
     return {
       id: u.id,
       nome: u.nome,
       cnpj: u.cnpj,
-      cnpjFormatado: cnpjComMascara(u.cnpj),
+      cnpjFormatado: u.cnpj === null ? "" : cnpjComMascara(u.cnpj),
+      codigoGerencial: u.codigoGerencial,
       estado: noAcervo ? "CADASTRADA_E_IMPORTADA" : "CADASTRADA",
       vigencias: noAcervo?.vigencias ?? 0,
     };
@@ -129,12 +146,16 @@ router.get("/unidades/canonicas", async (_req, res): Promise<void> => {
       nome: d.nome ?? "",
       cnpj: d.cnpj,
       cnpjFormatado: cnpjComMascara(d.cnpj),
+      /* O acervo declara documento e mais nada — código gerencial é cadastro. */
+      codigoGerencial: null,
       estado: "DETECTADA",
       vigencias: d.vigencias,
     });
   }
 
-  linhas.sort((a, b) => (a.nome || a.cnpj).localeCompare(b.nome || b.cnpj, "pt-BR"));
+  const comoSeChama = (l: LinhaDaAdministracao) =>
+    l.nome || l.cnpj || l.codigoGerencial || "";
+  linhas.sort((a, b) => comoSeChama(a).localeCompare(comoSeChama(b), "pt-BR"));
   res.json(linhas);
 });
 
@@ -150,9 +171,11 @@ router.post("/unidades/canonicas", async (req, res): Promise<void> => {
   const corpo = (req.body ?? {}) as Record<string, unknown>;
   const nome = typeof corpo.nome === "string" ? corpo.nome : "";
   const cnpj = typeof corpo.cnpj === "string" ? corpo.cnpj : "";
+  const codigoGerencial =
+    typeof corpo.codigoGerencial === "string" ? corpo.codigoGerencial : "";
 
   try {
-    const criada = await cadastrarUnidade(db, { nome, cnpj });
+    const criada = await cadastrarUnidade(db, { nome, cnpj, codigoGerencial });
     /*
       Cadastrar a unidade é um dos momentos em que a identidade passa a ser
       conhecida — e, até aqui, o único que não escrevia nada no Fechamento. A
@@ -186,6 +209,22 @@ router.post("/unidades/canonicas", async (req, res): Promise<void> => {
       res.status(400).json({ error: erro.message, codigo: `CNPJ_${erro.recusa}` });
       return;
     }
+    if (erro instanceof CodigoGerencialJaCadastrado) {
+      res
+        .status(409)
+        .json({ error: erro.message, codigo: "CODIGO_GERENCIAL_JA_CADASTRADO" });
+      return;
+    }
+    if (erro instanceof CodigoGerencialInvalido) {
+      res
+        .status(400)
+        .json({ error: erro.message, codigo: `CODIGO_GERENCIAL_${erro.recusa}` });
+      return;
+    }
+    if (erro instanceof UnidadeSemIdentidade) {
+      res.status(400).json({ error: erro.message, codigo: "UNIDADE_SEM_IDENTIDADE" });
+      return;
+    }
     if (erro instanceof UnidadeSemNome) {
       res.status(400).json({ error: erro.message, codigo: "UNIDADE_SEM_NOME" });
       return;
@@ -209,9 +248,11 @@ router.put("/unidades/canonicas/:id", async (req, res): Promise<void> => {
   const corpo = (req.body ?? {}) as Record<string, unknown>;
   const nome = typeof corpo.nome === "string" ? corpo.nome : "";
   const cnpj = typeof corpo.cnpj === "string" ? corpo.cnpj : "";
+  const codigoGerencial =
+    typeof corpo.codigoGerencial === "string" ? corpo.codigoGerencial : "";
 
   try {
-    const editada = await editarUnidade(db, id, { nome, cnpj });
+    const editada = await editarUnidade(db, id, { nome, cnpj, codigoGerencial });
     const conciliacao = await conciliarIdentidadeDasCompetencias(db);
     const conciliacaoDoCadastro = await conciliarIdentidadeDoCadastro(db);
     res.status(200).json({ ...editada, conciliacao, conciliacaoDoCadastro });
@@ -226,6 +267,22 @@ router.put("/unidades/canonicas/:id", async (req, res): Promise<void> => {
     }
     if (erro instanceof CnpjInvalido) {
       res.status(400).json({ error: erro.message, codigo: `CNPJ_${erro.recusa}` });
+      return;
+    }
+    if (erro instanceof CodigoGerencialJaCadastrado) {
+      res
+        .status(409)
+        .json({ error: erro.message, codigo: "CODIGO_GERENCIAL_JA_CADASTRADO" });
+      return;
+    }
+    if (erro instanceof CodigoGerencialInvalido) {
+      res
+        .status(400)
+        .json({ error: erro.message, codigo: `CODIGO_GERENCIAL_${erro.recusa}` });
+      return;
+    }
+    if (erro instanceof UnidadeSemIdentidade) {
+      res.status(400).json({ error: erro.message, codigo: "UNIDADE_SEM_IDENTIDADE" });
       return;
     }
     if (erro instanceof UnidadeSemNome) {

@@ -148,3 +148,104 @@ describe("editar uma unidade cadastrada", () => {
     expect(editada.body.codigo).toBe("UNIDADE_NAO_ENCONTRADA");
   });
 });
+
+/**
+ * O CADASTRO POR CÓDIGO GERENCIAL — a unidade que o CNPJ obrigatório barrava.
+ *
+ * A regra que continua valendo é "uma unidade, uma identidade": os dois campos
+ * são únicos e ao menos um tem de vir. O que deixou de valer é que a
+ * identidade tenha de ser sempre um documento — e é isto que estes casos
+ * separam do resto, porque a recusa antiga (`CNPJ_VAZIO`) mandava procurar um
+ * CNPJ que, para estas unidades, não existe.
+ */
+describe("cadastrar pela outra identidade", () => {
+  it("cadastra com código gerencial e sem CNPJ", async () => {
+    const criada = await cadastrar({ nome: "CDD BELEM", codigoGerencial: "081-0443" });
+
+    expect(criada.status).toBe(201);
+    expect(criada.body.cnpj).toBeNull();
+    expect(criada.body.codigoGerencial).toBe("081-0443");
+  });
+
+  it("guarda o código normalizado — o espaço e a caixa não criam duas unidades", async () => {
+    const criada = await cadastrar({ nome: "CDD BELEM", codigoGerencial: "  cdd-belem " });
+    expect(criada.body.codigoGerencial).toBe("CDD-BELEM");
+
+    const outra = await cadastrar({ nome: "OUTRO", codigoGerencial: "cdd-belem" });
+    expect(outra.status).toBe(409);
+    expect(outra.body.codigo).toBe("CODIGO_GERENCIAL_JA_CADASTRADO");
+  });
+
+  it("aceita os dois juntos — é o melhor caso, não um conflito", async () => {
+    const criada = await cadastrar({
+      nome: "CDD BELEM",
+      cnpj: CNPJ_A,
+      codigoGerencial: "443",
+    });
+
+    expect(criada.status).toBe(201);
+    expect(criada.body.cnpj).toBe("11222333000181");
+    expect(criada.body.codigoGerencial).toBe("443");
+  });
+
+  it("recusa o cadastro sem identidade nenhuma, e não por falta de CNPJ", async () => {
+    const criada = await cadastrar({ nome: "CDD BELEM" });
+
+    expect(criada.status).toBe(400);
+    expect(criada.body.codigo).toBe("UNIDADE_SEM_IDENTIDADE");
+  });
+
+  it("recusa um CNPJ digitado no campo do código — ele tem campo próprio", async () => {
+    const criada = await cadastrar({ nome: "CDD BELEM", codigoGerencial: CNPJ_A });
+
+    expect(criada.status).toBe(400);
+    expect(criada.body.codigo).toBe("CODIGO_GERENCIAL_E_CNPJ");
+  });
+
+  it("o nome continua obrigatório — identidade não substitui descrição", async () => {
+    const criada = await cadastrar({ nome: "  ", codigoGerencial: "443" });
+
+    expect(criada.status).toBe(400);
+    expect(criada.body.codigo).toBe("UNIDADE_SEM_NOME");
+  });
+
+  it("editar acrescenta o CNPJ descoberto depois, sem trocar o id", async () => {
+    const criada = await cadastrar({ nome: "CDD BELEM", codigoGerencial: "443" });
+
+    const editada = await editar(criada.body.id, {
+      nome: "CDD BELEM",
+      cnpj: CNPJ_A,
+      codigoGerencial: "443",
+    });
+
+    expect(editada.status).toBe(200);
+    expect(editada.body.id).toBe(criada.body.id);
+    expect(editada.body.cnpj).toBe("11222333000181");
+  });
+
+  it("editar não deixa a unidade ficar sem identidade nenhuma", async () => {
+    const criada = await cadastrar({ nome: "CDD BELEM", codigoGerencial: "443" });
+
+    const editada = await editar(criada.body.id, { nome: "CDD BELEM" });
+
+    expect(editada.status).toBe(400);
+    expect(editada.body.codigo).toBe("UNIDADE_SEM_IDENTIDADE");
+  });
+
+  it("a unidade sem CNPJ aparece na lista, cadastrada e sem importação", async () => {
+    await cadastrar({ nome: "CDD BELEM", codigoGerencial: "081-0443" });
+
+    const res = await fetch(`${base}/unidades/canonicas`);
+    const linhas = (await res.json()) as any[];
+
+    /*
+      Procurada pelo código, e não pela posição: a lista também traz o que o
+      acervo do banco de teste detectou, e `TRUNCATE unidade` não apaga acervo.
+    */
+    const nossa = linhas.find((l) => l.codigoGerencial === "081-0443");
+    expect(nossa).toBeDefined();
+    expect(nossa.cnpj).toBeNull();
+    expect(nossa.cnpjFormatado).toBe("");
+    expect(nossa.estado).toBe("CADASTRADA");
+  });
+});

@@ -54,6 +54,7 @@ import {
   type Competencia,
   type Parte,
   type TipoDeParte,
+  identidadeVisivel,
   listarUnidadesCanonicas,
   type UnidadeCanonica,
 } from "@/lib/fechamento";
@@ -565,13 +566,13 @@ export default function Competencias() {
                   itens={unidadesCanonicas.data ?? []}
                   valor={unidade}
                   aoEscolher={(u) => setUnidade(u)}
-                  rotuloDe={(u) => `${u.nome} — ${u.cnpjFormatado}`}
+                  rotuloDe={(u) => `${u.nome} — ${identidadeVisivel(u)}`}
                   detalheDe={(u) =>
                     u.vigencias > 0
                       ? `${u.vigencias} vigência${u.vigencias === 1 ? "" : "s"} no acervo`
                       : "sem importação ainda"
                   }
-                  chaveDe={(u) => u.id ?? u.cnpj}
+                  chaveDe={(u) => u.id ?? u.cnpj ?? u.nome}
                   placeholder="Escolha a unidade cadastrada"
                   /*
                     O campo é obrigatório e não cria nada: sem o atalho, quem

@@ -25,9 +25,21 @@ import { unidadeTable } from "./schema/unidade";
  * defeito é haver duas identidades para casar.
  *
  * **A regra, em uma linha: a identidade de uma unidade é o `id` desta tabela, e
- * o CNPJ é o que a determina.** Fechamento e Remuneração referenciam o `id`;
- * nenhum dos dois guarda cópia do CNPJ. Quando o CNPJ de uma unidade mudar — e
- * CNPJ de filial muda —, ele muda num lugar só.
+ * o CNPJ é o que a determina — ou, na falta dele, o código gerencial.**
+ * Fechamento e Remuneração referenciam o `id`; nenhum dos dois guarda cópia do
+ * CNPJ. Quando o CNPJ de uma unidade mudar — e CNPJ de filial muda —, ele muda
+ * num lugar só.
+ *
+ * **Por que a identidade passou a ter duas formas.** O CNPJ era obrigatório, e
+ * a exigência não produzia cadastro melhor onde ele não existe: produzia
+ * cadastro nenhum. A unidade que ainda não tem CNPJ próprio, a que fatura sob o
+ * de outra e a que a operação chama de `081-0443` continuavam vivendo como
+ * texto livre nas quatro representações acima — exatamente o estado que esta
+ * tabela veio encerrar —, ou entravam com um documento inventado para vencer a
+ * validação, que é pior: identidade errada é o defeito que este arquivo
+ * existe para não ter. O que continua valendo, e é o que sempre importou, é
+ * que **cada unidade tem uma identidade e cada identidade tem uma unidade**:
+ * os dois campos são únicos e ao menos um é obrigatório.
  *
  * **O que esta tabela deliberadamente não é.** Não é registro dos códigos das
  * fontes. `081-0443` continua sendo o que o 03.08.20 escreve, `443` o que a
@@ -150,6 +162,93 @@ export function motivoDaRecusa(recusa: RecusaDeCnpj): string {
   }
 }
 
+/* =========================================================================
+ * A outra identidade — o código gerencial
+ * ====================================================================== */
+
+/**
+ * O CÓDIGO GERENCIAL — identidade para a unidade cujo CNPJ ninguém tem.
+ *
+ * **Por que uma segunda identidade não desfaz a primeira.** A regra deste
+ * cadastro nunca foi "toda unidade tem CNPJ": foi *uma* unidade, *uma*
+ * resposta. Exigir o documento cumpria a segunda regra à custa da primeira —
+ * quem opera uma unidade que ainda não tem CNPJ próprio, que fatura sob o CNPJ
+ * de outra ou que o negócio inteiro chama de `081-0443` não cadastrava nada, e
+ * a unidade voltava a existir como texto livre nas quatro representações que
+ * esta tabela veio substituir. Um documento inventado para vencer a validação
+ * seria pior ainda: viraria identidade errada, e identidade errada é o defeito
+ * que este arquivo existe para não ter.
+ *
+ * **O que ele não é.** Não é o código que o export escreve, não é o `codigo` de
+ * `remuneracao_unidade`, não é `443` convertido em coisa nenhuma. Aqueles
+ * continuam sendo o que a fonte escreveu, auditáveis onde sempre estiveram.
+ * Este é o código do *cadastro* — o que alguém afirma ser o nome curto desta
+ * unidade —, e a única coisa que ele faz é ser único.
+ *
+ * **A normalização é a mínima que mantém a unicidade honesta**: sem espaço em
+ * volta e em caixa alta. `443 ` e `443` são o mesmo código para quem digita, e
+ * deixá-los virar duas linhas devolveria a duplicidade pela porta dos fundos.
+ * Não vai além disso — acento, ponto e traço são preservados, porque `081-0443`
+ * e `0810443` podem muito bem ser dois códigos diferentes na operação, e é ela
+ * quem sabe.
+ */
+export type RecusaDeCodigoGerencial =
+  /** Não veio nada — o campo está vazio. */
+  | "VAZIO"
+  /**
+   * São catorze dígitos: isto é um CNPJ, e o CNPJ tem campo próprio.
+   *
+   * Aceitá-lo aqui criaria a unidade cujo documento o produto tem e não
+   * reconhece — ela não casaria com o acervo, não seria achada pela
+   * conciliação, e a pessoa não teria como saber por quê.
+   */
+  | "E_CNPJ"
+  /** Mais de 40 caracteres: é nome ou frase, não código. */
+  | "LONGO";
+
+export interface CodigoGerencialLido {
+  /** O código normalizado, quando o texto serve. `null` quando não serve. */
+  canonico: string | null;
+  recusa: RecusaDeCodigoGerencial | null;
+}
+
+/** O limite do que ainda é código, e não descrição. O nome é o campo do nome. */
+const MAXIMO_DO_CODIGO_GERENCIAL = 40;
+
+/** Lê um código gerencial de unidade, devolvendo a forma canônica. */
+export function lerCodigoGerencial(bruto: string): CodigoGerencialLido {
+  const texto = (bruto ?? "").trim().toUpperCase();
+  const recusar = (recusa: RecusaDeCodigoGerencial): CodigoGerencialLido => ({
+    canonico: null,
+    recusa,
+  });
+
+  if (texto === "") return recusar("VAZIO");
+  /*
+    Catorze dígitos é CNPJ, com ou sem máscara. Quem digitou o documento no
+    campo do código não quis um código: errou de campo, e a frase abaixo diz
+    qual é o certo.
+  */
+  if (somenteDigitos(texto).length === 14) return recusar("E_CNPJ");
+  if (texto.length > MAXIMO_DO_CODIGO_GERENCIAL) return recusar("LONGO");
+  return { canonico: texto, recusa: null };
+}
+
+/** A frase que a tela mostra para cada recusa de código gerencial. */
+export function motivoDaRecusaDeCodigo(recusa: RecusaDeCodigoGerencial): string {
+  switch (recusa) {
+    case "VAZIO":
+      return "O código gerencial está vazio — informe o CNPJ da unidade ou um código para ela.";
+    case "E_CNPJ":
+      return (
+        "Isto é um CNPJ, e o CNPJ tem campo próprio — informe-o lá. " +
+        "Cadastrado como código, ele não encontraria o CNPJ que os arquivos trazem."
+      );
+    case "LONGO":
+      return `Um código gerencial tem até ${MAXIMO_DO_CODIGO_GERENCIAL} caracteres. O que descreve a unidade é o nome.`;
+  }
+}
+
 /** `12345678000199` → `12.345.678/0001-99`. Só para exibir; nunca para guardar. */
 export function cnpjComMascara(canonico: string): string {
   if (!/^\d{14}$/.test(canonico)) return canonico;
@@ -167,9 +266,26 @@ export function cnpjComMascara(canonico: string): string {
 export interface UnidadeCanonica {
   id: string;
   nome: string;
-  /** Os catorze dígitos. A tela mascara com {@link cnpjComMascara}. */
-  cnpj: string;
+  /**
+   * Os catorze dígitos. A tela mascara com {@link cnpjComMascara}.
+   *
+   * `null` na unidade cadastrada só por código gerencial — e é `null` mesmo,
+   * não string vazia: "não sabemos o CNPJ desta unidade" é uma afirmação, e
+   * `""` seria um documento de zero dígitos que casaria com qualquer outro
+   * vazio na primeira comparação distraída.
+   */
+  cnpj: string | null;
+  /** O código do cadastro, normalizado. `null` quando ela é identificada pelo CNPJ. */
+  codigoGerencial: string | null;
 }
+
+/** As colunas que descrevem uma unidade. Uma lista só, para os quatro `select`. */
+const COLUNAS_DA_UNIDADE = {
+  id: unidadeTable.id,
+  nome: unidadeTable.nome,
+  cnpj: unidadeTable.cnpj,
+  codigoGerencial: unidadeTable.codigoGerencial,
+} as const;
 
 /** O CNPJ já está em outra unidade — duas identidades para a mesma coisa. */
 export class CnpjJaCadastrado extends Error {
@@ -183,11 +299,49 @@ export class CnpjJaCadastrado extends Error {
   }
 }
 
+/** O código gerencial já é de outra unidade. Mesma razão do CNPJ duplicado. */
+export class CodigoGerencialJaCadastrado extends Error {
+  constructor(readonly codigoGerencial: string, readonly daOutra: UnidadeCanonica) {
+    super(
+      `O código ${codigoGerencial} já é da unidade "${daOutra.nome}". ` +
+        "Um código que responde por duas unidades não identifica nenhuma — " +
+        "é o mesmo motivo pelo qual o CNPJ é único.",
+    );
+    this.name = "CodigoGerencialJaCadastrado";
+  }
+}
+
 /** O texto informado não é um CNPJ. Carrega o motivo, que muda o que fazer. */
 export class CnpjInvalido extends Error {
   constructor(readonly recusa: RecusaDeCnpj) {
     super(motivoDaRecusa(recusa));
     this.name = "CnpjInvalido";
+  }
+}
+
+/** O texto informado não serve como código gerencial. Ver {@link lerCodigoGerencial}. */
+export class CodigoGerencialInvalido extends Error {
+  constructor(readonly recusa: RecusaDeCodigoGerencial) {
+    super(motivoDaRecusaDeCodigo(recusa));
+    this.name = "CodigoGerencialInvalido";
+  }
+}
+
+/**
+ * Nem CNPJ nem código gerencial — não há o que cadastrar.
+ *
+ * É o que sobrou da recusa `CNPJ_VAZIO`, e a diferença entre as duas é o que
+ * esta mudança faz: antes a tela dizia "sem CNPJ não há o que cadastrar" para
+ * quem tinha um código na mão e nenhum documento, e a instrução não tinha
+ * saída. Agora a falta é de **identidade**, e há dois jeitos de supri-la.
+ */
+export class UnidadeSemIdentidade extends Error {
+  constructor() {
+    super(
+      "Uma unidade precisa de identidade: o CNPJ dela ou um código gerencial. " +
+        "Sem um dos dois, o cadastro é uma linha que nada encontra.",
+    );
+    this.name = "UnidadeSemIdentidade";
   }
 }
 
@@ -202,7 +356,7 @@ export class CnpjInvalido extends Error {
  */
 export async function listarUnidadesCanonicas(db: Database): Promise<UnidadeCanonica[]> {
   const linhas = await db
-    .select({ id: unidadeTable.id, nome: unidadeTable.nome, cnpj: unidadeTable.cnpj })
+    .select(COLUNAS_DA_UNIDADE)
     .from(unidadeTable)
     .orderBy(asc(unidadeTable.nome));
   return linhas;
@@ -214,9 +368,29 @@ export async function unidadePorCnpj(
   cnpjCanonico: string,
 ): Promise<UnidadeCanonica | null> {
   const [linha] = await db
-    .select({ id: unidadeTable.id, nome: unidadeTable.nome, cnpj: unidadeTable.cnpj })
+    .select(COLUNAS_DA_UNIDADE)
     .from(unidadeTable)
     .where(eq(unidadeTable.cnpj, cnpjCanonico))
+    .limit(1);
+  return linha ?? null;
+}
+
+/**
+ * A unidade de um código gerencial já normalizado. `null` quando não há.
+ *
+ * O parâmetro é o código **canônico** — o que {@link lerCodigoGerencial}
+ * devolve —, e não o texto digitado: comparar o cru contra a coluna
+ * normalizada acharia `443` e não acharia ` 443`, que é a duplicidade que a
+ * normalização existe para impedir.
+ */
+export async function unidadePorCodigoGerencial(
+  db: Database,
+  codigoCanonico: string,
+): Promise<UnidadeCanonica | null> {
+  const [linha] = await db
+    .select(COLUNAS_DA_UNIDADE)
+    .from(unidadeTable)
+    .where(eq(unidadeTable.codigoGerencial, codigoCanonico))
     .limit(1);
   return linha ?? null;
 }
@@ -234,11 +408,61 @@ export async function unidadePorId(
   id: string,
 ): Promise<UnidadeCanonica | null> {
   const [linha] = await db
-    .select({ id: unidadeTable.id, nome: unidadeTable.nome, cnpj: unidadeTable.cnpj })
+    .select(COLUNAS_DA_UNIDADE)
     .from(unidadeTable)
     .where(eq(unidadeTable.id, id))
     .limit(1);
   return linha ?? null;
+}
+
+/**
+ * O texto pelo qual esta unidade se escreve — o CNPJ, ou o código na falta dele.
+ *
+ * Existe porque há lugares que **precisam** de um texto e não de uma
+ * identidade: `fechamento_competencia.unidade_codigo` é `NOT NULL` e está na
+ * chave única, e a competência aberta a partir de uma unidade canônica tem de
+ * levar algum texto para lá. O CNPJ vem primeiro por ser o que os arquivos
+ * trazem — é ele que faz as duas pontas se encontrarem quando o export chega.
+ */
+export function textoDaUnidade(unidade: {
+  cnpj: string | null;
+  codigoGerencial: string | null;
+}): string {
+  return unidade.cnpj ?? unidade.codigoGerencial ?? "";
+}
+
+/**
+ * A identidade afirmada num pedido de cadastro, já validada.
+ *
+ * Os dois campos são opcionais **e ao menos um é obrigatório** — a única regra
+ * que sobrou de "o CNPJ é obrigatório", e a que de fato importava. Informar os
+ * dois é legítimo e é o melhor caso: a unidade fica achável pelo documento que
+ * o arquivo traz e pelo código com que a operação a chama.
+ */
+function lerIdentidade(pedido: {
+  cnpj?: string;
+  codigoGerencial?: string;
+}): { cnpj: string | null; codigoGerencial: string | null } {
+  const cnpjBruto = (pedido.cnpj ?? "").trim();
+  const codigoBruto = (pedido.codigoGerencial ?? "").trim();
+
+  if (cnpjBruto === "" && codigoBruto === "") throw new UnidadeSemIdentidade();
+
+  let cnpj: string | null = null;
+  if (cnpjBruto !== "") {
+    const lido = lerCnpj(cnpjBruto);
+    if (lido.canonico === null) throw new CnpjInvalido(lido.recusa!);
+    cnpj = lido.canonico;
+  }
+
+  let codigoGerencial: string | null = null;
+  if (codigoBruto !== "") {
+    const lido = lerCodigoGerencial(codigoBruto);
+    if (lido.canonico === null) throw new CodigoGerencialInvalido(lido.recusa!);
+    codigoGerencial = lido.canonico;
+  }
+
+  return { cnpj, codigoGerencial };
 }
 
 /**
@@ -254,26 +478,38 @@ export async function unidadePorId(
  * **Recusa duplicidade em vez de reaproveitar.** Um `ON CONFLICT DO NOTHING`
  * devolveria silenciosamente a unidade de outro nome para quem pensava estar
  * criando a sua. Dois nomes para o mesmo CNPJ é conflito de cadastro, e quem o
- * provocou precisa ver qual é a outra.
+ * provocou precisa ver qual é a outra. Vale igual para o código gerencial: ele
+ * é identidade, e identidade repetida não identifica.
+ *
+ * **O CNPJ deixou de ser obrigatório e não deixou de ser preferido.** Quem tem
+ * o documento informa o documento — é ele que os arquivos trazem, e é por ele
+ * que a unidade digitada e a importada se encontram. O código gerencial atende
+ * quem não o tem, e o que ele evita não é digitação: é a unidade que não se
+ * cadastrava de jeito nenhum.
  */
 export async function cadastrarUnidade(
   db: Database,
-  pedido: { nome: string; cnpj: string },
+  pedido: { nome: string; cnpj?: string; codigoGerencial?: string },
 ): Promise<UnidadeCanonica> {
   const nome = pedido.nome.trim();
   if (nome === "") {
     throw new UnidadeSemNome();
   }
-  const { canonico, recusa } = lerCnpj(pedido.cnpj);
-  if (canonico === null) throw new CnpjInvalido(recusa!);
+  const { cnpj, codigoGerencial } = lerIdentidade(pedido);
 
-  const jaExiste = await unidadePorCnpj(db, canonico);
-  if (jaExiste) throw new CnpjJaCadastrado(canonico, jaExiste);
+  if (cnpj !== null) {
+    const jaExiste = await unidadePorCnpj(db, cnpj);
+    if (jaExiste) throw new CnpjJaCadastrado(cnpj, jaExiste);
+  }
+  if (codigoGerencial !== null) {
+    const jaExiste = await unidadePorCodigoGerencial(db, codigoGerencial);
+    if (jaExiste) throw new CodigoGerencialJaCadastrado(codigoGerencial, jaExiste);
+  }
 
   const [criada] = await db
     .insert(unidadeTable)
-    .values({ nome, cnpj: canonico })
-    .returning({ id: unidadeTable.id, nome: unidadeTable.nome, cnpj: unidadeTable.cnpj });
+    .values({ nome, cnpj, codigoGerencial })
+    .returning(COLUNAS_DA_UNIDADE);
   return criada!;
 }
 
@@ -297,23 +533,28 @@ export class UnidadeNaoEncontrada extends Error {
 }
 
 /**
- * Edita o nome e o CNPJ de uma unidade já cadastrada.
+ * Edita o nome e a identidade de uma unidade já cadastrada.
  *
  * **Mesmas regras do cadastro, porque é a mesma afirmação — "qual unidade é
  * esta" —, só que corrigindo uma já feita.** Nome vazio continua recusado, o
- * CNPJ continua validado por {@link lerCnpj}, e ele continua tendo que ser
- * único: `CnpjJaCadastrado` dispara também aqui, exceto quando o CNPJ
- * informado é o da própria unidade sendo editada — reenviar o que já está lá
- * não é conflito com si mesma.
+ * CNPJ continua validado por {@link lerCnpj}, e os dois continuam tendo que ser
+ * únicos: `CnpjJaCadastrado` e `CodigoGerencialJaCadastrado` disparam também
+ * aqui, exceto quando o valor informado é o da própria unidade sendo editada —
+ * reenviar o que já está lá não é conflito com si mesma.
+ *
+ * **Esvaziar um dos dois é legítimo, esvaziar os dois não.** Quem cadastrou por
+ * código e descobriu o CNPJ preenche o CNPJ e pode apagar o código; o inverso
+ * também vale. O que não passa é a unidade ficar sem identidade nenhuma —
+ * `UnidadeSemIdentidade` —, porque aí ela deixa de ser encontrável sem que nada
+ * que a referencia tenha mudado.
  *
  * Não reatribui `id`: é ele que Fechamento e Remuneração referenciam, e
- * trocá-lo apagaria a identidade que este cadastro existe para preservar. O
- * que muda é a grafia do nome e, quando a pessoa errou o documento, o CNPJ.
+ * trocá-lo apagaria a identidade que este cadastro existe para preservar.
  */
 export async function editarUnidade(
   db: Database,
   id: string,
-  pedido: { nome: string; cnpj: string },
+  pedido: { nome: string; cnpj?: string; codigoGerencial?: string },
 ): Promise<UnidadeCanonica> {
   const existente = await unidadePorId(db, id);
   if (existente === null) throw new UnidadeNaoEncontrada(id);
@@ -322,16 +563,23 @@ export async function editarUnidade(
   if (nome === "") {
     throw new UnidadeSemNome();
   }
-  const { canonico, recusa } = lerCnpj(pedido.cnpj);
-  if (canonico === null) throw new CnpjInvalido(recusa!);
+  const { cnpj, codigoGerencial } = lerIdentidade(pedido);
 
-  const deOutra = await unidadePorCnpj(db, canonico);
-  if (deOutra && deOutra.id !== id) throw new CnpjJaCadastrado(canonico, deOutra);
+  if (cnpj !== null) {
+    const deOutra = await unidadePorCnpj(db, cnpj);
+    if (deOutra && deOutra.id !== id) throw new CnpjJaCadastrado(cnpj, deOutra);
+  }
+  if (codigoGerencial !== null) {
+    const deOutra = await unidadePorCodigoGerencial(db, codigoGerencial);
+    if (deOutra && deOutra.id !== id) {
+      throw new CodigoGerencialJaCadastrado(codigoGerencial, deOutra);
+    }
+  }
 
   const [editada] = await db
     .update(unidadeTable)
-    .set({ nome, cnpj: canonico })
+    .set({ nome, cnpj, codigoGerencial })
     .where(eq(unidadeTable.id, id))
-    .returning({ id: unidadeTable.id, nome: unidadeTable.nome, cnpj: unidadeTable.cnpj });
+    .returning(COLUNAS_DA_UNIDADE);
   return editada!;
 }

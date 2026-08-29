@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { cnpjComMascara, db, unidadePorId } from "@workspace/db";
+import { cnpjComMascara, db, lerCodigoGerencial, unidadePorId } from "@workspace/db";
 import type { RequestedContext } from "@workspace/comparison";
 import { ehMimeDeImagem, lerPlanilhaDaImagem } from "@workspace/assistant";
 import { hashScopeSet, normalizeDocumento } from "@workspace/ingest";
@@ -584,12 +584,34 @@ router.post("/remuneracao/unidades", async (req, res): Promise<void> => {
       );
     }
     nomeDaUnidade = canonica.nome;
-    if (codigo !== "" && normalizeDocumento(codigo) !== canonica.cnpj) {
+    /*
+      A conferência é contra a identidade **que esta unidade tem**.
+
+      Com CNPJ, ela é a de sempre: o código é a grafia com que o export escreve
+      esse mesmo documento, e um número de outra unidade mandaria a planilha
+      para o escopo dela. Sem CNPJ — a unidade cadastrada por código gerencial —
+      não há documento a conferir, e exigir um aqui recusaria toda planilha de
+      uma unidade que o cadastro aceita: o que se confere então é o próprio
+      código gerencial, com a mesma normalização com que ele foi guardado.
+    */
+    if (codigo !== "" && canonica.cnpj !== null && normalizeDocumento(codigo) !== canonica.cnpj) {
       throw new UnidadeInvalida(
         `O código informado não é o CNPJ de ${canonica.nome} — o cadastro dela diz ` +
           `${cnpjComMascara(canonica.cnpj)}. O código é a grafia com que o export ` +
           "escreve esse mesmo CNPJ, e é por ela que o arquivo encontra esta unidade; " +
           "um número de outra unidade mandaria a planilha para o escopo dela.",
+      );
+    }
+    if (
+      codigo !== "" &&
+      canonica.cnpj === null &&
+      lerCodigoGerencial(codigo).canonico !== canonica.codigoGerencial
+    ) {
+      throw new UnidadeInvalida(
+        `O código informado não é o de ${canonica.nome} — o cadastro dela diz ` +
+          `${canonica.codigoGerencial}. Esta unidade não tem CNPJ cadastrado, então é ` +
+          "por esse código que o arquivo a encontra; o de outra unidade mandaria a " +
+          "planilha para o escopo dela.",
       );
     }
   }

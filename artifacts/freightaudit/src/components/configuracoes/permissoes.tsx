@@ -1,18 +1,28 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Eye, Lock, PencilLine, Search, ShieldCheck } from "lucide-react";
+import { Eye, Layers, Lock, PencilLine, Search, ShieldCheck } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { ApiErrorNotice } from "@/components/api-error";
 import { useContas } from "@/components/configuracoes/contas";
+import { AMBIENTES } from "@/lib/ambiente";
 import { fetchJson } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import {
   EXPLICACAO_DO_NIVEL,
   MODULOS,
   NIVEL_PADRAO,
+  chaveDoAmbiente,
   modulosPorGrupo,
   type Nivel,
 } from "@/lib/permissoes";
@@ -25,6 +35,14 @@ import { cn } from "@/lib/utils";
  * em `lib/permissoes.ts` a partir das mesmas funções que desenham as laterais.
  * É o que impede esta tela de prometer controle sobre um módulo que não existe
  * mais, ou de esquecer um que nasceu ontem.
+ *
+ * **São dois eixos, e a tela mostra os dois.** Em cima, os oito ambientes de
+ * trabalho — as quatro auditorias e os quatro fechamentos —, porque "esta
+ * pessoa só trabalha na empurrada" é uma frase que o eixo dos módulos não sabia
+ * dizer: `/alteracoes` é a mesma tela nas quatro auditorias, e é o acervo
+ * embaixo dela que muda. Embaixo, os módulos de sempre. O que vale numa tela é
+ * o **mais restritivo dos dois** — tirar o Fechamento AS de alguém não pede
+ * revisar módulo nenhum, e devolver um módulo não devolve um ambiente.
  *
  * Três decisões de desenho, e nenhuma é enfeite:
  *
@@ -62,6 +80,19 @@ interface RespostaDePermissoes {
   }>;
 }
 
+/**
+ * Os três níveis, do que menos alcança para o que mais alcança.
+ *
+ * A ordem é do fechado para o aberto — sem acesso, visualizar, editar — e ela
+ * vale para a tela inteira: os três botões de cada módulo, os três atalhos que
+ * valem para a lista toda e a contagem lá em cima leem na mesma direção. Uma
+ * ordem por linha seria uma tela em que a posição do botão não quer dizer nada,
+ * e é a posição que a mão decora depois da terceira conta configurada.
+ *
+ * Do fechado para o aberto, e não o contrário, porque é o sentido do que esta
+ * tela faz: toda conta já nasce editando tudo, e o que se vem fazer aqui é
+ * tirar. O primeiro botão da linha é o que a visita está aqui para clicar.
+ */
 const NIVEIS_NA_TELA: Array<{
   nivel: Nivel;
   rotulo: string;
@@ -69,10 +100,10 @@ const NIVEIS_NA_TELA: Array<{
   ativo: string;
 }> = [
   {
-    nivel: "EDITAR",
-    rotulo: "Editar",
-    icone: PencilLine,
-    ativo: "bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-600",
+    nivel: "SEM_ACESSO",
+    rotulo: "Sem acesso",
+    icone: Lock,
+    ativo: "bg-rose-600 text-white border-rose-600 hover:bg-rose-600",
   },
   {
     nivel: "VISUALIZAR",
@@ -81,10 +112,10 @@ const NIVEIS_NA_TELA: Array<{
     ativo: "bg-blue-600 text-white border-blue-600 hover:bg-blue-600",
   },
   {
-    nivel: "SEM_ACESSO",
-    rotulo: "Sem acesso",
-    icone: Lock,
-    ativo: "bg-rose-600 text-white border-rose-600 hover:bg-rose-600",
+    nivel: "EDITAR",
+    rotulo: "Editar",
+    icone: PencilLine,
+    ativo: "bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-600",
   },
 ];
 
@@ -162,6 +193,23 @@ export function PainelDePermissoes() {
 
   const visiveis = secoes.flatMap((s) => s.itens.map((m) => m.chave));
 
+  /*
+    A busca vale para os dois eixos, e por isso os ambientes também são
+    filtrados por ela: quem digita "fechamento" está procurando o fechamento, e
+    uma lista de ambientes que ignora a busca deixaria oito linhas fixas em cima
+    de uma lista que encolheu.
+  */
+  const ambientesNaTela = useMemo(() => {
+    const termo = busca.trim().toLowerCase();
+    if (termo === "") return AMBIENTES;
+    return AMBIENTES.filter(
+      (a) =>
+        a.nomeCompleto.toLowerCase().includes(termo) ||
+        a.nome.toLowerCase().includes(termo) ||
+        a.id.includes(termo),
+    );
+  }, [busca]);
+
   function aplicarEmTodos(nivel: Nivel) {
     const niveis: Record<string, Nivel> = {};
     for (const chave of visiveis) niveis[chave] = nivel;
@@ -195,35 +243,59 @@ export function PainelDePermissoes() {
       <Card>
         <CardContent className="space-y-5 pt-6">
           <div className="flex flex-wrap items-end gap-3">
-            <label className="text-sm">
-              <span className="block text-xs font-medium text-muted-foreground mb-1">
-                Conta
-              </span>
-              {/* select nativo: uma lista, e o navegador acessível de graça. */}
-              <select
-                value={escolhida}
-                onChange={(e) => {
-                  setEscolhida(e.target.value);
+            {/*
+              O mesmo campo de escolha que o resto do produto usa — e é por isso
+              que ele deixou de ser um `select` nativo.
+
+              Um `select` do sistema operacional desenha a própria lista: fonte,
+              altura da linha, o realce em azul do sistema, a marca de conferido
+              à esquerda. Nada disso é ajustável, e nada disso se parece com a
+              lista que a mesma pergunta abre em Fechamento, em Frota ou no
+              cadastro da casa. Este campo é a porta desta tela — é o primeiro
+              controle que se toca aqui, e era o único do produto com aparência
+              de outro produto.
+
+              O que se perde ao trocar é a acessibilidade de graça do navegador,
+              e o Radix a devolve: papel `combobox`, navegação por setas, busca
+              por digitação e o foco preso na lista aberta. É a mesma troca que
+              todas as outras telas já tinham feito.
+            */}
+            <div className="space-y-1.5">
+              <Label htmlFor="conta">Conta</Label>
+              <Select
+                /*
+                  `undefined`, e não `""`: o Radix reserva a string vazia para
+                  "nada escolhido" e recusa item com esse valor — é o mesmo
+                  sentinela que `cadastro-da-casa.tsx` documenta. Sem escolha, o
+                  que aparece é o `placeholder` do `SelectValue`.
+                */
+                value={escolhida === "" ? undefined : escolhida}
+                onValueChange={(valor) => {
+                  setEscolhida(valor);
                   setErro(null);
                 }}
-                className="h-9 rounded-md border border-input bg-background px-3 text-sm min-w-64"
               >
-                <option value="">Escolha uma pessoa…</option>
-                {elegiveis.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name} · {p.email}
-                    {p.disabledAt ? " (desativada)" : ""}
-                  </option>
-                ))}
-              </select>
-            </label>
+                <SelectTrigger id="conta" className="min-w-72">
+                  <SelectValue placeholder="Escolha uma pessoa…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {elegiveis.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.name} · {p.email}
+                      {p.disabledAt ? " (desativada)" : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
             {alvo && (
               <div className="flex items-center gap-4 text-sm">
+                {/* Na mesma ordem dos botões: do fechado para o aberto. */}
                 <Contagem
-                  numero={resumo.EDITAR}
-                  rotulo="editam"
-                  cor="text-emerald-700"
+                  numero={resumo.SEM_ACESSO}
+                  rotulo="sem acesso"
+                  cor="text-rose-700"
                 />
                 <Contagem
                   numero={resumo.VISUALIZAR}
@@ -231,9 +303,9 @@ export function PainelDePermissoes() {
                   cor="text-blue-700"
                 />
                 <Contagem
-                  numero={resumo.SEM_ACESSO}
-                  rotulo="sem acesso"
-                  cor="text-rose-700"
+                  numero={resumo.EDITAR}
+                  rotulo="editam"
+                  cor="text-emerald-700"
                 />
               </div>
             )}
@@ -305,6 +377,50 @@ export function PainelDePermissoes() {
                 </p>
               )}
 
+              {!consulta.isLoading && ambientesNaTela.length > 0 && (
+                <div className="rounded-md border">
+                  <div className="flex items-center gap-2 bg-muted/50 px-4 py-2">
+                    <Layers className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                    <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Ambientes de trabalho
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {ambientesNaTela.length} de {AMBIENTES.length}
+                    </span>
+                  </div>
+                  <p className="border-t px-4 py-2 text-xs text-muted-foreground">
+                    Onde a pessoa trabalha. Um ambiente sem acesso não aparece no
+                    seletor do topo e nenhuma tela dele abre — inclusive as que
+                    estão liberadas na lista de módulos abaixo, porque o que vale
+                    numa tela é o mais restritivo dos dois.
+                  </p>
+                  {ambientesNaTela.map((ambiente) => {
+                    const chave = chaveDoAmbiente(ambiente.id);
+                    const nivel = permissoes[chave] ?? NIVEL_PADRAO;
+                    return (
+                      <div
+                        key={ambiente.id}
+                        className="flex flex-wrap items-center gap-3 border-t px-4 py-2.5"
+                      >
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-sm font-semibold">
+                            {ambiente.nomeCompleto}
+                          </span>
+                          <span className="block text-xs text-muted-foreground">
+                            {ambiente.descricao}
+                          </span>
+                        </span>
+                        <BotoesDeNivel
+                          nivel={nivel}
+                          desabilitado={!podeMexer || definir.isPending}
+                          aoEscolher={(opcao) => definir.mutate({ [chave]: opcao })}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
               <div className="rounded-md border divide-y">
                 {consulta.isLoading && (
                   <p className="p-6 text-sm text-muted-foreground">Carregando…</p>
@@ -339,23 +455,13 @@ export function PainelDePermissoes() {
                                 {modulo.chave} · {EXPLICACAO_DO_NIVEL[nivel]}
                               </span>
                             </span>
-                            <span className="flex items-center gap-1.5">
-                              {NIVEIS_NA_TELA.map(({ nivel: opcao, rotulo, icone: Icone, ativo }) => (
-                                <Button
-                                  key={opcao}
-                                  type="button"
-                                  variant="outline"
-                                  size="sm"
-                                  aria-pressed={nivel === opcao}
-                                  disabled={!podeMexer || definir.isPending}
-                                  className={cn("h-8", nivel === opcao && ativo)}
-                                  onClick={() => definir.mutate({ [modulo.chave]: opcao })}
-                                >
-                                  <Icone className="w-3.5 h-3.5 mr-1.5" />
-                                  {rotulo}
-                                </Button>
-                              ))}
-                            </span>
+                            <BotoesDeNivel
+                              nivel={nivel}
+                              desabilitado={!podeMexer || definir.isPending}
+                              aoEscolher={(opcao) =>
+                                definir.mutate({ [modulo.chave]: opcao })
+                              }
+                            />
                           </div>
                         );
                       })}
@@ -375,6 +481,43 @@ export function PainelDePermissoes() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+/**
+ * Os três botões de nível — os mesmos para um módulo e para um ambiente.
+ *
+ * Um componente só porque são a mesma decisão sobre coisas diferentes: a ordem,
+ * as cores e o `aria-pressed` têm de ser idênticos nos dois eixos, e duas
+ * cópias divergiriam na primeira mudança de qualquer um deles.
+ */
+function BotoesDeNivel({
+  nivel,
+  desabilitado,
+  aoEscolher,
+}: {
+  nivel: Nivel;
+  desabilitado: boolean;
+  aoEscolher: (nivel: Nivel) => void;
+}) {
+  return (
+    <span className="flex items-center gap-1.5">
+      {NIVEIS_NA_TELA.map(({ nivel: opcao, rotulo, icone: Icone, ativo }) => (
+        <Button
+          key={opcao}
+          type="button"
+          variant="outline"
+          size="sm"
+          aria-pressed={nivel === opcao}
+          disabled={desabilitado}
+          className={cn("h-8", nivel === opcao && ativo)}
+          onClick={() => aoEscolher(opcao)}
+        >
+          <Icone className="w-3.5 h-3.5 mr-1.5" />
+          {rotulo}
+        </Button>
+      ))}
+    </span>
   );
 }
 
@@ -427,7 +570,9 @@ function Historico({
       <ul className="space-y-1.5">
         {linhas.slice(0, 12).map((linha, indice) => (
           <li key={`${linha.em}|${linha.modulo}|${indice}`} className="text-xs text-muted-foreground">
-            <span className="font-medium text-foreground">{linha.modulo}</span>{" "}
+            <span className="font-medium text-foreground">
+              {rotuloDaChave(linha.modulo)}
+            </span>{" "}
             {linha.nivelAnterior ? `de ${rotuloDoNivel(linha.nivelAnterior)} ` : ""}
             para {rotuloDoNivel(linha.nivel)} · {linha.por} · {dateTime(linha.em)}
           </li>
@@ -435,6 +580,19 @@ function Historico({
       </ul>
     </div>
   );
+}
+
+/**
+ * O nome do que mudou, para o histórico.
+ *
+ * A chave crua serve à tabela de cima, onde ela aparece ao lado do nome do
+ * módulo; aqui, sozinha, `@fechamento-as` seria a linha do histórico falando a
+ * língua do banco. Módulo continua sendo o endereço — é assim que ele é
+ * identificado no menu e na lista acima —, e ambiente vira o nome por extenso.
+ */
+function rotuloDaChave(chave: string): string {
+  const ambiente = AMBIENTES.find((a) => chaveDoAmbiente(a.id) === chave);
+  return ambiente ? ambiente.nomeCompleto : chave;
 }
 
 function rotuloDoNivel(nivel: string): string {

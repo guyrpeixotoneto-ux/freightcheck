@@ -371,7 +371,7 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
         "app_user.cargo_id",
         "app_user.unidade_id",
         /*
-          As duas da `0075` — o "visualizar como": a conta que uma sessão está
+          As duas da `0076` — o "visualizar como": a conta que uma sessão está
           visualizando, e desde quando. Aditivas e nulas como as primeiras da
           lista, e sem backfill nenhum: `NULL` nas duas é o estado de toda
           sessão que ninguém pôs a visualizar outra conta, que são todas.
@@ -379,7 +379,7 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
           Saem numa tabela que Production **já tem** (`user_session`, da `0036`),
           que é justamente o caso para o qual esta lista é fechada — e são
           atravessáveis pela forma: nuláveis, sem default, sem FK. A ausência de
-          chave estrangeira para `app_user` é decisão da `0075`, e esta linha é
+          chave estrangeira para `app_user` é decisão da `0076`, e esta linha é
           uma das razões: uma constraint nova sobre tabela existente apareceria
           no diff do Publishing, e a integridade que ela daria já está garantida
           na leitura da sessão.

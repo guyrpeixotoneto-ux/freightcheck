@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { apresentar } from "@/lib/apresentar-erro";
 import {
   associarUnidadeDaCompetencia,
-  formatarCnpj,
+  identidadeDaSugerida,
   type UnidadeSugerida,
 } from "@/lib/fechamento";
 
@@ -102,7 +102,7 @@ export function AssociarUnidade({
             disabled={associar.isPending}
             onClick={() => associar.mutate(s.id)}
           >
-            Associar a {s.nome} · {formatarCnpj(s.cnpj)}
+            Associar a {s.nome} · {identidadeDaSugerida(s)}
           </Button>
         ))}
       </div>
