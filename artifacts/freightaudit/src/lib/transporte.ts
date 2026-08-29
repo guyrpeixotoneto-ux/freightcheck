@@ -69,6 +69,25 @@ export type EstadoDoTransporte =
 export interface DiagnosticoDeTransporte extends Orientacao {
   estado: EstadoDoTransporte;
   /**
+   * A requisição chegou ao Express do FreightCheck?
+   *
+   * Três valores, e os três são respostas diferentes: `true` — a resposta
+   * trouxe o carimbo que só a nossa API escreve
+   * (`middlewares/carimbo-da-api.ts`), então o que voltou é dela, mesmo sendo
+   * erro; `false` — houve resposta e ela **não** tem o carimbo, então quem
+   * respondeu foi uma camada intermediária; `undefined` — não houve resposta
+   * nenhuma para carimbar, e daqui não dá para saber de que lado parou.
+   *
+   * É a distinção que o item mais caro deste repositório pede: separar "o
+   * backend respondeu com erro" de "a requisição nunca chegou ao backend" sem
+   * inferir nada do formato do corpo. Inferir do corpo é o que fazia um 500
+   * nosso passar por queda de infraestrutura e um 502 do roteador passar por
+   * defeito de rota.
+   */
+  chegouAoServidor?: boolean;
+  /** O `X-Request-Id` do carimbo, quando houve um: costura a tela ao log. */
+  requestId?: string;
+  /**
    * O status HTTP observado, quando houve um.
    *
    * Não é decoração nem repetição da `evidencia`: é o que separa "transitório"
@@ -111,6 +130,17 @@ export interface TransporteObservado {
   motivo?: string;
   /** A chamada foi cancelada por nós, e não pela rede. */
   cancelada?: boolean;
+  /**
+   * A resposta trazia o carimbo da API (`X-FreightCheck-API`).
+   *
+   * Ausente quer dizer "não houve resposta para observar" — e não "não
+   * tinha". A diferença é a mesma entre `false` e `undefined` em
+   * `chegouAoServidor`, e é ela que impede o registro de afirmar que uma
+   * chamada que nunca completou foi respondida por um proxy.
+   */
+  carimboDaApi?: boolean;
+  /** O `X-Request-Id` lido do cabeçalho, quando havia resposta. */
+  requestId?: string;
   /**
    * Quem respondeu foi um redirect, e não a API. Traz o destino quando o
    * navegador deixa lê-lo — num redirect opaco (outra origem) ele não deixa,
@@ -205,6 +235,28 @@ const AGUARDAR_A_VOLTA = {
  * casos sem um servidor do lado, e é o que garante que `readJson`, `fetchJson`
  * e a tela cheguem à mesma conclusão a partir dos mesmos fatos.
  */
+/**
+ * O que o carimbo permite afirmar, para os desfechos em que **houve** resposta.
+ *
+ * Escrito uma vez porque são cinco desfechos e a regra é uma só: um carimbo
+ * observado vira `chegouAoServidor`, e a ausência de observação (`undefined`)
+ * continua ausente em vez de virar `false` — não houve resposta para carimbar,
+ * e afirmar "não chegou" sobre isso seria a mesma pressa que este módulo
+ * inteiro existe para corrigir.
+ */
+function doCarimbo(
+  observado: TransporteObservado,
+): Pick<DiagnosticoDeTransporte, "chegouAoServidor" | "requestId"> {
+  return {
+    ...(observado.carimboDaApi === undefined
+      ? {}
+      : { chegouAoServidor: observado.carimboDaApi }),
+    ...(observado.requestId === undefined
+      ? {}
+      : { requestId: observado.requestId }),
+  };
+}
+
 export function diagnosticarTransporte(
   observado: TransporteObservado,
 ): DiagnosticoDeTransporte {
@@ -241,6 +293,14 @@ export function diagnosticarTransporte(
     const destino = observado.desviadaPara;
     return {
       estado: "DESVIADA",
+      /*
+        Falso, e não "não se sabe": houve resposta, e ela é um 3xx. Esta API
+        não escreve 3xx em rota nenhuma — a busca no código-fonte do servidor
+        não encontra um único `res.redirect`, e o teste
+        `nenhum-desvio-em-api.test.ts` mantém assim. Logo, quem respondeu não
+        foi ela, com carimbo ou sem.
+      */
+      chegouAoServidor: false,
       humano:
         "O pedido não chegou ao FreightCheck: alguma camada entre o seu " +
         "navegador e a aplicação o desviou para outro endereço. Não é a " +
@@ -260,7 +320,9 @@ export function diagnosticarTransporte(
       },
       evidencia:
         `A API respondeu com um redirect${
-          destino ? ` para ${destino}` : " para outra origem (destino opaco por CORS)"
+          destino
+            ? ` para ${destino}`
+            : " para outra origem (destino opaco por CORS)"
         }, e esta API não redireciona em rota nenhuma — toda resposta dela é ` +
         "JSON. Quem respondeu foi uma camada intermediária.",
     };
@@ -368,6 +430,7 @@ export function diagnosticarTransporte(
   if (observado.corpoNaoJson !== undefined) {
     return {
       estado: "RESPOSTA_ESTRANHA",
+      ...doCarimbo(observado),
       humano:
         "Quem respondeu a esta chamada não foi o sistema, e sim uma camada " +
         "antes dele — o serviço por trás do endereço não está atendendo. Não é " +
@@ -395,6 +458,7 @@ export function diagnosticarTransporte(
     if (status !== undefined && status >= 500) {
       return {
         estado: "API_AUSENTE",
+        ...doCarimbo(observado),
         humano:
           "A tela está no ar, e o serviço que responde por ela não está. Não é " +
           "nada que você tenha feito, e nada do que você enviou foi gravado — " +
@@ -412,6 +476,7 @@ export function diagnosticarTransporte(
     if (status !== undefined && status >= 400) {
       return {
         estado: "ERRO_SEM_CORPO",
+        ...doCarimbo(observado),
         humano:
           "O servidor recusou esta chamada sem dizer por quê. Nada foi " +
           "gravado.",
@@ -425,6 +490,7 @@ export function diagnosticarTransporte(
 
     return {
       estado: "RESPOSTA_INCOMPLETA",
+      ...doCarimbo(observado),
       humano:
         "A resposta do servidor chegou pela metade — a conexão foi " +
         "interrompida no caminho. Tentar de novo costuma bastar, e nada do que " +
@@ -455,6 +521,7 @@ export function diagnosticarTransporte(
   // estado do transporte. Responder "está tudo bem" esconderia esse defeito.
   return {
     estado: "RESPOSTA_ESTRANHA",
+    ...doCarimbo(observado),
     humano:
       "A resposta do servidor não pôde ser interpretada. Nada foi gravado.",
     resumo: "A resposta do servidor não pôde ser interpretada.",

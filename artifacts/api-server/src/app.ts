@@ -1,9 +1,10 @@
 import express, { type Express } from "express";
 import cookieParser from "cookie-parser";
 import compression from "compression";
-import cors from "cors";
 import pinoHttp from "pino-http";
 import router from "./routes";
+import { carimboDaApi } from "./middlewares/carimbo-da-api";
+import { corsDaArquitetura } from "./middlewares/cors-da-arquitetura";
 import { requireSession } from "./middlewares/require-session";
 import { portaoDePermissao } from "./middlewares/portao-de-permissao";
 import { portaoDeProntidao } from "./middlewares/portao-de-prontidao";
@@ -21,6 +22,15 @@ const app: Express = express();
  */
 app.set("trust proxy", true);
 
+/**
+ * O carimbo vem **depois** do log e **antes** de tudo o mais.
+ *
+ * Depois do `pino-http` porque é ele quem cria o `req.id` que o carimbo
+ * publica; antes de qualquer outra coisa porque a promessa do carimbo é
+ * "**toda** resposta deste processo o traz" — inclusive o 503 do portão de
+ * prontidão, o 401 sem sessão e o 500 do contrato. Uma resposta sem ele não
+ * saiu daqui, e essa recíproca é o valor inteiro do cabeçalho.
+ */
 app.use(
   pinoHttp({
     logger,
@@ -40,7 +50,13 @@ app.use(
     },
   }),
 );
-app.use(cors());
+app.use(carimboDaApi);
+/**
+ * CORS coerente com a arquitetura, que é de **mesma origem** — ver
+ * `middlewares/cors-da-arquitetura.ts`. Antes da compressão, porque o
+ * preflight tem de ser respondido sem passar pelo resto da pilha.
+ */
+app.use(corsDaArquitetura());
 
 /**
  * As respostas saem comprimidas — e antes não saía nenhuma.
