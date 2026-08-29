@@ -11,6 +11,7 @@ import {
   jsonb,
   index,
   uniqueIndex,
+  primaryKey,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { importRunStatus, sheetRole } from "./enums";
@@ -104,6 +105,17 @@ export const importRunTable = pgTable(
     progressStep: text("progress_step"),
     progressDone: integer("progress_done").notNull().default(0),
     progressTotal: integer("progress_total").notNull().default(0),
+    /**
+     * Quando o censo de destinos desta importação foi gravado — nulo enquanto
+     * nunca foi.
+     *
+     * A marca existe para separar duas situações que a tabela `import_run_censo`
+     * representa igual (nenhuma linha): uma importação recenseada cujo
+     * resultado foi zero célula, e uma que nunca passou pelo censo. Sem ela a
+     * leitura não teria como saber se pode confiar no vazio. Ver
+     * `lib/balance/src/censo.ts`.
+     */
+    censoCalculadoEm: timestamp("censo_calculado_em", { withTimezone: true }),
     /**
      * O tipo que quem enviou declarou — a aba da tela em que ele escolheu.
      *
@@ -300,5 +312,35 @@ export const importDecisionTable = pgTable(
     index("import_decision_run_idx").on(t.importRunId),
     index("import_decision_key_idx").on(t.canonicalSnapshotKey),
     index("import_decision_sha_idx").on(t.contentSha256),
+  ],
+);
+
+/**
+ * O censo de destinos de uma importação — quantas células foram parar em cada
+ * destino declarado por `lib/balance/src/destinos.ts`.
+ *
+ * Uma linha por (importação, destino), gravada uma vez, quando a importação
+ * termina de preparar. Não é cache: depois de `stage()` nenhuma entrada da
+ * classificação muda mais — o RAW é imutável por trigger e nada apaga
+ * `staged_fact`, `column_mapping` ou as recusas de linha. O raciocínio inteiro,
+ * com o que invalida e o que não invalida, está no cabeçalho de
+ * `lib/balance/src/censo.ts`.
+ *
+ * `ON DELETE CASCADE` é o que faz excluir uma importação levar o censo dela
+ * junto — a exclusão é a única operação do produto que apaga RAW, e um censo
+ * sobrevivente descreveria células que não existem mais.
+ */
+export const importRunCensoTable = pgTable(
+  "import_run_censo",
+  {
+    importRunId: uuid("import_run_id")
+      .notNull()
+      .references(() => importRunTable.id, { onDelete: "cascade" }),
+    /** O código do destino. Texto, e não enum: a lista mora em `destinos.ts`. */
+    destino: text("destino").notNull(),
+    celulas: integer("celulas").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.importRunId, t.destino] }),
   ],
 );
