@@ -309,18 +309,27 @@ export function direcaoDaLinha(linha: LinhaDoPainel): "AUMENTO" | "REDUCAO" | nu
  * tabela por vigência, e uma chamada por vigência daria a mesma resposta por N
  * vezes o custo.
  */
-export function usePainelDeJustificativas() {
+export function usePainelDeJustificativas(escopo: string | null) {
+  /*
+    O `scopeHash` da unidade aberta viaja na consulta: o painel é o da unidade
+    que a lateral nomeia, e sem ele o servidor soma a operação inteira — cinco
+    unidades num total escrito sob a palavra PERNAMBUCO. `escopo` nulo é a
+    Visão Geral, que é a soma pedida de propósito.
+  */
+  const endereco = escopo
+    ? `/justificativas/painel?scopeHash=${encodeURIComponent(escopo)}`
+    : "/justificativas/painel";
   const consulta = useConsultaResiliente<{
     cobertura: CoberturaDeJustificativas[];
     autores: AutorDeJustificativas[];
   }>({
-    queryKey: ["justificativas", "painel"],
+    queryKey: ["justificativas", "painel", escopo ?? "todas"],
     endpoint: "/justificativas/painel",
     buscar: () =>
       fetchJson<{
         cobertura: CoberturaDeJustificativas[];
         autores: AutorDeJustificativas[];
-      }>("/justificativas/painel"),
+      }>(endereco),
   });
 
   /* `null` enquanto não chegou — ver o cabeçalho do arquivo. */
@@ -331,6 +340,8 @@ export function usePainelDeJustificativas() {
 }
 
 export interface ConsultaDeLinhas {
+  /** A unidade aberta na lateral; `null` é a Visão Geral. */
+  escopo: string | null;
   changeSetId: string | null;
   tipo: string | null;
   situacao: SituacaoDaJustificativa;
@@ -343,6 +354,10 @@ export interface ConsultaDeLinhas {
 /** O endereço de `/justificativas/pendencias` para um recorte da tela. */
 export function enderecoDasLinhas(consulta: ConsultaDeLinhas): string {
   const q = new URLSearchParams();
+  /* A unidade aberta, como em `usePainelDeJustificativas` — a lista é a mesma
+     que os cartões somam. Uma vigência escolhida já é de uma unidade só, e o
+     servidor a recorta por id. */
+  if (consulta.escopo) q.set("scopeHash", consulta.escopo);
   if (consulta.changeSetId) q.set("changeSetId", consulta.changeSetId);
   if (consulta.tipo) q.set("entityType", consulta.tipo);
   q.set("situacao", consulta.situacao);

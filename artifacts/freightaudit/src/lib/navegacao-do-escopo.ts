@@ -83,6 +83,20 @@ export const TELAS_QUE_HONRAM_ESCOPO = new Set<string>([
   "/empilhadeira-360",
   "/trecho-360",
   "/radar-trechos",
+  /*
+    As Justificativas. Elas recortam as comparações pelo `scopeHash` aberto
+    (`comparacoesDoEscopo`, em `lib/justificativas.ts`) — antes o seletor de
+    vigência atravessava as unidades e trocar de vigência trocava de unidade
+    calada, sob a lateral escrita com o nome da anterior.
+
+    O Painel de Justificativas entra pelo mesmo motivo: ele soma o que falta
+    justificar, e somava a operação inteira — CAMAÇARI, MANAUS e CDD CEBRASA
+    num total escrito sob a palavra PERNAMBUCO. As duas consultas dele levam o
+    `scopeHash` (`lib/painel-de-justificativas.ts`), e o servidor recorta as
+    comparações por ele.
+  */
+  "/justificativas",
+  "/painel-de-justificativas",
 ]);
 
 /**
@@ -128,6 +142,16 @@ export const TELAS_QUE_HONRAM_VISAO_GERAL = new Set<string>([
     verdade, e é o que a tela faz.
   */
   "/dados",
+  /*
+    As Justificativas entram pelas duas portas: com uma unidade aberta a fila é
+    a dela, e `visaoGeral=1` é a lista atravessando as unidades — que é o que a
+    tela fazia sempre, agora como escolha e não como padrão.
+
+    O Painel de Justificativas idem: sem `scopeHash` a rota soma todas as
+    unidades da operação, que é exatamente a leitura que `visaoGeral=1` pede.
+  */
+  "/justificativas",
+  "/painel-de-justificativas",
 ]);
 
 /**

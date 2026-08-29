@@ -13,10 +13,11 @@ import { JustificarDialog } from "@/components/justificativas/justificar-dialog"
 import { BOTAO_DE_TROCA, MenuDeVigencias } from "@/components/vigencia/seletor-de-vigencia";
 import { fetchJson } from "@/lib/api";
 import { useConsultaResiliente } from "@/lib/consulta-resiliente";
-import { useContextosDaCasca } from "@/lib/contextos";
+import { contextoAberto, useContextosDaCasca } from "@/lib/contextos";
 import {
   abaDoTipo,
   abasDaVigencia,
+  comparacoesDoEscopo,
   placasDaAba,
   useComparacoes,
   useContagensPorTipo,
@@ -113,7 +114,6 @@ export default function Justificativas() {
   const search = useSearch();
 
   const comparacoes = useComparacoes();
-  const opcoes = comparacoes.data ?? [];
   /*
     Os nomes das unidades vêm da mesma `/contexts` que a casca já leu — é o que
     separa cinco comparações da mesma data umas das outras. Ver
@@ -125,7 +125,36 @@ export default function Justificativas() {
   const { contagens } = useContagensPorTipo();
 
   const params = new URLSearchParams(search);
-  const changeSetIdDaUrl = params.get("changeSetId") || undefined;
+  const changeSetIdPedido = params.get("changeSetId") || undefined;
+  /*
+    A unidade aberta é a da lateral: a que a URL pede em `scopeHash`, e a
+    primeira de `/contexts` quando ninguém pediu — a mesma regra que a caixa
+    "Unidade atual" aplica (`contextoAberto`). `visaoGeral=1` é a escolha de
+    ver todas, e só ela abre a lista para as outras unidades.
+  */
+  const emVisaoGeral = params.get("visaoGeral") === "1";
+  const escopoAberto = emVisaoGeral
+    ? null
+    : (contextoAberto(contextos.contextos, params.get("scopeHash"))?.scopeHash ?? null);
+  /*
+    Toda a tela — abas, seletor e a vigência que abre — enxerga só as
+    comparações desta unidade. Recortar aqui, e não em cada uso, é o que
+    impede uma das três leituras de voltar a atravessar as unidades.
+  */
+  const opcoes = useMemo(
+    () => comparacoesDoEscopo(comparacoes.data ?? [], escopoAberto),
+    [comparacoes.data, escopoAberto],
+  );
+  /*
+    Uma comparação de outra unidade no endereço — um link velho, ou colado de
+    quem estava em CAMAÇARI — é ignorada em vez de aberta: honrá-la mostraria
+    CAMAÇARI sob a lateral escrita PERNAMBUCO, que é exatamente o desencontro
+    que o recorte acima existe para acabar. Sem ela a tela cai na vigência mais
+    recente da unidade aberta, como se o endereço não trouxesse nenhuma.
+  */
+  const changeSetIdDaUrl = opcoes.some((c) => c.id === changeSetIdPedido)
+    ? changeSetIdPedido
+    : undefined;
   /* `null` é a aba "Todas" — um endereço truncado abre a fila inteira. */
   const tipo = params.get("tipo") || null;
 
@@ -157,7 +186,16 @@ export default function Justificativas() {
   const vigenciaAberta = opcoesDoSeletor.find((o) => o.id === changeSetId) ?? null;
 
   const endereco = (proximo: { changeSetId?: string; tipo?: string | null }) => {
+    /*
+      O recorte de unidade viaja em todo link desta tela. Montado do zero — que
+      era o que esta função fazia —, trocar de aba ou de vigência devolvia à
+      unidade padrão, e a lateral trocava de nome sozinha no meio do trabalho.
+    */
     const q = new URLSearchParams();
+    for (const chave of ["scopeHash", "canal", "visaoGeral"]) {
+      const valor = params.get(chave);
+      if (valor) q.set(chave, valor);
+    }
     const id = proximo.changeSetId ?? changeSetId;
     const t = proximo.tipo === undefined ? tipo : proximo.tipo;
     if (id) q.set("changeSetId", id);
@@ -249,7 +287,14 @@ export default function Justificativas() {
 
   return (
     <Layout>
-      <header className="px-8 pt-7 pb-5 max-w-[1400px]">
+      {/* O cabeçalho é uma linha de duas colunas — título e escolhas à
+          esquerda, a troca de vigência no canto superior direito — porque é
+          onde ela está no Início e na Gestão à Vista. Aqui o botão ficava no
+          meio do fluxo, abaixo das abas: a mesma ação, no mesmo produto, em
+          dois lugares conforme a tela, obriga quem alterna entre elas a
+          procurá-la de novo a cada troca. */}
+      <header className="px-8 pt-7 pb-5 max-w-[1400px] flex items-start justify-between gap-6">
+        <div className="min-w-0">
         <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
           Plano de Ação
         </p>
@@ -291,50 +336,61 @@ export default function Justificativas() {
           </TabsList>
         </Tabs>
 
-        {/* A vigência aberta fica escrita, e a troca é o mesmo botão das outras
-            telas — "Trocar vigência", com contorno da marca e a contagem de
-            alterações à direita de cada linha. Aqui era um `Select` desenhado
-            só para esta tela: dois controles diferentes para a mesma escolha,
-            no mesmo produto, obrigam quem alterna entre elas a reaprender onde
-            se troca de vigência. A lista continua sendo a da aba
-            (`vigenciasDaAba`) — cada linha traz a unidade porque a mesma data
-            pode ter uma comparação por unidade. */}
+        {/* A vigência aberta fica escrita aqui, junto das abas a que ela se
+            aplica; o botão que a troca está no canto direito do cabeçalho,
+            como nas outras telas. */}
         {opcoesDoSeletor.length > 0 && (
-          <div className="flex flex-wrap items-center gap-3 mt-3">
-            <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
-              <CalendarRange className="w-3.5 h-3.5" />
-              <span className="text-xs uppercase tracking-wide">Vigência</span>
-              {vigenciaAberta && (
-                <span className="font-semibold text-foreground">
-                  {vigenciaAberta.competencia}
-                  {vigenciaAberta.unidade && (
-                    <span className="font-normal text-muted-foreground">
-                      {" "}
-                      · {vigenciaAberta.unidade}
-                    </span>
-                  )}
-                </span>
-              )}
-            </span>
-            {/* Com uma vigência só não há troca a oferecer — a linha acima já
-                diz qual está aberta. É a mesma regra dos outros seletores. */}
-            {opcoesDoSeletor.length > 1 && (
-              <MenuDeVigencias
-                rotulo="Trocar vigência"
-                className={BOTAO_DE_TROCA}
-                cabecalho={`${opcoesDoSeletor.length} vigências com ${
-                  tipo ? rotuloEmFrase(tipo) : "alterações"
-                }`}
-                opcoes={opcoesDoSeletor.map((o) => ({
-                  valor: o.id,
-                  rotulo: o.competencia,
-                  detalhe: o.unidade,
-                  alteracoes: o.alteracoes,
-                }))}
-                ativa={changeSetId ?? null}
-                onEscolher={escolherVigencia}
-              />
+          <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground mt-3">
+            <CalendarRange className="w-3.5 h-3.5" />
+            <span className="text-xs uppercase tracking-wide">Vigência</span>
+            {vigenciaAberta && (
+              <span className="font-semibold text-foreground">
+                {vigenciaAberta.competencia}
+                {vigenciaAberta.unidade && (
+                  <span className="font-normal text-muted-foreground">
+                    {" "}
+                    · {vigenciaAberta.unidade}
+                  </span>
+                )}
+              </span>
             )}
+          </span>
+        )}
+        </div>
+
+        {/* A troca é o mesmo botão das outras telas — "Trocar vigência", com
+            contorno da marca e a contagem de alterações à direita de cada
+            linha. Aqui era um `Select` desenhado só para esta tela: dois
+            controles diferentes para a mesma escolha, no mesmo produto,
+            obrigam quem alterna entre elas a reaprender onde se troca de
+            vigência. A lista continua sendo a da aba (`vigenciasDaAba`) —
+            cada linha traz a unidade porque a mesma data pode ter uma
+            comparação por unidade.
+
+            Com uma vigência só não há troca a oferecer — a linha ao lado das
+            abas já diz qual está aberta. É a mesma regra dos outros
+            seletores. */}
+        {opcoesDoSeletor.length > 1 && (
+          <div className="shrink-0">
+            <MenuDeVigencias
+              rotulo="Trocar vigência"
+              className={BOTAO_DE_TROCA}
+              cabecalho={`${opcoesDoSeletor.length} vigências com ${
+                tipo ? rotuloEmFrase(tipo) : "alterações"
+              }`}
+              /* O nome da unidade em cada linha só serve quando a lista
+                 atravessa unidades: dentro de uma, ele repete em todas as
+                 linhas a mesma palavra que a lateral e a linha ao lado já
+                 dizem, e empurra a data para longe da contagem. */
+              opcoes={opcoesDoSeletor.map((o) => ({
+                valor: o.id,
+                rotulo: o.competencia,
+                detalhe: emVisaoGeral ? o.unidade : null,
+                alteracoes: o.alteracoes,
+              }))}
+              ativa={changeSetId ?? null}
+              onEscolher={escolherVigencia}
+            />
           </div>
         )}
       </header>
