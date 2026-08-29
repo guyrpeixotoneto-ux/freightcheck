@@ -5,6 +5,7 @@ import {
   Legend,
   Line,
   LineChart,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -13,6 +14,7 @@ import {
 import { ChartLine } from "lucide-react";
 import { opcoesDoIntervalo } from "@/lib/intervalo-da-linha-do-tempo";
 import { cn } from "@/lib/utils";
+import { vigenciaDoClique, type EstadoDoClique } from "@/lib/clique-na-vigencia";
 import { formatBrl, formatBrlShort, periodicitySuffix } from "@/lib/format";
 import {
   Select,
@@ -36,15 +38,29 @@ const COR_NEGATIVA = "#dc2626"; // red-600, a mesma cor de perda do resto da tel
  * alterações positivas vem crescendo, se o valor delas oscila, se um
  * atributo específico puxou o intervalo para um lado. O período do gráfico
  * é escolhido aqui dentro, independente da vigência aberta na tela.
+ *
+ * Clicar num ponto de qualquer um dos gráficos abre a tela naquela vigência
+ * (`onEscolherVigencia`) — o mesmo que o gráfico do Dashboard faz, e a mesma
+ * troca do "Ir para vigência" do cabeçalho. O intervalo desenhado **não** muda
+ * junto: `de`/`ate` são a janela que se escolheu comparar, e reduzi-la a cada
+ * clique tiraria da tela justamente a curva que fez alguém clicar.
+ *
+ * A vigência aberta ganha uma guia vertical em todos os gráficos, e não só no
+ * que foi clicado: os dois (ou quatro, com o par por atributo) percorrem o
+ * mesmo eixo, e é a guia que deixa ler "nesta vigência a quantidade subiu e o
+ * valor caiu" sem contar pontos de um gráfico ao outro.
  */
 export function LinhaDoTempoDeAlteracoes({
   consulta,
   periods,
   currentPeriod,
+  onEscolherVigencia,
 }: {
   consulta: URLSearchParams;
   periods: { date: string; label: string }[];
   currentPeriod: string;
+  /** Quando existe, clicar num ponto leva a tela inteira para aquela vigência. */
+  onEscolherVigencia?: (periodo: string) => void;
 }) {
   const ordenadas = useMemo(
     () => [...periods].sort((a, b) => a.date.localeCompare(b.date)),
@@ -117,8 +133,16 @@ export function LinhaDoTempoDeAlteracoes({
 
       {movimentos.data && movimentos.data.entries.length > 0 && (
         <div className="space-y-8">
-          <GraficosConsolidados dados={movimentos.data} />
-          <GraficosPorAtributo dados={movimentos.data} />
+          <GraficosConsolidados
+            dados={movimentos.data}
+            vigenciaAtiva={currentPeriod}
+            onEscolherVigencia={onEscolherVigencia}
+          />
+          <GraficosPorAtributo
+            dados={movimentos.data}
+            vigenciaAtiva={currentPeriod}
+            onEscolherVigencia={onEscolherVigencia}
+          />
         </div>
       )}
     </section>
@@ -236,8 +260,59 @@ export function seriesDoIntervalo(
 // Os dois gráficos, quantidade e valor
 // ---------------------------------------------------------------------------
 
-function GraficoDeQuantidade({ dados }: { dados: PontoDeQuantidade[] }) {
+/**
+ * O que os dois gráficos precisam para virar eixo do tempo navegável: onde a
+ * guia da vigência aberta cai, e o que fazer com um clique.
+ *
+ * Uma função, e não o código repetido nos dois: o gráfico de quantidade e o de
+ * valor ficam um embaixo do outro, e um clique que respondesse diferente entre
+ * eles seria lido como bug antes de ser lido como diferença.
+ *
+ * A guia é ancorada pelo **rótulo** do ponto, e não pela data, porque é o
+ * rótulo que o `XAxis` desenha (`dataKey="label"`) — uma `ReferenceLine` com a
+ * data crua não encontraria categoria nenhuma no eixo e não apareceria. Vem do
+ * próprio ponto da série: se a vigência aberta não está na janela comparada,
+ * não há rótulo e não há guia, que é honesto — a linha existiria fora do eixo.
+ */
+function eixoNavegavel<T extends { periodo: string; label: string }>(
+  dados: T[],
+  vigenciaAtiva: string | null | undefined,
+  onEscolherVigencia: ((periodo: string) => void) | undefined,
+) {
+  const clicavel = typeof onEscolherVigencia === "function" && dados.length > 1;
+  return {
+    clicavel,
+    rotuloAtivo: dados.find((d) => d.periodo === vigenciaAtiva)?.label ?? null,
+    aoClicar: (estado: EstadoDoClique) => {
+      if (!clicavel) return;
+      const periodo = vigenciaDoClique(estado, vigenciaAtiva ?? null);
+      if (periodo !== null) onEscolherVigencia!(periodo);
+    },
+  };
+}
+
+/** A guia vertical da vigência aberta — a mesma marca nos dois gráficos. */
+const GUIA_DA_VIGENCIA = {
+  stroke: "hsl(var(--brand))",
+  strokeDasharray: "4 4",
+  strokeOpacity: 0.7,
+} as const;
+
+function GraficoDeQuantidade({
+  dados,
+  vigenciaAtiva,
+  onEscolherVigencia,
+}: {
+  dados: PontoDeQuantidade[];
+  vigenciaAtiva?: string | null;
+  onEscolherVigencia?: (periodo: string) => void;
+}) {
   const semAlteracao = dados.every((d) => d.positivas === 0 && d.negativas === 0);
+  const { clicavel, rotuloAtivo, aoClicar } = eixoNavegavel(
+    dados,
+    vigenciaAtiva,
+    onEscolherVigencia,
+  );
   if (semAlteracao) return null;
 
   return (
@@ -246,7 +321,12 @@ function GraficoDeQuantidade({ dados }: { dados: PontoDeQuantidade[] }) {
         Alterações por vigência — quantidade
       </div>
       <ResponsiveContainer width="100%" height={220}>
-        <LineChart data={dados} margin={{ top: 8, right: 16, bottom: 0, left: 8 }}>
+        <LineChart
+          data={dados}
+          margin={{ top: 8, right: 16, bottom: 0, left: 8 }}
+          onClick={aoClicar}
+          style={clicavel ? { cursor: "pointer" } : undefined}
+        >
           <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
           <XAxis dataKey="label" tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
           <YAxis
@@ -255,6 +335,7 @@ function GraficoDeQuantidade({ dados }: { dados: PontoDeQuantidade[] }) {
             allowDecimals={false}
             width={36}
           />
+          {rotuloAtivo !== null && <ReferenceLine x={rotuloAtivo} {...GUIA_DA_VIGENCIA} />}
           <Tooltip contentStyle={{ fontSize: 12 }} />
           <Legend wrapperStyle={{ fontSize: 12 }} />
           <Line
@@ -282,17 +363,32 @@ function GraficoDeQuantidade({ dados }: { dados: PontoDeQuantidade[] }) {
 function GraficoDeValor({
   periodicidade,
   dados,
+  vigenciaAtiva,
+  onEscolherVigencia,
 }: {
   periodicidade: string;
   dados: PontoDeValor[];
+  vigenciaAtiva?: string | null;
+  onEscolherVigencia?: (periodo: string) => void;
 }) {
+  const { clicavel, rotuloAtivo, aoClicar } = eixoNavegavel(
+    dados,
+    vigenciaAtiva,
+    onEscolherVigencia,
+  );
+
   return (
     <div>
       <div className="text-xs uppercase tracking-wider text-muted-foreground mb-2">
         Impacto por vigência em R${periodicitySuffix(periodicidade)}
       </div>
       <ResponsiveContainer width="100%" height={220}>
-        <LineChart data={dados} margin={{ top: 8, right: 16, bottom: 0, left: 8 }}>
+        <LineChart
+          data={dados}
+          margin={{ top: 8, right: 16, bottom: 0, left: 8 }}
+          onClick={aoClicar}
+          style={clicavel ? { cursor: "pointer" } : undefined}
+        >
           <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
           <XAxis dataKey="label" tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
           <YAxis
@@ -301,6 +397,7 @@ function GraficoDeValor({
             tickFormatter={(v: number) => formatBrlShort(v)}
             width={92}
           />
+          {rotuloAtivo !== null && <ReferenceLine x={rotuloAtivo} {...GUIA_DA_VIGENCIA} />}
           <Tooltip formatter={(v: number) => formatBrl(v)} contentStyle={{ fontSize: 12 }} />
           <Legend wrapperStyle={{ fontSize: 12 }} />
           <Line
@@ -329,7 +426,15 @@ function GraficoDeValor({
 // O consolidado, e o mesmo par de gráficos por atributo
 // ---------------------------------------------------------------------------
 
-function GraficosConsolidados({ dados }: { dados: Movimentos }) {
+function GraficosConsolidados({
+  dados,
+  vigenciaAtiva,
+  onEscolherVigencia,
+}: {
+  dados: Movimentos;
+  vigenciaAtiva?: string | null;
+  onEscolherVigencia?: (periodo: string) => void;
+}) {
   const ordenadas = useMemo(
     () => [...dados.periods].sort((a, b) => a.date.localeCompare(b.date)),
     [dados],
@@ -343,12 +448,22 @@ function GraficosConsolidados({ dados }: { dados: Movimentos }) {
     <div>
       <h3 className="text-sm font-bold mb-3">Consolidado</h3>
       <div className="space-y-6">
-        <GraficoDeQuantidade dados={quantidade} />
+        <GraficoDeQuantidade
+          dados={quantidade}
+          vigenciaAtiva={vigenciaAtiva}
+          onEscolherVigencia={onEscolherVigencia}
+        />
         {periodicidades.length === 0 ? (
           <p className="text-sm text-muted-foreground">Nenhuma alteração valorada neste intervalo.</p>
         ) : (
           periodicidades.map((p) => (
-            <GraficoDeValor key={p} periodicidade={p} dados={valor.get(p) ?? []} />
+            <GraficoDeValor
+              key={p}
+              periodicidade={p}
+              dados={valor.get(p) ?? []}
+              vigenciaAtiva={vigenciaAtiva}
+              onEscolherVigencia={onEscolherVigencia}
+            />
           ))
         )}
       </div>
@@ -356,7 +471,15 @@ function GraficosConsolidados({ dados }: { dados: Movimentos }) {
   );
 }
 
-function GraficosPorAtributo({ dados }: { dados: Movimentos }) {
+function GraficosPorAtributo({
+  dados,
+  vigenciaAtiva,
+  onEscolherVigencia,
+}: {
+  dados: Movimentos;
+  vigenciaAtiva?: string | null;
+  onEscolherVigencia?: (periodo: string) => void;
+}) {
   const atributos = useMemo(
     () => [...dados.byParameter].sort((a, b) => b.changes - a.changes),
     [dados],
@@ -398,14 +521,24 @@ function GraficosPorAtributo({ dados }: { dados: Movimentos }) {
       </div>
 
       <div className="space-y-6">
-        <GraficoDeQuantidade dados={quantidade} />
+        <GraficoDeQuantidade
+          dados={quantidade}
+          vigenciaAtiva={vigenciaAtiva}
+          onEscolherVigencia={onEscolherVigencia}
+        />
         {periodicidades.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             Nenhuma alteração valorada deste atributo, neste intervalo.
           </p>
         ) : (
           periodicidades.map((p) => (
-            <GraficoDeValor key={p} periodicidade={p} dados={valor.get(p) ?? []} />
+            <GraficoDeValor
+              key={p}
+              periodicidade={p}
+              dados={valor.get(p) ?? []}
+              vigenciaAtiva={vigenciaAtiva}
+              onEscolherVigencia={onEscolherVigencia}
+            />
           ))
         )}
       </div>
