@@ -25,6 +25,7 @@ import {
   listarConversas,
   mensagensDaConversa,
   renomearConversa,
+  emCaixaDeTitulo,
   tituloDe,
 } from "../../lib/conversas";
 
@@ -156,7 +157,7 @@ describe("o voto de quem leu", () => {
   });
 });
 
-describe("o título nasce do assunto", () => {
+describe("o título nasce da pergunta", () => {
   it("tira a pontuação final e não corta palavra ao meio", () => {
     expect(tituloDe("Quanto mudou o IPVA?")).toBe("Quanto mudou o IPVA");
     const longo = tituloDe(
@@ -178,10 +179,42 @@ describe("o título nasce do assunto", () => {
     expect(tituloDe("oi, tudo bem?")).toBeNull();
   });
 
-  it("o assunto resolvido vence a frase digitada", () => {
+  /*
+    Nomear tudo pelo bloco fazia a lista repetir "CUSTO FIXO DE EQUIPAMENTOS"
+    seis vezes. A pergunta distingue uma conversa da outra — o assunto
+    resolvido só entra quando a frase se apoia no que já estava na tela.
+  */
+  it("a pergunta que nomeia o assunto vence o bloco resolvido", () => {
+    expect(
+      tituloDe("O que mais mudou na última vigência?", {
+        bloco: "PREÇO COMBUSTÍVEIS",
+      }),
+    ).toBe("O que mais mudou na última vigência");
+  });
+
+  it("a frase que só aponta para a tela cede ao assunto resolvido", () => {
     expect(tituloDe("me explica isso aí", { bloco: "QLP ADM" })).toBe("QLP ADM");
     expect(tituloDe("quanto mudou?", { parametro: "IPVA e licenciamento" })).toBe(
       "IPVA e licenciamento",
     );
+    expect(tituloDe("me explica isso aí")).toBeNull();
+  });
+
+  it("caixa alta do Book vira texto de ler, com as siglas de pé", () => {
+    expect(tituloDe("e agora?", { bloco: "PREÇO COMBUSTÍVEIS" })).toBe(
+      "Preço combustíveis",
+    );
+    expect(tituloDe("e agora?", { bloco: "CUSTO FIXO DE EQUIPAMENTOS" })).toBe(
+      "Custo fixo de equipamentos",
+    );
+    expect(tituloDe("e agora?", { bloco: "QLP ADM" })).toBe("QLP ADM");
+    expect(tituloDe("e agora?", { parametro: "IPVA E LICENCIAMENTO" })).toBe(
+      "IPVA e licenciamento",
+    );
+  });
+
+  it("quem escreveu com minúsculas decide a caixa", () => {
+    expect(emCaixaDeTitulo("Preço de combustíveis")).toBe("Preço de combustíveis");
+    expect(emCaixaDeTitulo("FINAME das carretas")).toBe("FINAME das carretas");
   });
 });

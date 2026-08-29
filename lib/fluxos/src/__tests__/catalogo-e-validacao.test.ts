@@ -20,6 +20,7 @@ import {
   validarParametros,
   validarRotaInterna,
 } from "../validacao";
+import { validarEscolha } from "../arrumacao";
 
 /**
  * O vocabulário e a porta de entrada — provados sem banco e sem HTTP.
@@ -423,5 +424,46 @@ describe("os vínculos de cadastro do responsável", () => {
     expect(etapa.departamentoId).toBe(UUID);
     expect(etapa.cargoId).toBeNull();
     expect(etapa.pessoaId).toBe(UUID);
+  });
+});
+
+/**
+ * A PORTA DE ENTRADA DA ARRUMAÇÃO — o que ela recusa antes de tocar no banco.
+ *
+ * O resto da arrumação (o agrupamento, a sugestão, o lote) precisa de Postgres
+ * e está em `isolamento.test.ts`. O que cabe aqui é a leitura do corpo: é ela
+ * que impede um pedido malformado de virar um `UPDATE` em lote com um recorte
+ * que ninguém escolheu.
+ */
+describe("a escolha da arrumação em lote", () => {
+  it("canoniza o texto de novo, e não confia no que chegou", () => {
+    /* O cliente manda o que a leitura devolveu — mas quem decide a identidade
+       de um nome é `canonizarNome`, e um espaço a mais não pode virar um lote
+       de zero linhas em silêncio. */
+    expect(validarEscolha({ escopo: "AREA", textoCanonico: "  faturamento  " }).textoCanonico)
+      .toBe("FATURAMENTO");
+  });
+
+  it("recusa escopo desconhecido", () => {
+    expect(
+      recusa(() => validarEscolha({ escopo: "QUALQUER", textoCanonico: "X" })).codigo,
+    ).toBe("ARRUMACAO_ESCOPO_INVALIDO");
+  });
+
+  it("recusa texto vazio — sem ele o lote não tem recorte", () => {
+    expect(recusa(() => validarEscolha({ escopo: "AREA", textoCanonico: "   " })).codigo).toBe(
+      "ARRUMACAO_SEM_TEXTO",
+    );
+  });
+
+  it("vínculo em branco é null, e nunca string vazia", () => {
+    const escolha = validarEscolha({
+      escopo: "ITEM",
+      textoCanonico: "Faturamento",
+      cargoId: "",
+      pessoaId: null,
+    });
+    expect(escolha.cargoId).toBeNull();
+    expect(escolha.pessoaId).toBeNull();
   });
 });

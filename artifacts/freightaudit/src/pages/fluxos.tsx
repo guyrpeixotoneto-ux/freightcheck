@@ -12,6 +12,7 @@ import {
   MoreVertical,
   Plus,
   Search,
+  Wand2,
   Workflow,
 } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
@@ -29,6 +30,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EditorDoFluxo } from "@/components/fluxos/editor-do-fluxo";
 import { MontadorPorTexto } from "@/components/fluxos/montador-por-texto";
+import { ArrumarResponsaveis } from "@/components/fluxos/arrumar-responsaveis";
 import { useEmpresaDosFluxos } from "@/components/fluxos/seletor-de-empresa";
 import {
   acentoDaCategoria,
@@ -90,6 +92,7 @@ export default function Fluxos() {
   const [incluirArquivados, setIncluirArquivados] = useState(false);
   const [criando, setCriando] = useState(false);
   const [colando, setColando] = useState(false);
+  const [arrumando, setArrumando] = useState(false);
 
   const catalogo = useCatalogoDeFluxos();
   const consulta = useFluxos(empresaId, incluirArquivados);
@@ -189,6 +192,22 @@ export default function Fluxos() {
             >
               <ListPlus className="mr-1.5 h-4 w-4" />
               Montar por texto
+            </Button>
+            {/*
+              A terceira porta, e é de manutenção: o responsável escrito à mão
+              antes da `0079` continua sendo texto, e arrumá-lo etapa por etapa
+              é o custo que faz ninguém arrumar. Aqui a decisão é uma e vale
+              para todas as etapas que dizem a mesma coisa. Fica no cabeçalho da
+              lista, e não dentro de um fluxo, porque o que ela arruma atravessa
+              todos eles.
+            */}
+            <Button
+              variant="outline"
+              onClick={() => setArrumando(true)}
+              disabled={empresaId === null}
+            >
+              <Wand2 className="mr-1.5 h-4 w-4" />
+              Arrumar responsáveis
             </Button>
             <Button
               onClick={() => setCriando(true)}
@@ -297,6 +316,12 @@ export default function Fluxos() {
           </>
         )}
       </main>
+
+      <ArrumarResponsaveis
+        aberto={arrumando}
+        empresaId={empresaId}
+        aoFechar={() => setArrumando(false)}
+      />
 
       {colando && (
         <MontadorPorTexto

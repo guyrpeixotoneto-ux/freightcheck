@@ -145,6 +145,20 @@ sempre — nenhuma delas fica esperando cadastro para funcionar.
 na frase, é `excluirDepartamento`/`excluirCargo` em `lib/db/src/cadastro.ts`; a
 chave estrangeira é a rede embaixo.
 
+**A arrumação em lote do que ficou em texto.** Como não houve backfill, o que
+já estava escrito continua escrito — e arrumá-lo etapa por etapa é o custo que
+faz ninguém arrumar. **Arrumar responsáveis**, no cabeçalho da lista de fluxos,
+agrupa o que ainda é texto pela identidade do nome (`canonizarNome`), mostra as
+grafias encontradas e a contagem de etapas, e liga o cadastro escolhido a todas
+elas de uma vez. Três decisões, em `lib/fluxos/src/arrumacao.ts`: a canonização
+não é reimplementada em SQL (a leitura agrupa e a escrita resolve os `id`s em
+memória, para que o conjunto alterado seja exatamente o que a pessoa viu); a
+sugestão é casamento exato **ou nenhuma** — inclusive quando o mesmo nome casa
+com dois cadastros, porque duas respostas certas é pergunta para gente; e o
+`UPDATE` só alcança linha ainda sem vínculo, o que torna a operação repetível e
+impede que uma tela de arrumação vire uma de sobrescrita em massa. O texto não é
+apagado: arrumar é acrescentar identidade, não remover história.
+
 A alternativa recusada foi desenhar grupo dentro do canvas: posicionamento,
 conexões atravessando a borda, layout e exportação todos recursivos, e a
 Jornada (que é lista) virando árvore — mesmo ganho de leitura, custo uma ordem
@@ -209,8 +223,17 @@ manda `empresaId` no `POST` e confirma que ele é ignorado.
 | POST | `/fluxos/:id/etapas/:etapaId/detalhar` | cria o fluxo do detalhe, já ligado, e o devolve |
 | PUT | `/fluxos/:id/etapas/:etapaId/subfluxo` | aponta a etapa para um fluxo que já existe |
 | DELETE | `/fluxos/:id/etapas/:etapaId/subfluxo` | desfaz a ligação (o detalhe continua existindo) |
+| GET | `/arrumacao/responsaveis` | o que ainda é texto, agrupado pela identidade do nome |
+| POST | `/arrumacao/responsaveis/aplicar` | liga um cadastro a todas as linhas que dizem aquele nome |
 
 Não há `PATCH /qualquer-coisa/:id`: cada caminho nomeia o que faz com o quê.
+
+As duas últimas ficam sob `/arrumacao`, e não sob `/fluxos`, pela mesma razão de
+`/monitoramento/fluxos` (seção 6): `GET /fluxos/arrumacao` seria um endereço de
+dois segmentos disputado pelo literal e pelo `:id` de `GET /fluxos/:id`, e
+bastaria reordenar as declarações do arquivo para a arrumação virar uma leitura
+de fluxo com `id = "arrumacao"`. Com namespace próprio, a colisão deixa de ser
+expressável.
 
 `GET /fluxos/:id` passou a trazer dois campos a mais por causa do subfluxo:
 `subfluxos` (o cabeçalho de cada detalhe referenciado, com a contagem de etapas
@@ -517,10 +540,12 @@ régua — daí `montarCanvas`, `resumoDoCartao`, `itensPorEspecie` e
    ajustar à largura, mas desenhar processo em 375px não é o caso de uso.
 10. **O vínculo de cadastro não é obrigatório, e o texto livre continua
     aceito.** É decisão, não pendência — exigir cadastro transformaria
-    "descrever um processo" em "cadastrar a estrutura da casa primeiro". O que
-    de fato falta é a ferramenta de arrumação: não há tela que mostre os
-    responsáveis ainda em texto livre e ofereça casá-los com o cadastro em
-    lote. Hoje isso se faz etapa a etapa.
+    "descrever um processo" em "cadastrar a estrutura da casa primeiro". A
+    arrumação em lote existe (**Arrumar responsáveis**, no cabeçalho da lista de
+    fluxos), e o que ela ainda não faz é sugerir por semelhança: `Fat.` aparece
+    sem sugestão, para alguém escolher. Expandir abreviação é o palpite que este
+    produto recusa em todo lugar, e uma sugestão aproximada num botão de lote
+    seria o pior lugar para começar a dar palpite.
 11. **A pessoa não é filtrada pelo departamento.** O cargo é — escolhido o
     departamento, a lista de cargos passa a ser a dele e a dos departamentos
     abaixo dele (`cargosDoDepartamento`), com três exceções que nunca somem: o

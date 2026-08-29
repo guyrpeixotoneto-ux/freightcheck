@@ -16,6 +16,7 @@ export * from "./validacao";
 export * from "./layout";
 export * from "./roteiro";
 export * from "./repositorio";
+export * from "./arrumacao";
 export * from "./semear";
 export * from "./monitoramento";
 export {
