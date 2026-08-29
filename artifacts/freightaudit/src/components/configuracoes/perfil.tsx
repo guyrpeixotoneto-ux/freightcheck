@@ -1,21 +1,25 @@
 import { useState } from "react";
-import { useMutation } from "@tanstack/react-query";
-import { Check, CheckCircle2, Copy, KeyRound, ShieldCheck } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Link } from "wouter";
+import { ArrowRight, Check, Copy, ShieldCheck } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Field, Refusal, post } from "@/components/configuracoes/campos";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
 /**
- * Meu Perfil — a única seção da casa que um operador mexe sozinho.
+ * Meu Perfil — quem a pessoa é, como o produto a conhece.
  *
  * Ela nasce de uma separação que a tela única não fazia: gerir contas é
- * trabalho de administrador; trocar a própria senha é de qualquer pessoa que
+ * trabalho de administrador; olhar a própria conta é de qualquer pessoa que
  * entrou. Enquanto as duas coisas dividiam a mesma aba, quem só queria a
  * segunda passava por uma lista inteira de pessoas para chegar nela — e um
  * operador via a lista de contas sem ter uma única ação sobre ela.
+ *
+ * **A troca da senha saiu daqui e virou Segurança**
+ * (`components/configuracoes/seguranca.tsx`). Esta tela ficou sendo o que ela
+ * sempre foi de fato — quatro linhas de leitura sobre a conta —, e a única
+ * operação que a pessoa faz sozinha deixou de morar no pé de uma folha de
+ * consulta, que é onde menos se procura por ela. O link para o novo lugar fica
+ * no fim desta, para quem chegar aqui por hábito.
  *
  * **Não há formulário de nome nem de e-mail, e a ausência é o assunto.** Os dois
  * campos são o que assina cada confirmação de curadoria e cada promoção de
@@ -63,7 +67,20 @@ export function PainelDoPerfil() {
         </CardContent>
       </Card>
 
-      <MinhaSenha />
+      {/*
+        A senha saiu daqui e virou seção — `Segurança`. Esta linha é o que
+        impede a mudança de esconder a operação de quem já sabia onde ela
+        ficava: quem vem trocar a senha chega em Meu Perfil por hábito, e sai
+        daqui em um clique, em vez de voltar ao índice para descobrir o novo
+        lugar.
+      */}
+      <Link
+        href="~/configuracoes/seguranca"
+        className="flex items-center gap-2 text-sm font-medium text-primary hover:underline"
+      >
+        Trocar a minha senha, em Segurança
+        <ArrowRight className="w-3.5 h-3.5" />
+      </Link>
     </div>
   );
 }
@@ -119,89 +136,3 @@ function IdDaConta({ id }: { id: string }) {
     </span>
   );
 }
-
-/**
- * A troca da própria senha.
- *
- * Exige a atual mesmo com a sessão aberta, e derruba as outras sessões da
- * pessoa — que é o que se quer quando se troca uma senha por desconfiança.
- */
-function MinhaSenha() {
-  const [currentPassword, setCurrent] = useState("");
-  const [newPassword, setNew] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState(false);
-
-  const change = useMutation({
-    mutationFn: () => post("/auth/password", { currentPassword, newPassword }),
-    onSuccess: () => {
-      setError(null);
-      setDone(true);
-      setCurrent("");
-      setNew("");
-    },
-    onError: (err: Error) => {
-      setDone(false);
-      setError(err.message);
-    },
-  });
-
-  return (
-    <Card>
-      <CardHeader className="pb-3">
-        <CardTitle className="text-base flex items-center gap-2">
-          <KeyRound className="w-4 h-4 text-primary" />
-          Minha senha
-        </CardTitle>
-        <p className="text-xs text-muted-foreground">
-          Trocar aqui encerra as suas outras sessões — esta aba continua aberta.
-        </p>
-      </CardHeader>
-      <CardContent>
-        <form
-          className="flex items-end gap-4 flex-wrap"
-          onSubmit={(e) => {
-            e.preventDefault();
-            change.mutate();
-          }}
-        >
-          <Field label="Senha atual" htmlFor="current-password">
-            <Input
-              id="current-password"
-              type="password"
-              value={currentPassword}
-              onChange={(e) => setCurrent(e.target.value)}
-              autoComplete="current-password"
-              className="w-56"
-              required
-            />
-          </Field>
-          <Field label="Senha nova" htmlFor="next-password">
-            <Input
-              id="next-password"
-              type="password"
-              value={newPassword}
-              onChange={(e) => setNew(e.target.value)}
-              autoComplete="new-password"
-              placeholder="mínimo 10 caracteres"
-              className="w-56"
-              required
-            />
-          </Field>
-          <Button type="submit" disabled={change.isPending}>
-            {change.isPending ? "Trocando…" : "Trocar senha"}
-          </Button>
-        </form>
-
-        {error && <div className="mt-4"><Refusal>{error}</Refusal></div>}
-        {done && (
-          <p className="flex items-center gap-2 text-sm text-emerald-700 mt-4">
-            <CheckCircle2 className="w-4 h-4 shrink-0" />
-            Senha trocada.
-          </p>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-

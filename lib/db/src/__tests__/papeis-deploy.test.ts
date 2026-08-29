@@ -388,14 +388,17 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
         "user_session.impersonation_started_at",
         /*
           As duas da `0077` — o telefone da pessoa e o gestor a quem ela
-          reporta. Aditivas e nulas como as primeiras da lista, e sem backfill:
-          `NULL` no telefone é quem não deu o número, e `NULL` no gestor é quem
-          está no topo do organograma — nenhuma das duas é dado por preencher.
+          reporta. Aditivas e nulas como as primeiras da lista, e sem backfill
+          nenhum: `NULL` nas duas é o estado de toda conta que já existe, e a
+          própria migration diz que `NULL` em `gestor_id` é "não reporta a
+          ninguém", não "não se sabe".
 
-          Saem em `app_user`, tabela que Production já tem, e é por isso que
-          aparecem aqui em vez de chegarem dentro de um `addTable`. `gestor_id`
-          não tem FK para `app_user` pela mesma razão da `0076`, e esta linha é
-          uma delas.
+          Saem numa tabela que Production **já tem** (`app_user`), que é o caso
+          para o qual esta lista é fechada. Atravessam pela forma: nuláveis, sem
+          default e **sem chave estrangeira** — a `0077` recusa a FK de
+          `gestor_id` para `app_user` pela mesma razão que a `0076` recusou a
+          dela, e esta linha é uma das razões que ela cita: uma constraint nova
+          sobre tabela existente apareceria neste diff.
         */
         "app_user.telefone",
         "app_user.gestor_id",
