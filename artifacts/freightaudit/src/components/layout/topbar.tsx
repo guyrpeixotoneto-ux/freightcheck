@@ -51,7 +51,7 @@ export function Topbar({
   const ambiente = descricaoDoAmbiente(useAmbiente());
 
   return (
-    <header className="h-16 bg-topbar text-topbar-foreground flex items-center gap-2 md:gap-4 px-3 md:px-4 shrink-0 sticky top-0 z-40">
+    <header className="h-16 bg-topbar text-topbar-foreground flex items-center gap-2 md:gap-4 px-3 md:px-4 shrink-0">
       <button
         type="button"
         onClick={onToggleSidebar}

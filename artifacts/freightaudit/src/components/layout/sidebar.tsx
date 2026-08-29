@@ -196,13 +196,18 @@ export function Sidebar({ open }: { open: boolean }) {
     /*
      * A lateral rola dentro de si, e nunca empurra a página.
      *
-     * Ela é da altura da tela menos a faixa vermelha, gruda ali, e o que não
-     * couber rola aqui dentro. Enquanto era `self-stretch` num flex que crescia,
-     * o menu mais alto que a tela alongava o documento inteiro — e a barra de
-     * rolagem aparecia numa página que cabia, o que é o defeito mais difícil de
-     * atribuir à causa certa.
+     * Ela é da altura da tela menos o cabeçalho da casca, gruda logo abaixo
+     * dele, e o que não couber rola aqui dentro. Enquanto era `self-stretch`
+     * num flex que crescia, o menu mais alto que a tela alongava o documento
+     * inteiro — e a barra de rolagem aparecia numa página que cabia, o que é o
+     * defeito mais difícil de atribuir à causa certa.
+     *
+     * A altura do cabeçalho vem de `--casca-topo`, que a própria casca mede
+     * (`layout.tsx`), e não dos `4rem` que estavam escritos aqui: com a faixa
+     * "visualizando como" na tela o cabeçalho mede mais do que isso, e a
+     * lateral nascia alta demais e deslizava por baixo da faixa.
      */
-    <aside className="hidden md:flex w-[19rem] bg-sidebar text-sidebar-foreground border-r border-sidebar-border shrink-0 flex-col sticky top-16 h-[calc(100dvh-4rem)]">
+    <aside className="hidden md:flex w-[19rem] bg-sidebar text-sidebar-foreground border-r border-sidebar-border shrink-0 flex-col sticky top-[var(--casca-topo)] h-[calc(100dvh-var(--casca-topo))]">
       <div className="overflow-y-auto flex-1">
         <SeletorDeUnidade ambiente={ambiente} />
 
@@ -344,7 +349,7 @@ function FaixaDeIcones({
   paraOAssistente: string;
 }) {
   return (
-    <aside className="hidden md:flex w-16 bg-sidebar text-sidebar-foreground border-r border-sidebar-border shrink-0 flex-col sticky top-16 h-[calc(100dvh-4rem)]">
+    <aside className="hidden md:flex w-16 bg-sidebar text-sidebar-foreground border-r border-sidebar-border shrink-0 flex-col sticky top-[var(--casca-topo)] h-[calc(100dvh-var(--casca-topo))]">
       <div className="overflow-y-auto flex-1 py-2">
         <UnidadeNaFaixa />
 

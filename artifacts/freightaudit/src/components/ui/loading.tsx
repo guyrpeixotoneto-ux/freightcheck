@@ -4,9 +4,15 @@ export function LoadingSpinner({ className }: { className?: string }) {
   return <Loader2 className={`animate-spin ${className || "w-6 h-6"}`} />;
 }
 
+/*
+ * A altura do vazio é a da janela menos o cabeçalho da casca, que se mede
+ * sozinho em `--casca-topo` (`components/layout/layout.tsx`). O `4rem` de
+ * reserva é para quem renderizar isto fora da casca, onde não há cabeçalho
+ * medido — dentro dela, a variável sempre existe.
+ */
 export function PageLoading() {
   return (
-    <div className="flex flex-1 items-center justify-center p-8 h-[calc(100vh-4rem)]">
+    <div className="flex flex-1 items-center justify-center p-8 h-[calc(100dvh-var(--casca-topo,4rem))]">
       <div className="flex flex-col items-center gap-4 text-muted-foreground">
         <LoadingSpinner className="w-8 h-8 text-primary" />
         <p className="text-sm font-medium animate-pulse">Carregando dados...</p>
