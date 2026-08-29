@@ -56,7 +56,10 @@ function enderecoAberto(): string {
     : caminho;
 }
 
-export function comOperacao(caminho: string, enderecoDoNavegador: string): string {
+export function comOperacao(
+  caminho: string,
+  enderecoDoNavegador: string,
+): string {
   const ambiente = ambienteDe(enderecoDoNavegador);
   if (!ehAuditoria(ambiente)) return caminho;
 
@@ -86,6 +89,47 @@ export function comOperacao(caminho: string, enderecoDoNavegador: string): strin
  * O objetivo não é apertar o normal — é garantir que o anormal termine.
  */
 const TEMPO_LIMITE_MS = 45_000;
+
+/**
+ * O carimbo que o servidor escreve em toda resposta — e o que ele resolve aqui.
+ *
+ * `middlewares/carimbo-da-api.ts` põe `X-FreightCheck-API: 1` e
+ * `X-Request-Id` em **toda** resposta que sai do Express, inclusive o 401 sem
+ * sessão, o 503 do portão de prontidão e o 500 do contrato. A recíproca é o
+ * que se lê aqui: resposta sem o carimbo não passou por lá, e quem a escreveu
+ * foi uma camada intermediária.
+ *
+ * Até aqui essa conclusão era tirada do **formato do corpo** — "não é JSON,
+ * logo não é nossa". A regra acerta na maioria das vezes e erra justamente nos
+ * casos caros: um 502 de corpo vazio do roteador e um 204 legítimo da API são
+ * o mesmo corpo, e um 500 nosso em JSON é indistinguível, pelo corpo, de um
+ * proxy que responda JSON. O cabeçalho é fato, e não formato.
+ *
+ * Numa resposta opaca (`type: "opaqueredirect"`) o navegador não deixa ler
+ * cabeçalho nenhum — e essa ausência não é observação, então nada é afirmado.
+ */
+function carimboDe(resposta: Response): {
+  carimboDaApi?: boolean;
+  requestId?: string;
+} {
+  if (resposta.type === "opaque" || resposta.type === "opaqueredirect")
+    return {};
+  /*
+    Sem cabeçalhos legíveis, nada é afirmado. Não é paranoia: além da resposta
+    opaca, os testes desta interface constroem dublês parciais de `Response`
+    para exercitar o corpo cortado no meio, e uma leitura de cabeçalho que
+    explodisse ali trocaria o diagnóstico do transporte por um `TypeError`
+    nosso — exatamente o erro de diagnóstico que `requisitar` existe para não
+    cometer.
+  */
+  const cabecalhos = (resposta as { headers?: Headers }).headers;
+  if (typeof cabecalhos?.get !== "function") return {};
+  const id = cabecalhos.get("x-request-id");
+  return {
+    carimboDaApi: cabecalhos.get("x-freightcheck-api") === "1",
+    ...(id ? { requestId: id } : {}),
+  };
+}
 
 /** Os status que significam "vá procurar noutro endereço". */
 function ehRedirect(status: number): boolean {
@@ -124,7 +168,10 @@ async function requisitar(path: string, init?: RequestInit): Promise<Response> {
   const inicio =
     typeof performance !== "undefined" ? performance.now() : Date.now();
   const decorrido = () =>
-    Math.round((typeof performance !== "undefined" ? performance.now() : Date.now()) - inicio);
+    Math.round(
+      (typeof performance !== "undefined" ? performance.now() : Date.now()) -
+        inicio,
+    );
 
   const controlador = new AbortController();
   let esgotouTempo = false;
@@ -182,9 +229,12 @@ async function requisitar(path: string, init?: RequestInit): Promise<Response> {
         resposta.type === "opaqueredirect"
           ? null
           : resposta.headers.get("location");
+      const { carimboDaApi } = carimboDe(resposta);
       console.warn(
         `[transporte] ${url} — DESVIADA${destino ? ` para ${destino}` : ""}, ` +
-          `${decorrido()}ms. A chamada não chegou à API.`,
+          `${decorrido()}ms, status ${resposta.status}, ` +
+          `carimbo da API: ${carimboDaApi === undefined ? "ilegível (resposta opaca)" : carimboDaApi}. ` +
+          `A chamada não chegou à API.`,
       );
       throw new ErroDeTransporte(
         diagnosticarTransporte({ desviadaPara: destino }),
@@ -224,7 +274,11 @@ async function requisitar(path: string, init?: RequestInit): Promise<Response> {
     throw new ErroDeTransporte(
       diagnosticarTransporte(
         esgotouTempo
-          ? { naoCompletou: true, esgotouTempo: true, tempoLimiteMs: TEMPO_LIMITE_MS }
+          ? {
+              naoCompletou: true,
+              esgotouTempo: true,
+              tempoLimiteMs: TEMPO_LIMITE_MS,
+            }
           : {
               naoCompletou: true,
               ...(err instanceof Error && err.message !== ""
@@ -251,7 +305,9 @@ async function requisitar(path: string, init?: RequestInit): Promise<Response> {
  * `undefined`, e o React derruba a árvore inteira: tela branca, com o motivo
  * verdadeiro (o banco) invisível.
  */
-export async function readJson(response: Response): Promise<Record<string, unknown>> {
+export async function readJson(
+  response: Response,
+): Promise<Record<string, unknown>> {
   /*
     Ler o corpo também pode falhar, e a falha tem status.
 
@@ -273,6 +329,7 @@ export async function readJson(response: Response): Promise<Record<string, unkno
       diagnosticarTransporte({
         status: response.status,
         corpoVazio: true,
+        ...carimboDe(response),
         ...(err instanceof Error && err.message !== ""
           ? { motivo: err.message }
           : {}),
@@ -289,14 +346,22 @@ export async function readJson(response: Response): Promise<Record<string, unkno
   */
   if (!text.trim()) {
     throw new ErroDeTransporte(
-      diagnosticarTransporte({ status: response.status, corpoVazio: true }),
+      diagnosticarTransporte({
+        status: response.status,
+        corpoVazio: true,
+        ...carimboDe(response),
+      }),
     );
   }
   try {
     return JSON.parse(text) as Record<string, unknown>;
   } catch {
     throw new ErroDeTransporte(
-      diagnosticarTransporte({ status: response.status, corpoNaoJson: text }),
+      diagnosticarTransporte({
+        status: response.status,
+        corpoNaoJson: text,
+        ...carimboDe(response),
+      }),
     );
   }
 }
@@ -407,9 +472,17 @@ export function erroDaResposta(
       ...(ehDiagnostico(body.diagnostico)
         ? { diagnostico: body.diagnostico }
         : {}),
+      /*
+        O corpo primeiro, o cabeçalho depois. São o mesmo identificador, e o
+        cabeçalho existe justamente para as respostas cujo corpo não o traz —
+        um 204, um erro de rota que só escreveu `error`. Ver
+        `middlewares/carimbo-da-api.ts`.
+      */
       ...(typeof body.requestId === "string" && body.requestId !== ""
         ? { requestId: body.requestId }
-        : {}),
+        : carimboDe(response).requestId
+          ? { requestId: carimboDe(response).requestId as string }
+          : {}),
     },
   );
 }
@@ -433,7 +506,10 @@ function semConteudo(response: Response): boolean {
   return response.status === 204 || response.status === 205;
 }
 
-export async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
+export async function fetchJson<T>(
+  path: string,
+  init?: RequestInit,
+): Promise<T> {
   const response = await requisitar(path, init);
   if (response.ok && semConteudo(response)) return undefined as T;
   const body = await readJson(response);
