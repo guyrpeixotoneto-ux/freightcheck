@@ -387,6 +387,22 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
         "user_session.impersonated_user_id",
         "user_session.impersonation_started_at",
         /*
+          As duas da `0077` — o telefone da pessoa e o gestor a quem ela
+          reporta. Aditivas e nulas como as primeiras da lista, e sem backfill
+          nenhum: `NULL` nas duas é o estado de toda conta que já existe, e a
+          própria migration diz que `NULL` em `gestor_id` é "não reporta a
+          ninguém", não "não se sabe".
+
+          Saem numa tabela que Production **já tem** (`app_user`), que é o caso
+          para o qual esta lista é fechada. Atravessam pela forma: nuláveis, sem
+          default e **sem chave estrangeira** — a `0077` recusa a FK de
+          `gestor_id` para `app_user` pela mesma razão que a `0076` recusou a
+          dela, e esta linha é uma das razões que ela cita: uma constraint nova
+          sobre tabela existente apareceria neste diff.
+        */
+        "app_user.telefone",
+        "app_user.gestor_id",
+        /*
           A coluna que a `0046` acrescentou a `fechamento_competencia` **não**
           entra aqui, e a ausência é a informação: o diff a reporta pela tabela,
           não pela coluna, porque Production não tem nenhuma das treze do
