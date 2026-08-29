@@ -1,4 +1,5 @@
 import { and, eq, gt, isNull, lt, ne, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import {
   appUserTable,
   cargoTable,
@@ -240,28 +241,76 @@ export async function startSession(
 }
 
 /**
+ * Uma sessão viva, resolvida — e por que ela tem duas contas dentro.
+ *
+ * Enquanto ninguém está visualizando ninguém, `usuario` e `dono` são a mesma
+ * pessoa e este tipo é uma embalagem sem graça em volta do que sempre esteve
+ * aqui. Ele existe pelo outro caso: um administrador olhando o produto como
+ * outra conta (`impersonated_user_id`, ver `schema/auth.ts`).
+ *
+ * A separação é a coisa mais importante deste arquivo hoje: **`usuario` é a
+ * conta que a tela vale, `dono` é quem digitou a senha.** O menu, as permissões
+ * e o que aparece em cada tela seguem `usuario` — é justamente isso que se foi
+ * ver. O log, a faixa do topo e a decisão de recusar escrita seguem `dono` — é
+ * ele quem responde pelo que a sessão faz. Colapsar os dois num campo só faria
+ * o produto ou mostrar a tela errada ou atribuir o ato à pessoa errada, e a
+ * segunda é imperdoável num produto que existe para dizer quem fez.
+ */
+export interface ResolvedSession {
+  /** A conta pelos olhos de quem a requisição enxerga o produto. */
+  usuario: SessionUser;
+  /** Quem entrou com a própria senha. Igual a `usuario` fora da visualização. */
+  dono: SessionUser;
+  /** Desde quando a visualização está aberta; `null` quando não há nenhuma. */
+  visualizacaoDesde: Date | null;
+}
+
+/**
  * Quem é o dono deste token — ou null, que é a resposta para tudo que não seja
  * uma sessão viva de uma conta ativa: token inexistente, expirado, ou de
  * alguém desativado desde que entrou.
+ *
+ * **A visualização só é honrada se a conta visualizada continuar ativa.** É a
+ * razão pela qual `impersonated_user_id` pode viver sem chave estrangeira: uma
+ * conta desativada (ou uma linha que sumisse) faz a sessão voltar sozinha a ser
+ * a de quem entrou, em vez de virar uma sessão de ninguém. Desativar alguém
+ * derruba as sessões *dele*; esta é a outra ponta do mesmo ato.
  */
 export async function resolveSession(
   db: Database,
   token: string,
-): Promise<SessionUser | null> {
+): Promise<ResolvedSession | null> {
   if (!token) return null;
+
+  /* O alias é obrigatório: as duas pontas da junção são a mesma tabela, e sem
+     ele o SQL sairia com `app_user` duas vezes e o Postgres não saberia de
+     qual coluna se está falando. */
+  const visualizado = alias(appUserTable, "visualizado");
 
   const tokenHash = hashSessionToken(token);
   const [row] = await db
     .select({
       sessionId: userSessionTable.id,
       lastSeenAt: userSessionTable.lastSeenAt,
+      visualizacaoDesde: userSessionTable.impersonationStartedAt,
       id: appUserTable.id,
       name: appUserTable.name,
       email: appUserTable.email,
-        role: appUserTable.role,
+      role: appUserTable.role,
+      alvoId: visualizado.id,
+      alvoName: visualizado.name,
+      alvoEmail: visualizado.email,
+      alvoRole: visualizado.role,
     })
     .from(userSessionTable)
     .innerJoin(appUserTable, eq(appUserTable.id, userSessionTable.userId))
+    .leftJoin(
+      visualizado,
+      and(
+        eq(visualizado.id, userSessionTable.impersonatedUserId),
+        isNull(visualizado.disabledAt),
+      ),
+    )
     .where(
       and(
         eq(userSessionTable.tokenHash, tokenHash),
@@ -280,7 +329,55 @@ export async function resolveSession(
       .where(eq(userSessionTable.id, row.sessionId));
   }
 
-  return { id: row.id, name: row.name, email: row.email, role: row.role };
+  const dono: SessionUser = {
+    id: row.id,
+    name: row.name,
+    email: row.email,
+    role: row.role,
+  };
+
+  if (row.alvoId === null) {
+    return { usuario: dono, dono, visualizacaoDesde: null };
+  }
+
+  return {
+    usuario: {
+      id: row.alvoId,
+      name: row.alvoName!,
+      email: row.alvoEmail!,
+      role: row.alvoRole!,
+    },
+    dono,
+    visualizacaoDesde: row.visualizacaoDesde,
+  };
+}
+
+/**
+ * Abre e fecha a visualização desta sessão — quem pode fazê-lo é decisão da
+ * rota (`routes/auth.ts`), que é onde o papel de quem pede está à mão.
+ *
+ * O alvo é gravado na linha da própria sessão, e não numa tabela à parte: é o
+ * que faz a visualização morrer junto com a sessão, sem nenhuma limpeza.
+ */
+export async function iniciarVisualizacao(
+  db: Database,
+  token: string,
+  alvoId: string,
+): Promise<void> {
+  await db
+    .update(userSessionTable)
+    .set({ impersonatedUserId: alvoId, impersonationStartedAt: new Date() })
+    .where(eq(userSessionTable.tokenHash, hashSessionToken(token)));
+}
+
+export async function encerrarVisualizacao(
+  db: Database,
+  token: string,
+): Promise<void> {
+  await db
+    .update(userSessionTable)
+    .set({ impersonatedUserId: null, impersonationStartedAt: null })
+    .where(eq(userSessionTable.tokenHash, hashSessionToken(token)));
 }
 
 /** Sair é apagar a linha: um logout que só limpasse o cookie deixaria o token

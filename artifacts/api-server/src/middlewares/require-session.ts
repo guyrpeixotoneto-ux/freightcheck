@@ -10,8 +10,26 @@ import {
 declare global {
   namespace Express {
     interface Request {
-      /** Quem está autenticado nesta requisição. Ausente = ninguém. */
+      /**
+       * A conta que esta requisição vale. Ausente = ninguém.
+       *
+       * Durante um "visualizar como" é a conta **visualizada**: é ela que o
+       * menu, as permissões e as telas seguem — ver o produto pelos olhos de
+       * alguém é exatamente o que se foi fazer. Quem responde pela sessão é
+       * `donoDaSessao`, logo abaixo, e é por isso que escrita fica recusada
+       * enquanto a visualização estiver aberta
+       * (`middlewares/visualizacao-como.ts`).
+       */
       user?: SessionUser;
+      /**
+       * Quem digitou a senha. Igual a `user` fora de uma visualização.
+       *
+       * Nunca é `undefined` quando `user` não é: toda sessão tem dono. Quem
+       * precisa dele é o log e a decisão de recusar escrita — nunca a tela.
+       */
+      donoDaSessao?: SessionUser;
+      /** Desde quando a visualização está aberta; ausente quando não há. */
+      visualizacaoDesde?: Date;
     }
   }
 }
@@ -33,8 +51,14 @@ export const requireSession: RequestHandler = async (req, res, next) => {
 
   if (typeof token === "string" && token !== "") {
     try {
-      const user = await resolveSession(db, token);
-      if (user) req.user = user;
+      const sessao = await resolveSession(db, token);
+      if (sessao) {
+        req.user = sessao.usuario;
+        req.donoDaSessao = sessao.dono;
+        if (sessao.visualizacaoDesde !== null) {
+          req.visualizacaoDesde = sessao.visualizacaoDesde;
+        }
+      }
     } catch (err) {
       /*
         O banco fora não é "não autenticado": responder 401 mandaria para a

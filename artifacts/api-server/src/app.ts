@@ -6,6 +6,7 @@ import pinoHttp from "pino-http";
 import router from "./routes";
 import { requireSession } from "./middlewares/require-session";
 import { portaoDePermissao } from "./middlewares/portao-de-permissao";
+import { visualizacaoSomenteLeitura } from "./middlewares/visualizacao-como";
 import { portaoDeProntidao } from "./middlewares/portao-de-prontidao";
 import { erroEmJson, rotaDesconhecida } from "./middlewares/contrato-json";
 import { logger } from "./lib/logger";
@@ -124,6 +125,15 @@ app.use("/api", requireSession);
  * `middlewares/portao-de-permissao.ts`, inclusive para o que ele
  * deliberadamente não bloqueia.
  */
+/**
+ * Entre a sessão e a permissão: a visualização não escreve.
+ *
+ * Aqui, e não dentro do portão de permissão, porque a recusa é de outra
+ * natureza — não é sobre o que a conta pode, é sobre a sessão estar aberta pelos
+ * olhos de outra pessoa. Ver `middlewares/visualizacao-como.ts`.
+ */
+app.use("/api", visualizacaoSomenteLeitura);
+
 app.use("/api", portaoDePermissao);
 app.use("/api", router);
 

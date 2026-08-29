@@ -30,6 +30,22 @@ export interface SessionUser {
  */
 export type Nivel = "EDITAR" | "VISUALIZAR" | "SEM_ACESSO";
 
+/**
+ * A visualização aberta — um administrador olhando o produto como outra conta.
+ *
+ * `alvo` é quem `user` já é: durante uma visualização, `user` **é** a conta
+ * visualizada, porque é ela que o menu e as telas seguem. O que este objeto
+ * acrescenta é o que a interface não teria como saber sozinha — que a sessão é
+ * de outra pessoa, e de quem.
+ */
+export interface Visualizacao {
+  /** Quem está visualizando: o dono da sessão, que digitou a própria senha. */
+  por: SessionUser;
+  /** A conta visualizada — a mesma que está em `user`. */
+  alvo: SessionUser;
+  desde: string;
+}
+
 interface SessionState {
   user: SessionUser | null;
   /**
@@ -37,6 +53,8 @@ interface SessionState {
    * a ausência como bloqueio esvaziaria o menu de quem nunca foi restringido.
    */
   permissoes?: Record<string, Nivel>;
+  /** Nulo é o estado normal: ninguém está visualizando ninguém. */
+  visualizacao?: Visualizacao | null;
 }
 
 export const SESSION_QUERY_KEY = ["auth", "session"] as const;
@@ -63,8 +81,18 @@ interface AuthContextValue {
   erroDaSessao: unknown;
   /** As restrições que valem para quem está logado — ver `lib/permissoes.ts`. */
   permissoes: Record<string, Nivel>;
+  /**
+   * A visualização aberta, ou `null`. Quem a mostra é a faixa do topo
+   * (`components/layout/visualizacao-como.tsx`) — e ela é a única coisa na
+   * interface que diz que `user` não é quem está logado.
+   */
+  visualizacao: Visualizacao | null;
   login: (input: { email: string; password: string }) => Promise<void>;
   logout: () => Promise<void>;
+  /** Abre o produto como outra conta. Só administrador; o servidor confere. */
+  visualizarComo: (userId: string) => Promise<void>;
+  /** Volta ao próprio perfil. Nunca falha por permissão — é desfazer. */
+  pararDeVisualizar: () => Promise<void>;
   isSubmitting: boolean;
 }
 
@@ -120,6 +148,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
   });
 
+  /**
+   * Trocar de conta visualizada é trocar de sessão para todos os efeitos que
+   * importam aqui: o que está em cache foi lido com o acesso de outra pessoa.
+   * Por isso as duas mutações abaixo passam por `replaceSession`, exatamente
+   * como o login e o logout — e pela mesma razão.
+   */
+  const visualizarComo = useMutation({
+    mutationFn: (userId: string) =>
+      fetchJson<SessionState>("/auth/visualizar-como", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId }),
+      }),
+    onSuccess: (next) => replaceSession(next),
+  });
+
+  const pararDeVisualizar = useMutation({
+    mutationFn: () =>
+      fetchJson<SessionState>("/auth/visualizar-como/parar", { method: "POST" }),
+    onSuccess: (next) => replaceSession(next),
+  });
+
   const logout = useMutation({
     mutationFn: () =>
       fetchJson<SessionState>("/auth/logout", { method: "POST" }),
@@ -132,6 +182,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const value: AuthContextValue = {
     user: session.data?.user ?? null,
     permissoes: session.data?.permissoes ?? {},
+    visualizacao: session.data?.visualizacao ?? null,
     isLoading: session.isPending,
     erroDaSessao: session.isError ? session.error : null,
     login: async (input) => {
@@ -140,7 +191,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     logout: async () => {
       await logout.mutateAsync();
     },
-    isSubmitting: login.isPending || logout.isPending,
+    visualizarComo: async (userId: string) => {
+      await visualizarComo.mutateAsync(userId);
+    },
+    pararDeVisualizar: async () => {
+      await pararDeVisualizar.mutateAsync();
+    },
+    isSubmitting:
+      login.isPending ||
+      logout.isPending ||
+      visualizarComo.isPending ||
+      pararDeVisualizar.isPending,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

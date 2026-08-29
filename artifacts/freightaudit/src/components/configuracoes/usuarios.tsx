@@ -1,9 +1,11 @@
 import { useMemo, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import {
   Ban,
   Check,
   CheckCircle2,
+  ChevronDown,
   Copy,
   Eye,
   HelpCircle,
@@ -53,6 +55,15 @@ import { cn } from "@/lib/utils";
  * quem desenhou a tela esperava encontrar; o que ele faz é o que o produto pode
  * honestamente fazer — e a confirmação diz isso com todas as letras antes de
  * acontecer.
+ *
+ * **O olho abre o produto como aquela pessoa.** Era a pergunta que esta tela
+ * fazia e não respondia — *o que ela vê quando entra?* —, e a resposta que se
+ * dava era redefinir a senha de alguém para entrar com a conta dele, derrubando
+ * a pessoa do sistema para satisfazer uma dúvida. Agora é um clique: a sessão
+ * continua sendo a de quem clicou, uma faixa laranja no topo diz de quem é a
+ * máscara, e o servidor recusa toda escrita enquanto ela durar — o porquê está
+ * em `middlewares/visualizacao-como.ts`, e ele é o mesmo do login. Os detalhes
+ * da conta, que moravam neste ícone, passaram para a seta ao lado.
  *
  * A troca da **própria** senha não está aqui: ela é de Meu Perfil, porque é a
  * única coisa desta lista que um operador faz sobre si mesmo. O que cada pessoa
@@ -502,7 +513,8 @@ type Painel = "nenhum" | "detalhes" | "edicao" | "senha" | "desativar";
 
 function UserRow({ user }: { user: ManagedUser }) {
   const queryClient = useQueryClient();
-  const { user: me } = useAuth();
+  const [, navegar] = useLocation();
+  const { user: me, visualizarComo, isSubmitting } = useAuth();
   const [error, setError] = useState<string | null>(null);
   const [painel, setPainel] = useState<Painel>("nenhum");
   const [newPassword, setNewPassword] = useState("");
@@ -514,6 +526,39 @@ function UserRow({ user }: { user: ManagedUser }) {
   const disabled = user.disabledAt !== null;
   const isMe = me?.id === user.id;
   const souAdmin = me?.role === "ADMIN";
+
+  /*
+    O olho abre o produto **como** aquela pessoa — a pergunta que esta tela
+    fazia sem conseguir responder: *o que ela vê quando entra?* O menu dela sai
+    das permissões dela, e ler a tela de Permissões não é a mesma coisa que
+    abrir a tela. Ver `lib/auth.tsx` e `routes/auth.ts`.
+
+    A sessão continua sendo a de quem clicou — nada de senha, nada de login —, e
+    o servidor recusa qualquer escrita enquanto a visualização estiver aberta. A
+    faixa laranja no topo diz as duas coisas, e é por ela que se volta.
+
+    Duas contas não se visualizam, e a razão é a mesma nos dois casos — não há o
+    que ver: a própria (já se está dentro dela) e uma desativada (ela não entra
+    no sistema).
+  */
+  const porQueNaoVisualizar = isMe
+    ? "Esta é a sua conta — é o que você já está vendo."
+    : disabled
+      ? "Conta desativada: ela não entra no sistema, então não há o que visualizar."
+      : null;
+
+  const olhar = useMutation({
+    mutationFn: () => visualizarComo(user.id),
+    /*
+      Sai de Configurações ao entrar: a conta visualizada quase nunca alcança
+      esta tela, e ficar nela mostraria a recusa de acesso como primeira coisa
+      da visualização — o produto respondendo "você não pode" a quem acabou de
+      pedir para ver o que a pessoa pode. A home do produto é o que ela vê ao
+      entrar, que é justamente o que se foi conferir.
+    */
+    onSuccess: () => navegar("~/"),
+    onError: (err: Error) => setError(err.message),
+  });
 
   const recarregar = () => queryClient.invalidateQueries({ queryKey: CHAVE_DAS_CONTAS });
 
@@ -638,14 +683,45 @@ function UserRow({ user }: { user: ManagedUser }) {
             />
           )}
 
+          {/*
+            O olho é "ver o produto como esta pessoa"; os detalhes da conta
+            passaram para a seta ao lado. A troca é deliberada: o olho é o ícone
+            que quem desenhou a tela procura para *ver pelos olhos de alguém*, e
+            era o único gesto desta linha que não fazia nada além de abrir um
+            parágrafo de texto que a seta abre igual.
+          */}
+          {souAdmin && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              aria-label={`Ver o produto como ${user.name}`}
+              title={
+                porQueNaoVisualizar ??
+                `Abre o produto como ${user.name} vê. A sessão continua sendo a sua, e nada pode ser alterado enquanto durar.`
+              }
+              disabled={porQueNaoVisualizar !== null || olhar.isPending || isSubmitting}
+              onClick={() => olhar.mutate()}
+            >
+              <Eye className="w-4 h-4" />
+            </Button>
+          )}
+
           <Button
             variant="ghost"
             size="icon"
             className="h-8 w-8"
             aria-label={`Ver detalhes de ${user.name}`}
+            title="Último acesso, sessões abertas, quem criou a conta."
+            aria-expanded={painel === "detalhes"}
             onClick={() => alternar("detalhes")}
           >
-            <Eye className="w-4 h-4" />
+            <ChevronDown
+              className={cn(
+                "w-4 h-4 transition-transform",
+                painel === "detalhes" && "rotate-180",
+              )}
+            />
           </Button>
 
           {souAdmin && (

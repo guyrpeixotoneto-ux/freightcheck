@@ -7,9 +7,12 @@ import {
 } from "../lib/auth";
 import {
   SESSION_COOKIE,
+  encerrarVisualizacao,
   endSession,
   findPasswordHash,
+  findUserById,
   findUserForLogin,
+  iniciarVisualizacao,
   purgeExpiredSessions,
   resolveSession,
   setUserPassword,
@@ -32,6 +35,11 @@ import { permissoesDe } from "../lib/permissoes";
  * por esse caso, e é por isso que ele não é opcional.
  */
 const router: IRouter = Router();
+
+/** O mesmo formato conferido em `routes/users.ts`, pela mesma razão: um `id`
+ * torto vira 400 com a frase certa, e não uma consulta que o Postgres recusa. */
+const UUID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * Tentativas erradas seguidas, por e-mail.
@@ -138,10 +146,18 @@ router.get("/auth/session", async (req, res): Promise<void> => {
     um handler `async` para lá sozinho.
   */
   const token: unknown = req.cookies?.[SESSION_COOKIE];
-  const user =
+  const sessao =
     typeof token === "string" && token !== ""
       ? await resolveSession(db, token)
       : null;
+  /*
+    `user` é a conta **visualizada** quando há visualização, e é o certo: é ela
+    que o menu e as telas seguem, porque ver o produto pelos olhos de alguém é
+    exatamente o que a faixa do topo promete. Quem está de fato logado sai em
+    `visualizacao.por`, e a faixa o escreve com todas as letras — a interface
+    nunca esconde de quem está olhando que ela está olhando por outro.
+  */
+  const user = sessao?.usuario ?? null;
 
   /*
     As permissões vêm junto, e não numa segunda chamada: é a lateral que as
@@ -154,7 +170,157 @@ router.get("/auth/session", async (req, res): Promise<void> => {
   */
   const permissoes = user ? await permissoesDe(db, user.id) : {};
 
-  res.json({ user, permissoes });
+  res.json({
+    user,
+    permissoes,
+    /*
+      Nulo é a resposta normal, e é o que a interface espera para não desenhar
+      faixa nenhuma. Quando não é nulo, traz os dois nomes: sem o de quem
+      visualiza, a faixa diria "visualizando como Bruno" sem dizer quem está
+      visualizando — e quem abrisse a tela de outra pessoa não teria como saber
+      de quem é a sessão que está na frente dele.
+    */
+    visualizacao:
+      sessao && sessao.visualizacaoDesde !== null
+        ? {
+            por: sessao.dono,
+            alvo: sessao.usuario,
+            desde: sessao.visualizacaoDesde.toISOString(),
+          }
+        : null,
+  });
+});
+
+/**
+ * Visualizar o produto como outra conta — o olho da tela de Usuários.
+ *
+ * A pergunta que isto responde não tinha resposta honesta: *o que esta pessoa
+ * vê quando entra?* O menu dela sai das permissões dela, e ler a tabela de
+ * permissões não é a mesma coisa que abrir a tela. O que se fazia no lugar era
+ * redefinir a senha de alguém para entrar com a conta dela — o que derruba a
+ * pessoa do sistema para responder uma pergunta e apaga a diferença entre o que
+ * ela fez e o que fizeram no nome dela.
+ *
+ * As decisões, todas ditas em voz alta:
+ *
+ * · **Só administrador**, e o papel conferido é o de quem digitou a senha —
+ *   `donoDaSessao`, nunca `req.user`. Fosse `req.user`, um administrador que
+ *   estivesse visualizando um operador continuaria administrador aos olhos
+ *   desta rota; visualizando **outro administrador**, a conta visualizada é que
+ *   diria quem pode. Nos dois casos a autoridade viria da máscara, e não do
+ *   rosto.
+ * · **Não muda o cookie.** A sessão continua sendo a mesma, do mesmo dono; o
+ *   que muda é uma coluna dela. É o que faz voltar ao próprio perfil ser um
+ *   clique e não um login, e o que garante que ninguém fique preso do lado de
+ *   dentro de outra conta.
+ * · **Trocar de alvo não exige parar antes.** Chamar de novo com outro `userId`
+ *   é o que a lista de Usuários faz quando se clica no olho de outra linha, e
+ *   exigir dois cliques só para chegar ao mesmo lugar não protege nada.
+ * · **Conta desativada não se visualiza.** Ela não entra; uma tela que fingisse
+ *   que sim mostraria um produto que aquela pessoa não alcança.
+ * · **Escrever, não.** Quem decide isso é `middlewares/visualizacao-como.ts`, e
+ *   a razão está escrita lá: uma escrita durante a visualização não teria autor
+ *   honesto.
+ */
+router.post("/auth/visualizar-como", async (req, res): Promise<void> => {
+  const dono = req.donoDaSessao;
+  if (!dono || dono.role !== "ADMIN") {
+    res.status(403).json({
+      error:
+        "Somente administradores visualizam o produto como outra conta. Peça a " +
+        "um administrador.",
+    });
+    return;
+  }
+
+  const { userId } = req.body ?? {};
+  if (typeof userId !== "string" || !UUID.test(userId)) {
+    res.status(400).json({ error: "Identificador de conta inválido." });
+    return;
+  }
+
+  if (userId === dono.id) {
+    res.status(409).json({
+      error: "Esta já é a sua conta — não há o que visualizar.",
+    });
+    return;
+  }
+
+  const alvo = await findUserById(db, userId);
+  if (!alvo) {
+    res.status(404).json({ error: "Conta não encontrada." });
+    return;
+  }
+  if (alvo.disabledAt !== null) {
+    res.status(409).json({
+      error:
+        "Esta conta está desativada e não entra no sistema. Reative-a antes de " +
+        "visualizar o produto como ela.",
+    });
+    return;
+  }
+
+  const token: unknown = req.cookies?.[SESSION_COOKIE];
+  if (typeof token !== "string" || token === "") {
+    res.status(401).json({ error: "Faça login para usar o FreightCheck." });
+    return;
+  }
+
+  await iniciarVisualizacao(db, token, alvo.id);
+  /*
+    `info`, e não `debug`: é o registro de que uma conta abriu o produto pelos
+    olhos de outra. Não é escrita nenhuma — o portão recusa todas —, e ainda
+    assim é a coisa desta rota que alguém vai querer reconstruir depois.
+  */
+  req.log.info(
+    { alvo: alvo.email, by: dono.email },
+    "Visualização como outra conta iniciada",
+  );
+
+  /* Sem `disabledAt`: o que sai daqui é uma `SessionUser`, o mesmo formato que
+     `/auth/session` responde — e a tela não tem o que fazer com a coluna. */
+  const comoSessao = {
+    id: alvo.id,
+    name: alvo.name,
+    email: alvo.email,
+    role: alvo.role,
+  };
+
+  res.json({
+    user: comoSessao,
+    permissoes: await permissoesDe(db, alvo.id),
+    visualizacao: {
+      por: dono,
+      alvo: comoSessao,
+      desde: new Date().toISOString(),
+    },
+  });
+});
+
+/**
+ * Voltar ao próprio perfil.
+ *
+ * Sem papel e sem alvo: quem chama é sempre o dono da sessão, e desfazer o
+ * próprio estado nunca pode depender de uma permissão — seria a porta trancada
+ * por dentro. Responde a sessão como ela ficou, no mesmo formato de
+ * `/auth/session`, para a tela não precisar de uma segunda chamada.
+ */
+router.post("/auth/visualizar-como/parar", async (req, res): Promise<void> => {
+  const dono = req.donoDaSessao ?? req.user!;
+  const token: unknown = req.cookies?.[SESSION_COOKIE];
+  if (typeof token === "string" && token !== "") {
+    await encerrarVisualizacao(db, token);
+  }
+
+  if (req.visualizacaoDesde) {
+    req.log.info({ by: dono.email }, "Visualização como outra conta encerrada");
+  }
+
+  res.json({
+    user: dono,
+    permissoes: await permissoesDe(db, dono.id),
+    visualizacao: null,
+  });
 });
 
 router.post("/auth/login", async (req, res): Promise<void> => {

@@ -1,0 +1,35 @@
+-- ---------------------------------------------------------------------------
+-- VISUALIZAR COMO — a sessão de um administrador olhando o produto pelos olhos
+-- de outra conta.
+-- ---------------------------------------------------------------------------
+--
+-- A pergunta que criou isto é da tela de Usuários: "o que o Cristiano vê quando
+-- entra?" Ela não tem resposta honesta por descrição — o menu dele depende das
+-- permissões dele, e ler a tabela de permissões não é a mesma coisa que abrir a
+-- tela. A resposta é deixar quem administra **abrir o produto como aquela
+-- conta**, sem saber a senha dela e sem trocar a senha dela (que é o que se
+-- fazia antes, e que derruba a pessoa do sistema para responder uma pergunta).
+--
+-- **Fica na sessão, e não num cookie novo.** Quem está visualizando continua
+-- sendo dono da mesma sessão, com o mesmo token: é por isso que voltar ao
+-- próprio perfil é um clique e não um novo login, e é por isso que a volta não
+-- depende de nada guardado no navegador — o servidor sabe, e é ele quem sabe.
+-- Um segundo cookie seria uma segunda verdade sobre quem está falando, e num
+-- produto que grava `actor` em cada confirmação essa é a pior coisa a ter.
+--
+-- `impersonated_user_id` **não** referencia `app_user` por chave estrangeira, e
+-- é decisão: `user_session` sobrevive ao `down` do bridge e uma FK a mais nela
+-- entraria na proposta do Publishing como restrição nova (ver `bridge.ts`). O
+-- que a integridade custaria a ganhar aqui, ela já tem de outro jeito:
+-- `resolveSession` só honra a visualização se a conta visualizada existir e
+-- estiver ativa — e, quando não estiver, a sessão volta sozinha a ser a de quem
+-- entrou, que é exatamente o desfecho que uma FK com CASCADE daria.
+--
+-- As duas colunas são nuláveis e sem default — a forma que a allowlist do
+-- bridge aceita —, e `NULL` nas duas é o estado de toda sessão: ninguém nasce
+-- visualizando ninguém.
+-- ---------------------------------------------------------------------------
+
+ALTER TABLE "user_session" ADD COLUMN IF NOT EXISTS "impersonated_user_id" uuid;
+--> statement-breakpoint
+ALTER TABLE "user_session" ADD COLUMN IF NOT EXISTS "impersonation_started_at" timestamp with time zone;

@@ -223,6 +223,33 @@ export const ALLOWLIST: {
     tipo: "text",
     aindaPodeNaoExistir: true,
   },
+  /*
+    As duas da `0075` — o "visualizar como" da tela de Usuários, guardado na
+    própria sessão de quem visualiza.
+
+    Aditivas e nulas por definição: `NULL` nas duas é o estado de toda sessão
+    que ninguém pôs a visualizar outra conta, que são todas até alguém clicar no
+    olho. Entram aqui, e não em `COLUNAS_REMOVIDAS`, pelo critério que decide
+    isso desde a `0035`: a forma. Nuláveis, sem default, em tabela que sobrevive
+    ao `down` — exatamente o que o Publishing sabe criar sem risco.
+
+    É também a razão de `impersonated_user_id` não ter chave estrangeira para
+    `app_user`: uma restrição nova em `user_session` apareceria na proposta do
+    Publishing, e a integridade que ela daria já está garantida na leitura da
+    sessão (ver `resolveSession`, que só honra a visualização de conta ativa).
+  */
+  {
+    tabela: "user_session",
+    coluna: "impersonated_user_id",
+    tipo: "uuid",
+    aindaPodeNaoExistir: true,
+  },
+  {
+    tabela: "user_session",
+    coluna: "impersonation_started_at",
+    tipo: "timestamp with time zone",
+    aindaPodeNaoExistir: true,
+  },
 ];
 
 /**

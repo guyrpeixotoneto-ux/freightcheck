@@ -136,6 +136,31 @@ export const userSessionTable = pgTable(
     tokenHash: text("token_hash").notNull(),
     /** Absoluto: passou disto, a sessão morre mesmo com a aba aberta. */
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    /**
+     * A conta que esta sessão está **visualizando** — o "visualizar como" da
+     * tela de Usuários.
+     *
+     * A pergunta que fez isto existir é da tela de Usuários e não tinha
+     * resposta honesta: *o que esta pessoa vê quando entra?* O menu dela é
+     * montado a partir das permissões dela, e ler a tabela de permissões não é
+     * a mesma coisa que abrir a tela. O que se fazia no lugar era redefinir a
+     * senha da pessoa e entrar com ela — o que derruba a pessoa do sistema para
+     * responder uma pergunta, e apaga a distinção entre o que ela fez e o que
+     * fizeram no lugar dela.
+     *
+     * Mora **na sessão**, e é o que sustenta as três propriedades que importam:
+     * quem visualiza continua sendo dono do mesmo token (voltar ao próprio
+     * perfil é um clique, não um login), o servidor nunca perde de vista quem
+     * de fato entrou, e nada disso depende de um estado guardado no navegador.
+     *
+     * Sem chave estrangeira, de propósito — o porquê está na `0075`. Nulo é o
+     * estado de toda sessão: ninguém nasce visualizando ninguém.
+     */
+    impersonatedUserId: uuid("impersonated_user_id"),
+    /** Desde quando. É o que a faixa do topo mostra e o que o log carimba. */
+    impersonationStartedAt: timestamp("impersonation_started_at", {
+      withTimezone: true,
+    }),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
