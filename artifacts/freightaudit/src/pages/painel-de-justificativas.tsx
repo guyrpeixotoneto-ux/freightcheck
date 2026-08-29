@@ -89,6 +89,7 @@ import { cn } from "@/lib/utils";
 const TODAS = "__todas__";
 const TODOS_OS_TIPOS = "__todos__";
 const TODOS_OS_RESPONSAVEIS = "__todos_responsaveis__";
+const TODAS_AS_UNIDADES = "__todas_unidades__";
 
 const CORES = {
   justificadas: "hsl(142 71% 45%)",
@@ -162,16 +163,44 @@ export default function PainelDeJustificativas() {
     ? null
     : (contextoAberto(contextos.contextos, params.get("scopeHash"))?.scopeHash ?? null);
 
-  const { cobertura, autores, consulta } = usePainelDeJustificativas(escopoAberto);
+  const [unidadeEscolhida, setUnidadeEscolhida] = useState<string | null>(null);
+
+  /*
+    Na Visão Geral o painel atravessa as unidades — e sem um filtro por unidade
+    a única forma de isolar uma seria trocar a lateral, que é sair da Visão
+    Geral. O filtro é o mesmo recorte da lateral por outra porta: escolher uma
+    unidade aqui manda o mesmo `scopeHash` às duas consultas, sem trocar de
+    tela. Com uma unidade aberta na lateral ele não existe — o recorte já é
+    dela, e a caixa só ofereceria a escolha que a lateral já fez.
+  */
+  const escopoDaConsulta = emVisaoGeral ? unidadeEscolhida : escopoAberto;
+
+  const { cobertura, autores, consulta } = usePainelDeJustificativas(escopoDaConsulta);
+
+  /*
+    As unidades que a caixa oferece: as que têm comparação calculada, e não as
+    de `/contexts` inteiras — oferecer uma unidade sem vigência comparada seria
+    prometer um recorte que abre vazio.
+  */
+  const unidades = useMemo(() => {
+    const comComparacao = new Set(
+      (comparacoes.data ?? []).map((c) => c.scopeHash).filter((h): h is string => !!h),
+    );
+    return contextos.contextos
+      .filter((c) => comComparacao.has(c.scopeHash))
+      .map((c) => ({ scopeHash: c.scopeHash, nome: nomeDaUnidade(c) }))
+      .sort((a, b) => a.nome.localeCompare(b.nome));
+  }, [comparacoes.data, contextos.contextos]);
 
   /* Qual unidade os números são — dito no cabeçalho, e não deduzido da caixa
-     da lateral. Ver o mesmo cuidado em `pages/dados.tsx`. */
-  const unidadeAberta = emVisaoGeral
-    ? null
-    : (() => {
-        const contexto = contextoAberto(contextos.contextos, params.get("scopeHash"));
-        return contexto ? nomeDaUnidade(contexto) : null;
-      })();
+     da lateral. Vale para a unidade da lateral e para a escolhida no filtro:
+     as duas recortam o mesmo `escopoDaConsulta`. Ver o mesmo cuidado em
+     `pages/dados.tsx`. */
+  const unidadeDoRecorte = useMemo(() => {
+    if (escopoDaConsulta === null) return null;
+    const contexto = contextos.contextos.find((c) => c.scopeHash === escopoDaConsulta);
+    return contexto ? nomeDaUnidade(contexto) : null;
+  }, [contextos.contextos, escopoDaConsulta]);
 
   /*
     O recorte de unidade viaja em todo link que sai desta tela: abrir a placa
@@ -230,8 +259,31 @@ export default function PainelDeJustificativas() {
     [autores, changeSetId],
   );
 
-  /* O nome de cada vigência — a mesma régua do seletor da fila. */
+  /*
+    O nome de cada vigência — a mesma régua do seletor da fila, e a mesma regra
+    para a unidade: ela só entra quando a lista atravessa unidades. Dentro de
+    uma, o nome repetiria em toda linha do menu, em toda linha da tabela e no
+    título do diálogo a mesma palavra que a lateral e o cabeçalho já dizem,
+    empurrando a data para longe do que se está comparando.
+  */
   const nomeDaVigencia = useMemo(() => {
+    const nomes = new Map<string, string>();
+    for (const o of opcoesDeVigencia(comparacoes.data ?? [], contextos.contextos)) {
+      nomes.set(
+        o.id,
+        escopoDaConsulta === null && o.unidade ? `${o.competencia} · ${o.unidade}` : o.competencia,
+      );
+    }
+    return nomes;
+  }, [comparacoes.data, contextos.contextos, escopoDaConsulta]);
+
+  /*
+    No CSV a unidade fica sempre. O arquivo sai da tela e é aberto sem a
+    lateral que diz de qual unidade ele é — e duas exportações de unidades
+    diferentes, com a mesma competência, ficariam indistinguíveis na mesa de
+    quem as recebe.
+  */
+  const nomeDaVigenciaNoArquivo = useMemo(() => {
     const nomes = new Map<string, string>();
     for (const o of opcoesDeVigencia(comparacoes.data ?? [], contextos.contextos)) {
       nomes.set(o.id, o.unidade ? `${o.competencia} · ${o.unidade}` : o.competencia);
@@ -240,7 +292,7 @@ export default function PainelDeJustificativas() {
   }, [comparacoes.data, contextos.contextos]);
 
   const recorte = {
-    escopo: escopoAberto,
+    escopo: escopoDaConsulta,
     changeSetId,
     tipo,
     situacao,
@@ -265,6 +317,7 @@ export default function PainelDeJustificativas() {
 
   const limparFiltros = () =>
     trocar(() => {
+      setUnidadeEscolhida(null);
       setVigenciaEscolhida(null);
       setTipo(null);
       setDirecao("TODAS");
@@ -272,7 +325,11 @@ export default function PainelDeJustificativas() {
     });
 
   const temFiltro =
-    changeSetId !== null || tipo !== null || direcao !== "TODAS" || autor !== null;
+    changeSetId !== null ||
+    tipo !== null ||
+    direcao !== "TODAS" ||
+    autor !== null ||
+    unidadeEscolhida !== null;
 
   const justificar = useMutation({
     mutationFn: async (input: { linhas: LinhaDoPainel[]; texto: string }) => {
@@ -365,7 +422,7 @@ export default function PainelDeJustificativas() {
         ].join(";"),
         ...tudo.map((l) =>
           [
-            aspas(nomeDaVigencia.get(l.changeSetId) ?? l.changeSetId),
+            aspas(nomeDaVigenciaNoArquivo.get(l.changeSetId) ?? l.changeSetId),
             aspas(l.entityLabel),
             aspas(l.entityType ? rotuloDoTipo(l.entityType) : null),
             aspas(l.attributeName ?? l.attributeCode),
@@ -418,10 +475,10 @@ export default function PainelDeJustificativas() {
                 Acompanhe tudo que foi justificado e o que ainda falta justificar —
                 as alterações que subiram ou desceram um valor entre uma vigência
                 e a seguinte, e a explicação que o gestor deve a cada uma
-                {emVisaoGeral
-                  ? ", somando todas as unidades"
-                  : unidadeAberta
-                    ? `, em ${unidadeAberta}`
+                {unidadeDoRecorte
+                  ? `, em ${unidadeDoRecorte}`
+                  : emVisaoGeral
+                    ? ", somando todas as unidades"
                     : ""}
                 .
               </p>
@@ -635,6 +692,35 @@ export default function PainelDeJustificativas() {
 
             <section className="bg-card border rounded-xl shadow-sm px-6 py-4">
               <div className="flex flex-wrap items-end gap-3">
+                {/* Só na Visão Geral — ver `escopoDaConsulta`. */}
+                {emVisaoGeral && unidades.length > 1 && (
+                  <label className="space-y-1">
+                    <span className="block text-xs uppercase tracking-wide text-muted-foreground">
+                      Unidade
+                    </span>
+                    <Select
+                      value={unidadeEscolhida ?? TODAS_AS_UNIDADES}
+                      onValueChange={(v) =>
+                        trocar(() =>
+                          setUnidadeEscolhida(v === TODAS_AS_UNIDADES ? null : v),
+                        )
+                      }
+                    >
+                      <SelectTrigger className="h-9 w-60 text-sm">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={TODAS_AS_UNIDADES}>Todas as unidades</SelectItem>
+                        {unidades.map((u) => (
+                          <SelectItem key={u.scopeHash} value={u.scopeHash}>
+                            {u.nome}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </label>
+                )}
+
                 <label className="space-y-1">
                   <span className="block text-xs uppercase tracking-wide text-muted-foreground">
                     Vigência
