@@ -21,6 +21,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Field, Refusal, post } from "@/components/configuracoes/campos";
 import { CHAVE_DAS_CONTAS, useContas, type ManagedUser } from "@/components/configuracoes/contas";
@@ -100,6 +107,15 @@ function normalizar(texto: string): string {
 
 /** O rótulo do grupo de quem ainda não tem cargo. */
 const SEM_CARGO = "Sem cargo";
+
+/**
+ * O valor que representa "nenhum" nas caixas de cargo e unidade.
+ *
+ * Estado vazio é `""` daqui até a API, mas o `Select` do sistema reserva a
+ * string vazia para "sem escolha nenhuma" e recusa uma opção com esse valor —
+ * daí o sentinela, que só existe entre o componente e o estado.
+ */
+const SEM_VINCULO = "__sem_vinculo__";
 
 export function PainelDeUsuarios() {
   const { user: me } = useAuth();
@@ -318,45 +334,48 @@ function CamposDeLotacao({
     queryFn: listarUnidadesCanonicas,
   });
 
-  const classe =
-    "h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm";
-
   return (
     <>
       <Field label="Cargo" htmlFor={`${prefixo}-cargo`}>
-        <select
-          id={`${prefixo}-cargo`}
-          value={cargoId}
-          onChange={(e) => aoTrocarCargo(e.target.value)}
-          className={classe}
+        <Select
+          value={cargoId || SEM_VINCULO}
+          onValueChange={(v) => aoTrocarCargo(v === SEM_VINCULO ? "" : v)}
         >
-          <option value="">Sem cargo</option>
-          {(cargos.data ?? []).map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.nome}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger id={`${prefixo}-cargo`}>
+            <SelectValue placeholder="Sem cargo" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={SEM_VINCULO}>Sem cargo</SelectItem>
+            {(cargos.data ?? []).map((c) => (
+              <SelectItem key={c.id} value={c.id}>
+                {c.nome}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </Field>
       <Field label="Unidade" htmlFor={`${prefixo}-unidade`}>
-        <select
-          id={`${prefixo}-unidade`}
-          value={unidadeId}
-          onChange={(e) => aoTrocarUnidade(e.target.value)}
-          className={classe}
+        <Select
+          value={unidadeId || SEM_VINCULO}
+          onValueChange={(v) => aoTrocarUnidade(v === SEM_VINCULO ? "" : v)}
         >
-          <option value="">Sem unidade</option>
-          {(unidades.data ?? [])
-            /* Só as cadastradas: a detectada no acervo não tem `id`, e lotar
-               alguém numa unidade que ninguém confirmou seria dar identidade
-               por importação — o que o cadastro canônico desfez. */
-            .filter((u) => u.id !== null)
-            .map((u) => (
-              <option key={u.id!} value={u.id!}>
-                {u.nome}
-              </option>
-            ))}
-        </select>
+          <SelectTrigger id={`${prefixo}-unidade`}>
+            <SelectValue placeholder="Sem unidade" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={SEM_VINCULO}>Sem unidade</SelectItem>
+            {(unidades.data ?? [])
+              /* Só as cadastradas: a detectada no acervo não tem `id`, e lotar
+                 alguém numa unidade que ninguém confirmou seria dar identidade
+                 por importação — o que o cadastro canônico desfez. */
+              .filter((u) => u.id !== null)
+              .map((u) => (
+                <SelectItem key={u.id!} value={u.id!}>
+                  {u.nome}
+                </SelectItem>
+              ))}
+          </SelectContent>
+        </Select>
       </Field>
     </>
   );
@@ -463,17 +482,17 @@ function NewUserCard({ aoFechar }: { aoFechar: () => void }) {
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Field label="Papel" htmlFor="new-role">
-              {/* select nativo de propósito: dois valores, e o navegador acessível
-                  de graça vale mais que um componente para isto. */}
-              <select
-                id="new-role"
-                value={role}
-                onChange={(e) => setRole(e.target.value)}
-                className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
-              >
-                <option value="OPERADOR">Operador — usa o produto</option>
-                <option value="ADMIN">Administrador — também gerencia contas</option>
-              </select>
+              <Select value={role} onValueChange={setRole}>
+                <SelectTrigger id="new-role">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="OPERADOR">Operador — usa o produto</SelectItem>
+                  <SelectItem value="ADMIN">
+                    Administrador — também gerencia contas
+                  </SelectItem>
+                </SelectContent>
+              </Select>
             </Field>
             <CamposDeLotacao
               prefixo="new"
@@ -803,15 +822,17 @@ function UserRow({ user }: { user: ManagedUser }) {
         >
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Field label="Papel" htmlFor={`role-${user.id}`}>
-              <select
-                id={`role-${user.id}`}
-                value={role}
-                onChange={(e) => setRole(e.target.value)}
-                className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
-              >
-                <option value="OPERADOR">Operador — usa o produto</option>
-                <option value="ADMIN">Administrador — também gerencia contas</option>
-              </select>
+              <Select value={role} onValueChange={setRole}>
+                <SelectTrigger id={`role-${user.id}`}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="OPERADOR">Operador — usa o produto</SelectItem>
+                  <SelectItem value="ADMIN">
+                    Administrador — também gerencia contas
+                  </SelectItem>
+                </SelectContent>
+              </Select>
             </Field>
             <CamposDeLotacao
               prefixo={user.id}
