@@ -129,6 +129,27 @@ e-mail órfão. Desativar tira o acesso, derruba as sessões abertas na hora, e
 preserva o histórico. Duas recusas protegem o desfecho pior: não dá para
 desativar a própria conta, nem a última que ainda está ativa.
 
+**Visualizar como.** Na lista de Usuários, o olho de cada linha abre o produto
+**como aquela conta** — o menu dela, as permissões dela, as telas dela. Existe
+porque a pergunta "o que esta pessoa vê quando entra?" não tem resposta honesta
+por descrição, e o que se fazia no lugar era redefinir a senha de alguém para
+entrar com a conta dele: derrubar a pessoa do sistema para responder uma
+pergunta. Três decisões sustentam isto:
+
+- **A sessão continua sendo a de quem clicou.** O alvo é uma coluna da própria
+  sessão (`user_session.impersonated_user_id`, migration `0076`), não um cookie
+  novo: voltar ao próprio perfil é um clique, e o servidor nunca perde de vista
+  quem de fato entrou.
+- **Só administrador, e o papel conferido é o de quem digitou a senha.** Uma
+  visualização não empresta autoridade: quem decide é `req.donoDaSessao`.
+- **Enquanto dura, a sessão só lê.** Toda escrita é recusada com
+  `VISUALIZANDO_COMO` (`middlewares/visualizacao-como.ts`), porque uma escrita
+  feita ali não teria autor honesto — nem o da conta visualizada, que não
+  clicou, nem o do administrador, numa tela montada com o acesso de outro. As
+  únicas exceções são as saídas: parar, trocar de alvo e sair.
+
+Uma faixa laranja fixa no topo diz quem está visualizando quem, e leva de volta.
+
 **Trocar de senha derruba as outras sessões.** A própria troca exige a senha
 atual e mantém viva só a aba onde foi feita; a redefinição por outra pessoa
 derruba todas.
@@ -138,8 +159,8 @@ confirma uma semântica, quem envia uma planilha e quem promove uma vigência é
 lido da sessão, e o servidor ignora o que o corpo do pedido disser. Antes disso
 o histórico sustentava "alguém digitou este nome"; agora sustenta quem fez.
 
-Não existe nesta versão: permissões por tela além dos dois papéis, recuperação
-de senha por e-mail, e exclusão de conta.
+Não existe nesta versão: recuperação de senha por e-mail, exclusão de conta, e
+escrita em nome de outra pessoa — a visualização acima é só leitura.
 
 **Instância dedicada por cliente é a arquitetura da primeira fase — decisão
 formal, não omissão.** Não há coluna de tenant em tabela nenhuma, e um segundo

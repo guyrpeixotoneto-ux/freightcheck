@@ -4,6 +4,7 @@ import { BarraMobile } from "./barra-mobile";
 import { Sidebar } from "./sidebar";
 import { Topbar } from "./topbar";
 import { useMenuAberto } from "./preferencias";
+import { FaixaDeVisualizacao } from "./visualizacao-como";
 import {
   SemAcesso,
   TiraDeSomenteLeitura,
@@ -68,6 +69,12 @@ export function Layout({
   return (
     <div className="flex flex-col bg-background">
       <Topbar menuAberto={aberto} onToggleSidebar={alternar} />
+      {/*
+        A faixa da visualização vem antes de tudo o que está embaixo dela, e é
+        de propósito: ela muda o significado de cada número da tela — quem está
+        vendo não é quem está logado. Ver `visualizacao-como.tsx`.
+      */}
+      <FaixaDeVisualizacao />
       {/*
         Sem `min-h-[100dvh]` no contêiner de fora nem `flex-1` nesta faixa:
         página longa já cresce sozinha, sem precisar de altura mínima nenhuma —

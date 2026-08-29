@@ -1,9 +1,11 @@
 import { useMemo, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import {
   Ban,
   Check,
   CheckCircle2,
+  ChevronDown,
   Copy,
   Eye,
   HelpCircle,
@@ -19,6 +21,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Field, Refusal, post } from "@/components/configuracoes/campos";
 import { CHAVE_DAS_CONTAS, useContas, type ManagedUser } from "@/components/configuracoes/contas";
@@ -53,6 +62,15 @@ import { cn } from "@/lib/utils";
  * quem desenhou a tela esperava encontrar; o que ele faz é o que o produto pode
  * honestamente fazer — e a confirmação diz isso com todas as letras antes de
  * acontecer.
+ *
+ * **O olho abre o produto como aquela pessoa.** Era a pergunta que esta tela
+ * fazia e não respondia — *o que ela vê quando entra?* —, e a resposta que se
+ * dava era redefinir a senha de alguém para entrar com a conta dele, derrubando
+ * a pessoa do sistema para satisfazer uma dúvida. Agora é um clique: a sessão
+ * continua sendo a de quem clicou, uma faixa laranja no topo diz de quem é a
+ * máscara, e o servidor recusa toda escrita enquanto ela durar — o porquê está
+ * em `middlewares/visualizacao-como.ts`, e ele é o mesmo do login. Os detalhes
+ * da conta, que moravam neste ícone, passaram para a seta ao lado.
  *
  * A troca da **própria** senha não está aqui: ela é de Meu Perfil, porque é a
  * única coisa desta lista que um operador faz sobre si mesmo. O que cada pessoa
@@ -89,6 +107,15 @@ function normalizar(texto: string): string {
 
 /** O rótulo do grupo de quem ainda não tem cargo. */
 const SEM_CARGO = "Sem cargo";
+
+/**
+ * O valor que representa "nenhum" nas caixas de cargo e unidade.
+ *
+ * Estado vazio é `""` daqui até a API, mas o `Select` do sistema reserva a
+ * string vazia para "sem escolha nenhuma" e recusa uma opção com esse valor —
+ * daí o sentinela, que só existe entre o componente e o estado.
+ */
+const SEM_VINCULO = "__sem_vinculo__";
 
 export function PainelDeUsuarios() {
   const { user: me } = useAuth();
@@ -307,45 +334,48 @@ function CamposDeLotacao({
     queryFn: listarUnidadesCanonicas,
   });
 
-  const classe =
-    "h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm";
-
   return (
     <>
       <Field label="Cargo" htmlFor={`${prefixo}-cargo`}>
-        <select
-          id={`${prefixo}-cargo`}
-          value={cargoId}
-          onChange={(e) => aoTrocarCargo(e.target.value)}
-          className={classe}
+        <Select
+          value={cargoId || SEM_VINCULO}
+          onValueChange={(v) => aoTrocarCargo(v === SEM_VINCULO ? "" : v)}
         >
-          <option value="">Sem cargo</option>
-          {(cargos.data ?? []).map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.nome}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger id={`${prefixo}-cargo`}>
+            <SelectValue placeholder="Sem cargo" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={SEM_VINCULO}>Sem cargo</SelectItem>
+            {(cargos.data ?? []).map((c) => (
+              <SelectItem key={c.id} value={c.id}>
+                {c.nome}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </Field>
       <Field label="Unidade" htmlFor={`${prefixo}-unidade`}>
-        <select
-          id={`${prefixo}-unidade`}
-          value={unidadeId}
-          onChange={(e) => aoTrocarUnidade(e.target.value)}
-          className={classe}
+        <Select
+          value={unidadeId || SEM_VINCULO}
+          onValueChange={(v) => aoTrocarUnidade(v === SEM_VINCULO ? "" : v)}
         >
-          <option value="">Sem unidade</option>
-          {(unidades.data ?? [])
-            /* Só as cadastradas: a detectada no acervo não tem `id`, e lotar
-               alguém numa unidade que ninguém confirmou seria dar identidade
-               por importação — o que o cadastro canônico desfez. */
-            .filter((u) => u.id !== null)
-            .map((u) => (
-              <option key={u.id!} value={u.id!}>
-                {u.nome}
-              </option>
-            ))}
-        </select>
+          <SelectTrigger id={`${prefixo}-unidade`}>
+            <SelectValue placeholder="Sem unidade" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={SEM_VINCULO}>Sem unidade</SelectItem>
+            {(unidades.data ?? [])
+              /* Só as cadastradas: a detectada no acervo não tem `id`, e lotar
+                 alguém numa unidade que ninguém confirmou seria dar identidade
+                 por importação — o que o cadastro canônico desfez. */
+              .filter((u) => u.id !== null)
+              .map((u) => (
+                <SelectItem key={u.id!} value={u.id!}>
+                  {u.nome}
+                </SelectItem>
+              ))}
+          </SelectContent>
+        </Select>
       </Field>
     </>
   );
@@ -452,17 +482,17 @@ function NewUserCard({ aoFechar }: { aoFechar: () => void }) {
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Field label="Papel" htmlFor="new-role">
-              {/* select nativo de propósito: dois valores, e o navegador acessível
-                  de graça vale mais que um componente para isto. */}
-              <select
-                id="new-role"
-                value={role}
-                onChange={(e) => setRole(e.target.value)}
-                className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
-              >
-                <option value="OPERADOR">Operador — usa o produto</option>
-                <option value="ADMIN">Administrador — também gerencia contas</option>
-              </select>
+              <Select value={role} onValueChange={setRole}>
+                <SelectTrigger id="new-role">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="OPERADOR">Operador — usa o produto</SelectItem>
+                  <SelectItem value="ADMIN">
+                    Administrador — também gerencia contas
+                  </SelectItem>
+                </SelectContent>
+              </Select>
             </Field>
             <CamposDeLotacao
               prefixo="new"
@@ -502,7 +532,8 @@ type Painel = "nenhum" | "detalhes" | "edicao" | "senha" | "desativar";
 
 function UserRow({ user }: { user: ManagedUser }) {
   const queryClient = useQueryClient();
-  const { user: me } = useAuth();
+  const [, navegar] = useLocation();
+  const { user: me, visualizarComo, isSubmitting } = useAuth();
   const [error, setError] = useState<string | null>(null);
   const [painel, setPainel] = useState<Painel>("nenhum");
   const [newPassword, setNewPassword] = useState("");
@@ -514,6 +545,39 @@ function UserRow({ user }: { user: ManagedUser }) {
   const disabled = user.disabledAt !== null;
   const isMe = me?.id === user.id;
   const souAdmin = me?.role === "ADMIN";
+
+  /*
+    O olho abre o produto **como** aquela pessoa — a pergunta que esta tela
+    fazia sem conseguir responder: *o que ela vê quando entra?* O menu dela sai
+    das permissões dela, e ler a tela de Permissões não é a mesma coisa que
+    abrir a tela. Ver `lib/auth.tsx` e `routes/auth.ts`.
+
+    A sessão continua sendo a de quem clicou — nada de senha, nada de login —, e
+    o servidor recusa qualquer escrita enquanto a visualização estiver aberta. A
+    faixa laranja no topo diz as duas coisas, e é por ela que se volta.
+
+    Duas contas não se visualizam, e a razão é a mesma nos dois casos — não há o
+    que ver: a própria (já se está dentro dela) e uma desativada (ela não entra
+    no sistema).
+  */
+  const porQueNaoVisualizar = isMe
+    ? "Esta é a sua conta — é o que você já está vendo."
+    : disabled
+      ? "Conta desativada: ela não entra no sistema, então não há o que visualizar."
+      : null;
+
+  const olhar = useMutation({
+    mutationFn: () => visualizarComo(user.id),
+    /*
+      Sai de Configurações ao entrar: a conta visualizada quase nunca alcança
+      esta tela, e ficar nela mostraria a recusa de acesso como primeira coisa
+      da visualização — o produto respondendo "você não pode" a quem acabou de
+      pedir para ver o que a pessoa pode. A home do produto é o que ela vê ao
+      entrar, que é justamente o que se foi conferir.
+    */
+    onSuccess: () => navegar("~/"),
+    onError: (err: Error) => setError(err.message),
+  });
 
   const recarregar = () => queryClient.invalidateQueries({ queryKey: CHAVE_DAS_CONTAS });
 
@@ -638,14 +702,45 @@ function UserRow({ user }: { user: ManagedUser }) {
             />
           )}
 
+          {/*
+            O olho é "ver o produto como esta pessoa"; os detalhes da conta
+            passaram para a seta ao lado. A troca é deliberada: o olho é o ícone
+            que quem desenhou a tela procura para *ver pelos olhos de alguém*, e
+            era o único gesto desta linha que não fazia nada além de abrir um
+            parágrafo de texto que a seta abre igual.
+          */}
+          {souAdmin && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              aria-label={`Ver o produto como ${user.name}`}
+              title={
+                porQueNaoVisualizar ??
+                `Abre o produto como ${user.name} vê. A sessão continua sendo a sua, e nada pode ser alterado enquanto durar.`
+              }
+              disabled={porQueNaoVisualizar !== null || olhar.isPending || isSubmitting}
+              onClick={() => olhar.mutate()}
+            >
+              <Eye className="w-4 h-4" />
+            </Button>
+          )}
+
           <Button
             variant="ghost"
             size="icon"
             className="h-8 w-8"
             aria-label={`Ver detalhes de ${user.name}`}
+            title="Último acesso, sessões abertas, quem criou a conta."
+            aria-expanded={painel === "detalhes"}
             onClick={() => alternar("detalhes")}
           >
-            <Eye className="w-4 h-4" />
+            <ChevronDown
+              className={cn(
+                "w-4 h-4 transition-transform",
+                painel === "detalhes" && "rotate-180",
+              )}
+            />
           </Button>
 
           {souAdmin && (
@@ -727,15 +822,17 @@ function UserRow({ user }: { user: ManagedUser }) {
         >
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Field label="Papel" htmlFor={`role-${user.id}`}>
-              <select
-                id={`role-${user.id}`}
-                value={role}
-                onChange={(e) => setRole(e.target.value)}
-                className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
-              >
-                <option value="OPERADOR">Operador — usa o produto</option>
-                <option value="ADMIN">Administrador — também gerencia contas</option>
-              </select>
+              <Select value={role} onValueChange={setRole}>
+                <SelectTrigger id={`role-${user.id}`}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="OPERADOR">Operador — usa o produto</SelectItem>
+                  <SelectItem value="ADMIN">
+                    Administrador — também gerencia contas
+                  </SelectItem>
+                </SelectContent>
+              </Select>
             </Field>
             <CamposDeLotacao
               prefixo={user.id}
