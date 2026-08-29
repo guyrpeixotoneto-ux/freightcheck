@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import {
   ArrowDownRight,
   ArrowUpRight,
@@ -33,9 +33,10 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { JustificarDialog } from "@/components/justificativas/justificar-dialog";
 import { fetchJson, salvarArquivo } from "@/lib/api";
 import { useAmbiente } from "@/lib/ambiente-aberto";
-import { useContextosDaCasca } from "@/lib/contextos";
+import { contextoAberto, useContextosDaCasca } from "@/lib/contextos";
 import { equipamentosDoAmbiente, rotuloDoTipo } from "@/lib/frota";
 import { formatNumber } from "@/lib/format";
+import { nomeDaUnidade } from "@/lib/recorte";
 import {
   opcoesDeVigencia,
   useComparacoes,
@@ -43,6 +44,7 @@ import {
 } from "@/lib/justificativas";
 import {
   direcaoDaLinha,
+  enderecoDasLinhas,
   iniciaisDoResponsavel,
   pendenciasPorTipo,
   responsaveisDoPainel,
@@ -87,6 +89,7 @@ import { cn } from "@/lib/utils";
 const TODAS = "__todas__";
 const TODOS_OS_TIPOS = "__todos__";
 const TODOS_OS_RESPONSAVEIS = "__todos_responsaveis__";
+const TODAS_AS_UNIDADES = "__todas_unidades__";
 
 const CORES = {
   justificadas: "hsl(142 71% 45%)",
@@ -140,10 +143,80 @@ export default function PainelDeJustificativas() {
   const ambiente = useAmbiente();
   const queryClient = useQueryClient();
   const [, navegar] = useLocation();
+  const search = useSearch();
 
-  const { cobertura, autores, consulta } = usePainelDeJustificativas();
   const comparacoes = useComparacoes();
   const contextos = useContextosDaCasca();
+
+  /*
+    A unidade aberta é a da lateral: a que a URL pede em `scopeHash`, e a
+    primeira de `/contexts` quando ninguém pediu — a mesma regra da fila
+    (`pages/justificativas.tsx`) e da caixa "Unidade atual". Sem este recorte o
+    painel somava a operação inteira sob a lateral escrita PERNAMBUCO: os
+    cartões traziam CAMAÇARI e MANAUS no mesmo total, e a lista abria placas de
+    uma unidade que não é a aberta. `visaoGeral=1` é a escolha de somar todas —
+    a leitura de antes, agora pedida e não presumida.
+  */
+  const params = new URLSearchParams(search);
+  const emVisaoGeral = params.get("visaoGeral") === "1";
+  const escopoAberto = emVisaoGeral
+    ? null
+    : (contextoAberto(contextos.contextos, params.get("scopeHash"))?.scopeHash ?? null);
+
+  const [unidadeEscolhida, setUnidadeEscolhida] = useState<string | null>(null);
+
+  /*
+    Na Visão Geral o painel atravessa as unidades — e sem um filtro por unidade
+    a única forma de isolar uma seria trocar a lateral, que é sair da Visão
+    Geral. O filtro é o mesmo recorte da lateral por outra porta: escolher uma
+    unidade aqui manda o mesmo `scopeHash` às duas consultas, sem trocar de
+    tela. Com uma unidade aberta na lateral ele não existe — o recorte já é
+    dela, e a caixa só ofereceria a escolha que a lateral já fez.
+  */
+  const escopoDaConsulta = emVisaoGeral ? unidadeEscolhida : escopoAberto;
+
+  const { cobertura, autores, consulta } = usePainelDeJustificativas(escopoDaConsulta);
+
+  /*
+    As unidades que a caixa oferece: as que têm comparação calculada, e não as
+    de `/contexts` inteiras — oferecer uma unidade sem vigência comparada seria
+    prometer um recorte que abre vazio.
+  */
+  const unidades = useMemo(() => {
+    const comComparacao = new Set(
+      (comparacoes.data ?? []).map((c) => c.scopeHash).filter((h): h is string => !!h),
+    );
+    return contextos.contextos
+      .filter((c) => comComparacao.has(c.scopeHash))
+      .map((c) => ({ scopeHash: c.scopeHash, nome: nomeDaUnidade(c) }))
+      .sort((a, b) => a.nome.localeCompare(b.nome));
+  }, [comparacoes.data, contextos.contextos]);
+
+  /* Qual unidade os números são — dito no cabeçalho, e não deduzido da caixa
+     da lateral. Vale para a unidade da lateral e para a escolhida no filtro:
+     as duas recortam o mesmo `escopoDaConsulta`. Ver o mesmo cuidado em
+     `pages/dados.tsx`. */
+  const unidadeDoRecorte = useMemo(() => {
+    if (escopoDaConsulta === null) return null;
+    const contexto = contextos.contextos.find((c) => c.scopeHash === escopoDaConsulta);
+    return contexto ? nomeDaUnidade(contexto) : null;
+  }, [contextos.contextos, escopoDaConsulta]);
+
+  /*
+    O recorte de unidade viaja em todo link que sai desta tela: abrir a placa
+    numa unidade e voltar precisa reencontrar a mesma lateral, e um endereço
+    montado do zero devolveria à unidade padrão no meio do trabalho. É a mesma
+    função `endereco` da fila.
+  */
+  const recorteDoEndereco = (extra: Record<string, string>) => {
+    const q = new URLSearchParams();
+    for (const chave of ["scopeHash", "canal", "visaoGeral"]) {
+      const valor = params.get(chave);
+      if (valor) q.set(chave, valor);
+    }
+    for (const [chave, valor] of Object.entries(extra)) q.set(chave, valor);
+    return q.toString();
+  };
 
   /*
     Os filtros vivem em estado, e não no endereço como os da fila. A fila é
@@ -151,7 +224,7 @@ export default function PainelDeJustificativas() {
     voltar precisa reencontrar a mesma aba —; o painel é leitura, e o que dele
     se leva adiante é o link para a fila, que o botão de cada linha monta.
   */
-  const [changeSetId, setChangeSetId] = useState<string | null>(null);
+  const [vigenciaEscolhida, setVigenciaEscolhida] = useState<string | null>(null);
   const [tipo, setTipo] = useState<string | null>(null);
   const [direcao, setDirecao] = useState<DirecaoDoImpacto>("TODAS");
   const [autor, setAutor] = useState<string | null>(null);
@@ -161,6 +234,19 @@ export default function PainelDeJustificativas() {
   const [selecionadas, setSelecionadas] = useState<Set<number>>(new Set());
   const [dialogAlvo, setDialogAlvo] = useState<LinhaDoPainel[] | null>(null);
   const [exportando, setExportando] = useState(false);
+
+  /*
+    Trocar de unidade na lateral não desfaz o filtro de vigência, e a vigência
+    de CAMAÇARI não existe no recorte de PERNAMBUCO: honrá-la deixaria a tela
+    dizendo "nada a justificar" sobre um recorte que não é de ninguém. Enquanto
+    a cobertura não chegou, a escolha vale — não há como saber ainda.
+  */
+  const changeSetId =
+    vigenciaEscolhida === null ||
+    cobertura === null ||
+    cobertura.some((l) => l.changeSetId === vigenciaEscolhida)
+      ? vigenciaEscolhida
+      : null;
 
   const resumo = resumoDoPainel(cobertura, changeSetId, tipo);
   const barras = useMemo(
@@ -173,8 +259,31 @@ export default function PainelDeJustificativas() {
     [autores, changeSetId],
   );
 
-  /* O nome de cada vigência — a mesma régua do seletor da fila. */
+  /*
+    O nome de cada vigência — a mesma régua do seletor da fila, e a mesma regra
+    para a unidade: ela só entra quando a lista atravessa unidades. Dentro de
+    uma, o nome repetiria em toda linha do menu, em toda linha da tabela e no
+    título do diálogo a mesma palavra que a lateral e o cabeçalho já dizem,
+    empurrando a data para longe do que se está comparando.
+  */
   const nomeDaVigencia = useMemo(() => {
+    const nomes = new Map<string, string>();
+    for (const o of opcoesDeVigencia(comparacoes.data ?? [], contextos.contextos)) {
+      nomes.set(
+        o.id,
+        escopoDaConsulta === null && o.unidade ? `${o.competencia} · ${o.unidade}` : o.competencia,
+      );
+    }
+    return nomes;
+  }, [comparacoes.data, contextos.contextos, escopoDaConsulta]);
+
+  /*
+    No CSV a unidade fica sempre. O arquivo sai da tela e é aberto sem a
+    lateral que diz de qual unidade ele é — e duas exportações de unidades
+    diferentes, com a mesma competência, ficariam indistinguíveis na mesa de
+    quem as recebe.
+  */
+  const nomeDaVigenciaNoArquivo = useMemo(() => {
     const nomes = new Map<string, string>();
     for (const o of opcoesDeVigencia(comparacoes.data ?? [], contextos.contextos)) {
       nomes.set(o.id, o.unidade ? `${o.competencia} · ${o.unidade}` : o.competencia);
@@ -183,6 +292,7 @@ export default function PainelDeJustificativas() {
   }, [comparacoes.data, contextos.contextos]);
 
   const recorte = {
+    escopo: escopoDaConsulta,
     changeSetId,
     tipo,
     situacao,
@@ -207,14 +317,19 @@ export default function PainelDeJustificativas() {
 
   const limparFiltros = () =>
     trocar(() => {
-      setChangeSetId(null);
+      setUnidadeEscolhida(null);
+      setVigenciaEscolhida(null);
       setTipo(null);
       setDirecao("TODAS");
       setAutor(null);
     });
 
   const temFiltro =
-    changeSetId !== null || tipo !== null || direcao !== "TODAS" || autor !== null;
+    changeSetId !== null ||
+    tipo !== null ||
+    direcao !== "TODAS" ||
+    autor !== null ||
+    unidadeEscolhida !== null;
 
   const justificar = useMutation({
     mutationFn: async (input: { linhas: LinhaDoPainel[]; texto: string }) => {
@@ -278,16 +393,14 @@ export default function PainelDeJustificativas() {
       const tudo: LinhaDoPainel[] = [];
       const passo = 100;
       for (let offset = 0; ; offset += passo) {
-        const q = new URLSearchParams();
-        if (changeSetId) q.set("changeSetId", changeSetId);
-        if (tipo) q.set("entityType", tipo);
-        q.set("situacao", situacao);
-        if (direcao !== "TODAS") q.set("direcao", direcao);
-        if (autor && situacao === "JUSTIFICADA") q.set("autor", autor);
-        q.set("limit", String(passo));
-        q.set("offset", String(offset));
+        /* O mesmo endereço da lista em tela — inclusive a unidade aberta:
+           exportar não pode trazer o que a tela não mostra. */
         const pagina = await fetchJson<{ total: number; linhas: LinhaDoPainel[] }>(
-          `/justificativas/pendencias?${q.toString()}`,
+          enderecoDasLinhas({
+            ...recorte,
+            pagina: offset / passo + 1,
+            porPagina: passo,
+          }),
         );
         tudo.push(...pagina.linhas);
         if (tudo.length >= pagina.total || pagina.linhas.length === 0) break;
@@ -309,7 +422,7 @@ export default function PainelDeJustificativas() {
         ].join(";"),
         ...tudo.map((l) =>
           [
-            aspas(nomeDaVigencia.get(l.changeSetId) ?? l.changeSetId),
+            aspas(nomeDaVigenciaNoArquivo.get(l.changeSetId) ?? l.changeSetId),
             aspas(l.entityLabel),
             aspas(l.entityType ? rotuloDoTipo(l.entityType) : null),
             aspas(l.attributeName ?? l.attributeCode),
@@ -361,7 +474,13 @@ export default function PainelDeJustificativas() {
               <p className="text-sm text-muted-foreground mt-2 max-w-2xl">
                 Acompanhe tudo que foi justificado e o que ainda falta justificar —
                 as alterações que subiram ou desceram um valor entre uma vigência
-                e a seguinte, e a explicação que o gestor deve a cada uma.
+                e a seguinte, e a explicação que o gestor deve a cada uma
+                {unidadeDoRecorte
+                  ? `, em ${unidadeDoRecorte}`
+                  : emVisaoGeral
+                    ? ", somando todas as unidades"
+                    : ""}
+                .
               </p>
             </div>
           </div>
@@ -573,6 +692,35 @@ export default function PainelDeJustificativas() {
 
             <section className="bg-card border rounded-xl shadow-sm px-6 py-4">
               <div className="flex flex-wrap items-end gap-3">
+                {/* Só na Visão Geral — ver `escopoDaConsulta`. */}
+                {emVisaoGeral && unidades.length > 1 && (
+                  <label className="space-y-1">
+                    <span className="block text-xs uppercase tracking-wide text-muted-foreground">
+                      Unidade
+                    </span>
+                    <Select
+                      value={unidadeEscolhida ?? TODAS_AS_UNIDADES}
+                      onValueChange={(v) =>
+                        trocar(() =>
+                          setUnidadeEscolhida(v === TODAS_AS_UNIDADES ? null : v),
+                        )
+                      }
+                    >
+                      <SelectTrigger className="h-9 w-60 text-sm">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={TODAS_AS_UNIDADES}>Todas as unidades</SelectItem>
+                        {unidades.map((u) => (
+                          <SelectItem key={u.scopeHash} value={u.scopeHash}>
+                            {u.nome}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </label>
+                )}
+
                 <label className="space-y-1">
                   <span className="block text-xs uppercase tracking-wide text-muted-foreground">
                     Vigência
@@ -580,7 +728,7 @@ export default function PainelDeJustificativas() {
                   <Select
                     value={changeSetId ?? TODAS}
                     onValueChange={(v) =>
-                      trocar(() => setChangeSetId(v === TODAS ? null : v))
+                      trocar(() => setVigenciaEscolhida(v === TODAS ? null : v))
                     }
                   >
                     <SelectTrigger className="h-9 w-72 text-sm">
@@ -843,7 +991,7 @@ export default function PainelDeJustificativas() {
                                 size="sm"
                                 onClick={() =>
                                   navegar(
-                                    `/justificativas/placa/${encodeURIComponent(linha.entityLabel)}?changeSetId=${linha.changeSetId}`,
+                                    `/justificativas/placa/${encodeURIComponent(linha.entityLabel)}?${recorteDoEndereco({ changeSetId: linha.changeSetId })}`,
                                   )
                                 }
                               >
@@ -929,7 +1077,7 @@ export default function PainelDeJustificativas() {
                         )}
                         onClick={() =>
                           trocar(() =>
-                            setChangeSetId(changeSetId === v.changeSetId ? null : v.changeSetId),
+                            setVigenciaEscolhida(changeSetId === v.changeSetId ? null : v.changeSetId),
                           )
                         }
                       >

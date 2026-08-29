@@ -49,18 +49,31 @@ function offsetDaConsulta(bruto: unknown): number {
 }
 
 /**
- * As comparações que o painel pode somar: a escolhida, quando há uma, e todas
- * as da operação quando não.
+ * As comparações que o painel pode somar: a escolhida, quando há uma, e as da
+ * unidade aberta quando não.
  *
  * A recusa por operação é a mesma das rotas por id — um `changeSetId` de outra
  * auditoria não vira painel, vira 403. Sem id nenhum, quem recorta é
  * `listChangeSets`, que já é por operação: é o que garante que "todas" nunca
  * queira dizer "as das quatro".
+ *
+ * **E por unidade, quando quem pergunta traz uma.** A operação sozinha não
+ * bastava: com PERNAMBUCO na lateral, o painel somava a empurrada inteira —
+ * CAMAÇARI, MANAUS e CDD CEBRASA no mesmo total, e as linhas da fila trazendo
+ * placas que a unidade aberta não tem. O recorte é o `scope_hash` da vigência
+ * comparada (`snapshot_b_scope_hash`), o mesmo par que `comparacoesDoEscopo`
+ * aplica no cliente. Sem `scopeHash` a resposta é a de antes — a soma que
+ * atravessa as unidades, que na tela é a Visão Geral.
+ *
+ * Comparação sem `scope_hash` — anterior à coluna — fica fora do recorte de uma
+ * unidade: atribuí-la à unidade aberta seria afirmar uma origem que o dado não
+ * tem.
  */
 async function idsDoPainel(
   req: Parameters<typeof exigirOperacaoDoRecurso>[0],
   operacao: ReturnType<typeof operacaoDaConsulta>,
   changeSetId: string | undefined,
+  scopeHash: string | undefined,
 ): Promise<string[]> {
   if (changeSetId) {
     await exigirOperacaoDoRecurso(req, "comparação", changeSetId, () =>
@@ -69,7 +82,15 @@ async function idsDoPainel(
     return [changeSetId];
   }
   const changeSets = await listChangeSets(db, { operacao });
-  return changeSets.map((cs) => String(cs.id));
+  return changeSets
+    .filter((cs) => !scopeHash || String(cs.snapshot_b_scope_hash ?? "") === scopeHash)
+    .map((cs) => String(cs.id));
+}
+
+function escopoDaConsulta(query: Record<string, unknown>): string | undefined {
+  return typeof query.scopeHash === "string" && query.scopeHash !== ""
+    ? query.scopeHash
+    : undefined;
 }
 
 /**
@@ -89,7 +110,9 @@ async function idsDoPainel(
  * O recorte por operação é o das demais listagens — `listChangeSets` já o
  * aplica, e é ele que impede o painel da Auditoria Rota de somar a cobertura da
  * empurrada. Um `?changeSetId=` fora da operação de quem pergunta é recusado
- * pela mesma regra por id do resto do arquivo.
+ * pela mesma regra por id do resto do arquivo. `?scopeHash=` recorta pela
+ * unidade aberta na lateral; sem ele, a soma atravessa as unidades — ver
+ * `idsDoPainel`.
  */
 router.get("/justificativas/painel", async (req, res): Promise<void> => {
   const operacao = operacaoDaConsulta(req.query as Record<string, unknown>);
@@ -98,7 +121,12 @@ router.get("/justificativas/painel", async (req, res): Promise<void> => {
       ? req.query.changeSetId
       : undefined;
 
-  const ids = await idsDoPainel(req, operacao, changeSetId);
+  const ids = await idsDoPainel(
+    req,
+    operacao,
+    changeSetId,
+    escopoDaConsulta(req.query as Record<string, unknown>),
+  );
 
   const faseCobertura = iniciarFase(req, "db.cobertura");
   const cobertura = await coberturaDeJustificativas(db, ids);
@@ -128,7 +156,12 @@ router.get("/justificativas/pendencias", async (req, res): Promise<void> => {
       ? req.query.changeSetId
       : undefined;
 
-  const ids = await idsDoPainel(req, operacao, changeSetId);
+  const ids = await idsDoPainel(
+    req,
+    operacao,
+    changeSetId,
+    escopoDaConsulta(req.query as Record<string, unknown>),
+  );
 
   const situacao = SITUACOES.includes(req.query.situacao as SituacaoDaJustificativa)
     ? (req.query.situacao as SituacaoDaJustificativa)

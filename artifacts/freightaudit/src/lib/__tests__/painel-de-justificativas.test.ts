@@ -209,6 +209,7 @@ describe("direcaoDaLinha", () => {
 describe("enderecoDasLinhas", () => {
   it("traduz o recorte da tela em página do servidor", () => {
     const endereco = enderecoDasLinhas({
+      escopo: null,
       changeSetId: "v1",
       tipo: "CAVALO",
       situacao: "PENDENTE",
@@ -234,6 +235,7 @@ describe("enderecoDasLinhas", () => {
   */
   it("não manda o responsável na aba das pendentes", () => {
     const pendentes = enderecoDasLinhas({
+      escopo: null,
       changeSetId: null,
       tipo: null,
       situacao: "PENDENTE",
@@ -243,6 +245,7 @@ describe("enderecoDasLinhas", () => {
       porPagina: 10,
     });
     const justificadas = enderecoDasLinhas({
+      escopo: null,
       changeSetId: null,
       tipo: null,
       situacao: "JUSTIFICADA",
@@ -254,5 +257,40 @@ describe("enderecoDasLinhas", () => {
 
     expect(new URLSearchParams(pendentes.split("?")[1]).get("autor")).toBeNull();
     expect(new URLSearchParams(justificadas.split("?")[1]).get("autor")).toBe("ana@x.com");
+  });
+
+  /*
+    A lista é a da unidade que a lateral nomeia. Sem o `scopeHash` na consulta,
+    o servidor devolve as pendências de todas as unidades da operação — placas
+    de CDD CEBRASA sob a lateral escrita PERNAMBUCO, que é o desencontro que o
+    recorte existe para acabar. `escopo` nulo é a Visão Geral, e aí a ausência
+    do parâmetro é a escolha.
+  */
+  it("leva a unidade aberta, e só ela omite o recorte na Visão Geral", () => {
+    const daUnidade = enderecoDasLinhas({
+      escopo: "sh-pernambuco",
+      changeSetId: null,
+      tipo: null,
+      situacao: "PENDENTE",
+      direcao: "TODAS",
+      autor: null,
+      pagina: 1,
+      porPagina: 10,
+    });
+    const visaoGeral = enderecoDasLinhas({
+      escopo: null,
+      changeSetId: null,
+      tipo: null,
+      situacao: "PENDENTE",
+      direcao: "TODAS",
+      autor: null,
+      pagina: 1,
+      porPagina: 10,
+    });
+
+    expect(new URLSearchParams(daUnidade.split("?")[1]).get("scopeHash")).toBe(
+      "sh-pernambuco",
+    );
+    expect(new URLSearchParams(visaoGeral.split("?")[1]).get("scopeHash")).toBeNull();
   });
 });
