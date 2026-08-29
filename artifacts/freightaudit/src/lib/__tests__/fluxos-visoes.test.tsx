@@ -712,13 +712,12 @@ describe("a Jornada lê o mesmo caminho por uma lente de cada vez", () => {
       /*
         Sempre três cartões, e sempre pelo menos uma linha desenhada em cada um:
         a jornada não muda de forma, e nenhuma lente devolve cartão mudo. O
-        número de campos é da lente — as Informações têm quatro, com o que a
-        etapa consulta na frente e as pontas do grafo como apoio.
+        número de campos é da lente — as focadas têm um só, a Operação e as
+        Informações têm três.
       */
       expect(cartoes).toHaveLength(3);
       for (const cartao of cartoes) {
-        expect(cartao.campos.length).toBeGreaterThanOrEqual(3);
-        expect(cartao.visiveis.length).toBeGreaterThanOrEqual(1);
+        expect(cartao.campos.length).toBeGreaterThanOrEqual(1);
       }
     }
 
@@ -740,21 +739,29 @@ describe("a Jornada lê o mesmo caminho por uma lente de cada vez", () => {
     expect(valores(0, "operacao")).toContain("TMS");
     expect(valores(0, "operacao")).toContain("4 horas");
 
-    expect(valores(0, "documentacao")).toContain("Garantir que a tarifa aplicada é a vigente.");
+    /*
+      A documentação é o documento, e nada além dele: o objetivo e a regra são
+      da etapa, mas não são a pergunta de quem foi ler o fluxo documental.
+    */
     expect(valores(0, "documentacao")).toContain("Tabela vigente");
-    /* A documentação não mostra o prazo: prazo é operação. */
+    expect(valores(0, "documentacao")).not.toContain("Garantir que a tarifa aplicada é a vigente.");
+    expect(valores(0, "documentacao")).not.toContain("Tarifa fora da tabela volta");
+    /* E não mostra o prazo: prazo é operação. */
     expect(valores(0, "documentacao")).not.toContain("4 horas");
 
     expect(valores(1, "falhas")).toContain("CT-e sem XML");
-    expect(valores(1, "falhas")).toContain("Etapa marcada como atenção");
     expect(valores(1, "falhas")).not.toContain("Conferência manual");
 
     expect(valores(1, "gargalos")).toContain("Conferência manual");
     expect(valores(1, "gargalos")).not.toContain("CT-e sem XML");
 
-    expect(valores(1, "informacoes")).toContain("Origem da tarifa");
-    expect(valores(1, "informacoes")).toContain("Fechamento");
+    /*
+      As Informações são o que a etapa consulta, o contexto e o que ela mede —
+      não as setas do grafo, que já estão desenhadas entre os cartões.
+    */
     expect(valores(1, "informacoes")).toContain("CT-e conferidos (%)");
+    expect(valores(1, "informacoes")).not.toContain("Origem da tarifa");
+    expect(valores(1, "informacoes")).not.toContain("Fechamento");
 
     /*
       O que a etapa consulta abre a lente das Informações — é o campo do editor
@@ -764,16 +771,14 @@ describe("a Jornada lê o mesmo caminho por uma lente de cada vez", () => {
     expect(informacoes.campos[0].chave).toBe("consulta");
     expect(informacoes.campos[0].valores).toEqual(["Tabela de frete mínimo no SAP"]);
     /*
-      E a etapa que não consulta nada e não mede nada diz as duas coisas, em vez
-      de esconder as linhas. O apoio segue a regra de sempre: a última etapa não
-      tem "segue para", então a linha não é desenhada.
+      E a etapa que não consulta nada, não anota nada e não mede nada diz as três
+      coisas, em vez de esconder as linhas.
     */
-    expect(cartaoDaJornada(linhas[2], "informacoes").visiveis.map((c) => c.chave)).toEqual([
+    expect(cartaoDaJornada(linhas[2], "informacoes").campos.map((c) => c.chave)).toEqual([
       "consulta",
       /* "Contexto" é o campo Informações da etapa — o que é preciso saber. */
       "contexto",
       "indicadores",
-      "entradas",
     ]);
   });
 
@@ -810,8 +815,15 @@ describe("a Jornada lê o mesmo caminho por uma lente de cada vez", () => {
     expect(operacao).toContain("4 horas");
     expect(operacao).not.toContain("CT-e sem XML");
 
-    expect(documentacao).toContain("Garantir que a tarifa aplicada é a vigente.");
     expect(documentacao).toContain("Tabela vigente");
+    /* Só o documento: o objetivo da etapa não entra na jornada documental. */
+    expect(documentacao).not.toContain("Garantir que a tarifa aplicada é a vigente.");
+    /*
+      E o selo do tipo sai junto — "Início", "Validação" e "Fim" são a resposta
+      de outra pergunta ocupando a primeira linha de todo cartão.
+    */
+    expect(operacao).toContain("Início");
+    expect(documentacao).not.toContain("Início");
 
     expect(falhas).toContain("CT-e sem XML");
     expect(falhas).not.toContain("Conferência manual");
@@ -843,41 +855,37 @@ describe("a Jornada lê o mesmo caminho por uma lente de cada vez", () => {
 
     expect(cartao.achados).toBe(0);
     expect(cartao.campos.every((c) => c.valores.length === 0)).toBe(true);
-    expect(cartao.campos.map((c) => c.vazio)).toEqual([
-      "sem objetivo descrito",
-      "sem regras registradas",
-      "sem documentos cadastrados",
-    ]);
     /*
-      E, no cartão focado, o que sobra é o assunto da lente: a linha dos
-      documentos, dizendo que não há nenhum. O apoio vazio não vira placeholder.
+      O cartão sem documento não fica vazio nem inventa nada: fica exatamente a
+      linha dos documentos, dizendo que não há nenhum. É a resposta que quem
+      abriu a jornada da documentação foi ali procurar.
     */
-    expect(cartao.visiveis.map((c) => c.chave)).toEqual(["documentos"]);
-    expect(cartao.visiveis[0].vazio).toBe("sem documentos cadastrados");
+    expect(cartao.campos.map((c) => c.chave)).toEqual(["documentos"]);
+    expect(cartao.campos.map((c) => c.vazio)).toEqual(["sem documentos cadastrados"]);
   });
 
   /*
-    A promessa da lente focada, e o seu centro. Quem troca para "Documentação"
-    quer ler os documentos do processo **e** ver onde eles faltam: a linha do
-    assunto aparece em toda etapa, cadastrada ou não. O que some é o apoio
-    vazio — o "sem regras registradas" de uma etapa que tem objetivo e documento
-    é ruído numa jornada lida de relance, e sai do desenho sem sair do dado.
+    A promessa da lente focada: um campo só, o que dá nome a ela, em toda etapa —
+    cadastrado ou não. Quem troca para "Documentação" quer ler os documentos do
+    processo **e** ver onde eles faltam, e as duas coisas são a mesma coluna
+    lida de cima a baixo. O objetivo, a regra, o retorno e o status continuam
+    no dado e no painel da etapa; o que eles não fazem mais é dividir o cartão.
   */
-  it("o cartão mostra o assunto da lente sempre, e o apoio só quando existe", () => {
+  it("a lente focada mostra um campo só — o dela — em toda etapa", () => {
     const linhas = linhasDaLista(fluxoDeTres());
     const cartao = cartaoDaJornada(linhas[1], "falhas");
 
-    /* A etapa tem falha e está marcada como atenção, mas nada volta para ela. */
-    expect(cartao.campos.map((c) => c.chave)).toEqual(["falhas", "retorno", "status"]);
-    expect(cartao.visiveis.map((c) => c.chave)).toEqual(["falhas", "status"]);
+    /* A etapa tem falha e está marcada como atenção: a lente lê a falha. */
+    expect(cartao.campos.map((c) => c.chave)).toEqual(["falhas"]);
 
     /* A etapa 01 não tem falha nenhuma — e ainda assim mostra a linha delas. */
     const semFalha = cartaoDaJornada(linhas[0], "falhas");
-    expect(semFalha.visiveis.map((c) => c.chave)).toEqual(["falhas"]);
+    expect(semFalha.campos.map((c) => c.chave)).toEqual(["falhas"]);
+    expect(semFalha.achados).toBe(0);
 
     /* O mesmo na documentação: a etapa 02 não tem documento, e diz isso. */
     const semDocumento = cartaoDaJornada(linhas[1], "documentacao");
-    expect(semDocumento.visiveis.map((c) => c.chave)).toEqual(["documentos"]);
+    expect(semDocumento.campos.map((c) => c.chave)).toEqual(["documentos"]);
 
     const completo = fluxoDeTres();
     const html = renderToStaticMarkup(
@@ -892,11 +900,12 @@ describe("a Jornada lê o mesmo caminho por uma lente de cada vez", () => {
       />,
     );
 
-    expect(html).toContain("Garantir que a tarifa aplicada é a vigente.");
     expect(html).toContain("Tabela vigente");
-    /* O apoio vazio não vira placeholder: a etapa 01 tem regras, as outras não. */
+    /* Nem o objetivo, nem a regra, nem o lugar vazio deles. */
+    expect(html).not.toContain("Garantir que a tarifa aplicada é a vigente.");
     expect(html).not.toContain("sem regras registradas");
-    /* Mas o assunto da lente aparece — as etapas 02 e 03 não têm documento. */
+    expect(html).not.toContain("sem objetivo descrito");
+    /* E o campo da lente aparece — as etapas 02 e 03 não têm documento. */
     expect(html).toContain("sem documentos cadastrados");
 
     /* E a mesma regra vale para as outras lentes. */
@@ -912,8 +921,9 @@ describe("a Jornada lê o mesmo caminho por uma lente de cada vez", () => {
       />,
     );
     expect(falhas).toContain("CT-e sem XML");
-    /* A linha das falhas em toda etapa; o apoio vazio, em nenhuma. */
+    /* A linha das falhas em toda etapa; nada do que era apoio, em nenhuma. */
     expect(falhas).toContain("sem falhas registradas");
+    expect(falhas).not.toContain("1 retorno chega a esta etapa");
     expect(falhas).not.toContain("nenhum retrabalho chega aqui");
     expect(falhas).not.toContain("etapa não marcada como atenção");
   });
@@ -921,12 +931,18 @@ describe("a Jornada lê o mesmo caminho por uma lente de cada vez", () => {
   it("o resumo conta as etapas cadastradas, e o que vem do grafo não conta", () => {
     const linhas = linhasDaLista(fluxoDeTres());
 
-    expect(resumoDaLente(linhas, "documentacao")).toEqual({ etapas: 1, total: 3, achados: 3 });
+    /*
+      Uma etapa tem documento — e é essa a conta. Enquanto a lente também trazia
+      o objetivo e a regra, o cabeçalho dizia "em 15 de 15 etapas" num fluxo em
+      que ninguém tinha cadastrado documento nenhum.
+    */
+    expect(resumoDaLente(linhas, "documentacao")).toEqual({ etapas: 1, total: 3, achados: 1 });
     expect(resumoDaLente(linhas, "falhas").etapas).toBe(1);
     /*
       Duas etapas têm alguma coisa: uma consulta uma tabela, a outra mede um
-      indicador. Se "vem de"/"segue para" contassem, o resumo diria "3 de 3" num
-      fluxo sem indicador nenhum — o oposto do que o número existe para revelar.
+      indicador. Se "vem de"/"segue para" entrassem na lente, o resumo diria
+      "3 de 3" num fluxo sem indicador nenhum — o oposto do que o número existe
+      para revelar.
     */
     expect(resumoDaLente(linhas, "informacoes")).toEqual({ etapas: 2, total: 3, achados: 2 });
   });

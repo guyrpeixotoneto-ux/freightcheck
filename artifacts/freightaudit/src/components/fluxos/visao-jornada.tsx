@@ -2,20 +2,13 @@ import { useMemo } from "react";
 import {
   Activity,
   AlertTriangle,
-  ArrowDownLeft,
-  ArrowUpRight,
-  BookOpen,
   ChevronRight,
-  Flag,
   FileText,
   Hourglass,
   Info,
   Search,
   Server,
-  Shuffle,
-  Target,
   Timer,
-  Undo2,
   Users,
   type LucideIcon,
 } from "lucide-react";
@@ -34,29 +27,27 @@ import type { PropsDaVisao } from "@/components/fluxos/visao";
  * processo; a jornada é o que se mostra para a diretoria: a sequência, na ordem
  * em que acontece, um cartão por macroetapa.
  *
- * O que mudou é **o que cabe no cartão**. Antes a jornada mostrava sempre as
- * mesmas três linhas (quem, onde, prazo) e escondia o resto de propósito, para
- * não virar ilegível. O tipo de jornada mantém a promessa e resolve a perda:
- * continua sendo uma leitura de cada vez — três linhas, nunca tudo junto —, mas
- * quem lê escolhe *qual*. A jornada da documentação, a das falhas, a dos
- * gargalos e a das informações são o mesmo caminho, com o cartão respondendo
- * outra pergunta.
+ * O que muda de lente para lente é **o que cabe no cartão** — e cabe uma coisa
+ * só. A jornada da documentação é o número, o nome da etapa e o documento: quem
+ * a escolheu está lendo o fluxo documental do processo de ponta a ponta, e essa
+ * leitura só existe quando a coluna inteira é ela. O mesmo vale para as falhas,
+ * os gargalos e as informações. Até o selo do tipo da etapa sai nessas lentes:
+ * "Sistema" e "Validação" são a resposta de outra pergunta.
+ *
+ * A Operação é a exceção, e por ser a leitura executiva de sempre: quem
+ * responde, em que sistema, em quanto tempo — três linhas que são um assunto
+ * só, com o tipo e o "Atenção" no alto.
  *
  * A troca de lente não mexe em nada além disso: mesma sequência, mesma
  * numeração, mesmo clique abrindo o mesmo painel com tudo. `cartaoDaJornada` é
  * função pura sobre a linha que a Lista já monta — não há dado por lente.
  *
- * E a lente é **focada**, com um centro. O campo que dá nome à lente é o
- * assunto e aparece em todo cartão: a jornada da documentação mostra a linha
- * dos documentos em todas as etapas — com os documentos, ou com "sem documentos
- * cadastrados" —, porque é essa a pergunta que alguém foi ali fazer, e a etapa
- * sem documento é a resposta. Os campos de apoio (o objetivo, a regra, o
- * retorno que chega, a troca de área) só aparecem quando existem: preenchidos
- * enriquecem a leitura, vazios viram quinze linhas repetidas de "sem X".
- *
- * Assim o cartão responde as duas perguntas de uma vez — o que está cadastrado
- * e onde falta —, e o cartão em que a lente não achou nada continua esmaecido,
- * com o cabeçalho dizendo em quantas etapas ela achou alguma coisa.
+ * O campo da lente aparece em todo cartão, com o que está cadastrado ou com a
+ * ausência dita ("sem documentos cadastrados"): a etapa sem documento é
+ * exatamente a resposta que alguém foi ali procurar. Assim o cartão responde as
+ * duas perguntas de uma vez — o que está cadastrado e onde falta —, e o cartão
+ * em que a lente não achou nada continua esmaecido, com o cabeçalho dizendo em
+ * quantas etapas ela achou alguma coisa.
  *
  * O vazio continua sendo dito com todas as letras, nunca preenchido com
  * estimativa.
@@ -76,19 +67,12 @@ import type { PropsDaVisao } from "@/components/fluxos/visao";
 const ICONES: Record<string, LucideIcon> = {
   Activity,
   AlertTriangle,
-  ArrowDownLeft,
-  ArrowUpRight,
-  BookOpen,
-  Flag,
   FileText,
   Hourglass,
   Info,
   Search,
   Server,
-  Shuffle,
-  Target,
   Timer,
-  Undo2,
   Users,
 };
 
@@ -167,17 +151,27 @@ export function VisaoJornada({
                   )}
                   data-testid={`jornada-${linha.etapa.nome}`}
                 >
+                  {/*
+                    Os selos são da Operação. Numa lente focada o cartão tem uma
+                    leitura só — o número, o nome da etapa e o campo da lente —,
+                    e "Sistema" ou "Validação" ali seria a resposta de outra
+                    pergunta ocupando a primeira linha de todo cartão.
+                  */}
                   <div className={cn("flex flex-wrap items-center gap-2", comMarca && "pr-7")}>
                     <span className="text-xs font-semibold tabular-nums text-muted-foreground">
                       {String(linha.numero).padStart(2, "0")}
                     </span>
-                    <Badge variant="secondary" className="font-normal">
-                      {tipo?.rotulo ?? linha.etapa.tipo}
-                    </Badge>
-                    {linha.etapa.status === "ATENCAO" && (
-                      <Badge variant="destructive" className="font-normal">
-                        Atenção
-                      </Badge>
+                    {entrada.selos && (
+                      <>
+                        <Badge variant="secondary" className="font-normal">
+                          {tipo?.rotulo ?? linha.etapa.tipo}
+                        </Badge>
+                        {linha.etapa.status === "ATENCAO" && (
+                          <Badge variant="destructive" className="font-normal">
+                            Atenção
+                          </Badge>
+                        )}
+                      </>
                     )}
                 </div>
 
@@ -187,14 +181,13 @@ export function VisaoJornada({
 
                 <dl className="mt-2 space-y-1 text-xs text-muted-foreground">
                   {/*
-                    A lente focada, com centro: o assunto da lente aparece em
-                    todo cartão — os documentos na jornada da documentação, as
-                    falhas na das falhas —, com o que está cadastrado ou com a
-                    ausência dita. O apoio só aparece quando existe: "sem regras
-                    registradas" repetido em quinze cartões não é a resposta que
-                    alguém foi ali procurar.
+                    A lente focada: só o campo que lhe dá nome — os documentos
+                    na jornada da documentação, as falhas na das falhas —, com o
+                    que está cadastrado ou com a ausência dita. O objetivo, a
+                    regra, o prazo e as setas do grafo saíram: eram a resposta de
+                    outra pergunta no meio da que a pessoa foi ali fazer.
                   */}
-                  {cartao.visiveis.map((campo) => {
+                  {cartao.campos.map((campo) => {
                     const Icone = ICONES[campo.icone] ?? Activity;
                     return (
                       <div key={campo.chave} className="flex items-start gap-1.5">

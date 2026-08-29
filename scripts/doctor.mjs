@@ -103,13 +103,36 @@ function comando(pid) {
   }
 }
 
+/*
+  `redirect: "manual"` está aqui desde sempre, e até agora não servia para
+  nada: o 3xx que ele preserva caía no `else` final do laço abaixo e era
+  impresso como `ok`. Ou seja, o único script que se roda para conferir o
+  caminho do roteador dava o caminho por bom exatamente no defeito que mais
+  custou a este projeto — `/api/*` respondido por um redirect para outra
+  origem, que é o que a tela relata como DESVIADA (ver
+  `artifacts/freightaudit/src/lib/transporte.ts`).
+
+  O `location` e o carimbo passam a voltar junto porque são o que separa as
+  duas perguntas seguintes: **para onde** desviou, e **quem** respondeu — só a
+  nossa API escreve `X-FreightCheck-API`, e ela não redireciona em rota nenhuma.
+*/
 async function status(url) {
   try {
     const resposta = await fetch(url, { redirect: "manual" });
     const corpo = await resposta.text();
-    return { code: resposta.status, corpo };
+    return {
+      code: resposta.status,
+      corpo,
+      location: resposta.headers.get("location"),
+      daApi: resposta.headers.get("x-freightcheck-api") === "1",
+    };
   } catch (err) {
-    return { code: null, corpo: err instanceof Error ? err.message : "" };
+    return {
+      code: null,
+      corpo: err instanceof Error ? err.message : "",
+      location: null,
+      daApi: false,
+    };
   }
 }
 
@@ -181,9 +204,29 @@ if (!url) {
     o diagnóstico. Um readyz 503 aqui não é a porta vazia — é a resposta.
   */
   for (const caminho of ["/", "/api/healthz", "/api/readyz", "/api/imports"]) {
-    const { code, corpo } = await status(`${url}${caminho}`);
+    const { code, corpo, location, daApi } = await status(`${url}${caminho}`);
     if (code === null) {
       erro(`${caminho}: não respondeu (${corpo}).`);
+    } else if (code >= 300 && code < 400) {
+      /*
+        Um 3xx aqui nunca é da API: não existe um `res.redirect` no servidor
+        inteiro, e `nenhum-desvio-em-api.test.ts` mantém assim. Quem respondeu
+        foi a camada de rede da publicação — roteador, proxy ou portal de
+        autenticação da plataforma —, e não há correção no código que faça esta
+        chamada chegar.
+      */
+      erro(
+        `${caminho}: ${code} — desviada para ${location ?? "destino não informado"}.`,
+      );
+      nota(
+        "Esta API não redireciona em rota nenhuma; quem respondeu foi uma camada antes dela.",
+      );
+      nota(
+        "Se o destino for outra origem, o navegador barra a leitura por CORS e a tela mostra DESVIADA.",
+      );
+      nota(
+        "Confira a proteção de acesso do deployment e as regras de domínio da plataforma — não a tela.",
+      );
     } else if (caminho === "/api/readyz" && (code === 200 || code === 503)) {
       // Os dois códigos são resposta do readiness, e o corpo diz o resto.
       (code === 200 ? ok : erro)(
@@ -214,6 +257,16 @@ if (!url) {
       // HTML em /api quer dizer que o Vite respondeu no lugar da API.
       erro(
         `${caminho}: ${code}, mas veio HTML — /api não está chegando ao api-server.`,
+      );
+    } else if (caminho.startsWith("/api/") && !daApi) {
+      /*
+        Status bom e sem carimbo: a resposta é de alguém que não é esta API.
+        Um cache, um proxy, uma página do ambiente — todos capazes de responder
+        200 e JSON. Antes do carimbo, este caso passava por sucesso.
+      */
+      erro(`${caminho}: ${code}, e sem o carimbo X-FreightCheck-API.`);
+      nota(
+        "Ou o processo publicado é anterior a este build, ou quem respondeu não foi a API.",
       );
     } else {
       ok(`${caminho}: ${code}`);
