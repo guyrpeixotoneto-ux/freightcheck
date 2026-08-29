@@ -276,23 +276,23 @@ export default function Assistente() {
   const vazia = turnos.length === 0;
 
   return (
-    <Layout semReservaDaBarra>
+    <Layout alturaDeJanela>
       {/*
-        A ALTURA DA JANELA VEM DAQUI.
+        A ALTURA DA JANELA VEM DA CASCA, E ESTA FAIXA TOMA O QUE SOBROU.
 
-        A casca não mede mais uma tela: ela termina no fim do conteúdo, e por
-        isso `flex-1` nesta faixa não tinha de quem herdar altura. A coluna do
-        chat ficava do tamanho das mensagens, o `overflow-y-auto` de dentro
-        nunca chegava a rolar e o campo de perguntar parava onde a conversa
-        acabasse — enquanto a lateral, essa sim de `100dvh`, esticava a página
-        até o fim da janela. A sobra entre os dois era a faixa vazia.
+        Por padrão a casca não mede uma tela: ela termina no fim do conteúdo, e
+        aí `flex-1` aqui não teria de quem herdar altura — a coluna do chat
+        ficava do tamanho das mensagens, o `overflow-y-auto` de dentro nunca
+        chegava a rolar e o campo de perguntar parava onde a conversa acabasse,
+        enquanto a lateral, essa sim de uma janela, esticava a página até o fim
+        dela. A sobra entre os dois era a faixa vazia.
 
-        Então a conta é feita aqui, como no Fluxo: uma janela menos a faixa
-        vermelha do topo e, no celular, menos a barra de baixo (que a casca
-        deixa de reservar acima). Com altura fixa, `min-h-0` volta a ter
-        sentido: quem rola é a lista de mensagens, e o campo fica colado embaixo.
+        `alturaDeJanela` liga a casca de uma janela só (ver `layout.tsx`), e daí
+        `flex-1 min-h-0` volta a ter sentido: quem rola é a lista de mensagens, e
+        o campo fica colado embaixo. A conta de quanto sobrou é da casca — esta
+        tela não sabe, e não precisa saber, quantos rems existem acima dela.
       */}
-      <div className="flex h-[calc(100dvh-4rem-5.5rem-env(safe-area-inset-bottom))] min-h-0 md:h-[calc(100dvh-4rem)]">
+      <div className="flex min-h-0 flex-1">
         <Historico
           conversas={conversas.data ?? []}
           atual={conversaId}

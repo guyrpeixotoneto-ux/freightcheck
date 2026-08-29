@@ -659,27 +659,30 @@ export default function TelaDoFluxo() {
 
   return (
     /*
-      A página inteira mede uma janela e rola por dentro, então ela dispensa o
-      espaço que a casca reserva para a barra do celular e desconta a barra da
-      sua própria altura — ver a coluna logo abaixo. Com a reserva ligada, o
-      desconto acontecia duas vezes: sobrava uma faixa cinza vazia acima da
-      barra, e o último cartão da Jornada ficava cortado ao meio para pagá-la.
+      A página inteira mede uma janela e rola por dentro, e quem faz essa conta
+      é a casca: `alturaDeJanela` já desconta o cabeçalho e a barra do celular,
+      e dispensa o espaço que a casca reservaria embaixo para essa barra. Com a
+      reserva ligada, o desconto acontecia duas vezes: sobrava uma faixa cinza
+      vazia acima da barra, e o último cartão da Jornada ficava cortado ao meio
+      para pagá-la.
     */
-    <Layout semReservaDaBarra>
+    <Layout alturaDeJanela>
       {/*
         A COLUNA DA JANELA — cabeçalho em cima, visualização ocupando o resto.
 
-        A altura vem daqui, e não do contêiner do canvas: `100dvh` menos a faixa
-        vermelha do topo e, no celular, menos a barra de baixo. O cabeçalho tem
-        a altura que tiver — uma linha de ações ou duas, com descrição ou sem —
-        e o que sobra é da visualização. Antes a conta era feita ao contrário,
-        chutando a altura do cabeçalho em `16rem` no celular e `11,5rem` no
-        computador; quando o cabeçalho não media isso, a diferença virava faixa
-        vazia embaixo ou etapa cortada.
+        A altura não é medida aqui e nem no contêiner do canvas: `alturaDeJanela`
+        põe a casca do tamanho de uma janela (ver `layout.tsx`) e esta coluna
+        toma o que sobrou dela. O cabeçalho da tela tem a altura que tiver — uma
+        linha de ações ou duas, com descrição ou sem — e o que sobra é da
+        visualização. Antes a conta era feita ao contrário, chutando a altura do
+        cabeçalho em `16rem` no celular e `11,5rem` no computador; quando o
+        cabeçalho não media isso, a diferença virava faixa vazia embaixo ou etapa
+        cortada. Depois passou a ser `100dvh` menos `4rem` de cabeçalho da casca,
+        que é o mesmo erro um andar acima: com a faixa "visualizando como" na
+        tela, o cabeçalho da casca não mede `4rem`, e a diferença virava rolagem
+        na página inteira com o fim do conteúdo abaixo da dobra.
       */}
-      <div
-        className="flex h-[calc(100dvh-4rem-5.5rem-env(safe-area-inset-bottom))] flex-col md:h-[calc(100dvh-4rem)]"
-      >
+      <div className="flex min-h-0 flex-1 flex-col">
         {/*
           O CABEÇALHO — duas faixas com papéis fixos.
 
