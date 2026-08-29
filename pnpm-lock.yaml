@@ -303,6 +303,9 @@ importers:
       '@workspace/fechamento':
         specifier: workspace:*
         version: link:../../lib/fechamento
+      '@workspace/fluxos':
+        specifier: workspace:*
+        version: link:../../lib/fluxos
       '@workspace/ingest':
         specifier: workspace:*
         version: link:../../lib/ingest
