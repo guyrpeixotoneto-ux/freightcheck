@@ -408,18 +408,7 @@ export default function Assistente() {
               {painelTecnico && ultima && <PainelTecnico resposta={ultima} />}
 
               {!perguntar.isPending && ultima && ultima.sugestoes.length > 0 && (
-                <div className="flex flex-wrap gap-2 pt-1">
-                  {ultima.sugestoes.map((s) => (
-                    <button
-                      key={s}
-                      type="button"
-                      onClick={() => enviar(s)}
-                      className="text-xs border border-input rounded-full px-3 py-1.5 hover:border-brand hover:bg-muted/40 transition-colors"
-                    >
-                      {s}
-                    </button>
-                  ))}
-                </div>
+                <ProximosPassos sugestoes={ultima.sugestoes} aoEscolher={enviar} />
               )}
 
               <div ref={fim} />
@@ -445,6 +434,55 @@ export default function Assistente() {
 }
 
 // ── Abertura ────────────────────────────────────────────────────────────────
+
+/**
+ * As perguntas que a resposta acabou de tornar possíveis.
+ *
+ * **Não são pílulas.** Eram: `rounded-full` com o texto centralizado, do jeito
+ * que se marca uma etiqueta de uma ou duas palavras. Estas frases têm dez, e
+ * numa coluna estreita cada uma virava um balão de duas linhas com o texto
+ * centralizado no meio — três balões empilhados, sem começo comum para o olho
+ * descer. A forma prometia algo curto e entregava uma frase.
+ *
+ * Então são linhas: alinhadas à esquerda, uma embaixo da outra, com a seta do
+ * mesmo desenho dos cartões de abertura — que também são perguntas clicáveis, e
+ * já leem assim. Quem varre a lista lê as três primeiras palavras de cada uma
+ * na mesma coluna, que é como se escolhe entre três caminhos.
+ *
+ * O rótulo em cima existe porque sem ele estas frases ficam a um passo de
+ * parecer parte da resposta — dita como pergunta, ainda por cima.
+ */
+function ProximosPassos({
+  sugestoes,
+  aoEscolher,
+}: {
+  sugestoes: string[];
+  aoEscolher: (p: string) => void;
+}) {
+  return (
+    <div className="pt-2">
+      <h3 className="text-[0.6875rem] uppercase tracking-wide font-semibold text-muted-foreground mb-2">
+        Continuar a investigação
+      </h3>
+      <div className="flex flex-col gap-2">
+        {sugestoes.map((s) => (
+          <button
+            key={s}
+            type="button"
+            onClick={() => aoEscolher(s)}
+            className="group w-full text-left text-[0.875rem] leading-snug bg-card border border-card-border rounded-xl px-4 py-3 flex items-start gap-3 hover:border-brand hover:shadow-sm transition-[border-color,box-shadow]"
+          >
+            <span className="min-w-0 flex-1">{s}</span>
+            <ArrowRight
+              className="w-4 h-4 shrink-0 mt-0.5 text-muted-foreground group-hover:text-brand transition-colors"
+              aria-hidden
+            />
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function Abertura({ aoEscolher }: { aoEscolher: (p: string) => void }) {
   return (

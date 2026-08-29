@@ -66,7 +66,7 @@ import {
 } from "./encadeamento";
 import { responderSustentacao, semRespostaAnterior } from "./sustentacao";
 import { SUGESTOES } from "./conhecimento";
-import { termos } from "./normalizar";
+import { normalizar, termos } from "./normalizar";
 import {
   contextoParaOModelo,
   explicarRedacao,
@@ -621,7 +621,76 @@ export function portaoDeLastro(dossie: Dossie, aoTexto: (pedaco: string) => void
  * ouviu a regra de um bloco pode querer o número daquele assunto; quem ouviu o
  * número pode querer a regra.
  */
-function sugerir(dossie: Dossie): string[] {
+/**
+ * O nome de uma seção do Book, sem a numeração com que ela foi escrita.
+ *
+ * As seções vêm do sumário do documento, verbatim — "1. Introdução", "2.
+ * Regra de Negócio", "4.1 Cálculo". A numeração é do papel, não do assunto, e
+ * dentro de uma pergunta ela vira ruído com cara de defeito: "O que o Book diz
+ * sobre 1. introdução em CUSTO FIXO DE EQUIPAMENTOS?" foi lido em produção.
+ */
+export function nomeDaSecao(secao: string): string {
+  /*
+    Só corta o que é numeração de verdade, e a prova é o que ela **não** corta:
+    "13º salário" e "12 meses de vigência" começam com dígitos e continuam
+    inteiros. Um número só vira numeração quando vem seguido de ponto,
+    parêntese ou travessão — ou quando é de vários níveis ("4.1"), que nenhum
+    assunto é. Na dúvida, o título fica como está: um "1" sobrando numa
+    sugestão é feio, comer a primeira palavra do assunto é errado.
+  */
+  const numeracao =
+    /^\s*(?:\d+(?:[.)]\d+)+(?:[.)]|(?=\s))|(?:\d+|[IVXLCDM]+|[A-Za-z])(?:[.)]|\s*[\u2013\u2014-](?=\s)))\s*/;
+  return secao.replace(numeracao, "").trim();
+}
+
+/**
+ * Títulos de forma: existem em todo documento e não nomeiam assunto nenhum.
+ *
+ * "O que o Book diz sobre introdução em X?" e "sobre regra de negócio em X?"
+ * são a mesma pergunta dita duas vezes — "me leia o resto do documento". Quem
+ * está investigando não precisa de um índice clicável: precisa do próximo
+ * passo, que ou é outro assunto ou é o número do lado de lá.
+ *
+ * A lista é fechada de propósito, e é de estrutura de documento — nenhum
+ * termo do negócio entra aqui. "Vigência" e "reajuste" são seções legítimas e
+ * continuam virando pergunta.
+ */
+const SECOES_DE_FORMA: ReadonlySet<string> = new Set([
+  "introducao", "apresentacao", "objetivo", "objetivos", "finalidade",
+  "escopo", "abrangencia", "aplicacao", "regra de negocio", "regras de negocio",
+  "definicoes", "conceitos", "premissas", "responsabilidades",
+  "consideracoes finais", "conclusao", "disposicoes gerais",
+  "anexo", "anexos", "glossario", "referencias", "sumario", "indice",
+  "historico de revisoes", "controle de versoes", "revisoes",
+]);
+
+/**
+ * As seções deste dossiê que nomeiam um **assunto**, e não uma parte do papel.
+ *
+ * Fora as de forma, ficam de fora também a que repete o bloco (perguntar "o
+ * que o Book diz sobre custo fixo em CUSTO FIXO DE EQUIPAMENTOS?" é dar uma
+ * volta para chegar onde já se está) e as repetidas entre si.
+ */
+export function secoesComAssunto(
+  secoes: readonly (string | null | undefined)[],
+  bloco: string,
+): string[] {
+  const vistas = new Set<string>([normalizar(bloco)]);
+  const saida: string[] = [];
+
+  for (const bruta of secoes) {
+    const nome = nomeDaSecao(bruta?.split(" › ").pop() ?? "");
+    if (!nome) continue;
+    const chave = normalizar(nome);
+    if (SECOES_DE_FORMA.has(chave) || vistas.has(chave)) continue;
+    vistas.add(chave);
+    saida.push(nome);
+  }
+
+  return saida;
+}
+
+export function sugerir(dossie: Dossie): string[] {
   const { plano } = dossie;
   const gaveta = plano.alvo?.parametro;
   const bloco = dossie.documentos[0]?.trecho.bloco;
@@ -639,16 +708,6 @@ function sugerir(dossie: Dossie): string[] {
     mexeu; quem acabou de ver o número pergunta o que a regra diz.
   */
   if (bloco) {
-    const outrasSecoes = [
-      ...new Set(
-        dossie.documentos
-          .map((d) => d.trecho.secao?.split(" › ").pop())
-          .filter((s): s is string => Boolean(s) && s !== bloco),
-      ),
-    ];
-    for (const secao of outrasSecoes.slice(0, 2)) {
-      saida.push(`O que o Book diz sobre ${secao.toLowerCase()} em ${bloco}?`);
-    }
     saida.push(`Algum parâmetro relacionado a ${bloco} mudou na última vigência?`);
   }
 
@@ -695,6 +754,26 @@ function sugerir(dossie: Dossie): string[] {
       break;
     default:
       break;
+  }
+
+  /*
+    AS SEÇÕES VÊM DEPOIS DO QUE MOVE A INVESTIGAÇÃO, E NÃO ANTES.
+
+    Elas ficavam no topo, duas de uma vez, e com a terceira vaga tomada pela
+    ponte do bloco não sobrava nenhuma para o `switch` acima: quem perguntava
+    ao Book recebia três variações de "leia outro pedaço do mesmo documento" —
+    e nenhuma que atravessasse para o número, que é o lado de lá do produto e o
+    passo seguinte de quem está investigando. Aqui embaixo elas são o que
+    sempre foram: preenchimento honesto quando a intenção não teve o que
+    oferecer.
+  */
+  if (bloco) {
+    for (const secao of secoesComAssunto(
+      dossie.documentos.map((d) => d.trecho.secao),
+      bloco,
+    ).slice(0, 2)) {
+      saida.push(`O que o Book diz sobre ${secao.toLowerCase()} em ${bloco}?`);
+    }
   }
 
   if (plano.contexto && plano.periodo && saida.length < 3) {
