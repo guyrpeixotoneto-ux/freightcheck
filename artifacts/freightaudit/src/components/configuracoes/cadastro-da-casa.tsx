@@ -14,6 +14,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { apresentar } from "@/lib/apresentar-erro";
 import { useAuth } from "@/lib/auth";
 import {
@@ -87,6 +93,11 @@ function CascaDoCadastro({
   erro,
   vazio,
   formulario,
+  formularioAberto,
+  tituloDoFormulario,
+  descricaoDoFormulario,
+  rodapeDoFormulario,
+  aoFecharFormulario,
   aoCriar,
   aoEditar,
   aoExcluir,
@@ -102,8 +113,18 @@ function CascaDoCadastro({
   carregando: boolean;
   erro: Error | null;
   vazio: string;
-  /** O formulário aberto, montado pelo painel — `null` quando fechado. */
+  /**
+   * Os campos do formulário, montados pelo painel. A casca é que decide onde
+   * eles aparecem — hoje, na gaveta lateral —, e por isso o painel manda só os
+   * campos: nem o título, nem os botões, nem a moldura.
+   */
   formulario: ReactNode;
+  formularioAberto: boolean;
+  tituloDoFormulario: string;
+  descricaoDoFormulario: ReactNode;
+  /** O botão que salva. Só ele: o "Cancelar" é sempre o mesmo, e é daqui. */
+  rodapeDoFormulario: ReactNode;
+  aoFecharFormulario: () => void;
   aoCriar: () => void;
   aoEditar: (linha: LinhaDoCadastro) => void;
   aoExcluir: (linha: LinhaDoCadastro) => void;
@@ -113,90 +134,152 @@ function CascaDoCadastro({
   const podeMexer = user?.role === "ADMIN";
 
   return (
-    <Card>
-      <CardHeader className="pb-3 flex-row items-start justify-between gap-4 space-y-0">
-        <div>
-          <CardTitle className="text-base flex items-center gap-2">
-            {icone}
-            {titulo}
-          </CardTitle>
-          <p className="text-xs text-muted-foreground mt-1 max-w-2xl">{explicacao}</p>
-        </div>
-        {/*
-          O botão só para quem pode. Renderizá-lo para o operador e deixar o
-          servidor recusar daria um clique que sempre falha — a mesma escolha
-          que a seção de Usuários já faz com o cartão de criar conta.
-        */}
-        {podeMexer && (
-          <Button size="sm" onClick={aoCriar}>
-            <Plus className="w-4 h-4 mr-1" />
-            {rotuloDoBotao}
-          </Button>
-        )}
-      </CardHeader>
-
-      <CardContent className="space-y-4">
-        {erro !== null && (
-          <ApiErrorNotice error={erro} what={`A lista de ${titulo.toLowerCase()} não pôde ser carregada.`} />
-        )}
-
-        {formulario}
-
-        {carregando && <p className="text-sm text-muted-foreground">Carregando…</p>}
-
-        {!carregando && linhas.length === 0 && erro === null && (
-          <p className="text-sm text-muted-foreground">{vazio}</p>
-        )}
-
-        {linhas.length > 0 && (
-          <div className="divide-y rounded-lg border">
-            {linhas.map((linha) => (
-              <div
-                key={linha.id}
-                className="flex items-center gap-3 px-4 py-3 hover:bg-muted/40 transition-colors"
-              >
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium truncate">{linha.nome}</p>
-                  <p className="text-xs text-muted-foreground truncate">
-                    {linha.detalhe}
-                  </p>
-                </div>
-                {linha.dependencias !== "" && (
-                  <span className="text-xs text-muted-foreground shrink-0 hidden sm:block">
-                    {linha.dependencias}
-                  </span>
-                )}
-                {podeMexer && (
-                  <div className="flex items-center gap-1 shrink-0">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8"
-                      aria-label={`Editar ${linha.nome}`}
-                      onClick={() => aoEditar(linha)}
-                    >
-                      <Pencil className="w-4 h-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 text-destructive hover:text-destructive"
-                      aria-label={`Excluir ${linha.nome}`}
-                      disabled={excluindo === linha.id}
-                      onClick={() => aoExcluir(linha)}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  </div>
-                )}
-              </div>
-            ))}
+    <>
+      <Card>
+        <CardHeader className="pb-3 flex-row items-start justify-between gap-4 space-y-0">
+          <div>
+            <CardTitle className="text-base flex items-center gap-2">
+              {icone}
+              {titulo}
+            </CardTitle>
+            <p className="text-xs text-muted-foreground mt-1 max-w-2xl">
+              {explicacao}
+            </p>
           </div>
-        )}
+          {/*
+            O botão só para quem pode. Renderizá-lo para o operador e deixar o
+            servidor recusar daria um clique que sempre falha — a mesma escolha
+            que a seção de Usuários já faz com o cartão de criar conta.
+          */}
+          {podeMexer && (
+            <Button size="sm" onClick={aoCriar}>
+              <Plus className="w-4 h-4 mr-1" />
+              {rotuloDoBotao}
+            </Button>
+          )}
+        </CardHeader>
 
-        <p className="text-xs text-muted-foreground border-t pt-3">{ressalva}</p>
-      </CardContent>
-    </Card>
+        <CardContent className="space-y-4">
+          {erro !== null && (
+            <ApiErrorNotice
+              error={erro}
+              what={`A lista de ${titulo.toLowerCase()} não pôde ser carregada.`}
+            />
+          )}
+
+          {carregando && (
+            <p className="text-sm text-muted-foreground">Carregando…</p>
+          )}
+
+          {!carregando && linhas.length === 0 && erro === null && (
+            <p className="text-sm text-muted-foreground">{vazio}</p>
+          )}
+
+          {/*
+            Um cartão por cadastro, e não uma linha de lista. Cada um destes é
+            uma coisa nomeada com identidade própria — é o que estas telas
+            vieram dizer —, e a lista dividida por filetes as apresentava como
+            células de uma planilha, que é exatamente a origem que o cadastro
+            substitui. O cartão dá a cada uma o seu bloco: o nome, onde ela
+            fica, o que depende dela, e os dois gestos que ela aceita.
+          */}
+          {linhas.length > 0 && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+              {linhas.map((linha) => (
+                <article
+                  key={linha.id}
+                  className="rounded-lg border p-4 flex flex-col gap-3 hover:border-primary/40 transition-colors"
+                >
+                  <div className="min-w-0 space-y-1">
+                    <p className="font-medium truncate" title={linha.nome}>
+                      {linha.nome}
+                    </p>
+                    <p className="text-xs text-muted-foreground truncate">
+                      {linha.detalhe}
+                    </p>
+                  </div>
+
+                  <div className="mt-auto flex items-center justify-between gap-2 border-t pt-3">
+                    {/* Vazio é vazio: escrever "nada depende dele" onde a
+                        seção nem conta dependência — Negócios não conta —
+                        seria afirmar o que a tela não sabe. */}
+                    <span className="text-xs text-muted-foreground truncate">
+                      {linha.dependencias}
+                    </span>
+                    {podeMexer && (
+                      <div className="flex items-center gap-1 shrink-0">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          aria-label={`Editar ${linha.nome}`}
+                          onClick={() => aoEditar(linha)}
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-destructive hover:text-destructive"
+                          aria-label={`Excluir ${linha.nome}`}
+                          disabled={excluindo === linha.id}
+                          onClick={() => aoExcluir(linha)}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+
+          <p className="text-xs text-muted-foreground border-t pt-3">
+            {ressalva}
+          </p>
+        </CardContent>
+      </Card>
+
+      {/*
+        Criar e editar acontecem numa gaveta lateral, como em Usuários e pela
+        mesma razão: o formulário abria acima da lista e empurrava para baixo
+        justamente o cadastro em que se acabou de clicar. A gaveta abre por
+        cima, não mexe no que está atrás, e fecha por `Esc` ou pelo lado de
+        fora — e é por isso que o `onOpenChange` chama o mesmo `fechar` do
+        botão Cancelar: sair pela lateral tem de limpar os campos igual.
+      */}
+      <Sheet
+        open={formularioAberto}
+        onOpenChange={(aberta) => !aberta && aoFecharFormulario()}
+      >
+        <SheetContent
+          side="right"
+          className="w-full sm:max-w-lg p-0 flex flex-col gap-0"
+        >
+          <header className="px-6 pt-6 pb-4 border-b shrink-0">
+            <SheetTitle className="text-xl font-bold tracking-tight pr-8 flex items-center gap-2">
+              {icone}
+              {tituloDoFormulario}
+            </SheetTitle>
+            <SheetDescription className="mt-1">
+              {descricaoDoFormulario}
+            </SheetDescription>
+          </header>
+
+          <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
+            {formulario}
+          </div>
+
+          <footer className="border-t px-6 py-4 shrink-0 flex items-center gap-2">
+            {rodapeDoFormulario}
+            <Button variant="ghost" onClick={aoFecharFormulario}>
+              Cancelar
+            </Button>
+          </footer>
+        </SheetContent>
+      </Sheet>
+    </>
   );
 }
 
@@ -333,76 +416,70 @@ export function PainelDeCargos() {
           setAberto(true);
         }}
         aoExcluir={(linha) => excluir.mutate(linha.id)}
+        formularioAberto={aberto}
+        aoFecharFormulario={fechar}
+        tituloDoFormulario={emEdicao === null ? "Criar cargo" : "Editar cargo"}
+        descricaoDoFormulario="O nome do cargo e, se já houver, o departamento em que ele fica."
         formulario={
-          aberto ? (
-            <div className="rounded-lg border p-4 space-y-3">
-              <p className="text-sm font-medium">
-                {emEdicao === null ? "Criar cargo" : "Editar cargo"}
-              </p>
-              <RecusaDoFormulario
-                erro={emEdicao === null ? criar.error : editar.error}
-                reserva="Não foi possível salvar o cargo."
+          <>
+            <RecusaDoFormulario
+              erro={emEdicao === null ? criar.error : editar.error}
+              reserva="Não foi possível salvar o cargo."
+            />
+            <div className="space-y-1.5">
+              <Label htmlFor="cargo-nome">Nome do cargo</Label>
+              <Input
+                id="cargo-nome"
+                value={nome}
+                placeholder="Analista Administrativo"
+                onChange={(e) => setNome(e.target.value)}
               />
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label htmlFor="cargo-nome">Nome do cargo</Label>
-                  <Input
-                    id="cargo-nome"
-                    value={nome}
-                    placeholder="Analista Administrativo"
-                    onChange={(e) => setNome(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="cargo-departamento">Departamento (opcional)</Label>
-                  <Select value={departamentoId} onValueChange={setDepartamentoId}>
-                    <SelectTrigger id="cargo-departamento">
-                      <SelectValue placeholder="Sem departamento" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value={SEM_VINCULO}>Sem departamento</SelectItem>
-                      {arvore.map((d) => (
-                        <SelectItem key={d.id} value={d.id}>
-                          {caminhoDoDepartamento(arvore, d.id).join(" › ")}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                O departamento é opcional de propósito: o cargo existe antes de
-                alguém decidir onde ele fica, e exigir a estrutura inteira antes
-                do primeiro cargo é o que faz gente voltar a digitar na planilha.
-              </p>
-              <div className="flex justify-end gap-2">
-                <Button variant="ghost" size="sm" onClick={fechar}>
-                  Cancelar
-                </Button>
-                <Button
-                  size="sm"
-                  disabled={criar.isPending || editar.isPending}
-                  onClick={() => {
-                    const vinculo =
-                      departamentoId === SEM_VINCULO ? null : departamentoId;
-                    if (emEdicao === null) {
-                      criar.mutate({ nome, departamentoId: vinculo });
-                    } else {
-                      editar.mutate({ id: emEdicao, nome, departamentoId: vinculo });
-                    }
-                  }}
-                >
-                  {emEdicao === null
-                    ? criar.isPending
-                      ? "Criando…"
-                      : "Criar cargo"
-                    : editar.isPending
-                      ? "Salvando…"
-                      : "Salvar alterações"}
-                </Button>
-              </div>
             </div>
-          ) : null
+            <div className="space-y-1.5">
+              <Label htmlFor="cargo-departamento">Departamento (opcional)</Label>
+              <Select value={departamentoId} onValueChange={setDepartamentoId}>
+                <SelectTrigger id="cargo-departamento">
+                  <SelectValue placeholder="Sem departamento" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={SEM_VINCULO}>Sem departamento</SelectItem>
+                  {arvore.map((d) => (
+                    <SelectItem key={d.id} value={d.id}>
+                      {caminhoDoDepartamento(arvore, d.id).join(" › ")}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              O departamento é opcional de propósito: o cargo existe antes de
+              alguém decidir onde ele fica, e exigir a estrutura inteira antes
+              do primeiro cargo é o que faz gente voltar a digitar na planilha.
+            </p>
+          </>
+        }
+        rodapeDoFormulario={
+          <Button
+            className="flex-1"
+            disabled={criar.isPending || editar.isPending}
+            onClick={() => {
+              const vinculo =
+                departamentoId === SEM_VINCULO ? null : departamentoId;
+              if (emEdicao === null) {
+                criar.mutate({ nome, departamentoId: vinculo });
+              } else {
+                editar.mutate({ id: emEdicao, nome, departamentoId: vinculo });
+              }
+            }}
+          >
+            {emEdicao === null
+              ? criar.isPending
+                ? "Criando…"
+                : "Criar cargo"
+              : editar.isPending
+                ? "Salvando…"
+                : "Salvar alterações"}
+          </Button>
         }
       />
       <RecusaDaExclusao erro={excluir.error} />
@@ -539,72 +616,68 @@ export function PainelDeDepartamentos() {
           setAberto(true);
         }}
         aoExcluir={(linha) => excluir.mutate(linha.id)}
+        formularioAberto={aberto}
+        aoFecharFormulario={fechar}
+        tituloDoFormulario={
+          emEdicao === null ? "Criar departamento" : "Editar departamento"
+        }
+        descricaoDoFormulario="O nome do departamento e, quando ele não é de topo, o departamento que o contém."
         formulario={
-          aberto ? (
-            <div className="rounded-lg border p-4 space-y-3">
-              <p className="text-sm font-medium">
-                {emEdicao === null ? "Criar departamento" : "Editar departamento"}
-              </p>
-              <RecusaDoFormulario
-                erro={emEdicao === null ? criar.error : editar.error}
-                reserva="Não foi possível salvar o departamento."
+          <>
+            <RecusaDoFormulario
+              erro={emEdicao === null ? criar.error : editar.error}
+              reserva="Não foi possível salvar o departamento."
+            />
+            <div className="space-y-1.5">
+              <Label htmlFor="departamento-nome">Nome do departamento</Label>
+              <Input
+                id="departamento-nome"
+                value={nome}
+                placeholder="Controladoria"
+                onChange={(e) => setNome(e.target.value)}
               />
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label htmlFor="departamento-nome">Nome do departamento</Label>
-                  <Input
-                    id="departamento-nome"
-                    value={nome}
-                    placeholder="Controladoria"
-                    onChange={(e) => setNome(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="departamento-pai">Dentro de (opcional)</Label>
-                  <Select value={paiId} onValueChange={setPaiId}>
-                    <SelectTrigger id="departamento-pai">
-                      <SelectValue placeholder="Na raiz" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value={SEM_VINCULO}>Na raiz</SelectItem>
-                      {arvore
-                        /* O próprio departamento fica fora da lista: escolher a
-                           si mesmo como pai é o círculo mais curto que existe,
-                           e a tela não deve nem oferecer. */
-                        .filter((d) => d.id !== emEdicao)
-                        .map((d) => (
-                          <SelectItem key={d.id} value={d.id}>
-                            {caminhoDoDepartamento(arvore, d.id).join(" › ")}
-                          </SelectItem>
-                        ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              <div className="flex justify-end gap-2">
-                <Button variant="ghost" size="sm" onClick={fechar}>
-                  Cancelar
-                </Button>
-                <Button
-                  size="sm"
-                  disabled={criar.isPending || editar.isPending}
-                  onClick={() => {
-                    const pai = paiId === SEM_VINCULO ? null : paiId;
-                    if (emEdicao === null) criar.mutate({ nome, paiId: pai });
-                    else editar.mutate({ id: emEdicao, nome, paiId: pai });
-                  }}
-                >
-                  {emEdicao === null
-                    ? criar.isPending
-                      ? "Criando…"
-                      : "Criar departamento"
-                    : editar.isPending
-                      ? "Salvando…"
-                      : "Salvar alterações"}
-                </Button>
-              </div>
             </div>
-          ) : null
+            <div className="space-y-1.5">
+              <Label htmlFor="departamento-pai">Dentro de (opcional)</Label>
+              <Select value={paiId} onValueChange={setPaiId}>
+                <SelectTrigger id="departamento-pai">
+                  <SelectValue placeholder="Na raiz" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={SEM_VINCULO}>Na raiz</SelectItem>
+                  {arvore
+                    /* O próprio departamento fica fora da lista: escolher a si
+                       mesmo como pai é o círculo mais curto que existe, e a
+                       tela não deve nem oferecer. */
+                    .filter((d) => d.id !== emEdicao)
+                    .map((d) => (
+                      <SelectItem key={d.id} value={d.id}>
+                        {caminhoDoDepartamento(arvore, d.id).join(" › ")}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </>
+        }
+        rodapeDoFormulario={
+          <Button
+            className="flex-1"
+            disabled={criar.isPending || editar.isPending}
+            onClick={() => {
+              const pai = paiId === SEM_VINCULO ? null : paiId;
+              if (emEdicao === null) criar.mutate({ nome, paiId: pai });
+              else editar.mutate({ id: emEdicao, nome, paiId: pai });
+            }}
+          >
+            {emEdicao === null
+              ? criar.isPending
+                ? "Criando…"
+                : "Criar departamento"
+              : editar.isPending
+                ? "Salvando…"
+                : "Salvar alterações"}
+          </Button>
         }
       />
       <RecusaDaExclusao erro={excluir.error} />
@@ -701,49 +774,47 @@ export function PainelDeNegocios() {
           setAberto(true);
         }}
         aoExcluir={(linha) => excluir.mutate(linha.id)}
+        formularioAberto={aberto}
+        aoFecharFormulario={fechar}
+        tituloDoFormulario={
+          emEdicao === null ? "Criar negócio" : "Editar negócio"
+        }
+        descricaoDoFormulario="O nome do negócio, com autor e data — o que o cadastro guarda hoje."
         formulario={
-          aberto ? (
-            <div className="rounded-lg border p-4 space-y-3">
-              <p className="text-sm font-medium">
-                {emEdicao === null ? "Criar negócio" : "Editar negócio"}
-              </p>
-              <RecusaDoFormulario
-                erro={emEdicao === null ? criar.error : editar.error}
-                reserva="Não foi possível salvar o negócio."
+          <>
+            <RecusaDoFormulario
+              erro={emEdicao === null ? criar.error : editar.error}
+              reserva="Não foi possível salvar o negócio."
+            />
+            <div className="space-y-1.5">
+              <Label htmlFor="negocio-nome">Nome do negócio</Label>
+              <Input
+                id="negocio-nome"
+                value={nome}
+                placeholder="Rota"
+                onChange={(e) => setNome(e.target.value)}
               />
-              <div className="space-y-1.5 max-w-sm">
-                <Label htmlFor="negocio-nome">Nome do negócio</Label>
-                <Input
-                  id="negocio-nome"
-                  value={nome}
-                  placeholder="Rota"
-                  onChange={(e) => setNome(e.target.value)}
-                />
-              </div>
-              <div className="flex justify-end gap-2">
-                <Button variant="ghost" size="sm" onClick={fechar}>
-                  Cancelar
-                </Button>
-                <Button
-                  size="sm"
-                  disabled={criar.isPending || editar.isPending}
-                  onClick={() =>
-                    emEdicao === null
-                      ? criar.mutate({ nome })
-                      : editar.mutate({ id: emEdicao, nome })
-                  }
-                >
-                  {emEdicao === null
-                    ? criar.isPending
-                      ? "Criando…"
-                      : "Criar negócio"
-                    : editar.isPending
-                      ? "Salvando…"
-                      : "Salvar alterações"}
-                </Button>
-              </div>
             </div>
-          ) : null
+          </>
+        }
+        rodapeDoFormulario={
+          <Button
+            className="flex-1"
+            disabled={criar.isPending || editar.isPending}
+            onClick={() =>
+              emEdicao === null
+                ? criar.mutate({ nome })
+                : editar.mutate({ id: emEdicao, nome })
+            }
+          >
+            {emEdicao === null
+              ? criar.isPending
+                ? "Criando…"
+                : "Criar negócio"
+              : editar.isPending
+                ? "Salvando…"
+                : "Salvar alterações"}
+          </Button>
         }
       />
       <RecusaDaExclusao erro={excluir.error} />
