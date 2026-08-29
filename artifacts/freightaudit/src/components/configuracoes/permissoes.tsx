@@ -5,6 +5,14 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { ApiErrorNotice } from "@/components/api-error";
 import { useContas } from "@/components/configuracoes/contas";
 import { fetchJson } from "@/lib/api";
@@ -62,6 +70,19 @@ interface RespostaDePermissoes {
   }>;
 }
 
+/**
+ * Os três níveis, do que menos alcança para o que mais alcança.
+ *
+ * A ordem é do fechado para o aberto — sem acesso, visualizar, editar — e ela
+ * vale para a tela inteira: os três botões de cada módulo, os três atalhos que
+ * valem para a lista toda e a contagem lá em cima leem na mesma direção. Uma
+ * ordem por linha seria uma tela em que a posição do botão não quer dizer nada,
+ * e é a posição que a mão decora depois da terceira conta configurada.
+ *
+ * Do fechado para o aberto, e não o contrário, porque é o sentido do que esta
+ * tela faz: toda conta já nasce editando tudo, e o que se vem fazer aqui é
+ * tirar. O primeiro botão da linha é o que a visita está aqui para clicar.
+ */
 const NIVEIS_NA_TELA: Array<{
   nivel: Nivel;
   rotulo: string;
@@ -69,10 +90,10 @@ const NIVEIS_NA_TELA: Array<{
   ativo: string;
 }> = [
   {
-    nivel: "EDITAR",
-    rotulo: "Editar",
-    icone: PencilLine,
-    ativo: "bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-600",
+    nivel: "SEM_ACESSO",
+    rotulo: "Sem acesso",
+    icone: Lock,
+    ativo: "bg-rose-600 text-white border-rose-600 hover:bg-rose-600",
   },
   {
     nivel: "VISUALIZAR",
@@ -81,10 +102,10 @@ const NIVEIS_NA_TELA: Array<{
     ativo: "bg-blue-600 text-white border-blue-600 hover:bg-blue-600",
   },
   {
-    nivel: "SEM_ACESSO",
-    rotulo: "Sem acesso",
-    icone: Lock,
-    ativo: "bg-rose-600 text-white border-rose-600 hover:bg-rose-600",
+    nivel: "EDITAR",
+    rotulo: "Editar",
+    icone: PencilLine,
+    ativo: "bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-600",
   },
 ];
 
@@ -195,35 +216,59 @@ export function PainelDePermissoes() {
       <Card>
         <CardContent className="space-y-5 pt-6">
           <div className="flex flex-wrap items-end gap-3">
-            <label className="text-sm">
-              <span className="block text-xs font-medium text-muted-foreground mb-1">
-                Conta
-              </span>
-              {/* select nativo: uma lista, e o navegador acessível de graça. */}
-              <select
-                value={escolhida}
-                onChange={(e) => {
-                  setEscolhida(e.target.value);
+            {/*
+              O mesmo campo de escolha que o resto do produto usa — e é por isso
+              que ele deixou de ser um `select` nativo.
+
+              Um `select` do sistema operacional desenha a própria lista: fonte,
+              altura da linha, o realce em azul do sistema, a marca de conferido
+              à esquerda. Nada disso é ajustável, e nada disso se parece com a
+              lista que a mesma pergunta abre em Fechamento, em Frota ou no
+              cadastro da casa. Este campo é a porta desta tela — é o primeiro
+              controle que se toca aqui, e era o único do produto com aparência
+              de outro produto.
+
+              O que se perde ao trocar é a acessibilidade de graça do navegador,
+              e o Radix a devolve: papel `combobox`, navegação por setas, busca
+              por digitação e o foco preso na lista aberta. É a mesma troca que
+              todas as outras telas já tinham feito.
+            */}
+            <div className="space-y-1.5">
+              <Label htmlFor="conta">Conta</Label>
+              <Select
+                /*
+                  `undefined`, e não `""`: o Radix reserva a string vazia para
+                  "nada escolhido" e recusa item com esse valor — é o mesmo
+                  sentinela que `cadastro-da-casa.tsx` documenta. Sem escolha, o
+                  que aparece é o `placeholder` do `SelectValue`.
+                */
+                value={escolhida === "" ? undefined : escolhida}
+                onValueChange={(valor) => {
+                  setEscolhida(valor);
                   setErro(null);
                 }}
-                className="h-9 rounded-md border border-input bg-background px-3 text-sm min-w-64"
               >
-                <option value="">Escolha uma pessoa…</option>
-                {elegiveis.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name} · {p.email}
-                    {p.disabledAt ? " (desativada)" : ""}
-                  </option>
-                ))}
-              </select>
-            </label>
+                <SelectTrigger id="conta" className="min-w-72">
+                  <SelectValue placeholder="Escolha uma pessoa…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {elegiveis.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.name} · {p.email}
+                      {p.disabledAt ? " (desativada)" : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
             {alvo && (
               <div className="flex items-center gap-4 text-sm">
+                {/* Na mesma ordem dos botões: do fechado para o aberto. */}
                 <Contagem
-                  numero={resumo.EDITAR}
-                  rotulo="editam"
-                  cor="text-emerald-700"
+                  numero={resumo.SEM_ACESSO}
+                  rotulo="sem acesso"
+                  cor="text-rose-700"
                 />
                 <Contagem
                   numero={resumo.VISUALIZAR}
@@ -231,9 +276,9 @@ export function PainelDePermissoes() {
                   cor="text-blue-700"
                 />
                 <Contagem
-                  numero={resumo.SEM_ACESSO}
-                  rotulo="sem acesso"
-                  cor="text-rose-700"
+                  numero={resumo.EDITAR}
+                  rotulo="editam"
+                  cor="text-emerald-700"
                 />
               </div>
             )}
