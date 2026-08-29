@@ -49,6 +49,7 @@ import {
   type Impacto,
   type ImpactoDeFamilia,
   type LadosDoImpacto,
+  type Lado,
 } from "@/lib/visao-geral";
 import { juntarPrioridades } from "@/lib/cockpit";
 import { lerRecorte, linkDeAlteracoes, nomeDaUnidade, type Recorte } from "@/lib/recorte";
@@ -678,27 +679,64 @@ function ImpactoEPodio({
     sides.find((s) => s.periodicity === dominante)?.periodicity ?? sides[0]?.periodicity ?? null;
   const detalhe = detalheDaFamilia(resumo, familiaAberta, periodicidade);
 
+  /*
+    O pódio é calculado aqui, e não dentro de cada cartão: as duas colunas
+    (o que somou e o que tirou) são dois recortes da **mesma** lista de
+    famílias, e calculá-la duas vezes é onde as duas leituras começariam a
+    divergir — bastaria uma delas escolher outra periodicidade.
+  */
+  const comImpacto = impactoPorFamilia(resumo, periodicidade);
+  const temImpacto = comImpacto.length > 0 && periodicidade !== null;
+
   return (
-    <div className="grid gap-5 lg:grid-cols-5">
-      <div className="lg:col-span-3">
-        <section className={cn(CARTAO, "px-6 py-5 h-full")}>
-          <h2 className="text-base font-bold mb-1">Impacto das alterações por vigência</h2>
-          <p className="text-xs text-muted-foreground mb-4">
-            {notaDoGrafico ??
-              "Ganhos e perdas divergindo do zero, com o líquido por cima. Uma barra por vigência entregue — duas no mesmo mês aparecem pelo dia, nunca somadas."}
-          </p>
-          <GraficoDeImpacto pontos={pontos} periodicity={periodicity} />
-        </section>
-      </div>
-      <div className="lg:col-span-2">
-        <MaioresImpactos
-          resumo={resumo}
-          familias={familias}
-          dominante={dominante}
-          familiaAberta={familiaAberta}
-          onAbrirFamilia={onAbrirFamilia}
-        />
-      </div>
+    <div className="grid gap-5">
+      {/*
+        O gráfico ocupa a faixa inteira. Ele é uma série no tempo, e uma série
+        espremida em três quintos da tela perde justamente o que ela existe
+        para mostrar: a distância entre uma vigência e a seguinte.
+      */}
+      <section className={cn(CARTAO, "px-6 py-5")}>
+        <h2 className="text-base font-bold mb-1">Impacto das alterações por vigência</h2>
+        <p className="text-xs text-muted-foreground mb-4">
+          {notaDoGrafico ??
+            "Ganhos e perdas divergindo do zero, com o líquido por cima. Uma barra por vigência entregue — duas no mesmo mês aparecem pelo dia, nunca somadas."}
+        </p>
+        <GraficoDeImpacto pontos={pontos} periodicity={periodicity} />
+      </section>
+
+      {/*
+        Debaixo dele, o pódio partido em dois: o que somou à esquerda, o que
+        tirou à direita. Uma lista só, ordenada por movimento, misturava as
+        duas perguntas numa fila — a família que mais encareceu e a que mais
+        barateou disputavam a mesma posição, e quem procurava "onde eu perdi
+        dinheiro" tinha de ler linha a linha para descobrir de que cor era
+        cada uma. Separadas, cada coluna responde a uma pergunta só.
+      */}
+      {temImpacto ? (
+        <div className="grid gap-5 lg:grid-cols-2">
+          <MaioresImpactos
+            lado="ganhos"
+            familias={comImpacto}
+            periodicidade={periodicidade}
+            familiaAberta={familiaAberta}
+            onAbrirFamilia={onAbrirFamilia}
+          />
+          <MaioresImpactos
+            lado="perdas"
+            familias={comImpacto}
+            periodicidade={periodicidade}
+            familiaAberta={familiaAberta}
+            onAbrirFamilia={onAbrirFamilia}
+          />
+        </div>
+      ) : (
+        /*
+          Sem preço apurado em lugar nenhum não há dois lados para separar —
+          e dois cartões vazios lado a lado diriam duas vezes o mesmo nada.
+          Aí volta a faixa inteira, com a contagem de alterações.
+        */
+        <MaioresImpactosPorQuantidade familias={familias} />
+      )}
 
       <DetalheDaFamilia
         detalhe={detalhe}
@@ -1218,163 +1256,181 @@ export interface FamiliaNoPodio {
 }
 
 /**
- * As famílias mais tocadas, na periodicidade dominante da vigência — a mesma
- * disciplina do pódio do Resumo executivo: o ranking existe dentro de uma
- * periodicidade só, nunca somando R$/mês com R$/ano.
+ * Um lado do pódio: as famílias que mais somaram, ou as que mais tiraram,
+ * na periodicidade dominante da vigência.
  *
- * Numerada 1..5, com uma barra maior por linha — a mesma conta de "Onde a
- * Ambev alterou" das versões anteriores desta tela, só com a leitura em lista
- * ranqueada. A regra de recair em quantidade quando nada tem preço apurado
- * ainda continua igual: uma família sem impacto ainda tem o que dizer.
+ * Duas instâncias deste cartão dividem a faixa debaixo do gráfico. Elas leem
+ * a **mesma** lista de famílias — cada uma filtrando e ordenando pelo seu
+ * lado — porque o que se pergunta olhando para cá são duas perguntas
+ * distintas ("onde eu ganhei" e "onde eu perdi") e uma fila única, ordenada
+ * por movimento, obrigava a lê-las misturadas.
+ *
+ * A escala da barra é a do próprio cartão: a maior linha dele enche a barra,
+ * e as outras se medem contra ela. Uma escala compartilhada entre os dois
+ * cartões deixaria o lado menor com cinco fiapos ilegíveis, e a comparação
+ * entre os dois lados já está feita, com rigor, no gráfico logo acima.
+ *
+ * O número grande é o do lado; o líquido da família vai embaixo, menor —
+ * a família que aparece nos dois cartões é a mesma, e é o líquido que diz o
+ * que sobrou dela no fim.
  */
 function MaioresImpactos({
-  resumo,
+  lado,
   familias,
-  dominante,
+  periodicidade,
   familiaAberta,
   onAbrirFamilia,
 }: {
-  /** A vigência ou o consolidado — os dois têm `summary.sides` na mesma forma. */
-  resumo: Pick<FamiliesView, "summary"> | null;
-  familias: FamiliaNoPodio[];
-  dominante: string | null;
+  lado: Lado;
+  /** O pódio inteiro, já na periodicidade escolhida — o cartão recorta o seu lado. */
+  familias: ImpactoDeFamilia[];
+  periodicidade: string;
   /** A família cuja gaveta está aberta, para a linha ficar marcada atrás dela. */
   familiaAberta: string | null;
   onAbrirFamilia: (code: string) => void;
 }) {
-  const sides = resumo?.summary.sides ?? [];
-  /*
-    A periodicidade em que este pódio acontece.
+  const ganho = lado === "ganhos";
 
-    A dominante da tela, quando a vigência de fato tem lados nela — é a mesma
-    que manda no cartão de Impacto líquido logo acima, e um pódio em R$/ano
-    debaixo de um número em R$/mês seria a mistura de escala que o produto
-    recusa. Quando não tem, vale a maior das que existem, para o pódio não sumir
-    por uma divergência entre `impact.byPeriodicity` e `sides`.
-  */
-  const periodicidade =
-    sides.find((s) => s.periodicity === dominante)?.periodicity ?? sides[0]?.periodicity ?? null;
+  // Ordenado pelo módulo do próprio lado, e não pelo líquido: este cartão
+  // responde "quanto entrou/saiu aqui", que é uma parcela, não a subtração.
+  const doLado = familias
+    .filter((f) => (ganho ? f.ganhos > 0 : f.perdas < 0))
+    .sort((a, b) => Math.abs(ganho ? b.ganhos : b.perdas) - Math.abs(ganho ? a.ganhos : a.perdas))
+    .slice(0, 5);
 
-  const comImpacto = impactoPorFamilia(resumo, periodicidade).slice(0, 5);
-
-  // Sem impacto apurado nenhum, a família ainda tem o que dizer: quantas
-  // alterações ela concentrou. Uma barra de quantidade substitui a de R$ em
-  // vez de deixar o cartão vazio.
-  const porQuantidade =
-    comImpacto.length === 0
-      ? [...familias]
-          .filter((f) => f.changes > 0)
-          .sort((a, b) => b.changes - a.changes)
-          .slice(0, 5)
-      : [];
-
-  const tetoQuantidade = porQuantidade.reduce((maior, f) => Math.max(maior, f.changes), 0);
+  const teto = doLado.reduce((maior, f) => Math.max(maior, Math.abs(ganho ? f.ganhos : f.perdas)), 0);
 
   return (
     <section className={cn(CARTAO, "px-6 py-5 flex flex-col h-full")}>
       <div className="flex items-center gap-2 mb-1">
-        <h2 className="text-base font-bold">Maiores impactos desta vigência</h2>
-        {periodicidade && comImpacto.length > 0 && (
+        <h2 className="text-base font-bold">
+          Maiores impactos {ganho ? "positivos" : "negativos"} desta vigência
+        </h2>
+        {doLado.length > 0 && (
           <span className="text-xs font-semibold text-muted-foreground">
             em R${periodicitySuffix(periodicidade)}
           </span>
         )}
       </div>
       <p className="text-xs text-muted-foreground mb-4">
-        Por família da remuneração — o que somou e o que tirou em cada uma, com o líquido ao
-        lado. Até cinco, pelas que mais movimentaram dinheiro. Clique para ver de onde vem.
+        {ganho
+          ? "Por família da remuneração — o que somou em cada uma, com o líquido dela embaixo. Até cinco, pelas que mais somaram. Clique para ver de onde vem."
+          : "Por família da remuneração — o que tirou em cada uma, com o líquido dela embaixo. Até cinco, pelas que mais tiraram. Clique para ver de onde vem."}
       </p>
 
-      {comImpacto.length > 0 && periodicidade !== null ? (
+      {doLado.length > 0 ? (
         <ol className="space-y-3 flex-1">
-          {comImpacto.map((familia, indice) => (
-            <li key={familia.code}>
-              {/*
-                A linha inteira é o botão, e não uma seta no fim dela — a mesma
-                régua do pódio do Resumo executivo: o que se quer clicar aqui é
-                o número, e um alvo de 16 pixels na borda direita obrigaria a
-                mirar para fazer a pergunta mais óbvia da tela.
-              */}
-              <button
-                type="button"
-                onClick={() => onAbrirFamilia(familia.code)}
-                title={`De onde vem o impacto de ${familia.name}`}
-                aria-expanded={familiaAberta === familia.code}
-                className={cn(
-                  "w-full flex items-center gap-3 text-left rounded-lg px-2 -mx-2 py-1.5 -my-1.5",
-                  "hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand transition-colors group",
-                  familiaAberta === familia.code && "bg-muted/60",
-                )}
-              >
-                <span className="w-5 shrink-0 text-xs font-bold text-muted-foreground tabular-nums">
-                  {indice + 1}
-                </span>
-                <span className="w-28 shrink-0 min-w-0">
-                  <span
-                    className="block text-sm font-semibold truncate group-hover:underline"
-                    title={familia.name}
-                  >
-                    {familia.name}
+          {doLado.map((familia, indice) => {
+            const valor = ganho ? familia.ganhos : familia.perdas;
+            return (
+              <li key={familia.code}>
+                {/*
+                  A linha inteira é o botão, e não uma seta no fim dela — a mesma
+                  régua do pódio do Resumo executivo: o que se quer clicar aqui é
+                  o número, e um alvo de 16 pixels na borda direita obrigaria a
+                  mirar para fazer a pergunta mais óbvia da tela.
+                */}
+                <button
+                  type="button"
+                  onClick={() => onAbrirFamilia(familia.code)}
+                  title={`De onde vem o impacto de ${familia.name}`}
+                  aria-expanded={familiaAberta === familia.code}
+                  className={cn(
+                    "w-full flex items-center gap-3 text-left rounded-lg px-2 -mx-2 py-1.5 -my-1.5",
+                    "hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand transition-colors group",
+                    familiaAberta === familia.code && "bg-muted/60",
+                  )}
+                >
+                  <span className="w-5 shrink-0 text-xs font-bold text-muted-foreground tabular-nums">
+                    {indice + 1}
                   </span>
-                  <span className="block text-[0.6875rem] text-muted-foreground truncate">
-                    {familia.alteracoes.toLocaleString("pt-BR")}{" "}
-                    {familia.alteracoes === 1 ? "alteração" : "alterações"} com preço
+                  <span className="w-32 shrink-0 min-w-0">
+                    <span
+                      className="block text-sm font-semibold truncate group-hover:underline"
+                      title={familia.name}
+                    >
+                      {familia.name}
+                    </span>
+                    <span className="block text-[0.6875rem] text-muted-foreground truncate">
+                      {familia.alteracoes.toLocaleString("pt-BR")}{" "}
+                      {familia.alteracoes === 1 ? "alteração" : "alterações"} com preço
+                    </span>
                   </span>
-                </span>
-                <BarraDeMovimento familia={familia} />
-                <span className="w-28 shrink-0 text-right">
-                  <span
-                    className={cn(
-                      "block text-xs font-bold tabular-nums",
-                      familia.liquido < 0 ? "text-red-700" : "text-emerald-700",
-                    )}
-                  >
-                    {escreverImpacto({ periodicity: periodicidade, amount: familia.liquido })}
-                  </span>
-                  {/*
-                    Os dois lados embaixo do líquido, e não no lugar dele.
+                  <BarraDoLado valor={valor} teto={teto} ganho={ganho} />
+                  <span className="w-28 shrink-0 text-right">
+                    <span
+                      className={cn(
+                        "block text-xs font-bold tabular-nums",
+                        ganho ? "text-emerald-700" : "text-red-700",
+                      )}
+                    >
+                      {escreverImpacto({ periodicity: periodicidade, amount: valor })}
+                    </span>
+                    {/*
+                      O líquido embaixo, e não no lugar do lado.
 
-                    O líquido é a subtração, e a subtração esconde as parcelas:
-                    esta linha dizia "R$ 21.905/mês" num verde inteiro enquanto o
-                    cartão de Perdas, dois palmos acima, dizia "−R$ 4.652" — e a
-                    perda estava dentro desta mesma família. Um lado que não
-                    existe some em vez de sair como "R$ 0": zero apurado e lado
-                    inexistente são coisas diferentes.
-                  */}
-                  <span className="block text-[0.6875rem] tabular-nums leading-tight">
-                    {familia.ganhos !== 0 && (
-                      <span className="text-emerald-700">
-                        +{formatBrlShort(familia.ganhos)}
-                      </span>
-                    )}
-                    {familia.ganhos !== 0 && familia.perdas !== 0 && (
-                      <span className="text-muted-foreground"> · </span>
-                    )}
-                    {familia.perdas !== 0 && (
-                      <span className="text-red-700">{formatBrlShort(familia.perdas)}</span>
-                    )}
+                      A mesma família costuma aparecer nos dois cartões, e o
+                      número grande de cada um é só a sua parcela: sem o líquido
+                      aqui, a família que somou R$ 40 mil e tirou R$ 39 mil se
+                      leria como dois acontecimentos enormes e independentes.
+                    */}
+                    <span className="block text-[0.6875rem] tabular-nums leading-tight text-muted-foreground">
+                      líquido {formatBrlShort(familia.liquido)}
+                    </span>
                   </span>
-                </span>
-                <ChevronRight className="w-4 h-4 shrink-0 text-muted-foreground opacity-40 group-hover:opacity-100 transition-opacity" />
-              </button>
-            </li>
-          ))}
+                  <ChevronRight className="w-4 h-4 shrink-0 text-muted-foreground opacity-40 group-hover:opacity-100 transition-opacity" />
+                </button>
+              </li>
+            );
+          })}
         </ol>
-      ) : porQuantidade.length > 0 ? (
-        <ol className="space-y-3.5 flex-1">
+      ) : (
+        <p className="text-sm text-muted-foreground flex-1">
+          {ganho
+            ? "Nenhuma família somou dinheiro nesta vigência."
+            : "Nenhuma família tirou dinheiro nesta vigência."}
+        </p>
+      )}
+    </section>
+  );
+}
+
+/**
+ * O pódio quando nada tem preço apurado — a faixa inteira, por quantidade.
+ *
+ * Sem impacto em lugar nenhum não há dois lados a separar, e dois cartões
+ * vazios lado a lado diriam duas vezes o mesmo nada. A família sem preço
+ * ainda tem o que dizer: quantas alterações ela concentrou.
+ */
+function MaioresImpactosPorQuantidade({ familias }: { familias: FamiliaNoPodio[] }) {
+  const porQuantidade = [...familias]
+    .filter((f) => f.changes > 0)
+    .sort((a, b) => b.changes - a.changes)
+    .slice(0, 5);
+  const teto = porQuantidade.reduce((maior, f) => Math.max(maior, f.changes), 0);
+
+  return (
+    <section className={cn(CARTAO, "px-6 py-5")}>
+      <h2 className="text-base font-bold mb-1">Maiores impactos desta vigência</h2>
+      <p className="text-xs text-muted-foreground mb-4">
+        Nenhuma alteração desta vigência tem preço apurado — o pódio vai por quantidade de
+        alterações, pela família que mais concentrou.
+      </p>
+      {porQuantidade.length > 0 ? (
+        <ol className="space-y-3.5">
           {porQuantidade.map((familia, indice) => (
             <li key={familia.code} className="flex items-center gap-3">
               <span className="w-5 shrink-0 text-xs font-bold text-muted-foreground tabular-nums">
                 {indice + 1}
               </span>
-              <span className="w-28 shrink-0 min-w-0 text-sm font-semibold truncate" title={familia.name}>
+              <span className="w-32 shrink-0 min-w-0 text-sm font-semibold truncate" title={familia.name}>
                 {familia.name}
               </span>
               <span className="flex-1 h-3 bg-muted overflow-hidden min-w-8 rounded-sm">
                 <span
                   className="block h-full bg-brand"
                   style={{
-                    width: `${tetoQuantidade === 0 ? 0 : Math.max(2, (familia.changes / tetoQuantidade) * 100)}%`,
+                    width: `${teto === 0 ? 0 : Math.max(2, (familia.changes / teto) * 100)}%`,
                   }}
                 />
               </span>
@@ -1385,7 +1441,7 @@ function MaioresImpactos({
           ))}
         </ol>
       ) : (
-        <p className="text-sm text-muted-foreground flex-1">
+        <p className="text-sm text-muted-foreground">
           Nenhuma família registrou alteração nesta vigência.
         </p>
       )}
@@ -1394,27 +1450,25 @@ function MaioresImpactos({
 }
 
 /**
- * A barra de uma família — verde e vermelha na mesma barra.
+ * A barra de uma linha do pódio — um lado só, na escala do seu cartão.
  *
- * O comprimento total mede **movimento** (`ganhos + |perdas|`) na escala do
- * maior movimento do pódio, e a divisão interna diz quanto dele foi para cada
- * lado. Uma barra do líquido diria que a família que subiu R$ 40 mil e caiu
- * R$ 39 mil quase não se mexeu, quando ali aconteceram os dois maiores
- * movimentos da vigência.
+ * O comprimento mede o valor daquele lado contra a maior linha do mesmo
+ * cartão, e a cor é a do lado: verde no cartão do que somou, vermelha no do
+ * que tirou. Cada cartão faz uma pergunta só, e a barra bicolor de antes —
+ * que dividia movimento entre ganho e perda — respondia às duas de uma vez,
+ * o que era exatamente o que empurrava as duas leituras para a mesma fila.
  *
- * Um lado sem valor não recebe fatia nenhuma: a família inteiramente de ganho
- * fica inteiramente verde, como estava antes — o vermelho aparece quando há
- * vermelho, e nunca como um fiapo decorativo.
+ * A linha de topo enche a barra; a comparação rigorosa entre os dois lados
+ * continua no gráfico logo acima, que os desenha na mesma escala.
  */
-function BarraDeMovimento({ familia }: { familia: ImpactoDeFamilia }) {
-  const largura = familia.proporcao === 0 ? 0 : Math.max(2, familia.proporcao * 100);
-  const verde = familia.fatiaDeGanho === null ? 0 : familia.fatiaDeGanho * 100;
+function BarraDoLado({ valor, teto, ganho }: { valor: number; teto: number; ganho: boolean }) {
+  const largura = teto === 0 ? 0 : Math.max(2, (Math.abs(valor) / teto) * 100);
   return (
     <span className="flex-1 h-3 bg-muted overflow-hidden min-w-8 rounded-sm">
-      <span className="flex h-full" style={{ width: `${largura}%` }}>
-        <span className="block h-full bg-emerald-600" style={{ width: `${verde}%` }} />
-        <span className="block h-full bg-red-600" style={{ width: `${100 - verde}%` }} />
-      </span>
+      <span
+        className={cn("block h-full", ganho ? "bg-emerald-600" : "bg-red-600")}
+        style={{ width: `${largura}%` }}
+      />
     </span>
   );
 }
