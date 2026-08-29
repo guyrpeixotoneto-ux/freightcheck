@@ -37,7 +37,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Field, Refusal, post } from "@/components/configuracoes/campos";
 import { CHAVE_DAS_CONTAS, useContas, type ManagedUser } from "@/components/configuracoes/contas";
-import { definirLotacao, useCargos } from "@/lib/cadastro";
+import { definirCadastroDaConta, useCargos } from "@/lib/cadastro";
 import { listarUnidadesCanonicas } from "@/lib/fechamento";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
@@ -142,7 +142,13 @@ export function PainelDeUsuarios() {
   const { data: users = [], isLoading, error } = useContas();
 
   const [busca, setBusca] = useState("");
-  const [criando, setCriando] = useState(false);
+  /*
+    Uma gaveta só, e um estado só para ela: `"criar"` ou a conta em edição.
+    Dois estados independentes — um para criar, outro para editar — deixariam
+    as duas abertas ao mesmo tempo se alguém clicasse no lápis com a de criação
+    aberta, e a segunda cobriria a primeira sem cancelá-la.
+  */
+  const [gaveta, setGaveta] = useState<"criar" | ManagedUser | null>(null);
   const [ajuda, setAjuda] = useState(false);
 
   const ativos = users.filter((u) => u.disabledAt === null).length;
@@ -216,7 +222,11 @@ export function PainelDeUsuarios() {
             falha — e um botão que sempre falha ensina a desconfiar da tela.
           */}
           {me?.role === "ADMIN" && (
-            <Button size="sm" className="gap-2" onClick={() => setCriando((v) => !v)}>
+            <Button
+              size="sm"
+              className="gap-2"
+              onClick={() => setGaveta((atual) => (atual === null ? "criar" : null))}
+            >
               <UserPlus className="w-4 h-4" />
               Criar novo usuário
             </Button>
@@ -227,7 +237,16 @@ export function PainelDeUsuarios() {
       {ajuda && <ComoPreencher />}
 
       {me?.role === "ADMIN"
-        ? criando && <GavetaDeNovoUsuario aoFechar={() => setCriando(false)} />
+        ? gaveta !== null && (
+            <GavetaDeUsuario
+              /* A chave troca a identidade do componente entre uma conta e
+                 outra: sem ela, abrir o lápis de uma segunda pessoa reusaria a
+                 gaveta da primeira, com os campos ainda preenchidos por ela. */
+              key={gaveta === "criar" ? "criar" : gaveta.id}
+              conta={gaveta === "criar" ? null : gaveta}
+              aoFechar={() => setGaveta(null)}
+            />
+          )
         : !isLoading && (
             <p className="text-sm text-muted-foreground">
               Somente administradores criam contas, desativam acesso e redefinem
@@ -270,7 +289,7 @@ export function PainelDeUsuarios() {
           </div>
           <div className="space-y-2">
             {grupo.contas.map((user) => (
-              <UserRow key={user.id} user={user} />
+              <UserRow key={user.id} user={user} aoEditar={() => setGaveta(user)} />
             ))}
           </div>
         </section>
@@ -409,50 +428,70 @@ function CamposDeLotacao({
 }
 
 /**
- * A gaveta de "Criar novo usuário".
+ * A gaveta de conta — a mesma para criar e para editar.
  *
- * **Por que gaveta, e não um cartão que empurra a lista.** O formulário nascia
- * entre o cabeçalho e a busca, e abrir ele empurrava a lista inteira para
- * baixo: quem clicava em "Criar novo usuário" perdia de vista as contas que
- * estava olhando — inclusive a pessoa que ele estava conferindo se já existia.
- * A gaveta abre por cima, pela direita, e a lista continua atrás dela; fechar
+ * **Por que gaveta, e não um cartão que empurra a lista.** Os dois formulários
+ * nasciam dentro da lista: o de criar entre o cabeçalho e a busca, empurrando
+ * tudo para baixo; o de editar dentro da própria linha, espremido em três
+ * colunas. Quem clicava perdia de vista as contas que estava conferindo. A
+ * gaveta abre por cima, pela direita, e a lista continua atrás dela; fechar
  * devolve o leitor exatamente onde ele estava. É a mesma decisão, pela mesma
  * razão, das gavetas de detalhe do resto do produto (ver
  * `components/cobertura/gaveta.tsx`).
  *
+ * **Uma gaveta só para os dois atos, e isso é a decisão.** Criar e editar
+ * respondem às mesmas perguntas sobre a mesma pessoa — quem é, como se fala
+ * com ela, o que faz, onde e a quem reporta —, e dois formulários diferentes
+ * para elas foi o que deixou a edição para trás: ela mostrava três campos
+ * enquanto a criação pedia sete, e telefone e gestor só existiam no nascimento
+ * da conta. Um formulário que mostra menos do que existe ensina que o resto
+ * não se muda.
+ *
  * **Nome e sobrenome entram separados e são gravados juntos.** O produto guarda
  * o nome com que a pessoa assina — é ele que vai em `actor` de cada
- * confirmação —, e duas colunas no banco só criariam a pergunta de onde põr o
+ * confirmação —, e duas colunas no banco só criariam a pergunta de onde pôr o
  * segundo sobrenome. A separação existe por uma razão só, e ela é desta tela: é
  * dela que sai o `joao.silva` do login gerado.
  *
- * **O e-mail é opcional porque nem toda pessoa a quem se dá acesso tem um.**
- * Quando fica em branco, o servidor monta `nome.sobrenome@` no domínio de quem
- * está criando a conta — o domínio da casa —, e a tela mostra o endereço antes
- * de criar, para que ninguém descubra depois qual login recebeu. Ver
- * `routes/users.ts`.
+ * **O e-mail é opcional ao criar, e imutável depois.** Em branco, o servidor
+ * monta `nome.sobrenome@` no domínio de quem está criando a conta — o domínio
+ * da casa —, e a tela mostra o endereço antes de criar, para que ninguém
+ * descubra depois qual login recebeu. Na edição ele aparece e não se digita: é
+ * quem a pessoa é para o histórico, e trocá-lo faria cada confirmação já
+ * assinada apontar para um endereço que não existe mais. Ver `routes/users.ts`.
  *
  * **A senha é sorteada pelo servidor e aparece uma vez.** Não há e-mail neste
  * produto, então "enviar um convite" seria uma promessa que ninguém cumpre: o
  * que existe é a senha inicial, ditada à pessoa por fora e trocada por ela em
  * Meu Perfil. O banco guarda só o hash, e nenhuma rota devolve a senha depois —
  * por isso a tela insiste que aquela é a única vez em que ela aparece.
+ * Redefinir a senha de quem já existe continua sendo outro ato, na linha da
+ * conta: mexer em credencial não é a mesma coisa que corrigir um telefone.
  */
-function GavetaDeNovoUsuario({ aoFechar }: { aoFechar: () => void }) {
+function GavetaDeUsuario({
+  /** A conta a editar, ou `null` para criar uma nova. */
+  conta,
+  aoFechar,
+}: {
+  conta: ManagedUser | null;
+  aoFechar: () => void;
+}) {
   const queryClient = useQueryClient();
   const { user: me } = useAuth();
-  const [nome, setNome] = useState("");
-  const [sobrenome, setSobrenome] = useState("");
+  const editando = conta !== null;
+
+  const [nome, setNome] = useState(conta ? primeiroNome(conta.name) : "");
+  const [sobrenome, setSobrenome] = useState(conta ? restoDoNome(conta.name) : "");
   const [email, setEmail] = useState("");
-  const [telefone, setTelefone] = useState("");
-  const [role, setRole] = useState("OPERADOR");
-  const [cargoId, setCargoId] = useState("");
-  const [unidadeId, setUnidadeId] = useState("");
-  const [gestorId, setGestorId] = useState("");
+  const [telefone, setTelefone] = useState(conta?.telefone ?? "");
+  const [role, setRole] = useState(conta?.role ?? "OPERADOR");
+  const [cargoId, setCargoId] = useState(conta?.cargoId ?? "");
+  const [unidadeId, setUnidadeId] = useState(conta?.unidadeId ?? "");
+  const [gestorId, setGestorId] = useState(conta?.gestorId ?? "");
   const [error, setError] = useState<string | null>(null);
   const [credenciais, setCredenciais] = useState<CredenciaisCriadas | null>(null);
 
-  const create = useMutation({
+  const criar = useMutation({
     mutationFn: () =>
       post("/users", {
         name: nome,
@@ -466,8 +505,8 @@ function GavetaDeNovoUsuario({ aoFechar }: { aoFechar: () => void }) {
         unidadeId: unidadeId === "" ? null : unidadeId,
         gestorId: gestorId === "" ? null : gestorId,
       }) as Promise<CredenciaisCriadas>,
-    onSuccess: (conta) => {
-      setCredenciais(conta);
+    onSuccess: (criada) => {
+      setCredenciais(criada);
       setError(null);
       void queryClient.invalidateQueries({ queryKey: CHAVE_DAS_CONTAS });
     },
@@ -477,9 +516,38 @@ function GavetaDeNovoUsuario({ aoFechar }: { aoFechar: () => void }) {
     },
   });
 
+  /*
+    Gravar a edição são duas chamadas, e são duas de propósito: papel é acesso e
+    o resto é cadastro (ver `lib/session.ts`). O papel só é mandado quando de
+    fato mudou — a rota recusa rebaixar o último administrador, e mandar o mesmo
+    valor de sempre transformaria essa recusa legítima num erro que aparece ao
+    corrigir o telefone de alguém.
+  */
+  const salvar = useMutation({
+    mutationFn: async () => {
+      if (conta === null) return;
+      if (role !== conta.role) await post(`/users/${conta.id}/role`, { role });
+      await definirCadastroDaConta(conta.id, {
+        name: nome,
+        sobrenome,
+        cargoId: cargoId === "" ? null : cargoId,
+        unidadeId: unidadeId === "" ? null : unidadeId,
+        telefone: telefone.trim() === "" ? null : telefone.trim(),
+        gestorId: gestorId === "" ? null : gestorId,
+      });
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: CHAVE_DAS_CONTAS });
+      aoFechar();
+    },
+    onError: (err: Error) => setError(err.message),
+  });
+
+  const gravando = editando ? salvar : criar;
+
   function submit(event: FormEvent) {
     event.preventDefault();
-    create.mutate();
+    gravando.mutate();
   }
 
   function outraConta() {
@@ -511,12 +579,17 @@ function GavetaDeNovoUsuario({ aoFechar }: { aoFechar: () => void }) {
       >
         <header className="px-6 pt-6 pb-4 border-b shrink-0">
           <SheetTitle className="text-xl font-bold tracking-tight pr-8 flex items-center gap-2">
-            <UserPlus className="w-5 h-5 text-primary" />
-            Criar novo usuário
+            {editando ? (
+              <Pencil className="w-5 h-5 text-primary" />
+            ) : (
+              <UserPlus className="w-5 h-5 text-primary" />
+            )}
+            {editando ? "Editar usuário" : "Criar novo usuário"}
           </SheetTitle>
           <SheetDescription className="mt-1">
-            Preencha os dados da pessoa. O sistema gera o login e a senha
-            inicial, e mostra os dois aqui quando terminar.
+            {editando
+              ? "Nome, contato, lotação e organograma. O e-mail não muda — é por ele que o histórico sabe quem assinou o quê."
+              : "Preencha os dados da pessoa. O sistema gera o login e a senha inicial, e mostra os dois aqui quando terminar."}
           </SheetDescription>
         </header>
 
@@ -530,9 +603,9 @@ function GavetaDeNovoUsuario({ aoFechar }: { aoFechar: () => void }) {
           <form onSubmit={submit} className="flex flex-col min-h-0 flex-1">
             <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <Field label="Nome" htmlFor="novo-nome">
+                <Field label="Nome" htmlFor="conta-nome">
                   <Input
-                    id="novo-nome"
+                    id="conta-nome"
                     value={nome}
                     onChange={(e) => setNome(e.target.value)}
                     placeholder="Ex: João"
@@ -540,9 +613,9 @@ function GavetaDeNovoUsuario({ aoFechar }: { aoFechar: () => void }) {
                     autoFocus
                   />
                 </Field>
-                <Field label="Sobrenome" htmlFor="novo-sobrenome">
+                <Field label="Sobrenome" htmlFor="conta-sobrenome">
                   <Input
-                    id="novo-sobrenome"
+                    id="conta-sobrenome"
                     value={sobrenome}
                     onChange={(e) => setSobrenome(e.target.value)}
                     placeholder="Ex: Silva"
@@ -550,24 +623,36 @@ function GavetaDeNovoUsuario({ aoFechar }: { aoFechar: () => void }) {
                 </Field>
               </div>
 
-              <Field label="E-mail (opcional)" htmlFor="novo-email">
-                <Input
-                  id="novo-email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder={previsto ?? "pessoa@empresa.com"}
-                />
-                <p className="text-xs text-muted-foreground">
-                  {previsto
-                    ? `Em branco, o login vira ${previsto} — é por ele que a pessoa entra.`
-                    : "Em branco, o sistema gera o login a partir do nome e do domínio da sua conta."}
-                </p>
-              </Field>
+              {conta ? (
+                <Field label="E-mail" htmlFor="conta-email">
+                  <Input id="conta-email" value={conta.email} disabled readOnly />
+                  <p className="text-xs text-muted-foreground">
+                    O e-mail é quem a pessoa é para o histórico — cada
+                    confirmação já feita está assinada com ele, e por isso não se
+                    troca. Um endereço errado se resolve criando a conta certa e
+                    desativando esta.
+                  </p>
+                </Field>
+              ) : (
+                <Field label="E-mail (opcional)" htmlFor="conta-email">
+                  <Input
+                    id="conta-email"
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder={previsto ?? "pessoa@empresa.com"}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {previsto
+                      ? `Em branco, o login vira ${previsto} — é por ele que a pessoa entra.`
+                      : "Em branco, o sistema gera o login a partir do nome e do domínio da sua conta."}
+                  </p>
+                </Field>
+              )}
 
-              <Field label="Telefone (opcional)" htmlFor="novo-telefone">
+              <Field label="Telefone (opcional)" htmlFor="conta-telefone">
                 <Input
-                  id="novo-telefone"
+                  id="conta-telefone"
                   type="tel"
                   value={telefone}
                   onChange={(e) => setTelefone(e.target.value)}
@@ -576,16 +661,16 @@ function GavetaDeNovoUsuario({ aoFechar }: { aoFechar: () => void }) {
               </Field>
 
               <CamposDeLotacao
-                prefixo="novo"
+                prefixo="conta"
                 cargoId={cargoId}
                 unidadeId={unidadeId}
                 aoTrocarCargo={setCargoId}
                 aoTrocarUnidade={setUnidadeId}
               />
 
-              <Field label="Papel" htmlFor="novo-papel">
+              <Field label="Papel" htmlFor="conta-papel">
                 <Select value={role} onValueChange={setRole}>
-                  <SelectTrigger id="novo-papel">
+                  <SelectTrigger id="conta-papel">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -597,11 +682,16 @@ function GavetaDeNovoUsuario({ aoFechar }: { aoFechar: () => void }) {
                 </Select>
                 <p className="text-xs text-muted-foreground">
                   Papel é acesso, e não hierarquia: quem responde por quem é o
-                  campo abaixo.
+                  campo abaixo. O que cada conta alcança, módulo a módulo, está
+                  em Permissões.
                 </p>
               </Field>
 
-              <EscolhaDoGestor gestorId={gestorId} aoTrocar={setGestorId} />
+              <EscolhaDoGestor
+                gestorId={gestorId}
+                aoTrocar={setGestorId}
+                excluir={conta?.id ?? null}
+              />
 
               {error && <Refusal>{error}</Refusal>}
             </div>
@@ -610,12 +700,18 @@ function GavetaDeNovoUsuario({ aoFechar }: { aoFechar: () => void }) {
               <Button
                 type="submit"
                 className="gap-2 flex-1"
-                disabled={create.isPending}
+                disabled={gravando.isPending}
               >
-                <KeyRound className="w-4 h-4" />
-                {create.isPending
-                  ? "Criando…"
-                  : "Criar usuário e gerar credenciais"}
+                {editando ? (
+                  <Check className="w-4 h-4" />
+                ) : (
+                  <KeyRound className="w-4 h-4" />
+                )}
+                {gravando.isPending
+                  ? "Salvando…"
+                  : editando
+                    ? "Salvar alterações"
+                    : "Criar usuário e gerar credenciais"}
               </Button>
               <Button type="button" variant="ghost" onClick={aoFechar}>
                 Cancelar
@@ -626,6 +722,22 @@ function GavetaDeNovoUsuario({ aoFechar }: { aoFechar: () => void }) {
       </SheetContent>
     </Sheet>
   );
+}
+
+/**
+ * O nome dividido em dois campos, e remontado sem perder nada.
+ *
+ * `João` de `João da Silva`, e `da Silva` do mesmo. A divisão é no primeiro
+ * espaço e não no meio: quem tem três nomes vê os dois últimos juntos, e
+ * salvar devolve exatamente a string que estava no banco — que é a propriedade
+ * que importa numa tela que abre, mostra e grava de volta.
+ */
+function primeiroNome(nome: string): string {
+  return nome.trim().split(/\s+/)[0] ?? "";
+}
+
+function restoDoNome(nome: string): string {
+  return nome.trim().split(/\s+/).slice(1).join(" ");
 }
 
 /**
@@ -756,13 +868,16 @@ function CredencialCopiavel({ rotulo, valor }: { rotulo: string; valor: string }
 function EscolhaDoGestor({
   gestorId,
   aoTrocar,
+  /** A própria conta, quando se está editando: ninguém reporta a si mesmo. */
+  excluir,
 }: {
   gestorId: string;
   aoTrocar: (valor: string) => void;
+  excluir: string | null;
 }) {
   const { data: contas = [] } = useContas();
   const ativas = contas
-    .filter((c) => c.disabledAt === null)
+    .filter((c) => c.disabledAt === null && c.id !== excluir)
     .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
 
   return (
@@ -793,19 +908,27 @@ function EscolhaDoGestor({
 }
 
 /** O que a linha está mostrando abaixo dela: nada, os detalhes, ou a edição. */
-type Painel = "nenhum" | "detalhes" | "edicao" | "senha" | "desativar";
+type Painel = "nenhum" | "detalhes" | "senha" | "desativar";
 
 /**
  * Os painéis que abrem em gaveta, e não dentro da linha.
  *
  * "detalhes" é o único que ficou: é texto sobre a conta que está logo acima
  * dele — último acesso, sessões, quem criou —, e lê-se junto com o nome. Os
- * outros três pedem um formulário ou uma confirmação, e cresciam empurrando a
- * lista para baixo.
+ * outros dois pedem um campo e uma confirmação, e cresciam empurrando a lista
+ * para baixo — pelo mesmo motivo que levou a edição para a gaveta do painel.
  */
-const EM_GAVETA: Painel[] = ["edicao", "senha", "desativar"];
+const EM_GAVETA: Painel[] = ["senha", "desativar"];
 
-function UserRow({ user }: { user: ManagedUser }) {
+function UserRow({
+  user,
+  /* O lápis não abre mais nada dentro da linha: ele pede a gaveta ao painel,
+     que é quem sabe que só existe uma. */
+  aoEditar,
+}: {
+  user: ManagedUser;
+  aoEditar: () => void;
+}) {
   const queryClient = useQueryClient();
   const [, navegar] = useLocation();
   const { user: me, visualizarComo, isSubmitting } = useAuth();
@@ -813,9 +936,6 @@ function UserRow({ user }: { user: ManagedUser }) {
   const [painel, setPainel] = useState<Painel>("nenhum");
   const [newPassword, setNewPassword] = useState("");
   const [done, setDone] = useState<string | null>(null);
-  const [role, setRole] = useState(user.role);
-  const [cargoId, setCargoId] = useState(user.cargoId ?? "");
-  const [unidadeId, setUnidadeId] = useState(user.unidadeId ?? "");
 
   const disabled = user.disabledAt !== null;
   const isMe = me?.id === user.id;
@@ -887,30 +1007,6 @@ function UserRow({ user }: { user: ManagedUser }) {
       setPainel("nenhum");
       setNewPassword("");
       setDone("Senha redefinida. As sessões abertas dessa pessoa foram encerradas.");
-      void recarregar();
-    },
-    onError: (err: Error) => setError(err.message),
-  });
-
-  /*
-    Salvar a edição são duas chamadas, e são duas de propósito: papel é acesso e
-    lotação é cadastro (ver `lib/session.ts`). O papel só é mandado quando de
-    fato mudou — a rota recusa rebaixar o último administrador, e mandar o mesmo
-    valor de sempre transformaria essa recusa legítima num erro que aparece ao
-    salvar o cargo de alguém.
-  */
-  const salvar = useMutation({
-    mutationFn: async () => {
-      if (role !== user.role) await post(`/users/${user.id}/role`, { role });
-      await definirLotacao(user.id, {
-        cargoId: cargoId === "" ? null : cargoId,
-        unidadeId: unidadeId === "" ? null : unidadeId,
-      });
-    },
-    onSuccess: () => {
-      setError(null);
-      setPainel("nenhum");
-      setDone("Cadastro atualizado.");
       void recarregar();
     },
     onError: (err: Error) => setError(err.message),
@@ -1034,12 +1130,7 @@ function UserRow({ user }: { user: ManagedUser }) {
                   size="icon"
                   className="h-8 w-8"
                   aria-label={`Editar ${user.name}`}
-                  onClick={() => {
-                    setRole(user.role);
-                    setCargoId(user.cargoId ?? "");
-                    setUnidadeId(user.unidadeId ?? "");
-                    alternar("edicao");
-                  }}
+                  onClick={aoEditar}
                 >
                   <Pencil className="w-4 h-4" />
                 </Button>
@@ -1121,11 +1212,11 @@ function UserRow({ user }: { user: ManagedUser }) {
           </div>
         )}
 
-        {/* A recusa aparece dentro da gaveta que a provocou, onde estão o
-            formulário e o botão que falhou: no pé da linha, ela ficaria atrás
-            do painel aberto, sem ser lida por quem acabou de tentar. Aqui só
-            resta a recusa dos gestos da própria linha — reativar acesso e o
-            olho de visualizar. */}
+        {/* A recusa aparece dentro da gaveta que a provocou, onde estão o campo
+            e o botão que falharam: no pé da linha, ela ficaria atrás do painel
+            aberto, sem ser lida por quem acabou de tentar. Aqui resta a recusa
+            dos gestos que são da própria linha — reativar acesso e o olho de
+            visualizar como. */}
         {error && !EM_GAVETA.includes(painel) && (
           <div className="border-t px-4 py-3">
             <Refusal>{error}</Refusal>
@@ -1138,95 +1229,6 @@ function UserRow({ user }: { user: ManagedUser }) {
           </p>
         )}
       </div>
-
-      {/*
-        Editar abre na gaveta lateral, como criar — e pela mesma razão que os
-        cadastros de Unidades e da Casa passaram a abrir assim: o formulário
-        crescia dentro da própria linha e empurrava para baixo as contas
-        seguintes, de modo que clicar no lápis de alguém no fim da lista movia
-        para longe a pessoa que se estava olhando. A gaveta abre por cima, e
-        fechar por `Esc` ou pelo lado de fora é o mesmo caminho do Cancelar.
-
-        Os três painéis que ficaram na linha — detalhes, senha e desativar —
-        continuam onde estavam de propósito: são uma frase, um campo e uma
-        confirmação sobre a conta que está logo acima deles, e cabem debaixo do
-        nome de quem eles falam.
-      */}
-      <Sheet
-        open={painel === "edicao"}
-        onOpenChange={(aberta) => !aberta && setPainel("nenhum")}
-      >
-        <SheetContent
-          side="right"
-          className="w-full sm:max-w-lg p-0 flex flex-col gap-0"
-        >
-          <header className="px-6 pt-6 pb-4 border-b shrink-0">
-            <SheetTitle className="text-xl font-bold tracking-tight pr-8 flex items-center gap-2">
-              <Pencil className="w-5 h-5 text-primary" />
-              Editar {user.name}
-            </SheetTitle>
-            <SheetDescription className="mt-1">
-              Papel é acesso; cargo e unidade são cadastro. O e-mail não se
-              edita aqui, e a senha se redefine pelos detalhes da conta.
-            </SheetDescription>
-          </header>
-
-          <form
-            className="flex flex-col min-h-0 flex-1"
-            onSubmit={(e) => {
-              e.preventDefault();
-              salvar.mutate();
-            }}
-          >
-            <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
-              <Field label="Papel" htmlFor={`role-${user.id}`}>
-                <Select value={role} onValueChange={setRole}>
-                  <SelectTrigger id={`role-${user.id}`}>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="OPERADOR">
-                      Operador — usa o produto
-                    </SelectItem>
-                    <SelectItem value="ADMIN">
-                      Administrador — também gerencia contas
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </Field>
-
-              <CamposDeLotacao
-                prefixo={user.id}
-                cargoId={cargoId}
-                unidadeId={unidadeId}
-                aoTrocarCargo={setCargoId}
-                aoTrocarUnidade={setUnidadeId}
-              />
-
-              <p className="text-xs text-muted-foreground">
-                Cargo e unidade dizem o que a pessoa faz e onde; não mudam o que
-                ela alcança. O que cada conta alcança está em Permissões, mais
-                abaixo.
-              </p>
-
-              {error && <Refusal>{error}</Refusal>}
-            </div>
-
-            <footer className="border-t px-6 py-4 shrink-0 flex items-center gap-2">
-              <Button type="submit" className="flex-1" disabled={salvar.isPending}>
-                {salvar.isPending ? "Salvando…" : "Salvar"}
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => setPainel("nenhum")}
-              >
-                Cancelar
-              </Button>
-            </footer>
-          </form>
-        </SheetContent>
-      </Sheet>
 
       {/*
         Redefinir senha sai dos detalhes, e volta para eles: foi de lá que ela
