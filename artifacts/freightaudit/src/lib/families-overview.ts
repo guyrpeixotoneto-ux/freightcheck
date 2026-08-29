@@ -1,5 +1,6 @@
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { ApiError, fetchJson } from "@/lib/api";
+import { LEITURA_DE_APURACAO } from "@/lib/frescor-das-leituras";
 import type { FamiliesOverview } from "@/components/inicio/types";
 
 /**
@@ -41,11 +42,24 @@ export function useFamiliesOverviewQuery(
     queryKey: ["families", "overview", period, comParametros],
     enabled: enabled && period !== null,
     refetchInterval,
-    // Mesmo padrão das outras queries desta tela (`comparacao`, `balancos`,
-    // `importacoes`): a leitura soma todas as unidades no servidor e é cara —
-    // sem isto, cada navegação de volta à Visão Geral reprocessava tudo do
-    // zero mesmo que nada tivesse mudado nos últimos segundos.
-    staleTime: 60_000,
+    /*
+      A política de uma leitura de apuração fechada, de um lugar só
+      (`lib/frescor-das-leituras.ts`): o minuto de `staleTime` que esta consulta
+      já declarava — e que existe porque a leitura soma todas as unidades no
+      servidor e é cara —, agora acompanhado do `placeholderData` que faltava.
+
+      É o `placeholderData` que resolve a troca de **competência** nas cinco
+      telas que passam por aqui (Dashboard, Resumo executivo, Linha do Tempo,
+      Gestão à Vista e Parâmetros). A chave carrega `period`; trocar de
+      competência troca a chave; uma chave sem cache tem `data === undefined` e
+      a tela caía no ramo do loader, apagando o que estava à vista. Medido em
+      197–212 ms de tela vazia por troca.
+
+      `refetchInterval` (a sondagem do telão da Gestão à Vista) é independente
+      de `staleTime` e continua disparando no relógio dele — o telão não
+      congela.
+    */
+    ...LEITURA_DE_APURACAO,
     queryFn: async () => {
       try {
         return await fetchJson<FamiliesOverview>(

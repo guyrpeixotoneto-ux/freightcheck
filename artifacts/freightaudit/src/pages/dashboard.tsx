@@ -34,6 +34,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ApiError, fetchJson, fetchJsonOrNull } from "@/lib/api";
+import { LEITURA_DE_APURACAO } from "@/lib/frescor-das-leituras";
+import { EmAtualizacao, classeDeAtualizacao } from "@/components/ui/em-atualizacao";
 import { useContextosDaCasca } from "@/lib/contextos";
 import { useFamiliesOverviewQuery } from "@/lib/families-overview";
 import { DASHBOARD, GESTAO_A_VISTA } from "@/lib/ambiente";
@@ -126,6 +128,23 @@ export default function Dashboard() {
   const vigencia = useQuery({
     queryKey: ["families", "dashboard", consulta.toString()],
     enabled: !visaoGeral,
+    /*
+      A leitura da unidade aberta, com a política de apuração fechada
+      (`lib/frescor-das-leituras.ts`).
+
+      Esta é a consulta da **troca de unidade**: a chave carrega `scopeHash`,
+      `canal` e `period`, então escolher outra unidade na lateral produz uma
+      chave que nunca foi buscada. Sem `placeholderData`, `data` vinha
+      `undefined`, o ramo `vigencia.isLoading` assumia e o Dashboard inteiro
+      era substituído por "Carregando a vigência…" — medido em 147–163 ms de
+      tela vazia por troca, com o conteúdo sumindo 16 ms depois do clique.
+
+      O `staleTime` é o mesmo minuto que a Linha do Tempo já declarava para
+      exatamente esta leitura, e pela mesma razão: uma vigência fechada não
+      muda entre duas importações, e é a importação que invalida a chave — não
+      o relógio.
+    */
+    ...LEITURA_DE_APURACAO,
     queryFn: async () => {
       try {
         return await fetchJson<FamiliesView>(`/changes/families${sufixo}`);
@@ -217,12 +236,36 @@ export default function Dashboard() {
     do menu do Resumo executivo: a contagem já está no cache quando alguém
     clica no botão, em vez de sair uma varredura nova a cada abertura.
   */
+  /*
+    E ela sai **depois** do conteúdo principal, não junto com ele.
+
+    As duas leituras de overview do Dashboard custam 243 ms e 21 ms quando
+    medidas sozinhas, e 625 ms e 607 ms quando disparam no mesmo instante: cada
+    uma abre um leque de consultas por unidade, e as duas disputam os mesmos
+    núcleos e o mesmo pool. Medido na abertura fria: a última resposta chegava
+    aos 921 ms, e 65% da jornada inteira era esse par
+    (`docs/AUDITORIA-ZERO-LOADING.md`, §2 e §3.1).
+
+    Esta consulta não alimenta a resposta principal da tela — os quatro
+    indicadores, o líquido e a fila saem de `overviewQuery`. Ela alimenta o
+    gráfico de impacto por competência e a coluna de alterações do seletor de
+    vigência, que são o segundo e o terceiro olhar. Segurá-la até o conteúdo
+    principal existir não atrasa nada que alguém esteja esperando, e devolve ao
+    `overviewQuery` os núcleos que ela tomava.
+
+    A guarda é `!overviewQuery.isLoading`, e não `overviewQuery.data`, por
+    causa do `placeholderData`: numa troca de competência `isLoading` já é
+    `false` (há o dado anterior em tela), e o gráfico acompanha a troca sem
+    esperar de novo. O adiamento vale só para a **primeira** leitura, que é a
+    única em que havia disputa. Se `overviewQuery` falhar, esta não sai — e não
+    teria o que desenhar de qualquer forma.
+  */
   const rangeGeralQuery = useQuery({
     ...opcoesDoIntervaloGeral(
       periodosOverview[periodosOverview.length - 1] ?? null,
       periodosOverview[0] ?? null,
     ),
-    enabled: visaoGeral && periodosOverview.length > 1,
+    enabled: visaoGeral && periodosOverview.length > 1 && !overviewQuery.isLoading,
   });
 
   /*
@@ -288,11 +331,23 @@ export default function Dashboard() {
         consulta={consulta}
         onTrocar={trocarPara}
         paraGestaoAVista={paraGestaoAVista}
+        atualizando={
+          visaoGeral ? overviewQuery.isPlaceholderData : vigencia.isPlaceholderData
+        }
       />
 
       <div className="px-8 py-6 space-y-5 max-w-[1600px]">
         {visaoGeral ? (
           <>
+            {/*
+              O loader só existe para a **primeira** leitura — aquela em que não
+              há nada em tela para preservar. `isLoading` é `isPending &&
+              isFetching`, e com `placeholderData` o status de uma chave nova já
+              nasce `success` sobre o dado anterior: numa troca de competência
+              esta linha não é mais alcançada, e é isso que faz a tela deixar de
+              piscar. Quando ela é alcançada, é porque de fato não há o que
+              mostrar, e aí um aviso é a resposta honesta.
+            */}
             {overviewQuery.isLoading && (
               <p className="text-sm text-muted-foreground">Carregando o Dashboard…</p>
             )}
@@ -301,15 +356,24 @@ export default function Dashboard() {
             )}
             {!overviewQuery.isLoading && !overviewQuery.error && overview === null && <BancoVazio />}
             {overview && (
-              <ConteudoGeral
-                overview={overview}
-                atualizadoEm={atualizadoEm}
-                onTrocar={trocarPara}
-                serie={serieGeral}
-                familiaAberta={familiaAberta}
-                onAbrirFamilia={(code) => trocarPara({ familia: code })}
-                onFecharFamilia={() => trocarPara({ familia: null })}
-              />
+              /*
+                Enquanto o conteúdo é o da competência anterior, ele fica dito:
+                `isPlaceholderData` é o único sinal que quer dizer "a chave
+                mudou e a resposta dela ainda não chegou". Um `isFetching` no
+                lugar dele acenderia o indicador também num refetch de fundo da
+                mesma competência, onde não há nada a declarar.
+              */
+              <div className={cn("space-y-5", classeDeAtualizacao(overviewQuery.isPlaceholderData))}>
+                <ConteudoGeral
+                  overview={overview}
+                  atualizadoEm={atualizadoEm}
+                  onTrocar={trocarPara}
+                  serie={serieGeral}
+                  familiaAberta={familiaAberta}
+                  onAbrirFamilia={(code) => trocarPara({ familia: code })}
+                  onFecharFamilia={() => trocarPara({ familia: null })}
+                />
+              </div>
             )}
           </>
         ) : (
@@ -322,16 +386,18 @@ export default function Dashboard() {
             )}
             {!vigencia.isLoading && !vigencia.error && view === null && <BancoVazio />}
             {view && (
-              <ConteudoDaUnidade
-                view={view}
-                recorte={recorte}
-                atualizadoEm={atualizadoEm}
-                movimentos={rangeQuery.data ?? null}
-                familiaAberta={familiaAberta}
-                onAbrirFamilia={(code) => trocarPara({ familia: code })}
-                onFecharFamilia={() => trocarPara({ familia: null })}
-                onEscolherVigencia={(periodo) => trocarPara({ period: periodo })}
-              />
+              <div className={cn("space-y-5", classeDeAtualizacao(vigencia.isPlaceholderData))}>
+                <ConteudoDaUnidade
+                  view={view}
+                  recorte={recorte}
+                  atualizadoEm={atualizadoEm}
+                  movimentos={rangeQuery.data ?? null}
+                  familiaAberta={familiaAberta}
+                  onAbrirFamilia={(code) => trocarPara({ familia: code })}
+                  onFecharFamilia={() => trocarPara({ familia: null })}
+                  onEscolherVigencia={(periodo) => trocarPara({ period: periodo })}
+                />
+              </div>
             )}
           </>
         )}
@@ -355,6 +421,7 @@ function Cabecalho({
   consulta,
   onTrocar,
   paraGestaoAVista,
+  atualizando,
 }: {
   view: FamiliesView | null;
   overview: FamiliesOverview | null;
@@ -364,6 +431,17 @@ function Cabecalho({
   consulta: URLSearchParams;
   onTrocar: (mudancas: Record<string, string | null>) => void;
   paraGestaoAVista: string;
+  /**
+   * O corpo da tela ainda é o recorte anterior (`isPlaceholderData`).
+   *
+   * O título continua nomeando o recorte **da resposta que está em tela** —
+   * `view.context` e `view.period`, nunca `params.get("scopeHash")` —, e é o
+   * que torna o par honesto: o título diz de quem são os números, e o
+   * indicador ao lado diz que outro está a caminho. Sem o indicador, o título
+   * ainda estaria certo, mas a lateral já nomearia a unidade nova e ninguém
+   * teria como saber qual das duas ler.
+   */
+  atualizando: boolean;
 }) {
   const unidade = view ? nomeDaUnidade(view.context) : null;
   const periodoAtual = visaoGeral ? (overview?.period ?? null) : (view?.period ?? null);
@@ -372,9 +450,12 @@ function Cabecalho({
     <header className="px-8 pt-7 pb-2">
       <div className="flex flex-wrap items-start justify-between gap-4 max-w-[1600px]">
         <div className="min-w-0">
-          <h1 className="text-[2rem] font-extrabold tracking-tight leading-tight">
-            Dashboard — {visaoGeral ? "Visão Geral" : (unidade ?? "")}
-          </h1>
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="text-[2rem] font-extrabold tracking-tight leading-tight">
+              Dashboard — {visaoGeral ? "Visão Geral" : (unidade ?? "")}
+            </h1>
+            <EmAtualizacao ativo={atualizando} />
+          </div>
           <p className="text-sm text-muted-foreground mt-1.5">
             O que a Ambev mudou nesta competência, e quanto isso custou.
           </p>

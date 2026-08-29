@@ -880,3 +880,230 @@ Quatro coisas, e só a segunda é grande:
 
 Com (1) e (3), as trocas ficam instantâneas nesta semana. Com (2), a **entrada**
 fica instantânea. Com (4), a navegação inteira fica.
+
+---
+
+# Parte II — Fase 1, implementada e medida
+
+**Data:** 29/08/2026 · mesmo ambiente da Parte I (Postgres 16 local com 6
+unidades, 747.792 fatos, API em modo produção, bundle de produção num Chromium
+real). O "antes" foi remedido **hoje**, no mesmo processo e no mesmo banco do
+"depois" — não são os números da Parte I reaproveitados.
+
+## 14. O que foi feito
+
+Só a Fase 1 do §10. Nada da Fase 2: nenhum agregado persistido, nenhuma
+mudança na importação, nenhum índice, nenhum Redis, nenhuma alteração no
+algoritmo de comparação, nenhum prefetch. **Nenhuma linha de servidor mudou** —
+e a tabela de endpoints do §17 é a prova disso.
+
+| # | Mudança | Onde |
+|--:|---|---|
+| 1 | `placeholderData: keepPreviousData` nas leituras cuja chave carrega o recorte | 7 telas |
+| 2 | `staleTime` classificado (`APURACAO_FECHADA`, 60 s) nas que não declaravam nenhum | 6 telas |
+| 3 | `/changes/range/overview` fora do caminho crítico da abertura | `pages/dashboard.tsx` |
+| 4 | Indicador discreto de atualização + atenuação do conteúdo anterior | `components/ui/em-atualizacao.tsx` |
+| 5 | Invalidação da apuração quando a Curadoria muda uma semântica | `pages/curadoria.tsx`, `pages/categorias.tsx` |
+
+## 15. Resultado: o critério principal
+
+**Troca de unidade** (`/dashboard?scopeHash=…`), amostragem do DOM a 16 ms:
+
+| Troca | Tela vazia antes | Tela vazia depois | Loader antes | Loader depois | Requisições |
+|---|--:|--:|--:|--:|--:|
+| CAMAÇARI → JAGUARIUNA | **147 ms** | **0 ms** | 147 ms | 0 ms | 3 → 3 |
+| JAGUARIUNA → TERESINA | **163 ms** | **0 ms** | 163 ms | 0 ms | 3 → 3 |
+| → CAMAÇARI (já visitada) | 0 ms | 0 ms | 0 ms | 0 ms | **1 → 0** |
+| → JAGUARIUNA (já visitada) | 0 ms | 0 ms | 0 ms | 0 ms | **1 → 0** |
+
+**Troca de competência** (Visão Geral):
+
+| Troca | Tela vazia antes | Tela vazia depois | Requisições |
+|---|--:|--:|--:|
+| ago → jul/2026 | **243 ms** | **0 ms** | 1 → 1 |
+| jul → jun/2026 | **251 ms** | **0 ms** | 1 → 1 |
+| jun → mai/2026 | **246 ms** | **0 ms** | 1 → 1 |
+| mai → jul/2026 (já visitada) | 0 ms | 0 ms | 0 → 0 |
+
+**Troca de competência dentro de uma unidade:** 147 ms e 163 ms → **0 ms**.
+
+**A meta era 147–212 ms → 0 ms. Cumprida em todos os dez cenários, sem
+exceção.** E a revisita a um recorte já visitado deixou de fazer requisição
+nenhuma.
+
+## 16. Resultado: a abertura do Dashboard
+
+Mediana de 3 rodadas × 3 navegações, cache do navegador frio, servidor quente.
+
+| Marco | Antes | Depois | Ganho |
+|---|--:|--:|--:|
+| FCP | 196 ms | 196 ms | — |
+| Casca desenhada (o loader aparece) | 245 ms | 239 ms | — |
+| **Conteúdo útil (o loader some)** | **951 ms** | **569 ms** | **−40%** |
+
+A projeção do §10 era ~580 ms. Medido: **569 ms.**
+
+O waterfall diz de onde vieram os 382 ms:
+
+```
+ANTES  (conteúdo aos 990 ms)              DEPOIS  (conteúdo aos 559 ms)
+ 294 → 950   656ms  families/overview      261 → 523   261ms  families/overview
+ 295 → 879   584ms  range/overview         536 → 936   400ms  range/overview
+ └── as duas juntas, disputando            └── a segunda só depois de a
+     4 núcleos e o mesmo pool                  primeira ter entregado a tela
+```
+
+`/changes/families/overview` **não ficou mais rápido**: ficou sozinho.
+656 ms → 261 ms é a disputa que sumiu, não uma consulta otimizada. O
+`range/overview` continua custando 400 ms — mas agora depois de a tela estar
+pronta, onde ninguém o espera.
+
+## 17. O que **não** mudou (e é assim que se prova que nada de servidor mudou)
+
+p50 de 7 execuções aquecidas, mesmos endpoints, mesmo banco, antes e depois:
+
+| Endpoint | p50 antes | p50 depois | Consultas |
+|---|--:|--:|--:|
+| `/changes/families/overview` | 257 ms | 247 ms | 52 → 52 |
+| `/changes/families` | 171 ms | 171 ms | 17 → 17 |
+| `/changes/grouped` | 172 ms | 176 ms | 16 → 16 |
+| `/balance` | 2.373 ms | 2.267 ms | 6 → 6 |
+| `/dre/history` | 596 ms | 584 ms | 49 → 49 |
+| `/composition/fleet` | 81 ms | 82 ms | 12 → 12 |
+| `/gerencial/vigencias` | 10 ms | 11 ms | 4 → 4 |
+| as outras 8 rotas | 2–349 ms | 3–354 ms | idênticas |
+
+Tudo dentro do ruído, nenhuma contagem de consulta alterada. **`/balance` com
+2,3 s e `/dre/history` com 49 consultas continuam exatamente onde estavam** —
+são Fase 2, e a Fase 2 não foi antecipada.
+
+## 18. Navegação quente
+
+Sequência de 11 navegações (Dashboard ⇄ Painel ⇄ Acompanhamento ⇄ Composição
+⇄ Parâmetros):
+
+| | Antes | Depois |
+|---|--:|--:|
+| Requisições no total | 15 | **14** |
+| Bytes no total | 400 KB | **365 KB** |
+| Tempo total com "Carregando" em tela | **1.031 ms** | **641 ms** |
+| 1ª visita ao Dashboard — loader | 669 ms | **278 ms** |
+| Revisita ao Painel de Unidades | 1 req · 34 KB | **0 req · 0 KB** |
+
+As três telas que ainda mostram loader na tabela (Composição 167 ms,
+Parâmetros 180 ms, 1ª visita do Dashboard 278 ms) são **primeiras visitas** —
+não há conteúdo anterior a preservar, e o loader ali é a resposta correta. É a
+Fase 2 que os elimina, tornando a resposta rápida o bastante para não precisar
+de aviso.
+
+## 19. Corretude: o que foi verificado, e como
+
+O risco desta mudança não é performance — é a tela afirmar o que não é. Foi
+verificado no produto rodando, amostrando o DOM a 16 ms durante três trocas de
+unidade e comparando três fontes: **o que a URL diz, o que a lateral diz e o
+que o título diz**.
+
+| Troca | Tela vazia | Quadros com a unidade anterior | Desses, **sem** o aviso | Título final |
+|---|--:|--:|--:|---|
+| CAMAÇARI → JAGUARIUNA | 0 ms | 10 | **1** | Dashboard — JAGUARIUNA |
+| JAGUARIUNA → TERESINA | 0 ms | 11 | **1** | Dashboard — TERESINA |
+| TERESINA → SETE LAGOAS | 0 ms | 13 | **1** | Dashboard — SETE LAGOAS |
+
+O quadro sem aviso é sempre **um só**, e a amostragem quadro a quadro mostra
+qual é:
+
+| t | URL diz | Lateral diz | Título diz | Aviso |
+|--:|---|---|---|---|
+| 0 ms | CAMAÇARI | CAMAÇARI | CAMAÇARI | não |
+| 18 ms | JAGUARIUNA | JAGUARIUNA | **CAMAÇARI** | **sim** |
+| … | JAGUARIUNA | JAGUARIUNA | **CAMAÇARI** | **sim** |
+| 182 ms | JAGUARIUNA | JAGUARIUNA | **JAGUARIUNA** | não |
+
+O quadro sem aviso é o `t = 0` — **antes de o clique ser processado**, quando a
+URL, a lateral e o título ainda dizem a mesma coisa. Ali não há nada a
+declarar. Do primeiro quadro depois do clique até a resposta chegar, o aviso
+está ligado; e aos 182 ms o título e os números viram **juntos**, num quadro
+só.
+
+**Não existe um quadro em que a tela mostre os números de uma unidade sob o
+nome de outra sem dizer que está atualizando.**
+
+### As cinco garantias pedidas
+
+| Garantia | Como está sustentada |
+|---|---|
+| Empresa/inquilino nunca reaproveita cache de outra | Não há inquilinos hoje (`artifacts/api-server/src/lib/empresa-da-requisicao.ts`: "não há coluna de empresa em lugar nenhum"). O isolamento que existe é o de unidade/canal/competência, abaixo |
+| Unidade A nunca usa como **resultado final** dados de B | A `queryKey` carrega `scopeHash` e `canal` — ela *é* a identidade da consulta. O placeholder some no instante em que a chave nova responde; o teste `dispara a consulta da chave nova, e só dela` confere o cache das duas chaves separadamente |
+| Competência A nunca usa como final dados de B | Idem, `period` na chave. Verificado nas três trocas de competência |
+| Ocultar/importar continua invalidando | `pages/importacoes.tsx` chama `invalidateQueries()` **sem chave** ao promover, excluir e ocultar; `pages/versoes.tsx` idem. Nenhum `staleTime` sobrevive a isso |
+| Erro não deixa dado velho passando por atual | `placeholderData` só vale com status `pending`. No erro o status vira `error` e `data` volta a `undefined`. Provado em `não apresenta o dado anterior como atual quando a nova chave falha` |
+
+### A invalidação que a mudança passou a exigir
+
+Confirmar uma semântica na Curadoria muda o impacto apurado. Antes, as telas se
+corrigiam **por acidente**: com `staleTime: 0`, a próxima montagem refazia a
+chamada de qualquer jeito. Com o minuto declarado, o acidente acabou — então a
+invalidação virou obrigatória e foi escrita (`invalidarApuracao`, em
+`lib/frescor-das-leituras.ts`, chamada de `curadoria.tsx` e `categorias.tsx`).
+**Nenhum `staleTime` entrou sem a invalidação que o sustenta.**
+
+## 20. Testes
+
+| Suíte | Resultado |
+|---|---|
+| `@workspace/freightaudit` completa | **100 arquivos · 1.528 testes · 0 falhas** |
+| Typecheck do pacote | limpo |
+| Typecheck do workspace (`tsc --build`) | limpo |
+| Novos: `frescor-das-leituras.tela.test.tsx` | **9 testes**, num DOM real |
+
+Os nove testes novos exercitam **o comportamento da tela**, não o do hook — e
+o objeto de opções que eles montam é o `LEITURA_DE_APURACAO` exportado, não uma
+cópia dele escrita no teste:
+
+1. o conteúdo existente permanece durante a troca de recorte;
+2. o novo conteúdo substitui o anterior quando chega, junto com o título;
+3. mudar a chave dispara a consulta **da chave nova**, e o cache das duas não se
+   mistura;
+4. um erro na chave nova **remove** o conteúdo anterior e mostra o aviso;
+5. a tela declara que o que está à vista é o anterior (`role="status"`);
+6. voltar a um recorte já visitado não refaz a chamada;
+7. `invalidarApuracao` alcança as chaves das oito telas de apuração.
+
+## 21. Regressões encontradas
+
+**Uma, encontrada na revisão do próprio diff e corrigida antes da medição
+final.** Envolver os filhos de um contêiner `space-y-*` num `<div>` quebra o
+espaçamento entre eles — o `space-y` só alcança filhos diretos. As seis
+envoltórias de atenuação passaram a repetir a classe do pai
+(`cn("space-y-5", classeDeAtualizacao(…))`), e o build medido no §15–16 é o
+corrigido.
+
+**Nenhuma outra.** Duas consequências fora do recorte pedido, ambas
+verificadas e ambas benignas:
+
+- **Gestão à Vista** usa `useFamiliesOverviewQuery` e herdou o
+  `placeholderData`. O telão nomeia a competência a partir da **resposta**
+  (`overview?.period`, `gestao-a-vista.tsx:252`), então durante uma troca ele
+  mostra os números anteriores sob o rótulo anterior — consistente. O
+  `refetchInterval: 30_000` é independente de `staleTime` e continua disparando.
+- **Parâmetros** recebeu o indicador no título, mas não a atenuação do corpo
+  (a grade é grande e a mudança visual seria maior que o necessário). Está
+  registrado como diferença deliberada, não como esquecimento.
+
+## 22. O que a Fase 1 **não** resolveu
+
+Fica dito para não haver ilusão sobre o que se ganhou:
+
+- **A primeira pessoa do dia continua esperando 569 ms** no Dashboard, e
+  2,3 s no Resumo executivo (`/balance`). Cache do cliente não alcança quem
+  chega primeiro.
+- **A primeira visita a cada tela continua mostrando loader** — Composição
+  167 ms, Parâmetros 180 ms. Correto, e só a Fase 2 os torna curtos o bastante
+  para não precisarem de aviso.
+- **A vazão da API continua em ~8,5 req/s** e o p95 com 10 usuários continua em
+  3 s. Nada aqui tocou nisso.
+- **O `gcTime` continua no padrão de 5 minutos**: sair de uma tela por mais de
+  cinco minutos descarta o cache dela, e a volta mostra o loader de novo. Não
+  foi alterado nesta rodada.
+
+Tudo isso é §9.1 e §9.2 — a Fase 2.
