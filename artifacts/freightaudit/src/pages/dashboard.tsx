@@ -330,6 +330,7 @@ export default function Dashboard() {
                 familiaAberta={familiaAberta}
                 onAbrirFamilia={(code) => trocarPara({ familia: code })}
                 onFecharFamilia={() => trocarPara({ familia: null })}
+                onEscolherVigencia={(periodo) => trocarPara({ period: periodo })}
               />
             )}
           </>
@@ -548,6 +549,7 @@ function ConteudoDaUnidade({
   familiaAberta,
   onAbrirFamilia,
   onFecharFamilia,
+  onEscolherVigencia,
 }: {
   view: FamiliesView;
   recorte: ReturnType<typeof lerRecorte>;
@@ -556,6 +558,7 @@ function ConteudoDaUnidade({
   familiaAberta: string | null;
   onAbrirFamilia: (code: string) => void;
   onFecharFamilia: () => void;
+  onEscolherVigencia: (periodo: string) => void;
 }) {
   const cobertura = coberturaDePreco(view.totals.changes, view.impact.notCalculable);
   const principal = ladosDoImpacto(view)[0] ?? null;
@@ -614,10 +617,12 @@ function ConteudoDaUnidade({
         dominante={dominante}
         period={view.period}
         periodLabel={view.periodLabel}
+        vigenciaAtiva={view.period}
         recorte={recorte}
         familiaAberta={familiaAberta}
         onAbrirFamilia={onAbrirFamilia}
         onFecharFamilia={onFecharFamilia}
+        onEscolherVigencia={onEscolherVigencia}
       />
 
       <PrincipaisAlteracoes linhas={linhasDaUnidade(view, recorte)} />
@@ -655,9 +660,11 @@ function ImpactoEPodio({
   period,
   periodLabel,
   recorte,
+  vigenciaAtiva,
   familiaAberta,
   onAbrirFamilia,
   onFecharFamilia,
+  onEscolherVigencia,
   notaDoGrafico,
 }: {
   pontos: PontoDeImpacto[];
@@ -670,9 +677,16 @@ function ImpactoEPodio({
   period: string | null;
   periodLabel: string | null;
   recorte?: Recorte;
+  /* A vigência que a tela está mostrando — a barra acesa no gráfico. Vem
+     separada de `period` porque a Visão Geral tem competência aberta (e por
+     isso barra acesa e clique) mesmo sem uma unidade a quem abrir a gaveta. */
+  vigenciaAtiva: string | null;
   familiaAberta: string | null;
   onAbrirFamilia: (code: string) => void;
   onFecharFamilia: () => void;
+  /* Clicar numa barra do gráfico troca a vigência aberta — a tela inteira
+     passa a falar da vigência clicada, e não só o gráfico. */
+  onEscolherVigencia: (periodo: string) => void;
   notaDoGrafico?: string;
 }) {
   /*
@@ -707,7 +721,12 @@ function ImpactoEPodio({
           {notaDoGrafico ??
             "Ganhos e perdas divergindo do zero, com o líquido por cima. Uma barra por vigência entregue — duas no mesmo mês aparecem pelo dia, nunca somadas."}
         </p>
-        <GraficoDeImpacto pontos={pontos} periodicity={periodicity} />
+        <GraficoDeImpacto
+          pontos={pontos}
+          periodicity={periodicity}
+          vigenciaAtiva={vigenciaAtiva}
+          onEscolherVigencia={onEscolherVigencia}
+        />
       </section>
 
       {/*
@@ -883,9 +902,16 @@ function ConteudoGeral({
         */
         period={null}
         periodLabel={null}
+        /*
+          A gaveta recusa a porta, mas o eixo do tempo continua navegável: a
+          competência aberta existe na Visão Geral (`overview.period`), e é ela
+          que acende a barra e recebe o clique.
+        */
+        vigenciaAtiva={overview.period}
         familiaAberta={familiaAberta}
         onAbrirFamilia={onAbrirFamilia}
         onFecharFamilia={onFecharFamilia}
+        onEscolherVigencia={(periodo) => onTrocar({ period: periodo })}
         notaDoGrafico="Ganhos e perdas de todas as unidades incluídas, com o líquido por cima. Uma barra por competência — a unidade sem vigência naquela competência não entra nela."
       />
 

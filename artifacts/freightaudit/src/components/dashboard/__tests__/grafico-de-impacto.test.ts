@@ -4,6 +4,7 @@ import { getStackedData } from "recharts/es6/util/ChartUtils";
 import {
   EMPILHAMENTO,
   SERIES_DA_BARRA,
+  vigenciaDoClique,
   type PontoDeImpacto,
 } from "../grafico-de-impacto";
 
@@ -141,5 +142,35 @@ describe("o defeito que o stackOffset padrão produzia", () => {
     expect(ganhos).toEqual([0, 51075]);
     expect(Math.max(...perdas)).toBeGreaterThanOrEqual(Math.max(...ganhos));
     expect(Math.min(...perdas)).toBeLessThanOrEqual(Math.min(...ganhos));
+  });
+});
+
+/**
+ * O clique no gráfico — o que ele pede, e quando ele não pede nada.
+ *
+ * A tela inteira (indicadores, pódio, tabela, gaveta) passa a falar da
+ * vigência clicada, então um clique lido errado não erra só o gráfico: leva
+ * todo o Dashboard para uma vigência que ninguém apontou. Daí o teste ser da
+ * regra, e não do desenho.
+ */
+describe("vigenciaDoClique", () => {
+  const clique = (periodo: string) => ({ activePayload: [{ payload: { periodo } }] });
+
+  it("pede a vigência do ponto que o tooltip estava mostrando", () => {
+    expect(vigenciaDoClique(clique("2026-07-01"), "2026-08-01")).toBe("2026-07-01");
+  });
+
+  it("não pede nada no clique fora de qualquer ponto", () => {
+    expect(vigenciaDoClique({}, "2026-08-01")).toBeNull();
+    expect(vigenciaDoClique(null, "2026-08-01")).toBeNull();
+    expect(vigenciaDoClique({ activePayload: [] }, "2026-08-01")).toBeNull();
+  });
+
+  it("não repete a vigência já aberta — nada a trocar, nada no histórico", () => {
+    expect(vigenciaDoClique(clique("2026-08-01"), "2026-08-01")).toBeNull();
+  });
+
+  it("navega mesmo sem vigência acesa, como na Visão Geral sem competência", () => {
+    expect(vigenciaDoClique(clique("2026-06-01"), null)).toBe("2026-06-01");
   });
 });
