@@ -75,6 +75,24 @@ export const appUserTable = pgTable(
     createdBy: text("created_by"),
     disabledBy: text("disabled_by"),
     /**
+     * Quando a conta saiu da lista, e por quem — o arquivamento.
+     *
+     * Não é uma exclusão mais educada: a linha continua inteira, e continua
+     * assinando o que assinou. É uma decisão sobre a **lista** de Usuários, que
+     * mostra tudo o que já existiu e por isso acumula desligados no meio de
+     * quem ainda trabalha aqui — desativar resolve o acesso e não resolve isso.
+     *
+     * Só se arquiva quem já está sem acesso (`disabledAt` preenchido), e a rota
+     * é quem garante: uma conta arquivada e ativa seria gente entrando no
+     * produto sem aparecer na tela que existe para dizer quem entra. Reativar o
+     * acesso desarquiva junto, pela mesma razão — voltar a entrar e continuar
+     * fora da lista seriam as duas metades da mesma contradição.
+     *
+     * `NULL` nos dois é o estado de toda conta que ninguém arquivou.
+     */
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+    archivedBy: text("archived_by"),
+    /**
      * O cargo da pessoa — referência ao cadastro, nunca texto digitado.
      *
      * A lista de Usuários agrupa por cargo, e agrupar por texto livre daria

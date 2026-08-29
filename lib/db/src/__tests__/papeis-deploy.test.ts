@@ -403,6 +403,15 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
         "app_user.telefone",
         "app_user.gestor_id",
         /*
+          As duas da `0078` — o arquivamento de uma conta na tela de Usuários.
+          Aditivas e nulas pela mesma forma das de cima: `NULL` nas duas é toda
+          conta que ninguém arquivou, que são todas até alguém clicar. Sem
+          backfill, sem default e sem índice — arquivar é decisão sobre a
+          lista, e nenhuma conta que já existe muda de estado por causa dela.
+        */
+        "app_user.archived_at",
+        "app_user.archived_by",
+        /*
           A coluna que a `0046` acrescentou a `fechamento_competencia` **não**
           entra aqui, e a ausência é a informação: o diff a reporta pela tabela,
           não pela coluna, porque Production não tem nenhuma das treze do

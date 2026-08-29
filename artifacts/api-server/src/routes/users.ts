@@ -19,6 +19,7 @@ import {
   gestorFechaCiclo,
   gerarEmailDisponivel,
   listUsers,
+  setUserArquivado,
   setUserDisabled,
   setUserPassword,
   setUserRole,
@@ -45,7 +46,9 @@ import {
  *
  * Ninguém é apagado. `actor` das confirmações já feitas aponta para estas
  * linhas, e apagar uma transformaria um histórico auditável num e-mail órfão.
- * Desativar tira o acesso e preserva o histórico; é a única forma oferecida.
+ * Desativar tira o acesso e preserva o histórico; arquivar tira da lista quem
+ * já não tem acesso, e também preserva. São as duas formas oferecidas, e
+ * nenhuma delas apaga.
  */
 const router: IRouter = Router();
 
@@ -343,6 +346,92 @@ router.post("/users/:id/enable", async (req, res): Promise<void> => {
   req.log.info(
     { email: target.email, by: req.user!.email },
     "Conta reativada",
+  );
+  res.json(await listUsers(db));
+});
+
+/**
+ * Arquivar e desarquivar — o que a lixeira faz numa conta que já está sem
+ * acesso.
+ *
+ * Continua não havendo como apagar ninguém, e pela razão de sempre: o `actor`
+ * de cada confirmação de curadoria e de cada promoção de vigência aponta para
+ * estas linhas. Arquivar não é a exclusão com outro nome — é uma decisão sobre
+ * a **lista**: a tela de Usuários mostra tudo o que já existiu, e sem isto os
+ * desligados de dois anos atrás se lêem junto com quem trabalha aqui hoje, no
+ * grupo do cargo que já não é de ninguém.
+ *
+ * **Exige a conta já desativada, e não desativa por conta própria.** Uma conta
+ * arquivada e ativa seria gente entrando no produto sem aparecer na tela que
+ * existe para dizer quem entra. E cortar o acesso de alguém tem aviso próprio,
+ * na gaveta de desativar; embutir isso em "arquivar" faria um gesto de
+ * arrumação derrubar a sessão de quem está trabalhando.
+ *
+ * Duas rotas, e não uma com um flag no corpo, pela mesma razão de `disable` e
+ * `enable`: têm consequências opostas, e é assim que este produto as escreve.
+ */
+router.post("/users/:id/arquivar", async (req, res): Promise<void> => {
+  const recusa = somenteAdmin(req);
+  if (recusa) {
+    res.status(403).json({ error: recusa });
+    return;
+  }
+  if (!UUID.test(req.params.id)) {
+    res.status(400).json({ error: "Identificador de conta inválido." });
+    return;
+  }
+
+  const target = await findUserById(db, req.params.id);
+  if (!target) {
+    res.status(404).json({ error: "Conta não encontrada." });
+    return;
+  }
+  if (target.id === req.user!.id) {
+    res.status(409).json({
+      error:
+        "Não dá para arquivar a própria conta — você está usando ela agora.",
+    });
+    return;
+  }
+  if (target.disabledAt === null) {
+    res.status(409).json({
+      error:
+        "Esta conta ainda tem acesso. Arquivar esconde a conta da lista, e uma " +
+        "conta escondida que continua entrando no sistema é o que esta tela " +
+        "existe para não deixar acontecer. Desative o acesso primeiro.",
+    });
+    return;
+  }
+
+  await setUserArquivado(db, target.id, true, req.user!.email);
+  req.log.info({ email: target.email, by: req.user!.email }, "Conta arquivada");
+  res.json(await listUsers(db));
+});
+
+router.post("/users/:id/desarquivar", async (req, res): Promise<void> => {
+  const recusa = somenteAdmin(req);
+  if (recusa) {
+    res.status(403).json({ error: recusa });
+    return;
+  }
+  if (!UUID.test(req.params.id)) {
+    res.status(400).json({ error: "Identificador de conta inválido." });
+    return;
+  }
+
+  const target = await findUserById(db, req.params.id);
+  if (!target) {
+    res.status(404).json({ error: "Conta não encontrada." });
+    return;
+  }
+
+  /* Desarquivar devolve a conta à lista e nada mais: ela continua desativada,
+     porque arquivar nunca tirou acesso nenhum. Quem quer a pessoa de volta no
+     produto usa o interruptor, que desarquiva junto. */
+  await setUserArquivado(db, target.id, false, req.user!.email);
+  req.log.info(
+    { email: target.email, by: req.user!.email },
+    "Conta desarquivada",
   );
   res.json(await listUsers(db));
 });

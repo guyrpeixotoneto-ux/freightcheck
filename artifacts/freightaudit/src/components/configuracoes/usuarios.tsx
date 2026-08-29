@@ -2,6 +2,8 @@ import { useMemo, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import {
+  Archive,
+  ArchiveRestore,
   Ban,
   Check,
   CheckCircle2,
@@ -37,7 +39,12 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Field, Refusal, post } from "@/components/configuracoes/campos";
 import { CHAVE_DAS_CONTAS, useContas, type ManagedUser } from "@/components/configuracoes/contas";
-import { definirCadastroDaConta, useCargos } from "@/lib/cadastro";
+import {
+  caminhoDoDepartamento,
+  definirCadastroDaConta,
+  useCargos,
+  useDepartamentos,
+} from "@/lib/cadastro";
 import { listarUnidadesCanonicas } from "@/lib/fechamento";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
@@ -68,6 +75,15 @@ import { cn } from "@/lib/utils";
  * quem desenhou a tela esperava encontrar; o que ele faz é o que o produto pode
  * honestamente fazer — e a confirmação diz isso com todas as letras antes de
  * acontecer.
+ *
+ * **A caixa de arquivo tira da lista quem já não tem acesso.** Uma tela que
+ * mostra tudo o que já existiu acumula desligados de dois anos atrás no grupo
+ * do cargo que já não é de ninguém, e desativar resolve o acesso sem resolver
+ * isso. Arquivar é decisão sobre a *lista*, e não sobre a linha: a conta
+ * continua inteira, "Ver arquivadas" a traz de volta à vista, e reativar o
+ * acesso desarquiva junto. Só se arquiva quem já está desativado — arquivada e
+ * ativa seria gente entrando no produto sem aparecer na tela que existe para
+ * dizer quem entra.
  *
  * **O olho abre o produto como aquela pessoa.** Era a pergunta que esta tela
  * fazia e não respondia — *o que ela vê quando entra?* —, e a resposta que se
@@ -150,8 +166,19 @@ export function PainelDeUsuarios() {
   */
   const [gaveta, setGaveta] = useState<"criar" | ManagedUser | null>(null);
   const [ajuda, setAjuda] = useState(false);
+  /*
+    As arquivadas ficam de fora até alguém pedir — é para isso que arquivar
+    existe. O botão diz quantas são: uma lista que esconde linhas sem dizer que
+    escondeu é uma lista em que não se confia, e esta é a tela que responde
+    "quem tem acesso".
+  */
+  const [mostrarArquivadas, setMostrarArquivadas] = useState(false);
 
   const ativos = users.filter((u) => u.disabledAt === null).length;
+  const arquivadas = users.filter((u) => u.archivedAt !== null).length;
+  const visiveis = mostrarArquivadas
+    ? users
+    : users.filter((u) => u.archivedAt === null);
 
   /*
     Filtrar e agrupar numa passada só, memorizada: a lista inteira é refeita a
@@ -162,10 +189,12 @@ export function PainelDeUsuarios() {
     const alvo = normalizar(busca.trim());
     const filtrados =
       alvo === ""
-        ? users
-        : users.filter((u) =>
+        ? visiveis
+        : visiveis.filter((u) =>
             normalizar(
-              `${u.name} ${u.email} ${u.cargoNome ?? ""} ${u.unidadeNome ?? ""}`,
+              `${u.name} ${u.email} ${u.cargoNome ?? ""} ${
+                u.departamentoNome ?? ""
+              } ${u.unidadeNome ?? ""}`,
             ).includes(alvo),
           );
 
@@ -188,7 +217,7 @@ export function PainelDeUsuarios() {
         cargo,
         contas: contas.sort((x, y) => x.name.localeCompare(y.name, "pt-BR")),
       }));
-  }, [users, busca]);
+  }, [visiveis, busca]);
 
   const encontrados = grupos.reduce((soma, g) => soma + g.contas.length, 0);
 
@@ -204,9 +233,27 @@ export function PainelDeUsuarios() {
             ? "Carregando…"
             : `${users.length} perfil${users.length === 1 ? "" : "s"} configurado${
                 users.length === 1 ? "" : "s"
-              } · ${ativos} com acesso ativo`}
+              } · ${ativos} com acesso ativo${
+                arquivadas === 0
+                  ? ""
+                  : ` · ${arquivadas} arquivada${arquivadas === 1 ? "" : "s"}`
+              }`}
         </p>
         <div className="flex items-center gap-2">
+          {arquivadas > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-2"
+              aria-pressed={mostrarArquivadas}
+              onClick={() => setMostrarArquivadas((v) => !v)}
+            >
+              <Archive className="w-4 h-4" />
+              {mostrarArquivadas
+                ? "Ocultar arquivadas"
+                : `Ver arquivadas (${arquivadas})`}
+            </Button>
+          )}
           <Button
             variant="outline"
             size="sm"
@@ -259,16 +306,26 @@ export function PainelDeUsuarios() {
         <Input
           value={busca}
           onChange={(e) => setBusca(e.target.value)}
-          placeholder="Buscar por nome, e-mail, cargo ou unidade"
+          placeholder="Buscar por nome, e-mail, cargo, departamento ou unidade"
           className="pl-9"
           aria-label="Buscar contas"
         />
       </div>
 
-      {!isLoading && users.length > 0 && encontrados === 0 && (
+      {!isLoading && visiveis.length > 0 && encontrados === 0 && (
         <p className="text-sm text-muted-foreground">
-          Nenhuma conta casa com “{busca}”. A busca olha nome, e-mail, cargo e
-          unidade — e ignora acento e maiúscula.
+          Nenhuma conta casa com “{busca}”. A busca olha nome, e-mail, cargo,
+          departamento e unidade — e ignora acento e maiúscula.
+          {!mostrarArquivadas && arquivadas > 0
+            ? ` ${arquivadas} conta${arquivadas === 1 ? " arquivada está" : "s arquivadas estão"} fora da lista.`
+            : ""}
+        </p>
+      )}
+
+      {!isLoading && users.length > 0 && visiveis.length === 0 && (
+        <p className="text-sm text-muted-foreground">
+          Todas as contas estão arquivadas. Use “Ver arquivadas” para
+          mostrá-las.
         </p>
       )}
 
@@ -326,8 +383,8 @@ function ComoPreencher() {
           o que cada conta alcança é decidido em Permissões, módulo a módulo.
         </p>
         <p>
-          Os dois saem de listas — Configurações → Cargos e → Unidades — e não
-          são digitados. É o que impede a mesma função de virar dois cargos por
+          Os três saem de listas — Configurações → Departamentos, → Cargos e →
+          Unidades — e não são digitados. É o que impede a mesma função de virar dois cargos por
           diferença de grafia.
         </p>
         <p>
@@ -344,9 +401,23 @@ function ComoPreencher() {
           um canal seguro e peça que a pessoa troque a senha em Meu Perfil.
         </p>
         <p>
+          <strong className="text-foreground">Departamento</strong> vem do
+          cargo, e não é um dado à parte da pessoa: cada cargo está lotado num
+          departamento (Configurações → Departamentos), e escolher um
+          departamento na gaveta reduz a lista de cargos aos dele. É o que
+          impede alguém “no Comercial” com um cargo da Controladoria.
+        </p>
+        <p>
           <strong className="text-foreground">Ninguém é apagado.</strong> A
           lixeira desativa: tira o acesso, encerra as sessões abertas e preserva
           o histórico no nome da pessoa.
+        </p>
+        <p>
+          <strong className="text-foreground">Arquivar</strong> é sobre a lista,
+          não sobre a conta: quem já está sem acesso pode sair daqui para não se
+          ler junto com quem trabalha aqui hoje. A conta continua inteira no
+          sistema, “Ver arquivadas” traz todas de volta à vista, e reativar o
+          acesso desarquiva junto.
         </p>
       </CardContent>
     </Card>
@@ -354,12 +425,60 @@ function ComoPreencher() {
 }
 
 /**
- * Os selects de cargo e unidade — os mesmos no formulário de criar e no de
- * editar.
+ * O departamento que a caixa de cima mostra: o escolhido à mão, ou o do cargo.
+ *
+ * `filtro` é `null` no estado normal, e isso quer dizer "siga o cargo" — não
+ * "nenhum". A distinção é o que faz a gaveta de edição abrir já mostrando o
+ * departamento de quem tem cargo, sem ninguém ter tocado na caixa; e é o que
+ * faz um filtro escolhido antes do cargo sobreviver até haver cargo.
+ */
+export function departamentoEmVista(
+  filtro: string | null,
+  cargoAtual: { departamentoId: string | null } | null,
+): string {
+  return filtro ?? cargoAtual?.departamentoId ?? "";
+}
+
+/**
+ * Os cargos que a caixa de baixo oferece — os do departamento escolhido e, sem
+ * departamento escolhido, todos.
+ *
+ * O cargo que **já está na conta** entra sempre, mesmo fora do filtro: um
+ * `Select` cujo valor não está entre as opções mostra vazio, e a gaveta de
+ * edição diria "sem cargo" para quem tem cargo. Não é hipótese — acontece com
+ * todo cargo que ninguém lotou em departamento nenhum, que é o estado inicial
+ * de qualquer cadastro.
+ */
+export function cargosDoDepartamento<
+  T extends { id: string; departamentoId: string | null },
+>(cargos: T[], departamentoId: string, cargoId: string): T[] {
+  if (departamentoId === "") return cargos;
+  return cargos.filter(
+    (c) => c.departamentoId === departamentoId || c.id === cargoId,
+  );
+}
+
+/**
+ * Os campos de lotação — departamento, cargo e unidade —, os mesmos no
+ * formulário de criar e no de editar.
  *
  * `select` nativo, como o de papel logo ao lado e pela mesma razão que está
  * escrita lá: o navegador dá acessibilidade e busca por digitação de graça, e
  * uma caixa de escolha com trinta cargos não precisa de mais do que isso.
+ *
+ * **O departamento é do cargo, e não uma segunda coluna na conta.** Ele faltava
+ * nesta gaveta e a falta era real: quem cadastra alguém sabe em que
+ * departamento a pessoa entra, e a tela não perguntava. O que ela não pode
+ * fazer é guardar a resposta duas vezes — `cargo.departamento_id` já diz onde
+ * cada cargo está lotado (ver `0073`), e um `departamento_id` na conta
+ * permitiria alguém no Comercial com um cargo da Controladoria: duas respostas
+ * para a mesma pergunta, e nenhuma forma de saber qual vale.
+ *
+ * Então o campo existe e escolhe **através do cargo**: escolher um departamento
+ * reduz a lista de cargos aos dele — que é o gesto de quem cadastra, e que
+ * transforma trinta cargos em quatro —, e escolher um cargo mostra o
+ * departamento dele, mesmo que ninguém tenha tocado na caixa de cima. Trocar o
+ * departamento de alguém é trocar o cargo, e é o que a tela deixa fazer.
  */
 function CamposDeLotacao({
   cargoId,
@@ -375,30 +494,103 @@ function CamposDeLotacao({
   prefixo: string;
 }) {
   const cargos = useCargos();
+  const departamentos = useDepartamentos();
   const unidades = useQuery({
     queryKey: ["unidades", "canonicas"],
     queryFn: listarUnidadesCanonicas,
   });
 
+  /*
+    O departamento escolhido à mão, quando houve um. `null` é o estado normal, e
+    quer dizer "siga o cargo" — não "nenhum". Guardar aqui o valor derivado do
+    cargo faria a caixa de cima congelar no que estava quando os cargos ainda
+    não tinham chegado da rede, e mostrar em branco o departamento de quem tem
+    cargo. Este estado só existe para o caso contrário: filtrar por um
+    departamento antes de haver cargo de onde derivá-lo.
+  */
+  const [filtro, setFiltro] = useState<string | null>(null);
+
+  const listaDeCargos = cargos.data ?? [];
+  const cargoAtual = listaDeCargos.find((c) => c.id === cargoId) ?? null;
+  const departamentoId = departamentoEmVista(filtro, cargoAtual);
+  const cargosVisiveis = cargosDoDepartamento(listaDeCargos, departamentoId, cargoId);
+
+  /* `Administrativo › Controladoria`: o nome sozinho não distingue duas
+     `Operações` em ramos diferentes da árvore, e é a mesma frase que a tela de
+     Departamentos escreve. */
+  const caminho = (id: string) =>
+    caminhoDoDepartamento(departamentos.data ?? [], id).join(" › ");
+
+  function trocarDepartamento(valor: string) {
+    setFiltro(valor);
+    /* O cargo que não pertence ao departamento novo sai junto: deixá-lo
+       gravaria a contradição que este campo existe para não permitir — a
+       pessoa "no Comercial" com um cargo da Controladoria. */
+    if (
+      valor !== "" &&
+      cargoAtual !== null &&
+      cargoAtual.departamentoId !== valor
+    ) {
+      aoTrocarCargo("");
+    }
+  }
+
+  function trocarCargo(valor: string) {
+    /* Volta a seguir o cargo: o departamento mostrado passa a ser o dele, e não
+       o que sobrou de um filtro que quem escolheu já respondeu com o cargo. */
+    setFiltro(null);
+    aoTrocarCargo(valor);
+  }
+
   return (
     <>
+      <Field label="Departamento" htmlFor={`${prefixo}-departamento`}>
+        <Select
+          value={departamentoId || SEM_VINCULO}
+          onValueChange={(v) => trocarDepartamento(v === SEM_VINCULO ? "" : v)}
+        >
+          <SelectTrigger id={`${prefixo}-departamento`}>
+            <SelectValue placeholder="Todos os departamentos" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={SEM_VINCULO}>Todos os departamentos</SelectItem>
+            {(departamentos.data ?? []).map((d) => (
+              <SelectItem key={d.id} value={d.id}>
+                {caminho(d.id) || d.nome}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <p className="text-xs text-muted-foreground">
+          O departamento é do cargo, e não um dado à parte da pessoa: escolher um
+          aqui reduz a lista abaixo aos cargos dele, e escolher um cargo mostra o
+          departamento em que ele está lotado. Quem monta a árvore é
+          Configurações → Departamentos.
+        </p>
+      </Field>
       <Field label="Cargo" htmlFor={`${prefixo}-cargo`}>
         <Select
           value={cargoId || SEM_VINCULO}
-          onValueChange={(v) => aoTrocarCargo(v === SEM_VINCULO ? "" : v)}
+          onValueChange={(v) => trocarCargo(v === SEM_VINCULO ? "" : v)}
         >
           <SelectTrigger id={`${prefixo}-cargo`}>
             <SelectValue placeholder="Sem cargo" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value={SEM_VINCULO}>Sem cargo</SelectItem>
-            {(cargos.data ?? []).map((c) => (
+            {cargosVisiveis.map((c) => (
               <SelectItem key={c.id} value={c.id}>
                 {c.nome}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
+        {departamentoId !== "" && cargosVisiveis.length === 0 && (
+          <p className="text-xs text-muted-foreground">
+            Nenhum cargo está lotado neste departamento ainda. Crie o cargo em
+            Configurações → Cargos, ou escolha outro departamento.
+          </p>
+        )}
       </Field>
       <Field label="Unidade" htmlFor={`${prefixo}-unidade`}>
         <Select
@@ -908,7 +1100,7 @@ function EscolhaDoGestor({
 }
 
 /** O que a linha está mostrando abaixo dela: nada, os detalhes, ou a edição. */
-type Painel = "nenhum" | "detalhes" | "senha" | "desativar";
+type Painel = "nenhum" | "detalhes" | "senha" | "desativar" | "arquivar";
 
 /**
  * Os painéis que abrem em gaveta, e não dentro da linha.
@@ -918,7 +1110,7 @@ type Painel = "nenhum" | "detalhes" | "senha" | "desativar";
  * outros dois pedem um campo e uma confirmação, e cresciam empurrando a lista
  * para baixo — pelo mesmo motivo que levou a edição para a gaveta do painel.
  */
-const EM_GAVETA: Painel[] = ["senha", "desativar"];
+const EM_GAVETA: Painel[] = ["senha", "desativar", "arquivar"];
 
 function UserRow({
   user,
@@ -938,6 +1130,7 @@ function UserRow({
   const [done, setDone] = useState<string | null>(null);
 
   const disabled = user.disabledAt !== null;
+  const arquivada = user.archivedAt !== null;
   const isMe = me?.id === user.id;
   const souAdmin = me?.role === "ADMIN";
 
@@ -1000,6 +1193,23 @@ function UserRow({
     onError: (err: Error) => setError(err.message),
   });
 
+  /*
+    Arquivar e desarquivar são duas rotas, como desativar e reativar, e pela
+    mesma razão escrita em `routes/users.ts`: têm consequências opostas.
+    Arquivar não mexe em acesso nenhum — o servidor recusa arquivar quem ainda
+    entra, e é por isso que o gesto só aparece em conta desativada.
+  */
+  const arquivar = useMutation({
+    mutationFn: (acao: "arquivar" | "desarquivar") =>
+      post(`/users/${user.id}/${acao}`),
+    onSuccess: () => {
+      setError(null);
+      setPainel("nenhum");
+      void recarregar();
+    },
+    onError: (err: Error) => setError(err.message),
+  });
+
   const reset = useMutation({
     mutationFn: () => post(`/users/${user.id}/password`, { password: newPassword }),
     onSuccess: () => {
@@ -1014,7 +1224,7 @@ function UserRow({
 
   return (
     <>
-      <div className="rounded-lg border bg-card">
+      <div className={cn("rounded-lg border bg-card", arquivada && "opacity-70")}>
         <div className="flex items-center gap-3 px-4 py-3 flex-wrap">
           <span
             aria-hidden
@@ -1060,6 +1270,19 @@ function UserRow({
             >
               {disabled ? "Inativo" : "Ativo"}
             </Badge>
+
+            {arquivada && (
+              <Badge
+                variant="outline"
+                className="gap-1 text-muted-foreground"
+                title={`Fora da lista desde ${date(user.archivedAt!)}${
+                  user.archivedBy ? `, por ${user.archivedBy}` : ""
+                }. A conta continua no sistema, com o histórico assinada por ela.`}
+              >
+                <Archive className="w-3 h-3" />
+                arquivada
+              </Badge>
+            )}
 
             {/*
               O interruptor é o mesmo ato dos botões antigos "Desativar" e
@@ -1134,16 +1357,51 @@ function UserRow({
                 >
                   <Pencil className="w-4 h-4" />
                 </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8 text-destructive hover:text-destructive"
-                  aria-label={`Desativar ${user.name}`}
-                  disabled={disabled}
-                  onClick={() => alternar("desativar")}
-                >
-                  <Trash2 className="w-4 h-4" />
-                </Button>
+                {/*
+                  Um ícone, e dois atos que nunca se confundem porque nunca
+                  aparecem juntos: a lixeira desativa quem tem acesso, e a caixa
+                  de arquivo tira da lista quem já não tem. Antes, numa conta
+                  desativada, a lixeira ficava apagada e sem nada a oferecer — e
+                  quem clicava nela numa conta inativa estava pedindo justamente
+                  isto: sumir com ela da lista, sem apagar ninguém.
+                */}
+                {disabled ? (
+                  arquivada ? (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      aria-label={`Devolver ${user.name} à lista`}
+                      title="Devolve a conta à lista. O acesso continua desativado — reativar é o interruptor ao lado."
+                      disabled={arquivar.isPending}
+                      onClick={() => arquivar.mutate("desarquivar")}
+                    >
+                      <ArchiveRestore className="w-4 h-4" />
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      aria-label={`Arquivar ${user.name}`}
+                      title="Tira a conta da lista sem apagar nada. Ninguém é apagado deste produto — o histórico continua assinado por ela."
+                      disabled={isMe || arquivar.isPending}
+                      onClick={() => alternar("arquivar")}
+                    >
+                      <Archive className="w-4 h-4" />
+                    </Button>
+                  )
+                ) : (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 text-destructive hover:text-destructive"
+                    aria-label={`Desativar ${user.name}`}
+                    onClick={() => alternar("desativar")}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                )}
               </>
             )}
           </div>
@@ -1166,10 +1424,18 @@ function UserRow({
             </div>
             <div className="text-xs text-muted-foreground">
               {user.cargoNome ?? "Sem cargo"}
+              {user.departamentoNome ? ` · ${user.departamentoNome}` : ""}
               {user.unidadeNome ? ` · ${user.unidadeNome}` : " · sem unidade"}
               {" · "}
               {user.role === "ADMIN" ? "administrador" : "operador"}
             </div>
+            {arquivada && (
+              <div className="text-xs text-muted-foreground">
+                Arquivada em {date(user.archivedAt!)}
+                {user.archivedBy ? ` por ${user.archivedBy}` : ""} — fora da
+                lista, e inteira no sistema.
+              </div>
+            )}
             {/* Telefone e gestor só aparecem quando existem: uma linha que diz
                 "sem telefone · sem gestor" ocupa espaço para não informar nada —
                 e as duas são opcionais por desenho, não lacunas a cobrar. */}
@@ -1198,7 +1464,7 @@ function UserRow({
         )}
 
         {disabled && souAdmin && painel === "nenhum" && (
-          <div className="border-t px-4 py-2">
+          <div className="border-t px-4 py-2 flex items-center gap-1 flex-wrap">
             <Button
               variant="ghost"
               size="sm"
@@ -1209,6 +1475,35 @@ function UserRow({
               <RotateCcw className="w-3.5 h-3.5" />
               Reativar acesso
             </Button>
+            {/* Reativar desarquiva junto — o servidor faz as duas coisas (ver
+                `setUserDisabled`), porque voltar a entrar no produto e
+                continuar fora da lista de quem entra seriam as duas metades da
+                mesma contradição. */}
+            {arquivada ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="gap-2 h-7"
+                disabled={arquivar.isPending}
+                onClick={() => arquivar.mutate("desarquivar")}
+              >
+                <ArchiveRestore className="w-3.5 h-3.5" />
+                Devolver à lista
+              </Button>
+            ) : (
+              !isMe && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="gap-2 h-7 text-muted-foreground"
+                  disabled={arquivar.isPending}
+                  onClick={() => alternar("arquivar")}
+                >
+                  <Archive className="w-3.5 h-3.5" />
+                  Arquivar
+                </Button>
+              )
+            )}
           </div>
         )}
 
@@ -1287,6 +1582,64 @@ function UserRow({
               </Button>
             </footer>
           </form>
+        </SheetContent>
+      </Sheet>
+
+      {/*
+        Arquivar tem gaveta pela mesma razão que desativar: é um gesto que some
+        com uma linha da tela, e quem clica precisa ler o que ele faz — e o que
+        ele não faz — antes de o clique acontecer, não depois de a conta sumir
+        da lista.
+      */}
+      <Sheet
+        open={painel === "arquivar"}
+        onOpenChange={(aberta) => !aberta && setPainel("nenhum")}
+      >
+        <SheetContent
+          side="right"
+          className="w-full sm:max-w-md p-0 flex flex-col gap-0"
+        >
+          <header className="px-6 pt-6 pb-4 border-b shrink-0">
+            <SheetTitle className="text-xl font-bold tracking-tight pr-8 flex items-center gap-2">
+              <Archive className="w-5 h-5 text-muted-foreground" />
+              Arquivar {user.name}?
+            </SheetTitle>
+            <SheetDescription className="mt-1">
+              A conta sai desta lista. Nada mais muda.
+            </SheetDescription>
+          </header>
+
+          <div className="flex-1 overflow-y-auto px-6 py-5 space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Arquivar não apaga e não tira acesso — o acesso desta conta já
+              está desativado, e é por isso que arquivar é oferecido aqui. O que
+              muda é a lista: contas de quem saiu da empresa param de aparecer
+              entre as de quem trabalha aqui, e o botão “Ver arquivadas”, no
+              topo, traz todas de volta à vista quando você precisar.
+            </p>
+            <p className="text-sm text-muted-foreground">
+              A linha continua inteira no sistema, e continua assinando o que
+              assinou: cada confirmação de curadoria e cada promoção de vigência
+              feita por {user.name} segue com o nome dela. Reativar o acesso
+              devolve a conta à lista junto.
+            </p>
+
+            {error && <Refusal>{error}</Refusal>}
+          </div>
+
+          <footer className="border-t px-6 py-4 shrink-0 flex items-center gap-2">
+            <Button
+              className="flex-1"
+              disabled={arquivar.isPending}
+              onClick={() => arquivar.mutate("arquivar")}
+            >
+              <Archive className="w-4 h-4 mr-1.5" />
+              {arquivar.isPending ? "Arquivando…" : "Arquivar conta"}
+            </Button>
+            <Button variant="ghost" onClick={() => setPainel("nenhum")}>
+              Cancelar
+            </Button>
+          </footer>
         </SheetContent>
       </Sheet>
 
