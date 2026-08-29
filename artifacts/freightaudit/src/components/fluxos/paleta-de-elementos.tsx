@@ -1,18 +1,5 @@
 import { useMemo, useState } from "react";
-import {
-  AlertTriangle,
-  ChevronDown,
-  FileText,
-  Flag,
-  GitBranch,
-  Play,
-  Search,
-  Server,
-  ShieldCheck,
-  Square,
-  X,
-  type LucideIcon,
-} from "lucide-react";
+import { ChevronDown, Search, Square, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Collapsible,
@@ -20,6 +7,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
+import { iconeDoCatalogo } from "@/lib/fluxos-icones";
 import {
   escreverArrasto,
   montarPaleta,
@@ -60,17 +48,6 @@ import type { Catalogo, TipoDeEtapaNoCatalogo } from "@/lib/fluxos";
  * no desenho. O agrupamento e a busca moram em `lib/fluxos-paleta.ts`, testados;
  * aqui fica só a pintura.
  */
-
-const ICONES: Record<string, LucideIcon> = {
-  Play,
-  Square,
-  GitBranch,
-  ShieldCheck,
-  FileText,
-  Server,
-  AlertTriangle,
-  Flag,
-};
 
 export interface PaletaDeElementosProps {
   catalogo: Catalogo | undefined;
@@ -223,7 +200,7 @@ function BotaoDoElemento({
   tipo: TipoDeEtapaNoCatalogo;
   aoEscolher: (tipo: string) => void;
 }) {
-  const Icone = ICONES[tipo.icone] ?? Square;
+  const Icone = iconeDoCatalogo(tipo.icone) ?? Square;
 
   return (
     <button

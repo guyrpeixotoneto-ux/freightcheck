@@ -1,6 +1,13 @@
 import { useMemo } from "react";
 import { CanvasDoFluxo } from "@/components/fluxos/canvas";
-import { numeracaoDoFluxo, posicoesDoFluxo, type Orientacao } from "@/lib/fluxos-visoes";
+import {
+  numeracaoDoFluxo,
+  posicoesDoFluxo,
+  projetarFases,
+  projetarFluxoHorizontal,
+  type AgrupamentoDeRaia,
+  type Orientacao,
+} from "@/lib/fluxos-visoes";
 import type { PropsDaVisaoNoCanvas } from "@/components/fluxos/visao";
 
 /**
@@ -19,6 +26,21 @@ import type { PropsDaVisaoNoCanvas } from "@/components/fluxos/visao";
  * Retornos e exceções continuam sendo o que sempre foram nas duas orientações:
  * a seta tracejada e animada que o catálogo define, desenhada por cima do
  * caminho normal.
+ *
+ * ---------------------------------------------------------------------------
+ * O que o horizontal ganhou: trilho, faixa, quebra e fases
+ * ---------------------------------------------------------------------------
+ *
+ * O desenho deitado era uma fila só: caminho feliz e tratamento de exceção
+ * lado a lado, numa linha que crescia até o `fitView` afastar a câmera e o
+ * texto do cartão sumir. Agora `projetarFluxoHorizontal` separa o trilho da
+ * faixa de desvios, quebra em linhas a cada oito colunas e devolve as colunas
+ * de leitura — e é sobre elas que `projetarFases` monta o cabeçalho colorido de
+ * capítulos do processo.
+ *
+ * As duas projeções continuam puras e continuam sem gravar nada: o que muda
+ * entre vertical e horizontal é onde o cartão é desenhado, nunca o que está no
+ * banco.
  */
 export function VisaoFluxo({
   completo,
@@ -31,14 +53,30 @@ export function VisaoFluxo({
   onAbrirConexao,
   onSoltarElemento,
   orientacao,
-}: PropsDaVisaoNoCanvas & { orientacao: Orientacao }) {
-  const projecao = useMemo(
-    () => ({
-      posicoes: posicoesDoFluxo(completo, orientacao),
-      numeracao: numeracaoDoFluxo(completo),
-    }),
-    [completo, orientacao],
-  );
+  agrupamento = "area",
+}: PropsDaVisaoNoCanvas & {
+  orientacao: Orientacao;
+  /** Por qual campo as fases são agrupadas — o mesmo das Raias. */
+  agrupamento?: AgrupamentoDeRaia;
+}) {
+  const projecao = useMemo(() => {
+    const numeracao = numeracaoDoFluxo(completo);
+    if (orientacao === "vertical") {
+      return { posicoes: posicoesDoFluxo(completo, "vertical"), numeracao };
+    }
+    /*
+      Uma montagem só para as duas coisas: as fases se apoiam nas colunas que o
+      layout acabou de calcular. Recalcular o layout dentro de `projetarFases`
+      seria a segunda chance de as faixas discordarem dos cartões que elas
+      cobrem — e uma faixa deslocada meia coluna é pior do que faixa nenhuma.
+    */
+    const horizontal = projetarFluxoHorizontal(completo);
+    return {
+      posicoes: horizontal.posicoes,
+      numeracao,
+      fases: projetarFases(completo, horizontal, agrupamento),
+    };
+  }, [completo, orientacao, agrupamento]);
 
   return (
     <CanvasDoFluxo
@@ -53,7 +91,8 @@ export function VisaoFluxo({
       onSoltarElemento={onSoltarElemento}
       projecao={projecao}
       posicoesPersistidas={orientacao === "vertical"}
-      chaveDoEnquadramento={`${completo.fluxo.id}:fluxo:${orientacao}`}
+      mostrarLegenda
+      chaveDoEnquadramento={`${completo.fluxo.id}:fluxo:${orientacao}:${agrupamento}`}
     />
   );
 }

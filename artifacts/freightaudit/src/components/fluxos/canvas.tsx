@@ -4,6 +4,7 @@ import {
   BackgroundVariant,
   Controls,
   MiniMap,
+  Panel,
   ReactFlow,
   ReactFlowProvider,
   applyNodeChanges,
@@ -14,7 +15,9 @@ import {
   type NodeChange,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
+import { LegendaDoFluxo } from "@/components/fluxos/legenda-do-fluxo";
 import { NoDaEtapa } from "@/components/fluxos/no-da-etapa";
+import { NoDaFase } from "@/components/fluxos/no-da-fase";
 import { NoDaRaia } from "@/components/fluxos/no-da-raia";
 import { montarProjecao, type OpcoesDaProjecao } from "@/lib/fluxos-canvas";
 import { ajustarSolto, lerArrasto } from "@/lib/fluxos-paleta";
@@ -63,7 +66,7 @@ import { type Catalogo, type FluxoCompleto } from "@/lib/fluxos";
  * desenho que ninguém pediu.
  */
 
-const TIPOS_DE_NO = { etapa: NoDaEtapa, raia: NoDaRaia };
+const TIPOS_DE_NO = { etapa: NoDaEtapa, raia: NoDaRaia, fase: NoDaFase };
 
 export interface CanvasDoFluxoProps {
   completo: FluxoCompleto;
@@ -95,6 +98,8 @@ export interface CanvasDoFluxoProps {
    */
   chaveDoEnquadramento?: string;
   mostrarMinimapa?: boolean;
+  /** A legenda das formas e dos traços, no canto de baixo. */
+  mostrarLegenda?: boolean;
 }
 
 function CanvasInterno({
@@ -111,6 +116,7 @@ function CanvasInterno({
   posicoesPersistidas = true,
   chaveDoEnquadramento,
   mostrarMinimapa,
+  mostrarLegenda,
 }: CanvasDoFluxoProps) {
   const { nos, faixas, setas } = useMemo(
     () => montarProjecao(completo, catalogo, projecao ?? {}),
@@ -240,7 +246,7 @@ function CanvasInterno({
       onNodeDragStop={aoTerminarArrasto}
       onConnect={aoConectar}
       onNodeClick={(_evento, no) => {
-        if (no.type === "raia") return;
+        if (no.type === "raia" || no.type === "fase") return;
         onSelecionarEtapa(no.id);
       }}
       onEdgeClick={(_evento, seta) => {
@@ -272,7 +278,27 @@ function CanvasInterno({
         se perder.
       */}
       {(mostrarMinimapa ?? completo.etapas.length > 12) && (
-        <MiniMap pannable zoomable className="!bg-card" nodeStrokeWidth={2} />
+        <MiniMap
+          pannable
+          zoomable
+          className="!bg-card"
+          nodeStrokeWidth={2}
+          /* Cenário não entra no mapa: uma faixa de fase pintada ali viraria um
+             bloco só, e o mapa existe para mostrar onde as etapas estão. */
+          nodeColor={(no) => (no.type === "etapa" ? "#cbd5e1" : "transparent")}
+          nodeStrokeColor={(no) => (no.type === "etapa" ? "#94a3b8" : "transparent")}
+        />
+      )}
+      {/*
+        A legenda é um `Panel`, e não um nó do canvas: ela explica o desenho, e
+        por isso não pode andar com ele — um pan que leva a legenda para fora da
+        tela deixa o desenho sem explicação exatamente quando alguém está
+        procurando o que a cor quer dizer.
+      */}
+      {mostrarLegenda && (
+        <Panel position="bottom-left" className="!m-3">
+          <LegendaDoFluxo catalogo={catalogo} />
+        </Panel>
       )}
     </ReactFlow>
   );

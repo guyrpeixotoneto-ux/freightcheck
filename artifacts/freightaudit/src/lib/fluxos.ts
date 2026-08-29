@@ -397,7 +397,7 @@ export interface SetaDoCanvas {
  * flecha (`markerEnd`) precisa da mesma cor como valor. Ficam aqui, ao lado do
  * mapeamento, em vez de espalhadas pelo componente.
  */
-const COR_DA_CONEXAO: Record<string, string> = {
+export const COR_DA_CONEXAO: Record<string, string> = {
   SEQUENCIA: "#94a3b8",
   DECISAO_SIM: "#10b981",
   DECISAO_NAO: "#f43f5e",
@@ -405,7 +405,7 @@ const COR_DA_CONEXAO: Record<string, string> = {
   RETRABALHO: "#8b5cf6",
 };
 
-const COR_PADRAO = "#94a3b8";
+export const COR_PADRAO = "#94a3b8";
 
 /**
  * O fluxo guardado vira o que o canvas desenha.
