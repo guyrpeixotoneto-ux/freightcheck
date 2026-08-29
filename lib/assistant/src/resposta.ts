@@ -220,6 +220,8 @@ export interface Resposta {
     ia: {
       desfecho: EventoDeIa["desfecho"];
       modelo: string;
+      /** O que o provedor serviu; `null` quando não houve resposta dele. */
+      modeloProvider: string | null;
       latenciaMs: number;
       erro: string | null;
       /** O custo da chamada, para a bateria poder somá-lo. */
@@ -927,6 +929,7 @@ function montarComAgente(
 
   const evento = registrar({
     modelo: investigacao.medicao.modelo,
+    modeloProvider: investigacao.medicao.modeloProvider,
     esforco: investigacao.medicao.esforco,
     fluxo: false,
     latenciaMs: investigacao.medicao.latenciaMs,
@@ -1035,6 +1038,7 @@ function montarComAgente(
       ia: {
         desfecho: evento.desfecho,
         modelo: evento.modelo,
+        modeloProvider: evento.modeloProvider,
         latenciaMs: evento.latenciaMs,
         erro: evento.erro,
         tokensEntrada: evento.tokensEntrada,
@@ -1386,6 +1390,7 @@ export async function responder(
     ia = {
       desfecho: evento.desfecho,
       modelo: evento.modelo,
+      modeloProvider: evento.modeloProvider,
       latenciaMs: evento.latenciaMs,
       erro: evento.erro,
       tokensEntrada: evento.tokensEntrada,

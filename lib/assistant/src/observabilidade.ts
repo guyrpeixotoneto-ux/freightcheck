@@ -33,7 +33,10 @@ const PRECO_PADRAO = { entrada: 5, saida: 25 };
 
 export interface EventoDeIa {
   em: string;
+  /** O modelo pedido (configuração). */
   modelo: string;
+  /** O modelo que o provedor serviu (`response.model`); `null` sem resposta. */
+  modeloProvider: string | null;
   esforco: string;
   /** Streaming ou chamada única. */
   fluxo: boolean;
