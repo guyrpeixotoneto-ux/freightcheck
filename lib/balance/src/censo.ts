@@ -102,10 +102,13 @@ import { classificacao, semJit } from "./classificacao";
  * duas vezes: a contagem sai de um `GROUP BY` sobre `raw_cell.id`, e o
  * `DELETE` anterior garante que nenhuma linha antiga sobreviva à regravação.
  *
- * `import_run.censo_calculado_em` é o que distingue "este run tem zero células
- * classificadas" de "este run nunca foi recenseado". Sem essa marca as duas
- * situações teriam a mesma aparência — nenhuma linha na tabela — e a leitura
- * não teria como saber se pode confiar no vazio.
+ * A marca de "já recenseado" são as próprias linhas, e não uma coluna à parte.
+ * Isso só é honesto porque "recenseado, e deu zero célula" não existe: uma
+ * importação só chega a `stage()` depois de ler pelo menos uma célula, então um
+ * run recenseado tem sempre pelo menos uma linha aqui. Nenhuma linha é, sem
+ * ambiguidade, "ainda não recenseado" — e o pior que acontece com um run que
+ * (por algum caminho que hoje não existe) recenseasse em zero é ele voltar a
+ * ser calculado ao vivo, que devolve o mesmo número.
  */
 
 /** Grava (ou regrava) o censo de uma importação. Idempotente. */
@@ -128,9 +131,6 @@ export async function gravarCenso(db: Database, importRunId: string): Promise<vo
       FROM classificada
       GROUP BY run_id, destino
     `);
-    await tx.execute(sql`
-      UPDATE import_run SET censo_calculado_em = now() WHERE id = ${importRunId}::uuid
-    `);
   });
 }
 
@@ -149,8 +149,10 @@ export async function gravarCenso(db: Database, importRunId: string): Promise<vo
  */
 export async function recensearPendentes(db: Database): Promise<number> {
   const { rows } = await db.execute<{ id: string }>(sql`
-    SELECT id::text AS id FROM import_run WHERE censo_calculado_em IS NULL
-    ORDER BY started_at
+    SELECT ir.id::text AS id
+    FROM import_run ir
+    WHERE NOT EXISTS (SELECT 1 FROM import_run_censo c WHERE c.import_run_id = ir.id)
+    ORDER BY ir.started_at
   `);
   for (const { id } of rows) await gravarCenso(db, id);
   return rows.length;

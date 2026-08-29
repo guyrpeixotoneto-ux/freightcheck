@@ -2626,7 +2626,7 @@ export async function stage(
 
     Custa ~176 ms sobre o acervo medido, contra os minutos que a importação
     inteira leva. E não derruba a importação se falhar: um censo que não gravou
-    deixa `censo_calculado_em` nulo, e a leitura calcula aquele run na hora —
+    deixa o run sem linha na tabela, e a leitura o calcula na hora —
     o mesmo caminho por onde o histórico anterior a esta mudança passa. Recusar
     uma importação que preparou tudo certo porque uma contagem de conferência
     não gravou seria trocar um problema de leitura por um de ingestão.

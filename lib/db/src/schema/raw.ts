@@ -106,17 +106,6 @@ export const importRunTable = pgTable(
     progressDone: integer("progress_done").notNull().default(0),
     progressTotal: integer("progress_total").notNull().default(0),
     /**
-     * Quando o censo de destinos desta importação foi gravado — nulo enquanto
-     * nunca foi.
-     *
-     * A marca existe para separar duas situações que a tabela `import_run_censo`
-     * representa igual (nenhuma linha): uma importação recenseada cujo
-     * resultado foi zero célula, e uma que nunca passou pelo censo. Sem ela a
-     * leitura não teria como saber se pode confiar no vazio. Ver
-     * `lib/balance/src/censo.ts`.
-     */
-    censoCalculadoEm: timestamp("censo_calculado_em", { withTimezone: true }),
-    /**
      * O tipo que quem enviou declarou — a aba da tela em que ele escolheu.
      *
      * Nulo quer dizer "ninguém declarou", que é como toda importação anterior

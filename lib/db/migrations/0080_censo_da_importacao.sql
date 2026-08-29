@@ -56,14 +56,23 @@
 -- verdadeiro sobre o que ele fez.
 --
 -- ---------------------------------------------------------------------------
--- `import_run.censo_calculado_em`, e por que uma coluna a mais
+-- A marca de "já recenseado" são as próprias linhas — e não uma coluna
 -- ---------------------------------------------------------------------------
 --
--- Porque "recenseado, e o resultado foi zero célula" e "nunca recenseado" têm a
--- mesma aparência nesta tabela: nenhuma linha. Sem a marca, a leitura não teria
--- como saber se pode confiar no vazio — e uma tela que existe para denunciar
--- dado que sumiu não pode ser a primeira a sumir com um. Com a marca, o run não
--- recenseado é calculado na hora, e **só ele**.
+-- A primeira forma desta tabela vinha com uma `import_run.censo_calculado_em`,
+-- para separar "recenseado, e deu zero célula" de "nunca recenseado", que a
+-- tabela representa igual: nenhuma linha. A coluna saiu, e a razão é que a
+-- primeira situação **não existe**. Uma importação só chega a `stage()` depois
+-- de ler pelo menos uma célula; um run recenseado tem sempre pelo menos uma
+-- linha aqui. "Nenhuma linha" é, sem ambiguidade, "ainda não recenseado".
+--
+-- O que se ganha ao tirá-la é maior do que uma coluna a menos. Uma coluna em
+-- `import_run` — tabela que Production **já tem** — é superfície de deploy: ela
+-- entra no diff do Publishing, na lista do `bridge`, e precisa de reconciliação
+-- própria. E, pior, ela pode sobreviver a um `down` que derrubou esta tabela,
+-- e então o balanço leria um censo vazio como se fosse verdade. Sem a coluna,
+-- essa mentira é impossível por construção: tabela vazia é histórico inteiro
+-- por recensear, que a leitura calcula na hora.
 --
 -- ---------------------------------------------------------------------------
 -- O backfill
@@ -76,10 +85,9 @@
 -- (`lib/balance/src/censo.ts`), chamada na partida do servidor em segundo
 -- plano, uma importação por vez e reentrante.
 --
--- Enquanto o backfill não passa, `censo_calculado_em` é nulo e a leitura
--- calcula aquele run na hora — a resposta é a de sempre desde o primeiro
--- instante, e só fica mais rápida conforme o backfill avança. Não há janela em
--- que a tela minta.
+-- Enquanto o backfill não passa, o run não tem linha aqui e a leitura o calcula
+-- na hora — a resposta é a de sempre desde o primeiro instante, e só fica mais
+-- rápida conforme o backfill avança. Não há janela em que a tela minta.
 --
 -- Reentrante, como as anteriores: cada objeto é primeiro procurado, e a
 -- migration roda duas vezes sobre o mesmo banco sem falhar.
@@ -89,7 +97,7 @@ CREATE TABLE IF NOT EXISTS "import_run_censo" (
 	"import_run_id" uuid NOT NULL,
 	"destino" text NOT NULL,
 	"celulas" integer NOT NULL,
-	CONSTRAINT "import_run_censo_pk" PRIMARY KEY("import_run_id","destino")
+	CONSTRAINT "import_run_censo_import_run_id_destino_pk" PRIMARY KEY("import_run_id","destino")
 );--> statement-breakpoint
 DO $$
 BEGIN
@@ -100,5 +108,4 @@ BEGIN
 			FOREIGN KEY ("import_run_id") REFERENCES "public"."import_run"("id")
 			ON DELETE cascade ON UPDATE no action;
 	END IF;
-END $$;--> statement-breakpoint
-ALTER TABLE "import_run" ADD COLUMN IF NOT EXISTS "censo_calculado_em" timestamp with time zone;
+END $$;

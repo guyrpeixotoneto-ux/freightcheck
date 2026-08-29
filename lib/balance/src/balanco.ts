@@ -208,8 +208,6 @@ type LinhaRun = {
   content_sha256: string;
   received_at: Date;
   raw_cell_count: number;
-  /** Nulo = nunca recenseado. Ver o caminho de exceção em `listarBalancos`. */
-  censo_calculado_em: Date | null;
 }
 
 /**
@@ -243,7 +241,6 @@ export async function listarBalancos(db: Database): Promise<BalancoResumo[]> {
       ir.id                 AS import_run_id,
       ir.status::text       AS status,
       ir.raw_cell_count::int AS raw_cell_count,
-      ir.censo_calculado_em,
       sf.filename,
       sf.content_sha256,
       sf.received_at
@@ -288,11 +285,13 @@ export async function listarBalancos(db: Database): Promise<BalancoResumo[]> {
     em vez de aparecer com os números que tem. Uma tela que existe para
     denunciar dado que sumiu não pode ser a primeira a sumir com um.
 
-    `censo_calculado_em` é o que distingue "recenseado, e o resultado foi zero
-    célula" de "nunca recenseado": as duas não deixam linha nenhuma na tabela,
-    e só a marca as separa.
+    A marca de "já recenseado" são as próprias linhas: um run recenseado tem
+    sempre pelo menos uma, porque uma importação só chega a `stage()` depois de
+    ler pelo menos uma célula. Nenhuma linha é "ainda não recenseado" — e um
+    run que por algum caminho recenseasse em zero apenas voltaria a ser
+    calculado ao vivo, que devolve o mesmo número.
   */
-  const pendentes = runs.filter((r) => r.censo_calculado_em === null);
+  const pendentes = runs.filter((r) => !porRun.has(r.import_run_id));
   for (const run of pendentes) {
     const { rows } = await semJit<LinhaDestino>(
       db,
@@ -422,7 +421,6 @@ export async function balancoDaImportacao(
       ir.id                  AS import_run_id,
       ir.status::text        AS status,
       ir.raw_cell_count::int AS raw_cell_count,
-      ir.censo_calculado_em,
       sf.filename,
       sf.content_sha256,
       sf.received_at

@@ -310,13 +310,13 @@ async function applyMigrationsInBackground(): Promise<void> {
     O histórico anterior ao censo é recenseado aqui — depois da fila, nunca
     dentro dela.
 
-    A `0080` cria a tabela e a coluna; quem preenche é isto. Ficou fora da
+    A `0080` cria a tabela; quem a preenche é isto. Ficou fora da
     migration de propósito: a classificação de um acervo grande leva segundos, e
     uma migration que não termina é uma partida que não termina. Aqui é uma
     importação por vez, reentrante, e o servidor já está respondendo.
 
     **Não bloqueia nada, e não precisa.** Enquanto uma importação não tem censo,
-    `censo_calculado_em` é nula e `listarBalancos` calcula aquele run na hora —
+    ela não tem linha na tabela e `listarBalancos` calcula aquele run na hora —
     a resposta é a mesma desde o primeiro instante, e só fica mais rápida
     conforme isto avança. Falhar aqui deixa o produto exatamente como estava
     antes da mudança, que é o pior caso aceitável para um backfill.

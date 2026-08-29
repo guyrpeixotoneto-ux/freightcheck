@@ -170,7 +170,11 @@ describe("a decomposição por importação", () => {
 describe("uma importação nova", () => {
   it("sai da preparação já recenseada", async () => {
     const { rows } = await ctx.db.execute<{ n: number }>(sql`
-      SELECT count(*)::int AS n FROM import_run WHERE censo_calculado_em IS NULL
+      SELECT count(*)::int AS n
+      FROM import_run ir
+      WHERE NOT EXISTS (
+        SELECT 1 FROM import_run_censo c WHERE c.import_run_id = ir.id
+      )
     `);
     expect(rows[0]!.n).toBe(0);
   });
@@ -259,7 +263,6 @@ describe("o histórico anterior ao censo", () => {
     const esperado = await listarBalancos(ctx.db);
 
     await ctx.db.execute(sql`DELETE FROM import_run_censo`);
-    await ctx.db.execute(sql`UPDATE import_run SET censo_calculado_em = NULL`);
 
     const semCenso = await listarBalancos(ctx.db);
     expect(semCenso).toEqual(esperado);
