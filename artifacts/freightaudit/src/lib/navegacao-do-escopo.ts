@@ -60,6 +60,14 @@ export const TELAS_QUE_HONRAM_ESCOPO = new Set<string>([
   "/parametros",
   "/alteracoes",
   /*
+    A Cobertura de dados. Ela mede "o que já temos versus o que deveríamos ter",
+    e media isso sobre o acervo inteiro enquanto a lateral, ao lado, nomeava uma
+    unidade — cinco unidades na matriz sob a palavra PERNAMBUCO. A tela agora lê
+    o par (`pages/dados.tsx`), e a soma continua existindo: é `visaoGeral=1`,
+    logo abaixo, que é uma escolha e não a ausência de uma.
+  */
+  "/dados",
+  /*
     As telas 360° das quatro auditorias. Elas são a mesma tela parametrizada
     pelo tipo (`pages/frota-360.tsx`), e as seis leem o par unidade/canal do
     endereço — trocar de unidade numa delas troca o dado, não a tela.
@@ -112,6 +120,14 @@ export const TELAS_QUE_HONRAM_VISAO_GERAL = new Set<string>([
   DASHBOARD,
   GESTAO_A_VISTA,
   "/parametros",
+  /*
+    A Cobertura de dados entra pelas duas portas, e aqui pelo motivo que esta
+    lista exige: a soma de todas as unidades é o que `visaoDaCobertura` já
+    devolve quando ninguém manda `escopo` — não é uma tela nova nem um cálculo
+    novo, é a mesma medição sem o recorte. Estar aqui é ler `visaoGeral=1` de
+    verdade, e é o que a tela faz.
+  */
+  "/dados",
 ]);
 
 /**
