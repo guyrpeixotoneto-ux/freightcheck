@@ -341,7 +341,7 @@ function Cabecalho({
       <div className="flex flex-wrap items-start justify-between gap-4 max-w-[1600px]">
         <div className="min-w-0">
           <h1 className="text-[2rem] font-extrabold tracking-tight leading-tight">
-            Dashboard — {visaoGeral ? "Visão Geral" : (unidade ?? "")}
+            Impacto Líquido — {visaoGeral ? "Visão Geral" : (unidade ?? "")}
           </h1>
           <p className="text-sm text-muted-foreground mt-1.5">
             O que a Ambev mudou nesta competência, e quanto isso custou.
