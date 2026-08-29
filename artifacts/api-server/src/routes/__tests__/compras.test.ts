@@ -134,6 +134,10 @@ describe("a superfície de Compras, na ordem em que a vida acontece", () => {
     const qlp = await get("/compras/remunerado/qlp");
     expect(qlp.status).toBe(404);
     expect(qlp.body.error).toMatch(/QLP Administrativo/);
+
+    const matriz = await get("/compras/remunerado/frota/matriz");
+    expect(matriz.status).toBe(404);
+    expect(matriz.body.error).toMatch(/vigência/i);
   });
 
   it("sem placa: 400, e não 404 — faltou o parâmetro, não o veículo", async () => {
@@ -197,6 +201,55 @@ describe("a superfície de Compras, na ordem em que a vida acontece", () => {
       const pneu = r.body.produtos.find((p: any) => p.produto.chave === "pneu");
       expect(pneu.produto.ressalva.motivo).toBe("COLUNA_ZERADA_NA_SERIE");
       expect(pneu.linhas.find((l: any) => l.code === "cavalo.valor_pneu").valor).toBe(0);
+    });
+
+    /**
+     * A matriz é a porta da aba: ela responde **sem placa nenhuma**, que é o
+     * ponto — a pergunta "quanto a Ambev remunera pneu na frota" não tem placa,
+     * e respondê-la digitando uma a uma é o gesto que esta rota existe para
+     * apagar.
+     */
+    it("a matriz responde sem placa, com a frota em linhas e os produtos em colunas", async () => {
+      const r = await get("/compras/remunerado/frota/matriz");
+      expect(r.status).toBe(200);
+      expect(r.body.linhas.length).toBeGreaterThan(0);
+      expect(r.body.linhas.map((l: any) => l.placa)).toContain(PLACA);
+
+      const chaves = r.body.colunas.map((c: any) => c.produto.chave);
+      expect(chaves).toContain("pneu");
+      expect(chaves.indexOf("pneu")).toBeLessThan(chaves.indexOf("ipva-licenciamento"));
+      /* Uma célula por coluna, sempre: a tabela não tem buraco de forma. */
+      for (const linha of r.body.linhas) {
+        expect(linha.celulas).toHaveLength(r.body.colunas.length);
+      }
+    });
+
+    /**
+     * A célula e a ficha são o mesmo número — é a promessa inteira do módulo,
+     * conferida aqui pela superfície que a tela consome, e não só pela leitura.
+     */
+    it("a célula da matriz é o destaque da ficha da mesma placa", async () => {
+      const matriz = await get("/compras/remunerado/frota/matriz");
+      const ficha = await get(`/compras/remunerado/frota?placa=${PLACA}`);
+      const linha = matriz.body.linhas.find((l: any) => l.placa === PLACA);
+
+      matriz.body.colunas.forEach((coluna: any, i: number) => {
+        const produto = ficha.body.produtos.find(
+          (p: any) => p.produto.chave === coluna.produto.chave,
+        );
+        expect(linha.celulas[i].valor).toBe(produto.destaque?.valor ?? null);
+      });
+    });
+
+    it("o recorte por equipamento estreita as linhas e mantém as colunas", async () => {
+      const so = await get("/compras/remunerado/frota/matriz?entityType=CARRETA");
+      expect(so.status).toBe(200);
+      expect(so.body.linhas.every((l: any) => l.entityType === "CARRETA")).toBe(true);
+
+      const tudo = await get("/compras/remunerado/frota/matriz");
+      expect(so.body.colunas.map((c: any) => c.produto.chave)).toEqual(
+        tudo.body.colunas.map((c: any) => c.produto.chave),
+      );
     });
 
     it("placa que não existe é 404 — nunca 500", async () => {

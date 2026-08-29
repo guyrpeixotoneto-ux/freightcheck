@@ -174,3 +174,96 @@ export interface ConsultaDoQlp {
   operacional: BalcaoSemDado;
   registrosFaltando: number;
 }
+
+// --- a matriz da frota -----------------------------------------------------
+
+export type MotivoDaCelulaVazia =
+  | "SEM_COLUNA"
+  | "SEM_NUMERO"
+  | "NAO_SOMAVEL"
+  | "VARIAS_COLUNAS";
+
+/**
+ * O que a célula vazia escreve — curto, porque cabe numa célula de matriz.
+ *
+ * A frase inteira mora na legenda embaixo da tabela: um `title` seria a única
+ * explicação de um símbolo, e um `title` não existe em telefone nem em leitor
+ * de tela que não passe por cima do elemento.
+ */
+export const MARCA_DA_CELULA_VAZIA: Record<MotivoDaCelulaVazia, string> = {
+  SEM_COLUNA: "—",
+  SEM_NUMERO: "·",
+  NAO_SOMAVEL: "∗",
+  VARIAS_COLUNAS: "≠",
+};
+
+export const ROTULO_DA_CELULA_VAZIA: Record<MotivoDaCelulaVazia, string> = {
+  SEM_COLUNA: "Sem coluna na fonte para este veículo",
+  SEM_NUMERO: "A coluna existe e veio sem número nesta vigência",
+  NAO_SOMAVEL: "Há número, e ele não é dinheiro somável deste ativo — abra a ficha",
+  VARIAS_COLUNAS: "Mais de uma coluna responde, e elas medem coisas diferentes",
+};
+
+/**
+ * O mesmo vazio em duas palavras — a forma que cabe numa célula de planilha.
+ *
+ * O CSV não pode levar nem o símbolo (que ninguém decifra fora da tela que tem
+ * a legenda ao lado) nem a frase inteira (que, repetida em oitenta linhas,
+ * afoga a planilha em texto e esconde os números que ela existe para mostrar).
+ * Vai o rótulo curto na célula e a frase inteira na legenda, no fim do arquivo.
+ */
+export const ROTULO_CURTO_DA_CELULA_VAZIA: Record<MotivoDaCelulaVazia, string> = {
+  SEM_COLUNA: "sem coluna",
+  SEM_NUMERO: "sem número",
+  NAO_SOMAVEL: "não somável",
+  VARIAS_COLUNAS: "várias colunas",
+};
+
+export type MotivoSemTotal = "SEM_VALOR" | "GAVETAS_DIFERENTES";
+
+export const ROTULO_SEM_TOTAL: Record<MotivoSemTotal, string> = {
+  SEM_VALOR: "nenhum veículo com valor",
+  GAVETAS_DIFERENTES: "periodicidades diferentes — não se somam",
+};
+
+export interface CelulaDaMatriz {
+  valor: number | null;
+  unit: string | null;
+  gaveta: Gaveta | null;
+  colunas: number;
+  vazio: MotivoDaCelulaVazia | null;
+}
+
+export interface LinhaDaMatriz {
+  entityId: string;
+  placa: string | null;
+  chassi: string | null;
+  entityType: string;
+  rotuloDoTipo: string;
+  celulas: CelulaDaMatriz[];
+}
+
+export interface ColunaDaMatriz {
+  produto: ProdutoDeCompra;
+  gaveta: Gaveta | null;
+  veiculosComValor: number;
+  total: number | null;
+  semTotal: MotivoSemTotal | null;
+}
+
+export interface MatrizDaFrota {
+  effectiveDate: string;
+  periodLabel: string;
+  contextLabel: string;
+  unidade: string | null;
+  operacao: string | null;
+  vigencias: { effectiveDate: string; periodLabel: string }[];
+  colunas: ColunaDaMatriz[];
+  linhas: LinhaDaMatriz[];
+  resumo: {
+    veiculos: number;
+    comAlgumValor: number;
+    porTipo: { entityType: string; rotulo: string; veiculos: number }[];
+  };
+  foraDoCatalogo: ForaDoCatalogo[];
+}

@@ -4,6 +4,7 @@ import {
   BALCAO_SEM_DADO,
   buscarPlacas,
   CATALOGO,
+  matrizDaFrota,
   remuneradoDaPlaca,
   remuneradoDoQlp,
   type EscopoDaConsulta,
@@ -14,7 +15,7 @@ import { operacaoDaConsulta } from "../lib/operacao";
 /**
  * Compras — o remunerado de um produto, antes de o pedido ser liberado.
  *
- * Quatro rotas, e nenhuma delas calcula nada:
+ * Cinco rotas, e nenhuma delas calcula nada:
  *
  * - `/compras/catalogo` — o que se compra e a rubrica do modelo que remunera
  *   cada coisa. Responde com o banco vazio, de propósito: é o mapa, não uma
@@ -22,6 +23,10 @@ import { operacaoDaConsulta } from "../lib/operacao";
  * - `/compras/placas?termo=` — o teclado da tela. Prefixo, no máximo doze.
  * - `/compras/remunerado/frota?placa=` — o balcão da frota: o que a Ambev
  *   remunera naquele veículo, produto a produto, na vigência corrente.
+ * - `/compras/remunerado/frota/matriz` — a mesma leitura com o eixo virado: a
+ *   frota inteira em linhas, os produtos em colunas. É a resposta a "quanto a
+ *   Ambev remunera pneu na frota", que por placa custaria sessenta e quatro
+ *   consultas e uma soma feita à mão.
  * - `/compras/remunerado/qlp` — o balcão da estrutura: uniforme, telefonia,
  *   frota leve e benefício com valor unitário, quantidade e despesa.
  *
@@ -114,6 +119,44 @@ router.get("/compras/remunerado/frota", async (req, res): Promise<void> => {
     return;
   }
   res.json(consulta);
+});
+
+/**
+ * A matriz — a frota inteira, produto a produto.
+ *
+ * Vem inteira, sem paginar, pela mesma razão que `/frota/ativos`: uma frota real
+ * deste export são 64 cavalos e 80 carretas, e quem confere um pedido de pneu
+ * precisa do rodapé da coluna — um "há mais" no fim da página tornaria o total
+ * uma soma da primeira página, que é pior do que total nenhum.
+ *
+ * `entityType` aceita repetição (`?entityType=CAVALO&entityType=CARRETA`) e é
+ * opcional: sem ele, `TIPOS_DA_MATRIZ` responde. Um tipo sem regra declarada
+ * não é recusado aqui como em `/frota/panorama` — `regraDe` já tem o padrão
+ * permissivo, e a matriz sai vazia dizendo que a vigência não trouxe aquele
+ * equipamento, que é uma frase sobre o arquivo e não sobre o nosso código.
+ */
+router.get("/compras/remunerado/frota/matriz", async (req, res): Promise<void> => {
+  const query = req.query as Record<string, unknown>;
+  const pedidos = Array.isArray(query.entityType)
+    ? query.entityType
+    : query.entityType !== undefined
+      ? [query.entityType]
+      : [];
+  const entityTypes = pedidos
+    .filter((t): t is string => typeof t === "string")
+    .map((t) => t.trim())
+    .filter((t) => t !== "");
+
+  const matriz = await matrizDaFrota(db, {
+    ...(parsePeriod(query) !== undefined ? { period: parsePeriod(query)! } : {}),
+    ...(parseContext(query) !== undefined ? { context: parseContext(query)! } : {}),
+    ...(entityTypes.length > 0 ? { entityTypes } : {}),
+  });
+  if (!matriz) {
+    res.status(404).json({ error: "Nenhuma vigência importada ainda." });
+    return;
+  }
+  res.json(matriz);
 });
 
 router.get("/compras/remunerado/qlp", async (req, res): Promise<void> => {

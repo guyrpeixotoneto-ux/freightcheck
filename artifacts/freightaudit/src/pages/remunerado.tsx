@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
 import {
+  ArrowLeft,
   ChevronDown,
   ChevronRight,
   CircleAlert,
@@ -18,12 +19,14 @@ import { formatNumber, formatValue } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { SUFIXO_DA_GAVETA } from "@/components/composicao/tipos";
 import { formatarValor } from "@/components/qlp/apresentacao";
+import { TabelaDaMatriz } from "@/components/compras/matriz-da-frota";
 import {
   ROTULO_DA_NATUREZA,
   ROTULO_DA_RESSALVA,
   ROTULO_DO_PAPEL,
   type ConsultaDaPlaca,
   type ConsultaDoQlp,
+  type MatrizDaFrota,
   type LinhaDoProduto,
   type PlacaEncontrada,
   type ProdutoConsultado,
@@ -62,7 +65,7 @@ const ABAS: { chave: Aba; rotulo: string; nota: string }[] = [
   {
     chave: "frota",
     rotulo: "Frota",
-    nota: "Pneu, manutenção, combustível e o que mais se compra para um veículo. Abre por placa.",
+    nota: "Pneu, manutenção, combustível e o que mais se compra para um veículo. Abre na frota inteira; a placa abre a ficha.",
   },
   {
     chave: "qlp",
@@ -158,6 +161,15 @@ function BalcaoDaFrota({
   contexto: string;
   onEscolher: (placa: string) => void;
 }) {
+  /*
+    O termo digitado sobe até aqui porque ele serve a duas coisas ao mesmo
+    tempo: escolher uma placa (Enter, ou um clique na sugestão) e **estreitar a
+    matriz enquanto se digita**. Era o gesto que faltava — a tela pedia a placa
+    inteira antes de responder qualquer coisa, e quem tem quinze pedidos na mesa
+    não quer quinze consultas, quer a lista.
+  */
+  const [termo, setTermo] = useState(placa);
+
   const consulta = useQuery({
     queryKey: ["compras", "frota", placa, contexto],
     queryFn: () =>
@@ -167,14 +179,37 @@ function BalcaoDaFrota({
     enabled: placa !== "",
   });
 
+  /*
+    A matriz não é buscada enquanto uma placa está aberta: a ficha ocupa a tela
+    inteira, e uma consulta de frota rodando por trás dela é uma leitura que
+    ninguém vai ver. Ao voltar, o cache do react-query devolve a tabela sem uma
+    segunda ida ao servidor.
+  */
+  const matriz = useQuery({
+    queryKey: ["compras", "matriz", contexto],
+    queryFn: () => fetchJson<MatrizDaFrota>(`/compras/remunerado/frota/matriz?${contexto}`),
+    enabled: placa === "",
+  });
+
   return (
-    <div className="space-y-6 max-w-5xl">
-      <BuscaDePlaca valor={placa} onEscolher={onEscolher} />
+    <div className={cn("space-y-6", placa === "" ? "max-w-none" : "max-w-5xl")}>
+      <BuscaDePlaca valor={placa} termo={termo} onTermo={setTermo} onEscolher={onEscolher} />
 
       {placa === "" && (
-        <p className="text-sm text-muted-foreground bg-card border rounded-md px-6 py-10 text-center">
-          Digite a placa do veículo para ver o que a Ambev remunera nele.
-        </p>
+        <>
+          {matriz.isError && (
+            <ApiErrorNotice error={matriz.error} what="o remunerado da frota" />
+          )}
+          {matriz.data && (
+            <>
+              <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-muted-foreground">
+                <span>{matriz.data.periodLabel}</span>
+                <span>{matriz.data.contextLabel}</span>
+              </div>
+              <TabelaDaMatriz matriz={matriz.data} termo={termo} contexto={contexto} />
+            </>
+          )}
+        </>
       )}
 
       {consulta.isError && (
@@ -183,6 +218,17 @@ function BalcaoDaFrota({
 
       {consulta.data && (
         <>
+          <button
+            type="button"
+            onClick={() => {
+              setTermo("");
+              onEscolher("");
+            }}
+            className="inline-flex items-center gap-1.5 text-xs text-brand hover:underline"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            Voltar para a frota inteira
+          </button>
           <CabecalhoDaPlaca consulta={consulta.data} />
           {!consulta.data.presente ? (
             <p className="text-sm text-muted-foreground bg-card border rounded-md px-6 py-8 text-center">
@@ -210,19 +256,27 @@ function BalcaoDaFrota({
  * A lista de placas é barata; a consulta de um veículo não é, e disparar uma a
  * cada letra faria a tela responder três vezes antes da placa terminar de ser
  * digitada.
+ *
+ * O termo é do balcão, e não deste componente: ele filtra a matriz **enquanto**
+ * se digita, e só vira consulta quando a pessoa escolhe uma placa. É o que
+ * permite ao mesmo campo servir aos dois gestos — procurar na frota e abrir um
+ * veículo — sem que a tela tenha duas caixas de busca dizendo coisas parecidas.
  */
 function BuscaDePlaca({
   valor,
+  termo,
+  onTermo,
   onEscolher,
 }: {
   valor: string;
+  termo: string;
+  onTermo: (termo: string) => void;
   onEscolher: (placa: string) => void;
 }) {
-  const [termo, setTermo] = useState(valor);
   const [aberto, setAberto] = useState(false);
   const caixa = useRef<HTMLDivElement>(null);
 
-  useEffect(() => setTermo(valor), [valor]);
+  useEffect(() => onTermo(valor), [valor]);
 
   useEffect(() => {
     const fora = (e: MouseEvent) => {
@@ -259,11 +313,11 @@ function BuscaDePlaca({
           */
           autoFocus={valor === ""}
           value={termo}
-          placeholder="Placa do veículo"
+          placeholder="Placa do veículo — filtra a lista; Enter abre a ficha"
           aria-label="Placa do veículo"
           className="pl-10 h-12 text-base font-mono tracking-wider"
           onChange={(e) => {
-            setTermo(e.target.value);
+            onTermo(e.target.value);
             setAberto(true);
           }}
           /*

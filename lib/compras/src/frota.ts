@@ -319,9 +319,58 @@ function linhaDeNaoApurado(componente: ComponenteNaoApurado): LinhaDoProduto {
  * contador de eixos podem ser a única linha apurada de um produto sem que
  * nenhum dos dois responda "quanto a Ambev remunera isto".
  */
-function destaqueDe(linhas: LinhaDoProduto[]): LinhaDoProduto | null {
+export function destaqueDe(linhas: LinhaDoProduto[]): LinhaDoProduto | null {
   const candidatas = linhas.filter((l) => l.apurado && l.unit === "BRL");
   return candidatas.length === 1 ? candidatas[0]! : null;
+}
+
+/** O eixo do comprador para um ativo: as colunas dele, arrumadas por produto. */
+export interface AgrupamentoPorProduto {
+  porProduto: Map<string, LinhaDoProduto[]>;
+  foraDoCatalogo: Map<string, ForaDoCatalogo>;
+}
+
+/**
+ * Da composição de **um** ativo para o eixo do comprador.
+ *
+ * Exportada porque a matriz da frota (`matriz.ts`) precisa exatamente disto,
+ * ativo a ativo, e uma segunda cópia deste laço seria uma segunda definição de
+ * "que produto esta coluna alimenta". A ficha de uma placa e a célula dela na
+ * matriz têm de sair da mesma travessia — senão o dia em que `produtoDaRubrica`
+ * ganhar uma entrada nova é o dia em que as duas telas discordam.
+ *
+ * A ordem entre as duas listas não é arbitrária: a linha apurada vem antes da
+ * não apurada dentro do mesmo produto, porque é a que responde a pergunta.
+ * Dentro de cada grupo, a ordem é a que a composição já estabeleceu.
+ */
+export function agruparPorProduto(
+  linhas: LinhaCalculavel[],
+  naoApurados: ComponenteNaoApurado[],
+): AgrupamentoPorProduto {
+  const porProduto = new Map<string, LinhaDoProduto[]>();
+  const foraDoCatalogo = new Map<string, ForaDoCatalogo>();
+
+  const registrar = (rubrica: string, familia: string, linha: LinhaDoProduto): void => {
+    const produto = produtoDaRubrica(rubrica);
+    if (produto === null) {
+      const atual = foraDoCatalogo.get(rubrica);
+      if (atual) atual.colunas += 1;
+      else foraDoCatalogo.set(rubrica, { rubrica, familia, colunas: 1 });
+      return;
+    }
+    const lista = porProduto.get(produto.chave);
+    if (lista) lista.push(linha);
+    else porProduto.set(produto.chave, [linha]);
+  };
+
+  for (const linha of linhas) {
+    registrar(linha.parametro, linha.familia, linhaDeCalculavel(linha));
+  }
+  for (const componente of naoApurados) {
+    registrar(componente.parametro, componente.familia, linhaDeNaoApurado(componente));
+  }
+
+  return { porProduto, foraDoCatalogo };
 }
 
 /**
@@ -345,39 +394,10 @@ export async function remuneradoDaPlaca(
   });
   if (!composicao) return null;
 
-  /*
-    Um índice por produto, alimentado pelas duas listas que a composição
-    devolve. As duas entram, e a ordem entre elas não é arbitrária: a linha
-    apurada vem antes da não apurada dentro do mesmo produto, porque é a que
-    responde a pergunta. Dentro de cada grupo, a ordem é a que a composição já
-    estabeleceu.
-  */
-  const porProduto = new Map<string, LinhaDoProduto[]>();
-  const foraDoCatalogo = new Map<string, ForaDoCatalogo>();
-
-  const registrar = (
-    rubrica: string,
-    familia: string,
-    linha: LinhaDoProduto,
-  ): void => {
-    const produto = produtoDaRubrica(rubrica);
-    if (produto === null) {
-      const atual = foraDoCatalogo.get(rubrica);
-      if (atual) atual.colunas += 1;
-      else foraDoCatalogo.set(rubrica, { rubrica, familia, colunas: 1 });
-      return;
-    }
-    const lista = porProduto.get(produto.chave);
-    if (lista) lista.push(linha);
-    else porProduto.set(produto.chave, [linha]);
-  };
-
-  for (const linha of composicao.linhas) {
-    registrar(linha.parametro, linha.familia, linhaDeCalculavel(linha));
-  }
-  for (const componente of composicao.naoApurados) {
-    registrar(componente.parametro, componente.familia, linhaDeNaoApurado(componente));
-  }
+  const { porProduto, foraDoCatalogo } = agruparPorProduto(
+    composicao.linhas,
+    composicao.naoApurados,
+  );
 
   /*
     O catálogo dita a ordem, e não os dados. Um produto sem nenhuma coluna nesta
