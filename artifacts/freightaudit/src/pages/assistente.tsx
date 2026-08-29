@@ -20,6 +20,13 @@ import type {
   Resposta,
   Turno,
 } from "@/components/assistente/tipos";
+import {
+  avancar,
+  MACROETAPA_INICIAL,
+  telaDoTurno,
+  type Macroetapa,
+  type StatusVisivel,
+} from "@/components/assistente/progresso";
 import { erroDaResposta, fetchJson, getApiUrl, readJson } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -65,8 +72,15 @@ export default function Assistente() {
   const [conversaId, setConversaId] = useState<string | null>(null);
   const [rascunho, setRascunho] = useState("");
   const [painelTecnico, setPainelTecnico] = useState(false);
-  /** As etapas que já rodaram nesta pergunta — vindas do servidor, não do relógio. */
-  const [etapas, setEtapas] = useState<Etapa[]>([]);
+  /**
+   * Em que macroetapa a pergunta está — **uma**, e nunca a lista do caminho.
+   *
+   * Os eventos do servidor continuam chegando todos; o que a tela guarda é o
+   * que a camada de apresentação (`assistente/progresso.ts`) fez deles. Assim o
+   * tracing segue completo sem que rodada, ferramenta ou decisão interna do
+   * agente apareçam para quem perguntou.
+   */
+  const [macroetapa, setMacroetapa] = useState<Macroetapa>(MACROETAPA_INICIAL);
   /**
    * O texto que está chegando enquanto o modelo escreve.
    *
@@ -120,7 +134,7 @@ export default function Assistente() {
 
   const perguntar = useMutation({
     mutationFn: async (pergunta: string) => {
-      setEtapas([]);
+      setMacroetapa(MACROETAPA_INICIAL);
       setEmCurso("");
       const resposta = await fetch(getApiUrl("/assistant/ask"), {
         method: "POST",
@@ -145,13 +159,13 @@ export default function Assistente() {
       }
       return lerEventos(
         resposta,
-        (etapa) => setEtapas((as) => [...as, etapa]),
+        (etapa) => setMacroetapa((atual) => avancar(atual, etapa)),
         (pedaco) => setEmCurso((texto) => texto + pedaco),
       );
     },
     onSuccess: (r) => {
       setConversaId(r.conversationId);
-      setEtapas([]);
+      setMacroetapa(MACROETAPA_INICIAL);
       setEmCurso("");
       setTurnos((atuais) => [
         ...atuais,
@@ -169,8 +183,18 @@ export default function Assistente() {
       // O texto parcial não sobrevive à falha: ele era a resposta que não veio,
       // e deixá-lo na tela ao lado do aviso de erro sugeriria o contrário.
       setEmCurso("");
-      setEtapas([]);
+      setMacroetapa(MACROETAPA_INICIAL);
     },
+  });
+
+  /*
+    O que a tela mostra enquanto a pergunta corre — derivado, não acumulado.
+  */
+  const emAndamento = telaDoTurno({
+    pendente: perguntar.isPending,
+    macroetapa,
+    parcial: emCurso,
+    erro: perguntar.isError,
   });
 
   const enviar = (texto: string) => {
@@ -287,17 +311,15 @@ export default function Assistente() {
               ))}
 
               {/*
-                Enquanto não há texto, o que se mostra são as etapas; quando o
-                primeiro pedaço chega, elas saem de cena e a resposta começa a
-                aparecer. As duas coisas juntas seriam ruído: ninguém lê "o que
-                está sendo consultado" enquanto lê a resposta da consulta.
+                Um status por vez, e quem decide qual é a camada de apresentação.
+                Quando o primeiro pedaço de texto chega, o status sai de cena e a
+                resposta começa a aparecer; quando a resposta fecha ou falha, não
+                sobra nada do caminho acima dela.
               */}
-              {perguntar.isPending &&
-                (emCurso ? (
-                  <Mensagem turno={{ papel: "RESPOSTA", texto: emCurso }} />
-                ) : (
-                  <Trabalhando etapas={etapas} />
-                ))}
+              {emAndamento.parcial !== null && (
+                <Mensagem turno={{ papel: "RESPOSTA", texto: emAndamento.parcial }} />
+              )}
+              {emAndamento.status && <Trabalhando status={emAndamento.status} />}
 
               {perguntar.error && (
                 <ApiErrorNotice
@@ -426,30 +448,27 @@ async function lerEventos(
 }
 
 /**
- * O que está acontecendo — e só o que está mesmo acontecendo.
+ * O que está acontecendo, em uma linha.
  *
- * A versão anterior animava uma lista fixa por tempo: anunciava "calculando
- * impacto" numa pergunta conceitual que nunca calcula impacto. Cada linha aqui
- * chegou do servidor no instante em que a etapa começou. Enquanto o primeiro
- * evento não chega, o texto é neutro — não há o que afirmar ainda.
+ * Duas versões anteriores erraram por motivos opostos. A primeira animava uma
+ * lista fixa por tempo e anunciava "calculando impacto" numa pergunta
+ * conceitual que nunca calcula impacto — progresso inventado. A segunda
+ * corrigiu isso e passou a mostrar tudo o que a orquestração emitia, na ordem,
+ * acumulando: verdadeiro, e ainda assim um log de execução acima da resposta.
  *
- * Só a etapa corrente fica em destaque; as anteriores encolhem para o lado,
- * porque o que importa é onde está, não a lista do que já passou.
+ * O que fica é o meio-termo: o status vem de evento real, mas passa pela camada
+ * de apresentação antes de virar frase, e a frase é uma só — a seguinte
+ * substitui a anterior, sem histórico ao lado.
  */
-function Trabalhando({ etapas }: { etapas: Etapa[] }) {
-  const corrente = etapas[etapas.length - 1];
-  const anteriores = etapas.slice(0, -1);
-
+function Trabalhando({ status }: { status: StatusVisivel }) {
   return (
     <div className="space-y-1">
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
         <Loader2 className="w-4 h-4 animate-spin shrink-0" />
-        {corrente ? `${corrente.rotulo}…` : "Trabalhando…"}
+        {status.titulo}…
       </div>
-      {anteriores.length > 0 && (
-        <p className="pl-6 text-xs text-muted-foreground/70">
-          {anteriores.map((e) => e.rotulo).join(" · ")}
-        </p>
+      {status.detalhe && (
+        <p className="pl-6 text-xs text-muted-foreground/70">{status.detalhe}</p>
       )}
     </div>
   );
