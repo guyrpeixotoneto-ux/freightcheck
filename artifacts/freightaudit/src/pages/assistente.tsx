@@ -316,8 +316,17 @@ export default function Assistente() {
             como título e os campos quebram entre si (o `flex-wrap` do seletor
             só serve quando existe um limite para quebrar). De `md` para cima
             nada muda — volta a ser a mesma linha de antes.
+
+            E `shrink-0`, pelo mesmo motivo que a conversa ganhou `min-h-0`:
+            numa coluna de altura fixa, quem encolhe por padrão é todo mundo.
+            Com o cabeçalho alto demais para caber, o flex o comprimia até
+            abaixo do conteúdo dele — e o texto, que não encolhe junto,
+            continuava desenhado por cima da conversa: o cartão logo abaixo
+            aparecia cortado ao meio pela caixa branca do cabeçalho. Quem tem de
+            ceder altura aqui é a lista de mensagens, que rola; o cabeçalho e o
+            campo de perguntar valem o que medem.
           */}
-          <header className="border-b bg-card px-4 py-4 md:px-8 md:py-5 flex flex-col gap-4 md:flex-row md:items-start md:justify-between md:gap-6">
+          <header className="border-b bg-card shrink-0 px-4 py-4 md:px-8 md:py-5 flex flex-col gap-4 md:flex-row md:items-start md:justify-between md:gap-6">
             <div className="flex items-start gap-3 min-w-0">
               <Sparkles className="w-7 h-7 text-brand shrink-0 mt-0.5" aria-hidden />
               <div className="min-w-0">
@@ -345,7 +354,7 @@ export default function Assistente() {
             </div>
           </header>
 
-          <div className="flex-1 overflow-y-auto">
+          <div className="flex-1 min-h-0 overflow-y-auto">
             <div className="max-w-4xl mx-auto px-4 py-6 md:px-8 space-y-6">
               {/*
                 A saudação é escrita aqui dentro, e por isso ela não prova nada
@@ -612,7 +621,7 @@ function Composer({
   }, [valor, campo]);
 
   return (
-    <div className="px-4 pb-6 pt-2 md:px-8">
+    <div className="shrink-0 px-4 pb-6 pt-2 md:px-8">
       <div className="max-w-4xl mx-auto">
         <div
           className={cn(
