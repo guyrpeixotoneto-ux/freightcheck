@@ -122,29 +122,87 @@ export async function setUserRole(
 }
 
 /**
- * Define a lotação de uma conta — o cargo e a unidade da pessoa.
+ * Define o cadastro de uma conta — nome, lotação, telefone e a quem reporta.
  *
  * Fica separada de `setUserRole` de propósito, e a distância entre as duas é a
- * coisa mais importante deste arquivo hoje: **papel é acesso, lotação é
+ * coisa mais importante deste arquivo hoje: **papel é acesso, cadastro é
  * cadastro.** ADMIN e OPERADOR decidem o que a pessoa pode fazer no produto;
- * cargo e unidade dizem o que ela faz na empresa. Juntar os dois numa rota só
- * faria uma promoção na empresa virar uma promoção de acesso sem que ninguém
- * tivesse pedido isso.
+ * cargo, unidade e gestor dizem o que ela faz na empresa e quem responde por
+ * ela. Juntar os dois numa rota só faria uma promoção na empresa virar uma
+ * promoção de acesso sem que ninguém tivesse pedido isso.
  *
- * O que não é validado aqui é validado onde tem que ser: o `id` de cargo e o de
- * unidade existirem é problema da chave estrangeira e da rota, que checa antes
- * para poder dizer qual dos dois está errado.
+ * **Substitui todos os campos, e é por isso que recebe todos.** Mandar `null`
+ * é tirar o vínculo, e é assim que se desfaz um engano; um patch que só
+ * mexesse no que veio tornaria "tirar o cargo" indistinguível de "não mexer no
+ * cargo".
+ *
+ * O e-mail não está aqui, e não é esquecimento: ele é quem a pessoa é para o
+ * histórico — é o `actor` gravado em cada confirmação já feita —, e trocá-lo
+ * faria as confirmações antigas apontarem para um endereço que já não existe.
+ *
+ * O que não é validado aqui é validado onde tem que ser: cargo e unidade
+ * existirem é problema da chave estrangeira e da rota, que checa antes para
+ * poder dizer qual dos dois está errado; e o gestor, que não tem chave
+ * estrangeira nenhuma (ver a `0077`), é conferido inteiramente pela rota.
  */
-export async function definirLotacao(
+export async function definirCadastro(
   db: Database,
   userId: string,
-  lotacao: { cargoId: string | null; unidadeId: string | null },
+  cadastro: {
+    /** Ausente é "não mexe no nome" — a criação já o exigiu uma vez. */
+    name?: string;
+    cargoId: string | null;
+    unidadeId: string | null;
+    telefone: string | null;
+    gestorId: string | null;
+  },
 ): Promise<void> {
   await db
     .update(appUserTable)
-    .set({ cargoId: lotacao.cargoId, unidadeId: lotacao.unidadeId })
+    .set({
+      ...(cadastro.name !== undefined ? { name: cadastro.name.trim() } : {}),
+      cargoId: cadastro.cargoId,
+      unidadeId: cadastro.unidadeId,
+      telefone: cadastro.telefone,
+      gestorId: cadastro.gestorId,
+    })
     .where(eq(appUserTable.id, userId));
 }
+
+/**
+ * O gestor escolhido fecharia um ciclo no organograma?
+ *
+ * Sobe a corrente a partir do gestor pretendido — o gestor dele, o gestor do
+ * gestor dele — e responde `true` se ela voltar à própria pessoa. Sem isto,
+ * "A reporta a B" e "B reporta a A" convivem no banco, e a Gestão de Equipe
+ * roda para sempre desenhando a mesma dupla.
+ *
+ * O laço é limitado por `MAXIMO_DE_NIVEIS` porque um ciclo que já esteja
+ * gravado — de antes desta conferência, ou de uma corrida entre dois
+ * administradores — faria a subida não terminar nunca. Atingir o limite é
+ * tratado como ciclo: uma hierarquia de cem níveis não é organograma de
+ * empresa nenhuma, é um defeito.
+ */
+export async function gestorFechaCiclo(
+  db: Database,
+  pessoaId: string,
+  gestorId: string,
+): Promise<boolean> {
+  let atual: string | null = gestorId;
+  for (let nivel = 0; nivel < MAXIMO_DE_NIVEIS; nivel += 1) {
+    if (atual === null) return false;
+    if (atual === pessoaId) return true;
+    const [linha] = await db
+      .select({ gestorId: appUserTable.gestorId })
+      .from(appUserTable)
+      .where(eq(appUserTable.id, atual));
+    atual = linha?.gestorId ?? null;
+  }
+  return true;
+}
+
+/** Fundo do poço da subida acima. Ver `gestorFechaCiclo`. */
+const MAXIMO_DE_NIVEIS = 100;
 
 /**
  * O e-mail que o sistema gera quando quem cria a conta não informa um.

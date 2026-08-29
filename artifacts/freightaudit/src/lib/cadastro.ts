@@ -160,12 +160,26 @@ export function excluirNegocio(id: string): Promise<unknown> {
   return fetchJson(`/cadastro/negocios/${id}`, { method: "DELETE" });
 }
 
-/** Define cargo e unidade de uma conta. Devolve a lista de contas atualizada. */
-export function definirLotacao(
+/**
+ * Grava o cadastro de uma conta — nome, cargo, unidade, telefone e gestor.
+ * Devolve a lista de contas atualizada.
+ *
+ * O e-mail não entra: ele é quem a pessoa é para o histórico, e o servidor não
+ * o troca por ninguém (ver `routes/users.ts`). O papel também não — é acesso, e
+ * tem rota própria pela mesma razão.
+ */
+export function definirCadastroDaConta(
   userId: string,
-  pedido: { cargoId: string | null; unidadeId: string | null },
+  pedido: {
+    name: string;
+    sobrenome: string;
+    cargoId: string | null;
+    unidadeId: string | null;
+    telefone: string | null;
+    gestorId: string | null;
+  },
 ): Promise<unknown> {
-  return fetchJson(`/users/${userId}/lotacao`, {
+  return fetchJson(`/users/${userId}/cadastro`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(pedido),
