@@ -2742,6 +2742,57 @@ function planoUp(): PassoUp[] {
     add(M73, `índice ${indice}`, levantar(M73, new RegExp(`INDEX IF NOT EXISTS "${indice}"`)));
   }
 
+  /*
+    A `0079` — o responsável da etapa como cadastro: as três colunas em
+    `fluxo_etapa` e as três iguais em `fluxo_etapa_item`, com as seis chaves
+    estrangeiras e os seis índices.
+
+    Vem **depois** da `0073` e não junto do bloco da `0068`, e a ordem é
+    obrigatória: as chaves apontam para `departamento` e `cargo`, que só
+    existem de novo depois que a `0073` as repõe. Fosse antes, o `up` morreria
+    na primeira `ADD CONSTRAINT` com a mãe ainda ausente.
+
+    Sem estes passos o `up` devolveria uma `fluxo_etapa` e uma
+    `fluxo_etapa_item` do tamanho que tinham na `0068` — e um Development
+    restaurado divergiria de um banco migrado do zero por seis colunas, que é
+    exatamente a divergência que o bridge existe para não deixar passar.
+
+    As colunas **não** entram na ALLOWLIST, e a ausência é a informação: a
+    allowlist é para coluna aditiva em tabela que Production **já tem**, e
+    nenhuma das duas tabelas daqui está nesse caso — as seis de Fluxos
+    Operacionais saem inteiras no `down` e voltam inteiras aqui.
+  */
+  const M79 = "0079_responsavel_do_cadastro";
+  for (const tabela of ["fluxo_etapa", "fluxo_etapa_item"]) {
+    for (const coluna of ["departamento_id", "cargo_id", "app_user_id"]) {
+      add(
+        M79,
+        `${tabela}.${coluna}`,
+        levantar(M79, new RegExp(`ALTER TABLE "${tabela}" ADD COLUMN IF NOT EXISTS "${coluna}"`)),
+      );
+    }
+  }
+  for (const fk of [
+    "fluxo_etapa_departamento_id_departamento_id_fk",
+    "fluxo_etapa_cargo_id_cargo_id_fk",
+    "fluxo_etapa_app_user_id_app_user_id_fk",
+    "fluxo_etapa_item_departamento_id_departamento_id_fk",
+    "fluxo_etapa_item_cargo_id_cargo_id_fk",
+    "fluxo_etapa_item_app_user_id_app_user_id_fk",
+  ]) {
+    add(M79, `FK ${fk}`, levantar(M79, new RegExp(`conname = '${fk}'`)));
+  }
+  for (const indice of [
+    "fluxo_etapa_departamento_idx",
+    "fluxo_etapa_cargo_idx",
+    "fluxo_etapa_pessoa_idx",
+    "fluxo_etapa_item_departamento_idx",
+    "fluxo_etapa_item_cargo_idx",
+    "fluxo_etapa_item_pessoa_idx",
+  ]) {
+    add(M79, `índice ${indice}`, levantar(M79, new RegExp(`INDEX IF NOT EXISTS "${indice}"`)));
+  }
+
   const M42 = "0042_viagem_completa";
   for (const coluna of COLUNAS_DO_RETRATO_DA_VIAGEM) {
     add(

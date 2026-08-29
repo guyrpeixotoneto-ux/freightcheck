@@ -749,11 +749,35 @@ export function edicaoNaLista(
     case "tipo":
       return { editavel: true, valor: etapa.tipo };
     case "area":
+      /*
+        Área escolhida do cadastro não se digita aqui — pela mesma razão da
+        regra logo abaixo: `area` passa a ser **projeção** do departamento (ver
+        a `0079`), então gravar texto nesta célula seria escrever numa coluna
+        que a próxima leitura sobrescreve. A pessoa veria a edição "não pegar",
+        que é o defeito que esta função inteira existe para não deixar acontecer.
+      */
+      if (etapa.departamentoId) {
+        return {
+          editavel: false,
+          valor: coluna(etapa.area),
+          motivo:
+            "Esta área vem do departamento escolhido na etapa. Abra a etapa para trocá-lo.",
+        };
+      }
       return { editavel: true, valor: coluna(etapa.area) };
     case "responsavel":
     case "sistema": {
       const especie = campo === "responsavel" ? "RESPONSAVEL" : "SISTEMA";
       const propria = coluna(campo === "responsavel" ? etapa.responsavel : etapa.sistemaPrincipal);
+      /* O responsável escolhido do cadastro, pela mesma razão da área acima. */
+      if (campo === "responsavel" && (etapa.cargoId || etapa.pessoaId)) {
+        return {
+          editavel: false,
+          valor: propria,
+          motivo:
+            "Este responsável vem do cargo ou da pessoa escolhida na etapa. Abra a etapa para trocá-los.",
+        };
+      }
       const itens = etapa.itens.filter((i) => i.especie === especie && coluna(i.nome) !== "");
       if (itens.length > 0 && propria === "") {
         return {
@@ -892,7 +916,42 @@ export type CampoDeTextoDaEtapa =
  */
 export type CampoDeEscolhaDaEtapa = "tipo" | "status";
 
-export type CampoDaEtapaNoPainel = CampoDeTextoDaEtapa | CampoDeEscolhaDaEtapa;
+/**
+ * OS VÍNCULOS DE CADASTRO DA ETAPA — a terceira família de campo do painel.
+ *
+ * Não são texto (não abrem `input`) e não são escolha de catálogo (a lista não
+ * é fixa nem vem do servidor de fluxos): são referência ao cadastro da casa, e
+ * a lista de opções muda conforme alguém cadastra um departamento novo.
+ *
+ * Gravam pelo mesmo caminho dos outros — o corpo inteiro da etapa com um campo
+ * trocado —, e por isso o valor que a tela manda é o `id` puro, ou `""` para
+ * desligar o vínculo. Ver `idDeCadastro`, em `lib/fluxos/validacao.ts`, que lê
+ * `""` como "nenhum".
+ */
+export type CampoDeVinculoDaEtapa = "departamentoId" | "cargoId" | "pessoaId";
+
+/** Os três, na ordem em que o cabeçalho os mostra: área, função, pessoa. */
+export const VINCULOS_DA_ETAPA: {
+  campo: CampoDeVinculoDaEtapa;
+  rotulo: string;
+  /** O que a badge mostra quando ninguém escolheu. */
+  vazio: string;
+  fonte: keyof OpcoesDeResponsavel;
+}[] = [
+  {
+    campo: "departamentoId",
+    rotulo: "Departamento",
+    vazio: "+ departamento",
+    fonte: "departamentos",
+  },
+  { campo: "cargoId", rotulo: "Cargo", vazio: "+ cargo", fonte: "cargos" },
+  { campo: "pessoaId", rotulo: "Pessoa", vazio: "+ pessoa", fonte: "pessoas" },
+];
+
+export type CampoDaEtapaNoPainel =
+  | CampoDeTextoDaEtapa
+  | CampoDeEscolhaDaEtapa
+  | CampoDeVinculoDaEtapa;
 
 export interface CampoDoPainel {
   campo: CampoDeTextoDaEtapa;
@@ -1012,6 +1071,42 @@ export interface CampoDaLinhaDoPainel {
   opcoes?: { valor: string; rotulo: string }[];
 }
 
+/**
+ * O VALOR DE "NENHUM" NUMA ESCOLHA — e por que ele não é a string vazia.
+ *
+ * Escolher departamento é opcional, então a lista precisa de uma opção que
+ * desfaça a escolha. O `Select` do Radix, porém, reserva `""` para "nada
+ * selecionado" e recusa um item com esse valor — um `SelectItem value=""` sobe
+ * como erro em tempo de execução, não como campo que não funciona.
+ *
+ * Daí este sentinela: ele é o que a opção carrega na tela, e `corpoDasLinhas` o
+ * traduz de volta para "sem vínculo" antes de mandar ao servidor. A tradução
+ * mora aqui, e não no componente, porque é ela que os testes deste arquivo
+ * conferem sem DOM.
+ */
+export const SEM_VINCULO = "__sem_vinculo__";
+
+/** Um cadastro que pode ser escolhido como responsável — do menor ao maior. */
+export interface OpcaoDeCadastro {
+  id: string;
+  nome: string;
+}
+
+/**
+ * O que a tela oferece para escolher no lugar de digitar o responsável.
+ *
+ * Vem de três consultas que já existiam — `/cadastro/departamentos`,
+ * `/cadastro/cargos` e `/users` —, e chega até aqui como dado para que a
+ * montagem das listas continue sendo função pura e testável sem servidor.
+ * Ausente (o padrão), a lista de responsáveis segue exatamente como era: só
+ * nome e descrição, digitados.
+ */
+export interface OpcoesDeResponsavel {
+  departamentos: OpcaoDeCadastro[];
+  cargos: OpcaoDeCadastro[];
+  pessoas: OpcaoDeCadastro[];
+}
+
 export interface ListaDoPainel {
   /** Identifica a lista de ponta a ponta — é o que a gravação recebe. */
   chave: string;
@@ -1024,32 +1119,108 @@ export interface ListaDoPainel {
   campos: CampoDaLinhaDoPainel[];
   /** O que a linha precisa ter para valer a gravação. */
   campoObrigatorio: string;
+  /**
+   * O que **também** faz a linha valer, quando `campoObrigatorio` está em
+   * branco.
+   *
+   * Existe por causa do responsável escolhido do cadastro: quem seleciona
+   * "Faturamento" na lista não digita nada, e uma linha sem `nome` seria
+   * descartada na gravação — o campo pareceria não funcionar. Com o vínculo
+   * preenchido a linha vale, e quem põe o nome é o servidor, com o nome que
+   * está no cadastro (ver `validarItem`, em `lib/fluxos`).
+   */
+  camposQueBastam?: string[];
 }
 
 export type ValoresDaLinha = Record<string, string | boolean>;
 
-export function listasDoPainel(catalogo: Catalogo | undefined): ListaDoPainel[] {
+/**
+ * OS TRÊS CAMPOS DE VÍNCULO DA LISTA DE RESPONSÁVEIS.
+ *
+ * Só a espécie `RESPONSAVEL` os ganha, e a ordem é a da pergunta que se faz na
+ * vida real: **de que departamento é isto**, depois **que função executa**,
+ * depois — se importar dizer — **quem**. Departamento vem antes porque é o que
+ * estreita a resposta seguinte, e porque é ele que a raia do fluxograma lê.
+ *
+ * A pessoa é o último e é opcional de propósito: um processo sobrevive a quem o
+ * executa, e uma etapa cujo responsável fosse só uma conta viraria etapa órfã
+ * no dia do desligamento. Ver a `0079`.
+ *
+ * Sem cadastro carregado, os três somem e a lista volta a ser o que era — nome
+ * e descrição, digitados. É o que mantém esta tela funcionando numa casa que
+ * ainda não cadastrou departamento nenhum.
+ */
+function camposDoResponsavel(opcoes: OpcoesDeResponsavel | undefined): CampoDaLinhaDoPainel[] {
+  if (!opcoes) return [];
+  const escolha = (
+    campo: string,
+    rotulo: string,
+    vazio: string,
+    lista: OpcaoDeCadastro[],
+  ): CampoDaLinhaDoPainel[] =>
+    lista.length === 0
+      ? []
+      : [
+          {
+            campo,
+            rotulo,
+            tipo: "escolha",
+            opcoes: [
+              { valor: SEM_VINCULO, rotulo: vazio },
+              ...lista.map((o) => ({ valor: o.id, rotulo: o.nome })),
+            ],
+          },
+        ];
+
+  return [
+    ...escolha("departamentoId", "Departamento", "Sem departamento", opcoes.departamentos),
+    ...escolha("cargoId", "Cargo", "Sem cargo", opcoes.cargos),
+    ...escolha("pessoaId", "Pessoa", "Sem pessoa", opcoes.pessoas),
+  ];
+}
+
+export function listasDoPainel(
+  catalogo: Catalogo | undefined,
+  opcoes?: OpcoesDeResponsavel,
+): ListaDoPainel[] {
   if (!catalogo) return [];
 
-  const dasEspecies = catalogo.especiesDeItem.map((especie) => ({
-    chave: `itens:${especie.valor}`,
-    natureza: "itens" as const,
-    especie: especie.valor,
-    titulo: especie.titulo,
-    icone: especie.icone,
-    rotuloDeAdicionar: especie.rotulo,
-    campoObrigatorio: "nome",
-    campos: [
-      { campo: "nome", rotulo: "Nome", tipo: "texto" as const },
-      { campo: "descricao", rotulo: "Descrição", tipo: "texto" as const },
-      ...(especie.usaLink
-        ? [{ campo: "link", rotulo: "Link", tipo: "texto" as const, placeholder: "https://" }]
-        : []),
-      ...(especie.usaObrigatorio
-        ? [{ campo: "obrigatorio", rotulo: "Obrigatório", tipo: "booleano" as const }]
-        : []),
-    ],
-  }));
+  const dasEspecies = catalogo.especiesDeItem.map((especie) => {
+    const vinculos = especie.valor === "RESPONSAVEL" ? camposDoResponsavel(opcoes) : [];
+    return {
+      chave: `itens:${especie.valor}`,
+      natureza: "itens" as const,
+      especie: especie.valor,
+      titulo: especie.titulo,
+      icone: especie.icone,
+      rotuloDeAdicionar: especie.rotulo,
+      campoObrigatorio: "nome",
+      camposQueBastam: vinculos.map((c) => c.campo),
+      campos: [
+        ...vinculos,
+        {
+          campo: "nome",
+          rotulo: "Nome",
+          tipo: "texto" as const,
+          /*
+            Com vínculo escolhido o nome deixa de ser obrigatório, e o
+            placeholder é o único lugar onde a tela diz isso. Sem os selects
+            (casa sem cadastro), o rótulo volta a ser só "Nome".
+          */
+          ...(vinculos.length > 0
+            ? { placeholder: "Nome — ou deixe em branco e escolha acima" }
+            : {}),
+        },
+        { campo: "descricao", rotulo: "Descrição", tipo: "texto" as const },
+        ...(especie.usaLink
+          ? [{ campo: "link", rotulo: "Link", tipo: "texto" as const, placeholder: "https://" }]
+          : []),
+        ...(especie.usaObrigatorio
+          ? [{ campo: "obrigatorio", rotulo: "Obrigatório", tipo: "booleano" as const }]
+          : []),
+      ],
+    };
+  });
 
   return [
     ...dasEspecies,
@@ -1091,8 +1262,9 @@ export function listasDoPainel(catalogo: Catalogo | undefined): ListaDoPainel[] 
 export function listaDoPainelPorChave(
   catalogo: Catalogo | undefined,
   chave: string,
+  opcoes?: OpcoesDeResponsavel,
 ): ListaDoPainel | undefined {
-  return listasDoPainel(catalogo).find((l) => l.chave === chave);
+  return listasDoPainel(catalogo, opcoes).find((l) => l.chave === chave);
 }
 
 /** As linhas gravadas de uma lista, na ordem em que o painel as mostra. */
@@ -1108,6 +1280,15 @@ export function linhasDaListaDoPainel(etapa: Etapa, lista: ListaDoPainel): Valor
         descricao: texto(i.descricao),
         link: texto(i.link),
         obrigatorio: i.obrigatorio === true,
+        /*
+          Os vínculos voltam como `SEM_VINCULO` quando são nulos, e não como
+          `""`: é o valor que o `Select` mostra na opção "Sem departamento", e
+          `corpoDasLinhas` desfaz a tradução na volta. Um `""` aqui deixaria o
+          campo abrir em branco, como se a linha estivesse pela metade.
+        */
+        departamentoId: i.departamentoId ?? SEM_VINCULO,
+        cargoId: i.cargoId ?? SEM_VINCULO,
+        pessoaId: i.pessoaId ?? SEM_VINCULO,
       }));
   }
 
@@ -1149,8 +1330,18 @@ export function linhaNovaDoPainel(lista: ListaDoPainel): ValoresDaLinha {
 export function corpoDasLinhas(lista: ListaDoPainel, linhas: ValoresDaLinha[]): unknown[] {
   const texto = (linha: ValoresDaLinha, campo: string) => String(linha[campo] ?? "").trim();
 
+  /** O `SEM_VINCULO` da tela vira `null` na ida — ver a constante. */
+  const vinculo = (linha: ValoresDaLinha, campo: string) => {
+    const valor = texto(linha, campo);
+    return valor === "" || valor === SEM_VINCULO ? null : valor;
+  };
+
   return linhas
-    .filter((linha) => texto(linha, lista.campoObrigatorio) !== "")
+    .filter(
+      (linha) =>
+        texto(linha, lista.campoObrigatorio) !== "" ||
+        (lista.camposQueBastam ?? []).some((campo) => vinculo(linha, campo) !== null),
+    )
     .map((linha, ordem) => {
       if (lista.natureza === "itens") {
         return {
@@ -1158,6 +1349,19 @@ export function corpoDasLinhas(lista: ListaDoPainel, linhas: ValoresDaLinha[]): 
           descricao: texto(linha, "descricao"),
           link: texto(linha, "link"),
           obrigatorio: linha.obrigatorio === true,
+          /*
+            Os vínculos entram **só** na espécie que os tem. Mandá-los como três
+            `null` em documento, sistema e falha não mudaria nada no servidor e
+            mudaria o corpo de todas as outras listas — ruído que a rota ignora
+            e que quem lê a requisição teria de aprender a ignorar também.
+          */
+          ...(lista.camposQueBastam?.length
+            ? {
+                departamentoId: vinculo(linha, "departamentoId"),
+                cargoId: vinculo(linha, "cargoId"),
+                pessoaId: vinculo(linha, "pessoaId"),
+              }
+            : {}),
           ordem,
         };
       }
@@ -1189,8 +1393,12 @@ export function corpoDasLinhas(lista: ListaDoPainel, linhas: ValoresDaLinha[]): 
  * etapa a diferença entre "um campo de texto" e "uma lista com uma linha" não
  * existe — o que existe é "isto aqui ainda não foi dito".
  */
-export function listasVaziasDoPainel(etapa: Etapa, catalogo: Catalogo | undefined): ListaDoPainel[] {
-  return listasDoPainel(catalogo).filter(
+export function listasVaziasDoPainel(
+  etapa: Etapa,
+  catalogo: Catalogo | undefined,
+  opcoes?: OpcoesDeResponsavel,
+): ListaDoPainel[] {
+  return listasDoPainel(catalogo, opcoes).filter(
     (lista) => linhasDaListaDoPainel(etapa, lista).length === 0,
   );
 }

@@ -21,8 +21,10 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { ListaEditavel } from "@/components/fluxos/lista-editavel";
+import { ListaEditavel, type ColunaDaLista } from "@/components/fluxos/lista-editavel";
 import { escritas, fraseDoErro, type Catalogo, type Etapa } from "@/lib/fluxos";
+import { SEM_VINCULO, VINCULOS_DA_ETAPA, type OpcoesDeResponsavel } from "@/lib/fluxos-analise";
+import { useOpcoesDeResponsavel } from "@/lib/responsaveis";
 
 /**
  * O EDITOR DA ETAPA — três abas, e por que não são dez campos numa página só.
@@ -60,6 +62,21 @@ interface LinhaDeItem extends Record<string, unknown> {
   descricao: string;
   link: string;
   obrigatorio: boolean;
+  /**
+   * Os vínculos de cadastro da linha — só a espécie `RESPONSAVEL` os edita, e
+   * todas as espécies os **carregam**.
+   *
+   * Carregar sem editar não é sobra: a rota da lista é substituição, então uma
+   * linha que voltasse ao servidor sem os `id`s desligaria o departamento e o
+   * cargo que alguém escolheu no painel — pelo simples ato de abrir o editor e
+   * salvar. É a mesma razão de `observacoesPreservadas` existir logo abaixo.
+   *
+   * Guardam `SEM_VINCULO` quando não há vínculo, e não `""`, porque é o valor
+   * que o `Select` mostra na opção "Sem departamento" (ver a constante).
+   */
+  departamentoId: string;
+  cargoId: string;
+  pessoaId: string;
 }
 
 interface LinhaDeIndicador extends Record<string, unknown> {
@@ -76,6 +93,47 @@ interface LinhaDeAcao extends Record<string, unknown> {
   rota: string;
 }
 
+/** `SEM_VINCULO` e `""` são a mesma coisa na ida: nenhum vínculo. */
+function idDoVinculo(valor: string): string | null {
+  return valor === "" || valor === SEM_VINCULO ? null : valor;
+}
+
+function temVinculo(linha: LinhaDeItem): boolean {
+  return (
+    idDoVinculo(linha.departamentoId) !== null ||
+    idDoVinculo(linha.cargoId) !== null ||
+    idDoVinculo(linha.pessoaId) !== null
+  );
+}
+
+/**
+ * As colunas de vínculo da lista de responsáveis — as mesmas três do painel.
+ *
+ * Só a espécie `RESPONSAVEL` as recebe, e só quando a casa tem cadastro: numa
+ * casa que ainda não cadastrou departamento nenhum a lista continua sendo nome
+ * e descrição, como sempre foi.
+ */
+function colunasDoResponsavel(
+  opcoes: OpcoesDeResponsavel | undefined,
+): ColunaDaLista<LinhaDeItem>[] {
+  if (!opcoes) return [];
+  return VINCULOS_DA_ETAPA.flatMap(({ campo, rotulo, fonte }) => {
+    const lista = opcoes[fonte];
+    if (lista.length === 0) return [];
+    return [
+      {
+        campo,
+        rotulo,
+        tipo: "escolha" as const,
+        opcoes: [
+          { valor: SEM_VINCULO, rotulo: `Sem ${rotulo.toLowerCase()}` },
+          ...lista.map((o) => ({ valor: o.id, rotulo: o.nome })),
+        ],
+      },
+    ];
+  });
+}
+
 function linhasDaEspecie(etapa: Etapa | null, especie: string): LinhaDeItem[] {
   return (etapa?.itens ?? [])
     .filter((i) => i.especie === especie)
@@ -85,6 +143,9 @@ function linhasDaEspecie(etapa: Etapa | null, especie: string): LinhaDeItem[] {
       descricao: i.descricao ?? "",
       link: i.link ?? "",
       obrigatorio: i.obrigatorio === true,
+      departamentoId: i.departamentoId ?? SEM_VINCULO,
+      cargoId: i.cargoId ?? SEM_VINCULO,
+      pessoaId: i.pessoaId ?? SEM_VINCULO,
     }));
 }
 
@@ -114,6 +175,16 @@ export function EditorDaEtapa({
   const [status, setStatus] = useState(etapa?.status ?? "ATIVO");
   const [area, setArea] = useState(etapa?.area ?? "");
   const [responsavel, setResponsavel] = useState(etapa?.responsavel ?? "");
+  /*
+    Os três vínculos de cadastro da etapa. Entram no estado mesmo quando a casa
+    não tem cadastro e os selects não aparecem, pela razão de sempre neste
+    formulário: a rota é substituição, e não mandá-los de volta faria salvar o
+    editor desligar o departamento escolhido no painel.
+  */
+  const [departamentoId, setDepartamentoId] = useState(etapa?.departamentoId ?? "");
+  const [cargoId, setCargoId] = useState(etapa?.cargoId ?? "");
+  const [pessoaId, setPessoaId] = useState(etapa?.pessoaId ?? "");
+  const opcoesDeResponsavel = useOpcoesDeResponsavel();
   const [sistemaPrincipal, setSistemaPrincipal] = useState(etapa?.sistemaPrincipal ?? "");
   const [descricao, setDescricao] = useState(etapa?.descricao ?? "");
   const [objetivo, setObjetivo] = useState(etapa?.objetivo ?? "");
@@ -161,6 +232,9 @@ export function EditorDaEtapa({
         status,
         area,
         responsavel,
+        departamentoId,
+        cargoId,
+        pessoaId,
         sistemaPrincipal,
         descricao,
         objetivo,
@@ -194,13 +268,22 @@ export function EditorDaEtapa({
           gravada.id,
           especie.valor,
           linhas
-            .filter((l) => l.nome.trim() !== "")
+            /*
+              Uma linha vale pelo nome **ou** por um vínculo escolhido: quem
+              seleciona "Faturamento" na lista de responsáveis não digita nada,
+              e descartá-la aqui faria o campo parecer não funcionar. Quem põe o
+              nome nesse caso é o servidor, com o do cadastro.
+            */
+            .filter((l) => l.nome.trim() !== "" || temVinculo(l))
             .map((l, ordem) => ({
               nome: l.nome,
               descricao: l.descricao,
               ordem,
               ...(especie.usaLink ? { link: l.link } : {}),
               ...(especie.usaObrigatorio ? { obrigatorio: l.obrigatorio } : {}),
+              departamentoId: idDoVinculo(l.departamentoId),
+              cargoId: idDoVinculo(l.cargoId),
+              pessoaId: idDoVinculo(l.pessoaId),
             })),
         );
       }
@@ -290,25 +373,78 @@ export function EditorDaEtapa({
                 </Select>
               </div>
 
-              <div>
-                <Label htmlFor="etapa-area">Área</Label>
-                <Input
-                  id="etapa-area"
-                  value={area}
-                  onChange={(e) => setArea(e.target.value)}
-                  placeholder="Faturamento"
-                />
-              </div>
+              {/*
+                COM CADASTRO NA CASA, ÁREA E RESPONSÁVEL VIRAM ESCOLHA.
 
-              <div>
-                <Label htmlFor="etapa-responsavel">Responsável</Label>
-                <Input
-                  id="etapa-responsavel"
-                  value={responsavel}
-                  onChange={(e) => setResponsavel(e.target.value)}
-                  placeholder="Analista de faturamento"
-                />
-              </div>
+                Departamento, cargo e pessoa saem do cadastro (ver a `0079`), e
+                `area` e `responsavel` passam a ser a projeção deles, feita no
+                servidor — é o que impede `Faturamento`, `FATURAMENTO` e `Fat.`
+                de virarem três raias no fluxograma. Os dois campos de texto
+                continuam existindo e continuam indo no corpo: eles são o que
+                vale numa casa que ainda não cadastrou nada, e é essa casa que vê
+                os `Input` abaixo.
+              */}
+              {opcoesDeResponsavel ? (
+                VINCULOS_DA_ETAPA.map(({ campo, rotulo, fonte }) => {
+                  const lista = opcoesDeResponsavel[fonte];
+                  if (lista.length === 0) return null;
+                  const valor =
+                    campo === "departamentoId"
+                      ? departamentoId
+                      : campo === "cargoId"
+                        ? cargoId
+                        : pessoaId;
+                  const trocar =
+                    campo === "departamentoId"
+                      ? setDepartamentoId
+                      : campo === "cargoId"
+                        ? setCargoId
+                        : setPessoaId;
+                  return (
+                    <div key={campo}>
+                      <Label htmlFor={`etapa-${campo}`}>{rotulo}</Label>
+                      <Select
+                        value={valor === "" ? SEM_VINCULO : valor}
+                        onValueChange={(v) => trocar(v === SEM_VINCULO ? "" : v)}
+                      >
+                        <SelectTrigger id={`etapa-${campo}`}>
+                          <SelectValue placeholder={`Sem ${rotulo.toLowerCase()}`} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={SEM_VINCULO}>{`Sem ${rotulo.toLowerCase()}`}</SelectItem>
+                          {lista.map((o) => (
+                            <SelectItem key={o.id} value={o.id}>
+                              {o.nome}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  );
+                })
+              ) : (
+                <>
+                  <div>
+                    <Label htmlFor="etapa-area">Área</Label>
+                    <Input
+                      id="etapa-area"
+                      value={area}
+                      onChange={(e) => setArea(e.target.value)}
+                      placeholder="Faturamento"
+                    />
+                  </div>
+
+                  <div>
+                    <Label htmlFor="etapa-responsavel">Responsável</Label>
+                    <Input
+                      id="etapa-responsavel"
+                      value={responsavel}
+                      onChange={(e) => setResponsavel(e.target.value)}
+                      placeholder="Analista de faturamento"
+                    />
+                  </div>
+                </>
+              )}
 
               <div className="sm:col-span-2">
                 <Label htmlFor="etapa-sistema">Sistema principal</Label>
@@ -435,9 +571,21 @@ export function EditorDaEtapa({
                 aoMudar={(linhas) =>
                   setPorEspecie((atual) => ({ ...atual, [especie.valor]: linhas }))
                 }
-                linhaNova={() => ({ nome: "", descricao: "", link: "", obrigatorio: false })}
+                linhaNova={() => ({
+                  nome: "",
+                  descricao: "",
+                  link: "",
+                  obrigatorio: false,
+                  departamentoId: SEM_VINCULO,
+                  cargoId: SEM_VINCULO,
+                  pessoaId: SEM_VINCULO,
+                })}
                 rotuloDeAdicionar={`Adicionar ${especie.rotulo.toLowerCase()}`}
                 colunas={[
+                  /* O departamento vem antes do nome: é ele que estreita o resto. */
+                  ...(especie.valor === "RESPONSAVEL"
+                    ? colunasDoResponsavel(opcoesDeResponsavel)
+                    : []),
                   { campo: "nome", rotulo: "Nome", peso: 2 },
                   { campo: "descricao", rotulo: "Descrição", peso: 3 },
                   ...(especie.usaLink

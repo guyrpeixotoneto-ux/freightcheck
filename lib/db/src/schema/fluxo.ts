@@ -14,6 +14,8 @@ import {
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { unidadeTable } from "./unidade";
+import { cargoTable, departamentoTable } from "./cadastro";
+import { appUserTable } from "./auth";
 
 /**
  * FLUXOS OPERACIONAIS — o mapa dos processos da empresa, como dado.
@@ -173,6 +175,55 @@ export const fluxoEtapaTable = pgTable(
     ordem: integer("ordem").notNull().default(0),
     responsavel: text("responsavel"),
     area: text("area"),
+    /**
+     * O DEPARTAMENTO, O CARGO E A PESSOA — o responsável como cadastro, não
+     * como grafia.
+     *
+     * `responsavel` e `area` acima são texto livre, e é isso que este trio
+     * desfaz. Um processo em que uma etapa diz `Faturamento`, outra diz
+     * `FATURAMENTO` e uma terceira diz `Fat.` tem três raias no fluxograma,
+     * três valores no filtro da Lista e nenhuma resposta para "quantas etapas
+     * o Faturamento executa" — o mesmo defeito que `schema/cadastro.ts` existe
+     * para acabar, reproduzido no mapa dos processos.
+     *
+     * **A identidade é o `id`; o texto é projeção.** Quando o vínculo existe,
+     * a leitura (`lerFluxo`, em `lib/fluxos/repositorio.ts`) sobrescreve
+     * `area`, `responsavel` e o `nome` do item com o nome **atual** do
+     * cadastro. Renomear um departamento renomeia em todos os fluxos de uma
+     * vez, e nenhum leitor — raia, filtro, exportação, Assistente — precisou
+     * saber que isto existe. As colunas de texto continuam sendo o que a tela
+     * mostra e o que vale quando ninguém escolheu do cadastro.
+     *
+     * **Os três são nulos, e nulo é legítimo.** É o estado de toda etapa
+     * anterior a esta coluna e de toda etapa cujo responsável é uma função que
+     * ninguém cadastrou ainda. Exigir o cadastro aqui transformaria "descrever
+     * um processo" em "cadastrar a estrutura da casa primeiro" — a barreira
+     * que faz gente desistir e voltar a digitar texto, que é justamente o que
+     * estamos desfazendo.
+     *
+     * **A pessoa é opcional e vem depois do papel, nunca no lugar dele.** Um
+     * processo sobrevive a quem o executa: pessoas mudam de função e saem da
+     * empresa (`app_user.archived_at` existe por isso). Uma etapa cujo único
+     * responsável fosse `app_user` viraria uma etapa órfã no dia do
+     * desligamento, e o mapa passaria a precisar de reedição em massa a cada
+     * troca de time. Departamento e cargo não têm esse problema — é para eles
+     * que a raia olha.
+     *
+     * `RESTRICT` nos três: apagar um departamento que dez etapas apontam
+     * deixaria dez linhas penduradas numa referência morta. Quem recusa antes,
+     * com o número na frase, é `excluirDepartamento` em `lib/db/src/cadastro.ts`;
+     * a chave estrangeira é a rede embaixo.
+     */
+    departamentoId: uuid("departamento_id").references(() => departamentoTable.id, {
+      onDelete: "restrict",
+    }),
+    cargoId: uuid("cargo_id").references(() => cargoTable.id, {
+      onDelete: "restrict",
+    }),
+    /** A pessoa nomeada — `pessoaId` no modelo, `app_user_id` na coluna. */
+    pessoaId: uuid("app_user_id").references(() => appUserTable.id, {
+      onDelete: "restrict",
+    }),
     objetivo: text("objetivo"),
     sistemaPrincipal: text("sistema_principal"),
     regras: text("regras"),
@@ -293,6 +344,16 @@ export const fluxoEtapaTable = pgTable(
     index("fluxo_etapa_empresa_idx").on(t.empresaId),
     /** Quem detalha quem — a consulta de "esta etapa tem subfluxo" e a da trilha de volta. */
     index("fluxo_etapa_subfluxo_idx").on(t.subfluxoId),
+    /*
+      Os três do responsável como cadastro. Servem a duas perguntas que hoje
+      não têm resposta: "quantas etapas este departamento executa" e — antes de
+      apagar um cadastro — "alguém ainda aponta para ele?". A segunda é a que
+      obriga: `excluirDepartamento` roda essa contagem a cada exclusão, e sem
+      índice ela viraria varredura da tabela inteira de etapas.
+    */
+    index("fluxo_etapa_departamento_idx").on(t.departamentoId),
+    index("fluxo_etapa_cargo_idx").on(t.cargoId),
+    index("fluxo_etapa_pessoa_idx").on(t.pessoaId),
     check("fluxo_etapa_nome_nao_vazio", sql`length(btrim(${t.nome})) > 0`),
   ],
 );
@@ -376,6 +437,30 @@ export const fluxoEtapaItemTable = pgTable(
     obrigatorio: boolean("obrigatorio"),
     /** Só faz sentido para SISTEMA: o endereço externo do portal, do banco. */
     link: text("link"),
+    /**
+     * O responsável como cadastro — a espécie que os usa hoje é `RESPONSAVEL`,
+     * e nas outras eles são nulos: nulo aqui quer dizer "a pergunta não se
+     * aplica". Não há `CHECK` amarrando os três à espécie, pela mesma razão de
+     * `especie` ser `text` sem `CHECK`: a lista de espécies mora no catálogo, em
+     * código, e uma constraint aqui obrigaria uma migration no dia em que uma
+     * espécie nova quisesse apontar para o cadastro.
+     *
+     * Vale palavra por palavra o que está escrito nas três colunas irmãs de
+     * `fluxo_etapa` acima: a identidade é o `id`, `nome` é projeção do cadastro
+     * quando o vínculo existe, e a pessoa vem depois do papel — nunca no lugar
+     * dele. A diferença é só de granularidade: lá é o responsável **da etapa**,
+     * o que a raia lê; aqui é cada linha da lista de responsáveis, que é onde
+     * uma etapa com duas áreas envolvidas diz que são duas.
+     */
+    departamentoId: uuid("departamento_id").references(() => departamentoTable.id, {
+      onDelete: "restrict",
+    }),
+    cargoId: uuid("cargo_id").references(() => cargoTable.id, {
+      onDelete: "restrict",
+    }),
+    pessoaId: uuid("app_user_id").references(() => appUserTable.id, {
+      onDelete: "restrict",
+    }),
     ordem: integer("ordem").notNull().default(0),
     criadoEm: timestamp("criado_em", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -392,6 +477,10 @@ export const fluxoEtapaItemTable = pgTable(
     }).onDelete("cascade"),
     index("fluxo_etapa_item_etapa_idx").on(t.etapaId, t.especie),
     index("fluxo_etapa_item_especie_idx").on(t.empresaId, t.especie),
+    /** Os três do responsável como cadastro — ver os irmãos em `fluxo_etapa`. */
+    index("fluxo_etapa_item_departamento_idx").on(t.departamentoId),
+    index("fluxo_etapa_item_cargo_idx").on(t.cargoId),
+    index("fluxo_etapa_item_pessoa_idx").on(t.pessoaId),
     check("fluxo_etapa_item_nome_nao_vazio", sql`length(btrim(${t.nome})) > 0`),
   ],
 );

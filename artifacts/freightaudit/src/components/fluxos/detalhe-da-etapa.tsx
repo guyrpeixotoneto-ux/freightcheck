@@ -5,6 +5,7 @@ import type { Catalogo, Etapa, ResumoDeSubfluxo } from "@/lib/fluxos";
 import type {
   CampoDaEtapaNoPainel,
   DiagnosticoDaEtapa,
+  OpcoesDeResponsavel,
   ValoresDaLinha,
 } from "@/lib/fluxos-analise";
 
@@ -28,6 +29,7 @@ import type {
 export function DetalheDaEtapa({
   etapa,
   catalogo,
+  opcoesDeResponsavel,
   podeEditar,
   diagnostico,
   onEditar,
@@ -43,6 +45,8 @@ export function DetalheDaEtapa({
 }: {
   etapa: Etapa;
   catalogo: Catalogo | undefined;
+  /** O cadastro da casa para escolher responsável — ver `PainelDaEtapa`. */
+  opcoesDeResponsavel?: OpcoesDeResponsavel;
   podeEditar: boolean;
   diagnostico?: DiagnosticoDaEtapa;
   onEditar: () => void;
@@ -64,6 +68,7 @@ export function DetalheDaEtapa({
     <PainelDaEtapa
       etapa={etapa}
       catalogo={catalogo}
+      opcoesDeResponsavel={opcoesDeResponsavel}
       podeEditar={podeEditar}
       diagnostico={diagnostico}
       onEditar={onEditar}

@@ -554,6 +554,13 @@
       "when": 1788700000000,
       "tag": "0078_arquivar_conta",
       "breakpoints": true
+    },
+    {
+      "idx": 79,
+      "version": "7",
+      "when": 1788800000000,
+      "tag": "0079_responsavel_do_cadastro",
+      "breakpoints": true
     }
   ]
 }

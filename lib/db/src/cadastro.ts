@@ -1,6 +1,7 @@
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, sql } from "drizzle-orm";
 import type { Database } from "./index";
 import { cargoTable, departamentoTable, negocioTable } from "./schema/cadastro";
+import { fluxoEtapaItemTable, fluxoEtapaTable } from "./schema/fluxo";
 
 /**
  * O CADASTRO DA CASA — as regras de departamento, cargo e negócio.
@@ -338,6 +339,45 @@ export async function editarDepartamento(
  * por engano não assina nada: nenhuma confirmação de curadoria aponta para ele.
  * O que ele pode ter é filho e cargo, e é isso que a recusa abaixo protege.
  */
+/**
+ * Quantas etapas de processo apontam para este cadastro — no responsável da
+ * etapa e na lista de responsáveis dela.
+ *
+ * Existe porque a exclusão de um cadastro passou a ter um segundo lugar onde
+ * doer. Antes da `0079`, apagar `Faturamento` só podia derrubar cargos e
+ * contas; hoje derruba também o mapa dos processos, onde o mesmo departamento
+ * é o que a raia do fluxograma lê. Sem esta contagem quem apagasse receberia a
+ * violação de chave estrangeira crua do Postgres — uma mensagem que nomeia a
+ * constraint e não diz o que fazer.
+ *
+ * As duas tabelas contam juntas e o número sai somado, porque para quem está na
+ * tela de Cadastro a distinção entre "o responsável da etapa" e "uma linha da
+ * lista de responsáveis" não existe: o que existe é "sete etapas ainda apontam
+ * para isto".
+ */
+async function etapasQueApontam(
+  db: Database,
+  coluna: "departamentoId" | "cargoId" | "pessoaId",
+  id: string,
+): Promise<number> {
+  const [etapas, itens] = await Promise.all([
+    db
+      .select({ total: sql<number>`count(*)::int` })
+      .from(fluxoEtapaTable)
+      .where(eq(fluxoEtapaTable[coluna], id)),
+    db
+      .select({ total: sql<number>`count(*)::int` })
+      .from(fluxoEtapaItemTable)
+      .where(eq(fluxoEtapaItemTable[coluna], id)),
+  ]);
+  return (etapas[0]?.total ?? 0) + (itens[0]?.total ?? 0);
+}
+
+/** A frase da recusa, com o número que faz quem lê saber o tamanho do estrago. */
+function fraseDasEtapas(total: number): string {
+  return `${total} etapa${total === 1 ? " de processo aponta" : "s de processo apontam"} para ele`;
+}
+
 export async function excluirDepartamento(db: Database, id: string): Promise<void> {
   const existente = await departamentoPorId(db, id);
   if (existente === null) throw new CadastroNaoEncontrado("departamento", id);
@@ -363,6 +403,9 @@ export async function excluirDepartamento(db: Database, id: string): Promise<voi
       `${cargos.length} cargo${cargos.length === 1 ? " está lotado" : "s estão lotados"} nele`,
     );
   }
+
+  const etapas = await etapasQueApontam(db, "departamentoId", id);
+  if (etapas > 0) throw new CadastroEmUso("departamento", fraseDasEtapas(etapas));
 
   await db.delete(departamentoTable).where(eq(departamentoTable.id, id));
 }
@@ -502,6 +545,10 @@ export async function editarCargo(
 export async function excluirCargo(db: Database, id: string): Promise<void> {
   const existente = await cargoPorId(db, id);
   if (existente === null) throw new CadastroNaoEncontrado("cargo", id);
+
+  const etapas = await etapasQueApontam(db, "cargoId", id);
+  if (etapas > 0) throw new CadastroEmUso("cargo", fraseDasEtapas(etapas));
+
   await db.delete(cargoTable).where(eq(cargoTable.id, id));
 }
 

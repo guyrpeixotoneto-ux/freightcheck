@@ -68,8 +68,13 @@ import {
   type ListaDoPainel,
   type ValoresDaLinha,
   type CampoDoPainel,
+  type CampoDeVinculoDaEtapa,
+  type OpcoesDeResponsavel,
+  VINCULOS_DA_ETAPA,
+  SEM_VINCULO,
   type DiagnosticoDaEtapa,
 } from "@/lib/fluxos-analise";
+
 
 /**
  * O PAINEL DA ETAPA — tudo o que o cartão não mostra, sem perder o fluxo de vista.
@@ -372,6 +377,16 @@ function EscolhaEmBadge({
  * lugar previsível e de um alvo pequeno: um X em cada linha da lista em modo de
  * leitura transformaria a leitura do painel numa fileira de botões de apagar.
  */
+/** O nome do departamento escolhido numa linha da lista, quando há um. */
+function nomeDoDepartamento(
+  linha: ValoresDaLinha,
+  opcoes: OpcoesDeResponsavel | undefined,
+): string | null {
+  const id = String(linha.departamentoId ?? "");
+  if (id === "" || id === SEM_VINCULO || !opcoes) return null;
+  return opcoes.departamentos.find((d) => d.id === id)?.nome ?? null;
+}
+
 function EdicaoDeLinha({
   lista,
   valores,
@@ -449,8 +464,13 @@ function EdicaoDeLinha({
         return (
           <Input
             key={campo.campo}
-            /* Só o primeiro campo pega o foco — é o nome, e é por onde se começa. */
-            autoFocus={indice === 0}
+            /*
+              Só o primeiro campo **de texto** pega o foco. Era `indice === 0`, e
+              deixou de bastar quando a lista de responsáveis passou a começar
+              por selects: com eles na frente, nenhum `Input` seria o de índice
+              zero e a linha abriria sem foco em lugar nenhum.
+            */
+            autoFocus={indice === lista.campos.findIndex((c) => (c.tipo ?? "texto") === "texto")}
             className="h-8 text-sm"
             aria-label={campo.rotulo}
             placeholder={campo.placeholder ?? campo.rotulo}
@@ -494,6 +514,7 @@ function EdicaoDeLinha({
 export function PainelDaEtapa({
   etapa,
   catalogo,
+  opcoesDeResponsavel,
   podeEditar,
   diagnostico,
   onEditar,
@@ -509,6 +530,17 @@ export function PainelDaEtapa({
 }: {
   etapa: Etapa;
   catalogo: Catalogo | undefined;
+  /**
+   * O cadastro da casa — departamento, cargo e pessoa —, para que responsável
+   * seja escolha e não texto digitado (ver a `0079`).
+   *
+   * Chega por propriedade, e não por um hook aqui dentro, pela mesma razão de
+   * `catalogo`: quem busca dado nesta tela é a página, e um `useQuery` no painel
+   * exigiria um `QueryClientProvider` em volta de todo teste que só quer saber o
+   * que o painel **mostra**. Ausente, a lista de responsáveis volta a ser nome e
+   * descrição, digitados — que é o comportamento de uma casa sem cadastro.
+   */
+  opcoesDeResponsavel?: OpcoesDeResponsavel;
   podeEditar: boolean;
   /** Só a visualização de Gargalos passa: por que esta etapa está destacada. */
   diagnostico?: DiagnosticoDaEtapa;
@@ -557,7 +589,9 @@ export function PainelDaEtapa({
   */
   const [emEdicao, setEmEdicao] = useState<CampoDeTextoDaEtapa | null>(null);
   /* A escolha de catálogo grava sem formulário: o que se guarda é qual está no ar. */
-  const [escolhendo, setEscolhendo] = useState<CampoDeEscolhaDaEtapa | null>(null);
+  const [escolhendo, setEscolhendo] = useState<
+    CampoDeEscolhaDaEtapa | CampoDeVinculoDaEtapa | null
+  >(null);
   const [erroDaEscolha, setErroDaEscolha] = useState<string | null>(null);
   useEffect(() => {
     setEmEdicao(null);
@@ -579,11 +613,15 @@ export function PainelDaEtapa({
 
   const editavel = podeEditar && onSalvarCampo !== undefined;
   const listasEditaveis = podeEditar && onSalvarLista !== undefined;
-  const listas = listasDoPainel(catalogo);
+  const listas = listasDoPainel(catalogo, opcoesDeResponsavel);
 
-  const escolher = (campo: CampoDeEscolhaDaEtapa, valor: string) => {
+  const escolher = (
+    campo: CampoDeEscolhaDaEtapa | CampoDeVinculoDaEtapa,
+    valor: string,
+    atual: string,
+  ) => {
     /* Escolher o que já está gravado não é edição — e a rota é substituição. */
-    if (!onSalvarCampo || valor === (campo === "tipo" ? etapa.tipo : etapa.status)) return;
+    if (!onSalvarCampo || valor === atual) return;
     setEscolhendo(campo);
     setErroDaEscolha(null);
     onSalvarCampo(campo, valor)
@@ -595,7 +633,9 @@ export function PainelDaEtapa({
       .finally(() => setEscolhendo(null));
   };
   const vazios = editavel ? camposVaziosDoPainel(etapa) : [];
-  const listasVazias = listasEditaveis ? listasVaziasDoPainel(etapa, catalogo) : [];
+  const listasVazias = listasEditaveis
+    ? listasVaziasDoPainel(etapa, catalogo, opcoesDeResponsavel)
+    : [];
 
   const abrirLinha = (lista: ListaDoPainel, indice: number | null) => {
     setEmEdicao(null);
@@ -768,7 +808,7 @@ export function PainelDaEtapa({
                     opcoes={catalogo.tiposDeEtapa}
                     valorAtual={etapa.tipo}
                     gravando={escolhendo === "tipo"}
-                    aoEscolher={(valor) => escolher("tipo", valor)}
+                    aoEscolher={(valor) => escolher("tipo", valor, etapa.tipo)}
                   />
                   <EscolhaEmBadge
                     rotulo="status da etapa"
@@ -777,7 +817,7 @@ export function PainelDaEtapa({
                     opcoes={catalogo.statusDaEtapa}
                     valorAtual={etapa.status}
                     gravando={escolhendo === "status"}
-                    aoEscolher={(valor) => escolher("status", valor)}
+                    aoEscolher={(valor) => escolher("status", valor, etapa.status)}
                   />
                 </>
               ) : (
@@ -806,7 +846,45 @@ export function PainelDaEtapa({
               lista do rodapé — quem quer preencher a área encontra o convite
               onde a área seria lida, e não numa lista lá embaixo.
             */}
-            {editavel && (emEdicao === "area" || emEdicao === "responsavel") ? (
+            {/*
+              COM CADASTRO NA CASA, ÁREA E RESPONSÁVEL VIRAM ESCOLHA.
+
+              As duas continuam sendo o que se lê aqui — mas deixam de ser
+              digitadas: o que se escolhe é o departamento, o cargo e (se
+              importar dizer) a pessoa, e `area` e `responsavel` passam a ser a
+              projeção desses cadastros, feita no servidor. É o que faz
+              `Faturamento`, `FATURAMENTO` e `Fat.` deixarem de ser três raias
+              no fluxograma.
+
+              Quando a casa ainda não cadastrou nada, `opcoesDeResponsavel` é
+              `undefined` e o cabeçalho volta ao texto livre de sempre: nenhuma
+              tela fica esperando cadastro para funcionar.
+            */}
+            {editavel && opcoesDeResponsavel ? (
+              <p className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                {VINCULOS_DA_ETAPA.map(({ campo, rotulo, vazio, fonte }) => {
+                  const lista = opcoesDeResponsavel[fonte];
+                  if (lista.length === 0) return null;
+                  const atual = etapa[campo] ?? "";
+                  const escolhido = lista.find((o) => o.id === atual);
+                  return (
+                    <EscolhaEmBadge
+                      key={campo}
+                      rotulo={rotulo.toLowerCase()}
+                      exibido={escolhido?.nome ?? vazio}
+                      variante="outline"
+                      opcoes={[
+                        { valor: "", rotulo: `Sem ${rotulo.toLowerCase()}` },
+                        ...lista.map((o) => ({ valor: o.id, rotulo: o.nome })),
+                      ]}
+                      valorAtual={atual}
+                      gravando={escolhendo === campo}
+                      aoEscolher={(valor) => escolher(campo, valor, atual)}
+                    />
+                  );
+                })}
+              </p>
+            ) : editavel && (emEdicao === "area" || emEdicao === "responsavel") ? (
               <div className="mt-2">
                 <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   {emEdicao === "area" ? "Área" : "Responsável"}
@@ -1018,10 +1096,22 @@ export function PainelDaEtapa({
                     if (linhaEmEdicao(lista, indice)) {
                       return <li key={`${lista.chave}-${indice}`}>{formularioDaLinha(lista)}</li>;
                     }
+                    /*
+                      O departamento aparece ao lado do nome, e só quando não é
+                      ele o próprio nome: uma linha que aponta para o cargo
+                      "Analista Fiscal" do Faturamento se lê "Analista Fiscal ·
+                      Faturamento", e uma que aponta só para o departamento se lê
+                      "Faturamento" — sem o "Faturamento · Faturamento" que
+                      repetir cegamente produziria.
+                    */
+                    const departamento = nomeDoDepartamento(linha, opcoesDeResponsavel);
                     const leitura = (
                       <>
                         <span className="flex flex-wrap items-baseline gap-1.5">
                           <span className="font-medium text-foreground">{nome}</span>
+                          {departamento && departamento !== nome && (
+                            <span className="text-xs text-muted-foreground">{departamento}</span>
+                          )}
                           {/*
                             "Obrigatório" só aparece em documento, e só quando é
                             verdade. Um "opcional" etiquetado em cada linha seria

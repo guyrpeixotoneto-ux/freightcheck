@@ -37,6 +37,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { DetalheDaEtapa } from "@/components/fluxos/detalhe-da-etapa";
+import { useOpcoesDeResponsavel } from "@/lib/responsaveis";
 import { EditorDaEtapa } from "@/components/fluxos/editor-da-etapa";
 import {
   BotaoDeExportar,
@@ -151,6 +152,13 @@ export default function TelaDoFluxo() {
 
   const { empresaId } = useEmpresaDosFluxos();
   const catalogo = useCatalogoDeFluxos();
+  /*
+    O cadastro da casa — departamento, cargo e pessoa —, para o painel oferecer
+    responsável como escolha em vez de campo em branco (ver a `0079`). Fica
+    aqui, e não dentro do painel, pela mesma razão do catálogo: quem busca dado
+    nesta tela é a página.
+  */
+  const opcoesDeResponsavel = useOpcoesDeResponsavel();
   const consulta = useFluxo(empresaId, fluxoId);
   const recarregar = useRecarregarFluxos(empresaId);
   /*
@@ -434,7 +442,13 @@ export default function TelaDoFluxo() {
       chave: string;
       linhas: ValoresDaLinha[];
     }) => {
-      const lista = listaDoPainelPorChave(catalogo.data, chave);
+      /*
+        As opções do cadastro entram aqui também, e não só na montagem da tela:
+        é delas que sai `camposQueBastam`, e sem ele `corpoDasLinhas` descartaria
+        a linha de responsável que tem departamento escolhido e nome em branco —
+        exatamente a linha que este campo existe para permitir.
+      */
+      const lista = listaDoPainelPorChave(catalogo.data, chave, opcoesDeResponsavel);
       if (!lista) throw new Error("Esta lista não existe no catálogo — recarregue a página.");
       const corpo = corpoDasLinhas(lista, linhas);
 
@@ -1090,6 +1104,7 @@ export default function TelaDoFluxo() {
             <DetalheDaEtapa
               etapa={etapaSelecionada}
               catalogo={catalogo.data}
+              opcoesDeResponsavel={opcoesDeResponsavel}
               podeEditar={!somenteLeitura}
               diagnostico={analise?.porEtapa.get(etapaSelecionada.id)}
               onEditar={() => setEditandoEtapa({ aberto: true, etapaId: etapaSelecionada.id })}

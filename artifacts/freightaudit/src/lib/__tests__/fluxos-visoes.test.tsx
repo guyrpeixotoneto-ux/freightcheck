@@ -19,6 +19,7 @@ import {
   listaDoPainelPorChave,
   listasDoPainel,
   listasVaziasDoPainel,
+  SEM_VINCULO,
   edicaoNaLista,
   etapaNovaVazia,
   filtrarLinhas,
@@ -79,6 +80,9 @@ function etapa(parcial: Partial<Etapa> & { id: string; nome: string }): Etapa {
     ordem: 0,
     responsavel: null,
     area: null,
+    departamentoId: null,
+    cargoId: null,
+    pessoaId: null,
     objetivo: null,
     sistemaPrincipal: null,
     regras: null,
@@ -106,7 +110,18 @@ function conexao(
 }
 
 function item(especie: string, nome: string, ordem = 0) {
-  return { id: `${especie}-${nome}`, especie, nome, descricao: null, obrigatorio: null, link: null, ordem };
+  return {
+    id: `${especie}-${nome}`,
+    especie,
+    nome,
+    descricao: null,
+    obrigatorio: null,
+    link: null,
+    ordem,
+    departamentoId: null,
+    cargoId: null,
+    pessoaId: null,
+  };
 }
 
 const CATALOGO = {
@@ -1918,5 +1933,129 @@ describe("caso 11 — as listas da etapa se editam no painel", () => {
     expect(pagina).toMatch(/escritas\.salvarAcoes\(/);
     /* E o corpo sai da função pura, não de um objeto montado à mão na página. */
     expect(pagina).toMatch(/corpoDasLinhas\(lista, linhas\)/);
+  });
+});
+
+/**
+ * CASO 12 — O RESPONSÁVEL SE ESCOLHE, E NÃO SE DIGITA.
+ *
+ * A `0079` trocou o responsável de texto livre por referência ao cadastro da
+ * casa, e a promessa é dupla: quem tem cadastro escolhe (não há duas grafias
+ * para escolher), e quem não tem continua digitando como sempre. As duas metades
+ * são conferidas aqui, sem DOM — a montagem das listas é função pura de
+ * propósito, e é isso que permite prová-la sem servidor e sem cadastro real.
+ */
+describe("caso 12 — responsável escolhido do cadastro", () => {
+  const CATALOGO_COM_RESPONSAVEL = {
+    ...CATALOGO,
+    especiesDeItem: [
+      ...CATALOGO.especiesDeItem,
+      {
+        valor: "RESPONSAVEL",
+        rotulo: "Responsável",
+        titulo: "Responsáveis",
+        descricao: "",
+        icone: "Users",
+        usaLink: false,
+        usaObrigatorio: false,
+      },
+    ],
+  } as unknown as Catalogo;
+
+  const OPCOES = {
+    departamentos: [{ id: "d1", nome: "Faturamento" }],
+    cargos: [{ id: "c1", nome: "Analista Fiscal" }],
+    pessoas: [{ id: "p1", nome: "Ana Souza" }],
+  };
+
+  const listaDeResponsaveis = (opcoes?: typeof OPCOES) =>
+    listaDoPainelPorChave(CATALOGO_COM_RESPONSAVEL, "itens:RESPONSAVEL", opcoes)!;
+
+  it("com cadastro, a lista ganha departamento, cargo e pessoa — nessa ordem", () => {
+    const campos = listaDeResponsaveis(OPCOES).campos.map((c) => c.campo);
+    expect(campos.slice(0, 3)).toEqual(["departamentoId", "cargoId", "pessoaId"]);
+    /* O departamento vem antes do nome: é ele que estreita a resposta seguinte. */
+    expect(campos.indexOf("departamentoId")).toBeLessThan(campos.indexOf("nome"));
+  });
+
+  it("sem cadastro, a lista é a de sempre — nome e descrição, digitados", () => {
+    expect(listaDeResponsaveis().campos.map((c) => c.campo)).toEqual(["nome", "descricao"]);
+  });
+
+  it("as outras espécies não ganham os selects — só o responsável tem cadastro", () => {
+    const sistema = listaDoPainelPorChave(CATALOGO_COM_RESPONSAVEL, "itens:SISTEMA", OPCOES)!;
+    expect(sistema.campos.map((c) => c.campo)).toEqual(["nome", "descricao", "link"]);
+    expect(sistema.camposQueBastam).toEqual([]);
+  });
+
+  it("uma linha com departamento escolhido e nome em branco vale a gravação", () => {
+    const lista = listaDeResponsaveis(OPCOES);
+    const corpo = corpoDasLinhas(lista, [
+      { ...linhaNovaDoPainel(lista), departamentoId: "d1" },
+    ]) as { nome: string; departamentoId: string | null }[];
+    expect(corpo).toHaveLength(1);
+    expect(corpo[0].nome).toBe("");
+    expect(corpo[0].departamentoId).toBe("d1");
+  });
+
+  it("a opção 'sem departamento' vira null na ida, e não a sua própria etiqueta", () => {
+    const lista = listaDeResponsaveis(OPCOES);
+    const corpo = corpoDasLinhas(lista, [
+      { ...linhaNovaDoPainel(lista), nome: "Operação" },
+    ]) as { departamentoId: string | null; cargoId: string | null; pessoaId: string | null }[];
+    expect(corpo[0]).toMatchObject({ departamentoId: null, cargoId: null, pessoaId: null });
+  });
+
+  it("linha sem nome e sem vínculo nenhum continua sumindo da gravação", () => {
+    const lista = listaDeResponsaveis(OPCOES);
+    expect(corpoDasLinhas(lista, [{ ...linhaNovaDoPainel(lista), descricao: "sobra" }])).toEqual([]);
+  });
+
+  it("os vínculos gravados voltam para o formulário como estão", () => {
+    const comResponsavel = etapa({
+      id: "er",
+      nome: "Conferir",
+      itens: [
+        {
+          id: "i1",
+          especie: "RESPONSAVEL",
+          nome: "Analista Fiscal",
+          descricao: null,
+          obrigatorio: null,
+          link: null,
+          ordem: 0,
+          departamentoId: "d1",
+          cargoId: "c1",
+          pessoaId: null,
+        },
+      ],
+    });
+    const [linha] = linhasDaListaDoPainel(comResponsavel, listaDeResponsaveis(OPCOES));
+    expect(linha.departamentoId).toBe("d1");
+    expect(linha.cargoId).toBe("c1");
+    /* Sem vínculo o campo volta como a opção "sem", e não em branco. */
+    expect(linha.pessoaId).toBe(SEM_VINCULO);
+  });
+
+  /*
+    A célula da Lista é o lugar onde uma edição que "não pega" seria invisível:
+    `area` e `responsavel` são projeção quando há vínculo, então gravar texto
+    ali seria escrever numa coluna que a próxima leitura sobrescreve.
+  */
+  it("a Lista não deixa digitar por cima do que veio do cadastro", () => {
+    const comVinculo = etapa({
+      id: "ev",
+      nome: "Conferir",
+      area: "Faturamento",
+      responsavel: "Analista Fiscal",
+      departamentoId: "d1",
+      cargoId: "c1",
+    });
+    expect(edicaoNaLista(comVinculo, "area").editavel).toBe(false);
+    expect(edicaoNaLista(comVinculo, "area").motivo).toMatch(/departamento/i);
+    expect(edicaoNaLista(comVinculo, "responsavel").editavel).toBe(false);
+
+    const semVinculo = etapa({ id: "es", nome: "Conferir", area: "Faturamento" });
+    expect(edicaoNaLista(semVinculo, "area").editavel).toBe(true);
   });
 });

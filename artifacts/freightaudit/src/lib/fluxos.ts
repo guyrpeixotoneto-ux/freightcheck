@@ -65,6 +65,18 @@ export interface ItemDaEtapa {
   obrigatorio: boolean | null;
   link: string | null;
   ordem: number;
+  /**
+   * O responsável como cadastro — departamento, cargo e pessoa (ver a `0079`).
+   *
+   * Só a espécie `RESPONSAVEL` os usa, e neles a regra é a mesma do servidor:
+   * quando o vínculo existe, **`nome` é projeção** — o que chega aqui já é o
+   * nome que está no cadastro agora, e não o que estava lá quando alguém
+   * gravou. A tela mostra `nome` como sempre mostrou; os `id`s existem para o
+   * formulário saber o que veio selecionado.
+   */
+  departamentoId: string | null;
+  cargoId: string | null;
+  pessoaId: string | null;
 }
 
 export interface IndicadorDaEtapa {
@@ -96,6 +108,14 @@ export interface Etapa {
   ordem: number;
   responsavel: string | null;
   area: string | null;
+  /**
+   * O responsável da etapa como cadastro — o mesmo trio de `ItemDaEtapa`, um
+   * nível acima. `area` é projeção de `departamentoId`, e `responsavel` de
+   * `cargoId` ou, na falta dele, de `pessoaId`.
+   */
+  departamentoId: string | null;
+  cargoId: string | null;
+  pessoaId: string | null;
   objetivo: string | null;
   sistemaPrincipal: string | null;
   regras: string | null;
@@ -727,6 +747,16 @@ export function corpoDaEtapa(etapa: Etapa): Record<string, unknown> {
     status: etapa.status,
     area: etapa.area ?? "",
     responsavel: etapa.responsavel ?? "",
+    /*
+      Os três vínculos vão de volta como vieram, e é obrigatório que vão: a rota
+      da etapa é **substituição**, então omiti-los faria a primeira edição de
+      qualquer outro campo — mudar o tipo, arrastar o cartão — desligar o
+      departamento e o cargo escolhidos, sem que ninguém tivesse pedido isso.
+      É a mesma razão de `observacoes` continuar aqui.
+    */
+    departamentoId: etapa.departamentoId,
+    cargoId: etapa.cargoId,
+    pessoaId: etapa.pessoaId,
     sistemaPrincipal: etapa.sistemaPrincipal ?? "",
     descricao: etapa.descricao ?? "",
     objetivo: etapa.objetivo ?? "",

@@ -3,6 +3,9 @@ import pg from "pg";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { eq } from "drizzle-orm";
 import {
+  appUserTable,
+  cargoTable,
+  departamentoTable,
   fluxoConexaoTable,
   fluxoEtapaItemTable,
   fluxoEtapaTable,
@@ -955,6 +958,141 @@ describe.skipIf(!temBanco)("Fluxos Operacionais sobre o banco", () => {
       expect(completo.etapas).toHaveLength(5);
       expect(completo.conexoes).toHaveLength(5);
       expect(completo.etapas.find((e) => e.id === liberar.id)!.acoes[0].rota).toBe("/frota-360");
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // O responsável como cadastro — a `0079`
+  // -------------------------------------------------------------------------
+
+  /**
+   * A afirmação central da `0079`: **a identidade é o `id`, e o texto é
+   * projeção**.
+   *
+   * Não basta gravar o vínculo; o que ele promete é que renomear o cadastro
+   * renomeia em todo processo que o aponta, sem migração e sem reedição. É o
+   * que estes casos provam — e o que falharia calado se alguém trocasse a
+   * projeção da leitura por uma cópia do nome na hora da escrita.
+   */
+  describe("responsável escolhido do cadastro", () => {
+    let departamento: string;
+    let cargo: string;
+    let pessoa: string;
+
+    beforeAll(async () => {
+      const [d] = await db
+        .insert(departamentoTable)
+        .values({ nome: "Faturamento", nomeCanonico: "FATURAMENTO" })
+        .returning();
+      const [c] = await db
+        .insert(cargoTable)
+        .values({ nome: "Analista Fiscal", nomeCanonico: "ANALISTA FISCAL", departamentoId: d.id })
+        .returning();
+      const [u] = await db
+        .insert(appUserTable)
+        .values({ email: "ana@exemplo.com", name: "Ana Souza", passwordHash: "x" })
+        .returning();
+      departamento = d.id;
+      cargo = c.id;
+      pessoa = u.id;
+    });
+
+    it("a etapa lê área e responsável do cadastro, e não do texto gravado", async () => {
+      const fluxo = await criarFluxo(db, empresaA, { nome: "Com cadastro", categoria: "Teste" }, AUTOR);
+      const etapa = await criarEtapa(db, empresaA, fluxo.id, {
+        nome: "Conferir CTe",
+        /* O texto vai junto, e de propósito discorda do cadastro. */
+        area: "FAT",
+        responsavel: "quem sobrar",
+        departamentoId: departamento,
+        cargoId: cargo,
+      });
+
+      expect(etapa.area).toBe("Faturamento");
+      expect(etapa.responsavel).toBe("Analista Fiscal");
+
+      const completo = (await lerFluxo(db, empresaA, fluxo.id))!;
+      const lida = completo.etapas.find((e) => e.id === etapa.id)!;
+      expect(lida.area).toBe("Faturamento");
+      expect(lida.responsavel).toBe("Analista Fiscal");
+      expect(lida.departamentoId).toBe(departamento);
+    });
+
+    it("renomear o departamento renomeia a área em todo fluxo que o aponta", async () => {
+      const fluxo = await criarFluxo(db, empresaA, { nome: "Renomear", categoria: "Teste" }, AUTOR);
+      const etapa = await criarEtapa(db, empresaA, fluxo.id, {
+        nome: "Emitir",
+        departamentoId: departamento,
+      });
+      expect(etapa.area).toBe("Faturamento");
+
+      await db
+        .update(departamentoTable)
+        .set({ nome: "Faturamento e Cobrança" })
+        .where(eq(departamentoTable.id, departamento));
+
+      const completo = (await lerFluxo(db, empresaA, fluxo.id))!;
+      expect(completo.etapas.find((e) => e.id === etapa.id)!.area).toBe("Faturamento e Cobrança");
+
+      await db
+        .update(departamentoTable)
+        .set({ nome: "Faturamento" })
+        .where(eq(departamentoTable.id, departamento));
+    });
+
+    /*
+      O item sem nome é o caso que a tela produz: quem escolhe "Faturamento" na
+      lista de responsáveis não digita nada. Quem põe o nome é o servidor.
+    */
+    it("um responsável escolhido do cadastro vale sem nome digitado", async () => {
+      const fluxo = await criarFluxo(db, empresaA, { nome: "Sem nome", categoria: "Teste" }, AUTOR);
+      const etapa = await criarEtapa(db, empresaA, fluxo.id, { nome: "Conferir" });
+      await substituirItens(db, empresaA, fluxo.id, etapa.id, "RESPONSAVEL", [
+        { departamentoId: departamento },
+        { pessoaId: pessoa },
+      ]);
+
+      const completo = (await lerFluxo(db, empresaA, fluxo.id))!;
+      const itens = completo.etapas.find((e) => e.id === etapa.id)!.itens;
+      expect(itens.map((i) => i.nome)).toEqual(["Faturamento", "Ana Souza"]);
+      expect(itens[0].departamentoId).toBe(departamento);
+      expect(itens[1].pessoaId).toBe(pessoa);
+    });
+
+    it("sem nome e sem vínculo, o item continua sendo recusado", async () => {
+      const fluxo = await criarFluxo(db, empresaA, { nome: "Nem nome", categoria: "Teste" }, AUTOR);
+      const etapa = await criarEtapa(db, empresaA, fluxo.id, { nome: "Conferir" });
+      await expect(
+        substituirItens(db, empresaA, fluxo.id, etapa.id, "RESPONSAVEL", [{ descricao: "só isto" }]),
+      ).rejects.toBeInstanceOf(RecusaDeFluxo);
+    });
+
+    /*
+      A chave estrangeira já barraria; o que este caso prova é que a recusa
+      chega como frase do módulo, e não como violação de constraint do driver.
+    */
+    it("um cadastro que não existe é recusado com frase, não com erro de banco", async () => {
+      const fluxo = await criarFluxo(db, empresaA, { nome: "Fantasma", categoria: "Teste" }, AUTOR);
+      await expect(
+        criarEtapa(db, empresaA, fluxo.id, {
+          nome: "Conferir",
+          departamentoId: "00000000-0000-0000-0000-000000000000",
+        }),
+      ).rejects.toBeInstanceOf(RecusaDeFluxo);
+    });
+
+    it("duplicar um fluxo leva os vínculos junto", async () => {
+      const fluxo = await criarFluxo(db, empresaA, { nome: "Original", categoria: "Teste" }, AUTOR);
+      await criarEtapa(db, empresaA, fluxo.id, {
+        nome: "Conferir",
+        departamentoId: departamento,
+        cargoId: cargo,
+      });
+
+      const copia = await duplicarFluxo(db, empresaA, fluxo.id, "Cópia com cadastro", AUTOR);
+      const completo = (await lerFluxo(db, empresaA, copia.id))!;
+      expect(completo.etapas[0].departamentoId).toBe(departamento);
+      expect(completo.etapas[0].area).toBe("Faturamento");
     });
   });
 });
