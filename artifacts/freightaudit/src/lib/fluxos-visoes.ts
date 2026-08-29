@@ -141,6 +141,18 @@ export interface EntradaDeLente {
   descricao: string;
   /** O nome do ícone `lucide-react` que o seletor monta. */
   icone: string;
+  /**
+   * O cartão mostra os selos da etapa (o tipo e o "Atenção")?
+   *
+   * Verdadeiro só na Operação, que é a leitura executiva do processo — ali o
+   * tipo da etapa é parte do assunto. Nas lentes focadas o cartão é uma linha
+   * de uma leitura só — o número, o nome da etapa e o documento (ou a falha, ou
+   * o gargalo) —, e o selo de tipo ("Sistema", "Validação") é justamente a
+   * informação de outra pergunta: some para que a coluna da lente seja a única
+   * coisa que se lê de cima a baixo. O tipo e o "Atenção" continuam no
+   * fluxograma, na Lista e no painel da etapa.
+   */
+  selos: boolean;
 }
 
 /**
@@ -156,30 +168,35 @@ export const LENTES_DA_JORNADA: readonly EntradaDeLente[] = [
     rotulo: "Operação",
     descricao: "Quem responde, em que sistema, em quanto tempo.",
     icone: "Users",
+    selos: true,
   },
   {
     valor: "documentacao",
     rotulo: "Documentação",
-    descricao: "O objetivo, as regras e os documentos de cada etapa.",
+    descricao: "Só os documentos de cada etapa — o fluxo documental, de ponta a ponta.",
     icone: "FileText",
+    selos: false,
   },
   {
     valor: "falhas",
     rotulo: "Falhas",
-    descricao: "O que costuma dar errado, e os retornos que voltam.",
+    descricao: "Só o que costuma dar errado em cada etapa.",
     icone: "AlertTriangle",
+    selos: false,
   },
   {
     valor: "gargalos",
     rotulo: "Gargalos",
-    descricao: "O que trava a etapa mesmo quando nada falha.",
+    descricao: "Só o que trava a etapa, mesmo quando nada falha.",
     icone: "Hourglass",
+    selos: false,
   },
   {
     valor: "informacoes",
     rotulo: "Informações",
-    descricao: "O que a etapa consulta, o que ela mede e por onde a informação passa.",
+    descricao: "O que a etapa consulta, o contexto que ela exige e o que ela mede.",
     icone: "Activity",
+    selos: false,
   },
 ];
 
