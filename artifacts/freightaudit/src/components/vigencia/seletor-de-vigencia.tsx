@@ -17,6 +17,16 @@ import {
 import type { FamiliesView } from "@/components/inicio/types";
 
 /**
+ * A casca visual do botão de troca — contorno da marca, fundo do cartão.
+ *
+ * Estava copiada em cada tela que abre o seletor; aqui ela mora junto do
+ * menu que a usa, para que "Trocar vigência" seja o mesmo botão em todas.
+ */
+export const BOTAO_DE_TROCA =
+  "flex items-center gap-2 rounded-lg border border-brand bg-card px-4 py-2.5 " +
+  "text-sm font-bold text-brand hover:bg-accent transition-colors";
+
+/**
  * O seletor de vigência do cabeçalho — data à esquerda, quantas alterações
  * aquela vigência trouxe à direita.
  *
@@ -64,7 +74,7 @@ export function SeletorDeVigencia({
       opcoes={[...view.periods]
         .sort((a, b) => b.date.localeCompare(a.date))
         .map((periodo) => ({
-          data: periodo.date,
+          valor: periodo.date,
           rotulo: periodo.label,
           alteracoes: alteracoesPorVigencia.get(periodo.date) ?? null,
         }))}
@@ -130,7 +140,7 @@ export function SeletorDeVigenciaGeral({
         para que os dois seletores nunca chamem a mesma vigência de dois nomes.
       */
       opcoes={periodos.map((data) => ({
-        data,
+        valor: data,
         rotulo: rotuloCurtoDaVigencia(data, periodos),
         alteracoes: alteracoesPorVigencia.get(data) ?? null,
       }))}
@@ -142,8 +152,16 @@ export function SeletorDeVigenciaGeral({
   );
 }
 
-/** A casca comum dos dois seletores — o que faz as duas listas serem uma só. */
-function MenuDeVigencias({
+/**
+ * A casca comum dos seletores — o que faz as listas serem uma só.
+ *
+ * `valor` é opaco de propósito: nos dois seletores acima ele é a data da
+ * vigência, e nas Justificativas é o `id` da comparação — lá a mesma data
+ * pode ter cinco comparações, uma por série. O que a casca garante é o
+ * desenho: o mesmo botão "Trocar vigência", o mesmo cabeçalho e a mesma
+ * contagem à direita, venha de onde vier a lista.
+ */
+export function MenuDeVigencias({
   rotulo,
   className,
   cabecalho,
@@ -156,9 +174,15 @@ function MenuDeVigencias({
   rotulo: string;
   className?: string;
   cabecalho: string;
-  opcoes: { data: string; rotulo: string; alteracoes: number | null }[];
+  opcoes: {
+    valor: string;
+    rotulo: string;
+    /** A unidade, quando a lista precisa dela para separar linhas de mesma data. */
+    detalhe?: string | null;
+    alteracoes: number | null;
+  }[];
   ativa: string | null;
-  onEscolher: (data: string) => void;
+  onEscolher: (valor: string) => void;
   aberto?: boolean;
   onAbrir?: (aberto: boolean) => void;
 }) {
@@ -168,21 +192,26 @@ function MenuDeVigencias({
         <CalendarDays className="w-4 h-4" />
         {rotulo}
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-64 max-h-80 overflow-y-auto">
+      <DropdownMenuContent align="end" className="w-80 max-h-80 overflow-y-auto">
         <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
           {cabecalho}
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         {opcoes.map((opcao) => (
           <DropdownMenuItem
-            key={opcao.data}
-            onSelect={() => onEscolher(opcao.data)}
+            key={opcao.valor}
+            onSelect={() => onEscolher(opcao.valor)}
             className={cn(
               "flex items-center justify-between gap-2",
-              opcao.data === ativa && "font-bold text-brand",
+              opcao.valor === ativa && "font-bold text-brand",
             )}
           >
-            <span>{opcao.rotulo}</span>
+            <span>
+              {opcao.rotulo}
+              {opcao.detalhe && (
+                <span className="font-normal text-muted-foreground"> · {opcao.detalhe}</span>
+              )}
+            </span>
             {opcao.alteracoes !== null && (
               <span className="text-xs font-normal text-muted-foreground tabular-nums">
                 {opcao.alteracoes.toLocaleString("pt-BR")}{" "}
