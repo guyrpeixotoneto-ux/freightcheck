@@ -3,7 +3,11 @@ import { useQuery } from "@tanstack/react-query";
 import { fetchJsonOrNull } from "@/lib/api";
 import { impactosDaVigencia, ladosDoImpacto } from "@/lib/visao-geral";
 import { opcoesDoIntervaloGeral } from "@/lib/intervalo-da-linha-do-tempo";
-import { pontosDeImpacto, type PontoDeImpacto } from "@/components/dashboard/grafico-de-impacto";
+import {
+  TETO_DA_SERIE,
+  pontosDeImpacto,
+  type PontoDeImpacto,
+} from "@/components/dashboard/grafico-de-impacto";
 import type { FamiliesOverview, FamiliesView } from "@/components/inicio/types";
 import type { Movimentos } from "@/lib/analise";
 
@@ -12,7 +16,7 @@ import type { Movimentos } from "@/lib/analise";
  * Dashboard e o Resumo executivo dividem.
  *
  * As duas telas desenham o mesmo gráfico sobre o mesmo recorte, e a série tem
- * três decisões que não são óbvias (a janela de seis, o intervalo pedido ao
+ * três decisões que não são óbvias (a janela carregada, o intervalo pedido ao
  * servidor, e a periodicidade que manda no eixo). Escrita duas vezes, bastaria
  * uma delas mudar de janela para as duas telas passarem a mostrar gráficos
  * diferentes do mesmo dado, lado a lado no mesmo menu — sem que nada acuse a
@@ -28,12 +32,13 @@ export function useSerieDeImpacto(
   consulta: URLSearchParams,
 ): { pontos: PontoDeImpacto[]; periodicity: string | null } {
   /*
-    A janela do gráfico — as últimas competências que a própria vigência já
-    lista, nunca mais que seis e nunca uma competência que não exista.
+    A janela carregada — as últimas competências que a própria vigência já
+    lista, nunca mais que `TETO_DA_SERIE` e nunca uma competência que não
+    exista. Quantas dessas vão para a tela é escolha do seletor do gráfico.
   */
   const janela = useMemo(() => {
     if (!view || view.periods.length <= 1) return null;
-    return [...view.periods].sort((a, b) => a.date.localeCompare(b.date)).slice(-6);
+    return [...view.periods].sort((a, b) => a.date.localeCompare(b.date)).slice(-TETO_DA_SERIE);
   }, [view]);
 
   const chave = consulta.toString();
@@ -93,7 +98,7 @@ export function useSerieDeImpactoGeral(
     const ate = [...periodosOverview]
       .sort((a, b) => a.localeCompare(b))
       .filter((data) => data <= periodoAberto);
-    return ate.length > 1 ? ate.slice(-6) : null;
+    return ate.length > 1 ? ate.slice(-TETO_DA_SERIE) : null;
   }, [habilitado, periodosOverview, periodoAberto]);
 
   const range = useQuery({

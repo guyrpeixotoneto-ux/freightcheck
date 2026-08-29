@@ -66,7 +66,10 @@ import { Sparkline } from "@/components/dashboard/sparkline";
 import { AnelDeCobertura } from "@/components/dashboard/anel-de-cobertura";
 import { GraficoDeImpacto, type PontoDeImpacto } from "@/components/dashboard/grafico-de-impacto";
 import { useSerieDeImpacto, useSerieDeImpactoGeral } from "@/lib/serie-de-impacto";
-import { useVoltaDeVigencia } from "@/components/vigencia/voltar-de-vigencia";
+import {
+  BotaoDeVoltarVigencia,
+  useVoltaDeVigencia,
+} from "@/components/vigencia/voltar-de-vigencia";
 import { iconeDaAlteracao } from "@/components/dashboard/icone-da-alteracao";
 import {
   SeletorDeVigencia,
@@ -699,7 +702,16 @@ function ImpactoEPodio({
         para mostrar: a distância entre uma vigência e a seguinte.
       */}
       <section className={cn(CARTAO, "px-6 py-5")}>
-        <h2 className="text-base font-bold mb-1">Impacto das alterações por vigência</h2>
+        {/*
+          O botão de voltar fica no canto superior direito do cartão, na linha
+          do título: é o canto onde a tela guarda a saída, e ali ele aparece
+          mesmo quando o gráfico não tem o que desenhar — dentro do gráfico, a
+          vigência sem série levava embora o próprio caminho de volta.
+        */}
+        <div className="flex items-start justify-between gap-3 mb-1">
+          <h2 className="text-base font-bold">Impacto das alterações por vigência</h2>
+          <BotaoDeVoltarVigencia destino={voltarPara} onVoltar={(periodo) => onVoltar?.(periodo)} />
+        </div>
         <p className="text-xs text-muted-foreground mb-4">
           {notaDoGrafico ??
             "Ganhos e perdas divergindo do zero, com o líquido por cima. Uma barra por vigência entregue — duas no mesmo mês aparecem pelo dia, nunca somadas."}
@@ -709,8 +721,6 @@ function ImpactoEPodio({
           periodicity={periodicity}
           vigenciaAtiva={vigenciaAtiva}
           onEscolherVigencia={onEscolherVigencia}
-          voltarPara={voltarPara}
-          onVoltar={onVoltar}
         />
       </section>
 

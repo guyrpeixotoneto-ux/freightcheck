@@ -29,7 +29,10 @@ import { ApiError, fetchJson } from "@/lib/api";
 import { useContextosDaCasca } from "@/lib/contextos";
 import { useSerieDeImpacto, useSerieDeImpactoGeral } from "@/lib/serie-de-impacto";
 import { GraficoDeImpacto, type PontoDeImpacto } from "@/components/dashboard/grafico-de-impacto";
-import { useVoltaDeVigencia } from "@/components/vigencia/voltar-de-vigencia";
+import {
+  BotaoDeVoltarVigencia,
+  useVoltaDeVigencia,
+} from "@/components/vigencia/voltar-de-vigencia";
 import { useFamiliesOverviewQuery } from "@/lib/families-overview";
 import { RESUMO_EXECUTIVO } from "@/lib/ambiente";
 import { cn } from "@/lib/utils";
@@ -526,7 +529,16 @@ export default function Inicio() {
               tela descer para o detalhe por parâmetro.
             */}
             <section className={cn(CARTAO, "px-6 py-5")}>
-              <h2 className="text-base font-bold mb-1">Impacto das alterações por vigência</h2>
+              <div className="flex items-start justify-between gap-3 mb-1">
+                <h2 className="text-base font-bold">Impacto das alterações por vigência</h2>
+                <BotaoDeVoltarVigencia
+                  destino={volta.destino}
+                  onVoltar={(periodo) => {
+                    volta.limpar();
+                    trocarPara({ period: periodo });
+                  }}
+                />
+              </div>
               <p className="text-xs text-muted-foreground mb-4">
                 Ganhos e perdas divergindo do zero, com o líquido por cima. Uma barra por vigência
                 entregue — duas no mesmo mês aparecem pelo dia, nunca somadas.
@@ -537,11 +549,6 @@ export default function Inicio() {
                 vigenciaAtiva={view.period}
                 onEscolherVigencia={(periodo) => {
                   volta.registrar();
-                  trocarPara({ period: periodo });
-                }}
-                voltarPara={volta.destino}
-                onVoltar={(periodo) => {
-                  volta.limpar();
                   trocarPara({ period: periodo });
                 }}
               />
@@ -2264,7 +2271,13 @@ function ConteudoDaVisaoGeral({
           />
 
           <section className={cn(CARTAO, "px-6 py-5")}>
-            <h2 className="text-base font-bold mb-1">Impacto das alterações por vigência</h2>
+            <div className="flex items-start justify-between gap-3 mb-1">
+              <h2 className="text-base font-bold">Impacto das alterações por vigência</h2>
+              <BotaoDeVoltarVigencia
+                destino={voltarPara}
+                onVoltar={(periodo) => onVoltar?.(periodo)}
+              />
+            </div>
             <p className="text-xs text-muted-foreground mb-4">
               Ganhos e perdas de todas as unidades incluídas, com o líquido por cima. Uma barra por
               competência — a unidade sem vigência naquela competência não entra nela.
@@ -2274,8 +2287,6 @@ function ConteudoDaVisaoGeral({
               periodicity={serie[0] ? (ladosDoImpacto(overview)[0]?.periodicity ?? null) : null}
               vigenciaAtiva={periodoAberto}
               onEscolherVigencia={onEscolherVigencia}
-              voltarPara={voltarPara}
-              onVoltar={onVoltar}
             />
           </section>
 
