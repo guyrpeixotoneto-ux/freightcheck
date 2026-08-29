@@ -139,3 +139,30 @@ export function useContextosDaCasca(): ContextosDaCasca {
     indisponivel: error != null && data === undefined,
   };
 }
+
+/**
+ * Qual contexto está aberto — a regra, num lugar só.
+ *
+ * A caixa "Unidade atual" da lateral e as telas que honram `scopeHash` (ver
+ * `TELAS_QUE_HONRAM_ESCOPO`, em `lib/navegacao-do-escopo.ts`) precisam responder
+ * **a mesma coisa**: sem isso a lateral nomeia uma unidade e a tela mostra
+ * outra população. Foi o que aconteceu com a Cobertura de dados — a lateral
+ * escrevia PERNAMBUCO, porque sem `scopeHash` na URL ela cai no primeiro
+ * contexto, e a matriz listava as cinco unidades do acervo, porque a tela não
+ * lia o par.
+ *
+ * O fallback para o primeiro é deliberado e não é um palpite: `/contexts` volta
+ * ordenado, e o primeiro é o que a lateral já anuncia como aberto. Quem quer
+ * todas de uma vez escreve `visaoGeral=1`, que é uma escolha e não uma ausência.
+ *
+ * Um `scopeHash` que não existe na lista — um endereço velho, ou colado à mão —
+ * cai no primeiro em vez de deixar a tela sem contexto: mostrar a unidade que a
+ * lateral nomeia é melhor do que mostrar o acervo inteiro sob um nome só.
+ */
+export function contextoAberto(
+  contextos: Contexto[],
+  scopeHash: string | null,
+): Contexto | undefined {
+  if (scopeHash === null) return contextos[0];
+  return contextos.find((c) => c.scopeHash === scopeHash) ?? contextos[0];
+}
