@@ -713,8 +713,8 @@ describe("a Jornada lê o mesmo caminho por uma lente de cada vez", () => {
       /*
         Sempre três cartões, e sempre pelo menos uma linha desenhada em cada um:
         a jornada não muda de forma, e nenhuma lente devolve cartão mudo. O
-        número de campos é da lente — as focadas têm um só, os Dados têm dois
-        e a Operação tem três.
+        número de campos é da lente — as focadas têm um só, e só a Operação
+        tem três.
       */
       expect(cartoes).toHaveLength(3);
       for (const cartao of cartoes) {
@@ -757,10 +757,10 @@ describe("a Jornada lê o mesmo caminho por uma lente de cada vez", () => {
     expect(valores(1, "gargalos")).not.toContain("CT-e sem XML");
 
     /*
-      As Informações são o que a etapa consulta, o contexto e o que ela mede —
-      não as setas do grafo, que já estão desenhadas entre os cartões.
+      Os Dados são o que a etapa consulta, e só isso: nem o indicador que ela
+      mede, nem as setas do grafo, que já estão desenhadas entre os cartões.
     */
-    expect(valores(1, "informacoes")).toContain("CT-e conferidos (%)");
+    expect(valores(1, "informacoes")).not.toContain("CT-e conferidos (%)");
     expect(valores(1, "informacoes")).not.toContain("Origem da tarifa");
     expect(valores(1, "informacoes")).not.toContain("Fechamento");
 
@@ -774,14 +774,13 @@ describe("a Jornada lê o mesmo caminho por uma lente de cada vez", () => {
     /* E a Observação da etapa fica no painel: no cartão ela passava por dado. */
     expect(valores(0, "informacoes")).not.toContain("A VALIDAR: quem confere a tabela.");
     /*
-      E a etapa que não consulta nada e não mede nada diz as duas coisas, em vez
-      de esconder as linhas. O que ela não diz é a Observação da etapa: o campo
-      Observações é o caderno de quem levantou o processo, e no cartão de Dados
-      passava por dado mapeado.
+      E a etapa que não consulta nada diz isso, em vez de esconder a linha. O
+      que ela não diz é a Observação da etapa: o campo Observações é o caderno
+      de quem levantou o processo, e no cartão de Dados passava por dado
+      mapeado.
     */
     expect(cartaoDaJornada(linhas[2], "informacoes").campos.map((c) => c.chave)).toEqual([
       "consulta",
-      "indicadores",
     ]);
     expect(cartaoDaJornada(linhas[2], "informacoes").campos[0].vazio).toBe("sem dados mapeados");
   });
@@ -835,7 +834,10 @@ describe("a Jornada lê o mesmo caminho por uma lente de cada vez", () => {
     expect(gargalos).toContain("Conferência manual");
     expect(gargalos).not.toContain("CT-e sem XML");
 
-    expect(informacoes).toContain("CT-e conferidos (%)");
+    expect(informacoes).toContain("Tabela de frete mínimo no SAP");
+    /* Só o dado consultado: o indicador da etapa 02 não entra no cartão. */
+    expect(informacoes).not.toContain("CT-e conferidos (%)");
+    expect(informacoes).toContain("sem dados mapeados");
 
     /* Cinco lentes, cinco leituras: nenhuma repete a de outra. */
     expect(new Set([operacao, documentacao, falhas, gargalos, informacoes]).size).toBe(5);
@@ -943,12 +945,13 @@ describe("a Jornada lê o mesmo caminho por uma lente de cada vez", () => {
     expect(resumoDaLente(linhas, "documentacao")).toEqual({ etapas: 1, total: 3, achados: 1 });
     expect(resumoDaLente(linhas, "falhas").etapas).toBe(1);
     /*
-      Duas etapas têm alguma coisa: uma consulta uma tabela, a outra mede um
-      indicador. Se "vem de"/"segue para" entrassem na lente, o resumo diria
-      "3 de 3" num fluxo sem indicador nenhum — o oposto do que o número existe
-      para revelar.
+      Uma etapa só consulta alguma coisa — a tabela de frete mínimo. O
+      indicador da etapa 02 não conta mais: a lente é o dado consultado, e o
+      resumo conta o que a lente mostra. Se "vem de"/"segue para" entrassem
+      nela, o resumo diria "3 de 3" num fluxo sem dado nenhum mapeado — o
+      oposto do que o número existe para revelar.
     */
-    expect(resumoDaLente(linhas, "informacoes")).toEqual({ etapas: 2, total: 3, achados: 2 });
+    expect(resumoDaLente(linhas, "informacoes")).toEqual({ etapas: 1, total: 3, achados: 1 });
   });
 });
 

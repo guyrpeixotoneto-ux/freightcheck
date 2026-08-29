@@ -621,8 +621,13 @@ export function cartaoDaJornada(linha: LinhaDaEtapa, lente: LenteDaJornada): Car
             que a etapa consulta, e no cartão ocupava a linha do dado
             respondendo outra pergunta: quem abre a lente de Dados e lê uma
             observação acha que a etapa tem dado mapeado quando ela não tem.
-            Sem dado, a linha diz isso com todas as letras. As setas do grafo
-            também ficaram de fora: já estão desenhadas entre os cartões.
+            Sem dado, a linha diz isso com todas as letras.
+
+            Pelo mesmo motivo saíram os indicadores — o que a etapa mede é
+            outra pergunta que não a do dado que ela consulta — e as setas do
+            grafo, que já estão desenhadas entre os cartões. A lente ficou de
+            uma linha só, como as de falhas, gargalos e documentação: o campo
+            que lhe dá nome, lido de relance ao longo do caminho inteiro.
           */
           {
             chave: "consulta",
@@ -630,16 +635,6 @@ export function cartaoDaJornada(linha: LinhaDaEtapa, lente: LenteDaJornada): Car
             icone: "Search",
             valores: [etapa.informacoesConsultadas].filter(naoVazio),
             vazio: "sem dados mapeados",
-          },
-          {
-            chave: "indicadores",
-            rotulo: "Indicadores",
-            icone: "Activity",
-            valores: etapa.indicadores
-              .slice()
-              .sort((a, b) => a.ordem - b.ordem)
-              .map((i) => (naoVazio(i.unidade) ? `${i.nome} (${i.unidade})` : i.nome)),
-            vazio: "a etapa não mede nada",
           },
         ];
 
