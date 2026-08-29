@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   Bar,
   CartesianGrid,
@@ -14,8 +15,24 @@ import {
 import { formatBrl, formatBrlShort, periodicitySuffix } from "@/lib/format";
 import { seriesDoIntervalo } from "@/components/linha-do-tempo/linha-do-tempo-de-alteracoes";
 import { vigenciaDoClique, type EstadoDoClique } from "@/lib/clique-na-vigencia";
-import { BotaoDeVoltarVigencia } from "@/components/vigencia/voltar-de-vigencia";
 import type { RangeEntry } from "@/lib/analise";
+import { cn } from "@/lib/utils";
+
+/**
+ * As janelas que o gráfico oferece, em número de vigências.
+ *
+ * A escolha é em vigências, e não em dias: o eixo é a vigência entregue, e uma
+ * janela de "últimos 7 dias" sobre competências mensais desenharia quase sempre
+ * nenhuma barra — um recorte que responde "não houve movimento" quando o que
+ * falta é vigência no intervalo, não alteração no contrato.
+ *
+ * A maior delas é o teto que `lib/serie-de-impacto.ts` pede ao servidor: pedir
+ * menos deixaria o botão da janela maior desenhando a menor.
+ */
+export const JANELAS = [3, 6, 12] as const;
+
+/** A janela aberta por padrão — a mesma que o gráfico desenhava antes do seletor. */
+export const JANELA_PADRAO = 6;
 
 const COR_POSITIVA = "#059669"; // emerald-600 — o mesmo verde de ganho do resto da tela
 const COR_NEGATIVA = "#dc2626"; // red-600 — o mesmo vermelho de perda do resto da tela
@@ -127,8 +144,6 @@ export function GraficoDeImpacto({
   periodicity,
   vigenciaAtiva = null,
   onEscolherVigencia,
-  voltarPara = null,
-  onVoltar,
 }: {
   pontos: PontoDeImpacto[];
   periodicity: string | null;
@@ -136,15 +151,16 @@ export function GraficoDeImpacto({
   vigenciaAtiva?: string | null;
   /** Quando existe, clicar numa barra leva a tela inteira para aquela vigência. */
   onEscolherVigencia?: (periodo: string) => void;
-  /**
-   * De onde a leitura saiu, para o botão de voltar do próprio gráfico. Vem da
-   * página, e não de um estado daqui: a troca de vigência desmonta este
-   * componente enquanto a consulta nova não responde — ver
-   * `components/vigencia/voltar-de-vigencia.tsx`.
-   */
-  voltarPara?: { periodo: string; label: string } | null;
-  onVoltar?: (periodo: string) => void;
 }) {
+  /*
+    A janela é estado do gráfico, não da página: trocar "últimas 6" por
+    "últimas 12" é um recorte do que já veio na mesma consulta — a série é
+    buscada até o teto de `JANELAS` e cortada aqui. Trocar a janela não dispara
+    requisição nenhuma, e por isso o gráfico não pisca na troca.
+  */
+  const [janela, setJanela] = useState<number>(JANELA_PADRAO);
+  const desenhados = pontos.slice(-janela);
+
   if (pontos.length === 0 || periodicity === null) {
     return (
       <p className="text-sm text-muted-foreground">
@@ -158,7 +174,7 @@ export function GraficoDeImpacto({
     barra só, o clique levaria à mesma tela e o cursor de mão prometeria uma
     navegação que não acontece.
   */
-  const clicavel = typeof onEscolherVigencia === "function" && pontos.length > 1;
+  const clicavel = typeof onEscolherVigencia === "function" && desenhados.length > 1;
 
   const aoClicar = (estado: EstadoDoClique) => {
     if (!clicavel) return;
@@ -176,7 +192,7 @@ export function GraficoDeImpacto({
     que nenhuma unidade entregou, por exemplo) nada desbota: acender ninguém é
     honesto, desbotar todo mundo só apagaria o gráfico.
   */
-  const temAtiva = pontos.some((ponto) => ponto.periodo === vigenciaAtiva);
+  const temAtiva = desenhados.some((ponto) => ponto.periodo === vigenciaAtiva);
   const opacidade = (ponto: PontoDeImpacto) =>
     !temAtiva || ponto.periodo === vigenciaAtiva ? 1 : 0.35;
 
@@ -185,14 +201,44 @@ export function GraficoDeImpacto({
       <div className="flex items-start justify-between gap-3 mb-2">
         <div className="text-xs text-muted-foreground">
           Ganhos e perdas por vigência, em R${periodicitySuffix(periodicity)} — últimas{" "}
-          {pontos.length} {pontos.length === 1 ? "vigência" : "vigências"} com dado.
+          {desenhados.length} {desenhados.length === 1 ? "vigência" : "vigências"} com dado.
           {clicavel && " Clique numa vigência para abrir a tela inteira nela."}
         </div>
-        <BotaoDeVoltarVigencia destino={voltarPara} onVoltar={(periodo) => onVoltar?.(periodo)} />
+        {/*
+          O seletor só aparece quando há mais dado do que a menor janela mostra:
+          com três vigências no banco, os três botões desenhariam o mesmo
+          gráfico e prometeriam uma escolha que não existe.
+        */}
+        {pontos.length > JANELAS[0] && (
+          <div
+            className="flex items-center gap-1 shrink-0"
+            role="group"
+            aria-label="Janela do gráfico"
+          >
+            {JANELAS.map((opcao) => (
+              <button
+                key={opcao}
+                type="button"
+                onClick={() => setJanela(opcao)}
+                aria-pressed={janela === opcao}
+                title={`Mostrar as últimas ${opcao} vigências`}
+                className={cn(
+                  "rounded-lg border px-2 py-1 text-xs font-semibold transition-colors",
+                  janela === opcao
+                    ? "bg-accent text-accent-foreground"
+                    : "text-muted-foreground hover:bg-accent",
+                )}
+              >
+                {opcao}
+              </button>
+            ))}
+            <span className="text-xs text-muted-foreground ml-1">vigências</span>
+          </div>
+        )}
       </div>
       <ResponsiveContainer width="100%" height={300}>
         <ComposedChart
-          data={pontos}
+          data={desenhados}
           stackOffset={EMPILHAMENTO}
           margin={{ top: 8, right: 16, bottom: 0, left: 8 }}
           onClick={aoClicar}
@@ -216,7 +262,7 @@ export function GraficoDeImpacto({
             fill={COR_POSITIVA}
             radius={[3, 3, 0, 0]}
           >
-            {pontos.map((ponto) => (
+            {desenhados.map((ponto) => (
               <Cell key={ponto.periodo} fillOpacity={opacidade(ponto)} />
             ))}
           </Bar>
@@ -227,7 +273,7 @@ export function GraficoDeImpacto({
             fill={COR_NEGATIVA}
             radius={[0, 0, 3, 3]}
           >
-            {pontos.map((ponto) => (
+            {desenhados.map((ponto) => (
               <Cell key={ponto.periodo} fillOpacity={opacidade(ponto)} />
             ))}
           </Bar>
