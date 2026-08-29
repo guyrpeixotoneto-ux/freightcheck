@@ -270,6 +270,8 @@ export async function sugerirFormula(
   ) =>
     registrar({
       modelo: MODELO,
+      // Não é o Assistente: não há `response.model` a ler neste caminho.
+      modeloProvider: null,
       esforco: ESFORCO,
       fluxo: false,
       latenciaMs: Date.now() - inicio,

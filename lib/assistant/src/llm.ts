@@ -293,7 +293,17 @@ export interface PedidoDeRedacao {
  * conhece o desfecho.
  */
 export interface Medicao {
+  /** O modelo que este processo **pediu** — a constante `MODELO`. */
   modelo: string;
+  /**
+   * O modelo que o provedor **serviu**, lido de `response.model`.
+   *
+   * Existe porque `modelo` acima é configuração, não confirmação: ele é o mesmo
+   * valor com chamada bem-sucedida, com erro e sem chave nenhuma. Quem audita
+   * precisa distinguir "pedi opus-5" de "opus-5 respondeu", e só a resposta do
+   * provedor sustenta a segunda frase. `null` quando não houve resposta.
+   */
+  modeloProvider: string | null;
   esforco: string;
   fluxo: boolean;
   latenciaMs: number;
@@ -587,6 +597,7 @@ function semChave(fluxo: boolean, turnos: number): Redacao {
     texto: null,
     medicao: {
       modelo: MODELO,
+      modeloProvider: null,
       esforco: ESFORCO,
       fluxo,
       latenciaMs: 0,
@@ -655,6 +666,7 @@ export async function redigir(pedido: PedidoDeRedacao): Promise<Redacao> {
 
     const medicao: Medicao = {
       modelo: MODELO,
+      modeloProvider: resposta.model ?? null,
       esforco: ESFORCO,
       fluxo: false,
       latenciaMs: Date.now() - inicio,
@@ -686,6 +698,7 @@ export async function redigir(pedido: PedidoDeRedacao): Promise<Redacao> {
       texto: null,
       medicao: {
         modelo: MODELO,
+        modeloProvider: null,
         esforco: ESFORCO,
         fluxo: false,
         latenciaMs: Date.now() - inicio,
@@ -725,6 +738,7 @@ export async function redigirEmFluxo(
   let tokensSaida = 0;
   let origemDosTokens: "usage" | "estimativa" = "estimativa";
   let recusou = false;
+  let modeloProvider: string | null = null;
 
   try {
     const fluxo = await obterCliente().beta.messages.create({ ...params, stream: true });
@@ -733,6 +747,7 @@ export async function redigirEmFluxo(
       switch (evento.type) {
         case "message_start":
           tokensEntrada = evento.message.usage?.input_tokens ?? 0;
+          modeloProvider = evento.message.model ?? null;
           break;
         case "content_block_delta":
           /*
@@ -759,6 +774,7 @@ export async function redigirEmFluxo(
 
     const medicao: Medicao = {
       modelo: MODELO,
+      modeloProvider,
       esforco: ESFORCO,
       fluxo: true,
       latenciaMs: Date.now() - inicio,
@@ -777,6 +793,7 @@ export async function redigirEmFluxo(
       texto: null,
       medicao: {
         modelo: MODELO,
+        modeloProvider: null,
         esforco: ESFORCO,
         fluxo: true,
         latenciaMs: Date.now() - inicio,

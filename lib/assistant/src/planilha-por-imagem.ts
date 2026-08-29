@@ -392,6 +392,8 @@ export async function lerPlanilhaDaImagem(pedido: {
   ) =>
     registrar({
       modelo: MODELO,
+      // Estes caminhos não são o Assistente: não há `response.model` a ler aqui.
+      modeloProvider: null,
       esforco: ESFORCO,
       fluxo: false,
       latenciaMs: Date.now() - inicio,
