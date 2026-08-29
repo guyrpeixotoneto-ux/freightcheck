@@ -115,12 +115,16 @@ export function SeletorDeRecorte({
   const vigencias = atual.periodosDisponiveis;
 
   const campo =
-    "text-xs bg-transparent border-0 outline-none focus-visible:ring-1 focus-visible:ring-brand rounded-sm px-1 py-0.5 cursor-pointer text-foreground font-medium";
+    "text-xs bg-transparent border-0 outline-none focus-visible:ring-1 focus-visible:ring-brand rounded-sm px-1 py-0.5 cursor-pointer text-foreground font-semibold";
   const caixa =
-    "flex items-center gap-1.5 border border-input rounded-md px-2 py-1 bg-card";
+    "flex items-center gap-2 border border-input rounded-lg px-3 py-2 bg-card";
 
   return (
-    <div className="flex flex-wrap items-center gap-2" data-testid="seletor-de-recorte">
+    <div
+      className="flex flex-col items-end gap-1.5"
+      data-testid="seletor-de-recorte"
+    >
+      <div className="flex flex-wrap items-center justify-end gap-2">
       <div className={caixa}>
         <Building2 className="w-3.5 h-3.5 text-muted-foreground shrink-0" aria-hidden />
         {unidades.length > 1 ? (
@@ -190,8 +194,16 @@ export function SeletorDeRecorte({
             </option>
           ))}
         </select>
+        </div>
       </div>
 
+      {/*
+        A frase fica **abaixo** dos três campos, e não ao lado deles.
+
+        Ao lado ela competia com os seletores pela mesma linha e encolhia a
+        primeira coisa que a pessoa procura ali — a unidade. Embaixo ela lê
+        como legenda dos três, que é o que ela é.
+      */}
       <span className={cn("text-[11px] text-muted-foreground", "hidden sm:inline")}>
         as respostas descrevem este recorte
       </span>
