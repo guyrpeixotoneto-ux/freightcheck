@@ -387,6 +387,28 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
         "user_session.impersonated_user_id",
         "user_session.impersonation_started_at",
         /*
+          As duas da `0077` — o telefone da pessoa e o gestor a quem ela
+          reporta. Aditivas e nulas como as primeiras da lista, e sem backfill:
+          `NULL` no telefone é quem não deu o número, e `NULL` no gestor é quem
+          está no topo do organograma — nenhuma das duas é dado por preencher.
+
+          Saem em `app_user`, tabela que Production já tem, e é por isso que
+          aparecem aqui em vez de chegarem dentro de um `addTable`. `gestor_id`
+          não tem FK para `app_user` pela mesma razão da `0076`, e esta linha é
+          uma delas.
+        */
+        "app_user.telefone",
+        "app_user.gestor_id",
+        /*
+          As duas da `0078` — o arquivamento de uma conta na tela de Usuários.
+          Aditivas e nulas pela mesma forma das de cima: `NULL` nas duas é toda
+          conta que ninguém arquivou, que são todas até alguém clicar. Sem
+          backfill, sem default e sem índice — arquivar é decisão sobre a
+          lista, e nenhuma conta que já existe muda de estado por causa dela.
+        */
+        "app_user.archived_at",
+        "app_user.archived_by",
+        /*
           A coluna que a `0046` acrescentou a `fechamento_competencia` **não**
           entra aqui, e a ausência é a informação: o diff a reporta pela tabela,
           não pela coluna, porque Production não tem nenhuma das treze do
