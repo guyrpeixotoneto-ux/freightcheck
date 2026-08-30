@@ -141,9 +141,39 @@ async function contagens(
     ),
     -- Os tipos que são entidade: a presença sai do fato gravado, e a contagem
     -- é de entidades distintas — não de fatos, que multiplicariam por coluna.
-    por_entidade AS (
-      SELECT sn.d, e.entity_type AS tipo, count(DISTINCT f.entity_id)::int AS entidades
+    --
+    -- A vigência já preenchida responde por snapshot_presenca (migration 0081),
+    -- que guarda o par (vigência, entidade) com a origem; a que ainda não foi
+    -- preenchida — histórico antes do backfill — é contada na hora, a partir de
+    -- fato_visivel, como sempre foi. As duas metades devolvem exatamente as
+    -- mesmas linhas: a de cima lê 1.215 linhas onde a de baixo lê 83.241.
+    --
+    -- A contagem distinta é feita aqui, na leitura, e nunca somando
+    -- pré-agregados por origem. A mesma entidade pode ter fato de duas origens
+    -- no mesmo snapshot, e uma soma a contaria duas vezes; contar DISTINCT
+    -- sobre as linhas visíveis é o que torna isso correto por construção. Há
+    -- teste que trava a substituição.
+    preenchidas AS (
+      SELECT sn.d, p.entity_type AS tipo, count(DISTINCT p.entity_id)::int AS entidades
         FROM snaps sn
+        JOIN snapshot_presenca p ON p.snapshot_id = sn.id
+       WHERE p.origin_import_run_id NOT IN (
+         SELECT ir.id FROM import_run ir WHERE ir.hidden_at IS NOT NULL
+       )
+       GROUP BY 1, 2
+    ),
+    -- O caminho de sempre, só para as vigências que o backfill ainda não
+    -- alcançou. Vazio num banco em dia, e é o que garante que nenhuma tela
+    -- fique sem resposta enquanto ele corre.
+    sem_presenca AS (
+      SELECT sn.id, sn.d FROM snaps sn
+       WHERE NOT EXISTS (SELECT 1 FROM snapshot_presenca p WHERE p.snapshot_id = sn.id)
+    ),
+    por_entidade AS (
+      SELECT d, tipo, entidades FROM preenchidas
+      UNION ALL
+      SELECT sn.d, e.entity_type AS tipo, count(DISTINCT f.entity_id)::int AS entidades
+        FROM sem_presenca sn
         JOIN fato_visivel f   ON f.snapshot_id = sn.id
         JOIN entity e ON e.id = f.entity_id
        GROUP BY 1, 2

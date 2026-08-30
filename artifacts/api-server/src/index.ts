@@ -2,6 +2,7 @@ import { db } from "@workspace/db";
 import { migrarComReparo } from "@workspace/db/fila";
 import { varrerLeiturasOrfas } from "@workspace/ingest";
 import { recensearPendentes } from "@workspace/balance";
+import { preencherPresencasPendentes } from "@workspace/ingest";
 import app from "./app";
 import { alertar } from "./lib/alerta";
 import { agendarBackups } from "./lib/backup-agendado";
@@ -335,6 +336,29 @@ async function applyMigrationsInBackground(): Promise<void> {
       { err },
       "Backfill do censo do balanço não completou; a leitura calcula na hora as " +
         "importações que faltarem, como antes.",
+    );
+  }
+
+  /*
+    O mesmo para a presença das vigências (`0081`) — e pelas mesmas razões:
+    fora da migration porque o custo cresce com o acervo, em segundo plano
+    porque a leitura não depende dele, e tolerante a falha porque a vigência
+    sem presença continua sendo contada na hora, como sempre foi.
+  */
+  try {
+    const preenchidas = await preencherPresencasPendentes(db);
+    if (preenchidas > 0) {
+      logger.info(
+        { vigencias: preenchidas },
+        "Presença gravada para as vigências que ainda não tinham — o seletor de " +
+          "tipos e a Visão Geral deixam de reler os fatos para contar entidades.",
+      );
+    }
+  } catch (err) {
+    logger.warn(
+      { err },
+      "Backfill da presença não completou; as vigências que faltarem continuam " +
+        "sendo contadas na leitura, como antes.",
     );
   }
 }

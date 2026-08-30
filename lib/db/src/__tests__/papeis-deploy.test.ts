@@ -298,6 +298,19 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
           justamente para não crescer esta lista que a marca virou linha.
         */
         "import_run_censo",
+        /*
+          A presença da vigência, da `0081` — quem estava em cada vigência, com
+          a origem de cada presença. Aditiva pelo mesmo critério das acima:
+          nenhuma tabela existente muda de forma (as três referências para fora
+          são `snapshot`, `entity` e `import_run`, que Production já tem),
+          nenhuma coluna nova sai de tabela do cálculo, e Production a ganha
+          quando o servidor novo aplicar a fila na partida.
+
+          Nasce vazia, e nascer vazia é seguro pelo mesmo mecanismo do censo: a
+          ausência de linha é "esta vigência ainda não foi preenchida", e a
+          leitura conta aquelas na hora, como sempre fez, até o backfill passar.
+        */
+        "snapshot_presenca",
       ]),
     );
     /*
@@ -508,6 +521,17 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
         */
         "import_run_censo_import_run_id_destino_pk",
         "import_run_censo_import_run_id_import_run_id_fk",
+        /*
+          As quatro da presença, da `0081` — a chave primária composta e as três
+          FKs. Vêm com a tabela nova, que nasce vazia, e por isso não há linha em
+          Production que elas possam recusar. Nomeadas pela mesma razão das do
+          censo: o filtro acima só dispensa as famílias do Fechamento, da
+          remuneração, da unidade, dos Fluxos e do cadastro da casa.
+        */
+        "snapshot_presenca_snapshot_id_entity_id_origin_import_run_id_pk",
+        "snapshot_presenca_snapshot_id_snapshot_id_fk",
+        "snapshot_presenca_entity_id_entity_id_fk",
+        "snapshot_presenca_origin_import_run_id_import_run_id_fk",
         /*
           A FK da origem do fato, da `0061`, e as três da justificativa, da
           `0058`/`0059`. Vêm com as colunas e a tabela novas, e nascem sobre

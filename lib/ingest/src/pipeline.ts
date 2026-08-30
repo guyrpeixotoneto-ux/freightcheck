@@ -14,6 +14,7 @@ import {
 } from "drizzle-orm";
 import type { Database } from "@workspace/db";
 import { gravarCenso } from "@workspace/balance";
+import { gravarPresenca } from "./presenca";
 import {
   codigoDoPostgres,
   aplicarConfirmacoesCanonicas,
@@ -3742,6 +3743,19 @@ export async function promote(
            GROUP BY e.entity_type
               ON CONFLICT (snapshot_id, entity_type) DO NOTHING
         `);
+
+        // --- presença ---------------------------------------------------------
+        /*
+          Quem estava nesta vigência, com a origem de cada presença.
+
+          Fica ao lado do agregado acima e pela mesma razão de janela — antes do
+          `CLOSED`, com os fatos à mão —, mas responde a outra pergunta e num
+          grão diferente: o agregado conta, esta registra **quem**, e é a origem
+          carimbada aqui que faz a contagem continuar certa quando alguém
+          ocultar um arquivo cujos fatos outra vigência herdou. Ver
+          `presenca.ts` e a `0081`.
+        */
+        await gravarPresenca(tx, snapshot.id);
 
         // --- fechar -----------------------------------------------------------
         const [contagem] = await tx
