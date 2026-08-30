@@ -210,6 +210,16 @@ export interface Resumo {
  * exato falta, porque é o que a leitura dos valores de fato sustenta — e é a
  * informação que muda o que a pessoa vai procurar na lista.
  */
+/**
+ * O que falta quando falta o significado — dito com o endereço do campo.
+ *
+ * A frase era "O que este valor representa?", que é como o campo se chamava
+ * quando ele ficava dentro da confirmação. O campo passou a ser um só, no
+ * quadro "Significado", e uma lista que pede pelo nome antigo manda procurar
+ * na tela uma caixa que não existe mais.
+ */
+const FALTA_O_TIPO = "O tipo do valor, no quadro Significado";
+
 export function resumo(
   campo: CampoEmConfirmacao,
   escolhas: Escolhas,
@@ -230,12 +240,12 @@ export function resumo(
     identificado.push(`Representa: ${escolhido.label}`);
   } else if (lido?.isMonetary === true || lido?.unit === "BRL" || lido?.unit?.startsWith("BRL_")) {
     identificado.push("É um valor financeiro");
-    faltaConfirmar.push("O que este valor representa?");
+    faltaConfirmar.push(FALTA_O_TIPO);
   } else if (lido) {
     identificado.push(`Parece: ${lido.label}`);
-    faltaConfirmar.push("O que este valor representa?");
+    faltaConfirmar.push(FALTA_O_TIPO);
   } else {
-    faltaConfirmar.push("O que este valor representa?");
+    faltaConfirmar.push(FALTA_O_TIPO);
   }
 
   if (escolhas.taxonomyCode) {

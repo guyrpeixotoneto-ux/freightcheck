@@ -122,7 +122,7 @@ describe("o resumo — o que a IA identificou, o que falta confirmar", () => {
     const r = resumo(campo(), escolhas(), CATALOGO);
     expect(r.identificado).toContain("Vigência: Ago/2026");
     expect(r.faltaConfirmar).toEqual([
-      "O que este valor representa?",
+      "O tipo do valor, no quadro Significado",
       "Categoria",
     ]);
   });
@@ -136,7 +136,7 @@ describe("o resumo — o que a IA identificou, o que falta confirmar", () => {
       CATALOGO,
     );
     expect(r.identificado).toContain("É um valor financeiro");
-    expect(r.faltaConfirmar).toContain("O que este valor representa?");
+    expect(r.faltaConfirmar).toContain("O tipo do valor, no quadro Significado");
   });
 
   it("com o significado escolhido, ele sai do lado do que falta", () => {
