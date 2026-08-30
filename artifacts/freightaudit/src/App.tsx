@@ -150,6 +150,14 @@ import { etapasDoFechamento } from '@/pages/fechamento/etapas';
  * decisão, e não herança: é a contrapartida de ter desligado o foco, e é o que
  * garante que a tela se recupere sozinha quando a conexão volta.
  *
+ * **`queryKeyHashFn`.** A chave de toda consulta passa a carregar o ambiente
+ * aberto (`lib/cache-do-ambiente.ts`). É o par do carimbo que `getApiUrl` põe na
+ * chamada: sem ele, `["contexts"]` era **uma** consulta para os oito ambientes,
+ * e a resposta do último a perguntar valia para todos — a lateral perdia as
+ * unidades ao passar pela Auditoria Rota e não as reencontrava na volta para a
+ * Empurrada, porque o `Layout` nunca desmonta e nada refazia a chamada até o
+ * `staleTime` vencer. A exceção é a sessão, que vale igual nos oito.
+ *
  * ---------------------------------------------------------------------------
  * As exceções, todas explícitas
  * ---------------------------------------------------------------------------
