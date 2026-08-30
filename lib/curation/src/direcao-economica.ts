@@ -9,31 +9,13 @@ import { attributeSemanticsTable, attributeTable, curationEventTable } from "@wo
  * quando subir aumenta a remuneração ou reduz o custo, `HIGHER_IS_WORSE` no
  * inverso, `NEUTRAL` para cadastro (não é grandeza econômica) e
  * `DEPENDS_ON_FORMULA` quando a fórmula que usa o atributo decide o sinal.
+ *
+ * A lista em si mora em `./direcao.ts`, que é puro: a tela do navegador precisa
+ * dos rótulos e não pode arrastar drizzle junto. Continua saindo daqui para
+ * quem já a importava.
  */
-export const DIRECOES_ECONOMICAS = [
-  {
-    direcao: "HIGHER_IS_BETTER" as const,
-    rotulo: "Maior é melhor",
-    ajuda: "Subir aumenta a remuneração ou reduz o custo da transportadora.",
-  },
-  {
-    direcao: "HIGHER_IS_WORSE" as const,
-    rotulo: "Maior é pior",
-    ajuda: "Subir reduz a remuneração ou aumenta o custo da transportadora.",
-  },
-  {
-    direcao: "NEUTRAL" as const,
-    rotulo: "Neutro",
-    ajuda: "É cadastro, não grandeza econômica — não deve afetar o veredito do trecho.",
-  },
-  {
-    direcao: "DEPENDS_ON_FORMULA" as const,
-    rotulo: "Depende da fórmula",
-    ajuda: "O sentido depende de que conta usa este atributo — não classificar sem essa conta.",
-  },
-];
-
-export type DirecaoEconomica = (typeof DIRECOES_ECONOMICAS)[number]["direcao"];
+export { DIRECOES_ECONOMICAS, direcaoDe, type DirecaoEconomica } from "./direcao";
+import { DIRECOES_ECONOMICAS, type DirecaoEconomica } from "./direcao";
 
 export interface DirecaoEconomicaResult {
   desfecho: "GRAVADA" | "JA_ESTAVA";
