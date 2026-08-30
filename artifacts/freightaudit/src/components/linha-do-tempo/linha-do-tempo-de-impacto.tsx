@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import {
   AlertTriangle,
   ArrowDownRight,
@@ -20,6 +20,13 @@ import { LeituraPorTipo, useLinkDeAlteracoes } from "@/lib/tipo-da-linha-do-temp
 import { cn } from "@/lib/utils";
 import { formatBrlShort, periodicityAdjective, periodicitySuffix } from "@/lib/format";
 import { linkDeAlteracoes, type Recorte } from "@/lib/recorte";
+import { SeletorDeJanela } from "@/components/ui/seletor-de-janela";
+import {
+  JANELA_PADRAO,
+  QUANTIDADES,
+  janelasDeVigencias,
+  type Janela,
+} from "@/lib/janela-de-vigencias";
 import type {
   Movimentos,
   ParameterRollup,
@@ -443,8 +450,11 @@ function CabecalhoDaEvolucao({
   );
 }
 
-/** Quantas vigências cabem numa janela da linha do tempo. */
-const VIGENCIAS_POR_JANELA = 5;
+/**
+ * O que o clique numa vigência da linha do tempo faz — o marco, o cartão e o
+ * ponto do acumulado prometem todos a mesma coisa.
+ */
+export type AberturaDaVigencia = (linha: RangeMovement) => void;
 
 /**
  * A evolução do intervalo — a linha do tempo na horizontal, e o acumulado
@@ -456,10 +466,19 @@ const VIGENCIAS_POR_JANELA = 5;
  * divergente — dizia o tamanho de cada mês, mas não a **forma** do período, e
  * era a forma que a reunião perguntava.
  *
- * Uma janela de {@link VIGENCIAS_POR_JANELA} vigências por vez, e não o
- * histórico inteiro espremido: cinco colunas ainda cabem com o número, a
- * contagem e o selo legíveis; doze viram tarja. O paginador começa na janela
- * mais recente — a pergunta usual é "e agora?", não "e no começo?".
+ * Uma janela por vez, e não o histórico inteiro espremido: seis colunas ainda
+ * cabem com o número, a contagem e o selo legíveis; trinta viram tarja. O
+ * paginador começa na janela mais recente — a pergunta usual é "e agora?", não
+ * "e no começo?".
+ *
+ * **Quantas cabem numa janela é escolha do leitor**, no mesmo seletor do
+ * gráfico do Dashboard (`lib/janela-de-vigencias.ts`): 3, 6 ou 12, contadas em
+ * vigências ou em meses. As duas unidades divergem quando um mês recebe mais
+ * de uma vigência — e é justamente aí que a pergunta muda de "as últimas seis
+ * entregas" para "o que mudou desde o meio do ano".
+ *
+ * A janela é estado desta seção, não da página: ela recorta o histórico que já
+ * veio na mesma consulta, e trocá-la não dispara requisição nenhuma.
  */
 export function EvolucaoDasVigencias({
   dados,
@@ -488,13 +507,30 @@ export function EvolucaoDasVigencias({
   /** O que o clique numa vigência promete — muda entre a unidade e a Visão Geral. */
   rotuloDeAbrir?: string;
 }) {
-  const janelas = Math.max(1, Math.ceil(linhas.length / VIGENCIAS_POR_JANELA));
-  const [janelaPedida, setJanela] = useState(janelas - 1);
-  // Trocar de unidade encurta o histórico sem desmontar o componente: a janela
-  // guardada pode não existir mais, e é aqui que ela volta para dentro do fim.
-  const janela = Math.min(Math.max(janelaPedida, 0), janelas - 1);
-  const inicio = janela * VIGENCIAS_POR_JANELA;
-  const visiveis = linhas.slice(inicio, inicio + VIGENCIAS_POR_JANELA);
+  const [tamanho, setTamanho] = useState<Janela>(JANELA_PADRAO);
+  const janelas = janelasDeVigencias(linhas, tamanho, (linha) => linha.period);
+  /*
+    O paginador guarda a distância até o fim — "duas janelas atrás" —, e não o
+    índice de uma fatia. Trocar de unidade (ou o tamanho da janela) refatia o
+    histórico inteiro, e um índice guardado passaria a apontar outro pedaço do
+    tempo: quem estava na ponta recente de 6 vigências continua na ponta
+    recente ao pedir 12 meses. É a mesma correção que o índice já precisava ao
+    trocar de unidade da frota, que encurta o histórico sem desmontar a seção.
+  */
+  const [distanciaDoFim, setDistancia] = useState(0);
+  const ultima = Math.max(0, janelas.length - 1);
+  const janela = ultima - Math.min(Math.max(distanciaDoFim, 0), ultima);
+  const visiveis = janelas[janela] ?? [];
+
+  /*
+    O que o clique numa vigência faz, seja no marco, no cartão ou no ponto do
+    acumulado. O cartão e o marco continuam sendo âncora de verdade quando o
+    destino é um endereço (abrir em outra aba, copiar o link); o ponto do
+    gráfico é desenho dentro de um SVG e não tem âncora onde morar, então ele
+    navega por aqui. Um destino só, montado num lugar só: três leituras da
+    mesma regra é como as três passariam a prometer coisas diferentes.
+  */
+  const escolher = useEscolhaDeVigencia(recorteBase, onAbrirVigencia);
 
   // O mês crítico é o do intervalo inteiro, não o da janela: o selo tem de
   // seguir apontando o mesmo mês que os cartões e o parágrafo contam.
@@ -512,27 +548,37 @@ export function EvolucaoDasVigencias({
   return (
     <>
       <CabecalhoDaEvolucao dados={dados}>
-        {janelas > 1 && (
-          <div className="flex items-center gap-2 shrink-0">
-            <BotaoDeJanela
-              rotulo="Vigências anteriores"
-              desabilitado={janela === 0}
-              onClique={() => setJanela(janela - 1)}
-            >
-              <ChevronLeft className="w-4 h-4" />
-            </BotaoDeJanela>
-            <span className="rounded-lg border px-3.5 py-2 text-sm font-semibold tabular-nums">
-              {rotuloDaJanela(visiveis)}
-            </span>
-            <BotaoDeJanela
-              rotulo="Vigências seguintes"
-              desabilitado={janela === janelas - 1}
-              onClique={() => setJanela(janela + 1)}
-            >
-              <ChevronRight className="w-4 h-4" />
-            </BotaoDeJanela>
-          </div>
-        )}
+        <div className="flex flex-wrap items-center justify-end gap-2 shrink-0">
+          {janelas.length > 1 && (
+            <div className="flex items-center gap-2">
+              <BotaoDeJanela
+                rotulo="Vigências anteriores"
+                desabilitado={janela === 0}
+                onClique={() => setDistancia(ultima - (janela - 1))}
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </BotaoDeJanela>
+              <span className="rounded-lg border px-3.5 py-2 text-sm font-semibold tabular-nums">
+                {rotuloDaJanela(visiveis)}
+              </span>
+              <BotaoDeJanela
+                rotulo="Vigências seguintes"
+                desabilitado={janela === ultima}
+                onClique={() => setDistancia(ultima - (janela + 1))}
+              >
+                <ChevronRight className="w-4 h-4" />
+              </BotaoDeJanela>
+            </div>
+          )}
+          {/*
+            O seletor só aparece quando há mais histórico do que a menor janela
+            mostra: com três vigências no banco, todos os botões desenhariam a
+            mesma linha do tempo e prometeriam uma escolha que não existe.
+          */}
+          {linhas.length > QUANTIDADES[0] && (
+            <SeletorDeJanela janela={tamanho} onJanela={setTamanho} />
+          )}
+        </div>
       </CabecalhoDaEvolucao>
 
       {periodicidades.length > 1 && (
@@ -569,12 +615,41 @@ export function EvolucaoDasVigencias({
         critico={critico?.period ?? null}
         recorteBase={recorteBase}
         onAbrirVigencia={onAbrirVigencia}
+        onEscolher={escolher}
         rotuloDeAbrir={rotuloDeAbrir}
       />
 
-      <ImpactoAcumulado visiveis={visiveis} periodicidade={periodicidade} />
+      <ImpactoAcumulado
+        visiveis={visiveis}
+        periodicidade={periodicidade}
+        onEscolher={escolher}
+        rotuloDeAbrir={rotuloDeAbrir}
+      />
     </>
   );
+}
+
+/**
+ * Para onde o clique numa vigência leva — ou `null` quando não leva a lugar
+ * nenhum.
+ *
+ * Dois destinos, na mesma ordem em que o cartão os prefere: a gaveta, quando
+ * existe (ela responde "o que puxou o mês para baixo, e o que puxou para
+ * cima" antes de oferecer qualquer lista), e as Alterações daquela vigência
+ * quando esta leitura tem endereço lá. Sem nenhum dos dois — a Visão Geral
+ * sem gaveta, a aba de trecho, que Alterações não sabe listar — devolve
+ * `null`, e quem chama desenha desenho, não botão: prometer navegação que não
+ * acontece é pior do que não prometer.
+ */
+function useEscolhaDeVigencia(
+  recorteBase: Recorte | null,
+  onAbrirVigencia?: AberturaDaVigencia,
+): AberturaDaVigencia | null {
+  const link = useLinkDeAlteracoes();
+  const [, navegar] = useLocation();
+  if (onAbrirVigencia) return onAbrirVigencia;
+  if (recorteBase === null || link === null) return null;
+  return (linha) => navegar(link({ recorte: { ...recorteBase, period: linha.period } }));
 }
 
 function BotaoDeJanela({
@@ -616,20 +691,30 @@ function LinhaDoTempoHorizontal({
   critico,
   recorteBase,
   onAbrirVigencia,
+  onEscolher,
   rotuloDeAbrir,
 }: {
   visiveis: RangeMovement[];
   periodicidade: string;
   critico: string | null;
   recorteBase: Recorte | null;
-  onAbrirVigencia?: (linha: RangeMovement) => void;
+  onAbrirVigencia?: AberturaDaVigencia;
+  /** O clique no marco — o mesmo destino do cartão, ou `null` quando não há. */
+  onEscolher: AberturaDaVigencia | null;
   rotuloDeAbrir: string;
 }) {
   const grade = { gridTemplateColumns: `repeat(${visiveis.length}, minmax(0, 1fr))` };
+  /*
+    A largura mínima cresce com a janela: 34rem sempre coube em cinco colunas,
+    e a mesma medida em doze espremeria o número da vigência até virar tarja.
+    Com ~7rem por coluna, o cartão continua legível e é a rolagem horizontal —
+    que este contêiner já tinha — que resolve o que não cabe na tela.
+  */
+  const larguraMinima = `${Math.max(34, visiveis.length * 7)}rem`;
 
   return (
     <div className="overflow-x-auto">
-      <div className="min-w-[34rem]">
+      <div style={{ minWidth: larguraMinima }}>
         <div className="grid gap-3" style={grade}>
           {visiveis.map((linha) => (
             <div key={linha.period} className="flex justify-center h-5">
@@ -657,13 +742,49 @@ function LinhaDoTempoHorizontal({
           ))}
         </div>
 
+        {/*
+          O marco é clicável, e leva ao mesmo lugar que o cartão embaixo dele.
+          O ponto sobre a linha é o que a leitura aponta com o dedo — é ele que
+          diz "este mês" —, e ele ser o único elemento morto da coluna fazia o
+          clique óbvio não responder. A área de toque é maior que o desenho
+          (o botão tem folga em volta), pelo mesmo motivo que o gráfico do
+          Dashboard lê o clique no gráfico inteiro e não em cada barra.
+        */}
         <div className="relative grid gap-3 py-3" style={grade}>
           <span className="absolute left-0 right-0 top-1/2 h-px -translate-y-1/2 bg-border" />
-          {visiveis.map((linha) => (
-            <span key={linha.period} className="relative flex justify-center">
-              <Marco tom={tomDaVigencia(linha, periodicidade, critico)} />
-            </span>
-          ))}
+          {visiveis.map((linha) => {
+            const tom = tomDaVigencia(linha, periodicidade, critico);
+            if (onEscolher === null) {
+              return (
+                <span key={linha.period} className="relative flex justify-center">
+                  <Marco tom={tom} />
+                </span>
+              );
+            }
+            return (
+              <button
+                key={linha.period}
+                type="button"
+                onClick={() => onEscolher(linha)}
+                data-testid={`marco-${linha.period}`}
+                title={rotuloDeAbrir}
+                /*
+                  Escondido do leitor de tela, e fora da ordem de tabulação, de
+                  propósito: o cartão logo abaixo já oferece este mesmo destino
+                  com nome próprio, e três controles idênticos por coluna (o
+                  marco, o cartão e o ponto do acumulado) fariam quem navega por
+                  teclado atravessar a mesma vigência três vezes para chegar na
+                  seguinte. Para o ponteiro, o marco continua sendo o alvo
+                  óbvio; para o teclado, o cartão é o caminho.
+                */
+                aria-hidden="true"
+                tabIndex={-1}
+                className="relative flex justify-center rounded-full p-1 -m-1 transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+              >
+                <Marco tom={tom} />
+              </button>
+            );
+          })}
         </div>
 
         <div className="grid gap-3 items-stretch" style={grade}>
@@ -865,9 +986,14 @@ function CartaoDaVigencia({
 function ImpactoAcumulado({
   visiveis,
   periodicidade,
+  onEscolher = null,
+  rotuloDeAbrir,
 }: {
   visiveis: RangeMovement[];
   periodicidade: string;
+  /** O clique no ponto — o mesmo destino do marco e do cartão, ou `null`. */
+  onEscolher?: AberturaDaVigencia | null;
+  rotuloDeAbrir: string;
 }) {
   if (visiveis.length < 2) return null;
 
@@ -903,7 +1029,13 @@ function ImpactoAcumulado({
       <svg
         viewBox={`0 0 ${L} ${A}`}
         className="w-full h-auto"
-        role="img"
+        /*
+          Com os pontos clicáveis, o desenho deixa de ser imagem: `role="img"`
+          esconde o conteúdo interno das tecnologias assistivas, e os botões
+          que acabaram de nascer aqui dentro sumiriam junto. Como grupo, a
+          descrição continua sendo lida e os pontos continuam alcançáveis.
+        */
+        role={onEscolher !== null ? "group" : "img"}
         aria-label={`Impacto líquido acumulado de ${pontos[0].linha.label} a ${ultimo.linha.label}: ${formatBrlShort(ultimo.acumulado)}`}
       >
         {/* O zero, para a linha ter contra o que subir e descer. */}
@@ -941,7 +1073,37 @@ function ImpactoAcumulado({
         ))}
 
         {pontos.map((ponto, i) => (
-          <g key={ponto.linha.period}>
+          /*
+            O ponto é clicável, e leva à mesma vigência que o marco e o cartão
+            lá em cima. É a leitura que o gráfico convida: o olho segue a linha
+            até o vale, e o vale é onde a pergunta "o que aconteceu aqui?"
+            nasce — obrigar a subir de volta até o cartão da coluna era o
+            caminho longo para o clique óbvio.
+
+            `role="button"` com `tabIndex` e a tecla, porque `<button>` não é
+            elemento de SVG: dentro do desenho, é assim que o alvo existe
+            também para quem navega por teclado. O círculo transparente de
+            raio 14 é a área de toque — o desenho tem 5, que é mira fina
+            demais para o dedo.
+          */
+          <g
+            key={ponto.linha.period}
+            {...(onEscolher !== null && {
+              role: "button",
+              tabIndex: 0,
+              "aria-label": `${rotuloDeAbrir} — ${ponto.linha.label}`,
+              onClick: () => onEscolher(ponto.linha),
+              onKeyDown: (evento: React.KeyboardEvent<SVGGElement>) => {
+                if (evento.key !== "Enter" && evento.key !== " ") return;
+                evento.preventDefault();
+                onEscolher(ponto.linha);
+              },
+              style: { cursor: "pointer" },
+            })}
+          >
+            {onEscolher !== null && (
+              <circle cx={x(i)} cy={y(ponto.acumulado)} r="14" fill="transparent" />
+            )}
             <circle
               cx={x(i)}
               cy={y(ponto.acumulado)}

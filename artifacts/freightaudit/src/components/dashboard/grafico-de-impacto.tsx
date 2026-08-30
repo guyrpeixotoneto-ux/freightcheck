@@ -16,88 +16,36 @@ import { formatBrl, formatBrlShort, periodicitySuffix } from "@/lib/format";
 import { EmAtualizacao, classeDeAtualizacao } from "@/components/ui/em-atualizacao";
 import { seriesDoIntervalo } from "@/components/linha-do-tempo/linha-do-tempo-de-alteracoes";
 import { vigenciaDoClique, type EstadoDoClique } from "@/lib/clique-na-vigencia";
+import { SeletorDeJanela } from "@/components/ui/seletor-de-janela";
+import {
+  JANELA_PADRAO,
+  QUANTIDADES,
+  recorteDaJanela as recorteDeVigencias,
+  type Janela,
+} from "@/lib/janela-de-vigencias";
 import type { RangeEntry } from "@/lib/analise";
-import { cn } from "@/lib/utils";
 
-/**
- * As duas maneiras de encurtar o gráfico, e por que são duas.
- *
- * **Vigências** conta barras: "as últimas 6 entregues", sem perguntar quando
- * foram. É a janela que sempre desenha alguma coisa, e por isso é o padrão.
- *
- * **Meses** conta calendário: "os últimos 6 meses de vigência". Responde a
- * outra pergunta — não "as últimas seis", e sim "o que mudou desde o meio do
- * ano" —, e as duas divergem exatamente quando a leitura fica interessante: um
- * mês com duas vigências gasta duas barras da janela por vigências e um mês só
- * da janela por meses.
- *
- * O que o gráfico não oferece é janela em **dias**: o eixo é a vigência
- * entregue, e "últimos 7 dias" sobre competências mensais desenharia quase
- * sempre nenhuma barra — um recorte que responde "não houve movimento" quando
- * o que falta é vigência no intervalo, não alteração no contrato.
- */
-export const QUANTIDADES = [3, 6, 12] as const;
+/*
+  A janela — "quantas, e de quê" — mora em `lib/janela-de-vigencias.ts`, junto
+  com o corte que ela produz: a Linha do Tempo oferece a mesma escolha sobre o
+  mesmo histórico, e duas cópias da regra discordariam sobre onde "3 meses"
+  começa. Os nomes seguem exportados daqui porque é daqui que a tela e os
+  testes deste gráfico os leem.
+*/
+export {
+  JANELA_PADRAO,
+  QUANTIDADES,
+  TETO_DA_SERIE,
+  UNIDADES,
+  competenciaInicial,
+  rotuloDaUnidade,
+  type Janela,
+  type UnidadeDaJanela,
+} from "@/lib/janela-de-vigencias";
 
-export const UNIDADES = ["vigencias", "meses"] as const;
-
-export type UnidadeDaJanela = (typeof UNIDADES)[number];
-
-/** O rótulo do botão de unidade — sempre no plural, que é como o seletor lê. */
-export const rotuloDaUnidade = (unidade: UnidadeDaJanela) =>
-  unidade === "meses" ? "meses" : "vigências";
-
-export interface Janela {
-  unidade: UnidadeDaJanela;
-  quantidade: number;
-}
-
-/** A janela aberta por padrão — a mesma que o gráfico desenhava antes do seletor. */
-export const JANELA_PADRAO: Janela = { unidade: "vigencias", quantidade: 6 };
-
-/**
- * Quantas vigências a série precisa carregar para qualquer janela caber.
- *
- * Não são as 12 da maior janela por vigências: doze **meses** podem conter
- * mais de doze vigências — duas no mesmo mês são o caso que o próprio gráfico
- * desenha separadas —, e a série cortada em doze deixaria a janela de 12 meses
- * mentindo por baixo, escondendo vigências que existem dentro do intervalo que
- * ela promete. O dobro cobre um ano inteiro de vigências quinzenais.
- */
-export const TETO_DA_SERIE = 2 * Math.max(...QUANTIDADES);
-
-/** A competência (`YYYY-MM`) de uma data `YYYY-MM-DD`. */
-const competencia = (data: string) => data.slice(0, 7);
-
-/**
- * A primeira competência que uma janela de `meses` aceita, contada de trás
- * para frente a partir de `ancora` — **incluindo** o mês da âncora: "últimos 3
- * meses" com âncora em agosto começa em junho, e não em maio. É a leitura de
- * quem pede três meses e espera três meses na tela.
- */
-export function competenciaInicial(ancora: string, meses: number): string {
-  const [ano, mes] = competencia(ancora).split("-").map(Number);
-  const deslocado = (ano * 12 + (mes - 1)) - (meses - 1);
-  const anoInicial = Math.floor(deslocado / 12);
-  const mesInicial = (deslocado % 12) + 1;
-  return `${String(anoInicial).padStart(4, "0")}-${String(mesInicial).padStart(2, "0")}`;
-}
-
-/**
- * O recorte que vai para a tela.
- *
- * A janela por meses é ancorada na **última vigência da série**, e não em
- * hoje. Um contrato cuja vigência mais recente é de três meses atrás não tem
- * nada de errado — ele só não mudou desde então —, e ancorar no relógio faria
- * o gráfico dele apagar por completo, respondendo "nada aconteceu" a quem
- * perguntou "o que aconteceu". Ancorado na série, "últimos 6 meses" é sempre
- * meio ano de história a partir do último movimento conhecido.
- */
+/** O corte da série pela janela aberta — a vigência de cada ponto é `periodo`. */
 export function recorteDaJanela(pontos: PontoDeImpacto[], janela: Janela): PontoDeImpacto[] {
-  if (janela.unidade === "vigencias") return pontos.slice(-janela.quantidade);
-  const ancora = pontos[pontos.length - 1];
-  if (!ancora) return [];
-  const inicial = competenciaInicial(ancora.periodo, janela.quantidade);
-  return pontos.filter((ponto) => competencia(ponto.periodo) >= inicial);
+  return recorteDeVigencias(pontos, janela, (ponto) => ponto.periodo);
 }
 
 const COR_POSITIVA = "#059669"; // emerald-600 — o mesmo verde de ganho do resto da tela
@@ -306,53 +254,9 @@ export function GraficoDeImpacto({
           O seletor só aparece quando há mais dado do que a menor janela mostra:
           com três vigências no banco, todos os botões desenhariam o mesmo
           gráfico e prometeriam uma escolha que não existe.
-
-          São dois grupos e não seis botões soltos: o número e a unidade são
-          duas perguntas independentes ("quantas?" e "de quê?"), e trocar de
-          unidade preserva o número já escolhido — quem está em 6 vigências e
-          quer 6 meses dá um clique, não dois.
         */}
         {pontos.length > QUANTIDADES[0] && (
-          <div className="flex items-center gap-2 shrink-0">
-            <div className="flex items-center gap-1" role="group" aria-label="Tamanho da janela">
-              {QUANTIDADES.map((quantidade) => (
-                <button
-                  key={quantidade}
-                  type="button"
-                  onClick={() => setJanela((atual) => ({ ...atual, quantidade }))}
-                  aria-pressed={janela.quantidade === quantidade}
-                  title={`Mostrar ${quantidade} ${rotuloDaUnidade(janela.unidade)}`}
-                  className={cn(
-                    "rounded-lg border px-2 py-1 text-xs font-semibold transition-colors",
-                    janela.quantidade === quantidade
-                      ? "bg-accent text-accent-foreground"
-                      : "text-muted-foreground hover:bg-accent",
-                  )}
-                >
-                  {quantidade}
-                </button>
-              ))}
-            </div>
-            <div className="flex items-center gap-1" role="group" aria-label="Unidade da janela">
-              {UNIDADES.map((unidade) => (
-                <button
-                  key={unidade}
-                  type="button"
-                  onClick={() => setJanela((atual) => ({ ...atual, unidade }))}
-                  aria-pressed={janela.unidade === unidade}
-                  title={`Contar a janela em ${rotuloDaUnidade(unidade)}`}
-                  className={cn(
-                    "rounded-lg border px-2 py-1 text-xs font-semibold transition-colors",
-                    janela.unidade === unidade
-                      ? "bg-accent text-accent-foreground"
-                      : "text-muted-foreground hover:bg-accent",
-                  )}
-                >
-                  {rotuloDaUnidade(unidade)}
-                </button>
-              ))}
-            </div>
-          </div>
+          <SeletorDeJanela janela={janela} onJanela={setJanela} />
         )}
       </div>
       <ResponsiveContainer width="100%" height={300}>
