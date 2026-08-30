@@ -435,6 +435,55 @@ function semCarimboDoDocumento(texto: string): string {
  * sustentou. Esconder isso atrás de um trecho de manual é afirmar que se
  * respondeu.
  */
+/**
+ * O que se diz quando a investigação **parou** antes de concluir.
+ *
+ * **O buraco que isto fecha.** `redacaoDeDescarte` cobriu o caso em que o
+ * modelo escreveu e a trava descartou. Ficou de fora o caso em que o modelo
+ * **não chegou a escrever**: estourar o teto de rodadas devolve texto nulo, e
+ * a resposta caía na redação em código — que abre pelo Book. Medido na rodada
+ * 2C: duas respostas voltaram com "### 1. INTRODUÇÃO / Faixa reflexiva: são
+ * dispositivos nas cores vermelha e branca…" no lugar de uma resposta.
+ *
+ * É o mesmo defeito que o descarte tinha, num ramo que a correção anterior não
+ * cobriu — e a diferença entre os dois casos importa para quem lê: no descarte
+ * havia resposta e ela não se sustentou; aqui a investigação não terminou. Uma
+ * pede reformulação, a outra pede recorte mais estreito.
+ *
+ * **Por que dizer quantas consultas houve.** Porque o oposto — "não encontrei
+ * nada" — é o que a rodada 2B entregou depois de nove consultas bem-sucedidas,
+ * e é mentira sobre o motivo. Quem lê "não encontrei" arquiva a pergunta; quem
+ * lê "consultei nove coisas e o limite acabou" refaz com mais foco.
+ */
+export function redacaoDeInvestigacaoIncompleta(
+  dossie: Dossie,
+  parou: string,
+  rodadas: number,
+): string {
+  const consultadas = [...new Set(dossie.evidencias.map((e) => e.ferramenta))];
+  const porque =
+    parou === "TETO_DE_TOKENS"
+      ? "a investigação ficou grande demais para uma resposta só"
+      : `a investigação passou do limite de ${rodadas} rodadas de consulta`;
+
+  const linhas = [
+    `Não cheguei a uma conclusão sobre isso: ${porque}, e prefiro não fechar ` +
+      "uma resposta sobre o que não terminei de apurar.",
+  ];
+  if (consultadas.length > 0) {
+    linhas.push(
+      `O que eu já tinha consultado: ${consultadas.join(", ")}. ` +
+        "As evidências ficam listadas ao lado — elas valem, o que falta é a conclusão.",
+    );
+  }
+  for (const lacuna of dossie.lacunas) linhas.push(lacuna.explicacao);
+  linhas.push(
+    "Se você estreitar a pergunta — uma vigência, uma placa, uma rubrica —, " +
+      "eu chego ao fim dentro do limite.",
+  );
+  return linhas.join("\n\n");
+}
+
 export function redacaoDeDescarte(dossie: Dossie, recusados: string[]): string {
   const consultadas = [...new Set(dossie.evidencias.map((e) => e.ferramenta))];
   const linhas = [
@@ -1063,6 +1112,15 @@ function montarComAgente(
   let numerosRecusados: string[] = [];
   let frasesPodadas = 0;
   let frasesTotais = 0;
+
+  /*
+    Sem texto do modelo e sem ter respondido, o que vai à tela é a declaração
+    da investigação incompleta — nunca a redação em código, que abriria pelo
+    Book. Ver `redacaoDeInvestigacaoIncompleta`.
+  */
+  if (!investigacao.texto && investigacao.parou !== "RESPONDEU" && investigacao.parou !== "RECUSA") {
+    texto = redacaoDeInvestigacaoIncompleta(paraConferir, investigacao.parou, investigacao.rodadas);
+  }
 
   if (investigacao.texto) {
     const saneamento = sanear(investigacao.texto, paraConferir);

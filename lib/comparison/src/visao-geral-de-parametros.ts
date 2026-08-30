@@ -339,6 +339,17 @@ function mesclarGrupos(origens: OrigemDoGrupo[]): GrupoConsolidado {
 
     natures: [...new Set(grupos.flatMap((g) => g.natures))],
     natureCodes: [...new Set(grupos.flatMap((g) => g.natureCodes))],
+    /*
+      Somar por natureza, e não herdar do primeiro grupo: consolidar unidades
+      mantém a mesma promessa da contagem por natureza — quem lê "saiu de zero
+      em N" precisa que N some as unidades, não que ele venha de uma delas.
+    */
+    ativosPorNatureza: grupos.reduce<Record<string, number>>((acc, g) => {
+      for (const [codigo, quantos] of Object.entries(g.ativosPorNatureza ?? {})) {
+        acc[codigo] = (acc[codigo] ?? 0) + quantos;
+      }
+      return acc;
+    }, {}),
     semanticsStatus: primeiro.semanticsStatus,
     semanticsLabel: primeiro.semanticsLabel,
     unit: primeiro.unit,
