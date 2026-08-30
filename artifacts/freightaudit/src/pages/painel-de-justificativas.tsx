@@ -10,6 +10,7 @@ import {
   Download,
   FileCheck2,
   RotateCcw,
+  Layers,
   Truck,
   WifiOff,
 } from "lucide-react";
@@ -30,11 +31,17 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { AbaBotao } from "@/components/changes/cartoes";
 import { JustificarDialog } from "@/components/justificativas/justificar-dialog";
 import { fetchJson, salvarArquivo } from "@/lib/api";
 import { useAmbiente } from "@/lib/ambiente-aberto";
 import { contextoAberto, useContextosDaCasca } from "@/lib/contextos";
-import { equipamentosDoAmbiente, rotuloDoTipo } from "@/lib/frota";
+import {
+  contracaoDoTipo,
+  equipamentosDoAmbiente,
+  palavrasDoTipo,
+  rotuloDoTipo,
+} from "@/lib/frota";
 import { formatNumber } from "@/lib/format";
 import { nomeDaUnidade } from "@/lib/recorte";
 import {
@@ -84,7 +91,32 @@ import { cn } from "@/lib/utils";
  *
  * As contas moram em `lib/painel-de-justificativas.ts`, que não lê tela nenhuma
  * e por isso é testável direto; aqui fica o desenho.
+ *
+ * ---------------------------------------------------------------------------
+ * As duas abas
+ * ---------------------------------------------------------------------------
+ * **Geral** é o painel inteiro — a frota toda somada, com o tipo de ativo entre
+ * os filtros, onde ele sempre esteve. **Cavalo, Carreta e Trecho** (o nome sai
+ * do ambiente aberto — ver `nomeDaAbaPorTipo`) é o mesmo painel com o tipo
+ * promovido de filtro a **população**: um tipo de cada vez, escolhido nas
+ * pastilhas, e a caixa "Tipo de ativo" sai do lugar porque dois controles para
+ * o mesmo eixo é o caminho curto para a tela discordar de si mesma.
+ *
+ * Nada é recontado por causa disso. O tipo já atravessava a leitura inteira —
+ * `resumoDoPainel`, `vigenciasDoPainel` e a lista recebem todos o mesmo `tipo`,
+ * e é por isso que a aba não precisou de conta nova nem de rota nova: ela é uma
+ * escolha diferente sobre a mesma máquina, e não uma segunda máquina.
+ *
+ * O cartão "Pendências por tipo de ativo" continua atravessando os tipos nas
+ * duas abas, e é de propósito: ele é o único lugar da tela que compara um tipo
+ * com o outro, o título diz isso, e na aba de tipo é ele que mostra o tamanho
+ * relativo da fila que se escolheu. As barras seguem clicáveis — na aba de tipo
+ * elas trocam a pastilha aberta.
  */
+
+/* O endereço desta tela — o mesmo que `App.tsx` registra. A aba e o tipo são
+   escritos nele, e trocá-los é navegar para cá de novo com outra pergunta. */
+const PAINEL_DE_JUSTIFICATIVAS = "/painel-de-justificativas";
 
 const TODAS = "__todas__";
 const TODOS_OS_TIPOS = "__todos__";
@@ -137,6 +169,23 @@ function Cartao({
       </div>
     </section>
   );
+}
+
+/**
+ * O nome da aba de tipo — "Cavalo, Carreta e Trecho" na empurrada.
+ *
+ * Sai do ambiente aberto, e não de uma constante: o Rota e o AS rodam com
+ * caminhão e carroceria, o Apoio com empilhadeira, e uma aba escrita "Cavalo,
+ * Carreta e Trecho" numa auditoria que não tem nenhum dos três prometeria três
+ * filas que a tela abriria vazias. A lista é a mesma que o menu e as outras
+ * telas do Plano de Ação leem (`EQUIPAMENTOS_DO_AMBIENTE`), para que os três
+ * nunca discordem sobre o que a operação tem.
+ */
+export function nomeDaAbaPorTipo(equipamentos: readonly string[]): string {
+  const rotulos = equipamentos.map((e) => rotuloDoTipo(e));
+  if (rotulos.length === 0) return "Por tipo";
+  if (rotulos.length === 1) return rotulos[0];
+  return `${rotulos.slice(0, -1).join(", ")} e ${rotulos[rotulos.length - 1]}`;
 }
 
 export default function PainelDeJustificativas() {
@@ -225,7 +274,7 @@ export default function PainelDeJustificativas() {
     se leva adiante é o link para a fila, que o botão de cada linha monta.
   */
   const [vigenciaEscolhida, setVigenciaEscolhida] = useState<string | null>(null);
-  const [tipo, setTipo] = useState<string | null>(null);
+  const [tipoFiltrado, setTipoFiltrado] = useState<string | null>(null);
   const [direcao, setDirecao] = useState<DirecaoDoImpacto>("TODAS");
   const [autor, setAutor] = useState<string | null>(null);
   const [situacao, setSituacao] = useState<SituacaoDaJustificativa>("PENDENTE");
@@ -241,6 +290,44 @@ export default function PainelDeJustificativas() {
     dizendo "nada a justificar" sobre um recorte que não é de ninguém. Enquanto
     a cobertura não chegou, a escolha vale — não há como saber ainda.
   */
+  /*
+    Qual aba, e — na de tipo — qual tipo.
+
+    As duas moram no endereço, e os filtros logo acima não: a diferença é que
+    uma aba não é um recorte da leitura, é **qual leitura** se está fazendo. É o
+    que alguém cola num chat ("olha a fila do trecho"), e é o que a Linha do
+    Tempo já escreve no endereço pela mesma razão. Os filtros continuam em
+    estado, pelo motivo escrito acima deles.
+
+    `?tipo=` que não seja um equipamento **deste ambiente** cai no primeiro da
+    lista, e não em erro nem em tela vazia — a mesma régua de `equipamentoValido`
+    nas telas 360°.
+  */
+  const equipamentos = equipamentosDoAmbiente(ambiente);
+  const porTipo = params.get("aba") === "tipos";
+  const tipoPedido = params.get("tipo");
+  const tipoDaAba =
+    tipoPedido !== null && (equipamentos as readonly string[]).includes(tipoPedido)
+      ? tipoPedido
+      : (equipamentos[0] ?? null);
+
+  /*
+    O tipo que a leitura inteira usa. Na aba Geral é o filtro (nulo = todos); na
+    aba de tipo é a população, e nula ela não pode ser — sem tipo, a aba não
+    tem assunto.
+  */
+  const tipo = porTipo ? tipoDaAba : tipoFiltrado;
+
+  const irPara = (mudancas: Record<string, string | null>) => {
+    const proxima = new URLSearchParams(search);
+    for (const [chave, valor] of Object.entries(mudancas)) {
+      if (valor === null) proxima.delete(chave);
+      else proxima.set(chave, valor);
+    }
+    const texto = proxima.toString();
+    navegar(texto ? `${PAINEL_DE_JUSTIFICATIVAS}?${texto}` : PAINEL_DE_JUSTIFICATIVAS);
+  };
+
   const changeSetId =
     vigenciaEscolhida === null ||
     cobertura === null ||
@@ -250,7 +337,8 @@ export default function PainelDeJustificativas() {
 
   const resumo = resumoDoPainel(cobertura, changeSetId, tipo);
   const barras = useMemo(
-    () => pendenciasPorTipo(cobertura, changeSetId, equipamentosDoAmbiente(ambiente)),
+    () => pendenciasPorTipo(cobertura, changeSetId, equipamentos),
+    // `equipamentos` sai de `ambiente` e é estável enquanto ele não muda.
     [cobertura, changeSetId, ambiente],
   );
   const porVigencia = useMemo(() => vigenciasDoPainel(cobertura, tipo), [cobertura, tipo]);
@@ -319,14 +407,15 @@ export default function PainelDeJustificativas() {
     trocar(() => {
       setUnidadeEscolhida(null);
       setVigenciaEscolhida(null);
-      setTipo(null);
+      // Na aba de tipo o tipo não é filtro a limpar: é a população da aba.
+      setTipoFiltrado(null);
       setDirecao("TODAS");
       setAutor(null);
     });
 
   const temFiltro =
     changeSetId !== null ||
-    tipo !== null ||
+    tipoFiltrado !== null ||
     direcao !== "TODAS" ||
     autor !== null ||
     unidadeEscolhida !== null;
@@ -496,7 +585,58 @@ export default function PainelDeJustificativas() {
         </div>
       </header>
 
-      <div className="px-8 pb-10 space-y-4 max-w-[1400px]">
+      <div className="px-8 border-b max-w-[1400px]">
+        <nav className="flex items-center gap-1" role="tablist">
+          <AbaBotao
+            active={!porTipo}
+            onClick={() => irPara({ aba: null, tipo: null })}
+            icon={<Layers className="w-4 h-4" />}
+            label="Geral"
+            hint="a frota inteira, com o tipo de ativo entre os filtros"
+          />
+          <AbaBotao
+            active={porTipo}
+            onClick={() => irPara({ aba: "tipos" })}
+            icon={<Truck className="w-4 h-4" />}
+            label={nomeDaAbaPorTipo(equipamentos)}
+            hint="o mesmo painel, um tipo de cada vez"
+          />
+        </nav>
+      </div>
+
+      <div className="px-8 pb-10 space-y-4 max-w-[1400px] pt-4">
+        {porTipo && (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs uppercase tracking-wide text-muted-foreground mr-1">
+              Tipo
+            </span>
+            {equipamentos.map((codigo) => (
+              <button
+                key={codigo}
+                type="button"
+                role="tab"
+                aria-selected={codigo === tipo}
+                onClick={() => trocar(() => irPara({ tipo: codigo }))}
+                className={cn(
+                  "rounded-full border px-4 py-1.5 text-sm font-bold transition-colors",
+                  codigo === tipo
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "bg-card hover:bg-muted",
+                )}
+              >
+                {rotuloDoTipo(codigo)}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {porTipo && tipo !== null && (
+          <p className="text-sm text-muted-foreground">
+            Tudo abaixo — os cartões, a cobertura e a fila — fala só{" "}
+            {contracaoDoTipo(tipo, "de")} {palavrasDoTipo(tipo).plural}.
+          </p>
+        )}
+
         {consulta.indisponivel && (
           <ApiErrorNotice
             error={consulta.erro}
@@ -539,11 +679,23 @@ export default function PainelDeJustificativas() {
 
         {resumo && resumo.alteracoes === 0 && (
           <section className="bg-card border rounded-xl shadow-sm px-6 py-10 text-center">
-            <p className="text-lg font-bold">Nada a justificar neste recorte.</p>
+            <p className="text-lg font-bold">
+              {porTipo && tipo !== null
+                ? `Nada a justificar ${contracaoDoTipo(tipo, "em")} ${palavrasDoTipo(tipo).plural} deste recorte.`
+                : "Nada a justificar neste recorte."}
+            </p>
             <p className="text-sm text-muted-foreground mt-1">
+              {/*
+                Na aba de tipo há uma terceira causa possível, e a tela não sabe
+                distinguir as três: pode não haver alteração, pode não haver
+                comparação calculada, e pode aquele tipo não ter sido importado
+                aqui. Dizê-las juntas é mais honesto do que escolher uma.
+              */}
               Sem alteração por ativo nas comparações escolhidas, não há
-              justificativa a cobrar. Abra a aba Alterações para calcular a
-              comparação entre as vigências importadas.
+              justificativa a cobrar
+              {porTipo ? " — e pode ser que este tipo nem tenha sido importado neste recorte" : ""}
+              . Abra a aba Alterações para calcular a comparação entre as
+              vigências importadas.
             </p>
           </section>
         )}
@@ -661,7 +813,15 @@ export default function PainelDeJustificativas() {
                     <li key={barra.tipo}>
                       <button
                         type="button"
-                        onClick={() => trocar(() => setTipo(barra.tipo === tipo ? null : barra.tipo))}
+                        onClick={() =>
+                          trocar(() =>
+                            porTipo
+                              ? // Na aba de tipo não existe "nenhum tipo": a
+                                // barra troca a população aberta.
+                                irPara({ tipo: barra.tipo })
+                              : setTipoFiltrado(barra.tipo === tipo ? null : barra.tipo),
+                          )
+                        }
                         className={cn(
                           "w-full text-left rounded-md px-2 py-1.5 hover:bg-muted/60 transition-colors",
                           tipo === barra.tipo && "bg-muted",
@@ -766,29 +926,37 @@ export default function PainelDeJustificativas() {
                   </Select>
                 </label>
 
-                <label className="space-y-1">
-                  <span className="block text-xs uppercase tracking-wide text-muted-foreground">
-                    Tipo de ativo
-                  </span>
-                  <Select
-                    value={tipo ?? TODOS_OS_TIPOS}
-                    onValueChange={(v) =>
-                      trocar(() => setTipo(v === TODOS_OS_TIPOS ? null : v))
-                    }
-                  >
-                    <SelectTrigger className="h-9 w-44 text-sm">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value={TODOS_OS_TIPOS}>Todos</SelectItem>
-                      {barras.map((barra) => (
-                        <SelectItem key={barra.tipo} value={barra.tipo}>
-                          {barra.rotulo}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </label>
+                {/*
+                  Só na aba Geral. Na aba de tipo o eixo é a própria aba, e uma
+                  segunda caixa para ele deixaria a tela com dois controles do
+                  mesmo recorte — o caminho curto para ela discordar de si
+                  mesma sobre de quem está falando.
+                */}
+                {!porTipo && (
+                  <label className="space-y-1">
+                    <span className="block text-xs uppercase tracking-wide text-muted-foreground">
+                      Tipo de ativo
+                    </span>
+                    <Select
+                      value={tipo ?? TODOS_OS_TIPOS}
+                      onValueChange={(v) =>
+                        trocar(() => setTipoFiltrado(v === TODOS_OS_TIPOS ? null : v))
+                      }
+                    >
+                      <SelectTrigger className="h-9 w-44 text-sm">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={TODOS_OS_TIPOS}>Todos</SelectItem>
+                        {barras.map((barra) => (
+                          <SelectItem key={barra.tipo} value={barra.tipo}>
+                            {barra.rotulo}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </label>
+                )}
 
                 <label className="space-y-1">
                   <span className="block text-xs uppercase tracking-wide text-muted-foreground">
