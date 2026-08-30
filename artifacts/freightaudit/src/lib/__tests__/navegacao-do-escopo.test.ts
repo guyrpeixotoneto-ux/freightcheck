@@ -147,6 +147,49 @@ describe("escolher a Visão Geral", () => {
   });
 });
 
+describe("o Painel de Justificativas", () => {
+  /*
+    A reclamação, nas palavras de quem a fez: "estou mudando de PERNAMBUCO para
+    Visão Geral e está saindo do módulo Painel de Justificativas". Saía porque a
+    tela estava fora das duas listas — e o desvio para o Resumo executivo é
+    justamente o que sobra quando a tela não sabe ler o recorte.
+
+    As duas metades do seletor têm de manter a tela: a Visão Geral porque a rota
+    sem `scopeHash` soma a operação inteira, a unidade porque as duas consultas
+    do painel levam o `scopeHash` (`lib/painel-de-justificativas.ts`). Sem estes
+    dois testes, tirar a tela de qualquer uma das listas volta a ser silencioso.
+  */
+  const PAINEL_DE_JUSTIFICATIVAS = "/painel-de-justificativas";
+
+  it("não expulsa quem escolhe a Visão Geral", () => {
+    const destino = enderecoDeVisaoGeral(
+      PAINEL_DE_JUSTIFICATIVAS,
+      "?scopeHash=scope-pernambuco&canal=EMPURRADA&period=2026-08-01",
+    );
+
+    expect(tela(destino)).toBe(PAINEL_DE_JUSTIFICATIVAS);
+    expect(consulta(destino)).toEqual({
+      visaoGeral: "1",
+      period: "2026-08-01",
+    });
+  });
+
+  it("não expulsa quem escolhe uma unidade, e leva o escopo junto", () => {
+    const destino = enderecoDe(
+      CAMACARI,
+      PAINEL_DE_JUSTIFICATIVAS,
+      "?visaoGeral=1&period=2026-08-01",
+    );
+
+    expect(tela(destino)).toBe(PAINEL_DE_JUSTIFICATIVAS);
+    expect(consulta(destino)).toEqual({
+      scopeHash: "scope-camacari",
+      canal: "EMPURRADA",
+      period: "2026-08-01",
+    });
+  });
+});
+
 describe("trocar o ano no Painel", () => {
   /* O requisito 4: trocar de ano é uma pergunta sobre tempo, não sobre escopo. */
   it("não perde a unidade selecionada", () => {

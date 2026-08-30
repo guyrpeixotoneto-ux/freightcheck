@@ -600,6 +600,33 @@ const TABELAS_DERIVADAS: { nome: string; migration: string; marca: RegExp }[] = 
 ];
 
 /**
+ * Tabelas **descartáveis** que o `down` derruba mesmo com linhas — e o `up`
+ * recria vazias.
+ *
+ * É a terceira categoria, e ela existe porque as duas primeiras não cabiam.
+ * `TABELAS_REMOVIDAS` exige tabela vazia, e exigir isso aqui travaria todo
+ * `down`: o censo tem linha desde a primeira importação. `TABELAS_DERIVADAS`
+ * repovoa a tabela levantando um `INSERT` da migration proprietária, e a `0080`
+ * não tem nenhum — quem preenche o censo é a importação, não a migration.
+ *
+ * O que autoriza descartar o conteúdo é que ele é **inteiramente
+ * reconstruível, e por um caminho que o produto já percorre sozinho**: cada
+ * linha é uma contagem sobre o RAW daquela importação, o RAW é imutável, e
+ * `recensearPendentes()` regrava na partida do servidor o que faltar. Nada aqui
+ * é decisão de gente — que é o critério que faz `justificativa`,
+ * `coverage_expectation` e o cadastro da casa exigirem tabela vazia.
+ *
+ * E o intervalo entre o `down` e o backfill não mente: a marca de "já
+ * recenseado" são as próprias linhas, então uma tabela vazia é "nenhuma
+ * importação recenseada", e `listarBalancos` calcula cada run na hora. É o
+ * mesmo caminho por onde o histórico anterior à `0080` passa. Foi para manter
+ * essa propriedade que a `0080` não criou coluna nenhuma em `import_run`: um
+ * carimbo que sobrevivesse ao `down` deixaria a leitura confiar num censo que o
+ * `down` acabou de apagar.
+ */
+const TABELAS_DESCARTAVEIS = ["import_run_censo"];
+
+/**
  * Colunas que o `down` remove de tabelas que ficam.
  *
  * Exportada porque é a lista que a reconciliação tem de cobrir. Depois que o
@@ -1257,6 +1284,7 @@ export async function bridgeDown(
     const previstos = new Set<string>([
       ...TABELAS_REMOVIDAS,
       ...TABELAS_DERIVADAS.map((t) => t.nome),
+      ...TABELAS_DESCARTAVEIS,
       ...INDICES_REMOVIDOS,
       ...VIEWS_REMOVIDAS,
     ]);
@@ -1293,6 +1321,7 @@ export async function bridgeDown(
     for (const alvo of [
       ...TABELAS_REMOVIDAS,
       ...TABELAS_DERIVADAS.map((t) => t.nome),
+      ...TABELAS_DESCARTAVEIS,
       "snapshot",
     ]) {
       if (!(await existeTabela(c, alvo))) continue;
@@ -1332,7 +1361,11 @@ export async function bridgeDown(
         await exec(`ALTER TABLE "${t}" DROP COLUMN "${col}" RESTRICT`);
       }
     }
-    for (const t of [...TABELAS_REMOVIDAS, ...TABELAS_DERIVADAS.map((d) => d.nome)]) {
+    for (const t of [
+      ...TABELAS_REMOVIDAS,
+      ...TABELAS_DERIVADAS.map((d) => d.nome),
+      ...TABELAS_DESCARTAVEIS,
+    ]) {
       if (await existeTabela(c, t)) await exec(`DROP TABLE "${t}" RESTRICT`);
     }
     // Depois da coluna gerada e das views, nada mais depende delas. `RESTRICT`
@@ -1376,7 +1409,11 @@ export async function bridgeDown(
       );
     }
 
-    for (const t of [...TABELAS_REMOVIDAS, ...TABELAS_DERIVADAS.map((d) => d.nome)]) {
+    for (const t of [
+      ...TABELAS_REMOVIDAS,
+      ...TABELAS_DERIVADAS.map((d) => d.nome),
+      ...TABELAS_DESCARTAVEIS,
+    ]) {
       conferir(`${t} removida`, !(await existeTabela(c, t)), "ainda existe");
     }
     for (const [t, col] of COLUNAS_REMOVIDAS) {
@@ -1749,6 +1786,23 @@ function planoUp(): PassoUp[] {
     A `0060` — o índice de importação oculta. As três colunas dele não voltam
     aqui porque nunca saíram: estão na allowlist.
   */
+  /*
+    A `0080` — a tabela do censo, e só a estrutura dela.
+
+    Volta vazia, de propósito: o conteúdo é contagem sobre o RAW, e quem o
+    repõe é `recensearPendentes()` na partida do servidor. Entre o `up` e esse
+    backfill a leitura do balanço calcula cada run na hora — o mesmo caminho do
+    histórico anterior à `0080` — porque a marca de "já recenseado" são as
+    próprias linhas. Ver `TABELAS_DESCARTAVEIS`.
+  */
+  const M80 = "0080_censo_da_importacao";
+  add(M80, "import_run_censo", levantar(M80, /CREATE TABLE IF NOT EXISTS "import_run_censo"/));
+  add(
+    M80,
+    "constraint import_run_censo_import_run_id_import_run_id_fk",
+    levantar(M80, /import_run_censo_import_run_id_import_run_id_fk/),
+  );
+
   const M60 = "0060_ocultar_import_run";
   add(
     M60,

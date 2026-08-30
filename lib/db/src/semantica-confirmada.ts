@@ -281,6 +281,277 @@ export const CONFIRMED_SEMANTICS: ConfirmedSemantics[] = [
       "Aprovado em 10/08/2026: é exatamente 9,250% de valorNfCompra, com desvio 0,0000 nos 132 ativos, " +
       "e nunca varia ao longo da série. Tributo incidente sobre a nota de compra — valor de aquisição.",
   })),
+
+  // ---------------------------------------------------------------------------
+  // Bloco de 29/08/2026 — os números que ninguém tinha classificado.
+  //
+  // Quarenta e uma colunas que a ficha contava como "sem classificação" e que
+  // **nenhuma delas é montante financeiro**. A investigação inteira, com as
+  // contas que sustentam cada grupo abaixo, está em
+  // `docs/CLASSIFICACAO-DOS-NAO-APURADOS.md`; o inventário é reproduzível por
+  // `lib/composition/src/cli/inventario-sem-classificacao.ts`.
+  //
+  // **Este bloco não move um centavo, e isso é uma propriedade e não um
+  // acidente.** Toda entrada aqui declara `isMonetary: false` e
+  // `aggregation: "NONE"` — o portão de `lib/composition/src/motor.ts` recusa
+  // as duas coisas antes de qualquer soma. O que muda é o motivo com que a
+  // tela as recusa: sai "ninguém olhou para esta coluna" e entra "alguém
+  // decidiu que não é dinheiro". `composicao-real.test.ts` prende os totais
+  // antes e depois.
+  //
+  // O que **não** entrou, de propósito: `lucroVariavelPrevistoCavalo` e
+  // `lucroVariavelPrevistoCarreta` (0,65% do valor da nota — é dinheiro, e a
+  // periodicidade é decisão de negócio), `carreta.lucroVariavelPrevisto` (é o
+  // conjunto, e somá-lo com os dois contaria o cavalo duas vezes),
+  // `custoVariavelSimulado`, o seguro e os acessórios da carreta, as duas
+  // colunas homônimas de IPVA da carreta e as colunas zeradas na série
+  // inteira. Nenhuma delas se decide por medição.
+
+  // **O nó da taxonomia é o que a curadoria já tinha dado, em toda entrada
+  // deste bloco em que ela já tinha dado um.** Confirmar semântica é dizer o
+  // que a coluna mede; remanejar a árvore é outra decisão, de outro dono, e
+  // fazer as duas no mesmo commit esconderia a segunda dentro da primeira. As
+  // três exceções são colunas que estavam em `nao_classificado` — `reaiskm`,
+  // `valorReajustado` e `percentualReajusteAplicado` —, onde não havia decisão
+  // a preservar. Omitir o nó não é alternativa: atributo que nasce CONFIRMED
+  // sem nó fica sem ele para sempre, porque a passada de propostas só olha o
+  // que não está confirmado.
+  //
+  // Razões em R$/km. Uma razão vira dinheiro multiplicada pela quilometragem
+  // rodada no período, que este export não traz — e por isso ela é confirmada
+  // como razão, não como montante. `valorReajustado` = `reaiskm` × (1 +
+  // reajuste) em 126 de 126 linhas, e `manutencaoContrato` == `valorReajustado`
+  // em 558 de 558: as duas são derivadas da terceira e nunca somam com ela.
+  ...([
+    "cavalo.manutencao_reais_km",
+    "cavalo.manutencao_bid",
+    "cavalo.reaiskm",
+    "cavalo.valor_reajustado",
+    "cavalo.manutencao_contrato",
+  ] as const).map((code) => ({
+    code,
+    unit: "BRL_KM" as const,
+    periodicity: null,
+    aggregation: "NONE" as const,
+    isMonetary: false,
+    meaningCode: "taxa_km",
+    taxonomyCode: "cv_manutencao",
+    confirmedBy: "guyrpeixoto.neto@gmail.com",
+    basis:
+      "Aprovado em 29/08/2026: são R$/km de manutenção, declarados como tal pelo próprio time no " +
+      "dicionário do cavalo. Medido nas 558 linhas: valorReajustado = reaiskm × (1 + reajuste) em " +
+      "126/126, e manutencaoContrato == valorReajustado em 558/558. Razão não é montante: vira " +
+      "dinheiro com a quilometragem rodada no período, que este export não traz.",
+  })),
+
+  // Alíquotas. Uma alíquota não é montante — o dinheiro correspondente está em
+  // outra coluna, quando existe. Medido: taxaFiname é a composição
+  // multiplicativa de TJLP, spread BNDES e spread banco em 558 de 558 linhas
+  // do cavalo — é subtotal dos outros três, nunca uma quarta grandeza.
+  ...([
+    ["cavalo.taxa_finame", "cf_financiamento"],
+    ["cavalo.tjlp", "cf_financiamento"],
+    ["cavalo.spread_bndes", "cf_financiamento"],
+    ["cavalo.spread_banco", "cf_financiamento"],
+    ["cavalo.percentual_entrada", "cf_financiamento"],
+    ["cavalo.percentual_icms", "cf_seguros_tributos"],
+    // Sem nó até aqui (`nao_classificado`): o reajuste é do contrato de
+    // manutenção, e é o único deste grupo em que a confirmação decide o nó
+    // em vez de repetir o que a curadoria já tinha decidido.
+    ["cavalo.percentual_reajuste_aplicado", "cv_manutencao"],
+    ["cavalo.combustivel_percentual_perda_vida", "cv_combustivel"],
+    ["carreta.taxa_finame", "cf_financiamento"],
+    ["carreta.tjlp", "cf_financiamento"],
+    ["carreta.spread_bndes", "cf_financiamento"],
+    ["carreta.spread_banco", "cf_financiamento"],
+    ["carreta.percentual_entrada", "cf_financiamento"],
+    ["carreta.percentual_icms", "cf_seguros_tributos"],
+  ] as const).map(([code, taxonomyCode]) => ({
+    code,
+    unit: "PERCENT" as const,
+    periodicity: null,
+    aggregation: "NONE" as const,
+    isMonetary: false,
+    meaningCode: "proporcao",
+    taxonomyCode,
+    confirmedBy: "guyrpeixoto.neto@gmail.com",
+    basis:
+      "Aprovado em 29/08/2026: alíquota, não montante — o mesmo argumento que já vale para " +
+      "carreta.icms e carreta.pisCofins desde 10/08/2026. Medido nas 558 linhas do cavalo: " +
+      "taxaFiname = ((1+TJLP)(1+spreadBNDES)(1+spreadBanco) − 1) em 558/558, ou seja, ela é a " +
+      "composição das outras três e não uma quarta grandeza. A soma simples fecharia em só 428.",
+  })),
+
+  // Prazos em meses. São o eixo do tempo do financiamento e da manutenção —
+  // mudam quando a parcela é calculada, e não são a parcela. `periodoFiname` em
+  // meses não é suposição: é o que a razão 1,081 da amortização comprova
+  // (Cadeia B, 10/08/2026). E `manutencaoFreeMaintenance` == `freeMaintenance`
+  // em 558 de 558 linhas — a mesma medida com dois nomes.
+  ...([
+    ["cavalo.periodo_finame", "cf_financiamento"],
+    ["cavalo.carencia", "cad_contrato"],
+    ["cavalo.free_maintenance", "cv_manutencao"],
+    ["cavalo.manutencao_free_maintenance", "cv_manutencao"],
+    ["cavalo.manutencao_vida_meses", "cv_manutencao"],
+    ["carreta.periodo_finame", "cf_financiamento"],
+    ["carreta.carencia", "cad_contrato"],
+  ] as const).map(([code, taxonomyCode]) => ({
+    code,
+    unit: "MESES" as const,
+    periodicity: null,
+    // AVG e não NONE: é o que `derivarSemantica` produz para uma GRANDEZA, e a
+    // frase que está lá vale inteira aqui — "a média descreve a frota; a soma
+    // de 'meses de vida útil' de 62 cavalos não descreve nada". Média nunca
+    // vira total: o portão do dinheiro exige `isMonetary`, que é falso.
+    aggregation: "AVG" as const,
+    isMonetary: false,
+    meaningCode: "grandeza_mes",
+    taxonomyCode,
+    confirmedBy: "guyrpeixoto.neto@gmail.com",
+    basis:
+      "Aprovado em 29/08/2026: prazo em meses, não dinheiro. O prazo do FINAME em meses é o que a " +
+      "Cadeia B mediu em 10/08/2026 (razão 1,081 da amortização). manutencaoFreeMaintenance == " +
+      "freeMaintenance em 558/558 — duplicata, e as duas ficam fora de qualquer total.",
+  })),
+
+  // Contadores. Pallets, ciclo: números que descrevem o ativo e não se somam
+  // entre equipamentos. Medido no cavalo: ciclo 1 ⟺ amortização > 0 e lucro
+  // fixo = 0 (503 linhas); ciclo 2 ⟺ amortização = 0 (55) — 554 de 558. O
+  // ciclo é consequência do financiamento acabar, não causa de valor.
+  //
+  // **O nó é o que a curadoria já tinha decidido, e é deliberado.** A tentação
+  // era mandar a capacidade para "Capacidade" e o ciclo para "Ciclo e
+  // frequência", que existem na árvore e descrevem bem os dois. Duas razões
+  // contra: a capacidade saiu de Combustível para Especificação técnica numa
+  // curadoria de 16/08/2026 — mover de novo seria desfazer decisão de gente
+  // pelas costas —, e o dicionário do cavalo classifica as duas colunas como
+  // "Cadastral (não entra na DRE)". Confirmar semântica não é remanejar
+  // taxonomia; o nó continua sendo assunto da curadoria.
+  //
+  // O que **não** se pode fazer é omitir o nó: um atributo que nasce CONFIRMED
+  // sem nó fica sem ele para sempre, porque a passada de propostas só olha o
+  // que não está confirmado — é o mesmo defeito que
+  // `garantirClasseDeCustoPadrao` documenta ao lado.
+  ...([
+    ["cavalo.combustivel_capacidade", "cad_especificacao"],
+    ["cavalo.ciclo", "cad_contrato"],
+    ["carreta.ciclo", "cad_contrato"],
+  ] as const).map(([code, taxonomyCode]) => ({
+    code,
+    unit: "QTD" as const,
+    periodicity: null,
+    aggregation: "AVG" as const,
+    isMonetary: false,
+    meaningCode: "grandeza_qtd",
+    taxonomyCode,
+    confirmedBy: "guyrpeixoto.neto@gmail.com",
+    basis:
+      "Aprovado em 29/08/2026: contador do ativo, não montante. combustivelCapacidade é a " +
+      "capacidade de pallets — o cabeçalho do time diz 'CAPACIDADE DE PALLETS PARA CALCULO DE " +
+      "COMBUSTIVEL', e é ele que desempata o palpite de litros que guessUnit fazia. E o ciclo é " +
+      "consequência do financiamento acabar: ciclo 2 ⟺ amortização = 0 em 554 das 558 linhas.",
+  })),
+
+  // Consumo em km/l. É a régua com que os litros são reconhecidos, e o preço do
+  // litro não vem neste export — sem ele, nem o consumo nem a régua viram
+  // dinheiro.
+  ...([
+    "cavalo.combustivel_consumo_neg",
+    "cavalo.combustivel_consumo_benchmark",
+  ] as const).map((code) => ({
+    code,
+    unit: "KM_L" as const,
+    periodicity: null,
+    aggregation: "NONE" as const,
+    isMonetary: false,
+    meaningCode: "consumo",
+    taxonomyCode: "cv_combustivel",
+    confirmedBy: "guyrpeixoto.neto@gmail.com",
+    basis:
+      "Aprovado em 29/08/2026: km/l é consumo, não montante. Vira dinheiro com a quilometragem " +
+      "rodada e o preço do litro, e este export não traz nenhum dos dois. Medido: o preço " +
+      "implícito do diesel em custoVariavelSimulado varia de R$ 5,78 a R$ 6,42 por vigência — " +
+      "existe uma tabela de preço fora deste arquivo, e ela é que falta.",
+  })),
+
+  // Hodômetro na entrada. É a quilometragem **acumulada na chegada do ativo**, e
+  // não a rodada no período — a diferença importa porque é exatamente a segunda
+  // que destravaria os R$/km acima. Confirmá-la como KM impede que alguém a
+  // tome pela outra.
+  //
+  // O nó é o que a curadoria já lhe deu, pelo mesmo motivo do bloco acima: o
+  // dicionário do cavalo classifica o hodômetro como cadastral.
+  {
+    code: "cavalo.odometro_entrada",
+    unit: "KM",
+    periodicity: null,
+    aggregation: "AVG",
+    isMonetary: false,
+    meaningCode: "grandeza_km",
+    taxonomyCode: "cad_especificacao",
+    confirmedBy: "guyrpeixoto.neto@gmail.com",
+    basis:
+      "Aprovado em 29/08/2026: hodômetro na entrada do ativo, declarado pelo time como " +
+      "'KILOMETRAGEM ATUAL DO VEICULO'. Medido: muda uma vez por placa em 62 de 62, sem mover " +
+      "nenhum valor monetário na mesma transição. Não é a quilometragem rodada no período — a " +
+      "que falta para os R$/km virarem dinheiro — e por isso não destrava conta nenhuma.",
+  },
+
+  // Anos de calendário. 2021 não é uma quantidade: somar ou tirar média de anos
+  // de calendário produz um número sem significado. Medido: anoBid ==
+  // manutencaoAno em 558 de 558 linhas — duplicata.
+  ...([
+    ["cavalo.ano", "cad_identificacao"],
+    ["cavalo.ano_bid", "cad_contrato"],
+    ["cavalo.manutencao_ano", "cv_manutencao"],
+    ["carreta.ano", "cad_identificacao"],
+  ] as const).map(([code, taxonomyCode]) => ({
+    code,
+    unit: "ANO" as const,
+    periodicity: null,
+    aggregation: "NONE" as const,
+    isMonetary: false,
+    meaningCode: "descritor_ano_calendario",
+    taxonomyCode,
+    confirmedBy: "guyrpeixoto.neto@gmail.com",
+    basis:
+      "Aprovado em 29/08/2026: ano de calendário, não quantidade — a soma dos 62 cavalos dá " +
+      "125.351, que não significa nada. Medido: anoBid == manutencaoAno em 558/558 linhas, e " +
+      "as duas são a linha da matriz do BID em que o veículo cai.",
+  })),
+
+  // Índices e códigos, sem unidade — e é deliberado que fiquem sem.
+  //
+  // O vocabulário de unidades deste produto não tem termo para "ordinal do
+  // calendário", "idade em anos" nem "código de cadastro", e inventar um aqui
+  // seria decidir vocabulário no meio de uma confirmação. `unit: null` diz o
+  // que se sabe sem afirmar o que não se sabe; o que a confirmação decide — e
+  // é tudo o que ela precisa decidir — é que **não é dinheiro e não se soma**.
+  //
+  // `operadorPromax` é o caso que mais justifica o bloco: é o código Promax do
+  // transportador, vale 1 na frota inteira, e qualquer agregação cega o somava
+  // como se fosse quantidade — 62 no cavalo, 71 na carreta.
+  ...([
+    ["cavalo.combustivel_vida_cavalo", "cv_combustivel", "idade do cavalo em anos, contada da compra"],
+    ["cavalo.mes_de_entrada", "cad_contrato", "mês do calendário em que o ativo entrou"],
+    ["cavalo.operador_promax", "cad_escopo", "código Promax do transportador"],
+    ["carreta.mes_de_entrada", "cad_contrato", "mês do calendário em que o ativo entrou"],
+    ["carreta.operador_promax", "cad_escopo", "código Promax do transportador"],
+  ] as const).map(([code, taxonomyCode, oQueE]) => ({
+    code,
+    unit: null,
+    periodicity: null,
+    aggregation: "NONE" as const,
+    isMonetary: false,
+    taxonomyCode,
+    confirmedBy: "guyrpeixoto.neto@gmail.com",
+    basis:
+      `Aprovado em 29/08/2026: ${oQueE} — não é montante e não se soma. Fica sem unidade de ` +
+      "propósito: o vocabulário atual não tem termo para ordinal de calendário, idade em anos " +
+      "nem código de cadastro, e inventar um aqui seria decidir vocabulário dentro de uma " +
+      "confirmação. Medido em combustivelVidaCavalo: razão 12,17 com manutencaoVidaMeses nas " +
+      "558 linhas — é relógio, não premissa que alguém negocie.",
+  })),
 ];
 
 // ---------------------------------------------------------------------------

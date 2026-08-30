@@ -256,7 +256,7 @@ function EdicaoDeCampo({
         <Button variant="ghost" size="sm" className="h-7" onClick={aoFechar} disabled={gravando}>
           Cancelar
         </Button>
-        <span className="text-[11px] text-muted-foreground/70">
+        <span className="text-2xs text-muted-foreground/70">
           {multilinha ? "Ctrl+Enter grava · Esc cancela" : "Enter grava · Esc cancela"}
         </span>
       </div>
@@ -1136,7 +1136,7 @@ export function PainelDaEtapa({
                             ruído: a ausência da etiqueta já diz isso.
                           */}
                           {linha.obrigatorio === true && (
-                            <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                            <span className="text-2xs uppercase tracking-wide text-muted-foreground">
                               obrigatório
                             </span>
                           )}

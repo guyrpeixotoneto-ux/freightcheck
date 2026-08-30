@@ -10,8 +10,25 @@ import {
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { ApiErrorNotice } from "@/components/api-error";
-import type { ChangeRow } from "@/components/changes/change-table";
 import type { Justificativa } from "@/lib/justificativas";
+
+/**
+ * O que o diálogo precisa saber da alteração que se vai justificar — e só isso.
+ *
+ * Era `ChangeRow` inteiro, que é a linha da Planilha de Alterações com as suas
+ * vinte e cinco colunas. Nenhuma delas entra aqui: o diálogo escreve a placa e
+ * o nome do atributo no título, e manda os ids. Pedir a linha inteira obrigava
+ * quem tem a alteração noutro formato — o Painel de Justificativas, que a lê
+ * paginada do servidor — a inventar as vinte e duas colunas que não usa só para
+ * abrir a mesma caixa de texto. `ChangeRow` continua servindo, porque satisfaz
+ * esta forma.
+ */
+export interface AlvoDaJustificativa {
+  id: number;
+  entityLabel: string | null;
+  attributeCode: string | null;
+  attributeName: string | null;
+}
 
 /**
  * O formulário de justificar — uma ou várias alterações de uma vez, mesmo
@@ -38,7 +55,7 @@ export function JustificarDialog({
   onClose,
   onConfirmar,
 }: {
-  alvo: ChangeRow[] | null;
+  alvo: readonly AlvoDaJustificativa[] | null;
   /** Onde isto vai ser gravado — "vigência 01/08/26". Opcional: a fila não precisa. */
   contexto?: string;
   /** A justificativa que já existe para o alvo, quando se está reescrevendo. */

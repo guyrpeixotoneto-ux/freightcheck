@@ -58,6 +58,7 @@ import QlpAdministrativo from '@/pages/qlp-administrativo';
 import Remunerado from '@/pages/remunerado';
 import Justificativas from '@/pages/justificativas';
 import JustificativasPlaca from '@/pages/justificativas-placa';
+import PainelDeJustificativas from '@/pages/painel-de-justificativas';
 import { EmPreparo } from '@/pages/em-preparo';
 import { TELAS_EM_PREPARO } from '@/pages/telas-em-preparo';
 import VisaoGerencial from '@/pages/fechamento/visao';
@@ -148,6 +149,14 @@ import { etapasDoFechamento } from '@/pages/fechamento/etapas';
  * **`refetchOnReconnect`.** Já era `true` por padrão. Declarado porque agora é
  * decisão, e não herança: é a contrapartida de ter desligado o foco, e é o que
  * garante que a tela se recupere sozinha quando a conexão volta.
+ *
+ * **`queryKeyHashFn`.** A chave de toda consulta passa a carregar o ambiente
+ * aberto (`lib/cache-do-ambiente.ts`). É o par do carimbo que `getApiUrl` põe na
+ * chamada: sem ele, `["contexts"]` era **uma** consulta para os oito ambientes,
+ * e a resposta do último a perguntar valia para todos — a lateral perdia as
+ * unidades ao passar pela Auditoria Rota e não as reencontrava na volta para a
+ * Empurrada, porque o `Layout` nunca desmonta e nada refazia a chamada até o
+ * `staleTime` vencer. A exceção é a sessão, que vale igual nos oito.
  *
  * ---------------------------------------------------------------------------
  * As exceções, todas explícitas
@@ -372,6 +381,7 @@ function RotasDaAuditoria() {
       <Route path="/parametros" component={Parametros} />
       <Route path="/remunerado" component={Remunerado} />
       <Route path="/justificativas" component={Justificativas} />
+      <Route path="/painel-de-justificativas" component={PainelDeJustificativas} />
       <Route path="/justificativas/placa/:placa" component={JustificativasPlaca} />
       <Route path="/book-operador" component={BookOperador} />
       <Route path="/assistente" component={Assistente} />

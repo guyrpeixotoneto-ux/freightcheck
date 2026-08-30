@@ -101,7 +101,7 @@ function Auditar({ achado }: { achado: Achado | null }) {
   return (
     <span
       className={cn(
-        "inline-block rounded px-1.5 py-0.5 text-[11px] font-medium whitespace-nowrap",
+        "inline-block rounded px-1.5 py-0.5 text-2xs font-medium whitespace-nowrap",
         "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200",
       )}
     >

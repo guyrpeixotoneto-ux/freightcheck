@@ -253,7 +253,7 @@ function ChangeKindBadge({ kind }: { kind: string | null }) {
     <Badge
       variant="outline"
       className={cn(
-        "font-normal text-[11px] px-1.5 py-0",
+        "font-normal text-2xs px-1.5 py-0",
         CHANGE_KIND_STYLES[kind] ?? "text-muted-foreground",
       )}
       title={`operação declarada pelo chamado: ${kind}`}

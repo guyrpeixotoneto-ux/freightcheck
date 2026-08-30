@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { invalidarApuracao } from "@/lib/frescor-das-leituras";
 import { CircleHelp, FolderTree, Loader2 } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
 import { ApiErrorNotice } from "@/components/api-error";
@@ -233,6 +234,10 @@ function CartaoDeCategoria({
       setClasse(null);
       setAberto(false);
       await queryClient.invalidateQueries({ queryKey: ["curation"] });
+      // Classificar um atributo muda o impacto que as telas de auditoria
+      // apuram; com `staleTime` declarado nelas, a invalidação deixou de ser
+      // dispensável. Ver `lib/frescor-das-leituras.ts`.
+      await invalidarApuracao(queryClient);
     },
     onError: (err: Error) => setErro(err.message),
   });

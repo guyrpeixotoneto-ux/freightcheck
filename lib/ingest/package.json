@@ -19,7 +19,8 @@
   "dependencies": {
     "@workspace/db": "workspace:*",
     "drizzle-orm": "catalog:",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "@workspace/balance": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "catalog:",

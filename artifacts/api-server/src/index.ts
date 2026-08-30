@@ -1,6 +1,7 @@
 import { db } from "@workspace/db";
 import { migrarComReparo } from "@workspace/db/fila";
 import { varrerLeiturasOrfas } from "@workspace/ingest";
+import { recensearPendentes } from "@workspace/balance";
 import app from "./app";
 import { alertar } from "./lib/alerta";
 import { agendarBackups } from "./lib/backup-agendado";
@@ -303,6 +304,38 @@ async function applyMigrationsInBackground(): Promise<void> {
         "A partida não conseguiu sequer tentar as migrations — banco fora ou pasta ausente.",
       detalhe: { erro: err instanceof Error ? err.message : String(err) },
     });
+  }
+
+  /*
+    O histórico anterior ao censo é recenseado aqui — depois da fila, nunca
+    dentro dela.
+
+    A `0080` cria a tabela; quem a preenche é isto. Ficou fora da
+    migration de propósito: a classificação de um acervo grande leva segundos, e
+    uma migration que não termina é uma partida que não termina. Aqui é uma
+    importação por vez, reentrante, e o servidor já está respondendo.
+
+    **Não bloqueia nada, e não precisa.** Enquanto uma importação não tem censo,
+    ela não tem linha na tabela e `listarBalancos` calcula aquele run na hora —
+    a resposta é a mesma desde o primeiro instante, e só fica mais rápida
+    conforme isto avança. Falhar aqui deixa o produto exatamente como estava
+    antes da mudança, que é o pior caso aceitável para um backfill.
+  */
+  try {
+    const recenseadas = await recensearPendentes(db);
+    if (recenseadas > 0) {
+      logger.info(
+        { importacoes: recenseadas },
+        "Censo do balanço gravado para as importações que ainda não tinham — " +
+          "`GET /api/balance` deixa de reclassificar o acervo a cada leitura.",
+      );
+    }
+  } catch (err) {
+    logger.warn(
+      { err },
+      "Backfill do censo do balanço não completou; a leitura calcula na hora as " +
+        "importações que faltarem, como antes.",
+    );
   }
 }
 

@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { APURACAO_FECHADA } from "@/lib/frescor-das-leituras";
 import { ArrowRight, CloudDownload, TriangleAlert } from "lucide-react";
 import { Link, useLocation, useSearch } from "wouter";
 import { Layout } from "@/components/layout/layout";
@@ -274,9 +275,26 @@ function CartaoDaUnidade({ unidade, ano }: { unidade: ResumoDaUnidade; ano: numb
 export default function VisaoGerencialDaAuditoria() {
   const [, navegar] = useLocation();
   const busca = useSearch();
+  /*
+    Só `staleTime`, e nenhum `placeholderData` — de propósito.
+
+    Esta chave **não tem recorte**: o quadro é de todas as unidades e de todos
+    os anos, e o filtro de ano e de unidade acontece aqui no cliente
+    (`anosComVigencia`, `escopo`). Uma chave que nunca muda nunca fica sem
+    cache, então trocar de unidade ou de ano nesta tela já não apagava nada —
+    não havia o que preservar. O que havia era a chamada refeita **a cada
+    montagem**: 128.717 linhas lidas do banco toda vez que alguém passava por
+    aqui, sobre um quadro que só muda quando uma vigência é importada
+    (`docs/AUDITORIA-ZERO-LOADING.md`, §7, causa 3).
+
+    E é a importação que a invalida: `pages/importacoes.tsx` chama
+    `invalidateQueries()` sem chave ao promover, excluir e ocultar. O minuto é o
+    teto do atraso de quem está noutra aba, não o prazo de validade do dado.
+  */
   const vigencias = useQuery({
     queryKey: ["gerencial", "vigencias"],
     queryFn: () => fetchJson<VigenciaDaAuditoria[]>("/gerencial/vigencias"),
+    staleTime: APURACAO_FECHADA,
   });
 
   const todas = useMemo(() => vigencias.data ?? [], [vigencias.data]);

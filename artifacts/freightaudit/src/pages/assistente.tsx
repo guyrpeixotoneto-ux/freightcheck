@@ -268,7 +268,15 @@ export default function Assistente() {
     );
   };
 
+  /*
+    Rolar para o fim é o gesto de quem está acompanhando uma resposta chegar —
+    e na tela vazia não há resposta nenhuma. Sem esta guarda, abrir o
+    Assistente já descia até o fim das perguntas de abertura: a saudação e o
+    primeiro cartão nasciam acima da dobra, e a primeira coisa visível era o
+    meio de uma lista. Num telefone isso é a tela inteira.
+  */
   useEffect(() => {
+    if (turnos.length === 0) return;
     fim.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [turnos, perguntar.isPending, emCurso]);
 
@@ -326,8 +334,31 @@ export default function Assistente() {
             ceder altura aqui é a lista de mensagens, que rola; o cabeçalho e o
             campo de perguntar valem o que medem.
           */}
-          <header className="border-b bg-card shrink-0 px-4 py-4 md:px-8 md:py-5 flex flex-col gap-4 md:flex-row md:items-start md:justify-between md:gap-6">
-            <div className="flex items-start gap-3 min-w-0">
+          {/*
+            E O TÍTULO SAI DE CENA ASSIM QUE A CONVERSA COMEÇA — NO CELULAR.
+
+            "Assistente FreightCheck" e a frase de apoio dizem o que esta tela
+            é, e isso é uma pergunta que só se faz uma vez: quem já perguntou
+            alguma coisa sabe onde está, e a barra de baixo ainda marca
+            "Perguntar" em azul. Num telefone esse bloco custa uns cem pixels
+            de altura permanente — a mesma altura de duas ou três linhas de
+            resposta — cobrados de novo a cada rolagem.
+
+            Então ele é o cabeçalho da tela vazia. Feita a primeira pergunta, o
+            que fica no celular é a linha do recorte: a única coisa ali que
+            muda o sentido do que está escrito abaixo, e portanto a única que
+            precisa ficar à vista o tempo todo.
+
+            De `md` para cima o cabeçalho é o de sempre — numa tela larga
+            aqueles cem pixels não disputam nada.
+          */}
+          <header
+            className={cn(
+              "border-b bg-card shrink-0 px-4 md:px-8 md:py-5 flex flex-col md:flex-row md:items-start md:justify-between md:gap-6",
+              vazia ? "py-4 gap-4" : "py-2.5 gap-2 md:py-5 md:gap-6",
+            )}
+          >
+            <div className={cn("items-start gap-3 min-w-0", vazia ? "flex" : "hidden md:flex")}>
               <Sparkles className="w-7 h-7 text-brand shrink-0 mt-0.5" aria-hidden />
               <div className="min-w-0">
                 <h1 className="text-xl md:text-2xl font-bold tracking-tight">Assistente FreightCheck</h1>
@@ -355,7 +386,7 @@ export default function Assistente() {
           </header>
 
           <div className="flex-1 min-h-0 overflow-y-auto">
-            <div className="max-w-4xl mx-auto px-4 py-6 md:px-8 space-y-6">
+            <div className="max-w-4xl mx-auto px-4 py-4 md:px-8 md:py-6 space-y-5 md:space-y-6">
               {/*
                 A saudação é escrita aqui dentro, e por isso ela não prova nada
                 sobre o servidor.
@@ -486,24 +517,33 @@ function ProximosPassos({
 
 function Abertura({ aoEscolher }: { aoEscolher: (p: string) => void }) {
   return (
-    <div className="py-8">
-      <div className="flex items-center gap-6 mb-10">
-        <div className="w-24 h-24 shrink-0 rounded-3xl bg-gradient-to-br from-topbar-accent to-brand flex items-center justify-center text-white">
-          <MessageSquare className="w-10 h-10" aria-hidden />
+    /*
+      A abertura é grande porque numa tela vazia sobra espaço — e no celular
+      não sobra. O quadrado de 96px, o título de 3xl e os 40px de respiro entre
+      a saudação e as perguntas foram desenhados para uma janela larga; num
+      telefone eles empurram os quatro cartões inteiramente para baixo da
+      dobra, e a primeira coisa que a tela mostra vira uma saudação sem nada
+      para clicar. Encolhidos, a saudação continua sendo a primeira coisa e o
+      primeiro cartão aparece com ela.
+    */
+    <div className="py-4 md:py-8">
+      <div className="flex items-center gap-4 md:gap-6 mb-6 md:mb-10">
+        <div className="w-16 h-16 md:w-24 md:h-24 shrink-0 rounded-2xl md:rounded-3xl bg-gradient-to-br from-topbar-accent to-brand flex items-center justify-center text-white">
+          <MessageSquare className="w-7 h-7 md:w-10 md:h-10" aria-hidden />
         </div>
         <div className="min-w-0">
-          <h2 className="text-3xl font-bold tracking-tight mb-2">
+          <h2 className="text-2xl md:text-3xl font-bold tracking-tight mb-1 md:mb-2">
             Como posso te ajudar hoje?
           </h2>
-          <p className="text-[0.9375rem] text-muted-foreground max-w-xl">
+          <p className="text-sm md:text-[0.9375rem] text-muted-foreground max-w-xl">
             Faça perguntas em linguagem natural sobre parâmetros, alterações, impactos
             financeiros e o Book do Operador.
           </p>
         </div>
       </div>
 
-      <h3 className="text-base font-semibold mb-4">Perguntas frequentes</h3>
-      <div className="grid gap-4 sm:grid-cols-2">
+      <h3 className="text-base font-semibold mb-3 md:mb-4">Perguntas frequentes</h3>
+      <div className="grid gap-3 md:gap-4 sm:grid-cols-2">
         {SUGESTOES_INICIAIS.map((s) => {
           const Icone = s.icone;
           return (
@@ -511,11 +551,11 @@ function Abertura({ aoEscolher }: { aoEscolher: (p: string) => void }) {
               key={s.pergunta}
               type="button"
               onClick={() => aoEscolher(s.pergunta)}
-              className="group text-left bg-card border border-card-border rounded-xl p-5 flex items-start gap-4 hover:border-brand hover:shadow-sm transition-[border-color,box-shadow]"
+              className="group text-left bg-card border border-card-border rounded-xl p-4 md:p-5 flex items-start gap-3 md:gap-4 hover:border-brand hover:shadow-sm transition-[border-color,box-shadow]"
             >
               <span
                 className={cn(
-                  "w-12 h-12 shrink-0 rounded-full flex items-center justify-center",
+                  "w-10 h-10 md:w-12 md:h-12 shrink-0 rounded-full flex items-center justify-center",
                   s.tom,
                 )}
               >
@@ -658,8 +698,19 @@ function Composer({
     el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
   }, [valor, campo]);
 
+  /*
+    O que o rodapé tem a dizer além do atalho — ou nada.
+
+    `null` aqui quer dizer "só sobrou a instrução de teclado", e é o que
+    permite ao rodapé desaparecer no celular sem levar junto o erro do ditado
+    e o aviso de ambiente.
+  */
+  const recado =
+    ditado.erro ??
+    (ditado.ouvindo ? "Ouvindo… clique no microfone para parar." : (aviso ?? null));
+
   return (
-    <div className="shrink-0 px-4 pb-6 pt-2 md:px-8">
+    <div className="shrink-0 px-4 pb-3 pt-2 md:px-8 md:pb-6">
       <div className="max-w-4xl mx-auto">
         <div
           className={cn(
@@ -667,46 +718,66 @@ function Composer({
             ditado.ouvindo ? "border-destructive" : "border-input focus-within:border-brand",
           )}
         >
-          <textarea
-            ref={campo}
-            value={valor}
-            onChange={(e) => onChange(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                enviar();
-              }
-            }}
-            rows={1}
-            maxLength={1000}
-            placeholder={ditado.ouvindo ? "Ouvindo — pode falar." : "Digite sua pergunta aqui..."}
-            className="w-full resize-none bg-transparent text-[0.9375rem] outline-none max-h-[200px] placeholder:text-muted-foreground"
-          />
-          <div className="flex items-end justify-between gap-3 pt-2">
-            {/*
-              Enquanto o microfone está aberto, o rodapé diz isso e some com o
-              atalho do Enter: as duas frases no mesmo lugar disputariam a
-              única linha que confirma que a fala está sendo ouvida.
-            */}
-            <p
-              className={cn(
-                "text-[0.6875rem]",
-                ditado.erro
-                  ? "text-destructive"
-                  : ditado.ouvindo
-                    ? "text-destructive"
-                    : "text-muted-foreground",
-              )}
-            >
-              {ditado.erro ??
-                (ditado.ouvindo
-                  ? "Ouvindo… clique no microfone para parar."
-                  : (aviso ?? "Enter envia · Shift+Enter quebra linha"))}
-            </p>
+          {/*
+            O MICROFONE E O ENVIAR FICAM AO LADO DO CAMPO, E NÃO ABAIXO DELE.
+
+            Eram uma linha inteira embaixo do campo porque essa linha carregava
+            também o atalho do teclado, à esquerda. Sem o atalho — que no
+            celular não é dito a ninguém, ver abaixo — sobrava uma faixa de
+            quarenta pixels com dois botões encostados na direita e vazio no
+            resto: altura gasta para não dizer nada, e gasta na borda de baixo,
+            que é justamente onde a conversa e o teclado do telefone disputam.
+
+            Numa linha só, o campo é a coluna que cresce e os botões descem
+            colados na base dele — `items-end` mantém isso quando a pergunta
+            passa de uma linha. Em tela grande o desenho é o mesmo de antes: o
+            rodapé continua embaixo do campo, à esquerda, e os botões à direita.
+          */}
+          <div className="flex items-end gap-2">
+            <div className="flex-1 min-w-0">
+              <textarea
+                ref={campo}
+                value={valor}
+                onChange={(e) => onChange(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    enviar();
+                  }
+                }}
+                rows={1}
+                maxLength={1000}
+                placeholder={ditado.ouvindo ? "Ouvindo — pode falar." : "Digite sua pergunta aqui..."}
+                className="w-full resize-none bg-transparent text-[0.9375rem] outline-none max-h-[200px] placeholder:text-muted-foreground"
+              />
+              {/*
+                Uma linha só embaixo do campo, e ela tem dono na ordem de quem
+                fala mais alto: erro do ditado, microfone aberto, aviso de
+                ambiente — e, quando nada disso está acontecendo, o atalho do
+                teclado. Duas dessas frases no mesmo lugar disputariam a única
+                linha que confirma que a fala está sendo ouvida.
+
+                O atalho, e só ele, não é dito a quem não tem teclado:
+                "Enter envia · Shift+Enter quebra linha" é instrução de tela
+                com teclado físico, e num telefone ela não descreve gesto
+                nenhum — some abaixo de `md`, e com ela a linha inteira. Os
+                outros três dizem o que está acontecendo agora, e aparecem em
+                qualquer tamanho de tela.
+              */}
+              <p
+                className={cn(
+                  "text-[0.6875rem] pt-2",
+                  recado === null && "hidden md:block",
+                  ditado.erro || ditado.ouvindo ? "text-destructive" : "text-muted-foreground",
+                )}
+              >
+                {recado ?? "Enter envia · Shift+Enter quebra linha"}
+              </p>
+            </div>
             {/*
               O microfone só existe onde o navegador transcreve. Um botão que
-              não grava manda procurar o defeito no Assistente, quando ele está
-              no navegador — ver `ditado.ts`.
+              não grava manda procurar o defeito no Assistente, quando ele
+              está no navegador — ver `ditado.ts`.
             */}
             {ditado.disponivel && (
               <button
@@ -717,7 +788,7 @@ function Composer({
                 aria-pressed={ditado.ouvindo}
                 title={ditado.ouvindo ? "Parar de ditar" : "Falar em vez de digitar"}
                 className={cn(
-                  "w-10 h-10 shrink-0 ml-auto rounded-lg flex items-center justify-center transition-colors disabled:opacity-40 disabled:cursor-not-allowed",
+                  "w-10 h-10 shrink-0 rounded-lg flex items-center justify-center transition-colors disabled:opacity-40 disabled:cursor-not-allowed",
                   ditado.ouvindo
                     ? "bg-destructive text-destructive-foreground"
                     : "border border-input text-muted-foreground hover:bg-muted hover:text-foreground",
@@ -752,8 +823,19 @@ function Composer({
           isso onde a pergunta é feita é a mesma honestidade que o resto da tela
           pratica ao mostrar recorte e fontes.
         */}
-        <p className="text-[0.6875rem] text-muted-foreground text-center mt-3">
-          As respostas podem conter imprecisões. Sempre valide as informações importantes.
+        {/*
+          A mesma advertência em duas medidas: a frase inteira onde ela cabe em
+          uma linha, e a metade que basta onde ela viraria duas. Encurtar não é
+          suavizar — "podem conter imprecisões" é a parte que muda o que a
+          pessoa faz com a resposta; "sempre valide as informações importantes"
+          é o conselho que decorre dela, e num telefone ele custa uma linha de
+          conversa por tela.
+        */}
+        <p className="text-[0.6875rem] text-muted-foreground text-center mt-2 md:mt-3">
+          <span className="md:hidden">As respostas podem conter imprecisões.</span>
+          <span className="hidden md:inline">
+            As respostas podem conter imprecisões. Sempre valide as informações importantes.
+          </span>
         </p>
       </div>
     </div>

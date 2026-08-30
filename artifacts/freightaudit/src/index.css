@@ -84,6 +84,29 @@
   --font-sans: var(--app-font-sans);
   --font-mono: var(--app-font-mono);
 
+  /*
+   * Os três degraus abaixo do `text-xs` do Tailwind.
+   *
+   * Eles existem porque a interface precisa deles — o "PARCIAL" sob o número
+   * da célula, o "3 crit." no canto, o rótulo do nó compacto do fluxo — e a
+   * escala do Tailwind termina em `text-xs`. Sem estes tokens cada um desses
+   * rótulos era escrito à mão em pixel absoluto, `text-2xs`, 46 vezes.
+   *
+   * Pixel absoluto aqui é um furo na única alavanca de escala do projeto (ver
+   * `html` no `@layer base`): quando a raiz desceu, tudo acompanhou menos estes
+   * rótulos, que ficaram parados no mesmo tamanho e, por isso, relativamente
+   * maiores do que foram desenhados. Em `rem` eles voltam a andar junto.
+   *
+   * Os valores são os antigos pixels divididos pela raiz de 15px em que foram
+   * desenhados — 11, 10 e 9 —, de modo que a proporção com o corpo do texto é
+   * exatamente a de antes. Não têm `--line-height` de propósito: `text-2xs`
+   * também não mexia na entrelinha, e herdar continua sendo o certo para um
+   * rótulo que mora dentro da linha de outro elemento.
+   */
+  --text-2xs: 0.7333rem;
+  --text-3xs: 0.6667rem;
+  --text-4xs: 0.6rem;
+
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -268,17 +291,20 @@
   /*
    * O raio da casca inteira, num número só.
    *
-   * Era `0.25rem` — o cartão quase reto do Freightech. A 15px de raiz isso dava
-   * 3,75px no cartão e **-0,25px** em `--radius-sm`, que o navegador lê como
-   * zero: a escala inteira estava espremida contra o canto reto, e as telas que
-   * queriam respirar escapavam para `rounded-2xl` escrito à mão, uma por uma.
+   * Era `0.25rem` — o cartão quase reto do Freightech. Isso dava um raio de
+   * pouco mais de 3px no cartão e um valor **negativo** em `--radius-sm`, que o
+   * navegador lê como zero: a escala inteira estava espremida contra o canto
+   * reto, e as telas que queriam respirar escapavam para `rounded-2xl` escrito
+   * à mão, uma por uma.
    *
    * A 0.75rem a escala volta a ter os quatro degraus que a fórmula acima
-   * pressupõe — 7,25px, 9,25px, 11,25px e 15,25px. O de cima é o cartão
-   * (`Card` usa `rounded-xl`), e ele cai onde as telas já haviam chegado à mão
-   * com `rounded-2xl`: 15,25px contra 15px. Foi por isso que este valor, e não
-   * outro — subir o token não redesenha as telas que já estavam arredondadas,
-   * alcança as que não estavam.
+   * pressupõe, e o de cima — o cartão, que usa `rounded-xl` — cai onde as telas
+   * já haviam chegado à mão com `rounded-2xl`. Foi por isso que este valor, e
+   * não outro: subir o token não redesenha as telas que já estavam
+   * arredondadas, alcança as que não estavam.
+   *
+   * Os números em pixel dependem da raiz (ver `html` no `@layer base`) e por
+   * isso não estão escritos aqui: o raio é `rem` e acompanha a escala.
    *
    * O que **não** segue esta alavanca é o `rounded` sem sufixo, que o Tailwind
    * fixa em 0,25rem. Ele ficou de propósito nos chips, nos botões de ícone e
@@ -387,18 +413,23 @@
    * alturas de campo, a largura da lateral — então mexer aqui é exatamente o
    * que o navegador faz ao dar zoom, e nada sai de proporção.
    *
-   * Por que 15px e não os 16px do navegador: a 16px a página inicial media
+   * Por que 13.5px e não os 16px do navegador: a 16px a página inicial media
    * 943px de altura e não cabia inteira em nenhum notebook — 1366×768, 1440×900
    * e 1536×864 rolavam todas. Uma tela de entrada que exige rolagem para ser
-   * lida por inteiro esconde metade das portas do produto.
+   * lida por inteiro esconde metade das portas do produto. A escala desceu para
+   * 15px, e depois para os 13.5px de hoje: quem usa o produto o dia inteiro
+   * estava dando 90% de zoom no navegador em toda sessão porque a 15px a tela
+   * lhe chegava grande demais. 13.5px é 90% de 15px — a interface já nasce na
+   * escala em que ela era efetivamente lida, e o zoom do navegador volta a ser
+   * 100%, livre para quem precisar aproximar.
    *
-   * O piso é a legibilidade: 15px é o corpo mínimo que este texto suporta sem
-   * pedir esforço. O que faltou para caber saiu do espaçamento vertical da
-   * própria página, não da fonte — apertar a letra para ganhar pixel é resolver
-   * o problema errado.
+   * O piso continua sendo a legibilidade. Se o corpo tiver de crescer de novo,
+   * ele cresce aqui e em nenhum outro lugar: o que faltar para caber sai do
+   * espaçamento vertical da própria página, não da fonte — apertar a letra para
+   * ganhar pixel é resolver o problema errado.
    */
   html {
-    font-size: 15px;
+    font-size: 13.5px;
   }
 
   body {

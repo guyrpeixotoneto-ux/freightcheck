@@ -43,6 +43,7 @@ import {
   type Gaveta,
   type Historico,
   type LinhaCalculavel,
+  ROTULO_DO_DESTINO,
 } from "@/components/composicao/tipos";
 
 /**
@@ -355,6 +356,8 @@ function AbaComposicao({ composicao }: { composicao: Composicao }) {
       )}
 
       <SemImpactoApurado componentes={composicao.naoApurados} />
+
+      <ConferenciaDeCompletude composicao={composicao} />
     </div>
   );
 }
@@ -560,19 +563,41 @@ function ComoChegamos({ linha }: { linha: LinhaCalculavel }) {
 /**
  * Os componentes que não viraram dinheiro, com o motivo de cada um.
  *
- * Só os que **parecem** dinheiro entram aqui. Chassi, modelo e câmbio são
- * parâmetros do equipamento, não componentes de remuneração que faltaram: eles
- * moram na aba Parâmetros, que é a lista completa. Misturar os dois faria a
- * seção listar sessenta itens e esconder os cinco que importam.
+ * Dois blocos, e a separação é a da direção da dúvida. O primeiro é o que
+ * **parece** dinheiro e ficou de fora: a curadoria já disse que é montante e
+ * falta a regra. O segundo é o número sobre o qual ninguém se pronunciou —
+ * aberto por clique, porque são dezenas e nenhuma delas tem valor apurado, e
+ * presente, porque o cabeçalho os conta e uma contagem sem lista é um número
+ * que não se pode conferir.
+ *
+ * Chassi, modelo e câmbio continuam fora: são parâmetros do equipamento, não
+ * componentes de remuneração que faltaram, e moram na aba Parâmetros — que é a
+ * lista completa, e para onde a conferência ao pé da aba aponta.
  */
 function SemImpactoApurado({ componentes }: { componentes: ComponenteNaoApurado[] }) {
+  const [semClasseAberta, setSemClasseAberta] = useState(false);
+
   const relevantes = componentes.filter(
     (c) => c.monetarioPotencial || c.motivo === "ESCOPO_DE_CONJUNTO",
   );
-  if (relevantes.length === 0) return null;
+  /*
+    Os números que ninguém classificou, e que até 29/08/2026 não apareciam
+    nesta aba de jeito nenhum.
+
+    O cabeçalho contava "36 sem classificação" e a aba Composição não nomeava
+    um só deles: para vê-los era preciso saber que a lista completa mora em
+    Parâmetros. Um deles é `lucroVariavelPrevistoCavalo` — R$ 3.723,82 no
+    equipamento medido, R$ 216 mil por mês na frota — e ler "parcialmente
+    apurada" sem conseguir ver o que está de fora é a forma mais cara de
+    informação incompleta que esta tela pode dar.
+  */
+  const semClassificacao = componentes.filter(
+    (c) => c.semClassificacao && !relevantes.includes(c),
+  );
+  if (relevantes.length === 0 && semClassificacao.length === 0) return null;
 
   return (
-    <section>
+    <section className="space-y-4">
       <header className="mb-3">
         <h2 className="text-sm font-bold uppercase tracking-wider">
           Componentes sem impacto financeiro apurado
@@ -583,52 +608,222 @@ function SemImpactoApurado({ componentes }: { componentes: ComponenteNaoApurado[
         </p>
       </header>
 
-      <div className="bg-card border rounded-md overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b bg-muted/40 text-[0.6875rem] uppercase tracking-wider text-muted-foreground">
-              <th className="text-left px-4 py-2.5 font-semibold">Parâmetro</th>
-              <th className="text-right px-4 py-2.5 font-semibold">Valor</th>
-              <th className="text-left px-4 py-2.5 font-semibold">Unidade</th>
-              <th className="text-left px-4 py-2.5 font-semibold">Motivo</th>
-              <th className="text-left px-4 py-2.5 font-semibold">Explicação</th>
-            </tr>
-          </thead>
-          <tbody>
-            {relevantes.map((componente) => (
-              <tr key={componente.code} className="border-b last:border-0 align-top">
-                <td className="px-4 py-3">
-                  <div className="font-medium">{componente.titulo}</div>
-                  <div className="text-[0.6875rem] text-muted-foreground font-mono">
-                    {componente.sourceName}
+      {relevantes.length > 0 && <TabelaDeNaoApurados componentes={relevantes} />}
+
+      {semClassificacao.length > 0 && (
+        <div>
+          <button
+            type="button"
+            onClick={() => setSemClasseAberta((v) => !v)}
+            className="w-full flex items-center gap-2 px-4 py-3 text-left text-sm bg-card border rounded-md hover:bg-muted/30 transition-colors"
+          >
+            {semClasseAberta ? (
+              <ChevronDown className="w-4 h-4 shrink-0 text-muted-foreground" />
+            ) : (
+              <ChevronRight className="w-4 h-4 shrink-0 text-muted-foreground" />
+            )}
+            <span className="font-medium">
+              {semClassificacao.length}{" "}
+              {semClassificacao.length === 1
+                ? "número que ninguém classificou"
+                : "números que ninguém classificou"}
+            </span>
+            <span className="text-xs text-muted-foreground">
+              vieram do arquivo com valor e ninguém disse ainda se são dinheiro
+            </span>
+          </button>
+          {semClasseAberta && (
+            <div className="mt-2">
+              <TabelaDeNaoApurados componentes={semClassificacao} />
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** A tabela dos que ficaram de fora — uma só, usada pelos dois blocos acima. */
+function TabelaDeNaoApurados({ componentes }: { componentes: ComponenteNaoApurado[] }) {
+  return (
+    <div className="bg-card border rounded-md overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b bg-muted/40 text-[0.6875rem] uppercase tracking-wider text-muted-foreground">
+            <th className="text-left px-4 py-2.5 font-semibold">Parâmetro</th>
+            <th className="text-right px-4 py-2.5 font-semibold">Valor</th>
+            <th className="text-left px-4 py-2.5 font-semibold">Unidade</th>
+            <th className="text-left px-4 py-2.5 font-semibold">Motivo</th>
+            <th className="text-left px-4 py-2.5 font-semibold">Explicação</th>
+          </tr>
+        </thead>
+        <tbody>
+          {componentes.map((componente) => (
+            <tr key={componente.code} className="border-b last:border-0 align-top">
+              <td className="px-4 py-3">
+                <div className="font-medium">{componente.titulo}</div>
+                <div className="text-[0.6875rem] text-muted-foreground font-mono">
+                  {componente.sourceName}
+                </div>
+              </td>
+              <td className="px-4 py-3 text-right tabular-nums whitespace-nowrap">
+                {componente.valorNumerico !== null
+                  ? formatValue(componente.valorNumerico, componente.unit)
+                  : (componente.valorExibido ?? (
+                      <span className="text-muted-foreground text-xs">sem valor</span>
+                    ))}
+              </td>
+              <td className="px-4 py-3 text-muted-foreground text-xs">
+                {componente.unit ?? componente.dataType.toLowerCase()}
+              </td>
+              <td className="px-4 py-3 whitespace-nowrap">
+                <span className="text-xs font-medium">{componente.motivoRotulo}</span>
+              </td>
+              <td className="px-4 py-3 text-xs text-muted-foreground max-w-xl">
+                {componente.explicacao}
+                {componente.baseQueFalta && componente.motivo !== "ESCOPO_DE_CONJUNTO" && (
+                  <div className="mt-1">
+                    <strong className="text-foreground">Destravaria o cálculo:</strong>{" "}
+                    {componente.baseQueFalta}.
                   </div>
-                </td>
-                <td className="px-4 py-3 text-right tabular-nums whitespace-nowrap">
-                  {componente.valorNumerico !== null
-                    ? formatValue(componente.valorNumerico, componente.unit)
-                    : (componente.valorExibido ?? (
-                        <span className="text-muted-foreground text-xs">sem valor</span>
-                      ))}
-                </td>
-                <td className="px-4 py-3 text-muted-foreground text-xs">
-                  {componente.unit ?? componente.dataType.toLowerCase()}
-                </td>
-                <td className="px-4 py-3 whitespace-nowrap">
-                  <span className="text-xs font-medium">{componente.motivoRotulo}</span>
-                </td>
-                <td className="px-4 py-3 text-xs text-muted-foreground max-w-xl">
-                  {componente.explicacao}
-                  {componente.baseQueFalta && componente.motivo !== "ESCOPO_DE_CONJUNTO" && (
-                    <div className="mt-1">
-                      <strong className="text-foreground">Destravaria o cálculo:</strong>{" "}
-                      {componente.baseQueFalta}.
-                    </div>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                )}
+              </td>
+            </tr>
+          ))}
+      </tbody>
+    </table>
+    </div>
+  );
+}
+
+/**
+ * A conferência de completude: **do arquivo até esta tela.**
+ *
+ * A ficha sempre soube responder de onde veio cada número que ela mostra. Esta
+ * seção responde a pergunta inversa, que ninguém estava fazendo e que é a que
+ * tira a dúvida de quem audita: *todo valor que a importação trouxe para esta
+ * placa chegou até aqui?* Um valor que sumiu no caminho não deixa rastro na
+ * tela — uma coluna renomeada na origem produz uma ficha menor, com todas as
+ * linhas exibidas conferindo entre si.
+ *
+ * A conta é a de `lib/composition/src/rastreio.ts`, e ela fecha ou não fecha
+ * por conta própria: célula da linha desta placa = virou fato + endereço do
+ * fato + perdas nomeadas. Quando não fecha, a seção mostra o endereço do que
+ * ficou de fora, porque sem endereço não há conserto.
+ */
+function ConferenciaDeCompletude({ composicao }: { composicao: Composicao }) {
+  const r = composicao.rastreio;
+  /*
+    Sem célula não há conta a mostrar. É o caso do equipamento que não veio
+    nesta vigência — e a frase que explica isso já está logo acima, dita por
+    quem sabe a diferença entre "não veio" e "veio e não apurou".
+  */
+  if (r.celulas === 0) return null;
+
+  const naFicha = composicao.linhas.length + composicao.naoApurados.length;
+  const perdas = r.colunaSemCabecalho + r.colunaAmbigua + r.semDestino;
+
+  return (
+    <section>
+      <header className="mb-3">
+        <h2 className="text-sm font-bold uppercase tracking-wider">
+          Conferência: do arquivo até esta tela
+        </h2>
+        <p className="text-xs text-muted-foreground mt-0.5 max-w-2xl">
+          A conta de conservação desta placa nesta vigência. Toda célula que o arquivo
+          trouxe tem de ter um destino declarado — e a ficha só pode dizer que está
+          completa quando ela fecha.
+        </p>
+      </header>
+
+      <div
+        className={cn(
+          "bg-card border rounded-md border-l-[6px]",
+          r.fecha ? "border-l-emerald-500" : "border-l-brand-red",
+        )}
+      >
+        <div className="px-6 py-4 text-sm">
+          {r.fecha ? (
+            <p>
+              <strong>Nenhum valor importado desta placa ficou fora da ficha.</strong>{" "}
+              O arquivo trouxe {r.celulas} células em{" "}
+              {r.linhasDoArquivo === 1 ? "uma linha" : `${r.linhasDoArquivo} linhas`}:{" "}
+              {r.viraramFato} viraram fato e {r.endereco} são o endereço do fato — a placa
+              e a vigência, que não viram valor porque são o que diz de quem e de quando o
+              valor é.
+            </p>
+          ) : (
+            <p className="text-brand-red">
+              <strong>
+                {perdas === 1
+                  ? "1 valor desta placa não chegou à ficha."
+                  : `${perdas} valores desta placa não chegaram à ficha.`}
+              </strong>{" "}
+              A conta desta vigência não fecha, e o endereço de cada um está abaixo.
+            </p>
+          )}
+        </div>
+
+        <dl className="grid grid-cols-2 md:grid-cols-4 gap-px bg-border border-t">
+          {[
+            ["Células no arquivo", r.celulas],
+            ["Viraram fato", r.viraramFato],
+            ["Endereço do fato", r.endereco],
+            ["Sem destino", perdas],
+          ].map(([rotulo, valor]) => (
+            <div key={rotulo as string} className="bg-card px-6 py-3">
+              <dt className="text-[0.625rem] uppercase tracking-wider text-muted-foreground">
+                {rotulo}
+              </dt>
+              <dd className="text-lg font-semibold tabular-nums mt-0.5">{valor}</dd>
+            </div>
+          ))}
+        </dl>
+
+        <div className="px-6 py-3 border-t text-xs text-muted-foreground">
+          Os {r.fatos} fatos desta vigência estão todos nesta ficha: {composicao.linhas.length}{" "}
+          {composicao.linhas.length === 1 ? "entrou" : "entraram"} nos totais acima e{" "}
+          {composicao.naoApurados.length} ficaram fora, cada um com o motivo — a lista
+          completa dos {naFicha} está na aba <strong>Parâmetros</strong>.
+          {r.fatosSemCelula > 0 && (
+            <>
+              {" "}
+              {r.fatosSemCelula}{" "}
+              {r.fatosSemCelula === 1
+                ? "veio herdado de uma revisão anterior e não tem célula neste arquivo"
+                : "vieram herdados de uma revisão anterior e não têm célula neste arquivo"}
+              .
+            </>
+          )}
+        </div>
+
+        {r.amostras.length > 0 && (
+          <div className="border-t overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b bg-muted/40 text-[0.6875rem] uppercase tracking-wider text-muted-foreground">
+                  <th className="text-left px-4 py-2 font-semibold">Coluna</th>
+                  <th className="text-left px-4 py-2 font-semibold">Valor no arquivo</th>
+                  <th className="text-left px-4 py-2 font-semibold">O que aconteceu</th>
+                </tr>
+              </thead>
+              <tbody>
+                {r.amostras.map((celula, i) => (
+                  <tr key={i} className="border-b last:border-0">
+                    <td className="px-4 py-2">
+                      <span className="font-mono text-xs">{celula.columnLetter ?? "—"}</span>
+                      {celula.columnHeader && <span className="ml-2">{celula.columnHeader}</span>}
+                    </td>
+                    <td className="px-4 py-2 font-mono text-xs">{celula.valor ?? "vazio"}</td>
+                    <td className="px-4 py-2 text-xs text-muted-foreground">
+                      {ROTULO_DO_DESTINO[celula.destino]}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </section>
   );

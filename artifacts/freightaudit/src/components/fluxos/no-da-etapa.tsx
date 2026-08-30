@@ -155,7 +155,7 @@ export const NoDaEtapa = memo(function NoDaEtapa({
           <p
             className={cn(
               "font-medium leading-tight text-foreground",
-              compacto ? "line-clamp-2 text-[10px]" : "line-clamp-3 text-[11px]",
+              compacto ? "line-clamp-2 text-3xs" : "line-clamp-3 text-2xs",
             )}
             title={resumo.nome}
           >
@@ -204,7 +204,7 @@ export const NoDaEtapa = memo(function NoDaEtapa({
           {numero !== null ? (
             <span
               className={cn(
-                "rounded bg-foreground/[0.06] px-1.5 py-px text-[10px] font-semibold",
+                "rounded bg-foreground/[0.06] px-1.5 py-px text-3xs font-semibold",
                 "leading-4 tabular-nums text-muted-foreground",
               )}
             >
@@ -249,7 +249,7 @@ export const NoDaEtapa = memo(function NoDaEtapa({
         <p
           className={cn(
             "mt-0.5 uppercase tracking-wide text-muted-foreground",
-            compacto ? "text-[9px]" : "text-[11px]",
+            compacto ? "text-4xs" : "text-2xs",
           )}
         >
           {tipo?.rotulo ?? resumo.tipo}
@@ -265,7 +265,7 @@ export const NoDaEtapa = memo(function NoDaEtapa({
         <p
           className={cn(
             "mt-1.5 truncate rounded border border-border/70 bg-background/60",
-            "px-1.5 py-0.5 text-[11px] text-muted-foreground",
+            "px-1.5 py-0.5 text-2xs text-muted-foreground",
           )}
           title={resumo.quemResponde}
         >
@@ -274,7 +274,7 @@ export const NoDaEtapa = memo(function NoDaEtapa({
       )}
 
       {mostrarDetalhe && !compacto && resumo.detalhes > 0 && (
-        <p className="mt-1.5 text-[11px] text-muted-foreground/70">
+        <p className="mt-1.5 text-2xs text-muted-foreground/70">
           {resumo.detalhes} {resumo.detalhes === 1 ? "detalhe" : "detalhes"}
         </p>
       )}

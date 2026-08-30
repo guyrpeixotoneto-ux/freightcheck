@@ -25,12 +25,23 @@ import type { TransicoesDoParametro } from "./recomendacao";
  * aparições com um buraco no meio. Pular o vazio inventaria uma transição que a
  * matriz do segundo nível não mostra.
  *
- * O **zero, ao contrário, é contado** — e contado à parte. Neste export a fonte
- * escreve zero onde quer dizer "não informado": `lucroVariavelPrevistoCavalo`
- * tem 107 de 107 transições com zero de um dos lados, alternando entre um único
- * valor e nada. Filtrar o zero esconderia o sintoma; tratá-lo como preço
- * produziria uma proposta de recompor R$ 23 mil que ninguém tirou. Ele entra,
- * e `comZero` é o que permite à avaliação reconhecer a coluna intermitente.
+ * O **zero, ao contrário, é contado** — e contado à parte.
+ * `lucroVariavelPrevistoCavalo` tem 107 de 107 transições com zero de um dos
+ * lados, alternando entre um único valor e nada. Filtrar o zero esconderia o
+ * sintoma; tratá-lo como preço produziria uma proposta de recompor R$ 23 mil
+ * que ninguém tirou. Ele entra, e `comZero` é o que permite à avaliação
+ * reconhecer a coluna intermitente.
+ *
+ * **O que esse zero significa, medido em 29/08/2026.** Este comentário dizia
+ * que a fonte "escreve zero onde quer dizer «não informado»". A observação
+ * estava certa e a leitura, não: o zero é **veículo parado**. A
+ * correspondência é perfeita nas 558 linhas do export — 442 linhas com valor,
+ * todas `ativo = ATIVO`; 116 com zero, todas `PARADO` — e as 107 transições são
+ * exatamente 51 `PARADO→ATIVO` e 56 `ATIVO→PARADO`. O tratamento aqui não muda,
+ * porque continua certo por outro motivo: a variação não é preço. Mas ela
+ * também não é lacuna de dado — é frota parando e voltando a rodar, que é uma
+ * informação de operação e não de qualidade do arquivo. Ver
+ * `docs/CLASSIFICACAO-DOS-NAO-APURADOS.md` §2.2.
  */
 export async function medirTransicoes(
   db: Database,

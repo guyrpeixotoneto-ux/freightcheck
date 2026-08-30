@@ -36,10 +36,10 @@ export const NoDoGrupo = memo(function NoDoGrupo({ data }: NodeProps & { data: D
         style={{ height: ALTURA_DO_ROTULO_DO_GRUPO }}
       >
         {Icone && <Icone className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />}
-        <p className="truncate text-[11px] font-medium text-muted-foreground">
+        <p className="truncate text-2xs font-medium text-muted-foreground">
           {tipo?.plural ?? "Em paralelo"}
         </p>
-        <span className="shrink-0 text-[11px] text-muted-foreground/70">· {quantas}</span>
+        <span className="shrink-0 text-2xs text-muted-foreground/70">· {quantas}</span>
       </div>
     </div>
   );
