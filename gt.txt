@@ -1,0 +1,38 @@
+BEGIN
+SET
+SET
+=== 00 · identidade do banco ===================================
+   db   | change_sets | changes 
+--------+-------------+---------
+ neondb |          75 |  168181
+(1 row)
+
+psql:ground-truth.sql:19: ERROR:  cannot execute CREATE VIEW in a read-only transaction
+=== 01 · todas as vigencias · esperado 02/08: 102 alt, 24 add, 26 rem, 95 sem preco, +21.931,01
+psql:ground-truth.sql:25: ERROR:  current transaction is aborted, commands ignored until end of transaction block
+=== 02 · veiculos afetados · esperado 80 (02/08), 91 (01/08), 178 (01/07)
+psql:ground-truth.sql:30: ERROR:  current transaction is aborted, commands ignored until end of transaction block
+=== 03 · deducao de composicao · esperado bruto 43.862,01, oficial 21.931,01
+psql:ground-truth.sql:33: ERROR:  current transaction is aborted, commands ignored until end of transaction block
+=== 04 · impacto por atributo · esperado finame +21.905,20 e lucro fixo +25,81
+psql:ground-truth.sql:42: ERROR:  current transaction is aborted, commands ignored until end of transaction block
+=== 05 · impacto por placa · esperado RPG8G28 +17.227,35 / RPG1E60 +9.355,70 / OTI4A85 -4.652,04
+psql:ground-truth.sql:51: ERROR:  current transaction is aborted, commands ignored until end of transaction block
+=== 06 · O CASO #4 · devem aparecer DOIS destinos: 25.548,15 e 12.998,65
+psql:ground-truth.sql:62: ERROR:  current transaction is aborted, commands ignored until end of transaction block
+=== 07 · lucro fixo novo ciclo · esperado OTI4A85 4.652,04->0 e RPG1E60 0->4.677,85
+psql:ground-truth.sql:72: ERROR:  current transaction is aborted, commands ignored until end of transaction block
+=== 08 · DIVERGENCIA: lucro variavel 0->6.158,83 OU 2.405,01->7.972,05 ?
+psql:ground-truth.sql:81: ERROR:  current transaction is aborted, commands ignored until end of transaction block
+=== 09 · DIVERGENCIA: entraram/sairam 24 e 24, ou 24 e 26 ?
+psql:ground-truth.sql:84: ERROR:  current transaction is aborted, commands ignored until end of transaction block
+psql:ground-truth.sql:87: ERROR:  current transaction is aborted, commands ignored until end of transaction block
+=== 10 · a placa ABC1D23 (#41) · esperado: zero linhas
+psql:ground-truth.sql:92: ERROR:  current transaction is aborted, commands ignored until end of transaction block
+=== 11 · serie IPVA cavalo · esperado 185.899,95 / 275.154,81 / 273.553,43 / 267.408,97
+psql:ground-truth.sql:103: ERROR:  current transaction is aborted, commands ignored until end of transaction block
+=== 12 · curadoria · esperado 19 de 245 com significado
+psql:ground-truth.sql:110: ERROR:  current transaction is aborted, commands ignored until end of transaction block
+=== 13 · unidades · esperado Manaus, CDD Cebrasa, Equatorial, Camacari
+psql:ground-truth.sql:113: ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ROLLBACK
