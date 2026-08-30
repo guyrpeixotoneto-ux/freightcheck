@@ -34,6 +34,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ApiError, fetchJson, fetchJsonOrNull } from "@/lib/api";
+import { LEITURA_DE_APURACAO } from "@/lib/frescor-das-leituras";
+import { EmAtualizacao, classeDeAtualizacao } from "@/components/ui/em-atualizacao";
 import { useContextosDaCasca } from "@/lib/contextos";
 import { useFamiliesOverviewQuery } from "@/lib/families-overview";
 import { DASHBOARD, GESTAO_A_VISTA } from "@/lib/ambiente";
@@ -60,12 +62,16 @@ import {
 import { juntarPrioridades } from "@/lib/cockpit";
 import { lerRecorte, linkDeAlteracoes, nomeDaUnidade, type Recorte } from "@/lib/recorte";
 import { DetalheDaFamilia } from "@/components/inicio/detalhe-da-familia";
+import type { UnidadeDoDrill } from "@/lib/drill-da-familia";
 import { unidadesPorImpacto } from "@/components/inicio/visao-geral-consolidada";
 import { Sparkline } from "@/components/dashboard/sparkline";
 import { AnelDeCobertura } from "@/components/dashboard/anel-de-cobertura";
 import { GraficoDeImpacto, type PontoDeImpacto } from "@/components/dashboard/grafico-de-impacto";
 import { useSerieDeImpacto, useSerieDeImpactoGeral } from "@/lib/serie-de-impacto";
-import { useVoltaDeVigencia } from "@/components/vigencia/voltar-de-vigencia";
+import {
+  BotaoDeVoltarVigencia,
+  useVoltaDeVigencia,
+} from "@/components/vigencia/voltar-de-vigencia";
 import { iconeDaAlteracao } from "@/components/dashboard/icone-da-alteracao";
 import {
   SeletorDeVigencia,
@@ -128,6 +134,23 @@ export default function Dashboard() {
   const vigencia = useQuery({
     queryKey: ["families", "dashboard", consulta.toString()],
     enabled: !visaoGeral,
+    /*
+      A leitura da unidade aberta, com a política de apuração fechada
+      (`lib/frescor-das-leituras.ts`).
+
+      Esta é a consulta da **troca de unidade**: a chave carrega `scopeHash`,
+      `canal` e `period`, então escolher outra unidade na lateral produz uma
+      chave que nunca foi buscada. Sem `placeholderData`, `data` vinha
+      `undefined`, o ramo `vigencia.isLoading` assumia e o Dashboard inteiro
+      era substituído por "Carregando a vigência…" — medido em 147–163 ms de
+      tela vazia por troca, com o conteúdo sumindo 16 ms depois do clique.
+
+      O `staleTime` é o mesmo minuto que a Linha do Tempo já declarava para
+      exatamente esta leitura, e pela mesma razão: uma vigência fechada não
+      muda entre duas importações, e é a importação que invalida a chave — não
+      o relógio.
+    */
+    ...LEITURA_DE_APURACAO,
     queryFn: async () => {
       try {
         return await fetchJson<FamiliesView>(`/changes/families${sufixo}`);
@@ -191,11 +214,32 @@ export default function Dashboard() {
     desenhar gráficos diferentes do mesmo dado.
   */
   const serieDaUnidade = useSerieDeImpacto(visaoGeral ? null : view, consulta);
+  /*
+    O gráfico sai **depois** do conteúdo principal, não junto com ele.
+
+    `useSerieDeImpactoGeral` lê `/changes/range/overview`, e as duas leituras de
+    overview do Dashboard custam 243 ms e 21 ms quando medidas sozinhas, mas
+    625 ms e 607 ms quando disparam no mesmo instante: cada uma abre um leque de
+    consultas por unidade, e as duas disputam os mesmos núcleos e o mesmo pool.
+    Medido na abertura fria, a última resposta chegava aos 921 ms e 65% da
+    jornada era esse par (`docs/AUDITORIA-ZERO-LOADING.md`, §2 e §3.1);
+    adiando a segunda, o conteúdo útil saiu de 951 ms para 569 ms.
+
+    Esta série não alimenta a resposta principal da tela — os quatro
+    indicadores, o líquido e a fila saem de `overviewQuery`. Segurá-la até o
+    conteúdo principal existir não atrasa nada que alguém esteja esperando.
+
+    A guarda é `!overviewQuery.isLoading`, e não `overviewQuery.data`, por causa
+    do `placeholderData`: numa troca de competência `isLoading` já é `false` (há
+    o dado anterior em tela), e o gráfico acompanha a troca sem esperar de novo.
+    O adiamento vale só para a **primeira** leitura, que é a única em que havia
+    disputa.
+  */
   const serieGeral = useSerieDeImpactoGeral(
     periodosOverview,
     periodoOverviewEfetivo,
     overview,
-    visaoGeral,
+    visaoGeral && !overviewQuery.isLoading,
   );
 
   /*
@@ -235,6 +279,9 @@ export default function Dashboard() {
         consulta={consulta}
         onTrocar={trocarPara}
         paraGestaoAVista={paraGestaoAVista}
+        atualizando={
+          visaoGeral ? overviewQuery.isPlaceholderData : vigencia.isPlaceholderData
+        }
       />
 
       <div className="px-8 py-6 space-y-5 max-w-[1600px]">
@@ -248,6 +295,16 @@ export default function Dashboard() {
             )}
             {!overviewQuery.isLoading && !overviewQuery.error && overview === null && <BancoVazio />}
             {overview && (
+              /*
+                Enquanto o conteúdo é o da competência anterior, ele fica dito:
+                `isPlaceholderData` é o único sinal que quer dizer "a chave
+                mudou e a resposta dela ainda não chegou". Um `isFetching` no
+                lugar dele acenderia o indicador também num refetch de fundo da
+                mesma competência, onde não há nada a declarar. O `space-y-5`
+                repete o do contêiner acima: `space-y` só alcança filhos
+                diretos, e sem ele esta envoltória colaria os cartões.
+              */
+              <div className={cn("space-y-5", classeDeAtualizacao(overviewQuery.isPlaceholderData))}>
               <ConteudoGeral
                 overview={overview}
                 atualizadoEm={atualizadoEm}
@@ -266,6 +323,7 @@ export default function Dashboard() {
                   trocarPara({ period: periodo });
                 }}
               />
+              </div>
             )}
           </>
         ) : (
@@ -278,6 +336,7 @@ export default function Dashboard() {
             )}
             {!vigencia.isLoading && !vigencia.error && view === null && <BancoVazio />}
             {view && (
+              <div className={cn("space-y-5", classeDeAtualizacao(vigencia.isPlaceholderData))}>
               <ConteudoDaUnidade
                 view={view}
                 recorte={recorte}
@@ -296,6 +355,7 @@ export default function Dashboard() {
                   trocarPara({ period: periodo });
                 }}
               />
+              </div>
             )}
           </>
         )}
@@ -319,6 +379,7 @@ function Cabecalho({
   consulta,
   onTrocar,
   paraGestaoAVista,
+  atualizando,
 }: {
   view: FamiliesView | null;
   overview: FamiliesOverview | null;
@@ -328,6 +389,17 @@ function Cabecalho({
   consulta: URLSearchParams;
   onTrocar: (mudancas: Record<string, string | null>) => void;
   paraGestaoAVista: string;
+  /**
+   * O corpo da tela ainda é o recorte anterior (`isPlaceholderData`).
+   *
+   * O título continua nomeando o recorte **da resposta que está em tela** —
+   * `view.context` e `view.period`, nunca `params.get("scopeHash")` —, e é o
+   * que torna o par honesto: o título diz de quem são os números, e o
+   * indicador ao lado diz que outro está a caminho. Sem o indicador, o título
+   * ainda estaria certo, mas a lateral já nomearia a unidade nova e ninguém
+   * teria como saber qual das duas ler.
+   */
+  atualizando: boolean;
 }) {
   const unidade = view ? nomeDaUnidade(view.context) : null;
   const periodoAtual = visaoGeral ? (overview?.period ?? null) : (view?.period ?? null);
@@ -336,9 +408,12 @@ function Cabecalho({
     <header className="px-8 pt-7 pb-2">
       <div className="flex flex-wrap items-start justify-between gap-4 max-w-[1600px]">
         <div className="min-w-0">
-          <h1 className="text-[2rem] font-extrabold tracking-tight leading-tight">
-            Dashboard — {visaoGeral ? "Visão Geral" : (unidade ?? "")}
-          </h1>
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="text-[2rem] font-extrabold tracking-tight leading-tight">
+              Impacto Líquido — {visaoGeral ? "Visão Geral" : (unidade ?? "")}
+            </h1>
+            <EmAtualizacao ativo={atualizando} />
+          </div>
           <p className="text-sm text-muted-foreground mt-1.5">
             O que a Ambev mudou nesta competência, e quanto isso custou.
           </p>
@@ -544,6 +619,24 @@ function ConteudoDaUnidade({
       ? { ganhos: pontos.map((p) => p.ganhos), perdas: pontos.map((p) => p.perdas) }
       : null;
 
+  /*
+    A unidade aberta, na mesma forma que a Visão Geral usa para cada uma das
+    suas — uma lista de um item.
+
+    A gaveta não precisa saber em qual das duas leituras está: o degrau por
+    unidade mostra a única que existe aqui, e o degrau por placa pergunta a ela
+    com o `scopeHash` dela, que é o mesmo caminho da Visão Geral. Escrever dois
+    caminhos para o mesmo clique é como as duas leituras começariam a divergir.
+  */
+  const unidades: UnidadeDoDrill[] = [
+    {
+      chave: view.context.scopeHash,
+      label: nomeDaUnidade(view.context),
+      contexts: [{ scopeHash: view.context.scopeHash, channel: view.context.channel }],
+      summary: view.summary,
+    },
+  ];
+
   return (
     <>
       <FaixaSlim
@@ -566,6 +659,7 @@ function ConteudoDaUnidade({
         periodLabel={view.periodLabel}
         vigenciaAtiva={view.period}
         recorte={recorte}
+        unidades={unidades}
         familiaAberta={familiaAberta}
         onAbrirFamilia={onAbrirFamilia}
         onFecharFamilia={onFecharFamilia}
@@ -610,6 +704,7 @@ function ImpactoEPodio({
   periodLabel,
   recorte,
   vigenciaAtiva,
+  unidades,
   familiaAberta,
   onAbrirFamilia,
   onFecharFamilia,
@@ -632,6 +727,14 @@ function ImpactoEPodio({
      separada de `period` porque a Visão Geral tem competência aberta (e por
      isso barra acesa e clique) mesmo sem uma unidade a quem abrir a gaveta. */
   vigenciaAtiva: string | null;
+  /**
+   * As unidades por trás destes números — uma dentro de uma unidade, todas as
+   * consolidadas em Visão Geral.
+   *
+   * É o que faz cada parâmetro da gaveta abrir por unidade e, dentro dela,
+   * placa a placa. Vazia, a gaveta continua sendo a mesma leitura de antes.
+   */
+  unidades: UnidadeDoDrill[];
   familiaAberta: string | null;
   onAbrirFamilia: (code: string) => void;
   onFecharFamilia: () => void;
@@ -670,7 +773,16 @@ function ImpactoEPodio({
         para mostrar: a distância entre uma vigência e a seguinte.
       */}
       <section className={cn(CARTAO, "px-6 py-5")}>
-        <h2 className="text-base font-bold mb-1">Impacto das alterações por vigência</h2>
+        {/*
+          O botão de voltar fica no canto superior direito do cartão, na linha
+          do título: é o canto onde a tela guarda a saída, e ali ele aparece
+          mesmo quando o gráfico não tem o que desenhar — dentro do gráfico, a
+          vigência sem série levava embora o próprio caminho de volta.
+        */}
+        <div className="flex items-start justify-between gap-3 mb-1">
+          <h2 className="text-base font-bold">Impacto das alterações por vigência</h2>
+          <BotaoDeVoltarVigencia destino={voltarPara} onVoltar={(periodo) => onVoltar?.(periodo)} />
+        </div>
         <p className="text-xs text-muted-foreground mb-4">
           {notaDoGrafico ??
             "Ganhos e perdas divergindo do zero, com o líquido por cima. Uma barra por vigência entregue — duas no mesmo mês aparecem pelo dia, nunca somadas."}
@@ -680,8 +792,6 @@ function ImpactoEPodio({
           periodicity={periodicity}
           vigenciaAtiva={vigenciaAtiva}
           onEscolherVigencia={onEscolherVigencia}
-          voltarPara={voltarPara}
-          onVoltar={onVoltar}
         />
       </section>
 
@@ -724,6 +834,8 @@ function ImpactoEPodio({
         period={period}
         periodLabel={periodLabel}
         recorte={recorte}
+        unidades={unidades}
+        vigencia={vigenciaAtiva}
         onFechar={onFecharFamilia}
       />
     </div>
@@ -819,6 +931,20 @@ function ConteudoGeral({
   const dominante = principal?.periodicity ?? null;
   const { totals } = overview.consolidado;
 
+  /*
+    Quem entrou na soma — e é por isso que a gaveta consegue abrir um parâmetro
+    por unidade sem pedir nada ao servidor: cada unidade incluída já viaja com o
+    seu próprio resumo executivo dentro da mesma resposta que desenhou o pódio.
+    Um segundo pedido seriam duas vigências possíveis, e é assim que o número da
+    gaveta deixaria de bater com o de cima.
+  */
+  const unidades: UnidadeDoDrill[] = overview.unitsIncluded.map((u) => ({
+    chave: u.unidade,
+    label: u.label,
+    contexts: u.contexts.map((c) => ({ scopeHash: c.scopeHash, channel: c.channel })),
+    summary: u.summary,
+  }));
+
   // A mesma disciplina do modo Unidade: a sparkline só acompanha o número
   // grande quando as duas descrevem a mesma periodicidade.
   const sparklines =
@@ -870,6 +996,7 @@ function ConteudoGeral({
           que acende a barra e recebe o clique.
         */
         vigenciaAtiva={overview.period}
+        unidades={unidades}
         familiaAberta={familiaAberta}
         onAbrirFamilia={onAbrirFamilia}
         onFecharFamilia={onFecharFamilia}
@@ -906,10 +1033,11 @@ function ConteudoGeral({
       />
 
       <p className="text-xs text-muted-foreground">
-        A gaveta de detalhe por parâmetro abre dentro de cada unidade — a soma Geral não mescla a
-        árvore de parâmetros entre elas. Os números por periodicidade dos cartões continuam sendo
-        soma de unidades; a contagem de veículos da faixa do topo diz, ali mesmo, se é união de
-        ativos distintos ou soma.
+        No pódio, cada parâmetro abre por unidade e, dentro dela, placa a placa com o antes e o
+        depois — a soma Geral não mescla a árvore de parâmetros entre unidades, então esse degrau
+        é lido unidade por unidade, no recorte de cada uma. Os números por periodicidade dos
+        cartões continuam sendo soma de unidades; a contagem de veículos da faixa do topo diz, ali
+        mesmo, se é união de ativos distintos ou soma.
       </p>
     </>
   );

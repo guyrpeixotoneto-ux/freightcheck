@@ -35,7 +35,7 @@ export const NoDaRaia = memo(function NoDaRaia({ data }: NodeProps & { data: Dad
         >
           {raia.rotulo}
         </p>
-        <p className="mt-0.5 text-[11px] text-muted-foreground">
+        <p className="mt-0.5 text-2xs text-muted-foreground">
           {etapas} {etapas === 1 ? "etapa" : "etapas"}
         </p>
       </div>

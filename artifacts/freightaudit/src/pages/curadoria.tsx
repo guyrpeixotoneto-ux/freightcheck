@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { invalidarApuracao } from "@/lib/frescor-das-leituras";
 import { useLocation, useSearch } from "wouter";
 import {
   AlertTriangle,
@@ -714,6 +715,20 @@ export default function Curadoria() {
             detail={detail}
             onConfirmed={() => {
               queryClient.invalidateQueries({ queryKey: ["curation"] });
+              /*
+                Confirmar um significado muda a periodicidade e a
+                monetizabilidade do atributo — ou seja, muda **o impacto
+                apurado** que o Dashboard, o Resumo executivo, o
+                Acompanhamento, a Composição e os Parâmetros mostram.
+
+                Até esta rodada essas telas se corrigiam por acidente: com
+                `staleTime: 0`, a próxima montagem de cada uma refazia a chamada
+                de qualquer jeito. Agora elas declaram um minuto
+                (`lib/frescor-das-leituras.ts`), e o acidente não acontece mais.
+                Esta linha é a contrapartida explícita do cache — nenhum
+                `staleTime` entra sem a invalidação que o sustenta.
+              */
+              void invalidarApuracao(queryClient);
             }}
           />
         ) : (
@@ -732,6 +747,9 @@ export default function Curadoria() {
         aoFechar={() => setCadastro(null)}
         aoConfirmar={() => {
           queryClient.invalidateQueries({ queryKey: ["curation"] });
+          // Mesma razão do `onConfirmed` acima: cadastrar o significado pela
+          // gaveta muda a apuração exatamente como confirmá-lo pelo painel.
+          void invalidarApuracao(queryClient);
         }}
       />
     </Layout>

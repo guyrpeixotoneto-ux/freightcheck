@@ -1,5 +1,10 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import {
+  LEITURA_DE_APURACAO,
+  MANTER_ENQUANTO_CARREGA,
+} from "@/lib/frescor-das-leituras";
+import { EmAtualizacao, classeDeAtualizacao } from "@/components/ui/em-atualizacao";
 import { Link, useLocation, useSearch } from "wouter";
 import {
   AlertTriangle,
@@ -29,7 +34,10 @@ import { ApiError, fetchJson } from "@/lib/api";
 import { useContextosDaCasca } from "@/lib/contextos";
 import { useSerieDeImpacto, useSerieDeImpactoGeral } from "@/lib/serie-de-impacto";
 import { GraficoDeImpacto, type PontoDeImpacto } from "@/components/dashboard/grafico-de-impacto";
-import { useVoltaDeVigencia } from "@/components/vigencia/voltar-de-vigencia";
+import {
+  BotaoDeVoltarVigencia,
+  useVoltaDeVigencia,
+} from "@/components/vigencia/voltar-de-vigencia";
 import { useFamiliesOverviewQuery } from "@/lib/families-overview";
 import { RESUMO_EXECUTIVO } from "@/lib/ambiente";
 import { cn } from "@/lib/utils";
@@ -184,6 +192,15 @@ export default function Inicio() {
   const vigencia = useQuery({
     queryKey: ["families", "visao-geral", consulta.toString()],
     enabled: !visaoGeral,
+    /*
+      A leitura da unidade aberta. A chave carrega o recorte inteiro, então
+      trocar de unidade pela lateral produz uma chave nova — e era isso que
+      apagava o Resumo executivo durante a troca. As outras três consultas
+      desta tela (`comparacao`, `balancos`, `importacoes`) já declaravam o
+      minuto; esta era a que faltava, e é a única cuja chave muda com o
+      recorte.
+    */
+    ...LEITURA_DE_APURACAO,
     queryFn: async () => {
       try {
         return await fetchJson<FamiliesView>(`/changes/families${sufixo}`);
@@ -210,6 +227,13 @@ export default function Inicio() {
   const comparacao = useQuery({
     queryKey: ["grouped", "visao-geral-anterior", anterior?.date, consulta.toString()],
     enabled: anterior !== null,
+    /*
+      A comparação com a vigência anterior segue a leitura principal: sem o
+      `placeholderData`, as linhas de variação sumiam sozinhas durante a troca
+      enquanto o resto da tela ficava de pé, o que é pior do que as duas coisas
+      trocarem juntas.
+    */
+    placeholderData: MANTER_ENQUANTO_CARREGA,
     queryFn: async () => {
       const query = new URLSearchParams(consulta);
       query.set("period", anterior!.date);
@@ -448,6 +472,9 @@ export default function Inicio() {
         ultima={ultima}
         consulta={consulta}
         onTrocar={trocarPara}
+        atualizando={
+          visaoGeral ? overviewQuery.isPlaceholderData : vigencia.isPlaceholderData
+        }
       />
 
       <div className="px-8 py-6 space-y-5 max-w-[1600px]">
@@ -466,6 +493,7 @@ export default function Inicio() {
               <BancoVazio />
             )}
             {overview && (
+              <div className={cn("space-y-5", classeDeAtualizacao(overviewQuery.isPlaceholderData))}>
               <ConteudoDaVisaoGeral
                 overview={overview}
                 search={search}
@@ -485,6 +513,7 @@ export default function Inicio() {
                   trocarPara({ period: periodo });
                 }}
               />
+              </div>
             )}
           </>
         ) : (
@@ -502,7 +531,7 @@ export default function Inicio() {
         )}
 
         {view && (
-          <>
+          <div className={cn("space-y-5", classeDeAtualizacao(vigencia.isPlaceholderData))}>
             <Indicadores
               view={view}
               anterior={comparacao.data ?? null}
@@ -526,7 +555,16 @@ export default function Inicio() {
               tela descer para o detalhe por parâmetro.
             */}
             <section className={cn(CARTAO, "px-6 py-5")}>
-              <h2 className="text-base font-bold mb-1">Impacto das alterações por vigência</h2>
+              <div className="flex items-start justify-between gap-3 mb-1">
+                <h2 className="text-base font-bold">Impacto das alterações por vigência</h2>
+                <BotaoDeVoltarVigencia
+                  destino={volta.destino}
+                  onVoltar={(periodo) => {
+                    volta.limpar();
+                    trocarPara({ period: periodo });
+                  }}
+                />
+              </div>
               <p className="text-xs text-muted-foreground mb-4">
                 Ganhos e perdas divergindo do zero, com o líquido por cima. Uma barra por vigência
                 entregue — duas no mesmo mês aparecem pelo dia, nunca somadas.
@@ -537,11 +575,6 @@ export default function Inicio() {
                 vigenciaAtiva={view.period}
                 onEscolherVigencia={(periodo) => {
                   volta.registrar();
-                  trocarPara({ period: periodo });
-                }}
-                voltarPara={volta.destino}
-                onVoltar={(periodo) => {
-                  volta.limpar();
                   trocarPara({ period: periodo });
                 }}
               />
@@ -612,7 +645,7 @@ export default function Inicio() {
               recorte={recorte}
               onFechar={() => trocarPara({ alteracao: null })}
             />
-          </>
+          </div>
         )}
 
         <Rodape />
@@ -641,6 +674,7 @@ function Cabecalho({
   ultima,
   consulta,
   onTrocar,
+  atualizando,
 }: {
   view: FamiliesView | null;
   overview: FamiliesOverview | null;
@@ -650,6 +684,8 @@ function Cabecalho({
   ultima: ReturnType<typeof ultimaImportacao>;
   consulta: URLSearchParams;
   onTrocar: (mudancas: Record<string, string | null>) => void;
+  /** O corpo ainda é o recorte anterior — ver `components/ui/em-atualizacao.tsx`. */
+  atualizando: boolean;
 }) {
   const alteracoesPorVigencia = useAlteracoesPorVigencia(view, consulta);
   const ultimaComparacao = useMemo(() => {
@@ -689,9 +725,12 @@ function Cabecalho({
     <header className="px-8 pt-7 pb-2">
       <div className="flex flex-wrap items-start justify-between gap-4 max-w-[1600px]">
         <div className="min-w-0">
-          <h1 className="text-[2rem] font-extrabold tracking-tight leading-tight">
-            Resumo executivo — {visaoGeral ? "Visão Geral" : (unidade ?? "")}
-          </h1>
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="text-[2rem] font-extrabold tracking-tight leading-tight">
+              Resumo executivo — {visaoGeral ? "Visão Geral" : (unidade ?? "")}
+            </h1>
+            <EmAtualizacao ativo={atualizando} />
+          </div>
           {partes.length > 0 && (
             <p className="text-sm text-muted-foreground mt-1.5">{partes.join(" · ")}</p>
           )}
@@ -2264,7 +2303,13 @@ function ConteudoDaVisaoGeral({
           />
 
           <section className={cn(CARTAO, "px-6 py-5")}>
-            <h2 className="text-base font-bold mb-1">Impacto das alterações por vigência</h2>
+            <div className="flex items-start justify-between gap-3 mb-1">
+              <h2 className="text-base font-bold">Impacto das alterações por vigência</h2>
+              <BotaoDeVoltarVigencia
+                destino={voltarPara}
+                onVoltar={(periodo) => onVoltar?.(periodo)}
+              />
+            </div>
             <p className="text-xs text-muted-foreground mb-4">
               Ganhos e perdas de todas as unidades incluídas, com o líquido por cima. Uma barra por
               competência — a unidade sem vigência naquela competência não entra nela.
@@ -2274,8 +2319,6 @@ function ConteudoDaVisaoGeral({
               periodicity={serie[0] ? (ladosDoImpacto(overview)[0]?.periodicity ?? null) : null}
               vigenciaAtiva={periodoAberto}
               onEscolherVigencia={onEscolherVigencia}
-              voltarPara={voltarPara}
-              onVoltar={onVoltar}
             />
           </section>
 

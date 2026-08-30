@@ -24,6 +24,7 @@ function evento(
 ) {
   return registrar({
     modelo: "claude-opus-5",
+    modeloProvider: null,
     esforco: "medium",
     fluxo: true,
     latenciaMs: 1000,

@@ -3,7 +3,11 @@ import { describe, expect, it } from "vitest";
 import { getStackedData } from "recharts/es6/util/ChartUtils";
 import {
   EMPILHAMENTO,
+  QUANTIDADES,
   SERIES_DA_BARRA,
+  TETO_DA_SERIE,
+  competenciaInicial,
+  recorteDaJanela,
   type PontoDeImpacto,
 } from "../grafico-de-impacto";
 
@@ -141,5 +145,88 @@ describe("o defeito que o stackOffset padrão produzia", () => {
     expect(ganhos).toEqual([0, 51075]);
     expect(Math.max(...perdas)).toBeGreaterThanOrEqual(Math.max(...ganhos));
     expect(Math.min(...perdas)).toBeLessThanOrEqual(Math.min(...ganhos));
+  });
+});
+
+/**
+ * O recorte da janela — o seletor de "quantas, e de quê" acima do gráfico.
+ *
+ * As duas unidades divergem justamente quando um mês recebe mais de uma
+ * vigência, que é o caso que o gráfico desenha em barras separadas: contar
+ * barras e contar calendário deixam de dar o mesmo resultado, e é por isso que
+ * as duas existem.
+ */
+const ponto = (periodo: string): PontoDeImpacto => ({
+  periodo,
+  label: periodo,
+  ganhos: 1,
+  perdas: -1,
+  liquido: 0,
+});
+
+/** Cinco meses seguidos, com **duas** vigências em agosto. */
+const SERIE = [
+  ponto("2026-04-01"),
+  ponto("2026-05-01"),
+  ponto("2026-06-01"),
+  ponto("2026-07-01"),
+  ponto("2026-08-01"),
+  ponto("2026-08-16"),
+];
+
+describe("recorteDaJanela", () => {
+  it("por vigências, conta barras — as duas de agosto gastam duas", () => {
+    const recorte = recorteDaJanela(SERIE, { unidade: "vigencias", quantidade: 3 });
+    expect(recorte.map((p) => p.periodo)).toEqual(["2026-07-01", "2026-08-01", "2026-08-16"]);
+  });
+
+  it("por meses, conta calendário — as duas de agosto gastam um mês só", () => {
+    const recorte = recorteDaJanela(SERIE, { unidade: "meses", quantidade: 3 });
+    expect(recorte.map((p) => p.periodo)).toEqual([
+      "2026-06-01",
+      "2026-07-01",
+      "2026-08-01",
+      "2026-08-16",
+    ]);
+  });
+
+  it("a janela por meses é ancorada na última vigência, não no relógio", () => {
+    const antiga = [ponto("2019-01-01"), ponto("2019-02-01"), ponto("2019-03-01")];
+    const recorte = recorteDaJanela(antiga, { unidade: "meses", quantidade: 3 });
+    expect(recorte).toHaveLength(3);
+  });
+
+  it("janela maior que a série devolve a série inteira, nas duas unidades", () => {
+    expect(recorteDaJanela(SERIE, { unidade: "vigencias", quantidade: 12 })).toHaveLength(
+      SERIE.length,
+    );
+    expect(recorteDaJanela(SERIE, { unidade: "meses", quantidade: 12 })).toHaveLength(SERIE.length);
+  });
+
+  it("série vazia não quebra a janela por meses", () => {
+    expect(recorteDaJanela([], { unidade: "meses", quantidade: 6 })).toEqual([]);
+  });
+});
+
+describe("competenciaInicial", () => {
+  it("inclui o mês da âncora — três meses a partir de agosto começam em junho", () => {
+    expect(competenciaInicial("2026-08-16", 3)).toBe("2026-06");
+  });
+
+  it("atravessa a virada do ano", () => {
+    expect(competenciaInicial("2026-02-01", 6)).toBe("2025-09");
+    expect(competenciaInicial("2026-01-31", 1)).toBe("2026-01");
+    expect(competenciaInicial("2026-01-01", 12)).toBe("2025-02");
+  });
+});
+
+/**
+ * O teto da série é o que faz a maior janela por meses dizer a verdade: doze
+ * meses podem conter mais de doze vigências, e uma série cortada em doze
+ * esconderia vigências dentro do intervalo que a janela promete.
+ */
+describe("TETO_DA_SERIE", () => {
+  it("cabe mais que a maior janela por meses", () => {
+    expect(TETO_DA_SERIE).toBeGreaterThan(Math.max(...QUANTIDADES));
   });
 });

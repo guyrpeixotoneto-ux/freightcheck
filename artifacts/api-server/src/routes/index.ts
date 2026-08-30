@@ -213,6 +213,12 @@ router.use(fechamentoRouter);
   Plano de Ação: a justificativa por placa sobre o que mudou de uma vigência
   para a outra. Não tem leitura própria de "o que mudou" — usa `/changes/latest`,
   de `changesRouter` — só guarda o texto que o gestor escreveu.
+
+  As duas rotas do Painel de Justificativas (`/justificativas/painel` e
+  `/justificativas/pendencias`) são a exceção a essa frase, e por um motivo: o
+  painel pergunta quanto do que mudou já está explicado, e essa é uma junção
+  entre `change` e `justificativa` que nenhum dos dois lados responde sozinho.
+  Ela mora aqui, e não em `changesRouter`, porque o assunto é a justificativa.
 */
 router.use(justificativasRouter);
 /*

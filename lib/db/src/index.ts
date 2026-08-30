@@ -45,7 +45,44 @@ export function createDb(connectionString: string): {
   pool: pg.Pool;
 } {
   const pool = new Pool({ connectionString, ...opcoesDoPool() });
+  ouvirPerdaDeConexaoOciosa(pool);
   return { db: drizzle(pool, { schema }), pool };
+}
+
+/**
+ * Uma conexão **ociosa** que morre não derruba o processo.
+ *
+ * O `pg.Pool` emite `error` quando um cliente parado na piscina perde a conexão
+ * por fora — o banco reiniciou, um `pg_terminate_backend` passou por ali, a
+ * rede cortou. Ele é um `EventEmitter`, e é aí que estava o defeito: `error`
+ * sem nenhum ouvinte não é um evento ignorado, é uma exceção não tratada, e o
+ * Node encerra o processo. O pool, esse, já sabia o que fazer — descarta o
+ * cliente quebrado, e a próxima consulta abre outro.
+ *
+ * Ou seja: o único efeito de não ouvir era transformar um acidente que o pool
+ * trata sozinho na morte do servidor inteiro. Em produção isso é a API caindo
+ * porque alguém reiniciou o banco — com as conexões em uso respondendo
+ * normalmente, porque o erro de um cliente **emprestado** vai para quem pediu a
+ * consulta e nunca chega aqui. Nos testes é o `57P01` que
+ * `encerrarPoolDoProcesso` já descreve algumas linhas abaixo: a suíte derrubava
+ * o `vitest` no desligamento, depois de todos os testes passarem, com uma
+ * exceção não tratada vinda do `parser` do `pg` e nenhuma pista de qual arquivo
+ * a causou.
+ *
+ * **Fica escrito no log, e não em silêncio.** Engolir seria o outro extremo:
+ * uma conexão ociosa perdida por minuto é sintoma de alguma coisa — banco
+ * reiniciando em laço, `idleTimeoutMillis` brigando com o teto do servidor — e
+ * esta linha é a única pista de que isso está acontecendo. O endereço do banco
+ * não entra na mensagem: ele carrega senha.
+ */
+function ouvirPerdaDeConexaoOciosa(pool: pg.Pool): void {
+  pool.on("error", (erro: Error & { code?: string }) => {
+    const codigo = erro.code ? ` (${erro.code})` : "";
+    console.error(
+      `[db] conexão ociosa perdida${codigo}: ${erro.message} — o pool descarta` +
+        " o cliente e a próxima consulta abre outro.",
+    );
+  });
 }
 
 let _pool: pg.Pool | undefined;
@@ -97,6 +134,11 @@ export const pool: pg.Pool = new Proxy({} as pg.Pool, {
  * o recurso do Postgres: matar as conexões por fora, o que faz o `pg` emitir
  * `57P01` em cada cliente que estava aberto. Nove testes passam e a suíte falha
  * no desligamento, com quatro exceções não tratadas e nenhuma pista.
+ *
+ * Desde `ouvirPerdaDeConexaoOciosa`, esse `57P01` vira uma linha de log em vez
+ * de derrubar o processo — e isso não dispensa nada do que está escrito acima:
+ * matar a conexão por fora continua sendo desligar no susto, e quem sabe que
+ * vai derrubar o banco devolve as conexões antes.
  *
  * Esquecer o pool é parte do contrato: a próxima leitura de `db` reconecta,
  * com a `DATABASE_URL` que valer naquele momento.

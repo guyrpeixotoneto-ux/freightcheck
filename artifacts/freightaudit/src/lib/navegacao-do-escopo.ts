@@ -60,6 +60,14 @@ export const TELAS_QUE_HONRAM_ESCOPO = new Set<string>([
   "/parametros",
   "/alteracoes",
   /*
+    A Cobertura de dados. Ela mede "o que já temos versus o que deveríamos ter",
+    e media isso sobre o acervo inteiro enquanto a lateral, ao lado, nomeava uma
+    unidade — cinco unidades na matriz sob a palavra PERNAMBUCO. A tela agora lê
+    o par (`pages/dados.tsx`), e a soma continua existindo: é `visaoGeral=1`,
+    logo abaixo, que é uma escolha e não a ausência de uma.
+  */
+  "/dados",
+  /*
     As telas 360° das quatro auditorias. Elas são a mesma tela parametrizada
     pelo tipo (`pages/frota-360.tsx`), e as seis leem o par unidade/canal do
     endereço — trocar de unidade numa delas troca o dado, não a tela.
@@ -75,6 +83,20 @@ export const TELAS_QUE_HONRAM_ESCOPO = new Set<string>([
   "/empilhadeira-360",
   "/trecho-360",
   "/radar-trechos",
+  /*
+    As Justificativas. Elas recortam as comparações pelo `scopeHash` aberto
+    (`comparacoesDoEscopo`, em `lib/justificativas.ts`) — antes o seletor de
+    vigência atravessava as unidades e trocar de vigência trocava de unidade
+    calada, sob a lateral escrita com o nome da anterior.
+
+    O Painel de Justificativas entra pelo mesmo motivo: ele soma o que falta
+    justificar, e somava a operação inteira — CAMAÇARI, MANAUS e CDD CEBRASA
+    num total escrito sob a palavra PERNAMBUCO. As duas consultas dele levam o
+    `scopeHash` (`lib/painel-de-justificativas.ts`), e o servidor recorta as
+    comparações por ele.
+  */
+  "/justificativas",
+  "/painel-de-justificativas",
 ]);
 
 /**
@@ -112,6 +134,24 @@ export const TELAS_QUE_HONRAM_VISAO_GERAL = new Set<string>([
   DASHBOARD,
   GESTAO_A_VISTA,
   "/parametros",
+  /*
+    A Cobertura de dados entra pelas duas portas, e aqui pelo motivo que esta
+    lista exige: a soma de todas as unidades é o que `visaoDaCobertura` já
+    devolve quando ninguém manda `escopo` — não é uma tela nova nem um cálculo
+    novo, é a mesma medição sem o recorte. Estar aqui é ler `visaoGeral=1` de
+    verdade, e é o que a tela faz.
+  */
+  "/dados",
+  /*
+    As Justificativas entram pelas duas portas: com uma unidade aberta a fila é
+    a dela, e `visaoGeral=1` é a lista atravessando as unidades — que é o que a
+    tela fazia sempre, agora como escolha e não como padrão.
+
+    O Painel de Justificativas idem: sem `scopeHash` a rota soma todas as
+    unidades da operação, que é exatamente a leitura que `visaoGeral=1` pede.
+  */
+  "/justificativas",
+  "/painel-de-justificativas",
 ]);
 
 /**

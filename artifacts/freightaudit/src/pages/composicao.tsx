@@ -1,5 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { LEITURA_DE_APURACAO } from "@/lib/frescor-das-leituras";
+import { EmAtualizacao, classeDeAtualizacao } from "@/components/ui/em-atualizacao";
 import { Link, useLocation, useSearch } from "wouter";
 import {
   ChevronDown,
@@ -152,16 +154,33 @@ export default function Composicao() {
 
   const emConjuntos = aba === "CONJUNTO";
 
+  /*
+    As duas leituras da tela, com a política de apuração fechada
+    (`lib/frescor-das-leituras.ts`).
+
+    A chave carrega vigência, unidade, canal **e os filtros da barra** — que
+    são digitados. Sem `placeholderData`, cada tecla da busca esvaziava a
+    tabela e trocava tudo por "Carregando…", e trocar de unidade fazia o mesmo.
+    Com ele, a tabela anterior fica de pé até a nova chegar.
+
+    O `placeholderData` de cada consulta é sempre da chave anterior **do mesmo
+    observador**: trocar da aba CAVALO para CONJUNTO não faz a segunda mostrar o
+    dado da primeira — são dois `useQuery` distintos, e a que nunca respondeu
+    não tem placeholder nenhum. A primeira abertura de cada aba continua
+    mostrando o loader, que é o que ela deve mostrar.
+  */
   const frota = useQuery({
     queryKey: ["composition", "fleet", queryDaFrota],
     queryFn: () => fetchJson<VisaoDeFrota>(`/composition/fleet?${queryDaFrota}`),
     enabled: !emConjuntos,
+    ...LEITURA_DE_APURACAO,
   });
 
   const conjuntos = useQuery({
     queryKey: ["composition", "conjuntos", queryDosConjuntos],
     queryFn: () => fetchJson<VisaoDeConjuntos>(`/composition/conjuntos?${queryDosConjuntos}`),
     enabled: emConjuntos,
+    ...LEITURA_DE_APURACAO,
   });
 
   const ativa = emConjuntos ? conjuntos : frota;
@@ -186,7 +205,16 @@ export default function Composicao() {
       <header className="border-b bg-card px-8 pt-6">
         <div className="flex items-start justify-between gap-8">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight">Composição</h1>
+            <div className="flex flex-wrap items-center gap-3">
+              <h1 className="text-2xl font-bold tracking-tight">Composição</h1>
+              {/*
+                A unidade e a vigência que a tela está mostrando saem de
+                `cabecalho.context.label` e `cabecalho.effectiveDate`, logo
+                abaixo — sempre da resposta em tela, nunca da URL. Enquanto elas
+                forem as anteriores, isto diz que são.
+              */}
+              <EmAtualizacao ativo={ativa.isPlaceholderData} />
+            </div>
             <p className="text-muted-foreground mt-1 max-w-3xl text-sm">
               {emConjuntos
                 ? "O cavalo e a carreta como uma unidade só: o que a fonte declara para o " +
@@ -258,8 +286,10 @@ export default function Composicao() {
               <p className="text-sm text-muted-foreground">Carregando…</p>
             )}
 
-            {conjuntos.data && <AvisoDasSeries view={conjuntos.data} />}
-            {conjuntos.data && <TabelaDeConjuntos view={conjuntos.data} />}
+            <div className={cn("space-y-6", classeDeAtualizacao(conjuntos.isPlaceholderData))}>
+              {conjuntos.data && <AvisoDasSeries view={conjuntos.data} />}
+              {conjuntos.data && <TabelaDeConjuntos view={conjuntos.data} />}
+            </div>
           </>
         ) : (
           <>
@@ -275,18 +305,20 @@ export default function Composicao() {
 
             {frota.isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
 
-            {frota.data && !frota.data.serieEntregue && (
-              <div className="bg-card border border-l-[6px] border-l-brand px-6 py-4 text-sm flex gap-3">
-                <Info className="w-4 h-4 mt-0.5 shrink-0 text-brand" />
-                <p>
-                  A vigência <strong>{frota.data.periodLabel}</strong> não entregou a série de{" "}
-                  {frota.data.rotuloDoTipo.toLowerCase()}. O que aparece abaixo, se aparecer,
-                  veio da vigência anterior — são equipamentos que saíram da frota.
-                </p>
-              </div>
-            )}
+            <div className={cn("space-y-6", classeDeAtualizacao(frota.isPlaceholderData))}>
+              {frota.data && !frota.data.serieEntregue && (
+                <div className="bg-card border border-l-[6px] border-l-brand px-6 py-4 text-sm flex gap-3">
+                  <Info className="w-4 h-4 mt-0.5 shrink-0 text-brand" />
+                  <p>
+                    A vigência <strong>{frota.data.periodLabel}</strong> não entregou a série de{" "}
+                    {frota.data.rotuloDoTipo.toLowerCase()}. O que aparece abaixo, se aparecer,
+                    veio da vigência anterior — são equipamentos que saíram da frota.
+                  </p>
+                </div>
+              )}
 
-            {frota.data && <Tabela view={frota.data} />}
+              {frota.data && <Tabela view={frota.data} />}
+            </div>
           </>
         )}
       </div>

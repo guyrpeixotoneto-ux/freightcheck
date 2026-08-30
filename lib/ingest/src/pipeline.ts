@@ -13,6 +13,7 @@ import {
   sql,
 } from "drizzle-orm";
 import type { Database } from "@workspace/db";
+import { gravarCenso } from "@workspace/balance";
 import {
   codigoDoPostgres,
   aplicarConfirmacoesCanonicas,
@@ -2612,6 +2613,32 @@ export async function stage(
       ...progressoLimpo(),
     })
     .where(eq(importRunTable.id, importRunId));
+
+  /*
+    O censo de destinos desta importação, gravado aqui — e não na leitura.
+
+    Este é o último ponto em que alguma entrada da conta ainda podia mudar: o
+    RAW já está escrito e é imutável por trigger, e `column_mapping`,
+    `staged_fact` e as duas recusas de linha acabaram de ser gravadas por esta
+    função. Depois daqui o censo do run é constante, e `GET /api/balance` pode
+    somá-lo em vez de reclassificar o acervo inteiro a cada requisição — que era
+    1.022.946 linhas lidas para devolver 2,5 KB. Ver `lib/balance/src/censo.ts`.
+
+    Custa ~176 ms sobre o acervo medido, contra os minutos que a importação
+    inteira leva. E não derruba a importação se falhar: um censo que não gravou
+    deixa o run sem linha na tabela, e a leitura o calcula na hora —
+    o mesmo caminho por onde o histórico anterior a esta mudança passa. Recusar
+    uma importação que preparou tudo certo porque uma contagem de conferência
+    não gravou seria trocar um problema de leitura por um de ingestão.
+  */
+  try {
+    await gravarCenso(db, importRunId);
+  } catch (erro) {
+    console.warn(
+      `[censo] importação ${importRunId}: censo não gravado (${String(erro)}). ` +
+        "A leitura do balanço o calculará na hora.",
+    );
+  }
 
   return {
     stagedFacts: consolidados.length,

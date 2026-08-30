@@ -116,8 +116,16 @@ export function SeletorDeRecorte({
 
   const campo =
     "text-xs bg-transparent border-0 outline-none focus-visible:ring-1 focus-visible:ring-brand rounded-sm px-1 py-0.5 cursor-pointer text-foreground font-semibold";
+  /*
+    `shrink-0` e um respiro menor no celular.
+
+    Estes três campos vivem numa linha que rola de lado num telefone (ver
+    abaixo): sem `shrink-0` o flex os espremeria até o rótulo caber — que é o
+    contrário do que uma linha rolável quer — e o `py-2` de tela grande é
+    altura que, no celular, sai da conversa.
+  */
   const caixa =
-    "flex items-center gap-2 border border-input rounded-lg px-3 py-2 bg-card";
+    "flex shrink-0 items-center gap-2 border border-input rounded-lg px-2.5 py-1.5 md:px-3 md:py-2 bg-card";
 
   return (
     /*
@@ -128,10 +136,23 @@ export function SeletorDeRecorte({
       desalinhados do título que está logo acima, à esquerda.
     */
     <div
-      className="flex flex-col items-start md:items-end gap-1.5 min-w-0"
+      className="flex flex-col items-start md:items-end gap-1.5 min-w-0 w-full md:w-auto"
       data-testid="seletor-de-recorte"
     >
-      <div className="flex flex-wrap items-center justify-start md:justify-end gap-2">
+      {/*
+        NO CELULAR OS TRÊS CAMPOS SÃO UMA LINHA QUE ROLA, E NÃO DUAS QUE QUEBRAM.
+
+        Somados eles são mais largos que um telefone, então o `flex-wrap` os
+        jogava para uma segunda linha: dois andares de campo em cima de uma
+        conversa que já começa depois do cabeçalho da casca. Numa linha só que
+        rola de lado, o terceiro campo aparece cortado na borda — que é como se
+        diz "tem mais aqui" sem gastar um andar — e a conversa ganha a altura
+        que a segunda linha tomava.
+
+        De `md` para cima nada muda: volta a ser o mesmo bloco que quebra à
+        direita do título.
+      */}
+      <div className="flex w-full md:w-auto flex-nowrap md:flex-wrap items-center justify-start md:justify-end gap-2 overflow-x-auto md:overflow-visible">
       <div className={caixa}>
         <Building2 className="w-3.5 h-3.5 text-muted-foreground shrink-0" aria-hidden />
         {unidades.length > 1 ? (
@@ -211,7 +232,7 @@ export function SeletorDeRecorte({
         primeira coisa que a pessoa procura ali — a unidade. Embaixo ela lê
         como legenda dos três, que é o que ela é.
       */}
-      <span className={cn("text-[11px] text-muted-foreground", "hidden sm:inline")}>
+      <span className={cn("text-2xs text-muted-foreground", "hidden sm:inline")}>
         as respostas descrevem este recorte
       </span>
     </div>
