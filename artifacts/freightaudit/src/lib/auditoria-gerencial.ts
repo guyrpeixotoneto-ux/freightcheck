@@ -406,6 +406,34 @@ export function nomeDaUnidade(contexto: ContextoDaVigencia): string {
 }
 
 /**
+ * O subtítulo do cartão — o que qualifica a unidade, sem repetir o nome dela.
+ *
+ * O `label` começa sempre pela unidade ("CAMAÇARI · EMPURRADA"), porque fora do
+ * cartão ele precisa se sustentar sozinho. Dentro do cartão o nome já está no
+ * título, em corpo maior, uma linha acima — e repeti-lo gastava metade da linha
+ * de baixo dizendo o que ninguém precisava reler, empurrando a cobertura para
+ * fora da largura do telefone. Sobra o que de fato distingue dois cartões da
+ * mesma unidade: o canal e a cobertura.
+ *
+ * Quando o rótulo **é** o nome — contexto sem escopo cadastrado, em que
+ * `nomeDaUnidade` cai no próprio rótulo —, não há qualificação a dar e o
+ * subtítulo fica só com a cobertura.
+ */
+export function subtituloDoCartao(unidade: {
+  nome: string;
+  label: string;
+  coberturas: string[];
+}): string {
+  const prefixo = `${unidade.nome} · `;
+  const qualificacao = unidade.label.startsWith(prefixo)
+    ? unidade.label.slice(prefixo.length)
+    : unidade.label === unidade.nome
+      ? ""
+      : unidade.label;
+  return [qualificacao, unidade.coberturas.join(" + ")].filter(Boolean).join(" · ");
+}
+
+/**
  * Uma linha por contexto — unidade e canal —, com o ano inteiro dentro.
  *
  * **O cartão é do contexto, e não da unidade sozinha.** Duas séries da mesma
