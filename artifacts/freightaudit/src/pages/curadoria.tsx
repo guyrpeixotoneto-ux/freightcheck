@@ -2150,6 +2150,47 @@ const MOTIVO_SEM_SUGESTAO: Record<string, string> = {
   ERRO: "Não consegui ler agora. Tente de novo em alguns instantes.",
 };
 
+/**
+ * Se este card cobra uma justificativa escrita, ou não.
+ *
+ * A régua do produto não é a mesma em toda tela: mover uma categoria da DRE
+ * exige uma frase assinada, porque decide em que linha o dinheiro cai; batizar
+ * e descrever uma coluna não exige, e essa diferença é deliberada — foi por
+ * cobrar o preço da confirmação em todo ato de curadoria que a fila encheu de
+ * colunas sobre as quais ninguém tinha escrito uma linha.
+ *
+ * O que a tela não dizia é qual das duas se está fazendo. A tag diz, no
+ * cabeçalho, antes de a pessoa começar a digitar: quem hesita em preencher com
+ * medo de estar assinando algo lê ali que não está, e quem vai mesmo assinar
+ * não descobre a exigência ao clicar em salvar.
+ *
+ * A tag não trava campo nem valida nada — quem recusa continua sendo o
+ * servidor. Ela é a leitura, na tela, do que a rota daquele card cobra.
+ */
+function TagDeJustificativa({ obrigatoria }: { obrigatoria: boolean }) {
+  if (obrigatoria) {
+    return (
+      <Badge
+        variant="warning"
+        className="shrink-0 gap-1 font-medium"
+        title="Salvar aqui pede uma justificativa escrita, que fica no histórico."
+      >
+        <Lock className="h-3 w-3" />
+        Exige justificativa
+      </Badge>
+    );
+  }
+  return (
+    <Badge
+      variant="outline"
+      className="shrink-0 gap-1 border-border font-medium text-muted-foreground"
+      title="Salvar aqui não pede justificativa: descrever a coluna não é confirmar a aritmética dela."
+    >
+      <ClipboardPen className="h-3 w-3" />
+      Sem justificativa
+    </Badge>
+  );
+}
 
 /**
  * Como a coluna se chama e o que ela significa — o passo barato da curadoria.
@@ -2370,7 +2411,13 @@ function MeaningCard({
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="text-base">Significado</CardTitle>
+        <div className="flex items-start justify-between gap-3">
+          <CardTitle className="text-base">Significado</CardTitle>
+          {/* O preço do ato, dito antes de a pessoa escrever. Ver
+              `TagDeJustificativa`: as três rotas deste card gravam sem
+              justificativa nenhuma. */}
+          <TagDeJustificativa obrigatoria={false} />
+        </div>
         <p className="text-xs text-muted-foreground">
           Como esta coluna se chama e o que ela é, nas suas palavras. Pode ser
           escrito antes de saber a unidade ou a periodicidade — e é independente
