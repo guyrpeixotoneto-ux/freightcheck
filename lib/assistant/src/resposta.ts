@@ -368,18 +368,95 @@ function fatoQueResponde(dossie: Dossie): Escolha | null {
  * assim, na tela: título, hashtag, `05/05/2022 11:49:26`. É conteúdo do
  * arquivo e não é resposta a nada — some quando a redação em código transcreve.
  */
+/**
+ * O que é do documento e o que é do editor de texto que o produziu.
+ *
+ * **O defeito que isto fecha.** Duas respostas da rodada 2B chegaram ao usuário
+ * assim, e a primeira linha diz tudo:
+ *
+ * ```
+ * ### CUSTO FIXO DE EQUIPAMENTOS
+ * ### #Equipamentos
+ * INCLUDEPICTURE "https://.../ambev-logo.png" \* MERGEFORMATINET
+ * © 2026 Anheuser-Busch InBev All rights reserved
+ * ```
+ *
+ * Nada ali é resposta. São restos do `.docx` de origem — código de campo do
+ * Word, marca d'água de rodapé, a etiqueta do bloco repetida como título — e o
+ * filtro anterior só conhecia dois deles: a etiqueta `#Tag` **quando ela vinha
+ * sozinha na linha**, e a linha que é só data. `### #Equipamentos` escapava por
+ * causa dos três `#` na frente.
+ *
+ * **A régua é de proveniência, não de estilo.** Cada linha derrubada aqui é
+ * artefato de conversão de arquivo ou aviso jurídico de rodapé: coisas que
+ * existem no documento e nunca são o conteúdo dele. Regra de negócio, tabela e
+ * texto corrido continuam passando inteiros — este filtro nunca resume.
+ */
+const RUIDO_DE_DOCUMENTO: RegExp[] = [
+  /* Código de campo do Word: INCLUDEPICTURE, MERGEFORMAT, HYPERLINK, TOC… */
+  /\b(INCLUDEPICTURE|MERGEFORMAT(INET)?|HYPERLINK|IMPORT|EMBED|PAGEREF|TOC)\b/,
+  /* Um switch de campo solto — `\* MERGEFORMAT`, `\@ "dd/MM"`. */
+  /\\[*@#]\s/,
+  /* Rodapé jurídico. */
+  /(©|\(c\)\s*\d{4}|\ball rights reserved\b|\btodos os direitos reservados\b)/i,
+  /* A etiqueta do bloco, com ou sem os `#` de markdown na frente. */
+  /^#{0,6}\s*#[A-Za-zÀ-ÿ][\wÀ-ÿ-]*$/,
+  /* Uma linha que é só a URL de um asset. */
+  /^!?\[?[^\s]*https?:\/\/\S+\.(png|jpe?g|gif|svg|webp)\b\S*\]?$/i,
+  /* A linha que é só data, ou só data e hora. */
+  /^\d{2}\/\d{2}\/\d{4}(\s+\d{2}:\d{2}(:\d{2})?)?$/,
+];
+
 function semCarimboDoDocumento(texto: string): string {
   return texto
     .split("\n")
     .filter((linha) => {
       const limpa = linha.trim();
-      if (/^#[A-Za-zÀ-ÿ][\wÀ-ÿ-]*$/.test(limpa)) return false;
-      if (/^\d{2}\/\d{2}\/\d{4}(\s+\d{2}:\d{2}(:\d{2})?)?$/.test(limpa)) return false;
-      return true;
+      if (limpa.length === 0) return true;
+      return !RUIDO_DE_DOCUMENTO.some((r) => r.test(limpa));
     })
     .join("\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+}
+
+/**
+ * O que se diz quando a trava descartou a redação inteira.
+ *
+ * **A alternativa que existia era pior que o silêncio.** Descartada a redação,
+ * a resposta caía na redação em código — que é boa quando ela é a resposta
+ * planejada e péssima como pano de fundo de um descarte: ela abre pelo Book, e
+ * o Book abrindo sozinho é o despejo de documento que a rodada 2B registrou.
+ * Pior: o texto resultante *parecia* uma resposta, então quem lia não tinha
+ * como saber que a resposta de verdade tinha sido rejeitada.
+ *
+ * O que entra no lugar é curto e diz exatamente o que não se pôde confirmar. É
+ * a única saída honesta: houve consulta, houve texto, e o texto não se
+ * sustentou. Esconder isso atrás de um trecho de manual é afirmar que se
+ * respondeu.
+ */
+export function redacaoDeDescarte(dossie: Dossie, recusados: string[]): string {
+  const consultadas = [...new Set(dossie.evidencias.map((e) => e.ferramenta))];
+  const linhas = [
+    "Não consigo sustentar uma resposta a isso com o que apurei: escrevi uma, " +
+      "e a conferência recusou valores demais dela para que sobrasse algo confiável.",
+  ];
+  if (consultadas.length > 0) {
+    linhas.push(`O que eu consultei: ${consultadas.join(", ")}. As evidências ficam listadas ao lado.`);
+  }
+  if (recusados.length > 0) {
+    /*
+      O motivo entra, o número recusado não. Publicar aqui o valor que a trava
+      barrou seria publicá-lo — o descarte perderia o sentido na última linha.
+    */
+    linhas.push(
+      `Foram ${recusados.length} valor(es) sem lastro no que as consultas devolveram; ` +
+        "o painel técnico lista cada um.",
+    );
+  }
+  for (const lacuna of dossie.lacunas) linhas.push(lacuna.explicacao);
+  linhas.push("Se você reformular apontando a vigência, a placa ou a rubrica, eu consulto de novo.");
+  return linhas.join("\n\n");
 }
 
 /**
@@ -1002,6 +1079,8 @@ function montarComAgente(
       redacao = "IA";
       causa = "IA_PODADA";
     } else {
+      /* Ver `redacaoDeDescarte`: declarar o descarte, não abrir o Book. */
+      texto = redacaoDeDescarte(paraConferir, saneamento.recusados);
       causa = "DESCARTADA";
     }
   }
@@ -1446,6 +1525,12 @@ export async function responder(
         desfecho = "PODADA";
         causa = "IA_PODADA";
       } else {
+        /*
+          Descartada a redação, o que vai à tela é a declaração do descarte — e
+          nunca a redação em código, que abriria pelo Book e devolveria trecho
+          de documento no lugar de uma resposta. Ver `redacaoDeDescarte`.
+        */
+        texto = redacaoDeDescarte(dossie, saneamento.recusados);
         desfecho = "DESCARTADA";
         causa = "DESCARTADA";
       }
