@@ -28,6 +28,7 @@
     "@workspace/fechamento": "workspace:*",
     "@workspace/fluxos": "workspace:*",
     "@workspace/ingest": "workspace:*",
+    "@workspace/integrations": "workspace:*",
     "@workspace/knowledge": "workspace:*",
     "@workspace/qlp": "workspace:*",
     "@workspace/remuneracao": "workspace:*",

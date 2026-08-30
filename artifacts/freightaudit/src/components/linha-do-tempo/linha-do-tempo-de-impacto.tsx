@@ -17,6 +17,7 @@ import {
 import type { TipoDaLinhaDoTempo } from "@workspace/comparison/tipos";
 import { opcoesDoIntervalo, opcoesDoIntervaloGeral } from "@/lib/intervalo-da-linha-do-tempo";
 import { LeituraPorTipo, useLinkDeAlteracoes } from "@/lib/tipo-da-linha-do-tempo";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
 import { formatBrlShort, periodicityAdjective, periodicitySuffix } from "@/lib/format";
 import { linkDeAlteracoes, type Recorte } from "@/lib/recorte";
@@ -508,6 +509,14 @@ export function EvolucaoDasVigencias({
   rotuloDeAbrir?: string;
 }) {
   const [tamanho, setTamanho] = useState<Janela>(JANELA_PADRAO);
+  /*
+    No celular a mesma janela não cabe deitada: cinco colunas de ~7rem viram
+    rolagem horizontal dentro de um cartão que já rola na vertical, e o número
+    da vigência quebra em três linhas. A leitura vira uma lista — uma vigência
+    por linha, da mais antiga para a mais recente —, que é a mesma história na
+    orientação que a tela tem sobrando.
+  */
+  const noCelular = useIsMobile();
   const janelas = janelasDeVigencias(linhas, tamanho, (linha) => linha.period);
   /*
     O paginador guarda a distância até o fim — "duas janelas atrás" —, e não o
@@ -548,7 +557,7 @@ export function EvolucaoDasVigencias({
   return (
     <>
       <CabecalhoDaEvolucao dados={dados}>
-        <div className="flex flex-wrap items-center justify-end gap-2 shrink-0">
+        <div className="flex flex-wrap items-center justify-start sm:justify-end gap-2 w-full sm:w-auto sm:shrink-0">
           {janelas.length > 1 && (
             <div className="flex items-center gap-2">
               <BotaoDeJanela
@@ -609,21 +618,33 @@ export function EvolucaoDasVigencias({
         </p>
       )}
 
-      <LinhaDoTempoHorizontal
-        visiveis={visiveis}
-        periodicidade={periodicidade}
-        critico={critico?.period ?? null}
-        recorteBase={recorteBase}
-        onAbrirVigencia={onAbrirVigencia}
-        onEscolher={escolher}
-        rotuloDeAbrir={rotuloDeAbrir}
-      />
+      {noCelular ? (
+        <LinhaDoTempoVertical
+          visiveis={visiveis}
+          periodicidade={periodicidade}
+          critico={critico?.period ?? null}
+          recorteBase={recorteBase}
+          onAbrirVigencia={onAbrirVigencia}
+          rotuloDeAbrir={rotuloDeAbrir}
+        />
+      ) : (
+        <LinhaDoTempoHorizontal
+          visiveis={visiveis}
+          periodicidade={periodicidade}
+          critico={critico?.period ?? null}
+          recorteBase={recorteBase}
+          onAbrirVigencia={onAbrirVigencia}
+          onEscolher={escolher}
+          rotuloDeAbrir={rotuloDeAbrir}
+        />
+      )}
 
       <ImpactoAcumulado
         visiveis={visiveis}
         periodicidade={periodicidade}
         onEscolher={escolher}
         rotuloDeAbrir={rotuloDeAbrir}
+        compacto={noCelular}
       />
     </>
   );
@@ -718,11 +739,7 @@ function LinhaDoTempoHorizontal({
         <div className="grid gap-3" style={grade}>
           {visiveis.map((linha) => (
             <div key={linha.period} className="flex justify-center h-5">
-              {linha.period === critico && (
-                <span className="rounded-full bg-red-50 px-2 py-0.5 text-[0.625rem] font-bold uppercase tracking-wide text-red-700">
-                  Mês crítico
-                </span>
-              )}
+              {linha.period === critico && <SeloDeMesCritico />}
             </div>
           ))}
         </div>
@@ -802,28 +819,60 @@ function LinhaDoTempoHorizontal({
         </div>
 
         <div className="grid gap-3 mt-2.5" style={grade}>
-          {visiveis.map((linha) => {
-            const tom = tomDaVigencia(linha, periodicidade, critico);
-            return (
-              <div key={linha.period} className="flex justify-center">
-                <span
-                  className={cn(
-                    "rounded-md px-2 py-1 text-[0.625rem] font-bold uppercase tracking-wide",
-                    tom === "perda" || tom === "critico"
-                      ? "bg-red-50 text-red-700"
-                      : tom === "ganho"
-                        ? "bg-emerald-50 text-emerald-700"
-                        : "bg-muted text-muted-foreground",
-                  )}
-                >
-                  {tom === "ganho" ? "Ganho" : tom === "neutro" ? "Sem valoração" : "Perda"}
-                </span>
-              </div>
-            );
-          })}
+          {visiveis.map((linha) => (
+            <div key={linha.period} className="flex justify-center">
+              <SeloDoTom tom={tomDaVigencia(linha, periodicidade, critico)} />
+            </div>
+          ))}
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * A mesma janela, de pé — a leitura de celular.
+ *
+ * Uma vigência por linha, da mais antiga para a mais recente, com o marco
+ * fazendo as vezes do eixo à esquerda. Não há rolagem horizontal e nada é
+ * abreviado: a data, a contagem, o que falta valorar, o número e o selo
+ * continuam todos escritos, só que na orientação que a tela tem sobrando.
+ *
+ * O marco daqui não é clicável, e é de propósito: na largura do celular a
+ * linha inteira já é o alvo, e um segundo alvo dentro dela só criaria dois
+ * cliques para o mesmo destino, com um deles pequeno demais para o dedo.
+ */
+function LinhaDoTempoVertical({
+  visiveis,
+  periodicidade,
+  critico,
+  recorteBase,
+  onAbrirVigencia,
+  rotuloDeAbrir,
+}: {
+  visiveis: RangeMovement[];
+  periodicidade: string;
+  critico: string | null;
+  recorteBase: Recorte | null;
+  onAbrirVigencia?: AberturaDaVigencia;
+  rotuloDeAbrir: string;
+}) {
+  return (
+    <ol className="space-y-2">
+      {visiveis.map((linha) => (
+        <li key={linha.period}>
+          <CartaoDaVigencia
+            linha={linha}
+            periodicidade={periodicidade}
+            tom={tomDaVigencia(linha, periodicidade, critico)}
+            recorteBase={recorteBase}
+            onAbrir={onAbrirVigencia}
+            rotuloDeAbrir={rotuloDeAbrir}
+            orientacao="linha"
+          />
+        </li>
+      ))}
+    </ol>
   );
 }
 
@@ -847,6 +896,32 @@ function corDoTom(tom: TomDaVigencia): string {
   return "text-foreground";
 }
 
+/** O selo do tom — "Ganho", "Perda" ou "Sem valoração" — sob o cartão ou ao lado dele. */
+function SeloDoTom({ tom }: { tom: TomDaVigencia }) {
+  return (
+    <span
+      className={cn(
+        "rounded-md px-2 py-1 text-[0.625rem] font-bold uppercase tracking-wide whitespace-nowrap",
+        tom === "perda" || tom === "critico"
+          ? "bg-red-50 text-red-700"
+          : tom === "ganho"
+            ? "bg-emerald-50 text-emerald-700"
+            : "bg-muted text-muted-foreground",
+      )}
+    >
+      {tom === "ganho" ? "Ganho" : tom === "neutro" ? "Sem valoração" : "Perda"}
+    </span>
+  );
+}
+
+function SeloDeMesCritico() {
+  return (
+    <span className="rounded-full bg-red-50 px-2 py-0.5 text-[0.625rem] font-bold uppercase tracking-wide text-red-700 whitespace-nowrap">
+      Mês crítico
+    </span>
+  );
+}
+
 function Marco({ tom }: { tom: TomDaVigencia }) {
   if (tom === "critico") {
     return (
@@ -865,7 +940,14 @@ function Marco({ tom }: { tom: TomDaVigencia }) {
   );
 }
 
-/** O cartão sob o marco — a contagem, o que falta valorar e o número da vigência. */
+/**
+ * O cartão sob o marco — a contagem, o que falta valorar e o número da vigência.
+ *
+ * Em `coluna` ele é a coluna da linha do tempo deitada; em `linha` — a leitura
+ * de celular — o mesmo conteúdo se abre na horizontal e passa a carregar
+ * também a data, o marco e o selo, que na versão deitada moram nas faixas de
+ * cima e de baixo.
+ */
 function CartaoDaVigencia({
   linha,
   periodicidade,
@@ -873,6 +955,7 @@ function CartaoDaVigencia({
   recorteBase,
   onAbrir,
   rotuloDeAbrir,
+  orientacao = "coluna",
 }: {
   linha: RangeMovement;
   periodicidade: string;
@@ -880,6 +963,7 @@ function CartaoDaVigencia({
   recorteBase: Recorte | null;
   onAbrir?: (linha: RangeMovement) => void;
   rotuloDeAbrir: string;
+  orientacao?: "coluna" | "linha";
 }) {
   const link = useLinkDeAlteracoes();
   const valor = linha.impact.byPeriodicity[periodicidade];
@@ -890,46 +974,72 @@ function CartaoDaVigencia({
   const temLink = recorteBase !== null && link !== null;
 
   const classe = cn(
-    "block h-full w-full rounded-lg border p-3 text-center transition-colors",
+    "block h-full w-full rounded-lg border p-3 transition-colors",
+    orientacao === "linha" ? "text-left" : "text-center",
     (temLink || onAbrir) && "hover:border-brand/40 hover:bg-accent",
     tom === "critico" && "border-red-200 bg-red-50/50",
     tom === "ganho" && "border-emerald-200 bg-emerald-50/50",
   );
 
-  const conteudo = (
-    <>
-      <div className={cn("text-xs font-bold tabular-nums", tom === "critico" && "text-red-700")}>
-        {contar(linha.changes, "alteração", "alterações")}
+  const valorEscrito =
+    valor !== undefined ? (
+      <span
+        className={cn(
+          "text-sm font-extrabold tabular-nums",
+          valor < 0 ? "text-red-700" : "text-emerald-700",
+        )}
+      >
+        {formatBrlShort(valor)}
+      </span>
+    ) : (
+      !semValoracao && (
+        <span className="text-xs font-semibold italic text-muted-foreground">sem alteração</span>
+      )
+    );
+
+  const conteudo =
+    orientacao === "linha" ? (
+      <div className="flex items-center gap-3">
+        <span className="flex w-6 shrink-0 justify-center">
+          <Marco tom={tom} />
+        </span>
+        <span className="min-w-0 flex-1 block">
+          <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span className={cn("text-sm font-semibold tabular-nums", corDoTom(tom))}>
+              {linha.label}
+            </span>
+            {tom === "critico" && <SeloDeMesCritico />}
+          </span>
+          <span className="mt-0.5 block text-xs text-muted-foreground tabular-nums">
+            {contar(linha.changes, "alteração", "alterações")}
+            {linha.impact.notCalculable > 0 &&
+              ` · ${linha.impact.notCalculable.toLocaleString("pt-BR")} sem valoração`}
+          </span>
+        </span>
+        <span className="flex shrink-0 flex-col items-end gap-1 text-right">
+          {valorEscrito}
+          <SeloDoTom tom={tom} />
+        </span>
       </div>
-      {linha.impact.notCalculable > 0 && (
-        <div className="text-[0.6875rem] text-muted-foreground mt-0.5 tabular-nums">
-          {linha.impact.notCalculable.toLocaleString("pt-BR")} sem valoração
+    ) : (
+      <>
+        <div className={cn("text-xs font-bold tabular-nums", tom === "critico" && "text-red-700")}>
+          {contar(linha.changes, "alteração", "alterações")}
         </div>
-      )}
-      {/*
-        Vigência sem número apurado não ganha linha de valor: o selo embaixo do
-        cartão já diz "sem valoração", e repeti-lo aqui gastava a linha do
-        número dizendo duas vezes a mesma coisa. Sem alteração nenhuma é outro
-        caso — esse não tem selo que o conte, e continua escrito.
-      */}
-      {valor !== undefined ? (
-        <div
-          className={cn(
-            "mt-1.5 text-sm font-extrabold tabular-nums",
-            valor < 0 ? "text-red-700" : "text-emerald-700",
-          )}
-        >
-          {formatBrlShort(valor)}
-        </div>
-      ) : (
-        !semValoracao && (
-          <div className="mt-1.5 text-xs font-semibold italic text-muted-foreground">
-            sem alteração
+        {linha.impact.notCalculable > 0 && (
+          <div className="text-[0.6875rem] text-muted-foreground mt-0.5 tabular-nums">
+            {linha.impact.notCalculable.toLocaleString("pt-BR")} sem valoração
           </div>
-        )
-      )}
-    </>
-  );
+        )}
+        {/*
+          Vigência sem número apurado não ganha linha de valor: o selo embaixo
+          do cartão já diz "sem valoração", e repeti-lo aqui gastava a linha do
+          número dizendo duas vezes a mesma coisa. Sem alteração nenhuma é
+          outro caso — esse não tem selo que o conte, e continua escrito.
+        */}
+        {valorEscrito !== false && <div className="mt-1.5">{valorEscrito}</div>}
+      </>
+    );
 
   /*
     Três destinos possíveis, na ordem em que a tela os prefere.
@@ -988,12 +1098,21 @@ function ImpactoAcumulado({
   periodicidade,
   onEscolher = null,
   rotuloDeAbrir,
+  compacto = false,
 }: {
   visiveis: RangeMovement[];
   periodicidade: string;
   /** O clique no ponto — o mesmo destino do marco e do cartão, ou `null`. */
   onEscolher?: AberturaDaVigencia | null;
   rotuloDeAbrir: string;
+  /**
+   * A leitura de celular. O desenho é um `viewBox` de 900 esticado até a
+   * largura da tela: no desktop 12px de fonte saem como 12px, e em ~350px de
+   * tela saem como 5 — ilegíveis, e com as datas escrevendo umas por cima das
+   * outras. Compacto, o texto cresce na medida do desenho e só as pontas do
+   * eixo ficam escritas, que é o que a linha precisa para se situar.
+   */
+  compacto?: boolean;
 }) {
   if (visiveis.length < 2) return null;
 
@@ -1008,10 +1127,10 @@ function ImpactoAcumulado({
   const amplitude = teto - piso || 1;
 
   const L = 900;
-  const A = 210;
+  const A = compacto ? 260 : 210;
   const MARGEM_X = 46;
-  const TOPO_UTIL = 26;
-  const BASE_UTIL = 34;
+  const TOPO_UTIL = compacto ? 44 : 26;
+  const BASE_UTIL = compacto ? 56 : 34;
 
   const x = (i: number) => MARGEM_X + ((i + 0.5) * (L - 2 * MARGEM_X)) / pontos.length;
   const y = (valor: number) =>
@@ -1020,6 +1139,13 @@ function ImpactoAcumulado({
   const minimo = pontos.reduce((a, b) => (b.acumulado < a.acumulado ? b : a), pontos[0]);
   const ultimo = pontos[pontos.length - 1];
   const rotulados = new Set([minimo, ultimo]);
+
+  // As medidas do texto dentro do desenho — ver `compacto`.
+  const fonteDoEixo = compacto ? 26 : 12;
+  const fonteDoValor = compacto ? 28 : 13;
+  const fonteDoZero = compacto ? 22 : 12;
+  const temRotuloNoEixo = (i: number) =>
+    !compacto || i === 0 || i === pontos.length - 1;
 
   return (
     <div className="mt-5 rounded-lg border p-4">
@@ -1051,7 +1177,7 @@ function ImpactoAcumulado({
         <text
           x={MARGEM_X / 2}
           y={y(0) - 6}
-          fontSize="12"
+          fontSize={fonteDoZero}
           fill="currentColor"
           className="text-muted-foreground"
         >
@@ -1138,8 +1264,12 @@ function ImpactoAcumulado({
                   cima da data do eixo. Só desce quando não há acima — ponto
                   colado no teto do desenho.
                 */
-                y={y(ponto.acumulado) < TOPO_UTIL + 6 ? y(ponto.acumulado) + 20 : y(ponto.acumulado) - 12}
-                fontSize="13"
+                y={
+                  y(ponto.acumulado) < TOPO_UTIL + 6
+                    ? y(ponto.acumulado) + fonteDoValor + 7
+                    : y(ponto.acumulado) - fonteDoValor + 1
+                }
+                fontSize={fonteDoValor}
                 fontWeight="700"
                 textAnchor={i === 0 ? "start" : i === pontos.length - 1 ? "end" : "middle"}
                 fill="currentColor"
@@ -1149,16 +1279,18 @@ function ImpactoAcumulado({
               </text>
             )}
 
-            <text
-              x={x(i)}
-              y={A - 8}
-              fontSize="12"
-              textAnchor={i === 0 ? "start" : i === pontos.length - 1 ? "end" : "middle"}
-              fill="currentColor"
-              className="text-muted-foreground"
-            >
-              {ponto.linha.label}
-            </text>
+            {temRotuloNoEixo(i) && (
+              <text
+                x={x(i)}
+                y={A - 8}
+                fontSize={fonteDoEixo}
+                textAnchor={i === 0 ? "start" : i === pontos.length - 1 ? "end" : "middle"}
+                fill="currentColor"
+                className="text-muted-foreground"
+              >
+                {ponto.linha.label}
+              </text>
+            )}
           </g>
         ))}
       </svg>

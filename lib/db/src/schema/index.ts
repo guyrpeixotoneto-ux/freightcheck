@@ -20,3 +20,4 @@ export * from "./justificativa";
 export * from "./fluxo";
 export * from "./permissao";
 export * from "./papel";
+export * from "./integracao";

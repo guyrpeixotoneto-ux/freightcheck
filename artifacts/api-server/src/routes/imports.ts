@@ -360,7 +360,7 @@ export function motivoGravavel(err: unknown): string {
 }
 
 /** O `req.log` reduzido ao que este arquivo usa. */
-type Log = {
+export type Log = {
   warn: (obj: unknown, msg: string) => void;
   error: (obj: unknown, msg: string) => void;
 };
@@ -443,8 +443,15 @@ function responderFalhaDeLeitura(
  * timeout no proxy antes de dar resposta. O cliente recebe o id na hora e
  * pergunta o estado por /status — e qualquer falha vira FAILED com motivo, em
  * vez de um run parado para sempre em READING.
+ *
+ * **Exportada** porque a entrada por API (`routes/v1.ts`) é o mesmo caminho: um
+ * arquivo que chega por chave de integração é lido, conferido e parado no
+ * preview exatamente como o que sobe pela tela. Copiar estas três linhas para
+ * lá criaria uma segunda leitura que, no primeiro conserto feito num lado só,
+ * deixaria um run parado em READING para sempre — o defeito que o `catch`
+ * abaixo existe para impedir.
  */
-async function readInBackground(importRunId: string, log: Log): Promise<void> {
+export async function readInBackground(importRunId: string, log: Log): Promise<void> {
   try {
     await captureRaw(db, importRunId);
     await stage(db, importRunId);

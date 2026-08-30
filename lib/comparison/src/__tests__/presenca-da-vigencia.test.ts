@@ -77,6 +77,25 @@ async function lidas() {
   return saida;
 }
 
+/**
+ * As entidades que a presença ainda enxerga numa vigência.
+ *
+ * A leitura por tipo conta; esta diz **quem** foi contado, que é o que permite
+ * afirmar o grão da ocultação sem depender de quantos tipos cada entidade
+ * alimenta.
+ */
+async function entidadesVisiveis(data: string): Promise<string[]> {
+  const { rows } = await ctx.db.execute<{ entity_id: string }>(sql`
+    SELECT DISTINCT p.entity_id
+      FROM snapshot_presenca p
+      JOIN snapshot s ON s.id = p.snapshot_id
+      LEFT JOIN import_run r ON r.id = p.origin_import_run_id
+     WHERE s.effective_date = ${data}::date
+       AND r.hidden_at IS NULL
+  `);
+  return rows.map((r) => r.entity_id);
+}
+
 /** Apaga a presença — devolve a leitura ao caminho anterior à `0081`. */
 async function semPresenca() {
   await ctx.db.execute(sql`DELETE FROM snapshot_presenca`);
@@ -125,7 +144,7 @@ async function vigenciaComDuasOrigens(
   data: string,
   base: { id: string },
   outraOrigem: { import_run_id: string },
-): Promise<{ id: string; soDaOutraOrigem: string }> {
+): Promise<{ id: string; soDaOutraOrigem: string; dividida: string }> {
   const [ano, mes, dia] = data.split("-");
   const { rows } = await ctx.db.execute<{ id: string }>(sql`
     INSERT INTO snapshot (source_file_id, import_run_id, source_label, effective_date,
@@ -159,13 +178,37 @@ async function vigenciaComDuasOrigens(
     herdado. Outra fica **dividida** entre as duas: é a que teria sido contada
     duas vezes se a leitura somasse pré-agregados por origem.
   */
-  const { rows: escolhidas } = await ctx.db.execute<{ entity_id: string }>(sql`
-    SELECT DISTINCT entity_id FROM fact
+  /*
+    A **dividida** precisa ter mais de um fato, e por isso a escolha conta antes
+    de escolher.
+
+    A versão anterior pegava as duas primeiras entidades por `entity_id` e
+    dividia a segunda. `entity_id` é um UUID sorteado na importação, e nada
+    garantia que a segunda menor tivesse dois fatos: com um fato só, "mover um
+    fato dela" movia ela inteira, e o caso de origem dividida — o que este teste
+    existe para medir — simplesmente não acontecia. A propriedade que o caso
+    precisa é essa, e não a ordem.
+  */
+  const { rows: candidatas } = await ctx.db.execute<{
+    entity_id: string;
+    fatos: string;
+  }>(sql`
+    SELECT entity_id, count(*) AS fatos FROM fact
      WHERE snapshot_id = ${novo}::uuid
-     ORDER BY entity_id LIMIT 2
+     GROUP BY entity_id
+     ORDER BY entity_id
   `);
-  const soDaOutra = escolhidas[0]!.entity_id;
-  const dividida = escolhidas[1]!.entity_id;
+  const comMaisDeUm = candidatas.find((c) => Number(c.fatos) > 1);
+  const outra = candidatas.find((c) => c.entity_id !== comMaisDeUm?.entity_id);
+  if (!comMaisDeUm || !outra) {
+    throw new Error(
+      "Este snapshot não tem duas entidades, uma delas com dois fatos: sem " +
+        "isso não existem os dois casos que este teste mede — a entidade que " +
+        "sai inteira e a que fica dividida entre as origens.",
+    );
+  }
+  const dividida = comMaisDeUm.entity_id;
+  const soDaOutra = outra.entity_id;
 
   await ctx.db.execute(sql`
     UPDATE fact SET origin_import_run_id = ${outraOrigem.import_run_id}::uuid
@@ -185,7 +228,7 @@ async function vigenciaComDuasOrigens(
     sql`UPDATE snapshot SET status = 'CLOSED' WHERE id = ${novo}::uuid`,
   );
   await gravarPresenca(ctx.db, novo);
-  return { id: novo, soDaOutraOrigem: soDaOutra };
+  return { id: novo, soDaOutraOrigem: soDaOutra, dividida };
 }
 
 /** As duas vigências mais antigas do contexto, para montar herança entre elas. */
@@ -276,7 +319,9 @@ describe("ocultar e restaurar — o caso que o grão existe para acertar", () =>
     const { seguinte } = await duasVigencias();
     const data = "2029-01-01";
     const outraOrigem = await runDescartavel(`origem-${data}`);
-    await vigenciaComDuasOrigens(data, seguinte, { import_run_id: outraOrigem });
+    const criada = await vigenciaComDuasOrigens(data, seguinte, {
+      import_run_id: outraOrigem,
+    });
 
     const comAsDuas = await lidas();
     expect(comAsDuas[data]).toBeDefined();
@@ -294,9 +339,44 @@ describe("ocultar e restaurar — o caso que o grão existe para acertar", () =>
     */
     const comUmaOculta = await lidas();
     expect(comUmaOculta[data]).toBeDefined();
-    const somaAntes = Object.values(comAsDuas[data]!).reduce((a, b) => a + b, 0);
-    const somaDepois = Object.values(comUmaOculta[data]!).reduce((a, b) => a + b, 0);
-    expect(somaDepois).toBe(somaAntes - 1);
+
+    /*
+      **A queda é de uma entidade, e não de um número.** A distinção não é
+      preciosismo: uma entidade é contada em mais de um tipo — um cavalo entra
+      em `CAVALO` e no `CONJUNTO` que ele forma —, então ocultar a origem de um
+      cavalo faz a **soma** cair 2, e a de uma carreta avulsa cair 1.
+
+      O teste afirmava `somaAntes - 1`, e por isso passava ou falhava conforme o
+      tipo da entidade que o fixture sorteava: os `entity_id` são UUIDs criados
+      na importação, e a escolha por ordem de UUID entregava ora um cavalo, ora
+      outra coisa. Verde numa construção do template, vermelho na seguinte, sem
+      uma linha de código mudar entre as duas — foi assim que este teste deixou
+      a `main` vermelha.
+
+      O que o caso mede, e que vale em qualquer acervo: **nenhum tipo perde mais
+      de uma entidade**, e alguma coisa foi de fato descontada. A entidade
+      dividida continua contada em todos eles — se ela caísse junto, algum tipo
+      cairia 2.
+    */
+    const tipos = new Set([
+      ...Object.keys(comAsDuas[data]!),
+      ...Object.keys(comUmaOculta[data]!),
+    ]);
+    const quedas = [...tipos].map((t) => ({
+      tipo: t,
+      queda: (comAsDuas[data]![t] ?? 0) - (comUmaOculta[data]![t] ?? 0),
+    }));
+    expect(quedas.filter((q) => q.queda !== 0 && q.queda !== 1)).toEqual([]);
+    expect(quedas.some((q) => q.queda === 1)).toBe(true);
+
+    /*
+      E o grão, dito por extenso: a entidade que só tinha fato da origem oculta
+      sai da presença visível; a dividida fica, porque a outra metade dela veio
+      de uma origem que ninguém ocultou.
+    */
+    const visiveis = await entidadesVisiveis(data);
+    expect(visiveis).not.toContain(criada.soDaOutraOrigem);
+    expect(visiveis).toContain(criada.dividida);
 
     // E o caminho ao vivo concorda — é o que prova a equivalência.
     await semPresenca();

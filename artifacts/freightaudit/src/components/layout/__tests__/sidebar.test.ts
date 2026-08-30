@@ -476,12 +476,25 @@ describe("o catálogo de telas em preparo", () => {
     que cada uma **ainda** não faz — faixa salarial vigente, negócio como base
     de fechamento, rateio por departamento — está escrito na própria tela, que
     é onde a ressalva serve para alguma coisa. Minha Empresa é a que fica.
+
+    E caiu para doze quando **Integrações** ficou pronta. O verbete pedia
+    "credencial guardada e resultado da última execução", e é o que a tela
+    mostra hoje: chave por sistema, escopo por chave e o registro de cada
+    chamada que a porta de API atendeu (`pages/integracoes.tsx`, sobre
+    `/api/v1`). Ela também trocou de seção no caminho — saiu da Administração e
+    foi para Dados & governança, ao lado de Importações, porque o que ela
+    governa é o material e não a casa.
+
+    O que aquele verbete pedia e continua não existindo é a busca ativa — nós
+    chamando o fornecedor numa agenda. Isso não voltou ao catálogo: não é uma
+    tela que falta, é uma capacidade, e ela está descrita em
+    `docs/INTEGRACOES.md` em vez de virar item de menu que promete o que não faz.
   */
   it("descreve, para cada tela, o que falta antes de ela mostrar um número", () => {
     const catalogo = fonte("pages/telas-em-preparo.ts");
     const telas = [...catalogo.matchAll(/^\s{4}href:\s*"([^"]+)"/gm)].length;
 
-    expect(telas).toBe(13);
+    expect(telas).toBe(12);
     expect([...catalogo.matchAll(/^\s{4}depende:\s*\[/gm)]).toHaveLength(telas);
     expect([...catalogo.matchAll(/^\s{4}pergunta:/gm)]).toHaveLength(telas);
   });

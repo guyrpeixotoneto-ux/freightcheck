@@ -31,6 +31,12 @@ import {
   RecusaDeFluxo,
   SlugJaUsado,
 } from "@workspace/fluxos";
+import {
+  CofreIndisponivel,
+  IntegracaoNaoEncontrada,
+  NomeDeIntegracaoJaUsado,
+  RecusaDeIntegracao,
+} from "@workspace/integrations";
 import { EmailAlreadyUsedError } from "./session";
 import {
   EmpresaNaoPermitida,
@@ -164,6 +170,24 @@ const RECUSAS: { classe: new (...args: never[]) => Error; status: number }[] = [
     qual e onde escolhê-lo. Não permitida é 403: o pedido está completo, e é a
     conta que não alcança. Ver `lib/empresa-da-requisicao.ts`.
   */
+  /*
+    Integrações. As filhas antes da base, pela mesma razão dos fluxos:
+    `statusDaRecusa` devolve o primeiro `instanceof` que casar.
+
+    O nome repetido é 409 e não 400 — o pedido está bem formado, e é o estado
+    que responde; a frase manda para a integração que já existe. O que não
+    existe é 404. Tudo o mais que a gestão recusa é defeito do pedido.
+  */
+  /*
+    O cofre sem chave mestra é 503, e não 400: o pedido está correto, e o que
+    falta é uma variável **deste ambiente** (`INTEGRACOES_CHAVE_MESTRA`). Um
+    400 mandaria quem cadastrou corrigir o que digitou, e o que digitou estava
+    certo. A frase do domínio já diz como gerar a chave.
+  */
+  { classe: CofreIndisponivel, status: 503 },
+  { classe: NomeDeIntegracaoJaUsado, status: 409 },
+  { classe: IntegracaoNaoEncontrada, status: 404 },
+  { classe: RecusaDeIntegracao, status: 400 },
   { classe: EscopoDeEmpresaAusente, status: 400 },
   { classe: EmpresaNaoPermitida, status: 403 },
 ];

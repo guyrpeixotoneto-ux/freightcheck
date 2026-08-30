@@ -6,6 +6,7 @@ import { preencherPresencasPendentes } from "@workspace/ingest";
 import app from "./app";
 import { alertar } from "./lib/alerta";
 import { agendarBackups } from "./lib/backup-agendado";
+import { agendarBuscasAtivas } from "./lib/busca-agendada";
 import { logger } from "./lib/logger";
 import {
   deveMigrarNaPartida,
@@ -462,6 +463,13 @@ app.listen(port, (err) => {
   // reinício era um beco sem saída para o usuário (reenvio recusado como
   // duplicata, exclusão recusada como "ainda lendo"). Ver lib/ingest/recuperacao.
   agendarVarreduraDeOrfas();
+
+  /*
+    E o relógio da busca ativa: uma varredura por minuto pergunta ao banco que
+    agenda venceu, e o próprio banco impede que duas instâncias peguem a mesma
+    — ver `lib/busca-agendada.ts`.
+  */
+  agendarBuscasAtivas();
 });
 
 function agendarVarreduraDeOrfas(): void {
