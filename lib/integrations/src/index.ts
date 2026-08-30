@@ -48,3 +48,26 @@ export {
   conferirDadosDaIntegracao,
   type DadosDaIntegracao,
 } from "./recusas";
+export {
+  BYTES_DA_CHAVE_MESTRA,
+  CofreIndisponivel,
+  chaveMestraDe,
+  cifrar,
+  decifrar,
+} from "./cofre";
+export {
+  EXPLICACAO_DO_RESULTADO,
+  FORMAS_DE_CREDENCIAL,
+  INTERVALO_MAXIMO_MINUTOS,
+  INTERVALO_MINIMO_MINUTOS,
+  METODOS_DA_BUSCA,
+  conferirDadosDaBusca,
+  conferirUrlDaBusca,
+  ehEnderecoPrivado,
+  hostProibido,
+  proximaExecucao,
+  type DadosDaBusca,
+  type FormaDeCredencial,
+  type MetodoDaBusca,
+  type ResultadoDaExecucao,
+} from "./busca";

@@ -17,6 +17,15 @@ não faz, e o que vem depois.
 | a porta externa (chave, sem sessão) | `artifacts/api-server/src/routes/v1.ts` |
 | o portão que autentica e registra | `artifacts/api-server/src/middlewares/chave-de-integracao.ts` |
 | a tela | `artifacts/freightaudit/src/pages/integracoes.tsx` → **Dados & governança → Integrações** |
+| a busca ativa (motor, agenda e cofre) | `lib/integrations/src/busca.ts`, `src/cofre.ts`; `artifacts/api-server/src/lib/busca-ativa.ts`, `busca-agendada.ts`, `cofre.ts`; migration `0083` |
+
+As três direções, e o que cada uma quer dizer:
+
+| direção | quem liga | como se autentica |
+| --- | --- | --- |
+| **entrada** | o sistema de fora | a chave que emitimos (`importacoes:enviar`) |
+| **saída** | o sistema de fora | a chave que emitimos (`importacoes:ler`) |
+| **busca ativa** | **nós**, numa agenda | a credencial *deles*, guardada no nosso cofre |
 
 ## A fronteira: nenhuma chave promove
 
@@ -106,15 +115,98 @@ tem dono, atribuí-la a alguém seria inventar, e guardar o que veio no cabeçal
 seria gravar uma credencial de origem desconhecida. Ela é recusada, e aparece no
 log do processo com o `requestId`.
 
-## O que ainda não existe, e por quê
+## A busca ativa
 
-**Busca ativa — nós chamando o fornecedor numa agenda.** É a terceira direção
-do assunto (as outras duas, entrada e saída, já estão de pé), e ela exige três
-coisas que esta leva não tem: um lugar para guardar a credencial *do outro
-lado* (cofre, e não esta tabela, que guarda hash de chave nossa), um agendador
-com registro de execução, e um mapeamento do formato deles para o nosso. É a
-próxima leva natural, e o desenho dela cabe nas mesmas três tabelas mais uma de
-agenda.
+É a direção em que nós ligamos primeiro: numa agenda, este servidor chama um
+endereço https do fornecedor, traz a planilha e a entrega ao mesmo pipeline de
+Importações — que **para no preview**, como as outras duas portas. Uma agenda
+que promovesse sozinha seria a pior das três: ninguém sequer clicou em "enviar".
+
+O que ela busca é um **arquivo .xlsx** — o mesmo export que hoje alguém baixa e
+sobe à mão. Não é limitação de esforço: é a única coisa que dá para prometer
+sem inventar, porque um conector que lesse JSON do fornecedor precisaria de um
+mapeamento campo a campo do formato **deles**, e esse formato não está escrito
+em lugar nenhum aqui. Quando existir, ele entra como leitor novo em
+`@workspace/ingest`, e a busca continua a mesma: ela transporta, não interpreta.
+
+### O cofre, e a assimetria que ele resolve
+
+A nossa chave é guardada como **hash** — só precisamos conferi-la. A credencial
+do fornecedor precisa ser **apresentada** a cada busca, então tem de voltar ao
+valor original: ela é cifrada com AES-256-GCM, e a chave mestra vive fora do
+banco, em `INTEGRACOES_CHAVE_MESTRA` (32 bytes; gere com `openssl rand -hex 32`).
+
+Sem a variável não há cofre, e o produto diz isso em voz alta: a tela não
+oferece o campo de credencial, o cadastro com segredo é recusado, e a partida
+loga alto se houver buscas com credencial já cadastradas. Cifrar com uma chave
+escrita no repositório seria pior do que não guardar — pareceria protegido.
+
+GCM e não CBC porque GCM **autentica**: um byte alterado no banco faz a leitura
+falhar, em vez de devolver lixo que seria enviado como credencial para um
+servidor de fora. A credencial nunca é lida de volta por rota nenhuma; trocar
+significa cadastrar de novo.
+
+### A defesa de rede (SSRF), em duas camadas
+
+Um servidor que busca uma URL escolhida por um usuário pode ser usado para
+alcançar o que **só ele** alcança: o banco na rede interna, o `localhost`, o
+serviço de metadados da nuvem — de onde se sai com as credenciais da própria
+instância. As defesas:
+
+1. **no cadastro** (`conferirUrlDaBusca`): só https, sem usuário/senha embutidos
+   na URL, e nada que já se saiba ser interno — `localhost`, `10/8`, `172.16/12`,
+   `192.168/16`, `127/8`, `169.254/16`, `100.64/10`, IPv6 local, sufixos
+   `.internal` e `.localhost`;
+2. **na conexão** (`resolverComGuarda`): a conferência é a **própria resolução
+   de nome** que o socket usa, passada como `lookup` ao `https.request`. Não há
+   uma resolução para conferir e outra para conectar, então não há janela para
+   o "DNS rebinding" — um nome público que resolve para `127.0.0.1` morre aqui.
+
+Por isso a busca usa `node:https` em vez do `fetch` global: o `fetch` não deixa
+escolher o resolvedor. Redirecionamentos são seguidos **à mão**, no máximo três,
+cada salto reconferido do zero — e **a credencial não atravessa salto para outro
+host**.
+
+Além disso: teto de 60 segundos, teto de 64 MB aplicado enquanto o corpo chega
+(a conexão é destruída ao ser ultrapassado), e a mesma conferência de assinatura
+`PK` do upload pela tela — uma página de login em HTML, que é a resposta clássica
+de quem perdeu a sessão do outro lado, é recusada com essa frase em vez de
+falhar dentro do leitor de planilha.
+
+### A agenda
+
+`proxima_em` é relógio e trava ao mesmo tempo. A varredura roda a cada minuto em
+**todas** as instâncias, toma as linhas vencidas com `FOR UPDATE SKIP LOCKED` e
+empurra o carimbo dentro da mesma transação — então duas instâncias nunca buscam
+a mesma coisa, sem tabela de lock e sem eleição de líder. A chamada em si
+acontece fora da transação, porque são até 60 segundos de rede.
+
+O piso do intervalo é de **15 minutos**, no código e no `CHECK` do banco: o
+export muda algumas vezes por mês, e buscar de minuto em minuto só transformaria
+esta agenda em tráfego contra um sistema de terceiro.
+
+O relógio conta a partir de **agora**, e não do horário previsto: contando do
+previsto, uma busca parada seis horas acordaria disparando as vinte e quatro
+execuções que "deveria" ter feito, todas trazendo o mesmo arquivo.
+
+### Os quatro desfechos
+
+| resultado | quer dizer |
+| --- | --- |
+| `OK` | veio arquivo novo; entrou como importação, aguardando aprovação |
+| `SEM_NOVIDADE` | o arquivo é igual ao que já tínhamos — o desfecho **normal** de uma agenda que busca mais vezes do que a fonte muda |
+| `RECUSADA` | o outro lado respondeu e a resposta não serve: erro HTTP, HTML no lugar da planilha, arquivo grande demais, endereço interno — ou o cofre deste ambiente não abriu a credencial |
+| `FALHA` | ninguém do outro lado disse nada: rede, tempo esgotado, defeito nosso |
+
+`SEM_NOVIDADE` tem nome próprio de propósito. Sem ele, uma busca saudável
+apareceria vermelha todo dia — e o vermelho deixaria de querer dizer alguma
+coisa.
+
+O botão **executar agora** na tela dispara a busca na hora e responde com o
+desfecho. É o que separa configurar de adivinhar: sem ele, um endereço errado só
+apareceria amanhã de manhã, num histórico que ninguém abriu.
+
+## O que ainda não existe, e por quê
 
 **Saída além de importações.** Expor apuração, alterações e DRE para um BI é
 uma decisão de contrato, não de código: cada resposta que sai vira compromisso
@@ -129,6 +221,26 @@ horizontalmente. Ele vem junto da primeira rota que precise dele.
 **Webhook — nós avisando o outro lado.** Hoje quem enviou pergunta
 (`GET /api/v1/importacoes/:id`). Avisar exige fila e reentrega, e a pergunta
 resolve enquanto o volume for o de hoje.
+
+**Busca que lê JSON.** A busca ativa traz arquivo. Ler uma API de dados do
+fornecedor exige o mapeamento do formato deles para o nosso, e ele entra como
+leitor em `@workspace/ingest` quando existir um formato real para mapear — não
+como um "conector genérico" que adivinha.
+
+**Aviso quando uma busca começa a falhar.** Hoje a falha fica no histórico da
+tela, e quem não abre a tela não fica sabendo. O caminho já existe (`lib/alerta.ts`,
+o mesmo do backup) e o gatilho natural é a segunda falha seguida — a primeira é
+quase sempre o outro lado reiniciando.
+
+## O ambiente
+
+| variável | para quê |
+| --- | --- |
+| `INTEGRACOES_CHAVE_MESTRA` | a chave do cofre, 32 bytes (`openssl rand -hex 32`). Sem ela, a entrada e a saída por chave funcionam normalmente; só a busca ativa **com credencial** fica indisponível, e a tela diz isso. |
+
+Trocar a chave mestra invalida as credenciais já guardadas — elas não abrem com
+outra chave, por construção. O conserto é cadastrar as buscas de novo, e é por
+isso que a troca não é rotina.
 
 ## Permissão
 

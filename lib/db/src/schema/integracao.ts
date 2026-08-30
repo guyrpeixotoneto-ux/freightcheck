@@ -207,3 +207,136 @@ export const integracaoChamadaTable = pgTable(
     ),
   ],
 );
+
+/**
+ * A BUSCA ATIVA — a terceira direção, e a única em que **nós** começamos.
+ *
+ * Nas duas primeiras quem liga é o sistema de fora: ele empurra o arquivo, ou
+ * lê o nosso histórico. Aqui é este servidor que, numa agenda, chama um
+ * endereço do fornecedor, traz o que vier e entrega ao pipeline de Importações
+ * — que para no preview, como sempre.
+ *
+ * Duas tabelas, e a razão de serem duas é a mesma de `integracao` e
+ * `integracao_chamada`: uma é a configuração, que vive anos e é editada; a
+ * outra é o histórico, que só cresce e nunca é editado.
+ *
+ * **A credencial do outro lado é cifrada, e não hasheada.** É a assimetria
+ * central deste módulo: a nossa chave a gente só confere (hash basta), a deles
+ * a gente precisa **apresentar** a cada busca (então tem de ser reversível). A
+ * cifra é AES-256-GCM com chave mestra fora do banco — ver
+ * `lib/integrations/src/cofre.ts`. Sem chave mestra no ambiente, nenhuma busca
+ * com credencial é cadastrada nem executada, e o produto diz isso em voz alta
+ * em vez de inventar um padrão.
+ */
+export const integracaoBuscaTable = pgTable(
+  "integracao_busca",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    integracaoId: uuid("integracao_id")
+      .notNull()
+      .references(() => integracaoTable.id, { onDelete: "cascade" }),
+    /** O nome de gente — aparece na agenda e no histórico de execuções. */
+    nome: text("nome").notNull(),
+    /** O endereço chamado. Sempre https, nunca da rede interna — ver `busca.ts`. */
+    url: text("url").notNull(),
+    metodo: text("metodo").notNull().default("GET"),
+    /** Cabeçalhos **sem segredo**. O que carrega credencial vai no cofre. */
+    cabecalhos: jsonb("cabecalhos").notNull().default({}),
+    /** O corpo do POST, quando há. Guardado como veio; nunca interpretado. */
+    corpo: text("corpo"),
+    /** NENHUMA, BEARER ou CABECALHO — como a credencial viaja na chamada. */
+    forma: text("forma").notNull().default("NENHUMA"),
+    /** O nome do cabeçalho, quando a forma é CABECALHO. */
+    cabecalhoDaCredencial: text("cabecalho_da_credencial"),
+    /**
+     * A credencial do fornecedor, cifrada. `v1.<nonce>.<tag>.<cifrado>`.
+     *
+     * Nunca volta para a tela, nem para a API de gestão: quem precisa trocar
+     * cadastra outra. Ler de volta uma credencial que já está configurada não
+     * ajuda ninguém a operar e é exatamente o caminho por onde ela vazaria.
+     */
+    credencialCifrada: text("credencial_cifrada"),
+    /** O tipo declarado da planilha, como na aba de Importações. */
+    tipoDeclarado: text("tipo_declarado"),
+    intervaloMinutos: integer("intervalo_minutos").notNull(),
+    /**
+     * Quando a próxima execução pode acontecer.
+     *
+     * É o relógio **e** a trava: quem executa toma a linha com `FOR UPDATE SKIP
+     * LOCKED` e empurra este carimbo antes de sair da transação, então duas
+     * instâncias do servidor nunca buscam a mesma coisa no mesmo minuto. Sem
+     * ele, cada instância do autoscale teria a própria agenda — e o fornecedor
+     * receberia uma chamada por instância.
+     */
+    proximaEm: timestamp("proxima_em", { withTimezone: true }).notNull().defaultNow(),
+    /** Pausar não apaga: a busca pausada guarda o histórico e não acorda. */
+    pausadaEm: timestamp("pausada_em", { withTimezone: true }),
+    pausadaPor: text("pausada_por"),
+    criadaEm: timestamp("criada_em", { withTimezone: true }).notNull().defaultNow(),
+    criadaPor: text("criada_por").notNull(),
+  },
+  (t) => [
+    index("integracao_busca_integracao_idx").on(t.integracaoId),
+    /*
+      O índice da agenda: a varredura pergunta "que busca está vencida?" a cada
+      minuto, e sem ele essa pergunta varre a tabela inteira toda vez.
+    */
+    index("integracao_busca_proxima_idx").on(t.proximaEm),
+    check(
+      "integracao_busca_forma_ck",
+      sql`${t.forma} IN ('NENHUMA', 'BEARER', 'CABECALHO')`,
+    ),
+    check("integracao_busca_metodo_ck", sql`${t.metodo} IN ('GET', 'POST')`),
+    /*
+      O piso do intervalo também no banco. É a mesma razão do check de
+      `resultado` em `integracao_chamada`: a regra vale para quem escreve por
+      fora do produto, e um `UPDATE` num psql não vira uma busca de minuto em
+      minuto contra o sistema de um terceiro.
+    */
+    check("integracao_busca_intervalo_ck", sql`${t.intervaloMinutos} >= 15`),
+  ],
+);
+
+/**
+ * Cada execução — o que a agenda fez, e o que veio de lá.
+ *
+ * Só cresce, e guarda inclusive as que não trouxeram nada: `SEM_NOVIDADE` é o
+ * desfecho **normal** de uma agenda que busca mais vezes do que a fonte muda, e
+ * é o registro dele que separa "está buscando e o arquivo é o mesmo" de "parou
+ * de buscar" — duas situações que, sem esta linha, seriam indistinguíveis na
+ * tela.
+ */
+export const integracaoExecucaoTable = pgTable(
+  "integracao_execucao",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    buscaId: uuid("busca_id")
+      .notNull()
+      .references(() => integracaoBuscaTable.id, { onDelete: "cascade" }),
+    integracaoId: uuid("integracao_id")
+      .notNull()
+      .references(() => integracaoTable.id, { onDelete: "cascade" }),
+    em: timestamp("em", { withTimezone: true }).notNull().defaultNow(),
+    /** AGENDA ou MAO — quem disparou. O botão "executar agora" grava MAO. */
+    disparo: text("disparo").notNull().default("AGENDA"),
+    /** OK, SEM_NOVIDADE, RECUSADA ou FALHA — ver `busca.ts`. */
+    resultado: text("resultado").notNull(),
+    /** O status que o outro lado respondeu, quando chegou a responder. */
+    statusHttp: integer("status_http"),
+    duracaoMs: integer("duracao_ms").notNull(),
+    bytes: integer("bytes").notNull().default(0),
+    /** A frase do desfecho — a mesma que a tela mostra. */
+    motivo: text("motivo"),
+    /** A importação criada, quando a busca trouxe arquivo novo. Referência fraca. */
+    importRunId: uuid("import_run_id"),
+  },
+  (t) => [
+    index("integracao_execucao_busca_em_idx").on(t.buscaId, t.em),
+    index("integracao_execucao_integracao_idx").on(t.integracaoId),
+    check(
+      "integracao_execucao_resultado_ck",
+      sql`${t.resultado} IN ('OK', 'SEM_NOVIDADE', 'RECUSADA', 'FALHA')`,
+    ),
+    check("integracao_execucao_disparo_ck", sql`${t.disparo} IN ('AGENDA', 'MAO')`),
+  ],
+);

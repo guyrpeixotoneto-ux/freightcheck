@@ -3,11 +3,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowDownToLine,
   ArrowUpFromLine,
+  CalendarClock,
   KeyRound,
   Loader2,
+  Play,
   Plug,
   Power,
   ShieldOff,
+  Trash2,
 } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
 import { ApiErrorNotice } from "@/components/api-error";
@@ -19,13 +22,19 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { fetchJson, getApiUrl } from "@/lib/api";
 import {
+  EXPLICACAO_DA_BUSCA,
   EXPLICACAO_DO_ESTADO,
   chavesVivas,
   estadoDa,
+  estadoDaBusca,
+  intervaloEmPalavras,
   quando,
+  type BuscaAtiva,
   type ChamadaDaIntegracao,
   type DescricaoDeEscopo,
+  type ExecucaoDaBusca,
   type Integracao,
+  type PainelDeBuscas,
   type PainelDeIntegracoes,
 } from "@/lib/integracoes";
 import { cn } from "@/lib/utils";
@@ -533,6 +542,8 @@ function CartaoDaIntegracao({
           </div>
         </div>
 
+        <BuscasDaIntegracao integracaoId={integracao.id} aoFalhar={aoFalhar} />
+
         <div>
           <Button variant="outline" size="sm" onClick={() => setVerChamadas((v) => !v)}>
             {verChamadas ? "Esconder chamadas" : "Ver últimas chamadas"}
@@ -629,6 +640,486 @@ function Chamadas({ integracaoId }: { integracaoId: string }) {
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+/**
+ * A BUSCA ATIVA — a agenda em que somos nós que ligamos.
+ *
+ * A seção vive dentro do cartão da integração, e não numa tela à parte, porque
+ * é a mesma coisa vista do outro lado: a chave é como o sistema de fora nos
+ * alcança; a busca é como nós o alcançamos. Quem administra um lado administra
+ * o outro, e separá-los em duas telas obrigaria a lembrar em qual delas está a
+ * metade que se procura.
+ *
+ * Carregada sob demanda, como o log: a maioria das integrações não tem busca
+ * nenhuma, e trazer a agenda junto da lista faria toda abertura da tela pagar
+ * por um detalhe que quase sempre não existe.
+ *
+ * **O botão "executar agora" é o que torna esta tela usável.** Sem ele, quem
+ * cadastra uma busca descobre amanhã de manhã que o endereço estava errado, num
+ * histórico que ninguém abriu. Com ele, o erro aparece em segundos, com a frase
+ * do motivo — que é a diferença entre configurar e adivinhar.
+ */
+function BuscasDaIntegracao({
+  integracaoId,
+  aoFalhar,
+}: {
+  integracaoId: string;
+  aoFalhar: (mensagem: string) => void;
+}) {
+  const queryClient = useQueryClient();
+  const [aberto, setAberto] = useState(false);
+  const [cadastrando, setCadastrando] = useState(false);
+
+  const painel = useQuery<PainelDeBuscas>({
+    queryKey: ["integracoes", integracaoId, "buscas"],
+    queryFn: () =>
+      fetchJson<PainelDeBuscas>(getApiUrl(`/integracoes/${integracaoId}/buscas`)),
+    enabled: aberto,
+  });
+
+  const recarregar = () => {
+    void queryClient.invalidateQueries({
+      queryKey: ["integracoes", integracaoId, "buscas"],
+    });
+  };
+
+  return (
+    <div className="rounded border">
+      <button
+        type="button"
+        className="flex w-full items-center justify-between px-3 py-2 text-left text-sm font-medium"
+        onClick={() => setAberto((v) => !v)}
+      >
+        <span className="flex items-center gap-2">
+          <CalendarClock className="h-4 w-4 text-primary" />
+          Busca ativa — nós chamamos o outro lado numa agenda
+        </span>
+        <span className="text-xs font-normal text-muted-foreground">
+          {aberto ? "esconder" : "mostrar"}
+        </span>
+      </button>
+
+      {aberto ? (
+        <div className="space-y-3 border-t px-3 py-3">
+          {painel.isLoading ? (
+            <p className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" /> Carregando a agenda…
+            </p>
+          ) : null}
+          {painel.isError ? (
+            <ApiErrorNotice error={painel.error} what="a agenda de buscas" />
+          ) : null}
+
+          {painel.data ? (
+            <>
+              {painel.data.buscas.length === 0 && !cadastrando ? (
+                <p className="text-sm text-muted-foreground">
+                  Nenhuma agenda. Uma busca ativa chama um endereço https do
+                  fornecedor de tempos em tempos, traz a planilha e a deixa em
+                  Importações aguardando aprovação — nada é publicado sozinho.
+                </p>
+              ) : null}
+
+              {painel.data.buscas.map((busca) => (
+                <CartaoDaBusca
+                  key={busca.id}
+                  busca={busca}
+                  aoMudar={recarregar}
+                  aoFalhar={aoFalhar}
+                />
+              ))}
+
+              <Button
+                size="sm"
+                variant={cadastrando ? "outline" : "default"}
+                onClick={() => setCadastrando((v) => !v)}
+              >
+                {cadastrando ? "Cancelar" : "Nova busca"}
+              </Button>
+
+              {cadastrando ? (
+                <FormularioDaBusca
+                  integracaoId={integracaoId}
+                  painel={painel.data}
+                  aoCriar={() => {
+                    setCadastrando(false);
+                    recarregar();
+                  }}
+                  aoFalhar={aoFalhar}
+                />
+              ) : null}
+            </>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+const COR_DA_BUSCA: Record<string, string> = {
+  PAUSADA: "bg-muted text-muted-foreground",
+  NUNCA_EXECUTOU: "bg-sky-100 text-sky-900",
+  FALHANDO: "bg-destructive/10 text-destructive",
+  SEM_NOVIDADE: "bg-slate-100 text-slate-900",
+  EM_DIA: "bg-emerald-100 text-emerald-900",
+};
+
+function CartaoDaBusca({
+  busca,
+  aoMudar,
+  aoFalhar,
+}: {
+  busca: BuscaAtiva;
+  aoMudar: () => void;
+  aoFalhar: (mensagem: string) => void;
+}) {
+  const [verHistorico, setVerHistorico] = useState(false);
+  const estado = estadoDaBusca(busca);
+
+  const executar = useMutation({
+    mutationFn: () =>
+      fetchJson<ExecucaoDaBusca>(
+        getApiUrl(`/integracoes/buscas/${busca.id}/executar`),
+        { method: "POST" },
+      ),
+    onSuccess: aoMudar,
+    onError: (e: Error) => aoFalhar(e.message),
+  });
+
+  const pausa = useMutation({
+    mutationFn: (pausada: boolean) =>
+      fetchJson<void>(getApiUrl(`/integracoes/buscas/${busca.id}/pausa`), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pausada }),
+      }),
+    onSuccess: aoMudar,
+    onError: (e: Error) => aoFalhar(e.message),
+  });
+
+  const excluir = useMutation({
+    mutationFn: () =>
+      fetchJson<void>(getApiUrl(`/integracoes/buscas/${busca.id}`), {
+        method: "DELETE",
+      }),
+    onSuccess: aoMudar,
+    onError: (e: Error) => aoFalhar(e.message),
+  });
+
+  return (
+    <div className="rounded border p-3">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="flex items-center gap-2 text-sm font-medium">
+            {busca.nome}
+            <Badge className={cn("font-normal", COR_DA_BUSCA[estado])}>
+              {estado.replace("_", " ").toLowerCase()}
+            </Badge>
+          </p>
+          <p className="mt-1 break-all font-mono text-xs text-muted-foreground">
+            {busca.metodo} {busca.url}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {intervaloEmPalavras(busca.intervaloMinutos)} · próxima{" "}
+            {quando(busca.proximaEm)}
+            {busca.temCredencial ? ` · credencial guardada (${busca.forma.toLowerCase()})` : ""}
+            {busca.tipoDeclarado ? ` · entra como ${busca.tipoDeclarado}` : ""}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {EXPLICACAO_DA_BUSCA[estado]}
+          </p>
+          {busca.ultima?.motivo ? (
+            <p className="mt-1 text-xs">
+              Última execução ({quando(busca.ultima.em)}): {busca.ultima.motivo}
+            </p>
+          ) : null}
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={executar.isPending}
+            onClick={() => executar.mutate()}
+            title="Chama o endereço agora e mostra o que veio."
+          >
+            {executar.isPending ? (
+              <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Play className="mr-1 h-3.5 w-3.5" />
+            )}
+            Executar agora
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={pausa.isPending}
+            onClick={() => pausa.mutate(busca.pausadaEm === null)}
+          >
+            <Power className="mr-1 h-3.5 w-3.5" />
+            {busca.pausadaEm === null ? "Pausar" : "Retomar"}
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="text-destructive"
+            disabled={excluir.isPending}
+            onClick={() => excluir.mutate()}
+            title="Apaga a agenda e o histórico dela. As importações que já entraram ficam."
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      </div>
+
+      <Button
+        variant="link"
+        size="sm"
+        className="mt-1 h-auto p-0 text-xs"
+        onClick={() => setVerHistorico((v) => !v)}
+      >
+        {verHistorico ? "esconder o histórico" : "ver o histórico de execuções"}
+      </Button>
+      {verHistorico ? <HistoricoDaBusca buscaId={busca.id} /> : null}
+    </div>
+  );
+}
+
+/** O histórico de uma agenda — inclusive as execuções que não trouxeram nada. */
+function HistoricoDaBusca({ buscaId }: { buscaId: string }) {
+  const execucoes = useQuery<ExecucaoDaBusca[]>({
+    queryKey: ["integracoes", "buscas", buscaId, "execucoes"],
+    queryFn: () =>
+      fetchJson<ExecucaoDaBusca[]>(
+        getApiUrl(`/integracoes/buscas/${buscaId}/execucoes`),
+      ),
+  });
+
+  if (execucoes.isLoading) {
+    return (
+      <p className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+        <Loader2 className="h-3 w-3 animate-spin" /> Carregando…
+      </p>
+    );
+  }
+  if (execucoes.isError) {
+    return <ApiErrorNotice error={execucoes.error} what="o histórico da busca" />;
+  }
+  if (!execucoes.data || execucoes.data.length === 0) {
+    return (
+      <p className="mt-2 text-xs text-muted-foreground">
+        Esta busca ainda não foi executada.
+      </p>
+    );
+  }
+
+  return (
+    <div className="mt-2 overflow-x-auto">
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="border-b text-left text-muted-foreground">
+            <th className="py-1 pr-3 font-medium">Quando</th>
+            <th className="py-1 pr-3 font-medium">Disparo</th>
+            <th className="py-1 pr-3 font-medium">Resultado</th>
+            <th className="py-1 pr-3 font-medium">HTTP</th>
+            <th className="py-1 pr-3 font-medium">Tempo</th>
+            <th className="py-1 font-medium">Motivo</th>
+          </tr>
+        </thead>
+        <tbody>
+          {execucoes.data.map((e) => (
+            <tr key={e.id} className="border-b last:border-0">
+              <td className="py-1 pr-3 whitespace-nowrap">{quando(e.em)}</td>
+              <td className="py-1 pr-3">{e.disparo === "MAO" ? "à mão" : "agenda"}</td>
+              <td className="py-1 pr-3">
+                <span
+                  className={cn(
+                    "rounded px-1.5 py-0.5 font-medium",
+                    e.resultado === "OK"
+                      ? "bg-emerald-100 text-emerald-900"
+                      : e.resultado === "SEM_NOVIDADE"
+                        ? "bg-slate-100 text-slate-900"
+                        : e.resultado === "RECUSADA"
+                          ? "bg-amber-100 text-amber-900"
+                          : "bg-destructive/10 text-destructive",
+                  )}
+                >
+                  {e.resultado.replace("_", " ").toLowerCase()}
+                </span>
+              </td>
+              <td className="py-1 pr-3 tabular-nums">{e.statusHttp ?? "—"}</td>
+              <td className="py-1 pr-3 tabular-nums">{e.duracaoMs} ms</td>
+              <td className="py-1 text-muted-foreground">{e.motivo ?? "—"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/**
+ * O cadastro de uma busca.
+ *
+ * Duas coisas que o formulário diz na cara, e ambas evitam um desfecho ruim:
+ *
+ * · **sem cofre não há campo de credencial.** Quando o ambiente não tem chave
+ *   mestra, o campo nem aparece, com a frase explicando o que falta. Oferecê-lo
+ *   e recusar depois faria a pessoa digitar o segredo do fornecedor para
+ *   descobrir que não havia onde guardá-lo;
+ * · **a credencial não volta.** Ela é guardada cifrada e nenhuma tela a relê;
+ *   trocar significa cadastrar de novo.
+ */
+function FormularioDaBusca({
+  integracaoId,
+  painel,
+  aoCriar,
+  aoFalhar,
+}: {
+  integracaoId: string;
+  painel: PainelDeBuscas;
+  aoCriar: () => void;
+  aoFalhar: (mensagem: string) => void;
+}) {
+  const [nome, setNome] = useState("");
+  const [url, setUrl] = useState("");
+  const [intervalo, setIntervalo] = useState(String(24 * 60));
+  const [tipo, setTipo] = useState("");
+  const [forma, setForma] = useState("NENHUMA");
+  const [cabecalho, setCabecalho] = useState("x-api-key");
+  const [credencial, setCredencial] = useState("");
+
+  const criar = useMutation({
+    mutationFn: () =>
+      fetchJson<{ id: string }>(getApiUrl(`/integracoes/${integracaoId}/buscas`), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          nome,
+          url,
+          metodo: "GET",
+          intervaloMinutos: Number(intervalo),
+          tipoDeclarado: tipo === "" ? null : tipo,
+          forma,
+          cabecalhoDaCredencial: forma === "CABECALHO" ? cabecalho : null,
+          credencial: forma === "NENHUMA" ? null : credencial,
+        }),
+      }),
+    onSuccess: aoCriar,
+    onError: (e: Error) => aoFalhar(e.message),
+  });
+
+  return (
+    <div className="space-y-3 rounded border p-3">
+      <div className="grid gap-3 md:grid-cols-2">
+        <div className="space-y-1">
+          <Label htmlFor={`busca-nome-${integracaoId}`}>Nome</Label>
+          <Input
+            id={`busca-nome-${integracaoId}`}
+            value={nome}
+            onChange={(e) => setNome(e.target.value)}
+            placeholder="Export de vigência"
+          />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor={`busca-intervalo-${integracaoId}`}>
+            De quanto em quanto tempo (minutos)
+          </Label>
+          <Input
+            id={`busca-intervalo-${integracaoId}`}
+            type="number"
+            min={painel.intervaloMinimoMinutos}
+            value={intervalo}
+            onChange={(e) => setIntervalo(e.target.value)}
+          />
+          <p className="text-xs text-muted-foreground">
+            Mínimo de {painel.intervaloMinimoMinutos} minutos. O export muda
+            algumas vezes por mês; buscar mais de perto não o traz mais cedo.
+          </p>
+        </div>
+      </div>
+
+      <div className="space-y-1">
+        <Label htmlFor={`busca-url-${integracaoId}`}>Endereço do arquivo</Label>
+        <Input
+          id={`busca-url-${integracaoId}`}
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          placeholder="https://api.fornecedor.com/exports/vigencia.xlsx"
+        />
+        <p className="text-xs text-muted-foreground">
+          Precisa ser https e responder a planilha (.xlsx) — é o mesmo arquivo
+          que hoje alguém baixa e sobe à mão. Endereços da rede interna são
+          recusados.
+        </p>
+      </div>
+
+      <div className="space-y-1">
+        <Label htmlFor={`busca-tipo-${integracaoId}`}>
+          Tipo declarado (opcional)
+        </Label>
+        <Input
+          id={`busca-tipo-${integracaoId}`}
+          value={tipo}
+          onChange={(e) => setTipo(e.target.value)}
+          placeholder="O mesmo tipo da aba de Importações"
+        />
+      </div>
+
+      {painel.cofreDisponivel ? (
+        <div className="space-y-2 rounded border p-3">
+          <Label>Credencial do outro lado</Label>
+          <div className="flex flex-wrap gap-3 text-sm">
+            {["NENHUMA", "BEARER", "CABECALHO"].map((f) => (
+              <label key={f} className="flex items-center gap-1">
+                <input
+                  type="radio"
+                  name={`forma-${integracaoId}`}
+                  checked={forma === f}
+                  onChange={() => setForma(f)}
+                />
+                {f === "NENHUMA" ? "nenhuma" : f === "BEARER" ? "Bearer" : "num cabeçalho"}
+              </label>
+            ))}
+          </div>
+          {forma === "CABECALHO" ? (
+            <Input
+              value={cabecalho}
+              onChange={(e) => setCabecalho(e.target.value)}
+              placeholder="x-api-key"
+            />
+          ) : null}
+          {forma !== "NENHUMA" ? (
+            <>
+              <Input
+                type="password"
+                value={credencial}
+                onChange={(e) => setCredencial(e.target.value)}
+                placeholder="O segredo que o fornecedor deu"
+              />
+              <p className="text-xs text-muted-foreground">
+                Guardado cifrado, e nunca mostrado de volta. Para trocar,
+                cadastre a busca de novo.
+              </p>
+            </>
+          ) : null}
+        </div>
+      ) : (
+        <p className="rounded border border-amber-400 bg-amber-50 px-3 py-2 text-xs dark:bg-amber-950/20">
+          Este ambiente não tem cofre configurado
+          (<code className="font-mono">INTEGRACOES_CHAVE_MESTRA</code>), então só
+          dá para cadastrar buscas em endereços que não pedem credencial.
+          Guardar o segredo do fornecedor sem cofre seria fingir proteção — ver
+          docs/INTEGRACOES.md.
+        </p>
+      )}
+
+      <Button onClick={() => criar.mutate()} disabled={criar.isPending}>
+        {criar.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+        Cadastrar busca
+      </Button>
     </div>
   );
 }

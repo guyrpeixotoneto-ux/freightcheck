@@ -2,7 +2,9 @@ import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
 import {
   CATALOGO_DE_ESCOPOS,
+  INTERVALO_MINIMO_MINUTOS,
   RecusaDeIntegracao,
+  conferirDadosDaBusca,
   conferirDadosDaIntegracao,
   ehEscopo,
   type Escopo,
@@ -15,6 +17,15 @@ import {
   listarIntegracoes,
   revogarChave,
 } from "../lib/integracoes";
+import {
+  criarBusca,
+  excluirBusca,
+  executarBusca,
+  listarBuscas,
+  listarExecucoes,
+  pausarBusca,
+} from "../lib/busca-ativa";
+import { cofreDisponivel } from "../lib/cofre";
 import { contextoDeSchema } from "../middlewares/contexto-de-schema";
 
 /**
@@ -145,6 +156,85 @@ router.post("/integracoes/:id/chaves", async (req, res): Promise<void> => {
 router.post("/integracoes/chaves/:chaveId/revogacao", async (req, res): Promise<void> => {
   const chaveId = exigirUuid(req.params.chaveId, "chave");
   await revogarChave(db, chaveId, autor(req));
+  res.status(204).end();
+});
+
+// ---------------------------------------------------------------------------
+// A busca ativa — a terceira direção, e a única em que nós ligamos primeiro
+// ---------------------------------------------------------------------------
+//
+// As rotas abaixo administram a agenda; quem a executa é o relógio
+// (`lib/busca-agendada.ts`) e o motor (`lib/busca-ativa.ts`). A única que
+// dispara trabalho de verdade é `POST /executar`, e ela existe para uma
+// pergunta só: "o que acabei de cadastrar funciona?" — esperar até amanhã de
+// manhã para descobrir que a credencial está errada é o que a torna necessária.
+
+/** As buscas de uma integração, com a última execução de cada uma ao lado. */
+router.get("/integracoes/:id/buscas", async (req, res): Promise<void> => {
+  const id = exigirUuid(req.params.id, "integração");
+  res.json({
+    /*
+      O estado do cofre vai na mesma resposta porque é ele que decide se a tela
+      pode oferecer o campo de credencial. Sem chave mestra no ambiente, oferecer
+      o campo seria prometer um cofre que não existe — e a recusa só apareceria
+      depois de a pessoa digitar o segredo.
+    */
+    cofreDisponivel: cofreDisponivel(),
+    intervaloMinimoMinutos: INTERVALO_MINIMO_MINUTOS,
+    buscas: await listarBuscas(db, id),
+  });
+});
+
+router.post("/integracoes/:id/buscas", async (req, res): Promise<void> => {
+  const id = exigirUuid(req.params.id, "integração");
+  const dados = conferirDadosDaBusca(req.body);
+  const criada = await criarBusca(db, id, dados, autor(req));
+  res.status(201).json(criada);
+});
+
+/** Pausar e retomar, num endereço que nomeia o ato — como a ativação acima. */
+router.post("/integracoes/buscas/:buscaId/pausa", async (req, res): Promise<void> => {
+  const buscaId = exigirUuid(req.params.buscaId, "busca");
+  const { pausada } = (req.body ?? {}) as Record<string, unknown>;
+  if (typeof pausada !== "boolean") {
+    throw new RecusaDeIntegracao("Diga se a busca fica pausada: { pausada: true|false }.");
+  }
+  await pausarBusca(db, buscaId, pausada, autor(req));
+  res.status(204).end();
+});
+
+/**
+ * Executar agora.
+ *
+ * Responde **depois** de a busca terminar, e não com um 202: quem clicou está
+ * olhando para a tela justamente para saber se o endereço e a credencial
+ * funcionam, e um "recebido" que manda esperar o histórico atualizar devolveria
+ * a mesma dúvida com um clique a mais. O teto de tempo do motor (60 s) é o que
+ * mantém essa espera limitada.
+ */
+router.post("/integracoes/buscas/:buscaId/executar", async (req, res): Promise<void> => {
+  const buscaId = exigirUuid(req.params.buscaId, "busca");
+  res.json(await executarBusca(db, buscaId, "MAO", req.log));
+});
+
+/** O histórico de uma busca. */
+router.get("/integracoes/buscas/:buscaId/execucoes", async (req, res): Promise<void> => {
+  const buscaId = exigirUuid(req.params.buscaId, "busca");
+  const limite = Number.parseInt(String(req.query.limite ?? "50"), 10);
+  res.json(await listarExecucoes(db, buscaId, Number.isFinite(limite) ? limite : 50));
+});
+
+/**
+ * Excluir a busca — e o histórico dela vai junto, por cascata.
+ *
+ * É a única exclusão desta superfície, e ela existe porque uma busca cadastrada
+ * com o endereço errado não tem história que valha guardar. O que a integração
+ * fez de fato — as importações que entraram — não está aqui: está em
+ * Importações, e continua inteiro.
+ */
+router.delete("/integracoes/buscas/:buscaId", async (req, res): Promise<void> => {
+  const buscaId = exigirUuid(req.params.buscaId, "busca");
+  await excluirBusca(db, buscaId);
   res.status(204).end();
 });
 
