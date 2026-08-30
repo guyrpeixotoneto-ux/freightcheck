@@ -10,9 +10,11 @@ import {
   uniqueIndex,
   unique,
   check,
+  primaryKey,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { entityTable, snapshotTable } from "./canonical";
+import { importRunTable } from "./raw";
 
 /**
  * COBERTURA — o que **deveria** existir, e o denominador do que existe.
@@ -327,5 +329,86 @@ export const entityExpectationTable = pgTable(
     /* Motivo em branco satisfaz `NOT NULL` e não explica nada. */
     check("entity_expectation_rationale_ck", sql`btrim(${t.rationale}) <> ''`),
     check("entity_expectation_actor_ck", sql`btrim(${t.actor}) <> ''`),
+  ],
+);
+
+/**
+ * Quais entidades cada vigência tem, e de qual arquivo cada presença veio.
+ *
+ * ---------------------------------------------------------------------------
+ * Por que uma linha por entidade, e não uma contagem por vigência
+ * ---------------------------------------------------------------------------
+ * A pergunta "quantas entidades de cada tipo esta vigência tem" custava, a cada
+ * leitura de tela, 83.241 linhas de `fact` para produzir 18 números — medido em
+ * 30/08/2026 sobre o export real, 110 a 172 ms, e a mesma consulta rodando duas
+ * vezes por carregamento (uma em `getFamiliesView`, outra em
+ * `getRangeAnalysis`). O custo crescia com o total de fatos já importados.
+ *
+ * A tentação era gravar o número pronto por vigência, como o censo do balanço
+ * faz por importação. **Não serve, e a razão é medida:** `fato_visivel` esconde
+ * o fato pela origem dele (`origin_import_run_id`), não pela importação do
+ * snapshot — e metade dos snapshots do acervo (54 de 108) carrega fato herdado
+ * de outra importação. Ocultar a importação A muda a contagem de uma vigência
+ * que pertence à importação B. Não existe número por vigência que sobreviva a
+ * isso.
+ *
+ * Por isso o grão é a presença: um par (vigência, entidade), carimbado com a
+ * origem. A visibilidade não entra aqui — entra na leitura, que filtra as
+ * origens ocultas e só então conta. É a mesma divisão do censo do balanço: a
+ * escrita registra o que aconteceu, a leitura decide o que conta.
+ *
+ * ---------------------------------------------------------------------------
+ * Por que a contagem continua sendo distinta na leitura
+ * ---------------------------------------------------------------------------
+ * Porque `count(DISTINCT entity_id)` **não** se decompõe em soma por origem: a
+ * mesma entidade pode ter fato de duas origens no mesmo snapshot, e somar
+ * contaria duas vezes. Hoje isso não acontece no acervo medido (zero casos),
+ * mas isso é dado, não invariante — e o dia em que acontecer, uma soma de
+ * pré-agregados erraria em silêncio. O grão de entidade é o que torna a
+ * contagem correta por construção, e há teste que trava a substituição.
+ *
+ * ---------------------------------------------------------------------------
+ * Por que isto não envelhece
+ * ---------------------------------------------------------------------------
+ * `fact` é imutável por gatilho (`fact_immutable`) assim que o snapshot deixa
+ * de ser DRAFT: nenhum UPDATE, nenhum DELETE, e nenhum caminho do produto
+ * tenta. A única porta é a exclusão física, e é o `ON DELETE CASCADE` daqui que
+ * responde por ela — sem lógica paralela de invalidação.
+ *
+ * Ocultar e restaurar importação não invalidam nada: são filtro de leitura.
+ * Curadoria, reclassificação e reprocessamento não tocam em `fact` — o
+ * reprocessamento cria snapshots novos, com presença própria.
+ *
+ * O `CONJUNTO` **não** mora aqui, de propósito: ele se apoia em
+ * `entity_identifier.is_current`, que é estado do presente, e congelá-lo
+ * mudaria a semântica. Continua sendo apurado ao vivo.
+ */
+export const snapshotPresencaTable = pgTable(
+  "snapshot_presenca",
+  {
+    snapshotId: uuid("snapshot_id")
+      .notNull()
+      .references(() => snapshotTable.id, { onDelete: "cascade" }),
+    entityId: uuid("entity_id")
+      .notNull()
+      .references(() => entityTable.id, { onDelete: "cascade" }),
+    /** CAVALO | CARRETA | … — o tipo, copiado para a leitura não reentrar em `entity`. */
+    entityType: text("entity_type").notNull(),
+    /**
+     * De qual arquivo esta presença veio — a chave que a ocultação usa.
+     *
+     * É `origin_import_run_id` do fato, e não o `import_run_id` do snapshot:
+     * são coisas diferentes justamente no fato herdado, que é o caso que este
+     * grão existe para acertar.
+     */
+    originImportRunId: uuid("origin_import_run_id")
+      .notNull()
+      .references(() => importRunTable.id, { onDelete: "cascade" }),
+  },
+  (t) => [
+    /* A chave é a própria linha: regravar o mesmo snapshot repõe o mesmo estado. */
+    primaryKey({ columns: [t.snapshotId, t.entityId, t.originImportRunId] }),
+    /* A leitura entra sempre por vigência. */
+    index("snapshot_presenca_snapshot_idx").on(t.snapshotId),
   ],
 );

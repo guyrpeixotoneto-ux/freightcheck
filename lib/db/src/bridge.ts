@@ -623,8 +623,16 @@ const TABELAS_DERIVADAS: { nome: string; migration: string; marca: RegExp }[] = 
  * essa propriedade que a `0080` não criou coluna nenhuma em `import_run`: um
  * carimbo que sobrevivesse ao `down` deixaria a leitura confiar num censo que o
  * `down` acabou de apagar.
+ *
+ * `snapshot_presenca` (`0081`) entra pelo mesmo critério, e a propriedade é a
+ * mesma até no detalhe: cada linha é a leitura dos fatos de uma vigência, os
+ * fatos são imutáveis por gatilho, e `preencherPresencasPendentes()` regrava na
+ * partida o que faltar. Também ela evitou coluna em `snapshot` de propósito —
+ * um carimbo de "já preenchida" sobreviveria a este `down` e faria a leitura
+ * confiar num vazio que o `down` acabou de criar. A ausência de linha é a marca,
+ * e é ela que manda a contagem voltar ao caminho ao vivo.
  */
-const TABELAS_DESCARTAVEIS = ["import_run_censo"];
+const TABELAS_DESCARTAVEIS = ["import_run_censo", "snapshot_presenca"];
 
 /**
  * Colunas que o `down` remove de tabelas que ficam.
@@ -1801,6 +1809,30 @@ function planoUp(): PassoUp[] {
     M80,
     "constraint import_run_censo_import_run_id_import_run_id_fk",
     levantar(M80, /import_run_censo_import_run_id_import_run_id_fk/),
+  );
+
+  /*
+    A `0081` — a tabela da presença, e só a estrutura dela.
+
+    Volta vazia pelo mesmo critério do censo: o conteúdo é a leitura dos fatos
+    de cada vigência, os fatos são imutáveis, e quem o repõe é
+    `preencherPresencasPendentes()` na partida. Entre o `up` e esse backfill a
+    contagem por tipo é feita na hora, sobre os fatos — o mesmo caminho do
+    histórico anterior à `0081` —, porque a marca de "já preenchida" são as
+    próprias linhas.
+
+    O `DO $$ ... $$` das três FKs entra inteiro, e não uma por uma: ele já é
+    reentrante por construção, e quebrá-lo em três levantamentos exigiria três
+    expressões que casassem com pedaços de um bloco PL/pgSQL — frágil de um jeito
+    que a primeira reindentação da migration quebraria.
+  */
+  const M81 = "0081_presenca_da_vigencia";
+  add(M81, "snapshot_presenca", levantar(M81, /CREATE TABLE IF NOT EXISTS "snapshot_presenca"/));
+  add(M81, "constraints de snapshot_presenca", levantar(M81, /DO \$\$/));
+  add(
+    M81,
+    "índice snapshot_presenca_snapshot_idx",
+    levantar(M81, /INDEX IF NOT EXISTS "snapshot_presenca_snapshot_idx"/),
   );
 
   const M60 = "0060_ocultar_import_run";
