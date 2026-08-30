@@ -13,6 +13,7 @@ import {
   YAxis,
 } from "recharts";
 import { formatBrl, formatBrlShort, periodicitySuffix } from "@/lib/format";
+import { EmAtualizacao, classeDeAtualizacao } from "@/components/ui/em-atualizacao";
 import { seriesDoIntervalo } from "@/components/linha-do-tempo/linha-do-tempo-de-alteracoes";
 import { vigenciaDoClique, type EstadoDoClique } from "@/lib/clique-na-vigencia";
 import type { RangeEntry } from "@/lib/analise";
@@ -207,11 +208,19 @@ export function pontosDeImpacto(
 export function GraficoDeImpacto({
   pontos,
   periodicity,
+  carregando = false,
   vigenciaAtiva = null,
   onEscolherVigencia,
 }: {
   pontos: PontoDeImpacto[];
   periodicity: string | null;
+  /**
+   * A série ainda está a caminho — ou o que há em tela é a do recorte
+   * anterior. Sem este sinal, a espera e o intervalo sem nada valorado
+   * desenhavam a mesma frase, e o gráfico afirmava "nenhuma alteração
+   * valorada" a respeito de um dado que ainda não tinha chegado.
+   */
+  carregando?: boolean;
   /** A vigência que a tela está mostrando — é ela que fica acesa entre as barras. */
   vigenciaAtiva?: string | null;
   /** Quando existe, clicar numa barra leva a tela inteira para aquela vigência. */
@@ -227,6 +236,22 @@ export function GraficoDeImpacto({
   const desenhados = recorteDaJanela(pontos, janela);
 
   if (pontos.length === 0 || periodicity === null) {
+    /*
+      Sem série ainda, a moldura fica no lugar com a altura que o gráfico vai
+      ter (os 300px do `ResponsiveContainer` mais a linha do subtítulo): a tela
+      não pula quando as barras chegam, e a frase sobre o intervalo só aparece
+      quando há intervalo lido para falar dele.
+    */
+    if (carregando) {
+      return (
+        <div
+          data-testid="grafico-carregando"
+          role="status"
+          aria-label="Carregando o gráfico de impacto"
+          className="h-[326px] rounded-md bg-muted/40 animate-pulse"
+        />
+      );
+    }
     return (
       <p className="text-sm text-muted-foreground">
         Nenhuma alteração valorada no intervalo recente.
@@ -261,13 +286,21 @@ export function GraficoDeImpacto({
   const opacidade = (ponto: PontoDeImpacto) =>
     !temAtiva || ponto.periodo === vigenciaAtiva ? 1 : 0.35;
 
+  /*
+    Com série em tela e leitura a caminho, o gráfico mostra a **anterior** — e
+    diz isso, com o mesmo par que o resto da tela usa na troca de recorte
+    (`components/ui/em-atualizacao.tsx`): desbotado, e com o selo ao lado do
+    subtítulo. Manter o gráfico da unidade anterior sem declará-lo seria trocar
+    um vazio por uma afirmação falsa, que é o que aquele contrato proíbe.
+  */
   return (
-    <div>
+    <div className={classeDeAtualizacao(carregando)}>
       <div className="flex items-start justify-between gap-3 mb-2">
         <div className="text-xs text-muted-foreground">
           Ganhos e perdas por vigência, em R${periodicitySuffix(periodicity)} — últimas{" "}
           {desenhados.length} {desenhados.length === 1 ? "vigência" : "vigências"} com dado.
           {clicavel && " Clique numa vigência para abrir a tela inteira nela."}
+          <EmAtualizacao ativo={carregando} className="ml-2 align-middle" />
         </div>
         {/*
           O seletor só aparece quando há mais dado do que a menor janela mostra:

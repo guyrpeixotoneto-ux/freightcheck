@@ -213,7 +213,7 @@ export default function Dashboard() {
     escritas em duas telas, bastaria uma delas mudar para as duas passarem a
     desenhar gráficos diferentes do mesmo dado.
   */
-  const serieDaUnidade = useSerieDeImpacto(visaoGeral ? null : view, consulta);
+  const serieDaUnidade = useSerieDeImpacto(visaoGeral ? null : view, consulta, !visaoGeral);
   /*
     O gráfico sai **depois** do conteúdo principal, não junto com ele.
 
@@ -596,7 +596,7 @@ function ConteudoDaUnidade({
   recorte: ReturnType<typeof lerRecorte>;
   atualizadoEm: number;
   /** A série do gráfico, já pronta — ver `lib/serie-de-impacto.ts`. */
-  serie: { pontos: PontoDeImpacto[]; periodicity: string | null };
+  serie: { pontos: PontoDeImpacto[]; periodicity: string | null; carregando?: boolean };
   familiaAberta: string | null;
   onAbrirFamilia: (code: string) => void;
   onFecharFamilia: () => void;
@@ -608,7 +608,7 @@ function ConteudoDaUnidade({
   const principal = ladosDoImpacto(view)[0] ?? null;
   const dominante = impactosDaVigencia(view)[0]?.periodicity ?? null;
 
-  const { pontos, periodicity } = serie;
+  const { pontos, periodicity, carregando = false } = serie;
 
   // As sparklines dos cartões só valem quando descrevem a mesma periodicidade
   // do número grande ao lado — misturar R$/mês no número e R$/ano na linha
@@ -652,6 +652,7 @@ function ConteudoDaUnidade({
       <ImpactoEPodio
         pontos={pontos}
         periodicity={periodicity}
+        carregando={carregando}
         resumo={view}
         familias={view.families}
         dominante={dominante}
@@ -697,6 +698,7 @@ function ConteudoDaUnidade({
 function ImpactoEPodio({
   pontos,
   periodicity,
+  carregando = false,
   resumo,
   familias,
   dominante,
@@ -715,6 +717,8 @@ function ImpactoEPodio({
 }: {
   pontos: PontoDeImpacto[];
   periodicity: string | null;
+  /** A série ainda a caminho — ver `GraficoDeImpacto`. */
+  carregando?: boolean;
   /** A vigência ou o consolidado — o pódio lê `summary.sides` dos dois. */
   resumo: Pick<FamiliesView, "summary"> | null;
   familias: FamiliaNoPodio[];
@@ -790,6 +794,7 @@ function ImpactoEPodio({
         <GraficoDeImpacto
           pontos={pontos}
           periodicity={periodicity}
+          carregando={carregando}
           vigenciaAtiva={vigenciaAtiva}
           onEscolherVigencia={onEscolherVigencia}
         />

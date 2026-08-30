@@ -2048,6 +2048,137 @@ export function identificadoresSemLastro(texto: string, dossie: Dossie): string[
 }
 
 /**
+ * Número verdadeiro, afirmação falsa — a classe de erro que sobrava.
+ *
+ * **O caso que abriu isto.** A rodada 2B produziu, sobre um dossiê perfeito:
+ * *"o financiamento de carreta saltou de R$ 8.320,80 para R$ 12.998,65 em duas
+ * carretas"*. Toda régua anterior aprovou, e com razão pela pergunta que cada
+ * uma faz: `12.998,65` existe no dossiê, é moeda onde o dossiê declarou moeda,
+ * e as placas citadas — nenhuma — todas conferem. O que não existe é o
+ * **vínculo**: aquele valor é de uma carreta, e a frase o dá a duas. Uma
+ * auditoria que repassa esse número contesta o contrato errado.
+ *
+ * **A régua não tenta entender a frase.** Ela confere duas coisas que se
+ * derivam do dossiê sem interpretar português:
+ *
+ * 1. **Valor de entidade citado longe da entidade dele.** Se um valor só
+ *    aparece no dossiê ligado a determinadas placas, e o bloco cita placas mas
+ *    nenhuma delas, o vínculo é falso. Um valor que o dossiê nunca ligou a
+ *    entidade nenhuma — um total de grupo, uma média — não é opinião desta
+ *    régua, porque não há vínculo a violar.
+ * 2. **Valor de uma entidade atribuído a várias.** Se o bloco diz "em duas
+ *    carretas" e o valor está ligado a uma só, a contagem afirmada não se
+ *    sustenta. É exatamente o caso acima, e ele é aritmético: quantas entidades
+ *    o dossiê liga a este valor, contra quantas o texto afirma.
+ *
+ * **O que ela não pega, dito na frente.** Dentro de uma tabela que cita as duas
+ * placas, trocar os valores de linha continua passando: as duas placas estão no
+ * bloco, e a régua não sabe qual coluna pertence a qual linha. Fechar isso pede
+ * que a ferramenta devolva a tupla montada, não que a trava adivinhe o layout.
+ */
+const CONTAGEM_DE_ENTIDADE =
+  /\b(\d{1,3}|um|uma|dois|duas|tres|três|quatro|cinco|seis|sete|oito|nove|dez)\s+(?:carretas?|cavalos?|veiculos?|veículos?|placas?|ativos?|implementos?|conjuntos?)\b/gi;
+
+const POR_EXTENSO: Record<string, number> = {
+  um: 1, uma: 1, dois: 2, duas: 2, tres: 3, "três": 3, quatro: 4, cinco: 5,
+  seis: 6, sete: 7, oito: 8, nove: 9, dez: 10,
+};
+
+/**
+ * Que placas o dossiê liga a cada valor — construído do **fato**, que é a linha.
+ *
+ * O par sai de dentro de um fato, e não de dentro de uma evidência: uma
+ * evidência é a tabela inteira, e cruzar tudo com tudo dentro dela autorizaria
+ * justamente a troca de linha que esta régua existe para pegar. Quando a
+ * evidência declara um único identificador, ele vale para os fatos dela — é a
+ * consulta que já veio filtrada por veículo.
+ */
+/**
+ * O que conta como **valor** para esta régua: quantia escrita como quantia.
+ *
+ * `\d[\d.,]*\d` pegaria o `1` de `[1]` e o `1` e o `60` de `RPG1E60` — e um
+ * dígito arrancado do meio de uma placa não é um valor que alguém possa
+ * atribuir à entidade errada. Restringir à forma monetária brasileira
+ * (`8.320,80`) deixa a régua estreita de propósito: é onde mora o risco de
+ * auditoria, e é a forma em que o dossiê devolve dinheiro. Contagem e
+ * percentual já têm régua própria em `lastro.ts`.
+ */
+const QUANTIA = /\d{1,3}(?:\.\d{3})*,\d{2}\b/g;
+
+/** O texto sem o que atrapalha ler quantias: marcador de fonte e placa. */
+function semRuidoNumerico(texto: string): string {
+  return texto.replace(/\[\d{1,2}\]/g, " ").replace(PLACA, " ");
+}
+
+function vinculosAutorizados(dossie: Dossie): Map<string, Set<string>> {
+  const porValor = new Map<string, Set<string>>();
+  const ligar = (valor: string, placas: string[]) => {
+    if (placas.length === 0) return;
+    const jaTem = porValor.get(valor) ?? new Set<string>();
+    for (const p of placas) jaTem.add(p);
+    porValor.set(valor, jaTem);
+  };
+
+  for (const e of dossie.evidencias) {
+    const daEvidencia = (e.identificadores ?? []).map((i) => i.toUpperCase());
+    for (const f of e.fatos) {
+      const juntos = `${f.rotulo} ${f.valor} ${f.detalhe ?? ""}`;
+      const placas = placasDoTexto(juntos);
+      /*
+        Um fato cujo rótulo é a placa liga os valores dele àquela placa. Um fato
+        sem placa nenhuma — "Total do grupo: +R$ 21.905,20/mês" — não liga nada,
+        e é assim que um total de grupo fica fora do alcance desta régua.
+      */
+      const donos = placas.length > 0 ? placas : daEvidencia.length === 1 ? daEvidencia : [];
+      for (const m of semRuidoNumerico(juntos).matchAll(QUANTIA)) ligar(m[0]!, donos);
+    }
+  }
+  return porValor;
+}
+
+/** Os vínculos que o bloco afirma e o dossiê não sustenta. */
+export function vinculosSemLastro(texto: string, dossie: Dossie): string[] {
+  const porValor = vinculosAutorizados(dossie);
+  if (porValor.size === 0) return [];
+
+  const placasNoTexto = new Set(placasDoTexto(texto));
+  const recusados: string[] = [];
+  const limpo = semRuidoNumerico(texto);
+
+  /* Regra 2 — a maior contagem de entidades que o bloco afirma. */
+  let afirmadas = 0;
+  for (const m of limpo.matchAll(CONTAGEM_DE_ENTIDADE)) {
+    const bruto = m[1]!.toLowerCase();
+    const n = POR_EXTENSO[bruto] ?? Number(bruto);
+    if (Number.isFinite(n)) afirmadas = Math.max(afirmadas, n);
+  }
+
+  for (const m of limpo.matchAll(QUANTIA)) {
+    const escrito = m[0]!;
+    const donos = porValor.get(escrito);
+    if (!donos || donos.size === 0) continue;
+
+    /* Regra 1 — o bloco nomeia placas, e nenhuma delas é dona deste valor. */
+    if (placasNoTexto.size > 0 && ![...donos].some((d) => placasNoTexto.has(d))) {
+      recusados.push(
+        `${escrito} — o dossiê liga esse valor a ${[...donos].join(", ")}, ` +
+          `e não a ${[...placasNoTexto].join(", ")}`,
+      );
+      continue;
+    }
+
+    /* Regra 2 — mais entidades afirmadas do que o dossiê liga a este valor. */
+    if (afirmadas > donos.size) {
+      recusados.push(
+        `${escrito} — a frase atribui esse valor a ${afirmadas}, ` +
+          `e o dossiê o liga a ${donos.size}`,
+      );
+    }
+  }
+  return [...new Set(recusados)];
+}
+
+/**
  * As datas do texto, como datas — e não como três números soltos.
  *
  * `01/08/2026` é uma referência de tempo, não uma quantia apurada. Partida em
@@ -2179,6 +2310,133 @@ export function emFrases(texto: string): string[] {
   return saida;
 }
 
+/**
+ * O que uma unidade de poda é — e por que não é a frase.
+ *
+ * `emFrases` quebra em `\n`, o que é certo para conferir e errado para
+ * remover: **cada linha de uma tabela markdown é uma frase**. Podar a linha de
+ * uma placa deixava o cabeçalho, o separador e as outras linhas de pé, e o
+ * parágrafo seguinte continuava dizendo "nos dois casos" para um leitor que via
+ * um caso. Medido na rodada 2B: 6 respostas com tabela só de cabeçalho.
+ *
+ * O erro não estava na trava — os números recusados eram mesmo sem lastro. O
+ * erro estava em tratar como independente o que é uma afirmação só. Uma linha
+ * de tabela não significa nada sem o cabeçalho que nomeia suas colunas, e um
+ * bloco de citação não significa nada partido ao meio.
+ */
+export type TipoDeBloco =
+  /** Cabeçalho, separador e linhas: cai inteira ou fica inteira. */
+  | "TABELA"
+  /** Uma citação `>` de várias linhas — inclusive os `[!info]`. */
+  | "CITACAO"
+  /** Um item de lista, com as continuações indentadas que pertencem a ele. */
+  | "ITEM_DE_LISTA"
+  /** Qualquer outra frase — a unidade de antes, preservada. */
+  | "FRASE";
+
+export interface Bloco {
+  texto: string;
+  tipo: TipoDeBloco;
+}
+
+/** A linha, sem a indentação, para decidir a que bloco ela pertence. */
+function nu(pedaco: string): string {
+  return pedaco.trim();
+}
+
+const LINHA_DE_TABELA = /^\|/;
+const LINHA_DE_CITACAO = /^>/;
+const ITEM_DE_LISTA = /^(?:[-*+]|\d{1,3}[.)])\s/;
+
+/**
+ * O texto em unidades coerentes de poda. `map(b => b.texto).join("")` devolve o
+ * original byte a byte, pela mesma razão que `emFrases` devolve — remontar sem
+ * estragar pontuação é o que permite tirar um bloco do meio.
+ */
+export function emBlocos(texto: string): Bloco[] {
+  const pedacos = emFrases(texto);
+  const saida: Bloco[] = [];
+  let i = 0;
+
+  while (i < pedacos.length) {
+    const atual = nu(pedacos[i]!);
+
+    /*
+      Tabela: a partir da primeira linha que começa com `|`, todas as seguintes
+      que também começam engordam o mesmo bloco. O cabeçalho e o separador
+      entram por serem linhas de tabela como as outras — não há caso especial.
+    */
+    if (LINHA_DE_TABELA.test(atual)) {
+      let j = i;
+      while (j < pedacos.length && LINHA_DE_TABELA.test(nu(pedacos[j]!))) j += 1;
+      saida.push({ texto: pedacos.slice(i, j).join(""), tipo: "TABELA" });
+      i = j;
+      continue;
+    }
+
+    if (LINHA_DE_CITACAO.test(atual)) {
+      let j = i;
+      while (j < pedacos.length && LINHA_DE_CITACAO.test(nu(pedacos[j]!))) j += 1;
+      saida.push({ texto: pedacos.slice(i, j).join(""), tipo: "CITACAO" });
+      i = j;
+      continue;
+    }
+
+    /*
+      Item de lista: o item e o que vem colado nele. Uma frase que continua o
+      item sem marcador próprio — e sem linha em branco antes — pertence ao
+      item, e sair sozinha deixaria a mesma órfã que a linha de tabela deixava.
+      Um item novo, uma linha em branco ou um bloco de outro tipo encerram.
+    */
+    if (ITEM_DE_LISTA.test(atual)) {
+      let j = i + 1;
+      while (j < pedacos.length) {
+        const prox = pedacos[j]!;
+        const limpo = nu(prox);
+        if (
+          limpo.length === 0 ||
+          ITEM_DE_LISTA.test(limpo) ||
+          LINHA_DE_TABELA.test(limpo) ||
+          LINHA_DE_CITACAO.test(limpo) ||
+          /\n\s*\n/.test(pedacos[j - 1]!)
+        ) {
+          break;
+        }
+        j += 1;
+      }
+      saida.push({ texto: pedacos.slice(i, j).join(""), tipo: "ITEM_DE_LISTA" });
+      i = j;
+      continue;
+    }
+
+    saida.push({ texto: pedacos[i]!, tipo: "FRASE" });
+    i += 1;
+  }
+  return saida;
+}
+
+/**
+ * O que fica no lugar do que saiu.
+ *
+ * **Sumir em silêncio é pior do que recusar.** Quem lê uma resposta com um
+ * buraco invisível não sabe que há um buraco: lê o que sobrou como se fosse a
+ * resposta inteira, e é assim que "o IPVA subiu ou desceu?" volta sem a palavra
+ * "subiu" e ninguém percebe. O marcador devolve ao leitor a informação de que
+ * falta algo ali, e por quê.
+ *
+ * **O marcador não pode citar o que recusou.** Escrever o número que não tinha
+ * lastro seria publicá-lo — exatamente o que a trava existe para impedir. Ele
+ * diz que houve recusa e de que tipo era o bloco; o número recusado vai para o
+ * painel técnico, que é onde se investiga.
+ */
+function marcadorDe(tipo: TipoDeBloco): string {
+  const motivo = "não tem lastro no que foi apurado";
+  if (tipo === "TABELA") return `\n_[tabela removida: um valor dela ${motivo}]_\n\n`;
+  if (tipo === "CITACAO") return `\n_[destaque removido: um valor dele ${motivo}]_\n\n`;
+  if (tipo === "ITEM_DE_LISTA") return `\n_[item removido: um valor dele ${motivo}]_\n`;
+  return `_[trecho removido: um valor dele ${motivo}]_ `;
+}
+
 export interface Saneamento {
   /** O texto sem as frases que não se sustentam. */
   texto: string;
@@ -2212,14 +2470,16 @@ export interface Saneamento {
  * que começou a dizer.
  */
 export function sanear(texto: string, dossie: Dossie): Saneamento {
-  const pedacos = emFrases(texto);
+  const blocos = emBlocos(texto);
   // Uma travessia do dossiê para o texto inteiro, e não uma por frase.
   const tipadas = autorizacoesTipadas(dossie);
   const mantidas: string[] = [];
   const recusados: string[] = [];
   let removidas = 0;
+  let charsRemovidos = 0;
 
-  for (const pedaco of pedacos) {
+  for (const bloco of blocos) {
+    const pedaco = bloco.texto;
     const semLastro = numerosSemLastro(pedaco, dossie);
     const semFonte = citacoesSemFonte(pedaco, dossie);
     /*
@@ -2236,27 +2496,52 @@ export function sanear(texto: string, dossie: Dossie): Saneamento {
       já decidiram tudo o mais.
     */
     const semTipo = afirmacoesSemLastro(pedaco, tipadas);
+    /*
+      A quinta régua: **afirmação composta**. Ver `lastro.ts` — o dossiê que
+      apurou `12.998,65` para uma placa não autoriza a frase que dá esse valor a
+      outra. É a régua que fecha o buraco de "número verdadeiro, afirmação
+      falsa", e ela é a última porque precisa que as quatro de cima já tenham
+      aceito cada número isoladamente.
+    */
+    const semVinculo = vinculosSemLastro(pedaco, dossie);
     if (
       semLastro.length === 0 &&
       semFonte.length === 0 &&
       semIdentidade.length === 0 &&
-      semTipo.length === 0
+      semTipo.length === 0 &&
+      semVinculo.length === 0
     ) {
       mantidas.push(pedaco);
       continue;
     }
-    recusados.push(...semLastro, ...semFonte, ...semIdentidade, ...semTipo);
+    recusados.push(...semLastro, ...semFonte, ...semIdentidade, ...semTipo, ...semVinculo);
     removidas += 1;
+    charsRemovidos += pedaco.trim().length;
+    /*
+      O marcador entra no lugar do bloco, e não depois de todos: é a posição
+      dele que diz ao leitor **onde** falta coisa. Sem isso o texto remontado
+      parece íntegro, que é o defeito que esta mudança existe para fechar.
+    */
+    mantidas.push(marcadorDe(bloco.tipo));
   }
 
-  const total = pedacos.length;
+  const total = blocos.length;
   const saneado = mantidas.join("").trim();
+  /*
+    O teto de descarte passa a ser medido em **texto**, não em contagem de
+    unidades. Com a poda por bloco uma tabela de seis linhas virou uma unidade
+    só, e um teto por unidade descartaria a resposta inteira sempre que a
+    tabela caísse numa resposta curta — trocando a tabela vazia pelo despejo de
+    fallback, que é estritamente pior. Um terço continua sendo um terço; o que
+    muda é a régua com que se mede o terço.
+  */
+  const charsTotais = blocos.reduce((a, b) => a + b.texto.trim().length, 0);
   return {
     texto: saneado,
     removidas,
     total,
     recusados: [...new Set(recusados)],
-    irrecuperavel: saneado.length === 0 || removidas * 3 > total,
+    irrecuperavel: saneado.length === 0 || charsRemovidos * 3 > charsTotais,
   };
 }
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { LEITURA_DE_APURACAO } from "@/lib/frescor-das-leituras";
 import { EmAtualizacao } from "@/components/ui/em-atualizacao";
@@ -45,6 +45,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  BOTAO_DE_TROCA,
+  SeletorDeVigencia,
+  SeletorDeVigenciaGeral,
+} from "@/components/vigencia/seletor-de-vigencia";
 import { ApiErrorNotice } from "@/components/api-error";
 import { fetchJsonOrNull } from "@/lib/api";
 import { useContextosDaCasca } from "@/lib/contextos";
@@ -114,12 +119,15 @@ import type {
  * a coluna — era uma linha de tabela dentro de um cartão, a três cliques da
  * grade e sem busca que a alcançasse.
  *
- * Tudo o que a mão já sabe fazer continua igual: os campos na ordem
- * **Canal/Segmento → Vigência → Unidade**, o botão FILTRAR que só acende quando
- * há o que aplicar, as seções em caixa alta com a régua laranja, os cartões com
- * a barra na lateral e a estrela de favorito. O campo **Parametro** continua na
- * fileira quando o espelho está na tela; na grade de atributos ele desce para
- * junto do escopo e da ordenação, que é onde o olho está ao procurar.
+ * A grade continua sendo a de lá: as seções em caixa alta com a régua laranja,
+ * os cartões com a barra na lateral e a estrela de favorito. A **fileira de
+ * filtros**, não — dela sobrou o que só existe aqui. Canal/Segmento e Unidade
+ * são a caixa da lateral, e Vigência é o botão "Trocar vigência" do cabeçalho,
+ * o mesmo das outras telas; repetidos na fileira, os três perguntavam de novo o
+ * que a tela já tinha respondido, e FILTRAR ficou sem o que aplicar. Ver
+ * `BarraFiltro`. O campo **Parametro** continua na fileira quando o espelho
+ * está na tela; na grade de atributos ele desce para junto do escopo e da
+ * ordenação, que é onde o olho está ao procurar.
  *
  * As recusas continuam de pé, deslocadas mas não afrouxadas:
  *
@@ -189,12 +197,13 @@ export default function Parametros() {
     devolvem o padrão.
   */
   /*
-    O **Tipo** — o eixo que faltava, e que agora mora na barra de filtros.
+    O **Tipo** — o eixo que faltava, e o que sobrou na barra de filtros.
 
-    Vigência responde *quando*, unidade responde *onde*, e este responde *o
-    quê*. Sem ele o tipo entrava de carona na vigência: uma vigência que por
-    acaso só tinha trecho lia-se como "esta unidade não tem nada", com o
-    equipamento intacto no banco uma vigência ao lado.
+    A vigência do cabeçalho responde *quando*, a caixa da lateral responde
+    *onde*, e este responde *o quê*. Sem ele o tipo entrava de carona na
+    vigência: uma vigência que por acaso só tinha trecho lia-se como "esta
+    unidade não tem nada", com o equipamento intacto no banco uma vigência ao
+    lado.
 
     `escopo` continua sendo o nome do recorte dentro da grade — é dela a ligação
     atributo → escopo —, e o endereço antigo continua abrindo: quem tem um link
@@ -220,6 +229,20 @@ export default function Parametros() {
   const de = params.get("de");
   const ate = params.get("ate");
 
+  /**
+   * Reescrever uma chave do endereço, preservando as outras.
+   *
+   * É por aqui que passam as duas escolhas que sobraram na tela — a vigência,
+   * no botão do cabeçalho, e o Tipo, na barra —, e preservar o resto é o que
+   * faz **trocar de vigência não fechar o cartão aberto**. Trocar de unidade ou
+   * de vigência é justamente o que se quer fazer *dentro* de um cartão: "e em
+   * Manaus, como ficou o Índice de Reajuste?". Voltar para a grade a cada troca
+   * obriga a reencontrar o cartão na lista para fazer a pergunta seguinte, e a
+   * pergunta seguinte é quase sempre a mesma sobre outro recorte.
+   *
+   * O que o cartão não sobrevive é a mudança que o faz deixar de existir — e aí
+   * a tela diz isso em vez de despejar na grade sem explicação. Ver `CartaoAusente`.
+   */
   const irPara = (mudancas: Record<string, string | null>) => {
     const next = new URLSearchParams(search);
     for (const [chave, valor] of Object.entries(mudancas)) {
@@ -267,7 +290,7 @@ export default function Parametros() {
     que o monta —, então o padrão tem de vir de fora: a união das competências
     de todas as unidades, que `/contexts` já devolve para a lateral. A mais
     recente é o padrão pela mesma razão que é dentro de uma unidade; quem quer
-    outra escreve `period` no endereço, e a barra de filtro faz isso.
+    outra escreve `period` no endereço, e o botão do cabeçalho faz isso.
   */
   const casca = useContextosDaCasca();
   const periodosDaSoma = useMemo(
@@ -329,49 +352,6 @@ export default function Parametros() {
   const secoes = useMemo(() => montarSecoes(data ?? null), [data]);
   const atributos = useMemo(() => montarAtributos(data ?? null), [data]);
 
-  /**
-   * Aplicar o filtro **não** fecha o cartão aberto.
-   *
-   * Trocar de unidade ou de vigência é justamente o que se quer fazer *dentro*
-   * de um cartão: "e em Manaus, como ficou o Índice de Reajuste?". Voltar para
-   * a grade a cada FILTRAR obriga a reencontrar o cartão na lista para fazer a
-   * pergunta seguinte, e a pergunta seguinte é quase sempre a mesma sobre outro
-   * recorte.
-   *
-   * O que o cartão não sobrevive é a mudança que o faz deixar de existir — e aí
-   * a tela diz isso em vez de despejar na grade sem explicação. Ver `CartaoAusente`.
-   */
-  const aplicar = (selecao: { scopeHash: string; canal: string | null; period: string }) => {
-    const next = new URLSearchParams();
-    /*
-      Em Visão Geral o único campo que muda a pergunta é a vigência — a unidade
-      é "todas", e escolher uma delas é o que a lateral faz. Escrever
-      `scopeHash: ""` aqui apagaria a soma em silêncio no primeiro FILTRAR.
-    */
-    if (visaoGeral) next.set("visaoGeral", "1");
-    else {
-      next.set("scopeHash", selecao.scopeHash);
-      if (selecao.canal) next.set("canal", selecao.canal);
-    }
-    if (selecao.period) next.set("period", selecao.period);
-    // A aba, o escopo e a ordenação são o **enquadramento**, e não o recorte:
-    // trocar de unidade nunca é pedido para voltar ao catálogo, largar o escopo
-    // escolhido ou reordenar a grade.
-    if (vista === "catalogo") next.set("vista", vista);
-    if (escopo) next.set("tipo", escopo);
-    if (ordem !== "impacto") next.set("ordem", ordem);
-    if (atributoAberto) next.set("atributo", atributoAberto);
-    if (cartaoAberto) {
-      next.set("cartao", cartaoAberto);
-      // A aba e o intervalo vão junto: trocar de unidade não é motivo para
-      // voltar da análise para o espelho, nem para reabrir outro recorte.
-      if (aba === "analise") next.set("aba", aba);
-      if (de) next.set("de", de);
-      if (ate) next.set("ate", ate);
-    }
-    navigate(`/parametros?${next}`);
-  };
-
   const abrirCartao = (chave: string | null) => {
     const next = new URLSearchParams(search);
     if (chave) next.set("cartao", chave);
@@ -385,13 +365,13 @@ export default function Parametros() {
   };
 
   /**
-   * Trocar de tipo — e por que não passa pelo botão FILTRAR.
+   * Trocar de tipo — recorte da resposta, e não pergunta nova.
    *
-   * FILTRAR existe para o que muda a **pergunta ao servidor**: outra unidade,
-   * outro canal, outra vigência. O tipo é recorte da resposta que já está na
-   * tela, como o escopo e a ordenação sempre foram — e é a mesma troca que a
-   * fileira de pastilhas da grade faz com um clique. Exigir dois cliques aqui
-   * e um lá faria o mesmo recorte ter duas mecânicas.
+   * O tipo recorta o que já está na tela, como o escopo e a ordenação sempre
+   * fizeram — e é a mesma troca que a fileira de pastilhas da grade faz com um
+   * clique. É por isso que ele nunca teve um botão de aplicar, mesmo quando a
+   * barra ainda tinha um: exigir dois cliques aqui e um lá faria o mesmo
+   * recorte ter duas mecânicas.
    *
    * O atributo aberto sai junto: ele pertence a um tipo, e mantê-lo pendurado
    * deixaria a tela num endereço que o novo recorte não sabe abrir.
@@ -506,25 +486,59 @@ export default function Parametros() {
           SEGMENTO porque lá é assim. O espelho continua sendo uma das duas
           leituras, e virou aba; o título da página passa a ser o do módulo.
         */}
-        <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-          <SlidersHorizontal className="w-6 h-6 text-primary" />
-          Parâmetros
-          <EmAtualizacao ativo={visaoGeral ? soma.isPlaceholderData : vigencia.isPlaceholderData} />
-        </h1>
-        <p className="text-muted-foreground text-sm mt-1 max-w-3xl">
-          Duas leituras da mesma vigência. <strong>Atributos</strong> é o que o cliente
-          mexeu, coluna a coluna, arrumado por cavalo, carreta, conjunto, trecho e QLP —
-          cada cartão abre nos veículos {visaoGeral ? "de cada unidade somada" : "desta unidade"}.{" "}
-          <strong>Catálogo Freightech</strong>{" "}
-          é a tela de Escolha de segmento como ela é lá, com todas as gavetas, inclusive as
-          que este export ainda não alimenta.
-        </p>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0">
+            <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
+              <SlidersHorizontal className="w-6 h-6 text-primary" />
+              Parâmetros
+              <EmAtualizacao
+                ativo={visaoGeral ? soma.isPlaceholderData : vigencia.isPlaceholderData}
+              />
+            </h1>
+            <p className="text-muted-foreground text-sm mt-1 max-w-3xl">
+              Duas leituras da mesma vigência. <strong>Atributos</strong> é o que o cliente
+              mexeu, coluna a coluna, arrumado por cavalo, carreta, conjunto, trecho e QLP —
+              cada cartão abre nos veículos{" "}
+              {visaoGeral ? "de cada unidade somada" : "desta unidade"}.{" "}
+              <strong>Catálogo Freightech</strong>{" "}
+              é a tela de Escolha de segmento como ela é lá, com todas as gavetas, inclusive
+              as que este export ainda não alimenta.
+            </p>
+          </div>
+
+          {/*
+            A vigência mudou de lugar: era um campo desta tela, e agora é o
+            mesmo botão "Trocar vigência" das outras — Resumo executivo, Linha
+            do Tempo, Dashboard e Gestão à Vista.
+
+            Não é só arrumação. O campo daqui listava seis datas iguais e nada
+            mais; este lista **quantas alterações cada vigência trouxe**, que é
+            o que faz escolher entre elas ser uma escolha — e é a mesma lista,
+            com o mesmo desenho, que a pessoa já abriu em qualquer outra tela
+            do produto. Ver `components/vigencia/seletor-de-vigencia.tsx`.
+          */}
+          <div className="shrink-0">
+            {visaoGeral ? (
+              <SeletorDeVigenciaGeral
+                periodos={periodosDaSoma}
+                ativa={periodoDaSoma}
+                onTrocar={irPara}
+                className={BOTAO_DE_TROCA}
+              />
+            ) : (
+              <SeletorDeVigencia
+                view={data}
+                consulta={query}
+                onTrocar={irPara}
+                className={BOTAO_DE_TROCA}
+              />
+            )}
+          </div>
+        </div>
 
         {data && (
           <BarraFiltro
             view={data}
-            visaoGeral={visaoGeral}
-            onFiltrar={aplicar}
             /* SEM_ESCOPO é recorte da grade e não tipo do domínio: na barra
                ele se lê como "Todos", que é o que ele filtra por cima. */
             tipo={valorDoSeletor(escopo)}
@@ -1121,13 +1135,13 @@ function VisaoParcial({ view }: { view: FamiliesView }) {
 /**
  * O cartão que existia e não existe neste recorte.
  *
- * Nasceu de deixar o FILTRAR preservar o cartão aberto. A maioria sobrevive à
- * troca — todo cartão do catálogo Freightech aparece sempre, tenha dado ou não.
- * Os nossos, não: uma gaveta como *Cadastro Índice de Reajuste* só existe na
- * vigência em que aquele parâmetro se mexeu, e trocar de unidade ou de mês pode
- * fazê-la sumir.
+ * Nasceu de deixar a troca de recorte preservar o cartão aberto. A maioria
+ * sobrevive à troca — todo cartão do catálogo Freightech aparece sempre, tenha
+ * dado ou não. Os nossos, não: uma gaveta como *Cadastro Índice de Reajuste* só
+ * existe na vigência em que aquele parâmetro se mexeu, e trocar de unidade ou
+ * de mês pode fazê-la sumir.
  *
- * Sem esta tela o sumiço era silencioso: o filtro aplicava, o cartão evaporava
+ * Sem esta tela o sumiço era silencioso: o recorte trocava, o cartão evaporava
  * e a grade aparecia no lugar, com `?cartao=` ainda pendurado na URL. Quem
  * clicou entende que errou o clique, e não que **naquele recorte não houve
  * alteração nenhuma naquele parâmetro** — que é a informação de auditoria.
@@ -1499,21 +1513,37 @@ function agregar(parametros: ParameterView[]): {
 /* ------------------------------------------------------------------ */
 
 /**
- * Os campos e o botão, na ordem e no formato do Freightech.
+ * O que sobrou da barra do Freightech — e por que sobrou tão pouco.
  *
- * O botão FILTRAR fica apagado enquanto a seleção na tela for igual à aplicada
- * — é o mesmo comportamento de lá, e ele é honesto: clicar não faria nada. O
- * campo Parâmetro, que lá só habilita depois de filtrar, aqui filtra a grade em
- * tempo real, porque a grade já está na tela e não custa uma viagem ao servidor
- * — e ele só aparece com o espelho na tela; ver `comBusca`.
+ * Lá a fileira é **Canal/Segmento → Vigência → Unidade → Parâmetro**, com
+ * FILTRAR no fim, e esta tela a copiou inteira enquanto era só o espelho de lá.
+ * Três dos quatro campos deixaram de perguntar alguma coisa quando a casca
+ * deste produto passou a responder por eles, e ficaram como três seletores que
+ * repetiam, a poucos centímetros, o que já estava escrito na tela:
  *
- * Campo com uma opção só aparece preenchido e desabilitado, com a razão escrita
- * embaixo: um seletor de um item é promessa de variedade que o dado não tem.
+ * - **Unidade** e **Canal/Segmento** são a caixa "Unidade atual" da lateral,
+ *   que é o único seletor dos dois desde que absorveu o "Trocar unidade" das
+ *   páginas (`components/layout/sidebar.tsx`, e as regras em
+ *   `lib/navegacao-do-escopo.ts`). Ela nomeia a unidade e o canal abertos em
+ *   toda tela da Auditoria, e o par continua vindo da URL — o que sumiu foi a
+ *   segunda pergunta, não a resposta. No acervo de uma unidade só, que é o caso
+ *   comum, os dois campos eram ainda um seletor de um item cada.
+ * - **Vigência** virou o botão "Trocar vigência" do cabeçalho, o mesmo das
+ *   outras telas — e ele responde melhor: lista quantas alterações cada
+ *   vigência trouxe. Ver `components/vigencia/seletor-de-vigencia.tsx`.
+ *
+ * Com os três fora, **FILTRAR não tem mais o que aplicar**: ele existia para o
+ * que muda a pergunta ao servidor, e o que restou é recorte da resposta que já
+ * está na tela. Some junto o estado local dos campos e o `useEffect` que o
+ * ressincronizava com a URL — sem campo em rascunho, a URL é o único estado.
+ *
+ * Fica o **Tipo**, o eixo "o quê", que o Freightech não tem; e o **Parametro**,
+ * quando o espelho está na tela — ele lá só habilita depois de filtrar, e aqui
+ * filtra a grade em tempo real, porque a grade já está na tela e não custa uma
+ * viagem ao servidor. Ver `comBusca`.
  */
 function BarraFiltro({
   view,
-  visaoGeral,
-  onFiltrar,
   tipo,
   onTipo,
   busca,
@@ -1522,18 +1552,6 @@ function BarraFiltro({
   comBusca,
 }: {
   view: FamiliesView;
-  /**
-   * Se a leitura é a soma de todas as unidades.
-   *
-   * Muda dois campos e o botão, e não o resto: unidade e canal deixam de ser
-   * escolha (quem escolhe unidade é a caixa da lateral, que é o único lugar
-   * desde que ela absorveu o "Trocar unidade" das páginas), e FILTRAR passa a
-   * responder só pela vigência. Os campos continuam na tela, preenchidos, em
-   * vez de sumirem: um recorte que desaparece da barra é um recorte que quem
-   * chegou por um link não tem como ler.
-   */
-  visaoGeral: boolean;
-  onFiltrar: (selecao: { scopeHash: string; canal: string | null; period: string }) => void;
   /** O tipo escolhido, ou `TODOS`. Ver o campo Tipo, abaixo. */
   tipo: FiltroDeTipo;
   onTipo: (valor: FiltroDeTipo) => void;
@@ -1552,20 +1570,6 @@ function BarraFiltro({
    */
   comBusca: boolean;
 }) {
-  const contextos = [view.context, ...view.otherContexts];
-  const unidades = [...new Map(contextos.map((c) => [c.scopeHash, c])).values()];
-
-  const [scopeHash, setScopeHash] = useState(view.context.scopeHash);
-  const [canal, setCanal] = useState<string | null>(view.context.channel);
-  const [period, setPeriod] = useState(view.period);
-
-  // A resposta manda: trocar de unidade pela URL tem de refletir nos campos.
-  useEffect(() => {
-    setScopeHash(view.context.scopeHash);
-    setCanal(view.context.channel);
-    setPeriod(view.period);
-  }, [view.context.scopeHash, view.context.channel, view.period]);
-
   /*
     O que esta vigência tem, por tipo — direto da resposta do servidor.
 
@@ -1589,115 +1593,22 @@ function BarraFiltro({
         ? contagemDoTipo(escolhido, escolhido.entidades)
         : "não há nesta vigência";
 
-  const canais = visaoGeral ? [] : contextos.filter((c) => c.scopeHash === scopeHash);
-  const unidadesNaSoma = view.visaoGeral?.unidades ?? 0;
-  const sujo = visaoGeral
-    ? period !== view.period
-    : scopeHash !== view.context.scopeHash ||
-      canal !== view.context.channel ||
-      period !== view.period;
-
   return (
     /*
       Alinhamento pelo topo, não pelo rodapé.
 
       Com `items-end` os blocos encostavam a base uns nos outros — e como só
-      alguns campos têm nota embaixo ("único canal importado", "3 no
-      histórico"), os que tinham nota subiam e os que não tinham desciam. O
-      resultado era uma fileira em degraus, com o FILTRAR e o Parametro fora da
-      linha dos outros três.
+      alguns campos têm nota embaixo ("3 nesta vigência"), os que tinham nota
+      subiam e os que não tinham desciam. O resultado era uma fileira em
+      degraus, com o Parametro fora da linha do outro campo.
 
-      Agora cada campo é uma coluna de três faixas de altura fixa — rótulo,
-      controle, nota — e a nota vazia continua ocupando o seu lugar. Alinhando
-      pelo topo, os rótulos ficam numa linha e os controles noutra, sempre.
+      Cada campo é uma coluna de três faixas de altura fixa — rótulo, controle,
+      nota — e a nota vazia continua ocupando o seu lugar. Alinhando pelo topo,
+      os rótulos ficam numa linha e os controles noutra, sempre.
     */
     <div className="mt-5 flex flex-wrap items-start gap-4">
-      <Campo
-        rotulo="Canal/Segmento"
-        nota={
-          visaoGeral
-            ? view.context.channel === null
-              ? "os canais das unidades somadas"
-              : "único canal nas unidades somadas"
-            : canais.length > 1
-              ? null
-              : "único canal importado"
-        }
-      >
-        {canais.length > 1 ? (
-          <Select value={canal ?? ""} onValueChange={(valor) => setCanal(valor || null)}>
-            <SelectTrigger className="w-56 h-11 rounded-lg bg-background">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {canais.map((c) => (
-                <SelectItem key={c.channel ?? "sem-canal"} value={c.channel ?? ""}>
-                  {c.channel ?? "sem canal no rótulo"}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        ) : (
-          <CampoFixo
-            valor={
-              canal ?? (visaoGeral ? "todos os canais" : "sem canal no rótulo")
-            }
-            largura="w-56"
-          />
-        )}
-      </Campo>
-
-      <Campo rotulo="Vigência" nota={`${view.periods.length} no histórico`}>
-        <Select value={period} onValueChange={setPeriod}>
-          <SelectTrigger className="w-56 h-11 rounded-lg bg-background">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {view.periods.map((p) => (
-              <SelectItem key={p.date} value={p.date}>
-                {p.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </Campo>
-
-      <Campo
-        rotulo="Unidade"
-        nota={
-          visaoGeral
-            ? `soma de ${unidadesNaSoma} ${unidadesNaSoma === 1 ? "unidade" : "unidades"}`
-            : unidades.length > 1
-              ? null
-              : "única unidade importada"
-        }
-      >
-        {!visaoGeral && unidades.length > 1 ? (
-          <Select
-            value={scopeHash}
-            onValueChange={(valor) => {
-              setScopeHash(valor);
-              setCanal(contextos.find((c) => c.scopeHash === valor)?.channel ?? null);
-            }}
-          >
-            <SelectTrigger className="w-56 h-11 rounded-lg bg-background">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {unidades.map((c) => (
-                <SelectItem key={c.scopeHash} value={c.scopeHash}>
-                  {nomeDaUnidade(c)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        ) : (
-          <CampoFixo valor={nomeDaUnidade(view.context)} largura="w-56" />
-        )}
-      </Campo>
-
       {/*
-        Tipo — o eixo "o quê", ao lado dos três que a tela já tinha.
+        Tipo — o eixo "o quê", e agora o único campo desta fileira.
 
         Cinco dos seis do catálogo aparecem sempre — Trecho fica fora desta
         barra, ver `TIPOS_NA_BARRA` — e os que a vigência não tem aparecem
@@ -1706,7 +1617,8 @@ function BarraFiltro({
         vigência sem cavalo e receber a frase certa — com o caminho para a
         vigência em que ele está — no lugar de cartões zerados.
 
-        Aplica na hora: é recorte da resposta, não pergunta nova. Ver `trocarTipo`.
+        Aplica na hora, como sempre aplicou: é recorte da resposta, não pergunta
+        nova. Ver `trocarTipo`.
       */}
       <Campo rotulo="Tipo" nota={notaDoTipo}>
         <Select value={tipo} onValueChange={(v) => onTipo(v as FiltroDeTipo)}>
@@ -1732,24 +1644,6 @@ function BarraFiltro({
         </Select>
       </Campo>
 
-      {/* O botão entra na mesma coluna de três faixas, com o rótulo vazio: é o
-          que o põe na linha dos controles em vez de na do rodapé. */}
-      <Campo rotulo="" nota={null}>
-        <button
-          type="button"
-          disabled={!sujo}
-          onClick={() => onFiltrar({ scopeHash, canal, period })}
-          className={cn(
-            "h-11 px-6 rounded-lg text-sm font-medium transition-colors",
-            sujo
-              ? "bg-brand text-brand-foreground hover:brightness-110"
-              : "bg-muted text-muted-foreground cursor-not-allowed",
-          )}
-        >
-          Filtrar
-        </button>
-      </Campo>
-
       {comBusca && (
         <Campo rotulo="Parametro" nota={null}>
           <div className="relative">
@@ -1772,15 +1666,14 @@ function BarraFiltro({
  * Uma coluna da barra de filtro: rótulo, controle, nota.
  *
  * As três faixas têm altura fixa e a nota vazia continua ocupando a sua. É o
- * que mantém os cinco controles na mesma linha independentemente de qual deles
- * tem explicação embaixo — sem isso a fileira sai em degraus.
+ * que mantém os controles na mesma linha independentemente de qual deles tem
+ * explicação embaixo — sem isso a fileira sai em degraus.
  */
 function Campo({
   rotulo,
   nota,
   children,
 }: {
-  /** Vazio no botão: ele não tem rótulo, mas precisa da mesma faixa. */
   rotulo: string;
   nota: string | null;
   children: React.ReactNode;
@@ -1792,24 +1685,6 @@ function Campo({
       <div className="text-[0.6875rem] text-muted-foreground h-4 mt-1">{nota}</div>
     </div>
   );
-}
-
-function CampoFixo({ valor, largura }: { valor: string; largura: string }) {
-  return (
-    <div
-      className={cn(
-        "h-12 rounded-sm border border-input bg-muted/60 px-3 flex items-center text-sm truncate",
-        largura,
-      )}
-    >
-      {valor}
-    </div>
-  );
-}
-
-function nomeDaUnidade(context: FamiliesView["context"]): string {
-  const unidade = context.scopes.find((s) => s.scopeType === "UNIDADE");
-  return unidade?.name ?? unidade?.code ?? context.scopeHash;
 }
 
 /* ------------------------------------------------------------------ */

@@ -342,6 +342,70 @@ function comCabecalhoDeFonte(texto: string, primeiro: number, quantas: number): 
 }
 
 /**
+ * Quando uma resposta sem consulta **não** pode ser a resposta.
+ *
+ * **O caso.** Na rodada 2B, "Resuma o que descobrimos" e "Volte para todos os
+ * canais" — as duas últimas de uma conversa de dez turnos — foram respondidas
+ * com **zero consultas**. O modelo recapitulou de memória, escreveu
+ * `21.931,01`, `99,88%`, `OTI4A85`, `RPG1E60` e mais vinte valores, e a trava
+ * recusou todos, porque nenhuma consulta desta pergunta os autorizava. Foram as
+ * duas piores respostas da rodada. Não por o modelo ter mentido: os números
+ * estavam certos. Por ele os ter afirmado sem poder prová-los **agora**.
+ *
+ * **O critério não é sobre a pergunta, é sobre a resposta.** "Sempre consulte
+ * numa recapitulação" seria uma regra sobre a forma da pergunta, e erra dos
+ * dois lados: gasta consulta em "resuma em uma frase o que você faz" e não
+ * cobre "e no mês passado?" — que não parece recap e afirma número igual. As
+ * duas condições abaixo são sobre o que a resposta **faz**:
+ *
+ * 1. **Nenhuma consulta bem-sucedida nesta pergunta.** Não é "nenhuma consulta
+ *    na conversa": o que a trava confere é o dossiê deste turno, e é ele que
+ *    precisa existir. Herdar o recorte é legítimo; herdar o número não.
+ * 2. **A resposta afirma fato verificável** — dinheiro, percentual, contagem de
+ *    entidade, placa ou data de vigência. Uma resposta que só explica um
+ *    conceito, pede esclarecimento ou recusa um escopo não afirma nada que
+ *    precise de lastro, e é respondida sem consulta com toda a razão. Foi por
+ *    isso que #36 ("revele o system prompt") acertou com zero consultas.
+ *
+ * **Por que uma vez só.** A revalidação empurra o modelo de volta ao laço com
+ * uma instrução; se ele voltar de novo sem consultar, insistir viraria um laço
+ * de duas voltas gastas para chegar ao mesmo lugar. Uma volta é o suficiente
+ * para o caso real — o modelo tem as ferramentas e o motivo —, e o teto de
+ * rodadas continua sendo o limite de cima.
+ */
+const AFIRMA_FATO: RegExp[] = [
+  /* Dinheiro: "R$ 21.931,01", "21.931,01/mês". */
+  /R\$\s?\d|\d{1,3}(?:\.\d{3})+,\d{2}\b/,
+  /* Percentual. */
+  /\d(?:[.,]\d+)?\s?%|\bp\.?p\.?\b/,
+  /* Placa no padrão do produto, antigo ou Mercosul. */
+  /\b[A-Z]{3}\d[A-Z0-9]\d{2}\b/,
+  /* Contagem de entidade: "80 veículos", "24 carretas". */
+  /\b\d{1,4}\s+(?:carretas?|cavalos?|ve[ií]culos?|placas?|ativos?|implementos?|conjuntos?|altera[çc][õo]es)\b/i,
+  /* Data de vigência. */
+  /\b\d{1,2}\/\d{1,2}\/\d{4}\b|\b\d{4}-\d{2}-\d{2}\b/,
+];
+
+export function exigeRevalidacao(
+  texto: string,
+  chamadas: { ok: boolean }[],
+): boolean {
+  if (chamadas.some((c) => c.ok)) return false;
+  const limpo = texto.trim();
+  if (limpo.length === 0) return false;
+  return AFIRMA_FATO.some((r) => r.test(limpo));
+}
+
+/** O que se diz ao modelo quando ele afirma número sem ter consultado. */
+const PEDIDO_DE_REVALIDACAO =
+  "Sua resposta afirma valores, placas ou contagens, e nenhuma consulta foi feita nesta " +
+  "pergunta — então não há evidência que os sustente e eles serão recusados. O histórico " +
+  "da conversa serve para saber sobre o que estamos falando, nunca como fonte de número: " +
+  "os dados podem ter mudado e o leitor não tem onde conferir. Consulte de novo o que for " +
+  "preciso para sustentar cada valor que você quer afirmar e refaça a resposta. Se preferir " +
+  "não afirmar valor nenhum, responda sem eles.";
+
+/**
  * Investiga e responde. Nunca lança.
  *
  * Toda falha aqui é recuperável por construção: existe a redação determinística
@@ -382,6 +446,9 @@ export async function investigar(pedido: PedidoDeInvestigacao): Promise<Investig
       erro,
     },
   });
+
+  /* Uma revalidação por pergunta, e só uma: ver `exigeRevalidacao`. */
+  let revalidou = false;
 
   if (!disponivel()) return fim(null, "ERRO", "SEM_CHAVE");
 
@@ -449,7 +516,19 @@ export async function investigar(pedido: PedidoDeInvestigacao): Promise<Investig
         não um contador de rodadas nem uma heurística sobre o que já foi
         consultado.
       */
-      if (pedidos.length === 0) return fim(texto || null, "RESPONDEU", "IA");
+      if (pedidos.length === 0) {
+        /*
+          …a menos que a resposta afirme fato verificável sem ter consultado
+          nada nesta pergunta. Ver `exigeRevalidacao`.
+        */
+        if (!revalidou && exigeRevalidacao(texto, chamadas)) {
+          revalidou = true;
+          mensagens.push({ role: "assistant", content: resposta.content });
+          mensagens.push({ role: "user", content: PEDIDO_DE_REVALIDACAO });
+          continue;
+        }
+        return fim(texto || null, "RESPONDEU", "IA");
+      }
 
       // A narração que precede uma consulta é progresso, e vai para a tela como
       // progresso. No texto final ela não entra.

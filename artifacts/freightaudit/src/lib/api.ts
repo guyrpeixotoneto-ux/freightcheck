@@ -41,8 +41,14 @@ export function getApiUrl(path: string): string {
  * `tipoDeOperacao` na competência, que é outro eixo, e um `operacao` a mais na
  * consulta seria ruído. Quem já manda o parâmetro por conta própria também
  * passa intacto: o carimbo nunca sobrescreve o que a chamada pediu.
+ *
+ * **Exportada** porque o carimbo tem um par do lado do cache: a chave de cada
+ * consulta é recortada pelo mesmo ambiente que a chamada carrega
+ * (`lib/cache-do-ambiente.ts`). Duas leituras diferentes do endereço aberto
+ * seriam duas verdades sobre em qual ambiente se está — e a que discordasse
+ * guardaria a resposta de um acervo sob a chave de outro.
  */
-function enderecoAberto(): string {
+export function enderecoAberto(): string {
   if (typeof window === "undefined") return "/";
   /*
     Sem a base da aplicação: `ambienteDe` fala a língua das rotas, e não a do

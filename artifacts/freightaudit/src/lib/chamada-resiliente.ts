@@ -5,6 +5,7 @@ import {
 } from "@tanstack/react-query";
 
 import { fetchJson } from "@/lib/api";
+import { hashDaChave } from "@/lib/cache-do-ambiente";
 import {
   consumirOrigem,
   registrarFalha,
@@ -53,6 +54,16 @@ import {
  * quem procura por "por que esta tela não atualiza sozinha" vai olhar.
  */
 export const PADRAO_DAS_CONSULTAS = {
+  /**
+   * A chave carrega o ambiente aberto — o isolamento do cache, num lugar só.
+   *
+   * É o par do carimbo que `getApiUrl` põe em toda chamada: se a requisição da
+   * Auditoria Rota pergunta por outro acervo, a resposta dela não pode ser
+   * guardada sob a mesma chave da Empurrada. Estava aqui o defeito em que a
+   * lateral perdia as unidades ao trocar de auditoria e não as reencontrava na
+   * volta. O porquê inteiro, e a única exceção, em `lib/cache-do-ambiente.ts`.
+   */
+  queryKeyHashFn: hashDaChave,
   retry: deveTentarDeNovo,
   retryDelay: esperaDaTentativa,
   refetchOnWindowFocus: false,

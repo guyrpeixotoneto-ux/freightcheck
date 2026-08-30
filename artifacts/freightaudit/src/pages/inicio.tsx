@@ -312,7 +312,7 @@ export default function Inicio() {
     veio o número grande do topo e ir até qualquer uma delas num clique, sem
     passar pelo menu do cabeçalho.
   */
-  const serieDaUnidade = useSerieDeImpacto(visaoGeral ? null : view, consulta);
+  const serieDaUnidade = useSerieDeImpacto(visaoGeral ? null : view, consulta, !visaoGeral);
   const serieGeral = useSerieDeImpactoGeral(
     periodosOverview,
     periodoOverviewEfetivo,
@@ -572,6 +572,7 @@ export default function Inicio() {
               <GraficoDeImpacto
                 pontos={serieDaUnidade.pontos}
                 periodicity={serieDaUnidade.periodicity}
+                carregando={serieDaUnidade.carregando}
                 vigenciaAtiva={view.period}
                 onEscolherVigencia={(periodo) => {
                   volta.registrar();
