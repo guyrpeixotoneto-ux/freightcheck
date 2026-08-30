@@ -206,6 +206,18 @@ export const RESUMO_EXECUTIVO = "/resumo-executivo";
 export const LINHA_DO_TEMPO = "/linha-do-tempo";
 
 /**
+ * A Evolução por Placa — o mesmo histórico, lido pelo ativo.
+ *
+ * Endereço próprio, e ao lado da Linha do Tempo de propósito: as duas percorrem
+ * o mesmo intervalo e respondem a perguntas diferentes. A Linha do Tempo
+ * pergunta "o que aconteceu em cada vigência?"; esta pergunta "quais placas
+ * estão sendo afetadas ao longo do tempo, e quais eu preciso investigar?". A
+ * apuração é a mesma — o que muda é o eixo, e é por isso que os números batem
+ * quando o recorte é o mesmo.
+ */
+export const EVOLUCAO_POR_PLACA = "/evolucao-por-placa";
+
+/**
  * O Dashboard — a tela de vigilância de mudanças, Geral ou por unidade.
  *
  * É onde a pergunta "a Ambev mudou algo sem avisar?" tem resposta em um

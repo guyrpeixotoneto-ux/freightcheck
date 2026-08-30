@@ -23,6 +23,7 @@ import {
   getGroupVehicles,
   getRangeAnalysis,
   getRangeOverview,
+  evolucaoPorPlaca,
   getEndToEndAnalysis,
   FREIGHTECH_SEM_DADO,
   contagemPorTipo,
@@ -527,6 +528,39 @@ router.get("/changes/range", async (req, res): Promise<void> => {
     return;
   }
   res.json(analysis);
+});
+
+/**
+ * Evolução por Placa — a matriz ativo × vigência do intervalo.
+ *
+ * Mesmas pontas e mesmo contexto de `/changes/range`, e de propósito: as duas
+ * telas leem o mesmo intervalo, e quem troca de uma para a outra tem de ver os
+ * mesmos números somados de outro jeito. A diferença é só o eixo — lá o
+ * intervalo é agrupado por parâmetro, aqui por ativo.
+ *
+ * `periodicidade` escolhe em qual grandeza a matriz é desenhada. Fora das que o
+ * intervalo tem, cai na de maior peso — nunca soma duas.
+ */
+router.get("/changes/evolucao-por-placa", async (req, res): Promise<void> => {
+  const texto = (chave: string) =>
+    typeof req.query[chave] === "string" && req.query[chave] !== ""
+      ? (req.query[chave] as string)
+      : undefined;
+  const tipoPedido = texto("tipo");
+  const evolucao = await evolucaoPorPlaca(db, {
+    ...(texto("from") ? { from: texto("from")! } : {}),
+    ...(texto("to") ? { to: texto("to")! } : {}),
+    context: parseContext(req.query as Record<string, unknown>),
+    ...(tipoPedido !== undefined && ehTipoDaLinhaDoTempo(tipoPedido)
+      ? { tipo: tipoPedido as TipoDaLinhaDoTempo }
+      : {}),
+    ...(texto("periodicidade") ? { periodicidade: texto("periodicidade")! } : {}),
+  });
+  if (!evolucao) {
+    res.status(404).json({ error: "Nenhuma vigência importada ainda." });
+    return;
+  }
+  res.json(evolucao);
 });
 
 /**

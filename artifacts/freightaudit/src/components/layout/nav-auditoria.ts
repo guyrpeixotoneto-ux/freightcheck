@@ -49,6 +49,7 @@ import {
 import {
   DASHBOARD,
   ENTRADA_DA_AUDITORIA,
+  EVOLUCAO_POR_PLACA,
   LINHA_DO_TEMPO,
   RESUMO_EXECUTIVO,
   type AmbienteDeAuditoria,
@@ -153,6 +154,14 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
           mostra.
         */
         { href: LINHA_DO_TEMPO, label: "Linha do Tempo", icon: History },
+        /*
+          A Evolução por Placa vem colada na Linha do Tempo porque é a mesma
+          leitura vista de lado: as duas percorrem o mesmo intervalo, uma
+          agrupando por vigência e a outra por ativo. Quem está lendo "julho
+          custou R$ 20 mil" pergunta em seguida "em quais placas?", e é este o
+          item que responde — daí a vizinhança, e não uma seção nova.
+        */
+        { href: EVOLUCAO_POR_PLACA, label: "Evolução por Placa", icon: Truck },
         { href: "/vigencia", label: "Acompanhamento", icon: TrendingUp },
         /*
           A Análise de frota saiu daqui e passou a abrir a seção **Frota**, ao lado
