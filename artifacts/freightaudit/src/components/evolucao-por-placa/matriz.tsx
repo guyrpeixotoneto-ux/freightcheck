@@ -35,12 +35,25 @@ import {
  * dela continuam à vista — sem isso, rolar até agosto significa não saber mais
  * de quem é a linha.
  *
- * A paginação é de dez placas, como a régua de leitura de uma tela executiva
- * pede; a ordem padrão é a do ranking de atenção, que é a resposta à pergunta
- * que traz alguém aqui.
+ * A ordem padrão é a do ranking de atenção, que é a resposta à pergunta que
+ * traz alguém aqui.
  */
 
-const POR_PAGINA = 10;
+/**
+ * Quantas linhas a matriz mostra por página.
+ *
+ * Vinte e cinco, e não dez: com dez, a primeira página de um acervo de duzentas
+ * placas cabia numa olhada e terminava antes de a lista começar a responder —
+ * quem abria a tela via o topo do ranking e precisava paginar para descobrir
+ * onde a perda deixava de ser grande. Vinte e cinco linhas cobrem a faixa que um
+ * gestor de fato percorre antes de decidir, e continuam cabendo numa rolagem só
+ * no desktop.
+ *
+ * Continua havendo paginação, e de propósito: a matriz é o componente mais
+ * pesado da tela (cada linha desenha uma célula por vigência), e despejar
+ * duzentas linhas de uma vez trocaria a leitura por uma espera.
+ */
+const POR_PAGINA = 25;
 
 export function MatrizDaEvolucao({
   evolucao,
