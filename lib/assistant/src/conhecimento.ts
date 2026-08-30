@@ -66,9 +66,11 @@ export const ARTIGOS: Artigo[] = [
     ],
     corpo:
       "Parâmetros é a tela Escolha de Segmento do Freightech, com o dado que lá não " +
-      "aparece. Os quatro campos estão na mesma ordem — Canal/Segmento, Vigência, " +
-      "Unidade, Parâmetro — e a grade traz o catálogo inteiro de cartões do " +
-      "Freightech, não só os que este export alimenta.\n\n" +
+      "aparece. A grade traz o catálogo inteiro de cartões do Freightech, não só os " +
+      "que este export alimenta. Dos quatro campos de lá — Canal/Segmento, Vigência, " +
+      "Unidade, Parâmetro — sobraram os que ainda perguntam algo: unidade e canal são " +
+      "a caixa da lateral, e a vigência é o botão Trocar vigência do cabeçalho, o " +
+      "mesmo das outras telas.\n\n" +
       "O que muda é o miolo do cartão. No Freightech ele traz o nome e nada mais: para " +
       "saber se algo mudou é preciso abrir, exportar e comparar à mão. Aqui o cartão já " +
       "diz quantas alterações houve, em quantos veículos, e quanto isso vale — e quando " +
