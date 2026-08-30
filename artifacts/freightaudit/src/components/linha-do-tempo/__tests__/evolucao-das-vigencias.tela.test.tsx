@@ -152,3 +152,55 @@ describe("o clique numa vigência", () => {
     expect(screen.getByRole("img", { name: /Impacto líquido acumulado/ })).toBeTruthy();
   });
 });
+
+/**
+ * No celular a mesma janela não cabe deitada — cinco colunas de ~7rem viram
+ * rolagem horizontal dentro de um cartão que já rola na vertical. A seção
+ * vira lista: uma vigência por linha, com o mesmo destino no clique.
+ */
+describe("a leitura de celular", () => {
+  const larguraOriginal = window.innerWidth;
+
+  const estreitar = (largura: number) => {
+    Object.defineProperty(window, "innerWidth", {
+      value: largura,
+      configurable: true,
+      writable: true,
+    });
+  };
+
+  afterEach(() => estreitar(larguraOriginal));
+
+  it("empilha uma vigência por linha, sem a linha do tempo deitada", () => {
+    estreitar(390);
+    montar(() => {});
+
+    const linhas = screen.getAllByRole("listitem");
+    expect(linhas).toHaveLength(6);
+    expect(linhas.map((linha) => linha.textContent)).toEqual([
+      expect.stringContaining("2026-03-01"),
+      expect.stringContaining("2026-04-01"),
+      expect.stringContaining("2026-05-01"),
+      expect.stringContaining("2026-06-01"),
+      expect.stringContaining("2026-07-01"),
+      expect.stringContaining("2026-08-01"),
+    ]);
+    // Os marcos clicáveis são da versão deitada — no celular a linha é o alvo.
+    expect(marcos()).toHaveLength(0);
+  });
+
+  it("o clique na linha abre a mesma vigência que o cartão da versão deitada", () => {
+    estreitar(390);
+    const abrir = vi.fn();
+    montar(abrir);
+    // Dentro da lista: o ponto do acumulado promete o mesmo destino com o
+    // mesmo nome, e é ele que a versão deitada já cobre.
+    const lista = screen.getByRole("list");
+    fireEvent.click(
+      within(lista).getByRole("button", { name: "Abrir esta vigência — 2026-07-01" }),
+    );
+
+    expect(abrir).toHaveBeenCalledTimes(1);
+    expect(abrir.mock.calls[0][0].period).toBe("2026-07-01");
+  });
+});

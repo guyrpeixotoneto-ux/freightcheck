@@ -8,12 +8,18 @@ export function useIsMobile() {
   );
 
   React.useEffect(() => {
-    const mql = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`);
     const onChange = () => {
       setIsMobile(window.innerWidth < MOBILE_BREAKPOINT);
     };
+    onChange();
+    /*
+      Sem `matchMedia` — jsdom dos testes, e qualquer runtime sem a API — a
+      largura ainda responde: a leitura inicial vale, só não acompanha a
+      rotação da tela. Antes, o hook derrubava a árvore inteira no efeito.
+    */
+    if (typeof window.matchMedia !== 'function') return;
+    const mql = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`);
     mql.addEventListener('change', onChange);
-    setIsMobile(window.innerWidth < MOBILE_BREAKPOINT);
     return () => mql.removeEventListener('change', onChange);
   }, []);
 
