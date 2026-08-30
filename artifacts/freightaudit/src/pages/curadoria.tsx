@@ -297,6 +297,23 @@ export default function Curadoria() {
   });
 
   /*
+    "Escolhi e nada aconteceu" era um estado que a tela não sabia dizer.
+
+    Enquanto o detalhe não chega, `detail` é `undefined` — exatamente o que ele
+    vale quando ninguém escolheu nada. O painel da direita lia esse `undefined`
+    e repetia o convite "Selecione um atributo", ou seja, respondia ao clique
+    pedindo o clique de novo: quem acabara de clicar concluía que a tela tinha
+    ignorado a escolha e clicava outra vez.
+
+    O endereço é quem desempata, e não a resposta: se há um atributo pedido e
+    ainda não há detalhe, a espera é isso — uma espera —, e é o que se pinta.
+  */
+  const carregandoDetalhe = selected !== null && detail === undefined;
+  // O que a fila já sabe do atributo pedido, para a espera ter nome em vez de
+  // ser um retângulo anônimo. `undefined` enquanto a própria fila não chegou.
+  const pedidoNaFila = queue.find((item) => item.code === selected);
+
+  /*
     O texto primeiro, o equipamento depois.
 
     A ordem decide o que os números das abas prometem. Contadas sobre a fila já
@@ -735,6 +752,26 @@ export default function Curadoria() {
               void invalidarApuracao(queryClient);
             }}
           />
+        ) : carregandoDetalhe ? (
+          <Card className="h-full">
+            <CardHeader>
+              <CardTitle className="text-base">
+                {pedidoNaFila?.displayName ?? pedidoNaFila?.sourceName ?? "Atributo"}
+              </CardTitle>
+              <p className="font-mono text-xs text-muted-foreground">{selected}</p>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Carregando os valores reais…
+              </p>
+              {/* Três barras onde a tabela de valores vai ficar: a espera ocupa
+                  o mesmo lugar que a resposta, e a tela não salta quando ela
+                  chega. */}
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="h-4 animate-pulse rounded bg-muted" />
+              ))}
+            </CardContent>
+          </Card>
         ) : (
           <Card className="h-full">
             <CardContent className="p-12 text-center text-muted-foreground">
