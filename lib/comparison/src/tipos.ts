@@ -52,7 +52,15 @@
  * consulta o banco é `tipos-da-vigencia.ts`, ao lado. Sem import, o subcaminho
  * `@workspace/comparison/tipos` é publicável para os dois lados — e a fileira
  * de tipos da tela e a contagem do servidor passam a ler a mesma lista.
+ *
+ * O único import é `@workspace/ingest/tipos`, que é do mesmo feitio — sem
+ * dependência nenhuma, publicável para o navegador — e é de lá que sai a lista
+ * de equipamentos do recorte da Linha do Tempo, no fim do arquivo. Importar
+ * dele não desfaz nada do que está escrito acima: o que não pode entrar aqui é
+ * banco, não é lista.
  */
+
+import { TIPOS_DE_IMPORTACAO, type TipoDeImportacao } from "@workspace/ingest/tipos";
 
 /** As famílias de dataset, repetidas aqui porque este arquivo não importa nada. */
 export const FAMILIA_EQUIPAMENTO = "REMUNERACAO_EQUIPAMENTO";
@@ -215,39 +223,51 @@ export function contagemDoTipo(
 /* ------------------------------------------------------------------ */
 
 /**
- * Os tipos que a Linha do Tempo sabe percorrer sozinhos.
+ * Os tipos que a Linha do Tempo sabe percorrer sozinhos: os **equipamentos**.
  *
- * Três dos seis, e a lista é curta por medida e não por gosto:
+ * A lista não é escrita aqui, e a razão é a que este arquivo inteiro defende:
+ * uma segunda lista dos mesmos tipos concorda no dia em que é escrita e
+ * discorda no dia do próximo. Ela sai de `TIPOS_DE_IMPORTACAO`
+ * (`@workspace/ingest/tipos`) — o que o produto de fato recebe —, menos o QLP.
  *
- * - **CAVALO** e **CARRETA** são `entity_type` no banco, e a leitura de
- *   intervalo já lê as linhas dos dois — recortá-la por um deles é dizer
- *   "só as alterações cuja linha é de cavalo".
- * - **TRECHO** também é `entity_type`, mas mora fora da leitura de intervalo:
- *   ela o exclui de propósito (ver `getRangeAnalysis`), porque as telas que a
- *   consomem falam de frota. O recorte é o que o traz de volta — e só quando
- *   alguém pede por ele.
- * - **CONJUNTO** fica de fora porque não é `entity_type` nenhum: ele é a
- *   leitura de colunas da carreta que já embutem o cavalo, e uma linha do
- *   tempo "do conjunto" contaria de novo o que a linha da carreta já conta.
- * - **QLP adm.** e **QLP oper.** ficam de fora porque formam vigência própria,
- *   de outra família de dataset — o eixo de vigências desta tela é o do
- *   equipamento, e percorrê-lo com as linhas do quadro de pessoal daria uma
- *   série com furos que não são furos.
+ * **Por que o QLP fica de fora.** Ele forma vigência própria, de outra família
+ * de dataset (ver `TIPOS_DE_ANALISE` acima). O eixo de vigências desta tela é o
+ * do equipamento, e percorrê-lo com as linhas do quadro de pessoal daria uma
+ * série com furos que não são furos.
+ *
+ * **Por que CONJUNTO fica de fora.** Ele não é `entity_type` nenhum: é a
+ * leitura de colunas da carreta que já embutem o cavalo, e uma linha do tempo
+ * "do conjunto" contaria de novo o que a linha da carreta já conta.
+ *
+ * **Por que são seis e não três.** Cavalo, carreta e trecho são o que a
+ * empurrada roda; a rota e o AS rodam com caminhão e carroceria, e o apoio com
+ * empilhadeira. Esta é a lista do que o **recorte aceita**; qual deles cada
+ * tela oferece é do ambiente aberto, e quem responde isso é
+ * `EQUIPAMENTOS_DO_AMBIENTE`, no cliente. Aceitar aqui os seis é o que impede a
+ * auditoria de rota de ter uma aba que o servidor recusa.
+ *
+ * O trecho é o único que exige tratamento: ele vive numa série própria que a
+ * leitura de intervalo exclui de propósito (ver `getRangeAnalysis`), e o
+ * recorte é o que o traz de volta — só quando alguém pede por ele.
  */
-export type TipoDaLinhaDoTempo = Extract<
-  TipoDeAnalise,
-  "CAVALO" | "CARRETA" | "TRECHO"
->;
+/**
+ * O que sai da lista, escrito uma vez só.
+ *
+ * A mesma constante serve às duas metades — a união em tempo de compilação e o
+ * filtro em tempo de execução —, para que tirar ou pôr um tipo daqui não possa
+ * mover uma metade e deixar a outra para trás.
+ */
+const QLP = ["QLP_ADMINISTRATIVO", "QLP_OPERACIONAL"] as const;
 
-/** Os três, na mesma ordem do catálogo — a aba os oferece nesta ordem. */
-export const TIPOS_DA_LINHA_DO_TEMPO: TipoDaLinhaDoTempo[] = [
-  "CAVALO",
-  "CARRETA",
-  "TRECHO",
-];
+/** Um equipamento: um tipo de importação que não é quadro de pessoal. */
+export type TipoDaLinhaDoTempo = Exclude<TipoDeImportacao, (typeof QLP)[number]>;
+
+export const TIPOS_DA_LINHA_DO_TEMPO: TipoDaLinhaDoTempo[] = TIPOS_DE_IMPORTACAO
+  .map((t) => t.code)
+  .filter((code): code is TipoDaLinhaDoTempo => !(QLP as readonly string[]).includes(code));
 
 /**
- * Se um valor vindo da URL é um dos três.
+ * Se um valor vindo da URL é um dos equipamentos.
  *
  * Mesma doutrina de `ehFiltroDeTipo`: endereço adulterado cai na leitura sem
  * recorte — a aba Geral — em vez de quebrar a tela ou, pior, devolver uma
@@ -258,11 +278,4 @@ export function ehTipoDaLinhaDoTempo(
 ): valor is TipoDaLinhaDoTempo {
   if (valor === null || valor === undefined) return false;
   return (TIPOS_DA_LINHA_DO_TEMPO as string[]).includes(valor);
-}
-
-/** A definição de um dos três — nome, plural e grão, para a tela escrever. */
-export function definicaoDaLinhaDoTempo(
-  tipo: TipoDaLinhaDoTempo,
-): DefinicaoDeTipoDeAnalise {
-  return POR_CODIGO.get(tipo)!;
 }
