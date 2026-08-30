@@ -504,6 +504,22 @@ const TABELAS_REMOVIDAS = [
   "permissao_de_modulo_evento",
   "permissao_de_modulo",
   /*
+    As duas do papel cadastrado, da `0082`, e elas entram pelo mesmo motivo das
+    de cima: Production não conhece o cadastro de papéis até a fila rodar lá.
+
+    **A tabela `papel` não está aqui** — ela nasce cheia (os dois papéis
+    semeados pela própria `0082`) e por isso vive em `TABELAS_DERIVADAS`, que a
+    repovoa levantando o `INSERT` do disco. Estas duas penduram nela, e o
+    `RESTRICT` impõe a ordem: `TABELAS_REMOVIDAS` sai antes das derivadas, que é
+    exatamente a ordem de que elas precisam.
+
+    A pré-condição de tabela vazia é a certa, e é a mesma de
+    `permissao_de_modulo`: cada linha é **decisão humana** sobre o acesso de um
+    grupo de pessoas, com autor e carimbo, e nenhuma consulta a reconstrói.
+  */
+  "papel_evento",
+  "papel_permissao",
+  /*
     As três do cadastro da casa, da `0073` — cargo, departamento e negócio — e
     elas entram pelo mesmo motivo das outras tabelas de módulo novo: Production
     não as conhece até a fila rodar lá, e até então toda tabela nova é uma que a
@@ -631,6 +647,21 @@ const TABELAS_DERIVADAS: { nome: string; migration: string; marca: RegExp }[] = 
     migration: "0028_significado_economico",
     marca: /INSERT INTO "semantic_meaning"/,
   },
+  /*
+    O cadastro de papéis, da `0082`. Entra aqui pela razão de `semantic_meaning`
+    e não de `permissao_de_modulo`: ele **nasce cheio** — `Operador` e
+    `Administrador` são um `INSERT` da própria migration, e é ele que o `up`
+    levanta do disco. Exigi-la vazia travaria todo deploy.
+
+    O que ela pode guardar e nenhuma consulta reconstrói é o papel que alguém
+    cadastrou na tela (`sistema = false`). Esse caso tem pré-condição própria no
+    `down`, e ela aborta — como a de `semantic_meaning`, e pela mesma razão.
+  */
+  {
+    nome: "papel",
+    migration: "0082_papel_com_permissoes",
+    marca: /INSERT INTO "papel"/,
+  },
 ];
 
 /**
@@ -705,6 +736,18 @@ export const COLUNAS_REMOVIDAS: [string, string][] = [
   */
   ["app_user", "cargo_id"],
   ["app_user", "unidade_id"],
+  /*
+    O papel da conta, da `0082` — a FK de uma tabela que **sobrevive** ao `down`
+    para uma que não sobrevive, exatamente como as duas de lotação acima, e por
+    isso ela sai antes de `papel`, que é a ordem que o `RESTRICT` aceita.
+
+    O que se perde num `down` sem `up` é o vínculo, e ele volta pelo próprio
+    `up`: o backfill da `0082` é reexecutado a partir de `role`, que não sai
+    nesta lista. Uma conta que estivesse num papel cadastrado na tela volta ao
+    papel do sistema correspondente ao acesso que ela tem — e não fica sem papel,
+    que seria a única forma de isso virar perda de acesso.
+  */
+  ["app_user", "papel_id"],
   ["snapshot", "canonical_snapshot_key"],
   ["ticket", "changed_parameter_count"],
   ["ticket", "vigencia_label"],
@@ -1281,6 +1324,25 @@ export async function bridgeDown(
       );
     }
 
+    if (await existeTabela(c, "papel")) {
+      /*
+        Os dois papéis do sistema voltam do disco; os que alguém cadastrou na
+        tela, não. Um `Conferente` criado por um administrador é decisão humana
+        — e é apontado pelas contas que o usam. Descartá-lo para encolher um
+        diff é o que `semantic_meaning` e `coverage_expectation` proíbem, pela
+        mesma razão e com a mesma dureza.
+      */
+      const { rows } = await c.query<{ n: string }>(
+        `SELECT count(*) AS n FROM "papel" WHERE NOT "sistema"`,
+      );
+      exigir(
+        "nenhum papel cadastrado na tela",
+        Number(rows[0]!.n) === 0,
+        `${rows[0]!.n} papel(éis) fora dos do sistema — o bridge remove esta ` +
+          `tabela e só os semeados voltam do disco`,
+      );
+    }
+
     if (await existeColuna(c, "ticket_import", "parameter_columns")) {
       const { rows } = await c.query<{ n: string }>(
         `SELECT count(*) AS n FROM "ticket_import"
@@ -1359,6 +1421,9 @@ export async function bridgeDown(
       */
       cargo: ["app_user"],
       unidade: ["app_user"],
+      /* `app_user.papel_id` (0082) é o mesmo caso, e sai em `COLUNAS_REMOVIDAS`
+         antes de a tabela cair. */
+      papel: ["app_user"],
     };
     for (const alvo of [
       ...TABELAS_REMOVIDAS,
@@ -2129,6 +2194,61 @@ function planoUp(): PassoUp[] {
   });
   add(M37, "app_user_role_ck (drop)", levantar(M37, /DROP CONSTRAINT IF EXISTS "app_user_role_ck"/));
   add(M37, "app_user_role_ck", levantar(M37, /ADD CONSTRAINT "app_user_role_ck"/));
+
+  /*
+    A `0082` — o cadastro de papéis, e ele é o único bloco deste plano que
+    repõe estrutura **e** dado.
+
+    Os dois papéis do sistema voltam porque `papel` é `TABELAS_DERIVADAS`: sem
+    o `INSERT` levantado do disco, o `up` devolveria um cadastro vazio, e o
+    backfill seguinte não teria a que apontar. Os dois `UPDATE` repõem o vínculo
+    de cada conta a partir de `role` — que sobrevive ao `down` —, e é isso que
+    faz `app_user.papel_id` poder sair em `COLUNAS_REMOVIDAS` sem que ninguém
+    perca acesso no caminho.
+
+    A ordem é obrigatória em quatro pontos: **depois da `0037`**, porque os dois
+    backfills leem `app_user.role`, que é ela quem repõe; `papel` antes das duas
+    que penduram nela; `papel` e o `INSERT` antes da coluna de `app_user`, que a
+    referencia; e a coluna antes dos dois backfills, que a escrevem.
+  */
+  const M82 = "0082_papel_com_permissoes";
+  add(M82, "papel", levantar(M82, /CREATE TABLE IF NOT EXISTS "papel" \(/));
+  add(M82, "índice papel_nome_key", levantar(M82, /INDEX IF NOT EXISTS "papel_nome_key"/));
+  add(M82, "papel_permissao", levantar(M82, /CREATE TABLE IF NOT EXISTS "papel_permissao" \(/));
+  add(M82, "papel_evento", levantar(M82, /CREATE TABLE IF NOT EXISTS "papel_evento" \(/));
+  add(
+    M82,
+    "FKs de papel_permissao e papel_evento",
+    levantar(M82, /papel_permissao_papel_id_papel_id_fk/),
+  );
+  for (const indice of [
+    "papel_permissao_papel_idx",
+    "papel_evento_papel_idx",
+    "papel_evento_em_idx",
+  ]) {
+    add(M82, `índice ${indice}`, levantar(M82, new RegExp(`INDEX IF NOT EXISTS "${indice}"`)));
+  }
+  p.push({
+    migration: M82,
+    objeto: "papel (reconstrução)",
+    sql: reconstruir(M82, /INSERT INTO "papel"/),
+    reconstroiDados: true,
+  });
+  add(M82, "app_user.papel_id", levantar(M82, /ADD COLUMN IF NOT EXISTS "papel_id"/));
+  add(M82, "FK app_user_papel_id_papel_id_fk", levantar(M82, /app_user_papel_id_papel_id_fk/));
+  add(M82, "índice app_user_papel_idx", levantar(M82, /INDEX IF NOT EXISTS "app_user_papel_idx"/));
+  p.push({
+    migration: M82,
+    objeto: "app_user.papel_id (backfill dos administradores)",
+    sql: reconstruir(M82, /"role" = 'ADMIN'/),
+    reconstroiDados: true,
+  });
+  p.push({
+    migration: M82,
+    objeto: "app_user.papel_id (backfill do restante)",
+    sql: reconstruir(M82, /lower\("nome"\) = 'operador'/),
+    reconstroiDados: true,
+  });
 
   /*
     A `0039` — o ambiente Fechamento inteiro, que o `down` remove porque

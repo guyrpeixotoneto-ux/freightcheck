@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from "react";
-import { Layers, Truck } from "lucide-react";
+import { Layers } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { LEITURA_DE_APURACAO } from "@/lib/frescor-das-leituras";
 import { EmAtualizacao, classeDeAtualizacao } from "@/components/ui/em-atualizacao";
@@ -23,12 +23,14 @@ import {
   SeletorDeVigenciaGeral,
 } from "@/components/vigencia/seletor-de-vigencia";
 import { AbaBotao } from "@/components/changes/cartoes";
+import { ehTipoDaLinhaDoTempo, type TipoDaLinhaDoTempo } from "@workspace/comparison/tipos";
+import { useAmbiente } from "@/lib/ambiente-aberto";
 import {
-  TIPOS_DA_LINHA_DO_TEMPO,
-  definicaoDaLinhaDoTempo,
-  ehTipoDaLinhaDoTempo,
-  type TipoDaLinhaDoTempo,
-} from "@workspace/comparison/tipos";
+  contracaoDoTipo,
+  equipamentosDoAmbiente,
+  palavrasDoTipo,
+  rotuloDoTipo,
+} from "@/lib/frota";
 import type { FamiliesOverview, FamiliesView } from "@/components/inicio/types";
 
 /**
@@ -44,24 +46,39 @@ import type { FamiliesOverview, FamiliesView } from "@/components/inicio/types";
  * lateral (`components/layout/sidebar.tsx`) é o que permite ver a linha do
  * tempo de outra unidade, ou a Visão Geral, sem sair da tela.
  *
- * Duas abas, e as duas percorrem o mesmo histórico:
+ * Uma fileira de abas, e todas percorrem o mesmo histórico: **Geral**, e uma
+ * por tipo de ativo ao lado dela — Cavalo, Carreta, Trecho na empurrada.
  *
- * - **Geral** é a leitura de sempre — a frota inteira, cavalo e carreta
- *   somados, sem o trecho (que vive numa série própria).
- * - **Cavalo, Carreta e Trecho** é o mesmo histórico com a população trocada:
- *   um tipo de cada vez. Trocar de população, e não filtrar a lista, é o que
- *   faz o placar do topo, o gráfico e a gaveta falarem todos do mesmo
- *   universo — quem recorta é o servidor (`getRangeAnalysis`), pela mesma
- *   razão que `lib/escopos.ts` dá para o Cavalo 360°: `vehiclesTouched` são
- *   ativos distintos, e uma soma feita na tela daria mais caminhões do que a
- *   frota tem.
+ * - **Geral** é a leitura de sempre: a frota inteira, cavalo e carreta somados,
+ *   sem o trecho (que vive numa série própria).
+ * - **Cada aba de tipo** é o mesmo histórico com a população trocada. Trocar de
+ *   população, e não filtrar a lista, é o que faz o placar do topo, o gráfico e
+ *   a gaveta falarem todos do mesmo universo — quem recorta é o servidor
+ *   (`getRangeAnalysis`), pela mesma razão que `lib/escopos.ts` dá para o Cavalo
+ *   360°: `vehiclesTouched` são ativos distintos, e uma soma feita na tela daria
+ *   mais caminhões do que a frota tem.
  *
- * As três não são uma escolha arbitrária: são os tipos de análise que têm
- * `entity_type` próprio e vivem na vigência do equipamento — ver
- * `TIPOS_DA_LINHA_DO_TEMPO`, que é quem explica por que conjunto e QLP ficam
- * de fora.
+ * **Uma aba por tipo, e não uma aba "por tipo" com pastilhas dentro.** Foi o
+ * segundo desenho por um dia, e ele pedia dois cliques e duas leituras para
+ * responder à pergunta que uma aba responde com um. Pior: a pastilha dizia, sem
+ * querer, que o tipo era um ajuste *dentro* de uma leitura — quando ele é a
+ * leitura, e é essa a distinção que o resto desta tela existe para manter.
+ *
+ * **Quais tipos a fileira tem é do ambiente aberto.** Cavalo, carreta e trecho
+ * são o que a empurrada roda; o Rota e o AS rodam com caminhão e carroceria, e o
+ * Apoio com empilhadeira. A lista é `EQUIPAMENTOS_DO_AMBIENTE` (`lib/frota.ts`),
+ * a mesma que o menu, as telas 360° e o Painel de Justificativas leem — abas
+ * escritas à mão com os três nomes da empurrada ficariam certas numa auditoria e
+ * prometeriam, nas outras, filas que a operação não tem.
+ *
+ * O que o servidor **aceita** é outra lista, e mais larga: os seis
+ * equipamentos (`TIPOS_DA_LINHA_DO_TEMPO`, em `@workspace/comparison/tipos`),
+ * que é quem explica por que conjunto e QLP ficam de fora. As duas se encaixam
+ * — o ambiente escolhe dentro do que o recorte aceita —, e é esse encaixe que
+ * impede uma auditoria de ter aba que o servidor recusa.
  */
 export default function LinhaDoTempo() {
+  const ambiente = useAmbiente();
   const search = useSearch();
   const [, navegar] = useLocation();
   const parametros = new URLSearchParams(search);
@@ -80,21 +97,35 @@ export default function LinhaDoTempo() {
   const visaoGeral = parametros.get("visaoGeral") === "1";
 
   /*
-    Qual aba, e — na segunda — qual tipo. As duas moram na URL, como a vigência
-    e a unidade: uma leitura desta tela é para ser colada num chat e continuar
-    querendo dizer a mesma coisa do outro lado.
+    Qual aba — e a aba **é** o tipo.
 
-    `?tipo=` fora dos três cai em Cavalo, e não em erro nem em tela vazia: é a
-    mesma régua de `ehFiltroDeTipo` e `ehEscopo`, que já protegem os outros
-    recortes de um endereço adulterado. A aba Geral é o padrão, e por isso não
-    se escreve no endereço — um `?aba=geral` em todo link do produto é ruído
-    que não muda nada.
+    Uma fileira só: Geral, e um tipo por aba ao lado dela. Foi uma aba "por
+    tipo" com pastilhas dentro por um dia, e o desenho pedia dois cliques e duas
+    leituras para responder à mesma pergunta ("quero ver o trecho") que uma aba
+    responde com uma. A pastilha também dizia, sem querer, que o tipo era um
+    ajuste *dentro* de uma leitura, quando ele é a leitura.
+
+    A consequência é que sobra **um** parâmetro no endereço, e não dois: sem
+    `?tipo=` é a Geral. Um `?aba=` a mais em todo link do produto seria ruído
+    que não muda nada — e um segundo parâmetro é uma segunda chance de os dois
+    discordarem.
+
+    O `?tipo=` vale quando é um equipamento **deste ambiente**: um endereço de
+    empurrada aberto no Rota pediria cavalo a uma auditoria que só tem caminhão,
+    e honrá-lo abriria uma aba que a fileira não tem. Fora disso, a Geral —
+    nunca uma aba de tipo escolhida por nós, que seria trocar em silêncio a
+    leitura que a pessoa pediu. `ehTipoDaLinhaDoTempo` continua sendo a régua do
+    que o servidor aceita: as duas condições, e não uma.
   */
-  const porTipo = parametros.get("aba") === "tipos";
-  const tipoPedido = parametros.get("tipo");
-  const tipo: TipoDaLinhaDoTempo = ehTipoDaLinhaDoTempo(tipoPedido)
-    ? tipoPedido
-    : "CAVALO";
+  const equipamentos = equipamentosDoAmbiente(ambiente);
+  const pedido = parametros.get("tipo");
+  const tipo: TipoDaLinhaDoTempo | null =
+    pedido !== null &&
+    ehTipoDaLinhaDoTempo(pedido) &&
+    (equipamentos as readonly string[]).includes(pedido)
+      ? pedido
+      : null;
+  const porTipo = tipo !== null;
 
   const vigencia = useQuery({
     queryKey: ["families", "linha-do-tempo", consulta.toString()],
@@ -254,21 +285,23 @@ export default function LinhaDoTempo() {
       />
 
       <div className="px-8 border-b">
-        <nav className="flex items-center gap-1 max-w-[1600px]" role="tablist">
+        <nav className="flex flex-wrap items-center gap-1 max-w-[1600px]" role="tablist">
           <AbaBotao
             active={!porTipo}
-            onClick={() => trocarPara({ aba: null, tipo: null })}
+            onClick={() => trocarPara({ tipo: null })}
             icon={<Layers className="w-4 h-4" />}
             label="Geral"
-            hint="a frota inteira, cavalo e carreta somados"
+            hint="a frota inteira, sem separar por tipo"
           />
-          <AbaBotao
-            active={porTipo}
-            onClick={() => trocarPara({ aba: "tipos" })}
-            icon={<Truck className="w-4 h-4" />}
-            label="Cavalo, Carreta e Trecho"
-            hint="o mesmo histórico, um tipo de cada vez"
-          />
+          {equipamentos.map((codigo) => (
+            <AbaBotao
+              key={codigo}
+              active={codigo === tipo}
+              onClick={() => trocarPara({ tipo: codigo })}
+              label={rotuloDoTipo(codigo)}
+              hint={`o mesmo histórico, só ${contracaoDoTipo(codigo, "de")} ${palavrasDoTipo(codigo).plural}`}
+            />
+          ))}
         </nav>
       </div>
 
@@ -276,7 +309,6 @@ export default function LinhaDoTempo() {
         {porTipo ? (
           <AbaPorTipo
             tipo={tipo}
-            onTrocarTipo={(escolhido) => trocarPara({ tipo: escolhido })}
             visaoGeral={visaoGeral}
             vigencia={vigencia}
             view={view}
@@ -411,7 +443,6 @@ export default function LinhaDoTempo() {
  */
 function AbaPorTipo({
   tipo,
-  onTrocarTipo,
   visaoGeral,
   vigencia,
   view,
@@ -421,7 +452,6 @@ function AbaPorTipo({
   onVoltar,
 }: {
   tipo: TipoDaLinhaDoTempo;
-  onTrocarTipo: (tipo: TipoDaLinhaDoTempo) => void;
   visaoGeral: boolean;
   vigencia: { isLoading: boolean; error: unknown; isPlaceholderData: boolean };
   view: FamiliesView | null;
@@ -431,46 +461,13 @@ function AbaPorTipo({
   voltarPara: { periodo: string; label: string } | null;
   onVoltar: (periodo: string) => void;
 }) {
-  const definicao = definicaoDaLinhaDoTempo(tipo);
-
   return (
     <>
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs uppercase tracking-wider text-muted-foreground mr-1">
-          Tipo
-        </span>
-        {TIPOS_DA_LINHA_DO_TEMPO.map((code) => {
-          const item = definicaoDaLinhaDoTempo(code);
-          return (
-            <button
-              key={code}
-              type="button"
-              role="tab"
-              aria-selected={code === tipo}
-              onClick={() => onTrocarTipo(code)}
-              title={item.grao}
-              className={cn(
-                "rounded-full border px-4 py-1.5 text-sm font-bold transition-colors",
-                code === tipo
-                  ? "border-brand bg-brand text-white"
-                  : "bg-card hover:bg-accent",
-              )}
-            >
-              {item.rotulo}
-            </button>
-          );
-        })}
-      </div>
-
+      {/* O mesmo vocabulário de frota do Painel de Justificativas — as duas
+          telas dizem "dos cavalos" e "das carretas" pela mesma função. */}
       <p className="text-sm text-muted-foreground">
-        {/*
-          O grão vem do catálogo em minúscula, porque lá ele é usado no meio de
-          frases. Aqui ele abre a frase — a maiúscula é da tela, e não uma
-          segunda redação do mesmo texto.
-        */}
-        {definicao.grao.charAt(0).toUpperCase() + definicao.grao.slice(1)}. Tudo
-        abaixo — o placar, a evolução vigência a vigência e a gaveta de detalhe
-        — fala só {definicao.plural}.
+        Tudo abaixo — o placar, a evolução vigência a vigência e a gaveta de
+        detalhe — fala só {contracaoDoTipo(tipo, "de")} {palavrasDoTipo(tipo).plural}.
       </p>
 
       {visaoGeral ? (
@@ -579,7 +576,7 @@ function Cabecalho({
       ].filter((p): p is string => p !== null)
     : [
         view?.context.channel ?? null,
-        tipo ? definicaoDaLinhaDoTempo(tipo).nome : null,
+        tipo ? rotuloDoTipo(tipo) : null,
         view
           ? `${view.periods.length} ${view.periods.length === 1 ? "vigência" : "vigências"} no histórico`
           : null,

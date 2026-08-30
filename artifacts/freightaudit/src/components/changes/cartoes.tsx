@@ -24,7 +24,14 @@ export function AbaBotao({
 }: {
   active: boolean;
   onClick: () => void;
-  icon: React.ReactNode;
+  /**
+   * Opcional porque nem toda fileira de abas se distingue por ícone.
+   *
+   * As abas de tipo da Linha do Tempo e do Painel de Justificativas são Cavalo,
+   * Carreta e Trecho lado a lado: três caminhõezinhos iguais não separam nada e
+   * ainda empurram para longe a única coisa que separa — a palavra.
+   */
+  icon?: React.ReactNode;
   label: string;
   hint: string;
   count?: number;

@@ -8,6 +8,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { cargoTable } from "./cadastro";
 import { unidadeTable } from "./unidade";
+import { papelTable } from "./papel";
 
 /**
  * AUTH — quem entrou, e a prova de que entrou.
@@ -155,6 +156,28 @@ export const appUserTable = pgTable(
      * o desfecho que um `ON DELETE SET NULL` daria.
      */
     gestorId: uuid("gestor_id"),
+    /**
+     * O papel da conta — a lista de acesso cadastrada, do `schema/papel.ts`.
+     *
+     * É o vínculo, e não uma cópia: mudar o que o papel alcança muda o que esta
+     * conta alcança, sem passar por aqui. O que a conta guarda de próprio são as
+     * **exceções**, em `permissao_de_modulo`, e elas vencem o papel.
+     *
+     * `role` continua ao lado, e não é redundância mal resolvida: ele é a coluna
+     * que o servidor lê em dezenas de lugares para saber quem gerencia contas, e
+     * passou a ser **derivado** deste papel (`gerencia_contas`), mantido em dia
+     * por quem troca o papel — `lib/papeis.ts`, no api-server. A decisão mora no
+     * papel; `role` é a leitura barata dela.
+     *
+     * `RESTRICT` na exclusão, e a rota confere antes para poder dizer quantas
+     * contas usam o papel: apagar um papel com gente nele deixaria contas
+     * apontando para uma linha morta. Nulo é a conta criada pelo terminal antes
+     * de a `0082` semear os dois papéis — ela cai no papel do `role` dela na
+     * leitura, e não fica sem acesso.
+     */
+    papelId: uuid("papel_id").references(() => papelTable.id, {
+      onDelete: "restrict",
+    }),
   },
   (t) => [
     uniqueIndex("app_user_email_key").on(t.email),
@@ -162,6 +185,9 @@ export const appUserTable = pgTable(
        índices cada abertura da tela varre a tabela inteira duas vezes. */
     index("app_user_cargo_idx").on(t.cargoId),
     index("app_user_unidade_idx").on(t.unidadeId),
+    /* Trocar as permissões de um papel reescreve o `role` de quem o usa, e a
+       tela de Papéis conta as contas de cada um: as duas varrem por papel. */
+    index("app_user_papel_idx").on(t.papelId),
   ],
 );
 

@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import authRouter from "./auth";
 import healthRouter from "./health";
 import usersRouter from "./users";
+import papeisRouter from "./papeis";
 import fleetAnalysisRouter from "./fleet-analysis";
 import curationRouter from "./curation";
 import changesRouter from "./changes";
@@ -175,6 +176,9 @@ router.get("/", (_req, res) => {
 
 router.use(authRouter);
 router.use(usersRouter);
+/* Papéis é a mesma casa que `users` — o cadastro de acesso, e o portão o trata
+   como Configurações (ver `ESCRITAS_POR_MODULO`). */
+router.use(papeisRouter);
 router.use(healthRouter);
 router.use(fleetAnalysisRouter);
 router.use(curationRouter);

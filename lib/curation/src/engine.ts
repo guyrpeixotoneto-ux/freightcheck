@@ -116,7 +116,10 @@ async function latestSnapshotId(db: Database): Promise<string | null> {
  * magnitude. It is never presented as an audited amount — the semantics that
  * would make it one are exactly what is still missing.
  */
-export async function gatherEvidence(db: Database): Promise<AttributeEvidence[]> {
+export async function gatherEvidence(
+  db: Database,
+  opcoes: { code?: string } = {},
+): Promise<AttributeEvidence[]> {
   const snapshotId = await latestSnapshotId(db);
 
   const rows = await db
@@ -142,6 +145,17 @@ export async function gatherEvidence(db: Database): Promise<AttributeEvidence[]>
       factTable,
       and(eq(factTable.attributeId, attributeTable.id), FATO_DE_ORIGEM_VISIVEL),
     )
+    /*
+      Um atributo por vez quando quem pergunta quer um atributo.
+
+      A agregação varre a tabela de fatos inteira — todas as colunas, todas as
+      vigências — e isso é o preço certo para a fila, que mostra todas elas. Já
+      o painel da direita da Curadoria pergunta por **uma** coluna, e pagava a
+      varredura completa a cada clique: era o segundo de espera entre escolher
+      o atributo e ver os valores. O filtro entra antes do `group by`, e não
+      depois, para que o banco não some o que ninguém vai ler.
+    */
+    .where(opcoes.code === undefined ? sql`true` : eq(attributeTable.code, opcoes.code))
     .groupBy(
       attributeTable.code,
       attributeTable.sourceName,
@@ -696,9 +710,9 @@ export interface QueueItem {
  */
 export async function getCurationQueue(
   db: Database,
-  options: { includeConfirmed?: boolean } = {},
+  options: { includeConfirmed?: boolean; code?: string } = {},
 ): Promise<QueueItem[]> {
-  const evidence = await gatherEvidence(db);
+  const evidence = await gatherEvidence(db, { code: options.code });
   const evidenceByCode = new Map(evidence.map((e) => [e.code, e]));
 
   const rows = await db
@@ -749,9 +763,16 @@ export async function getCurationQueue(
       ),
     )
     .where(
-      options.includeConfirmed
-        ? sql`true`
-        : sql`${attributeTable.semanticsStatus} <> 'CONFIRMED'`,
+      and(
+        options.includeConfirmed
+          ? sql`true`
+          : sql`${attributeTable.semanticsStatus} <> 'CONFIRMED'`,
+        // `code` é a fila de um item só, pedida pelo detalhe de um atributo.
+        // A ordenação por materialidade que vem abaixo continua valendo — com
+        // uma linha ela é identidade, e é o mesmo objeto que a fila inteira
+        // devolveria para aquele código.
+        options.code === undefined ? sql`true` : eq(attributeTable.code, options.code),
+      ),
     );
 
   const items: QueueItem[] = rows.map((r) => {
@@ -806,9 +827,17 @@ export async function getAttributeDetail(
   db: Database,
   code: string,
 ): Promise<AttributeDetail | null> {
-  const [queueItem] = await getCurationQueue(db, { includeConfirmed: true }).then((q) =>
-    q.filter((i) => i.code === code),
-  );
+  /*
+    A fila de um item só.
+
+    Isto pedia a fila inteira — todas as colunas da base, com a varredura de
+    evidência que as acompanha — e jogava fora tudo menos uma linha. Era a
+    demora que se sentia na Curadoria: clicar num atributo devolvia o painel
+    vazio por segundos, porque o servidor estava somando fatos de 120 colunas
+    para responder sobre uma. `code` desce até o `where` das duas consultas, e
+    o que volta é o mesmo `QueueItem` de antes.
+  */
+  const [queueItem] = await getCurationQueue(db, { includeConfirmed: true, code });
   if (!queueItem) return null;
 
   const [attribute] = await db

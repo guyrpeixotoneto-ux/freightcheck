@@ -297,6 +297,23 @@ export default function Curadoria() {
   });
 
   /*
+    "Escolhi e nada aconteceu" era um estado que a tela não sabia dizer.
+
+    Enquanto o detalhe não chega, `detail` é `undefined` — exatamente o que ele
+    vale quando ninguém escolheu nada. O painel da direita lia esse `undefined`
+    e repetia o convite "Selecione um atributo", ou seja, respondia ao clique
+    pedindo o clique de novo: quem acabara de clicar concluía que a tela tinha
+    ignorado a escolha e clicava outra vez.
+
+    O endereço é quem desempata, e não a resposta: se há um atributo pedido e
+    ainda não há detalhe, a espera é isso — uma espera —, e é o que se pinta.
+  */
+  const carregandoDetalhe = selected !== null && detail === undefined;
+  // O que a fila já sabe do atributo pedido, para a espera ter nome em vez de
+  // ser um retângulo anônimo. `undefined` enquanto a própria fila não chegou.
+  const pedidoNaFila = queue.find((item) => item.code === selected);
+
+  /*
     O texto primeiro, o equipamento depois.
 
     A ordem decide o que os números das abas prometem. Contadas sobre a fila já
@@ -735,6 +752,26 @@ export default function Curadoria() {
               void invalidarApuracao(queryClient);
             }}
           />
+        ) : carregandoDetalhe ? (
+          <Card className="h-full">
+            <CardHeader>
+              <CardTitle className="text-base">
+                {pedidoNaFila?.displayName ?? pedidoNaFila?.sourceName ?? "Atributo"}
+              </CardTitle>
+              <p className="font-mono text-xs text-muted-foreground">{selected}</p>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Carregando os valores reais…
+              </p>
+              {/* Três barras onde a tabela de valores vai ficar: a espera ocupa
+                  o mesmo lugar que a resposta, e a tela não salta quando ela
+                  chega. */}
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="h-4 animate-pulse rounded bg-muted" />
+              ))}
+            </CardContent>
+          </Card>
         ) : (
           <Card className="h-full">
             <CardContent className="p-12 text-center text-muted-foreground">
@@ -842,6 +879,17 @@ function AttributePanel({
   onConfirmed: () => void;
 }) {
   const conflicted = detail.semanticsRationale?.startsWith("CONFLITO");
+  /*
+    O tipo do valor mora aqui, e não dentro de um dos dois quadros.
+
+    É a mesma resposta em dois lugares da tela — o campo, no "Significado", e a
+    leitura do que se assina, na confirmação. Enquanto cada quadro guardava a
+    sua cópia, era possível declarar o tipo em cima e ver o campo vazio embaixo,
+    e a tela não tinha como dizer qual das duas a confirmação gravaria. Nasce do
+    que está gravado; o painel é chaveado pelo código do atributo, então trocar
+    de atributo recomeça daqui.
+  */
+  const [tipo, setTipo] = useState<string | null>(detail.meaningCode ?? null);
 
   return (
     <div className="space-y-6">
@@ -898,7 +946,12 @@ function AttributePanel({
         </CardContent>
       </Card>
 
-      <MeaningCard detail={detail} onSaved={onConfirmed} />
+      <MeaningCard
+        detail={detail}
+        tipo={tipo}
+        aoEscolherTipo={setTipo}
+        onSaved={onConfirmed}
+      />
 
       <Card>
         <CardHeader className="pb-3">
@@ -945,7 +998,12 @@ function AttributePanel({
         </CardContent>
       </Card>
 
-      <ConfirmarInterpretacao detail={detail} onConfirmed={onConfirmed} />
+      <ConfirmarInterpretacao
+        detail={detail}
+        tipo={tipo}
+        aoEscolherTipo={setTipo}
+        onConfirmed={onConfirmed}
+      />
 
       {detail.events.length > 0 && (
         <Card>
@@ -990,10 +1048,19 @@ function AttributePanel({
  * outras três eram pedir à pessoa que derivasse à mão o que o sistema deriva —
  * e quatro campos independentes são quatro portas para a contradição entrar.
  *
- * Agora são duas perguntas, e as duas são de negócio:
+ * Sobraram duas perguntas de negócio — e só uma delas se responde aqui:
  *
- * - **O que este valor representa?** — o significado econômico, do cadastro.
+ * - **O que este valor representa?** — o significado econômico. Perguntado uma
+ *   vez só, no campo "Tipo" do quadro "Significado"; aqui ele aparece como
+ *   leitura, porque é o que se está assinando.
  * - **Categoria** — onde ele entra na conta.
+ *
+ * O significado saiu daqui como campo quando o "Tipo" passou a existir no
+ * quadro de cima. Os dois tinham o mesmo catálogo, a mesma criação inline e
+ * gravavam o mesmo `meaning_id`: a segunda caixa não coletava resposta nenhuma
+ * que a primeira não coletasse, e coletava a contradição — o tipo declarado em
+ * cima e o campo em branco embaixo, sem que nada na tela dissesse qual dos
+ * dois a confirmação gravava.
  *
  * A derivação é de `@workspace/curation/significado`, **a mesma função que a
  * API usa para gravar**. A tela não tem uma cópia da regra: se tivesse, ela
@@ -1012,10 +1079,30 @@ function AttributePanel({
  */
 function ConfirmarInterpretacao({
   detail,
+  tipo,
+  aoEscolherTipo,
   onConfirmed,
   emGaveta = false,
 }: {
   detail: AttributeDetail;
+  /**
+   * O tipo declarado no quadro "Significado" — o único lugar onde ele se
+   * escolhe.
+   *
+   * Chega como propriedade porque a pergunta é uma só. O campo existia nos
+   * dois quadros, com o mesmo catálogo e a mesma criação inline, e a segunda
+   * caixa não acrescentava resposta nenhuma: acrescentava a chance de a tela
+   * mostrar o tipo em cima e um campo vazio embaixo.
+   */
+  tipo: string | null;
+  /**
+   * Escrever no campo de cima — hoje só a leitura por IA faz isso.
+   *
+   * A sugestão continua opinando sobre o tipo, e a opinião dela tem de cair no
+   * único campo que existe. Sem isto, o botão de IA responderia num estado que
+   * ninguém vê e o quadro de cima continuaria em branco.
+   */
+  aoEscolherTipo: (code: string | null) => void;
   onConfirmed: () => void;
   /**
    * As mesmas perguntas, sem a moldura do card.
@@ -1072,29 +1159,21 @@ function ConfirmarInterpretacao({
     perda da curadoria de 10/08/2026.
   */
   const jaSabido = significadoAtual(campo, catalogo);
-  const [meaningCode, setMeaningCode] = useState<string | null>(
-    detail.meaningCode ?? null,
-  );
   /*
-    O tipo declarado no card de cima chega aqui sem que o painel remonte.
+    O que a confirmação grava como significado: o tipo declarado no quadro de
+    cima e, quando não há nenhum declarado, a releitura dos campos técnicos.
 
-    `useState(detail.meaningCode)` lê uma vez só, e o painel é chaveado pelo
-    **código do atributo** — declarar o tipo no card "Significado" e continuar
-    vendo este campo vazio é a mesma instância, no mesmo atributo. Sem isto, a
-    frase que aquele campo escreve ("a confirmação já abre com este tipo
-    escolhido") só seria verdade depois de trocar de atributo e voltar.
+    Não é estado desta tela porque a pergunta é uma só. Enquanto o campo
+    existia nos dois quadros, a mesma resposta tinha duas caixas — e duas
+    caixas para a mesma resposta são a chance de a tela mostrar "R$ por km" no
+    quadro de cima e "Pesquisar ou cadastrar…" embaixo, sem que nada diga qual
+    das duas a confirmação grava.
 
-    Adota o valor novo **só quando este campo ainda mostra o que estava
-    gravado** — quem escolheu outra coisa aqui não é atropelado por uma
-    declaração feita lá em cima.
+    A releitura fica aqui, e não no quadro de cima, porque ali ela acenderia o
+    botão de salvar sozinha: o tipo relido passaria a diferir do gravado sem
+    que ninguém tivesse escolhido nada.
   */
-  const tipoGravado = useRef<string | null>(detail.meaningCode ?? null);
-  useEffect(() => {
-    const novo = detail.meaningCode ?? null;
-    if (novo === tipoGravado.current) return;
-    setMeaningCode((atual) => (atual === tipoGravado.current ? novo : atual));
-    tipoGravado.current = novo;
-  }, [detail.meaningCode]);
+  const meaningCode = tipo ?? jaSabido?.code ?? null;
   const [taxonomyCode, setTaxonomyCode] = useState<string | null>(
     detail.taxonomyCode ?? null,
   );
@@ -1165,26 +1244,25 @@ function ConfirmarInterpretacao({
       });
       // Campo que o modelo não soube não apaga o que a pessoa já escolheu — a
       // franqueza dele não pode custar o trabalho dela.
-      if (lido) setMeaningCode(lido.code);
+      if (lido) aoEscolherTipo(lido.code);
       if (body.sugestao.periodicidade) setPeriodicity(body.sugestao.periodicidade);
     },
   });
-
-  /*
-    A pré-seleção pela leitura de volta espera o catálogo chegar — e só age
-    enquanto ninguém escolheu nada. Sobrescrever depois apagaria a escolha de
-    quem está na tela por causa de uma resposta de rede que chegou tarde.
-  */
-  useEffect(() => {
-    if (meaningCode === null && jaSabido) setMeaningCode(jaSabido.code);
-  }, [jaSabido, meaningCode]);
 
   const escolhas: Escolhas = {
     meaningCode,
     taxonomyCode,
     periodicity,
   };
-  const escolhido = catalogo.find((o) => o.code === meaningCode) ?? null;
+  /*
+    O item que o quadro mostra. `jaSabido` entra na conta porque a releitura de
+    uma curadoria antiga pode devolver um significado que ainda não está no
+    catálogo — e, sem esta segunda via, a confirmação gravaria um código que a
+    tela mostrava como travessão.
+  */
+  const escolhido =
+    catalogo.find((o) => o.code === meaningCode) ??
+    (meaningCode !== null && meaningCode === jaSabido?.code ? jaSabido : null);
   const categoriaEscolhida = categorias.find((c) => c.code === taxonomyCode) ?? null;
 
   /*
@@ -1267,29 +1345,6 @@ function ConfirmarInterpretacao({
     },
     onError: (err: Error) => setError(err.message),
   });
-
-  /** Cadastrar um significado sem sair daqui. Ver `ComboboxCriavel`. */
-  const criarSignificadoInline = async (
-    label: string,
-  ): Promise<OpcaoDeSignificado | null> => {
-    setErroDoCadastro(null);
-    const response = await fetch(getApiUrl("/curation/significados"), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ label }),
-    });
-    const body = await response.json();
-    if (!response.ok) {
-      setErroDoCadastro(body.error ?? "Não consegui cadastrar este significado.");
-      return null;
-    }
-    // `JA_EXISTE` não é erro: quem clicou queria aquilo escolhido no campo, e é
-    // o que acontece. A frase explica por que o rótulo mudou de "R$/litro" para
-    // "R$ por litro" debaixo do dedo dela.
-    if (body.desfecho === "JA_EXISTE") setErroDoCadastro(body.mensagem);
-    await queryClient.invalidateQueries({ queryKey: ["curation", "significados"] });
-    return body.item as OpcaoDeSignificado | null;
-  };
 
   /**
    * Cadastrar uma linha da DRE sem sair daqui.
@@ -1452,7 +1507,7 @@ function ConfirmarInterpretacao({
                   size="sm"
                   className="h-7 px-2 text-xs"
                   onClick={() => {
-                    setMeaningCode(antes.meaningCode);
+                    aoEscolherTipo(antes.meaningCode);
                     setPeriodicity(antes.periodicity);
                     setSugestao(null);
                     setAntes(null);
@@ -1504,42 +1559,52 @@ function ConfirmarInterpretacao({
         </div>
       </div>
 
-      {/* 4. As duas perguntas. */}
+      {/* 4. A pergunta que sobrou, e o tipo — que não é pergunta daqui. */}
       <div className="space-y-4">
         <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           Precisa da sua confirmação
         </div>
 
-        <Field
-          label="O que este valor representa?"
-          hint="Escolha a interpretação econômica do valor. O FreightCheck deriva os campos técnicos automaticamente."
-        >
-          <ComboboxCriavel
-            itens={catalogo}
-            valor={escolhido}
-            aoEscolher={(item) => {
-              setMeaningCode(item.code);
-              setErroDoCadastro(null);
-            }}
-            aoCriar={criarSignificadoInline}
-            rotuloDe={(item) => item.label}
-            chaveDe={(item) => item.code}
-            detalheDe={(item) => leituraDe(item).natureza}
-            previaDe={(texto) =>
-              previaDaCriacao(texto)?.natureza ??
-              "Não consegui entender esse formato — tente “R$ por hora”, “Percentual” ou “Quantidade”."
-            }
-            placeholder="Pesquisar ou cadastrar…"
-            erro={erroDoCadastro}
-          />
-          {escolhido && (
-            // A consequência da escolha, dita antes de confirmar. É onde a
-            // regra de agregação aparece — como leitura, nunca como campo.
-            <p className="text-xs text-muted-foreground">
-              {leituraDe(escolhido).agregacao}
+        {/*
+          O tipo do valor aparece como leitura, e não como campo.
+
+          Ele já é perguntado no quadro "Significado", com o mesmo catálogo e a
+          mesma criação inline — e um segundo combobox aqui não coletava
+          resposta nenhuma que aquele não coletasse. O que ele fazia era
+          duplicar a caixa: o tipo declarado em cima e o campo em branco
+          embaixo, na mesma tela, sem que nada dissesse qual dos dois a
+          confirmação ia gravar.
+
+          Continua à vista aqui porque é o que se está assinando: confirmar sem
+          ver o significado que sobe seria assinar de memória. Sem tipo, a
+          leitura diz onde ele se escolhe — e o botão continua desabilitado por
+          `oQueFalta`, que já contava esta informação.
+        */}
+        <div className="rounded-md border px-3 py-2">
+          <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            O que este valor representa
+          </div>
+          {escolhido ? (
+            <>
+              <p className="text-sm font-medium">{escolhido.label}</p>
+              {/* A consequência do que se assina, dita antes de confirmar. É
+                  onde a regra de agregação aparece — como leitura, nunca como
+                  campo. */}
+              <p className="text-xs text-muted-foreground">
+                {leituraDe(escolhido).natureza} {leituraDe(escolhido).agregacao}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Vem do campo <span className="font-medium">Tipo</span>, no
+                quadro Significado — é lá que ele se troca.
+              </p>
+            </>
+          ) : (
+            <p className="mt-0.5 text-sm text-muted-foreground">
+              Ainda não declarado. Escolha o <span className="font-medium">Tipo</span>{" "}
+              no quadro Significado, acima — sem ele não há o que confirmar.
             </p>
           )}
-        </Field>
+        </div>
 
         {pedePeriodo && (
           <Field
@@ -1871,29 +1936,66 @@ function GavetaDeCadastro({
           )}
 
           {detail && (
-            /* Chaveadas pelo código pelo mesmo motivo do painel da direita: os
+            /* Chaveado pelo código pelo mesmo motivo do painel da direita: os
                campos nascem de `useState(detail…)`, e sem a chave a gaveta
                reaberta em outro atributo mostraria as respostas do anterior. */
-            <div className="space-y-6">
-              <MeaningCard key={detail.code} detail={detail} onSaved={aoConfirmar} />
-
-              <ConfirmarInterpretacao
-                key={detail.code}
-                detail={detail}
-                emGaveta
-                onConfirmed={() => {
-                  aoConfirmar();
-                  /* Fecha ao confirmar: a gaveta existe para responder e seguir
-                     para a próxima linha, e deixá-la aberta sobre o formulário já
-                     assinado convida a confirmar duas vezes o mesmo atributo. */
-                  aoFechar();
-                }}
-              />
-            </div>
+            <FormularioDoCadastro
+              key={detail.code}
+              detail={detail}
+              aoConfirmar={aoConfirmar}
+              aoFechar={aoFechar}
+            />
           )}
         </div>
       </SheetContent>
     </Sheet>
+  );
+}
+
+/**
+ * Os dois quadros da gaveta, com **um** tipo entre eles.
+ *
+ * Existe por causa do estado, e não do desenho: o tipo do valor é escolhido no
+ * quadro "Significado" e assinado na confirmação, e quem guarda a resposta tem
+ * de estar acima dos dois. É o mesmo arranjo do painel da direita — lá o dono
+ * do estado é o próprio `AttributePanel`, que já é chaveado pelo atributo; aqui
+ * a gaveta acompanha `codigo` sem remontar, e por isso a chave desce para este
+ * componente.
+ */
+function FormularioDoCadastro({
+  detail,
+  aoConfirmar,
+  aoFechar,
+}: {
+  detail: AttributeDetail;
+  aoConfirmar: () => void;
+  aoFechar: () => void;
+}) {
+  const [tipo, setTipo] = useState<string | null>(detail.meaningCode ?? null);
+
+  return (
+    <div className="space-y-6">
+      <MeaningCard
+        detail={detail}
+        tipo={tipo}
+        aoEscolherTipo={setTipo}
+        onSaved={aoConfirmar}
+      />
+
+      <ConfirmarInterpretacao
+        detail={detail}
+        tipo={tipo}
+        aoEscolherTipo={setTipo}
+        emGaveta
+        onConfirmed={() => {
+          aoConfirmar();
+          /* Fecha ao confirmar: a gaveta existe para responder e seguir para a
+             próxima linha, e deixá-la aberta sobre o formulário já assinado
+             convida a confirmar duas vezes o mesmo atributo. */
+          aoFechar();
+        }}
+      />
+    </div>
   );
 }
 
@@ -2070,9 +2172,20 @@ const MOTIVO_SEM_SUGESTAO: Record<string, string> = {
  */
 function MeaningCard({
   detail,
+  tipo,
+  aoEscolherTipo,
   onSaved,
 }: {
   detail: AttributeDetail;
+  /**
+   * O tipo do valor — o único campo desta tela que vive fora do card.
+   *
+   * Ele é a resposta que a confirmação assina, e por isso o estado dele é do
+   * pai: os dois quadros leem a mesma variável, e não há mais um "tipo do card
+   * de cima" e um "significado do card de baixo" livres para discordar.
+   */
+  tipo: string | null;
+  aoEscolherTipo: (code: string | null) => void;
   onSaved: () => void;
 }) {
   const queryClient = useQueryClient();
@@ -2102,18 +2215,18 @@ function MeaningCard({
    */
   const [changeRule, setChangeRule] = useState(detail.changeRule ?? "");
   /**
-   * O tipo do valor — o mesmo significado econômico que a confirmação escolhe.
+   * O tipo do valor — o significado econômico, perguntado uma vez só.
    *
-   * Está aqui, e não só lá embaixo, porque quem abre a planilha reconhece
-   * `odometroEntrada` como quilometragem antes de saber em que linha da DRE ele
-   * cai e antes de poder assinar por ele. O campo estava disponível uma vez só,
-   * dentro da confirmação, junto da categoria e da assinatura — e o preço de
-   * registrar o que se sabe era responder o que não se sabe.
+   * Está aqui, e não dentro da confirmação, porque quem abre a planilha
+   * reconhece `odometroEntrada` como quilometragem antes de saber em que linha
+   * da DRE ele cai e antes de poder assinar por ele. O campo já esteve nos dois
+   * lugares; a confirmação hoje mostra este mesmo valor como leitura.
    *
-   * Escolher aqui **não** confirma: grava `meaning_id` e mais nada, e a
-   * confirmação abre com o tipo já escolhido. Ver `declararTipoDoValor`.
+   * Escolher aqui **não** confirma: grava `meaning_id` e mais nada. Ver
+   * `declararTipoDoValor`.
    */
-  const [meaningCode, setMeaningCode] = useState<string | null>(detail.meaningCode);
+  const meaningCode = tipo;
+  const setMeaningCode = aoEscolherTipo;
   const [erroDoTipo, setErroDoTipo] = useState<string | null>(null);
   /**
    * Para que lado o dinheiro anda quando este número anda.
@@ -2339,13 +2452,14 @@ function MeaningCard({
             placeholder="Pesquisar ou cadastrar…"
             erro={erroDoTipo}
           />
-          {/* O que a escolha faz e o que ela não faz, dito no campo. Um tipo
-              escolhido aqui é o mesmo que a confirmação pede — ela abre com ele
-              pronto —, e escolher não põe a coluna em soma nenhuma. */}
+          {/* O que a escolha faz e o que ela não faz, dito no campo. Este é o
+              único lugar em que o tipo se escolhe: a confirmação lá embaixo
+              mostra o que for escolhido aqui, e escolher não põe a coluna em
+              soma nenhuma. */}
           <p className="text-xs text-muted-foreground">
             {tipoEscolhido
-              ? `${leituraDe(tipoEscolhido).natureza} Não confirma: a confirmação lá embaixo já abre com este tipo escolhido.`
-              : "O mesmo tipo que a confirmação pergunta. Escolher aqui não confirma nada — adianta a resposta."}
+              ? `${leituraDe(tipoEscolhido).natureza} Não confirma: é a confirmação, lá embaixo, que assina por este tipo.`
+              : "É este o significado que a confirmação assina — ela mostra o que for escolhido aqui. Escolher não confirma nada."}
           </p>
         </Field>
 

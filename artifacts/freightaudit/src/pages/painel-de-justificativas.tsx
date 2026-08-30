@@ -93,25 +93,31 @@ import { cn } from "@/lib/utils";
  * e por isso é testável direto; aqui fica o desenho.
  *
  * ---------------------------------------------------------------------------
- * As duas abas
+ * A fileira de abas
  * ---------------------------------------------------------------------------
  * **Geral** é o painel inteiro — a frota toda somada, com o tipo de ativo entre
- * os filtros, onde ele sempre esteve. **Cavalo, Carreta e Trecho** (o nome sai
- * do ambiente aberto — ver `nomeDaAbaPorTipo`) é o mesmo painel com o tipo
- * promovido de filtro a **população**: um tipo de cada vez, escolhido nas
- * pastilhas, e a caixa "Tipo de ativo" sai do lugar porque dois controles para
- * o mesmo eixo é o caminho curto para a tela discordar de si mesma.
+ * os filtros, onde ele sempre esteve. Ao lado dela, **uma aba por tipo de
+ * ativo** (Cavalo, Carreta, Trecho na empurrada; a lista é do ambiente aberto —
+ * ver `EQUIPAMENTOS_DO_AMBIENTE`): o mesmo painel com o tipo promovido de filtro
+ * a **população**. Na aba de um tipo, a caixa "Tipo de ativo" sai do lugar,
+ * porque dois controles para o mesmo eixo é o caminho curto para a tela
+ * discordar de si mesma.
+ *
+ * Uma aba por tipo, e não uma aba "por tipo" com pastilhas dentro: o segundo
+ * desenho durou um dia e pedia dois cliques e duas leituras para responder à
+ * pergunta que uma aba responde com um — e a pastilha dizia, sem querer, que o
+ * tipo era um ajuste *dentro* de uma leitura, quando ele é a leitura.
  *
  * Nada é recontado por causa disso. O tipo já atravessava a leitura inteira —
  * `resumoDoPainel`, `vigenciasDoPainel` e a lista recebem todos o mesmo `tipo`,
  * e é por isso que a aba não precisou de conta nova nem de rota nova: ela é uma
  * escolha diferente sobre a mesma máquina, e não uma segunda máquina.
  *
- * O cartão "Pendências por tipo de ativo" continua atravessando os tipos nas
- * duas abas, e é de propósito: ele é o único lugar da tela que compara um tipo
+ * O cartão "Pendências por tipo de ativo" continua atravessando os tipos em
+ * todas as abas, e é de propósito: ele é o único lugar da tela que compara um tipo
  * com o outro, o título diz isso, e na aba de tipo é ele que mostra o tamanho
- * relativo da fila que se escolheu. As barras seguem clicáveis — na aba de tipo
- * elas trocam a pastilha aberta.
+ * relativo da fila que se escolheu. As barras seguem clicáveis — numa aba de
+ * tipo elas levam para a aba de outro.
  */
 
 /* O endereço desta tela — o mesmo que `App.tsx` registra. A aba e o tipo são
@@ -169,23 +175,6 @@ function Cartao({
       </div>
     </section>
   );
-}
-
-/**
- * O nome da aba de tipo — "Cavalo, Carreta e Trecho" na empurrada.
- *
- * Sai do ambiente aberto, e não de uma constante: o Rota e o AS rodam com
- * caminhão e carroceria, o Apoio com empilhadeira, e uma aba escrita "Cavalo,
- * Carreta e Trecho" numa auditoria que não tem nenhum dos três prometeria três
- * filas que a tela abriria vazias. A lista é a mesma que o menu e as outras
- * telas do Plano de Ação leem (`EQUIPAMENTOS_DO_AMBIENTE`), para que os três
- * nunca discordem sobre o que a operação tem.
- */
-export function nomeDaAbaPorTipo(equipamentos: readonly string[]): string {
-  const rotulos = equipamentos.map((e) => rotuloDoTipo(e));
-  if (rotulos.length === 0) return "Por tipo";
-  if (rotulos.length === 1) return rotulos[0];
-  return `${rotulos.slice(0, -1).join(", ")} e ${rotulos[rotulos.length - 1]}`;
 }
 
 export default function PainelDeJustificativas() {
@@ -291,30 +280,35 @@ export default function PainelDeJustificativas() {
     a cobertura não chegou, a escolha vale — não há como saber ainda.
   */
   /*
-    Qual aba, e — na de tipo — qual tipo.
+    Qual aba — e a aba **é** o tipo.
 
-    As duas moram no endereço, e os filtros logo acima não: a diferença é que
-    uma aba não é um recorte da leitura, é **qual leitura** se está fazendo. É o
-    que alguém cola num chat ("olha a fila do trecho"), e é o que a Linha do
-    Tempo já escreve no endereço pela mesma razão. Os filtros continuam em
-    estado, pelo motivo escrito acima deles.
+    Uma fileira só: Geral, e um tipo por aba ao lado dela. Ela mora no endereço,
+    e os filtros logo acima não: a diferença é que uma aba não é um recorte da
+    leitura, é **qual leitura** se está fazendo. É o que alguém cola num chat
+    ("olha a fila do trecho"), e é o que a Linha do Tempo escreve no endereço
+    pela mesma razão. Os filtros continuam em estado, pelo motivo escrito acima
+    deles.
 
-    `?tipo=` que não seja um equipamento **deste ambiente** cai no primeiro da
-    lista, e não em erro nem em tela vazia — a mesma régua de `equipamentoValido`
-    nas telas 360°.
+    Sobra **um** parâmetro, e não dois: sem `?tipo=` é a Geral. Um `?aba=` a
+    mais em todo link seria ruído que não muda nada — e um segundo parâmetro é
+    uma segunda chance de os dois discordarem.
+
+    `?tipo=` que não seja um equipamento **deste ambiente** cai na Geral, e não
+    numa aba de tipo escolhida por nós: trocar em silêncio a leitura que a
+    pessoa pediu é pior do que devolvê-la ao começo. Mesma régua de
+    `equipamentoValido` nas telas 360°.
   */
   const equipamentos = equipamentosDoAmbiente(ambiente);
-  const porTipo = params.get("aba") === "tipos";
-  const tipoPedido = params.get("tipo");
+  const pedido = params.get("tipo");
   const tipoDaAba =
-    tipoPedido !== null && (equipamentos as readonly string[]).includes(tipoPedido)
-      ? tipoPedido
-      : (equipamentos[0] ?? null);
+    pedido !== null && (equipamentos as readonly string[]).includes(pedido)
+      ? pedido
+      : null;
+  const porTipo = tipoDaAba !== null;
 
   /*
     O tipo que a leitura inteira usa. Na aba Geral é o filtro (nulo = todos); na
-    aba de tipo é a população, e nula ela não pode ser — sem tipo, a aba não
-    tem assunto.
+    aba de um tipo é a população, e é ela que manda.
   */
   const tipo = porTipo ? tipoDaAba : tipoFiltrado;
 
@@ -586,50 +580,27 @@ export default function PainelDeJustificativas() {
       </header>
 
       <div className="px-8 border-b max-w-[1400px]">
-        <nav className="flex items-center gap-1" role="tablist">
+        <nav className="flex flex-wrap items-center gap-1" role="tablist">
           <AbaBotao
             active={!porTipo}
-            onClick={() => irPara({ aba: null, tipo: null })}
+            onClick={() => trocar(() => irPara({ tipo: null }))}
             icon={<Layers className="w-4 h-4" />}
             label="Geral"
             hint="a frota inteira, com o tipo de ativo entre os filtros"
           />
-          <AbaBotao
-            active={porTipo}
-            onClick={() => irPara({ aba: "tipos" })}
-            icon={<Truck className="w-4 h-4" />}
-            label={nomeDaAbaPorTipo(equipamentos)}
-            hint="o mesmo painel, um tipo de cada vez"
-          />
+          {equipamentos.map((codigo) => (
+            <AbaBotao
+              key={codigo}
+              active={codigo === tipoDaAba}
+              onClick={() => trocar(() => irPara({ tipo: codigo }))}
+              label={rotuloDoTipo(codigo)}
+              hint={`o mesmo painel, só ${contracaoDoTipo(codigo, "de")} ${palavrasDoTipo(codigo).plural}`}
+            />
+          ))}
         </nav>
       </div>
 
       <div className="px-8 pb-10 space-y-4 max-w-[1400px] pt-4">
-        {porTipo && (
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs uppercase tracking-wide text-muted-foreground mr-1">
-              Tipo
-            </span>
-            {equipamentos.map((codigo) => (
-              <button
-                key={codigo}
-                type="button"
-                role="tab"
-                aria-selected={codigo === tipo}
-                onClick={() => trocar(() => irPara({ tipo: codigo }))}
-                className={cn(
-                  "rounded-full border px-4 py-1.5 text-sm font-bold transition-colors",
-                  codigo === tipo
-                    ? "border-primary bg-primary text-primary-foreground"
-                    : "bg-card hover:bg-muted",
-                )}
-              >
-                {rotuloDoTipo(codigo)}
-              </button>
-            ))}
-          </div>
-        )}
-
         {porTipo && tipo !== null && (
           <p className="text-sm text-muted-foreground">
             Tudo abaixo — os cartões, a cobertura e a fila — fala só{" "}
@@ -816,8 +787,8 @@ export default function PainelDeJustificativas() {
                         onClick={() =>
                           trocar(() =>
                             porTipo
-                              ? // Na aba de tipo não existe "nenhum tipo": a
-                                // barra troca a população aberta.
+                              ? // Numa aba de tipo não existe "nenhum tipo": a
+                                // barra leva para a aba daquele tipo.
                                 irPara({ tipo: barra.tipo })
                               : setTipoFiltrado(barra.tipo === tipo ? null : barra.tipo),
                           )

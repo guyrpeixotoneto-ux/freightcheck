@@ -10,6 +10,7 @@ import { criarBancoComExportRealPromovido, type TestDb } from "@workspace/ingest
 import {
   confirmAttribute,
   gatherEvidence,
+  getAttributeDetail,
   gatherPairRatios,
   getCurationQueue,
   getCurationSummary,
@@ -314,6 +315,39 @@ describe("the queue puts the money first", () => {
   it("drops an attribute from the queue once it is confirmed", async () => {
     const queue = await getCurationQueue(ctx.db);
     expect(queue.map((i) => i.code)).not.toContain("carreta.seguro");
+  });
+
+  /*
+    Pedir um atributo não pode custar a fila inteira.
+
+    O detalhe do painel da direita chamava a fila completa e descartava tudo
+    menos uma linha — a varredura de evidência de todas as colunas da base para
+    responder sobre uma, que era a demora entre clicar e ver os valores. O
+    filtro por código tem de devolver exatamente a mesma linha: se a evidência
+    filtrada divergisse da não filtrada, a economia teria trocado a resposta.
+  */
+  it("responde por um código só com a mesma linha que a fila inteira daria", async () => {
+    const inteira = await getCurationQueue(ctx.db, { includeConfirmed: true });
+    const alvo = inteira.find((i) => i.magnitude !== null && i.magnitude !== 0);
+    expect(alvo).toBeDefined();
+
+    const sozinho = await getCurationQueue(ctx.db, {
+      includeConfirmed: true,
+      code: alvo!.code,
+    });
+    expect(sozinho).toHaveLength(1);
+    expect(sozinho[0]).toEqual(alvo);
+
+    // E o detalhe, que é quem faz o pedido, continua trazendo essa linha.
+    const detalhe = await getAttributeDetail(ctx.db, alvo!.code);
+    expect(detalhe).not.toBeNull();
+    expect(detalhe!.magnitude).toBe(alvo!.magnitude);
+    expect(detalhe!.valueCount).toBe(alvo!.valueCount);
+    expect(detalhe!.nullCount).toBe(alvo!.nullCount);
+  });
+
+  it("não inventa atributo quando o código não existe", async () => {
+    expect(await getAttributeDetail(ctx.db, "cavalo.nao_existe")).toBeNull();
   });
 });
 

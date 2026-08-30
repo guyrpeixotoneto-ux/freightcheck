@@ -1,4 +1,4 @@
-import { Building2, Briefcase, IdCard, KeyRound, MapPin, Network, ShieldCheck, UserRound, Users, type LucideIcon } from "lucide-react";
+import { Building2, Briefcase, IdCard, KeyRound, MapPin, Network, ShieldCheck, UserCog, UserRound, Users, type LucideIcon } from "lucide-react";
 import { TELAS_EM_PREPARO } from "@/pages/telas-em-preparo";
 
 /**
@@ -64,10 +64,16 @@ export const SECOES_GERAIS: SecaoDeConfiguracao[] = [
     descricao: "Quem entra, com que papel e desde quando.",
   },
   {
+    href: "/configuracoes/papeis",
+    label: "Papéis",
+    icon: UserCog,
+    descricao: "Os papéis do acesso e o que cada um alcança, para todo mundo que o usa.",
+  },
+  {
     href: "/configuracoes/permissoes",
     label: "Permissões",
     icon: ShieldCheck,
-    descricao: "O que cada pessoa alcança, módulo a módulo — aqui se tira acesso.",
+    descricao: "A exceção de cada conta sobre o papel dela — aqui se tira acesso de uma pessoa.",
   },
   {
     href: "/configuracoes/cargos",
