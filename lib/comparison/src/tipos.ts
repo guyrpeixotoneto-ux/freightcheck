@@ -209,3 +209,60 @@ export function contagemDoTipo(
     ? `1 ${tipo.nome.toLowerCase()}`
     : `${quantidade} ${tipo.plural}`;
 }
+
+/* ------------------------------------------------------------------ */
+/* O recorte da Linha do Tempo                                         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Os tipos que a Linha do Tempo sabe percorrer sozinhos.
+ *
+ * Três dos seis, e a lista é curta por medida e não por gosto:
+ *
+ * - **CAVALO** e **CARRETA** são `entity_type` no banco, e a leitura de
+ *   intervalo já lê as linhas dos dois — recortá-la por um deles é dizer
+ *   "só as alterações cuja linha é de cavalo".
+ * - **TRECHO** também é `entity_type`, mas mora fora da leitura de intervalo:
+ *   ela o exclui de propósito (ver `getRangeAnalysis`), porque as telas que a
+ *   consomem falam de frota. O recorte é o que o traz de volta — e só quando
+ *   alguém pede por ele.
+ * - **CONJUNTO** fica de fora porque não é `entity_type` nenhum: ele é a
+ *   leitura de colunas da carreta que já embutem o cavalo, e uma linha do
+ *   tempo "do conjunto" contaria de novo o que a linha da carreta já conta.
+ * - **QLP adm.** e **QLP oper.** ficam de fora porque formam vigência própria,
+ *   de outra família de dataset — o eixo de vigências desta tela é o do
+ *   equipamento, e percorrê-lo com as linhas do quadro de pessoal daria uma
+ *   série com furos que não são furos.
+ */
+export type TipoDaLinhaDoTempo = Extract<
+  TipoDeAnalise,
+  "CAVALO" | "CARRETA" | "TRECHO"
+>;
+
+/** Os três, na mesma ordem do catálogo — a aba os oferece nesta ordem. */
+export const TIPOS_DA_LINHA_DO_TEMPO: TipoDaLinhaDoTempo[] = [
+  "CAVALO",
+  "CARRETA",
+  "TRECHO",
+];
+
+/**
+ * Se um valor vindo da URL é um dos três.
+ *
+ * Mesma doutrina de `ehFiltroDeTipo`: endereço adulterado cai na leitura sem
+ * recorte — a aba Geral — em vez de quebrar a tela ou, pior, devolver uma
+ * leitura vazia que se pareceria com "não houve alteração nenhuma".
+ */
+export function ehTipoDaLinhaDoTempo(
+  valor: string | null | undefined,
+): valor is TipoDaLinhaDoTempo {
+  if (valor === null || valor === undefined) return false;
+  return (TIPOS_DA_LINHA_DO_TEMPO as string[]).includes(valor);
+}
+
+/** A definição de um dos três — nome, plural e grão, para a tela escrever. */
+export function definicaoDaLinhaDoTempo(
+  tipo: TipoDaLinhaDoTempo,
+): DefinicaoDeTipoDeAnalise {
+  return POR_CODIGO.get(tipo)!;
+}

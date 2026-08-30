@@ -478,8 +478,25 @@ const num = (v: string | null): number | null => (v === null ? null : Number(v))
 export async function loadChanges(
   db: Database,
   changeSetIds: string[],
+  /**
+   * Ler as linhas de **um** `entity_type`, e não a leitura de frota inteira.
+   *
+   * Existe por causa do recorte da Linha do Tempo (`TipoDaLinhaDoTempo`): a aba
+   * de Cavalo, Carreta e Trecho percorre o mesmo intervalo falando de um tipo
+   * só, e o trecho — que a leitura padrão exclui, ver o `AND` abaixo — só é
+   * alcançável por aqui. Sem o argumento nada muda: a exclusão do trecho
+   * continua sendo o padrão de todo mundo que já chamava esta função.
+   */
+  entityType?: string,
 ): Promise<RawChange[]> {
   if (changeSetIds.length === 0) return [];
+  const doTipo = entityType
+    ? sql`AND c.entity_type = ${entityType}`
+    : /*
+        TRECHO só aparece no Trecho 360 e na aba de tipo da Linha do Tempo, que
+        pedem por ele pelo nome. Ver a nota longa abaixo.
+      */
+      sql`AND c.entity_type IS DISTINCT FROM 'TRECHO'`;
   const { rows } = await db.execute<RawChange>(sql`
     SELECT c.id, c.change_set_id, c.category, c.change_type, c.nature,
            c.entity_id::text AS entity_id, c.entity_label, c.entity_type,
@@ -501,12 +518,13 @@ export async function loadChanges(
        sql`, `,
      )})
        -- TRECHO só aparece no Trecho 360, que lê pela rota própria de frota
-       -- (/frota/ativos) e nunca passa por esta leitura agrupada. As telas
-       -- que chamam loadChanges (Dashboard, Resumo executivo, Painel de
-       -- Unidades, Linha do Tempo, Acompanhamento) leem a vigência inteira sem
-       -- recorte de equipamento, e sem esta linha o trecho vazava para dentro
-       -- delas junto com cavalo e carreta.
-       AND c.entity_type IS DISTINCT FROM 'TRECHO'
+       -- (/frota/ativos), e na aba de tipo da Linha do Tempo, que o pede pelo
+       -- nome no argumento entityType. As telas que chamam loadChanges sem
+       -- recorte (Dashboard, Resumo executivo, Painel de Unidades, Linha do
+       -- Tempo em Geral, Acompanhamento) leem a vigência inteira sem recorte de
+       -- equipamento, e sem esta exclusão o trecho vazava para dentro delas
+       -- junto com cavalo e carreta.
+       ${doTipo}
   `);
   return rows;
 }

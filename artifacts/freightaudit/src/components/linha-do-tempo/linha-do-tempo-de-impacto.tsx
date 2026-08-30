@@ -14,7 +14,9 @@ import {
   MapPin,
   SlidersHorizontal,
 } from "lucide-react";
+import type { TipoDaLinhaDoTempo } from "@workspace/comparison/tipos";
 import { opcoesDoIntervalo, opcoesDoIntervaloGeral } from "@/lib/intervalo-da-linha-do-tempo";
+import { LeituraPorTipo, useLinkDeAlteracoes } from "@/lib/tipo-da-linha-do-tempo";
 import { cn } from "@/lib/utils";
 import { formatBrlShort, periodicityAdjective, periodicitySuffix } from "@/lib/format";
 import { linkDeAlteracoes, type Recorte } from "@/lib/recorte";
@@ -49,16 +51,33 @@ export function LinhaDoTempoDeImpacto({
   consulta,
   periods,
   currentPeriod,
+  tipo = null,
 }: {
   consulta: URLSearchParams;
   periods: { date: string; label: string }[];
   currentPeriod: string;
+  /**
+   * De qual tipo é esta leitura — a aba "Cavalo, Carreta e Trecho".
+   *
+   * `null` é a aba Geral, e é o comportamento de sempre: a frota inteira, sem
+   * o trecho. Com um tipo, ele viaja na consulta (e portanto na chave e na
+   * pergunta ao servidor, que é quem recorta — ver `getRangeAnalysis`) e
+   * atravessa a subárvore pelo contexto de `lib/tipo-da-linha-do-tempo`.
+   */
+  tipo?: TipoDaLinhaDoTempo | null;
 }) {
   const ordenadas = [...periods].sort((a, b) => a.date.localeCompare(b.date));
   const primeira = ordenadas[0]?.date;
 
-  // A mesma unidade e canal em toda a linha do tempo — só a vigência muda de
-  // linha para linha, e é ela que cada linha acrescenta ao clicar.
+  /*
+    A mesma unidade e canal em toda a linha do tempo — só a vigência muda de
+    linha para linha, e é ela que cada linha acrescenta ao clicar.
+
+    Ele continua inteiro na aba de tipo, inclusive no trecho: é por ele que a
+    gaveta pede as placas de um grupo, e esvaziá-lo faria o servidor cair em
+    `contexts[0]` e listar ativos de outra unidade. Quem decide se há **link**
+    para Alterações é `useLinkDeAlteracoes`, que é outra pergunta.
+  */
   const recorteBase: Recorte = {
     period: null,
     scopeHash: consulta.get("scopeHash"),
@@ -87,7 +106,7 @@ export function LinhaDoTempoDeImpacto({
     resposta ou já está no cache, ou está a caminho.
   */
   const movimentos = useQuery({
-    ...opcoesDoIntervalo(consulta, primeira ?? currentPeriod, currentPeriod),
+    ...opcoesDoIntervalo(consulta, primeira ?? currentPeriod, currentPeriod, tipo),
     enabled: ordenadas.length > 1,
   });
 
@@ -114,7 +133,15 @@ export function LinhaDoTempoDeImpacto({
   */
   const overview = useQuery({
     ...opcoesDoIntervaloGeral(primeira ?? null, currentPeriod),
-    enabled: ordenadas.length > 1 && movimentos.isSuccess,
+    /*
+      Na aba de tipo ela não sai. "Onde está o impacto?" é um ranking entre
+      unidades sobre a leitura sem recorte, e `/changes/range/overview` não
+      sabe recortar por tipo: publicá-lo ao lado de uma linha do tempo de
+      cavalo poria dois universos diferentes na mesma coluna, com a mesma cara
+      de verdade. A coluna não fica vazia por isso — as pendências de valoração
+      continuam sendo do próprio recorte.
+    */
+    enabled: ordenadas.length > 1 && movimentos.isSuccess && tipo === null,
   });
 
   // Uma vigência só não tem linha do tempo a desenhar.
@@ -128,7 +155,26 @@ export function LinhaDoTempoDeImpacto({
   }
 
   const dados = movimentos.data;
-  if (!dados || dados.movements.length === 0) return null;
+  if (!dados || dados.movements.length === 0) {
+    /*
+      Na aba Geral, silêncio: a tela já disse o que tinha a dizer nos cartões
+      acima, e um aviso a mais seria ruído.
+
+      Na aba de tipo, não. Ali o vazio é o resultado inteiro — não há mais nada
+      na tela —, e vazio sem frase se lê como tela quebrada. As duas causas
+      possíveis são ditas juntas de propósito: a leitura não sabe distinguir
+      "chegou e não mexeu" de "nunca foi importado aqui" (quem sabe é a
+      composição da vigência, que esta leitura não carrega), e escolher uma
+      seria afirmar o que não se apurou.
+    */
+    if (tipo === null) return null;
+    return (
+      <section className={cn(CARTAO, "p-8 text-center text-sm text-muted-foreground")}>
+        Nenhuma alteração deste tipo no histórico deste recorte — ou ele não se
+        mexeu entre as vigências, ou não foi importado aqui.
+      </section>
+    );
+  }
 
   // A mais antiga primeiro — daqui em diante a linha do tempo corre da
   // esquerda para a direita, e é esta ordem que a janela paginada recorta.
@@ -157,7 +203,7 @@ export function LinhaDoTempoDeImpacto({
   const temLateral = ranking.length > 0 || dados.impact.notCalculable > 0;
 
   return (
-    <>
+    <LeituraPorTipo tipo={tipo}>
       {periodicidadeSelecionada !== undefined && (
         <CartoesDeResumo
           dados={dados}
@@ -227,7 +273,7 @@ export function LinhaDoTempoDeImpacto({
         onFechar={() => setAbertura(null)}
         onAbrirParametro={abrirParametro}
       />
-    </>
+    </LeituraPorTipo>
   );
 }
 
@@ -714,12 +760,17 @@ function CartaoDaVigencia({
   onAbrir?: (linha: RangeMovement) => void;
   rotuloDeAbrir: string;
 }) {
+  const link = useLinkDeAlteracoes();
   const valor = linha.impact.byPeriodicity[periodicidade];
   const semValoracao = valor === undefined && linha.changes > 0;
 
+  // Sem endereço em Alterações — a aba de trecho —, o cartão não finge ser
+  // link: ver `useLinkDeAlteracoes`.
+  const temLink = recorteBase !== null && link !== null;
+
   const classe = cn(
     "block h-full w-full rounded-lg border p-3 text-center transition-colors",
-    (recorteBase !== null || onAbrir) && "hover:border-brand/40 hover:bg-accent",
+    (temLink || onAbrir) && "hover:border-brand/40 hover:bg-accent",
     tom === "critico" && "border-red-200 bg-red-50/50",
     tom === "ganho" && "border-emerald-200 bg-emerald-50/50",
   );
@@ -782,10 +833,10 @@ function CartaoDaVigencia({
     );
   }
 
-  if (recorteBase !== null) {
+  if (recorteBase !== null && link !== null) {
     return (
       <Link
-        href={linkDeAlteracoes({ recorte: { ...recorteBase, period: linha.period } })}
+        href={link({ recorte: { ...recorteBase, period: linha.period } })}
         aria-label={`Ver as alterações de ${linha.label}`}
         title="Ver as alterações desta vigência"
         className={classe}
@@ -1007,6 +1058,7 @@ export function ContagemPorVigencia({
   recorteBase: Recorte | null;
   onAbrirVigencia?: (linha: RangeMovement) => void;
 }) {
+  const link = useLinkDeAlteracoes();
   const teto = Math.max(...linhas.map((l) => l.changes), 1);
   const maior = linhas.reduce((a, b) => (b.changes > a.changes ? b : a), linhas[0]);
 
@@ -1019,13 +1071,14 @@ export function ContagemPorVigencia({
         {linhas.map((linha) => {
           const destaque = linha.period === maior.period && maior.changes > 0;
           const Linha = ({ children }: { children: React.ReactNode }) => {
+            const temLink = recorteBase !== null && link !== null;
             const classe =
               "grid grid-cols-[7rem_1fr_5.5rem] items-center gap-3 text-sm rounded px-1 -mx-1 w-full text-left" +
-              (recorteBase !== null || onAbrirVigencia ? " hover:bg-accent transition-colors" : "");
-            if (recorteBase !== null) {
+              (temLink || onAbrirVigencia ? " hover:bg-accent transition-colors" : "");
+            if (recorteBase !== null && link !== null) {
               return (
                 <Link
-                  href={linkDeAlteracoes({ recorte: { ...recorteBase, period: linha.period } })}
+                  href={link({ recorte: { ...recorteBase, period: linha.period } })}
                   aria-label={`Ver as alterações de ${linha.label}`}
                   title="Ver as alterações desta vigência"
                   className={classe}
@@ -1194,6 +1247,7 @@ export function PendenciasDeValoracao({
   /** `null` em Visão Geral: o filtro de valoração precisa de uma unidade. */
   recorteBase: Recorte | null;
 }) {
+  const link = useLinkDeAlteracoes();
   if (dados.impact.notCalculable === 0) return null;
 
   return (
@@ -1211,9 +1265,9 @@ export function PendenciasDeValoracao({
         {recorteBase === null &&
           " Abra uma vigência da linha do tempo para ver de que unidades elas são."}
       </p>
-      {recorteBase !== null && (
+      {recorteBase !== null && link !== null && (
         <Link
-          href={linkDeAlteracoes({
+          href={link({
             recorte: recorteBase,
             filtros: { impactConfidence: "NOT_CALCULABLE" },
           })}
