@@ -183,6 +183,7 @@ export const ESCRITAS_POR_MODULO: ReadonlyArray<readonly [string, readonly strin
   ["/alteracoes", ["/change-sets"]],
   ["/justificativas", ["/justificativas"]],
   ["/remunerado", ["/compras"]],
+  ["/integracoes", ["/integracoes"]],
   /* Papéis é a mesma tela que contas, e por isso o mesmo módulo: quem tem
      Configurações administra as duas, quem não tem não administra nenhuma. */
   ["/configuracoes", ["/users", "/papeis"]],

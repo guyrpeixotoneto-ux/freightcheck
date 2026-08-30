@@ -3,6 +3,7 @@ import cookieParser from "cookie-parser";
 import compression from "compression";
 import pinoHttp from "pino-http";
 import router from "./routes";
+import routerV1 from "./routes/v1";
 import { carimboDaApi } from "./middlewares/carimbo-da-api";
 import { corsDaArquitetura } from "./middlewares/cors-da-arquitetura";
 import { requireSession } from "./middlewares/require-session";
@@ -126,6 +127,22 @@ app.use(cookieParser());
  * dentro da janela que o portão existe para manter vazia.
  */
 app.use("/api", portaoDeProntidao);
+
+/**
+ * A porta de API vem **antes** da sessão, e é a única coisa que vem.
+ *
+ * `/api/v1` é a superfície das integrações: quem chama é um sistema, e a
+ * credencial é uma chave, nunca um cookie. Montá-la depois de `requireSession`
+ * faria toda chamada de máquina bater no 401 do portão de sessão antes de
+ * chegar ao portão que sabe conferi-la — e a saída seria acrescentar `/v1` à
+ * lista de caminhos públicos de `lib/auth.ts`, que é a lista do que responde
+ * **sem credencial nenhuma**. Não é o caso: cada rota de `routes/v1.ts` exige
+ * chave, e o escopo dela, pelo próprio middleware.
+ *
+ * Depois do portão de prontidão, como tudo: a conferência da chave lê o banco,
+ * e não pode acontecer na janela entre o `listen` e a convergência do schema.
+ */
+app.use("/api/v1", routerV1);
 
 /**
  * Antes das rotas, e uma vez só: a autenticação é do servidor inteiro, não de

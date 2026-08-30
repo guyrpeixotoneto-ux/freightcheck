@@ -7,7 +7,6 @@ import {
   FileSpreadsheet,
   HardHat,
   History,
-  Plug,
   Shield,
   SquareActivity,
   SquareTerminal,
@@ -345,25 +344,19 @@ export const TELAS_EM_PREPARO: TelaEmPreparo[] = [
   // -------------------------------------------------------------------------
   // Administração
   // -------------------------------------------------------------------------
-  {
-    href: "/integracoes",
-    label: "Integrações",
-    icon: Plug,
-    cor: "text-nav-admin",
-    pergunta:
-      "Que sistemas entregam e consomem dados aqui, e se a última troca de cada um funcionou.",
-    depende: [
-      "O conector como coisa do produto: endereço, credencial guardada em cofre, agenda e resultado da última execução. Hoje a entrada é envio manual de arquivo em Importações.",
-      "O contrato de cada troca versionado, para que a mudança do outro lado apareça como falha nomeada e não como importação silenciosamente incompleta.",
-    ],
-    hoje: [
-      {
-        href: "/importacoes",
-        label: "Importações",
-        porque: "O caminho de entrada que existe hoje, com o resultado de cada arquivo enviado.",
-      },
-    ],
-  },
+  /*
+    "Integrações" saiu deste catálogo porque deixou de estar em preparo: a tela
+    existe (`pages/integracoes.tsx`), sobre a porta de API de verdade — chave
+    por sistema, escopo por chave e o registro de cada chamada. O verbete pedia
+    "credencial guardada e resultado da última execução", e é isso que ela
+    mostra.
+
+    O que aquele verbete pedia e ainda não existe é a **busca ativa** — nós
+    chamando o fornecedor numa agenda. Isso não voltou para cá como tela em
+    preparo porque não é uma tela que falta: é uma capacidade que falta, e o
+    lugar de descrevê-la é `docs/INTEGRACOES.md`, onde ela está, e não um item
+    de menu que promete o que não faz.
+  */
   {
     href: "/seguranca",
     label: "Segurança",

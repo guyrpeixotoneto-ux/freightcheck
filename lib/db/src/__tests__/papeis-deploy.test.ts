@@ -312,6 +312,30 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
         */
         "snapshot_presenca",
         /*
+          As cinco de Integrações — as três da `0084` (a porta de API: a
+          integração, as chaves dela e o log de chamadas) e as duas da `0085` (a
+          busca ativa: a agenda e o histórico de execuções). Aditivas pelo mesmo
+          critério de todas as acima: nenhuma tabela existente muda de forma —
+          elas só se referenciam entre si, e `import_run_id` em
+          `integracao_chamada` e `integracao_execucao` é referência fraca, sem
+          chave estrangeira —, nenhuma coluna nova sai de tabela do cálculo, e
+          Production as ganha quando o servidor novo aplicar a fila na partida.
+
+          Nascem vazias, e nascer vazias é o estado correto: sem integração
+          cadastrada não há chave, e sem chave a porta de API responde 401 a
+          todo mundo. O produto que Production já roda não muda em nada até
+          alguém abrir a tela e criar a primeira.
+
+          O que elas guardam é decisão humana (a chave que alguém emitiu) e
+          prova (o registro de que um arquivo entrou por máquina), e é por isso
+          que o `down` do bridge exige encontrá-las vazias antes de derrubá-las.
+        */
+        "integracao",
+        "integracao_chave",
+        "integracao_chamada",
+        "integracao_busca",
+        "integracao_execucao",
+        /*
           As três do cadastro de papéis, da `0082` — o papel como linha, com o
           que ele restringe e o histórico do que mudou nele. Aditivas pelo
           mesmo critério das acima: `papel_permissao` e `papel_evento`
@@ -518,7 +542,21 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
                exatamente o que esta conferência não pode deixar passar calada. */
             !c.startsWith("cargo_") &&
             !c.startsWith("departamento_") &&
-            !c.startsWith("negocio_"),
+            !c.startsWith("negocio_") &&
+            /* As de Integrações, da `0084` e da `0085`, pela mesma regra das de
+               Fluxos: são as chaves primárias, as seis FKs entre as cinco
+               tabelas novas e as `CHECK` de resultado, forma, método, disparo e
+               intervalo mínimo — todas nascem **com** tabelas que Production não
+               tem, e nomeá-las uma a uma congelaria a nomenclatura interna do
+               módulo num teste que não fala sobre ele.
+
+               O que importa e continua valendo: **nenhuma constraint deste
+               módulo cai sobre tabela existente.** `import_run_id` em
+               `integracao_chamada` e em `integracao_execucao` é referência
+               fraca, sem chave estrangeira, exatamente para não pendurar nada
+               numa tabela viva — se um dia virasse FK, ela apareceria aqui e o
+               teste pararia, que é o desenho. */
+            !c.startsWith("integracao_"),
         ),
       ),
     ).toEqual(

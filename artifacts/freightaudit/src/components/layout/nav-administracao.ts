@@ -1,4 +1,4 @@
-import { Cog, Plug, Settings2, Shield } from "lucide-react";
+import { Cog, Settings2, Shield } from "lucide-react";
 import type { NavGroup } from "./nav";
 
 /**
@@ -57,7 +57,22 @@ export const GRUPO_ADMINISTRACAO: NavGroup = {
       abrindo a seção de unidades.
     */
     { href: "~/configuracoes", label: "Configurações", icon: Settings2 },
-    { href: "~/integracoes", label: "Integrações", icon: Plug },
+    /*
+      "Integrações" saiu daqui, e não sumiu: virou tela de verdade e passou a
+      morar em **Dados & governança** (`nav-auditoria.ts`), ao lado de
+      Importações. A mudança de lugar é a mesma da tela: enquanto era um verbete
+      de "em preparo" — "que sistemas entregam e consomem dados aqui" —, ela era
+      ajuste da instalação, e a casa era o lugar. Agora que existe, o que ela
+      governa é o **material**: quem escreve no acervo por API, com que chave e o
+      que já escreveu — a mesma pergunta que Importações e Rastreio de Dados
+      fazem sobre o arquivo que sobe pela tela.
+
+      O efeito colateral está escrito para quem for mexer: a lateral do
+      Fechamento não tem a seção Dados & governança, então a tela deixou de
+      aparecer lá. Quem administra chave de API administra o acervo da auditoria,
+      e o endereço continua sendo `/integracoes` — quem tiver o link entra por
+      ele de qualquer ambiente.
+    */
     { href: "~/seguranca", label: "Segurança", icon: Shield },
   ],
 };
