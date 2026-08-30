@@ -191,6 +191,14 @@ export interface ChangeGroup {
    * rótulo — trocar "zerou" por "foi zerado" mudaria a fila de investigação.
    */
   natureCodes: string[];
+  /**
+   * Quantos ativos distintos cada natureza atinge — a chave é o código.
+   *
+   * `vehicles` é do grupo; este é de cada natureza dentro dele. Quem escreve
+   * "saiu de zero em N carretas" precisa deste número, e não daquele: as duas
+   * contagens só coincidem quando o grupo é de uma natureza só.
+   */
+  ativosPorNatureza: Record<string, number>;
   semanticsStatus: string | null;
   semanticsLabel: string;
   /** BRL | PERCENT | KM_L | MESES | … — a tela formata por isto, nunca por palpite. */
@@ -744,6 +752,27 @@ export function buildGroup(
   const coverage: Coverage = share >= 1 ? "TOTAL" : share >= 0.5 ? "MAIORIA" : "PARCIAL";
 
   const natures = [...new Set(rows.map((r) => r.nature).filter((n): n is string => n !== null))];
+  /*
+    Quantos ativos por natureza — e não quantos ativos no grupo.
+
+    **O defeito que isto fecha.** A descrição da fila de criticidade dizia "O
+    valor saiu de zero em 4 carretas" sempre que *alguma* linha do grupo tinha
+    `FROM_ZERO`, imprimindo a contagem do grupo inteiro. Conferido contra o
+    banco: das quatro carretas com `lucro_variavel_previsto` alterado, só duas
+    saíram de zero — as outras vinham de 2.405,01 e 2.385,44. O produto afirmava
+    um fato falso, e o assistente o repetia fielmente, porque para ele aquilo
+    era evidência.
+
+    Uma trava de lastro não pega esse caso: ela confere a resposta contra o
+    dossiê, e aqui o dossiê é a origem do erro. Contar por natureza é o que
+    torna a frase verdadeira.
+  */
+  const ativosPorNatureza: Record<string, number> = {};
+  for (const codigo of natures) {
+    ativosPorNatureza[codigo] = new Set(
+      rows.filter((r) => r.nature === codigo).map((r) => r.entity_id ?? String(r.id)),
+    ).size;
+  }
 
   const badge = pickBadge({ impact, coverage, aggregate, anomalies, formatOnly, natures, first });
 
@@ -772,6 +801,7 @@ export function buildGroup(
     impact,
     natures: natures.map(natureLabel),
     natureCodes: natures,
+    ativosPorNatureza,
     semanticsStatus: first.semantics_status,
     semanticsLabel: semanticsLabel(first.semantics_status),
     unit: first.unit,

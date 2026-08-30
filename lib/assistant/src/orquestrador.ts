@@ -392,6 +392,42 @@ const PALAVRAS_DE_VALOR = new Set([
   "valor", "valores",
 ]);
 
+/**
+ * O que, numa pergunta, **não** pode ser lido como nome de coluna ausente.
+ *
+ * O filtro de números já existia — e nasceu do mesmo defeito, com "2026"
+ * virando coluna inventada. Faltavam duas classes, e a rodada 2C mostrou as
+ * duas na mesma frase: "Quem autorizou a última alteração de IPVA?" produziu
+ *
+ *     …o arquivo que o FreightCheck recebe hoje traz ipvaLicenciamento… —
+ *     não traz quem, autorizou.
+ *
+ * A vírgula denuncia o mecanismo: `quem` e `autorizou` entraram na lista de
+ * colunas ausentes, e a resposta afirmou ao usuário que falta uma coluna
+ * chamada "quem" e outra chamada "autorizou".
+ *
+ * **Pronome interrogativo não nomeia coluna** — ele nomeia o que se quer saber.
+ * **Verbo conjugado também não**: colunas deste modelo são substantivas
+ * (`ipvaLicenciamento`, `custoFixo`, `lucroVariavelPrevisto`), e nenhuma delas
+ * é uma ação no passado. As duas terminações abaixo cobrem o pretérito do
+ * português sem precisar de um dicionário de verbos, que seria uma segunda
+ * fonte de verdade para manter.
+ */
+const INTERROGATIVOS = new Set([
+  "quem", "quando", "onde", "como", "qual", "quais", "quanto", "quanta",
+  "quantos", "quantas", "porque", "porquê", "para", "pelo", "pela",
+]);
+
+function NAO_NOMEIA_COLUNA(palavra: string): boolean {
+  if (INTERROGATIVOS.has(palavra)) return true;
+  /*
+    Pretérito perfeito e imperfeito, 3ª pessoa: autorizou, aprovaram, mudava,
+    subiram. É a forma em que uma pergunta descreve o que aconteceu, e nunca a
+    forma em que uma coluna é nomeada.
+  */
+  return /(ou|aram|eram|iram|ava|avam|ia|iam)$/.test(palavra) && palavra.length > 4;
+}
+
 function lacunaDoQualificador(termoPerguntado: string, alvo: Alvo): Lacuna | null {
   const palavrasDoAlvo = new Set(termos(alvo.parametro));
   /*
@@ -410,7 +446,7 @@ function lacunaDoQualificador(termoPerguntado: string, alvo: Alvo): Lacuna | nul
     frase, nomeia alguma coisa?") e não podem responder diferente.
   */
   const qualificadores = tokensDeConteudo(termoPerguntado).filter(
-    (p) => !palavrasDoAlvo.has(p) && p.length > 3,
+    (p) => !palavrasDoAlvo.has(p) && p.length > 3 && !NAO_NOMEIA_COLUNA(p),
   );
   if (qualificadores.length === 0) return null;
 
@@ -2175,7 +2211,79 @@ export function vinculosSemLastro(texto: string, dossie: Dossie): string[] {
       );
     }
   }
+
+  /*
+    Regra 3 — a contagem sem entidade nomeada.
+
+    **O caso que sobreviveu às duas primeiras.** *"Lucro variável previsto saiu
+    de zero para R$ 6.158,83 em 4 carretas"* passa por tudo: o valor existe, é
+    moeda, e a frase não cita placa nenhuma — então a regra 1 não tem placa para
+    comparar, e a regra 2 só opina sobre valor que o dossiê já ligou a alguma
+    entidade. O banco mostrou que aquele valor é de **uma** carreta. A frase
+    apareceu em sete respostas da rodada 2C.
+
+    A conferência aqui é sobre a **coocorrência**: se o bloco afirma um valor
+    monetário junto de uma contagem de entidades, o dossiê precisa mostrar esse
+    valor em pelo menos essa quantidade de **linhas de entidade**. Um valor que
+    aparece numa placa só não sustenta "em 4 carretas". Total de grupo fica de
+    fora por construção — ver `ocorrenciasEmLinhaDeEntidade`.
+
+    **Por que só quando não há placa citada.** Com placa, as regras 1 e 2 já
+    decidem, e com mais precisão. Esta é a rede de baixo, para a frase que fala
+    de um conjunto sem nomear ninguém — que é exatamente onde a auditoria se
+    engana, porque parece um agregado e é um caso isolado.
+  */
+  if (afirmadas > 1 && placasNoTexto.size === 0) {
+    const vezes = ocorrenciasEmLinhaDeEntidade(dossie);
+    for (const m of limpo.matchAll(QUANTIA)) {
+      const escrito = m[0]!;
+      const quantas = vezes.get(escrito) ?? 0;
+      /*
+        Zero ocorrências não é problema desta régua: `numerosSemLastro` já
+        recusou o valor que não existe no dossiê. Aqui só interessa o valor que
+        existe e aparece menos vezes do que a frase afirma.
+      */
+      if (quantas > 0 && quantas < afirmadas) {
+        recusados.push(
+          `${escrito} — a frase o atribui a ${afirmadas}, e o dossiê o mostra ` +
+            `${quantas} vez(es)`,
+        );
+      }
+    }
+  }
   return [...new Set(recusados)];
+}
+
+/**
+ * Em quantas **linhas de entidade** cada quantia aparece.
+ *
+ * Duas decisões, e as duas nasceram de recusar frase correta:
+ *
+ * **Só linha de entidade conta.** "O grupo somou +R$ 21.905,20/mês em duas
+ * carretas" é verdadeiro e apareceria como valor visto uma vez só — porque um
+ * total de grupo é uma linha só, por definição. Contá-lo aqui faria a régua
+ * recusar exatamente o tipo de agregado que o produto existe para produzir. Uma
+ * linha é de entidade quando o rótulo do fato nomeia uma placa, ou quando a
+ * evidência inteira fala de um ativo só.
+ *
+ * **Conta linhas, não caracteres.** O mesmo valor repetido dentro de um fato
+ * ("de 8.320,80 para 8.320,80") é uma linha, e contá-lo duas vezes autorizaria
+ * uma contagem que o dossiê não sustenta.
+ */
+function ocorrenciasEmLinhaDeEntidade(dossie: Dossie): Map<string, number> {
+  const vezes = new Map<string, number>();
+  for (const e of dossie.evidencias) {
+    const daEvidencia = (e.identificadores ?? []).length === 1;
+    for (const f of e.fatos) {
+      const juntos = `${f.rotulo} ${f.valor} ${f.detalhe ?? ""}`;
+      const ehDeEntidade = placasDoTexto(juntos).length > 0 || daEvidencia;
+      if (!ehDeEntidade) continue;
+      for (const valor of new Set([...semRuidoNumerico(juntos).matchAll(QUANTIA)].map((m) => m[0]!))) {
+        vezes.set(valor, (vezes.get(valor) ?? 0) + 1);
+      }
+    }
+  }
+  return vezes;
 }
 
 /**
@@ -2434,7 +2542,16 @@ function marcadorDe(tipo: TipoDeBloco): string {
   if (tipo === "TABELA") return `\n_[tabela removida: um valor dela ${motivo}]_\n\n`;
   if (tipo === "CITACAO") return `\n_[destaque removido: um valor dele ${motivo}]_\n\n`;
   if (tipo === "ITEM_DE_LISTA") return `\n_[item removido: um valor dele ${motivo}]_\n`;
-  return `_[trecho removido: um valor dele ${motivo}]_ `;
+  /*
+    Texto corrido também quebra linha.
+
+    Emendado no parágrafo, o marcador ficava assim — medido na rodada 2C, em 21
+    respostas: "…responde por 99,88% do impacto [4]. _[trecho removido…]_ **O
+    que segue em aberto.** Só 7 das 102…". Ele cumpre o aviso e atrapalha a
+    leitura, porque cola o fim de um assunto no começo de outro. Em linha
+    própria ele lê como o que é: uma nota do sistema no lugar do que saiu.
+  */
+  return `\n\n_[trecho removido: um valor dele ${motivo}]_\n\n`;
 }
 
 export interface Saneamento {

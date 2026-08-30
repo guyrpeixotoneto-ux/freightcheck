@@ -62,6 +62,7 @@ function group(overrides: Partial<ChangeGroup> = {}): ChangeGroup {
     },
     natures: [],
     natureCodes: [],
+    ativosPorNatureza: {},
     semanticsStatus: "CONFIRMED",
     semanticsLabel: "significado confirmado",
     unit: null,

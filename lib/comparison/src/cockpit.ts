@@ -383,17 +383,37 @@ export function diagnose(group: ChangeGroup): string {
     return base;
   }
 
+  /*
+    A contagem é **da natureza**, não do grupo.
+
+    Dizer "saiu de zero em 4 carretas" porque o grupo tem 4 carretas e uma
+    delas saiu de zero é afirmar um fato que o banco desmente — foi o que
+    aconteceu com `lucro_variavel_previsto` em 02/08/2026, onde só 2 das 4
+    saíram de zero. `ativosPorNatureza` traz o número certo; quando ele não
+    cobre o grupo inteiro, a frase diz isso, porque o resto do grupo mudou
+    de outro jeito e quem investiga precisa saber.
+  */
+  const quantosDe = (codigo: string): number =>
+    group.ativosPorNatureza?.[codigo] ?? group.vehicles;
+  const comSubstantivo = (quantos: number): string =>
+    `${pt(quantos)} ${vehicleNoun(group.entityType, quantos)}`;
+  const daNatureza = (codigo: string): string => comSubstantivo(quantosDe(codigo));
+  const ressalva = (codigo: string): string => {
+    const resto = group.vehicles - quantosDe(codigo);
+    return resto > 0 ? ` Os demais ${comSubstantivo(resto)} do grupo mudaram de outra forma.` : "";
+  };
+
   if (group.natureCodes.includes("ZEROING")) {
-    return `O valor foi zerado em ${veiculos} nesta vigência.`;
+    return `O valor foi zerado em ${daNatureza("ZEROING")} nesta vigência.${ressalva("ZEROING")}`;
   }
   if (group.natureCodes.includes("FROM_ZERO")) {
-    return `O valor saiu de zero em ${veiculos} nesta vigência.`;
+    return `O valor saiu de zero em ${daNatureza("FROM_ZERO")} nesta vigência.${ressalva("FROM_ZERO")}`;
   }
   if (group.natureCodes.includes("DISAPPEARED")) {
-    return `O valor deixou de existir em ${veiculos}.`;
+    return `O valor deixou de existir em ${daNatureza("DISAPPEARED")}.${ressalva("DISAPPEARED")}`;
   }
   if (group.natureCodes.includes("APPEARED")) {
-    return `O valor passou a existir em ${veiculos}.`;
+    return `O valor passou a existir em ${daNatureza("APPEARED")}.${ressalva("APPEARED")}`;
   }
   if (group.natureCodes.includes("TYPE_CHANGE")) {
     return `O tipo do valor mudou em ${veiculos} — a fonte passou a entregar outra forma de dado.`;
