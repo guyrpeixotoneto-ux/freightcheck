@@ -732,13 +732,34 @@ export default function PainelDeJustificativas() {
                     }
                   >
                     <SelectTrigger className="h-9 w-72 text-sm">
-                      <SelectValue />
+                      {/*
+                        O rótulo do gatilho é escrito aqui, e não deixado a cargo
+                        do texto do item, porque o item carrega a contagem: fechado,
+                        o campo deve dizer só a vigência escolhida — a contagem
+                        pertence à lista, onde serve para comparar uma linha com
+                        as outras.
+                      */}
+                      <SelectValue>
+                        {changeSetId === null
+                          ? "Todas as vigências"
+                          : (nomeDaVigencia.get(changeSetId) ?? changeSetId)}
+                      </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value={TODAS}>Todas as vigências</SelectItem>
                       {porVigencia.map((v) => (
-                        <SelectItem key={v.changeSetId} value={v.changeSetId}>
-                          {nomeDaVigencia.get(v.changeSetId) ?? v.changeSetId}
+                        <SelectItem
+                          key={v.changeSetId}
+                          value={v.changeSetId}
+                          className="[&>span:last-child]:flex-1"
+                        >
+                          <span className="flex w-full items-center justify-between gap-6">
+                            <span>{nomeDaVigencia.get(v.changeSetId) ?? v.changeSetId}</span>
+                            <span className="text-xs font-normal text-muted-foreground tabular-nums">
+                              {formatNumber(v.alteracoes)}{" "}
+                              {v.alteracoes === 1 ? "alteração" : "alterações"}
+                            </span>
+                          </span>
                         </SelectItem>
                       ))}
                     </SelectContent>
