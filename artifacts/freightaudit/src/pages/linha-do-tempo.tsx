@@ -1,4 +1,5 @@
 import { useEffect, useMemo } from "react";
+import { Layers, Truck } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { LEITURA_DE_APURACAO } from "@/lib/frescor-das-leituras";
 import { EmAtualizacao, classeDeAtualizacao } from "@/components/ui/em-atualizacao";
@@ -21,6 +22,13 @@ import {
   SeletorDeVigencia,
   SeletorDeVigenciaGeral,
 } from "@/components/vigencia/seletor-de-vigencia";
+import { AbaBotao } from "@/components/changes/cartoes";
+import {
+  TIPOS_DA_LINHA_DO_TEMPO,
+  definicaoDaLinhaDoTempo,
+  ehTipoDaLinhaDoTempo,
+  type TipoDaLinhaDoTempo,
+} from "@workspace/comparison/tipos";
 import type { FamiliesOverview, FamiliesView } from "@/components/inicio/types";
 
 /**
@@ -35,6 +43,23 @@ import type { FamiliesOverview, FamiliesView } from "@/components/inicio/types";
  * A unidade e o canal moram na URL, como no Resumo executivo: o seletor da
  * lateral (`components/layout/sidebar.tsx`) é o que permite ver a linha do
  * tempo de outra unidade, ou a Visão Geral, sem sair da tela.
+ *
+ * Duas abas, e as duas percorrem o mesmo histórico:
+ *
+ * - **Geral** é a leitura de sempre — a frota inteira, cavalo e carreta
+ *   somados, sem o trecho (que vive numa série própria).
+ * - **Cavalo, Carreta e Trecho** é o mesmo histórico com a população trocada:
+ *   um tipo de cada vez. Trocar de população, e não filtrar a lista, é o que
+ *   faz o placar do topo, o gráfico e a gaveta falarem todos do mesmo
+ *   universo — quem recorta é o servidor (`getRangeAnalysis`), pela mesma
+ *   razão que `lib/escopos.ts` dá para o Cavalo 360°: `vehiclesTouched` são
+ *   ativos distintos, e uma soma feita na tela daria mais caminhões do que a
+ *   frota tem.
+ *
+ * As três não são uma escolha arbitrária: são os tipos de análise que têm
+ * `entity_type` próprio e vivem na vigência do equipamento — ver
+ * `TIPOS_DA_LINHA_DO_TEMPO`, que é quem explica por que conjunto e QLP ficam
+ * de fora.
  */
 export default function LinhaDoTempo() {
   const search = useSearch();
@@ -53,6 +78,23 @@ export default function LinhaDoTempo() {
     nunca um valor de `period`. Ver a mesma decisão em `inicio.tsx`.
   */
   const visaoGeral = parametros.get("visaoGeral") === "1";
+
+  /*
+    Qual aba, e — na segunda — qual tipo. As duas moram na URL, como a vigência
+    e a unidade: uma leitura desta tela é para ser colada num chat e continuar
+    querendo dizer a mesma coisa do outro lado.
+
+    `?tipo=` fora dos três cai em Cavalo, e não em erro nem em tela vazia: é a
+    mesma régua de `ehFiltroDeTipo` e `ehEscopo`, que já protegem os outros
+    recortes de um endereço adulterado. A aba Geral é o padrão, e por isso não
+    se escreve no endereço — um `?aba=geral` em todo link do produto é ruído
+    que não muda nada.
+  */
+  const porTipo = parametros.get("aba") === "tipos";
+  const tipoPedido = parametros.get("tipo");
+  const tipo: TipoDaLinhaDoTempo = ehTipoDaLinhaDoTempo(tipoPedido)
+    ? tipoPedido
+    : "CAVALO";
 
   const vigencia = useQuery({
     queryKey: ["families", "linha-do-tempo", consulta.toString()],
@@ -130,10 +172,18 @@ export default function LinhaDoTempo() {
         ? pedida
         : contextoAberto.latestPeriod;
     void cliente.prefetchQuery(
-      opcoesDoIntervalo(new URLSearchParams(chaveDaConsulta), historico[0], fim),
+      opcoesDoIntervalo(
+        new URLSearchParams(chaveDaConsulta),
+        historico[0],
+        fim,
+        // A aba aberta faz parte da pergunta: adiantar a leitura sem recorte
+        // enquanto a tela vai pedir a de cavalo seria pagar duas chamadas
+        // caras para usar uma.
+        porTipo ? tipo : null,
+      ),
     );
     // `chaveDaConsulta` é a forma estável de `consulta`; `parametros` sai dela.
-  }, [cliente, contextoAberto, chaveDaConsulta]);
+  }, [cliente, contextoAberto, chaveDaConsulta, porTipo, tipo]);
 
   /*
     A união de competências de todas as unidades — o mesmo cálculo de
@@ -193,6 +243,7 @@ export default function LinhaDoTempo() {
       <Cabecalho
         view={view}
         overview={overview}
+        tipo={porTipo ? tipo : null}
         visaoGeral={visaoGeral}
         periodosOverview={periodosOverview}
         consulta={consulta}
@@ -202,8 +253,45 @@ export default function LinhaDoTempo() {
         }
       />
 
+      <div className="px-8 border-b">
+        <nav className="flex items-center gap-1 max-w-[1600px]" role="tablist">
+          <AbaBotao
+            active={!porTipo}
+            onClick={() => trocarPara({ aba: null, tipo: null })}
+            icon={<Layers className="w-4 h-4" />}
+            label="Geral"
+            hint="a frota inteira, cavalo e carreta somados"
+          />
+          <AbaBotao
+            active={porTipo}
+            onClick={() => trocarPara({ aba: "tipos" })}
+            icon={<Truck className="w-4 h-4" />}
+            label="Cavalo, Carreta e Trecho"
+            hint="o mesmo histórico, um tipo de cada vez"
+          />
+        </nav>
+      </div>
+
       <div className="px-8 py-6 space-y-5 max-w-[1600px]">
-        {visaoGeral ? (
+        {porTipo ? (
+          <AbaPorTipo
+            tipo={tipo}
+            onTrocarTipo={(escolhido) => trocarPara({ tipo: escolhido })}
+            visaoGeral={visaoGeral}
+            vigencia={vigencia}
+            view={view}
+            consulta={consulta}
+            onEscolherVigencia={(periodo) => {
+              volta.registrar();
+              trocarPara({ period: periodo });
+            }}
+            voltarPara={volta.destino}
+            onVoltar={(periodo) => {
+              volta.limpar();
+              trocarPara({ period: periodo });
+            }}
+          />
+        ) : visaoGeral ? (
           <>
             {/*
               O histórico somado entre unidades vem primeiro, e não depende da
@@ -303,12 +391,160 @@ export default function LinhaDoTempo() {
 }
 
 // ---------------------------------------------------------------------------
+// A aba de tipo — Cavalo, Carreta e Trecho
+// ---------------------------------------------------------------------------
+
+/**
+ * O mesmo histórico da aba Geral, com a população trocada.
+ *
+ * Os dois cartões são exatamente os da aba Geral — não há uma segunda linha do
+ * tempo escrita aqui, e não deveria haver: a pergunta é a mesma, e duas
+ * implementações dela discordariam no dia em que uma das duas mudasse. O que
+ * muda é o `tipo`, que viaja até `/changes/range` e recorta a leitura no
+ * servidor.
+ *
+ * A Visão Geral fica de fora, e não é lacuna a preencher depois: o recorte por
+ * tipo vive na leitura de **uma** unidade (`/changes/range`), e a soma entre
+ * unidades (`/changes/range/overview`) não sabe recortar. Somar na tela o que o
+ * servidor não somou daria um placar que não fecha com nenhuma das unidades —
+ * a tela prefere dizer o que falta e mostrar o caminho.
+ */
+function AbaPorTipo({
+  tipo,
+  onTrocarTipo,
+  visaoGeral,
+  vigencia,
+  view,
+  consulta,
+  onEscolherVigencia,
+  voltarPara,
+  onVoltar,
+}: {
+  tipo: TipoDaLinhaDoTempo;
+  onTrocarTipo: (tipo: TipoDaLinhaDoTempo) => void;
+  visaoGeral: boolean;
+  vigencia: { isLoading: boolean; error: unknown; isPlaceholderData: boolean };
+  view: FamiliesView | null;
+  consulta: URLSearchParams;
+  /** O clique num ponto leva a tela para aquela vigência — igual à aba Geral. */
+  onEscolherVigencia: (periodo: string) => void;
+  voltarPara: { periodo: string; label: string } | null;
+  onVoltar: (periodo: string) => void;
+}) {
+  const definicao = definicaoDaLinhaDoTempo(tipo);
+
+  return (
+    <>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs uppercase tracking-wider text-muted-foreground mr-1">
+          Tipo
+        </span>
+        {TIPOS_DA_LINHA_DO_TEMPO.map((code) => {
+          const item = definicaoDaLinhaDoTempo(code);
+          return (
+            <button
+              key={code}
+              type="button"
+              role="tab"
+              aria-selected={code === tipo}
+              onClick={() => onTrocarTipo(code)}
+              title={item.grao}
+              className={cn(
+                "rounded-full border px-4 py-1.5 text-sm font-bold transition-colors",
+                code === tipo
+                  ? "border-brand bg-brand text-white"
+                  : "bg-card hover:bg-accent",
+              )}
+            >
+              {item.rotulo}
+            </button>
+          );
+        })}
+      </div>
+
+      <p className="text-sm text-muted-foreground">
+        {/*
+          O grão vem do catálogo em minúscula, porque lá ele é usado no meio de
+          frases. Aqui ele abre a frase — a maiúscula é da tela, e não uma
+          segunda redação do mesmo texto.
+        */}
+        {definicao.grao.charAt(0).toUpperCase() + definicao.grao.slice(1)}. Tudo
+        abaixo — o placar, a evolução vigência a vigência e a gaveta de detalhe
+        — fala só {definicao.plural}.
+      </p>
+
+      {visaoGeral ? (
+        <section className="bg-card border rounded-xl shadow-sm p-8 text-center text-sm text-muted-foreground">
+          A leitura por tipo é de uma unidade de cada vez — a soma entre
+          unidades não sabe recortar por cavalo, carreta ou trecho, e somá-la
+          aqui daria um placar que não fecha com o de nenhuma delas. Escolha uma
+          unidade no seletor da lateral, ou volte para a aba Geral.
+        </section>
+      ) : (
+        <>
+          {vigencia.isLoading && (
+            <p className="text-sm text-muted-foreground">Carregando a vigência…</p>
+          )}
+
+          {vigencia.error !== null && vigencia.error !== undefined && (
+            <ApiErrorNotice
+              error={vigencia.error}
+              what="Não foi possível montar a linha do tempo."
+            />
+          )}
+
+          {!vigencia.isLoading && !vigencia.error && view === null && (
+            <section className="bg-card border rounded-xl shadow-sm p-8 text-center text-sm text-muted-foreground">
+              Nenhuma vigência importada ainda para este recorte.
+            </section>
+          )}
+
+          {view && (
+            <div
+              className={cn(
+                "space-y-5",
+                classeDeAtualizacao(vigencia.isPlaceholderData),
+              )}
+            >
+              <LinhaDoTempoDeImpacto
+                consulta={consulta}
+                periods={view.periods}
+                currentPeriod={view.period}
+                tipo={tipo}
+              />
+
+              <LinhaDoTempoDeAlteracoes
+                consulta={consulta}
+                periods={view.periods}
+                currentPeriod={view.period}
+                tipo={tipo}
+                onEscolherVigencia={onEscolherVigencia}
+                voltarPara={voltarPara}
+                onVoltar={onVoltar}
+              />
+            </div>
+          )}
+
+          {view && view.periods.length <= 1 && (
+            <section className="bg-card border rounded-xl shadow-sm p-8 text-center text-sm text-muted-foreground">
+              Esta unidade tem uma vigência só no histórico — a linha do tempo
+              compara vigência com vigência, e ainda não há com o que comparar.
+            </section>
+          )}
+        </>
+      )}
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // O cabeçalho
 // ---------------------------------------------------------------------------
 
 function Cabecalho({
   view,
   overview,
+  tipo,
   visaoGeral,
   periodosOverview,
   consulta,
@@ -317,6 +553,8 @@ function Cabecalho({
 }: {
   view: FamiliesView | null;
   overview: FamiliesOverview | null;
+  /** O tipo aberto, quando a aba é a de tipo. Vira uma das partes da linha. */
+  tipo: TipoDaLinhaDoTempo | null;
   visaoGeral: boolean;
   periodosOverview: string[];
   consulta: URLSearchParams;
@@ -341,6 +579,7 @@ function Cabecalho({
       ].filter((p): p is string => p !== null)
     : [
         view?.context.channel ?? null,
+        tipo ? definicaoDaLinhaDoTempo(tipo).nome : null,
         view
           ? `${view.periods.length} ${view.periods.length === 1 ? "vigência" : "vigências"} no histórico`
           : null,

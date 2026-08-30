@@ -12,6 +12,7 @@ import {
   YAxis,
 } from "recharts";
 import { ChartLine } from "lucide-react";
+import type { TipoDaLinhaDoTempo } from "@workspace/comparison/tipos";
 import { opcoesDoIntervalo } from "@/lib/intervalo-da-linha-do-tempo";
 import { cn } from "@/lib/utils";
 import { vigenciaDoClique, type EstadoDoClique } from "@/lib/clique-na-vigencia";
@@ -58,6 +59,7 @@ export function LinhaDoTempoDeAlteracoes({
   onEscolherVigencia,
   voltarPara = null,
   onVoltar,
+  tipo = null,
 }: {
   consulta: URLSearchParams;
   periods: { date: string; label: string }[];
@@ -72,6 +74,8 @@ export function LinhaDoTempoDeAlteracoes({
    */
   voltarPara?: { periodo: string; label: string } | null;
   onVoltar?: (periodo: string) => void;
+  /** O tipo aberto na aba "Cavalo, Carreta e Trecho". `null` é a aba Geral. */
+  tipo?: TipoDaLinhaDoTempo | null;
 }) {
   const ordenadas = useMemo(
     () => [...periods].sort((a, b) => a.date.localeCompare(b.date)),
@@ -89,7 +93,7 @@ export function LinhaDoTempoDeAlteracoes({
     vez de repeti-la.
   */
   const movimentos = useQuery({
-    ...opcoesDoIntervalo(consulta, de, ate),
+    ...opcoesDoIntervalo(consulta, de, ate, tipo),
     enabled: ordenadas.length > 1,
   });
 

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { opcoesDoIntervaloGeral } from "@/lib/intervalo-da-linha-do-tempo";
+import {
+  consultaDoIntervalo,
+  opcoesDoIntervalo,
+  opcoesDoIntervaloGeral,
+} from "@/lib/intervalo-da-linha-do-tempo";
 
 /*
   As competências como `/contexts` as entrega ao Dashboard: mais recente
@@ -40,5 +44,43 @@ describe("opcoesDoIntervaloGeral — a chave que o Dashboard e o seletor compart
       "to=2026-08-02",
     ]);
     expect(opcoesDoIntervaloGeral(null, null).queryKey).toEqual(["linha-do-tempo-overview", ""]);
+  });
+});
+
+describe("opcoesDoIntervalo — o recorte por tipo entra na pergunta", () => {
+  const consulta = new URLSearchParams({ scopeHash: "abc", canal: "EMPURRADA" });
+
+  it("sem tipo, a chave é a de sempre — a aba Geral não muda de endereço", () => {
+    const opcoes = opcoesDoIntervalo(consulta, "2026-06-01", "2026-08-02");
+    const [, query] = opcoes.queryKey as [string, string];
+    expect(new URLSearchParams(query).get("tipo")).toBeNull();
+  });
+
+  it("com tipo, cavalo e carreta são perguntas diferentes sobre o mesmo intervalo", () => {
+    const cavalo = opcoesDoIntervalo(consulta, "2026-06-01", "2026-08-02", "CAVALO");
+    const carreta = opcoesDoIntervalo(consulta, "2026-06-01", "2026-08-02", "CARRETA");
+    const geral = opcoesDoIntervalo(consulta, "2026-06-01", "2026-08-02");
+
+    expect(cavalo.queryKey).not.toEqual(carreta.queryKey);
+    expect(cavalo.queryKey).not.toEqual(geral.queryKey);
+    expect(new URLSearchParams((cavalo.queryKey as [string, string])[1]).get("tipo")).toBe(
+      "CAVALO",
+    );
+  });
+
+  it("o recorte acompanha a unidade e o canal, e nunca a vigência aberta", () => {
+    const query = consultaDoIntervalo(
+      new URLSearchParams({ scopeHash: "abc", canal: "EMPURRADA", period: "2026-07-02" }),
+      "2026-06-01",
+      "2026-08-02",
+      "TRECHO",
+    );
+    expect(query.get("scopeHash")).toBe("abc");
+    expect(query.get("canal")).toBe("EMPURRADA");
+    expect(query.get("tipo")).toBe("TRECHO");
+    // As pontas são o intervalo; a vigência aberta não recorta a série.
+    expect(query.get("period")).toBeNull();
+    expect(query.get("from")).toBe("2026-06-01");
+    expect(query.get("to")).toBe("2026-08-02");
   });
 });
