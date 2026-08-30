@@ -17,6 +17,13 @@ import {
   type FiltroDaEvolucao,
   type OrdemDaEvolucao,
 } from "@/lib/evolucao-por-placa";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 /**
  * A matriz PLACA × TEMPO — o componente mais importante da tela.
@@ -152,21 +159,27 @@ export function MatrizDaEvolucao({
         </div>
 
         <div className="ml-auto flex items-center gap-2">
-          <label className="sr-only" htmlFor="ordem-da-matriz">
-            Ordenar por
-          </label>
-          <select
-            id="ordem-da-matriz"
+          {/*
+            O `Select` do sistema de design, e não o `<select>` do navegador: o
+            nativo abre o menu do sistema operacional, com tipografia e cores
+            que não são as do FreightCheck, bem ao lado da busca e do botão de
+            exportar, que são.
+          */}
+          <Select
             value={ordem}
-            onChange={(e) => trocar(() => onOrdem(e.target.value as OrdemDaEvolucao))}
-            className="h-9 rounded-lg border bg-background px-2 text-sm"
+            onValueChange={(valor) => trocar(() => onOrdem(valor as OrdemDaEvolucao))}
           >
-            {ORDENS_DA_EVOLUCAO.map((o) => (
-              <option key={o.chave} value={o.chave}>
-                {o.rotulo}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger className="h-9 w-48" aria-label="Ordenar por">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {ORDENS_DA_EVOLUCAO.map((o) => (
+                <SelectItem key={o.chave} value={o.chave}>
+                  {o.rotulo}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <button
             onClick={() => exportar(evolucao, visiveis)}
             className="h-9 inline-flex items-center gap-1.5 rounded-lg border px-3 text-sm font-medium hover:bg-muted"
