@@ -1,8 +1,16 @@
 # Classificação econômica dos números sem semântica confirmada
 
-> **Status: proposta. Nada foi aplicado.** Nenhuma entrada foi acrescentada a
-> `CONFIRMED_SEMANTICS`, nenhum valor calculado mudou, nenhum total se moveu.
-> O que existe de novo é uma medição e uma recomendação.
+> **Status: as 41 classificações de alta confiança foram aplicadas em
+> 29/08/2026**, aprovadas por guyrpeixoto.neto@gmail.com — estão no bloco de
+> 29/08/2026 de `lib/db/src/semantica-confirmada.ts`. **Nenhum total se moveu**,
+> e isso está preso em teste: `composicao-real.test.ts` continua exigindo
+> R$ 867.860,23 no cavalo e R$ 302.009,93 na carreta, e ganhou um teste novo —
+> *"classificar os números não apurados não moveu um centavo"*.
+>
+> O que **continua proposta, esperando decisão de negócio**: o lucro variável
+> previsto (cavalo e carreta), o seguro e os acessórios da carreta, as duas
+> colunas homônimas de IPVA da carreta, o custo variável simulado e as colunas
+> zeradas. Nada disso foi confirmado — ver §7.
 >
 > **Como reproduzir tudo o que está abaixo:**
 > ```
@@ -359,10 +367,55 @@ tela: a pendência do cavalo cai de 34 para **5** — lucro variável previsto,
 custo variável simulado e as três colunas zeradas —, e o que sobra na contagem
 passa a ser exatamente o que espera decisão humana.
 
-**Mesmo assim, não apliquei.** A instrução desta rodada foi não alterar
-produção, e uma entrada em `CONFIRMED_SEMANTICS` é aplicada em produção pela
-promoção e pela curadoria. As 38 linhas estão prontas para virar um commit
-assim que você aprovar — e esse commit não move um centavo.
+**Aplicado em 29/08/2026.** As 41 entradas estão no bloco de 29/08/2026 de
+`lib/db/src/semantica-confirmada.ts`, cada uma com a conta que a sustenta e o
+nome de quem aprovou. Medido depois de aplicar, na ficha do cavalo RPH2G11:
+
+| | Antes | Depois |
+|---|---|---|
+| Total mensal apurado | R$ 16.769,83 | **R$ 16.769,83** |
+| Componentes apurados | 4 | **4** |
+| Sem classificação | 34 | **5** |
+| Sem regra financeira | 7 | **9** |
+
+As duas últimas linhas são o ponto. A pendência sem classificação cai para as
+cinco colunas que não se decidem por medição — `lucroVariavelPrevistoCavalo`,
+`custoVariavelSimulado` e as três zeradas. E a contagem "sem regra financeira"
+**sobe** de 7 para 9, porque as cinco razões em R$/km deixaram de ser "ninguém
+olhou" e passaram a ser reconhecidas como dinheiro por quilômetro à espera da
+quilometragem: `manutencaoReaisKm` agora sai da ficha com o motivo
+**BASE_AUSENTE** — "falta a quilometragem rodada por ativo no período" — em vez
+de "semântica não confirmada". É a pergunta certa para fazer à Ambev, e ela só
+pôde aparecer depois da confirmação.
+
+**Duas decisões tomadas durante a aplicação, que valem registro.**
+
+A primeira: as grandezas foram gravadas com `aggregation: AVG`, e não `NONE`.
+É o que a autoridade do próprio produto deriva para uma GRANDEZA
+(`derivarSemantica`), pela razão que está escrita lá — "a média descreve a
+frota; a soma de 'meses de vida útil' de 62 cavalos não descreve nada". Média
+nunca vira total: o portão do dinheiro exige `isMonetary`, que é falso em todas
+as 41.
+
+A segunda, e é a mais importante: **a confirmação preserva o nó da taxonomia de
+quem já tinha um.** A primeira versão deste bloco remanejava a árvore junto —
+mandava o hodômetro para "Distância", a carência para "Premissas de
+financiamento", a capacidade para "Capacidade". Três dessas mudanças desfaziam
+curadoria que uma pessoa já tinha feito (a capacidade saiu de Combustível para
+Especificação técnica em 16/08/2026) e uma delas dava classe de custo **FIXO** a
+uma carência, que não é custo nenhum. Confirmar semântica e remanejar taxonomia
+são duas decisões de donos diferentes, e fazer as duas no mesmo commit
+esconderia a segunda dentro da primeira. Sobraram três nós decididos aqui, e só
+porque não havia nada a preservar: `reaiskm`, `valorReajustado` e
+`percentualReajusteAplicado` estavam em `nao_classificado` e foram para
+Manutenção, que é onde o dicionário do cavalo as coloca. O efeito colateral é
+visível e pequeno: a contagem de alterações de custo variável do Panorama sobe
+de 1.888 para 1.892 — quatro linhas —, e nenhuma delas tem impacto financeiro.
+
+Quatro testes usavam como exemplo colunas que acabaram de sair da fila
+(`combustivelConsumoNeg`, `combustivelVidaCavalo`) e passaram a apontar para
+`custoVariavelSimulado`, que continua sem classificação — a troca está comentada
+em cada um deles.
 
 ### Precisa de decisão de negócio
 
@@ -397,7 +450,7 @@ assim que você aprovar — e esse commit não move um centavo.
 
 | Cenário | Efeito no total mensal da frota |
 |---|---|
-| Aplicar **todas** as classificações de confiança ALTA | **R$ 0,00** — 1.204.664,00 continua 1.204.664,00 |
+| Aplicar **todas** as classificações de confiança ALTA (**feito**) | **R$ 0,00** — 1.204.664,00 continua 1.204.664,00 |
 | Aprovar A (lucro variável, sem o conjunto) | +307.173,65 → 1.511.837,65 (**+25,5%**) |
 | Aprovar A + B | +365.911,98 → 1.570.575,98 (**+30,4%**) |
 | Aprovar A + B + C | +400.131,55 → 1.604.795,55 (**+33,2%**) |

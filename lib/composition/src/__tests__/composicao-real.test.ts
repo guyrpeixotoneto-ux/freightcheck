@@ -382,21 +382,68 @@ describe("a ficha de um cavalo", () => {
     expect(c.completude.semRegraFinanceira).toBeGreaterThan(0);
 
     /*
-      A manutenção por quilômetro é o caso D5 da arquitetura. Hoje ela para no
-      primeiro portão — ninguém confirmou o significado da coluna — e o motivo
-      exibido é esse, que é o verdadeiro: dizer "falta a quilometragem" a
-      respeito de uma coluna cujo significado não foi confirmado mandaria pedir
-      à Ambev um dado que talvez nem resolvesse.
+      A manutenção por quilômetro é o caso D5 da arquitetura, e o motivo que a
+      tela exibe mudou em 29/08/2026 — para melhor.
 
-      A base que faltaria já vai junto, porque ela não depende da curadoria: a
-      unidade é R$/km, e R$/km precisa de km. É a pergunta que a tela pode
-      fazer desde já, sem prometer que a resposta destrava o cálculo sozinha.
+      Até então ela parava no primeiro portão: ninguém tinha confirmado o
+      significado da coluna, e dizer "falta a quilometragem" a respeito de uma
+      coluna cujo significado não foi confirmado mandaria pedir à Ambev um dado
+      que talvez nem resolvesse. Agora a curadoria confirmou o que ela é — uma
+      razão em R$/km —, e por isso o motivo passou a ser o seguinte da fila:
+      **a base operacional não veio**. É a pergunta certa para fazer à Ambev, e
+      é o que separa "ninguém olhou" de "olharam, e falta o km".
     */
     const manutencao = c.naoApurados.find((n) => n.code === "cavalo.manutencao_reais_km")!;
-    expect(manutencao.motivo).toBe("SEMANTICA_NAO_CONFIRMADA");
+    expect(manutencao.motivo).toBe("BASE_AUSENTE");
     expect(manutencao.unit).toBe("BRL_KM");
     expect(manutencao.baseQueFalta).toContain("quilometragem");
     expect(manutencao.monetarioPotencial).toBe(true);
+    expect(manutencao.semClassificacao).toBe(false);
+  });
+
+  /**
+   * O bloco de 29/08/2026, medido pelo lado de quem lê a ficha.
+   *
+   * Quarenta e uma colunas saíram de "ninguém olhou" para "alguém decidiu que
+   * não é dinheiro", e a afirmação que este teste prende é a que autorizou o
+   * commit: **o total não se moveu.** Os números da frota estão travados mais
+   * acima (867.860,23 e 302.009,93); aqui trava-se o que era para mudar — a
+   * lista de pendências — e o que não era: as quatro linhas apuradas.
+   */
+  it("classificar os números não apurados não moveu um centavo", async () => {
+    const linha = cavalos.linhas.find((l) => l.placa === "RPH2G11")!;
+    const c = (await montarComposicao(ctx.db, linha.entityId, { period: AGOSTO }))!;
+
+    expect(c.linhas).toHaveLength(4);
+    expect(c.totais.find((t) => t.gaveta === "MENSAL")!.valor).toBeCloseTo(16_769.83, 2);
+
+    /*
+      Cinco, e eram trinta e quatro. Os que sobram são exatamente os que não se
+      decidem por medição: o lucro variável previsto (é dinheiro, e a
+      periodicidade é decisão de negócio), o custo variável simulado (fórmula
+      não confirmada) e as três colunas que a fonte manda zeradas na série
+      inteira.
+    */
+    const semClasse = c.naoApurados.filter((n) => n.semClassificacao).map((n) => n.code);
+    expect(semClasse.sort()).toEqual([
+      "cavalo.custo_aluguel",
+      "cavalo.custo_variavel_simulado",
+      "cavalo.lucro_variavel_previsto_cavalo",
+      "cavalo.valor_icms",
+      "cavalo.valor_pneu",
+    ]);
+
+    /*
+      E nenhuma das 41 confirmadas virou dinheiro: se uma delas tivesse entrado
+      num total, o número acima teria mudado — mas a checagem direta é esta,
+      porque ela falha com o nome do culpado.
+    */
+    const confirmadasQueEntraram = c.linhas.filter((l) =>
+      ["cavalo.manutencao_reais_km", "cavalo.taxa_finame", "cavalo.ano", "cavalo.ciclo"].includes(
+        l.code,
+      ),
+    );
+    expect(confirmadasQueEntraram).toEqual([]);
   });
 });
 

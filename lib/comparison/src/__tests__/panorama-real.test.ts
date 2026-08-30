@@ -363,9 +363,16 @@ describe("fixo e variável se leem separados", () => {
     expect(ipva.classeDeCusto).toBe("FIXO");
     expect(ipva.grupoDeCusto).toBe("Seguro do ativo");
 
-    // O cadastral não é uma terceira classe de dinheiro: o odômetro descreve o
-    // ativo e não remunera nada. Cai em SEM_CLASSE *com o grupo à mostra*, que
-    // é o que separa "não é custo" de "ninguém classificou ainda".
+    /*
+      O cadastral não é uma terceira classe de dinheiro: o odômetro descreve o
+      ativo e não remunera nada. Cai em SEM_CLASSE *com o grupo à mostra*, que
+      é o que separa "não é custo" de "ninguém classificou ainda".
+
+      O grupo continua sendo o que a curadoria lhe deu: as 41 confirmações de
+      29/08/2026 declararam o hodômetro como quilometragem não monetária e
+      **não** mexeram no nó dele, justamente para não desfazer curadoria de
+      lado.
+    */
     const odometro = de(panorama, "cavalo.odometro_entrada")!;
     expect(odometro.classeDeCusto).toBe("SEM_CLASSE");
     expect(odometro.grupoDeCusto).toBe("Especificação técnica");
@@ -411,6 +418,11 @@ describe("fixo e variável se leem separados", () => {
       A capacidade saiu de Combustível (variável) para Especificação técnica.
       Ela não mudou de valor em vigência nenhuma, então não aparece no panorama
       — e é justamente por isso que a prova dela mora aqui.
+
+      As confirmações de 29/08/2026 declararam a coluna como quantidade de
+      pallets, não monetária, e deixaram o nó como estava: mover de gaveta uma
+      coluna que a curadoria já colocou onde queria é decisão de curadoria, não
+      de confirmação de semântica.
     */
     const capacidade = porCodigo.get("cavalo.combustivel_capacidade")!;
     expect(capacidade.costClass).toBeNull();
@@ -542,8 +554,20 @@ describe("fixo e variável se leem separados", () => {
       Medido em 18/08/2026: 1.888, e não mais 2.155. A diferença é o lucro
       variável, que saiu do custo variável para Remuneração ao transportador —
       ele nunca foi custo, e o número novo é o que sempre deveria ter sido.
+
+      Medido de novo em 29/08/2026: **1.892**, quatro a mais. As 41 confirmações
+      daquele dia declararam semântica e **mantiveram** o nó de todo mundo que
+      já tinha um — de propósito, para não remanejar a árvore dentro de um
+      commit que era sobre outra coisa. As quatro alterações a mais vêm das três
+      colunas que não tinham nó nenhum (`reaiskm`, `valorReajustado` e
+      `percentualReajusteAplicado`, todas em `nao_classificado`) e entraram em
+      Manutenção, que é onde o dicionário do cavalo as coloca.
+
+      `comImpacto` continua zero, que é o que este teste existe para dizer:
+      nenhuma dessas alterações vira dinheiro. Os totais da frota estão presos
+      em `composicao-real.test.ts` e não se mexeram.
     */
-    expect(variavel.totais.alteracoes).toBe(1888);
+    expect(variavel.totais.alteracoes).toBe(1892);
     expect(variavel.totais.comImpacto).toBe(0);
     expect(variavel.maiorImpacto).toEqual([]);
     expect(variavel.impactoPorPeriodicidade).toEqual([]);

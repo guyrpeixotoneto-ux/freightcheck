@@ -35,8 +35,20 @@ const POR_QUE = "Confirmado com a tabela de remuneração de agosto à vista.";
 const TAXA_KM = "cavalo.manutencao_reais_km";
 /** Uma coluna monetária de verdade, na casa das centenas por implemento. */
 const MONTANTE = "carreta.finame_implemento";
-/** Consumo em km/l — a razão física que a auditoria de 0023 usou. */
-const CONSUMO = "cavalo.combustivel_consumo_neg";
+/**
+ * Uma coluna numérica que **ninguém classificou** — a cobaia do cadastro
+ * inline.
+ *
+ * Era `cavalo.combustivel_consumo_neg` até 29/08/2026, e deixou de servir
+ * quando o consumo entrou em `CONFIRMED_SEMANTICS` como km/l: o teste abaixo
+ * confirma esta coluna como "R$ por litro" — uma hipótese sua, de propósito
+ * diferente do registro — e duas decisões diferentes sobre o mesmo atributo
+ * fariam `applyConfirmations` relatar divergência, que é o comportamento certo
+ * e não o que este arquivo quer medir. `custoVariavelSimulado` continua sem
+ * classificação (a fórmula dele não foi confirmada por ninguém) e é, por isso,
+ * o lugar honesto para a hipótese.
+ */
+const CONSUMO = "cavalo.custo_variavel_simulado";
 
 beforeAll(async () => {
   ctx = await criarBancoComExportRealPromovido("confirmar_interpretacao");
