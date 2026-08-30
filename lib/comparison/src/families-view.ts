@@ -28,6 +28,7 @@ import {
   type ImpactSummary,
 } from "./grouped";
 import { listPeriods } from "./consolidated";
+import type { TipoDaLinhaDoTempo } from "./tipos";
 import {
   contextFilter,
   listContexts,
@@ -478,6 +479,37 @@ export interface ParameterRollup {
   notCalculable: number;
 }
 
+/**
+ * Quais séries de snapshot a leitura de intervalo enxerga.
+ *
+ * Sem recorte, a régua é a de sempre: tudo menos a série de trecho, que é a
+ * única que chega inteira num `entity_type_set` só e que as telas de frota não
+ * querem ver (ver `loadChanges`). Com `tipo = TRECHO`, é o contrário — a
+ * pergunta é justamente essa série, e as de equipamento é que saem.
+ *
+ * Cavalo e carreta não têm série própria: os dois chegam no mesmo snapshot
+ * (`CARRETA+CAVALO`), e separá-los é trabalho da linha de alteração, não do
+ * snapshot. Por isso eles caem na régua de sempre.
+ */
+function serieDoTipo(tipo: TipoDaLinhaDoTempo | undefined) {
+  return tipo === "TRECHO"
+    ? sql`'TRECHO' = ANY(string_to_array(sb.entity_type_set, '+'))`
+    : sql`sb.entity_type_set IS DISTINCT FROM 'TRECHO'`;
+}
+
+/**
+ * Qual frota é o denominador de cobertura de cada grupo.
+ *
+ * Um selo que diz "5 de 71 carretas" precisa das 71 carretas, e não da soma das
+ * carretas com os cavalos: com recorte, o denominador é a frota daquele tipo.
+ * Sem recorte, a régua de sempre — tudo menos trecho, que não é frota.
+ */
+function frotaDoTipo(tipo: TipoDaLinhaDoTempo | undefined) {
+  return tipo
+    ? sql`e.entity_type = ${tipo}`
+    : sql`e.entity_type <> 'TRECHO'`;
+}
+
 export async function getRangeAnalysis(
   db: Database,
   from?: string,
@@ -505,6 +537,28 @@ export async function getRangeAnalysis(
    * Sem o argumento, nada muda — quem chama de fora continua lendo a lista.
    */
   contextosCarregados?: ContextInfo[],
+  /**
+   * O recorte por tipo — a aba "Cavalo, Carreta e Trecho" da Linha do Tempo.
+   *
+   * **Não é um filtro de lista: é a população da leitura inteira.** Recortar na
+   * tela deixaria os cartões falando de uma frota e o gráfico de outra — o
+   * mesmo defeito que `escopo.ts` descreve para o Cavalo 360°. E há duas coisas
+   * que só existem aqui: `vehiclesTouched`, que precisa do conjunto de ativos
+   * distintos, e o trecho, que a leitura sem recorte exclui de propósito.
+   *
+   * O que ele recorta são as **linhas de alteração**, pelo `entity_type` delas.
+   * Uma coluna da carreta que já embute o cavalo (`carreta.custo_fixo`) conta
+   * na carreta, que é a linha em que ela chega — é a mesma régua que o resto do
+   * produto usa, e o escopo que a lê pelo par é o CONJUNTO, que não é uma das
+   * três abas justamente por isso (ver `TipoDaLinhaDoTempo`).
+   *
+   * O índice de composição continua sendo montado sobre o intervalo **inteiro**
+   * do lado de lá do recorte, e não sobre as linhas recortadas: um total mora
+   * numa gaveta e a parcela dele noutra, e um índice cego para metade delas
+   * devolveria o titular para dentro da soma. É a mesma razão pela qual
+   * `parameterKeys` também não o estreita.
+   */
+  tipo?: TipoDaLinhaDoTempo,
 ): Promise<RangeAnalysis | null> {
   const contexts =
     contextosCarregados ?? (await listContexts(db, { operacao: requestedContext?.operacao }));
@@ -537,7 +591,7 @@ export async function getRangeAnalysis(
   const [inicio, fim] =
     alvoInicio <= alvoFim ? [alvoInicio, alvoFim] : [alvoFim, alvoInicio];
 
-  const { rows: sets } = await db.execute<{
+  const { rows: setsBrutos } = await db.execute<{
     change_set_id: string;
     period: string;
     entity_type_set: string;
@@ -552,9 +606,10 @@ export async function getRangeAnalysis(
        AND sb.status <> 'SUPERSEDED'
        AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = sb.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND ${contextFilter("sb", context)}
-       -- Trecho só existe no Trecho 360, que não passa por esta leitura de
-       -- intervalo (Linha do Tempo). Ver a mesma nota em loadChanges.
-       AND sb.entity_type_set IS DISTINCT FROM 'TRECHO'
+       -- Trecho só existe no Trecho 360 e na aba de tipo desta tela, que o pede
+       -- pelo nome. Sem recorte ele fica de fora. Ver a mesma nota em
+       -- loadChanges.
+       AND ${serieDoTipo(tipo)}
      ORDER BY sb.effective_date DESC, sb.entity_type_set
   `);
 
@@ -602,12 +657,39 @@ export async function getRangeAnalysis(
        AND sb.status <> 'SUPERSEDED'
        AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = sb.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND ${contextFilter("sb", context)}
-       AND e.entity_type <> 'TRECHO'
+       AND ${frotaDoTipo(tipo)}
      GROUP BY cs.id, e.entity_type
   `);
 
+  /*
+    Só as comparações que caem numa vigência **do eixo**.
+
+    O eixo é `datas`, e ele não é a lista crua de datas com snapshot: uma
+    vigência que só tem trecho é uma casca — `naoEhSoTrecho`, em `series.ts` —,
+    e `listPeriods` a deixa de fora de propósito, para ela não disputar "a mais
+    recente" com o equipamento. Sem este filtro, a leitura de TRECHO somaria em
+    `totals` uma comparação cuja data a tela não desenha em `movements`, e o
+    placar deixaria de fechar com o gráfico logo abaixo dele.
+
+    Para as outras leituras é uma passada sem efeito: fora do trecho, toda
+    comparação já cai numa data do eixo.
+  */
+  const noEixo = new Set(datas);
+  const sets = setsBrutos.filter((s) => noEixo.has(s.period));
+
   const changeSetIds = sets.map((s) => s.change_set_id);
-  const todasAsLinhas = await loadChanges(db, changeSetIds);
+  /*
+    O trecho não vem na leitura de frota — é preciso pedi-lo pelo nome. Cavalo e
+    carreta vêm juntos de propósito: é sobre as linhas dos dois que o índice de
+    composição abaixo precisa ser montado (o vínculo cavalo→carreta é o que
+    impede a mesma coluna de ser contada duas vezes), e o recorte de um deles
+    acontece depois, sobre as linhas já lidas.
+  */
+  const todasAsLinhas = await loadChanges(
+    db,
+    changeSetIds,
+    tipo === "TRECHO" ? "TRECHO" : undefined,
+  );
 
   /*
     O índice de composição é montado sobre **todas** as linhas do intervalo, e
@@ -634,12 +716,16 @@ export async function getRangeAnalysis(
     await carregarVinculosDeConjunto(db, await snapshotsDosChangeSets(db, changeSetIds)),
   );
 
-  const rows =
-    parameterKeys && parameterKeys.length > 0
-      ? todasAsLinhas.filter((r) =>
-          parameterKeys.includes(placementOf(r.attribute_code).parameterKey),
-        )
-      : todasAsLinhas;
+  const noRecorte = (r: Rows[number]): boolean => {
+    // O recorte por tipo é pelo `entity_type` da linha — ver o `tipo` na
+    // assinatura. TRECHO já saiu recortado da consulta, e repetir aqui não
+    // custaria nada e não diria nada.
+    if (tipo && tipo !== "TRECHO" && r.entity_type !== tipo) return false;
+    if (!parameterKeys || parameterKeys.length === 0) return true;
+    return parameterKeys.includes(placementOf(r.attribute_code).parameterKey);
+  };
+
+  const rows = todasAsLinhas.filter(noRecorte);
 
   const periodoDoSet = new Map(sets.map((s) => [s.change_set_id, s.period]));
   const fleetByChangeSet = new Map(

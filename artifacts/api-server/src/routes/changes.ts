@@ -37,8 +37,10 @@ import {
   operacaoDoSnapshot,
   lerEscopo,
   totaisDoEscopo,
+  ehTipoDaLinhaDoTempo,
   type ChangeFilters,
   type EscopoDeFrota,
+  type TipoDaLinhaDoTempo,
 } from "@workspace/comparison";
 
 /**
@@ -488,6 +490,13 @@ router.get("/changes/families/overview", async (req, res): Promise<void> => {
  * As duas pontas entram na leitura. `from` e `to` fora do histórico caem no
  * padrão (a vigência mais recente e a anterior) em vez de virar erro: a aba de
  * análise abre antes de a pessoa escolher qualquer coisa.
+ *
+ * `tipo` é o recorte da aba "Cavalo, Carreta e Trecho" da Linha do Tempo, e é
+ * de propósito que ele não é o par `escopo=1&entityType=` que as telas 360°
+ * usam: aquele recorta uma leitura de frota que já está montada; este decide
+ * também **qual série de snapshot** o intervalo lê — o trecho vive numa série
+ * própria, que a leitura sem recorte exclui. Valor desconhecido cai na leitura
+ * sem recorte (a aba Geral), pela régua de `ehTipoDaLinhaDoTempo`.
  */
 router.get("/changes/range", async (req, res): Promise<void> => {
   const from = typeof req.query.from === "string" ? req.query.from : undefined;
@@ -499,7 +508,20 @@ router.get("/changes/range", async (req, res): Promise<void> => {
     .map((p) => p.trim())
     .filter(Boolean);
   const context = parseContext(req.query as Record<string, unknown>);
-  const analysis = await getRangeAnalysis(db, from, to, context, parameters);
+  const tipo = ehTipoDaLinhaDoTempo(
+    typeof req.query.tipo === "string" ? req.query.tipo : null,
+  )
+    ? (req.query.tipo as TipoDaLinhaDoTempo)
+    : undefined;
+  const analysis = await getRangeAnalysis(
+    db,
+    from,
+    to,
+    context,
+    parameters,
+    undefined,
+    tipo,
+  );
   if (!analysis) {
     res.status(404).json({ error: "Nenhuma vigência importada ainda." });
     return;

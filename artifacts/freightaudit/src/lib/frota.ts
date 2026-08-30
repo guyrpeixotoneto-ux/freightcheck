@@ -361,6 +361,20 @@ const rotuloImportado = (entityType: string): string | null =>
  * mesmos tipos concordam no dia em que são escritas e discordam no dia do
  * seguinte.
  */
+/**
+ * "dos cavalos", "das carretas" — a preposição contraída com o artigo do tipo.
+ *
+ * Mora aqui, e não na tela, pelo mesmo motivo de {@link palavrasDoTipo}: é
+ * vocabulário de frota, e uma tela que escrevesse "dos carretas" só seria
+ * corrigida na tela em que alguém reparasse. `de` cobre "dos/das", `em` cobre
+ * "nos/nas" — as duas que as frases do produto pedem.
+ */
+export function contracaoDoTipo(entityType: string | null, preposicao: "de" | "em"): string {
+  const feminino = palavrasDoTipo(entityType).artigo === "a";
+  if (preposicao === "de") return feminino ? "das" : "dos";
+  return feminino ? "nas" : "nos";
+}
+
 export function rotuloDoTipo(entityType: string | null): string {
   if (entityType !== null && !equipamentoValido(entityType)) {
     return rotuloImportado(entityType) ?? entityType;

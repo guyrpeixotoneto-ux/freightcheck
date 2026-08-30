@@ -14,11 +14,11 @@ import { cn } from "@/lib/utils";
 import { getApiUrl } from "@/lib/api";
 import { formatBrl, formatBrlShort, formatValue, periodicitySuffix } from "@/lib/format";
 import {
-  linkDeAlteracoes,
   paramsDoRecorte,
   paramsDosVeiculosDoGrupo,
   type Recorte,
 } from "@/lib/recorte";
+import { useLinkDeAlteracoes } from "@/lib/tipo-da-linha-do-tempo";
 import type { Movimentos, RangeEntry } from "@/lib/analise";
 import type { GroupVehicle } from "@/components/inicio/types";
 
@@ -218,9 +218,33 @@ function LinhaDaVigencia({
   parameterName: string | null;
 }) {
   const [aberto, setAberto] = useState(false);
+  const link = useLinkDeAlteracoes();
   const grupos = [...linha.entradas].sort(
     (a, b) => Math.abs((b.amount ?? 0)) - Math.abs((a.amount ?? 0)),
   );
+
+  /*
+    O corpo da linha é o mesmo com link e sem: o que muda é a etiqueta que o
+    embrulha. Sem endereço em Alterações — a aba de trecho —, ele vira texto,
+    e o cursor deixa de prometer um clique que não leva a lugar nenhum.
+  */
+  const rotuloDaVigencia = (
+    <>
+      <span className="truncate text-muted-foreground">{linha.label}</span>
+      <span className="h-2 w-full block overflow-hidden rounded-full bg-muted">
+        <span
+          className={cn(
+            "block h-full rounded-full",
+            linha.valor < 0 ? "bg-red-600" : "bg-emerald-600",
+          )}
+          style={{ width: `${Math.max(4, (Math.abs(linha.valor) / teto) * 100)}%` }}
+        />
+      </span>
+    </>
+  );
+  const classeDaVigencia =
+    "col-span-2 grid items-center gap-3 px-1 -mx-1 py-1 rounded";
+  const colunasDaVigencia = { gridTemplateColumns: "1fr 7rem" };
 
   return (
     <div className="rounded hover:bg-accent/60 transition-colors">
@@ -233,27 +257,24 @@ function LinhaDaVigencia({
         >
           {aberto ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
         </button>
-        <Link
-          href={linkDeAlteracoes({
-            recorte: { ...recorteBase, period },
-            filtros: attributeCode ? { attributeCode } : {},
-          })}
-          aria-label={`Ver as alterações de ${parameterName ?? "este parâmetro"} em ${linha.label}`}
-          title="Ver as alterações desta vigência"
-          className="col-span-2 grid items-center gap-3 px-1 -mx-1 py-1 rounded hover:bg-accent transition-colors"
-          style={{ gridTemplateColumns: "1fr 7rem" }}
-        >
-          <span className="truncate text-muted-foreground">{linha.label}</span>
-          <span className="h-2 w-full block overflow-hidden rounded-full bg-muted">
-            <span
-              className={cn(
-                "block h-full rounded-full",
-                linha.valor < 0 ? "bg-red-600" : "bg-emerald-600",
-              )}
-              style={{ width: `${Math.max(4, (Math.abs(linha.valor) / teto) * 100)}%` }}
-            />
-          </span>
-        </Link>
+        {link !== null ? (
+          <Link
+            href={link({
+              recorte: { ...recorteBase, period },
+              filtros: attributeCode ? { attributeCode } : {},
+            })}
+            aria-label={`Ver as alterações de ${parameterName ?? "este parâmetro"} em ${linha.label}`}
+            title="Ver as alterações desta vigência"
+            className={cn(classeDaVigencia, "hover:bg-accent transition-colors")}
+            style={colunasDaVigencia}
+          >
+            {rotuloDaVigencia}
+          </Link>
+        ) : (
+          <div className={classeDaVigencia} style={colunasDaVigencia}>
+            {rotuloDaVigencia}
+          </div>
+        )}
         <span
           className={cn(
             "text-right tabular-nums text-xs font-semibold",
@@ -463,6 +484,7 @@ function DetalheDaVigencia({
     porParametro.set(entrada.parameterKey, atual);
   }
 
+  const link = useLinkDeAlteracoes();
   const itens = [...porParametro.values()];
   const positivos = itens.filter((i) => i.valor > 0).sort((a, b) => b.valor - a.valor);
   const negativos = itens.filter((i) => i.valor < 0).sort((a, b) => a.valor - b.valor);
@@ -539,14 +561,16 @@ function DetalheDaVigencia({
           </p>
         )}
 
-        <Link
-          href={linkDeAlteracoes({ recorte: { ...recorteBase, period } })}
-          aria-label={`Ver todas as alterações de ${rotulo}`}
-          className="inline-flex items-center gap-1 rounded-lg border px-3 py-2 text-xs font-bold hover:bg-accent transition-colors"
-        >
-          Ver todas as alterações desta vigência
-          <ChevronRight className="w-3.5 h-3.5" />
-        </Link>
+        {link !== null && (
+          <Link
+            href={link({ recorte: { ...recorteBase, period } })}
+            aria-label={`Ver todas as alterações de ${rotulo}`}
+            className="inline-flex items-center gap-1 rounded-lg border px-3 py-2 text-xs font-bold hover:bg-accent transition-colors"
+          >
+            Ver todas as alterações desta vigência
+            <ChevronRight className="w-3.5 h-3.5" />
+          </Link>
+        )}
       </div>
     </>
   );
@@ -577,6 +601,8 @@ function ColunaDaVigencia({
   rotulo: string;
   recorteBase: Recorte;
 }) {
+  const link = useLinkDeAlteracoes();
+
   return (
     <section>
       <h3 className="text-sm font-bold uppercase tracking-wide flex items-center gap-2">
@@ -594,17 +620,9 @@ function ColunaDaVigencia({
         </p>
       ) : (
         <div className="mt-3 space-y-1">
-          {itens.map((item) => (
-            <Link
-              key={item.parameterKey}
-              href={linkDeAlteracoes({
-                recorte: { ...recorteBase, period },
-                filtros: item.attributeCode ? { attributeCode: item.attributeCode } : {},
-              })}
-              aria-label={`Ver as alterações de ${item.nome} em ${rotulo}`}
-              title="Ver as alterações deste atributo nesta vigência"
-              className="grid grid-cols-[1fr_7rem] items-center gap-3 text-sm rounded px-2 py-2 -mx-2 hover:bg-accent transition-colors"
-            >
+          {itens.map((item) => {
+            const conteudo = (
+              <>
               <span className="min-w-0">
                 <span className="block font-semibold truncate" title={item.nome}>
                   {item.nome}
@@ -629,10 +647,35 @@ function ColunaDaVigencia({
                 )}
               >
                 {formatBrlShort(item.valor)}
-                <ChevronRight className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                {link !== null && (
+                  <ChevronRight className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                )}
               </span>
-            </Link>
-          ))}
+              </>
+            );
+            const classe =
+              "grid grid-cols-[1fr_7rem] items-center gap-3 text-sm rounded px-2 py-2 -mx-2";
+            // Sem endereço em Alterações — a aba de trecho —, a linha é
+            // leitura: ver `useLinkDeAlteracoes`.
+            return link === null ? (
+              <div key={item.parameterKey} className={classe}>
+                {conteudo}
+              </div>
+            ) : (
+              <Link
+                key={item.parameterKey}
+                href={link({
+                  recorte: { ...recorteBase, period },
+                  filtros: item.attributeCode ? { attributeCode: item.attributeCode } : {},
+                })}
+                aria-label={`Ver as alterações de ${item.nome} em ${rotulo}`}
+                title="Ver as alterações deste atributo nesta vigência"
+                className={cn(classe, "hover:bg-accent transition-colors")}
+              >
+                {conteudo}
+              </Link>
+            );
+          })}
         </div>
       )}
     </section>

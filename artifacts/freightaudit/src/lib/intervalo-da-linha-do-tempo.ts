@@ -1,4 +1,5 @@
 import type { UseQueryOptions } from "@tanstack/react-query";
+import type { TipoDaLinhaDoTempo } from "@workspace/comparison/tipos";
 import { fetchJsonOrNull } from "@/lib/api";
 import type { Movimentos, RangeOverview } from "@/lib/analise";
 
@@ -20,11 +21,22 @@ export function consultaDoIntervalo(
   consulta: URLSearchParams,
   de: string,
   ate: string,
+  /**
+   * O tipo, quando a aba "Cavalo, Carreta e Trecho" está aberta.
+   *
+   * Ele entra na consulta e, por consequência, na chave — que é o que se quer:
+   * a leitura de cavalo e a de carreta são perguntas diferentes sobre o mesmo
+   * intervalo, e compartilhar cache entre elas mostraria uma no lugar da outra.
+   * Quem não passa nada continua fazendo a pergunta da aba Geral, com a chave
+   * que ela sempre teve.
+   */
+  tipo?: TipoDaLinhaDoTempo | null,
 ): URLSearchParams {
   const query = new URLSearchParams(consulta);
   query.delete("period");
   query.set("from", de);
   query.set("to", ate);
+  if (tipo) query.set("tipo", tipo);
   return query;
 }
 
@@ -32,11 +44,12 @@ export function opcoesDoIntervalo(
   consulta: URLSearchParams,
   de: string,
   ate: string,
+  tipo?: TipoDaLinhaDoTempo | null,
 ): Pick<
   UseQueryOptions<Movimentos | null>,
   "queryKey" | "queryFn" | "staleTime"
 > {
-  const query = consultaDoIntervalo(consulta, de, ate);
+  const query = consultaDoIntervalo(consulta, de, ate, tipo);
   return {
     queryKey: ["changes-range", query.toString()],
     queryFn: () => fetchJsonOrNull<Movimentos>(`/changes/range?${query}`),

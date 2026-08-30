@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   aoPlural,
+  contracaoDoTipo,
   EQUIPAMENTOS,
   EQUIPAMENTOS_DO_AMBIENTE,
   equipamentosDoAmbiente,
@@ -360,5 +361,20 @@ describe("o que a tela promete", () => {
     const ativo = frasesDoEscopo({ entityType: "CARRETA", placa: "QYW4C69" });
     expect(ativo.subtitulo).toContain("esta carreta");
     expect(ativo.subtitulo).toContain("quanto ela custou");
+  });
+});
+
+describe("contracaoDoTipo — a preposição que a frase do tipo pede", () => {
+  it("segue o gênero do tipo, e não o do texto em volta", () => {
+    expect(contracaoDoTipo("CAVALO", "de")).toBe("dos");
+    expect(contracaoDoTipo("CARRETA", "de")).toBe("das");
+    expect(contracaoDoTipo("TRECHO", "em")).toBe("nos");
+    expect(contracaoDoTipo("CARROCERIA", "em")).toBe("nas");
+    expect(contracaoDoTipo("EMPILHADEIRA", "de")).toBe("das");
+  });
+
+  it("um tipo desconhecido cai no neutro, que é masculino — nunca quebra a frase", () => {
+    expect(contracaoDoTipo(null, "de")).toBe("dos");
+    expect(contracaoDoTipo("QLP_ADMINISTRATIVO", "em")).toBe("nos");
   });
 });
