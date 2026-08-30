@@ -6,6 +6,13 @@ import { Layout } from "@/components/layout/layout";
 import { ApiErrorNotice } from "@/components/api-error";
 import { AbaBotao } from "@/components/changes/cartoes";
 import { EmAtualizacao, classeDeAtualizacao } from "@/components/ui/em-atualizacao";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { useAmbiente } from "@/lib/ambiente-aberto";
 import { DASHBOARD, EVOLUCAO_POR_PLACA, LINHA_DO_TEMPO } from "@/lib/ambiente";
@@ -267,7 +274,7 @@ export default function EvolucaoPorPlacaPage() {
             )}
           >
             {/* ---- o período e a grandeza ------------------------------------ */}
-            <div className="flex flex-wrap items-end gap-3">
+            <div className="flex flex-wrap items-end gap-x-8 gap-y-4">
               <Seletor
                 rotulo="De"
                 valor={evolucao.from}
@@ -281,29 +288,29 @@ export default function EvolucaoPorPlacaPage() {
                 onTrocar={(valor) => trocarPara({ to: valor, placa: null })}
               />
               {evolucao.periodicidades.length > 1 && (
-                <div>
-                  <label
-                    className="block text-[0.6875rem] uppercase tracking-wide text-muted-foreground"
-                    htmlFor="periodicidade-da-evolucao"
-                  >
-                    Grandeza
-                  </label>
-                  <select
-                    id="periodicidade-da-evolucao"
+                <CampoDoFiltro rotulo="Grandeza">
+                  <Select
                     value={evolucao.periodicidade}
-                    onChange={(e) => trocarPara({ periodicidade: e.target.value })}
-                    className="mt-1 h-9 rounded-lg border bg-background px-2 text-sm"
-                    title="R$/mês e R$/ano nunca são somados. A matriz inteira é desenhada numa grandeza de cada vez."
+                    onValueChange={(valor) => trocarPara({ periodicidade: valor })}
                   >
-                    {evolucao.periodicidades.map((p) => (
-                      <option key={p.periodicity} value={p.periodicity}>
-                        {periodicityAdjective(p.periodicity)}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                    <SelectTrigger
+                      className="w-44"
+                      aria-label="Grandeza"
+                      title="R$/mês e R$/ano nunca são somados. A matriz inteira é desenhada numa grandeza de cada vez."
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {evolucao.periodicidades.map((p) => (
+                        <SelectItem key={p.periodicity} value={p.periodicity}>
+                          {periodicityAdjective(p.periodicity)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </CampoDoFiltro>
               )}
-              <p className="text-xs text-muted-foreground pb-2">
+              <p className="text-xs text-muted-foreground pb-2 max-w-sm">
                 A ponta “De” é o ponto de partida da comparação: ela não é somada, e por
                 isso não vira coluna.
               </p>
@@ -399,6 +406,40 @@ const ATALHO =
   "inline-flex items-center gap-2 rounded-lg border border-brand bg-card px-3 py-2 " +
   "text-sm font-bold text-brand hover:bg-accent transition-colors";
 
+/**
+ * Um campo do recorte, desenhado como a barra de contexto desenha os dela.
+ *
+ * O rótulo em versalete por cima, o campo embaixo, e o espaçamento vertical
+ * igual — é o mesmo par que Unidade, Canal e Vigência já formam na barra de
+ * contexto (`components/contexto/context-bar.tsx`). Sem isto, a mesma pergunta
+ * ("qual é o recorte?") apareceria com duas caras dependendo da tela.
+ */
+function CampoDoFiltro({
+  rotulo,
+  children,
+}: {
+  rotulo: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <div className="text-xs uppercase tracking-wide text-muted-foreground">
+        {rotulo}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+/**
+ * As pontas do intervalo.
+ *
+ * Usa o `Select` do sistema de design, e não o `<select>` do navegador: o nativo
+ * abre o menu **do sistema operacional** — outra tipografia, outro raio, outra
+ * cor de seleção —, e a tela ficava com um controle que não se parecia com
+ * nenhum outro do FreightCheck. O gatilho tem a mesma altura, a mesma borda e a
+ * mesma seta dos campos da barra de contexto.
+ */
 function Seletor({
   rotulo,
   valor,
@@ -410,29 +451,21 @@ function Seletor({
   opcoes: { date: string; label: string }[];
   onTrocar: (valor: string) => void;
 }) {
-  const id = `evolucao-${rotulo.toLowerCase()}`;
+  const ordenadas = [...opcoes].sort((a, b) => a.date.localeCompare(b.date));
   return (
-    <div>
-      <label
-        className="block text-[0.6875rem] uppercase tracking-wide text-muted-foreground"
-        htmlFor={id}
-      >
-        {rotulo}
-      </label>
-      <select
-        id={id}
-        value={valor}
-        onChange={(e) => onTrocar(e.target.value)}
-        className="mt-1 h-9 rounded-lg border bg-background px-2 text-sm"
-      >
-        {[...opcoes]
-          .sort((a, b) => a.date.localeCompare(b.date))
-          .map((opcao) => (
-            <option key={opcao.date} value={opcao.date}>
+    <CampoDoFiltro rotulo={rotulo}>
+      <Select value={valor} onValueChange={onTrocar}>
+        <SelectTrigger className="w-44" aria-label={rotulo}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {ordenadas.map((opcao) => (
+            <SelectItem key={opcao.date} value={opcao.date}>
               {opcao.label}
-            </option>
+            </SelectItem>
           ))}
-      </select>
-    </div>
+        </SelectContent>
+      </Select>
+    </CampoDoFiltro>
   );
 }
