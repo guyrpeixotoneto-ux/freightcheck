@@ -114,7 +114,111 @@ As réguas puras (tendência, score, insights, ordem, cor) têm testes sem banco
 
 ---
 
-## 5. Desempenho
+## 5. As três abas: Cavalo, Carreta e Conjunto
+
+A tela tem um eixo a mais do que o recorte por equipamento: o **grão da linha**.
+
+| Aba | Grão | Uma linha é | Medido no export real |
+|---|---|---|---|
+| Cavalo | `ATIVO`, `tipo=CAVALO` | uma placa de cavalo | 64 linhas |
+| Carreta | `ATIVO`, `tipo=CARRETA` | uma placa de carreta | 80 linhas |
+| Conjunto | `CONJUNTO` | o par cavalo+carreta **daquela vigência** | 92 linhas |
+
+Trocar de aba mantém período, unidade, canal e grandeza — são o contexto da
+pergunta. A aba Conjunto **limpa o `tipo`** e a rota descarta o recorte se ele
+vier no endereço: um conjunto recortado a um dos dois lados seria a aba Cavalo
+com outro nome. Nada é reaproveitado entre as abas: KPIs, insights, matriz,
+ranking, detalhe e rubricas são recalculados no servidor a cada grão.
+
+### O que a investigação do vínculo achou
+
+Medido em 30/08/2026 sobre as 9 vigências do export real:
+
+| Pergunta | Resposta |
+|---|---|
+| Existe identificador próprio de conjunto? | **Não.** O conjunto não é entidade (`tipos.ts`); é o par, declarado em `cavalo.placa_carreta` na linha do cavalo |
+| O vínculo é persistido por vigência? | **Sim** — é um `fact` por (cavalo, snapshot). 60 a 64 por vigência, nenhum vazio |
+| A composição pode mudar dentro da mesma vigência? | **Não.** Máximo medido: 1 carreta por cavalo por vigência |
+| Um cavalo pode ter mais de uma carreta? | **Ao longo do tempo, sim**: 5 dos 64 trocaram em maio/2026 (QYQ6A80: OTX7592 → RZF9F30) |
+| Uma carreta pode ter mais de um cavalo? | **Nenhuma ocorrência** nas 9 vigências — e há guarda para quando houver |
+| Qual chave representa a composição? | `cavalo_entity_id \| carreta_entity_id`, **por vigência** |
+| Órfãos? | Na vigência mais recente: 0 cavalos sem carreta, 9 carretas sem cavalo |
+
+A chave é sensível à troca **de propósito**: quando o cavalo passa a puxar outra
+carreta, existem dois conjuntos e a matriz mostra duas linhas. Fundi-las
+esconderia exatamente o que a aba existe para mostrar; o painel traz a timeline
+da composição, marcando em que vigências o par esteve junto e com quem o cavalo
+esteve nas demais.
+
+Um lado sozinho (`cavalo|` ou `|carreta`) **também é uma composição**. Não é
+elegância: é o que faz a soma fechar. Se o ativo sem par ficasse de fora, o total
+da aba Conjunto seria menor que o das abas Cavalo e Carreta, e ninguém saberia
+dizer por quanto.
+
+### A ambiguidade recusa em vez de escolher
+
+Se dois cavalos declararem a mesma carreta na mesma vigência, o dinheiro dela
+pertenceria a dois conjuntos. A leitura **desfaz o par** dos envolvidos naquela
+vigência (cada um vira um lado sozinho) e devolve a ocorrência em
+`ambiguidades`, que a tela escreve num aviso. Escolher um vencedor em silêncio
+seria contar a carreta duas vezes ou perdê-la sem dizer.
+
+---
+
+## 6. A não duplicação, provada
+
+**A aba Conjunto não soma "impacto do cavalo + impacto da carreta".** Ela
+reagrupa as **mesmas linhas de alteração** por outra chave. A prova tem três
+passos, e cada um é um teste:
+
+1. **Cada linha de alteração tem exatamente um `entity_id`.** É a coluna
+   `change.entity_id`; não existe alteração de duas entidades.
+2. **Cada ativo pertence a exatamente uma composição por vigência.** Um cavalo
+   declara no máximo uma carreta (medido), e uma carreta disputada por dois
+   cavalos tem o par desfeito pela guarda acima. O teste
+   *"é uma partição: nenhuma alteração se perde e nenhuma é contada duas vezes"*
+   verifica isso linha a linha, sobre a base real.
+3. **A regra de dupla contagem que já existia continua valendo por dentro.** As
+   colunas da carreta que embutem o cavalo (`ESCOPOS_DE_CONJUNTO`:
+   `carreta.finame`, `carreta.custo_fixo`, `carreta.lucro_variavel_previsto`,
+   `carreta.lucro_fixomodelo_novo_ciclo`) seguem **fora** da soma, exatamente
+   como nas abas Cavalo e Carreta. É o que impede a leitura ingênua — "o
+   conjunto é o par, então some as colunas do par" — de voltar por esta porta.
+
+Uma partição não cria nem destrói dinheiro. Daí a identidade, medida:
+
+```
+CAVALO   −R$ 18.541,81/mês
+CARRETA  +R$ 44.073,55/mês
+                          soma = +R$ 25.531,74/mês
+CONJUNTO +R$ 25.531,74/mês  ✓  (e igual ao total da aba Geral)
+```
+
+---
+
+## 7. Reconciliação entre as três visões
+
+**O que é aditivo** entre Cavalo, Carreta e Conjunto, no mesmo escopo e na mesma
+periodicidade — e cada linha abaixo é um teste:
+
+| Métrica | Aditiva? | Por quê |
+|---|---|---|
+| Impacto líquido | **Sim** | partição das mesmas linhas |
+| Perda e ganho | **Sim** | idem, lado a lado |
+| Nº de alterações | **Sim** | idem |
+| Alterações sem valoração | **Sim** | idem |
+| **Nº de linhas** (placas/conjuntos) | **Não** | 64 + 80 = 144 ativos, mas 92 composições: o par funde duas linhas em uma |
+| **Denominador** (frota / composições) | **Não** | contam unidades diferentes — ativos de um lado, pares do outro |
+| Acumulado de **uma** linha | **Não comparável entre abas** | um cavalo que trocou de carreta tem o acumulado dele repartido entre duas composições |
+| Ranking e score | **Não comparável** | o score normaliza pela maior perda **do recorte**, e o recorte muda com a aba |
+
+A recusa importa tanto quanto a identidade: afirmar que
+"Total Cavalo + Total Carreta = Total Conjunto" só é verdade para as quatro
+primeiras linhas da tabela, e é por isso que as outras quatro estão escritas.
+
+---
+
+## 8. Desempenho
 
 Medido no export real (CAMAÇARI · EMPURRADA, 8 comparações, 144 ativos, 3.224
 alterações), sobre `/changes/evolucao-por-placa`:
@@ -134,16 +238,18 @@ transformaria em centenas de idas ao banco.
 
 ---
 
-## 6. Onde mora o código
+## 9. Onde mora o código
 
 | Camada | Arquivo |
 |---|---|
 | Janela do intervalo (compartilhada com a Linha do Tempo) | `lib/comparison/src/janela-de-comparacoes.ts` |
+| O par declarado, e a evidência dele | `PARES_DE_CONJUNTO`, em `lib/comparison/src/composition.ts` |
+| A composição de cada vigência | `lib/comparison/src/composicao-da-vigencia.ts` |
 | A leitura e as réguas | `lib/comparison/src/evolucao-por-placa.ts` |
 | A rota | `GET /changes/evolucao-por-placa` em `artifacts/api-server/src/routes/changes.ts` |
 | Contrato, filtros, ordem, cor e série | `artifacts/freightaudit/src/lib/evolucao-por-placa.ts` |
 | A tela | `artifacts/freightaudit/src/pages/evolucao-por-placa.tsx` |
-| Cartões, atenção, matriz, painel, ranking, rubricas | `artifacts/freightaudit/src/components/evolucao-por-placa/` |
+| Cartões, atenção, matriz, painel, ranking, rubricas, composição | `artifacts/freightaudit/src/components/evolucao-por-placa/` |
 | Navegação | `EVOLUCAO_POR_PLACA` em `lib/ambiente.ts`, item em `nav-auditoria.ts`, escopo em `navegacao-do-escopo.ts` |
 
 Nenhuma regra de negócio existente foi alterada. A extração de

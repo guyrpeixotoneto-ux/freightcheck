@@ -30,6 +30,7 @@ export * from "./chamados";
 export * from "./escopo";
 export * from "./ativos";
 export * from "./alteracoes-do-ativo";
+export * from "./composicao-da-vigencia";
 export * from "./evolucao-por-placa";
 export * from "./radar-trechos";
 export * from "./painel-de-justificativas";

@@ -14,6 +14,7 @@ import {
   ordenarAtivos,
   recorteDaMatriz,
   serieDaPlaca,
+  vocabularioDoGrao,
   type AtivoNaEvolucao,
   type CelulaDaPlaca,
 } from "@/lib/evolucao-por-placa";
@@ -284,5 +285,99 @@ describe("a série do painel", () => {
     );
     expect(serie.map((p) => p.acumulado)).toEqual([-500, -500, -500]);
     expect(serie[1].semValoracao).toBe(3);
+  });
+});
+
+describe("o grão de conjunto, do lado da tela", () => {
+  const comPar = (
+    over: Partial<AtivoNaEvolucao> & { entityId: string },
+  ): AtivoNaEvolucao =>
+    ativo({
+      componentes: {
+        cavalo: { entityId: "c1", entityType: "CAVALO", plate: "RZG4F47" },
+        carreta: { entityId: "r1", entityType: "CARRETA", plate: "ABC1D23" },
+      },
+      rotulo: "RZG4F47 + ABC1D23",
+      vigenciasJuntos: 4,
+      ...over,
+    });
+
+  it("a pergunta do conjunto é outra chave de cache, e ela carrega o grão", () => {
+    const params = new URLSearchParams({ scopeHash: "abc" });
+    const doAtivo = opcoesDaEvolucao(params, "a", "b").queryKey;
+    const doConjunto = opcoesDaEvolucao(params, "a", "b", null, null, "CONJUNTO").queryKey;
+    expect(doConjunto).not.toEqual(doAtivo);
+    expect(String(doConjunto[1])).toContain("grao=CONJUNTO");
+  });
+
+  it("o recorte por tipo não viaja junto com o conjunto", () => {
+    /*
+      A recusa é do servidor, e a tela não manda o que ele vai descartar: um
+      `?tipo=CAVALO&grao=CONJUNTO` no endereço prometeria um recorte que
+      ninguém aplica.
+    */
+    const query = consultaDaEvolucao(
+      new URLSearchParams(),
+      "a",
+      "b",
+      "CAVALO",
+      "MENSAL",
+      "CONJUNTO",
+    );
+    expect(query.get("tipo")).toBeNull();
+    expect(query.get("grao")).toBe("CONJUNTO");
+    // A grandeza e as pontas seguem — são o contexto, e não a pergunta.
+    expect(query.get("periodicidade")).toBe("MENSAL");
+    expect(query.get("from")).toBe("a");
+  });
+
+  it("a busca alcança os dois lados do par", () => {
+    const lista = [
+      comPar({ entityId: "c1|r1" }),
+      comPar({
+        entityId: "c2|r2",
+        rotulo: "QYW2D78 + QYW4C69",
+        componentes: {
+          cavalo: { entityId: "c2", entityType: "CAVALO", plate: "QYW2D78" },
+          carreta: { entityId: "r2", entityType: "CARRETA", plate: "QYW4C69" },
+        },
+      }),
+    ];
+    const porCavalo = recorteDaMatriz(lista, {
+      filtro: "todos",
+      busca: "rzg4f47",
+      ordem: "prioridade",
+    });
+    const porCarreta = recorteDaMatriz(lista, {
+      filtro: "todos",
+      busca: "qyw4c69",
+      ordem: "prioridade",
+    });
+    expect(porCavalo.map((a) => a.entityId)).toEqual(["c1|r1"]);
+    expect(porCarreta.map((a) => a.entityId)).toEqual(["c2|r2"]);
+  });
+
+  it("o vocabulário troca com o grão — e é ele que nomeia a linha", () => {
+    expect(vocabularioDoGrao("ATIVO").plural).toBe("placas");
+    expect(vocabularioDoGrao("CONJUNTO").plural).toBe("conjuntos");
+    expect(vocabularioDoGrao("CONJUNTO").coluna).toBe("Conjunto");
+    // A busca do conjunto precisa dizer que alcança os dois lados.
+    expect(vocabularioDoGrao("CONJUNTO").busca.toLowerCase()).toContain("carreta");
+  });
+
+  it("a série de um conjunto se monta como a de um ativo — o par não muda a conta", () => {
+    const colunas = [
+      { period: "2026-06-02", label: "junho" },
+      { period: "2026-07-02", label: "julho" },
+    ];
+    const serie = serieDaPlaca(
+      comPar({
+        entityId: "c1|r1",
+        celulas: [celula({ period: "2026-07-02", net: -3200, alteracoes: 4 })],
+      }),
+      colunas,
+    );
+    expect(serie.map((p) => p.acumulado)).toEqual([0, -3200]);
+    expect(serie.map((p) => p.vigencia)).toEqual([null, -3200]);
   });
 });

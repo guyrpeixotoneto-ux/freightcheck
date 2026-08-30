@@ -190,6 +190,70 @@ export const ESCOPOS_DE_CONJUNTO: EscopoDeConjunto[] = [
   },
 ];
 
+/**
+ * Como o par de um conjunto é declarado — **a única autoridade sobre o vínculo**.
+ *
+ * O conjunto não é entidade e não tem identificador próprio: ele é o par, e o
+ * par é declarado numa coluna do equipamento que puxa, com a **placa** do que é
+ * puxado. Esta constante existe porque o mesmo literal
+ * (`"cavalo.placa_carreta"`) estava escrito em três arquivos — `vinculos.ts`,
+ * `tipos-da-vigencia.ts` e a leitura de composição —, cada um com o seu
+ * comentário dizendo "um só, e medido". Três cópias de um vínculo é o número de
+ * lugares em que ele pode passar a apontar para colunas diferentes.
+ *
+ * Ela mora ao lado de `ESCOPOS_DE_CONJUNTO` de propósito: são as duas metades
+ * da mesma pergunta — *quem forma o par* e *que dinheiro é do par*.
+ *
+ * **É uma lista, e hoje tem um item.** Cavalo→carreta é o único par que o
+ * acervo declara; medido em 30/08/2026, os únicos atributos de placa no
+ * dicionário são `cavalo.placa_carreta` e `carreta.tipo_carroceria_empurrada`
+ * (que é tipo, não vínculo). A rota e o AS rodam com caminhão e carroceria e
+ * **não** declaram par nenhum — e é por isso que a aba Conjunto não aparece
+ * lá: uma tela de conjunto sem vínculo seria uma matriz de linhas soltas com
+ * nome de composição.
+ */
+export interface ParDeConjunto {
+  /** O `entity_type` que declara o par na linha dele. */
+  declarante: string;
+  /** O `entity_type` nomeado pelo atributo. */
+  declarado: string;
+  /** O atributo cujo texto é a placa do equipamento declarado. */
+  code: string;
+  /** A medição que sustenta a regra. Sem ela, isto seria um palpite. */
+  evidence: string;
+}
+
+export const PARES_DE_CONJUNTO: ParDeConjunto[] = [
+  {
+    declarante: "CAVALO",
+    declarado: "CARRETA",
+    code: "cavalo.placa_carreta",
+    evidence:
+      "Medido em 30/08/2026 sobre as 9 vigências do export real: o atributo tem 60 a 64 " +
+      "fatos por vigência, **nenhum** vazio, e nenhum cavalo declara mais de uma carreta na " +
+      "mesma vigência (máximo medido: 1). Nenhuma carreta é reivindicada por dois cavalos na " +
+      "mesma vigência (zero ocorrências nas 9). Ao longo do tempo o par **muda**: 5 dos 64 " +
+      "cavalos trocaram de carreta em maio/2026 (ex.: QYQ6A80 saiu de OTX7592 para RZF9F30). " +
+      "Na vigência mais recente há 62 pares, 0 cavalos sem carreta e 9 carretas sem cavalo.",
+  },
+];
+
+/** O par declarado por este equipamento, quando ele declara algum. */
+export function parQueDeclara(entityType: string | null): ParDeConjunto | null {
+  return entityType === null
+    ? null
+    : (PARES_DE_CONJUNTO.find((p) => p.declarante === entityType) ?? null);
+}
+
+/** Se estes dois equipamentos formam um par declarado. */
+export function formamPar(a: string, b: string): boolean {
+  return PARES_DE_CONJUNTO.some(
+    (p) =>
+      (p.declarante === a && p.declarado === b) ||
+      (p.declarante === b && p.declarado === a),
+  );
+}
+
 const ESCOPO_POR_CODIGO = new Map(ESCOPOS_DE_CONJUNTO.map((e) => [e.code, e]));
 
 /** Se este atributo já embute o valor do outro equipamento do conjunto. */

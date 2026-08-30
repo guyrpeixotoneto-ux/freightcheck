@@ -269,6 +269,9 @@ describe("os insights de atenção", () => {
     prioridade: "NEUTRA",
     motivos: [],
     rubricas: [],
+    componentes: null,
+    vigenciasJuntos: 0,
+    composicao: [],
     ...over,
   });
 

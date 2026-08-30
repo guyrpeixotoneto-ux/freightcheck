@@ -10,6 +10,7 @@ import {
   intensidadeDaCelula,
   maiorCelulaAbsoluta,
   recorteDaMatriz,
+  vocabularioDoGrao,
   type AtivoNaEvolucao,
   type CelulaDaPlaca,
   type EvolucaoPorPlaca,
@@ -84,6 +85,7 @@ export function MatrizDaEvolucao({
   const naPagina = visiveis.slice(atual * POR_PAGINA, atual * POR_PAGINA + POR_PAGINA);
   const maior = useMemo(() => maiorCelulaAbsoluta(visiveis), [visiveis]);
   const sufixo = periodicitySuffix(evolucao.periodicidade);
+  const vocabulario = vocabularioDoGrao(evolucao.grao);
 
   const trocar = (acao: () => void) => {
     acao();
@@ -94,7 +96,7 @@ export function MatrizDaEvolucao({
     <section className="bg-card border rounded-xl shadow-sm p-5">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-base font-bold leading-tight">
-          Impacto por placa ao longo do tempo{" "}
+          Impacto por {vocabulario.singular} ao longo do tempo{" "}
           <span className="font-normal text-muted-foreground">(R${sufixo})</span>
         </h2>
         <p className="text-xs text-muted-foreground">
@@ -111,8 +113,8 @@ export function MatrizDaEvolucao({
           <input
             value={busca}
             onChange={(e) => trocar(() => onBusca(e.target.value))}
-            placeholder="Buscar placa…"
-            aria-label="Buscar placa"
+            placeholder={vocabulario.busca}
+            aria-label={vocabulario.busca}
             className="h-9 w-44 sm:w-56 rounded-lg border bg-background pl-8 pr-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
           />
         </div>
@@ -180,7 +182,7 @@ export function MatrizDaEvolucao({
       {/* ---- a matriz ------------------------------------------------------- */}
       {visiveis.length === 0 ? (
         <p className="mt-6 text-sm text-muted-foreground">
-          Nenhuma placa neste recorte. Troque o filtro ou limpe a busca.
+          {`Nenhum${evolucao.grao === "CONJUNTO" ? " conjunto" : "a placa"} neste recorte. Troque o filtro ou limpe a busca.`}
         </p>
       ) : (
         <div className="mt-4 overflow-x-auto">
@@ -188,7 +190,7 @@ export function MatrizDaEvolucao({
             <thead>
               <tr className="text-[0.6875rem] uppercase tracking-wide text-muted-foreground">
                 <th className="sticky left-0 z-20 bg-card px-2 pb-2 text-left font-semibold shadow-[1px_0_0_0_hsl(var(--border))]">
-                  Placa
+                  {vocabulario.coluna}
                 </th>
                 {evolucao.colunas.map((coluna) => (
                   <th
@@ -227,7 +229,7 @@ export function MatrizDaEvolucao({
         <span>
           Mostrando {visiveis.length === 0 ? 0 : atual * POR_PAGINA + 1} a{" "}
           {Math.min(visiveis.length, (atual + 1) * POR_PAGINA)} de {visiveis.length}{" "}
-          {visiveis.length === 1 ? "placa" : "placas"}
+          {visiveis.length === 1 ? vocabulario.singular : vocabulario.plural}
           {visiveis.length !== evolucao.ativos.length && ` (de ${evolucao.ativos.length})`}
         </span>
         {paginas > 1 && (
@@ -321,9 +323,25 @@ function LinhaDaPlaca({
             onEscolher();
           }}
           aria-expanded={selecionada}
-          className="rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring hover:underline"
+          className="rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-ring hover:underline"
         >
-          {ativo.rotulo}
+          {ativo.componentes ? (
+            /*
+              O par em duas linhas, e não "A + B" numa só: a coluna fica presa à
+              esquerda e precisa caber num telefone, e duas placas lado a lado
+              empurram a matriz inteira para fora da tela.
+            */
+            <span className="block leading-tight">
+              <span className="block">
+                {ativo.componentes.cavalo?.plate ?? "sem cavalo"}
+              </span>
+              <span className="block text-xs font-normal text-muted-foreground">
+                + {ativo.componentes.carreta?.plate ?? "sem carreta"}
+              </span>
+            </span>
+          ) : (
+            ativo.rotulo
+          )}
         </button>
       </th>
       {colunas.map((coluna) => (
@@ -510,7 +528,7 @@ function Legenda() {
  */
 function exportar(evolucao: EvolucaoPorPlaca, ativos: AtivoNaEvolucao[]): void {
   const cabecalho = [
-    "Placa",
+    vocabularioDoGrao(evolucao.grao).coluna,
     "Tipo",
     ...evolucao.colunas.map((c) => c.label),
     `Acumulado (R$ ${evolucao.periodicidade.toLowerCase()})`,

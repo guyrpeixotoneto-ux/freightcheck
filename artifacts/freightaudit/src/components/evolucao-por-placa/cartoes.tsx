@@ -8,7 +8,11 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatBrlShort, periodicitySuffix } from "@/lib/format";
-import type { EvolucaoPorPlaca, InsightDaEvolucao } from "@/lib/evolucao-por-placa";
+import {
+  vocabularioDoGrao,
+  type EvolucaoPorPlaca,
+  type InsightDaEvolucao,
+} from "@/lib/evolucao-por-placa";
 
 /**
  * A faixa executiva e o bloco de atenção — os dois blocos do topo.
@@ -28,38 +32,41 @@ import type { EvolucaoPorPlaca, InsightDaEvolucao } from "@/lib/evolucao-por-pla
 export function CartoesDaEvolucao({ evolucao }: { evolucao: EvolucaoPorPlaca }) {
   const { totais } = evolucao;
   const sufixo = periodicitySuffix(evolucao.periodicidade);
+  const vocabulario = vocabularioDoGrao(evolucao.grao);
   const daFrota =
     totais.frota > 0 ? Math.round((totais.ativos / totais.frota) * 100) : null;
+  const Titulo = (texto: string) =>
+    `${texto.charAt(0).toUpperCase()}${texto.slice(1)}`;
 
   return (
     <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
       <Cartao
         icon={Truck}
         tom="neutro"
-        titulo="Placas analisadas"
+        titulo={`${Titulo(vocabulario.plural)} analisad${evolucao.grao === "CONJUNTO" ? "os" : "as"}`}
         valor={totais.ativos.toLocaleString("pt-BR")}
         nota={
           daFrota === null
             ? `${totais.alteracoes.toLocaleString("pt-BR")} alterações`
-            : `${daFrota}% da frota do período`
+            : `${daFrota}% ${vocabulario.universo}`
         }
-        dica={`${totais.ativos} ativos tiveram ao menos uma alteração entre ${evolucao.fromLabel} e ${evolucao.toLabel}. A frota do período tem ${totais.frota} ativos — a diferença são os que não mudaram, e não os que sumiram.`}
+        dica={`${totais.ativos} ${vocabulario.plural} tiveram ao menos uma alteração entre ${evolucao.fromLabel} e ${evolucao.toLabel}. O período tem ${totais.frota} ${vocabulario.plural} no total — a diferença são os que não mudaram, e não os que sumiram.`}
       />
       <Cartao
         icon={TrendingDown}
         tom="perda"
-        titulo="Placas com perda"
+        titulo={`${Titulo(vocabulario.plural)} com perda`}
         valor={totais.comPerda.toLocaleString("pt-BR")}
         nota={`${formatBrlShort(totais.perda)}${sufixo}`}
-        dica="Ativos cujo impacto acumulado no período é negativo. O valor ao lado é a soma de tudo que reduziu a remuneração — nunca compensado com o que somou."
+        dica={`${Titulo(vocabulario.plural)} cujo impacto acumulado no período é negativo. O valor ao lado é a soma de tudo que reduziu a remuneração — nunca compensado com o que somou.`}
       />
       <Cartao
         icon={TrendingUp}
         tom="ganho"
-        titulo="Placas com ganho"
+        titulo={`${Titulo(vocabulario.plural)} com ganho`}
         valor={totais.comGanho.toLocaleString("pt-BR")}
         nota={`+${formatBrlShort(totais.ganho)}${sufixo}`}
-        dica="Ativos cujo impacto acumulado no período é positivo, e a soma de tudo que somou."
+        dica={`${Titulo(vocabulario.plural)} cujo impacto acumulado no período é positivo, e a soma de tudo que somou.`}
       />
       <Cartao
         icon={AlertTriangle}
@@ -69,7 +76,7 @@ export function CartoesDaEvolucao({ evolucao }: { evolucao: EvolucaoPorPlaca }) 
         nota={`${totais.alteracoesSemValoracao.toLocaleString("pt-BR")} ${
           totais.alteracoesSemValoracao === 1 ? "alteração" : "alterações"
         }`}
-        dica="Ativos com ao menos uma alteração cujo impacto financeiro ainda não pôde ser apurado. Elas não valem R$ 0 — valem um número que ainda não sabemos, e por isso ficam fora das somas acima."
+        dica={`${Titulo(vocabulario.plural)} com ao menos uma alteração cujo impacto financeiro ainda não pôde ser apurado. Elas não valem R$ 0 — valem um número que ainda não sabemos, e por isso ficam fora das somas acima.`}
       />
       <Cartao
         icon={Sparkles}
@@ -164,11 +171,13 @@ const ICONE_DO_INSIGHT: Record<InsightDaEvolucao["chave"], string> = {
 export function AtencaoDaEvolucao({
   insights,
   ativo,
+  grao,
   onEscolher,
 }: {
   insights: InsightDaEvolucao[];
   /** A chave do insight recortando a matriz agora, quando há um. */
   ativo: InsightDaEvolucao["chave"] | null;
+  grao: EvolucaoPorPlaca["grao"];
   onEscolher: (insight: InsightDaEvolucao | null) => void;
 }) {
   if (insights.length === 0) return null;
@@ -179,7 +188,7 @@ export function AtencaoDaEvolucao({
         <Sparkles className="w-4 h-4 text-primary" />
         <h2 className="text-base font-bold leading-tight">O que merece sua atenção</h2>
         <span className="ml-auto text-xs text-muted-foreground">
-          Clique num item para ver só essas placas na matriz.
+          Clique num item para ver só {vocabularioDoGrao(grao).plural === "conjuntos" ? "esses conjuntos" : "essas placas"} na matriz.
         </span>
       </div>
 

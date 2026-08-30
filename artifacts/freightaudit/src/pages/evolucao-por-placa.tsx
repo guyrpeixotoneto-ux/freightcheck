@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
-import { History, LayoutDashboard, Layers } from "lucide-react";
+import { History, LayoutDashboard, Layers, Link2 } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
 import { ApiErrorNotice } from "@/components/api-error";
 import { AbaBotao } from "@/components/changes/cartoes";
@@ -17,10 +17,14 @@ import {
   ehFiltroDaEvolucao,
   ehOrdemDaEvolucao,
   opcoesDaEvolucao,
+  vocabularioDoGrao,
   type FiltroDaEvolucao,
+  type GraoDaEvolucao,
   type InsightDaEvolucao,
   type OrdemDaEvolucao,
 } from "@/lib/evolucao-por-placa";
+import { AmbiguidadesDaComposicao } from "@/components/evolucao-por-placa/composicao";
+import { PARES_DE_CONJUNTO } from "@workspace/comparison/composition";
 import { AtencaoDaEvolucao, CartoesDaEvolucao } from "@/components/evolucao-por-placa/cartoes";
 import { MatrizDaEvolucao } from "@/components/evolucao-por-placa/matriz";
 import { PainelDaPlaca } from "@/components/evolucao-por-placa/painel-da-placa";
@@ -66,8 +70,28 @@ export default function EvolucaoPorPlacaPage() {
   }
 
   const equipamentos = equipamentosDoAmbiente(ambiente);
+
+  /*
+    A aba Conjunto existe onde **há par declarado**, e não onde alguém escreveu
+    o nome dela.
+
+    O par é `cavalo.placa_carreta` (`PARES_DE_CONJUNTO`, no domínio), e ele é da
+    empurrada: a Rota e o AS rodam com caminhão e carroceria e não declaram
+    vínculo nenhum. Uma aba de conjunto lá seria uma matriz de linhas soltas com
+    nome de composição — o mesmo defeito que `EQUIPAMENTOS_DO_AMBIENTE` existe
+    para evitar com o Trecho.
+  */
+  const temConjunto = PARES_DE_CONJUNTO.some(
+    (par) =>
+      (equipamentos as readonly string[]).includes(par.declarante) &&
+      (equipamentos as readonly string[]).includes(par.declarado),
+  );
+  const grao: GraoDaEvolucao =
+    temConjunto && parametros.get("grao") === "CONJUNTO" ? "CONJUNTO" : "ATIVO";
+
   const pedido = parametros.get("tipo");
   const tipo: TipoDaLinhaDoTempo | null =
+    grao === "ATIVO" &&
     pedido !== null &&
     ehTipoDaLinhaDoTempo(pedido) &&
     (equipamentos as readonly string[]).includes(pedido)
@@ -88,7 +112,7 @@ export default function EvolucaoPorPlacaPage() {
   const placaAberta = parametros.get("placa");
 
   const consultaDaEvolucao = useQuery(
-    opcoesDaEvolucao(consulta, de, ate, tipo, periodicidade),
+    opcoesDaEvolucao(consulta, de, ate, tipo, periodicidade, grao),
   );
   const evolucao = consultaDaEvolucao.data ?? null;
 
@@ -143,7 +167,7 @@ export default function EvolucaoPorPlacaPage() {
                 {[
                   unidade,
                   evolucao.context.channel,
-                  tipo ? rotuloDoTipo(tipo) : null,
+                  grao === "CONJUNTO" ? "Conjunto" : tipo ? rotuloDoTipo(tipo) : null,
                   `${evolucao.colunas.length} ${evolucao.colunas.length === 1 ? "vigência comparada" : "vigências comparadas"}`,
                   `valores em ${periodicityAdjective(evolucao.periodicidade)}`,
                 ]
@@ -177,8 +201,8 @@ export default function EvolucaoPorPlacaPage() {
       <div className="px-8 border-b">
         <nav className="flex flex-wrap items-center gap-1 max-w-[1600px]" role="tablist">
           <AbaBotao
-            active={tipo === null}
-            onClick={() => trocarPara({ tipo: null, placa: null })}
+            active={grao === "ATIVO" && tipo === null}
+            onClick={() => trocarPara({ tipo: null, grao: null, placa: null })}
             icon={<Layers className="w-4 h-4" />}
             label="Geral"
             hint="a frota inteira, sem separar por tipo"
@@ -186,12 +210,29 @@ export default function EvolucaoPorPlacaPage() {
           {equipamentos.map((codigo) => (
             <AbaBotao
               key={codigo}
-              active={codigo === tipo}
-              onClick={() => trocarPara({ tipo: codigo, placa: null })}
+              active={grao === "ATIVO" && codigo === tipo}
+              onClick={() => trocarPara({ tipo: codigo, grao: null, placa: null })}
               label={rotuloDoTipo(codigo)}
               hint={`as mesmas placas, só ${contracaoDoTipo(codigo, "de")} ${palavrasDoTipo(codigo).plural}`}
             />
           ))}
+          {temConjunto && (
+            /*
+              A aba Conjunto **troca o grão da linha**, e por isso limpa o tipo:
+              um conjunto é cavalo e carreta, e mantê-lo recortado a um dos dois
+              seria a aba Cavalo com outro nome. O período, a unidade, o canal e
+              a grandeza seguem — são o contexto da pergunta, e não a pergunta.
+            */
+            <AbaBotao
+              active={grao === "CONJUNTO"}
+              onClick={() =>
+                trocarPara({ grao: "CONJUNTO", tipo: null, placa: null })
+              }
+              icon={<Link2 className="w-4 h-4" />}
+              label="Conjunto"
+              hint="o par cavalo + carreta daquela vigência, como uma linha só"
+            />
+          )}
         </nav>
       </div>
 
@@ -268,11 +309,14 @@ export default function EvolucaoPorPlacaPage() {
               </p>
             </div>
 
+            <AmbiguidadesDaComposicao ambiguidades={evolucao.ambiguidades} />
+
             <CartoesDaEvolucao evolucao={evolucao} />
 
             <AtencaoDaEvolucao
               insights={evolucao.insights}
               ativo={recorte?.chave ?? null}
+              grao={evolucao.grao}
               onEscolher={setInsight}
             />
 

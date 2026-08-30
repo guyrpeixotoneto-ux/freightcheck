@@ -547,11 +547,22 @@ router.get("/changes/evolucao-por-placa", async (req, res): Promise<void> => {
       ? (req.query[chave] as string)
       : undefined;
   const tipoPedido = texto("tipo");
+  /*
+    `grao=CONJUNTO` troca a população da tela inteira: a linha passa a ser o par
+    cavalo+carreta daquela vigência. Ele **não** se combina com `tipo` — um
+    conjunto recortado a um dos dois lados seria a aba Cavalo com outro nome —,
+    e a leitura descarta o recorte em vez de aplicá-lo pela metade. Ver `grao`
+    em `OpcoesDaEvolucao`.
+  */
+  const grao = texto("grao") === "CONJUNTO" ? "CONJUNTO" : "ATIVO";
   const evolucao = await evolucaoPorPlaca(db, {
+    grao,
     ...(texto("from") ? { from: texto("from")! } : {}),
     ...(texto("to") ? { to: texto("to")! } : {}),
     context: parseContext(req.query as Record<string, unknown>),
-    ...(tipoPedido !== undefined && ehTipoDaLinhaDoTempo(tipoPedido)
+    ...(grao === "ATIVO" &&
+    tipoPedido !== undefined &&
+    ehTipoDaLinhaDoTempo(tipoPedido)
       ? { tipo: tipoPedido as TipoDaLinhaDoTempo }
       : {}),
     ...(texto("periodicidade") ? { periodicidade: texto("periodicidade")! } : {}),

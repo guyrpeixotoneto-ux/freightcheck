@@ -20,6 +20,7 @@ import { fetchJsonOrNull } from "@/lib/api";
 // O contrato
 // ---------------------------------------------------------------------------
 
+export type GraoDaEvolucao = "ATIVO" | "CONJUNTO";
 export type EstadoDaCelulaDaPlaca = "VALORADA" | "SEM_VALORACAO";
 export type Tendencia = "PIORANDO" | "MELHORANDO" | "ESTAVEL" | "SEM_VALORACAO";
 export type Prioridade = "CRITICA" | "MONITORAR" | "ATENCAO" | "POSITIVO" | "NEUTRA";
@@ -46,6 +47,27 @@ export interface CelulaDaPlaca {
   net: number | null;
   /** As rubricas daquela vigência naquela placa — o último degrau do detalhe. */
   rubricas: RubricaDaCelula[];
+}
+
+export interface LadoDoConjunto {
+  entityId: string;
+  entityType: string;
+  plate: string | null;
+}
+
+export interface ComposicaoNoTempo {
+  period: string;
+  label: string;
+  /** Se esta composição estava de pé naquela vigência. */
+  juntos: boolean;
+  /** Com quem o cavalo estava, quando não era com esta carreta. */
+  outraCarreta: string | null;
+}
+
+export interface AmbiguidadeDeComposicao {
+  period: string;
+  declarado: string;
+  declarantes: number;
 }
 
 export interface MotivoDaPrioridade {
@@ -92,6 +114,12 @@ export interface AtivoNaEvolucao {
   prioridade: Prioridade;
   motivos: MotivoDaPrioridade[];
   rubricas: RubricaAlterada[];
+  /** Os dois lados do par. Null no grão de ativo. */
+  componentes: { cavalo: LadoDoConjunto | null; carreta: LadoDoConjunto | null } | null;
+  /** Em quantas vigências o par esteve junto. */
+  vigenciasJuntos: number;
+  /** A composição vigência a vigência. Vazia no grão de ativo. */
+  composicao: ComposicaoNoTempo[];
 }
 
 export interface InsightDaEvolucao {
@@ -107,6 +135,8 @@ export interface InsightDaEvolucao {
 }
 
 export interface EvolucaoPorPlaca {
+  grao: GraoDaEvolucao;
+  ambiguidades: AmbiguidadeDeComposicao[];
   context: {
     scopeHash: string;
     channel: string | null;
@@ -159,13 +189,22 @@ export function consultaDaEvolucao(
   ate: string | null,
   tipo?: TipoDaLinhaDoTempo | null,
   periodicidade?: string | null,
+  grao?: GraoDaEvolucao | null,
 ): URLSearchParams {
   const query = new URLSearchParams(consulta);
   query.delete("period");
   if (de) query.set("from", de);
   if (ate) query.set("to", ate);
-  if (tipo) query.set("tipo", tipo);
+  /*
+    `tipo` e o grão de conjunto não se combinam — um conjunto recortado a um dos
+    dois lados seria a aba Cavalo com outro nome. A tela nem chega a mandar os
+    dois: a aba de conjunto limpa o tipo ao ser aberta, e esta função repete a
+    recusa para que nenhum endereço montado à mão prometa um recorte que o
+    servidor descarta.
+  */
+  if (tipo && grao !== "CONJUNTO") query.set("tipo", tipo);
   if (periodicidade) query.set("periodicidade", periodicidade);
+  if (grao === "CONJUNTO") query.set("grao", grao);
   return query;
 }
 
@@ -175,14 +214,63 @@ export function opcoesDaEvolucao(
   ate: string | null,
   tipo?: TipoDaLinhaDoTempo | null,
   periodicidade?: string | null,
+  grao?: GraoDaEvolucao | null,
 ): Pick<UseQueryOptions<EvolucaoPorPlaca | null>, "queryKey" | "queryFn" | "staleTime"> {
-  const query = consultaDaEvolucao(consulta, de, ate, tipo, periodicidade);
+  const query = consultaDaEvolucao(consulta, de, ate, tipo, periodicidade, grao);
   return {
     queryKey: ["evolucao-por-placa", query.toString()],
     queryFn: () => fetchJsonOrNull<EvolucaoPorPlaca>(`/changes/evolucao-por-placa?${query}`),
     staleTime: 60_000,
   };
 }
+
+// ---------------------------------------------------------------------------
+// O vocabulário do grão
+// ---------------------------------------------------------------------------
+
+/**
+ * Como a tela chama a linha — **e por que isso não é cosmético**.
+ *
+ * A aba Conjunto não é a aba Cavalo com outro título: a linha é outra coisa, a
+ * contagem é outra, e o denominador é outro. Um "131 placas analisadas" no topo
+ * de uma matriz de 104 conjuntos seria o número certo da pergunta errada, e é
+ * exatamente o tipo de erro que passa despercebido porque *parece* coerente.
+ *
+ * O vocabulário mora aqui, num lugar só, e não espalhado em literais nos
+ * componentes: os cartões, os insights, o ranking, a paginação e o CSV precisam
+ * dizer a mesma palavra, e cinco literais é o número de lugares em que quatro
+ * deles podem continuar dizendo "placa" depois de a aba mudar.
+ */
+export interface VocabularioDoGrao {
+  singular: string;
+  plural: string;
+  /** O cabeçalho da primeira coluna da matriz. */
+  coluna: string;
+  /** O texto da busca. */
+  busca: string;
+  /** O que o denominador dos cartões conta. */
+  universo: string;
+}
+
+export const VOCABULARIO_DO_GRAO: Record<GraoDaEvolucao, VocabularioDoGrao> = {
+  ATIVO: {
+    singular: "placa",
+    plural: "placas",
+    coluna: "Placa",
+    busca: "Buscar placa…",
+    universo: "da frota do período",
+  },
+  CONJUNTO: {
+    singular: "conjunto",
+    plural: "conjuntos",
+    coluna: "Conjunto",
+    busca: "Buscar cavalo ou carreta…",
+    universo: "das composições do período",
+  },
+};
+
+export const vocabularioDoGrao = (grao: GraoDaEvolucao): VocabularioDoGrao =>
+  VOCABULARIO_DO_GRAO[grao];
 
 // ---------------------------------------------------------------------------
 // Os filtros rápidos
@@ -334,9 +422,18 @@ export function recorteDaMatriz(
       if (doInsight && !doInsight.has(ativo.entityId)) return false;
       if (!aplicaFiltro(ativo, opcoes.filtro)) return false;
       if (busca === "") return true;
+      /*
+        A busca alcança os dois lados do par: quem procura o cavalo RZG4F47 numa
+        matriz de conjuntos precisa achar "RZG4F47 + ABC1D23", e quem procura a
+        carreta também. O rótulo já contém as duas placas, e os componentes
+        entram para o caso do lado sem placa cadastrada.
+      */
       return (
         ativo.rotulo.toUpperCase().includes(busca) ||
-        ativo.placasAnteriores.some((p) => p.toUpperCase().includes(busca))
+        ativo.placasAnteriores.some((p) => p.toUpperCase().includes(busca)) ||
+        [ativo.componentes?.cavalo?.plate, ativo.componentes?.carreta?.plate].some(
+          (placa) => placa !== null && placa !== undefined && placa.toUpperCase().includes(busca),
+        )
       );
     }),
     opcoes.ordem,

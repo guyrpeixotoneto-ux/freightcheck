@@ -17,10 +17,16 @@ import { inArray, sql } from "drizzle-orm";
 import type { Database } from "@workspace/db";
 import { changeSetTable, factTable } from "@workspace/db";
 import { indexarVinculos, SEM_VINCULOS, type VinculosDeConjunto } from "./deduplicacao";
-import { ESCOPOS_DE_CONJUNTO } from "./composition";
+import { ESCOPOS_DE_CONJUNTO, PARES_DE_CONJUNTO } from "./composition";
 
-/** O atributo que declara o par. Um só, e medido — ver `ESCOPOS_DE_CONJUNTO`. */
-const CODIGO_DO_VINCULO = "cavalo.placa_carreta";
+/**
+ * O atributo que declara o par — lido da autoridade, e não repetido aqui.
+ *
+ * Era um literal nesta linha, e outro igual em `tipos-da-vigencia.ts`, e um
+ * terceiro na leitura de composição. Agora é `PARES_DE_CONJUNTO`, ao lado de
+ * `ESCOPOS_DE_CONJUNTO`, que é onde a evidência do vínculo está escrita.
+ */
+const CODIGO_DO_VINCULO = PARES_DE_CONJUNTO[0]!.code;
 
 /**
  * Os pares (quem recebe → quem está embutido) dos snapshots informados.

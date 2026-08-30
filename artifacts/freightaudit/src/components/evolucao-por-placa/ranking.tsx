@@ -3,6 +3,7 @@ import { cn } from "@/lib/utils";
 import { formatBrlShort, periodicitySuffix } from "@/lib/format";
 import {
   ROTULO_DA_PRIORIDADE,
+  vocabularioDoGrao,
   type AtivoNaEvolucao,
   type EvolucaoPorPlaca,
   type Prioridade,
@@ -18,10 +19,15 @@ import {
  * junto com o resultado. É o que permite responder, na própria tela, "por que
  * esta placa está em primeiro?" sem ninguém precisar abrir o código.
  *
- * As **rubricas** respeitam o escopo: sem placa escolhida, são as do recorte
- * inteiro; com uma placa aberta, são as daquela placa — a pergunta muda de "o
- * que mais mudou na frota" para "o que explica a perda desta placa", que é a
- * pergunta seguinte de quem acabou de clicar nela.
+ * As **rubricas** respeitam o escopo: sem linha escolhida, são as do recorte
+ * inteiro; com uma aberta, são as dela — a pergunta muda de "o que mais mudou
+ * na frota" para "o que explica a perda desta placa", que é a pergunta seguinte
+ * de quem acabou de clicar nela.
+ *
+ * Os três blocos falam o vocabulário do grão (`vocabularioDoGrao`): na aba
+ * Conjunto a linha é um par, e chamá-la de "placa" seria contar conjuntos com o
+ * nome da unidade errada — o defeito mais barato de cometer e o mais difícil de
+ * enxergar, porque o número continua parecendo coerente.
  */
 
 export const CLASSE_DA_PRIORIDADE: Record<Prioridade, string> = {
@@ -72,7 +78,7 @@ export function RankingDeAtencao({
           title={
             "A ordem sai de um score de 0 a 100, somado de cinco parcelas com peso fixo e escrito no produto:\n" +
             "· até 50 — impacto acumulado, na proporção da maior perda do recorte;\n" +
-            "· até 20 — em quantas das vigências comparadas a placa perdeu;\n" +
+            "· até 20 — em quantas das vigências comparadas a linha perdeu;\n" +
             "· até 15 — piora em vigências consecutivas;\n" +
             "· até 10 — alterações ainda sem valoração;\n" +
             "· 5 — mexeu-se na vigência mais recente.\n" +
@@ -83,13 +89,12 @@ export function RankingDeAtencao({
         </span>
       </div>
       <p className="text-sm text-muted-foreground mt-0.5">
-        Placas com maior prioridade de análise — e por quê.
+        {`${vocabularioDoGrao(evolucao.grao).coluna}s com maior prioridade de análise — e por quê.`}
       </p>
 
       {fila.length === 0 ? (
         <p className="mt-4 text-sm text-muted-foreground">
-          Nenhuma placa deste recorte acumula perda, pendência ou recorrência. Não há
-          fila de atenção a montar — e um ranking vazio é a resposta honesta.
+          {`Nenhum${evolucao.grao === "CONJUNTO" ? " conjunto" : "a placa"} deste recorte acumula perda, pendência ou recorrência. Não há fila de atenção a montar — e um ranking vazio é a resposta honesta.`}
         </p>
       ) : (
         <ol className="mt-4 space-y-2">
@@ -108,6 +113,11 @@ export function RankingDeAtencao({
                 <span className="min-w-0 flex-1">
                   <span className="flex flex-wrap items-center gap-2">
                     <span className="font-semibold">{ativo.rotulo}</span>
+                    {ativo.componentes && (
+                      <span className="text-xs text-muted-foreground">
+                        {ativo.vigenciasJuntos} vig. juntos
+                      </span>
+                    )}
                     <SeloDePrioridade prioridade={ativo.prioridade} />
                     <span
                       className={cn(
@@ -161,12 +171,13 @@ export function DistribuicaoDoImpacto({ evolucao }: { evolucao: EvolucaoPorPlaca
     <section className="bg-card border rounded-xl shadow-sm p-5">
       <h2 className="text-base font-bold leading-tight">Distribuição do impacto</h2>
       <p className="text-sm text-muted-foreground mt-0.5">
-        Como as placas do recorte se dividem. Uma placa com perda e pendência aparece
-        nas duas barras — são perguntas diferentes, e não fatias de um bolo.
+        {`Como ${vocabularioDoGrao(evolucao.grao).plural === "conjuntos" ? "os conjuntos" : "as placas"} do recorte se dividem. Uma linha com perda e pendência aparece nas duas barras — são perguntas diferentes, e não fatias de um bolo.`}
       </p>
 
       {total === 0 ? (
-        <p className="mt-4 text-sm text-muted-foreground">Nenhuma placa no recorte.</p>
+        <p className="mt-4 text-sm text-muted-foreground">
+          {`Nenhum${evolucao.grao === "CONJUNTO" ? " conjunto" : "a placa"} no recorte.`}
+        </p>
       ) : (
         <>
           <div className="mt-4 flex gap-1">
@@ -249,7 +260,7 @@ export function RubricasAlteradas({
       </h2>
       <p className="text-sm text-muted-foreground mt-0.5">
         {placa
-          ? "As rubricas que explicam o acumulado desta placa. Elas somam exatamente o valor da linha dela na matriz."
+          ? "As rubricas que explicam o acumulado desta linha. Elas somam exatamente o valor dela na matriz."
           : "As rubricas do recorte inteiro. Elas somam exatamente o impacto líquido da faixa executiva."}
       </p>
 
@@ -273,7 +284,7 @@ export function RubricasAlteradas({
                     <span className="font-medium">{rubrica.nome}</span>
                     <span className="block text-xs text-muted-foreground">
                       {rubrica.familyName}
-                      {!placa && ` · ${rubrica.ativos} ${rubrica.ativos === 1 ? "placa" : "placas"}`}
+                      {!placa && ` · ${rubrica.ativos} ${rubrica.ativos === 1 ? "linha" : "linhas"}`}
                       {` · ${rubrica.vigencias} ${rubrica.vigencias === 1 ? "vigência" : "vigências"}`}
                       {rubrica.semValoracao > 0 &&
                         ` · ${rubrica.semValoracao} sem valoração`}

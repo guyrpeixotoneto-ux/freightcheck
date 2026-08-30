@@ -386,3 +386,197 @@ describe("a identidade do ativo", () => {
     expect(centavos(soma)).toBeCloseTo(evolucao.totais.liquido, 2);
   });
 });
+
+// ---------------------------------------------------------------------------
+// O grão de conjunto
+// ---------------------------------------------------------------------------
+
+/**
+ * A aba Conjunto — e a única pergunta que importa antes de ela existir: **ela
+ * conta o mesmo dinheiro duas vezes?**
+ *
+ * A resposta é não, e não por promessa: a agregação por conjunto é uma
+ * *reagrupação das mesmas linhas de alteração*. Cada linha tem exatamente um
+ * `entity_id`, e cada ativo pertence a exatamente uma composição por vigência —
+ * garantido pela guarda de ambiguidade de `composicao-da-vigencia.ts`. Uma
+ * partição não cria nem destrói dinheiro, e é isso que os testes abaixo medem,
+ * em vez de afirmar.
+ *
+ * A regra de dupla contagem que já existia continua valendo por dentro: as
+ * colunas da carreta que embutem o cavalo (`ESCOPOS_DE_CONJUNTO`) seguem fora
+ * da soma, exatamente como nas abas Cavalo e Carreta. É o que impede a leitura
+ * ingênua — "o conjunto é o cavalo mais a carreta, então some as duas colunas
+ * do conjunto" — de voltar por esta porta.
+ */
+describe("o grão de conjunto", () => {
+  const conjunto = async (over: Record<string, unknown> = {}) =>
+    (await evolucaoPorPlaca(ctx.db, {
+      from: de,
+      to: ate,
+      grao: "CONJUNTO",
+      ...over,
+    }))!;
+
+  it("soma exatamente o mesmo que as abas Cavalo e Carreta juntas", async () => {
+    const doConjunto = await conjunto();
+    const cavalo = (await evolucaoPorPlaca(ctx.db, {
+      from: de,
+      to: ate,
+      tipo: "CAVALO",
+      periodicidade: doConjunto.periodicidade,
+    }))!;
+    const carreta = (await evolucaoPorPlaca(ctx.db, {
+      from: de,
+      to: ate,
+      tipo: "CARRETA",
+      periodicidade: doConjunto.periodicidade,
+    }))!;
+
+    expect(doConjunto.totais.liquido).toBeCloseTo(
+      centavos(cavalo.totais.liquido + carreta.totais.liquido),
+      2,
+    );
+    expect(doConjunto.totais.perda).toBeCloseTo(
+      centavos(cavalo.totais.perda + carreta.totais.perda),
+      2,
+    );
+    expect(doConjunto.totais.ganho).toBeCloseTo(
+      centavos(cavalo.totais.ganho + carreta.totais.ganho),
+      2,
+    );
+    expect(doConjunto.totais.alteracoes).toBe(
+      cavalo.totais.alteracoes + carreta.totais.alteracoes,
+    );
+  });
+
+  it("é uma partição: nenhuma alteração se perde e nenhuma é contada duas vezes", async () => {
+    const doConjunto = await conjunto();
+    const geral = (await evolucaoPorPlaca(ctx.db, {
+      from: de,
+      to: ate,
+      periodicidade: doConjunto.periodicidade,
+    }))!;
+
+    // O mesmo universo de linhas, reagrupado — nunca somado de novo.
+    expect(doConjunto.totais.alteracoes).toBe(geral.totais.alteracoes);
+    expect(doConjunto.totais.liquido).toBeCloseTo(geral.totais.liquido, 2);
+    expect(doConjunto.totais.alteracoesSemValoracao).toBe(
+      geral.totais.alteracoesSemValoracao,
+    );
+
+    // Cada ativo aparece em uma composição por vigência, e não em duas.
+    const vistos = new Map<string, Set<string>>();
+    for (const linha of doConjunto.ativos) {
+      for (const lado of [linha.componentes?.cavalo, linha.componentes?.carreta]) {
+        if (!lado) continue;
+        for (const celula of linha.celulas) {
+          const chave = `${lado.entityId}|${celula.period}`;
+          const donos = vistos.get(chave) ?? new Set<string>();
+          donos.add(linha.entityId);
+          vistos.set(chave, donos);
+        }
+      }
+    }
+    for (const [chave, donos] of vistos) {
+      expect(donos.size, `${chave} apareceu em ${donos.size} composições`).toBe(1);
+    }
+  });
+
+  it("as linhas são o par, e um lado sozinho continua sendo uma composição", async () => {
+    const doConjunto = await conjunto();
+    expect(doConjunto.grao).toBe("CONJUNTO");
+    expect(doConjunto.ativos.length).toBeGreaterThan(0);
+
+    for (const linha of doConjunto.ativos) {
+      expect(linha.componentes).not.toBeNull();
+      const { cavalo, carreta } = linha.componentes!;
+      // Ao menos um lado — uma composição sem nenhum dos dois não é composição.
+      expect(cavalo !== null || carreta !== null).toBe(true);
+      expect(linha.entityId).toBe(`${cavalo?.entityId ?? ""}|${carreta?.entityId ?? ""}`);
+      expect(linha.rotulo).toContain("+");
+    }
+
+    // No acervo real há carreta sem cavalo, e ela precisa aparecer: se ficasse
+    // de fora, o total do conjunto seria menor que o das outras duas abas.
+    expect(doConjunto.ativos.some((a) => a.componentes?.cavalo === null)).toBe(true);
+  });
+
+  it("a troca de carreta vira duas composições, e a timeline mostra as duas", async () => {
+    const doConjunto = await conjunto();
+    const comTroca = doConjunto.ativos.filter((a) =>
+      a.composicao.some((c) => c.outraCarreta !== null),
+    );
+    expect(comTroca.length).toBeGreaterThan(0);
+
+    for (const linha of comTroca) {
+      // A timeline cobre todas as colunas, e diz em quais o par estava de pé.
+      expect(linha.composicao.map((c) => c.period)).toEqual(
+        doConjunto.colunas.map((c) => c.period),
+      );
+      expect(linha.composicao.some((c) => c.juntos)).toBe(true);
+      expect(linha.vigenciasJuntos).toBe(
+        linha.composicao.filter((c) => c.juntos).length,
+      );
+      expect(linha.vigenciasJuntos).toBeLessThanOrEqual(doConjunto.colunas.length);
+    }
+
+    // O mesmo cavalo em duas composições: é o que a troca produz, e é o que a
+    // tela precisa mostrar em vez de fundir num histórico só.
+    const porCavalo = new Map<string, number>();
+    for (const linha of doConjunto.ativos) {
+      const cavalo = linha.componentes?.cavalo?.entityId;
+      if (cavalo) porCavalo.set(cavalo, (porCavalo.get(cavalo) ?? 0) + 1);
+    }
+    expect([...porCavalo.values()].some((n) => n > 1)).toBe(true);
+  });
+
+  it("as células de um conjunto só caem em vigências em que ele existiu", async () => {
+    const doConjunto = await conjunto();
+    for (const linha of doConjunto.ativos) {
+      const juntos = new Set(
+        linha.composicao.filter((c) => c.juntos).map((c) => c.period),
+      );
+      for (const celula of linha.celulas) {
+        expect(
+          juntos.has(celula.period),
+          `${linha.rotulo} tem célula em ${celula.period} sem estar composto ali`,
+        ).toBe(true);
+      }
+    }
+  });
+
+  it("a mesma reconciliação das outras abas vale aqui: célula → acumulado → total", async () => {
+    const doConjunto = await conjunto();
+    let soma = 0;
+    for (const linha of doConjunto.ativos) {
+      const daLinha = linha.celulas.reduce((total, c) => total + (c.net ?? 0), 0);
+      if (linha.acumulado !== null) expect(centavos(daLinha)).toBeCloseTo(linha.acumulado, 2);
+      soma += linha.acumulado ?? 0;
+    }
+    expect(centavos(soma)).toBeCloseTo(doConjunto.totais.liquido, 2);
+  });
+
+  it("o recorte por tipo é recusado, e não aplicado pela metade", async () => {
+    /*
+      Um conjunto é cavalo **e** carreta. Honrar `tipo` aqui devolveria a aba
+      Cavalo com nome de Conjunto — e com metade das linhas de cada par.
+    */
+    const comTipo = await conjunto({ tipo: "CAVALO" });
+    const semTipo = await conjunto();
+    expect(comTipo.totais.alteracoes).toBe(semTipo.totais.alteracoes);
+    expect(comTipo.totais.liquido).toBeCloseTo(semTipo.totais.liquido, 2);
+  });
+
+  it("o denominador é o de composições, e não o de ativos", async () => {
+    const doConjunto = await conjunto();
+    const geral = (await evolucaoPorPlaca(ctx.db, { from: de, to: ate }))!;
+    expect(doConjunto.totais.frota).not.toBe(geral.totais.frota);
+    expect(doConjunto.totais.frota).toBeGreaterThanOrEqual(doConjunto.totais.ativos);
+  });
+
+  it("o acervo real não tem carreta disputada por dois cavalos", async () => {
+    // A guarda existe para quando tiver; hoje ela precisa medir zero, senão o
+    // total do conjunto já estaria menor que o das outras abas sem explicação.
+    expect((await conjunto()).ambiguidades).toEqual([]);
+  });
+});

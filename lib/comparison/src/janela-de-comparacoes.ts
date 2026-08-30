@@ -55,6 +55,22 @@ export interface ComparacaoDaJanela extends Record<string, unknown> {
   change_set_id: string;
   period: string;
   entity_type_set: string;
+  /**
+   * O snapshot que a comparação **explica** — o lado B.
+   *
+   * Viaja porque a Evolução por Placa lê nele a composição do conjunto daquela
+   * vigência (`composicao-da-vigencia.ts`): o par cavalo→carreta é um fato do
+   * snapshot, e lê-lo do lado A daria a composição do mês anterior.
+   */
+  snapshot_b_id: string;
+  /**
+   * O snapshot de onde a comparação parte — o lado A.
+   *
+   * Viaja pela mesma razão que o B, e para um caso que só ele resolve: um ativo
+   * **removido** na vigência tem linha de alteração e nenhum fato no lado B. A
+   * composição dele existe, e existe no lado A.
+   */
+  snapshot_a_id: string;
 }
 
 export interface JanelaDeComparacoes {
@@ -147,7 +163,9 @@ export async function abrirJanelaDeComparacoes(
   const { rows: setsBrutos } = await db.execute<ComparacaoDaJanela>(sql`
     SELECT cs.id AS change_set_id,
            sb.effective_date::text AS period,
-           sb.entity_type_set
+           sb.entity_type_set,
+           sb.id::text AS snapshot_b_id,
+           cs.snapshot_a_id::text AS snapshot_a_id
       FROM change_set cs
       JOIN snapshot sb ON sb.id = cs.snapshot_b_id
      WHERE sb.effective_date > ${inicio}::date

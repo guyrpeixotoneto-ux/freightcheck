@@ -1,6 +1,13 @@
 import { sql } from "drizzle-orm";
 import type { Database } from "@workspace/db";
 import { daLinhaDoBanco, type Deduplicador } from "./deduplicacao";
+import {
+  carregarComposicoes,
+  chaveDaComposicao,
+  type AmbiguidadeDeComposicao,
+  type ComposicaoDoIntervalo,
+} from "./composicao-da-vigencia";
+import { PARES_DE_CONJUNTO } from "./composition";
 import { FAMILIES, placementOf, type FamilyCode } from "./families";
 import type { RawChange } from "./grouped";
 import { abrirJanelaDeComparacoes } from "./janela-de-comparacoes";
@@ -65,6 +72,26 @@ import { contextFilter, type ContextInfo, type RequestedContext } from "./series
  * onde sempre estiveram — no motor, em `deduplicacao.ts`, na view
  * `alteracao_visivel` e em `change_set`. Esta leitura é uma **projeção**.
  */
+
+/**
+ * O grão da linha da matriz — **o ativo, ou o par que ele forma**.
+ *
+ * Não é um filtro: é a população. A aba Cavalo e a aba Carreta recortam o
+ * `entity_type` das linhas de alteração e continuam com uma placa por linha; a
+ * aba Conjunto troca a **chave da linha** por `cavalo|carreta`, e com ela mudam
+ * os KPIs, os insights, o ranking, o detalhe e as rubricas. Reaproveitar a
+ * contagem de uma na outra — "131 placas" virando "131 conjuntos" — seria a
+ * forma mais barata e mais errada de a aba existir.
+ *
+ * A agregação por conjunto é **uma reagrupação das mesmas linhas**, e nunca uma
+ * soma de dois totais já somados: cada alteração tem exatamente um `entity_id`,
+ * e cada ativo pertence a exatamente uma composição por vigência (garantido
+ * pela guarda de ambiguidade em `composicao-da-vigencia.ts`). Por isso a soma
+ * das composições é, por construção, a soma dos ativos — e não uma segunda
+ * conta que precisaria concordar com a primeira. Ver
+ * `docs/EVOLUCAO-POR-PLACA.md`, §7.
+ */
+export type GraoDaEvolucao = "ATIVO" | "CONJUNTO";
 
 /** Quanto tempo de sinal negativo consecutivo já é padrão, e não um tropeço. */
 export const VIGENCIAS_PARA_PIORA_CONSECUTIVA = 2;
@@ -181,7 +208,29 @@ export interface RubricaAlterada {
   impacto: number | null;
 }
 
+/** Um lado da composição, para a tela nomear o par. */
+export interface LadoDoConjunto {
+  entityId: string;
+  entityType: string;
+  plate: string | null;
+}
+
+/** A composição de um conjunto numa vigência — a linha da timeline do par. */
+export interface ComposicaoNoTempo {
+  period: string;
+  label: string;
+  /** Se **esta** composição era a vigente naquela vigência. */
+  juntos: boolean;
+  /** Com quem o cavalo estava, quando não era com esta carreta. */
+  outraCarreta: string | null;
+}
+
 export interface AtivoNaEvolucao {
+  /**
+   * A chave da linha: o `entity_id` no grão de ativo, `cavalo|carreta` no de
+   * conjunto. O nome continua `entityId` porque é o que a tela usa para
+   * selecionar a linha, e o grão está no cabeçalho da leitura.
+   */
   entityId: string;
   /** A placa corrente. Null quando o ativo não tem identificador de placa. */
   plate: string | null;
@@ -217,6 +266,18 @@ export interface AtivoNaEvolucao {
   motivos: MotivoDaPrioridade[];
   /** As rubricas deste ativo, a maior em módulo primeiro. */
   rubricas: RubricaAlterada[];
+  /**
+   * Os dois lados do par. Só no grão de conjunto; `null` no de ativo.
+   *
+   * Um dos lados pode faltar — um cavalo sem carreta declarada, ou uma carreta
+   * que nenhum cavalo puxa. Ele aparece assim mesmo, e é o que faz a soma das
+   * composições fechar com a soma dos ativos.
+   */
+  componentes: { cavalo: LadoDoConjunto | null; carreta: LadoDoConjunto | null } | null;
+  /** Em quantas vigências do intervalo este par esteve junto. */
+  vigenciasJuntos: number;
+  /** A composição vigência a vigência — só no grão de conjunto. */
+  composicao: ComposicaoNoTempo[];
 }
 
 /** Um insight do bloco "O que merece sua atenção". Determinístico e clicável. */
@@ -236,7 +297,7 @@ export interface InsightDaEvolucao {
 }
 
 export interface TotaisDaEvolucao {
-  /** Ativos com pelo menos uma alteração no intervalo. */
+  /** Linhas com pelo menos uma alteração no intervalo — ativos, ou conjuntos. */
   ativos: number;
   /** Ativos presentes na frota do intervalo — o denominador de "100% da frota". */
   frota: number;
@@ -259,6 +320,16 @@ export interface TotaisDaEvolucao {
 
 export interface EvolucaoPorPlaca {
   context: ContextInfo;
+  /** O grão das linhas desta leitura — o ativo, ou o par. */
+  grao: GraoDaEvolucao;
+  /**
+   * Duas placas disputando o mesmo par numa vigência, quando houver.
+   *
+   * Vazio no acervo real. Vem na resposta porque, no dia em que não estiver, a
+   * tela precisa **dizer** que desfez aqueles pares — em vez de mostrar um
+   * total menor sem explicação.
+   */
+  ambiguidades: AmbiguidadeDeComposicao[];
   /** A ponta de partida. Não entra na soma — ver `janela-de-comparacoes.ts`. */
   from: string;
   fromLabel: string;
@@ -518,8 +589,16 @@ export function concentracaoDaPerda(
 export function insightsDaEvolucao(
   ativos: AtivoNaEvolucao[],
   periodicidade: string,
+  /**
+   * Como chamar a linha. O texto do insight é lido em voz alta numa reunião, e
+   * "132 placas tiveram a mesma rubrica alterada" numa matriz de conjuntos
+   * seria a frase certa sobre a população errada.
+   */
+  grao: GraoDaEvolucao = "ATIVO",
 ): InsightDaEvolucao[] {
   const insights: InsightDaEvolucao[] = [];
+  const [singular, plural] =
+    grao === "CONJUNTO" ? ["conjunto", "conjuntos"] : ["placa", "placas"];
 
   const piorando = ativos.filter(
     (a) => a.pioraConsecutiva >= VIGENCIAS_PARA_PIORA_CONSECUTIVA,
@@ -530,7 +609,7 @@ export function insightsDaEvolucao(
       tom: "PERDA",
       placas: piorando.length,
       texto:
-        `${piorando.length} ${piorando.length === 1 ? "placa piorou" : "placas pioraram"} em ` +
+        `${piorando.length} ${piorando.length === 1 ? `${singular} piorou` : `${plural} pioraram`} em ` +
         `${VIGENCIAS_PARA_PIORA_CONSECUTIVA} ou mais vigências consecutivas.`,
       entityIds: piorando.map((a) => a.entityId),
     });
@@ -547,7 +626,7 @@ export function insightsDaEvolucao(
       texto:
         `${concentracao.percentual.toFixed(0)}% da perda em ${periodicidade.toLowerCase()} está ` +
         `concentrada em ${concentracao.entityIds.length} ` +
-        `${concentracao.entityIds.length === 1 ? "placa" : "placas"}.`,
+        `${concentracao.entityIds.length === 1 ? singular : plural}.`,
       entityIds: concentracao.entityIds,
     });
   }
@@ -560,7 +639,7 @@ export function insightsDaEvolucao(
       tom: "PENDENCIA",
       placas: pendentes.length,
       texto:
-        `${pendentes.length} ${pendentes.length === 1 ? "placa possui" : "placas possuem"} ` +
+        `${pendentes.length} ${pendentes.length === 1 ? `${singular} possui` : `${plural} possuem`} ` +
         `${alteracoes} ${alteracoes === 1 ? "alteração" : "alterações"} sem valoração.`,
       entityIds: pendentes.map((a) => a.entityId),
     });
@@ -573,7 +652,7 @@ export function insightsDaEvolucao(
       tom: "NEUTRO",
       placas: repetidas.length,
       texto:
-        `${repetidas.length} ${repetidas.length === 1 ? "placa teve" : "placas tiveram"} a mesma ` +
+        `${repetidas.length} ${repetidas.length === 1 ? `${singular} teve` : `${plural} tiveram`} a mesma ` +
         `rubrica alterada repetidamente.`,
       entityIds: repetidas.map((a) => a.entityId),
     });
@@ -611,8 +690,17 @@ export function periodicidadesDoIntervalo(
 // ---------------------------------------------------------------------------
 
 interface EmConstrucao {
+  /** A chave da linha: o ativo, ou a composição. */
   entityId: string;
   entityType: string | null;
+  /**
+   * Os ativos que contribuíram para esta linha.
+   *
+   * No grão de ativo é sempre um. No de conjunto são os dois lados do par — e é
+   * este conjunto que resolve as placas do rótulo "RZG4F47 + ABC1D23" numa
+   * consulta só, em vez de uma por linha da matriz.
+   */
+  contribuintes: Set<string>;
   rotulos: Set<string>;
   celulas: Map<string, CelulaDaPlaca>;
   rubricas: Map<
@@ -637,6 +725,16 @@ export interface OpcoesDaEvolucao {
   to?: string;
   context?: RequestedContext;
   tipo?: TipoDaLinhaDoTempo;
+  /**
+   * O grão da linha. Padrão: o ativo.
+   *
+   * `CONJUNTO` e `tipo` não se combinam, e a leitura recusa a combinação em vez
+   * de escolher uma: um conjunto é cavalo **e** carreta, e um conjunto
+   * recortado a um dos dois seria a aba Cavalo com outro nome. Quem manda os
+   * dois recebe o conjunto inteiro — e a rota escreve isso no endereço, para a
+   * tela não prometer um recorte que ninguém aplicou.
+   */
+  grao?: GraoDaEvolucao;
   /** A periodicidade pedida. Fora das existentes, cai na de maior peso. */
   periodicidade?: string;
   contextosCarregados?: ContextInfo[];
@@ -657,13 +755,22 @@ export async function evolucaoPorPlaca(
   db: Database,
   options: OpcoesDaEvolucao = {},
 ): Promise<EvolucaoPorPlaca | null> {
+  const grao: GraoDaEvolucao = options.grao === "CONJUNTO" ? "CONJUNTO" : "ATIVO";
+  /*
+    No grão de conjunto o recorte por tipo não se aplica — ver `grao`, em
+    `OpcoesDaEvolucao`. Ele é descartado aqui, uma vez, em vez de ser ignorado
+    em cada consulta abaixo: um `tipo` que sobrevivesse até a leitura das linhas
+    montaria conjuntos com um lado só e chamaria o resultado de composição.
+  */
+  const tipo = grao === "CONJUNTO" ? undefined : options.tipo;
+
   const janela = await abrirJanelaDeComparacoes(
     db,
     options.from,
     options.to,
     options.context,
     options.contextosCarregados,
-    options.tipo,
+    tipo,
   );
   if (!janela) return null;
 
@@ -677,17 +784,29 @@ export async function evolucaoPorPlaca(
     consulta da janela.
   */
   const linhas = janela.linhas.filter(
-    (r) =>
-      !options.tipo ||
-      options.tipo === "TRECHO" ||
-      r.entity_type === options.tipo,
+    (r) => !tipo || tipo === "TRECHO" || r.entity_type === tipo,
   );
 
-  const periodicidades = periodicidadesDoIntervalo(linhas, dedup);
+  const existentes = periodicidadesDoIntervalo(linhas, dedup);
+  /*
+    A grandeza pedida é honrada **como pedida**, mesmo quando o recorte não tem
+    nenhuma linha nela.
+
+    Cair na de maior peso seria trocar a pergunta em silêncio, e o preço aparece
+    ao trocar de aba: a Carreta não tem alteração em R$/ano neste acervo, então
+    uma aba pedida em anual voltaria em mensal, e quem somasse as duas abas
+    estaria somando duas grandezas diferentes acreditando que não. Sem pedido,
+    o padrão continua sendo a de maior peso — que é escolha, e não sorteio.
+
+    A grandeza pedida entra na lista com peso zero quando não existe no recorte:
+    o seletor da tela precisa poder mostrar o que está aberto, e uma opção
+    ausente da lista voltaria ao primeiro item ao renderizar.
+  */
   const periodicidade =
-    options.periodicidade && periodicidades.some((p) => p.periodicity === options.periodicidade)
-      ? options.periodicidade
-      : (periodicidades[0]?.periodicity ?? "SEM_PERIODICIDADE");
+    options.periodicidade ?? existentes[0]?.periodicity ?? "SEM_PERIODICIDADE";
+  const periodicidades = existentes.some((p) => p.periodicity === periodicidade)
+    ? existentes
+    : [...existentes, { periodicity: periodicidade, peso: 0 }];
 
   // ---- as colunas ---------------------------------------------------------
   const comComparacao = janela.noIntervalo.filter((periodo) =>
@@ -705,6 +824,42 @@ export async function evolucaoPorPlaca(
         "comparação ainda não foi calculada. O que houve aqui não está " +
         "somado — e não está contado como zero.",
     }));
+
+  /*
+    A composição de cada vigência — só quando a leitura é de conjunto.
+
+    Lida do snapshot que cada comparação explica (o lado B), porque é a
+    composição **daquela** vigência que a célula representa. Uma leitura de
+    ativo não paga esta consulta.
+  */
+  const composicao: ComposicaoDoIntervalo =
+    grao === "CONJUNTO"
+      ? await carregarComposicoes(db, [
+          ...sets.map((s) => ({
+            snapshotId: s.snapshot_b_id,
+            period: s.period,
+            papel: "DESTINO" as const,
+          })),
+          ...sets.map((s) => ({
+            snapshotId: s.snapshot_a_id,
+            period: s.period,
+            papel: "ORIGEM" as const,
+          })),
+        ])
+      : { chavePorAtivo: new Map(), composicoes: [], vigenciasJuntos: new Map(), ambiguidades: [] };
+
+  /**
+   * A chave da linha para uma alteração — o ativo, ou a composição da vigência.
+   *
+   * Um ativo que muda numa vigência em que ele **não** está na frota lida (não
+   * deveria acontecer, e o dado é do cliente) cai no par sozinho dele: nunca
+   * fica de fora, porque ficar de fora é o único jeito de a soma não fechar.
+   */
+  const chaveDaLinha = (entityId: string, periodo: string): string =>
+    grao === "CONJUNTO"
+      ? (composicao.chavePorAtivo.get(`${entityId}|${periodo}`) ??
+        chaveDaComposicao(entityId, null))
+      : entityId;
 
   // ---- uma varredura, e tudo sai dela -------------------------------------
   const emConstrucao = new Map<string, EmConstrucao>();
@@ -739,11 +894,21 @@ export async function evolucaoPorPlaca(
     const entityId = linha.entity_id as string | null;
     if (entityId === null) continue;
 
+    /*
+      A chave da linha depende da vigência quando o grão é conjunto — e é
+      exatamente esse o ponto: o cavalo que trocou de carreta em maio contribui
+      para uma composição até abril e para outra a partir de maio, em duas
+      linhas da matriz. Uma chave que ignorasse a vigência fundiria as duas e
+      apagaria a troca, que é o que esta aba existe para mostrar.
+    */
+    const chave = chaveDaLinha(entityId, periodo);
+
     const ativo =
-      emConstrucao.get(entityId) ??
+      emConstrucao.get(chave) ??
       {
-        entityId,
+        entityId: chave,
         entityType: (linha.entity_type as string | null) ?? null,
+        contribuintes: new Set<string>(),
         rotulos: new Set<string>(),
         celulas: new Map<string, CelulaDaPlaca>(),
         rubricas: new Map(),
@@ -752,9 +917,17 @@ export async function evolucaoPorPlaca(
         foraDoTotal: 0,
         outraPeriodicidade: 0,
       };
-    emConstrucao.set(entityId, ativo);
+    emConstrucao.set(chave, ativo);
+    ativo.contribuintes.add(entityId);
     const etiqueta = linha.entity_label as string | null;
     if (etiqueta !== null) ativo.rotulos.add(etiqueta);
+    /*
+      No conjunto, o tipo da linha deixa de ser o de uma alteração qualquer: a
+      composição não é cavalo nem carreta, é o par. Marcá-la com o tipo da
+      primeira linha que chegou faria a mesma composição sair como CAVALO num
+      recorte e CARRETA noutro, dependendo da ordem da varredura.
+    */
+    if (grao === "CONJUNTO") ativo.entityType = null;
 
     const celula =
       ativo.celulas.get(periodo) ??
@@ -774,9 +947,9 @@ export async function evolucaoPorPlaca(
       };
     ativo.celulas.set(periodo, celula);
     const rubricasDaCelula =
-      porCelula.get(`${entityId}|${periodo}`) ??
+      porCelula.get(`${chave}|${periodo}`) ??
       new Map<string, RubricaDaCelula>();
-    porCelula.set(`${entityId}|${periodo}`, rubricasDaCelula);
+    porCelula.set(`${chave}|${periodo}`, rubricasDaCelula);
 
     const placement = placementOf(linha.attribute_code as string | null);
     const rubricaDoAtivo =
@@ -820,7 +993,7 @@ export async function evolucaoPorPlaca(
     rubricaDoAtivo.alteracoes += 1;
     rubricaDoAtivo.vigencias.add(periodo);
     rubricaDoEscopo.alteracoes += 1;
-    rubricaDoEscopo.ativos.add(entityId);
+    rubricaDoEscopo.ativos.add(chave);
     rubricaDoEscopo.vigencias.add(periodo);
 
     const preco = precoDaLinha(linha);
@@ -866,7 +1039,14 @@ export async function evolucaoPorPlaca(
   }
 
   // ---- as placas correntes, numa consulta só ------------------------------
-  const entityIds = [...emConstrucao.keys()];
+  /*
+    Os **contribuintes**, e não as chaves das linhas: no grão de conjunto a
+    chave é `cavalo|carreta` e não é id de nada. Uma consulta para todos os
+    lados de todas as composições — nunca uma por linha da matriz.
+  */
+  const entityIds = [
+    ...new Set([...emConstrucao.values()].flatMap((a) => [...a.contribuintes])),
+  ];
   const placas = new Map<string, string>();
   if (entityIds.length > 0) {
     const { rows } = await db.execute<{ entity_id: string; identifier_value: string }>(sql`
@@ -898,8 +1078,19 @@ export async function evolucaoPorPlaca(
        AND s.effective_date > ${inicio}::date
        AND s.effective_date <= ${fim}::date
        AND ${contextFilter("s", context)}
-       AND ${options.tipo ? sql`e.entity_type = ${options.tipo}` : sql`e.entity_type <> 'TRECHO'`}
+       AND ${tipo ? sql`e.entity_type = ${tipo}` : sql`e.entity_type <> 'TRECHO'`}
   `);
+
+  /*
+    No grão de conjunto o denominador não é "quantos ativos existem", e sim
+    **quantas composições existem** — o par é a unidade da tela. Reaproveitar a
+    contagem de ativos faria "104 conjuntos de 144" e a frase mediria duas
+    coisas diferentes nas duas pontas.
+  */
+  const frotaDoGrao =
+    grao === "CONJUNTO"
+      ? new Set(composicao.composicoes.map((c) => c.chave)).size
+      : (frotaRows[0]?.frota ?? 0);
 
   // ---- os ativos, montados ------------------------------------------------
   const semEscala: (Omit<AtivoNaEvolucao, "score" | "prioridade" | "motivos"> & {
@@ -931,8 +1122,81 @@ export async function evolucaoPorPlaca(
       valoradas.length === 0
         ? null
         : round(valoradas.reduce((soma, c) => soma + (c.net ?? 0), 0));
-    const placa = placas.get(bruto.entityId) ?? null;
-    const anteriores = [...bruto.rotulos].filter((r) => r !== placa).sort();
+    const lado = (entityId: string | null, entityType: string): LadoDoConjunto | null =>
+      entityId === null
+        ? null
+        : { entityId, entityType, plate: placas.get(entityId) ?? null };
+
+    const [cavaloId, carretaId] =
+      grao === "CONJUNTO"
+        ? bruto.entityId.split("|").map((parte) => (parte === "" ? null : parte))
+        : [null, null];
+
+    const componentes =
+      grao === "CONJUNTO"
+        ? {
+            cavalo: lado(cavaloId ?? null, PARES_DE_CONJUNTO[0]!.declarante),
+            carreta: lado(carretaId ?? null, PARES_DE_CONJUNTO[0]!.declarado),
+          }
+        : null;
+
+    const placa =
+      grao === "CONJUNTO"
+        ? null
+        : (placas.get(bruto.entityId) ?? null);
+
+    /*
+      O rótulo do conjunto nomeia os dois lados, e diz qual falta quando um
+      falta. "RZG4F47 + sem carreta" é informação; "RZG4F47" sozinho num painel
+      chamado Conjunto seria a aba Cavalo disfarçada.
+    */
+    const rotuloDaLinha =
+      grao === "CONJUNTO"
+        ? [
+            componentes?.cavalo?.plate ?? (cavaloId ? "cavalo sem placa" : "sem cavalo"),
+            componentes?.carreta?.plate ?? (carretaId ? "carreta sem placa" : "sem carreta"),
+          ].join(" + ")
+        : (placa ?? [...bruto.rotulos][0] ?? bruto.entityId);
+
+    const anteriores =
+      grao === "CONJUNTO" ? [] : [...bruto.rotulos].filter((r) => r !== placa).sort();
+
+    /*
+      A timeline da composição: em que vigências **esta** composição estava de
+      pé, e com quem o cavalo estava quando não estava com esta carreta. É o que
+      faz a troca ficar visualmente evidente em vez de aparecer como duas linhas
+      soltas com a mesma placa de cavalo.
+    */
+    const composicaoNoTempo: ComposicaoNoTempo[] =
+      grao === "CONJUNTO"
+        ? colunasOrdenadas.map((periodo) => {
+            /*
+              A composição vale pelos dois lados: uma linha de carreta sem
+              cavalo também tem timeline, e ela é lida pela carreta. Ler só pelo
+              cavalo dava "nunca juntos" em toda linha de um lado só — e a
+              própria célula da matriz caía numa vigência que a timeline dizia
+              não existir.
+            */
+            const doCavalo =
+              cavaloId === null
+                ? undefined
+                : composicao.chavePorAtivo.get(`${cavaloId}|${periodo}`);
+            const daCarreta =
+              carretaId === null
+                ? undefined
+                : composicao.chavePorAtivo.get(`${carretaId}|${periodo}`);
+            const juntos = doCavalo === bruto.entityId || daCarreta === bruto.entityId;
+            /*
+              Com quem o cavalo estava, quando não estava com esta carreta — é
+              o que faz a troca aparecer na linha das duas composições.
+            */
+            const outra =
+              !juntos && doCavalo !== undefined
+                ? (placas.get(doCavalo.split("|")[1] ?? "") ?? null)
+                : null;
+            return { period: periodo, label: rotulo(periodo), juntos, outraCarreta: outra };
+          })
+        : [];
 
     const rubricas: RubricaAlterada[] = [...bruto.rubricas.entries()]
       .map(([parameterKey, r]) => ({
@@ -955,7 +1219,7 @@ export async function evolucaoPorPlaca(
     semEscala.push({
       entityId: bruto.entityId,
       plate: placa,
-      rotulo: placa ?? [...bruto.rotulos][0] ?? bruto.entityId,
+      rotulo: rotuloDaLinha,
       entityType: bruto.entityType,
       placasAnteriores: anteriores,
       celulas,
@@ -986,6 +1250,10 @@ export async function evolucaoPorPlaca(
         alteracoes: bruto.alteracoes,
       }),
       rubricas,
+      componentes,
+      vigenciasJuntos:
+        grao === "CONJUNTO" ? (composicao.vigenciasJuntos.get(bruto.entityId) ?? 0) : 0,
+      composicao: composicaoNoTempo,
       perdaAbsoluta: acumulado !== null && acumulado < 0 ? -acumulado : 0,
     });
   }
@@ -1022,7 +1290,7 @@ export async function evolucaoPorPlaca(
 
   const totais: TotaisDaEvolucao = {
     ativos: ativos.length,
-    frota: frotaRows[0]?.frota ?? 0,
+    frota: frotaDoGrao,
     comPerda: ativos.filter((a) => a.acumulado !== null && a.acumulado < 0).length,
     comGanho: ativos.filter((a) => a.acumulado !== null && a.acumulado > 0).length,
     comPendencia: ativos.filter((a) => a.semValoracao > 0).length,
@@ -1039,6 +1307,8 @@ export async function evolucaoPorPlaca(
 
   return {
     context,
+    grao,
+    ambiguidades: composicao.ambiguidades,
     from: inicio,
     fromLabel: rotulo(inicio),
     to: fim,
@@ -1055,7 +1325,7 @@ export async function evolucaoPorPlaca(
     periodicidades,
     ativos,
     totais,
-    insights: insightsDaEvolucao(ativos, periodicidade),
+    insights: insightsDaEvolucao(ativos, periodicidade, grao),
     rubricas: [...rubricasDoEscopo.entries()]
       .map(([parameterKey, r]) => ({
         parameterKey,

@@ -41,6 +41,7 @@
 
 import { sql } from "drizzle-orm";
 import type { Database } from "@workspace/db";
+import { PARES_DE_CONJUNTO } from "./composition";
 import { channelSql, type SeriesContext } from "./series";
 import { rotuloDaVigencia } from "./labels";
 import {
@@ -50,8 +51,8 @@ import {
   type TipoDeAnalise,
 } from "./tipos";
 
-/** O atributo que declara o par cavalo→carreta. Um só, e medido — ver `vinculos.ts`. */
-const CODIGO_DO_VINCULO = "cavalo.placa_carreta";
+/** O atributo que declara o par — a autoridade é `PARES_DE_CONJUNTO`. */
+const CODIGO_DO_VINCULO = PARES_DE_CONJUNTO[0]!.code;
 
 /** Uma vigência onde um tipo existe, escrita como a tela a mostra. */
 export interface VigenciaComTipo {

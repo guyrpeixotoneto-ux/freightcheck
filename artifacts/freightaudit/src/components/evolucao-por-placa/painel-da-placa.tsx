@@ -18,6 +18,7 @@ import {
   type AtivoNaEvolucao,
   type EvolucaoPorPlaca,
 } from "@/lib/evolucao-por-placa";
+import { ComposicaoNoTempoDoPar } from "@/components/evolucao-por-placa/composicao";
 import { SeloDePrioridade } from "@/components/evolucao-por-placa/ranking";
 
 /**
@@ -59,6 +60,12 @@ export function PainelDaPlaca({
             <h2 className="text-lg font-bold leading-none">{ativo.rotulo}</h2>
             <SeloDePrioridade prioridade={ativo.prioridade} />
           </div>
+          {ativo.componentes && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Cavalo {ativo.componentes.cavalo?.plate ?? "—"} · Carreta{" "}
+              {ativo.componentes.carreta?.plate ?? "—"}
+            </p>
+          )}
           {ativo.placasAnteriores.length > 0 && (
             <p className="mt-1 text-xs text-muted-foreground">
               Também apareceu como {ativo.placasAnteriores.join(", ")} — é o mesmo ativo,
@@ -102,6 +109,19 @@ export function PainelDaPlaca({
           rotulo="Vigências afetadas"
           valor={`${ativo.vigenciasAfetadas} de ${evolucao.colunas.length}`}
         />
+        {ativo.componentes && (
+          /*
+            "Vigências juntos" e "vigências afetadas" respondem coisas
+            diferentes, e as duas ficam à vista: a primeira é quanto tempo esta
+            composição existiu, a segunda é em quantas dessas ela se mexeu. Um
+            conjunto que existiu em duas de oito vigências e mudou nas duas não
+            é o mesmo caso de um que existiu nas oito e mudou em duas.
+          */
+          <Linha
+            rotulo="Vigências juntos"
+            valor={`${ativo.vigenciasJuntos} de ${evolucao.colunas.length}`}
+          />
+        )}
         <Linha
           rotulo="Tendência"
           valor={ROTULO_DA_TENDENCIA[ativo.tendencia]}
@@ -123,7 +143,19 @@ export function PainelDaPlaca({
           />
         )}
         <Linha rotulo="Unidade" valor={nomeDaUnidadeDoContexto(evolucao)} />
-        <Linha rotulo="Tipo" valor={rotuloDoTipo(ativo.entityType)} />
+        <Linha
+          rotulo="Tipo"
+          valor={
+            /*
+              Um conjunto não tem `entity_type` — ele é o par, e não uma
+              entidade. Mostrar "—" aqui daria a impressão de dado faltando onde
+              a resposta existe e é outra.
+            */
+            ativo.componentes
+              ? `Conjunto (${ativo.componentes.cavalo ? "cavalo" : "sem cavalo"} + ${ativo.componentes.carreta ? "carreta" : "sem carreta"})`
+              : rotuloDoTipo(ativo.entityType)
+          }
+        />
         <Linha rotulo="Canal" valor={evolucao.context.channel ?? "—"} />
       </dl>
 
@@ -190,6 +222,10 @@ export function PainelDaPlaca({
         {historico ? "Ocultar histórico" : "Ver histórico completo"}
         <ArrowRight className="w-4 h-4" />
       </button>
+
+      {ativo.componentes && (
+        <ComposicaoNoTempoDoPar composicao={ativo.composicao} ativo={ativo} />
+      )}
 
       {historico && <HistoricoCompleto ativo={ativo} evolucao={evolucao} />}
     </aside>
