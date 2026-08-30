@@ -97,6 +97,13 @@ export const SHARDS = {
     // perfil de sempre: um arquivo, banco descartável criado a partir das
     // migrations, sem template e sem seed; 2,6s medidos com o banco local.
     "@workspace/coletores",
+    // `integrations` é o vocabulário da porta de API — formato e conferência da
+    // chave, catálogo de escopos, decisão do portão. Não abre conexão com nada:
+    // é o pacote mais leve da lista, com 24 testes de função pura que rodam em
+    // milissegundos. Entra no shard leve pelo mesmo critério dos vizinhos, e
+    // entra **junto** com o código que ele serve — um pacote com script `test` e
+    // sem shard é o verde mentiroso que esta lista existe para impedir.
+    "@workspace/integrations",
   ],
   ingest: ["@workspace/ingest"],
   curado: [
