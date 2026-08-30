@@ -256,10 +256,17 @@ describe("semântica versionada", () => {
       que quebrou não é o teste: é a importação tendo passado a afirmar
       semântica que ninguém conferiu.
     */
+    /*
+      A cobaia é um atributo **que o registro canônico não classifica** — era a
+      vida do cavalo até 29/08/2026, quando ela entrou em `CONFIRMED_SEMANTICS`
+      e passou a chegar aqui já confirmada pela própria promoção. O custo
+      variável simulado continua sem classificação: a fórmula dele não foi
+      confirmada por ninguém.
+    */
     const [attribute] = await ctx.db
       .select()
       .from(attributeTable)
-      .where(eq(attributeTable.code, "cavalo.combustivel_vida_cavalo"));
+      .where(eq(attributeTable.code, "cavalo.custo_variavel_simulado"));
     const [versao] = await ctx.db
       .select()
       .from(attributeSemanticsTable)

@@ -33,8 +33,17 @@ import { backfillSemantics, recordSourceSemanticsChange } from "../versioning";
 
 let ctx: TestDb;
 
-/** O atributo do caso que abriu a investigação. */
-const CODIGO = "cavalo.combustivel_vida_cavalo";
+/**
+ * O atributo do caso que abriu a investigação — hoje, um que continua sem
+ * classificação.
+ *
+ * Era `cavalo.combustivel_vida_cavalo`, e o que este arquivo prova é que um
+ * atributo **que ninguém confirmou** nasce com versão inicial e aceita nome,
+ * significado e fórmula sem que isso destrave dinheiro. A vida do cavalo saiu
+ * da fila em 29/08/2026 (entrou em `CONFIRMED_SEMANTICS` como não monetária),
+ * então o exemplo passou para uma coluna que ainda está lá.
+ */
+const CODIGO = "cavalo.custo_variavel_simulado";
 
 beforeAll(async () => {
   ctx = await criarBancoComExportRealPromovido("semantica_nasce_junto");

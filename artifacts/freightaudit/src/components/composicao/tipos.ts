@@ -207,6 +207,46 @@ export interface VisaoDeConjuntos {
   totalSemFiltro: number;
 }
 
+// ---------------------------------------------------------------------------
+// Rastreio — do arquivo até esta tela
+// ---------------------------------------------------------------------------
+
+/** O espelho de `DestinoDaCelula`, em `@workspace/composition`. */
+export type DestinoDaCelula =
+  | "VIROU_FATO"
+  | "ENDERECO"
+  | "COLUNA_SEM_CABECALHO"
+  | "COLUNA_AMBIGUA"
+  | "SEM_DESTINO";
+
+export const ROTULO_DO_DESTINO: Record<DestinoDaCelula, string> = {
+  VIROU_FATO: "Virou fato e está nesta ficha",
+  ENDERECO: "Endereço do fato (placa e vigência)",
+  COLUNA_SEM_CABECALHO: "Coluna sem cabeçalho",
+  COLUNA_AMBIGUA: "Coluna ambígua",
+  SEM_DESTINO: "Sem destino declarado",
+};
+
+export interface RastreioDoEquipamento {
+  linhasDoArquivo: number;
+  celulas: number;
+  viraramFato: number;
+  endereco: number;
+  colunaSemCabecalho: number;
+  colunaAmbigua: number;
+  semDestino: number;
+  fatos: number;
+  fatosSemCelula: number;
+  /** A única resposta autorizada a "não falta nada desta placa nesta ficha?". */
+  fecha: boolean;
+  amostras: {
+    destino: DestinoDaCelula;
+    columnLetter: string | null;
+    columnHeader: string | null;
+    valor: string | null;
+  }[];
+}
+
 export interface Parcela {
   code: string;
   titulo: string;
@@ -309,6 +349,8 @@ export interface Composicao {
     semClassificacao: number;
     parcial: boolean;
   };
+  /** A conta de conservação desta placa nesta vigência — ver `rastreio.ts`. */
+  rastreio: RastreioDoEquipamento;
   status: Status;
   vinculo: {
     placaCarreta: string;

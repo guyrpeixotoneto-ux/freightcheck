@@ -70,9 +70,17 @@ async function definicaoDa(constraint: string): Promise<string> {
 }
 
 describe("as invariantes recusam, uma a uma", () => {
+  /*
+    A cobaia precisa ser um atributo **sem semântica confirmada**. Era o
+    consumo negociado até 29/08/2026; quando ele entrou no registro canônico,
+    os UPDATEs abaixo passaram a esbarrar antes em
+    `attribute_confirmed_monetary_is_complete` — outra invariante, também
+    correta, que impedia esta de ser exercida. `custoVariavelSimulado` é
+    numérico e continua sem classificação.
+  */
   const recusa = (campos: string) =>
     ctx.pool.query(
-      `UPDATE attribute SET ${campos} WHERE code = 'cavalo.combustivel_consumo_neg'`,
+      `UPDATE attribute SET ${campos} WHERE code = 'cavalo.custo_variavel_simulado'`,
     );
 
   it("uma razão não pode ser declarada somável — o caso da auditoria", async () => {
