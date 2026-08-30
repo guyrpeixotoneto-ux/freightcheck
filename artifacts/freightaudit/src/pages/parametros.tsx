@@ -39,13 +39,6 @@ import {
   MetricCard,
 } from "@/components/changes/cartoes";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   BOTAO_DE_TROCA,
   SeletorDeVigencia,
   SeletorDeVigenciaGeral,
@@ -77,11 +70,9 @@ import {
   type OrdemCode,
 } from "@/lib/escopos";
 import {
-  TIPOS_NA_BARRA,
   semTrechoNaBarra,
   tipoAusenteNaVigencia,
   tipoDoEndereco,
-  valorDoSeletor,
 } from "@/lib/tipo-da-tela";
 import {
   FAMILIA_QUADRO_DE_PESSOAL,
@@ -538,11 +529,6 @@ export default function Parametros() {
 
         {data && (
           <BarraFiltro
-            view={data}
-            /* SEM_ESCOPO é recorte da grade e não tipo do domínio: na barra
-               ele se lê como "Todos", que é o que ele filtra por cima. */
-            tipo={valorDoSeletor(escopo)}
-            onTipo={trocarTipo}
             busca={busca}
             onBuscar={setBusca}
             buscaAtiva={!cartao}
@@ -719,8 +705,6 @@ export default function Parametros() {
             ) : (
               <>
             {data && <Ladrilhos view={data} />}
-
-            {data && !data.complete && <VisaoParcial view={data} />}
 
             <AbasDeVista
               vista={vista}
@@ -1111,23 +1095,6 @@ function AbasDeVista({
         hint="As gavetas da tela de Escolha de segmento, na ordem de lá"
         count={cartoes}
       />
-    </div>
-  );
-}
-
-/** A série que não chegou não está contada como zero — e a tela diz isso. */
-function VisaoParcial({ view }: { view: FamiliesView }) {
-  return (
-    <div className="mt-4 flex items-center gap-4 rounded-xl border border-amber-100 bg-amber-50 px-5 py-4">
-      <div className="h-12 w-12 rounded-full bg-amber-500 text-white grid place-content-center shrink-0">
-        <AlertTriangle className="w-6 h-6" />
-      </div>
-      <p className="text-sm text-muted-foreground">
-        <strong className="text-amber-700">Visão parcial.</strong> Nesta vigência chegou
-        apenas {view.series.map((s) => s.equipment.toLowerCase()).join(", ")}. Falta{" "}
-        <strong>{view.missingSeries.join(", ").toLowerCase()}</strong> — a série ausente não
-        está contada como zero.
-      </p>
     </div>
   );
 }
@@ -1537,24 +1504,22 @@ function agregar(parametros: ParameterView[]): {
  * está na tela. Some junto o estado local dos campos e o `useEffect` que o
  * ressincronizava com a URL — sem campo em rascunho, a URL é o único estado.
  *
- * Fica o **Tipo**, o eixo "o quê", que o Freightech não tem; e o **Parametro**,
- * quando o espelho está na tela — ele lá só habilita depois de filtrar, e aqui
- * filtra a grade em tempo real, porque a grade já está na tela e não custa uma
- * viagem ao servidor. Ver `comBusca`.
+ * Fica o **Parametro**, quando o espelho está na tela — ele lá só habilita
+ * depois de filtrar, e aqui filtra a grade em tempo real, porque a grade já
+ * está na tela e não custa uma viagem ao servidor. Ver `comBusca`.
+ *
+ * O **Tipo** também saiu: o recorte por tipo é a mesma fileira de pastilhas que
+ * a grade de atributos já tem logo acima dos cartões, e um segundo controle
+ * para o mesmo recorte, longe do que ele filtra, era a repetição que o resto
+ * desta barra veio justamente eliminar. O endereço continua valendo — quem tem
+ * um link com `?tipo=CAVALO` guardado abre no mesmo recorte.
  */
 function BarraFiltro({
-  view,
-  tipo,
-  onTipo,
   busca,
   onBuscar,
   buscaAtiva,
   comBusca,
 }: {
-  view: FamiliesView;
-  /** O tipo escolhido, ou `TODOS`. Ver o campo Tipo, abaixo. */
-  tipo: FiltroDeTipo;
-  onTipo: (valor: FiltroDeTipo) => void;
   busca: string;
   onBuscar: (valor: string) => void;
   /** Com um cartão aberto não há grade para filtrar; o campo desabilita. */
@@ -1571,93 +1536,25 @@ function BarraFiltro({
   comBusca: boolean;
 }) {
   /*
-    O que esta vigência tem, por tipo — direto da resposta do servidor.
-
-    `composicao` pode faltar numa resposta antiga (ou num mock), e aí o campo
-    Tipo continua funcionando com todos os tipos escritos como ausentes: é a
-    leitura honesta de "o servidor não disse", e não um seletor que some.
-
-    `semTrechoNaBarra` tira o trecho de tudo aqui: ele não é uma opção de
-    análise nesta tela — ver `tipo-da-tela.ts`.
+    Sem o campo Parametro não sobra fileira — e uma fileira vazia é só um
+    espaço em branco entre o cabeçalho e o resumo.
   */
-  const composicaoDaBarra = semTrechoNaBarra(view.composicao);
-  const porTipo = new Map((composicaoDaBarra?.tipos ?? []).map((t) => [t.code, t]));
-  const presentes = composicaoDaBarra?.presentes ?? [];
-  const escolhido = tipo === TODOS_OS_TIPOS ? null : porTipo.get(tipo);
-  const notaDoTipo =
-    escolhido === undefined || escolhido === null
-      ? presentes.length > 0
-        ? `${presentes.length} nesta vigência`
-        : null
-      : escolhido.presente
-        ? contagemDoTipo(escolhido, escolhido.entidades)
-        : "não há nesta vigência";
+  if (!comBusca) return null;
 
   return (
-    /*
-      Alinhamento pelo topo, não pelo rodapé.
-
-      Com `items-end` os blocos encostavam a base uns nos outros — e como só
-      alguns campos têm nota embaixo ("3 nesta vigência"), os que tinham nota
-      subiam e os que não tinham desciam. O resultado era uma fileira em
-      degraus, com o Parametro fora da linha do outro campo.
-
-      Cada campo é uma coluna de três faixas de altura fixa — rótulo, controle,
-      nota — e a nota vazia continua ocupando o seu lugar. Alinhando pelo topo,
-      os rótulos ficam numa linha e os controles noutra, sempre.
-    */
     <div className="mt-5 flex flex-wrap items-start gap-4">
-      {/*
-        Tipo — o eixo "o quê", e agora o único campo desta fileira.
-
-        Cinco dos seis do catálogo aparecem sempre — Trecho fica fora desta
-        barra, ver `TIPOS_NA_BARRA` — e os que a vigência não tem aparecem
-        **escritos como ausentes** em vez de sumirem. Some-los pareceria uma
-        tela sem opção; escrevê-los é o que permite escolher "Cavalo" numa
-        vigência sem cavalo e receber a frase certa — com o caminho para a
-        vigência em que ele está — no lugar de cartões zerados.
-
-        Aplica na hora, como sempre aplicou: é recorte da resposta, não pergunta
-        nova. Ver `trocarTipo`.
-      */}
-      <Campo rotulo="Tipo" nota={notaDoTipo}>
-        <Select value={tipo} onValueChange={(v) => onTipo(v as FiltroDeTipo)}>
-          <SelectTrigger className="w-56 h-11 rounded-lg bg-background">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={TODOS_OS_TIPOS}>
-              Todos{presentes.length > 0 ? ` (${presentes.length})` : ""}
-            </SelectItem>
-            {TIPOS_NA_BARRA.map((definicao) => {
-              const naVigencia = porTipo.get(definicao.code);
-              return (
-                <SelectItem key={definicao.code} value={definicao.code}>
-                  {definicao.nome}
-                  {naVigencia?.presente
-                    ? ` · ${naVigencia.entidades}`
-                    : " · não há nesta vigência"}
-                </SelectItem>
-              );
-            })}
-          </SelectContent>
-        </Select>
+      <Campo rotulo="Parametro" nota={null}>
+        <div className="relative">
+          <input
+            value={busca}
+            disabled={!buscaAtiva}
+            onChange={(event) => onBuscar(event.target.value)}
+            aria-label="Buscar parâmetro pelo nome"
+            className="w-60 h-11 rounded-lg border border-input bg-background pl-3 pr-10 text-sm outline-none transition-colors focus:border-brand disabled:bg-muted/50"
+          />
+          <Search className="w-5 h-5 text-muted-foreground absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+        </div>
       </Campo>
-
-      {comBusca && (
-        <Campo rotulo="Parametro" nota={null}>
-          <div className="relative">
-            <input
-              value={busca}
-              disabled={!buscaAtiva}
-              onChange={(event) => onBuscar(event.target.value)}
-              aria-label="Buscar parâmetro pelo nome"
-              className="w-60 h-11 rounded-lg border border-input bg-background pl-3 pr-10 text-sm outline-none transition-colors focus:border-brand disabled:bg-muted/50"
-            />
-            <Search className="w-5 h-5 text-muted-foreground absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-          </div>
-        </Campo>
-      )}
     </div>
   );
 }
