@@ -31,6 +31,11 @@ import {
   RecusaDeFluxo,
   SlugJaUsado,
 } from "@workspace/fluxos";
+import {
+  IntegracaoNaoEncontrada,
+  NomeDeIntegracaoJaUsado,
+  RecusaDeIntegracao,
+} from "@workspace/integrations";
 import { EmailAlreadyUsedError } from "./session";
 import {
   EmpresaNaoPermitida,
@@ -164,6 +169,17 @@ const RECUSAS: { classe: new (...args: never[]) => Error; status: number }[] = [
     qual e onde escolhê-lo. Não permitida é 403: o pedido está completo, e é a
     conta que não alcança. Ver `lib/empresa-da-requisicao.ts`.
   */
+  /*
+    Integrações. As filhas antes da base, pela mesma razão dos fluxos:
+    `statusDaRecusa` devolve o primeiro `instanceof` que casar.
+
+    O nome repetido é 409 e não 400 — o pedido está bem formado, e é o estado
+    que responde; a frase manda para a integração que já existe. O que não
+    existe é 404. Tudo o mais que a gestão recusa é defeito do pedido.
+  */
+  { classe: NomeDeIntegracaoJaUsado, status: 409 },
+  { classe: IntegracaoNaoEncontrada, status: 404 },
+  { classe: RecusaDeIntegracao, status: 400 },
   { classe: EscopoDeEmpresaAusente, status: 400 },
   { classe: EmpresaNaoPermitida, status: 403 },
 ];

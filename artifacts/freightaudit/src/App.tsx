@@ -36,6 +36,7 @@ import Alteracoes from '@/pages/alteracoes';
 import Parametros from '@/pages/parametros';
 import Comparar from '@/pages/comparar';
 import Importacoes from '@/pages/importacoes';
+import Integracoes from '@/pages/integracoes';
 import RastreioDeDados from '@/pages/rastreio-de-dados';
 import Composicao from '@/pages/composicao';
 import ComposicaoEquipamento from '@/pages/composicao-equipamento';
@@ -473,6 +474,7 @@ function RotasDaAuditoria() {
       */}
       <Route path="/qlp-administrativo" component={QlpAdministrativo} />
       <Route path="/importacoes" component={Importacoes} />
+      <Route path="/integracoes" component={Integracoes} />
       <Route path="/composicao" component={Composicao} />
       <Route path="/composicao/:entityId" component={ComposicaoEquipamento} />
       <Route path="/dre" component={DRE} />

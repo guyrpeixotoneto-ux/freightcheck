@@ -58,6 +58,9 @@
       "path": "./lib/coletores"
     },
     {
+      "path": "./lib/integrations"
+    },
+    {
       "path": "./lib/api-client-react"
     },
     {

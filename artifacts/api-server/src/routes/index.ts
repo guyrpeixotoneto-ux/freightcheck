@@ -28,6 +28,7 @@ import comprasRouter from "./compras";
 import justificativasRouter from "./justificativas";
 import trechosRouter from "./trechos";
 import fluxosRouter from "./fluxos";
+import integracoesRouter from "./integracoes";
 
 /**
  * F0/F1 surface.
@@ -234,5 +235,14 @@ router.use(trechosRouter);
   corpo. O motor inteiro mora em `@workspace/fluxos`; esta rota só traduz.
 */
 router.use(fluxosRouter);
+/*
+  Integrações: a gestão da porta de API — quem fala com este sistema por
+  máquina, com que chave e o que já fez. Superfície **administrativa**, com
+  sessão como todas as outras daqui; a porta que os sistemas externos chamam é
+  `routes/v1.ts`, montada em `app.ts` antes de `requireSession` porque
+  autentica por chave e não por cookie. Uma chave de integração nunca administra
+  integrações, e uma sessão de pessoa nunca é credencial de máquina.
+*/
+router.use(integracoesRouter);
 
 export default router;

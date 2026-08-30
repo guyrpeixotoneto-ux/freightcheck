@@ -56,6 +56,8 @@ const SEM_ACERVO: Record<string, string> = {
     "o cadastro de remuneração é lido pelo Fechamento, por unidade e canal da planilha.",
   "fleet-analysis.ts":
     "lê uma planilha do disco, e não o banco — não há vigência nem canal a recortar.",
+  "integracoes.ts":
+    "a gestão das integrações é a casa: chave de API e log de chamadas valem para o produto inteiro, e uma chave não pertence a uma operação. O que o sistema externo alcança **com** aquela chave é que é recortado — em `v1.ts`, pela mesma `operacaoDaConsulta` das telas.",
   "fluxos.ts":
     "o mapa dos processos é escopado por empresa (`resolverEmpresa`), e não toca em `snapshot`: um fluxo não pertence a uma vigência.",
 };

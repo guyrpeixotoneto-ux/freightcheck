@@ -166,6 +166,7 @@ export const ESCRITAS_POR_MODULO: ReadonlyArray<readonly [string, readonly strin
   ["/alteracoes", ["/change-sets"]],
   ["/justificativas", ["/justificativas"]],
   ["/remunerado", ["/compras"]],
+  ["/integracoes", ["/integracoes"]],
   ["/configuracoes", ["/users"]],
 ];
 

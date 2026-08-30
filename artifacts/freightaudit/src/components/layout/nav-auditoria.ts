@@ -26,6 +26,7 @@ import {
   House,
   Layers,
   LayoutDashboard,
+  Plug,
   Radar,
   Receipt,
   RefreshCcwDot,
@@ -335,6 +336,19 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
         { href: "/fontes-dados", label: "Fontes de dados", icon: Database },
         { href: "/historico-decisoes", label: "Histórico de decisões", icon: History },
         { href: "/logs-sistema", label: "Logs de sistema", icon: SquareTerminal },
+        /*
+          Integrações fecha a seção, abaixo dos Logs, e a posição é a do assunto:
+          é a porta pela qual o dado pode entrar sem passar por Importações — e
+          por onde outro sistema pode ler o que apuramos. Fica em Dados &
+          governança, e não na Administração, porque o que se governa aqui é o
+          **material**: quem escreve no acervo, com que credencial e o que já
+          escreveu. Conta e senha de gente é a casa; chave de máquina é dado.
+
+          Vem por último porque é a leitura mais rara da seção: quem abre esta
+          tela ou está configurando uma integração nova, ou veio conferir por que
+          a de ontem parou.
+        */
+        { href: "/integracoes", label: "Integrações", icon: Plug },
       ],
     },
     /*
