@@ -136,7 +136,18 @@ describe("o padrão é edição, e nenhuma conta nasce bloqueada", () => {
       headers: como("op@x.com"),
     });
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ permissoes: {}, historico: [] });
+    /*
+      As três camadas vazias, e não só uma: desde a `0082` a resposta separa o
+      que vem do papel do que é exceção da conta, e `permissoes` é a soma — o
+      que o portão faria. Vazio nas três é o estado de uma conta sem exceção
+      cujo papel não restringe nada, que é o de toda conta nova.
+    */
+    expect(await res.json()).toEqual({
+      permissoes: {},
+      doPapel: {},
+      daPessoa: {},
+      historico: [],
+    });
   });
 });
 

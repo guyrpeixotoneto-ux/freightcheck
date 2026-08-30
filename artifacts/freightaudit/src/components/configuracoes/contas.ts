@@ -63,6 +63,21 @@ export interface ManagedUser {
    */
   gestorId: string | null;
   gestorNome: string | null;
+  /**
+   * O papel da conta, do cadastro de Papéis — `id` e nome pela razão do cargo:
+   * o `id` é o que a tela devolve ao trocar, o nome é o que ela mostra.
+   *
+   * `null` nos dois é a conta criada pelo terminal antes de o cadastro existir;
+   * ela continua valendo pelo `role`, e a tela diz isso em vez de a esconder.
+   */
+  papelId: string | null;
+  papelNome: string | null;
+  /**
+   * O papel gerencia contas? É `role` lido pela origem dele — a coluna continua
+   * existindo e continua sendo o que o servidor confere, mas quem a decide é o
+   * papel.
+   */
+  papelGerenciaContas: boolean | null;
 }
 
 export const CHAVE_DAS_CONTAS = ["users"] as const;

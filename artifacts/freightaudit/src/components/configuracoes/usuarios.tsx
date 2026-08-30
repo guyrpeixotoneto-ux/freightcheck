@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import {
@@ -39,6 +39,8 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Field, Refusal, post } from "@/components/configuracoes/campos";
 import { CHAVE_DAS_CONTAS, useContas, type ManagedUser } from "@/components/configuracoes/contas";
+import { usePapeis } from "@/components/configuracoes/papeis-consulta";
+import { fetchJson } from "@/lib/api";
 import {
   caminhoDoDepartamento,
   definirCadastroDaConta,
@@ -676,7 +678,12 @@ function GavetaDeUsuario({
   const [sobrenome, setSobrenome] = useState(conta ? restoDoNome(conta.name) : "");
   const [email, setEmail] = useState("");
   const [telefone, setTelefone] = useState(conta?.telefone ?? "");
-  const [role, setRole] = useState(conta?.role ?? "OPERADOR");
+  /*
+    O papel é o do cadastro (`papelId`), e não mais um de dois valores escritos
+    aqui. Conta sem papel — criada pelo terminal antes do cadastro existir —
+    abre com o campo vazio, e escolher um é o que a põe no cadastro.
+  */
+  const [papelId, setPapelId] = useState(conta?.papelId ?? "");
   const [cargoId, setCargoId] = useState(conta?.cargoId ?? "");
   const [unidadeId, setUnidadeId] = useState(conta?.unidadeId ?? "");
   const [gestorId, setGestorId] = useState(conta?.gestorId ?? "");
@@ -692,7 +699,7 @@ function GavetaDeUsuario({
            campo em branco que o servidor teria de interpretar. */
         email: email.trim() === "" ? null : email.trim(),
         telefone: telefone.trim() === "" ? null : telefone.trim(),
-        role,
+        papelId: papelId === "" ? null : papelId,
         cargoId: cargoId === "" ? null : cargoId,
         unidadeId: unidadeId === "" ? null : unidadeId,
         gestorId: gestorId === "" ? null : gestorId,
@@ -711,14 +718,20 @@ function GavetaDeUsuario({
   /*
     Gravar a edição são duas chamadas, e são duas de propósito: papel é acesso e
     o resto é cadastro (ver `lib/session.ts`). O papel só é mandado quando de
-    fato mudou — a rota recusa rebaixar o último administrador, e mandar o mesmo
-    valor de sempre transformaria essa recusa legítima num erro que aparece ao
-    corrigir o telefone de alguém.
+    fato mudou — a rota recusa tirar do último administrador o papel que
+    administra, e mandar o mesmo valor de sempre transformaria essa recusa
+    legítima num erro que aparece ao corrigir o telefone de alguém.
   */
   const salvar = useMutation({
     mutationFn: async () => {
       if (conta === null) return;
-      if (role !== conta.role) await post(`/users/${conta.id}/role`, { role });
+      if (papelId !== "" && papelId !== conta.papelId) {
+        await fetchJson<unknown>(`/users/${conta.id}/papel`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ papelId }),
+        });
+      }
       await definirCadastroDaConta(conta.id, {
         name: nome,
         sobrenome,
@@ -860,24 +873,11 @@ function GavetaDeUsuario({
                 aoTrocarUnidade={setUnidadeId}
               />
 
-              <Field label="Papel" htmlFor="conta-papel">
-                <Select value={role} onValueChange={setRole}>
-                  <SelectTrigger id="conta-papel">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="OPERADOR">Operador — usa o produto</SelectItem>
-                    <SelectItem value="ADMIN">
-                      Administrador — também gerencia contas
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">
-                  Papel é acesso, e não hierarquia: quem responde por quem é o
-                  campo abaixo. O que cada conta alcança, módulo a módulo, está
-                  em Permissões.
-                </p>
-              </Field>
+              <EscolhaDoPapel
+                papelId={papelId}
+                aoTrocar={setPapelId}
+                escolherPadrao={!editando}
+              />
 
               <EscolhaDoGestor
                 gestorId={gestorId}
@@ -1044,6 +1044,80 @@ function CredencialCopiavel({ rotulo, valor }: { rotulo: string; valor: string }
         {copiado ? "Copiado" : "Copiar"}
       </Button>
     </div>
+  );
+}
+
+/**
+ * O papel da conta — a lista vem do cadastro, e não do código.
+ *
+ * Eram duas opções escritas aqui, `Operador` e `Administrador`, e elas
+ * respondiam uma pergunta só: quem gerencia contas. O que a pessoa **alcança**
+ * ficava inteiramente na tela de Permissões, decidido conta a conta — trinta
+ * decisões repetidas a cada conta nova, e uma delas esquecida em silêncio.
+ *
+ * Agora as opções são as linhas de Configurações → Papéis, cada uma com as
+ * permissões que alguém cadastrou, e a conta **acompanha** o papel: mudar o
+ * papel muda o acesso de quem o usa. Os dois de sempre continuam na lista, como
+ * papéis do sistema.
+ *
+ * Conta sem papel — a criada pelo terminal antes do cadastro — abre com o campo
+ * vazio e a frase que explica; escolher um papel é o que a traz para o cadastro.
+ */
+function EscolhaDoPapel({
+  papelId,
+  aoTrocar,
+  escolherPadrao,
+}: {
+  papelId: string;
+  aoTrocar: (id: string) => void;
+  /**
+   * Conta nova abre com um papel escolhido, e não com o campo vazio.
+   *
+   * O servidor tem um padrão — o papel do sistema que não administra —, e um
+   * campo em branco que grava esse padrão é um formulário que decide sem
+   * mostrar o que decidiu. Aqui o padrão aparece escolhido, e quem quiser outro
+   * troca; na edição não há padrão nenhum a aplicar, e o campo mostra o papel
+   * que a conta tem (ou o vazio de quem não tem nenhum).
+   */
+  escolherPadrao: boolean;
+}) {
+  const { data: papeis = [], isLoading } = usePapeis();
+
+  useEffect(() => {
+    if (!escolherPadrao || papelId !== "" || papeis.length === 0) return;
+    const padrao =
+      papeis.find((p) => p.sistema && !p.gerenciaContas) ?? papeis[0]!;
+    aoTrocar(padrao.id);
+  }, [escolherPadrao, papelId, papeis, aoTrocar]);
+
+  return (
+    <Field label="Papel" htmlFor="conta-papel">
+      <Select
+        /* `undefined`, e não `""`: o Radix reserva a string vazia para "nada
+           escolhido" e recusa item com esse valor. */
+        value={papelId === "" ? undefined : papelId}
+        onValueChange={aoTrocar}
+      >
+        <SelectTrigger id="conta-papel">
+          <SelectValue
+            placeholder={isLoading ? "Carregando papéis…" : "Escolha um papel…"}
+          />
+        </SelectTrigger>
+        <SelectContent>
+          {papeis.map((papel) => (
+            <SelectItem key={papel.id} value={papel.id}>
+              {papel.nome}
+              {papel.gerenciaContas ? " — também gerencia contas" : ""}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <p className="text-xs text-muted-foreground">
+        Papel é acesso, e não hierarquia: quem responde por quem é o campo abaixo.
+        O que cada papel alcança se cadastra em Papéis; a exceção de uma conta
+        sobre o papel dela, em Permissões.
+      </p>
+    </Field>
   );
 }
 
@@ -1427,7 +1501,9 @@ function UserRow({
               {user.departamentoNome ? ` · ${user.departamentoNome}` : ""}
               {user.unidadeNome ? ` · ${user.unidadeNome}` : " · sem unidade"}
               {" · "}
-              {user.role === "ADMIN" ? "administrador" : "operador"}
+              {/* O papel pelo nome do cadastro; `role` só quando a conta é
+                  anterior a ele e não tem papel nenhum. */}
+              {user.papelNome ?? (user.role === "ADMIN" ? "administrador" : "operador")}
             </div>
             {arquivada && (
               <div className="text-xs text-muted-foreground">

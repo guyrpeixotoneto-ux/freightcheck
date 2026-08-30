@@ -521,6 +521,9 @@ function RotasDaAuditoria() {
       <Route path="/configuracoes/seguranca">
         <Configuracoes secao="seguranca" />
       </Route>
+      <Route path="/configuracoes/papeis">
+        <Configuracoes secao="papeis" />
+      </Route>
       <Route path="/configuracoes/permissoes">
         <Configuracoes secao="permissoes" />
       </Route>

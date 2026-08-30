@@ -1,10 +1,7 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Eye, Layers, Lock, PencilLine, Search, ShieldCheck } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { ShieldCheck } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -15,17 +12,15 @@ import {
 } from "@/components/ui/select";
 import { ApiErrorNotice } from "@/components/api-error";
 import { useContas } from "@/components/configuracoes/contas";
-import { AMBIENTES } from "@/lib/ambiente";
+import {
+  MatrizDeAcesso,
+  contarPorNivel,
+  rotuloDaChave,
+  rotuloDoNivel,
+} from "@/components/configuracoes/matriz-de-acesso";
 import { fetchJson } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import {
-  EXPLICACAO_DO_NIVEL,
-  MODULOS,
-  NIVEL_PADRAO,
-  chaveDoAmbiente,
-  modulosPorGrupo,
-  type Nivel,
-} from "@/lib/permissoes";
+import { type Nivel } from "@/lib/permissoes";
 import { cn } from "@/lib/utils";
 
 /**
@@ -44,6 +39,15 @@ import { cn } from "@/lib/utils";
  * o **mais restritivo dos dois** — tirar o Fechamento AS de alguém não pede
  * revisar módulo nenhum, e devolver um módulo não devolve um ambiente.
  *
+ * **Desde a `0082`, esta tela decide a segunda camada, e não a única.** O caso
+ * geral é o papel da conta (Configurações → Papéis), cadastrado uma vez e
+ * valendo para todo mundo que o usa; o que se faz aqui é a **exceção** daquela
+ * pessoa, que vence o papel. Cada linha diz de onde vem o que está valendo — do
+ * papel ou de uma exceção —, e a exceção tem o botão que a desfaz, devolvendo a
+ * linha à herança. Sem essa distinção, tirar um módulo de dez conferentes
+ * pareceria dez cliques aqui em vez de um clique no papel, e o clique aqui
+ * deixaria cada conta de fora do papel dela para sempre, em silêncio.
+ *
  * Três decisões de desenho, e nenhuma é enfeite:
  *
  * · **Três níveis, e só três.** Edita, vê, ou não entra. Uma matriz de verbos
@@ -54,10 +58,10 @@ import { cn } from "@/lib/utils";
  *   no acesso de alguém é ato administrativo, e o histórico abaixo mostra o
  *   ato, o autor e a hora assim que ele acontece. Um rascunho não gravado seria
  *   uma tela que mostra um acesso que ninguém tem.
- * · **O padrão é edição, e a tela diz isso.** Conta nova alcança tudo, como
- *   sempre alcançou; o que esta tela faz é *tirar*. Por isso o resumo conta
- *   "restrições", e não "permissões concedidas": zero restrições é o estado
- *   normal, não o estado vazio.
+ * · **O padrão é edição, e a tela diz isso.** Conta nova alcança o que o papel
+ *   dela alcança, e um papel sem restrição alcança tudo — como sempre foi. O que
+ *   esta tela faz é *tirar*: zero exceções é o estado normal, não o estado
+ *   vazio.
  *
  * **É seção da casa, e não um cartão no rodapé de Usuários.** Era o segundo
  * bloco daquela tela, abaixo do cadastro de contas e da lista — a pergunta "o
@@ -70,7 +74,12 @@ import { cn } from "@/lib/utils";
  */
 
 interface RespostaDePermissoes {
+  /** O que vale — as duas camadas já somadas. É o que o portão faria. */
   permissoes: Record<string, Nivel>;
+  /** A camada de baixo: o que o papel da conta dá. */
+  doPapel: Record<string, Nivel>;
+  /** A camada de cima: as exceções decididas sobre esta conta. */
+  daPessoa: Record<string, Nivel>;
   historico: Array<{
     modulo: string;
     nivelAnterior: string | null;
@@ -80,45 +89,6 @@ interface RespostaDePermissoes {
   }>;
 }
 
-/**
- * Os três níveis, do que menos alcança para o que mais alcança.
- *
- * A ordem é do fechado para o aberto — sem acesso, visualizar, editar — e ela
- * vale para a tela inteira: os três botões de cada módulo, os três atalhos que
- * valem para a lista toda e a contagem lá em cima leem na mesma direção. Uma
- * ordem por linha seria uma tela em que a posição do botão não quer dizer nada,
- * e é a posição que a mão decora depois da terceira conta configurada.
- *
- * Do fechado para o aberto, e não o contrário, porque é o sentido do que esta
- * tela faz: toda conta já nasce editando tudo, e o que se vem fazer aqui é
- * tirar. O primeiro botão da linha é o que a visita está aqui para clicar.
- */
-const NIVEIS_NA_TELA: Array<{
-  nivel: Nivel;
-  rotulo: string;
-  icone: typeof Eye;
-  ativo: string;
-}> = [
-  {
-    nivel: "SEM_ACESSO",
-    rotulo: "Sem acesso",
-    icone: Lock,
-    ativo: "bg-rose-600 text-white border-rose-600 hover:bg-rose-600",
-  },
-  {
-    nivel: "VISUALIZAR",
-    rotulo: "Visualizar",
-    icone: Eye,
-    ativo: "bg-blue-600 text-white border-blue-600 hover:bg-blue-600",
-  },
-  {
-    nivel: "EDITAR",
-    rotulo: "Editar",
-    icone: PencilLine,
-    ativo: "bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-600",
-  },
-];
-
 const dateTime = (iso: string) => new Date(iso).toLocaleString("pt-BR");
 
 export function PainelDePermissoes() {
@@ -126,7 +96,6 @@ export function PainelDePermissoes() {
   const queryClient = useQueryClient();
   const { data: pessoas = [], error: erroDasContas } = useContas();
   const [escolhida, setEscolhida] = useState<string>("");
-  const [busca, setBusca] = useState("");
   const [erro, setErro] = useState<string | null>(null);
 
   const podeMexer = me?.role === "ADMIN";
@@ -167,54 +136,7 @@ export function PainelDePermissoes() {
     onError: (err: Error) => setErro(err.message),
   });
 
-  const resumo = useMemo(() => {
-    const contagem = { EDITAR: 0, VISUALIZAR: 0, SEM_ACESSO: 0 } as Record<Nivel, number>;
-    for (const modulo of MODULOS) {
-      contagem[permissoes[modulo.chave] ?? NIVEL_PADRAO] += 1;
-    }
-    return contagem;
-  }, [permissoes]);
-
-  const secoes = useMemo(() => {
-    const termo = busca.trim().toLowerCase();
-    return modulosPorGrupo()
-      .map((secao) => ({
-        ...secao,
-        itens: secao.itens.filter(
-          (m) =>
-            termo === "" ||
-            m.rotulo.toLowerCase().includes(termo) ||
-            m.chave.toLowerCase().includes(termo) ||
-            secao.grupo.toLowerCase().includes(termo),
-        ),
-      }))
-      .filter((secao) => secao.itens.length > 0);
-  }, [busca]);
-
-  const visiveis = secoes.flatMap((s) => s.itens.map((m) => m.chave));
-
-  /*
-    A busca vale para os dois eixos, e por isso os ambientes também são
-    filtrados por ela: quem digita "fechamento" está procurando o fechamento, e
-    uma lista de ambientes que ignora a busca deixaria oito linhas fixas em cima
-    de uma lista que encolheu.
-  */
-  const ambientesNaTela = useMemo(() => {
-    const termo = busca.trim().toLowerCase();
-    if (termo === "") return AMBIENTES;
-    return AMBIENTES.filter(
-      (a) =>
-        a.nomeCompleto.toLowerCase().includes(termo) ||
-        a.nome.toLowerCase().includes(termo) ||
-        a.id.includes(termo),
-    );
-  }, [busca]);
-
-  function aplicarEmTodos(nivel: Nivel) {
-    const niveis: Record<string, Nivel> = {};
-    for (const chave of visiveis) niveis[chave] = nivel;
-    definir.mutate(niveis);
-  }
+  const resumo = useMemo(() => contarPorNivel(permissoes), [permissoes]);
 
   return (
     <div className="space-y-6 max-w-5xl">
@@ -226,10 +148,11 @@ export function PainelDePermissoes() {
       <p className="flex items-start gap-2 text-sm text-muted-foreground max-w-3xl">
         <ShieldCheck className="w-4 h-4 mt-0.5 shrink-0 text-primary" />
         <span>
-          A lista de módulos é o próprio menu do produto. Quem não tem uma
-          decisão tomada edita tudo, que é o que toda conta sempre pôde — aqui se{" "}
-          <strong>tira</strong> acesso, e cada mudança fica registrada com o nome
-          de quem a fez.
+          A lista de módulos é o próprio menu do produto. Cada conta herda o que
+          o <strong>papel</strong> dela alcança (Configurações → Papéis); o que se
+          decide aqui é a <strong>exceção</strong> daquela pessoa, que vence o
+          papel. Cada linha diz de onde vem o que está valendo, e cada mudança
+          fica registrada com o nome de quem a fez.
         </span>
       </p>
 
@@ -341,139 +264,35 @@ export function PainelDePermissoes() {
 
           {alvo && (
             <>
-              <div className="flex flex-wrap items-center gap-2">
-                {podeMexer &&
-                  NIVEIS_NA_TELA.map(({ nivel, rotulo, icone: Icone }) => (
-                    <Button
-                      key={nivel}
-                      variant="outline"
-                      size="sm"
-                      disabled={definir.isPending}
-                      onClick={() => aplicarEmTodos(nivel)}
-                    >
-                      <Icone className="w-3.5 h-3.5 mr-1.5" />
-                      {nivel === "EDITAR"
-                        ? "Liberar tudo"
-                        : nivel === "VISUALIZAR"
-                          ? "Só visualizar"
-                          : "Bloquear tudo"}
-                    </Button>
-                  ))}
-                <span className="relative ml-auto">
-                  <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    value={busca}
-                    onChange={(e) => setBusca(e.target.value)}
-                    placeholder="Buscar módulo…"
-                    className="h-9 w-56 pl-8"
-                  />
-                </span>
-              </div>
-
-              {podeMexer && busca.trim() !== "" && (
-                <p className="text-xs text-muted-foreground -mt-2">
-                  Os três botões acima valem para os {visiveis.length} módulos que a
-                  busca deixou na lista — não para o menu inteiro.
-                </p>
-              )}
-
-              {!consulta.isLoading && ambientesNaTela.length > 0 && (
-                <div className="rounded-md border">
-                  <div className="flex items-center gap-2 bg-muted/50 px-4 py-2">
-                    <Layers className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                    <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                      Ambientes de trabalho
-                    </span>
-                    <span className="text-xs text-muted-foreground">
-                      {ambientesNaTela.length} de {AMBIENTES.length}
-                    </span>
-                  </div>
-                  <p className="border-t px-4 py-2 text-xs text-muted-foreground">
-                    Onde a pessoa trabalha. Um ambiente sem acesso não aparece no
-                    seletor do topo e nenhuma tela dele abre — inclusive as que
-                    estão liberadas na lista de módulos abaixo, porque o que vale
-                    numa tela é o mais restritivo dos dois.
-                  </p>
-                  {ambientesNaTela.map((ambiente) => {
-                    const chave = chaveDoAmbiente(ambiente.id);
-                    const nivel = permissoes[chave] ?? NIVEL_PADRAO;
-                    return (
-                      <div
-                        key={ambiente.id}
-                        className="flex flex-wrap items-center gap-3 border-t px-4 py-2.5"
-                      >
-                        <span className="min-w-0 flex-1">
-                          <span className="block text-sm font-semibold">
-                            {ambiente.nomeCompleto}
-                          </span>
-                          <span className="block text-xs text-muted-foreground">
-                            {ambiente.descricao}
-                          </span>
-                        </span>
-                        <BotoesDeNivel
-                          nivel={nivel}
-                          desabilitado={!podeMexer || definir.isPending}
-                          aoEscolher={(opcao) => definir.mutate({ [chave]: opcao })}
-                        />
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-
-              <div className="rounded-md border divide-y">
-                {consulta.isLoading && (
-                  <p className="p-6 text-sm text-muted-foreground">Carregando…</p>
+              {/*
+                O papel da conta, dito antes da matriz: é a resposta para "por que
+                este módulo está fechado se eu não tirei nada dela?" — e o lugar
+                onde se muda isso para todo mundo do mesmo papel de uma vez.
+              */}
+              <p className="text-sm text-muted-foreground">
+                {alvo.papelNome === null ? (
+                  <>
+                    Esta conta não tem papel (criada pelo terminal, antes do
+                    cadastro). Ela alcança tudo o que não estiver restrito aqui.
+                  </>
+                ) : (
+                  <>
+                    Papel: <strong>{alvo.papelNome}</strong>
+                    {alvo.papelGerenciaContas ? " · gerencia contas" : ""}. O que
+                    ele alcança se muda em Papéis, e vale para todas as contas que
+                    o usam.
+                  </>
                 )}
+              </p>
 
-                {!consulta.isLoading &&
-                  secoes.map((secao) => (
-                    <div key={`${secao.ambiente}|${secao.grupo}`}>
-                      <div className="flex items-center gap-2 bg-muted/50 px-4 py-2">
-                        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                          {secao.grupo}
-                        </span>
-                        <Badge variant="outline" className="font-normal text-[0.6875rem]">
-                          {secao.ambiente}
-                        </Badge>
-                        <span className="text-xs text-muted-foreground">
-                          {secao.itens.length} módulo(s)
-                        </span>
-                      </div>
-                      {secao.itens.map((modulo) => {
-                        const nivel = permissoes[modulo.chave] ?? NIVEL_PADRAO;
-                        return (
-                          <div
-                            key={modulo.chave}
-                            className="flex flex-wrap items-center gap-3 px-4 py-2.5 border-t first:border-t-0"
-                          >
-                            <span className="min-w-0 flex-1">
-                              <span className="block text-sm font-semibold">
-                                {modulo.rotulo}
-                              </span>
-                              <span className="block text-xs text-muted-foreground">
-                                {modulo.chave} · {EXPLICACAO_DO_NIVEL[nivel]}
-                              </span>
-                            </span>
-                            <BotoesDeNivel
-                              nivel={nivel}
-                              desabilitado={!podeMexer || definir.isPending}
-                              aoEscolher={(opcao) =>
-                                definir.mutate({ [modulo.chave]: opcao })
-                              }
-                            />
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ))}
-
-                {!consulta.isLoading && secoes.length === 0 && (
-                  <p className="p-6 text-sm text-muted-foreground">
-                    Nenhum módulo com “{busca}” no nome.
-                  </p>
-                )}
-              </div>
+              <MatrizDeAcesso
+                niveis={permissoes}
+                herdado={consulta.data?.doPapel ?? {}}
+                nomeDaHeranca={alvo.papelNome}
+                desabilitado={!podeMexer || definir.isPending}
+                carregando={consulta.isLoading}
+                aoEscolher={(niveis) => definir.mutate(niveis)}
+              />
 
               <Historico linhas={consulta.data?.historico ?? []} />
             </>
@@ -481,43 +300,6 @@ export function PainelDePermissoes() {
         </CardContent>
       </Card>
     </div>
-  );
-}
-
-/**
- * Os três botões de nível — os mesmos para um módulo e para um ambiente.
- *
- * Um componente só porque são a mesma decisão sobre coisas diferentes: a ordem,
- * as cores e o `aria-pressed` têm de ser idênticos nos dois eixos, e duas
- * cópias divergiriam na primeira mudança de qualquer um deles.
- */
-function BotoesDeNivel({
-  nivel,
-  desabilitado,
-  aoEscolher,
-}: {
-  nivel: Nivel;
-  desabilitado: boolean;
-  aoEscolher: (nivel: Nivel) => void;
-}) {
-  return (
-    <span className="flex items-center gap-1.5">
-      {NIVEIS_NA_TELA.map(({ nivel: opcao, rotulo, icone: Icone, ativo }) => (
-        <Button
-          key={opcao}
-          type="button"
-          variant="outline"
-          size="sm"
-          aria-pressed={nivel === opcao}
-          disabled={desabilitado}
-          className={cn("h-8", nivel === opcao && ativo)}
-          onClick={() => aoEscolher(opcao)}
-        >
-          <Icone className="w-3.5 h-3.5 mr-1.5" />
-          {rotulo}
-        </Button>
-      ))}
-    </span>
   );
 }
 
@@ -556,8 +338,8 @@ function Historico({
   if (linhas.length === 0) {
     return (
       <p className="text-xs text-muted-foreground border-t pt-3">
-        Nenhuma decisão tomada sobre esta conta ainda — ela alcança o menu
-        inteiro, como toda conta nova.
+        Nenhuma exceção tomada sobre esta conta — ela alcança exatamente o que o
+        papel dela alcança, como toda conta nova.
       </p>
     );
   }
@@ -579,24 +361,5 @@ function Historico({
         ))}
       </ul>
     </div>
-  );
-}
-
-/**
- * O nome do que mudou, para o histórico.
- *
- * A chave crua serve à tabela de cima, onde ela aparece ao lado do nome do
- * módulo; aqui, sozinha, `@fechamento-as` seria a linha do histórico falando a
- * língua do banco. Módulo continua sendo o endereço — é assim que ele é
- * identificado no menu e na lista acima —, e ambiente vira o nome por extenso.
- */
-function rotuloDaChave(chave: string): string {
-  const ambiente = AMBIENTES.find((a) => chaveDoAmbiente(a.id) === chave);
-  return ambiente ? ambiente.nomeCompleto : chave;
-}
-
-function rotuloDoNivel(nivel: string): string {
-  return (
-    NIVEIS_NA_TELA.find((n) => n.nivel === nivel)?.rotulo.toLowerCase() ?? nivel
   );
 }

@@ -4,6 +4,7 @@ import {
   appUserTable,
   cargoTable,
   departamentoTable,
+  papelTable,
   unidadeTable,
   userSessionTable,
   type Database,
@@ -277,6 +278,16 @@ export async function createUser(
     telefone?: string | null;
     /** A quem ela reporta. Nulo é o topo — uma resposta, não uma lacuna. */
     gestorId?: string | null;
+    /**
+     * O papel da conta, do cadastro (`0082`). Quem chama já resolveu o `role`
+     * que ele implica — `roleDoPapel`, em `lib/papeis.ts` — e manda os dois
+     * juntos: a conversão tem um dono só, e não é este arquivo.
+     *
+     * Ausente é o caminho do terminal (`create-user`), que ainda cria conta por
+     * `role`. Ela nasce sem papel e vale pelo `role`, como toda conta anterior
+     * à `0082`.
+     */
+    papelId?: string | null;
   },
 ): Promise<SessionUser> {
   const passwordHash = await hashPassword(input.password);
@@ -295,6 +306,7 @@ export async function createUser(
           ? { telefone: input.telefone === null ? null : input.telefone.trim() }
           : {}),
         ...(input.gestorId !== undefined ? { gestorId: input.gestorId } : {}),
+        ...(input.papelId !== undefined ? { papelId: input.papelId } : {}),
       })
       .returning({
         id: appUserTable.id,
@@ -590,6 +602,19 @@ export interface ManagedUser extends SessionUser {
    */
   gestorId: string | null;
   gestorNome: string | null;
+  /**
+   * O papel da conta — `id` e nome, pela mesma razão do cargo: o `id` é o que a
+   * tela devolve ao editar, e o nome é o que ela mostra no seletor e na lista.
+   *
+   * `null` nos dois é a conta criada pelo terminal antes de a `0082` semear os
+   * papéis; ela continua valendo pelo `role`, que não é lido daqui. A junção é à
+   * esquerda pela mesma razão do cargo: uma conta sem papel tem de aparecer na
+   * lista, e não sumir dela.
+   */
+  papelId: string | null;
+  papelNome: string | null;
+  /** O papel gerencia contas? É a leitura de `role` pela origem dela. */
+  papelGerenciaContas: boolean | null;
 }
 
 /**
@@ -628,6 +653,9 @@ export async function listUsers(db: Database): Promise<ManagedUser[]> {
       telefone: appUserTable.telefone,
       gestorId: appUserTable.gestorId,
       gestorNome: gestorTable.name,
+      papelId: appUserTable.papelId,
+      papelNome: papelTable.nome,
+      papelGerenciaContas: papelTable.gerenciaContas,
     })
     .from(appUserTable)
     .leftJoin(
@@ -653,6 +681,10 @@ export async function listUsers(db: Database): Promise<ManagedUser[]> {
        `app_user`, e sem o alias a junção seria a tabela consigo mesma sem que
        o SQL soubesse qual das duas cada coluna está pedindo. */
     .leftJoin(gestorTable, eq(gestorTable.id, appUserTable.gestorId))
+    /* O papel, à esquerda pela razão do cargo: conta sem papel é o estado de
+       quem foi criada pelo terminal antes da `0082`, e sumir com ela da lista
+       seria esconder gente que entra no produto. */
+    .leftJoin(papelTable, eq(papelTable.id, appUserTable.papelId))
     .groupBy(
       appUserTable.id,
       cargoTable.nome,
@@ -660,6 +692,8 @@ export async function listUsers(db: Database): Promise<ManagedUser[]> {
       departamentoTable.nome,
       unidadeTable.nome,
       gestorTable.name,
+      papelTable.nome,
+      papelTable.gerenciaContas,
     )
     .orderBy(appUserTable.name);
 
