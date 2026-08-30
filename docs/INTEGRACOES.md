@@ -12,12 +12,12 @@ não faz, e o que vem depois.
 | peça | onde |
 | --- | --- |
 | o vocabulário (chave, escopo, decisão do portão) | `lib/integrations` |
-| as três tabelas | `lib/db/src/schema/integracao.ts`, migration `0082` |
+| as três tabelas | `lib/db/src/schema/integracao.ts`, migration `0084` |
 | a gestão (tela e sessão) | `artifacts/api-server/src/routes/integracoes.ts` |
 | a porta externa (chave, sem sessão) | `artifacts/api-server/src/routes/v1.ts` |
 | o portão que autentica e registra | `artifacts/api-server/src/middlewares/chave-de-integracao.ts` |
 | a tela | `artifacts/freightaudit/src/pages/integracoes.tsx` → **Dados & governança → Integrações** |
-| a busca ativa (motor, agenda e cofre) | `lib/integrations/src/busca.ts`, `src/cofre.ts`; `artifacts/api-server/src/lib/busca-ativa.ts`, `busca-agendada.ts`, `cofre.ts`; migration `0083` |
+| a busca ativa (motor, agenda e cofre) | `lib/integrations/src/busca.ts`, `src/cofre.ts`; `artifacts/api-server/src/lib/busca-ativa.ts`, `busca-agendada.ts`, `cofre.ts`; migration `0085` |
 
 As três direções, e o que cada uma quer dizer:
 

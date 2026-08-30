@@ -2,7 +2,7 @@
 -- BUSCA ATIVA — a terceira direção, e a única em que nós ligamos primeiro.
 -- ---------------------------------------------------------------------------
 --
--- A `0082` abriu a porta para quem chega: um sistema de fora empurra o arquivo
+-- A `0084` abriu a porta para quem chega: um sistema de fora empurra o arquivo
 -- ou lê o nosso histórico, com chave. Esta migration abre o caminho inverso —
 -- numa agenda, este servidor chama um endereço do fornecedor, traz a planilha e
 -- a entrega ao pipeline de Importações, que para no preview como sempre.
@@ -19,7 +19,7 @@
 -- guarda segredo reversível num banco onde nenhuma outra guarda:
 --
 --   · a **nossa** chave a gente só confere — hash basta, e é irreversível de
---     propósito (`integracao_chave.hash`, na `0082`);
+--     propósito (`integracao_chave.hash`, na `0084`);
 --   · a **deles** a gente precisa apresentar a cada busca — então tem de voltar
 --     ao valor original, e o que protege é a cifra.
 --

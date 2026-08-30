@@ -51,7 +51,7 @@ router.use(
   "/integracoes",
   contextoDeSchema(
     "Integrações não tem onde guardar as chaves nem o log de chamadas: as " +
-      "tabelas que a migration 0082_integracoes cria não existem neste banco.",
+      "tabelas que a migration 0084_integracoes cria não existem neste banco.",
   ),
 );
 

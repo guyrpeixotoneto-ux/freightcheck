@@ -312,8 +312,8 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
         */
         "snapshot_presenca",
         /*
-          As cinco de Integrações — as três da `0082` (a porta de API: a
-          integração, as chaves dela e o log de chamadas) e as duas da `0083` (a
+          As cinco de Integrações — as três da `0084` (a porta de API: a
+          integração, as chaves dela e o log de chamadas) e as duas da `0085` (a
           busca ativa: a agenda e o histórico de execuções). Aditivas pelo mesmo
           critério de todas as acima: nenhuma tabela existente muda de forma —
           elas só se referenciam entre si, e `import_run_id` em
@@ -509,7 +509,7 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
             !c.startsWith("cargo_") &&
             !c.startsWith("departamento_") &&
             !c.startsWith("negocio_") &&
-            /* As de Integrações, da `0082` e da `0083`, pela mesma regra das de
+            /* As de Integrações, da `0084` e da `0085`, pela mesma regra das de
                Fluxos: são as chaves primárias, as seis FKs entre as cinco
                tabelas novas e as `CHECK` de resultado, forma, método, disparo e
                intervalo mínimo — todas nascem **com** tabelas que Production não

@@ -528,8 +528,8 @@ const TABELAS_REMOVIDAS = [
   "departamento",
   "negocio",
   /*
-    As cinco de Integrações — as três da `0082` (a porta de API) e as duas da
-    `0083` (a busca ativa). Entram pelo mesmo motivo das outras tabelas de
+    As cinco de Integrações — as três da `0084` (a porta de API) e as duas da
+    `0085` (a busca ativa). Entram pelo mesmo motivo das outras tabelas de
     módulo novo: Production não as conhece até a fila rodar lá, e até então cada
     uma é uma tabela que a proposta do Publishing proporia criar.
 
@@ -2914,7 +2914,7 @@ function planoUp(): PassoUp[] {
   }
 
   /*
-    A `0082` e a `0083` — Integrações e a busca ativa. As cinco tabelas voltam
+    a `0084` e a `0085` — Integrações e a busca ativa. As cinco tabelas voltam
     pelo DDL das próprias migrations, levantado do disco: as FKs e os `CHECK`
     moram em blocos `DO` guardados por `pg_constraint`, e são esses blocos que
     voltam aqui, não uma segunda escrita da mesma definição.
@@ -2928,9 +2928,9 @@ function planoUp(): PassoUp[] {
     máquina. É por isso que as cinco exigem tabela vazia no `down` — ele só desce
     quando não há o que perder. Ver `TABELAS_REMOVIDAS`.
   */
-  const M82 = "0082_integracoes";
+  const M84 = "0084_integracoes";
   for (const tabela of ["integracao", "integracao_chave", "integracao_chamada"]) {
-    add(M82, tabela, levantar(M82, new RegExp(`CREATE TABLE IF NOT EXISTS "${tabela}" \\(`)));
+    add(M84, tabela, levantar(M84, new RegExp(`CREATE TABLE IF NOT EXISTS "${tabela}" \\(`)));
   }
   for (const constraint of [
     "integracao_chave_integracao_id_integracao_id_fk",
@@ -2938,7 +2938,7 @@ function planoUp(): PassoUp[] {
     "integracao_chamada_chave_id_integracao_chave_id_fk",
     "integracao_chamada_resultado_ck",
   ]) {
-    add(M82, `constraint ${constraint}`, levantar(M82, new RegExp(`conname = '${constraint}'`)));
+    add(M84, `constraint ${constraint}`, levantar(M84, new RegExp(`conname = '${constraint}'`)));
   }
   for (const indice of [
     "integracao_nome_uq",
@@ -2950,12 +2950,12 @@ function planoUp(): PassoUp[] {
     "integracao_chamada_chave_idx",
     "integracao_chamada_em_idx",
   ]) {
-    add(M82, `índice ${indice}`, levantar(M82, new RegExp(`INDEX IF NOT EXISTS "${indice}"`)));
+    add(M84, `índice ${indice}`, levantar(M84, new RegExp(`INDEX IF NOT EXISTS "${indice}"`)));
   }
 
-  const M83 = "0083_busca_ativa";
+  const M85 = "0085_busca_ativa";
   for (const tabela of ["integracao_busca", "integracao_execucao"]) {
-    add(M83, tabela, levantar(M83, new RegExp(`CREATE TABLE IF NOT EXISTS "${tabela}" \\(`)));
+    add(M85, tabela, levantar(M85, new RegExp(`CREATE TABLE IF NOT EXISTS "${tabela}" \\(`)));
   }
   for (const constraint of [
     "integracao_busca_integracao_id_integracao_id_fk",
@@ -2967,7 +2967,7 @@ function planoUp(): PassoUp[] {
     "integracao_execucao_resultado_ck",
     "integracao_execucao_disparo_ck",
   ]) {
-    add(M83, `constraint ${constraint}`, levantar(M83, new RegExp(`conname = '${constraint}'`)));
+    add(M85, `constraint ${constraint}`, levantar(M85, new RegExp(`conname = '${constraint}'`)));
   }
   for (const indice of [
     "integracao_busca_integracao_idx",
@@ -2975,7 +2975,7 @@ function planoUp(): PassoUp[] {
     "integracao_execucao_busca_em_idx",
     "integracao_execucao_integracao_idx",
   ]) {
-    add(M83, `índice ${indice}`, levantar(M83, new RegExp(`INDEX IF NOT EXISTS "${indice}"`)));
+    add(M85, `índice ${indice}`, levantar(M85, new RegExp(`INDEX IF NOT EXISTS "${indice}"`)));
   }
 
   const M42 = "0042_viagem_completa";

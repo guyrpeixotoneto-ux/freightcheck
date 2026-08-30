@@ -64,7 +64,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 router.use(
   contextoDeSchema(
     "A porta de API não tem onde registrar as chamadas: as tabelas que a " +
-      "migration 0082_integracoes cria não existem neste banco.",
+      "migration 0084_integracoes cria não existem neste banco.",
   ),
 );
 
