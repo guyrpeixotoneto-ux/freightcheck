@@ -29,16 +29,25 @@ import {
   ehChaveDeAmbiente,
   ehNivel,
   historicoDePermissoes,
-  permissoesDe,
+  permissoesDetalhadasDe,
   type Nivel,
 } from "../lib/permissoes";
+import {
+  definirPapelDaConta,
+  papelPorId,
+  papelDoSistema,
+  roleDoPapel,
+} from "../lib/papeis";
 
 /**
  * Quem tem acesso — a superfície da tela de Configurações.
  *
  * Toda rota aqui exige sessão, como todas as outras; e as mutações exigem
- * papel. Dois papéis, e só dois: **ADMIN** cria, desativa, redefine senha e
- * muda papel; **OPERADOR** usa o produto. A separação nasceu de um achado da
+ * papel. Os papéis deixaram de ser dois valores no código e viraram cadastro
+ * (`routes/papeis.ts`, `0082`); o que **não** mudou é o portão: `role` continua
+ * sendo a coluna lida aqui, derivada do `gerencia_contas` do papel e escrita
+ * junto com ele — quem gerencia contas cria, desativa, redefine senha e muda o
+ * papel dos outros; quem não gerencia usa o produto. A separação nasceu de um achado da
  * auditoria comercial: sem papel, qualquer conta redefinia a senha de
  * qualquer outra — tomada de conta a um clique, num produto cujo valor é o
  * "quem fez". Ler a lista continua aberto a quem entrou: transparência sobre
@@ -180,8 +189,34 @@ router.post("/users", async (req, res): Promise<void> => {
     }
   }
 
+  /*
+    O papel vem do cadastro (`papelId`), e é assim que a tela manda desde que
+    Papéis existe. `role` continua aceito para quem chama por fora — o CLI, um
+    script, um cliente antigo — e é resolvido no papel do sistema
+    correspondente: uma conta criada com `role` e sem papel valeria pelo `role`
+    e não acompanharia cadastro nenhum, que é o estado que a `0082` acabou.
+  */
+  const papelPedido = corpo.papelId;
+  if (papelPedido !== undefined && papelPedido !== null && papelPedido !== "") {
+    if (typeof papelPedido !== "string" || !UUID.test(papelPedido)) {
+      res.status(400).json({ error: "Identificador de papel inválido." });
+      return;
+    }
+  }
   if (role !== undefined && !PAPEIS.has(role as string)) {
     res.status(400).json({ error: "Papel precisa ser ADMIN ou OPERADOR." });
+    return;
+  }
+
+  const papel =
+    typeof papelPedido === "string" && papelPedido !== ""
+      ? await papelPorId(db, papelPedido)
+      : await papelDoSistema(db, role === "ADMIN");
+  if (typeof papelPedido === "string" && papelPedido !== "" && papel === null) {
+    res.status(400).json({
+      error:
+        "O papel informado não está cadastrado. Cadastre-o em Configurações → Papéis.",
+    });
     return;
   }
 
@@ -249,7 +284,16 @@ router.post("/users", async (req, res): Promise<void> => {
     name: nomeCompleto,
     email,
     password: senha,
-    ...(role !== undefined ? { role: role as string } : {}),
+    /*
+      Papel e `role` são gravados juntos, e o `role` vem do papel — nunca do
+      corpo. É o que mantém a coluna e o cadastro dizendo a mesma coisa desde a
+      primeira linha da conta.
+    */
+    ...(papel !== null
+      ? { papelId: papel.id, role: roleDoPapel(papel.gerenciaContas) }
+      : role !== undefined
+        ? { role: role as string }
+        : {}),
     createdBy: req.user!.email,
     cargoId: lotacao.cargoId,
     unidadeId: lotacao.unidadeId,
@@ -521,9 +565,82 @@ router.post("/users/:id/role", async (req, res): Promise<void> => {
     return;
   }
 
-  await setUserRole(db, target.id, role as string);
+  /*
+    A escrita vai pelo papel, e não direto em `role`: desde a `0082` a coluna é
+    derivada, e ter dois lugares que a escrevem é ter dois lugares que podem
+    discordar. Esta rota resolve o `role` pedido no papel do sistema
+    correspondente e move a conta para lá — quem chama continua falando
+    ADMIN/OPERADOR, e o cadastro continua sendo o dono da resposta.
+  */
+  const papel = await papelDoSistema(db, role === "ADMIN");
+  if (papel === null) await setUserRole(db, target.id, role as string);
+  else await definirPapelDaConta(db, target.id, papel.id);
+
   req.log.info(
     { email: target.email, role, by: req.user!.email },
+    "Papel de conta alterado",
+  );
+  res.json(await listUsers(db));
+});
+
+/**
+ * Pôr uma conta num papel do cadastro — o seletor de Papel da tela de Usuários.
+ *
+ * É a rota que `/users/:id/role` virou depois da `0082`: lá o papel era um de
+ * dois valores escritos no código, aqui ele é uma linha de `papel`, com as
+ * permissões que alguém cadastrou. As duas escrevem pelo mesmo caminho, e as
+ * duas recusas de beco são as mesmas — quem administra o acesso não se rebaixa
+ * sozinho para o sistema ficar sem administrador.
+ *
+ * **As exceções da conta não são tocadas.** Trocar de papel muda o que ela
+ * herda; o que alguém decidiu sobre aquela pessoa em Permissões continua
+ * valendo, e continua aparecendo lá como exceção. Apagá-las aqui desfaria, sem
+ * pedir, decisões tomadas uma a uma.
+ */
+router.put("/users/:id/papel", async (req, res): Promise<void> => {
+  const recusa = somenteAdmin(req);
+  if (recusa) {
+    res.status(403).json({ error: recusa });
+    return;
+  }
+  if (!UUID.test(req.params.id)) {
+    res.status(400).json({ error: "Identificador de conta inválido." });
+    return;
+  }
+  const papelId = (req.body ?? {}).papelId;
+  if (typeof papelId !== "string" || !UUID.test(papelId)) {
+    res.status(400).json({ error: "Identificador de papel inválido." });
+    return;
+  }
+
+  const target = await findUserById(db, req.params.id);
+  if (!target) {
+    res.status(404).json({ error: "Conta não encontrada." });
+    return;
+  }
+  const papel = await papelPorId(db, papelId);
+  if (!papel) {
+    res.status(404).json({ error: "Papel não encontrado." });
+    return;
+  }
+
+  if (
+    target.role === "ADMIN" &&
+    !papel.gerenciaContas &&
+    (await countActiveAdmins(db)) <= 1
+  ) {
+    res.status(409).json({
+      error:
+        "Esta é a última conta de administrador ativa. Movê-la para um papel " +
+        "que não gerencia contas deixaria o sistema sem quem administre acesso — " +
+        "inclusive sem quem pudesse desfazer isto.",
+    });
+    return;
+  }
+
+  await definirPapelDaConta(db, target.id, papel.id);
+  req.log.info(
+    { email: target.email, papel: papel.nome, by: req.user!.email },
     "Papel de conta alterado",
   );
   res.json(await listUsers(db));
@@ -676,8 +793,14 @@ router.get("/users/:id/permissoes", async (req, res): Promise<void> => {
     return;
   }
 
+  const camadas = await permissoesDetalhadasDe(db, target.id);
   res.json({
-    permissoes: await permissoesDe(db, target.id),
+    /* `permissoes` continua sendo o que vale — é o que o portão faria —, e as
+       duas camadas vêm ao lado para a tela poder dizer o que é herança do papel
+       e o que é exceção daquela pessoa. */
+    permissoes: camadas.efetivas,
+    doPapel: camadas.doPapel,
+    daPessoa: camadas.daPessoa,
     historico: await historicoDePermissoes(db, target.id),
   });
 });
@@ -686,8 +809,10 @@ router.get("/users/:id/permissoes", async (req, res): Promise<void> => {
  * Mudar o acesso de alguém — ADMIN, e só.
  *
  * O corpo é `{ niveis: { "/curadoria": "VISUALIZAR", … } }`, e é um **patch**:
- * o que não vier fica como está. Mandar `EDITAR` devolve o módulo ao padrão, e
- * é assim que se desfaz uma restrição.
+ * o que não vier fica como está. Mandar **o nível que o papel da conta já dá**
+ * devolve o módulo à herança, e é assim que se desfaz uma exceção — numa conta
+ * sem papel, ou num módulo que o papel não restringe, esse nível é `EDITAR`,
+ * como era antes da `0082`.
  *
  * Duas recusas, e as duas evitam becos sem saída:
  *
@@ -770,7 +895,7 @@ router.put("/users/:id/permissoes", async (req, res): Promise<void> => {
     return;
   }
 
-  const permissoes = await definirPermissoes(db, {
+  await definirPermissoes(db, {
     userId: target.id,
     niveis: pedido,
     por: req.user!.email,
@@ -781,8 +906,11 @@ router.put("/users/:id/permissoes", async (req, res): Promise<void> => {
     "Permissões de módulo alteradas",
   );
 
+  const camadas = await permissoesDetalhadasDe(db, target.id);
   res.json({
-    permissoes,
+    permissoes: camadas.efetivas,
+    doPapel: camadas.doPapel,
+    daPessoa: camadas.daPessoa,
     historico: await historicoDePermissoes(db, target.id),
   });
 });

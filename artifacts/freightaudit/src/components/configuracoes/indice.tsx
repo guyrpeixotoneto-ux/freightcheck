@@ -4,6 +4,7 @@ import { useAuth } from "@/lib/auth";
 import { useContextosDaCasca } from "@/lib/contextos";
 import { cn } from "@/lib/utils";
 import { useContas } from "./contas";
+import { usePapeis } from "./papeis-consulta";
 import { SECOES_GERAIS, estaEmPreparo, type SecaoDeConfiguracao } from "./secoes";
 
 /**
@@ -50,6 +51,9 @@ export function IndiceDeConfiguracoes() {
     decidir.
   */
   const { data: contas, isLoading: carregandoContas } = useContas();
+  /* A mesma consulta da seção de Papéis, pela razão de `contas.ts`: uma
+     `queryFn` por chave. */
+  const { data: papeis, isLoading: carregandoPapeis } = usePapeis();
 
   const estados = new Map<string, EstadoDaSecao>();
 
@@ -90,6 +94,30 @@ export function IndiceDeConfiguracoes() {
             "conta ativa",
             "contas ativas",
           )} de ${contas.length}`,
+        },
+  );
+
+  estados.set(
+    "/configuracoes/papeis",
+    /*
+      O resumo conta os papéis e quantos deles alguém cadastrou: toda instalação
+      nasce com os dois do sistema, e dizer só "2 papéis" faria uma casa que
+      nunca cadastrou nada parecer configurada.
+    */
+    carregandoPapeis || papeis === undefined
+      ? CARREGANDO
+      : {
+          pronta: papeis.length > 0,
+          resumo: (() => {
+            const proprios = papeis.filter((p) => !p.sistema).length;
+            return proprios > 0
+              ? `${plural(papeis.length, "papel", "papéis")} · ${plural(
+                  proprios,
+                  "cadastrado aqui",
+                  "cadastrados aqui",
+                )}`
+              : `${plural(papeis.length, "papel", "papéis")} — só os do sistema`;
+          })(),
         },
   );
 

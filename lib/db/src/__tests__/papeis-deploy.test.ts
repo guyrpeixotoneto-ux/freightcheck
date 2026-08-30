@@ -311,6 +311,24 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
           leitura conta aquelas na hora, como sempre fez, até o backfill passar.
         */
         "snapshot_presenca",
+        /*
+          As três do cadastro de papéis, da `0082` — o papel como linha, com o
+          que ele restringe e o histórico do que mudou nele. Aditivas pelo
+          mesmo critério das acima: `papel_permissao` e `papel_evento`
+          referenciam `papel`, que é nova aqui; a única referência para fora é
+          `app_user.papel_id`, que nasce nula e aparece na lista de colunas
+          aditivas logo abaixo; e nenhuma coluna nova sai de tabela do cálculo.
+
+          Elas **não** nascem vazias: a `0082` semeia `Operador` e
+          `Administrador`, os dois papéis que já existiam como `role`, e aponta
+          cada conta para o seu. É por isso que `papel` é `TABELAS_DERIVADAS` no
+          bridge, e não `TABELAS_REMOVIDAS` — e é por isso que ninguém muda de
+          acesso no deploy: os dois nascem sem nenhuma restrição, e papel sem
+          restrição alcança tudo, como toda conta já alcançava.
+        */
+        "papel",
+        "papel_permissao",
+        "papel_evento",
       ]),
     );
     /*
@@ -441,6 +459,22 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
         "app_user.archived_at",
         "app_user.archived_by",
         /*
+          O papel da conta, da `0082` — o vínculo com o cadastro de papéis.
+          Aditiva e **nula na proposta**, que é o que a torna atravessável: quem
+          a preenche é o backfill da própria migration, a partir de `role`, e a
+          proposta do Publishing não o carrega. É mais uma razão para a política
+          deste cenário continuar sendo recusar a proposta e deixar a fila
+          aplicar na partida: aceita sozinha, esta coluna deixaria toda conta
+          sem papel — valendo pelo `role`, como antes, mas sem acompanhar
+          cadastro nenhum.
+
+          Sai numa tabela que Production **já tem** (`app_user`), que é o caso
+          para o qual esta lista é fechada, e carrega FK para `papel`, que é
+          tabela nova na lista acima — a mesma forma das duas de lotação da
+          `0073`.
+        */
+        "app_user.papel_id",
+        /*
           A coluna que a `0046` acrescentou a `fechamento_competencia` **não**
           entra aqui, e a ausência é a informação: o diff a reporta pela tabela,
           não pela coluna, porque Production não tem nenhuma das treze do
@@ -565,6 +599,23 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
         "permissao_de_modulo_evento_pkey",
         "permissao_de_modulo_evento_user_id_fkey",
         "permissao_de_modulo_evento_nivel_check",
+        /*
+          As do cadastro de papéis, da `0082`, nomeadas pela mesma razão das da
+          permissão: as três tabelas não pertencem a nenhuma das famílias que o
+          filtro acima dispensa.
+
+          `app_user_papel_id_papel_id_fk` é a que mais importa desta lista: é
+          constraint nova sobre tabela que Production **já tem**, e é o caso que
+          esta conferência existe para não deixar passar calado.
+        */
+        "papel_pkey",
+        "papel_permissao_papel_id_chave_pk",
+        "papel_permissao_papel_id_papel_id_fk",
+        "papel_permissao_nivel_check",
+        "papel_evento_pkey",
+        "papel_evento_papel_id_papel_id_fk",
+        "papel_evento_tipo_check",
+        "app_user_papel_id_papel_id_fk",
       ]),
     );
 

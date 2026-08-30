@@ -1,5 +1,7 @@
 import { and, desc, eq } from "drizzle-orm";
 import {
+  appUserTable,
+  papelPermissaoTable,
   permissaoDeModuloEventoTable,
   permissaoDeModuloTable,
   type Database,
@@ -18,6 +20,20 @@ import {
  *   apagão. Permissão aqui é o que se tira.
  * · **Quem tira responde pelo que tirou**: cada mudança grava um evento com
  *   autor e carimbo, e o evento nunca é apagado.
+ *
+ * E há uma **segunda camada**, desde a `0082`: o papel da conta
+ * (`lib/papeis.ts`). Ele diz o mesmo tipo de coisa — chave → nível — para todo
+ * mundo que o usa, e é lido logo abaixo da exceção da pessoa. A ordem é sempre
+ * esta, e o produto inteiro a lê assim:
+ *
+ *   1. a exceção da pessoa, quando existe;
+ *   2. o papel dela, quando existe;
+ *   3. `EDITAR` — o padrão que concede.
+ *
+ * `permissoesDe` devolve **a soma**, já resolvida, e é por isso que o portão, o
+ * menu e a sessão não precisaram mudar uma linha quando o papel nasceu. Quem
+ * precisa ver as duas camadas separadas — a tela de Permissões, que mostra o que
+ * é herança e o que é exceção — chama `permissoesDetalhadasDe`.
  *
  * E há um segundo eixo, na mesma tabela e com as mesmas três frases: o
  * **ambiente de trabalho** — as quatro auditorias e os quatro fechamentos.
@@ -121,6 +137,7 @@ export function ambienteDaConsulta(
 const ESCRITAS_FORA_DO_AMBIENTE: readonly string[] = [
   "/auth",
   "/users",
+  "/papeis",
   "/unidades",
   "/cadastro",
 ];
@@ -166,7 +183,9 @@ export const ESCRITAS_POR_MODULO: ReadonlyArray<readonly [string, readonly strin
   ["/alteracoes", ["/change-sets"]],
   ["/justificativas", ["/justificativas"]],
   ["/remunerado", ["/compras"]],
-  ["/configuracoes", ["/users"]],
+  /* Papéis é a mesma tela que contas, e por isso o mesmo módulo: quem tem
+     Configurações administra as duas, quem não tem não administra nenhuma. */
+  ["/configuracoes", ["/users", "/papeis"]],
 ];
 
 /** O módulo dono de um caminho de API, ou `null` quando ninguém o reivindica. */
@@ -179,8 +198,8 @@ export function moduloDaEscrita(caminho: string): string | null {
   return null;
 }
 
-/** As decisões tomadas sobre uma pessoa — só os módulos que têm linha. */
-export async function permissoesDe(
+/** As exceções tomadas sobre uma pessoa — só as chaves que têm linha. */
+export async function excecoesDe(
   db: Database,
   userId: string,
 ): Promise<Record<string, Nivel>> {
@@ -197,6 +216,75 @@ export async function permissoesDe(
     if (ehNivel(linha.nivel)) mapa[linha.modulo] = linha.nivel;
   }
   return mapa;
+}
+
+/** O que um papel decide, chave a chave — só as que têm linha. */
+export async function permissoesDoPapel(
+  db: Database,
+  papelId: string,
+): Promise<Record<string, Nivel>> {
+  const linhas = await db
+    .select({ chave: papelPermissaoTable.chave, nivel: papelPermissaoTable.nivel })
+    .from(papelPermissaoTable)
+    .where(eq(papelPermissaoTable.papelId, papelId));
+
+  const mapa: Record<string, Nivel> = {};
+  for (const linha of linhas) {
+    if (ehNivel(linha.nivel)) mapa[linha.chave] = linha.nivel;
+  }
+  return mapa;
+}
+
+/** O papel de uma conta, ou `null` — conta anterior à `0082`, ou do terminal. */
+export async function papelDaConta(
+  db: Database,
+  userId: string,
+): Promise<string | null> {
+  const [linha] = await db
+    .select({ papelId: appUserTable.papelId })
+    .from(appUserTable)
+    .where(eq(appUserTable.id, userId))
+    .limit(1);
+  return linha?.papelId ?? null;
+}
+
+/**
+ * As duas camadas de uma conta, separadas — e a soma delas.
+ *
+ * Só a tela de Permissões precisa das duas: ela mostra, chave a chave, o que
+ * veio do papel e o que é exceção daquela pessoa. Quem só quer saber o que vale
+ * — o portão, o menu, a sessão — chama `permissoesDe` e recebe a soma pronta.
+ */
+export interface PermissoesDaConta {
+  doPapel: Record<string, Nivel>;
+  daPessoa: Record<string, Nivel>;
+  efetivas: Record<string, Nivel>;
+}
+
+export async function permissoesDetalhadasDe(
+  db: Database,
+  userId: string,
+): Promise<PermissoesDaConta> {
+  const papelId = await papelDaConta(db, userId);
+  const doPapel = papelId === null ? {} : await permissoesDoPapel(db, papelId);
+  const daPessoa = await excecoesDe(db, userId);
+  return { doPapel, daPessoa, efetivas: { ...doPapel, ...daPessoa } };
+}
+
+/**
+ * O que vale para uma pessoa, com as duas camadas já somadas.
+ *
+ * A exceção vence o papel — é a decisão mais recente e mais informada, tomada
+ * sobre aquela conta sabendo qual é o papel dela. Chave sem linha em nenhuma das
+ * duas não aparece no mapa, e quem lê o mapa (`nivelDe`) devolve o padrão, que
+ * concede: o silêncio continua significando a mesma coisa nas duas camadas, e é
+ * o que permite empilhá-las sem que a soma mude de sentido.
+ */
+export async function permissoesDe(
+  db: Database,
+  userId: string,
+): Promise<Record<string, Nivel>> {
+  return (await permissoesDetalhadasDe(db, userId)).efetivas;
 }
 
 /** O nível de uma pessoa num módulo, já com o padrão aplicado. */
@@ -216,30 +304,40 @@ export function nivelDoAmbiente(
 }
 
 /**
- * Grava as decisões de uma pessoa, e só as que mudaram.
+ * Grava as exceções de uma pessoa, e só as que mudaram.
  *
- * Voltar um módulo para o padrão é apagar a linha, não gravar `EDITAR`: assim a
- * tabela continua sendo a lista do que foi tirado, e não uma cópia do menu por
- * pessoa. O histórico recebe a mudança dos dois jeitos — inclusive a volta ao
- * padrão, que também é decisão de alguém.
+ * **A linha de base é o papel, e não mais `EDITAR`.** Pedir para uma chave o
+ * mesmo nível que o papel dela já dá é apagar a linha — a pessoa volta a herdar,
+ * e a tabela continua sendo a lista do que foi decidido *à parte do papel*, e
+ * não uma cópia dele por pessoa. Foi o que mudou com a `0082`: antes o único
+ * jeito de voltar ao normal era `EDITAR`, porque o normal era um só; agora o
+ * normal é o do papel de cada um. Gravar `EDITAR` como linha onde o papel dá
+ * `EDITAR` faria a pessoa parar de acompanhar o papel dela em silêncio — que é
+ * exatamente o defeito que o vínculo existe para não ter.
+ *
+ * O histórico recebe a mudança dos dois jeitos, inclusive a volta à herança, que
+ * também é decisão de alguém.
  */
 export async function definirPermissoes(
   db: Database,
   entrada: {
     userId: string;
-    /** Módulo → nível pedido. `EDITAR` volta o módulo ao padrão. */
+    /** Chave → nível pedido. O nível do papel devolve a chave à herança. */
     niveis: Record<string, Nivel>;
     /** O e-mail de quem decidiu. */
     por: string;
   },
 ): Promise<Record<string, Nivel>> {
-  const atuais = await permissoesDe(db, entrada.userId);
+  const papelId = await papelDaConta(db, entrada.userId);
+  const doPapel = papelId === null ? {} : await permissoesDoPapel(db, papelId);
+  const atuais = await excecoesDe(db, entrada.userId);
 
   for (const [modulo, nivel] of Object.entries(entrada.niveis)) {
+    const herdado = doPapel[modulo] ?? NIVEL_PADRAO;
     const anterior = atuais[modulo];
-    if ((anterior ?? NIVEL_PADRAO) === nivel) continue;
+    if ((anterior ?? herdado) === nivel) continue;
 
-    if (nivel === NIVEL_PADRAO) {
+    if (nivel === herdado) {
       await db
         .delete(permissaoDeModuloTable)
         .where(

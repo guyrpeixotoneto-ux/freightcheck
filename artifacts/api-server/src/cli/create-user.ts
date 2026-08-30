@@ -6,6 +6,7 @@ import {
   describePasswordProblem,
 } from "../lib/auth";
 import { EmailAlreadyUsedError, countUsers, createUser } from "../lib/session";
+import { papelDoSistema } from "../lib/papeis";
 
 /**
  * A segunda conta em diante.
@@ -59,13 +60,20 @@ const passwordProblem = describePasswordProblem(password);
 if (passwordProblem) die(passwordProblem);
 
 try {
+  /*
+    A conta do terminal é a primeira de um ambiente novo — sem alguém que
+    gerencie contas, ninguém criaria as demais pela tela. Ela nasce no papel do
+    sistema que administra (`Administrador`, semeado pela `0082`); num banco em
+    que a fila ainda não passou, o papel não existe e sobra o `role` puro, que é
+    o que valia antes do cadastro.
+  */
+  const papel = await papelDoSistema(db, true);
   const user = await createUser(db, {
     name: name!,
     email: email!,
     password,
-    // A conta do terminal é a primeira de um ambiente novo — sem um ADMIN,
-    // ninguém criaria as demais pela tela.
     role: "ADMIN",
+    ...(papel !== null ? { papelId: papel.id } : {}),
   });
   const total = await countUsers(db);
   console.log(`Conta criada: ${user.name} <${user.email}> (ADMIN).`);
