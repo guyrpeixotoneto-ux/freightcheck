@@ -23,12 +23,15 @@ import {
   SeletorDeVigenciaGeral,
 } from "@/components/vigencia/seletor-de-vigencia";
 import { AbaBotao } from "@/components/changes/cartoes";
+import { ehTipoDaLinhaDoTempo, type TipoDaLinhaDoTempo } from "@workspace/comparison/tipos";
+import { useAmbiente } from "@/lib/ambiente-aberto";
 import {
-  TIPOS_DA_LINHA_DO_TEMPO,
-  definicaoDaLinhaDoTempo,
-  ehTipoDaLinhaDoTempo,
-  type TipoDaLinhaDoTempo,
-} from "@workspace/comparison/tipos";
+  contracaoDoTipo,
+  equipamentosDoAmbiente,
+  nomeDaAbaPorTipo,
+  palavrasDoTipo,
+  rotuloDoTipo,
+} from "@/lib/frota";
 import type { FamiliesOverview, FamiliesView } from "@/components/inicio/types";
 
 /**
@@ -56,12 +59,22 @@ import type { FamiliesOverview, FamiliesView } from "@/components/inicio/types";
  *   ativos distintos, e uma soma feita na tela daria mais caminhões do que a
  *   frota tem.
  *
- * As três não são uma escolha arbitrária: são os tipos de análise que têm
- * `entity_type` próprio e vivem na vigência do equipamento — ver
- * `TIPOS_DA_LINHA_DO_TEMPO`, que é quem explica por que conjunto e QLP ficam
- * de fora.
+ * **Quais tipos a segunda aba oferece é do ambiente aberto.** Cavalo, carreta e
+ * trecho são o que a empurrada roda; o Rota e o AS rodam com caminhão e
+ * carroceria, e o Apoio com empilhadeira. A lista é `EQUIPAMENTOS_DO_AMBIENTE`
+ * (`lib/frota.ts`), a mesma que o menu, as telas 360° e o Painel de
+ * Justificativas leem — uma aba escrita à mão com os três nomes da empurrada
+ * ficaria certa numa auditoria e prometeria, nas outras, filas que a operação
+ * não tem.
+ *
+ * O que o servidor **aceita** é outra lista, e mais larga: os seis
+ * equipamentos (`TIPOS_DA_LINHA_DO_TEMPO`, em `@workspace/comparison/tipos`),
+ * que é quem explica por que conjunto e QLP ficam de fora. As duas se encaixam
+ * — o ambiente escolhe dentro do que o recorte aceita —, e é esse encaixe que
+ * impede uma auditoria de ter aba que o servidor recusa.
  */
 export default function LinhaDoTempo() {
+  const ambiente = useAmbiente();
   const search = useSearch();
   const [, navegar] = useLocation();
   const parametros = new URLSearchParams(search);
@@ -90,11 +103,22 @@ export default function LinhaDoTempo() {
     se escreve no endereço — um `?aba=geral` em todo link do produto é ruído
     que não muda nada.
   */
+  const equipamentos = equipamentosDoAmbiente(ambiente);
   const porTipo = parametros.get("aba") === "tipos";
   const tipoPedido = parametros.get("tipo");
-  const tipo: TipoDaLinhaDoTempo = ehTipoDaLinhaDoTempo(tipoPedido)
-    ? tipoPedido
-    : "CAVALO";
+  /*
+    O `?tipo=` vale quando é um equipamento **deste ambiente**: um endereço de
+    empurrada aberto no Rota pediria cavalo a uma auditoria que só tem caminhão,
+    e honrá-lo daria uma tela vazia sob uma pastilha que ninguém pode desmarcar.
+    Fora disso, o primeiro da lista do ambiente. `ehTipoDaLinhaDoTempo` continua
+    sendo a régua do que o servidor aceita — as duas condições, e não uma.
+  */
+  const tipo: TipoDaLinhaDoTempo =
+    tipoPedido !== null &&
+    ehTipoDaLinhaDoTempo(tipoPedido) &&
+    (equipamentos as readonly string[]).includes(tipoPedido)
+      ? tipoPedido
+      : equipamentos[0];
 
   const vigencia = useQuery({
     queryKey: ["families", "linha-do-tempo", consulta.toString()],
@@ -266,7 +290,7 @@ export default function LinhaDoTempo() {
             active={porTipo}
             onClick={() => trocarPara({ aba: "tipos" })}
             icon={<Truck className="w-4 h-4" />}
-            label="Cavalo, Carreta e Trecho"
+            label={nomeDaAbaPorTipo(equipamentos)}
             hint="o mesmo histórico, um tipo de cada vez"
           />
         </nav>
@@ -276,6 +300,7 @@ export default function LinhaDoTempo() {
         {porTipo ? (
           <AbaPorTipo
             tipo={tipo}
+            equipamentos={equipamentos}
             onTrocarTipo={(escolhido) => trocarPara({ tipo: escolhido })}
             visaoGeral={visaoGeral}
             vigencia={vigencia}
@@ -411,6 +436,7 @@ export default function LinhaDoTempo() {
  */
 function AbaPorTipo({
   tipo,
+  equipamentos,
   onTrocarTipo,
   visaoGeral,
   vigencia,
@@ -421,6 +447,15 @@ function AbaPorTipo({
   onVoltar,
 }: {
   tipo: TipoDaLinhaDoTempo;
+  /**
+   * Os equipamentos do ambiente aberto — ver `EQUIPAMENTOS_DO_AMBIENTE`.
+   *
+   * São `TipoDaLinhaDoTempo` porque a lista do ambiente é sempre um
+   * subconjunto do que o recorte aceita: os seis equipamentos, menos o QLP.
+   * Quem garante isso é `equipamentos-do-ambiente.test.ts`, e não este tipo —
+   * ele só recusa que alguém passe outra lista por aqui sem reparar.
+   */
+  equipamentos: readonly TipoDaLinhaDoTempo[];
   onTrocarTipo: (tipo: TipoDaLinhaDoTempo) => void;
   visaoGeral: boolean;
   vigencia: { isLoading: boolean; error: unknown; isPlaceholderData: boolean };
@@ -431,46 +466,36 @@ function AbaPorTipo({
   voltarPara: { periodo: string; label: string } | null;
   onVoltar: (periodo: string) => void;
 }) {
-  const definicao = definicaoDaLinhaDoTempo(tipo);
-
   return (
     <>
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-xs uppercase tracking-wider text-muted-foreground mr-1">
           Tipo
         </span>
-        {TIPOS_DA_LINHA_DO_TEMPO.map((code) => {
-          const item = definicaoDaLinhaDoTempo(code);
-          return (
-            <button
-              key={code}
-              type="button"
-              role="tab"
-              aria-selected={code === tipo}
-              onClick={() => onTrocarTipo(code)}
-              title={item.grao}
-              className={cn(
-                "rounded-full border px-4 py-1.5 text-sm font-bold transition-colors",
-                code === tipo
-                  ? "border-brand bg-brand text-white"
-                  : "bg-card hover:bg-accent",
-              )}
-            >
-              {item.rotulo}
-            </button>
-          );
-        })}
+        {equipamentos.map((code) => (
+          <button
+            key={code}
+            type="button"
+            role="tab"
+            aria-selected={code === tipo}
+            onClick={() => onTrocarTipo(code)}
+            className={cn(
+              "rounded-full border px-4 py-1.5 text-sm font-bold transition-colors",
+              code === tipo
+                ? "border-brand bg-brand text-white"
+                : "bg-card hover:bg-accent",
+            )}
+          >
+            {rotuloDoTipo(code)}
+          </button>
+        ))}
       </div>
 
+      {/* O mesmo vocabulário de frota do Painel de Justificativas — as duas
+          telas dizem "dos cavalos" e "das carretas" pela mesma função. */}
       <p className="text-sm text-muted-foreground">
-        {/*
-          O grão vem do catálogo em minúscula, porque lá ele é usado no meio de
-          frases. Aqui ele abre a frase — a maiúscula é da tela, e não uma
-          segunda redação do mesmo texto.
-        */}
-        {definicao.grao.charAt(0).toUpperCase() + definicao.grao.slice(1)}. Tudo
-        abaixo — o placar, a evolução vigência a vigência e a gaveta de detalhe
-        — fala só {definicao.plural}.
+        Tudo abaixo — o placar, a evolução vigência a vigência e a gaveta de
+        detalhe — fala só {contracaoDoTipo(tipo, "de")} {palavrasDoTipo(tipo).plural}.
       </p>
 
       {visaoGeral ? (
@@ -579,7 +604,7 @@ function Cabecalho({
       ].filter((p): p is string => p !== null)
     : [
         view?.context.channel ?? null,
-        tipo ? definicaoDaLinhaDoTempo(tipo).nome : null,
+        tipo ? rotuloDoTipo(tipo) : null,
         view
           ? `${view.periods.length} ${view.periods.length === 1 ? "vigência" : "vigências"} no histórico`
           : null,

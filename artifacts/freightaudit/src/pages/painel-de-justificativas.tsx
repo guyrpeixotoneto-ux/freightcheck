@@ -39,6 +39,7 @@ import { contextoAberto, useContextosDaCasca } from "@/lib/contextos";
 import {
   contracaoDoTipo,
   equipamentosDoAmbiente,
+  nomeDaAbaPorTipo,
   palavrasDoTipo,
   rotuloDoTipo,
 } from "@/lib/frota";
@@ -169,23 +170,6 @@ function Cartao({
       </div>
     </section>
   );
-}
-
-/**
- * O nome da aba de tipo — "Cavalo, Carreta e Trecho" na empurrada.
- *
- * Sai do ambiente aberto, e não de uma constante: o Rota e o AS rodam com
- * caminhão e carroceria, o Apoio com empilhadeira, e uma aba escrita "Cavalo,
- * Carreta e Trecho" numa auditoria que não tem nenhum dos três prometeria três
- * filas que a tela abriria vazias. A lista é a mesma que o menu e as outras
- * telas do Plano de Ação leem (`EQUIPAMENTOS_DO_AMBIENTE`), para que os três
- * nunca discordem sobre o que a operação tem.
- */
-export function nomeDaAbaPorTipo(equipamentos: readonly string[]): string {
-  const rotulos = equipamentos.map((e) => rotuloDoTipo(e));
-  if (rotulos.length === 0) return "Por tipo";
-  if (rotulos.length === 1) return rotulos[0];
-  return `${rotulos.slice(0, -1).join(", ")} e ${rotulos[rotulos.length - 1]}`;
 }
 
 export default function PainelDeJustificativas() {

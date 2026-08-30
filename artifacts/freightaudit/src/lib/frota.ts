@@ -362,6 +362,26 @@ const rotuloImportado = (entityType: string): string | null =>
  * seguinte.
  */
 /**
+ * O nome de uma aba que reúne os equipamentos do ambiente aberto.
+ *
+ * "Cavalo, Carreta e Trecho" na empurrada; "Caminhão e Carroceria" no Rota e no
+ * AS; "Empilhadeira" no Apoio. Sai daqui, e não de uma constante escrita na
+ * tela, pelo motivo de sempre nesta casa: uma aba com os três nomes da
+ * empurrada ficaria certa numa auditoria e prometeria, nas outras três, filas
+ * de ativos que a operação não tem — e prometeria em silêncio, porque a tela
+ * abriria normalmente, vazia.
+ *
+ * Duas telas o usam (Linha do Tempo e Painel de Justificativas), e é o mesmo
+ * nome nas duas porque é a mesma pergunta: de que ativos esta operação fala.
+ */
+export function nomeDaAbaPorTipo(equipamentos: readonly string[]): string {
+  const rotulos = equipamentos.map((e) => rotuloDoTipo(e));
+  if (rotulos.length === 0) return "Por tipo";
+  if (rotulos.length === 1) return rotulos[0];
+  return `${rotulos.slice(0, -1).join(", ")} e ${rotulos[rotulos.length - 1]}`;
+}
+
+/**
  * "dos cavalos", "das carretas" — a preposição contraída com o artigo do tipo.
  *
  * Mora aqui, e não na tela, pelo mesmo motivo de {@link palavrasDoTipo}: é
