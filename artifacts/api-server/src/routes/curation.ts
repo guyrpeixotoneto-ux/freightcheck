@@ -10,6 +10,7 @@ import { classificarFalha } from "../lib/classificar-falha";
 import { contextoDeSchema } from "../middlewares/contexto-de-schema";
 import {
   aplicarPreenchimento,
+  declararTipoDoValor,
   definirClasseDeCusto,
   definirDirecaoEconomica,
   moverCategoriaParaFamilia,
@@ -805,6 +806,45 @@ router.patch(
         return;
       }
       req.log.warn({ err }, "Cost class refused");
+      res.status(422).json({ error: desfecho.mensagem });
+    }
+  },
+);
+
+/**
+ * O tipo do valor — `R$/km`, `Quilômetros`, `Texto descritivo`.
+ *
+ * É o mesmo significado econômico que a confirmação escolhe, e é de propósito:
+ * ter dois cadastros de "que tipo de número é este" seria ter duas respostas
+ * para a mesma pergunta. O que muda é o preço — aqui não há categoria da DRE,
+ * não há assinatura de confirmação e `semantics_status` não se move. Declarar
+ * o tipo é descrever a coluna; confirmá-la é vouchar pela aritmética dela.
+ * Ver `declararTipoDoValor`.
+ */
+router.patch(
+  "/curation/attributes/:code/tipo",
+  async (req, res, next): Promise<void> => {
+    try {
+      const { meaningCode, reason } = req.body ?? {};
+      if (!meaningCode) {
+        res.status(400).json({ error: "Informe o tipo do valor (meaningCode)." });
+        return;
+      }
+      res.json(
+        await declararTipoDoValor(db, {
+          code: req.params.code,
+          meaningCode,
+          actor: req.user!.email,
+          reason,
+        }),
+      );
+    } catch (err) {
+      const desfecho = classificarFalha(err);
+      if (desfecho.tipo !== "REGRA") {
+        next(err);
+        return;
+      }
+      req.log.warn({ err }, "Value type refused");
       res.status(422).json({ error: desfecho.mensagem });
     }
   },

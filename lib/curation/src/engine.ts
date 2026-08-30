@@ -668,6 +668,18 @@ export interface QueueItem {
    * `attribute.cost_class` e a migration 0030.
    */
   costClass: string | null;
+  /**
+   * Para que lado o dinheiro anda quando este número anda, do ponto de vista
+   * da transportadora — HIGHER_IS_BETTER, HIGHER_IS_WORSE, NEUTRAL,
+   * DEPENDS_ON_FORMULA ou nulo.
+   *
+   * Sai na fila porque a tela passou a perguntá-la: um campo que só grava e
+   * nunca lê de volta é um campo que a pessoa preenche duas vezes sem saber
+   * que já havia preenchido. Ver `attribute.economic_direction`.
+   */
+  economicDirection: string | null;
+  /** A frase que explica o mecanismo da direção, quando alguém a escreveu. */
+  economicEffect: string | null;
   valueCount: number;
   nullCount: number;
   /** Raw unaudited sum over the latest snapshot. Ordering only, never a result. */
@@ -711,6 +723,8 @@ export async function getCurationQueue(
       taxonomyPath: taxonomyNodeTable.path,
       taxonomyName: taxonomyNodeTable.name,
       costClass: attributeTable.costClass,
+      economicDirection: attributeTable.economicDirection,
+      economicEffect: attributeTable.economicEffect,
     })
     .from(attributeTable)
     .leftJoin(

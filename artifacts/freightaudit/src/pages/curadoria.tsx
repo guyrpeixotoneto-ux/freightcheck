@@ -53,6 +53,7 @@ import {
   PERIODOS_EM_ABERTO,
   significadoPara,
 } from "@workspace/curation/significado";
+import { DIRECOES_ECONOMICAS } from "@workspace/curation/direcao";
 import { fetchJson, getApiUrl } from "@/lib/api";
 import {
   abasDeEquipamento,
@@ -96,6 +97,9 @@ interface QueueItem {
   taxonomyName: string | null;
   costClass: string | null;
   changeRule: string | null;
+  /** HIGHER_IS_BETTER | HIGHER_IS_WORSE | NEUTRAL | DEPENDS_ON_FORMULA | null. */
+  economicDirection: string | null;
+  economicEffect: string | null;
   valueCount: number;
   nullCount: number;
   magnitude: number | null;
@@ -1071,6 +1075,26 @@ function ConfirmarInterpretacao({
   const [meaningCode, setMeaningCode] = useState<string | null>(
     detail.meaningCode ?? null,
   );
+  /*
+    O tipo declarado no card de cima chega aqui sem que o painel remonte.
+
+    `useState(detail.meaningCode)` lê uma vez só, e o painel é chaveado pelo
+    **código do atributo** — declarar o tipo no card "Significado" e continuar
+    vendo este campo vazio é a mesma instância, no mesmo atributo. Sem isto, a
+    frase que aquele campo escreve ("a confirmação já abre com este tipo
+    escolhido") só seria verdade depois de trocar de atributo e voltar.
+
+    Adota o valor novo **só quando este campo ainda mostra o que estava
+    gravado** — quem escolheu outra coisa aqui não é atropelado por uma
+    declaração feita lá em cima.
+  */
+  const tipoGravado = useRef<string | null>(detail.meaningCode ?? null);
+  useEffect(() => {
+    const novo = detail.meaningCode ?? null;
+    if (novo === tipoGravado.current) return;
+    setMeaningCode((atual) => (atual === tipoGravado.current ? novo : atual));
+    tipoGravado.current = novo;
+  }, [detail.meaningCode]);
   const [taxonomyCode, setTaxonomyCode] = useState<string | null>(
     detail.taxonomyCode ?? null,
   );
@@ -2051,6 +2075,17 @@ function MeaningCard({
   detail: AttributeDetail;
   onSaved: () => void;
 }) {
+  const queryClient = useQueryClient();
+  /*
+    O mesmo catálogo da confirmação, pela mesma chave — o react-query serve as
+    duas do mesmo cache. Ter uma segunda lista de tipos aqui faria a tela
+    oferecer, no card de cima, um tipo que o de baixo não conhece.
+  */
+  const { data: catalogo = [] } = useQuery({
+    queryKey: ["curation", "significados"],
+    queryFn: () => fetchJson<OpcaoDeSignificado[]>("/curation/significados"),
+  });
+
   const [displayName, setDisplayName] = useState(detail.displayName ?? "");
   const [definition, setDefinition] = useState(detail.definition ?? "");
   const [basis, setBasis] = useState(detail.calculationBasis ?? "");
@@ -2066,6 +2101,30 @@ function MeaningCard({
    * `semantics_status`.
    */
   const [changeRule, setChangeRule] = useState(detail.changeRule ?? "");
+  /**
+   * O tipo do valor — o mesmo significado econômico que a confirmação escolhe.
+   *
+   * Está aqui, e não só lá embaixo, porque quem abre a planilha reconhece
+   * `odometroEntrada` como quilometragem antes de saber em que linha da DRE ele
+   * cai e antes de poder assinar por ele. O campo estava disponível uma vez só,
+   * dentro da confirmação, junto da categoria e da assinatura — e o preço de
+   * registrar o que se sabe era responder o que não se sabe.
+   *
+   * Escolher aqui **não** confirma: grava `meaning_id` e mais nada, e a
+   * confirmação abre com o tipo já escolhido. Ver `declararTipoDoValor`.
+   */
+  const [meaningCode, setMeaningCode] = useState<string | null>(detail.meaningCode);
+  const [erroDoTipo, setErroDoTipo] = useState<string | null>(null);
+  /**
+   * Para que lado o dinheiro anda quando este número anda.
+   *
+   * As quatro opções são as do vocabulário do banco, e cada uma das duas
+   * econômicas carrega as **duas** frases — "maior é melhor" e "menor é pior"
+   * são a mesma afirmação, e quem cura diz uma ou outra conforme a coluna.
+   * Guardá-las como dois valores diferentes faria o Radar de Trechos ler
+   * "menor é melhor" como neutro. Ver `direcao.ts`.
+   */
+  const [direcao, setDirecao] = useState<string | null>(detail.economicDirection);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   /*
@@ -2103,21 +2162,51 @@ function MeaningCard({
   if (changeRule.trim() !== (detail.changeRule ?? "").trim())
     edits.changeRule = changeRule;
 
-  const dirty = Object.keys(edits).length > 0;
+  /*
+    Os dois campos de lista sobem por rotas próprias — `tipo` e
+    `direcao-economica` —, e não pela de prosa. Não é organização: as três
+    rotas gravam colunas diferentes com regras diferentes, e a de prosa é a
+    única que aceita apagar um campo escrevendo vazio. O botão continua sendo
+    um só porque quem está na tela salva a coluna, não a rota.
+  */
+  const tipoMudou = meaningCode !== null && meaningCode !== detail.meaningCode;
+  const direcaoMudou = direcao !== null && direcao !== detail.economicDirection;
+  const dirty = Object.keys(edits).length > 0 || tipoMudou || direcaoMudou;
+
+  /** Um PATCH que devolve o corpo, ou levanta a frase que o servidor escreveu. */
+  const gravar = async (caminho: string, corpo: unknown) => {
+    const response = await fetch(getApiUrl(`/curation/attributes/${detail.code}${caminho}`), {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(corpo),
+    });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.error ?? "Falha ao salvar");
+    return body;
+  };
 
   const save = useMutation({
     mutationFn: async () => {
-      const response = await fetch(
-        getApiUrl(`/curation/attributes/${detail.code}/meaning`),
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(edits),
-        },
-      );
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error ?? "Falha ao salvar");
-      return body as { notWritten: { message: string } | null };
+      /*
+        Em série, e a prosa primeiro. São três gravações independentes e uma
+        pode ser recusada sozinha — a fórmula de cálculo num atributo sem
+        versão de semântica é o caso conhecido —, e mandá-las em paralelo faria
+        a recusa de uma chegar junto com o sucesso das outras sem que a tela
+        soubesse dizer qual foi qual. Em série, a primeira que levanta para o
+        resto, e o que já foi gravado continua gravado: é o que o aviso ao pé
+        do card diz.
+      */
+      const body =
+        Object.keys(edits).length > 0
+          ? ((await gravar("/meaning", edits)) as {
+              notWritten: { message: string } | null;
+            })
+          : { notWritten: null };
+
+      if (tipoMudou) await gravar("/tipo", { meaningCode });
+      if (direcaoMudou) await gravar("/direcao-economica", { direcao });
+
+      return body;
     },
     onSuccess: (body) => {
       setError(null);
@@ -2131,6 +2220,39 @@ function MeaningCard({
       setError(err.message);
     },
   });
+
+  /**
+   * Cadastrar um tipo que ainda não existe, sem sair daqui.
+   *
+   * O "e outros" da lista: `R$ por pallet` e `R$ por entrega` são vocabulário
+   * da operação do cliente, e uma lista fechada faria quem sabe o tipo escolher
+   * o menos errado. Mesma rota e mesmo cadastro da criação inline da
+   * confirmação — não há um catálogo de tipos do card de cima e outro do de
+   * baixo.
+   */
+  const criarTipoInline = async (
+    label: string,
+  ): Promise<OpcaoDeSignificado | null> => {
+    setErroDoTipo(null);
+    const response = await fetch(getApiUrl("/curation/significados"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ label }),
+    });
+    const body = await response.json();
+    if (!response.ok) {
+      setErroDoTipo(body.error ?? "Não consegui cadastrar este tipo.");
+      return null;
+    }
+    // `JA_EXISTE` não é erro — ver a nota gêmea em `criarSignificadoInline`.
+    if (body.desfecho === "JA_EXISTE") setErroDoTipo(body.mensagem);
+    await queryClient.invalidateQueries({ queryKey: ["curation", "significados"] });
+    return body.item as OpcaoDeSignificado | null;
+  };
+
+  const tipoEscolhido = meaningCode
+    ? (catalogo.find((o) => o.code === meaningCode) ?? null)
+    : null;
 
   return (
     <Card>
@@ -2192,6 +2314,84 @@ function MeaningCard({
               setSaved(false);
             }}
           />
+        </Field>
+
+        <Field
+          label="Tipo"
+          hint="Que tipo de número esta coluna carrega: texto, R$, km, R$/km. Não achou o seu? Digite e cadastre — o vocabulário da operação é seu."
+        >
+          <ComboboxCriavel
+            itens={catalogo}
+            valor={tipoEscolhido}
+            aoEscolher={(item) => {
+              setMeaningCode(item.code);
+              setErroDoTipo(null);
+              setSaved(false);
+            }}
+            aoCriar={criarTipoInline}
+            rotuloDe={(item) => item.label}
+            chaveDe={(item) => item.code}
+            detalheDe={(item) => leituraDe(item).natureza}
+            previaDe={(texto) =>
+              previaDaCriacao(texto)?.natureza ??
+              "Não consegui entender esse formato — tente “R$ por hora”, “Percentual” ou “Quantidade”."
+            }
+            placeholder="Pesquisar ou cadastrar…"
+            erro={erroDoTipo}
+          />
+          {/* O que a escolha faz e o que ela não faz, dito no campo. Um tipo
+              escolhido aqui é o mesmo que a confirmação pede — ela abre com ele
+              pronto —, e escolher não põe a coluna em soma nenhuma. */}
+          <p className="text-xs text-muted-foreground">
+            {tipoEscolhido
+              ? `${leituraDe(tipoEscolhido).natureza} Não confirma: a confirmação lá embaixo já abre com este tipo escolhido.`
+              : "O mesmo tipo que a confirmação pergunta. Escolher aqui não confirma nada — adianta a resposta."}
+          </p>
+        </Field>
+
+        <Field
+          label="Quando este número sobe"
+          hint="Para que lado o dinheiro anda, do ponto de vista da transportadora. É o que decide se uma mudança nesta coluna conta como melhora ou como piora no Radar de Trechos."
+        >
+          <div className="space-y-1.5">
+            {DIRECOES_ECONOMICAS.map((opcao) => (
+              <label
+                key={opcao.direcao}
+                className="flex cursor-pointer items-start gap-2 rounded-md border px-3 py-2 text-sm hover:bg-muted/50"
+              >
+                <input
+                  type="radio"
+                  name={`direcao-${detail.code}`}
+                  className="mt-1"
+                  checked={direcao === opcao.direcao}
+                  onChange={() => {
+                    setDirecao(opcao.direcao);
+                    setSaved(false);
+                  }}
+                />
+                <span>
+                  <span className="font-medium">{opcao.rotulo}</span>
+                  {/* As duas frases na mesma opção, e não em duas opções: dizer
+                      "menor é melhor" é dizer "maior é pior", e guardá-las
+                      separadas faria o radar ler uma delas como neutra. */}
+                  {opcao.inverso && (
+                    <span className="text-muted-foreground">
+                      {" "}
+                      — ou seja, {opcao.inverso}
+                    </span>
+                  )}
+                  <span className="block text-xs text-muted-foreground">
+                    {opcao.ajuda}
+                  </span>
+                </span>
+              </label>
+            ))}
+          </div>
+          {detail.economicEffect && (
+            <p className="text-xs text-muted-foreground">
+              Registrado: {detail.economicEffect}
+            </p>
+          )}
         </Field>
 
         <Field
