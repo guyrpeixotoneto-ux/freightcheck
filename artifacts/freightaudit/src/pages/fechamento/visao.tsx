@@ -327,7 +327,7 @@ export default function VisaoGerencial() {
         {ano !== null && unidades.length > 0 && (
           <>
             <Card>
-              <CardContent className="p-0 flex flex-wrap divide-x divide-y sm:divide-y-0">
+              <CardContent className="p-0 flex flex-wrap divide-y sm:divide-x sm:divide-y-0">
                 <Numero
                   rotulo="Fechamentos realizados"
                   valor={

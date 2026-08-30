@@ -8,6 +8,7 @@ import {
   resumirEscopo,
   resumirUnidades,
   resumoExecutivo,
+  subtituloDoCartao,
   type ComparacaoDaVigencia,
   type VigenciaDaAuditoria,
 } from "../auditoria-gerencial";
@@ -700,5 +701,46 @@ describe("a unidade com dois canais", () => {
     expect(cartao.channel).toBe("EMPURRADA");
     expect(cartao.label).toBe("CAMAÇARI · EMPURRADA");
     expect(cartao.ativos).toBe(100);
+  });
+});
+
+describe("o subtítulo do cartão", () => {
+  /*
+    O nome está no título, em corpo maior, uma linha acima. Repetido embaixo ele
+    gastava metade da linha dizendo o que ninguém precisava reler — e num
+    telefone era a cobertura, no fim da frase, que pagava a conta.
+  */
+  it("tira o nome da unidade do rótulo e deixa o que qualifica", () => {
+    expect(
+      subtituloDoCartao({
+        nome: "CAMAÇARI",
+        label: "CAMAÇARI · EMPURRADA",
+        coberturas: ["CARRETA+CAVALO+TRECHO"],
+      }),
+    ).toBe("EMPURRADA · CARRETA+CAVALO+TRECHO");
+  });
+
+  it("mantém os dois canais quando o cartão soma mais de um", () => {
+    expect(
+      subtituloDoCartao({
+        nome: "CAMAÇARI",
+        label: "CAMAÇARI · EMPURRADA + ROTA",
+        coberturas: ["CAVALO"],
+      }),
+    ).toBe("EMPURRADA + ROTA · CAVALO");
+  });
+
+  /* Sem escopo cadastrado o rótulo **é** o nome: não há canal a anunciar. */
+  it("fica só com a cobertura quando o rótulo é o próprio nome", () => {
+    expect(
+      subtituloDoCartao({ nome: "scope-x", label: "scope-x", coberturas: ["CAVALO"] }),
+    ).toBe("CAVALO");
+  });
+
+  /* Um rótulo que não começa pelo nome não é adivinhado — vai inteiro. */
+  it("preserva o rótulo que não começa pelo nome", () => {
+    expect(
+      subtituloDoCartao({ nome: "CAMAÇARI", label: "BA · EMPURRADA", coberturas: [] }),
+    ).toBe("BA · EMPURRADA");
   });
 });

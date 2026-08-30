@@ -21,6 +21,7 @@ import {
   resumirEscopo,
   resumirUnidades,
   resumoExecutivo,
+  subtituloDoCartao,
   type ResumoDaUnidade,
   type VigenciaDaAuditoria,
 } from "@/lib/auditoria-gerencial";
@@ -135,14 +136,39 @@ function CartaoDaUnidade({ unidade, ano }: { unidade: ResumoDaUnidade; ano: numb
         */
         canal: unidade.canais.length === 1 ? (unidade.canais[0] ?? "") : null,
       })}
-      className="rounded-lg border bg-card p-5 block transition-colors hover:border-primary/50 hover:bg-muted/30"
+      /*
+        `min-w-0` não é enfeite de utilitário: sem ele o cartão é largo demais
+        para o telefone.
+
+        O mínimo automático de um item de grade é o *min-content* do conteúdo, e
+        um nome que não quebra ("CDD CEBRASA") entra nessa conta inteiro — o
+        `truncate` corta na pintura, não na medida. O cartão estourava a coluna
+        em ~1rem e empurrava a página inteira para o lado: quem lia no celular
+        via a tela deslizar na horizontal e o cartão encostado na borda direita.
+        Com o mínimo zerado, quem manda na largura é a coluna, e o `truncate`
+        volta a ter o que cortar.
+      */
+      className="rounded-lg border bg-card p-5 block min-w-0 transition-colors hover:border-primary/50 hover:bg-muted/30"
       data-testid={`cartao-unidade-${unidade.scopeHash}`}
     >
       <div className="flex items-start justify-between gap-3">
         <span className="min-w-0">
           <span className="block font-bold truncate">{unidade.nome}</span>
-          <span className="block text-xs text-muted-foreground truncate">
-            {[unidade.label, unidade.coberturas.join(" + ")].filter(Boolean).join(" · ")}
+          {/*
+            O subtítulo quebra em vez de ser cortado: ele é a identidade do
+            cartão, não um detalhe. Dois cartões da mesma unidade se distinguem
+            pelo canal e pela cobertura, e era justamente o fim da linha —
+            "CARRETA+CAVALO+TRECHO" — que a reticência comia primeiro na largura
+            do telefone.
+
+            O `+` da cobertura ganha uma quebra invisível depois dele porque
+            "CARRETA+CAVALO+TRECHO" é uma palavra só para o navegador: numa
+            coluna estreita ele partia onde calhasse ("…TRECH / O"). Com a
+            oportunidade de quebra no separador, a linha corta onde o nome
+            corta.
+          */}
+          <span className="block text-xs text-muted-foreground break-words">
+            {subtituloDoCartao(unidade).replaceAll("+", "+\u200B")}
           </span>
         </span>
         <span className="text-right shrink-0">
@@ -199,8 +225,15 @@ function CartaoDaUnidade({ unidade, ano }: { unidade: ResumoDaUnidade; ano: numb
         </p>
       )}
 
-      <dl className="grid grid-cols-2 gap-3 mt-4 pt-4 border-t">
-        <div>
+      {/*
+        Duas linhas de grade, e não duas caixas soltas: numa coluna estreita
+        "Impacto apurado" ocupa duas linhas e "Alterações" uma, e sem a grade
+        partilhada os dois números ficavam em alturas diferentes — o que faz o
+        par ser lido como duas informações de pesos diferentes, quando é um só.
+        `subgrid` prende o rótulo à primeira linha e o número à segunda.
+      */}
+      <dl className="grid grid-cols-2 grid-rows-[auto_auto] gap-x-3 mt-4 pt-4 border-t">
+        <div className="grid grid-rows-subgrid row-span-2">
           <dt className="text-[0.6875rem] font-bold uppercase tracking-wide text-muted-foreground">
             Alterações
           </dt>
@@ -212,7 +245,7 @@ function CartaoDaUnidade({ unidade, ano }: { unidade: ResumoDaUnidade; ano: numb
             )}
           </dd>
         </div>
-        <div>
+        <div className="grid grid-rows-subgrid row-span-2">
           <dt className="text-[0.6875rem] font-bold uppercase tracking-wide text-muted-foreground">
             Impacto apurado
           </dt>
@@ -450,7 +483,7 @@ export default function VisaoGerencialDaAuditoria() {
             */}
             {escopo === null && (
               <Card>
-                <CardContent className="p-0 flex flex-wrap divide-x divide-y sm:divide-y-0">
+                <CardContent className="p-0 flex flex-wrap divide-y sm:divide-x sm:divide-y-0">
                   <Numero
                     rotulo="Vigências auditadas"
                     valor={

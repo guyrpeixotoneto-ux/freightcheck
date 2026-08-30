@@ -47,8 +47,25 @@ export function Numero({
   alerta?: boolean;
   barra?: number;
 }) {
+  /*
+    O comprimento que decide o corpo é o do número **com** a unidade: quem tem
+    sufixo escreve "−R$ 554,2 mil" e "/ano" na mesma linha, e medir só a
+    primeira metade é o que fazia o "/ano" ser cortado pela borda do tijolo na
+    faixa de cinco colunas.
+  */
+  const comprimento = valor.length + (sufixo?.length ?? 0);
+
   return (
-    <div className="px-6 py-5 flex-1 min-w-[13rem]">
+    /*
+      Um tijolo por linha no telefone, e a divisão de sempre a partir de `sm`.
+
+      Em duas colunas de tela estreita sobram ~8rem de texto por tijolo, e
+      nenhum corpo legível cabe "−R$ 554,2 mil/ano" ali dentro — o que sobrava
+      era o número truncado na borda, que é a única coisa que uma faixa
+      executiva não pode fazer. `shrink-0` a partir de `sm` guarda as 13rem que
+      o desenho sempre teve.
+    */
+    <div className="px-6 py-5 grow shrink-0 basis-full sm:basis-52 min-w-0">
       <p className="text-[0.6875rem] font-bold uppercase tracking-wide text-muted-foreground">
         {rotulo}
       </p>
@@ -62,7 +79,7 @@ export function Numero({
             quebra — no pior caso logo depois do sinal, o que põe o menos
             sozinho numa linha e faz uma perda ser lida como ganho.
           */
-          valor.length > 9 ? "text-2xl" : "text-3xl",
+          comprimento > 13 ? "text-xl" : comprimento > 9 ? "text-2xl" : "text-3xl",
           alerta && "text-destructive",
         )}
       >
