@@ -189,7 +189,7 @@ describe("a promoção garante a estrutura obrigatória — banco vazio, sem see
     expect(arvore.body).toHaveLength(NOS_CANONICOS);
   });
 
-  it("2. vincula os 17 atributos canônicos aos nós", async () => {
+  it("2. vincula todo atributo canônico ao seu nó", async () => {
     const { rows } = await ctx.db.execute<{ code: string; node: string }>(sql`
       SELECT a.code, n.code AS node
         FROM attribute a
@@ -236,12 +236,25 @@ describe("a promoção garante a estrutura obrigatória — banco vazio, sem see
     /*
       Classe de custo em todo mundo, **exceto** o que não é custo.
 
-      `lucroFixomodeloNovoCiclo` e `finame` são remuneração ao transportador —
-      receita —, e receita não tem classe de custo: ela sai nula de propósito,
-      pela mesma razão que cadastro sai. Exigir classe deles poria receita de um
-      lado da conta de custo, que é o erro que a família nova existe para
-      impedir.
+      São duas famílias, e não uma. `lucroFixomodeloNovoCiclo` é remuneração ao
+      transportador — receita —, e `ano`, `ciclo`, `mesDeEntrada`,
+      `operadorPromax`, `odometroEntrada` são cadastro. Nenhum dos dois é custo,
+      e carimbar classe neles poria receita e ficha técnica dentro de um total
+      de custo, que é o erro que a família própria existe para impedir. Ver
+      `attribute.cost_class`: `NAO_APLICAVEL` é afirmação, nulo é lacuna, e
+      nestas duas famílias o nulo é a resposta certa.
+
+      A lista era só `remuneracao_transportador`, e o comentário acima dela já
+      dizia "pela mesma razão que cadastro sai" — a família de cadastro nunca
+      esteve na asserção porque nenhum atributo dela era confirmado ainda. As 41
+      classificações de 29/08/2026 confirmaram treze, e a asserção passou a
+      reprovar o caso que o próprio comentário descrevia como esperado.
+
+      O que este laço continua recusando é o que importa: classe nula em
+      `custo_fixo`, `custo_variavel` ou `capital` — ali o nulo é coluna que
+      ninguém classificou, e ela some de um total sem avisar.
     */
+    const SEM_CLASSE_DE_CUSTO = ["cadastro", "remuneracao_transportador"];
     const semClasse = confirmados
       .filter((c) => c.costClass === null)
       .map((c) => c.attributeCode)
@@ -254,7 +267,7 @@ describe("a promoção garante a estrutura obrigatória — banco vazio, sem see
            WHERE a.code = ${code}
         `)).rows[0]?.familia,
         code,
-      ).toBe("remuneracao_transportador");
+      ).toBeOneOf(SEM_CLASSE_DE_CUSTO);
     }
     /*
       O que se prova aqui é que a promoção **garante** a classe, e não que a
@@ -280,28 +293,70 @@ describe("a promoção garante a estrutura obrigatória — banco vazio, sem see
     const set = await computeChangeSet(ctx.db, snaps[0].id, snaps[1].id, {
       computedBy: "test:estrutura",
     });
+    /*
+      267 alterações entre julho e agosto/2026 — a forma do export, e por isso
+      um número escrito à mão.
+
+      Os outros dois **não são mais** números escritos à mão, e a razão é o dia
+      em que este teste reprovou. Eram `17` e `19`, o retrato de quantas colunas
+      canônicas existiam quando ele foi escrito; as 41 classificações de
+      29/08/2026 levaram os mesmos números a 166 e 169 sem que nada tivesse
+      quebrado, e o teste passou a reprovar toda entrega da `main` por cinco
+      merges seguidos. Um número que sobe sempre que alguém cura uma coluna não
+      prova nada sobre a promoção — só cobra que quem curou lembre de vir aqui.
+
+      O que este caso existe para prender é o carimbo, e ele é uma equivalência:
+      **a linha da comparação carrega classe e grupo exatamente quando o
+      atributo dela os tem.** `cost_class` e `taxonomy_name` são gravados na
+      linha no instante em que a comparação é calculada, e antes da correção de
+      17/08/2026 saíam nulos em 267 de 267. A equivalência reprova aquele estado
+      igual, reprova o inverso (carimbo em linha cujo atributo não tem o campo)
+      e não envelhece com a curadoria.
+
+      O `CASE` sobre `FIXO`/`VARIAVEL` não é conveniência de consulta: é a regra
+      de `inheritedCostClassJoin`, e é ela que a comparação aplica. Um atributo
+      `NAO_APLICAVEL` chega à linha como classe **nula**, de propósito —
+      `NAO_APLICAVEL` afirma que aquilo não é custo, e repeti-lo na linha o
+      ofereceria a quem filtra por classe. São três hoje (`cavalo.ciclo` e as
+      duas colunas de `lucroFixomodeloNovoCiclo`), e comparar contra
+      `a.cost_class` cru os acusaria de divergência quando o que eles mostram é
+      a regra funcionando.
+    */
     const [linhas] = (
-      await ctx.db.execute<{ total: number; comClasse: number; comGrupo: number }>(sql`
+      await ctx.db.execute<{
+        total: number;
+        classeDivergente: number;
+        grupoDivergente: number;
+        comClasse: number;
+        comGrupo: number;
+      }>(sql`
         SELECT count(*)::int AS total,
-               count(*) FILTER (WHERE cost_class IS NOT NULL)::int AS "comClasse",
-               count(*) FILTER (WHERE taxonomy_name IS NOT NULL)::int AS "comGrupo"
-          FROM "change" WHERE change_set_id = ${set.id}::uuid
+               count(*) FILTER (
+                 WHERE c.cost_class IS DISTINCT FROM
+                   CASE WHEN a.cost_class IN ('FIXO', 'VARIAVEL') THEN a.cost_class END
+               )::int AS "classeDivergente",
+               count(*) FILTER (
+                 WHERE (c.taxonomy_name IS NOT NULL) <> (n.id IS NOT NULL)
+               )::int AS "grupoDivergente",
+               count(*) FILTER (WHERE c.cost_class IS NOT NULL)::int AS "comClasse",
+               count(*) FILTER (WHERE c.taxonomy_name IS NOT NULL)::int AS "comGrupo"
+          FROM "change" c
+          JOIN attribute a ON a.code = c.attribute_code
+          LEFT JOIN taxonomy_node n ON n.id = a.taxonomy_node_id
+         WHERE c.change_set_id = ${set.id}::uuid
       `)
     ).rows;
 
-    /*
-      267 alterações entre julho e agosto/2026, das quais 19 são de colunas do
-      registro canônico. Antes desta correção o segundo número era zero — e
-      ficava zero para sempre, porque `cost_class` e `taxonomy_name` são
-      **gravados** na linha no momento em que a comparação é calculada.
-
-      `comClasse` é menor que `comGrupo` desde que a receita ganhou casa
-      própria: as duas colunas de remuneração têm grupo e não têm classe de
-      custo, porque não são custo.
-    */
     expect(linhas.total).toBe(267);
-    expect(linhas.comClasse).toBe(17);
-    expect(linhas.comGrupo).toBe(19);
+    expect(linhas.classeDivergente).toBe(0);
+    expect(linhas.grupoDivergente).toBe(0);
+    /*
+      E o piso: o estado que a correção de 17/08/2026 desfez era zero nos dois.
+      A equivalência acima é satisfeita por uma base sem curadoria nenhuma —
+      nada carimbado, nada a carimbar —, e este par recusa esse verde vazio.
+    */
+    expect(linhas.comClasse).toBeGreaterThan(0);
+    expect(linhas.comGrupo).toBeGreaterThan(0);
   });
 });
 
