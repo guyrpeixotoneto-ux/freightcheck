@@ -508,15 +508,6 @@ function Avisos({ data }: { data: GroupedView }) {
         </Aviso>
       )}
 
-      {!data.complete && (
-        <Aviso tom="alerta">
-          <strong>Visão parcial.</strong> Nesta vigência chegou apenas{" "}
-          {data.series.map((s) => s.equipment.toLowerCase()).join(", ")}. Falta{" "}
-          <strong>{data.missingSeries.join(", ").toLowerCase()}</strong> — os números acima
-          cobrem só o que foi entregue, e a série ausente não está contada como zero.
-        </Aviso>
-      )}
-
       {primeiraVigencia.map((s) => (
         <Aviso key={s.entityTypeSet}>
           <strong>{s.equipment}:</strong> {s.reason}
@@ -526,22 +517,9 @@ function Avisos({ data }: { data: GroupedView }) {
   );
 }
 
-function Aviso({
-  children,
-  tom = "neutro",
-}: {
-  children: React.ReactNode;
-  tom?: "neutro" | "alerta";
-}) {
+function Aviso({ children }: { children: React.ReactNode }) {
   return (
-    <div
-      className={cn(
-        "flex gap-3 border rounded-xl px-4 py-3 text-sm",
-        tom === "alerta"
-          ? "border-amber-400 bg-amber-50 text-amber-900"
-          : "bg-muted/40 text-muted-foreground",
-      )}
-    >
+    <div className="flex gap-3 border rounded-xl px-4 py-3 text-sm bg-muted/40 text-muted-foreground">
       <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
       <p>{children}</p>
     </div>
