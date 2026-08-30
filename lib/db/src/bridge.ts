@@ -527,6 +527,40 @@ const TABELAS_REMOVIDAS = [
   "cargo",
   "departamento",
   "negocio",
+  /*
+    As cinco de Integrações — as três da `0082` (a porta de API) e as duas da
+    `0083` (a busca ativa). Entram pelo mesmo motivo das outras tabelas de
+    módulo novo: Production não as conhece até a fila rodar lá, e até então cada
+    uma é uma tabela que a proposta do Publishing proporia criar.
+
+    **A ordem é filha antes de mãe**, que é a única que o `RESTRICT` do `down`
+    aceita: `integracao_execucao` pendura em `integracao_busca`,
+    `integracao_chamada` pendura em `integracao_chave`, e as quatro penduram em
+    `integracao`. Nenhuma delas toca `unidade` nem `app_user` — o autor de tudo
+    aqui é gravado como texto (`criada_por`), o mesmo `actor` do resto do
+    produto —, então elas não têm posição obrigatória em relação a `unidade`.
+
+    A pré-condição de tabela vazia é a certa, e é da família de
+    `ticket_import_deletion` e `justificativa`. São dois tipos de linha, e os
+    dois são do naipe que não se descarta em silêncio:
+
+    · a **credencial** — alguém emitiu uma chave para um sistema de fora, com
+      escopo escolhido, e o banco guarda só o hash dela. Descartar a linha não
+      "perde uma configuração": deixa viva, do outro lado, uma chave que este
+      produto não reconhece mais e não sabe dizer que existiu;
+    · o **registro do que entrou por ali** — `integracao_chamada` e
+      `integracao_execucao` são a única prova de que um arquivo do acervo não
+      foi carregado por uma pessoa. Nenhuma consulta a reconstrói: `import_run`
+      guarda o nome de quem enviou, e não a chamada que o trouxe.
+
+    Um Development com integração cadastrada trava o `down`, e travar é o
+    comportamento correto.
+  */
+  "integracao_execucao",
+  "integracao_busca",
+  "integracao_chamada",
+  "integracao_chave",
+  "integracao",
   "unidade",
 ];
 
@@ -2877,6 +2911,71 @@ function planoUp(): PassoUp[] {
     "fluxo_etapa_item_pessoa_idx",
   ]) {
     add(M79, `índice ${indice}`, levantar(M79, new RegExp(`INDEX IF NOT EXISTS "${indice}"`)));
+  }
+
+  /*
+    A `0082` e a `0083` — Integrações e a busca ativa. As cinco tabelas voltam
+    pelo DDL das próprias migrations, levantado do disco: as FKs e os `CHECK`
+    moram em blocos `DO` guardados por `pg_constraint`, e são esses blocos que
+    voltam aqui, não uma segunda escrita da mesma definição.
+
+    **A ordem é mãe antes de filha** — o inverso do `down`: `integracao` primeiro,
+    depois as que penduram nela, e a `integracao_execucao` por último, porque ela
+    pendura também em `integracao_busca`.
+
+    O `up` as repõe **vazias**, e isso não é omissão: cada linha é ou uma chave
+    que alguém emitiu, ou o registro de que um arquivo do acervo entrou por
+    máquina. É por isso que as cinco exigem tabela vazia no `down` — ele só desce
+    quando não há o que perder. Ver `TABELAS_REMOVIDAS`.
+  */
+  const M82 = "0082_integracoes";
+  for (const tabela of ["integracao", "integracao_chave", "integracao_chamada"]) {
+    add(M82, tabela, levantar(M82, new RegExp(`CREATE TABLE IF NOT EXISTS "${tabela}" \\(`)));
+  }
+  for (const constraint of [
+    "integracao_chave_integracao_id_integracao_id_fk",
+    "integracao_chamada_integracao_id_integracao_id_fk",
+    "integracao_chamada_chave_id_integracao_chave_id_fk",
+    "integracao_chamada_resultado_ck",
+  ]) {
+    add(M82, `constraint ${constraint}`, levantar(M82, new RegExp(`conname = '${constraint}'`)));
+  }
+  for (const indice of [
+    "integracao_nome_uq",
+    "integracao_criada_idx",
+    "integracao_chave_hash_uq",
+    "integracao_chave_prefixo_uq",
+    "integracao_chave_integracao_idx",
+    "integracao_chamada_integracao_em_idx",
+    "integracao_chamada_chave_idx",
+    "integracao_chamada_em_idx",
+  ]) {
+    add(M82, `índice ${indice}`, levantar(M82, new RegExp(`INDEX IF NOT EXISTS "${indice}"`)));
+  }
+
+  const M83 = "0083_busca_ativa";
+  for (const tabela of ["integracao_busca", "integracao_execucao"]) {
+    add(M83, tabela, levantar(M83, new RegExp(`CREATE TABLE IF NOT EXISTS "${tabela}" \\(`)));
+  }
+  for (const constraint of [
+    "integracao_busca_integracao_id_integracao_id_fk",
+    "integracao_execucao_busca_id_integracao_busca_id_fk",
+    "integracao_execucao_integracao_id_integracao_id_fk",
+    "integracao_busca_forma_ck",
+    "integracao_busca_metodo_ck",
+    "integracao_busca_intervalo_ck",
+    "integracao_execucao_resultado_ck",
+    "integracao_execucao_disparo_ck",
+  ]) {
+    add(M83, `constraint ${constraint}`, levantar(M83, new RegExp(`conname = '${constraint}'`)));
+  }
+  for (const indice of [
+    "integracao_busca_integracao_idx",
+    "integracao_busca_proxima_idx",
+    "integracao_execucao_busca_em_idx",
+    "integracao_execucao_integracao_idx",
+  ]) {
+    add(M83, `índice ${indice}`, levantar(M83, new RegExp(`INDEX IF NOT EXISTS "${indice}"`)));
   }
 
   const M42 = "0042_viagem_completa";
