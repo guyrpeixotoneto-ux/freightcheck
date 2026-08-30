@@ -588,7 +588,7 @@ export function EditorDaEtapa({
 
           <TabsContent value="detalhes" className="space-y-6 pt-4">
             {especies.map((especie) => (
-              <ListaEditavel<LinhaDeItem>
+              <ListaEditavel
                 key={especie.valor}
                 titulo={especie.titulo}
                 descricao={especie.descricao}
@@ -638,7 +638,7 @@ export function EditorDaEtapa({
           </TabsContent>
 
           <TabsContent value="consultas" className="space-y-6 pt-4">
-            <ListaEditavel<LinhaDeIndicador>
+            <ListaEditavel
               titulo="Indicadores"
               descricao="Cadastrados agora, calculados quando o Modo Monitoramento existir."
               itens={indicadores}
@@ -667,7 +667,7 @@ export function EditorDaEtapa({
               ]}
             />
 
-            <ListaEditavel<LinhaDeAcao>
+            <ListaEditavel
               titulo="Consultar no FreightCheck"
               descricao="Botões que levam a uma tela deste produto. A rota é um caminho interno, como /alteracoes."
               itens={acoes}
