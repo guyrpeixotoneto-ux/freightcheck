@@ -11,6 +11,7 @@ import {
   BASES_DE_FECHAMENTO,
   DASHBOARD,
   ENTRADA_DA_AUDITORIA,
+  EVOLUCAO_POR_PLACA,
   GESTAO_A_VISTA,
   LINHA_DO_TEMPO,
   RESUMO_EXECUTIVO,
@@ -115,6 +116,7 @@ function atalhosDaBarra(ambiente: Parameters<typeof barraMobile>[0]): string[] {
 /** As constantes de endereço que o roteador usa no lugar do literal. */
 const CONSTANTES_DE_ROTA: Record<string, string> = {
   DASHBOARD,
+  EVOLUCAO_POR_PLACA,
   GESTAO_A_VISTA,
   LINHA_DO_TEMPO,
   RESUMO_EXECUTIVO,

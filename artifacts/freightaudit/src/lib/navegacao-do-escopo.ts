@@ -21,6 +21,7 @@
 import {
   DASHBOARD,
   ENTRADA_DA_AUDITORIA,
+  EVOLUCAO_POR_PLACA,
   GESTAO_A_VISTA,
   LINHA_DO_TEMPO,
   RESUMO_EXECUTIVO,
@@ -51,6 +52,14 @@ export const TELAS_QUE_HONRAM_ESCOPO = new Set<string>([
   DASHBOARD,
   GESTAO_A_VISTA,
   LINHA_DO_TEMPO,
+  /*
+    A Evolução por Placa lê o par (unidade, canal) e recorta a leitura inteira
+    no servidor — entra aqui porque cumpre a promessa, e fica **fora** de
+    `TELAS_QUE_HONRAM_VISAO_GERAL` pelo mesmo critério: a matriz placa ×
+    vigência é de um contexto de cada vez, e somar placas entre unidades sem o
+    servidor ter somado daria uma frota que nenhuma delas reconheceria.
+  */
+  EVOLUCAO_POR_PLACA,
   ENTRADA_DA_AUDITORIA,
   "/vigencia",
   "/qlp-administrativo",

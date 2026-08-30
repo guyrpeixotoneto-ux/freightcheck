@@ -1,11 +1,6 @@
 import { sql } from "drizzle-orm";
 import type { Database } from "@workspace/db";
-import {
-  criarDeduplicador,
-  daLinhaDoBanco,
-  type Deduplicador,
-} from "./deduplicacao";
-import { carregarVinculosDeConjunto, snapshotsDosChangeSets } from "./vinculos";
+import { daLinhaDoBanco, type Deduplicador } from "./deduplicacao";
 import {
   FAMILIES,
   FAMILY_ORDER,
@@ -20,14 +15,17 @@ import {
   getGroupedView,
   getGroupedViewComDados,
   groupKey,
-  loadChanges,
+  type loadChanges,
   summariseImpact,
   type Badge,
   type ChangeGroup,
   type GroupedView,
   type ImpactSummary,
 } from "./grouped";
-import { listPeriods } from "./consolidated";
+import {
+  abrirJanelaDeComparacoes,
+  serieDoTipo,
+} from "./janela-de-comparacoes";
 import type { TipoDaLinhaDoTempo } from "./tipos";
 import {
   contextFilter,
@@ -480,24 +478,6 @@ export interface ParameterRollup {
 }
 
 /**
- * Quais séries de snapshot a leitura de intervalo enxerga.
- *
- * Sem recorte, a régua é a de sempre: tudo menos a série de trecho, que é a
- * única que chega inteira num `entity_type_set` só e que as telas de frota não
- * querem ver (ver `loadChanges`). Com `tipo = TRECHO`, é o contrário — a
- * pergunta é justamente essa série, e as de equipamento é que saem.
- *
- * Cavalo e carreta não têm série própria: os dois chegam no mesmo snapshot
- * (`CARRETA+CAVALO`), e separá-los é trabalho da linha de alteração, não do
- * snapshot. Por isso eles caem na régua de sempre.
- */
-function serieDoTipo(tipo: TipoDaLinhaDoTempo | undefined) {
-  return tipo === "TRECHO"
-    ? sql`'TRECHO' = ANY(string_to_array(sb.entity_type_set, '+'))`
-    : sql`sb.entity_type_set IS DISTINCT FROM 'TRECHO'`;
-}
-
-/**
  * Qual frota é o denominador de cobertura de cada grupo.
  *
  * Um selo que diz "5 de 71 carretas" precisa das 71 carretas, e não da soma das
@@ -560,58 +540,27 @@ export async function getRangeAnalysis(
    */
   tipo?: TipoDaLinhaDoTempo,
 ): Promise<RangeAnalysis | null> {
-  const contexts =
-    contextosCarregados ?? (await listContexts(db, { operacao: requestedContext?.operacao }));
-  const context = await resolveContext(db, requestedContext, contexts);
-  if (!context) return null;
-
-  const periods = await listPeriods(db, context); // mais recente primeiro
-  if (periods.length === 0) return null;
-  const datas = periods.map((p) => p.effective_date);
-
   /*
-    Uma ponta que não existe no histórico deste contexto não vira erro nem some
-    calada: cai no padrão — a vigência mais recente, e a anterior a ela. É o
-    intervalo mais curto que ainda mostra movimento, e é o que a tela abre.
-  */
-  const alvoFim = to && datas.includes(to) ? to : datas[0];
-  /*
-    Sem `from` escolhido, a ponta inicial é a vigência **imediatamente anterior
-    à final** — e não a segunda mais recente do histórico.
+    O contexto, as pontas, as comparações do intervalo, as linhas e o índice de
+    dupla contagem saem todos de `abrirJanelaDeComparacoes`.
 
-    A diferença aparece quando a ponta final não é a mais recente: com `to` em
-    junho, "a segunda do histórico" é julho, que vem *depois*. O intervalo
-    acabava invertido, o código dava a volta com um swap, e a tela mostrava
-    junho → julho para quem tinha pedido junho. O padrão certo é o mais curto
-    que ainda mostra movimento a partir da ponta escolhida.
+    Eram quarenta linhas aqui dentro, e a Evolução por Placa precisa das mesmas
+    quarenta: a matriz placa × vigência daquela tela e o histórico por parâmetro
+    desta têm de concordar sobre qual comparação pertence a qual vigência e
+    sobre qual linha existe dentro dela — senão a soma das células de uma placa
+    não fecharia com o impacto que a Linha do Tempo publica para o mesmo
+    intervalo. Duas cópias fechariam no dia em que a segunda foi escrita.
   */
-  const anteriorAoFim = datas.find((d) => d < alvoFim);
-  const alvoInicio =
-    from && datas.includes(from) ? from : (anteriorAoFim ?? alvoFim);
-  const [inicio, fim] =
-    alvoInicio <= alvoFim ? [alvoInicio, alvoFim] : [alvoFim, alvoInicio];
-
-  const { rows: setsBrutos } = await db.execute<{
-    change_set_id: string;
-    period: string;
-    entity_type_set: string;
-  }>(sql`
-    SELECT cs.id AS change_set_id,
-           sb.effective_date::text AS period,
-           sb.entity_type_set
-      FROM change_set cs
-      JOIN snapshot sb ON sb.id = cs.snapshot_b_id
-     WHERE sb.effective_date > ${inicio}::date
-       AND sb.effective_date <= ${fim}::date
-       AND sb.status <> 'SUPERSEDED'
-       AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = sb.import_run_id AND import_run.hidden_at IS NOT NULL)
-       AND ${contextFilter("sb", context)}
-       -- Trecho só existe no Trecho 360 e na aba de tipo desta tela, que o pede
-       -- pelo nome. Sem recorte ele fica de fora. Ver a mesma nota em
-       -- loadChanges.
-       AND ${serieDoTipo(tipo)}
-     ORDER BY sb.effective_date DESC, sb.entity_type_set
-  `);
+  const janela = await abrirJanelaDeComparacoes(
+    db,
+    from,
+    to,
+    requestedContext,
+    contextosCarregados,
+    tipo,
+  );
+  if (!janela) return null;
+  const { context, datas, inicio, fim, sets, changeSetIds, periodoDoSet } = janela;
 
   /*
     A frota de cada grupo, por (comparação, equipamento) — a mesma consulta que
@@ -661,60 +610,7 @@ export async function getRangeAnalysis(
      GROUP BY cs.id, e.entity_type
   `);
 
-  /*
-    Só as comparações que caem numa vigência **do eixo**.
-
-    O eixo é `datas`, e ele não é a lista crua de datas com snapshot: uma
-    vigência que só tem trecho é uma casca — `naoEhSoTrecho`, em `series.ts` —,
-    e `listPeriods` a deixa de fora de propósito, para ela não disputar "a mais
-    recente" com o equipamento. Sem este filtro, a leitura de TRECHO somaria em
-    `totals` uma comparação cuja data a tela não desenha em `movements`, e o
-    placar deixaria de fechar com o gráfico logo abaixo dele.
-
-    Para as outras leituras é uma passada sem efeito: fora do trecho, toda
-    comparação já cai numa data do eixo.
-  */
-  const noEixo = new Set(datas);
-  const sets = setsBrutos.filter((s) => noEixo.has(s.period));
-
-  const changeSetIds = sets.map((s) => s.change_set_id);
-  /*
-    O trecho não vem na leitura de frota — é preciso pedi-lo pelo nome. Cavalo e
-    carreta vêm juntos de propósito: é sobre as linhas dos dois que o índice de
-    composição abaixo precisa ser montado (o vínculo cavalo→carreta é o que
-    impede a mesma coluna de ser contada duas vezes), e o recorte de um deles
-    acontece depois, sobre as linhas já lidas.
-  */
-  const todasAsLinhas = await loadChanges(
-    db,
-    changeSetIds,
-    tipo === "TRECHO" ? "TRECHO" : undefined,
-  );
-
-  /*
-    O índice de composição é montado sobre **todas** as linhas do intervalo, e
-    não sobre o recorte do cartão: `carreta.custo_fixo` mora num cartão e a sua
-    parcela `lucro_fixomodelo_novo_ciclo` mora noutro. Um índice só do recorte
-    não veria a parcela mudar, o titular voltaria para dentro da soma, e o
-    cartão mostraria o mesmo dinheiro duas vezes.
-
-    O que ele **não** faz é atravessar vigências. Este comentário já disse o
-    contrário — "é do intervalo inteiro, e não por vigência" —, e a afirmação
-    ficou de pé depois de o código mudar: `criarDeduplicador` indexa por
-    (comparação, ativo), então as regras decidem dentro de cada comparação e
-    nunca entre duas.
-
-    A mudança foi deliberada, e o motivo é que a leitura antiga perdia dinheiro:
-    um total que se moveu **sozinho** em junho sairia da soma porque uma parcela
-    dele se moveu em julho — uma dupla contagem que não existe em nenhum dos dois
-    meses, descontada mesmo assim. As duas regras são internas a um par de
-    vigências (um total e as parcelas dele, um cavalo e a carreta dele), e é
-    nesse grão que elas fecham.
-  */
-  const dedup = criarDeduplicador(
-    todasAsLinhas.map(daLinhaDoBanco),
-    await carregarVinculosDeConjunto(db, await snapshotsDosChangeSets(db, changeSetIds)),
-  );
+  const { linhas: todasAsLinhas, dedup } = janela;
 
   const noRecorte = (r: Rows[number]): boolean => {
     // O recorte por tipo é pelo `entity_type` da linha — ver o `tipo` na
@@ -727,7 +623,6 @@ export async function getRangeAnalysis(
 
   const rows = todasAsLinhas.filter(noRecorte);
 
-  const periodoDoSet = new Map(sets.map((s) => [s.change_set_id, s.period]));
   const fleetByChangeSet = new Map(
     frotas.map((f) => [chaveDaFrota(f.change_set_id, f.entity_type), f.fleet]),
   );
@@ -748,7 +643,7 @@ export async function getRangeAnalysis(
     comparação. E as duas leituras passam a cobrir o mesmo trecho, que é o que
     permite subtrair uma da outra para dizer o que foi revertido.
   */
-  const noIntervalo = datas.filter((d) => d > inicio && d <= fim).sort().reverse();
+  const { noIntervalo } = janela;
   const rowsPorPeriodo = new Map<string, typeof rows>();
   for (const row of rows) {
     const periodo = periodoDoSet.get(row.change_set_id);

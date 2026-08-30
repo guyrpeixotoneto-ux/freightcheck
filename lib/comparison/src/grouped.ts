@@ -435,7 +435,14 @@ export interface GroupedView {
 // Leitura
 // ---------------------------------------------------------------------------
 
-interface RawChange extends Record<string, unknown> {
+/**
+ * Uma linha de alteração como o banco a entrega.
+ *
+ * Exportada porque `janela-de-comparacoes.ts` devolve estas linhas para as duas
+ * leituras de intervalo — a por parâmetro e a por placa. Continua sendo forma
+ * de leitura, e não contrato de tela: quem publica escolhe o que mostra.
+ */
+export interface RawChange extends Record<string, unknown> {
   id: number;
   change_set_id: string;
   category: string;
