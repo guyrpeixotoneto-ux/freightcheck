@@ -801,6 +801,9 @@ router.get("/users/:id/permissoes", async (req, res): Promise<void> => {
     permissoes: camadas.efetivas,
     doPapel: camadas.doPapel,
     daPessoa: camadas.daPessoa,
+    /* A camada da casa, que vence as duas: sem ela a tela chamaria de "exceção
+       desta conta" o que a instalação desligou para todo mundo. */
+    universaisDesligadas: camadas.universaisDesligadas,
     historico: await historicoDePermissoes(db, target.id),
   });
 });
@@ -911,6 +914,9 @@ router.put("/users/:id/permissoes", async (req, res): Promise<void> => {
     permissoes: camadas.efetivas,
     doPapel: camadas.doPapel,
     daPessoa: camadas.daPessoa,
+    /* A camada da casa, que vence as duas: sem ela a tela chamaria de "exceção
+       desta conta" o que a instalação desligou para todo mundo. */
+    universaisDesligadas: camadas.universaisDesligadas,
     historico: await historicoDePermissoes(db, target.id),
   });
 });

@@ -6,6 +6,7 @@ import {
   permissaoDeModuloTable,
   type Database,
 } from "@workspace/db";
+import { chavesDesligadas } from "./modulos-universais";
 
 /**
  * Permissão por módulo — a leitura, a escrita e o que o servidor recusa.
@@ -29,6 +30,12 @@ import {
  *   1. a exceção da pessoa, quando existe;
  *   2. o papel dela, quando existe;
  *   3. `EDITAR` — o padrão que concede.
+ *
+ * E há uma **terceira camada, acima das duas**: os módulos universais
+ * (`lib/modulos-universais.ts`), que é a casa dizendo que parte do produto ela
+ * não usa. Chave desligada lá sai `SEM_ACESSO` para todo mundo, e nem papel nem
+ * exceção a devolvem — é o que faz "não aparece para ninguém" ser verdade sem
+ * depender de alguém ter revisado cada papel.
  *
  * `permissoesDe` devolve **a soma**, já resolvida, e é por isso que o portão, o
  * menu e a sessão não precisaram mudar uma linha quando o papel nasceu. Quem
@@ -138,6 +145,7 @@ const ESCRITAS_FORA_DO_AMBIENTE: readonly string[] = [
   "/auth",
   "/users",
   "/papeis",
+  "/modulos-universais",
   "/unidades",
   "/cadastro",
 ];
@@ -186,7 +194,7 @@ export const ESCRITAS_POR_MODULO: ReadonlyArray<readonly [string, readonly strin
   ["/integracoes", ["/integracoes"]],
   /* Papéis é a mesma tela que contas, e por isso o mesmo módulo: quem tem
      Configurações administra as duas, quem não tem não administra nenhuma. */
-  ["/configuracoes", ["/users", "/papeis"]],
+  ["/configuracoes", ["/users", "/papeis", "/modulos-universais"]],
 ];
 
 /** O módulo dono de um caminho de API, ou `null` quando ninguém o reivindica. */
@@ -250,15 +258,22 @@ export async function papelDaConta(
 }
 
 /**
- * As duas camadas de uma conta, separadas — e a soma delas.
+ * As camadas de uma conta, separadas — e a soma delas.
  *
- * Só a tela de Permissões precisa das duas: ela mostra, chave a chave, o que
- * veio do papel e o que é exceção daquela pessoa. Quem só quer saber o que vale
- * — o portão, o menu, a sessão — chama `permissoesDe` e recebe a soma pronta.
+ * Só a tela de Permissões precisa das camadas soltas: ela mostra, chave a
+ * chave, o que veio do papel, o que é exceção daquela pessoa e o que a casa
+ * desligou para todo mundo. Quem só quer saber o que vale — o portão, o menu, a
+ * sessão — chama `permissoesDe` e recebe a soma pronta.
  */
 export interface PermissoesDaConta {
   doPapel: Record<string, Nivel>;
   daPessoa: Record<string, Nivel>;
+  /**
+   * As chaves que a instalação desligou para todo mundo
+   * (`lib/modulos-universais.ts`). Não é permissão de ninguém: é a casa
+   * dizendo que parte do produto ela não usa.
+   */
+  universaisDesligadas: string[];
   efetivas: Record<string, Nivel>;
 }
 
@@ -269,17 +284,36 @@ export async function permissoesDetalhadasDe(
   const papelId = await papelDaConta(db, userId);
   const doPapel = papelId === null ? {} : await permissoesDoPapel(db, papelId);
   const daPessoa = await excecoesDe(db, userId);
-  return { doPapel, daPessoa, efetivas: { ...doPapel, ...daPessoa } };
+  const desligadas = await chavesDesligadas(db);
+
+  const efetivas: Record<string, Nivel> = { ...doPapel, ...daPessoa };
+  /*
+    A camada da casa entra por último e vence as duas, de propósito: "não
+    aparece para ninguém" só é verdade se nenhum papel e nenhuma exceção puderem
+    devolver a chave. É a diferença entre desligar uma parte do produto e pedir
+    a quem administra que se lembre de tirá-la de cada papel novo.
+  */
+  for (const chave of desligadas) efetivas[chave] = "SEM_ACESSO";
+
+  return {
+    doPapel,
+    daPessoa,
+    universaisDesligadas: [...desligadas].sort(),
+    efetivas,
+  };
 }
 
 /**
- * O que vale para uma pessoa, com as duas camadas já somadas.
+ * O que vale para uma pessoa, com as camadas já somadas.
  *
  * A exceção vence o papel — é a decisão mais recente e mais informada, tomada
  * sobre aquela conta sabendo qual é o papel dela. Chave sem linha em nenhuma das
  * duas não aparece no mapa, e quem lê o mapa (`nivelDe`) devolve o padrão, que
  * concede: o silêncio continua significando a mesma coisa nas duas camadas, e é
  * o que permite empilhá-las sem que a soma mude de sentido.
+ *
+ * Acima das duas está a camada da casa: o que os **módulos universais**
+ * desligaram sai `SEM_ACESSO` para todo mundo, e nenhuma das duas o devolve.
  */
 export async function permissoesDe(
   db: Database,

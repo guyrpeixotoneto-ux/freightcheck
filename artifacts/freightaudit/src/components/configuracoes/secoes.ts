@@ -1,4 +1,4 @@
-import { Building2, Briefcase, IdCard, KeyRound, MapPin, Network, ShieldCheck, UserCog, UserRound, Users, type LucideIcon } from "lucide-react";
+import { Building2, Briefcase, IdCard, KeyRound, MapPin, Network, Power, ShieldCheck, UserCog, UserRound, Users, type LucideIcon } from "lucide-react";
 import { TELAS_EM_PREPARO } from "@/pages/telas-em-preparo";
 
 /**
@@ -74,6 +74,18 @@ export const SECOES_GERAIS: SecaoDeConfiguracao[] = [
     label: "Permissões",
     icon: ShieldCheck,
     descricao: "A exceção de cada conta sobre o papel dela — aqui se tira acesso de uma pessoa.",
+  },
+  {
+    /*
+      Depois de Permissões, e não antes: as três telas de acesso se leem de
+      dentro para fora — a exceção de uma pessoa, o papel de um grupo, e por
+      último o que a casa inteira desliga. Esta é a única das três que não fala
+      de gente, e é a que vence as outras duas quando desliga algo.
+    */
+    href: "/configuracoes/modulos-universais",
+    label: "Módulos Universais",
+    icon: Power,
+    descricao: "O que esta instalação usa do produto — o que for desligado aqui não aparece para ninguém.",
   },
   {
     href: "/configuracoes/cargos",

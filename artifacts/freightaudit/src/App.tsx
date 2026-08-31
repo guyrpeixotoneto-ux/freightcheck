@@ -532,6 +532,9 @@ function RotasDaAuditoria() {
       <Route path="/configuracoes/permissoes">
         <Configuracoes secao="permissoes" />
       </Route>
+      <Route path="/configuracoes/modulos-universais">
+        <Configuracoes secao="modulos-universais" />
+      </Route>
       {/*
         Cargos, Negócio e Departamento saíram de `TELAS_EM_PREPARO` quando o
         cadastro da casa nasceu — o passo final descrito lá: some do catálogo, e

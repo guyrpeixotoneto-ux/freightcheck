@@ -93,6 +93,16 @@ export interface MatrizDeAcessoProps {
   herdado?: Record<string, Nivel>;
   /** O nome do papel herdado — a linha diz de onde vem, não só que vem. */
   nomeDaHeranca?: string | null;
+  /**
+   * As chaves que a instalação desligou para todo mundo (Configurações →
+   * Módulos Universais).
+   *
+   * Elas chegam aqui já como `SEM_ACESSO` no que vale, e sem esta lista a linha
+   * as descreveria errado — "exceção desta conta" sobre uma decisão que não é
+   * desta conta e que mexer aqui não desfaz. Com ela, a linha diz de onde a
+   * restrição vem e para onde ir mudá-la, e os botões saem do caminho.
+   */
+  universaisDesligadas?: readonly string[];
   desabilitado: boolean;
   carregando?: boolean;
   aoEscolher: (niveis: Record<string, Nivel>) => void;
@@ -102,11 +112,17 @@ export function MatrizDeAcesso({
   niveis,
   herdado,
   nomeDaHeranca,
+  universaisDesligadas,
   desabilitado,
   carregando = false,
   aoEscolher,
 }: MatrizDeAcessoProps) {
   const [busca, setBusca] = useState("");
+
+  const desligadas = useMemo(
+    () => new Set(universaisDesligadas ?? []),
+    [universaisDesligadas],
+  );
 
   const secoes = useMemo(() => {
     const termo = busca.trim().toLowerCase();
@@ -228,12 +244,13 @@ export function MatrizDeAcesso({
                       (niveis[chave] ?? NIVEL_PADRAO) !== base(chave)
                     }
                     nomeDaHeranca={nomeDaHeranca ?? null}
+                    desligadaNaCasa={desligadas.has(chave)}
                   />
                 </span>
                 <span className="flex items-center gap-1.5">
                   <BotoesDeNivel
                     nivel={niveis[chave] ?? NIVEL_PADRAO}
-                    desabilitado={desabilitado}
+                    desabilitado={desabilitado || desligadas.has(chave)}
                     aoEscolher={(opcao) => aoEscolher({ [chave]: opcao })}
                   />
                   {herdado !== undefined &&
@@ -289,12 +306,13 @@ export function MatrizDeAcesso({
                         herdado={herdado === undefined ? null : daBase}
                         excecao={herdado !== undefined && nivel !== daBase}
                         nomeDaHeranca={nomeDaHeranca ?? null}
+                        desligadaNaCasa={desligadas.has(modulo.chave)}
                       />
                     </span>
                     <span className="flex items-center gap-1.5">
                       <BotoesDeNivel
                         nivel={nivel}
-                        desabilitado={desabilitado}
+                        desabilitado={desabilitado || desligadas.has(modulo.chave)}
                         aoEscolher={(opcao) => aoEscolher({ [modulo.chave]: opcao })}
                       />
                       {herdado !== undefined && nivel !== daBase && (
@@ -333,12 +351,27 @@ function Procedencia({
   herdado,
   excecao,
   nomeDaHeranca,
+  desligadaNaCasa = false,
 }: {
   nivel: Nivel;
   herdado: Nivel | null;
   excecao: boolean;
   nomeDaHeranca: string | null;
+  desligadaNaCasa?: boolean;
 }) {
+  /*
+    A camada da casa vence as outras duas, e por isso ela é dita antes: dizer
+    "herdado do papel" sobre uma chave que a instalação desligou mandaria quem
+    lê procurar no lugar errado — e mexer no papel não devolveria nada.
+  */
+  if (desligadaNaCasa) {
+    return (
+      <span className="block text-xs text-rose-700">
+        Desligado para toda a instalação — Configurações › Módulos Universais.
+      </span>
+    );
+  }
+
   if (herdado === null) return null;
   const papel = nomeDaHeranca ?? "papel";
 

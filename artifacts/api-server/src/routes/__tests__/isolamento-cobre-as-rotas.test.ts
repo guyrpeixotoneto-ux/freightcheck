@@ -40,6 +40,8 @@ const ROTAS = path.resolve(import.meta.dirname, "..");
 const SEM_ACERVO: Record<string, string> = {
   "auth.ts": "sessão e senha — a casa, não o acervo.",
   "users.ts": "usuários — a casa.",
+  "modulos-universais.ts":
+    "o que a instalação liga e desliga — a casa, e a mais ampla delas: um módulo desligado sai do menu das quatro operações, porque a decisão é sobre que partes do produto esta casa usa, e não sobre um acervo.",
   "papeis.ts":
     "papéis de acesso — a casa, como usuários: um papel vale para o produto inteiro, e recortá-lo por operação daria quatro cadastros de acesso para a mesma pessoa.",
   "unidades.ts": "cadastro de unidades — vale para as quatro operações.",

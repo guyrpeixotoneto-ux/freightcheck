@@ -3,6 +3,7 @@ import authRouter from "./auth";
 import healthRouter from "./health";
 import usersRouter from "./users";
 import papeisRouter from "./papeis";
+import modulosUniversaisRouter from "./modulos-universais";
 import fleetAnalysisRouter from "./fleet-analysis";
 import curationRouter from "./curation";
 import changesRouter from "./changes";
@@ -179,6 +180,9 @@ router.use(usersRouter);
 /* Papéis é a mesma casa que `users` — o cadastro de acesso, e o portão o trata
    como Configurações (ver `ESCRITAS_POR_MODULO`). */
 router.use(papeisRouter);
+/* Os módulos universais são a mesma casa: a decisão da instalação sobre que
+   partes do produto ela usa, e o portão a trata como Configurações. */
+router.use(modulosUniversaisRouter);
 router.use(healthRouter);
 router.use(fleetAnalysisRouter);
 router.use(curationRouter);

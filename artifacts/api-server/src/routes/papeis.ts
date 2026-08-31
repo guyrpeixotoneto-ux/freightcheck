@@ -17,6 +17,7 @@ import {
   permissoesDoPapel,
   type Nivel,
 } from "../lib/permissoes";
+import { chavesDesligadas } from "../lib/modulos-universais";
 import { listUsers } from "../lib/session";
 import { somenteAdmin } from "./users";
 
@@ -87,6 +88,9 @@ router.get("/papeis/:id", async (req, res): Promise<void> => {
   res.json({
     papel,
     permissoes: await permissoesDoPapel(db, papel.id),
+    /* O que a casa desligou para todo mundo: um módulo desligado lá não volta
+       por decisão de papel nenhum, e a matriz precisa dizer isso na linha. */
+    universaisDesligadas: [...(await chavesDesligadas(db))].sort(),
     historico: await historicoDoPapel(db, papel.id),
   });
 });
@@ -299,6 +303,7 @@ router.put("/papeis/:id/permissoes", async (req, res): Promise<void> => {
   res.json({
     papel: await papelPorId(db, papel.id),
     permissoes,
+    universaisDesligadas: [...(await chavesDesligadas(db))].sort(),
     historico: await historicoDoPapel(db, papel.id),
     contas: await listUsers(db),
   });

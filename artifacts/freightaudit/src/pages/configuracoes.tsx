@@ -8,6 +8,7 @@ import { PainelDoPerfil } from "@/components/configuracoes/perfil";
 import { PainelDeSeguranca } from "@/components/configuracoes/seguranca";
 import { PainelDePermissoes } from "@/components/configuracoes/permissoes";
 import { PainelDePapeis } from "@/components/configuracoes/papeis";
+import { PainelDeModulosUniversais } from "@/components/configuracoes/modulos-universais";
 import {
   PainelDeCargos,
   PainelDeDepartamentos,
@@ -49,6 +50,7 @@ type Secao =
   | "seguranca"
   | "papeis"
   | "permissoes"
+  | "modulos-universais"
   | "cargos"
   | "negocio"
   | "departamento";
@@ -60,6 +62,7 @@ const TITULO: Record<Exclude<Secao, "indice">, string> = {
   seguranca: "Segurança",
   papeis: "Papéis",
   permissoes: "Permissões",
+  "modulos-universais": "Módulos Universais",
   cargos: "Cargos",
   negocio: "Negócio",
   departamento: "Departamento",
@@ -120,6 +123,7 @@ export default function Configuracoes({ secao = "indice" }: { secao?: Secao }) {
         {secao === "seguranca" && <PainelDeSeguranca />}
         {secao === "papeis" && <PainelDePapeis />}
         {secao === "permissoes" && <PainelDePermissoes />}
+        {secao === "modulos-universais" && <PainelDeModulosUniversais />}
         {/*
           As três seções que saíram do catálogo de telas em preparo quando o
           cadastro passou a existir. O menu não mudou uma vírgula: os itens já

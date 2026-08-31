@@ -80,6 +80,12 @@ interface RespostaDePermissoes {
   doPapel: Record<string, Nivel>;
   /** A camada de cima: as exceções decididas sobre esta conta. */
   daPessoa: Record<string, Nivel>;
+  /**
+   * Acima das duas: o que a instalação desligou para todo mundo (Configurações
+   * › Módulos Universais). Não é decisão sobre esta conta, e nada aqui a
+   * desfaz — a matriz diz isso na linha em vez de chamá-la de exceção.
+   */
+  universaisDesligadas: string[];
   historico: Array<{
     modulo: string;
     nivelAnterior: string | null;
@@ -289,6 +295,7 @@ export function PainelDePermissoes() {
                 niveis={permissoes}
                 herdado={consulta.data?.doPapel ?? {}}
                 nomeDaHeranca={alvo.papelNome}
+                universaisDesligadas={consulta.data?.universaisDesligadas ?? []}
                 desabilitado={!podeMexer || definir.isPending}
                 carregando={consulta.isLoading}
                 aoEscolher={(niveis) => definir.mutate(niveis)}
