@@ -13,6 +13,7 @@ import {
   DASHBOARD,
   destinoDaRaiz,
   GESTAO_A_VISTA,
+  IMPACTO_APURADO,
   LINHA_DO_TEMPO,
   EVOLUCAO_POR_PLACA,
   RESUMO_EXECUTIVO,
@@ -28,6 +29,7 @@ import Login from '@/pages/login';
 
 import Inicio from '@/pages/inicio';
 import Dashboard from '@/pages/dashboard';
+import ImpactoApurado from '@/pages/impacto-apurado';
 import GestaoAVista from '@/pages/gestao-a-vista';
 import LinhaDoTempo from '@/pages/linha-do-tempo';
 import EvolucaoPorPlaca from '@/pages/evolucao-por-placa';
@@ -376,6 +378,13 @@ function RotasDaAuditoria() {
         um telão que carrega o mesmo recorte, e por isso não aparece no menu.
       */}
       <Route path={DASHBOARD} component={Dashboard} />
+      {/*
+        O Impacto Apurado — o segundo módulo da seção Dashboard, e uma rota
+        própria pela razão escrita em `lib/ambiente.ts`: a lateral acende o item
+        cujo endereço está aberto, e uma aba dentro de `/dashboard` acenderia o
+        item errado.
+      */}
+      <Route path={IMPACTO_APURADO} component={ImpactoApurado} />
       <Route path={GESTAO_A_VISTA} component={GestaoAVista} />
       <Route path={LINHA_DO_TEMPO} component={LinhaDoTempo} />
       <Route path={EVOLUCAO_POR_PLACA} component={EvolucaoPorPlaca} />

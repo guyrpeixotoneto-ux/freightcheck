@@ -13,6 +13,7 @@ import {
   ENTRADA_DA_AUDITORIA,
   EVOLUCAO_POR_PLACA,
   GESTAO_A_VISTA,
+  IMPACTO_APURADO,
   LINHA_DO_TEMPO,
   RESUMO_EXECUTIVO,
   type AmbienteDeAuditoria,
@@ -118,6 +119,7 @@ const CONSTANTES_DE_ROTA: Record<string, string> = {
   DASHBOARD,
   EVOLUCAO_POR_PLACA,
   GESTAO_A_VISTA,
+  IMPACTO_APURADO,
   LINHA_DO_TEMPO,
   RESUMO_EXECUTIVO,
   ENTRADA_DA_AUDITORIA,
@@ -130,8 +132,9 @@ function rotasRegistradas(): Set<string> {
   return new Set([
     ...[...app.matchAll(/<Route\s+path="([^"]+)"/g)].map((m) => m[1]),
     /*
-      Quatro rotas da Auditoria são escritas com a constante, e não com o
-      literal — `<Route path={DASHBOARD}>` e as três irmãs dela. Traduzi-las
+      Cinco rotas da Auditoria são escritas com a constante, e não com o
+      literal — `<Route path={DASHBOARD}>`, `{IMPACTO_APURADO}` e as irmãs
+      delas. Traduzi-las
       aqui é o que faz este teste conferir endereços, e não grafias: a lateral
       também as escreve pela constante, e as duas só podem discordar se alguém
       trocar o valor num lugar só — que é exatamente o que não existe, porque o
@@ -236,6 +239,40 @@ describe("a lateral", () => {
     for (const hrefs of [hrefsDoMenu(), hrefsDoMenuDoFechamento()]) {
       expect(hrefs).toHaveLength(new Set(hrefs).size);
     }
+  });
+
+  /*
+    A seção Dashboard tem **dois** módulos desde que o Impacto Apurado nasceu,
+    e este teste guarda as duas metades da promessa: que o novo entrou, e que o
+    antigo continua onde estava. Um item que some do menu não quebra typecheck
+    nem build — some da lateral, e quem usava aquela tela descobre no dia em que
+    procura por ela.
+  */
+  it("põe os dois módulos na seção Dashboard, nesta ordem", () => {
+    for (const ambiente of Object.keys(BASES_DE_AUDITORIA)) {
+      const dashboard = navGroupsAuditoria(ambiente as AmbienteDeAuditoria).find(
+        (grupo) => grupo.titulo === "Dashboard",
+      )!;
+
+      expect(dashboard.itens.map((item) => item.label)).toEqual([
+        "Impacto Líquido",
+        "Impacto Apurado",
+      ]);
+      expect(dashboard.itens.map((item) => item.href)).toEqual([DASHBOARD, IMPACTO_APURADO]);
+    }
+  });
+
+  /*
+    Os dois módulos são duas telas, e não uma com aba: cada um tem endereço
+    próprio no roteador. Uma aba faria a lateral acender o item errado — a razão
+    está em `lib/ambiente.ts`.
+  */
+  it("registra uma rota própria para cada módulo do Dashboard", () => {
+    const rotas = rotasRegistradas();
+
+    expect(rotas.has(DASHBOARD)).toBe(true);
+    expect(rotas.has(IMPACTO_APURADO)).toBe(true);
+    expect(DASHBOARD).not.toBe(IMPACTO_APURADO);
   });
 
   it("mantém as onze seções do desenho, na ordem", () => {
