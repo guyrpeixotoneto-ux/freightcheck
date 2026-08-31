@@ -6,12 +6,42 @@
     <title>FreightCheck</title>
     <meta name="description" content="Auditoria de remuneração de transporte: o que mudou entre vigências, quanto custa, e a evidência até a célula da planilha de origem." />
     <meta name="robots" content="noindex, nofollow" />
+    <!--
+      O cartão que aparece quando alguém cola o link no WhatsApp.
+
+      `twitter:card` já dizia `summary_large_image` sem que existisse imagem
+      nenhuma para ser grande: sem `og:image`, o WhatsApp mostra a tira estreita
+      com o favicon, e é a diferença entre um link que se apresenta e um link
+      que parece quebrado. A imagem é `public/og.png`, 1200x630 — a proporção
+      1,91:1 que o WhatsApp recorta —, e a fonte dela é `marca/og.html`.
+
+      **A URL da imagem é absoluta, e tem de ser.** O crawler do WhatsApp não
+      resolve caminho relativo contra a página; um `/og.png` aqui chega até ele
+      como endereço sem host e é descartado sem aviso. Por isso o domínio está
+      escrito, e não vem de variável de ambiente: `vite build` roda uma vez por
+      deploy e o domínio de produção é um só.
+
+      `og:url` canoniza o endereço — sem ele, cada variante compartilhada
+      (`www.`, com `?utm=`, com barra final) vira uma entrada de cache
+      diferente. O cache do WhatsApp, aliás, é por URL e dura dias: depois de
+      publicar, o cartão antigo pode insistir por um tempo.
+    -->
+    <meta property="og:site_name" content="FreightCheck" />
     <meta property="og:title" content="FreightCheck" />
     <meta property="og:description" content="Auditoria de remuneração de transporte: o que mudou entre vigências, quanto custa, e a evidência até a célula da planilha de origem." />
     <meta property="og:type" content="website" />
+    <meta property="og:locale" content="pt_BR" />
+    <meta property="og:url" content="https://freightcheck.com.br/" />
+    <meta property="og:image" content="https://freightcheck.com.br/og.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="FreightCheck — auditoria de remuneração de transporte" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="FreightCheck" />
     <meta name="twitter:description" content="Auditoria de remuneração de transporte: o que mudou entre vigências, quanto custa, e a evidência até a célula da planilha de origem." />
+    <meta name="twitter:image" content="https://freightcheck.com.br/og.png" />
+    <meta name="theme-color" content="#0F2A48" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <!--
       Aqui havia um <link> para o `fonts.googleapis.com` (a Inter) e os dois

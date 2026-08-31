@@ -1,0 +1,73 @@
+<!doctype html>
+<meta charset="utf-8">
+<!--
+  A fonte do `public/og.png` — a imagem que WhatsApp, Slack, LinkedIn e
+  Telegram mostram quando alguém cola o link do produto.
+
+  Ela é um HTML, e não um `.png` solto no repositório, porque a marca aqui é a
+  mesma de `src/components/layout/logotipo.tsx`: o símbolo é o mesmo caminho
+  SVG, as cores são as mesmas do `--topbar`/`--topbar-accent` do `index.css`, e
+  a tipografia é a Montserrat que o produto já serve do próprio domínio. Um PNG
+  binário sem origem envelhece calado — muda a marca, e ninguém sabe de onde
+  aquele arquivo saiu para refazê-lo.
+
+  Para regerar depois de mexer aqui (1200x630, que é a proporção 1,91:1 que o
+  WhatsApp recorta), a partir desta pasta:
+
+      chromium --headless --no-sandbox --hide-scrollbars \
+        --window-size=1200,630 --screenshot=../public/og.png og.html
+
+  Não há passo de build que faça isso: a imagem é um asset estático versionado,
+  e um build que dependesse de um Chromium seria uma dependência nova no deploy
+  para produzir um arquivo que muda uma vez por ano.
+-->
+<style>
+  @font-face {
+    font-family: 'Montserrat';
+    font-style: normal;
+    font-weight: 400 800;
+    src: url('../src/fontes/montserrat-variavel-latin.woff2') format('woff2-variations');
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1200px; height: 630px; }
+  body {
+    font-family: 'Montserrat', system-ui, sans-serif;
+    background: #0F2A48;
+    background-image:
+      radial-gradient(900px 520px at 82% -12%, rgba(37, 99, 235, 0.38), transparent 62%),
+      radial-gradient(700px 460px at 8% 108%, rgba(77, 163, 255, 0.16), transparent 60%);
+    color: #fff;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 0 96px;
+    overflow: hidden;
+  }
+  .marca { display: flex; align-items: center; gap: 26px; }
+  .marca svg { width: 118px; height: 118px; }
+  .nome { font-size: 96px; line-height: 1; letter-spacing: -0.035em; }
+  .nome .a { font-weight: 800; font-style: italic; color: #fff; }
+  .nome .b { font-weight: 400; color: #4DA3FF; }
+  .linha { width: 132px; height: 6px; border-radius: 3px; margin: 40px 0 28px; background: linear-gradient(90deg, #2563EB, #4DA3FF); }
+  .frase { font-size: 35px; font-weight: 500; line-height: 1.34; color: #D7E4F3; max-width: 900px; letter-spacing: -0.012em; }
+  .frase b { font-weight: 700; color: #fff; }
+  .rodape { font-size: 24px; font-weight: 600; letter-spacing: 0.06em; color: #7FA8D0; text-transform: uppercase; }
+</style>
+<body>
+  <div><div class="marca">
+    <svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="g" gradientUnits="userSpaceOnUse" x1="5" y1="34" x2="35" y2="6">
+          <stop offset="0" stop-color="#2563EB"/>
+          <stop offset="1" stop-color="#4DA3FF"/>
+        </linearGradient>
+      </defs>
+      <path d="M 24.9 10.0 A 13 13 0 1 0 30.4 25.0" stroke="url(#g)" stroke-width="4.2" stroke-linecap="round"/>
+      <path d="M 10.0 21.2 L 16.4 27.6 L 30.8 11.9" stroke="url(#g)" stroke-width="4.2" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M 35.5 6.0 L 33.8 14.5 L 27.2 8.7 Z" fill="url(#g)"/>
+    </svg>
+    <span class="nome"><span class="a">Freight</span><span class="b">Check</span></span>
+  </div>
+  <div class="linha"></div>
+  <p class="frase">Auditoria de remuneração de transporte: <b>o que mudou entre vigências</b>, quanto isso custa, e a evidência até a célula da planilha de origem.</p></div>
+</body>
