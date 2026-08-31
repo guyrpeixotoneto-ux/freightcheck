@@ -42,6 +42,12 @@ export interface EventoDoPapel {
 export interface DetalheDoPapel {
   papel: Papel;
   permissoes: Record<string, Nivel>;
+  /**
+   * O que a instalação desligou para todo mundo (Configurações › Módulos
+   * Universais). Não é decisão deste papel e nada que se faça aqui a desfaz —
+   * a matriz mostra a linha assim, em vez de deixá-la parecer editável.
+   */
+  universaisDesligadas: string[];
   historico: EventoDoPapel[];
 }
 

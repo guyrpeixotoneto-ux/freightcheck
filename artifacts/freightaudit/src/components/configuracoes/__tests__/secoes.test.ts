@@ -40,12 +40,14 @@ describe("o índice de Configurações", () => {
     const sustentadas = SECOES_GERAIS.filter((s) => !estaEmPreparo(s.href));
 
     /*
-      Nove hoje. Eram três — Meu Perfil, Unidades e Usuários —, viraram quatro
+      Dez hoje. Eram três — Meu Perfil, Unidades e Usuários —, viraram quatro
       quando Permissões ganhou endereço próprio, sete quando o cadastro da casa
       nasceu e Cargos, Negócio e Departamento saíram do catálogo de telas em
       preparo, oito quando a troca da senha saiu de Meu Perfil e virou Segurança,
-      e nove quando o papel deixou de ser dois valores no código e virou
-      cadastro. É exatamente o efeito que este `expect` existe para produzir:
+      nove quando o papel deixou de ser dois valores no código e virou cadastro,
+      e dez quando os Módulos Universais deram à casa a terceira camada — a que
+      diz que partes do produto esta instalação usa, acima do papel e da
+      exceção. É exatamente o efeito que este `expect` existe para produzir:
       ele cai no dia da mudança e obriga a olhar as duas listas juntas, em vez
       de deixar o catálogo prometendo o que já existe.
     */
@@ -56,6 +58,7 @@ describe("o índice de Configurações", () => {
       "/configuracoes/usuarios",
       "/configuracoes/papeis",
       "/configuracoes/permissoes",
+      "/configuracoes/modulos-universais",
       "/configuracoes/cargos",
       "/configuracoes/negocio",
       "/configuracoes/departamento",

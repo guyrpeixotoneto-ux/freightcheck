@@ -137,15 +137,18 @@ describe("o padrão é edição, e nenhuma conta nasce bloqueada", () => {
     });
     expect(res.status).toBe(200);
     /*
-      As três camadas vazias, e não só uma: desde a `0082` a resposta separa o
+      Todas as camadas vazias, e não só uma: desde a `0082` a resposta separa o
       que vem do papel do que é exceção da conta, e `permissoes` é a soma — o
-      que o portão faria. Vazio nas três é o estado de uma conta sem exceção
-      cujo papel não restringe nada, que é o de toda conta nova.
+      que o portão faria. Desde os módulos universais ela traz também o que a
+      casa desligou para todo mundo, que é a camada acima das duas. Vazio em
+      todas é o estado de uma instalação inteira no ar com uma conta sem exceção
+      cujo papel não restringe nada — o de toda conta nova.
     */
     expect(await res.json()).toEqual({
       permissoes: {},
       doPapel: {},
       daPessoa: {},
+      universaisDesligadas: [],
       historico: [],
     });
   });

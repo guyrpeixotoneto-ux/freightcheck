@@ -353,6 +353,23 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
         "papel",
         "papel_permissao",
         "papel_evento",
+        /*
+          As duas dos módulos universais, da `0086` — o que a instalação
+          desligou para todo mundo, e o histórico de quem ligou e desligou.
+          Aditivas pelo mesmo critério de todas as acima: não referenciam nada,
+          nenhuma tabela existente muda de forma, e nenhuma coluna nova sai de
+          tabela do cálculo.
+
+          Nascem **vazias**, e nascer vazias é o estado correto: a ausência de
+          linha é "tudo ligado", como a ausência de linha nas duas tabelas de
+          permissão é "alcança tudo". Ninguém perde uma tela no deploy.
+
+          O que elas guardam é decisão humana sobre o produto inteiro, e é por
+          isso que o `down` do bridge exige encontrá-las vazias antes de
+          derrubá-las.
+        */
+        "modulo_universal",
+        "modulo_universal_evento",
       ]),
     );
     /*
@@ -654,6 +671,14 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
         "papel_evento_papel_id_papel_id_fk",
         "papel_evento_tipo_check",
         "app_user_papel_id_papel_id_fk",
+        /*
+          As duas dos módulos universais, da `0086`: as chaves primárias das
+          duas tabelas novas, nomeadas pela mesma razão das de cima. Elas vêm
+          com tabelas que nascem vazias e não referenciam nada — nenhuma
+          constraint deste par cai sobre tabela que Production já tem.
+        */
+        "modulo_universal_pkey",
+        "modulo_universal_evento_pkey",
       ]),
     );
 

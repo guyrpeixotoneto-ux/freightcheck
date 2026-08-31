@@ -21,3 +21,4 @@ export * from "./fluxo";
 export * from "./permissao";
 export * from "./papel";
 export * from "./integracao";
+export * from "./modulo-universal";

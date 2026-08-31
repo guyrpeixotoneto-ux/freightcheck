@@ -577,6 +577,24 @@ const TABELAS_REMOVIDAS = [
   "integracao_chamada",
   "integracao_chave",
   "integracao",
+  /*
+    As duas dos módulos universais, da `0086` — o que a instalação desligou para
+    todo mundo, e o histórico disso. Entram pelo mesmo motivo das outras tabelas
+    de módulo novo: Production não as conhece até a fila rodar lá.
+
+    Não penduram em ninguém e ninguém pendura nelas: a chave é o endereço do
+    módulo, texto, como nas duas tabelas de permissão. A ordem entre si é
+    indiferente, e ficam juntas porque falam da mesma decisão.
+
+    A pré-condição de tabela vazia é a certa, e é da família de
+    `permissao_de_modulo`: cada linha é **decisão humana** — desta vez sobre o
+    produto inteiro, não sobre uma pessoa —, e nenhuma consulta a reconstrói.
+    Um Development com um módulo desligado trava o `down`, e travar é o
+    comportamento correto: descartar a linha devolveria ao menu de todo mundo
+    uma seção que a casa tinha decidido não usar.
+  */
+  "modulo_universal_evento",
+  "modulo_universal",
   "unidade",
 ];
 
@@ -3096,6 +3114,23 @@ function planoUp(): PassoUp[] {
     "integracao_execucao_integracao_idx",
   ]) {
     add(M85, `índice ${indice}`, levantar(M85, new RegExp(`INDEX IF NOT EXISTS "${indice}"`)));
+  }
+
+  /*
+    A `0086` — os módulos universais. Duas tabelas sem chave estrangeira
+    nenhuma, que nascem e voltam vazias: a ausência de linha é "tudo ligado", e
+    é por isso que este bloco não repõe dado nenhum, ao contrário do da `0082`.
+  */
+  const M86 = "0086_modulos_universais";
+  for (const tabela of ["modulo_universal", "modulo_universal_evento"]) {
+    add(M86, tabela, levantar(M86, new RegExp(`CREATE TABLE IF NOT EXISTS "${tabela}" \\(`)));
+  }
+  for (const indice of [
+    "modulo_universal_chave_idx",
+    "modulo_universal_evento_chave_idx",
+    "modulo_universal_evento_em_idx",
+  ]) {
+    add(M86, `índice ${indice}`, levantar(M86, new RegExp(`INDEX IF NOT EXISTS "${indice}"`)));
   }
 
   const M42 = "0042_viagem_completa";

@@ -264,6 +264,7 @@ function PapelEscolhido({
       queryClient.setQueryData(CHAVE_DO_DETALHE(papel.id), {
         papel: resposta.papel,
         permissoes: resposta.permissoes,
+        universaisDesligadas: resposta.universaisDesligadas,
         historico: resposta.historico,
       });
       invalidar();
@@ -396,6 +397,7 @@ function PapelEscolhido({
 
         <MatrizDeAcesso
           niveis={permissoes}
+          universaisDesligadas={detalhe.data?.universaisDesligadas ?? []}
           desabilitado={!podeMexer || definir.isPending}
           carregando={detalhe.isLoading}
           aoEscolher={(niveis) => definir.mutate(niveis)}

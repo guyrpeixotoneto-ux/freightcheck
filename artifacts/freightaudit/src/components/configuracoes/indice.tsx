@@ -4,6 +4,7 @@ import { useAuth } from "@/lib/auth";
 import { useContextosDaCasca } from "@/lib/contextos";
 import { cn } from "@/lib/utils";
 import { useContas } from "./contas";
+import { useModulosUniversais } from "./modulos-universais-consulta";
 import { usePapeis } from "./papeis-consulta";
 import { SECOES_GERAIS, estaEmPreparo, type SecaoDeConfiguracao } from "./secoes";
 
@@ -54,6 +55,14 @@ export function IndiceDeConfiguracoes() {
   /* A mesma consulta da seção de Papéis, pela razão de `contas.ts`: uma
      `queryFn` por chave. */
   const { data: papeis, isLoading: carregandoPapeis } = usePapeis();
+  /*
+    A camada da casa: quantas partes do produto esta instalação desligou para
+    todo mundo. A linha existe porque zero é a resposta normal e ninguém abriria
+    a seção para descobrir isso — e porque, quando não é zero, ela é a primeira
+    explicação para "sumiu uma tela do menu de todo mundo".
+  */
+  const { data: universais, isLoading: carregandoUniversais } =
+    useModulosUniversais();
 
   const estados = new Map<string, EstadoDaSecao>();
 
@@ -143,6 +152,29 @@ export function IndiceDeConfiguracoes() {
             outrasContas > 0
               ? `${plural(outrasContas, "conta", "contas")} além da sua`
               : "Só a sua conta — ninguém muda o próprio acesso",
+        },
+  );
+
+  estados.set(
+    "/configuracoes/modulos-universais",
+    /*
+      Sem visto verde, e de propósito: aqui o cadastro cheio é a exceção, e não
+      a meta. O visto diz "esta seção tem conteúdo no banco"; nesta, ter
+      conteúdo quer dizer que a casa desligou partes do produto — marcar isso de
+      verde diria que uma instalação com tudo no ar está pela metade.
+    */
+    carregandoUniversais || universais === undefined
+      ? CARREGANDO
+      : {
+          pronta: false,
+          resumo:
+            universais.desligadas.length > 0
+              ? `${plural(
+                  universais.desligadas.length,
+                  "desligado para todo mundo",
+                  "desligados para todo mundo",
+                )}`
+              : "Tudo ligado — o produto inteiro no ar",
         },
   );
 
