@@ -226,6 +226,20 @@ export const EVOLUCAO_POR_PLACA = "/evolucao-por-placa";
  */
 export const DASHBOARD = "/dashboard";
 
+/**
+ * O Impacto Apurado — o segundo módulo da seção Dashboard.
+ *
+ * Endereço próprio, e não uma aba dentro de `/dashboard`: os dois módulos são
+ * duas telas com duas perguntas, e a lateral só sabe acender o item cujo
+ * endereço está aberto. Uma aba faria "Impacto Líquido" ficar aceso para quem
+ * clicou em "Impacto Apurado" — o mesmo motivo pelo qual `/impacto-financeiro`
+ * tem rota própria em vez de redirecionar para `/alteracoes?aba=impacto`.
+ *
+ * O recorte que ele lê é o mesmo de `DASHBOARD` — unidade, canal e vigência na
+ * consulta —, e é o que faz trocar de módulo manter a vigência aberta.
+ */
+export const IMPACTO_APURADO = "/impacto-apurado";
+
 /** A Gestão à Vista — o mesmo recorte do Dashboard, em formato de telão. */
 export const GESTAO_A_VISTA = "/gestao-a-vista";
 

@@ -50,6 +50,7 @@ import {
 import {
   DASHBOARD,
   ENTRADA_DA_AUDITORIA,
+  IMPACTO_APURADO,
   EVOLUCAO_POR_PLACA,
   LINHA_DO_TEMPO,
   RESUMO_EXECUTIVO,
@@ -121,7 +122,21 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
       descricao: "O que mudou desde a última competência, antes de tudo",
       icon: Radar,
       cor: "text-nav-executiva",
-      itens: [{ href: DASHBOARD, label: "Impacto Líquido", icon: Radar }],
+      itens: [
+        { href: DASHBOARD, label: "Impacto Líquido", icon: Radar },
+        /*
+          O Impacto Apurado vem **depois** do Impacto Líquido, e a ordem é a do
+          trabalho: o primeiro é a tela de exploração — o que mudou, onde, em
+          quantos veículos —, e o segundo é a leitura executiva do mesmo dado,
+          onde a pergunta é "quanto disso já está apurado e onde agir".
+
+          Os dois leem exatamente a mesma resposta do servidor, sob a mesma
+          chave de cache (`lib/leitura-da-vigencia.ts`). São dois módulos da
+          mesma seção justamente por isso: não são dois acervos, são duas
+          alturas de leitura do mesmo.
+        */
+        { href: IMPACTO_APURADO, label: "Impacto Apurado", icon: CircleDollarSign },
+      ],
     },
     {
       titulo: "Visão executiva",

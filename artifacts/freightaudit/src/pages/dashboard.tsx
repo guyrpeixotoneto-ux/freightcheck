@@ -4,37 +4,23 @@ import { Link, useLocation, useSearch } from "wouter";
 import {
   ArrowDownRight,
   ArrowUpRight,
-  Bell,
   CalendarDays,
-  ChevronDown,
   ChevronRight,
   Clock,
   FileText,
   Gauge,
-  GitCompareArrows,
-  LayoutDashboard,
-  LayoutGrid,
   ReceiptText,
   SlidersHorizontal,
   TrendingDown,
   TrendingUp,
   Truck,
-  Tv,
   type LucideIcon,
 } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
 import { ApiErrorNotice } from "@/components/api-error";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { ApiError, fetchJson, fetchJsonOrNull } from "@/lib/api";
-import { LEITURA_DE_APURACAO } from "@/lib/frescor-das-leituras";
+import { fetchJsonOrNull } from "@/lib/api";
+import { opcoesDaVigencia } from "@/lib/leitura-da-vigencia";
 import { EmAtualizacao, classeDeAtualizacao } from "@/components/ui/em-atualizacao";
 import { useContextosDaCasca } from "@/lib/contextos";
 import { useFamiliesOverviewQuery } from "@/lib/families-overview";
@@ -66,6 +52,10 @@ import type { UnidadeDoDrill } from "@/lib/drill-da-familia";
 import { unidadesPorImpacto } from "@/components/inicio/visao-geral-consolidada";
 import { Sparkline } from "@/components/dashboard/sparkline";
 import { AnelDeCobertura } from "@/components/dashboard/anel-de-cobertura";
+import {
+  MenuDaGestaoAVista,
+  SeletorDeUnidade,
+} from "@/components/dashboard/controles-do-recorte";
 import { GraficoDeImpacto, type PontoDeImpacto } from "@/components/dashboard/grafico-de-impacto";
 import { useSerieDeImpacto, useSerieDeImpactoGeral } from "@/lib/serie-de-impacto";
 import {
@@ -128,11 +118,10 @@ export default function Dashboard() {
     const valor = parametros.get(chave);
     if (valor !== null) consulta.set(chave, valor);
   }
-  const sufixo = consulta.toString() ? `?${consulta}` : "";
   const visaoGeral = parametros.get("visaoGeral") === "1";
 
   const vigencia = useQuery({
-    queryKey: ["families", "dashboard", consulta.toString()],
+    ...opcoesDaVigencia(consulta),
     enabled: !visaoGeral,
     /*
       A leitura da unidade aberta, com a política de apuração fechada
@@ -149,16 +138,13 @@ export default function Dashboard() {
       exatamente esta leitura, e pela mesma razão: uma vigência fechada não
       muda entre duas importações, e é a importação que invalida a chave — não
       o relógio.
+
+      A chave, o `staleTime`, o `placeholderData` e o 404 que vira `null` saíram
+      para `lib/leitura-da-vigencia.ts` quando o Impacto Apurado nasceu ao lado
+      desta tela: os dois módulos leem exatamente esta resposta, e a chave
+      compartilhada é o que impede que busquem — e, por 150 ms, publiquem —
+      vigências diferentes da mesma unidade.
     */
-    ...LEITURA_DE_APURACAO,
-    queryFn: async () => {
-      try {
-        return await fetchJson<FamiliesView>(`/changes/families${sufixo}`);
-      } catch (erro) {
-        if (erro instanceof ApiError && erro.status === 404) return null;
-        throw erro;
-      }
-    },
   });
 
   const view = visaoGeral ? null : (vigencia.data ?? null);
@@ -421,55 +407,12 @@ function Cabecalho({
 
         <div className="flex items-center gap-3 shrink-0">
           {contextos.length > 1 && (
-            <DropdownMenu>
-              <DropdownMenuTrigger className={BOTAO_DE_TROCA}>
-                <GitCompareArrows className="w-4 h-4" />
-                Trocar unidade
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-72">
-                <DropdownMenuItem
-                  onSelect={() =>
-                    onTrocar({
-                      visaoGeral: "1",
-                      scopeHash: null,
-                      canal: null,
-                      ...(periodoAtual ? { period: periodoAtual } : {}),
-                    })
-                  }
-                  className={cn("flex flex-col items-start gap-0.5", visaoGeral && "font-bold text-brand")}
-                >
-                  <span className="font-semibold">Visão Geral</span>
-                  <span className="text-xs text-muted-foreground">
-                    Soma de todas as unidades com dado na competência
-                  </span>
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
-                  {contextos.length} unidades com vigência importada
-                </DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                {contextos.map((contexto) => (
-                  <DropdownMenuItem
-                    key={`${contexto.scopeHash}|${contexto.channel ?? ""}`}
-                    onSelect={() =>
-                      onTrocar({
-                        scopeHash: contexto.scopeHash,
-                        canal: contexto.channel,
-                        period: null,
-                        visaoGeral: null,
-                      })
-                    }
-                    className="flex flex-col items-start gap-0.5"
-                  >
-                    <span className="font-semibold">{nomeDaUnidade(contexto)}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {contexto.channel ?? "sem canal no rótulo"} · {contexto.periods}{" "}
-                      {contexto.periods === 1 ? "vigência" : "vigências"}
-                    </span>
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <SeletorDeUnidade
+              contextos={contextos}
+              visaoGeral={visaoGeral}
+              periodoAtual={periodoAtual}
+              onTrocar={onTrocar}
+            />
           )}
 
           {visaoGeral
@@ -490,75 +433,11 @@ function Cabecalho({
                 />
               )}
 
-          {/*
-            O botão da Gestão à Vista é o único cheio desta tela — a mesma
-            régua de `pages/inicio.tsx`, que reserva a cor sólida da marca para
-            a ação que a tela existe para oferecer. Agora abre um menu porque a
-            Gestão à Vista tem mais de um template: o Financeiro (o telão escuro
-            de sempre), o Alertas (a tabela clara de unidades, por competência) e
-            o Radar (a grade unidade × vigência, com o impacto de cada célula).
-          */}
-          <DropdownMenu>
-            <DropdownMenuTrigger className="flex items-center gap-2 rounded-lg bg-brand px-4 py-2.5 text-sm font-bold text-brand-foreground hover:opacity-90 transition-opacity">
-              <Tv className="w-4 h-4" />
-              Gestão à Vista
-              <ChevronDown className="w-3.5 h-3.5 opacity-80" />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-64">
-              <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
-                Escolha o template
-              </DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem asChild>
-                <Link href={comTemplate(paraGestaoAVista, "financeiro")} className="flex items-start gap-2.5">
-                  <LayoutDashboard className="w-4 h-4 mt-0.5 shrink-0" />
-                  <span>
-                    <span className="block font-semibold">Financeiro</span>
-                    <span className="block text-xs text-muted-foreground">
-                      O telão completo: impacto, ranking, pendências e tendência.
-                    </span>
-                  </span>
-                </Link>
-              </DropdownMenuItem>
-              <DropdownMenuItem asChild>
-                <Link href={comTemplate(paraGestaoAVista, "alertas")} className="flex items-start gap-2.5">
-                  <Bell className="w-4 h-4 mt-0.5 shrink-0" />
-                  <span>
-                    <span className="block font-semibold">Alertas</span>
-                    <span className="block text-xs text-muted-foreground">
-                      Tabela por unidade: alterações, impacto e a que teve mais mudança.
-                    </span>
-                  </span>
-                </Link>
-              </DropdownMenuItem>
-              <DropdownMenuItem asChild>
-                <Link href={comTemplate(paraGestaoAVista, "radar")} className="flex items-start gap-2.5">
-                  <LayoutGrid className="w-4 h-4 mt-0.5 shrink-0" />
-                  <span>
-                    <span className="block font-semibold">Radar</span>
-                    <span className="block text-xs text-muted-foreground">
-                      Grade unidade × vigência: quando cada uma mexeu e quanto custou.
-                    </span>
-                  </span>
-                </Link>
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <MenuDaGestaoAVista paraGestaoAVista={paraGestaoAVista} />
         </div>
       </div>
     </header>
   );
-}
-
-/** Anexa `?template=` (ou acrescenta, se já houver uma consulta) ao link da Gestão à Vista. */
-function comTemplate(
-  paraGestaoAVista: string,
-  template: "financeiro" | "alertas" | "radar",
-): string {
-  const [caminho, consulta] = paraGestaoAVista.split("?");
-  const parametros = new URLSearchParams(consulta);
-  parametros.set("template", template);
-  return `${caminho}?${parametros}`;
 }
 
 const BOTAO_DE_TROCA =
