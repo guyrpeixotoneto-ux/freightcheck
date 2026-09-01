@@ -1,7 +1,7 @@
 import { ArrowDownRight, ArrowUpRight, FileText, Truck } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatBrlShort, periodicitySuffix } from "@/lib/format";
-import { comSinal } from "@/lib/impacto-apurado";
+import { comSinal, type SituacaoDaApuracao } from "@/lib/impacto-apurado";
 import type { LadosDoImpacto } from "@/lib/visao-geral";
 
 /**
@@ -33,14 +33,34 @@ export interface ContextoDaManchete {
 }
 
 export function Manchete({
-  lados,
+  situacao,
+  outras,
   contexto,
 }: {
-  /** `null` quando a vigência não tem impacto apurado — nunca um zero no lugar. */
-  lados: LadosDoImpacto | null;
+  /**
+   * Em que pé está a apuração — quatro desfechos, e nenhum deles é o outro.
+   *
+   * A tela escrevia `null` para três coisas diferentes: vigência sem alteração,
+   * vigência sem preço e vigência apurada em R$ 0,00. As três viravam "nenhum
+   * valor apurado", e a terceira é uma apuração que aconteceu.
+   */
+  situacao: SituacaoDaApuracao;
+  /**
+   * As outras periodicidades da vigência — em linha própria, e nunca somadas.
+   *
+   * R$/mês e R$/ano não somam, aqui nem em lugar nenhum do produto. Sem esta
+   * linha, uma vigência com valor anual publicaria só o mensal e o anual
+   * sumiria da tela sem que nada dissesse que ele existe.
+   */
+  outras: LadosDoImpacto[];
   contexto: ContextoDaManchete;
 }) {
-  const sufixo = lados ? periodicitySuffix(lados.periodicity) : "";
+  const lados = situacao.estado === "com_movimento" ? situacao.lados : null;
+  const sufixo = lados
+    ? periodicitySuffix(lados.periodicity)
+    : situacao.estado === "apurado_em_zero"
+      ? periodicitySuffix(situacao.periodicity)
+      : "";
 
   return (
     <div className="grid gap-4 lg:grid-cols-[minmax(280px,1fr)_minmax(0,1.75fr)]">
@@ -51,7 +71,7 @@ export function Manchete({
         <p className="text-[11px] font-bold tracking-[0.14em] uppercase opacity-80">
           Impacto líquido apurado
         </p>
-        {lados ? (
+        {lados || situacao.estado === "apurado_em_zero" ? (
           <>
             <p className="mt-3 flex items-baseline gap-2 flex-wrap">
               {/*
@@ -60,22 +80,40 @@ export function Manchete({
                 não pode acontecer é o número quebrar no meio.
               */}
               <span className="text-3xl sm:text-4xl xl:text-5xl font-extrabold tabular-nums leading-none whitespace-nowrap">
-                {comSinal(lados.liquido)}
+                {comSinal(lados ? lados.liquido : 0)}
               </span>
               {sufixo && <span className="text-base font-semibold opacity-80">{sufixo}</span>}
             </p>
-            <p className="text-xs opacity-80 mt-3 leading-snug">
-              Impacto financeiro já identificado nesta vigência.
-            </p>
+            <p className="text-xs opacity-80 mt-3 leading-snug">{DESCRICAO[situacao.estado]}</p>
+            {/*
+              Líquido zero tem duas causas, e elas pedem conversas diferentes:
+              ganho e perda que se anularam, ou linhas apuradas em R$ 0,00. A
+              primeira é dita aqui porque o número sozinho não a mostra.
+            */}
+            {lados && lados.liquido === 0 && lados.ganhos > 0 && (
+              <p className="text-xs opacity-80 mt-1 leading-snug">
+                Ganhos e perdas se compensaram: {formatBrlShort(lados.ganhos)} de um lado e{" "}
+                {formatBrlShort(lados.perdas)} do outro.
+              </p>
+            )}
           </>
         ) : (
           <>
-            <p className="mt-3 text-2xl font-extrabold leading-tight">Nenhum valor apurado</p>
-            <p className="text-xs opacity-80 mt-3 leading-snug">
-              Esta vigência ainda não tem alteração com preço apurado. Sem preço não há
-              resultado — e um R$ 0 aqui diria o contrário.
+            <p className="mt-3 text-2xl font-extrabold leading-tight">
+              {situacao.estado === "sem_alteracao" ? "Nada mudou" : "Nenhum valor apurado"}
             </p>
+            <p className="text-xs opacity-80 mt-3 leading-snug">{DESCRICAO[situacao.estado]}</p>
           </>
+        )}
+
+        {outras.length > 0 && (
+          <p className="text-xs opacity-80 mt-3 leading-snug border-t border-white/20 pt-2">
+            Esta vigência também tem{" "}
+            {outras
+              .map((l) => `${formatBrlShort(l.liquido)}${periodicitySuffix(l.periodicity)}`)
+              .join(" e ")}{" "}
+            — grandezas que não somam com a de cima.
+          </p>
         )}
       </section>
 
@@ -88,7 +126,7 @@ export function Manchete({
           {lados ? (
             <Valor className="text-emerald-700">{comSinal(lados.ganhos)}</Valor>
           ) : (
-            <SemValor />
+            <SemValor situacao={situacao} />
           )}
         </Indicador>
 
@@ -97,7 +135,11 @@ export function Manchete({
           tomDoIcone="text-red-700 bg-red-50"
           titulo={`Perdas${adjetivo(lados?.periodicity ?? null)}`}
         >
-          {lados ? <Valor className="text-red-700">{formatBrlShort(lados.perdas)}</Valor> : <SemValor />}
+          {lados ? (
+            <Valor className="text-red-700">{formatBrlShort(lados.perdas)}</Valor>
+          ) : (
+            <SemValor situacao={situacao} />
+          )}
         </Indicador>
 
         <Indicador icone={Truck} tomDoIcone="text-brand bg-accent" titulo="Veículos afetados">
@@ -171,7 +213,31 @@ function Valor({ children, className }: { children: React.ReactNode; className?:
   );
 }
 
-/** Sem valor apurado não é R$ 0 — e a tela escreve a diferença. */
-function SemValor() {
-  return <p className="text-sm text-muted-foreground">sem valor apurado</p>;
+/**
+ * Sem valor apurado não é R$ 0 — e a tela escreve qual dos casos é.
+ *
+ * "Apurado em R$ 0,00" tem número: é `R$ 0`, e escrevê-lo é a leitura honesta.
+ * Os outros dois não têm, e um R$ 0 no lugar deles afirmaria que a mudança não
+ * custou nada — quando o que se sabe é que ainda não se sabe.
+ */
+function SemValor({ situacao }: { situacao: SituacaoDaApuracao }) {
+  if (situacao.estado === "apurado_em_zero") {
+    return <p className="text-2xl font-extrabold tabular-nums leading-none">R$ 0</p>;
+  }
+  return (
+    <p className="text-sm text-muted-foreground">
+      {situacao.estado === "sem_alteracao" ? "sem alteração" : "sem valor apurado"}
+    </p>
+  );
 }
+
+/** A frase debaixo do número — uma por desfecho, e nenhuma serve para dois. */
+const DESCRICAO: Record<SituacaoDaApuracao["estado"], string> = {
+  com_movimento: "Impacto financeiro já identificado nesta vigência.",
+  apurado_em_zero:
+    "As alterações desta vigência foram apuradas e não mudaram a remuneração: o resultado é zero medido, e não ausência de apuração.",
+  nada_apurado:
+    "Há alterações nesta vigência, e nenhuma tem preço apurado. Sem preço não há resultado — e um R$ 0 aqui diria o contrário.",
+  sem_alteracao:
+    "O cliente não alterou nada nesta vigência que esta comparação alcance. Não há impacto a apurar.",
+};

@@ -87,7 +87,14 @@ const contribuinte = (key: string, familia: string, amount: number) => ({
   amount,
 });
 
-const IMPACTO = {
+const IMPACTO: {
+  byPeriodicity: Record<string, number>;
+  brutoByPeriodicity: Record<string, number>;
+  rastro: { brutoByPeriodicity: Record<string, number>; degraus: []; oficialByPeriodicity: Record<string, number> };
+  excludedChanges: number;
+  calculatedChanges: number;
+  notCalculable: number;
+} = {
   byPeriodicity: { MENSAL: 21931 },
   brutoByPeriodicity: { MENSAL: 21931 },
   rastro: { brutoByPeriodicity: {}, degraus: [], oficialByPeriodicity: {} },
@@ -284,6 +291,67 @@ describe("a página do Impacto Apurado", () => {
     /* O cartão em destaque do módulo antigo escreve o líquido sem o sinal. */
     await waitFor(() => expect(screen.getAllByText("R$ 21.931").length).toBeGreaterThan(0));
     expect(screen.getByText(/Impacto Líquido —/)).toBeTruthy();
+  });
+
+  /*
+    Os três desfechos sem líquido, montados de ponta a ponta: a tela tem de
+    escrever três frases diferentes, e nenhuma delas pode ser a do outro caso.
+    É o mesmo dado que separa os três — `sides`, `calculatedChanges` e
+    `totals.changes` —, e é aqui que se prova que a página os lê como três.
+  */
+  const comVigencia = (ajustes: (v: typeof VIGENCIA) => void) => {
+    const vigencia = structuredClone(VIGENCIA);
+    ajustes(vigencia);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (entrada: RequestInfo | URL) =>
+        String(entrada).includes("/changes/families")
+          ? resposta(vigencia)
+          : resposta({ from: "2026-07-01", to: "2026-08-01", periods: [], entries: [] }),
+      ),
+    );
+    montar();
+  };
+
+  it("alterações sem preço nenhum: o líquido é desconhecido, não zero", async () => {
+    comVigencia((v) => {
+      v.summary.sides = [];
+      v.summary.impact = { ...v.summary.impact, byPeriodicity: {}, calculatedChanges: 0, notCalculable: 102 };
+      v.impact = { ...v.impact, byPeriodicity: {}, calculatedChanges: 0, notCalculable: 102 };
+    });
+
+    await waitFor(() => expect(screen.getByText("Nenhum valor apurado")).toBeTruthy());
+    expect(screen.queryByText("R$ 0")).toBeNull();
+    expect(screen.getByText(/apenas 0 de 102 alterações/)).toBeTruthy();
+  });
+
+  it("tudo apurado em R$ 0,00: o zero é medida, e a cobertura é completa", async () => {
+    comVigencia((v) => {
+      v.summary.sides = [];
+      v.summary.impact = { ...v.summary.impact, byPeriodicity: { MENSAL: 0 }, calculatedChanges: 102, notCalculable: 0 };
+      v.impact = { ...v.impact, byPeriodicity: { MENSAL: 0 }, calculatedChanges: 102, notCalculable: 0 };
+    });
+
+    await waitFor(() => expect(screen.getAllByText("R$ 0").length).toBeGreaterThan(0));
+    expect(screen.getByText(/zero medido, e não ausência de apuração/)).toBeTruthy();
+    expect(screen.getByText(/Resultado completo/)).toBeTruthy();
+  });
+
+  it("vigência sem anterior não diz que o cliente não mudou nada", async () => {
+    comVigencia((v) => {
+      v.summary.sides = [];
+      v.totals.changes = 0;
+      v.summary.changes = 0;
+      v.summary.impact = { ...v.summary.impact, byPeriodicity: {}, calculatedChanges: 0, notCalculable: 0 };
+      v.impact = { ...v.impact, byPeriodicity: {}, calculatedChanges: 0, notCalculable: 0 };
+      v.cockpit.baseline = { hasBaseline: false, seriesWithoutBaseline: [] };
+    });
+
+    await waitFor(() =>
+      expect(screen.getByText("Esta vigência não tem anterior com que comparar.")).toBeTruthy(),
+    );
+    expect(screen.getByText("Nada mudou")).toBeTruthy();
+    expect(screen.queryByText(/o cliente não mudou nada/)).toBeNull();
   });
 
   it("falha do servidor vira aviso, e não uma tela em branco", async () => {

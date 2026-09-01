@@ -123,9 +123,18 @@ export function EvolucaoPorVigencia({
                       {formatBrlShort(ponto.liquido)}
                       {sufixo}
                     </p>
-                    <p className="text-muted-foreground tabular-nums mt-0.5">
-                      {formatBrlShort(ponto.ganhos)} somaram · {formatBrlShort(ponto.perdas)} saíram
-                    </p>
+                    {/*
+                      Só o líquido, e é decisão de reconciliação, não de espaço.
+                      A série parte de `/changes/range`, que separa ganho de
+                      perda pelo sinal **do grupo**; a manchete separa pelo sinal
+                      **da linha** (`ExecutiveSummary.sides`). Os líquidos são o
+                      mesmo número — as duas somam as mesmas linhas
+                      desduplicadas —, mas os dois lados não batem quando um
+                      grupo se moveu nos dois sentidos. Publicar aqui um "somaram
+                      / saíram" diferente do cartão acima, sobre a mesma
+                      vigência, seria a tela se contradizendo a dois palmos de
+                      distância.
+                    */}
                   </div>
                 );
               }}

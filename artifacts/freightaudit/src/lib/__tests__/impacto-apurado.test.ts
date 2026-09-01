@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   coberturaApurada,
+  coberturaDaVigencia,
   extremosDaSerie,
   filtrarMudancas,
   frasesDaCobertura,
@@ -10,6 +11,7 @@ import {
   outrasPeriodicidades,
   perdasParaAuditar,
   ponteDoImpacto,
+  situacaoDaApuracao,
   valorDaMudanca,
 } from "../impacto-apurado";
 import { consultaDoRecorte } from "../leitura-da-vigencia";
@@ -302,6 +304,59 @@ function lado(total: number) {
   return { total, changes: 0, vehicles: 0, parameters: [] };
 }
 
+/**
+ * Os quatro desfechos da apuração — e por que três deles não podem ser o mesmo
+ * `null`.
+ *
+ * O caso que motivou a separação é o terceiro: `families-view.ts` mantém a
+ * linha apurada em R$ 0,00 **fora dos dois lados** ("zero não é lado nenhum"),
+ * então uma vigência inteira apurada em zero chega à tela com `sides: []` —
+ * indistinguível, ali, de uma vigência sem preço nenhum. Publicar "nenhum valor
+ * apurado" sobre ela apagaria uma apuração que aconteceu.
+ */
+describe("a situação da apuração", () => {
+  const semLados = (parcial: Partial<ImpactSummary>) =>
+    resumo({ sides: [], impact: impacto(parcial) });
+
+  it("com movimento, entrega os dois lados", () => {
+    const situacao = situacaoDaApuracao(resumo(), 102);
+    expect(situacao.estado).toBe("com_movimento");
+    expect(situacao.estado === "com_movimento" && situacao.lados.liquido).toBe(21931);
+  });
+
+  it("vigência sem alteração nenhuma é o seu próprio desfecho", () => {
+    expect(situacaoDaApuracao(semLados({}), 0).estado).toBe("sem_alteracao");
+  });
+
+  it("alterações sem preço nenhum não viram líquido zero", () => {
+    const situacao = situacaoDaApuracao(semLados({ notCalculable: 102 }), 102);
+    expect(situacao).toEqual({ estado: "nada_apurado", semPreco: 102 });
+  });
+
+  it("tudo apurado em R$ 0,00 é zero medido, e a periodicidade vem do balde oficial", () => {
+    const situacao = situacaoDaApuracao(
+      semLados({ byPeriodicity: { MENSAL: 0 }, calculatedChanges: 7 }),
+      7,
+    );
+    expect(situacao).toEqual({ estado: "apurado_em_zero", periodicity: "MENSAL", alteracoes: 7 });
+  });
+
+  /*
+    Zero por compensação é um quarto fato, e continua sendo movimento: os dois
+    lados existem e se anularam.
+  */
+  it("líquido zero por compensação continua sendo movimento", () => {
+    const view = resumo({
+      sides: [
+        { periodicity: "MENSAL", net: 0, gains: lado(5000), losses: lado(-5000) },
+      ],
+    });
+    const situacao = situacaoDaApuracao(view, 10);
+    expect(situacao.estado).toBe("com_movimento");
+    expect(situacao.estado === "com_movimento" && situacao.lados.ganhos).toBe(5000);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // 2. Posso confiar nesse número?
 // ---------------------------------------------------------------------------
@@ -319,6 +374,30 @@ describe("a cobertura", () => {
     expect(coberturaApurada(100, 10)!.qualidade).toEqual({ palavra: "Parcial", tom: "atencao" });
     expect(coberturaApurada(100, 2)!.qualidade).toEqual({ palavra: "Alta", tom: "ok" });
     expect(coberturaApurada(100, 0)!.qualidade).toEqual({ palavra: "Excelente", tom: "ok" });
+  });
+
+  /*
+    A identidade não é escolha da tela: no servidor, `totals.changes` e `impact`
+    saem das **mesmas** linhas (`grouped.ts`: `changes: rows.length` e
+    `summariseImpact(rows, dedup)`), e `resumirImpacto` incrementa
+    `calculatedChanges` **ou** `notCalculable` para cada linha — nunca os dois,
+    nunca nenhum. Este teste amarra a tela a essa igualdade: o apurado que ela
+    publica tem de ser, número a número, o `calculatedChanges` do servidor.
+  */
+  it("o apurado que a tela publica é o calculatedChanges do servidor", () => {
+    const totais = { changes: 102 };
+    const impacto = { notCalculable: 95, calculatedChanges: 7 };
+
+    const cobertura = coberturaDaVigencia(totais, impacto)!;
+
+    expect(cobertura.apurado).toBe(impacto.calculatedChanges);
+    expect(cobertura.apurado + cobertura.semPreco).toBe(totais.changes);
+  });
+
+  it("cobertura completa é o apurado igual ao detectado, e não um arredondamento", () => {
+    const cobertura = coberturaDaVigencia({ changes: 102 }, { notCalculable: 0 })!;
+    expect(cobertura.percentual).toBe(100);
+    expect(cobertura.parcial).toBe(false);
   });
 
   it("não chama de cobertura zero a vigência sem alteração nenhuma", () => {
@@ -376,6 +455,32 @@ describe("a ponte", () => {
     expect(aquisicao.ganhos).toBe(19742);
     expect(aquisicao.perdas).toBe(-1640);
     expect(aquisicao.valor).toBe(18102);
+  });
+
+  /*
+    `impactoPorFamilia` arredonda os dois lados de **cada** família ao centavo;
+    `sides` arredonda uma vez só sobre a soma crua. A diferença cabe em um
+    centavo por família, e chamar isso de defeito encheria a tela executiva de
+    alarme vermelho por causa de arredondamento.
+  */
+  it("fecha dentro do centavo que cada família arredonda", () => {
+    const ponte = ponteDoImpacto(resumo(), "MENSAL")!;
+    expect(ponte.fecha).toBe(true);
+    expect(Math.abs(ponte.resto)).toBeLessThanOrEqual(0.01 * (ponte.degraus.length + 1));
+  });
+
+  /*
+    Acima da margem de arredondamento não é ruído: é linha que entrou na soma e
+    não virou degrau, ou o contrário — e aí a tela tem de dizer.
+  */
+  it("acusa quando a escada não chega ao número que promete", () => {
+    const view = resumo();
+    /* O líquido do servidor discorda das famílias em R$ 500. */
+    view.summary.sides[0].net = 22431;
+    const ponte = ponteDoImpacto(view, "MENSAL")!;
+
+    expect(ponte.fecha).toBe(false);
+    expect(ponte.resto).toBe(500);
   });
 
   it("não desenha a periodicidade que a vigência não tem", () => {
@@ -499,6 +604,81 @@ describe("as principais mudanças", () => {
     expect(valorDaMudanca(ganhos[0], "ganhos")).toBe(18742);
   });
 
+  /*
+    **O ranking reconcilia com a manchete e com a ponte** — as três leituras
+    partem das mesmas linhas de `sides`, e o que muda entre elas é só o
+    agrupamento: nenhum (a manchete), por família (a ponte), por parâmetro (o
+    ranking). Se esta soma deixar de fechar, uma das três está contando uma
+    linha a mais ou a menos que as outras duas, e a tela publicaria dois totais
+    para a mesma vigência a um palmo de distância.
+  */
+  it("soma o mesmo líquido que a manchete e que a ponte", () => {
+    const linhas = mudancasRelevantes(resumo(), "MENSAL");
+    const manchete = mancheteApurada(resumo())!;
+    const ponte = ponteDoImpacto(resumo(), "MENSAL")!;
+
+    const somar = (valores: number[]) => Number(valores.reduce((t, v) => t + v, 0).toFixed(2));
+
+    expect(somar(linhas.map((l) => l.liquido))).toBe(manchete.liquido);
+    expect(somar(linhas.map((l) => l.ganhos))).toBe(manchete.ganhos);
+    expect(somar(linhas.map((l) => l.perdas))).toBe(manchete.perdas);
+    expect(somar(linhas.map((l) => l.liquido))).toBe(somar(ponte.degraus.map((d) => d.valor)));
+  });
+
+  /*
+    A contagem de alterações do ranking é a das linhas que **moveram valor** —
+    os dois lados somados, e sem sobreposição, porque uma linha cai em um lado
+    só (`families-view.ts`). Ela é menor que a cobertura de propósito: lá
+    entram também as apuradas em R$ 0,00 e as excluídas por dupla contagem.
+  */
+  it("conta cada alteração uma vez só, somando os dois lados", () => {
+    const linhas = mudancasRelevantes(resumo(), "MENSAL");
+    const lado = resumo().summary.sides[0];
+
+    expect(linhas.reduce((t, l) => t + l.alteracoes, 0)).toBe(
+      lado.gains.changes + lado.losses.changes,
+    );
+  });
+
+  /*
+    Saldo zero com movimento nos dois sentidos não é ganho nem perda, e continua
+    encabeçando a lista: o que a põe lá é o movimento. Rotulá-la "Ganho · R$ 0"
+    seria a linha se contradizendo na própria frase.
+  */
+  it("chama de compensado o parâmetro que subiu e caiu o mesmo tanto", () => {
+    const view = resumo({
+      sides: [
+        {
+          periodicity: "MENSAL",
+          net: 0,
+          gains: {
+            total: 40000,
+            changes: 1,
+            vehicles: 1,
+            parameters: [contribuinte("gangorra", "A", 40000)],
+          },
+          losses: {
+            total: -40000,
+            changes: 1,
+            vehicles: 1,
+            parameters: [contribuinte("gangorra", "A", -40000)],
+          },
+        },
+      ],
+    });
+    const [linha] = mudancasRelevantes(view, "MENSAL");
+
+    expect(linha.classificacao).toBe("compensado");
+    expect(linha.liquido).toBe(0);
+    expect(linha.movimento).toBe(80000);
+  });
+
+  it("num recorte de um lado só, a classificação é a daquele lado", () => {
+    const linhas = mudancasRelevantes(resumo(), "MENSAL");
+    expect(filtrarMudancas(linhas, "ganhos").every((l) => l.classificacao === "ganho")).toBe(true);
+    expect(filtrarMudancas(linhas, "perdas").every((l) => l.classificacao === "perda")).toBe(true);
+  });
+
   it("devolve lista vazia quando a vigência não tem valor apurado", () => {
     expect(mudancasRelevantes(resumo({ sides: [] }), "MENSAL")).toEqual([]);
     expect(mudancasRelevantes(resumo(), "ANUAL")).toEqual([]);
@@ -574,6 +754,29 @@ describe("onde agir agora", () => {
     expect(perdasParaAuditar(prioridades, "MENSAL")).toBeNull();
   });
 
+  /*
+    O sem-preço tem um pedaço acionável e um que nunca virará dinheiro. O
+    acionável é o que o servidor marca como TRAVADO — monetário e somável, à
+    espera da Curadoria —, e é ele que ganha um item próprio: mandar quem lê
+    para a fila inteira seria mandá-lo procurar.
+  */
+  it("separa o sem-preço que a Curadoria destrava do que nunca virá a ser dinheiro", () => {
+    const view = vigencia();
+    view.summary.locked = 4;
+    const acoes = ondeAgirAgora({
+      view,
+      cobertura: coberturaApurada(102, 95),
+      periodicidade: "MENSAL",
+      prioridades: [],
+      recorte: { period: null, scopeHash: null, canal: null },
+      comDestino: true,
+    });
+
+    const travada = acoes.find((a) => a.chave === "semantica-travada")!;
+    expect(travada.titulo).toContain("4 tipos de alteração travados");
+    expect(travada.href).toBe("/curadoria");
+  });
+
   it("aponta as famílias com alteração crítica pelo campo do servidor", () => {
     const acoes = ondeAgirAgora({
       view: vigencia({
@@ -606,6 +809,35 @@ describe("onde agir agora", () => {
       comDestino: true,
     });
     expect(acoes.map((a) => a.chave)).toEqual(["sem-baseline"]);
+  });
+
+  /*
+    Todo destino leva a unidade junto. Um `/parametros?period=…` sem `scopeHash`
+    não abre "sem filtro": o servidor cai em `contexts[0]`, e o item abriria a
+    grade de outra unidade debaixo de um número que é desta.
+  */
+  it("todo destino de unidade carrega scopeHash e canal, nunca só a vigência", () => {
+    const acoes = ondeAgirAgora({
+      view: vigencia({
+        families: [
+          { code: "AQUISICAO", name: "Aquisição", critical: 2 },
+        ] as unknown as FamiliesView["families"],
+      }),
+      cobertura: coberturaApurada(102, 95),
+      periodicidade: "MENSAL",
+      prioridades: fila([{ key: "a", impact: { ...grupo().impact, amount: -3000 } }]),
+      recorte: { period: null, scopeHash: "hash-pe", canal: "EMPURRADA" },
+      comDestino: true,
+    });
+
+    /* A Curadoria e a lista de vigências são globais: vocabulário e acervo, não unidade. */
+    const porUnidade = acoes.filter((a) => a.href && !a.href.startsWith("/curadoria"));
+    expect(porUnidade.length).toBeGreaterThan(1);
+    for (const acao of porUnidade) {
+      expect(acao.href).toContain("scopeHash=hash-pe");
+      expect(acao.href).toContain("canal=EMPURRADA");
+      expect(acao.href).toContain("period=2026-08-01");
+    }
   });
 
   it("não promete destino que a Visão Geral não pode honrar", () => {

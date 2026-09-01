@@ -8,7 +8,7 @@ import {
   type LadosDoImpacto,
   type Tom,
 } from "@/lib/visao-geral";
-import { linkDeAlteracoes, type Recorte } from "@/lib/recorte";
+import { linkDeAlteracoes, linkDosParametros, type Recorte } from "@/lib/recorte";
 import { formatBrlShort } from "@/lib/format";
 import type { ItemCockpit } from "@/lib/cockpit";
 import type { FamiliesView } from "@/components/inicio/types";
@@ -53,22 +53,83 @@ type ComResumo = Pick<FamiliesView, "summary">;
 // ---------------------------------------------------------------------------
 
 /**
- * A manchete — o líquido apurado da periodicidade que mais se mexeu, com os
- * dois lados que o formam.
+ * Em que pé está a apuração desta vigência — os quatro desfechos possíveis,
+ * separados.
  *
- * É `ladosDoImpacto(view)[0]`, sem uma linha de conta a mais: a ordenação por
- * módulo, a garantia de que `ganhos + perdas = liquido` e a partição por linha
- * de alteração vêm todas de lá. `null` quando a vigência não tem impacto
- * apurado em periodicidade nenhuma — e aí a tela diz isso, em vez de publicar
- * R$ 0.
+ * Existe porque três deles se pareciam com o mesmo `null`, e são coisas
+ * diferentes que pedem conversas diferentes:
+ *
+ * - **`sem_alteracao`** — a vigência não tem alteração nenhuma. Não há o que
+ *   apurar, e não há cobertura a medir.
+ * - **`nada_apurado`** — há alterações, e nenhuma tem preço. O líquido não é
+ *   zero: ele é desconhecido.
+ * - **`apurado_em_zero`** — há alterações com preço, e **todas** foram apuradas
+ *   em R$ 0,00. Aqui o zero é medida, e dizer "nenhum valor apurado" seria
+ *   apagar uma apuração que aconteceu. É o caso que `sides` não distingue
+ *   sozinho: `families-view.ts` mantém a linha de R$ 0,00 fora dos dois lados
+ *   ("zero não é lado nenhum"), então uma vigência inteira apurada em zero
+ *   chega aqui com `sides: []` — igualzinha a uma sem preço nenhum. O que as
+ *   separa é `impact.calculatedChanges`.
+ * - **`com_movimento`** — o caso normal. Inclui o líquido zero **por
+ *   compensação**, que é outro fato ainda: houve ganho e houve perda, e eles se
+ *   anularam. `lados.ganhos` e `lados.perdas` mostram o que se mexeu.
  */
-export function mancheteApurada(view: ComResumo | null | undefined): LadosDoImpacto | null {
-  return ladosDoImpacto(view)[0] ?? null;
+export type SituacaoDaApuracao =
+  | { estado: "sem_alteracao" }
+  | { estado: "nada_apurado"; semPreco: number }
+  | { estado: "apurado_em_zero"; periodicity: string | null; alteracoes: number }
+  | { estado: "com_movimento"; lados: LadosDoImpacto };
+
+export function situacaoDaApuracao(
+  view: ComResumo | null | undefined,
+  /** O total de alterações da vigência — `totals.changes`. */
+  alteracoes: number,
+): SituacaoDaApuracao {
+  const lados = ladosDoImpacto(view);
+  if (lados.length > 0) return { estado: "com_movimento", lados: lados[0] };
+
+  if (alteracoes === 0) return { estado: "sem_alteracao" };
+
+  const impacto = view?.summary.impact;
+  const apuradas = impacto?.calculatedChanges ?? 0;
+  if (apuradas === 0) {
+    return { estado: "nada_apurado", semPreco: impacto?.notCalculable ?? alteracoes };
+  }
+
+  /*
+    Apurado, e deu zero. A periodicidade sai do balde oficial — que existe com
+    valor 0 justamente porque houve linha com preço nele. Ela pode faltar quando
+    **toda** linha com preço saiu por dupla contagem (o balde nunca chega ao
+    oficial), e aí a tela escreve o zero sem grandeza em vez de inventar uma.
+  */
+  const baldes = Object.entries(impacto?.byPeriodicity ?? {});
+  const periodicity =
+    baldes.sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))[0]?.[0] ?? null;
+  return { estado: "apurado_em_zero", periodicity, alteracoes: apuradas };
 }
 
-/** As outras periodicidades da vigência — as que a manchete não cobre. */
+/**
+ * As outras periodicidades da vigência — as que a manchete não cobre.
+ *
+ * Existe para que elas apareçam **em linha própria** em vez de sumirem: R$/mês
+ * e R$/ano não somam, e a manchete publica uma só. Uma vigência com valor anual
+ * cujo mensal pesa mais publicaria só o mensal, e o anual desapareceria da tela
+ * sem que nada dissesse que ele existe.
+ */
 export function outrasPeriodicidades(view: ComResumo | null | undefined): LadosDoImpacto[] {
   return ladosDoImpacto(view).slice(1);
+}
+
+/**
+ * A manchete quando há movimento — `null` nos outros três desfechos.
+ *
+ * Atalho de {@link situacaoDaApuracao} para quem só precisa dos dois lados; a
+ * tela usa a situação inteira, porque é ela que decide qual frase escrever.
+ */
+export function mancheteApurada(
+  view: ComResumo | null | undefined,
+): LadosDoImpacto | null {
+  return ladosDoImpacto(view)[0] ?? null;
 }
 
 // ---------------------------------------------------------------------------
@@ -92,12 +153,26 @@ export interface CoberturaApurada {
 /**
  * Quanto desta vigência já está financeiramente coberto.
  *
- * A fração é **alterações precificadas ÷ alterações elegíveis**, a mesma que o
- * Impacto Líquido publica no anel de cobertura, e a identidade
- * `apurado + semPreco = total` é a de `porApuracao` em
- * `composicaoDasAlteracoes`. Precificada é toda linha com valor apurado em
- * qualquer periodicidade — inclusive as apuradas em R$ 0,00 e as que já contam
- * noutra parcela.
+ * A fração é **alterações precificadas ÷ alterações detectadas**, a mesma que o
+ * Impacto Líquido publica no anel de cobertura. A identidade
+ * `apurado + semPreco = total` não é uma escolha desta tela: ela é exata no
+ * servidor, onde `totals.changes` e `impact` saem das **mesmas** linhas
+ * (`grouped.ts`: `changes: rows.length` e `summariseImpact(rows, dedup)`), e
+ * `resumirImpacto` incrementa, para cada linha, `calculatedChanges` **ou**
+ * `notCalculable` — nunca os dois, nunca nenhum. Ver `coberturaDaVigencia`,
+ * abaixo, que é a única porta por onde a tela monta esse par.
+ *
+ * Precificada é toda linha com valor apurado em qualquer periodicidade —
+ * inclusive as apuradas em R$ 0,00 e as que já contam noutra parcela.
+ *
+ * **O denominador são as alterações detectadas, e não as que poderiam virar
+ * dinheiro.** Um atributo que não é monetário nunca terá preço, e continua no
+ * total — é o que faz a cobertura ter um teto abaixo de 100% em vigências
+ * assim. Separar as duas populações exigiria repetir aqui o portão de
+ * `viraDinheiro` (semântica confirmada + monetário + somável), que é regra de
+ * negócio do servidor; o que a tela faz, em vez disso, é dizer quantos tipos
+ * estão **travados por semântica** — o pedaço do "sem preço" que a Curadoria
+ * de fato destrava. Ver `ondeAgirAgora`.
  *
  * **A régua de severidade não é nova.** `qualidadeDaCobertura` já decide, num
  * lugar só, quando uma cobertura é Excelente, Alta, Parcial ou Baixa (99 / 95 /
@@ -122,6 +197,22 @@ export function coberturaApurada(
     qualidade: qualidadeDaCobertura(percentual),
     parcial: semPreco > 0,
   };
+}
+
+/**
+ * A cobertura de uma vigência — o par canônico, lido de um lugar só.
+ *
+ * Quem chama não escolhe os dois números: eles são `totals.changes` e
+ * `impact.notCalculable`, e é a identidade do servidor que garante que o
+ * apurado resultante seja exatamente `impact.calculatedChanges`. Deixar a tela
+ * montar o par à mão é como ela passaria a dividir por uma população que não é
+ * a que o outro termo conta.
+ */
+export function coberturaDaVigencia(
+  totais: { changes: number },
+  impacto: { notCalculable: number },
+): CoberturaApurada | null {
+  return coberturaApurada(totais.changes, impacto.notCalculable);
 }
 
 /** A frase da faixa de cobertura — a manchete da confiança, sem número inventado. */
@@ -189,12 +280,26 @@ export interface PonteDoImpacto {
   /**
    * O que os degraus não explicam — `total − Σ degraus`.
    *
-   * É zero por construção (os degraus saem do mesmo `sides` de onde sai o
-   * total), e fica exposto pela mesma razão que `DetalheDeImpacto.resto`: uma
-   * ponte que silencia a diferença entre a própria soma e o número que ela
-   * explica é pior do que não ter ponte.
+   * Fica exposto pela mesma razão que `DetalheDeImpacto.resto`: uma ponte que
+   * silencia a diferença entre a própria soma e o número que ela explica é pior
+   * do que não ter ponte.
    */
   resto: number;
+  /**
+   * Se o resíduo cabe no arredondamento — e, portanto, se a ponte fecha.
+   *
+   * Não é tolerância inventada: `impactoPorFamilia` arredonda **os dois lados
+   * de cada família** ao centavo antes de somá-los, e `sides` arredonda uma vez
+   * só sobre a soma crua de cada lado. Cada família pode, por isso, carregar
+   * até um centavo de diferença, e o líquido, mais um. O limite é essa conta —
+   * `0,01 × (famílias + 1)` —, e não um número escolhido para o aviso não
+   * aparecer.
+   *
+   * Acima dele não é arredondamento: é linha que entrou na soma e não virou
+   * degrau, ou o contrário. Aí a tela **diz**, em vez de desenhar uma escada
+   * que não chega no número que ela promete.
+   */
+  fecha: boolean;
   /** As periodicidades que esta ponte não desenha. Nomeadas, nunca somadas. */
   outras: string[];
 }
@@ -245,11 +350,13 @@ export function ponteDoImpacto(
     return degrau;
   });
 
+  const resto = Number((lado.liquido - base).toFixed(2));
   return {
     periodicity: periodicidade,
     degraus,
     total: lado.liquido,
-    resto: Number((lado.liquido - base).toFixed(2)),
+    resto,
+    fecha: Math.abs(resto) <= 0.01 * (degraus.length + 1),
     outras: lados.filter((l) => l.periodicity !== periodicidade).map((l) => l.periodicity),
   };
 }
@@ -319,7 +426,16 @@ export interface MudancaRelevante {
   alteracoes: number;
   /** Veículos do lado que pesa mais — nunca a soma dos dois, que contaria duas vezes. */
   veiculos: number;
-  classificacao: "ganho" | "perda";
+  /**
+   * Como a linha se lê: ganho, perda, ou **compensado**.
+   *
+   * O terceiro caso não é enfeite. Um parâmetro que subiu R$ 40 mil num ativo e
+   * caiu R$ 40 mil noutro tem saldo zero e é o maior movimento da vigência —
+   * ele encabeça a lista (a ordem é por `movimento`), e rotulá-lo "Ganho ·
+   * R$ 0" seria a linha se contradizendo. Nos recortes de um lado só a
+   * classificação é a daquele lado, porque ali o valor publicado é o do lado.
+   */
+  classificacao: "ganho" | "perda" | "compensado";
   /** Do maior movimento da lista: 0 a 1. É o comprimento da barra, e nada mais. */
   proporcao: number;
   /** Se o parâmetro se mexeu nos dois sentidos — a linha diz isso em vez de esconder. */
@@ -413,7 +529,7 @@ export function mudancasRelevantes(
         tantos ativos".
       */
       veiculos: Math.max(a.veiculosGanho, a.veiculosPerda),
-      classificacao: (liquido < 0 ? "perda" : "ganho") as "ganho" | "perda",
+      classificacao: classificar(liquido, a.ganhos, a.perdas),
       doisLados: a.ganhos > 0 && a.perdas < 0,
     };
   });
@@ -422,6 +538,16 @@ export function mudancasRelevantes(
   return linhas
     .map((l) => ({ ...l, proporcao: teto === 0 ? 0 : l.movimento / teto }))
     .sort((a, b) => b.movimento - a.movimento);
+}
+
+/** Ganho, perda, ou o saldo zero que só existe porque houve os dois. */
+function classificar(
+  liquido: number,
+  ganhos: number,
+  perdas: number,
+): MudancaRelevante["classificacao"] {
+  if (liquido === 0 && ganhos > 0 && perdas < 0) return "compensado";
+  return liquido < 0 ? "perda" : "ganho";
 }
 
 /**
@@ -444,7 +570,9 @@ export function filtrarMudancas(
     .map((l) => ({
       ...l,
       movimento: filtro === "ganhos" ? l.ganhos : Math.abs(l.perdas),
-      classificacao: (filtro === "ganhos" ? "ganho" : "perda") as "ganho" | "perda",
+      classificacao: (filtro === "ganhos"
+        ? "ganho"
+        : "perda") as MudancaRelevante["classificacao"],
     }));
 
   const teto = Math.max(...doLado.map((l) => l.movimento), 0);
@@ -563,6 +691,25 @@ export function ondeAgirAgora({
     });
   }
 
+  /*
+    O pedaço acionável do "sem preço": grupos **monetários e somáveis** que só
+    não viraram dinheiro porque a semântica não foi confirmada (selo TRAVADO,
+    `FamilyView.locked`). É o servidor que os classifica — a tela não repete o
+    portão de `viraDinheiro` —, e é o único recorte do sem-preço que tem uma
+    ação óbvia do outro lado.
+  */
+  const travados = view.summary.locked;
+  if (travados > 0) {
+    acoes.push({
+      chave: "semantica-travada",
+      tom: "atencao",
+      titulo: `${travados.toLocaleString("pt-BR")} ${travados === 1 ? "tipo de alteração travado" : "tipos de alteração travados"} por semântica`,
+      detalhe:
+        "São monetários e somáveis: viram dinheiro assim que a Curadoria confirmar o significado.",
+      href: destino("/curadoria"),
+    });
+  }
+
   const criticas = view.families.filter((f) => f.critical > 0);
   if (criticas.length > 0) {
     const grupos = criticas.reduce((soma, f) => soma + f.critical, 0);
@@ -571,7 +718,13 @@ export function ondeAgirAgora({
       tom: "atencao",
       titulo: `${criticas.length.toLocaleString("pt-BR")} ${criticas.length === 1 ? "família" : "famílias"} com alteração crítica`,
       detalhe: `${grupos.toLocaleString("pt-BR")} ${grupos === 1 ? "tipo de alteração" : "tipos de alteração"} com selo de dinheiro ou ruptura.`,
-      href: destino(`/parametros?${new URLSearchParams({ period: view.period })}`),
+      /*
+        O recorte inteiro, e não só a vigência: Parâmetros lê uma unidade por
+        vez, e um endereço sem `scopeHash` não fica "sem filtro" — o servidor
+        cai em `contexts[0]` (`resolveContext`). O item abriria a grade de
+        **outra** unidade debaixo de um número que é desta.
+      */
+      href: destino(linkDosParametros(daVigencia)),
     });
   }
 

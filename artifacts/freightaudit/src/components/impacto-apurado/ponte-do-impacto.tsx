@@ -145,8 +145,16 @@ export function PonteDoImpactoGrafico({
                   )}
                   {linha.alteracoes !== null && (
                     <p className="text-muted-foreground mt-0.5 tabular-nums">
+                      {/*
+                        Não é "alterações com preço": uma linha apurada em
+                        R$ 0,00 tem preço e não entra em lado nenhum
+                        (`families-view.ts`, "zero não é lado nenhum"). O que
+                        esta contagem conta é o que de fato moveu valor.
+                      */}
                       {linha.alteracoes.toLocaleString("pt-BR")}{" "}
-                      {linha.alteracoes === 1 ? "alteração com preço" : "alterações com preço"}
+                      {linha.alteracoes === 1
+                        ? "alteração moveu valor"
+                        : "alterações moveram valor"}
                     </p>
                   )}
                   {onAbrirFamilia && !linha.total && (
@@ -178,11 +186,13 @@ export function PonteDoImpactoGrafico({
 
       <Legenda sufixo={sufixo} />
       {/*
-        A ponte fecha com o número da manchete por construção. O resto fica
-        escrito, e não escondido: um gráfico que silencia a diferença entre a
-        própria soma e o número que ele explica é pior do que não ter gráfico.
+        A ponte fecha com o número da manchete, a menos do centavo que cada
+        família arredonda (ver `PonteDoImpacto.fecha`). Acima dessa margem a
+        diferença é dita, e não escondida: um gráfico que silencia a distância
+        entre a própria soma e o número que ele explica é pior do que não ter
+        gráfico.
       */}
-      {Math.abs(ponte.resto) >= 0.01 && (
+      {!ponte.fecha && (
         <p className="text-xs text-red-700 mt-2">
           As famílias somam {formatBrlShort(ponte.total - ponte.resto)} e o líquido apurado é{" "}
           {formatBrlShort(ponte.total)} — diferença de {formatBrlShort(ponte.resto)}.

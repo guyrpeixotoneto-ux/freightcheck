@@ -21,12 +21,13 @@ import {
 } from "@/lib/visao-geral";
 import {
   DECOMPOSICOES,
-  coberturaApurada,
+  coberturaDaVigencia,
   filtroDeMudancaValido,
-  mancheteApurada,
   mudancasRelevantes,
   ondeAgirAgora,
+  outrasPeriodicidades,
   ponteDoImpacto,
+  situacaoDaApuracao,
   type Decomposicao,
   type FiltroDeMudanca,
 } from "@/lib/impacto-apurado";
@@ -215,6 +216,7 @@ export default function ImpactoApurado() {
                   filtro={filtroAberto(parametros)}
                   onFiltro={(f) => trocarPara({ mudancas: f === "todos" ? null : f })}
                   decomposicao="familia"
+                  temAnterior
                   /* A Visão Geral não tem unidade a quem perguntar: as gavetas
                      e os destinos ficariam sobre `contexts[0]`, que é uma
                      unidade que ninguém escolheu. Ver `PontoDeAtencao.href`. */
@@ -248,6 +250,7 @@ export default function ImpactoApurado() {
                   filtro={filtroAberto(parametros)}
                   onFiltro={(f) => trocarPara({ mudancas: f === "todos" ? null : f })}
                   decomposicao="familia"
+                  temAnterior={view.cockpit.baseline.hasBaseline}
                   unidadeAberta={{
                     view,
                     recorte,
@@ -301,6 +304,7 @@ function Corpo({
   filtro,
   onFiltro,
   decomposicao,
+  temAnterior,
   unidadeAberta,
 }: {
   resumo: Pick<FamiliesView, "summary">;
@@ -316,11 +320,30 @@ function Corpo({
   filtro: FiltroDeMudanca;
   onFiltro: (filtro: FiltroDeMudanca) => void;
   decomposicao: Decomposicao;
+  /**
+   * Se a vigência tem anterior com que comparar — `cockpit.baseline`.
+   *
+   * Só muda a frase do caso "nenhuma alteração": sem anterior não há alteração
+   * a detectar, e dizer "o cliente não mudou nada" ali seria afirmar sobre o
+   * cliente o que é um fato sobre o acervo. Na Visão Geral vale `true`: a soma
+   * só chega a zero alteração quando as unidades tinham anterior e nada mudou.
+   */
+  temAnterior: boolean;
   unidadeAberta: UnidadeAberta | null;
 }) {
-  const lados = mancheteApurada(resumo);
+  /*
+    Um universo de dados só para a página inteira: a situação, a cobertura, a
+    ponte e o ranking saem todos de `resumo` — a mesma resposta, o mesmo
+    recorte, a mesma periodicidade. É o que faz a manchete, o gráfico e a lista
+    reconciliarem por construção, em vez de por coincidência.
+  */
+  const situacao = situacaoDaApuracao(resumo, contexto.alteracoes);
+  const lados = situacao.estado === "com_movimento" ? situacao.lados : null;
   const periodicidade = lados?.periodicity ?? null;
-  const cobertura = coberturaApurada(contexto.alteracoes, contexto.semPreco);
+  const cobertura = coberturaDaVigencia(
+    { changes: contexto.alteracoes },
+    { notCalculable: contexto.semPreco },
+  );
   const ponte = ponteDoImpacto(resumo, periodicidade);
   const mudancas = mudancasRelevantes(resumo, periodicidade);
 
@@ -357,7 +380,7 @@ function Corpo({
 
   return (
     <>
-      <Manchete lados={lados} contexto={contexto} />
+      <Manchete situacao={situacao} outras={outrasPeriodicidades(resumo)} contexto={contexto} />
 
       {cobertura ? (
         <FaixaDeCobertura
@@ -372,7 +395,7 @@ function Corpo({
           }
         />
       ) : (
-        <FaixaSemAlteracao />
+        <FaixaSemAlteracao temAnterior={temAnterior} />
       )}
 
       <div className="grid gap-5 xl:grid-cols-3">

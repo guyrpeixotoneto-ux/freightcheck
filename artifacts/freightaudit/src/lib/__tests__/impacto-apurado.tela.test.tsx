@@ -6,7 +6,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { Manchete } from "@/components/impacto-apurado/manchete";
+import { Manchete, type ContextoDaManchete } from "@/components/impacto-apurado/manchete";
 import {
   FaixaDeCobertura,
   FaixaSemAlteracao,
@@ -14,7 +14,11 @@ import {
 import { PrincipaisMudancas } from "@/components/impacto-apurado/principais-mudancas";
 import { OndeAgirAgora } from "@/components/impacto-apurado/onde-agir";
 import { EvolucaoPorVigencia } from "@/components/impacto-apurado/evolucao-por-vigencia";
-import { coberturaApurada, type MudancaRelevante } from "@/lib/impacto-apurado";
+import {
+  coberturaApurada,
+  type MudancaRelevante,
+  type SituacaoDaApuracao,
+} from "@/lib/impacto-apurado";
 import { comOperacao } from "@/lib/api";
 import { consultaDoRecorte, sufixoDaConsulta } from "@/lib/leitura-da-vigencia";
 import { JANELA_PADRAO } from "@/lib/janela-de-vigencias";
@@ -40,7 +44,7 @@ const LADOS: LadosDoImpacto = {
   fatiaDeGanho: 0.85,
 };
 
-const CONTEXTO = {
+const CONTEXTO: ContextoDaManchete = {
   alteracoes: 102,
   tiposDeAlteracao: 16,
   veiculos: 80,
@@ -65,16 +69,22 @@ const mudanca = (parcial: Partial<MudancaRelevante> = {}): MudancaRelevante => (
   ...parcial,
 });
 
+const montarManchete = (
+  situacao: SituacaoDaApuracao,
+  contexto: Partial<ContextoDaManchete> = {},
+  outras: LadosDoImpacto[] = [],
+) => render(<Manchete situacao={situacao} outras={outras} contexto={{ ...CONTEXTO, ...contexto }} />);
+
 describe("a manchete", () => {
   it("publica o líquido com o sinal e a periodicidade colada", () => {
-    render(<Manchete lados={LADOS} contexto={CONTEXTO} />);
+    montarManchete({ estado: "com_movimento", lados: LADOS });
     expect(screen.getByText("+R$ 21.931")).toBeTruthy();
     expect(screen.getByText("/mês")).toBeTruthy();
     expect(screen.getByText("Impacto líquido apurado")).toBeTruthy();
   });
 
   it("põe os dois lados e o contexto ao redor, sem competir com o número", () => {
-    render(<Manchete lados={LADOS} contexto={CONTEXTO} />);
+    montarManchete({ estado: "com_movimento", lados: LADOS });
     expect(screen.getByText("+R$ 26.583")).toBeTruthy();
     expect(screen.getByText("−R$ 4.652")).toBeTruthy();
     expect(screen.getByText("80")).toBeTruthy();
@@ -89,25 +99,73 @@ describe("a manchete", () => {
     custou".
   */
   it("sem apuração, diz que não há valor — nunca R$ 0", () => {
-    render(<Manchete lados={null} contexto={{ ...CONTEXTO, frota: null }} />);
+    montarManchete({ estado: "nada_apurado", semPreco: 102 }, { frota: null });
     expect(screen.getByText("Nenhum valor apurado")).toBeTruthy();
     expect(screen.getAllByText("sem valor apurado")).toHaveLength(2);
     expect(screen.queryByText("R$ 0")).toBeNull();
   });
 
+  /*
+    Os três desfechos sem movimento diziam a mesma frase, e não são o mesmo
+    fato. O pior deles era o terceiro: uma vigência **apurada** cujo resultado
+    deu zero aparecia como "nenhum valor apurado", apagando a apuração.
+  */
+  it("apurado em R$ 0,00 é medida, e não ausência de apuração", () => {
+    montarManchete({ estado: "apurado_em_zero", periodicity: "MENSAL", alteracoes: 7 });
+
+    expect(screen.getAllByText("R$ 0").length).toBeGreaterThan(0);
+    expect(screen.getByText(/zero medido, e não ausência de apuração/)).toBeTruthy();
+    expect(screen.queryByText("Nenhum valor apurado")).toBeNull();
+    expect(screen.queryByText("sem valor apurado")).toBeNull();
+  });
+
+  it("vigência sem alteração não é vigência sem preço", () => {
+    montarManchete({ estado: "sem_alteracao" });
+
+    expect(screen.getByText("Nada mudou")).toBeTruthy();
+    expect(screen.getAllByText("sem alteração")).toHaveLength(2);
+    expect(screen.queryByText("R$ 0")).toBeNull();
+  });
+
+  /*
+    Líquido zero por compensação é um quarto fato: houve ganho, houve perda, e
+    eles se anularam. O número sozinho não mostra isso — a frase mostra.
+  */
+  it("líquido zero por compensação diz que houve movimento dos dois lados", () => {
+    montarManchete({
+      estado: "com_movimento",
+      lados: { periodicity: "MENSAL", liquido: 0, ganhos: 5000, perdas: -5000, fatiaDeGanho: 0.5 },
+    });
+
+    expect(screen.getByText(/Ganhos e perdas se compensaram/)).toBeTruthy();
+    expect(screen.getByText("+R$ 5.000")).toBeTruthy();
+  });
+
+  /*
+    R$/mês e R$/ano não somam. A manchete publica um só, e o outro tem de
+    aparecer em linha própria em vez de sumir da tela.
+  */
+  it("nomeia as outras periodicidades em vez de deixá-las sumir", () => {
+    montarManchete({ estado: "com_movimento", lados: LADOS }, {}, [
+      { periodicity: "ANUAL", liquido: -12000, ganhos: 0, perdas: -12000, fatiaDeGanho: null },
+    ]);
+
+    expect(screen.getByText(/também tem/)).toBeTruthy();
+    expect(screen.getByText(/−R\$ 12\.000\/ano/)).toBeTruthy();
+    expect(screen.getByText(/não somam com a de cima/)).toBeTruthy();
+  });
+
   it("sem denominador confiável, não inventa percentual de frota", () => {
-    render(<Manchete lados={LADOS} contexto={{ ...CONTEXTO, frota: null }} />);
+    montarManchete({ estado: "com_movimento", lados: LADOS }, { frota: null });
     expect(screen.queryByText(/de 1\.284/)).toBeNull();
     expect(screen.getByText("ativos distintos")).toBeTruthy();
   });
 
   it("diz quando a contagem de veículos é soma de unidades, e não ativos distintos", () => {
-    render(
-      <Manchete
-        lados={LADOS}
-        contexto={{ ...CONTEXTO, frota: null, veiculosDeduplicados: false }}
-      />,
-    );
+    montarManchete({ estado: "com_movimento", lados: LADOS }, {
+      frota: null,
+      veiculosDeduplicados: false,
+    });
     expect(screen.getByText("soma das unidades")).toBeTruthy();
   });
 });
@@ -131,9 +189,20 @@ describe("a faixa de cobertura", () => {
 
   it("vigência sem alteração não é cobertura zero", () => {
     expect(coberturaApurada(0, 0)).toBeNull();
-    render(<FaixaSemAlteracao />);
+    render(<FaixaSemAlteracao temAnterior />);
     expect(screen.getByText("Nenhuma alteração detectada nesta vigência.")).toBeTruthy();
     expect(screen.queryByText(/0%/)).toBeNull();
+  });
+
+  /*
+    "Nada mudou" é notícia sobre o cliente; "não há anterior" é notícia sobre o
+    acervo. As duas chegam aqui como zero alteração, e trocá-las faria a tela
+    afirmar que o cliente não mexeu em nada quando ninguém olhou.
+  */
+  it("vigência sem anterior não é vigência em que nada mudou", () => {
+    render(<FaixaSemAlteracao temAnterior={false} />);
+    expect(screen.getByText("Esta vigência não tem anterior com que comparar.")).toBeTruthy();
+    expect(screen.queryByText(/não mudou nada/)).toBeNull();
   });
 });
 

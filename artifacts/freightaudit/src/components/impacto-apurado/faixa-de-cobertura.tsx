@@ -76,17 +76,27 @@ export function FaixaDeCobertura({
 }
 
 /**
- * A faixa de quem não tem cobertura a mostrar — vigência sem alteração nenhuma.
+ * A faixa de quem não tem cobertura a mostrar — e os **dois** motivos para
+ * isso, que não são o mesmo motivo.
  *
- * `0 de 0` não é cobertura zero: é ausência de alteração, e as duas frases
- * pedem conversas diferentes. Um anel em 0% diria que a apuração falhou.
+ * `0 de 0` não é cobertura zero: é ausência de alteração, e um anel em 0% diria
+ * que a apuração falhou. Mas "nada mudou" e "não há vigência anterior com que
+ * comparar" também não são a mesma frase — a primeira é uma notícia sobre o
+ * cliente, a segunda sobre o acervo —, e `cockpit.baseline.hasBaseline` é quem
+ * as separa.
  */
-export function FaixaSemAlteracao() {
+export function FaixaSemAlteracao({ temAnterior }: { temAnterior: boolean }) {
   return (
     <section className="rounded-xl border px-5 py-4 bg-muted/40">
-      <p className="text-sm font-bold">Nenhuma alteração detectada nesta vigência.</p>
+      <p className="text-sm font-bold">
+        {temAnterior
+          ? "Nenhuma alteração detectada nesta vigência."
+          : "Esta vigência não tem anterior com que comparar."}
+      </p>
       <p className="text-xs text-muted-foreground mt-1">
-        Não há cobertura a medir — o cliente não mudou nada entre esta vigência e a anterior.
+        {temAnterior
+          ? "Não há cobertura a medir — o cliente não mudou nada entre esta vigência e a anterior."
+          : "Sem uma vigência anterior importada não há alteração a detectar, e por isso não há cobertura a medir. Não é o mesmo que “nada mudou”."}
       </p>
     </section>
   );

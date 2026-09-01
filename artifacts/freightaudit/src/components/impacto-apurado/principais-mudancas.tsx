@@ -109,6 +109,37 @@ export function PrincipaisMudancas({
   );
 }
 
+/**
+ * A cor e a palavra de cada classificação.
+ *
+ * O neutro do "compensado" é deliberado: pintá-lo de verde ou vermelho daria um
+ * veredito a um saldo que não tem sinal — e a linha continua no topo da lista,
+ * porque o que a põe lá é o movimento, não o saldo.
+ */
+const TOM_DA_LINHA: Record<
+  MudancaRelevante["classificacao"],
+  { rotulo: string; selo: string; barra: string; valor: string }
+> = {
+  ganho: {
+    rotulo: "Ganho",
+    selo: "bg-emerald-50 text-emerald-700",
+    barra: "bg-emerald-600",
+    valor: "text-emerald-700",
+  },
+  perda: {
+    rotulo: "Perda",
+    selo: "bg-red-50 text-red-700",
+    barra: "bg-red-600",
+    valor: "text-red-700",
+  },
+  compensado: {
+    rotulo: "Compensado",
+    selo: "bg-muted text-muted-foreground",
+    barra: "bg-muted-foreground/60",
+    valor: "text-foreground",
+  },
+};
+
 function Linha({
   posicao,
   linha,
@@ -123,7 +154,7 @@ function Linha({
   onAbrir: ((key: string) => void) | null;
 }) {
   const valor = valorDaMudanca(linha, filtro);
-  const ganho = linha.classificacao === "ganho";
+  const tom = TOM_DA_LINHA[linha.classificacao];
   const Conteudo = (
     <>
       <span className="w-5 shrink-0 text-xs tabular-nums text-muted-foreground">{posicao}</span>
@@ -133,10 +164,10 @@ function Linha({
           <span
             className={cn(
               "rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide shrink-0",
-              ganho ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700",
+              tom.selo,
             )}
           >
-            {ganho ? "Ganho" : "Perda"}
+            {tom.rotulo}
           </span>
         </span>
         <span className="block text-xs text-muted-foreground truncate mt-0.5">
@@ -165,7 +196,7 @@ function Linha({
         </span>
         <span className="mt-2 block h-1.5 rounded-full bg-muted overflow-hidden">
           <span
-            className={cn("block h-full rounded-full", ganho ? "bg-emerald-600" : "bg-red-600")}
+            className={cn("block h-full rounded-full", tom.barra)}
             style={{ width: `${Math.max(2, linha.proporcao * 100)}%` }}
           />
         </span>
@@ -173,7 +204,7 @@ function Linha({
       <span
         className={cn(
           "text-sm font-extrabold tabular-nums shrink-0 text-right",
-          ganho ? "text-emerald-700" : "text-red-700",
+          tom.valor,
         )}
       >
         {formatBrlShort(valor)}
