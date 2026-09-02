@@ -191,7 +191,7 @@ router.get("/change-sets", async (req, res): Promise<void> => {
 
 /**
  * Quantas placas e quantas alterações de cada tipo de ativo cada comparação
- * tem — o que o seletor de vigência do Plano de Ação precisa saber **antes**
+ * tem — o que o seletor de vigência de Chamados precisa saber **antes**
  * de abrir comparação nenhuma.
  *
  * Lá a vigência é escolhida dentro da aba (Cavalo, Carreta, Trecho), e a lista

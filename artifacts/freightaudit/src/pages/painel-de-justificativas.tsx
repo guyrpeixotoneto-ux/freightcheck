@@ -66,7 +66,7 @@ import {
 import { cn } from "@/lib/utils";
 
 /**
- * Plano de Ação — Painel de Justificativas.
+ * Chamados — Painel de Justificativas.
  *
  * A fila de Justificativas responde "o que eu justifico agora". Este painel
  * responde a outra pergunta, que é a de quem **cobra** o trabalho: do que a
@@ -549,7 +549,7 @@ export default function PainelDeJustificativas() {
             </span>
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                Plano de Ação
+                Chamados
               </p>
               <h1 className="text-4xl font-bold tracking-tight mt-1">
                 Painel de Justificativas

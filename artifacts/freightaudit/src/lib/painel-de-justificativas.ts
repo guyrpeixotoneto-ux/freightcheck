@@ -7,7 +7,7 @@ import { useConsultaResiliente } from "@/lib/consulta-resiliente";
 import { EQUIPAMENTOS_DO_AMBIENTE, rotuloDoTipo, type Equipamento } from "@/lib/frota";
 
 /**
- * Painel de Justificativas — a leitura de cobertura do Plano de Ação.
+ * Painel de Justificativas — a leitura de cobertura de Chamados.
  *
  * A fila (`pages/justificativas.tsx`) responde "o que eu justifico agora": uma
  * vigência, uma aba, os cards das placas que mudaram. O painel responde a

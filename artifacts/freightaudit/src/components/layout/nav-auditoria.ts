@@ -93,7 +93,7 @@ import type { NavGroup } from "./nav";
  *
  * A ordem é a de uma auditoria completa, de cima para baixo: vê-se a vigilância
  * (**Dashboard**), o retrato (**Visão executiva**), libera-se o que precisa ser
- * comprado hoje (**Compras**), registra-se o que mudou (**Plano de Ação**),
+ * comprado hoje (**Compras**), registra-se o que mudou (**Chamados**),
  * procura-se o desvio (**Auditoria**), cobra-se o desvio achado
  * (**Processos**), confere-se o quadro de gente que o modelo remunera
  * (**QLP**), desce-se ao ativo que o sofreu (**Frota**), pergunta-se ao
@@ -227,15 +227,15 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
     },
     {
       /*
-        Plano de Ação fica logo depois de Compras porque é o mesmo tipo de
+        Chamados fica logo depois de Compras porque é o mesmo tipo de
         trabalho de mesa: alguém olhou o que mudou de uma vigência para a outra
         e precisa registrar, placa a placa, por que aquilo mudou — antes de a
         alteração seguir para Auditoria ou Recuperação.
       */
-      titulo: "Plano de Ação",
+      titulo: "Chamados",
       descricao: "O que mudou por placa, e a justificativa de cada mudança",
       icon: FileCheck2,
-      cor: "text-nav-plano-de-acao",
+      cor: "text-nav-chamados",
       itens: [
         { href: "/justificativas", label: "Justificativas", icon: FileCheck2 },
         /*

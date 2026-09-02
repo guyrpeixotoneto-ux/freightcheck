@@ -7,7 +7,7 @@ import {
 } from "@workspace/db";
 
 /**
- * Painel de Justificativas — a leitura de cobertura do Plano de Ação.
+ * Painel de Justificativas — a leitura de cobertura de Chamados.
  *
  * A fila de Justificativas (`pages/justificativas.tsx`) responde "o que eu
  * justifico agora": uma vigência, uma aba de tipo, os cards das placas que
@@ -31,12 +31,15 @@ import {
  *
  * O recorte de origem é o mesmo de toda a família (`ALTERACAO_DE_ORIGEM_VISIVEL`)
  * e a linha sem placa (`LAYOUT_CHANGE`) fica de fora, pelo mesmo motivo de
- * `contagemPorTipo`: o Plano de Ação não a mostra, então ela não pode aparecer
- * aqui como pendência que ninguém consegue justificar.
+ * `contagemPorTipo`: a fila de Justificativas não a mostra, então ela não pode
+ * aparecer aqui como pendência que ninguém consegue justificar.
  */
 
-/** As alterações que o Plano de Ação enfileira — as mesmas que a fila mostra. */
-function alteracoesDoPlanoDeAcao(changeSetIds: string[]): SQL {
+/**
+ * As alterações que a fila de Justificativas enfileira — as mesmas que ela
+ * mostra.
+ */
+function alteracoesDaFilaDeJustificativas(changeSetIds: string[]): SQL {
   return and(
     inArray(changeTable.changeSetId, changeSetIds),
     sql`${changeTable.entityLabel} IS NOT NULL`,
@@ -94,7 +97,7 @@ export async function coberturaDeJustificativas(
         ),
     })
     .from(changeTable)
-    .where(alteracoesDoPlanoDeAcao(changeSetIds))
+    .where(alteracoesDaFilaDeJustificativas(changeSetIds))
     .groupBy(changeTable.changeSetId, changeTable.entityType);
 }
 
@@ -230,7 +233,7 @@ export async function linhasDoPainel(
     .as("ultimas");
 
   const onde = and(
-    alteracoesDoPlanoDeAcao(changeSetIds),
+    alteracoesDaFilaDeJustificativas(changeSetIds),
     entityType === undefined || entityType === null
       ? undefined
       : eq(changeTable.entityType, entityType),

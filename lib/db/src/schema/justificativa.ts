@@ -2,8 +2,8 @@ import { pgTable, text, uuid, bigint, timestamp, index } from "drizzle-orm/pg-co
 import { changeSetTable, changeTable } from "./comparison";
 
 /**
- * Plano de Ação — a justificativa que o gestor escreve sobre uma alteração
- * específica, entre uma vigência e a seguinte.
+ * Chamados — Justificativas: a justificativa que o gestor escreve sobre uma
+ * alteração específica, entre uma vigência e a seguinte.
  *
  * Uma linha por alteração justificada (`change_id`) dentro de uma comparação
  * (`change_set_id`) — não por placa: uma placa com várias alterações pode ter

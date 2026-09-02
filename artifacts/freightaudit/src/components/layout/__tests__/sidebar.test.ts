@@ -290,11 +290,11 @@ describe("a lateral", () => {
       */
       "Compras",
       /*
-        Plano de Ação vem logo depois de Compras pelo mesmo motivo: é trabalho
+        Chamados vem logo depois de Compras pelo mesmo motivo: é trabalho
         de mesa sobre o que já mudou, não uma descoberta de auditoria — ver o
         comentário da seção em `sidebar.tsx`.
       */
-      "Plano de Ação",
+      "Chamados",
       "Auditoria",
       "Processos",
       "QLP",
