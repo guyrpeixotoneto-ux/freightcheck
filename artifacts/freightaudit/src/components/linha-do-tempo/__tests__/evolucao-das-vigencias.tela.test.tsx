@@ -6,7 +6,7 @@
 import { render, screen, cleanup, within, fireEvent } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { EvolucaoDasVigencias } from "../linha-do-tempo-de-impacto";
+import { CartoesDeResumo, EvolucaoDasVigencias } from "../linha-do-tempo-de-impacto";
 import type { RangeMovement, ResumoDoIntervalo } from "@/lib/analise";
 
 const PERIODICIDADE = "MENSAL";
@@ -109,6 +109,54 @@ describe("a janela da evolução das vigências", () => {
   });
 });
 
+/**
+ * O mês crítico é o **maior** movimento do intervalo, de qualquer lado. Com
+ * "crítico" ocupando o lugar de "ganho" e "perda" no mesmo valor, a vigência
+ * que mais somou saía com o número em verde e o selo escrito "Perda" —
+ * a ênfase do tamanho apagando o lado.
+ */
+describe("o selo de cada vigência", () => {
+  it("segue o sinal do número, inclusive no mês crítico", () => {
+    montar(() => {});
+
+    // A janela padrão mostra 300, −400, 500, −600, −700 e 800 — três de cada
+    // lado, e o crítico (agosto, +800) é um dos ganhos.
+    expect(screen.getAllByText("Ganho")).toHaveLength(3);
+    expect(screen.getAllByText("Perda")).toHaveLength(3);
+    expect(screen.getByText("Mês crítico")).toBeTruthy();
+  });
+});
+
+/**
+ * Os cartões do topo somam o intervalo inteiro, e o Panorama executivo publica
+ * a vigência aberta sozinha sob o mesmo rótulo — "Impacto líquido". Sem esta
+ * linha, as duas telas mostram números diferentes para o que parece ser a
+ * mesma pergunta, e é o mesmo desencontro que o clique numa vigência da linha
+ * do tempo produz: o nó traz uma comparação, o cartão traz todas.
+ */
+describe("o placar do intervalo", () => {
+  it("escreve de que recorte os números são", () => {
+    render(
+      <CartoesDeResumo
+        dados={RESUMO}
+        periodicidade={PERIODICIDADE}
+        comparacoes={LINHAS.length}
+      />,
+    );
+
+    const escopo = screen.getByText(/somam o intervalo inteiro/);
+    expect(escopo.textContent).toContain("2026-01-01");
+    expect(escopo.textContent).toContain("2026-08-01");
+    expect(escopo.textContent).toContain("8 comparações");
+  });
+
+  it("sem comparação nenhuma, não promete um intervalo que não leu", () => {
+    render(<CartoesDeResumo dados={RESUMO} periodicidade={PERIODICIDADE} comparacoes={0} />);
+
+    expect(screen.queryByText(/somam o intervalo inteiro/)).toBeNull();
+  });
+});
+
 describe("o clique numa vigência", () => {
   it("no marco, abre a vigência apontada", () => {
     const abrir = vi.fn();
@@ -187,6 +235,17 @@ describe("a leitura de celular", () => {
     ]);
     // Os marcos clicáveis são da versão deitada — no celular a linha é o alvo.
     expect(marcos()).toHaveLength(0);
+  });
+
+  it("o cartão da vigência crítica diz o lado dela junto do selo de crítico", () => {
+    estreitar(390);
+    montar(() => {});
+
+    // A última da janela é agosto: +800, o maior movimento do intervalo.
+    const critica = screen.getAllByRole("listitem").at(-1);
+    expect(critica?.textContent).toContain("Mês crítico");
+    expect(critica?.textContent).toContain("Ganho");
+    expect(critica?.textContent).not.toContain("Perda");
   });
 
   it("o clique na linha abre a mesma vigência que o cartão da versão deitada", () => {

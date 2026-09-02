@@ -216,6 +216,7 @@ export function LinhaDoTempoDeImpacto({
         <CartoesDeResumo
           dados={dados}
           periodicidade={periodicidadeSelecionada}
+          comparacoes={linhas.length}
           onAbrir={() => setAbertura({ tipo: "consolidado", periodicidade: periodicidadeSelecionada })}
         />
       )}
@@ -289,6 +290,14 @@ export function LinhaDoTempoDeImpacto({
  * Os quatro números do intervalo — o líquido, os dois lados que o formam e a
  * contagem de alterações —, todos sobre a **mesma** periodicidade.
  *
+ * E sobre o **intervalo inteiro**, o que a linha de escopo acima deles escreve.
+ * Sem ela, "Impacto líquido/mês" aqui e "Impacto líquido" no Panorama
+ * executivo são o mesmo rótulo para duas contas diferentes — a soma das
+ * comparações do histórico contra a vigência aberta sozinha —, e quem compara
+ * as duas telas encontra dois números para a mesma pergunta sem nada na tela
+ * que explique a diferença. É a mesma divergência que o clique numa vigência
+ * da linha do tempo produz: o nó traz uma comparação, o cartão traz todas.
+ *
  * Separar "o que somou" e "o que subtraiu" em cartões próprios, e não só numa
  * barra dentro do cartão de líquido, é a resposta ao mesmo problema que
  * `DoisLados` resolve na Visão geral: um líquido negativo não distingue "quase
@@ -302,11 +311,19 @@ export function LinhaDoTempoDeImpacto({
 export function CartoesDeResumo({
   dados,
   periodicidade,
+  comparacoes,
   onAbrir,
   avisoDeAtivos,
 }: {
   dados: ResumoDoIntervalo;
   periodicidade: string;
+  /**
+   * Quantas comparações a soma tem — as vigências que a linha do tempo desenha,
+   * e não `totals.comparisons` do servidor: aquele conta os conjuntos lidos,
+   * inclusive os que viraram `gaps` e não entraram em número nenhum. O que a
+   * linha de escopo promete é justamente o que está desenhado logo abaixo.
+   */
+  comparacoes: number;
   /**
    * Ressalva sob a contagem de ativos. A Visão Geral precisa dela: entre
    * unidades, `vehiclesTouched` é soma simples e não deduplicada por placa —
@@ -325,48 +342,57 @@ export function CartoesDeResumo({
   const perdas = dados.lossesByPeriodicity[periodicidade] ?? 0;
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-      <CartaoDeResumo
-        icone={liquido < 0 ? ArrowDownRight : ArrowUpRight}
-        tom={liquido < 0 ? "perda" : "ganho"}
-        titulo={`Impacto líquido${periodicitySuffix(periodicidade)}`}
-        valor={formatBrlShort(liquido)}
-        onClique={onAbrir}
-        rotulo="Ver o que somou e o que subtraiu"
-      />
-      <CartaoDeResumo
-        icone={Clock}
-        tom="perda"
-        titulo={`Perdas identificadas${periodicitySuffix(periodicidade)}`}
-        valor={formatBrlShort(perdas)}
-        onClique={onAbrir}
-        rotulo="Ver o que subtraiu da remuneração"
-      />
-      <CartaoDeResumo
-        icone={ArrowUpRight}
-        tom="ganho"
-        titulo={`Ganhos identificados${periodicitySuffix(periodicidade)}`}
-        valor={`+${formatBrlShort(ganhos)}`}
-        onClique={onAbrir}
-        rotulo="Ver o que somou à remuneração"
-      />
-      <div className={cn(CARTAO, "flex items-center gap-3.5 p-5")}>
-        <span className="w-11 h-11 rounded-full flex items-center justify-center shrink-0 bg-accent">
-          <SlidersHorizontal className="w-5 h-5 text-brand" />
-        </span>
-        <div className="min-w-0">
-          <div className="text-sm text-muted-foreground">Alterações</div>
-          <div className="text-2xl font-extrabold tabular-nums leading-tight">
-            {dados.totals.changes.toLocaleString("pt-BR")}
-          </div>
-          <div className="text-xs text-muted-foreground">
-            em {contar(dados.totals.vehiclesTouched, "ativo", "ativos")}
-          </div>
-          {avisoDeAtivos && (
-            <div className="text-[0.6875rem] text-muted-foreground leading-snug mt-0.5">
-              {avisoDeAtivos}
+    <div>
+      {comparacoes > 0 && (
+        <p className="text-xs text-muted-foreground mb-2">
+          Todos os números abaixo somam o intervalo inteiro — {dados.fromLabel} →{" "}
+          {dados.toLabel}, {contar(comparacoes, "comparação", "comparações")} — e não a
+          vigência aberta sozinha.
+        </p>
+      )}
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <CartaoDeResumo
+          icone={liquido < 0 ? ArrowDownRight : ArrowUpRight}
+          tom={liquido < 0 ? "perda" : "ganho"}
+          titulo={`Impacto líquido${periodicitySuffix(periodicidade)}`}
+          valor={formatBrlShort(liquido)}
+          onClique={onAbrir}
+          rotulo="Ver o que somou e o que subtraiu"
+        />
+        <CartaoDeResumo
+          icone={Clock}
+          tom="perda"
+          titulo={`Perdas identificadas${periodicitySuffix(periodicidade)}`}
+          valor={formatBrlShort(perdas)}
+          onClique={onAbrir}
+          rotulo="Ver o que subtraiu da remuneração"
+        />
+        <CartaoDeResumo
+          icone={ArrowUpRight}
+          tom="ganho"
+          titulo={`Ganhos identificados${periodicitySuffix(periodicidade)}`}
+          valor={`+${formatBrlShort(ganhos)}`}
+          onClique={onAbrir}
+          rotulo="Ver o que somou à remuneração"
+        />
+        <div className={cn(CARTAO, "flex items-center gap-3.5 p-5")}>
+          <span className="w-11 h-11 rounded-full flex items-center justify-center shrink-0 bg-accent">
+            <SlidersHorizontal className="w-5 h-5 text-brand" />
+          </span>
+          <div className="min-w-0">
+            <div className="text-sm text-muted-foreground">Alterações</div>
+            <div className="text-2xl font-extrabold tabular-nums leading-tight">
+              {dados.totals.changes.toLocaleString("pt-BR")}
             </div>
-          )}
+            <div className="text-xs text-muted-foreground">
+              em {contar(dados.totals.vehiclesTouched, "ativo", "ativos")}
+            </div>
+            {avisoDeAtivos && (
+              <div className="text-[0.6875rem] text-muted-foreground leading-snug mt-0.5">
+                {avisoDeAtivos}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
@@ -739,7 +765,9 @@ function LinhaDoTempoHorizontal({
         <div className="grid gap-3" style={grade}>
           {visiveis.map((linha) => (
             <div key={linha.period} className="flex justify-center h-5">
-              {linha.period === critico && <SeloDeMesCritico />}
+              {linha.period === critico && (
+                <SeloDeMesCritico tom={tomDaVigencia(linha, periodicidade, critico)} />
+              )}
             </div>
           ))}
         </div>
@@ -876,8 +904,23 @@ function LinhaDoTempoVertical({
   );
 }
 
-/** O que a vigência foi na periodicidade aberta — é isto que pinta a coluna inteira. */
-type TomDaVigencia = "critico" | "perda" | "ganho" | "neutro";
+/**
+ * O que a vigência foi na periodicidade aberta — é isto que pinta a coluna
+ * inteira, e são **dois** eixos porque são duas perguntas.
+ *
+ * `lado` é o sinal do número: é ele que dá a cor e escreve o selo. `critico` é
+ * o maior movimento do intervalo, que fala de **tamanho** e não de lado — o mês
+ * que mais mexeu pode ter mexido para cima.
+ *
+ * Os dois moravam no mesmo valor, com `"critico"` ocupando o lugar de `"ganho"`
+ * e `"perda"`, e por isso o mês crítico positivo saía com o número em verde, a
+ * data em vermelho e o selo escrito "Perda": a ênfase do maior movimento
+ * apagava o lado dele, e a coluna afirmava uma perda que não houve.
+ */
+interface TomDaVigencia {
+  lado: "perda" | "ganho" | "neutro";
+  critico: boolean;
+}
 
 function tomDaVigencia(
   linha: RangeMovement,
@@ -885,59 +928,89 @@ function tomDaVigencia(
   critico: string | null,
 ): TomDaVigencia {
   const valor = linha.impact.byPeriodicity[periodicidade];
-  if (valor === undefined || valor === 0) return "neutro";
-  if (linha.period === critico) return "critico";
-  return valor < 0 ? "perda" : "ganho";
+  const lado =
+    valor === undefined || valor === 0 ? "neutro" : valor < 0 ? "perda" : "ganho";
+  return { lado, critico: linha.period === critico };
 }
 
 function corDoTom(tom: TomDaVigencia): string {
-  if (tom === "critico" || tom === "perda") return "text-red-700";
-  if (tom === "ganho") return "text-emerald-700";
+  if (tom.lado === "perda") return "text-red-700";
+  if (tom.lado === "ganho") return "text-emerald-700";
   return "text-foreground";
 }
 
-/** O selo do tom — "Ganho", "Perda" ou "Sem valoração" — sob o cartão ou ao lado dele. */
+/** A cor cheia do marco — a mesma régua do texto, em fundo. */
+function fundoDoLado(lado: TomDaVigencia["lado"]): string {
+  if (lado === "perda") return "bg-red-600";
+  if (lado === "ganho") return "bg-emerald-600";
+  return "bg-slate-400";
+}
+
+/** A mesma régua em pastel — o fundo dos selos. */
+function corDeFundoDoLado(lado: TomDaVigencia["lado"]): string {
+  if (lado === "perda") return "bg-red-50 text-red-700";
+  if (lado === "ganho") return "bg-emerald-50 text-emerald-700";
+  return "bg-muted text-muted-foreground";
+}
+
+/**
+ * O selo do lado — "Ganho", "Perda" ou "Sem valoração" — sob o cartão ou ao
+ * lado dele.
+ *
+ * Lê só `lado`: o mês crítico já se anuncia no selo próprio e no marco maior, e
+ * o que este selo responde é outra coisa — de que lado a vigência caiu.
+ */
 function SeloDoTom({ tom }: { tom: TomDaVigencia }) {
   return (
     <span
       className={cn(
         "rounded-md px-2 py-1 text-[0.625rem] font-bold uppercase tracking-wide whitespace-nowrap",
-        tom === "perda" || tom === "critico"
-          ? "bg-red-50 text-red-700"
-          : tom === "ganho"
-            ? "bg-emerald-50 text-emerald-700"
-            : "bg-muted text-muted-foreground",
+        corDeFundoDoLado(tom.lado),
       )}
     >
-      {tom === "ganho" ? "Ganho" : tom === "neutro" ? "Sem valoração" : "Perda"}
+      {tom.lado === "ganho" ? "Ganho" : tom.lado === "neutro" ? "Sem valoração" : "Perda"}
     </span>
   );
 }
 
-function SeloDeMesCritico() {
+/**
+ * O selo do maior movimento do intervalo.
+ *
+ * Ele também veste o lado, e não o vermelho fixo de antes: "Mês crítico" em
+ * vermelho sobre a vigência que mais **somou** dizia, na cor, o contrário do
+ * número embaixo dele. Crítico é o tamanho; a cor continua sendo do sinal.
+ */
+function SeloDeMesCritico({ tom }: { tom: TomDaVigencia }) {
   return (
-    <span className="rounded-full bg-red-50 px-2 py-0.5 text-[0.625rem] font-bold uppercase tracking-wide text-red-700 whitespace-nowrap">
+    <span
+      className={cn(
+        "rounded-full px-2 py-0.5 text-[0.625rem] font-bold uppercase tracking-wide whitespace-nowrap",
+        corDeFundoDoLado(tom.lado),
+      )}
+    >
       Mês crítico
     </span>
   );
 }
 
 function Marco({ tom }: { tom: TomDaVigencia }) {
-  if (tom === "critico") {
+  if (tom.critico) {
     return (
-      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-red-100">
-        <span className="h-3 w-3 rounded-full bg-red-600 ring-2 ring-card" />
+      <span
+        className={cn(
+          "flex h-6 w-6 items-center justify-center rounded-full",
+          tom.lado === "perda"
+            ? "bg-red-100"
+            : tom.lado === "ganho"
+              ? "bg-emerald-100"
+              : "bg-slate-100",
+        )}
+      >
+        <span className={cn("h-3 w-3 rounded-full ring-2 ring-card", fundoDoLado(tom.lado))} />
       </span>
     );
   }
-  return (
-    <span
-      className={cn(
-        "h-3.5 w-3.5 rounded-full ring-4 ring-card",
-        tom === "ganho" ? "bg-emerald-600" : tom === "perda" ? "bg-red-600" : "bg-slate-400",
-      )}
-    />
-  );
+  return <span className={cn("h-3.5 w-3.5 rounded-full ring-4 ring-card", fundoDoLado(tom.lado))} />;
 }
 
 /**
@@ -977,8 +1050,8 @@ function CartaoDaVigencia({
     "block h-full w-full rounded-lg border p-3 transition-colors",
     orientacao === "linha" ? "text-left" : "text-center",
     (temLink || onAbrir) && "hover:border-brand/40 hover:bg-accent",
-    tom === "critico" && "border-red-200 bg-red-50/50",
-    tom === "ganho" && "border-emerald-200 bg-emerald-50/50",
+    tom.critico && tom.lado === "perda" && "border-red-200 bg-red-50/50",
+    tom.lado === "ganho" && "border-emerald-200 bg-emerald-50/50",
   );
 
   const valorEscrito =
@@ -1008,7 +1081,7 @@ function CartaoDaVigencia({
             <span className={cn("text-sm font-semibold tabular-nums", corDoTom(tom))}>
               {linha.label}
             </span>
-            {tom === "critico" && <SeloDeMesCritico />}
+            {tom.critico && <SeloDeMesCritico tom={tom} />}
           </span>
           <span className="mt-0.5 block text-xs text-muted-foreground tabular-nums">
             {contar(linha.changes, "alteração", "alterações")}
@@ -1023,7 +1096,7 @@ function CartaoDaVigencia({
       </div>
     ) : (
       <>
-        <div className={cn("text-xs font-bold tabular-nums", tom === "critico" && "text-red-700")}>
+        <div className={cn("text-xs font-bold tabular-nums", tom.critico && corDoTom(tom))}>
           {contar(linha.changes, "alteração", "alterações")}
         </div>
         {linha.impact.notCalculable > 0 && (
