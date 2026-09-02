@@ -610,6 +610,20 @@
       "when": 1789500000000,
       "tag": "0086_modulos_universais",
       "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1789500100000,
+      "tag": "0087_monitoramento_de_chamados",
+      "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1789500200000,
+      "tag": "0088_reconciliar_monitoramento_de_chamados",
+      "breakpoints": true
     }
   ]
 }

@@ -22,6 +22,7 @@ import {
   Gauge,
   GitCompareArrows,
   HardHat,
+  Headset,
   History,
   House,
   Layers,
@@ -93,7 +94,8 @@ import type { NavGroup } from "./nav";
  * devolve para a Empurrada quem clicou dentro do Rota.
  *
  * A ordem é a de uma auditoria completa, de cima para baixo: registra-se o que
- * mudou (**Chamados**, a fila de mesa por onde o dia começa), vê-se a
+ * mudou (**Justificativas**, a fila de mesa por onde o dia começa) e o que a
+ * fila da Ambev fez desde ontem (**Chamados Ambev**), vê-se a
  * vigilância e o retrato do conjunto (**Visão executiva**, que reúne os dois
  * desde que as duas seções viraram uma), libera-se o que precisa ser comprado
  * hoje (**Compras**), procura-se o desvio (**Auditoria**), cobra-se o desvio achado
@@ -111,7 +113,7 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
   return [
     {
       /*
-        Chamados abre a lista porque é por onde o dia começa: alguém olhou o
+        Esta seção abre a lista porque é por onde o dia começa: alguém olhou o
         que mudou de uma vigência para a outra e precisa registrar, placa a
         placa, por que aquilo mudou — antes de a alteração seguir para
         Auditoria ou Recuperação.
@@ -120,8 +122,20 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
         relatório: aqui se trabalha, e ali se lê o que o trabalho produziu.
         Quem abre o produto todo dia abre por esta seção, e o primeiro cartão
         da lateral é o que menos custa alcançar.
+
+        **Ela se chamava "Chamados", e o nome estava tomado por outra coisa.**
+
+        Os dois itens dela são sobre a *justificativa de uma alteração de
+        vigência por placa* — `change` e `justificativa`, nada a ver com o
+        `ticket` que a Ambev exporta. Enquanto os chamados da Ambev viviam só
+        dentro de Importações, a ambiguidade não custava nada. Com o
+        Monitoramento de Chamados na lateral, ela passa a custar: duas seções
+        chamadas "Chamados", uma delas sem chamado nenhum dentro.
+
+        O nome novo é o que a seção sempre foi. A seção dos chamados da Ambev
+        entra logo abaixo, com o nome da fonte.
       */
-      titulo: "Chamados",
+      titulo: "Justificativas",
       descricao: "O que mudou por placa, e a justificativa de cada mudança",
       icon: FileCheck2,
       cor: "text-nav-chamados",
@@ -136,6 +150,39 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
           href: "/painel-de-justificativas",
           label: "Painel de Justificativas",
           icon: ClipboardList,
+        },
+      ],
+    },
+    {
+      /*
+        CHAMADOS AMBEV — os chamados que vêm por importação, e o que mudou neles.
+
+        Seção própria porque a população é outra: aqui é `ticket`, o export do
+        Freightech que a Ambev manda por unidade, e não a alteração de vigência
+        que a seção acima justifica. As duas responderiam "Chamados" se
+        compartilhassem a seção, e nenhuma das duas responderia à outra.
+
+        Vem logo depois de Justificativas, e não antes, pelo mesmo critério que
+        ordena a lateral inteira: primeiro onde se trabalha todo dia, depois o
+        resto. Quem abre o produto pela manhã abre por uma das duas.
+
+        **Só um item, e o motivo é a chave de permissão.** A tela de importar
+        chamados existe (`/importacoes?secao=chamados`), e um atalho para ela
+        aqui pareceria natural — mas a chave de permissão de um item é o `href`
+        (`lib/permissoes.ts`), e `/importacoes?secao=chamados` seria uma chave
+        **diferente** de `/importacoes`: desligar Importações não desligaria o
+        atalho, e quem administrasse acessos veria dois módulos onde há uma
+        tela. Um atalho que fura o controle de acesso não é conveniência.
+      */
+      titulo: "Chamados Ambev",
+      descricao: "O que mudou nos chamados desde a última importação",
+      icon: Headset,
+      cor: "text-nav-chamados",
+      itens: [
+        {
+          href: "/monitoramento-de-chamados",
+          label: "Monitoramento de Chamados",
+          icon: Headset,
         },
       ],
     },

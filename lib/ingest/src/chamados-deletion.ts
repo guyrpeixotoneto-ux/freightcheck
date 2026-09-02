@@ -47,6 +47,21 @@ export interface TicketImportDeletionCounts {
   duplicateAttempts: number;
   /** 1 quando o arquivo recebido sai do disco; 0 quando outro envio ainda o usa. */
   storedFile: number;
+  /**
+   * Movimentações do Monitoramento que este envio sustentava.
+   *
+   * Saem por cascata (ver a `0087`), e por isso não aparecem no `DELETE`
+   * abaixo — mas **aparecem aqui**, porque a pergunta "tem certeza?" só é uma
+   * decisão quando diz o que se perde. Um envio do meio da cadeia costuma ser o
+   * `ultimo_import_id` de um dia inteiro de movimentações.
+   *
+   * Elas são derivadas e voltam no recálculo da série (`recalcularSerie`) — a
+   * exclusão as tira, não as destrói. O que **não** volta é a revisão: ela é
+   * ato humano, e sai junto.
+   */
+  movimentacoes: number;
+  /** Revisões que somem com as movimentações. Estas não se recomputam. */
+  revisoes: number;
 }
 
 export interface TicketImportDeletionPlan {
@@ -55,6 +70,15 @@ export interface TicketImportDeletionPlan {
   contentSha256: string;
   status: string;
   receivedAt: Date | null;
+  /**
+   * A série do envio — devolvida para que quem exclui saiba **o que recalcular**.
+   *
+   * Tirar um envio do meio de uma cadeia muda o "anterior" de quem ficou, e as
+   * comparações seguintes passam a estar erradas. Quem chama é responsável por
+   * `recalcularSerie` depois; esta é a única informação que ele precisa e que
+   * deixa de existir no instante em que a linha sai.
+   */
+  serie: string | null;
   /** Por que não dá para excluir agora — null quando dá. */
   refusal: string | null;
   removes: TicketImportDeletionCounts;
@@ -114,6 +138,7 @@ interface EnvioRow extends Record<string, unknown> {
   status: string;
   storage_path: string | null;
   received_at: Date | null;
+  serie: string | null;
 }
 
 async function carregarEnvio(
@@ -122,7 +147,7 @@ async function carregarEnvio(
 ): Promise<EnvioRow | null> {
   const { rows } = await db.execute<EnvioRow>(sql`
     SELECT id, filename, content_sha256, status::text AS status,
-           storage_path, received_at
+           storage_path, received_at, serie
       FROM ticket_import
      WHERE id = ${ticketImportId}::uuid`);
   return rows[0] ?? null;
@@ -169,8 +194,14 @@ export async function planTicketImportDeletion(
   const envio = await carregarEnvio(db, ticketImportId);
   if (!envio) return null;
 
-  const [tickets, ticketChanges, duplicateAttempts, arquivoCompartilhado] =
-    await Promise.all([
+  const [
+    tickets,
+    ticketChanges,
+    duplicateAttempts,
+    arquivoCompartilhado,
+    movimentacoes,
+    revisoes,
+  ] = await Promise.all([
       contar(
         db,
         sql`SELECT count(*) AS n FROM ticket WHERE ticket_import_id = ${ticketImportId}::uuid`,
@@ -194,6 +225,22 @@ export async function planTicketImportDeletion(
                AND ti.id <> ${ticketImportId}::uuid
                AND ti.id NOT IN (${duplicatasOrfas(ticketImportId, envio.content_sha256)})`,
       ),
+      // Movimentação sustentada por este envio em qualquer uma das duas pontas:
+      // ele pode ser o estado inicial de um dia ou o final dele, e sair leva as
+      // duas famílias junto pela cascata da `0087`.
+      contar(
+        db,
+        sql`SELECT count(*) AS n FROM ticket_movement_day
+             WHERE primeiro_import_id = ${ticketImportId}::uuid
+                OR ultimo_import_id = ${ticketImportId}::uuid`,
+      ),
+      contar(
+        db,
+        sql`SELECT count(*) AS n FROM ticket_movement_review r
+             JOIN ticket_movement_day m ON m.id = r.movement_id
+            WHERE m.primeiro_import_id = ${ticketImportId}::uuid
+               OR m.ultimo_import_id = ${ticketImportId}::uuid`,
+      ),
     ]);
 
   return {
@@ -202,6 +249,7 @@ export async function planTicketImportDeletion(
     contentSha256: envio.content_sha256,
     status: envio.status,
     receivedAt: envio.received_at,
+    serie: envio.serie ?? null,
     refusal: porQueNaoDaParaExcluir(envio.status, envio.received_at),
     removes: {
       tickets,
@@ -209,6 +257,8 @@ export async function planTicketImportDeletion(
       duplicateAttempts,
       storedFile:
         envio.storage_path && arquivoCompartilhado === 0 ? 1 : 0,
+      movimentacoes,
+      revisoes,
     },
   };
 }

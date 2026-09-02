@@ -6,6 +6,7 @@ import {
   bigint,
   numeric,
   jsonb,
+  date,
   timestamp,
   index,
   uniqueIndex,
@@ -93,10 +94,38 @@ export const ticketImportTable = pgTable(
      */
     parameterColumns: jsonb("parameter_columns").notNull().default([]),
     failureReason: text("failure_reason"),
+
+    /**
+     * A partição dentro da qual dois envios são comparáveis — a unidade.
+     *
+     * O arquivo real chama-se `Chamados_<unidade>.xlsx`, e dois envios do mesmo
+     * dia costumam ser **unidades diferentes**, não reenvios da mesma fila.
+     * Comparar Recife com Camaçari produziria "todos os chamados de Recife
+     * sumiram e 380 novos apareceram" — movimentação falsa em massa, e a
+     * primeira coisa que faria o gestor deixar de confiar na tela.
+     *
+     * `NULL` é legítimo e quer dizer **série indeterminada**, não "compara com
+     * qualquer um": o motor a trata como uma série própria. Comparar às cegas é
+     * exatamente o defeito que esta coluna existe para impedir.
+     */
+    serie: text("serie"),
+    /**
+     * De onde a série foi lida — porque a confiança nas duas não é a mesma.
+     *
+     * ARQUIVO         — a coluna `Unidade` das linhas, todas concordando. É a
+     *                   fonte preferida: sobrevive a alguém renomear o arquivo.
+     * NOME_DO_ARQUIVO — o `Chamados_<unidade>.xlsx`, quando a coluna não veio.
+     * MISTA           — as linhas nomeiam mais de uma unidade; a comparação é
+     *                   feita por (unidade, número do chamado), linha a linha.
+     * INDETERMINADA   — nenhuma das duas disse nada.
+     */
+    serieOrigem: text("serie_origem"),
   },
   (t) => [
     index("ticket_import_sha256_idx").on(t.contentSha256),
     index("ticket_import_received_idx").on(t.receivedAt),
+    /** A busca do envio anterior da mesma série — a primeira consulta do diff. */
+    index("ticket_import_serie_idx").on(t.serie, t.receivedAt),
   ],
 );
 
@@ -151,6 +180,59 @@ export const ticketTable = pgTable(
     requestedBy: text("requested_by"),
     /** Texto livre do chamado — assunto, descrição, o que a fonte trouxer. */
     subject: text("subject"),
+
+    /*
+      -----------------------------------------------------------------------
+      As colunas que já estavam em `payload`, promovidas pela `0087`
+      -----------------------------------------------------------------------
+
+      O export real tem 26 cabeçalhos e este leitor promovia 12. Os outros 14
+      nunca se perderam — `payload` guarda a linha inteira com os nomes
+      originais —, mas ficar só lá tem um custo que só apareceu quando o
+      Monitoramento de Chamados foi desenhado: não dá para filtrar por unidade,
+      nem dizer "o responsável mudou", nem agrupar o dia por unidade, sem
+      desempacotar um documento linha a linha.
+
+      Por isso a `0087` as promove **e faz o backfill a partir do próprio
+      `payload`** — nenhum arquivo precisou ser reimportado.
+
+      O sufixo `_raw` é o mesmo de `status_raw`, e quer dizer a mesma coisa:
+      isto é o que a Ambev escreveu. `unidade_raw` **não** é a `unidade`
+      canônica de `schema/unidade.ts` — casar as duas é cadastro, ato de gente,
+      e a `0049` documenta por que derivar identidade de arquivo é o desenho
+      errado. O Monitoramento agrupa pelo texto porque é o que ele tem, e diz
+      na tela que é o texto do arquivo.
+    */
+    /** `Unidade` — o recorte por que o Monitoramento particiona as séries. */
+    unidadeRaw: text("unidade_raw"),
+    /** `Segmento` — o que a tela chama de Área. */
+    segmentoRaw: text("segmento_raw"),
+    /** `Operador` — quem toca o chamado do lado da Ambev. */
+    operadorRaw: text("operador_raw"),
+    /** `Aprovador` — quem decide. É o "Responsável" do Monitoramento. */
+    aprovadorRaw: text("aprovador_raw"),
+    /**
+     * `SLA` — como a fonte escreveu, sem interpretação.
+     *
+     * Não vira data e não vira número: num export real ela aparece ora como
+     * prazo em dias, ora como um rótulo de acordo. Interpretá-la sem saber qual
+     * das duas é seria inventar um prazo. O prazo do Monitoramento é
+     * `prazoPrevisto`, que é data.
+     */
+    slaRaw: text("sla_raw"),
+    /** `Categoria` — o assunto que a Ambev dá ao chamado. */
+    categoriaRaw: text("categoria_raw"),
+    /** `Previsão Análise` — a data que o Monitoramento chama de prazo. */
+    prazoPrevisto: date("prazo_previsto"),
+    /**
+     * `Data Alteração` — quando a **Ambev** mexeu.
+     *
+     * Não é `openedAt` (quando o chamado nasceu) nem `ticketImport.receivedAt`
+     * (quando **nós** lemos o arquivo). As três convivem porque são três
+     * perguntas diferentes, e confundi-las é o defeito que o Monitoramento
+     * existe para não cometer.
+     */
+    alteradoEmFonte: timestamp("alterado_em_fonte", { withTimezone: true }),
     /** Quantos parâmetros vieram preenchidos neste chamado. */
     changedParameterCount: integer("changed_parameter_count")
       .notNull()
@@ -166,6 +248,15 @@ export const ticketTable = pgTable(
     index("ticket_external_id_idx").on(t.externalId),
     index("ticket_status_bucket_idx").on(t.statusBucket),
     index("ticket_vigencia_idx").on(t.vigenciaLabel),
+    /**
+     * A junção do diff: os chamados de um envio, pelo número.
+     *
+     * `ticket_external_id_idx` sozinho não serve — ele varre o número em todos
+     * os envios que já entraram, e a comparação quer os de **um**. Sem este par
+     * a comparação é varredura sequencial nos dois lados.
+     */
+    index("ticket_import_external_idx").on(t.ticketImportId, t.externalId),
+    index("ticket_unidade_idx").on(t.unidadeRaw),
   ],
 );
 

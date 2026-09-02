@@ -323,14 +323,24 @@ describe("a lateral", () => {
     expect(new Set([PANORAMA, DASHBOARD, IMPACTO_APURADO, RESUMO_EXECUTIVO, LINHA_DO_TEMPO]).size).toBe(5);
   });
 
-  it("mantém as dez seções do desenho, na ordem", () => {
+  it("mantém as onze seções do desenho, na ordem", () => {
     expect(secoesDaAuditoria()).toEqual([
       /*
-        Chamados abre a lista porque é a fila de mesa por onde o dia começa:
-        registrar, placa a placa, por que aquilo mudou. A fila vem antes da
-        leitura — ver `nav-auditoria.ts`.
+        Justificativas abre a lista porque é a fila de mesa por onde o dia
+        começa: registrar, placa a placa, por que aquilo mudou. A fila vem antes
+        da leitura — ver `nav-auditoria.ts`.
+
+        **A seção se chamava "Chamados", e o nome saiu daqui de propósito.** Ele
+        descrevia a alteração de vigência por placa, não o `ticket` que a Ambev
+        exporta — e com o Monitoramento na lateral as duas coisas passariam a
+        disputar a mesma palavra na mesma tela.
       */
-      "Chamados",
+      "Justificativas",
+      /*
+        E os chamados da Ambev logo abaixo, com o nome da fonte: população
+        própria, importada por unidade, comparada envio a envio.
+      */
+      "Chamados Ambev",
       /*
         A Visão executiva vem logo abaixo, e é a leitura executiva inteira: o
         que mudou desde a última competência e o retrato do conjunto, que era a

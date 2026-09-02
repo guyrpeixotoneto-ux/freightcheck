@@ -57,6 +57,14 @@ export type TicketField =
   | "requestedValueRaw"
   | "appliedValueRaw"
   | "requestedBy"
+  | "unidadeRaw"
+  | "segmentoRaw"
+  | "operadorRaw"
+  | "aprovadorRaw"
+  | "slaRaw"
+  | "categoriaRaw"
+  | "prazoPrevisto"
+  | "alteradoEmFonte"
   | "subject";
 
 /**
@@ -190,6 +198,58 @@ const ALIASES: Record<TicketField, string[]> = {
     "opened by",
     "requester",
   ],
+  /*
+    -------------------------------------------------------------------------
+    Os oito campos que a `0087` promoveu de `payload` para coluna
+    -------------------------------------------------------------------------
+
+    Todos já vinham no arquivo e todos já estavam gravados — `payload` guarda a
+    linha inteira. O que faltava era serem coluna, e sem isso o Monitoramento
+    de Chamados não consegue filtrar por unidade, dizer "o responsável mudou",
+    nem agrupar o dia por unidade sem desempacotar json linha a linha.
+
+    **Entram aqui, antes de `subject` e depois de tudo o mais.** A ordem das
+    chaves é a ordem de disputa: pô-los antes faria, por exemplo, `categoria`
+    concorrer com campos que já funcionam. Depois de `subject` também não
+    serviria — `subject` reclama "observacao" e "descricao" por aproximação, e
+    engoliria uma coluna destas num arquivo que a escrevesse de outro jeito.
+
+    Os aliases são deliberadamente curtos. No formato largo toda coluna não
+    reclamada é um parâmetro de remuneração de verdade, e `WIDE_MIN_COVERAGE`
+    protege — mas a proteção é uma régua, não um perdão: "tipo" ficou de fora
+    de `categoriaRaw` justamente por ser genérico o bastante para roubar
+    "Tipo de pneu" num arquivo estreito, onde não há régua nenhuma.
+  */
+  unidadeRaw: ["unidade", "unidade de negocio", "filial", "cdd"],
+  segmentoRaw: ["segmento", "area", "setor"],
+  operadorRaw: ["operador"],
+  /*
+    `responsavel` **não** entra aqui, e a omissão é a decisão: `requestedBy` já
+    o reclama, vem antes na ordem, e ganharia a disputa de qualquer jeito — a
+    diferença seria só um alias que nunca casa, prometendo um comportamento que
+    o código não tem. Quem decide no export real é `Aprovador`, e é essa coluna
+    que o Monitoramento chama de Responsável.
+  */
+  aprovadorRaw: ["aprovador", "aprovado por", "approver"],
+  slaRaw: ["sla"],
+  categoriaRaw: ["categoria"],
+  prazoPrevisto: [
+    "previsao analise",
+    "previsao de analise",
+    "previsao da analise",
+    "prazo de analise",
+    "data limite",
+    "prazo",
+    "due date",
+  ],
+  /*
+    `Data Alteração` — quando a **Ambev** mexeu. É a terceira das quatro datas
+    deste domínio, e a que mais se confunde com as outras: não é `openedAt`
+    (quando o chamado nasceu) nem `ticket_import.received_at` (quando **nós**
+    lemos o arquivo). O Monitoramento a mostra na linha e deixa filtrar por
+    ela — mas a régua de dias é a da importação, e nunca esta.
+  */
+  alteradoEmFonte: ["data alteracao", "data da alteracao", "data de alteracao"],
   subject: [
     "justificativa abertura",
     "justificativa",
@@ -251,6 +311,36 @@ export interface ColumnPlan {
  * `aplicado` ao mesmo tempo por aproximação, e o segundo campo ficaria vazio
  * apontando para a coluna do primeiro.
  */
+/**
+ * Os campos que **só** casam por igualdade — nunca por aproximação.
+ *
+ * A segunda passada de `planTicketColumns` aceita "conter", e é onde os enganos
+ * moram. Para a maioria dos campos ela paga: "Data de abertura do chamado"
+ * contém "data de abertura", e recusar isso perderia dado de verdade.
+ *
+ * Para estes oito ela não paga, e o motivo é o comprimento dos nomes. Os
+ * cabeçalhos reais deles são palavras curtas e completas — `SLA`, `Unidade`,
+ * `Categoria` —, então a aproximação não acrescenta nada e rouba tudo: `sla`
+ * está contido em **"SLA restante"**, que é outra coluna, e no formato estreito
+ * não há `minCoverage` para segurar. Foi exatamente isso que quebrou a prova de
+ * que cabeçalhos desconhecidos aparecem em `unmapped` em vez de sumirem — e
+ * sumir em silêncio é o defeito que aquela prova existe para pegar.
+ *
+ * Perder um cabeçalho escrito de outro jeito custa uma coluna que continua
+ * inteira em `payload`. Roubar a coluna do vizinho custa um dado errado que
+ * ninguém vê.
+ */
+const SO_IGUALDADE: ReadonlySet<TicketField> = new Set<TicketField>([
+  "unidadeRaw",
+  "segmentoRaw",
+  "operadorRaw",
+  "aprovadorRaw",
+  "slaRaw",
+  "categoriaRaw",
+  "prazoPrevisto",
+  "alteradoEmFonte",
+]);
+
 export interface PlanOptions {
   /** Que campos disputar. O padrão é todos. */
   fields?: TicketField[];
@@ -302,6 +392,7 @@ export function planTicketColumns(
 
   for (const field of fields) {
     if (bindings[field]) continue;
+    if (SO_IGUALDADE.has(field)) continue;
     let found: { c: (typeof candidates)[number]; alias: string } | undefined;
     for (const c of candidates) {
       if (taken.has(c.index)) continue;
@@ -638,6 +729,19 @@ export function parseTicketDate(raw: unknown): Date | null {
   }
 
   return null;
+}
+
+/**
+ * A mesma data, como o banco guarda um `date` — `YYYY-MM-DD`, sem hora.
+ *
+ * `parseTicketDate` monta tudo em UTC (`Date.UTC`), então o corte da ISO é o
+ * mesmo dia que a célula escreveu. Ler o dia no fuso local aqui devolveria a
+ * véspera para toda data a oeste de Greenwich — e um prazo deslocado um dia é
+ * a diferença entre "vence hoje" e "venceu ontem" na tela do Monitoramento.
+ */
+export function dataDoDia(raw: unknown): string | null {
+  const data = parseTicketDate(raw);
+  return data === null ? null : data.toISOString().slice(0, 10);
 }
 
 /** As caixas em que a tela agrupa os status que a fonte inventa. */
@@ -1237,6 +1341,14 @@ export async function readTicketImport(
       vigenciaLabel: textOf(at(row.cells, "vigenciaLabel")),
       requestedBy: textOf(at(row.cells, "requestedBy")),
       subject: textOf(at(row.cells, "subject")),
+      unidadeRaw: textOf(at(row.cells, "unidadeRaw")),
+      segmentoRaw: textOf(at(row.cells, "segmentoRaw")),
+      operadorRaw: textOf(at(row.cells, "operadorRaw")),
+      aprovadorRaw: textOf(at(row.cells, "aprovadorRaw")),
+      slaRaw: textOf(at(row.cells, "slaRaw")),
+      categoriaRaw: textOf(at(row.cells, "categoriaRaw")),
+      prazoPrevisto: dataDoDia(at(row.cells, "prazoPrevisto")),
+      alteradoEmFonte: parseTicketDate(at(row.cells, "alteradoEmFonte")),
       changedParameterCount: changes.length,
       sourceRowIndex: row.rowIndex,
       payload,
