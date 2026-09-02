@@ -32,7 +32,7 @@ import type { BalancoResumo } from "@/components/balanco/tipos";
 import type { FamiliesOverview, FamiliesView } from "@/components/inicio/types";
 
 /**
- * O Panorama Executivo — os sete andares, montados num lugar só.
+ * O Panorama Executivo — os seis andares, montados num lugar só.
  *
  * O produto tinha quatro módulos de leitura executiva — Impacto Líquido,
  * Impacto Apurado, Resumo executivo e Linha do Tempo — que liam **a mesma
@@ -51,7 +51,7 @@ import type { FamiliesOverview, FamiliesView } from "@/components/inicio/types";
  * > verdade sobre o mesmo dado, que é exatamente o defeito que ele existe para
  * > curar.
  *
- * **Uma leitura só atravessa os sete andares.** {@link LeituraDoPanorama} é o
+ * **Uma leitura só atravessa os seis andares.** {@link LeituraDoPanorama} é o
  * que a unidade e a Visão Geral têm em comum, e os dois adaptadores
  * ({@link leituraDaUnidade}, {@link leituraDaVisaoGeral}) são o único lugar
  * onde a diferença entre as duas respostas do servidor é resolvida. Daí para
@@ -67,8 +67,13 @@ import type { FamiliesOverview, FamiliesView } from "@/components/inicio/types";
  * | 3 | De onde vem esse número? | `ponteDoImpacto` · `mudancasRelevantes` |
  * | 4 | Estamos melhorando ou piorando? | `useSerieDeImpacto` (hook, na tela) |
  * | 5 | Onde isso aconteceu? | {@link mapaDoPanorama} |
- * | 6 | O que eu faço agora? | {@link filaDoPanorama} |
- * | 7 | Posso confiar nisto? | {@link procedenciaDoPanorama} |
+ * | 6 | Posso confiar nisto? | {@link procedenciaDoPanorama} |
+ *
+ * {@link filaDoPanorama} respondia "o que eu faço agora" e **saiu da tela** —
+ * era o único andar que mandava embora em vez de responder sobre a vigência
+ * lida. A função fica aqui, testada e sem leitor: a fusão que ela faz é a
+ * resposta certa no dia em que a fila voltar a ter uma tela sua, e reescrevê-la
+ * de novo era o defeito que ela veio desfazer.
  *
  * Os andares 3 e 4 não têm função aqui porque já tinham a delas: a ponte e a
  * série são leituras que o Impacto Apurado e o Impacto Líquido já montavam, e
@@ -80,7 +85,7 @@ import type { FamiliesOverview, FamiliesView } from "@/components/inicio/types";
 // ---------------------------------------------------------------------------
 
 /**
- * O que os sete andares precisam saber, vindo de qualquer das duas leituras.
+ * O que os seis andares precisam saber, vindo de qualquer das duas leituras.
  *
  * Os campos são os que **as duas** respostas sabem responder. O que só uma
  * delas tem — a árvore de parâmetros, a fila do cockpit, a unidade a quem
@@ -241,7 +246,7 @@ export interface MedidaDoPlacar {
  * que falavam de coisas diferentes.
  *
  * A que fica aqui é a que **qualifica o líquido do andar 1**. A auditada não
- * some: desce para o andar 7 ({@link procedenciaDoPanorama}), onde é o que
+ * some: desce para a procedência ({@link procedenciaDoPanorama}), onde é o que
  * sempre foi — uma medida de procedência do dado, e não de resultado
  * financeiro. Duas coberturas com o mesmo peso visual na mesma tela é o
  * defeito; separá-las por assunto é o conserto.
@@ -461,6 +466,15 @@ const PESO_DO_TOM: Record<Tom, number> = { grave: 0, atencao: 1, ok: 2 };
 /**
  * O que fazer agora — **a fusão das três filas que o produto tinha**.
  *
+ * **Sem leitor em tela hoje.** O Panorama publicava esta fila no andar 6 e
+ * deixou de publicá-la: era o único andar que não respondia sobre a vigência
+ * lida — fundia três listas de trabalho e mandava embora —, e os destinos dela
+ * continuam alcançáveis de onde a pergunta nasce. A função continua aqui,
+ * inteira e testada, porque o que ela resolve não é desenho de tela: é a
+ * divergência entre três filas que liam a mesma `FamiliesView` com critérios
+ * diferentes, e essa divergência volta no dia em que qualquer tela precisar de
+ * uma fila. Reescrevê-la seria refazer o defeito.
+ *
  * Era o maior defeito da seção, e o de diagnóstico mais difícil: "Onde agir
  * agora" (Impacto Apurado), "O que merece sua atenção" (Resumo executivo) e
  * "Principais alterações" (Impacto Líquido) liam a mesma `FamiliesView` e
@@ -481,7 +495,7 @@ const PESO_DO_TOM: Record<Tom, number> = { grave: 0, atencao: 1, ok: 2 };
  *   nomeia *qual parâmetro* puxou o resultado, e a pergunta seguinte a "quanto
  *   custou" é sempre "por causa de quê";
  * - **entra o equipamento mais tocado** — a mesma coisa pelo eixo do ativo;
- * - **sai a integridade**, que desce para o andar 7: ela responde por *como
+ * - **sai a integridade**, que desce para a procedência: ela responde por *como
  *   sabemos*, e não por *o que fazer* — pô-la numa fila de trabalho a
  *   transformaria numa tarefa que ninguém executa;
  * - **sai o "sem preço"** por já existir em `ondeAgirAgora`, sob a mesma chave.

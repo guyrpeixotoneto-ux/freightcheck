@@ -271,11 +271,11 @@ describe("a página do Panorama", () => {
   });
 
   /*
-    Os sete andares, de ponta a ponta. É o único teste que percorre a página
+    Os seis andares, de ponta a ponta. É o único teste que percorre a página
     inteira com dado em mãos, e o único que pegaria um erro de montagem que só
     aparece quando há o que desenhar.
   */
-  it("monta os sete andares", async () => {
+  it("monta os seis andares", async () => {
     vi.stubGlobal("fetch", servidor());
     montar();
 
@@ -295,20 +295,26 @@ describe("a página do Panorama", () => {
     expect(screen.getByText("Composição do impacto líquido")).toBeTruthy();
     expect(screen.getByText("Principais mudanças")).toBeTruthy();
 
-    // 4 — a trajetória, e o link para a leitura por tipo
+    // 4 — a trajetória, o pódio dos dois lados e o link para a leitura por tipo
+    expect(screen.getByText("Impacto das alterações por vigência")).toBeTruthy();
+    expect(screen.getByText("Maiores impactos positivos desta vigência")).toBeTruthy();
+    expect(screen.getByText("Maiores impactos negativos desta vigência")).toBeTruthy();
     expect(screen.getByText("abra a Linha do Tempo")).toBeTruthy();
 
     // 5 — o mapa
     expect(screen.getByText("Movimentação da frota")).toBeTruthy();
     expect(screen.getByText("Carreta — o mais tocado")).toBeTruthy();
 
-    // 6 — a fila
-    expect(screen.getByText("O que fazer agora")).toBeTruthy();
-    expect(screen.getByText("95 alterações sem preço apurado")).toBeTruthy();
-
-    // 7 — a procedência
+    // 6 — a procedência
     await waitFor(() => expect(screen.getByText("De onde vêm estes números")).toBeTruthy());
     expect(screen.getByText("Cobertura auditada")).toBeTruthy();
+
+    /*
+      E a fila não está mais aqui. O andar que mandava embora saiu, e é este
+      `queryByText` que impede que ele volte por descuido — um `getByText` a
+      menos no teste acima não acusaria nada.
+    */
+    expect(screen.queryByText("O que fazer agora")).toBeNull();
   });
 
   /*
