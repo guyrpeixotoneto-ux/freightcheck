@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
 import { Clock, History } from "lucide-react";
@@ -13,11 +13,11 @@ import { LEITURA_DE_APURACAO } from "@/lib/frescor-das-leituras";
 import { useContextosDaCasca } from "@/lib/contextos";
 import { useFamiliesOverviewQuery } from "@/lib/families-overview";
 import { useSerieDeImpacto, useSerieDeImpactoGeral } from "@/lib/serie-de-impacto";
-import { juntarPrioridades } from "@/lib/cockpit";
 import { lerRecorte, nomeDaUnidade, type Recorte } from "@/lib/recorte";
 import {
   detalheDaFamilia,
   detalheDoImpacto,
+  impactoPorFamilia,
   variacao,
   type ExecucaoDeImportacao,
 } from "@/lib/visao-geral";
@@ -29,7 +29,6 @@ import {
   type FiltroDeMudanca,
 } from "@/lib/impacto-apurado";
 import {
-  filaDoPanorama,
   leituraDaUnidade,
   leituraDaVisaoGeral,
   mapaDoPanorama,
@@ -39,7 +38,6 @@ import {
   type LeituraDoPanorama,
   type Veredito as DadosDoVeredito,
 } from "@/lib/panorama";
-import { JANELA_PADRAO, type Janela } from "@/lib/janela-de-vigencias";
 import {
   MenuDaGestaoAVista,
   SeletorDeUnidade,
@@ -51,14 +49,14 @@ import {
 } from "@/components/vigencia/seletor-de-vigencia";
 import { FaixaDeCobertura, FaixaSemAlteracao } from "@/components/impacto-apurado/faixa-de-cobertura";
 import { PonteDoImpactoGrafico } from "@/components/impacto-apurado/ponte-do-impacto";
-import { EvolucaoPorVigencia } from "@/components/impacto-apurado/evolucao-por-vigencia";
 import { PrincipaisMudancas } from "@/components/impacto-apurado/principais-mudancas";
 import { Veredito } from "@/components/panorama/veredito";
 import { Placar } from "@/components/panorama/placar";
 import { Mapa } from "@/components/panorama/mapa";
-import { Fila } from "@/components/panorama/fila";
 import { Procedencia } from "@/components/panorama/procedencia";
+import { GraficoDeImpacto } from "@/components/dashboard/grafico-de-impacto";
 import { DetalheDaFamilia } from "@/components/inicio/detalhe-da-familia";
+import { MaioresImpactos } from "@/components/inicio/maiores-impactos";
 import { DetalheDoImpacto } from "@/components/inicio/detalhe-do-impacto";
 import { unidadesPorImpacto } from "@/components/inicio/visao-geral-consolidada";
 import type { UnidadeDoDrill } from "@/lib/drill-da-familia";
@@ -79,7 +77,7 @@ import type { FamiliesOverview, FamiliesView, GroupedView } from "@/components/i
  * Esta tela é o quinto módulo, e ela **não é os quatro empilhados** — empilhar
  * trocaria quatro telas redundantes por uma tela longa e redundante. Onde três
  * módulos desenhavam a mesma coisa de três jeitos, aqui se desenha o melhor dos
- * três, uma vez. São **sete andares**, e a ordem é a das perguntas que uma
+ * três, uma vez. São **seis andares**, e a ordem é a das perguntas que uma
  * diretoria faz:
  *
  * 1. **O veredito** — quanto custou esta vigência?
@@ -87,15 +85,23 @@ import type { FamiliesOverview, FamiliesView, GroupedView } from "@/components/i
  * 3. **A composição** — de onde vem esse número?
  * 4. **A trajetória** — estamos melhorando ou piorando?
  * 5. **O mapa** — onde isso aconteceu?
- * 6. **A fila** — o que eu faço agora?
- * 7. **A procedência** — posso confiar nisto?
+ * 6. **A procedência** — posso confiar nisto?
+ *
+ * **A fila ("o que eu faço agora") saiu.** Ela era o único andar que não
+ * respondia sobre a vigência lida: fundia três listas de trabalho e mandava
+ * embora — para a Curadoria, para as alterações sem preço, para o Cockpit —,
+ * o que faz dela uma tela de execução dentro de uma tela de leitura. Os três
+ * destinos continuam existindo e continuam alcançáveis de onde a pergunta
+ * nasce (a faixa de cobertura leva às alterações sem preço; o mapa e o pódio
+ * abrem a família). `filaDoPanorama` fica em `lib/panorama.ts`, testada, para
+ * quando a fila voltar a ter uma tela sua.
  *
  * **Nada aqui apura dinheiro.** A aritmética inteira mora em `lib/panorama.ts`,
  * que é projeção de `ExecutiveSummary` por funções que já existiam e já eram
- * testadas fora do JSX (`lib/visao-geral.ts`, `lib/impacto-apurado.ts`,
- * `lib/cockpit.ts`). Não há endpoint novo. Se o Panorama publicasse um líquido
- * diferente do Impacto Apurado sobre a mesma vigência, seria a quinta verdade
- * sobre o mesmo dado — o defeito que ele existe para curar.
+ * testadas fora do JSX (`lib/visao-geral.ts`, `lib/impacto-apurado.ts`). Não há
+ * endpoint novo. Se o Panorama publicasse um líquido diferente do Impacto
+ * Apurado sobre a mesma vigência, seria a quinta verdade sobre o mesmo dado —
+ * o defeito que ele existe para curar.
  *
  * **Os quatro módulos continuam existindo, e os endereços deles não mudaram.**
  * O Panorama abre a seção e eles descem na lateral, assumindo a função que já
@@ -107,7 +113,7 @@ import type { FamiliesOverview, FamiliesView, GroupedView } from "@/components/i
  * qualquer módulo vizinho: a vigência e a série já estão em cache sob as mesmas
  * chaves (`lib/leitura-da-vigencia.ts`, `lib/serie-de-impacto.ts`). Vindo de
  * fora, são as mesmas leituras que qualquer um dos quatro já fazia, mais as
- * duas do andar 7 — que saem sozinhas, sem segurar o conteúdo principal.
+ * duas da procedência — que saem sozinhas, sem segurar o conteúdo principal.
  */
 export default function Panorama() {
   const search = useSearch();
@@ -168,7 +174,7 @@ export default function Panorama() {
   });
 
   /*
-    As duas leituras do andar 7. Saem **depois** do conteúdo principal, pela
+    As duas leituras da procedência. Saem **depois** do conteúdo principal, pela
     mesma razão medida em `docs/AUDITORIA-ZERO-LOADING.md` para a série geral:
     não alimentam a resposta que traz alguém à tela, e disputariam o mesmo pool
     de conexões com a leitura que alimenta.
@@ -194,8 +200,6 @@ export default function Panorama() {
     overview,
     visaoGeral && !overviewQuery.isLoading,
   );
-
-  const [janela, setJanela] = useState<Janela>(JANELA_PADRAO);
 
   const trocarPara = (mudancas: Record<string, string | null>) => {
     const proxima = new URLSearchParams(search);
@@ -281,8 +285,6 @@ export default function Panorama() {
                   periodicityDaSerie={null}
                   serieCarregando={overviewQuery.isLoading}
                   vigenciaAberta={overview.period}
-                  janela={janela}
-                  onJanela={setJanela}
                   parametros={parametros}
                   onTrocar={trocarPara}
                   procedencia={procedencia}
@@ -310,8 +312,6 @@ export default function Panorama() {
                   periodicityDaSerie={serieDaUnidade.periodicity}
                   serieCarregando={serieDaUnidade.carregando}
                   vigenciaAberta={view.period}
-                  janela={janela}
-                  onJanela={setJanela}
                   parametros={parametros}
                   onTrocar={trocarPara}
                   procedencia={procedencia}
@@ -326,7 +326,7 @@ export default function Panorama() {
 }
 
 /**
- * Os sete andares — **iguais nas duas leituras**.
+ * Os seis andares — **iguais nas duas leituras**.
  *
  * A Visão Geral e a unidade desenham o mesmo corpo, e não duas telas parecidas:
  * `LeituraDoPanorama` é o que as duas respostas do servidor têm em comum, e os
@@ -347,8 +347,6 @@ function Corpo({
   periodicityDaSerie,
   serieCarregando,
   vigenciaAberta,
-  janela,
-  onJanela,
   parametros,
   onTrocar,
   procedencia,
@@ -365,8 +363,6 @@ function Corpo({
   periodicityDaSerie: string | null;
   serieCarregando: boolean;
   vigenciaAberta: string | null;
-  janela: Janela;
-  onJanela: (janela: Janela) => void;
   parametros: URLSearchParams;
   onTrocar: (mudancas: Record<string, string | null>) => void;
   procedencia: ReturnType<typeof procedenciaDoPanorama>;
@@ -387,6 +383,17 @@ function Corpo({
   const ponte = ponteDoImpacto(leitura.resumo, periodicidade);
   const mudancas = mudancasRelevantes(leitura.resumo, periodicidade);
 
+  /*
+    O pódio sai daqui, e não de dentro de cada cartão: as duas colunas (o que
+    somou e o que tirou) são dois recortes da **mesma** lista de famílias, e
+    calculá-la duas vezes é onde as duas leituras começariam a divergir —
+    bastaria uma delas escolher outra periodicidade. É a mesma `periodicidade`
+    que o veredito publicou lá em cima e que a ponte do andar 3 desenha, pela
+    mesma razão: quatro números sobre a mesma vigência em grandezas diferentes
+    seriam quatro verdades.
+  */
+  const podio = impactoPorFamilia(leitura.resumo, periodicidade);
+
   const mapa = mapaDoPanorama(
     leitura,
     view,
@@ -402,14 +409,6 @@ function Corpo({
         }))
       : [],
   );
-
-  const fila = filaDoPanorama({
-    view,
-    veredito,
-    prioridades: view ? juntarPrioridades(view) : [],
-    recorte,
-    comDestino,
-  });
 
   const familiaAberta = parametros.get("familia");
   const impactoAberto = parametros.get("impacto");
@@ -450,59 +449,75 @@ function Corpo({
       <Placar medidas={placar} />
 
       {/* ---- Andar 3 · a composição ---- */}
-      <div className="grid gap-5 xl:grid-cols-3">
-        <section className="bg-card border rounded-xl shadow-sm px-6 py-5 xl:col-span-2 min-w-0">
-          <div className="flex items-start justify-between gap-3 flex-wrap">
-            <div className="min-w-0">
-              <h2 className="text-base font-bold">Composição do impacto líquido</h2>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                De onde vem o resultado apurado desta vigência
-              </p>
-            </div>
-            <span className={cn(BOTAO_DE_TROCA, "cursor-default")}>{DECOMPOSICOES.familia}</span>
-          </div>
-          {ponte && ponte.degraus.length > 0 ? (
-            <PonteDoImpactoGrafico
-              ponte={ponte}
-              onAbrirFamilia={
-                view ? (code) => onTrocar({ familia: code, impacto: null }) : null
-              }
-              className="mt-4"
-            />
-          ) : (
-            <p className="text-sm text-muted-foreground py-20 text-center">
-              Nenhuma família tem valor apurado nesta vigência — não há composição a desenhar.
-            </p>
-          )}
-        </section>
+      {/*
+        A ponte ocupa a faixa inteira, e não dois terços dela.
 
-        <section className="bg-card border rounded-xl shadow-sm px-6 py-5 min-w-0">
-          <PrincipaisMudancas
-            linhas={mudancas}
-            periodicity={periodicidade}
-            filtro={filtroAberto(parametros)}
-            onFiltro={(f) => onTrocar({ mudancas: f === "todos" ? null : f })}
-            onAbrir={view ? (key) => onTrocar({ impacto: key, familia: null }) : null}
-            limite={5}
-            nota={
-              view
-                ? undefined
-                : "Em Visão Geral a lista soma as unidades e não abre por dentro: o detalhe de um parâmetro só existe dentro de um contexto."
-            }
+        O terço ao lado era das Principais mudanças, que desceram para o andar 4
+        (a razão está lá). O que sobra aqui é um waterfall, e um waterfall
+        espremido perde exatamente o que ele existe para mostrar: com oito ou
+        dez famílias, os degraus do meio viravam fatias de dois pixels com o
+        rótulo cortado.
+      */}
+      <section className="bg-card border rounded-xl shadow-sm px-6 py-5 min-w-0">
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div className="min-w-0">
+            <h2 className="text-base font-bold">Composição do impacto líquido</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              De onde vem o resultado apurado desta vigência
+            </p>
+          </div>
+          <span className={cn(BOTAO_DE_TROCA, "cursor-default")}>{DECOMPOSICOES.familia}</span>
+        </div>
+        {ponte && ponte.degraus.length > 0 ? (
+          <PonteDoImpactoGrafico
+            ponte={ponte}
+            onAbrirFamilia={view ? (code) => onTrocar({ familia: code, impacto: null }) : null}
+            className="mt-4"
           />
-        </section>
-      </div>
+        ) : (
+          <p className="text-sm text-muted-foreground py-20 text-center">
+            Nenhuma família tem valor apurado nesta vigência — não há composição a desenhar.
+          </p>
+        )}
+      </section>
 
       {/* ---- Andar 4 · a trajetória ---- */}
       <section className="bg-card border rounded-xl shadow-sm px-6 py-5">
-        <EvolucaoPorVigencia
+        {/*
+          Barras divergentes, e não a linha do líquido sozinha.
+
+          A linha respondia "estamos melhorando ou piorando" e parava aí: uma
+          vigência de líquido zero desenhava o mesmo ponto tendo havido R$ 0 de
+          movimento ou R$ 120 mil somados contra R$ 120 mil tirados — e são
+          duas vigências completamente diferentes de se administrar. Aqui os
+          dois lados aparecem inteiros, cada um crescendo do zero para o seu
+          lado, com o líquido passando por cima: a mesma pergunta continua
+          respondida pela linha, e a de baixo dela deixa de sumir.
+
+          Uma barra por vigência **entregue**, e não por mês de calendário: duas
+          vigências no mesmo mês aparecem pelo dia, uma ao lado da outra, nunca
+          somadas — somá-las inventaria uma vigência que ninguém entregou.
+
+          É o gráfico do Dashboard, o mesmo componente e a mesma série — este
+          andar não é uma quinta verdade sobre o mesmo dado.
+        */}
+        {/*
+          Só o título aqui. O gráfico escreve a própria linha de subtítulo
+          ("Ganhos e perdas por vigência, em R$/mês — últimas 6 vigências com
+          dado"), e a que havia neste lugar começava com as mesmas três
+          palavras: duas frases quase idênticas, empilhadas, sobre o mesmo
+          gráfico. O que a segunda tinha de próprio — uma barra por vigência
+          entregue, nunca somadas — desceu para o comentário acima, onde
+          explica a decisão a quem lê o código, em vez de ocupar a tela de quem
+          lê o número.
+        */}
+        <h2 className="text-base font-bold mb-1">Impacto das alterações por vigência</h2>
+        <GraficoDeImpacto
           pontos={pontos}
           periodicity={periodicityDaSerie ?? periodicidade}
-          janela={janela}
-          onJanela={onJanela}
-          vigenciaAberta={vigenciaAberta}
-          onEscolherVigencia={(periodo) => onTrocar({ period: periodo })}
           carregando={serieCarregando}
+          vigenciaAtiva={vigenciaAberta}
+          onEscolherVigencia={(periodo) => onTrocar({ period: periodo })}
         />
         {/*
           A leitura por tipo de ativo — cavalo, carreta, trecho — **não** é um
@@ -510,7 +525,7 @@ function Corpo({
 
           Trocar o tipo troca a **população** de todo número, e não o recorte de
           um gráfico: com "Carreta" ligado aqui, este andar falaria de carretas
-          enquanto os outros seis continuariam falando da frota inteira, na
+          enquanto os outros cinco continuariam falando da frota inteira, na
           mesma tela e sem nada acusando a divergência — exatamente a classe de
           defeito que o Panorama existe para desfazer.
 
@@ -531,6 +546,72 @@ function Corpo({
         </p>
       </section>
 
+      {/*
+        Debaixo do gráfico, o pódio partido em dois: o que somou à esquerda, o
+        que tirou à direita — os mesmos dois cartões do Dashboard, do mesmo
+        componente (`components/inicio/maiores-impactos.tsx`).
+
+        A ponte do andar 3 e este pódio leem a mesma lista de famílias e não
+        dizem a mesma coisa: a ponte mostra o **líquido** de cada família,
+        empilhado até o número da manchete — é a resposta a "de onde vem este
+        resultado". Estes cartões abrem cada família nos **dois lados**, e é a
+        resposta a "onde eu ganhei" e "onde eu perdi", que a ponte apaga por
+        construção: a família que somou R$ 40 mil e tirou R$ 39 mil é um degrau
+        de R$ 1.000 lá em cima e o maior acontecimento da vigência aqui.
+
+        Sem preço apurado em lugar nenhum não há dois lados a separar, e dois
+        cartões vazios lado a lado diriam duas vezes o mesmo nada — aí a faixa
+        some, e quem já disse isso é o andar 3, uma vez.
+      */}
+      {podio.length > 0 && periodicidade !== null && (
+        <div className="grid gap-5 lg:grid-cols-2">
+          <MaioresImpactos
+            lado="ganhos"
+            familias={podio}
+            periodicidade={periodicidade}
+            familiaAberta={familiaAberta}
+            onAbrirFamilia={view ? (code) => onTrocar({ familia: code, impacto: null }) : null}
+            nota={view ? undefined : NOTA_DO_PODIO}
+          />
+          <MaioresImpactos
+            lado="perdas"
+            familias={podio}
+            periodicidade={periodicidade}
+            familiaAberta={familiaAberta}
+            onAbrirFamilia={view ? (code) => onTrocar({ familia: code, impacto: null }) : null}
+            nota={view ? undefined : NOTA_DO_PODIO}
+          />
+        </div>
+      )}
+
+      {/*
+        E o degrau seguinte: o parâmetro.
+
+        Esta lista estava no andar 3, ao lado da ponte, e ali ela invertia o
+        funil — a tela descia ao parâmetro no andar 3 e voltava à família no 4,
+        de modo que o detalhe chegava antes do agregado que ele detalha. Aqui o
+        andar 4 desce inteiro e numa direção só: a vigência no gráfico, a
+        família nos dois cartões, o parâmetro nesta lista.
+
+        Ela não repete os cartões acima: o grão é outro. Uma família some da
+        lista de parâmetros quando o seu movimento está espalhado em muitos
+        parâmetros pequenos, e é exatamente essa diferença que se quer ver ao
+        descer um degrau.
+      */}
+      <PrincipaisMudancas
+        linhas={mudancas}
+        periodicity={periodicidade}
+        filtro={filtroAberto(parametros)}
+        onFiltro={(f) => onTrocar({ mudancas: f === "todos" ? null : f })}
+        onAbrir={view ? (key) => onTrocar({ impacto: key, familia: null }) : null}
+        limite={6}
+        nota={
+          view
+            ? undefined
+            : "Em Visão Geral a lista soma as unidades e não abre por dentro: o detalhe de um parâmetro só existe dentro de um contexto."
+        }
+      />
+
       {/* ---- Andar 5 · o mapa ---- */}
       <Mapa
         mapa={mapa}
@@ -539,17 +620,7 @@ function Corpo({
         }
       />
 
-      {/* ---- Andar 6 · a fila ---- */}
-      <Fila
-        itens={fila}
-        nota={
-          view
-            ? undefined
-            : "A fila é lida por unidade: os destinos dela recortam por unidade, e um número que somou todas não abre a lista de uma só. Escolha uma unidade para vê-la."
-        }
-      />
-
-      {/* ---- Andar 7 · a procedência ---- */}
+      {/* ---- Andar 6 · a procedência ---- */}
       {procedencia && <Procedencia procedencia={procedencia} />}
 
       {/* As gavetas — as mesmas do Impacto Apurado, sobre o mesmo recorte. */}
@@ -576,6 +647,18 @@ function Corpo({
     </>
   );
 }
+
+/**
+ * Por que o pódio não abre em Visão Geral.
+ *
+ * A gaveta de uma família (`DetalheDaFamilia`) desce até o parâmetro e, dentro
+ * dele, até a placa — e placa é de uma unidade. Somadas as unidades, o número
+ * do cartão é verdadeiro e a gaveta dele não teria a quem perguntar. A linha
+ * deixa de ser botão, e o cartão diz por quê em vez de deixar o clique morrer
+ * em silêncio.
+ */
+const NOTA_DO_PODIO =
+  "Em Visão Geral os números somam as unidades e não abrem por dentro: de onde vem o impacto de uma família só existe dentro de um contexto.";
 
 /** O endereço das alterações sem preço — a população que a faixa de cobertura conta. */
 function linkDasSemPreco(recorte: Recorte): string {

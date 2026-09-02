@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  filaDoPanorama,
   leituraDaUnidade,
   leituraDaVisaoGeral,
   mapaDoPanorama,
@@ -401,7 +400,7 @@ describe("as duas leituras", () => {
     expect(leituraDaVisaoGeral(overviewDe({ vehiclesTouchedDistinct: undefined })).veiculos).toBe(80);
   });
 
-  it("as duas atravessam os sete andares pela mesma forma", () => {
+  it("as duas atravessam os seis andares pela mesma forma", () => {
     const daUnidade = leituraDaUnidade(vigencia());
     const daSoma = leituraDaVisaoGeral(overviewDe());
     expect(Object.keys(daUnidade).sort()).toEqual(Object.keys(daSoma).sort());
@@ -446,101 +445,7 @@ describe("o mapa", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 5. A fila — a fusão das três listas
-// ---------------------------------------------------------------------------
-
-describe("a fila", () => {
-  const fila = (view: FamiliesView, prioridades: ItemCockpit[] = []) =>
-    filaDoPanorama({
-      view,
-      veredito: vereditoDoPanorama(leituraDaUnidade(view), null),
-      prioridades,
-      recorte: RECORTE,
-      comDestino: true,
-    });
-
-  it("traz o que `ondeAgirAgora` já trazia — as alterações sem preço", () => {
-    const itens = fila(vigencia());
-    const semPreco = itens.find((i) => i.chave === "sem-preco");
-    expect(semPreco).toBeDefined();
-    expect(semPreco!.titulo).toContain("95");
-  });
-
-  it("acrescenta o maior impacto negativo, que nenhuma das outras filas nomeava", () => {
-    const view = vigencia({
-      summary: sumario({
-        topParameters: [
-          { key: "ipva", name: "IPVA", family: "TRIBUTOS", familyName: "Tributos", changes: 41, byPeriodicity: { MENSAL: -8200 } },
-          { key: "pedagio", name: "Pedágio", family: "VIAGEM", familyName: "Viagem", changes: 5, byPeriodicity: { MENSAL: 1200 } },
-        ],
-      }),
-    });
-    const maior = fila(view).find((i) => i.chave === "maior-impacto");
-    expect(maior).toBeDefined();
-    expect(maior!.titulo).toContain("IPVA");
-    expect(maior!.detalhe).toContain("/mês");
-  });
-
-  it("não acrescenta o maior impacto quando ele é positivo — não é trabalho a fazer", () => {
-    const view = vigencia({
-      summary: sumario({
-        topParameters: [
-          { key: "bonus", name: "Bônus", family: "COMERCIAL", familyName: "Comercial", changes: 2, byPeriodicity: { MENSAL: 5000 } },
-        ],
-      }),
-    });
-    expect(fila(view).find((i) => i.chave === "maior-impacto")).toBeUndefined();
-  });
-
-  it("acrescenta o equipamento mais tocado", () => {
-    const equipamento = fila(vigencia()).find((i) => i.chave === "equipamento");
-    expect(equipamento).toBeDefined();
-    expect(equipamento!.titulo).toContain("Carreta");
-    expect(equipamento!.detalhe).toContain("61");
-  });
-
-  it("não publica um item duas vezes quando as duas fontes o produzem", () => {
-    const chaves = fila(vigencia(), filaDoCockpit([{}])).map((i) => i.chave);
-    expect(new Set(chaves).size).toBe(chaves.length);
-  });
-
-  it("ordena por consequência: o grave antes do que é atenção", () => {
-    const itens = fila(vigencia(), filaDoCockpit([{}]));
-    const graves = itens.filter((i) => i.tom === "grave").length;
-    expect(itens.slice(0, graves).every((i) => i.tom === "grave")).toBe(true);
-  });
-
-  it("não deixa entrar item tranquilizador — uma fila com 'nada a fazer' deixa de ser lida", () => {
-    expect(fila(vigencia()).every((i) => i.tom !== "ok")).toBe(true);
-  });
-
-  it("a Visão Geral não tem fila: os destinos dela recortam por unidade", () => {
-    expect(
-      filaDoPanorama({
-        view: null,
-        veredito: vereditoDoPanorama(leituraDaVisaoGeral(overviewDe()), null),
-        prioridades: [],
-        recorte: RECORTE,
-        comDestino: false,
-      }),
-    ).toEqual([]);
-  });
-
-  it("sem destino, nenhum item aponta para a lista de uma unidade que ninguém escolheu", () => {
-    const itens = filaDoPanorama({
-      view: vigencia(),
-      veredito: vereditoDoPanorama(leituraDaUnidade(vigencia()), null),
-      prioridades: [],
-      recorte: RECORTE,
-      comDestino: false,
-    });
-    expect(itens.length).toBeGreaterThan(0);
-    expect(itens.every((i) => i.href === null)).toBe(true);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// 6. A procedência — e a cobertura que desceu para cá
+// 5. A procedência — e a cobertura que desceu para cá
 // ---------------------------------------------------------------------------
 
 describe("a procedência", () => {
