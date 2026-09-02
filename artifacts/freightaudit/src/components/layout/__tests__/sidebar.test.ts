@@ -205,7 +205,7 @@ describe("a lateral", () => {
   */
   it("só põe, na barra do celular, endereços que a lateral já lista", () => {
     /*
-      `hrefsDoMenu` lê os literais do arquivo, e os itens do Dashboard são
+      `hrefsDoMenu` lê os literais do arquivo, e os itens da Visão executiva são
       constantes de `lib/ambiente.ts` — o literal deles não está escrito na
       lista. Somá-los aqui é o que faz o teste comparar endereços, e não
       grafias.
@@ -242,22 +242,23 @@ describe("a lateral", () => {
   });
 
   /*
-    A seção Dashboard é a leitura executiva inteira desde que a Visão executiva
-    entrou nela: os dois módulos de vigilância na frente e, abaixo, o retrato do
-    conjunto que morava no cartão vizinho.
+    A seção Visão executiva é a leitura executiva inteira desde que as duas
+    seções viraram uma: os dois módulos de vigilância na frente e, abaixo, o
+    retrato do conjunto que morava no cartão vizinho. O nome é o do assunto, e
+    não mais o do formato da tela — era "Dashboard".
 
     Este teste guarda a lista item a item porque é o tipo de coisa que se perde
     calada: um item que some do menu não quebra typecheck nem build — some da
     lateral, e quem usava aquela tela descobre no dia em que procura por ela. E
     guarda também a ordem, que é o que a fusão tinha a decidir.
   */
-  it("põe, na seção Dashboard, a vigilância e o retrato, nesta ordem", () => {
+  it("põe, na Visão executiva, a vigilância e o retrato, nesta ordem", () => {
     for (const ambiente of Object.keys(BASES_DE_AUDITORIA)) {
-      const dashboard = navGroupsAuditoria(ambiente as AmbienteDeAuditoria).find(
-        (grupo) => grupo.titulo === "Dashboard",
+      const executiva = navGroupsAuditoria(ambiente as AmbienteDeAuditoria).find(
+        (grupo) => grupo.titulo === "Visão executiva",
       )!;
 
-      expect(dashboard.itens.map((item) => item.label)).toEqual([
+      expect(executiva.itens.map((item) => item.label)).toEqual([
         "Impacto Líquido",
         "Impacto Apurado",
         "Painel de Unidades",
@@ -268,7 +269,7 @@ describe("a lateral", () => {
         "Composição",
         "DRE",
       ]);
-      expect(dashboard.itens.slice(0, 6).map((item) => item.href)).toEqual([
+      expect(executiva.itens.slice(0, 6).map((item) => item.href)).toEqual([
         DASHBOARD,
         IMPACTO_APURADO,
         ENTRADA_DA_AUDITORIA,
@@ -280,13 +281,14 @@ describe("a lateral", () => {
   });
 
   /*
-    A Visão executiva deixou de existir como seção, e não como telas: tudo o que
-    estava nela continua na lateral, dentro do Dashboard. Este caso guarda a
-    segunda metade — que a fusão não levou nenhum endereço embora junto com o
-    cartão.
+    A fusão das duas seções deixou uma só, e o nome dela é o do assunto: "Visão
+    executiva", e não "Dashboard". Este caso guarda os dois lados do
+    renomeio — que a seção está lá com o nome novo, e que o antigo não voltou
+    como um segundo cartão ao lado dela.
   */
-  it("não deixa mais uma seção Visão executiva na lateral", () => {
-    expect(secoesDaAuditoria()).not.toContain("Visão executiva");
+  it("chama a seção de Visão executiva, e não mais de Dashboard", () => {
+    expect(secoesDaAuditoria()).toContain("Visão executiva");
+    expect(secoesDaAuditoria()).not.toContain("Dashboard");
   });
 
   /*
@@ -294,7 +296,7 @@ describe("a lateral", () => {
     próprio no roteador. Uma aba faria a lateral acender o item errado — a razão
     está em `lib/ambiente.ts`.
   */
-  it("registra uma rota própria para cada módulo do Dashboard", () => {
+  it("registra uma rota própria para cada módulo da Visão executiva", () => {
     const rotas = rotasRegistradas();
 
     expect(rotas.has(DASHBOARD)).toBe(true);
@@ -305,23 +307,23 @@ describe("a lateral", () => {
   it("mantém as dez seções do desenho, na ordem", () => {
     expect(secoesDaAuditoria()).toEqual([
       /*
-        O Dashboard abre a lista, e é a leitura executiva inteira: o que mudou
-        desde a última competência e o retrato do conjunto, que era a seção
-        Visão executiva ao lado — ver `nav-auditoria.ts`.
+        Chamados abre a lista porque é a fila de mesa por onde o dia começa:
+        registrar, placa a placa, por que aquilo mudou. A fila vem antes da
+        leitura — ver `nav-auditoria.ts`.
       */
-      "Dashboard",
+      "Chamados",
+      /*
+        A Visão executiva vem logo abaixo, e é a leitura executiva inteira: o
+        que mudou desde a última competência e o retrato do conjunto, que era a
+        seção ao lado até as duas virarem uma — ver `nav-auditoria.ts`.
+      */
+      "Visão executiva",
       /*
         Compras vem antes de Auditoria porque é um portão antes de o dinheiro
         sair, e não uma descoberta sobre o que já saiu — ver o comentário da
         seção em `sidebar.tsx`.
       */
       "Compras",
-      /*
-        Chamados vem logo depois de Compras pelo mesmo motivo: é trabalho
-        de mesa sobre o que já mudou, não uma descoberta de auditoria — ver o
-        comentário da seção em `sidebar.tsx`.
-      */
-      "Chamados",
       "Auditoria",
       "Processos",
       "QLP",
