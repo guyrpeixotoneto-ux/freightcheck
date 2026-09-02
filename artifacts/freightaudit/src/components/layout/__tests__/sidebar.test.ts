@@ -15,6 +15,7 @@ import {
   GESTAO_A_VISTA,
   IMPACTO_APURADO,
   LINHA_DO_TEMPO,
+  PANORAMA,
   RESUMO_EXECUTIVO,
   type AmbienteDeAuditoria,
 } from "@/lib/ambiente";
@@ -117,6 +118,7 @@ function atalhosDaBarra(ambiente: Parameters<typeof barraMobile>[0]): string[] {
 /** As constantes de endereço que o roteador usa no lugar do literal. */
 const CONSTANTES_DE_ROTA: Record<string, string> = {
   DASHBOARD,
+  PANORAMA,
   EVOLUCAO_POR_PLACA,
   GESTAO_A_VISTA,
   IMPACTO_APURADO,
@@ -242,26 +244,34 @@ describe("a lateral", () => {
   });
 
   /*
-    A seção Visão executiva é a leitura executiva inteira desde que as duas
-    seções viraram uma: os dois módulos de vigilância na frente e, abaixo, o
-    retrato do conjunto que morava no cartão vizinho. O nome é o do assunto, e
-    não mais o do formato da tela — era "Dashboard".
+    A seção Visão executiva é a leitura executiva inteira, e a ordem dela é a da
+    **altitude**: o Panorama Executivo primeiro, porque responde às sete
+    perguntas de uma vez; o Painel de Unidades logo depois, porque é a única
+    leitura mais alta que ele (o ano inteiro, unidade a unidade); e então os
+    quatro módulos que o Panorama consolida, que ficam pelos endereços — ver
+    `nav-auditoria.ts` e `docs/PROPOSTA-PANORAMA-EXECUTIVO.md`.
 
     Este teste guarda a lista item a item porque é o tipo de coisa que se perde
     calada: um item que some do menu não quebra typecheck nem build — some da
-    lateral, e quem usava aquela tela descobre no dia em que procura por ela. E
-    guarda também a ordem, que é o que a fusão tinha a decidir.
+    lateral, e quem usava aquela tela descobre no dia em que procura por ela.
+
+    **E guarda os quatro consolidados nominalmente**, que é o ponto do caminho B:
+    o Panorama entrou como porta e eles continuam existindo, com os endereços
+    intactos. Aposentá-los é uma decisão que se toma com medida de uso na mão, e
+    este teste é o que faz ela ter de ser tomada de propósito em vez de
+    acontecer por descuido numa refatoração.
   */
-  it("põe, na Visão executiva, a vigilância e o retrato, nesta ordem", () => {
+  it("põe, na Visão executiva, o Panorama à frente dos quatro que ele consolida", () => {
     for (const ambiente of Object.keys(BASES_DE_AUDITORIA)) {
       const executiva = navGroupsAuditoria(ambiente as AmbienteDeAuditoria).find(
         (grupo) => grupo.titulo === "Visão executiva",
       )!;
 
       expect(executiva.itens.map((item) => item.label)).toEqual([
+        "Panorama Executivo",
+        "Painel de Unidades",
         "Impacto Líquido",
         "Impacto Apurado",
-        "Painel de Unidades",
         "Resumo executivo",
         "Linha do Tempo",
         "Evolução por Placa",
@@ -269,10 +279,11 @@ describe("a lateral", () => {
         "Composição",
         "DRE",
       ]);
-      expect(executiva.itens.slice(0, 6).map((item) => item.href)).toEqual([
+      expect(executiva.itens.slice(0, 7).map((item) => item.href)).toEqual([
+        PANORAMA,
+        ENTRADA_DA_AUDITORIA,
         DASHBOARD,
         IMPACTO_APURADO,
-        ENTRADA_DA_AUDITORIA,
         RESUMO_EXECUTIVO,
         LINHA_DO_TEMPO,
         EVOLUCAO_POR_PLACA,
@@ -299,9 +310,17 @@ describe("a lateral", () => {
   it("registra uma rota própria para cada módulo da Visão executiva", () => {
     const rotas = rotasRegistradas();
 
+    expect(rotas.has(PANORAMA)).toBe(true);
     expect(rotas.has(DASHBOARD)).toBe(true);
     expect(rotas.has(IMPACTO_APURADO)).toBe(true);
-    expect(DASHBOARD).not.toBe(IMPACTO_APURADO);
+    expect(rotas.has(RESUMO_EXECUTIVO)).toBe(true);
+    expect(rotas.has(LINHA_DO_TEMPO)).toBe(true);
+
+    /*
+      Os cinco são endereços distintos, e é isso que faz a lateral acender o
+      item certo: um módulo que fosse aba dentro de outro acenderia o vizinho.
+    */
+    expect(new Set([PANORAMA, DASHBOARD, IMPACTO_APURADO, RESUMO_EXECUTIVO, LINHA_DO_TEMPO]).size).toBe(5);
   });
 
   it("mantém as dez seções do desenho, na ordem", () => {
