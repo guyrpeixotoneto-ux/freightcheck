@@ -90,11 +90,11 @@ import type { NavGroup } from "./nav";
  * que `lib/base-do-fechamento.ts` descreve do outro lado — um `href` literal que
  * devolve para a Empurrada quem clicou dentro do Rota.
  *
- * A ordem é a de uma auditoria completa, de cima para baixo: vê-se a vigilância
- * e o retrato do conjunto (**Dashboard**, que reúne os dois desde que a Visão
- * executiva entrou nele), libera-se o que precisa ser comprado hoje
- * (**Compras**), registra-se o que mudou (**Chamados**),
- * procura-se o desvio (**Auditoria**), cobra-se o desvio achado
+ * A ordem é a de uma auditoria completa, de cima para baixo: registra-se o que
+ * mudou (**Chamados**, a fila de mesa por onde o dia começa), vê-se a
+ * vigilância e o retrato do conjunto (**Visão executiva**, que reúne os dois
+ * desde que as duas seções viraram uma), libera-se o que precisa ser comprado
+ * hoje (**Compras**), procura-se o desvio (**Auditoria**), cobra-se o desvio achado
  * (**Processos**), confere-se o quadro de gente que o modelo remunera
  * (**QLP**), desce-se ao ativo que o sofreu (**Frota**), pergunta-se ao
  * assistente o que sobrou (**Inteligência**), e por baixo de tudo estão o
@@ -109,12 +109,45 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
   return [
     {
       /*
-        O Dashboard abre a lista, e agora é a seção inteira da leitura
-        executiva: o que a Ambev mudou de uma vigência para a outra **e** o
-        retrato do que existe hoje — o acervo, a unidade, o histórico dela e o
-        valor apurado.
+        Chamados abre a lista porque é por onde o dia começa: alguém olhou o
+        que mudou de uma vigência para a outra e precisa registrar, placa a
+        placa, por que aquilo mudou — antes de a alteração seguir para
+        Auditoria ou Recuperação.
 
-        Eram duas seções, Dashboard e Visão executiva, e viraram uma. A divisão
+        Vem antes da Visão executiva pela mesma razão que a fila vem antes do
+        relatório: aqui se trabalha, e ali se lê o que o trabalho produziu.
+        Quem abre o produto todo dia abre por esta seção, e o primeiro cartão
+        da lateral é o que menos custa alcançar.
+      */
+      titulo: "Chamados",
+      descricao: "O que mudou por placa, e a justificativa de cada mudança",
+      icon: FileCheck2,
+      cor: "text-nav-chamados",
+      itens: [
+        { href: "/justificativas", label: "Justificativas", icon: FileCheck2 },
+        /*
+          O painel vem **depois** da fila, e não antes: a fila é onde se
+          trabalha, o painel é onde se confere. Quem abre a seção todo dia vem
+          justificar; quem vem cobrar o que falta é quem desce um item.
+        */
+        {
+          href: "/painel-de-justificativas",
+          label: "Painel de Justificativas",
+          icon: ClipboardList,
+        },
+      ],
+    },
+    {
+      /*
+        A Visão executiva vem logo depois dos Chamados, e é a seção inteira
+        da leitura executiva: o que a Ambev mudou de uma vigência para a outra
+        **e** o retrato do que existe hoje — o acervo, a unidade, o histórico
+        dela e o valor apurado.
+
+        Eram duas seções, Dashboard e Visão executiva, e viraram uma — e o nome
+        que ficou é o da leitura, não o do primeiro módulo dela: "Dashboard"
+        dizia o formato da tela, e quem procura na lateral procura o assunto.
+        A divisão
         não era de assunto, era de história: os dois módulos de vigilância
         nasceram depois das telas executivas e ganharam cartão próprio ao lado
         delas. Quem chega, porém, lê tudo isto na mesma sentada — quanto a
@@ -127,7 +160,7 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
         inteiro, a unidade aberta, o histórico por vigência e por placa —, e por
         fim as telas que descem ao valor (Acompanhamento, Composição e DRE).
       */
-      titulo: "Dashboard",
+      titulo: "Visão executiva",
       descricao: "O que mudou desde a última competência, e o retrato do conjunto",
       icon: Radar,
       cor: "text-nav-executiva",
@@ -212,7 +245,7 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
     },
     {
       /*
-        Compras fica entre o Dashboard e a Auditoria, e a posição é a do
+        Compras fica entre a Visão executiva e a Auditoria, e a posição é a do
         gesto que ela serve: alguém está com um pedido de compra parado na mesa e
         precisa saber, agora, quanto a Ambev remunera aquele produto. Não é
         auditoria — auditar é descobrir o que mudou, e aqui nada mudou; é um
@@ -228,31 +261,6 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
       icon: ShoppingCart,
       cor: "text-nav-compras",
       itens: [{ href: "/remunerado", label: "Remunerado", icon: Tags }],
-    },
-    {
-      /*
-        Chamados fica logo depois de Compras porque é o mesmo tipo de
-        trabalho de mesa: alguém olhou o que mudou de uma vigência para a outra
-        e precisa registrar, placa a placa, por que aquilo mudou — antes de a
-        alteração seguir para Auditoria ou Recuperação.
-      */
-      titulo: "Chamados",
-      descricao: "O que mudou por placa, e a justificativa de cada mudança",
-      icon: FileCheck2,
-      cor: "text-nav-chamados",
-      itens: [
-        { href: "/justificativas", label: "Justificativas", icon: FileCheck2 },
-        /*
-          O painel vem **depois** da fila, e não antes: a fila é onde se
-          trabalha, o painel é onde se confere. Quem abre a seção todo dia vem
-          justificar; quem vem cobrar o que falta é quem desce um item.
-        */
-        {
-          href: "/painel-de-justificativas",
-          label: "Painel de Justificativas",
-          icon: ClipboardList,
-        },
-      ],
     },
     {
       titulo: "Auditoria",
