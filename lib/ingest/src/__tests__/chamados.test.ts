@@ -325,12 +325,52 @@ describe("o export real do Freightech", () => {
       requestedValueRaw: "Valor Solicitado",
       requestedBy: "Solicitante",
       subject: "Justificativa Abertura",
+      /*
+        Os oito que a `0087` promoveu de `payload` para coluna. Estavam gravados
+        desde sempre — `payload` guarda a linha inteira —, e sem serem coluna o
+        Monitoramento de Chamados não conseguia filtrar por unidade, dizer "o
+        responsável mudou", nem agrupar o dia por unidade.
+      */
+      unidadeRaw: "Unidade",
+      segmentoRaw: "Segmento",
+      operadorRaw: "Operador",
+      aprovadorRaw: "Aprovador",
+      slaRaw: "SLA",
+      categoriaRaw: "Categoria",
+      prazoPrevisto: "Previsão Análise",
+      alteradoEmFonte: "Data Alteração",
     };
     for (const [campo, header] of Object.entries(esperado)) {
       const ligacao = plan.bindings[campo as keyof typeof plan.bindings];
       expect(ligacao?.header, `campo ${campo}`).toBe(header);
       expect(ligacao?.match, `campo ${campo}`).toBe("exato");
     }
+  });
+
+  /*
+    As três datas deste domínio são três perguntas, e o export as traz em três
+    colunas. Confundi-las é o defeito que o Monitoramento existe para não
+    cometer — e o lugar onde ele começaria é aqui, num alias que roubasse a
+    coluna do vizinho.
+  */
+  it("as três datas não se roubam", () => {
+    const plan = planTicketColumns(CABECALHO_REAL);
+    expect(plan.bindings.openedAt?.header).toBe("Data Solicitação");
+    expect(plan.bindings.alteradoEmFonte?.header).toBe("Data Alteração");
+    expect(plan.bindings.closedAt?.header).toBe("Data Aprovação");
+  });
+
+  /*
+    `Solicitante` e `Aprovador` são pessoas diferentes: quem abriu e quem
+    decide. O Monitoramento chama a segunda de Responsável, e mostra as duas.
+    `requestedBy` aceita "responsavel" entre os aliases dele e vem antes na
+    ordem de disputa — se `aprovadorRaw` também o aceitasse, o alias nunca
+    casaria e prometeria um comportamento que o código não tem.
+  */
+  it("solicitante e aprovador continuam sendo duas colunas", () => {
+    const plan = planTicketColumns(CABECALHO_REAL);
+    expect(plan.bindings.requestedBy?.header).toBe("Solicitante");
+    expect(plan.bindings.aprovadorRaw?.header).toBe("Aprovador");
   });
 
   it("reconhece B.O como o número do chamado", () => {

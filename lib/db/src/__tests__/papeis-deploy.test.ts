@@ -312,6 +312,25 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
         */
         "snapshot_presenca",
         /*
+          As cinco do Monitoramento de Chamados, da `0087` — a comparação entre
+          dois envios, a movimentação do dia, o antes → depois de cada campo, o
+          encadeamento intradia e a revisão. Aditivas pelo mesmo critério de
+          todas as acima: nenhuma tabela existente muda de forma — as dez
+          colunas que `ticket` e `ticket_import` ganham nascem nulas e entram na
+          lista de colunas aditivas —, nenhuma coluna nova sai de tabela do
+          cálculo, e Production as ganha quando o servidor novo aplicar a fila.
+
+          Quatro delas são derivadas e `recalcularSerie` as refaz, e por isso o
+          `down` do bridge as derruba mesmo com linhas. A quinta,
+          `ticket_movement_review`, guarda decisão humana — quem olhou o quê, e
+          quando —, e é por isso que o `down` exige encontrá-la vazia.
+        */
+        "ticket_import_comparacao",
+        "ticket_movement_day",
+        "ticket_movement_field",
+        "ticket_movement_step",
+        "ticket_movement_review",
+        /*
           As cinco de Integrações — as três da `0084` (a porta de API: a
           integração, as chaves dela e o log de chamadas) e as duas da `0085` (a
           busca ativa: a agenda e o histórico de execuções). Aditivas pelo mesmo
@@ -516,6 +535,32 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
         */
         "app_user.papel_id",
         /*
+          As dez da `0087` — o Monitoramento de Chamados. Oito são colunas do
+          chamado que **já estavam gravadas** em `ticket.payload` desde a
+          primeira importação: o export real tem 26 cabeçalhos e o leitor
+          promovia 12. As duas últimas são a série do envio, a unidade por que o
+          monitoramento particiona as comparações.
+
+          Saem em duas tabelas que Production **já tem** (`ticket` e
+          `ticket_import`), que é o caso para o qual esta lista é fechada, e
+          atravessam pela forma: nuláveis, sem default, sem FK e sem índice
+          único. O backfill que as preenche é da própria migration e a proposta
+          do Publishing não o carrega — mais uma razão para a política deste
+          cenário continuar sendo recusar a proposta e deixar a fila aplicar na
+          partida: aceita sozinha, ela deixaria as dez vazias sobre chamados que
+          têm o dado guardado ao lado, em `payload`.
+        */
+        "ticket.unidade_raw",
+        "ticket.segmento_raw",
+        "ticket.operador_raw",
+        "ticket.aprovador_raw",
+        "ticket.sla_raw",
+        "ticket.categoria_raw",
+        "ticket.prazo_previsto",
+        "ticket.alterado_em_fonte",
+        "ticket_import.serie",
+        "ticket_import.serie_origem",
+        /*
           A coluna que a `0046` acrescentou a `fechamento_competencia` **não**
           entra aqui, e a ausência é a informação: o diff a reporta pela tabela,
           não pela coluna, porque Production não tem nenhuma das treze do
@@ -610,6 +655,42 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
         */
         "import_run_censo_import_run_id_destino_pk",
         "import_run_censo_import_run_id_import_run_id_fk",
+        /*
+          As quinze do Monitoramento de Chamados, da `0087` — as cinco chaves
+          primárias e as dez chaves estrangeiras das cinco tabelas novas. Vêm
+          com tabelas que nascem vazias, e por isso não há linha em Production
+          que elas possam recusar.
+
+          **Nomeadas uma a uma, e não filtradas por prefixo** como as de
+          Integrações e dos Fluxos. A diferença é o nome das tabelas: um filtro
+          por `ticket_` dispensaria também qualquer constraint futura sobre
+          `ticket` e `ticket_import`, que Production **já tem** — e uma
+          constraint nova sobre tabela viva é exatamente o que este conjunto
+          fechado existe para não deixar passar calado.
+
+          Duas delas apontam para tabelas existentes (`ticket` e `app_user`), e
+          isso não as torna mudança de forma naquelas tabelas: a constraint mora
+          na tabela nova, e é ela que ganha a regra.
+
+          O nome do último está cortado em 63 caracteres, e é assim que o
+          Postgres o guarda. Escrevê-lo inteiro aqui faria o teste procurar uma
+          constraint que não existe com esse nome em banco nenhum.
+        */
+        "ticket_import_comparacao_pkey",
+        "ticket_import_comparacao_ticket_import_id_ticket_import_id_fk",
+        "ticket_import_comparacao_base_import_id_ticket_import_id_fk",
+        "ticket_movement_day_pkey",
+        "ticket_movement_day_primeiro_import_id_ticket_import_id_fk",
+        "ticket_movement_day_ultimo_import_id_ticket_import_id_fk",
+        "ticket_movement_day_ticket_id_final_ticket_id_fk",
+        "ticket_movement_field_pkey",
+        "ticket_movement_field_movement_id_ticket_movement_day_id_fk",
+        "ticket_movement_step_pkey",
+        "ticket_movement_step_movement_id_ticket_movement_day_id_fk",
+        "ticket_movement_step_comparacao_id_ticket_import_comparacao_id_",
+        "ticket_movement_review_pkey",
+        "ticket_movement_review_movement_id_ticket_movement_day_id_fk",
+        "ticket_movement_review_user_id_app_user_id_fk",
         /*
           As quatro da presença, da `0081` — a chave primária composta e as três
           FKs. Vêm com a tabela nova, que nasce vazia, e por isso não há linha em

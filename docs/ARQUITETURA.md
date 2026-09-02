@@ -214,6 +214,36 @@ attribute_alias             -- normalização sem perder a origem
 | `formula` / `formula_dependency` | grafo de dependências | Fase 2; estrutura entra agora |
 | `explanation` | texto gerado por IA | **tabela separada, sempre** (§7) |
 
+### Chamados, e o monitoramento deles
+
+Família à parte, e deliberadamente separada da planilha de vigência: nenhuma
+rota soma o impacto de um chamado ao da comparação, e é isso que faz a soma da
+tela continuar fechando (§7). Duas camadas.
+
+| Tabela | Papel | Detalhe que importa |
+|---|---|---|
+| `ticket_import` | um envio do export do Freightech | SHA-256; `serie` é a unidade que particiona as comparações (`0087`) |
+| `ticket` | **uma linha do arquivo** | no formato real (NARROW) um `B.O` vira N linhas, uma por campo alterado; `payload` guarda a linha inteira |
+| `ticket_change` | um parâmetro de remuneração mexido | `before_source` diz se o "antes" veio do arquivo ou da vigência |
+| `ticket_import_comparacao` | um envio comparado com o anterior da série | `BASELINE` / `DIFF` / `IGNORADO` — é o que separa "sem importação" de "importação sem mudança" |
+| `ticket_movement_day` | **a movimentação**: o chamado que se mexeu num dia | grão `(dia, série, chamado)`; classe exclusiva; `assinatura` decide se a revisão sobrevive ao recálculo |
+| `ticket_movement_field` | o antes → depois de um campo | grão diferente do de cima: conta campos, não chamados |
+| `ticket_movement_step` | o encadeamento intradia | a evidência de que o campo foi e voltou |
+| `ticket_movement_review` | quem revisou, quando | **a única da família que não se recomputa** |
+
+Duas armadilhas que o modelo desarma, e que qualquer releitura reintroduziria:
+
+1. **Um `ticket_change` não é uma movimentação.** Ele é o parâmetro que o
+   chamado pediu para mexer, dentro de **um** envio. A movimentação é o que
+   mudou *no chamado* entre dois envios. Reaproveitar um pelo outro dá uma tela
+   que parece certa e responde outra pergunta.
+2. **O número do chamado não identifica uma linha.** `external_id` repete dentro
+   do mesmo envio, e o diff só é correto depois de dobrar as N linhas num
+   retrato (`retratosDoEnvio`).
+
+As quatro primeiras derivadas são recalculáveis a partir de `ticket_import`, com
+a mesma postura de `change_set` — o algoritmo melhora sem migration.
+
 ### Volume
 
 Hoje ~85 mil fatos por export completo. Com 20 unidades e 5 anos mensais:

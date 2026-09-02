@@ -25,6 +25,8 @@ import {
   latestTicketImport,
   listTicketImports,
   listTicketChanges,
+  processarEnvioDeChamados,
+  recalcularSerie,
   lerEscopo,
   rotulosNaJanela,
   temEscopo,
@@ -272,6 +274,26 @@ async function readInBackground(
 ): Promise<void> {
   try {
     await readTicketImport(db, ticketImportId);
+    /*
+      Lido o arquivo, o Monitoramento compara este envio com o anterior da mesma
+      série e recalcula o dia. Roda **aqui**, e não dentro de `readTicketImport`,
+      porque `lib/comparison` já importa de `lib/ingest` e o caminho inverso
+      fecharia um ciclo entre os dois pacotes — a rota é o lugar onde os dois já
+      se encontram.
+
+      Uma falha aqui não desfaz a leitura: o arquivo entrou, os chamados estão no
+      banco, e a aba Chamados responde por eles. O que fica faltando é a
+      comparação, que é derivada e volta com um recálculo. Marcar o envio como
+      FAILED por causa disso apagaria dado bom por causa de conta refazível.
+    */
+    try {
+      await processarEnvioDeChamados(db, ticketImportId);
+    } catch (err) {
+      log.error(
+        { err, ticketImportId },
+        "Ticket import read, but monitoring comparison failed",
+      );
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : "Erro desconhecido";
     log.error({ err, ticketImportId }, "Ticket import failed");
@@ -388,6 +410,28 @@ router.delete("/ticket-imports/:id", async (req, res, next): Promise<void> => {
       deletedBy: req.user?.email ?? DEFAULT_ACTOR,
       reason: motivo,
     });
+
+    /*
+      Tirar um envio muda o "anterior" de quem ficou.
+
+      A cascata da `0087` já levou as movimentações que apontavam para ele, mas
+      as comparações dos envios **seguintes** continuam gravadas contra uma base
+      que não existe mais — e a régua mostraria dias inteiros errados até a
+      próxima importação. `recalcularSerie` refaz a cadeia.
+
+      A falha aqui não desfaz a exclusão: ela já foi aceita pelo banco e
+      registrada em `ticket_import_deletion`, que é append-only. O que fica é
+      uma camada derivada desatualizada — e derivada se refaz.
+    */
+    try {
+      await recalcularSerie(db, result.serie);
+    } catch (err) {
+      req.log.error(
+        { err, ticketImportId: req.params.id, serie: result.serie },
+        "Ticket import deleted, but monitoring recompute failed",
+      );
+    }
+
     res.json(result);
   } catch (err) {
     if (err instanceof TicketImportDeletionRefused) {

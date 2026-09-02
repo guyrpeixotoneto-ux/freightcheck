@@ -244,6 +244,44 @@ toda leitura — nos moldes do que `conversas.ts` já faz por `owner_id`.
   `GET /api/tickets/classification`. **As classes não somam o total**: um
   parâmetro pode mexer em dois valores (`cavaloEmpurrada` mexe no fixo e no
   variável), e a tela escreve a diferença em vez de escondê-la.
+- **Chamados Ambev → Monitoramento de Chamados** (`/monitoramento-de-chamados`)
+  responde a outra pergunta: *o que mudou nos chamados desde a última
+  importação*. A aba acima lê **um** envio; esta compara envios.
+  - **A unidade da tela é a movimentação**, e uma movimentação é *o chamado que
+    se mexeu num dia* — grão `(dia, série, chamado)`. Um chamado com três campos
+    alterados é **uma** linha com três diferenças; um que se mexeu três vezes
+    hoje é **uma** linha com três passos. É o que faz "70 movimentações" querer
+    dizer 70 chamados, em vez de subir quando alguém reimporta.
+  - **A régua de dias é `ticket_import.received_at`**, em `America/Sao_Paulo`.
+    Não é `Data Solicitação` (quando o chamado nasceu) nem `Data Alteração`
+    (quando a Ambev mexeu) — as quatro datas convivem, e só uma responde "o que
+    eu ainda não olhei". As outras aparecem na linha.
+  - **A série é a partição.** O arquivo é `Chamados_<unidade>.xlsx`, e dois
+    envios do mesmo dia costumam ser unidades diferentes; comparar Recife com
+    Camaçari produziria "todos sumiram, 380 novos". `ticket_import.serie` vem da
+    coluna `Unidade` das linhas, com o nome do arquivo como desempate.
+  - **As quatro classes somam o total**: `NOVO + ALTERADO + ENCERRADO +
+    REMOVIDO = movimentações`, por construção. Encerrar vence alterar (senão a
+    mesma movimentação conta duas vezes) e aparecer vence encerrar (um chamado
+    que chega já atendido não foi encerrado hoje — ele apareceu assim).
+  - **A primeira importação de uma série não produz movimentação nenhuma.** Ela
+    é `BASELINE`, e é o que impede a carga histórica de nascer como milhares de
+    "chamados novos" a revisar.
+  - **Criticidade é derivada por nós**, e a tela diz isso: nenhuma das 26
+    colunas do export é prioridade. Régua em `criticidadeDoChamado`.
+  - **Nada é revisado pela importação.** `ticket_movement_review` só é escrita
+    por rota, com a sessão de quem clicou; revisado por qualquer pessoa vale
+    para a instalação, como a justificativa de uma alteração. Recalcular um dia
+    preserva a revisão quando a `assinatura` da movimentação não muda — sem
+    isso, todo arquivo recebido devolveria o dia inteiro para a fila.
+  - Motor em `lib/comparison/src/monitoramento-de-chamados.ts` (escreve, como
+    `engine.ts`), leitura em `…-leitura.ts`, rotas em
+    `routes/monitoramento-de-chamados.ts`, schema na `0087`. A camada é
+    **derivada e descartável** — exceto a revisão, que é ato humano.
+  - A `0087` também promoveu oito colunas de `ticket.payload` para coluna
+    (Unidade, Segmento, Operador, Aprovador, SLA, Categoria, Previsão Análise,
+    Data Alteração). Elas já vinham no arquivo desde sempre; o backfill sai do
+    próprio `payload`, **sem reimportar nada**.
 - **Alterações → Impacto** é a terceira aba e a única que **não parte da
   alteração**: uma linha por ativo, uma coluna por vigência, e a alteração
   aparecendo como a diferença entre duas colunas. `lib/comparison/src/impacto.ts`

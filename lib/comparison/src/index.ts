@@ -27,6 +27,8 @@ export * from "./impacto";
 export * from "./panorama";
 export * from "./exportacao";
 export * from "./chamados";
+export * from "./monitoramento-de-chamados";
+export * from "./monitoramento-de-chamados-leitura";
 export * from "./escopo";
 export * from "./ativos";
 export * from "./alteracoes-do-ativo";

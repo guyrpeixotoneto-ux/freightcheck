@@ -293,6 +293,41 @@ export const ALLOWLIST: {
     tipo: "timestamp with time zone",
     aindaPodeNaoExistir: true,
   },
+  /*
+    As dez da `0087` — o Monitoramento de Chamados.
+
+    Oito são colunas do chamado que **já estavam gravadas** desde sempre: o
+    export real tem 26 cabeçalhos, o leitor promovia 12, e os outros ficavam em
+    `ticket.payload`, que guarda a linha inteira. A `0087` as promove e faz o
+    backfill do próprio payload. As duas últimas são a série do envio — a
+    unidade por que o monitoramento particiona as comparações.
+
+    Todas aditivas e nulas por definição, que é o critério desta lista: um
+    chamado lido antes da `0087` não tem nada delas até o backfill rodar, e um
+    arquivo que não traga a coluna continua sem ela depois. Production as ganha
+    quando rodar a fila; até lá o `down` as mantém, para que a proposta do
+    Publishing continue sendo só o que esta lista nomeia.
+  */
+  { tabela: "ticket", coluna: "unidade_raw", tipo: "text", aindaPodeNaoExistir: true },
+  { tabela: "ticket", coluna: "segmento_raw", tipo: "text", aindaPodeNaoExistir: true },
+  { tabela: "ticket", coluna: "operador_raw", tipo: "text", aindaPodeNaoExistir: true },
+  { tabela: "ticket", coluna: "aprovador_raw", tipo: "text", aindaPodeNaoExistir: true },
+  { tabela: "ticket", coluna: "sla_raw", tipo: "text", aindaPodeNaoExistir: true },
+  { tabela: "ticket", coluna: "categoria_raw", tipo: "text", aindaPodeNaoExistir: true },
+  { tabela: "ticket", coluna: "prazo_previsto", tipo: "date", aindaPodeNaoExistir: true },
+  {
+    tabela: "ticket",
+    coluna: "alterado_em_fonte",
+    tipo: "timestamp with time zone",
+    aindaPodeNaoExistir: true,
+  },
+  { tabela: "ticket_import", coluna: "serie", tipo: "text", aindaPodeNaoExistir: true },
+  {
+    tabela: "ticket_import",
+    coluna: "serie_origem",
+    tipo: "text",
+    aindaPodeNaoExistir: true,
+  },
 ];
 
 /**
@@ -317,6 +352,19 @@ export const ALLOWLIST: {
  * Perdê-la reabriria todas as lacunas que alguém já resolveu.
  */
 const TABELAS_REMOVIDAS = [
+  /*
+    `ticket_movement_review`, da `0087`, é a **única** das cinco tabelas do
+    Monitoramento de Chamados que entra aqui — e é pelo critério desta lista, e
+    não pelo tamanho dela: o que ela guarda é decisão humana. "Fulano olhou esta
+    movimentação às 09:12" não é reconstruível por consulta nenhuma; as outras
+    quatro são, e por isso estão em `TABELAS_DESCARTAVEIS`.
+
+    Vem **antes** delas na ordem de queda porque referencia `ticket_movement_day`
+    com `ON DELETE CASCADE`: derrubar a movimentação primeiro levaria as revisões
+    junto, em silêncio, e a pré-condição de tabela vazia nunca chegaria a ser
+    consultada. Aqui ela é a primeira coisa que o `down` confere.
+  */
+  "ticket_movement_review",
   "ticket_change",
   "snapshot_merge",
   "import_decision",
@@ -715,7 +763,33 @@ const TABELAS_DERIVADAS: { nome: string; migration: string; marca: RegExp }[] = 
  * confiar num vazio que o `down` acabou de criar. A ausência de linha é a marca,
  * e é ela que manda a contagem voltar ao caminho ao vivo.
  */
-const TABELAS_DESCARTAVEIS = ["import_run_censo", "snapshot_presenca"];
+const TABELAS_DESCARTAVEIS = [
+  "import_run_censo",
+  "snapshot_presenca",
+  /*
+    As quatro derivadas do Monitoramento de Chamados (`0087`), na ordem em que o
+    `RESTRICT` as aceita — filha antes de mãe: o passo aponta para a comparação
+    **e** para a movimentação, o campo aponta para a movimentação, e a
+    movimentação aponta para a comparação.
+
+    Entram aqui, e não em `TABELAS_REMOVIDAS`, pelo mesmo critério de
+    `import_run_censo`: nada nelas é decisão de gente. Cada linha é a subtração
+    de dois envios que continuam no banco, e `recalcularSerie` a refaz inteira a
+    partir de `ticket_import`. A revisão — que é decisão de gente — está na
+    outra lista, e o `down` exige que ela esteja vazia antes de tocar em
+    qualquer coisa.
+
+    **A reconstrução não é automática na partida**, e essa é a diferença
+    honesta em relação ao censo: o que repovoa cada dia é a próxima importação
+    daquela série, e os dias já fechados ficam vazios até alguém recalcular. Na
+    prática isso não custa nada, porque o `down` já exige `ticket` sem linhas
+    para rodar — e sem chamado não há movimentação a perder.
+  */
+  "ticket_movement_step",
+  "ticket_movement_field",
+  "ticket_movement_day",
+  "ticket_import_comparacao",
+];
 
 /**
  * Colunas que o `down` remove de tabelas que ficam.
@@ -857,6 +931,23 @@ export const COLUNAS_REMOVIDAS: [string, string][] = [
 
 /** Índices que o `down` remove. Exportada pelo motivo de `COLUNAS_REMOVIDAS`. */
 export const INDICES_REMOVIDOS = [
+  /*
+    Os três da `0087`, e só os três: os outros nove que ela cria vivem nas
+    tabelas que o `down` derruba, e caem com elas. Estes ficam em `ticket` e
+    `ticket_import`, que **não** caem — e um índice que o Publishing não modela
+    é exatamente o que este `down` existe para tirar do diff.
+
+    As colunas que dois deles indexam continuam (estão na `ALLOWLIST`, porque
+    são aditivas e nulas). Por isso os índices precisam sair por nome: dropar a
+    coluna levaria o índice junto, e aqui a coluna não sai.
+
+    Repostos pela `0088_reconciliar_monitoramento_de_chamados` — ver
+    `reconciliacao-bridge.test.ts`, que recusa entrada nesta lista sem
+    reconciliação do outro lado.
+  */
+  "ticket_import_external_idx",
+  "ticket_unidade_idx",
+  "ticket_import_serie_idx",
   "snapshot_canonical_live_uq",
   "snapshot_canonical_revision_uq",
   "snapshot_canonical_key_idx",
@@ -952,6 +1043,17 @@ const FUNCOES_REMOVIDAS = [
  */
 const FUNCOES_REMOVIDAS_CHAMADOS = [
   "freightcheck_ticket_import_deletion_is_immutable",
+  /*
+    As quatro da `0087`. Existem para o backfill ler `ticket.payload` com a
+    mesma régua do leitor — cabeçalho dobrado, data brasileira antes do cast
+    genérico — e não são chamadas por nenhuma coluna gerada nem por nenhuma
+    view: depois do backfill, ninguém as invoca. Saem porque o Publishing não
+    modela função nenhuma, e uma que sobrasse apareceria no diff residual.
+  */
+  "freightcheck_dobrar_cabecalho",
+  "freightcheck_payload_valor",
+  "freightcheck_texto_para_data",
+  "freightcheck_texto_para_instante",
 ];
 
 const CHECKS_REMOVIDOS: [string, string][] = [
@@ -1756,6 +1858,7 @@ function planoUp(): PassoUp[] {
   const M19 = "0019_assistant_feedback";
   const M20 = "0020_chamados_exclusao";
   const M40 = "0040_reprocessamento";
+  const M87 = "0087_monitoramento_de_chamados";
 
   // 1. Desfaz o estado legado que o `down` recriou. Quem o desfaz é a `0013`.
   for (const col of COLUNAS_LEGADAS_TICKET) {
@@ -3169,6 +3272,66 @@ function planoUp(): PassoUp[] {
     "constraint import_run_reprocess_completo",
     levantar(M40, /import_run_reprocess_completo/),
   );
+
+  /*
+    As da `0087` — o Monitoramento de Chamados.
+
+    As dez colunas não entram, pela mesma razão das da `0040`: nunca saíram.
+    Estão na `ALLOWLIST` porque são aditivas e nulas, e o `down` as mantém.
+
+    O que volta são as cinco tabelas, os índices delas, os três índices que o
+    `down` tira das tabelas que ficam, as quatro funções auxiliares e o bloco de
+    chaves estrangeiras. A ordem é a inversa da queda — mãe antes de filha —, e
+    as funções vêm primeiro por hábito da casa: são `CREATE OR REPLACE`, e
+    repô-las antes não custa nada nem depende de tabela nenhuma.
+
+    Nenhuma definição é reescrita aqui. É `levantar` da própria `0087` em todos
+    os pontos, pelo motivo de sempre: uma segunda escrita da mesma definição
+    concorda no dia em que é escrita e discorda no dia em que a migration muda.
+  */
+  for (const f of [
+    "freightcheck_dobrar_cabecalho",
+    "freightcheck_payload_valor",
+    "freightcheck_texto_para_data",
+    "freightcheck_texto_para_instante",
+  ]) {
+    add(M87, `função ${f}`, levantar(M87, new RegExp(`FUNCTION ${f}\\(`)));
+  }
+  for (const t of [
+    "ticket_import_comparacao",
+    "ticket_movement_day",
+    "ticket_movement_field",
+    "ticket_movement_step",
+    "ticket_movement_review",
+  ]) {
+    add(M87, t, levantar(M87, new RegExp(`CREATE TABLE IF NOT EXISTS "${t}"`)));
+  }
+  for (const i of [
+    "ticket_import_comparacao_envio_uq",
+    "ticket_import_comparacao_dia_idx",
+    "ticket_movement_day_grao_uq",
+    "ticket_movement_day_classe_idx",
+    "ticket_movement_day_unidade_idx",
+    "ticket_movement_day_ordem_idx",
+    "ticket_movement_day_import_idx",
+    "ticket_movement_day_primeiro_import_idx",
+    "ticket_movement_field_grao_uq",
+    "ticket_movement_field_movement_idx",
+    "ticket_movement_field_tipo_idx",
+    "ticket_movement_step_ordem_uq",
+    "ticket_movement_step_movement_idx",
+    "ticket_movement_step_comparacao_idx",
+    "ticket_movement_review_versao_uq",
+    "ticket_movement_review_movement_idx",
+    "ticket_movement_review_quem_idx",
+    // Os três das tabelas que ficam, que o `down` tira por nome.
+    "ticket_import_serie_idx",
+    "ticket_import_external_idx",
+    "ticket_unidade_idx",
+  ]) {
+    add(M87, `índice ${i}`, levantar(M87, new RegExp(`INDEX IF NOT EXISTS "${i}"`)));
+  }
+  add(M87, "FKs do monitoramento", levantar(M87, /ticket_movement_review_user_id_app_user_id_fk/));
 
   return p;
 }

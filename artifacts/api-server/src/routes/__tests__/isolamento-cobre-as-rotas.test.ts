@@ -52,7 +52,25 @@ const SEM_ACERVO: Record<string, string> = {
   "curation.ts": "vocabulário: atributo e significado são globais por código.",
   "versions.ts": "histórico de semântica — o mesmo vocabulário.",
   "book.ts": "o Book do Operador é população própria, sem unidade nem canal.",
-  "tickets.ts": "chamados são população própria, sem unidade nem canal.",
+  /*
+    `tickets.ts` continua fora do eixo da **operação**, e a frase mudou porque
+    metade dela deixou de ser verdade.
+
+    Chamados passaram a ter **unidade**: ela sempre veio no export real (coluna
+    `Unidade`, das 26), e até a `0087` ficava só em `payload`. Hoje é coluna, é
+    a série por que o Monitoramento particiona as comparações, e é filtro de
+    tela. Dizer "sem unidade" aqui viraria uma declaração falsa dois meses
+    depois de alguém a ler.
+
+    O que **não** mudou é o canal: um chamado não pertence a empurrada nem a
+    rota, e não há em `ticket` nada que o ligue a uma vigência de um acervo. É
+    por isso que estas rotas continuam sem `operacaoDaConsulta` — o eixo que
+    este teste protege é o da operação, e chamados não estão nele.
+  */
+  "tickets.ts":
+    "chamados são população própria: têm unidade (a série da `0087`), e não têm canal — nada em `ticket` os liga a uma operação.",
+  "monitoramento-de-chamados.ts":
+    "o monitoramento é derivado de `ticket`, e herda o mesmo eixo: recorta por série/unidade (`serieDaConsulta`, a autoridade única do arquivo) e não por operação, porque o chamado que ele compara não pertence a uma.",
   "balance.ts": "balanço de massa: a conferência de um arquivo, por importação.",
   "fechamento.ts":
     "o Fechamento tem eixo próprio de operação — `competencia.tipo_de_operacao`, ver `OPERACAO_DO_AMBIENTE`.",

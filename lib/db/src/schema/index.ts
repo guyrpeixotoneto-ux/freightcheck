@@ -22,3 +22,4 @@ export * from "./permissao";
 export * from "./papel";
 export * from "./integracao";
 export * from "./modulo-universal";
+export * from "./monitoramento-de-chamados";
