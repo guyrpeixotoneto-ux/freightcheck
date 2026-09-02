@@ -293,12 +293,12 @@ describe("a página do Panorama", () => {
 
     // 3 — a composição
     expect(screen.getByText("Composição do impacto líquido")).toBeTruthy();
-    expect(screen.getByText("Principais mudanças")).toBeTruthy();
 
-    // 4 — a trajetória, o pódio dos dois lados e o link para a leitura por tipo
+    // 4 — a trajetória, e o funil que desce dela
     expect(screen.getByText("Impacto das alterações por vigência")).toBeTruthy();
     expect(screen.getByText("Maiores impactos positivos desta vigência")).toBeTruthy();
     expect(screen.getByText("Maiores impactos negativos desta vigência")).toBeTruthy();
+    expect(screen.getByText("Principais mudanças")).toBeTruthy();
     expect(screen.getByText("abra a Linha do Tempo")).toBeTruthy();
 
     // 5 — o mapa
@@ -315,6 +315,36 @@ describe("a página do Panorama", () => {
       menos no teste acima não acusaria nada.
     */
     expect(screen.queryByText("O que fazer agora")).toBeNull();
+  });
+
+  /*
+    A ordem do andar 4 é o ponto dele, e `getByText` não a vê: os quatro
+    títulos passariam na ordem inversa. A leitura desce um degrau por vez —
+    a vigência no gráfico, a família nos dois cartões, o parâmetro na lista —,
+    e é isso que este teste prende.
+  */
+  it("desce o andar 4 em grão: vigência, família, parâmetro", async () => {
+    vi.stubGlobal("fetch", servidor());
+    montar();
+
+    await waitFor(() => expect(screen.getByText("Impacto das alterações por vigência")).toBeTruthy());
+
+    const ordem = [
+      "Impacto das alterações por vigência",
+      "Maiores impactos positivos desta vigência",
+      "Principais mudanças",
+    ].map((titulo) => screen.getByText(titulo));
+
+    for (let i = 1; i < ordem.length; i += 1) {
+      /*
+        `DOCUMENT_POSITION_FOLLOWING` lê a ordem do documento, e não a do
+        layout: é ela que o leitor de tela percorre e a que o `space-y` da
+        página desenha de cima para baixo.
+      */
+      expect(
+        ordem[i - 1].compareDocumentPosition(ordem[i]) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    }
   });
 
   /*

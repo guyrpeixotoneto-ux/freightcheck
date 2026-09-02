@@ -449,48 +449,37 @@ function Corpo({
       <Placar medidas={placar} />
 
       {/* ---- Andar 3 · a composição ---- */}
-      <div className="grid gap-5 xl:grid-cols-3">
-        <section className="bg-card border rounded-xl shadow-sm px-6 py-5 xl:col-span-2 min-w-0">
-          <div className="flex items-start justify-between gap-3 flex-wrap">
-            <div className="min-w-0">
-              <h2 className="text-base font-bold">Composição do impacto líquido</h2>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                De onde vem o resultado apurado desta vigência
-              </p>
-            </div>
-            <span className={cn(BOTAO_DE_TROCA, "cursor-default")}>{DECOMPOSICOES.familia}</span>
-          </div>
-          {ponte && ponte.degraus.length > 0 ? (
-            <PonteDoImpactoGrafico
-              ponte={ponte}
-              onAbrirFamilia={
-                view ? (code) => onTrocar({ familia: code, impacto: null }) : null
-              }
-              className="mt-4"
-            />
-          ) : (
-            <p className="text-sm text-muted-foreground py-20 text-center">
-              Nenhuma família tem valor apurado nesta vigência — não há composição a desenhar.
-            </p>
-          )}
-        </section>
+      {/*
+        A ponte ocupa a faixa inteira, e não dois terços dela.
 
-        <section className="bg-card border rounded-xl shadow-sm px-6 py-5 min-w-0">
-          <PrincipaisMudancas
-            linhas={mudancas}
-            periodicity={periodicidade}
-            filtro={filtroAberto(parametros)}
-            onFiltro={(f) => onTrocar({ mudancas: f === "todos" ? null : f })}
-            onAbrir={view ? (key) => onTrocar({ impacto: key, familia: null }) : null}
-            limite={5}
-            nota={
-              view
-                ? undefined
-                : "Em Visão Geral a lista soma as unidades e não abre por dentro: o detalhe de um parâmetro só existe dentro de um contexto."
-            }
+        O terço ao lado era das Principais mudanças, que desceram para o andar 4
+        (a razão está lá). O que sobra aqui é um waterfall, e um waterfall
+        espremido perde exatamente o que ele existe para mostrar: com oito ou
+        dez famílias, os degraus do meio viravam fatias de dois pixels com o
+        rótulo cortado.
+      */}
+      <section className="bg-card border rounded-xl shadow-sm px-6 py-5 min-w-0">
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div className="min-w-0">
+            <h2 className="text-base font-bold">Composição do impacto líquido</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              De onde vem o resultado apurado desta vigência
+            </p>
+          </div>
+          <span className={cn(BOTAO_DE_TROCA, "cursor-default")}>{DECOMPOSICOES.familia}</span>
+        </div>
+        {ponte && ponte.degraus.length > 0 ? (
+          <PonteDoImpactoGrafico
+            ponte={ponte}
+            onAbrirFamilia={view ? (code) => onTrocar({ familia: code, impacto: null }) : null}
+            className="mt-4"
           />
-        </section>
-      </div>
+        ) : (
+          <p className="text-sm text-muted-foreground py-20 text-center">
+            Nenhuma família tem valor apurado nesta vigência — não há composição a desenhar.
+          </p>
+        )}
+      </section>
 
       {/* ---- Andar 4 · a trajetória ---- */}
       <section className="bg-card border rounded-xl shadow-sm px-6 py-5">
@@ -505,16 +494,24 @@ function Corpo({
           lado, com o líquido passando por cima: a mesma pergunta continua
           respondida pela linha, e a de baixo dela deixa de sumir.
 
+          Uma barra por vigência **entregue**, e não por mês de calendário: duas
+          vigências no mesmo mês aparecem pelo dia, uma ao lado da outra, nunca
+          somadas — somá-las inventaria uma vigência que ninguém entregou.
+
           É o gráfico do Dashboard, o mesmo componente e a mesma série — este
           andar não é uma quinta verdade sobre o mesmo dado.
         */}
-        <div className="min-w-0 mb-3">
-          <h2 className="text-base font-bold">Impacto das alterações por vigência</h2>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            Ganhos e perdas divergindo do zero, com o líquido por cima. Uma barra por vigência
-            entregue — duas no mesmo mês aparecem pelo dia, nunca somadas.
-          </p>
-        </div>
+        {/*
+          Só o título aqui. O gráfico escreve a própria linha de subtítulo
+          ("Ganhos e perdas por vigência, em R$/mês — últimas 6 vigências com
+          dado"), e a que havia neste lugar começava com as mesmas três
+          palavras: duas frases quase idênticas, empilhadas, sobre o mesmo
+          gráfico. O que a segunda tinha de próprio — uma barra por vigência
+          entregue, nunca somadas — desceu para o comentário acima, onde
+          explica a decisão a quem lê o código, em vez de ocupar a tela de quem
+          lê o número.
+        */}
+        <h2 className="text-base font-bold mb-1">Impacto das alterações por vigência</h2>
         <GraficoDeImpacto
           pontos={pontos}
           periodicity={periodicityDaSerie ?? periodicidade}
@@ -574,6 +571,7 @@ function Corpo({
             periodicidade={periodicidade}
             familiaAberta={familiaAberta}
             onAbrirFamilia={view ? (code) => onTrocar({ familia: code, impacto: null }) : null}
+            nota={view ? undefined : NOTA_DO_PODIO}
           />
           <MaioresImpactos
             lado="perdas"
@@ -581,9 +579,38 @@ function Corpo({
             periodicidade={periodicidade}
             familiaAberta={familiaAberta}
             onAbrirFamilia={view ? (code) => onTrocar({ familia: code, impacto: null }) : null}
+            nota={view ? undefined : NOTA_DO_PODIO}
           />
         </div>
       )}
+
+      {/*
+        E o degrau seguinte: o parâmetro.
+
+        Esta lista estava no andar 3, ao lado da ponte, e ali ela invertia o
+        funil — a tela descia ao parâmetro no andar 3 e voltava à família no 4,
+        de modo que o detalhe chegava antes do agregado que ele detalha. Aqui o
+        andar 4 desce inteiro e numa direção só: a vigência no gráfico, a
+        família nos dois cartões, o parâmetro nesta lista.
+
+        Ela não repete os cartões acima: o grão é outro. Uma família some da
+        lista de parâmetros quando o seu movimento está espalhado em muitos
+        parâmetros pequenos, e é exatamente essa diferença que se quer ver ao
+        descer um degrau.
+      */}
+      <PrincipaisMudancas
+        linhas={mudancas}
+        periodicity={periodicidade}
+        filtro={filtroAberto(parametros)}
+        onFiltro={(f) => onTrocar({ mudancas: f === "todos" ? null : f })}
+        onAbrir={view ? (key) => onTrocar({ impacto: key, familia: null }) : null}
+        limite={6}
+        nota={
+          view
+            ? undefined
+            : "Em Visão Geral a lista soma as unidades e não abre por dentro: o detalhe de um parâmetro só existe dentro de um contexto."
+        }
+      />
 
       {/* ---- Andar 5 · o mapa ---- */}
       <Mapa
@@ -620,6 +647,18 @@ function Corpo({
     </>
   );
 }
+
+/**
+ * Por que o pódio não abre em Visão Geral.
+ *
+ * A gaveta de uma família (`DetalheDaFamilia`) desce até o parâmetro e, dentro
+ * dele, até a placa — e placa é de uma unidade. Somadas as unidades, o número
+ * do cartão é verdadeiro e a gaveta dele não teria a quem perguntar. A linha
+ * deixa de ser botão, e o cartão diz por quê em vez de deixar o clique morrer
+ * em silêncio.
+ */
+const NOTA_DO_PODIO =
+  "Em Visão Geral os números somam as unidades e não abrem por dentro: de onde vem o impacto de uma família só existe dentro de um contexto.";
 
 /** O endereço das alterações sem preço — a população que a faixa de cobertura conta. */
 function linkDasSemPreco(recorte: Recorte): string {

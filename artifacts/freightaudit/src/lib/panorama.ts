@@ -69,11 +69,12 @@ import type { FamiliesOverview, FamiliesView } from "@/components/inicio/types";
  * | 5 | Onde isso aconteceu? | {@link mapaDoPanorama} |
  * | 6 | Posso confiar nisto? | {@link procedenciaDoPanorama} |
  *
- * {@link filaDoPanorama} respondia "o que eu faço agora" e **saiu da tela** —
- * era o único andar que mandava embora em vez de responder sobre a vigência
- * lida. A função fica aqui, testada e sem leitor: a fusão que ela faz é a
- * resposta certa no dia em que a fila voltar a ter uma tela sua, e reescrevê-la
- * de novo era o defeito que ela veio desfazer.
+ * Houve um sétimo andar, "o que eu faço agora": uma fila de trabalho que fundia
+ * as três que o produto tinha. Ela saiu, e por não ser leitura — mandava embora
+ * em vez de responder sobre a vigência lida, o que é uma tela de execução
+ * dentro de uma tela de leitura. Os destinos dela continuam alcançáveis de onde
+ * a pergunta nasce, e `ondeAgirAgora` (`lib/impacto-apurado.ts`) continua sendo
+ * a fila canônica de quem precisar de uma.
  *
  * Os andares 3 e 4 não têm função aqui porque já tinham a delas: a ponte e a
  * série são leituras que o Impacto Apurado e o Impacto Líquido já montavam, e
@@ -448,157 +449,7 @@ export function mapaDoPanorama(
 }
 
 // ---------------------------------------------------------------------------
-// Andar 6 — a fila
-// ---------------------------------------------------------------------------
-
-export interface ItemDaFila {
-  chave: string;
-  tom: Tom;
-  titulo: string;
-  detalhe: string;
-  /** A tela onde o trabalho é feito — `null` quando nenhuma responde. */
-  href: string | null;
-}
-
-/** A ordem dos tons: o que é grave vem antes do que é atenção. */
-const PESO_DO_TOM: Record<Tom, number> = { grave: 0, atencao: 1, ok: 2 };
-
-/**
- * O que fazer agora — **a fusão das três filas que o produto tinha**.
- *
- * **Sem leitor em tela hoje.** O Panorama publicava esta fila no andar 6 e
- * deixou de publicá-la: era o único andar que não respondia sobre a vigência
- * lida — fundia três listas de trabalho e mandava embora —, e os destinos dela
- * continuam alcançáveis de onde a pergunta nasce. A função continua aqui,
- * inteira e testada, porque o que ela resolve não é desenho de tela: é a
- * divergência entre três filas que liam a mesma `FamiliesView` com critérios
- * diferentes, e essa divergência volta no dia em que qualquer tela precisar de
- * uma fila. Reescrevê-la seria refazer o defeito.
- *
- * Era o maior defeito da seção, e o de diagnóstico mais difícil: "Onde agir
- * agora" (Impacto Apurado), "O que merece sua atenção" (Resumo executivo) e
- * "Principais alterações" (Impacto Líquido) liam a mesma `FamiliesView` e
- * ordenavam por critérios ligeiramente diferentes. Quem lia os três módulos
- * recebia três respostas para *por onde começo*, sem nenhuma pista de qual
- * seguir.
- *
- * **A base é `ondeAgirAgora`**, e não uma quarta lista escrita aqui: dos três,
- * é o único em que todo item já é uma ação — sem preço, cobertura baixa, perdas
- * relevantes, semântica travada, famílias críticas, vigência sem anterior — e
- * em que cada um nasce de um campo do contrato, nunca de um limiar inventado na
- * tela.
- *
- * **O que `pontosDeAtencao` acrescenta, e o que dele fica de fora.** Aquela
- * lista tinha quatro pontos; dois entram aqui e dois não:
- *
- * - **entra o maior impacto negativo** — é o único item das três filas que
- *   nomeia *qual parâmetro* puxou o resultado, e a pergunta seguinte a "quanto
- *   custou" é sempre "por causa de quê";
- * - **entra o equipamento mais tocado** — a mesma coisa pelo eixo do ativo;
- * - **sai a integridade**, que desce para a procedência: ela responde por *como
- *   sabemos*, e não por *o que fazer* — pô-la numa fila de trabalho a
- *   transformaria numa tarefa que ninguém executa;
- * - **sai o "sem preço"** por já existir em `ondeAgirAgora`, sob a mesma chave.
- *   A deduplicação é por `chave`, e é o que impede a fusão de publicar o mesmo
- *   item duas vezes com dois textos.
- *
- * **Nada de tom `ok` entra.** `pontosDeAtencao` emite pontos tranquilizadores
- * ("Toda mudança tem preço", "Maior impacto" quando é positivo), e eles fazem
- * sentido num painel de leitura — não numa fila de trabalho. Uma fila que
- * contém "não há nada a fazer" é uma fila que se aprende a não ler; quando ela
- * fica vazia, a tela diz isso numa frase, uma vez.
- *
- * **A ordem é a da consequência, e depois a da fonte.** Grave antes de atenção;
- * dentro do mesmo tom, os itens de `ondeAgirAgora` na ordem em que ela os
- * produz — que já é a ordem do trabalho —, e só então os dois acréscimos. Um
- * `sort` estável é o que garante isso, e é por isso que a ordenação é por peso
- * do tom e nada mais.
- */
-export function filaDoPanorama({
-  view,
-  veredito,
-  prioridades,
-  recorte,
-  comDestino,
-}: {
-  /** A unidade aberta — `null` na Visão Geral, que não tem fila. */
-  view: FamiliesView | null;
-  veredito: Veredito;
-  /** A fila do cockpit já juntada aos grupos — `juntarPrioridades`. */
-  prioridades: ItemCockpit[];
-  recorte: Recorte;
-  comDestino: boolean;
-}): ItemDaFila[] {
-  if (view === null) return [];
-
-  const lados = veredito.situacao.estado === "com_movimento" ? veredito.situacao.lados : null;
-  const destino = (href: string) => (comDestino ? href : null);
-
-  const acoes: AcaoAgora[] = ondeAgirAgora({
-    view,
-    cobertura: veredito.cobertura,
-    periodicidade: lados?.periodicity ?? null,
-    prioridades,
-    recorte,
-    comDestino,
-  });
-
-  const itens: ItemDaFila[] = acoes.map((acao) => ({
-    chave: acao.chave,
-    tom: acao.tom,
-    titulo: acao.titulo,
-    detalhe: acao.detalhe,
-    href: acao.href,
-  }));
-
-  const jaTem = new Set(itens.map((i) => i.chave));
-  const daVigencia: Recorte = { ...recorte, period: view.period };
-
-  /*
-    O maior impacto negativo — o item que nomeia o parâmetro por trás do
-    veredito. `maioresImpactos` já escolhe uma periodicidade só e ordena dentro
-    dela; aqui só se lê o primeiro negativo. Um ranking cujo topo é positivo não
-    produz item: "o que mais subiu a remuneração" não é trabalho a fazer.
-  */
-  const ranking = maioresImpactos(view.summary, 3);
-  const maiorNegativo = ranking?.linhas.find((l) => l.amount < 0) ?? null;
-  if (ranking && maiorNegativo && !jaTem.has("maior-impacto")) {
-    itens.push({
-      chave: "maior-impacto",
-      tom: "grave",
-      titulo: `${maiorNegativo.name} puxa o resultado para baixo`,
-      detalhe: `${escreverImpacto({ periodicity: ranking.periodicity, amount: maiorNegativo.amount })} em ${maiorNegativo.familyName}.`,
-      href: destino(
-        linkDeAlteracoes({ recorte: daVigencia, filtros: { attributeCode: maiorNegativo.key } }),
-      ),
-    });
-  }
-
-  const equipamento = equipamentoMaisTocado(view);
-  if (equipamento && !jaTem.has("equipamento")) {
-    itens.push({
-      chave: "equipamento",
-      tom: "atencao",
-      titulo: `${equipamento.nome} é o ativo mais tocado`,
-      detalhe: `${equipamento.mudancas.toLocaleString("pt-BR")} ${
-        equipamento.mudancas === 1 ? "mudança detectada" : "mudanças detectadas"
-      } nesta vigência.`,
-      href: destino(
-        linkDeAlteracoes({
-          recorte: daVigencia,
-          filtros: equipamento.entityType ? { entityType: equipamento.entityType } : {},
-        }),
-      ),
-    });
-  }
-
-  return itens
-    .filter((item) => item.tom !== "ok")
-    .sort((a, b) => PESO_DO_TOM[a.tom] - PESO_DO_TOM[b.tom]);
-}
-
-// ---------------------------------------------------------------------------
-// Andar 7 — a procedência
+// Andar 6 — a procedência
 // ---------------------------------------------------------------------------
 
 export interface Procedencia {

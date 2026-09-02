@@ -63,6 +63,7 @@ export function MaioresImpactos({
   periodicidade,
   familiaAberta,
   onAbrirFamilia,
+  nota,
 }: {
   lado: Lado;
   /** O pódio inteiro, já na periodicidade escolhida — o cartão recorta o seu lado. */
@@ -77,6 +78,15 @@ export function MaioresImpactos({
    * botão que não leva a lugar nenhum.
    */
   onAbrirFamilia: ((code: string) => void) | null;
+  /**
+   * A ressalva de quem chama, no lugar da promessa de clique.
+   *
+   * Sem `onAbrirFamilia` a linha deixa de ser botão, e um cartão que
+   * simplesmente para de responder ao clique se lê como quebrado. Quem sabe
+   * **por que** não há gaveta é a tela — a Visão Geral soma unidades —, e é
+   * ela que escreve a frase.
+   */
+  nota?: string;
 }) {
   const ganho = lado === "ganhos";
 
@@ -107,6 +117,7 @@ export function MaioresImpactos({
           : "Por família da remuneração — o que tirou em cada uma, com o líquido dela embaixo. Até cinco, pelas que mais tiraram."}
         {onAbrirFamilia && " Clique para ver de onde vem."}
       </p>
+      {nota && <p className="text-xs text-muted-foreground -mt-2 mb-4 italic">{nota}</p>}
 
       {doLado.length > 0 ? (
         <ol className="space-y-3 flex-1">
