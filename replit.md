@@ -363,7 +363,7 @@ toda leitura — nos moldes do que `conversas.ts` já faz por `owner_id`.
   Sobre este export o resultado é **0 propostas, 14 investigações e 13 fora** —
   e zero proposta é um resultado, não uma falha. Ver
   `docs/DIAGNOSTICO-ABA-CLIENTE.md`.
-- **Visão Gerencial (Auditoria → Visão executiva)** — `lib/comparison/src/gerencial.ts`,
+- **Visão Gerencial (Auditoria → Dashboard → Painel de Unidades)** — `lib/comparison/src/gerencial.ts`,
   rota em `artifacts/api-server/src/routes/gerencial.ts` (`GET /gerencial/vigencias`),
   tela em `artifacts/freightaudit/src/pages/visao-gerencial.tsx` com a
   aritmética em `src/lib/auditoria-gerencial.ts` e a faixa do ano em

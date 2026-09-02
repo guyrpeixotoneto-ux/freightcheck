@@ -32,7 +32,7 @@ compara-se com a anterior, mede-se o impacto e cobra-se o que houver a
 recuperar. Por isso elas também não são quatro códigos:
 
 - O menu sai de `navGroupsAuditoria(ambiente)`
-  (`components/layout/nav-auditoria.ts`) — as mesmas onze seções, na mesma
+  (`components/layout/nav-auditoria.ts`) — as mesmas dez seções, na mesma
   ordem, nas quatro.
 - As rotas saem de `RotasDaAuditoria`, em `App.tsx`, montada uma vez por base
   (`BASES_DE_AUDITORIA`, em `lib/ambiente.ts`).
@@ -216,14 +216,18 @@ A lateral é o mesmo componente (`components/layout/sidebar.tsx`) com duas
 listas — a da Auditoria e a do Fechamento, esta última montada sobre a base do
 ambiente aberto e, portanto, servindo Rota e Empurrada sem duplicação:
 
-- **Auditoria** — `NAV_GROUPS`: Visão executiva, Auditoria, Recuperação, QLP,
-  Frota, Inteligência, Dados & governança, Administração. As oito seções e a
-  ordem delas são as de sempre; o único item acrescentado desde a separação dos
-  ambientes é a **Visão Gerencial**, que abre a Visão executiva com o acervo
-  inteiro (todas as unidades) acima do Resumo executivo, que responde pela
-  unidade aberta — e que, desde que virou a entrada do ambiente, é também a
-  tela em que o produto abre. Ver `pages/visao-gerencial.tsx` e a seção
-  correspondente no `replit.md`.
+- **Auditoria** — `navGroupsAuditoria(ambiente)`: Dashboard, Compras, Plano de
+  Ação, Auditoria, Processos, QLP, Frota, Inteligência, Dados & governança,
+  Administração. O **Dashboard** é a leitura executiva inteira: os dois módulos
+  de vigilância (Impacto Líquido e Impacto Apurado) e, abaixo deles, o que era a
+  seção Visão executiva — Painel de Unidades, Resumo executivo, Linha do Tempo,
+  Evolução por Placa, Acompanhamento, Composição e DRE. As duas seções viraram
+  uma porque a leitura é uma só: quanto a vigência custou, como está a unidade e
+  de onde vem o valor. O **Painel de Unidades** (`pages/visao-gerencial.tsx`)
+  abre esse bloco com o acervo inteiro (todas as unidades) acima do Resumo
+  executivo, que responde pela unidade aberta — e, desde que virou a entrada do
+  ambiente, é também a tela em que o produto abre. Ver a seção correspondente no
+  `replit.md`.
 - **Fechamento** — `components/layout/nav-fechamento.ts`, cinco seções na
   ordem do processo:
   - **Fechamento Rota** / **Fechamento Empurrada**: Visão Gerencial · Importações · Apurações · Resumo geral · Conciliação

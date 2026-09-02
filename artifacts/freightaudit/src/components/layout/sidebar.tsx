@@ -163,7 +163,7 @@ export function Sidebar({ open }: { open: boolean }) {
     A lateral é a mesma nos oito ambientes; o conteúdo é que troca. Quem decide
     é a URL (`lib/ambiente.ts`): sob a base de um dos quatro fechamentos, as
     seções do processo, com o nome do ambiente na primeira; sob a de uma das
-    quatro auditorias, as onze da Auditoria — iguais entre si, menos a Frota,
+    quatro auditorias, as dez da Auditoria — iguais entre si, menos a Frota,
     que mostra o ativo da operação (`nav-auditoria.ts`).
 
     O ambiente vem de `useAmbiente`, e não de `ambienteDe(location)`: dentro de
