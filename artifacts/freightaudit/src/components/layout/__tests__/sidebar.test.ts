@@ -205,10 +205,10 @@ describe("a lateral", () => {
   */
   it("só põe, na barra do celular, endereços que a lateral já lista", () => {
     /*
-      `hrefsDoMenu` lê os literais do arquivo, e os dois itens que abrem a
-      Visão executiva são constantes de `lib/ambiente.ts` — o literal deles não
-      está escrito na lista. Somá-los aqui é o que faz o teste comparar
-      endereços, e não grafias.
+      `hrefsDoMenu` lê os literais do arquivo, e os itens do Dashboard são
+      constantes de `lib/ambiente.ts` — o literal deles não está escrito na
+      lista. Somá-los aqui é o que faz o teste comparar endereços, e não
+      grafias.
     */
     const daAuditoria = new Set([...hrefsDoMenu(), ENTRADA_DA_AUDITORIA]);
     const doFechamento = new Set(hrefsDoMenuDoFechamento());
@@ -242,13 +242,16 @@ describe("a lateral", () => {
   });
 
   /*
-    A seção Dashboard tem **dois** módulos desde que o Impacto Apurado nasceu,
-    e este teste guarda as duas metades da promessa: que o novo entrou, e que o
-    antigo continua onde estava. Um item que some do menu não quebra typecheck
-    nem build — some da lateral, e quem usava aquela tela descobre no dia em que
-    procura por ela.
+    A seção Dashboard é a leitura executiva inteira desde que a Visão executiva
+    entrou nela: os dois módulos de vigilância na frente e, abaixo, o retrato do
+    conjunto que morava no cartão vizinho.
+
+    Este teste guarda a lista item a item porque é o tipo de coisa que se perde
+    calada: um item que some do menu não quebra typecheck nem build — some da
+    lateral, e quem usava aquela tela descobre no dia em que procura por ela. E
+    guarda também a ordem, que é o que a fusão tinha a decidir.
   */
-  it("põe os dois módulos na seção Dashboard, nesta ordem", () => {
+  it("põe, na seção Dashboard, a vigilância e o retrato, nesta ordem", () => {
     for (const ambiente of Object.keys(BASES_DE_AUDITORIA)) {
       const dashboard = navGroupsAuditoria(ambiente as AmbienteDeAuditoria).find(
         (grupo) => grupo.titulo === "Dashboard",
@@ -257,9 +260,33 @@ describe("a lateral", () => {
       expect(dashboard.itens.map((item) => item.label)).toEqual([
         "Impacto Líquido",
         "Impacto Apurado",
+        "Painel de Unidades",
+        "Resumo executivo",
+        "Linha do Tempo",
+        "Evolução por Placa",
+        "Acompanhamento",
+        "Composição",
+        "DRE",
       ]);
-      expect(dashboard.itens.map((item) => item.href)).toEqual([DASHBOARD, IMPACTO_APURADO]);
+      expect(dashboard.itens.slice(0, 6).map((item) => item.href)).toEqual([
+        DASHBOARD,
+        IMPACTO_APURADO,
+        ENTRADA_DA_AUDITORIA,
+        RESUMO_EXECUTIVO,
+        LINHA_DO_TEMPO,
+        EVOLUCAO_POR_PLACA,
+      ]);
     }
+  });
+
+  /*
+    A Visão executiva deixou de existir como seção, e não como telas: tudo o que
+    estava nela continua na lateral, dentro do Dashboard. Este caso guarda a
+    segunda metade — que a fusão não levou nenhum endereço embora junto com o
+    cartão.
+  */
+  it("não deixa mais uma seção Visão executiva na lateral", () => {
+    expect(secoesDaAuditoria()).not.toContain("Visão executiva");
   });
 
   /*
@@ -275,14 +302,14 @@ describe("a lateral", () => {
     expect(DASHBOARD).not.toBe(IMPACTO_APURADO);
   });
 
-  it("mantém as onze seções do desenho, na ordem", () => {
+  it("mantém as dez seções do desenho, na ordem", () => {
     expect(secoesDaAuditoria()).toEqual([
       /*
-        O Dashboard abre a lista: é a tela de vigilância — o que mudou desde a
-        última competência — antes de qualquer outra ferramenta.
+        O Dashboard abre a lista, e é a leitura executiva inteira: o que mudou
+        desde a última competência e o retrato do conjunto, que era a seção
+        Visão executiva ao lado — ver `nav-auditoria.ts`.
       */
       "Dashboard",
-      "Visão executiva",
       /*
         Compras vem antes de Auditoria porque é um portão antes de o dinheiro
         sair, e não uma descoberta sobre o que já saiu — ver o comentário da

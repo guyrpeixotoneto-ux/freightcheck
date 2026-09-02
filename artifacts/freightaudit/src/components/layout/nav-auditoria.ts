@@ -6,7 +6,6 @@ import {
   Calculator,
   CalendarDays,
   ChartColumn,
-  ChartNoAxesCombined,
   CircleDollarSign,
   ClipboardCheck,
   ClipboardList,
@@ -66,7 +65,7 @@ import { GRUPO_ADMINISTRACAO } from "./nav-administracao";
 import type { NavGroup } from "./nav";
 
 /**
- * A lateral do ambiente Auditoria — as onze seções, e a ordem em que se lê o
+ * A lateral do ambiente Auditoria — as dez seções, e a ordem em que se lê o
  * trabalho de um dia.
  *
  * A lista morava em `sidebar.tsx`, como constante, e saiu de lá pela mesma razão
@@ -92,8 +91,9 @@ import type { NavGroup } from "./nav";
  * devolve para a Empurrada quem clicou dentro do Rota.
  *
  * A ordem é a de uma auditoria completa, de cima para baixo: vê-se a vigilância
- * (**Dashboard**), o retrato (**Visão executiva**), libera-se o que precisa ser
- * comprado hoje (**Compras**), registra-se o que mudou (**Plano de Ação**),
+ * e o retrato do conjunto (**Dashboard**, que reúne os dois desde que a Visão
+ * executiva entrou nele), libera-se o que precisa ser comprado hoje
+ * (**Compras**), registra-se o que mudou (**Plano de Ação**),
  * procura-se o desvio (**Auditoria**), cobra-se o desvio achado
  * (**Processos**), confere-se o quadro de gente que o modelo remunera
  * (**QLP**), desce-se ao ativo que o sofreu (**Frota**), pergunta-se ao
@@ -109,17 +109,26 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
   return [
     {
       /*
-        O Dashboard abre a lista, na frente da Visão executiva: é a tela de
-        vigilância — o que a Ambev mudou de uma vigência para a outra, antes de
-        se aprofundar em qualquer outra ferramenta. Um item só, como Compras:
-        quem entra aqui vem checar mudança, não navegar uma seção inteira.
+        O Dashboard abre a lista, e agora é a seção inteira da leitura
+        executiva: o que a Ambev mudou de uma vigência para a outra **e** o
+        retrato do que existe hoje — o acervo, a unidade, o histórico dela e o
+        valor apurado.
 
-        A seção continua se chamando Dashboard; o módulo dentro dela chama-se
-        Impacto Líquido, que é o que a tela responde — quanto a mudança da
-        competência custou, líquido, na Visão Geral ou na unidade aberta.
+        Eram duas seções, Dashboard e Visão executiva, e viraram uma. A divisão
+        não era de assunto, era de história: os dois módulos de vigilância
+        nasceram depois das telas executivas e ganharam cartão próprio ao lado
+        delas. Quem chega, porém, lê tudo isto na mesma sentada — quanto a
+        vigência custou, como está a unidade, como chegou até aqui, de onde vem
+        o valor —, e dois cartões para uma leitura só escondiam metade dela
+        atrás de um segundo clique.
+
+        A ordem é a da altura, de cima para baixo: primeiro o que mudou agora
+        (Impacto Líquido e Impacto Apurado), depois o retrato — o acervo
+        inteiro, a unidade aberta, o histórico por vigência e por placa —, e por
+        fim as telas que descem ao valor (Acompanhamento, Composição e DRE).
       */
       titulo: "Dashboard",
-      descricao: "O que mudou desde a última competência, antes de tudo",
+      descricao: "O que mudou desde a última competência, e o retrato do conjunto",
       icon: Radar,
       cor: "text-nav-executiva",
       itens: [
@@ -131,21 +140,16 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
           onde a pergunta é "quanto disso já está apurado e onde agir".
 
           Os dois leem exatamente a mesma resposta do servidor, sob a mesma
-          chave de cache (`lib/leitura-da-vigencia.ts`). São dois módulos da
-          mesma seção justamente por isso: não são dois acervos, são duas
-          alturas de leitura do mesmo.
+          chave de cache (`lib/leitura-da-vigencia.ts`). São dois módulos
+          vizinhos justamente por isso: não são dois acervos, são duas alturas
+          de leitura do mesmo.
         */
         { href: IMPACTO_APURADO, label: "Impacto Apurado", icon: CircleDollarSign },
-      ],
-    },
-    {
-      titulo: "Visão executiva",
-      descricao: "O retrato do conjunto e o valor apurado",
-      icon: ChartNoAxesCombined,
-      cor: "text-nav-executiva",
-      itens: [
         /*
-          A Visão Gerencial abre a seção porque é a leitura mais alta que o
+          Daqui para baixo vem o que era a Visão executiva, na ordem em que
+          estava lá.
+
+          A Visão Gerencial abre o bloco porque é a leitura mais alta que o
           ambiente tem: todas as unidades de uma vez, em ordem do que falta
           auditar. O Resumo executivo vem logo abaixo e responde pela unidade
           aberta — é a mesma escada da lateral do Fechamento, onde a Visão
@@ -155,9 +159,9 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
           duas alturas: o conjunto e a unidade. Separá-las por três itens faria
           parecer que falam de coisas diferentes.
 
-          A ordem do menu agora é também a ordem da entrada: `/` encaminha para o
-          primeiro destes dois itens, e o segundo tem endereço próprio desde que
-          deixou a raiz. Ver `lib/ambiente.ts`.
+          A ordem das duas é também a ordem da entrada: `/` encaminha para a
+          primeira delas, e a segunda tem endereço próprio desde que deixou a
+          raiz. Ver `lib/ambiente.ts`.
         */
         { href: ENTRADA_DA_AUDITORIA, label: "Painel de Unidades", icon: LayoutDashboard },
         { href: RESUMO_EXECUTIVO, label: "Resumo executivo", icon: House },
@@ -186,7 +190,7 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
 
           A Composição ficou. Ela continua sendo o drill-down da análise — a
           análise diz como a frota se comporta, e a composição responde, para um
-          equipamento, por que ele recebe o que recebe —, mas mora na visão
+          equipamento, por que ele recebe o que recebe —, mas mora na leitura
           executiva, e não na auditoria nem na Frota, por ser a porta de entrada:
           quem abre procura um valor, e só depois procura a inconsistência dele.
         */
@@ -208,7 +212,7 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
     },
     {
       /*
-        Compras fica entre a Visão executiva e a Auditoria, e a posição é a do
+        Compras fica entre o Dashboard e a Auditoria, e a posição é a do
         gesto que ela serve: alguém está com um pedido de compra parado na mesa e
         precisa saber, agora, quanto a Ambev remunera aquele produto. Não é
         auditoria — auditar é descobrir o que mudou, e aqui nada mudou; é um
