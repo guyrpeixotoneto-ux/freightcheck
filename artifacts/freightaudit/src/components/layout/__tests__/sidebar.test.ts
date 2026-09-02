@@ -323,22 +323,50 @@ describe("a lateral", () => {
     expect(new Set([PANORAMA, DASHBOARD, IMPACTO_APURADO, RESUMO_EXECUTIVO, LINHA_DO_TEMPO]).size).toBe(5);
   });
 
-  it("mantém as onze seções do desenho, na ordem", () => {
+  /*
+    A seção dos chamados reúne as três telas da manhã, e a ordem delas é a do
+    caminho: o monitoramento, que diz o que mudou nos chamados desde a última
+    importação; a fila, onde se justifica cada mudança; e o painel, onde se
+    confere o que ainda falta justificar.
+
+    O caso guarda os dois lados da fusão — as três no mesmo cartão, na ordem, e
+    a seção "Justificativas" que não voltou como um segundo cartão ao lado
+    dela. Um item que escorregue de lugar aqui não quebra typecheck nem build:
+    aparece no dia em que alguém abre a lateral e não acha a fila onde ela
+    estava.
+  */
+  it("põe, em Chamados Ambev, o monitoramento à frente da fila e do painel", () => {
+    for (const ambiente of Object.keys(BASES_DE_AUDITORIA)) {
+      const chamados = navGroupsAuditoria(ambiente as AmbienteDeAuditoria).find(
+        (grupo) => grupo.titulo === "Chamados Ambev",
+      )!;
+
+      expect(chamados.itens.map((item) => item.href)).toEqual([
+        "/monitoramento-de-chamados",
+        "/justificativas",
+        "/painel-de-justificativas",
+      ]);
+      expect(chamados.itens.map((item) => item.label)).toEqual([
+        "Monitoramento de Chamados",
+        "Justificativas",
+        "Painel de Justificativas",
+      ]);
+    }
+
+    expect(secoesDaAuditoria()).not.toContain("Justificativas");
+  });
+
+  it("mantém as dez seções do desenho, na ordem", () => {
     expect(secoesDaAuditoria()).toEqual([
       /*
-        Justificativas abre a lista porque é a fila de mesa por onde o dia
-        começa: registrar, placa a placa, por que aquilo mudou. A fila vem antes
-        da leitura — ver `nav-auditoria.ts`.
+        Chamados Ambev abre a lista porque é por onde o dia começa: o que a fila
+        da Ambev fez desde ontem, e a justificativa, placa a placa, de cada
+        mudança. O trabalho vem antes da leitura — ver `nav-auditoria.ts`.
 
-        **A seção se chamava "Chamados", e o nome saiu daqui de propósito.** Ele
-        descrevia a alteração de vigência por placa, não o `ticket` que a Ambev
-        exporta — e com o Monitoramento na lateral as duas coisas passariam a
-        disputar a mesma palavra na mesma tela.
-      */
-      "Justificativas",
-      /*
-        E os chamados da Ambev logo abaixo, com o nome da fonte: população
-        própria, importada por unidade, comparada envio a envio.
+        **Eram duas seções, e viraram uma.** "Justificativas" abria a lateral e
+        os chamados vinham logo abaixo, num cartão de um item só; as três telas
+        são o mesmo trabalho da manhã, e a divisão obrigava a alternar entre
+        dois cartões vizinhos para percorrer um caminho só.
       */
       "Chamados Ambev",
       /*
