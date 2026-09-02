@@ -120,6 +120,7 @@ export function LinhaDoTempoConsolidada({
         <CartoesDeResumo
           dados={resumo}
           periodicidade={periodicidade}
+          comparacoes={linhas.length}
           avisoDeAtivos="soma simples entre unidades, não deduplicada por placa"
         />
       )}
