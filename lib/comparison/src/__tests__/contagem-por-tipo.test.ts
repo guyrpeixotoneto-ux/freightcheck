@@ -9,7 +9,7 @@ import { buildFixture, type AttributeSpec } from "../testing";
 /**
  * O que cada comparação tem, por tipo de ativo.
  *
- * É a leitura por trás do seletor de vigência do Plano de Ação, que passou a
+ * É a leitura por trás do seletor de vigência de Justificativas, que passou a
  * viver **dentro** da aba de Cavalo, Carreta ou Trecho. A série de uma
  * comparação é `(escopo, entity_type_set)`, então a mesma unidade na mesma data
  * produz uma comparação de equipamento e outra de trecho — duas linhas
@@ -25,7 +25,7 @@ let ctx: TestDb;
   O tipo da alteração é o do **atributo** — `attribute.entity_type`, que sai do
   prefixo do código da coluna —, e não o da vigência: é assim que a comparação
   o grava (ver `carregarClassificacoes`, em `classification.ts`), e é esse
-  mesmo campo que as abas do Plano de Ação já leem de cada linha. Por isso cada
+  mesmo campo que as abas de Justificativas já leem de cada linha. Por isso cada
   tipo aqui traz as colunas dele.
 */
 const atributosDe = (tipo: string): AttributeSpec[] => [

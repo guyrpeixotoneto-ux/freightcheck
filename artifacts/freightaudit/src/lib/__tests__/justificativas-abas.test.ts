@@ -17,7 +17,7 @@ import { EQUIPAMENTOS_DO_AMBIENTE } from "../frota";
 const DA_EMPURRADA = EQUIPAMENTOS_DO_AMBIENTE.auditoria;
 
 /**
- * O Plano de Ação agrupa por placa, e a placa sozinha não diz de que tipo de
+ * Chamados agrupa por placa, e a placa sozinha não diz de que tipo de
  * ativo se fala. Sem as abas, a fila chegava com cavalo, carreta e trecho
  * misturados numa lista só, e o único recorte era a etiqueta dentro de cada
  * card — que responde "de que é esta placa" e não "o que mudou nos trechos",

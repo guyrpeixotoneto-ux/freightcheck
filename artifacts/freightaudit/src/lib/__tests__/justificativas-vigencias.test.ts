@@ -7,7 +7,7 @@ import {
 } from "@/lib/justificativas";
 
 /**
- * O seletor de vigência do Plano de Ação escrevia o rótulo do arquivo
+ * O seletor de vigência de Chamados escrevia o rótulo do arquivo
  * importado — o mesmo texto em todas as unidades da mesma data —, de modo que
  * cinco unidades produziam cinco linhas idênticas por competência. Estes
  * testes fixam o que passou a distinguir uma linha da outra: a competência no

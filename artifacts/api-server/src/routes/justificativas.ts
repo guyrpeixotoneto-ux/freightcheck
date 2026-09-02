@@ -19,7 +19,7 @@ import { exigirOperacaoDoRecurso, operacaoDaConsulta } from "../lib/operacao";
 const DEFAULT_ACTOR = "sistema";
 
 /**
- * Plano de Ação — Justificativas.
+ * Chamados — Justificativas.
  *
  * A tela lê `/changes/latest` (mesma rota da aba Planilha de Alterações) para
  * saber o que mudou, agrupa por placa no cliente e usa esta rota só para o
@@ -94,7 +94,7 @@ function escopoDaConsulta(query: Record<string, unknown>): string | undefined {
 }
 
 /**
- * Painel de Justificativas — a cobertura do Plano de Ação, do acervo inteiro.
+ * Painel de Justificativas — a cobertura de Chamados, do acervo inteiro.
  *
  * A fila (`GET /justificativas`) responde por uma comparação de cada vez, que é
  * o que a tela de justificar precisa. O painel pergunta outra coisa — quanto do

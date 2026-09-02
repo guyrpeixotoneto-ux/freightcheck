@@ -8,7 +8,7 @@ import { useConsultaResiliente } from "@/lib/consulta-resiliente";
 import { EQUIPAMENTOS_DO_AMBIENTE, rotuloDoTipo, type Equipamento } from "@/lib/frota";
 
 /**
- * O que o Plano de Ação — Justificativas e a tela de detalhe por placa têm em
+ * O que Chamados — Justificativas e a tela de detalhe por placa têm em
  * comum: o tipo da justificativa, a lista de vigências para o seletor, e a
  * leitura das justificativas já gravadas de uma comparação. Extraído para cá
  * quando a segunda tela (`justificativas-placa.tsx`) passou a precisar do
@@ -56,7 +56,7 @@ export interface Comparacao {
  * `2026-08-01` → `01/08/26`, como a planilha do cliente escreve.
  *
  * Mora aqui, e não no seletor de janela onde nasceu, porque as duas telas do
- * Plano de Ação escrevem a mesma data: a lista (`pages/justificativas.tsx`,
+ * Chamados escrevem a mesma data: a lista (`pages/justificativas.tsx`,
  * pelo seletor) e a grade por placa (`pages/justificativas-placa.tsx`, nos
  * cabeçalhos das colunas). Duas cópias do mesmo formato concordam no dia em que
  * são escritas e discordam no seguinte — e a data da coluna precisa ser a mesma
@@ -338,7 +338,7 @@ export interface AbaDeTipo {
 }
 
 /**
- * As abas do Plano de Ação: "Todas", os tipos com tela 360° **da operação
+ * As abas de Chamados: "Todas", os tipos com tela 360° **da operação
  * auditada** e o que mais o acervo trouxer — **cada uma com a vigência dela**.
  *
  * A tela agrupava por placa e mostrava o tipo como etiqueta dentro do card —

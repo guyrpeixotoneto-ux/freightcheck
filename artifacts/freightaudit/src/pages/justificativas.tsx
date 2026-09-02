@@ -36,7 +36,7 @@ import { useAmbiente } from "@/lib/ambiente-aberto";
 import { cn } from "@/lib/utils";
 
 /**
- * Plano de Ação — Justificativas.
+ * Chamados — Justificativas.
  *
  * A pergunta é uma só: o que mudou de uma vigência para a outra, e por quê —
  * mas quem justifica é a alteração, não a placa. A tela agrupa por placa só
@@ -296,7 +296,7 @@ export default function Justificativas() {
       <header className="px-8 pt-7 pb-5 max-w-[1400px] flex items-start justify-between gap-6">
         <div className="min-w-0">
         <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-          Plano de Ação
+          Chamados
         </p>
         <h1 className="text-4xl font-bold tracking-tight mt-1">Justificativas</h1>
         <p className="text-sm text-muted-foreground mt-2 max-w-2xl">

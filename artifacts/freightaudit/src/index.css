@@ -61,7 +61,7 @@
   --color-topbar-accent: hsl(var(--topbar-accent));
 
   --color-nav-executiva: hsl(var(--nav-executiva));
-  --color-nav-plano-de-acao: hsl(var(--nav-plano-de-acao));
+  --color-nav-chamados: hsl(var(--nav-chamados));
   --color-nav-compras: hsl(var(--nav-compras));
   --color-nav-auditoria: hsl(var(--nav-auditoria));
   --color-nav-recuperacao: hsl(var(--nav-recuperacao));
@@ -260,7 +260,7 @@
    * viraria mentira sem que nada reprovasse.
    */
   --nav-executiva: 212 73% 29%;
-  --nav-plano-de-acao: 212 73% 29%;
+  --nav-chamados: 212 73% 29%;
   --nav-compras: 212 73% 29%;
   --nav-auditoria: 212 73% 29%;
   --nav-recuperacao: 212 73% 29%;
@@ -380,7 +380,7 @@
    * mantém legível nos dois temas sem uma regra por tema.
    */
   --nav-executiva: 212 80% 66%;
-  --nav-plano-de-acao: 212 80% 66%;
+  --nav-chamados: 212 80% 66%;
   --nav-compras: 212 80% 66%;
   --nav-auditoria: 212 80% 66%;
   --nav-recuperacao: 212 80% 66%;
