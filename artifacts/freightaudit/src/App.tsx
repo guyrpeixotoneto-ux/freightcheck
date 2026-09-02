@@ -14,6 +14,7 @@ import {
   destinoDaRaiz,
   GESTAO_A_VISTA,
   IMPACTO_APURADO,
+  PANORAMA,
   LINHA_DO_TEMPO,
   EVOLUCAO_POR_PLACA,
   RESUMO_EXECUTIVO,
@@ -29,6 +30,7 @@ import Login from '@/pages/login';
 
 import Inicio from '@/pages/inicio';
 import Dashboard from '@/pages/dashboard';
+import Panorama from '@/pages/panorama';
 import ImpactoApurado from '@/pages/impacto-apurado';
 import GestaoAVista from '@/pages/gestao-a-vista';
 import LinhaDoTempo from '@/pages/linha-do-tempo';
@@ -377,6 +379,13 @@ function RotasDaAuditoria() {
         para o primeiro, e o segundo é o destino do botão "Gestão à Vista" —
         um telão que carrega o mesmo recorte, e por isso não aparece no menu.
       */}
+      {/*
+        O Panorama Executivo abre a seção, e por isso a rota dele vem antes das
+        dos quatro módulos que ele consolida. Endereço próprio pela mesma razão
+        que o Impacto Apurado tem o dele: a lateral acende o item cujo endereço
+        está aberto, e uma aba dentro de outra tela acenderia o item errado.
+      */}
+      <Route path={PANORAMA} component={Panorama} />
       <Route path={DASHBOARD} component={Dashboard} />
       {/*
         O Impacto Apurado — o segundo módulo da seção Dashboard, e uma rota

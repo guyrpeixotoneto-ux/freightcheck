@@ -1,7 +1,35 @@
 # FreightCheck — Panorama Executivo, o quinto módulo da Visão executiva
 
-> **Status:** proposta. Nenhum código de produção escrito, nenhum schema tocado,
-> nenhuma migration, nenhum endpoint criado, nenhum número alterado.
+> **Status: implementado**, pelo **caminho B** do §3.1 e com o nome *Panorama
+> Executivo*. O que este documento propunha está de pé em `/panorama`; os quatro
+> módulos consolidados continuam nos endereços deles, e a raiz não mudou.
+> Nenhum schema tocado, nenhuma migration, nenhum endpoint criado, nenhum número
+> de apuração alterado.
+>
+> **Onde mora o que.** A aritmética dos sete andares em `lib/panorama.ts`
+> (testada em `lib/__tests__/panorama.test.ts`); os andares que não tinham
+> componente em `components/panorama/`; a tela em `pages/panorama.tsx` (montada
+> de ponta a ponta em `lib/__tests__/panorama.pagina.test.tsx`). Os andares 3, 4
+> e a faixa de confiança reusam, sem cópia, os componentes que o Impacto Apurado
+> já tinha.
+>
+> **Duas coisas saíram diferentes do que este documento propôs**, e as duas estão
+> anotadas no código onde acontecem:
+>
+> 1. **O controle de população do andar 4 virou um link para a Linha do Tempo**,
+>    e não uma pastilha dentro do cartão. Trocar o tipo troca a *população* de
+>    todo número: com "Carreta" ligado ali, o andar 4 falaria de carretas
+>    enquanto os outros seis continuariam falando da frota inteira, na mesma tela
+>    e sem nada acusando a divergência — a classe exata de defeito que o módulo
+>    existe para desfazer. A Linha do Tempo pode fazê-lo porque lá o tipo é aba
+>    **de página**, e a tela inteira troca junto.
+> 2. **A fase 1 (extrair blocos de `dashboard.tsx` e `inicio.tsx`) não foi
+>    feita.** O invariante que importa — *uma aritmética só* — está garantido sem
+>    ela: todo número do Panorama sai de função que já existia. O que sobra é
+>    duplicação de *apresentação* (uma grade de cinco tiles), que é barata e
+>    reversível; a extração cirúrgica de um arquivo de 2.756 linhas é onde mora o
+>    risco de regressão, e ela fica para o caminho C, quando deixará de ser
+>    extração e passará a ser remoção.
 >
 > **Pergunta que originou o documento:** *"Impacto Líquido, Impacto Apurado,
 > Resumo executivo e Linha do Tempo dizem a mesma coisa de formas diferentes.
