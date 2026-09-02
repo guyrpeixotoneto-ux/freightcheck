@@ -218,6 +218,31 @@ export const LINHA_DO_TEMPO = "/linha-do-tempo";
 export const EVOLUCAO_POR_PLACA = "/evolucao-por-placa";
 
 /**
+ * O Panorama Executivo — a leitura executiva inteira, numa tela só.
+ *
+ * É o primeiro item da seção *Visão executiva*, e o quinto módulo dela: os
+ * quatro que já existiam — Impacto Líquido, Impacto Apurado, Resumo executivo e
+ * Linha do Tempo — liam a mesma resposta do servidor, sob as mesmas chaves de
+ * cache, e publicavam três blocos idênticos nos quatro. Não eram quatro
+ * perguntas: eram quatro formatos, cada um herdado de um momento diferente da
+ * história do produto. Ver `docs/PROPOSTA-PANORAMA-EXECUTIVO.md`.
+ *
+ * **Os quatro continuam nos endereços deles, e isso é o desenho.** O Panorama
+ * abre a seção e eles descem na lateral, assumindo a função que já exerciam de
+ * fato — a exploração detalhada de um andar. Nenhum link colado em e-mail
+ * morreu, pela mesma regra que manteve a Auditoria Empurrada na raiz.
+ *
+ * **A raiz também não mudou.** `destinoDaRaiz`, no fim deste arquivo, continua
+ * mandando `/` com recorte para o Resumo executivo: é essa regra que mantém
+ * vivo todo endereço guardado, e apontá-la para cá só faria sentido se o Resumo
+ * executivo deixasse de existir.
+ *
+ * O recorte que ele lê é o mesmo dos vizinhos — unidade, canal e vigência na
+ * consulta —, e é o que faz trocar de módulo manter a vigência aberta.
+ */
+export const PANORAMA = "/panorama";
+
+/**
  * O Dashboard — a tela de vigilância de mudanças, Geral ou por unidade.
  *
  * É onde a pergunta "a Ambev mudou algo sem avisar?" tem resposta em um

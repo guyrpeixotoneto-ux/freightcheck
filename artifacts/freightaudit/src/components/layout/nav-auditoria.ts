@@ -7,6 +7,7 @@ import {
   CalendarDays,
   ChartColumn,
   CircleDollarSign,
+  Compass,
   ClipboardCheck,
   ClipboardList,
   CloudDownload,
@@ -53,6 +54,7 @@ import {
   IMPACTO_APURADO,
   EVOLUCAO_POR_PLACA,
   LINHA_DO_TEMPO,
+  PANORAMA,
   RESUMO_EXECUTIVO,
   type AmbienteDeAuditoria,
 } from "@/lib/ambiente";
@@ -202,57 +204,73 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
         o valor —, e dois cartões para uma leitura só escondiam metade dela
         atrás de um segundo clique.
 
-        A ordem é a da altura, de cima para baixo: primeiro o que mudou agora
-        (Impacto Líquido e Impacto Apurado), depois o retrato — o acervo
-        inteiro, a unidade aberta, o histórico por vigência e por placa —, e por
-        fim as telas que descem ao valor (Acompanhamento, Composição e DRE).
+        A ordem, desde o Panorama, é a da **altitude da leitura**: primeiro a
+        tela que responde tudo de uma vez, depois o acervo inteiro, depois os
+        quatro módulos que aprofundam um andar do Panorama cada um, e por fim as
+        telas que descem ao valor (Acompanhamento, Composição e DRE).
       */
       titulo: "Visão executiva",
       descricao: "O que mudou desde a última competência, e o retrato do conjunto",
       icon: Radar,
       cor: "text-nav-executiva",
       itens: [
-        { href: DASHBOARD, label: "Impacto Líquido", icon: Radar },
         /*
-          O Impacto Apurado vem **depois** do Impacto Líquido, e a ordem é a do
-          trabalho: o primeiro é a tela de exploração — o que mudou, onde, em
-          quantos veículos —, e o segundo é a leitura executiva do mesmo dado,
-          onde a pergunta é "quanto disso já está apurado e onde agir".
+          O **Panorama Executivo** abre a seção, e é o quinto módulo dela.
 
-          Os dois leem exatamente a mesma resposta do servidor, sob a mesma
-          chave de cache (`lib/leitura-da-vigencia.ts`). São dois módulos
-          vizinhos justamente por isso: não são dois acervos, são duas alturas
-          de leitura do mesmo.
+          Os quatro que vinham aqui — Impacto Líquido, Impacto Apurado, Resumo
+          executivo e Linha do Tempo — liam a mesma resposta do servidor, sob as
+          mesmas chaves de cache, e publicavam três blocos idênticos nos quatro.
+          Não eram quatro perguntas: eram quatro formatos, cada um herdado de um
+          momento diferente da história do produto, e nenhum desenhado contra os
+          outros três. `docs/PROPOSTA-PANORAMA-EXECUTIVO.md` mede essa
+          sobreposição nos arquivos e mostra onde ela deixou de ser desperdício e
+          virou risco — duas coberturas com nome parecido, populações diferentes,
+          o mesmo anel e a mesma régua de cor em dois módulos vizinhos.
+
+          O Panorama responde às sete perguntas numa tela só, na ordem em que uma
+          diretoria as faz. Ele vem primeiro porque é a leitura que serve a quem
+          abre a seção sem saber ainda o que procura — e os quatro continuam logo
+          abaixo, para quem já sabe.
         */
-        { href: IMPACTO_APURADO, label: "Impacto Apurado", icon: CircleDollarSign },
+        { href: PANORAMA, label: "Panorama Executivo", icon: Compass },
         /*
-          Daqui para baixo vem o que era a Visão executiva, na ordem em que
-          estava lá.
+          O Painel de Unidades vem em segundo porque é a única leitura **mais
+          alta** que o Panorama: ele responde pelo ano inteiro, unidade a unidade,
+          e por onde falta auditar; o Panorama responde por uma vigência. São
+          eixos diferentes, e por isso os dois ficam colados no topo — é a mesma
+          escada da lateral do Fechamento, onde a Visão Gerencial também abre.
 
-          A Visão Gerencial abre o bloco porque é a leitura mais alta que o
-          ambiente tem: todas as unidades de uma vez, em ordem do que falta
-          auditar. O Resumo executivo vem logo abaixo e responde pela unidade
-          aberta — é a mesma escada da lateral do Fechamento, onde a Visão
-          Gerencial também é o primeiro item.
-
-          As duas ficam coladas, e nesta ordem, porque são a mesma pergunta em
-          duas alturas: o conjunto e a unidade. Separá-las por três itens faria
-          parecer que falam de coisas diferentes.
-
-          A ordem das duas é também a ordem da entrada: `/` encaminha para a
-          primeira delas, e a segunda tem endereço próprio desde que deixou a
-          raiz. Ver `lib/ambiente.ts`.
+          `/` continua encaminhando para ele quando chega sem recorte, e para o
+          Resumo executivo quando chega com recorte. Ver `destinoDaRaiz`, em
+          `lib/ambiente.ts`: é essa segunda regra que mantém vivo todo endereço
+          guardado, e mudá-la agora quebraria links que ninguém pediu para
+          quebrar.
         */
         { href: ENTRADA_DA_AUDITORIA, label: "Painel de Unidades", icon: LayoutDashboard },
-        { href: RESUMO_EXECUTIVO, label: "Resumo executivo", icon: House },
         /*
-          A Linha do tempo vem logo abaixo do Resumo executivo: era um cartão
-          dentro dele ("Impacto líquido ao longo do tempo") e virou tela
-          própria, porque a pergunta que responde — como o impacto se moveu
-          vigência a vigência, e o que mudou em cada uma — é uma leitura de
-          todo o histórico, e não do instante atual que o Resumo executivo
-          mostra.
+          Daqui para baixo vêm os quatro módulos que o Panorama consolida, **e
+          eles ficam**. É a decisão do caminho B da proposta: o Panorama entra
+          como porta, e os quatro assumem a função que já exerciam de fato — a
+          exploração detalhada de um andar dele.
+
+          Ficam pelos endereços, antes de tudo. `/dashboard`, `/impacto-apurado`,
+          `/resumo-executivo` e `/linha-do-tempo` são o produto em uso: favoritos,
+          links colados em e-mail, o histórico de quem trabalha nisto todo dia.
+          Aposentá-los é o destino declarado, e não o primeiro passo — sem medida
+          de uso não se sabe qual dos quatro alguém abre toda manhã.
+
+          A ordem entre eles é a de antes, e cada um aprofunda um andar:
+
+          - **Impacto Líquido** — a exploração do que mudou, andar 2 e 5;
+          - **Impacto Apurado** — a decomposição do valor, andar 1 e 3;
+          - **Resumo executivo** — o retrato da unidade, andar 2 e 7;
+          - **Linha do Tempo** — o histórico, andar 4, e o único que sabe trocar
+            a população inteira por tipo de ativo (cavalo, carreta, trecho), que
+            é a razão de o Panorama linkar para cá em vez de embutir a pastilha.
         */
+        { href: DASHBOARD, label: "Impacto Líquido", icon: Radar },
+        { href: IMPACTO_APURADO, label: "Impacto Apurado", icon: CircleDollarSign },
+        { href: RESUMO_EXECUTIVO, label: "Resumo executivo", icon: House },
         { href: LINHA_DO_TEMPO, label: "Linha do Tempo", icon: History },
         /*
           A Evolução por Placa vem colada na Linha do Tempo porque é a mesma
