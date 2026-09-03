@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useLocation, useSearch } from "wouter";
 import {
+  CalendarSearch,
   CheckCircle2,
   ChevronRight,
   Clock,
@@ -43,10 +44,13 @@ import {
   ROTULO_DA_ABA,
   ROTULO_DO_TIPO,
   contagemDaAba,
+  diaLegivel,
   diaPorExtenso,
+  envioForaDaJanela,
   fraseDoDia,
   hojeNaOperacao,
   horaLegivel,
+  janelaDoEnvioFora,
   progressoDoDia,
   SEM_SERIE,
   useMovimentacoes,
@@ -55,6 +59,7 @@ import {
   useRevisao,
   useSeries,
   type Aba,
+  type EnvioForaDaJanela,
   type FiltrosDaTela,
   type Movimentacao,
 } from "@/lib/monitoramento-de-chamados";
@@ -250,6 +255,20 @@ export default function MonitoramentoDeChamados() {
   */
   const decidindo = !recorte.pronto;
 
+  /*
+    A janela da régua é de nove dias e termina em hoje. Quando ela sai inteira
+    cinza e o recorte **tem** envio fora dela, a tela aponta para o dia em que
+    ele está — ver `envioForaDaJanela`. Sem isso, nove frases verdadeiras
+    ("nenhuma importação neste dia") somavam uma falsa, que é a de que a unidade
+    não tem chamado nenhum.
+  */
+  const foraDaJanela = envioForaDaJanela({
+    dias: regua.dados?.dias ?? [],
+    series: seriesDisponiveis,
+    serie,
+    hoje: regua.dados?.hoje ?? hoje,
+  });
+
   const indisponivel =
     resumoConsulta.indisponivel || lista.indisponivel || regua.indisponivel;
 
@@ -367,6 +386,15 @@ export default function MonitoramentoDeChamados() {
           onUnidade={() => {
             setPagina(1);
             trocar(mudancaDoSeletor(DA_UNIDADE));
+          }}
+        />
+
+        <AvisoDeEnvioForaDaJanela
+          envio={foraDaJanela}
+          recorte={recorte}
+          onVer={(d) => {
+            setPagina(1);
+            trocar({ dia: d, regua: d });
           }}
         />
 
@@ -747,6 +775,76 @@ function ondeEstaoOsEnvios(series: { serie: string | null }[]): string {
     `Os arquivos importados nomeiam ${mostradas}` +
     (resto > 0 ? ` e mais ${resto}` : "") +
     ". Se for a mesma unidade com outro nome no arquivo, escolha-a no seletor acima."
+  );
+}
+
+/**
+ * O envio que está fora dos nove dias — a tira que aponta para ele.
+ *
+ * A régua é de nove dias e termina em hoje, que é a janela certa para quem abre
+ * a tela todo dia e a errada para quem importou uma unidade uma vez, há três
+ * semanas. Sem esta tira, os nove cinzas somam "esta unidade não tem chamados"
+ * — e cada um deles, sozinho, estava dizendo a verdade.
+ *
+ * A tira **não desloca a régua sozinha**. Mover o recorte de quem está olhando,
+ * sem que a pessoa tenha pedido, é a mesma mentira de conveniência que
+ * `serie-da-unidade.ts` recusa quando o nome não bate: o que a tela deve é
+ * dizer onde o dado está e deixar o clique com quem opera — inclusive porque
+ * chegar aqui pela unidade errada é um dos caminhos possíveis, e nele o dia
+ * apontado não é o que a pessoa quer ver.
+ *
+ * Sem `envio`, nada é renderizado: a tira existe só quando há um dia concreto
+ * para oferecer, nunca como um lamento sobre o vazio.
+ */
+function AvisoDeEnvioForaDaJanela({
+  envio,
+  recorte,
+  onVer,
+}: {
+  envio: EnvioForaDaJanela | null;
+  recorte: RecorteDeChamados;
+  onVer: (dia: string) => void;
+}) {
+  if (envio === null) return null;
+
+  /*
+    O nome do recorte entra na frase só quando há um: em "todas as unidades" a
+    frase corre melhor sem ele, e escrever "o último envio de todas as unidades"
+    diria que as unidades importaram juntas.
+  */
+  const nome =
+    recorte.motivo === "TODAS"
+      ? null
+      : (recorte.serie ?? recorte.unidade ?? "esta unidade");
+
+  return (
+    <div className="rounded-xl border bg-card px-5 py-4 flex flex-wrap items-center justify-between gap-4">
+      <div className="flex items-start gap-3 min-w-0">
+        <div className="h-9 w-9 rounded-lg bg-blue-50 text-blue-600 grid place-content-center shrink-0">
+          <CalendarSearch className="h-4 w-4" />
+        </div>
+        <div className="min-w-0">
+          <div className="font-bold">
+            Nenhuma importação nos dias que a régua mostra.
+          </div>
+          <div className="text-sm text-muted-foreground">
+            {nome === null ? (
+              <>O último envio foi em </>
+            ) : (
+              <>
+                O último envio de <span className="font-semibold">{nome}</span>{" "}
+                foi em{" "}
+              </>
+            )}
+            <span className="font-semibold">{diaLegivel(envio.dia)}</span>
+            {janelaDoEnvioFora(envio)}
+          </div>
+        </div>
+      </div>
+      <Button variant="outline" onClick={() => onVer(envio.dia)}>
+        Ver {diaLegivel(envio.dia)}
+      </Button>
+    </div>
   );
 }
 

@@ -3,14 +3,18 @@ import {
   contagemDaAba,
   diaLegivel,
   diaPorExtenso,
+  envioForaDaJanela,
   fraseDoDia,
+  janelaDoEnvioFora,
   oscilouEVoltou,
   posicaoDaRegua,
   progressoDoDia,
   rotuloDaDiferenca,
   valorLegivel,
+  type DiaDaRegua,
   type Movimentacao,
   type ResumoDoDia,
+  type Serie,
 } from "@/lib/monitoramento-de-chamados";
 
 /**
@@ -185,5 +189,151 @@ describe("oscilouEVoltou — o chamado que foi e voltou continua na fila", () =>
         diferencas: [{ tipo: "PRAZO", campo: "Previsão Análise", antes: "a", depois: "b" }],
       }),
     ).toBe(false);
+  });
+});
+
+describe("envioForaDaJanela — nove cinzas não são um acervo vazio", () => {
+  /*
+    O caso que trouxe a função, com as datas dele: 1.218 chamados de CAMAÇARI
+    lidos em 16/08, a tela aberta em 03/09, e a régua de nove dias parando em
+    26/08. Nenhum dos dois lados errado, e a tela dizendo o contrário do que há.
+  */
+  const JANELA = [
+    "2026-08-26", "2026-08-27", "2026-08-28", "2026-08-29", "2026-08-30",
+    "2026-08-31", "2026-09-01", "2026-09-02", "2026-09-03",
+  ];
+  const VAZIA: DiaDaRegua[] = JANELA.map((dia) => ({
+    dia,
+    estado: "SEM_IMPORTACAO",
+    envios: 0,
+    enviosComFalha: 0,
+    movimentacoes: 0,
+    revisadas: 0,
+    pendentes: 0,
+    ultimaImportacao: null,
+  }));
+
+  const CAMACARI: Serie = {
+    serie: "CAMAÇARI",
+    origem: "ARQUIVO",
+    envios: 1,
+    ultimaImportacao: "2026-08-16T10:25:43.000Z", // 07:25 em São Paulo
+  };
+  /*
+    Recife também está fora da janela, e tem de estar: a régua desta suíte está
+    toda cinza, e uma série que tivesse importado em 02/09 contradiria isso — o
+    dia teria envio. Um fixture que se contradiz prende o comportamento errado.
+  */
+  const RECIFE: Serie = {
+    serie: "Recife",
+    origem: "ARQUIVO",
+    envios: 4,
+    ultimaImportacao: "2026-08-20T11:00:00.000Z",
+  };
+
+  const chamar = (extra: Partial<Parameters<typeof envioForaDaJanela>[0]> = {}) =>
+    envioForaDaJanela({
+      dias: VAZIA,
+      series: [CAMACARI],
+      serie: "CAMAÇARI",
+      hoje: "2026-09-03",
+      ...extra,
+    });
+
+  it("aponta o dia do envio e a distância até hoje", () => {
+    expect(chamar()).toEqual({
+      dia: "2026-08-16",
+      diasAtras: 18,
+      de: "2026-08-26",
+      ate: "2026-09-03",
+    });
+  });
+
+  it("o dia é o da operação, não o do UTC de quem olha", () => {
+    /* 03:00Z de 17/08 são 00:00 de 17/08 em São Paulo — e 21:00 de 16/08 é 16. */
+    expect(
+      chamar({
+        series: [{ ...CAMACARI, ultimaImportacao: "2026-08-17T00:30:00.000Z" }],
+      })?.dia,
+    ).toBe("2026-08-16");
+  });
+
+  it("com envio na janela, a régua já responde e a tira cala", () => {
+    const comEnvio = VAZIA.map((d, i) =>
+      i === 4 ? { ...d, envios: 1, estado: "PRIMEIRA_CARGA" as const } : d,
+    );
+    expect(chamar({ dias: comEnvio })).toBeNull();
+  });
+
+  it("uma importação que falhou também é um envio: a régua já a mostra", () => {
+    const comFalha = VAZIA.map((d, i) => (i === 4 ? { ...d, enviosComFalha: 1 } : d));
+    expect(chamar({ dias: comFalha })).toBeNull();
+  });
+
+  it("sem régua ainda, não há janela sobre a qual afirmar nada", () => {
+    expect(chamar({ dias: [] })).toBeNull();
+  });
+
+  it("recorte que nunca importou nada cala — quem responde é o AvisoDoRecorte", () => {
+    expect(chamar({ serie: "PERNAMBUCO" })).toBeNull();
+    expect(chamar({ series: [] })).toBeNull();
+  });
+
+  it("aponta o envio do recorte, nunca o de outra unidade", () => {
+    /* Recife importou depois; com CAMAÇARI aberta, é 16/08 que se oferece. */
+    expect(chamar({ series: [CAMACARI, RECIFE] })?.dia).toBe("2026-08-16");
+  });
+
+  it("em todas as unidades, é o envio mais recente do acervo", () => {
+    expect(chamar({ series: [CAMACARI, RECIFE], serie: undefined })?.dia).toBe(
+      "2026-08-20",
+    );
+  });
+
+  it("a série sem unidade no arquivo é uma série, e não todas", () => {
+    const semUnidade: Serie = { ...CAMACARI, serie: null };
+    expect(chamar({ series: [semUnidade], serie: null })?.dia).toBe("2026-08-16");
+    expect(chamar({ series: [CAMACARI], serie: null })).toBeNull();
+  });
+
+  it("envio dentro da janela nunca é anunciado como fora dela", () => {
+    expect(
+      chamar({
+        series: [{ ...CAMACARI, ultimaImportacao: "2026-08-28T12:00:00.000Z" }],
+      }),
+    ).toBeNull();
+  });
+
+  it("com a régua deslocada para trás, o envio à frente também é apontado", () => {
+    const julho: DiaDaRegua[] = VAZIA.map((d, i) => ({
+      ...d,
+      dia: `2026-07-0${i + 1}`,
+    }));
+    expect(chamar({ dias: julho })).toEqual({
+      dia: "2026-08-16",
+      diasAtras: 18,
+      de: "2026-07-01",
+      ate: "2026-07-09",
+    });
+  });
+});
+
+describe("janelaDoEnvioFora — o fim da frase da tira", () => {
+  const base = { dia: "2026-08-16", de: "2026-08-26", ate: "2026-09-03" };
+
+  it("diz a distância e a janela, com o ponto colado no número", () => {
+    expect(janelaDoEnvioFora({ ...base, diasAtras: 18 })).toBe(
+      " — 18 dias atrás. A régua está em 26/08/2026–03/09/2026.",
+    );
+  });
+
+  it("um dia sozinho fala no singular", () => {
+    expect(janelaDoEnvioFora({ ...base, diasAtras: 1 })).toContain(" — 1 dia atrás.");
+  });
+
+  it("distância nenhuma não é '0 dias atrás' — é nada", () => {
+    expect(janelaDoEnvioFora({ ...base, diasAtras: 0 })).toBe(
+      ". A régua está em 26/08/2026–03/09/2026.",
+    );
   });
 });
