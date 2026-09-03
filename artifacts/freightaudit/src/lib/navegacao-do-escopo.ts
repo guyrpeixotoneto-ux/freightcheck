@@ -106,6 +106,20 @@ export const TELAS_QUE_HONRAM_ESCOPO = new Set<string>([
   */
   "/justificativas",
   "/painel-de-justificativas",
+  /*
+    A Conciliação de Chamados. Ela lê o `scopeHash` aberto para decidir **quais
+    comparações** o seletor oferece e qual delas concilia por padrão — sem isso,
+    abrir a tela com uma unidade na lateral confrontaria a vigência de outra
+    contra o envio desta, e o resultado seria uma tela cheia de pendência que
+    não é pendência. É a promessa que esta lista cobra, e ela a cumpre nas duas
+    consultas (`lib/conciliacao-de-chamados.ts`).
+
+    Fica **fora** de `TELAS_QUE_HONRAM_VISAO_GERAL`, e é deliberado: sem
+    unidade o servidor escolhe *uma* comparação, a mais recente — que não é a
+    soma de todas as unidades que `visaoGeral=1` promete. Oferecer a opção ali
+    seria a promessa vazia que esta lista existe para recusar.
+  */
+  "/conciliacao-de-chamados",
 ]);
 
 /**

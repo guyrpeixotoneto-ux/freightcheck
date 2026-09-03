@@ -95,8 +95,9 @@ import type { NavGroup } from "./nav";
  *
  * A ordem é a de uma auditoria completa, de cima para baixo: abre-se o dia pelo
  * que a fila da Ambev fez desde ontem e pela justificativa de cada mudança
- * (**Chamados Ambev**, o cartão que reúne o monitoramento, a fila de
- * justificativas e o painel de cobertura dela), vê-se a vigilância e o retrato
+ * (**Chamados Ambev**, o cartão que reúne o monitoramento, a conciliação com a
+ * planilha, a fila de justificativas e o painel de cobertura dela), vê-se a
+ * vigilância e o retrato
  * do conjunto (**Visão executiva**, que reúne os dois desde que as duas seções
  * viraram uma), libera-se o que precisa ser comprado
  * hoje (**Compras**), procura-se o desvio (**Auditoria**), cobra-se o desvio achado
@@ -125,17 +126,18 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
         por unidade; ali é `change` e `justificativa`, a alteração de vigência
         por placa.
 
-        O que mudou é que a diferença não valia um segundo cartão. As três
-        telas são o mesmo trabalho da manhã — abrir o que a fila da Ambev fez
-        desde ontem e responder por isso —, e quem trabalha nelas alternava
-        entre dois cartões vizinhos para percorrer um único caminho. Um cartão
-        de item único no topo da lateral, colado a outro do mesmo assunto, é
-        divisão que o menu cobra e ninguém usa.
+        O que mudou é que a diferença não valia um segundo cartão. As telas
+        são o mesmo trabalho da manhã — abrir o que a fila da Ambev fez desde
+        ontem e responder por isso —, e quem trabalha nelas alternava entre dois
+        cartões vizinhos para percorrer um único caminho. Um cartão de item
+        único no topo da lateral, colado a outro do mesmo assunto, é divisão que
+        o menu cobra e ninguém usa.
 
         **A ordem dentro dela é a do caminho**: o monitoramento primeiro, que é
-        o que mudou nos chamados desde a última importação; depois a fila, onde
-        se justifica o que mudou; e o painel por último, onde se confere o que
-        ainda falta justificar.
+        o que mudou nos chamados desde a última importação; a conciliação em
+        seguida, onde se confere se o que mudou nos chamados é o que mudou na
+        planilha; depois a fila, onde se justifica o que mudou; e o painel por
+        último, onde se confere o que ainda falta justificar.
 
         **Continua sem o atalho de importar chamados, e o motivo é a chave de
         permissão.** A tela de importação existe (`/importacoes?secao=chamados`),
@@ -147,7 +149,8 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
         fura o controle de acesso não é conveniência.
       */
       titulo: "Chamados Ambev",
-      descricao: "O que mudou nos chamados, e a justificativa de cada mudança",
+      descricao:
+        "O que mudou nos chamados, se bate com a planilha, e a justificativa de cada mudança",
       icon: Headset,
       cor: "text-nav-chamados",
       itens: [
@@ -155,6 +158,27 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
           href: "/monitoramento-de-chamados",
           label: "Monitoramento de Chamados",
           icon: Headset,
+        },
+        /*
+          A Conciliação vem **colada** no Monitoramento porque é a pergunta
+          seguinte à dele, e sobre o mesmo material: o Monitoramento diz o que
+          mudou nos chamados desde o último envio; a Conciliação pergunta se o
+          que mudou nos chamados é o que mudou na planilha de vigência — para
+          cada alteração que a planilha trouxe, existe o chamado que a pediu?
+
+          Ela é a única tela do produto que confronta as duas superfícies. É de
+          propósito que fique aqui e não na Auditoria: quem abre a seção de
+          manhã já está com os dois lados na cabeça, e a resposta que ela dá é
+          sobre a fila da Ambev — não sobre a vigência.
+
+          **Confrontar não é somar.** O impacto do chamado continua nunca sendo
+          adicionado ao da planilha; a tela põe os dois lado a lado e diz se
+          batem, que é o oposto de fundi-los.
+        */
+        {
+          href: "/conciliacao-de-chamados",
+          label: "Conciliação de Chamados",
+          icon: Scale,
         },
         { href: "/justificativas", label: "Justificativas", icon: FileCheck2 },
         /*

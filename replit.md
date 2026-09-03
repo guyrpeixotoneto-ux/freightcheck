@@ -282,6 +282,51 @@ toda leitura — nos moldes do que `conversas.ts` já faz por `owner_id`.
     (Unidade, Segmento, Operador, Aprovador, SLA, Categoria, Previsão Análise,
     Data Alteração). Elas já vinham no arquivo desde sempre; o backfill sai do
     próprio `payload`, **sem reimportar nada**.
+- **Chamados Ambev → Conciliação de Chamados** (`/conciliacao-de-chamados`) é a
+  terceira leitura da família, e a única do produto que confronta as duas
+  superfícies: *para cada alteração que a planilha importada trouxe, existe o
+  chamado que a pediu? E para cada chamado que pediu alteração, ela apareceu na
+  planilha?*
+  - **Confrontar não é somar.** A regra que separa as duas superfícies desde
+    `schema/tickets.ts` continua inteira: o impacto do chamado **nunca** entra
+    no total da planilha. A tela põe os dois lado a lado e diz se batem, que é o
+    oposto de fundi-los — nenhum número dela entra em apuração nenhuma.
+  - **O grão é o par `(placa, parâmetro)`**, e a chave do parâmetro é
+    `attribute_code` — nunca `parameter_label`, que é o cabeçalho do arquivo de
+    chamados e o `change` não conhece. Conciliar por placa só diria "esta placa
+    mudou e teve chamado" sem dizer se mudou *no que* o chamado pediu.
+  - **Quatro situações, mutuamente exclusivas e exaustivas sobre a união dos
+    dois lados**: `CONCILIADA` (os dois existem e não se contradizem),
+    `DIVERGENTE` (existem e o valor final não bate), `SEM_CHAMADO` (a planilha
+    mudou e ninguém pediu) e `SEM_ALTERACAO` (o chamado pediu e a planilha não
+    mudou). Partir só da planilha esconderia a metade que mais interessa — o
+    chamado que não virou alteração.
+  - **A régua do veredito é dita na linha** (`base`): `VALOR` quando os dois
+    lados trouxeram número (tolerância de um centavo — arredondamento não é
+    divergência), `TEXTO` quando os dois trouxeram texto, e `EXISTENCIA` quando
+    não há valor final para comparar. A terceira é o caso comum do export real:
+    96% das alterações de chamado não são `SET`, e chamá-las de conciliadas por
+    valor afirmaria uma conferência que não houve.
+  - **Uma comparação contra um envio, e os dois obrigatórios.** `ticket` é
+    append-only e cada `ticket_import` reinsere a fila inteira; contar
+    `ticket_change` sem recortar por envio multiplicaria a fila pelo número de
+    importações. O servidor escolhe o padrão (a comparação mais recente da
+    unidade aberta, o último envio lido) e **devolve qual escolheu** — os dois
+    seletores da tela mostram isso.
+  - **A unidade não é conferida, é medida.** O arquivo nomeia a unidade em
+    texto (`ticket_import.serie`) e a vigência em identidade canônica
+    (`snapshot.scope_hash`); as duas não se traduzem, e inventar a tradução é o
+    defeito que a `0049` documenta. O que a tela afirma é a interseção
+    (`placasEmComum`): zero placas em comum com os dois lados cheios vira o
+    aviso de que o envio e a vigência provavelmente são de unidades diferentes.
+  - **O que não tem chave é contado e dito**, nunca suprimido: alteração sem
+    placa e parâmetro que o dicionário não reconheceu ficam fora das quatro
+    situações, e `foraDaConciliacao` os publica no rodapé dos cartões.
+  - Motor em `lib/comparison/src/conciliacao-de-chamados.ts` (só lê — não
+    escreve tabela nenhuma e não cria schema), rotas em
+    `routes/conciliacao-de-chamados.ts`, tela em
+    `pages/conciliacao-de-chamados.tsx`. **Sem migration**: o cruzamento sai de
+    `change` e `ticket_change`, que já existiam.
 - **Alterações → Impacto** é a terceira aba e a única que **não parte da
   alteração**: uma linha por ativo, uma coluna por vigência, e a alteração
   aparecendo como a diferença entre duas colunas. `lib/comparison/src/impacto.ts`
