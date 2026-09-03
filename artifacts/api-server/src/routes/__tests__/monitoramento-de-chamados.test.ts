@@ -66,6 +66,12 @@ async function enviar(
       byteSize: 1,
       status: "READ",
       receivedAt: new Date(recebidoEm),
+      /*
+        O leitor de verdade grava esta contagem (`lib/ingest/src/chamados.ts`),
+        e é dela que sai o "1.218 chamados" no rótulo da visão. Um envio de
+        teste sem ela mediria um caminho que produção não tem.
+      */
+      ticketCount: chamados.length,
     })
     .returning();
 
@@ -102,6 +108,16 @@ async function enviar(
 
 const DIA = "2026-09-02";
 const ONTEM = "2026-09-01";
+/**
+ * O dia em que o arquivo chega e **nada muda** — o caso que a relação existe
+ * para responder.
+ *
+ * Fica num dia próprio, e não num segundo envio de `DIA`, porque um envio a
+ * mais lá mudaria as contagens que as suítes acima fixam. Aqui, Recife repete
+ * o envio anterior inteiro (zero movimentação, um chamado na fila) e Camaçari
+ * recebe dois envios no mesmo dia — que é o que prova a regra do último.
+ */
+const DEPOIS = "2026-09-03";
 const as = (dia: string, hora: number) =>
   `${dia}T${String(hora + 3).padStart(2, "0")}:00:00.000Z`;
 
@@ -135,7 +151,31 @@ beforeAll(async () => {
       as(DIA, 8),
       `Chamados_${unidade}.xlsx`,
     );
+    /*
+      O envio de DEPOIS é idêntico ao de DIA: a comparação não acha diferença
+      nenhuma, e o dia fica em SEM_MOVIMENTACAO com a fila cheia. É o estado que
+      a tela lia ao contrário antes da relação existir.
+    */
+    await enviar(
+      [{ externalId: `${unidade}-1`, unidade, prazo: "2026-09-20" }],
+      as(DEPOIS, 8),
+      `Chamados_${unidade}.xlsx`,
+    );
   }
+
+  /*
+    O segundo envio de Camaçari no mesmo dia, com um chamado a mais. A fila de
+    DEPOIS para essa série passa a ser **este** — dois chamados, e não os três
+    que a soma dos dois envios daria.
+  */
+  await enviar(
+    [
+      { externalId: "Camaçari-1", unidade: "Camaçari", prazo: "2026-09-20" },
+      { externalId: "Camaçari-2", unidade: "Camaçari", prazo: "2026-09-25" },
+    ],
+    as(DEPOIS, 17),
+    "Chamados_Camaçari.xlsx",
+  );
 
   const { default: router } = await import("../monitoramento-de-chamados");
   const app = express();
@@ -315,6 +355,118 @@ describe("as séries disponíveis", () => {
     const { body } = await get(`${BASE}/series`);
     expect(body.series.map((s: any) => s.serie).sort()).toEqual(["Camaçari", "Recife"]);
     expect(body.semSerie).toBe("@sem-serie");
+  });
+});
+
+describe("a relação de chamados do envio", () => {
+  /*
+    A razão desta rota existir, num teste: o dia em que a comparação não achou
+    nada. Antes dela, "nenhuma movimentação identificada" era tudo o que a tela
+    tinha para mostrar sobre um arquivo que havia trazido a fila inteira — e
+    quem operava lia isso como "o import não trouxe nada".
+  */
+  it("mostra a fila mesmo no dia em que nada se mexeu", async () => {
+    const resumo = await get(`${BASE}/dia/${DEPOIS}?serie=Recife`);
+    expect(resumo.body.estado).toBe("SEM_MOVIMENTACAO");
+    expect(resumo.body.movimentacoes).toBe(0);
+    // O número que rotula a visão sai do resumo, sem carregar a relação.
+    expect(resumo.body.chamadosNoEnvio).toBe(1);
+
+    const { status, body } = await get(`${BASE}/dia/${DEPOIS}/chamados?serie=Recife`);
+    expect(status).toBe(200);
+    expect(body.total).toBe(1);
+    expect(body.rows.map((c: any) => c.externalId)).toEqual(["Recife-1"]);
+    expect(body.rows[0].movimentou).toBe(false);
+    expect(body.movimentaram).toBe(0);
+    // Sem data de fechamento no arquivo, o chamado segue em aberto.
+    expect(body.emAberto).toBe(1);
+  });
+
+  it("a procedência diz de que arquivo a relação saiu", async () => {
+    const { body } = await get(`${BASE}/dia/${DEPOIS}/chamados?serie=Recife`);
+    expect(body.envios).toHaveLength(1);
+    expect(body.envios[0].filename).toBe("Chamados_Recife.xlsx");
+    expect(body.envios[0].chamados).toBe(1);
+  });
+
+  it("o último envio de cada série responde pelo dia — e não a soma deles", async () => {
+    // Camaçari mandou dois arquivos em DEPOIS: um com um chamado, outro com
+    // dois. A fila é a do segundo. Somar os dois daria três, que é um número
+    // que não existe em arquivo nenhum.
+    const { body } = await get(`${BASE}/dia/${DEPOIS}/chamados?serie=Camaçari`);
+    expect(body.envios).toHaveLength(1);
+    expect(body.total).toBe(2);
+    expect(body.rows.map((c: any) => c.externalId).sort()).toEqual([
+      "Camaçari-1",
+      "Camaçari-2",
+    ]);
+  });
+
+  it("cada linha diz se aquele chamado está entre as movimentações do dia", async () => {
+    // A ponte entre as duas leituras: `Camaçari-2` não existia no envio das
+    // 08h, então é NOVO; `Camaçari-1` veio igual nos dois e não se mexeu.
+    const { body } = await get(`${BASE}/dia/${DEPOIS}/chamados?serie=Camaçari`);
+    const porId = Object.fromEntries(
+      body.rows.map((c: any) => [c.externalId, c.movimentou]),
+    );
+    expect(porId).toEqual({ "Camaçari-1": false, "Camaçari-2": true });
+    expect(body.movimentaram).toBe(1);
+
+    const movimentacoes = await get(
+      `${BASE}/dia/${DEPOIS}/movimentacoes?serie=Camaçari`,
+    );
+    expect(movimentacoes.body.rows.map((m: any) => m.externalId)).toEqual([
+      "Camaçari-2",
+    ]);
+  });
+
+  it("uma série que não existe devolve vazio — nunca o produto inteiro", async () => {
+    const { body } = await get(`${BASE}/dia/${DEPOIS}/chamados?serie=Belém`);
+    expect(body.total).toBe(0);
+    expect(body.rows).toEqual([]);
+    expect(body.envios).toEqual([]);
+  });
+
+  it("sem série, responde por todas as unidades do dia", async () => {
+    const { body } = await get(`${BASE}/dia/${DEPOIS}/chamados`);
+    expect(body.envios).toHaveLength(2);
+    expect(body.total).toBe(3);
+  });
+
+  it("o filtro recorta a lista sem mexer no tamanho do envio", async () => {
+    // Os dois números aparecem juntos na tela — "3 chamados" no rótulo da visão
+    // e a lista de 1 embaixo do filtro —, e trocá-los um pelo outro é como uma
+    // tela passa a dizer que o arquivo tinha o tamanho do recorte.
+    const { body } = await get(`${BASE}/dia/${DEPOIS}/chamados?unidade=Recife`);
+    expect(body.total).toBe(3);
+    expect(body.totalFiltrado).toBe(1);
+    expect(body.rows.map((c: any) => c.externalId)).toEqual(["Recife-1"]);
+  });
+
+  it("a busca acha o chamado pelo número", async () => {
+    const { body } = await get(`${BASE}/dia/${DEPOIS}/chamados?busca=çari-2`);
+    expect(body.rows.map((c: any) => c.externalId)).toEqual(["Camaçari-2"]);
+  });
+
+  it("os filtros oferecem o que a fila inteira tem, e não o que a página mostra", async () => {
+    const { body } = await get(`${BASE}/dia/${DEPOIS}/chamados?limit=1`);
+    expect(body.rows).toHaveLength(1);
+    expect(body.filtros.unidades).toEqual(["Camaçari", "Recife"]);
+  });
+
+  it("um dia sem envio nenhum devolve vazio, e não a relação de outro dia", async () => {
+    // "Nada chegou neste dia" e "chegou e estava vazio" são estados diferentes,
+    // e emprestar a fila do dia anterior apagaria a diferença.
+    const { body } = await get(`${BASE}/dia/2026-08-01/chamados`);
+    expect(body.envios).toEqual([]);
+    expect(body.total).toBe(0);
+    expect(body.rows).toEqual([]);
+  });
+
+  it("recusa data fora do formato", async () => {
+    const { status, body } = await get(`${BASE}/dia/03-09-2026/chamados`);
+    expect(status).toBe(400);
+    expect(body.error).toContain("AAAA-MM-DD");
   });
 });
 

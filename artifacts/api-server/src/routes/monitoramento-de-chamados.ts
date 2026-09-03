@@ -7,6 +7,7 @@ import {
   detalheDaMovimentacao,
   diaDaOperacao,
   diaSeguinte,
+  filaDoDia,
   listarMovimentacoes,
   opcoesDeFiltro,
   registrarRevisao,
@@ -26,6 +27,11 @@ import { contextoDeSchema } from "../middlewares/contexto-de-schema";
  * derivada que o motor já calculou na importação. **Nenhuma delas compara nada
  * em tempo de requisição**: abrir a tela é três consultas sobre linhas prontas,
  * e é o que impede a página mais acessada do produto de ficar cara.
+ *
+ * A exceção é `/dia/:data/chamados`, que lê `ticket` — a relação que o arquivo
+ * do dia trouxe, e não o delta. Ela existe porque um dia sem movimentação não é
+ * um dia sem chamado, e é rota própria justamente para que a abertura da tela
+ * continue custando as três consultas de sempre: só paga por ela quem a abre.
  *
  * ---------------------------------------------------------------------------
  * O escopo, e o que ele é neste produto
@@ -93,6 +99,26 @@ function serieDaConsulta(
   return bruta === SEM_SERIE ? null : bruta;
 }
 
+/**
+ * Um parâmetro de texto da query.
+ *
+ * Vazio é **ausência**, nunca um filtro por string vazia: `?unidade=` sai de um
+ * seletor que voltou para "todas", e lê-lo como predicado devolveria zero linha
+ * para um recorte que ninguém pediu.
+ */
+function texto(query: Record<string, unknown>, chave: string): string | undefined {
+  const v = query[chave];
+  return typeof v === "string" && v !== "" ? v : undefined;
+}
+
+/** Um inteiro não negativo. Qualquer outra coisa é ausência, e não erro. */
+function numero(query: Record<string, unknown>, chave: string): number | undefined {
+  const v = texto(query, chave);
+  if (v === undefined) return undefined;
+  const n = Number(v);
+  return Number.isFinite(n) && n >= 0 ? Math.trunc(n) : undefined;
+}
+
 /** Quantos dias a régua mostra quando ninguém pede outra coisa. */
 const DIAS_DA_REGUA = 9;
 
@@ -158,18 +184,7 @@ router.get(`${BASE}/dia/:data/movimentacoes`, async (req, res): Promise<void> =>
     return;
   }
 
-  const texto = (chave: string): string | undefined => {
-    const v = req.query[chave];
-    return typeof v === "string" && v !== "" ? v : undefined;
-  };
-  const numero = (chave: string): number | undefined => {
-    const v = texto(chave);
-    if (v === undefined) return undefined;
-    const n = Number(v);
-    return Number.isFinite(n) && n >= 0 ? Math.trunc(n) : undefined;
-  };
-
-  const pedida = texto("aba");
+  const pedida = texto(req.query, "aba");
   const aba = (ABAS as readonly string[]).includes(pedida ?? "")
     ? (pedida as AbaDoMonitoramento)
     : "TODOS";
@@ -179,18 +194,54 @@ router.get(`${BASE}/dia/:data/movimentacoes`, async (req, res): Promise<void> =>
     serie: serieDaConsulta(req.query),
     filtros: {
       aba,
-      unidade: texto("unidade"),
-      area: texto("area"),
-      responsavel: texto("responsavel"),
-      statusBucket: texto("statusBucket"),
-      tipoDeAlteracao: texto("tipoDeAlteracao"),
-      busca: texto("busca"),
-      limit: numero("limit"),
-      offset: numero("offset"),
+      unidade: texto(req.query, "unidade"),
+      area: texto(req.query, "area"),
+      responsavel: texto(req.query, "responsavel"),
+      statusBucket: texto(req.query, "statusBucket"),
+      tipoDeAlteracao: texto(req.query, "tipoDeAlteracao"),
+      busca: texto(req.query, "busca"),
+      limit: numero(req.query, "limit"),
+      offset: numero(req.query, "offset"),
     },
   });
 
   res.json({ aba, ...resultado });
+});
+
+/**
+ * A relação de chamados que o arquivo do dia trouxe — a outra leitura.
+ *
+ * As rotas acima respondem **o que mudou**; esta responde **o que veio**. São
+ * populações diferentes e nunca somam: a fila é o arquivo inteiro, e as
+ * movimentações são o subconjunto dele que se mexeu. Num dia em que a
+ * comparação não achou diferença nenhuma, a primeira é zero e a segunda é o
+ * arquivo inteiro — e era essa a resposta que a tela não tinha como dar.
+ *
+ * Rota própria, e não mais um campo em `/dia/:data`: a fila é do tamanho do
+ * arquivo, e quem só quer saber o que mudou não deve pagar por ela. É a mesma
+ * escolha que `/movimentacoes/:id` faz com o encadeamento.
+ */
+router.get(`${BASE}/dia/:data/chamados`, async (req, res): Promise<void> => {
+  if (!DIA.test(req.params.data)) {
+    res.status(400).json({ error: "Data inválida: use o formato AAAA-MM-DD." });
+    return;
+  }
+
+  res.json(
+    await filaDoDia(db, {
+      dia: req.params.data,
+      serie: serieDaConsulta(req.query),
+      filtros: {
+        unidade: texto(req.query, "unidade"),
+        area: texto(req.query, "area"),
+        responsavel: texto(req.query, "responsavel"),
+        statusBucket: texto(req.query, "statusBucket"),
+        busca: texto(req.query, "busca"),
+        limit: numero(req.query, "limit"),
+        offset: numero(req.query, "offset"),
+      },
+    }),
+  );
 });
 
 /**

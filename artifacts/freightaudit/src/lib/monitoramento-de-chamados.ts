@@ -96,6 +96,15 @@ export interface ResumoDoDia {
   removidos: number;
   revisadas: number;
   pendentes: number;
+  /**
+   * Quantos chamados o arquivo do dia trouxe.
+   *
+   * Grão diferente de `movimentacoes` e **nunca somado com ele**: as
+   * movimentações são o subconjunto da fila que se mexeu. É este número que
+   * rotula a visão "Chamados do envio" antes de alguém abri-la — sem ele, a
+   * tela teria de carregar a relação inteira só para poder dizer que ela existe.
+   */
+  chamadosNoEnvio: number;
   alteracoesDeCampo: { tipo: string; total: number }[];
   pontosDeAtencao: {
     criticos: number;
@@ -111,6 +120,68 @@ export interface ResumoDoDia {
     responsaveis: string[];
     status: string[];
     tiposDeAlteracao: string[];
+  };
+}
+
+/**
+ * A FILA DO DIA — a relação de chamados que o arquivo trouxe.
+ *
+ * A outra leitura do mesmo dia, e a resposta a uma reclamação concreta: num dia
+ * em que a comparação não achou diferença nenhuma, a tela dizia "nenhuma
+ * movimentação identificada" sobre uma lista vazia, e quem operava lia isso como
+ * *"o import não trouxe nada"* — quando o arquivo tinha trazido 1.218 chamados.
+ *
+ * **Não é a mesma população da lista de movimentações, e nunca soma com ela.**
+ * A fila é o arquivo inteiro; as movimentações são o subconjunto que se mexeu.
+ * É a mesma disciplina de grãos que a aba Chamados mantém do outro lado, e por
+ * isso a tela mostra uma de cada vez e diz qual está mostrando.
+ */
+export interface EnvioDaFila {
+  id: string;
+  filename: string;
+  serie: string | null;
+  recebidoEm: string;
+  recebidoPor: string | null;
+  chamados: number;
+}
+
+export interface ChamadoNaFila {
+  id: string;
+  externalId: string;
+  serie: string | null;
+  unidade: string | null;
+  area: string | null;
+  responsavel: string | null;
+  solicitante: string | null;
+  statusRaw: string | null;
+  statusBucket: string;
+  assunto: string | null;
+  entidade: string | null;
+  categoria: string | null;
+  prazoPrevisto: string | null;
+  abertoEm: string | null;
+  encerradoEm: string | null;
+  alteradoEmFonte: string | null;
+  parametros: number;
+  /** Este chamado está entre as movimentações do dia — a ponte entre as duas. */
+  movimentou: boolean;
+}
+
+export interface FilaDoDia {
+  dia: string;
+  envios: EnvioDaFila[];
+  /** O tamanho da fila sem filtro nenhum — o número que rotula a visão. */
+  total: number;
+  emAberto: number;
+  movimentaram: number;
+  /** Quantos sobram depois dos filtros. É este que pagina. */
+  totalFiltrado: number;
+  rows: ChamadoNaFila[];
+  filtros: {
+    unidades: string[];
+    areas: string[];
+    responsaveis: string[];
+    status: string[];
   };
 }
 
@@ -319,6 +390,23 @@ export interface FraseDoDia {
  * confundisse mandaria o gestor procurar um problema que não existe — ou deixar
  * de procurar um que existe.
  */
+/**
+ * A frase que cita o tamanho da fila — e a que fica quando não há fila a citar.
+ *
+ * Um dia pode estar SEM_MOVIMENTACAO com `chamadosNoEnvio` em zero: é o envio
+ * que chegou vazio, ou o banco que ainda não tem a contagem. Escrever "0
+ * chamados vieram no arquivo" ali seria trocar uma frase certa por uma que
+ * parece defeito, e por isso a alternativa não cita número nenhum.
+ */
+function comChamados(
+  resumo: ResumoDoDia,
+  comNumero: (chamados: string) => string,
+  semNumero: string,
+): string {
+  const n = resumo.chamadosNoEnvio;
+  return n > 0 ? comNumero(n.toLocaleString("pt-BR")) : semNumero;
+}
+
 export function fraseDoDia(resumo: ResumoDoDia | null): FraseDoDia | null {
   if (resumo === null) return null;
   const hora = horaLegivel(resumo.ultimaImportacao);
@@ -344,7 +432,22 @@ export function fraseDoDia(resumo: ResumoDoDia | null): FraseDoDia | null {
         titulo: hora
           ? `Importação concluída às ${hora}. Nenhuma movimentação identificada.`
           : "Importação concluída. Nenhuma movimentação identificada.",
-        detalhe: "Os chamados vieram iguais aos da importação anterior.",
+        /*
+          O tamanho da fila entra na frase, e não é enfeite.
+
+          Sem ele a frase era "os chamados vieram iguais aos da importação
+          anterior" sobre uma lista vazia, e quem opera a lia como *"o import
+          não trouxe nada"* — o oposto do que aconteceu, e a reclamação que fez
+          esta tela ganhar a visão "Chamados do envio". Dizer quantos vieram
+          separa "nada mudou" de "nada chegou" numa linha só.
+        */
+        detalhe: comChamados(
+          resumo,
+          (n) =>
+            `${n} chamados vieram no arquivo e nenhum deles mudou em relação à ` +
+            `importação anterior.`,
+          "Os chamados vieram iguais aos da importação anterior.",
+        ),
       };
     case "REVISADO":
       return {
@@ -620,6 +723,81 @@ export function useMovimentacoes({
     buscar: () => fetchJson(endereco),
     enabled: habilitado,
   });
+}
+
+/**
+ * A fila do dia — a relação de chamados, paginada.
+ *
+ * `habilitado` faz mais do que esperar o recorte aqui: a consulta só dispara
+ * quando alguém abre a visão. A fila é do tamanho do arquivo, e carregá-la
+ * junto com o resumo faria todo dia pagar por uma lista que a maioria dos dias
+ * não vai olhar — a mesma razão pela qual ela é rota própria no servidor.
+ */
+export function useFilaDoDia({
+  dia,
+  serie,
+  filtros,
+  pagina,
+  porPagina,
+  habilitado = true,
+}: {
+  dia: string;
+  serie: string | null | undefined;
+  filtros: FiltrosDaTela;
+  pagina: number;
+  porPagina: number;
+  habilitado?: boolean;
+}) {
+  const endereco = `${BASE}/dia/${dia}/chamados${query([
+    comSerie(serie),
+    filtros.unidade && `unidade=${encodeURIComponent(filtros.unidade)}`,
+    filtros.area && `area=${encodeURIComponent(filtros.area)}`,
+    filtros.responsavel && `responsavel=${encodeURIComponent(filtros.responsavel)}`,
+    filtros.statusBucket && `statusBucket=${encodeURIComponent(filtros.statusBucket)}`,
+    filtros.busca && `busca=${encodeURIComponent(filtros.busca)}`,
+    `limit=${porPagina}`,
+    `offset=${(pagina - 1) * porPagina}`,
+  ])}`;
+
+  return useConsultaResiliente<FilaDoDia>({
+    queryKey: [
+      "monitoramento-chamados",
+      "fila",
+      dia,
+      serie ?? "todas",
+      filtros,
+      pagina,
+      porPagina,
+    ],
+    endpoint: `${BASE}/dia/:data/chamados`,
+    buscar: () => fetchJson(endereco),
+    enabled: habilitado,
+  });
+}
+
+/**
+ * De onde a relação saiu, escrito por extenso.
+ *
+ * A lista é o arquivo de outra pessoa, e mostrá-la sem dizer de que arquivo ela
+ * é seria pedir confiança sem oferecer conferência — é a mesma linha de
+ * procedência que a aba Chamados põe acima da lista dela.
+ *
+ * Com mais de um envio (mais de uma unidade no mesmo dia, que é o caso comum da
+ * Visão Geral) o nome de um só mentiria por omissão, e listar todos daria uma
+ * frase de dez linhas. A frase conta quantos são.
+ */
+export function procedenciaDaFila(envios: EnvioDaFila[]): string | null {
+  if (envios.length === 0) return null;
+  if (envios.length > 1) {
+    const total = envios.reduce((soma, e) => soma + e.chamados, 0);
+    return `${envios.length} arquivos lidos neste dia · ${total.toLocaleString("pt-BR")} chamados`;
+  }
+  const envio = envios[0]!;
+  const hora = horaLegivel(envio.recebidoEm);
+  return (
+    `${envio.filename}${hora ? ` · lido às ${hora}` : ""}` +
+    `${envio.recebidoPor ? ` · enviado por ${envio.recebidoPor}` : ""}`
+  );
 }
 
 // ---------------------------------------------------------------------------

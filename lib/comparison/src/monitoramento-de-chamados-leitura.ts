@@ -266,6 +266,19 @@ export interface ResumoDoDia {
   removidos: number;
   revisadas: number;
   pendentes: number;
+  /**
+   * Quantos chamados o arquivo do dia trouxe — o tamanho da fila, não do delta.
+   *
+   * Grão diferente de `movimentacoes`, e **nunca somado com ele**: as
+   * movimentações são o subconjunto da fila que se mexeu. Está aqui, e não numa
+   * consulta própria, porque sai da mesma leitura de `ticket_import` que o
+   * resumo já faz — e é ele que permite a tela dizer "1.218 chamados vieram e
+   * nenhum se mexeu" sem carregar a relação inteira.
+   *
+   * O último envio lido de cada série responde pelo dia, pela razão de
+   * `filaDoDia`: três envios da mesma unidade são a mesma fila três vezes.
+   */
+  chamadosNoEnvio: number;
   /** Grão diferente do de cima: campos, não chamados. Nunca somar os dois. */
   alteracoesDeCampo: { tipo: string; total: number }[];
   pontosDeAtencao: {
@@ -345,10 +358,13 @@ export async function resumoDoDia(
 
   const envios = await db
     .select({
+      id: ticketImportTable.id,
+      serie: ticketImportTable.serie,
       status: ticketImportTable.status,
       filename: ticketImportTable.filename,
       receivedAt: ticketImportTable.receivedAt,
       failureReason: ticketImportTable.failureReason,
+      chamados: ticketImportTable.ticketCount,
     })
     .from(ticketImportTable)
     .where(
@@ -365,6 +381,18 @@ export async function resumoDoDia(
 
   const lidos = envios.filter((e) => e.status === "READ");
   const ultimaImportacao = lidos[lidos.length - 1]?.receivedAt ?? null;
+
+  /*
+    O tamanho da fila do dia: o último envio de cada série, somado.
+
+    `lidos` já vem ordenado por `received_at`, então a última atribuição ao
+    `Map` é a do envio mais recente daquela série — a mesma regra de
+    `enviosDaFila`, e o mesmo sentinela para a série indeterminada, que é uma
+    série e não pode se fundir com outra por ser nula.
+  */
+  const ultimoPorSerie = new Map<string, number>();
+  for (const e of lidos) ultimoPorSerie.set(e.serie ?? "—", e.chamados);
+  const chamadosNoEnvio = [...ultimoPorSerie.values()].reduce((a, b) => a + b, 0);
 
   const avisos: AvisoDoDia[] = [];
   for (const c of comparacoes) {
@@ -416,6 +444,7 @@ export async function resumoDoDia(
     removidos: totais?.removidos ?? 0,
     revisadas,
     pendentes: movimentacoes - revisadas,
+    chamadosNoEnvio,
     alteracoesDeCampo: porTipo,
     pontosDeAtencao: {
       criticos: totais?.criticos ?? 0,
@@ -705,6 +734,342 @@ export async function opcoesDeFiltro(
     responsaveis: unicos(linhas.map((l) => l.responsavel)),
     status: unicos(linhas.map((l) => l.status)),
     tiposDeAlteracao: unicos(tipos.map((t) => t.tipo)),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// A fila do dia — a relação de chamados que o arquivo trouxe
+// ---------------------------------------------------------------------------
+
+/**
+ * A segunda leitura do mesmo dia, e por que ela precisa existir.
+ *
+ * Tudo acima deste ponto responde **o que mudou**. É a pergunta certa para quem
+ * abre a tela todo dia, e é a pergunta errada num dia em que nada mudou: o
+ * arquivo das 07:25 trouxe 1.218 chamados, a comparação com o envio anterior
+ * não achou diferença nenhuma, e a tela — corretamente — dizia "nenhuma
+ * movimentação identificada" em cima de uma lista vazia. Quem opera lê isso
+ * como *"o import não trouxe nada"*, que é o oposto do que aconteceu.
+ *
+ * `filaDoDia` é a outra leitura: **o que veio no arquivo**, tenha se mexido ou
+ * não. Não é a mesma população da lista de movimentações e nunca soma com ela —
+ * é a população **de onde** as movimentações saíram. A tela mostra uma de cada
+ * vez, e diz qual está mostrando, pela mesma razão que a aba Chamados e a aba
+ * Planilha não somam os números uma da outra.
+ *
+ * ---------------------------------------------------------------------------
+ * O último envio de cada série responde pelo dia
+ * ---------------------------------------------------------------------------
+ *
+ * Um dia com três envios da mesma unidade tem a mesma fila três vezes, e listar
+ * os três daria cada chamado repetido três vezes — um "3.654 chamados" que não
+ * existe em arquivo nenhum. A fila do dia é o **estado no fim do dia**, que é o
+ * último envio lido de cada série; é a mesma escolha que o motor faz ao
+ * denormalizar o estado final da movimentação, e pelo mesmo motivo.
+ *
+ * Envios que não chegaram a `READ` não entram: um arquivo que falhou não tem
+ * fila, e a tela já diz por outro caminho que ele existiu (`avisos` do resumo).
+ *
+ * ---------------------------------------------------------------------------
+ * A ponte entre as duas leituras
+ * ---------------------------------------------------------------------------
+ *
+ * Cada linha diz se aquele chamado está entre as movimentações do dia
+ * (`movimentou`). É o que permite descer a relação inteira e ver onde o motor
+ * mexeu, sem trocar de lista — e é o que torna conferível, a olho, a afirmação
+ * de que 1.218 chamados vieram e nenhum se mexeu.
+ */
+
+/** Um envio que responde pela fila de um dia — a procedência da lista. */
+export interface EnvioDaFila {
+  id: string;
+  filename: string;
+  serie: string | null;
+  recebidoEm: string;
+  recebidoPor: string | null;
+  /** Quantos chamados o arquivo trouxe, como o próprio envio os contou. */
+  chamados: number;
+}
+
+/** Um chamado como a relação o mostra. */
+export interface ChamadoNaFila {
+  id: string;
+  externalId: string;
+  serie: string | null;
+  unidade: string | null;
+  area: string | null;
+  responsavel: string | null;
+  solicitante: string | null;
+  statusRaw: string | null;
+  statusBucket: string;
+  assunto: string | null;
+  entidade: string | null;
+  categoria: string | null;
+  prazoPrevisto: string | null;
+  abertoEm: string | null;
+  encerradoEm: string | null;
+  alteradoEmFonte: string | null;
+  /** Quantos parâmetros de remuneração vieram preenchidos neste chamado. */
+  parametros: number;
+  /** Este chamado está entre as movimentações do dia. Ver o cabeçalho. */
+  movimentou: boolean;
+}
+
+export interface FiltrosDaFila {
+  unidade?: string;
+  area?: string;
+  responsavel?: string;
+  statusBucket?: string;
+  busca?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface FilaDoDia {
+  dia: string;
+  serie: string | null | undefined;
+  /** Os envios que respondem pela fila. Vazio num dia sem importação lida. */
+  envios: EnvioDaFila[];
+  /** O tamanho da fila **sem filtro nenhum** — o número que rotula a visão. */
+  total: number;
+  /** Sem data de fechamento no arquivo. */
+  emAberto: number;
+  /** Quantos dos chamados da fila se mexeram neste dia. */
+  movimentaram: number;
+  /** Quantos a página devolve depois dos filtros. */
+  totalFiltrado: number;
+  rows: ChamadoNaFila[];
+  filtros: {
+    unidades: string[];
+    areas: string[];
+    responsaveis: string[];
+    status: string[];
+  };
+}
+
+/**
+ * Os envios lidos de um dia, um por série: o último de cada uma.
+ *
+ * A janela em `received_at` acompanha a igualdade no dia da operação para que o
+ * índice `ticket_import_received_idx` continue servindo — a conversão de fuso
+ * sozinha num `WHERE` descarta índice, e é a mesma folga de um dia que a régua
+ * usa, pela mesma razão: o fim do dia local cai no dia seguinte em UTC.
+ */
+async function enviosDaFila(
+  db: Database,
+  { dia, serie }: { dia: string; serie?: string | null },
+): Promise<EnvioDaFila[]> {
+  const linhas = await db
+    .select({
+      id: ticketImportTable.id,
+      filename: ticketImportTable.filename,
+      serie: ticketImportTable.serie,
+      recebidoEm: ticketImportTable.receivedAt,
+      recebidoPor: ticketImportTable.receivedBy,
+      chamados: ticketImportTable.ticketCount,
+    })
+    .from(ticketImportTable)
+    .where(
+      and(
+        eq(ticketImportTable.status, "READ"),
+        gte(ticketImportTable.receivedAt, new Date(`${dia}T00:00:00.000Z`)),
+        lte(
+          ticketImportTable.receivedAt,
+          new Date(`${diaSeguinte(dia, 2)}T00:00:00.000Z`),
+        ),
+        sql`${DIA_DO_ENVIO} = ${dia}`,
+        serie === undefined
+          ? undefined
+          : serie === null
+            ? isNull(ticketImportTable.serie)
+            : eq(ticketImportTable.serie, serie),
+      ),
+    )
+    .orderBy(asc(ticketImportTable.receivedAt), asc(ticketImportTable.id));
+
+  /*
+    Um por série, e o último. `Map` sobre a lista já ordenada: a última
+    atribuição vence, que é exatamente a regra. O `—` é o mesmo sentinela do
+    índice único da movimentação — a série indeterminada é uma série, e não
+    pode se fundir com nenhuma outra por ser nula.
+  */
+  const ultimoPorSerie = new Map<string, EnvioDaFila>();
+  for (const l of linhas) {
+    ultimoPorSerie.set(l.serie ?? "—", {
+      id: l.id,
+      filename: l.filename,
+      serie: l.serie,
+      recebidoEm: new Date(l.recebidoEm).toISOString(),
+      recebidoPor: l.recebidoPor,
+      chamados: l.chamados,
+    });
+  }
+  return [...ultimoPorSerie.values()].sort((a, b) =>
+    a.recebidoEm < b.recebidoEm ? -1 : a.recebidoEm > b.recebidoEm ? 1 : 0,
+  );
+}
+
+export async function filaDoDia(
+  db: Database,
+  {
+    dia,
+    serie,
+    filtros = {},
+  }: { dia: string; serie?: string | null; filtros?: FiltrosDaFila },
+): Promise<FilaDoDia> {
+  const semFiltros = {
+    unidades: [] as string[],
+    areas: [] as string[],
+    responsaveis: [] as string[],
+    status: [] as string[],
+  };
+
+  const envios = await enviosDaFila(db, { dia, serie });
+  if (envios.length === 0) {
+    return {
+      dia,
+      serie,
+      envios,
+      total: 0,
+      emAberto: 0,
+      movimentaram: 0,
+      totalFiltrado: 0,
+      rows: [],
+      filtros: semFiltros,
+    };
+  }
+
+  const ids = envios.map((e) => e.id);
+  const daFila = inArray(ticketTable.ticketImportId, ids);
+
+  /*
+    O chamado que se mexeu neste dia — a ponte com a outra leitura.
+
+    `EXISTS` correlacionado, e não junção, pela disciplina do cabeçalho do
+    arquivo: a movimentação é única por `(dia, série, chamado)`, mas uma junção
+    aqui obrigaria todo `count(*)` desta função a se defender dela. A série
+    entra na correlação porque o mesmo número de chamado pode existir em duas
+    unidades sem ser o mesmo chamado — é a mesma chave do índice
+    `ticket_movement_day_grao_uq`, sentinela incluído.
+  */
+  const MOVIMENTOU: SQL = sql`EXISTS (
+    SELECT 1 FROM ticket_movement_day d
+     WHERE d.dia = ${dia}
+       AND d.external_id = ${ticketTable.externalId}
+       AND COALESCE(d.serie, '—') = COALESCE(${ticketImportTable.serie}, '—')
+  )`;
+
+  const [totais] = await db
+    .select({
+      total: sql<number>`count(*)`.mapWith(Number),
+      emAberto: sql<number>`count(*) filter (where ${ticketTable.closedAt} is null)`.mapWith(Number),
+      movimentaram: sql<number>`count(*) filter (where ${MOVIMENTOU})`.mapWith(Number),
+    })
+    .from(ticketTable)
+    .innerJoin(ticketImportTable, eq(ticketImportTable.id, ticketTable.ticketImportId))
+    .where(daFila);
+
+  const busca = filtros.busca?.trim();
+  const recorte = and(
+    daFila,
+    filtros.unidade ? eq(ticketTable.unidadeRaw, filtros.unidade) : undefined,
+    filtros.area ? eq(ticketTable.segmentoRaw, filtros.area) : undefined,
+    filtros.responsavel ? eq(ticketTable.aprovadorRaw, filtros.responsavel) : undefined,
+    filtros.statusBucket ? eq(ticketTable.statusBucket, filtros.statusBucket) : undefined,
+    busca
+      ? or(
+          ilike(ticketTable.externalId, `%${busca}%`),
+          ilike(ticketTable.subject, `%${busca}%`),
+          ilike(ticketTable.entityLabel, `%${busca}%`),
+          ilike(ticketTable.entityDescription, `%${busca}%`),
+        )
+      : undefined,
+  );
+
+  const [filtrado] = await db
+    .select({ total: sql<number>`count(*)`.mapWith(Number) })
+    .from(ticketTable)
+    .where(recorte);
+
+  const linhas = await db
+    .select({
+      t: ticketTable,
+      serie: ticketImportTable.serie,
+      movimentou: sql<boolean>`${MOVIMENTOU}`.mapWith(Boolean),
+    })
+    .from(ticketTable)
+    .innerJoin(ticketImportTable, eq(ticketImportTable.id, ticketTable.ticketImportId))
+    .where(recorte)
+    /*
+      A ordem do arquivo, e não a da tela de movimentações.
+
+      Esta lista é *a relação da planilha*, e a ordem em que a planilha a
+      escreveu é a única que quem confere consegue casar com o arquivo aberto
+      no Excel ao lado. `(envio, linha)` é único por construção — o índice
+      `ticket_import_row_uq` —, então a paginação não repete nem pula linha,
+      que é o defeito que uma ordenação sem desempate produz e que só aparece
+      na segunda página.
+    */
+    .orderBy(
+      asc(ticketImportTable.receivedAt),
+      asc(ticketTable.ticketImportId),
+      asc(ticketTable.sourceRowIndex),
+    )
+    .limit(Math.min(filtros.limit ?? 25, TETO_DA_PAGINA))
+    .offset(filtros.offset ?? 0);
+
+  /*
+    As opções dos filtros saem da fila inteira, e não da página: um seletor que
+    só oferecesse as unidades das 25 linhas visíveis esconderia justamente as
+    que quem procura quer alcançar.
+  */
+  const valores = await db
+    .select({
+      unidade: ticketTable.unidadeRaw,
+      area: ticketTable.segmentoRaw,
+      responsavel: ticketTable.aprovadorRaw,
+      status: ticketTable.statusBucket,
+    })
+    .from(ticketTable)
+    .where(daFila);
+
+  const unicos = (lista: (string | null)[]) =>
+    [...new Set(lista.filter((v): v is string => v !== null && v !== ""))].sort();
+
+  return {
+    dia,
+    serie,
+    envios,
+    total: totais?.total ?? 0,
+    emAberto: totais?.emAberto ?? 0,
+    movimentaram: totais?.movimentaram ?? 0,
+    totalFiltrado: filtrado?.total ?? 0,
+    rows: linhas.map(({ t, serie: serieDoEnvio, movimentou }) => ({
+      id: t.id,
+      externalId: t.externalId,
+      serie: serieDoEnvio,
+      unidade: t.unidadeRaw,
+      area: t.segmentoRaw,
+      responsavel: t.aprovadorRaw,
+      solicitante: t.requestedBy,
+      statusRaw: t.statusRaw,
+      statusBucket: t.statusBucket,
+      assunto: t.subject,
+      entidade: t.entityLabel ?? t.entityDescription,
+      categoria: t.categoriaRaw,
+      prazoPrevisto: t.prazoPrevisto ? String(t.prazoPrevisto) : null,
+      abertoEm: t.openedAt?.toISOString() ?? null,
+      encerradoEm: t.closedAt?.toISOString() ?? null,
+      alteradoEmFonte: t.alteradoEmFonte?.toISOString() ?? null,
+      parametros: t.changedParameterCount,
+      movimentou,
+    })),
+    filtros: {
+      unidades: unicos(valores.map((v) => v.unidade)),
+      areas: unicos(valores.map((v) => v.area)),
+      responsaveis: unicos(valores.map((v) => v.responsavel)),
+      status: unicos(valores.map((v) => v.status)),
+    },
   };
 }
 

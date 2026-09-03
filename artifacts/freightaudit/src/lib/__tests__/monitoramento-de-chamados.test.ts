@@ -37,6 +37,7 @@ const RESUMO: ResumoDoDia = {
   removidos: 2,
   revisadas: 52,
   pendentes: 18,
+  chamadosNoEnvio: 1218,
   alteracoesDeCampo: [{ tipo: "PRAZO", total: 7 }],
   pontosDeAtencao: {
     criticos: 6,
@@ -132,6 +133,27 @@ describe("fraseDoDia — os cinco estados, e por que três deles não são o mes
     const f = fraseDoDia({ ...RESUMO, estado: "SEM_MOVIMENTACAO", movimentacoes: 0 })!;
     expect(f.titulo).toContain("Importação concluída às 08:15");
     expect(f.titulo).toContain("Nenhuma movimentação identificada");
+  });
+
+  it("nada mudou diz **quantos** vieram — senão se lê como se nada tivesse vindo", () => {
+    // A reclamação que fez a tela ganhar a relação de chamados: a frase estava
+    // certa e era lida ao contrário. Dizer o tamanho da fila na mesma linha
+    // separa "nada mudou" de "nada chegou".
+    const f = fraseDoDia({ ...RESUMO, estado: "SEM_MOVIMENTACAO", movimentacoes: 0 })!;
+    expect(f.detalhe).toContain("1.218 chamados vieram no arquivo");
+    expect(f.detalhe).toContain("nenhum deles mudou");
+  });
+
+  it("sem contagem de fila, a frase não inventa um zero", () => {
+    // Um envio que chegou vazio, ou um banco sem a contagem: "0 chamados
+    // vieram no arquivo" trocaria uma frase certa por uma que parece defeito.
+    const f = fraseDoDia({
+      ...RESUMO,
+      estado: "SEM_MOVIMENTACAO",
+      movimentacoes: 0,
+      chamadosNoEnvio: 0,
+    })!;
+    expect(f.detalhe).toBe("Os chamados vieram iguais aos da importação anterior.");
   });
 
   it("a primeira carga diz o tamanho dela, e não vira fila de novos", () => {
