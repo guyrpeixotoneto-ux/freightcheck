@@ -1,4 +1,10 @@
-import { AlertTriangle, Building2, Clock, TrendingUp } from "lucide-react";
+import {
+  AlertTriangle,
+  Building2,
+  Clock,
+  FileSpreadsheet,
+  TrendingUp,
+} from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import type { ResumoDoDia } from "@/lib/monitoramento-de-chamados";
@@ -127,6 +133,36 @@ export function ResumoDoDiaPainel({
             <div className="text-sm text-muted-foreground">aguardando revisão</div>
           </div>
         </div>
+
+        {/*
+          O tamanho da fila, separado dos dois de cima por uma linha — e a
+          separação é a informação.
+
+          Movimentação e chamado são grãos diferentes, e este painel nunca os
+          soma: os dois números grandes contam **o que se mexeu**, e este conta
+          **o que veio no arquivo**. Ele está aqui porque, sem ele, um dia sem
+          movimentação mostrava "0" e "0" um embaixo do outro e se lia como "o
+          import não trouxe nada" — enquanto o arquivo daquela manhã tinha
+          trazido a fila inteira.
+
+          Some quando não há contagem: uma linha dizendo "0 chamados" seria
+          justamente a afirmação errada que ela existe para desfazer.
+        */}
+        {resumo.chamadosNoEnvio > 0 && (
+          <div
+            className="flex items-center gap-2.5 border-t pt-4 text-sm text-muted-foreground"
+            title="Os chamados que a planilha importada trouxe neste dia, tenham se mexido ou não. Não soma com as movimentações — é a população de onde elas saem."
+          >
+            <FileSpreadsheet className="h-4 w-4 shrink-0" />
+            <span>
+              <span className="font-semibold tabular-nums text-foreground">
+                {resumo.chamadosNoEnvio.toLocaleString("pt-BR")}
+              </span>{" "}
+              {resumo.chamadosNoEnvio === 1 ? "chamado veio" : "chamados vieram"} no
+              arquivo deste dia
+            </span>
+          </div>
+        )}
       </div>
 
       {atencao.length > 0 && (

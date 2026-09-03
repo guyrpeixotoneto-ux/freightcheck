@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   ChevronRight,
   Clock,
+  FileSpreadsheet,
   Headset,
   Layers,
   MapPin,
@@ -27,6 +28,8 @@ import {
 import { ReguaDeDias } from "@/components/monitoramento/regua-de-dias";
 import { ResumoDoDiaPainel } from "@/components/monitoramento/resumo-do-dia";
 import { ListaDeMovimentacoes } from "@/components/monitoramento/lista-de-movimentacoes";
+import { ListaDeChamados } from "@/components/monitoramento/lista-de-chamados";
+import { STATUS_LABELS } from "@/components/changes/ticket-table";
 import { cn } from "@/lib/utils";
 import {
   contextoAberto,
@@ -51,8 +54,10 @@ import {
   hojeNaOperacao,
   horaLegivel,
   janelaDoEnvioFora,
+  procedenciaDaFila,
   progressoDoDia,
   SEM_SERIE,
+  useFilaDoDia,
   useMovimentacoes,
   useResumoDoDia,
   useReguaDeDias,
@@ -128,9 +133,52 @@ import {
  * — a do envio **sem unidade no arquivo**, e a da unidade que mandou chamados
  * sem nunca ter mandado vigência. Escolher nele escreve `serie` na URL, que
  * vence a lateral; quando os dois discordam, a tela diz qual está valendo.
+ *
+ * ---------------------------------------------------------------------------
+ * O dia sem movimentação não é um dia sem chamado
+ * ---------------------------------------------------------------------------
+ *
+ * A tela nasceu respondendo só **o que mudou**, e essa é a pergunta certa em
+ * quase todo dia. Num dia em que a comparação não achou diferença nenhuma ela
+ * era a pergunta errada, e a tela dizia a verdade de um jeito que se lia ao
+ * contrário: *"Importação concluída às 07:25. Nenhuma movimentação
+ * identificada."* sobre uma lista vazia — enquanto o arquivo daquela manhã
+ * tinha trazido 1.218 chamados de CAMAÇARI. Quem opera lia "o import não
+ * trouxe nada", que é o oposto do que aconteceu.
+ *
+ * Daí a segunda visão, no controle segmentado acima da lista:
+ *
+ * - **Movimentações** — o que mudou. Continua sendo o padrão, e continua sendo
+ *   a fila de trabalho revisável.
+ * - **Chamados do envio** — a relação inteira que a planilha trouxe, tenha se
+ *   mexido ou não, com a procedência do arquivo em cima dela.
+ *
+ * **As duas não somam.** A segunda é a população de onde a primeira sai, e cada
+ * linha da relação diz se aquele chamado está entre as movimentações do dia —
+ * que é o que torna conferível, a olho, a afirmação de que vieram 1.218 e
+ * nenhum se mexeu. É a mesma disciplina de grãos que a aba Chamados mantém
+ * entre parâmetros alterados e chamados.
+ *
+ * A relação é buscada **só quando alguém a abre**: ela é do tamanho do arquivo,
+ * e a abertura da tela continua custando as mesmas três consultas. O número que
+ * rotula a visão vem do resumo, que já lê os envios do dia — é assim que a tela
+ * consegue oferecer a relação sem antes carregá-la.
  */
 
 const POR_PAGINA = 25;
+
+/**
+ * As duas leituras do mesmo dia.
+ *
+ * `movimentacoes` é **o que mudou** — a fila de trabalho, e a razão de a tela
+ * existir. `chamados` é **o que veio no arquivo**, a relação inteira, tenha se
+ * mexido ou não.
+ *
+ * Não são dois recortes da mesma população: a segunda é a população de onde a
+ * primeira sai. Somá-las seria contar o mesmo chamado duas vezes, e é por isso
+ * que a tela mostra uma de cada vez, com o nome de cada uma no controle.
+ */
+type Visao = "movimentacoes" | "chamados";
 
 export default function MonitoramentoDeChamados() {
   const [pathname, navegar] = useLocation();
@@ -144,6 +192,14 @@ export default function MonitoramentoDeChamados() {
   const aba = ((ABAS as readonly string[]).includes(parametros.get("aba") ?? "")
     ? parametros.get("aba")
     : "TODOS") as Aba;
+  /*
+    Qual das duas leituras está em tela. Mora na URL como o dia e a aba, e pelo
+    mesmo motivo: um link para "16/08, chamados do envio" tem de abrir nos
+    chamados do envio. O padrão é `movimentacoes` porque a pergunta de quem abre
+    a tela todo dia continua sendo "o que mudou".
+  */
+  const visao: Visao =
+    parametros.get("visao") === "chamados" ? "chamados" : "movimentacoes";
 
   const [pagina, setPagina] = useState(1);
   const [filtros, setFiltros] = useState<FiltrosDaTela>({});
@@ -200,12 +256,43 @@ export default function MonitoramentoDeChamados() {
     porPagina: POR_PAGINA,
     habilitado: recorte.pronto,
   });
+  /*
+    A fila só é buscada quando alguém a abre: ela é do tamanho do arquivo, e
+    carregá-la junto com o resumo faria todo dia pagar por uma lista que a
+    maioria dos dias não vai olhar. O número que rotula a visão vem do resumo
+    (`chamadosNoEnvio`), que já lê os envios do dia — é isso que permite a tela
+    oferecer a relação sem antes carregá-la.
+  */
+  const fila = useFilaDoDia({
+    dia,
+    serie,
+    filtros,
+    pagina,
+    porPagina: POR_PAGINA,
+    habilitado: recorte.pronto && visao === "chamados",
+  });
   const revisao = useRevisao(dia);
 
   const resumo = resumoConsulta.dados ?? null;
   const frase = fraseDoDia(resumo);
   const progresso = progressoDoDia(resumo);
   const movimentacoes = lista.dados?.rows ?? [];
+  /*
+    `null` enquanto a fila não chegou, e nunca um objeto vazio: os cartões e os
+    filtros abaixo perguntam "há relação?" e um zero durante a espera
+    responderia que não — a mesma disciplina que `fraseDoDia` mantém do lado das
+    movimentações.
+  */
+  const dadosDaFila = fila.dados ?? null;
+  const chamados = dadosDaFila?.rows ?? [];
+  const procedencia = procedenciaDaFila(dadosDaFila?.envios ?? []);
+  /*
+    O total da relação vem da fila quando ela está carregada, e do resumo antes
+    disso. Os dois contam a mesma coisa pela mesma regra — o último envio de
+    cada série do dia —, e preferir o da fila evita a piscada de um rótulo que
+    muda de número ao abrir a visão.
+  */
+  const chamadosNoEnvio = dadosDaFila?.total ?? resumo?.chamadosNoEnvio ?? 0;
 
   /*
     A escrita marca a linha como ocupada enquanto está em voo: sem isso, dois
@@ -231,6 +318,24 @@ export default function MonitoramentoDeChamados() {
     );
   const desfazer = (m: Movimentacao) =>
     comOcupada(m.id, () => revisao.desfazer.mutateAsync(m.id));
+
+  /*
+    Trocar de visão zera a página pelo mesmo motivo que trocar de aba zera:
+    a página 3 de setenta movimentações não é a página 3 de mil e duzentos
+    chamados, e herdar o número abriria a lista nova num vazio que existe só
+    porque o offset sobrou da lista anterior.
+
+    Os filtros, ao contrário, atravessam: unidade, área e responsável são a
+    mesma pergunta nas duas leituras, e zerá-los faria "ver a relação" custar
+    refazer o recorte. O tipo de alteração não atravessa porque não existe do
+    outro lado — a relação não tem alteração nenhuma a tipificar —, e por isso
+    o seletor dele some junto com a visão em vez de ficar prometendo um recorte
+    que não é aplicado.
+  */
+  const trocarDeVisao = (proxima: Visao) => {
+    setPagina(1);
+    trocar({ visao: proxima === "chamados" ? "chamados" : null });
+  };
 
   /** "Continuar revisão" — as pendentes da página, de uma vez. */
   const continuar = () => {
@@ -270,7 +375,10 @@ export default function MonitoramentoDeChamados() {
   });
 
   const indisponivel =
-    resumoConsulta.indisponivel || lista.indisponivel || regua.indisponivel;
+    resumoConsulta.indisponivel ||
+    lista.indisponivel ||
+    regua.indisponivel ||
+    fila.indisponivel;
 
   return (
     <Layout>
@@ -353,6 +461,7 @@ export default function MonitoramentoDeChamados() {
                 resumoConsulta.tentarDeNovo();
                 lista.tentarDeNovo();
                 regua.tentarDeNovo();
+                fila.tentarDeNovo();
               }}
               title="Atualizar"
             >
@@ -365,13 +474,16 @@ export default function MonitoramentoDeChamados() {
 
         {indisponivel && (
           <ApiErrorNotice
-            error={resumoConsulta.erro ?? lista.erro ?? regua.erro}
+            error={resumoConsulta.erro ?? lista.erro ?? regua.erro ?? fila.erro}
             what="o monitoramento de chamados"
-            tentando={lista.atualizando || resumoConsulta.atualizando}
+            tentando={
+              lista.atualizando || resumoConsulta.atualizando || fila.atualizando
+            }
             onTentarDeNovo={() => {
               resumoConsulta.tentarDeNovo();
               lista.tentarDeNovo();
               regua.tentarDeNovo();
+              fila.tentarDeNovo();
             }}
           />
         )}
@@ -513,92 +625,250 @@ export default function MonitoramentoDeChamados() {
             )}
 
             <div>
-              <div className="flex items-center gap-1 border-b overflow-x-auto">
-                {ABAS.map((nome) => (
-                  <AbaBotao
-                    key={nome}
-                    active={aba === nome}
-                    onClick={() => {
-                      setPagina(1);
-                      trocar({ aba: nome });
-                    }}
-                    label={ROTULO_DA_ABA[nome].label}
-                    hint={ROTULO_DA_ABA[nome].hint}
-                    count={contagemDaAba(resumo, nome)}
-                  />
-                ))}
+              {/*
+                As duas leituras do mesmo dia, e a escolha entre elas.
+
+                Controle segmentado, e não uma terceira fileira de abas: as abas
+                de baixo recortam **uma** população — as movimentações —, e
+                repetir a forma delas aqui sugeriria que "Chamados do envio" é
+                mais um recorte da mesma coisa. Não é: é a população de onde as
+                movimentações saíram, e os dois números nunca somam.
+              */}
+              <div
+                role="tablist"
+                aria-label="o que a lista mostra"
+                className="inline-flex rounded-xl border bg-muted/50 p-1"
+              >
+                <VisaoBotao
+                  active={visao === "movimentacoes"}
+                  onClick={() => trocarDeVisao("movimentacoes")}
+                  icon={<TrendingUp className="h-4 w-4" />}
+                  label="Movimentações"
+                  hint="o que mudou entre a importação anterior e a deste dia"
+                  count={resumo?.movimentacoes}
+                />
+                <VisaoBotao
+                  active={visao === "chamados"}
+                  onClick={() => trocarDeVisao("chamados")}
+                  icon={<FileSpreadsheet className="h-4 w-4" />}
+                  label="Chamados do envio"
+                  hint="a relação inteira que a planilha importada trouxe, tenha se mexido ou não"
+                  count={chamadosNoEnvio}
+                />
               </div>
 
-              {resumo !== null && resumo.movimentacoes > 0 && (
-                <div className="flex flex-wrap gap-2 py-3">
-                  <FiltroSelect
-                    rotulo="Unidade"
-                    valor={filtros.unidade}
-                    opcoes={resumo.filtros.unidades}
-                    onChange={(v) => {
-                      setPagina(1);
-                      setFiltros((f) => ({ ...f, unidade: v }));
-                    }}
-                  />
-                  <FiltroSelect
-                    rotulo="Área"
-                    valor={filtros.area}
-                    opcoes={resumo.filtros.areas}
-                    onChange={(v) => {
-                      setPagina(1);
-                      setFiltros((f) => ({ ...f, area: v }));
-                    }}
-                  />
-                  <FiltroSelect
-                    rotulo="Responsável"
-                    valor={filtros.responsavel}
-                    opcoes={resumo.filtros.responsaveis}
-                    onChange={(v) => {
-                      setPagina(1);
-                      setFiltros((f) => ({ ...f, responsavel: v }));
-                    }}
-                  />
-                  <FiltroSelect
-                    rotulo="Tipo de alteração"
-                    valor={filtros.tipoDeAlteracao}
-                    opcoes={resumo.filtros.tiposDeAlteracao}
-                    rotuloDaOpcao={(t) => ROTULO_DO_TIPO[t] ?? t}
-                    onChange={(v) => {
-                      setPagina(1);
-                      setFiltros((f) => ({ ...f, tipoDeAlteracao: v }));
-                    }}
-                  />
-                </div>
-              )}
+              {visao === "movimentacoes" ? (
+                <>
+                  <div className="flex items-center gap-1 border-b overflow-x-auto mt-4">
+                    {ABAS.map((nome) => (
+                      <AbaBotao
+                        key={nome}
+                        active={aba === nome}
+                        onClick={() => {
+                          setPagina(1);
+                          trocar({ aba: nome });
+                        }}
+                        label={ROTULO_DA_ABA[nome].label}
+                        hint={ROTULO_DA_ABA[nome].hint}
+                        count={contagemDaAba(resumo, nome)}
+                      />
+                    ))}
+                  </div>
 
-              <h2 className="text-sm font-bold uppercase tracking-wide text-muted-foreground pt-3 pb-2">
-                Alterações do dia
-              </h2>
+                  {resumo !== null && resumo.movimentacoes > 0 && (
+                    <div className="flex flex-wrap gap-2 py-3">
+                      <FiltroSelect
+                        rotulo="Unidade"
+                        valor={filtros.unidade}
+                        opcoes={resumo.filtros.unidades}
+                        onChange={(v) => {
+                          setPagina(1);
+                          setFiltros((f) => ({ ...f, unidade: v }));
+                        }}
+                      />
+                      <FiltroSelect
+                        rotulo="Área"
+                        valor={filtros.area}
+                        opcoes={resumo.filtros.areas}
+                        onChange={(v) => {
+                          setPagina(1);
+                          setFiltros((f) => ({ ...f, area: v }));
+                        }}
+                      />
+                      <FiltroSelect
+                        rotulo="Responsável"
+                        valor={filtros.responsavel}
+                        opcoes={resumo.filtros.responsaveis}
+                        onChange={(v) => {
+                          setPagina(1);
+                          setFiltros((f) => ({ ...f, responsavel: v }));
+                        }}
+                      />
+                      <FiltroSelect
+                        rotulo="Tipo de alteração"
+                        valor={filtros.tipoDeAlteracao}
+                        opcoes={resumo.filtros.tiposDeAlteracao}
+                        rotuloDaOpcao={(t) => ROTULO_DO_TIPO[t] ?? t}
+                        onChange={(v) => {
+                          setPagina(1);
+                          setFiltros((f) => ({ ...f, tipoDeAlteracao: v }));
+                        }}
+                      />
+                    </div>
+                  )}
 
-              {movimentacoes.length === 0 && !lista.carregando && !decidindo ? (
-                <div className="rounded-xl border bg-card px-5 py-10 text-center text-sm text-muted-foreground">
-                  {resumo?.movimentacoes === 0
-                    ? (frase?.titulo ?? "Nenhuma movimentação neste dia.")
-                    : "Nenhuma movimentação com estes filtros."}
-                </div>
+                  <h2 className="text-sm font-bold uppercase tracking-wide text-muted-foreground pt-3 pb-2">
+                    Alterações do dia
+                  </h2>
+
+                  {movimentacoes.length === 0 && !lista.carregando && !decidindo ? (
+                    <div className="rounded-xl border bg-card px-5 py-10 text-center text-sm text-muted-foreground space-y-3">
+                      <div>
+                        {resumo?.movimentacoes === 0
+                          ? (frase?.titulo ?? "Nenhuma movimentação neste dia.")
+                          : "Nenhuma movimentação com estes filtros."}
+                      </div>
+                      {/*
+                        O caminho para fora do vazio, e a razão desta tela ter
+                        ganhado uma segunda visão: um dia sem movimentação **não
+                        é** um dia sem chamado, e a frase acima, sozinha, era
+                        lida como "o import não trouxe nada". O botão só aparece
+                        quando há relação a mostrar — um convite para uma lista
+                        vazia seria a mesma promessa quebrada em outro lugar.
+                      */}
+                      {chamadosNoEnvio > 0 && (
+                        <Button
+                          variant="outline"
+                          onClick={() => trocarDeVisao("chamados")}
+                        >
+                          <FileSpreadsheet className="h-4 w-4" />
+                          Ver {chamadosNoEnvio.toLocaleString("pt-BR")} chamados do
+                          envio
+                        </Button>
+                      )}
+                    </div>
+                  ) : (
+                    <>
+                      <ListaDeMovimentacoes
+                        movimentacoes={movimentacoes}
+                        carregando={lista.carregando || decidindo}
+                        ocupadas={ocupadas}
+                        onRevisar={revisar}
+                        onDesfazer={desfazer}
+                      />
+                      {(lista.dados?.total ?? 0) > POR_PAGINA && (
+                        <Paginacao
+                          pagina={pagina}
+                          porPagina={POR_PAGINA}
+                          total={lista.dados?.total ?? 0}
+                          onPagina={setPagina}
+                          unidade="movimentações"
+                          className="pt-3"
+                        />
+                      )}
+                    </>
+                  )}
+                </>
               ) : (
                 <>
-                  <ListaDeMovimentacoes
-                    movimentacoes={movimentacoes}
-                    carregando={lista.carregando || decidindo}
-                    ocupadas={ocupadas}
-                    onRevisar={revisar}
-                    onDesfazer={desfazer}
-                  />
-                  {(lista.dados?.total ?? 0) > POR_PAGINA && (
-                    <Paginacao
-                      pagina={pagina}
-                      porPagina={POR_PAGINA}
-                      total={lista.dados?.total ?? 0}
-                      onPagina={setPagina}
-                      unidade="movimentações"
-                      className="pt-3"
-                    />
+                  {/*
+                    A procedência antes da lista, como na aba Chamados: esta é a
+                    relação do arquivo de outra pessoa, e mostrá-la sem dizer de
+                    que arquivo ela é seria pedir confiança sem dar conferência.
+                  */}
+                  {procedencia && (
+                    <div className="pt-4 font-mono text-xs text-muted-foreground">
+                      {procedencia}
+                    </div>
+                  )}
+
+                  {dadosDaFila !== null && dadosDaFila.total > 0 && (
+                    <div className="flex flex-wrap gap-2 py-3">
+                      <FiltroSelect
+                        rotulo="Unidade"
+                        valor={filtros.unidade}
+                        opcoes={dadosDaFila.filtros.unidades}
+                        onChange={(v) => {
+                          setPagina(1);
+                          setFiltros((f) => ({ ...f, unidade: v }));
+                        }}
+                      />
+                      <FiltroSelect
+                        rotulo="Área"
+                        valor={filtros.area}
+                        opcoes={dadosDaFila.filtros.areas}
+                        onChange={(v) => {
+                          setPagina(1);
+                          setFiltros((f) => ({ ...f, area: v }));
+                        }}
+                      />
+                      <FiltroSelect
+                        rotulo="Responsável"
+                        valor={filtros.responsavel}
+                        opcoes={dadosDaFila.filtros.responsaveis}
+                        onChange={(v) => {
+                          setPagina(1);
+                          setFiltros((f) => ({ ...f, responsavel: v }));
+                        }}
+                      />
+                      <FiltroSelect
+                        rotulo="Situação"
+                        valor={filtros.statusBucket}
+                        opcoes={dadosDaFila.filtros.status}
+                        rotuloDaOpcao={(s) => STATUS_LABELS[s] ?? s}
+                        onChange={(v) => {
+                          setPagina(1);
+                          setFiltros((f) => ({ ...f, statusBucket: v }));
+                        }}
+                      />
+                    </div>
+                  )}
+
+                  <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 pt-3 pb-2">
+                    <h2 className="text-sm font-bold uppercase tracking-wide text-muted-foreground">
+                      Chamados do envio
+                    </h2>
+                    {/*
+                      As duas contagens que a relação sustenta, e que a lista de
+                      movimentações não sabe dar: quantos seguem em aberto, e
+                      quantos destes se mexeram hoje. A segunda é a ponte —
+                      é ela que casa este número com o da outra visão.
+                    */}
+                    {dadosDaFila !== null && dadosDaFila.total > 0 && (
+                      <span className="text-xs text-muted-foreground">
+                        {dadosDaFila.emAberto.toLocaleString("pt-BR")} em aberto ·{" "}
+                        {dadosDaFila.movimentaram.toLocaleString("pt-BR")}{" "}
+                        {dadosDaFila.movimentaram === 1
+                          ? "se mexeu"
+                          : "se mexeram"}{" "}
+                        neste dia
+                      </span>
+                    )}
+                  </div>
+
+                  {chamados.length === 0 && !fila.carregando && !decidindo ? (
+                    <div className="rounded-xl border bg-card px-5 py-10 text-center text-sm text-muted-foreground">
+                      {(dadosDaFila?.total ?? 0) === 0
+                        ? "Nenhum arquivo de chamados foi lido neste dia."
+                        : "Nenhum chamado com estes filtros."}
+                    </div>
+                  ) : (
+                    <>
+                      <ListaDeChamados
+                        chamados={chamados}
+                        carregando={fila.carregando || decidindo}
+                      />
+                      {(dadosDaFila?.totalFiltrado ?? 0) > POR_PAGINA && (
+                        <Paginacao
+                          pagina={pagina}
+                          porPagina={POR_PAGINA}
+                          total={fila.dados?.totalFiltrado ?? 0}
+                          onPagina={setPagina}
+                          unidade="chamados"
+                          className="pt-3"
+                        />
+                      )}
+                    </>
                   )}
                 </>
               )}
@@ -654,6 +924,59 @@ function mudancaDoSeletor(escolha: string): Record<string, string | null> {
   if (escolha === DA_UNIDADE) return { serie: null, visaoGeral: null };
   if (escolha === TODAS_AS_SERIES) return { serie: null, visaoGeral: "1" };
   return { serie: escolha, visaoGeral: null };
+}
+
+/**
+ * Um dos dois botões de leitura.
+ *
+ * Controle segmentado, e não abas: as abas desta tela recortam **uma**
+ * população — as movimentações do dia —, e usar a mesma forma aqui diria que
+ * "Chamados do envio" é mais um recorte delas. É a mesma distinção, e a mesma
+ * solução, que a aba Chamados faz entre suas abas e o par Resumo/Por tipo.
+ */
+function VisaoBotao({
+  active,
+  onClick,
+  icon,
+  label,
+  hint,
+  count,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  label: string;
+  hint: string;
+  /** `undefined` enquanto o número não chegou — nunca zero durante a espera. */
+  count?: number;
+}) {
+  return (
+    <button
+      role="tab"
+      aria-selected={active}
+      onClick={onClick}
+      title={hint}
+      className={cn(
+        "flex items-center gap-2 rounded-lg px-4 py-1.5 text-sm font-medium transition-colors",
+        active
+          ? "bg-card text-foreground shadow-sm"
+          : "text-muted-foreground hover:text-foreground",
+      )}
+    >
+      {icon}
+      {label}
+      {count !== undefined && (
+        <span
+          className={cn(
+            "text-xs tabular-nums rounded-full px-1.5 py-0.5",
+            active ? "bg-primary/10 text-primary" : "bg-muted-foreground/10",
+          )}
+        >
+          {count.toLocaleString("pt-BR")}
+        </span>
+      )}
+    </button>
+  );
 }
 
 /**
