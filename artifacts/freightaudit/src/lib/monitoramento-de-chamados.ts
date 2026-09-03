@@ -199,6 +199,29 @@ export function hojeNaOperacao(): string {
   }).format(new Date());
 }
 
+/**
+ * O dia da operação a que um instante pertence — `YYYY-MM-DD`.
+ *
+ * A mesma conta que `diaDaOperacao` faz no servidor, e com o fuso escrito pela
+ * razão de `horaLegivel`: um envio das 21h de 02/09 pertence a 02/09, e sem o
+ * `timeZone` explícito o navegador de quem abrisse a tela de outro fuso o
+ * jogaria para 03/09 — a tela apontaria para um dia em que não houve envio.
+ */
+export function diaDaOperacaoDe(iso: string): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: FUSO_DA_OPERACAO,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(iso));
+}
+
+/** `YYYY-MM-DD` em dias inteiros desde a época. Sem fuso: é só aritmética. */
+function emDias(dia: string): number {
+  const [a, m, d] = dia.split("-").map(Number);
+  return Date.UTC(a!, m! - 1, d!) / 86_400_000;
+}
+
 // ---------------------------------------------------------------------------
 // Rótulos
 // ---------------------------------------------------------------------------
@@ -368,6 +391,113 @@ export function progressoDoDia(
  */
 export function oscilouEVoltou(m: Movimentacao): boolean {
   return m.diferencas.length === 0 && m.passos > 0 && m.classe === "ALTERADO";
+}
+
+// ---------------------------------------------------------------------------
+// A janela da régua e o acervo
+// ---------------------------------------------------------------------------
+
+/** O último envio de um recorte, quando ele cai fora da janela da régua. */
+export interface EnvioForaDaJanela {
+  /** O dia do último envio do recorte — `YYYY-MM-DD`. */
+  dia: string;
+  /** Dias inteiros entre esse dia e hoje. Nunca negativo: envio não é futuro. */
+  diasAtras: number;
+  /** A janela que a régua está mostrando, para a tela poder dizê-la. */
+  de: string;
+  ate: string;
+}
+
+/**
+ * O envio que existe, mas não nos dias que a régua está mostrando.
+ *
+ * A régua olha nove dias e termina em hoje. É a janela certa para quem abre a
+ * tela todo dia, e é a errada para quem importou uma unidade uma vez, há três
+ * semanas: os nove dias saem todos cinza, cada um deles afirmando com razão que
+ * *naquele dia* não chegou arquivo — e o conjunto das nove frases verdadeiras
+ * diz uma mentira, que é "não há chamados desta unidade".
+ *
+ * Foi o que aconteceu com CAMAÇARI: 1.218 chamados lidos em 16/08, a tela
+ * aberta em 03/09, e nenhum dos dois lados errado. É o mesmo modo de falhar que
+ * o cabeçalho de `serie-da-unidade.ts` descreve para a grafia do nome — *abrir
+ * vazia sobre um acervo cheio* —, e a resposta aqui é a mesma que a de lá: a
+ * tela **diz** onde o dado está, e não se alarga sozinha para alcançá-lo.
+ * Deslocar a régua continua sendo uma decisão de quem opera.
+ *
+ * Devolve `null` — e a tela não diz nada — em todos os casos em que a janela
+ * vazia já é a resposta completa:
+ *
+ * - a régua ainda não chegou (`dias` vazio): não há janela sobre a qual afirmar;
+ * - **algum** dia da janela teve envio: a régua já mostra o que há, e o cinza
+ *   do dia aberto é sobre aquele dia, não sobre o acervo;
+ * - o recorte nunca importou nada: quem responde por isso é `AvisoDoRecorte`
+ *   ("Nenhum chamado importado para …"), e dois avisos sobre o mesmo vazio
+ *   fazem duvidar dos dois;
+ * - o último envio cai **dentro** da janela: contradiz o item acima e não
+ *   deveria acontecer, mas afirmar "fora da janela" sobre um dia que está
+ *   dentro é pior do que calar.
+ */
+export function envioForaDaJanela({
+  dias,
+  series,
+  serie,
+  hoje,
+}: {
+  dias: DiaDaRegua[];
+  series: Serie[];
+  /** O recorte em vigor: `undefined` é todas as séries, `null` é a sem unidade. */
+  serie: string | null | undefined;
+  hoje: string;
+}): EnvioForaDaJanela | null {
+  if (dias.length === 0) return null;
+  if (dias.some((d) => d.envios > 0 || d.enviosComFalha > 0)) return null;
+
+  /*
+    O último envio do recorte, e não o do acervo: com CAMAÇARI aberta, apontar
+    para o envio de RECIFE mandaria quem opera a um dia que, no recorte dela,
+    continua vazio — a tela teria trocado um vazio sem explicação por um vazio
+    com promessa.
+  */
+  const doRecorte =
+    serie === undefined ? series : series.filter((s) => s.serie === serie);
+  const instantes = doRecorte
+    .map((s) => s.ultimaImportacao)
+    .filter((i): i is string => i !== null);
+  if (instantes.length === 0) return null;
+
+  const dia = instantes
+    .map(diaDaOperacaoDe)
+    .reduce((mais, atual) => (atual > mais ? atual : mais));
+
+  const de = dias[0]!.dia;
+  const ate = dias[dias.length - 1]!.dia;
+  if (dia >= de && dia <= ate) return null;
+
+  return { dia, diasAtras: Math.max(0, emDias(hoje) - emDias(dia)), de, ate };
+}
+
+/**
+ * O fim da frase da tira: a distância até hoje e a janela que a régua mostra.
+ *
+ * Mora aqui, e não no JSX, pela razão do cabeçalho deste arquivo: é string
+ * entrando e saindo, e no meio de chaves e quebras de linha o espaço entre um
+ * `}` e a palavra seguinte depende de onde a linha quebrou — é assim que nasce
+ * o "16/08/20261 dia atrás" que passa batido na revisão e aparece pronto na
+ * tela de quem opera.
+ *
+ * Um dia sozinho fala no singular, e zero dia não fala: um envio de hoje que
+ * caísse fora da janela (a régua deslocada para trás) diria "0 dias atrás", que
+ * é uma distância inventada para uma coisa que aconteceu agora.
+ */
+export function janelaDoEnvioFora(envio: EnvioForaDaJanela): string {
+  const distancia =
+    envio.diasAtras > 0
+      ? ` — ${envio.diasAtras} ${envio.diasAtras === 1 ? "dia" : "dias"} atrás`
+      : "";
+  return (
+    `${distancia}. A régua está em ` +
+    `${diaLegivel(envio.de)}–${diaLegivel(envio.ate)}.`
+  );
 }
 
 // ---------------------------------------------------------------------------
