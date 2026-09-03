@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CadastroCanonicoDeUnidades } from "@/components/unidades/cadastro-canonico";
-import { useContextos, type Contexto } from "@/lib/contextos";
+import { unidadeDe, useContextos, type Contexto } from "@/lib/contextos";
 
 /**
  * Unidades — as seleções que existem, com o que cada uma já entregou.
@@ -38,11 +38,6 @@ function periodo(data: string): string {
   const [ano, mes] = data.split("-");
   const indice = Number(mes) - 1;
   return indice >= 0 && indice < 12 ? `${MESES[indice]}/${ano}` : data;
-}
-
-function unidadeDe(contexto: Contexto): string {
-  const unidade = contexto.scopes.find((s) => s.scopeType === "UNIDADE");
-  return unidade?.name ?? unidade?.code ?? contexto.label;
 }
 
 function enderecoDe(contexto: Contexto): string {

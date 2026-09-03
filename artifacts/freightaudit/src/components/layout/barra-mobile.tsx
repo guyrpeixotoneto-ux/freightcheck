@@ -16,7 +16,7 @@ import {
 } from "@/lib/ambiente";
 import { useAmbiente } from "@/lib/ambiente-aberto";
 import { useAuth } from "@/lib/auth";
-import { useContextosDaCasca } from "@/lib/contextos";
+import { unidadeDe, useContextosDaCasca } from "@/lib/contextos";
 import { enderecoDoAssistente } from "@/lib/entrada-do-assistente";
 import { cn } from "@/lib/utils";
 import {
@@ -29,7 +29,7 @@ import { navGroupsAuditoria } from "./nav-auditoria";
 import { navGroupsFechamento } from "./nav-fechamento";
 import { filtrarGrupos, usePermissoes } from "@/lib/permissoes";
 import { barraMobile, type AtalhoMobile } from "./nav-mobile";
-import { detalheDe, estaAtivo, unidadeDe } from "./sidebar";
+import { detalheDe, estaAtivo } from "./sidebar";
 
 /**
  * O menu do celular: uma barra na borda de baixo e a folha "Mais".
