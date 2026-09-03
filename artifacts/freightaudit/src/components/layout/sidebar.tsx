@@ -81,6 +81,7 @@ import {
 import {
   enderecoDe,
   enderecoDeVisaoGeral,
+  enderecoDoMenu,
   visaoGeralAtiva,
 } from "@/lib/navegacao-do-escopo";
 import { cn } from "@/lib/utils";
@@ -157,6 +158,16 @@ export function Sidebar({ open }: { open: boolean }) {
   */
   const busca = useSearch();
   const paraOAssistente = enderecoDoAssistente(busca);
+  /*
+    E o mesmo cuidado para os outros quarenta itens: o `href` da lista é o
+    caminho nu, e um caminho nu chega sem unidade — quem abria CAMAÇARI e
+    clicava numa tela vizinha chegava lá em PERNAMBUCO, porque sem `scopeHash`
+    o produto cai no primeiro contexto do banco. Ver `enderecoDoMenu`, em
+    `lib/navegacao-do-escopo.ts`; o Assistente continua com o endereço dele
+    porque leva `period` junto, que nenhum item da lista leva.
+  */
+  const enderecoDoItem = (href: string) =>
+    href === "/assistente" ? paraOAssistente : enderecoDoMenu(href, location, busca);
   const alteracoes = useAlteracoesDaVigencia();
   const importacoes = useImportacoesEmAndamento();
   const curadoria = useCuradoriaPendente();
@@ -194,7 +205,7 @@ export function Sidebar({ open }: { open: boolean }) {
   );
 
   if (!open) {
-    return <FaixaDeIcones location={location} grupos={grupos} ambiente={ambiente} contadores={contadores} paraOAssistente={paraOAssistente} />;
+    return <FaixaDeIcones location={location} grupos={grupos} ambiente={ambiente} contadores={contadores} enderecoDoItem={enderecoDoItem} />;
   }
 
   return (
@@ -288,9 +299,14 @@ export function Sidebar({ open }: { open: boolean }) {
                   >
                     {grupo.itens.map((item) => (
                       <ItemDoMenu
-                        href={item.href === "/assistente" ? paraOAssistente : item.href}
+                        href={enderecoDoItem(item.href)}
                         key={item.href}
                         item={item}
+                        /*
+                          O aceso continua sendo decidido pelo `href` nu: o
+                          endereço que o link leva agora carrega a unidade, e
+                          `estaAtivo` compara caminho com caminho.
+                        */
                         ativo={estaAtivo(location, item.href)}
                         contagem={item.contador ? contadores[item.contador] : 0}
                       />
@@ -344,14 +360,19 @@ function FaixaDeIcones({
   grupos,
   ambiente,
   contadores,
-  paraOAssistente,
+  enderecoDoItem,
 }: {
   location: string;
   grupos: NavGroup[];
   ambiente: Ambiente;
   contadores: Contadores;
-  /** O endereço do Assistente já com o recorte da tela de onde se clica. */
-  paraOAssistente: string;
+  /**
+   * O endereço de um item já com o recorte da tela de onde se clica — a
+   * unidade aberta para os itens da lista, e `enderecoDoAssistente` para o
+   * atalho do Assistente. Ver `enderecoDoMenu`, em
+   * `lib/navegacao-do-escopo.ts`.
+   */
+  enderecoDoItem: (href: string) => string;
 }) {
   return (
     <aside className="hidden md:flex w-16 bg-sidebar text-sidebar-foreground border-r border-sidebar-border shrink-0 flex-col sticky top-[var(--casca-topo)] h-[calc(100dvh-var(--casca-topo))]">
@@ -365,7 +386,7 @@ function FaixaDeIcones({
           >
             {grupo.itens.map((item) => (
               <IconeDaFaixa
-                href={item.href === "/assistente" ? paraOAssistente : item.href}
+                href={enderecoDoItem(item.href)}
                 key={item.href}
                 item={item}
                 ativo={estaAtivo(location, item.href)}
@@ -381,7 +402,7 @@ function FaixaDeIcones({
         <div className="p-2 border-t border-sidebar-border">
           <Rotulo texto="Pergunte ao FreightCheck">
             <Link
-              href={paraOAssistente}
+              href={enderecoDoItem("/assistente")}
               aria-label="Pergunte ao FreightCheck"
               className="w-11 h-11 mx-auto rounded-lg border border-nav-inteligencia/30 bg-nav-inteligencia/[0.06] flex items-center justify-center hover:bg-nav-inteligencia/[0.12] transition-colors"
             >

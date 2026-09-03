@@ -3,6 +3,7 @@ import {
   enderecoDe,
   enderecoDeVisaoGeral,
   enderecoDoAno,
+  enderecoDoMenu,
   visaoGeralAtiva,
 } from "../navegacao-do-escopo";
 
@@ -295,5 +296,119 @@ describe("o que a caixa da lateral mostra", () => {
     expect(visaoGeralAtiva("/resumo-executivo", "?period=2026-08-01")).toBe(
       false,
     );
+  });
+});
+
+/**
+ * A outra metade do mesmo defeito: **trocar de assunto não deve trocar de
+ * recorte**.
+ *
+ * O seletor de unidade já não expulsava ninguém da tela, e a reclamação
+ * continuou chegando — "eu troco a Unidade Atual por Camaçari e muda de módulo,
+ * mas eu quero ver os chamados de Camaçari" —, porque o caminho de volta estava
+ * aberto: todo `href` da lateral era o caminho nu, e um endereço sem
+ * `scopeHash` cai no primeiro contexto do banco (`contextoAberto`). Quem abria
+ * CAMAÇARI e clicava em "Monitoramento de Chamados" chegava lá em PERNAMBUCO,
+ * com a lateral trocando sozinha a unidade que ela mesma tinha escrito.
+ */
+describe("clicar num item do menu", () => {
+  const COM_CAMACARI = "?scopeHash=scope-camacari&canal=EMPURRADA";
+
+  it("leva a unidade aberta para o Monitoramento de Chamados", () => {
+    const destino = enderecoDoMenu(
+      "/monitoramento-de-chamados",
+      "/parametros",
+      COM_CAMACARI,
+    );
+
+    expect(tela(destino)).toBe("/monitoramento-de-chamados");
+    expect(consulta(destino)).toEqual({
+      scopeHash: "scope-camacari",
+      canal: "EMPURRADA",
+    });
+  });
+
+  /*
+    A régua é a de `enderecoDe`, e pelo mesmo motivo: escrever `scopeHash` num
+    endereço que ninguém lá lê é o filtro prometido e não aplicado.
+  */
+  it("não escreve escopo nas telas que não sabem lê-lo", () => {
+    expect(enderecoDoMenu("/importacoes", "/parametros", COM_CAMACARI)).toBe(
+      "/importacoes",
+    );
+  });
+
+  /* Sem unidade no endereço não há o que levar — a tela abre como sempre abriu. */
+  it("deixa o endereço nu quando não há escopo aberto", () => {
+    expect(
+      enderecoDoMenu("/monitoramento-de-chamados", "/parametros", "?period=2026-08-01"),
+    ).toBe("/monitoramento-de-chamados");
+  });
+
+  /*
+    O tempo é o contrário de `enderecoDe`: lá a tela é a mesma antes e depois, e
+    o vocabulário do tempo com ela; aqui a tela muda, e `dia`, `ano` e `period`
+    não se traduzem um no outro.
+  */
+  it("não carrega o tempo da tela de origem", () => {
+    const destino = enderecoDoMenu(
+      "/monitoramento-de-chamados",
+      "/parametros",
+      `${COM_CAMACARI}&period=2026-08-01`,
+    );
+
+    expect(consulta(destino).period).toBeUndefined();
+    expect(consulta(destino).dia).toBeUndefined();
+  });
+
+  it("copia o canal vazio, que é uma partição e não uma ausência", () => {
+    expect(consulta(enderecoDoMenu("/alteracoes", "/parametros", "?scopeHash=abc&canal="))).toEqual(
+      { scopeHash: "abc", canal: "" },
+    );
+    expect(consulta(enderecoDoMenu("/alteracoes", "/parametros", "?scopeHash=abc"))).toEqual({
+      scopeHash: "abc",
+    });
+  });
+
+  describe("estando em Visão Geral", () => {
+    it("atravessa como Visão Geral para quem sabe somar", () => {
+      const destino = enderecoDoMenu(
+        "/monitoramento-de-chamados",
+        "/parametros",
+        "?visaoGeral=1",
+      );
+
+      expect(consulta(destino)).toEqual({ visaoGeral: "1" });
+    });
+
+    /*
+      O Painel sem `scopeHash` **é** a Visão Geral (ver `visaoGeralAtiva`): sair
+      dele por um item do menu tinha de manter a soma, e não pintar a primeira
+      unidade da lista sobre a tela nova.
+    */
+    it("vale também para a porta de entrada, que não escreve o parâmetro", () => {
+      expect(consulta(enderecoDoMenu("/parametros", PAINEL, ""))).toEqual({
+        visaoGeral: "1",
+      });
+    });
+
+    it("vai nu para a tela que não sabe somar", () => {
+      expect(enderecoDoMenu("/composicao", "/parametros", "?visaoGeral=1")).toBe(
+        "/composicao",
+      );
+    });
+  });
+
+  /*
+    O `~` do wouter é endereço absoluto — ele sai do ambiente (`nav-administracao.ts`),
+    e a unidade desta auditoria não quer dizer nada do lado de lá. O endereço que
+    já traz consulta própria — o do Assistente, montado por
+    `enderecoDoAssistente` — também sai daqui intacto: ele já escolheu o que leva.
+  */
+  it("não toca no que sai do ambiente nem no que já tem consulta", () => {
+    expect(enderecoDoMenu("~/unidades", "/parametros", COM_CAMACARI)).toBe("~/unidades");
+    expect(
+      enderecoDoMenu("/assistente?scopeHash=outro", "/parametros", COM_CAMACARI),
+    ).toBe("/assistente?scopeHash=outro");
   });
 });
