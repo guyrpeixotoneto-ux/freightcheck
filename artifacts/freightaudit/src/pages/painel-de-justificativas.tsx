@@ -1045,7 +1045,8 @@ export default function PainelDeJustificativas() {
                       </th>
                       <th className="px-3 py-2.5 text-left font-semibold">Placa</th>
                       <th className="px-3 py-2.5 text-left font-semibold">Atributo</th>
-                      <th className="px-3 py-2.5 text-left font-semibold">De → Para</th>
+                      <th className="px-3 py-2.5 text-left font-semibold">De</th>
+                      <th className="px-3 py-2.5 text-left font-semibold">Para</th>
                       <th className="px-3 py-2.5 text-left font-semibold">Vigência</th>
                       <th className="px-3 py-2.5 text-left font-semibold">
                         {situacao === "PENDENTE" ? "Situação" : "Justificativa"}
@@ -1057,7 +1058,7 @@ export default function PainelDeJustificativas() {
                     {lista.consulta.isPending &&
                       Array.from({ length: 3 }).map((_, i) => (
                         <tr key={`esqueleto-${i}`} className="border-b">
-                          <td colSpan={7} className="px-4 py-3">
+                          <td colSpan={8} className="px-4 py-3">
                             <Skeleton className="h-5 w-full" />
                           </td>
                         </tr>
@@ -1065,7 +1066,7 @@ export default function PainelDeJustificativas() {
 
                     {!lista.consulta.isPending && lista.linhas.length === 0 && (
                       <tr>
-                        <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">
+                        <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
                           {situacao === "PENDENTE"
                             ? "Nenhuma pendência neste recorte — tudo o que mudou aqui já está justificado."
                             : "Nenhuma justificativa escrita neste recorte ainda."}
@@ -1096,11 +1097,15 @@ export default function PainelDeJustificativas() {
                             {linha.attributeName ?? linha.attributeCode ?? "—"}
                           </td>
                           <td className="px-3 py-3 align-top">
+                            <span className="tabular-nums text-muted-foreground line-through decoration-muted-foreground/40">
+                              {linha.valueBefore ?? "—"}
+                            </span>
+                          </td>
+                          <td className="px-3 py-3 align-top">
                             <span className="inline-flex items-center gap-1.5 tabular-nums">
-                              <span className="text-muted-foreground line-through decoration-muted-foreground/40">
-                                {linha.valueBefore ?? "—"}
+                              <span aria-hidden className="text-muted-foreground">
+                                →
                               </span>
-                              <span aria-hidden>→</span>
                               <span className="font-medium">{linha.valueAfter ?? "—"}</span>
                               {sentido === "AUMENTO" && (
                                 <ArrowUpRight className="w-4 h-4 text-rose-600" aria-label="aumento" />
