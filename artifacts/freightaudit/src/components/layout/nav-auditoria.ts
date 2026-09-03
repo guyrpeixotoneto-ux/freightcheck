@@ -151,9 +151,19 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
       icon: Headset,
       cor: "text-nav-chamados",
       itens: [
+        /*
+          O item chama-se **"Monitoramento"**, e não "Monitoramento de
+          Chamados": o cartão em que ele vive já diz "Chamados Ambev" logo
+          acima, e repetir o assunto no item fazia o rótulo estourar a largura
+          da lateral — quem abria o menu lia "Monitoramento de Chama…", que é
+          justamente a parte redundante ocupando o espaço da parte que
+          distingue. O endereço (`/monitoramento-de-chamados`) não mudou: ele é
+          a chave de permissão do módulo (`lib/permissoes.ts`) e trocá-lo
+          desligaria o acesso de quem já o tem.
+        */
         {
           href: "/monitoramento-de-chamados",
-          label: "Monitoramento de Chamados",
+          label: "Monitoramento",
           icon: Headset,
         },
         { href: "/justificativas", label: "Justificativas", icon: FileCheck2 },
