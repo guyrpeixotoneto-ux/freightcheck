@@ -36,3 +36,4 @@ export * from "./composicao-da-vigencia";
 export * from "./evolucao-por-placa";
 export * from "./radar-trechos";
 export * from "./painel-de-justificativas";
+export * from "./conciliacao-de-chamados";

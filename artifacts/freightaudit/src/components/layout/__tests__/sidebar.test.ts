@@ -324,18 +324,23 @@ describe("a lateral", () => {
   });
 
   /*
-    A seção dos chamados reúne as três telas da manhã, e a ordem delas é a do
+    A seção dos chamados reúne as quatro telas da manhã, e a ordem delas é a do
     caminho: o monitoramento, que diz o que mudou nos chamados desde a última
-    importação; a fila, onde se justifica cada mudança; e o painel, onde se
-    confere o que ainda falta justificar.
+    importação; a conciliação, que confere se o que mudou nos chamados é o que
+    mudou na planilha; a fila, onde se justifica cada mudança; e o painel, onde
+    se confere o que ainda falta justificar.
 
-    O caso guarda os dois lados da fusão — as três no mesmo cartão, na ordem, e
-    a seção "Justificativas" que não voltou como um segundo cartão ao lado
+    O caso guarda os dois lados da fusão — as quatro no mesmo cartão, na ordem,
+    e a seção "Justificativas" que não voltou como um segundo cartão ao lado
     dela. Um item que escorregue de lugar aqui não quebra typecheck nem build:
     aparece no dia em que alguém abre a lateral e não acha a fila onde ela
     estava.
+
+    A conciliação vem em segundo, e não no fim: ela é a pergunta seguinte à do
+    monitoramento e sobre o mesmo material, e a fila de justificativas já
+    pressupõe saber o que mudou.
   */
-  it("põe, em Chamados Ambev, o monitoramento à frente da fila e do painel", () => {
+  it("põe, em Chamados Ambev, o monitoramento e a conciliação à frente da fila e do painel", () => {
     for (const ambiente of Object.keys(BASES_DE_AUDITORIA)) {
       const chamados = navGroupsAuditoria(ambiente as AmbienteDeAuditoria).find(
         (grupo) => grupo.titulo === "Chamados Ambev",
@@ -343,17 +348,19 @@ describe("a lateral", () => {
 
       expect(chamados.itens.map((item) => item.href)).toEqual([
         "/monitoramento-de-chamados",
+        "/conciliacao-de-chamados",
         "/justificativas",
         "/painel-de-justificativas",
       ]);
       expect(chamados.itens.map((item) => item.label)).toEqual([
         /*
-          "Monitoramento", curto: a seção acima já diz "Chamados Ambev", e o
-          rótulo longo era truncado na lateral ("Monitoramento de Chama…") —
-          ver `nav-auditoria.ts`. O href continua o mesmo porque é a chave de
-          permissão do módulo.
+          Os dois primeiros são curtos: a seção acima já diz "Chamados Ambev", e
+          o rótulo longo era truncado na lateral ("Monitoramento de Chama…") —
+          ver `nav-auditoria.ts`. Os hrefs continuam inteiros porque são a chave
+          de permissão do módulo.
         */
         "Monitoramento",
+        "Conciliação",
         "Justificativas",
         "Painel de Justificativas",
       ]);

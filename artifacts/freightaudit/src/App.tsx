@@ -67,6 +67,7 @@ import Justificativas from '@/pages/justificativas';
 import JustificativasPlaca from '@/pages/justificativas-placa';
 import PainelDeJustificativas from '@/pages/painel-de-justificativas';
 import MonitoramentoDeChamados from '@/pages/monitoramento-de-chamados';
+import ConciliacaoDeChamados from '@/pages/conciliacao-de-chamados';
 import { EmPreparo } from '@/pages/em-preparo';
 import { TELAS_EM_PREPARO } from '@/pages/telas-em-preparo';
 import VisaoGerencial from '@/pages/fechamento/visao';
@@ -404,6 +405,7 @@ function RotasDaAuditoria() {
       <Route path="/parametros" component={Parametros} />
       <Route path="/remunerado" component={Remunerado} />
       <Route path="/monitoramento-de-chamados" component={MonitoramentoDeChamados} />
+      <Route path="/conciliacao-de-chamados" component={ConciliacaoDeChamados} />
       <Route path="/justificativas" component={Justificativas} />
       <Route path="/painel-de-justificativas" component={PainelDeJustificativas} />
       <Route path="/justificativas/placa/:placa" component={JustificativasPlaca} />
