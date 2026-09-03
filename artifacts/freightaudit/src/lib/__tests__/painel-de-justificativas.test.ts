@@ -6,6 +6,7 @@ import {
   pendenciasPorTipo,
   responsaveisDoPainel,
   resumoDoPainel,
+  tiposDoPainel,
   vigenciasDoPainel,
   direcaoDaLinha,
   type AutorDeJustificativas,
@@ -96,24 +97,52 @@ describe("resumoDoPainel", () => {
   });
 });
 
+describe("tiposDoPainel", () => {
+  /*
+    O painel não cobra trecho — a razão está em
+    `@workspace/comparison/painel-de-justificativas-escopo`. O que se prende
+    aqui é que a lista sai da do ambiente, e não de uma segunda lista escrita à
+    mão: no dia em que a empurrada ganhar um quarto ativo, ele aparece sozinho.
+  */
+  it("oferece os ativos da operação, menos o que o painel não cobra", () => {
+    expect(tiposDoPainel("auditoria")).toEqual(["CAVALO", "CARRETA"]);
+  });
+
+  it("não mexe nas operações que não têm trecho", () => {
+    expect(tiposDoPainel("auditoria-rota")).toEqual(
+      EQUIPAMENTOS_DO_AMBIENTE["auditoria-rota"],
+    );
+    expect(tiposDoPainel("auditoria-apoio")).toEqual(["EMPILHADEIRA"]);
+  });
+});
+
 describe("pendenciasPorTipo", () => {
   it("põe os tipos da operação mesmo zerados, e os extras depois", () => {
     const barras = pendenciasPorTipo(
       [...ACERVO, linha("v2", "DOLLY", 2, 0)],
       null,
-      EQUIPAMENTOS_DO_AMBIENTE.auditoria,
+      tiposDoPainel("auditoria"),
     );
 
-    expect(barras.map((b) => b.tipo)).toEqual([
-      ...EQUIPAMENTOS_DO_AMBIENTE.auditoria,
-      "DOLLY",
-    ]);
+    expect(barras.map((b) => b.tipo)).toEqual(["CAVALO", "CARRETA", "DOLLY"]);
     expect(barras.find((b) => b.tipo === "CARRETA")!.pendentes).toBe(0);
     expect(barras.find((b) => b.tipo === "CAVALO")!.pendentes).toBe(10);
   });
 
+  /*
+    A barra é clicável e leva à aba (ou ao filtro) do tipo. O trecho não tem
+    nem uma nem outro neste painel, então ele não vira barra — nem pedido entre
+    os fixos, nem vindo do dado, que é o que aconteceria com uma resposta
+    guardada de antes desta regra.
+  */
+  it("não dá barra ao tipo que o painel não cobra", () => {
+    const barras = pendenciasPorTipo(ACERVO, null, EQUIPAMENTOS_DO_AMBIENTE.auditoria);
+
+    expect(barras.map((b) => b.tipo)).toEqual(["CAVALO", "CARRETA"]);
+  });
+
   it("recorta por vigência quando uma está escolhida", () => {
-    const barras = pendenciasPorTipo(ACERVO, "v2", EQUIPAMENTOS_DO_AMBIENTE.auditoria);
+    const barras = pendenciasPorTipo(ACERVO, "v2", tiposDoPainel("auditoria"));
 
     expect(barras.find((b) => b.tipo === "CAVALO")!.pendentes).toBe(4);
     expect(barras.find((b) => b.tipo === "CARRETA")!.pendentes).toBe(0);
@@ -125,7 +154,7 @@ describe("pendenciasPorTipo", () => {
     const barras = pendenciasPorTipo(
       [linha("v1", null, 7, 0)],
       null,
-      EQUIPAMENTOS_DO_AMBIENTE.auditoria,
+      tiposDoPainel("auditoria"),
     );
 
     expect(barras.every((b) => b.pendentes === 0)).toBe(true);
