@@ -931,3 +931,126 @@ export function useRevisao(dia: string) {
 
   return { dia, revisar, desfazer, emLote };
 }
+
+// ---------------------------------------------------------------------------
+// A relação de chamados como tabela
+// ---------------------------------------------------------------------------
+
+/**
+ * As colunas da relação, na ordem em que a tabela as escreve.
+ *
+ * `chamado` não está aqui de propósito: é a coluna que identifica a linha, e
+ * uma tabela sem ela é uma lista de atributos de coisa nenhuma. O que esta
+ * lista descreve é o que a engrenagem do cabeçalho **deixa esconder**.
+ *
+ * A ordem é a do arquivo lido de cima para baixo — quem é o chamado (status,
+ * assunto), onde ele acontece (unidade, tipo), quem o toca (solicitante,
+ * operador), quando (as duas datas) e como ele está (SLA, situação). É a mesma
+ * leitura que a pessoa faz na planilha aberta ao lado.
+ */
+export const COLUNAS_DA_RELACAO = [
+  { chave: "status", rotulo: "Status", dica: "o status como o arquivo escreveu" },
+  { chave: "assunto", rotulo: "Assunto", dica: "a Justificativa Abertura do chamado" },
+  { chave: "unidade", rotulo: "Unidade", dica: "a unidade como o arquivo a escreve" },
+  {
+    chave: "tipo",
+    rotulo: "Tipo",
+    dica: "o Segmento do arquivo — é por ele que o filtro Área recorta",
+  },
+  { chave: "solicitante", rotulo: "Solicitante", dica: "quem abriu o chamado" },
+  { chave: "operador", rotulo: "Operador", dica: "quem toca o chamado" },
+  { chave: "abertoEm", rotulo: "Aberto em", dica: "Data Solicitação" },
+  {
+    chave: "alteradoEmFonte",
+    rotulo: "Alterado na fonte",
+    dica: "Data Alteração — quando a Ambev mexeu, não quando lemos o arquivo",
+  },
+  { chave: "sla", rotulo: "SLA", dica: "o prazo previsto, e se ele já passou" },
+  { chave: "situacao", rotulo: "Situação", dica: "encerrado ou em aberto no arquivo" },
+] as const;
+
+export type ColunaDaRelacao = (typeof COLUNAS_DA_RELACAO)[number]["chave"];
+
+const TODAS_AS_COLUNAS = COLUNAS_DA_RELACAO.map((c) => c.chave);
+
+const CHAVE_DAS_COLUNAS = "freightcheck:monitoramento:colunas-da-relacao";
+
+/**
+ * As colunas que ficam à vista — preferência de quem olha, não fato do dado.
+ *
+ * Em `localStorage` pela razão de `fluxos-visoes.ts`: guardá-la no servidor
+ * faria a escolha de uma pessoa mudar a tela de outra. `try/catch` porque
+ * `localStorage` lança em janela privada, e esconder uma coluna não é motivo
+ * para a tela inteira não abrir.
+ *
+ * Uma chave desconhecida — coluna que existia numa versão anterior — é
+ * descartada na leitura, e uma coluna nova entra visível: o padrão de uma
+ * coluna recém-nascida é aparecer, senão ela nasce escondida para todo mundo
+ * que já usou a tela e ninguém descobre que ela existe.
+ */
+export function lerColunasDaRelacao(): ColunaDaRelacao[] {
+  try {
+    const cru = globalThis.localStorage?.getItem(CHAVE_DAS_COLUNAS);
+    if (!cru) return [...TODAS_AS_COLUNAS];
+    const lidas = JSON.parse(cru);
+    if (!Array.isArray(lidas)) return [...TODAS_AS_COLUNAS];
+    const escondidas = new Set(
+      TODAS_AS_COLUNAS.filter((c) => !lidas.includes(c)),
+    );
+    return TODAS_AS_COLUNAS.filter((c) => !escondidas.has(c));
+  } catch {
+    return [...TODAS_AS_COLUNAS];
+  }
+}
+
+export function gravarColunasDaRelacao(colunas: ColunaDaRelacao[]): void {
+  try {
+    globalThis.localStorage?.setItem(CHAVE_DAS_COLUNAS, JSON.stringify(colunas));
+  } catch {
+    /* Sem armazenamento, a escolha vale só para esta sessão. */
+  }
+}
+
+/** O que a coluna SLA diz: o prazo passou, ou não. `null` é chamado sem prazo. */
+export type SituacaoDoPrazo = "NO_PRAZO" | "ATRASADO" | null;
+
+/**
+ * O prazo do chamado contra o dia que está em tela.
+ *
+ * A régua é a mesma de `criticidadeDoChamado`, no servidor, e foi aprovada
+ * assim: **atrasado é o chamado que tem prazo, o prazo já passou e ele não está
+ * encerrado**. Um chamado que fechou depois do prazo não vira atrasado aqui —
+ * inventar uma segunda régua faria a mesma palavra contar duas populações, e a
+ * tela passaria a discordar do número de "atrasados" que o resumo do dia dá.
+ *
+ * `dia` é o dia da relação, e nunca o relógio de quem lê: abrir 16/08 em
+ * setembro tem de mostrar o que 16/08 mostrava, senão a tela repinta o passado
+ * a cada abertura.
+ */
+export function situacaoDoPrazo(
+  chamado: { prazoPrevisto: string | null; encerradoEm: string | null },
+  dia: string,
+): SituacaoDoPrazo {
+  if (chamado.prazoPrevisto === null) return null;
+  if (chamado.encerradoEm !== null) return "NO_PRAZO";
+  return chamado.prazoPrevisto < dia ? "ATRASADO" : "NO_PRAZO";
+}
+
+/**
+ * `CAMAÇARI` vira `Camaçari`, e `Camaçari` continua `Camaçari`.
+ *
+ * O export da Ambev grita unidade, segmento e operador em caixa alta, e uma
+ * tabela inteira em maiúsculas é mais difícil de varrer do que a mesma tabela
+ * em caixa de título. Só o texto **todo** em caixa alta é dobrado: um valor que
+ * já venha misturado é escolha da fonte, e mexer nele seria reescrever o dado.
+ * A célula mantém o texto original no `title`, para quem confere contra a
+ * planilha.
+ */
+export function emCaixaDeTitulo(texto: string): string {
+  if (texto !== texto.toLocaleUpperCase("pt-BR")) return texto;
+  return texto
+    .toLocaleLowerCase("pt-BR")
+    .replace(/(^|[\s/\-·])(\p{L})/gu, (_, antes: string, letra: string) =>
+      `${antes}${letra.toLocaleUpperCase("pt-BR")}`,
+    );
+}

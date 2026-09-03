@@ -204,7 +204,15 @@ export const STATUS_LABELS: Record<string, string> = {
   DESCONHECIDO: "sem status",
 };
 
-const STATUS_STYLES: Record<string, string> = {
+/**
+ * A cor de cada caixa de status, e não do texto que a fonte escreveu.
+ *
+ * Exportado porque a relação de chamados do Monitoramento mostra o mesmo
+ * status na mesma tela do mesmo produto: duas tabelas pintando `APROVADO` de
+ * verdes diferentes é o tipo de detalhe que faz alguém achar que são dois
+ * estados.
+ */
+export const STATUS_STYLES: Record<string, string> = {
   ABERTO: "bg-sky-100 text-sky-900 border-sky-300",
   EM_ANDAMENTO: "bg-amber-100 text-amber-900 border-amber-300",
   ATENDIDO: "bg-emerald-100 text-emerald-900 border-emerald-300",

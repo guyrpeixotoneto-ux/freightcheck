@@ -184,6 +184,16 @@ import {
 const POR_PAGINA = 25;
 
 /**
+ * Os tamanhos que a relação oferece.
+ *
+ * Menores que os `TAMANHOS_DE_PAGINA` das tabelas de alterações (50/100/300),
+ * e de propósito: lá cada linha é um parâmetro e a pessoa varre; aqui cada
+ * linha abre em detalhe, e 300 linhas abertas não são uma tela — são um
+ * arquivo.
+ */
+const TAMANHOS_DA_RELACAO = [25, 50, 100];
+
+/**
  * As duas leituras do mesmo dia.
  *
  * `movimentacoes` é **o que mudou** — a fila de trabalho, e a razão de a tela
@@ -218,6 +228,14 @@ export default function MonitoramentoDeChamados() {
     parametros.get("visao") === "chamados" ? "chamados" : "movimentacoes";
 
   const [pagina, setPagina] = useState(1);
+  /*
+    O tamanho da página é escolha de quem olha, e só da relação.
+
+    A lista de movimentações continua com os 25 de sempre: ela é fila de
+    trabalho, e quem revisa desce uma página por vez. A relação é conferência
+    contra a planilha, e ali abrir 100 de uma vez é o que encurta o trabalho.
+  */
+  const [porPaginaDaFila, setPorPaginaDaFila] = useState(POR_PAGINA);
   const [filtros, setFiltros] = useState<FiltrosDaTela>({});
   const [ocupadas, setOcupadas] = useState<Set<string>>(new Set());
 
@@ -284,7 +302,7 @@ export default function MonitoramentoDeChamados() {
     serie,
     filtros,
     pagina,
-    porPagina: POR_PAGINA,
+    porPagina: porPaginaDaFila,
     habilitado: recorte.pronto && visao === "chamados",
   });
   const revisao = useRevisao(dia);
@@ -928,22 +946,28 @@ export default function MonitoramentoDeChamados() {
                         : "Nenhum chamado com estes filtros."}
                     </div>
                   ) : (
-                    <>
-                      <ListaDeChamados
-                        chamados={chamados}
-                        carregando={fila.carregando || decidindo}
-                      />
-                      {(dadosDaFila?.totalFiltrado ?? 0) > POR_PAGINA && (
-                        <Paginacao
-                          pagina={pagina}
-                          porPagina={POR_PAGINA}
-                          total={fila.dados?.totalFiltrado ?? 0}
-                          onPagina={setPagina}
-                          unidade="chamados"
-                          className="pt-3"
-                        />
-                      )}
-                    </>
+                    /*
+                      O rodapé mora dentro da tabela, e não abaixo dela: a
+                      contagem, as páginas e o tamanho são a moldura da mesma
+                      lista, e é assim que a tabela da aba Chamados os mostra.
+                    */
+                    <ListaDeChamados
+                      chamados={chamados}
+                      carregando={fila.carregando || decidindo}
+                      dia={dia}
+                      pagina={pagina}
+                      porPagina={porPaginaDaFila}
+                      total={dadosDaFila?.totalFiltrado ?? 0}
+                      onPagina={setPagina}
+                      onPorPagina={(quantos) => {
+                        setPagina(1);
+                        setPorPaginaDaFila(quantos);
+                      }}
+                      tamanhos={TAMANHOS_DA_RELACAO}
+                      procedencia={
+                        dadosDaFila?.envios[0]?.filename ?? "chamados-do-envio"
+                      }
+                    />
                   )}
                 </>
               )}

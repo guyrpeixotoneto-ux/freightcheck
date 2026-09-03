@@ -1,43 +1,57 @@
-import { Activity, CircleDot } from "lucide-react";
+import { Fragment, useState, type ReactNode } from "react";
+import { ChevronDown, ChevronRight, Download, Settings2, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Paginacao } from "@/components/ui/paginacao";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
-import { STATUS_LABELS } from "@/components/changes/ticket-table";
+import { STATUS_LABELS, STATUS_STYLES } from "@/components/changes/ticket-table";
+import { csvComoBlob, paraNomeDeArquivo } from "@/lib/csv";
 import { cn } from "@/lib/utils";
 import {
+  COLUNAS_DA_RELACAO,
   diaDaOperacaoDe,
   diaLegivel,
+  emCaixaDeTitulo,
+  gravarColunasDaRelacao,
+  lerColunasDaRelacao,
+  situacaoDoPrazo,
   type AlteracaoDoChamado,
   type ChamadoNaFila,
+  type ColunaDaRelacao,
 } from "@/lib/monitoramento-de-chamados";
 
 /**
- * CHAMADOS DO ENVIO — a relação que o arquivo trouxe.
+ * CHAMADOS DO ENVIO — a relação que o arquivo trouxe, em tabela.
  *
  * A lista irmã de `lista-de-movimentacoes.tsx`, e diferente dela no que mostra:
  * ali cada linha é um **antes → depois** apurado pelo motor; aqui cada linha é
- * o chamado como a planilha o escreveu, tenha ele se mexido ou não. Quem quiser
- * saber o que mudou troca de visão, e o selo "movimentou hoje" diz onde
- * procurar.
- *
- * Uma linha e não uma tabela, pela mesma razão da lista de movimentações: os
- * campos que importam variam por chamado — uns têm placa, outros têm cargo;
- * uns têm prazo, outros não — e uma tabela pagaria colunas vazias em todos
- * eles. A tabela larga do envio já existe, e é a da aba Chamados.
+ * o chamado como a planilha o escreveu, tenha ele se mexido ou não. O selo
+ * "movimentou" na coluna do número é a ponte entre as duas.
  *
  * ---------------------------------------------------------------------------
- * Por que a linha mostra tanto
+ * Tabela, e não mais a lista de cartões
  * ---------------------------------------------------------------------------
  *
- * Porque a pergunta desta visão é "o que veio no arquivo?", e uma linha que
- * responde com número, situação e assunto obriga quem confere a abrir a
- * planilha ao lado para todo o resto — que é justamente o trabalho que esta
- * tela existe para poupar. O export real tem 26 colunas; a linha mostra as que
- * identificam o chamado (quem pediu, quem opera, quem aprova), as quatro datas
- * que o domínio distingue e **o que foi pedido em cada parâmetro**, que é o
- * conteúdo do chamado e antes só aparecia como a contagem "1 parâmetro".
+ * Os cartões nasceram do argumento de que os campos variam por chamado — uns
+ * têm placa, outros têm cargo — e que uma tabela pagaria colunas vazias. O
+ * argumento vale para as **movimentações**, onde cada linha fala de um campo
+ * diferente; não vale aqui: esta relação é a planilha, toda linha tem as mesmas
+ * colunas do export, e quem confere lê de cima para baixo procurando a linha
+ * que destoa. Numa tabela isso é varrer uma coluna; em cartões, é ler 1.218
+ * blocos.
  *
- * Campo vazio não vira linha vazia: cada bloco só entra quando tem valor, pelo
- * mesmo motivo que a tira de identificação não escreve "• • •" — uma relação de
- * 1.218 linhas com buracos parece defeituosa quando está certa.
+ * A tabela é a mesma da aba Chamados, de propósito — caixa de seleção à
+ * esquerda, linha que abre no clique, detalhe embaixo, rodapé do Freightech —
+ * e quem navega as duas não deveria ter de aprender duas tabelas.
+ *
+ * O que **não** cabe em coluna vai para o detalhe da linha, e não some: a
+ * vigência, a linha do arquivo, o item inteiro e o que foi pedido em cada
+ * parâmetro. O detalhe traz tudo, inclusive o que a engrenagem escondeu.
  *
  * Não há botão de revisar: revisão é ato sobre **movimentação**, e oferecer o
  * carimbo aqui criaria um segundo estado de "revisado" que a régua não conta —
@@ -46,222 +60,656 @@ import {
 export function ListaDeChamados({
   chamados,
   carregando,
+  dia,
+  pagina,
+  porPagina,
+  total,
+  onPagina,
+  onPorPagina,
+  tamanhos,
+  procedencia,
 }: {
   chamados: ChamadoNaFila[];
   carregando: boolean;
+  /**
+   * O dia da relação — a régua do prazo.
+   *
+   * Não é `hoje`: abrir 16/08 em setembro tem de mostrar o que 16/08 mostrava.
+   * Ver `situacaoDoPrazo`.
+   */
+  dia: string;
+  pagina: number;
+  porPagina: number;
+  /** O total **depois dos filtros** — é ele que diz quantas páginas existem. */
+  total: number;
+  onPagina: (pagina: number) => void;
+  onPorPagina: (porPagina: number) => void;
+  tamanhos: number[];
+  /** O arquivo de onde a relação saiu, para nomear o CSV da seleção. */
+  procedencia: string;
 }) {
+  const [aberta, setAberta] = useState<string | null>(null);
+  const [colunas, setColunas] = useState<ColunaDaRelacao[]>(lerColunasDaRelacao);
+  /*
+    A seleção guarda a linha inteira, e não só o id, pela razão da tabela da aba
+    Chamados: ela atravessa a paginação, e quem marca três linhas na página 1 e
+    duas na página 4 quer as cinco no arquivo — guardando só o id, as três
+    primeiras sairiam do CSV ao virar a página, e sairiam caladas.
+  */
+  const [selecionados, setSelecionados] = useState<Map<string, ChamadoNaFila>>(
+    new Map(),
+  );
+
+  const visiveis = COLUNAS_DA_RELACAO.filter((c) => colunas.includes(c.chave));
+
+  const alternarColuna = (chave: ColunaDaRelacao) => {
+    const proximas = COLUNAS_DA_RELACAO.map((c) => c.chave).filter((c) =>
+      c === chave ? !colunas.includes(c) : colunas.includes(c),
+    );
+    setColunas(proximas);
+    gravarColunasDaRelacao(proximas);
+  };
+
+  const alternarLinha = (chamado: ChamadoNaFila) =>
+    setSelecionados((atual) => {
+      const proxima = new Map(atual);
+      if (proxima.has(chamado.id)) proxima.delete(chamado.id);
+      else proxima.set(chamado.id, chamado);
+      return proxima;
+    });
+
+  const marcarPagina = (marcado: boolean) =>
+    setSelecionados((atual) => {
+      const proxima = new Map(atual);
+      // Desmarcar o cabeçalho limpa **esta página**, e não a seleção inteira:
+      // as linhas marcadas em outras páginas não estão à vista para serem
+      // desmarcadas por engano.
+      for (const c of chamados) {
+        if (marcado) proxima.set(c.id, c);
+        else proxima.delete(c.id);
+      }
+      return proxima;
+    });
+
+  const todosMarcados =
+    chamados.length > 0 && chamados.every((c) => selecionados.has(c.id));
+
   if (carregando && chamados.length === 0) {
     return (
       <div className="space-y-2">
-        {Array.from({ length: 5 }, (_, i) => (
-          <Skeleton key={i} className="h-32 rounded-xl" />
+        {Array.from({ length: 8 }, (_, i) => (
+          <Skeleton key={i} className="h-11 rounded-lg" />
         ))}
       </div>
     );
   }
 
   return (
-    <ul className="divide-y rounded-xl border bg-card">
-      {chamados.map((c) => (
-        <li key={c.id} className="flex gap-4 px-4 py-4">
-          <div
-            className={cn(
-              "h-9 w-9 rounded-lg grid place-content-center shrink-0",
-              c.movimentou
-                ? "bg-amber-50 text-amber-600"
-                : "bg-muted text-muted-foreground",
-            )}
-            title={
-              c.movimentou
-                ? "este chamado se mexeu neste dia — veja o antes → depois em Movimentações"
-                : "veio no arquivo e não mudou em relação à importação anterior"
-            }
-          >
-            {c.movimentou ? (
-              <Activity className="h-4 w-4" />
-            ) : (
-              <CircleDot className="h-4 w-4" />
-            )}
-          </div>
+    <div className="rounded-xl border bg-card">
+      {selecionados.size > 0 && (
+        <BarraDeSelecao
+          chamados={[...selecionados.values()]}
+          nestaPagina={chamados.filter((c) => selecionados.has(c.id)).length}
+          dia={dia}
+          procedencia={procedencia}
+          onLimpar={() => setSelecionados(new Map())}
+        />
+      )}
 
-          <div className="min-w-0 flex-1 space-y-2">
-            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-              <span className="font-bold text-primary tabular-nums">
-                {c.externalId}
-              </span>
-              <span className="text-[10px] uppercase tracking-wide font-semibold rounded px-1.5 py-0.5 bg-muted text-muted-foreground">
-                {c.statusRaw ?? STATUS_LABELS[c.statusBucket] ?? "sem status"}
-              </span>
-              {c.movimentou && (
-                <span className="text-[10px] uppercase tracking-wide font-semibold rounded px-1.5 py-0.5 bg-amber-50 text-amber-700">
-                  Movimentou hoje
-                </span>
-              )}
-              {/*
-                O assunto sem `truncate`: ele é a única frase que a fonte
-                escreve sobre o chamado — em produção é a `Justificativa
-                Abertura` — e cortá-la na largura do cartão para caber numa
-                linha escondia justamente o que quem lê a relação procura.
-              */}
-              <span className="text-sm">
-                {c.assunto ?? "Sem assunto no arquivo"}
-              </span>
-            </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-[13px]">
+          <thead>
+            <tr className="border-b text-[11px] uppercase tracking-wide text-muted-foreground">
+              <th className="w-9 px-2 py-3" />
+              <th className="w-10 px-2 py-3">
+                <Checkbox
+                  className={ESTILO_CAIXA}
+                  checked={todosMarcados}
+                  onCheckedChange={(marcado) => marcarPagina(marcado === true)}
+                  aria-label="selecionar os chamados desta página"
+                />
+              </th>
+              <th className="px-2.5 py-3 text-left font-semibold">Chamado</th>
+              {visiveis.map((coluna) => (
+                <th
+                  key={coluna.chave}
+                  className={cn(
+                    "px-2.5 py-3 text-left font-semibold whitespace-nowrap",
+                    /*
+                      O assunto é a coluna elástica: `w-full` faz o navegador
+                      dar a ela toda a sobra da linha e tirar dela primeiro
+                      quando falta espaço. Sem isso, a sobra se espalha por
+                      todas as colunas e o assunto — que é a única de tamanho
+                      imprevisível — fica com reticências numa tela larga.
+                    */
+                    coluna.chave === "assunto" && "w-full",
+                  )}
+                  title={coluna.dica}
+                >
+                  {coluna.rotulo}
+                </th>
+              ))}
+              <th className="w-10 px-2 py-3">
+                <SeletorDeColunas colunas={colunas} onAlternar={alternarColuna} />
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {chamados.map((c) => (
+              <Fragment key={c.id}>
+                <tr
+                  className={cn(
+                    "border-b hover:bg-muted/40 cursor-pointer",
+                    selecionados.has(c.id) && "bg-blue-50/70",
+                    aberta === c.id && "bg-muted/30",
+                  )}
+                  onClick={() => setAberta(aberta === c.id ? null : c.id)}
+                >
+                  <td className="px-2 py-2.5 text-muted-foreground">
+                    {aberta === c.id ? (
+                      <ChevronDown className="h-4 w-4" />
+                    ) : (
+                      <ChevronRight className="h-4 w-4" />
+                    )}
+                  </td>
+                  <td
+                    className="px-2 py-2.5"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <Checkbox
+                      className={ESTILO_CAIXA}
+                      checked={selecionados.has(c.id)}
+                      onCheckedChange={() => alternarLinha(c)}
+                      aria-label={`selecionar o chamado ${c.externalId}`}
+                    />
+                  </td>
+                  <td className="px-2.5 py-2.5 whitespace-nowrap">
+                    <span className="font-bold text-primary tabular-nums">
+                      {c.externalId}
+                    </span>
+                    {/*
+                      A ponte com a outra visão fica colada no número, e não
+                      numa coluna própria: ela é verdadeira em pouquíssimas
+                      linhas, e uma coluna quase toda vazia diria que a relação
+                      está incompleta quando ela está certa.
+                    */}
+                    {c.movimentou && (
+                      <span
+                        className="ml-2 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide bg-amber-50 text-amber-700"
+                        title="este chamado se mexeu neste dia — o antes → depois está em Movimentações"
+                      >
+                        Movimentou
+                      </span>
+                    )}
+                  </td>
+                  {visiveis.map((coluna) => (
+                    <td
+                      key={coluna.chave}
+                      className={cn(
+                        "px-2.5 py-2.5",
+                        // `max-w-0` é o par de `w-full` no cabeçalho: sem ele o
+                        // conteúdo define o mínimo da célula e a coluna nunca
+                        // encolhe — o texto vaza em vez de virar reticências.
+                        coluna.chave === "assunto" && "w-full max-w-0",
+                      )}
+                    >
+                      <Celula coluna={coluna.chave} chamado={c} dia={dia} />
+                    </td>
+                  ))}
+                  <td />
+                </tr>
 
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-              {/*
-                A tira de identificação: onde o chamado acontece, e sobre o quê.
-                Os campos entram só quando existem, e o separador vem junto do
-                campo — um "• • •" de campos vazios é o que faz uma lista de
-                1.218 linhas parecer defeituosa quando ela está certa.
-              */}
-              {[
-                c.unidade,
-                c.area,
-                c.entidade,
-                c.categoria,
-                `linha ${c.linhaDoArquivo} do arquivo`,
-              ]
-                .filter((campo): campo is string => Boolean(campo))
-                /*
-                  A chave carrega a posição porque dois campos podem trazer o
-                  mesmo texto — uma unidade que se chama como a área, e a lista
-                  passaria a ter chave repetida.
-                */
-                .map((campo, i) => (
-                  <span key={`${i}-${campo}`} className="flex items-center gap-2">
-                    {i > 0 && <span aria-hidden>•</span>}
-                    <span>{campo}</span>
-                  </span>
-                ))}
-            </div>
+                {aberta === c.id && (
+                  <tr className="border-b bg-muted/30">
+                    <td />
+                    <td colSpan={visiveis.length + 3} className="px-2.5 pb-4 pt-1">
+                      <DetalheDoChamado chamado={c} />
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
-            {/*
-              O `Item` inteiro, e só quando ele não é o que a tira já mostrou.
+      <Paginacao
+        pagina={pagina}
+        porPagina={porPagina}
+        total={total}
+        onPagina={onPagina}
+        onPorPagina={onPorPagina}
+        tamanhos={tamanhos}
+        unidade="chamados"
+      />
+    </div>
+  );
+}
 
-              Nas linhas de placa, `entidade` é a placa e este texto traz a
-              carreta junto; nas de cargo, `entidade` **é** este texto, e
-              repeti-lo faria a linha dizer duas vezes a mesma coisa.
-            */}
-            {c.item && c.item !== c.entidade && (
-              <div className="text-xs text-muted-foreground">{c.item}</div>
-            )}
+/** A mesma caixa azul da tabela da aba Chamados: marcar é apontar, não agir. */
+const ESTILO_CAIXA =
+  "border-input data-[state=checked]:bg-blue-600 data-[state=checked]:border-blue-600 data-[state=checked]:text-white";
 
-            <Campos chamado={c} />
+/** Uma célula da tabela — o valor do arquivo, na forma que a coluna pede. */
+function Celula({
+  coluna,
+  chamado,
+  dia,
+}: {
+  coluna: ColunaDaRelacao;
+  chamado: ChamadoNaFila;
+  dia: string;
+}) {
+  switch (coluna) {
+    case "status":
+      return (
+        <span
+          className={cn(
+            "inline-block rounded border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide whitespace-nowrap",
+            STATUS_STYLES[chamado.statusBucket] ?? STATUS_STYLES.DESCONHECIDO,
+          )}
+          title={`agrupado como "${STATUS_LABELS[chamado.statusBucket] ?? chamado.statusBucket}"`}
+        >
+          {chamado.statusRaw ?? STATUS_LABELS[chamado.statusBucket] ?? "sem status"}
+        </span>
+      );
 
-            {/*
-              `?? []` porque a tela e o servidor não sobem no mesmo instante:
-              durante um deploy, uma resposta gravada antes desta mudança chega
-              sem o campo, e um `.length` em `undefined` aqui apagaria a lista
-              inteira em vez de mostrar uma linha a menos.
-            */}
-            <Parametros alteracoes={c.alteracoes ?? []} total={c.parametros} />
-          </div>
+    case "assunto":
+      /*
+        O assunto é a única frase que a fonte escreve sobre o chamado, e numa
+        tabela ele é o campo que mais varia de tamanho. Cortar com `title` é o
+        acordo: a coluna não empurra as outras para fora da tela, e o texto
+        inteiro está a um passar de mouse — e no detalhe da linha, sem corte.
+      */
+      return (
+        <span
+          className="block truncate"
+          title={chamado.assunto ?? undefined}
+        >
+          {chamado.assunto ?? <Vazio />}
+        </span>
+      );
 
-          <div className="shrink-0 text-right text-xs text-muted-foreground">
-            {/*
-              A situação do chamado, e não a hora do import: quem desce a
-              relação está perguntando "este ainda está aberto?", e a hora do
-              arquivo é a mesma em todas as 1.218 linhas.
-            */}
-            {c.encerradoEm ? (
-              /*
-                A data no fuso da operação, e não o recorte cru do ISO: um
-                fechamento das 21h de 02/09 vira `2026-09-03` em UTC, e a linha
-                mostraria o chamado encerrado um dia depois do que a Ambev
-                escreveu. É a mesma conversão que a régua e a hora usam.
-              */
-              <span title="data de fechamento declarada no arquivo">
-                encerrado em {diaLegivel(diaDaOperacaoDe(c.encerradoEm))}
-              </span>
-            ) : (
-              <span className="text-amber-700">em aberto</span>
-            )}
-          </div>
-        </li>
-      ))}
-    </ul>
+    case "unidade":
+      return <Texto valor={chamado.unidade} />;
+
+    case "tipo":
+      return <Texto valor={chamado.area} />;
+
+    case "solicitante":
+      // E-mail não é dobrado em caixa de título: `Joao.Moura@` não é o mesmo
+      // endereço que a fonte escreveu, e endereço é identidade.
+      return (
+        <span
+          className="block max-w-[22ch] truncate"
+          title={chamado.solicitante ?? undefined}
+        >
+          {chamado.solicitante ?? <Vazio />}
+        </span>
+      );
+
+    case "operador":
+      return <Texto valor={chamado.operador} />;
+
+    case "abertoEm":
+      return <Data iso={chamado.abertoEm} />;
+
+    case "alteradoEmFonte":
+      return <Data iso={chamado.alteradoEmFonte} />;
+
+    case "sla":
+      return <SeloDoPrazo chamado={chamado} dia={dia} />;
+
+    case "situacao":
+      return chamado.encerradoEm ? (
+        <span
+          className="inline-block rounded border border-input bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground whitespace-nowrap"
+          title={`encerrado em ${diaLegivel(diaDaOperacaoDe(chamado.encerradoEm))}, como o arquivo declara`}
+        >
+          Encerrado
+        </span>
+      ) : (
+        <span
+          className="inline-block rounded border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800 whitespace-nowrap"
+          title="sem data de fechamento no arquivo"
+        >
+          Em aberto
+        </span>
+      );
+  }
+}
+
+/** Texto do arquivo em caixa de título, com o original no `title`. */
+function Texto({ valor }: { valor: string | null }) {
+  if (valor === null || valor === "") return <Vazio />;
+  return (
+    <span className="block max-w-[13ch] truncate" title={valor}>
+      {emCaixaDeTitulo(valor)}
+    </span>
+  );
+}
+
+/** Uma data do arquivo, no fuso da operação. Ver `diaDaOperacaoDe`. */
+function Data({ iso }: { iso: string | null }) {
+  if (iso === null) return <Vazio />;
+  return (
+    <span className="tabular-nums whitespace-nowrap">
+      {diaLegivel(diaDaOperacaoDe(iso))}
+    </span>
   );
 }
 
 /**
- * Os campos do arquivo, rotulados.
+ * O campo que o arquivo não trouxe.
  *
- * Grade de rótulo sobre valor, e não mais uma tira de "•": estes campos não se
- * explicam sozinhos — três e-mails em sequência não dizem qual é o solicitante
- * e qual é o aprovador, e três datas em sequência não dizem qual é a abertura.
- * Sem o rótulo, mostrar mais informação deixaria a linha mais cheia e menos
- * legível, que é o oposto do pedido.
- *
- * As quatro datas do domínio aparecem com o nome que as distingue. `Aberto em`
- * é `Data Solicitação`; `Alterado na fonte` é `Data Alteração` — quando a
- * **Ambev** mexeu, e não quando **nós** lemos o arquivo, que é a régua de dias
- * lá em cima. Confundi-las é o defeito que esta tela existe para não cometer.
+ * Um traço, e não a célula em branco: em branco parece coluna quebrada, e o
+ * traço diz que a pergunta foi feita e a resposta não veio.
  */
-function Campos({ chamado }: { chamado: ChamadoNaFila }) {
-  const dataDoArquivo = (iso: string | null) =>
-    iso ? diaLegivel(diaDaOperacaoDe(iso)) : null;
+function Vazio() {
+  return <span className="text-muted-foreground">—</span>;
+}
 
-  const campos: { rotulo: string; valor: string | null; dica?: string }[] = [
-    { rotulo: "Solicitante", valor: chamado.solicitante, dica: "quem abriu o chamado" },
-    { rotulo: "Operador", valor: chamado.operador, dica: "quem toca o chamado" },
-    {
-      rotulo: "Responsável",
-      valor: chamado.responsavel,
-      dica: "o aprovador declarado no arquivo",
-    },
-    {
-      rotulo: "Aberto em",
-      valor: dataDoArquivo(chamado.abertoEm),
-      dica: "Data Solicitação, como o arquivo a escreveu",
-    },
-    {
-      rotulo: "Prazo previsto",
-      valor: chamado.prazoPrevisto ? diaLegivel(chamado.prazoPrevisto) : null,
-      dica: "Previsão Análise",
-    },
-    {
-      rotulo: "Alterado na fonte",
-      valor: dataDoArquivo(chamado.alteradoEmFonte),
-      dica: "Data Alteração — quando a Ambev mexeu, não quando lemos o arquivo",
-    },
-    { rotulo: "Vigência", valor: chamado.vigencia, dica: "Vig. Abertura" },
-    { rotulo: "SLA", valor: chamado.sla, dica: "SLA, como a fonte escreveu" },
-  ].filter((c) => Boolean(c.valor));
+/** O selo do prazo. A régua é `situacaoDoPrazo`, e ela é a do servidor. */
+function SeloDoPrazo({
+  chamado,
+  dia,
+}: {
+  chamado: ChamadoNaFila;
+  dia: string;
+}) {
+  const situacao = situacaoDoPrazo(chamado, dia);
+  if (situacao === null) return <Vazio />;
 
-  if (campos.length === 0) return null;
-
-  return (
-    <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 sm:grid-cols-3 lg:grid-cols-4">
-      {campos.map((c) => (
-        <div key={c.rotulo} className="min-w-0" title={c.dica}>
-          <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">
-            {c.rotulo}
-          </dt>
-          <dd className="truncate text-xs" title={c.valor ?? undefined}>
-            {c.valor}
-          </dd>
-        </div>
-      ))}
-    </dl>
+  const prazo = diaLegivel(chamado.prazoPrevisto!);
+  return situacao === "ATRASADO" ? (
+    <span
+      className="inline-block rounded border border-red-300 bg-red-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-800 whitespace-nowrap"
+      title={`prazo previsto para ${prazo} e o chamado segue em aberto`}
+    >
+      Atrasado
+    </span>
+  ) : (
+    <span
+      className="inline-block rounded border border-sky-300 bg-sky-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-900 whitespace-nowrap"
+      title={`prazo previsto para ${prazo}`}
+    >
+      No prazo
+    </span>
   );
 }
 
-/** Quantos parâmetros a linha mostra antes de dizer só quantos faltam. */
-const PARAMETROS_EM_TELA = 6;
+/**
+ * A engrenagem do cabeçalho — o que fica à vista.
+ *
+ * A coluna do número não está na lista: escondê-la deixaria uma tabela de
+ * atributos de chamado nenhum. A escolha sobrevive à próxima abertura em
+ * `localStorage`, e é de quem olha — ver `lerColunasDaRelacao`.
+ */
+function SeletorDeColunas({
+  colunas,
+  onAlternar,
+}: {
+  colunas: ColunaDaRelacao[];
+  onAlternar: (chave: ColunaDaRelacao) => void;
+}) {
+  return (
+    <Popover>
+      <PopoverTrigger
+        className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+        aria-label="escolher as colunas da tabela"
+        title="escolher as colunas da tabela"
+      >
+        <Settings2 className="h-4 w-4" />
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-64 p-3">
+        <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Colunas da tabela
+        </div>
+        <div className="space-y-2">
+          {COLUNAS_DA_RELACAO.map((coluna) => (
+            <label
+              key={coluna.chave}
+              className="flex cursor-pointer items-center gap-2 text-sm normal-case"
+              title={coluna.dica}
+            >
+              <Checkbox
+                className={ESTILO_CAIXA}
+                checked={colunas.includes(coluna.chave)}
+                onCheckedChange={() => onAlternar(coluna.chave)}
+              />
+              {coluna.rotulo}
+            </label>
+          ))}
+        </div>
+        <p className="mt-3 text-xs text-muted-foreground normal-case">
+          Esconder uma coluna não tira o campo do chamado: ele continua no
+          detalhe da linha.
+        </p>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/**
+ * O que a seleção vale aqui.
+ *
+ * Na aba Chamados a seleção soma impacto; nesta relação não há o que somar —
+ * ela é o arquivo, não a apuração. O que ela faz é o que quem confere pede: o
+ * recorte marcado vira CSV, com as mesmas colunas da tela mais o que só existe
+ * no detalhe. Uma caixa de seleção que não leva a nada é pior do que caixa
+ * nenhuma.
+ */
+function BarraDeSelecao({
+  chamados,
+  nestaPagina,
+  dia,
+  procedencia,
+  onLimpar,
+}: {
+  chamados: ChamadoNaFila[];
+  nestaPagina: number;
+  dia: string;
+  procedencia: string;
+  onLimpar: () => void;
+}) {
+  const total = chamados.length;
+  const deOutrasPaginas = total - nestaPagina;
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-t-xl border-b bg-blue-50/70 px-4 py-2.5 text-sm">
+      <div>
+        <span className="font-semibold tabular-nums">{total}</span>{" "}
+        {total === 1 ? "chamado selecionado" : "chamados selecionados"}
+        {deOutrasPaginas > 0 && (
+          <span className="text-muted-foreground">
+            {" "}
+            · {deOutrasPaginas} de outras páginas
+          </span>
+        )}
+      </div>
+      <div className="flex items-center gap-2">
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => baixarCsv(chamados, dia, procedencia)}
+        >
+          <Download className="h-4 w-4" />
+          Baixar CSV
+        </Button>
+        <Button size="sm" variant="ghost" onClick={onLimpar}>
+          <X className="h-4 w-4" />
+          Limpar
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * O CSV do que está marcado.
+ *
+ * Leva **todas** as colunas, e não as que a engrenagem deixou à vista: esconder
+ * uma coluna é preferência de leitura na tela, e um arquivo que obedecesse a
+ * ela sairia mutilado sem avisar. Os parâmetros vão numa coluna só, no formato
+ * que a linha mostra (`campo SET 4 → 7`), porque uma linha por parâmetro faria
+ * o arquivo ter mais linhas do que a seleção tinha chamados.
+ */
+function baixarCsv(
+  chamados: ChamadoNaFila[],
+  dia: string,
+  procedencia: string,
+): void {
+  const dataDoArquivo = (iso: string | null) =>
+    iso ? diaLegivel(diaDaOperacaoDe(iso)) : "";
+
+  const cabecalho = [
+    "Chamado",
+    "Status",
+    "Assunto",
+    "Unidade",
+    "Tipo",
+    "Solicitante",
+    "Operador",
+    "Responsável",
+    "Aberto em",
+    "Alterado na fonte",
+    "Prazo previsto",
+    "SLA",
+    "Situação",
+    "Encerrado em",
+    "Vigência",
+    "Categoria",
+    "Item",
+    "Linha do arquivo",
+    "Parâmetros",
+    "Movimentou no dia",
+  ];
+
+  const linhas = chamados.map((c) => [
+    c.externalId,
+    c.statusRaw ?? STATUS_LABELS[c.statusBucket] ?? "",
+    c.assunto ?? "",
+    c.unidade ?? "",
+    c.area ?? "",
+    c.solicitante ?? "",
+    c.operador ?? "",
+    c.responsavel ?? "",
+    dataDoArquivo(c.abertoEm),
+    dataDoArquivo(c.alteradoEmFonte),
+    c.prazoPrevisto ? diaLegivel(c.prazoPrevisto) : "",
+    c.sla ?? "",
+    c.encerradoEm ? "Encerrado" : "Em aberto",
+    dataDoArquivo(c.encerradoEm),
+    c.vigencia ?? "",
+    c.categoria ?? "",
+    c.item ?? "",
+    String(c.linhaDoArquivo),
+    (c.alteracoes ?? []).map(textoDaAlteracao).join(" | "),
+    c.movimentou ? "sim" : "não",
+  ]);
+
+  const url = URL.createObjectURL(csvComoBlob([cabecalho, ...linhas]));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${paraNomeDeArquivo(`chamados-${procedencia}-${dia}`)}.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+/**
+ * O detalhe da linha — o que não coube em coluna, e o que a coluna escondeu.
+ *
+ * Duas seções, como a tabela da aba Chamados: o que identifica o chamado no
+ * arquivo, e o que a fonte declarou sobre o andamento dele. O que foi pedido em
+ * cada parâmetro fica aqui porque é o conteúdo do chamado — e porque ele não
+ * cabe numa célula sem virar reticências.
+ */
+function DetalheDoChamado({ chamado }: { chamado: ChamadoNaFila }) {
+  const alteracoes = chamado.alteracoes ?? [];
+  const dataDoArquivo = (iso: string | null) =>
+    iso ? diaLegivel(diaDaOperacaoDe(iso)) : null;
+
+  return (
+    <div className="grid gap-6 rounded-lg border bg-card px-4 py-3 md:grid-cols-2">
+      <Secao titulo="Detalhes do chamado">
+        <Campo rotulo="Vigência" valor={chamado.vigencia} />
+        <Campo rotulo="Linha do arquivo" valor={`Linha ${chamado.linhaDoArquivo}`} />
+        <Campo rotulo="Categoria" valor={chamado.categoria} />
+        <Campo rotulo="Item" valor={chamado.item ?? chamado.entidade} largo />
+        <div className="col-span-3">
+          <Rotulo>
+            {alteracoes.length === 1 ? "Campo alterado" : "Campos alterados"}
+          </Rotulo>
+          <Parametros alteracoes={alteracoes} total={chamado.parametros} />
+        </div>
+      </Secao>
+
+      <Secao titulo="Informações adicionais">
+        <Campo
+          rotulo="Prazo previsto"
+          valor={chamado.prazoPrevisto ? diaLegivel(chamado.prazoPrevisto) : null}
+        />
+        <Campo rotulo="SLA" valor={chamado.sla} />
+        <Campo rotulo="Aberto em" valor={dataDoArquivo(chamado.abertoEm)} />
+        <Campo rotulo="Criado por" valor={chamado.solicitante} largo />
+        <Campo
+          rotulo="Encerrado em"
+          valor={dataDoArquivo(chamado.encerradoEm) ?? "ainda em aberto"}
+        />
+        <Campo rotulo="Responsável" valor={chamado.responsavel} largo />
+      </Secao>
+    </div>
+  );
+}
+
+function Secao({ titulo, children }: { titulo: string; children: ReactNode }) {
+  return (
+    <div>
+      <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+        {titulo}
+      </div>
+      <dl className="grid grid-cols-3 gap-x-6 gap-y-3">{children}</dl>
+    </div>
+  );
+}
+
+function Rotulo({ children }: { children: ReactNode }) {
+  return (
+    <dt className="text-xs text-muted-foreground">{children}</dt>
+  );
+}
+
+/** Um campo do detalhe. Campo sem valor mostra o traço, e não some. */
+function Campo({
+  rotulo,
+  valor,
+  largo = false,
+}: {
+  rotulo: string;
+  valor: string | null;
+  largo?: boolean;
+}) {
+  return (
+    <div className={cn("min-w-0", largo && "col-span-2")}>
+      <Rotulo>{rotulo}</Rotulo>
+      <dd className="truncate text-sm" title={valor ?? undefined}>
+        {valor ?? <Vazio />}
+      </dd>
+    </div>
+  );
+}
 
 /**
  * O que o chamado pediu, parâmetro a parâmetro.
  *
- * É o conteúdo do chamado, e era o que a linha mais escondia: "1 parâmetro"
+ * É o conteúdo do chamado, e era o que a relação mais escondia: "1 parâmetro"
  * dizia que havia algo a ver sem dizer o quê, e quem conferia tinha de abrir a
  * planilha para descobrir que o pedido era `quantidadeOrdenado: 4 → 7`.
  *
  * A alteração sem valores não é buraco: num export real a maioria não é `SET` —
  * é `FORM_THIS`, troca de fórmula, que muda a remuneração sem existir "de 10
- * para 12". Por isso a operação aparece ao lado do parâmetro, e o par de
- * valores só quando há par: uma seta com dois traços diria que o dado se
- * perdeu.
+ * para 12". Por isso a operação aparece ao lado do campo, e o par de valores só
+ * quando há par: uma seta com dois traços diria que o dado se perdeu.
  */
 function Parametros({
   alteracoes,
@@ -271,23 +719,19 @@ function Parametros({
   total: number;
 }) {
   if (alteracoes.length === 0) {
-    // Sem a relação, ainda há a contagem que o envio gravou — e ela é o que a
-    // linha sempre mostrou. Some quando é zero: um "0 parâmetros" em toda linha
-    // de um arquivo que não os traz é ruído em 1.218 linhas.
-    if (total <= 0) return null;
+    // Sem a relação, ainda há a contagem que o envio gravou.
     return (
-      <div className="text-xs text-muted-foreground">
-        {total} {total === 1 ? "parâmetro" : "parâmetros"}
-      </div>
+      <dd className="mt-1 text-sm text-muted-foreground">
+        {total > 0
+          ? `${total} ${total === 1 ? "parâmetro" : "parâmetros"}`
+          : "Nenhum parâmetro neste chamado"}
+      </dd>
     );
   }
 
-  const emTela = alteracoes.slice(0, PARAMETROS_EM_TELA);
-  const restantes = alteracoes.length - emTela.length;
-
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      {emTela.map((a, i) => (
+    <dd className="mt-1 flex flex-wrap items-center gap-1.5">
+      {alteracoes.map((a, i) => (
         <span
           key={`${i}-${a.parametro}`}
           className="inline-flex items-center gap-1.5 rounded-md border bg-muted/40 px-2 py-1 text-xs"
@@ -305,13 +749,14 @@ function Parametros({
           )}
         </span>
       ))}
-      {restantes > 0 && (
-        <span className="text-xs text-muted-foreground">
-          + {restantes} {restantes === 1 ? "parâmetro" : "parâmetros"}
-        </span>
-      )}
-    </div>
+    </dd>
   );
+}
+
+/** O mesmo texto do chip, numa célula de CSV. */
+function textoDaAlteracao(a: AlteracaoDoChamado): string {
+  const cabeca = [a.parametro, a.operacao].filter(Boolean).join(" ");
+  return temValores(a) ? `${cabeca} ${a.de ?? "—"} → ${a.para ?? "—"}` : cabeca;
 }
 
 /**
