@@ -19,6 +19,7 @@ import coverageRouter from "./coverage";
 import dreRouter from "./dre";
 import ticketsRouter from "./tickets";
 import monitoramentoDeChamadosRouter from "./monitoramento-de-chamados";
+import conciliacaoDeChamadosRouter from "./conciliacao-de-chamados";
 import impactoRouter from "./impacto";
 import clienteRouter from "./cliente";
 import frotaRouter from "./frota";
@@ -200,6 +201,16 @@ router.use(coverageRouter);
 router.use(dreRouter);
 router.use(ticketsRouter);
 router.use(monitoramentoDeChamadosRouter);
+/*
+  Conciliação de Chamados: a terceira leitura da família — a planilha e a fila
+  confrontadas alteração a alteração. Fica ao lado do Monitoramento porque é a
+  pergunta seguinte à dele (ele diz o que mudou nos chamados; ela diz se o que
+  mudou nos chamados é o que mudou na planilha), e **não** dentro de `changes`
+  nem de `tickets` porque é a única leitura que precisa dos dois — e a única em
+  que os dois se olham sem nunca se somarem. Ver
+  `routes/conciliacao-de-chamados.ts`.
+*/
+router.use(conciliacaoDeChamadosRouter);
 router.use(impactoRouter);
 router.use(clienteRouter);
 router.use(frotaRouter);

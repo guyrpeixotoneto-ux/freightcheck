@@ -271,10 +271,19 @@ export interface TicketImportSummary {
   /**
    * A partição dentro da qual dois envios se comparam — a unidade.
    *
-   * Vai para a tela porque é o que separa "reenvio da mesma fila" de "a fila de
-   * outra unidade", e essas duas coisas se parecem exatamente na lista: dois
-   * arquivos do mesmo dia, com contagens diferentes. `null` é série
-   * indeterminada — legítimo, e diferente de vazio.
+   * `null` é série indeterminada: legítimo, e diferente de vazio. Ver
+   * `ticket_import.serie`, em `schema/tickets.ts`.
+   *
+   * Vai para a tela porque **duas** delas não conseguem decidir nada sem ela, e
+   * pela mesma razão de fundo — dois arquivos do mesmo dia costumam ser
+   * unidades diferentes, não reenvios da mesma fila, e na lista as duas coisas
+   * se parecem exatamente:
+   *
+   * - **Importações › Chamados** precisa separar um do outro na linha do
+   *   arquivo recebido;
+   * - **Conciliação de Chamados** casa a série com a unidade da lateral
+   *   (`lib/serie-da-unidade.ts`, na interface) para não confrontar a vigência
+   *   de uma unidade contra a fila de outra.
    */
   serie: string | null;
   /** De onde a série foi lida: ARQUIVO, NOME_DO_ARQUIVO, MISTA, INDETERMINADA. */
