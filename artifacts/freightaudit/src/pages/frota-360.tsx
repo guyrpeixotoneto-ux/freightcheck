@@ -356,7 +356,7 @@ export default function Frota360({ equipamento }: { equipamento: Equipamento }) 
         />
       )}
       {!naGrade && aba === "chamados" && (
-        <AbaChamados escopo={escopo} somenteLeitura />
+        <AbaChamados escopo={escopo} />
       )}
       {!naGrade && aba === "impacto" && (
         <div className="p-8">

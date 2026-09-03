@@ -1,5 +1,7 @@
 import { and, desc, eq, inArray, isNotNull, isNull, sql, type SQL } from "drizzle-orm";
 import type { Database } from "@workspace/db";
+
+import { TIPOS_FORA_DO_PAINEL_DE_JUSTIFICATIVAS } from "./painel-de-justificativas-escopo";
 import {
   ALTERACAO_DE_ORIGEM_VISIVEL,
   changeTable,
@@ -33,6 +35,12 @@ import {
  * e a linha sem placa (`LAYOUT_CHANGE`) fica de fora, pelo mesmo motivo de
  * `contagemPorTipo`: a fila de Justificativas não a mostra, então ela não pode
  * aparecer aqui como pendência que ninguém consegue justificar.
+ *
+ * **E o trecho fica de fora deste painel** — só dele, e não do produto: as três
+ * leituras aqui recortam a população por `DENTRO_DO_PAINEL`, e o porquê está em
+ * `painel-de-justificativas-escopo.ts`. É a única diferença de população entre
+ * esta tela e a fila, e por isso ela está escrita numa condição com nome, e não
+ * dissolvida nas outras.
  */
 
 /**
@@ -45,6 +53,38 @@ function alteracoesDaFilaDeJustificativas(changeSetIds: string[]): SQL {
     sql`${changeTable.entityLabel} IS NOT NULL`,
     ALTERACAO_DE_ORIGEM_VISIVEL,
   )!;
+}
+
+/**
+ * O tipo de ativo está dentro do que este painel cobra.
+ *
+ * É a condição que tira o trecho da leitura inteira — a razão está em
+ * `painel-de-justificativas-escopo.ts`. Ela é **separada** de
+ * `alteracoesDaFilaDeJustificativas` de propósito: aquela função quer dizer "as
+ * mesmas alterações que a fila mostra", e a fila continua mostrando trecho.
+ * Somá-las numa condição só apagaria a diferença entre as duas telas, que é
+ * justamente o que passou a existir.
+ *
+ * `entity_type` nulo passa: a alteração sem tipo declarado não é trecho, e o
+ * painel a cobra como sempre cobrou. A normalização é a mesma das abas —
+ * maiúsculas, sem espaço em volta —, porque o tipo é texto livre no banco.
+ */
+const DENTRO_DO_PAINEL: SQL =
+  /* Lista vazia é "o painel cobra tudo", e não `NOT IN ()` — que o Postgres
+     recusa como erro de sintaxe, derrubando as três consultas de uma vez. */
+  TIPOS_FORA_DO_PAINEL_DE_JUSTIFICATIVAS.length === 0
+    ? sql`TRUE`
+    : sql`(
+        ${changeTable.entityType} IS NULL
+        OR upper(btrim(${changeTable.entityType})) NOT IN (${sql.join(
+          TIPOS_FORA_DO_PAINEL_DE_JUSTIFICATIVAS.map((tipo) => sql`${tipo}`),
+          sql`, `,
+        )})
+      )`;
+
+/** A população do painel: a fila, menos os tipos que ele não cobra. */
+function alteracoesDoPainel(changeSetIds: string[]): SQL {
+  return and(alteracoesDaFilaDeJustificativas(changeSetIds), DENTRO_DO_PAINEL)!;
 }
 
 /**
@@ -97,7 +137,7 @@ export async function coberturaDeJustificativas(
         ),
     })
     .from(changeTable)
-    .where(alteracoesDaFilaDeJustificativas(changeSetIds))
+    .where(alteracoesDoPainel(changeSetIds))
     .groupBy(changeTable.changeSetId, changeTable.entityType);
 }
 
@@ -107,6 +147,12 @@ export async function coberturaDeJustificativas(
  * Por alteração distinta (`change_id`), e não por linha gravada: quem
  * reescreveu a própria justificativa três vezes explicou uma alteração, não
  * três. `ultimaEm` é a data mais recente do autor, que é o que ordena a lista.
+ *
+ * A junção com `change` está aqui pelo mesmo recorte de população das outras
+ * duas consultas: sem ela, um autor apareceria no filtro com uma contagem que
+ * inclui trecho, e escolhê-lo devolveria uma lista menor do que o número
+ * escrito ao lado do nome. É junção por `id`, que é único — ela recorta, e não
+ * multiplica a contagem.
  */
 export interface AutorDeJustificativas {
   changeSetId: string;
@@ -132,7 +178,13 @@ export async function autoresDeJustificativas(
       ultimaEm: sql<Date>`max(${justificativaTable.criadoEm})`,
     })
     .from(justificativaTable)
-    .where(inArray(justificativaTable.changeSetId, changeSetIds))
+    .innerJoin(changeTable, eq(changeTable.id, justificativaTable.changeId))
+    .where(
+      and(
+        inArray(justificativaTable.changeSetId, changeSetIds),
+        DENTRO_DO_PAINEL,
+      ),
+    )
     .groupBy(justificativaTable.changeSetId, justificativaTable.criadoPor);
 }
 
@@ -233,7 +285,7 @@ export async function linhasDoPainel(
     .as("ultimas");
 
   const onde = and(
-    alteracoesDaFilaDeJustificativas(changeSetIds),
+    alteracoesDoPainel(changeSetIds),
     entityType === undefined || entityType === null
       ? undefined
       : eq(changeTable.entityType, entityType),
