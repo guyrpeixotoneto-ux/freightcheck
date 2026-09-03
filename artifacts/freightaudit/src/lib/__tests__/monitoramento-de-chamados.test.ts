@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  COLUNAS_DA_RELACAO,
   contagemDaAba,
   diaLegivel,
   diaPorExtenso,
@@ -10,6 +11,10 @@ import {
   posicaoDaRegua,
   progressoDoDia,
   rotuloDaDiferenca,
+  emCaixaDeTitulo,
+  gravarColunasDaRelacao,
+  lerColunasDaRelacao,
+  situacaoDoPrazo,
   valorLegivel,
   type DiaDaRegua,
   type Movimentacao,
@@ -38,6 +43,14 @@ const RESUMO: ResumoDoDia = {
   revisadas: 52,
   pendentes: 18,
   chamadosNoEnvio: 1218,
+  situacoesNoEnvio: {
+    aprovados: 900,
+    emAnalise: 200,
+    reprovados: 100,
+    outras: 18,
+    total: 1218,
+    detalheDeOutras: [{ statusBucket: "CANCELADO", total: 18 }],
+  },
   alteracoesDeCampo: [{ tipo: "PRAZO", total: 7 }],
   pontosDeAtencao: {
     criticos: 6,
@@ -357,5 +370,107 @@ describe("janelaDoEnvioFora — o fim da frase da tira", () => {
     expect(janelaDoEnvioFora({ ...base, diasAtras: 0 })).toBe(
       ". A régua está em 26/08/2026–03/09/2026.",
     );
+  });
+});
+
+describe("situacaoDoPrazo — a régua do SLA é a do servidor", () => {
+  const com = (prazoPrevisto: string | null, encerradoEm: string | null) => ({
+    prazoPrevisto,
+    encerradoEm,
+  });
+
+  it("atrasado é o chamado com prazo vencido que segue em aberto", () => {
+    expect(situacaoDoPrazo(com("2026-08-15", null), "2026-08-16")).toBe("ATRASADO");
+    expect(situacaoDoPrazo(com("2026-08-16", null), "2026-08-16")).toBe("NO_PRAZO");
+  });
+
+  it("um chamado encerrado nunca aparece atrasado — é a régua aprovada", () => {
+    /*
+      Mesmo tendo fechado depois do prazo. Inventar uma segunda régua aqui faria
+      esta coluna discordar do "atrasados" que o resumo do dia dá, e a mesma
+      palavra passaria a contar duas populações.
+    */
+    expect(
+      situacaoDoPrazo(com("2026-08-01", "2026-08-20T12:00:00.000Z"), "2026-08-30"),
+    ).toBe("NO_PRAZO");
+  });
+
+  it("sem prazo no arquivo não há selo nenhum a mostrar", () => {
+    expect(situacaoDoPrazo(com(null, null), "2026-08-16")).toBeNull();
+  });
+
+  it("a régua é o dia da relação, e não o relógio de quem lê", () => {
+    // O mesmo chamado, lido no dia dele e um mês depois: a tela não repinta o
+    // passado.
+    expect(situacaoDoPrazo(com("2026-08-20", null), "2026-08-16")).toBe("NO_PRAZO");
+    expect(situacaoDoPrazo(com("2026-08-20", null), "2026-09-16")).toBe("ATRASADO");
+  });
+});
+
+describe("emCaixaDeTitulo — o grito do arquivo, legível", () => {
+  it("dobra o que vem todo em caixa alta", () => {
+    expect(emCaixaDeTitulo("CAMAÇARI")).toBe("Camaçari");
+    expect(emCaixaDeTitulo("OPERALOG")).toBe("Operalog");
+    expect(emCaixaDeTitulo("CARREGAMENTO - ESTACIONÁRIA")).toBe(
+      "Carregamento - Estacionária",
+    );
+  });
+
+  it("não reescreve o que a fonte já escreveu misturado", () => {
+    expect(emCaixaDeTitulo("Camaçari")).toBe("Camaçari");
+    expect(emCaixaDeTitulo("freteReaisViagem")).toBe("freteReaisViagem");
+  });
+});
+
+describe("as colunas da relação — preferência de quem olha", () => {
+  const todas = COLUNAS_DA_RELACAO.map((c) => c.chave);
+
+  /*
+    Um `localStorage` de mentira, porque o de verdade não existe aqui.
+
+    O ambiente destes testes é Node, e sem armazenamento as duas funções são
+    no-op silencioso — que é o comportamento certo em janela privada, e é o que
+    o primeiro caso abaixo mede. Para medir o resto é preciso haver onde
+    guardar, e um objeto de três métodos é isso.
+  */
+  const guardaDeVerdade = () => {
+    const dados = new Map<string, string>();
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      value: {
+        getItem: (k: string) => dados.get(k) ?? null,
+        setItem: (k: string, v: string) => void dados.set(k, v),
+        removeItem: (k: string) => void dados.delete(k),
+      },
+    });
+  };
+
+  it("sem armazenamento nenhum, todas as colunas aparecem", () => {
+    expect(lerColunasDaRelacao()).toEqual(todas);
+  });
+
+  it("a escolha volta na próxima abertura", () => {
+    guardaDeVerdade();
+    gravarColunasDaRelacao(todas.filter((c) => c !== "operador"));
+    expect(lerColunasDaRelacao()).toEqual(todas.filter((c) => c !== "operador"));
+  });
+
+  it("uma coluna nova nasce visível, e uma que não existe mais é descartada", () => {
+    /*
+      O que está guardado é de uma versão anterior da tela: `assunto` estava
+      escondida, `unidade` idem, e `coluna-que-nao-existe` sumiu do produto. A
+      leitura tem de manter as escondidas, ignorar a que não existe e deixar
+      visível qualquer coluna nascida depois — senão uma coluna nova nasce
+      escondida para todo mundo que já usou a tela, e ninguém descobre que ela
+      existe.
+    */
+    guardaDeVerdade();
+    const guardado = todas.filter((c) => c !== "assunto" && c !== "unidade");
+    gravarColunasDaRelacao([...guardado, "coluna-que-nao-existe"] as never);
+    const lidas = lerColunasDaRelacao();
+    expect(lidas).not.toContain("assunto");
+    expect(lidas).not.toContain("unidade");
+    expect(lidas).toContain("status");
+    expect(lidas).toEqual(todas.filter((c) => lidas.includes(c)));
   });
 });
