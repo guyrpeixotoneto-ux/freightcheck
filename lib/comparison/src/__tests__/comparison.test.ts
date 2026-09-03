@@ -430,6 +430,40 @@ describe("inclusão e remoção de atributo", () => {
     expect(layout.changeType).toBe("ATTRIBUTE_REMOVED");
     expect(layout.attributeCode).toBe("carreta.modelo");
   });
+
+  /*
+    O recorte que o cartão "Colunas novas / removidas" abre na lista.
+
+    O número dele é dois — `+1 / −1` — e o filtro que o abre é uma lista de dois
+    tipos. Com um valor só, a seta mostrava uma linha debaixo de um cartão que
+    conta duas: a discordância entre o total e a lista que este produto existe
+    para não ter.
+  */
+  it("filtra os dois tipos de coluna de uma vez, quando o filtro é uma lista", async () => {
+    const { set } = await compare(
+      ATTRIBUTES,
+      { AAA1A11: { "carreta.custo_fixo": 1000, "carreta.modelo": "Randon" } },
+      { AAA1A11: { "carreta.custo_fixo": 1000, "carreta.emprestada": true } },
+    );
+    expect(set.attributesAdded).toBe(1);
+    expect(set.attributesRemoved).toBe(1);
+
+    const soAsNovas = await listChanges(ctx.db, set.id, {
+      changeType: "ATTRIBUTE_ADDED",
+      limit: 100,
+    });
+    expect(soAsNovas.total).toBe(1);
+
+    const ambas = await listChanges(ctx.db, set.id, {
+      changeType: "ATTRIBUTE_ADDED,ATTRIBUTE_REMOVED",
+      limit: 100,
+    });
+    expect(ambas.total).toBe(2);
+    expect(ambas.rows.map((r) => r.changeType).sort()).toEqual([
+      "ATTRIBUTE_ADDED",
+      "ATTRIBUTE_REMOVED",
+    ]);
+  });
 });
 
 describe("identidade, não posição", () => {

@@ -96,6 +96,7 @@ export function MetricCard({
   value,
   hint,
   valueTone = "muted",
+  destaque = false,
 }: {
   icon: React.ReactNode;
   tone: keyof typeof LADRILHO;
@@ -109,13 +110,32 @@ export function MetricCard({
   value: React.ReactNode;
   hint?: string;
   valueTone?: "good" | "bad" | "warn" | "muted";
+  /**
+   * O cartão que responde a pergunta da tela, desenhado como tal.
+   *
+   * Cinco cartões do mesmo tamanho dizem que os cinco números pesam igual, e
+   * nesta tela eles não pesam: quatro contam alterações e um conta dinheiro, e
+   * é o dinheiro que decide se alguém abre um chamado. O destaque é maior, tem
+   * fundo próprio e a ressalva separada por um fio — a mesma ressalva de
+   * sempre, porque um total de impacto sem "quantas ficaram de fora" continua
+   * sendo um número que parece cobrir o arquivo inteiro.
+   */
+  destaque?: boolean;
 }) {
   return (
-    <div className="rounded-xl border bg-card shadow-sm px-5 py-5 flex items-center gap-4">
+    <div
+      className={cn(
+        "rounded-xl border shadow-sm flex items-center",
+        destaque
+          ? "h-full gap-5 border-blue-200 bg-blue-50/50 px-6 py-6"
+          : "gap-4 bg-card px-5 py-5",
+      )}
+    >
       <div
         className={cn(
-          "h-14 w-14 rounded-xl grid place-content-center shrink-0",
+          "rounded-xl grid place-content-center shrink-0",
           LADRILHO[tone],
+          destaque ? "h-16 w-16 rounded-full" : "h-14 w-14",
         )}
       >
         {icon}
@@ -128,10 +148,18 @@ export function MetricCard({
         de 230px.
       */}
       <div className="min-w-0 flex-1 @container">
-        <div className="text-sm font-medium text-muted-foreground">{label}</div>
         <div
           className={cn(
-            "text-3xl font-bold tracking-tight tabular-nums mt-1 min-w-0",
+            "font-medium text-muted-foreground",
+            destaque ? "text-base" : "text-sm",
+          )}
+        >
+          {label}
+        </div>
+        <div
+          className={cn(
+            "font-bold tracking-tight tabular-nums mt-1 min-w-0",
+            destaque ? "text-4xl" : "text-3xl",
             valueTone === "good" && "text-emerald-700",
             valueTone === "bad" && "text-red-600",
             valueTone === "warn" && "text-amber-600",
@@ -146,7 +174,16 @@ export function MetricCard({
           )}
         </div>
         {hint && (
-          <div className="text-xs text-muted-foreground mt-1">{hint}</div>
+          <div
+            className={cn(
+              "text-muted-foreground",
+              destaque
+                ? "mt-4 border-t border-blue-200/80 pt-3 text-sm"
+                : "mt-1 text-xs",
+            )}
+          >
+            {hint}
+          </div>
         )}
       </div>
     </div>
@@ -176,12 +213,18 @@ export function larguraAproximada(texto: string): number {
 }
 
 /**
- * Os dois lugares onde o impacto aparece, e o corpo de letra que cada um
- * comporta: o cartão do topo das abas, e o ladrilho estreito das telas de
- * comparação. Em ambos o número desce até o piso e para ali — abaixo dele o
- * valor deixa de competir com o rótulo e vira legenda.
+ * Os lugares onde o impacto aparece, e o corpo de letra que cada um comporta: o
+ * cartão em destaque da aba Planilha, o cartão comum do topo das abas, e o
+ * ladrilho estreito das telas de comparação. Em todos o número desce até o piso
+ * e para ali — abaixo dele o valor deixa de competir com o rótulo e vira
+ * legenda.
+ *
+ * O teto do destaque é grande porque ali o impacto é a resposta da tela, e não
+ * um número entre cinco; continua sendo um teto, e não um tamanho fixo — quem
+ * decide é a largura que a coluna tem, pela mesma conta de sempre.
  */
 const CORPO = {
+  destaque: { teto: "3rem", tetoVarias: "1.75rem", piso: "1rem" },
   cartao: { teto: "1.5rem", tetoVarias: "1.125rem", piso: "0.875rem" },
   ladrilho: { teto: "1.25rem", tetoVarias: "1rem", piso: "0.75rem" },
 } as const;
@@ -304,21 +347,127 @@ export function ImpactoPorPeriodicidade({
   );
 }
 
-const AVISO: Record<string, { caixa: string; bolha: string; titulo: string }> = {
+/**
+ * Um número de apoio, e o recorte que ele abre na lista.
+ *
+ * A fileira de baixo do topo da aba Planilha: contagens que fazem parte da
+ * leitura mas não são a resposta dela — quantas colunas o arquivo ganhou ou
+ * perdeu, quantas alterações ficaram inconclusivas. Ficam menores que os
+ * cartões de cima de propósito; o que elas **não** ficam é escondidas.
+ *
+ * A seta só aparece quando o número leva a algum lugar, e ela leva sempre ao
+ * mesmo lugar: o recorte correspondente na lista abaixo. Um chevron que não
+ * abre nada é uma promessa que a tela não cumpre — por isso `onClick` é
+ * opcional e um zero não recebe seta nenhuma.
+ */
+export interface MetricaCompacta {
+  id: string;
+  icon: React.ReactNode;
+  tone: keyof typeof LADRILHO;
+  label: string;
+  value: string;
+  valueTone?: "warn" | "muted";
+  /** O que fica escrito no `title` — a ressalva que o cartão grande mostraria. */
+  hint?: string;
+  /** O recorte que este número abre; ausente quando não há linha para ver. */
+  onClick?: () => void;
+  /** Se o recorte deste número já está ligado. */
+  ativo?: boolean;
+}
+
+export function MetricasCompactas({ itens }: { itens: MetricaCompacta[] }) {
+  return (
+    // `@container` próprio: quem decide se os dois números cabem lado a lado é
+    // a largura desta fileira, não a da janela — a mesma régua que o resto do
+    // topo usa, e a razão de nenhum deles contar os 304px da lateral.
+    <div className="@container">
+      <div className="grid divide-y overflow-hidden rounded-xl border bg-card shadow-sm @lg:grid-cols-2 @lg:divide-x @lg:divide-y-0">
+        {itens.map((item) => {
+          const corpo = (
+            <>
+              <div
+                className={cn(
+                  "h-10 w-10 rounded-xl grid place-content-center shrink-0",
+                  LADRILHO[item.tone],
+                )}
+              >
+                {item.icon}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-medium text-muted-foreground truncate">
+                  {item.label}
+                </div>
+                <div
+                  className={cn(
+                    "text-2xl font-bold tracking-tight tabular-nums truncate",
+                    item.valueTone === "warn" && "text-amber-600",
+                  )}
+                >
+                  {item.value}
+                </div>
+              </div>
+              {item.onClick && (
+                <ChevronRight
+                  className={cn(
+                    "w-5 h-5 shrink-0 transition-transform",
+                    item.ativo ? "rotate-90 text-brand" : "text-muted-foreground",
+                  )}
+                />
+              )}
+            </>
+          );
+
+          return item.onClick ? (
+            <button
+              key={item.id}
+              type="button"
+              onClick={item.onClick}
+              aria-pressed={item.ativo}
+              title={item.hint}
+              className={cn(
+                "flex items-center gap-3 px-5 py-4 text-left transition-colors hover:bg-muted/50",
+                item.ativo && "bg-accent/40",
+              )}
+            >
+              {corpo}
+            </button>
+          ) : (
+            <div
+              key={item.id}
+              title={item.hint}
+              className="flex items-center gap-3 px-5 py-4"
+            >
+              {corpo}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+
+const AVISO: Record<
+  string,
+  { caixa: string; bolha: string; titulo: string; fio: string }
+> = {
   red: {
     caixa: "border-red-100 bg-red-50",
     bolha: "bg-red-600 text-white",
     titulo: "text-red-600",
+    fio: "border-red-200",
   },
   amber: {
     caixa: "border-amber-100 bg-amber-50",
     bolha: "bg-amber-500 text-white",
     titulo: "text-amber-700",
+    fio: "border-amber-200",
   },
   sky: {
     caixa: "border-sky-100 bg-sky-50",
     bolha: "bg-sky-500 text-white",
     titulo: "text-sky-700",
+    fio: "border-sky-200",
   },
 };
 
@@ -377,6 +526,123 @@ export function Aviso({
           />
         </button>
       )}
+    </div>
+  );
+}
+
+/**
+ * As pendências da comparação, numa faixa só.
+ *
+ * Elas eram um cartão cada, lado a lado, e a fileira dizia a coisa errada: um
+ * problema por caixa, do tamanho de um cartão de número, competindo com os
+ * totais logo acima. São ressalvas do mesmo total — o que ficou fora da soma e
+ * o que já está contado noutra linha —, e lidas juntas elas se explicam: a
+ * primeira diz que falta preço, a segunda que o dinheiro existe mas mora em
+ * outro lugar.
+ *
+ * Nenhuma some quando é inconveniente; somem quando não existem. O detalhe
+ * continua atrás de um clique e continua um de cada vez — cada pendência abre o
+ * próprio painel, e o botão da direita abre a primeira quando nada está aberto
+ * e fecha o que estiver.
+ */
+export interface Pendencia {
+  id: string;
+  /** O tamanho do problema, quando ele é contável. */
+  quantidade?: number;
+  titulo: string;
+  detalhe: string;
+}
+
+export function FaixaDePendencias({
+  tone,
+  itens,
+  ativo,
+  onEscolher,
+  onAlternar,
+}: {
+  tone: keyof typeof AVISO;
+  itens: Pendencia[];
+  /** Qual pendência está com o painel aberto — `null` quando nenhuma. */
+  ativo: string | null;
+  onEscolher: (id: string) => void;
+  onAlternar: () => void;
+}) {
+  const estilo = AVISO[tone];
+  if (itens.length === 0) return null;
+
+  return (
+    <div
+      className={cn(
+        "flex flex-wrap items-center gap-x-5 gap-y-4 rounded-xl border px-5 py-4",
+        estilo.caixa,
+      )}
+    >
+      <div
+        className={cn(
+          "h-12 w-12 rounded-full grid place-content-center shrink-0",
+          estilo.bolha,
+        )}
+      >
+        <AlertTriangle className="w-6 h-6" />
+      </div>
+
+      <div className="min-w-0 flex-[1_1_20rem] flex flex-wrap items-center">
+        {itens.map((item, i) => (
+          <button
+            key={item.id}
+            type="button"
+            onClick={() => onEscolher(item.id)}
+            aria-expanded={ativo === item.id}
+            className={cn(
+              "min-w-0 flex-1 basis-64 rounded-lg px-2 py-1 text-left transition-colors hover:bg-background/40",
+              // O fio entre duas pendências, e não uma borda em volta de cada
+              // uma: a caixa já é uma só, e caixinhas dentro dela devolveriam a
+              // fileira de cartões que esta faixa substituiu.
+              i > 0 && cn("ml-3 border-l pl-5", estilo.fio),
+              ativo === item.id && "bg-background/60",
+            )}
+          >
+            <div className="leading-snug">
+              {item.quantidade !== undefined && (
+                <strong
+                  className={cn(
+                    "mr-1.5 text-lg font-bold tabular-nums",
+                    estilo.titulo,
+                  )}
+                >
+                  {item.quantidade.toLocaleString("pt-BR")}
+                </strong>
+              )}
+              <span className="font-medium text-foreground">{item.titulo}</span>
+            </div>
+            <div
+              className="text-sm text-muted-foreground line-clamp-1"
+              title={item.detalhe}
+            >
+              {item.detalhe}
+            </div>
+          </button>
+        ))}
+      </div>
+
+      <button
+        type="button"
+        onClick={onAlternar}
+        aria-expanded={ativo !== null}
+        className={cn(
+          "shrink-0 inline-flex items-center gap-1.5 rounded-full border bg-background/60 px-4 py-2 text-sm font-semibold transition-colors hover:bg-background",
+          estilo.fio,
+          estilo.titulo,
+        )}
+      >
+        Ver pendências
+        <ChevronRight
+          className={cn(
+            "w-4 h-4 transition-transform",
+            ativo !== null && "rotate-90",
+          )}
+        />
+      </button>
     </div>
   );
 }

@@ -7,12 +7,12 @@ import {
   ArrowRight,
   ArrowUp,
   BarChart3,
+  CalendarDays,
   ChevronRight,
   Columns3,
   DollarSign,
   HelpCircle,
-  Layers,
-  Lock,
+  Info,
   SlidersHorizontal,
   TrendingDown,
   Truck,
@@ -25,11 +25,13 @@ import {
 } from "@/components/changes/janela-vigencias";
 import { Card, CardTitle } from "@/components/ui/card";
 import {
-  Aviso,
   brl0,
+  FaixaDePendencias,
   ImpactoPorPeriodicidade,
+  MetricasCompactas,
   MetricCard,
   TituloDePainel,
+  type Pendencia,
 } from "@/components/changes/cartoes";
 import {
   ChangeTable,
@@ -185,11 +187,11 @@ interface LatestResponse {
 }
 
 /**
- * Qual disclosure da aba Planilha está aberta abaixo da fileira de avisos.
+ * Qual disclosure da aba Planilha está aberta abaixo da faixa de pendências.
  *
- * Mesma regra da aba Chamados: um só de cada vez, nenhuma por padrão. O aviso
- * diz o tamanho do problema em uma linha; o detalhe — que é longo — só ocupa a
- * tela de quem pediu para vê-lo.
+ * Mesma regra da aba Chamados: um só de cada vez, nenhuma por padrão. A faixa
+ * diz o tamanho de cada problema em uma linha; o detalhe — que é longo — só
+ * ocupa a tela de quem pediu para vê-lo.
  */
 type PainelPlanilha = "parcial" | "semPreco" | "deducao" | null;
 
@@ -298,6 +300,17 @@ export function AbaPlanilha({
 
   const [janela, setJanela] = useState<Janela>(primeiraPagina);
   const [painel, setPainel] = useState<PainelPlanilha>(null);
+  /*
+    A procedência — quais séries entraram e contra o que cada uma foi comparada
+    — atrás de "Como esta comparação funciona".
+
+    Ela é a resposta de uma pergunta que se faz **uma vez**, e depois disso é uma
+    linha de duzentos caracteres entre o seletor de vigências e os números. Fica
+    fechada por padrão e continua a um clique: o que ela afirma — que nada é
+    fundido, que cada série é comparada com a anterior dela mesma — não some da
+    tela, muda de lugar.
+  */
+  const [comoFunciona, setComoFunciona] = useState(false);
 
   const recortado = vigencias.de !== undefined || vigencias.ate !== undefined;
 
@@ -494,7 +507,52 @@ export function AbaPlanilha({
 
   const parcial = series === null && cv !== undefined && !cv.complete;
   const semPreco = totals?.impactNotCalculable ?? 0;
-  const temAviso = parcial || semPreco > 0;
+
+  /*
+    As pendências da comparação, na ordem em que se leem.
+
+    Antes elas eram três `Aviso` soltos guardados por `parcial || semPreco > 0`
+    — e a dedução, que não entra nessa conta, nunca aparecia sozinha: uma
+    comparação sem série faltando e com preço para tudo escondia a única
+    ressalva que tinha. A lista é a guarda agora, e cada pendência entra por
+    existir.
+  */
+  const pendencias: Pendencia[] = [];
+  if (parcial && cv) {
+    pendencias.push({
+      id: "parcial",
+      titulo: "Visão consolidada parcial",
+      detalhe: `Falta ${cv.missing.join(", ").toLowerCase()} ${
+        cv.janela === null
+          ? `no período ${cv.period}`
+          : "no intervalo escolhido"
+      }`,
+    });
+  }
+  if (semPreco > 0) {
+    pendencias.push({
+      id: "semPreco",
+      quantidade: semPreco,
+      titulo: "alterações fora da soma de impacto",
+      detalhe: "Continuam na lista — o que falta é o preço, não o fato.",
+    });
+  }
+  /*
+    A escada da dedução, atrás de um clique.
+
+    Ela existe porque o impacto **muda** quando a regra de dupla contagem entra,
+    e uma queda de R$ 39.936 para R$ 16.594 sem explicação ao alcance é
+    indistinguível de um erro. Quem confere precisa poder responder "por que
+    caiu?" sem abrir o código — e a resposta é a mesma que o `change_set` grava.
+  */
+  if (foraDoTotal > 0) {
+    pendencias.push({
+      id: "deducao",
+      quantidade: foraDoTotal,
+      titulo: "alterações fora do total por dupla contagem",
+      detalhe: "Continuam na lista — o dinheiro delas está contado noutra linha.",
+    });
+  }
 
   const abrirPainel = (alvo: PainelPlanilha) =>
     setPainel((atual) => (atual === alvo ? null : alvo));
@@ -505,6 +563,38 @@ export function AbaPlanilha({
       attributeCode:
         filters.attributeCode === attributeCode ? "" : attributeCode,
     });
+
+  /*
+    Os dois recortes que os números de apoio abrem na lista.
+
+    `COLUNAS` é um filtro de **dois** tipos porque o número é dois: "+3 / −1"
+    que abrisse só as colunas novas mostraria três linhas debaixo de um cartão
+    que conta quatro. `condicoesDoFiltro` aceita a lista separada por vírgula
+    justamente para este caso.
+  */
+  const COLUNAS = "ATTRIBUTE_ADDED,ATTRIBUTE_REMOVED";
+  const alternarFiltro = (chave: "changeType" | "comparability", valor: string) =>
+    setFilters({
+      ...filters,
+      [chave]: filters[chave] === valor ? "" : valor,
+    });
+
+  /*
+    A procedência das séries, em uma frase — o texto de "Como esta comparação
+    funciona". Sob escopo ela nomeia só a série do equipamento: listar a entrega
+    da carreta numa tela de cavalos descreveria um arquivo que não produziu
+    nenhuma linha do que está abaixo.
+  */
+  const procedencia =
+    series === null && cv && cv.present.length > 0
+      ? `${escopo ? "Comparação de " : "Consolidado de "}${procedenciaDasSeries(
+          cv.present.filter(
+            (p) =>
+              escopo === undefined ||
+              p.entityTypeSet.split("+").includes(escopo.entityType),
+          ),
+        )}. Cada série é comparada com a anterior dela mesma; nada é fundido.`
+      : null;
 
   return (
     <div className="p-8 space-y-5">
@@ -555,97 +645,91 @@ export function AbaPlanilha({
         />
       )}
 
-      {/* De onde saiu tudo o que está abaixo, e sobre que recorte da frota.
-          Fica numa linha, e não num cartão: é a procedência da tela, não um
-          número dela. */}
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0 space-y-1">
-          <p className="text-sm text-muted-foreground flex flex-wrap items-center gap-2">
-            {series === null ? (
-              cv &&
-              (cv.janela === null ? (
-                <span className="font-mono">período {cv.period}</span>
+      {/* De onde saiu tudo o que está abaixo. Fica numa pastilha, e não num
+          cartão: é a procedência da tela, não um número dela. */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          {(series === null ? cv !== undefined : data !== undefined) && (
+            <span className="inline-flex flex-wrap items-center gap-2 rounded-lg border bg-card px-3 py-2 text-sm text-muted-foreground">
+              <CalendarDays className="w-4 h-4 shrink-0" />
+              {series === null ? (
+                cv &&
+                (cv.janela === null ? (
+                  <span className="font-mono">período {cv.period}</span>
+                ) : (
+                  /*
+                    Com recorte, a procedência é o intervalo — e o número de
+                    transições vem junto, porque ele **não** é o de vigências.
+                    A mais antiga do intervalo não tem par aqui dentro: a
+                    comparação dela atravessa a borda e pertence ao recorte
+                    anterior. Escrever os dois números é o que impede alguém de
+                    ler "9 vigências" como "9 comparações".
+                  */
+                  <>
+                    <span className="font-mono">
+                      {cv.rotulos[cv.janela.de] ?? cv.janela.de}
+                    </span>
+                    <ArrowRight className="w-4 h-4" />
+                    <span className="font-mono">
+                      {cv.rotulos[cv.janela.ate] ?? cv.janela.ate}
+                    </span>
+                    <span>
+                      · {cv.periodos.length} vigência
+                      {cv.periodos.length === 1 ? "" : "s"}, {cv.transicoes}{" "}
+                      comparaç{cv.transicoes === 1 ? "ão" : "ões"}
+                    </span>
+                  </>
+                ))
               ) : (
-                /*
-                  Com recorte, a procedência é o intervalo — e o número de
-                  transições vem junto, porque ele **não** é o de vigências.
-                  A mais antiga do intervalo não tem par aqui dentro: a
-                  comparação dela atravessa a borda e pertence ao recorte
-                  anterior. Escrever os dois números é o que impede alguém de
-                  ler "9 vigências" como "9 comparações".
-                */
-                <>
-                  <span className="font-mono">
-                    {cv.rotulos[cv.janela.de] ?? cv.janela.de}
-                  </span>
-                  <ArrowRight className="w-4 h-4" />
-                  <span className="font-mono">
-                    {cv.rotulos[cv.janela.ate] ?? cv.janela.ate}
-                  </span>
-                  <span>
-                    · {cv.periodos.length} vigência
-                    {cv.periodos.length === 1 ? "" : "s"}, {cv.transicoes}{" "}
-                    comparaç{cv.transicoes === 1 ? "ão" : "ões"}
-                  </span>
-                </>
-              ))
-            ) : (
-              data && (
-                <>
-                  <span className="font-mono">{data.set.snapshotALabel}</span>
-                  <ArrowRight className="w-4 h-4" />
-                  <span className="font-mono">{data.set.snapshotBLabel}</span>
-                </>
-              )
-            )}
-          </p>
-
-          {series === null && cv && cv.present.length > 0 && (
-            <p className="text-xs text-muted-foreground">
-              {/* Sob escopo, a procedência nomeia só a série do equipamento:
-                  listar a entrega da carreta numa tela de cavalos descreveria
-                  um arquivo que não produziu nenhuma linha do que está abaixo. */}
-              {escopo ? "Comparação de " : "Consolidado de "}
-              {procedenciaDasSeries(
-                cv.present.filter(
-                  (p) =>
-                    escopo === undefined ||
-                    p.entityTypeSet.split("+").includes(escopo.entityType),
-                ),
+                data && (
+                  <>
+                    <span className="font-mono">{data.set.snapshotALabel}</span>
+                    <ArrowRight className="w-4 h-4" />
+                    <span className="font-mono">{data.set.snapshotBLabel}</span>
+                  </>
+                )
               )}
-              . Cada série é comparada com a anterior dela mesma; nada é fundido.
-            </p>
+            </span>
           )}
         </div>
 
-        {/* Consolidado é agrupamento de tela e API: soma as séries que
-            entregaram no período. Nenhuma vigência é fundida no banco.
-
-            Fora do escopo apenas — a razão está em `series`, logo acima: dentro
-            de Cavalo 360° estes botões ofereceriam trocar o assunto da tela por
-            um que inclui a carreta. */}
-        {escopo === undefined && known.length > 1 && (
-          <div className="flex flex-wrap items-center gap-1.5">
-            <SerieChip active={series === null} onClick={() => trocarSerie(null)}>
-              frota
-            </SerieChip>
-            {known.map((s) => (
-              <SerieChip
-                key={s}
-                active={series === s}
-                onClick={() => trocarSerie(s)}
-                hint={
-                  recorte.period !== null || recortado
-                    ? "a comparação de uma série é sempre a mais recente dela — a vigência escolhida e o recorte De/Até saem junto"
-                    : undefined
-                }
-              >
-                {s.replace("+", " · ").toLowerCase()}
-              </SerieChip>
-            ))}
-          </div>
+        {procedencia !== null && (
+          <button
+            type="button"
+            onClick={() => setComoFunciona((aberto) => !aberto)}
+            aria-expanded={comoFunciona}
+            className="inline-flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <Info className="w-4 h-4" />
+            Como esta comparação funciona
+          </button>
         )}
       </div>
+
+      {comoFunciona && procedencia !== null && (
+        <p className="rounded-xl border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+          {procedencia}
+        </p>
+      )}
+
+      {/* Consolidado é agrupamento de tela e API: soma as séries que
+          entregaram no período. Nenhuma vigência é fundida no banco.
+
+          Fora do escopo apenas — a razão está em `series`, logo acima: dentro
+          de Cavalo 360° estes botões ofereceriam trocar o assunto da tela por
+          um que inclui a carreta. */}
+      {escopo === undefined && known.length > 1 && (
+        <SegmentoDeSeries
+          series={series}
+          known={known}
+          onTrocar={trocarSerie}
+          hint={
+            recorte.period !== null || recortado
+              ? "a comparação de uma série é sempre a mais recente dela — a vigência escolhida e o recorte De/Até saem junto"
+              : undefined
+          }
+        />
+      )}
 
       {error && (
         <div className="space-y-2">
@@ -666,122 +750,125 @@ export function AbaPlanilha({
       {totals && (
         <div
           /*
-            A linha é medida pela largura que sobra, não pelo tamanho da janela.
+            O topo é medido pela largura que sobra, não pelo tamanho da janela.
 
             `xl:grid-cols-5` contava a janela inteira e ignorava os 304px da
             lateral: numa tela de 1440 com o menu aberto, os cinco cartões
             ficavam com 202px cada, dos quais 112 vão para o ladrilho do ícone e
             para os respiros. O que sobrava não cabia um valor em reais, e o
-            impacto era escrito por cima do cartão vizinho.
+            impacto era escrito por cima do cartão vizinho. As medidas daqui
+            para baixo são todas `@` — do contêiner, e não da janela —, pela
+            mesma razão.
 
-            `auto-fit` com piso de 14rem inverte a conta: cada cartão tem uma
-            largura mínima em que o seu conteúdo cabe, e quando não cabem cinco
-            na linha, o que muda é o número de colunas — não o tamanho do que
-            está escrito dentro delas.
+            E os cinco não pesam igual: quatro contam alterações, um conta
+            dinheiro. O de dinheiro fica na coluna da direita, do tamanho da
+            resposta que ele é; os dois que dizem *o que* mudou ficam em cima, e
+            os dois de apoio — layout do arquivo e inconclusivas — numa fileira
+            mais baixa, com a seta que leva ao recorte de cada um na lista.
           */
-          className="grid gap-4 grid-cols-[repeat(auto-fit,minmax(14rem,1fr))]"
+          className="@container"
         >
-          <MetricCard
-            tone="blue"
-            icon={<SlidersHorizontal className="w-6 h-6" />}
-            label="Valores alterados"
-            value={totals.valueChanges.toLocaleString("pt-BR")}
-            hint="célula a célula, entre as vigências"
-          />
-          <MetricCard
-            tone="green"
-            icon={<Truck className="w-6 h-6" />}
-            label="Ativos entraram / saíram"
-            value={`+${totals.entitiesAdded} / −${totals.entitiesRemoved}`}
-            hint="entradas e saídas da frota"
-          />
-          <MetricCard
-            tone="purple"
-            icon={<Columns3 className="w-6 h-6" />}
-            label="Colunas novas / removidas"
-            value={`+${totals.attributesAdded} / −${totals.attributesRemoved}`}
-            hint="mudanças no layout do arquivo"
-          />
-          {/*
-            Impacto da planilha — uma linha por periodicidade, e nunca um número
-            só: R$/mês e R$/ano são grandezas diferentes, e somá-las seria
-            exatamente o erro que este produto existe para pegar. É também por
-            isso que este cartão **não** soma com o de Impacto da aba Chamados:
-            lá a régua é a distância entre um pedido e uma resposta.
-          */}
-          <MetricCard
-            tone="red"
-            icon={<TrendingDown className="w-6 h-6" />}
-            label="Impacto apurado"
-            value={<ImpactoPorPeriodicidade buckets={impact} />}
-            hint={`${semPreco.toLocaleString("pt-BR")} alterações fora destes valores`}
-          />
-          <MetricCard
-            tone="orange"
-            icon={<HelpCircle className="w-6 h-6" />}
-            label="Inconclusivas"
-            value={totals.inconclusive.toLocaleString("pt-BR")}
-            hint="listadas, não escondidas"
-            valueTone={totals.inconclusive > 0 ? "warn" : "muted"}
-          />
+          <div className="grid items-stretch gap-4 @3xl:grid-cols-3">
+            <div className="grid content-start gap-4 @3xl:col-span-2">
+              <div className="grid gap-4 @xl:grid-cols-2">
+                <MetricCard
+                  tone="blue"
+                  icon={<SlidersHorizontal className="w-6 h-6" />}
+                  label="Valores alterados"
+                  value={totals.valueChanges.toLocaleString("pt-BR")}
+                  hint="célula a célula, entre as vigências"
+                />
+                <MetricCard
+                  tone="green"
+                  icon={<Truck className="w-6 h-6" />}
+                  label="Ativos entraram / saíram"
+                  value={`+${totals.entitiesAdded} / −${totals.entitiesRemoved}`}
+                  hint="entradas e saídas da frota"
+                />
+              </div>
+
+              <MetricasCompactas
+                itens={[
+                  {
+                    id: "colunas",
+                    tone: "purple",
+                    icon: <Columns3 className="w-5 h-5" />,
+                    label: "Colunas novas / removidas",
+                    value: `+${totals.attributesAdded} / −${totals.attributesRemoved}`,
+                    hint: "mudanças no layout do arquivo",
+                    onClick:
+                      totals.attributesAdded + totals.attributesRemoved > 0
+                        ? () => alternarFiltro("changeType", COLUNAS)
+                        : undefined,
+                    ativo: filters.changeType === COLUNAS,
+                  },
+                  {
+                    id: "inconclusivas",
+                    tone: "orange",
+                    icon: <HelpCircle className="w-5 h-5" />,
+                    label: "Inconclusivas",
+                    value: totals.inconclusive.toLocaleString("pt-BR"),
+                    valueTone: totals.inconclusive > 0 ? "warn" : "muted",
+                    // A ressalva de sempre — "listadas, não escondidas" — agora
+                    // é demonstrável em vez de afirmada: a seta abre exatamente
+                    // estas linhas na lista abaixo.
+                    hint: "listadas, não escondidas",
+                    onClick:
+                      totals.inconclusive > 0
+                        ? () => alternarFiltro("comparability", "INCONCLUSIVE")
+                        : undefined,
+                    ativo: filters.comparability === "INCONCLUSIVE",
+                  },
+                ]}
+              />
+            </div>
+
+            {/*
+              Impacto da planilha — uma linha por periodicidade, e nunca um
+              número só: R$/mês e R$/ano são grandezas diferentes, e somá-las
+              seria exatamente o erro que este produto existe para pegar. É
+              também por isso que este cartão **não** soma com o de Impacto da
+              aba Chamados: lá a régua é a distância entre um pedido e uma
+              resposta.
+            */}
+            <MetricCard
+              destaque
+              tone="blue"
+              icon={<TrendingDown className="w-8 h-8" />}
+              label="Impacto apurado"
+              value={
+                <ImpactoPorPeriodicidade buckets={impact} escala="destaque" />
+              }
+              hint={`${semPreco.toLocaleString("pt-BR")} alterações fora destes valores`}
+            />
+          </div>
         </div>
       )}
 
-      {/* Os avisos da comparação, em uma linha cada: o tamanho do problema à
-          vista, e o detalhe atrás de um clique. Nenhum deles some quando é
+      {/* As pendências da comparação, numa faixa só: o tamanho de cada problema
+          à vista, e o detalhe atrás de um clique. Nenhuma some quando é
           inconveniente — some quando não existe. */}
-      {(temAviso || painel !== null) && (
-        <Card className="p-5 space-y-4">
-          <div className={cn("gap-4 md:grid-cols-2", temAviso ? "grid" : "hidden")}>
-            {parcial && cv && (
-              <Aviso
-                tone="red"
-                titulo="Visão consolidada parcial"
-                detalhe={`Falta ${cv.missing.join(", ").toLowerCase()} ${
-                  cv.janela === null
-                    ? `no período ${cv.period}`
-                    : "no intervalo escolhido"
-                }`}
-                acao="Revisar"
-                aberto={painel === "parcial"}
-                onClick={() => abrirPainel("parcial")}
-              />
-            )}
-            {semPreco > 0 && (
-              <Aviso
-                tone="amber"
-                icone={<Lock className="w-6 h-6" />}
-                titulo={`${semPreco.toLocaleString("pt-BR")} alterações fora da soma de impacto`}
-                detalhe="Continuam na lista — o que falta é o preço, não o fato"
-                acao="Ver detalhes"
-                aberto={painel === "semPreco"}
-                onClick={() => abrirPainel("semPreco")}
-              />
-            )}
-            {/*
-              A escada da dedução, atrás de um clique.
-
-              Ela existe porque o número deste cartão **muda** quando a regra de
-              dupla contagem entra, e uma queda de R$ 39.936 para R$ 16.594 sem
-              explicação ao alcance é indistinguível de um erro. Quem confere
-              precisa poder responder "por que caiu?" sem abrir o código — e a
-              resposta é a mesma que o `change_set` grava.
-            */}
-            {foraDoTotal > 0 && (
-              <Aviso
-                tone="amber"
-                icone={<Layers className="w-6 h-6" />}
-                titulo={`${foraDoTotal.toLocaleString("pt-BR")} alterações fora do total por dupla contagem`}
-                detalhe="Continuam na lista — o dinheiro delas está contado noutra linha"
-                acao="Ver a conta"
-                aberto={painel === "deducao"}
-                onClick={() => abrirPainel("deducao")}
-              />
-            )}
-          </div>
+      {(pendencias.length > 0 || painel !== null) && (
+        <div className="space-y-3">
+          <FaixaDePendencias
+            // A faixa inteira fica vermelha quando há série faltando: uma
+            // entrega incompleta não é da mesma família de "falta o preço" —
+            // ali os números cobrem menos frota do que parecem cobrir.
+            tone={parcial ? "red" : "amber"}
+            itens={pendencias}
+            ativo={painel}
+            onEscolher={(id) => abrirPainel(id as PainelPlanilha)}
+            onAlternar={() =>
+              setPainel((atual) =>
+                atual !== null
+                  ? null
+                  : ((pendencias[0]?.id ?? null) as PainelPlanilha),
+              )
+            }
+          />
 
           {painel === "deducao" && rastro && (
-            <div className="rounded-xl border bg-muted/30 p-4 text-sm space-y-3">
+            <div className="rounded-xl border bg-card p-5 text-sm space-y-3 shadow-sm">
               <p>
                 O impacto apurado é o dinheiro contado <strong>uma vez só</strong>.
                 Abaixo, o caminho do total técnico até ele — cada degrau é uma
@@ -838,7 +925,7 @@ export function AbaPlanilha({
           )}
 
           {painel === "parcial" && cv && (
-            <div className="rounded-xl border bg-muted/30 p-4 text-sm">
+            <div className="rounded-xl border bg-card p-5 text-sm shadow-sm">
               {cv.janela === null ? (
                 <>
                   Para o período <span className="font-mono">{cv.period}</span>{" "}
@@ -868,7 +955,7 @@ export function AbaPlanilha({
           )}
 
           {painel === "semPreco" && (
-            <div className="rounded-xl border bg-muted/30 p-4 text-sm space-y-3">
+            <div className="rounded-xl border bg-card p-5 text-sm space-y-3 shadow-sm">
               <p>
                 <strong>{semPreco.toLocaleString("pt-BR")}</strong> alterações
                 estão fora da soma de impacto porque a semântica do atributo
@@ -903,7 +990,7 @@ export function AbaPlanilha({
               </p>
             </div>
           )}
-        </Card>
+        </div>
       )}
 
       <Card className="p-4 space-y-4">
@@ -1078,33 +1165,68 @@ function VindoDaVisaoGeral({
   );
 }
 
-/** O recorte da frota — a pílula que troca o assunto da tela inteira. */
-function SerieChip({
-  active,
-  onClick,
+/**
+ * O recorte da frota — o segmento que troca o assunto da tela inteira.
+ *
+ * Um controle só, e não quatro pílulas soltas: as opções são exclusivas entre
+ * si, e quatro botões separados desenham quatro escolhas independentes. Aqui a
+ * escolha é uma, e o que se vê é onde ela está.
+ */
+function SegmentoDeSeries({
+  series,
+  known,
+  onTrocar,
   hint,
-  children,
 }: {
-  active: boolean;
-  onClick: () => void;
+  series: string | null;
+  known: string[];
+  onTrocar: (s: string | null) => void;
   /** O que a troca leva junto, quando ela leva algo — ver `trocarSerie`. */
   hint?: string;
-  children: React.ReactNode;
 }) {
+  const itens: { key: string | null; label: string }[] = [
+    { key: null, label: "frota" },
+    ...known.map((s) => ({ key: s, label: s.replace("+", " · ").toLowerCase() })),
+  ];
+
   return (
-    <button
-      onClick={onClick}
-      aria-pressed={active}
-      title={hint}
-      className={cn(
-        "h-9 rounded-full border px-4 text-sm font-medium transition-colors",
-        active
-          ? "bg-blue-600 border-blue-600 text-white shadow-sm"
-          : "bg-background border-input text-muted-foreground hover:bg-muted",
-      )}
-    >
-      {children}
-    </button>
+    <div className="inline-flex flex-wrap items-center rounded-full border border-input bg-card p-1">
+      {itens.map((item, i) => {
+        const ativo = series === item.key;
+        return (
+          <Fragment key={item.key ?? "frota"}>
+            {/* O fio entre dois segmentos apagados. Ao lado do escolhido ele
+                não aparece: a pastilha já separa, e o fio colado nela lê como
+                uma borda torta. */}
+            {i > 0 && (
+              <span
+                aria-hidden
+                className={cn(
+                  "h-5 w-px shrink-0",
+                  ativo || series === itens[i - 1].key
+                    ? "bg-transparent"
+                    : "bg-border",
+                )}
+              />
+            )}
+            <button
+              type="button"
+              aria-pressed={ativo}
+              onClick={() => onTrocar(item.key)}
+              title={item.key === null ? undefined : hint}
+              className={cn(
+                "h-9 rounded-full px-5 text-sm font-medium transition-colors",
+                ativo
+                  ? "bg-blue-600 text-white shadow-sm"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {item.label}
+            </button>
+          </Fragment>
+        );
+      })}
+    </div>
   );
 }
 
