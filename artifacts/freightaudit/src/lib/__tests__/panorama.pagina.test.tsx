@@ -282,6 +282,10 @@ describe("a página do Panorama", () => {
     // 1 — o veredito
     await waitFor(() => expect(screen.getByText("+R$ 21.931")).toBeTruthy());
     expect(screen.getByText("Impacto líquido apurado")).toBeTruthy();
+    // a composição do líquido, na coluna ao lado do número
+    expect(screen.getByText("Composição")).toBeTruthy();
+    expect(screen.getByText("ganhos")).toBeTruthy();
+    expect(screen.getByText("perdas")).toBeTruthy();
     // a faixa de confiança, logo abaixo
     expect(screen.getByText(/apenas 7 de 102 alterações/)).toBeTruthy();
 
