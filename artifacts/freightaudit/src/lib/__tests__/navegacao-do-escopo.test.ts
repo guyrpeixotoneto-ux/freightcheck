@@ -190,6 +190,64 @@ describe("o Painel de Justificativas", () => {
   });
 });
 
+describe("o Monitoramento de Chamados", () => {
+  /*
+    A mesma reclamação do Painel de Justificativas, dita de novo e sobre outra
+    tela: "eu mudo de PERNAMBUCO para CAMAÇARI e muda o módulo, mas eu quero ver
+    justamente os chamados que importei de Camaçari". Saía porque a tela estava
+    fora das duas listas — e o desvio para Parâmetros é o que sobra quando a
+    tela não sabe ler o recorte.
+
+    Que a tela cumpra a promessa depois de entrar aqui é o que
+    `serie-da-unidade.test.ts` trava, do outro lado.
+  */
+  const MONITORAMENTO = "/monitoramento-de-chamados";
+
+  it("não expulsa quem escolhe uma unidade, e leva o escopo junto", () => {
+    const destino = enderecoDe(CAMACARI, MONITORAMENTO, "?dia=2026-08-28");
+
+    expect(tela(destino)).toBe(MONITORAMENTO);
+    expect(consulta(destino)).toEqual({
+      scopeHash: "scope-camacari",
+      canal: "EMPURRADA",
+      dia: "2026-08-28",
+    });
+  });
+
+  it("não expulsa quem escolhe a Visão Geral", () => {
+    const destino = enderecoDeVisaoGeral(
+      MONITORAMENTO,
+      "?scopeHash=scope-pernambuco&canal=EMPURRADA&dia=2026-08-28",
+    );
+
+    expect(tela(destino)).toBe(MONITORAMENTO);
+    expect(consulta(destino)).toEqual({ visaoGeral: "1", dia: "2026-08-28" });
+  });
+
+  /*
+    O tempo desta tela é o **dia** da importação, não a quinzena: quem está
+    olhando 28/08 e troca de unidade quer 28/08 na unidade nova. `period` não
+    tem leitor aqui e ficaria sujando todo link colado por aí.
+  */
+  it("preserva o dia aberto, e não a quinzena", () => {
+    const destino = enderecoDe(
+      CAMACARI,
+      MONITORAMENTO,
+      "?dia=2026-08-28&period=2026-08-01",
+    );
+
+    expect(consulta(destino).dia).toBe("2026-08-28");
+    expect(consulta(destino).period).toBeUndefined();
+  });
+
+  /* E o dia não viaja para as telas que falam de quinzena. */
+  it("não leva o dia para uma tela de vigência", () => {
+    const destino = enderecoDe(CAMACARI, "/parametros", "?dia=2026-08-28");
+
+    expect(consulta(destino).dia).toBeUndefined();
+  });
+});
+
 describe("trocar o ano no Painel", () => {
   /* O requisito 4: trocar de ano é uma pergunta sobre tempo, não sobre escopo. */
   it("não perde a unidade selecionada", () => {

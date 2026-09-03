@@ -4,6 +4,7 @@ import { useLocation, useSearch } from "wouter";
 import {
   ArrowDownRight,
   ArrowUpRight,
+  CalendarRange,
   CheckCircle2,
   ClipboardList,
   Clock,
@@ -33,6 +34,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AbaBotao } from "@/components/changes/cartoes";
 import { JustificarDialog } from "@/components/justificativas/justificar-dialog";
+import {
+  BOTAO_DE_TROCA,
+  MenuDeVigencias,
+} from "@/components/vigencia/seletor-de-vigencia";
 import { fetchJson, salvarArquivo } from "@/lib/api";
 import { useAmbiente } from "@/lib/ambiente-aberto";
 import { contextoAberto, useContextosDaCasca } from "@/lib/contextos";
@@ -41,6 +46,7 @@ import {
   equipamentosDoAmbiente,
   palavrasDoTipo,
   rotuloDoTipo,
+  rotuloEmFrase,
 } from "@/lib/frota";
 import { formatNumber } from "@/lib/format";
 import { nomeDaUnidade } from "@/lib/recorte";
@@ -118,6 +124,27 @@ import { cn } from "@/lib/utils";
  * com o outro, o título diz isso, e na aba de tipo é ele que mostra o tamanho
  * relativo da fila que se escolheu. As barras seguem clicáveis — numa aba de
  * tipo elas levam para a aba de outro.
+ *
+ * ---------------------------------------------------------------------------
+ * Onde se troca de vigência
+ * ---------------------------------------------------------------------------
+ * No **botão do canto direito do cabeçalho** — "Trocar vigência", o mesmo botão
+ * do Resumo executivo, da Linha do Tempo, dos Parâmetros e da fila. Ele era uma
+ * caixa no meio dos filtros, e a diferença não é de arrumação: a vigência não
+ * recorta *dentro* da leitura, ela diz **de que acervo** a leitura fala — como
+ * a unidade da lateral. Entre o impacto e o responsável, ela ficava com a cara
+ * de um ajuste como os outros, num lugar onde ninguém que chega das outras
+ * telas procura por ela, e "Limpar filtros" a levava junto.
+ *
+ * A diferença desta tela para as outras é o que o menu abre com: **"Todas as
+ * vigências"**, primeira linha e estado de partida. Somar o acervo inteiro é a
+ * pergunta que este painel existe para responder; escolher uma vigência é o
+ * caso particular. Qual das duas está aberta fica escrito ao lado do título,
+ * porque o botão diz só "Trocar vigência".
+ *
+ * A tabela "Cobertura por vigência", lá embaixo, troca pela mesma porta:
+ * clicar numa linha dela e escolher no menu gravam o mesmo estado, e o menu
+ * abre na linha que a tabela destacou.
  */
 
 /* O endereço desta tela — o mesmo que `App.tsx` registra. A aba e o tipo são
@@ -261,6 +288,10 @@ export default function PainelDeJustificativas() {
     ponto de partida de um trabalho que continua noutra tela — abrir a placa e
     voltar precisa reencontrar a mesma aba —; o painel é leitura, e o que dele
     se leva adiante é o link para a fila, que o botão de cada linha monta.
+
+    A vigência está na mesma lista por isso, e não por ser filtro: ela é o
+    recorte que o botão do cabeçalho troca, e `null` — todas as vigências
+    somadas — é o estado de partida do painel.
   */
   const [vigenciaEscolhida, setVigenciaEscolhida] = useState<string | null>(null);
   const [tipoFiltrado, setTipoFiltrado] = useState<string | null>(null);
@@ -274,7 +305,7 @@ export default function PainelDeJustificativas() {
   const [exportando, setExportando] = useState(false);
 
   /*
-    Trocar de unidade na lateral não desfaz o filtro de vigência, e a vigência
+    Trocar de unidade na lateral não desfaz a vigência escolhida, e a vigência
     de CAMAÇARI não existe no recorte de PERNAMBUCO: honrá-la deixaria a tela
     dizendo "nada a justificar" sobre um recorte que não é de ninguém. Enquanto
     a cobertura não chegou, a escolha vale — não há como saber ainda.
@@ -336,6 +367,23 @@ export default function PainelDeJustificativas() {
     [cobertura, changeSetId, ambiente],
   );
   const porVigencia = useMemo(() => vigenciasDoPainel(cobertura, tipo), [cobertura, tipo]);
+
+  /* A contagem da linha "Todas as vigências" do menu. Alterações somam entre
+     vigências — é o mesmo número do cartão "Alterações no recorte"; placas é
+     que não somam, e por isso não estão aqui. */
+  const totalDeAlteracoes = useMemo(
+    () => porVigencia.reduce((soma, v) => soma + v.alteracoes, 0),
+    [porVigencia],
+  );
+
+  /* Qual vigência a linha do cabeçalho nomeia. É a escolhida; e, quando o
+     recorte tem uma só, é ela — "todas as vigências" e aquela vigência são o
+     mesmo conjunto, e o nome diz mais do que a palavra "todas". É também por
+     isso que o botão de troca não aparece nesse caso: não há troca a oferecer,
+     a mesma régua dos outros seletores da casa. */
+  const vigenciaEscrita =
+    changeSetId ?? (porVigencia.length === 1 ? porVigencia[0].changeSetId : null);
+
   const responsaveis = useMemo(
     () => responsaveisDoPainel(autores, changeSetId),
     [autores, changeSetId],
@@ -397,10 +445,15 @@ export default function PainelDeJustificativas() {
     setSelecionadas(new Set());
   };
 
+  /* A vigência não está aqui, e é de propósito: ela saiu dos filtros para o
+     botão do cabeçalho, e lá ela é o recorte da leitura — como a unidade da
+     lateral. "Limpar filtros" desfaz o que se ajustou *dentro* de uma leitura;
+     devolver junto o painel à soma de todas as vigências seria trocar a
+     pergunta sem ter sido pedido. A volta para todas está a um clique, na
+     primeira linha do menu que a trocou. */
   const limparFiltros = () =>
     trocar(() => {
       setUnidadeEscolhida(null);
-      setVigenciaEscolhida(null);
       // Na aba de tipo o tipo não é filtro a limpar: é a população da aba.
       setTipoFiltrado(null);
       setDirecao("TODAS");
@@ -408,7 +461,6 @@ export default function PainelDeJustificativas() {
     });
 
   const temFiltro =
-    changeSetId !== null ||
     tipoFiltrado !== null ||
     direcao !== "TODAS" ||
     autor !== null ||
@@ -565,17 +617,92 @@ export default function PainelDeJustificativas() {
                     : ""}
                 .
               </p>
+
+              {/* Qual vigência está aberta — escrito aqui, porque o botão que a
+                  troca diz só "Trocar vigência". É a mesma linha da fila
+                  (`pages/justificativas.tsx`), e por isso ela também escreve o
+                  estado de partida desta tela, que as outras não têm: **todas**
+                  as vigências somadas.
+
+                  Com uma vigência só no recorte, a linha diz o nome dela e não
+                  "todas": as duas leituras são o mesmo conjunto, e nomeá-lo é o
+                  que responde de quando são os números. */}
+              {porVigencia.length > 0 && (
+                <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground mt-3">
+                  <CalendarRange className="w-3.5 h-3.5" />
+                  <span className="text-xs uppercase tracking-wide">Vigência</span>
+                  <span className="font-semibold text-foreground">
+                    {vigenciaEscrita === null
+                      ? "Todas as vigências"
+                      : (nomeDaVigencia.get(vigenciaEscrita) ?? vigenciaEscrita)}
+                  </span>
+                </span>
+              )}
             </div>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={exportar}
-            disabled={exportando || !resumo}
-          >
-            <Download className="w-4 h-4" />
-            {exportando ? "Exportando…" : "Exportar"}
-          </Button>
+
+          {/*
+            A vigência é o recorte da leitura, e não um filtro dela: ela decide
+            **de que acervo** os cartões, a rosca, as barras e a lista falam, do
+            mesmo jeito que a unidade da lateral. Por isso o botão da casa —
+            "Trocar vigência", contorno da marca, a contagem de alterações à
+            direita de cada linha — e no canto direito do cabeçalho, onde ele
+            está no Resumo executivo, na Linha do Tempo, nos Parâmetros e na
+            fila de Justificativas.
+
+            Era uma caixa `Select` no meio dos filtros, e o preço disso era duplo:
+            quem chegava do outro módulo procurava a troca de vigência onde ela
+            fica em todo o resto do produto e não a achava, e "Limpar filtros"
+            devolvia o painel à soma de todas as vigências junto com o impacto e
+            o responsável — três escolhas de recorte diferentes zeradas por um
+            botão só. A lista continua sendo a mesma (`vigenciasDoPainel`), e a
+            tabela "Cobertura por vigência" continua trocando pela mesma porta:
+            clicar numa linha de lá e escolher aqui gravam o mesmo estado.
+
+            "Todas as vigências" é a primeira linha do menu porque é o estado de
+            partida do painel e a pergunta que ele existe para responder — o
+            acervo inteiro, e não uma vigência de cada vez.
+          */}
+          <div className="flex flex-wrap items-center gap-3 shrink-0">
+            {porVigencia.length > 1 && (
+              <MenuDeVigencias
+                rotulo="Trocar vigência"
+                className={BOTAO_DE_TROCA}
+                /* Sempre plural: com uma vigência só o botão não existe. */
+                cabecalho={`${porVigencia.length} vigências com ${
+                  tipo ? rotuloEmFrase(tipo) : "alterações"
+                }`}
+                opcoes={[
+                  {
+                    valor: TODAS,
+                    rotulo: "Todas as vigências",
+                    alteracoes: totalDeAlteracoes,
+                  },
+                  ...porVigencia.map((v) => ({
+                    valor: v.changeSetId,
+                    rotulo: nomeDaVigencia.get(v.changeSetId) ?? v.changeSetId,
+                    alteracoes: v.alteracoes,
+                  })),
+                ]}
+                ativa={changeSetId ?? TODAS}
+                onEscolher={(valor) =>
+                  trocar(() => setVigenciaEscolhida(valor === TODAS ? null : valor))
+                }
+              />
+            )}
+            <Button
+              variant="outline"
+              onClick={exportar}
+              disabled={exportando || !resumo}
+              /* A mesma caixa do botão ao lado — os dois são o cabeçalho, e
+                 dois tamanhos diferentes lado a lado leem como dois níveis de
+                 controle que não existem. */
+              className="h-auto gap-2 rounded-lg px-4 py-2.5 text-sm font-bold"
+            >
+              <Download className="w-4 h-4" />
+              {exportando ? "Exportando…" : "Exportar"}
+            </Button>
+          </div>
         </div>
       </header>
 
@@ -852,51 +979,6 @@ export default function PainelDeJustificativas() {
                   </label>
                 )}
 
-                <label className="space-y-1">
-                  <span className="block text-xs uppercase tracking-wide text-muted-foreground">
-                    Vigência
-                  </span>
-                  <Select
-                    value={changeSetId ?? TODAS}
-                    onValueChange={(v) =>
-                      trocar(() => setVigenciaEscolhida(v === TODAS ? null : v))
-                    }
-                  >
-                    <SelectTrigger className="h-9 w-72 text-sm">
-                      {/*
-                        O rótulo do gatilho é escrito aqui, e não deixado a cargo
-                        do texto do item, porque o item carrega a contagem: fechado,
-                        o campo deve dizer só a vigência escolhida — a contagem
-                        pertence à lista, onde serve para comparar uma linha com
-                        as outras.
-                      */}
-                      <SelectValue>
-                        {changeSetId === null
-                          ? "Todas as vigências"
-                          : (nomeDaVigencia.get(changeSetId) ?? changeSetId)}
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value={TODAS}>Todas as vigências</SelectItem>
-                      {porVigencia.map((v) => (
-                        <SelectItem
-                          key={v.changeSetId}
-                          value={v.changeSetId}
-                          className="[&>span:last-child]:flex-1"
-                        >
-                          <span className="flex w-full items-center justify-between gap-6">
-                            <span>{nomeDaVigencia.get(v.changeSetId) ?? v.changeSetId}</span>
-                            <span className="text-xs font-normal text-muted-foreground tabular-nums">
-                              {formatNumber(v.alteracoes)}{" "}
-                              {v.alteracoes === 1 ? "alteração" : "alterações"}
-                            </span>
-                          </span>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </label>
-
                 {/*
                   Só na aba Geral. Na aba de tipo o eixo é a própria aba, e uma
                   segunda caixa para ele deixaria a tela com dois controles do
@@ -1045,7 +1127,8 @@ export default function PainelDeJustificativas() {
                       </th>
                       <th className="px-3 py-2.5 text-left font-semibold">Placa</th>
                       <th className="px-3 py-2.5 text-left font-semibold">Atributo</th>
-                      <th className="px-3 py-2.5 text-left font-semibold">De → Para</th>
+                      <th className="px-3 py-2.5 text-left font-semibold">De</th>
+                      <th className="px-3 py-2.5 text-left font-semibold">Para</th>
                       <th className="px-3 py-2.5 text-left font-semibold">Vigência</th>
                       <th className="px-3 py-2.5 text-left font-semibold">
                         {situacao === "PENDENTE" ? "Situação" : "Justificativa"}
@@ -1057,7 +1140,7 @@ export default function PainelDeJustificativas() {
                     {lista.consulta.isPending &&
                       Array.from({ length: 3 }).map((_, i) => (
                         <tr key={`esqueleto-${i}`} className="border-b">
-                          <td colSpan={7} className="px-4 py-3">
+                          <td colSpan={8} className="px-4 py-3">
                             <Skeleton className="h-5 w-full" />
                           </td>
                         </tr>
@@ -1065,7 +1148,7 @@ export default function PainelDeJustificativas() {
 
                     {!lista.consulta.isPending && lista.linhas.length === 0 && (
                       <tr>
-                        <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">
+                        <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
                           {situacao === "PENDENTE"
                             ? "Nenhuma pendência neste recorte — tudo o que mudou aqui já está justificado."
                             : "Nenhuma justificativa escrita neste recorte ainda."}
@@ -1096,11 +1179,15 @@ export default function PainelDeJustificativas() {
                             {linha.attributeName ?? linha.attributeCode ?? "—"}
                           </td>
                           <td className="px-3 py-3 align-top">
+                            <span className="tabular-nums text-muted-foreground line-through decoration-muted-foreground/40">
+                              {linha.valueBefore ?? "—"}
+                            </span>
+                          </td>
+                          <td className="px-3 py-3 align-top">
                             <span className="inline-flex items-center gap-1.5 tabular-nums">
-                              <span className="text-muted-foreground line-through decoration-muted-foreground/40">
-                                {linha.valueBefore ?? "—"}
+                              <span aria-hidden className="text-muted-foreground">
+                                →
                               </span>
-                              <span aria-hidden>→</span>
                               <span className="font-medium">{linha.valueAfter ?? "—"}</span>
                               {sentido === "AUMENTO" && (
                                 <ArrowUpRight className="w-4 h-4 text-rose-600" aria-label="aumento" />

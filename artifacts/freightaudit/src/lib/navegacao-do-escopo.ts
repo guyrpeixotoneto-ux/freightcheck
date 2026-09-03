@@ -27,6 +27,17 @@ import {
   RESUMO_EXECUTIVO,
 } from "@/lib/ambiente";
 
+/**
+ * O Monitoramento de Chamados, escrito uma vez.
+ *
+ * Não vem de `lib/ambiente.ts` como os outros porque lá moram as telas que o
+ * seletor de ambiente conhece; esta é uma rota da lateral, como
+ * `/justificativas`. O nome existe porque ela é lida em três lugares deste
+ * arquivo — as duas listas e a chave de tempo —, e um literal repetido três
+ * vezes é o começo de uma discordar das outras.
+ */
+const MONITORAMENTO_DE_CHAMADOS = "/monitoramento-de-chamados";
+
 /** O que o seletor precisa saber de um contexto para montar o endereço dele. */
 export interface EscopoNavegavel {
   scopeHash: string;
@@ -106,6 +117,21 @@ export const TELAS_QUE_HONRAM_ESCOPO = new Set<string>([
   */
   "/justificativas",
   "/painel-de-justificativas",
+  /*
+    O Monitoramento de Chamados. Ele entra pela mesma porta das duas de cima e
+    pela mesma reclamação, dita de novo: "eu mudo de PERNAMBUCO para CAMAÇARI e
+    muda o módulo, mas eu quero ver justamente os chamados que importei de
+    Camaçari". Trocar de unidade nele desviava para Parâmetros, e trocar de
+    assunto é o que esta lista existe para impedir.
+
+    Ele cumpre a promessa por um caminho que nenhuma outra tela desta lista
+    percorre: o recorte dele no banco não é `scope_hash`, é a **série** — a
+    unidade que o export da Ambev nomeia. Quem casa as duas é
+    `lib/serie-da-unidade.ts`, e o que a tela faz quando elas não se encontram
+    está escrito lá: diz que aquela unidade não tem envio, em vez de somar todas
+    embaixo do nome de uma.
+  */
+  MONITORAMENTO_DE_CHAMADOS,
 ]);
 
 /**
@@ -161,6 +187,13 @@ export const TELAS_QUE_HONRAM_VISAO_GERAL = new Set<string>([
   */
   "/justificativas",
   "/painel-de-justificativas",
+  /*
+    O Monitoramento de Chamados entra pelas duas portas: com uma unidade aberta
+    ele lê a série dela, e `visaoGeral=1` é a soma de todas as séries — que é o
+    que a tela já sabia fazer desde sempre, agora como escolha e não como
+    padrão.
+  */
+  MONITORAMENTO_DE_CHAMADOS,
 ]);
 
 /**
@@ -168,16 +201,28 @@ export const TELAS_QUE_HONRAM_VISAO_GERAL = new Set<string>([
  *
  * Quase toda tela da Auditoria fala de uma quinzena, e o nome disso na URL é
  * `period`. O Painel de Unidades fala do ano inteiro, e o nome disso é `ano`
- * (`pages/visao-gerencial.tsx`). Trocar de unidade não deve trocar de tempo em
- * nenhuma das duas — quem está lendo 2025 e escolhe CAMAÇARI quer CAMAÇARI em
- * 2025 —, e por isso o parâmetro que sobrevive à troca depende do destino.
+ * (`pages/visao-gerencial.tsx`). O Monitoramento de Chamados fala de **um
+ * dia** — a data da importação —, e o nome disso é `dia`. Trocar de unidade não
+ * deve trocar de tempo em nenhuma das três: quem está lendo 2025 e escolhe
+ * CAMAÇARI quer CAMAÇARI em 2025, e quem está olhando as movimentações de 28/08
+ * quer as de CAMAÇARI em 28/08, não as de hoje.
  *
- * Preservar os dois sempre seria mais simples e estaria errado: `period` numa
+ * Preservar os três sempre seria mais simples e estaria errado: `period` numa
  * tela de ano é um filtro que ninguém aplica, e `ano` numa tela de quinzena é
  * lixo que viaja em todo link colado por aí.
+ *
+ * O que **não** viaja junto é `regua` — a janela de nove dias que a tela
+ * desenha. Ela é derivada do dia aberto quando ninguém a escreve, e carregá-la
+ * levaria uma posição de rolagem para dentro de um recorte novo, onde ela pode
+ * nem existir.
  */
+const CHAVE_DO_TEMPO: Record<string, string> = {
+  [ENTRADA_DA_AUDITORIA]: "ano",
+  [MONITORAMENTO_DE_CHAMADOS]: "dia",
+};
+
 function tempoPreservado(destino: string, searchAtual: string): [string, string] | null {
-  const chave = destino === ENTRADA_DA_AUDITORIA ? "ano" : "period";
+  const chave = CHAVE_DO_TEMPO[destino] ?? "period";
   const valor = new URLSearchParams(searchAtual).get(chave);
   return valor === null || valor === "" ? null : [chave, valor];
 }

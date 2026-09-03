@@ -72,7 +72,12 @@ import {
 } from "@/lib/ambiente";
 import { useAmbiente } from "@/lib/ambiente-aberto";
 import { useAuth } from "@/lib/auth";
-import { contextoAberto, useContextosDaCasca, type Contexto } from "@/lib/contextos";
+import {
+  contextoAberto,
+  unidadeDe,
+  useContextosDaCasca,
+  type Contexto,
+} from "@/lib/contextos";
 import {
   enderecoDe,
   enderecoDeVisaoGeral,
@@ -902,12 +907,6 @@ function CaixaDaUnidade({
       {seta && <ChevronDown className="w-4 h-4 shrink-0 mt-1 text-muted-foreground" />}
     </div>
   );
-}
-
-/** O nome da unidade; sem escopo cadastrado sobra o rótulo que o servidor montou. */
-export function unidadeDe(contexto: Contexto): string {
-  const unidade = contexto.scopes.find((s) => s.scopeType === "UNIDADE");
-  return unidade?.name ?? unidade?.code ?? contexto.label;
 }
 
 /** O canal do rótulo — a linha sob o nome da unidade. */

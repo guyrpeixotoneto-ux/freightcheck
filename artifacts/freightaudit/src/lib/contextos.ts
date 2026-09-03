@@ -166,3 +166,23 @@ export function contextoAberto(
   if (scopeHash === null) return contextos[0];
   return contextos.find((c) => c.scopeHash === scopeHash) ?? contextos[0];
 }
+
+/**
+ * O nome da unidade de um contexto — a palavra que a lateral escreve.
+ *
+ * Morava duas vezes, idêntica, em `components/layout/sidebar.tsx` e em
+ * `pages/unidades.tsx`, e passou a ser lida por uma terceira: o Monitoramento
+ * de Chamados casa esta palavra com a série que o arquivo da Ambev nomeia (ver
+ * `lib/serie-da-unidade.ts`). Três cópias de uma regra que decide **qual
+ * unidade a tela está mostrando** é a doença que o cabeçalho deste arquivo
+ * descreve, um nível acima: nada obriga as três a concordarem, e o dia em que
+ * discordassem seria o dia em que a lateral nomearia uma unidade e a tela
+ * recortaria por outra.
+ *
+ * Sem escopo `UNIDADE` cadastrado sobra o rótulo que o servidor montou — é o
+ * que a caixa da lateral já mostrava, e continua sendo melhor do que vazio.
+ */
+export function unidadeDe(contexto: Contexto): string {
+  const unidade = contexto.scopes.find((s) => s.scopeType === "UNIDADE");
+  return unidade?.name ?? unidade?.code ?? contexto.label;
+}
