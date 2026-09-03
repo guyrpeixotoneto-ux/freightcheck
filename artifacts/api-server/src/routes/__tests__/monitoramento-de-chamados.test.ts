@@ -53,8 +53,24 @@ async function post(caminho: string, corpo: unknown) {
 }
 
 /** Um envio com um chamado por unidade, no formato real (uma linha por campo). */
+/**
+ * Um chamado do envio de teste.
+ *
+ * `situacao` e `parametro` são opcionais e têm o padrão do arquivo real que
+ * este teste imita — um chamado em análise com um parâmetro pedido. Quem
+ * precisa dos três desfechos ao mesmo tempo (os cartões do topo) ou de um
+ * "de → para" próprio (a linha da relação) os informa.
+ */
+interface ChamadoDeTeste {
+  externalId: string;
+  unidade: string;
+  prazo: string;
+  situacao?: { raw: string; bucket: string };
+  parametro?: { label: string; de?: string; para?: string; operacao?: string };
+}
+
 async function enviar(
-  chamados: { externalId: string; unidade: string; prazo: string }[],
+  chamados: ChamadoDeTeste[],
   recebidoEm: string,
   filename: string,
 ) {
@@ -83,21 +99,34 @@ async function enviar(
       .values({
         ticketImportId: envio!.id,
         externalId: c.externalId,
-        statusRaw: "Em análise",
-        statusBucket: "EM_ANDAMENTO",
+        statusRaw: c.situacao?.raw ?? "Em análise",
+        statusBucket: c.situacao?.bucket ?? "EM_ANDAMENTO",
         unidadeRaw: c.unidade,
         segmentoRaw: "Operações",
         aprovadorRaw: "João Silva",
         prazoPrevisto: c.prazo,
         subject: "Entrega do relatório mensal",
+        /*
+          As colunas que o export real traz e a relação passou a mostrar. Vêm
+          iguais em todo envio de propósito: o que elas provam aqui é que a
+          linha as entrega, e um valor que variasse entre envios viraria
+          movimentação e mexeria nas contagens que as suítes acima fixam.
+        */
+        operadorRaw: "OPERALOG",
+        slaRaw: "01/08/2026",
+        vigenciaLabel: "EMPURRADA_1_8_2026",
+        requestedBy: "99817953@ab-inbev.com",
+        entityDescription: "Cargo: Manobrista | Classificação: CARREGAMENTO",
         sourceRowIndex: linha,
       })
       .returning();
     await ctx.db.insert(ticketChangeTable).values({
       ticketId: t!.id,
       ticketImportId: envio!.id,
-      parameterLabel: "Frete peso",
-      valueAfterRaw: "100",
+      parameterLabel: c.parametro?.label ?? "Frete peso",
+      valueBeforeRaw: c.parametro?.de ?? null,
+      valueAfterRaw: c.parametro?.para ?? "100",
+      changeKind: c.parametro?.operacao ?? null,
       beforeSource: "ARQUIVO",
       sourceColumnIndex: 0,
     });
@@ -118,6 +147,14 @@ const ONTEM = "2026-09-01";
  * recebe dois envios no mesmo dia — que é o que prova a regra do último.
  */
 const DEPOIS = "2026-09-03";
+/**
+ * O dia com os três desfechos ao mesmo tempo — e um quarto que não é nenhum.
+ *
+ * Fica fora da régua que a suíte dos dias fixa (`ate=DIA`, nove dias até
+ * 02/09) para não mexer nas contagens dela. É este envio que prova o que os
+ * cartões do topo contam, e que `outras` existe para a soma fechar.
+ */
+const MISTURA = "2026-09-04";
 const as = (dia: string, hora: number) =>
   `${dia}T${String(hora + 3).padStart(2, "0")}:00:00.000Z`;
 
@@ -175,6 +212,45 @@ beforeAll(async () => {
     ],
     as(DEPOIS, 17),
     "Chamados_Camaçari.xlsx",
+  );
+
+  /*
+    O envio da mistura: dois aprovados, um em análise, um reprovado e um
+    cancelado. Os quatro primeiros são os três cartões do topo; o cancelado é o
+    que sobra — e é ele que impede os três de somarem cinco.
+  */
+  await enviar(
+    [
+      {
+        externalId: "Recife-1",
+        unidade: "Recife",
+        prazo: "2026-09-20",
+        situacao: { raw: "APROVADO", bucket: "ATENDIDO" },
+        parametro: { label: "quantidadeOrdenado", de: "4", para: "7", operacao: "SET" },
+      },
+      {
+        externalId: "Recife-2",
+        unidade: "Recife",
+        prazo: "2026-09-20",
+        situacao: { raw: "APROVADO", bucket: "ATENDIDO" },
+        parametro: { label: "finameCavalo", de: "-", para: "-", operacao: "FORM_THIS" },
+      },
+      { externalId: "Recife-3", unidade: "Recife", prazo: "2026-09-20" },
+      {
+        externalId: "Recife-4",
+        unidade: "Recife",
+        prazo: "2026-09-20",
+        situacao: { raw: "REPROVADO", bucket: "RECUSADO" },
+      },
+      {
+        externalId: "Recife-5",
+        unidade: "Recife",
+        prazo: "2026-09-20",
+        situacao: { raw: "Cancelado pela Ambev", bucket: "CANCELADO" },
+      },
+    ],
+    as(MISTURA, 8),
+    "Chamados_Recife.xlsx",
   );
 
   const { default: router } = await import("../monitoramento-de-chamados");
@@ -467,6 +543,94 @@ describe("a relação de chamados do envio", () => {
     const { status, body } = await get(`${BASE}/dia/03-09-2026/chamados`);
     expect(status).toBe(400);
     expect(body.error).toContain("AAAA-MM-DD");
+  });
+});
+
+describe("as situações da fila — os três cartões do topo", () => {
+  /*
+    A razão de os cartões terem trocado de grão, num teste: eles contavam
+    movimentações, revisadas e pendentes, e num dia sem movimentação eram três
+    zeros sobre um arquivo cheio. Estes números respondem em todo dia em que
+    chegou arquivo.
+  */
+  it("dobram o envio do dia pelo desfecho que o arquivo declara", async () => {
+    const { body } = await get(`${BASE}/dia/${MISTURA}?serie=Recife`);
+    expect(body.situacoesNoEnvio).toMatchObject({
+      aprovados: 2,
+      emAnalise: 1,
+      reprovados: 1,
+      outras: 1,
+      total: 5,
+    });
+    expect(body.situacoesNoEnvio.detalheDeOutras).toEqual([
+      { statusBucket: "CANCELADO", total: 1 },
+    ]);
+  });
+
+  it("os quatro fecham com o total do envio — é para isso que `outras` existe", async () => {
+    const { body } = await get(`${BASE}/dia/${MISTURA}?serie=Recife`);
+    const s = body.situacoesNoEnvio;
+    expect(s.aprovados + s.emAnalise + s.reprovados + s.outras).toBe(s.total);
+    expect(s.total).toBe(body.chamadosNoEnvio);
+  });
+
+  it("um dia sem envio nenhum devolve zeros, e não os do dia anterior", async () => {
+    const { body } = await get(`${BASE}/dia/2026-08-01`);
+    expect(body.situacoesNoEnvio).toEqual({
+      aprovados: 0,
+      emAnalise: 0,
+      reprovados: 0,
+      outras: 0,
+      total: 0,
+      detalheDeOutras: [],
+    });
+  });
+
+  it("o recorte por série não vaza para os cartões", async () => {
+    // Camaçari não mandou nada em MISTURA: os cartões daquela série são zero,
+    // e não os cinco de Recife.
+    const { body } = await get(`${BASE}/dia/${MISTURA}?serie=Camaçari`);
+    expect(body.situacoesNoEnvio.total).toBe(0);
+  });
+});
+
+describe("a linha da relação", () => {
+  /*
+    O que a linha mostrava era número, situação e assunto — e quem conferia
+    tinha de abrir a planilha para saber o que o chamado pedia. Estes campos
+    são os que a linha passou a entregar, e todos já vinham no arquivo.
+  */
+  it("traz o que o chamado pediu, parâmetro a parâmetro", async () => {
+    const { body } = await get(`${BASE}/dia/${MISTURA}/chamados?serie=Recife`);
+    const porId = Object.fromEntries(body.rows.map((c: any) => [c.externalId, c]));
+
+    expect(porId["Recife-1"].alteracoes).toEqual([
+      { parametro: "quantidadeOrdenado", operacao: "SET", de: "4", para: "7" },
+    ]);
+    // A alteração sem valores não é buraco: `FORM_THIS` troca a fórmula, e o
+    // "-" é como o export escreve "não se aplica". A operação é o que explica.
+    expect(porId["Recife-2"].alteracoes).toEqual([
+      { parametro: "finameCavalo", operacao: "FORM_THIS", de: "-", para: "-" },
+    ]);
+  });
+
+  it("traz os campos do arquivo que a linha antes escondia", async () => {
+    const { body } = await get(`${BASE}/dia/${MISTURA}/chamados?serie=Recife`);
+    const primeiro = body.rows.find((c: any) => c.externalId === "Recife-1");
+    expect(primeiro).toMatchObject({
+      operador: "OPERALOG",
+      solicitante: "99817953@ab-inbev.com",
+      responsavel: "João Silva",
+      sla: "01/08/2026",
+      vigencia: "EMPURRADA_1_8_2026",
+      item: "Cargo: Manobrista | Classificação: CARREGAMENTO",
+      linhaDoArquivo: 1,
+    });
+  });
+
+  it("a linha do arquivo é a da planilha — é ela que casa a relação com o Excel", async () => {
+    const { body } = await get(`${BASE}/dia/${MISTURA}/chamados?serie=Recife`);
+    expect(body.rows.map((c: any) => c.linhaDoArquivo)).toEqual([1, 2, 3, 4, 5]);
   });
 });
 

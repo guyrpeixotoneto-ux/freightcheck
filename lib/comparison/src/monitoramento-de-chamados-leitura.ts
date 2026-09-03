@@ -253,6 +253,46 @@ export async function reguaDeDias(
 // O resumo do dia
 // ---------------------------------------------------------------------------
 
+/**
+ * A fila do dia pelo desfecho — os três nomes que o arquivo escreve.
+ *
+ * `APROVADO`, `EM ANÁLISE` e `REPROVADO` são o vocabulário do export da Ambev,
+ * e cada um cai numa das caixas de `normalizeStatus`: `ATENDIDO`,
+ * `EM_ANDAMENTO` e `RECUSADO`. A contagem é pela **caixa**, e não pelo texto:
+ * é ela que tem índice (`ticket_status_bucket_idx`) e é ela que sobrevive à
+ * fonte inventar "Aprovado parcialmente" na semana que vem.
+ *
+ * A caixa é mais larga que o nome do cartão, e a tela diz isso na dica: um
+ * arquivo que escrevesse "Concluído" também cairia em `ATENDIDO` e seria
+ * contado como aprovado. É a mesma folga que a aba Chamados aceita ao filtrar
+ * por situação, e o preço de não ter uma tabela de status por cliente.
+ *
+ * `outras` é o que **não** cai em nenhuma das três — aberto, cancelado, sem
+ * status — e existe para que a soma feche. Três cartões que ignorassem em
+ * silêncio uma quarta caixa dariam a soma errada de um total certo, que é o
+ * defeito que este produto existe para pegar.
+ */
+export interface SituacoesNoEnvio {
+  /** Caixa `ATENDIDO` — o "APROVADO" do arquivo. */
+  aprovados: number;
+  /** Caixa `EM_ANDAMENTO` — o "EM ANÁLISE" do arquivo. */
+  emAnalise: number;
+  /** Caixa `RECUSADO` — o "REPROVADO" do arquivo. */
+  reprovados: number;
+  /** Tudo o que não é nenhuma das três. Some da tela quando é zero. */
+  outras: number;
+  /**
+   * A soma das quatro — **contada em `ticket`**, e não declarada pelo envio.
+   *
+   * Pode divergir de `chamadosNoEnvio`, que vem de `ticket_import.ticket_count`
+   * (o que o leitor disse ter lido). As duas convivem porque respondem a
+   * perguntas diferentes, e é este o número com que os cartões fecham.
+   */
+  total: number;
+  /** As caixas dobradas em `outras`, para a tela poder nomeá-las. */
+  detalheDeOutras: { statusBucket: string; total: number }[];
+}
+
 export interface ResumoDoDia {
   dia: string;
   serie: string | null | undefined;
@@ -279,6 +319,16 @@ export interface ResumoDoDia {
    * `filaDoDia`: três envios da mesma unidade são a mesma fila três vezes.
    */
   chamadosNoEnvio: number;
+  /**
+   * A mesma fila do dia, dobrada pelo desfecho que o arquivo declara.
+   *
+   * É o que os três cartões do topo da tela contam desde que deixaram de
+   * contar movimentações: num dia sem movimentação nenhuma — que é a maioria
+   * dos dias — os cartões antigos mostravam três zeros sobre um arquivo de
+   * 1.218 chamados, e três zeros certos que não dizem nada é exatamente o que
+   * esta tela existe para não fazer.
+   */
+  situacoesNoEnvio: SituacoesNoEnvio;
   /** Grão diferente do de cima: campos, não chamados. Nunca somar os dois. */
   alteracoesDeCampo: { tipo: string; total: number }[];
   pontosDeAtencao: {
@@ -295,6 +345,57 @@ export interface ResumoDoDia {
 export interface AvisoDoDia {
   tipo: "BASELINE" | "IMPORTACAO_COM_FALHA" | "REMOVIDOS_SUPRIMIDOS";
   texto: string;
+}
+
+/**
+ * As três caixas que viram cartão, e o nome que a tela lhes dá.
+ *
+ * Ficam aqui, e não na tela, porque são a ponte entre o vocabulário do arquivo
+ * e o de `normalizeStatus`: quem mudar o dobramento lá tem de encontrar esta
+ * lista no mesmo pacote, e não num componente três camadas acima.
+ */
+const CAIXA_APROVADO = "ATENDIDO";
+const CAIXA_EM_ANALISE = "EM_ANDAMENTO";
+const CAIXA_REPROVADO = "RECUSADO";
+
+/** A fila dos envios do dia contada por caixa de situação. */
+async function situacoesDaFila(
+  db: Database,
+  envios: string[],
+): Promise<SituacoesNoEnvio> {
+  const vazio: SituacoesNoEnvio = {
+    aprovados: 0,
+    emAnalise: 0,
+    reprovados: 0,
+    outras: 0,
+    total: 0,
+    detalheDeOutras: [],
+  };
+  if (envios.length === 0) return vazio;
+
+  const linhas = await db
+    .select({
+      statusBucket: ticketTable.statusBucket,
+      total: sql<number>`count(*)`.mapWith(Number),
+    })
+    .from(ticketTable)
+    .where(inArray(ticketTable.ticketImportId, envios))
+    .groupBy(ticketTable.statusBucket)
+    .orderBy(desc(sql`count(*)`));
+
+  const conhecidas = new Set([CAIXA_APROVADO, CAIXA_EM_ANALISE, CAIXA_REPROVADO]);
+  const contagem = (caixa: string) =>
+    linhas.find((l) => l.statusBucket === caixa)?.total ?? 0;
+
+  const detalheDeOutras = linhas.filter((l) => !conhecidas.has(l.statusBucket));
+  return {
+    aprovados: contagem(CAIXA_APROVADO),
+    emAnalise: contagem(CAIXA_EM_ANALISE),
+    reprovados: contagem(CAIXA_REPROVADO),
+    outras: detalheDeOutras.reduce((a, l) => a + l.total, 0),
+    total: linhas.reduce((a, l) => a + l.total, 0),
+    detalheDeOutras,
+  };
 }
 
 export async function resumoDoDia(
@@ -390,9 +491,29 @@ export async function resumoDoDia(
     `enviosDaFila`, e o mesmo sentinela para a série indeterminada, que é uma
     série e não pode se fundir com outra por ser nula.
   */
-  const ultimoPorSerie = new Map<string, number>();
-  for (const e of lidos) ultimoPorSerie.set(e.serie ?? "—", e.chamados);
-  const chamadosNoEnvio = [...ultimoPorSerie.values()].reduce((a, b) => a + b, 0);
+  const ultimoPorSerie = new Map<string, (typeof lidos)[number]>();
+  for (const e of lidos) ultimoPorSerie.set(e.serie ?? "—", e);
+  const enviosDaVez = [...ultimoPorSerie.values()];
+  const chamadosNoEnvio = enviosDaVez.reduce((a, e) => a + e.chamados, 0);
+
+  /*
+    Uma consulta a mais no resumo — a única dele que toca `ticket`.
+
+    O cabeçalho deste arquivo promete que abrir a tela é leitura de linha
+    pronta, e esta continua sendo: um `count(*)` agrupado, recortado pelos
+    envios do dia com `ticket_import_idx` e dobrado por uma coluna indexada
+    (`ticket_status_bucket_idx`). Não desempacota `payload`, não junta com
+    movimentação e não compara nada — e continua sendo **uma** requisição, que
+    é o que a tela paga ao abrir.
+
+    Fica no resumo, e não na relação, porque os cartões estão em tela antes de
+    alguém abrir a visão "Chamados do envio": tirá-los da fila obrigaria toda
+    abertura de tela a carregar 1.218 linhas para escrever três números.
+  */
+  const situacoesNoEnvio = await situacoesDaFila(
+    db,
+    enviosDaVez.map((e) => e.id),
+  );
 
   const avisos: AvisoDoDia[] = [];
   for (const c of comparacoes) {
@@ -445,6 +566,7 @@ export async function resumoDoDia(
     revisadas,
     pendentes: movimentacoes - revisadas,
     chamadosNoEnvio,
+    situacoesNoEnvio,
     alteracoesDeCampo: porTipo,
     pontosDeAtencao: {
       criticos: totais?.criticos ?? 0,
@@ -791,6 +913,26 @@ export interface EnvioDaFila {
   chamados: number;
 }
 
+/**
+ * O que o chamado pediu num parâmetro — a linha do arquivo, não a apuração.
+ *
+ * `de` e `para` são `Valor Antigo` e `Valor Solicitado` como o arquivo os
+ * escreveu, sem número derivado nenhum: quem confere a relação está com a
+ * planilha aberta ao lado, e um valor normalizado por nós não casa com o que
+ * ele lê lá. O impacto apurado é outra tela, e outro grão.
+ *
+ * `operacao` é a coluna `Operação` (`SET`, `FORM_THIS`, …) e é ela que explica
+ * a linha sem valores: num export real a maioria das alterações não é `SET` —
+ * é troca de fórmula ou inclusão de item, que mudam a remuneração sem existir
+ * "de 10 para 12" para mostrar. Sem ela, essas linhas pareceriam dado perdido.
+ */
+export interface AlteracaoDoChamado {
+  parametro: string;
+  operacao: string | null;
+  de: string | null;
+  para: string | null;
+}
+
 /** Um chamado como a relação o mostra. */
 export interface ChamadoNaFila {
   id: string;
@@ -800,17 +942,42 @@ export interface ChamadoNaFila {
   area: string | null;
   responsavel: string | null;
   solicitante: string | null;
+  /** `Operador` — quem toca o chamado, ao lado de quem o aprova. */
+  operador: string | null;
   statusRaw: string | null;
   statusBucket: string;
   assunto: string | null;
   entidade: string | null;
+  /**
+   * A coluna `Item` inteira — `Cargo: Manobrista | Classificação: …`.
+   *
+   * Convive com `entidade` porque as duas dizem coisas diferentes nas linhas
+   * de cargo: ali `entidade` cai para este mesmo texto por não haver placa, e
+   * a tela só o repete quando ele **não** é o que já está em `entidade`.
+   */
+  item: string | null;
   categoria: string | null;
+  /** `Vig. Abertura` — a vigência que o próprio chamado nomeia. */
+  vigencia: string | null;
+  /** `SLA`, como a fonte escreveu. Não vira data e não vira número. */
+  sla: string | null;
   prazoPrevisto: string | null;
   abertoEm: string | null;
   encerradoEm: string | null;
   alteradoEmFonte: string | null;
   /** Quantos parâmetros de remuneração vieram preenchidos neste chamado. */
   parametros: number;
+  /**
+   * Os parâmetros do chamado, um a um.
+   *
+   * `parametros` continua sendo a contagem que a coluna gravou; esta é a
+   * relação de verdade, lida de `ticket_change` só para a página em tela. As
+   * duas podem divergir num chamado cujo envio contou o que a linha não trouxe,
+   * e é por isso que a tela mostra a contagem **e** os itens.
+   */
+  alteracoes: AlteracaoDoChamado[];
+  /** Linha física do arquivo, 1-based — o que casa a tela com o Excel aberto. */
+  linhaDoArquivo: number;
   /** Este chamado está entre as movimentações do dia. Ver o cabeçalho. */
   movimentou: boolean;
 }
@@ -907,6 +1074,49 @@ async function enviosDaFila(
   return [...ultimoPorSerie.values()].sort((a, b) =>
     a.recebidoEm < b.recebidoEm ? -1 : a.recebidoEm > b.recebidoEm ? 1 : 0,
   );
+}
+
+/** Os parâmetros dos chamados em tela, na ordem das colunas do arquivo. */
+async function alteracoesDosChamados(
+  db: Database,
+  chamados: string[],
+): Promise<Map<string, AlteracaoDoChamado[]>> {
+  const porChamado = new Map<string, AlteracaoDoChamado[]>();
+  if (chamados.length === 0) return porChamado;
+
+  const linhas = await db
+    .select({
+      chamado: ticketChangeTable.ticketId,
+      parametro: ticketChangeTable.parameterLabel,
+      operacao: ticketChangeTable.changeKind,
+      de: ticketChangeTable.valueBeforeRaw,
+      para: ticketChangeTable.valueAfterRaw,
+    })
+    .from(ticketChangeTable)
+    .where(inArray(ticketChangeTable.ticketId, chamados))
+    /*
+      A ordem das colunas do arquivo, pela razão da ordem das linhas: esta
+      relação é a planilha, e os parâmetros aparecem na ordem em que ela os
+      escreveu. `parameterLabel` desempata porque `(chamado, parâmetro)` é o
+      índice único da tabela — sem ele, duas colunas de mesma origem sairiam
+      em ordem indefinida entre uma leitura e outra.
+    */
+    .orderBy(
+      asc(ticketChangeTable.sourceColumnIndex),
+      asc(ticketChangeTable.parameterLabel),
+    );
+
+  for (const l of linhas) {
+    const lista = porChamado.get(l.chamado) ?? [];
+    lista.push({
+      parametro: l.parametro,
+      operacao: l.operacao,
+      de: l.de,
+      para: l.para,
+    });
+    porChamado.set(l.chamado, lista);
+  }
+  return porChamado;
 }
 
 export async function filaDoDia(
@@ -1036,6 +1246,21 @@ export async function filaDoDia(
   const unicos = (lista: (string | null)[]) =>
     [...new Set(lista.filter((v): v is string => v !== null && v !== ""))].sort();
 
+  /*
+    Os parâmetros **da página**, e nunca os da fila inteira.
+
+    Uma consulta a mais por página, recortada pelos 25 chamados que estão em
+    tela (`ticket_change_ticket_idx`), em vez de uma junção com `ticket_change`
+    na consulta da lista: a junção multiplicaria o chamado pelo número de
+    parâmetros e faria a paginação devolver 25 *linhas de parâmetro*, não 25
+    chamados — o mesmo defeito que o cabeçalho deste arquivo documenta ter
+    evitado do lado das revisões.
+  */
+  const alteracoes = await alteracoesDosChamados(
+    db,
+    linhas.map((l) => l.t.id),
+  );
+
   return {
     dia,
     serie,
@@ -1061,7 +1286,13 @@ export async function filaDoDia(
       abertoEm: t.openedAt?.toISOString() ?? null,
       encerradoEm: t.closedAt?.toISOString() ?? null,
       alteradoEmFonte: t.alteradoEmFonte?.toISOString() ?? null,
+      operador: t.operadorRaw,
+      item: t.entityDescription,
+      vigencia: t.vigenciaLabel,
+      sla: t.slaRaw,
       parametros: t.changedParameterCount,
+      alteracoes: alteracoes.get(t.id) ?? [],
+      linhaDoArquivo: t.sourceRowIndex,
       movimentou,
     })),
     filtros: {

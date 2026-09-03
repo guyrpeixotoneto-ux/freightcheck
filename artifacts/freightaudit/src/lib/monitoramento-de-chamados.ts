@@ -85,6 +85,29 @@ export interface AvisoDoDia {
   texto: string;
 }
 
+/**
+ * As situações da fila do dia — `APROVADO`, `EM ANÁLISE`, `REPROVADO`.
+ *
+ * Os três nomes são os do arquivo da Ambev; o que o servidor conta são as
+ * caixas em que `normalizeStatus` os dobra (`ATENDIDO`, `EM_ANDAMENTO`,
+ * `RECUSADO`), e a caixa é mais larga que o nome — um "Concluído" também
+ * entraria em aprovados. A tela diz isso na dica do cartão em vez de fingir
+ * uma precisão que o dado não tem.
+ *
+ * `outras` é tudo o que não cai nas três, e existe para a soma fechar: a tira
+ * abaixo dos cartões só aparece quando ela é maior que zero, e é ela que
+ * permite conferir os quatro números contra o total do envio.
+ */
+export interface SituacoesNoEnvio {
+  aprovados: number;
+  emAnalise: number;
+  reprovados: number;
+  outras: number;
+  /** A soma das quatro, contada nos chamados — e não declarada pelo envio. */
+  total: number;
+  detalheDeOutras: { statusBucket: string; total: number }[];
+}
+
 export interface ResumoDoDia {
   dia: string;
   estado: EstadoDoDia;
@@ -105,6 +128,15 @@ export interface ResumoDoDia {
    * tela teria de carregar a relação inteira só para poder dizer que ela existe.
    */
   chamadosNoEnvio: number;
+  /**
+   * A mesma fila dobrada por desfecho — o que os três cartões do topo contam.
+   *
+   * Vem do resumo, e não da relação, pela mesma razão de `chamadosNoEnvio`: os
+   * cartões estão em tela antes de alguém abrir a visão "Chamados do envio", e
+   * carregar 1.218 linhas para poder escrever três números seria pagar a fila
+   * inteira em toda abertura de tela.
+   */
+  situacoesNoEnvio: SituacoesNoEnvio;
   alteracoesDeCampo: { tipo: string; total: number }[];
   pontosDeAtencao: {
     criticos: number;
@@ -145,6 +177,21 @@ export interface EnvioDaFila {
   chamados: number;
 }
 
+/**
+ * Um parâmetro pedido pelo chamado, como o arquivo o escreveu.
+ *
+ * `de` e `para` são `Valor Antigo` e `Valor Solicitado` crus — sem número
+ * derivado por nós, porque quem confere está com a planilha aberta ao lado.
+ * `operacao` é a coluna `Operação` e é ela que explica a alteração sem
+ * valores: `FORM_THIS` troca a fórmula, e não há "de 10 para 12" para mostrar.
+ */
+export interface AlteracaoDoChamado {
+  parametro: string;
+  operacao: string | null;
+  de: string | null;
+  para: string | null;
+}
+
 export interface ChamadoNaFila {
   id: string;
   externalId: string;
@@ -153,16 +200,24 @@ export interface ChamadoNaFila {
   area: string | null;
   responsavel: string | null;
   solicitante: string | null;
+  operador: string | null;
   statusRaw: string | null;
   statusBucket: string;
   assunto: string | null;
   entidade: string | null;
+  /** A coluna `Item` inteira. Só é mostrada quando não repete `entidade`. */
+  item: string | null;
   categoria: string | null;
+  vigencia: string | null;
+  sla: string | null;
   prazoPrevisto: string | null;
   abertoEm: string | null;
   encerradoEm: string | null;
   alteradoEmFonte: string | null;
   parametros: number;
+  alteracoes: AlteracaoDoChamado[];
+  /** Linha física do arquivo, 1-based — o que casa a relação com o Excel. */
+  linhaDoArquivo: number;
   /** Este chamado está entre as movimentações do dia — a ponte entre as duas. */
   movimentou: boolean;
 }
