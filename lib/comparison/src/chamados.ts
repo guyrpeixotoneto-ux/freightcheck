@@ -245,8 +245,21 @@ export interface TicketImportSummary {
   id: string;
   filename: string;
   status: string;
+  /**
+   * O SHA-256 dos bytes recebidos — a mesma evidência que a aba Planilha mostra.
+   *
+   * Ele existe em `ticket_import` desde a `0012` e é ele que recusa o mesmo
+   * arquivo duas vezes, mas não saía daqui: a tela dizia "este envio já entrou"
+   * sem ter como mostrar por quê, e a única aba do módulo Importações que não
+   * exibia a procedência do arquivo era justamente a dos chamados.
+   */
+  contentSha256: string;
+  /** O tamanho dos bytes recebidos. Junto com o hash, identifica o arquivo. */
+  byteSize: number;
   receivedAt: string;
   receivedBy: string | null;
+  /** Quando a leitura terminou — `null` enquanto ela não terminou. */
+  finishedAt: string | null;
   rowCount: number;
   ticketCount: number;
   ignoredRowCount: number;
@@ -255,6 +268,17 @@ export interface TicketImportSummary {
   parameterColumns: string[];
   columnMapping: Record<string, { header: string; match: string; reason: string }>;
   failureReason: string | null;
+  /**
+   * A partição dentro da qual dois envios se comparam — a unidade.
+   *
+   * Vai para a tela porque é o que separa "reenvio da mesma fila" de "a fila de
+   * outra unidade", e essas duas coisas se parecem exatamente na lista: dois
+   * arquivos do mesmo dia, com contagens diferentes. `null` é série
+   * indeterminada — legítimo, e diferente de vazio.
+   */
+  serie: string | null;
+  /** De onde a série foi lida: ARQUIVO, NOME_DO_ARQUIVO, MISTA, INDETERMINADA. */
+  serieOrigem: string | null;
 }
 
 export interface TicketTotals {
@@ -434,8 +458,11 @@ function toSummary(row: typeof ticketImportTable.$inferSelect): TicketImportSumm
     id: row.id,
     filename: row.filename,
     status: row.status,
+    contentSha256: row.contentSha256,
+    byteSize: row.byteSize,
     receivedAt: row.receivedAt.toISOString(),
     receivedBy: row.receivedBy,
+    finishedAt: row.finishedAt?.toISOString() ?? null,
     rowCount: row.rowCount,
     ticketCount: row.ticketCount,
     ignoredRowCount: row.ignoredRowCount,
@@ -444,6 +471,8 @@ function toSummary(row: typeof ticketImportTable.$inferSelect): TicketImportSumm
     columnMapping:
       (row.columnMapping as TicketImportSummary["columnMapping"]) ?? {},
     failureReason: row.failureReason,
+    serie: row.serie,
+    serieOrigem: row.serieOrigem,
   };
 }
 

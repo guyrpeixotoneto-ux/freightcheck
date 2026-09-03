@@ -1,10 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import {
-  keepPreviousData,
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import {
   ArrowDown,
   ArrowUp,
@@ -17,9 +12,7 @@ import {
   Layers,
   Loader2,
   SlidersHorizontal,
-  Trash2,
   TrendingDown,
-  Upload,
   Zap,
 } from "lucide-react";
 import { ApiErrorNotice } from "@/components/api-error";
@@ -30,13 +23,6 @@ import {
 } from "@/components/changes/janela-vigencias";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardTitle } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import {
   Aviso,
   brl0,
@@ -55,49 +41,11 @@ import {
   type TicketTotals,
 } from "@/components/changes/ticket-table";
 import { impactEntries } from "@/lib/format";
-import { erroDaResposta, fetchJson, getApiUrl, readJson } from "@/lib/api";
+import { fetchJson } from "@/lib/api";
+import { nomeDoCampo, type TicketImportSummary } from "@/lib/chamados-recebidos";
 import { paramsDoEscopo, type EscopoDeFrota } from "@/lib/frota";
 import { primeiraPagina, type Janela } from "@/lib/paginacao";
 import { cn } from "@/lib/utils";
-
-interface TicketImportSummary {
-  id: string;
-  filename: string;
-  status: string;
-  receivedAt: string;
-  receivedBy: string | null;
-  rowCount: number;
-  ticketCount: number;
-  ignoredRowCount: number;
-  unmappedColumns: string[];
-  parameterColumns: string[];
-  columnMapping: Record<
-    string,
-    { header: string; match: string; reason: string }
-  >;
-  failureReason: string | null;
-}
-
-/** Quanta coisa uma exclusão tira — a mesma conta que a API faz antes e depois. */
-interface TicketImportDeletionCounts {
-  tickets: number;
-  ticketChanges: number;
-  duplicateAttempts: number;
-  storedFile: number;
-}
-
-interface TicketImportDeletionPlan {
-  ticketImportId: string;
-  filename: string;
-  status: string;
-  /** Por que não dá para excluir agora — null quando dá. */
-  refusal: string | null;
-  removes: TicketImportDeletionCounts;
-}
-
-interface TicketImportDeletionResult extends TicketImportDeletionPlan {
-  removed: TicketImportDeletionCounts;
-}
 
 interface TicketsResponse {
   import: TicketImportSummary | null;
@@ -129,21 +77,6 @@ interface TicketsResponse {
   total: number;
   rows: TicketChangeRow[];
 }
-
-/** Os nomes dos campos, para a tela explicar o mapeamento sem jargão. */
-const NOMES_DE_CAMPO: Record<string, string> = {
-  externalId: "número do chamado",
-  openedAt: "abertura",
-  closedAt: "fechamento",
-  statusRaw: "status",
-  parameterLabel: "parâmetro",
-  entityLabel: "placa",
-  entityType: "tipo de equipamento",
-  requestedValueRaw: "valor pedido",
-  appliedValueRaw: "valor aplicado",
-  requestedBy: "solicitante",
-  subject: "assunto",
-};
 
 /**
  * Chamados — os parâmetros que os chamados mexeram.
@@ -182,6 +115,18 @@ type Painel = "falhas" | "colunas" | "ignoradas" | null;
 type Visao = "resumo" | "tipos";
 
 /**
+ * Esta aba **só lê** — e agora isso é o tipo dela, não um modo.
+ *
+ * `somenteLeitura` nasceu quando Importações mostrava este mesmo componente e
+ * era o único lugar que enviava e excluía um export. Com a aba Chamados de
+ * Importações listando arquivo por arquivo — ver
+ * `components/importacoes/chamados-recebidos.tsx` —, todos os três usos passam
+ * a ser leitura, e um parâmetro que só tem um valor possível é um caminho que
+ * ninguém percorre: o upload e a exclusão viviam aqui atrás de um `if` sempre
+ * falso, com a caixa de confirmação, as duas mutations e a invalidação de cache
+ * junto. Quem envia e quem exclui é o módulo Importações, que é onde o produto
+ * já dizia que essas duas coisas moram.
+ *
  * `escopo` é o que torna esta aba reaproveitável pelas telas 360°.
  *
  * Ele não é mais um filtro — ver `lib/frota.ts`. Aqui a diferença é a mais
@@ -201,27 +146,16 @@ export function AbaChamados({
   escopo,
   vigencias = {},
   onVigencias,
-  somenteLeitura = false,
 }: {
   escopo?: EscopoDeFrota;
   /** O recorte De/Até, partilhado com as outras abas de Alterações. */
   vigencias?: JanelaDeVigencias;
   /** Ausente nas telas 360°, que não oferecem o recorte. */
   onVigencias?: (j: JanelaDeVigencias) => void;
-  /**
-   * Alterações e as telas 360° só leem — importar e excluir um envio de
-   * chamados agora é coisa exclusiva do módulo Importações, que concentra
-   * todo tipo de envio numa aba só.
-   */
-  somenteLeitura?: boolean;
 } = {}) {
   const [filters, setFilters] = useState<TicketFilterState>(emptyTicketFilters);
   const [visao, setVisao] = useState<Visao>("resumo");
   const [envio, setEnvio] = useState<string | null>(null);
-  // O erro inteiro, e não a frase dele: `ApiErrorNotice` precisa do status e do
-  // `code` para separar "o arquivo não serve" de "o banco deste ambiente ainda
-  // não tem as tabelas".
-  const [erroUpload, setErroUpload] = useState<unknown>(null);
   const [painel, setPainel] = useState<Painel>(null);
   const [janela, setJanela] = useState<Janela>(primeiraPagina);
   /*
@@ -230,12 +164,6 @@ export function AbaChamados({
     chegaram diria "o maior desta página" com a cara de "o maior de todos".
   */
   const [ordem, setOrdem] = useState<OrdemChamados>(null);
-  /** O envio que a caixa de confirmação está prestes a apagar. */
-  const [excluindo, setExcluindo] = useState<TicketImportSummary | null>(null);
-  const [excluido, setExcluido] = useState<string | null>(null);
-  const [erroExclusao, setErroExclusao] = useState<unknown>(null);
-  const fileInput = useRef<HTMLInputElement>(null);
-  const queryClient = useQueryClient();
 
   const recortado = vigencias.de !== undefined || vigencias.ate !== undefined;
 
@@ -302,100 +230,9 @@ export function AbaChamados({
     },
   });
 
-  const upload = useMutation({
-    mutationFn: async (file: File) => {
-      // base64 dentro de JSON, igual à importação de vigência: é a requisição
-      // mais banal da web, e nenhum proxy a recusa.
-      const bytes = new Uint8Array(await file.arrayBuffer());
-      let binary = "";
-      const CHUNK = 32768;
-      for (let i = 0; i < bytes.length; i += CHUNK) {
-        binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
-      }
-      const response = await fetch(getApiUrl("/ticket-imports"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          filename: file.name,
-          contentBase64: btoa(binary),
-        }),
-      });
-      const body = await readJson(response);
-      /*
-        `erroDaResposta` e não um `ApiError` montado aqui: esta linha construía
-        o erro com status e `code` e deixava `contexto` e `diagnostico` para
-        trás. Era justamente neste caminho — o do upload de chamados — que o
-        diagnóstico estruturado se perdia, e a tela voltava a mostrar o texto
-        cru da rota ao lado do aviso do `/healthz`, dizendo coisas diferentes.
-      */
-      if (!response.ok) throw erroDaResposta(response, body, file.name);
-      return body.ticketImportId as string;
-    },
-    onSuccess: () => {
-      setErroUpload(null);
-      // A leitura roda fora da requisição, então o resultado ainda não está
-      // pronto quando isto volta. Recarregar já mostra o envio em leitura, e o
-      // `refetchInterval` abaixo cuida do resto.
-      queryClient.invalidateQueries({ queryKey: ["tickets"] });
-    },
-    onError: (err: unknown) => setErroUpload(err),
-  });
-
-  /**
-   * Excluir apaga de verdade — e o que sai daqui não sai de mais lugar nenhum.
-   *
-   * `invalidateQueries` só de `["tickets"]`, e não sem chave como na tela de
-   * Importações: um envio de chamados não escreve fato canônico nem vigência,
-   * então nada em Dados, Início ou na aba Planilha muda por causa desta
-   * exclusão. Invalidar a tela inteira daria a impressão contrária.
-   */
-  const excluir = useMutation({
-    mutationFn: async ({ id, reason }: { id: string; reason: string }) => {
-      const response = await fetch(getApiUrl(`/ticket-imports/${id}`), {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reason }),
-      });
-      const body = await readJson(response);
-      if (!response.ok) throw erroDaResposta(response, body);
-      return body as unknown as TicketImportDeletionResult;
-    },
-    onSuccess: (result) => {
-      setErroExclusao(null);
-      setExcluindo(null);
-      setPainel(null);
-      // O envio escolhido à mão pode ser justamente o que acabou de sair; sem
-      // isto a tela pediria um envio que não existe mais e mostraria o vazio
-      // como se não houvesse chamado nenhum.
-      setEnvio((atual) => (atual === result.ticketImportId ? null : atual));
-      setExcluido(
-        `"${result.filename}" foi excluído: ${result.removed.ticketChanges} ` +
-          `alteraç${result.removed.ticketChanges === 1 ? "ão" : "ões"} em ` +
-          `${result.removed.tickets} chamado${result.removed.tickets === 1 ? "" : "s"} ` +
-          `saíram do sistema.` +
-          (result.removed.storedFile > 0
-            ? " Este arquivo pode ser enviado de novo."
-            : ""),
-      );
-      queryClient.invalidateQueries({ queryKey: ["tickets"] });
-    },
-    /*
-      O erro fica **na caixa**, e não na faixa da tela: a recusa mais comum aqui
-      — "este envio ainda está sendo lido" — chega quando a caixa está aberta e
-      cobrindo a página. Escrevê-la atrás do modal seria o mesmo que não
-      escrever, e quem clicou veria só o botão voltar ao normal.
-    */
-    onError: (err: unknown) => {
-      setExcluido(null);
-      setErroExclusao(err);
-    },
-  });
-
   const data = query.data;
   const run = data?.import ?? null;
   const totals = data?.totals ?? null;
-
-  const escolherArquivo = () => fileInput.current?.click();
 
   const falhas = data?.imports.filter((i) => i.status === "FAILED") ?? [];
   const emLeitura =
@@ -438,20 +275,6 @@ export function AbaChamados({
 
   return (
     <>
-      {!somenteLeitura && (
-        <input
-          ref={fileInput}
-          type="file"
-          accept=".xlsx,.csv"
-          className="hidden"
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (file) upload.mutate(file);
-            e.target.value = "";
-          }}
-        />
-      )}
-
       <div className="p-8 space-y-5">
         {/* De que arquivo saiu tudo o que está abaixo. Fica numa linha, e não
             num cartão: é a procedência da tela, não um número dela. */}
@@ -512,36 +335,6 @@ export function AbaChamados({
                     </option>
                   ))}
               </select>
-            )}
-            {/*
-              Excluir fica ao lado de Importar, e não escondido atrás de um
-              menu: mandar o arquivo errado é banal — o export de teste, a fila
-              com o filtro trocado — e esconder o desfazer é o que faz alguém
-              conviver com o erro. O que protege não é a dificuldade de achar o
-              botão, e sim a caixa seguinte, que diz quantos chamados saem antes
-              de perguntar.
-            */}
-            {!somenteLeitura && run && (
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => setExcluindo(run)}
-                className="text-red-700 hover:text-red-800 hover:bg-red-50"
-              >
-                <Trash2 className="w-4 h-4 mr-1.5" />
-                Excluir
-              </Button>
-            )}
-            {!somenteLeitura && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={escolherArquivo}
-                disabled={upload.isPending}
-              >
-                <Upload className="w-4 h-4 mr-1.5" />
-                {upload.isPending ? "Enviando…" : "Importar chamados"}
-              </Button>
             )}
           </div>
         </div>
@@ -615,25 +408,6 @@ export function AbaChamados({
               icon={<Layers className="w-4 h-4" />}
             />
           </div>
-        )}
-
-        {excluido && (
-          <p className="text-sm text-emerald-900 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
-            {excluido}
-          </p>
-        )}
-
-        {/*
-          O upload falha por dois motivos muito diferentes — o arquivo não
-          serve, ou o banco deste ambiente não tem onde guardar — e a frase do
-          servidor sozinha não os distingue. `ApiErrorNotice` pergunta ao
-          /readyz e escreve a diferença.
-        */}
-        {erroUpload != null && (
-          <ApiErrorNotice
-            error={erroUpload}
-            what="O export de chamados não pôde ser enviado."
-          />
         )}
 
         {query.error && (
@@ -806,30 +580,26 @@ export function AbaChamados({
                       · {new Date(i.receivedAt).toLocaleDateString("pt-BR")}
                       {i.receivedBy && ` · ${i.receivedBy}`}
                     </span>
-                    {/*
-                      Um envio que falhou não aparece no seletor do topo — ele
-                      lista só os lidos —, então este é o único lugar de onde
-                      ele pode sair. Sem o botão aqui, o aviso do arquivo que
-                      não serviu ficaria na tela para sempre. Só existe fora do
-                      modo somente leitura: excluir é coisa de Importações.
-                    */}
-                    {!somenteLeitura && (
-                      <button
-                        onClick={() => setExcluindo(i)}
-                        className="ml-auto inline-flex items-center gap-1 text-xs font-medium text-red-700 underline underline-offset-2 hover:no-underline"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                        Excluir
-                      </button>
-                    )}
                     <p className="w-full text-muted-foreground">
                       {i.failureReason ?? "Sem motivo registrado."}
                     </p>
                   </div>
                 ))}
+                {/*
+                  O botão de excluir que ficava nesta linha saiu junto com o
+                  caminho de escrita desta aba. Sem dizer para onde ele foi, o
+                  aviso do arquivo que não serviu vira um aviso que não tem como
+                  ser resolvido de lugar nenhum — e é o único aviso desta tela
+                  que pede uma ação, não uma leitura.
+                */}
                 <p className="text-xs text-muted-foreground pt-1">
                   Nada deste envio foi gravado — o arquivo continua inteiro onde
-                  estava, e reenviá-lo corrigido não duplica nada.
+                  estava, e reenviá-lo corrigido não duplica nada. Para tirá-lo
+                  da lista, use{" "}
+                  <strong className="text-foreground">
+                    Importações › Chamados
+                  </strong>
+                  , onde cada envio tem o seu cartão.
                 </p>
               </div>
             )}
@@ -904,7 +674,7 @@ export function AbaChamados({
                             className="flex items-baseline gap-2 min-w-0"
                           >
                             <span className="text-muted-foreground shrink-0">
-                              {NOMES_DE_CAMPO[campo] ?? campo}:
+                              {nomeDoCampo(campo)}:
                             </span>
                             <span className="font-mono text-xs truncate">
                               {ligacao.header}
@@ -955,22 +725,13 @@ export function AbaChamados({
                 nome, e o que não for reconhecido aparece listado em vez de
                 sumir.
               </p>
-              {somenteLeitura ? (
-                <p className="text-sm text-muted-foreground">
-                  Envie o arquivo em{" "}
-                  <strong className="text-foreground">
-                    Importações › Chamados
-                  </strong>
-                  .
-                </p>
-              ) : (
-                <Button onClick={escolherArquivo} disabled={upload.isPending}>
-                  <Upload className="w-4 h-4 mr-1.5" />
-                  {upload.isPending
-                    ? "Enviando…"
-                    : "Importar export de chamados"}
-                </Button>
-              )}
+              <p className="text-sm text-muted-foreground">
+                Envie o arquivo em{" "}
+                <strong className="text-foreground">
+                  Importações › Chamados
+                </strong>
+                , onde cada export recebido tem a sua linha e o seu SHA-256.
+              </p>
             </CardContent>
           </Card>
         )}
@@ -1081,19 +842,6 @@ export function AbaChamados({
           </Card>
         )}
       </div>
-
-      <ExcluirEnvioDialog
-        envio={excluindo}
-        erro={erroExclusao}
-        onClose={() => {
-          setExcluindo(null);
-          setErroExclusao(null);
-        }}
-        onConfirm={(reason) =>
-          excluindo && excluir.mutate({ id: excluindo.id, reason })
-        }
-        excluindo={excluir.isPending}
-      />
     </>
   );
 }
@@ -1135,169 +883,6 @@ function VisaoBotao({
       {icon}
       {label}
     </button>
-  );
-}
-
-/**
- * A caixa que transforma "tem certeza?" numa decisão.
- *
- * Ela pergunta ao servidor o que sairia **antes** de perguntar à pessoa, porque
- * quem está na tela não tem como saber que aquele arquivo sustenta 1.218
- * alterações em 1.218 chamados. "Isto apaga 1.218 alterações" é uma frase sobre
- * a qual dá para decidir; "tem certeza?" não é.
- *
- * A prévia também é onde a recusa aparece: um envio ainda em leitura não pode
- * ser apagado por baixo de quem o lê, e o motivo chega escrito em vez de virar
- * um botão que não funciona.
- */
-function ExcluirEnvioDialog({
-  envio,
-  erro,
-  onClose,
-  onConfirm,
-  excluindo,
-}: {
-  envio: TicketImportSummary | null;
-  /** A recusa do servidor, quando o botão já foi apertado. */
-  erro: unknown;
-  onClose: () => void;
-  onConfirm: (reason: string) => void;
-  excluindo: boolean;
-}) {
-  const [reason, setReason] = useState("");
-
-  const { data: plano, error } = useQuery({
-    queryKey: ["ticket-imports", envio?.id, "deletion"],
-    queryFn: () =>
-      fetchJson<TicketImportDeletionPlan>(
-        `/ticket-imports/${envio!.id}/deletion`,
-      ),
-    enabled: envio !== null,
-    // O que sai depende do resto do banco — outro envio do mesmo arquivo no
-    // meio-tempo muda a conta. Sem cache: esta prévia é lida uma vez e agida
-    // em seguida.
-    staleTime: 0,
-    gcTime: 0,
-  });
-
-  const linhas: [string, number][] = plano
-    ? (
-        [
-          ["Chamados", plano.removes.tickets],
-          ["Alterações de parâmetro", plano.removes.ticketChanges],
-          [
-            "Tentativas recusadas como duplicata",
-            plano.removes.duplicateAttempts,
-          ],
-        ] as [string, number][]
-      ).filter(([, valor]) => valor > 0)
-    : [];
-
-  return (
-    <Dialog open={envio !== null} onOpenChange={(open) => !open && onClose()}>
-      {envio && (
-        <>
-          <DialogHeader>
-            <DialogTitle>Excluir "{envio.filename}"?</DialogTitle>
-            <DialogDescription>
-              Isto apaga o envio e os chamados que só ele trouxe. Não há
-              desfazer: fica o registro de que foi excluído — quem, quando e o
-              que saiu —, não os dados. A aba Planilha não é tocada.
-            </DialogDescription>
-          </DialogHeader>
-
-          {error && (
-            <p className="text-sm text-red-900 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
-              Não foi possível calcular o que sairia: {(error as Error).message}
-            </p>
-          )}
-
-          {!plano && !error && (
-            <p className="text-sm text-muted-foreground">
-              Calculando o que sairia…
-            </p>
-          )}
-
-          {plano?.refusal && (
-            <p className="text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
-              {plano.refusal}
-            </p>
-          )}
-
-          {plano && !plano.refusal && (
-            <div className="space-y-4">
-              {linhas.length > 0 ? (
-                <dl className="rounded-xl border divide-y overflow-hidden text-sm">
-                  {linhas.map(([label, valor]) => (
-                    <div
-                      key={label}
-                      className="flex items-center justify-between gap-4 px-4 py-2 bg-muted/30"
-                    >
-                      <dt className="text-muted-foreground">{label}</dt>
-                      <dd className="font-semibold tabular-nums">
-                        {valor.toLocaleString("pt-BR")}
-                      </dd>
-                    </div>
-                  ))}
-                </dl>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  Este envio não chegou a produzir chamado nenhum — sai só o
-                  registro dele.
-                </p>
-              )}
-
-              {plano.removes.storedFile > 0 && (
-                <p className="text-sm text-muted-foreground">
-                  O arquivo sai do registro de recebidos, então o mesmo conteúdo
-                  poderá ser enviado de novo — hoje ele é recusado como
-                  duplicata pelo SHA-256.
-                </p>
-              )}
-
-              <label className="block space-y-1.5">
-                <span className="text-xs uppercase tracking-wider text-muted-foreground">
-                  Motivo (opcional)
-                </span>
-                <input
-                  value={reason}
-                  onChange={(e) => setReason(e.target.value)}
-                  placeholder="ex.: export de teste enviado por engano"
-                  className="w-full rounded-lg border px-3 py-2 text-sm bg-background"
-                />
-                <span className="text-xs text-muted-foreground">
-                  Vai para o registro da exclusão, ao lado do seu nome.
-                </span>
-              </label>
-            </div>
-          )}
-
-          {erro != null && (
-            <div className="mt-4">
-              <ApiErrorNotice
-                error={erro}
-                what="O envio de chamados não pôde ser excluído."
-              />
-            </div>
-          )}
-
-          <DialogFooter>
-            <Button variant="outline" size="sm" onClick={onClose}>
-              Cancelar
-            </Button>
-            <Button
-              size="sm"
-              disabled={!plano || plano.refusal !== null || excluindo}
-              onClick={() => onConfirm(reason)}
-              className="bg-red-600 hover:bg-red-700 text-white"
-            >
-              <Trash2 className="w-3.5 h-3.5 mr-1.5" />
-              {excluindo ? "Excluindo…" : "Excluir envio"}
-            </Button>
-          </DialogFooter>
-        </>
-      )}
-    </Dialog>
   );
 }
 
