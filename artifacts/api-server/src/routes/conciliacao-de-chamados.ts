@@ -35,10 +35,19 @@ import { exigirOperacaoDoRecurso, operacaoDaConsulta } from "../lib/operacao";
  * resposta **diz quais escolheu**, para a tela poder mostrar sobre o que está
  * falando em vez de deixar quem lê supor.
  *
+ * **E os dois padrões respeitam a mesma unidade, por dois caminhos.** A
+ * comparação é recortada por `?scopeHash=`, como nas Justificativas; o envio,
+ * por `?serie=` — a unidade que o export da Ambev escreve. São dois
+ * vocabulários sem chave entre si no banco, e quem os casa pelo nome é a
+ * interface (`lib/serie-da-unidade.ts`, o mesmo módulo do Monitoramento). Sem o
+ * segundo, abrir a tela com CAMAÇARI na lateral pegava o envio mais recente do
+ * banco — que pode ser o de Recife — e confrontava a planilha de uma unidade
+ * contra a fila de outra.
+ *
  * O recorte por operação é o das demais leituras: um `changeSetId` de outra
  * auditoria é 403, pela mesma regra por id de `justificativas.ts`. O lado dos
  * chamados não tem operação — o export do Freightech não a nomeia —, e por isso
- * ele é escolhido por envio e nunca herdado.
+ * ele é escolhido por envio e por série, nunca herdado.
  */
 const router: IRouter = Router();
 
@@ -79,6 +88,49 @@ function uuidDaConsulta(
 ): string | undefined {
   const v = texto(query, chave);
   return v !== undefined && UUID.test(v) ? v : undefined;
+}
+
+/**
+ * O rótulo com que a série indeterminada viaja na URL — o mesmo do
+ * Monitoramento (`routes/monitoramento-de-chamados.ts`) e o mesmo de
+ * `lib/serie-da-unidade.ts`, na interface.
+ *
+ * `?serie=` vazio seria ambíguo: não dá para distinguir "sem recorte" de "o
+ * recorte dos envios sem unidade", e um envio sem unidade é uma série de
+ * verdade.
+ */
+const SEM_SERIE = "@sem-serie";
+
+/**
+ * A série pedida — `undefined` é "todas", `null` é a indeterminada.
+ *
+ * Ela existe aqui pela mesma razão que existe no Monitoramento, e resolve
+ * exatamente o desencontro que esta tela avisa quando acontece: com CAMAÇARI na
+ * lateral, o envio padrão tem de ser o de CAMAÇARI, e não o mais recente do
+ * banco — que pode ser o de Recife. O aviso de "nenhuma placa em comum"
+ * continua onde estava, para o caso de alguém escolher os dois lados à mão.
+ *
+ * Quem casa a unidade da lateral com o nome que o arquivo escreveu é a
+ * interface (`lib/serie-da-unidade.ts`): a rota recebe o nome já resolvido e o
+ * compara por igualdade. Série desconhecida devolve **nada**, nunca tudo — é a
+ * diferença entre um filtro que não achou e um filtro que sumiu.
+ */
+function serieDaConsulta(
+  query: Record<string, unknown>,
+): string | null | undefined {
+  const bruta = query["serie"];
+  if (typeof bruta !== "string" || bruta === "") return undefined;
+  return bruta === SEM_SERIE ? null : bruta;
+}
+
+/** Os envios que a tela pode conciliar: os lidos até o fim, da série pedida. */
+function enviosDoRecorte(
+  envios: Awaited<ReturnType<typeof listTicketImports>>,
+  serie: string | null | undefined,
+) {
+  return envios.filter(
+    (e) => e.status === "READ" && (serie === undefined || e.serie === serie),
+  );
 }
 
 function limiteDaConsulta(bruto: unknown): number {
@@ -135,14 +187,29 @@ async function ladosDaConciliacao(
 
   let ticketImportId = uuidDaConsulta(query, "ticketImportId");
   if (!ticketImportId) {
-    const envio = await latestTicketImport(db);
+    const serie = serieDaConsulta(query);
+    /*
+      Com série, o padrão sai da lista recortada; sem série, `latestTicketImport`
+      responde a mesma coisa por uma consulta mais barata. As duas dizem "o mais
+      recente que foi lido até o fim" — `listTicketImports` já vem do mais novo
+      para o mais antigo.
+    */
+    const envio =
+      serie === undefined
+        ? await latestTicketImport(db)
+        : (enviosDoRecorte(await listTicketImports(db), serie)[0] ?? null);
     if (!envio) {
       return {
         ok: false,
         status: 404,
         error:
-          "Não há envio de chamados lido neste banco. Importe um arquivo de " +
-          "chamados em Importações e volte aqui.",
+          serie === undefined
+            ? "Não há envio de chamados lido neste banco. Importe um arquivo " +
+              "de chamados em Importações e volte aqui."
+            : `Não há envio de chamados lido para a unidade "${
+                serie ?? "sem unidade no arquivo"
+              }". Escolha outro envio, ou importe o arquivo dessa unidade em ` +
+              "Importações.",
       };
     }
     ticketImportId = envio.id;
@@ -194,6 +261,13 @@ router.get(`${BASE}/opcoes`, async (req, res): Promise<void> => {
         dataB: cs.snapshot_b_date ?? null,
         scopeHash: cs.snapshot_b_scope_hash ?? null,
       })),
+    /*
+      A lista **inteira** dos envios lidos, com a série de cada um — e não só a
+      da unidade aberta. O seletor precisa poder oferecer outro envio quando o
+      casamento por nome não acontece (`UNIDADE_SEM_ENVIO`, em
+      `lib/serie-da-unidade.ts`); uma lista já recortada deixaria quem abriu sem
+      nenhuma saída além de trocar a lateral.
+    */
     envios: envios
       .filter((e) => e.status === "READ")
       .map((e) => ({
@@ -201,6 +275,7 @@ router.get(`${BASE}/opcoes`, async (req, res): Promise<void> => {
         filename: e.filename,
         receivedAt: e.receivedAt,
         ticketCount: e.ticketCount,
+        serie: e.serie,
       })),
   });
 });

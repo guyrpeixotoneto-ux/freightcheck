@@ -37,6 +37,8 @@ let base: string;
 let changeSetId: string;
 let envioAntigoId: string;
 let envioNovoId: string;
+/** Um envio de outra unidade, e o mais recente de todos — a armadilha da série. */
+let envioDeOutraUnidadeId: string;
 
 const SESSAO = {
   id: "11111111-1111-1111-1111-111111111111",
@@ -56,7 +58,11 @@ async function get(caminho: string) {
 }
 
 /** Um envio com um chamado que pede o frete peso da placa A. */
-async function enviar(sha: string, recebidoEm: string): Promise<string> {
+async function enviar(
+  sha: string,
+  recebidoEm: string,
+  serie: string | null = "CAMAÇARI",
+): Promise<string> {
   const [envio] = await ctx.db
     .insert(ticketImportTable)
     .values({
@@ -65,6 +71,8 @@ async function enviar(sha: string, recebidoEm: string): Promise<string> {
       byteSize: 1,
       status: "READ",
       receivedAt: new Date(recebidoEm),
+      serie,
+      serieOrigem: serie === null ? "INDETERMINADA" : "ARQUIVO",
       ticketCount: 1,
       rowCount: 1,
     })
@@ -133,6 +141,17 @@ beforeAll(async () => {
   /* Dois envios: o padrão da rota tem de ser o mais recente. */
   envioAntigoId = await enviar("sha-antigo", "2026-08-10T08:00:00Z");
   envioNovoId = await enviar("sha-novo", "2026-08-20T08:00:00Z");
+  /*
+    E um terceiro, de **outra unidade** e mais novo que os dois. Ele é a
+    armadilha que o recorte por série existe para não cair: sem `?serie=`, é
+    ele que o padrão escolhe — e é o certo, porque sem recorte "o mais recente"
+    é o mais recente. Com `?serie=CAMAÇARI`, ele não pode ser escolhido.
+  */
+  envioDeOutraUnidadeId = await enviar(
+    "sha-recife",
+    "2026-08-25T08:00:00Z",
+    "RECIFE",
+  );
 
   const { default: router } = await import("../conciliacao-de-chamados");
   const app = express();
@@ -177,7 +196,39 @@ describe("os dois lados", () => {
     const { status, body } = await get(`${BASE}/resumo`);
     expect(status).toBe(200);
     expect(body.changeSetId).toBe(changeSetId);
+    /* Sem série, "o mais recente" é o mais recente do banco. */
+    expect(body.ticketImportId).toBe(envioDeOutraUnidadeId);
+  });
+
+  /*
+    O recorte que a lateral produz. Com a unidade aberta, o envio padrão é o
+    mais recente **dela** — e não o mais recente do banco, que aqui é de outra
+    unidade. Sem isto, abrir a tela com CAMAÇARI na lateral confrontaria a
+    vigência de Camaçari contra a fila de Recife, e devolveria uma tela cheia de
+    pendência que não é pendência.
+  */
+  it("com série, o envio padrão é o mais recente daquela unidade", async () => {
+    const { body } = await get(`${BASE}/resumo?serie=${encodeURIComponent("CAMAÇARI")}`);
     expect(body.ticketImportId).toBe(envioNovoId);
+  });
+
+  /*
+    Série que não existe devolve **nada**, e com uma frase que diz o que fazer —
+    nunca o envio de outra unidade. É a diferença entre um filtro que não achou
+    e um filtro que sumiu.
+  */
+  it("uma série sem envio é recusada com o motivo, nunca trocada por outra", async () => {
+    const { status, body } = await get(`${BASE}/resumo?serie=MANAUS`);
+    expect(status).toBe(404);
+    expect(body.error).toContain("MANAUS");
+  });
+
+  /* Um envio escolhido à mão vence a série: quem escolheu escolheu. */
+  it("o envio pedido vence o recorte por série", async () => {
+    const { body } = await get(
+      `${BASE}/resumo?serie=${encodeURIComponent("CAMAÇARI")}&ticketImportId=${envioDeOutraUnidadeId}`,
+    );
+    expect(body.ticketImportId).toBe(envioDeOutraUnidadeId);
   });
 
   it("a lista responde sobre o mesmo par que o resumo", async () => {
@@ -210,7 +261,21 @@ describe("os dois lados", () => {
     expect(body.comparacoes.map((c: any) => c.id)).toContain(changeSetId);
     expect(body.comparacoes[0].rotuloA).toBe("2026-07");
     expect(body.comparacoes[0].rotuloB).toBe("2026-08");
-    expect(body.envios.map((e: any) => e.id)).toEqual([envioNovoId, envioAntigoId]);
+    /*
+      A lista **inteira** dos envios lidos, e não a da unidade aberta: quando o
+      casamento por nome não acontece, é aqui que quem abriu acha uma saída.
+    */
+    expect(body.envios.map((e: any) => e.id)).toEqual([
+      envioDeOutraUnidadeId,
+      envioNovoId,
+      envioAntigoId,
+    ]);
+    /* E cada um diz de que unidade é — é o que separa dois arquivos do mesmo dia. */
+    expect(body.envios.map((e: any) => e.serie)).toEqual([
+      "RECIFE",
+      "CAMAÇARI",
+      "CAMAÇARI",
+    ]);
   });
 });
 

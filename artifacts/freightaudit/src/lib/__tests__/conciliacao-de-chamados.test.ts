@@ -6,6 +6,7 @@ import {
   pendencias,
   percentualConciliado,
   rotuloDaComparacao,
+  rotuloDoEnvio,
   type ResumoDaConciliacao,
 } from "@/lib/conciliacao-de-chamados";
 
@@ -134,6 +135,7 @@ describe("o aviso", () => {
 describe("o endereço da lista", () => {
   const base = {
     escopo: "hash-da-unidade",
+    serie: undefined as string | null | undefined,
     changeSetId: "cs-1",
     ticketImportId: "ti-1",
     somenteVigenciaComparada: false,
@@ -156,6 +158,26 @@ describe("o endereço da lista", () => {
     expect(q.has("situacao")).toBe(false);
     expect(q.has("search")).toBe(false);
     expect(q.has("somenteVigenciaComparada")).toBe(false);
+    /* Série `undefined` é "todas": ela não vira parâmetro. */
+    expect(q.has("serie")).toBe(false);
+  });
+
+  /*
+    A unidade dos chamados viaja como série, e a série **indeterminada** viaja
+    como rótulo — nunca como parâmetro vazio. Um `?serie=` em branco não
+    distingue "sem recorte" de "os envios que não disseram de onde vieram", e as
+    duas coisas dão telas diferentes.
+  */
+  it("distingue a série indeterminada de não ter recorte de série", () => {
+    const comUnidade = new URLSearchParams(
+      enderecoDasLinhas({ ...base, serie: "CAMAÇARI" }).split("?")[1],
+    );
+    expect(comUnidade.get("serie")).toBe("CAMAÇARI");
+
+    const indeterminada = new URLSearchParams(
+      enderecoDasLinhas({ ...base, serie: null }).split("?")[1],
+    );
+    expect(indeterminada.get("serie")).toBe("@sem-serie");
   });
 
   it("traduz a página em offset", () => {
@@ -179,6 +201,35 @@ describe("o endereço da lista", () => {
 });
 
 describe("os rótulos do seletor", () => {
+  /*
+    A unidade abre o rótulo do envio porque é o que decide se ele serve: dois
+    envios do mesmo dia costumam ser unidades diferentes, e um seletor sem ela
+    ofereceria duas linhas indistinguíveis para a única escolha que importa.
+  */
+  it("nomeia a unidade do envio antes do arquivo", () => {
+    expect(
+      rotuloDoEnvio({
+        id: "ti",
+        filename: "Chamados_CAMACARI.xlsx",
+        receivedAt: "2026-09-03T00:00:00.000Z",
+        ticketCount: 4,
+        serie: "CAMAÇARI",
+      }),
+    ).toMatch(/^CAMAÇARI · Chamados_CAMACARI\.xlsx — /);
+  });
+
+  it("diz que o arquivo não nomeou unidade, em vez de deixar em branco", () => {
+    expect(
+      rotuloDoEnvio({
+        id: "ti",
+        filename: "Chamados.xlsx",
+        receivedAt: "2026-09-03T00:00:00.000Z",
+        ticketCount: 4,
+        serie: null,
+      }),
+    ).toMatch(/^sem unidade no arquivo · /);
+  });
+
   it("lê a comparação como uma seta, da vigência anterior para a nova", () => {
     expect(
       rotuloDaComparacao({

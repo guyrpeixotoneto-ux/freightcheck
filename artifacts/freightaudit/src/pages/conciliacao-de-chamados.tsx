@@ -25,9 +25,12 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
-import { contextoAberto, useContextosDaCasca } from "@/lib/contextos";
+import { contextoAberto, unidadeDe, useContextosDaCasca } from "@/lib/contextos";
 import { formatNumber } from "@/lib/format";
 import { rotuloDoTipo } from "@/lib/frota";
+import { useSeries } from "@/lib/monitoramento-de-chamados";
+import { visaoGeralAtiva } from "@/lib/navegacao-do-escopo";
+import { recorteDeChamados } from "@/lib/serie-da-unidade";
 import { cn } from "@/lib/utils";
 import {
   EXPLICACAO_DA_SITUACAO,
@@ -292,7 +295,7 @@ function Linha({ linha }: { linha: LinhaDaConciliacao }) {
 }
 
 export default function ConciliacaoDeChamados() {
-  const [, navegar] = useLocation();
+  const [pathname, navegar] = useLocation();
   const busca = useSearch();
   const params = useMemo(() => new URLSearchParams(busca), [busca]);
 
@@ -305,8 +308,34 @@ export default function ConciliacaoDeChamados() {
     envio desta, e o resultado é uma tela cheia de pendência que não é
     pendência.
   */
-  const escopo =
-    contextoAberto(contextos.contextos, params.get("scopeHash"))?.scopeHash ?? null;
+  const contexto = contextoAberto(contextos.contextos, params.get("scopeHash"));
+  const escopo = contexto?.scopeHash ?? null;
+
+  /*
+    A **mesma** unidade, do lado dos chamados.
+
+    Esta é a única tela do produto que precisa dela nos dois vocabulários ao
+    mesmo tempo: a vigência é recortada por `scope_hash` e o envio por série — a
+    unidade que o export da Ambev escreve —, e não há chave ligando as duas no
+    banco. Quem as casa pelo nome é `lib/serie-da-unidade.ts`, o mesmo módulo
+    que o Monitoramento usa, com a mesma regra: só igualdade normalizada, e
+    quando o nome não bate a tela **diz** em vez de somar todas embaixo do nome
+    de uma.
+
+    Sem isto, abrir a Conciliação com CAMAÇARI na lateral pegava o envio mais
+    recente do banco — que pode ser o de Recife — e devolvia a planilha de uma
+    unidade contra a fila de outra.
+  */
+  const series = useSeries();
+  const unidade = contexto === undefined ? null : unidadeDe(contexto);
+  const recorteDaSerie = recorteDeChamados({
+    /* Esta tela não tem seletor de série próprio: quem escolhe o envio escolhe
+       o envio, e ele já é de uma unidade. */
+    serieNaUrl: null,
+    visaoGeral: visaoGeralAtiva(pathname, busca),
+    unidade,
+    series: series.dados?.series,
+  });
 
   /*
     Os dois lados moram no endereço, como o dia e a série do Monitoramento e
@@ -336,21 +365,40 @@ export default function ConciliacaoDeChamados() {
 
   const recorte = {
     escopo,
+    /* Um envio escolhido à mão vence a unidade da lateral: quem escolheu
+       escolheu, e o aviso de placas em comum continua para dizer no que deu. */
+    serie: ticketImportId ? undefined : recorteDaSerie.serie,
     changeSetId,
     ticketImportId,
     somenteVigenciaComparada,
   };
 
+  /*
+    A unidade aberta não tem envio, e ninguém escolheu um à mão.
+
+    A rota responde 404 a este recorte — e responder é o comportamento certo
+    dela —, mas a tela já sabe disso antes de perguntar: o aviso abaixo
+    substitui o resultado, e disparar as duas consultas serviria só para encher
+    o console de erro e gastar duas viagens cujo resultado ninguém veria. O
+    seletor de envio continua carregado, porque é a saída que o aviso oferece.
+  */
+  const semEnvioDaUnidade =
+    recorteDaSerie.motivo === "UNIDADE_SEM_ENVIO" && !ticketImportId;
+  const podeConsultar = recorteDaSerie.pronto && !semEnvioDaUnidade;
+
   const opcoes = useOpcoesDaConciliacao(escopo);
-  const { resumo, consulta } = useResumoDaConciliacao(recorte);
-  const lista = useLinhasDaConciliacao({
-    ...recorte,
-    situacao,
-    tipo,
-    busca: texto,
-    pagina,
-    porPagina: POR_PAGINA,
-  });
+  const { resumo, consulta } = useResumoDaConciliacao(recorte, podeConsultar);
+  const lista = useLinhasDaConciliacao(
+    {
+      ...recorte,
+      situacao,
+      tipo,
+      busca: texto,
+      pagina,
+      porPagina: POR_PAGINA,
+    },
+    podeConsultar,
+  );
 
   const barras = useMemo(() => barrasDaSituacao(resumo), [resumo]);
   const aviso = avisoDaConciliacao(resumo);
@@ -455,7 +503,27 @@ export default function ConciliacaoDeChamados() {
           </label>
         </section>
 
-        {consulta.indisponivel ? (
+        {/*
+          A unidade aberta não tem envio de chamados com esse nome.
+
+          Vem **antes** do painel de indisponibilidade, e substitui a tela, e as
+          duas coisas são a mesma decisão: o servidor responde 404 a este
+          recorte, e 404 aqui não é falha de API — é resposta. Mostrá-lo como
+          erro mandaria quem abriu tentar de novo para sempre; mostrá-lo assim
+          diz o que houve e o que fazer. A régua é `lib/serie-da-unidade.ts`, e
+          o Monitoramento diz a mesma coisa com as mesmas palavras.
+        */}
+        {semEnvioDaUnidade ? (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+            <p className="text-sm text-amber-900">
+              Nenhum envio de chamados foi importado para{" "}
+              <strong>{recorteDaSerie.unidade}</strong>. Escolha outro envio no
+              seletor acima — o rótulo de cada um diz de que unidade ele é — ou
+              importe o arquivo dessa unidade em Importações.
+            </p>
+          </div>
+        ) : consulta.indisponivel ? (
           <ApiErrorNotice
             error={consulta.erro}
             what="a conciliação de chamados"

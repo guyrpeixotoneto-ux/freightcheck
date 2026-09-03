@@ -165,6 +165,8 @@ export interface EnvioDisponivel {
   filename: string;
   receivedAt: string;
   ticketCount: number;
+  /** A unidade que o arquivo nomeia. `null` é a série indeterminada. */
+  serie: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -288,22 +290,48 @@ export function rotuloDaComparacao(c: ComparacaoDisponivel): string {
   return `${a} → ${b}`;
 }
 
-/** O rótulo de um envio no seletor — o arquivo e o dia em que chegou. */
+/**
+ * O rótulo de um envio no seletor — a unidade, o arquivo e o dia em que chegou.
+ *
+ * A unidade vem primeiro porque é o que decide se o envio serve: dois envios do
+ * mesmo dia costumam ser unidades diferentes, e não reenvios da mesma fila (ver
+ * `ticket_import.serie`). Um seletor que só mostrasse arquivo e data ofereceria
+ * duas linhas indistinguíveis para a única escolha que importa aqui.
+ */
 export function rotuloDoEnvio(e: EnvioDisponivel): string {
   const dia = new Date(e.receivedAt);
   const quando = Number.isNaN(dia.getTime())
     ? e.receivedAt
     : dia.toLocaleDateString("pt-BR");
-  return `${e.filename} — ${quando}`;
+  return `${e.serie ?? "sem unidade no arquivo"} · ${e.filename} — ${quando}`;
 }
 
 // ---------------------------------------------------------------------------
 // As consultas
 // ---------------------------------------------------------------------------
 
+/** O rótulo com que a série indeterminada viaja na URL. O mesmo da rota. */
+export const SEM_SERIE = "@sem-serie";
+
 export interface RecorteDaTela {
-  /** A unidade aberta na lateral; `null` é sem recorte de unidade. */
+  /**
+   * A unidade aberta na lateral, do lado da **planilha** — o `scope_hash` da
+   * vigência. `null` é sem recorte de unidade.
+   */
   escopo: string | null;
+  /**
+   * A mesma unidade do lado dos **chamados** — a série que o arquivo nomeia.
+   *
+   * São dois vocabulários para o mesmo recorte, e quem os casa é
+   * `lib/serie-da-unidade.ts` (o mesmo do Monitoramento). `undefined` é todas
+   * as séries; `null` é a série indeterminada, que é uma série de verdade.
+   *
+   * Ela existe aqui pela razão que esta tela existe: conciliar a vigência de
+   * CAMAÇARI contra o envio de Recife devolveria uma tela cheia de pendência
+   * que não é pendência. O aviso continua, para quem escolher os dois lados à
+   * mão; o padrão passa a não cair nesse buraco sozinho.
+   */
+  serie: string | null | undefined;
   changeSetId: string | null;
   ticketImportId: string | null;
   somenteVigenciaComparada: boolean;
@@ -313,6 +341,9 @@ export interface RecorteDaTela {
 function parametrosDoRecorte(recorte: RecorteDaTela): URLSearchParams {
   const q = new URLSearchParams();
   if (recorte.escopo) q.set("scopeHash", recorte.escopo);
+  if (recorte.serie !== undefined) {
+    q.set("serie", recorte.serie === null ? SEM_SERIE : recorte.serie);
+  }
   if (recorte.changeSetId) q.set("changeSetId", recorte.changeSetId);
   if (recorte.ticketImportId) q.set("ticketImportId", recorte.ticketImportId);
   if (recorte.somenteVigenciaComparada) q.set("somenteVigenciaComparada", "1");
@@ -355,13 +386,25 @@ export function useOpcoesDaConciliacao(escopo: string | null) {
  *
  * `null` enquanto não chegou, nunca zero. Ver o cabeçalho.
  */
-export function useResumoDaConciliacao(recorte: RecorteDaTela) {
+export function useResumoDaConciliacao(
+  recorte: RecorteDaTela,
+  /**
+   * O recorte já está decidido.
+   *
+   * `false` só enquanto a lista de séries não chegou **e** há unidade aberta:
+   * disparar antes seria disparar duas vezes, e a primeira — com o envio errado
+   * — pintaria pendência que não existe. É o mesmo `habilitado` das consultas do
+   * Monitoramento, e pelo mesmo motivo (ver `lib/serie-da-unidade.ts`).
+   */
+  habilitado = true,
+) {
   const endereco = `/conciliacao-de-chamados/resumo?${parametrosDoRecorte(recorte).toString()}`;
 
   const consulta = useConsultaResiliente<ResumoDaConciliacao>({
     queryKey: ["conciliacao-de-chamados", "resumo", endereco],
     endpoint: "/conciliacao-de-chamados/resumo",
     buscar: () => fetchJson<ResumoDaConciliacao>(endereco),
+    enabled: habilitado,
   });
 
   return { resumo: consulta.dados ?? null, consulta };
@@ -386,13 +429,17 @@ export function enderecoDasLinhas(consulta: ConsultaDeLinhas): string {
   return `/conciliacao-de-chamados/linhas?${q.toString()}`;
 }
 
-export function useLinhasDaConciliacao(consulta: ConsultaDeLinhas) {
+export function useLinhasDaConciliacao(
+  consulta: ConsultaDeLinhas,
+  habilitado = true,
+) {
   const endereco = enderecoDasLinhas(consulta);
   const resposta = useQuery({
     queryKey: ["conciliacao-de-chamados", "linhas", endereco],
     queryFn: () =>
       fetchJson<{ total: number; linhas: LinhaDaConciliacao[] }>(endereco),
     placeholderData: (anterior) => anterior,
+    enabled: habilitado,
   });
 
   const linhas = useMemo(() => resposta.data?.linhas ?? [], [resposta.data]);

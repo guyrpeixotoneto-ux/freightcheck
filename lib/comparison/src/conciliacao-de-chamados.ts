@@ -78,6 +78,12 @@ import {
  * tem, e quantas os dois têm em comum (`placasEmComum`). Conciliar Recife
  * contra Camaçari devolve zero placas em comum, e é isso que a tela mostra —
  * um fato contado, e não um palpite sobre cadastro.
+ *
+ * Esse aviso continua sendo a última linha de defesa, e não a primeira: quem
+ * **escolhe** os dois lados por padrão é a rota, e ela já os escolhe da mesma
+ * unidade — a comparação pelo `scope_hash` e o envio pela série, casados pelo
+ * nome em `lib/serie-da-unidade.ts` (na interface). O aviso existe para quem
+ * escolher os dois à mão, que é o caminho em que ninguém casou nada.
  */
 
 /**

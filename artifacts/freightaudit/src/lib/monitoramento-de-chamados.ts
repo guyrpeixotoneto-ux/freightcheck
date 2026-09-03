@@ -394,12 +394,23 @@ export function useSeries() {
   });
 }
 
+/**
+ * `habilitado` — as três consultas da tela esperam o recorte estar decidido.
+ *
+ * Quem decide é `recorteDeChamados` (`lib/serie-da-unidade.ts`), e ele leva um
+ * instante quando há unidade aberta: a série que casa com ela só se sabe depois
+ * de a lista de séries chegar. Disparar antes seria disparar duas vezes — e a
+ * primeira, com o recorte errado, pintaria "nenhuma movimentação" sobre um dia
+ * que tem.
+ */
 export function useReguaDeDias({
   ate,
   serie,
+  habilitado = true,
 }: {
   ate: string;
   serie: string | null | undefined;
+  habilitado?: boolean;
 }) {
   const endereco = `${BASE}/dias${query([`ate=${ate}`, comSerie(serie)])}`;
   return useConsultaResiliente<{
@@ -411,21 +422,25 @@ export function useReguaDeDias({
     queryKey: ["monitoramento-chamados", "dias", ate, serie ?? "todas"],
     endpoint: `${BASE}/dias`,
     buscar: () => fetchJson(endereco),
+    enabled: habilitado,
   });
 }
 
 export function useResumoDoDia({
   dia,
   serie,
+  habilitado = true,
 }: {
   dia: string;
   serie: string | null | undefined;
+  habilitado?: boolean;
 }) {
   const endereco = `${BASE}/dia/${dia}${query([comSerie(serie)])}`;
   return useConsultaResiliente<ResumoDoDia>({
     queryKey: ["monitoramento-chamados", "dia", dia, serie ?? "todas"],
     endpoint: `${BASE}/dia/:data`,
     buscar: () => fetchJson(endereco),
+    enabled: habilitado,
   });
 }
 
@@ -436,6 +451,7 @@ export function useMovimentacoes({
   filtros,
   pagina,
   porPagina,
+  habilitado = true,
 }: {
   dia: string;
   serie: string | null | undefined;
@@ -443,6 +459,7 @@ export function useMovimentacoes({
   filtros: FiltrosDaTela;
   pagina: number;
   porPagina: number;
+  habilitado?: boolean;
 }) {
   const endereco = `${BASE}/dia/${dia}/movimentacoes${query([
     `aba=${aba}`,
@@ -471,6 +488,7 @@ export function useMovimentacoes({
     ],
     endpoint: `${BASE}/dia/:data/movimentacoes`,
     buscar: () => fetchJson(endereco),
+    enabled: habilitado,
   });
 }
 

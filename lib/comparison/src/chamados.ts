@@ -255,6 +255,19 @@ export interface TicketImportSummary {
   parameterColumns: string[];
   columnMapping: Record<string, { header: string; match: string; reason: string }>;
   failureReason: string | null;
+  /**
+   * A unidade que o próprio arquivo nomeia — a partição dentro da qual dois
+   * envios são comparáveis. `null` é a série indeterminada, e não "qualquer
+   * uma"; ver `ticket_import.serie`, em `schema/tickets.ts`.
+   *
+   * Está aqui porque quem escolhe um envio precisa saber de que unidade ele é:
+   * a Conciliação de Chamados casa a série com a unidade da lateral
+   * (`lib/serie-da-unidade.ts`, na interface) para não confrontar a vigência de
+   * uma unidade contra o envio de outra.
+   */
+  serie: string | null;
+  /** De onde a série foi lida — ARQUIVO, NOME_DO_ARQUIVO, MISTA, INDETERMINADA. */
+  serieOrigem: string | null;
 }
 
 export interface TicketTotals {
@@ -444,6 +457,8 @@ function toSummary(row: typeof ticketImportTable.$inferSelect): TicketImportSumm
     columnMapping:
       (row.columnMapping as TicketImportSummary["columnMapping"]) ?? {},
     failureReason: row.failureReason,
+    serie: row.serie,
+    serieOrigem: row.serieOrigem,
   };
 }
 

@@ -313,12 +313,20 @@ toda leitura — nos moldes do que `conversas.ts` já faz por `owner_id`.
     importações. O servidor escolhe o padrão (a comparação mais recente da
     unidade aberta, o último envio lido) e **devolve qual escolheu** — os dois
     seletores da tela mostram isso.
-  - **A unidade não é conferida, é medida.** O arquivo nomeia a unidade em
-    texto (`ticket_import.serie`) e a vigência em identidade canônica
-    (`snapshot.scope_hash`); as duas não se traduzem, e inventar a tradução é o
-    defeito que a `0049` documenta. O que a tela afirma é a interseção
-    (`placasEmComum`): zero placas em comum com os dois lados cheios vira o
-    aviso de que o envio e a vigência provavelmente são de unidades diferentes.
+  - **A unidade recorta os dois lados, por dois caminhos.** A comparação sai
+    pelo `scope_hash` da lateral, como nas Justificativas; o envio, pela
+    **série** — a unidade que o export da Ambev escreve —, casada com a unidade
+    aberta por `lib/serie-da-unidade.ts`, o mesmo módulo do Monitoramento (só
+    igualdade normalizada; quando o nome não bate, a tela **diz** que aquela
+    unidade não tem envio, em vez de somar todas). Sem o segundo, abrir a tela
+    com CAMAÇARI na lateral pegava o envio mais recente do banco — que pode ser
+    o de Recife.
+  - **E o que sobra disso é medido, nunca adivinhado.** Para quem escolher os
+    dois lados à mão não há casamento nenhum a fazer, e o que a tela afirma é a
+    interseção (`placasEmComum`): zero placas em comum com os dois lados cheios
+    vira o aviso de que o envio e a vigência são de unidades diferentes.
+    Inventar a tradução entre `ticket_import.serie` e `snapshot.scope_hash` é o
+    defeito que a `0049` documenta, e continua fora.
   - **O que não tem chave é contado e dito**, nunca suprimido: alteração sem
     placa e parâmetro que o dicionário não reconheceu ficam fora das quatro
     situações, e `foraDaConciliacao` os publica no rodapé dos cartões.
