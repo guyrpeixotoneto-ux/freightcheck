@@ -25,7 +25,10 @@ import type { RastroDaDeducao } from "./deduplicacao";
 export interface ChangeFilters {
   /** FIXO | VARIAVEL | SEM_CLASSE */
   costClass?: string;
-  /** VALUE_CHANGED | ENTITY_ADDED | ENTITY_REMOVED | ATTRIBUTE_ADDED | ATTRIBUTE_REMOVED */
+  /**
+   * VALUE_CHANGED | ENTITY_ADDED | ENTITY_REMOVED | ATTRIBUTE_ADDED |
+   * ATTRIBUTE_REMOVED — um deles, ou vários separados por vírgula.
+   */
   changeType?: string;
   /** SOURCE_CHANGE | FLEET_CHANGE | LAYOUT_CHANGE */
   category?: string;
@@ -107,7 +110,21 @@ export function condicoesDoFiltro(f: ChangeFilters): SQL[] {
   } else if (f.costClass) {
     parts.push(eq(changeTable.costClass, f.costClass));
   }
-  if (f.changeType) parts.push(eq(changeTable.changeType, f.changeType));
+  if (f.changeType) {
+    /*
+      Um tipo, ou uma lista deles separada por vírgula.
+
+      A lista existe porque um número da tela pode ser dois: "Colunas novas /
+      removidas" conta `+3 / −1`, e o recorte que ele abre precisa das quatro
+      linhas. Filtrar só por `ATTRIBUTE_ADDED` mostraria três debaixo de um
+      cartão que diz quatro — o tipo de discordância que este produto existe
+      para não ter.
+    */
+    const tipos = f.changeType.split(",").filter((t) => t !== "");
+    if (tipos.length === 1) parts.push(eq(changeTable.changeType, tipos[0]));
+    else if (tipos.length > 1)
+      parts.push(inArray(changeTable.changeType, tipos));
+  }
   if (f.category) parts.push(eq(changeTable.category, f.category));
   if (f.semanticsStatus) parts.push(eq(changeTable.semanticsStatus, f.semanticsStatus));
   if (f.comparability) parts.push(eq(changeTable.comparability, f.comparability));

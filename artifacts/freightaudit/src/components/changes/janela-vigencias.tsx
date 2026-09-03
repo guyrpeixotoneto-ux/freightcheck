@@ -1,4 +1,4 @@
-import { CalendarRange, X } from "lucide-react";
+import { AlertTriangle, CalendarRange, CheckCircle2, X } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -113,52 +113,71 @@ export function SeletorDeJanela({
     </SelectItem>
   );
 
+  /*
+    Quantas vigências o recorte alcançou — e se isso basta para responder.
+
+    O sinal fica ao lado do número porque as duas leituras são diferentes de
+    longe e idênticas de perto: "6 de 6" com um visto verde é a comparação
+    inteira; a mesma frase sem sinal nenhum era lida como enfeite do seletor. E
+    quando o recorte não alcança um par, o triângulo diz que a tela abaixo não
+    vai responder — antes de ela abrir vazia.
+  */
+  const bastam =
+    noRecorte === undefined || noRecorte >= (precisaDePar ? 2 : 1);
+  const contagem =
+    noRecorte === undefined
+      ? null
+      : noRecorte === 0
+        ? // Zero é o recorte que não alcançou nada — diferente de "nada mudou",
+          // e diferente de uma vigência só.
+          "nenhuma vigência aqui dentro do recorte"
+        : precisaDePar && noRecorte < 2
+          ? /*
+              Uma vigência só não tem par para comparar, e "nada mudou" seria a
+              resposta errada para a pergunta certa. A tela diz qual dos dois é,
+              porque de fora eles são idênticos.
+            */
+            "uma vigência só — não há par para comparar"
+          : `${noRecorte} de ${disponiveis.length} vigências`;
+
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-      <span className="inline-flex items-center gap-1.5 text-xs uppercase tracking-wide text-muted-foreground">
-        <CalendarRange className="w-3.5 h-3.5" />
+      <span className="inline-flex items-center gap-2 text-sm font-medium text-muted-foreground">
+        <CalendarRange className="w-4 h-4" />
         Vigências
       </span>
 
       <Select value={de} onValueChange={(v) => onJanela({ ...janela, de: v })}>
-        <SelectTrigger className="h-8 w-56 text-sm">
+        <SelectTrigger className="h-10 w-60 rounded-lg text-sm">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>{opcoes.map((d) => item(d, d > ate))}</SelectContent>
       </Select>
 
-      <span className="text-xs text-muted-foreground">até</span>
+      <span className="text-sm text-muted-foreground">até</span>
 
       <Select value={ate} onValueChange={(v) => onJanela({ ...janela, ate: v })}>
-        <SelectTrigger className="h-8 w-56 text-sm">
+        <SelectTrigger className="h-10 w-60 rounded-lg text-sm">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>{opcoes.map((d) => item(d, d < de))}</SelectContent>
       </Select>
 
-      <span
-        className={cn(
-          "text-xs",
-          noRecorte !== undefined && noRecorte < (precisaDePar ? 2 : 1)
-            ? "text-warning-foreground"
-            : "text-muted-foreground",
-        )}
-      >
-        {noRecorte === undefined
-          ? null
-          : noRecorte === 0
-            ? // Zero é o recorte que não alcançou nada — diferente de "nada
-              // mudou", e diferente de uma vigência só.
-              "nenhuma vigência aqui dentro do recorte"
-            : precisaDePar && noRecorte < 2
-              ? /*
-                  Uma vigência só não tem par para comparar, e "nada mudou"
-                  seria a resposta errada para a pergunta certa. A tela diz qual
-                  dos dois é, porque de fora eles são idênticos.
-                */
-                "uma vigência só — não há par para comparar"
-              : `${noRecorte} de ${disponiveis.length} vigências`}
-      </span>
+      {contagem !== null && (
+        <span
+          className={cn(
+            "inline-flex items-center gap-1.5 text-sm",
+            bastam ? "text-muted-foreground" : "text-warning-foreground",
+          )}
+        >
+          {bastam ? (
+            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+          ) : (
+            <AlertTriangle className="w-4 h-4" />
+          )}
+          {contagem}
+        </span>
+      )}
 
       {recortado && <LimparRecorte onLimpar={() => onJanela({})} />}
     </div>

@@ -747,7 +747,15 @@ export function filtrosAtivos(filters: Filters): FiltroAtivo[] {
     lista.push({
       id: "changeType",
       grupo: "tipo",
-      valor: TIPO_LABELS[filters.changeType] ?? filters.changeType,
+      /*
+        O filtro de tipo aceita uma lista — os números do topo que contam dois
+        tipos de uma vez abrem os dois juntos. Escrita, ela vira a mesma frase
+        que a pastilha de origem: "coluna nova, coluna removida".
+      */
+      valor: filters.changeType
+        .split(",")
+        .map((t) => TIPO_LABELS[t] ?? t)
+        .join(", "),
       avancado: true,
       patch: { changeType: "" },
     });
@@ -1158,7 +1166,10 @@ export function FilterBar({
           {TIPOS.map(([value, label]) => (
             <Chip
               key={value}
-              active={filters.changeType === value}
+              // Aceso também quando o recorte é uma lista que o contém — quem
+              // chegou pelo cartão "Colunas novas / removidas" vê os dois tipos
+              // acesos, que é o recorte que está de fato ligado.
+              active={filters.changeType.split(",").includes(value)}
               onClick={() => set("changeType", value)}
             >
               {label}
