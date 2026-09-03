@@ -18,6 +18,7 @@ import { useAmbiente } from "@/lib/ambiente-aberto";
 import { useAuth } from "@/lib/auth";
 import { unidadeDe, useContextosDaCasca } from "@/lib/contextos";
 import { enderecoDoAssistente } from "@/lib/entrada-do-assistente";
+import { enderecoDoMenu } from "@/lib/navegacao-do-escopo";
 import { cn } from "@/lib/utils";
 import {
   useAlteracoesDaVigencia,
@@ -78,8 +79,16 @@ export function BarraMobile() {
   const contadores = { alteracoes, importacoes, curadoria };
 
   const paraOAssistente = enderecoDoAssistente(busca);
+  /*
+    O mesmo endereço da lateral, item por item: o caminho nu chega sem unidade,
+    e quem estava em CAMAÇARI e tocava numa tela vizinha chegava lá em
+    PERNAMBUCO — o primeiro contexto do banco. Ver `enderecoDoMenu`, em
+    `lib/navegacao-do-escopo.ts`.
+  */
   const enderecoDe = (item: NavItem) =>
-    item.href === "/assistente" ? paraOAssistente : item.href;
+    item.href === "/assistente"
+      ? paraOAssistente
+      : enderecoDoMenu(item.href, location, busca);
 
   /*
     A folha fecha ao navegar. Ela não fecha sozinha: quem toca num item vai para
