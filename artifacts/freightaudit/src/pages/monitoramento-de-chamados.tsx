@@ -263,8 +263,17 @@ export default function MonitoramentoDeChamados() {
                 <Headset className="h-5 w-5" />
               </div>
               <div className="min-w-0">
+                {/*
+                  O título é o mesmo rótulo curto da lateral —
+                  **"Monitoramento"** — e não "Monitoramento de Chamados": a
+                  tela é a que o menu acende, e um cabeçalho que diz um nome
+                  diferente do item clicado faz duvidar de que se chegou onde
+                  se queria. O assunto já está dito de dois lados: a seção da
+                  lateral se chama "Chamados Ambev", e a linha abaixo do título
+                  é o dia dos chamados. Ver `layout/nav-auditoria.ts`.
+                */}
                 <h1 className="text-2xl font-bold tracking-tight">
-                  Monitoramento de Chamados
+                  Monitoramento
                 </h1>
                 <p className="text-sm text-muted-foreground">
                   {diaPorExtenso(dia)}
