@@ -139,6 +139,14 @@ describe("registro de migrations perdido", () => {
       // velho e com o novo, e nenhuma inspeção distingue os dois. Rodar é o
       // certo e é idempotente: `COMMENT ON` substitui, não acumula.
       "0067_rastreio_de_dados_no_comentario",
+      // A 0089 entra pelo motivo da 0025: só escreve dado. Ela limpa o
+      // `display_name` que a promoção antiga copiava do nome de origem, e não
+      // cria coluna, índice nem constraint — nenhuma inspeção da forma do
+      // schema diz se ela rodou. Adotá-la deixaria o campo preenchido com a
+      // cópia enquanto o registro afirma que ele foi limpo. Rodar é o certo e é
+      // idempotente: a segunda passada não acha linha nenhuma, porque o que ela
+      // limparia já está nulo.
+      "0089_nome_gerencial_vazio",
     ];
     expect(segunda.adopted).toEqual(
       primeira.applied.filter((tag) => !semObjetoNovo.includes(tag)),
