@@ -11,6 +11,7 @@ import {
   MapPin,
   RefreshCw,
   TrendingUp,
+  XCircle,
 } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
 import { ApiErrorNotice } from "@/components/api-error";
@@ -163,6 +164,21 @@ import {
  * e a abertura da tela continua custando as mesmas três consultas. O número que
  * rotula a visão vem do resumo, que já lê os envios do dia — é assim que a tela
  * consegue oferecer a relação sem antes carregá-la.
+ *
+ * ---------------------------------------------------------------------------
+ * O topo conta a fila, e não o delta
+ * ---------------------------------------------------------------------------
+ *
+ * Pelo mesmo motivo, e uma camada acima: os três cartões contavam
+ * movimentações, revisadas e pendentes, e num dia sem movimentação eles eram
+ * três zeros sobre o mesmo arquivo de 1.218 chamados. Hoje contam o desfecho
+ * que o arquivo declara — **aprovados, em análise, reprovados** —, que é a
+ * pergunta que tem resposta em todo dia em que chegou arquivo.
+ *
+ * O delta não sumiu do topo: a faixa abaixo dos cartões continua trazendo a
+ * frase do dia, a barra de progresso e o botão de continuar a revisão, e o
+ * painel da direita mantém movimentações e "aguardando revisão". O que mudou é
+ * qual dos dois grãos ocupa os três números grandes.
  */
 
 const POR_PAGINA = 25;
@@ -274,6 +290,14 @@ export default function MonitoramentoDeChamados() {
   const revisao = useRevisao(dia);
 
   const resumo = resumoConsulta.dados ?? null;
+  /*
+    `null` enquanto o resumo não chegou, e nunca um objeto zerado: os cartões
+    escrevem "—" na espera, e um zero ali diria "o arquivo não trouxe nenhum
+    aprovado" sobre um dia que ainda não foi lido. É a mesma disciplina de
+    `dadosDaFila`, e a razão de os três cartões nunca mostrarem número antes de
+    haver número.
+  */
+  const situacoes = resumo?.situacoesNoEnvio ?? null;
   const frase = fraseDoDia(resumo);
   const progresso = progressoDoDia(resumo);
   const movimentacoes = lista.dados?.rows ?? [];
@@ -528,31 +552,82 @@ export default function MonitoramentoDeChamados() {
 
         <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
           <div className="space-y-5 min-w-0">
+            {/*
+              Os três cartões contam a **fila do dia**, e não o delta.
+
+              Contavam movimentações, revisadas e pendentes — e num dia sem
+              movimentação, que é a maioria dos dias, isso eram três zeros no
+              topo de uma tela que acabara de ler 1.218 chamados. Três zeros
+              certos que não respondem nada é o pior número que uma tela pode
+              mostrar, e era o que estava ali.
+
+              O progresso da revisão não se perdeu com a troca: a faixa logo
+              abaixo traz a barra e o botão de continuar, e o painel da direita
+              mantém movimentações e "aguardando revisão" — que são o grão do
+              delta, e ficam do lado de quem pergunta por ele.
+            */}
             <div className="grid gap-4 sm:grid-cols-3">
-              <MetricCard
-                icon={<TrendingUp className="h-6 w-6" />}
-                tone="blue"
-                label="Movimentações"
-                value={resumo?.movimentacoes ?? "—"}
-                hint="chamados que se mexeram neste dia"
-              />
               <MetricCard
                 icon={<CheckCircle2 className="h-6 w-6" />}
                 tone="green"
-                label="Revisadas"
-                value={resumo?.revisadas ?? "—"}
+                label="Aprovados"
+                value={situacoes?.aprovados ?? "—"}
                 valueTone="good"
-                hint="movimentações já analisadas por alguém"
+                hint="o que o arquivo deu por aprovado"
               />
               <MetricCard
                 icon={<Clock className="h-6 w-6" />}
+                tone="orange"
+                label="Em análise"
+                value={situacoes?.emAnalise ?? "—"}
+                valueTone={situacoes && situacoes.emAnalise > 0 ? "warn" : "muted"}
+                hint="ainda em curso na Ambev"
+              />
+              <MetricCard
+                icon={<XCircle className="h-6 w-6" />}
                 tone="red"
-                label="Pendentes"
-                value={resumo?.pendentes ?? "—"}
-                valueTone={resumo && resumo.pendentes > 0 ? "bad" : "muted"}
-                hint="movimentações aguardando revisão"
+                label="Reprovados"
+                value={situacoes?.reprovados ?? "—"}
+                valueTone={situacoes && situacoes.reprovados > 0 ? "bad" : "muted"}
+                hint="recusados pela Ambev"
               />
             </div>
+
+            {/*
+              A tira que fecha a conta dos cartões.
+
+              Os três somam o envio inteiro **menos** o que não cai em nenhuma
+              das três caixas — um chamado cancelado, um sem status. Sem esta
+              linha, três números certos dariam um total errado, que é
+              exatamente o defeito que este produto existe para pegar. Ela cita
+              o total contado nos chamados, e é por ele que os quatro fecham.
+            */}
+            {situacoes !== null && situacoes.total > 0 && (
+              <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm px-1">
+                {situacoes.outras > 0 && (
+                  <span className="flex items-center gap-1.5">
+                    <span className="h-2 w-2 rounded-full bg-slate-400" />
+                    <span className="font-semibold tabular-nums">
+                      {situacoes.outras.toLocaleString("pt-BR")}
+                    </span>
+                    <span className="text-muted-foreground">
+                      em outras situações
+                      {situacoes.detalheDeOutras.length > 0 &&
+                        ` (${situacoes.detalheDeOutras
+                          .map(
+                            (o) =>
+                              `${STATUS_LABELS[o.statusBucket] ?? o.statusBucket}: ${o.total.toLocaleString("pt-BR")}`,
+                          )
+                          .join(", ")})`}
+                    </span>
+                  </span>
+                )}
+                <span className="text-xs text-muted-foreground">
+                  = {situacoes.total.toLocaleString("pt-BR")} chamados no envio
+                  deste dia
+                </span>
+              </div>
+            )}
 
             {/*
               O detalhamento por classe. As quatro somam exatamente o total —
