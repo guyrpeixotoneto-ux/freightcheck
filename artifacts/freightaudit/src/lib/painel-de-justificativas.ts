@@ -1,10 +1,17 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { normalizarEquipamento } from "@workspace/curation/equipamento";
+import { foraDoPainelDeJustificativas } from "@workspace/comparison/painel-de-justificativas-escopo";
 
 import { fetchJson } from "@/lib/api";
 import { useConsultaResiliente } from "@/lib/consulta-resiliente";
-import { EQUIPAMENTOS_DO_AMBIENTE, rotuloDoTipo, type Equipamento } from "@/lib/frota";
+import type { Ambiente } from "@/lib/ambiente";
+import {
+  EQUIPAMENTOS_DO_AMBIENTE,
+  equipamentosDoAmbiente,
+  rotuloDoTipo,
+  type Equipamento,
+} from "@/lib/frota";
 
 /**
  * Painel de Justificativas — a leitura de cobertura de Chamados.
@@ -26,6 +33,26 @@ import { EQUIPAMENTOS_DO_AMBIENTE, rotuloDoTipo, type Equipamento } from "@/lib/
  * carregamento. É a mesma escolha de `useContagensPorTipo`, em
  * `lib/justificativas.ts`.
  */
+
+/**
+ * Os tipos de ativo que **este painel** oferece — as abas, as barras e as
+ * opções da caixa "Tipo de ativo".
+ *
+ * São os da operação aberta (`equipamentosDoAmbiente`) menos os que o painel
+ * não cobra: hoje, o trecho na empurrada. A razão de ele estar fora está em
+ * `@workspace/comparison/painel-de-justificativas-escopo`, e é a mesma lista
+ * que o servidor aplica às três consultas — é por isso que ela vem de lá, e
+ * não de uma segunda cópia escrita aqui.
+ *
+ * A lista serve também de régua do endereço: `?tipo=` que não esteja nela cai
+ * na Geral, como já caía o tipo de outro ambiente. Um link antigo para a aba de
+ * trecho abre no painel inteiro, e não numa aba que não existe mais.
+ */
+export function tiposDoPainel(ambiente: Ambiente): Equipamento[] {
+  return equipamentosDoAmbiente(ambiente).filter(
+    (tipo) => !foraDoPainelDeJustificativas(tipo),
+  );
+}
 
 /** Uma linha de `/justificativas/painel`: a cobertura de um tipo numa vigência. */
 export interface CoberturaDeJustificativas {
@@ -148,13 +175,18 @@ export function resumoDoPainel(
  * produto não tem: nenhuma justificativa vence. O que ele responde no lugar é a
  * pergunta que existe — **onde** está a pendência —, porque justificar é
  * trabalho por tipo de ativo: quem explica o reajuste de um cavalo não é quem
- * explica a quilometragem de um trecho, e uma barra por tipo diz a quem
+ * explica a troca do implemento de uma carreta, e uma barra por tipo diz a quem
  * mandar a fila.
  *
  * Os tipos fixos da operação aparecem mesmo zerados, pela razão das abas da
- * fila (`abasDaVigencia`): uma barra zerada diz "nenhum trecho está pendente";
- * a barra ausente deixa em aberto se não há trecho ou se a tela não sabe
- * mostrá-lo.
+ * fila (`abasDaVigencia`): uma barra zerada diz "nenhuma carreta está
+ * pendente"; a barra ausente deixa em aberto se não há carreta ou se a tela não
+ * sabe mostrá-la.
+ *
+ * O que o painel não cobra não vira barra — nem entre os fixos, nem entre os
+ * extras que vierem do dado. A barra é clicável e leva à aba (ou ao filtro) do
+ * tipo, e uma barra para um tipo que a tela não sabe abrir prometeria uma fila
+ * que não existe. Ver `tiposDoPainel`, acima.
  */
 export interface BarraDoPainel {
   tipo: string;
@@ -173,8 +205,12 @@ export function pendenciasPorTipo(
     (l) => changeSetId === null || l.changeSetId === changeSetId,
   );
 
+  const fixas = (fixos as readonly string[]).filter(
+    (tipo) => !foraDoPainelDeJustificativas(tipo),
+  );
+
   const totais = new Map<string, { pendentes: number; justificadas: number }>();
-  for (const tipo of fixos) totais.set(tipo, { pendentes: 0, justificadas: 0 });
+  for (const tipo of fixas) totais.set(tipo, { pendentes: 0, justificadas: 0 });
   for (const linha of linhas) {
     const tipo = normalizarEquipamento(linha.entityType);
     /* Sem tipo declarado não há barra a que pertencer — e inventar uma
@@ -187,9 +223,8 @@ export function pendenciasPorTipo(
     });
   }
 
-  const fixas = [...fixos] as string[];
   const extras = [...totais.keys()]
-    .filter((tipo) => !fixas.includes(tipo))
+    .filter((tipo) => !fixas.includes(tipo) && !foraDoPainelDeJustificativas(tipo))
     .sort((a, b) => a.localeCompare(b, "pt-BR"));
 
   return [...fixas, ...extras].map((tipo) => ({
