@@ -228,9 +228,20 @@ export default function Panorama() {
               </h1>
               <EmAtualizacao ativo={atualizando} />
             </div>
+            {/*
+              A frase é o índice dos andares, e por isso ela muda quando eles
+              mudam. Terminava em "e o que fazer agora" — o andar que respondia
+              isso era a fila, que saiu por não ser leitura. A promessa ficou
+              sem entrega, que é a mesma classe de defeito que o Panorama veio
+              curar: a tela dizendo uma coisa e mostrando outra.
+
+              Termina na procedência porque é ali que a tela termina, e porque
+              "posso confiar nisto" é a última pergunta de quem vai levar o
+              número para uma reunião.
+            */}
             <p className="text-sm text-muted-foreground mt-1.5">
               A leitura executiva inteira desta competência: quanto custou, de onde vem, como
-              chegou aqui e o que fazer agora.
+              chegou aqui, onde aconteceu e o quanto dá para confiar no número.
             </p>
           </div>
 

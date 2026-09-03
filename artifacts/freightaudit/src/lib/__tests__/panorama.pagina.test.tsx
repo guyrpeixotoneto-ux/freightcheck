@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 //
-// A página inteira, montada — os sete andares de ponta a ponta.
+// A página inteira, montada — os seis andares de ponta a ponta.
 //
 // O Panorama consolida quatro módulos que liam a mesma resposta do servidor, e
 // o risco que ele traz é o inverso da redundância que desfaz: publicar um
@@ -314,11 +314,15 @@ describe("a página do Panorama", () => {
     expect(screen.getByText("Cobertura auditada")).toBeTruthy();
 
     /*
-      E a fila não está mais aqui. O andar que mandava embora saiu, e é este
-      `queryByText` que impede que ele volte por descuido — um `getByText` a
-      menos no teste acima não acusaria nada.
+      E a fila não está mais aqui — nem como cartão, nem como promessa.
+
+      A busca é por expressão regular e sem diferenciar maiúsculas de propósito.
+      A versão exata (`"O que fazer agora"`) casava com o título do cartão e
+      mais nada: passou verde enquanto a frase de abertura da tela continuava
+      terminando em "…e o que fazer agora", prometendo um andar que já tinha
+      saído. Um teste que só vigia o título não vigia a promessa.
     */
-    expect(screen.queryByText("O que fazer agora")).toBeNull();
+    expect(screen.queryByText(/o que fazer agora/i)).toBeNull();
   });
 
   /*
