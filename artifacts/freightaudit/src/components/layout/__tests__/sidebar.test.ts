@@ -353,8 +353,14 @@ describe("a lateral", () => {
         "/painel-de-justificativas",
       ]);
       expect(chamados.itens.map((item) => item.label)).toEqual([
-        "Monitoramento de Chamados",
-        "Conciliação de Chamados",
+        /*
+          Os dois primeiros são curtos: a seção acima já diz "Chamados Ambev", e
+          o rótulo longo era truncado na lateral ("Monitoramento de Chama…") —
+          ver `nav-auditoria.ts`. Os hrefs continuam inteiros porque são a chave
+          de permissão do módulo.
+        */
+        "Monitoramento",
+        "Conciliação",
         "Justificativas",
         "Painel de Justificativas",
       ]);

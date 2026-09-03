@@ -245,8 +245,21 @@ export interface TicketImportSummary {
   id: string;
   filename: string;
   status: string;
+  /**
+   * O SHA-256 dos bytes recebidos — a mesma evidência que a aba Planilha mostra.
+   *
+   * Ele existe em `ticket_import` desde a `0012` e é ele que recusa o mesmo
+   * arquivo duas vezes, mas não saía daqui: a tela dizia "este envio já entrou"
+   * sem ter como mostrar por quê, e a única aba do módulo Importações que não
+   * exibia a procedência do arquivo era justamente a dos chamados.
+   */
+  contentSha256: string;
+  /** O tamanho dos bytes recebidos. Junto com o hash, identifica o arquivo. */
+  byteSize: number;
   receivedAt: string;
   receivedBy: string | null;
+  /** Quando a leitura terminou — `null` enquanto ela não terminou. */
+  finishedAt: string | null;
   rowCount: number;
   ticketCount: number;
   ignoredRowCount: number;
@@ -256,17 +269,24 @@ export interface TicketImportSummary {
   columnMapping: Record<string, { header: string; match: string; reason: string }>;
   failureReason: string | null;
   /**
-   * A unidade que o próprio arquivo nomeia — a partição dentro da qual dois
-   * envios são comparáveis. `null` é a série indeterminada, e não "qualquer
-   * uma"; ver `ticket_import.serie`, em `schema/tickets.ts`.
+   * A partição dentro da qual dois envios se comparam — a unidade.
    *
-   * Está aqui porque quem escolhe um envio precisa saber de que unidade ele é:
-   * a Conciliação de Chamados casa a série com a unidade da lateral
-   * (`lib/serie-da-unidade.ts`, na interface) para não confrontar a vigência de
-   * uma unidade contra o envio de outra.
+   * `null` é série indeterminada: legítimo, e diferente de vazio. Ver
+   * `ticket_import.serie`, em `schema/tickets.ts`.
+   *
+   * Vai para a tela porque **duas** delas não conseguem decidir nada sem ela, e
+   * pela mesma razão de fundo — dois arquivos do mesmo dia costumam ser
+   * unidades diferentes, não reenvios da mesma fila, e na lista as duas coisas
+   * se parecem exatamente:
+   *
+   * - **Importações › Chamados** precisa separar um do outro na linha do
+   *   arquivo recebido;
+   * - **Conciliação de Chamados** casa a série com a unidade da lateral
+   *   (`lib/serie-da-unidade.ts`, na interface) para não confrontar a vigência
+   *   de uma unidade contra a fila de outra.
    */
   serie: string | null;
-  /** De onde a série foi lida — ARQUIVO, NOME_DO_ARQUIVO, MISTA, INDETERMINADA. */
+  /** De onde a série foi lida: ARQUIVO, NOME_DO_ARQUIVO, MISTA, INDETERMINADA. */
   serieOrigem: string | null;
 }
 
@@ -447,8 +467,11 @@ function toSummary(row: typeof ticketImportTable.$inferSelect): TicketImportSumm
     id: row.id,
     filename: row.filename,
     status: row.status,
+    contentSha256: row.contentSha256,
+    byteSize: row.byteSize,
     receivedAt: row.receivedAt.toISOString(),
     receivedBy: row.receivedBy,
+    finishedAt: row.finishedAt?.toISOString() ?? null,
     rowCount: row.rowCount,
     ticketCount: row.ticketCount,
     ignoredRowCount: row.ignoredRowCount,

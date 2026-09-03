@@ -290,6 +290,77 @@ export function enderecoDeVisaoGeral(pathnameAtual: string, searchAtual: string)
 }
 
 /**
+ * O endereço de um item do menu — **com a unidade aberta junto**.
+ *
+ * Este é o dual de `enderecoDe`, e fecha a segunda metade do mesmo defeito.
+ * `enderecoDe` responde "trocar de recorte não deve trocar de assunto"; faltava
+ * dizer o contrário, que é o que a lateral fazia a cada clique: **trocar de
+ * assunto não deve trocar de recorte**.
+ *
+ * O que acontecia, e é a reclamação de novo — *"eu troco a Unidade Atual por
+ * Camaçari e muda de módulo, mas eu quero ver os chamados de Camaçari"* —, agora
+ * pela outra ponta: todo `href` da lateral era o caminho **nu**
+ * (`/monitoramento-de-chamados`, `/alteracoes`, `/parametros`). Sem `scopeHash`
+ * no endereço, quem chega cai no primeiro contexto do banco
+ * (`contextoAberto`, em `lib/contextos.ts`), que é o de vigência mais recente.
+ * Então quem abria CAMAÇARI e clicava em "Monitoramento de Chamados" chegava lá
+ * em PERNAMBUCO — a lateral trocava sozinha a unidade que ela mesma acabara de
+ * escrever, e a única pista era o nome na caixa, cinco centímetros acima, que
+ * ninguém lê como aviso.
+ *
+ * O produto já sabia disto para **um** item: o Assistente
+ * (`lib/entrada-do-assistente.ts`), cujo cabeçalho descreve exatamente este
+ * defeito e o conserta só para ele. O que estava faltando era a regra valer para
+ * a lista inteira.
+ *
+ * As três decisões:
+ *
+ * 1. **Só as telas que honram o recorte recebem.** A régua é a mesma de
+ *    `enderecoDe` — `TELAS_QUE_HONRAM_ESCOPO` e `TELAS_QUE_HONRAM_VISAO_GERAL` —,
+ *    porque é a mesma promessa: escrever `scopeHash` num endereço que ninguém lá
+ *    lê é o filtro prometido e não aplicado que estas listas existem para
+ *    impedir.
+ * 2. **A Visão Geral atravessa como Visão Geral.** Quem está somando as unidades
+ *    e muda de tela continua somando, onde a tela nova sabe somar; onde não sabe,
+ *    o endereço vai nu e a tela abre como sempre abriu.
+ * 3. **O tempo não viaja.** Aqui é o contrário de `enderecoDe`, e pela mesma
+ *    razão: lá a tela é a mesma antes e depois, e o vocabulário do tempo com
+ *    ela; aqui a tela muda, e `CHAVE_DO_TEMPO` diz que o vocabulário muda junto
+ *    — `dia` no Monitoramento, `ano` no Painel, `period` no resto. Traduzir um
+ *    no outro seria inventar um recorte que ninguém pediu.
+ *
+ * Endereços com consulta própria e os absolutos do wouter (`~`, que saem do
+ * ambiente — ver `nav-administracao.ts`) saem daqui intactos: o primeiro já
+ * escolheu o que leva, e o segundo vai para fora, onde a unidade desta auditoria
+ * não quer dizer nada.
+ */
+export function enderecoDoMenu(
+  href: string,
+  pathnameAtual: string,
+  searchAtual: string,
+): string {
+  if (href.startsWith("~") || href.includes("?")) return href;
+
+  if (visaoGeralAtiva(pathnameAtual, searchAtual)) {
+    return TELAS_QUE_HONRAM_VISAO_GERAL.has(href) ? `${href}?visaoGeral=1` : href;
+  }
+
+  const atual = new URLSearchParams(searchAtual);
+  const scopeHash = atual.get("scopeHash");
+  if (!scopeHash || !TELAS_QUE_HONRAM_ESCOPO.has(href)) return href;
+
+  const query = new URLSearchParams({ scopeHash });
+  /*
+    O canal é copiado como está, inclusive vazio: `canal=` é a partição das
+    vigências sem canal legível, e a **ausência** da chave é outra coisa. Ver
+    `Recorte`, em `lib/recorte.ts`, e o `channel !== null` de `enderecoDe`.
+  */
+  const canal = atual.get("canal");
+  if (canal !== null) query.set("canal", canal);
+  return `${href}?${query}`;
+}
+
+/**
  * O endereço de outro ano no Painel de Unidades, com o escopo aberto intacto.
  *
  * Reescreve `ano` na consulta atual em vez de montar uma nova: `scopeHash`,

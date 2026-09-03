@@ -43,7 +43,6 @@ import { useAmbiente } from "@/lib/ambiente-aberto";
 import { contextoAberto, useContextosDaCasca } from "@/lib/contextos";
 import {
   contracaoDoTipo,
-  equipamentosDoAmbiente,
   palavrasDoTipo,
   rotuloDoTipo,
   rotuloEmFrase,
@@ -62,6 +61,7 @@ import {
   pendenciasPorTipo,
   responsaveisDoPainel,
   resumoDoPainel,
+  tiposDoPainel,
   useLinhasDoPainel,
   usePainelDeJustificativas,
   vigenciasDoPainel,
@@ -103,11 +103,11 @@ import { cn } from "@/lib/utils";
  * ---------------------------------------------------------------------------
  * **Geral** é o painel inteiro — a frota toda somada, com o tipo de ativo entre
  * os filtros, onde ele sempre esteve. Ao lado dela, **uma aba por tipo de
- * ativo** (Cavalo, Carreta, Trecho na empurrada; a lista é do ambiente aberto —
- * ver `EQUIPAMENTOS_DO_AMBIENTE`): o mesmo painel com o tipo promovido de filtro
- * a **população**. Na aba de um tipo, a caixa "Tipo de ativo" sai do lugar,
- * porque dois controles para o mesmo eixo é o caminho curto para a tela
- * discordar de si mesma.
+ * ativo** (Cavalo e Carreta na empurrada; a lista é a do ambiente aberto menos
+ * o que este painel não cobra — ver `tiposDoPainel`): o mesmo painel com o tipo
+ * promovido de filtro a **população**. Na aba de um tipo, a caixa "Tipo de
+ * ativo" sai do lugar, porque dois controles para o mesmo eixo é o caminho
+ * curto para a tela discordar de si mesma.
  *
  * Uma aba por tipo, e não uma aba "por tipo" com pastilhas dentro: o segundo
  * desenho durou um dia e pedia dois cliques e duas leituras para responder à
@@ -145,6 +145,22 @@ import { cn } from "@/lib/utils";
  * A tabela "Cobertura por vigência", lá embaixo, troca pela mesma porta:
  * clicar numa linha dela e escolher no menu gravam o mesmo estado, e o menu
  * abre na linha que a tabela destacou.
+ *
+ * ---------------------------------------------------------------------------
+ * O trecho não está aqui
+ * ---------------------------------------------------------------------------
+ * Não há aba, barra, opção de filtro nem linha de trecho neste painel, e os
+ * cartões não o somam. Não é a tela escondendo o que a conta inclui: quem tira
+ * o trecho é o servidor, nas três consultas do painel, e a tela apenas deixa de
+ * oferecer o que não existe mais aqui. O porquê está escrito em
+ * `@workspace/comparison/painel-de-justificativas-escopo` — em uma frase, uma
+ * vigência de trecho muda dezenas de milhares de linhas contra as centenas de
+ * cavalo e carreta, e somados no mesmo total os números desta tela viravam a
+ * contagem do trecho com um resto.
+ *
+ * **Só deste painel.** O trecho continua no menu, na tela `Trecho 360°`, no
+ * Radar de Trechos, nas abas de Alterações e na fila de Justificativas, onde se
+ * justifica um trecho como sempre se justificou.
  */
 
 /* O endereço desta tela — o mesmo que `App.tsx` registra. A aba e o tipo são
@@ -316,7 +332,7 @@ export default function PainelDeJustificativas() {
     Uma fileira só: Geral, e um tipo por aba ao lado dela. Ela mora no endereço,
     e os filtros logo acima não: a diferença é que uma aba não é um recorte da
     leitura, é **qual leitura** se está fazendo. É o que alguém cola num chat
-    ("olha a fila do trecho"), e é o que a Linha do Tempo escreve no endereço
+    ("olha a fila do cavalo"), e é o que a Linha do Tempo escreve no endereço
     pela mesma razão. Os filtros continuam em estado, pelo motivo escrito acima
     deles.
 
@@ -324,12 +340,13 @@ export default function PainelDeJustificativas() {
     mais em todo link seria ruído que não muda nada — e um segundo parâmetro é
     uma segunda chance de os dois discordarem.
 
-    `?tipo=` que não seja um equipamento **deste ambiente** cai na Geral, e não
-    numa aba de tipo escolhida por nós: trocar em silêncio a leitura que a
-    pessoa pediu é pior do que devolvê-la ao começo. Mesma régua de
-    `equipamentoValido` nas telas 360°.
+    `?tipo=` que não seja um dos tipos **deste painel** cai na Geral, e não numa
+    aba de tipo escolhida por nós: trocar em silêncio a leitura que a pessoa
+    pediu é pior do que devolvê-la ao começo. Mesma régua de `equipamentoValido`
+    nas telas 360° — e é ela que faz um link antigo para a aba de trecho abrir
+    no painel inteiro, em vez de numa aba que não existe mais.
   */
-  const equipamentos = equipamentosDoAmbiente(ambiente);
+  const equipamentos = tiposDoPainel(ambiente);
   const pedido = params.get("tipo");
   const tipoDaAba =
     pedido !== null && (equipamentos as readonly string[]).includes(pedido)

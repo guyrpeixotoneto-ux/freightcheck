@@ -29,7 +29,14 @@ const ATRIBUTOS: AttributeSpec[] = [
   { code: "cavalo.valor_b", dataType: "NUMERIC", semanticsStatus: "PRESUMED" },
 ];
 
+/** O trecho tem quilometragem, e é por ela que passa o lado variável. */
+const ATRIBUTOS_DO_TRECHO: AttributeSpec[] = [
+  { code: "trecho.km_ida", dataType: "NUMERIC", semanticsStatus: "PRESUMED" },
+];
+
 let changeSetId: string;
+/** Uma comparação de trecho, para provar que ela não entra neste painel. */
+let changeSetDoTrecho: string;
 /** As alterações da comparação, por `placa|coluna` — para justificar uma escolhida. */
 let idDe: Map<string, number>;
 
@@ -74,6 +81,45 @@ beforeAll(async () => {
     .from(changeTable)
     .where(eq(changeTable.changeSetId, changeSetId));
   idDe = new Map(linhas.map((l) => [`${l.entityLabel}|${l.attributeCode}`, l.id]));
+
+  /*
+    E uma comparação de trecho ao lado, com uma justificativa escrita — é ela
+    que o painel tem de não ver, nem na cobertura, nem na lista, nem no filtro
+    de responsável.
+  */
+  const trecho = await buildFixture(
+    ctx.db,
+    ATRIBUTOS_DO_TRECHO,
+    [
+      {
+        label: "A",
+        effectiveDate: "2026-07-01",
+        data: { "SAO PAULO > SANTOS": { "trecho.km_ida": 80 } },
+      },
+      {
+        label: "B",
+        effectiveDate: "2026-08-01",
+        data: { "SAO PAULO > SANTOS": { "trecho.km_ida": 90 } },
+      },
+    ],
+    { entityType: "TRECHO" },
+  );
+  const [ta, tb] = Object.values(trecho.snapshotIds);
+  changeSetDoTrecho = (await computeChangeSet(ctx.db, ta, tb, { force: true })).id;
+
+  const [alteracaoDoTrecho] = await ctx.db
+    .select({ id: changeTable.id })
+    .from(changeTable)
+    .where(eq(changeTable.changeSetId, changeSetDoTrecho));
+
+  await ctx.db.insert(justificativaTable).values({
+    changeSetId: changeSetDoTrecho,
+    changeId: alteracaoDoTrecho.id,
+    entityLabel: "SAO PAULO > SANTOS",
+    entityType: "TRECHO",
+    texto: "rota refeita",
+    criadoPor: "carla@x.com",
+  });
 }, 120_000);
 
 afterAll(async () => {
@@ -210,6 +256,44 @@ it("pagina no banco, com o total ao lado", async () => {
   expect(
     new Set([...primeira.linhas, ...segunda.linhas].map((l) => l.changeId)).size,
   ).toBe(3);
+});
+
+/*
+  O trecho não é deste painel — a razão está em
+  `painel-de-justificativas-escopo.ts`. O que se prende aqui é que ele sai da
+  **conta**, e não só da fileira de abas: um painel que escondesse a aba e
+  continuasse somando o trecho nos cartões afirmaria um total que a própria
+  tela não sabe abrir.
+
+  E sai das três leituras, e não de uma: a cobertura (que é o cartão e a
+  rosca), a lista (que é a fila) e os autores (que é o filtro "Responsável",
+  cuja contagem tem de bater com a lista que ele abre).
+*/
+it("não cobra o trecho — nem na cobertura, nem na lista, nem nos autores", async () => {
+  expect(await coberturaDeJustificativas(ctx.db, [changeSetDoTrecho])).toEqual([]);
+  expect(await autoresDeJustificativas(ctx.db, [changeSetDoTrecho])).toEqual([]);
+  expect(
+    await linhasDoPainel(ctx.db, {
+      changeSetIds: [changeSetDoTrecho],
+      situacao: "TODAS",
+    }),
+  ).toEqual({ total: 0, linhas: [] });
+});
+
+/* Somadas as duas comparações, o painel devolve só a que ele cobra — é este o
+   caso da tela, que soma o acervo inteiro da unidade aberta. */
+it("some com o trecho também quando o painel soma o acervo inteiro", async () => {
+  const ambas = [changeSetId, changeSetDoTrecho];
+
+  const cobertura = await coberturaDeJustificativas(ctx.db, ambas);
+  expect(cobertura.map((l) => l.entityType)).toEqual(["CAVALO"]);
+
+  const autores = await autoresDeJustificativas(ctx.db, ambas);
+  expect(autores.map((a) => a.criadoPor)).toEqual(["ana@x.com"]);
+
+  const lista = await linhasDoPainel(ctx.db, { changeSetIds: ambas, situacao: "TODAS" });
+  expect(lista.total).toBe(3);
+  expect(lista.linhas.every((l) => l.entityType === "CAVALO")).toBe(true);
 });
 
 it("não vai ao banco quando não há comparação nenhuma para somar", async () => {

@@ -55,8 +55,14 @@ import {
 import { useAmbiente } from "@/lib/ambiente-aberto";
 import { rotuloDoTipo } from "@/lib/frota";
 import { cn } from "@/lib/utils";
-import { AbaChamados } from "@/components/changes/aba-chamados";
 import { AbaBotao } from "@/components/changes/cartoes";
+import { ChamadosRecebidos } from "@/components/importacoes/chamados-recebidos";
+import {
+  Metric,
+  Procedencia,
+  SeloDeEstado,
+  TONS,
+} from "@/components/importacoes/cartao";
 
 /**
  * Importações — o histórico do que entrou.
@@ -764,7 +770,7 @@ export default function Importacoes() {
       </header>
 
       {secao === "chamados" ? (
-        <AbaChamados />
+        <ChamadosRecebidos />
       ) : (
         <div className="p-8 space-y-5">
           {/* As abas vêm antes de tudo porque mandam em tudo: primeiro se escolhe
@@ -1212,37 +1218,25 @@ function RunCard({
           </div>
           <div className="min-w-0">
             <h2 className="text-lg font-bold truncate">{run.filename}</h2>
-            <p className="text-xs text-muted-foreground mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
-              <span className="font-mono text-[0.6875rem] px-1.5 py-0.5 rounded-md bg-primary/10 text-primary">
-                sha256
-              </span>
-              <span className="font-mono">
-                {run.contentSha256.slice(0, 16)}…
-              </span>
-              <span aria-hidden>·</span>
-              <span>{(run.byteSize / 1024).toFixed(0)} KB</span>
-              <span aria-hidden>·</span>
-              {/*
-                A data **desta** leitura, e não a do arquivo.
+            {/*
+              A data **desta** leitura, e não a do arquivo.
 
-                Aqui ficava `receivedAt`, que é `source_file.received_at` — do
-                arquivo, e portanto a mesma nos três cartões que o mesmo
-                conteúdo produz. O efeito foi visto: uma tentativa recusada
-                mostrava a data do recebimento original com os seis contadores
-                em zero, e quem lia concluía que o envio daquele dia não tinha
-                produzido nada. Eram duas coisas diferentes no mesmo lugar.
+              Aqui ficava `receivedAt`, que é `source_file.received_at` — do
+              arquivo, e portanto a mesma nos três cartões que o mesmo conteúdo
+              produz. O efeito foi visto: uma tentativa recusada mostrava a data
+              do recebimento original com os seis contadores em zero, e quem lia
+              concluía que o envio daquele dia não tinha produzido nada. Eram
+              duas coisas diferentes no mesmo lugar.
 
-                A data do arquivo continua no cartão, quando ela diz algo que
-                esta não diz — ver a linha do histórico do arquivo abaixo.
-              */}
-              <span>{dateTime(run.startedAt)}</span>
-              {run.triggeredBy && (
-                <>
-                  <span aria-hidden>·</span>
-                  <span>por {run.triggeredBy}</span>
-                </>
-              )}
-            </p>
+              A data do arquivo continua no cartão, quando ela diz algo que esta
+              não diz — ver a linha do histórico do arquivo abaixo.
+            */}
+            <Procedencia
+              sha256={run.contentSha256}
+              byteSize={run.byteSize}
+              quando={dateTime(run.startedAt)}
+              quem={run.triggeredBy}
+            />
             <PapelNoHistorico run={run} historico={historico} />
             <TipoDaImportacao run={run} />
           </div>
@@ -1616,27 +1610,9 @@ function ArquivoNaoAberto({
   `@/lib/importacoes`, junto com a cara do cartão de upload: é lógica que se
   testa sem desenhar, e o cartão e a pílula precisam contar a mesma história.
 */
-const TONS = {
-  ok: "bg-emerald-50 text-emerald-700 border-emerald-200",
-  erro: "bg-red-50 text-red-800 border-red-200",
-  // Duplicata não é erro: é o sistema tendo feito o trabalho dele. Pintá-la de
-  // vermelho ensina o operador a procurar culpa onde não há.
-  neutro: "bg-slate-100 text-slate-700 border-slate-300",
-  espera: "bg-amber-50 text-amber-800 border-amber-200",
-} as const;
-
+/** O selo compartilhado, com a tradução de `import_run_status`. */
 function StatusPill({ status }: { status: string }) {
-  const estado = estadoDaImportacao(status);
-  return (
-    <span
-      className={cn(
-        "shrink-0 rounded-full border px-3 py-1 text-xs font-medium",
-        TONS[estado.tom],
-      )}
-    >
-      {estado.rotulo}
-    </span>
-  );
+  return <SeloDeEstado estado={estadoDaImportacao(status)} />;
 }
 
 /**
@@ -2837,63 +2813,6 @@ function SheetList({ runId }: { runId: string }) {
           )}
         </div>
       ))}
-    </div>
-  );
-}
-
-const ACCENTS = {
-  indigo: "bg-indigo-50 text-indigo-600",
-  emerald: "bg-emerald-50 text-emerald-600",
-  blue: "bg-blue-50 text-blue-600",
-  violet: "bg-violet-50 text-violet-600",
-  red: "bg-red-50 text-red-500",
-  amber: "bg-amber-50 text-amber-600",
-} as const;
-
-/**
- * One produced quantity, as a tile.
- *
- * The icon is decoration; the number is the claim. Erros e Avisos só ganham cor
- * quando são maiores que zero — um zero pintado de vermelho vira alarme onde não
- * há nada a fazer.
- */
-function Metric({
-  icon: Icon,
-  accent,
-  label,
-  value,
-  tone = "muted",
-}: {
-  icon: typeof Table2;
-  accent: keyof typeof ACCENTS;
-  label: string;
-  value: string;
-  tone?: "bad" | "warn" | "muted";
-}) {
-  return (
-    <div className="rounded-xl border bg-muted/30 px-3 py-3 flex items-center gap-3">
-      <div
-        className={cn(
-          "w-9 h-9 rounded-lg flex items-center justify-center shrink-0",
-          ACCENTS[accent],
-        )}
-      >
-        <Icon className="w-4.5 h-4.5" />
-      </div>
-      <div className="min-w-0">
-        <div className="text-[0.625rem] font-semibold uppercase tracking-wider text-muted-foreground truncate">
-          {label}
-        </div>
-        <div
-          className={cn(
-            "text-lg font-bold tabular-nums leading-tight",
-            tone === "bad" && "text-red-600",
-            tone === "warn" && "text-orange-500",
-          )}
-        >
-          {value}
-        </div>
-      </div>
     </div>
   );
 }
