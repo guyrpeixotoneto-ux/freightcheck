@@ -3499,7 +3499,22 @@ export async function promote(
             .values({
               code,
               sourceName,
-              displayName: sourceName,
+              /*
+                O nome gerencial nasce vazio, e nasce vazio de propósito.
+
+                Ele era criado igual ao `sourceName`, e o efeito era um campo que
+                abre preenchido com a resposta errada: a tela de curadoria
+                mostrava "periodoFiname · periodoFiname" e o formulário oferecia
+                `periodoFiname` como se alguém já tivesse batizado a coluna. Quem
+                cura precisa distinguir "ninguém deu nome a isto" de "o nome é
+                este" — e todo leitor deste campo já resolve o vazio do jeito
+                certo: `attributeLabel` cai no nome de origem, e as telas o
+                mostram em fonte monoespaçada enquanto não há apelido.
+
+                O nome de origem não se perde: ele é `source_name`, que nunca é
+                reescrito, e é por ele — com a aba — que o `attribute_alias`
+                reconhece a coluna na importação seguinte.
+              */
               entityType: sample.entityType,
               dataType: dataTypeByCode.get(code) ?? "UNKNOWN",
               semanticsStatus: "UNKNOWN",

@@ -644,6 +644,22 @@ const TABELAS_REMOVIDAS = [
   "modulo_universal_evento",
   "modulo_universal",
   "unidade",
+  /*
+    O registro da normalização do Nome Gerencial, da `0089` — e ele entra aqui,
+    e não em `TABELAS_DESCARTAVEIS`, pelo critério desta lista: o que guarda não
+    é reconstruível por consulta nenhuma. Cada linha é o nome que a rotina
+    apagou de uma coluna, e o valor apagado só existe ali — descartá-la com
+    linhas dentro levaria junto a única forma de desfazer o que foi feito.
+
+    A pré-condição de vazia é a certa e é dura de propósito: um Development que
+    já rodou a normalização trava o `down`, e travar é o comportamento correto.
+    Encolher o diff descartando o rollback de um data-fix é exatamente o que o
+    bridge não pode fazer.
+
+    Não é filha de ninguém — não há FK para `attribute`, de propósito (ver
+    `schema/normalizacao.ts`) —, então entra em qualquer ponto da ordem.
+  */
+  "nome_gerencial_normalizado",
 ];
 
 /**
@@ -3332,6 +3348,28 @@ function planoUp(): PassoUp[] {
     add(M87, `índice ${i}`, levantar(M87, new RegExp(`INDEX IF NOT EXISTS "${i}"`)));
   }
   add(M87, "FKs do monitoramento", levantar(M87, /ticket_movement_review_user_id_app_user_id_fk/));
+
+  /*
+    A `0089` — o registro da normalização do Nome Gerencial.
+
+    Uma tabela e dois índices, e nada mais: a migration é DDL pura, sem
+    backfill, então o `up` a repõe inteira levantando o DDL dela própria. Repõe
+    **vazia**, e isso não é omissão: cada linha é o nome que a rotina apagou de
+    uma coluna, e nenhuma consulta a reconstrói. É por isso que o `down` exige a
+    tabela vazia antes de descer — ele só desce quando não há rollback a perder.
+  */
+  const M89 = "0089_normalizacao_do_nome_gerencial";
+  add(
+    M89,
+    "nome_gerencial_normalizado",
+    levantar(M89, /CREATE TABLE IF NOT EXISTS "nome_gerencial_normalizado" \(/),
+  );
+  for (const i of [
+    "nome_gerencial_normalizado_attribute_idx",
+    "nome_gerencial_normalizado_em_idx",
+  ]) {
+    add(M89, `índice ${i}`, levantar(M89, new RegExp(`INDEX IF NOT EXISTS "${i}"`)));
+  }
 
   return p;
 }

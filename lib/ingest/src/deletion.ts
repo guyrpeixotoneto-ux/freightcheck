@@ -27,6 +27,12 @@ import { isInsideImportStorage } from "./storage";
  * dele intacto. E fica, para sempre, o registro de que esta exclusão
  * aconteceu (`import_deletion`).
  *
+ * **E fica a curadoria, mesmo quando o dado dela sai.** Uma coluna que alguém
+ * descreveu, classificou ou confirmou não é apagada por ficar sem fato: o
+ * arquivo se reenvia em um minuto, a prosa que uma pessoa escreveu sobre a
+ * coluna não se reenvia nunca. Ela fica no dicionário, órfã de dado, esperando
+ * a próxima importação repor os valores — ver `CURADORIA_DO_ATRIBUTO`.
+ *
  * **O que ela se recusa a fazer.** Não apaga uma importação que outra corrigiu
  * depois: a mais nova sai primeiro, ou a história ficaria com a correção de um
  * dado que não existe mais. E não apaga um run que ainda está sendo lido — mas
@@ -44,8 +50,13 @@ export interface ImportDeletionCounts {
   changes: number;
   /** Equipamentos que ficariam sem nenhum fato. */
   entities: number;
-  /** Colunas do dicionário que ficariam sem nenhum fato. */
+  /** Colunas do dicionário que ficariam sem nenhum fato — e sem curadoria. */
   attributes: number;
+  /**
+   * Colunas que ficariam sem nenhum fato, mas que alguém curou — e que por
+   * isso **não** saem. Ver `CURADORIA_DO_ATRIBUTO`.
+   */
+  attributesKept: number;
   /** Versões de semântica que saem junto com essas colunas. */
   attributeSemantics: number;
   /** A evidência: células, linhas e abas capturadas do arquivo. */
@@ -197,10 +208,12 @@ const orphanEntities = (runId: string) => sql`
  * calculada. Enquanto qualquer um desses existir, a coluna fica: apagá-la
  * levaria junto a curadoria que alguém confirmou sobre um dado que continua no
  * sistema.
+ *
+ * Isto é a metade "sem dado" da pergunta. A outra metade é
+ * {@link CURADORIA_DO_ATRIBUTO}, e as duas juntas é que decidem.
  */
-const orphanAttributes = (runId: string) => sql`
-  SELECT a.id FROM attribute a
-   WHERE NOT EXISTS (
+const attributeWithoutData = (runId: string) => sql`
+         NOT EXISTS (
            SELECT 1 FROM fact f
             WHERE f.attribute_id = a.id
               AND f.snapshot_id NOT IN (${runSnapshots(runId)})
@@ -228,6 +241,88 @@ const orphanAttributes = (runId: string) => sql`
                    AND f.snapshot_id IN (${runSnapshots(runId)})
               )
          )`;
+
+/**
+ * O que uma pessoa escreveu sobre a coluna — e que só existe neste banco.
+ *
+ * "Ficou sem dado" e "não vale mais nada" não são a mesma frase, e tratá-las
+ * como se fossem é o defeito que isto corrige. Uma coluna curada é trabalho
+ * manual: alguém abriu a curadoria, deu um nome gerencial à coluna, escreveu o
+ * que ela é e a regra pela qual ela muda. Reenviar o arquivo devolve os fatos
+ * em segundos; não devolve uma linha dessa prosa.
+ *
+ * Por isso a exclusão passa a exigir as duas coisas para apagar uma coluna:
+ * que ela fique sem dado **e** que ninguém tenha escrito nada nela. Curada, ela
+ * fica no dicionário sem fato nenhum — órfã de dado, inteira de curadoria — e
+ * volta a receber valores quando o arquivo for importado de novo, porque a
+ * identidade dela é o `code`, que não mudou.
+ *
+ * ---------------------------------------------------------------------------
+ * O critério: o que a próxima importação **não** repõe
+ * ---------------------------------------------------------------------------
+ *
+ * A primeira versão disto listava todo campo que uma pessoa é capaz de
+ * preencher, e estava errada por um motivo que só o teste mostrou: metade deles
+ * a importação preenche sozinha. `promote` aplica `CONFIRMED_SEMANTICS` e a
+ * classe de custo padrão em toda promoção — num export de carreta são 24 das 63
+ * colunas que nascem CONFIRMED, com `confirmed_by`, `periodicity`, `unit` e
+ * `taxonomy_node_id` escritos por código, não por alguém naquele dia. Contar
+ * isso como curadoria tornaria intocável um terço do dicionário para proteger
+ * o que a promoção seguinte reescreveria igual — uma proteção que não protege
+ * nada e uma exclusão que deixa de funcionar.
+ *
+ * O critério, então, é mais estreito e mais honesto: **o que se perde para
+ * sempre se estas linhas saírem**. Ficam de fora `unit`, `periodicity`,
+ * `aggregation`, `is_monetary`, `taxonomy_node_id`, `cost_class`, `meaning_id`,
+ * `confirmed_by`, `semantics_status` e `semantics_rationale` — todos repostos
+ * por `aplicarConfirmacoesCanonicas`, `garantirClasseDeCustoPadrao` ou
+ * `runProposalPass`. Fica dentro a prosa, que nenhum código replica.
+ *
+ * `display_name` entra pela mesma régua, e com uma condição: só conta quando é
+ * **diferente** de `source_name`. A promoção criava a coluna com os dois iguais
+ * — um campo que nasce preenchido com a resposta errada —, e essa cópia não é
+ * curadoria de ninguém. O `promote` já não a escreve, mas o legado continua no
+ * banco enquanto `normalizarNomeGerencial` não for rodado (ver
+ * `lib/curation/src/nome-gerencial.ts`, e o porquê de isso ser uma rotina com
+ * preflight em vez de uma migration). O `<>` é o que faz esta guarda funcionar
+ * nos dois estados: com o legado limpo ou sem, ela separa "alguém batizou esta
+ * coluna" de "a importação copiou o nome de origem aqui".
+ */
+const CURADORIA_DO_ATRIBUTO = sql`(
+          a.definition IS NOT NULL
+       OR a.change_rule IS NOT NULL
+       OR a.economic_direction IS NOT NULL
+       OR a.economic_effect IS NOT NULL
+       OR (a.display_name IS NOT NULL AND a.display_name <> a.source_name)
+       OR EXISTS (
+            SELECT 1 FROM attribute_semantics s
+             WHERE s.attribute_id = a.id
+               AND (
+                     s.definition IS NOT NULL
+                  OR s.calculation_basis IS NOT NULL
+                  OR s.economic_direction IS NOT NULL
+                  OR s.economic_effect IS NOT NULL
+                  OR s.change_origin <> 'INITIAL'
+                   )
+          )
+       OR EXISTS (
+            SELECT 1 FROM attribute_alias al
+             WHERE al.attribute_id = a.id
+               AND al.confirmed_by IS NOT NULL
+          )
+     )`;
+
+/** As que saem: ficaram sem dado e ninguém escreveu nada nelas. */
+const orphanAttributes = (runId: string) => sql`
+  SELECT a.id FROM attribute a
+   WHERE ${attributeWithoutData(runId)}
+     AND NOT ${CURADORIA_DO_ATRIBUTO}`;
+
+/** As que ficam: sem dado também, mas com curadoria que a exclusão não desfaz. */
+const curatedOrphanAttributes = (runId: string) => sql`
+  SELECT a.id FROM attribute a
+   WHERE ${attributeWithoutData(runId)}
+     AND ${CURADORIA_DO_ATRIBUTO}`;
 
 async function count(db: Database, query: ReturnType<typeof sql>): Promise<number> {
   const { rows } = await db.execute<{ n: string }>(query);
@@ -373,6 +468,10 @@ export async function planImportDeletion(
     attributes: await count(
       db,
       sql`SELECT count(*) AS n FROM attribute WHERE id IN (${orphanAttributes(importRunId)})`,
+    ),
+    attributesKept: await count(
+      db,
+      sql`SELECT count(*) AS n FROM attribute WHERE id IN (${curatedOrphanAttributes(importRunId)})`,
     ),
     attributeSemantics: await count(
       db,
