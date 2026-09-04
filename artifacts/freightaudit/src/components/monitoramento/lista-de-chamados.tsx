@@ -68,6 +68,7 @@ export function ListaDeChamados({
   onPorPagina,
   tamanhos,
   procedencia,
+  linhasNaEspera,
 }: {
   chamados: ChamadoNaFila[];
   carregando: boolean;
@@ -87,6 +88,14 @@ export function ListaDeChamados({
   tamanhos: number[];
   /** O arquivo de onde a relação saiu, para nomear o CSV da seleção. */
   procedencia: string;
+  /**
+   * Quantas linhas a espera desenha — o tamanho da lista que está vindo.
+   *
+   * Ver `linhasDaPagina`: quem chama sabe o total antes da relação chegar, e é
+   * por isso que a espera pode ter a altura certa em vez de oito barras fixas
+   * seguidas de um salto de mil pixels.
+   */
+  linhasNaEspera: number;
 }) {
   const [aberta, setAberta] = useState<string | null>(null);
   const [colunas, setColunas] = useState<ColunaDaRelacao[]>(lerColunasDaRelacao);
@@ -134,12 +143,66 @@ export function ListaDeChamados({
   const todosMarcados =
     chamados.length > 0 && chamados.every((c) => selecionados.has(c.id));
 
+  /*
+    A espera é a tabela — a mesma moldura, o mesmo cabeçalho, o mesmo número de
+    linhas —, e não uma pilha de barras soltas de outro tamanho.
+
+    Eram oito barras de 44px onde vinham vinte e cinco linhas: a tela abria
+    curta e crescia de repente, e o que estava sob o cursor no fim da espera não
+    era o que estava sob ele um instante depois. Com a moldura desenhada desde o
+    primeiro quadro, a resposta troca cinza por texto e não move mais nada.
+
+    O cabeçalho aparece inteiro de propósito: quais colunas a relação tem é fato
+    da tabela, não do dado que está vindo, e mostrá-lo na espera é adiantar uma
+    verdade — inclusive a engrenagem, que continua escolhendo colunas enquanto a
+    lista não chega. A caixa de marcar não vem junto: não há página para marcar.
+  */
   if (carregando && chamados.length === 0) {
     return (
-      <div className="space-y-2">
-        {Array.from({ length: 8 }, (_, i) => (
-          <Skeleton key={i} className="h-11 rounded-lg" />
-        ))}
+      <div className="rounded-xl border bg-card">
+        <div className="overflow-x-auto">
+          <table className="w-full text-[13px]">
+            <CabecalhoDaRelacao
+              visiveis={visiveis}
+              colunas={colunas}
+              onAlternarColuna={alternarColuna}
+              caixa={null}
+            />
+            <tbody>
+              {Array.from({ length: linhasNaEspera }, (_, i) => (
+                <tr key={i} className="border-b">
+                  <td className="px-2 py-2.5" />
+                  <td className="px-2 py-2.5" />
+                  {/*
+                    `h-6` não é enfeite: é a altura do selo de status, que é o
+                    conteúdo mais alto de uma linha carregada. Com `h-5` a
+                    espera ficava 3,8px mais curta por linha — quase cem pixels
+                    numa página de vinte e cinco, que é o salto de volta.
+                  */}
+                  <td className="px-2.5 py-2.5">
+                    <Skeleton className="h-6 w-20" />
+                  </td>
+                  {visiveis.map((coluna) => (
+                    <td key={coluna.chave} className="px-2.5 py-2.5">
+                      <Skeleton className="h-6 w-full" />
+                    </td>
+                  ))}
+                  <td />
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/*
+          O rodapé tem a altura do rodapé e não diz número nenhum: o `Paginacao`
+          com total zero escreveria "Nenhum resultado" sobre uma lista que ainda
+          está vindo — a mesma mentira que os cartões evitam escrevendo "—".
+        */}
+        <div className="flex items-center justify-between gap-4 border-t px-4 py-3">
+          <Skeleton className="h-5 w-52" />
+          <Skeleton className="h-9 w-28" />
+        </div>
       </div>
     );
   }
@@ -158,42 +221,19 @@ export function ListaDeChamados({
 
       <div className="overflow-x-auto">
         <table className="w-full text-[13px]">
-          <thead>
-            <tr className="border-b text-[11px] uppercase tracking-wide text-muted-foreground">
-              <th className="w-9 px-2 py-3" />
-              <th className="w-10 px-2 py-3">
-                <Checkbox
-                  className={ESTILO_CAIXA}
-                  checked={todosMarcados}
-                  onCheckedChange={(marcado) => marcarPagina(marcado === true)}
-                  aria-label="selecionar os chamados desta página"
-                />
-              </th>
-              <th className="px-2.5 py-3 text-left font-semibold">Chamado</th>
-              {visiveis.map((coluna) => (
-                <th
-                  key={coluna.chave}
-                  className={cn(
-                    "px-2.5 py-3 text-left font-semibold whitespace-nowrap",
-                    /*
-                      O assunto é a coluna elástica: `w-full` faz o navegador
-                      dar a ela toda a sobra da linha e tirar dela primeiro
-                      quando falta espaço. Sem isso, a sobra se espalha por
-                      todas as colunas e o assunto — que é a única de tamanho
-                      imprevisível — fica com reticências numa tela larga.
-                    */
-                    coluna.chave === "assunto" && "w-full",
-                  )}
-                  title={coluna.dica}
-                >
-                  {coluna.rotulo}
-                </th>
-              ))}
-              <th className="w-10 px-2 py-3">
-                <SeletorDeColunas colunas={colunas} onAlternar={alternarColuna} />
-              </th>
-            </tr>
-          </thead>
+          <CabecalhoDaRelacao
+            visiveis={visiveis}
+            colunas={colunas}
+            onAlternarColuna={alternarColuna}
+            caixa={
+              <Checkbox
+                className={ESTILO_CAIXA}
+                checked={todosMarcados}
+                onCheckedChange={(marcado) => marcarPagina(marcado === true)}
+                aria-label="selecionar os chamados desta página"
+              />
+            }
+          />
           <tbody>
             {chamados.map((c) => (
               <Fragment key={c.id}>
@@ -283,6 +323,60 @@ export function ListaDeChamados({
         unidade="chamados"
       />
     </div>
+  );
+}
+
+/**
+ * O cabeçalho da relação — um só, para a tabela e para a espera dela.
+ *
+ * Existe como componente porque a espera desenha a mesma tabela sem os dados
+ * (ver o começo de `ListaDeChamados`): duas cópias deste `thead` seriam duas
+ * chances de a espera ter uma coluna a mais ou um padding a menos que a lista,
+ * e é justamente a diferença de altura entre as duas que este arranjo existe
+ * para não ter.
+ */
+function CabecalhoDaRelacao({
+  visiveis,
+  colunas,
+  onAlternarColuna,
+  caixa,
+}: {
+  visiveis: (typeof COLUNAS_DA_RELACAO)[number][];
+  colunas: ColunaDaRelacao[];
+  onAlternarColuna: (chave: ColunaDaRelacao) => void;
+  /** A caixa de marcar a página — `null` na espera, que não tem o que marcar. */
+  caixa: ReactNode;
+}) {
+  return (
+    <thead>
+      <tr className="border-b text-[11px] uppercase tracking-wide text-muted-foreground">
+        <th className="w-9 px-2 py-3" />
+        <th className="w-10 px-2 py-3">{caixa}</th>
+        <th className="px-2.5 py-3 text-left font-semibold">Chamado</th>
+        {visiveis.map((coluna) => (
+          <th
+            key={coluna.chave}
+            className={cn(
+              "px-2.5 py-3 text-left font-semibold whitespace-nowrap",
+              /*
+                O assunto é a coluna elástica: `w-full` faz o navegador dar a
+                ela toda a sobra da linha e tirar dela primeiro quando falta
+                espaço. Sem isso, a sobra se espalha por todas as colunas e o
+                assunto — que é a única de tamanho imprevisível — fica com
+                reticências numa tela larga.
+              */
+              coluna.chave === "assunto" && "w-full",
+            )}
+            title={coluna.dica}
+          >
+            {coluna.rotulo}
+          </th>
+        ))}
+        <th className="w-10 px-2 py-3">
+          <SeletorDeColunas colunas={colunas} onAlternar={onAlternarColuna} />
+        </th>
+      </tr>
+    </thead>
   );
 }
 

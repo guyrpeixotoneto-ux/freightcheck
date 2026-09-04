@@ -7,6 +7,7 @@ import {
   envioForaDaJanela,
   fraseDoDia,
   janelaDoEnvioFora,
+  linhasDaPagina,
   oscilouEVoltou,
   posicaoDaRegua,
   progressoDoDia,
@@ -117,6 +118,37 @@ describe("contagemDaAba — o número ao lado do filtro é o que a lista devolve
       RESUMO.movimentacoes,
     );
     expect(RESUMO.revisadas + RESUMO.pendentes).toBe(RESUMO.movimentacoes);
+  });
+});
+
+describe("linhasDaPagina — a espera tem a altura da lista que vem", () => {
+  it("com o total conhecido, reserva exatamente o que a página vai trazer", () => {
+    expect(linhasDaPagina({ total: 1051, pagina: 1, porPagina: 25 })).toBe(25);
+    expect(linhasDaPagina({ total: 1051, pagina: 1, porPagina: 100 })).toBe(100);
+    expect(linhasDaPagina({ total: 12, pagina: 1, porPagina: 25 })).toBe(12);
+  });
+
+  it("a última página é mais curta, e a espera dela também", () => {
+    // 1.051 chamados de 25 em 25: a página 43 traz uma linha só.
+    expect(linhasDaPagina({ total: 1051, pagina: 43, porPagina: 25 })).toBe(1);
+  });
+
+  it("uma página além do fim não reserva altura negativa", () => {
+    expect(linhasDaPagina({ total: 12, pagina: 9, porPagina: 25 })).toBe(0);
+  });
+
+  it("o dia sem nada é zero, e não uma página cheia de promessa", () => {
+    expect(linhasDaPagina({ total: 0, pagina: 1, porPagina: 25 })).toBe(0);
+  });
+
+  it("sem total nenhum, assume a página cheia", () => {
+    /*
+      É o único instante em que se chuta, e o chute é para o lado de a tela já
+      nascer do tamanho que vai ter: o defeito que esta função existe para tirar
+      é a tela curta que dá um salto quando a resposta chega.
+    */
+    expect(linhasDaPagina({ total: null, pagina: 1, porPagina: 25 })).toBe(25);
+    expect(linhasDaPagina({ total: null, pagina: 7, porPagina: 100 })).toBe(100);
   });
 });
 
