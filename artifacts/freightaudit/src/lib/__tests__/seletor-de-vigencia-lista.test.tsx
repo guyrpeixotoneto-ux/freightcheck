@@ -117,6 +117,19 @@ describe("a lista de vigências", () => {
     expect(within(linhas[2]).getByText("R$ 4.500").className).toContain("text-emerald-700");
   });
 
+  it("o empate não é verde — zero não é ganho", () => {
+    /*
+      Um ternário entre vermelho e verde entrega o zero ao verde, e a linha
+      passa a afirmar que a vigência subiu a remuneração quando ela fechou no
+      mesmo lugar. O empate fica no cinza do texto de apoio.
+    */
+    const menu = abrir([{ ...VIGENCIAS[0], impacto: 0 }], "MENSAL");
+    const zero = within(menu).getByText("R$ 0");
+
+    expect(zero.className).toContain("text-muted-foreground");
+    expect(zero.className).not.toContain("text-emerald-700");
+  });
+
   it("nomeia a periodicidade da coluna uma vez, no cabeçalho", () => {
     /*
       R$/mês e R$/ano não se comparam. Sem esta linha, `−R$ 82.140` numa lista

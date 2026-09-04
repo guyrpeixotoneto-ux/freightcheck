@@ -268,9 +268,21 @@ export function MenuDeVigencias({
               <span className="flex flex-col items-end shrink-0 leading-tight">
                 {opcao.impacto != null && (
                   <span
+                    /*
+                      Zero não é ganho. Um saldo em que ganhos e perdas se
+                      anularam é um empate, e pintá-lo de verde — que é o que
+                      um ternário entre vermelho e verde faz com o zero —
+                      afirmaria uma vigência que subiu a remuneração onde ela
+                      não mexeu no total. Fica no cinza do texto de apoio, como
+                      a contagem embaixo dele.
+                    */
                     className={cn(
                       "text-xs font-semibold tabular-nums",
-                      opcao.impacto < 0 ? "text-red-700" : "text-emerald-700",
+                      opcao.impacto === 0
+                        ? "text-muted-foreground"
+                        : opcao.impacto < 0
+                          ? "text-red-700"
+                          : "text-emerald-700",
                     )}
                   >
                     {formatBrlShort(opcao.impacto)}
