@@ -51,6 +51,7 @@
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "@vitejs/plugin-react": "catalog:",
+    "@workspace/acesso": "workspace:*",
     "@workspace/api-client-react": "workspace:*",
     "@xyflow/react": "^12.11.5",
     "class-variance-authority": "catalog:",

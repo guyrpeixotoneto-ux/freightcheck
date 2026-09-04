@@ -255,3 +255,116 @@ describe("os becos", () => {
     expect(res.status).toBe(400);
   });
 });
+
+/**
+ * A seção como decisão da casa — o outro lado do que a lateral esconde.
+ *
+ * Esconder é conveniência; recusar é a garantia. Enquanto a seção era um atalho
+ * para escrever N chaves de módulo, o portão continuava funcionando por
+ * acidente: as chaves gravadas eram as dos módulos, e ele já sabia lê-las. Com
+ * a seção virando decisão própria, o portão precisou aprender a pergunta nova —
+ * senão desligar uma seção tiraria as telas do menu e continuaria aceitando a
+ * escrita delas por chamada direta, que é uma decisão administrativa que vale
+ * só enquanto ninguém tenta.
+ */
+describe("a seção desligada fecha o portão, e não só o menu", () => {
+  /*
+    Os describes acima compartilham o mesmo banco e deixam decisões de pé — é o
+    desenho deste arquivo, e ele lê como uma história. Este bloco começa
+    declarando a linha de base de que precisa, em vez de herdá-la: sem isto, ele
+    passaria ou falharia conforme a ordem dos testes de cima.
+  */
+  beforeAll(async () => {
+    await definir("chefe@x.com", {
+      "/importacoes": true,
+      "#dados-governanca": true,
+    });
+  });
+
+  it("desligar a seção recusa a escrita dos módulos dela", async () => {
+    /* Importações vive em Dados & governança; nada foi decidido sobre ela. */
+    const antes = await fetch(`${base}/imports/qualquer`, {
+      method: "POST",
+      headers: como("chefe@x.com"),
+    });
+    expect(antes.status).toBe(200);
+
+    const res = await definir(
+      "chefe@x.com",
+      { "#dados-governanca": false },
+      "esta casa não governa dado aqui",
+    );
+    expect(res.status).toBe(200);
+
+    const depois = await fetch(`${base}/imports/qualquer`, {
+      method: "POST",
+      headers: como("chefe@x.com"),
+    });
+    expect(depois.status).toBe(403);
+  });
+
+  it("nem exceção de conta nem papel devolvem o módulo de uma seção desligada", async () => {
+    const res = await fetch(`${base}/users/${CONTAS["op@x.com"].id}/permissoes`, {
+      method: "PUT",
+      headers: como("chefe@x.com"),
+      body: JSON.stringify({ niveis: { "/importacoes": "EDITAR" } }),
+    });
+    expect(res.status).toBe(200);
+
+    const escrita = await fetch(`${base}/imports/qualquer`, {
+      method: "POST",
+      headers: como("op@x.com"),
+    });
+    expect(escrita.status).toBe(403);
+  });
+
+  it("ligar a seção de volta devolve a escrita — e o histórico guarda as duas decisões", async () => {
+    const res = await definir("chefe@x.com", { "#dados-governanca": true });
+    expect(res.status).toBe(200);
+
+    const escrita = await fetch(`${base}/imports/qualquer`, {
+      method: "POST",
+      headers: como("chefe@x.com"),
+    });
+    expect(escrita.status).toBe(200);
+
+    const corpo = (await res.json()) as {
+      historico: Array<{ chave: string; ligado: boolean; por: string }>;
+    };
+    const daSecao = corpo.historico.filter((h) => h.chave === "#dados-governanca");
+    expect(daSecao.map((h) => h.ligado)).toEqual([true, false]);
+    expect(daSecao.every((h) => h.por === "chefe@x.com")).toBe(true);
+  });
+
+  it("a seção da Administração não se desliga — é onde a tela mora", async () => {
+    /*
+      Proteger `/configuracoes` e deixar `#administracao` aberta seria proteger a
+      fechadura e não a porta: a seção desligada esconde o módulo sem nunca
+      tocar na chave dele.
+    */
+    const res = await definir("chefe@x.com", { "#administracao": false });
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toMatch(
+      /não pode ser desligado/i,
+    );
+  });
+
+  it("chave fora das três formas conhecidas é recusada na escrita", async () => {
+    /*
+      Uma chave sem `/`, `@` ou `#` não desliga nada — ninguém pergunta por ela
+      — e ficaria no banco parecendo uma decisão que vale, com autor e carimbo.
+    */
+    const res = await definir("chefe@x.com", { "visao-executiva": false });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toMatch(
+      /não é uma chave conhecida/i,
+    );
+  });
+
+  it("a seção é oferecida como protegida para a tela saber o que não pedir", async () => {
+    const res = await fetch(`${base}/modulos-universais`, { headers: como("op@x.com") });
+    const corpo = (await res.json()) as { protegidas: string[] };
+    expect(corpo.protegidas).toContain("/configuracoes");
+    expect(corpo.protegidas).toContain("#administracao");
+  });
+});

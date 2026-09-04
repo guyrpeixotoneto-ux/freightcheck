@@ -98,6 +98,7 @@ export function navGroupsFechamento(base: string, nome: string): NavGroup[] {
         o nome mudou junto, porque um menu que promete visão e entrega lista gasta
         o clique de quem procurava o total.
       */
+      id: "fechamento",
       titulo: nome,
       descricao: "Onde o período entra e o ano é lido",
       icon: CalendarDays,
@@ -137,6 +138,7 @@ export function navGroupsFechamento(base: string, nome: string): NavGroup[] {
         produto não faz. O rótulo continua "Cadastro" porque é o nome do que se
         vai fazer ali; a lista é a porta.
       */
+      id: "fechamento-remuneracao",
       titulo: "Remuneração",
       descricao: "O cadastro por unidade que a apuração consome",
       icon: ScrollText,
@@ -144,6 +146,7 @@ export function navGroupsFechamento(base: string, nome: string): NavGroup[] {
       itens: [{ href: `${base}/remuneracao`, label: "Cadastro", icon: FileSpreadsheet }],
     },
     {
+      id: "fechamento-apuracao",
       titulo: "Apuração",
       descricao: "A conta da competência e o que a impede de fechar",
       icon: Calculator,
@@ -177,6 +180,7 @@ export function navGroupsFechamento(base: string, nome: string): NavGroup[] {
         "Apurações": a tela de dentro é sempre a frota — ou a disponibilidade —
         *de um período*.
       */
+      id: "fechamento-frota",
       titulo: "Frota",
       descricao: "O que a operação tinha e quanto dela rodou",
       icon: Truck,
@@ -193,6 +197,7 @@ export function navGroupsFechamento(base: string, nome: string): NavGroup[] {
         encerrar é de quem responde pelo número. A mesma razão que separa
         Recuperação de Auditoria no outro ambiente.
       */
+      id: "fechamento-decisao",
       titulo: "Decisão",
       descricao: "Ajustar, aprovar e encerrar o período",
       icon: Stamp,
@@ -204,6 +209,7 @@ export function navGroupsFechamento(base: string, nome: string): NavGroup[] {
       ],
     },
     {
+      id: "fechamento-registro",
       titulo: "Registro",
       descricao: "O que já fechou, competência a competência",
       icon: History,

@@ -36,6 +36,7 @@ import type { NavGroup } from "./nav";
  * o resto está a casa.
  */
 export const GRUPO_ADMINISTRACAO: NavGroup = {
+  id: "administracao",
   titulo: "Administração",
   descricao: "Configurações, integrações e segurança da instalação",
   icon: Cog,

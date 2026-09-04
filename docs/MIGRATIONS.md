@@ -392,6 +392,21 @@ servidor aplica a fila em Production e o `bridge:up` devolve Development ao
 estado canônico. A justificativa inteira, objeto por objeto, está no cabeçalho
 daquele arquivo.
 
+**Duas tabelas descem cheias e voltam cheias.** `modulo_universal` e
+`modulo_universal_evento` — o que a instalação desligou para todo mundo, e o
+histórico de quem decidiu — saem de `public` como todas as outras, porque o
+contrato com o Publishing não admite `CREATE TABLE` na proposta; o que não sai é
+o **conteúdo**, que o `down` guarda no schema `drizzle` e o `up` devolve
+(`lib/db/src/bridge-guarda.ts`). Elas ficaram um tempo em `TABELAS_REMOVIDAS`,
+com a pré-condição de tabela vazia valendo sobre elas, e isso era um beco: o
+histórico é append-only e a interface nunca o apaga, então o primeiro módulo que
+alguém desligasse travava o `bridge:down` para sempre, e a única saída oferecida
+era esvaziar as duas à mão — quer dizer, destruir a decisão da casa e o registro
+de quem a tomou para conseguir publicar. Se o `up` não conseguir devolver o
+conteúdo, ele **aborta** e o marcador de bridge pendente continua de pé: o cofre
+fica intacto para a próxima tentativa, e `/healthz` continua dizendo
+`BRIDGE_PENDENTE`.
+
 **A operação tem um pressuposto, e ele vence.** O bridge encolhe o diff *porque
 Production está atrás*. Todo deploy que dá certo termina com a fila aplicada em
 Production — e a partir daí é Development quem fica atrás, se o `bridge:up` não

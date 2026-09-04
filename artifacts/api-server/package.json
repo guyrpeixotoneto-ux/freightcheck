@@ -13,6 +13,7 @@
     "conciliar-cadastro": "tsx ./src/cli/conciliar-cadastro.ts"
   },
   "dependencies": {
+    "@workspace/acesso": "workspace:*",
     "@workspace/advisory": "workspace:*",
     "@workspace/api-zod": "workspace:*",
     "@workspace/assistant": "workspace:*",

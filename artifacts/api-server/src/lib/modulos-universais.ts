@@ -39,7 +39,25 @@ import {
  * O resto é desligável, inclusive os ambientes de trabalho: uma instalação que
  * não tem Fechamento AS não deve carregar o Fechamento AS no seletor do topo.
  */
-export const CHAVES_PROTEGIDAS: readonly string[] = ["/configuracoes"];
+export const CHAVES_PROTEGIDAS: readonly string[] = [
+  "/configuracoes",
+  /*
+    E a **seção** onde ele mora, pela mesma razão e com mais força.
+
+    Desde que a seção virou decisão própria, desligar `#administracao` esconderia
+    `/configuracoes` sem nunca tocar na chave dele — a porta continuaria
+    destrancada e a casa ficaria do lado de fora assim mesmo. Proteger o módulo e
+    deixar a seção aberta seria proteger a fechadura e não a porta.
+  */
+  "#administracao",
+];
+
+/** As três formas de chave que esta camada aceita — módulo, ambiente e seção. */
+function formaValida(chave: string): boolean {
+  return (
+    chave.startsWith("/") || chave.startsWith("@") || chave.startsWith("#")
+  );
+}
 
 export interface ModuloUniversalDesligado {
   chave: string;
@@ -90,6 +108,15 @@ export async function chavesDesligadas(db: Database): Promise<Set<string>> {
 export function problemaDaChave(chave: string, ligado: boolean): string | null {
   if (typeof chave !== "string" || chave.trim() === "") {
     return "Chave de módulo vazia.";
+  }
+  /*
+    A forma é conferida na escrita, e não na leitura, porque é na escrita que
+    ela ainda pode ser recusada. Uma chave fora das três formas não desliga
+    nada — nenhum leitor pergunta por ela — e ficaria no banco parecendo uma
+    decisão que vale, com autor e carimbo, para sempre.
+  */
+  if (!formaValida(chave)) {
+    return `${chave} não é uma chave conhecida: módulo começa por "/", ambiente por "@" e seção por "#".`;
   }
   if (!ligado && CHAVES_PROTEGIDAS.includes(chave)) {
     return `${chave} não pode ser desligado: é onde mora esta tela, e sem ele ninguém desfaria a decisão.`;

@@ -148,6 +148,7 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
         administrasse acessos veria dois módulos onde há uma tela. Um atalho que
         fura o controle de acesso não é conveniência.
       */
+      id: "chamados-ambev",
       titulo: "Chamados Ambev",
       descricao:
         "O que mudou nos chamados, se bate com a planilha, e a justificativa de cada mudança",
@@ -232,6 +233,7 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
         quatro módulos que aprofundam um andar do Panorama cada um, e por fim as
         telas que descem ao valor (Acompanhamento, Composição e DRE).
       */
+      id: "visao-executiva",
       titulo: "Visão executiva",
       descricao: "O que mudou desde a última competência, e o retrato do conjunto",
       icon: Radar,
@@ -344,6 +346,7 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
         não abre nenhuma das sete telas de Auditoria, e um item de compra perdido
         no meio delas seria encontrado por quem já sabia que ele existia.
       */
+      id: "compras",
       titulo: "Compras",
       descricao: "Quanto a Ambev remunera o que se vai comprar",
       icon: ShoppingCart,
@@ -351,6 +354,7 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
       itens: [{ href: "/remunerado", label: "Remunerado", icon: Tags }],
     },
     {
+      id: "auditoria",
       titulo: "Auditoria",
       descricao: "O que mudou na vigência e quanto custou",
       icon: ScanSearch,
@@ -384,6 +388,7 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
         anuncia três telas e entrega três avisos de "ainda não" é ruído para
         quem trabalha aqui todo dia. Voltam quando forem telas de verdade.
       */
+      id: "processos",
       titulo: "Processos",
       descricao: "O mapa dos processos da empresa",
       icon: RefreshCcwDot,
@@ -409,6 +414,7 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
         mas o export que abastece este banco ainda não traz os valores de QLP —
         ver `pages/telas-em-preparo.ts`, onde cada um diz o que falta.
       */
+      id: "qlp",
       titulo: "QLP",
       descricao: "O quadro de gente que o modelo remunera",
       icon: UsersRound,
@@ -424,6 +430,7 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
     */
     secaoDaFrota(ambiente),
     {
+      id: "inteligencia",
       titulo: "Inteligência",
       descricao: "Perguntas ao assistente e o Book do Operador",
       icon: Sparkles,
@@ -435,6 +442,7 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
       ],
     },
     {
+      id: "dados-governanca",
       titulo: "Dados & governança",
       descricao: "De onde vêm os números e o que os sustenta",
       icon: Database,
@@ -525,6 +533,7 @@ function secaoDaFrota(ambiente: AmbienteDeAuditoria): NavGroup {
   const equipamentos = EQUIPAMENTOS_DO_AMBIENTE[ambiente];
 
   return {
+    id: "frota",
     titulo: "Frota",
     descricao: "Do comportamento da frota à placa",
     icon: equipamentos.includes("EMPILHADEIRA") ? Forklift : Truck,

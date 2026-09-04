@@ -1,16 +1,20 @@
 import { navGroupsAuditoria } from "@/components/layout/nav-auditoria";
 import { navGroupsFechamento } from "@/components/layout/nav-fechamento";
 import { GRUPO_ADMINISTRACAO } from "@/components/layout/nav-administracao";
+import { chaveDaSecao, nivelDoModulo } from "@workspace/acesso";
 import {
   AMBIENTES,
   BASES_DE_AUDITORIA,
   BASES_DE_FECHAMENTO,
-  BASE_PADRAO_DE_FECHAMENTO,
   ambienteDe,
   type Ambiente,
+  type AmbienteDeAuditoria,
+  type AmbienteDeFechamento,
   type DescricaoDeAmbiente,
 } from "@/lib/ambiente";
 import { useAuth, type Nivel } from "@/lib/auth";
+
+export { chaveDaSecao } from "@workspace/acesso";
 
 /**
  * Permissão por módulo, do lado da interface.
@@ -61,6 +65,14 @@ export interface Modulo {
   rotulo: string;
   /** A seção do menu onde ele vive, para agrupar a lista na tela. */
   grupo: string;
+  /**
+   * O id da seção — a chave da decisão da casa sobre a seção inteira.
+   *
+   * É o que permite a precedência funcionar longe do menu: `nivelDe` recebe um
+   * endereço e nada mais, e é daqui que ele descobre de que seção aquele
+   * endereço é. Ver `nivelDoModulo`, em `@workspace/acesso`.
+   */
+  secao: string;
   /** Em que lateral ele aparece — a mesma tela pode estar em mais de uma. */
   ambiente: "Auditoria" | "Fechamento" | "Administração";
 }
@@ -80,31 +92,72 @@ export function chaveDoModulo(href: string): string {
   return semTil === "" ? "/" : semTil;
 }
 
+/**
+ * O catálogo, montado a partir de **todas** as laterais que existem.
+ *
+ * Era `navGroupsAuditoria("auditoria")` — a Empurrada, e só ela —, e a conta
+ * disso era um buraco de governança: `/caminhao-360` e `/carroceria-360` só
+ * aparecem na Rota e no AS, `/empilhadeira-360` só no Apoio, e as três não
+ * existiam no catálogo. Estavam no menu de quem trabalha lá e não estavam em
+ * Módulos Universais nem em Permissões — telas que nenhuma das três camadas de
+ * acesso alcançava, e que continuavam no menu depois de a casa desligar a seção
+ * Frota inteira.
+ *
+ * Agora percorre as quatro auditorias e os quatro fechamentos. O `Map` por
+ * chave é o que impede a repetição virar duplicata: `/alteracoes` é a mesma tela
+ * nas quatro auditorias, e uma chave só é justamente a decisão de
+ * `chaveDoModulo` — cobrar permissão separada por ambiente seria pedir a mesma
+ * decisão sete vezes, e esquecer uma.
+ *
+ * **A primeira seção do Fechamento recebe um nome canônico**, e não o do
+ * ambiente. `navGroupsFechamento` batiza o primeiro grupo com o nome da
+ * operação — "Fechamento Rota", "Fechamento AS" — porque é isso que quem está
+ * lá dentro precisa ler. O catálogo não pode herdar essa variação: são quatro
+ * rótulos para uma seção só, e o `id` dela (`fechamento`) já diz isso. O rótulo
+ * canônico é o que a tela de Módulos Universais mostra.
+ */
 function reunir(): Modulo[] {
   const modulos = new Map<string, Modulo>();
 
   const adicionar = (
     ambiente: Modulo["ambiente"],
     grupo: string,
+    secao: string,
     href: string,
     rotulo: string,
   ) => {
     const chave = chaveDoModulo(href);
-    if (!modulos.has(chave)) modulos.set(chave, { chave, rotulo, grupo, ambiente });
+    if (!modulos.has(chave)) {
+      modulos.set(chave, { chave, rotulo, grupo, secao, ambiente });
+    }
   };
 
-  for (const grupo of navGroupsAuditoria("auditoria")) {
-    for (const item of grupo.itens) {
-      adicionar("Auditoria", grupo.titulo, item.href, item.label);
+  const auditorias = Object.keys(BASES_DE_AUDITORIA) as AmbienteDeAuditoria[];
+  for (const auditoria of auditorias) {
+    for (const grupo of navGroupsAuditoria(auditoria)) {
+      for (const item of grupo.itens) {
+        adicionar("Auditoria", grupo.titulo, grupo.id, item.href, item.label);
+      }
     }
   }
-  for (const grupo of navGroupsFechamento(BASE_PADRAO_DE_FECHAMENTO, "Fechamento")) {
-    for (const item of grupo.itens) {
-      adicionar("Fechamento", grupo.titulo, item.href, item.label);
+
+  const fechamentos = Object.keys(BASES_DE_FECHAMENTO) as AmbienteDeFechamento[];
+  for (const fechamento of fechamentos) {
+    for (const grupo of navGroupsFechamento(BASES_DE_FECHAMENTO[fechamento], "Fechamento")) {
+      for (const item of grupo.itens) {
+        adicionar("Fechamento", grupo.titulo, grupo.id, item.href, item.label);
+      }
     }
   }
+
   for (const item of GRUPO_ADMINISTRACAO.itens) {
-    adicionar("Administração", GRUPO_ADMINISTRACAO.titulo, item.href, item.label);
+    adicionar(
+      "Administração",
+      GRUPO_ADMINISTRACAO.titulo,
+      GRUPO_ADMINISTRACAO.id,
+      item.href,
+      item.label,
+    );
   }
 
   return [...modulos.values()];
@@ -118,30 +171,94 @@ function reunir(): Modulo[] {
  */
 export const MODULOS: Modulo[] = reunir();
 
+/**
+ * A seção de cada chave de módulo — o índice que a precedência consulta.
+ *
+ * Montado uma vez, junto com `MODULOS`: `nivelDe` roda a cada item de menu, a
+ * cada render, e uma varredura linear sobre o catálogo ali dentro seria uma
+ * busca por chave escrita como laço.
+ */
+const SECAO_DA_CHAVE: ReadonlyMap<string, string> = new Map(
+  MODULOS.map((m) => [m.chave, m.secao]),
+);
+
+/**
+ * A seção de um endereço, ou `null` quando ele não pertence a seção nenhuma.
+ *
+ * `null` é resposta legítima e não é o mesmo que "seção ligada": é a afirmação
+ * de que aquela chave não tem essa dimensão — login, 404, e qualquer endereço
+ * que não seja item de menu.
+ */
+export function secaoDoModulo(href: string): string | null {
+  return SECAO_DA_CHAVE.get(chaveDoModulo(href)) ?? null;
+}
+
 /** Os módulos agrupados como o menu os agrupa, na ordem do menu. */
 export function modulosPorGrupo(): Array<{
   ambiente: Modulo["ambiente"];
   grupo: string;
+  /** O id da seção — a chave que o botão da seção liga e desliga. */
+  secao: string;
   itens: Modulo[];
 }> {
-  const secoes: Array<{ ambiente: Modulo["ambiente"]; grupo: string; itens: Modulo[] }> = [];
+  /*
+    Agrupa por seção, e **não** por trecho contíguo do catálogo.
+
+    Era por trecho, e funcionava enquanto o catálogo vinha de uma auditoria só:
+    os módulos de uma seção nasciam vizinhos porque o menu os escrevia vizinhos.
+    Com as oito laterais isso deixou de valer — `/caminhao-360` e
+    `/empilhadeira-360` entram no catálogo depois da Administração, quando a
+    varredura chega na Rota e no Apoio, e a Frota passou a aparecer em dois
+    trechos separados. O efeito era uma seção partida na tela, duas linhas com o
+    mesmo título e duas chaves de React iguais.
+
+    A seção é um conjunto, não um intervalo. A ordem de aparição continua sendo
+    a do menu — quem chega primeiro abre a seção, e os retardatários caem dentro
+    dela.
+  */
+  const porChave = new Map<
+    string,
+    { ambiente: Modulo["ambiente"]; grupo: string; secao: string; itens: Modulo[] }
+  >();
   for (const modulo of MODULOS) {
-    const atual = secoes.at(-1);
-    if (atual && atual.grupo === modulo.grupo && atual.ambiente === modulo.ambiente) {
+    const chave = `${modulo.ambiente}|${modulo.secao}`;
+    const atual = porChave.get(chave);
+    if (atual) {
       atual.itens.push(modulo);
     } else {
-      secoes.push({ ambiente: modulo.ambiente, grupo: modulo.grupo, itens: [modulo] });
+      porChave.set(chave, {
+        ambiente: modulo.ambiente,
+        grupo: modulo.grupo,
+        secao: modulo.secao,
+        itens: [modulo],
+      });
     }
   }
-  return secoes;
+  return [...porChave.values()];
 }
 
-/** O nível de um módulo num mapa de permissões, já com o padrão aplicado. */
+/**
+ * O nível de um módulo num mapa de permissões, com a seção dele já pesada.
+ *
+ * A regra é a de `@workspace/acesso`, e ela está lá porque o portão de escrita
+ * do servidor precisa ler a mesma: **seção desligada vence módulo ligado**.
+ * Aqui a seção sai do catálogo — o chamador passa um `href`, e não precisa saber
+ * de que seção ele é.
+ */
 export function nivelDe(
   permissoes: Record<string, Nivel>,
   href: string,
 ): Nivel {
-  return permissoes[chaveDoModulo(href)] ?? NIVEL_PADRAO;
+  const chave = chaveDoModulo(href);
+  return nivelDoModulo(permissoes, chave, SECAO_DA_CHAVE.get(chave) ?? null);
+}
+
+/** O nível de uma seção do menu — desligada é `SEM_ACESSO`, e só há esses dois. */
+export function nivelDaSecao(
+  permissoes: Record<string, Nivel>,
+  secao: string,
+): Nivel {
+  return permissoes[chaveDaSecao(secao)] ?? NIVEL_PADRAO;
 }
 
 /**
@@ -173,11 +290,24 @@ export function moduloDaLocalizacao(location: string): Modulo | null {
  * Some o item; some também a seção que ficou vazia, porque um título de seção
  * sem nada embaixo é a lista dizendo "havia algo aqui" — que é justamente o que
  * uma restrição não deveria anunciar.
+ *
+ * **A seção desligada some inteira, e sem consultar item nenhum.** É a diferença
+ * que faz o defeito não voltar: a seção sumia antes por *consequência* — todos
+ * os itens dela caíam, e o grupo ficava vazio —, e voltava inteira no dia em que
+ * um módulo novo entrava nela, porque o módulo novo não tinha decisão nenhuma e
+ * o padrão concede. Agora a decisão é sobre a seção, e um item novo dentro dela
+ * nasce invisível sem ninguém precisar se lembrar de nada.
+ *
+ * A seção vem do `id` do grupo, e não do catálogo: aqui o grupo está na mão, e
+ * o `id` é o que ele carrega justamente para esta pergunta. É também o que
+ * permite a lateral do Fechamento — cujo primeiro grupo muda de título entre os
+ * quatro ambientes — responder pela mesma chave nos quatro.
  */
 export function filtrarGrupos<
-  G extends { itens: Array<{ href: string }> },
+  G extends { id: string; itens: Array<{ href: string }> },
 >(grupos: G[], permissoes: Record<string, Nivel>): G[] {
   return grupos
+    .filter((grupo) => nivelDaSecao(permissoes, grupo.id) !== "SEM_ACESSO")
     .map((grupo) => ({
       ...grupo,
       itens: grupo.itens.filter((item) => nivelDe(permissoes, item.href) !== "SEM_ACESSO"),
