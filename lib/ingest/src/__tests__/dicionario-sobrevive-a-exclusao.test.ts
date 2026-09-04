@@ -27,7 +27,7 @@ import { deleteImportRun, planImportDeletion } from "../deletion";
  * Daí a regra atual, que não infere nada: **nenhum atributo é apagado porque
  * ficou sem fatos.** Se um dia existir limpeza de coluna órfã, ela será uma
  * operação separada e explícita — ver a nota no fim deste arquivo e o docstring
- * de `attributesLeftWithoutData`.
+ * de `attributeIdsLeftWithoutData`.
  *
  * Os seis contratos, um por `it`:
  *
