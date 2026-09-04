@@ -19,19 +19,19 @@ import { isInsideImportStorage } from "./storage";
  * deixaria os fatos entrando em toda soma e o arquivo continuando duplicata
  * de si mesmo — seria a pior das duas coisas, porque pareceria resolvida.
  *
- * **O que sai, e o que fica.** Sai o que só existe por causa desta
- * importação: as células RAW, os fatos, as vigências, as comparações que
- * envolviam essas vigências, e os equipamentos e colunas que ficariam sem
- * nenhum dado. Fica tudo que outra importação também sustenta — um
- * equipamento que aparece em outras vigências continua lá, com o histórico
- * dele intacto. E fica, para sempre, o registro de que esta exclusão
+ * **O que sai, e o que fica.** Sai o dado: as células RAW, os fatos, as
+ * vigências, as comparações que envolviam essas vigências, e os equipamentos
+ * que ficariam sem nenhum fato. Fica tudo que outra importação também
+ * sustenta — um equipamento que aparece em outras vigências continua lá, com o
+ * histórico dele intacto. E fica, para sempre, o registro de que esta exclusão
  * aconteceu (`import_deletion`).
  *
- * **E fica a curadoria, mesmo quando o dado dela sai.** Uma coluna que alguém
- * descreveu, classificou ou confirmou não é apagada por ficar sem fato: o
- * arquivo se reenvia em um minuto, a prosa que uma pessoa escreveu sobre a
- * coluna não se reenvia nunca. Ela fica no dicionário, órfã de dado, esperando
- * a próxima importação repor os valores — ver `CURADORIA_DO_ATRIBUTO`.
+ * **O dicionário não sai — nenhuma coluna sai.** Excluir apaga dado, e uma
+ * coluna do dicionário não é dado: é a identidade pela qual o dado volta, e o
+ * lugar onde mora tudo o que uma pessoa afirmou sobre ele. As colunas que
+ * ficam sem nenhum valor ficam no dicionário assim mesmo, órfãs de dado e
+ * inteiras de curadoria, e voltam a receber números na próxima importação que
+ * as trouxer — ver {@link attributesLeftWithoutData}.
  *
  * **O que ela se recusa a fazer.** Não apaga uma importação que outra corrigiu
  * depois: a mais nova sai primeiro, ou a história ficaria com a correção de um
@@ -50,15 +50,13 @@ export interface ImportDeletionCounts {
   changes: number;
   /** Equipamentos que ficariam sem nenhum fato. */
   entities: number;
-  /** Colunas do dicionário que ficariam sem nenhum fato — e sem curadoria. */
-  attributes: number;
   /**
-   * Colunas que ficariam sem nenhum fato, mas que alguém curou — e que por
-   * isso **não** saem. Ver `CURADORIA_DO_ATRIBUTO`.
+   * Colunas que ficam sem nenhum fato — e que, mesmo assim, **não** saem.
+   *
+   * Está aqui, entre contagens do que sai, porque é consequência da exclusão e
+   * quem exclui precisa vê-la. Ver {@link attributesLeftWithoutData}.
    */
   attributesKept: number;
-  /** Versões de semântica que saem junto com essas colunas. */
-  attributeSemantics: number;
   /** A evidência: células, linhas e abas capturadas do arquivo. */
   rawCells: number;
   rawRows: number;
@@ -201,19 +199,81 @@ const orphanEntities = (runId: string) => sql`
          )`;
 
 /**
- * Colunas do dicionário que ficariam sem nenhum dado — e sem nenhuma amarra.
+ * Colunas que ficam sem nenhum dado — e que ficam mesmo assim.
  *
- * Além dos fatos, a condição olha para o que mais aponta para a coluna: o
- * layout de outra vigência, o mapeamento de outra importação, uma alteração já
- * calculada. Enquanto qualquer um desses existir, a coluna fica: apagá-la
- * levaria junto a curadoria que alguém confirmou sobre um dado que continua no
- * sistema.
+ * Excluir apaga dado. Uma coluna do dicionário não é dado: é a identidade pela
+ * qual o dado volta — o `code`, que a próxima importação reencontra — e o
+ * lugar onde mora tudo o que uma pessoa afirmou sobre ele. Reenviar o arquivo
+ * repõe os fatos em segundos; não repõe uma linha do que alguém escreveu,
+ * confirmou ou classificou.
  *
- * Isto é a metade "sem dado" da pergunta. A outra metade é
- * {@link CURADORIA_DO_ATRIBUTO}, e as duas juntas é que decidem.
+ * ---------------------------------------------------------------------------
+ * Por que a exclusão parou de decidir o que é curadoria
+ * ---------------------------------------------------------------------------
+ *
+ * A versão anterior tentava separar as duas coisas: apagava a coluna que
+ * ficasse sem dado **e** sem sinal de curadoria, e o sinal era uma lista de
+ * campos em prosa — `definition`, `change_rule`, a direção econômica, o nome
+ * gerencial quando diferente do de origem. A lista errava por baixo, e errava
+ * calada.
+ *
+ * O ato mais comum da Curadoria não escreve prosa nenhuma. Confirmar uma
+ * coluna pela tela — escolher o significado, a unidade, a periodicidade, a
+ * categoria — grava `meaning_id`, `taxonomy_node_id`, `semantics_status` e
+ * `confirmed_by` (ver `gravarSemanticaConfirmada`), e nenhum desses estava na
+ * lista. Uma coluna confirmada assim era apagada como se ninguém a tivesse
+ * tocado; os `curation_event` daquele ato — que não têm chave estrangeira para
+ * `attribute` — sobreviviam apontando para um id que já não existia, e a
+ * auditoria passava a afirmar que alguém confirmou uma coluna que o banco não
+ * tem.
+ *
+ * O argumento de que esses campos "voltam sozinhos na próxima importação" vale
+ * para as entradas do registro canônico (`semantica-confirmada.ts`) e só para
+ * elas. Fora dali, o que uma pessoa confirmou na tela não volta.
+ *
+ * Por isso a regra deixou de ter exceção — e, com ela, deixou de precisar de
+ * heurística: **nenhuma coluna sai numa exclusão.** Nem a curada, nem a que
+ * parece não curada. O que fica sem dado fica sem dado, à espera do arquivo.
+ *
+ * ---------------------------------------------------------------------------
+ * O preço, dito na cara
+ * ---------------------------------------------------------------------------
+ *
+ * Um arquivo de teste, ou um arquivo lido sob o tipo errado, deixa no
+ * dicionário as colunas que inventou — sem dado, e sem ninguém para curá-las.
+ * É a conta certa a pagar (uma coluna a mais na lista é ruído; uma confirmação
+ * apagada em silêncio é conhecimento perdido), mas é uma conta, e é por isso
+ * que esta consulta continua existindo: a prévia mostra quantas colunas ficam
+ * assim antes de alguém confirmar a exclusão.
+ *
+ * **E é por isso que a limpeza dessas colunas, se um dia existir, será uma
+ * operação separada e explícita.** Uma varredura de coluna órfã é uma decisão
+ * de quem cuida do dicionário — com a sua própria tela, a sua própria lista do
+ * que sairia e o seu próprio registro de quem mandou. O que ela nunca pode
+ * voltar a ser é efeito colateral de apagar dados: foi exatamente assim que o
+ * conhecimento se perdia, e nenhuma heurística nova sobre "isto parece
+ * abandonado" tem lugar dentro desta função.
+ *
+ * ---------------------------------------------------------------------------
+ * E o equipamento, que continua saindo
+ * ---------------------------------------------------------------------------
+ *
+ * A assimetria é o ponto. `entity` é identidade e nada mais — placa, chassi,
+ * tipo —, e a importação seguinte a reconstrói inteira. `attribute` carrega o
+ * que só existe neste banco.
+ *
+ * ---------------------------------------------------------------------------
+ * O recorte da conta
+ * ---------------------------------------------------------------------------
+ *
+ * Conta-se a coluna que fica sem **nenhuma** amarra: sem fato de outra
+ * vigência, sem layout de outra vigência, sem mapeamento de outra importação,
+ * sem alteração já calculada. E só a que esta importação é responsável por ter
+ * trazido — uma coluna que já estava vazia antes não é notícia da exclusão.
  */
-const attributeWithoutData = (runId: string) => sql`
-         NOT EXISTS (
+const attributesLeftWithoutData = (runId: string) => sql`
+  SELECT a.id FROM attribute a
+   WHERE NOT EXISTS (
            SELECT 1 FROM fact f
             WHERE f.attribute_id = a.id
               AND f.snapshot_id NOT IN (${runSnapshots(runId)})
@@ -241,88 +301,6 @@ const attributeWithoutData = (runId: string) => sql`
                    AND f.snapshot_id IN (${runSnapshots(runId)})
               )
          )`;
-
-/**
- * O que uma pessoa escreveu sobre a coluna — e que só existe neste banco.
- *
- * "Ficou sem dado" e "não vale mais nada" não são a mesma frase, e tratá-las
- * como se fossem é o defeito que isto corrige. Uma coluna curada é trabalho
- * manual: alguém abriu a curadoria, deu um nome gerencial à coluna, escreveu o
- * que ela é e a regra pela qual ela muda. Reenviar o arquivo devolve os fatos
- * em segundos; não devolve uma linha dessa prosa.
- *
- * Por isso a exclusão passa a exigir as duas coisas para apagar uma coluna:
- * que ela fique sem dado **e** que ninguém tenha escrito nada nela. Curada, ela
- * fica no dicionário sem fato nenhum — órfã de dado, inteira de curadoria — e
- * volta a receber valores quando o arquivo for importado de novo, porque a
- * identidade dela é o `code`, que não mudou.
- *
- * ---------------------------------------------------------------------------
- * O critério: o que a próxima importação **não** repõe
- * ---------------------------------------------------------------------------
- *
- * A primeira versão disto listava todo campo que uma pessoa é capaz de
- * preencher, e estava errada por um motivo que só o teste mostrou: metade deles
- * a importação preenche sozinha. `promote` aplica `CONFIRMED_SEMANTICS` e a
- * classe de custo padrão em toda promoção — num export de carreta são 24 das 63
- * colunas que nascem CONFIRMED, com `confirmed_by`, `periodicity`, `unit` e
- * `taxonomy_node_id` escritos por código, não por alguém naquele dia. Contar
- * isso como curadoria tornaria intocável um terço do dicionário para proteger
- * o que a promoção seguinte reescreveria igual — uma proteção que não protege
- * nada e uma exclusão que deixa de funcionar.
- *
- * O critério, então, é mais estreito e mais honesto: **o que se perde para
- * sempre se estas linhas saírem**. Ficam de fora `unit`, `periodicity`,
- * `aggregation`, `is_monetary`, `taxonomy_node_id`, `cost_class`, `meaning_id`,
- * `confirmed_by`, `semantics_status` e `semantics_rationale` — todos repostos
- * por `aplicarConfirmacoesCanonicas`, `garantirClasseDeCustoPadrao` ou
- * `runProposalPass`. Fica dentro a prosa, que nenhum código replica.
- *
- * `display_name` entra pela mesma régua, e com uma condição: só conta quando é
- * **diferente** de `source_name`. A promoção criava a coluna com os dois iguais
- * — um campo que nasce preenchido com a resposta errada —, e essa cópia não é
- * curadoria de ninguém. O `promote` já não a escreve, mas o legado continua no
- * banco enquanto `normalizarNomeGerencial` não for rodado (ver
- * `lib/curation/src/nome-gerencial.ts`, e o porquê de isso ser uma rotina com
- * preflight em vez de uma migration). O `<>` é o que faz esta guarda funcionar
- * nos dois estados: com o legado limpo ou sem, ela separa "alguém batizou esta
- * coluna" de "a importação copiou o nome de origem aqui".
- */
-const CURADORIA_DO_ATRIBUTO = sql`(
-          a.definition IS NOT NULL
-       OR a.change_rule IS NOT NULL
-       OR a.economic_direction IS NOT NULL
-       OR a.economic_effect IS NOT NULL
-       OR (a.display_name IS NOT NULL AND a.display_name <> a.source_name)
-       OR EXISTS (
-            SELECT 1 FROM attribute_semantics s
-             WHERE s.attribute_id = a.id
-               AND (
-                     s.definition IS NOT NULL
-                  OR s.calculation_basis IS NOT NULL
-                  OR s.economic_direction IS NOT NULL
-                  OR s.economic_effect IS NOT NULL
-                  OR s.change_origin <> 'INITIAL'
-                   )
-          )
-       OR EXISTS (
-            SELECT 1 FROM attribute_alias al
-             WHERE al.attribute_id = a.id
-               AND al.confirmed_by IS NOT NULL
-          )
-     )`;
-
-/** As que saem: ficaram sem dado e ninguém escreveu nada nelas. */
-const orphanAttributes = (runId: string) => sql`
-  SELECT a.id FROM attribute a
-   WHERE ${attributeWithoutData(runId)}
-     AND NOT ${CURADORIA_DO_ATRIBUTO}`;
-
-/** As que ficam: sem dado também, mas com curadoria que a exclusão não desfaz. */
-const curatedOrphanAttributes = (runId: string) => sql`
-  SELECT a.id FROM attribute a
-   WHERE ${attributeWithoutData(runId)}
-     AND ${CURADORIA_DO_ATRIBUTO}`;
 
 async function count(db: Database, query: ReturnType<typeof sql>): Promise<number> {
   const { rows } = await db.execute<{ n: string }>(query);
@@ -465,18 +443,9 @@ export async function planImportDeletion(
       db,
       sql`SELECT count(*) AS n FROM entity WHERE id IN (${orphanEntities(importRunId)})`,
     ),
-    attributes: await count(
-      db,
-      sql`SELECT count(*) AS n FROM attribute WHERE id IN (${orphanAttributes(importRunId)})`,
-    ),
     attributesKept: await count(
       db,
-      sql`SELECT count(*) AS n FROM attribute WHERE id IN (${curatedOrphanAttributes(importRunId)})`,
-    ),
-    attributeSemantics: await count(
-      db,
-      sql`SELECT count(*) AS n FROM attribute_semantics
-           WHERE attribute_id IN (${orphanAttributes(importRunId)})`,
+      sql`SELECT count(*) AS n FROM attribute WHERE id IN (${attributesLeftWithoutData(importRunId)})`,
     ),
     rawCells: await count(
       db,
@@ -569,14 +538,14 @@ export async function deleteImportRun(
     // Quem fica sem nada é decidido com o banco ainda inteiro, e pelas mesmas
     // condições da prévia: depois dos DELETEs abaixo já não há como distinguir
     // "ficou sem fato por causa desta importação" de "nunca teve".
+    //
+    // Só equipamento. A coluna que ficar sem dado fica no dicionário — não há
+    // lista de colunas a apagar porque não se apaga coluna nenhuma; ver
+    // `attributesLeftWithoutData`.
     const { rows: entidades } = await tx.execute<{ id: string }>(
       orphanEntities(importRunId),
     );
-    const { rows: colunas } = await tx.execute<{ id: string }>(
-      orphanAttributes(importRunId),
-    );
     const entityIds = entidades.map((e) => e.id);
-    const attributeIds = colunas.map((a) => a.id);
 
     // As revisões que esta importação tinha superado, anotadas enquanto o
     // ponteiro `supersedes_snapshot_id` ainda existe: quem sabe qual vigência
@@ -632,7 +601,9 @@ export async function deleteImportRun(
       sql`DELETE FROM column_mapping WHERE import_run_id = ${importRunId}::uuid`,
     );
 
-    // --- o que ficou sem nenhum dado --------------------------------------
+    // --- o equipamento que ficou sem nenhum dado --------------------------
+    // A coluna que fica sem dado não entra aqui: ela fica no dicionário, com o
+    // que houver de curadoria e com o `code` que a fará reencontrar os valores.
     if (entityIds.length > 0) {
       await tx.execute(sql`
         DELETE FROM entity_identifier
@@ -640,12 +611,6 @@ export async function deleteImportRun(
       await tx.execute(sql`
         DELETE FROM entity
          WHERE id IN (${sql.join(entityIds.map((id) => sql`${id}::uuid`), sql`, `)})`);
-    }
-    if (attributeIds.length > 0) {
-      const lista = sql.join(attributeIds.map((id) => sql`${id}::uuid`), sql`, `);
-      await tx.execute(sql`DELETE FROM attribute_alias WHERE attribute_id IN (${lista})`);
-      await tx.execute(sql`DELETE FROM attribute_semantics WHERE attribute_id IN (${lista})`);
-      await tx.execute(sql`DELETE FROM attribute WHERE id IN (${lista})`);
     }
 
     /*

@@ -70,7 +70,9 @@ describe("a prévia diz o que sairia, antes de sair", () => {
     expect(plano!.removes.facts).toBeGreaterThan(0);
     expect(plano!.removes.rawCells).toBeGreaterThan(0);
     expect(plano!.removes.entities).toBeGreaterThan(0);
-    expect(plano!.removes.attributes).toBeGreaterThan(0);
+    // Colunas que ficam sem dado — contadas para aparecer na prévia, e
+    // nenhuma delas apagada. Ver `attributesLeftWithoutData`.
+    expect(plano!.removes.attributesKept).toBeGreaterThan(0);
     // O arquivo é só desta importação, então ele sai junto — é o que devolve
     // ao operador o direito de reenviá-lo.
     expect(plano!.removes.sourceFile).toBe(1);
@@ -116,13 +118,19 @@ describe("excluir apaga de verdade", () => {
       "import_run",
       "source_file",
       "entity",
-      "attribute",
     ]) {
       expect([tabela, await contar(`SELECT count(*) AS n FROM ${tabela}`)]).toEqual([
         tabela,
         0,
       ]);
     }
+
+    // O dicionário fica. É a fronteira do que "excluir" quer dizer: sai o
+    // dado, e a coluna — que é a identidade pela qual o dado volta, e onde
+    // mora o que uma pessoa afirmou sobre ele — não sai nunca.
+    const colunas = await contar(`SELECT count(*) AS n FROM attribute`);
+    expect(colunas).toBe(plano.removes.attributesKept);
+    expect(colunas).toBeGreaterThan(0);
 
     const [registro] = await listImportDeletions(ctx.db);
     expect(registro.importRunId).toBe(runId);
@@ -272,154 +280,10 @@ describe("a ordem em que as coisas podem ser desfeitas", () => {
   });
 });
 
-/**
- * A coluna curada não é do arquivo — é de quem a descreveu.
- *
- * O critério antigo era um só: "ficou sem nenhum fato". Ele é a resposta certa
- * para uma coluna que a importação criou e ninguém nunca olhou, e a errada para
- * a coluna que alguém abriu a curadoria para batizar e explicar. As duas ficam
- * sem fato pelo mesmo motivo — o arquivo saiu —, e só uma delas se recupera
- * reenviando o arquivo: os fatos voltam em segundos, a frase que uma pessoa
- * escreveu sobre o que a coluna significa não volta nunca.
- *
- * O teste prova as duas metades, porque proteger tudo seria tão errado quanto
- * proteger nada — e a terceira prova é a que fixa onde fica a linha: as
- * confirmações canônicas, que `promote` reaplica sozinho, **não** contam como
- * curadoria, e o teste mostra por quê ao vê-las voltarem inteiras na
- * importação seguinte.
- */
-describe("a curadoria sobrevive à exclusão do arquivo que a trouxe", () => {
-  let runId: string;
-  let descritoId: string;
-  let batizadoId: string;
-  let confirmadosAntes: number;
-
-  beforeAll(async () => {
-    runId = await importar(modelExportPaths().carreta);
-
-    // Duas colunas, curadas de dois jeitos diferentes, porque são dois sinais
-    // diferentes e cada um tem de bastar sozinho. Escritas direto na projeção
-    // de propósito: é o mesmo UPDATE que `saveMeaning` faz, sem arrastar
-    // `@workspace/curation` para dentro de um teste de ingestão.
-    const descrito = await ctx.pool.query<{ id: string }>(
-      `UPDATE attribute
-          SET definition  = 'O seguro do casco, por carreta e por mês.',
-              change_rule = 'Reajusta na renovação anual da apólice.'
-        WHERE id = (SELECT id FROM attribute ORDER BY code LIMIT 1)
-        RETURNING id`,
-    );
-    descritoId = descrito.rows[0].id;
-
-    // Só o nome gerencial, e nada mais: batizar uma coluna já é trabalho que
-    // nenhuma reimportação repõe.
-    const batizado = await ctx.pool.query<{ id: string }>(
-      `UPDATE attribute
-          SET display_name = 'Prazo do FINAME, em meses'
-        WHERE id = (SELECT id FROM attribute ORDER BY code OFFSET 1 LIMIT 1)
-        RETURNING id`,
-    );
-    batizadoId = batizado.rows[0].id;
-
-    confirmadosAntes = await contar(
-      `SELECT count(*) AS n FROM attribute WHERE semantics_status = 'CONFIRMED'`,
-    );
-    // A importação carimba sozinha um bom pedaço do dicionário — é esse número
-    // que não pode virar "curadoria", ou a exclusão pararia de funcionar.
-    expect(confirmadosAntes).toBeGreaterThan(0);
-  }, 600_000);
-
-  it("a prévia separa a coluna curada da que só ficou sem dado", async () => {
-    const plano = (await planImportDeletion(ctx.db, runId))!;
-
-    expect(plano.removes.attributesKept).toBe(2);
-    expect(plano.removes.attributes).toBeGreaterThan(0);
-
-    // Toda coluna do banco veio desta importação, então as duas contagens
-    // juntas têm de dar o total: uma coluna que caísse fora das duas sumiria
-    // sem aparecer em número nenhum.
-    expect(plano.removes.attributes + plano.removes.attributesKept).toBe(
-      await contar(`SELECT count(*) AS n FROM attribute`),
-    );
-  });
-
-  it("exclui tudo, e as colunas curadas ficam com o que foi escrito nelas", async () => {
-    await deleteImportRun(ctx.db, runId, {
-      deletedBy: "quem.excluiu@exemplo.com",
-      reason: "arquivo do mês errado",
-    });
-
-    expect(await contar(`SELECT count(*) AS n FROM fact`)).toBe(0);
-    expect(await contar(`SELECT count(*) AS n FROM import_run`)).toBe(0);
-
-    const { rows } = await ctx.pool.query<{
-      id: string;
-      definition: string | null;
-      change_rule: string | null;
-      display_name: string | null;
-      first_seen_import_run_id: string | null;
-    }>(
-      `SELECT id, definition, change_rule, display_name, first_seen_import_run_id
-         FROM attribute ORDER BY id`,
-    );
-
-    // E a exclusão continua sendo exclusão: o que ninguém curou saiu.
-    expect(rows.map((r) => r.id).sort()).toEqual([descritoId, batizadoId].sort());
-
-    const descrito = rows.find((r) => r.id === descritoId)!;
-    expect(descrito.definition).toMatch(/seguro do casco/);
-    expect(descrito.change_rule).toMatch(/apólice/);
-
-    const batizado = rows.find((r) => r.id === batizadoId)!;
-    expect(batizado.display_name).toBe("Prazo do FINAME, em meses");
-
-    // Órfãs de dado, e sem apontar para um run que não existe mais.
-    for (const linha of rows) expect(linha.first_seen_import_run_id).toBeNull();
-  });
-
-  it("a importação seguinte devolve os fatos à mesma coluna", async () => {
-    // O caminho é outro porque a exclusão apaga o arquivo em disco — a mesma
-    // razão de `libera o mesmo arquivo para ser enviado de novo`.
-    const copia = path.join(tmpdir(), `recuperacao-${process.pid}.xlsx`);
-    copyFileSync(modelExportPaths().carreta, copia);
-    await importar(copia);
-
-    // A identidade da coluna é o `code`, que não mudou: a importação encontra a
-    // linha que ficou em vez de criar outra, e a curadoria volta a descrever
-    // números de verdade.
-    const { rows } = await ctx.pool.query<{ n: string; definition: string | null }>(
-      `SELECT count(f.id) AS n, max(a.definition) AS definition
-         FROM attribute a JOIN fact f ON f.attribute_id = a.id
-        WHERE a.id = $1`,
-      [descritoId],
-    );
-    expect(Number(rows[0].n)).toBeGreaterThan(0);
-    expect(rows[0].definition).toMatch(/seguro do casco/);
-
-    // E o que a promoção carimba sozinha voltou inteiro, sem ter sido
-    // protegido: é exatamente por voltar assim que `confirmed_by` e
-    // `semantics_status` não entram em `CURADORIA_DO_ATRIBUTO`.
-    expect(
-      await contar(
-        `SELECT count(*) AS n FROM attribute WHERE semantics_status = 'CONFIRMED'`,
-      ),
-    ).toBe(confirmadosAntes);
-  });
-
-  it("o nome gerencial não é preenchido pela importação", async () => {
-    // O campo é para quem cura escrever, e um campo que nasce preenchido com o
-    // nome de origem parece respondido sem ninguém ter respondido — ver a
-    // migration 0089.
-    expect(
-      await contar(
-        `SELECT count(*) AS n FROM attribute
-          WHERE display_name IS NOT NULL AND display_name = source_name`,
-      ),
-    ).toBe(0);
-
-    // E ninguém fica sem nome por isso: `source_name` é o que as telas mostram
-    // enquanto não há apelido, e ele nunca é reescrito.
-    expect(
-      await contar(`SELECT count(*) AS n FROM attribute WHERE source_name IS NULL`),
-    ).toBe(0);
-  });
-});
+/*
+  O contrato conceitual — "excluir apaga dados, nunca a identidade nem o
+  dicionário dos atributos" — mora em `dicionario-sobrevive-a-exclusao.test.ts`,
+  com os seis casos que o fixam. Aqui ficam as mecânicas da exclusão, e o que
+  elas asseguram acima sobre `attribute` é o bastante para este arquivo: o
+  dicionário atravessa inteiro.
+*/

@@ -873,11 +873,48 @@ continua contando como lacuna até alguém decidir.
   `freightcheck.purge_import_run` (local à transação, morre no COMMIT — ver
   `0010_import_deletion.sql`). UPDATE em RAW e edição de snapshot fechado
   continuam proibidos em qualquer circunstância: o que passou a existir foi
-  desfazer uma importação inteira, não corrigir um número no lugar. Sai o que só
-  aquela importação sustentava; o que outra vigência também sustenta fica. Uma
-  correção não pode ser apagada antes do que ela corrigiu — a mais recente sai
-  primeiro, e apagá-la devolve a revisão anterior a CLOSED. O rastro fica em
-  `import_deletion`, que é append-only sem exceção.
+  desfazer uma importação inteira, não corrigir um número no lugar. Sai o
+  **dado** que só aquela importação sustentava; o que outra vigência também
+  sustenta fica. Uma correção não pode ser apagada antes do que ela corrigiu — a
+  mais recente sai primeiro, e apagá-la devolve a revisão anterior a CLOSED. O
+  rastro fica em `import_deletion`, que é append-only sem exceção.
+- **Excluir apaga dados, nunca a identidade nem o dicionário dos atributos.**
+  Nenhum `attribute`, `attribute_alias` ou `attribute_semantics` sai numa
+  exclusão de importação — nem a coluna que ninguém nunca curou. A coluna é a
+  identidade pela qual o dado volta (o `code`) e o lugar onde mora o que uma
+  pessoa afirmou sobre ele; a prévia diz quantas ficam sem dado, e elas voltam a
+  receber valores na próxima importação que as trouxer. A regra anterior inferia
+  "sem fato + sem prosa = ninguém curou", e a inferência era falsa: a confirmação
+  feita pela tela grava `meaning_id`, `taxonomy_node_id`, `semantics_status` e
+  `confirmed_by`, sem uma palavra de texto. **Limpeza de coluna órfã, se um dia
+  existir, será uma operação separada e explícita — nunca efeito colateral de
+  excluir dados ou importações.** Preso em
+  `lib/ingest/src/__tests__/dicionario-sobrevive-a-exclusao.test.ts`, inclusive a
+  ausência de uma segunda porta que apague atributo (varredura das fontes, e das
+  cascatas do banco).
+- **Importar também não desfaz curadoria.** A promoção acha o atributo pelo
+  `code` e o reusa sem escrever nada nele — não há `UPDATE attribute` nem
+  `onConflictDoUpdate` no pipeline. `definition`, `change_rule`, `display_name`,
+  `economic_direction`, `economic_effect` e `source_name` não são tocados por
+  importação em circunstância nenhuma; `cost_class` só é preenchida quando está
+  vazia. A única escrita de semântica é a do registro canônico
+  (`CONFIRMED_SEMANTICS`), que reafirma os campos técnicos dos códigos que lista
+  — decisões humanas revisadas em pull request. Preso em
+  `lib/ingest/src/__tests__/importacao-nao-sobrescreve-curadoria.test.ts`.
+- **A precedência entre as três autoridades semânticas:** `curadoria humana
+  existente > confirmação canônica > inferência automática`. As três escrevem
+  nos mesmos campos, e a ordem é o que impede a de baixo de desfazer a de cima
+  em silêncio. Sobre um atributo que já carrega decisão de gente, o registro
+  canônico só **completa o que está nulo** — nunca substitui valor escolhido,
+  nem reestampa a data de quem decidiu —, e se a semântica divergir ele se cala
+  e relata (`divergentes`). A inferência (`runProposalPass`) só lê o que não
+  está `CONFIRMED`. Duas travas impedem a ampliação silenciosa:
+  `ESTADO_E_DECISAO_HUMANA` é um `Record` sobre o enum `semantics_status`, então
+  um estado novo **não compila** até ser classificado como humano ou automático;
+  e `CAMPOS_DA_NORMALIZACAO_CANONICA` declara os únicos campos que a passada
+  pode escrever, conferidos contra o que ela de fato alterou no banco. Preso em
+  `lib/db/src/__tests__/precedencia-da-curadoria.test.ts` (os dois degraus de
+  cima) e em `lib/curation/src/__tests__/confirmations.test.ts` (o de baixo).
 - Identidade da entidade é um UUID interno; a placa é um identificador com
   histórico, não a chave. Comparação nunca é por posição de linha.
 - Semântica é versionada (`attribute_semantics`) com vigência por data.
