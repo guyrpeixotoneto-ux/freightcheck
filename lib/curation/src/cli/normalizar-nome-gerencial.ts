@@ -44,6 +44,17 @@ try {
         `${r.semAtributo} linha(s) do registro apontam para atributos que já não existem — nada a restaurar nelas.`,
       );
     }
+    if (r.conflitantes.length > 0) {
+      console.log(
+        `\n${r.conflitantes.length} coluna(s) ganharam nome DEPOIS da normalização e NÃO foram restauradas:`,
+      );
+      for (const c of r.conflitantes) {
+        console.log(`  ${c.code}: agora "${c.nomeAtual}" (o registro guardava "${c.nomeAntigo}")`);
+      }
+      console.log(
+        "O nome atual é mais novo do que o registro. Sobrescrevê-lo é decisão de pessoa, e não deste comando.",
+      );
+    }
   } else if (aplicar !== -1) {
     const actor = argv[aplicar + 1];
     if (!actor || actor.startsWith("--")) {

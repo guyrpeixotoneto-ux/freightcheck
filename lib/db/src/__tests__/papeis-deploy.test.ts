@@ -389,7 +389,15 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
         */
         "modulo_universal",
         "modulo_universal_evento",
-      ]),
+              /*
+          O registro da normalização do Nome Gerencial, da `0089` — o mesmo
+          caso das demais: Production não o conhece até a fila rodar lá, e até
+          então toda tabela nova é uma tabela que a proposta do Publishing
+          proporia criar. A `0089` é DDL pura: cria esta tabela e não escreve
+          uma linha de dado em lugar nenhum.
+        */
+        "nome_gerencial_normalizado",
+]),
     );
     /*
       As colunas aditivas, todas elas — e a lista é fechada de propósito.
@@ -691,6 +699,19 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
         "ticket_movement_review_pkey",
         "ticket_movement_review_movement_id_ticket_movement_day_id_fk",
         "ticket_movement_review_user_id_app_user_id_fk",
+        /*
+          A chave primária do registro da normalização do Nome Gerencial, da
+          `0089`. É a única constraint que a tabela traz — ela não tem chave
+          estrangeira para `attribute`, de propósito (ver
+          `schema/normalizacao.ts`) —, e vem com a tabela nova, que nasce vazia:
+          não há linha em Production que ela possa recusar.
+
+          Nomeada, e não filtrada por prefixo, pela mesma razão das do censo e
+          da presença: o filtro acima só dispensa as famílias do Fechamento, da
+          remuneração, da unidade, dos Fluxos, do cadastro da casa e das
+          Integrações.
+        */
+        "nome_gerencial_normalizado_pkey",
         /*
           As quatro da presença, da `0081` — a chave primária composta e as três
           FKs. Vêm com a tabela nova, que nasce vazia, e por isso não há linha em

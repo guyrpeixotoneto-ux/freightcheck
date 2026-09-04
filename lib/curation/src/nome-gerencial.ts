@@ -54,9 +54,46 @@ import type { Database } from "@workspace/db";
  * banco: não há evento para consultar, porque não houve mudança para registrar.
  */
 
-/** A janela cega: atributos anteriores ao primeiro evento de curadoria. */
+/**
+ * A janela cega: atributos anteriores à prova de que o log já registrava nomes.
+ *
+ * ---------------------------------------------------------------------------
+ * Por que a fronteira é global, e não por empresa
+ * ---------------------------------------------------------------------------
+ *
+ * A pergunta é justa — se empresas começaram a usar o sistema em momentos
+ * diferentes, uma fronteira global classificaria como auditável o que para uma
+ * delas ainda era cego. Só que ela não se aplica a esta tabela: **o dicionário
+ * de atributos não tem dimensão de empresa**. `attribute.code` é único no banco
+ * inteiro (`attribute_code_uq`), `attribute` e `curation_event` não têm
+ * `empresa_id` — a coluna só existe no módulo de Fluxos Operacionais —, e
+ * `snapshot` não se liga a unidade nem a empresa. O mesmo `cavalo.custo_fixo`
+ * serve a todo mundo; não há a quem atribuir uma fronteira por tenant.
+ *
+ * E há uma razão mais forte, que valeria mesmo se a dimensão existisse: o que
+ * a fronteira mede não é quando um cliente entrou, é **quando o código que
+ * grava o evento passou a rodar**. Isso é uma propriedade do deploy, igual para
+ * todos os inquilinos do mesmo banco. Um atributo criado depois de o primeiro
+ * evento existir foi criado sob código que registra — de quem quer que fosse a
+ * empresa.
+ *
+ * ---------------------------------------------------------------------------
+ * A escolha conservadora, onde havia escolha
+ * ---------------------------------------------------------------------------
+ *
+ * A referência é o primeiro evento **de `display_name`**, e não o primeiro
+ * evento de curadoria de qualquer espécie. É o mais tarde dos dois, e portanto
+ * o que classifica mais linhas como cegas: prova direta de que *este* caminho
+ * de log estava vivo, em vez de prova indireta de que algum log estava.
+ *
+ * E quando não há nenhum evento de `display_name` no banco, **tudo** é cego:
+ * não existe uma linha sequer provando que aquele registro já funcionou ali, e
+ * tratar a ausência de prova como prova de ausência é exatamente o erro que
+ * esta guarda existe para não cometer. Num banco assim o modo conservador não
+ * normaliza nada, e quem quiser prosseguir decide com o preflight à vista.
+ */
 const ANTERIOR_AO_LOG = sql`(
-       primeiro.evento IS NOT NULL AND a.created_at < primeiro.evento
+       primeiro.evento IS NULL OR a.created_at < primeiro.evento
      )`;
 
 /** O rastro que prova escrita humana em `display_name`. */
@@ -89,7 +126,9 @@ const E_COPIA = sql`(a.display_name IS NOT NULL AND a.display_name = a.source_na
 const BASE = sql`
   FROM attribute a
   CROSS JOIN (
-    SELECT min(created_at) AS evento FROM curation_event
+    SELECT min(created_at) AS evento
+      FROM curation_event
+     WHERE target_kind = 'ATTRIBUTE' AND field = 'display_name'
   ) AS primeiro`;
 
 export interface FatiaDoPreflight {
@@ -106,15 +145,19 @@ export interface PreflightNomeGerencial {
   /** Dessas, quantas têm qualquer outro sinal de curadoria humana. */
   comQualquerCuradoria: number;
   /**
-   * Dessas, quantas nasceram antes do primeiro evento de curadoria do banco —
-   * a janela em que a ausência de evento não prova nada.
+   * Dessas, quantas nasceram antes do primeiro evento de `display_name` do
+   * banco — a janela em que a ausência de evento não prova nada. Num banco sem
+   * nenhum evento desses, são todas.
    */
   anterioresAoPrimeiroEvento: number;
   /** Quantas o modo conservador alteraria. É o número que decide o merge. */
   seriamNormalizados: number;
   /** Quantas o modo `incluirAnterioresAoLog` alteraria, a mais. */
   seriamNormalizadosIncluindoAnteriores: number;
-  /** O primeiro evento de curadoria já registrado — null num banco sem nenhum. */
+  /**
+   * O primeiro evento de `display_name` já registrado — null num banco em que
+   * esse log nunca gravou nada, e aí toda a base é janela cega.
+   */
   primeiroEventoDeCuradoria: Date | null;
   /** O atributo mais antigo, para dimensionar a janela cega. */
   primeiroAtributo: Date | null;
@@ -212,6 +255,10 @@ export interface NormalizarOptions {
    * prova que a máquina escreveu. Ligar isto é uma decisão de quem viu o
    * preflight e sabe que aquele período não teve curadoria de nome — e continua
    * reversível linha a linha, porque tudo fica registrado.
+   *
+   * Num banco sem nenhum evento de `display_name`, isto é o único modo que faz
+   * alguma coisa: sem prova de que o log já funcionou ali, o conservador
+   * classifica a base inteira como cega e não toca em nada.
    */
   incluirAnterioresAoLog?: boolean;
 }
@@ -280,6 +327,17 @@ export interface DesfazerResult {
   restaurados: number;
   /** Linhas cujo atributo já não existe — nada a restaurar, e nada a esconder. */
   semAtributo: number;
+  /**
+   * Colunas que ganharam um nome **depois** da normalização, e que por isso não
+   * foram restauradas.
+   *
+   * Não é erro nem falha: é a volta atrás encontrando trabalho mais novo do que
+   * ela e recusando-se a passar por cima. A linha fica por restaurar no
+   * registro, e sai nomeada aqui para quem operar decidir — sobrescrever, se
+   * for o caso, é uma decisão de pessoa, não o comportamento padrão de um
+   * rollback.
+   */
+  conflitantes: { code: string; nomeAtual: string; nomeAntigo: string }[];
 }
 
 /**
@@ -293,7 +351,8 @@ export interface DesfazerResult {
  *
  * Só restaura o que ainda está nulo: se alguém batizou a coluna depois da
  * normalização, esse nome é curadoria mais recente do que este registro, e
- * sobrescrevê-lo seria a volta atrás destruindo o que veio depois dela.
+ * sobrescrevê-lo seria a volta atrás destruindo o que veio depois dela. Essas
+ * linhas saem em {@link DesfazerResult.conflitantes} — protegidas, e ditas.
  */
 export async function desfazerNormalizacaoDoNomeGerencial(
   db: Database,
@@ -324,9 +383,32 @@ export async function desfazerNormalizacaoDoNomeGerencial(
        WHERE n.restaurado_em IS NULL
          AND NOT EXISTS (SELECT 1 FROM attribute a WHERE a.id = n.attribute_id)`);
 
+    // O que sobrou por restaurar tendo atributo vivo só pode ser uma coisa:
+    // alguém escreveu um nome ali depois da normalização. O `IS NULL` do UPDATE
+    // acima já o protegeu; aqui ele é nomeado, para não ficar protegido em
+    // silêncio.
+    const { rows: conflitantes } = await tx.execute<{
+      code: string;
+      nome_atual: string;
+      nome_antigo: string;
+    }>(sql`
+      SELECT n.attribute_code AS code,
+             a.display_name   AS nome_atual,
+             n.display_name_antes AS nome_antigo
+        FROM nome_gerencial_normalizado n
+        JOIN attribute a ON a.id = n.attribute_id
+       WHERE n.restaurado_em IS NULL
+         AND a.display_name IS NOT NULL
+       ORDER BY n.attribute_code`);
+
     return {
       restaurados: restaurados.length,
       semAtributo: Number(orfas[0]?.n ?? 0),
+      conflitantes: conflitantes.map((c) => ({
+        code: c.code,
+        nomeAtual: c.nome_atual,
+        nomeAntigo: c.nome_antigo,
+      })),
     };
   });
 }

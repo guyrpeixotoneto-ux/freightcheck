@@ -38,6 +38,13 @@ const APELIDO = "cavalo.apelido_de_verdade";
 const NULO = "cavalo.nunca_teve_nome";
 const ANTIGO = "cavalo.anterior_ao_log";
 
+async function contarRegistros(): Promise<number> {
+  const { rows } = await ctx.pool.query<{ n: string }>(
+    `SELECT count(*) AS n FROM nome_gerencial_normalizado`,
+  );
+  return Number(rows[0].n);
+}
+
 async function nomeDe(code: string): Promise<string | null> {
   const { rows } = await ctx.pool.query<{ display_name: string | null }>(
     `SELECT display_name FROM attribute WHERE code = $1`,
@@ -164,6 +171,7 @@ describe("a volta atrás", () => {
     const r = await desfazerNormalizacaoDoNomeGerencial(ctx.db);
 
     expect(r.restaurados).toBe(1);
+    expect(r.conflitantes).toEqual([]);
     expect(await nomeDe(COPIA)).toBe("copiaDaMaquina");
 
     // O que nunca teve nome continua sem nome: é a diferença entre esta volta
@@ -211,5 +219,170 @@ describe("a janela cega, quando alguém decide incluí-la", () => {
     expect(await nomeDe(ANTIGO)).toBe("anteriorAoLog");
     expect(await nomeDe(COPIA)).toBe("copiaDaMaquina");
     expect(await nomeDe(NULO)).toBeNull();
+  });
+});
+
+/**
+ * As duas garantias que sobram, e que nenhum caminho feliz prova.
+ *
+ * A primeira é a atomicidade: o registro e o `NULL` entram juntos ou não entram.
+ * Um registro sem alteração mentiria sobre o que foi feito; **uma alteração sem
+ * registro seria irreversível** — o valor apagado só existe no registro, e sem
+ * ele não há de onde restaurar. É o único cenário em que esta rotina destruiria
+ * dado, e por isso ele é provado, e não argumentado.
+ *
+ * A segunda é o conflito: alguém pode batizar a coluna depois da normalização.
+ * Esse nome é curadoria mais nova do que o registro, e o rollback não pode
+ * passar por cima dele — nem em silêncio, nem restaurando cegamente o valor
+ * antigo.
+ */
+describe("as garantias que só o caminho ruim prova", () => {
+  it("é atômica: se o UPDATE falha, o registro não fica", async () => {
+    // Um atributo novo, para não mexer nos casos dos blocos acima.
+    await ctx.pool.query(
+      `INSERT INTO attribute (code, source_name, display_name, entity_type, data_type)
+       VALUES ('cavalo.vai_falhar', 'vaiFalhar', 'vaiFalhar', 'CAVALO', 'TEXT')`,
+    );
+    await ctx.db.execute(sql`
+      UPDATE attribute SET created_at = now() WHERE code = 'cavalo.vai_falhar'`);
+
+    const registrosAntes = await contarRegistros();
+
+    // O UPDATE de `attribute` passa a falhar — a falha vem depois do INSERT no
+    // registro, que é exatamente a ordem perigosa.
+    await ctx.pool.query(`
+      CREATE FUNCTION recusa_update() RETURNS trigger AS $$
+      BEGIN RAISE EXCEPTION 'falha proposital no meio da normalização'; END;
+      $$ LANGUAGE plpgsql;
+      CREATE TRIGGER recusa_update_do_teste
+        BEFORE UPDATE ON attribute FOR EACH ROW EXECUTE FUNCTION recusa_update();
+    `);
+
+    try {
+      // A mensagem chega embrulhada pelo driver ("Failed query: UPDATE
+      // attribute…"); o que importa provar é que a transação inteira voltou
+      // atrás, e isso são as duas asserções abaixo.
+      await expect(
+        normalizarNomeGerencial(ctx.db, { actor: "quem.normalizou@exemplo.com" }),
+      ).rejects.toThrow();
+    } finally {
+      await ctx.pool.query(`
+        DROP TRIGGER recusa_update_do_teste ON attribute;
+        DROP FUNCTION recusa_update();
+      `);
+    }
+
+    // Nada entrou: nem o registro, nem a alteração.
+    expect(await contarRegistros()).toBe(registrosAntes);
+    expect(await nomeDe("cavalo.vai_falhar")).toBe("vaiFalhar");
+  });
+
+  it("com a falha removida, a mesma execução completa e registra", async () => {
+    const r = await normalizarNomeGerencial(ctx.db, {
+      actor: "quem.normalizou@exemplo.com",
+    });
+    expect(r.codigos).toContain("cavalo.vai_falhar");
+    expect(await nomeDe("cavalo.vai_falhar")).toBeNull();
+  });
+
+  it("o rollback preserva o nome escrito depois da normalização, e o nomeia", async () => {
+    // A pessoa batiza a coluna depois do data-fix, pelo caminho de verdade.
+    await saveMeaning(ctx.db, {
+      code: "cavalo.vai_falhar",
+      actor: "quem.curou@exemplo.com",
+      displayName: "Nome escrito depois do data-fix",
+    });
+
+    const r = await desfazerNormalizacaoDoNomeGerencial(ctx.db);
+
+    // Não restaurou por cima — e não ficou calado sobre isso. (Outras colunas
+    // desta suíte voltaram a ser candidatas e são restauradas normalmente; o
+    // que este teste prende é o comportamento diante do nome mais novo.)
+    expect(r.conflitantes).toEqual([
+      {
+        code: "cavalo.vai_falhar",
+        nomeAtual: "Nome escrito depois do data-fix",
+        nomeAntigo: "vaiFalhar",
+      },
+    ]);
+    expect(await nomeDe("cavalo.vai_falhar")).toBe("Nome escrito depois do data-fix");
+
+    // E a linha continua por restaurar no registro: o conflito é um estado, não
+    // um evento que passa.
+    const { rows } = await ctx.pool.query<{ n: string }>(
+      `SELECT count(*) AS n FROM nome_gerencial_normalizado
+        WHERE attribute_code = 'cavalo.vai_falhar' AND restaurado_em IS NULL`,
+    );
+    expect(Number(rows[0].n)).toBe(1);
+  });
+
+  it("e a coluna batizada depois não volta a ser candidata", async () => {
+    // Ela agora tem evento de `display_name`: a guarda a exclui para sempre,
+    // mesmo que alguém escreva de novo o nome de origem ali.
+    const p = await preflightNomeGerencial(ctx.db);
+    const segunda = await normalizarNomeGerencial(ctx.db, {
+      actor: "quem.normalizou@exemplo.com",
+    });
+    expect(segunda.codigos).not.toContain("cavalo.vai_falhar");
+    expect(p.comEventoDeNomeGerencial).toBeGreaterThanOrEqual(1);
+  });
+});
+
+/**
+ * O banco em que o log nunca gravou nada.
+ *
+ * É o caso que a fronteira global tinha de responder e que o caminho feliz
+ * esconde: sem um único evento de `display_name`, não há prova de que aquele
+ * registro já tenha funcionado ali — e tratar a ausência de prova como prova de
+ * ausência é exatamente o erro que a guarda existe para não cometer. O modo
+ * conservador não toca em nada, e quem quiser prosseguir decide com os números
+ * na frente.
+ */
+describe("sem nenhum evento de display_name no banco", () => {
+  let vazio: TestDb;
+
+  beforeAll(async () => {
+    vazio = await createTestDatabase("nome-gerencial-sem-log");
+    await vazio.pool.query(
+      `INSERT INTO attribute (code, source_name, display_name, entity_type, data_type)
+       VALUES ('cavalo.sem_log', 'semLog', 'semLog', 'CAVALO', 'TEXT')`,
+    );
+  }, 600_000);
+
+  afterAll(async () => {
+    await vazio?.drop();
+  });
+
+  it("a base inteira é janela cega, e o conservador não altera nada", async () => {
+    const p = await preflightNomeGerencial(vazio.db);
+
+    expect(p.primeiroEventoDeCuradoria).toBeNull();
+    expect(p.iguaisAoNomeDeOrigem).toBe(1);
+    expect(p.anterioresAoPrimeiroEvento).toBe(1);
+    expect(p.seriamNormalizados).toBe(0);
+    expect(p.seriamNormalizadosIncluindoAnteriores).toBe(1);
+
+    const r = await normalizarNomeGerencial(vazio.db, {
+      actor: "quem.normalizou@exemplo.com",
+    });
+    expect(r.normalizados).toBe(0);
+
+    const { rows } = await vazio.pool.query<{ display_name: string | null }>(
+      `SELECT display_name FROM attribute WHERE code = 'cavalo.sem_log'`,
+    );
+    expect(rows[0].display_name).toBe("semLog");
+  });
+
+  it("e o modo explícito alcança o que o conservador deixou", async () => {
+    const r = await normalizarNomeGerencial(vazio.db, {
+      actor: "quem.normalizou@exemplo.com",
+      incluirAnterioresAoLog: true,
+    });
+    expect(r.codigos).toEqual(["cavalo.sem_log"]);
+
+    // E continua reversível, que é o que torna o modo explícito aceitável.
+    const volta = await desfazerNormalizacaoDoNomeGerencial(vazio.db);
+    expect(volta.restaurados).toBe(1);
+    expect(volta.conflitantes).toEqual([]);
   });
 });
