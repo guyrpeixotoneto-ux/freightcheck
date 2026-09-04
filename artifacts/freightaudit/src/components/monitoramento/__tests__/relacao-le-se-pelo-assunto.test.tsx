@@ -68,6 +68,7 @@ const relacao = () =>
       onPorPagina={() => {}}
       tamanhos={[50]}
       procedencia="Chamados 082026.xlsx"
+      linhasNaEspera={1}
     />,
   );
 

@@ -426,6 +426,39 @@ export function contagemDaAba(resumo: ResumoDoDia | null, aba: Aba): number | un
   }
 }
 
+/**
+ * Quantas linhas a página vai trazer — a altura que a espera tem de reservar.
+ *
+ * A lista pedia vinte e cinco linhas ao servidor e desenhava cinco barras
+ * cinzas enquanto elas vinham: a tela nascia curta e crescia mil pixels no
+ * instante da resposta. Quem já estava lendo o cabeçalho via tudo pular, e
+ * quem tinha descido até o fim da espera era largado no meio da lista.
+ *
+ * O número não é chutado. O resumo do dia chega antes da relação e já diz
+ * quantos chamados o envio tem; a lista que muda de página já respondeu o
+ * total antes. Quando esse total é conhecido, a espera tem exatamente o
+ * tamanho da lista que vem — inclusive na última página, que é mais curta.
+ *
+ * `null` é o único caso em que ninguém sabe de nada, e aí a espera assume a
+ * página cheia: é o palpite que erra para o lado de a tela encolher um pouco,
+ * e nunca para o de ela dar o salto que esta função existe para tirar.
+ */
+export function linhasDaPagina({
+  total,
+  pagina,
+  porPagina,
+}: {
+  /** O total **sem** paginação, ou `null` enquanto ninguém respondeu. */
+  total: number | null;
+  /** 1-based, como as pessoas contam páginas. */
+  pagina: number;
+  porPagina: number;
+}): number {
+  if (total === null) return porPagina;
+  const restantes = total - (pagina - 1) * porPagina;
+  return Math.max(0, Math.min(restantes, porPagina));
+}
+
 // ---------------------------------------------------------------------------
 // O estado do dia, em palavras
 // ---------------------------------------------------------------------------

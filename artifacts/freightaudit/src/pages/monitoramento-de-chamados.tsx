@@ -59,6 +59,7 @@ import {
   hojeNaOperacao,
   horaLegivel,
   janelaDoEnvioFora,
+  linhasDaPagina,
   procedenciaDaFila,
   progressoDoDia,
   SEM_SERIE,
@@ -353,6 +354,36 @@ export default function MonitoramentoDeChamados() {
     muda de número ao abrir a visão.
   */
   const chamadosNoEnvio = dadosDaFila?.total ?? resumo?.chamadosNoEnvio ?? 0;
+
+  /*
+    QUANTAS LINHAS A ESPERA RESERVA — por que a tela não nasce mais curta.
+
+    As duas listas desenhavam um punhado de barras cinzas e chegavam com uma
+    página inteira: a tela abria curta e crescia de repente, e quem estava com o
+    cursor sobre um filtro no fim da espera estava sobre outra coisa um instante
+    depois. Agora a espera tem o tamanho da lista que vem.
+
+    O total não é adivinhado. O resumo do dia é uma consulta pequena e chega
+    antes das listas — ele já diz quantos chamados o envio tem e quantas
+    movimentações cada aba tem —, e ao trocar de página a lista anterior já
+    respondeu o total. `null` fica só para o instante em que ninguém respondeu
+    nada, e aí `linhasDaPagina` assume a página cheia.
+
+    Os filtros da tela não entram nessa conta: o resumo conta o dia inteiro. Só
+    que trocar um filtro não passa por aqui — a resposta anterior fica em tela
+    enquanto a nova vem (`keepPreviousData`), e a espera com o total do dia é a
+    da primeira carga, quando filtro nenhum foi escolhido ainda.
+  */
+  const linhasDasMovimentacoes = linhasDaPagina({
+    total: lista.dados?.total ?? contagemDaAba(resumo, aba) ?? null,
+    pagina,
+    porPagina: POR_PAGINA,
+  });
+  const linhasDaRelacao = linhasDaPagina({
+    total: dadosDaFila?.totalFiltrado ?? resumo?.chamadosNoEnvio ?? null,
+    pagina,
+    porPagina: porPaginaDaFila,
+  });
 
   /*
     A escrita marca a linha como ocupada enquanto está em voo: sem isso, dois
@@ -925,6 +956,7 @@ export default function MonitoramentoDeChamados() {
                     <ListaDeMovimentacoes
                       movimentacoes={movimentacoes}
                       carregando={lista.carregando || decidindo}
+                      linhasNaEspera={linhasDasMovimentacoes}
                       ocupadas={ocupadas}
                       onRevisar={revisar}
                       onDesfazer={desfazer}
@@ -1034,6 +1066,7 @@ export default function MonitoramentoDeChamados() {
                   <ListaDeChamados
                     chamados={chamados}
                     carregando={fila.carregando || decidindo}
+                    linhasNaEspera={linhasDaRelacao}
                     dia={dia}
                     pagina={pagina}
                     porPagina={porPaginaDaFila}
