@@ -426,6 +426,39 @@ export function contagemDaAba(resumo: ResumoDoDia | null, aba: Aba): number | un
   }
 }
 
+/**
+ * Quantas linhas a página vai trazer — a altura que a espera tem de reservar.
+ *
+ * A lista pedia vinte e cinco linhas ao servidor e desenhava cinco barras
+ * cinzas enquanto elas vinham: a tela nascia curta e crescia mil pixels no
+ * instante da resposta. Quem já estava lendo o cabeçalho via tudo pular, e
+ * quem tinha descido até o fim da espera era largado no meio da lista.
+ *
+ * O número não é chutado. O resumo do dia chega antes da relação e já diz
+ * quantos chamados o envio tem; a lista que muda de página já respondeu o
+ * total antes. Quando esse total é conhecido, a espera tem exatamente o
+ * tamanho da lista que vem — inclusive na última página, que é mais curta.
+ *
+ * `null` é o único caso em que ninguém sabe de nada, e aí a espera assume a
+ * página cheia: é o palpite que erra para o lado de a tela encolher um pouco,
+ * e nunca para o de ela dar o salto que esta função existe para tirar.
+ */
+export function linhasDaPagina({
+  total,
+  pagina,
+  porPagina,
+}: {
+  /** O total **sem** paginação, ou `null` enquanto ninguém respondeu. */
+  total: number | null;
+  /** 1-based, como as pessoas contam páginas. */
+  pagina: number;
+  porPagina: number;
+}): number {
+  if (total === null) return porPagina;
+  const restantes = total - (pagina - 1) * porPagina;
+  return Math.max(0, Math.min(restantes, porPagina));
+}
+
 // ---------------------------------------------------------------------------
 // O estado do dia, em palavras
 // ---------------------------------------------------------------------------
@@ -943,14 +976,20 @@ export function useRevisao(dia: string) {
  * uma tabela sem ela é uma lista de atributos de coisa nenhuma. O que esta
  * lista descreve é o que a engrenagem do cabeçalho **deixa esconder**.
  *
- * A ordem é a do arquivo lido de cima para baixo — quem é o chamado (status,
- * assunto), onde ele acontece (unidade, tipo), quem o toca (solicitante,
- * operador), quando (as duas datas) e como ele está (SLA, situação). É a mesma
- * leitura que a pessoa faz na planilha aberta ao lado.
+ * O assunto vem primeiro, colado no número, porque é a informação mais
+ * importante da relação: é a única frase que a fonte escreve sobre o chamado —
+ * o motivo pelo qual ele existe — e é por ela que quem confere sabe do que a
+ * linha trata. Todo o resto é qualificação disso, e nenhuma outra coluna
+ * responde "por quê". É também a ordem da lista de Movimentações, onde o
+ * assunto já aparece ao lado do número.
+ *
+ * Depois dele a ordem é a do arquivo lido de cima para baixo — como o chamado
+ * está (status), onde ele acontece (unidade, tipo), quem o toca (solicitante,
+ * operador), quando (as duas datas) e como ele terminou (SLA, situação).
  */
 export const COLUNAS_DA_RELACAO = [
-  { chave: "status", rotulo: "Status", dica: "o status como o arquivo escreveu" },
   { chave: "assunto", rotulo: "Assunto", dica: "a Justificativa Abertura do chamado" },
+  { chave: "status", rotulo: "Status", dica: "o status como o arquivo escreveu" },
   { chave: "unidade", rotulo: "Unidade", dica: "a unidade como o arquivo a escreve" },
   {
     chave: "tipo",

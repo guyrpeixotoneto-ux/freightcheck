@@ -692,12 +692,12 @@ export default function PainelDeJustificativas() {
                 opcoes={[
                   {
                     valor: TODAS,
-                    rotulo: "Todas as vigências",
+                    mes: "Todas as vigências",
                     alteracoes: totalDeAlteracoes,
                   },
                   ...porVigencia.map((v) => ({
                     valor: v.changeSetId,
-                    rotulo: nomeDaVigencia.get(v.changeSetId) ?? v.changeSetId,
+                    mes: nomeDaVigencia.get(v.changeSetId) ?? v.changeSetId,
                     alteracoes: v.alteracoes,
                   })),
                 ]}

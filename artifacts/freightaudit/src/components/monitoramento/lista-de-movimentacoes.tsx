@@ -98,6 +98,7 @@ export function ListaDeMovimentacoes({
   ocupadas,
   onRevisar,
   onDesfazer,
+  linhasNaEspera,
 }: {
   movimentacoes: Movimentacao[];
   carregando: boolean;
@@ -105,14 +106,58 @@ export function ListaDeMovimentacoes({
   ocupadas: Set<string>;
   onRevisar: (m: Movimentacao) => void;
   onDesfazer: (m: Movimentacao) => void;
+  /**
+   * Quantas linhas a espera desenha — o tamanho da lista que está vindo.
+   *
+   * Ver `linhasDaPagina`: o resumo do dia responde quantas movimentações o dia
+   * tem antes de a lista chegar, e é por isso que a espera pode ter a altura da
+   * lista em vez de cinco cartões fixos.
+   */
+  linhasNaEspera: number;
 }) {
+  /*
+    A espera é a lista sem os dados: a mesma moldura, o mesmo número de linhas.
+
+    Eram cinco cartões soltos onde vinham vinte e cinco: a tela abria curta e
+    dava um salto quando a resposta voltava. Aqui as linhas nem sempre têm a
+    mesma altura — o "antes → depois" tem uma linha por campo alterado —, então
+    a promessa é a do número de linhas e a da moldura, e não a do pixel.
+  */
   if (carregando && movimentacoes.length === 0) {
+    /*
+      Zero linhas esperadas é o dia sem movimentação — o resumo já respondeu, e
+      o que vem depois desta espera é a caixa "nenhuma movimentação neste dia".
+      A espera toma a forma dela, e não a de uma lista de zero itens: uma
+      moldura de um pixel dando lugar a uma caixa de dez linhas é o mesmo salto,
+      em ponto menor.
+    */
+    if (linhasNaEspera === 0) {
+      return (
+        <div className="rounded-xl border bg-card px-5 py-10 grid place-items-center">
+          <Skeleton className="h-5 w-64" />
+        </div>
+      );
+    }
+
     return (
-      <div className="space-y-2">
-        {Array.from({ length: 5 }, (_, i) => (
-          <Skeleton key={i} className="h-24 rounded-xl" />
+      <ul className="divide-y rounded-xl border bg-card">
+        {Array.from({ length: linhasNaEspera }, (_, i) => (
+          <li key={i} className="flex gap-4 px-4 py-4">
+            <Skeleton className="h-9 w-9 rounded-lg shrink-0" />
+            {/*
+              As três barras são as três linhas de uma movimentação, na altura
+              de cada uma: o número com o selo da classe, a linha fina de
+              unidade e hora, e o "antes → depois".
+            */}
+            <div className="min-w-0 flex-1 space-y-1.5">
+              <Skeleton className="h-6 w-2/3" />
+              <Skeleton className="h-4 w-1/2" />
+              <Skeleton className="h-5 w-3/4" />
+            </div>
+            <Skeleton className="h-8 w-28 shrink-0 rounded-md" />
+          </li>
         ))}
-      </div>
+      </ul>
     );
   }
 

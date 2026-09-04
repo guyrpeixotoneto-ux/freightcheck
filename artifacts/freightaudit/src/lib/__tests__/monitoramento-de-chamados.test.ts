@@ -7,6 +7,7 @@ import {
   envioForaDaJanela,
   fraseDoDia,
   janelaDoEnvioFora,
+  linhasDaPagina,
   oscilouEVoltou,
   posicaoDaRegua,
   progressoDoDia,
@@ -117,6 +118,37 @@ describe("contagemDaAba — o número ao lado do filtro é o que a lista devolve
       RESUMO.movimentacoes,
     );
     expect(RESUMO.revisadas + RESUMO.pendentes).toBe(RESUMO.movimentacoes);
+  });
+});
+
+describe("linhasDaPagina — a espera tem a altura da lista que vem", () => {
+  it("com o total conhecido, reserva exatamente o que a página vai trazer", () => {
+    expect(linhasDaPagina({ total: 1051, pagina: 1, porPagina: 25 })).toBe(25);
+    expect(linhasDaPagina({ total: 1051, pagina: 1, porPagina: 100 })).toBe(100);
+    expect(linhasDaPagina({ total: 12, pagina: 1, porPagina: 25 })).toBe(12);
+  });
+
+  it("a última página é mais curta, e a espera dela também", () => {
+    // 1.051 chamados de 25 em 25: a página 43 traz uma linha só.
+    expect(linhasDaPagina({ total: 1051, pagina: 43, porPagina: 25 })).toBe(1);
+  });
+
+  it("uma página além do fim não reserva altura negativa", () => {
+    expect(linhasDaPagina({ total: 12, pagina: 9, porPagina: 25 })).toBe(0);
+  });
+
+  it("o dia sem nada é zero, e não uma página cheia de promessa", () => {
+    expect(linhasDaPagina({ total: 0, pagina: 1, porPagina: 25 })).toBe(0);
+  });
+
+  it("sem total nenhum, assume a página cheia", () => {
+    /*
+      É o único instante em que se chuta, e o chute é para o lado de a tela já
+      nascer do tamanho que vai ter: o defeito que esta função existe para tirar
+      é a tela curta que dá um salto quando a resposta chega.
+    */
+    expect(linhasDaPagina({ total: null, pagina: 1, porPagina: 25 })).toBe(25);
+    expect(linhasDaPagina({ total: null, pagina: 7, porPagina: 100 })).toBe(100);
   });
 });
 
@@ -425,6 +457,18 @@ describe("emCaixaDeTitulo — o grito do arquivo, legível", () => {
 describe("as colunas da relação — preferência de quem olha", () => {
   const todas = COLUNAS_DA_RELACAO.map((c) => c.chave);
 
+  it("o assunto é a primeira coluna, colada no número do chamado", () => {
+    /*
+      A ordem desta lista é a ordem da tabela, e a primeira posição é a única
+      que fica encostada na coluna do número — a que a tabela escreve antes de
+      percorrer esta lista. O assunto é a única frase que a fonte escreve sobre
+      o chamado, e é por ela que quem confere sabe do que a linha trata; ela
+      atrás do status era a resposta ao "por quê" depois da resposta ao "como
+      está".
+    */
+    expect(todas[0]).toBe("assunto");
+  });
+
   /*
     Um `localStorage` de mentira, porque o de verdade não existe aqui.
 
@@ -447,6 +491,20 @@ describe("as colunas da relação — preferência de quem olha", () => {
 
   it("sem armazenamento nenhum, todas as colunas aparecem", () => {
     expect(lerColunasDaRelacao()).toEqual(todas);
+  });
+
+  it("uma preferência antiga não devolve a ordem antiga", () => {
+    /*
+      A ordem é do produto, e não da pessoa: a engrenagem escolhe o que fica à
+      vista, nunca onde cada coluna cai. Quem já usou a tela tem gravada uma
+      lista na ordem de antes — se a leitura respeitasse a ordem do que está
+      guardado, o assunto voltaria para trás do status para todo mundo que já
+      abriu a relação, e a mudança valeria só para quem nunca a viu.
+    */
+    guardaDeVerdade();
+    gravarColunasDaRelacao(["status", "assunto", "unidade"] as never);
+    const lidas = lerColunasDaRelacao();
+    expect(lidas.indexOf("assunto")).toBeLessThan(lidas.indexOf("status"));
   });
 
   it("a escolha volta na próxima abertura", () => {

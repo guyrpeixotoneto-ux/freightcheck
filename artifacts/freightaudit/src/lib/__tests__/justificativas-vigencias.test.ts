@@ -44,7 +44,7 @@ describe("opcoesDeVigencia", () => {
     expect(opcoes.map((o) => o.alteracoes)).toEqual([102, 355]);
   });
 
-  it("desempata a competência pelo dia quando o mês tem duas entregas", () => {
+  it("desempata a competência pelo dia quando o mês tem duas entregas, sem abandonar o mês", () => {
     const opcoes = opcoesDeVigencia(
       [
         comparacao({ id: "a", snapshotBDate: "2026-08-02" }),
@@ -54,10 +54,20 @@ describe("opcoesDeVigencia", () => {
       [],
     );
 
-    // Agosto tem duas: vira dia. Junho tem uma só: continua competência.
+    /*
+      Agosto tem duas: ganha a marca do dia. Junho tem uma só: fica sem marca.
+      O mês é o mesmo texto nos três — a lista do menu é uma coluna de meses, e
+      escrever `02/08/2026` no meio de `junho/2026` obrigava quem procura
+      agosto a traduzir o único item em dígitos.
+    */
+    expect(opcoes.map((o) => o.mes)).toEqual(["agosto/2026", "agosto/2026", "junho/2026"]);
+    expect(opcoes.map((o) => o.marca)).toEqual(["dia 02", "dia 01", null]);
+
+    // `competencia` é a forma de uma linha só — o título do diálogo, a coluna
+    // do CSV —, e as três continuam distintas.
     expect(opcoes.map((o) => o.competencia)).toEqual([
-      "02/08/2026",
-      "01/08/2026",
+      "agosto/2026 · dia 02",
+      "agosto/2026 · dia 01",
       "junho/2026",
     ]);
   });

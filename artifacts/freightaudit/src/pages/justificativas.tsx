@@ -384,7 +384,8 @@ export default function Justificativas() {
                  dizem, e empurra a data para longe da contagem. */
               opcoes={opcoesDoSeletor.map((o) => ({
                 valor: o.id,
-                rotulo: o.competencia,
+                mes: o.mes,
+                marca: o.marca,
                 detalhe: emVisaoGeral ? o.unidade : null,
                 alteracoes: o.alteracoes,
               }))}

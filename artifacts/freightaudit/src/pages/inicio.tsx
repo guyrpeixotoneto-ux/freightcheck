@@ -103,7 +103,7 @@ import type {
   OverviewUnitIncluded,
 } from "@/components/inicio/types";
 import type { BalancoResumo } from "@/components/balanco/tipos";
-import { useAlteracoesPorVigencia } from "@/hooks/use-alteracoes-por-vigencia";
+import { useResumoPorVigencia } from "@/hooks/use-resumo-por-vigencia";
 import {
   SeletorDeVigencia,
   SeletorDeVigenciaGeral,
@@ -688,7 +688,7 @@ function Cabecalho({
   /** O corpo ainda é o recorte anterior — ver `components/ui/em-atualizacao.tsx`. */
   atualizando: boolean;
 }) {
-  const alteracoesPorVigencia = useAlteracoesPorVigencia(view, consulta);
+  const resumoPorVigencia = useResumoPorVigencia(view, consulta);
   const ultimaComparacao = useMemo(() => {
     if (!view) return null;
     return (
@@ -696,10 +696,11 @@ function Cabecalho({
         .sort((a, b) => b.date.localeCompare(a.date))
         .find(
           (periodo) =>
-            periodo.date !== view.period && (alteracoesPorVigencia.get(periodo.date) ?? 0) > 0,
+            periodo.date !== view.period &&
+            (resumoPorVigencia.porVigencia.get(periodo.date)?.alteracoes ?? 0) > 0,
         ) ?? null
     );
-  }, [view, alteracoesPorVigencia]);
+  }, [view, resumoPorVigencia]);
   const unidade = view ? nomeDaUnidade(view.context) : null;
   const partes = visaoGeral
     ? overview
