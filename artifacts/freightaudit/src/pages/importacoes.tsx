@@ -273,10 +273,8 @@ interface DeletionPlan {
     changeSets: number;
     changes: number;
     entities: number;
-    attributes: number;
-    /** Colunas curadas que ficam sem dado — e que a exclusão não apaga. */
+    /** Colunas que ficam sem dado — e que a exclusão não apaga. Nenhuma sai. */
     attributesKept: number;
-    attributeSemantics: number;
     rawCells: number;
     rawRows: number;
     rawSheets: number;
@@ -2015,7 +2013,6 @@ function DeleteDialog({
         ["Comparações já calculadas", plan.removes.changeSets],
         ["Alterações dentro delas", plan.removes.changes],
         ["Equipamentos que ficam sem nenhum dado", plan.removes.entities],
-        ["Colunas que ficam sem nenhum dado e sem curadoria", plan.removes.attributes],
         ["Células RAW (a evidência do arquivo)", plan.removes.rawCells],
         ["Fatos em staging", plan.removes.stagedFacts],
         ["Apontamentos do pipeline", plan.removes.validationIssues],
@@ -2029,9 +2026,10 @@ function DeleteDialog({
           <DialogHeader>
             <DialogTitle>Excluir "{run.filename}"?</DialogTitle>
             <DialogDescription>
-              Isto apaga a importação e tudo o que só ela sustenta. Não há
-              desfazer: fica o registro de que foi excluída — quem, quando e o
-              que saiu —, não os dados.
+              Isto apaga o dado que só esta importação sustenta. O dicionário de
+              colunas fica — nenhuma coluna é apagada. Não há desfazer: fica o
+              registro de que foi excluída — quem, quando e o que saiu —, não os
+              dados.
             </DialogDescription>
           </DialogHeader>
 
@@ -2105,26 +2103,27 @@ function DeleteDialog({
                 </p>
               )}
 
-              {/* A coluna curada não sai, e quem exclui precisa saber disso
-                  tanto quanto precisa saber o que sai: é o que separa "perdi o
+              {/* O dicionário não sai, e quem exclui precisa saber disso tanto
+                  quanto precisa saber o que sai: é o que separa "perdi o
                   arquivo" de "perdi a semana que passei descrevendo colunas".
-                  Ver `CURADORIA_DO_ATRIBUTO` em `lib/ingest/src/deletion.ts`. */}
+                  Ver `attributesLeftWithoutData` em
+                  `lib/ingest/src/deletion.ts`. */}
               {plan.removes.attributesKept > 0 && (
                 <p className="text-sm text-emerald-900 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
                   {plan.removes.attributesKept === 1 ? (
                     <>
-                      Uma coluna fica sem dado nenhum, mas foi curada —{" "}
+                      Uma coluna fica sem dado nenhum —{" "}
                       <strong>ela não é apagada</strong>. Continua no dicionário
-                      com o que você escreveu nela, e volta a receber valores na
-                      próxima importação que a trouxer.
+                      com tudo o que foi escrito e confirmado nela, e volta a
+                      receber valores na próxima importação que a trouxer.
                     </>
                   ) : (
                     <>
                       {n(plan.removes.attributesKept)} colunas ficam sem dado
-                      nenhum, mas foram curadas —{" "}
-                      <strong>elas não são apagadas</strong>. Continuam no
-                      dicionário com o que você escreveu nelas, e voltam a
-                      receber valores na próxima importação que as trouxer.
+                      nenhum — <strong>elas não são apagadas</strong>. Continuam
+                      no dicionário com tudo o que foi escrito e confirmado
+                      nelas, e voltam a receber valores na próxima importação
+                      que as trouxer.
                     </>
                   )}
                 </p>
