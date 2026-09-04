@@ -246,6 +246,14 @@ const orphanEntities = (runId: string) => sql`
  * que esta consulta continua existindo: a prévia mostra quantas colunas ficam
  * assim antes de alguém confirmar a exclusão.
  *
+ * **E é por isso que a limpeza dessas colunas, se um dia existir, será uma
+ * operação separada e explícita.** Uma varredura de coluna órfã é uma decisão
+ * de quem cuida do dicionário — com a sua própria tela, a sua própria lista do
+ * que sairia e o seu próprio registro de quem mandou. O que ela nunca pode
+ * voltar a ser é efeito colateral de apagar dados: foi exatamente assim que o
+ * conhecimento se perdia, e nenhuma heurística nova sobre "isto parece
+ * abandonado" tem lugar dentro desta função.
+ *
  * ---------------------------------------------------------------------------
  * E o equipamento, que continua saindo
  * ---------------------------------------------------------------------------
