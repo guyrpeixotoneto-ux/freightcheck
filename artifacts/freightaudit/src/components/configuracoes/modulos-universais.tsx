@@ -1,8 +1,7 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Layers, Lock, Power, Search, ToggleLeft } from "lucide-react";
+import { Layers, Lock, Power, Search } from "lucide-react";
 import { ApiErrorNotice } from "@/components/api-error";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,7 +9,12 @@ import { Switch } from "@/components/ui/switch";
 import { AMBIENTES } from "@/lib/ambiente";
 import { fetchJson } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { MODULOS, chaveDoAmbiente, modulosPorGrupo } from "@/lib/permissoes";
+import {
+  MODULOS,
+  chaveDaSecao,
+  chaveDoAmbiente,
+  modulosPorGrupo,
+} from "@/lib/permissoes";
 import {
   CHAVE_DOS_MODULOS_UNIVERSAIS,
   useModulosUniversais,
@@ -37,13 +41,21 @@ import { cn } from "@/lib/utils";
  * faria competir com as outras duas pela mesma resposta; com dois, ela responde
  * uma pergunta que nenhuma delas fazia.
  *
- * **A seção é o botão que se procura, e o módulo é o que se grava.** Quem abre
- * esta tela quer desligar "Processos", e não sete endereços; quem lê o banco
- * precisa das mesmas chaves das outras duas camadas, senão o portão de escrita
- * não sabe o que fazer com elas. Então o botão da seção liga e desliga os
- * módulos dela de uma vez, e a seção some sozinha do menu quando fica sem
- * nenhum item — que é o comportamento que a lateral já tinha para restrição de
- * pessoa (`filtrarGrupos`, em `lib/permissoes.ts`).
+ * **A seção tem chave própria, e é ela que a seção grava.** Isto mudou, e mudou
+ * porque a versão anterior tinha um defeito de fábrica: o botão da seção
+ * gravava as chaves dos módulos que existiam **naquele instante**, e a seção
+ * sumia da lateral por consequência — todos os itens caíam, e o grupo ficava
+ * vazio. Bastava um módulo novo entrar na seção para ela voltar inteira ao menu
+ * de quem a tinha desligado, porque chave sem linha é chave ligada. Aconteceu
+ * três vezes em quatro dias, em setembro de 2026, nas duas seções do topo.
+ *
+ * Hoje a seção é `#<id>` — uma decisão só, sobre a seção como conceito — e a
+ * precedência é: **seção desligada vence módulo ligado**. O módulo que nascer
+ * amanhã dentro de uma seção desligada nasce invisível, sem ninguém precisar se
+ * lembrar de nada; e para devolver um módulo ao menu, a seção precisa voltar
+ * primeiro. O id da seção não sai do título dela (`nav.ts`): a mesma seção já se
+ * chamou "Plano de Ação", "Chamados" e "Chamados Ambev" em um mês, e uma chave
+ * derivada do rótulo teria apagado a decisão a cada renomeação.
  *
  * **A lista é o próprio menu**, montada em `lib/permissoes.ts` a partir das
  * mesmas funções que desenham as laterais — item novo aparece aqui sozinho, e
@@ -61,10 +73,28 @@ import { cn } from "@/lib/utils";
 
 const dateTime = (iso: string) => new Date(iso).toLocaleString("pt-BR");
 
-/** O nome de uma chave na tela — o ambiente por extenso, o módulo pelo rótulo. */
+/*
+  O catálogo agrupado é montado uma vez, no carregamento do módulo, como o
+  próprio `MODULOS`: `modulosPorGrupo()` é pura e a lista não muda enquanto a
+  aba estiver aberta. Chamá-la por linha de histórico — são até duzentas — era
+  remontar noventa módulos para responder um rótulo.
+*/
+const SECOES_DO_CATALOGO = modulosPorGrupo();
+
+/**
+ * O nome de uma chave na tela — o ambiente por extenso, o módulo pelo rótulo, a
+ * seção pelo título dela.
+ *
+ * O histórico é o principal leitor disto, e é ele que responde "por que esta
+ * tela sumiu?" meses depois. Uma linha dizendo `#visao-executiva` obrigaria
+ * quem lê a saber que aquilo é um id de seção; dizendo "Seção Visão executiva",
+ * não obriga.
+ */
 function rotuloDaChave(chave: string): string {
   const ambiente = AMBIENTES.find((a) => chaveDoAmbiente(a.id) === chave);
   if (ambiente) return ambiente.nomeCompleto;
+  const secao = SECOES_DO_CATALOGO.find((s) => chaveDaSecao(s.secao) === chave);
+  if (secao) return `Seção ${secao.grupo}`;
   return MODULOS.find((m) => m.chave === chave)?.rotulo ?? chave;
 }
 
@@ -111,11 +141,28 @@ export function PainelDeModulosUniversais() {
     onError: (err: Error) => setErro(err.message),
   });
 
+  /**
+   * As seções da tela, com os itens que a busca deixou passar.
+   *
+   * `itens` é o que se **mostra**; `total` é o tamanho real da seção. Os dois
+   * existem separados de propósito: enquanto a ação da seção gravava as chaves
+   * dos itens, ela agia sobre a lista filtrada — buscar "DRE" e clicar em
+   * "Desligar a seção" desligava a DRE e dizia ter desligado a Visão executiva.
+   *
+   * Hoje a ação da seção é **uma chave só** (`#visao-executiva`), então o filtro
+   * não tem como estreitar o alcance dela — nem por acidente nem por descuido de
+   * quem mexer aqui depois. `total` continua sendo lido para a tela poder dizer
+   * quantos itens a busca está escondendo, que é a outra metade do problema:
+   * agir sobre a seção inteira é certo, e deixar isso implícito não é.
+   */
   const secoes = useMemo(() => {
     const termo = busca.trim().toLowerCase();
-    return modulosPorGrupo()
+    return SECOES_DO_CATALOGO
       .map((secao) => ({
         ...secao,
+        total: secao.itens.length,
+        /** A seção inteira, como ela é no menu — a busca não a encolhe. */
+        todos: secao.itens,
         itens: secao.itens.filter(
           (m) =>
             termo === "" ||
@@ -138,7 +185,17 @@ export function PainelDeModulosUniversais() {
     );
   }, [busca]);
 
-  const desligadasNoMenu = MODULOS.filter((m) => desligadas.has(m.chave)).length;
+  /*
+    A contagem é do que está **fora do ar**, e não do que tem linha no banco: um
+    módulo cuja seção foi desligada não aparece para ninguém, e contá-lo como
+    ligado faria o número da tela discordar do menu que ela descreve.
+  */
+  const desligadasNoMenu = MODULOS.filter(
+    (m) => desligadas.has(m.chave) || desligadas.has(chaveDaSecao(m.secao)),
+  ).length;
+  const secoesDesligadas = SECOES_DO_CATALOGO.filter((s) =>
+    desligadas.has(chaveDaSecao(s.secao)),
+  ).length;
   const ambientesDesligados = AMBIENTES.filter((a) =>
     desligadas.has(chaveDoAmbiente(a.id)),
   ).length;
@@ -185,6 +242,11 @@ export function PainelDeModulosUniversais() {
                 numero={MODULOS.length - desligadasNoMenu}
                 rotulo="ligados"
                 cor="text-emerald-700"
+              />
+              <Contagem
+                numero={secoesDesligadas}
+                rotulo="seções desligadas"
+                cor={secoesDesligadas > 0 ? "text-rose-700" : "text-muted-foreground"}
               />
               <Contagem
                 numero={ambientesDesligados}
@@ -280,49 +342,91 @@ export function PainelDeModulosUniversais() {
 
           {!consulta.isLoading &&
             secoes.map((secao) => {
-              const chaves = secao.itens.map((m) => m.chave);
-              const ligados = chaves.filter((c) => !desligadas.has(c));
+              const chaveDela = chaveDaSecao(secao.secao);
+              const secaoLigada = !desligadas.has(chaveDela);
               /*
                 A seção protegida é a Administração, que tem `/configuracoes`
-                dentro: o botão da seção inteira desligaria uma chave que o
-                servidor recusa, e o pedido voltaria com 409 sem ter desligado
-                nada. Ele só oferece o que dá para fazer.
+                dentro: desligá-la esconderia esta tela sem tocar na chave dele,
+                e o servidor recusa com 409. O interruptor dela não é oferecido.
               */
-              const alternaveis = chaves.filter((c) => !protegidas.has(c));
+              const secaoProtegida = protegidas.has(chaveDela);
+              /*
+                A contagem é sobre a seção inteira (`todos`), e não sobre o que a
+                busca deixou na tela: um número que mudasse ao digitar diria que
+                a decisão mudou junto.
+              */
+              const ligadosNaSecao = secao.todos.filter(
+                (m) => !desligadas.has(m.chave),
+              ).length;
+              const escondidosPelaBusca = secao.total - secao.itens.length;
               return (
-                <div key={`${secao.ambiente}|${secao.grupo}`} className="rounded-md border">
+                <div key={`${secao.ambiente}|${secao.secao}`} className="rounded-md border">
                   <div className="flex flex-wrap items-center gap-2 bg-muted/50 px-4 py-2">
-                    <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    <span
+                      className={cn(
+                        "text-xs font-semibold uppercase tracking-wide",
+                        secaoLigada ? "text-muted-foreground" : "text-rose-700 line-through",
+                      )}
+                    >
                       {secao.grupo}
                     </span>
                     <span className="text-xs text-muted-foreground">
-                      {secao.ambiente} · {ligados.length} de {chaves.length} ligados
+                      {secao.ambiente} ·{" "}
+                      {secaoLigada
+                        ? `${ligadosNaSecao} de ${secao.total} módulos ligados`
+                        : `${secao.total} módulos fora do ar pela seção`}
                     </span>
-                    {alternaveis.length > 0 && (
+                    {secaoProtegida ? (
+                      <span className="ml-auto inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2 py-0.5 text-[0.625rem] font-bold uppercase tracking-wide text-muted-foreground">
+                        <Lock className="h-2.5 w-2.5" />
+                        Seção sempre ligada
+                      </span>
+                    ) : (
+                      /*
+                        Um interruptor, e não mais o botão que gravava as chaves
+                        dos módulos um a um. A diferença é o que a decisão
+                        alcança: o botão escrevia sobre os itens que existiam
+                        naquele instante — e, com busca ativa, só sobre os que
+                        estavam na tela. Este escreve `#<seção>`, que é a seção
+                        como conceito: vale para o módulo que nasce amanhã dentro
+                        dela e não tem como ser estreitado por um filtro visual.
+                      */
                       <span className="ml-auto flex items-center gap-2">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="h-8"
+                        <span className="text-xs text-muted-foreground">
+                          {secaoLigada ? "Seção no ar" : "Seção desligada"}
+                        </span>
+                        <Switch
+                          checked={secaoLigada}
                           disabled={bloqueado}
-                          onClick={() => {
-                            const ligar = ligados.length === 0;
-                            definir.mutate(
-                              Object.fromEntries(
-                                alternaveis.map((c) => [c, ligar]),
-                              ),
-                            );
-                          }}
-                        >
-                          <ToggleLeft className="w-3.5 h-3.5 mr-1.5" />
-                          {ligados.length === 0
-                            ? "Ligar a seção"
-                            : "Desligar a seção"}
-                        </Button>
+                          aria-label={`${secaoLigada ? "Desligar" : "Ligar"} a seção ${secao.grupo} inteira para todos os usuários`}
+                          onCheckedChange={(valor) =>
+                            definir.mutate({ [chaveDela]: valor })
+                          }
+                          data-testid={`switch-secao-${secao.secao}`}
+                        />
                       </span>
                     )}
                   </div>
+                  {!secaoLigada && (
+                    <p className="border-t bg-rose-50/60 px-4 py-2 text-xs text-rose-900">
+                      A seção inteira está fora do ar — inclusive os módulos que
+                      entrarem nela depois. Os interruptores abaixo continuam
+                      guardando a decisão de cada módulo, e voltam a valer quando a
+                      seção voltar.
+                    </p>
+                  )}
+                  {escondidosPelaBusca > 0 && (
+                    /*
+                      A busca esconde itens, e a ação da seção não os poupa — ela
+                      é sobre a seção. Dizer isso é o que impede a tela de
+                      parecer que o filtro delimitou a decisão.
+                    */
+                    <p className="border-t px-4 py-2 text-xs text-muted-foreground">
+                      A busca está escondendo {escondidosPelaBusca} de{" "}
+                      {secao.total} módulos desta seção. O interruptor da seção
+                      vale para os {secao.total}.
+                    </p>
+                  )}
                   {secao.itens.map((modulo) => (
                     <Linha
                       key={modulo.chave}
@@ -331,6 +435,13 @@ export function PainelDeModulosUniversais() {
                       chave={modulo.chave}
                       ligado={!desligadas.has(modulo.chave)}
                       protegida={protegidas.has(modulo.chave)}
+                      /*
+                        Com a seção desligada, o módulo não está no ar qualquer
+                        que seja o interruptor dele — e a tela diz isso em vez de
+                        oferecer um gesto que não muda nada. Para devolver um
+                        módulo ao menu, a seção precisa voltar primeiro.
+                      */
+                      forcadoPelaSecao={!secaoLigada}
                       desabilitado={bloqueado}
                       desligamento={
                         consulta.data?.desligadas.find(
@@ -365,6 +476,7 @@ function Linha({
   chave,
   ligado,
   protegida,
+  forcadoPelaSecao = false,
   desabilitado,
   desligamento,
   aoAlternar,
@@ -374,10 +486,22 @@ function Linha({
   chave: string;
   ligado: boolean;
   protegida: boolean;
+  /**
+   * A seção deste módulo está desligada — então ele não está no ar, qualquer
+   * que seja o interruptor dele.
+   *
+   * O interruptor continua **mostrando** a decisão de módulo, e não é
+   * sobrescrito: ela volta a valer quando a seção voltar, e apagá-la aqui faria
+   * ligar a seção devolver ao menu módulos que alguém tinha tirado um a um. O
+   * que ele não faz é aceitar clique — um gesto que não muda o que se vê é pior
+   * do que um gesto ausente.
+   */
+  forcadoPelaSecao?: boolean;
   desabilitado: boolean;
   desligamento: ModuloDesligado | null;
   aoAlternar: (ligado: boolean) => void;
 }) {
+  const noAr = ligado && !forcadoPelaSecao;
   return (
     <div className="flex flex-wrap items-center gap-3 border-t px-4 py-2.5">
       <span className="min-w-0 flex-1">
@@ -385,7 +509,7 @@ function Linha({
           <span
             className={cn(
               "text-sm font-semibold",
-              !ligado && "text-muted-foreground line-through",
+              !noAr && "text-muted-foreground line-through",
             )}
           >
             {titulo}
@@ -404,6 +528,12 @@ function Linha({
             voltar atrás.
           </span>
         )}
+        {forcadoPelaSecao && (
+          <span className="block text-xs text-rose-700">
+            Fora do ar pela seção{ligado ? "" : ", e desligado por conta própria também"}
+            {" "}· para devolvê-lo ao menu, ligue a seção primeiro
+          </span>
+        )}
         {!ligado && desligamento && (
           <span className="block text-xs text-rose-700">
             Desligado para todo mundo · {desligamento.desligadoPor} ·{" "}
@@ -414,7 +544,7 @@ function Linha({
       </span>
       <Switch
         checked={ligado}
-        disabled={desabilitado || protegida}
+        disabled={desabilitado || protegida || forcadoPelaSecao}
         aria-label={`${ligado ? "Desligar" : "Ligar"} ${titulo} para todos os usuários`}
         onCheckedChange={(valor) => aoAlternar(valor)}
         data-testid={`switch-universal-${chave}`}

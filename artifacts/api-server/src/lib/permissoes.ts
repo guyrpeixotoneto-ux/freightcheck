@@ -1,5 +1,13 @@
 import { and, desc, eq } from "drizzle-orm";
 import {
+  NIVEL_PADRAO,
+  chaveDaSecao,
+  ehNivel,
+  nivelDoModulo,
+  secaoGovernadaDe,
+  type Nivel,
+} from "@workspace/acesso";
+import {
   appUserTable,
   papelPermissaoTable,
   permissaoDeModuloEventoTable,
@@ -157,15 +165,22 @@ export function escritaForaDoAmbiente(caminho: string): boolean {
   );
 }
 
-export const NIVEIS = ["EDITAR", "VISUALIZAR", "SEM_ACESSO"] as const;
-export type Nivel = (typeof NIVEIS)[number];
-
-/** O que vale para quem nunca teve uma decisão tomada a respeito. */
-export const NIVEL_PADRAO: Nivel = "EDITAR";
-
-export function ehNivel(valor: unknown): valor is Nivel {
-  return typeof valor === "string" && (NIVEIS as readonly string[]).includes(valor);
-}
+/*
+  Os níveis, o padrão que concede e a composição vêm de `@workspace/acesso` —
+  o vocabulário que este servidor e a interface leem do mesmo lugar. Eram duas
+  cópias, e elas concordavam; a chave de seção deu à regra uma segunda dimensão
+  ("de que seção é este módulo"), e é aí que duas cópias deixam de concordar em
+  silêncio. Reexportados daqui para que nenhum chamador deste arquivo precise
+  saber que a casa do vocabulário mudou.
+*/
+export {
+  NIVEIS,
+  NIVEL_PADRAO,
+  chaveDaSecao,
+  ehNivel,
+  maisRestritivo,
+  type Nivel,
+} from "@workspace/acesso";
 
 /**
  * Os módulos cuja escrita o servidor sabe reconhecer, e o prefixo de API de
@@ -322,12 +337,25 @@ export async function permissoesDe(
   return (await permissoesDetalhadasDe(db, userId)).efetivas;
 }
 
-/** O nível de uma pessoa num módulo, já com o padrão aplicado. */
+/**
+ * O nível de uma pessoa num módulo, com a seção dele já pesada.
+ *
+ * **Seção desligada vence módulo ligado**, aqui como no menu, e pela mesma razão
+ * de a regra morar em `@workspace/acesso`: esconder e recusar precisam dizer a
+ * mesma coisa. Sem isto, desligar uma seção tiraria as telas da lateral e
+ * continuaria aceitando a escrita delas por chamada direta — uma decisão
+ * administrativa que vale só enquanto ninguém tenta.
+ *
+ * A seção sai de `secaoGovernadaDe`, que só conhece os módulos com escrita
+ * reconhecida — os mesmos de `ESCRITAS_POR_MODULO`. Para o resto ela devolve
+ * `null` e a leitura é a de sempre, o que é o certo: um módulo que este portão
+ * não sabe gatear não ganha um bloqueio novo por acidente de estar numa seção.
+ */
 export function nivelDe(
   permissoes: Record<string, Nivel>,
   modulo: string,
 ): Nivel {
-  return permissoes[modulo] ?? NIVEL_PADRAO;
+  return nivelDoModulo(permissoes, modulo, secaoGovernadaDe(modulo));
 }
 
 /** O nível de uma pessoa num ambiente, já com o padrão aplicado. */

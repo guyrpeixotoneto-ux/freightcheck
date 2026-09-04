@@ -89,12 +89,15 @@ describe("esconder é do menu, e some a seção que ficou vazia", () => {
 
   it("seção sem nenhum item sobrando não aparece com o título vazio", () => {
     const grupos = filtrarGrupos(
-      [{ titulo: "Compras", itens: [{ href: "/remunerado" }] }],
+      [{ id: "compras", titulo: "Compras", itens: [{ href: "/remunerado" }] }],
       { "/remunerado": "SEM_ACESSO" },
     );
     expect(grupos).toEqual([]);
   });
 });
+
+const porChave = (a: { chave: string }, b: { chave: string }) =>
+  a.chave < b.chave ? -1 : a.chave > b.chave ? 1 : 0;
 
 describe("o catálogo é o menu, e não uma segunda lista", () => {
   it("todo item do menu da Auditoria tem módulo", () => {
@@ -110,8 +113,40 @@ describe("o catálogo é o menu, e não uma segunda lista", () => {
     expect(new Set(chaves).size).toBe(chaves.length);
   });
 
-  it("os grupos da tela preservam a ordem e o total do catálogo", () => {
+  it("os grupos da tela preservam o total do catálogo, sem perder nem inventar", () => {
+    const agrupados = modulosPorGrupo().flatMap((s) => s.itens);
+
+    /*
+      Era `toEqual(MODULOS)` — a ordem plana, idêntica —, e isso deixou de valer
+      quando o catálogo passou a varrer as oito laterais. `/caminhao-360` entra
+      quando a varredura chega na Rota, muito depois de a Frota da Empurrada ter
+      sido escrita, e agrupar por trecho contíguo partia a Frota em dois blocos.
+      O agrupamento passou a ser por seção, e a ordem plana mudou junto.
+
+      O que a prova quer continua sendo o que ela sempre quis: que agrupar não
+      perca nem invente módulo. A ordem que importa — a das seções, e a dos
+      itens dentro de cada uma — está no teste seguinte.
+    */
+    expect([...agrupados].sort(porChave)).toEqual([...MODULOS].sort(porChave));
+  });
+
+  it("as seções saem na ordem em que o menu as apresenta, e cada uma inteira", () => {
     const agrupados = modulosPorGrupo();
-    expect(agrupados.flatMap((s) => s.itens)).toEqual(MODULOS);
+
+    /* A seção abre onde o primeiro módulo dela aparece no catálogo. */
+    const primeiraAparicao = agrupados.map((s) =>
+      MODULOS.findIndex((m) => m.chave === s.itens[0].chave),
+    );
+    expect(primeiraAparicao).toEqual([...primeiraAparicao].sort((a, b) => a - b));
+
+    /* E dentro da seção, a ordem é a do catálogo. */
+    for (const secao of agrupados) {
+      const indices = secao.itens.map((m) =>
+        MODULOS.findIndex((c) => c.chave === m.chave),
+      );
+      expect(indices, `${secao.grupo} fora de ordem`).toEqual(
+        [...indices].sort((a, b) => a - b),
+      );
+    }
   });
 });

@@ -65,10 +65,18 @@ router.put("/modulos-universais", async (req, res): Promise<void> => {
       A recusa da chave protegida é 409, e não 400: o pedido está bem formado —
       o que ele quer é que não pode ser feito. É a mesma distinção que `/users`
       faz entre "corpo inválido" e "isto trancaria a porta por dentro".
+
+      **Quem decide o código é o tipo do problema, e não o valor pedido.** Era
+      `valor === false ? 409 : 400`, e isso confundia as duas famílias: uma
+      chave malformada com `false` — `"visao-executiva"` sem o `#`, que é o
+      engano natural agora que a seção tem chave — voltava como 409, dizendo
+      "isto não pode ser desligado" sobre uma chave que o servidor nem
+      reconhece. Um corpo inválido é 400 em qualquer valor.
     */
     const problema = problemaDaChave(chave, valor);
     if (problema) {
-      res.status(valor === false ? 409 : 400).json({ error: problema });
+      const trancaria = valor === false && CHAVES_PROTEGIDAS.includes(chave);
+      res.status(trancaria ? 409 : 400).json({ error: problema });
       return;
     }
     chaves[chave] = valor;

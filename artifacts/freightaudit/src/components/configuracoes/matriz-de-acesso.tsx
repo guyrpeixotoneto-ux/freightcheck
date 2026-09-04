@@ -8,6 +8,7 @@ import {
   EXPLICACAO_DO_NIVEL,
   MODULOS,
   NIVEL_PADRAO,
+  chaveDaSecao,
   chaveDoAmbiente,
   modulosPorGrupo,
   type Nivel,
@@ -123,6 +124,18 @@ export function MatrizDeAcesso({
     () => new Set(universaisDesligadas ?? []),
     [universaisDesligadas],
   );
+
+  /**
+   * A casa desligou este módulo — direto, ou pela seção dele.
+   *
+   * As duas formas chegam aqui pela mesma lista, e têm de ser lidas juntas: um
+   * módulo cuja **seção** a casa desligou não aparece para ninguém, e mostrá-lo
+   * nesta tela como decidível faria a Permissões oferecer um botão que não muda
+   * o que se vê — e descrever como "exceção desta conta" uma restrição que não é
+   * desta conta.
+   */
+  const desligadaNaCasa = (modulo: { chave: string; secao: string }): boolean =>
+    desligadas.has(modulo.chave) || desligadas.has(chaveDaSecao(modulo.secao));
 
   const secoes = useMemo(() => {
     const termo = busca.trim().toLowerCase();
@@ -274,7 +287,7 @@ export function MatrizDeAcesso({
 
         {!carregando &&
           secoes.map((secao) => (
-            <div key={`${secao.ambiente}|${secao.grupo}`}>
+            <div key={`${secao.ambiente}|${secao.secao}`}>
               <div className="flex items-center gap-2 bg-muted/50 px-4 py-2">
                 <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   {secao.grupo}
@@ -306,13 +319,13 @@ export function MatrizDeAcesso({
                         herdado={herdado === undefined ? null : daBase}
                         excecao={herdado !== undefined && nivel !== daBase}
                         nomeDaHeranca={nomeDaHeranca ?? null}
-                        desligadaNaCasa={desligadas.has(modulo.chave)}
+                        desligadaNaCasa={desligadaNaCasa(modulo)}
                       />
                     </span>
                     <span className="flex items-center gap-1.5">
                       <BotoesDeNivel
                         nivel={nivel}
-                        desabilitado={desabilitado || desligadas.has(modulo.chave)}
+                        desabilitado={desabilitado || desligadaNaCasa(modulo)}
                         aoEscolher={(opcao) => aoEscolher({ [modulo.chave]: opcao })}
                       />
                       {herdado !== undefined && nivel !== daBase && (

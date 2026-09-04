@@ -9,6 +9,27 @@ import { usePapeis } from "./papeis-consulta";
 import { SECOES_GERAIS, estaEmPreparo, type SecaoDeConfiguracao } from "./secoes";
 
 /**
+ * O que a casa desligou, contado por tipo — seção, módulo e ambiente.
+ *
+ * As três formas de chave convivem na mesma tabela (`@workspace/acesso`), e
+ * somá-las num número só esconderia justamente a que pesa mais: uma seção
+ * desligada tira do menu todos os módulos dela, inclusive os que ainda não
+ * existem.
+ */
+function resumoDoQueEstaFora(chaves: string[]): string {
+  const conta = (marca: string) => chaves.filter((c) => c.startsWith(marca)).length;
+  const partes = [
+    [conta("#"), "seção", "seções"] as const,
+    [conta("/"), "módulo", "módulos"] as const,
+    [conta("@"), "ambiente", "ambientes"] as const,
+  ]
+    .filter(([quantos]) => quantos > 0)
+    .map(([quantos, um, varios]) => `${quantos} ${quantos === 1 ? um : varios}`);
+  return `${partes.join(" · ")} fora do ar`;
+}
+
+
+/**
  * O índice da casa: uma linha por seção, com o que cada uma já tem.
  *
  * A lista não é um menu bonito — ela é o **estado do cadastro**. Cada linha
@@ -167,13 +188,15 @@ export function IndiceDeConfiguracoes() {
       ? CARREGANDO
       : {
           pronta: false,
+          /*
+            A linha diz **o que** foi desligado, e não quantas linhas há no
+            banco. Desde que a seção virou decisão própria, uma linha só pode
+            estar tirando dez telas do menu — e "1 desligado para todo mundo"
+            descreveria isso como se fosse uma tela.
+          */
           resumo:
             universais.desligadas.length > 0
-              ? `${plural(
-                  universais.desligadas.length,
-                  "desligado para todo mundo",
-                  "desligados para todo mundo",
-                )}`
+              ? resumoDoQueEstaFora(universais.desligadas.map((d) => d.chave))
               : "Tudo ligado — o produto inteiro no ar",
         },
   );

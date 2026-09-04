@@ -23,6 +23,23 @@ export interface NavItem {
 }
 
 export interface NavGroup {
+  /**
+   * O id da seção — estável, e **independente do título**.
+   *
+   * Ele é a chave da decisão da casa sobre a seção inteira (`#chamados-ambev`,
+   * em `lib/permissoes.ts`), e por isso não pode ser derivado do rótulo. A mesma
+   * seção já se chamou "Plano de Ação", "Chamados" e "Chamados Ambev" no espaço
+   * de um mês; se a chave saísse do título, cada renomeação teria apagado em
+   * silêncio a decisão de quem a tinha desligado — que é exatamente o defeito
+   * que a chave de seção existe para não ter.
+   *
+   * Escreve-se uma vez, e não se troca. Trocar é desligar a decisão de quem já a
+   * tomou, sem aviso.
+   *
+   * A primeira seção do Fechamento leva o nome do ambiente no `titulo` — que
+   * muda entre os quatro — e um `id` só, porque é uma seção só.
+   */
+  id: string;
   titulo: string;
   /**
    * A frase que diz o que se faz na seção, para onde ela é lida sem a lista

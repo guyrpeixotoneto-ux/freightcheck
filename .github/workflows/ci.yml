@@ -180,6 +180,60 @@ jobs:
       - name: Instalar
         run: pnpm install --frozen-lockfile
 
+      # -----------------------------------------------------------------------
+      # Calar o log de checkpoint do Postgres — senão nenhuma falha é legível
+      # -----------------------------------------------------------------------
+      #
+      # A suíte cria e derruba um banco por arquivo de teste, e cada `CREATE
+      # DATABASE`/`DROP DATABASE` força um checkpoint. Com `log_checkpoints` no
+      # padrão (`on`, no Postgres 16), o container despeja duas linhas por
+      # checkpoint — medido em ~11 linhas por segundo, ~1900 das 1970 linhas de
+      # um job de quatro minutos.
+      #
+      # O efeito não é cosmético. O log do serviço é impresso todo de uma vez no
+      # fim do job, então ele **empurra a saída do vitest para fora do alcance**:
+      # quem lê a falha pela API do GitHub recebe a cauda, e a cauda é só
+      # `checkpoint complete`. Foi exatamente o que impediu o diagnóstico de uma
+      # reprovação do shard `unit` em 04/09/2026 — o job dizia que algo falhou e
+      # não havia como saber o quê sem abrir a página no navegador.
+      #
+      # **Por `ALTER SYSTEM`, e não pelas `options` do serviço.** As `options` de
+      # um service container são flags do `docker create`: `-c` ali é
+      # `--cpu-shares`, e passar `-c log_checkpoints=off` derruba o container em
+      # vez de configurar o Postgres. O GitHub não oferece `command` para
+      # serviços, então a configuração entra depois de o banco estar de pé.
+      # `log_checkpoints` é de contexto `sighup`, então o reload basta — não há
+      # restart nem janela sem banco.
+      #
+      # **E o eco do statement sai junto**, por `log_min_error_statement`. Tirado
+      # o checkpoint, o que sobrou de volume foi ele: o Postgres reimprime o
+      # comando que falhou, e aqui esse comando costuma ser uma migration
+      # inteira — cem linhas de SQL comentado por erro. Pior, quase todos esses
+      # erros são **de propósito**: são os testes provando que a imutabilidade
+      # da camada RAW recusa o UPDATE, que a competência encerrada recusa a
+      # escrita, que a FK segura a exclusão. Cada guarda que funciona custava
+      # cem linhas de log.
+      #
+      # Só o ruído sai. A mensagem do `ERROR` continua, com `DETAIL`, `HINT` e
+      # `CONTEXT` — é ela que diz o que aconteceu. O que deixa de ser reimpresso
+      # é o texto do comando, que em teste é conhecido e em migration está no
+      # arquivo.
+      #
+      # **Este passo não pode reprovar o job.** Ele melhora a legibilidade do
+      # log e mais nada; um `psql` ausente numa imagem futura de runner viraria
+      # uma reprovação que não fala sobre o código — o oposto do que ele existe
+      # para fazer. Sem `psql`, segue em frente e diz que seguiu.
+      - name: Calar o log de checkpoint do Postgres
+        run: |
+          if ! command -v psql >/dev/null 2>&1; then
+            echo "psql não está neste runner — o log do Postgres fica como está."
+            exit 0
+          fi
+          psql "$TEST_ADMIN_DATABASE_URL" -v ON_ERROR_STOP=1 \
+            -c "ALTER SYSTEM SET log_checkpoints = off" \
+            -c "ALTER SYSTEM SET log_min_error_statement = panic" \
+            -c "SELECT pg_reload_conf()"
+
       # Migrations e os dois workbooks reais de `attached_assets`. É o mesmo
       # caminho que um desenvolvedor roda para ter um banco de trabalho, e é de
       # propósito: um seed exclusivo de CI seria uma segunda verdade sobre o que

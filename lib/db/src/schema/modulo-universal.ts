@@ -25,11 +25,32 @@ import { pgTable, text, uuid, timestamp, boolean, index } from "drizzle-orm/pg-c
  * 2. **A ausência de linha é ligado**, na mesma direção do silêncio das outras
  *    duas tabelas: uma linha só existe quando alguém decidiu desligar. É o que
  *    faz a migration não mudar o menu de ninguém no dia em que ela roda.
- * 3. **A chave é a mesma das outras duas** — o endereço do item no menu, ou `@`
- *    mais o id do ambiente. Uma seção do menu não tem chave própria: desligar
- *    "Processos" é desligar os módulos dela, e a seção some sozinha quando fica
- *    vazia (`filtrarGrupos`, do lado da interface). Uma chave de seção seria um
- *    quarto tipo de chave que o portão de escrita não saberia ler.
+ * 3. **A chave tem três formas** — o endereço do item no menu, `@` mais o id do
+ *    ambiente, e `#` mais o id da seção. As três são disjuntas por construção,
+ *    e é isso que permite as três decisões conviverem numa coluna de texto sem
+ *    coluna de tipo. O vocabulário está escrito uma vez, em
+ *    `@workspace/acesso`, e é lido pelo menu e pelo portão de escrita.
+ *
+ *    A seção **não** tinha chave, e a razão escrita na `0086` era boa: desligar
+ *    "Processos" era desligar os módulos dela, e a seção sumia sozinha quando
+ *    ficava vazia (`filtrarGrupos`, do lado da interface). O que aquela razão
+ *    não previu foi o tempo. A decisão gravava as chaves dos módulos que
+ *    existiam **naquele instante**; um módulo novo dentro da seção nascia
+ *    ligado — chave sem linha é chave ligada, que é o silêncio que concede
+ *    nesta camada inteira — e devolvia a seção ao menu de quem a tinha
+ *    desligado. Aconteceu três vezes em quatro dias, em setembro de 2026.
+ *
+ *    A precedência agora é: **seção desligada vence módulo ligado**. O módulo
+ *    que nascer amanhã dentro de uma seção desligada nasce invisível, e para
+ *    devolver um módulo ao menu a seção precisa primeiro estar ligada. O id da
+ *    seção não sai do título dela (ver `NavGroup.id`, na interface): a mesma
+ *    seção já se chamou "Plano de Ação", "Chamados" e "Chamados Ambev" em um
+ *    mês, e uma chave derivada do rótulo teria apagado a decisão a cada
+ *    renomeação — o mesmo defeito, por outra porta.
+ *
+ *    O portão de escrita **sabe** ler a chave nova: `secaoGovernadaDe`, em
+ *    `@workspace/acesso`, diz de que seção é cada módulo que ele gateia, e um
+ *    teste da interface confere essa tabela contra o menu de verdade.
  *
  * O histórico vale pela mesma razão que vale nas outras duas, e mais um pouco:
  * este é o ato mais amplo que o produto oferece — ele muda o menu de todo mundo
@@ -39,7 +60,10 @@ import { pgTable, text, uuid, timestamp, boolean, index } from "drizzle-orm/pg-c
 export const moduloUniversalTable = pgTable(
   "modulo_universal",
   {
-    /** O `href` do item no menu, ou `@ambiente`. Linha aqui = desligado. */
+    /**
+     * O `href` do item no menu, `@ambiente` ou `#secao`. Linha aqui =
+     * desligado; a ausência de linha é ligado.
+     */
     chave: text("chave").primaryKey(),
     desligadoEm: timestamp("desligado_em", { withTimezone: true })
       .notNull()

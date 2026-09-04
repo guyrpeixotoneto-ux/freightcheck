@@ -69,6 +69,11 @@ import {
   LIMPAR_MARCADOR,
   MARCAR_DESCIDA,
 } from "./bridge-marcador";
+import {
+  TABELAS_GUARDADAS,
+  devolverConteudo,
+  guardarConteudo,
+} from "./bridge-guarda";
 
 // ---------------------------------------------------------------------------
 // O que o bridge move, nominalmente
@@ -332,6 +337,13 @@ export const ALLOWLIST: {
 
 /**
  * Tabelas que o `down` remove. Todas têm de estar vazias — é pré-condição.
+ *
+ * A exceção são as de `TABELAS_GUARDADAS` (`bridge-guarda.ts`), que o `down`
+ * também remove de `public` e cujo conteúdo ele **guarda** em vez de exigir
+ * ausente. Elas não estão nesta lista de propósito: aqui, "vazia" é a garantia
+ * de que não há o que perder; lá, a garantia é o cofre. As duas convivem porque
+ * o contrato com o Publishing é o mesmo nos dois casos — a tabela sai de
+ * `public`, e a proposta continua sem `CREATE TABLE`.
  *
  * `ticket_import_deletion` é da `0020`, e a pré-condição de vazia vale para ela
  * com um sentido a mais: é o registro das exclusões de envios de chamados, e
@@ -626,23 +638,21 @@ const TABELAS_REMOVIDAS = [
   "integracao_chave",
   "integracao",
   /*
-    As duas dos módulos universais, da `0086` — o que a instalação desligou para
-    todo mundo, e o histórico disso. Entram pelo mesmo motivo das outras tabelas
-    de módulo novo: Production não as conhece até a fila rodar lá.
+    As duas dos módulos universais, da `0086`, **saíram desta lista** e passaram
+    a viver em `TABELAS_GUARDADAS` (`bridge-guarda.ts`). Elas continuam sendo
+    removidas de `public` pelo `down`, pelo mesmo motivo das outras tabelas de
+    módulo novo — Production não as conhece até a fila rodar lá, e o contrato com
+    o Publishing não admite `CREATE TABLE` na proposta. O que mudou é o destino
+    do **conteúdo**: em vez de exigir tabela vazia, o `down` guarda as linhas no
+    schema `drizzle` e o `up` as devolve.
 
-    Não penduram em ninguém e ninguém pendura nelas: a chave é o endereço do
-    módulo, texto, como nas duas tabelas de permissão. A ordem entre si é
-    indiferente, e ficam juntas porque falam da mesma decisão.
-
-    A pré-condição de tabela vazia é a certa, e é da família de
-    `permissao_de_modulo`: cada linha é **decisão humana** — desta vez sobre o
-    produto inteiro, não sobre uma pessoa —, e nenhuma consulta a reconstrói.
-    Um Development com um módulo desligado trava o `down`, e travar é o
-    comportamento correto: descartar a linha devolveria ao menu de todo mundo
-    uma seção que a casa tinha decidido não usar.
+    A pré-condição de vazia era a errada aqui, e a razão é a que só apareceu com
+    o uso: o histórico é append-only e a interface nunca o apaga, então o
+    primeiro módulo que alguém desligasse travava o `down` para sempre. A única
+    saída oferecida era esvaziar as duas tabelas à mão — quer dizer, destruir a
+    decisão da casa e o registro de quem a tomou para conseguir publicar. Foi
+    assim que um menu inteiro voltou a aparecer para quem o tinha desligado.
   */
-  "modulo_universal_evento",
-  "modulo_universal",
   "unidade",
   /*
     O registro da normalização do Nome Gerencial, da `0089` — e ele entra aqui,
@@ -1150,10 +1160,14 @@ class BridgeAbortou extends Error {}
 // Leitura de estrutura
 // ---------------------------------------------------------------------------
 
-async function existeTabela(c: pg.PoolClient, nome: string): Promise<boolean> {
+async function existeTabela(
+  c: pg.PoolClient,
+  nome: string,
+  schema = "public",
+): Promise<boolean> {
   const { rows } = await c.query<{ e: boolean }>(
     `SELECT to_regclass($1) IS NOT NULL AS e`,
-    [`public."${nome}"`],
+    [`${schema}."${nome}"`],
   );
   return rows[0]!.e;
 }
@@ -1523,6 +1537,7 @@ export async function bridgeDown(
     // -----------------------------------------------------------------------
     const previstos = new Set<string>([
       ...TABELAS_REMOVIDAS,
+      ...TABELAS_GUARDADAS,
       ...TABELAS_DERIVADAS.map((t) => t.nome),
       ...TABELAS_DESCARTAVEIS,
       ...INDICES_REMOVIDOS,
@@ -1563,6 +1578,7 @@ export async function bridgeDown(
     };
     for (const alvo of [
       ...TABELAS_REMOVIDAS,
+      ...TABELAS_GUARDADAS,
       ...TABELAS_DERIVADAS.map((t) => t.nome),
       ...TABELAS_DESCARTAVEIS,
       "snapshot",
@@ -1604,8 +1620,25 @@ export async function bridgeDown(
         await exec(`ALTER TABLE "${t}" DROP COLUMN "${col}" RESTRICT`);
       }
     }
+    /*
+      O cofre entra **antes** do `DROP`, e dentro da mesma transação.
+
+      É a única ordem possível: depois do `DROP` não há de onde copiar. E é a
+      única garantia que faz sentido — um cofre escrito fora da transação
+      sobreviveria a um `down` que abortou, e passaria a descrever um estado que
+      o banco não tem. Ver `bridge-guarda.ts`, onde as duas tabelas e a razão
+      de elas não exigirem "vazia" estão por extenso.
+    */
+    const guardado = await guardarConteudo((sql, valores) =>
+      c.query(sql, valores as unknown[]),
+    );
+    for (const g of guardado) {
+      rel.ddl.push(`-- guardado: ${g.tabela} (${g.linhas} linha(s))`);
+    }
+
     for (const t of [
       ...TABELAS_REMOVIDAS,
+      ...TABELAS_GUARDADAS,
       ...TABELAS_DERIVADAS.map((d) => d.nome),
       ...TABELAS_DESCARTAVEIS,
     ]) {
@@ -1654,10 +1687,29 @@ export async function bridgeDown(
 
     for (const t of [
       ...TABELAS_REMOVIDAS,
+      ...TABELAS_GUARDADAS,
       ...TABELAS_DERIVADAS.map((d) => d.nome),
       ...TABELAS_DESCARTAVEIS,
     ]) {
       conferir(`${t} removida`, !(await existeTabela(c, t)), "ainda existe");
+    }
+    /*
+      As guardadas saíram de `public` como todas as outras — é isso que mantém a
+      proposta do Publishing sem `CREATE TABLE` — e o conteúdo delas está no
+      cofre. As duas coisas são conferidas: a de cima, pelo laço acima; esta, por
+      contagem, para o relatório dizer quantas linhas o `up` tem de devolver.
+    */
+    for (const g of guardado) {
+      conferir(
+        `${g.tabela} guardada`,
+        await existeTabela(c, `${g.tabela}__guardado`, "drizzle"),
+        "o cofre não foi escrito",
+      );
+      rel.verificacao.push({
+        nome: `${g.tabela} no cofre`,
+        ok: true,
+        detalhe: `${g.linhas} linha(s) para o up devolver`,
+      });
     }
     for (const [t, col] of COLUNAS_REMOVIDAS) {
       conferir(`${t}.${col} removida`, !(await existeColuna(c, t, col)), "ainda existe");
@@ -3237,8 +3289,17 @@ function planoUp(): PassoUp[] {
 
   /*
     A `0086` — os módulos universais. Duas tabelas sem chave estrangeira
-    nenhuma, que nascem e voltam vazias: a ausência de linha é "tudo ligado", e
-    é por isso que este bloco não repõe dado nenhum, ao contrário do da `0082`.
+    nenhuma, e este bloco repõe só a **estrutura** delas.
+
+    O conteúdo volta logo depois, e por outro caminho: `bridgeUp` chama
+    `devolverConteudo` (`bridge-guarda.ts`) assim que os passos do plano
+    terminam. A separação é de propósito — o plano é estrutura nominal levantada
+    do disco, migration por migration, e nenhum passo dele mexe em dados
+    (`mexeEmDados` recusa). Repor linha é escrita, e escrita mora fora do plano.
+
+    Foi este o bloco que dizia "nascem e voltam vazias". Voltavam mesmo: a
+    decisão da casa e o histórico de quem a tomou eram exigidos ausentes pelo
+    `down` e recriados do zero pelo `up`. Hoje o `down` guarda e o `up` devolve.
   */
   const M86 = "0086_modulos_universais";
   for (const tabela of ["modulo_universal", "modulo_universal_evento"]) {
@@ -3464,6 +3525,23 @@ export async function bridgeUp(connectionString: string): Promise<BridgeReport> 
     }
 
     /*
+      O cofre é devolvido **depois** da estrutura e **antes** do marcador.
+
+      Depois da estrutura porque as tabelas precisam existir para receber as
+      linhas; antes do marcador porque uma devolução que falhe tem de deixar o
+      bridge pendente — é a única forma de a próxima pessoa saber que ainda há
+      conteúdo guardado. `devolverConteudo` levanta erro em vez de descartar,
+      e o `catch` desta função converte isso em `rel.falha` com a transação
+      inteira desfeita: o cofre continua intacto para a tentativa seguinte.
+    */
+    const devolvido = await devolverConteudo((sql, valores) =>
+      c.query(sql, valores as unknown[]),
+    );
+    for (const d of devolvido) {
+      rel.ddl.push(`-- devolvido: ${d.tabela} (${d.linhas} linha(s))`);
+    }
+
+    /*
       O `up` concluiu: não há mais bridge pendente. Some junto com a restauração
       e pela mesma razão do `down` — se o `up` abortar, o marcador continua lá,
       que é a resposta certa para um bridge que ainda não terminou.
@@ -3478,6 +3556,15 @@ export async function bridgeUp(connectionString: string): Promise<BridgeReport> 
         adiadas.length > 0 ? `, ${adiadas.length} migration(s) adiada(s) para a fila` : ""
       }`,
     });
+    if (devolvido.length > 0) {
+      rel.verificacao.push({
+        nome: "conteúdo guardado devolvido",
+        ok: true,
+        detalhe: devolvido
+          .map((d) => `${d.tabela}: ${d.linhas} linha(s)`)
+          .join(", "),
+      });
+    }
     return rel;
   } catch (err) {
     await c.query("ROLLBACK").catch(() => {});
