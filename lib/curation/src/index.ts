@@ -12,3 +12,4 @@ export * from "./meaning";
 export * from "./planilha-de-atributos";
 export * from "./confirmations";
 export * from "./versioning";
+export * from "./nome-gerencial";

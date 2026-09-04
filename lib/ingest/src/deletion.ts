@@ -279,11 +279,14 @@ const attributeWithoutData = (runId: string) => sql`
  * `runProposalPass`. Fica dentro a prosa, que nenhum código replica.
  *
  * `display_name` entra pela mesma régua, e com uma condição: só conta quando é
- * **diferente** de `source_name`. A importação já criou a coluna com os dois
- * iguais — um campo que nasce preenchido com a resposta errada —, e é isso que
- * a migration `0089` desfaz. Enquanto houver base antiga sem a migration
- * aplicada, o `<>` é o que separa "alguém batizou esta coluna" de "a
- * importação copiou o nome de origem aqui".
+ * **diferente** de `source_name`. A promoção criava a coluna com os dois iguais
+ * — um campo que nasce preenchido com a resposta errada —, e essa cópia não é
+ * curadoria de ninguém. O `promote` já não a escreve, mas o legado continua no
+ * banco enquanto `normalizarNomeGerencial` não for rodado (ver
+ * `lib/curation/src/nome-gerencial.ts`, e o porquê de isso ser uma rotina com
+ * preflight em vez de uma migration). O `<>` é o que faz esta guarda funcionar
+ * nos dois estados: com o legado limpo ou sem, ela separa "alguém batizou esta
+ * coluna" de "a importação copiou o nome de origem aqui".
  */
 const CURADORIA_DO_ATRIBUTO = sql`(
           a.definition IS NOT NULL

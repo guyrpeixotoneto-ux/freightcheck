@@ -12,7 +12,8 @@
     "dev:seed": "pnpm --filter @workspace/curation exec tsx src/cli/dev-seed.ts",
     "curar:direcao-economica-trecho": "pnpm --filter @workspace/curation exec tsx src/cli/curar-direcao-economica-trecho.ts",
     "test": "pnpm -r --if-present --no-sort run test",
-    "test:limpar-templates": "pnpm --filter @workspace/db exec tsx ./src/limpar-templates-cli.ts"
+    "test:limpar-templates": "pnpm --filter @workspace/db exec tsx ./src/limpar-templates-cli.ts",
+    "normalizar:nome-gerencial": "pnpm --filter @workspace/curation exec tsx src/cli/normalizar-nome-gerencial.ts"
   },
   "private": true,
   "dependencies": {
