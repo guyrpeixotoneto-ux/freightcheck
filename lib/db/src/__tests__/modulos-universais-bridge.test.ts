@@ -88,19 +88,46 @@ async function comDecisaoDaCasa(): Promise<{ url: string; pool: pg.Pool }> {
   return banco;
 }
 
+/**
+ * A ordenação é feita **aqui**, e não no `ORDER BY`, e isso não é preferência.
+ *
+ * As chaves desta camada começam por `#`, `/` e `@` — três sinais de pontuação
+ * — e é justamente aí que duas collations discordam. Em `C.UTF-8` a ordem é a
+ * dos bytes (`#`=35 \< `/`=47 \< `@`=64); em `en_US.utf8`, que é o que a imagem
+ * `postgres:16` usa por padrão, o glibc despreza a pontuação na primeira
+ * passada e devolve outra ordem.
+ *
+ * Um teste que ancorasse na ordem do banco passaria na máquina de quem o
+ * escreveu e reprovaria na CI sem nada de errado no produto — foi exatamente o
+ * que aconteceu com este arquivo. O que ele mede é **o que sobreviveu ao
+ * bridge**, e isso não tem ordem: comparar conjuntos exige ordenar os dois
+ * lados pela mesma régua, e a régua confiável é a do JavaScript.
+ */
+const ordenado = (linhas: string[]): string[] =>
+  [...linhas].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+
 const chaves = async (pool: pg.Pool): Promise<string[]> => {
   const { rows } = await pool.query<{ chave: string }>(
-    `SELECT chave FROM "modulo_universal" ORDER BY chave`,
+    `SELECT chave FROM "modulo_universal"`,
   );
-  return rows.map((r) => r.chave);
+  return ordenado(rows.map((r) => r.chave));
 };
 
+/**
+ * O histórico, com a ordem estável e independente do banco.
+ *
+ * `em` não desempata: as cinco linhas entram na mesma transação, e `now()` é o
+ * mesmo instante para todas — o desempate real seria por `chave`, que é
+ * exatamente a coluna que a collation trata de formas diferentes. O que este
+ * teste quer é que **as mesmas linhas** voltem, e não que voltem numa ordem
+ * específica.
+ */
 const historico = async (pool: pg.Pool): Promise<string[]> => {
   const { rows } = await pool.query<{ linha: string }>(
     `SELECT chave || '|' || ligado || '|' || coalesce(motivo,'-') || '|' || por AS linha
-       FROM "modulo_universal_evento" ORDER BY em, chave, ligado`,
+       FROM "modulo_universal_evento"`,
   );
-  return rows.map((r) => r.linha);
+  return ordenado(rows.map((r) => r.linha));
 };
 
 describe("o ciclo do bridge não custa a decisão da casa", () => {
@@ -129,7 +156,13 @@ describe("o ciclo do bridge não custa a decisão da casa", () => {
     expect((await bridgeUp(dev.url)).falha).toBeUndefined();
 
     expect(await chaves(dev.pool)).toEqual(antes);
-    expect(antes).toEqual(["#qlp", "/fluxos", "@fechamento-as"]);
+    /*
+      As três formas de chave que esta camada conhece — seção, módulo e
+      ambiente —, para o teste dizer o que atravessou e não só que algo
+      atravessou. Ordenadas por `ordenado`, e não pelo banco: ver o comentário
+      dele.
+    */
+    expect(antes).toEqual(ordenado(["#qlp", "/fluxos", "@fechamento-as"]));
   }, 120_000);
 
   it("o up devolve o histórico inteiro, que é append-only e não se recompõe", async () => {
