@@ -25,6 +25,20 @@ import type { ModulosUniversais } from "@/components/configuracoes/modulos-unive
 
 const INTERVALO_DA_SESSAO_MS = 2 * 60 * 1000;
 
+/*
+  Prazos generosos, e eles não são o que o teste mede.
+
+  Esta montagem inclui a tela de Módulos Universais inteira — perto de noventa
+  linhas com `Switch` do Radix — mais a lateral. Num runner de CI com quatro
+  núcleos e uma dúzia de pacotes em paralelo, ela não cabe nos 5s que o vitest
+  dá a um teste por padrão. O que o teste prova continua sendo o mesmo, e a
+  prova de que não foi o relógio da sessão não depende destes números: ela é a
+  comparação com `INTERVALO_DA_SESSAO_MS`, que é quatro vezes maior que o pior
+  prazo daqui.
+*/
+const PRAZO = 30_000;
+const ESPERA = { timeout: 15_000 };
+
 let desligadas: string[] = [];
 const chamadas: string[] = [];
 
@@ -111,16 +125,15 @@ describe("a decisão chega ao menu por invalidação, e não pelo relógio", () 
     montar();
 
     /* A lateral começa com a seção no ar. */
-    await screen.findByTestId("secao-no-menu-visao-executiva");
+    await screen.findByTestId("secao-no-menu-visao-executiva", {}, ESPERA);
 
-    fireEvent.click(await screen.findByTestId("switch-secao-visao-executiva"));
-
-    await waitFor(
-      () => {
-        expect(screen.queryByTestId("secao-no-menu-visao-executiva")).toBeNull();
-      },
-      { timeout: 3_000 },
+    fireEvent.click(
+      await screen.findByTestId("switch-secao-visao-executiva", {}, ESPERA),
     );
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("secao-no-menu-visao-executiva")).toBeNull();
+    }, ESPERA);
 
     /*
       A prova de que não foi o `refetchInterval`: o teste inteiro coube em menos
@@ -132,7 +145,7 @@ describe("a decisão chega ao menu por invalidação, e não pelo relógio", () 
 
     /* E as outras seções continuam onde estavam. */
     expect(screen.getByTestId("secao-no-menu-chamados-ambev")).toBeTruthy();
-  });
+  }, PRAZO);
 
   it("ligar a seção de volta devolve a seção à lateral, na mesma sessão", async () => {
     desligadas = ["#visao-executiva"];
@@ -146,31 +159,29 @@ describe("a decisão chega ao menu por invalidação, e não pelo relógio", () 
     */
     await waitFor(() => {
       expect(screen.queryByTestId("secao-no-menu-visao-executiva")).toBeNull();
-    });
+    }, ESPERA);
     expect(screen.getByTestId("secao-no-menu-chamados-ambev")).toBeTruthy();
 
-    fireEvent.click(await screen.findByTestId("switch-secao-visao-executiva"));
-
-    await waitFor(
-      () => {
-        expect(screen.getByTestId("secao-no-menu-visao-executiva")).toBeTruthy();
-      },
-      { timeout: 3_000 },
+    fireEvent.click(
+      await screen.findByTestId("switch-secao-visao-executiva", {}, ESPERA),
     );
-  });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("secao-no-menu-visao-executiva")).toBeTruthy();
+    }, ESPERA);
+  }, PRAZO);
 
   it("desligar um módulo tira só aquele item, e a seção fica", async () => {
     montar();
-    await screen.findByTestId("secao-no-menu-visao-executiva");
+    await screen.findByTestId("secao-no-menu-visao-executiva", {}, ESPERA);
 
-    fireEvent.click(await screen.findByTestId("switch-universal-/dre"));
-
-    await waitFor(
-      () => {
-        expect(desligadas).toEqual(["/dre"]);
-      },
-      { timeout: 3_000 },
+    fireEvent.click(
+      await screen.findByTestId("switch-universal-/dre", {}, ESPERA),
     );
+
+    await waitFor(() => {
+      expect(desligadas).toEqual(["/dre"]);
+    }, ESPERA);
     expect(screen.getByTestId("secao-no-menu-visao-executiva")).toBeTruthy();
-  });
+  }, PRAZO);
 });
