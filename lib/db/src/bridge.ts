@@ -992,6 +992,20 @@ export const INDICES_REMOVIDOS = [
   // A `0061`: o índice da origem. Cai junto com a coluna, e é nomeado aqui
   // para que a verificação do `down` o cobre por escrito.
   "fact_origin_import_run_idx",
+  /*
+    Os quatro da `0090`, que servem à prévia de exclusão de importação.
+
+    Ficam em `change`, `entity` e `attribute` — tabelas que o `down` **não**
+    derruba —, então precisam sair por nome, como os da `0087`. As colunas que
+    indexam são antigas e continuam: o que sai é só o índice.
+
+    Nenhum é único e nenhum sustenta constraint, então o `down` não muda o que
+    o banco aceita — muda o plano de uma consulta, e a `0091` os repõe.
+  */
+  "change_entity_only_idx",
+  "change_attribute_only_idx",
+  "entity_first_seen_idx",
+  "attribute_first_seen_idx",
 ];
 
 /**
@@ -3430,6 +3444,25 @@ function planoUp(): PassoUp[] {
     "nome_gerencial_normalizado_em_idx",
   ]) {
     add(M89, `índice ${i}`, levantar(M89, new RegExp(`INDEX IF NOT EXISTS "${i}"`)));
+  }
+
+  /*
+    Os quatro índices da `0090`, que fazem a prévia de exclusão de importação
+    perguntar por candidato em vez de varrer o banco.
+
+    DDL pura, sem backfill: o `up` os repõe levantando o DDL da própria
+    migration. Repõe **completos** — um índice não guarda estado que se perca,
+    ele se reconstrói inteiro a partir da tabela —, e é por isso que aqui não
+    há a precondição de tabela vazia que a `0089` exige.
+  */
+  const M90 = "0090_indices_da_exclusao_de_importacao";
+  for (const i of [
+    "change_entity_only_idx",
+    "change_attribute_only_idx",
+    "entity_first_seen_idx",
+    "attribute_first_seen_idx",
+  ]) {
+    add(M90, `índice ${i}`, levantar(M90, new RegExp(`INDEX IF NOT EXISTS "${i}"`)));
   }
 
   return p;

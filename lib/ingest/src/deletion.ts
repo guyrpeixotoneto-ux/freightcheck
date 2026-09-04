@@ -31,7 +31,7 @@ import { isInsideImportStorage } from "./storage";
  * lugar onde mora tudo o que uma pessoa afirmou sobre ele. As colunas que
  * ficam sem nenhum valor ficam no dicionário assim mesmo, órfãs de dado e
  * inteiras de curadoria, e voltam a receber números na próxima importação que
- * as trouxer — ver {@link attributesLeftWithoutData}.
+ * as trouxer — ver {@link attributeIdsLeftWithoutData}.
  *
  * **O que ela se recusa a fazer.** Não apaga uma importação que outra corrigiu
  * depois: a mais nova sai primeiro, ou a história ficaria com a correção de um
@@ -54,7 +54,7 @@ export interface ImportDeletionCounts {
    * Colunas que ficam sem nenhum fato — e que, mesmo assim, **não** saem.
    *
    * Está aqui, entre contagens do que sai, porque é consequência da exclusão e
-   * quem exclui precisa vê-la. Ver {@link attributesLeftWithoutData}.
+   * quem exclui precisa vê-la. Ver {@link attributeIdsLeftWithoutData}.
    */
   attributesKept: number;
   /** A evidência: células, linhas e abas capturadas do arquivo. */
@@ -177,25 +177,128 @@ const runChangeSets = (runId: string) => sql`
  * quem só existia por causa deste arquivo — e quem foi criado por ele sem
  * chegar a receber fato nenhum.
  */
-const orphanEntities = (runId: string) => sql`
-  SELECT e.id FROM entity e
-   WHERE NOT EXISTS (
-           SELECT 1 FROM fact f
-            WHERE f.entity_id = e.id
-              AND f.snapshot_id NOT IN (${runSnapshots(runId)})
-         )
+/**
+ * O que executa uma consulta desta exclusão — o pool, ou a transação em curso.
+ *
+ * A prévia pergunta pelo pool; a exclusão pergunta de dentro da transação, com
+ * as triggers de imutabilidade destravadas. As duas chamam as mesmas funções
+ * daqui, e é só por isso que o número prometido na tela e o número que o banco
+ * cumpre não podem divergir.
+ */
+type Executor = Pick<Database, "execute">;
+
+async function idsDe(
+  db: Executor,
+  query: ReturnType<typeof sql>,
+): Promise<string[]> {
+  const { rows } = await db.execute<{ id: string }>(query);
+  return rows.map((r) => r.id);
+}
+
+/**
+ * Equipamentos que ficariam sem nenhum fato.
+ *
+ * A condição é "não sobra nada", nunca "foi esta importação que o criou": um
+ * equipamento visto pela primeira vez aqui, mas que aparece em mais cinco
+ * vigências, continua sendo o mesmo ativo e continua com o histórico dele. Sai
+ * quem só existia por causa deste arquivo — e quem foi criado por ele sem
+ * chegar a receber fato nenhum.
+ *
+ * ---------------------------------------------------------------------------
+ * Por que a pergunta é feita em dois passos
+ * ---------------------------------------------------------------------------
+ *
+ * A versão anterior era uma consulta só, e perguntava ao contrário: varria
+ * `entity` inteira e, para cada linha, pedia ao banco que provasse não haver
+ * fato **fora** desta importação. Escrito assim — `NOT IN (as minhas
+ * vigências)` —, o predicado é uma pergunta sobre o banco inteiro, e o plano
+ * dizia isso na cara: para contar 2.000 equipamentos, o Postgres varria os
+ * 1,8 milhão de `fact` e o 1,1 milhão de `change` e só então descartava as
+ * linhas do próprio run.
+ *
+ * O custo, então, não era o da importação que se quer excluir: era o do banco
+ * acumulado. Cada arquivo novo deixava a exclusão de todos os outros mais
+ * lenta — inclusive a das importações pequenas e antigas —, e a prévia, que é
+ * o que a tela espera antes de perguntar "tem certeza?", ia junto: dobrar
+ * dados de outras importações levava a mesma prévia de 391 ms para 1,3 s.
+ *
+ * Os dois passos abaixo invertem a pergunta. O primeiro nomeia os candidatos —
+ * que são exatamente a terceira condição da regra, a única que fala desta
+ * importação e por isso a única barata: quem ela criou, mais quem ela deu
+ * fato. O segundo checa só esses, um a um e por índice. A regra é a mesma e a
+ * resposta é a mesma; o que muda é o trabalho passar a ser proporcional à
+ * importação, e não ao banco.
+ */
+async function orphanEntityIds(
+  db: Executor,
+  runId: string,
+): Promise<string[]> {
+  const candidatos = await idsDe(
+    db,
+    sql`SELECT e.id FROM entity e
+         WHERE e.first_seen_import_run_id = ${runId}::uuid
+        UNION
+        SELECT f.entity_id AS id FROM fact f
+         WHERE f.snapshot_id IN (${runSnapshots(runId)})`,
+  );
+  if (candidatos.length === 0) return [];
+
+  return idsDe(
+    db,
+    sql`SELECT cand.id FROM unnest(${sql.param(candidatos)}::uuid[]) AS cand(id)
+         WHERE NOT EXISTS (${factDeOutroRun(sql`f.entity_id = cand.id`, runId)})
+           AND NOT EXISTS (${changeDeOutroRun(sql`c.entity_id = cand.id`, runId)})`,
+  );
+}
+
+/**
+ * "Este fato é de outra importação" — e por que virou um JOIN.
+ *
+ * `fact.snapshot_id` é NOT NULL e tem chave estrangeira para `snapshot`. Por
+ * isso "a vigência deste fato não está entre as minhas" e "a vigência deste
+ * fato é de outra importação" são a mesma frase. A segunda é a que o banco
+ * resolve por índice a partir do candidato; a primeira o obrigava a montar o
+ * conjunto inteiro antes de poder responder qualquer coisa.
+ */
+const factDeOutroRun = (correlacao: ReturnType<typeof sql>, runId: string) => sql`
+  SELECT 1 FROM fact f
+    JOIN snapshot s ON s.id = f.snapshot_id
+   WHERE ${correlacao}
+     AND s.import_run_id <> ${runId}::uuid`;
+
+/**
+ * "Esta alteração é de uma comparação que não é minha."
+ *
+ * A negação de {@link runChangeSets}: uma comparação é minha quando um dos
+ * dois lados é vigência desta importação.
+ *
+ * ---------------------------------------------------------------------------
+ * Por que o teste está escrito assim, e não pelas leis de De Morgan
+ * ---------------------------------------------------------------------------
+ *
+ * A forma óbvia é distribuir a negação — `cs.snapshot_a_id NOT IN (as minhas)
+ * AND cs.snapshot_b_id NOT IN (as minhas)` — e ela se lê melhor. Mas ela dá ao
+ * planejador um filtro barato sobre `change_set`, que é uma tabela pequena, e
+ * com isso o plano volta a ser o que esta reescrita veio corrigir: ele
+ * enumera as comparações que não são minhas e varre as alterações **de todas
+ * elas** — 1,1 milhão de linhas — em vez de partir do candidato. O índice por
+ * `entity_id` fica sem uso, e o passo 2 medido custa 145 ms em vez de 40 ms.
+ *
+ * Escrito como abaixo — correlacionado a `cs`, sem filtro isolado que valha a
+ * pena antecipar — não sobra plano barato pelo lado do `change_set`, e o
+ * banco faz o que se quer: uma sondagem por candidato, por índice.
+ */
+const changeDeOutroRun = (
+  correlacao: ReturnType<typeof sql>,
+  runId: string,
+) => sql`
+  SELECT 1 FROM change c
+    JOIN change_set cs ON cs.id = c.change_set_id
+   WHERE ${correlacao}
      AND NOT EXISTS (
-           SELECT 1 FROM change c
-            WHERE c.entity_id = e.id
-              AND c.change_set_id NOT IN (${runChangeSets(runId)})
-         )
-     AND (
-           e.first_seen_import_run_id = ${runId}::uuid
-           OR EXISTS (
-                SELECT 1 FROM fact f
-                 WHERE f.entity_id = e.id
-                   AND f.snapshot_id IN (${runSnapshots(runId)})
-              )
+           SELECT 1 FROM snapshot s
+            WHERE s.import_run_id = ${runId}::uuid
+              AND s.id IN (cs.snapshot_a_id, cs.snapshot_b_id)
          )`;
 
 /**
@@ -270,37 +373,45 @@ const orphanEntities = (runId: string) => sql`
  * vigência, sem layout de outra vigência, sem mapeamento de outra importação,
  * sem alteração já calculada. E só a que esta importação é responsável por ter
  * trazido — uma coluna que já estava vazia antes não é notícia da exclusão.
+ *
+ * Os dois passos são os de {@link orphanEntityIds}, e pelo mesmo motivo: a
+ * última condição — a que fala desta importação — é a barata, e por isso é a
+ * que nomeia os candidatos; as outras quatro só então checam esses, por
+ * índice. Antes elas varriam o dicionário inteiro para responder sobre trinta
+ * colunas.
  */
-const attributesLeftWithoutData = (runId: string) => sql`
-  SELECT a.id FROM attribute a
-   WHERE NOT EXISTS (
-           SELECT 1 FROM fact f
-            WHERE f.attribute_id = a.id
-              AND f.snapshot_id NOT IN (${runSnapshots(runId)})
-         )
-     AND NOT EXISTS (
-           SELECT 1 FROM snapshot_attribute sa
-            WHERE sa.attribute_id = a.id
-              AND sa.snapshot_id NOT IN (${runSnapshots(runId)})
-         )
-     AND NOT EXISTS (
-           SELECT 1 FROM column_mapping cm
-            WHERE cm.target_attribute_id = a.id
-              AND cm.import_run_id <> ${runId}::uuid
-         )
-     AND NOT EXISTS (
-           SELECT 1 FROM change c
-            WHERE c.attribute_id = a.id
-              AND c.change_set_id NOT IN (${runChangeSets(runId)})
-         )
-     AND (
-           a.first_seen_import_run_id = ${runId}::uuid
-           OR EXISTS (
-                SELECT 1 FROM fact f
-                 WHERE f.attribute_id = a.id
-                   AND f.snapshot_id IN (${runSnapshots(runId)})
-              )
-         )`;
+async function attributeIdsLeftWithoutData(
+  db: Executor,
+  runId: string,
+): Promise<string[]> {
+  const candidatos = await idsDe(
+    db,
+    sql`SELECT a.id FROM attribute a
+         WHERE a.first_seen_import_run_id = ${runId}::uuid
+        UNION
+        SELECT f.attribute_id AS id FROM fact f
+         WHERE f.snapshot_id IN (${runSnapshots(runId)})`,
+  );
+  if (candidatos.length === 0) return [];
+
+  return idsDe(
+    db,
+    sql`SELECT cand.id FROM unnest(${sql.param(candidatos)}::uuid[]) AS cand(id)
+         WHERE NOT EXISTS (${factDeOutroRun(sql`f.attribute_id = cand.id`, runId)})
+           AND NOT EXISTS (
+                 SELECT 1 FROM snapshot_attribute sa
+                   JOIN snapshot s ON s.id = sa.snapshot_id
+                  WHERE sa.attribute_id = cand.id
+                    AND s.import_run_id <> ${runId}::uuid
+               )
+           AND NOT EXISTS (
+                 SELECT 1 FROM column_mapping cm
+                  WHERE cm.target_attribute_id = cand.id
+                    AND cm.import_run_id <> ${runId}::uuid
+               )
+           AND NOT EXISTS (${changeDeOutroRun(sql`c.attribute_id = cand.id`, runId)})`,
+  );
+}
 
 async function count(db: Database, query: ReturnType<typeof sql>): Promise<number> {
   const { rows } = await db.execute<{ n: string }>(query);
@@ -402,79 +513,90 @@ export async function planImportDeletion(
   const run = await loadRun(db, importRunId);
   if (!run) return null;
 
-  const { rows: labelRows } = await db.execute<{ source_label: string }>(sql`
-    SELECT source_label FROM snapshot
-     WHERE import_run_id = ${importRunId}::uuid
-     ORDER BY effective_date`);
-  const labels = labelRows.map((r) => r.source_label);
+  /*
+    Tudo abaixo é pergunta sobre o mesmo `importRunId`, e nenhuma depende da
+    resposta de outra — a única que precisava vir antes, `loadRun`, já veio,
+    porque dela sai o `source_file_id`.
 
-  const { rows: restoredRows } = await db.execute<{ source_label: string }>(sql`
-    SELECT anterior.source_label
-      FROM snapshot atual
-      JOIN snapshot anterior ON anterior.id = atual.supersedes_snapshot_id
-     WHERE atual.import_run_id = ${importRunId}::uuid
-       AND anterior.status = 'SUPERSEDED'
-     ORDER BY anterior.effective_date`);
-
-  const posteriores = await supersededByLaterRun(db, importRunId);
-  const releituras = await releiturasDe(db, importRunId);
-  const refusal =
-    whyCannotDelete(run.status, run.started_at) ??
-    (posteriores.length > 0
-      ? `A vigência ${posteriores[0].label} desta importação foi corrigida depois por "${posteriores[0].filename}". ` +
-        `Exclua a importação mais recente primeiro — ou o sistema ficaria com uma correção sobre um dado que não existe mais.`
-      : null);
-
-  const removes: ImportDeletionCounts = {
-    snapshots: labels.length,
-    facts: await count(
+    Em série eram dezesseis idas ao banco enfileiradas, e a tela esperava a
+    soma de todas. Juntas, custam a mais lenta. Vale porque `db` aqui é sempre
+    o pool: `planImportDeletion` roda fora da transação, inclusive quando quem
+    chama é `deleteImportRun` — dentro de uma transação estas consultas
+    disputariam a mesma conexão e voltariam a ser sequenciais.
+  */
+  const [
+    labelRows,
+    restoredRows,
+    posteriores,
+    releituras,
+    orfaos,
+    semDado,
+    facts,
+    changeSets,
+    changes,
+    rawCells,
+    rawRows,
+    rawSheets,
+    stagedFacts,
+    validationIssues,
+    columnMappings,
+    sourceFile,
+  ] = await Promise.all([
+    db.execute<{ source_label: string }>(sql`
+      SELECT source_label FROM snapshot
+       WHERE import_run_id = ${importRunId}::uuid
+       ORDER BY effective_date`),
+    db.execute<{ source_label: string }>(sql`
+      SELECT anterior.source_label
+        FROM snapshot atual
+        JOIN snapshot anterior ON anterior.id = atual.supersedes_snapshot_id
+       WHERE atual.import_run_id = ${importRunId}::uuid
+         AND anterior.status = 'SUPERSEDED'
+       ORDER BY anterior.effective_date`),
+    supersededByLaterRun(db, importRunId),
+    releiturasDe(db, importRunId),
+    orphanEntityIds(db, importRunId),
+    attributeIdsLeftWithoutData(db, importRunId),
+    count(
       db,
       sql`SELECT count(*) AS n FROM fact WHERE snapshot_id IN (${runSnapshots(importRunId)})`,
     ),
-    changeSets: await count(
+    count(
       db,
       sql`SELECT count(*) AS n FROM change_set WHERE id IN (${runChangeSets(importRunId)})`,
     ),
-    changes: await count(
+    count(
       db,
       sql`SELECT count(*) AS n FROM change WHERE change_set_id IN (${runChangeSets(importRunId)})`,
     ),
-    entities: await count(
-      db,
-      sql`SELECT count(*) AS n FROM entity WHERE id IN (${orphanEntities(importRunId)})`,
-    ),
-    attributesKept: await count(
-      db,
-      sql`SELECT count(*) AS n FROM attribute WHERE id IN (${attributesLeftWithoutData(importRunId)})`,
-    ),
-    rawCells: await count(
+    count(
       db,
       sql`SELECT count(*) AS n FROM raw_cell WHERE raw_row_id IN (${runRows(importRunId)})`,
     ),
-    rawRows: await count(
+    count(
       db,
       sql`SELECT count(*) AS n FROM raw_row WHERE raw_sheet_id IN (${runSheets(importRunId)})`,
     ),
-    rawSheets: await count(
+    count(
       db,
       sql`SELECT count(*) AS n FROM raw_sheet WHERE import_run_id = ${importRunId}::uuid`,
     ),
-    stagedFacts: await count(
+    count(
       db,
       sql`SELECT count(*) AS n FROM staged_fact WHERE import_run_id = ${importRunId}::uuid`,
     ),
-    validationIssues: await count(
+    count(
       db,
       sql`SELECT count(*) AS n FROM validation_issue WHERE import_run_id = ${importRunId}::uuid`,
     ),
-    columnMappings: await count(
+    count(
       db,
       sql`SELECT count(*) AS n FROM column_mapping WHERE import_run_id = ${importRunId}::uuid`,
     ),
     // O arquivo recebido é compartilhado: uma tentativa recusada como duplicata
     // aponta para o mesmo `source_file`. Ele só sai quando ninguém mais o usa —
     // e é a saída dele que devolve ao operador o direito de reenviar o arquivo.
-    sourceFile: await count(
+    count(
       db,
       sql`SELECT count(*) AS n FROM source_file sf
            WHERE sf.id = ${run.source_file_id}::uuid
@@ -489,6 +611,30 @@ export async function planImportDeletion(
                       AND s.import_run_id <> ${importRunId}::uuid
                  )`,
     ),
+  ]);
+
+  const labels = labelRows.rows.map((r) => r.source_label);
+  const refusal =
+    whyCannotDelete(run.status, run.started_at) ??
+    (posteriores.length > 0
+      ? `A vigência ${posteriores[0].label} desta importação foi corrigida depois por "${posteriores[0].filename}". ` +
+        `Exclua a importação mais recente primeiro — ou o sistema ficaria com uma correção sobre um dado que não existe mais.`
+      : null);
+
+  const removes: ImportDeletionCounts = {
+    snapshots: labels.length,
+    facts,
+    changeSets,
+    changes,
+    entities: orfaos.length,
+    attributesKept: semDado.length,
+    rawCells,
+    rawRows,
+    rawSheets,
+    stagedFacts,
+    validationIssues,
+    columnMappings,
+    sourceFile,
   };
 
   return {
@@ -498,7 +644,7 @@ export async function planImportDeletion(
     status: run.status,
     receivedAt: run.received_at,
     labels,
-    restoredLabels: restoredRows.map((r) => r.source_label),
+    restoredLabels: restoredRows.rows.map((r) => r.source_label),
     reprocessamentosReancorados: releituras.map((r) => r.id),
     refusal,
     removes,
@@ -541,11 +687,8 @@ export async function deleteImportRun(
     //
     // Só equipamento. A coluna que ficar sem dado fica no dicionário — não há
     // lista de colunas a apagar porque não se apaga coluna nenhuma; ver
-    // `attributesLeftWithoutData`.
-    const { rows: entidades } = await tx.execute<{ id: string }>(
-      orphanEntities(importRunId),
-    );
-    const entityIds = entidades.map((e) => e.id);
+    // `attributeIdsLeftWithoutData`.
+    const entityIds = await orphanEntityIds(tx, importRunId);
 
     // As revisões que esta importação tinha superado, anotadas enquanto o
     // ponteiro `supersedes_snapshot_id` ainda existe: quem sabe qual vigência

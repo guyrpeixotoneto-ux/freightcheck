@@ -239,5 +239,16 @@ export const changeTable = pgTable(
     index("change_entity_idx").on(t.changeSetId, t.entityId),
     index("change_type_idx").on(t.changeSetId, t.changeType),
     index("change_cost_class_idx").on(t.changeSetId, t.costClass),
+    /* Os dois acima que citam `entity_id` e `attribute_id` os têm como segunda
+       coluna, atrás do `change_set_id`: servem a "as alterações deste conjunto,
+       por equipamento", que é como as telas de comparação leem.
+
+       A exclusão pergunta o contrário — "este equipamento tem alteração em
+       algum outro conjunto?" —, sem saber o conjunto, e para essa pergunta um
+       índice com o `change_set_id` na frente não serve. Sem os dois abaixo, a
+       prévia de exclusão varria a tabela `change` inteira para responder sobre
+       alguns milhares de equipamentos. */
+    index("change_entity_only_idx").on(t.entityId),
+    index("change_attribute_only_idx").on(t.attributeId),
   ],
 );

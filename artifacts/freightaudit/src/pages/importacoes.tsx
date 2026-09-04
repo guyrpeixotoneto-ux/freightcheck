@@ -2106,7 +2106,7 @@ function DeleteDialog({
               {/* O dicionário não sai, e quem exclui precisa saber disso tanto
                   quanto precisa saber o que sai: é o que separa "perdi o
                   arquivo" de "perdi a semana que passei descrevendo colunas".
-                  Ver `attributesLeftWithoutData` em
+                  Ver `attributeIdsLeftWithoutData` em
                   `lib/ingest/src/deletion.ts`. */}
               {plan.removes.attributesKept > 0 && (
                 <p className="text-sm text-emerald-900 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">

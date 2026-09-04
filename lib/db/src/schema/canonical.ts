@@ -47,7 +47,12 @@ export const entityTable = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (t) => [index("entity_type_idx").on(t.entityType)],
+  (t) => [
+    index("entity_type_idx").on(t.entityType),
+    /* Quem esta importação criou — o primeiro passo da prévia de exclusão, que
+       parte dos candidatos em vez de varrer a tabela. Ver `orphanEntityIds`. */
+    index("entity_first_seen_idx").on(t.firstSeenImportRunId),
+  ],
 );
 
 /**
@@ -503,6 +508,9 @@ export const attributeTable = pgTable(
   (t) => [
     uniqueIndex("attribute_code_uq").on(t.code),
     index("attribute_entity_type_idx").on(t.entityType),
+    /* O par do `entity_first_seen_idx`, pelo mesmo motivo: ver
+       `attributeIdsLeftWithoutData`. */
+    index("attribute_first_seen_idx").on(t.firstSeenImportRunId),
   ],
 );
 

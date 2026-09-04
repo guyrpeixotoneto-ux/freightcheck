@@ -71,7 +71,7 @@ describe("a prévia diz o que sairia, antes de sair", () => {
     expect(plano!.removes.rawCells).toBeGreaterThan(0);
     expect(plano!.removes.entities).toBeGreaterThan(0);
     // Colunas que ficam sem dado — contadas para aparecer na prévia, e
-    // nenhuma delas apagada. Ver `attributesLeftWithoutData`.
+    // nenhuma delas apagada. Ver `attributeIdsLeftWithoutData`.
     expect(plano!.removes.attributesKept).toBeGreaterThan(0);
     // O arquivo é só desta importação, então ele sai junto — é o que devolve
     // ao operador o direito de reenviá-lo.

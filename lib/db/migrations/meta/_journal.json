@@ -631,6 +631,20 @@
       "when": 1789500300000,
       "tag": "0089_normalizacao_do_nome_gerencial",
       "breakpoints": true
+    },
+    {
+      "idx": 90,
+      "version": "7",
+      "when": 1789500400000,
+      "tag": "0090_indices_da_exclusao_de_importacao",
+      "breakpoints": true
+    },
+    {
+      "idx": 91,
+      "version": "7",
+      "when": 1789500500000,
+      "tag": "0091_reconciliar_indices_da_exclusao",
+      "breakpoints": true
     }
   ]
 }
