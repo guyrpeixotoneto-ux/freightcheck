@@ -27,7 +27,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ReguaDeDias } from "@/components/monitoramento/regua-de-dias";
-import { ResumoDoDiaPainel } from "@/components/monitoramento/resumo-do-dia";
+import {
+  ResumoDoDiaPainel,
+  temComplementos,
+  temResumoDoDia,
+} from "@/components/monitoramento/resumo-do-dia";
 import { ListaDeMovimentacoes } from "@/components/monitoramento/lista-de-movimentacoes";
 import { ListaDeChamados } from "@/components/monitoramento/lista-de-chamados";
 import { STATUS_LABELS } from "@/components/changes/ticket-table";
@@ -176,9 +180,14 @@ import {
  * pergunta que tem resposta em todo dia em que chegou arquivo.
  *
  * O delta não sumiu do topo: a faixa abaixo dos cartões continua trazendo a
- * frase do dia, a barra de progresso e o botão de continuar a revisão, e o
- * painel da direita mantém movimentações e "aguardando revisão". O que mudou é
- * qual dos dois grãos ocupa os três números grandes.
+ * frase do dia, a barra de progresso e o botão de continuar a revisão. O que
+ * mudou é qual dos dois grãos ocupa os três números grandes.
+ *
+ * E o painel da direita foi atrás, um passo depois: ele conta o delta, e num
+ * dia sem movimentação estava mostrando "0 movimentações" e "0 aguardando
+ * revisão" — os mesmos dois zeros de que os cartões tinham sido livrados, um
+ * palmo à direita deles. Sem movimentação ele não é montado, a grade perde a
+ * segunda coluna e o cabeçalho fica largo como a lista. Ver `temResumoDoDia`.
  */
 
 const POR_PAGINA = 25;
@@ -316,6 +325,15 @@ export default function MonitoramentoDeChamados() {
     haver número.
   */
   const situacoes = resumo?.situacoesNoEnvio ?? null;
+  /*
+    Se a tela tem duas colunas neste dia.
+
+    Enquanto o resumo não chegou isto é `false`, e é a resposta certa: a
+    existência do painel depende do número que ainda está vindo, e reservar a
+    coluna "por via das dúvidas" seria a tira vazia de volta na maioria dos
+    dias, agora durante a espera.
+  */
+  const painelDoDia = temResumoDoDia(resumo);
   const frase = fraseDoDia(resumo);
   const progresso = progressoDoDia(resumo);
   const movimentacoes = lista.dados?.rows ?? [];
@@ -568,7 +586,23 @@ export default function MonitoramentoDeChamados() {
           }}
         />
 
-        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
+        {/*
+          A segunda coluna existe quando o dia tem o que pôr nela.
+
+          Sem movimentação o painel não é montado (ver `temResumoDoDia`), e uma
+          coluna de 320px reservada para nada é a mesma tira vazia que esta tela
+          acabou de perder ao lado da lista. A grade vira uma coluna só, e o
+          cabeçalho fica largo como a lista — daí `col-span-2` viajar junto com
+          o painel: num grid de uma coluna ele criaria uma segunda, implícita,
+          e empurraria metade da página para fora da tela.
+        */}
+        <div
+          className={cn(
+            "grid gap-5",
+            painelDoDia &&
+              "lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start",
+          )}
+        >
           <div className="space-y-5 min-w-0">
             {/*
               Os três cartões contam a **fila do dia**, e não o delta.
@@ -716,270 +750,308 @@ export default function MonitoramentoDeChamados() {
                 o que mudou.
               </div>
             )}
-
-            <div>
-              {/*
-                As duas leituras do mesmo dia, e a escolha entre elas.
-
-                Controle segmentado, e não uma terceira fileira de abas: as abas
-                de baixo recortam **uma** população — as movimentações —, e
-                repetir a forma delas aqui sugeriria que "Chamados do envio" é
-                mais um recorte da mesma coisa. Não é: é a população de onde as
-                movimentações saíram, e os dois números nunca somam.
-              */}
-              <div
-                role="tablist"
-                aria-label="o que a lista mostra"
-                className="inline-flex rounded-xl border bg-muted/50 p-1"
-              >
-                <VisaoBotao
-                  active={visao === "movimentacoes"}
-                  onClick={() => trocarDeVisao("movimentacoes")}
-                  icon={<TrendingUp className="h-4 w-4" />}
-                  label="Movimentações"
-                  hint="o que mudou entre a importação anterior e a deste dia"
-                  count={resumo?.movimentacoes}
-                />
-                <VisaoBotao
-                  active={visao === "chamados"}
-                  onClick={() => trocarDeVisao("chamados")}
-                  icon={<FileSpreadsheet className="h-4 w-4" />}
-                  label="Chamados do envio"
-                  hint="a relação inteira que a planilha importada trouxe, tenha se mexido ou não"
-                  count={chamadosNoEnvio}
-                />
-              </div>
-
-              {visao === "movimentacoes" ? (
-                <>
-                  <div className="flex items-center gap-1 border-b overflow-x-auto mt-4">
-                    {ABAS.map((nome) => (
-                      <AbaBotao
-                        key={nome}
-                        active={aba === nome}
-                        onClick={() => {
-                          setPagina(1);
-                          trocar({ aba: nome });
-                        }}
-                        label={ROTULO_DA_ABA[nome].label}
-                        hint={ROTULO_DA_ABA[nome].hint}
-                        count={contagemDaAba(resumo, nome)}
-                      />
-                    ))}
-                  </div>
-
-                  {resumo !== null && resumo.movimentacoes > 0 && (
-                    <div className="flex flex-wrap gap-2 py-3">
-                      <FiltroSelect
-                        rotulo="Unidade"
-                        valor={filtros.unidade}
-                        opcoes={resumo.filtros.unidades}
-                        onChange={(v) => {
-                          setPagina(1);
-                          setFiltros((f) => ({ ...f, unidade: v }));
-                        }}
-                      />
-                      <FiltroSelect
-                        rotulo="Área"
-                        valor={filtros.area}
-                        opcoes={resumo.filtros.areas}
-                        onChange={(v) => {
-                          setPagina(1);
-                          setFiltros((f) => ({ ...f, area: v }));
-                        }}
-                      />
-                      <FiltroSelect
-                        rotulo="Responsável"
-                        valor={filtros.responsavel}
-                        opcoes={resumo.filtros.responsaveis}
-                        onChange={(v) => {
-                          setPagina(1);
-                          setFiltros((f) => ({ ...f, responsavel: v }));
-                        }}
-                      />
-                      <FiltroSelect
-                        rotulo="Tipo de alteração"
-                        valor={filtros.tipoDeAlteracao}
-                        opcoes={resumo.filtros.tiposDeAlteracao}
-                        rotuloDaOpcao={(t) => ROTULO_DO_TIPO[t] ?? t}
-                        onChange={(v) => {
-                          setPagina(1);
-                          setFiltros((f) => ({ ...f, tipoDeAlteracao: v }));
-                        }}
-                      />
-                    </div>
-                  )}
-
-                  <h2 className="text-sm font-bold uppercase tracking-wide text-muted-foreground pt-3 pb-2">
-                    Alterações do dia
-                  </h2>
-
-                  {movimentacoes.length === 0 && !lista.carregando && !decidindo ? (
-                    <div className="rounded-xl border bg-card px-5 py-10 text-center text-sm text-muted-foreground space-y-3">
-                      <div>
-                        {resumo?.movimentacoes === 0
-                          ? (frase?.titulo ?? "Nenhuma movimentação neste dia.")
-                          : "Nenhuma movimentação com estes filtros."}
-                      </div>
-                      {/*
-                        O caminho para fora do vazio, e a razão desta tela ter
-                        ganhado uma segunda visão: um dia sem movimentação **não
-                        é** um dia sem chamado, e a frase acima, sozinha, era
-                        lida como "o import não trouxe nada". O botão só aparece
-                        quando há relação a mostrar — um convite para uma lista
-                        vazia seria a mesma promessa quebrada em outro lugar.
-                      */}
-                      {chamadosNoEnvio > 0 && (
-                        <Button
-                          variant="outline"
-                          onClick={() => trocarDeVisao("chamados")}
-                        >
-                          <FileSpreadsheet className="h-4 w-4" />
-                          Ver {chamadosNoEnvio.toLocaleString("pt-BR")} chamados do
-                          envio
-                        </Button>
-                      )}
-                    </div>
-                  ) : (
-                    <>
-                      <ListaDeMovimentacoes
-                        movimentacoes={movimentacoes}
-                        carregando={lista.carregando || decidindo}
-                        ocupadas={ocupadas}
-                        onRevisar={revisar}
-                        onDesfazer={desfazer}
-                      />
-                      {(lista.dados?.total ?? 0) > POR_PAGINA && (
-                        <Paginacao
-                          pagina={pagina}
-                          porPagina={POR_PAGINA}
-                          total={lista.dados?.total ?? 0}
-                          onPagina={setPagina}
-                          unidade="movimentações"
-                          className="pt-3"
-                        />
-                      )}
-                    </>
-                  )}
-                </>
-              ) : (
-                <>
-                  {/*
-                    A procedência antes da lista, como na aba Chamados: esta é a
-                    relação do arquivo de outra pessoa, e mostrá-la sem dizer de
-                    que arquivo ela é seria pedir confiança sem dar conferência.
-                  */}
-                  {procedencia && (
-                    <div className="pt-4 font-mono text-xs text-muted-foreground">
-                      {procedencia}
-                    </div>
-                  )}
-
-                  {dadosDaFila !== null && dadosDaFila.total > 0 && (
-                    <div className="flex flex-wrap gap-2 py-3">
-                      <FiltroSelect
-                        rotulo="Unidade"
-                        valor={filtros.unidade}
-                        opcoes={dadosDaFila.filtros.unidades}
-                        onChange={(v) => {
-                          setPagina(1);
-                          setFiltros((f) => ({ ...f, unidade: v }));
-                        }}
-                      />
-                      <FiltroSelect
-                        rotulo="Área"
-                        valor={filtros.area}
-                        opcoes={dadosDaFila.filtros.areas}
-                        onChange={(v) => {
-                          setPagina(1);
-                          setFiltros((f) => ({ ...f, area: v }));
-                        }}
-                      />
-                      <FiltroSelect
-                        rotulo="Responsável"
-                        valor={filtros.responsavel}
-                        opcoes={dadosDaFila.filtros.responsaveis}
-                        onChange={(v) => {
-                          setPagina(1);
-                          setFiltros((f) => ({ ...f, responsavel: v }));
-                        }}
-                      />
-                      <FiltroSelect
-                        rotulo="Situação"
-                        valor={filtros.statusBucket}
-                        opcoes={dadosDaFila.filtros.status}
-                        rotuloDaOpcao={(s) => STATUS_LABELS[s] ?? s}
-                        onChange={(v) => {
-                          setPagina(1);
-                          setFiltros((f) => ({ ...f, statusBucket: v }));
-                        }}
-                      />
-                    </div>
-                  )}
-
-                  <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 pt-3 pb-2">
-                    <h2 className="text-sm font-bold uppercase tracking-wide text-muted-foreground">
-                      Chamados do envio
-                    </h2>
-                    {/*
-                      As duas contagens que a relação sustenta, e que a lista de
-                      movimentações não sabe dar: quantos seguem em aberto, e
-                      quantos destes se mexeram hoje. A segunda é a ponte —
-                      é ela que casa este número com o da outra visão.
-                    */}
-                    {dadosDaFila !== null && dadosDaFila.total > 0 && (
-                      <span className="text-xs text-muted-foreground">
-                        {dadosDaFila.emAberto.toLocaleString("pt-BR")} em aberto ·{" "}
-                        {dadosDaFila.movimentaram.toLocaleString("pt-BR")}{" "}
-                        {dadosDaFila.movimentaram === 1
-                          ? "se mexeu"
-                          : "se mexeram"}{" "}
-                        neste dia
-                      </span>
-                    )}
-                  </div>
-
-                  {chamados.length === 0 && !fila.carregando && !decidindo ? (
-                    <div className="rounded-xl border bg-card px-5 py-10 text-center text-sm text-muted-foreground">
-                      {(dadosDaFila?.total ?? 0) === 0
-                        ? "Nenhum arquivo de chamados foi lido neste dia."
-                        : "Nenhum chamado com estes filtros."}
-                    </div>
-                  ) : (
-                    /*
-                      O rodapé mora dentro da tabela, e não abaixo dela: a
-                      contagem, as páginas e o tamanho são a moldura da mesma
-                      lista, e é assim que a tabela da aba Chamados os mostra.
-                    */
-                    <ListaDeChamados
-                      chamados={chamados}
-                      carregando={fila.carregando || decidindo}
-                      dia={dia}
-                      pagina={pagina}
-                      porPagina={porPaginaDaFila}
-                      total={dadosDaFila?.totalFiltrado ?? 0}
-                      onPagina={setPagina}
-                      onPorPagina={(quantos) => {
-                        setPagina(1);
-                        setPorPaginaDaFila(quantos);
-                      }}
-                      tamanhos={TAMANHOS_DA_RELACAO}
-                      procedencia={
-                        dadosDaFila?.envios[0]?.filename ?? "chamados-do-envio"
-                      }
-                    />
-                  )}
-                </>
-              )}
-            </div>
           </div>
 
-          <aside className="min-w-0">
-            <ResumoDoDiaPainel
-              resumo={resumo}
-              carregando={resumoConsulta.carregando || decidindo}
-            />
-          </aside>
+          {painelDoDia && (
+            <aside className="min-w-0">
+              <ResumoDoDiaPainel resumo={resumo} parte="principal" />
+            </aside>
+          )}
+
+          {/*
+            A cauda do painel desce para uma faixa larga, e só existe quando há
+            o que pôr nela.
+
+            Os pontos de atenção e a concentração por unidade crescem com o dia
+            — quatro linhas e oito unidades num dia cheio —, e numa coluna de
+            320px isso descia muito abaixo do cabeçalho ao lado: o buraco que a
+            lista larga abriria à esquerda do painel. Larga, a mesma cauda cabe
+            em duas ou três colunas, fica na altura do cabeçalho e continua
+            imediatamente acima da lista, que é de onde se olha para ela.
+
+            É também por onde sai o aviso da importação num dia sem
+            movimentação: ele é a única parte do painel que existe sem delta, e
+            sozinho na faixa ele ocupa a largura toda — que é o tamanho certo
+            para um aviso.
+          */}
+          {temComplementos(resumo) && (
+            <div className={cn("min-w-0", painelDoDia && "lg:col-span-2")}>
+              <ResumoDoDiaPainel resumo={resumo} parte="complementos" />
+            </div>
+          )}
+
+          {/*
+            A lista ocupa a largura inteira, e não a coluna da esquerda.
+
+            Os cartões e o painel do dia são a leitura de cabeçalho e cabem
+            lado a lado. A lista não é cabeçalho: é uma tabela de dez colunas
+            espremida em duas terças partes da tela enquanto os 320px à
+            direita do painel ficavam vazios até o fim da página — o painel
+            tem o tamanho do dia e acaba em um cartão, a lista tem o tamanho
+            do arquivo e desce por mil linhas.
+
+            O que a largura devolve são **colunas inteiras**, e não folga nas
+            que já apareciam: em 1440px a tabela parava no operador, e aberto
+            em, alterado na fonte e situação só existiam para quem descobrisse
+            a rolagem lateral de um `overflow-x-auto` sem barra à vista. O
+            assunto continua truncado nos dois casos — ele é `max-w-0` de
+            propósito, para ceder espaço às colunas de largura fixa.
+          */}
+          <div className={cn("min-w-0", painelDoDia && "lg:col-span-2")}>
+            {/*
+              As duas leituras do mesmo dia, e a escolha entre elas.
+
+              Controle segmentado, e não uma terceira fileira de abas: as abas
+              de baixo recortam **uma** população — as movimentações —, e
+              repetir a forma delas aqui sugeriria que "Chamados do envio" é
+              mais um recorte da mesma coisa. Não é: é a população de onde as
+              movimentações saíram, e os dois números nunca somam.
+            */}
+            <div
+              role="tablist"
+              aria-label="o que a lista mostra"
+              className="inline-flex rounded-xl border bg-muted/50 p-1"
+            >
+              <VisaoBotao
+                active={visao === "movimentacoes"}
+                onClick={() => trocarDeVisao("movimentacoes")}
+                icon={<TrendingUp className="h-4 w-4" />}
+                label="Movimentações"
+                hint="o que mudou entre a importação anterior e a deste dia"
+                count={resumo?.movimentacoes}
+              />
+              <VisaoBotao
+                active={visao === "chamados"}
+                onClick={() => trocarDeVisao("chamados")}
+                icon={<FileSpreadsheet className="h-4 w-4" />}
+                label="Chamados do envio"
+                hint="a relação inteira que a planilha importada trouxe, tenha se mexido ou não"
+                count={chamadosNoEnvio}
+              />
+            </div>
+
+            {visao === "movimentacoes" ? (
+              <>
+                <div className="flex items-center gap-1 border-b overflow-x-auto mt-4">
+                  {ABAS.map((nome) => (
+                    <AbaBotao
+                      key={nome}
+                      active={aba === nome}
+                      onClick={() => {
+                        setPagina(1);
+                        trocar({ aba: nome });
+                      }}
+                      label={ROTULO_DA_ABA[nome].label}
+                      hint={ROTULO_DA_ABA[nome].hint}
+                      count={contagemDaAba(resumo, nome)}
+                    />
+                  ))}
+                </div>
+
+                {resumo !== null && resumo.movimentacoes > 0 && (
+                  <div className="flex flex-wrap gap-2 py-3">
+                    <FiltroSelect
+                      rotulo="Unidade"
+                      valor={filtros.unidade}
+                      opcoes={resumo.filtros.unidades}
+                      onChange={(v) => {
+                        setPagina(1);
+                        setFiltros((f) => ({ ...f, unidade: v }));
+                      }}
+                    />
+                    <FiltroSelect
+                      rotulo="Área"
+                      valor={filtros.area}
+                      opcoes={resumo.filtros.areas}
+                      onChange={(v) => {
+                        setPagina(1);
+                        setFiltros((f) => ({ ...f, area: v }));
+                      }}
+                    />
+                    <FiltroSelect
+                      rotulo="Responsável"
+                      valor={filtros.responsavel}
+                      opcoes={resumo.filtros.responsaveis}
+                      onChange={(v) => {
+                        setPagina(1);
+                        setFiltros((f) => ({ ...f, responsavel: v }));
+                      }}
+                    />
+                    <FiltroSelect
+                      rotulo="Tipo de alteração"
+                      valor={filtros.tipoDeAlteracao}
+                      opcoes={resumo.filtros.tiposDeAlteracao}
+                      rotuloDaOpcao={(t) => ROTULO_DO_TIPO[t] ?? t}
+                      onChange={(v) => {
+                        setPagina(1);
+                        setFiltros((f) => ({ ...f, tipoDeAlteracao: v }));
+                      }}
+                    />
+                  </div>
+                )}
+
+                <h2 className="text-sm font-bold uppercase tracking-wide text-muted-foreground pt-3 pb-2">
+                  Alterações do dia
+                </h2>
+
+                {movimentacoes.length === 0 && !lista.carregando && !decidindo ? (
+                  <div className="rounded-xl border bg-card px-5 py-10 text-center text-sm text-muted-foreground space-y-3">
+                    <div>
+                      {resumo?.movimentacoes === 0
+                        ? (frase?.titulo ?? "Nenhuma movimentação neste dia.")
+                        : "Nenhuma movimentação com estes filtros."}
+                    </div>
+                    {/*
+                      O caminho para fora do vazio, e a razão desta tela ter
+                      ganhado uma segunda visão: um dia sem movimentação **não
+                      é** um dia sem chamado, e a frase acima, sozinha, era
+                      lida como "o import não trouxe nada". O botão só aparece
+                      quando há relação a mostrar — um convite para uma lista
+                      vazia seria a mesma promessa quebrada em outro lugar.
+                    */}
+                    {chamadosNoEnvio > 0 && (
+                      <Button
+                        variant="outline"
+                        onClick={() => trocarDeVisao("chamados")}
+                      >
+                        <FileSpreadsheet className="h-4 w-4" />
+                        Ver {chamadosNoEnvio.toLocaleString("pt-BR")} chamados do
+                        envio
+                      </Button>
+                    )}
+                  </div>
+                ) : (
+                  <>
+                    <ListaDeMovimentacoes
+                      movimentacoes={movimentacoes}
+                      carregando={lista.carregando || decidindo}
+                      ocupadas={ocupadas}
+                      onRevisar={revisar}
+                      onDesfazer={desfazer}
+                    />
+                    {(lista.dados?.total ?? 0) > POR_PAGINA && (
+                      <Paginacao
+                        pagina={pagina}
+                        porPagina={POR_PAGINA}
+                        total={lista.dados?.total ?? 0}
+                        onPagina={setPagina}
+                        unidade="movimentações"
+                        className="pt-3"
+                      />
+                    )}
+                  </>
+                )}
+              </>
+            ) : (
+              <>
+                {/*
+                  A procedência antes da lista, como na aba Chamados: esta é a
+                  relação do arquivo de outra pessoa, e mostrá-la sem dizer de
+                  que arquivo ela é seria pedir confiança sem dar conferência.
+                */}
+                {procedencia && (
+                  <div className="pt-4 font-mono text-xs text-muted-foreground">
+                    {procedencia}
+                  </div>
+                )}
+
+                {dadosDaFila !== null && dadosDaFila.total > 0 && (
+                  <div className="flex flex-wrap gap-2 py-3">
+                    <FiltroSelect
+                      rotulo="Unidade"
+                      valor={filtros.unidade}
+                      opcoes={dadosDaFila.filtros.unidades}
+                      onChange={(v) => {
+                        setPagina(1);
+                        setFiltros((f) => ({ ...f, unidade: v }));
+                      }}
+                    />
+                    <FiltroSelect
+                      rotulo="Área"
+                      valor={filtros.area}
+                      opcoes={dadosDaFila.filtros.areas}
+                      onChange={(v) => {
+                        setPagina(1);
+                        setFiltros((f) => ({ ...f, area: v }));
+                      }}
+                    />
+                    <FiltroSelect
+                      rotulo="Responsável"
+                      valor={filtros.responsavel}
+                      opcoes={dadosDaFila.filtros.responsaveis}
+                      onChange={(v) => {
+                        setPagina(1);
+                        setFiltros((f) => ({ ...f, responsavel: v }));
+                      }}
+                    />
+                    <FiltroSelect
+                      rotulo="Situação"
+                      valor={filtros.statusBucket}
+                      opcoes={dadosDaFila.filtros.status}
+                      rotuloDaOpcao={(s) => STATUS_LABELS[s] ?? s}
+                      onChange={(v) => {
+                        setPagina(1);
+                        setFiltros((f) => ({ ...f, statusBucket: v }));
+                      }}
+                    />
+                  </div>
+                )}
+
+                <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 pt-3 pb-2">
+                  <h2 className="text-sm font-bold uppercase tracking-wide text-muted-foreground">
+                    Chamados do envio
+                  </h2>
+                  {/*
+                    As duas contagens que a relação sustenta, e que a lista de
+                    movimentações não sabe dar: quantos seguem em aberto, e
+                    quantos destes se mexeram hoje. A segunda é a ponte —
+                    é ela que casa este número com o da outra visão.
+                  */}
+                  {dadosDaFila !== null && dadosDaFila.total > 0 && (
+                    <span className="text-xs text-muted-foreground">
+                      {dadosDaFila.emAberto.toLocaleString("pt-BR")} em aberto ·{" "}
+                      {dadosDaFila.movimentaram.toLocaleString("pt-BR")}{" "}
+                      {dadosDaFila.movimentaram === 1
+                        ? "se mexeu"
+                        : "se mexeram"}{" "}
+                      neste dia
+                    </span>
+                  )}
+                </div>
+
+                {chamados.length === 0 && !fila.carregando && !decidindo ? (
+                  <div className="rounded-xl border bg-card px-5 py-10 text-center text-sm text-muted-foreground">
+                    {(dadosDaFila?.total ?? 0) === 0
+                      ? "Nenhum arquivo de chamados foi lido neste dia."
+                      : "Nenhum chamado com estes filtros."}
+                  </div>
+                ) : (
+                  /*
+                    O rodapé mora dentro da tabela, e não abaixo dela: a
+                    contagem, as páginas e o tamanho são a moldura da mesma
+                    lista, e é assim que a tabela da aba Chamados os mostra.
+                  */
+                  <ListaDeChamados
+                    chamados={chamados}
+                    carregando={fila.carregando || decidindo}
+                    dia={dia}
+                    pagina={pagina}
+                    porPagina={porPaginaDaFila}
+                    total={dadosDaFila?.totalFiltrado ?? 0}
+                    onPagina={setPagina}
+                    onPorPagina={(quantos) => {
+                      setPagina(1);
+                      setPorPaginaDaFila(quantos);
+                    }}
+                    tamanhos={TAMANHOS_DA_RELACAO}
+                    procedencia={
+                      dadosDaFila?.envios[0]?.filename ?? "chamados-do-envio"
+                    }
+                  />
+                )}
+              </>
+            )}
+          </div>
         </div>
       </div>
     </Layout>
