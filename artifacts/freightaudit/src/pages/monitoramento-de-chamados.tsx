@@ -30,6 +30,7 @@ import { ReguaDeDias } from "@/components/monitoramento/regua-de-dias";
 import {
   ResumoDoDiaPainel,
   temComplementos,
+  temResumoDoDia,
 } from "@/components/monitoramento/resumo-do-dia";
 import { ListaDeMovimentacoes } from "@/components/monitoramento/lista-de-movimentacoes";
 import { ListaDeChamados } from "@/components/monitoramento/lista-de-chamados";
@@ -179,9 +180,14 @@ import {
  * pergunta que tem resposta em todo dia em que chegou arquivo.
  *
  * O delta não sumiu do topo: a faixa abaixo dos cartões continua trazendo a
- * frase do dia, a barra de progresso e o botão de continuar a revisão, e o
- * painel da direita mantém movimentações e "aguardando revisão". O que mudou é
- * qual dos dois grãos ocupa os três números grandes.
+ * frase do dia, a barra de progresso e o botão de continuar a revisão. O que
+ * mudou é qual dos dois grãos ocupa os três números grandes.
+ *
+ * E o painel da direita foi atrás, um passo depois: ele conta o delta, e num
+ * dia sem movimentação estava mostrando "0 movimentações" e "0 aguardando
+ * revisão" — os mesmos dois zeros de que os cartões tinham sido livrados, um
+ * palmo à direita deles. Sem movimentação ele não é montado, a grade perde a
+ * segunda coluna e o cabeçalho fica largo como a lista. Ver `temResumoDoDia`.
  */
 
 const POR_PAGINA = 25;
@@ -319,6 +325,15 @@ export default function MonitoramentoDeChamados() {
     haver número.
   */
   const situacoes = resumo?.situacoesNoEnvio ?? null;
+  /*
+    Se a tela tem duas colunas neste dia.
+
+    Enquanto o resumo não chegou isto é `false`, e é a resposta certa: a
+    existência do painel depende do número que ainda está vindo, e reservar a
+    coluna "por via das dúvidas" seria a tira vazia de volta na maioria dos
+    dias, agora durante a espera.
+  */
+  const painelDoDia = temResumoDoDia(resumo);
   const frase = fraseDoDia(resumo);
   const progresso = progressoDoDia(resumo);
   const movimentacoes = lista.dados?.rows ?? [];
@@ -571,7 +586,23 @@ export default function MonitoramentoDeChamados() {
           }}
         />
 
-        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start">
+        {/*
+          A segunda coluna existe quando o dia tem o que pôr nela.
+
+          Sem movimentação o painel não é montado (ver `temResumoDoDia`), e uma
+          coluna de 320px reservada para nada é a mesma tira vazia que esta tela
+          acabou de perder ao lado da lista. A grade vira uma coluna só, e o
+          cabeçalho fica largo como a lista — daí `col-span-2` viajar junto com
+          o painel: num grid de uma coluna ele criaria uma segunda, implícita,
+          e empurraria metade da página para fora da tela.
+        */}
+        <div
+          className={cn(
+            "grid gap-5",
+            painelDoDia &&
+              "lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start",
+          )}
+        >
           <div className="space-y-5 min-w-0">
             {/*
               Os três cartões contam a **fila do dia**, e não o delta.
@@ -721,13 +752,11 @@ export default function MonitoramentoDeChamados() {
             )}
           </div>
 
-          <aside className="min-w-0">
-            <ResumoDoDiaPainel
-              resumo={resumo}
-              carregando={resumoConsulta.carregando || decidindo}
-              parte="principal"
-            />
-          </aside>
+          {painelDoDia && (
+            <aside className="min-w-0">
+              <ResumoDoDiaPainel resumo={resumo} parte="principal" />
+            </aside>
+          )}
 
           {/*
             A cauda do painel desce para uma faixa larga, e só existe quando há
@@ -739,14 +768,15 @@ export default function MonitoramentoDeChamados() {
             lista larga abriria à esquerda do painel. Larga, a mesma cauda cabe
             em duas ou três colunas, fica na altura do cabeçalho e continua
             imediatamente acima da lista, que é de onde se olha para ela.
+
+            É também por onde sai o aviso da importação num dia sem
+            movimentação: ele é a única parte do painel que existe sem delta, e
+            sozinho na faixa ele ocupa a largura toda — que é o tamanho certo
+            para um aviso.
           */}
           {temComplementos(resumo) && (
-            <div className="min-w-0 lg:col-span-2">
-              <ResumoDoDiaPainel
-                resumo={resumo}
-                carregando={resumoConsulta.carregando || decidindo}
-                parte="complementos"
-              />
+            <div className={cn("min-w-0", painelDoDia && "lg:col-span-2")}>
+              <ResumoDoDiaPainel resumo={resumo} parte="complementos" />
             </div>
           )}
 
@@ -767,7 +797,7 @@ export default function MonitoramentoDeChamados() {
             assunto continua truncado nos dois casos — ele é `max-w-0` de
             propósito, para ceder espaço às colunas de largura fixa.
           */}
-          <div className="min-w-0 lg:col-span-2">
+          <div className={cn("min-w-0", painelDoDia && "lg:col-span-2")}>
             {/*
               As duas leituras do mesmo dia, e a escolha entre elas.
 

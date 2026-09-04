@@ -5,7 +5,6 @@ import {
   FileSpreadsheet,
   TrendingUp,
 } from "lucide-react";
-import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import type { ResumoDoDia } from "@/lib/monitoramento-de-chamados";
 
@@ -20,7 +19,42 @@ import type { ResumoDoDia } from "@/lib/monitoramento-de-chamados";
  * nenhum tem valor de reserva: uma linha sem dado não aparece, em vez de
  * aparecer com zero. Um zero inventado num painel de atenção é a pior espécie de
  * número — ele afirma que se procurou e não se achou.
+ *
+ * ---------------------------------------------------------------------------
+ * O painel só existe quando há delta
+ * ---------------------------------------------------------------------------
+ *
+ * Ele é o painel do **que mudou**, e tudo aqui dentro sai da mesma tabela de
+ * movimentações do dia: os dois números grandes, os pontos de atenção, a
+ * concentração por unidade. Num dia sem movimentação — que é a maioria dos
+ * dias — isso deixava em tela "0 movimentações" e "0 aguardando revisão", que
+ * são exatamente os zeros de que os três cartões do topo foram livrados quando
+ * passaram a contar aprovados, em análise e reprovados; e embaixo deles a
+ * única linha com número, "1.218 chamados vieram no arquivo deste dia", já
+ * estava dita duas vezes na mesma tela — na tira sob os cartões e na frase da
+ * importação.
+ *
+ * Então, sem movimentação, o painel não é montado: `temResumoDoDia` responde
+ * por ele, e a tela inteira fica na largura cheia. O que sobrevive é o aviso da
+ * importação, que existe sem movimentação nenhuma e não está dito em outro
+ * lugar — ele sai pela faixa dos complementos.
+ *
+ * **Enquanto o dia não chegou, nada aqui é desenhado** — nem esqueleto. A
+ * existência deste painel depende do número que ainda está vindo, e um
+ * esqueleto seria a tela prometendo um painel que, na maioria dos dias, não vai
+ * existir. É a mesma regra do resto do módulo: durante a espera não se afirma.
  */
+
+/**
+ * Se há painel a montar: o dia tem movimentação.
+ *
+ * A pergunta é do lado de fora porque a resposta muda a **grade** da página, e
+ * não só o conteúdo de uma coluna — sem painel não há segunda coluna, e o que
+ * dela dependia (o `col-span-2` da faixa e o da lista) deixa de valer junto.
+ */
+export function temResumoDoDia(resumo: ResumoDoDia | null): boolean {
+  return resumo !== null && resumo.movimentacoes > 0;
+}
 
 /**
  * As duas partes do painel, e por que ele sabe se partir.
@@ -47,25 +81,12 @@ export function temComplementos(resumo: ResumoDoDia | null): boolean {
 
 export function ResumoDoDiaPainel({
   resumo,
-  carregando,
   parte = "tudo",
 }: {
   resumo: ResumoDoDia | null;
-  carregando: boolean;
   parte?: ParteDoResumo;
 }) {
-  if (resumo === null) {
-    return (
-      <div className="space-y-4">
-        {carregando && parte !== "complementos" ? (
-          <>
-            <Skeleton className="h-24 rounded-xl" />
-            <Skeleton className="h-40 rounded-xl" />
-          </>
-        ) : null}
-      </div>
-    );
-  }
+  if (resumo === null) return null;
 
   const { pontosDeAtencao: pontos, porUnidade } = resumo;
   const maior = porUnidade[0]?.total ?? 0;
