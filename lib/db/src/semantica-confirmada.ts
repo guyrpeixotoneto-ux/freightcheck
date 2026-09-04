@@ -5,6 +5,7 @@ import {
   attributeTable,
   curationEventTable,
   semanticMeaningTable,
+  semanticsStatus,
   taxonomyNodeTable,
 } from "./schema";
 
@@ -770,12 +771,14 @@ export interface ApplyConfirmationsResult {
   /** Não existem nesta base: a fonte ainda não trouxe a coluna. */
   missing: string[];
   /**
-   * Já confirmados por alguém, com semântica **diferente** da do registro.
+   * Já decididos por alguém, com semântica **diferente** da do registro.
    *
-   * Não são sobrescritos. A pessoa que confirmou na tela é a autoridade sobre o
-   * atributo dela; um lote que revertesse isso a cada importação apagaria uma
-   * decisão humana em silêncio, uma vez por arquivo recebido. Divergir é
-   * notícia para quem cuida do registro, e é por isso que sai na resposta.
+   * Não são sobrescritos, e é a precedência que diz por quê: curadoria humana
+   * existente ganha da confirmação canônica. A pessoa que confirmou na tela é a
+   * autoridade sobre o atributo dela; um lote que revertesse isso a cada
+   * importação apagaria uma decisão humana em silêncio, uma vez por arquivo
+   * recebido. Divergir é notícia para quem cuida do registro, e é por isso que
+   * sai na resposta.
    */
   divergentes: string[];
   /**
@@ -793,6 +796,93 @@ export interface ApplyConfirmationsResult {
 
 /** Tipos sobre os quais nenhum montante financeiro se sustenta. */
 const TIPOS_NAO_NUMERICOS = new Set(["TEXT", "BOOLEAN", "DATE", "MIXED", "UNKNOWN"]);
+
+// ---------------------------------------------------------------------------
+// A precedência
+// ---------------------------------------------------------------------------
+
+/**
+ * Quem ganha de quem, quando duas autoridades falam sobre a mesma coluna:
+ *
+ *     curadoria humana existente  >  confirmação canônica  >  inferência automática
+ *
+ * As três escrevem nos mesmos campos, e a ordem entre elas é o que impede a de
+ * baixo de desfazer a de cima em silêncio, uma vez por arquivo recebido.
+ *
+ * **Inferência automática** é `runProposalPass`, o motor da curadoria. Ele já
+ * obedece à regra por construção: só lê o que **não** está `CONFIRMED`, e a
+ * confirmação canônica deixa `CONFIRMED`.
+ *
+ * **Confirmação canônica** é este arquivo: replica decisões registradas em
+ * `CONFIRMED_SEMANTICS`, cada entrada com autor e base, revisada em pull
+ * request. Normalização técnica, e ela fica — o que ela não pode é prevalecer.
+ *
+ * **Curadoria humana existente** é o que uma pessoa decidiu nesta base, e é o
+ * topo. Sobre um atributo que já a carrega, o registro só pode **completar o
+ * que está nulo** — nunca substituir um valor que alguém escolheu. Era assim
+ * que `meaning_id` e `taxonomy_node_id` precisavam ser preenchidos numa base
+ * cuja árvore ainda não fora semeada (a passada seguinte completa o nó em vez
+ * de concluir "já está igual"), e completar um nulo continua valendo. Trocar um
+ * nó por outro, não.
+ *
+ * Divergiu no que não é nulo? O registro se cala e **relata** (`divergentes`),
+ * porque isso é notícia para quem cuida do registro — não erro de quem operou.
+ *
+ * ---------------------------------------------------------------------------
+ * O que impede alguém de ampliar isto sem perceber
+ * ---------------------------------------------------------------------------
+ *
+ * Duas travas, e nenhuma delas é a boa vontade de quem escreve o próximo campo:
+ *
+ * 1. {@link ESTADO_E_DECISAO_HUMANA} classifica **cada** valor de
+ *    `semantics_status`. É um `Record` sobre o enum: um estado novo não
+ *    compila até alguém dizer, ali, se ele representa decisão de gente. Sem
+ *    isto, um `REVIEWED` acrescentado amanhã cairia no lado errado por omissão
+ *    — o registro passaria a sobrescrevê-lo, e nada acusaria.
+ * 2. {@link CAMPOS_DA_NORMALIZACAO_CANONICA} declara os únicos campos de
+ *    `attribute` que esta função pode escrever, e
+ *    `precedencia-da-curadoria.test.ts` compara a lista com o que a passada
+ *    de fato alterou no banco. Acrescentar `definition` ao registro deixa de
+ *    ser uma linha discreta e passa a ser um teste vermelho.
+ */
+export const ESTADO_E_DECISAO_HUMANA: Record<
+  (typeof semanticsStatus.enumValues)[number],
+  boolean
+> = {
+  /** Alguém olhou a coluna e assinou embaixo. */
+  CONFIRMED: true,
+  /** Palpite do motor sobre evidência. Não é decisão de ninguém. */
+  PRESUMED: false,
+  /** Ninguém olhou ainda. */
+  UNKNOWN: false,
+};
+
+/**
+ * Os únicos campos de `attribute` que a normalização canônica pode tocar.
+ *
+ * Prosa não está aqui, e nunca vai estar: `definition`, `change_rule`,
+ * `display_name`, `economic_direction` e `economic_effect` são o que ninguém
+ * repõe, e o registro não tem o que dizer sobre eles.
+ */
+export const CAMPOS_DA_NORMALIZACAO_CANONICA = [
+  "unit",
+  "periodicity",
+  "aggregation",
+  "is_monetary",
+  "meaning_id",
+  "taxonomy_node_id",
+  "semantics_status",
+  "confirmed_by",
+  "confirmed_at",
+  "semantics_rationale",
+] as const;
+
+/** O atributo já carrega uma decisão de gente? Ver a precedência acima. */
+export function carregaDecisaoHumana(estado: string): boolean {
+  return ESTADO_E_DECISAO_HUMANA[
+    estado as (typeof semanticsStatus.enumValues)[number]
+  ] === true;
+}
 
 /**
  * Reaplicar o registro numa base — idempotente.
@@ -830,13 +920,26 @@ export async function aplicarConfirmacoesCanonicas(
     }
 
     /*
+      O topo da precedência, aplicado: sobre decisão humana o registro só
+      **completa o que está nulo**.
+
+      O caso que isto serve é o da base cuja árvore ainda não fora semeada — nó
+      nulo, e a passada seguinte o completa em vez de concluir "já está igual" e
+      deixá-lo nulo para sempre. O caso que isto recusa é o de alguém ter
+      escolhido outro nó: trocá-lo seria a normalização técnica prevalecendo
+      sobre a curadoria, que é a ordem invertida. Ver a precedência acima.
+    */
+    const decisaoHumana = carregaDecisaoHumana(attribute.semanticsStatus);
+    const podeCompletar = (atual: string | null) => !decisaoHumana || atual === null;
+
+    /*
       O significado declarado, resolvido como o nó da taxonomia: por código, no
       escopo global do cadastro. Numa base cuja migration ainda não semeou o
       catálogo o código não existe, e aí o ponteiro fica como estava — a
       semântica é aplicada do mesmo jeito, e a passada seguinte o completa.
     */
     let meaningId = attribute.meaningId;
-    if (entry.meaningCode) {
+    if (entry.meaningCode && podeCompletar(attribute.meaningId)) {
       const [significado] = await db
         .select({ id: semanticMeaningTable.id })
         .from(semanticMeaningTable)
@@ -851,7 +954,7 @@ export async function aplicarConfirmacoesCanonicas(
     }
 
     let taxonomyNodeId = attribute.taxonomyNodeId;
-    if (entry.taxonomyCode) {
+    if (entry.taxonomyCode && podeCompletar(attribute.taxonomyNodeId)) {
       const [node] = await db
         .select({ id: taxonomyNodeTable.id })
         .from(taxonomyNodeTable)
@@ -860,7 +963,6 @@ export async function aplicarConfirmacoesCanonicas(
       if (node) taxonomyNodeId = node.id;
     }
 
-    const jaConfirmado = attribute.semanticsStatus === "CONFIRMED";
     const mesmaSemantica =
       attribute.unit === entry.unit &&
       attribute.periodicity === entry.periodicity &&
@@ -868,7 +970,7 @@ export async function aplicarConfirmacoesCanonicas(
       attribute.isMonetary === entry.isMonetary;
 
     if (
-      jaConfirmado &&
+      decisaoHumana &&
       mesmaSemantica &&
       attribute.meaningId === meaningId &&
       attribute.taxonomyNodeId === taxonomyNodeId
@@ -877,9 +979,9 @@ export async function aplicarConfirmacoesCanonicas(
       continue;
     }
 
-    // Confirmado com outro significado: é decisão de quem confirmou, e o
-    // registro não passa por cima dela — apenas relata a divergência.
-    if (jaConfirmado && !mesmaSemantica) {
+    // Decidido por gente, e de outro jeito: a curadoria existente é o topo da
+    // precedência, e o registro não passa por cima dela — relata e segue.
+    if (decisaoHumana && !mesmaSemantica) {
       divergentes.push(entry.code);
       continue;
     }
@@ -911,17 +1013,23 @@ export async function aplicarConfirmacoesCanonicas(
     }
 
     /*
-      Quem já confirmou o mesmo significado mantém a assinatura dele. O que
-      sobra ao registro nesse caso é completar o que falta — o nó da taxonomia,
-      que a promoção não tem como preencher numa base cuja árvore ainda não foi
-      semeada —, e completar não é motivo para trocar o nome de quem decidiu
-      nem a justificativa que ela escreveu.
+      Quem já confirmou o mesmo significado mantém a assinatura dele — inteira.
+
+      O que sobra ao registro nesse caso é completar o que falta: o nó da
+      taxonomia, que a promoção não tem como preencher numa base cuja árvore
+      ainda não foi semeada. Completar não é motivo para trocar o nome de quem
+      decidiu, nem a justificativa que ela escreveu, **nem a data em que ela
+      decidiu** — `gravarSemanticaConfirmada` reestampa `confirmed_at` a cada
+      escrita, porque para a confirmação humana o carimbo *é* o ato; aqui não há
+      ato novo, e deixá-lo reestampar faria a normalização reescrever, todo mês,
+      quando a pessoa decidiu. É a precedência de novo, no menor dos campos.
     */
     const autoria =
-      jaConfirmado && attribute.confirmedBy
+      decisaoHumana && attribute.confirmedBy
         ? {
             actor: attribute.confirmedBy,
             reason: attribute.semanticsRationale ?? entry.basis,
+            confirmedAt: attribute.confirmedAt ?? undefined,
           }
         : { actor: entry.confirmedBy, reason: entry.basis };
 

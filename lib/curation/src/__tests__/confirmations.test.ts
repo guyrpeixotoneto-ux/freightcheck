@@ -211,3 +211,44 @@ describe("applying the registry", () => {
     expect(result.applied).toEqual([]);
   });
 });
+
+/**
+ * O degrau de baixo da precedência:
+ *
+ *     curadoria humana existente > confirmação canônica > inferência automática
+ *
+ * Os dois degraus de cima estão presos em
+ * `lib/db/src/__tests__/precedencia-da-curadoria.test.ts`, ao lado da
+ * implementação. Este é o terceiro, e mora aqui porque é aqui que o motor vive:
+ * `runProposalPass` é inferência sobre evidência, e ela nunca desfaz uma
+ * confirmação — nem a de gente, nem a do registro.
+ *
+ * A guarda é uma linha só (`semantics_status <> 'CONFIRMED'` em
+ * `gatherQueue`/`propose`), e é justamente por ser uma linha só que ela precisa
+ * de um teste: quem a afrouxar amanhã, para "reavaliar o que mudou de
+ * evidência", passaria a reescrever decisão confirmada a cada passada.
+ */
+describe("a inferência automática não desfaz confirmação", () => {
+  it("uma passada de propostas não toca em nenhum atributo CONFIRMED", async () => {
+    const antes = await ctx.db
+      .select()
+      .from(attributeTable)
+      .where(sql`${attributeTable.semanticsStatus} = 'CONFIRMED'`)
+      .orderBy(attributeTable.code);
+    expect(antes.length).toBeGreaterThan(0);
+
+    await runProposalPass(ctx.db, "test:precedencia");
+
+    const depois = await ctx.db
+      .select()
+      .from(attributeTable)
+      .where(sql`${attributeTable.semanticsStatus} = 'CONFIRMED'`)
+      .orderBy(attributeTable.code);
+
+    // Linha por linha, campo por campo: nem a semântica, nem a assinatura, nem
+    // a prosa. E a lista não encolheu — uma confirmação rebaixada a PRESUMED
+    // sairia do recorte e passaria despercebida por uma comparação de conteúdo.
+    expect(depois.map((a) => a.code)).toEqual(antes.map((a) => a.code));
+    expect(depois).toEqual(antes);
+  });
+});

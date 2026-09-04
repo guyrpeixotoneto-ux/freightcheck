@@ -899,9 +899,22 @@ continua contando como lacuna até alguém decidir.
   importação em circunstância nenhuma; `cost_class` só é preenchida quando está
   vazia. A única escrita de semântica é a do registro canônico
   (`CONFIRMED_SEMANTICS`), que reafirma os campos técnicos dos códigos que lista
-  — decisões humanas revisadas em pull request — e se recusa a fazê-lo quando
-  alguém já confirmou aquela coluna de outro jeito (`divergentes`). Preso em
+  — decisões humanas revisadas em pull request. Preso em
   `lib/ingest/src/__tests__/importacao-nao-sobrescreve-curadoria.test.ts`.
+- **A precedência entre as três autoridades semânticas:** `curadoria humana
+  existente > confirmação canônica > inferência automática`. As três escrevem
+  nos mesmos campos, e a ordem é o que impede a de baixo de desfazer a de cima
+  em silêncio. Sobre um atributo que já carrega decisão de gente, o registro
+  canônico só **completa o que está nulo** — nunca substitui valor escolhido,
+  nem reestampa a data de quem decidiu —, e se a semântica divergir ele se cala
+  e relata (`divergentes`). A inferência (`runProposalPass`) só lê o que não
+  está `CONFIRMED`. Duas travas impedem a ampliação silenciosa:
+  `ESTADO_E_DECISAO_HUMANA` é um `Record` sobre o enum `semantics_status`, então
+  um estado novo **não compila** até ser classificado como humano ou automático;
+  e `CAMPOS_DA_NORMALIZACAO_CANONICA` declara os únicos campos que a passada
+  pode escrever, conferidos contra o que ela de fato alterou no banco. Preso em
+  `lib/db/src/__tests__/precedencia-da-curadoria.test.ts` (os dois degraus de
+  cima) e em `lib/curation/src/__tests__/confirmations.test.ts` (o de baixo).
 - Identidade da entidade é um UUID interno; a placa é um identificador com
   histórico, não a chave. Comparação nunca é por posição de linha.
 - Semântica é versionada (`attribute_semantics`) com vigência por data.
