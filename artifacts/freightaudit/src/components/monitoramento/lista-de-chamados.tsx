@@ -49,9 +49,9 @@ import {
  * esquerda, linha que abre no clique, detalhe embaixo, rodapé do Freightech —
  * e quem navega as duas não deveria ter de aprender duas tabelas.
  *
- * O que **não** cabe em coluna vai para o detalhe da linha, e não some: a
- * vigência, a linha do arquivo, o item inteiro e o que foi pedido em cada
- * parâmetro. O detalhe traz tudo, inclusive o que a engrenagem escondeu.
+ * O que **não** cabe em coluna vai para o detalhe da linha, e não some: o
+ * assunto inteiro, a vigência, a linha do arquivo, o item e o que foi pedido em
+ * cada parâmetro. O detalhe traz tudo, inclusive o que a engrenagem escondeu.
  *
  * Não há botão de revisar: revisão é ato sobre **movimentação**, e oferecer o
  * carimbo aqui criaria um segundo estado de "revisado" que a régua não conta —
@@ -364,8 +364,19 @@ function CabecalhoDaRelacao({
                 espaço. Sem isso, a sobra se espalha por todas as colunas e o
                 assunto — que é a única de tamanho imprevisível — fica com
                 reticências numa tela larga.
+
+                O piso é o par disso, e existe porque "elástica" vira "a
+                primeira a ser esmagada" quando não há sobra nenhuma: com as dez
+                colunas à vista, a soma das outras já toma a linha inteira e o
+                assunto encolhia para `Ajuste …` — a coluna mais importante da
+                tabela dizendo nada. Ele fica no cabeçalho, e não na célula,
+                porque o mínimo da coluna é o maior mínimo entre as células
+                dela: 16rem aqui sustentam a coluna inteira sem limitar o quanto
+                ela cresce, enquanto `max-w-0` na célula continua permitindo o
+                corte. O que não couber vira rolagem na moldura, e quem quiser a
+                tabela inteira na tela esconde colunas pela engrenagem.
               */
-              coluna.chave === "assunto" && "w-full",
+              coluna.chave === "assunto" && "w-full min-w-[16rem]",
             )}
             title={coluna.dica}
           >
@@ -414,10 +425,14 @@ function Celula({
         tabela ele é o campo que mais varia de tamanho. Cortar com `title` é o
         acordo: a coluna não empurra as outras para fora da tela, e o texto
         inteiro está a um passar de mouse — e no detalhe da linha, sem corte.
+
+        O peso é o que o corte não pode tirar: junto do número em negrito, ele
+        diz que estas duas colunas são por onde se lê a linha, e as outras
+        qualificam o que elas dizem.
       */
       return (
         <span
-          className="block truncate"
+          className="block truncate font-medium"
           title={chamado.assunto ?? undefined}
         >
           {chamado.assunto ?? <Vazio />}
@@ -725,6 +740,19 @@ function DetalheDoChamado({ chamado }: { chamado: ChamadoNaFila }) {
 
   return (
     <div className="grid gap-6 rounded-lg border bg-card px-4 py-3 md:grid-cols-2">
+      {/*
+        O assunto abre o detalhe, inteiro e fora das duas seções.
+
+        A coluna dele é a que corta, e a linha só se abre por causa dela: quem
+        clica quase sempre clica para ler o que as reticências esconderam. Não
+        entra como `Campo` de seção porque `Campo` também corta — o detalhe
+        repetiria o corte exatamente no campo por causa do qual foi aberto.
+      */}
+      <div className="md:col-span-2">
+        <div className="text-xs text-muted-foreground">Assunto</div>
+        <p className="text-sm">{chamado.assunto ?? <Vazio />}</p>
+      </div>
+
       <Secao titulo="Detalhes do chamado">
         <Campo rotulo="Vigência" valor={chamado.vigencia} />
         <Campo rotulo="Linha do arquivo" valor={`Linha ${chamado.linhaDoArquivo}`} />

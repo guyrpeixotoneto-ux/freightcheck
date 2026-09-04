@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { CalendarDays } from "lucide-react";
-import { rotuloCurtoDaVigencia } from "@workspace/comparison/labels";
+import { periodicitySuffix, rotuloDeListaDaVigencia } from "@workspace/comparison/labels";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -10,10 +10,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { formatBrlShort } from "@/lib/format";
 import {
-  useAlteracoesPorVigencia,
-  useAlteracoesPorVigenciaGeral,
-} from "@/hooks/use-alteracoes-por-vigencia";
+  useResumoPorVigencia,
+  useResumoPorVigenciaGeral,
+} from "@/hooks/use-resumo-por-vigencia";
 import type { FamiliesView } from "@/components/inicio/types";
 
 /**
@@ -27,19 +28,21 @@ export const BOTAO_DE_TROCA =
   "text-sm font-bold text-brand hover:bg-accent transition-colors";
 
 /**
- * O seletor de vigência do cabeçalho — data à esquerda, quantas alterações
- * aquela vigência trouxe à direita.
+ * O seletor de vigência do cabeçalho — a vigência à esquerda, o que ela
+ * custou e quantas alterações a produziram à direita.
  *
- * A contagem é o que faz a lista valer a abertura: entre seis datas iguais,
- * "714 alterações" e "6 alterações" são a diferença entre a vigência que
- * mudou o contrato e a que corrigiu um cadastro. Quem abre o menu já está
- * procurando *onde* algo aconteceu, e a data sozinha não responde isso.
+ * As duas colunas são o que faz a lista valer a abertura. Entre seis datas
+ * iguais, "714 alterações" e "6 alterações" separam a vigência que mudou o
+ * contrato da que corrigiu um cadastro; e entre duas de 400 alterações,
+ * `−R$ 82.140` e `−R$ 1.200` separam a que custou dinheiro da que só mexeu em
+ * muita linha. Quem abre o menu já está procurando *onde* algo aconteceu, e
+ * nem a data nem a contagem sozinhas respondem isso.
  *
- * A contagem vem de `/changes/range` (o mesmo dado da Linha do Tempo) e é
- * opcional por construção: enquanto ela não chega — ou para a vigência mais
+ * Os números vêm de `/changes/range` (o mesmo dado da Linha do Tempo) e são
+ * opcionais por construção: enquanto não chegam — ou para a vigência mais
  * antiga do histórico, que não tem anterior contra a qual ser comparada —, a
- * linha mostra só a data. Nada aqui inventa "0 alterações" para preencher a
- * coluna.
+ * linha mostra só a vigência. Nada aqui inventa "0 alterações" nem "R$ 0" para
+ * preencher coluna.
  *
  * Estava escrito três vezes (Visão Geral, Linha do Tempo, Dashboard) e nas
  * três com uma diferença: no Dashboard a contagem simplesmente não existia.
@@ -61,22 +64,43 @@ export function SeletorDeVigencia({
 }) {
   // O hook vem antes do corte: um `return null` acima dele mudaria a ordem
   // dos hooks entre renderizações quando a vigência ainda está carregando.
-  const alteracoesPorVigencia = useAlteracoesPorVigencia(view, consulta);
+  const resumo = useResumoPorVigencia(view, consulta);
 
   // Com uma vigência só não há troca a oferecer.
   if (!view || view.periods.length <= 1) return null;
+
+  /*
+    O rótulo é remontado aqui, e não lido de `periodo.label`, pela mesma razão
+    que o seletor da Visão Geral o monta: a lista precisa do mês e do
+    desempate **separados** para empilhá-los numa coluna só de meses. O
+    servidor entrega o rótulo já colado (`01/08/2026`), que é a forma certa
+    para uma frase e a errada para uma lista.
+
+    O denominador é `periodosDisponiveis`, e não as datas de `view.periods` —
+    a mesma escolha que o servidor faz em `grouped.ts`, e pela mesma razão: com
+    uma janela aplicada, `periods` mostra só o recorte, e agosto pareceria um
+    mês de uma entrega só. A vigência perderia o `dia 02` numa tela e o
+    manteria na outra. Sem a lista completa (contextos antigos, antes de
+    `/contexts` passar a mandá-la), o recorte visível serve de denominador: é
+    a melhor régua disponível, e nunca pior do que o rótulo colado.
+  */
+  const datas = view.periods.map((periodo) => periodo.date);
+  const doContexto = view.context.periodosDisponiveis?.length
+    ? view.context.periodosDisponiveis
+    : datas;
 
   return (
     <MenuDeVigencias
       rotulo={rotulo}
       className={className}
       cabecalho={`${view.periods.length} vigências no histórico`}
-      opcoes={[...view.periods]
-        .sort((a, b) => b.date.localeCompare(a.date))
-        .map((periodo) => ({
-          valor: periodo.date,
-          rotulo: periodo.label,
-          alteracoes: alteracoesPorVigencia.get(periodo.date) ?? null,
+      periodicidade={resumo.periodicidade}
+      opcoes={[...datas]
+        .sort((a, b) => b.localeCompare(a))
+        .map((data) => ({
+          valor: data,
+          ...rotuloDeListaDaVigencia(data, doContexto),
+          ...(resumo.porVigencia.get(data) ?? { alteracoes: null, impacto: null }),
         }))}
       ativa={view.period}
       onEscolher={(data) => onTrocar({ period: data })}
@@ -90,10 +114,9 @@ export function SeletorDeVigencia({
  * Ele lista a união das competências de todas as unidades (`periodosOverview`)
  * e vinha desenhado à mão em quatro telas — Visão Geral, Linha do Tempo,
  * Dashboard e Gestão à Vista —, nas quatro com a data crua do banco
- * (`2026-08-02`) e sem contagem nenhuma. Duas listas de vigência que se abrem
+ * (`2026-08-02`) e sem número nenhum. Duas listas de vigência que se abrem
  * do mesmo botão, no mesmo cabeçalho, e escrevem a data de dois jeitos
- * diferentes obrigam quem lê a traduzir entre elas; e sem a contagem a lista
- * só oferece seis datas, sem dizer o que houve em cada uma.
+ * diferentes obrigam quem lê a traduzir entre elas.
  *
  * O cabeçalho também é o mesmo texto do seletor da unidade ("N vigências no
  * histórico"). Ele dizia "N competências disponíveis" — a mesma lista, do
@@ -101,12 +124,12 @@ export function SeletorDeVigencia({
  * escolhida, o que só obriga quem alterna entre as duas a reparar na
  * diferença antes de concluir que não há nenhuma.
  *
- * A contagem aqui é a soma entre unidades, e vem de `/changes/range/overview`
- * — a mesma leitura que a Linha do Tempo já faz para o ranking de unidades,
- * agora também com `changes` por competência. **Ela só sai quando o menu
- * abre**: é uma análise do intervalo inteiro por unidade × contexto, cara
- * demais para disparar no carregamento de quatro telas por causa de uma
- * coluna de um menu que pode nunca ser aberto.
+ * Os números aqui são a soma entre unidades, e vêm de
+ * `/changes/range/overview` — a mesma leitura que a Linha do Tempo já faz para
+ * o ranking de unidades, que traz `changes` e `impact` por competência.
+ * **Ela só sai quando o menu abre**: é uma análise do intervalo inteiro por
+ * unidade × contexto, cara demais para disparar no carregamento de quatro
+ * telas por causa de duas colunas de um menu que pode nunca ser aberto.
  */
 export function SeletorDeVigenciaGeral({
   periodos,
@@ -123,7 +146,7 @@ export function SeletorDeVigenciaGeral({
   rotulo?: string;
 }) {
   const [aberto, setAberto] = useState(false);
-  const alteracoesPorVigencia = useAlteracoesPorVigenciaGeral(periodos, aberto);
+  const resumo = useResumoPorVigenciaGeral(periodos, aberto);
 
   if (periodos.length <= 1) return null;
 
@@ -132,17 +155,18 @@ export function SeletorDeVigenciaGeral({
       rotulo={rotulo}
       className={className}
       cabecalho={`${periodos.length} vigências no histórico`}
+      periodicidade={resumo.periodicidade}
       /*
-        `rotuloCurtoDaVigencia` é a mesma regra que o servidor aplica ao montar
-        `view.periods` — mês com uma entrega vira `agosto/2026`, mês com duas
-        vira `02/08/2026` —, aqui aplicada no navegador porque
+        `rotuloDeListaDaVigencia` é a mesma regra que o servidor aplica ao
+        montar `view.periods` — mês com uma entrega é `agosto/2026`, mês com
+        duas ganha `dia 02` ao lado —, aqui aplicada no navegador porque
         `periodosOverview` chega de `/contexts` como data crua. Uma função só,
         para que os dois seletores nunca chamem a mesma vigência de dois nomes.
       */
       opcoes={periodos.map((data) => ({
         valor: data,
-        rotulo: rotuloCurtoDaVigencia(data, periodos),
-        alteracoes: alteracoesPorVigencia.get(data) ?? null,
+        ...rotuloDeListaDaVigencia(data, periodos),
+        ...(resumo.porVigencia.get(data) ?? { alteracoes: null, impacto: null }),
       }))}
       ativa={ativa}
       onEscolher={(data) => onTrocar({ period: data })}
@@ -158,13 +182,20 @@ export function SeletorDeVigenciaGeral({
  * `valor` é opaco de propósito: nos dois seletores acima ele é a data da
  * vigência, e nas Justificativas é o `id` da comparação — lá a mesma data
  * pode ter cinco comparações, uma por série. O que a casca garante é o
- * desenho: o mesmo botão "Trocar vigência", o mesmo cabeçalho e a mesma
- * contagem à direita, venha de onde vier a lista.
+ * desenho: o mesmo botão "Trocar vigência", o mesmo cabeçalho e as mesmas
+ * colunas à direita, venha de onde vier a lista.
+ *
+ * A coluna da esquerda é sempre um **mês**. O desempate de uma vigência —
+ * `dia 02`, `2ª quinzena` — entra como marca discreta ao lado, e não no lugar
+ * do mês, porque a lista é lida na vertical: `setembro/2026` sobre
+ * `02/08/2026` sobre `julho/2026` é uma coluna em dois idiomas, e quem
+ * procura agosto tem de traduzir o único item escrito em dígitos.
  */
 export function MenuDeVigencias({
   rotulo,
   className,
   cabecalho,
+  periodicidade,
   opcoes,
   ativa,
   onEscolher,
@@ -174,12 +205,27 @@ export function MenuDeVigencias({
   rotulo: string;
   className?: string;
   cabecalho: string;
+  /**
+   * A periodicidade em que a coluna de impacto está escrita — o menu a nomeia
+   * no cabeçalho.
+   *
+   * Sem ela, `−R$ 82.140` numa lista de vigências não diz se é por mês, por
+   * ano ou de uma vez; e como a coluna é a mesma periodicidade em todas as
+   * linhas (ver `ResumoDasVigencias`), dizê-la uma vez no topo basta e poupa
+   * repetir "/mês" onze vezes.
+   */
+  periodicidade?: string | null;
   opcoes: {
     valor: string;
-    rotulo: string;
+    /** O mês da vigência — `agosto/2026`. */
+    mes: string;
+    /** O desempate dentro do mês, quando ele tem mais de uma entrega. */
+    marca?: string | null;
     /** A unidade, quando a lista precisa dela para separar linhas de mesma data. */
     detalhe?: string | null;
     alteracoes: number | null;
+    /** O líquido da vigência na periodicidade acima — ver `ResumoDaVigencia`. */
+    impacto?: number | null;
   }[];
   ativa: string | null;
   onEscolher: (valor: string) => void;
@@ -192,9 +238,12 @@ export function MenuDeVigencias({
         <CalendarDays className="w-4 h-4" />
         {rotulo}
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-80 max-h-80 overflow-y-auto">
+      <DropdownMenuContent align="end" className="w-96 max-h-96 overflow-y-auto">
         <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
           {cabecalho}
+          {periodicidade && (
+            <span className="block">Impacto líquido em R${periodicitySuffix(periodicidade)}</span>
+          )}
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         {opcoes.map((opcao) => (
@@ -202,20 +251,49 @@ export function MenuDeVigencias({
             key={opcao.valor}
             onSelect={() => onEscolher(opcao.valor)}
             className={cn(
-              "flex items-center justify-between gap-2",
+              "flex items-center justify-between gap-3",
               opcao.valor === ativa && "font-bold text-brand",
             )}
           >
             <span>
-              {opcao.rotulo}
-              {opcao.detalhe && (
-                <span className="font-normal text-muted-foreground"> · {opcao.detalhe}</span>
+              {opcao.mes}
+              {(opcao.marca || opcao.detalhe) && (
+                <span className="font-normal text-muted-foreground">
+                  {" · "}
+                  {[opcao.marca, opcao.detalhe].filter(Boolean).join(" · ")}
+                </span>
               )}
             </span>
-            {opcao.alteracoes !== null && (
-              <span className="text-xs font-normal text-muted-foreground tabular-nums">
-                {opcao.alteracoes.toLocaleString("pt-BR")}{" "}
-                {opcao.alteracoes === 1 ? "alteração" : "alterações"}
+            {(opcao.impacto != null || opcao.alteracoes !== null) && (
+              <span className="flex flex-col items-end shrink-0 leading-tight">
+                {opcao.impacto != null && (
+                  <span
+                    /*
+                      Zero não é ganho. Um saldo em que ganhos e perdas se
+                      anularam é um empate, e pintá-lo de verde — que é o que
+                      um ternário entre vermelho e verde faz com o zero —
+                      afirmaria uma vigência que subiu a remuneração onde ela
+                      não mexeu no total. Fica no cinza do texto de apoio, como
+                      a contagem embaixo dele.
+                    */
+                    className={cn(
+                      "text-xs font-semibold tabular-nums",
+                      opcao.impacto === 0
+                        ? "text-muted-foreground"
+                        : opcao.impacto < 0
+                          ? "text-red-700"
+                          : "text-emerald-700",
+                    )}
+                  >
+                    {formatBrlShort(opcao.impacto)}
+                  </span>
+                )}
+                {opcao.alteracoes !== null && (
+                  <span className="text-xs font-normal text-muted-foreground tabular-nums">
+                    {opcao.alteracoes.toLocaleString("pt-BR")}{" "}
+                    {opcao.alteracoes === 1 ? "alteração" : "alterações"}
+                  </span>
+                )}
               </span>
             )}
           </DropdownMenuItem>
