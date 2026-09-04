@@ -884,7 +884,28 @@ export async function aplicarConfirmacoesCanonicas(
       continue;
     }
 
-    if (entry.isMonetary && TIPOS_NAO_NUMERICOS.has(attribute.dataType)) {
+    /*
+      Tipo incompatível: relatado, e não escrito.
+
+      A guarda olhava só `isMonetary`, e por isso deixava passar o caso que o
+      banco recusa por outro motivo: `attribute_semantica_coerente` proíbe
+      agregação diferente de `NONE` sobre coluna não numérica, e várias entradas
+      do registro agregam `AVG` (`carreta.periodo_finame`, `cavalo.carencia` e
+      as outras grandezas em meses). Uma coluna do registro que chegue **inteira
+      vazia** nasce `UNKNOWN`, e a promoção inteira morria com um `23514` cru em
+      vez de dizer o que houve — o arquivo do cliente é quem decide se a coluna
+      veio preenchida, então isto não é hipótese de laboratório.
+
+      As duas metades da condição respondem a duas regras diferentes, e por isso
+      as duas ficam: `isMonetary` é a regra do produto que já estava aqui —
+      dinheiro não sai de coluna que não é número —, e `aggregation <> 'NONE'` é
+      a cópia literal da CHECK. O código sai por `incoerentes`, que `promote` e
+      as CLIs de curadoria já reportam.
+    */
+    if (
+      TIPOS_NAO_NUMERICOS.has(attribute.dataType) &&
+      (entry.isMonetary || entry.aggregation !== "NONE")
+    ) {
       incoerentes.push(entry.code);
       continue;
     }
