@@ -358,3 +358,57 @@ function vigenciasDoMesmoMes(
   doMes.add(data);
   return doMes;
 }
+
+/**
+ * O mesmo rótulo de {@link rotuloDaVigencia}, partido em mês e desempate —
+ * para as **listas**, onde os rótulos ficam empilhados uns sobre os outros.
+ *
+ * O seletor de "Trocar vigência" escrevia `rotuloCurtoDaVigencia` puro, e a
+ * lista saía assim:
+ *
+ * ```
+ * setembro/2026
+ * 02/08/2026
+ * 01/08/2026
+ * julho/2026
+ * ```
+ *
+ * Quatro linhas da mesma coluna em dois idiomas. Quem varre a lista procurando
+ * agosto lê três nomes de mês e depois tem de traduzir `08` para o quarto — e
+ * a única razão de as duas do meio estarem escritas em dígitos é que **elas**
+ * precisavam de desempate, o que não é uma diferença que interesse a quem está
+ * escolhendo o mês.
+ *
+ * Aqui o mês é sempre o mês (`agosto/2026`), e o desempate vira uma marca à
+ * parte (`dia 02`, `2ª quinzena`) que a lista pode pôr em segundo plano. A
+ * coluna volta a ser uma coluna de meses, e as duas vigências de agosto
+ * continuam distinguíveis — que é o que {@link rotuloDaVigencia} existe para
+ * garantir.
+ *
+ * A régua do desempate é a mesma das outras duas, e pela mesma razão de
+ * sempre: {@link vigenciasDoMesmoMes} decide "este mês é ambíguo?" uma vez só.
+ * O mês partido em quinzenas do calendário ganha a ordinal; qualquer outro mês
+ * com mais de uma entrega ganha o dia, que distingue sem afirmar um grão que o
+ * calendário não sustenta.
+ *
+ * `marca` é `null` — e não `""` — quando o mês tem uma entrega só: a lista
+ * decide o que fazer com a ausência, e nenhuma acaba desenhando um separador
+ * pendurado no vazio.
+ */
+export function rotuloDeListaDaVigencia(
+  data: string,
+  doContexto: readonly string[],
+): { mes: string; marca: string | null } {
+  const mes = periodLabel(data);
+  const doMes = vigenciasDoMesmoMes(data, doContexto);
+  if (doMes === null || doMes.size < 2) return { mes, marca: null };
+
+  const quinzenas = new Set([...doMes].map(quinzenaDe));
+  return {
+    mes,
+    marca:
+      quinzenas.size === doMes.size
+        ? `${quinzenaDe(data)}ª quinzena`
+        : `dia ${data.slice(8, 10)}`,
+  };
+}

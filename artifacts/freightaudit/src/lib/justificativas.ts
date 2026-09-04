@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { normalizarEquipamento } from "@workspace/curation/equipamento";
-import { rotuloCurtoDaVigencia } from "@workspace/comparison/labels";
+import { rotuloDeListaDaVigencia } from "@workspace/comparison/labels";
 
 import { fetchJson } from "@/lib/api";
 import { useConsultaResiliente } from "@/lib/consulta-resiliente";
@@ -95,7 +95,7 @@ export function useComparacoes() {
  *
  * O formato agora é o dos demais seletores de vigência do produto (ver
  * `components/vigencia/seletor-de-vigencia.tsx`): a competência à esquerda, no
- * mesmo `rotuloCurtoDaVigencia` que o resto da casa usa, e quantas alterações
+ * mesmo `rotuloDeListaDaVigencia` que o resto da casa usa, e quantas alterações
  * a comparação apurou à direita. A unidade entra junto da data porque aqui —
  * ao contrário do cabeçalho, que já está dentro de uma unidade — a lista
  * atravessa todas elas, e sem ela duas linhas continuariam indistinguíveis.
@@ -107,7 +107,23 @@ export function useComparacoes() {
  */
 export interface OpcaoDeVigencia {
   id: string;
-  /** `02/08/2026` — a mesma régua dos outros seletores. */
+  /**
+   * `agosto/2026` — o mês da vigência, a mesma régua dos outros seletores.
+   *
+   * Sempre o mês, mesmo quando ele tem duas entregas: o desempate mora em
+   * {@link OpcaoDeVigencia.marca}, para que a lista do menu seja uma coluna de
+   * meses e não uma mistura de `setembro/2026` com `02/08/2026`.
+   */
+  mes: string;
+  /** `dia 02`, `1ª quinzena` — o desempate, quando o mês tem mais de uma entrega. */
+  marca: string | null;
+  /**
+   * O nome completo da vigência numa linha — `agosto/2026 · dia 02`.
+   *
+   * É a forma para **frases**: o título do diálogo, a célula da tabela, a
+   * coluna do CSV. Onde a vigência aparece empilhada com outras, quem desenha
+   * usa `mes` e `marca` separados e põe a marca em segundo plano.
+   */
   competencia: string;
   /** `PERNAMBUCO · EMPURRADA`, quando `/contexts` sabe dizer. */
   unidade: string | null;
@@ -124,12 +140,17 @@ export function opcoesDeVigencia(
     if (!nomePorEscopo.has(contexto.scopeHash)) nomePorEscopo.set(contexto.scopeHash, contexto.label);
   }
 
-  return comparacoes.map((comparacao) => ({
-    id: comparacao.id,
-    competencia: rotuloCurtoDaVigencia(comparacao.snapshotBDate.slice(0, 10), datas),
-    unidade: comparacao.scopeHash ? (nomePorEscopo.get(comparacao.scopeHash) ?? null) : null,
-    alteracoes: comparacao.alteracoes,
-  }));
+  return comparacoes.map((comparacao) => {
+    const { mes, marca } = rotuloDeListaDaVigencia(comparacao.snapshotBDate.slice(0, 10), datas);
+    return {
+      id: comparacao.id,
+      mes,
+      marca,
+      competencia: marca ? `${mes} · ${marca}` : mes,
+      unidade: comparacao.scopeHash ? (nomePorEscopo.get(comparacao.scopeHash) ?? null) : null,
+      alteracoes: comparacao.alteracoes,
+    };
+  });
 }
 
 /** As justificativas de uma comparação, por `changeId` — sempre a mais recente. */
