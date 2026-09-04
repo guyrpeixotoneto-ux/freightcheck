@@ -943,14 +943,20 @@ export function useRevisao(dia: string) {
  * uma tabela sem ela é uma lista de atributos de coisa nenhuma. O que esta
  * lista descreve é o que a engrenagem do cabeçalho **deixa esconder**.
  *
- * A ordem é a do arquivo lido de cima para baixo — quem é o chamado (status,
- * assunto), onde ele acontece (unidade, tipo), quem o toca (solicitante,
- * operador), quando (as duas datas) e como ele está (SLA, situação). É a mesma
- * leitura que a pessoa faz na planilha aberta ao lado.
+ * O assunto vem primeiro, colado no número, porque é a informação mais
+ * importante da relação: é a única frase que a fonte escreve sobre o chamado —
+ * o motivo pelo qual ele existe — e é por ela que quem confere sabe do que a
+ * linha trata. Todo o resto é qualificação disso, e nenhuma outra coluna
+ * responde "por quê". É também a ordem da lista de Movimentações, onde o
+ * assunto já aparece ao lado do número.
+ *
+ * Depois dele a ordem é a do arquivo lido de cima para baixo — como o chamado
+ * está (status), onde ele acontece (unidade, tipo), quem o toca (solicitante,
+ * operador), quando (as duas datas) e como ele terminou (SLA, situação).
  */
 export const COLUNAS_DA_RELACAO = [
-  { chave: "status", rotulo: "Status", dica: "o status como o arquivo escreveu" },
   { chave: "assunto", rotulo: "Assunto", dica: "a Justificativa Abertura do chamado" },
+  { chave: "status", rotulo: "Status", dica: "o status como o arquivo escreveu" },
   { chave: "unidade", rotulo: "Unidade", dica: "a unidade como o arquivo a escreve" },
   {
     chave: "tipo",
