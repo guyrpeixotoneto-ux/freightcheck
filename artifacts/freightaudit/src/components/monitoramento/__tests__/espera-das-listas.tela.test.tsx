@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 //
-// A espera das duas listas do Monitoramento — por que ela tem tamanho.
+// A espera da relação do Monitoramento — por que ela tem tamanho.
 //
-// O defeito que se prende aqui: a tela abria curta e ficava longa. As listas
-// pediam uma página inteira ao servidor e desenhavam um punhado de barras
-// cinzas enquanto ela vinha — cinco cartões para vinte e cinco movimentações,
-// oito barras para vinte e cinco chamados —, então a resposta chegava e a
-// página crescia de repente debaixo de quem já estava lendo.
+// O defeito que se prende aqui: a tela abria curta e ficava longa. A lista
+// pedia uma página inteira ao servidor e desenhava um punhado de barras cinzas
+// enquanto ela vinha — oito barras para vinte e cinco chamados —, então a
+// resposta chegava e a página crescia de repente debaixo de quem já estava
+// lendo.
 //
 // O que estes testes prendem não é pixel: é que a espera desenha **tantas
 // linhas quantas a página vai trazer**, e que ela tem a moldura da lista — a
@@ -16,7 +16,6 @@ import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { ListaDeChamados } from "../lista-de-chamados";
-import { ListaDeMovimentacoes } from "../lista-de-movimentacoes";
 
 afterEach(cleanup);
 
@@ -35,19 +34,6 @@ function relacaoEsperando(linhas: number) {
       onPorPagina={NADA}
       tamanhos={[25, 50, 100]}
       procedencia="chamados.xlsx"
-      linhasNaEspera={linhas}
-    />,
-  );
-}
-
-function movimentacoesEsperando(linhas: number) {
-  return render(
-    <ListaDeMovimentacoes
-      movimentacoes={[]}
-      carregando
-      ocupadas={new Set()}
-      onRevisar={NADA}
-      onDesfazer={NADA}
       linhasNaEspera={linhas}
     />,
   );
@@ -81,23 +67,5 @@ describe("a relação do envio, enquanto carrega", () => {
     const { queryByText } = relacaoEsperando(25);
     expect(queryByText("Nenhum resultado")).toBeNull();
     expect(queryByText(/Mostrando/)).toBeNull();
-  });
-});
-
-describe("as movimentações do dia, enquanto carregam", () => {
-  it("desenha um cartão para cada movimentação que a página vai trazer", () => {
-    const { container } = movimentacoesEsperando(25);
-    expect(container.querySelectorAll("ul > li")).toHaveLength(25);
-  });
-
-  it("no dia sem movimentação, espera na forma da caixa que vem depois", () => {
-    /*
-      O resumo já respondeu zero: o que vem a seguir é "nenhuma movimentação
-      neste dia", e uma lista de zero itens seria uma moldura de um pixel dando
-      lugar a uma caixa de dez linhas — o mesmo salto, em ponto menor.
-    */
-    const { container } = movimentacoesEsperando(0);
-    expect(container.querySelectorAll("li")).toHaveLength(0);
-    expect(container.querySelector(".animate-pulse")).not.toBeNull();
   });
 });

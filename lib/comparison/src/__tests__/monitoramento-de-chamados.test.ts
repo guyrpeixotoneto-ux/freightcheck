@@ -539,6 +539,45 @@ describe("T10/T16 · duas unidades no mesmo dia são duas séries", () => {
     ).toBe(0);
   });
 
+  /*
+    O número que a régua escreve na posição é o tamanho do arquivo daquele dia,
+    e o tamanho do dia não é a soma dos envios: uma unidade que reenvia mandou a
+    mesma fila duas vezes. É a regra de `resumoDoDia`, e este teste existe
+    porque a régua a implementa numa consulta própria — duas implementações da
+    mesma regra são duas chances de ela divergir.
+  */
+  it("a régua escreve o tamanho do arquivo, e o reenvio não conta duas vezes", async () => {
+    await processarEnvioDeChamados(
+      ctx.db,
+      await enviar(
+        [
+          { externalId: "Recife-1", unidade: "Recife", prazo: "2026-09-30" },
+          { externalId: "Recife-2", unidade: "Recife" },
+          { externalId: "Recife-3", unidade: "Recife" },
+        ],
+        { recebidoEm: as(DIA, 17), filename: "Chamados_Recife.xlsx" },
+      ),
+    );
+
+    const porDia = new Map(
+      (await reguaDeDias(ctx.db, { de: ONTEM, ate: DIA })).map((d) => [d.dia, d]),
+    );
+    // Ontem: um envio de cada unidade — as duas séries somam.
+    expect(porDia.get(ONTEM)!.chamadosNoEnvio).toBe(4);
+    // Hoje: dois envios da mesma unidade. Vale o último, e não a soma.
+    expect(porDia.get(DIA)!.chamadosNoEnvio).toBe(3);
+
+    // E, recortada por série, a régua diz o mesmo que o resumo daquele dia.
+    const [comRecorte] = await reguaDeDias(ctx.db, {
+      de: DIA,
+      ate: DIA,
+      serie: "Recife",
+    });
+    expect(comRecorte!.chamadosNoEnvio).toBe(
+      (await resumoDoDia(ctx.db, { dia: DIA, serie: "Recife" })).chamadosNoEnvio,
+    );
+  });
+
   it("as séries aparecem para o seletor da tela", async () => {
     const series = await seriesDisponiveis(ctx.db);
     expect(series.map((s) => s.serie).sort()).toEqual(["Camaçari", "Recife"]);

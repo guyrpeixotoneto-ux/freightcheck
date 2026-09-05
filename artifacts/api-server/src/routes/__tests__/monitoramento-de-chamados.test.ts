@@ -301,28 +301,7 @@ describe("o recorte por série", () => {
     // segunda é como uma tela passa a mostrar o acervo de outra unidade.
     const { body } = await get(`${BASE}/dia/${DIA}?serie=Belém`);
     expect(body.movimentacoes).toBe(0);
-    const lista = await get(`${BASE}/dia/${DIA}/movimentacoes?serie=Belém`);
-    expect(lista.body.total).toBe(0);
-    expect(lista.body.rows).toEqual([]);
-  });
-
-  it("a lista honra a série tanto no total quanto nas linhas", async () => {
-    const { body } = await get(`${BASE}/dia/${DIA}/movimentacoes?serie=Camaçari`);
-    expect(body.total).toBe(1);
-    expect(body.rows.map((r: any) => r.externalId)).toEqual(["Camaçari-1"]);
-  });
-});
-
-describe("a aba vem de lista fechada", () => {
-  it("uma aba inventada cai em TODOS, e não vira predicado", async () => {
-    const { body } = await get(`${BASE}/dia/${DIA}/movimentacoes?aba=' OR 1=1--`);
-    expect(body.aba).toBe("TODOS");
-    expect(body.total).toBe(2);
-  });
-
-  it("as abas conhecidas recortam de verdade", async () => {
-    expect((await get(`${BASE}/dia/${DIA}/movimentacoes?aba=ALTERADOS`)).body.total).toBe(2);
-    expect((await get(`${BASE}/dia/${DIA}/movimentacoes?aba=NOVOS`)).body.total).toBe(0);
+    expect(body.chamadosNoEnvio).toBe(0);
   });
 });
 
@@ -344,85 +323,6 @@ describe("a régua", () => {
 
   it("recusa data fora do formato", async () => {
     expect((await get(`${BASE}/dia/02-09-2026`)).status).toBe(400);
-  });
-});
-
-describe("a revisão", () => {
-  it("grava o autor da sessão, e não um do corpo", async () => {
-    const lista = await get(`${BASE}/dia/${DIA}/movimentacoes?serie=Recife`);
-    const m = lista.body.rows[0];
-
-    const { status } = await post(`${BASE}/movimentacoes/${m.id}/revisao`, {
-      revisao: m.revisao,
-      // Um corpo que tentasse dizer quem revisou. Ele é ignorado: o autor é a
-      // sessão, e uma revisão que o cliente pudesse assinar não sustenta a
-      // frase "foi fulano quem revisou".
-      revisadoPor: "outra.pessoa@empresa.com",
-    });
-    expect(status).toBe(200);
-
-    const depois = await get(`${BASE}/dia/${DIA}/movimentacoes?serie=Recife`);
-    expect(depois.body.rows[0].revisada).toBe(true);
-    expect(depois.body.rows[0].revisadaPor).toBe(SESSAO.email);
-  });
-
-  it("recusa com 409 a revisão de uma versão que já não é a atual", async () => {
-    const lista = await get(`${BASE}/dia/${DIA}/movimentacoes?serie=Camaçari`);
-    const m = lista.body.rows[0];
-
-    const { status, body } = await post(`${BASE}/movimentacoes/${m.id}/revisao`, {
-      revisao: m.revisao + 1,
-    });
-    expect(status).toBe(409);
-    expect(body.error).toContain("mudou desde que a tela carregou");
-  });
-
-  it("404 para movimentação que não existe, 400 para id que não é uuid", async () => {
-    expect(
-      (await post(`${BASE}/movimentacoes/00000000-0000-0000-0000-000000000000/revisao`, {}))
-        .status,
-    ).toBe(404);
-    expect((await post(`${BASE}/movimentacoes/nao-e-uuid/revisao`, {})).status).toBe(400);
-  });
-
-  it("o lote recusa id inválido antes de gravar qualquer coisa", async () => {
-    const { status, body } = await post(`${BASE}/revisoes`, { ids: ["nao-e-uuid"] });
-    expect(status).toBe(400);
-    expect(body.error).toContain("inválido");
-  });
-
-  it("o lote tem teto, e a recusa diz qual é", async () => {
-    const ids = Array.from({ length: 101 }, () => "00000000-0000-0000-0000-000000000000");
-    const { status, body } = await post(`${BASE}/revisoes`, { ids });
-    expect(status).toBe(400);
-    expect(body.error).toContain("100");
-  });
-
-  it("o lote separa o que revisou do que recusou", async () => {
-    const lista = await get(`${BASE}/dia/${DIA}/movimentacoes?serie=Camaçari`);
-    const { status, body } = await post(`${BASE}/revisoes`, {
-      ids: [lista.body.rows[0].id, "00000000-0000-0000-0000-000000000000"],
-    });
-    expect(status).toBe(200);
-    expect(body.revisadas).toHaveLength(1);
-    expect(body.recusadas).toHaveLength(1);
-  });
-});
-
-describe("o detalhe", () => {
-  it("traz o encadeamento do dia e os parâmetros do chamado", async () => {
-    const lista = await get(`${BASE}/dia/${DIA}/movimentacoes?serie=Recife`);
-    const { status, body } = await get(`${BASE}/movimentacoes/${lista.body.rows[0].id}`);
-
-    expect(status).toBe(200);
-    expect(body.passos).toHaveLength(1);
-    expect(body.parametros.map((p: any) => p.parameterLabel)).toEqual(["Frete peso"]);
-  });
-
-  it("404 para movimentação inexistente", async () => {
-    expect(
-      (await get(`${BASE}/movimentacoes/00000000-0000-0000-0000-000000000000`)).status,
-    ).toBe(404);
   });
 });
 
@@ -487,13 +387,8 @@ describe("a relação de chamados do envio", () => {
     );
     expect(porId).toEqual({ "Camaçari-1": false, "Camaçari-2": true });
     expect(body.movimentaram).toBe(1);
-
-    const movimentacoes = await get(
-      `${BASE}/dia/${DEPOIS}/movimentacoes?serie=Camaçari`,
-    );
-    expect(movimentacoes.body.rows.map((m: any) => m.externalId)).toEqual([
-      "Camaçari-2",
-    ]);
+    // E o resumo do dia conta a mesma movimentação, pelo outro lado.
+    expect((await get(`${BASE}/dia/${DEPOIS}?serie=Camaçari`)).body.movimentacoes).toBe(1);
   });
 
   it("uma série que não existe devolve vazio — nunca o produto inteiro", async () => {
