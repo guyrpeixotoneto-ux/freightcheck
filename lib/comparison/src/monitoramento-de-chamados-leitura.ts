@@ -864,50 +864,6 @@ function montarLinha(
   };
 }
 
-/** As opções que os filtros oferecem — as do dia, e não as do acervo. */
-export async function opcoesDeFiltro(
-  db: Database,
-  { dia, serie }: { dia: string; serie?: string | null },
-): Promise<{
-  unidades: string[];
-  areas: string[];
-  responsaveis: string[];
-  status: string[];
-  tiposDeAlteracao: string[];
-}> {
-  const escopo = and(eq(ticketMovementDayTable.dia, dia), noEscopoDaSerie(serie));
-
-  const linhas = await db
-    .select({
-      unidade: ticketMovementDayTable.unidade,
-      area: ticketMovementDayTable.area,
-      responsavel: ticketMovementDayTable.responsavel,
-      status: ticketMovementDayTable.statusBucket,
-    })
-    .from(ticketMovementDayTable)
-    .where(escopo);
-
-  const tipos = await db
-    .selectDistinct({ tipo: ticketMovementFieldTable.tipo })
-    .from(ticketMovementFieldTable)
-    .innerJoin(
-      ticketMovementDayTable,
-      eq(ticketMovementDayTable.id, ticketMovementFieldTable.movementId),
-    )
-    .where(escopo);
-
-  const unicos = (valores: (string | null)[]) =>
-    [...new Set(valores.filter((v): v is string => v !== null && v !== ""))].sort();
-
-  return {
-    unidades: unicos(linhas.map((l) => l.unidade)),
-    areas: unicos(linhas.map((l) => l.area)),
-    responsaveis: unicos(linhas.map((l) => l.responsavel)),
-    status: unicos(linhas.map((l) => l.status)),
-    tiposDeAlteracao: unicos(tipos.map((t) => t.tipo)),
-  };
-}
-
 // ---------------------------------------------------------------------------
 // A fila do dia — a relação de chamados que o arquivo trouxe
 // ---------------------------------------------------------------------------

@@ -146,10 +146,11 @@ import {
  * saídos da fila, e na linha que diz quantos chamados do envio se mexeram
  * neste dia — que é a mesma conta, do lado do grão que ficou.
  *
- * `useMovimentacoes`, `useRevisao` e `ListaDeMovimentacoes` continuam no
- * repositório sem tela que os chame. A decisão é de produto e é recente:
- * apagar o caminho de volta antes de ela assentar custaria mais do que a
- * gordura de mantê-los.
+ * O que servia só a ela foi junto: o componente `ListaDeMovimentacoes`, os
+ * ganchos `useMovimentacoes` e `useRevisao`, e as cinco rotas que os
+ * alimentavam — a lista paginada, o detalhe de uma movimentação e as três
+ * escritas da revisão. O motor não: `lib/comparison` continua comparando em
+ * toda importação, porque é de lá que vêm os números que ficaram.
  *
  * A relação é buscada com a tela, e não mais só quando alguém abria a segunda
  * visão: ela é a lista agora. A abertura continua custando três consultas —
@@ -618,17 +619,14 @@ export default function MonitoramentoDeChamados() {
             )}
 
             {/*
-              A frase do dia, e só a que fala do arquivo.
+              A frase do dia — e ela só existe para o dia sem lista.
 
-              `fraseDoDia` responde por cinco estados, e dois deles — a
-              pendência e o dia revisado — são frases da revisão, que saiu desta
-              tela. Uma tira vermelha dizendo "3.400 movimentações aguardando
-              revisão" numa tela sem onde revisar cobra um trabalho que não tem
-              mais porta. Ficam as três que dizem o que houve com o arquivo: não
-              veio, veio pela primeira vez, ou veio e não mudou nada — que é o
-              que impede o vazio da lista de se ler como defeito.
+              `fraseDoDia` cala nos dois estados da revisão (ver lá), e o que
+              chega aqui é sempre uma frase sobre o arquivo: não veio, veio pela
+              primeira vez, ou veio e não mudou nada. É o que impede o vazio da
+              lista de se ler como defeito.
             */}
-            {frase && (frase.tom === "neutro" || frase.tom === "informativo") && (
+            {frase && (
               <div
                 className={cn(
                   "rounded-xl border px-5 py-4",

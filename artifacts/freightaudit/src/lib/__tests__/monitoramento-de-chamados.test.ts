@@ -1,24 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
   COLUNAS_DA_RELACAO,
-  contagemDaAba,
   diaLegivel,
   diaPorExtenso,
   envioForaDaJanela,
   fraseDoDia,
   janelaDoEnvioFora,
   linhasDaPagina,
-  oscilouEVoltou,
   posicaoDaRegua,
-  progressoDoDia,
-  rotuloDaDiferenca,
   emCaixaDeTitulo,
   gravarColunasDaRelacao,
   lerColunasDaRelacao,
   situacaoDoPrazo,
-  valorLegivel,
   type DiaDaRegua,
-  type Movimentacao,
   type ResumoDoDia,
   type Serie,
 } from "@/lib/monitoramento-de-chamados";
@@ -61,7 +55,6 @@ const RESUMO: ResumoDoDia = {
   },
   porUnidade: [{ unidade: "Recife", total: 31 }],
   avisos: [],
-  filtros: { unidades: [], areas: [], responsaveis: [], status: [], tiposDeAlteracao: [] },
 };
 
 describe("datas — sem `Date`, para não haver fuso a errar", () => {
@@ -69,55 +62,6 @@ describe("datas — sem `Date`, para não haver fuso a errar", () => {
     expect(diaLegivel("2026-09-02")).toBe("02/09/2026");
     expect(diaPorExtenso("2026-09-02")).toBe("02 de setembro de 2026");
     expect(posicaoDaRegua("2026-09-02")).toEqual({ numero: "02", mes: "set" });
-  });
-});
-
-describe("valorLegivel — o vazio tem nome", () => {
-  it("um campo esvaziado aparece como traço, não como célula em branco", () => {
-    expect(valorLegivel(null)).toBe("—");
-    expect(valorLegivel("   ")).toBe("—");
-  });
-
-  it("uma data do banco vira data de gente", () => {
-    expect(valorLegivel("2026-09-15")).toBe("15/09/2026");
-    expect(valorLegivel("Em análise")).toBe("Em análise");
-  });
-});
-
-describe("rotuloDaDiferenca — o cabeçalho da fonte quando é o que se tem", () => {
-  it("usa o nome da coluna no que não tem rótulo próprio", () => {
-    expect(rotuloDaDiferenca({ tipo: "PRAZO", campo: "Previsão Análise", antes: null, depois: null }))
-      .toBe("Prazo");
-    // Aqui o cabeçalho é a única informação sobre o que mudou.
-    expect(rotuloDaDiferenca({ tipo: "OUTRO", campo: "Evidência Reprovada", antes: null, depois: null }))
-      .toBe("Evidência Reprovada");
-    expect(rotuloDaDiferenca({ tipo: "VALOR_SOLICITADO", campo: "Pedágio", antes: null, depois: null }))
-      .toBe("Pedágio");
-  });
-});
-
-describe("contagemDaAba — o número ao lado do filtro é o que a lista devolve", () => {
-  it("cada aba lê a mesma conta que a lista aplica", () => {
-    expect(contagemDaAba(RESUMO, "TODOS")).toBe(70);
-    expect(contagemDaAba(RESUMO, "NAO_REVISADOS")).toBe(18);
-    expect(contagemDaAba(RESUMO, "NOVOS")).toBe(27);
-    expect(contagemDaAba(RESUMO, "ALTERADOS")).toBe(31);
-    expect(contagemDaAba(RESUMO, "ENCERRADOS")).toBe(10);
-    expect(contagemDaAba(RESUMO, "REMOVIDOS")).toBe(2);
-    expect(contagemDaAba(RESUMO, "CRITICOS")).toBe(6);
-  });
-
-  it("sem resumo, nenhum número — e nunca zero", () => {
-    // Um `0` no meio do carregamento se lê como "não há nada", que é uma
-    // afirmação, e uma afirmação falsa.
-    expect(contagemDaAba(null, "TODOS")).toBeUndefined();
-  });
-
-  it("as quatro classes somam o total, e é isso que a tela publica", () => {
-    expect(RESUMO.novos + RESUMO.alterados + RESUMO.encerrados + RESUMO.removidos).toBe(
-      RESUMO.movimentacoes,
-    );
-    expect(RESUMO.revisadas + RESUMO.pendentes).toBe(RESUMO.movimentacoes);
   });
 });
 
@@ -152,20 +96,7 @@ describe("linhasDaPagina — a espera tem a altura da lista que vem", () => {
   });
 });
 
-describe("progressoDoDia — a barra só existe quando há o que medir", () => {
-  it("mede o que foi revisado", () => {
-    expect(progressoDoDia(RESUMO)).toEqual({ revisadas: 52, total: 70, percentual: 74 });
-  });
-
-  it("dia sem movimentação não tem barra — nem 0%, nem 100%", () => {
-    // "0 de 0 · 100%" celebraria um trabalho que ninguém fez; "0%" cobraria um
-    // trabalho que não existe.
-    expect(progressoDoDia({ ...RESUMO, movimentacoes: 0, revisadas: 0, pendentes: 0 })).toBeNull();
-    expect(progressoDoDia(null)).toBeNull();
-  });
-});
-
-describe("fraseDoDia — os cinco estados, e por que três deles não são o mesmo", () => {
+describe("fraseDoDia — as três frases do arquivo, e o silêncio nas outras duas", () => {
   it("dia sem importação não é dia sem movimentação", () => {
     const f = fraseDoDia({ ...RESUMO, estado: "SEM_IMPORTACAO", movimentacoes: 0 })!;
     expect(f.tom).toBe("neutro");
@@ -212,50 +143,20 @@ describe("fraseDoDia — os cinco estados, e por que três deles não são o mes
     expect(f.detalhe).toContain("5.214 chamados");
   });
 
-  it("dia revisado fecha a conta", () => {
-    const f = fraseDoDia({ ...RESUMO, estado: "REVISADO", revisadas: 70, pendentes: 0 })!;
-    expect(f.tom).toBe("concluido");
-    expect(f.titulo).toBe("Dia revisado.");
-    expect(f.detalhe).toBe("70 de 70 movimentações analisadas.");
-  });
-
-  it("uma pendência sozinha fala no singular", () => {
-    const f = fraseDoDia({ ...RESUMO, pendentes: 1, revisadas: 69 })!;
-    expect(f.titulo).toBe("1 movimentação aguardando revisão.");
+  it("os dois estados da revisão não falam — a revisão saiu da tela", () => {
+    /*
+      Diziam "3.400 movimentações aguardando revisão" e "dia revisado". A faixa
+      existe para o dia que **não** tem lista; num dia com movimentação, o que
+      há a dizer já está dito por número, na tira e no resumo do dia.
+    */
+    expect(fraseDoDia({ ...RESUMO, estado: "PENDENTE" })).toBeNull();
+    expect(
+      fraseDoDia({ ...RESUMO, estado: "REVISADO", revisadas: 70, pendentes: 0 }),
+    ).toBeNull();
   });
 
   it("sem resumo, a tela não afirma nada", () => {
     expect(fraseDoDia(null)).toBeNull();
-  });
-});
-
-describe("oscilouEVoltou — o chamado que foi e voltou continua na fila", () => {
-  const base: Movimentacao = {
-    id: "1", dia: "2026-09-02", serie: "Recife", externalId: "CH-1",
-    classe: "ALTERADO", revisao: 1, passos: 2, unidade: "Recife", area: null,
-    responsavel: null, solicitante: null, statusRaw: null, statusBucket: null,
-    assunto: null, entidade: null, prazoPrevisto: null, abertoEm: null,
-    encerradoEm: null, alteradoEmFonte: null, criticidade: "NORMAL",
-    criticidadeMotivo: null, criticidadeOrigem: "DERIVADA", atrasado: false,
-    movidaEm: "2026-09-02T20:00:00.000Z", revisada: false, revisadaPor: null,
-    revisadaEm: null, diferencas: [],
-  };
-
-  it("zero diferenças com passos é oscilação, e a linha diz isso", () => {
-    expect(oscilouEVoltou(base)).toBe(true);
-  });
-
-  it("um novo sem diferenças não é oscilação — ele apareceu", () => {
-    expect(oscilouEVoltou({ ...base, classe: "NOVO" })).toBe(false);
-  });
-
-  it("com saldo, não é oscilação: há antes → depois para mostrar", () => {
-    expect(
-      oscilouEVoltou({
-        ...base,
-        diferencas: [{ tipo: "PRAZO", campo: "Previsão Análise", antes: "a", depois: "b" }],
-      }),
-    ).toBe(false);
   });
 });
 

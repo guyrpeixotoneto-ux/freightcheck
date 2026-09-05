@@ -29,8 +29,6 @@ export type EstadoDoDia =
   | "PENDENTE"
   | "REVISADO";
 
-export type ClasseDaMovimentacao = "NOVO" | "ALTERADO" | "ENCERRADO" | "REMOVIDO";
-
 export interface DiaDaRegua {
   dia: string;
   estado: EstadoDoDia;
@@ -42,44 +40,6 @@ export interface DiaDaRegua {
   /** Quantos chamados o arquivo do dia trouxe — o número que a régua escreve. */
   chamadosNoEnvio: number;
   ultimaImportacao: string | null;
-}
-
-export interface Diferenca {
-  tipo: string;
-  campo: string;
-  antes: string | null;
-  depois: string | null;
-}
-
-export interface Movimentacao {
-  id: string;
-  dia: string;
-  serie: string | null;
-  externalId: string;
-  classe: ClasseDaMovimentacao;
-  revisao: number;
-  passos: number;
-  unidade: string | null;
-  area: string | null;
-  responsavel: string | null;
-  solicitante: string | null;
-  statusRaw: string | null;
-  statusBucket: string | null;
-  assunto: string | null;
-  entidade: string | null;
-  prazoPrevisto: string | null;
-  abertoEm: string | null;
-  encerradoEm: string | null;
-  alteradoEmFonte: string | null;
-  criticidade: string;
-  criticidadeMotivo: string | null;
-  criticidadeOrigem: string;
-  atrasado: boolean;
-  movidaEm: string;
-  revisada: boolean;
-  revisadaPor: string | null;
-  revisadaEm: string | null;
-  diferencas: Diferenca[];
 }
 
 export interface AvisoDoDia {
@@ -148,13 +108,6 @@ export interface ResumoDoDia {
   };
   porUnidade: { unidade: string | null; total: number }[];
   avisos: AvisoDoDia[];
-  filtros: {
-    unidades: string[];
-    areas: string[];
-    responsaveis: string[];
-    status: string[];
-    tiposDeAlteracao: string[];
-  };
 }
 
 /**
@@ -249,23 +202,11 @@ export interface Serie {
   ultimaImportacao: string | null;
 }
 
-export const ABAS = [
-  "TODOS",
-  "NAO_REVISADOS",
-  "CRITICOS",
-  "NOVOS",
-  "ALTERADOS",
-  "ENCERRADOS",
-  "REMOVIDOS",
-] as const;
-export type Aba = (typeof ABAS)[number];
-
 export interface FiltrosDaTela {
   unidade?: string;
   area?: string;
   responsavel?: string;
   statusBucket?: string;
-  tipoDeAlteracao?: string;
   busca?: string;
 }
 
@@ -353,80 +294,6 @@ function emDias(dia: string): number {
 // ---------------------------------------------------------------------------
 // Rótulos
 // ---------------------------------------------------------------------------
-
-export const ROTULO_DA_CLASSE: Record<ClasseDaMovimentacao, string> = {
-  NOVO: "Novo chamado",
-  ALTERADO: "Alterado",
-  ENCERRADO: "Encerrado",
-  REMOVIDO: "Saiu da fila",
-};
-
-/**
- * O nome de cada tipo de alteração, na língua de quem opera.
- *
- * O `campo` da diferença é o cabeçalho original do arquivo, e é ele que a linha
- * mostra quando o tipo é `OUTRO` — porque aí o cabeçalho é a única informação
- * que existe sobre o que mudou.
- */
-export const ROTULO_DO_TIPO: Record<string, string> = {
-  STATUS: "Status",
-  ENCERRAMENTO: "Encerramento",
-  PRAZO: "Prazo",
-  RESPONSAVEL: "Responsável",
-  SOLICITANTE: "Solicitante",
-  UNIDADE: "Unidade",
-  AREA: "Área",
-  CATEGORIA: "Categoria",
-  VIGENCIA: "Vigência",
-  ENTIDADE: "Item",
-  VALOR_SOLICITADO: "Valor solicitado",
-  OUTRO: "Outra alteração",
-};
-
-export function rotuloDaDiferenca(d: Diferenca): string {
-  return d.tipo === "OUTRO" || d.tipo === "VALOR_SOLICITADO"
-    ? d.campo
-    : (ROTULO_DO_TIPO[d.tipo] ?? d.campo);
-}
-
-/** O vazio tem nome na tela: um traço, e nunca uma célula em branco. */
-export function valorLegivel(valor: string | null): string {
-  if (valor === null || valor.trim() === "") return "—";
-  return /^\d{4}-\d{2}-\d{2}$/.test(valor) ? diaLegivel(valor) : valor;
-}
-
-export const ROTULO_DA_ABA: Record<Aba, { label: string; hint: string }> = {
-  TODOS: { label: "Todos", hint: "todas as movimentações do dia" },
-  NAO_REVISADOS: { label: "Não revisados", hint: "o que ainda falta olhar" },
-  CRITICOS: {
-    label: "Críticos",
-    hint: "criticidade derivada por nós: prazo vencido em chamado aberto, ou prazo remarcado duas vezes no dia. A Ambev não manda prioridade.",
-  },
-  NOVOS: { label: "Novos", hint: "chamados que não existiam na importação anterior" },
-  ALTERADOS: { label: "Alterados", hint: "chamados que mudaram e seguem abertos" },
-  ENCERRADOS: { label: "Encerrados", hint: "chamados que chegaram a um status final hoje" },
-  REMOVIDOS: { label: "Saíram da fila", hint: "chamados que não vieram nesta importação" },
-};
-
-/**
- * Quantas movimentações cada aba tem — derivado do resumo, nunca contado à parte.
- *
- * Um número ao lado de um filtro é lido como "é isto que sobra se eu clicar", e
- * a promessa só se cumpre se o número vier da mesma conta que a lista. Contar
- * aqui por conta própria daria dois números certos e uma leitura errada.
- */
-export function contagemDaAba(resumo: ResumoDoDia | null, aba: Aba): number | undefined {
-  if (resumo === null) return undefined;
-  switch (aba) {
-    case "TODOS": return resumo.movimentacoes;
-    case "NAO_REVISADOS": return resumo.pendentes;
-    case "CRITICOS": return resumo.pontosDeAtencao.criticos;
-    case "NOVOS": return resumo.novos;
-    case "ALTERADOS": return resumo.alterados;
-    case "ENCERRADOS": return resumo.encerrados;
-    case "REMOVIDOS": return resumo.removidos;
-  }
-}
 
 /**
  * Quantas linhas a página vai trazer — a altura que a espera tem de reservar.
@@ -539,51 +406,20 @@ export function fraseDoDia(resumo: ResumoDoDia | null): FraseDoDia | null {
           "Os chamados vieram iguais aos da importação anterior.",
         ),
       };
+    /*
+      Os dois estados da revisão não têm frase, e não é omissão.
+
+      Eles diziam "3.400 movimentações aguardando revisão" e "dia revisado" —
+      as duas frases do trabalho que saiu desta tela. O que sobra a dizer de um
+      dia com movimentação já está dito por número: a tira sob os cartões, o
+      resumo da direita e a linha que conta quantos chamados se mexeram. A
+      faixa existe para o dia que **não** tem lista: sem arquivo, com o
+      primeiro arquivo, ou com o arquivo que não mudou nada.
+    */
     case "REVISADO":
-      return {
-        tom: "concluido",
-        titulo: "Dia revisado.",
-        detalhe: `${resumo.movimentacoes} de ${resumo.movimentacoes} movimentações analisadas.`,
-      };
     case "PENDENTE":
-      return {
-        tom: "pendente",
-        titulo: `${resumo.pendentes} ${
-          resumo.pendentes === 1 ? "movimentação aguardando" : "movimentações aguardando"
-        } revisão.`,
-        detalhe: `${resumo.revisadas} de ${resumo.movimentacoes} já revisadas.`,
-      };
+      return null;
   }
-}
-
-/**
- * O progresso, ou `null` quando não há o que medir.
- *
- * Um dia sem movimentação **não** tem 0% nem 100%: ele não tem barra. Mostrar
- * "0 de 0 · 100%" celebraria um trabalho que ninguém fez, e "0%" cobraria um
- * trabalho que não existe.
- */
-export function progressoDoDia(
-  resumo: ResumoDoDia | null,
-): { revisadas: number; total: number; percentual: number } | null {
-  if (resumo === null || resumo.movimentacoes === 0) return null;
-  return {
-    revisadas: resumo.revisadas,
-    total: resumo.movimentacoes,
-    percentual: Math.round((resumo.revisadas / resumo.movimentacoes) * 100),
-  };
-}
-
-/**
- * O chamado que **oscilou e voltou**.
- *
- * Zero diferenças no saldo do dia com passos registrados: o campo foi e voltou.
- * Não é um caso de borda a esconder — é justamente o ruído que o gestor abre
- * esta tela para pegar, e a linha precisa dizer por que está ali sem nenhum
- * "antes → depois" para mostrar.
- */
-export function oscilouEVoltou(m: Movimentacao): boolean {
-  return m.diferencas.length === 0 && m.passos > 0 && m.classe === "ALTERADO";
 }
 
 // ---------------------------------------------------------------------------
@@ -767,54 +603,6 @@ export function useResumoDoDia({
   });
 }
 
-export function useMovimentacoes({
-  dia,
-  serie,
-  aba,
-  filtros,
-  pagina,
-  porPagina,
-  habilitado = true,
-}: {
-  dia: string;
-  serie: string | null | undefined;
-  aba: Aba;
-  filtros: FiltrosDaTela;
-  pagina: number;
-  porPagina: number;
-  habilitado?: boolean;
-}) {
-  const endereco = `${BASE}/dia/${dia}/movimentacoes${query([
-    `aba=${aba}`,
-    comSerie(serie),
-    filtros.unidade && `unidade=${encodeURIComponent(filtros.unidade)}`,
-    filtros.area && `area=${encodeURIComponent(filtros.area)}`,
-    filtros.responsavel && `responsavel=${encodeURIComponent(filtros.responsavel)}`,
-    filtros.statusBucket && `statusBucket=${encodeURIComponent(filtros.statusBucket)}`,
-    filtros.tipoDeAlteracao &&
-      `tipoDeAlteracao=${encodeURIComponent(filtros.tipoDeAlteracao)}`,
-    filtros.busca && `busca=${encodeURIComponent(filtros.busca)}`,
-    `limit=${porPagina}`,
-    `offset=${(pagina - 1) * porPagina}`,
-  ])}`;
-
-  return useConsultaResiliente<{ aba: Aba; total: number; rows: Movimentacao[] }>({
-    queryKey: [
-      "monitoramento-chamados",
-      "movimentacoes",
-      dia,
-      serie ?? "todas",
-      aba,
-      filtros,
-      pagina,
-      porPagina,
-    ],
-    endpoint: `${BASE}/dia/:data/movimentacoes`,
-    buscar: () => fetchJson(endereco),
-    enabled: habilitado,
-  });
-}
-
 /**
  * A fila do dia — a relação de chamados, paginada.
  *
@@ -920,51 +708,6 @@ function escrever<T>(caminho: string, metodo: "POST" | "DELETE", corpo?: unknown
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(corpo),
   });
-}
-
-/**
- * Revisar, desfazer e revisar em lote — as três invalidam as mesmas consultas.
- *
- * A régua entra na lista porque a cor de um dia depende de quantas pendências
- * ele tem: revisar a última movimentação de 02/09 tem de apagar o vermelho da
- * régua na mesma hora. Sem isso a tela ficaria dizendo "há pendências" ao lado
- * de uma lista vazia — dois números certos e a leitura errada.
- */
-export function useRevisao(dia: string) {
-  const cliente = useQueryClient();
-  const invalidar = () =>
-    cliente.invalidateQueries({ queryKey: ["monitoramento-chamados"] });
-
-  const revisar = useMutation({
-    mutationFn: (m: { id: string; revisao: number }) =>
-      escrever<{ movementId: string; revisao: number }>(
-        `${BASE}/movimentacoes/${m.id}/revisao`,
-        "POST",
-        { revisao: m.revisao },
-      ),
-    onSuccess: invalidar,
-  });
-
-  const desfazer = useMutation({
-    mutationFn: (id: string) =>
-      escrever<{ movementId: string; desfeita: boolean }>(
-        `${BASE}/movimentacoes/${id}/revisao`,
-        "DELETE",
-      ),
-    onSuccess: invalidar,
-  });
-
-  const emLote = useMutation({
-    mutationFn: (ids: string[]) =>
-      escrever<{ revisadas: string[]; recusadas: string[] }>(
-        `${BASE}/revisoes`,
-        "POST",
-        { ids },
-      ),
-    onSuccess: invalidar,
-  });
-
-  return { dia, revisar, desfazer, emLote };
 }
 
 // ---------------------------------------------------------------------------

@@ -1,21 +1,12 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
 import {
-  ABAS,
-  RevisaoRecusada,
-  desfazerRevisao,
-  detalheDaMovimentacao,
   diaDaOperacao,
   diaSeguinte,
   filaDoDia,
-  listarMovimentacoes,
-  opcoesDeFiltro,
-  registrarRevisao,
   reguaDeDias,
   resumoDoDia,
-  revisarEmLote,
   seriesDisponiveis,
-  type AbaDoMonitoramento,
 } from "@workspace/comparison";
 import { contextoDeSchema } from "../middlewares/contexto-de-schema";
 
@@ -23,15 +14,18 @@ import { contextoDeSchema } from "../middlewares/contexto-de-schema";
  * MONITORAMENTO DE CHAMADOS — a superfície da tela.
  *
  * A aba Chamados (`tickets.ts`) responde "o que tem na fila hoje", lendo um
- * envio. Estas rotas respondem "o que mudou desde ontem", lendo a camada
- * derivada que o motor já calculou na importação. **Nenhuma delas compara nada
- * em tempo de requisição**: abrir a tela é três consultas sobre linhas prontas,
- * e é o que impede a página mais acessada do produto de ficar cara.
+ * envio. Estas rotas respondem pelo **dia**: que arquivo chegou, de que
+ * tamanho, e o que ele trouxe. São quatro — as séries, a régua, o resumo e a
+ * relação —, e **nenhuma compara nada em tempo de requisição**: o motor já
+ * comparou na importação, e o que elas leem é linha pronta. É o que impede a
+ * página mais acessada do produto de ficar cara.
  *
- * A exceção é `/dia/:data/chamados`, que lê `ticket` — a relação que o arquivo
- * do dia trouxe, e não o delta. Ela existe porque um dia sem movimentação não é
- * um dia sem chamado, e é rota própria justamente para que a abertura da tela
- * continue custando as três consultas de sempre: só paga por ela quem a abre.
+ * A tela já teve uma segunda leitura, a das **movimentações** — a fila de
+ * trabalho revisável, com a lista paginada, o detalhe de uma movimentação e as
+ * três escritas da revisão. O módulo escolheu o grão do arquivo e ela saiu da
+ * tela; estas rotas saíram atrás. O motor continua produzindo movimentação em
+ * toda importação, e `/dia/:data` continua contando quantas houve — o que
+ * deixou de existir é a fila de trabalho sobre elas.
  *
  * ---------------------------------------------------------------------------
  * O escopo, e o que ele é neste produto
@@ -77,7 +71,6 @@ router.use(
   ),
 );
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DIA = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
@@ -156,70 +149,39 @@ router.get(`${BASE}/dias`, async (req, res): Promise<void> => {
   });
 });
 
-/** O resumo de um dia: cartões, detalhamento, pontos de atenção e avisos. */
+/**
+ * O resumo de um dia: cartões, detalhamento, pontos de atenção e avisos.
+ *
+ * Ele já vinha com as opções de filtro das movimentações — unidades, áreas,
+ * responsáveis, tipos de alteração —, uma consulta a mais em toda abertura de
+ * tela. Os seletores da tela agora recortam a relação, e as opções deles vêm
+ * com ela, em `/dia/:data/chamados`. Uma consulta que ninguém lê é cara na
+ * página mais acessada do produto.
+ */
 router.get(`${BASE}/dia/:data`, async (req, res): Promise<void> => {
   if (!DIA.test(req.params.data)) {
     res.status(400).json({ error: "Data inválida: use o formato AAAA-MM-DD." });
     return;
   }
-  const serie = serieDaConsulta(req.query);
-  const [resumo, filtros] = await Promise.all([
-    resumoDoDia(db, { dia: req.params.data, serie }),
-    opcoesDeFiltro(db, { dia: req.params.data, serie }),
-  ]);
-  res.json({ ...resumo, filtros });
+  res.json(
+    await resumoDoDia(db, {
+      dia: req.params.data,
+      serie: serieDaConsulta(req.query),
+    }),
+  );
 });
 
 /**
- * A lista paginada — a fila de trabalho do dia.
+ * A relação de chamados que o arquivo do dia trouxe — a lista da tela.
  *
- * A aba chega por nome e é conferida contra a lista fechada `ABAS`: texto de
- * fora nunca vira predicado. É a mesma disciplina de `ORDENACOES` em
- * `tickets.ts`, e pela mesma razão — o que não está na lista não é um recorte,
- * é uma tentativa.
- */
-router.get(`${BASE}/dia/:data/movimentacoes`, async (req, res): Promise<void> => {
-  if (!DIA.test(req.params.data)) {
-    res.status(400).json({ error: "Data inválida: use o formato AAAA-MM-DD." });
-    return;
-  }
-
-  const pedida = texto(req.query, "aba");
-  const aba = (ABAS as readonly string[]).includes(pedida ?? "")
-    ? (pedida as AbaDoMonitoramento)
-    : "TODOS";
-
-  const resultado = await listarMovimentacoes(db, {
-    dia: req.params.data,
-    serie: serieDaConsulta(req.query),
-    filtros: {
-      aba,
-      unidade: texto(req.query, "unidade"),
-      area: texto(req.query, "area"),
-      responsavel: texto(req.query, "responsavel"),
-      statusBucket: texto(req.query, "statusBucket"),
-      tipoDeAlteracao: texto(req.query, "tipoDeAlteracao"),
-      busca: texto(req.query, "busca"),
-      limit: numero(req.query, "limit"),
-      offset: numero(req.query, "offset"),
-    },
-  });
-
-  res.json({ aba, ...resultado });
-});
-
-/**
- * A relação de chamados que o arquivo do dia trouxe — a outra leitura.
+ * `/dia/:data` conta **o que mudou**; esta devolve **o que veio**. São grãos
+ * diferentes e nunca somam: a relação é o arquivo inteiro, e as movimentações
+ * são o subconjunto dele que se mexeu — cada linha daqui diz em qual dos dois
+ * ela está (`movimentou`), que é o que torna a afirmação conferível a olho.
  *
- * As rotas acima respondem **o que mudou**; esta responde **o que veio**. São
- * populações diferentes e nunca somam: a fila é o arquivo inteiro, e as
- * movimentações são o subconjunto dele que se mexeu. Num dia em que a
- * comparação não achou diferença nenhuma, a primeira é zero e a segunda é o
- * arquivo inteiro — e era essa a resposta que a tela não tinha como dar.
- *
- * Rota própria, e não mais um campo em `/dia/:data`: a fila é do tamanho do
- * arquivo, e quem só quer saber o que mudou não deve pagar por ela. É a mesma
- * escolha que `/movimentacoes/:id` faz com o encadeamento.
+ * Rota própria, e não um campo em `/dia/:data`: a relação é do tamanho do
+ * arquivo, e o resumo é uma consulta pequena que a régua e os cartões pedem
+ * primeiro. Quem pagina a lista não repagina o resumo.
  */
 router.get(`${BASE}/dia/:data/chamados`, async (req, res): Promise<void> => {
   if (!DIA.test(req.params.data)) {
@@ -239,127 +201,6 @@ router.get(`${BASE}/dia/:data/chamados`, async (req, res): Promise<void> => {
         busca: texto(req.query, "busca"),
         limit: numero(req.query, "limit"),
         offset: numero(req.query, "offset"),
-      },
-    }),
-  );
-});
-
-/**
- * Uma movimentação inteira: o encadeamento do dia e os parâmetros do chamado.
- *
- * Rota própria, e não mais um campo na lista: o encadeamento é grande e quase
- * ninguém o abre. Mandá-lo junto faria toda abertura de tela pagar por ele — a
- * mesma escolha que `/tickets/:id` faz do outro lado.
- */
-router.get(`${BASE}/movimentacoes/:id`, async (req, res): Promise<void> => {
-  if (!UUID.test(req.params.id)) {
-    res.status(400).json({ error: "Identificador de movimentação inválido." });
-    return;
-  }
-  const detalhe = await detalheDaMovimentacao(db, req.params.id);
-  if (!detalhe) {
-    res.status(404).json({ error: "Movimentação não encontrada." });
-    return;
-  }
-  res.json(detalhe);
-});
-
-/**
- * Marcar como revisada.
- *
- * O autor é **a sessão**, nunca um campo do corpo: uma revisão que dissesse
- * quem revisou por conta do cliente não sustenta a frase "foi fulano quem
- * revisou". A escrita durante um "visualizar como" já é recusada antes de
- * chegar aqui (`middlewares/visualizacao-como.ts`), o que mantém o autor sendo
- * sempre quem digitou a senha.
- *
- * `revisao` no corpo é a versão que a **tela mostrou**. Quando ela não é mais a
- * atual — um envio novo reescreveu a movimentação entre o carregamento e o
- * clique —, a resposta é 409 com a frase inteira, e não uma revisão gravada em
- * cima de algo que ninguém viu.
- */
-router.post(`${BASE}/movimentacoes/:id/revisao`, async (req, res, next): Promise<void> => {
-  if (!UUID.test(req.params.id)) {
-    res.status(400).json({ error: "Identificador de movimentação inválido." });
-    return;
-  }
-  const bruta = (req.body as Record<string, unknown> | undefined)?.revisao;
-  const revisaoEsperada =
-    typeof bruta === "number" && Number.isInteger(bruta) ? bruta : undefined;
-
-  try {
-    res.json(
-      await registrarRevisao(db, {
-        movementId: req.params.id,
-        revisaoEsperada,
-        revisor: {
-          userId: req.user?.id ?? null,
-          email: req.user?.email ?? "sistema",
-        },
-      }),
-    );
-  } catch (err) {
-    if (err instanceof RevisaoRecusada) {
-      res.status(err.codigo === "NAO_ENCONTRADA" ? 404 : 409).json({ error: err.message });
-      return;
-    }
-    next(err);
-  }
-});
-
-/** Desfazer — some com a revisão da versão atual, e só dela. */
-router.delete(`${BASE}/movimentacoes/:id/revisao`, async (req, res, next): Promise<void> => {
-  if (!UUID.test(req.params.id)) {
-    res.status(400).json({ error: "Identificador de movimentação inválido." });
-    return;
-  }
-  try {
-    res.json(await desfazerRevisao(db, req.params.id));
-  } catch (err) {
-    if (err instanceof RevisaoRecusada) {
-      res.status(404).json({ error: err.message });
-      return;
-    }
-    next(err);
-  }
-});
-
-/** Quantas movimentações um lote pode carregar. É o teto de uma página. */
-const TETO_DO_LOTE = 100;
-
-/**
- * O "Continuar revisão" — um lote de movimentações que a tela acabou de mostrar.
- *
- * A resposta separa `revisadas` de `recusadas`: as que mudaram desde que a
- * lista carregou não entram em silêncio, e a tela diz quantas ficaram para um
- * segundo olhar. Revisá-las junto seria carimbar o que ninguém viu — o mesmo
- * motivo do 409 da rota acima, aplicado a um lote.
- */
-router.post(`${BASE}/revisoes`, async (req, res): Promise<void> => {
-  const corpo = req.body as Record<string, unknown> | undefined;
-  const ids = Array.isArray(corpo?.ids) ? corpo.ids : null;
-
-  if (ids === null || ids.length === 0) {
-    res.status(400).json({ error: "Envie `ids` com ao menos uma movimentação." });
-    return;
-  }
-  if (ids.length > TETO_DO_LOTE) {
-    res.status(400).json({
-      error: `Um lote revisa no máximo ${TETO_DO_LOTE} movimentações por vez.`,
-    });
-    return;
-  }
-  if (!ids.every((id): id is string => typeof id === "string" && UUID.test(id))) {
-    res.status(400).json({ error: "Há identificador de movimentação inválido no lote." });
-    return;
-  }
-
-  res.json(
-    await revisarEmLote(db, {
-      ids,
-      revisor: {
-        userId: req.user?.id ?? null,
-        email: req.user?.email ?? "sistema",
       },
     }),
   );
