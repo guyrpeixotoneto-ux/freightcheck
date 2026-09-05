@@ -39,6 +39,8 @@ export interface DiaDaRegua {
   movimentacoes: number;
   revisadas: number;
   pendentes: number;
+  /** Quantos chamados o arquivo do dia trouxe — o número que a régua escreve. */
+  chamadosNoEnvio: number;
   ultimaImportacao: string | null;
 }
 

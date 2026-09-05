@@ -139,6 +139,15 @@ export interface DiaDaRegua {
   movimentacoes: number;
   revisadas: number;
   pendentes: number;
+  /**
+   * Quantos chamados o arquivo daquele dia trouxe — o número que a régua
+   * escreve na posição.
+   *
+   * Mesma regra de `resumoDoDia`: o último envio lido **de cada série**
+   * responde pelo dia. Três envios da mesma unidade num dia são a mesma fila
+   * três vezes, e somá-los daria uma régua com o triplo do arquivo.
+   */
+  chamadosNoEnvio: number;
   ultimaImportacao: string | null;
 }
 
@@ -165,12 +174,27 @@ export async function reguaDeDias(
     lte(ticketImportTable.receivedAt, new Date(`${diaSeguinte(ate, 2)}T00:00:00.000Z`)),
   );
 
+  /*
+    Os envios vêm em linha, e não somados pelo banco.
+
+    A régua escreve o tamanho do arquivo na posição, e esse número não é a soma
+    dos envios do dia: é o do **último envio de cada série** — a regra de
+    `resumoDoDia`, e a única que não conta a mesma fila duas vezes quando a
+    unidade reenviou. Um `sum(ticket_count)` agrupado por dia não sabe dizer
+    isso, e a janela é de nove dias: são poucas linhas para dobrar aqui.
+
+    `order by received_at` é o que faz a última atribuição ao `Map` ser a do
+    envio mais recente daquela série — o mesmo mecanismo de `resumoDoDia`, com
+    o mesmo sentinela para a série indeterminada, que é uma série e não pode se
+    fundir com outra por ser nula.
+  */
   const envios = await db
     .select({
       dia: DIA_DO_ENVIO,
-      envios: sql<number>`count(*) filter (where ${ticketImportTable.status} = 'READ')`.mapWith(Number),
-      falhas: sql<number>`count(*) filter (where ${ticketImportTable.status} not in ('READ','SKIPPED_DUPLICATE'))`.mapWith(Number),
-      ultima: sql<Date | null>`max(${ticketImportTable.receivedAt}) filter (where ${ticketImportTable.status} = 'READ')`,
+      serie: ticketImportTable.serie,
+      status: ticketImportTable.status,
+      receivedAt: ticketImportTable.receivedAt,
+      chamados: ticketImportTable.ticketCount,
     })
     .from(ticketImportTable)
     .where(
@@ -183,7 +207,7 @@ export async function reguaDeDias(
               : eq(ticketImportTable.serie, serie),
           ),
     )
-    .groupBy(DIA_DO_ENVIO);
+    .orderBy(asc(ticketImportTable.receivedAt));
 
   const movimentos = await db
     .select({
@@ -217,7 +241,29 @@ export async function reguaDeDias(
       ),
     );
 
-  const porDiaEnvios = new Map(envios.map((e) => [String(e.dia), e]));
+  interface DoDia {
+    envios: number;
+    falhas: number;
+    ultima: Date | null;
+    /** O `ticket_count` do último envio lido de cada série, por série. */
+    ultimoPorSerie: Map<string, number>;
+  }
+  const porDiaEnvios = new Map<string, DoDia>();
+  for (const e of envios) {
+    const chave = String(e.dia);
+    let d = porDiaEnvios.get(chave);
+    if (d === undefined) {
+      d = { envios: 0, falhas: 0, ultima: null, ultimoPorSerie: new Map() };
+      porDiaEnvios.set(chave, d);
+    }
+    if (e.status === "READ") {
+      d.envios += 1;
+      d.ultima = e.receivedAt;
+      d.ultimoPorSerie.set(e.serie ?? "—", e.chamados);
+    } else if (e.status !== "SKIPPED_DUPLICATE") {
+      d.falhas += 1;
+    }
+  }
   const porDiaMov = new Map(movimentos.map((m) => [String(m.dia), m]));
   const comBaseline = new Set(baselines.map((b) => String(b.dia)));
 
@@ -243,6 +289,9 @@ export async function reguaDeDias(
       movimentacoes,
       revisadas,
       pendentes,
+      chamadosNoEnvio: e
+        ? [...e.ultimoPorSerie.values()].reduce((a, n) => a + n, 0)
+        : 0,
       ultimaImportacao: e?.ultima ? new Date(e.ultima).toISOString() : null,
     });
   }

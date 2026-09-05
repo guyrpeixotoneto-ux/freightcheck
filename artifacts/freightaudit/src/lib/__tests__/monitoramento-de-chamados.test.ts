@@ -277,6 +277,7 @@ describe("envioForaDaJanela — nove cinzas não são um acervo vazio", () => {
     movimentacoes: 0,
     revisadas: 0,
     pendentes: 0,
+    chamadosNoEnvio: 0,
     ultimaImportacao: null,
   }));
 
