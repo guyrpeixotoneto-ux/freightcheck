@@ -1,7 +1,6 @@
 import {
   AlertTriangle,
   Building2,
-  Clock,
   FileSpreadsheet,
   TrendingUp,
 } from "lucide-react";
@@ -21,40 +20,27 @@ import type { ResumoDoDia } from "@/lib/monitoramento-de-chamados";
  * número — ele afirma que se procurou e não se achou.
  *
  * ---------------------------------------------------------------------------
- * O painel só existe quando há delta
+ * A coluna é fixa, e o painel é que varia
  * ---------------------------------------------------------------------------
  *
- * Ele é o painel do **que mudou**, e tudo aqui dentro sai da mesma tabela de
- * movimentações do dia: os dois números grandes, os pontos de atenção, a
- * concentração por unidade. Num dia sem movimentação — que é a maioria dos
- * dias — isso deixava em tela "0 movimentações" e "0 aguardando revisão", que
- * são exatamente os zeros de que os três cartões do topo foram livrados quando
- * passaram a contar aprovados, em análise e reprovados; e embaixo deles a
- * única linha com número, "1.218 chamados vieram no arquivo deste dia", já
- * estava dita duas vezes na mesma tela — na tira sob os cartões e na frase da
- * importação.
+ * Ele já não foi montado em dia sem movimentação. Tudo aqui dentro saía da
+ * mesma tabela de movimentações, e sem elas sobravam "0 movimentações" e "0
+ * aguardando revisão" — exatamente os zeros de que os três cartões do topo
+ * foram livrados quando passaram a contar aprovados, em análise e reprovados.
+ * Não montar o painel resolvia os zeros e criava outro: a página mudava de
+ * forma conforme o dia, estreita no dia sem arquivo e larga no dia com ele.
  *
- * Então, sem movimentação, o painel não é montado: `temResumoDoDia` responde
- * por ele, e a tela inteira fica na largura cheia. O que sobrevive é o aviso da
- * importação, que existe sem movimentação nenhuma e não está dito em outro
- * lugar — ele sai pela faixa dos complementos.
+ * Agora a coluna de 320px é fixa na página, e o painel é montado sempre que há
+ * resumo. Dos dois zeros, um foi embora por outro caminho: **"aguardando
+ * revisão" saiu**, porque a revisão saiu da tela junto com a visão de
+ * movimentações — um relógio vermelho cobrando um trabalho sem porta é pior
+ * do que um zero. O que ficou é fato do dia: quantas movimentações houve, e de
+ * que tamanho era o envio.
  *
  * **Enquanto o dia não chegou, nada aqui é desenhado** — nem esqueleto. A
- * existência deste painel depende do número que ainda está vindo, e um
- * esqueleto seria a tela prometendo um painel que, na maioria dos dias, não vai
- * existir. É a mesma regra do resto do módulo: durante a espera não se afirma.
+ * coluna fica vazia até o resumo chegar, e é a mesma regra do resto do módulo:
+ * durante a espera não se afirma.
  */
-
-/**
- * Se há painel a montar: o dia tem movimentação.
- *
- * A pergunta é do lado de fora porque a resposta muda a **grade** da página, e
- * não só o conteúdo de uma coluna — sem painel não há segunda coluna, e o que
- * dela dependia (o `col-span-2` da faixa e o da lista) deixa de valer junto.
- */
-export function temResumoDoDia(resumo: ResumoDoDia | null): boolean {
-  return resumo !== null && resumo.movimentacoes > 0;
-}
 
 /**
  * As duas partes do painel, e por que ele sabe se partir.
@@ -171,40 +157,16 @@ export function ResumoDoDiaPainel({
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            <div
-              className={cn(
-                "h-11 w-11 rounded-xl grid place-content-center shrink-0",
-                resumo.pendentes > 0
-                  ? "bg-red-50 text-red-600"
-                  : "bg-emerald-50 text-emerald-600",
-              )}
-            >
-              <Clock className="h-5 w-5" />
-            </div>
-            <div className="min-w-0">
-              <div
-                className={cn(
-                  "text-2xl font-bold tabular-nums leading-none",
-                  resumo.pendentes > 0 ? "text-red-600" : "text-emerald-700",
-                )}
-              >
-                {resumo.pendentes}
-              </div>
-              <div className="text-sm text-muted-foreground">aguardando revisão</div>
-            </div>
-          </div>
-
           {/*
-            O tamanho da fila, separado dos dois de cima por uma linha — e a
+            O tamanho do envio, separado do número de cima por uma linha — e a
             separação é a informação.
 
             Movimentação e chamado são grãos diferentes, e este painel nunca os
-            soma: os dois números grandes contam **o que se mexeu**, e este conta
-            **o que veio no arquivo**. Ele está aqui porque, sem ele, um dia sem
-            movimentação mostrava "0" e "0" um embaixo do outro e se lia como "o
-            import não trouxe nada" — enquanto o arquivo daquela manhã tinha
-            trazido a fila inteira.
+            soma: o número grande conta **o que se mexeu**, e este conta **o que
+            veio no arquivo**. Ele está aqui porque, sem ele, um dia sem
+            movimentação mostrava um zero sozinho e se lia como "o import não
+            trouxe nada" — enquanto o arquivo daquela manhã tinha trazido a
+            fila inteira.
 
             Some quando não há contagem: uma linha dizendo "0 chamados" seria
             justamente a afirmação errada que ela existe para desfazer.
