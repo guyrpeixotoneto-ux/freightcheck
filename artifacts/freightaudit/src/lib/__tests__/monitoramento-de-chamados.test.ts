@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   COLUNAS_DA_RELACAO,
+  diaDeAbertura,
   diaLegivel,
   diaPorExtenso,
   envioForaDaJanela,
@@ -284,6 +285,75 @@ describe("envioForaDaJanela — nove cinzas não são um acervo vazio", () => {
       de: "2026-07-01",
       ate: "2026-07-09",
     });
+  });
+});
+
+describe("diaDeAbertura — a tela abre no último dia com arquivo", () => {
+  /*
+    A régua da tela real: 30/08 a 07/09, arquivo só no dia 04, e hoje é 07.
+    Quem abria via os três zeros do dia 07 sobre 2.349 chamados lidos no 04.
+  */
+  const dia = (
+    dia: string,
+    envios = 0,
+    extra: Partial<DiaDaRegua> = {},
+  ): DiaDaRegua => ({
+    dia,
+    estado: envios > 0 ? "SEM_MOVIMENTACAO" : "SEM_IMPORTACAO",
+    envios,
+    enviosComFalha: 0,
+    movimentacoes: 0,
+    revisadas: 0,
+    pendentes: 0,
+    chamadosNoEnvio: envios > 0 ? 2349 : 0,
+    ultimaImportacao: null,
+    ...extra,
+  });
+
+  const JANELA = [
+    dia("2026-08-30"), dia("2026-08-31"), dia("2026-09-01"),
+    dia("2026-09-02"), dia("2026-09-03"), dia("2026-09-04", 1),
+    dia("2026-09-05"), dia("2026-09-06"), dia("2026-09-07"),
+  ];
+
+  it("escolhe o dia do arquivo, e não hoje", () => {
+    expect(diaDeAbertura({ dias: JANELA, hoje: "2026-09-07" })).toBe(
+      "2026-09-04",
+    );
+  });
+
+  it("com dois dias de arquivo, abre no mais recente", () => {
+    const dois = JANELA.map((d) =>
+      d.dia === "2026-09-01" ? dia("2026-09-01", 1) : d,
+    );
+    expect(diaDeAbertura({ dias: dois, hoje: "2026-09-07" })).toBe("2026-09-04");
+  });
+
+  it("o dia cujo envio falhou tem arquivo, e serve de abertura", () => {
+    const comFalha = JANELA.map((d) =>
+      d.dia === "2026-09-06" ? dia("2026-09-06", 0, { enviosComFalha: 1 }) : d,
+    );
+    expect(diaDeAbertura({ dias: comFalha, hoje: "2026-09-07" })).toBe(
+      "2026-09-06",
+    );
+  });
+
+  it("janela toda cinza abre em hoje, que é onde o próximo arquivo cai", () => {
+    const cinza = JANELA.map((d) => dia(d.dia));
+    expect(diaDeAbertura({ dias: cinza, hoje: "2026-09-07" })).toBe(
+      "2026-09-07",
+    );
+  });
+
+  it("sem régua ainda, abre em hoje", () => {
+    expect(diaDeAbertura({ dias: [], hoje: "2026-09-07" })).toBe("2026-09-07");
+  });
+
+  it("não abre num dia à frente de hoje", () => {
+    const adiante = [dia("2026-09-07"), dia("2026-09-08", 1)];
+    expect(diaDeAbertura({ dias: adiante, hoje: "2026-09-07" })).toBe(
+      "2026-09-07",
+    );
   });
 });
 

@@ -529,6 +529,47 @@ export function janelaDoEnvioFora(envio: EnvioForaDaJanela): string {
   );
 }
 
+/**
+ * O DIA EM QUE A TELA ABRE — o último com arquivo, e não o de hoje.
+ *
+ * A tela abria sempre em hoje, e hoje quase nunca tem importação: quem entrava
+ * via três zeros, "nenhuma importação neste dia" e uma relação vazia, sobre um
+ * recorte que tinha 2.349 chamados lidos anteontem. A régua já mostrava onde o
+ * dado estava — o dia azul, dois cliques à esquerda —, e todo dia alguém tinha
+ * de dar esse clique para chegar à tela que queria ver.
+ *
+ * Então a abertura passa a ser **o dia mais recente da janela que recebeu
+ * arquivo**. Não é adivinhação: é a mesma régua que já está em tela, lida uma
+ * vez. Um envio que falhou conta — o dia tem arquivo, ainda que incompleto, e
+ * a frase do dia diz isso melhor do que um dia cinza diria.
+ *
+ * Continua sendo só o **padrão**: `?dia=` na URL manda sempre. Quem clica no
+ * dia de hoje escreve o parâmetro e fica nele, quem compartilha um link leva o
+ * dia junto, e o botão de voltar continua fazendo o que fazia. E quando a
+ * janela inteira está cinza não há dia melhor do que hoje — que é onde a régua
+ * termina, e onde o próximo arquivo vai cair.
+ */
+export function diaDeAbertura({
+  dias,
+  hoje,
+}: {
+  dias: DiaDaRegua[];
+  hoje: string;
+}): string {
+  /*
+    Do fim para o começo: a régua vem em ordem crescente e o que se quer é o
+    mais recente. Nunca à frente de hoje — a régua deslocada para a frente
+    mostra dias futuros, e nenhum deles tem arquivo, mas a guarda fica porque
+    abrir num dia que ainda não aconteceu seria pior do que abrir vazio.
+  */
+  for (let i = dias.length - 1; i >= 0; i -= 1) {
+    const d = dias[i]!;
+    if (d.dia > hoje) continue;
+    if (d.envios > 0 || d.enviosComFalha > 0) return d.dia;
+  }
+  return hoje;
+}
+
 // ---------------------------------------------------------------------------
 // As consultas
 // ---------------------------------------------------------------------------
