@@ -41,6 +41,7 @@ import {
   type RecorteDeChamados,
 } from "@/lib/serie-da-unidade";
 import {
+  diaDeAbertura,
   diaLegivel,
   diaPorExtenso,
   envioForaDaJanela,
@@ -182,10 +183,12 @@ import {
  *
  * A segunda coluna já foi condicional: sem movimentação o painel não era
  * montado, a grade virava uma coluna só e a página inteira alargava. O preço
- * era a tela **mudar de forma** — ela abre no dia de hoje, que quase nunca tem
- * importação, e pulava para a outra forma no primeiro clique num dia com
+ * era a tela **mudar de forma** — ela abria no dia de hoje, que quase nunca
+ * tem importação, e pulava para a outra forma no primeiro clique num dia com
  * arquivo. Quem abre a tela todo dia via duas telas diferentes com o mesmo
- * nome.
+ * nome. (A abertura mudou depois — ver `diaDeAbertura` —, e a grade fixa
+ * continua valendo: o dia sem arquivo não deixou de existir, só deixou de ser
+ * o primeiro que se vê.)
  *
  * Agora a coluna de 320px existe sempre e o que varia é o que há dentro dela.
  * Enquanto o resumo não chegou ela fica vazia — nem esqueleto, que é a regra
@@ -212,7 +215,13 @@ export default function MonitoramentoDeChamados() {
   const parametros = useMemo(() => new URLSearchParams(busca), [busca]);
 
   const hoje = hojeNaOperacao();
-  const dia = parametros.get("dia") ?? hoje;
+  /*
+    O `?dia=` da URL manda; quando ele não existe, quem escolhe é a régua — ver
+    `diaDeAbertura`. A régua chega antes de haver dia escolhido, e é por isso
+    que ela é buscada por `fimDaRegua`, que não depende do dia: não há aqui
+    consulta esperando consulta em círculo.
+  */
+  const diaNaUrl = parametros.get("dia");
   const fimDaRegua = parametros.get("regua") ?? hoje;
   const serieBruta = parametros.get("serie");
 
@@ -265,7 +274,22 @@ export default function MonitoramentoDeChamados() {
     serie,
     habilitado: recorte.pronto,
   });
-  const resumoConsulta = useResumoDoDia({ dia, serie, habilitado: recorte.pronto });
+  /*
+    O dia da tela: o da URL, e sem ele o último da régua que recebeu arquivo.
+
+    Enquanto a régua não respondeu não há escolha a fazer, e as duas consultas
+    do dia ficam paradas (`diaEscolhido`) em vez de disparar sobre hoje e
+    disparar de novo um instante depois sobre o dia certo — a segunda resposta
+    trocaria a tela debaixo de quem já estava lendo a primeira.
+  */
+  const diaEscolhido = diaNaUrl !== null || regua.dados !== undefined;
+  const dia = diaNaUrl ?? diaDeAbertura({ dias: regua.dados?.dias ?? [], hoje });
+
+  const resumoConsulta = useResumoDoDia({
+    dia,
+    serie,
+    habilitado: recorte.pronto && diaEscolhido,
+  });
   /*
     A relação é a lista da tela, e por isso é buscada com ela — e não mais só
     quando alguém abria a segunda visão. As três consultas da abertura
@@ -277,7 +301,7 @@ export default function MonitoramentoDeChamados() {
     filtros,
     pagina,
     porPagina: porPaginaDaFila,
-    habilitado: recorte.pronto,
+    habilitado: recorte.pronto && diaEscolhido,
   });
 
   const resumo = resumoConsulta.dados ?? null;
@@ -340,7 +364,7 @@ export default function MonitoramentoDeChamados() {
     propósito, e `carregando` delas é `false` — dizer "nenhuma movimentação"
     nesse instante seria afirmar uma resposta que ninguém pediu ainda.
   */
-  const decidindo = !recorte.pronto;
+  const decidindo = !recorte.pronto || !diaEscolhido;
 
   /*
     A janela da régua é de nove dias e termina em hoje. Quando ela sai inteira
@@ -508,9 +532,9 @@ export default function MonitoramentoDeChamados() {
 
           Ela já foi condicional — sem movimentação o painel não era montado, a
           grade virava uma coluna só e a página alargava —, e o preço era a tela
-          mudar de forma entre o dia de hoje, que quase nunca tem importação, e
-          o primeiro dia com arquivo em que se clica. Uma tela que se remonta ao
-          trocar de dia custa mais atenção do que os 320px que ela poupa. O
+          mudar de forma entre um dia sem importação e o primeiro dia com
+          arquivo em que se clica. Uma tela que se remonta ao trocar de dia
+          custa mais atenção do que os 320px que ela poupa. O
           `col-span-2` da faixa e o da lista deixam de ser condicionais junto
           com ela.
         */}
