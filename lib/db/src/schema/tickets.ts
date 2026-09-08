@@ -237,7 +237,45 @@ export const ticketTable = pgTable(
     changedParameterCount: integer("changed_parameter_count")
       .notNull()
       .default(0),
-    /** Linha física do arquivo, 1-based, como uma pessoa a contaria. */
+    /**
+     * A aba de onde a linha veio, como o arquivo a nomeia.
+     *
+     * Um export de chamados não é uma aba só: o do Freightech entrega um mês
+     * por aba (`Agosto_EXPORTACAO_HISTORICO`, `Setembro_EXPORTACAO_HISTORICO`).
+     * Enquanto a leitura parava na primeira, esta coluna não teria o que dizer;
+     * agora ela é metade do endereço de uma linha — a outra metade é
+     * {@link sourceSheetRow}.
+     *
+     * Nula nos envios lidos antes disso, quando havia uma aba só e não havia o
+     * que desambiguar.
+     */
+    sourceSheet: text("source_sheet"),
+    /**
+     * A linha física **dentro da aba**, 1-based — o número que quem abrir a
+     * planilha vê na régua lateral depois de clicar na aba.
+     *
+     * É esta que uma tela deve mostrar ao lado do nome da aba, e não
+     * `sourceRowIndex`: num arquivo de duas abas as duas contas são diferentes,
+     * e "linha 1.500" não ajuda ninguém a achar a linha 275 da segunda aba.
+     *
+     * Nula no acervo anterior, em que ela seria igual a `sourceRowIndex`.
+     */
+    sourceSheetRow: integer("source_sheet_row"),
+    /**
+     * A posição da linha no **arquivo**, 1-based, contando as abas em ordem.
+     *
+     * Num arquivo de uma aba só — todo o acervo até a leitura passar a
+     * atravessá-las — é exatamente a linha física, como sempre foi. Da segunda
+     * aba em diante ela continua sendo uma posição no arquivo, e deixa de ser o
+     * número que o Excel mostra: para isso existem `sourceSheet` e
+     * `sourceSheetRow`.
+     *
+     * Continua sendo o que ordena a leitura e o que `ticket_import_row_uq`
+     * trava. Contar as abas em ordem é o que mantém essa trava valendo com
+     * várias abas: sem isso a linha 5 da segunda aba colidiria com a linha 5 da
+     * primeira, e o `onConflictDoNothing` da leitura a descartaria em silêncio
+     * — que é a mesma classe de defeito que ler só a primeira aba já era.
+     */
     sourceRowIndex: integer("source_row_index").notNull(),
     /** A linha inteira como veio, cabeçalho original por chave. */
     payload: jsonb("payload").notNull().default({}),

@@ -2,14 +2,18 @@ import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
 import {
   SITUACOES_DA_CONCILIACAO,
+  SITUACOES_POR_PARAMETRO,
   latestTicketImport,
   linhasDaConciliacao,
+  linhasPorParametro,
   listChangeSets,
   listTicketImports,
   operacaoDoChangeSet,
   resumoDaConciliacao,
+  resumoPorParametro,
   tiposDaConciliacao,
   type SituacaoDaConciliacao,
+  type SituacaoPorParametro,
 } from "@workspace/comparison";
 import { contextoDeSchema } from "../middlewares/contexto-de-schema";
 import { exigirOperacaoDoRecurso, operacaoDaConsulta } from "../lib/operacao";
@@ -325,6 +329,78 @@ router.get(`${BASE}/linhas`, async (req, res): Promise<void> => {
     : undefined;
 
   const pagina = await linhasDaConciliacao(
+    db,
+    recorteDaConsulta(query, lados),
+    {
+      situacao,
+      entityType: texto(query, "entityType"),
+      search: texto(query, "search"),
+    },
+    {
+      limit: limiteDaConsulta(query["limit"]),
+      offset: offsetDaConsulta(query["offset"]),
+    },
+  );
+
+  res.json({
+    changeSetId: lados.changeSetId,
+    ticketImportId: lados.ticketImportId,
+    ...pagina,
+  });
+});
+
+/**
+ * O SEGUNDO GRÃO — por parâmetro, e não por ativo.
+ *
+ * Duas rotas irmãs das de cima, com o mesmo recorte, os mesmos padrões e a
+ * mesma recusa por operação. O que muda é a pergunta, e o módulo explica por
+ * quê: o export real do Freightech quase nunca nomeia a placa (`Item` vem com
+ * `-` em 3.394 das 3.400 linhas), então o cruzamento `(placa, parâmetro)` não
+ * alcança quase nada — e o que a tela publicava no lugar não era vazio, era
+ * "a Ambev mudou N coisas e ninguém pediu" sobre um envio de milhares de
+ * pedidos que ela não conseguiu ler.
+ *
+ * Rotas separadas, e não um `?grao=` na de cima, pela razão que está escrita no
+ * módulo: os dois vereditos não têm a mesma força de prova, e uma resposta só
+ * convidaria a somá-los. Aqui a tela precisa escolher qual está mostrando, e o
+ * caminho da URL a obriga a escolher.
+ */
+router.get(`${BASE}/por-parametro/resumo`, async (req, res): Promise<void> => {
+  const lados = await ladosDaConciliacao(req);
+  if (!lados.ok) {
+    res.status(lados.status).json({ error: lados.error });
+    return;
+  }
+
+  const resumo = await resumoPorParametro(
+    db,
+    recorteDaConsulta(req.query as Record<string, unknown>, lados),
+  );
+
+  res.json({
+    changeSetId: lados.changeSetId,
+    ticketImportId: lados.ticketImportId,
+    ...resumo,
+  });
+});
+
+router.get(`${BASE}/por-parametro/linhas`, async (req, res): Promise<void> => {
+  const lados = await ladosDaConciliacao(req);
+  if (!lados.ok) {
+    res.status(lados.status).json({ error: lados.error });
+    return;
+  }
+
+  const query = req.query as Record<string, unknown>;
+  const pedida = texto(query, "situacao");
+  /* Lista fechada, como na rota por ativo: texto de fora nunca vira predicado. */
+  const situacao = (SITUACOES_POR_PARAMETRO as readonly string[]).includes(
+    pedida ?? "",
+  )
+    ? (pedida as SituacaoPorParametro)
+    : undefined;
+
+  const pagina = await linhasPorParametro(
     db,
     recorteDaConsulta(query, lados),
     {

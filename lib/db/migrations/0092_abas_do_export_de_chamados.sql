@@ -1,0 +1,56 @@
+-- ---------------------------------------------------------------------------
+-- DE QUE ABA VEIO O CHAMADO — duas colunas, e nenhum DDL sobre o que já existe.
+-- ---------------------------------------------------------------------------
+--
+-- `readTicketWorkbook` lia `SheetNames[0]` e parava ali. Enquanto o export do
+-- Freightech veio com uma aba só, isso era a leitura inteira do arquivo.
+--
+-- Ele não vem mais. O export de agosto/setembro de 2026 traz um mês por aba —
+-- `Agosto_EXPORTACAO_HISTORICO` e `Setembro_EXPORTACAO_HISTORICO` — e o que a
+-- leitura fazia com o segundo mês não era falhar: era ignorá-lo. Medido no
+-- arquivo real: 3.400 chamados, 1.051 lidos, **2.349 descartados sem que nada
+-- na tela dissesse por quê**. A conta de conservação que `readTicketImport`
+-- publica (`row_count`, `ticket_count`, `ignored_row_count`, `change_count`)
+-- fechava certinho, porque as linhas da outra aba nunca chegaram a ser
+-- contadas — elas não eram ignoradas, elas não existiam.
+--
+-- ---------------------------------------------------------------------------
+-- As duas colunas, e por que o índice único não está aqui
+-- ---------------------------------------------------------------------------
+--
+-- `ticket_import_row_uq` é `(ticket_import_id, source_row_index)`, da `0012`, e
+-- é ela que garante que uma linha do arquivo entra uma vez por envio — a trava
+-- em que a leitura se apoia ao inserir com `onConflictDoNothing`. Ler a segunda
+-- aba sem nada mais seria trocar um defeito silencioso por outro: a linha 5
+-- existe em todas as abas, e a segunda seria engolida.
+--
+-- A saída óbvia seria refazer o índice sobre `(envio, aba, linha)`. Ela está
+-- **descartada de propósito**: `ticket` não cai no `bridge:down`, Production já
+-- tem esse índice na forma da `0012`, e uma definição diferente do lado de cá
+-- entra no diff do Publishing como DDL sobre objeto existente — exatamente o
+-- que o bridge existe para não propor (ver `INDICES_REMOVIDOS`, em
+-- `bridge.ts`, e `bridge.test.ts`, que cobra o diff vazio).
+--
+-- Então o índice fica como está, e quem muda é o dado: `source_row_index` passa
+-- a contar as abas em ordem — a posição da linha no arquivo, e não na aba. Ele
+-- continua único por envio, a trava continua valendo, e nenhuma linha de DDL
+-- toca no que Production tem. As duas colunas novas guardam o endereço que uma
+-- pessoa usa: `source_sheet` diz a aba, `source_sheet_row` diz a linha dentro
+-- dela — o número que o Excel mostra na régua lateral.
+--
+-- ---------------------------------------------------------------------------
+-- O que acontece com o que já está gravado
+-- ---------------------------------------------------------------------------
+--
+-- Nada, e é por isso que não há backfill. Um envio lido antes desta migration
+-- tem uma aba só por construção: `source_row_index` já é a linha física, e
+-- `NULL` nas duas colunas novas é a descrição correta desse envio — não um
+-- buraco a preencher. Num arquivo de uma aba a nova contagem dá o mesmo número
+-- da antiga, então reler um envio antigo produz exatamente o que ele já tem.
+--
+-- Aditivas e nulas: é a forma que a `ALLOWLIST` do bridge aceita, e é ela que
+-- deixa Production ganhar as colunas quando rodar a fila, sem que o `down`
+-- precise removê-las nesse meio-tempo.
+
+ALTER TABLE "ticket" ADD COLUMN IF NOT EXISTS "source_sheet" text;--> statement-breakpoint
+ALTER TABLE "ticket" ADD COLUMN IF NOT EXISTS "source_sheet_row" integer;
