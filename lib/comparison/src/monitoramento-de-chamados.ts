@@ -11,6 +11,7 @@ import {
   ticketMovementStepTable,
   ticketTable,
 } from "@workspace/db";
+import { unidadeNoPayload } from "@workspace/ingest/chamados";
 
 /**
  * MONITORAMENTO DE CHAMADOS — o motor.
@@ -649,9 +650,37 @@ export async function derivarSerieDoEnvio(
     .from(ticketTable)
     .where(eq(ticketTable.ticketImportId, ticketImportId));
 
-  const nomeadas = unidades
+  let nomeadas = unidades
     .map((u) => u.unidade)
     .filter((u): u is string => u !== null && u.trim() !== "");
+
+  /*
+    A coluna vazia não quer dizer que o arquivo calou.
+
+    `ticket.unidade_raw` só existe desde a `0087`; um envio lido antes disso
+    tem a coluna `Unidade` inteira em `payload` e a coluna nossa nula em todas
+    as linhas. Sem esta segunda leitura ele fica INDETERMINADA para sempre — e
+    um acervo todo indeterminado é o que faz o Monitoramento somar Recife
+    dentro de CAMAÇARI, dizendo na tira que é isso que está fazendo.
+
+    Vem **depois** da coluna, e não no lugar dela: `unidade_raw` é o valor que
+    o importador já julgou, e `payload` é a evidência crua a que se recorre
+    quando não há julgamento gravado. Uma consulta a mais só no envio que
+    precisa dela.
+  */
+  if (nomeadas.length === 0) {
+    const linhas = await db
+      .select({ payload: ticketTable.payload })
+      .from(ticketTable)
+      .where(eq(ticketTable.ticketImportId, ticketImportId));
+    nomeadas = [
+      ...new Set(
+        linhas
+          .map((l) => unidadeNoPayload(l.payload))
+          .filter((u): u is string => u !== null && u.trim() !== ""),
+      ),
+    ];
+  }
 
   if (nomeadas.length === 1) {
     return { serie: nomeadas[0]!.trim(), origem: "ARQUIVO" };
@@ -719,7 +748,23 @@ export async function processarEnvioDeChamados(
     do acervo mudar quando alguém corrigisse uma linha, e movimentações antigas
     passariam a pertencer a outra série sem que nada tivesse acontecido.
   */
-  if (envio.serieOrigem === null) {
+  /*
+    Redecidir **enquanto não há nome**, e nunca depois.
+
+    A trava era `serieOrigem === null`: decidia uma vez, para sempre. Ela
+    protege o que precisa ser protegido — um envio já particionado não pode
+    trocar de série quando alguém corrige uma linha, porque movimentações
+    antigas passariam a pertencer a outra fila sem que nada tivesse
+    acontecido. Mas ela também congelava o caso em que a derivação não achou
+    nada: INDETERMINADA virava permanente, e nenhum recálculo a desfazia,
+    mesmo depois de o leitor passar a ler a coluna `Unidade`.
+
+    Série nula não é partição: é a ausência dela. Redecidir enquanto ela é
+    nula é monotônico — só pode sair do indeterminado para um nome, uma vez —,
+    e é o que permite que `recalcularSerie` repare um acervo lido antes da
+    `0087` sem reimportar arquivo nenhum.
+  */
+  if (envio.serieOrigem === null || envio.serie === null) {
     const derivada = await derivarSerieDoEnvio(db, ticketImportId);
     await db
       .update(ticketImportTable)

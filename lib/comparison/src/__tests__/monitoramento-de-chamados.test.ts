@@ -71,6 +71,14 @@ interface ChamadoDeTeste {
   solicitante?: string | null;
   /** `Campo Alteração` → valor solicitado. Uma linha de `ticket` por entrada. */
   parametros?: Record<string, string>;
+  /**
+   * A linha original, como o leitor a gravou.
+   *
+   * Só os blocos da série indeterminada a usam: é ali que a coluna `Unidade`
+   * de um envio lido antes da `0087` continua existindo, e é dela que a
+   * reparação vive.
+   */
+  payload?: Record<string, unknown>;
 }
 
 /**
@@ -123,6 +131,7 @@ async function enviar(
           requestedBy: c.solicitante ?? "Maria Costa",
           sourceRowIndex: linha,
           changedParameterCount: 1,
+          ...(c.payload === undefined ? {} : { payload: c.payload }),
         })
         .returning();
 
@@ -162,6 +171,122 @@ describe("o dia da régua é o da importação, no fuso da operação", () => {
     expect(serieDoNomeDoArquivo("Chamados_Recife.xlsx")).toBe("Recife");
     expect(serieDoNomeDoArquivo("chamados - camaçari.csv")).toBe("camaçari");
     expect(serieDoNomeDoArquivo("relatorio.xlsx")).toBeNull();
+  });
+});
+
+/**
+ * T00 · O ENVIO QUE FICOU SEM SÉRIE, E COMO ELE VOLTA.
+ *
+ * O acervo em que nenhum envio nomeia unidade não abre a tela vazia: ele faz o
+ * Monitoramento **somar todas as unidades** embaixo do nome da que está aberta
+ * na lateral (`ACERVO_SEM_SERIE`, em `lib/serie-da-unidade.ts`). É o pior
+ * estado possível para quem importou um arquivo de uma unidade só, e é onde
+ * caía todo envio lido antes de `ticket.unidade_raw` existir — a coluna
+ * `Unidade` estava no arquivo, e ficou só em `payload`.
+ *
+ * Dois defeitos somavam para prender esses envios ali, e cada `it` abaixo fixa
+ * a saída de um: a derivação não olhava `payload`, e o motor decidia a série
+ * **uma vez só**, de modo que nem corrigir a derivação os alcançaria.
+ */
+describe("T00 · a série indeterminada é reparável", () => {
+  it("lê a unidade de `payload` quando a coluna nossa não foi preenchida", async () => {
+    // O envio lido antes da `0087`: `unidade_raw` nulo em todas as linhas, e a
+    // coluna `Unidade` inteira em `payload`. O nome do arquivo não socorre —
+    // "Chamados Agosto Camaçari.xlsx" daria a série "Agosto Camaçari", que não
+    // casa com unidade nenhuma da lateral.
+    const envio = await enviar(
+      [
+        { externalId: "CH-1", unidade: null, payload: { Unidade: "CAMAÇARI" } },
+        { externalId: "CH-2", unidade: null, payload: { Unidade: "CAMAÇARI" } },
+      ],
+      { recebidoEm: as(DIA, 8), filename: "export final (3).xlsx" },
+    );
+
+    const r = await processarEnvioDeChamados(ctx.db, envio);
+
+    expect(r.serie).toBe("CAMAÇARI");
+    const [gravado] = await ctx.db
+      .select({
+        serie: ticketImportTable.serie,
+        origem: ticketImportTable.serieOrigem,
+      })
+      .from(ticketImportTable);
+    expect(gravado).toMatchObject({ serie: "CAMAÇARI", origem: "ARQUIVO" });
+  });
+
+  it("`payload` só é consultado depois da coluna, e nunca a contradiz", async () => {
+    // Quando `unidade_raw` existe, ele é o valor já julgado pelo importador.
+    // Um `payload` divergente não o desloca — do contrário, corrigir uma linha
+    // no banco deixaria de valer.
+    const envio = await enviar(
+      [{ externalId: "CH-1", unidade: "Recife", payload: { Unidade: "CAMAÇARI" } }],
+      { recebidoEm: as(DIA, 8) },
+    );
+
+    expect((await processarEnvioDeChamados(ctx.db, envio)).serie).toBe("Recife");
+  });
+
+  it("duas unidades em `payload` continuam sendo MISTA, e não um palpite", async () => {
+    const envio = await enviar(
+      [
+        { externalId: "CH-1", unidade: null, payload: { Unidade: "CAMAÇARI" } },
+        { externalId: "CH-2", unidade: null, payload: { Unidade: "RECIFE" } },
+      ],
+      { recebidoEm: as(DIA, 8), filename: "export.xlsx" },
+    );
+
+    const r = await processarEnvioDeChamados(ctx.db, envio);
+    expect(r.serie).toBeNull();
+    const [gravado] = await ctx.db
+      .select({ origem: ticketImportTable.serieOrigem })
+      .from(ticketImportTable);
+    expect(gravado!.origem).toBe("MISTA");
+  });
+
+  it("o envio congelado em INDETERMINADA volta no recálculo", async () => {
+    // O estado real do acervo: a série foi decidida por um build que não lia a
+    // unidade, e a decisão ficou gravada. A trava antiga era
+    // `serieOrigem === null`, e com ela nenhum recálculo desfazia isto.
+    const envio = await enviar([{ externalId: "CH-1", unidade: "CAMAÇARI" }], {
+      recebidoEm: as(DIA, 8),
+      filename: "export.xlsx",
+    });
+    await ctx.db
+      .update(ticketImportTable)
+      .set({ serie: null, serieOrigem: "INDETERMINADA" });
+
+    await recalcularSerie(ctx.db, null);
+
+    const [gravado] = await ctx.db
+      .select({
+        serie: ticketImportTable.serie,
+        origem: ticketImportTable.serieOrigem,
+      })
+      .from(ticketImportTable);
+    expect(gravado).toMatchObject({ serie: "CAMAÇARI", origem: "ARQUIVO" });
+    expect(envio).toBeTruthy();
+  });
+
+  it("o envio que já tem série não é redecidido", async () => {
+    // A metade da trava que continua valendo: uma partição estabelecida não
+    // muda porque alguém corrigiu uma linha, senão movimentações antigas
+    // passariam a pertencer a outra fila sem que nada tivesse acontecido.
+    const envio = await enviar([{ externalId: "CH-1", unidade: "CAMAÇARI" }], {
+      recebidoEm: as(DIA, 8),
+    });
+    await ctx.db
+      .update(ticketImportTable)
+      .set({ serie: "Recife", serieOrigem: "NOME_DO_ARQUIVO" });
+
+    await processarEnvioDeChamados(ctx.db, envio);
+
+    const [gravado] = await ctx.db
+      .select({
+        serie: ticketImportTable.serie,
+        origem: ticketImportTable.serieOrigem,
+      })
+      .from(ticketImportTable);
+    expect(gravado).toMatchObject({ serie: "Recife", origem: "NOME_DO_ARQUIVO" });
   });
 });
 

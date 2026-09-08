@@ -12,6 +12,7 @@ import {
   parseTicketNumber,
   planParameterColumns,
   planTicketColumns,
+  unidadeNoPayload,
   readTicketWorkbook,
   splitParameterRole,
 } from "../chamados";
@@ -657,5 +658,43 @@ describe("computeParameterMovement", () => {
   it("diz que a diferença é contra a vigência quando o antes veio de lá", () => {
     const m = computeParameterMovement(900, 1000, "ATENDIDO", "900", "1000", "VIGENCIA");
     expect(m.impactReason).toMatch(/vigência em vigor/);
+  });
+});
+
+/**
+ * `payload` é a evidência, e é dela que a reparação vive.
+ *
+ * `ticket.unidade_raw` só existe desde a `0087`. O envio lido antes disso tem a
+ * coluna `Unidade` inteira em `payload`, com o cabeçalho como veio — e sem lê-la
+ * o acervo fica sem série, o que faz o Monitoramento somar todas as unidades
+ * embaixo do nome de uma só. Ver `derivarSerieDoEnvio`, em `lib/comparison`.
+ */
+describe("unidadeNoPayload", () => {
+  it("acha a unidade pelo cabeçalho como o arquivo o escreveu", () => {
+    expect(unidadeNoPayload({ "B.O": "31123782", Unidade: "CAMAÇARI" })).toBe(
+      "CAMAÇARI",
+    );
+    expect(unidadeNoPayload({ UNIDADE: " Camaçari " })).toBe("Camaçari");
+    expect(unidadeNoPayload({ CDD: "Recife" })).toBe("Recife");
+  });
+
+  it("não aceita aproximação — o cabeçalho vizinho não é a unidade", () => {
+    // A mesma regra de `SO_IGUALDADE`: "Unidade" está contido em cabeçalhos que
+    // são outra coisa, e afrouxar aqui atribuiria chamados de uma unidade a
+    // outra sem dizer.
+    expect(unidadeNoPayload({ "Unidade de medida": "KG" })).toBeNull();
+    expect(unidadeNoPayload({ "Valor por unidade": "10" })).toBeNull();
+  });
+
+  it("o traço e o branco são ausência, e não uma unidade chamada '-'", () => {
+    expect(unidadeNoPayload({ Unidade: "-" })).toBeNull();
+    expect(unidadeNoPayload({ Unidade: "   " })).toBeNull();
+    expect(unidadeNoPayload({ Unidade: null })).toBeNull();
+  });
+
+  it("um payload que não é objeto não derruba a leitura", () => {
+    expect(unidadeNoPayload(null)).toBeNull();
+    expect(unidadeNoPayload("linha")).toBeNull();
+    expect(unidadeNoPayload({})).toBeNull();
   });
 });
