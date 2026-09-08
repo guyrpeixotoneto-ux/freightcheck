@@ -32,6 +32,12 @@
  * módulo não inventa parentesco — devolve `null`, e a tela **diz** que aquela
  * unidade não tem envio, com o caminho para ver todas. Um recorte que não achou
  * é uma resposta; um que se alarga sozinho é uma mentira.
+ *
+ * A exceção é o acervo em que **nenhum** envio nomeia unidade: ali não há nome
+ * do outro lado para bater, nenhuma unidade jamais casaria, e recortar por
+ * unidade abriria a tela em zeros para todas elas sobre um acervo cheio. Ver
+ * `ACERVO_SEM_SERIE`, em `recorteDeChamados` — a soma passa a ser o padrão, e a
+ * tela **diz** que é a soma que está mostrando.
  */
 
 /** O mínimo de que o casamento precisa de uma série. */
@@ -89,15 +95,19 @@ export function serieDaUnidade(
  * ESCOLHA             a série escrita na URL, que é o seletor da própria tela.
  * UNIDADE             a unidade que a lateral nomeia, e o envio que casa com ela.
  * UNIDADE_SEM_ENVIO   a unidade que a lateral nomeia, e nenhum envio com esse
- *                     nome. A consulta sai assim mesmo, com o nome da unidade:
- *                     série desconhecida devolve nada, nunca tudo (ver
- *                     `serieDaConsulta`, na rota).
+ *                     nome, **havendo envios nomeados**. A consulta sai assim
+ *                     mesmo, com o nome da unidade: série desconhecida devolve
+ *                     nada, nunca tudo (ver `serieDaConsulta`, na rota).
+ * ACERVO_SEM_SERIE    a unidade que a lateral nomeia, e nenhum envio do acervo
+ *                     diz de que unidade veio. Não é recorte que não achou — é
+ *                     recorte que não existe; ver `recorteDeChamados`.
  */
 export type MotivoDoRecorte =
   | "TODAS"
   | "ESCOLHA"
   | "UNIDADE"
-  | "UNIDADE_SEM_ENVIO";
+  | "UNIDADE_SEM_ENVIO"
+  | "ACERVO_SEM_SERIE";
 
 export interface RecorteDeChamados {
   /** O que vai para as consultas. `undefined` é todas as séries. */
@@ -163,7 +173,35 @@ export function recorteDeChamados({
     return { serie: undefined, motivo: "UNIDADE", unidade, pronto: false };
   }
   const casada = serieDaUnidade(unidade, series);
-  return casada === null
-    ? { serie: unidade, motivo: "UNIDADE_SEM_ENVIO", unidade, pronto: true }
-    : { serie: casada, motivo: "UNIDADE", unidade, pronto: true };
+  if (casada !== null) {
+    return { serie: casada, motivo: "UNIDADE", unidade, pronto: true };
+  }
+  /*
+    O acervo em que nenhum envio diz de que unidade veio.
+
+    Recortar por unidade aqui não é rigor, é beco: `serieDaUnidade` filtra as
+    séries nulas antes de comparar, então com o acervo inteiro indeterminado ela
+    devolve `null` para **toda** unidade — e a tela abriria em três zeros para
+    CAMAÇARI, para PERNAMBUCO e para qualquer outra que a lateral nomeasse, com
+    a mesma frase e sobre o mesmo acervo cheio. Nove dias cinza repetidos em
+    cada unidade somam a mentira que a régua existe para não contar.
+
+    O `UNIDADE_SEM_ENVIO` abaixo continua sendo a resposta certa quando **há**
+    séries nomeadas e a unidade aberta não é uma delas: ali o recorte procurou e
+    não achou, e dizer isso é honesto — o nome pode estar escrito de outro jeito
+    no arquivo, e a tela oferece o seletor. Aqui não há o que procurar: nenhum
+    envio nomeia unidade nenhuma, e a soma é o único recorte que esse acervo
+    comporta. A tira da tela diz que é isso que está acontecendo, para que a
+    soma não passe por recorte da unidade.
+
+    O acervo vazio não entra: sem nenhum envio lido, `series` chega vazia e a
+    frase certa continua sendo "nenhum arquivo foi importado ainda", que é o que
+    `UNIDADE_SEM_ENVIO` já diz.
+  */
+  const nenhumEnvioNomeaUnidade =
+    series.length > 0 && series.every((s) => s.serie === null);
+  if (nenhumEnvioNomeaUnidade) {
+    return { serie: undefined, motivo: "ACERVO_SEM_SERIE", unidade, pronto: true };
+  }
+  return { serie: unidade, motivo: "UNIDADE_SEM_ENVIO", unidade, pronto: true };
 }

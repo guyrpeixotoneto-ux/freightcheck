@@ -357,7 +357,9 @@ export default function MonitoramentoDeChamados() {
     não há escolha nenhuma a oferecer — um menu de uma opção é ruído.
   */
   const mostrarSeletorDeSerie =
-    seriesDisponiveis.length > 1 || recorte.motivo === "UNIDADE_SEM_ENVIO";
+    seriesDisponiveis.length > 1 ||
+    recorte.motivo === "UNIDADE_SEM_ENVIO" ||
+    recorte.motivo === "ACERVO_SEM_SERIE";
 
   /*
     Enquanto o recorte não está decidido as três consultas estão paradas de
@@ -842,7 +844,14 @@ function valorDoSeletor(
   serieNaUrl: string | null,
 ): string {
   if (serieNaUrl !== null) return serieNaUrl;
-  return recorte.motivo === "TODAS" ? TODAS_AS_SERIES : DA_UNIDADE;
+  /*
+    `ACERVO_SEM_SERIE` é a soma, e o seletor marca a soma: ele diz o que a tela
+    está lendo, não o que a lateral pediu. Marcar "a unidade aberta" sobre uma
+    tela que está somando todas seria o seletor desmentindo os cartões.
+  */
+  return recorte.motivo === "TODAS" || recorte.motivo === "ACERVO_SEM_SERIE"
+    ? TODAS_AS_SERIES
+    : DA_UNIDADE;
 }
 
 /**
@@ -868,7 +877,13 @@ function mudancaDoSeletor(escolha: string): Record<string, string | null> {
  * na lateral: quem lê "70 movimentações" está olhando para cá.
  */
 function RecorteEmTela({ recorte }: { recorte: RecorteDeChamados }) {
-  if (recorte.motivo === "TODAS") {
+  /*
+    `ACERVO_SEM_SERIE` é a soma, e a etiqueta diz a soma: o que ela responde é
+    "de quem são estes números", e eles são de todas as unidades. O *porquê* de
+    a tela estar na soma sem ninguém ter pedido é da tira, logo abaixo — misturar
+    as duas coisas na etiqueta faria dela uma frase, e ela é um rótulo.
+  */
+  if (recorte.motivo === "TODAS" || recorte.motivo === "ACERVO_SEM_SERIE") {
     return (
       <span className="mt-1 inline-flex items-center gap-1.5 rounded-lg bg-accent px-2 py-0.5 text-xs font-semibold text-accent-foreground">
         <Layers className="h-3.5 w-3.5" />
@@ -912,6 +927,18 @@ function AvisoDoRecorte({
   onTodas: () => void;
   onUnidade: () => void;
 }) {
+  if (recorte.motivo === "ACERVO_SEM_SERIE") {
+    return (
+      <div className="rounded-xl border bg-card px-5 py-3 flex flex-wrap items-center justify-between gap-4 text-sm">
+        <div className="min-w-0">
+          Nenhum arquivo de chamados diz de que unidade veio, então esta tela
+          está somando <span className="font-semibold">todas as unidades</span> —
+          e não só <span className="font-semibold">{recorte.unidade}</span>.
+        </div>
+      </div>
+    );
+  }
+
   if (recorte.motivo === "UNIDADE_SEM_ENVIO") {
     return (
       <div className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 flex flex-wrap items-center justify-between gap-4">
@@ -1017,7 +1044,7 @@ function AvisoDeEnvioForaDaJanela({
     diria que as unidades importaram juntas.
   */
   const nome =
-    recorte.motivo === "TODAS"
+    recorte.motivo === "TODAS" || recorte.motivo === "ACERVO_SEM_SERIE"
       ? null
       : (recorte.serie ?? recorte.unidade ?? "esta unidade");
 

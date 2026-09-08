@@ -166,3 +166,89 @@ describe("recorteDeChamados", () => {
     ).toBe(true);
   });
 });
+
+/*
+  O acervo real que trouxe este bloco: um envio de 2.349 chamados cuja coluna
+  `Unidade` não nomeia ninguém, e uma lateral que oferecia CAMAÇARI, PERNAMBUCO
+  e mais três. A tela abria idêntica nas cinco — três zeros, nove dias cinza e
+  "nenhum arquivo de chamados foi importado ainda" — sobre o arquivo que estava
+  ali o tempo todo, e que aparecia inteiro assim que alguém trocasse a lateral
+  para a Visão Geral.
+*/
+describe("recorteDeChamados — o acervo em que nenhum envio nomeia unidade", () => {
+  const SO_INDETERMINADA = [{ serie: null }];
+  const base = {
+    serieNaUrl: null,
+    visaoGeral: false,
+    unidade: "CAMAÇARI",
+    series: SO_INDETERMINADA,
+  };
+
+  it("abre na soma em vez de num recorte que nenhuma unidade alcança", () => {
+    expect(recorteDeChamados(base)).toEqual({
+      serie: undefined,
+      motivo: "ACERVO_SEM_SERIE",
+      unidade: "CAMAÇARI",
+      pronto: true,
+    });
+  });
+
+  /*
+    O sintoma que provou que não era grafia: trocar a unidade não mudava nada.
+    Agora não muda também — só que agora as cinco mostram o acervo.
+  */
+  it("vale para qualquer unidade, porque não há nome do outro lado", () => {
+    for (const unidade of ["CAMAÇARI", "PERNAMBUCO", "MANAUS"]) {
+      const recorte = recorteDeChamados({ ...base, unidade });
+      expect(recorte.motivo).toBe("ACERVO_SEM_SERIE");
+      expect(recorte.serie).toBeUndefined();
+    }
+  });
+
+  /*
+    A regra antiga continua inteira onde ela tem sentido: havendo série nomeada,
+    a unidade que não bate ouve que não bate — o nome pode estar escrito de outro
+    jeito no arquivo, e alargar o recorte ali esconderia isso.
+  */
+  it("não vale quando existe série nomeada e a unidade não é ela", () => {
+    const recorte = recorteDeChamados({
+      ...base,
+      unidade: "MANAUS",
+      series: [{ serie: null }, { serie: "Camaçari" }],
+    });
+
+    expect(recorte.motivo).toBe("UNIDADE_SEM_ENVIO");
+    expect(recorte.serie).toBe("MANAUS");
+  });
+
+  /* E a série nomeada continua vencendo, mesmo com a indeterminada ao lado. */
+  it("a unidade que casa continua casando", () => {
+    const recorte = recorteDeChamados({
+      ...base,
+      series: [{ serie: null }, { serie: "Camaçari" }],
+    });
+
+    expect(recorte.motivo).toBe("UNIDADE");
+    expect(recorte.serie).toBe("Camaçari");
+  });
+
+  /*
+    O acervo vazio não é este caso: sem envio nenhum, "nenhum arquivo foi
+    importado ainda" é a frase certa, e ela é a do `UNIDADE_SEM_ENVIO`. Somar o
+    nada e chamar isso de soma seria trocar uma tela honesta por outra vazia.
+  */
+  it("o acervo sem nenhum envio não vira soma", () => {
+    const recorte = recorteDeChamados({ ...base, series: [] });
+
+    expect(recorte.motivo).toBe("UNIDADE_SEM_ENVIO");
+    expect(recorte.serie).toBe("CAMAÇARI");
+  });
+
+  /* A escolha na URL continua vencendo tudo, inclusive esta. */
+  it("o `?serie=` na URL continua mandando", () => {
+    const recorte = recorteDeChamados({ ...base, serieNaUrl: "@sem-serie" });
+
+    expect(recorte.motivo).toBe("ESCOLHA");
+    expect(recorte.serie).toBeNull();
+  });
+});
