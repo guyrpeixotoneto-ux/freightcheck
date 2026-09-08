@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./excel-dates": "./src/excel-dates.ts",
+    "./chamados": "./src/chamados.ts",
     "./tipos": "./src/tipos.ts",
     "./apontamentos": "./src/apontamentos.ts",
     "./testing": "./src/testing.ts",

@@ -1205,6 +1205,33 @@ function textOf(value: unknown): string | null {
 }
 
 /**
+ * A unidade escrita na linha original, quando a coluna não virou coluna nossa.
+ *
+ * `ticket.unidade_raw` é o caminho normal, e é dele que `derivarSerieDoEnvio`
+ * vive. Mas ele só existe desde a `0087`: um envio lido antes disso guarda a
+ * coluna `Unidade` **apenas** em `payload`, com o cabeçalho como veio — e o
+ * acervo inteiro fica sem série, o que faz o Monitoramento somar todas as
+ * unidades embaixo do nome de uma. Ler daqui é o que permite reparar esses
+ * envios sem reimportar o arquivo, e é exatamente para isso que `payload`
+ * guarda a linha inteira (ver o cabeçalho de `schema/tickets.ts`).
+ *
+ * Só igualdade, pelos mesmos aliases e pela mesma dobra do plano de colunas:
+ * `SO_IGUALDADE` recusa aproximação para `unidadeRaw` porque "Unidade" está
+ * contido em cabeçalhos que são outra coisa, e afrouxar aqui atribuiria
+ * chamados de uma unidade a outra — em silêncio, que é o modo de falha que
+ * este domínio inteiro existe para não ter.
+ */
+export function unidadeNoPayload(payload: unknown): string | null {
+  if (payload === null || typeof payload !== "object") return null;
+  for (const [header, valor] of Object.entries(payload as Record<string, unknown>)) {
+    if (!ALIASES.unidadeRaw.includes(foldHeader(header))) continue;
+    const texto = textOf(valor);
+    if (texto !== null) return texto;
+  }
+  return null;
+}
+
+/**
  * A placa escondida no texto que descreve o item.
  *
  * A coluna `Item` do export vem composta: `Placa: QYW2D78 | Placa Carreta:
