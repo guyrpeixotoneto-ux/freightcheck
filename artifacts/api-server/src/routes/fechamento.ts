@@ -37,6 +37,12 @@ import {
   RecusaDeFechamento,
 } from "@workspace/fechamento/persistencia";
 import {
+  serieDeFrotaQuinzenal,
+  unidadesComFrota,
+} from "@workspace/fechamento/frota-quinzenal-persistencia";
+import {
+  MAXIMO_DE_QUINZENAS,
+  QUINZENAS_POR_PADRAO,
   AbaDoResumoNaoEncontrada,
   CANAIS_COM_PAINEL,
   ladoDaFonte,
@@ -1089,6 +1095,61 @@ router.get("/fechamento/competencias/:id/frota", async (req, res): Promise<void>
     }
     throw erro;
   }
+});
+
+/**
+ * ATIVOS E PARADOS — a frota do Promax, quinzena a quinzena.
+ *
+ * A conferência acima responde por **uma** quinzena, contra o cadastro do
+ * contrato. Esta responde pela série: quantos veículos estavam ativos e quantos
+ * parados em cada quinzena, e o que mudou de uma para a seguinte. É a leitura
+ * que a Visão executiva pede, e por isso ela não pede competência nenhuma na
+ * URL — pede o recorte.
+ *
+ * **Não é a apuração, não recalcula e não grava.** `serieDeFrotaQuinzenal` lê as
+ * linhas de `FROTA_PROMAX_ATIVA`/`FROTA_PROMAX_INATIVA` dos documentos
+ * **vigentes** e conta placas distintas; a régua da contagem é função pura
+ * (`frota-quinzenal.ts`), fora do motor financeiro.
+ *
+ * Os três parâmetros, todos opcionais:
+ *
+ * - `tipoDeOperacao` — o recorte que separa Rota de Empurrada. Ausente, o
+ *   acervo inteiro;
+ * - `unidade` — o código da unidade. Ausente, todas as do recorte, somadas por
+ *   período — e é aí que a cobertura de cada quinzena importa: a unidade que não
+ *   mandou arquivo aparece em `cobertura`, para que a tela não leia uma frota
+ *   encolhendo onde houve um relatório que não veio;
+ * - `limite` — a janela em quinzenas, de 1 a 24.
+ */
+router.get("/fechamento/frota/quinzenas", async (req, res): Promise<void> => {
+  const limite = req.query.limite === undefined ? QUINZENAS_POR_PADRAO : Number(req.query.limite);
+  if (!Number.isInteger(limite) || limite < 1 || limite > MAXIMO_DE_QUINZENAS) {
+    res.status(400).json({
+      error: `A janela é um número inteiro de quinzenas, entre 1 e ${MAXIMO_DE_QUINZENAS}.`,
+    });
+    return;
+  }
+  const tipoDeOperacao = recorteDaOperacao(req.query.tipoDeOperacao);
+  /*
+    O código da unidade vem como está escrito na competência — `081-0443` —, e
+    não em caixa alta: `recorteDaOperacao` não serve aqui porque ele normaliza
+    um vocabulário fechado, e este é um identificador do cadastro.
+  */
+  const unidadeCodigo =
+    typeof req.query.unidade === "string" && req.query.unidade.trim() !== ""
+      ? req.query.unidade.trim()
+      : null;
+
+  const [serie, unidades] = await Promise.all([
+    serieDeFrotaQuinzenal(db, { tipoDeOperacao, unidadeCodigo, limite }),
+    unidadesComFrota(db, tipoDeOperacao),
+  ]);
+
+  res.json({
+    recorte: { tipoDeOperacao: tipoDeOperacao ?? null, unidadeCodigo: unidadeCodigo ?? null, limite },
+    unidades,
+    quinzenas: serie.quinzenas,
+  });
 });
 
 /**

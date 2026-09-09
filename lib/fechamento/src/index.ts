@@ -75,6 +75,7 @@ export * from "./identidade-da-competencia";
 */
 export * from "./referencia";
 export * from "./painel-referencia";
+export * from "./frota-quinzenal";
 export { lerOperacao, type DetalheDaViagem, type Viagem } from "./leitores/operacao";
 export {
   lerCadastro,

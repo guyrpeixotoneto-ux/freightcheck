@@ -49,6 +49,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import {
+  ATIVOS_E_PARADOS,
   DASHBOARD,
   ENTRADA_DA_AUDITORIA,
   IMPACTO_APURADO,
@@ -305,6 +306,19 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
           item que responde — daí a vizinhança, e não uma seção nova.
         */
         { href: EVOLUCAO_POR_PLACA, label: "Evolução por Placa", icon: Truck },
+        /*
+          Ativos e Parados vem depois da Evolução por Placa porque é a mesma
+          população lida de cima: aquela percorre o intervalo placa a placa,
+          esta conta quantas estão de pé e quantas paradas em cada quinzena.
+
+          A fonte é o Promax (01.22.02.00 e 01.22.08.00), e por isso a tela mora
+          na Visão executiva e não no Fechamento: no Fechamento a frota é uma
+          conferência **de uma competência**, dentro do fluxo de fechar o
+          período; aqui é a série, que é a pergunta de quem acompanha a operação
+          sem estar fechando nada. As duas leem os mesmos arquivos e não se
+          repetem — ver `docs/ATIVOS-E-PARADOS.md`.
+        */
+        { href: ATIVOS_E_PARADOS, label: "Ativos e Parados", icon: Gauge },
         { href: "/vigencia", label: "Acompanhamento", icon: TrendingUp },
         /*
           A Análise de frota saiu daqui e passou a abrir a seção **Frota**, ao lado
