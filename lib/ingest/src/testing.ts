@@ -348,6 +348,33 @@ export function modelExportPaths(): { carreta: string; cavalo: string } {
 }
 
 /**
+ * A base de vigências atualizada — de 12/2025 a 09/2026, num workbook só, com
+ * as abas `carretas` e `cavalos`.
+ *
+ * É a mesma série dos `Modelo_*`, estendida: ela traz `EMPURRADA_2_8_2026` e
+ * `EMPURRADA_1_9_2026`, que os outros não têm — as duas vigências que o export
+ * de chamados de agosto/setembro de 2026 cobre. Sem elas não há como confrontar
+ * um lado com o outro, porque a alteração que o chamado pediu está fora do
+ * intervalo que a base descreve.
+ */
+export function baseAtualizadaPath(): string {
+  return findAsset("Base_FT_Atualizada");
+}
+
+/**
+ * O export de chamados real — agosto e setembro de 2026, um mês por aba.
+ *
+ * O primeiro export de fila que este repositório guarda, e ele é o que trouxe à
+ * tona três coisas que nenhuma fixture inventada mostrava: que o arquivo tem
+ * mais de uma aba, que a coluna `Item` vem com `-` em 3.394 das 3.400 linhas —
+ * ou seja, quase nenhum chamado nomeia a placa —, e que `Campo Alteração`
+ * carrega o nome do parâmetro em camelCase, igual ao cabeçalho da base.
+ */
+export function chamadosExportPath(): string {
+  return findAsset("Chamados_08");
+}
+
+/**
  * Importar um fixture do começo ao fim, declarando o equipamento novo.
  *
  * As quatro etapas eram copiadas em cada `beforeAll`, e a cópia passou a ter

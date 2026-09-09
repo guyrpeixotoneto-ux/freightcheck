@@ -683,6 +683,362 @@ export async function linhasDaConciliacao(
   };
 }
 
+// ---------------------------------------------------------------------------
+// O segundo grão: por parâmetro, quando o chamado não nomeia a placa
+// ---------------------------------------------------------------------------
+
+/**
+ * A MESMA PERGUNTA, NUM GRÃO QUE O ARQUIVO REAL ALCANÇA.
+ *
+ * Tudo acima cruza `(placa, parâmetro)`, e é o grão certo: ele responde se a
+ * planilha mudou **no que** o chamado pediu, e não apenas se as duas coisas
+ * aconteceram no mesmo mês. O problema é que o export real não o alcança.
+ *
+ * Medido no export de chamados de agosto/setembro de 2026, contra a base de
+ * 12/2025 a 09/2026 (as duas fixtures em `attached_assets`): dos 3.400
+ * chamados, **3.394 não nomeiam placa nenhuma** — a coluna `Item` vem com `-`,
+ * e só seis linhas trazem `Placa: … | Placa Carreta: …`. A placa não está em
+ * outra coluna: ela não está no arquivo.
+ *
+ * O efeito no grão por ativo não é uma tela vazia, que seria honesta. É pior:
+ * o `FULL OUTER JOIN` não acha par nenhum, todo o lado da planilha cai em
+ * `SEM_CHAMADO`, e a tela afirma "a Ambev mudou 103 coisas e ninguém pediu"
+ * sobre um envio de 3.400 pedidos que ela não conseguiu ler. `foraDaConciliacao`
+ * publica os 3.394 ao lado, e ainda assim a afirmação errada é a que está
+ * escrita em cima do número grande.
+ *
+ * ---------------------------------------------------------------------------
+ * O que o arquivo alcança, e o que ele não alcança
+ * ---------------------------------------------------------------------------
+ *
+ * O que o chamado **tem** é a vigência (`Vig. Abertura`, que casa com
+ * `snapshot.source_label`) e o parâmetro (`Campo Alteração`, em camelCase, que
+ * é o mesmo vocabulário do cabeçalho da base e que o dicionário resolve para
+ * `attribute_code`). É com isso que dá para conciliar sem inventar nada:
+ *
+ * > Para cada parâmetro, quantas alterações a planilha trouxe e quantos
+ * > chamados as pediram?
+ *
+ * É uma pergunta mais fraca que a de cima, e a fraqueza é o ponto — ela é
+ * exatamente o que o arquivo sustenta. "22 chamados pediram `placaCarreta` e a
+ * planilha trocou 22 carretas" é um fato conferível; dizer **qual** cavalo cada
+ * chamado nomeava seria um palpite, e não é isso que esta leitura faz.
+ *
+ * ---------------------------------------------------------------------------
+ * Por que é um segundo grão, e não um relaxamento do primeiro
+ * ---------------------------------------------------------------------------
+ *
+ * Porque as duas contagens não se somam nem se substituem. Um par conciliado
+ * por ativo é uma afirmação sobre aquela placa; um parâmetro conciliado aqui é
+ * uma afirmação sobre um total. Fundir os dois faria um número desta tela
+ * herdar a força de prova do outro — que é a mesma confusão que
+ * `BaseDoVeredito` existe para não deixar acontecer lá em cima.
+ *
+ * As duas leituras publicam populações idênticas do lado da planilha, o que faz
+ * "a planilha trouxe N alterações" querer dizer o mesmo nas duas telas. A única
+ * diferença de recorte é a placa: aqui ela não é exigida de nenhum dos dois
+ * lados, porque a chave é o parâmetro. No export real isso não muda número
+ * nenhum — toda alteração com `attribute_code` também tem placa —, e está
+ * escrito porque um dia pode mudar.
+ */
+
+/** O veredito de um parâmetro. Sobre **contagem**, e nunca sobre valor. */
+export const SITUACOES_POR_PARAMETRO = [
+  "CONCILIADA",
+  "DIVERGENTE",
+  "SEM_CHAMADO",
+  "SEM_ALTERACAO",
+] as const;
+
+export type SituacaoPorParametro = (typeof SITUACOES_POR_PARAMETRO)[number];
+
+/** Um parâmetro, com os dois lados contados e o veredito. */
+export interface LinhaPorParametro {
+  attributeCode: string;
+  /** Como a base nomeia o parâmetro; nulo quando só os chamados o citam. */
+  attributeName: string | null;
+  entityType: string | null;
+  situacao: SituacaoPorParametro;
+
+  /* O lado da planilha. */
+  alteracoesNaPlanilha: number;
+  placasNaPlanilha: number;
+
+  /* O lado dos chamados. */
+  chamados: number;
+  /** Quantos deles nomeiam placa — a parcela que o grão por ativo alcançaria. */
+  chamadosComPlaca: number;
+  /** SET, ADD, REM, FORM_THIS… quantos de cada, para a tela não ler tudo igual. */
+  operacoes: { changeKind: string | null; chamados: number }[];
+  /** Como o arquivo escreve o parâmetro — `Campo Alteração`, cru. */
+  parameterLabel: string | null;
+
+  /**
+   * `alteracoesNaPlanilha − chamados`. Zero é o estado esperado.
+   *
+   * De contagem, e nunca de dinheiro — pela mesma razão escrita em
+   * {@link ResumoDaConciliacao.diferenca}.
+   */
+  diferenca: number;
+}
+
+export interface ResumoPorParametro {
+  /** Parâmetros distintos na união dos dois lados. */
+  parametros: number;
+  conciliados: number;
+  divergentes: number;
+  semChamado: number;
+  semAlteracao: number;
+  /** Alterações da planilha somadas — o mesmo total do grão por ativo. */
+  alteracoesNaPlanilha: number;
+  /** Chamados com parâmetro reconhecido. */
+  chamados: number;
+  /**
+   * Chamados que ficaram de fora por parâmetro não reconhecido no dicionário.
+   *
+   * Publicado pelo mesmo motivo de `LadoDaConciliacao.foraDaConciliacao`: no
+   * export real são 3.247 dos 3.400 — quase todos `freteReaisViagemPedagio`,
+   * que é parâmetro de frete e não existe na base de equipamentos. Um resumo
+   * que os omitisse faria esta tela parecer completa sobre um arquivo que ela
+   * lê em 4%.
+   */
+  chamadosForaDaConciliacao: number;
+}
+
+export interface FiltrosPorParametro {
+  situacao?: SituacaoPorParametro;
+  entityType?: string;
+  /** Texto livre: código do parâmetro, nome na base ou rótulo do arquivo. */
+  search?: string;
+}
+
+/**
+ * As duas populações no grão do parâmetro.
+ *
+ * Do lado da planilha, uma linha por `attribute_code` com as contagens; do lado
+ * dos chamados, o mesmo. `FULL OUTER JOIN` pela mesma razão de lá em cima: um
+ * `LEFT JOIN` a partir da planilha esconderia o parâmetro que só os chamados
+ * citam — que é metade do que se procura.
+ *
+ * As operações vêm agregadas em JSON, e não numa segunda consulta: a tela
+ * mostra "22 SET" junto do total, e buscar isso à parte faria a linha e o seu
+ * detalhe virem de leituras que podem discordar.
+ */
+function parametrosDaConciliacao(
+  recorte: RecorteDaConciliacao,
+  vigencias: string[] | null,
+): SQL {
+  const porVigencia =
+    vigencias === null
+      ? sql``
+      : vigencias.length === 0
+        ? sql` AND false`
+        : sql` AND t.vigencia_label IN (${sql.join(
+            vigencias.map((v) => sql`${v}`),
+            sql`, `,
+          )})`;
+
+  return sql`
+    WITH planilha AS (
+      SELECT change.attribute_code                        AS parametro,
+             min(change.attribute_name)                   AS attribute_name,
+             min(change.entity_type)                      AS entity_type,
+             count(*)                                     AS alteracoes,
+             count(DISTINCT upper(btrim(change.entity_label))) AS placas
+        FROM change
+       WHERE change.change_set_id = ${recorte.changeSetId}::uuid
+         AND change.attribute_code IS NOT NULL
+         AND ${ALTERACAO_DE_ORIGEM_VISIVEL}
+       GROUP BY change.attribute_code
+    ),
+    chamados AS (
+      SELECT tc.attribute_code                            AS parametro,
+             min(tc.parameter_label)                      AS parameter_label,
+             min(t.entity_type)                           AS entity_type,
+             count(*)                                     AS chamados,
+             count(*) FILTER (WHERE t.entity_label IS NOT NULL) AS com_placa,
+             jsonb_agg(jsonb_build_object('changeKind', tc.change_kind))
+                                                          AS operacoes
+        FROM ticket_change tc
+        JOIN ticket t ON t.id = tc.ticket_id
+       WHERE tc.ticket_import_id = ${recorte.ticketImportId}::uuid
+         AND tc.attribute_code IS NOT NULL
+         ${porVigencia}
+       GROUP BY tc.attribute_code
+    )
+    SELECT COALESCE(p.parametro, c.parametro)             AS parametro,
+           p.attribute_name,
+           COALESCE(p.entity_type, c.entity_type)         AS entity_type,
+           c.parameter_label,
+           COALESCE(p.alteracoes, 0)                      AS alteracoes,
+           COALESCE(p.placas, 0)                          AS placas,
+           COALESCE(c.chamados, 0)                        AS chamados,
+           COALESCE(c.com_placa, 0)                       AS com_placa,
+           COALESCE(c.operacoes, '[]'::jsonb)             AS operacoes,
+           COALESCE(p.alteracoes, 0) - COALESCE(c.chamados, 0) AS diferenca,
+           CASE
+             WHEN c.parametro IS NULL                        THEN 'SEM_CHAMADO'
+             WHEN p.parametro IS NULL                        THEN 'SEM_ALTERACAO'
+             WHEN p.alteracoes <> c.chamados                 THEN 'DIVERGENTE'
+             ELSE 'CONCILIADA'
+           END                                            AS situacao
+      FROM planilha p
+      FULL OUTER JOIN chamados c ON c.parametro = p.parametro
+  `;
+}
+
+/** O resumo do grão por parâmetro. */
+export async function resumoPorParametro(
+  db: Database,
+  recorte: RecorteDaConciliacao,
+): Promise<ResumoPorParametro> {
+  const vigencias = await vigenciasDoRecorte(db, recorte);
+
+  const [cruzamento, fora] = await Promise.all([
+    db.execute<Record<string, unknown>>(sql`
+      WITH por_parametro AS (${parametrosDaConciliacao(recorte, vigencias)})
+      SELECT count(*)                                          AS parametros,
+             count(*) FILTER (WHERE situacao = 'CONCILIADA')    AS conciliados,
+             count(*) FILTER (WHERE situacao = 'DIVERGENTE')    AS divergentes,
+             count(*) FILTER (WHERE situacao = 'SEM_CHAMADO')   AS sem_chamado,
+             count(*) FILTER (WHERE situacao = 'SEM_ALTERACAO') AS sem_alteracao,
+             COALESCE(sum(alteracoes), 0)                       AS alteracoes,
+             COALESCE(sum(chamados), 0)                         AS chamados
+        FROM por_parametro
+    `),
+    db.execute<Record<string, unknown>>(sql`
+      SELECT count(*) AS fora
+        FROM ticket_change tc
+        JOIN ticket t ON t.id = tc.ticket_id
+       WHERE tc.ticket_import_id = ${recorte.ticketImportId}::uuid
+         AND tc.attribute_code IS NULL
+         ${
+           vigencias === null
+             ? sql``
+             : vigencias.length === 0
+               ? sql` AND false`
+               : sql` AND t.vigencia_label IN (${sql.join(
+                   vigencias.map((v) => sql`${v}`),
+                   sql`, `,
+                 )})`
+         }
+    `),
+  ]);
+
+  const x = cruzamento.rows[0] ?? {};
+  return {
+    parametros: numero(x.parametros),
+    conciliados: numero(x.conciliados),
+    divergentes: numero(x.divergentes),
+    semChamado: numero(x.sem_chamado),
+    semAlteracao: numero(x.sem_alteracao),
+    alteracoesNaPlanilha: numero(x.alteracoes),
+    chamados: numero(x.chamados),
+    chamadosForaDaConciliacao: numero(fora.rows[0]?.fora),
+  };
+}
+
+/**
+ * A lista por parâmetro, na ordem em que se trabalha.
+ *
+ * A mesma urgência da lista por ativo: divergência primeiro, depois o que a
+ * planilha mudou sem chamado, depois o chamado que a planilha não aplicou, e
+ * por último o que está certo. Dentro de cada faixa, o parâmetro — para a
+ * lista ser estável entre duas leituras.
+ */
+export async function linhasPorParametro(
+  db: Database,
+  recorte: RecorteDaConciliacao,
+  filtros: FiltrosPorParametro = {},
+  paginacao: { limit: number; offset: number } = { limit: 50, offset: 0 },
+): Promise<{ linhas: LinhaPorParametro[]; total: number }> {
+  const vigencias = await vigenciasDoRecorte(db, recorte);
+
+  const condicoes: SQL[] = [];
+  if (filtros.situacao) condicoes.push(sql`situacao = ${filtros.situacao}`);
+  if (filtros.entityType)
+    condicoes.push(sql`entity_type = ${filtros.entityType}`);
+  if (filtros.search && filtros.search.trim() !== "") {
+    const alvo = `%${filtros.search.trim()}%`;
+    condicoes.push(sql`(
+      parametro ILIKE ${alvo}
+      OR COALESCE(attribute_name, '') ILIKE ${alvo}
+      OR COALESCE(parameter_label, '') ILIKE ${alvo}
+    )`);
+  }
+  const onde =
+    condicoes.length === 0
+      ? sql``
+      : sql` WHERE ${sql.join(condicoes, sql` AND `)}`;
+
+  const base = sql`WITH por_parametro AS (${parametrosDaConciliacao(recorte, vigencias)})`;
+
+  const [pagina, contagem] = await Promise.all([
+    db.execute<Record<string, unknown>>(sql`
+      ${base}
+      SELECT * FROM por_parametro
+      ${onde}
+       ORDER BY CASE situacao
+                  WHEN 'DIVERGENTE'    THEN 0
+                  WHEN 'SEM_CHAMADO'   THEN 1
+                  WHEN 'SEM_ALTERACAO' THEN 2
+                  ELSE 3
+                END,
+                parametro
+       LIMIT ${paginacao.limit} OFFSET ${paginacao.offset}
+    `),
+    db.execute<Record<string, unknown>>(sql`
+      ${base}
+      SELECT count(*) AS total FROM por_parametro ${onde}
+    `),
+  ]);
+
+  return {
+    total: numero(contagem.rows[0]?.total),
+    linhas: pagina.rows.map((r) => ({
+      attributeCode: String(r.parametro ?? ""),
+      attributeName: (r.attribute_name as string | null) ?? null,
+      entityType: (r.entity_type as string | null) ?? null,
+      situacao: r.situacao as SituacaoPorParametro,
+      alteracoesNaPlanilha: numero(r.alteracoes),
+      placasNaPlanilha: numero(r.placas),
+      chamados: numero(r.chamados),
+      chamadosComPlaca: numero(r.com_placa),
+      operacoes: agruparOperacoes(r.operacoes),
+      parameterLabel: (r.parameter_label as string | null) ?? null,
+      diferenca: numero(r.diferenca),
+    })),
+  };
+}
+
+/**
+ * As operações de um parâmetro, somadas por tipo.
+ *
+ * O `jsonb_agg` devolve uma entrada por chamado — agrupar no Postgres exigiria
+ * um `GROUP BY` aninhado que não paga o que custa a ler. A soma é aqui, e a
+ * ordem é a da contagem, com o nome como desempate para que duas leituras da
+ * mesma linha devolvam a mesma lista.
+ */
+function agruparOperacoes(
+  bruto: unknown,
+): { changeKind: string | null; chamados: number }[] {
+  if (!Array.isArray(bruto)) return [];
+  const porTipo = new Map<string | null, number>();
+  for (const item of bruto) {
+    if (item === null || typeof item !== "object") continue;
+    const kind = (item as { changeKind?: unknown }).changeKind;
+    const chave = typeof kind === "string" ? kind : null;
+    porTipo.set(chave, (porTipo.get(chave) ?? 0) + 1);
+  }
+  return [...porTipo.entries()]
+    .map(([changeKind, chamados]) => ({ changeKind, chamados }))
+    .sort(
+      (a, b) =>
+        b.chamados - a.chamados ||
+        String(a.changeKind).localeCompare(String(b.changeKind)),
+    );
+}
+
 /**
  * Os tipos de ativo presentes na conciliação — as abas da tela.
  *

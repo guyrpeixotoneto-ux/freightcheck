@@ -566,6 +566,23 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
         "ticket.categoria_raw",
         "ticket.prazo_previsto",
         "ticket.alterado_em_fonte",
+        /*
+          As duas da `0092` — de que aba e de que linha dela veio o chamado.
+
+          O export do Freightech passou a trazer um mês por aba, e a leitura
+          parava na primeira: 2.349 dos 3.400 chamados do arquivo real sumiam
+          sem entrar em conta nenhuma. Ler todas as abas exige dizer de qual
+          cada linha veio.
+
+          Aditivas e nulas, e a forma foi escolhida por causa deste diff. A
+          saída natural seria refazer `ticket_import_row_uq` sobre
+          `(envio, aba, linha)`; ela cairia aqui como `alter` sobre um índice
+          que Production já tem, e é justamente isso que a política deste
+          cenário recusa. Em vez disso `source_row_index` passou a contar as
+          abas em ordem — a trava continua valendo, sem DDL sobre o que existe.
+        */
+        "ticket.source_sheet",
+        "ticket.source_sheet_row",
         "ticket_import.serie",
         "ticket_import.serie_origem",
         /*

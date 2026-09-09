@@ -9,7 +9,9 @@ import { createTestDatabase, type TestDb } from "@workspace/ingest/testing";
 import { computeChangeSet } from "../engine";
 import {
   linhasDaConciliacao,
+  linhasPorParametro,
   resumoDaConciliacao,
+  resumoPorParametro,
   tiposDaConciliacao,
 } from "../conciliacao-de-chamados";
 import { buildFixture, type AttributeSpec } from "../testing";
@@ -66,12 +68,12 @@ async function semearEnvio(
       status: "READ",
       serie: "CAMACARI",
       serieOrigem: "ARQUIVO",
-      rowCount: 3,
-      ticketCount: 3,
+      rowCount: 4,
+      ticketCount: 4,
     })
     .returning();
 
-  const [conciliado, divergente, semAlteracao] = await ctx.db
+  const [conciliado, divergente, semAlteracao, semPlaca] = await ctx.db
     .insert(ticketTable)
     .values([
       {
@@ -103,6 +105,22 @@ async function semearEnvio(
         vigenciaLabel: vigencia,
         sourceRowIndex: 3,
         changedParameterCount: 2,
+      },
+      /*
+        O chamado que não nomeia placa — o caso normal do export real, em que
+        `Item` vem com `-` em 3.394 das 3.400 linhas. Ele é invisível para o
+        grão por ativo (não há placa por que cruzar) e conciliável pelo grão
+        por parâmetro. Os dois blocos abaixo medem exatamente essa diferença.
+      */
+      {
+        ticketImportId: envio.id,
+        externalId: `${sha}-CH-4`,
+        statusBucket: "ATENDIDO",
+        entityLabel: null,
+        entityType: null,
+        vigenciaLabel: vigencia,
+        sourceRowIndex: 4,
+        changedParameterCount: 1,
       },
     ])
     .returning();
@@ -174,6 +192,23 @@ async function semearEnvio(
       valueAfterNumeric: "9",
       sourceColumnIndex: 3,
       impactConfidence: "NOT_CALCULABLE",
+    },
+    /* Sem placa, mas com parâmetro: pede o rastreador que a planilha mudou. */
+    {
+      ticketId: semPlaca.id,
+      ticketImportId: envio.id,
+      parameterLabel: "Rastreador",
+      attributeCode: "cavalo.rastreador",
+      entityLabel: null,
+      entityType: null,
+      changeKind: "SET",
+      beforeSource: "ARQUIVO",
+      valueBeforeRaw: "5",
+      valueBeforeNumeric: "5",
+      valueAfterRaw: "7",
+      valueAfterNumeric: "7",
+      sourceColumnIndex: 4,
+      impactConfidence: "CALCULATED",
     },
   ]);
 
@@ -303,14 +338,16 @@ describe("as armadilhas de contagem", () => {
   });
 
   /**
-   * A da chave. O parâmetro sem `attribute_code` é contado à parte, e **não**
-   * aparece como par nenhum: se ele virasse SEM_ALTERACAO, a tela cobraria de
-   * alguém uma alteração que nunca foi pedida.
+   * A da chave. A alteração de chamado sem `attribute_code` — e, neste grão,
+   * também a sem placa — é contada à parte, e **não** aparece como par nenhum:
+   * se virasse SEM_ALTERACAO, a tela cobraria de alguém uma alteração que
+   * nunca foi pedida.
    */
   it("conta à parte o que não tem chave, e não o transforma em situação", async () => {
     const resumo = await resumoDaConciliacao(ctx.db, recorte());
 
-    expect(resumo.chamados.foraDaConciliacao).toBe(1);
+    /* Duas: o parâmetro que o dicionário não reconheceu e o chamado sem placa. */
+    expect(resumo.chamados.foraDaConciliacao).toBe(2);
     expect(resumo.chamados.alteracoes).toBe(3);
     expect(resumo.pares).toBe(4);
 
@@ -454,5 +491,190 @@ describe("os recortes", () => {
   it("lista os tipos de ativo da união dos dois lados", async () => {
     const tipos = await tiposDaConciliacao(ctx.db, recorte());
     expect(tipos).toEqual([{ entityType: "CAVALO", pares: 4 }]);
+  });
+});
+
+/**
+ * O SEGUNDO GRÃO — por parâmetro, que é o que o export real alcança.
+ *
+ * O chamado do export do Freightech quase nunca nomeia placa: `Item` vem com
+ * `-` em 3.394 das 3.400 linhas. Para o grão por ativo esses chamados não
+ * existem, e o efeito não é uma tela vazia — é a tela afirmando que a planilha
+ * mudou coisas que ninguém pediu, sobre um envio de milhares de pedidos que ela
+ * não conseguiu ler.
+ *
+ * A fixture tem um chamado desses: `CH-4` pede `cavalo.rastreador`, sem placa,
+ * e a planilha mudou o rastreador de AAA1A11. É a mesma linha vista pelos dois
+ * grãos, e o que se prende aqui é que ela é invisível num e conciliada no outro.
+ */
+describe("o grão por parâmetro", () => {
+  it("concilia o chamado sem placa, que o grão por ativo não enxerga", async () => {
+    const porAtivo = await linhasDaConciliacao(ctx.db, recorte());
+    const rastreadorPorAtivo = porAtivo.linhas.find(
+      (l) => l.attributeCode === "cavalo.rastreador",
+    )!;
+    /* Sem placa não há par: para este grão, ninguém pediu. */
+    expect(rastreadorPorAtivo.situacao).toBe("SEM_CHAMADO");
+
+    const { linhas } = await linhasPorParametro(ctx.db, recorte());
+    const rastreador = linhas.find(
+      (l) => l.attributeCode === "cavalo.rastreador",
+    )!;
+    expect(rastreador.situacao).toBe("CONCILIADA");
+    expect(rastreador.alteracoesNaPlanilha).toBe(1);
+    expect(rastreador.chamados).toBe(1);
+    /* E a tela diz que nenhum dos chamados dele nomeia placa — que é o motivo
+       de o veredito valer menos que o do outro grão, e não uma nota de rodapé. */
+    expect(rastreador.chamadosComPlaca).toBe(0);
+  });
+
+  /**
+   * O veredito deste grão é sobre **contagem**, e a diferença aparece no
+   * pedágio: o chamado pediu 30, a planilha aplicou 25. Por ativo isso é
+   * DIVERGENTE — os dois valores foram confrontados. Por parâmetro é
+   * CONCILIADA, porque um pedido produziu uma alteração e é só isso que este
+   * grão sabe. Confundir os dois faria a tela afirmar uma conferência de valor
+   * que não houve.
+   */
+  it("concilia por contagem, e não por valor", async () => {
+    const porAtivo = await linhasDaConciliacao(ctx.db, recorte());
+    expect(
+      porAtivo.linhas.find((l) => l.attributeCode === "cavalo.pedagio")!
+        .situacao,
+    ).toBe("DIVERGENTE");
+
+    const { linhas } = await linhasPorParametro(ctx.db, recorte());
+    const pedagio = linhas.find((l) => l.attributeCode === "cavalo.pedagio")!;
+    expect(pedagio.situacao).toBe("CONCILIADA");
+    expect(pedagio.alteracoesNaPlanilha).toBe(1);
+    expect(pedagio.chamados).toBe(1);
+  });
+
+  it("classifica cada parâmetro em exatamente uma situação, e as quatro somam o total", async () => {
+    const r = await resumoPorParametro(ctx.db, recorte());
+
+    expect(r.conciliados + r.divergentes + r.semChamado + r.semAlteracao).toBe(
+      r.parametros,
+    );
+    /* frete_peso e pedágio (os dois lados), rastreador (o sem placa) e seguro
+       (pedido e não aplicado). */
+    expect(r.parametros).toBe(4);
+    expect(r.conciliados).toBe(3);
+    expect(r.semAlteracao).toBe(1);
+    expect(r.semChamado).toBe(0);
+  });
+
+  it("acusa a divergência de contagem quando os dois lados não têm o mesmo número", async () => {
+    /* Um segundo chamado pedindo o mesmo seguro da mesma vigência: dois pedidos
+       para nenhuma alteração continua SEM_ALTERACAO, mas dois pedidos para uma
+       alteração é DIVERGENTE — e é a contagem que o diz. */
+    const [extra] = await ctx.db
+      .insert(ticketTable)
+      .values({
+        ticketImportId: envioId,
+        externalId: "sha-envio-1-CH-5",
+        statusBucket: "ATENDIDO",
+        entityLabel: null,
+        vigenciaLabel: VIGENCIA_A,
+        sourceRowIndex: 5,
+        changedParameterCount: 1,
+      })
+      .returning();
+    await ctx.db.insert(ticketChangeTable).values({
+      ticketId: extra.id,
+      ticketImportId: envioId,
+      parameterLabel: "Rastreador",
+      attributeCode: "cavalo.rastreador",
+      changeKind: "SET",
+      beforeSource: "ARQUIVO",
+      valueAfterRaw: "7",
+      valueAfterNumeric: "7",
+      sourceColumnIndex: 5,
+      impactConfidence: "CALCULATED",
+    });
+
+    const { linhas } = await linhasPorParametro(ctx.db, recorte());
+    const rastreador = linhas.find(
+      (l) => l.attributeCode === "cavalo.rastreador",
+    )!;
+    expect(rastreador.situacao).toBe("DIVERGENTE");
+    expect(rastreador.chamados).toBe(2);
+    expect(rastreador.alteracoesNaPlanilha).toBe(1);
+    expect(rastreador.diferenca).toBe(-1);
+
+    /* A fixture volta ao estado dos outros casos — a alteração antes do
+       chamado, que é a ordem que a FK aceita. */
+    await ctx.db.execute(
+      sql`DELETE FROM ticket_change WHERE ticket_id = ${extra.id}::uuid`,
+    );
+    await ctx.db.execute(sql`DELETE FROM ticket WHERE id = ${extra.id}::uuid`);
+  });
+
+  /**
+   * A mesma armadilha do append-only, neste grão: um segundo envio com a fila
+   * inteira não pode dobrar contagem nenhuma.
+   */
+  it("não dobra ao existir um segundo envio com os mesmos chamados", async () => {
+    const primeiro = await resumoPorParametro(ctx.db, recorte());
+    const segundo = await resumoPorParametro(ctx.db, {
+      changeSetId,
+      ticketImportId: envioRepetidoId,
+    });
+    expect(segundo.chamados).toBe(primeiro.chamados);
+    expect(segundo.parametros).toBe(primeiro.parametros);
+    expect(segundo.conciliados).toBe(primeiro.conciliados);
+  });
+
+  it("publica à parte o chamado cujo parâmetro o dicionário não reconheceu", async () => {
+    const r = await resumoPorParametro(ctx.db, recorte());
+    /* A "Coluna que ninguém mapeou". Ela não vira parâmetro nenhum — some das
+       quatro situações e aparece contada, que é o oposto de sumir. */
+    expect(r.chamadosForaDaConciliacao).toBe(1);
+    expect(r.chamados).toBe(4);
+  });
+
+  it("abre a lista pela divergência e filtra por situação", async () => {
+    const pagina = await linhasPorParametro(ctx.db, recorte(), {
+      situacao: "SEM_ALTERACAO",
+    });
+    expect(pagina.total).toBe(1);
+    expect(pagina.linhas[0].attributeCode).toBe("cavalo.seguro");
+    /* O rótulo cru do arquivo vem junto: é por ele que quem opera procura. */
+    expect(pagina.linhas[0].parameterLabel).toBe("Seguro");
+    expect(pagina.linhas[0].operacoes).toEqual([
+      { changeKind: "SET", chamados: 1 },
+    ]);
+  });
+
+  it("busca pelo código, pelo nome na base e pelo rótulo do arquivo", async () => {
+    for (const termo of ["rastreador", "Rastreador"]) {
+      const pagina = await linhasPorParametro(ctx.db, recorte(), {
+        search: termo,
+      });
+      expect(pagina.linhas.map((l) => l.attributeCode)).toContain(
+        "cavalo.rastreador",
+      );
+    }
+  });
+
+  it("respeita o recorte pela vigência que o chamado nomeia", async () => {
+    const dentro = await resumoPorParametro(ctx.db, {
+      ...recorte(),
+      somenteVigenciaComparada: true,
+    });
+    expect(dentro.chamados).toBe(4);
+
+    /* Um envio cuja vigência não é nenhuma das duas comparadas: com o recorte
+       ligado, nenhum chamado alcança a comparação — e o que sobra é a planilha
+       inteira em SEM_CHAMADO, dito com todas as letras em vez de por omissão. */
+    const forA = await semearEnvio("chamados-3.xlsx", "sha-envio-3", "2026-01");
+    const fora = await resumoPorParametro(ctx.db, {
+      changeSetId,
+      ticketImportId: forA,
+      somenteVigenciaComparada: true,
+    });
+    expect(fora.chamados).toBe(0);
+    expect(fora.semAlteracao).toBe(0);
+    expect(fora.semChamado).toBe(fora.parametros);
   });
 });
