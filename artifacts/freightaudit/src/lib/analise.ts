@@ -11,6 +11,7 @@
  * planilha, e um produto de auditoria que chuta causa perde o direito de ser
  * levado a sério quando acerta.
  */
+import { plural } from "@/lib/format";
 
 export interface RangeEntry {
   key: string;
@@ -834,8 +835,4 @@ function agrupar(entradas: RangeEntry[]): Map<string, RangeEntry[]> {
     mapa.set(chave, lista);
   }
   return mapa;
-}
-
-function plural(n: number, um: string, muitos: string): string {
-  return n === 1 ? um : muitos;
 }

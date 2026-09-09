@@ -645,6 +645,13 @@
       "when": 1789500500000,
       "tag": "0091_reconciliar_indices_da_exclusao",
       "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "7",
+      "when": 1789500600000,
+      "tag": "0092_abas_do_export_de_chamados",
+      "breakpoints": true
     }
   ]
 }

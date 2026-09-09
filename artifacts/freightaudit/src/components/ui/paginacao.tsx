@@ -27,6 +27,7 @@ export function Paginacao({
   onPorPagina,
   tamanhos,
   unidade = "resultados",
+  unidadeSingular,
   className,
 }: {
   /** 1-based, como as pessoas contam páginas. */
@@ -39,6 +40,16 @@ export function Paginacao({
   onPorPagina?: (porPagina: number) => void;
   tamanhos?: number[];
   unidade?: string;
+  /**
+   * A mesma unidade no singular, para o total de um só.
+   *
+   * Opcional, e sem cair para o plural por corte de letra: "1 pares" e
+   * "1 parâmetros" são o defeito que isto conserta, e uma regra de sufixo que
+   * acertasse esses dois erraria no primeiro irregular que alguém passasse.
+   * Quem não informa continua com o plural em todos os casos — que é o que
+   * todas as telas anteriores a este parâmetro já mostravam.
+   */
+  unidadeSingular?: string;
   className?: string;
 }) {
   // A página pedida pode não existir mais — um filtro que encurtou a lista, um
@@ -60,7 +71,9 @@ export function Paginacao({
       <p className="text-sm text-muted-foreground">
         {total === 0
           ? "Nenhum resultado"
-          : `Mostrando ${primeiro} - ${ultimo} de ${total} ${unidade}`}
+          : `Mostrando ${primeiro} - ${ultimo} de ${total} ${
+              total === 1 ? (unidadeSingular ?? unidade) : unidade
+            }`}
       </p>
 
       {/* Uma página só não tem para onde ir, e um rodapé com o botão "1" aceso

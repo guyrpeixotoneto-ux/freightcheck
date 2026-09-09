@@ -81,6 +81,72 @@ export const ROTULO_DA_BASE: Record<BaseDoVeredito, string> = {
   EXISTENCIA: "existência",
 };
 
+/**
+ * OS DOIS GRÃOS DA MESMA PERGUNTA.
+ *
+ * `ATIVO` cruza `(placa, parâmetro)` e é o grão forte: ele responde se a
+ * planilha mudou **no que** o chamado pediu, e não apenas se as duas coisas
+ * aconteceram no mesmo mês.
+ *
+ * `PARAMETRO` cruza `(vigência, parâmetro)` e existe porque o export real não
+ * alcança o primeiro: a coluna `Item` vem com `-` em quase toda linha, e sem
+ * placa não há par que cruzar. Ele conta — "22 chamados pediram `placaCarreta`
+ * e a planilha trocou 22 carretas" — e essa é uma afirmação mais fraca, de
+ * propósito: é o que o arquivo sustenta.
+ *
+ * Os dois **nunca se somam**, e é por isso que a tela obriga a escolher um:
+ * um par conciliado por ativo é uma afirmação sobre aquela placa; um parâmetro
+ * conciliado é uma afirmação sobre um total. Misturá-los faria um número herdar
+ * a força de prova do outro.
+ */
+export const GRAOS = ["ATIVO", "PARAMETRO"] as const;
+
+export type Grao = (typeof GRAOS)[number];
+
+export const ROTULO_DO_GRAO: Record<Grao, string> = {
+  ATIVO: "Por placa e parâmetro",
+  PARAMETRO: "Por parâmetro",
+};
+
+/** O que cada grão consegue afirmar — a frase que fica embaixo do alternador. */
+export const EXPLICACAO_DO_GRAO: Record<Grao, string> = {
+  ATIVO:
+    "Confronta cada placa com o chamado que a nomeia. É a leitura mais forte, " +
+    "e só funciona quando o export traz a placa em “Item”.",
+  PARAMETRO:
+    "Confronta quantas alterações a planilha trouxe com quantos chamados as " +
+    "pediram, parâmetro a parâmetro. Não diz qual chamado é de qual placa — " +
+    "diz se os totais batem.",
+};
+
+/** O grão que a URL pede. Qualquer outra coisa é o grão por ativo. */
+export function graoDaUrl(valor: string | null): Grao {
+  return valor === "parametro" ? "PARAMETRO" : "ATIVO";
+}
+
+/** Como o grão viaja na URL — ausente é o padrão, e o padrão é por ativo. */
+export function graoNaUrl(grao: Grao): string | null {
+  return grao === "PARAMETRO" ? "parametro" : null;
+}
+
+/**
+ * O que cada situação quer dizer **no grão por parâmetro**.
+ *
+ * Escrito à parte, e não reaproveitado do grão por ativo, porque as frases
+ * mudam de sentido: lá "conciliada" quer dizer que os valores batem; aqui, que
+ * as contagens batem. Reusar o texto faria a tela prometer uma conferência de
+ * valor que este grão não faz.
+ */
+export const EXPLICACAO_POR_PARAMETRO: Record<Situacao, string> = {
+  CONCILIADA:
+    "A planilha mudou este parâmetro tantas vezes quantos chamados o pediram.",
+  DIVERGENTE:
+    "Os dois lados mexeram neste parâmetro, mas em quantidades diferentes.",
+  SEM_CHAMADO: "A planilha mudou este parâmetro e nenhum chamado o pediu.",
+  SEM_ALTERACAO:
+    "Chamados pediram este parâmetro e a comparação não o mudou em placa nenhuma.",
+};
+
 export interface LadoDaConciliacao {
   alteracoes: number;
   pares: number;
@@ -150,6 +216,121 @@ export function nomeDoParametro(linha: {
   attributeCode: string;
 }): string {
   return linha.attributeName ?? linha.parameterLabel ?? linha.attributeCode;
+}
+
+// ---------------------------------------------------------------------------
+// O grão por parâmetro
+// ---------------------------------------------------------------------------
+
+export interface ResumoPorParametro {
+  changeSetId: string;
+  ticketImportId: string;
+  parametros: number;
+  conciliados: number;
+  divergentes: number;
+  semChamado: number;
+  semAlteracao: number;
+  alteracoesNaPlanilha: number;
+  chamados: number;
+  /** Chamados cujo parâmetro o dicionário da base não reconheceu. */
+  chamadosForaDaConciliacao: number;
+}
+
+export interface LinhaPorParametro {
+  attributeCode: string;
+  attributeName: string | null;
+  entityType: string | null;
+  situacao: Situacao;
+  alteracoesNaPlanilha: number;
+  placasNaPlanilha: number;
+  chamados: number;
+  /** Quantos deles nomeiam placa — a parcela que o grão por ativo alcançaria. */
+  chamadosComPlaca: number;
+  operacoes: { changeKind: string | null; chamados: number }[];
+  parameterLabel: string | null;
+  diferenca: number;
+}
+
+/** Quanto dos parâmetros está conciliado — `0` a `100`. */
+export function percentualPorParametro(
+  resumo: ResumoPorParametro | null,
+): number {
+  if (!resumo || resumo.parametros === 0) return 0;
+  return (resumo.conciliados / resumo.parametros) * 100;
+}
+
+/** Os parâmetros que não fecham — o número do cartão. */
+export function pendenciasPorParametro(
+  resumo: ResumoPorParametro | null,
+): number | null {
+  if (!resumo) return null;
+  return resumo.divergentes + resumo.semChamado + resumo.semAlteracao;
+}
+
+/**
+ * A diferença de contagem neste grão — a planilha menos os chamados.
+ *
+ * Somada sobre os parâmetros conciliáveis dos dois lados, e por isso ela **não**
+ * é a mesma do grão por ativo: lá o denominador dos chamados são as alterações
+ * com placa, aqui são as com parâmetro reconhecido. Duas contas diferentes com
+ * o mesmo nome seriam o convite a somá-las.
+ */
+export function diferencaPorParametro(
+  resumo: ResumoPorParametro | null,
+): number | null {
+  if (!resumo) return null;
+  return resumo.alteracoesNaPlanilha - resumo.chamados;
+}
+
+/**
+ * Quanto do envio esta leitura de fato lê — `0` a `100`.
+ *
+ * O número existe porque, no export real, ele é **4%**: 153 dos 3.400 chamados
+ * têm parâmetro que a base reconhece, e os outros 3.247 são de frete, que não
+ * existe na base de equipamentos. Uma tela que mostrasse só os 153 pareceria
+ * completa sobre um arquivo que ela mal lê.
+ */
+export function alcanceDosChamados(
+  resumo: ResumoPorParametro | null,
+): number | null {
+  if (!resumo) return null;
+  const total = resumo.chamados + resumo.chamadosForaDaConciliacao;
+  if (total === 0) return null;
+  return (resumo.chamados / total) * 100;
+}
+
+/** As quatro barras deste grão — sempre as quatro, inclusive as zeradas. */
+export function barrasPorParametro(
+  resumo: ResumoPorParametro | null,
+): BarraDaSituacao[] {
+  const total = resumo?.parametros ?? 0;
+  const contagem: Record<Situacao, number> = {
+    CONCILIADA: resumo?.conciliados ?? 0,
+    DIVERGENTE: resumo?.divergentes ?? 0,
+    SEM_CHAMADO: resumo?.semChamado ?? 0,
+    SEM_ALTERACAO: resumo?.semAlteracao ?? 0,
+  };
+  return SITUACOES.map((situacao) => ({
+    situacao,
+    rotulo: ROTULO_DA_SITUACAO[situacao],
+    pares: contagem[situacao],
+    proporcao: total === 0 ? 0 : (contagem[situacao] / total) * 100,
+  }));
+}
+
+/**
+ * As operações de um parâmetro, em uma linha — "22 SET", "24 ADD · 24 REM".
+ *
+ * O que o chamado **fez** com o parâmetro muda como se lê a contagem: 22 `SET`
+ * são 22 trocas de valor, e 71 `FORM_THIS` são recálculos de fórmula que podem
+ * não mexer em valor nenhum. Uma coluna só com o total leria as duas coisas
+ * igual.
+ */
+export function resumoDasOperacoes(linha: LinhaPorParametro): string {
+  if (linha.operacoes.length === 0) return "";
+  return linha.operacoes
+    .map((o) => `${o.chamados} ${o.changeKind ?? "sem operação"}`)
+    .join(" · ");
 }
 
 export interface ComparacaoDisponivel {
@@ -250,6 +431,7 @@ export function barrasDaSituacao(
  * transformaria um recorte mal escolhido em tela vazia sem motivo.
  */
 export type AvisoDaConciliacao =
+  | "POUCO_ALCANCE"
   | "UNIDADES_DIFERENTES"
   | "SEM_CHAMADOS"
   | "SEM_ALTERACOES";
@@ -260,11 +442,35 @@ export function avisoDaConciliacao(
   if (!resumo) return null;
   if (resumo.planilha.alteracoes === 0) return "SEM_ALTERACOES";
   if (resumo.chamados.alteracoes === 0) return "SEM_CHAMADOS";
+  /*
+    `POUCO_ALCANCE` vem **antes** de `UNIDADES_DIFERENTES`, e a ordem é a
+    correção de um diagnóstico errado.
+
+    Medido no export real de agosto/setembro de 2026 contra a base do mesmo
+    período: 6 das 3.400 alterações de chamado têm placa, e nenhuma delas cai
+    numa placa da comparação. `placasEmComum` é zero — mas a causa não é a
+    unidade, é o arquivo não trazer placa. Com a ordem antiga a tela mandava
+    "troque um dos dois lados", e trocar não resolveria nada: nenhum outro envio
+    deste formato traz placa.
+
+    A régua é a maioria: mais alterações fora da conciliação do que dentro
+    significa que este grão lê a minoria do envio, e quem abre precisa saber
+    disso antes de ler "sem chamado" como achado.
+  */
+  if (resumo.chamados.foraDaConciliacao > resumo.chamados.alteracoes) {
+    return "POUCO_ALCANCE";
+  }
   if (resumo.placasEmComum === 0) return "UNIDADES_DIFERENTES";
   return null;
 }
 
 export const TEXTO_DO_AVISO: Record<AvisoDaConciliacao, string> = {
+  POUCO_ALCANCE:
+    "A maioria das alterações deste envio não tem placa ou parâmetro " +
+    "reconhecido, então este confronto por placa alcança só uma parte dele — e " +
+    "o que sobra aparece como “sem chamado” por falta de chave, não por achado. " +
+    "Veja por parâmetro: lá o confronto é entre quantas alterações a planilha " +
+    "trouxe e quantos chamados as pediram.",
   UNIDADES_DIFERENTES:
     "Os dois lados têm alterações, mas nenhuma placa em comum — o envio de " +
     "chamados e a vigência comparada provavelmente são de unidades diferentes. " +
@@ -276,6 +482,34 @@ export const TEXTO_DO_AVISO: Record<AvisoDaConciliacao, string> = {
   SEM_ALTERACOES:
     "A comparação escolhida não trouxe alteração nenhuma com placa. Não há o " +
     "que conciliar deste lado.",
+};
+
+/**
+ * O aviso do grão por parâmetro — as duas ausências que ele pode ter.
+ *
+ * `UNIDADES_DIFERENTES` não existe aqui: sem placa não há interseção de placas
+ * a medir, e afirmar unidade sem essa medida seria o palpite sobre cadastro que
+ * o módulo do servidor recusa desde o começo.
+ */
+export type AvisoPorParametro = "SEM_CHAMADOS" | "SEM_ALTERACOES";
+
+export function avisoPorParametro(
+  resumo: ResumoPorParametro | null,
+): AvisoPorParametro | null {
+  if (!resumo) return null;
+  if (resumo.alteracoesNaPlanilha === 0) return "SEM_ALTERACOES";
+  if (resumo.chamados === 0) return "SEM_CHAMADOS";
+  return null;
+}
+
+export const TEXTO_DO_AVISO_POR_PARAMETRO: Record<AvisoPorParametro, string> = {
+  SEM_CHAMADOS:
+    "Nenhum chamado deste envio mexe num parâmetro que a base de equipamentos " +
+    "conhece — o mais comum é o envio ser todo de frete, que vive em outra " +
+    "base. Não há o que confrontar contra esta comparação.",
+  SEM_ALTERACOES:
+    "A comparação escolhida não trouxe alteração nenhuma. Não há o que " +
+    "conciliar deste lado.",
 };
 
 /**
@@ -438,6 +672,71 @@ export function useLinhasDaConciliacao(
     queryKey: ["conciliacao-de-chamados", "linhas", endereco],
     queryFn: () =>
       fetchJson<{ total: number; linhas: LinhaDaConciliacao[] }>(endereco),
+    placeholderData: (anterior) => anterior,
+    enabled: habilitado,
+  });
+
+  const linhas = useMemo(() => resposta.data?.linhas ?? [], [resposta.data]);
+  return { linhas, total: resposta.data?.total ?? 0, consulta: resposta };
+}
+
+// ---------------------------------------------------------------------------
+// As consultas do grão por parâmetro
+// ---------------------------------------------------------------------------
+
+/**
+ * O resumo por parâmetro — os cartões e as barras do segundo grão.
+ *
+ * Rota própria, e não um `?grao=` na do primeiro, pela mesma razão que o
+ * servidor as separou: as duas respostas não têm a mesma força de prova, e uma
+ * só convidaria quem lê a somá-las.
+ *
+ * `null` enquanto não chegou, nunca zero — a mesma regra do resumo por ativo.
+ */
+export function useResumoPorParametro(
+  recorte: RecorteDaTela,
+  habilitado = true,
+) {
+  const endereco = `/conciliacao-de-chamados/por-parametro/resumo?${parametrosDoRecorte(
+    recorte,
+  ).toString()}`;
+
+  const consulta = useConsultaResiliente<ResumoPorParametro>({
+    queryKey: ["conciliacao-de-chamados", "por-parametro", "resumo", endereco],
+    endpoint: "/conciliacao-de-chamados/por-parametro/resumo",
+    buscar: () => fetchJson<ResumoPorParametro>(endereco),
+    enabled: habilitado,
+  });
+
+  return { resumo: consulta.dados ?? null, consulta };
+}
+
+/**
+ * O endereço da lista por parâmetro.
+ *
+ * Sem `entityType` quando o tipo não foi escolhido, como na outra; a busca vale
+ * sobre código, nome na base e rótulo do arquivo — não sobre placa, que este
+ * grão não tem.
+ */
+export function enderecoPorParametro(consulta: ConsultaDeLinhas): string {
+  const q = parametrosDoRecorte(consulta);
+  if (consulta.situacao) q.set("situacao", consulta.situacao);
+  if (consulta.tipo) q.set("entityType", consulta.tipo);
+  if (consulta.busca.trim() !== "") q.set("search", consulta.busca.trim());
+  q.set("limit", String(consulta.porPagina));
+  q.set("offset", String((consulta.pagina - 1) * consulta.porPagina));
+  return `/conciliacao-de-chamados/por-parametro/linhas?${q.toString()}`;
+}
+
+export function useLinhasPorParametro(
+  consulta: ConsultaDeLinhas,
+  habilitado = true,
+) {
+  const endereco = enderecoPorParametro(consulta);
+  const resposta = useQuery({
+    queryKey: ["conciliacao-de-chamados", "por-parametro", "linhas", endereco],
+    queryFn: () =>
+      fetchJson<{ total: number; linhas: LinhaPorParametro[] }>(endereco),
     placeholderData: (anterior) => anterior,
     enabled: habilitado,
   });
