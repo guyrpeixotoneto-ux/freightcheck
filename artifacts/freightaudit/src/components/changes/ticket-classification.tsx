@@ -250,7 +250,7 @@ function CartaoDeClasse({
       aria-pressed={ativo}
       title={classe.descricao}
       className={cn(
-        "rounded-xl border bg-card shadow-sm px-5 py-4 text-left transition-colors",
+        "superficie px-5 py-4 text-left transition-colors",
         ativo ? cn("ring-2", aparencia.anel) : "hover:bg-muted/40",
       )}
     >

@@ -232,7 +232,7 @@ export default function Vigencia() {
             <Avisos data={data} />
 
             {data.totals.changes === 0 ? (
-              <section className="bg-card border rounded-xl shadow-sm px-6 py-10 text-center">
+              <section className="superficie px-6 py-10 text-center">
                 {data.cockpit.baseline.hasBaseline ? (
                   <>
                     <p className="text-lg font-bold">
@@ -270,7 +270,7 @@ export default function Vigencia() {
               <>
                 <Panorama cockpit={data.cockpit} filtro={filtro} aoFiltrar={mudarFiltro} />
 
-                <section className="bg-card border rounded-xl shadow-sm overflow-hidden">
+                <section className="superficie overflow-hidden">
                   <div className="px-5 pt-4 pb-3">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
@@ -722,7 +722,7 @@ function Esqueleto() {
     <div className="space-y-4" aria-hidden>
       <div className="grid gap-4 grid-cols-2 lg:grid-cols-5">
         {Array.from({ length: 5 }).map((_, i) => (
-          <div key={i} className="bg-card border rounded-xl shadow-sm px-4 py-4 space-y-3">
+          <div key={i} className="superficie px-4 py-4 space-y-3">
             <div className="flex items-center gap-2.5">
               <Skeleton className="h-9 w-9 rounded-full" />
               <Skeleton className="h-3 w-24" />
@@ -735,7 +735,7 @@ function Esqueleto() {
       <Skeleton className="h-12 w-full rounded-xl" />
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="bg-card border rounded-xl shadow-sm px-4 py-4 space-y-3">
+          <div key={i} className="superficie px-4 py-4 space-y-3">
             <Skeleton className="h-4 w-28" />
             {Array.from({ length: 4 }).map((__, j) => (
               <Skeleton key={j} className="h-3 w-full" />
@@ -743,7 +743,7 @@ function Esqueleto() {
           </div>
         ))}
       </div>
-      <div className="bg-card border rounded-xl shadow-sm px-5 py-4 space-y-3">
+      <div className="superficie px-5 py-4 space-y-3">
         <Skeleton className="h-5 w-64" />
         <Skeleton className="h-8 w-full max-w-md" />
         {Array.from({ length: 3 }).map((_, i) => (

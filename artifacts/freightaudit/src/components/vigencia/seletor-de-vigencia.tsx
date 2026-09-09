@@ -22,10 +22,17 @@ import type { FamiliesView } from "@/components/inicio/types";
  *
  * Estava copiada em cada tela que abre o seletor; aqui ela mora junto do
  * menu que a usa, para que "Trocar vigência" seja o mesmo botão em todas.
+ *
+ * O contorno esmaeceu para 30% e volta inteiro no cursor. Ele era marinho
+ * cheio, e numa barra com três desses o cabeçalho ficava com três molduras
+ * fortes disputando o olho com o título da tela — sendo que nenhum dos três é a
+ * ação principal da página. Em repouso o que identifica o botão passa a ser a
+ * letra marinho; a borda cheia volta a ser o que ela é, um estado de toque.
  */
 export const BOTAO_DE_TROCA =
-  "flex items-center gap-2 rounded-lg border border-brand bg-card px-4 py-2.5 " +
-  "text-sm font-bold text-brand hover:bg-accent transition-colors";
+  "inline-flex items-center gap-2 rounded-lg border border-brand/30 bg-card px-4 py-2.5 " +
+  "text-sm font-bold text-brand shadow-[var(--sombra-1)] " +
+  "hover:border-brand hover:bg-accent/60 transition-colors";
 
 /**
  * O seletor de vigência do cabeçalho — a vigência à esquerda, o que ela

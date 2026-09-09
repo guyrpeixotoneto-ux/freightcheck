@@ -406,7 +406,7 @@ export default function Justificativas() {
         )}
 
         {!comparacoes.isLoading && opcoes.length === 0 && (
-          <section className="bg-card border rounded-xl shadow-sm px-6 py-10 text-center">
+          <section className="superficie px-6 py-10 text-center">
             <p className="text-lg font-bold">Nenhuma comparação calculada ainda.</p>
             <p className="text-sm text-muted-foreground mt-1">
               Abra a aba Alterações para calcular a comparação entre as vigências
@@ -448,7 +448,7 @@ export default function Justificativas() {
         )}
 
         {data && grupos.length === 0 && (
-          <section className="bg-card border rounded-xl shadow-sm px-6 py-10 text-center">
+          <section className="superficie px-6 py-10 text-center">
             <p className="text-lg font-bold">Nenhuma placa mudou nesta vigência.</p>
             <p className="text-sm text-muted-foreground mt-1">
               Sem alteração por ativo, não há o que justificar.
@@ -464,7 +464,7 @@ export default function Justificativas() {
             neste tipo. É diferente de "não mudou nesta vigência" — não há
             vigência para oferecer, e o seletor ao lado está vazio de fato. */}
         {tipo && opcoesDoSeletor.length === 0 && !!contagens && (
-          <section className="bg-card border rounded-xl shadow-sm px-6 py-10 text-center">
+          <section className="superficie px-6 py-10 text-center">
             <p className="text-lg font-bold">
               Nenhum{palavrasDoTipo(tipo).artigo === "a" ? "a" : ""}{" "}
               {rotuloEmFrase(tipo)} mudou em nenhuma vigência.
@@ -477,7 +477,7 @@ export default function Justificativas() {
         )}
 
         {grupos.length > 0 && visiveis.length === 0 && (
-          <section className="bg-card border rounded-xl shadow-sm px-6 py-10 text-center">
+          <section className="superficie px-6 py-10 text-center">
             <p className="text-lg font-bold">
               {tipo
                 ? `Nenhum${palavrasDoTipo(tipo).artigo === "a" ? "a" : ""} ${rotuloEmFrase(tipo)}`
@@ -582,7 +582,7 @@ function LinhaPlaca({
   return (
     <section
       className={cn(
-        "bg-card border rounded-xl shadow-sm overflow-hidden cursor-pointer hover:border-brand/50 transition-colors",
+        "superficie overflow-hidden cursor-pointer hover:border-brand/50 transition-colors",
         grupoSelecionado && "ring-2 ring-brand",
       )}
       onClick={onAbrirDetalhe}

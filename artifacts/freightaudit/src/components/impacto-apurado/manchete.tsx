@@ -19,7 +19,7 @@ import type { LadosDoImpacto } from "@/lib/visao-geral";
  * já faz, e o que este módulo existe para não repetir.
  */
 
-const CARTAO = "bg-card border rounded-xl shadow-sm";
+const CARTAO = "superficie";
 
 export interface ContextoDaManchete {
   alteracoes: number;

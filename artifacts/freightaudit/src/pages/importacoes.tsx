@@ -889,7 +889,7 @@ export default function Importacoes() {
             !listError &&
             visiveis.length === 0 &&
             esperandoDecisao.length === 0 && (
-              <div className="rounded-xl border bg-card px-8 py-10 text-center text-sm text-muted-foreground shadow-sm">
+              <div className="superficie px-8 py-10 text-center text-sm text-muted-foreground">
                 {tipoDaAba === null ? (
                   <>
                     Nenhuma importação ainda. Escolha o tipo acima e use{" "}
@@ -956,7 +956,7 @@ export default function Importacoes() {
             />
           ))}
 
-          <div className="rounded-xl border bg-card px-6 py-5 shadow-sm flex items-start gap-3">
+          <div className="superficie px-6 py-5 flex items-start gap-3">
             <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
               <ShieldCheck className="w-5 h-5 text-primary" />
             </div>
@@ -1096,7 +1096,7 @@ function TipoDaImportacao({ run }: { run: ImportRun }) {
  */
 function SemAbaEscolhida() {
   return (
-    <div className="rounded-xl border bg-card px-6 py-5 shadow-sm flex items-start gap-4">
+    <div className="superficie px-6 py-5 flex items-start gap-4">
       <div className="w-12 h-12 rounded-xl bg-muted flex items-center justify-center shrink-0">
         <Layers className="w-5 h-5 text-muted-foreground" />
       </div>
@@ -1207,7 +1207,7 @@ function RunCard({
   return (
     <div
       className={cn(
-        "rounded-xl border bg-card px-6 py-5 shadow-sm space-y-5",
+        "superficie px-6 py-5 space-y-5",
         oculta && "opacity-60",
       )}
     >

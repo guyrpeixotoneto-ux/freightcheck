@@ -147,7 +147,7 @@ function Cartao({
   }[tom];
 
   return (
-    <section className="bg-card border rounded-xl shadow-sm px-5 py-4">
+    <section className="superficie px-5 py-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-sm text-muted-foreground">{titulo}</p>
@@ -437,7 +437,7 @@ export default function ConciliacaoDeChamados() {
           Os dois lados. Ficam acima de tudo porque nenhum número desta tela
           significa alguma coisa sem eles.
         */}
-        <section className="bg-card border rounded-xl shadow-sm p-4 flex flex-wrap items-end gap-4">
+        <section className="superficie p-4 flex flex-wrap items-end gap-4">
           <div className="min-w-[16rem] flex-1">
             <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5 mb-1.5">
               <FileSpreadsheet className="w-3.5 h-3.5" />
@@ -610,7 +610,7 @@ export default function ConciliacaoDeChamados() {
             </div>
 
             {/* A barra da conciliação, e as quatro situações abaixo dela. */}
-            <section className="bg-card border rounded-xl shadow-sm p-5 space-y-4">
+            <section className="superficie p-5 space-y-4">
               <div className="flex items-center justify-between gap-4">
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4 text-emerald-600" />
@@ -693,7 +693,7 @@ export default function ConciliacaoDeChamados() {
               </div>
             )}
 
-            <section className="bg-card border rounded-xl shadow-sm">
+            <section className="superficie">
               <div className="p-4 flex flex-wrap items-center gap-3 border-b">
                 <Input
                   value={texto}

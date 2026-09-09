@@ -214,7 +214,7 @@ export default function RadarTrechos() {
                 type="button"
                 onClick={() => atualizar({ status: null })}
                 className={cn(
-                  "rounded-xl border bg-card px-4 py-4 text-left shadow-sm transition-colors hover:bg-muted/50",
+                  "superficie px-4 py-4 text-left transition-colors hover:bg-muted/50",
                   !status && "ring-2 ring-primary",
                 )}
               >
@@ -231,7 +231,7 @@ export default function RadarTrechos() {
                     type="button"
                     onClick={() => atualizar({ status: status === v ? null : v })}
                     className={cn(
-                      "rounded-xl border bg-card px-4 py-4 text-left shadow-sm transition-colors hover:bg-muted/50",
+                      "superficie px-4 py-4 text-left transition-colors hover:bg-muted/50",
                       status === v && "ring-2 ring-primary",
                     )}
                   >
@@ -285,7 +285,7 @@ export default function RadarTrechos() {
                 </EmptyHeader>
               </Empty>
             ) : (
-              <div className="rounded-xl border bg-card overflow-x-auto">
+              <div className="superficie overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>

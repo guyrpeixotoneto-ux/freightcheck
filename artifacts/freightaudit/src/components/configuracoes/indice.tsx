@@ -290,7 +290,7 @@ function LinhaDaSecao({
     <Link
       href={`~${secao.href}`}
       className={cn(
-        "group flex items-center gap-4 rounded-xl border bg-card px-4 py-3.5",
+        "group flex items-center gap-4 superficie px-4 py-3.5",
         "transition-colors hover:border-primary/40 hover:bg-accent/40",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
       )}

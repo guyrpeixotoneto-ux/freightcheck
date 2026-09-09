@@ -381,7 +381,7 @@ export function MetricasCompactas({ itens }: { itens: MetricaCompacta[] }) {
     // a largura desta fileira, não a da janela — a mesma régua que o resto do
     // topo usa, e a razão de nenhum deles contar os 304px da lateral.
     <div className="@container">
-      <div className="grid divide-y overflow-hidden rounded-xl border bg-card shadow-sm @lg:grid-cols-2 @lg:divide-x @lg:divide-y-0">
+      <div className="grid divide-y overflow-hidden superficie @lg:grid-cols-2 @lg:divide-x @lg:divide-y-0">
         {itens.map((item) => {
           const corpo = (
             <>

@@ -227,8 +227,8 @@ export function Sidebar({ open }: { open: boolean }) {
       <div className="overflow-y-auto flex-1">
         <SeletorDeUnidade ambiente={ambiente} />
 
-        <nav className="px-4 pb-4 space-y-3">
-          {grupos.map((grupo) => {
+        <nav className="px-3 pb-4">
+          {grupos.map((grupo, indice) => {
             const aberto = !recolhido(grupo.titulo);
             const contemAtivo = grupo.itens.some((item) => estaAtivo(location, item.href));
             const escondido = aberto
@@ -240,13 +240,26 @@ export function Sidebar({ open }: { open: boolean }) {
 
             return (
               /*
-                Cada seção é um cartão. O canto arredondado com `overflow-hidden`
-                é o que deixa a barra marinho do cabeçalho ativo acompanhar a
-                curva em vez de vazar dela.
+                A seção deixou de ser um cartão.
+
+                Ela era `rounded-xl border` — dez retângulos contornados,
+                empilhados numa coluna que já tem contorno próprio (a borda
+                direita da lateral) dentro de uma página feita de cartões. Três
+                níveis de moldura para dizer uma coisa só: "estes itens andam
+                juntos". O que diz isso agora é o que sempre bastou — o título
+                em versalete, o espaço entre um grupo e o outro, e o traço fino
+                acima de cada grupo a partir do segundo.
+
+                O `overflow-hidden` foi embora junto: ele existia para a barra
+                marinho do cabeçalho aceso não vazar da curva do cartão, e sem
+                cartão não há curva de onde vazar.
               */
               <div
                 key={grupo.titulo}
-                className="rounded-xl border border-sidebar-border overflow-hidden"
+                className={cn(
+                  "pt-3 first:pt-0",
+                  indice > 0 && "border-t border-sidebar-border/70",
+                )}
               >
                 <button
                   type="button"
@@ -259,20 +272,25 @@ export function Sidebar({ open }: { open: boolean }) {
                       mesma razão que a dos itens: nascer só quando a seção se
                       fecha empurraria o título quatro pixels a cada clique.
                     */
-                    "w-full flex items-center gap-3 border-l-4 pl-[calc(1.125rem-4px)] pr-3.5 py-3.5 text-left text-[0.8125rem] font-bold uppercase tracking-[0.08em] transition-colors",
+                    "w-full flex items-center gap-2.5 rounded-lg border-l-[3px] pl-[calc(0.75rem-3px)] pr-2.5 py-2.5 text-left text-3xs font-bold uppercase tracking-[0.11em] transition-colors",
                     grupo.cor,
                     /*
-                      Cartão fechado com a tela aberta dentro dele fica aceso —
+                      Seção fechada com a tela aberta dentro dela fica acesa —
                       barra marinho e fundo azul-claro: fechar uma seção é
                       escolher não ver a lista, e nunca deixar de saber onde se
-                      está. Aberto, quem acende é o próprio item ativo.
+                      está. Aberta, quem acende é o próprio item ativo.
+
+                      Em repouso o título é cinza, e não marinho: dez títulos
+                      marinho numa coluna competiam com o único item que
+                      realmente está aceso. A cor da seção volta no cursor e no
+                      ícone, que é onde ela ajuda a achar o bloco.
                     */
                     !aberto && contemAtivo
                       ? "border-brand bg-sidebar-accent"
-                      : "border-transparent hover:bg-muted",
+                      : "border-transparent text-muted-foreground hover:bg-muted hover:text-sidebar-foreground",
                   )}
                 >
-                  <grupo.icon className="w-5 h-5 shrink-0" strokeWidth={2} />
+                  <grupo.icon className="w-4 h-4 shrink-0" strokeWidth={2.25} />
                   <span className="flex-1 min-w-0 truncate">{grupo.titulo}</span>
                   {/*
                     O que a seção fechada esconde de trabalho vem para o
@@ -295,7 +313,7 @@ export function Sidebar({ open }: { open: boolean }) {
                 {aberto && (
                   <div
                     id={idDaSecao(grupo.titulo)}
-                    className="border-t border-sidebar-border py-1"
+                    className="pt-0.5 pb-1"
                   >
                     {grupo.itens.map((item) => (
                       <ItemDoMenu
@@ -581,7 +599,7 @@ function ItemDoMenu({
           está apagado — porque uma borda que só nasce no item aceso empurraria
           o texto três pixels para a direita a cada clique.
         */
-        "flex items-center gap-3 border-l-[3px] pl-[calc(1.125rem-3px)] pr-3.5 py-2 text-sm transition-colors",
+        "flex items-center gap-3 rounded-lg border-l-[3px] pl-[calc(0.75rem-3px)] pr-3 py-2 text-sm transition-colors",
         ativo
           ? "border-brand bg-sidebar-accent text-brand font-semibold"
           : "border-transparent text-sidebar-foreground hover:bg-muted",

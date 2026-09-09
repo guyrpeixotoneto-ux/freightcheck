@@ -81,6 +81,17 @@
   --color-sidebar-accent-foreground: hsl(var(--sidebar-accent-foreground));
   --color-sidebar-ring: hsl(var(--sidebar-ring));
 
+  /*
+   * A borda da superfície — o mesmo cinza da `--border`, um degrau mais claro.
+   *
+   * O cartão deixou de ser desenhado por contorno: quem o separa do fundo agora
+   * é a elevação (`--sombra-1`), e o traço ficou só para o caso em que a
+   * elevação some — tema escuro, impressão, `forced-colors`. Um cinza mais
+   * claro é o que impede que a soma dos dois — traço cheio **mais** sombra —
+   * volte a pesar mais do que o contorno sozinho pesava.
+   */
+  --color-superficie-borda: hsl(var(--superficie-borda));
+
   --font-sans: var(--app-font-sans);
   --font-mono: var(--app-font-mono);
 
@@ -311,6 +322,47 @@
    * nos esqueletos: raio grande em elemento de 20px vira pílula.
    */
   --radius: 0.75rem;
+
+  /*
+   * A elevação, em três degraus — e por que ela substituiu o contorno.
+   *
+   * O cartão desta interface era `border` mais `shadow-sm`: um traço cheio de
+   * 1px e uma sombra de 5% que ninguém enxergava debaixo dele. Numa tela com
+   * doze cartões isso são doze retângulos de mesmo peso, e nenhum deles em
+   * primeiro plano — a "aparência quadrada" que a leitura executiva paga em
+   * hierarquia. Aqui a ordem se inverte: **a sombra separa, o traço só
+   * confirma**, e por isso o traço clareou (`--superficie-borda`) enquanto a
+   * sombra ganhou corpo.
+   *
+   * As três são tingidas de marinho (`213 47% 16%`, o `--foreground`) e não de
+   * preto puro: sombra preta sobre o cinza-azulado do fundo suja para o
+   * amarelo. É a mesma correção que faz um cartão parecer apoiado no papel
+   * deste produto, e não recortado de outro.
+   *
+   * - `--sombra-1` é a do cartão em repouso: dois planos rasos, quase só
+   *   contato. É ela que dispensa o contorno.
+   * - `--sombra-2` é a do cartão sob o cursor e a do que está em primeiro
+   *   plano. A diferença entre 1 e 2 é o que faz o hover ser lido como
+   *   "levantou", sem mover um pixel de posição.
+   * - `--sombra-3` é de camada flutuante — menu, popover, gaveta —, onde a
+   *   sombra deixa de ser detalhe e passa a ser o que diz que aquilo está
+   *   *acima* da página.
+   *
+   * No tema escuro as três encolhem em vez de crescer: sobre fundo de 11% de
+   * luz, sombra não existe como fenômeno, e insistir nela só borra a borda.
+   * Lá quem separa volta a ser o traço — ver `.dark`.
+   */
+  --sombra-1:
+    0 1px 2px -1px hsl(213 47% 16% / 0.08),
+    0 2px 6px -2px hsl(213 47% 16% / 0.05);
+  --sombra-2:
+    0 2px 4px -2px hsl(213 47% 16% / 0.1),
+    0 8px 20px -6px hsl(213 47% 16% / 0.09);
+  --sombra-3:
+    0 4px 8px -4px hsl(213 47% 16% / 0.12),
+    0 16px 40px -12px hsl(213 47% 16% / 0.16);
+
+  --superficie-borda: 214 32% 93%;
 }
 
 /*
@@ -399,6 +451,19 @@
   --sidebar-accent: 214 34% 20%;
   --sidebar-accent-foreground: 210 40% 98%;
   --sidebar-ring: 212 80% 62%;
+
+  /*
+   * No escuro a conta se inverte: a sombra some e o traço volta a ser quem
+   * separa. Ela não vai a zero porque a camada flutuante ainda precisa dizer
+   * que flutua — mas ela é preta e rasa, e o contorno da superfície volta a ser
+   * a mesma `--border` do resto do tema, sem o degrau de clareamento que só faz
+   * sentido sobre papel branco.
+   */
+  --sombra-1: 0 1px 2px 0 hsl(213 60% 4% / 0.4);
+  --sombra-2: 0 2px 8px -2px hsl(213 60% 4% / 0.5);
+  --sombra-3: 0 12px 32px -8px hsl(213 60% 4% / 0.6);
+
+  --superficie-borda: 214 30% 19%;
 }
 
 @layer base {
@@ -452,5 +517,128 @@
   }
   to {
     background-position: 120% 0;
+  }
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * A CASCA DAS SUPERFÍCIES — a linguagem visual do produto, num lugar só.
+ * ---------------------------------------------------------------------------
+ *
+ * Sessenta e quatro lugares deste código escreviam `bg-card border rounded-xl
+ * shadow-sm` à mão. Não eram sessenta e quatro decisões: era uma decisão
+ * copiada sessenta e quatro vezes, e por isso ela não tinha alavanca — evoluir
+ * o cartão do produto exigia editar sessenta e quatro arquivos e acertar os
+ * sessenta e quatro. As telas que quiseram respirar escaparam para variações à
+ * mão (`rounded-2xl`, `shadow-md`, `border-2`), que é como uma interface deixa
+ * de ser consistente sem que ninguém tenha decidido isso.
+ *
+ * Estas classes são essa alavanca. Elas não são um segundo sistema ao lado do
+ * Tailwind: são o **nome** do que o Tailwind já escrevia, e continuam
+ * aceitando utilitário por cima — `class="superficie px-6 py-5"` é o uso
+ * normal. O que muda é que o traço, o raio e a elevação do cartão do
+ * FreightCheck passam a ser editáveis aqui, e em nenhum outro lugar.
+ *
+ * Por que CSS e não uma constante em TypeScript: a casca também é usada por
+ * markup que não passa por componente React — e uma constante não alcança o
+ * `:hover`, o `@media print` nem o `forced-colors`, que é onde a elevação
+ * precisa saber desaparecer.
+ */
+@layer components {
+  /*
+   * O cartão do produto. **Sem `p-*` de propósito**: quem usa decide o
+   * respiro, porque um cartão de KPI e um cartão de tabela não têm o mesmo — e
+   * embutir um padrão aqui obrigaria metade das chamadas a desfazê-lo.
+   */
+  .superficie {
+    @apply rounded-xl border border-superficie-borda bg-card text-card-foreground;
+    box-shadow: var(--sombra-1);
+  }
+
+  /*
+   * O cartão que é botão ou link. Ele levanta — e só levanta: nada de
+   * `translate` no hover, que num painel de cinco cartões vira cinco pulos por
+   * varredura de mouse. Quem tiver pedido menos animação recebe a mesma
+   * mudança sem a transição.
+   */
+  .superficie-interativa {
+    @apply transition-[box-shadow,border-color] duration-150;
+  }
+
+  .superficie-interativa:hover {
+    @apply border-brand/40;
+    box-shadow: var(--sombra-2);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .superficie-interativa {
+      transition: none;
+    }
+  }
+
+  /*
+   * A superfície de destaque — o primeiro andar de uma tela de leitura, e só
+   * ele.
+   *
+   * É o mesmo cartão com um véu do marinho da marca por cima: 4% de tinta, o
+   * suficiente para o olho pousar ali primeiro e pouco o bastante para o número
+   * grande em cima continuar sendo o que se lê. Não é gradiente e não é vidro:
+   * é uma cor chapada, porque o que se quer aqui é hierarquia, não efeito.
+   *
+   * **Uma por tela.** Duas superfícies de destaque na mesma página é a mesma
+   * coisa que nenhuma.
+   */
+  .superficie-destaque {
+    @apply rounded-xl border;
+    border-color: hsl(var(--brand) / 0.16);
+    background-color: color-mix(in srgb, hsl(var(--brand)) 4%, hsl(var(--card)));
+    box-shadow: var(--sombra-1);
+  }
+
+  /*
+   * A camada que flutua — menu, popover, gaveta, modal. A diferença para o
+   * cartão não é o raio nem a cor: é a distância do papel, e ela está inteira
+   * na `--sombra-3`.
+   */
+  .superficie-flutuante {
+    @apply rounded-xl border border-superficie-borda bg-popover text-popover-foreground;
+    box-shadow: var(--sombra-3);
+  }
+
+  /*
+   * O rótulo em versalete que abre um bloco — `IMPACTO LÍQUIDO APURADO`,
+   * `COMPOSIÇÃO`, `ALCANCE`. Ele estava escrito à mão em três medidas
+   * diferentes (`text-[11px]`, `text-[0.6875rem]`, `text-2xs`) com três
+   * espaçamentos diferentes, o que fazia dois blocos vizinhos parecerem de
+   * níveis diferentes sem que ninguém tivesse decidido isso.
+   */
+  .rotulo-secao {
+    @apply text-3xs font-bold uppercase tracking-[0.13em] text-muted-foreground;
+  }
+
+  /*
+   * O medalhão do ícone — o quadrado arredondado com o ícone dentro que abre o
+   * cartão de indicador e o estado vazio.
+   *
+   * A cor **não** está aqui: cada uso pinta a sua (`text-brand bg-brand/10`,
+   * `text-warning bg-warning/10`), porque a cor aqui é semântica e semântica
+   * não se herda de uma classe de forma. O que a classe fixa é a geometria, que
+   * é o que precisava ser igual em toda parte.
+   */
+  .medalhao {
+    @apply flex shrink-0 items-center justify-center rounded-xl;
+  }
+
+  /*
+   * Impressão e alto contraste: a elevação é um efeito de tela, e nos dois
+   * casos ela não chega. Quem separa volta a ser o traço.
+   */
+  @media print, (forced-colors: active) {
+    .superficie,
+    .superficie-destaque,
+    .superficie-flutuante {
+      box-shadow: none;
+      @apply border-border;
+    }
   }
 }

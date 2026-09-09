@@ -159,7 +159,7 @@ export function ListaDeChamados({
   */
   if (carregando && chamados.length === 0) {
     return (
-      <div className="rounded-xl border bg-card">
+      <div className="superficie">
         <div className="overflow-x-auto">
           <table className="w-full text-[13px]">
             <CabecalhoDaRelacao
@@ -208,7 +208,7 @@ export function ListaDeChamados({
   }
 
   return (
-    <div className="rounded-xl border bg-card">
+    <div className="superficie">
       {selecionados.size > 0 && (
         <BarraDeSelecao
           chamados={[...selecionados.values()]}

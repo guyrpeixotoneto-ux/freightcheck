@@ -203,7 +203,7 @@ function Cartao({
   }[tom];
 
   return (
-    <section className="bg-card border rounded-xl shadow-sm px-5 py-4">
+    <section className="superficie px-5 py-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-sm text-muted-foreground">{titulo}</p>
@@ -793,7 +793,7 @@ export default function PainelDeJustificativas() {
         )}
 
         {resumo && resumo.alteracoes === 0 && (
-          <section className="bg-card border rounded-xl shadow-sm px-6 py-10 text-center">
+          <section className="superficie px-6 py-10 text-center">
             <p className="text-lg font-bold">
               {porTipo && tipo !== null
                 ? `Nada a justificar ${contracaoDoTipo(tipo, "em")} ${palavrasDoTipo(tipo).plural} deste recorte.`
@@ -853,7 +853,7 @@ export default function PainelDeJustificativas() {
             </div>
 
             <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
-              <section className="bg-card border rounded-xl shadow-sm px-6 py-5">
+              <section className="superficie px-6 py-5">
                 <h2 className="text-lg font-bold">Visão geral</h2>
                 <div className="flex items-center gap-6 mt-3">
                   <div className="relative shrink-0">
@@ -916,7 +916,7 @@ export default function PainelDeJustificativas() {
                 </p>
               </section>
 
-              <section className="bg-card border rounded-xl shadow-sm px-6 py-5">
+              <section className="superficie px-6 py-5">
                 <div className="flex items-baseline justify-between gap-3">
                   <h2 className="text-lg font-bold">Pendências por tipo de ativo</h2>
                   <p className="text-xs text-muted-foreground">
@@ -965,7 +965,7 @@ export default function PainelDeJustificativas() {
               </section>
             </div>
 
-            <section className="bg-card border rounded-xl shadow-sm px-6 py-4">
+            <section className="superficie px-6 py-4">
               <div className="flex flex-wrap items-end gap-3">
                 {/* Só na Visão Geral — ver `escopoDaConsulta`. */}
                 {emVisaoGeral && unidades.length > 1 && (
@@ -1083,7 +1083,7 @@ export default function PainelDeJustificativas() {
               </div>
             </section>
 
-            <section className="bg-card border rounded-xl shadow-sm overflow-hidden">
+            <section className="superficie overflow-hidden">
               <div className="px-4 pt-3">
                 <Tabs
                   value={situacao}
@@ -1286,7 +1286,7 @@ export default function PainelDeJustificativas() {
               )}
             </section>
 
-            <section className="bg-card border rounded-xl shadow-sm px-6 py-5">
+            <section className="superficie px-6 py-5">
               <h2 className="text-lg font-bold">Quem justificou</h2>
               {responsaveis.length === 0 ? (
                 <p className="text-sm text-muted-foreground mt-1">
@@ -1313,7 +1313,7 @@ export default function PainelDeJustificativas() {
               )}
             </section>
 
-            <section className="bg-card border rounded-xl shadow-sm overflow-hidden">
+            <section className="superficie overflow-hidden">
               <div className="px-6 py-4">
                 <h2 className="text-lg font-bold">Cobertura por vigência</h2>
                 <p className="text-sm text-muted-foreground">

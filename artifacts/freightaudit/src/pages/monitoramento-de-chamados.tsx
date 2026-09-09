@@ -785,7 +785,7 @@ export default function MonitoramentoDeChamados() {
             </div>
 
             {chamados.length === 0 && !fila.carregando && !decidindo ? (
-              <div className="rounded-xl border bg-card px-5 py-10 text-center text-sm text-muted-foreground">
+              <div className="superficie px-5 py-10 text-center text-sm text-muted-foreground">
                 {(dadosDaFila?.total ?? 0) === 0
                   ? "Nenhum arquivo de chamados foi lido neste dia."
                   : "Nenhum chamado com estes filtros."}
@@ -929,7 +929,7 @@ function AvisoDoRecorte({
 }) {
   if (recorte.motivo === "ACERVO_SEM_SERIE") {
     return (
-      <div className="rounded-xl border bg-card px-5 py-3 flex flex-wrap items-center justify-between gap-4 text-sm">
+      <div className="superficie px-5 py-3 flex flex-wrap items-center justify-between gap-4 text-sm">
         <div className="min-w-0">
           Nenhum arquivo de chamados diz de que unidade veio, então esta tela
           está somando <span className="font-semibold">todas as unidades</span> —
@@ -969,7 +969,7 @@ function AvisoDoRecorte({
   if (!divergente) return null;
 
   return (
-    <div className="rounded-xl border bg-card px-5 py-3 flex flex-wrap items-center justify-between gap-4 text-sm">
+    <div className="superficie px-5 py-3 flex flex-wrap items-center justify-between gap-4 text-sm">
       <div className="min-w-0">
         Esta tela está lendo{" "}
         <span className="font-semibold">
@@ -1049,7 +1049,7 @@ function AvisoDeEnvioForaDaJanela({
       : (recorte.serie ?? recorte.unidade ?? "esta unidade");
 
   return (
-    <div className="rounded-xl border bg-card px-5 py-4 flex flex-wrap items-center justify-between gap-4">
+    <div className="superficie px-5 py-4 flex flex-wrap items-center justify-between gap-4">
       <div className="flex items-start gap-3 min-w-0">
         <div className="h-9 w-9 rounded-lg bg-blue-50 text-blue-600 grid place-content-center shrink-0">
           <CalendarSearch className="h-4 w-4" />

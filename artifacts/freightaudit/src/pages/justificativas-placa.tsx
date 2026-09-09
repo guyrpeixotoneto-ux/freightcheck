@@ -243,7 +243,7 @@ export default function JustificativasPlaca() {
     return (
       <Layout>
         <div className="px-8 pt-7 max-w-[1400px]">
-          <section className="bg-card border rounded-xl shadow-sm px-6 py-10 text-center">
+          <section className="superficie px-6 py-10 text-center">
             <p className="text-lg font-bold">Nenhuma vigência calculada.</p>
             <p className="text-sm text-muted-foreground mt-1">
               Sem comparação gravada não há alterações para justificar nesta placa.
@@ -329,7 +329,7 @@ export default function JustificativasPlaca() {
         )}
 
         {!carregando && !semLeituraNenhuma && linhas.length === 0 && (
-          <section className="bg-card border rounded-xl shadow-sm px-6 py-10 text-center">
+          <section className="superficie px-6 py-10 text-center">
             <p className="text-lg font-bold">Esta placa não mudou nesta janela.</p>
             <p className="text-sm text-muted-foreground mt-1">
               Aumente a janela para procurar alterações em vigências mais antigas.
@@ -349,7 +349,7 @@ export default function JustificativasPlaca() {
               />
             </div>
 
-            <section className="bg-card border rounded-xl shadow-sm overflow-hidden">
+            <section className="superficie overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full text-sm border-collapse">
                   <thead>
@@ -639,7 +639,7 @@ function CartaoDoResumo({
   tom?: "pendente" | "justificada";
 }) {
   return (
-    <div className="bg-card border rounded-xl shadow-sm px-4 py-3">
+    <div className="superficie px-4 py-3">
       <p className="text-[0.6875rem] uppercase tracking-wide text-muted-foreground">{rotulo}</p>
       <p className="text-2xl font-bold tabular-nums mt-0.5 flex items-center gap-1.5">
         {/*

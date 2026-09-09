@@ -868,7 +868,7 @@ export function AbaPlanilha({
           />
 
           {painel === "deducao" && rastro && (
-            <div className="rounded-xl border bg-card p-5 text-sm space-y-3 shadow-sm">
+            <div className="superficie p-5 text-sm space-y-3">
               <p>
                 O impacto apurado é o dinheiro contado <strong>uma vez só</strong>.
                 Abaixo, o caminho do total técnico até ele — cada degrau é uma
@@ -925,7 +925,7 @@ export function AbaPlanilha({
           )}
 
           {painel === "parcial" && cv && (
-            <div className="rounded-xl border bg-card p-5 text-sm shadow-sm">
+            <div className="superficie p-5 text-sm">
               {cv.janela === null ? (
                 <>
                   Para o período <span className="font-mono">{cv.period}</span>{" "}
@@ -955,7 +955,7 @@ export function AbaPlanilha({
           )}
 
           {painel === "semPreco" && (
-            <div className="rounded-xl border bg-card p-5 text-sm space-y-3 shadow-sm">
+            <div className="superficie p-5 text-sm space-y-3">
               <p>
                 <strong>{semPreco.toLocaleString("pt-BR")}</strong> alterações
                 estão fora da soma de impacto porque a semântica do atributo

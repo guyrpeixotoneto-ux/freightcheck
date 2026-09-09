@@ -202,7 +202,7 @@ function Bloco({
   children: React.ReactNode;
 }) {
   return (
-    <div className="bg-card border rounded-xl shadow-sm px-4 py-4 flex flex-col">
+    <div className="superficie px-4 py-4 flex flex-col">
       <h3 className="text-[0.9375rem] font-bold mb-3">{titulo}</h3>
       <div className="space-y-2.5 flex-1">{children}</div>
       <p className="text-[0.6875rem] text-muted-foreground mt-3 pt-2.5 border-t flex items-center gap-1">

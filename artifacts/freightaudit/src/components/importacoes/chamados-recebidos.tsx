@@ -340,7 +340,7 @@ function DropzoneDeChamados({
 /** A lista vazia, dizendo o que ela vai passar a mostrar. */
 function SemEnvios() {
   return (
-    <div className="rounded-xl border bg-card px-6 py-5 shadow-sm flex items-start gap-4">
+    <div className="superficie px-6 py-5 flex items-start gap-4">
       <div className="w-12 h-12 rounded-xl bg-muted flex items-center justify-center shrink-0">
         <Headset className="w-5 h-5 text-muted-foreground" />
       </div>
@@ -396,7 +396,7 @@ function CartaoDoEnvio({
     envio.parameterColumns.length > 0;
 
   return (
-    <div className="rounded-xl border bg-card px-6 py-5 shadow-sm space-y-5">
+    <div className="superficie px-6 py-5 space-y-5">
       <div className="flex items-start justify-between gap-4">
         <div className="flex items-start gap-3 min-w-0">
           <div className="w-11 h-11 rounded-xl bg-sky-50 border border-sky-100 flex items-center justify-center shrink-0">

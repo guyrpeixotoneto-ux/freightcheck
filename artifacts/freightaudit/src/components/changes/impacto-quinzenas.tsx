@@ -887,7 +887,7 @@ function Tile({
   valueTone?: "good" | "bad" | "muted";
 }) {
   return (
-    <div className="rounded-xl border bg-card shadow-sm px-5 py-5 flex items-center gap-4">
+    <div className="superficie px-5 py-5 flex items-center gap-4">
       <div
         className={cn(
           "h-12 w-12 rounded-xl grid place-content-center shrink-0",

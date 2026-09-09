@@ -119,7 +119,7 @@ function Cartao({
     <div
       title={dica}
       className={cn(
-        "bg-card border rounded-xl shadow-sm px-4 py-3",
+        "superficie px-4 py-3",
         destaque && "border-primary/40 bg-primary/5",
       )}
     >
@@ -183,7 +183,7 @@ export function AtencaoDaEvolucao({
   if (insights.length === 0) return null;
 
   return (
-    <section className="bg-card border rounded-xl shadow-sm p-5">
+    <section className="superficie p-5">
       <div className="flex items-center gap-2">
         <Sparkles className="w-4 h-4 text-primary" />
         <h2 className="text-base font-bold leading-tight">O que merece sua atenção</h2>
