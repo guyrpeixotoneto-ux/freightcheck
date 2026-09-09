@@ -205,7 +205,7 @@ function vigencia(overrides: Partial<FamiliesView> = {}): FamiliesView {
     freightechSemDado: [],
     cockpit: {
       baseline: { hasBaseline: true, seriesWithoutBaseline: [] },
-      kpis: { fleet: 144 },
+      kpis: { fleet: 144, ativosNaFrota: 120, inativosNaFrota: 24 },
       panorama: { byEquipment: [{ equipment: "Carreta", entityType: "CARRETA", changes: 61 }] },
     } as unknown as CockpitView,
     ...overrides,
@@ -228,6 +228,8 @@ function overviewDe(overrides: Partial<FamiliesOverview> = {}): FamiliesOverview
         entitiesRemoved: 1,
         inconclusive: 0,
         fleet: 144,
+        ativosNaFrota: 120,
+        inativosNaFrota: 24,
       },
       groups: [],
       gruposNoTotal: 16,
@@ -374,6 +376,26 @@ describe("o placar", () => {
     expect(placar.find((m) => m.chave === "veiculos")!.nota).toContain("soma das unidades");
   });
 
+  /** A view de uma unidade com a situação da frota que se quiser. */
+  const comSituacao = (ativosNaFrota: number, inativosNaFrota: number) =>
+    vigencia({
+      cockpit: {
+        baseline: { hasBaseline: true, seriesWithoutBaseline: [] },
+        kpis: { fleet: 144, ativosNaFrota, inativosNaFrota },
+        panorama: { byEquipment: [] },
+      },
+    } as unknown as Partial<FamiliesView>);
+
+  const notaDe = (view: FamiliesView): string => {
+    const leitura = leituraDaUnidade(view);
+    const placar = placarDoPanorama(leitura, vereditoDoPanorama(leitura, null), {
+      recorte: RECORTE,
+      comDestino: false,
+      variacaoDeAlteracoes: null,
+    });
+    return placar.find((m) => m.chave === "veiculos")!.nota!;
+  };
+
   it("conta a frota em equipamentos, e não em 'ativos'", () => {
     /*
       "Ativo" tem dois donos neste produto, e os dois aparecem na mesma frota:
@@ -388,16 +410,62 @@ describe("o placar", () => {
       número estava certo e a palavra é que emprestava a ele uma promessa que
       ele não cumpre.
     */
-    const leitura = leituraDaUnidade(vigencia());
-    const placar = placarDoPanorama(leitura, vereditoDoPanorama(leitura, null), {
-      recorte: RECORTE,
-      comDestino: false,
-      variacaoDeAlteracoes: null,
-    });
+    const nota = notaDe(vigencia());
+    expect(nota).toContain("144 equipamentos");
+    // "ativos", no plural e como substantivo, era a palavra ambígua.
+    expect(nota).not.toContain(" ativos");
+  });
 
-    const nota = placar.find((m) => m.chave === "veiculos")!.nota!;
-    expect(nota).toContain("equipamentos");
-    expect(nota).not.toContain("ativos");
+  it("diz quantos estão em ATIVO quando a frota inteira declara a coluna", () => {
+    // 120 + 24 = 144: ninguém ficou sem responder, e não há o que ressalvar.
+    expect(notaDe(comSituacao(120, 24))).toContain("144 equipamentos · 120 em ATIVO");
+  });
+
+  it("nomeia quem não trouxe a coluna, em vez de deixar a subtração inventá-los", () => {
+    /*
+      46 responderam ATIVO e 16 responderam PARADO, numa frota de 144: 82 não
+      declararam a coluna — é o caso real das carretas, que não a têm. Sem a
+      ressalva, "46 em ATIVO" sobre 144 equipamentos convida a subtrair, e a
+      subtração chamaria de parados 98 veículos que a fonte nunca disse que
+      estão.
+    */
+    const nota = notaDe(comSituacao(46, 16));
+    expect(nota).toContain("46 em ATIVO");
+    expect(nota).toContain("82 sem a coluna");
+  });
+
+  it("não quebra a página quando a resposta é anterior aos dois campos", () => {
+    /*
+      A interface é um bundle próprio, e uma resposta em cache de antes desta
+      mudança não traz `ativosNaFrota`. Enquanto a leitura assumia o campo, o
+      Panorama inteiro caía num `toLocaleString` de `undefined` — a página
+      renderizava vazia, e o custo de acrescentar um número seria perder a tela.
+      Ausente é "ninguém respondeu", e a nota volta a ser a de antes.
+    */
+    const semOsCampos = vigencia({
+      cockpit: {
+        baseline: { hasBaseline: true, seriesWithoutBaseline: [] },
+        kpis: { fleet: 144 },
+        panorama: { byEquipment: [] },
+      },
+    } as unknown as Partial<FamiliesView>);
+
+    const nota = notaDe(semOsCampos);
+    expect(nota).toContain("144 equipamentos");
+    expect(nota).not.toContain("ATIVO");
+    expect(nota).not.toContain("NaN");
+  });
+
+  it("cala sobre a situação quando ninguém declarou a coluna", () => {
+    /*
+      Uma frota só de carretas não responde a pergunta, e "0 em ATIVO" seria
+      lido como frota inteira parada — o erro exato que a contagem de três
+      pontas existe para não cometer. A nota volta a ser a de antes.
+    */
+    const nota = notaDe(comSituacao(0, 0));
+    expect(nota).toContain("144 equipamentos");
+    expect(nota).not.toContain("ATIVO");
+    expect(nota).not.toContain("sem a coluna");
   });
 
   it("sem valor apurado o líquido não vira R$ 0 — some do placar", () => {

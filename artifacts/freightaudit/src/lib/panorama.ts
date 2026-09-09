@@ -113,6 +113,20 @@ export interface LeituraDoPanorama {
   veiculosDeduplicados: boolean;
   /** A frota que a vigência entregou — `null` sem denominador confiável. */
   frota: number | null;
+  /**
+   * Quantos equipamentos da frota respondem `ATIVO` na coluna `ativo` — e
+   * quantos respondem que não.
+   *
+   * Não se deduz um do outro nem da frota: quem não trouxe a coluna não é
+   * parado, é sem resposta. As três pontas viajam separadas justamente para
+   * que a nota do card não invente a terceira. Ver `CockpitKpis.ativosNaFrota`.
+   *
+   * Zero quando a resposta não os traz — uma versão anterior ainda em cache —,
+   * e zero aqui quer dizer "ninguém respondeu", que é o caso em que a nota
+   * cala. Nunca `undefined`: quem lê esta leitura já pode contar.
+   */
+  ativosNaFrota: number;
+  inativosNaFrota: number;
   /** Ativos que entraram na vigência. */
   entraram: number;
   /** Ativos que saíram. */
@@ -128,6 +142,8 @@ export function leituraDaUnidade(view: FamiliesView): LeituraDoPanorama {
     veiculos: view.totals.vehiclesTouched,
     veiculosDeduplicados: true,
     frota: frotaTotal(view),
+    ativosNaFrota: view.cockpit.kpis.ativosNaFrota ?? 0,
+    inativosNaFrota: view.cockpit.kpis.inativosNaFrota ?? 0,
     entraram: view.totals.entitiesAdded,
     sairam: view.totals.entitiesRemoved,
   };
@@ -149,6 +165,8 @@ export function leituraDaVisaoGeral(overview: FamiliesOverview): LeituraDoPanora
     veiculos: distinto ?? overview.summary.vehiclesTouched,
     veiculosDeduplicados: distinto !== undefined,
     frota: overview.consolidado.totals.fleet,
+    ativosNaFrota: overview.consolidado.totals.ativosNaFrota ?? 0,
+    inativosNaFrota: overview.consolidado.totals.inativosNaFrota ?? 0,
     entraram: overview.consolidado.totals.entitiesAdded,
     sairam: overview.consolidado.totals.entitiesRemoved,
   };
@@ -325,8 +343,9 @@ export function placarDoPanorama(
       ajuda:
         "Equipamentos com pelo menos uma alteração nesta vigência, sobre a frota " +
         "que a vigência entregou — todos os que vieram no arquivo, rodando ou " +
-        "parados. O denominador não é a coluna `ativo`: uma frota com veículos " +
-        "PARADOS entrega mais equipamentos do que tem em ATIVO.",
+        "parados. O denominador não é a coluna `ativo`; quantos dela estão em " +
+        "ATIVO vai ao lado, quando a frota declara a coluna. Quem não a declara " +
+        "não é contado como parado: aparece como \"sem a coluna\".",
     },
     {
       chave: "sem-preco",
@@ -378,12 +397,38 @@ function formatarLado(valor: number): string {
   });
 }
 
+/**
+ * A nota do card de veículos: a fatia da frota, e de que frota se trata.
+ *
+ * A situação (`ATIVO`/`PARADO`) entra aqui porque foi a pergunta que a nota
+ * fazia surgir sem responder. "69 equipamentos" é a frota entregue; quem lê o
+ * export sabe que nem todos estão rodando, e a diferença é material — em
+ * PERNAMBUCO · agosto/2026 são 69 entregues e 55 em `ATIVO`.
+ *
+ * **A cláusula só aparece quando há resposta para dar.** Uma frota em que
+ * ninguém declarou situação — CARRETA não traz a coluna — sai com a nota de
+ * antes, sem um "0 em ATIVO" que seria lido como frota parada. E quando parte
+ * da frota respondeu e parte não, os que não responderam são **nomeados**: sem
+ * isso, "55 em ATIVO" sobre 69 equipamentos convida à subtração, e a subtração
+ * chamaria de parados 14 veículos que podem só não ter trazido a coluna.
+ */
 function notaDeVeiculos(leitura: LeituraDoPanorama, fatia: number | null): string | null {
   if (!leitura.veiculosDeduplicados) {
     return "soma das unidades — um equipamento em duas delas conta duas vezes";
   }
   if (fatia === null || leitura.frota === null) return null;
-  return `${escreverPercentual(fatia)} da frota (${leitura.frota.toLocaleString("pt-BR")} equipamentos)`;
+
+  const frota = leitura.frota;
+  const base = `${escreverPercentual(fatia)} da frota (${frota.toLocaleString("pt-BR")} equipamentos`;
+
+  const responderam = leitura.ativosNaFrota + leitura.inativosNaFrota;
+  if (responderam === 0) return `${base})`;
+
+  const ativos = `${leitura.ativosNaFrota.toLocaleString("pt-BR")} em ATIVO`;
+  const semResposta = frota - responderam;
+  if (semResposta <= 0) return `${base} · ${ativos})`;
+
+  return `${base} · ${ativos}, ${semResposta.toLocaleString("pt-BR")} sem a coluna)`;
 }
 
 // ---------------------------------------------------------------------------

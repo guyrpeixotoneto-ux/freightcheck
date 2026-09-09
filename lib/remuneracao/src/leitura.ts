@@ -1,4 +1,5 @@
 import { sql } from "drizzle-orm";
+import { booleanoDoTexto } from "@workspace/ingest";
 import type { Database } from "@workspace/db";
 import {
   ContextNotFoundError,
@@ -1428,45 +1429,19 @@ function numeroDe(fato: LinhaDeFato | undefined): number | null {
 }
 
 /**
- * O vocabulário que a coluna `ativo` de fato usa.
+ * O booleano de um fato, ou nulo.
  *
- * **`ATIVO` e `PARADO` são os dois valores do export real** — medidos no
- * acervo de CAMAÇARI · EMPURRADA em 19/08/2026: 442 linhas `ATIVO` e 116
- * `PARADO`, nas nove vigências, e nenhum terceiro valor. É a palavra da
- * planilha, e é ela que a contagem tem de entender; `PARADO` é exatamente o
- * que a aba chama de "Total Frota Fixa Inativos".
- *
- * As outras entradas estão aqui porque a mesma coluna chega como booleano
- * tipado em outros exports, e porque `SIM`/`NAO` é a forma que a planilha usa
- * em colunas irmãs. Reconhecê-las não custa nada e evita que o cadastro
- * dependa de qual variante o cliente mandou naquele mês.
- *
- * O que **não** está aqui é um padrão. Qualquer outro texto — inclusive o
- * vazio — é nulo, e nulo não é inativo: é "este veículo não respondeu", que a
- * contagem trata como categoria própria. Um `else return false` faria uma frota
- * inteira aparecer parada no dia em que a Ambev escrevesse a palavra de outro
- * jeito, e ninguém veria.
+ * O vocabulário — quais palavras a fonte usa para sim e para não — mora em
+ * `@workspace/ingest`, porque o Panorama passou a precisar dele também e
+ * `comparison` não pode importar daqui. Ver `vocabulario-booleano.ts` para por
+ * que texto desconhecido é nulo, e não "não".
  */
-const DIZ_QUE_SIM = new Set(["ATIVO", "SIM", "S", "TRUE", "VERDADEIRO", "1"]);
-const DIZ_QUE_NAO = new Set([
-  "PARADO",
-  "INATIVO",
-  "NAO",
-  "NÃO",
-  "N",
-  "FALSE",
-  "FALSO",
-  "0",
-]);
-
-/** O booleano de um fato, ou nulo — pelo vocabulário acima. */
 function booleanoDe(fato: LinhaDeFato | undefined): boolean | null {
   if (!fato || fato.is_null) return null;
   if (fato.value_boolean !== null) return fato.value_boolean;
 
-  const texto = (fato.value_text ?? "").trim().toUpperCase();
-  if (DIZ_QUE_SIM.has(texto)) return true;
-  if (DIZ_QUE_NAO.has(texto)) return false;
+  const doTexto = booleanoDoTexto(fato.value_text);
+  if (doTexto !== null) return doTexto;
 
   const numero = numeroDe(fato);
   if (numero === 1) return true;
