@@ -79,13 +79,22 @@ function planilhaDeCavalo(vigencia: string) {
   });
 }
 
-/** Uma vigência por caso, para dois casos não disputarem a mesma identidade. */
-let diaSequencial = 0;
+/**
+ * Uma vigência por caso, para dois casos não disputarem a mesma identidade.
+ *
+ * O primeiro campo do rótulo é a **quinzena**, e um mês tem duas. Este contador
+ * varria de 1 a 28 quando o campo era lido como dia; hoje um 3 ali pede a
+ * terceira quinzena de um mês, e a importação recusa a linha inteira com
+ * `IMPOSSIBLE_QUINZENA`. O passo passa a ser a quinzena: o mês vira a cada
+ * duas, o ano a cada 24, e continua não havendo duas iguais.
+ */
+let vigenciasEmitidas = 0;
 function vigenciaUnica(): string {
-  diaSequencial++;
-  const mes = 1 + Math.floor((diaSequencial - 1) / 28);
-  const dia = 1 + ((diaSequencial - 1) % 28);
-  return `EMPURRADA_${dia}_${mes}_2031`;
+  const n = vigenciasEmitidas++;
+  const quinzena = 1 + (n % 2);
+  const mes = 1 + (Math.floor(n / 2) % 12);
+  const ano = 2031 + Math.floor(n / 24);
+  return `EMPURRADA_${quinzena}_${mes}_${ano}`;
 }
 
 async function contar(query: string): Promise<number> {

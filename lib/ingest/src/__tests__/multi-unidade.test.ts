@@ -111,7 +111,7 @@ describe("um arquivo consolidado, com mais de uma unidade na mesma vigência", (
     const { promovido } = await importar(ctx.db, escreverPlanilha(spec));
     expect(promovido.snapshots).toHaveLength(1);
 
-    const snapshots = await ativos(ctx.db, "2040-08-02");
+    const snapshots = await ativos(ctx.db, "2040-08-16");
     expect(snapshots).toHaveLength(1);
     expect(snapshots[0].entityCount).toBe(2);
   });

@@ -342,7 +342,7 @@ describe("13 e 14. vigências e escopos não contaminam uns aos outros", () => {
   */
   it("acusa os equipamentos que sumiram do export e não voltaram", async () => {
     const visao = await visaoDaCobertura(ctx.db, { vigencias: 9 });
-    const posteriores = visao.colunas.filter((c) => c.effectiveDate > "2026-04-02");
+    const posteriores = visao.colunas.filter((c) => c.effectiveDate > "2026-04-16");
     expect(posteriores.length).toBeGreaterThan(0);
 
     for (const tipo of ["CAVALO", "CARRETA"] as const) {

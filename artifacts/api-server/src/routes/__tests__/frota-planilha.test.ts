@@ -49,10 +49,19 @@ describe("/fleet-analysis", () => {
     expect(body.vigencias.length).toBeGreaterThan(0);
     expect(body.summary.length).toBe(body.vigencias.length);
 
-    // As vigências vêm em ordem cronológica, e cada uma tem rótulo legível.
+    /*
+      As vigências vêm em ordem cronológica, e cada uma tem rótulo legível — com
+      a quinzena. O rótulo era só `Dez/2025`, e as duas vigências de um mês
+      ganhavam o mesmo nome: a lista oferecia a mesma opção duas vezes, e
+      escolher uma trocava o dado sem dizer qual.
+    */
     for (const v of body.vigencias as string[]) {
-      expect(body.vigenciaLabels[v]).toMatch(/^\w{3}\/\d{4}$/);
+      expect(body.vigenciaLabels[v]).toMatch(/^[12]ª quinzena \w{3}\/\d{4}$/);
     }
+
+    // E nomes distintos para vigências distintas, que é o ponto do rótulo.
+    const nomes = (body.vigencias as string[]).map((v) => body.vigenciaLabels[v]);
+    expect(new Set(nomes).size).toBe(nomes.length);
 
     // Frota contada de verdade: alguma vigência tem carreta e cavalo.
     expect(body.summary.some((s: any) => s.totalCarretas > 0)).toBe(true);

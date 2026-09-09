@@ -21,6 +21,7 @@ import {
 } from "../pipeline";
 import { deleteImportRun } from "../deletion";
 import { getImportRun } from "../history";
+import { parseVigenciaLabel } from "../vigencia";
 import { createTestDatabase, type TestDb } from "../testing";
 import {
   escreverPlanilha,
@@ -47,13 +48,27 @@ import {
 
 let ctx: TestDb;
 
-/** Uma vigência por teste, para que dois testes não disputem a mesma identidade. */
-let diaSequencial = 0;
+/**
+ * Uma vigência por teste, para que dois testes não disputem a mesma identidade.
+ *
+ * O primeiro campo do rótulo é a **quinzena**, e um mês tem duas: um contador
+ * que varria 1..28 ali pedia a 17ª quinzena de janeiro, que a importação hoje
+ * recusa com `IMPOSSIBLE_QUINZENA` — a linha inteira era rejeitada e o teste
+ * falhava longe da causa. O passo é a quinzena; o mês vira a cada duas e o ano
+ * a cada 24.
+ *
+ * O ano começa em 2040 para não encostar nos rótulos escritos à mão neste
+ * arquivo, que vivem em 2030..2032: duas vigências iguais em testes diferentes
+ * disputariam a mesma identidade, que é exatamente o que este gerador existe
+ * para evitar.
+ */
+let vigenciasEmitidas = 0;
 function vigenciaUnica(canal = "EMPURRADA"): string {
-  diaSequencial++;
-  const mes = 1 + Math.floor((diaSequencial - 1) / 28);
-  const dia = 1 + ((diaSequencial - 1) % 28);
-  return `${canal}_${dia}_${mes}_2030`;
+  const n = vigenciasEmitidas++;
+  const quinzena = 1 + (n % 2);
+  const mes = 1 + (Math.floor(n / 2) % 12);
+  const ano = 2040 + Math.floor(n / 24);
+  return `${canal}_${quinzena}_${mes}_${ano}`;
 }
 
 interface ResultadoImportacao {
@@ -196,7 +211,7 @@ describe("o mesmo negócio, chegando de outro jeito", () => {
     const regerado = await importarSpec({ ...spec, unidadeNome: "CAMACARI " });
     expect(regerado.isDuplicate).toBe(false);
     expect(regerado.status).toBe("SKIPPED_DUPLICATE_DATA");
-    expect(await ativos(ctx.db, "2030-" + vigenciaParaMesDia(vigencia))).toHaveLength(1);
+    expect(await ativos(ctx.db, dataDaVigencia(vigencia))).toHaveLength(1);
   });
 
   it("linhas em ordem diferente são o mesmo dado", async () => {
@@ -221,35 +236,36 @@ describe("o mesmo negócio, chegando de outro jeito", () => {
     expect(segunda.status).toBe("SKIPPED_DUPLICATE_DATA");
   });
 
-  it("EMPURRADA_1_8_2030 e EMPURRADA_01_8_2030 são a mesma vigência", async () => {
+  it("EMPURRADA_2_9_2032 e EMPURRADA_02_9_2032 são a mesma vigência", async () => {
     // O zero à esquerda era a brecha mais simples de todas: dois rótulos que a
-    // mesma regra lê como o mesmo dia, e que a identidade antiga — feita do
-    // rótulo literal — tratava como duas vigências ativas.
-    const a = planilhaPadrao({ vigencia: "EMPURRADA_9_9_2030" });
-    const b = planilhaPadrao({ vigencia: "EMPURRADA_09_9_2030" });
+    // mesma regra lê como a mesma quinzena, e que a identidade antiga — feita
+    // do rótulo literal — tratava como duas vigências ativas.
+    const a = planilhaPadrao({ vigencia: "EMPURRADA_2_9_2032" });
+    const b = planilhaPadrao({ vigencia: "EMPURRADA_02_9_2032" });
 
     expect(await importarSpec(a)).toMatchObject({ status: "PROMOTED" });
     const segunda = await importarSpec(b);
     expect(segunda.status).toBe("SKIPPED_DUPLICATE_DATA");
-    expect(await ativos(ctx.db, "2030-09-09")).toHaveLength(1);
+    // A 2ª quinzena de setembro começa no dia 16 — não no dia 2.
+    expect(await ativos(ctx.db, "2032-09-16")).toHaveLength(1);
   });
 
   it("espaços e caixa no escopo não criam uma segunda vigência", async () => {
-    const a = planilhaPadrao({ vigencia: "EMPURRADA_10_9_2030", regional: "GEO NE" });
-    const b = planilhaPadrao({ vigencia: "EMPURRADA_10_9_2030", regional: "  geo   ne " });
+    const a = planilhaPadrao({ vigencia: "EMPURRADA_1_1_2032", regional: "GEO NE" });
+    const b = planilhaPadrao({ vigencia: "EMPURRADA_1_1_2032", regional: "  geo   ne " });
 
     expect(await importarSpec(a)).toMatchObject({ status: "PROMOTED" });
     expect(await importarSpec(b)).toMatchObject({ status: "SKIPPED_DUPLICATE_DATA" });
-    expect(await ativos(ctx.db, "2030-09-10")).toHaveLength(1);
+    expect(await ativos(ctx.db, "2032-01-01")).toHaveLength(1);
   });
 
   it("CNPJ com e sem máscara é a mesma unidade", async () => {
     const a = planilhaPadrao({
-      vigencia: "EMPURRADA_11_9_2030",
+      vigencia: "EMPURRADA_2_1_2032",
       unidadeCnpj: "07.526.557/0015-05",
     });
     const b = planilhaPadrao({
-      vigencia: "EMPURRADA_11_9_2030",
+      vigencia: "EMPURRADA_2_1_2032",
       // Como o Excel devolve quando a célula é numérica: sem máscara e sem o
       // zero da frente.
       unidadeCnpj: "7526557001505",
@@ -257,11 +273,11 @@ describe("o mesmo negócio, chegando de outro jeito", () => {
 
     expect(await importarSpec(a)).toMatchObject({ status: "PROMOTED" });
     expect(await importarSpec(b)).toMatchObject({ status: "SKIPPED_DUPLICATE_DATA" });
-    expect(await ativos(ctx.db, "2030-09-11")).toHaveLength(1);
+    expect(await ativos(ctx.db, "2032-01-16")).toHaveLength(1);
   });
 
   it("placa com e sem hífen é o mesmo veículo", async () => {
-    const vigencia = "EMPURRADA_12_9_2030";
+    const vigencia = "EMPURRADA_1_2_2032";
     await importarSpec(
       planilhaPadrao({
         vigencia,
@@ -326,7 +342,7 @@ describe("CAVALO+CARRETA seguido de só CAVALO", () => {
     // Esta era a brecha mais cara: o conjunto de tipos entrava na identidade, de
     // modo que uma correção só de cavalos abria uma **segunda** vigência ativa,
     // e os cavalos passavam a contar em dobro.
-    const vigencia = "EMPURRADA_13_9_2030";
+    const vigencia = "EMPURRADA_2_2_2032";
     const ambos = await importarSpec(
       planilhaPadrao({
         vigencia,
@@ -353,7 +369,7 @@ describe("CAVALO+CARRETA seguido de só CAVALO", () => {
     );
     expect(soCavalo.status).toBe("PROMOTED");
 
-    const vivas = await ativos(ctx.db, "2030-09-13");
+    const vivas = await ativos(ctx.db, "2032-02-16");
     expect(vivas).toHaveLength(1);
     expect(vivas[0].revision).toBe(2);
     // A carreta não desapareceu: veio herdada da revisão anterior.
@@ -381,7 +397,7 @@ describe("CAVALO+CARRETA seguido de só CAVALO", () => {
   });
 
   it("sem declarar correção, é recusado e o run continua aprovável", async () => {
-    const vigencia = "EMPURRADA_14_9_2030";
+    const vigencia = "EMPURRADA_1_3_2032";
     await importarSpec(
       planilhaPadrao({
         vigencia,
@@ -400,11 +416,11 @@ describe("CAVALO+CARRETA seguido de só CAVALO", () => {
     // Recusa que é pergunta, não fim de linha: o operador ainda pode aprovar
     // como correção.
     expect(correcao.status).toBe("PREVIEWED");
-    expect(await ativos(ctx.db, "2030-09-14")).toHaveLength(1);
+    expect(await ativos(ctx.db, "2032-03-01")).toHaveLength(1);
   });
 
   it("uma correção de verdade abre revisão e a anterior fica SUPERSEDED", async () => {
-    const vigencia = "EMPURRADA_15_9_2030";
+    const vigencia = "EMPURRADA_2_3_2032";
     await importarSpec(
       planilhaPadrao({
         vigencia,
@@ -421,14 +437,14 @@ describe("CAVALO+CARRETA seguido de só CAVALO", () => {
     );
     expect(correcao.status).toBe("PROMOTED");
 
-    const vivas = await ativos(ctx.db, "2030-09-15");
+    const vivas = await ativos(ctx.db, "2032-03-16");
     expect(vivas).toHaveLength(1);
     expect(vivas[0].revision).toBe(2);
 
     const todas = await ctx.db
       .select()
       .from(snapshotTable)
-      .where(eq(snapshotTable.effectiveDate, "2030-09-15"));
+      .where(eq(snapshotTable.effectiveDate, "2032-03-16"));
     expect(todas).toHaveLength(2);
     expect(todas.filter((s) => s.status === "SUPERSEDED")).toHaveLength(1);
   });
@@ -441,12 +457,12 @@ describe("CAVALO+CARRETA seguido de só CAVALO", () => {
 describe("o que não pode ser promovido", () => {
   it("recusa a vigência sem o escopo obrigatório em vez de promovê-la", async () => {
     const resultado = await importarSpec(
-      planilhaPadrao({ vigencia: "EMPURRADA_16_9_2030", unidadeCnpj: null }),
+      planilhaPadrao({ vigencia: "EMPURRADA_1_4_2032", unidadeCnpj: null }),
     );
     expect(resultado.erro).toBeInstanceOf(PromocaoRecusada);
     expect((resultado.erro as PromocaoRecusada).decisao).toBe("ESCOPO_OBRIGATORIO_AUSENTE");
     expect(resultado.status).toBe("VALIDATION_ERROR");
-    expect(await ativos(ctx.db, "2030-09-16")).toHaveLength(0);
+    expect(await ativos(ctx.db, "2032-04-01")).toHaveLength(0);
   });
 
   /*
@@ -461,7 +477,7 @@ describe("o que não pode ser promovido", () => {
   it("deixa entrar o que não conflita e retira só a chave em conflito", async () => {
     const resultado = await importarSpec(
       planilhaPadrao({
-        vigencia: "EMPURRADA_17_9_2030",
+        vigencia: "EMPURRADA_2_4_2032",
         abas: [
           {
             nome: "cavalos",
@@ -489,7 +505,7 @@ describe("o que não pode ser promovido", () => {
     expect(problema.message).toMatch(/ficou de fora/i);
 
     // A vigência entrou — com a placa sadia, e sem a que conflitou.
-    const vivas = await ativos(ctx.db, "2030-09-17");
+    const vivas = await ativos(ctx.db, "2032-04-16");
     expect(vivas).toHaveLength(1);
     expect(vivas[0].entityCount).toBe(1);
 
@@ -509,7 +525,7 @@ describe("o que não pode ser promovido", () => {
   it("para quando a quarentena leva tudo, e diz que foi ela", async () => {
     const resultado = await importarSpec(
       planilhaPadrao({
-        vigencia: "EMPURRADA_26_9_2030",
+        vigencia: "EMPURRADA_1_9_2032",
         abas: [
           {
             nome: "cavalos",
@@ -540,7 +556,7 @@ describe("o que não pode ser promovido", () => {
   it("consolida a mesma entidade repetida quando as duas linhas concordam", async () => {
     const resultado = await importarSpec(
       planilhaPadrao({
-        vigencia: "EMPURRADA_18_9_2030",
+        vigencia: "EMPURRADA_1_5_2032",
         abas: [
           {
             nome: "cavalos",
@@ -565,7 +581,7 @@ describe("o que não pode ser promovido", () => {
       );
     expect(consolidacao).toBeTruthy();
 
-    const vivas = await ativos(ctx.db, "2030-09-18");
+    const vivas = await ativos(ctx.db, "2032-05-01");
     expect(vivas[0].entityCount).toBe(1);
   });
 
@@ -573,7 +589,7 @@ describe("o que não pode ser promovido", () => {
     // Duas vigências no mesmo arquivo, a segunda sem unidade. A promoção é uma
     // transação só: ou entram as duas, ou não entra nenhuma.
     const caminho = escreverPlanilha({
-      vigencia: "EMPURRADA_19_9_2030",
+      vigencia: "EMPURRADA_2_5_2032",
       abas: [{ nome: "cavalos", linhas: [{ placa: "ROL1A11" }] }],
     });
     // A segunda vigência é acrescentada com escopo vazio, num arquivo só.
@@ -585,15 +601,15 @@ describe("o que não pode ser promovido", () => {
     expect(resultado.status).toBe("VALIDATION_ERROR");
 
     // Nem a vigência boa entrou.
-    expect(await ativos(ctx.db, "2030-09-20")).toHaveLength(0);
-    expect(await ativos(ctx.db, "2030-09-21")).toHaveLength(0);
+    expect(await ativos(ctx.db, "2032-06-01")).toHaveLength(0);
+    expect(await ativos(ctx.db, "2032-06-16")).toHaveLength(0);
   });
 });
 
 /** Um arquivo com duas vigências, a segunda sem o escopo obrigatório. */
 function escreverPlanilhaDuasVigencias(): string {
   const spec = planilhaPadrao({
-    vigencia: "EMPURRADA_20_9_2030",
+    vigencia: "EMPURRADA_1_6_2032",
     abas: [{ nome: "cavalos", linhas: [{ placa: "ROL1A11" }] }],
   });
   const caminho = escreverPlanilha(spec);
@@ -609,7 +625,7 @@ function reescreverComSegundaVigencia(caminho: string): string {
   const cabecalho = linhas[0] as string[];
   const modelo = linhas[1] as unknown[];
   const segunda = [...modelo];
-  segunda[cabecalho.indexOf("Vigencia")] = "EMPURRADA_21_9_2030";
+  segunda[cabecalho.indexOf("Vigencia")] = "EMPURRADA_2_6_2032";
   segunda[cabecalho.indexOf("Unidade - CNPJ")] = "";
   segunda[cabecalho.indexOf("Placa")] = "ROL2A22";
   const novo = XLSX.utils.aoa_to_sheet([...linhas, segunda] as never);
@@ -627,7 +643,7 @@ describe("concorrência", () => {
   it("dois uploads simultâneos do mesmo arquivo: um entra, o outro é duplicata", async () => {
     // Antes, os dois liam "não existe" e os dois inseriam; o perdedor recebia
     // 23505 e a API devolvia 500. Agora quem decide é o `ON CONFLICT`.
-    const caminho = escreverPlanilha(planilhaPadrao({ vigencia: "EMPURRADA_22_9_2030" }));
+    const caminho = escreverPlanilha(planilhaPadrao({ vigencia: "EMPURRADA_1_7_2032" }));
 
     const [a, b] = await Promise.all([
       receiveFile(ctx.db, { filePath: caminho }),
@@ -640,7 +656,7 @@ describe("concorrência", () => {
   });
 
   it("duas promoções simultâneas da mesma vigência: sobra uma ativa", async () => {
-    const spec = planilhaPadrao({ vigencia: "EMPURRADA_23_9_2030" });
+    const spec = planilhaPadrao({ vigencia: "EMPURRADA_2_7_2032" });
     const um = await prepararAtePreview(spec);
     const dois = await prepararAtePreview({ ...spec, unidadeNome: "OUTRO NOME" });
 
@@ -650,12 +666,12 @@ describe("concorrência", () => {
     ]);
     expect(resultados.some((r) => r.status === "fulfilled")).toBe(true);
 
-    const vivas = await ativos(ctx.db, "2030-09-23");
+    const vivas = await ativos(ctx.db, "2032-07-16");
     expect(vivas).toHaveLength(1);
   });
 
   it("dois NEW_REVISION simultâneos não produzem duas revisões equivalentes", async () => {
-    const vigencia = "EMPURRADA_24_9_2030";
+    const vigencia = "EMPURRADA_1_8_2032";
     await importarSpec(
       planilhaPadrao({
         vigencia,
@@ -681,14 +697,14 @@ describe("concorrência", () => {
       promote(ctx.db, b, { onExistingSnapshot: "NEW_REVISION" }),
     ]);
 
-    const vivas = await ativos(ctx.db, "2030-09-24");
+    const vivas = await ativos(ctx.db, "2032-08-01");
     expect(vivas).toHaveLength(1);
 
     // E não há duas revisões com o mesmo número na mesma identidade.
     const todas = await ctx.db
       .select()
       .from(snapshotTable)
-      .where(eq(snapshotTable.effectiveDate, "2030-09-24"));
+      .where(eq(snapshotTable.effectiveDate, "2032-08-01"));
     const numeros = todas.map((s) => s.revision);
     expect(new Set(numeros).size).toBe(numeros.length);
   });
@@ -718,7 +734,7 @@ describe("excluir e reimportar", () => {
     // adivinhar que era preciso excluir também a recusa.
     const caminho = escreverPlanilha(
       planilhaPadrao({
-        vigencia: "EMPURRADA_25_9_2030",
+        vigencia: "EMPURRADA_2_8_2032",
         abas: [{ nome: "cavalos", linhas: [{ placa: "CIC1A11" }] }],
       }),
     );
@@ -738,7 +754,7 @@ describe("excluir e reimportar", () => {
     const reimportado = await importar(ctx.db, caminho);
     expect(reimportado.isDuplicate).toBe(false);
     expect(reimportado.status).toBe("PROMOTED");
-    expect(await ativos(ctx.db, "2030-09-25")).toHaveLength(1);
+    expect(await ativos(ctx.db, "2032-08-16")).toHaveLength(1);
   });
 });
 
@@ -872,7 +888,16 @@ describe("a garantia é do banco, não do TypeScript", () => {
 });
 
 /** `EMPURRADA_D_M_AAAA` -> `MM-DD`, para montar a data que o teste procura. */
-function vigenciaParaMesDia(label: string): string {
-  const [, dia, mes] = /_(\d{1,2})_(\d{1,2})_(\d{4})$/.exec(label)!;
-  return `${mes.padStart(2, "0")}-${dia.padStart(2, "0")}`;
+/**
+ * A data da vigência, pelo parser da importação e não por um regex daqui.
+ *
+ * A cópia anterior lia o primeiro campo do rótulo como dia — a mesma leitura
+ * errada que o parser tinha — e por isso concordava com ele; ela também
+ * devolvia só `MM-DD`, deixando o ano para quem chamasse concatenar à mão.
+ * Duas implementações da mesma regra concordam no dia em que são escritas.
+ * Esta delega, e devolve a data inteira, para que a próxima correção não
+ * precise ser feita duas vezes nem o ano ser adivinhado no ponto de uso.
+ */
+function dataDaVigencia(label: string): string {
+  return parseVigenciaLabel(label).effectiveDate!;
 }

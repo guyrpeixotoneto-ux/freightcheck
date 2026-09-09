@@ -330,12 +330,19 @@ parâmetros no total:
 A screenshot mostra **Canal/Segmento = ROTA** e **Vigência = `ROTA_1_8_2026`**.
 O FreightCheck importa vigências chamadas **`EMPURRADA_1_8_2026`**.
 
-Mesmo dia, mesmo mês, mesmo ano, mesma estrutura. O rótulo de vigência do
+Mesma quinzena, mesmo mês, mesmo ano, mesma estrutura. O rótulo de vigência do
 Freightech é:
 
 ```
-<CANAL/SEGMENTO>_<DIA>_<MÊS>_<ANO>
+<CANAL/SEGMENTO>_<QUINZENA>_<MÊS>_<ANO>
 ```
+
+O segundo campo é a **quinzena** — 1 ou 2 —, e não o dia do mês. `lib/ingest`
+o leu como dia até setembro/2026, e a leitura errada era invisível porque é
+indistinguível da certa em `1`: a 1ª quinzena começa mesmo no dia 1. Em `2` ela
+errava por quinze dias, e a tela dizia "dia 02" para uma quinzena que começa no
+dia 16. Ver `lib/ingest/src/vigencia.ts` e a migration
+`0092_quinzena_e_nao_dia_do_mes`.
 
 Ou seja: **o Canal/Segmento já está dentro do dado que o FreightCheck importa há
 meses** — como prefixo do `source_label`, preservado literalmente e nunca

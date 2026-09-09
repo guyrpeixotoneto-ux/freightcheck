@@ -26,7 +26,7 @@ let carretas: VisaoDeFrota;
 
 /** A última vigência do export: EMPURRADA_1_8_2026. */
 const AGOSTO = "2026-08-01";
-const JULHO = "2026-07-02";
+const JULHO = "2026-07-16";
 
 beforeAll(async () => {
   ctx = await criarBancoComExportRealPromovido("composition_real");
@@ -75,7 +75,7 @@ describe("a frota de agosto/2026", () => {
    * acessíveis pela ficha, que é onde se pergunta pela vida de um equipamento.
    */
   it("não traz em maio/2026 os cavalos que só existiram até abril", async () => {
-    const MAIO = "2026-05-02";
+    const MAIO = "2026-05-16";
     const maio = (await getVisaoDeFrota(ctx.db, "CAVALO", { period: MAIO }))!;
 
     expect(maio.linhas).toHaveLength(62);
@@ -84,7 +84,7 @@ describe("a frota de agosto/2026", () => {
     }
 
     /* E elas existem: abril é o último mês em que o arquivo as trouxe. */
-    const abril = (await getVisaoDeFrota(ctx.db, "CAVALO", { period: "2026-04-02" }))!;
+    const abril = (await getVisaoDeFrota(ctx.db, "CAVALO", { period: "2026-04-16" }))!;
     for (const placa of ["RZG4I77", "RZG5A37"]) {
       expect(abril.linhas.find((l) => l.placa === placa), placa).toBeDefined();
     }
@@ -100,8 +100,8 @@ describe("a frota de agosto/2026", () => {
    * viram uma redução de remuneração, porque não são uma.
    */
   it("a saída de dois cavalos entre abril e maio não vira queda de remuneração", async () => {
-    const abril = (await getVisaoDeFrota(ctx.db, "CAVALO", { period: "2026-04-02" }))!;
-    const maio = (await getVisaoDeFrota(ctx.db, "CAVALO", { period: "2026-05-02" }))!;
+    const abril = (await getVisaoDeFrota(ctx.db, "CAVALO", { period: "2026-04-16" }))!;
+    const maio = (await getVisaoDeFrota(ctx.db, "CAVALO", { period: "2026-05-16" }))!;
 
     expect(abril.resumo.equipamentos).toBe(64);
     expect(maio.resumo.equipamentos).toBe(62);
@@ -503,7 +503,7 @@ describe("o rastreio de um equipamento — do arquivo até a ficha", () => {
 
   it("uma vigência em que a placa não veio não inventa conta nenhuma", async () => {
     const linha = cavalos.linhas.find((l) => l.placa === "RPH2G11")!;
-    const c = (await montarComposicao(ctx.db, linha.entityId, { period: "2025-12-02" }))!;
+    const c = (await montarComposicao(ctx.db, linha.entityId, { period: "2025-12-16" }))!;
     if (!c.presente) {
       expect(c.rastreio.celulas).toBe(0);
       expect(c.rastreio.fatos).toBe(0);
@@ -553,11 +553,11 @@ describe("o histórico e as alterações", () => {
   });
 
   it("na primeira vigência da série não há anterior a comparar", async () => {
-    const dezembro = (await getVisaoDeFrota(ctx.db, "CAVALO", { period: "2025-12-02" }))!;
+    const dezembro = (await getVisaoDeFrota(ctx.db, "CAVALO", { period: "2025-12-16" }))!;
     const linha = dezembro.linhas[0];
     expect(linha.variacao).toBeNull();
     const alteracoes = (await getAlteracoesDoEquipamento(ctx.db, linha.entityId, {
-      period: "2025-12-02",
+      period: "2025-12-16",
     }))!;
     expect(alteracoes.de).toBeNull();
     expect(alteracoes.alteracoes).toHaveLength(0);
@@ -595,7 +595,7 @@ describe("o vínculo cavalo–carreta", () => {
 
 describe("filtros e isolamento", () => {
   it("o filtro por vigência muda o número, e a frota continua a mesma", async () => {
-    const junho = (await getVisaoDeFrota(ctx.db, "CAVALO", { period: "2026-06-02" }))!;
+    const junho = (await getVisaoDeFrota(ctx.db, "CAVALO", { period: "2026-06-16" }))!;
     expect(junho.periodLabel).toBe("junho/2026");
     expect(junho.linhas).toHaveLength(62);
     expect(junho.resumo.mensalTotal).not.toBe(cavalos.resumo.mensalTotal);

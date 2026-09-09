@@ -14,9 +14,9 @@ import { getGroupedView } from "../grouped";
  */
 
 const AGOSTO = "2026-08-01";
-const JULHO = "2026-07-02";
-const MARCO = "2026-03-02";
-const PRIMEIRA = "2025-12-02";
+const JULHO = "2026-07-16";
+const MARCO = "2026-03-16";
+const PRIMEIRA = "2025-12-16";
 
 let ctx: TestDb;
 

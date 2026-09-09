@@ -342,9 +342,13 @@ function planilhaDe(linhas: number, semente: number): string {
   // Cada importação simultânea precisa da sua vigência: duas leituras da mesma
   // vigência disputariam a mesma identidade, e o que se quer medir é disputa
   // de recurso, não recusa de negócio.
-  const dia = 1 + (semente % 28);
+  // O rótulo carrega quinzena, mês e ano, e um mês tem duas quinzenas — a
+  // semente varre as duas e depois anda no mês, em vez de pedir um "dia 17"
+  // que a importação recusaria com IMPOSSIBLE_QUINZENA.
+  const quinzena = 1 + (semente % 2);
+  const mes = 1 + (Math.floor(semente / 2) % 12);
   return escreverPlanilha({
-    vigencia: `EMPURRADA_${dia}_8_2030`,
+    vigencia: `EMPURRADA_${quinzena}_${mes}_2030`,
     abas: [{ nome: "cavalos", linhas: spec }],
   });
 }

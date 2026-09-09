@@ -139,6 +139,13 @@ describe("registro de migrations perdido", () => {
       // velho e com o novo, e nenhuma inspeção distingue os dois. Rodar é o
       // certo e é idempotente: `COMMENT ON` substitui, não acumula.
       "0067_rastreio_de_dados_no_comentario",
+      // A 0092 só move dado: ela corrige a data das vigências de 2ª quinzena,
+      // que a leitura antiga do rótulo gravava no dia 2 em vez do dia 16.
+      // Nenhum objeto novo, e nenhuma inspeção da forma do schema diz se as
+      // datas já foram movidas — adotá-la deixaria um banco com as datas
+      // antigas afirmando que tem as novas. Rodar é o certo, e é idempotente:
+      // o mapa só recolhe o que ainda está no dia 2.
+      "0092_quinzena_e_nao_dia_do_mes",
     ];
     expect(segunda.adopted).toEqual(
       primeira.applied.filter((tag) => !semObjetoNovo.includes(tag)),
