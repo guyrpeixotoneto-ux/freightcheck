@@ -998,13 +998,13 @@ function Indicadores({
       <Indicador
         icone={Truck}
         titulo="Veículos afetados"
-        ajuda="Ativos com pelo menos uma alteração nesta vigência, sobre a frota que a vigência entregou."
+        ajuda="Equipamentos com pelo menos uma alteração nesta vigência, sobre a frota que a vigência entregou — todos os que vieram no arquivo, rodando ou parados. O denominador não é a coluna `ativo`: uma frota com veículos PARADOS entrega mais equipamentos do que tem em ATIVO."
         /* Sem `href` de propósito — a razão está no cabeçalho de `Indicadores`. */
       >
         <ValorGrande texto={view.totals.vehiclesTouched.toLocaleString("pt-BR")} />
         {veiculos !== null && (
           <Nota
-            texto={`${escreverPercentual(veiculos)} da frota (${frota.toLocaleString("pt-BR")} ativos)`}
+            texto={`${escreverPercentual(veiculos)} da frota (${frota.toLocaleString("pt-BR")} equipamentos)`}
           />
         )}
       </Indicador>

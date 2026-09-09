@@ -374,6 +374,32 @@ describe("o placar", () => {
     expect(placar.find((m) => m.chave === "veiculos")!.nota).toContain("soma das unidades");
   });
 
+  it("conta a frota em equipamentos, e não em 'ativos'", () => {
+    /*
+      "Ativo" tem dois donos neste produto, e os dois aparecem na mesma frota:
+      o bem — o sentido deste card — e a coluna `ativo` do export, que vale
+      `ATIVO` ou `PARADO` e que `lib/remuneracao` conta à parte como "frota fixa
+      inativos". Em PERNAMBUCO · agosto/2026 os dois números não coincidem: a
+      vigência entregou 69 equipamentos, dos quais 55 em `ATIVO`.
+
+      O card dizia "39% da frota (69 ativos)", e quem conhece a coluna lia 69
+      rodando. O denominador nunca foi a coluna — é `count(DISTINCT entity_id)`
+      sobre os fatos da vigência (`lib/comparison/src/grouped.ts`) —, então o
+      número estava certo e a palavra é que emprestava a ele uma promessa que
+      ele não cumpre.
+    */
+    const leitura = leituraDaUnidade(vigencia());
+    const placar = placarDoPanorama(leitura, vereditoDoPanorama(leitura, null), {
+      recorte: RECORTE,
+      comDestino: false,
+      variacaoDeAlteracoes: null,
+    });
+
+    const nota = placar.find((m) => m.chave === "veiculos")!.nota!;
+    expect(nota).toContain("equipamentos");
+    expect(nota).not.toContain("ativos");
+  });
+
   it("sem valor apurado o líquido não vira R$ 0 — some do placar", () => {
     const view = vigencia({
       summary: sumario({ sides: [], impact: impacto({ notCalculable: 102 }), notCalculable: 102 }),

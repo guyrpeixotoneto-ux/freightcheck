@@ -323,8 +323,10 @@ export function placarDoPanorama(
       destaque: false,
       href: null,
       ajuda:
-        "Ativos com pelo menos uma alteração nesta vigência, sobre a frota que a " +
-        "vigência entregou.",
+        "Equipamentos com pelo menos uma alteração nesta vigência, sobre a frota " +
+        "que a vigência entregou — todos os que vieram no arquivo, rodando ou " +
+        "parados. O denominador não é a coluna `ativo`: uma frota com veículos " +
+        "PARADOS entrega mais equipamentos do que tem em ATIVO.",
     },
     {
       chave: "sem-preco",
@@ -378,10 +380,10 @@ function formatarLado(valor: number): string {
 
 function notaDeVeiculos(leitura: LeituraDoPanorama, fatia: number | null): string | null {
   if (!leitura.veiculosDeduplicados) {
-    return "soma das unidades — um ativo em duas delas conta duas vezes";
+    return "soma das unidades — um equipamento em duas delas conta duas vezes";
   }
   if (fatia === null || leitura.frota === null) return null;
-  return `${escreverPercentual(fatia)} da frota (${leitura.frota.toLocaleString("pt-BR")} ativos)`;
+  return `${escreverPercentual(fatia)} da frota (${leitura.frota.toLocaleString("pt-BR")} equipamentos)`;
 }
 
 // ---------------------------------------------------------------------------
