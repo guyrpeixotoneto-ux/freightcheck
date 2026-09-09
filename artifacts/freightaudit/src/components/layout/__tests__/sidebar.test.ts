@@ -7,6 +7,7 @@ import { navGroupsFechamento } from "../nav-fechamento";
 import { barraMobile } from "../nav-mobile";
 import { etapasDoFechamento } from "@/pages/fechamento/etapas";
 import {
+  ATIVOS_E_PARADOS,
   BASES_DE_AUDITORIA,
   BASES_DE_FECHAMENTO,
   DASHBOARD,
@@ -117,6 +118,7 @@ function atalhosDaBarra(ambiente: Parameters<typeof barraMobile>[0]): string[] {
 
 /** As constantes de endereço que o roteador usa no lugar do literal. */
 const CONSTANTES_DE_ROTA: Record<string, string> = {
+  ATIVOS_E_PARADOS,
   DASHBOARD,
   PANORAMA,
   EVOLUCAO_POR_PLACA,
@@ -275,6 +277,7 @@ describe("a lateral", () => {
         "Resumo executivo",
         "Linha do Tempo",
         "Evolução por Placa",
+        "Ativos e Parados",
         "Acompanhamento",
         "Composição",
         "DRE",

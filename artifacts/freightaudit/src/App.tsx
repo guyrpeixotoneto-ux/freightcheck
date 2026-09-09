@@ -16,6 +16,7 @@ import {
   IMPACTO_APURADO,
   PANORAMA,
   LINHA_DO_TEMPO,
+  ATIVOS_E_PARADOS,
   EVOLUCAO_POR_PLACA,
   RESUMO_EXECUTIVO,
 } from '@/lib/ambiente';
@@ -35,6 +36,7 @@ import ImpactoApurado from '@/pages/impacto-apurado';
 import GestaoAVista from '@/pages/gestao-a-vista';
 import LinhaDoTempo from '@/pages/linha-do-tempo';
 import EvolucaoPorPlaca from '@/pages/evolucao-por-placa';
+import AtivosEParados from '@/pages/ativos-e-parados';
 import VisaoGerencialDaAuditoria from '@/pages/visao-gerencial';
 import Vigencia from '@/pages/vigencia';
 import Dados from '@/pages/dados';
@@ -399,6 +401,7 @@ function RotasDaAuditoria() {
       <Route path={GESTAO_A_VISTA} component={GestaoAVista} />
       <Route path={LINHA_DO_TEMPO} component={LinhaDoTempo} />
       <Route path={EVOLUCAO_POR_PLACA} component={EvolucaoPorPlaca} />
+      <Route path={ATIVOS_E_PARADOS} component={AtivosEParados} />
       <Route path="/vigencia" component={Vigencia} />
       <Route path="/dados" component={Dados} />
       <Route path="/apresentacao" component={ApresentacaoVideo} />
