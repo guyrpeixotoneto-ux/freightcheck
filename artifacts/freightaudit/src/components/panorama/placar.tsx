@@ -1,7 +1,12 @@
-import { Info } from "lucide-react";
-import { Link } from "wouter";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
+import {
+  FileText,
+  Gauge,
+  PieChart,
+  ShieldCheck,
+  Truck,
+  type LucideIcon,
+} from "lucide-react";
+import { CartaoDeIndicador } from "@/components/ui/cartao-de-indicador";
 import type { MedidaDoPlacar } from "@/lib/panorama";
 import type { Tom } from "@/lib/visao-geral";
 
@@ -27,6 +32,11 @@ import type { Tom } from "@/lib/visao-geral";
  * com nomes parecidos: quem passa o mouse aqui lê que esta é a da **apuração**,
  * e que a auditada — percentual de célula de planilha — mora na procedência, no
  * fim da tela.
+ *
+ * **O desenho do cartão saiu daqui** e virou `CartaoDeIndicador`: era o quarto
+ * KPI do produto desenhado à mão, e o quarto com um corpo de número diferente
+ * dos outros três. O que sobra neste arquivo é o que é do placar — quais são as
+ * cinco medidas, qual ícone abre cada uma e como a severidade vira cor.
  */
 export function Placar({ medidas }: { medidas: MedidaDoPlacar[] }) {
   const visiveis = medidas.filter((m) => m.valor !== null);
@@ -39,11 +49,42 @@ export function Placar({ medidas }: { medidas: MedidaDoPlacar[] }) {
       role="group"
     >
       {visiveis.map((medida) => (
-        <Medida key={medida.chave} medida={medida} />
+        <CartaoDeIndicador
+          key={medida.chave}
+          rotulo={medida.rotulo}
+          valor={medida.valor}
+          nota={medida.nota}
+          ajuda={medida.ajuda}
+          icone={ICONE_DA_MEDIDA[medida.chave]}
+          corDoIcone={medida.tom ? MEDALHAO_DO_TOM[medida.tom] : "bg-brand/10 text-brand"}
+          corDoValor={medida.tom ? COR_DO_TOM[medida.tom] : undefined}
+          destaque={medida.destaque}
+          href={medida.href}
+        />
       ))}
     </div>
   );
 }
+
+/**
+ * O ícone de cada medida — **desenho, e não dado**, e por isso ele mora aqui e
+ * não em `lib/panorama.ts`.
+ *
+ * A camada de leitura publica cinco medidas com chave estável; o que cada uma
+ * *parece* é decisão desta tela. Pôr o ícone lá dentro faria a aritmética da
+ * vigência carregar um `LucideIcon` para ser testada.
+ *
+ * Chave sem ícone cai em `undefined`, e o cartão simplesmente não desenha o
+ * medalhão — uma medida nova aparece sem enfeite em vez de aparecer com o
+ * enfeite errado.
+ */
+const ICONE_DA_MEDIDA: Record<string, LucideIcon | undefined> = {
+  liquido: Gauge,
+  alteracoes: FileText,
+  veiculos: Truck,
+  "sem-preco": PieChart,
+  cobertura: ShieldCheck,
+};
 
 /*
   A mesma paleta de tom que `OndeAgirAgora` usa, e pelo mesmo motivo: os dois
@@ -57,67 +98,14 @@ const COR_DO_TOM: Record<Tom, string> = {
   ok: "text-emerald-700",
 };
 
-function Medida({ medida }: { medida: MedidaDoPlacar }) {
-  const corpo = (
-    <>
-      <div className="flex items-start gap-2">
-        <h3 className="text-[0.8125rem] font-bold min-w-0 flex-1 leading-tight">
-          {medida.rotulo}
-        </h3>
-        <Ajuda texto={medida.ajuda} />
-      </div>
-
-      <p
-        className={cn(
-          "text-2xl font-extrabold tabular-nums leading-none mt-3",
-          medida.tom ? COR_DO_TOM[medida.tom] : "text-foreground",
-        )}
-      >
-        {medida.valor}
-      </p>
-
-      {medida.nota && (
-        <p className="text-xs text-muted-foreground mt-2 leading-snug">{medida.nota}</p>
-      )}
-    </>
-  );
-
-  const classes = cn(
-    "bg-card border rounded-xl shadow-sm px-5 py-4 flex flex-col relative",
-    medida.destaque && "border-brand ring-1 ring-brand/20",
-    medida.href && "hover:border-brand transition-colors",
-  );
-
-  /*
-    O cartão inteiro é o alvo do clique quando há destino, e não um "ver mais"
-    no rodapé: a área de toque de um cartão é o cartão. O ⓘ sobrevive por cima
-    graças ao `relative z-10` dele — sem essa camada, tocar na definição
-    navegaria em vez de explicar o número.
-  */
-  if (medida.href === null) {
-    return <section className={classes}>{corpo}</section>;
-  }
-
-  return (
-    <Link href={medida.href} className={classes}>
-      {corpo}
-    </Link>
-  );
-}
-
-function Ajuda({ texto }: { texto: string }) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          aria-label={texto}
-          className="relative z-10 shrink-0 text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <Info className="w-4 h-4" />
-        </button>
-      </TooltipTrigger>
-      <TooltipContent className="max-w-xs text-xs leading-snug">{texto}</TooltipContent>
-    </Tooltip>
-  );
-}
+/*
+  O medalhão repete o tom do número em fundo esmaecido, e é o que permite ler a
+  severidade da fileira inteira de relance, antes de ler número nenhum. Ele é a
+  **mesma** régua da linha acima — nunca uma segunda opinião sobre a gravidade
+  do mesmo fato.
+*/
+const MEDALHAO_DO_TOM: Record<Tom, string> = {
+  grave: "bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300",
+  atencao: "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300",
+  ok: "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300",
+};

@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useParams, useSearch } from "wouter";
 import { ArrowLeft, ExternalLink } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
+import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import { ApiErrorNotice } from "@/components/api-error";
 import { fetchJson } from "@/lib/api";
 import { formatBrl } from "@/lib/format";
@@ -79,36 +80,41 @@ export default function DREVeiculo() {
 
   return (
     <Layout>
-      <header className="border-b bg-card px-8 py-6">
-        <Link
-          href={`/dre?escopo=${escopo}${period ? `&period=${period}` : ""}`}
-          className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <ArrowLeft className="w-3.5 h-3.5" />
-          DRE da frota
-        </Link>
-
-        {data && (
-          <div className="flex items-start justify-between gap-8 mt-3">
-            <div>
-              <h1 className="text-2xl font-bold tracking-tight">{data.unidade.rotulo}</h1>
-              <p className="text-sm text-muted-foreground mt-1">
-                {ROTULO_DO_ESCOPO[data.unidade.escopo]} ·{" "}
-                {data.atual.periodLabel} · {data.contexto.label}
-                {data.unidade.orfa && " · sem cavalo vinculado nesta vigência"}
-              </p>
-            </div>
+      <CabecalhoDePagina
+        voltar={
+          <Link
+            href={`/dre?escopo=${escopo}${period ? `&period=${period}` : ""}`}
+            className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            DRE da frota
+          </Link>
+        }
+        titulo={data ? data.unidade.rotulo : ""}
+        descricao={
+          data ? (
+            <>
+              {ROTULO_DO_ESCOPO[data.unidade.escopo]} · {data.atual.periodLabel}{" "}
+              · {data.contexto.label}
+              {data.unidade.orfa && " · sem cavalo vinculado nesta vigência"}
+            </>
+          ) : undefined
+        }
+        acoes={
+          data ? (
             <div className="flex gap-4 text-right shrink-0">
               {data.unidade.lados.map((lado) => (
                 <Link
                   key={lado.entityId}
                   href={`/composicao/${lado.entityId}${
-                    recorteDaComposicao.toString() ? `?${recorteDaComposicao}` : ""
+                    recorteDaComposicao.toString()
+                      ? `?${recorteDaComposicao}`
+                      : ""
                   }`}
                   className="group"
                   title="Ver a composição da remuneração deste equipamento"
                 >
-                  <div className="text-[0.6875rem] uppercase tracking-wider text-muted-foreground">
+                  <div className="text-3xs uppercase tracking-wider text-muted-foreground">
                     {lado.entityType === "CAVALO" ? "Cavalo" : "Carreta"}
                   </div>
                   <div className="text-sm font-medium inline-flex items-center gap-1 group-hover:underline">
@@ -118,9 +124,9 @@ export default function DREVeiculo() {
                 </Link>
               ))}
             </div>
-          </div>
-        )}
-      </header>
+          ) : undefined
+        }
+      />
 
       <div className="px-8 py-6 space-y-6">
         {error && <ApiErrorNotice error={error} what="A DRE deste equipamento não pôde ser carregada." />}

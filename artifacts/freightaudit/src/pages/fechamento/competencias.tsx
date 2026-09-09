@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { ApiErrorNotice } from "@/components/api-error";
 import { Layout } from "@/components/layout/layout";
+import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import {
   useBaseDoFechamento,
   useOperacaoDoFechamento,
@@ -472,13 +473,15 @@ export default function Competencias() {
 
   return (
     <Layout>
-      <header className="border-b bg-card px-8 py-6">
-        <h1 className="text-2xl font-bold tracking-tight">Importações</h1>
-        <p className="text-muted-foreground mt-2 max-w-3xl">
-          Cada competência é uma quinzena de um CDD com uma transportadora — o
-          período que se apura, se confere e se fecha.
-        </p>
-      </header>
+      <CabecalhoDePagina
+        titulo="Importações"
+        descricao={
+          <>
+            Cada competência é uma quinzena de um CDD com uma transportadora — o
+            período que se apura, se confere e se fecha.
+          </>
+        }
+      />
 
       <div className="p-8 space-y-6 max-w-4xl">
         <Card>

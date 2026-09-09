@@ -2,9 +2,10 @@ import { useEffect, useMemo } from "react";
 import { Layers } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { LEITURA_DE_APURACAO } from "@/lib/frescor-das-leituras";
-import { EmAtualizacao, classeDeAtualizacao } from "@/components/ui/em-atualizacao";
+import { classeDeAtualizacao } from "@/components/ui/em-atualizacao";
 import { useLocation, useSearch } from "wouter";
 import { Layout } from "@/components/layout/layout";
+import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import { ApiErrorNotice } from "@/components/api-error";
 import { ApiError, fetchJson } from "@/lib/api";
 import { useContextosDaCasca } from "@/lib/contextos";
@@ -19,6 +20,7 @@ import { nomeDaUnidade } from "@/lib/recorte";
 import { useVoltaDeVigencia } from "@/components/vigencia/voltar-de-vigencia";
 import { VisaoGeralConteudo } from "@/components/inicio/visao-geral-consolidada";
 import {
+  BOTAO_DE_TROCA,
   SeletorDeVigencia,
   SeletorDeVigenciaGeral,
 } from "@/components/vigencia/seletor-de-vigencia";
@@ -343,7 +345,7 @@ export default function LinhaDoTempo() {
               />
             )}
             {!overviewQuery.isLoading && !overviewQuery.error && overview === null && (
-              <section className="bg-card border rounded-xl shadow-sm p-8 text-center text-sm text-muted-foreground">
+              <section className="superficie p-8 text-center text-sm text-muted-foreground">
                 Nenhuma unidade tem vigência importada nesta competência.
               </section>
             )}
@@ -379,7 +381,7 @@ export default function LinhaDoTempo() {
             )}
 
             {!vigencia.isLoading && !vigencia.error && view === null && (
-              <section className="bg-card border rounded-xl shadow-sm p-8 text-center text-sm text-muted-foreground">
+              <section className="superficie p-8 text-center text-sm text-muted-foreground">
                 Nenhuma vigência importada ainda para este recorte.
               </section>
             )}
@@ -410,7 +412,7 @@ export default function LinhaDoTempo() {
             )}
 
             {view && view.periods.length <= 1 && (
-              <section className="bg-card border rounded-xl shadow-sm p-8 text-center text-sm text-muted-foreground">
+              <section className="superficie p-8 text-center text-sm text-muted-foreground">
                 Esta unidade tem uma vigência só no histórico — a linha do tempo
                 compara vigência com vigência, e ainda não há com o que comparar.
               </section>
@@ -471,7 +473,7 @@ function AbaPorTipo({
       </p>
 
       {visaoGeral ? (
-        <section className="bg-card border rounded-xl shadow-sm p-8 text-center text-sm text-muted-foreground">
+        <section className="superficie p-8 text-center text-sm text-muted-foreground">
           A leitura por tipo é de uma unidade de cada vez — a soma entre
           unidades não sabe recortar por cavalo, carreta ou trecho, e somá-la
           aqui daria um placar que não fecha com o de nenhuma delas. Escolha uma
@@ -491,7 +493,7 @@ function AbaPorTipo({
           )}
 
           {!vigencia.isLoading && !vigencia.error && view === null && (
-            <section className="bg-card border rounded-xl shadow-sm p-8 text-center text-sm text-muted-foreground">
+            <section className="superficie p-8 text-center text-sm text-muted-foreground">
               Nenhuma vigência importada ainda para este recorte.
             </section>
           )}
@@ -523,7 +525,7 @@ function AbaPorTipo({
           )}
 
           {view && view.periods.length <= 1 && (
-            <section className="bg-card border rounded-xl shadow-sm p-8 text-center text-sm text-muted-foreground">
+            <section className="superficie p-8 text-center text-sm text-muted-foreground">
               Esta unidade tem uma vigência só no histórico — a linha do tempo
               compara vigência com vigência, e ainda não há com o que comparar.
             </section>
@@ -583,46 +585,30 @@ function Cabecalho({
       ].filter((p): p is string => p !== null);
 
   return (
-    <header className="px-8 pt-7 pb-2">
-      <div className="flex flex-wrap items-start justify-between gap-4 max-w-[1600px]">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-3">
-            <h1 className="text-[2rem] font-extrabold tracking-tight leading-tight">
-              Linha do Tempo — {visaoGeral ? "Visão Geral" : (unidade ?? "")}
-            </h1>
-            <EmAtualizacao ativo={atualizando} />
-          </div>
-          {partes.length > 0 && (
-            <p className="text-sm text-muted-foreground mt-1.5">{partes.join(" · ")}</p>
-          )}
-        </div>
-
-        <div className="flex items-center gap-3 shrink-0">
-          {visaoGeral
-            ? (
-                <SeletorDeVigenciaGeral
-                  periodos={periodosOverview}
-                  ativa={overview?.period ?? null}
-                  onTrocar={onTrocar}
-                  className={BOTAO_DE_TROCA}
-                  rotulo="Ir para vigência"
-                />
-              )
-            : (
-                <SeletorDeVigencia
-                  view={view}
-                  consulta={consulta}
-                  onTrocar={onTrocar}
-                  className={BOTAO_DE_TROCA}
-                  rotulo="Ir para vigência"
-                />
-              )}
-        </div>
-      </div>
-    </header>
+    <CabecalhoDePagina
+      titulo={`Linha do Tempo — ${visaoGeral ? "Visão Geral" : (unidade ?? "")}`}
+      descricao={partes.length > 0 ? partes.join(" · ") : undefined}
+      atualizando={atualizando}
+      acoes={
+        visaoGeral ? (
+          <SeletorDeVigenciaGeral
+            periodos={periodosOverview}
+            ativa={overview?.period ?? null}
+            onTrocar={onTrocar}
+            className={BOTAO_DE_TROCA}
+            rotulo="Ir para vigência"
+          />
+        ) : (
+          <SeletorDeVigencia
+            view={view}
+            consulta={consulta}
+            onTrocar={onTrocar}
+            className={BOTAO_DE_TROCA}
+            rotulo="Ir para vigência"
+          />
+        )
+      }
+    />
   );
 }
 
-const BOTAO_DE_TROCA =
-  "flex items-center gap-2 rounded-lg border border-brand bg-card px-4 py-2.5 " +
-  "text-sm font-bold text-brand hover:bg-accent transition-colors";

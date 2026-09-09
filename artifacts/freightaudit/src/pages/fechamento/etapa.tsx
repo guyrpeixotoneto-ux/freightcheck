@@ -1,6 +1,7 @@
 import { ArrowRight, Hammer } from "lucide-react";
 import { Link } from "wouter";
 import { Layout } from "@/components/layout/layout";
+import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { EtapaFechamento } from "./etapas";
 
@@ -23,17 +24,17 @@ import type { EtapaFechamento } from "./etapas";
 export function EtapaDoFechamento({ etapa }: { etapa: EtapaFechamento }) {
   return (
     <Layout>
-      <header className="border-b bg-card px-8 py-6">
-        <div className="flex items-center gap-2">
-          <etapa.icon className="w-6 h-6 text-nav-fechamento" />
-          <h1 className="text-2xl font-bold tracking-tight">{etapa.label}</h1>
-          <span className="ml-1 inline-flex items-center gap-1.5 rounded-full border border-border bg-muted px-2.5 py-1 text-[0.6875rem] font-bold uppercase tracking-wide text-muted-foreground">
+      <CabecalhoDePagina
+        icone={etapa.icon}
+        titulo={etapa.label}
+        descricao={etapa.pergunta}
+        acoes={
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted px-2.5 py-1 text-3xs font-bold uppercase tracking-wide text-muted-foreground">
             <Hammer className="w-3 h-3" />
             Em preparo
           </span>
-        </div>
-        <p className="text-muted-foreground mt-2 max-w-3xl">{etapa.pergunta}</p>
-      </header>
+        }
+      />
 
       <div className="p-8 space-y-6 max-w-3xl">
         <Card>

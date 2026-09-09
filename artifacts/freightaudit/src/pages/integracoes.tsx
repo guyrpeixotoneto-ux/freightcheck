@@ -13,6 +13,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
+import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import { ApiErrorNotice } from "@/components/api-error";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -112,19 +113,19 @@ export default function Integracoes() {
 
   return (
     <Layout>
-      <header className="border-b bg-card px-8 py-6">
-        <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight">
-          <Plug className="h-6 w-6 text-primary" />
-          Integrações
-        </h1>
-        <p className="mt-1 max-w-3xl text-muted-foreground">
-          Os sistemas que falam com o FreightCheck por API: com que chave, o que
-          cada uma alcança e o que já fez. Uma chave de integração{" "}
-          <strong>nunca aprova importação</strong> — o arquivo que chega por API
-          é lido e conferido, e para aguardando a aprovação de uma pessoa em
-          Importações.
-        </p>
-      </header>
+      <CabecalhoDePagina
+        icone={Plug}
+        titulo="Integrações"
+        descricao={
+          <>
+            Os sistemas que falam com o FreightCheck por API: com que chave, o que
+            cada uma alcança e o que já fez. Uma chave de integração{" "}
+            <strong>nunca aprova importação</strong> — o arquivo que chega por API
+            é lido e conferido, e para aguardando a aprovação de uma pessoa em
+            Importações.
+          </>
+        }
+      />
 
       <div className="space-y-6 p-8">
         {painel.isError ? (

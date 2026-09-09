@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { CalendarRange, CheckCircle2, ChevronRight, ClipboardList, FileCheck2, WifiOff } from "lucide-react";
 import { useLocation, useSearch } from "wouter";
 import { Layout } from "@/components/layout/layout";
+import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -293,72 +294,80 @@ export default function Justificativas() {
           meio do fluxo, abaixo das abas: a mesma ação, no mesmo produto, em
           dois lugares conforme a tela, obriga quem alterna entre elas a
           procurá-la de novo a cada troca. */}
-      <header className="px-8 pt-7 pb-5 max-w-[1400px] flex items-start justify-between gap-6">
-        <div className="min-w-0">
-        <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-          Chamados
-        </p>
-        <h1 className="text-4xl font-bold tracking-tight mt-1">Justificativas</h1>
-        <p className="text-sm text-muted-foreground mt-2 max-w-2xl">
-          O que mudou por tipo de ativo, agrupado por placa: escolha a aba e,
-          dentro dela, a vigência. Marque uma ou várias alterações e justifique
-          de uma vez — a justificativa fica registrada com quem escreveu e
-          quando.
-        </p>
+      {/*
+        O versalete "Chamados" que abria esta tela saiu: ele era a trilha
+        escrita à mão, e a trilha agora vem da mesma árvore do menu
+        (`components/layout/trilha.tsx`), sem que a página precise repetir de
+        que seção ela é — nem correr o risco de continuar dizendo "Chamados"
+        no dia em que a tela mudar de seção.
+      */}
+      <CabecalhoDePagina
+        largura="1400px"
+        titulo="Justificativas"
+        descricao={
+          <>
+            O que mudou por tipo de ativo, agrupado por placa: escolha a aba e,
+            dentro dela, a vigência. Marque uma ou várias alterações e
+            justifique de uma vez — a justificativa fica registrada com quem
+            escreveu e quando.
+          </>
+        }
+        rodape={
+          <>
+            {/* As abas vêm primeiro, e a vigência dentro delas — na ordem em que a
+                pergunta se faz para quem justifica: primeiro de que tipo de ativo
+                se fala, e só então de que vigência dele. Invertida, a lista de
+                vigências era a mesma para as três abas e trazia as comparações de
+                todas as séries juntas: cavalo, carreta e trecho da mesma unidade e
+                da mesma data escreviam linhas idênticas, e nenhuma dizia qual
+                tinha o que a aba mostra.
 
-        {/* As abas vêm primeiro, e a vigência dentro delas — na ordem em que a
-            pergunta se faz para quem justifica: primeiro de que tipo de ativo
-            se fala, e só então de que vigência dele. Invertida, a lista de
-            vigências era a mesma para as três abas e trazia as comparações de
-            todas as séries juntas: cavalo, carreta e trecho da mesma unidade e
-            da mesma data escreviam linhas idênticas, e nenhuma dizia qual
-            tinha o que a aba mostra.
+                As três abas ficam mesmo quando nenhuma vigência tem aquele tipo —
+                é a aba com zero que diz que nenhum trecho mudou, em vez de deixar
+                a dúvida de se a tela sabe mostrá-lo. */}
+            <Tabs
+              value={tipo ?? TODAS}
+              onValueChange={(valor) => escolherTipo(valor === TODAS ? null : valor)}
+              className="mt-4"
+            >
+              <TabsList>
+                {abas.map((aba) => (
+                  <TabsTrigger key={aba.tipo ?? TODAS} value={aba.tipo ?? TODAS}>
+                    {aba.rotulo}
+                    {aba.total !== null && (
+                      <span className="ml-1.5 tabular-nums text-xs text-muted-foreground">
+                        {aba.total}
+                      </span>
+                    )}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </Tabs>
 
-            As três abas ficam mesmo quando nenhuma vigência tem aquele tipo —
-            é a aba com zero que diz que nenhum trecho mudou, em vez de deixar
-            a dúvida de se a tela sabe mostrá-lo. */}
-        <Tabs
-          value={tipo ?? TODAS}
-          onValueChange={(valor) => escolherTipo(valor === TODAS ? null : valor)}
-          className="mt-4"
-        >
-          <TabsList>
-            {abas.map((aba) => (
-              <TabsTrigger key={aba.tipo ?? TODAS} value={aba.tipo ?? TODAS}>
-                {aba.rotulo}
-                {aba.total !== null && (
-                  <span className="ml-1.5 tabular-nums text-xs text-muted-foreground">
-                    {aba.total}
-                  </span>
-                )}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
-
-        {/* A vigência aberta fica escrita aqui, junto das abas a que ela se
-            aplica; o botão que a troca está no canto direito do cabeçalho,
-            como nas outras telas. */}
-        {opcoesDoSeletor.length > 0 && (
-          <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground mt-3">
-            <CalendarRange className="w-3.5 h-3.5" />
-            <span className="text-xs uppercase tracking-wide">Vigência</span>
-            {vigenciaAberta && (
-              <span className="font-semibold text-foreground">
-                {vigenciaAberta.competencia}
-                {vigenciaAberta.unidade && (
-                  <span className="font-normal text-muted-foreground">
-                    {" "}
-                    · {vigenciaAberta.unidade}
+            {/* A vigência aberta fica escrita aqui, junto das abas a que ela se
+                aplica; o botão que a troca está no canto direito do cabeçalho,
+                como nas outras telas. */}
+            {opcoesDoSeletor.length > 0 && (
+              <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground mt-3">
+                <CalendarRange className="w-3.5 h-3.5" />
+                <span className="text-xs uppercase tracking-wide">Vigência</span>
+                {vigenciaAberta && (
+                  <span className="font-semibold text-foreground">
+                    {vigenciaAberta.competencia}
+                    {vigenciaAberta.unidade && (
+                      <span className="font-normal text-muted-foreground">
+                        {" "}
+                        · {vigenciaAberta.unidade}
+                      </span>
+                    )}
                   </span>
                 )}
               </span>
             )}
-          </span>
-        )}
-        </div>
-
-        {/* A troca é o mesmo botão das outras telas — "Trocar vigência", com
+          </>
+        }
+        acoes={
+          /* A troca é o mesmo botão das outras telas — "Trocar vigência", com
             contorno da marca e a contagem de alterações à direita de cada
             linha. Aqui era um `Select` desenhado só para esta tela: dois
             controles diferentes para a mesma escolha, no mesmo produto,
@@ -369,9 +378,8 @@ export default function Justificativas() {
 
             Com uma vigência só não há troca a oferecer — a linha ao lado das
             abas já diz qual está aberta. É a mesma regra dos outros
-            seletores. */}
-        {opcoesDoSeletor.length > 1 && (
-          <div className="shrink-0">
+            seletores. */
+          opcoesDoSeletor.length > 1 ? (
             <MenuDeVigencias
               rotulo="Trocar vigência"
               className={BOTAO_DE_TROCA}
@@ -392,9 +400,9 @@ export default function Justificativas() {
               ativa={changeSetId ?? null}
               onEscolher={escolherVigencia}
             />
-          </div>
-        )}
-      </header>
+          ) : undefined
+        }
+      />
 
       <div className="px-8 pb-10 space-y-4 max-w-[1400px]">
         {isLoading && (
@@ -406,7 +414,7 @@ export default function Justificativas() {
         )}
 
         {!comparacoes.isLoading && opcoes.length === 0 && (
-          <section className="bg-card border rounded-xl shadow-sm px-6 py-10 text-center">
+          <section className="superficie px-6 py-10 text-center">
             <p className="text-lg font-bold">Nenhuma comparação calculada ainda.</p>
             <p className="text-sm text-muted-foreground mt-1">
               Abra a aba Alterações para calcular a comparação entre as vigências
@@ -448,7 +456,7 @@ export default function Justificativas() {
         )}
 
         {data && grupos.length === 0 && (
-          <section className="bg-card border rounded-xl shadow-sm px-6 py-10 text-center">
+          <section className="superficie px-6 py-10 text-center">
             <p className="text-lg font-bold">Nenhuma placa mudou nesta vigência.</p>
             <p className="text-sm text-muted-foreground mt-1">
               Sem alteração por ativo, não há o que justificar.
@@ -464,7 +472,7 @@ export default function Justificativas() {
             neste tipo. É diferente de "não mudou nesta vigência" — não há
             vigência para oferecer, e o seletor ao lado está vazio de fato. */}
         {tipo && opcoesDoSeletor.length === 0 && !!contagens && (
-          <section className="bg-card border rounded-xl shadow-sm px-6 py-10 text-center">
+          <section className="superficie px-6 py-10 text-center">
             <p className="text-lg font-bold">
               Nenhum{palavrasDoTipo(tipo).artigo === "a" ? "a" : ""}{" "}
               {rotuloEmFrase(tipo)} mudou em nenhuma vigência.
@@ -477,7 +485,7 @@ export default function Justificativas() {
         )}
 
         {grupos.length > 0 && visiveis.length === 0 && (
-          <section className="bg-card border rounded-xl shadow-sm px-6 py-10 text-center">
+          <section className="superficie px-6 py-10 text-center">
             <p className="text-lg font-bold">
               {tipo
                 ? `Nenhum${palavrasDoTipo(tipo).artigo === "a" ? "a" : ""} ${rotuloEmFrase(tipo)}`
@@ -582,7 +590,7 @@ function LinhaPlaca({
   return (
     <section
       className={cn(
-        "bg-card border rounded-xl shadow-sm overflow-hidden cursor-pointer hover:border-brand/50 transition-colors",
+        "superficie overflow-hidden cursor-pointer hover:border-brand/50 transition-colors",
         grupoSelecionado && "ring-2 ring-brand",
       )}
       onClick={onAbrirDetalhe}

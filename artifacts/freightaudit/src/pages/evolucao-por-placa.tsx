@@ -3,9 +3,10 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
 import { History, LayoutDashboard, Layers, Link2 } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
+import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import { ApiErrorNotice } from "@/components/api-error";
 import { AbaBotao } from "@/components/changes/cartoes";
-import { EmAtualizacao, classeDeAtualizacao } from "@/components/ui/em-atualizacao";
+import { classeDeAtualizacao } from "@/components/ui/em-atualizacao";
 import {
   Select,
   SelectContent,
@@ -157,20 +158,14 @@ export default function EvolucaoPorPlacaPage() {
 
   return (
     <Layout>
-      <header className="px-8 pt-7 pb-2">
-        <div className="flex flex-wrap items-start justify-between gap-4 max-w-[1600px]">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-3">
-              <h1 className="text-[2rem] font-extrabold tracking-tight leading-tight">
-                Evolução por Placa
-              </h1>
-              <EmAtualizacao ativo={consultaDaEvolucao.isPlaceholderData} />
-            </div>
-            <p className="text-sm text-muted-foreground mt-1.5">
-              Acompanhe como a remuneração de cada ativo evoluiu ao longo do tempo.
-            </p>
+      <CabecalhoDePagina
+        titulo="Evolução por Placa"
+        atualizando={consultaDaEvolucao.isPlaceholderData}
+        descricao={
+          <>
+            Acompanhe como a remuneração de cada ativo evoluiu ao longo do tempo.
             {evolucao && (
-              <p className="text-sm text-muted-foreground mt-1">
+              <span className="block mt-1">
                 {[
                   unidade,
                   evolucao.context.channel,
@@ -180,11 +175,12 @@ export default function EvolucaoPorPlacaPage() {
                 ]
                   .filter(Boolean)
                   .join(" · ")}
-              </p>
+              </span>
             )}
-          </div>
-
-          {/* ---- as outras visões do mesmo histórico ------------------------ */}
+          </>
+        }
+        acoes={
+          /* ---- as outras visões do mesmo histórico ---------------------- */
           <nav className="flex items-center gap-2 shrink-0">
             <Link
               href={`${DASHBOARD}${consulta.toString() ? `?${consulta}` : ""}`}
@@ -201,8 +197,8 @@ export default function EvolucaoPorPlacaPage() {
               Por vigência
             </Link>
           </nav>
-        </div>
-      </header>
+        }
+      />
 
       {/* ---- abas por tipo de ativo, como na Linha do Tempo ----------------- */}
       <div className="px-8 border-b">
@@ -254,13 +250,13 @@ export default function EvolucaoPorPlacaPage() {
           />
         )}
         {!consultaDaEvolucao.isLoading && !consultaDaEvolucao.error && evolucao === null && (
-          <section className="bg-card border rounded-xl shadow-sm p-8 text-center text-sm text-muted-foreground">
+          <section className="superficie p-8 text-center text-sm text-muted-foreground">
             Nenhuma vigência importada ainda para este recorte.
           </section>
         )}
 
         {evolucao && evolucao.colunas.length === 0 && (
-          <section className="bg-card border rounded-xl shadow-sm p-8 text-center text-sm text-muted-foreground">
+          <section className="superficie p-8 text-center text-sm text-muted-foreground">
             Este recorte não tem nenhuma comparação calculada — a evolução por placa
             compara vigência com vigência, e ainda não há com o que comparar.
           </section>

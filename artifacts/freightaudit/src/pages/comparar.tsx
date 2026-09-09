@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ArrowRight, GitCompareArrows } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
+import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import { ApiErrorNotice } from "@/components/api-error";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -152,48 +153,51 @@ export default function Comparar() {
 
   return (
     <Layout>
-      <header className="border-b bg-card px-8 py-6">
-        <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-          <GitCompareArrows className="w-6 h-6 text-primary" />
-          Comparar Vigências
-        </h1>
-        <p className="text-muted-foreground mt-1">
-          Duas vigências quaisquer, comparadas pela identidade do ativo e do
-          atributo — nunca pela posição da linha na planilha.
-        </p>
+      <CabecalhoDePagina
+        icone={GitCompareArrows}
+        titulo="Comparar Vigências"
+        descricao={
+          <>
+            Duas vigências quaisquer, comparadas pela identidade do ativo e do
+            atributo — nunca pela posição da linha na planilha.
+          </>
+        }
+        rodape={
+          <>
+            <div className="flex flex-wrap items-end gap-3">
+              <SnapshotPicker
+                label="Vigência anterior"
+                value={aId}
+                onChange={setAId}
+                snapshots={snapshots}
+              />
+              <ArrowRight className="w-5 h-5 text-muted-foreground mb-2.5" />
+              <SnapshotPicker
+                label="Vigência nova"
+                value={bId}
+                onChange={setBId}
+                snapshots={snapshots}
+              />
+              <Button
+                onClick={() => compare.mutate()}
+                disabled={
+                  !aId || !bId || aId === bId || seriesMismatch || compare.isPending
+                }
+              >
+                {compare.isPending ? "Comparando…" : "Comparar"}
+              </Button>
+            </div>
 
-        <div className="flex flex-wrap items-end gap-3 mt-6">
-          <SnapshotPicker
-            label="Vigência anterior"
-            value={aId}
-            onChange={setAId}
-            snapshots={snapshots}
-          />
-          <ArrowRight className="w-5 h-5 text-muted-foreground mb-2.5" />
-          <SnapshotPicker
-            label="Vigência nova"
-            value={bId}
-            onChange={setBId}
-            snapshots={snapshots}
-          />
-          <Button
-            onClick={() => compare.mutate()}
-            disabled={
-              !aId || !bId || aId === bId || seriesMismatch || compare.isPending
-            }
-          >
-            {compare.isPending ? "Comparando…" : "Comparar"}
-          </Button>
-        </div>
-
-        {seriesMismatch && (
-          <p className="mt-3 text-sm text-amber-900 bg-amber-50 border border-amber-300 rounded-md px-3 py-2 max-w-3xl">
-            <strong>{seriesA}</strong> e <strong>{seriesB}</strong> são séries
-            independentes — frotas e colunas diferentes. A diferença entre elas
-            não é uma alteração da fonte. Escolha duas vigências da mesma série.
-          </p>
-        )}
-      </header>
+            {seriesMismatch && (
+              <p className="mt-3 text-sm text-amber-900 bg-amber-50 border border-amber-300 rounded-md px-3 py-2 max-w-3xl">
+                <strong>{seriesA}</strong> e <strong>{seriesB}</strong> são séries
+                independentes — frotas e colunas diferentes. A diferença entre elas
+                não é uma alteração da fonte. Escolha duas vigências da mesma série.
+              </p>
+            )}
+          </>
+        }
+      />
 
       <div className="p-8 space-y-6">
         {snapshotsError && (

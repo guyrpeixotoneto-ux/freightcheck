@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
 import { ChevronRight, Search, TriangleAlert } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
+import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import { ApiErrorNotice } from "@/components/api-error";
 import { Input } from "@/components/ui/input";
 import {
@@ -124,18 +125,19 @@ export default function DRE() {
 
   return (
     <Layout>
-      <header className="border-b bg-card px-8 pt-6">
-        <div className="flex items-start justify-between gap-8">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">DRE</h1>
-            <p className="text-muted-foreground mt-1 max-w-3xl text-sm">
-              Quanto cada unidade econômica deixa de resultado nesta vigência, de onde vem
-              cada número, e o que o produto ainda não consegue apurar com segurança.
-            </p>
-          </div>
-          {data && (
+      <CabecalhoDePagina
+        titulo="DRE"
+        descricao={
+          <>
+            Quanto cada unidade econômica deixa de resultado nesta vigência, de
+            onde vem cada número, e o que o produto ainda não consegue apurar
+            com segurança.
+          </>
+        }
+        acoes={
+          data ? (
             <div className="text-right shrink-0">
-              <div className="text-[0.6875rem] uppercase tracking-wider text-muted-foreground">
+              <div className="text-3xs uppercase tracking-wider text-muted-foreground">
                 {data.contexto.label}
               </div>
               <VigenciaSelect
@@ -144,10 +146,10 @@ export default function DRE() {
                 onEscolher={(v) => irPara({ period: v })}
               />
             </div>
-          )}
-        </div>
-
-        <nav className="flex items-end gap-1 mt-5 -mb-px" aria-label="Escopo da apuração">
+          ) : undefined
+        }
+        rodape={
+          <nav className="flex items-end gap-1 border-b [&>button]:-mb-px" aria-label="Escopo da apuração">
           {ESCOPOS.map((e) => (
             <button
               key={e}
@@ -163,8 +165,9 @@ export default function DRE() {
               {ROTULO_DO_ESCOPO[e]}s
             </button>
           ))}
-        </nav>
-      </header>
+          </nav>
+        }
+      />
 
       <div className="px-8 py-6 space-y-6">
         {error && (

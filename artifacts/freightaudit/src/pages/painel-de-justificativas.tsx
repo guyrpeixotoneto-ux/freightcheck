@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { Cell, Pie, PieChart, ResponsiveContainer } from "recharts";
 import { Layout } from "@/components/layout/layout";
+import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import { ApiErrorNotice } from "@/components/api-error";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -203,7 +204,7 @@ function Cartao({
   }[tom];
 
   return (
-    <section className="bg-card border rounded-xl shadow-sm px-5 py-4">
+    <section className="superficie px-5 py-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-sm text-muted-foreground">{titulo}</p>
@@ -610,32 +611,30 @@ export default function PainelDeJustificativas() {
 
   return (
     <Layout>
-      <header className="px-8 pt-7 pb-5 max-w-[1400px]">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="flex items-start gap-3">
-            <span className="rounded-xl bg-primary/10 p-2.5 mt-0.5">
-              <ClipboardList className="w-6 h-6 text-primary" />
-            </span>
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                Chamados
-              </p>
-              <h1 className="text-4xl font-bold tracking-tight mt-1">
-                Painel de Justificativas
-              </h1>
-              <p className="text-sm text-muted-foreground mt-2 max-w-2xl">
-                Acompanhe tudo que foi justificado e o que ainda falta justificar —
-                as alterações que subiram ou desceram um valor entre uma vigência
-                e a seguinte, e a explicação que o gestor deve a cada uma
-                {unidadeDoRecorte
-                  ? `, em ${unidadeDoRecorte}`
-                  : emVisaoGeral
-                    ? ", somando todas as unidades"
-                    : ""}
-                .
-              </p>
-
-              {/* Qual vigência está aberta — escrito aqui, porque o botão que a
+      {/*
+        O versalete "Chamados" saiu daqui pela mesma razão que saiu da fila: ele
+        era a trilha escrita à mão, e a trilha agora vem da árvore do menu.
+      */}
+      <CabecalhoDePagina
+        largura="1400px"
+        icone={ClipboardList}
+        titulo="Painel de Justificativas"
+        descricao={
+          <>
+            Acompanhe tudo que foi justificado e o que ainda falta justificar —
+            as alterações que subiram ou desceram um valor entre uma vigência e
+            a seguinte, e a explicação que o gestor deve a cada uma
+            {unidadeDoRecorte
+              ? `, em ${unidadeDoRecorte}`
+              : emVisaoGeral
+                ? ", somando todas as unidades"
+                : ""}
+            .
+          </>
+        }
+        rodape={
+          <>
+            {/* Qual vigência está aberta — escrito aqui, porque o botão que a
                   troca diz só "Trocar vigência". É a mesma linha da fila
                   (`pages/justificativas.tsx`), e por isso ela também escreve o
                   estado de partida desta tela, que as outras não têm: **todas**
@@ -655,10 +654,10 @@ export default function PainelDeJustificativas() {
                   </span>
                 </span>
               )}
-            </div>
-          </div>
-
-          {/*
+          </>
+        }
+        acoes={
+          /*
             A vigência é o recorte da leitura, e não um filtro dela: ela decide
             **de que acervo** os cartões, a rosca, as barras e a lista falam, do
             mesmo jeito que a unidade da lateral. Por isso o botão da casa —
@@ -679,8 +678,8 @@ export default function PainelDeJustificativas() {
             "Todas as vigências" é a primeira linha do menu porque é o estado de
             partida do painel e a pergunta que ele existe para responder — o
             acervo inteiro, e não uma vigência de cada vez.
-          */}
-          <div className="flex flex-wrap items-center gap-3 shrink-0">
+          */
+          <>
             {porVigencia.length > 1 && (
               <MenuDeVigencias
                 rotulo="Trocar vigência"
@@ -719,9 +718,9 @@ export default function PainelDeJustificativas() {
               <Download className="w-4 h-4" />
               {exportando ? "Exportando…" : "Exportar"}
             </Button>
-          </div>
-        </div>
-      </header>
+          </>
+        }
+      />
 
       <div className="px-8 border-b max-w-[1400px]">
         <nav className="flex flex-wrap items-center gap-1" role="tablist">
@@ -793,7 +792,7 @@ export default function PainelDeJustificativas() {
         )}
 
         {resumo && resumo.alteracoes === 0 && (
-          <section className="bg-card border rounded-xl shadow-sm px-6 py-10 text-center">
+          <section className="superficie px-6 py-10 text-center">
             <p className="text-lg font-bold">
               {porTipo && tipo !== null
                 ? `Nada a justificar ${contracaoDoTipo(tipo, "em")} ${palavrasDoTipo(tipo).plural} deste recorte.`
@@ -853,7 +852,7 @@ export default function PainelDeJustificativas() {
             </div>
 
             <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
-              <section className="bg-card border rounded-xl shadow-sm px-6 py-5">
+              <section className="superficie px-6 py-5">
                 <h2 className="text-lg font-bold">Visão geral</h2>
                 <div className="flex items-center gap-6 mt-3">
                   <div className="relative shrink-0">
@@ -916,7 +915,7 @@ export default function PainelDeJustificativas() {
                 </p>
               </section>
 
-              <section className="bg-card border rounded-xl shadow-sm px-6 py-5">
+              <section className="superficie px-6 py-5">
                 <div className="flex items-baseline justify-between gap-3">
                   <h2 className="text-lg font-bold">Pendências por tipo de ativo</h2>
                   <p className="text-xs text-muted-foreground">
@@ -965,7 +964,7 @@ export default function PainelDeJustificativas() {
               </section>
             </div>
 
-            <section className="bg-card border rounded-xl shadow-sm px-6 py-4">
+            <section className="superficie px-6 py-4">
               <div className="flex flex-wrap items-end gap-3">
                 {/* Só na Visão Geral — ver `escopoDaConsulta`. */}
                 {emVisaoGeral && unidades.length > 1 && (
@@ -1083,7 +1082,7 @@ export default function PainelDeJustificativas() {
               </div>
             </section>
 
-            <section className="bg-card border rounded-xl shadow-sm overflow-hidden">
+            <section className="superficie overflow-hidden">
               <div className="px-4 pt-3">
                 <Tabs
                   value={situacao}
@@ -1286,7 +1285,7 @@ export default function PainelDeJustificativas() {
               )}
             </section>
 
-            <section className="bg-card border rounded-xl shadow-sm px-6 py-5">
+            <section className="superficie px-6 py-5">
               <h2 className="text-lg font-bold">Quem justificou</h2>
               {responsaveis.length === 0 ? (
                 <p className="text-sm text-muted-foreground mt-1">
@@ -1313,7 +1312,7 @@ export default function PainelDeJustificativas() {
               )}
             </section>
 
-            <section className="bg-card border rounded-xl shadow-sm overflow-hidden">
+            <section className="superficie overflow-hidden">
               <div className="px-6 py-4">
                 <h2 className="text-lg font-bold">Cobertura por vigência</h2>
                 <p className="text-sm text-muted-foreground">

@@ -16,11 +16,12 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
+import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import { ApiErrorNotice } from "@/components/api-error";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { fetchJsonOrNull } from "@/lib/api";
 import { opcoesDaVigencia } from "@/lib/leitura-da-vigencia";
-import { EmAtualizacao, classeDeAtualizacao } from "@/components/ui/em-atualizacao";
+import { classeDeAtualizacao } from "@/components/ui/em-atualizacao";
 import { useContextosDaCasca } from "@/lib/contextos";
 import { useFamiliesOverviewQuery } from "@/lib/families-overview";
 import { DASHBOARD, GESTAO_A_VISTA } from "@/lib/ambiente";
@@ -66,6 +67,7 @@ import {
 } from "@/components/vigencia/voltar-de-vigencia";
 import { iconeDaAlteracao } from "@/components/dashboard/icone-da-alteracao";
 import {
+  BOTAO_DE_TROCA,
   SeletorDeVigencia,
   SeletorDeVigenciaGeral,
 } from "@/components/vigencia/seletor-de-vigencia";
@@ -352,7 +354,7 @@ export default function Dashboard() {
   );
 }
 
-const CARTAO = "bg-card border rounded-xl shadow-sm";
+const CARTAO = "superficie";
 
 // ---------------------------------------------------------------------------
 // O cabeçalho
@@ -393,21 +395,12 @@ function Cabecalho({
   const periodoAtual = visaoGeral ? (overview?.period ?? null) : (view?.period ?? null);
 
   return (
-    <header className="px-8 pt-7 pb-2">
-      <div className="flex flex-wrap items-start justify-between gap-4 max-w-[1600px]">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-3">
-            <h1 className="text-[2rem] font-extrabold tracking-tight leading-tight">
-              Impacto Líquido — {visaoGeral ? "Visão Geral" : (unidade ?? "")}
-            </h1>
-            <EmAtualizacao ativo={atualizando} />
-          </div>
-          <p className="text-sm text-muted-foreground mt-1.5">
-            O que a Ambev mudou nesta competência, e quanto isso custou.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-3 shrink-0">
+    <CabecalhoDePagina
+      titulo={`Impacto Líquido — ${visaoGeral ? "Visão Geral" : (unidade ?? "")}`}
+      descricao="O que a Ambev mudou nesta competência, e quanto isso custou."
+      atualizando={atualizando}
+      acoes={
+        <>
           {contextos.length > 1 && (
             <SeletorDeUnidade
               contextos={contextos}
@@ -417,34 +410,29 @@ function Cabecalho({
             />
           )}
 
-          {visaoGeral
-            ? (
-                <SeletorDeVigenciaGeral
-                  periodos={periodosOverview}
-                  ativa={overview?.period ?? null}
-                  onTrocar={onTrocar}
-                  className={BOTAO_DE_TROCA}
-                />
-              )
-            : (
-                <SeletorDeVigencia
-                  view={view}
-                  consulta={consulta}
-                  onTrocar={onTrocar}
-                  className={BOTAO_DE_TROCA}
-                />
-              )}
+          {visaoGeral ? (
+            <SeletorDeVigenciaGeral
+              periodos={periodosOverview}
+              ativa={overview?.period ?? null}
+              onTrocar={onTrocar}
+              className={BOTAO_DE_TROCA}
+            />
+          ) : (
+            <SeletorDeVigencia
+              view={view}
+              consulta={consulta}
+              onTrocar={onTrocar}
+              className={BOTAO_DE_TROCA}
+            />
+          )}
 
           <MenuDaGestaoAVista paraGestaoAVista={paraGestaoAVista} />
-        </div>
-      </div>
-    </header>
+        </>
+      }
+    />
   );
 }
 
-const BOTAO_DE_TROCA =
-  "flex items-center gap-2 rounded-lg border border-brand bg-card px-4 py-2.5 " +
-  "text-sm font-bold text-brand hover:bg-accent transition-colors";
 
 function BancoVazio() {
   return (

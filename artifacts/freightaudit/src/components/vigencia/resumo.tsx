@@ -175,7 +175,7 @@ function Cartao({
   children: React.ReactNode;
 }) {
   return (
-    <div className="bg-card border rounded-xl shadow-sm px-4 py-4">
+    <div className="superficie px-4 py-4">
       <div className="flex items-center gap-2.5">
         <span
           className={cn(

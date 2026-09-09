@@ -35,8 +35,9 @@ import { Logotipo } from "./logotipo";
  *
  * **No celular a faixa perde dois desses três.** O hambúrguer some porque não
  * há lateral para recolher — quem navega ali é a barra da borda de baixo
- * (`barra-mobile.tsx`) —, e o e-mail vira as iniciais, porque escrito por
- * extenso ele empurrava o seletor de ambiente para fora da tela. O par
+ * (`barra-mobile.tsx`) —, e do bloco da conta sobra só o medalhão das
+ * iniciais, porque o nome e o e-mail escritos empurravam o seletor de ambiente
+ * para fora da tela. O par
  * Configurações/Sair continua a um toque, no pé da folha "Mais". O que sobra
  * na faixa é o que responde onde se está: a marca e o ambiente aberto.
  */
@@ -51,7 +52,16 @@ export function Topbar({
   const ambiente = descricaoDoAmbiente(useAmbiente());
 
   return (
-    <header className="h-16 bg-topbar text-topbar-foreground flex items-center gap-2 md:gap-4 px-3 md:px-4 shrink-0">
+    /*
+      A faixa ganhou uma sombra rasa, e não uma borda.
+
+      Ela é escura sobre uma página clara, então nunca precisou de traço para se
+      separar — mas quando o conteúdo rola por baixo dela, o encontro entre o
+      marinho e o primeiro cartão ficava chapado, e a faixa parecia colada na
+      página em vez de estar acima dela. `--sombra-2` é a mesma elevação do
+      cartão sob o cursor: a casca inteira passa a ter uma só escala de altura.
+    */
+    <header className="h-16 bg-topbar text-topbar-foreground flex items-center gap-2 md:gap-4 px-3 md:px-4 shrink-0 shadow-[var(--sombra-2)]">
       <button
         type="button"
         onClick={onToggleSidebar}
@@ -62,7 +72,7 @@ export function Topbar({
         */
         aria-label={menuAberto ? "Recolher o menu" : "Expandir o menu"}
         aria-expanded={menuAberto}
-        className="hidden md:block p-2 -ml-1 rounded hover:bg-white/10 transition-colors"
+        className="hidden md:block p-2 -ml-1 rounded-lg hover:bg-white/10 transition-colors"
       >
         <Menu className="w-6 h-6" />
       </button>
@@ -91,20 +101,36 @@ export function Topbar({
 
       {user && (
         <DropdownMenu>
-          <DropdownMenuTrigger className="flex items-center gap-1.5 text-[0.8125rem] font-semibold uppercase tracking-wide px-2 py-2 rounded hover:bg-white/10 transition-colors max-w-[22rem]">
+          <DropdownMenuTrigger className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-white/10 transition-colors max-w-[22rem]">
             {/*
-              O e-mail por extenso não cabe num telefone: ele ocupava a faixa
-              inteira e cortava o seletor de ambiente ao meio. As iniciais dizem
-              a mesma coisa — quem está logado — no espaço que há.
+              As iniciais deixaram de ser o plano B do celular e passaram a
+              abrir o bloco nos dois tamanhos.
+
+              O que havia aqui era o e-mail em caixa alta — o identificador do
+              banco, e não o nome da pessoa —, e ele é o pior dos dois para se
+              reconhecer de relance: `guyrpeixoto.neto@gmail.com` se lê letra a
+              letra. Agora o rótulo é `GP` mais o nome, com o e-mail em corpo
+              menor embaixo dele: quem confere de que conta está logado
+              continua tendo o e-mail escrito, e quem só quer saber que é a
+              dele para de precisar lê-lo.
+
+              No telefone o texto sai inteiro e sobra o medalhão, pela mesma
+              razão de antes: por extenso, ele cortava o seletor de ambiente ao
+              meio.
             */}
-            <span className="hidden md:block truncate">{user.email}</span>
             <span
               aria-hidden
-              className="md:hidden w-8 h-8 rounded-full bg-white/15 text-xs font-bold flex items-center justify-center shrink-0"
+              className="w-8 h-8 rounded-full bg-white/15 text-xs font-bold flex items-center justify-center shrink-0"
             >
               {iniciaisDe(user.name)}
             </span>
-            <ChevronDown className="w-4 h-4 shrink-0" />
+            <span className="hidden md:block min-w-0 text-left leading-tight">
+              <span className="block text-[0.8125rem] font-semibold truncate">{user.name}</span>
+              <span className="block text-3xs text-topbar-foreground/70 truncate">
+                {user.email}
+              </span>
+            </span>
+            <ChevronDown className="w-4 h-4 shrink-0 opacity-80" />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-72">
             <DropdownMenuLabel className="font-normal py-3">
@@ -204,7 +230,7 @@ function SeletorDeAmbiente({ atual }: { atual: (typeof AMBIENTES)[number]["id"] 
       <DropdownMenu>
         <DropdownMenuTrigger
           aria-label={`Ambiente de trabalho: ${descricaoDoAmbiente(atual).nomeCompleto}`}
-          className="flex items-center gap-1.5 px-2 py-1.5 -ml-1 rounded text-sm md:text-[0.9375rem] font-semibold tracking-wide hover:bg-white/10 transition-colors min-w-0"
+          className="flex items-center gap-1.5 px-2 py-1.5 -ml-1 rounded-lg text-sm md:text-[0.9375rem] font-semibold tracking-wide hover:bg-white/10 transition-colors min-w-0"
         >
           {descricaoDoAmbiente(atual).nome}
           <ChevronDown className="w-4 h-4 shrink-0 opacity-80" />

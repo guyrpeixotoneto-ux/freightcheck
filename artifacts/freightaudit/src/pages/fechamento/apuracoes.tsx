@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { ArrowRight, ChevronRight, Lock } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
+import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import {
   useBaseDoFechamento,
   useOperacaoDoFechamento,
@@ -377,15 +378,17 @@ export default function Apuracoes() {
 
   return (
     <Layout>
-      <header className="border-b bg-card px-8 py-6">
-        <h1 className="text-2xl font-bold tracking-tight">Apurações</h1>
-        <p className="text-muted-foreground mt-2 max-w-3xl">
-          O que cada competência já apurou: os relatórios que chegaram, quanto
-          foi emitido em CT-e, quanto disso as fontes sustentam e quanto
-          continua a questionar. Clique numa quinzena para abrir a conta aqui
-          mesmo, verba a verba.
-        </p>
-      </header>
+      <CabecalhoDePagina
+        titulo="Apurações"
+        descricao={
+          <>
+            O que cada competência já apurou: os relatórios que chegaram, quanto
+            foi emitido em CT-e, quanto disso as fontes sustentam e quanto
+            continua a questionar. Clique numa quinzena para abrir a conta aqui
+            mesmo, verba a verba.
+          </>
+        }
+      />
 
       <div className="p-8 space-y-6">
         <div className="flex flex-wrap items-center gap-3">

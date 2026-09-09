@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Database, ArrowRight } from "lucide-react";
 import { Link } from "wouter";
 import { Layout } from "@/components/layout/layout";
+import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import { ApiErrorNotice } from "@/components/api-error";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -35,17 +36,17 @@ export default function Vigencias() {
 
   return (
     <Layout>
-      <header className="border-b bg-card px-8 py-6">
-        <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-          <Database className="w-6 h-6 text-primary" />
-          Vigências
-        </h1>
-        <p className="text-muted-foreground mt-1 max-w-3xl">
-          Cada vigência é uma versão da remuneração, congelada no momento em que
-          foi recebida. O rótulo é o texto original do arquivo; a data ao lado é
-          derivada dele por regra explícita.
-        </p>
-      </header>
+      <CabecalhoDePagina
+        icone={Database}
+        titulo="Vigências"
+        descricao={
+          <>
+            Cada vigência é uma versão da remuneração, congelada no momento em que
+            foi recebida. O rótulo é o texto original do arquivo; a data ao lado é
+            derivada dele por regra explícita.
+          </>
+        }
+      />
 
       <div className="p-8 space-y-6">
         {error && (

@@ -31,7 +31,7 @@ import type {
  * a régua de cobertura, a comparação por unidade e o ranque de unidades.
  */
 
-const CARTAO = "bg-card border rounded-xl shadow-sm";
+const CARTAO = "superficie";
 
 /** O maior movimento em módulo entre as periodicidades de um resumo — mesmo critério do cartão "Impacto líquido". */
 export function impactoDominante(summary: ExecutiveSummary): Impacto | null {

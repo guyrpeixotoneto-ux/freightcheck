@@ -12,6 +12,7 @@ import {
   Search,
 } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
+import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import { ApiErrorNotice } from "@/components/api-error";
 import { Input } from "@/components/ui/input";
 import {
@@ -202,30 +203,26 @@ export default function Composicao() {
 
   return (
     <Layout>
-      <header className="border-b bg-card px-8 pt-6">
-        <div className="flex items-start justify-between gap-8">
-          <div>
-            <div className="flex flex-wrap items-center gap-3">
-              <h1 className="text-2xl font-bold tracking-tight">Composição</h1>
-              {/*
-                A unidade e a vigência que a tela está mostrando saem de
-                `cabecalho.context.label` e `cabecalho.effectiveDate`, logo
-                abaixo — sempre da resposta em tela, nunca da URL. Enquanto elas
-                forem as anteriores, isto diz que são.
-              */}
-              <EmAtualizacao ativo={ativa.isPlaceholderData} />
-            </div>
-            <p className="text-muted-foreground mt-1 max-w-3xl text-sm">
-              {emConjuntos
-                ? "O cavalo e a carreta como uma unidade só: o que a fonte declara para o " +
-                  "conjunto, o que cada lado recebe, e se as duas contas fecham."
-                : "Quanto cada equipamento recebe nesta vigência, de onde vem cada valor, e o " +
-                  "que o produto ainda não consegue apurar com segurança."}
-            </p>
-          </div>
-          {cabecalho && (
+      <CabecalhoDePagina
+        titulo="Composição"
+        /*
+          A unidade e a vigência que a tela está mostrando saem de
+          `cabecalho.context.label` e `cabecalho.effectiveDate`, ao lado —
+          sempre da resposta em tela, nunca da URL. Enquanto elas forem as
+          anteriores, a etiqueta ao lado do título diz que são.
+        */
+        atualizando={ativa.isPlaceholderData}
+        descricao={
+          emConjuntos
+            ? "O cavalo e a carreta como uma unidade só: o que a fonte declara para o " +
+              "conjunto, o que cada lado recebe, e se as duas contas fecham."
+            : "Quanto cada equipamento recebe nesta vigência, de onde vem cada valor, e o " +
+              "que o produto ainda não consegue apurar com segurança."
+        }
+        acoes={
+          cabecalho ? (
             <div className="text-right shrink-0">
-              <div className="text-[0.6875rem] uppercase tracking-wider text-muted-foreground">
+              <div className="text-3xs uppercase tracking-wider text-muted-foreground">
                 {cabecalho.context.label}
               </div>
               <VigenciaSelect
@@ -234,10 +231,10 @@ export default function Composicao() {
                 onEscolher={(v) => irPara({ period: v })}
               />
             </div>
-          )}
-        </div>
-
-        <nav className="flex items-end gap-1 mt-5 -mb-px" aria-label="Tipo de equipamento">
+          ) : undefined
+        }
+        rodape={
+          <nav className="flex items-end gap-1 border-b [&>button]:-mb-px" aria-label="Tipo de equipamento">
           {TIPOS.map((tipo) => (
             <button
               key={tipo.entityType}
@@ -253,8 +250,9 @@ export default function Composicao() {
               {tipo.rotulo}
             </button>
           ))}
-        </nav>
-      </header>
+          </nav>
+        }
+      />
 
       <div className="px-8 py-6 space-y-6">
         {ativa.error && (

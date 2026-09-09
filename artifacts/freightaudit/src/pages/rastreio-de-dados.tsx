@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { AlertTriangle, Check, FileSpreadsheet, Scale } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
+import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import { ApiErrorNotice } from "@/components/api-error";
 import { fetchJson } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -70,18 +71,18 @@ export default function RastreioDeDados() {
 
   return (
     <Layout>
-      <header className="border-b bg-card px-8 py-6">
-        <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-          <Scale className="w-6 h-6 text-primary" />
-          Rastreio de Dados
-        </h1>
-        <p className="text-muted-foreground mt-1 max-w-3xl">
-          Toda célula que entrou por um arquivo tem de sair por um destino
-          declarado. Esta tela faz essa conta, importação por importação, e mostra
-          o que sobrou sem destino — que é o único jeito de descobrir que um dado
-          sumiu, já que o que falta não aparece em tela nenhuma.
-        </p>
-      </header>
+      <CabecalhoDePagina
+        icone={Scale}
+        titulo="Rastreio de Dados"
+        descricao={
+          <>
+            Toda célula que entrou por um arquivo tem de sair por um destino
+            declarado. Esta tela faz essa conta, importação por importação, e mostra
+            o que sobrou sem destino — que é o único jeito de descobrir que um dado
+            sumiu, já que o que falta não aparece em tela nenhuma.
+          </>
+        }
+      />
 
       <div className="p-8 space-y-8">
         {lista.error && (

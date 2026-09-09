@@ -15,6 +15,7 @@ import {
   WifiOff,
 } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
+import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import { ApiErrorNotice } from "@/components/api-error";
 import { PlanilhaDeAtributos } from "@/components/curadoria/planilha-de-atributos";
 import { Badge } from "@/components/ui/badge";
@@ -457,74 +458,75 @@ export default function Curadoria() {
 
   return (
     <Layout>
-      <header className="border-b bg-card px-8 py-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-              <FileSearch className="w-6 h-6 text-primary" />
-              Curadoria de Atributos
-            </h1>
-            <p className="text-muted-foreground mt-1 max-w-3xl">
-              O Freightec não diz o que cada variável significa. Enquanto você não
-              confirmar aqui, o atributo aparece nas telas de mudança mas{" "}
-              <strong>não entra em nenhum cálculo financeiro</strong>.
-            </p>
-          </div>
-          {/* A planilha fica no topo, ao lado do título, e não dentro da fila:
-              ela descreve a base inteira de uma vez, e não o atributo aberto. */}
+      <CabecalhoDePagina
+        icone={FileSearch}
+        titulo="Curadoria de Atributos"
+        descricao={
+          <>
+            O Freightec não diz o que cada variável significa. Enquanto você não
+            confirmar aqui, o atributo aparece nas telas de mudança mas{" "}
+            <strong>não entra em nenhum cálculo financeiro</strong>.
+          </>
+        }
+        acoes={
+          /* A planilha fica no topo, ao lado do título, e não dentro da fila:
+             ela descreve a base inteira de uma vez, e não o atributo aberto. */
           <PlanilhaDeAtributos equipamento={equipamento} />
-        </div>
+        }
+        rodape={
+          <>
+            {/* As abas vêm antes dos quadros porque mandam neles: primeiro se
+                escolhe de que equipamento se está falando, depois se lê quanto
+                falta nele. Na ordem inversa, os números apareceriam antes de a
+                tela dizer sobre o que eles são. */}
+            <Tabs
+              value={equipamento ?? TODOS}
+              onValueChange={(valor) =>
+                escolherEquipamento(valor === TODOS ? null : valor)
+              }
+              className="mt-5"
+            >
+              <TabsList>
+                {abas.map((aba) => (
+                  <TabsTrigger key={aba.tipo ?? TODOS} value={aba.tipo ?? TODOS}>
+                    {aba.rotulo}
+                    <span className="ml-1.5 tabular-nums text-xs text-muted-foreground">
+                      {aba.total}
+                    </span>
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </Tabs>
 
-        {/* As abas vêm antes dos quadros porque mandam neles: primeiro se
-            escolhe de que equipamento se está falando, depois se lê quanto
-            falta nele. Na ordem inversa, os números apareceriam antes de a
-            tela dizer sobre o que eles são. */}
-        <Tabs
-          value={equipamento ?? TODOS}
-          onValueChange={(valor) =>
-            escolherEquipamento(valor === TODOS ? null : valor)
-          }
-          className="mt-5"
-        >
-          <TabsList>
-            {abas.map((aba) => (
-              <TabsTrigger key={aba.tipo ?? TODOS} value={aba.tipo ?? TODOS}>
-                {aba.rotulo}
-                <span className="ml-1.5 tabular-nums text-xs text-muted-foreground">
-                  {aba.total}
-                </span>
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
-
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
-          <SummaryTile
-            label="Confirmados"
-            value={confirmedCount}
-            tone="good"
-            icon={<CheckCircle2 className="w-4 h-4" />}
-          />
-          <SummaryTile
-            label="Aguardando confirmação"
-            value={pendingCount}
-            tone="warn"
-            icon={<CircleHelp className="w-4 h-4" />}
-          />
-          <SummaryTile
-            label="Monetários sem confirmar"
-            value={pendingMonetary}
-            tone="warn"
-            icon={<Lock className="w-4 h-4" />}
-          />
-          <SummaryTile
-            label="Fora da taxonomia"
-            value={recorte?.unclassified ?? 0}
-            tone="neutral"
-            icon={<AlertTriangle className="w-4 h-4" />}
-          />
-        </div>
-      </header>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
+              <SummaryTile
+                label="Confirmados"
+                value={confirmedCount}
+                tone="good"
+                icon={<CheckCircle2 className="w-4 h-4" />}
+              />
+              <SummaryTile
+                label="Aguardando confirmação"
+                value={pendingCount}
+                tone="warn"
+                icon={<CircleHelp className="w-4 h-4" />}
+              />
+              <SummaryTile
+                label="Monetários sem confirmar"
+                value={pendingMonetary}
+                tone="warn"
+                icon={<Lock className="w-4 h-4" />}
+              />
+              <SummaryTile
+                label="Fora da taxonomia"
+                value={recorte?.unclassified ?? 0}
+                tone="neutral"
+                icon={<AlertTriangle className="w-4 h-4" />}
+              />
+            </div>
+          </>
+        }
+      />
 
       {fila.indisponivel && (
         <div className="px-8 pt-6">

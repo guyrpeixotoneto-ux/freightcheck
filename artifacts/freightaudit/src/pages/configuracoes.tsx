@@ -1,6 +1,7 @@
 import { Link } from "wouter";
 import { ArrowLeft, Settings } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
+import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import { PainelDeUnidades } from "@/pages/unidades";
 import { IndiceDeConfiguracoes } from "@/components/configuracoes/indice";
 import { PainelDeUsuarios } from "@/components/configuracoes/usuarios";
@@ -72,18 +73,18 @@ export default function Configuracoes({ secao = "indice" }: { secao?: Secao }) {
   if (secao === "indice") {
     return (
       <Layout>
-        <header className="border-b bg-card px-8 py-6">
-          <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-            <Settings className="w-6 h-6 text-primary" />
-            Configurações
-          </h1>
-          <p className="text-muted-foreground mt-1 max-w-3xl">
-            A casa do produto: as unidades que existem, quem pode entrar e o que
-            cada pessoa alcança. Todo acesso dado aqui fica no nome de quem o
-            deu, e é esse nome que assina cada confirmação de curadoria e cada
-            promoção de vigência feita pela pessoa.
-          </p>
-        </header>
+        <CabecalhoDePagina
+          icone={Settings}
+          titulo="Configurações"
+          descricao={
+            <>
+              A casa do produto: as unidades que existem, quem pode entrar e o que
+              cada pessoa alcança. Todo acesso dado aqui fica no nome de quem o
+              deu, e é esse nome que assina cada confirmação de curadoria e cada
+              promoção de vigência feita pela pessoa.
+            </>
+          }
+        />
         <IndiceDeConfiguracoes />
       </Layout>
     );
@@ -100,21 +101,19 @@ export default function Configuracoes({ secao = "indice" }: { secao?: Secao }) {
         chega por endereço colado nunca esteve no índice, e sem esta linha
         descobriria as outras seis seções por acaso.
       */}
-      <header className="border-b bg-card px-8 py-6">
-        <Link
-          href="~/configuracoes"
-          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
-        >
-          <ArrowLeft className="w-3.5 h-3.5" />
-          Configurações
-        </Link>
-        <h1 className="text-2xl font-bold tracking-tight mt-1">
-          {TITULO[secao]}
-        </h1>
-        {descricao && (
-          <p className="text-muted-foreground mt-1 max-w-3xl">{descricao}</p>
-        )}
-      </header>
+      <CabecalhoDePagina
+        voltar={
+          <Link
+            href="~/configuracoes"
+            className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            Configurações
+          </Link>
+        }
+        titulo={TITULO[secao]}
+        descricao={descricao}
+      />
 
       <div className="p-8">
         {secao === "unidades" && <PainelDeUnidades />}

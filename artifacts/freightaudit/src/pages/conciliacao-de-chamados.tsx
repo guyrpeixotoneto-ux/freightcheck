@@ -10,6 +10,7 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
+import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import { ApiErrorNotice } from "@/components/api-error";
 import { AbaBotao } from "@/components/changes/cartoes";
 import { Badge } from "@/components/ui/badge";
@@ -164,7 +165,7 @@ function Cartao({
   }[tom];
 
   return (
-    <section className="bg-card border rounded-xl shadow-sm px-5 py-4">
+    <section className="superficie px-5 py-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-sm text-muted-foreground">{titulo}</p>
@@ -588,27 +589,32 @@ export default function ConciliacaoDeChamados() {
 
   return (
     <Layout>
-      <div className="p-4 md:p-6 space-y-6">
-        <header className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-              <Scale className="w-6 h-6 text-nav-chamados" />
-              Conciliação de Chamados
-            </h1>
-            <p className="text-sm text-muted-foreground mt-1 max-w-3xl">
-              Para cada alteração que a planilha importada trouxe, existe o
-              chamado que a pediu? E para cada chamado que pediu alteração, ela
-              apareceu na planilha? Os dois impactos aparecem lado a lado —
-              nunca somados.
-            </p>
-          </div>
-        </header>
+      {/*
+        O texto é o da `main` — a frase perdeu "o confronto é por placa e
+        parâmetro" quando o grão por parâmetro virou um controle da tela, e
+        repetir no subtítulo o que a pastilha agora diz seria dizer duas vezes.
+        A casca é a do cabeçalho de página; ver `docs/LINGUAGEM-VISUAL.md`.
+      */}
+      <CabecalhoDePagina
+        icone={Scale}
+        titulo="Conciliação de Chamados"
+        descricao={
+          <>
+            Para cada alteração que a planilha importada trouxe, existe o
+            chamado que a pediu? E para cada chamado que pediu alteração, ela
+            apareceu na planilha? Os dois impactos aparecem lado a lado — nunca
+            somados.
+          </>
+        }
+      />
+
+      <div className="px-8 pb-6 space-y-6">
 
         {/*
           Os dois lados. Ficam acima de tudo porque nenhum número desta tela
           significa alguma coisa sem eles.
         */}
-        <section className="bg-card border rounded-xl shadow-sm p-4 flex flex-wrap items-end gap-4">
+        <section className="superficie p-4 flex flex-wrap items-end gap-4">
           <div className="min-w-[16rem] flex-1">
             <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5 mb-1.5">
               <FileSpreadsheet className="w-3.5 h-3.5" />
@@ -851,7 +857,7 @@ export default function ConciliacaoDeChamados() {
               />
             </div>
 
-            <section className="bg-card border rounded-xl shadow-sm p-5 space-y-4">
+            <section className="superficie p-5 space-y-4">
               <div className="flex items-center justify-between gap-4">
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4 text-emerald-600" />
@@ -905,7 +911,7 @@ export default function ConciliacaoDeChamados() {
               </div>
             </section>
 
-            <section className="bg-card border rounded-xl shadow-sm">
+            <section className="superficie">
               <div className="p-4 flex flex-wrap items-center gap-3 border-b">
                 <Input
                   value={texto}
@@ -1092,7 +1098,7 @@ export default function ConciliacaoDeChamados() {
             </div>
 
             {/* A barra da conciliação, e as quatro situações abaixo dela. */}
-            <section className="bg-card border rounded-xl shadow-sm p-5 space-y-4">
+            <section className="superficie p-5 space-y-4">
               <div className="flex items-center justify-between gap-4">
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4 text-emerald-600" />
@@ -1175,7 +1181,7 @@ export default function ConciliacaoDeChamados() {
               </div>
             )}
 
-            <section className="bg-card border rounded-xl shadow-sm">
+            <section className="superficie">
               <div className="p-4 flex flex-wrap items-center gap-3 border-b">
                 <Input
                   value={texto}

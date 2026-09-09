@@ -2114,7 +2114,7 @@ function Ladrilho({
 }) {
   return (
     <div
-      className="rounded-xl border bg-card shadow-sm px-5 py-5 flex items-start gap-4"
+      className="superficie px-5 py-5 flex items-start gap-4"
       title={detalhe}
     >
       <div

@@ -4,6 +4,7 @@ import { Link, useLocation, useSearch } from "wouter";
 import { ArrowRight } from "lucide-react";
 
 import { Layout } from "@/components/layout/layout";
+import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import {
   useBaseDoFechamento,
   useOperacaoDoFechamento,
@@ -177,16 +178,18 @@ export default function Conciliacao() {
 
   return (
     <Layout>
-      <header className="border-b bg-card px-8 py-6">
-        <h1 className="text-2xl font-bold tracking-tight">Conciliação</h1>
-        <p className="text-muted-foreground mt-2 max-w-3xl">
-          O fechamento do sistema contra a planilha da operação. Anexe a{" "}
-          <code>Fechamento_Remuneracao.xlsb</code> deste mês e cada linha
-          aparece com o que o contrato deve, o que o <code>RESUMO GERAL</code>{" "}
-          dela publica e a distância entre os dois — com o arquivo de onde a
-          régua saiu ao lado.
-        </p>
-      </header>
+      <CabecalhoDePagina
+        titulo="Conciliação"
+        descricao={
+          <>
+            O fechamento do sistema contra a planilha da operação. Anexe a{" "}
+            <code>Fechamento_Remuneracao.xlsb</code> deste mês e cada linha
+            aparece com o que o contrato deve, o que o <code>RESUMO GERAL</code>{" "}
+            dela publica e a distância entre os dois — com o arquivo de onde a
+            régua saiu ao lado.
+          </>
+        }
+      />
 
       <div className="p-8 space-y-6 max-w-6xl">
         <EscolherFechamento

@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { ArrowRight, Truck } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
+import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import {
   useBaseDoFechamento,
   useOperacaoDoFechamento,
@@ -56,16 +57,18 @@ export default function Frotas() {
 
   return (
     <Layout>
-      <div className="p-8 space-y-6 max-w-4xl">
-        <div>
-          <h1 className="flex items-center gap-2 text-xl font-semibold">
-            <Truck className="h-5 w-5" /> Frota
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            O que o Promax diz sobre a frota (ativa/inativa) contra o cadastro do contrato —
-            conferência operacional, competência a competência.
-          </p>
-        </div>
+      <CabecalhoDePagina
+        icone={Truck}
+        titulo="Frota"
+        descricao={
+          <>
+            O que o Promax diz sobre a frota (ativa/inativa) contra o cadastro
+            do contrato — conferência operacional, competência a competência.
+          </>
+        }
+      />
+
+      <div className="px-8 pb-8 space-y-6 max-w-4xl">
 
         {competencias.isLoading && (
           <div className="text-sm text-muted-foreground">Carregando…</div>

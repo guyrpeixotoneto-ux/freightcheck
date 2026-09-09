@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { LEITURA_DE_APURACAO } from "@/lib/frescor-das-leituras";
-import { EmAtualizacao } from "@/components/ui/em-atualizacao";
 import {
   excluidoDaSoma,
   resumoVazio,
@@ -22,6 +21,7 @@ import {
   Wallet,
 } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
+import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import { GroupCard } from "@/components/inicio/group-card";
 import { TabelaFreightech, type ColunaTabela } from "@/components/parametros/tabela";
 import { TabelaDominio } from "@/components/parametros/dominio";
@@ -469,35 +469,30 @@ export default function Parametros() {
 
   return (
     <Layout>
-      <div className="px-10 py-6 max-w-[1600px]">
-        {/*
-          O cabeçalho é o das telas novas — ícone, título em caixa de frase e a
-          explicação embaixo. A caixa alta de antes vinha de o único assunto
-          desta tela ser o espelho do Freightech, onde o título é ESCOLHA DE
-          SEGMENTO porque lá é assim. O espelho continua sendo uma das duas
-          leituras, e virou aba; o título da página passa a ser o do módulo.
-        */}
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0">
-            <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-              <SlidersHorizontal className="w-6 h-6 text-primary" />
-              Parâmetros
-              <EmAtualizacao
-                ativo={visaoGeral ? soma.isPlaceholderData : vigencia.isPlaceholderData}
-              />
-            </h1>
-            <p className="text-muted-foreground text-sm mt-1 max-w-3xl">
-              Duas leituras da mesma vigência. <strong>Atributos</strong> é o que o cliente
-              mexeu, coluna a coluna, arrumado por cavalo, carreta, conjunto, trecho e QLP —
-              cada cartão abre nos veículos{" "}
-              {visaoGeral ? "de cada unidade somada" : "desta unidade"}.{" "}
-              <strong>Catálogo Freightech</strong>{" "}
-              é a tela de Escolha de segmento como ela é lá, com todas as gavetas, inclusive
-              as que este export ainda não alimenta.
-            </p>
-          </div>
-
-          {/*
+      {/*
+        O cabeçalho é o da casca — ícone, título em caixa de frase e a
+        explicação embaixo. A caixa alta de antes vinha de o único assunto
+        desta tela ser o espelho do Freightech, onde o título é ESCOLHA DE
+        SEGMENTO porque lá é assim. O espelho continua sendo uma das duas
+        leituras, e virou aba; o título da página passa a ser o do módulo.
+      */}
+      <CabecalhoDePagina
+        icone={SlidersHorizontal}
+        titulo="Parâmetros"
+        atualizando={visaoGeral ? soma.isPlaceholderData : vigencia.isPlaceholderData}
+        descricao={
+          <>
+            Duas leituras da mesma vigência. <strong>Atributos</strong> é o que
+            o cliente mexeu, coluna a coluna, arrumado por cavalo, carreta,
+            conjunto, trecho e QLP — cada cartão abre nos veículos{" "}
+            {visaoGeral ? "de cada unidade somada" : "desta unidade"}.{" "}
+            <strong>Catálogo Freightech</strong> é a tela de Escolha de segmento
+            como ela é lá, com todas as gavetas, inclusive as que este export
+            ainda não alimenta.
+          </>
+        }
+        acoes={
+          /*
             A vigência mudou de lugar: era um campo desta tela, e agora é o
             mesmo botão "Trocar vigência" das outras — Resumo executivo, Linha
             do Tempo, Dashboard e Gestão à Vista.
@@ -507,8 +502,8 @@ export default function Parametros() {
             o que faz escolher entre elas ser uma escolha — e é a mesma lista,
             com o mesmo desenho, que a pessoa já abriu em qualquer outra tela
             do produto. Ver `components/vigencia/seletor-de-vigencia.tsx`.
-          */}
-          <div className="shrink-0">
+          */
+          <>
             {visaoGeral ? (
               <SeletorDeVigenciaGeral
                 periodos={periodosDaSoma}
@@ -524,9 +519,11 @@ export default function Parametros() {
                 className={BOTAO_DE_TROCA}
               />
             )}
-          </div>
-        </div>
+          </>
+        }
+      />
 
+      <div className="px-8 pb-6 max-w-[1600px]">
         {data && (
           <BarraFiltro
             busca={busca}

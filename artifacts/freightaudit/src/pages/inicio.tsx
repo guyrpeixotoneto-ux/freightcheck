@@ -4,7 +4,7 @@ import {
   LEITURA_DE_APURACAO,
   MANTER_ENQUANTO_CARREGA,
 } from "@/lib/frescor-das-leituras";
-import { EmAtualizacao, classeDeAtualizacao } from "@/components/ui/em-atualizacao";
+import { classeDeAtualizacao } from "@/components/ui/em-atualizacao";
 import { Link, useLocation, useSearch } from "wouter";
 import {
   AlertTriangle,
@@ -28,6 +28,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
+import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import { ApiErrorNotice } from "@/components/api-error";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ApiError, fetchJson } from "@/lib/api";
@@ -105,6 +106,7 @@ import type {
 import type { BalancoResumo } from "@/components/balanco/tipos";
 import { useResumoPorVigencia } from "@/hooks/use-resumo-por-vigencia";
 import {
+  BOTAO_DE_TROCA,
   SeletorDeVigencia,
   SeletorDeVigenciaGeral,
 } from "@/components/vigencia/seletor-de-vigencia";
@@ -158,7 +160,7 @@ import {
  * sobrou dela — fundo, borda e sombra numa string só, repetida em nove seções
  * desta página —, e agora ela segue `--radius` junto com o resto.
  */
-const CARTAO = "bg-card border rounded-xl shadow-sm";
+const CARTAO = "superficie";
 export default function Inicio() {
   const search = useSearch();
   const [, navegar] = useLocation();
@@ -723,22 +725,17 @@ function Cabecalho({
       uma segunda barra logo abaixo da vermelha do Freightech, e as duas juntas
       empurravam o primeiro número para baixo da dobra em tela de 13 polegadas.
       O que qualifica os números é o texto, não o fundo atrás dele.
-    */
-    <header className="px-8 pt-7 pb-2">
-      <div className="flex flex-wrap items-start justify-between gap-4 max-w-[1600px]">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-3">
-            <h1 className="text-[2rem] font-extrabold tracking-tight leading-tight">
-              Resumo executivo — {visaoGeral ? "Visão Geral" : (unidade ?? "")}
-            </h1>
-            <EmAtualizacao ativo={atualizando} />
-          </div>
-          {partes.length > 0 && (
-            <p className="text-sm text-muted-foreground mt-1.5">{partes.join(" · ")}</p>
-          )}
-        </div>
 
-        <div className="flex items-center gap-3 shrink-0">
+      O `<header>` escrito à mão saiu para a casca
+      (`components/layout/cabecalho-de-pagina.tsx`): a trilha, o corpo do título
+      e a régua de largura passaram a ser os mesmos de toda tela do produto.
+    */
+    <CabecalhoDePagina
+      titulo={`Resumo executivo — ${visaoGeral ? "Visão Geral" : (unidade ?? "")}`}
+      descricao={partes.length > 0 ? partes.join(" · ") : undefined}
+      atualizando={atualizando}
+      acoes={
+        <>
           {!visaoGeral && ultimaComparacao && (
             <button
               type="button"
@@ -750,26 +747,24 @@ function Cabecalho({
               Última comparação · {ultimaComparacao.label}
             </button>
           )}
-          {visaoGeral
-            ? (
-                <SeletorDeVigenciaGeral
-                  periodos={periodosOverview}
-                  ativa={overview?.period ?? null}
-                  onTrocar={onTrocar}
-                  className={BOTAO_DE_TROCA}
-                />
-              )
-            : (
-                <SeletorDeVigencia
-                  view={view}
-                  consulta={consulta}
-                  onTrocar={onTrocar}
-                  className={BOTAO_DE_TROCA}
-                />
-              )}
-        </div>
-      </div>
-    </header>
+          {visaoGeral ? (
+            <SeletorDeVigenciaGeral
+              periodos={periodosOverview}
+              ativa={overview?.period ?? null}
+              onTrocar={onTrocar}
+              className={BOTAO_DE_TROCA}
+            />
+          ) : (
+            <SeletorDeVigencia
+              view={view}
+              consulta={consulta}
+              onTrocar={onTrocar}
+              className={BOTAO_DE_TROCA}
+            />
+          )}
+        </>
+      }
+    />
   );
 }
 
@@ -782,9 +777,6 @@ function Cabecalho({
  * e ir para a última comparação não mudam nada no banco; mudam o recorte do
  * que se está lendo.
  */
-const BOTAO_DE_TROCA =
-  "flex items-center gap-2 rounded-lg border border-brand bg-card px-4 py-2.5 " +
-  "text-sm font-bold text-brand hover:bg-accent transition-colors";
 
 // ---------------------------------------------------------------------------
 // Os cinco números

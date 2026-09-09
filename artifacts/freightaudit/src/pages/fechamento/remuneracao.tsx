@@ -9,6 +9,7 @@ import {
   ScrollText,
 } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
+import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import { useBaseDoFechamento } from "@/lib/base-do-fechamento";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Card, CardContent } from "@/components/ui/card";
@@ -223,27 +224,29 @@ export default function RemuneracaoCadastro() {
 
   return (
     <Layout>
-      <header className="border-b bg-card px-8 py-6">
-        <Link
-          href={`${base}/remuneracao`}
-          className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
-        >
-          <ArrowLeft className="w-3 h-3" />
-          Todas as unidades
-        </Link>
-        <div className="flex items-center gap-2 mt-2">
-          <ScrollText className="w-6 h-6 text-nav-fechamento" />
-          <h1 className="text-2xl font-bold tracking-tight">Remuneração</h1>
-        </div>
-        <p className="text-muted-foreground mt-2 max-w-3xl">
-          O cadastro que abre a planilha de remuneração desta unidade —
-          alíquotas, frota, parcelas por veículo e proporção de documentos. Cada
-          linha diz de onde o número veio no acervo da Auditoria, ou o que falta
-          para ele existir. O que o acervo ainda não responde, você preenche em{" "}
-          <strong>Cadastrar a planilha</strong>, e ele passa a aparecer aqui
-          marcado como informado.
-        </p>
-      </header>
+      <CabecalhoDePagina
+        icone={ScrollText}
+        titulo="Remuneração"
+        voltar={
+          <Link
+            href={`${base}/remuneracao`}
+            className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <ArrowLeft className="w-3 h-3" />
+            Todas as unidades
+          </Link>
+        }
+        descricao={
+          <>
+            O cadastro que abre a planilha de remuneração desta unidade —
+            alíquotas, frota, parcelas por veículo e proporção de documentos. Cada
+            linha diz de onde o número veio no acervo da Auditoria, ou o que falta
+            para ele existir. O que o acervo ainda não responde, você preenche em{" "}
+            <strong>Cadastrar a planilha</strong>, e ele passa a aparecer aqui
+            marcado como informado.
+          </>
+        }
+      />
 
       <div className="p-8 space-y-6 max-w-6xl">
         <Card>

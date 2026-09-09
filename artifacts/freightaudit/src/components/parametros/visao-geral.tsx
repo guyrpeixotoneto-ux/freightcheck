@@ -116,7 +116,7 @@ function Total({ grupo, unidades }: { grupo: ChangeGroup; unidades: number }) {
   const valor = grupo.impact.amount;
 
   return (
-    <div className="rounded-xl border bg-card px-5 py-4 flex flex-wrap items-baseline justify-between gap-x-8 gap-y-2">
+    <div className="superficie px-5 py-4 flex flex-wrap items-baseline justify-between gap-x-8 gap-y-2">
       <div>
         <div className="text-xs uppercase tracking-wider text-muted-foreground">
           Somado nas {unidades} unidades

@@ -9,6 +9,7 @@ import {
   Headset,
 } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
+import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import { AbaBotao } from "@/components/changes/cartoes";
 import { AbaPlanilha } from "@/components/changes/aba-planilha";
 import { AbaChamados } from "@/components/changes/aba-chamados";
@@ -182,18 +183,18 @@ export default function Alteracoes({
 
   return (
     <Layout>
-      <div className="border-b bg-card px-8 pt-6">
-        <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-          <Activity className="w-6 h-6 text-primary" />
-          Alterações
-        </h1>
-        <p className="text-muted-foreground text-sm mt-1 max-w-3xl">
-          A remuneração muda por dois caminhos, e cada um se confere de um
-          jeito — os números de uma aba nunca somam com os da outra. Impacto é a
-          terceira leitura: quanto cada ativo custa em cada quinzena.
-        </p>
-
-        <nav className="flex items-center gap-1 mt-4" role="tablist">
+      <CabecalhoDePagina
+        icone={Activity}
+        titulo="Alterações"
+        descricao={
+          <>
+            A remuneração muda por dois caminhos, e cada um se confere de um
+            jeito — os números de uma aba nunca somam com os da outra. Impacto é
+            a terceira leitura: quanto cada ativo custa em cada quinzena.
+          </>
+        }
+        rodape={
+          <nav className="flex items-center gap-1 border-b" role="tablist">
           <AbaBotao
             active={aba === "planilha"}
             onClick={() => trocarAba("planilha")}
@@ -223,8 +224,9 @@ export default function Alteracoes({
             label="Cliente"
             hint="o que propor, o que investigar, e o que não levar"
           />
-        </nav>
-      </div>
+          </nav>
+        }
+      />
 
       {aba === "planilha" && (
         <AbaPlanilha

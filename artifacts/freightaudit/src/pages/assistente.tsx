@@ -714,7 +714,7 @@ function Composer({
       <div className="max-w-4xl mx-auto">
         <div
           className={cn(
-            "bg-card border rounded-xl px-4 pt-3 pb-3 transition-colors",
+            "superficie px-4 pt-3 pb-3 transition-colors",
             ditado.ouvindo ? "border-destructive" : "border-input focus-within:border-brand",
           )}
         >

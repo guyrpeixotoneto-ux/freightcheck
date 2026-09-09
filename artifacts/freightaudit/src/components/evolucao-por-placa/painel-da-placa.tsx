@@ -53,7 +53,7 @@ export function PainelDaPlaca({
   const serie = serieDaPlaca(ativo, evolucao.colunas);
 
   return (
-    <aside className="bg-card border rounded-xl shadow-sm p-5 lg:sticky lg:top-4">
+    <aside className="superficie p-5 lg:sticky lg:top-4">
       <div className="flex items-start gap-2">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
