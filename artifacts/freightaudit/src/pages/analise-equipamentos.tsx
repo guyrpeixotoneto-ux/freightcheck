@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Layout } from "@/components/layout/layout";
+import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -448,19 +449,12 @@ export default function AnaliseEquipamentos() {
 
   return (
     <Layout>
-      <div className="p-6 space-y-6 max-w-[1600px]">
-        {/* Header */}
-        <div className="flex items-start justify-between">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-              <Truck className="w-6 h-6 text-primary" />
-              Análise de Equipamentos
-            </h1>
-            <p className="text-sm text-muted-foreground mt-1">
-              Evolução da remuneração da frota Freightec — {vigencias.length} vigências analisadas
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
+      <CabecalhoDePagina
+        icone={Truck}
+        titulo="Análise de Equipamentos"
+        descricao={`Evolução da remuneração da frota Freightec — ${vigencias.length} vigências analisadas`}
+        acoes={
+          <>
             <span className="text-xs text-muted-foreground">Vigência:</span>
             <Select value={activeVig} onValueChange={setSelectedVig}>
               <SelectTrigger className="w-36 h-8 text-sm">
@@ -475,11 +469,15 @@ export default function AnaliseEquipamentos() {
               </SelectContent>
             </Select>
             {activeVig === lastVig && (
-              <Badge variant="default" className="text-xs">Mais recente</Badge>
+              <Badge variant="default" className="text-xs">
+                Mais recente
+              </Badge>
             )}
-          </div>
-        </div>
+          </>
+        }
+      />
 
+      <div className="px-8 pb-6 space-y-6 max-w-[1600px]">
         {/* KPIs */}
         {lastSummary && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

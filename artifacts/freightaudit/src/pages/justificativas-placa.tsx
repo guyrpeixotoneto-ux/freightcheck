@@ -3,6 +3,7 @@ import { useMutation, useQueries, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Check, Circle, CircleDot, FileCheck2, LayoutGrid } from "lucide-react";
 import { Link, useLocation, useParams, useSearch } from "wouter";
 import { Layout } from "@/components/layout/layout";
+import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import { ApiErrorNotice } from "@/components/api-error";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -262,23 +263,27 @@ export default function JustificativasPlaca() {
 
   return (
     <Layout>
-      <header className="px-8 pt-7 pb-5 max-w-[1400px]">
-        <Link
-          href={voltar}
-          className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-        >
-          <ArrowLeft className="w-3.5 h-3.5" />
-          Justificativas
-        </Link>
-        <div className="flex flex-wrap items-center gap-2 mt-2">
-          <h1 className="text-4xl font-bold tracking-tight font-mono">{placa}</h1>
-          {entityType && <Badge variant="secondary">{entityType}</Badge>}
-        </div>
-        <p className="text-sm text-muted-foreground mt-2 max-w-2xl">
-          O histórico desta placa — uma linha por atributo, uma coluna por vigência. Clique na
-          célula para justificar a alteração que aconteceu ali.
-        </p>
-      </header>
+      <CabecalhoDePagina
+        largura="1400px"
+        voltar={
+          <Link
+            href={voltar}
+            className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            Justificativas
+          </Link>
+        }
+        titulo={<span className="font-mono">{placa}</span>}
+        descricao={
+          <>
+            O histórico desta placa — uma linha por atributo, uma coluna por
+            vigência. Clique na célula para justificar a alteração que aconteceu
+            ali.
+          </>
+        }
+        acoes={entityType ? <Badge variant="secondary">{entityType}</Badge> : undefined}
+      />
 
       <div className="px-8 pb-10 space-y-4 max-w-[1400px]">
         <div className="flex flex-wrap items-center gap-3">

@@ -16,6 +16,7 @@ import {
   Workflow,
 } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
+import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import { ApiErrorNotice } from "@/components/api-error";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -164,20 +165,18 @@ export default function Fluxos() {
 
   return (
     <Layout>
-      <header className="border-b bg-card px-8 py-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <h1 className="flex items-center gap-2 text-2xl font-semibold text-foreground">
-              <Workflow className="h-6 w-6 text-muted-foreground" />
-              Fluxos Operacionais
-            </h1>
-            <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-              O mapa dos processos da empresa: como cada um funciona, quem participa, que sistemas e
-              documentos entram, onde costuma falhar — e onde consultar cada ponto aqui dentro.
-            </p>
-          </div>
-
-          <div className="flex items-center gap-2">
+      <CabecalhoDePagina
+        icone={Workflow}
+        titulo="Fluxos Operacionais"
+        descricao={
+          <>
+            O mapa dos processos da empresa: como cada um funciona, quem
+            participa, que sistemas e documentos entram, onde costuma falhar — e
+            onde consultar cada ponto aqui dentro.
+          </>
+        }
+        acoes={
+          <>
             {/*
               Duas portas, e a diferença entre elas é o que a pessoa tem em mãos.
               "Novo fluxo" é o cabeçalho vazio, para quem vai desenhar
@@ -216,9 +215,9 @@ export default function Fluxos() {
               <Plus className="mr-1.5 h-4 w-4" />
               Novo fluxo
             </Button>
-          </div>
-        </div>
-      </header>
+          </>
+        }
+      />
 
       <main className="bg-muted/30 px-8 py-6">
         {semEmpresaCadastrada && (

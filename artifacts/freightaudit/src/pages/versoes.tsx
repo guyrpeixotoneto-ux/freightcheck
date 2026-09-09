@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, GitBranch, PenLine, Radio } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
+import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import { ApiErrorNotice } from "@/components/api-error";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -103,24 +104,28 @@ export default function Versoes() {
 
   return (
     <Layout>
-      <header className="border-b bg-card px-8 py-6">
-        <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-          <GitBranch className="w-6 h-6 text-primary" />
-          Curadoria de Versões
-        </h1>
-        <p className="text-muted-foreground mt-1 max-w-3xl">
-          O significado de uma coluna pode mudar ao longo da série. Aqui você
-          registra <strong>quando</strong> mudou e <strong>por quê</strong> — e,
-          separadamente, corrige um entendimento nosso que estava errado desde
-          sempre.
-        </p>
-        {withSourceChange > 0 && (
-          <p className="text-sm text-muted-foreground mt-2">
-            <strong>{withSourceChange}</strong> atributos tiveram o significado
-            alterado pela Freightec em algum ponto da série.
-          </p>
-        )}
-      </header>
+      <CabecalhoDePagina
+        icone={GitBranch}
+        titulo="Curadoria de Versões"
+        descricao={
+          <>
+            O significado de uma coluna pode mudar ao longo da série. Aqui você
+            registra <strong>quando</strong> mudou e <strong>por quê</strong> — e,
+            separadamente, corrige um entendimento nosso que estava errado desde
+            sempre.
+          </>
+        }
+        rodape={
+          <>
+            {withSourceChange > 0 && (
+              <p className="text-sm text-muted-foreground mt-2">
+                <strong>{withSourceChange}</strong> atributos tiveram o significado
+                alterado pela Freightec em algum ponto da série.
+              </p>
+            )}
+          </>
+        }
+      />
 
       {error && (
         <div className="px-8 pt-6">

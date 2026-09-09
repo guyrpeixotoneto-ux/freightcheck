@@ -15,9 +15,14 @@ Três medidas do estado anterior explicam tudo o que foi feito:
    umas vinte variações próximas (`rounded-xl border bg-card shadow-sm`,
    `rounded-lg border bg-card`, `bg-card border rounded-xl`). Era uma decisão
    copiada, e por isso sem alavanca: evoluir o cartão exigia acertar 64 arquivos.
-2. **21 páginas** escreviam o próprio `<header>` — `px-8 pt-7 pb-2` numas,
-   `px-8 pt-6` noutras, `<h1>` em `text-[2rem]` numas e `text-2xl` noutras.
-   Nenhuma dessas diferenças queria dizer nada: elas são a idade de cada tela.
+2. **Quarenta e três páginas** escreviam o próprio cabeçalho, em cinco formatos:
+   `px-8 pt-7 pb-2` sobre o cinza (a leitura executiva), `border-b bg-card px-8
+   py-6` (a faixa branca com borda, em vinte e cinco telas), `px-8 pt-6`,
+   `px-8 pt-5`, e um punhado que nem `<header>` usava — era um `<div>` com um
+   `<h1>` dentro. O título saía em `text-[2rem]`, `text-4xl`, `text-3xl`,
+   `text-2xl` ou `text-xl` conforme a idade da tela, e o ícone ora estava dentro
+   do `<h1>`, ora num medalhão, ora não existia. Nenhuma dessas diferenças
+   queria dizer nada.
 3. **Quatro** desenhos diferentes de cartão de KPI e **três** de estado vazio,
    todos dizendo a mesma coisa em corpos e respiros diferentes.
 
@@ -64,6 +69,14 @@ porque uma constante não alcança `:hover`, `@media print` nem `forced-colors`.
 | `EstadoVazio`                             | `components/ui/estado-vazio.tsx`              |
 | `CabecalhoDePagina`, `CorpoDaPagina`      | `components/layout/cabecalho-de-pagina.tsx`   |
 | `useTrilha`, `Trilha`                     | `components/layout/trilha.tsx`                |
+
+`CabecalhoDePagina` tem seis encaixes, e todos existem porque alguma tela já
+fazia aquilo à mão: `titulo`, `icone` (o medalhão à esquerda — antes dentro do
+`<h1>`, colado à primeira letra), `descricao`, `acoes` (à direita do título),
+`contexto` (o canto superior direito — "Dados atualizados às 20:19"), `voltar`
+(o caminho de volta **específico**, que ocupa o lugar da trilha nas telas de
+terceiro nível) e `rodape` (abas, filtros e faixas de estado que moram no
+cabeçalho).
 
 A **trilha** merece nota: ela lê a mesma árvore de `nav-auditoria.ts` /
 `nav-fechamento.ts` que a lateral desenha, com o mesmo `estaAtivo`. Por isso ela
@@ -125,12 +138,36 @@ passando, incluindo os seis da página do Panorama.
 5. **O resto**: `Button`, `Badge`, `Alert`, `Table`, `Tabs` já evoluíram; use-os
    em vez de reescrever a casca deles à mão.
 
-## O que ainda não foi convertido
+## A faixa branca
 
-A base está pronta e as classes de casca já alcançaram as ~85 chamadas de cartão
-do sistema inteiro, mas **os cabeçalhos próprios ainda existem em cerca de
-quinze páginas** — as convertidas nesta rodada foram Panorama, Impacto Líquido,
-Impacto Apurado, Resumo executivo, Linha do Tempo e Evolução por Placa. As
-demais continuam funcionando exatamente como antes; converter cada uma é o
-trabalho mecânico descrito acima, e vale fazê-lo quando a tela for tocada por
-outro motivo.
+Vinte e cinco telas abriam com `border-b bg-card px-8 py-6`: uma faixa branca
+com borda embaixo, logo abaixo da faixa marinho do topo. Ela **saiu**, e a razão
+está escrita desde antes desta rodada no Resumo executivo, que já a havia
+abandonado sozinho: são duas barras empilhadas no alto da página, e juntas elas
+empurram o primeiro número para baixo da dobra em tela de 13 polegadas. O que
+qualifica um título é o texto, não o fundo atrás dele.
+
+Onde a borda dessa faixa tinha função — as fileiras de abas sublinhadas, cujo
+`border-b-2` se apoiava nela —, a régua desceu para a própria `<nav>`
+(`border-b`, com o botão aceso subindo um pixel para cobri-la). Nada de aba mudou
+de comportamento.
+
+## O que não foi convertido, e por quê
+
+Seis telas continuam com cabeçalho próprio, e as seis por um motivo:
+
+- **Gestão à Vista** não usa a casca. É o painel de parede — `<div>` de tela
+  cheia, sem `Layout`, sem lateral e sem faixa do topo —, e um cabeçalho de
+  página dentro dele seria a casca que a tela existe para não ter.
+- **Assistente** e **Fluxo** montam `<Layout alturaDeJanela>`: o cabeçalho deles
+  é `shrink-0` dentro de uma coluna que mede exatamente uma janela, e o do
+  Assistente ainda encolhe no celular para devolver cem pixels à conversa.
+  `CabecalhoDePagina` não mede janela nem encolhe, e forçá-lo ali quebraria a
+  rolagem interna das duas.
+- **Login** e **Não encontrado** não estão dentro da casca — não têm menu, não
+  têm trilha e não são item de lugar nenhum.
+- **Unidades** não é uma página: é o painel que Configurações desenha por
+  dentro, e o cabeçalho é o de Configurações.
+
+Fora essas seis, **toda página do produto abre pelo mesmo cabeçalho** — as
+quarenta e poucas restantes, incluindo as onze do Fechamento.

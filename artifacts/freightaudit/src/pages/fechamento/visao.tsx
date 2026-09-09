@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ArrowRight, Plus, TriangleAlert } from "lucide-react";
 import { Link, useLocation, useSearch } from "wouter";
 import { Layout } from "@/components/layout/layout";
+import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import {
   useBaseDoFechamento,
   useOperacaoDoFechamento,
@@ -244,19 +245,17 @@ export default function VisaoGerencial() {
 
   return (
     <Layout>
-      <header className="border-b bg-card px-8 py-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">
-              Visão Gerencial
-            </h1>
-            <p className="text-muted-foreground mt-2 max-w-3xl">
-              Quanto do ano já foi fechado, em cada unidade — o que está
-              encerrado, o que venceu sem fechar e quanto continua a questionar.
-              Abra uma unidade para ver as quinzenas do ano, uma a uma.
-            </p>
-          </div>
-          <div className="flex items-center gap-3">
+      <CabecalhoDePagina
+        titulo="Visão Gerencial"
+        descricao={
+          <>
+            Quanto do ano já foi fechado, em cada unidade — o que está
+            encerrado, o que venceu sem fechar e quanto continua a questionar.
+            Abra uma unidade para ver as quinzenas do ano, uma a uma.
+          </>
+        }
+        acoes={
+          <>
             {anos.length > 0 && (
               <Select
                 value={String(ano)}
@@ -286,9 +285,9 @@ export default function VisaoGerencial() {
                 Realizar Fechamento
               </Button>
             </Link>
-          </div>
-        </div>
-      </header>
+          </>
+        }
+      />
 
       <div className="p-8 space-y-6">
         {apuracoes.isError && (

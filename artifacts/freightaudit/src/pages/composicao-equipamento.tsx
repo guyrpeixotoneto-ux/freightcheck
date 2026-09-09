@@ -20,6 +20,7 @@ import {
   YAxis,
 } from "recharts";
 import { Layout } from "@/components/layout/layout";
+import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import { ApiErrorNotice } from "@/components/api-error";
 import {
   Select,
@@ -117,52 +118,76 @@ export default function ComposicaoEquipamento() {
 
   return (
     <Layout>
-      <header className="border-b bg-card px-8 pt-5">
-        <Link
-          href={`/composicao?tipo=${c?.entityType ?? "CAVALO"}${period ? `&period=${period}` : ""}`}
-          className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <ArrowLeft className="w-3.5 h-3.5" />
-          Voltar para a frota
-        </Link>
-
-        {c && <Cabecalho composicao={c} />}
-
-        <nav className="flex items-end gap-1 mt-5 -mb-px" aria-label="Seções da ficha">
-          {ABAS.map((item) => (
-            <button
-              key={item.chave}
-              type="button"
-              onClick={() => irPara({ aba: item.chave })}
-              className={cn(
-                "px-5 py-2.5 text-sm font-semibold uppercase tracking-wide border-b-2 transition-colors",
-                item.chave === aba
-                  ? "border-brand text-brand"
-                  : "border-transparent text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {item.rotulo}
-            </button>
-          ))}
-          {/*
-            A auditoria financeira — esperado contra recebido — é o destino
-            deste módulo, e não tem dado ainda. A aba aparece desligada porque
-            omiti-la esconderia a direção do produto; ligada e vazia, ela
-            prometeria um confronto que não existe.
-          */}
-          <span
-            className="ml-2 px-3 py-2.5 text-xs text-muted-foreground/70 inline-flex items-center gap-1.5 cursor-help"
-            title={
-              "Vai confrontar a remuneração que o FreightCheck apura com a que a " +
-              "Freightec efetivamente pagou. O valor pago ainda não existe no banco, " +
-              "e inventar a diferença é o oposto do que este módulo faz."
-            }
+      <CabecalhoDePagina
+        voltar={
+          <Link
+            href={`/composicao?tipo=${c?.entityType ?? "CAVALO"}${period ? `&period=${period}` : ""}`}
+            className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
           >
-            <ShieldQuestion className="w-3.5 h-3.5" />
-            Auditoria · em breve
-          </span>
-        </nav>
-      </header>
+            <ArrowLeft className="w-3.5 h-3.5" />
+            Voltar para a frota
+          </Link>
+        }
+        /*
+          O título desta ficha é a placa, e o tipo vem antes dela em versalete.
+          `Cabecalho` continua existindo e desenhando o resto da identificação —
+          unidade, vigência, farol, vínculo e o valor do mês —, e entra no
+          rodapé: o que ele traz não é o nome da tela, é o estado do equipamento
+          que a tela abre.
+        */
+        titulo={
+          c ? (
+            <span className="flex items-baseline gap-3 flex-wrap">
+              <span className="rotulo-secao">{c.rotuloDoTipo}</span>
+              <span className="font-mono">{c.placa ?? "sem placa"}</span>
+            </span>
+          ) : (
+            ""
+          )
+        }
+        rodape={
+          <>
+              {c && <Cabecalho composicao={c} />}
+              <nav
+                className="flex items-end gap-1 border-b mt-5 [&>button]:-mb-px"
+                aria-label="Seções da ficha"
+              >
+            {ABAS.map((item) => (
+              <button
+                key={item.chave}
+                type="button"
+                onClick={() => irPara({ aba: item.chave })}
+                className={cn(
+                  "px-5 py-2.5 text-sm font-semibold uppercase tracking-wide border-b-2 transition-colors",
+                  item.chave === aba
+                    ? "border-brand text-brand"
+                    : "border-transparent text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {item.rotulo}
+              </button>
+            ))}
+            {/*
+              A auditoria financeira — esperado contra recebido — é o destino
+              deste módulo, e não tem dado ainda. A aba aparece desligada porque
+              omiti-la esconderia a direção do produto; ligada e vazia, ela
+              prometeria um confronto que não existe.
+            */}
+            <span
+              className="ml-2 px-3 py-2.5 text-xs text-muted-foreground/70 inline-flex items-center gap-1.5 cursor-help"
+              title={
+                "Vai confrontar a remuneração que o FreightCheck apura com a que a " +
+                "Freightec efetivamente pagou. O valor pago ainda não existe no banco, " +
+                "e inventar a diferença é o oposto do que este módulo faz."
+              }
+            >
+              <ShieldQuestion className="w-3.5 h-3.5" />
+              Auditoria · em breve
+                </span>
+              </nav>
+          </>
+        }
+      />
 
       <div className="px-8 py-6">
         {composicao.error && (
@@ -203,15 +228,14 @@ function Cabecalho({ composicao }: { composicao: Composicao }) {
   const mensal = composicao.totais.find((t) => t.gaveta === "MENSAL");
 
   return (
-    <div className="flex items-start justify-between gap-10 mt-3 flex-wrap">
+    <div className="flex items-start justify-between gap-10 flex-wrap">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight flex items-baseline gap-3">
-          <span className="uppercase text-muted-foreground text-base font-semibold tracking-widest">
-            {composicao.rotuloDoTipo}
-          </span>
-          <span className="font-mono">{composicao.placa ?? "sem placa"}</span>
-        </h1>
-        <div className="text-sm text-muted-foreground mt-1 uppercase tracking-wide">
+        {/*
+          Sem `<h1>` aqui. O nome da tela é a placa, e quem a publica agora é o
+          cabeçalho da casca — dois `<h1>` na mesma página é um deles mentindo
+          sobre ser o título, e para quem lê por áudio é a tela ter dois nomes.
+        */}
+        <div className="text-sm text-muted-foreground uppercase tracking-wide">
           {composicao.unidade ?? composicao.contextLabel}
           {composicao.operacao && ` · ${composicao.operacao}`}
         </div>

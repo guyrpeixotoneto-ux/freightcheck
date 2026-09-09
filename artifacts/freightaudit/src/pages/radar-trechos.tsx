@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useLocation, useSearch } from "wouter";
 import { AlertCircle, HelpCircle, Minus, Radar, Search, TrendingDown, TrendingUp } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
+import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import { ApiErrorNotice } from "@/components/api-error";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
@@ -171,16 +172,16 @@ export default function RadarTrechos() {
 
   return (
     <Layout>
-      <header className="border-b bg-card px-8 py-6">
-        <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-          <Radar className="w-6 h-6 text-primary" />
-          Radar de Trechos
-        </h1>
-        <p className="text-muted-foreground mt-1 max-w-3xl">
-          Veja rapidamente quais trechos pioraram, melhoraram ou precisam de
-          investigação nesta vigência.
-        </p>
-      </header>
+      <CabecalhoDePagina
+        icone={Radar}
+        titulo="Radar de Trechos"
+        descricao={
+          <>
+            Veja rapidamente quais trechos pioraram, melhoraram ou precisam de
+            investigação nesta vigência.
+          </>
+        }
+      />
 
       <div className="p-8 space-y-6">
         {consulta.isLoading && (

@@ -1,6 +1,7 @@
-import type { ReactNode } from "react";
+import type { ComponentType, ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { EmAtualizacao } from "@/components/ui/em-atualizacao";
+import { Medalhao } from "@/components/ui/superficie";
 import { Trilha, useTrilha } from "./trilha";
 
 /**
@@ -27,6 +28,12 @@ import { Trilha, useTrilha } from "./trilha";
  *    parte.
  * 4. **As ações**, alinhadas ao título e nunca abaixo dele, porque é a altura
  *    em que o olho já está quando termina de ler o nome da tela.
+ * 5. **A faixa branca com borda embaixo**, que vinte e cinco telas desenhavam
+ *    (`border-b bg-card px-8 py-6`) e que a leitura executiva já havia
+ *    abandonado, some. Ela punha uma segunda barra logo abaixo da faixa
+ *    marinho do topo e empurrava o primeiro número da página para baixo da
+ *    dobra em tela de 13 polegadas — e o que qualifica um título é o texto, não
+ *    o fundo atrás dele. Agora todas as telas abrem sobre o mesmo cinza.
  *
  * O que ele **não** faz: decidir o que a página diz. Título, subtítulo, ações e
  * contexto continuam vindo de quem conhece a tela. E não há `<Layout>` aqui
@@ -39,7 +46,10 @@ import { Trilha, useTrilha } from "./trilha";
  */
 export function CabecalhoDePagina({
   titulo,
+  icone,
   descricao,
+  rodape,
+  voltar,
   acoes,
   contexto,
   atualizando = false,
@@ -48,7 +58,35 @@ export function CabecalhoDePagina({
   className,
 }: {
   titulo: ReactNode;
+  /**
+   * O ícone da tela, num medalhão à esquerda do título.
+   *
+   * Vinte e poucas telas o desenhavam **dentro** do `<h1>`, colado à primeira
+   * letra e da altura da caixa alta: ali ele é lido como parte da palavra, e
+   * cresce junto com ela. No medalhão ele volta a ser o que é — a marca do
+   * assunto —, e as telas que não têm um não ganham buraco: o título
+   * simplesmente começa na margem.
+   */
+  icone?: ComponentType<{ className?: string }>;
   descricao?: ReactNode;
+  /**
+   * O caminho de volta, quando ele é **específico** — "‹ 01/08 a 15/08", e não
+   * "‹ Competências".
+   *
+   * Ele ocupa o lugar da trilha, e não um lugar ao lado dela. As telas que o
+   * têm são as de terceiro nível (um dia dentro de uma competência, uma placa
+   * dentro de uma unidade), e nelas a trilha do menu nomeia a seção — o que é
+   * verdade, e é menos útil do que o pai concreto de onde a pessoa veio. Os
+   * dois juntos seriam duas navegações na mesma linha dizendo quase a mesma
+   * coisa.
+   */
+  voltar?: ReactNode;
+  /**
+   * O que a tela precisa dizer logo abaixo do título e antes do conteúdo — uma
+   * contagem, um aviso de pendência, uma faixa de estado. Fica dentro do
+   * cabeçalho para acompanhar a régua de largura dele.
+   */
+  rodape?: ReactNode;
   /** Botões e seletores, à direita do título. */
   acoes?: ReactNode;
   /** A linha do canto superior direito — quando os dados chegaram, o recorte. */
@@ -74,9 +112,15 @@ export function CabecalhoDePagina({
           largura === "1400px" && "max-w-[1400px]",
         )}
       >
-        {(migalhas || contexto) && (
+        {(voltar || migalhas || contexto) && (
           <div className="flex items-center justify-between gap-4 flex-wrap mb-4 min-h-[1.25rem]">
-            {migalhas ? <Trilha secao={migalhas.secao} tela={migalhas.tela} /> : <span />}
+            {voltar ? (
+              voltar
+            ) : migalhas ? (
+              <Trilha secao={migalhas.secao} tela={migalhas.tela} />
+            ) : (
+              <span />
+            )}
             {contexto && (
               <div className="text-xs text-muted-foreground flex items-center gap-1.5 shrink-0">
                 {contexto}
@@ -86,7 +130,15 @@ export function CabecalhoDePagina({
         )}
 
         <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-4">
-          <div className="min-w-0">
+          <div className="min-w-0 flex gap-4">
+            {icone && (
+              <Medalhao
+                icone={icone}
+                tamanho="lg"
+                className="bg-brand/10 text-brand hidden sm:flex mt-0.5"
+              />
+            )}
+            <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-3">
               {/*
                 `text-[1.75rem]` e não os `2rem` de antes.
@@ -107,10 +159,13 @@ export function CabecalhoDePagina({
                 {descricao}
               </p>
             )}
+            </div>
           </div>
 
           {acoes && <div className="flex items-center gap-2.5 shrink-0 flex-wrap">{acoes}</div>}
         </div>
+
+        {rodape && <div className="mt-4">{rodape}</div>}
       </div>
     </header>
   );

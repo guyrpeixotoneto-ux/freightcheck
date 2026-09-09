@@ -12,6 +12,7 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
+import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import { ApiErrorNotice } from "@/components/api-error";
 import { Input } from "@/components/ui/input";
 import { fetchJson } from "@/lib/api";
@@ -134,14 +135,21 @@ export default function Remunerado() {
 
   return (
     <Layout>
-      <header className="border-b bg-card px-8 pt-5">
-        <h1 className="text-xl font-bold tracking-tight">Remunerado</h1>
-        <p className="text-sm text-muted-foreground mt-1 max-w-3xl">
-          O que a Ambev paga por um produto nesta vigência. A tela devolve o remunerado; a
-          comparação com o preço do pedido é de quem assina.
-        </p>
-
-        <nav className="flex items-end gap-1 mt-5 -mb-px" aria-label="Balcões">
+      <CabecalhoDePagina
+        titulo="Remunerado"
+        descricao={
+          <>
+            O que a Ambev paga por um produto nesta vigência. A tela devolve o
+            remunerado; a comparação com o preço do pedido é de quem assina.
+          </>
+        }
+        rodape={
+          /*
+            A régua das abas é do próprio bloco, e não mais da borda de baixo da
+            faixa branca que existia aqui: a faixa saiu, e a linha em que o
+            `border-b-2` da aba acesa se apoia veio junto para cá.
+          */
+          <nav className="flex items-end gap-1 border-b [&>button]:-mb-px" aria-label="Balcões">
           {ABAS.map((a) => (
             <button
               key={a.chave}
@@ -157,8 +165,9 @@ export default function Remunerado() {
               {a.rotulo}
             </button>
           ))}
-        </nav>
-      </header>
+          </nav>
+        }
+      />
 
       <div className="flex-1 min-h-0 overflow-auto px-8 py-6">
         <p className="text-xs text-muted-foreground mb-5 max-w-3xl">

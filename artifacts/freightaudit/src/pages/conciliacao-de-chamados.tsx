@@ -10,6 +10,7 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
+import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import { ApiErrorNotice } from "@/components/api-error";
 import { AbaBotao } from "@/components/changes/cartoes";
 import { Badge } from "@/components/ui/badge";
@@ -417,21 +418,20 @@ export default function ConciliacaoDeChamados() {
 
   return (
     <Layout>
-      <div className="p-4 md:p-6 space-y-6">
-        <header className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-              <Scale className="w-6 h-6 text-nav-chamados" />
-              Conciliação de Chamados
-            </h1>
-            <p className="text-sm text-muted-foreground mt-1 max-w-3xl">
-              Para cada alteração que a planilha importada trouxe, existe o
-              chamado que a pediu? E para cada chamado que pediu alteração, ela
-              apareceu na planilha? O confronto é por placa e parâmetro, e os
-              dois impactos aparecem lado a lado — nunca somados.
-            </p>
-          </div>
-        </header>
+      <CabecalhoDePagina
+        icone={Scale}
+        titulo="Conciliação de Chamados"
+        descricao={
+          <>
+            Para cada alteração que a planilha importada trouxe, existe o
+            chamado que a pediu? E para cada chamado que pediu alteração, ela
+            apareceu na planilha? O confronto é por placa e parâmetro, e os dois
+            impactos aparecem lado a lado — nunca somados.
+          </>
+        }
+      />
+
+      <div className="px-8 pb-6 space-y-6">
 
         {/*
           Os dois lados. Ficam acima de tudo porque nenhum número desta tela

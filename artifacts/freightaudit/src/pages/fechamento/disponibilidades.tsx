@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { ArrowRight, GaugeCircle } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
+import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import {
   useBaseDoFechamento,
   useOperacaoDoFechamento,
@@ -39,16 +40,18 @@ export default function Disponibilidades() {
 
   return (
     <Layout>
-      <div className="p-8 space-y-6 max-w-4xl">
-        <div>
-          <h1 className="flex items-center gap-2 text-xl font-semibold">
-            <GaugeCircle className="h-5 w-5" /> Disponibilidade
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            O 03.08.18 dia a dia — frota contratada, o que rodou, o gap de cada lado e o
-            desconto que ele produz, competência a competência.
-          </p>
-        </div>
+      <CabecalhoDePagina
+        icone={GaugeCircle}
+        titulo="Disponibilidade"
+        descricao={
+          <>
+            O 03.08.18 dia a dia — frota contratada, o que rodou, o gap de cada
+            lado e o desconto que ele produz, competência a competência.
+          </>
+        }
+      />
+
+      <div className="px-8 pb-8 space-y-6 max-w-4xl">
 
         {competencias.isLoading && (
           <div className="text-sm text-muted-foreground">Carregando…</div>

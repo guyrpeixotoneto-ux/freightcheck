@@ -15,6 +15,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
+import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import { ApiErrorNotice } from "@/components/api-error";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -194,25 +195,26 @@ export default function QlpAdministrativo() {
 
   return (
     <Layout>
-      <header className="border-b bg-card px-8 pt-6">
-        <div className="flex items-start justify-between gap-8">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-              <Briefcase className="w-6 h-6 text-nav-qlp" />
-              QLP Administrativo
-            </h1>
-            <p className="text-muted-foreground mt-1 max-w-3xl text-sm">
-              O quadro de pessoal da estrutura administrativa que o modelo remunera — cargo a
-              cargo, unidade a unidade, com a origem de cada número e o que a curadoria ainda
-              não destravou.
-            </p>
-          </div>
-          {cabecalho && (
+      <CabecalhoDePagina
+        icone={Briefcase}
+        titulo="QLP Administrativo"
+        descricao={
+          <>
+            O quadro de pessoal da estrutura administrativa que o modelo
+            remunera — cargo a cargo, unidade a unidade, com a origem de cada
+            número e o que a curadoria ainda não destravou.
+          </>
+        }
+        acoes={
+          cabecalho ? (
             <div className="text-right shrink-0">
-              <div className="text-[0.6875rem] uppercase tracking-wider text-muted-foreground">
+              <div className="text-3xs uppercase tracking-wider text-muted-foreground">
                 {cabecalho.context.label}
               </div>
-              <Select value={cabecalho.effectiveDate} onValueChange={(v) => irPara({ period: v })}>
+              <Select
+                value={cabecalho.effectiveDate}
+                onValueChange={(v) => irPara({ period: v })}
+              >
                 <SelectTrigger className="w-64 mt-1 font-semibold">
                   <SelectValue />
                 </SelectTrigger>
@@ -225,10 +227,10 @@ export default function QlpAdministrativo() {
                 </SelectContent>
               </Select>
             </div>
-          )}
-        </div>
-
-        <nav className="flex items-end gap-1 mt-5 -mb-px" aria-label="Leituras do quadro">
+          ) : undefined
+        }
+        rodape={
+          <nav className="flex items-end gap-1 border-b [&>button]:-mb-px" aria-label="Leituras do quadro">
           {ABAS.map((item) => (
             <button
               key={item.id}
@@ -249,8 +251,9 @@ export default function QlpAdministrativo() {
               )}
             </button>
           ))}
-        </nav>
-      </header>
+          </nav>
+        }
+      />
 
       <div className="px-8 py-6 space-y-6">
         {quadro.error && (

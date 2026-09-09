@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { Cell, Pie, PieChart, ResponsiveContainer } from "recharts";
 import { Layout } from "@/components/layout/layout";
+import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import { ApiErrorNotice } from "@/components/api-error";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -610,32 +611,30 @@ export default function PainelDeJustificativas() {
 
   return (
     <Layout>
-      <header className="px-8 pt-7 pb-5 max-w-[1400px]">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="flex items-start gap-3">
-            <span className="rounded-xl bg-primary/10 p-2.5 mt-0.5">
-              <ClipboardList className="w-6 h-6 text-primary" />
-            </span>
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                Chamados
-              </p>
-              <h1 className="text-4xl font-bold tracking-tight mt-1">
-                Painel de Justificativas
-              </h1>
-              <p className="text-sm text-muted-foreground mt-2 max-w-2xl">
-                Acompanhe tudo que foi justificado e o que ainda falta justificar —
-                as alterações que subiram ou desceram um valor entre uma vigência
-                e a seguinte, e a explicação que o gestor deve a cada uma
-                {unidadeDoRecorte
-                  ? `, em ${unidadeDoRecorte}`
-                  : emVisaoGeral
-                    ? ", somando todas as unidades"
-                    : ""}
-                .
-              </p>
-
-              {/* Qual vigência está aberta — escrito aqui, porque o botão que a
+      {/*
+        O versalete "Chamados" saiu daqui pela mesma razão que saiu da fila: ele
+        era a trilha escrita à mão, e a trilha agora vem da árvore do menu.
+      */}
+      <CabecalhoDePagina
+        largura="1400px"
+        icone={ClipboardList}
+        titulo="Painel de Justificativas"
+        descricao={
+          <>
+            Acompanhe tudo que foi justificado e o que ainda falta justificar —
+            as alterações que subiram ou desceram um valor entre uma vigência e
+            a seguinte, e a explicação que o gestor deve a cada uma
+            {unidadeDoRecorte
+              ? `, em ${unidadeDoRecorte}`
+              : emVisaoGeral
+                ? ", somando todas as unidades"
+                : ""}
+            .
+          </>
+        }
+        rodape={
+          <>
+            {/* Qual vigência está aberta — escrito aqui, porque o botão que a
                   troca diz só "Trocar vigência". É a mesma linha da fila
                   (`pages/justificativas.tsx`), e por isso ela também escreve o
                   estado de partida desta tela, que as outras não têm: **todas**
@@ -655,10 +654,10 @@ export default function PainelDeJustificativas() {
                   </span>
                 </span>
               )}
-            </div>
-          </div>
-
-          {/*
+          </>
+        }
+        acoes={
+          /*
             A vigência é o recorte da leitura, e não um filtro dela: ela decide
             **de que acervo** os cartões, a rosca, as barras e a lista falam, do
             mesmo jeito que a unidade da lateral. Por isso o botão da casa —
@@ -679,8 +678,8 @@ export default function PainelDeJustificativas() {
             "Todas as vigências" é a primeira linha do menu porque é o estado de
             partida do painel e a pergunta que ele existe para responder — o
             acervo inteiro, e não uma vigência de cada vez.
-          */}
-          <div className="flex flex-wrap items-center gap-3 shrink-0">
+          */
+          <>
             {porVigencia.length > 1 && (
               <MenuDeVigencias
                 rotulo="Trocar vigência"
@@ -719,9 +718,9 @@ export default function PainelDeJustificativas() {
               <Download className="w-4 h-4" />
               {exportando ? "Exportando…" : "Exportar"}
             </Button>
-          </div>
-        </div>
-      </header>
+          </>
+        }
+      />
 
       <div className="px-8 border-b max-w-[1400px]">
         <nav className="flex flex-wrap items-center gap-1" role="tablist">

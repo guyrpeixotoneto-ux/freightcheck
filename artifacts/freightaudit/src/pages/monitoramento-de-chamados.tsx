@@ -11,6 +11,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
+import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import { ApiErrorNotice } from "@/components/api-error";
 import { MetricCard } from "@/components/changes/cartoes";
 import { Button } from "@/components/ui/button";
@@ -389,41 +390,31 @@ export default function MonitoramentoDeChamados() {
 
   return (
     <Layout>
-      <div className="p-6 space-y-5 max-w-[1600px] mx-auto">
-        <header className="flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0">
-            <div className="flex items-center gap-3">
-              <div className="h-11 w-11 rounded-xl bg-blue-50 text-blue-600 grid place-content-center shrink-0">
-                <Headset className="h-5 w-5" />
-              </div>
-              <div className="min-w-0">
-                {/*
-                  O título é o mesmo rótulo curto da lateral —
-                  **"Monitoramento"** — e não "Monitoramento de Chamados": a
-                  tela é a que o menu acende, e um cabeçalho que diz um nome
-                  diferente do item clicado faz duvidar de que se chegou onde
-                  se queria. O assunto já está dito de dois lados: a seção da
-                  lateral se chama "Chamados Ambev", e a linha abaixo do título
-                  é o dia dos chamados. Ver `layout/nav-auditoria.ts`.
-                */}
-                <h1 className="text-2xl font-bold tracking-tight">
-                  Monitoramento
-                </h1>
-                <p className="text-sm text-muted-foreground">
-                  {diaPorExtenso(dia)}
-                  {resumo?.ultimaImportacao && (
-                    <>
-                      {" · "}
-                      Última importação {horaLegivel(resumo.ultimaImportacao)}
-                    </>
-                  )}
-                </p>
-                <RecorteEmTela recorte={recorte} />
-              </div>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
+      {/*
+        O título é o mesmo rótulo curto da lateral — **"Monitoramento"** — e não
+        "Monitoramento de Chamados": a tela é a que o menu acende, e um
+        cabeçalho que diz um nome diferente do item clicado faz duvidar de que
+        se chegou onde se queria. O assunto já está dito de dois lados: a trilha
+        acima nomeia a seção "Chamados Ambev", e a linha abaixo do título é o
+        dia dos chamados. Ver `layout/nav-auditoria.ts`.
+      */}
+      <CabecalhoDePagina
+        icone={Headset}
+        titulo="Monitoramento"
+        descricao={
+          <>
+            {diaPorExtenso(dia)}
+            {resumo?.ultimaImportacao && (
+              <>
+                {" · "}
+                Última importação {horaLegivel(resumo.ultimaImportacao)}
+              </>
+            )}
+          </>
+        }
+        rodape={<RecorteEmTela recorte={recorte} />}
+        acoes={
+          <>
             {mostrarSeletorDeSerie && (
               <Select
                 value={valorDoSeletor(recorte, serieBruta)}
@@ -475,8 +466,11 @@ export default function MonitoramentoDeChamados() {
                 className={cn("h-4 w-4", fila.atualizando && "animate-spin")}
               />
             </Button>
-          </div>
-        </header>
+          </>
+        }
+      />
+
+      <div className="px-8 pb-6 space-y-5 max-w-[1600px]">
 
         {indisponivel && (
           <ApiErrorNotice

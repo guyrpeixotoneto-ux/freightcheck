@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Link, useLocation, useSearch } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Layout } from "@/components/layout/layout";
+import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import { ApiErrorNotice } from "@/components/api-error";
 import { Descobertas } from "@/components/cobertura/descobertas";
 import { DetalheDaCelulaPainel } from "@/components/cobertura/detalhe";
@@ -195,56 +196,66 @@ export default function Dados() {
 
   return (
     <Layout>
-      <div className="px-10 py-6 max-w-[1600px]">
-        <h1 className="text-3xl font-bold uppercase tracking-tight">
-          Cobertura de dados
-          {escopo.visaoGeral ? " — Todas as unidades" : unidade ? ` — ${unidade}` : ""}
-        </h1>
-        {/*
-          O recorte é dito no cabeçalho, e não deduzido da caixa da lateral.
+      {/*
+        O recorte é dito no cabeçalho, e não deduzido da caixa da lateral.
 
-          Os números desta tela — cobertura geral, lacunas, conjuntos parciais —
-          são de uma população, e uma tela que não a nomeia deixa quem lê supor
-          qual é. Enquanto a medição era do acervo inteiro, a suposição natural
-          era a unidade escrita ao lado, e ela estava errada.
-        */}
-        <p className="text-sm text-muted-foreground mt-1 max-w-4xl">
-          O que já temos versus o que deveríamos ter{" "}
-          {escopo.visaoGeral ? (
-            <>somando todas as unidades com vigência importada</>
-          ) : unidade !== null ? (
-            <>
-              em <span className="font-semibold text-foreground">{unidade}</span>
-              {escopo.contexto?.channel ? ` · ${escopo.contexto.channel}` : ""}
-            </>
-          ) : (
-            <>no acervo inteiro</>
-          )}
-          . O que entrou está em{" "}
-          <Link href="/importacoes" className="text-brand hover:underline">
-            Importações
-          </Link>
-          ; o que chegou com problema, em Qualidade de dados.
-          {/*
-            A soma é um link, e não um segundo seletor de unidade: quem quer
-            outra unidade usa o da lateral, que é o único lugar onde essa
-            pergunta é feita (ver `sidebar.tsx`). O caminho de volta é ele
-            mesmo — por isso aqui só existe a ida.
-          */}
-          {!escopo.visaoGeral && contextos.length > 1 && (
-            <>
-              {" "}
-              <Link
-                href={enderecoDeVisaoGeral(pathname, search)}
-                className="text-brand hover:underline"
-              >
-                Ver todas as unidades
-              </Link>
-              .
-            </>
-          )}
-        </p>
+        Os números desta tela — cobertura geral, lacunas, conjuntos parciais —
+        são de uma população, e uma tela que não a nomeia deixa quem lê supor
+        qual é. Enquanto a medição era do acervo inteiro, a suposição natural
+        era a unidade escrita ao lado, e ela estava errada.
+      */}
+      <CabecalhoDePagina
+        titulo={
+          <>
+            Cobertura de dados
+            {escopo.visaoGeral
+              ? " — Todas as unidades"
+              : unidade
+                ? ` — ${unidade}`
+                : ""}
+          </>
+        }
+        descricao={
+          <>
+            O que já temos versus o que deveríamos ter{" "}
+            {escopo.visaoGeral ? (
+              <>somando todas as unidades com vigência importada</>
+            ) : unidade !== null ? (
+              <>
+                em <span className="font-semibold text-foreground">{unidade}</span>
+                {escopo.contexto?.channel ? ` · ${escopo.contexto.channel}` : ""}
+              </>
+            ) : (
+              <>no acervo inteiro</>
+            )}
+            . O que entrou está em{" "}
+            <Link href="/importacoes" className="text-brand hover:underline">
+              Importações
+            </Link>
+            ; o que chegou com problema, em Qualidade de dados.
+            {/*
+              A soma é um link, e não um segundo seletor de unidade: quem quer
+              outra unidade usa o da lateral, que é o único lugar onde essa
+              pergunta é feita (ver `sidebar.tsx`). O caminho de volta é ele
+              mesmo — por isso aqui só existe a ida.
+            */}
+            {!escopo.visaoGeral && contextos.length > 1 && (
+              <>
+                {" "}
+                <Link
+                  href={enderecoDeVisaoGeral(pathname, search)}
+                  className="text-brand hover:underline"
+                >
+                  Ver todas as unidades
+                </Link>
+                .
+              </>
+            )}
+          </>
+        }
+      />
 
+      <div className="px-8 pb-6 max-w-[1600px]">
         {(consulta.isLoading || escopo.indefinido) && (
           <p className="mt-8 text-sm text-muted-foreground">Medindo a cobertura…</p>
         )}
