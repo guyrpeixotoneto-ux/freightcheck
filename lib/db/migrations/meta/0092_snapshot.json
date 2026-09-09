@@ -1,5 +1,5 @@
 {
-  "id": "1e7c92af-a25b-4b4e-aa85-16b2a238b427",
+  "id": "6d70be47-fe68-46cc-b37f-4bc4d5dee9cd",
   "prevId": "f073077c-e4fb-44c4-b314-460593d1db97",
   "version": "7",
   "dialect": "postgresql",
@@ -6888,6 +6888,18 @@
           "primaryKey": false,
           "notNull": true,
           "default": 0
+        },
+        "source_sheet": {
+          "name": "source_sheet",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "source_sheet_row": {
+          "name": "source_sheet_row",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
         },
         "source_row_index": {
           "name": "source_row_index",
@@ -13911,7 +13923,7 @@
               "nulls": "last"
             },
             {
-              "expression": "(COALESCE(\"serie\",'\u2014'))",
+              "expression": "(COALESCE(\"serie\",'—'))",
               "asc": true,
               "isExpression": true,
               "nulls": "last"

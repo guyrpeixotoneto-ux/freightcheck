@@ -38,7 +38,7 @@ import type {
 } from "@/lib/analise";
 import { DetalheDoIntervalo, type AberturaDoIntervalo } from "@/components/linha-do-tempo/detalhe-do-intervalo";
 
-export const CARTAO = "bg-card border rounded-xl shadow-sm";
+export const CARTAO = "superficie";
 
 /**
  * O impacto líquido de cada vigência do histórico, no tempo.

@@ -12,6 +12,7 @@ import {
   X,
 } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
+import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import {
   Select,
   SelectContent,
@@ -141,47 +142,29 @@ export default function Vigencia() {
 
   return (
     <Layout>
-      <header className="px-8 pt-7 pb-5 max-w-[1600px]">
-        {/*
-          Duas colunas que não trocam de lugar: o título é o que encolhe
-          (`flex-1 min-w-0`) e o seletor é o que não encolhe (`shrink-0`).
-          Com `flex-wrap` e uma linha de procedência de mil e poucos pixels, o
-          seletor caía para a linha de baixo e ia parar à esquerda, embaixo do
-          título — no lugar onde ninguém procura o controle da página.
-        */}
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
-          <div className="min-w-0 flex-1">
-            {/*
-              Unidade e canal sobem para cima do título. Eles são o que não
-              muda enquanto se navega — a vigência é o que muda —, e lidos
-              embaixo de um "Agosto/2026" de 36px pareciam legenda dele, e não
-              o contexto de que a vigência é um recorte.
-            */}
-            {data && (
-              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                {data.context.label}
-              </p>
-            )}
-            <div className="flex flex-wrap items-center gap-3">
-              <h1 className="text-4xl font-bold tracking-tight mt-1">
-                {data ? capitalizar(data.periodLabel) : "Acompanhamento"}
-              </h1>
-              {/*
-                O título nomeia a vigência **da resposta em tela**, e a linha
-                acima nomeia a unidade dela. Enquanto os dois forem os
-                anteriores, isto diz que são.
-              */}
-              <EmAtualizacao ativo={isPlaceholderData} className="mt-1" />
-            </div>
-            {data && <Procedencia series={data.series} periodLabel={data.periodLabel} />}
-          </div>
-
-          {/*
+      {/*
+        A unidade e o canal, que subiam para cima do título em versalete,
+        passaram para a linha de contexto do cabeçalho da casca — o mesmo canto
+        em que as outras telas dizem de que recorte falam. O título continua
+        nomeando a vigência **da resposta em tela**, e a etiqueta ao lado dele
+        continua dizendo quando ela ainda é a anterior.
+      */}
+      <CabecalhoDePagina
+        titulo={data ? capitalizar(data.periodLabel) : "Acompanhamento"}
+        atualizando={isPlaceholderData}
+        contexto={data ? data.context.label : undefined}
+        rodape={
+          data ? (
+            <Procedencia series={data.series} periodLabel={data.periodLabel} />
+          ) : undefined
+        }
+        acoes={
+          /*
             O seletor traz o rótulo colado nele. Fora da faixa branca do
             cabeçalho antigo, um "Vigência" solto sobre o cinza da página não
             teria mais a que se referir — dentro da mesma moldura do campo, tem.
-          */}
-          {data && data.periods.length > 1 && (
+          */
+          data && data.periods.length > 1 ? (
             <div className="flex items-stretch border rounded-lg bg-card shadow-sm overflow-hidden shrink-0">
               <span className="flex items-center px-3 text-xs font-semibold text-muted-foreground border-r">
                 Vigência
@@ -202,9 +185,9 @@ export default function Vigencia() {
                 </SelectContent>
               </Select>
             </div>
-          )}
-        </div>
-      </header>
+          ) : undefined
+        }
+      />
 
       <div className="px-8 pb-6 space-y-4 max-w-[1600px]">
         {isLoading && <Esqueleto />}
@@ -232,7 +215,7 @@ export default function Vigencia() {
             <Avisos data={data} />
 
             {data.totals.changes === 0 ? (
-              <section className="bg-card border rounded-xl shadow-sm px-6 py-10 text-center">
+              <section className="superficie px-6 py-10 text-center">
                 {data.cockpit.baseline.hasBaseline ? (
                   <>
                     <p className="text-lg font-bold">
@@ -270,7 +253,7 @@ export default function Vigencia() {
               <>
                 <Panorama cockpit={data.cockpit} filtro={filtro} aoFiltrar={mudarFiltro} />
 
-                <section className="bg-card border rounded-xl shadow-sm overflow-hidden">
+                <section className="superficie overflow-hidden">
                   <div className="px-5 pt-4 pb-3">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
@@ -722,7 +705,7 @@ function Esqueleto() {
     <div className="space-y-4" aria-hidden>
       <div className="grid gap-4 grid-cols-2 lg:grid-cols-5">
         {Array.from({ length: 5 }).map((_, i) => (
-          <div key={i} className="bg-card border rounded-xl shadow-sm px-4 py-4 space-y-3">
+          <div key={i} className="superficie px-4 py-4 space-y-3">
             <div className="flex items-center gap-2.5">
               <Skeleton className="h-9 w-9 rounded-full" />
               <Skeleton className="h-3 w-24" />
@@ -735,7 +718,7 @@ function Esqueleto() {
       <Skeleton className="h-12 w-full rounded-xl" />
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="bg-card border rounded-xl shadow-sm px-4 py-4 space-y-3">
+          <div key={i} className="superficie px-4 py-4 space-y-3">
             <Skeleton className="h-4 w-28" />
             {Array.from({ length: 4 }).map((__, j) => (
               <Skeleton key={j} className="h-3 w-full" />
@@ -743,7 +726,7 @@ function Esqueleto() {
           </div>
         ))}
       </div>
-      <div className="bg-card border rounded-xl shadow-sm px-5 py-4 space-y-3">
+      <div className="superficie px-5 py-4 space-y-3">
         <Skeleton className="h-5 w-64" />
         <Skeleton className="h-8 w-full max-w-md" />
         {Array.from({ length: 3 }).map((_, i) => (

@@ -986,8 +986,28 @@ export function computeParameterMovement(
 export interface TicketSheet {
   sheetName: string;
   headers: (string | null)[];
-  /** Uma entrada por linha de dados, com o índice físico 1-based. */
+  /** Uma entrada por linha de dados, com o índice físico 1-based **na aba**. */
   rows: { rowIndex: number; cells: unknown[] }[];
+  /**
+   * Quantas linhas a aba tem ao todo, contando cabeçalho, preâmbulo e vazias.
+   *
+   * É o passo da contagem contínua de `source_row_index`: a aba seguinte começa
+   * depois desta, e usar `rows.length` no lugar faria duas linhas de abas
+   * diferentes caírem no mesmo número assim que uma delas tivesse linha vazia.
+   */
+  alturaDaGrade: number;
+}
+
+/** Uma aba que o leitor não soube ler, e por quê — nunca omitida em silêncio. */
+export interface AbaIgnorada {
+  sheetName: string;
+  motivo: string;
+}
+
+/** O arquivo inteiro: as abas legíveis e as que ficaram de fora, nomeadas. */
+export interface TicketWorkbook {
+  sheets: TicketSheet[];
+  ignoradas: AbaIgnorada[];
 }
 
 /**
@@ -1032,32 +1052,76 @@ function loadWorkbook(filePath: string): XLSX.WorkBook {
 }
 
 /**
- * A aba de chamados do arquivo, com a linha de cabeçalho encontrada.
+ * As abas de chamados do arquivo, cada uma com a sua linha de cabeçalho.
  *
  * `.xlsx` e `.csv` entram pelo mesmo leitor — um export de fila costuma vir em
  * CSV, e recusá-lo obrigaria quem opera a abrir e salvar de novo no Excel só
  * para nos agradar.
  *
+ * **Todas as abas, e não a primeira.** Durante um tempo isto leu
+ * `SheetNames[0]` e parou ali, o que era a leitura inteira enquanto o export
+ * vinha com uma aba só. Ele não vem mais: o do Freightech entrega um mês por
+ * aba, e o que a leitura fazia com o segundo mês não era falhar — era ignorá-lo
+ * sem contar. Medido no export de agosto/setembro de 2026: 3.400 chamados no
+ * arquivo, 1.051 lidos, e a conta de conservação de `readTicketImport` fechando
+ * certinho, porque as linhas da outra aba nunca chegaram a ser contadas.
+ *
+ * **Cada aba tem o seu cabeçalho e o seu plano de colunas.** Duas abas do mesmo
+ * arquivo costumam ser idênticas, mas nada garante isso, e assumir a igualdade
+ * casaria as colunas da segunda pelos nomes da primeira — que é a forma de
+ * gravar o valor de uma coluna debaixo do nome de outra sem que nada estoure.
+ *
  * **Achar o cabeçalho.** Ele não está fixado na primeira linha: os exports do
  * Freightech começam com o título do relatório e a data de extração. Mas a
  * primeira linha que *mencione* um chamado também não serve — o título
- * "Relatório de chamados" menciona, e tomá-lo por cabeçalho faz o arquivo
- * inteiro virar dado sob nomes de coluna que não existem. Vence a linha que
- * reconhece **mais campos**, entre as que têm ao menos duas colunas
- * preenchidas e uma delas identificando o chamado. Um casamento exato vale
- * mais que dez aproximados, para que um arquivo bem formado nunca seja
- * derrotado por uma linha de ruído mais comprida.
+ * "Relatório de chamados" menciona, e tomá-lo por cabeçalho faz a aba inteira
+ * virar dado sob nomes de coluna que não existem. Vence a linha que reconhece
+ * **mais campos**, entre as que têm ao menos duas colunas preenchidas e uma
+ * delas identificando o chamado. Um casamento exato vale mais que dez
+ * aproximados, para que uma aba bem formada nunca seja derrotada por uma linha
+ * de ruído mais comprida.
+ *
+ * **A aba sem cabeçalho não derruba o arquivo — ela é nomeada.** Um export
+ * costuma trazer aba de legenda, de totais, de parâmetros da extração, e
+ * recusar o arquivo inteiro por causa delas seria trocar um descarte silencioso
+ * por uma recusa que não ajuda ninguém. Elas voltam em `ignoradas`, com o
+ * motivo, e `readTicketImport` as publica. Só quando **nenhuma** aba tem coluna
+ * de chamado é que o arquivo é recusado: aí não há o que ler.
  */
-export function readTicketWorkbook(filePath: string): TicketSheet {
+export function readTicketWorkbook(filePath: string): TicketWorkbook {
   const workbook = loadWorkbook(filePath);
-  const sheetName = workbook.SheetNames[0];
-  if (!sheetName) {
+  if (workbook.SheetNames.length === 0) {
     throw new Error("O arquivo não tem nenhuma aba legível.");
   }
-  // `blankrows: true` é o que mantém o índice do array igual à linha física do
-  // arquivo. Com ele desligado uma linha em branco no meio encurta a grade, e
-  // todo `source_row_index` gravado depois dela aponta para a linha errada —
-  // logo o número que a tela mostra como "linha N do arquivo, como veio".
+
+  const sheets: TicketSheet[] = [];
+  const ignoradas: AbaIgnorada[] = [];
+
+  for (const sheetName of workbook.SheetNames) {
+    const aba = lerAba(workbook, sheetName);
+    if ("motivo" in aba) ignoradas.push({ sheetName, motivo: aba.motivo });
+    else sheets.push(aba);
+  }
+
+  if (sheets.length === 0) {
+    throw new Error(
+      'Não achei a coluna do número do chamado em nenhuma aba deste arquivo. O export precisa ter uma coluna chamada "Chamado", "Nº do chamado", "Protocolo" ou equivalente — é ela que identifica cada linha. ' +
+        `Abas conferidas: ${ignoradas.map((i) => i.sheetName).join(", ")}.`,
+    );
+  }
+
+  return { sheets, ignoradas };
+}
+
+/** Uma aba: a grade, o cabeçalho encontrado e as linhas — ou o motivo de não dar. */
+function lerAba(
+  workbook: XLSX.WorkBook,
+  sheetName: string,
+): TicketSheet | { motivo: string } {
+  // `blankrows: true` é o que mantém o índice do array igual à linha física da
+  // aba. Com ele desligado uma linha em branco no meio encurta a grade, e todo
+  // `source_row_index` gravado depois dela aponta para a linha errada — logo o
+  // número que a tela mostra como "linha N do arquivo, como veio".
   // As linhas vazias saem depois, já com o índice certo em mãos.
   const grid = XLSX.utils.sheet_to_json<unknown[]>(workbook.Sheets[sheetName], {
     header: 1,
@@ -1090,9 +1154,7 @@ export function readTicketWorkbook(filePath: string): TicketSheet {
     }
   }
   if (headerRow === -1) {
-    throw new Error(
-      'Não achei a coluna do número do chamado neste arquivo. O export precisa ter uma coluna chamada "Chamado", "Nº do chamado", "Protocolo" ou equivalente — é ela que identifica cada linha.',
-    );
+    return { motivo: "não tem coluna de número do chamado" };
   }
 
   const headers = headersOf(grid[headerRow] ?? []);
@@ -1105,7 +1167,7 @@ export function readTicketWorkbook(filePath: string): TicketSheet {
     }))
     .filter((r) => r.cells.some((c) => c !== null && String(c).trim() !== ""));
 
-  return { sheetName, headers, rows };
+  return { sheetName, headers, rows, alturaDaGrade: grid.length };
 }
 
 // ---------------------------------------------------------------------------
@@ -1179,8 +1241,38 @@ export interface ReadTicketsResult {
   ignoredRowCount: number;
   /** Quantas linhas de `ticket_change` a leitura produziu. */
   changeCount: number;
-  /** WIDE quando os parâmetros estão nos cabeçalhos; NARROW quando em células. */
+  /**
+   * WIDE quando os parâmetros estão nos cabeçalhos; NARROW quando em células.
+   *
+   * O da **primeira** aba lida. O formato é por aba, e `sheets` traz o de cada
+   * uma; este campo existe porque a coluna do banco é uma só.
+   */
   layout: "WIDE" | "NARROW";
+  /** A união das abas. */
+  unmappedColumns: string[];
+  /** A união das abas. */
+  parameterColumns: string[];
+  /** O da primeira aba lida — ver `layout`. */
+  columnMapping: Partial<Record<TicketField, ColumnBinding>>;
+  /** O que cada aba trouxe, separadamente. Uma entrada por aba lida. */
+  sheets: LeituraDaAba[];
+  /**
+   * As abas que o arquivo tem e a leitura não soube ler, com o motivo.
+   *
+   * Publicadas, e não descartadas: uma aba de legenda é inofensiva, mas uma aba
+   * de chamados que o leitor não reconheceu é dado sumindo — e a diferença
+   * entre as duas é quem lê este campo, não quem escreve este código.
+   */
+  abasIgnoradas: AbaIgnorada[];
+}
+
+/** O que uma aba do arquivo trouxe, e sob que plano de colunas foi lida. */
+export interface LeituraDaAba {
+  sheetName: string;
+  layout: "WIDE" | "NARROW";
+  rowCount: number;
+  ticketCount: number;
+  ignoredRowCount: number;
   unmappedColumns: string[];
   parameterColumns: string[];
   columnMapping: Partial<Record<TicketField, ColumnBinding>>;
@@ -1282,120 +1374,164 @@ export async function readTicketImport(
     .set({ status: "READING" })
     .where(eq(ticketImportTable.id, ticketImportId));
 
-  const sheet = readTicketWorkbook(run.storagePath);
-
-  // O formato se decide antes de qualquer ligação de coluna: o nome do
-  // parâmetro está numa célula (estreito) ou no cabeçalho (largo)? Só depois
-  // disso se sabe com que rigor as colunas podem ser disputadas — no formato
-  // largo, tudo o que um campo não reclamar é parâmetro de remuneração, e um
-  // casamento frouxo rouba dado de verdade.
-  const layout = detectLayout(sheet.headers);
-  const plan =
-    layout === "WIDE"
-      ? planTicketColumns(sheet.headers, {
-          fields: TICKET_FIELDS,
-          minCoverage: WIDE_MIN_COVERAGE,
-        })
-      : planTicketColumns(sheet.headers);
-
-  if (!plan.bindings.externalId) {
-    throw new Error(
-      "Achei o cabeçalho mas não a coluna do número do chamado. Sem ela não há como identificar cada linha.",
-    );
-  }
-
-  const parameterColumns =
-    layout === "WIDE" ? planParameterColumns(sheet.headers, plan.bindings) : [];
+  const workbook = readTicketWorkbook(run.storagePath);
 
   const dicionario = await resolveAttributeCodes(db);
-  const at = (cells: unknown[], field: TicketField): unknown => {
-    const binding = plan.bindings[field];
-    return binding ? (cells[binding.index] ?? null) : null;
-  };
 
-  // ---- Passo 1: os chamados -------------------------------------------------
+  // ---- Passo 1: os chamados, aba a aba --------------------------------------
   const tickets: (typeof ticketTable.$inferInsert)[] = [];
-  /** O que cada linha vai virar de alteração, antes de saber o id do chamado. */
-  const pendentes = new Map<number, PendingChange[]>();
+  /**
+   * O que cada linha vai virar de alteração, antes de saber o id do chamado.
+   *
+   * A chave é a posição no arquivo — a mesma numeração contínua que vai para
+   * `source_row_index`, e que por isso é única entre as abas.
+   */
+  const pendentes = new Map<string, PendingChange[]>();
+  const leiturasPorAba: LeituraDaAba[] = [];
+  let rowCount = 0;
   let ignored = 0;
+  /**
+   * Onde a numeração contínua do arquivo está — ver `source_row_index`, em
+   * `schema/tickets.ts`.
+   *
+   * A primeira aba começa em zero, e por isso um arquivo de uma aba só produz
+   * exatamente os mesmos números de sempre. Da segunda em diante o passo é a
+   * altura da grade da anterior, e não quantas linhas ela aproveitou: linha
+   * vazia no meio faria duas abas se sobreporem, e o `onConflictDoNothing` da
+   * gravação descartaria a colisão sem dizer nada.
+   */
+  let deslocamentoDaAba = 0;
 
-  for (const row of sheet.rows) {
-    const externalId = textOf(at(row.cells, "externalId"));
-    if (!externalId) {
-      // Linha sem número de chamado não é chamado. Fica contada, e a linha
-      // continua no arquivo — nunca some sem aparecer numa conta.
-      ignored++;
-      continue;
+  for (const sheet of workbook.sheets) {
+    // O formato se decide antes de qualquer ligação de coluna: o nome do
+    // parâmetro está numa célula (estreito) ou no cabeçalho (largo)? Só depois
+    // disso se sabe com que rigor as colunas podem ser disputadas — no formato
+    // largo, tudo o que um campo não reclamar é parâmetro de remuneração, e um
+    // casamento frouxo rouba dado de verdade.
+    //
+    // Por aba, e não uma vez pelo arquivo: duas abas podem estar em formatos
+    // diferentes, e aplicar o plano de uma na outra grava o valor de uma coluna
+    // debaixo do nome de outra sem estourar nada.
+    const layout = detectLayout(sheet.headers);
+    const plan =
+      layout === "WIDE"
+        ? planTicketColumns(sheet.headers, {
+            fields: TICKET_FIELDS,
+            minCoverage: WIDE_MIN_COVERAGE,
+          })
+        : planTicketColumns(sheet.headers);
+
+    if (!plan.bindings.externalId) {
+      throw new Error(
+        `Achei o cabeçalho da aba "${sheet.sheetName}" mas não a coluna do número do chamado. Sem ela não há como identificar cada linha.`,
+      );
     }
 
-    const statusRaw = textOf(at(row.cells, "statusRaw"));
-    const bucket = normalizeStatus(statusRaw);
-    const entityDescription = textOf(at(row.cells, "entityDescription"));
-    // A placa pode vir numa coluna própria ou embutida na descrição do item.
-    const entityLabel =
-      textOf(at(row.cells, "entityLabel")) ?? extractPlaca(entityDescription);
-    const entityType = textOf(at(row.cells, "entityType"));
-    const changeKind = textOf(at(row.cells, "changeKind"));
+    const parameterColumns =
+      layout === "WIDE" ? planParameterColumns(sheet.headers, plan.bindings) : [];
 
-    const payload: Record<string, unknown> = {};
-    sheet.headers.forEach((header, index) => {
-      if (!header) return;
-      const cell = row.cells[index];
-      payload[header] =
-        cell instanceof Date ? cell.toISOString() : (cell ?? null);
+    const at = (cells: unknown[], field: TicketField): unknown => {
+      const binding = plan.bindings[field];
+      return binding ? (cells[binding.index] ?? null) : null;
+    };
+
+    const ticketsAntes = tickets.length;
+    let ignoradasNaAba = 0;
+    rowCount += sheet.rows.length;
+
+    for (const row of sheet.rows) {
+      const externalId = textOf(at(row.cells, "externalId"));
+      if (!externalId) {
+        // Linha sem número de chamado não é chamado. Fica contada, e a linha
+        // continua no arquivo — nunca some sem aparecer numa conta.
+        ignored++;
+        ignoradasNaAba++;
+        continue;
+      }
+
+      const statusRaw = textOf(at(row.cells, "statusRaw"));
+      const bucket = normalizeStatus(statusRaw);
+      const entityDescription = textOf(at(row.cells, "entityDescription"));
+      // A placa pode vir numa coluna própria ou embutida na descrição do item.
+      const entityLabel =
+        textOf(at(row.cells, "entityLabel")) ?? extractPlaca(entityDescription);
+      const entityType = textOf(at(row.cells, "entityType"));
+      const changeKind = textOf(at(row.cells, "changeKind"));
+
+      const payload: Record<string, unknown> = {};
+      sheet.headers.forEach((header, index) => {
+        if (!header) return;
+        const cell = row.cells[index];
+        payload[header] =
+          cell instanceof Date ? cell.toISOString() : (cell ?? null);
+      });
+
+      const changes =
+        layout === "NARROW"
+          ? narrowChanges(row.cells, plan, dicionario, entityLabel, entityType)
+          : wideChanges(row.cells, parameterColumns, dicionario, entityLabel, entityType);
+
+      pendentes.set(
+        String(deslocamentoDaAba + row.rowIndex),
+        changes.map((c) => ({ ...c, bucket, changeKind })),
+      );
+
+      tickets.push({
+        ticketImportId,
+        externalId,
+        openedAt: parseTicketDate(at(row.cells, "openedAt")),
+        closedAt: parseTicketDate(at(row.cells, "closedAt")),
+        statusRaw,
+        statusBucket: bucket,
+        entityLabel,
+        entityType,
+        entityDescription,
+        vigenciaLabel: textOf(at(row.cells, "vigenciaLabel")),
+        requestedBy: textOf(at(row.cells, "requestedBy")),
+        subject: textOf(at(row.cells, "subject")),
+        unidadeRaw: textOf(at(row.cells, "unidadeRaw")),
+        segmentoRaw: textOf(at(row.cells, "segmentoRaw")),
+        operadorRaw: textOf(at(row.cells, "operadorRaw")),
+        aprovadorRaw: textOf(at(row.cells, "aprovadorRaw")),
+        slaRaw: textOf(at(row.cells, "slaRaw")),
+        categoriaRaw: textOf(at(row.cells, "categoriaRaw")),
+        prazoPrevisto: dataDoDia(at(row.cells, "prazoPrevisto")),
+        alteradoEmFonte: parseTicketDate(at(row.cells, "alteradoEmFonte")),
+        changedParameterCount: changes.length,
+        sourceSheet: sheet.sheetName,
+        sourceSheetRow: row.rowIndex,
+        sourceRowIndex: deslocamentoDaAba + row.rowIndex,
+        payload,
+      });
+    }
+
+    leiturasPorAba.push({
+      sheetName: sheet.sheetName,
+      layout,
+      rowCount: sheet.rows.length,
+      ticketCount: tickets.length - ticketsAntes,
+      ignoredRowCount: ignoradasNaAba,
+      unmappedColumns: layout === "NARROW" ? plan.unmapped : [],
+      parameterColumns: cabecalhosDosParametros(parameterColumns),
+      columnMapping: plan.bindings,
     });
-
-    const changes =
-      layout === "NARROW"
-        ? narrowChanges(row.cells, plan, dicionario, entityLabel, entityType)
-        : wideChanges(row.cells, parameterColumns, dicionario, entityLabel, entityType);
-
-    pendentes.set(
-      row.rowIndex,
-      changes.map((c) => ({ ...c, bucket, changeKind })),
-    );
-
-    tickets.push({
-      ticketImportId,
-      externalId,
-      openedAt: parseTicketDate(at(row.cells, "openedAt")),
-      closedAt: parseTicketDate(at(row.cells, "closedAt")),
-      statusRaw,
-      statusBucket: bucket,
-      entityLabel,
-      entityType,
-      entityDescription,
-      vigenciaLabel: textOf(at(row.cells, "vigenciaLabel")),
-      requestedBy: textOf(at(row.cells, "requestedBy")),
-      subject: textOf(at(row.cells, "subject")),
-      unidadeRaw: textOf(at(row.cells, "unidadeRaw")),
-      segmentoRaw: textOf(at(row.cells, "segmentoRaw")),
-      operadorRaw: textOf(at(row.cells, "operadorRaw")),
-      aprovadorRaw: textOf(at(row.cells, "aprovadorRaw")),
-      slaRaw: textOf(at(row.cells, "slaRaw")),
-      categoriaRaw: textOf(at(row.cells, "categoriaRaw")),
-      prazoPrevisto: dataDoDia(at(row.cells, "prazoPrevisto")),
-      alteradoEmFonte: parseTicketDate(at(row.cells, "alteradoEmFonte")),
-      changedParameterCount: changes.length,
-      sourceRowIndex: row.rowIndex,
-      payload,
-    });
+    deslocamentoDaAba += sheet.alturaDaGrade;
   }
 
   const CHUNK = 500;
-  const idPorLinha = new Map<number, string>();
+  const idPorLinha = new Map<string, string>();
   for (let i = 0; i < tickets.length; i += CHUNK) {
     const gravados = await db
       .insert(ticketTable)
       .values(tickets.slice(i, i + CHUNK))
       .onConflictDoNothing()
       .returning({ id: ticketTable.id, sourceRowIndex: ticketTable.sourceRowIndex });
-    for (const g of gravados) idPorLinha.set(g.sourceRowIndex, g.id);
+    for (const g of gravados) idPorLinha.set(String(g.sourceRowIndex), g.id);
   }
 
   // ---- Passo 2: o "antes" que o arquivo não trouxe --------------------------
   const vigenciaPorLinha = new Map(
-    tickets.map((t) => [t.sourceRowIndex, t.vigenciaLabel ?? null]),
+    tickets.map((t) => [String(t.sourceRowIndex), t.vigenciaLabel ?? null]),
   );
   const semAntes = [...pendentes.values()]
     .flat()
@@ -1409,8 +1545,8 @@ export async function readTicketImport(
 
   // ---- Passo 3: as alterações ----------------------------------------------
   const changeRows: (typeof ticketChangeTable.$inferInsert)[] = [];
-  for (const [rowIndex, changes] of pendentes) {
-    const ticketId = idPorLinha.get(rowIndex);
+  for (const [chaveDeLinha, changes] of pendentes) {
+    const ticketId = idPorLinha.get(chaveDeLinha);
     if (!ticketId) continue; // linha já gravada num envio anterior
 
     for (const c of changes) {
@@ -1421,7 +1557,7 @@ export async function readTicketImport(
       if (beforeSource === "AUSENTE" && c.entityLabel && c.attributeCode) {
         // A vigência que o próprio chamado nomeia vence a mais recente: ele
         // sabe contra que estado foi aberto, e nós só saberíamos chutar.
-        const nomeada = vigenciaPorLinha.get(rowIndex);
+        const nomeada = vigenciaPorLinha.get(chaveDeLinha);
         const chave = `${c.entityLabel}|${c.attributeCode}`;
         const vigente =
           (nomeada
@@ -1480,35 +1616,59 @@ export async function readTicketImport(
       .onConflictDoNothing();
   }
 
-  const parameterHeaders = parameterColumns.map((p) =>
-    p.beforeHeader ? `${p.afterHeader} ↔ ${p.beforeHeader}` : p.afterHeader,
-  );
+  /*
+    O que a tela de importações mostra é do arquivo, e não de uma aba.
+
+    As contagens somam as abas — é isso que faz a conta de conservação valer
+    sobre o arquivo inteiro, que é o ponto de ler todas elas. Já o mapeamento de
+    colunas e o formato descrevem a **primeira** aba lida, porque são um por
+    aba e a coluna do banco é uma só; `sheets`, no retorno, traz o de cada uma,
+    e `abasIgnoradas` nomeia as que ficaram fora. Publicar o mapeamento de uma
+    aba como se fosse o do arquivo é uma simplificação — o que não pode existir
+    é linha lida que não apareça em nenhuma conta.
+  */
+  const primeira = leiturasPorAba[0]!;
+  const unmappedColumns = [
+    ...new Set(leiturasPorAba.flatMap((a) => a.unmappedColumns)),
+  ];
+  const parameterHeaders = [
+    ...new Set(leiturasPorAba.flatMap((a) => a.parameterColumns)),
+  ];
 
   await db
     .update(ticketImportTable)
     .set({
       status: "READ",
       finishedAt: new Date(),
-      rowCount: sheet.rows.length,
+      rowCount,
       ticketCount: tickets.length,
       ignoredRowCount: ignored,
-      columnMapping: plan.bindings,
-      unmappedColumns: layout === "NARROW" ? plan.unmapped : [],
+      columnMapping: primeira.columnMapping,
+      unmappedColumns,
       parameterColumns: parameterHeaders,
     })
     .where(eq(ticketImportTable.id, ticketImportId));
 
   return {
     ticketImportId,
-    rowCount: sheet.rows.length,
+    rowCount,
     ticketCount: tickets.length,
     ignoredRowCount: ignored,
     changeCount: changeRows.length,
-    layout,
-    unmappedColumns: layout === "NARROW" ? plan.unmapped : [],
+    layout: primeira.layout,
+    unmappedColumns,
     parameterColumns: parameterHeaders,
-    columnMapping: plan.bindings,
+    columnMapping: primeira.columnMapping,
+    sheets: leiturasPorAba,
+    abasIgnoradas: workbook.ignoradas,
   };
+}
+
+/** Os cabeçalhos de parâmetro como a tela os nomeia — "depois ↔ antes". */
+function cabecalhosDosParametros(colunas: ParameterColumn[]): string[] {
+  return colunas.map((p) =>
+    p.beforeHeader ? `${p.afterHeader} ↔ ${p.beforeHeader}` : p.afterHeader,
+  );
 }
 
 /** Uma alteração já extraída da linha, ainda sem o id do chamado. */

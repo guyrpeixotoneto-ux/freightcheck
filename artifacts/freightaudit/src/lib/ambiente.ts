@@ -218,6 +218,18 @@ export const LINHA_DO_TEMPO = "/linha-do-tempo";
 export const EVOLUCAO_POR_PLACA = "/evolucao-por-placa";
 
 /**
+ * Ativos e Parados — a frota do Promax, quinzena a quinzena.
+ *
+ * Endereço próprio, e não uma aba da conferência de frota do Fechamento: são
+ * duas alturas da mesma fonte. Lá se confere **uma** quinzena contra o cadastro
+ * do contrato, dentro do fluxo de fechar o período; aqui se lê a série — quantos
+ * estão ativos, quantos parados, e o que mudou — sem precisar escolher
+ * competência antes. É a mesma razão de o Painel de Unidades não ser uma aba do
+ * Resumo executivo.
+ */
+export const ATIVOS_E_PARADOS = "/ativos-e-parados";
+
+/**
  * O Panorama Executivo — a leitura executiva inteira, numa tela só.
  *
  * É o primeiro item da seção *Visão executiva*, e o quinto módulo dela: os

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useListSnapshots, useListSimulations, useCreateSimulation } from "@workspace/api-client-react";
 import { Layout } from "@/components/layout/layout";
+import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import { PageLoading, ErrorState } from "@/components/ui/loading";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -48,19 +49,14 @@ export default function Simulacao() {
 
   return (
     <Layout>
-      <div className="flex-1 overflow-auto bg-background/50">
-        <div className="p-6 md:p-8 max-w-[1600px] mx-auto space-y-8">
-          
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight text-foreground flex items-center gap-2">
-              <Calculator className="w-8 h-8 text-primary" />
-              Simulação Financeira
-            </h1>
-            <p className="text-muted-foreground mt-1">
-              Avalie o impacto real de novos modelos rodando contra o histórico de faturas passadas.
-            </p>
-          </div>
+      <CabecalhoDePagina
+        icone={Calculator}
+        titulo="Simulação Financeira"
+        descricao="Avalie o impacto real de novos modelos rodando contra o histórico de faturas passadas."
+      />
 
+      <div className="flex-1 overflow-auto">
+        <div className="px-8 pb-8 max-w-[1600px] space-y-8">
           <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
             <div className="xl:col-span-1 space-y-6">
               <Card>

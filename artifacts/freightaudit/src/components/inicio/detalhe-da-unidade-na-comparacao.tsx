@@ -27,7 +27,7 @@ import {
 } from "@/components/inicio/detalhe-da-alteracao";
 import type { FamiliesView, OverviewContextRef } from "@/components/inicio/types";
 
-const CARTAO = "bg-card border rounded-xl shadow-sm";
+const CARTAO = "superficie";
 
 /**
  * A 2ª etapa da comparação por unidade: o resumo executivo de uma unidade

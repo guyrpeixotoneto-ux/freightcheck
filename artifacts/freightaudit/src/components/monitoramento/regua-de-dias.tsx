@@ -84,7 +84,7 @@ export function ReguaDeDias({
   onDeslocar: (passos: number) => void;
 }) {
   return (
-    <div className="flex items-center gap-2 rounded-xl border bg-card px-3 py-3">
+    <div className="flex items-center gap-2 superficie px-3 py-3">
       <button
         onClick={() => onDeslocar(-7)}
         aria-label="Semana anterior"

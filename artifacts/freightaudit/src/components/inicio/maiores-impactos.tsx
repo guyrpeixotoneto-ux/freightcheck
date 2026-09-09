@@ -20,7 +20,7 @@ import { escreverImpacto, type ImpactoDeFamilia, type Lado } from "@/lib/visao-g
  * calcular duas vezes que deixaria um lado numa periodicidade e o outro noutra.
  */
 
-const CARTAO = "bg-card border rounded-xl shadow-sm";
+const CARTAO = "superficie";
 
 /**
  * Uma linha do pódio — o mínimo que ele lê, e por isso o que Unidade e Visão

@@ -38,7 +38,7 @@ export function Procedencia({ procedencia }: { procedencia: DadosDaProcedencia }
 
   return (
     <section
-      className="bg-card border rounded-xl shadow-sm px-6 py-5"
+      className="superficie px-6 py-5"
       aria-label="A procedência dos números"
     >
       <div className="flex items-baseline justify-between gap-3 flex-wrap">

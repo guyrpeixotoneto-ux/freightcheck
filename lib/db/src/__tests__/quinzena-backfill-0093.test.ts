@@ -6,7 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { runMigrations } from "../migrate";
 
 /**
- * A `0092` move a 2ª quinzena do dia 2 para o dia 16 — nos dados que já entraram.
+ * A `0093` move a 2ª quinzena do dia 2 para o dia 16 — nos dados que já entraram.
  *
  * O rótulo da fonte é `<CANAL>_<QUINZENA>_<MÊS>_<ANO>`, e `lib/ingest` o lia
  * como `<CANAL>_<DIA>_…`. `EMPURRADA_2_8_2026` virava `2026-08-02` em vez de
@@ -34,10 +34,10 @@ const ADMIN =
   process.env.TEST_ADMIN_DATABASE_URL ??
   "postgresql://postgres@/postgres?host=/tmp/pgsock&port=5433";
 
-const NOME = `fc_test_quinzena_0092_${process.pid}`;
+const NOME = `fc_test_quinzena_0093_${process.pid}`;
 const MIGRATION = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
-  "../../migrations/0092_quinzena_e_nao_dia_do_mes.sql",
+  "../../migrations/0093_quinzena_e_nao_dia_do_mes.sql",
 );
 
 let pool: pg.Pool;
@@ -96,7 +96,7 @@ afterAll(async () => {
 async function origem(): Promise<{ fileId: string; runId: string }> {
   const { rows: arquivo } = await pool.query<{ id: string }>(
     `INSERT INTO source_file (filename, content_sha256, byte_size, storage_path)
-     VALUES ('EMPURRADA_Cavalo.xlsx', md5(random()::text), 1024, 'prova/0092.xlsx')
+     VALUES ('EMPURRADA_Cavalo.xlsx', md5(random()::text), 1024, 'prova/0093.xlsx')
      RETURNING id`,
   );
   const { rows: run } = await pool.query<{ id: string }>(
@@ -149,7 +149,7 @@ async function dataDo(label: string): Promise<string> {
   return rows[0].d;
 }
 
-describe("a 0092 corrige a data das vigências já importadas", () => {
+describe("a 0093 corrige a data das vigências já importadas", () => {
   let planilhaDaSegunda: string;
 
   beforeAll(async () => {
@@ -255,7 +255,7 @@ describe("a 0092 corrige a data das vigências já importadas", () => {
   }, 60_000);
 });
 
-describe("o que a 0092 se recusa a adivinhar", () => {
+describe("o que a 0093 se recusa a adivinhar", () => {
   it("para quando uma 2ª quinzena está num dia que não é nem o 2 nem o 16", async () => {
     /*
       O mapa presume o erro conhecido: a 2ª quinzena gravada no dia 2. Uma

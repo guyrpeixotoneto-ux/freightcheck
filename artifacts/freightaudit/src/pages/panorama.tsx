@@ -1,8 +1,14 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
-import { Clock, History } from "lucide-react";
+import { BarChart3, Clock, FileSearch, History } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
+import {
+  CabecalhoDePagina,
+  CorpoDaPagina,
+} from "@/components/layout/cabecalho-de-pagina";
+import { Superficie, CabecalhoDaSuperficie } from "@/components/ui/superficie";
+import { EstadoVazio } from "@/components/ui/estado-vazio";
 import { ApiErrorNotice } from "@/components/api-error";
 import { EmAtualizacao, classeDeAtualizacao } from "@/components/ui/em-atualizacao";
 import { cn } from "@/lib/utils";
@@ -219,33 +225,35 @@ export default function Panorama() {
 
   return (
     <Layout>
-      <header className="px-8 pt-7 pb-2">
-        <div className="flex flex-wrap items-start justify-between gap-4 max-w-[1600px]">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-3">
-              <h1 className="text-[2rem] font-extrabold tracking-tight leading-tight break-words">
-                Panorama — {visaoGeral ? "Visão Geral" : (unidade ?? "")}
-              </h1>
-              <EmAtualizacao ativo={atualizando} />
-            </div>
-            {/*
-              A frase é o índice dos andares, e por isso ela muda quando eles
-              mudam. Terminava em "e o que fazer agora" — o andar que respondia
-              isso era a fila, que saiu por não ser leitura. A promessa ficou
-              sem entrega, que é a mesma classe de defeito que o Panorama veio
-              curar: a tela dizendo uma coisa e mostrando outra.
+      {/*
+        O cabeçalho é o da casca (`components/layout/cabecalho-de-pagina.tsx`),
+        e não mais um `<header>` desta tela: a trilha, a régua de largura, o
+        corpo do título e o lugar da linha de "atualizado às" passaram a ser
+        decisão de um lugar só, para que a quadragésima tela do produto não
+        precise reinventá-los — e para que esta não fique órfã quando eles
+        evoluírem.
 
-              Termina na procedência porque é ali que a tela termina, e porque
-              "posso confiar nisto" é a última pergunta de quem vai levar o
-              número para uma reunião.
-            */}
-            <p className="text-sm text-muted-foreground mt-1.5">
-              A leitura executiva inteira desta competência: quanto custou, de onde vem, como
-              chegou aqui, onde aconteceu e o quanto dá para confiar no número.
-            </p>
-          </div>
+        O que continua sendo desta tela é o que só ela sabe: o nome do recorte
+        aberto, a frase que indexa os seis andares e os três controles.
+      */}
+      <CabecalhoDePagina
+        titulo={`Panorama — ${visaoGeral ? "Visão Geral" : (unidade ?? "")}`}
+        atualizando={atualizando}
+        /*
+          A frase é o índice dos andares, e por isso ela muda quando eles
+          mudam. Terminava em "e o que fazer agora" — o andar que respondia
+          isso era a fila, que saiu por não ser leitura. A promessa ficou
+          sem entrega, que é a mesma classe de defeito que o Panorama veio
+          curar: a tela dizendo uma coisa e mostrando outra.
 
-          <div className="flex items-center gap-3 shrink-0 flex-wrap">
+          Termina na procedência porque é ali que a tela termina, e porque
+          "posso confiar nisto" é a última pergunta de quem vai levar o
+          número para uma reunião.
+        */
+        descricao="A leitura executiva inteira desta competência: quanto custou, de onde vem, como chegou aqui, onde aconteceu e o quanto dá para confiar no número."
+        contexto={<UltimaAtualizacao quando={atualizadoEm} />}
+        acoes={
+          <>
             {contextos.contextos.length > 1 && (
               <SeletorDeUnidade
                 contextos={contextos.contextos}
@@ -270,12 +278,11 @@ export default function Panorama() {
               />
             )}
             <MenuDaGestaoAVista paraGestaoAVista={paraGestaoAVista} />
-          </div>
-        </div>
-        <UltimaAtualizacao quando={atualizadoEm} />
-      </header>
+          </>
+        }
+      />
 
-      <div className="px-8 py-6 space-y-5 max-w-[1600px]">
+      <CorpoDaPagina>
         {visaoGeral ? (
           <>
             {overviewQuery.isLoading && <Carregando />}
@@ -331,7 +338,7 @@ export default function Panorama() {
             )}
           </>
         )}
-      </div>
+      </CorpoDaPagina>
     </Layout>
   );
 }
@@ -469,31 +476,35 @@ function Corpo({
         dez famílias, os degraus do meio viravam fatias de dois pixels com o
         rótulo cortado.
       */}
-      <section className="bg-card border rounded-xl shadow-sm px-6 py-5 min-w-0">
-        <div className="flex items-start justify-between gap-3 flex-wrap">
-          <div className="min-w-0">
-            <h2 className="text-base font-bold">Composição do impacto líquido</h2>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              De onde vem o resultado apurado desta vigência
-            </p>
-          </div>
-          <span className={cn(BOTAO_DE_TROCA, "cursor-default")}>{DECOMPOSICOES.familia}</span>
-        </div>
+      <Superficie className="px-6 py-5 min-w-0">
+        <CabecalhoDaSuperficie
+          titulo="Composição do impacto líquido"
+          descricao="De onde vem o resultado apurado desta vigência"
+          acao={<span className={cn(BOTAO_DE_TROCA, "cursor-default")}>{DECOMPOSICOES.familia}</span>}
+        />
         {ponte && ponte.degraus.length > 0 ? (
           <PonteDoImpactoGrafico
             ponte={ponte}
             onAbrirFamilia={view ? (code) => onTrocar({ familia: code, impacto: null }) : null}
-            className="mt-4"
+            className="mt-5"
           />
         ) : (
-          <p className="text-sm text-muted-foreground py-20 text-center">
-            Nenhuma família tem valor apurado nesta vigência — não há composição a desenhar.
-          </p>
+          /*
+            O vazio deixou de ser uma linha cinza no meio de uma faixa alta de
+            cartão. Uma frase solta em `py-20` é lida como carregamento que não
+            terminou; um bloco com ícone, título e explicação é lido como o que
+            é — a tela inteira, sem dado a desenhar.
+          */
+          <EstadoVazio
+            icone={BarChart3}
+            titulo="Nenhuma família tem valor apurado nesta vigência"
+            descricao="Quando houver alterações com impacto financeiro, a composição aparece aqui por família da remuneração, com o quanto cada uma somou ou tirou do resultado."
+          />
         )}
-      </section>
+      </Superficie>
 
       {/* ---- Andar 4 · a trajetória ---- */}
-      <section className="bg-card border rounded-xl shadow-sm px-6 py-5">
+      <Superficie className="px-6 py-5">
         {/*
           Barras divergentes, e não a linha do líquido sozinha.
 
@@ -522,7 +533,7 @@ function Corpo({
           explica a decisão a quem lê o código, em vez de ocupar a tela de quem
           lê o número.
         */}
-        <h2 className="text-base font-bold mb-1">Impacto das alterações por vigência</h2>
+        <CabecalhoDaSuperficie titulo="Impacto das alterações por vigência" className="mb-1" />
         <GraficoDeImpacto
           pontos={pontos}
           periodicity={periodicityDaSerie ?? periodicidade}
@@ -555,7 +566,7 @@ function Corpo({
           </Link>
           .
         </p>
-      </section>
+      </Superficie>
 
       {/*
         Debaixo do gráfico, o pódio partido em dois: o que somou à esquerda, o
@@ -708,18 +719,55 @@ function UltimaAtualizacao({ quando }: { quando: number }) {
   );
 }
 
+/**
+ * O carregamento — o esqueleto dos andares, e não uma frase.
+ *
+ * "Carregando o Panorama…" numa página em branco não diz o que vem: quem abre
+ * a tela fica sem saber se o que chega é um número, uma tabela ou um erro, e a
+ * página salta inteira quando o conteúdo entra. O esqueleto desenha a forma dos
+ * dois primeiros andares — o veredito e os cinco cartões do placar —, de modo
+ * que a chegada do dado preenche uma silhueta que já estava no lugar certo.
+ *
+ * Ele é `aria-hidden` com um `role="status"` ao lado: para quem lê a tela por
+ * áudio, seis retângulos cinzas não são informação nenhuma — a frase é.
+ */
 function Carregando() {
-  return <p className="text-sm text-muted-foreground">Carregando o Panorama…</p>;
+  return (
+    <div className="space-y-5">
+      <span role="status" className="sr-only">
+        Carregando o Panorama…
+      </span>
+      <div aria-hidden className="superficie px-6 py-6 md:px-7 md:py-7">
+        <div className="flex gap-5">
+          <div className="w-14 h-14 rounded-2xl bg-muted animate-pulse shrink-0 hidden sm:block" />
+          <div className="min-w-0 flex-1 space-y-3">
+            <div className="h-3 w-40 rounded bg-muted animate-pulse" />
+            <div className="h-10 w-64 max-w-full rounded bg-muted animate-pulse" />
+            <div className="h-3 w-52 rounded bg-muted animate-pulse" />
+          </div>
+        </div>
+      </div>
+      <div aria-hidden className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+        {[0, 1, 2, 3, 4].map((i) => (
+          <div key={i} className="superficie px-5 py-4 space-y-3">
+            <div className="h-8 w-8 rounded-xl bg-muted animate-pulse" />
+            <div className="h-6 w-20 rounded bg-muted animate-pulse" />
+            <div className="h-3 w-24 rounded bg-muted animate-pulse" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function SemVigencia() {
   return (
-    <div className="bg-card border rounded-xl shadow-sm px-6 py-10 text-center">
-      <p className="text-base font-bold">Nenhuma vigência para ler ainda.</p>
-      <p className="text-sm text-muted-foreground mt-1.5">
-        Envie a primeira planilha em Importações — sem duas vigências não há o que comparar, e sem
-        comparação não há panorama a montar.
-      </p>
-    </div>
+    <Superficie>
+      <EstadoVazio
+        icone={FileSearch}
+        titulo="Nenhuma vigência para ler ainda."
+        descricao="Envie a primeira planilha em Importações — sem duas vigências não há o que comparar, e sem comparação não há panorama a montar."
+      />
+    </Superficie>
   );
 }

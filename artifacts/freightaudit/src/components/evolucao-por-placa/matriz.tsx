@@ -113,7 +113,7 @@ export function MatrizDaEvolucao({
   };
 
   return (
-    <section className="bg-card border rounded-xl shadow-sm p-5">
+    <section className="superficie p-5">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-base font-bold leading-tight">
           Impacto por {vocabulario.singular} ao longo do tempo{" "}

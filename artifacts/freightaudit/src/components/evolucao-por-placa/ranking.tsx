@@ -71,7 +71,7 @@ export function RankingDeAtencao({
   const fila = evolucao.ativos.filter((a) => a.score > 0).slice(0, 5);
 
   return (
-    <section className="bg-card border rounded-xl shadow-sm p-5">
+    <section className="superficie p-5">
       <div className="flex items-center gap-1.5">
         <h2 className="text-base font-bold leading-tight">Ranking de atenção</h2>
         <span
@@ -168,7 +168,7 @@ export function DistribuicaoDoImpacto({ evolucao }: { evolucao: EvolucaoPorPlaca
   const total = grupos.reduce((soma, g) => soma + g.quantidade, 0);
 
   return (
-    <section className="bg-card border rounded-xl shadow-sm p-5">
+    <section className="superficie p-5">
       <h2 className="text-base font-bold leading-tight">Distribuição do impacto</h2>
       <p className="text-sm text-muted-foreground mt-0.5">
         {`Como ${vocabularioDoGrao(evolucao.grao).plural === "conjuntos" ? "os conjuntos" : "as placas"} do recorte se dividem. Uma linha com perda e pendência aparece nas duas barras — são perguntas diferentes, e não fatias de um bolo.`}
@@ -251,7 +251,7 @@ export function RubricasAlteradas({
   const sufixo = periodicitySuffix(periodicidade);
 
   return (
-    <section className="bg-card border rounded-xl shadow-sm p-5">
+    <section className="superficie p-5">
       <h2 className="text-base font-bold leading-tight">
         Principais rubricas alteradas{" "}
         <span className="font-normal text-muted-foreground">

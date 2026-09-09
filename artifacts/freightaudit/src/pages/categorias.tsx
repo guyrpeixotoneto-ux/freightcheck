@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { invalidarApuracao } from "@/lib/frescor-das-leituras";
 import { CircleHelp, FolderTree, Loader2 } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
+import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import { ApiErrorNotice } from "@/components/api-error";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -83,29 +84,32 @@ export default function Categorias() {
 
   return (
     <Layout>
-      <header className="border-b bg-card px-8 py-6">
-        <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight">
-          <FolderTree className="h-6 w-6 text-primary" />
-          Categorias
-        </h1>
-        <p className="mt-1 max-w-3xl text-muted-foreground">
-          A classe de uma categoria decide de que lado da conta as colunas dela
-          caem — custo fixo, custo variável, ou nada disso. Ela não se lê no
-          nome, e por isso é uma decisão sua, assinada.
-        </p>
-
-        {falta ? (
-          <p className="mt-4 max-w-3xl rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-            {falta}
-          </p>
-        ) : (
-          !isLoading && (
-            <p className="mt-4 text-sm text-emerald-700">
-              Todas as categorias têm classe.
-            </p>
-          )
-        )}
-      </header>
+      <CabecalhoDePagina
+        icone={FolderTree}
+        titulo="Categorias"
+        descricao={
+          <>
+            A classe de uma categoria decide de que lado da conta as colunas dela
+            caem — custo fixo, custo variável, ou nada disso. Ela não se lê no
+            nome, e por isso é uma decisão sua, assinada.
+          </>
+        }
+        rodape={
+          <>
+            {falta ? (
+              <p className="mt-4 max-w-3xl rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                {falta}
+              </p>
+            ) : (
+              !isLoading && (
+                <p className="mt-4 text-sm text-emerald-700">
+                  Todas as categorias têm classe.
+                </p>
+              )
+            )}
+          </>
+        }
+      />
 
       {error && (
         <div className="px-8 pt-6">

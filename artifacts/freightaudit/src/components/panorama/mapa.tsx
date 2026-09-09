@@ -27,7 +27,7 @@ export function Mapa({
     if (mapa.linhas.length === 0) return null;
     return (
       <section
-        className="bg-card border rounded-xl shadow-sm px-6 py-5"
+        className="superficie px-6 py-5"
         aria-label="Unidades por impacto"
       >
         <h2 className="text-base font-bold">Unidades por impacto</h2>
@@ -93,7 +93,7 @@ export function Mapa({
 
   return (
     <section
-      className="bg-card border rounded-xl shadow-sm px-6 py-5"
+      className="superficie px-6 py-5"
       aria-label="Movimentação da frota"
     >
       <h2 className="text-base font-bold mb-4">Movimentação da frota</h2>

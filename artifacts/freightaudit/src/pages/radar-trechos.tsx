@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useLocation, useSearch } from "wouter";
 import { AlertCircle, HelpCircle, Minus, Radar, Search, TrendingDown, TrendingUp } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
+import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import { ApiErrorNotice } from "@/components/api-error";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
@@ -171,16 +172,16 @@ export default function RadarTrechos() {
 
   return (
     <Layout>
-      <header className="border-b bg-card px-8 py-6">
-        <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-          <Radar className="w-6 h-6 text-primary" />
-          Radar de Trechos
-        </h1>
-        <p className="text-muted-foreground mt-1 max-w-3xl">
-          Veja rapidamente quais trechos pioraram, melhoraram ou precisam de
-          investigação nesta vigência.
-        </p>
-      </header>
+      <CabecalhoDePagina
+        icone={Radar}
+        titulo="Radar de Trechos"
+        descricao={
+          <>
+            Veja rapidamente quais trechos pioraram, melhoraram ou precisam de
+            investigação nesta vigência.
+          </>
+        }
+      />
 
       <div className="p-8 space-y-6">
         {consulta.isLoading && (
@@ -214,7 +215,7 @@ export default function RadarTrechos() {
                 type="button"
                 onClick={() => atualizar({ status: null })}
                 className={cn(
-                  "rounded-xl border bg-card px-4 py-4 text-left shadow-sm transition-colors hover:bg-muted/50",
+                  "superficie px-4 py-4 text-left transition-colors hover:bg-muted/50",
                   !status && "ring-2 ring-primary",
                 )}
               >
@@ -231,7 +232,7 @@ export default function RadarTrechos() {
                     type="button"
                     onClick={() => atualizar({ status: status === v ? null : v })}
                     className={cn(
-                      "rounded-xl border bg-card px-4 py-4 text-left shadow-sm transition-colors hover:bg-muted/50",
+                      "superficie px-4 py-4 text-left transition-colors hover:bg-muted/50",
                       status === v && "ring-2 ring-primary",
                     )}
                   >
@@ -285,7 +286,7 @@ export default function RadarTrechos() {
                 </EmptyHeader>
               </Empty>
             ) : (
-              <div className="rounded-xl border bg-card overflow-x-auto">
+              <div className="superficie overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>

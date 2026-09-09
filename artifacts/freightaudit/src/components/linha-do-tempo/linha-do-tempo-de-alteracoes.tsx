@@ -27,7 +27,7 @@ import {
 } from "@/components/ui/select";
 import type { Movimentos, RangeEntry } from "@/lib/analise";
 
-const CARTAO = "bg-card border rounded-xl shadow-sm";
+const CARTAO = "superficie";
 const COR_POSITIVA = "#059669"; // emerald-600, a mesma cor de ganho do resto da tela
 const COR_NEGATIVA = "#dc2626"; // red-600, a mesma cor de perda do resto da tela
 

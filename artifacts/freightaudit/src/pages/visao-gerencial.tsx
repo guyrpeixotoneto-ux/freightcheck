@@ -4,6 +4,7 @@ import { APURACAO_FECHADA } from "@/lib/frescor-das-leituras";
 import { ArrowRight, CloudDownload, TriangleAlert } from "lucide-react";
 import { Link, useLocation, useSearch } from "wouter";
 import { Layout } from "@/components/layout/layout";
+import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import { ApiErrorNotice } from "@/components/api-error";
 import { FaixaDoAno, LegendaDasSituacoes } from "@/components/auditoria/gerencial";
 import { Barra, Numero } from "@/components/gerencial/executivo";
@@ -394,18 +395,18 @@ export default function VisaoGerencialDaAuditoria() {
 
   return (
     <Layout>
-      <header className="border-b bg-card px-8 py-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">Painel de Unidades</h1>
-            <p className="text-muted-foreground mt-2 max-w-3xl">
-              Quanto do ano já foi auditado, em cada unidade — o que chegou, o que
-              foi comparado com a vigência anterior, o que mudou e quanto isso
-              custa. Abrir uma unidade leva aos parâmetros dela, na última
-              vigência que ela publicou.
-            </p>
-          </div>
-          <div className="flex items-center gap-3">
+      <CabecalhoDePagina
+        titulo="Painel de Unidades"
+        descricao={
+          <>
+            Quanto do ano já foi auditado, em cada unidade — o que chegou, o que
+            foi comparado com a vigência anterior, o que mudou e quanto isso
+            custa. Abrir uma unidade leva aos parâmetros dela, na última
+            vigência que ela publicou.
+          </>
+        }
+        acoes={
+          <>
             {anos.length > 0 && (
               <Select
                 value={String(ano)}
@@ -439,9 +440,9 @@ export default function VisaoGerencialDaAuditoria() {
                 Importar vigência
               </Button>
             </Link>
-          </div>
-        </div>
-      </header>
+          </>
+        }
+      />
 
       <div className="p-8 space-y-6">
         {vigencias.isError && (

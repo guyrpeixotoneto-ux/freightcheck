@@ -10,6 +10,7 @@ import { VistaDeUmaQuinzena } from "@/components/remuneracao/uma-quinzena";
 import { Filtro, TUDO } from "@/components/fechamento/filtro";
 import { rotuloDoTipo } from "@/lib/fechamento";
 import { Layout } from "@/components/layout/layout";
+import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import {
   useBaseDoFechamento,
   useOperacaoDoFechamento,
@@ -914,35 +915,35 @@ export default function RemuneracaoUnidades() {
 
   return (
     <Layout>
-      <header className="border-b bg-card px-8 py-6">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <ScrollText className="w-6 h-6 text-nav-fechamento" />
-            <h1 className="text-2xl font-bold tracking-tight">Remuneração</h1>
-          </div>
-          {/*
+      <CabecalhoDePagina
+        icone={ScrollText}
+        titulo="Remuneração"
+        acoes={
+          /*
             O botão fica no cabeçalho, e não no fim da lista: quem precisa dele
             é justamente quem não achou a unidade na lista, e procurar embaixo
             de trinta linhas o que fazer quando a sua não está entre elas é a
             forma de não achar.
-          */}
+          */
           <BotaoDeRegistroDeUnidade />
-        </div>
-        <p className="text-muted-foreground mt-2 max-w-3xl">
-          As unidades que o cadastro da planilha de remuneração conhece, cada
-          uma com
-          <strong> a tabela dela</strong>: uma faixa por mês, e o mês abre nas{" "}
-          <strong>duas quinzenas</strong> — as duas sempre, para que a metade
-          que ninguém entregou apareça em vez de faltar em silêncio. Os meses
-          mais recentes vêm primeiro, e a unidade que parou de entregar cai para
-          o fim da página; clique numa quinzena para abrir o cadastro dela aqui
-          mesmo — alíquotas, frota, parcelas por veículo e proporção de
-          documentos. O que o acervo ainda não responde, alguém digita da aba de
-          Excel em <strong>Cadastrar planilha</strong>; e a unidade cuja aba
-          chegou antes do export entra por <strong>Cadastrar unidade</strong>,
-          sem lastro e dizendo que está sem.
-        </p>
-      </header>
+        }
+        descricao={
+          <>
+            As unidades que o cadastro da planilha de remuneração conhece, cada
+            uma com
+            <strong> a tabela dela</strong>: uma faixa por mês, e o mês abre nas{" "}
+            <strong>duas quinzenas</strong> — as duas sempre, para que a metade
+            que ninguém entregou apareça em vez de faltar em silêncio. Os meses
+            mais recentes vêm primeiro, e a unidade que parou de entregar cai para
+            o fim da página; clique numa quinzena para abrir o cadastro dela aqui
+            mesmo — alíquotas, frota, parcelas por veículo e proporção de
+            documentos. O que o acervo ainda não responde, alguém digita da aba de
+            Excel em <strong>Cadastrar planilha</strong>; e a unidade cuja aba
+            chegou antes do export entra por <strong>Cadastrar unidade</strong>,
+            sem lastro e dizendo que está sem.
+          </>
+        }
+      />
 
       {/*
         Sem largura máxima, ao contrário da tela do cadastro: lá são três

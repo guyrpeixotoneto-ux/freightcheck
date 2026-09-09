@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
 import { ArrowRight, Scale } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
+import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import {
   useBaseDoFechamento,
   useOperacaoDoFechamento,
@@ -164,34 +165,40 @@ export default function ResumoGeral() {
 
   return (
     <Layout>
-      <header className="border-b bg-card px-8 py-6">
-        <h1 className="text-2xl font-bold tracking-tight">Resumo geral</h1>
-        <p className="text-muted-foreground mt-2 max-w-3xl">
-          O mês de um fechamento nas três colunas em que ele é discutido: a 1ª
-          quinzena, a 2ª e o total. Cada linha é uma verba, e cada número tem o
-          arquivo de onde saiu.
-        </p>
-        {/*
-          O convite fica no cabeçalho, e leva o mês junto: quem está olhando
-          este fechamento e quer conferi-lo contra a planilha da operação não
-          deveria escolher unidade, transportadora e mês de novo do outro lado.
-        */}
-        <p className="text-sm mt-3">
-          <Link
-            href={`${base}/conciliacao?${parametros.toString()}`}
-            className="inline-flex items-center gap-1.5 text-primary hover:underline"
-          >
-            <Scale className="w-4 h-4" />
-            Conferir contra a planilha da operação
-          </Link>
-          <span className="text-muted-foreground">
-            {" "}
-            — a coluna da <code>Fechamento_Remuneracao.xlsb</code> anexada mora
-            em Conciliação, com a procedência do arquivo ao lado de cada
-            diferença.
-          </span>
-        </p>
-      </header>
+      <CabecalhoDePagina
+        titulo="Resumo geral"
+        descricao={
+          <>
+            O mês de um fechamento nas três colunas em que ele é discutido: a 1ª
+            quinzena, a 2ª e o total. Cada linha é uma verba, e cada número tem o
+            arquivo de onde saiu.
+          </>
+        }
+        rodape={
+          <>
+            {/*
+              O convite fica no cabeçalho, e leva o mês junto: quem está olhando
+              este fechamento e quer conferi-lo contra a planilha da operação não
+              deveria escolher unidade, transportadora e mês de novo do outro lado.
+            */}
+            <p className="text-sm mt-3">
+              <Link
+                href={`${base}/conciliacao?${parametros.toString()}`}
+                className="inline-flex items-center gap-1.5 text-primary hover:underline"
+              >
+                <Scale className="w-4 h-4" />
+                Conferir contra a planilha da operação
+              </Link>
+              <span className="text-muted-foreground">
+                {" "}
+                — a coluna da <code>Fechamento_Remuneracao.xlsb</code> anexada mora
+                em Conciliação, com a procedência do arquivo ao lado de cada
+                diferença.
+              </span>
+            </p>
+          </>
+        }
+      />
 
       <div className="p-8 space-y-6 max-w-6xl">
         <EscolherFechamento

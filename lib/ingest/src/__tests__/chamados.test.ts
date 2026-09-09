@@ -1,6 +1,7 @@
 import { mkdtempSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import * as XLSX from "xlsx";
 import { describe, expect, it } from "vitest";
 import {
   computeParameterMovement,
@@ -16,6 +17,18 @@ import {
   readTicketWorkbook,
   splitParameterRole,
 } from "../chamados";
+
+/** Um .xlsx de várias abas em disco — o formato em que o export real chega. */
+function xlsxTemporario(abas: Record<string, unknown[][]>): string {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "chamados-test-"));
+  const arquivo = path.join(dir, "chamados.xlsx");
+  const wb = XLSX.utils.book_new();
+  for (const [nome, linhas] of Object.entries(abas)) {
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(linhas), nome);
+  }
+  XLSX.writeFile(wb, arquivo);
+  return arquivo;
+}
 
 /** Um CSV em disco, para exercitar o leitor sem depender de um .xlsx binário. */
 function csvTemporario(conteudo: string): string {
@@ -101,6 +114,14 @@ describe("planTicketColumns", () => {
   });
 });
 
+/** A única aba de um arquivo de uma aba só — o caso destes CSVs. */
+function umaAba(arquivo: string) {
+  const { sheets, ignoradas } = readTicketWorkbook(arquivo);
+  expect(ignoradas).toEqual([]);
+  expect(sheets).toHaveLength(1);
+  return sheets[0];
+}
+
 describe("readTicketWorkbook", () => {
   it("lê um CSV — a fila do Freightech exporta nesse formato", () => {
     const arquivo = csvTemporario(
@@ -110,7 +131,7 @@ describe("readTicketWorkbook", () => {
         "CH-2,Aberto,250",
       ].join("\n"),
     );
-    const sheet = readTicketWorkbook(arquivo);
+    const sheet = umaAba(arquivo);
     expect(sheet.headers).toEqual(["Chamado", "Status", "Valor pedido"]);
     expect(sheet.rows).toHaveLength(2);
     // A linha física é 1-based e conta o cabeçalho, como uma pessoa contaria.
@@ -130,7 +151,7 @@ describe("readTicketWorkbook", () => {
         "CH-9,Aberto",
       ].join("\n"),
     );
-    const sheet = readTicketWorkbook(arquivo);
+    const sheet = umaAba(arquivo);
     expect(sheet.headers).toEqual(["Nº do chamado", "Status"]);
     expect(sheet.rows).toHaveLength(1);
     // A linha física conta as linhas puladas: o que a tela mostra como
@@ -142,7 +163,7 @@ describe("readTicketWorkbook", () => {
     // Entregue como bytes, o leitor adivinha a codificação e "Parâmetro" chega
     // como "ParÃ¢metro" — e aí a coluna deixa de ser reconhecida.
     const arquivo = csvTemporario("Nº do chamado,Parâmetro\nCH-1,Pedágio");
-    const sheet = readTicketWorkbook(arquivo);
+    const sheet = umaAba(arquivo);
     expect(sheet.headers).toEqual(["Nº do chamado", "Parâmetro"]);
     expect(sheet.rows[0].cells[1]).toBe("Pedágio");
   });
@@ -166,7 +187,7 @@ describe("readTicketWorkbook", () => {
         'CH-1,01/07/2026,"1.500,50"',
       ].join("\n"),
     );
-    const sheet = readTicketWorkbook(arquivo);
+    const sheet = umaAba(arquivo);
     expect(sheet.rows[0].cells[1]).toBe("01/07/2026");
     expect(parseTicketDate(sheet.rows[0].cells[1])?.toISOString()).toBe(
       "2026-07-01T00:00:00.000Z",
@@ -174,11 +195,92 @@ describe("readTicketWorkbook", () => {
     expect(parseTicketNumber(sheet.rows[0].cells[2])).toBe(1500.5);
   });
 
-  it("recusa com uma frase útil quando não há coluna de chamado", () => {
+  it("recusa com uma frase útil quando nenhuma aba tem coluna de chamado", () => {
     const arquivo = csvTemporario("Placa,Valor\nQYP3G72,100");
     expect(() => readTicketWorkbook(arquivo)).toThrow(
       /coluna do número do chamado/,
     );
+  });
+
+  /*
+    O export do Freightech entrega um mês por aba, e durante um tempo a leitura
+    parava em `SheetNames[0]`. O que ela fazia com o segundo mês não era falhar:
+    era ignorá-lo sem contar — 2.349 de 3.400 chamados do export real de
+    agosto/setembro de 2026 sumiam com a conta de conservação fechando.
+  */
+  it("lê todas as abas, e não só a primeira", () => {
+    const arquivo = xlsxTemporario({
+      Agosto_EXPORTACAO_HISTORICO: [
+        ["B.O", "Campo Alteração", "Valor Solicitado"],
+        ["31123782", "seguro", "100"],
+        ["31123783", "seguro", "200"],
+      ],
+      Setembro_EXPORTACAO_HISTORICO: [
+        ["B.O", "Campo Alteração", "Valor Solicitado"],
+        ["31182143", "rastreador", "300"],
+      ],
+    });
+
+    const { sheets, ignoradas } = readTicketWorkbook(arquivo);
+    expect(sheets.map((s) => s.sheetName)).toEqual([
+      "Agosto_EXPORTACAO_HISTORICO",
+      "Setembro_EXPORTACAO_HISTORICO",
+    ]);
+    expect(sheets.map((s) => s.rows.length)).toEqual([2, 1]);
+    expect(ignoradas).toEqual([]);
+  });
+
+  it("acha o cabeçalho de cada aba onde ele estiver, e não onde estava na primeira", () => {
+    // Duas abas do mesmo arquivo não têm de ter o mesmo preâmbulo. Reusar a
+    // linha de cabeçalho da primeira leria a segunda deslocada — dado sob nomes
+    // de coluna que não são os dele.
+    const arquivo = xlsxTemporario({
+      Agosto: [
+        ["B.O", "Campo Alteração"],
+        ["31123782", "seguro"],
+      ],
+      Setembro: [
+        ["Relatório de chamados — Freightech"],
+        ["Extraído em 01/09/2026"],
+        [],
+        ["B.O", "Campo Alteração"],
+        ["31182143", "rastreador"],
+      ],
+    });
+
+    const { sheets } = readTicketWorkbook(arquivo);
+    expect(sheets[0].rows[0].rowIndex).toBe(2);
+    // Na segunda aba a linha física é a 5, contada dentro da própria aba: é o
+    // número que quem abrir a planilha vê na régua depois de clicar nela.
+    expect(sheets[1].rows[0].rowIndex).toBe(5);
+    expect(sheets[1].rows[0].cells[0]).toBe("31182143");
+    // E a altura da grade é o passo com que `readTicketImport` desloca a aba
+    // seguinte na numeração contínua do arquivo — a grade inteira, e não as
+    // linhas aproveitadas, senão duas abas se sobreporiam.
+    expect(sheets[0].alturaDaGrade).toBe(2);
+    expect(sheets[1].alturaDaGrade).toBe(5);
+  });
+
+  it("nomeia a aba que não soube ler, em vez de recusar o arquivo ou calar", () => {
+    // Um export costuma trazer aba de legenda ou de parâmetros da extração.
+    // Recusar o arquivo por causa dela não ajuda ninguém; omiti-la é como o
+    // segundo mês sumia.
+    const arquivo = xlsxTemporario({
+      Legenda: [
+        ["Status", "Significado"],
+        ["APROVADO", "Alteração aplicada"],
+      ],
+      Agosto: [
+        ["B.O", "Campo Alteração"],
+        ["31123782", "seguro"],
+      ],
+    });
+
+    const { sheets, ignoradas } = readTicketWorkbook(arquivo);
+    expect(sheets.map((s) => s.sheetName)).toEqual(["Agosto"]);
+    expect(ignoradas).toEqual([
+      { sheetName: "Legenda", motivo: "não tem coluna de número do chamado" },
+    ]);
   });
 });
 

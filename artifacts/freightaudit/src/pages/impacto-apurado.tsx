@@ -3,8 +3,12 @@ import { useQuery } from "@tanstack/react-query";
 import { useLocation, useSearch } from "wouter";
 import { Clock } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
+import {
+  CabecalhoDePagina,
+  CorpoDaPagina,
+} from "@/components/layout/cabecalho-de-pagina";
 import { ApiErrorNotice } from "@/components/api-error";
-import { EmAtualizacao, classeDeAtualizacao } from "@/components/ui/em-atualizacao";
+import { classeDeAtualizacao } from "@/components/ui/em-atualizacao";
 import { cn } from "@/lib/utils";
 import { GESTAO_A_VISTA, IMPACTO_APURADO } from "@/lib/ambiente";
 import { consultaDoRecorte, opcoesDaVigencia } from "@/lib/leitura-da-vigencia";
@@ -146,21 +150,13 @@ export default function ImpactoApurado() {
 
   return (
     <Layout>
-      <header className="px-8 pt-7 pb-2">
-        <div className="flex flex-wrap items-start justify-between gap-4 max-w-[1600px]">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-3">
-              <h1 className="text-[2rem] font-extrabold tracking-tight leading-tight break-words">
-                Impacto Apurado — {visaoGeral ? "Visão Geral" : (unidade ?? "")}
-              </h1>
-              <EmAtualizacao ativo={atualizando} />
-            </div>
-            <p className="text-sm text-muted-foreground mt-1.5">
-              O que mudou nesta competência, quanto já conseguimos apurar e onde agir.
-            </p>
-          </div>
-
-          <div className="flex items-center gap-3 shrink-0 flex-wrap">
+      <CabecalhoDePagina
+        titulo={`Impacto Apurado — ${visaoGeral ? "Visão Geral" : (unidade ?? "")}`}
+        descricao="O que mudou nesta competência, quanto já conseguimos apurar e onde agir."
+        atualizando={atualizando}
+        contexto={<UltimaAtualizacao quando={atualizadoEm} />}
+        acoes={
+          <>
             {contextos.contextos.length > 1 && (
               <SeletorDeUnidade
                 contextos={contextos.contextos}
@@ -185,12 +181,11 @@ export default function ImpactoApurado() {
               />
             )}
             <MenuDaGestaoAVista paraGestaoAVista={paraGestaoAVista} />
-          </div>
-        </div>
-        <UltimaAtualizacao quando={atualizadoEm} />
-      </header>
+          </>
+        }
+      />
 
-      <div className="px-8 py-6 space-y-5 max-w-[1600px]">
+      <CorpoDaPagina>
         {visaoGeral ? (
           <>
             {overviewQuery.isLoading && <Carregando />}
@@ -266,7 +261,7 @@ export default function ImpactoApurado() {
             )}
           </>
         )}
-      </div>
+      </CorpoDaPagina>
     </Layout>
   );
 }
@@ -399,7 +394,7 @@ function Corpo({
       )}
 
       <div className="grid gap-5 xl:grid-cols-3">
-        <section className="bg-card border rounded-xl shadow-sm px-6 py-5 xl:col-span-2 min-w-0">
+        <section className="superficie px-6 py-5 xl:col-span-2 min-w-0">
           <div className="flex items-start justify-between gap-3 flex-wrap">
             <div className="min-w-0">
               <h2 className="text-base font-bold">Composição do impacto líquido</h2>
@@ -431,7 +426,7 @@ function Corpo({
           )}
         </section>
 
-        <section className="bg-card border rounded-xl shadow-sm px-6 py-5 min-w-0">
+        <section className="superficie px-6 py-5 min-w-0">
           <EvolucaoPorVigencia
             pontos={pontos}
             periodicity={periodicityDaSerie ?? periodicidade}
@@ -566,7 +561,7 @@ function Carregando() {
 
 function SemVigencia() {
   return (
-    <div className="bg-card border rounded-xl shadow-sm px-6 py-10 text-center">
+    <div className="superficie px-6 py-10 text-center">
       <p className="text-base font-bold">Nenhuma vigência para apurar ainda.</p>
       <p className="text-sm text-muted-foreground mt-1.5">
         Envie a primeira planilha em Importações — sem duas vigências não há o que comparar, e sem

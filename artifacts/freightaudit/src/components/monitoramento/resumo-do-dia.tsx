@@ -138,7 +138,7 @@ export function ResumoDoDiaPainel({
   return (
     <div className={moldura}>
       {parte !== "complementos" && (
-        <div className="rounded-xl border bg-card p-5 space-y-4">
+        <div className="superficie p-5 space-y-4">
           <h3 className="text-sm font-bold uppercase tracking-wide text-muted-foreground">
             Resumo do dia
           </h3>
@@ -190,7 +190,7 @@ export function ResumoDoDiaPainel({
       )}
 
       {parte !== "principal" && atencao.length > 0 && (
-        <div className="rounded-xl border bg-card p-5">
+        <div className="superficie p-5">
           <h3 className="text-sm font-bold uppercase tracking-wide text-muted-foreground mb-3">
             Pontos de atenção
           </h3>
@@ -211,7 +211,7 @@ export function ResumoDoDiaPainel({
       )}
 
       {parte !== "principal" && porUnidade.length > 0 && (
-        <div className="rounded-xl border bg-card p-5">
+        <div className="superficie p-5">
           <h3 className="text-sm font-bold uppercase tracking-wide text-muted-foreground mb-3">
             Maior movimentação por unidade
           </h3>

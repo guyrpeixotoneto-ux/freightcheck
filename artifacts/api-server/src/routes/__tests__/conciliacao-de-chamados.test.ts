@@ -314,3 +314,57 @@ describe("o que a rota conta", () => {
     expect(body.linhas).toHaveLength(1);
   });
 });
+
+/**
+ * O segundo grão na superfície — as duas rotas irmãs.
+ *
+ * O contrato é o mesmo: os dois lados escolhidos e devolvidos, situação de
+ * lista fechada, paginação que não perde o total. O que se prende aqui, além
+ * disso, é que ele **é outra rota** e não um parâmetro da primeira: os dois
+ * vereditos não têm a mesma força de prova, e uma resposta só convidaria quem
+ * lê a somá-los.
+ */
+describe("o grão por parâmetro", () => {
+  it("responde sobre o mesmo par de lados, e diz quais são", async () => {
+    const porAtivo = await get(`${BASE}/resumo`);
+    const porParametro = await get(`${BASE}/por-parametro/resumo`);
+
+    expect(porParametro.status).toBe(200);
+    expect(porParametro.body.changeSetId).toBe(porAtivo.body.changeSetId);
+    expect(porParametro.body.ticketImportId).toBe(porAtivo.body.ticketImportId);
+  });
+
+  it("conta parâmetros, e não pares de placa", async () => {
+    const { body } = await get(`${BASE}/por-parametro/resumo`);
+    expect(
+      body.conciliados + body.divergentes + body.semChamado + body.semAlteracao,
+    ).toBe(body.parametros);
+    /* A planilha traz o mesmo total do outro grão — é o que faz as duas telas
+       falarem do mesmo conjunto de alterações. */
+    expect(body.alteracoesNaPlanilha).toBe(2);
+  });
+
+  it("filtra por situação da lista fechada, e ignora o que não existe", async () => {
+    const filtrada = await get(
+      `${BASE}/por-parametro/linhas?situacao=SEM_CHAMADO`,
+    );
+    expect(
+      filtrada.body.linhas.every(
+        (l: { situacao: string }) => l.situacao === "SEM_CHAMADO",
+      ),
+    ).toBe(true);
+
+    const inventada = await get(
+      `${BASE}/por-parametro/linhas?situacao=QUALQUER_COISA`,
+    );
+    expect(inventada.status).toBe(200);
+    expect(inventada.body.total).toBeGreaterThanOrEqual(filtrada.body.total);
+  });
+
+  it("pagina sem perder o total", async () => {
+    const inteira = await get(`${BASE}/por-parametro/linhas`);
+    const pagina = await get(`${BASE}/por-parametro/linhas?limit=1&offset=0`);
+    expect(pagina.body.total).toBe(inteira.body.total);
+    expect(pagina.body.linhas).toHaveLength(1);
+  });
+});

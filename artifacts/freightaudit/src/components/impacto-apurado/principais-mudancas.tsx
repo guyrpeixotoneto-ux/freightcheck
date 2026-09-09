@@ -54,7 +54,7 @@ export function PrincipaisMudancas({
   };
 
   return (
-    <section className="bg-card border rounded-xl shadow-sm px-6 py-5" aria-label="Principais mudanças">
+    <section className="superficie px-6 py-5" aria-label="Principais mudanças">
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div className="min-w-0">
           <h2 className="text-base font-bold">Principais mudanças</h2>

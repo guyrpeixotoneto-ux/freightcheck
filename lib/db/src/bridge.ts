@@ -292,6 +292,32 @@ export const ALLOWLIST: {
     tipo: "uuid",
     aindaPodeNaoExistir: true,
   },
+  /*
+    As duas da `0092` — de que aba e de que linha dela veio o chamado.
+
+    Aditivas e nulas, como as demais, e é essa forma que decidiu o desenho da
+    migration: `ticket_import_row_uq` **não** muda. Ele existe desde a `0012`, e
+    Production o tem; refazê-lo sobre a aba apareceria no diff do Publishing
+    como DDL sobre objeto existente, que é o que este bridge inteiro existe para
+    não propor. Em vez disso, `source_row_index` passou a contar as abas em
+    ordem — continua único por envio, e a trava segue valendo sem uma linha de
+    DDL sobre ela.
+
+    Um envio lido antes desta migration tem uma aba só, e `NULL` nas duas é a
+    descrição correta desse envio, não um buraco a preencher.
+  */
+  {
+    tabela: "ticket",
+    coluna: "source_sheet",
+    tipo: "text",
+    aindaPodeNaoExistir: true,
+  },
+  {
+    tabela: "ticket",
+    coluna: "source_sheet_row",
+    tipo: "integer",
+    aindaPodeNaoExistir: true,
+  },
   {
     tabela: "user_session",
     coluna: "impersonation_started_at",

@@ -32,7 +32,7 @@ const TOM: Record<Tom, string> = {
 
 export function OndeAgirAgora({ acoes, nota }: { acoes: AcaoAgora[]; nota?: string }) {
   return (
-    <section className="bg-card border rounded-xl shadow-sm px-6 py-5" aria-label="Onde agir agora">
+    <section className="superficie px-6 py-5" aria-label="Onde agir agora">
       <h2 className="text-base font-bold">Onde agir agora</h2>
       <p className="text-xs text-muted-foreground mt-0.5">
         Oportunidades e riscos que exigem atenção

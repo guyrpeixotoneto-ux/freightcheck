@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { BookOpen, Info, Search } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
+import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import { ApiErrorNotice } from "@/components/api-error";
 import { BlocoCard } from "@/components/book/bloco-card";
 import { BlocoPainel } from "@/components/book/bloco-painel";
@@ -121,16 +122,16 @@ export default function BookOperador() {
 
   return (
     <Layout>
-      <header className="border-b bg-card px-8 py-6">
-        <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-          <BookOpen className="w-6 h-6 text-brand-dark" />
-          Book do Operador
-        </h1>
-        <p className="text-muted-foreground mt-1 max-w-3xl">
-          Os blocos em que o Freightech publica as regras de remuneração da
-          Ambev — o regulamento que a planilha de vigência não traz.
-        </p>
-      </header>
+      <CabecalhoDePagina
+        icone={BookOpen}
+        titulo="Book do Operador"
+        descricao={
+          <>
+            Os blocos em que o Freightech publica as regras de remuneração da
+            Ambev — o regulamento que a planilha de vigência não traz.
+          </>
+        }
+      />
 
       <div className="p-8 space-y-6">
         {entradas.error && (

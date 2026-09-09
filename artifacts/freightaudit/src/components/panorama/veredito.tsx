@@ -1,4 +1,5 @@
-import { ArrowDownRight, ArrowUpRight, Minus } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, Minus, Receipt } from "lucide-react";
+import { Medalhao, Superficie } from "@/components/ui/superficie";
 import { comSinal } from "@/lib/impacto-apurado";
 import { escreverVariacao } from "@/lib/visao-geral";
 import { formatBrlShort, periodicitySuffix } from "@/lib/format";
@@ -33,6 +34,14 @@ import type { Veredito as DadosDoVeredito } from "@/lib/panorama";
  * cujo mensal pesa mais publicaria só o mensal, e o anual desapareceria da tela
  * sem que nada dissesse que ele existe.
  *
+ * **O andar 1 é a única superfície de destaque da tela.** Ele é o mesmo cartão
+ * dos outros cinco andares com o véu do marinho da marca por cima
+ * (`.superficie-destaque`) e um medalhão abrindo a coluna da esquerda: numa
+ * página de seis cartões brancos empilhados, o primeiro não era o primeiro em
+ * nada além da posição, e quem chega rolando de outra tela pousava o olho no
+ * meio. O véu é de 4% — hierarquia, e não decoração; ele não pode competir com
+ * o número que existe para destacar.
+ *
  * A faixa de confiança não está aqui: é a `FaixaDeCobertura` do Impacto
  * Apurado, desenhada logo abaixo pela tela. Ela já existia, já tinha as frases
  * e já tinha a régua de cor — reescrevê-la seria a duplicação que este módulo
@@ -49,39 +58,75 @@ export function Veredito({ veredito }: { veredito: DadosDoVeredito }) {
       : "";
 
   return (
-    <section
-      className="bg-card border rounded-xl shadow-sm px-6 py-6"
+    <Superficie
+      variante="destaque"
+      className="px-6 py-6 md:px-7 md:py-7"
       aria-label="O veredito da vigência"
     >
-      <div className="flex flex-col gap-5 md:flex-row md:items-stretch md:gap-10">
-        <div className="min-w-0 md:flex-1">
-          <Rotulo>Impacto líquido apurado</Rotulo>
+      <div className="flex flex-col gap-6 md:flex-row md:items-stretch md:gap-10">
+        <div className="min-w-0 md:flex-1 flex gap-5">
+          <Medalhao
+            icone={Receipt}
+            tamanho="lg"
+            className="bg-brand/10 text-brand hidden sm:flex"
+          />
+          <div className="min-w-0">
+            <Rotulo>Impacto líquido apurado</Rotulo>
 
-          {lados || situacao.estado === "apurado_em_zero" ? (
-            <p className="mt-3 flex items-baseline gap-2 flex-wrap">
-              <span
-                className={cn(
-                  "text-4xl sm:text-5xl font-extrabold tabular-nums leading-none whitespace-nowrap",
-                  lados && lados.liquido < 0 ? "text-brand-red" : "text-success",
+            {lados || situacao.estado === "apurado_em_zero" ? (
+              <p className="mt-3 flex items-baseline gap-2 flex-wrap">
+                <span
+                  className={cn(
+                    "text-4xl sm:text-5xl font-extrabold tabular-nums leading-none whitespace-nowrap tracking-[-0.02em]",
+                    lados && lados.liquido < 0 ? "text-brand-red" : "text-success",
+                  )}
+                >
+                  {comSinal(lados ? lados.liquido : 0)}
+                </span>
+                {sufixo && (
+                  <span className="text-base font-semibold text-muted-foreground">{sufixo}</span>
                 )}
-              >
-                {comSinal(lados ? lados.liquido : 0)}
-              </span>
-              {sufixo && (
-                <span className="text-base font-semibold text-muted-foreground">{sufixo}</span>
-              )}
-            </p>
-          ) : (
-            <p className="mt-3 text-3xl font-extrabold leading-tight">
-              {situacao.estado === "sem_alteracao" ? "Nada mudou" : "Nenhum valor apurado"}
-            </p>
-          )}
+              </p>
+            ) : (
+              <>
+                <p className="mt-3 text-3xl font-extrabold leading-tight tracking-[-0.02em]">
+                  {situacao.estado === "sem_alteracao" ? "Nada mudou" : "Nenhum valor apurado"}
+                </p>
+                {/*
+                  O vazio ganhou uma linha, e ela responde a pergunta que o
+                  vazio deixava aberta: "não tem número porque quebrou, ou
+                  porque não há?". Duas frases, uma por causa — e nenhuma delas
+                  promete o que a tela não vai entregar.
+                */}
+                <p className="text-sm text-muted-foreground mt-2 leading-relaxed max-w-md">
+                  {situacao.estado === "sem_alteracao"
+                    ? "Nenhuma alteração foi detectada nesta vigência — não há resultado a apurar."
+                    : "Não há impacto financeiro apurado para esta vigência no momento."}
+                </p>
+              </>
+            )}
 
-          <Variacao variacao={veredito.variacaoDoLiquido} />
+            <Variacao variacao={veredito.variacaoDoLiquido} />
+          </div>
         </div>
 
+        {/*
+          Sem composição a mostrar, a coluna da direita não fica vazia: ela diz o
+          que apareceria ali. Um cartão de destaque com metade em branco é lido
+          como carregamento travado, e não como "não há dado" — e esta tela é a
+          primeira coisa que se abre de manhã.
+        */}
+        {!lados && (
+          <div className="border-t border-brand/15 pt-5 md:border-t-0 md:pt-0 md:border-l md:border-brand/15 md:pl-10 md:w-[21rem] md:shrink-0 flex items-center">
+            <p className="text-sm text-muted-foreground leading-relaxed">
+              Assim que houver alterações com valores apurados, a composição do resultado —
+              ganhos, perdas e a proporção entre eles — aparece aqui.
+            </p>
+          </div>
+        )}
+
         {lados && (
-          <div className="border-t pt-5 md:border-t-0 md:pt-0 md:border-l md:pl-10 md:w-[21rem] md:shrink-0">
+          <div className="border-t border-brand/15 pt-5 md:border-t-0 md:pt-0 md:border-l md:border-brand/15 md:pl-10 md:w-[21rem] md:shrink-0">
             <Rotulo>Composição</Rotulo>
 
             <div className="mt-3 grid grid-cols-2">
@@ -113,7 +158,7 @@ export function Veredito({ veredito }: { veredito: DadosDoVeredito }) {
       )}
 
       {veredito.outras.length > 0 && (
-        <p className="text-xs text-muted-foreground mt-4 leading-snug border-t pt-3">
+        <p className="text-xs text-muted-foreground mt-4 leading-snug border-t border-brand/15 pt-3">
           Esta vigência também tem{" "}
           {veredito.outras
             .map((l) => `${formatBrlShort(l.liquido)}${periodicitySuffix(l.periodicity)}`)
@@ -121,7 +166,7 @@ export function Veredito({ veredito }: { veredito: DadosDoVeredito }) {
           — grandezas que não somam com a de cima.
         </p>
       )}
-    </section>
+    </Superficie>
   );
 }
 
@@ -132,9 +177,7 @@ export function Veredito({ veredito }: { veredito: DadosDoVeredito }) {
  */
 function Rotulo({ children }: { children: string }) {
   return (
-    <p className="text-[11px] font-bold tracking-[0.14em] uppercase text-muted-foreground">
-      {children}
-    </p>
+    <p className="rotulo-secao">{children}</p>
   );
 }
 
@@ -182,7 +225,7 @@ function Parcela({
   return (
     <div className={className}>
       <p className={cn("text-xl font-extrabold tabular-nums leading-none", tom)}>{valor}</p>
-      <p className="text-[11px] uppercase tracking-[0.08em] text-muted-foreground mt-1.5">
+      <p className="text-3xs uppercase tracking-[0.1em] font-semibold text-muted-foreground mt-1.5">
         {rotulo}
       </p>
     </div>

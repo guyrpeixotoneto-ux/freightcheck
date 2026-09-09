@@ -20,6 +20,7 @@ import {
   Upload,
 } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
+import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import {
   Popover,
   PopoverContent,
@@ -487,52 +488,63 @@ export default function CompetenciaAberta({ id }: { id: string }) {
 
   return (
     <Layout>
-      <header className="border-b bg-card px-8 py-6">
-        <Link
-          href={`${base}/competencias`}
-          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground mb-2"
-        >
-          <ArrowLeft className="w-3.5 h-3.5" />
-          Importações
-        </Link>
-        <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-2xl font-bold tracking-tight">
+      <CabecalhoDePagina
+        voltar={
+          <Link
+            href={`${base}/competencias`}
+            className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            Importações
+          </Link>
+        }
+        titulo={
+          <>
             {emDiaBR(competencia.inicio)} a {emDiaBR(competencia.fim)}
-          </h1>
-          <span className="rounded-full border border-border bg-muted px-2.5 py-1 text-[0.6875rem] font-bold uppercase tracking-wide text-muted-foreground">
+          </>
+        }
+        descricao={
+          <>
+            {competencia.unidade.nome ?? competencia.unidade.codigo} ·{" "}
+            {competencia.transportadora.nome ??
+              competencia.transportadora.codigo}
+          </>
+        }
+        acoes={
+          <span className="rounded-full border border-border bg-muted px-2.5 py-1 text-3xs font-bold uppercase tracking-wide text-muted-foreground">
             {NOME_DO_ESTADO[competencia.estado]}
           </span>
-        </div>
-        <p className="text-muted-foreground mt-2">
-          {competencia.unidade.nome ?? competencia.unidade.codigo} ·{" "}
-          {competencia.transportadora.nome ?? competencia.transportadora.codigo}
-        </p>
-        {encerrada && (
-          /*
-            O aviso de congelada traz o caminho de volta junto, e não só a
-            constatação. Dizer "nada mais entra nela sem reabertura" sem
-            oferecer a reabertura ali mesmo obriga quem precisa enviar o
-            relatório que faltou a descer a tela inteira — passando pela conta e
-            pelas divergências — até o painel do fim, e quem não sabia que ele
-            existe conclui que não dá.
-          */
-          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2">
-            <p className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
-              <Lock className="w-3.5 h-3.5" />
-              Quinzena salva e congelada em{" "}
-              {new Date(competencia.encerradaEm!).toLocaleString("pt-BR")}. Nada
-              mais entra nela sem reabertura.
-            </p>
-            <ReabrirQuinzena competencia={competencia} rotulo="Reabrir" />
-          </div>
-        )}
-        {competencia.motivoDaReabertura && !encerrada && (
-          <p className="mt-2 inline-flex items-center gap-1.5 text-sm text-amber-700">
-            <LockOpen className="w-3.5 h-3.5" />
-            Reaberta: {competencia.motivoDaReabertura}
-          </p>
-        )}
-      </header>
+        }
+        rodape={
+          <>
+            {encerrada && (
+              /*
+                O aviso de congelada traz o caminho de volta junto, e não só a
+                constatação. Dizer "nada mais entra nela sem reabertura" sem
+                oferecer a reabertura ali mesmo obriga quem precisa enviar o
+                relatório que faltou a descer a tela inteira — passando pela conta e
+                pelas divergências — até o painel do fim, e quem não sabia que ele
+                existe conclui que não dá.
+              */
+              <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2">
+                <p className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
+                  <Lock className="w-3.5 h-3.5" />
+                  Quinzena salva e congelada em{" "}
+                  {new Date(competencia.encerradaEm!).toLocaleString("pt-BR")}. Nada
+                  mais entra nela sem reabertura.
+                </p>
+                <ReabrirQuinzena competencia={competencia} rotulo="Reabrir" />
+              </div>
+            )}
+            {competencia.motivoDaReabertura && !encerrada && (
+              <p className="mt-2 inline-flex items-center gap-1.5 text-sm text-amber-700">
+                <LockOpen className="w-3.5 h-3.5" />
+                Reaberta: {competencia.motivoDaReabertura}
+              </p>
+            )}
+          </>
+        }
+      />
 
       <div className="p-8 space-y-6 max-w-5xl">
         {/* ---------------------------------------------------------------

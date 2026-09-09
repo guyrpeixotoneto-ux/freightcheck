@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { ApiErrorNotice } from "@/components/api-error";
 import { Layout } from "@/components/layout/layout";
+import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import { AbaBotao } from "@/components/changes/cartoes";
 import { AbaPlanilha } from "@/components/changes/aba-planilha";
 import { AbaChamados } from "@/components/changes/aba-chamados";
@@ -266,66 +267,67 @@ export default function Frota360({ equipamento }: { equipamento: Equipamento }) 
 
   return (
     <Layout>
-      <div className="border-b bg-card px-8 pt-6">
-        <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-          <Icone className="w-6 h-6 text-primary" />
-          {titulo}
-        </h1>
-        <p className="text-muted-foreground text-sm mt-1 max-w-3xl">{subtitulo}</p>
-
-        {/*
-          Na grade, o cabeçalho para aqui: o seletor do ativo e as abas
-          pertencem a uma leitura que ainda não foi escolhida. Mostrá-los sobre
-          os cards ofereceria duas portas para o mesmo lugar — e uma fileira de
-          abas sem assunto definido é a que faz alguém clicar em "Planilha"
-          esperando o cavalo e receber a frota.
-        */}
-        {!naGrade && (
+      <CabecalhoDePagina
+        icone={Icone}
+        titulo={titulo}
+        descricao={subtitulo}
+        rodape={
           <>
-            <div className="mt-4">
-              <SeletorDoAtivo
-                equipamento={equipamento}
-                placa={placa}
-                recorte={paramsDoRecorte(recorte, { comPeriodo: false })}
-                onEscolher={(proxima) => irPara({ placa: proxima })}
-                onVoltarAosCards={() => irPara({ placa: null, frotaInteira: false })}
-              />
-            </div>
+            {/*
+              Na grade, o cabeçalho para aqui: o seletor do ativo e as abas
+              pertencem a uma leitura que ainda não foi escolhida. Mostrá-los sobre
+              os cards ofereceria duas portas para o mesmo lugar — e uma fileira de
+              abas sem assunto definido é a que faz alguém clicar em "Planilha"
+              esperando o cavalo e receber a frota.
+            */}
+            {!naGrade && (
+              <>
+                <div className="mt-4">
+                  <SeletorDoAtivo
+                    equipamento={equipamento}
+                    placa={placa}
+                    recorte={paramsDoRecorte(recorte, { comPeriodo: false })}
+                    onEscolher={(proxima) => irPara({ placa: proxima })}
+                    onVoltarAosCards={() => irPara({ placa: null, frotaInteira: false })}
+                  />
+                </div>
 
-            <nav className="flex items-center gap-1 mt-4" role="tablist">
-          <AbaBotao
-            active={aba === "planilha"}
-            onClick={() => irPara({ aba: "planilha" })}
-            icon={<FileSpreadsheet className="w-4 h-4" />}
-            label="Planilha"
-            hint="o que a Ambev mexeu entre duas vigências"
-          />
-          <AbaBotao
-            active={aba === "chamados"}
-            onClick={() => irPara({ aba: "chamados" })}
-            icon={<Headset className="w-4 h-4" />}
-            label="Chamados"
-            hint="o que pedimos e o que voltou aplicado"
-            count={resumoChamados.data?.totals?.changes}
-          />
-          <AbaBotao
-            active={aba === "impacto"}
-            onClick={() => irPara({ aba: "impacto" })}
-            icon={<DollarSign className="w-4 h-4" />}
-            label="Impacto"
-            hint="quanto custa em cada quinzena"
-          />
-          <AbaBotao
-            active={aba === "cliente"}
-            onClick={() => irPara({ aba: "cliente" })}
-            icon={<Handshake className="w-4 h-4" />}
-            label="Cliente"
-              hint="o que propor, o que investigar, e o que não levar"
-            />
-            </nav>
+                <nav className="flex items-center gap-1 border-b mt-4" role="tablist">
+              <AbaBotao
+                active={aba === "planilha"}
+                onClick={() => irPara({ aba: "planilha" })}
+                icon={<FileSpreadsheet className="w-4 h-4" />}
+                label="Planilha"
+                hint="o que a Ambev mexeu entre duas vigências"
+              />
+              <AbaBotao
+                active={aba === "chamados"}
+                onClick={() => irPara({ aba: "chamados" })}
+                icon={<Headset className="w-4 h-4" />}
+                label="Chamados"
+                hint="o que pedimos e o que voltou aplicado"
+                count={resumoChamados.data?.totals?.changes}
+              />
+              <AbaBotao
+                active={aba === "impacto"}
+                onClick={() => irPara({ aba: "impacto" })}
+                icon={<DollarSign className="w-4 h-4" />}
+                label="Impacto"
+                hint="quanto custa em cada quinzena"
+              />
+              <AbaBotao
+                active={aba === "cliente"}
+                onClick={() => irPara({ aba: "cliente" })}
+                icon={<Handshake className="w-4 h-4" />}
+                label="Cliente"
+                  hint="o que propor, o que investigar, e o que não levar"
+                />
+                </nav>
+              </>
+            )}
           </>
-        )}
-      </div>
+        }
+      />
 
       {naGrade && (
         <div className="p-8">

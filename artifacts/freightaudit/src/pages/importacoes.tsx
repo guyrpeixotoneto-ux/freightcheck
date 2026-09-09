@@ -31,6 +31,7 @@ import {
 } from "@/components/apontamentos/apresentacao";
 import { Button } from "@/components/ui/button";
 import { Layout } from "@/components/layout/layout";
+import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
@@ -721,53 +722,52 @@ export default function Importacoes() {
 
   return (
     <Layout>
-      <header className="border-b bg-card px-8 py-6">
-        <div className="flex items-start gap-3">
-          <div className="w-11 h-11 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
-            <FileDown className="w-6 h-6 text-primary" />
-          </div>
-          <div className="min-w-0">
-            <h1 className="text-3xl font-bold tracking-tight">Importações</h1>
-            <p className="text-muted-foreground mt-1 max-w-3xl leading-relaxed">
-              Cada arquivo recebido, o que saiu dele e o que o pipeline apontou.
-              <br className="hidden sm:inline" /> Cada aba é um tipo: enviar por
-              ela <em>declara</em> o que o arquivo traz, e a importação confere
-              essa declaração contra o conteúdo antes de deixar entrar.
-              <br className="hidden sm:inline" /> O mesmo arquivo reentregue é
-              reconhecido pelo SHA-256. O mesmo <em>dado</em>, num arquivo
-              diferente, é reconhecido pela identidade da vigência — e nenhum
-              dos dois entra duas vezes.
-            </p>
-          </div>
-        </div>
-
-        {/*
-          Planilha e Chamados são as duas seções do módulo — cada uma com o
-          seu próprio pipeline, a sua própria dedup, e sem sentido nenhum de
-          somar entre si. Por isso são abas de verdade, e não um recorte
-          dentro de uma lista só: a mesma divisão que já existia em
-          Alterações, agora do lado de quem envia o arquivo.
-        */}
-        <nav className="flex items-center gap-1 mt-4" role="tablist">
-          <AbaBotao
-            active={secao === "planilha"}
-            onClick={() => setSecao("planilha")}
-            icon={<FileSpreadsheet className="w-4 h-4" />}
-            label="Planilha"
-            /* Os tipos da operação aberta, e não uma lista escrita à mão: a
-               dica dizia "cavalo, carreta, trecho e QLP" dentro da Auditoria
-               Apoio, que não recebe nenhum dos três. */
-            hint={`${dicaDosTipos(tipos)} — o pipeline com aprovação`}
-          />
-          <AbaBotao
-            active={secao === "chamados"}
-            onClick={() => setSecao("chamados")}
-            icon={<Headset className="w-4 h-4" />}
-            label="Chamados"
-            hint="o export da fila de chamados do Freightech"
-          />
-        </nav>
-      </header>
+      <CabecalhoDePagina
+        icone={FileDown}
+        titulo="Importações"
+        descricao={
+          <>
+            Cada arquivo recebido, o que saiu dele e o que o pipeline apontou.
+            <br className="hidden sm:inline" /> Cada aba é um tipo: enviar por
+            ela <em>declara</em> o que o arquivo traz, e a importação confere
+            essa declaração contra o conteúdo antes de deixar entrar.
+            <br className="hidden sm:inline" /> O mesmo arquivo reentregue é
+            reconhecido pelo SHA-256. O mesmo <em>dado</em>, num arquivo
+            diferente, é reconhecido pela identidade da vigência — e nenhum dos
+            dois entra duas vezes.
+          </>
+        }
+        rodape={
+          <>
+            {/*
+              Planilha e Chamados são as duas seções do módulo — cada uma com o
+              seu próprio pipeline, a sua própria dedup, e sem sentido nenhum de
+              somar entre si. Por isso são abas de verdade, e não um recorte
+              dentro de uma lista só: a mesma divisão que já existia em
+              Alterações, agora do lado de quem envia o arquivo.
+            */}
+            <nav className="flex items-center gap-1 border-b" role="tablist">
+              <AbaBotao
+                active={secao === "planilha"}
+                onClick={() => setSecao("planilha")}
+                icon={<FileSpreadsheet className="w-4 h-4" />}
+                label="Planilha"
+                /* Os tipos da operação aberta, e não uma lista escrita à mão: a
+                   dica dizia "cavalo, carreta, trecho e QLP" dentro da Auditoria
+                   Apoio, que não recebe nenhum dos três. */
+                hint={`${dicaDosTipos(tipos)} — o pipeline com aprovação`}
+              />
+              <AbaBotao
+                active={secao === "chamados"}
+                onClick={() => setSecao("chamados")}
+                icon={<Headset className="w-4 h-4" />}
+                label="Chamados"
+                hint="o export da fila de chamados do Freightech"
+              />
+            </nav>
+          </>
+        }
+      />
 
       {secao === "chamados" ? (
         <ChamadosRecebidos />
@@ -889,7 +889,7 @@ export default function Importacoes() {
             !listError &&
             visiveis.length === 0 &&
             esperandoDecisao.length === 0 && (
-              <div className="rounded-xl border bg-card px-8 py-10 text-center text-sm text-muted-foreground shadow-sm">
+              <div className="superficie px-8 py-10 text-center text-sm text-muted-foreground">
                 {tipoDaAba === null ? (
                   <>
                     Nenhuma importação ainda. Escolha o tipo acima e use{" "}
@@ -956,7 +956,7 @@ export default function Importacoes() {
             />
           ))}
 
-          <div className="rounded-xl border bg-card px-6 py-5 shadow-sm flex items-start gap-3">
+          <div className="superficie px-6 py-5 flex items-start gap-3">
             <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
               <ShieldCheck className="w-5 h-5 text-primary" />
             </div>
@@ -1096,7 +1096,7 @@ function TipoDaImportacao({ run }: { run: ImportRun }) {
  */
 function SemAbaEscolhida() {
   return (
-    <div className="rounded-xl border bg-card px-6 py-5 shadow-sm flex items-start gap-4">
+    <div className="superficie px-6 py-5 flex items-start gap-4">
       <div className="w-12 h-12 rounded-xl bg-muted flex items-center justify-center shrink-0">
         <Layers className="w-5 h-5 text-muted-foreground" />
       </div>
@@ -1207,7 +1207,7 @@ function RunCard({
   return (
     <div
       className={cn(
-        "rounded-xl border bg-card px-6 py-5 shadow-sm space-y-5",
+        "superficie px-6 py-5 space-y-5",
         oculta && "opacity-60",
       )}
     >

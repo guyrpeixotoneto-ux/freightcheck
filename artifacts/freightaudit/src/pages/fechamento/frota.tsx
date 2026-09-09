@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { ArrowLeft, Truck, TriangleAlert } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
+import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import { useBaseDoFechamento } from "@/lib/base-do-fechamento";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -126,24 +127,26 @@ export default function FrotaDaCompetencia({ id }: { id: string }) {
 
   return (
     <Layout>
-      <div className="p-8 space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <Link
-              href={`${base}/competencias/${id}`}
-              className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
-            >
-              <ArrowLeft className="h-3.5 w-3.5" /> Voltar à competência
-            </Link>
-            <h1 className="mt-2 flex items-center gap-2 text-xl font-semibold">
-              <Truck className="h-5 w-5" /> Frota
-            </h1>
-            <p className="text-sm text-muted-foreground">
-              Promax (01.22.02.00 / 01.22.08.00) contra o cadastro do contrato — conferência
-              operacional, fora do cálculo de remuneração.
-            </p>
-          </div>
-        </div>
+      <CabecalhoDePagina
+        icone={Truck}
+        titulo="Frota"
+        voltar={
+          <Link
+            href={`${base}/competencias/${id}`}
+            className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" /> Voltar à competência
+          </Link>
+        }
+        descricao={
+          <>
+            Promax (01.22.02.00 / 01.22.08.00) contra o cadastro do contrato —
+            conferência operacional, fora do cálculo de remuneração.
+          </>
+        }
+      />
+
+      <div className="px-8 pb-8 space-y-6">
 
         {dados.isLoading && (
           <div className="text-sm text-muted-foreground">Carregando…</div>

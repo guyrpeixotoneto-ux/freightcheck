@@ -787,7 +787,7 @@ function CartaoDeAtributo({
   const cobertura = grupo.fleet > 0 ? Math.min(1, grupo.vehicles / grupo.fleet) : 0;
 
   return (
-    <article className="group relative flex flex-col rounded-xl border bg-card shadow-sm transition-all hover:shadow-md hover:border-brand/40">
+    <article className="group relative flex flex-col superficie transition-all hover:shadow-md hover:border-brand/40">
       {/*
         A estrela fica fora do botão do cartão, e não dentro: botão dentro de
         botão não é HTML válido, e o clique do favorito abriria o atributo junto.

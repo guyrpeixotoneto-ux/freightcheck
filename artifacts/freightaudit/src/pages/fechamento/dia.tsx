@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { ArrowLeft, ChevronLeft, ChevronRight, Truck } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
+import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import { useBaseDoFechamento } from "@/lib/base-do-fechamento";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -96,44 +97,49 @@ export default function DiaDoFechamento({
 
   return (
     <Layout>
-      <header className="border-b bg-card px-8 py-6">
-        <Link
-          href={`${base}/competencias/${id}`}
-          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground mb-2"
-        >
-          <ArrowLeft className="w-3.5 h-3.5" />
-          {emDiaBR(competencia.inicio)} a {emDiaBR(competencia.fim)}
-        </Link>
-        <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-2xl font-bold tracking-tight">
+      <CabecalhoDePagina
+        voltar={
+          <Link
+            href={`${base}/competencias/${id}`}
+            className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            {emDiaBR(competencia.inicio)} a {emDiaBR(competencia.fim)}
+          </Link>
+        }
+        titulo={
+          <>
             Dia {String(aberto.numeroDoDia).padStart(2, "0")} ·{" "}
             {emDiaBR(aberto.dia)}
-          </h1>
-          <span className="rounded-full border border-border bg-muted px-2.5 py-1 text-[0.6875rem] font-bold uppercase tracking-wide text-muted-foreground">
-            {DIAS_DA_SEMANA[aberto.diaDaSemana]}
-          </span>
-          <nav className="flex items-center gap-1 ml-auto">
-            <Passo
-              href={
-                anterior && `${base}/competencias/${id}/dias/${anterior}`
-              }
-              anterior
-            />
-            <Passo
-              href={
-                seguinte && `${base}/competencias/${id}/dias/${seguinte}`
-              }
-            />
-          </nav>
-        </div>
-        <p className="text-muted-foreground mt-2">
-          {competencia.unidade.nome ?? competencia.unidade.codigo} ·{" "}
-          {competencia.transportadora.nome ?? competencia.transportadora.codigo}
-          {fonte && (
-            <span className="font-mono text-xs"> · {fonte.nomeDoArquivo}</span>
-          )}
-        </p>
-      </header>
+          </>
+        }
+        descricao={
+          <>
+            {competencia.unidade.nome ?? competencia.unidade.codigo} ·{" "}
+            {competencia.transportadora.nome ??
+              competencia.transportadora.codigo}
+            {fonte && (
+              <span className="font-mono text-xs"> · {fonte.nomeDoArquivo}</span>
+            )}
+          </>
+        }
+        acoes={
+          <>
+            <span className="rounded-full border border-border bg-muted px-2.5 py-1 text-3xs font-bold uppercase tracking-wide text-muted-foreground">
+              {DIAS_DA_SEMANA[aberto.diaDaSemana]}
+            </span>
+            <nav className="flex items-center gap-1">
+              <Passo
+                href={anterior && `${base}/competencias/${id}/dias/${anterior}`}
+                anterior
+              />
+              <Passo
+                href={seguinte && `${base}/competencias/${id}/dias/${seguinte}`}
+              />
+            </nav>
+          </>
+        }
+      />
 
       <div className="p-8 space-y-6">
         {!fonte && (

@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, ArrowRight, Plus } from "lucide-react";
 import { Link, useLocation, useSearch } from "wouter";
 import { Layout } from "@/components/layout/layout";
+import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import {
   useBaseDoFechamento,
   useOperacaoDoFechamento,
@@ -310,32 +311,32 @@ export default function UnidadeDoFechamento({ codigo }: { codigo: string }) {
 
   return (
     <Layout>
-      <header className="border-b bg-card px-8 py-6">
-        <Link
-          href={base}
-          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <ArrowLeft className="w-3.5 h-3.5" />
-          Visão Gerencial
-        </Link>
-        <div className="flex flex-wrap items-start justify-between gap-4 mt-3">
-          <div className="min-w-0">
-            <h1 className="text-2xl font-bold tracking-tight">{nome}</h1>
-            <p className="text-muted-foreground mt-2 max-w-3xl">
-              {unidade === null ? (
-                <>A unidade {codigo} não tem competência registrada.</>
-              ) : (
-                <>
-                  As quinzenas de {ano}, uma a uma: o que foi encerrado, o que
-                  venceu sem fechar e o que passou sem competência aberta.{" "}
-                  {unidade.transportadoras.length === 1
-                    ? `Transportadora: ${unidade.transportadoras[0]}.`
-                    : `Transportadoras: ${unidade.transportadoras.join(", ")}.`}
-                </>
-              )}
-            </p>
-          </div>
-          <div className="flex items-center gap-3">
+      <CabecalhoDePagina
+        voltar={
+          <Link
+            href={base}
+            className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            Visão Gerencial
+          </Link>
+        }
+        titulo={nome}
+        descricao={
+          unidade === null ? (
+            <>A unidade {codigo} não tem competência registrada.</>
+          ) : (
+            <>
+              As quinzenas de {ano}, uma a uma: o que foi encerrado, o que
+              venceu sem fechar e o que passou sem competência aberta.{" "}
+              {unidade.transportadoras.length === 1
+                ? `Transportadora: ${unidade.transportadoras[0]}.`
+                : `Transportadoras: ${unidade.transportadoras.join(", ")}.`}
+            </>
+          )
+        }
+        acoes={
+          <>
             {anos.length > 0 && (
               <Select
                 value={String(ano)}
@@ -369,9 +370,9 @@ export default function UnidadeDoFechamento({ codigo }: { codigo: string }) {
                 Realizar Fechamento
               </Button>
             </Link>
-          </div>
-        </div>
-      </header>
+          </>
+        }
+      />
 
       <div className="p-8 space-y-6">
         {apuracoes.isError && (
