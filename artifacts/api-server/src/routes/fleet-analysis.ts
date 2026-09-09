@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { parseVigenciaLabel } from "@workspace/ingest";
 import * as XLSX from "xlsx";
 import * as fs from "fs";
 import * as path from "path";
@@ -72,19 +73,41 @@ function openFleetWorkbook(): { filePath: string; wb: XLSX.WorkBook } {
   throw new Error(`Arquivo de frota (.xlsx) não encontrado em attached_assets. ${onde}`);
 }
 
-/** Parse "EMPURRADA_D_M_YYYY" → Date */
+/**
+ * A data da vigência — pelo parser de `@workspace/ingest`, e não por um regex
+ * daqui.
+ *
+ * A cópia que morava nesta rota lia o segundo campo do rótulo como **dia do
+ * mês**: `EMPURRADA_2_12_2025` virava 2 de dezembro. O campo é a **quinzena**,
+ * e a 2ª começa no dia 16. A ordenação por baixo continuava certa por acidente
+ * (1 vem antes de 2 nas duas leituras), que é justamente por que a cópia
+ * sobreviveu tanto tempo — nada quebrava, e a data que ela produzia estava
+ * quinze dias fora.
+ *
+ * Delegar é o ponto: era a segunda implementação da mesma regra, e as duas
+ * concordavam por terem sido escritas com o mesmo engano. Agora existe uma só,
+ * e a próxima correção não precisa ser encontrada duas vezes.
+ */
 function parseVigencia(v: string): Date {
-  const m = v.match(/EMPURRADA_(\d+)_(\d+)_(\d+)/);
-  if (!m) return new Date(0);
-  return new Date(+m[3], +m[2] - 1, +m[1]);
+  const data = parseVigenciaLabel(v).effectiveDate;
+  return data === null ? new Date(0) : new Date(`${data}T00:00:00Z`);
 }
 
-/** "EMPURRADA_2_12_2025" → "Dez/2025" */
+/**
+ * `EMPURRADA_2_12_2025` → `2ª quinzena Dez/2025`.
+ *
+ * A quinzena entra no rótulo porque sem ela **as duas vigências de um mês têm
+ * o mesmo nome**: a lista oferecia "Dez/2025" duas vezes, e escolher uma delas
+ * trocava o dado sem que nada em tela dissesse qual foi escolhida. É a mesma
+ * garantia que `rotuloDaVigencia` dá nas telas da Auditoria — duas vigências
+ * distintas nunca se chamam igual.
+ */
 const MONTHS = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
 function vigenciaLabel(v: string): string {
-  const m = v.match(/EMPURRADA_(\d+)_(\d+)_(\d+)/);
-  if (!m) return v;
-  return `${MONTHS[+m[2] - 1]}/${m[3]}`;
+  const { quinzena, effectiveDate } = parseVigenciaLabel(v);
+  if (effectiveDate === null || quinzena === null) return v;
+  const [ano, mes] = effectiveDate.split("-");
+  return `${quinzena}ª quinzena ${MONTHS[Number(mes) - 1]}/${ano}`;
 }
 
 type Row = Record<string, unknown>;

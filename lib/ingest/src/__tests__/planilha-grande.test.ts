@@ -54,7 +54,7 @@ describe("uma planilha grande entra inteira", () => {
     }));
 
     const caminho = escreverPlanilha({
-      vigencia: "EMPURRADA_9_9_2031",
+      vigencia: "EMPURRADA_1_9_2031",
       abas: [{ nome: "cavalos", linhas }],
     });
 

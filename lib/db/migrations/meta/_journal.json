@@ -652,6 +652,13 @@
       "when": 1789500600000,
       "tag": "0092_abas_do_export_de_chamados",
       "breakpoints": true
+    },
+    {
+      "idx": 93,
+      "version": "7",
+      "when": 1789500700000,
+      "tag": "0093_quinzena_e_nao_dia_do_mes",
+      "breakpoints": true
     }
   ]
 }

@@ -1,6 +1,7 @@
 export * from "./tipos";
 export * from "./excel-dates";
 export * from "./vigencia";
+export * from "./vocabulario-booleano";
 export * from "./canonical-identity";
 export * from "./values";
 export * from "./workbook";

@@ -418,7 +418,7 @@ function ExplicacaoDaLeitura({
         <span>
           <strong className="text-foreground">Como {mov.toLabel} está diferente de {mov.fromLabel}.</strong>{" "}
           Comparação ativo a ativo, sobre quem está nas duas pontas
-          {p2p ? ` (${p2p.entitiesCompared} ativos)` : carregandoPonta ? "" : ""}. O que
+          {p2p ? ` (${p2p.entitiesCompared} equipamentos)` : carregandoPonta ? "" : ""}. O que
           mexeu e voltou não aparece; entrada e saída de frota ficam fora do dinheiro.
         </span>
       )}

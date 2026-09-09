@@ -2072,7 +2072,8 @@ export async function stage(
               registro: [{ campo: "Vigencia", valor: rawLabel }],
               comoCorrigir:
                 "Escreva a vigência dessa linha como nas demais linhas do arquivo " +
-                "(por exemplo, EMPURRADA_1_8_2026) e envie o arquivo de novo.",
+                "(por exemplo, EMPURRADA_1_8_2026) e envie o arquivo de novo. O " +
+                "número depois do canal é a quinzena — 1 ou 2 —, e não o dia do mês.",
               porQueImporta:
                 "A vigência diz quando o valor passou a valer. Adivinhar uma data " +
                 "colocaria o dado no período errado da auditoria.",

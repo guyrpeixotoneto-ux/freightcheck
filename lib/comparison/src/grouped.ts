@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import { podeSomar, podeTirarMedia, viraDinheiro } from "@workspace/curation";
+import { DIZ_QUE_NAO, DIZ_QUE_SIM } from "@workspace/ingest";
 import type { Database } from "@workspace/db";
 import {
   detectFormatAnomaly,
@@ -264,6 +265,18 @@ export interface GroupedSeries {
   /** `previousPeriod` escrito para leitura: `julho/2026`. */
   previousPeriodLabel: string | null;
   fleet: number;
+  /**
+   * Quantos equipamentos desta série respondem `ATIVO` na coluna `ativo`.
+   *
+   * `ativos + inativos` **não** é `fleet`: quem não trouxe a coluna não é
+   * parado, é sem resposta, e a diferença é a categoria própria que
+   * `contagemDeSituacao` existe para preservar. CARRETA não declara a coluna,
+   * então a série dela vem com os dois em zero — o que é a verdade, e não uma
+   * frota parada.
+   */
+  ativos: number;
+  /** Quantos respondem que **não** estão ativos (`PARADO`, e o vocabulário). */
+  inativos: number;
   changeSetId: string | null;
   reason: string | null;
 }
@@ -1023,6 +1036,64 @@ export interface LeituraAgrupada {
   changeSetIds: string[];
 }
 
+/**
+ * Quantos equipamentos de um snapshot respondem `ATIVO` na coluna `ativo`, e
+ * quantos respondem que não.
+ *
+ * Vem como pedaço de SQL, e não como consulta própria, porque as duas leituras
+ * que precisam dele já varrem `fato_visivel` pelo mesmo snapshot para contar a
+ * frota: pendurar duas subconsultas ali custa a mesma varredura e não
+ * acrescenta uma viagem ao banco.
+ *
+ * **Três respostas, não duas.** Quem não trouxe a coluna não é "parado": é
+ * "não respondeu", e é por isso que a contagem não é `frota - ativos`. Um
+ * `else` transformaria toda uma série sem a coluna — CARRETA não a tem — numa
+ * frota inteira parada, e a tela diria isso com todas as letras. Quem soma as
+ * três pontas é o leitor, com os três números na mão.
+ *
+ * O código do atributo é derivado do tipo (`cavalo.ativo`), que é a regra de
+ * `catalogo-declarado.ts` — não uma constante escrita aqui, que ficaria
+ * errada no dia em que CARRETA passasse a trazer a coluna.
+ *
+ * O vocabulário — quais palavras contam como sim e como não — é o de
+ * `@workspace/ingest`, o mesmo que `lib/remuneracao` aplica em TypeScript. Uma
+ * segunda lista escrita em SQL concordaria com ela no dia em que fosse escrita
+ * e divergiria no primeiro mês em que o cliente inventasse uma palavra: a
+ * planilha contaria o veículo como sem resposta e o Panorama como parado, sobre
+ * o mesmo dado.
+ */
+function contagemDeSituacao(
+  snapshotRef: string,
+  tipoRef: string,
+  vocabulario: ReadonlySet<string>,
+) {
+  // `IN (...)` com um placeholder por palavra, e não `= ANY (array)`: o driver
+  // expande um array de JS em parâmetros soltos, e o `ANY` recebia um escalar.
+  const palavras = sql.join(
+    [...vocabulario].map((palavra) => sql`${palavra}`),
+    sql`, `,
+  );
+  return sql`(
+    SELECT count(DISTINCT f.entity_id)::int
+      FROM fato_visivel f
+      JOIN entity e   ON e.id = f.entity_id
+      JOIN attribute a ON a.id = f.attribute_id
+     WHERE f.snapshot_id = ${sql.raw(snapshotRef)}
+       AND e.entity_type = ${sql.raw(tipoRef)}
+       AND a.code = lower(${sql.raw(tipoRef)}) || '.ativo'
+       AND f.is_null = false
+       AND coalesce(
+             -- Booleano tipado ganha do texto: é a mesma precedência que
+             -- booleanoDe aplica em lib/remuneracao.
+             CASE WHEN f.value_boolean IS NOT NULL
+                  THEN upper(f.value_boolean::text)
+                  ELSE upper(btrim(f.value_text))
+             END,
+             ''
+           ) IN (${palavras})
+  )`;
+}
+
 export async function getGroupedViewComDados(
   db: Database,
   period?: string,
@@ -1105,6 +1176,8 @@ export async function getGroupedViewComDados(
     previous_label: string | null;
     previous_date: string | null;
     fleet: number;
+    ativos: number;
+    inativos: number;
   }>(sql`
     SELECT cs.id AS change_set_id,
            t AS entity_type,
@@ -1121,7 +1194,9 @@ export async function getGroupedViewComDados(
                FROM fato_visivel f
                JOIN entity e ON e.id = f.entity_id
               WHERE f.snapshot_id = sb.id AND e.entity_type = t
-           ) AS fleet
+           ) AS fleet,
+           ${contagemDeSituacao("sb.id", "t", DIZ_QUE_SIM)} AS ativos,
+           ${contagemDeSituacao("sb.id", "t", DIZ_QUE_NAO)} AS inativos
       FROM change_set cs
       JOIN snapshot sb ON sb.id = cs.snapshot_b_id
       JOIN snapshot sa ON sa.id = cs.snapshot_a_id
@@ -1141,6 +1216,8 @@ export async function getGroupedViewComDados(
     entity_type_set: string;
     source_label: string;
     fleet: number;
+    ativos: number;
+    inativos: number;
   }>(sql`
     SELECT t AS entity_type_set,
            s.source_label,
@@ -1149,7 +1226,9 @@ export async function getGroupedViewComDados(
                FROM fato_visivel f
                JOIN entity e ON e.id = f.entity_id
               WHERE f.snapshot_id = s.id AND e.entity_type = t
-           ) AS fleet
+           ) AS fleet,
+           ${contagemDeSituacao("s.id", "t", DIZ_QUE_SIM)} AS ativos,
+           ${contagemDeSituacao("s.id", "t", DIZ_QUE_NAO)} AS inativos
       FROM snapshot s
       CROSS JOIN LATERAL unnest(string_to_array(s.entity_type_set, '+')) AS t
      WHERE s.effective_date = ${target.effective_date}::date
@@ -1170,6 +1249,8 @@ export async function getGroupedViewComDados(
       previousPeriod: s.previous_date,
       previousPeriodLabel: s.previous_date ? periodLabel(s.previous_date) : null,
       fleet: s.fleet,
+      ativos: s.ativos,
+      inativos: s.inativos,
       changeSetId: s.change_set_id,
       reason: null,
     })),
@@ -1183,6 +1264,8 @@ export async function getGroupedViewComDados(
         previousPeriod: null,
         previousPeriodLabel: null,
         fleet: s.fleet,
+        ativos: s.ativos,
+        inativos: s.inativos,
         changeSetId: null,
         reason:
           "Primeira vigência desta série, ou comparação ainda não calculada. " +

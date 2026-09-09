@@ -15,8 +15,8 @@ import { explicarRastro } from "../deduplicacao";
  */
 
 const AGOSTO = "2026-08-01";
-const JULHO = "2026-07-02";
-const MARCO = "2026-03-02";
+const JULHO = "2026-07-16";
+const MARCO = "2026-03-16";
 
 let ctx: TestDb;
 
@@ -341,8 +341,8 @@ describe("série do atributo — numerador, denominador e frota", () => {
 
     expect(series!.points.every((p) => p.vehicles === p.numericVehicles)).toBe(true);
 
-    const janeiro = series!.points.find((p) => p.effectiveDate === "2026-01-02")!;
-    const fevereiro = series!.points.find((p) => p.effectiveDate === "2026-02-02")!;
+    const janeiro = series!.points.find((p) => p.effectiveDate === "2026-01-16")!;
+    const fevereiro = series!.points.find((p) => p.effectiveDate === "2026-02-16")!;
     expect(janeiro.vehicles).toBe(60);
     expect(fevereiro.vehicles).toBe(62);
 
@@ -381,7 +381,7 @@ describe("série do atributo — numerador, denominador e frota", () => {
     // têm valor de verdade, e mostra as nove vigências consistentes: 62 em
     // todas, zero numéricos em todas.
     const series = await getAttributeSeries(ctx.db, "cavalo.data_fim_contrato");
-    const julho = series!.points.find((p) => p.effectiveDate === "2026-07-02")!;
+    const julho = series!.points.find((p) => p.effectiveDate === "2026-07-16")!;
     expect(julho.vehicles).toBe(62);
     expect(julho.numericVehicles).toBe(0);
     const agosto = series!.points.find((p) => p.effectiveDate === "2026-08-01")!;

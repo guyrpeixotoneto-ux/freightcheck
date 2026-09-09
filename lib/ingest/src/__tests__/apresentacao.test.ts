@@ -146,7 +146,7 @@ describe("cada recusa que uma planilha provoca", () => {
   it("duplicidade conflitante responde as seis perguntas", async () => {
     const { importRunId, issues } = await importarEListar(
       escreverPlanilha({
-        vigencia: "EMPURRADA_3_9_2026",
+        vigencia: "EMPURRADA_1_10_2026",
         abas: [
           {
             nome: "cavalos",

@@ -49,7 +49,7 @@ let base: string;
 /** Os nós da árvore, contados dela mesma — nunca um número escrito à mão. */
 const NOS_CANONICOS = contarNosCanonicos();
 
-const JULHO = "2026-07-02";
+const JULHO = "2026-07-16";
 const AGOSTO = "2026-08-01";
 
 interface Resposta {

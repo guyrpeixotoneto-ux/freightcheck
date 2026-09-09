@@ -44,11 +44,11 @@ const UNIDADES = [
 /** As seis quinzenas que o arquivo real trouxe, na ordem em que chegaram. */
 const VIGENCIAS = [
   { label: "EMPURRADA_1_6_2026", data: "2026-06-01" },
-  { label: "EMPURRADA_2_6_2026", data: "2026-06-02" },
+  { label: "EMPURRADA_2_6_2026", data: "2026-06-16" },
   { label: "EMPURRADA_1_7_2026", data: "2026-07-01" },
-  { label: "EMPURRADA_2_7_2026", data: "2026-07-02" },
+  { label: "EMPURRADA_2_7_2026", data: "2026-07-16" },
   { label: "EMPURRADA_1_8_2026", data: "2026-08-01" },
-  { label: "EMPURRADA_2_8_2026", data: "2026-08-02" },
+  { label: "EMPURRADA_2_8_2026", data: "2026-08-16" },
 ];
 
 const UNIDADES_NO_ARQUIVO = UNIDADES.length;
@@ -178,7 +178,7 @@ describe("cinco unidades, seis vigências, vinte e cinco pares", () => {
 
     const { rows: ids } = await ctx.db.execute<{ id: string }>(sql`
       SELECT s.id FROM snapshot s
-       WHERE s.status <> 'SUPERSEDED' AND s.effective_date = '2026-08-02'::date
+       WHERE s.status <> 'SUPERSEDED' AND s.effective_date = '2026-08-16'::date
     `);
 
     const denovo = await garantirComparacoesDaPromocao(

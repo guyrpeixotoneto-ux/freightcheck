@@ -146,14 +146,14 @@ describe("snapshots", () => {
       .from(snapshotTable)
       .orderBy(snapshotTable.effectiveDate);
     expect(snapshots.map((s) => s.effectiveDate)).toEqual([
-      "2025-12-02",
-      "2026-01-02",
-      "2026-02-02",
-      "2026-03-02",
-      "2026-04-02",
-      "2026-05-02",
-      "2026-06-02",
-      "2026-07-02",
+      "2025-12-16",
+      "2026-01-16",
+      "2026-02-16",
+      "2026-03-16",
+      "2026-04-16",
+      "2026-05-16",
+      "2026-06-16",
+      "2026-07-16",
       "2026-08-01",
     ]);
     // The label is still the source's own string, not a rendering of the date.

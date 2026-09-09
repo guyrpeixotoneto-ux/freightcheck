@@ -14,7 +14,7 @@ import { listContexts, resolveContext } from "../series";
  * A primeira metade: expor o que existia
  * ---------------------------------------------------------------------------
  * Uma planilha de TRECHO entrou declarando `EMPURRADA_2_8_2026`, que o parser lê
- * como **2026-08-02**. O acervo já tinha `EMPURRADA_1_8_2026` — 2026-08-01, com
+ * como **2026-08-16**. O acervo já tinha `EMPURRADA_1_8_2026` — 2026-08-01, com
  * 62 cavalos e 71 carretas. O pipeline se comportou como devia: identidade
  * canônica intacta, nada apagado, nada herdado errado. A tela é que lia como
  * sumiço, porque usava **vigência** para responder o que é pergunta de **tipo**
@@ -38,7 +38,7 @@ import { listContexts, resolveContext } from "../series";
  *   pé para quando duas entregas *de verdade* caem no mesmo mês.
  *
  * **O que não muda:** o trecho continua no banco, com os mesmos três fatos, na
- * mesma vigência 2026-08-02, na mesma família de dataset. `composicaoDaVigencia`
+ * mesma vigência 2026-08-16, na mesma família de dataset. `composicaoDaVigencia`
  * e `contagensPorVigencia` não usam `naoEhSoTrecho` — respondem "o que existe
  * nesta data" diretamente dos fatos, e uma casca de trecho existe. O que muda é
  * só a navegação geral: essa data deixa de ser uma opção nos seletores de
@@ -126,7 +126,7 @@ async function contexto() {
 
 /** A vigência do equipamento e a casca de trecho, como o relato as produziu. */
 const EQUIPAMENTO = "2026-08-01";
-const SO_TRECHO = "2026-08-02";
+const SO_TRECHO = "2026-08-16";
 
 beforeAll(async () => {
   ctx = await criarBancoComExportRealPromovido("tipos_da_vigencia");

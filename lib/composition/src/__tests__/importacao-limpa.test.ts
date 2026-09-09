@@ -34,7 +34,7 @@ let cavalos: VisaoDeFrota;
 
 /** A última vigência do export: EMPURRADA_1_8_2026. */
 const AGOSTO = "2026-08-01";
-const JULHO = "2026-07-02";
+const JULHO = "2026-07-16";
 
 /**
  * O bloco fixo dos cavalos em agosto/2026, medido na planilha.

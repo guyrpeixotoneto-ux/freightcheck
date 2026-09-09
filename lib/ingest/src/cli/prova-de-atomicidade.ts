@@ -93,8 +93,12 @@ function planilha(semente: number): string {
     placa: placa(i),
     valores: { "Custo Fixo": 1000 + i, "Custo Variavel": 2000 + i },
   }));
+  // Uma vigência por semente, andando pela quinzena e depois pelo mês: o
+  // primeiro campo do rótulo é a quinzena, e um mês só tem duas.
+  const quinzena = 1 + (semente % 2);
+  const mes = 1 + (Math.floor(semente / 2) % 12);
   return escreverPlanilha({
-    vigencia: `EMPURRADA_${1 + (semente % 28)}_8_2030`,
+    vigencia: `EMPURRADA_${quinzena}_${mes}_2030`,
     abas: [{ nome: "cavalos", linhas: spec }],
   });
 }

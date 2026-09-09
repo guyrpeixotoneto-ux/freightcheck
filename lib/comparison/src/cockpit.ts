@@ -522,6 +522,22 @@ export interface CockpitKpis {
   vehicles: number;
   /** A frota das séries que esta vigência trouxe. */
   fleet: number;
+  /**
+   * Quantos equipamentos da frota respondem `ATIVO` na coluna `ativo`, e
+   * quantos respondem que não.
+   *
+   * **Os três números não fecham por subtração**, e é por isso que são dois
+   * campos e não um: `fleet - ativos` não é "parados". Quem não trouxe a coluna
+   * — CARRETA não a traz — não respondeu, e somá-lo aos parados mostraria uma
+   * frota inteira encostada no pátio. Quem precisa da terceira ponta a obtém de
+   * `fleet - ativosNaFrota - inativosNaFrota`, com os três à mão.
+   *
+   * Existem porque "ativo" tem dois donos neste produto — o bem e a coluna —, e
+   * o Panorama passou a precisar dizer os dois números lado a lado em vez de
+   * deixar um deles ser lido no lugar do outro.
+   */
+  ativosNaFrota: number;
+  inativosNaFrota: number;
   impact: ImpactSummary;
   /** Se alguma periodicidade tem valor apurado nesta vigência. */
   hasImpact: boolean;
@@ -897,6 +913,8 @@ export function buildCockpit(view: CockpitInput): CockpitView {
       .reduce((total, b) => total + b.groups, 0),
     vehicles: view.totals.vehiclesTouched,
     fleet: view.series.reduce((total, s) => total + s.fleet, 0),
+    ativosNaFrota: view.series.reduce((total, s) => total + s.ativos, 0),
+    inativosNaFrota: view.series.reduce((total, s) => total + s.inativos, 0),
     impact: view.impact,
     hasImpact: Object.keys(view.impact.byPeriodicity).length > 0,
     anomalies: {

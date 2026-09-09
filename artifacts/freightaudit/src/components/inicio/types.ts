@@ -181,6 +181,13 @@ export interface GroupedView {
     previousPeriod: string | null;
     previousPeriodLabel: string | null;
     fleet: number;
+    /**
+     * Quantos equipamentos da série respondem `ATIVO` na coluna `ativo`, e
+     * quantos respondem que não. `ativos + inativos` **não** é `fleet`: quem
+     * não trouxe a coluna não é parado, é sem resposta.
+     */
+    ativos: number;
+    inativos: number;
     changeSetId: string | null;
     reason: string | null;
   }[];
@@ -282,6 +289,21 @@ export interface CockpitView {
     attention: number;
     vehicles: number;
     fleet: number;
+    /**
+     * A frota que respondeu `ATIVO`, e a que respondeu que não.
+     *
+     * Os três números não fecham por subtração — `fleet - ativosNaFrota` não é
+     * "parados" —, porque quem não declara a coluna (CARRETA não declara) não
+     * respondeu. Ver `CockpitKpis` em `@workspace/comparison`.
+     *
+     * **Opcionais aqui, e obrigatórios no servidor**, pela mesma razão de
+     * `vehiclesTouchedDistinct`: a interface é servida como bundle próprio, e
+     * uma resposta de versão anterior ainda em cache não os traz. Ausentes, a
+     * leitura os trata como "ninguém respondeu" e a nota cala sobre a situação
+     * — que é a resposta certa para não saber, e não uma página em branco.
+     */
+    ativosNaFrota?: number;
+    inativosNaFrota?: number;
     impact: ImpactSummary;
     hasImpact: boolean;
     anomalies: {
@@ -525,6 +547,12 @@ export interface OverviewConsolidado {
     entitiesRemoved: number;
     inconclusive: number;
     fleet: number;
+    /**
+     * As mesmas somas por situação — ver `CockpitView.kpis.ativosNaFrota`,
+     * inclusive por que são opcionais deste lado.
+     */
+    ativosNaFrota?: number;
+    inativosNaFrota?: number;
   };
   groups: OverviewGroup[];
   gruposNoTotal: number;

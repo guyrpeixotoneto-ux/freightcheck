@@ -442,6 +442,13 @@ export interface OverviewConsolidado {
     inconclusive: number;
     /** A frota das séries de todas as unidades incluídas — `cockpit.kpis.fleet` somado. */
     fleet: number;
+    /**
+     * A mesma soma para as duas respostas da coluna `ativo`. Ver
+     * `CockpitKpis.ativosNaFrota`: as três pontas não fecham por subtração,
+     * porque quem não trouxe a coluna não é parado, é sem resposta.
+     */
+    ativosNaFrota: number;
+    inativosNaFrota: number;
   };
   /** Os primeiros `LIMITE_DE_GRUPOS` da fila consolidada. */
   groups: OverviewGroup[];
@@ -539,6 +546,8 @@ function consolidar(
       entitiesRemoved: views.reduce((soma, v) => soma + v.totals.entitiesRemoved, 0),
       inconclusive: views.reduce((soma, v) => soma + v.totals.inconclusive, 0),
       fleet: views.reduce((soma, v) => soma + v.cockpit.kpis.fleet, 0),
+      ativosNaFrota: views.reduce((soma, v) => soma + v.cockpit.kpis.ativosNaFrota, 0),
+      inativosNaFrota: views.reduce((soma, v) => soma + v.cockpit.kpis.inativosNaFrota, 0),
     },
     groups,
     gruposNoTotal,
