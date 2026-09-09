@@ -26,7 +26,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { contextoAberto, unidadeDe, useContextosDaCasca } from "@/lib/contextos";
-import { formatNumber } from "@/lib/format";
+import { comPlural, formatNumber } from "@/lib/format";
 import { rotuloDoTipo } from "@/lib/frota";
 import { useSeries } from "@/lib/monitoramento-de-chamados";
 import { visaoGeralAtiva } from "@/lib/navegacao-do-escopo";
@@ -269,8 +269,12 @@ function Linha({ linha }: { linha: LinhaDaConciliacao }) {
         */}
         {linha.alteracoesNoPar > 1 && (
           <span className="block text-xs text-muted-foreground mt-0.5">
-            +{linha.alteracoesNoPar - 1} outra(s) alteração(ões) nesta placa e
-            parâmetro
+            +{comPlural(
+              linha.alteracoesNoPar - 1,
+              "outra alteração",
+              "outras alterações",
+            )}{" "}
+            nesta placa e parâmetro
           </span>
         )}
       </td>
@@ -283,7 +287,8 @@ function Linha({ linha }: { linha: LinhaDaConciliacao }) {
         {linha.externalId && (
           <span className="block text-xs text-muted-foreground mt-0.5">
             {linha.externalId}
-            {linha.chamadosNoPar > 1 && ` · +${linha.chamadosNoPar - 1} outro(s)`}
+            {linha.chamadosNoPar > 1 &&
+              ` · +${comPlural(linha.chamadosNoPar - 1, "outro", "outros")}`}
             {linha.statusBucket && ` · ${linha.statusBucket.toLowerCase()}`}
           </span>
         )}
@@ -366,7 +371,7 @@ function LinhaPorParametroDaTabela({ linha }: { linha: LinhaPorParametro }) {
               {formatNumber(linha.alteracoesNaPlanilha, 0)}
             </span>
             <span className="block text-xs text-muted-foreground">
-              em {formatNumber(linha.placasNaPlanilha, 0)} placa(s)
+              em {comPlural(linha.placasNaPlanilha, "placa", "placas")}
             </span>
           </>
         )}
@@ -390,7 +395,7 @@ function LinhaPorParametroDaTabela({ linha }: { linha: LinhaPorParametro }) {
             <span className="block text-xs text-muted-foreground">
               {linha.chamadosComPlaca === 0
                 ? "nenhum nomeia placa"
-                : `${formatNumber(linha.chamadosComPlaca, 0)} nomeia(m) placa`}
+                : `${comPlural(linha.chamadosComPlaca, "nomeia", "nomeiam")} placa`}
             </span>
           </>
         )}
@@ -753,7 +758,11 @@ export default function ConciliacaoDeChamados() {
                 }
                 rodape={
                   porParam.resumo
-                    ? `em ${formatNumber(porParam.resumo.parametros, 0)} parâmetro(s) confrontado(s)`
+                    ? `em ${comPlural(
+                        porParam.resumo.parametros,
+                        "parâmetro confrontado",
+                        "parâmetros confrontados",
+                      )}`
                     : "carregando"
                 }
                 icon={FileSpreadsheet}
@@ -820,10 +829,15 @@ export default function ConciliacaoDeChamados() {
                 }
                 rodape={
                   porParam.resumo
-                    ? `${formatNumber(porParam.resumo.divergentes, 0)} divergentes · de ${formatNumber(
+                    ? `${comPlural(
+                        porParam.resumo.divergentes,
+                        "divergente",
+                        "divergentes",
+                      )} · de ${comPlural(
                         porParam.resumo.parametros,
-                        0,
-                      )} parâmetros`
+                        "parâmetro",
+                        "parâmetros",
+                      )}`
                     : "carregando"
                 }
                 icon={TriangleAlert}
@@ -924,7 +938,7 @@ export default function ConciliacaoDeChamados() {
                   </SelectContent>
                 </Select>
                 <Badge variant="secondary" className="ml-auto tabular-nums">
-                  {formatNumber(listaPorParam.total, 0)} parâmetros
+                  {comPlural(listaPorParam.total, "parâmetro", "parâmetros")}
                 </Badge>
               </div>
 
@@ -975,6 +989,7 @@ export default function ConciliacaoDeChamados() {
                 total={listaPorParam.total}
                 onPagina={setPagina}
                 unidade="parâmetros"
+                unidadeSingular="parâmetro"
                 className="border-t"
               />
             </section>
@@ -1011,7 +1026,7 @@ export default function ConciliacaoDeChamados() {
                 valor={resumo ? formatNumber(resumo.planilha.alteracoes, 0) : "—"}
                 rodape={
                   resumo
-                    ? `${formatNumber(resumo.planilha.placas, 0)} placas · ${formatNumber(
+                    ? `${comPlural(resumo.planilha.placas, "placa", "placas")} · ${formatNumber(
                         resumo.planilha.foraDaConciliacao,
                         0,
                       )} sem placa ou parâmetro`
@@ -1025,7 +1040,7 @@ export default function ConciliacaoDeChamados() {
                 valor={resumo ? formatNumber(resumo.chamados.alteracoes, 0) : "—"}
                 rodape={
                   resumo
-                    ? `${formatNumber(resumo.chamados.placas, 0)} placas · ${formatNumber(
+                    ? `${comPlural(resumo.chamados.placas, "placa", "placas")} · ${formatNumber(
                         resumo.chamados.foraDaConciliacao,
                         0,
                       )} sem parâmetro reconhecido`
@@ -1062,10 +1077,11 @@ export default function ConciliacaoDeChamados() {
                 valor={naoConciliadas === null ? "—" : formatNumber(naoConciliadas, 0)}
                 rodape={
                   resumo
-                    ? `${formatNumber(resumo.divergentes, 0)} divergentes · de ${formatNumber(
+                    ? `${comPlural(resumo.divergentes, "divergente", "divergentes")} · de ${comPlural(
                         resumo.pares,
-                        0,
-                      )} pares`
+                        "par",
+                        "pares",
+                      )}`
                     : "carregando"
                 }
                 icon={TriangleAlert}
@@ -1215,7 +1231,7 @@ export default function ConciliacaoDeChamados() {
                   </Select>
                 )}
                 <Badge variant="secondary" className="ml-auto tabular-nums">
-                  {formatNumber(lista.total, 0)} pares
+                  {comPlural(lista.total, "par", "pares")}
                 </Badge>
               </div>
 
@@ -1267,6 +1283,7 @@ export default function ConciliacaoDeChamados() {
                 total={lista.total}
                 onPagina={setPagina}
                 unidade="pares"
+                unidadeSingular="par"
                 className="border-t"
               />
             </section>

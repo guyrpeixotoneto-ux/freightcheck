@@ -208,3 +208,34 @@ export function impactEntries(
     label: `${formatBrlShort(amount)}${periodicitySuffix(periodicity)}`,
   }));
 }
+
+/**
+ * Concorda o substantivo com o número — "1 placa", "22 placas".
+ *
+ * Existe porque a alternativa que a tela usava não é economia, é defeito:
+ * `${n} placas` escreve "1 placas", e `placa(s)` escreve "22 placa(s)", que é
+ * como um formulário fala, não como uma pessoa. Numa tela de auditoria isso
+ * importa mais do que parece — quem lê "1 placas" passa a duvidar do resto dos
+ * números pelo mesmo motivo que duvidaria de uma soma malfeita.
+ *
+ * As duas formas são **escritas**, e não derivadas por corte de letra. Nenhuma
+ * regra de sufixo em português cobre "está/estão" ou "nomeia/nomeiam", e uma
+ * que acertasse "placa/placas" quebraria calada no primeiro caso irregular que
+ * alguém acrescentasse.
+ *
+ * Zero é plural, como em português: "nenhuma placa" se escreve à parte, e o
+ * caso comum aqui — "0 divergentes" — é o certo.
+ */
+export function plural(n: number, um: string, muitos: string): string {
+  return n === 1 ? um : muitos;
+}
+
+/** O número já formatado com o substantivo concordado — "22 placas". */
+export function comPlural(
+  n: number,
+  um: string,
+  muitos: string,
+  digits = 0,
+): string {
+  return `${formatNumber(n, digits)} ${plural(n, um, muitos)}`;
+}
