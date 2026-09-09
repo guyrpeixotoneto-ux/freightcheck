@@ -34,22 +34,39 @@ import { recorteDeChamados } from "@/lib/serie-da-unidade";
 import { cn } from "@/lib/utils";
 import {
   EXPLICACAO_DA_SITUACAO,
+  EXPLICACAO_DO_GRAO,
+  EXPLICACAO_POR_PARAMETRO,
+  GRAOS,
   ROTULO_DA_BASE,
   ROTULO_DA_SITUACAO,
   ROTULO_DA_SITUACAO_SINGULAR,
+  ROTULO_DO_GRAO,
   SITUACOES,
   TEXTO_DO_AVISO,
+  TEXTO_DO_AVISO_POR_PARAMETRO,
+  alcanceDosChamados,
   avisoDaConciliacao,
+  avisoPorParametro,
   barrasDaSituacao,
+  barrasPorParametro,
+  diferencaPorParametro,
+  graoDaUrl,
+  graoNaUrl,
   nomeDoParametro,
   pendencias,
+  pendenciasPorParametro,
   percentualConciliado,
+  percentualPorParametro,
+  resumoDasOperacoes,
   rotuloDaComparacao,
   rotuloDoEnvio,
   useLinhasDaConciliacao,
+  useLinhasPorParametro,
   useOpcoesDaConciliacao,
   useResumoDaConciliacao,
+  useResumoPorParametro,
   type LinhaDaConciliacao,
+  type LinhaPorParametro,
   type Situacao,
 } from "@/lib/conciliacao-de-chamados";
 
@@ -294,6 +311,105 @@ function Linha({ linha }: { linha: LinhaDaConciliacao }) {
   );
 }
 
+/**
+ * Uma linha do grão por parâmetro.
+ *
+ * As colunas não são as do outro grão com outro nome: aqui não há placa a
+ * mostrar nem "antes → depois" a confrontar. O que a linha diz é **quantas
+ * vezes** cada lado mexeu no parâmetro, e o que o chamado fez com ele — 22 SET
+ * e 71 FORM_THIS contam igual num total e não querem dizer a mesma coisa.
+ *
+ * `chamadosComPlaca` aparece porque é a força de prova da linha: zero de 22 quer
+ * dizer que os totais batem e que nenhum chamado diz de qual placa fala. Calar
+ * isso faria este grão passar pelo outro.
+ */
+function LinhaPorParametroDaTabela({ linha }: { linha: LinhaPorParametro }) {
+  const nome = nomeDoParametro(linha);
+
+  return (
+    <tr className="border-b last:border-0 hover:bg-muted/40">
+      <td className="px-3 py-2.5 align-top">
+        <span
+          className={cn(
+            "inline-block rounded-full border px-2 py-0.5 text-xs font-medium whitespace-nowrap",
+            TEXTO_DA_SITUACAO[linha.situacao],
+          )}
+          title={EXPLICACAO_POR_PARAMETRO[linha.situacao]}
+        >
+          {ROTULO_DA_SITUACAO_SINGULAR[linha.situacao]}
+        </span>
+      </td>
+      <td className="px-3 py-2.5 align-top min-w-[16rem]">
+        <span className="block font-medium">{nome}</span>
+        <span className="block text-xs text-muted-foreground font-mono">
+          {linha.attributeCode}
+        </span>
+        {linha.parameterLabel && linha.parameterLabel !== nome && (
+          <span className="block text-xs text-muted-foreground">
+            no chamado: {linha.parameterLabel}
+          </span>
+        )}
+        {linha.entityType && (
+          <span className="block text-xs text-muted-foreground">
+            {rotuloDoTipo(linha.entityType)}
+          </span>
+        )}
+      </td>
+      <td className="px-3 py-2.5 align-top text-sm tabular-nums">
+        {linha.alteracoesNaPlanilha === 0 ? (
+          <span className="text-muted-foreground italic text-xs">
+            a planilha não mudou
+          </span>
+        ) : (
+          <>
+            <span className="font-medium">
+              {formatNumber(linha.alteracoesNaPlanilha, 0)}
+            </span>
+            <span className="block text-xs text-muted-foreground">
+              em {formatNumber(linha.placasNaPlanilha, 0)} placa(s)
+            </span>
+          </>
+        )}
+      </td>
+      <td className="px-3 py-2.5 align-top text-sm tabular-nums">
+        {linha.chamados === 0 ? (
+          <span className="text-muted-foreground italic text-xs">
+            nenhum chamado
+          </span>
+        ) : (
+          <>
+            <span className="font-medium">{formatNumber(linha.chamados, 0)}</span>
+            <span className="block text-xs text-muted-foreground">
+              {resumoDasOperacoes(linha)}
+            </span>
+            {/*
+              A força de prova da linha, dita nela. Zero é o caso normal do
+              export real, e é o que separa "os totais batem" de "este chamado é
+              deste cavalo" — que este grão não afirma.
+            */}
+            <span className="block text-xs text-muted-foreground">
+              {linha.chamadosComPlaca === 0
+                ? "nenhum nomeia placa"
+                : `${formatNumber(linha.chamadosComPlaca, 0)} nomeia(m) placa`}
+            </span>
+          </>
+        )}
+      </td>
+      <td className="px-3 py-2.5 align-top text-sm tabular-nums whitespace-nowrap">
+        <span
+          className={cn(
+            "font-medium",
+            linha.diferenca === 0 ? "text-muted-foreground" : "text-red-600",
+          )}
+        >
+          {linha.diferenca > 0 ? "+" : ""}
+          {formatNumber(linha.diferenca, 0)}
+        </span>
+      </td>
+    </tr>
+  );
+}
+
 export default function ConciliacaoDeChamados() {
   const [pathname, navegar] = useLocation();
   const busca = useSearch();
@@ -346,6 +462,15 @@ export default function ConciliacaoDeChamados() {
   const changeSetId = params.get("changeSetId");
   const ticketImportId = params.get("ticketImportId");
   const somenteVigenciaComparada = params.get("vigencia") === "1";
+  /*
+    O grão também mora no endereço, e pelo mesmo motivo dos dois lados: um link
+    para "por parâmetro, julho→agosto contra o envio de 02/09" tem de abrir
+    exatamente nisso. E porque o aviso do grão por ativo **manda** para cá — um
+    aviso que não pudesse ser um link seria uma instrução para o usuário repetir
+    à mão.
+  */
+  const grao = graoDaUrl(params.get("grao"));
+  const porParametro = grao === "PARAMETRO";
 
   const [situacao, setSituacao] = useState<Situacao | null>(null);
   const [tipo, setTipo] = useState<string | null>(null);
@@ -387,22 +512,54 @@ export default function ConciliacaoDeChamados() {
   const podeConsultar = recorteDaSerie.pronto && !semEnvioDaUnidade;
 
   const opcoes = useOpcoesDaConciliacao(escopo);
-  const { resumo, consulta } = useResumoDaConciliacao(recorte, podeConsultar);
+
+  /*
+    Só o grão aberto consulta.
+
+    As duas leituras respondem sobre o mesmo recorte e custam o mesmo, e buscar
+    as duas para mostrar uma seria pagar duas vezes por tela aberta. O preço é
+    um instante de carregamento ao trocar de grão — e ele é honesto: o que a
+    tela mostra depois é outra pergunta, não outro corte da mesma.
+  */
+  const consultaDeLinhas = {
+    ...recorte,
+    situacao,
+    tipo,
+    busca: texto,
+    pagina,
+    porPagina: POR_PAGINA,
+  };
+
+  const { resumo, consulta } = useResumoDaConciliacao(
+    recorte,
+    podeConsultar && !porParametro,
+  );
   const lista = useLinhasDaConciliacao(
-    {
-      ...recorte,
-      situacao,
-      tipo,
-      busca: texto,
-      pagina,
-      porPagina: POR_PAGINA,
-    },
-    podeConsultar,
+    consultaDeLinhas,
+    podeConsultar && !porParametro,
   );
 
-  const barras = useMemo(() => barrasDaSituacao(resumo), [resumo]);
+  const porParam = useResumoPorParametro(recorte, podeConsultar && porParametro);
+  const listaPorParam = useLinhasPorParametro(
+    consultaDeLinhas,
+    podeConsultar && porParametro,
+  );
+
+  const barras = useMemo(
+    () =>
+      porParametro
+        ? barrasPorParametro(porParam.resumo)
+        : barrasDaSituacao(resumo),
+    [porParametro, porParam.resumo, resumo],
+  );
   const aviso = avisoDaConciliacao(resumo);
+  const avisoParam = avisoPorParametro(porParam.resumo);
   const naoConciliadas = pendencias(resumo);
+  const naoConciliadosPorParam = pendenciasPorParametro(porParam.resumo);
+  const alcance = alcanceDosChamados(porParam.resumo);
+
+  /* Quem responde por indisponibilidade é o grão aberto. */
+  const consultaAtiva = porParametro ? porParam.consulta : consulta;
 
   /*
     O que os seletores mostram é o que o servidor **usou**, e não o que a URL
@@ -410,10 +567,19 @@ export default function ConciliacaoDeChamados() {
     quem lê supor que está vendo "todas". Enquanto o resumo não voltou, cai-se
     no que a URL diz — que é o que ela sabe.
   */
-  const comparacaoAtiva = resumo?.changeSetId ?? changeSetId ?? "";
-  const envioAtivo = resumo?.ticketImportId ?? ticketImportId ?? "";
+  const escolhido = porParametro ? porParam.resumo : resumo;
+  const comparacaoAtiva = escolhido?.changeSetId ?? changeSetId ?? "";
+  const envioAtivo = escolhido?.ticketImportId ?? ticketImportId ?? "";
 
-  const tipos = resumo?.tipos ?? [];
+  /*
+    As abas por tipo de ativo saem do resumo por ativo, que é quem as conta.
+
+    No grão por parâmetro elas não aparecem: um parâmetro já pertence a um
+    equipamento pelo próprio código (`cavalo.seguro`), e uma aba que repetisse
+    esse recorte ofereceria duas maneiras de fazer a mesma coisa — com a de
+    cima contando pares e a de baixo contando parâmetros.
+  */
+  const tipos = porParametro ? [] : (resumo?.tipos ?? []);
 
   return (
     <Layout>
@@ -427,8 +593,8 @@ export default function ConciliacaoDeChamados() {
             <p className="text-sm text-muted-foreground mt-1 max-w-3xl">
               Para cada alteração que a planilha importada trouxe, existe o
               chamado que a pediu? E para cada chamado que pediu alteração, ela
-              apareceu na planilha? O confronto é por placa e parâmetro, e os
-              dois impactos aparecem lado a lado — nunca somados.
+              apareceu na planilha? Os dois impactos aparecem lado a lado —
+              nunca somados.
             </p>
           </div>
         </header>
@@ -504,6 +670,42 @@ export default function ConciliacaoDeChamados() {
         </section>
 
         {/*
+          O grão do confronto.
+
+          Fica logo abaixo dos dois lados e acima de tudo o mais porque não é
+          filtro: é **outra pergunta** sobre o mesmo recorte, com outra unidade
+          de contagem e outra força de prova. Um seletor no meio dos filtros da
+          tabela sugeriria que os números de cima continuam valendo.
+
+          Dois botões, e não um interruptor: um interruptor tem um estado
+          "ligado" que se lê como refinamento do outro, e aqui nenhum dos dois é
+          refinamento de nada. A frase abaixo diz o que o grão escolhido
+          consegue afirmar, porque é isso que muda entre os dois.
+        */}
+        <section className="space-y-2">
+          <div className="inline-flex rounded-lg border bg-card p-1">
+            {GRAOS.map((g) => (
+              <button
+                key={g}
+                onClick={() => trocar({ grao: graoNaUrl(g) })}
+                aria-pressed={grao === g}
+                className={cn(
+                  "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+                  grao === g
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:bg-muted",
+                )}
+              >
+                {ROTULO_DO_GRAO[g]}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground max-w-3xl">
+            {EXPLICACAO_DO_GRAO[grao]}
+          </p>
+        </section>
+
+        {/*
           A unidade aberta não tem envio de chamados com esse nome.
 
           Vem **antes** do painel de indisponibilidade, e substitui a tela, e as
@@ -523,19 +725,283 @@ export default function ConciliacaoDeChamados() {
               importe o arquivo dessa unidade em Importações.
             </p>
           </div>
-        ) : consulta.indisponivel ? (
+        ) : consultaAtiva.indisponivel ? (
           <ApiErrorNotice
-            error={consulta.erro}
+            error={consultaAtiva.erro}
             what="a conciliação de chamados"
-            onTentarDeNovo={consulta.tentarDeNovo}
-            tentando={consulta.atualizando}
+            onTentarDeNovo={consultaAtiva.tentarDeNovo}
+            tentando={consultaAtiva.atualizando}
           />
+        ) : porParametro ? (
+          <>
+            {avisoParam && (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 flex items-start gap-3">
+                <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                <p className="text-sm text-amber-900">
+                  {TEXTO_DO_AVISO_POR_PARAMETRO[avisoParam]}
+                </p>
+              </div>
+            )}
+
+            <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
+              <Cartao
+                titulo="Alterações na planilha"
+                valor={
+                  porParam.resumo
+                    ? formatNumber(porParam.resumo.alteracoesNaPlanilha, 0)
+                    : "—"
+                }
+                rodape={
+                  porParam.resumo
+                    ? `em ${formatNumber(porParam.resumo.parametros, 0)} parâmetro(s) confrontado(s)`
+                    : "carregando"
+                }
+                icon={FileSpreadsheet}
+                tom="neutro"
+              />
+              {/*
+                O alcance no rodapé, e não numa nota de rodapé da tela.
+
+                No export real este cartão diz "153" e o rodapé diz "4% do
+                envio": os outros 3.247 chamados são de frete, que não existe na
+                base de equipamentos. Sem o rodapé, 153 leria como o envio
+                inteiro, e esta tela pareceria completa sobre o que mal lê.
+              */}
+              <Cartao
+                titulo="Chamados confrontados"
+                valor={
+                  porParam.resumo ? formatNumber(porParam.resumo.chamados, 0) : "—"
+                }
+                rodape={
+                  porParam.resumo === null
+                    ? "carregando"
+                    : `${alcance === null ? "—" : pct(alcance)} do envio · ${formatNumber(
+                        porParam.resumo.chamadosForaDaConciliacao,
+                        0,
+                      )} sem parâmetro na base`
+                }
+                icon={Headset}
+                tom="neutro"
+              />
+              <Cartao
+                titulo="Diferença de contagem"
+                valor={
+                  diferencaPorParametro(porParam.resumo) === null
+                    ? "—"
+                    : `${diferencaPorParametro(porParam.resumo)! > 0 ? "+" : ""}${formatNumber(
+                        diferencaPorParametro(porParam.resumo)!,
+                        0,
+                      )}`
+                }
+                rodape={
+                  porParam.resumo === null
+                    ? "carregando"
+                    : diferencaPorParametro(porParam.resumo) === 0
+                      ? "os dois lados trazem a mesma quantidade"
+                      : diferencaPorParametro(porParam.resumo)! > 0
+                        ? "a planilha mudou mais do que se pediu"
+                        : "pediu-se mais do que a planilha mudou"
+                }
+                icon={Scale}
+                tom={
+                  porParam.resumo === null
+                    ? "neutro"
+                    : diferencaPorParametro(porParam.resumo) === 0
+                      ? "verde"
+                      : "ambar"
+                }
+              />
+              <Cartao
+                titulo="Parâmetros não conciliados"
+                valor={
+                  naoConciliadosPorParam === null
+                    ? "—"
+                    : formatNumber(naoConciliadosPorParam, 0)
+                }
+                rodape={
+                  porParam.resumo
+                    ? `${formatNumber(porParam.resumo.divergentes, 0)} divergentes · de ${formatNumber(
+                        porParam.resumo.parametros,
+                        0,
+                      )} parâmetros`
+                    : "carregando"
+                }
+                icon={TriangleAlert}
+                tom={
+                  naoConciliadosPorParam === null
+                    ? "neutro"
+                    : naoConciliadosPorParam === 0
+                      ? "verde"
+                      : "vermelho"
+                }
+              />
+            </div>
+
+            <section className="bg-card border rounded-xl shadow-sm p-5 space-y-4">
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                  <h2 className="text-sm font-semibold">
+                    Conciliação por parâmetro
+                  </h2>
+                </div>
+                <span className="text-sm font-semibold tabular-nums">
+                  {porParam.resumo ? pct(percentualPorParametro(porParam.resumo)) : "—"}
+                </span>
+              </div>
+              <Progress
+                value={porParam.resumo ? percentualPorParametro(porParam.resumo) : 0}
+              />
+
+              <div className="grid gap-3 grid-cols-2 lg:grid-cols-4 pt-1">
+                {barras.map((barra) => (
+                  <button
+                    key={barra.situacao}
+                    onClick={() => {
+                      setSituacao(situacao === barra.situacao ? null : barra.situacao);
+                      setPagina(1);
+                    }}
+                    title={EXPLICACAO_POR_PARAMETRO[barra.situacao]}
+                    className={cn(
+                      "text-left rounded-lg border px-3 py-2.5 transition-colors",
+                      situacao === barra.situacao
+                        ? "border-primary bg-primary/5"
+                        : "hover:bg-muted/50",
+                    )}
+                  >
+                    <span className="flex items-center gap-2">
+                      <span
+                        className={cn(
+                          "h-2.5 w-2.5 rounded-full shrink-0",
+                          TOM_DA_SITUACAO[barra.situacao],
+                        )}
+                      />
+                      <span className="text-xs text-muted-foreground truncate">
+                        {barra.rotulo}
+                      </span>
+                    </span>
+                    <span className="block text-xl font-bold tabular-nums mt-0.5">
+                      {porParam.resumo ? formatNumber(barra.pares, 0) : "—"}
+                    </span>
+                    <span className="block text-xs text-muted-foreground">
+                      {porParam.resumo ? pct(barra.proporcao) : ""}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </section>
+
+            <section className="bg-card border rounded-xl shadow-sm">
+              <div className="p-4 flex flex-wrap items-center gap-3 border-b">
+                <Input
+                  value={texto}
+                  onChange={(e) => {
+                    setTexto(e.target.value);
+                    setPagina(1);
+                  }}
+                  placeholder="Parâmetro, na base ou no arquivo"
+                  className="max-w-xs"
+                />
+                <Select
+                  value={situacao ?? TODAS_AS_SITUACOES}
+                  onValueChange={(v) => {
+                    setSituacao(v === TODAS_AS_SITUACOES ? null : (v as Situacao));
+                    setPagina(1);
+                  }}
+                >
+                  <SelectTrigger className="w-[13rem]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={TODAS_AS_SITUACOES}>
+                      Todas as situações
+                    </SelectItem>
+                    {SITUACOES.map((s) => (
+                      <SelectItem key={s} value={s}>
+                        {ROTULO_DA_SITUACAO[s]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Badge variant="secondary" className="ml-auto tabular-nums">
+                  {formatNumber(listaPorParam.total, 0)} parâmetros
+                </Badge>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b bg-muted/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
+                      <th className="px-3 py-2 font-medium">Situação</th>
+                      <th className="px-3 py-2 font-medium">Parâmetro</th>
+                      <th className="px-3 py-2 font-medium">Na planilha</th>
+                      <th className="px-3 py-2 font-medium">Nos chamados</th>
+                      <th className="px-3 py-2 font-medium">Diferença</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {listaPorParam.consulta.isPending ? (
+                      Array.from({ length: 6 }).map((_, i) => (
+                        <tr key={i} className="border-b last:border-0">
+                          <td className="px-3 py-3" colSpan={5}>
+                            <Skeleton className="h-5 w-full" />
+                          </td>
+                        </tr>
+                      ))
+                    ) : listaPorParam.linhas.length === 0 ? (
+                      <tr>
+                        <td
+                          className="px-3 py-10 text-center text-muted-foreground"
+                          colSpan={5}
+                        >
+                          Nenhum parâmetro neste recorte.
+                        </td>
+                      </tr>
+                    ) : (
+                      listaPorParam.linhas.map((linha) => (
+                        <LinhaPorParametroDaTabela
+                          key={linha.attributeCode}
+                          linha={linha}
+                        />
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              <Paginacao
+                pagina={pagina}
+                porPagina={POR_PAGINA}
+                total={listaPorParam.total}
+                onPagina={setPagina}
+                unidade="parâmetros"
+                className="border-t"
+              />
+            </section>
+          </>
         ) : (
           <>
             {aviso && (
               <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 flex items-start gap-3">
                 <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-                <p className="text-sm text-amber-900">{TEXTO_DO_AVISO[aviso]}</p>
+                <div className="text-sm text-amber-900 space-y-1.5">
+                  <p>{TEXTO_DO_AVISO[aviso]}</p>
+                  {/*
+                    O aviso que manda para o outro grão leva o botão que vai até
+                    lá. Uma instrução sem caminho faz quem lê procurar o
+                    alternador — e esta é justamente a tela em que a pessoa
+                    acabou de ler que os números à frente não querem dizer o que
+                    parecem.
+                  */}
+                  {aviso === "POUCO_ALCANCE" && (
+                    <button
+                      onClick={() => trocar({ grao: graoNaUrl("PARAMETRO") })}
+                      className="font-semibold underline underline-offset-2"
+                    >
+                      Ver por parâmetro
+                    </button>
+                  )}
+                </div>
               </div>
             )}
 
