@@ -46,9 +46,11 @@
 -- único a executá-las: várias provas replicam a fila disparando `statements`
 -- um a um, em autocommit e por um pool — conexões possivelmente diferentes a
 -- cada comando. Um mapa em tabela temporária evapora entre dois comandos assim,
--- e o `SET LOCAL` que suspende o gatilho de imutabilidade não sobrevive ao fim
--- do primeiro deles: a correção rodaria pela metade, ou esbarraria no gatilho,
--- conforme quem a executasse.
+-- e a suspensão do gatilho de imutabilidade não sobrevive ao fim do primeiro
+-- deles — pior: em autocommit, um `ALTER TABLE … DISABLE TRIGGER` solto comita
+-- sozinho, e um erro no comando seguinte deixaria a tabela **sem** a proteção.
+-- A correção rodaria pela metade, ou esbarraria no gatilho, ou o desligaria em
+-- definitivo, conforme quem a executasse.
 --
 -- Um bloco `DO` é um comando. Ele carrega o próprio escopo transacional em
 -- qualquer um dos dois modos, e é o que torna esta migration a mesma coisa
@@ -57,18 +59,12 @@
 
 DO $migracao$
 DECLARE
-  fora      int;
-  ambiguas  int;
-  colisoes  int;
-  tocadas   int;
+  fora           int;
+  ambiguas       int;
+  colisoes       int;
+  tocadas        int;
+  tinha_gatilho  boolean;
 BEGIN
-  -- O trigger de imutabilidade recusa qualquer alteração num snapshot CLOSED, e
-  -- é ele que garante que uma vigência fechada não seja reescrita por engano.
-  -- Aqui a reescrita é o objetivo, e ela é feita com o trigger suspenso **nesta
-  -- transação**: `session_replication_role` volta ao normal ao fim dela, e
-  -- nenhuma outra sessão fica sem a proteção enquanto esta roda.
-  SET LOCAL session_replication_role = 'replica';
-
   CREATE TEMP TABLE quinzena_remapeada ON COMMIT DROP AS
   SELECT DISTINCT
     s.effective_date AS de,
@@ -142,6 +138,43 @@ BEGIN
       colisoes;
   END IF;
 
+  -- O gatilho de imutabilidade recusa qualquer alteração num snapshot CLOSED, e
+  -- é ele que garante que uma vigência fechada não seja reescrita por engano.
+  -- Aqui a reescrita é o objetivo, e o gatilho é suspenso só em volta do UPDATE
+  -- que precisa dele suspenso.
+  --
+  -- **Por que não `session_replication_role`.** Era assim que esta migration
+  -- fazia, e foi por isso que ela foi recusada em produção: o parâmetro exige
+  -- superusuário, e o papel com que este produto abre conexão não é um. A fila
+  -- parou aqui com `SQLSTATE 42501` — permission denied to set parameter
+  -- "session_replication_role" — e as telas que dependem da 0093 passaram a
+  -- responder erro. As 92 migrations anteriores nunca esbarraram nisso porque
+  -- nenhuma delas usou o parâmetro: quem precisou reescrever linha protegida
+  -- (`0009`, `0015`, `0016`, `0055`, `0061`, `0063`) desligou o gatilho pelo
+  -- nome, que é direito de dono de tabela e não de superusuário.
+  --
+  -- O caminho estreito também é o mais correto pelo que **não** desliga.
+  -- `session_replication_role = 'replica'` suspende todos os gatilhos da sessão,
+  -- e junto com eles as checagens de integridade referencial. Nenhuma delas
+  -- atrapalhava esta migration — não há chave estrangeira sobre `effective_date`
+  -- em tabela nenhuma —, então elas estavam sendo desligadas à toa.
+  --
+  -- O par é seguro sem `EXCEPTION`: o bloco é um comando só, então qualquer erro
+  -- entre as duas linhas desfaz a transação inteira, e o gatilho volta com ela.
+  --
+  -- A guarda por existência é a mesma da `0063`, e pela mesma razão: este
+  -- comando roda em bancos de qualquer procedência, inclusive um que o bridge
+  -- tenha deixado sem o gatilho. Desligar o que não está lá é `42704` — outra
+  -- migration recusada, pela outra ponta do mesmo descuido.
+  SELECT EXISTS (
+    SELECT 1 FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
+     WHERE c.relname = 'snapshot' AND t.tgname = 'snapshot_immutable'
+  ) INTO tinha_gatilho;
+
+  IF tinha_gatilho THEN
+    ALTER TABLE "snapshot" DISABLE TRIGGER "snapshot_immutable";
+  END IF;
+
   UPDATE snapshot s
   SET effective_date = m.para
   FROM quinzena_remapeada m
@@ -151,6 +184,10 @@ BEGIN
           s.source_label, '_',
           array_length(string_to_array(s.source_label, '_'), 1) - 2
         )::int = 2;
+
+  IF tinha_gatilho THEN
+    ALTER TABLE "snapshot" ENABLE TRIGGER "snapshot_immutable";
+  END IF;
 
   -- `entity_identifier.effective_from` é a data da vigência em que o
   -- identificador passou a valer — a promoção a copia de `effective_date`. Sem
