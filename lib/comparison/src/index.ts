@@ -29,6 +29,7 @@ export * from "./exportacao";
 export * from "./nome-de-unidade";
 export * from "./chamados";
 export * from "./monitoramento-de-chamados";
+export * from "./reparo-de-series";
 export * from "./monitoramento-de-chamados-leitura";
 export * from "./escopo";
 export * from "./ativos";

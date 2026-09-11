@@ -24,3 +24,4 @@ export * from "./integracao";
 export * from "./modulo-universal";
 export * from "./monitoramento-de-chamados";
 export * from "./normalizacao";
+export * from "./reparo";

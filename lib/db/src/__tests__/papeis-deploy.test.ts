@@ -397,6 +397,12 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
           uma linha de dado em lugar nenhum.
         */
         "nome_gerencial_normalizado",
+        /*
+          O registro dos reparos de dado, da `0095` — o lugar onde um backfill
+          diz que já rodou. Tabela nova numa Production que não a tem, então ela
+          chega inteira pelo `addTable`, como as outras.
+        */
+        "reparo_de_dados",
 ]),
     );
     /*
@@ -653,7 +659,12 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
                fraca, sem chave estrangeira, exatamente para não pendurar nada
                numa tabela viva — se um dia virasse FK, ela apareceria aqui e o
                teste pararia, que é o desenho. */
-            !c.startsWith("integracao_"),
+            !c.startsWith("integracao_") &&
+            /* A chave primária de `reparo_de_dados`, da `0095`, pela mesma
+               regra: ela nasce **com** a tabela, que Production não tem. A
+               tabela em si está nomeada no `addTable` acima, que é onde uma
+               tabela nova tem de aparecer. */
+            !c.startsWith("reparo_de_dados_"),
         ),
       ),
     ).toEqual(

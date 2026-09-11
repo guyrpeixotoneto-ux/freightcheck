@@ -3,6 +3,7 @@ import { migrarComReparo } from "@workspace/db/fila";
 import { varrerLeiturasOrfas } from "@workspace/ingest";
 import { recensearPendentes } from "@workspace/balance";
 import { preencherPresencasPendentes } from "@workspace/ingest";
+import { repararSeriesIndeterminadas } from "@workspace/comparison";
 import app from "./app";
 import { alertar } from "./lib/alerta";
 import { agendarBackups } from "./lib/backup-agendado";
@@ -360,6 +361,54 @@ async function applyMigrationsInBackground(): Promise<void> {
       { err },
       "Backfill da presença não completou; as vigências que faltarem continuam " +
         "sendo contadas na leitura, como antes.",
+    );
+  }
+
+  /*
+    O reparo das séries indeterminadas (`0095`) — e a diferença dele para os
+    dois backfills acima, que é o motivo de ele ser registrado e eles não.
+
+    Os dois de cima são varredura naturalmente limitada: o alvo é "a linha que
+    ainda não tem o valor derivado", então cada passada encolhe a próxima até não
+    sobrar nada. Este não encolhe até zero — o envio cujo arquivo não nomeia
+    unidade, cujo nome não nomeia unidade e que ninguém declarou continua
+    legitimamente indeterminado, e seria reencontrado em toda partida. Por isso
+    ele grava que rodou, em `reparo_de_dados`, e a partida seguinte lê uma linha
+    e segue.
+
+    A trava entre instâncias é dele, não daqui: `pg_advisory_xact_lock` na
+    transação que reivindica o reparo. O que **é** daqui é a última garantia —
+    falhar não impede a partida. O produto fica exatamente como estava, e o
+    botão "Recalcular a série" continua no cartão de cada envio.
+  */
+  try {
+    const reparo = await repararSeriesIndeterminadas(db);
+    if (reparo.rodou) {
+      logger.info(
+        {
+          encontrados: reparo.encontrados,
+          corrigidos: reparo.corrigidos,
+          ignorados: reparo.ignorados,
+          falhas: reparo.falhas,
+          envios: reparo.envios,
+        },
+        "Reparo das séries indeterminadas concluído — os envios corrigidos deixam " +
+          "de ser somados a todas as unidades no Monitoramento de Chamados.",
+      );
+      if (reparo.falhas > 0) {
+        void alertar({
+          tipo: "REPARO_COM_FALHA",
+          resumo: `O reparo das séries indeterminadas falhou em ${reparo.falhas} envio(s).`,
+          detalhe: { envios: reparo.envios.filter((e) => e.erro !== undefined) },
+        });
+      }
+    }
+  } catch (err) {
+    logger.warn(
+      { err },
+      "Reparo das séries indeterminadas não completou; os envios sem série " +
+        "continuam como estavam, e o botão \"Recalcular a série\" segue " +
+        "disponível no cartão de cada envio.",
     );
   }
 }

@@ -852,6 +852,20 @@ const TABELAS_DESCARTAVEIS = [
   "ticket_movement_field",
   "ticket_movement_day",
   "ticket_import_comparacao",
+  /*
+    O registro dos reparos de dado (`0095`).
+
+    Entra aqui e não em `TABELAS_REMOVIDAS` pelo critério da lista: nada nela é
+    decisão de gente. Cada linha diz que um reparo nomeado já rodou, e perdê-la
+    faz o reparo rodar de novo — inócuo por construção, porque ele só sai do
+    indeterminado para um nome e nunca toca numa série já estabelecida. O que se
+    perde é o saldo daquela passada, que é notícia e não estado: o saldo da
+    passada seguinte o substitui.
+
+    Sem dependência nenhuma, então a posição na ordem de queda é indiferente;
+    fica por último por ser a mais nova.
+  */
+  "reparo_de_dados",
 ];
 
 /**
@@ -3495,6 +3509,22 @@ function planoUp(): PassoUp[] {
     uma coluna, e nenhuma consulta a reconstrói. É por isso que o `down` exige a
     tabela vazia antes de descer — ele só desce quando não há rollback a perder.
   */
+  /*
+    A `0095` — o lugar onde um reparo de dado diz que rodou.
+
+    Uma tabela, sem índice e sem chave estrangeira: o `up` a repõe inteira
+    levantando o DDL dela própria. Repõe **vazia**, e aí a diferença em relação
+    à `0089` é do que a tabela guarda: lá a linha perdida é um nome que a rotina
+    apagou e nenhuma consulta reconstrói; aqui ela é a marca de "já rodou", e a
+    ausência dela só faz o reparo rodar outra vez, chegando ao mesmo lugar.
+  */
+  const M95 = "0095_registro_de_reparos";
+  add(
+    M95,
+    "reparo_de_dados",
+    levantar(M95, /CREATE TABLE IF NOT EXISTS "reparo_de_dados" \(/),
+  );
+
   const M89 = "0089_normalizacao_do_nome_gerencial";
   add(
     M89,

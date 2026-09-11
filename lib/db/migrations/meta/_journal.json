@@ -666,6 +666,13 @@
       "when": 1789500800000,
       "tag": "0094_unidade_declarada_no_envio",
       "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "7",
+      "when": 1789500900000,
+      "tag": "0095_registro_de_reparos",
+      "breakpoints": true
     }
   ]
 }
