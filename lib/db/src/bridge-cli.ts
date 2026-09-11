@@ -19,7 +19,7 @@ import {
   bridgeDown,
   bridgeUp,
   conferirProposta,
-  textoDaProposta,
+  problemaDaPublicacao,
   type BridgeReport,
 } from "./bridge";
 
@@ -76,8 +76,15 @@ async function conferir(producao: string): Promise<never> {
   console.log(`\nO que ele removeria de Production: ${p.removeria.length}`);
   for (const l of p.removeria) console.log(`  - ${l}`);
 
-  if (p.removeria.length > 0) {
-    console.error(`\n✗ ${textoDaProposta(p.removeria)}`);
+  /*
+    A recusa é decidida por `problemaDaPublicacao`, e não aqui. Era esta linha
+    que escrevia a regra — `removeria.length > 0` — e ela vai passar a ter um
+    segundo leitor, o passo que confere antes de publicar. Uma regra escrita
+    nos dois lugares concorda hoje e diverge no dia em que alguém mexe num só.
+  */
+  const problema = problemaDaPublicacao(p);
+  if (problema !== null) {
+    console.error(`\n✗ ${problema}`);
     process.exit(1);
   }
   console.log(
