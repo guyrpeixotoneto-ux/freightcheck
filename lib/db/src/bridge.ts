@@ -1364,6 +1364,31 @@ export function textoDaProposta(removeria: string[]): string {
   );
 }
 
+/**
+ * A recusa da publicação, em uma frase — ou `null` quando ela é segura.
+ *
+ * É a mesma medição de sempre lida como **decisão**: `removeria` vazia libera,
+ * `removeria` com qualquer coisa dentro recusa, e o texto é o de
+ * `textoDaProposta`, para que quem lê a recusa aqui reconheça a do `down`.
+ *
+ * Ela existe porque a regra tinha um leitor só — o `conferir`, que a escrevia
+ * à mão — e vai passar a ter outro: o passo que confere antes de publicar.
+ * Duas escritas da mesma regra concordam no dia em que são escritas; é o dia
+ * seguinte que custa caro, e aqui "o dia seguinte" é uma publicação que remove
+ * objetos de Production porque a segunda cópia da regra tinha um `>` onde a
+ * primeira tinha um `>=`.
+ *
+ * **Ela não é o portão — é o que um portão pergunta.** Pura de propósito: não
+ * abre conexão, não lê ambiente e não decide *quando* a pergunta é feita. Uma
+ * função que recusasse sozinha precisaria saber o que é "publicar", e isso
+ * mora fora deste arquivo. Enquanto ninguém a chamar antes do Publish, a
+ * conferência continua sendo um comando que alguém lembra de rodar — melhor
+ * testado, e ainda opcional.
+ */
+export function problemaDaPublicacao(proposta: PropostaDoPublishing): string | null {
+  return proposta.removeria.length === 0 ? null : textoDaProposta(proposta.removeria);
+}
+
 // ---------------------------------------------------------------------------
 // Dependências — a alternativa ao CASCADE
 // ---------------------------------------------------------------------------

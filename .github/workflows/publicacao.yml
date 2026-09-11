@@ -1,0 +1,102 @@
+# A conferência que precede o Publish — para ela deixar de depender de memória.
+#
+# ---------------------------------------------------------------------------
+# O que este arquivo impede
+# ---------------------------------------------------------------------------
+# O Publishing não aplica a fila: ele propõe a Production a estrutura que
+# Development tem **hoje**. Com Development atrás, o que só existe em Production
+# não entra na proposta como "falta criar" — entra como sobra, e a proposta o
+# remove. É DDL destrutivo em produção, fora da fila.
+#
+# O que torna a perda silenciosa é o que vem depois: a partida roda
+# `reconvergirNaPartida`, que repõe a estrutura levantada das próprias
+# migrations. As tabelas voltam **vazias**, o journal continua dizendo que tudo
+# foi aplicado, nada fica pendente e nada falha. O produto sobe inteiro, com o
+# conteúdo daquelas tabelas apagado.
+#
+# Aconteceu em setembro de 2026 com `modulo_universal` e
+# `modulo_universal_evento`: a decisão de quais partes do produto a casa usa, e
+# o histórico append-only de quem a tomou, chegaram a zero linhas. Development
+# estava oito migrations atrás, e `publicar:conferir` — que já sabia dizer isso
+# — não tinha sido rodado, porque era um comando que alguém lembra de rodar.
+#
+# ---------------------------------------------------------------------------
+# Por que um workflow separado, e só na branch que publica
+# ---------------------------------------------------------------------------
+# `ci.yml` mede o código; este mede a **relação entre dois bancos**, que é uma
+# pergunta de deploy e não de commit. Uma branch de trabalho não publica nada, e
+# reprová-la por um atraso de Development seria ruído sobre quem não pode
+# resolvê-lo. Publicar sai da branch padrão, e é nela que a pergunta vale.
+#
+# `workflow_dispatch` existe para o uso que importa mais: rodar isto **antes**
+# de apertar Publish, à mão, e ler a resposta.
+#
+# ---------------------------------------------------------------------------
+# Somente leitura, nos dois bancos
+# ---------------------------------------------------------------------------
+# O modo `conferir` do `bridge-cli` lê os dois e não escreve em nenhum — é o
+# único modo com essa garantia, e é o único que este workflow chama. `down` e
+# `up` escrevem, e não têm o que fazer aqui.
+name: Publicação
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  conferir:
+    name: A proposta do Publishing é só aditiva
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Instalar
+        run: pnpm install --frozen-lockfile
+
+      # Segredo ausente reprova, e não pula.
+      #
+      # Um job pulado conta como não-reprovado nas regras de proteção — é o
+      # falso verde que `ci.yml` existe para impedir, e aqui ele seria pior: a
+      # conferência apareceria como feita justamente quando não foi. Se estas
+      # duas variáveis não existirem, ninguém mediu nada, e dizer isso alto é o
+      # mínimo.
+      - name: Exigir as duas conexões
+        env:
+          DEV: ${{ secrets.DEV_DATABASE_URL }}
+          PROD: ${{ secrets.PRODUCTION_DATABASE_URL }}
+        run: |
+          falta=""
+          [ -n "$DEV" ]  || falta="$falta DEV_DATABASE_URL"
+          [ -n "$PROD" ] || falta="$falta PRODUCTION_DATABASE_URL"
+          if [ -n "$falta" ]; then
+            echo "::error::Secrets ausentes:$falta — sem as duas conexões esta" \
+                 "conferência não mede nada, e um verde aqui seria mentira."
+            exit 1
+          fi
+          if [ "$DEV" = "$PROD" ]; then
+            echo "::error::DEV_DATABASE_URL e PRODUCTION_DATABASE_URL são idênticas." \
+                 "Uma das duas está errada — comparar um banco consigo mesmo sempre passa."
+            exit 1
+          fi
+
+      # Sai com 1 quando a proposta removeria qualquer objeto de Production, e
+      # a lista do que sairia vai no log. A regra é `problemaDaPublicacao`, em
+      # `lib/db/src/bridge.ts`, e não uma segunda cópia escrita aqui.
+      - name: publicar:conferir
+        env:
+          DATABASE_URL: ${{ secrets.DEV_DATABASE_URL }}
+          PRODUCTION_DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+        run: pnpm --filter @workspace/db run publicar:conferir
