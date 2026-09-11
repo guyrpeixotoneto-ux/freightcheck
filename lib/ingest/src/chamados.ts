@@ -1186,6 +1186,15 @@ export interface ReceiveTicketOptions {
   receivedBy?: string;
   /** Reprocessar um conteúdo já recebido. O padrão recusa. */
   allowReprocess?: boolean;
+  /**
+   * A unidade que quem está importando declara para este arquivo.
+   *
+   * Gravada como veio — é o texto do cadastro que a pessoa escolheu, e é sobre
+   * ele que a lateral vai casar a unidade com a série. Não decide a série aqui:
+   * quem decide é `derivarSerieDoEnvio`, depois da leitura, e é lá que está a
+   * ordem das autoridades. Ver `ticket_import.serie_declarada`.
+   */
+  serieDeclarada?: string | null;
 }
 
 /**
@@ -1223,6 +1232,7 @@ export async function receiveTicketFile(
       byteSize: statSync(options.filePath).size,
       storagePath: options.filePath,
       receivedBy: options.receivedBy ?? null,
+      serieDeclarada: options.serieDeclarada?.trim() || null,
       status: isDuplicate ? "SKIPPED_DUPLICATE" : "PENDING",
       finishedAt: isDuplicate ? new Date() : null,
       failureReason: isDuplicate

@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import {
   type Database,
+  remuneracaoUnidadeTable,
+  scopeTable,
   ticketChangeTable,
   ticketImportComparacaoTable,
   ticketImportTable,
@@ -10,8 +12,10 @@ import {
   ticketMovementReviewTable,
   ticketMovementStepTable,
   ticketTable,
+  unidadeTable,
 } from "@workspace/db";
 import { unidadeNoPayload } from "@workspace/ingest/chamados";
+import { unidadeNoNomeDoArquivo } from "./nome-de-unidade";
 
 /**
  * MONITORAMENTO DE CHAMADOS — o motor.
@@ -87,6 +91,7 @@ export function diaSeguinte(dia: string, passos = 1): string {
 // ---------------------------------------------------------------------------
 
 export type OrigemDaSerie =
+  | "DECLARADA"
   | "ARQUIVO"
   | "NOME_DO_ARQUIVO"
   | "MISTA"
@@ -105,14 +110,75 @@ export const SERIE_INDETERMINADA = "—";
  * A unidade que o nome do arquivo nomeia — o desempate, nunca a fonte preferida.
  *
  * `Chamados_Recife.xlsx`, `chamados - camaçari.csv`, `Chamados_CDD BELEM.xlsx`.
- * É frágil de propósito reconhecer só esta forma: quem renomeia o arquivo muda
- * a partição, e por isso a coluna `Unidade` das linhas vence sempre que existe.
+ * Continua sendo desempate: quem renomeia o arquivo mudaria a partição, e por
+ * isso a coluna `Unidade` das linhas vence sempre que existe.
+ *
+ * ---------------------------------------------------------------------------
+ * Duas leituras, e por que o cadastro vem primeiro
+ * ---------------------------------------------------------------------------
+ *
+ * A forma `Chamados_<unidade>` sozinha lê o nome como se ele fosse um campo, e
+ * no arquivo real ele é uma frase: `Chamados Agosto Camaçari.xlsx` devolvia a
+ * série `Agosto Camaçari`. Ela não é nula — então a tela para de somar todas as
+ * unidades —, mas também não casa com unidade nenhuma da lateral, e o recorte
+ * que sai dali é um que nunca chega a ninguém. O envio ficava *tecnicamente*
+ * particionado e *praticamente* invisível.
+ *
+ * Por isso a primeira leitura é contra o cadastro: achando `CAMAÇARI` dentro da
+ * frase, o que se grava é o nome **como o cadastro o escreve**, que é o texto
+ * que a lateral vai comparar. As recusas dessa busca — palavra inteira, o mais
+ * específico vence, duas unidades diferentes não decidem nada — estão em
+ * `unidadeNoNomeDoArquivo`, e são o que a impede de virar um "contém" solto.
+ *
+ * A segunda leitura é a antiga, e fica como estava: sem cadastro que case, o
+ * pedaço depois de "Chamados" é tudo o que o arquivo ofereceu. Uma série que
+ * não casa com a lateral ainda separa este envio dos outros na comparação, que
+ * é o trabalho de base da série — e ela é reparável enquanto ninguém declarar
+ * coisa melhor.
  */
-export function serieDoNomeDoArquivo(filename: string): string | null {
+export function serieDoNomeDoArquivo(
+  filename: string,
+  unidadesConhecidas: readonly string[] = [],
+): string | null {
   const semExtensao = filename.replace(/\.(xlsx|xlsm|csv)$/i, "");
+  const doCadastro = unidadeNoNomeDoArquivo(semExtensao, unidadesConhecidas);
+  if (doCadastro !== null) return doCadastro;
   const casado = semExtensao.match(/^\s*chamados\s*[-_ ]\s*(.+)$/i);
   const bruto = (casado?.[1] ?? "").trim();
   return bruto === "" ? null : bruto;
+}
+
+/**
+ * Os nomes de unidade que este banco conhece — o vocabulário da lateral.
+ *
+ * São as três origens que uma unidade tem neste produto, e as três entram
+ * porque a lateral já as trata como a mesma lista:
+ *
+ * - `scope` é o escopo que a importação de vigência gravou. `name` e `code`
+ *   porque `unidadeDe`, na interface, mostra o primeiro e cai no segundo — ler
+ *   só um deixaria de fora exatamente as unidades que a tela nomeia pelo outro.
+ * - `remuneracao_unidade` é a unidade registrada à mão, que ainda não importou
+ *   arquivo nenhum. Ela aparece na lateral igual às demais.
+ * - `unidade` é a canônica, o cadastro que dá identidade às outras duas.
+ *
+ * Não é uma consulta por envio: `derivarSerieDoEnvio` só a faz quando chega ao
+ * nome do arquivo, que é o caso em que o arquivo não disse nada.
+ */
+export async function unidadesConhecidas(db: Database): Promise<string[]> {
+  const [escopos, registradas, canonicas] = await Promise.all([
+    db
+      .selectDistinct({ nome: scopeTable.name, codigo: scopeTable.code })
+      .from(scopeTable)
+      .where(eq(scopeTable.scopeType, "UNIDADE")),
+    db.selectDistinct({ nome: remuneracaoUnidadeTable.nome }).from(remuneracaoUnidadeTable),
+    db.selectDistinct({ nome: unidadeTable.nome }).from(unidadeTable),
+  ]);
+
+  return [
+    ...escopos.flatMap((e) => [e.nome, e.codigo]),
+    ...registradas.map((r) => r.nome),
+    ...canonicas.map((c) => c.nome),
+  ].filter((n): n is string => typeof n === "string" && n.trim() !== "");
 }
 
 // ---------------------------------------------------------------------------
@@ -630,20 +696,45 @@ export interface ResultadoDoProcessamento {
 }
 
 /**
- * A série de um envio, decidida uma vez e gravada.
+ * A série de um envio — a ordem das autoridades, escrita num lugar só.
  *
- * A coluna `Unidade` das linhas vence o nome do arquivo, e a razão é operação:
- * quem baixa `Chamados_Recife.xlsx` e salva como `chamados (3).xlsx` não mudou
- * a unidade de nada, e uma partição que dependesse do nome teria mudado.
+ * 1. **As linhas nomeiam mais de uma unidade** (`MISTA`). Vem primeiro porque é
+ *    a única que não decide a série: decide a **chave da comparação**, que passa
+ *    a ser (unidade, número do chamado). Nem a declaração a desloca — apagar a
+ *    mistura produziria "todos sumiram, 380 novos", a movimentação falsa em
+ *    massa que a série existe para impedir. O que a declaração faz aqui é dar
+ *    nome à partição; a comparação continua linha a linha.
+ * 2. **A unidade declarada no envio** (`DECLARADA`). Ato explícito de uma pessoa
+ *    sobre o cadastro que ela está vendo — a mesma autoridade que `unidade`, a
+ *    canônica, reconhece. Vence a coluna do arquivo porque é ela que faz o
+ *    recorte da tela alcançar alguém: a coluna escreve `Camaçari - CDD` e a
+ *    lateral diz `CAMAÇARI`, e quem sabe que são a mesma é quem importou. A
+ *    evidência do arquivo não se perde — segue inteira em `ticket.unidade_raw`
+ *    e em `payload`.
+ * 3. **A coluna `Unidade` das linhas** (`ARQUIVO`), quando todas concordam.
+ * 4. **O nome do arquivo** (`NOME_DO_ARQUIVO`), lido contra o cadastro. Continua
+ *    sendo o último dos derivados, e a razão é operação: quem baixa
+ *    `Chamados_Recife.xlsx` e salva como `chamados (3).xlsx` não mudou a unidade
+ *    de nada, e uma partição que dependesse do nome teria mudado.
+ * 5. **Nada disso** (`INDETERMINADA`) — e aí o envio é comparado só consigo
+ *    mesmo, nunca às cegas com outro.
  */
 export async function derivarSerieDoEnvio(
   db: Database,
   ticketImportId: string,
 ): Promise<{ serie: string | null; origem: OrigemDaSerie }> {
   const [envio] = await db
-    .select({ filename: ticketImportTable.filename })
+    .select({
+      filename: ticketImportTable.filename,
+      declarada: ticketImportTable.serieDeclarada,
+    })
     .from(ticketImportTable)
     .where(eq(ticketImportTable.id, ticketImportId));
+
+  const declarada =
+    envio?.declarada !== null && envio?.declarada !== undefined && envio.declarada.trim() !== ""
+      ? envio.declarada.trim()
+      : null;
 
   const unidades = await db
     .selectDistinct({ unidade: ticketTable.unidadeRaw })
@@ -682,13 +773,24 @@ export async function derivarSerieDoEnvio(
     ];
   }
 
+  /*
+    A mistura vem antes da declaração porque as duas respondem perguntas
+    diferentes, e só uma delas é sobre a chave da comparação. Ver a ordem no
+    cabeçalho: a declaração nomeia a partição, `MISTA` diz que dentro dela a
+    comparação é por (unidade, número do chamado).
+  */
+  if (nomeadas.length > 1) {
+    return { serie: declarada, origem: "MISTA" };
+  }
+  if (declarada !== null) {
+    return { serie: declarada, origem: "DECLARADA" };
+  }
   if (nomeadas.length === 1) {
     return { serie: nomeadas[0]!.trim(), origem: "ARQUIVO" };
   }
-  if (nomeadas.length > 1) {
-    return { serie: null, origem: "MISTA" };
-  }
-  const doNome = envio ? serieDoNomeDoArquivo(envio.filename) : null;
+  const doNome = envio
+    ? serieDoNomeDoArquivo(envio.filename, await unidadesConhecidas(db))
+    : null;
   return doNome !== null
     ? { serie: doNome, origem: "NOME_DO_ARQUIVO" }
     : { serie: null, origem: "INDETERMINADA" };
@@ -1319,4 +1421,140 @@ export async function recalcularSerie(
     dias.add(resultado.dia);
   }
   return { envios: envios.length, dias: [...dias].sort() };
+}
+
+/** O que a recusa de um reparo diz — a frase inteira, para a tela repetir. */
+export class ReparoDeSerieRecusado extends Error {}
+
+export interface ReparoDaSerie {
+  ticketImportId: string;
+  /** A série antes do reparo — o que vai ser refeito junto. */
+  serieAnterior: string | null;
+  serie: string | null;
+  origem: OrigemDaSerie;
+  /** Quantos envios tiveram a comparação refeita, no total das duas cadeias. */
+  enviosRecalculados: number;
+  dias: string[];
+}
+
+/**
+ * Reparar a série de um envio — o caminho que faltava, e por que ele é uma rota.
+ *
+ * A derivação roda **uma vez**, quando o arquivo é lido
+ * (`readInBackground`, em `routes/tickets.ts`), e depois disso só volta a
+ * acontecer sozinha quando alguém exclui um envio da mesma série. Isso deixava
+ * um buraco com consequência: um envio lido por um build que ainda não sabia
+ * derivar a unidade ficava indeterminado **para sempre** — a melhoria da
+ * derivação não alcançava nada que já estivesse no banco, e o único jeito de
+ * consertar era apagar o arquivo e reimportá-lo, perdendo a régua de dias que
+ * ele sustenta.
+ *
+ * Foi o que houve com o acervo real: `Chamados Agosto Camaçari.xlsx`, 2.349
+ * chamados lidos em 04/09, série indeterminada — e o Monitoramento somando o
+ * envio inteiro para quem abria PERNAMBUCO na lateral. A derivação passou a
+ * saber ler aquele nome; o envio continuou como estava.
+ *
+ * ---------------------------------------------------------------------------
+ * As duas formas, e o que cada uma pode
+ * ---------------------------------------------------------------------------
+ *
+ * **Sem `declarar`** é reparo de derivação: só alcança o envio cuja série é
+ * nula, e é monotônico — sai do indeterminado para um nome, uma vez. É a mesma
+ * trava de `processarEnvioDeChamados`, e pela mesma razão: uma partição já
+ * estabelecida não pode trocar de série porque o algoritmo melhorou, senão
+ * movimentações antigas passariam a pertencer a outra fila sem que nada
+ * tivesse acontecido.
+ *
+ * **Com `declarar`** é uma pessoa afirmando de que unidade é este arquivo, e aí
+ * a série pode mudar mesmo já existindo — é exatamente para isso que a rota
+ * existe. O que não muda é que a mudança seja **silenciosa**: a declaração fica
+ * gravada em `serie_declarada` como o que é, as duas cadeias (a antiga e a
+ * nova) são recomparadas na hora, e a régua de dias sai consistente das duas —
+ * senão o dia de ontem continuaria contando movimentação contra uma base que o
+ * envio não tem mais.
+ */
+export async function repararSerieDoEnvio(
+  db: Database,
+  ticketImportId: string,
+  { declarar }: { declarar?: string | null } = {},
+): Promise<ReparoDaSerie> {
+  const [envio] = await db
+    .select({
+      id: ticketImportTable.id,
+      status: ticketImportTable.status,
+      serie: ticketImportTable.serie,
+    })
+    .from(ticketImportTable)
+    .where(eq(ticketImportTable.id, ticketImportId));
+
+  if (!envio) {
+    throw new ReparoDeSerieRecusado("Envio de chamados não encontrado.");
+  }
+  if (envio.status !== "READ") {
+    throw new ReparoDeSerieRecusado(
+      `Este envio está em ${envio.status}, e um envio que não foi lido não pertence a série nenhuma. ` +
+        "Não há o que reparar aqui: o que falta é a leitura.",
+    );
+  }
+
+  const declaracao = declarar?.trim() ? declarar.trim() : null;
+  if (declaracao === null && envio.serie !== null) {
+    throw new ReparoDeSerieRecusado(
+      `Este envio já está na série "${envio.serie}", e uma partição estabelecida não é redecidida por recálculo — ` +
+        "movimentações antigas passariam a pertencer a outra fila sem que nada tivesse acontecido. " +
+        "Para mudá-la, declare a unidade do envio.",
+    );
+  }
+
+  const serieAnterior = envio.serie;
+
+  if (declaracao !== null) {
+    /*
+      A série vai a nulo junto com a declaração, e não depois dela.
+
+      `processarEnvioDeChamados` só redecide enquanto a série é nula. Gravar a
+      declaração sem zerar a série faria a rota responder "reparado" sobre um
+      envio que continuaria exatamente onde estava — o pior desfecho possível
+      para um botão de conserto, porque ele afirma um efeito que não houve.
+    */
+    await db
+      .update(ticketImportTable)
+      .set({ serieDeclarada: declaracao, serie: null, serieOrigem: null })
+      .where(eq(ticketImportTable.id, ticketImportId));
+  }
+
+  const resultado = await processarEnvioDeChamados(db, ticketImportId);
+
+  /*
+    As duas cadeias, e não só a nova.
+
+    Sair de uma série muda o "anterior" de quem ficou nela, do mesmo jeito que
+    uma exclusão muda — e a comparação daqueles envios continuaria gravada
+    contra uma base que já não é a deles. `recalcularSerie` refaz as duas; a
+    nova inclui este envio, e reprocessá-lo de novo é idempotente.
+  */
+  const cadeias = [resultado.serie];
+  if (serieAnterior !== resultado.serie) cadeias.push(serieAnterior);
+
+  const dias = new Set<string>();
+  let enviosRecalculados = 0;
+  for (const cadeia of cadeias) {
+    const r = await recalcularSerie(db, cadeia);
+    enviosRecalculados += r.envios;
+    for (const dia of r.dias) dias.add(dia);
+  }
+
+  const [gravado] = await db
+    .select({ origem: ticketImportTable.serieOrigem })
+    .from(ticketImportTable)
+    .where(eq(ticketImportTable.id, ticketImportId));
+
+  return {
+    ticketImportId,
+    serieAnterior,
+    serie: resultado.serie,
+    origem: (gravado?.origem as OrigemDaSerie | null) ?? "INDETERMINADA",
+    enviosRecalculados,
+    dias: [...dias].sort(),
+  };
 }

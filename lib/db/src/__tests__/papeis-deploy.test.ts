@@ -586,6 +586,16 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
         "ticket_import.serie",
         "ticket_import.serie_origem",
         /*
+          A da `0094` — a unidade que quem importou declarou.
+
+          É a autoridade que tira um envio da série indeterminada quando nem a
+          coluna `Unidade` nem o nome do arquivo dizem de onde ele veio, e sem
+          ela um acervo todo indeterminado faz o Monitoramento somar as unidades
+          embaixo do nome da que está aberta na lateral. Aditiva e nula, pela
+          mesma razão das de cima: é a forma que este diff aceita.
+        */
+        "ticket_import.serie_declarada",
+        /*
           A coluna que a `0046` acrescentou a `fechamento_competencia` **não**
           entra aqui, e a ausência é a informação: o diff a reporta pela tabela,
           não pela coluna, porque Production não tem nenhuma das treze do

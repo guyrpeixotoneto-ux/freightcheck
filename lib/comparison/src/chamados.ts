@@ -286,8 +286,21 @@ export interface TicketImportSummary {
    *   de uma unidade contra a fila de outra.
    */
   serie: string | null;
-  /** De onde a série foi lida: ARQUIVO, NOME_DO_ARQUIVO, MISTA, INDETERMINADA. */
+  /**
+   * De onde a série foi lida: DECLARADA, ARQUIVO, NOME_DO_ARQUIVO, MISTA,
+   * INDETERMINADA.
+   */
   serieOrigem: string | null;
+  /**
+   * A unidade que quem importou declarou — o cadastro, e não o arquivo.
+   *
+   * Vai para a tela separada de `serie` porque ela é a **autoridade**, e não o
+   * resultado: é ela que diz se este envio ainda depende do arquivo colaborar,
+   * e é ela que o cartão precisa para não oferecer um reparo que já foi feito.
+   * `null` é o envio que ninguém declarou — a maioria. Ver
+   * `ticket_import.serie_declarada`, em `schema/tickets.ts`.
+   */
+  serieDeclarada: string | null;
 }
 
 export interface TicketTotals {
@@ -482,6 +495,7 @@ function toSummary(row: typeof ticketImportTable.$inferSelect): TicketImportSumm
     failureReason: row.failureReason,
     serie: row.serie,
     serieOrigem: row.serieOrigem,
+    serieDeclarada: row.serieDeclarada,
   };
 }
 

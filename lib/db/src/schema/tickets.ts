@@ -110,16 +110,52 @@ export const ticketImportTable = pgTable(
      */
     serie: text("serie"),
     /**
-     * De onde a série foi lida — porque a confiança nas duas não é a mesma.
+     * De onde a série foi lida — porque a confiança nelas não é a mesma.
      *
+     * DECLARADA       — a unidade que quem importou escolheu no envio, do
+     *                   cadastro. Ver `serie_declarada`.
      * ARQUIVO         — a coluna `Unidade` das linhas, todas concordando. É a
-     *                   fonte preferida: sobrevive a alguém renomear o arquivo.
-     * NOME_DO_ARQUIVO — o `Chamados_<unidade>.xlsx`, quando a coluna não veio.
+     *                   fonte preferida entre as derivadas: sobrevive a alguém
+     *                   renomear o arquivo.
+     * NOME_DO_ARQUIVO — a unidade achada no nome do arquivo, quando a coluna
+     *                   não veio.
      * MISTA           — as linhas nomeiam mais de uma unidade; a comparação é
      *                   feita por (unidade, número do chamado), linha a linha.
-     * INDETERMINADA   — nenhuma das duas disse nada.
+     * INDETERMINADA   — nenhuma delas disse nada.
      */
     serieOrigem: text("serie_origem"),
+    /**
+     * A unidade que quem importou declarou — o cadastro, e não o arquivo.
+     *
+     * **Por que existe.** O export real do Freightech nem sempre traz a coluna
+     * `Unidade`, e o nome do arquivo é o que a pessoa salvou. Quando as duas
+     * calam, a série fica indeterminada — e um acervo inteiro indeterminado faz
+     * o Monitoramento somar todas as unidades embaixo do nome da que está
+     * aberta na lateral (`ACERVO_SEM_SERIE`, em `lib/serie-da-unidade.ts`).
+     * Medido: um envio de Camaçari aparecendo inteiro para quem abriu
+     * PERNAMBUCO. Declarar a unidade no envio é o caminho que não depende de o
+     * arquivo colaborar.
+     *
+     * **É coluna própria, e não `serie` preenchida na chegada.** `serie` é
+     * derivada e reparável — `processarEnvioDeChamados` a redecide enquanto ela
+     * for nula, e é isso que permite consertar um acervo antigo sem reimportar.
+     * Gravar a declaração ali a tornaria indistinguível de uma derivação, e o
+     * reparo passaria a pular justamente o envio cuja unidade alguém afirmou.
+     * Separada, ela é uma **autoridade** que toda derivação futura lê, e
+     * sobrevive a qualquer recálculo.
+     *
+     * **Vence a coluna do arquivo, e não vence a mistura.** A declaração é ato
+     * explícito de uma pessoa sobre um cadastro que ela está vendo, e é por
+     * isso que ela decide a partição. O que ela não pode fazer é apagar a
+     * evidência de que as linhas nomeiam **mais de uma** unidade: ali a
+     * comparação continua sendo por (unidade, número do chamado), senão um
+     * arquivo de duas unidades produziria "todos sumiram, 380 novos" — a
+     * movimentação falsa em massa que a série existe para impedir. Ver
+     * `derivarSerieDoEnvio`.
+     *
+     * `NULL` é o envio que ninguém declarou — a maioria, e o padrão.
+     */
+    serieDeclarada: text("serie_declarada"),
   },
   (t) => [
     index("ticket_import_sha256_idx").on(t.contentSha256),

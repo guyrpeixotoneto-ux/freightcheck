@@ -40,6 +40,8 @@
  * tela **diz** que é a soma que está mostrando.
  */
 
+import { normalizarUnidade } from "@workspace/comparison/nome-de-unidade";
+
 /** O mínimo de que o casamento precisa de uma série. */
 export interface SerieConhecida {
   /** `null` é a série indeterminada — o envio sem unidade no arquivo. */
@@ -47,21 +49,17 @@ export interface SerieConhecida {
 }
 
 /**
- * O nome em forma comparável: caixa alta, sem acento, sem pontuação.
+ * O nome em forma comparável — a mesma régua dos dois lados.
  *
- * `Camaçari`, `CAMAÇARI` e `camacari ` viram a mesma palavra; `CDD CEBRASA`
- * continua diferente de `CEBRASA`, que é o que o cabeçalho promete.
+ * Ela morava aqui, e passou a morar em `@workspace/comparison/nome-de-unidade`
+ * quando o motor precisou dela para ler a unidade dentro do nome do arquivo.
+ * Duas cópias de uma regra de igualdade é a doença que este módulo existe para
+ * tratar, um nível acima: nada obriga as duas a concordarem, e no dia em que
+ * divergissem a série gravada deixaria de casar com a unidade da tela sem que
+ * nada tivesse mudado. Reexportada para que quem já a importava daqui continue
+ * a importá-la daqui.
  */
-export function normalizarUnidade(bruto: string | null | undefined): string | null {
-  if (bruto === null || bruto === undefined) return null;
-  const normalizada = bruto
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toUpperCase()
-    .replace(/[^A-Z0-9]+/g, " ")
-    .trim();
-  return normalizada === "" ? null : normalizada;
-}
+export { normalizarUnidade } from "@workspace/comparison/nome-de-unidade";
 
 /**
  * A série que corresponde a uma unidade — como o arquivo a escreveu.
