@@ -359,6 +359,17 @@ export const ALLOWLIST: {
     tipo: "text",
     aindaPodeNaoExistir: true,
   },
+  /*
+    A da `0094`. A unidade que quem importou declarou — a autoridade que tira um
+    envio da série indeterminada quando nem a coluna `Unidade` nem o nome do
+    arquivo dizem de onde ele veio. Aditiva e nula, como todas as daqui.
+  */
+  {
+    tabela: "ticket_import",
+    coluna: "serie_declarada",
+    tipo: "text",
+    aindaPodeNaoExistir: true,
+  },
 ];
 
 /**

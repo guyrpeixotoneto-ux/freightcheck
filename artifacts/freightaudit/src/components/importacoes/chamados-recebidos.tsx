@@ -9,12 +9,21 @@ import {
   Layers,
   SlidersHorizontal,
   Table2,
+  MapPin,
   Trash2,
   Upload,
+  Wrench,
 } from "lucide-react";
 
 import { ApiErrorNotice } from "@/components/api-error";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Dialog,
   DialogDescription,
@@ -29,6 +38,8 @@ import {
   TONS,
 } from "@/components/importacoes/cartao";
 import { erroDaResposta, fetchJson, getApiUrl, readJson } from "@/lib/api";
+import { unidadeDe, useContextos, type Contexto } from "@/lib/contextos";
+import { serieDaUnidade } from "@/lib/serie-da-unidade";
 import {
   contaDaLeitura,
   emAndamento,
@@ -71,6 +82,15 @@ import { cn } from "@/lib/utils";
  */
 export function ChamadosRecebidos() {
   const [aberto, setAberto] = useState<string | null>(null);
+  /**
+   * A unidade que este envio declara — escolhida antes de escolher o arquivo.
+   *
+   * Mora aqui, e não dentro do dropzone, porque ela precisa sobreviver ao
+   * arrastar: o `onDrop` dispara o upload na hora, e um estado que nascesse
+   * junto com o seletor não estaria montado quando a mutação lesse o valor.
+   * `null` é "não declarar", que continua sendo o padrão.
+   */
+  const [unidadeDoEnvio, setUnidadeDoEnvio] = useState<string | null>(null);
   const [excluindo, setExcluindo] = useState<TicketImportSummary | null>(null);
   const [excluido, setExcluido] = useState<string | null>(null);
   // O erro inteiro, e não a frase dele: `ApiErrorNotice` precisa do status e do
@@ -112,6 +132,12 @@ export function ChamadosRecebidos() {
 
   const upload = useMutation({
     mutationFn: async (file: File) => {
+      /*
+        A unidade é lida aqui dentro, no momento do envio, e não capturada num
+        parâmetro: quem arrasta o arquivo nunca passa pelo botão, e o valor que
+        vale é o que está no seletor quando o arquivo chega.
+      */
+      const unidade = unidadeDoEnvio;
       // base64 dentro de JSON, igual à importação de vigência: é a requisição
       // mais banal da web, e nenhum proxy a recusa.
       const bytes = new Uint8Array(await file.arrayBuffer());
@@ -126,6 +152,7 @@ export function ChamadosRecebidos() {
         body: JSON.stringify({
           filename: file.name,
           contentBase64: btoa(binary),
+          ...(unidade === null ? {} : { unidade }),
         }),
       });
       const body = await readJson(response);
@@ -197,6 +224,8 @@ export function ChamadosRecebidos() {
           onFile={(file) => upload.mutate(file)}
           onPick={() => fileInput.current?.click()}
         />
+
+        <UnidadeDoEnvio valor={unidadeDoEnvio} onChange={setUnidadeDoEnvio} />
 
         {excluido && (
           <p className="text-sm text-emerald-900 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
@@ -337,6 +366,281 @@ function DropzoneDeChamados({
   );
 }
 
+/**
+ * O conserto de um envio cuja série não alcança ninguém.
+ *
+ * ---------------------------------------------------------------------------
+ * Por que um botão, e não um aviso
+ * ---------------------------------------------------------------------------
+ *
+ * A série é decidida **uma vez**, na leitura do arquivo. Melhorar a derivação
+ * depois disso — passar a ler a coluna `Unidade` de `payload`, passar a achar a
+ * unidade dentro de `Chamados Agosto Camaçari.xlsx` — não alcança nada que já
+ * esteja no banco: o envio lido pelo build antigo continua exatamente onde
+ * estava, e a única saída era excluir o arquivo e reimportá-lo, perdendo a régua
+ * de dias que ele sustenta.
+ *
+ * Aparece em dois estados, e só neles:
+ *
+ * 1. **Série indeterminada.** O envio não pertence a fila nenhuma, e um acervo
+ *    todo assim faz o Monitoramento somar todas as unidades. É o caso que doeu.
+ * 2. **Série que não é do cadastro.** `Agosto Camaçari` é uma série — separa
+ *    este envio dos outros — e não casa com unidade nenhuma da lateral, então o
+ *    recorte que sai dela nunca chega a ninguém. Tecnicamente particionado,
+ *    praticamente invisível.
+ *
+ * No envio cuja série **já** é uma unidade do cadastro não há o que consertar, e
+ * oferecer o botão ali convidaria a mexer numa partição que está certa.
+ */
+function RepararSerie({ envio }: { envio: TicketImportSummary }) {
+  const [unidade, setUnidade] = useState<string | null>(null);
+  const [erro, setErro] = useState<unknown>(null);
+  const [feito, setFeito] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const contextos = useContextos();
+
+  const unidades = unidadesDaLateral(contextos.dados);
+
+  /*
+    "A série casa com uma unidade da lateral?" é a mesma pergunta que o
+    Monitoramento faz, e é por isso que a resposta sai de `serieDaUnidade`, e não
+    de uma comparação escrita aqui: duas réguas de igualdade divergem no dia em
+    que uma delas muda, e no dia da divergência esta tela ofereceria conserto
+    para um envio certo, ou o esconderia de um errado.
+  */
+  const series = [{ serie: envio.serie }];
+  const alcancaAlguem =
+    envio.serie !== null && unidades.some((u) => serieDaUnidade(u, series) !== null);
+
+  /*
+    Duas condições para dizer "esta série não chega a ninguém", e as duas são
+    sobre o que se **sabe**, não sobre o que se vê:
+
+    - a lista de unidades tem de ter chegado. Enquanto ela não chegou, nenhuma
+      unidade casa com nada, e sem esta guarda a tira piscaria "não chega a
+      ninguém" por cima de um envio certo antes de sumir sozinha;
+    - e tem de haver cadastro. Numa instalação sem unidade nenhuma o casamento
+      falha por não haver com quem casar, e oferecer conserto ali acusaria de
+      quebrado todo envio do acervo.
+
+    O envio **sem série** não depende de nenhuma das duas: ele está quebrado com
+    cadastro ou sem, e é o caso que doeu.
+  */
+  const daParaJulgarASerie = contextos.houveResposta && unidades.length > 0;
+
+  const reparar = useMutation({
+    mutationFn: async (declarar: string | null) => {
+      const response = await fetch(getApiUrl(`/ticket-imports/${envio.id}/serie`), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(declarar === null ? {} : { unidade: declarar }),
+      });
+      const body = await readJson(response);
+      if (!response.ok) throw erroDaResposta(response, body);
+      return body as unknown as { serie: string | null; enviosRecalculados: number };
+    },
+    onSuccess: (r) => {
+      setErro(null);
+      setFeito(
+        r.serie === null
+          ? "A série continua indeterminada: nem o arquivo nem o nome dele nomeiam unidade. Escolha a unidade acima para declará-la."
+          : `Série "${r.serie}". ${r.enviosRecalculados} envio${
+              r.enviosRecalculados === 1 ? "" : "s"
+            } tiveram a comparação refeita.`,
+      );
+      queryClient.invalidateQueries({ queryKey: ["ticket-imports"] });
+      /*
+        O Monitoramento lê a mesma série por outras chaves, e é lá que o efeito
+        deste botão aparece. Não invalidá-las deixaria a tela vizinha afirmando
+        um recorte que acabou de deixar de existir.
+      */
+      queryClient.invalidateQueries({ queryKey: ["monitoramento-chamados"] });
+      queryClient.invalidateQueries({ queryKey: ["tickets"] });
+    },
+    onError: (err: unknown) => {
+      setFeito(null);
+      setErro(err);
+    },
+  });
+
+  /*
+    O envio MISTA não entra. Ele não é um envio que calou: é um que nomeou
+    **várias** unidades, e o motor já sabe o que fazer com isso — compara por
+    (unidade, número do chamado), linha a linha. Oferecer o conserto aqui
+    escreveria "este envio não diz de que unidade veio" sobre um arquivo que
+    disse de mais, que é a frase errada e o convite errado.
+  */
+  if (envio.serieOrigem === "MISTA") return null;
+
+  const precisaDeConserto =
+    envio.serie === null || (daParaJulgarASerie && !alcancaAlguem);
+  if (!precisaDeConserto && feito === null) return null;
+
+  return (
+    <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50/60 px-4 py-3 space-y-2">
+      <p className="text-xs text-amber-900">
+        {envio.serie === null ? (
+          <>
+            Este envio não diz de que unidade veio, e enquanto o acervo inteiro
+            estiver assim o Monitoramento soma <strong>todas</strong> as unidades.
+          </>
+        ) : (
+          <>
+            A série <strong>{envio.serie}</strong> não é nenhuma das unidades
+            cadastradas, então o recorte que sai dela não chega a ninguém.
+          </>
+        )}{" "}
+        Declare a unidade — ou recalcule, se a coluna do arquivo passou a ser
+        lida desde o envio.
+      </p>
+
+      <div className="flex flex-wrap items-center gap-2">
+        {unidades.length > 0 && (
+          <Select
+            value={unidade ?? SEM_DECLARAR}
+            onValueChange={(v) => setUnidade(v === SEM_DECLARAR ? null : v)}
+          >
+            <SelectTrigger className="w-[220px] h-8 bg-white">
+              <SelectValue placeholder="Unidade" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={SEM_DECLARAR}>Escolher a unidade…</SelectItem>
+              {unidades.map((u) => (
+                <SelectItem key={u} value={u}>
+                  {u}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-8 bg-white"
+          disabled={reparar.isPending}
+          onClick={() => reparar.mutate(unidade)}
+        >
+          <Wrench className="w-3.5 h-3.5 mr-1.5" />
+          {reparar.isPending
+            ? "Recalculando…"
+            : unidade === null
+              ? "Recalcular a série"
+              : `Declarar ${unidade}`}
+        </Button>
+      </div>
+
+      {feito && <p className="text-xs text-emerald-900">{feito}</p>}
+      {erro != null && (
+        <ApiErrorNotice error={erro} what="A série do envio não pôde ser refeita." />
+      )}
+    </div>
+  );
+}
+
+/** O valor com que "não declarar" viaja no `Select`, que não aceita `""`. */
+const SEM_DECLARAR = "__sem_declarar__";
+
+/**
+ * As unidades como a lateral as nomeia — a lista que os dois seletores daqui
+ * oferecem.
+ *
+ * `unidadeDe` é a mesma função que a barra lateral usa, e é de propósito: é com
+ * esse texto que o Monitoramento casa a unidade aberta com a série do envio
+ * (`lib/serie-da-unidade.ts`). Oferecer um vocabulário diferente aqui produziria
+ * declarações que não casam com tela nenhuma — o mesmo desencontro que este
+ * trabalho existe para desfazer, agora escrito por nós.
+ *
+ * `dados` e não `data`: a consulta dos contextos é resiliente, e o que ela
+ * devolve é a última resposta válida — `undefined` só quando nunca houve uma.
+ */
+function unidadesDaLateral(contextos: Contexto[] | undefined): string[] {
+  return [
+    ...new Set(
+      (contextos ?? []).map(unidadeDe).filter((u) => u.trim() !== ""),
+    ),
+  ].sort((a, b) => a.localeCompare(b, "pt-BR"));
+}
+
+/**
+ * A unidade deste envio — declarada por quem importa, e opcional.
+ *
+ * ---------------------------------------------------------------------------
+ * Por que a pergunta existe
+ * ---------------------------------------------------------------------------
+ *
+ * A série de um envio é a unidade, e ela é derivada: sai da coluna `Unidade`
+ * das linhas ou do nome do arquivo. O export real do Freightech nem sempre traz
+ * a coluna, e o nome é o que a pessoa salvou. Quando as duas calam, a série fica
+ * indeterminada — e um acervo inteiro indeterminado faz o Monitoramento de
+ * Chamados **somar todas as unidades** embaixo do nome da que está aberta na
+ * lateral, avisando na tira que é isso que está fazendo.
+ *
+ * Medido: `Chamados Agosto Camaçari.xlsx`, 2.349 chamados, coluna vazia em todas
+ * as linhas, e a tela mostrando o envio inteiro para quem tinha PERNAMBUCO
+ * aberto. Este seletor é o caminho que não depende de o arquivo colaborar.
+ *
+ * **Opcional, e não obrigatório.** Exigir a unidade aqui recusaria o arquivo de
+ * quem não sabe qual escolher — trocaria um recorte ruim por nenhum arquivo. Sem
+ * declaração o caminho é o de sempre, e o envio continua reparável depois, no
+ * cartão dele.
+ *
+ * A lista é a da lateral, e é de propósito: é com esse texto que o
+ * Monitoramento casa a unidade aberta com a série do envio
+ * (`lib/serie-da-unidade.ts`), e oferecer um vocabulário diferente aqui
+ * produziria declarações que não casam com tela nenhuma — o mesmo desencontro,
+ * agora escrito por nós.
+ */
+function UnidadeDoEnvio({
+  valor,
+  onChange,
+}: {
+  valor: string | null;
+  onChange: (valor: string | null) => void;
+}) {
+  const contextos = useContextos();
+  const unidades = unidadesDaLateral(contextos.dados);
+
+  /*
+    Sem cadastro não há o que oferecer, e um seletor vazio é pior do que nenhum:
+    ele promete uma escolha que não existe e ocupa o lugar onde a explicação
+    caberia. A instalação que ainda não importou vigência nenhuma cai aqui.
+  */
+  if (unidades.length === 0) return null;
+
+  return (
+    <div className="superficie px-6 py-4 flex flex-wrap items-center gap-x-4 gap-y-2">
+      <div className="w-10 h-10 rounded-xl bg-muted flex items-center justify-center shrink-0">
+        <MapPin className="w-5 h-5 text-muted-foreground" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="font-semibold text-sm">Unidade deste envio (opcional)</p>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          O export nem sempre diz de que unidade veio. Declarando aqui, o
+          Monitoramento mostra estes chamados só para quem abrir esta unidade —
+          em vez de somá-los a todas. Dá para declarar depois, no cartão do
+          arquivo.
+        </p>
+      </div>
+      <Select
+        value={valor ?? SEM_DECLARAR}
+        onValueChange={(v) => onChange(v === SEM_DECLARAR ? null : v)}
+      >
+        <SelectTrigger className="w-[240px]">
+          <SelectValue placeholder="Unidade" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={SEM_DECLARAR}>Deixar o arquivo dizer</SelectItem>
+          {unidades.map((u) => (
+            <SelectItem key={u} value={u}>
+              {u}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
 /** A lista vazia, dizendo o que ela vai passar a mostrar. */
 function SemEnvios() {
   return (
@@ -446,6 +750,7 @@ function CartaoDoEnvio({
                 )}
               </p>
             )}
+            {leu && <RepararSerie envio={envio} />}
           </div>
         </div>
         <SeloDeEstado estado={estado} />

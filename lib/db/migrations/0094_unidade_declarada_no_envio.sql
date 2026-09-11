@@ -1,0 +1,56 @@
+-- ---------------------------------------------------------------------------
+-- A UNIDADE DECLARADA NO ENVIO — uma coluna, e nenhum DDL sobre o que existe.
+-- ---------------------------------------------------------------------------
+--
+-- `ticket_import.serie` é a partição dentro da qual dois envios se comparam — a
+-- unidade —, e ela é **derivada**: sai da coluna `Unidade` das linhas ou, na
+-- falta dela, do nome do arquivo. Quando as duas calam, a série fica
+-- indeterminada, e um acervo inteiro indeterminado tem uma consequência que não
+-- é local: o Monitoramento de Chamados passa a **somar todas as unidades**
+-- embaixo do nome da que está aberta na lateral (`ACERVO_SEM_SERIE`, em
+-- `lib/serie-da-unidade.ts`).
+--
+-- Não é hipótese. Medido no acervo real: `Chamados Agosto Camaçari.xlsx`,
+-- 2.349 chamados, coluna `Unidade` vazia em todas as linhas — e a tela
+-- mostrando o envio inteiro para quem tinha PERNAMBUCO aberto. A tira avisa que
+-- é a soma, e avisar é o melhor que se pode fazer quando o dado não diz de onde
+-- veio; o que faltava era um caminho para ele passar a dizer.
+--
+-- Este é o caminho: quem importa escolhe a unidade, do cadastro, no momento do
+-- envio. É a mesma autoridade que `unidade` (a canônica, da `0075`) reconhece —
+-- ato explícito de uma pessoa — e não uma quinta heurística sobre o arquivo.
+--
+-- ---------------------------------------------------------------------------
+-- Por que coluna nova, e não `serie` preenchida na chegada
+-- ---------------------------------------------------------------------------
+--
+-- Porque `serie` é derivada e reparável. `processarEnvioDeChamados` a redecide
+-- **enquanto ela for nula** — foi isso que devolveu ao acervo lido antes da
+-- `0087` a chance de sair do indeterminado sem reimportar arquivo. Gravar a
+-- declaração ali a tornaria indistinguível de uma derivação, e o reparo passaria
+-- a pular justamente o envio cuja unidade alguém afirmou.
+--
+-- Separada, `serie_declarada` é uma **autoridade**, não um resultado: toda
+-- derivação futura a lê, ela sobrevive a qualquer recálculo, e continua legível
+-- como o que é — "uma pessoa disse que este arquivo é de CAMAÇARI" — ao lado da
+-- evidência que o arquivo trouxe, que segue inteira em `ticket.unidade_raw` e em
+-- `payload`. Ver `derivarSerieDoEnvio`, em `lib/comparison`, para a ordem das
+-- autoridades e para a única coisa que a declaração **não** decide: um arquivo
+-- cujas linhas nomeiam mais de uma unidade continua comparado por (unidade,
+-- número do chamado), porque apagar a mistura produziria "todos sumiram, 380
+-- novos" — a movimentação falsa em massa que a série existe para impedir.
+--
+-- ---------------------------------------------------------------------------
+-- O que acontece com o que já está gravado
+-- ---------------------------------------------------------------------------
+--
+-- Nada, e por isso não há backfill. `NULL` é a descrição correta de todo envio
+-- anterior: ninguém declarou unidade nenhuma neles, e inventar uma a partir do
+-- nome do arquivo aqui seria fazer no SQL o palpite que a derivação já faz — com
+-- a diferença de que este ficaria gravado como se fosse declaração de gente.
+--
+-- Aditiva e nula, em tabela que já existe: é a forma que a `ALLOWLIST` do bridge
+-- aceita (ver `bridge.ts`), e é ela que deixa Production ganhar a coluna quando
+-- rodar a fila, sem que o `down` precise removê-la nesse meio-tempo.
+
+ALTER TABLE "ticket_import" ADD COLUMN IF NOT EXISTS "serie_declarada" text;

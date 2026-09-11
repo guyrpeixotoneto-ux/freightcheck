@@ -1,12 +1,20 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
-import { ticketChangeTable, ticketImportTable, ticketTable } from "@workspace/db";
+import {
+  scopeTable,
+  ticketChangeTable,
+  ticketImportTable,
+  ticketTable,
+} from "@workspace/db";
 import { createTestDatabase, type TestDb } from "@workspace/ingest/testing";
 import {
   diaDaOperacao,
   processarEnvioDeChamados,
   recalcularSerie,
+  repararSerieDoEnvio,
+  ReparoDeSerieRecusado,
   serieDoNomeDoArquivo,
+  unidadesConhecidas,
 } from "../monitoramento-de-chamados";
 import {
   listarMovimentacoes,
@@ -52,6 +60,7 @@ beforeEach(async () => {
   await ctx.db.execute(sql`DELETE FROM ticket_change`);
   await ctx.db.execute(sql`DELETE FROM ticket`);
   await ctx.db.execute(sql`DELETE FROM ticket_import`);
+  await ctx.db.execute(sql`DELETE FROM scope`);
 });
 
 // ---------------------------------------------------------------------------
@@ -95,7 +104,14 @@ async function enviar(
     recebidoEm,
     filename = "Chamados_Recife.xlsx",
     status = "READ" as const,
-  }: { recebidoEm: string; filename?: string; status?: "READ" | "FAILED" },
+    declarada,
+  }: {
+    recebidoEm: string;
+    filename?: string;
+    status?: "READ" | "FAILED";
+    /** A unidade que quem importou declarou, como a rota de upload a grava. */
+    declarada?: string;
+  },
 ): Promise<string> {
   const [envio] = await ctx.db
     .insert(ticketImportTable)
@@ -107,6 +123,7 @@ async function enviar(
       receivedAt: new Date(recebidoEm),
       rowCount: chamados.length,
       ticketCount: chamados.length,
+      ...(declarada === undefined ? {} : { serieDeclarada: declarada }),
     })
     .returning();
 
@@ -171,6 +188,15 @@ describe("o dia da régua é o da importação, no fuso da operação", () => {
     expect(serieDoNomeDoArquivo("Chamados_Recife.xlsx")).toBe("Recife");
     expect(serieDoNomeDoArquivo("chamados - camaçari.csv")).toBe("camaçari");
     expect(serieDoNomeDoArquivo("relatorio.xlsx")).toBeNull();
+  });
+
+  it("o cadastro vence a forma `Chamados_<unidade>` — o caso de Camaçari", () => {
+    // Sem cadastro, o nome real devolve `Agosto Camaçari`: uma série que existe,
+    // que particiona, e que não casa com unidade nenhuma da lateral. Com ele, o
+    // que sai é o texto do cadastro — que é o que a tela vai comparar.
+    const nome = "Chamados Agosto Camaçari.xlsx";
+    expect(serieDoNomeDoArquivo(nome)).toBe("Agosto Camaçari");
+    expect(serieDoNomeDoArquivo(nome, ["CAMAÇARI"])).toBe("CAMAÇARI");
   });
 });
 
@@ -287,6 +313,185 @@ describe("T00 · a série indeterminada é reparável", () => {
       })
       .from(ticketImportTable);
     expect(gravado).toMatchObject({ serie: "Recife", origem: "NOME_DO_ARQUIVO" });
+  });
+});
+
+/**
+ * T00b · A UNIDADE DECLARADA, E O REPARO QUE ALCANÇA O QUE JÁ ESTÁ NO BANCO.
+ *
+ * Os dois caminhos que faltavam para um envio sair do estado em que o
+ * Monitoramento soma todas as unidades embaixo do nome da que está aberta na
+ * lateral. O primeiro é para o arquivo que ainda vai chegar — quem importa
+ * declara a unidade; o segundo é para o que já chegou, e é uma rota porque a
+ * série é decidida uma vez e melhorar a derivação depois não alcança nada que
+ * já esteja gravado.
+ */
+describe("T00b · a unidade declarada por quem importa", () => {
+  it("decide a série do envio cujo arquivo não diz de onde veio", async () => {
+    const envio = await enviar(
+      [
+        { externalId: "CH-1", unidade: null },
+        { externalId: "CH-2", unidade: null },
+      ],
+      { recebidoEm: as(DIA, 8), filename: "export (3).xlsx", declarada: "CAMAÇARI" },
+    );
+
+    const r = await processarEnvioDeChamados(ctx.db, envio);
+
+    expect(r.serie).toBe("CAMAÇARI");
+    const [gravado] = await ctx.db
+      .select({
+        serie: ticketImportTable.serie,
+        origem: ticketImportTable.serieOrigem,
+        declarada: ticketImportTable.serieDeclarada,
+      })
+      .from(ticketImportTable);
+    expect(gravado).toMatchObject({
+      serie: "CAMAÇARI",
+      origem: "DECLARADA",
+      declarada: "CAMAÇARI",
+    });
+  });
+
+  it("vence a coluna do arquivo — quem sabe que são a mesma unidade é quem importou", async () => {
+    // A coluna escreve `Camaçari - CDD` e a lateral diz `CAMAÇARI`. Deixar a
+    // coluna vencer devolveria a tela ao estado "esta unidade não tem envio",
+    // que é honesto e é exatamente o que a declaração existe para resolver.
+    const envio = await enviar([{ externalId: "CH-1", unidade: "Camaçari - CDD" }], {
+      recebidoEm: as(DIA, 8),
+      declarada: "CAMAÇARI",
+    });
+
+    expect((await processarEnvioDeChamados(ctx.db, envio)).serie).toBe("CAMAÇARI");
+  });
+
+  it("não apaga a mistura: o arquivo de duas unidades continua comparado por unidade", async () => {
+    // A única coisa que a declaração não decide. Apagar a mistura produziria
+    // "todos sumiram, N novos" — a movimentação falsa em massa que a série
+    // existe para impedir.
+    const envio = await enviar(
+      [
+        { externalId: "CH-1", unidade: "CAMAÇARI" },
+        { externalId: "CH-2", unidade: "RECIFE" },
+      ],
+      { recebidoEm: as(DIA, 8), declarada: "CAMAÇARI" },
+    );
+
+    await processarEnvioDeChamados(ctx.db, envio);
+
+    const [gravado] = await ctx.db
+      .select({
+        serie: ticketImportTable.serie,
+        origem: ticketImportTable.serieOrigem,
+      })
+      .from(ticketImportTable);
+    expect(gravado).toMatchObject({ serie: "CAMAÇARI", origem: "MISTA" });
+  });
+
+  it("sobrevive ao recálculo, porque é autoridade e não resultado", async () => {
+    const envio = await enviar([{ externalId: "CH-1", unidade: null }], {
+      recebidoEm: as(DIA, 8),
+      filename: "export.xlsx",
+      declarada: "CAMAÇARI",
+    });
+    await processarEnvioDeChamados(ctx.db, envio);
+
+    await recalcularSerie(ctx.db, "CAMAÇARI");
+
+    const [gravado] = await ctx.db
+      .select({
+        serie: ticketImportTable.serie,
+        origem: ticketImportTable.serieOrigem,
+      })
+      .from(ticketImportTable);
+    expect(gravado).toMatchObject({ serie: "CAMAÇARI", origem: "DECLARADA" });
+  });
+});
+
+describe("T00c · o reparo alcança o envio que já está no banco", () => {
+  /** O cadastro que a lateral mostra — de onde sai o vocabulário da unidade. */
+  const cadastrar = async (...unidades: string[]) => {
+    for (const [i, nome] of unidades.entries()) {
+      await ctx.db
+        .insert(scopeTable)
+        .values({ scopeType: "UNIDADE", code: `cod-${i}`, name: nome });
+    }
+  };
+
+  it("lê a unidade do nome do arquivo contra o cadastro — o envio real de Camaçari", async () => {
+    await cadastrar("CAMAÇARI", "PERNAMBUCO");
+    // O estado medido: 2.349 chamados, coluna `Unidade` vazia, série nula.
+    const envio = await enviar([{ externalId: "CH-1", unidade: null }], {
+      recebidoEm: as(DIA, 8),
+      filename: "Chamados Agosto Camaçari.xlsx",
+    });
+    await ctx.db.update(ticketImportTable).set({ serie: null, serieOrigem: null });
+
+    const r = await repararSerieDoEnvio(ctx.db, envio);
+
+    expect(r).toMatchObject({
+      serieAnterior: null,
+      serie: "CAMAÇARI",
+      origem: "NOME_DO_ARQUIVO",
+    });
+  });
+
+  it("declarar muda uma série que já existe, e recompara as duas cadeias", async () => {
+    const antigo = await enviar([{ externalId: "CH-1" }], {
+      recebidoEm: as(ONTEM, 8),
+      filename: "Chamados_Recife.xlsx",
+    });
+    const envio = await enviar([{ externalId: "CH-1" }, { externalId: "CH-2" }], {
+      recebidoEm: as(DIA, 8),
+      filename: "Chamados_Recife.xlsx",
+    });
+    await processarEnvioDeChamados(ctx.db, antigo);
+    await processarEnvioDeChamados(ctx.db, envio);
+
+    const r = await repararSerieDoEnvio(ctx.db, envio, { declarar: "CAMAÇARI" });
+
+    expect(r).toMatchObject({
+      serieAnterior: "Recife",
+      serie: "CAMAÇARI",
+      origem: "DECLARADA",
+    });
+    // As duas cadeias: a nova (só este envio) e a que ele deixou (o de ontem).
+    expect(r.enviosRecalculados).toBe(2);
+  });
+
+  it("sem declaração, a partição estabelecida não é redecidida", async () => {
+    // A metade da trava que continua valendo: movimentações antigas passariam a
+    // pertencer a outra fila sem que nada tivesse acontecido.
+    const envio = await enviar([{ externalId: "CH-1" }], { recebidoEm: as(DIA, 8) });
+    await processarEnvioDeChamados(ctx.db, envio);
+
+    await expect(repararSerieDoEnvio(ctx.db, envio)).rejects.toBeInstanceOf(
+      ReparoDeSerieRecusado,
+    );
+  });
+
+  it("o envio que não foi lido não pertence a série nenhuma", async () => {
+    const envio = await enviar([{ externalId: "CH-1" }], {
+      recebidoEm: as(DIA, 8),
+      status: "FAILED",
+    });
+
+    await expect(repararSerieDoEnvio(ctx.db, envio)).rejects.toThrow(/não foi lido/);
+  });
+
+  it("o vocabulário da unidade é o da lateral: nome e código do escopo", async () => {
+    await ctx.db
+      .insert(scopeTable)
+      .values({ scopeType: "UNIDADE", code: "0443", name: "CDD BELÉM" });
+    await ctx.db
+      .insert(scopeTable)
+      .values({ scopeType: "TRANSPORTADORA", code: "T-1", name: "NÃO É UNIDADE" });
+
+    const conhecidas = await unidadesConhecidas(ctx.db);
+
+    expect(conhecidas).toContain("CDD BELÉM");
+    expect(conhecidas).toContain("0443");
+    expect(conhecidas).not.toContain("NÃO É UNIDADE");
   });
 });
 

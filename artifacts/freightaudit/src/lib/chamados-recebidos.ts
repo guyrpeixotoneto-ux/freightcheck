@@ -166,8 +166,9 @@ export function contaDaLeitura(envio: {
  * De onde saiu a série do envio, em português.
  *
  * A série é a partição dentro da qual dois envios se comparam — a unidade —, e
- * a confiança nela não é a mesma em todos os casos: lida das linhas do arquivo
- * ela sobrevive a alguém renomear o arquivo; lida do nome, não. A tela mostra a
+ * a confiança nela não é a mesma em todos os casos: declarada por quem importou
+ * ela é afirmação de gente sobre o cadastro; lida das linhas do arquivo ela
+ * sobrevive a alguém renomear o arquivo; lida do nome, não. A tela mostra a
  * diferença porque é ela que separa "reenvio da mesma fila" de "a fila de outra
  * unidade", e esses dois casos se parecem na lista — dois arquivos do mesmo
  * dia, com contagens diferentes.
@@ -181,6 +182,12 @@ export function origemDaSerie(envio: {
 }): { serie: string; origem: string; confiavel: boolean } | null {
   if (!envio.serie) return null;
   switch (envio.serieOrigem) {
+    case "DECLARADA":
+      return {
+        serie: envio.serie,
+        origem: "declarada por quem importou",
+        confiavel: true,
+      };
     case "ARQUIVO":
       return {
         serie: envio.serie,

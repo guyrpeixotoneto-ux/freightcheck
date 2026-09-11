@@ -26,6 +26,7 @@ export * from "./end-to-end";
 export * from "./impacto";
 export * from "./panorama";
 export * from "./exportacao";
+export * from "./nome-de-unidade";
 export * from "./chamados";
 export * from "./monitoramento-de-chamados";
 export * from "./monitoramento-de-chamados-leitura";

@@ -87,6 +87,49 @@ describe("decodeTicketUpload", () => {
     expect(result.value.bytes.equals(csvBytes)).toBe(true);
   });
 
+  it("carrega a unidade declarada, e sem ela o envio continua valendo", () => {
+    // Opcional de propósito: exigir a unidade aqui recusaria o arquivo de quem
+    // não sabe qual escolher — trocaria um recorte ruim por nenhum arquivo.
+    const sem = decodeTicketUpload({
+      filename: "fila.csv",
+      contentBase64: csvBase64,
+    });
+    expect(sem.ok && sem.value.serieDeclarada).toBeNull();
+
+    const com = decodeTicketUpload({
+      filename: "fila.csv",
+      contentBase64: csvBase64,
+      unidade: "  CAMAÇARI  ",
+    });
+    expect(com.ok && com.value.serieDeclarada).toBe("CAMAÇARI");
+  });
+
+  it("a unidade em branco é o mesmo que não declarar", () => {
+    const result = decodeTicketUpload({
+      filename: "fila.csv",
+      contentBase64: csvBase64,
+      unidade: "   ",
+    });
+    expect(result.ok && result.value.serieDeclarada).toBeNull();
+  });
+
+  it("recusa uma unidade que não é texto, e uma longa demais para ser nome", () => {
+    expect(
+      decodeTicketUpload({
+        filename: "fila.csv",
+        contentBase64: csvBase64,
+        unidade: 42,
+      }),
+    ).toMatchObject({ ok: false });
+    expect(
+      decodeTicketUpload({
+        filename: "fila.csv",
+        contentBase64: csvBase64,
+        unidade: "x".repeat(201),
+      }),
+    ).toMatchObject({ ok: false });
+  });
+
   it("recusa outra extensão dizendo quais são as esperadas", () => {
     const result = decodeTicketUpload({
       filename: "chamados.pdf",

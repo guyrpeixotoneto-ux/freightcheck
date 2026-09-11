@@ -46,6 +46,7 @@ const envio = (
   failureReason: null,
   serie: "CAMAÇARI",
   serieOrigem: "ARQUIVO",
+  serieDeclarada: null,
   ...parcial,
 });
 
@@ -190,6 +191,17 @@ describe("a série, e o quanto se pode confiar nela", () => {
     expect(origemDaSerie(envio({ serieOrigem: "NOME_DO_ARQUIVO" }))?.confiavel).toBe(
       false,
     );
+  });
+
+  it("declarada por quem importou é afirmação de gente, e não palpite", () => {
+    // A única origem que não depende de o arquivo colaborar — e a razão de ela
+    // existir: um export sem coluna `Unidade` e com nome salvo pela pessoa
+    // deixava o envio sem série, e o Monitoramento somando todas as unidades.
+    expect(origemDaSerie(envio({ serieOrigem: "DECLARADA" }))).toEqual({
+      serie: "CAMAÇARI",
+      origem: "declarada por quem importou",
+      confiavel: true,
+    });
   });
 
   it("mista é o arquivo que nomeia mais de uma unidade", () => {

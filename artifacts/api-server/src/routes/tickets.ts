@@ -27,6 +27,8 @@ import {
   listTicketChanges,
   processarEnvioDeChamados,
   recalcularSerie,
+  repararSerieDoEnvio,
+  ReparoDeSerieRecusado,
   lerEscopo,
   rotulosNaJanela,
   temEscopo,
@@ -92,6 +94,14 @@ export type DecodedTicketUpload = {
   filename: string;
   extension: ".xlsx" | ".csv";
   bytes: Buffer;
+  /**
+   * A unidade que quem importa declarou, quando declarou.
+   *
+   * Opcional, e continua opcional de propósito: o envio sem declaração é o
+   * caminho de sempre, e exigir a unidade aqui recusaria o arquivo de quem não
+   * sabe qual escolher — trocando um recorte ruim por nenhum arquivo.
+   */
+  serieDeclarada: string | null;
 };
 
 export type DecodeTicketResult =
@@ -111,7 +121,7 @@ export function decodeTicketUpload(body: unknown): DecodeTicketResult {
   if (typeof body !== "object" || body === null) {
     return { ok: false, error: "Envie um JSON com filename e contentBase64." };
   }
-  const { filename, contentBase64 } = body as Record<string, unknown>;
+  const { filename, contentBase64, unidade } = body as Record<string, unknown>;
 
   if (typeof filename !== "string" || filename.trim() === "") {
     return { ok: false, error: "filename é obrigatório." };
@@ -149,7 +159,29 @@ export function decodeTicketUpload(body: unknown): DecodeTicketResult {
     };
   }
 
-  return { ok: true, value: { filename: safeName, extension, bytes } };
+  /*
+    A unidade declarada é texto de cadastro, e a conferência aqui é de forma,
+    não de existência: recusar um nome que não está na lista faria o upload
+    depender de o cadastro estar completo, e é justamente a unidade que ainda
+    não importou nada que mais precisa de ser declarada. O que não passa é o
+    que não é nome: outro tipo, ou um texto longo demais para ser um.
+  */
+  if (unidade !== undefined && unidade !== null && typeof unidade !== "string") {
+    return { ok: false, error: "unidade, quando enviada, tem de ser texto." };
+  }
+  const declarada =
+    typeof unidade === "string" && unidade.trim() !== "" ? unidade.trim() : null;
+  if (declarada !== null && declarada.length > 200) {
+    return {
+      ok: false,
+      error: "O nome da unidade declarada é longo demais para ser um nome de unidade.",
+    };
+  }
+
+  return {
+    ok: true,
+    value: { filename: safeName, extension, bytes, serieDeclarada: declarada },
+  };
 }
 
 /**
@@ -317,7 +349,7 @@ router.post("/ticket-imports", async (req, res): Promise<void> => {
     return;
   }
 
-  const { filename, extension, bytes } = decoded.value;
+  const { filename, extension, bytes, serieDeclarada } = decoded.value;
   const contentSha256 = createHash("sha256").update(bytes).digest("hex");
   const filePath = path.join(
     ensureImportStorageDir(),
@@ -329,6 +361,7 @@ router.post("/ticket-imports", async (req, res): Promise<void> => {
     filePath,
     filename,
     receivedBy: req.user?.email ?? DEFAULT_ACTOR,
+    serieDeclarada,
   });
 
   if (received.isDuplicate) {
@@ -362,6 +395,53 @@ router.get("/ticket-imports/:id", async (req, res): Promise<void> => {
     return;
   }
   res.json(run);
+});
+
+/**
+ * Reparar a série de um envio — e, quando preciso, declarar a unidade dele.
+ *
+ * A série é decidida uma vez, na leitura. Melhorar a derivação depois disso não
+ * alcança nada que já esteja no banco, e até aqui a única saída para um envio
+ * preso em "série indeterminada" era excluí-lo e reimportá-lo — perdendo a
+ * régua de dias que ele sustenta. Esta rota é a saída que faltava.
+ *
+ * `POST` porque escreve: refaz a série do envio e recompara as cadeias que
+ * mudaram. Não relê o arquivo — nenhum chamado é tocado, e a conta de
+ * conservação do envio continua a mesma. O que se refaz é a camada derivada,
+ * que é derivada justamente para poder ser refeita.
+ *
+ * Com `unidade` no corpo, a rota **declara**: uma pessoa afirmando de que
+ * unidade é este arquivo, o que pode mudar uma série que já existe. Sem ela, é
+ * só reparo de derivação, e a recusa de mexer numa partição estabelecida volta
+ * como 409 com a frase inteira — não é erro do servidor, é a ordem em que as
+ * coisas podem ser desfeitas.
+ */
+router.post("/ticket-imports/:id/serie", async (req, res, next): Promise<void> => {
+  if (!UUID.test(req.params.id)) {
+    res.status(400).json({ error: "Identificador de envio inválido." });
+    return;
+  }
+  const unidade = req.body?.unidade;
+  if (unidade !== undefined && unidade !== null && typeof unidade !== "string") {
+    res.status(400).json({ error: "unidade, quando enviada, tem de ser texto." });
+    return;
+  }
+
+  try {
+    res.json(
+      await repararSerieDoEnvio(db, req.params.id, {
+        declarar: typeof unidade === "string" ? unidade : null,
+      }),
+    );
+  } catch (err) {
+    if (err instanceof ReparoDeSerieRecusado) {
+      const naoEncontrado = err.message.includes("não encontrado");
+      req.log.warn({ err, ticketImportId: req.params.id }, "Serie repair refused");
+      res.status(naoEncontrado ? 404 : 409).json({ error: err.message });
+      return;
+    }
+    next(err);
+  }
 });
 
 /**
