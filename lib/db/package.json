@@ -13,6 +13,7 @@
     "./reconvergencia": "./src/reconvergencia.ts",
     "./bridge": "./src/bridge.ts",
     "./bridge-marcador": "./src/bridge-marcador.ts",
+    "./decisao-da-casa": "./src/decisao-da-casa.ts",
     "./backup": "./src/backup.ts"
   },
   "scripts": {

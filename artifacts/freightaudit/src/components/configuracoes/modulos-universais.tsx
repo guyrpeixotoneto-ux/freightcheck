@@ -119,6 +119,26 @@ export function PainelDeModulosUniversais() {
   );
 
   const definir = useMutation({
+    /*
+      Um escopo, e por isso uma fila: duas mutações do mesmo `scope` não correm
+      juntas no React Query.
+
+      Sem ele, cinco cliques em cinco segundos eram cinco `PUT` concorrentes, e
+      o `onSuccess` de cada um escreve no cache a **lista inteira** que o
+      servidor devolveu. A resposta que chegasse por último vencia, não a que
+      tivesse partido por último — e a resposta mais antiga não conhece o
+      desligamento mais novo. O efeito na tela é exatamente o sintoma relatado:
+      um módulo que acabou de ser desligado volta a aparecer ligado, sem
+      ninguém ter tocado nele, com o banco já correto por baixo. Os carimbos da
+      captura de 13/09/2026 são de 17:48:22, :23, :24 e :25 — quatro decisões em
+      quatro segundos, que é a janela em que isto acontece.
+
+      Enfileirar é a correção certa aqui, e não um desempate por relógio: cada
+      `PUT` lê o estado atual antes de decidir o que mudou, então ele precisa
+      enxergar o anterior já gravado para o histórico não inventar uma decisão
+      que ninguém tomou.
+    */
+    scope: { id: "modulos-universais" },
     mutationFn: (chaves: Record<string, boolean>) =>
       fetchJson<ModulosUniversais>("/modulos-universais", {
         method: "PUT",
@@ -302,7 +322,25 @@ export function PainelDeModulosUniversais() {
             <p className="text-sm text-muted-foreground">Carregando…</p>
           )}
 
-          {!consulta.isLoading && ambientesNaTela.length > 0 && (
+          {/*
+            Sem resposta do servidor, a tela não desenha interruptor nenhum.
+
+            `desligadas` nasce de `consulta.data?.desligadas ?? []`, e um
+            conjunto vazio faz **todo** interruptor aparecer ligado. Com a
+            lista desenhada nesse estado, uma leitura que falhou é
+            indistinguível de uma casa que não desligou nada — a interface
+            afirmaria "tudo no ar" justamente quando não sabe. O aviso de erro
+            acima continua dizendo o que aconteceu; o que sai daqui é o palpite.
+          */}
+          {!consulta.isLoading && consulta.data === undefined && (
+            <p className="rounded-md border p-6 text-sm text-muted-foreground">
+              O que esta casa desligou não pôde ser lido — e por isso nada é
+              mostrado aqui. Um interruptor ligado nesta tela significaria que a
+              decisão foi lida e é essa; sem a leitura, não há o que afirmar.
+            </p>
+          )}
+
+          {!consulta.isLoading && consulta.data !== undefined && ambientesNaTela.length > 0 && (
             <div className="rounded-md border">
               <div className="flex items-center gap-2 bg-muted/50 px-4 py-2">
                 <Layers className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
@@ -341,6 +379,7 @@ export function PainelDeModulosUniversais() {
           )}
 
           {!consulta.isLoading &&
+            consulta.data !== undefined &&
             secoes.map((secao) => {
               const chaveDela = chaveDaSecao(secao.secao);
               const secaoLigada = !desligadas.has(chaveDela);
@@ -457,7 +496,10 @@ export function PainelDeModulosUniversais() {
               );
             })}
 
-          {!consulta.isLoading && secoes.length === 0 && ambientesNaTela.length === 0 && (
+          {!consulta.isLoading &&
+            consulta.data !== undefined &&
+            secoes.length === 0 &&
+            ambientesNaTela.length === 0 && (
             <p className="rounded-md border p-6 text-sm text-muted-foreground">
               Nenhuma seção ou módulo com esse nome.
             </p>
