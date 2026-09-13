@@ -1,5 +1,6 @@
 import { db } from "@workspace/db";
 import { migrarComReparo } from "@workspace/db/fila";
+import { protegerDecisaoDaCasaNoBanco } from "@workspace/db/decisao-da-casa";
 import { varrerLeiturasOrfas } from "@workspace/ingest";
 import { recensearPendentes } from "@workspace/balance";
 import { preencherPresencasPendentes } from "@workspace/ingest";
@@ -292,6 +293,69 @@ async function applyMigrationsInBackground(): Promise<void> {
         detalhe: {
           semComando: reconvergencia.relatorio.semComando,
           falhas: reconvergencia.relatorio.falhas,
+        },
+      });
+    }
+
+    /*
+      Depois da reconvergência, a decisão da casa.
+
+      A reconvergência repõe **estrutura**, e diz de si mesma que "o conteúdo
+      deles não volta sozinho". Para dado derivado isso está certo — o produto o
+      recomputa. Para as duas tabelas dos módulos universais não está: elas
+      guardam decisão humana e um histórico append-only que nenhuma consulta
+      reconstrói, e uma tabela recriada vazia quer dizer, nesta camada, "tudo
+      ligado". Foi assim que o menu inteiro voltou a aparecer, três vezes, para
+      quem o tinha desligado.
+
+      `protegerDecisaoDaCasaNoBanco` repõe as linhas a partir do espelho que vive
+      fora de `public` — onde o Provision do Publishing não mexe — e só sob a
+      impressão digital da perda (ver `@workspace/db/decisao-da-casa`). Numa
+      partida normal ele não escreve nada, e é só a linha de log que aparece.
+    */
+    try {
+      const casa = await protegerDecisaoDaCasaNoBanco(url);
+      if (casa.reposicao.repos) {
+        logger.warn(
+          { linhas: casa.reposicao.linhas },
+          "A decisão da casa (módulos universais) voltou vazia depois de DDL " +
+            "por fora da fila, e foi reposta a partir do espelho.",
+        );
+        void alertar({
+          tipo: "DECISAO_DA_CASA_REPOSTA",
+          resumo:
+            "Os módulos desligados para toda a instalação voltaram vazios nesta partida " +
+            "e foram repostos do espelho — algo removeu as tabelas por fora da fila.",
+          detalhe: { linhas: casa.reposicao.linhas },
+        });
+      } else {
+        logger.info(
+          {
+            motivo: casa.reposicao.motivo,
+            espelhosCriados: casa.espelhosCriados,
+          },
+          "Decisão da casa conferida na partida.",
+        );
+      }
+    } catch (erroDaCasa) {
+      /*
+        Não derruba a partida: o produto serve sem repor, e a decisão continua
+        guardada no espelho para a tentativa seguinte. O que não pode é isto
+        passar em silêncio — daí o alerta, e não só o log.
+      */
+      logger.error(
+        { err: erroDaCasa },
+        "A decisão da casa não pôde ser conferida nesta partida; o espelho continua guardado.",
+      );
+      void alertar({
+        tipo: "DECISAO_DA_CASA_REPOSTA",
+        resumo:
+          "A conferência da decisão da casa falhou na partida; o espelho continua guardado.",
+        detalhe: {
+          erro:
+            erroDaCasa instanceof Error
+              ? erroDaCasa.message
+              : String(erroDaCasa),
         },
       });
     }
