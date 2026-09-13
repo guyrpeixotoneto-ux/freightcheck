@@ -349,6 +349,27 @@ function PerfilEscolhido({
   });
 
   const definir = useMutation({
+    /*
+      Um escopo, e por isso uma fila: duas mutações do mesmo `scope` não correm
+      juntas no React Query.
+
+      Sem ele, cinco cliques em cinco segundos são cinco `PUT` concorrentes, e o
+      `onSuccess` de cada um escreve no cache o **mapa inteiro** que o servidor
+      devolveu. A resposta que chegasse por último venceria, não a que tivesse
+      partido por último — e a resposta mais antiga não conhece a decisão mais
+      nova. O efeito na tela é o sintoma que a `f0664f1` documentou nos módulos
+      universais: um módulo que acabou de ser fechado reaparece aberto, sem
+      ninguém ter tocado nele, com o banco já correto por baixo.
+
+      Enfileirar é a correção certa, e não um desempate por relógio: cada `PUT`
+      lê o estado atual antes de decidir o que mudou, então precisa enxergar o
+      anterior já gravado para o histórico não inventar uma decisão que ninguém
+      tomou.
+
+      O escopo é **por perfil**: duas decisões sobre perfis diferentes não
+      disputam cache nenhum, e serializá-las só deixaria a tela mais lenta.
+    */
+    scope: { id: `papel-${perfil.id}` },
     mutationFn: (niveis: Record<string, Nivel>) =>
       fetchJson<DetalheDoPerfil>(`/papeis/${perfil.id}/permissoes`, {
         method: "PUT",
@@ -395,6 +416,9 @@ function PerfilEscolhido({
    * a página, e duvidaria, com razão, de que a decisão valeu.
    */
   const inativar = useMutation({
+    /* A mesma fila de `definir`, e pela mesma razão — a chave do escopo é a da
+       casa, porque a decisão é uma só para a instalação inteira. */
+    scope: { id: "modulos-universais" },
     mutationFn: (chaves: Record<string, boolean>) =>
       fetchJson<ModulosUniversais>("/modulos-universais", {
         method: "PUT",
@@ -415,6 +439,16 @@ function PerfilEscolhido({
 
   const bloqueado =
     !podeMexer || definir.isPending || inativar.isPending || salvarCadastro.isPending;
+
+  /**
+   * As duas leituras que a matriz descreve chegaram.
+   *
+   * São duas porque são duas decisões: o que este perfil alcança (`detalhe`) e
+   * o que a casa inativou para todo mundo (`universais`, de onde também sai a
+   * lista do que o servidor recusa inativar). Uma sem a outra desenharia metade
+   * da verdade com a cara da verdade inteira.
+   */
+  const lidas = detalhe.data !== undefined && universais.data !== undefined;
 
   return (
     <Card>
@@ -540,20 +574,43 @@ function PerfilEscolhido({
           </h3>
         </div>
 
-        <MatrizDeAcesso
-          niveis={permissoes}
-          padrao={piso}
-          universaisDesligadas={detalhe.data?.universaisDesligadas ?? []}
-          universaisProtegidas={universais.data?.protegidas ?? []}
-          aoInativar={
-            podeMexer
-              ? (chave, ligado) => inativar.mutate({ [chave]: ligado })
-              : undefined
-          }
-          desabilitado={bloqueado}
-          carregando={detalhe.isLoading}
-          aoEscolher={(niveis) => definir.mutate(niveis)}
-        />
+        {/*
+          Sem as duas leituras, a matriz não desenha linha nenhuma.
+
+          `permissoes` e `universaisDesligadas` nascem de `data?.… ?? {}`, e o
+          vazio faz **todo** módulo aparecer no piso e nenhum aparecer
+          inativado. Com a lista desenhada nesse estado, uma leitura que falhou
+          é indistinguível de um perfil que alcança tudo numa casa com tudo no
+          ar — a interface afirmaria as duas coisas justamente quando não sabe
+          nenhuma delas. O aviso de erro acima continua dizendo o que aconteceu;
+          o que sai daqui é o palpite. (É a mesma regra que a `f0664f1` escreveu
+          para a tela que esta seção absorveu.)
+        */}
+        {!lidas && !detalhe.isLoading && !universais.isLoading && (
+          <p className="rounded-md border p-6 text-sm text-muted-foreground">
+            O que este perfil alcança, e o que esta casa inativou, não puderam
+            ser lidos — e por isso nada é mostrado aqui. Um botão marcado nesta
+            matriz significaria que a decisão foi lida e é essa; sem a leitura,
+            não há o que afirmar.
+          </p>
+        )}
+
+        {(lidas || detalhe.isLoading || universais.isLoading) && (
+          <MatrizDeAcesso
+            niveis={permissoes}
+            padrao={piso}
+            universaisDesligadas={detalhe.data?.universaisDesligadas ?? []}
+            universaisProtegidas={universais.data?.protegidas ?? []}
+            aoInativar={
+              podeMexer
+                ? (chave, ligado) => inativar.mutate({ [chave]: ligado })
+                : undefined
+            }
+            desabilitado={bloqueado}
+            carregando={!lidas}
+            aoEscolher={(niveis) => definir.mutate(niveis)}
+          />
+        )}
 
         <HistoricoDoPerfil linhas={detalhe.data?.historico ?? []} />
       </CardContent>

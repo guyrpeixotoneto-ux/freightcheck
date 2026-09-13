@@ -1,9 +1,10 @@
-import { desc, eq, inArray } from "drizzle-orm";
+import { desc, eq, inArray, sql } from "drizzle-orm";
 import {
   moduloUniversalEventoTable,
   moduloUniversalTable,
   type Database,
 } from "@workspace/db";
+import { espelharDecisaoDaCasa } from "@workspace/db/decisao-da-casa";
 
 /**
  * Módulos universais — o que a instalação inteira desligou.
@@ -141,53 +142,80 @@ export async function definirModulosUniversais(
     por: string;
   },
 ): Promise<ModuloUniversalDesligado[]> {
-  const desligadas = await chavesDesligadas(db);
   const motivo = entrada.motivo?.trim() ? entrada.motivo.trim() : null;
 
-  const paraDesligar: string[] = [];
-  const paraLigar: string[] = [];
+  /*
+    Tudo numa transação só, e o espelho da casa dentro dela.
 
-  for (const [chave, ligado] of Object.entries(entrada.chaves)) {
-    const estaDesligada = desligadas.has(chave);
-    if (ligado === !estaDesligada) continue;
-    (ligado ? paraLigar : paraDesligar).push(chave);
-  }
+    Eram quatro escritas soltas — a linha desligada, a linha apagada, o evento e
+    (agora) o espelho —, e cada fronteira entre elas era um estado que alguém
+    podia ler: decisão sem histórico, histórico sem decisão. Nenhuma delas é
+    grande, e é justamente por isso que não havia razão para deixá-las soltas.
 
-  for (const chave of paraDesligar) {
-    await db
-      .insert(moduloUniversalTable)
-      .values({ chave, desligadoPor: entrada.por, motivo })
-      .onConflictDoUpdate({
-        target: moduloUniversalTable.chave,
-        set: { desligadoPor: entrada.por, desligadoEm: new Date(), motivo },
-      });
-  }
+    A transação é também o que faz a resposta desta função **merecer** o sucesso
+    que a tela mostra: o que ela devolve é relido do banco depois do commit, e
+    não montado a partir do que se pediu. Uma falha de gravação vira erro — não
+    vira uma tela dizendo "desligado" sobre um banco que não desligou nada.
+  */
+  return db.transaction(async (tx) => {
+    const desligadas = await chavesDesligadas(tx as unknown as Database);
 
-  if (paraLigar.length > 0) {
-    await db
-      .delete(moduloUniversalTable)
-      .where(inArray(moduloUniversalTable.chave, paraLigar));
-  }
+    const paraDesligar: string[] = [];
+    const paraLigar: string[] = [];
 
-  const eventos = [
-    ...paraDesligar.map((chave) => ({
-      chave,
-      ligado: false,
-      motivo,
-      por: entrada.por,
-    })),
-    ...paraLigar.map((chave) => ({
-      chave,
-      ligado: true,
-      motivo: null,
-      por: entrada.por,
-    })),
-  ];
-  if (eventos.length > 0) {
-    await db.insert(moduloUniversalEventoTable).values(eventos);
-  }
+    for (const [chave, ligado] of Object.entries(entrada.chaves)) {
+      const estaDesligada = desligadas.has(chave);
+      if (ligado === !estaDesligada) continue;
+      (ligado ? paraLigar : paraDesligar).push(chave);
+    }
 
-  return listarModulosDesligados(db);
+    for (const chave of paraDesligar) {
+      await tx
+        .insert(moduloUniversalTable)
+        .values({ chave, desligadoPor: entrada.por, motivo })
+        .onConflictDoUpdate({
+          target: moduloUniversalTable.chave,
+          set: { desligadoPor: entrada.por, desligadoEm: new Date(), motivo },
+        });
+    }
+
+    if (paraLigar.length > 0) {
+      await tx
+        .delete(moduloUniversalTable)
+        .where(inArray(moduloUniversalTable.chave, paraLigar));
+    }
+
+    const eventos = [
+      ...paraDesligar.map((chave) => ({
+        chave,
+        ligado: false,
+        motivo,
+        por: entrada.por,
+      })),
+      ...paraLigar.map((chave) => ({
+        chave,
+        ligado: true,
+        motivo: null,
+        por: entrada.por,
+      })),
+    ];
+    if (eventos.length > 0) {
+      await tx.insert(moduloUniversalEventoTable).values(eventos);
+    }
+
+    /*
+      O espelho fora de `public`, refeito aqui e só aqui — ver
+      `@workspace/db/decisao-da-casa`, onde está escrito por que ele existe e
+      por que não é uma segunda fonte de verdade. Dentro da transação: ou a
+      decisão e o espelho dela entram juntos, ou nenhum dos dois entra.
+    */
+    await espelharDecisaoDaCasa(async (texto) => {
+      const resultado = await tx.execute(sql.raw(texto));
+      return (resultado as unknown as { rows?: Record<string, unknown>[] }).rows ?? [];
+    });
+
+    return listarModulosDesligados(tx as unknown as Database);
+  });
 }
 
 /** O histórico da casa, do mais recente para o mais antigo. */

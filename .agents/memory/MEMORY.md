@@ -2,4 +2,5 @@
 - [Deploy health probe hits service root](deploy-health-probe-root.md) — Replit's promote probe hits GET /api itself; the API root must answer 200 without auth or publishing fails.
 - [Development schema must not trail production](dev-schema-ahead-of-publish.md) — apply pending migrations to dev before Publish or newer production objects look like removals.
 - [Production startup must migrate](publish-owns-production-schema.md) — DB_MIGRATE_ON_BOOT stays "1" in production; Publish's schema diff does not write the migration journal.
+- [The house's module decision survives Publish](decisao-da-casa-sobrevive-ao-publish.md) — modulo_universal is mirrored in the `drizzle` schema and restored at startup; Publish's diff is what empties it.
 - [Cartographer and generic JSX](cartographer-generic-jsx.md) — avoid explicit generic arguments in JSX components; metadata injection can turn valid TSX into invalid syntax.
