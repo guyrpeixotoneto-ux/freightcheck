@@ -4,7 +4,8 @@ import { describe, expect, it } from "vitest";
 import { SECOES_GERAIS, estaEmPreparo } from "../secoes";
 
 /**
- * O índice de Configurações promete nove seções — este caso cobra as nove.
+ * O índice de Configurações promete um punhado de seções — este caso cobra cada
+ * uma delas.
  *
  * A lista de `secoes.ts` é um menu como outro qualquer, e vale para ela a regra
  * que vale para a lateral: item que o roteador não atende é promessa que acaba
@@ -40,31 +41,54 @@ describe("o índice de Configurações", () => {
     const sustentadas = SECOES_GERAIS.filter((s) => !estaEmPreparo(s.href));
 
     /*
-      Dez hoje. Eram três — Meu Perfil, Unidades e Usuários —, viraram quatro
+      Oito hoje. Eram três — Meu Perfil, Unidades e Usuários —, viraram quatro
       quando Permissões ganhou endereço próprio, sete quando o cadastro da casa
       nasceu e Cargos, Negócio e Departamento saíram do catálogo de telas em
-      preparo, oito quando a troca da senha saiu de Meu Perfil e virou Segurança,
-      nove quando o papel deixou de ser dois valores no código e virou cadastro,
-      e dez quando os Módulos Universais deram à casa a terceira camada — a que
-      diz que partes do produto esta instalação usa, acima do papel e da
-      exceção. É exatamente o efeito que este `expect` existe para produzir:
-      ele cai no dia da mudança e obriga a olhar as duas listas juntas, em vez
-      de deixar o catálogo prometendo o que já existe.
+      preparo, oito quando a troca da senha saiu de Meu Perfil e virou
+      Segurança, nove quando o papel deixou de ser dois valores no código e
+      virou cadastro, dez quando os Módulos Universais deram à casa a terceira
+      camada — e **oito de novo** quando as três telas de acesso viraram uma:
+      as três respondiam a mesma pergunta sobre sujeitos diferentes, e quem
+      precisava das três começava numa e terminava em outra. É exatamente o
+      efeito que este `expect` existe para produzir: ele cai no dia da mudança e
+      obriga a olhar as duas listas juntas, em vez de deixar o catálogo
+      prometendo o que já existe.
+
+      Os dois endereços que saíram desta lista continuam atendidos em `App.tsx`
+      — `/configuracoes/papeis` e `/configuracoes/modulos-universais` abrem
+      Permissões —, e por isso eles não estão aqui **nem** em preparo: rota sem
+      linha no índice é o caso legítimo do redirecionamento, e o que este
+      arquivo recusa é o contrário, a linha sem rota.
     */
     expect(sustentadas.map((s) => s.href)).toEqual([
       "/configuracoes/perfil",
       "/configuracoes/seguranca",
       "/configuracoes/unidades",
       "/configuracoes/usuarios",
-      "/configuracoes/papeis",
       "/configuracoes/permissoes",
-      "/configuracoes/modulos-universais",
       "/configuracoes/cargos",
       "/configuracoes/negocio",
       "/configuracoes/departamento",
     ]);
     for (const secao of sustentadas) {
       expect(rotasDoApp.has(secao.href)).toBe(true);
+    }
+  });
+
+  it("mantém no ar os endereços das seções que Permissões absorveu", () => {
+    /*
+      `Papéis` e `Módulos Universais` saíram do índice quando Permissões passou a
+      reunir as três camadas. Eles saíram da **lista**, e não do roteador: os
+      dois endereços estão em link compartilhado e em conversa antiga, e um 404
+      seria a resposta errada para quem pergunta a coisa certa no endereço de
+      ontem.
+    */
+    for (const antigo of [
+      "/configuracoes/papeis",
+      "/configuracoes/modulos-universais",
+    ]) {
+      expect(rotasDoApp.has(antigo), `${antigo} deixou de ser atendido`).toBe(true);
+      expect(SECOES_GERAIS.some((s) => s.href === antigo)).toBe(false);
     }
   });
 

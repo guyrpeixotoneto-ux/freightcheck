@@ -12,6 +12,7 @@ import {
   papelPorNome,
 } from "../lib/papeis";
 import {
+  CHAVE_PADRAO,
   ehChaveDeAmbiente,
   ehNivel,
   permissoesDoPapel,
@@ -38,10 +39,11 @@ import { somenteAdmin } from "./users";
  *
  * · **Nome repetido** — dois `Conferente` seriam duas listas de acesso com o
  *   mesmo nome no seletor de Usuários, e ninguém saberia qual escolheu.
- * · **Papel do sistema não se renomeia, não se apaga e não muda de
- *   administração** — `Operador` e `Administrador` são o que toda conta anterior
- *   à `0082` tem, e um `Operador` que gerenciasse contas seria um nome mentindo
- *   sobre o que faz. As permissões deles, essas sim, se editam.
+ * · **Perfil do sistema não se renomeia, não se apaga e não muda de
+ *   administração** — `Administrador`, `Gestor` e `Leitor` são o que toda
+ *   instalação tem, e um `Gestor` que gerenciasse contas seria um nome mentindo
+ *   sobre o que faz. As permissões deles, essas sim, se editam — o piso
+ *   inclusive: `Leitor` é `VISUALIZAR` de fábrica e pode ser fechado mais.
  * · **Papel com gente dentro não se apaga** — a conta ficaria apontando para uma
  *   linha morta; a recusa diz quantas contas são, para que quem apaga saiba o
  *   que mover antes.
@@ -118,10 +120,24 @@ router.post("/papeis", async (req, res): Promise<void> => {
     return;
   }
 
+  /*
+    O piso do perfil, quando quem cadastra o diz. Ausente é `EDITAR`, e é o
+    certo: um perfil que nascesse fechado obrigaria a liberar o menu inteiro
+    para descrever um conferente, e a tela nova de amanhã ficaria invisível para
+    ele sem que ninguém tivesse decidido isso.
+  */
+  if ("nivelPadrao" in corpo && !ehNivel(corpo.nivelPadrao)) {
+    res.status(400).json({
+      error: "Piso inválido. Use EDITAR, VISUALIZAR ou SEM_ACESSO.",
+    });
+    return;
+  }
+
   const papel = await criarPapel(db, {
     nome,
     descricao: lerDescricao(corpo.descricao),
     gerenciaContas: corpo.gerenciaContas === true,
+    ...(ehNivel(corpo.nivelPadrao) ? { nivelPadrao: corpo.nivelPadrao } : {}),
     por: req.user!.email,
   });
 
@@ -154,6 +170,7 @@ router.put("/papeis/:id", async (req, res): Promise<void> => {
     nome?: string;
     descricao?: string | null;
     gerenciaContas?: boolean;
+    nivelPadrao?: Nivel;
   } = {};
 
   if ("nome" in corpo) {
@@ -180,6 +197,34 @@ router.put("/papeis/:id", async (req, res): Promise<void> => {
   }
 
   if ("descricao" in corpo) mudanca.descricao = lerDescricao(corpo.descricao);
+
+  if ("nivelPadrao" in corpo) {
+    if (!ehNivel(corpo.nivelPadrao)) {
+      res.status(400).json({
+        error: "Piso inválido. Use EDITAR, VISUALIZAR ou SEM_ACESSO.",
+      });
+      return;
+    }
+    /*
+      A mesma recusa de Configurações, uma camada acima da chave: fechar o piso
+      de um perfil que gerencia contas trancaria a porta para todo mundo que o
+      usa — a menos que a tela onde o acesso se administra esteja liberada por
+      linha própria, que é o caso do `Leitor` que alguém promova.
+    */
+    if (papel.gerenciaContas && corpo.nivelPadrao === "SEM_ACESSO") {
+      const linhas = await permissoesDoPapel(db, papel.id);
+      if (linhas["/configuracoes"] === undefined) {
+        res.status(409).json({
+          error:
+            "Este perfil gerencia contas, e quem gerencia contas precisa " +
+            "alcançar Configurações — que é onde o acesso se administra. " +
+            "Libere Configurações por linha antes de fechar o piso.",
+        });
+        return;
+      }
+    }
+    mudanca.nivelPadrao = corpo.nivelPadrao;
+  }
 
   if ("gerenciaContas" in corpo) {
     const querAdministrar = corpo.gerenciaContas === true;
@@ -225,9 +270,10 @@ router.put("/papeis/:id", async (req, res): Promise<void> => {
 });
 
 /**
- * As restrições do papel — o corpo é `{ niveis: { "/curadoria": "VISUALIZAR" } }`,
- * e é um patch, como o de `/users/:id/permissoes`. `EDITAR` devolve a chave ao
- * padrão, que concede.
+ * As restrições do perfil — o corpo é `{ niveis: { "/curadoria": "VISUALIZAR" } }`,
+ * e é um patch, como o de `/users/:id/permissoes`. O nível igual ao **piso do
+ * perfil** devolve a chave ao silêncio e apaga a linha; o piso em si se muda em
+ * `PUT /papeis/:id`, e esta rota o recusa de propósito.
  *
  * Mexer aqui muda o acesso de todo mundo que usa o papel, na hora — e é por isso
  * que a resposta traz a lista de contas junto: a tela mostra quantas mudaram.
@@ -253,6 +299,14 @@ router.put("/papeis/:id/permissoes", async (req, res): Promise<void> => {
 
   const pedido: Record<string, Nivel> = {};
   for (const [chave, nivel] of Object.entries(niveis as Record<string, unknown>)) {
+    if (chave === CHAVE_PADRAO) {
+      res.status(400).json({
+        error:
+          "O piso do perfil não é uma das chaves que ele restringe: mande-o " +
+          "como `nivelPadrao` em PUT /papeis/:id.",
+      });
+      return;
+    }
     if (!chave.startsWith("/") && !ehChaveDeAmbiente(chave)) {
       res.status(400).json({
         error: `"${chave}" não é um módulo nem um ambiente: a chave é o endereço do item no menu, começando por barra, ou "@" e o id do ambiente.`,

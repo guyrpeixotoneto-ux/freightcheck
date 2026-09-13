@@ -48,7 +48,7 @@ export function Topbar({
   menuAberto: boolean;
   onToggleSidebar: () => void;
 }) {
-  const { user, logout, isSubmitting } = useAuth();
+  const { user, perfil, logout, isSubmitting } = useAuth();
   const ambiente = descricaoDoAmbiente(useAmbiente());
 
   return (
@@ -137,15 +137,22 @@ export function Topbar({
               <div className="font-semibold text-base">{user.name}</div>
               <div className="text-xs text-muted-foreground truncate">{user.email}</div>
               {/*
-                O papel escrito por extenso, e não a sigla do banco: `ADMIN` é
-                como a coluna se chama, `Administrador` é o que a pessoa é. É a
-                mesma leitura de Meu Perfil, e é aqui que ela responde a
-                pergunta que se faz antes de procurar um item que não está no
-                menu — "eu tenho como fazer isto?".
+                O nome do perfil de acesso, como ele está no cadastro — e não uma
+                palavra derivada de `role`.
+
+                Era `role === "ADMIN" ? "Administrador" : "Operador"`, e isso
+                deixou de dizer a verdade quando os perfis de fábrica passaram a
+                ser três: `Gestor` e `Leitor` têm o mesmo `role`, e a barra
+                chamaria os dois de "Operador" — um nome que o cadastro nem tem
+                mais. É aqui que se responde a pergunta que se faz antes de
+                procurar um item que não está no menu ("eu tenho como fazer
+                isto?"), e ela não se responde com o nome errado.
               */}
-              <span className="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 mt-2 text-xs font-semibold text-primary">
-                {user.role === "ADMIN" ? "Administrador" : "Operador"}
-              </span>
+              {perfil !== null && (
+                <span className="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 mt-2 text-xs font-semibold text-primary">
+                  {perfil}
+                </span>
+              )}
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
             {/*

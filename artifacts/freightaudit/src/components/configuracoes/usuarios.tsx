@@ -39,7 +39,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Field, Refusal, post } from "@/components/configuracoes/campos";
 import { CHAVE_DAS_CONTAS, useContas, type ManagedUser } from "@/components/configuracoes/contas";
-import { usePapeis } from "@/components/configuracoes/papeis-consulta";
+import { usePerfis } from "@/components/configuracoes/perfis-consulta";
 import { fetchJson } from "@/lib/api";
 import {
   caminhoDoDepartamento,
@@ -1048,20 +1048,20 @@ function CredencialCopiavel({ rotulo, valor }: { rotulo: string; valor: string }
 }
 
 /**
- * O papel da conta — a lista vem do cadastro, e não do código.
+ * O perfil da conta — a lista vem do cadastro, e não do código.
  *
  * Eram duas opções escritas aqui, `Operador` e `Administrador`, e elas
  * respondiam uma pergunta só: quem gerencia contas. O que a pessoa **alcança**
  * ficava inteiramente na tela de Permissões, decidido conta a conta — trinta
  * decisões repetidas a cada conta nova, e uma delas esquecida em silêncio.
  *
- * Agora as opções são as linhas de Configurações → Papéis, cada uma com as
- * permissões que alguém cadastrou, e a conta **acompanha** o papel: mudar o
- * papel muda o acesso de quem o usa. Os dois de sempre continuam na lista, como
- * papéis do sistema.
+ * Agora as opções são os perfis de Configurações → Permissões, cada um com o
+ * que alguém cadastrou, e a conta **acompanha** o perfil: mudar o perfil muda o
+ * acesso de quem o usa. `Administrador`, `Gestor` e `Leitor` estão sempre na
+ * lista, como perfis do sistema.
  *
- * Conta sem papel — a criada pelo terminal antes do cadastro — abre com o campo
- * vazio e a frase que explica; escolher um papel é o que a traz para o cadastro.
+ * Conta sem perfil — a criada pelo terminal antes do cadastro — abre com o campo
+ * vazio e a frase que explica; escolher um perfil é o que a traz para o cadastro.
  */
 function EscolhaDoPapel({
   papelId,
@@ -1071,27 +1071,39 @@ function EscolhaDoPapel({
   papelId: string;
   aoTrocar: (id: string) => void;
   /**
-   * Conta nova abre com um papel escolhido, e não com o campo vazio.
+   * Conta nova abre com um perfil escolhido, e não com o campo vazio.
    *
-   * O servidor tem um padrão — o papel do sistema que não administra —, e um
-   * campo em branco que grava esse padrão é um formulário que decide sem
-   * mostrar o que decidiu. Aqui o padrão aparece escolhido, e quem quiser outro
-   * troca; na edição não há padrão nenhum a aplicar, e o campo mostra o papel
-   * que a conta tem (ou o vazio de quem não tem nenhum).
+   * O servidor tem um padrão — o perfil do sistema que não administra e alcança
+   * o produto inteiro, hoje `Gestor` —, e um campo em branco que grava esse
+   * padrão é um formulário que decide sem mostrar o que decidiu. Aqui o padrão
+   * aparece escolhido, e quem quiser outro troca; na edição não há padrão nenhum
+   * a aplicar, e o campo mostra o perfil que a conta tem (ou o vazio de quem não
+   * tem nenhum).
    */
   escolherPadrao: boolean;
 }) {
-  const { data: papeis = [], isLoading } = usePapeis();
+  const { data: perfis = [], isLoading } = usePerfis();
 
   useEffect(() => {
-    if (!escolherPadrao || papelId !== "" || papeis.length === 0) return;
+    if (!escolherPadrao || papelId !== "" || perfis.length === 0) return;
+    /*
+      O mesmo desempate do servidor (`papelDoSistema`, no api-server): entre os
+      perfis do sistema que não gerenciam contas há dois desde a `0095`, e o que
+      se quer aqui é o que **alcança o produto inteiro** — `Gestor`, e não
+      `Leitor`. Uma conta nova que nascesse só de leitura sem ninguém ter pedido
+      seria um formulário decidindo o contrário do que o campo mostra.
+    */
     const padrao =
-      papeis.find((p) => p.sistema && !p.gerenciaContas) ?? papeis[0]!;
+      perfis.find(
+        (p) => p.sistema && !p.gerenciaContas && p.nivelPadrao === "EDITAR",
+      ) ??
+      perfis.find((p) => p.sistema && !p.gerenciaContas) ??
+      perfis[0]!;
     aoTrocar(padrao.id);
-  }, [escolherPadrao, papelId, papeis, aoTrocar]);
+  }, [escolherPadrao, papelId, perfis, aoTrocar]);
 
   return (
-    <Field label="Papel" htmlFor="conta-papel">
+    <Field label="Perfil" htmlFor="conta-papel">
       <Select
         /* `undefined`, e não `""`: o Radix reserva a string vazia para "nada
            escolhido" e recusa item com esse valor. */
@@ -1100,22 +1112,22 @@ function EscolhaDoPapel({
       >
         <SelectTrigger id="conta-papel">
           <SelectValue
-            placeholder={isLoading ? "Carregando papéis…" : "Escolha um papel…"}
+            placeholder={isLoading ? "Carregando perfis…" : "Escolha um perfil…"}
           />
         </SelectTrigger>
         <SelectContent>
-          {papeis.map((papel) => (
-            <SelectItem key={papel.id} value={papel.id}>
-              {papel.nome}
-              {papel.gerenciaContas ? " — também gerencia contas" : ""}
+          {perfis.map((perfil) => (
+            <SelectItem key={perfil.id} value={perfil.id}>
+              {perfil.nome}
+              {perfil.gerenciaContas ? " — também gerencia contas" : ""}
             </SelectItem>
           ))}
         </SelectContent>
       </Select>
       <p className="text-xs text-muted-foreground">
-        Papel é acesso, e não hierarquia: quem responde por quem é o campo abaixo.
-        O que cada papel alcança se cadastra em Papéis; a exceção de uma conta
-        sobre o papel dela, em Permissões.
+        Perfil é acesso, e não hierarquia: quem responde por quem é o campo
+        abaixo. O que cada perfil alcança, e a exceção de uma conta sobre o
+        perfil dela, se decidem em Permissões.
       </p>
     </Field>
   );

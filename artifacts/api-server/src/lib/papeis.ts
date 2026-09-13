@@ -6,7 +6,14 @@ import {
   papelTable,
   type Database,
 } from "@workspace/db";
-import { NIVEL_PADRAO, permissoesDoPapel, type Nivel } from "./permissoes";
+import {
+  CHAVE_PADRAO,
+  NIVEL_PADRAO,
+  ehNivel,
+  padraoDe,
+  permissoesDoPapel,
+  type Nivel,
+} from "./permissoes";
 
 /**
  * Papel — o acesso cadastrado uma vez, valendo para todo mundo que o usa.
@@ -44,6 +51,15 @@ export interface Papel {
   nome: string;
   descricao: string | null;
   gerenciaContas: boolean;
+  /**
+   * O piso do perfil — o nível de toda chave sem linha própria.
+   *
+   * `EDITAR` é o de quase todo perfil, e é o que o produto sempre teve: a
+   * ausência concede. `Leitor` nasce `VISUALIZAR`, e é só por causa desta
+   * coluna que ele é dizível sem uma linha por módulo do menu (ver
+   * `schema/papel.ts`).
+   */
+  nivelPadrao: Nivel;
   sistema: boolean;
   criadoEm: string;
   criadoPor: string | null;
@@ -84,6 +100,7 @@ export async function listarPapeis(db: Database): Promise<Papel[]> {
       nome: papelTable.nome,
       descricao: papelTable.descricao,
       gerenciaContas: papelTable.gerenciaContas,
+      nivelPadrao: papelTable.nivelPadrao,
       sistema: papelTable.sistema,
       criadoEm: papelTable.criadoEm,
       criadoPor: papelTable.criadoPor,
@@ -99,6 +116,7 @@ export async function listarPapeis(db: Database): Promise<Papel[]> {
 
   return linhas.map((l) => ({
     ...l,
+    nivelPadrao: ehNivel(l.nivelPadrao) ? l.nivelPadrao : NIVEL_PADRAO,
     criadoEm: l.criadoEm.toISOString(),
     contas: l.contas ?? 0,
     restricoes: l.restricoes ?? 0,
@@ -166,7 +184,14 @@ export async function papelDoSistema(
     .where(
       and(eq(papelTable.sistema, true), eq(papelTable.gerenciaContas, gerenciaContas)),
     )
-    .orderBy(asc(papelTable.nome))
+    /*
+      O que concede primeiro, e o nome como desempate. Desde a `0095` há dois
+      perfis do sistema que não gerenciam contas — `Gestor` e `Leitor` —, e a
+      ordem alfabética sozinha é um empate frágil: quem chama isto quer o
+      equivalente do `role` OPERADOR, que é o perfil que usa o produto inteiro,
+      e não o que só o lê. Uma renomeação futura não pode mudar isso por acaso.
+    */
+    .orderBy(sql`${papelTable.nivelPadrao} = 'EDITAR' DESC`, asc(papelTable.nome))
     .limit(1);
   return linha ? papelPorId(db, linha.id) : null;
 }
@@ -177,6 +202,8 @@ export async function criarPapel(
     nome: string;
     descricao: string | null;
     gerenciaContas: boolean;
+    /** O piso do perfil. Ausente é `EDITAR` — o perfil que alcança tudo. */
+    nivelPadrao?: Nivel;
     por: string;
   },
 ): Promise<Papel> {
@@ -186,6 +213,7 @@ export async function criarPapel(
       nome: entrada.nome.trim(),
       descricao: entrada.descricao,
       gerenciaContas: entrada.gerenciaContas,
+      nivelPadrao: entrada.nivelPadrao ?? NIVEL_PADRAO,
       criadoPor: entrada.por,
     })
     .returning({ id: papelTable.id });
@@ -217,6 +245,7 @@ export async function atualizarPapel(
     nome?: string;
     descricao?: string | null;
     gerenciaContas?: boolean;
+    nivelPadrao?: Nivel;
   },
   por: string,
 ): Promise<Papel> {
@@ -230,8 +259,31 @@ export async function atualizarPapel(
       ...(mudanca.gerenciaContas !== undefined
         ? { gerenciaContas: mudanca.gerenciaContas }
         : {}),
+      ...(mudanca.nivelPadrao !== undefined
+        ? { nivelPadrao: mudanca.nivelPadrao }
+        : {}),
     })
     .where(eq(papelTable.id, id));
+
+  /*
+    Mudar o piso é o ato mais amplo que existe sobre um perfil — ele reescreve
+    toda chave que ninguém decidiu, que é quase o menu inteiro —, e por isso ele
+    é gravado como as outras permissões, na chave `*`. O histórico da tela lê a
+    chave e diz "Tudo o que não tem decisão própria" no lugar dela.
+  */
+  if (
+    mudanca.nivelPadrao !== undefined &&
+    mudanca.nivelPadrao !== antes.nivelPadrao
+  ) {
+    await db.insert(papelEventoTable).values({
+      papelId: id,
+      chave: CHAVE_PADRAO,
+      tipo: "PERMISSAO",
+      nivelAnterior: antes.nivelPadrao,
+      nivel: mudanca.nivelPadrao,
+      por,
+    });
+  }
 
   if (mudanca.nome !== undefined && mudanca.nome.trim() !== antes.nome) {
     await db.insert(papelEventoTable).values({
@@ -302,22 +354,36 @@ export async function definirPapelDaConta(
 /**
  * Grava as restrições de um papel, e só as que mudaram.
  *
- * Espelho de `definirPermissoes`, uma camada acima: `EDITAR` — o padrão que
- * concede — apaga a linha, porque um papel é a lista do que ele **tira**. Aqui
- * a linha de base é o padrão mesmo, e não outro papel: não há herança entre
- * papéis, de propósito (ver `schema/papel.ts`).
+ * Espelho de `definirPermissoes`, uma camada acima: o nível igual ao **piso do
+ * perfil** apaga a linha, porque um perfil é a lista do que ele diz de
+ * diferente do próprio piso. Num perfil que concede — quase todos — o piso é
+ * `EDITAR` e nada mudou; num `Leitor` ele é `VISUALIZAR`, e é contra isso que
+ * cada chave se compara.
+ *
+ * A linha de base é o piso e não outro perfil: não há herança entre perfis, de
+ * propósito (ver `schema/papel.ts`).
  */
 export async function definirPermissoesDoPapel(
   db: Database,
   entrada: { papelId: string; niveis: Record<string, Nivel>; por: string },
 ): Promise<Record<string, Nivel>> {
   const atuais = await permissoesDoPapel(db, entrada.papelId);
+  /*
+    O piso do perfil, e não a constante: num `Leitor`, a linha de base é
+    `VISUALIZAR` — e é ela que a ausência de linha significa. Comparar contra
+    `EDITAR` gravaria noventa linhas `VISUALIZAR` que não dizem nada, e apagar
+    uma delas devolveria o módulo a `EDITAR` num perfil que não edita.
+  */
+  const piso = padraoDe(atuais);
 
   for (const [chave, nivel] of Object.entries(entrada.niveis)) {
+    /* O piso se muda em `PUT /papeis/:id`, e não aqui: ele é do cadastro do
+       perfil, e não uma das chaves que ele restringe. */
+    if (chave === CHAVE_PADRAO) continue;
     const anterior = atuais[chave];
-    if ((anterior ?? NIVEL_PADRAO) === nivel) continue;
+    if ((anterior ?? piso) === nivel) continue;
 
-    if (nivel === NIVEL_PADRAO) {
+    if (nivel === piso) {
       await db
         .delete(papelPermissaoTable)
         .where(
@@ -397,6 +463,25 @@ export async function historicoDoPapel(
  */
 export async function excluirPapel(db: Database, id: string): Promise<void> {
   await db.delete(papelTable).where(eq(papelTable.id, id));
+}
+
+/**
+ * O nome do perfil de uma conta — o rótulo que a barra do topo mostra.
+ *
+ * `null` na conta criada pelo terminal antes do cadastro existir, e a tela diz
+ * isso em vez de chutar um nome.
+ */
+export async function nomeDoPerfilDaConta(
+  db: Database,
+  userId: string,
+): Promise<string | null> {
+  const [linha] = await db
+    .select({ nome: papelTable.nome })
+    .from(appUserTable)
+    .innerJoin(papelTable, eq(papelTable.id, appUserTable.papelId))
+    .where(eq(appUserTable.id, userId))
+    .limit(1);
+  return linha?.nome ?? null;
 }
 
 /** Quantas contas usam o papel — a rota conta antes de recusar a exclusão. */

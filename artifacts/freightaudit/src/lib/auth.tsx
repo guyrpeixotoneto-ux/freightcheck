@@ -49,6 +49,17 @@ export interface Visualizacao {
 interface SessionState {
   user: SessionUser | null;
   /**
+   * O nome do perfil de acesso de quem está logado — `Gestor`, `Leitor`, o que
+   * alguém cadastrou.
+   *
+   * Ele não está em `user` porque não está em `SessionUser`, do lado do
+   * servidor: `role` continua sendo o que o portão lê (dois valores: gerencia
+   * contas, ou não), e o nome do perfil serve à **tela**. Ausente na conta
+   * criada pelo terminal antes do cadastro existir, e a tela diz isso em vez de
+   * inventar um nome.
+   */
+  perfil?: string | null;
+  /**
    * Só os módulos com decisão tomada. O que não está aqui vale o padrão, e ler
    * a ausência como bloqueio esvaziaria o menu de quem nunca foi restringido.
    */
@@ -81,6 +92,15 @@ interface AuthContextValue {
   erroDaSessao: unknown;
   /** As restrições que valem para quem está logado — ver `lib/permissoes.ts`. */
   permissoes: Record<string, Nivel>;
+  /**
+   * O nome do perfil de acesso de quem está logado, ou `null`.
+   *
+   * É o que a barra do topo e Meu Perfil escrevem. Eles diziam "Administrador"
+   * ou "Operador" a partir de `role`, que só tem dois valores — e desde que os
+   * perfis de fábrica são três, isso passou a dar um nome errado a quem está em
+   * `Gestor` ou em `Leitor`.
+   */
+  perfil: string | null;
   /**
    * A visualização aberta, ou `null`. Quem a mostra é a faixa do topo
    * (`components/layout/visualizacao-como.tsx`) — e ela é a única coisa na
@@ -181,6 +201,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const value: AuthContextValue = {
     user: session.data?.user ?? null,
+    perfil: session.data?.perfil ?? null,
     permissoes: session.data?.permissoes ?? {},
     visualizacao: session.data?.visualizacao ?? null,
     isLoading: session.isPending,

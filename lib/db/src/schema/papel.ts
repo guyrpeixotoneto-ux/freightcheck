@@ -77,13 +77,33 @@ export const papelTable = pgTable(
      */
     gerenciaContas: boolean("gerencia_contas").notNull().default(false),
     /**
-     * Papel do sistema: `Operador` e `Administrador`, os dois que já existiam
-     * como `role` e que a `0082` semeou.
+     * O piso do perfil — o nível que vale para toda chave sem linha própria.
+     *
+     * `EDITAR` é o default, e é o que toda instalação tinha antes desta coluna:
+     * a ausência concede, e um perfil sem restrição nenhuma alcança tudo. O que
+     * a coluna acrescenta é a possibilidade de dizer o contrário **de uma vez**
+     * — `Leitor` é `VISUALIZAR` aqui e nenhuma linha em `papel_permissao`.
+     *
+     * Sem ela, um perfil só de leitura seria noventa linhas escritas à mão, e o
+     * módulo que nascesse depois nasceria editável para ele: exatamente o
+     * defeito que `#<seção>` consertou um andar acima (ver
+     * `components/configuracoes/modulos-universais.tsx`, na interface, para a
+     * história dele).
+     *
+     * As linhas de `papel_permissao` continuam sendo a exceção *dentro* do
+     * perfil, e vencem o piso — é por isso que o `Leitor` pode ter um módulo em
+     * `SEM_ACESSO` e outro em `EDITAR` sem deixar de ser Leitor no resto.
+     */
+    nivelPadrao: text("nivel_padrao").notNull().default("EDITAR"),
+    /**
+     * Papel do sistema: `Administrador`, `Gestor` e `Leitor` — os três que toda
+     * instalação tem, semeados pela `0082` e pela `0095`.
      *
      * Não se apaga e não se renomeia — toda conta anterior a esta tabela aponta
-     * para um dos dois, e um produto sem nenhum papel que administre contas é a
-     * porta trancada por dentro. As permissões deles, essas sim, se editam:
-     * é o que faz o cadastro valer também para quem nunca criar um papel novo.
+     * para um dos dois primeiros, e um produto sem nenhum papel que administre
+     * contas é a porta trancada por dentro. As permissões deles, essas sim, se
+     * editam: é o que faz o cadastro valer também para quem nunca criar um
+     * papel novo.
      */
     sistema: boolean("sistema").notNull().default(false),
     criadoEm: timestamp("criado_em", { withTimezone: true })
@@ -94,6 +114,10 @@ export const papelTable = pgTable(
   },
   (t) => [
     uniqueIndex("papel_nome_key").on(sql`lower(${t.nome})`),
+    check(
+      "papel_nivel_padrao_check",
+      sql`${t.nivelPadrao} IN ('EDITAR', 'VISUALIZAR', 'SEM_ACESSO')`,
+    ),
   ],
 );
 

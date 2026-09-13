@@ -81,8 +81,42 @@ export function maisRestritivo(a: Nivel, b: Nivel): Nivel {
 }
 
 /* =========================================================================
- * As três formas de chave
+ * As quatro formas de chave
  * ====================================================================== */
+
+/**
+ * O piso de um perfil de acesso — a chave que vale para tudo o que não tem
+ * decisão própria.
+ *
+ * As outras três chaves nomeiam **uma** coisa: uma seção, um ambiente, um
+ * módulo. Esta nomeia o silêncio, e existe porque um perfil chamado `Leitor`
+ * não é dizível sem ela. Para descrevê-lo por chaves nomeadas seria preciso
+ * escrever `VISUALIZAR` em cada um dos noventa módulos do menu — e o módulo
+ * que nascesse amanhã nasceria editável para ele, sem que ninguém tivesse
+ * decidido isso. É o mesmo defeito que a chave `#<seção>` existiu para
+ * consertar, um andar acima.
+ *
+ * Ela é lida por `nivelDoModulo`, e só por ele: quem responde "que nível é
+ * este?" passa por ali, e ganha o piso de graça. **Ela não é um módulo** — não
+ * aparece no menu, não é oferecida na matriz e não vira linha de exceção de
+ * conta; o que ela é está em `papel.nivel_padrao`, e o mapa de permissões só a
+ * carrega para que o piso viaje junto com o resto até a tela e até o portão.
+ */
+export const CHAVE_PADRAO = "*";
+
+/**
+ * O piso que este mapa de permissões carrega — o do perfil, ou o da casa.
+ *
+ * Quem precisa do padrão para uma chave que `nivelDoModulo` não cobre — um
+ * ambiente, uma seção — chama isto em vez de `NIVEL_PADRAO` direto. A diferença
+ * aparece exatamente numa conta de perfil `Leitor`: com a constante, o seletor
+ * de ambientes do topo mostraria `EDITAR` num lugar onde nada é editável.
+ */
+export function padraoDe(
+  permissoes: Readonly<Record<string, Nivel>>,
+): Nivel {
+  return permissoes[CHAVE_PADRAO] ?? NIVEL_PADRAO;
+}
 
 /** A chave de uma seção do menu — `#` mais o id estável dela. */
 export function chaveDaSecao(id: string): string {
@@ -107,6 +141,11 @@ export function ehChaveDeModulo(chave: string): boolean {
   return chave.startsWith("/");
 }
 
+/** A chave do piso do perfil — nem seção, nem ambiente, nem módulo. */
+export function ehChavePadrao(chave: string): boolean {
+  return chave === CHAVE_PADRAO;
+}
+
 /* =========================================================================
  * A precedência — a regra que os dois lados leem
  * ====================================================================== */
@@ -120,8 +159,9 @@ export function ehChaveDeModulo(chave: string): boolean {
  * ao módulo que nasce amanhã.
  *
  * Ligada — ou inexistente, que é o caso de todo módulo fora de seção — vale o
- * que valia antes: a decisão sobre o módulo, e o padrão que concede quando não
- * há decisão nenhuma.
+ * que valia antes: a decisão sobre o módulo, e o **piso do perfil** quando não
+ * há decisão nenhuma. O piso é `CHAVE_PADRAO` no mapa, e é `EDITAR` — o padrão
+ * que concede — em toda conta que não esteja num perfil que diga outra coisa.
  *
  * `secao` é `null` para o que não pertence a seção nenhuma. Não é o mesmo que
  * "seção ligada" por acidente: é a afirmação de que aquela chave não tem essa
@@ -135,7 +175,7 @@ export function nivelDoModulo(
   if (secao !== null && permissoes[chaveDaSecao(secao)] === "SEM_ACESSO") {
     return "SEM_ACESSO";
   }
-  return permissoes[chaveDoModulo] ?? NIVEL_PADRAO;
+  return permissoes[chaveDoModulo] ?? padraoDe(permissoes);
 }
 
 /* =========================================================================

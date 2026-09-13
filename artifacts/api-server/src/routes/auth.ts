@@ -19,6 +19,7 @@ import {
   startSession,
 } from "../lib/session";
 import { permissoesDe } from "../lib/permissoes";
+import { nomeDoPerfilDaConta } from "../lib/papeis";
 
 /**
  * Entrar, sair, e trocar a própria senha.
@@ -170,8 +171,22 @@ router.get("/auth/session", async (req, res): Promise<void> => {
   */
   const permissoes = user ? await permissoesDe(db, user.id) : {};
 
+  /*
+    O nome do perfil, e não a sigla do `role`.
+
+    `role` só distingue quem gerencia contas de quem não gerencia — dois valores
+    —, e desde a `0095` há três perfis de fábrica: dizer "Operador" para quem
+    está em `Gestor` ou em `Leitor` seria a barra do topo inventando um nome que
+    o cadastro não tem. Ele vem por aqui, e não em `SessionUser`, porque é a
+    **tela** que precisa dele: nenhuma rota decide nada com o nome do perfil, e
+    engordar o objeto que atravessa o servidor inteiro para servir um rótulo
+    seria pagar em todo lugar por uma leitura de um lugar só.
+  */
+  const perfil = user ? await nomeDoPerfilDaConta(db, user.id) : null;
+
   res.json({
     user,
+    perfil,
     permissoes,
     /*
       Nulo é a resposta normal, e é o que a interface espera para não desenhar
@@ -288,6 +303,9 @@ router.post("/auth/visualizar-como", async (req, res): Promise<void> => {
 
   res.json({
     user: comoSessao,
+    /* O perfil é o de quem está sendo visualizado — a barra do topo mostra o
+       que a pessoa é, e a faixa de visualização diz de quem é a sessão. */
+    perfil: await nomeDoPerfilDaConta(db, alvo.id),
     permissoes: await permissoesDe(db, alvo.id),
     visualizacao: {
       por: dono,
@@ -318,6 +336,7 @@ router.post("/auth/visualizar-como/parar", async (req, res): Promise<void> => {
 
   res.json({
     user: dono,
+    perfil: await nomeDoPerfilDaConta(db, dono.id),
     permissoes: await permissoesDe(db, dono.id),
     visualizacao: null,
   });

@@ -1,4 +1,4 @@
-import { Building2, Briefcase, IdCard, KeyRound, MapPin, Network, Power, ShieldCheck, UserCog, UserRound, Users, type LucideIcon } from "lucide-react";
+import { Building2, Briefcase, IdCard, KeyRound, MapPin, Network, ShieldCheck, UserRound, Users, type LucideIcon } from "lucide-react";
 import { TELAS_EM_PREPARO } from "@/pages/telas-em-preparo";
 
 /**
@@ -64,28 +64,19 @@ export const SECOES_GERAIS: SecaoDeConfiguracao[] = [
     descricao: "Quem entra, com que papel e desde quando.",
   },
   {
-    href: "/configuracoes/papeis",
-    label: "Papéis",
-    icon: UserCog,
-    descricao: "Os papéis do acesso e o que cada um alcança, para todo mundo que o usa.",
-  },
-  {
+    /*
+      Uma linha, e não três. `Papéis`, `Permissões` e `Módulos Universais` eram
+      seções irmãs que respondiam a mesma pergunta sobre sujeitos diferentes — um
+      grupo, uma pessoa, a instalação —, e quem precisava das três começava numa
+      e terminava em outra sem que nada dissesse que a terceira existia. Hoje as
+      três camadas moram na mesma matriz, e os dois endereços antigos abrem aqui
+      (ver as `<Route>` em `App.tsx`): nenhum link compartilhado cai no vazio.
+    */
     href: "/configuracoes/permissoes",
     label: "Permissões",
     icon: ShieldCheck,
-    descricao: "A exceção de cada conta sobre o papel dela — aqui se tira acesso de uma pessoa.",
-  },
-  {
-    /*
-      Depois de Permissões, e não antes: as três telas de acesso se leem de
-      dentro para fora — a exceção de uma pessoa, o papel de um grupo, e por
-      último o que a casa inteira desliga. Esta é a única das três que não fala
-      de gente, e é a que vence as outras duas quando desliga algo.
-    */
-    href: "/configuracoes/modulos-universais",
-    label: "Módulos Universais",
-    icon: Power,
-    descricao: "O que esta instalação usa do produto — o que for desligado aqui não aparece para ninguém.",
+    descricao:
+      "Os perfis de acesso e o que cada um alcança, módulo a módulo — com a exceção de cada conta e o que a casa tira do ar para todo mundo.",
   },
   {
     href: "/configuracoes/cargos",

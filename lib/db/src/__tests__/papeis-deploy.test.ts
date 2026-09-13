@@ -793,6 +793,15 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
           esta conferência existe para não deixar passar calado.
         */
         "papel_pkey",
+        /*
+          O piso do perfil, da `0095`. Ela vem **com** a tabela `papel`, que
+          Production não tem — a coluna nasce dentro do `CREATE TABLE` que o
+          gerador propõe —, e por isso não é mudança de forma em tabela viva.
+          Está nomeada aqui, e não filtrada, pela mesma razão das irmãs: nenhuma
+          das três tabelas do cadastro pertence às famílias que o filtro acima
+          dispensa.
+        */
+        "papel_nivel_padrao_check",
         "papel_permissao_papel_id_chave_pk",
         "papel_permissao_papel_id_papel_id_fk",
         "papel_permissao_nivel_check",
