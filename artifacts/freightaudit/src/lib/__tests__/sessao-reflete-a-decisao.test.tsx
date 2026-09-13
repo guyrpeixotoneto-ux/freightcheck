@@ -3,9 +3,10 @@
 // Desligar uma seção muda o menu **agora**, e não em até dois minutos.
 //
 // A lateral vem da sessão (`/auth/session`), e a sessão é uma consulta com
-// `refetchInterval` de dois minutos. Se a tela de Módulos Universais dependesse
-// desse relógio, quem desligasse uma seção continuaria vendo-a na lateral por
-// um tempo indeterminado — e concluiria, com razão, que a decisão não pegou.
+// `refetchInterval` de dois minutos. Se o botão **Inativar** de Permissões
+// dependesse desse relógio, quem desligasse uma seção continuaria vendo-a na
+// lateral por um tempo indeterminado — e concluiria, com razão, que a decisão
+// não pegou.
 //
 // O que segura isso é uma linha só: a mutação invalida `["auth","session"]` no
 // sucesso. É uma linha fácil de perder num refactor e impossível de notar em
@@ -17,7 +18,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { PainelDeModulosUniversais } from "@/components/configuracoes/modulos-universais";
+import { PainelDePermissoes } from "@/components/configuracoes/permissoes";
 import { navGroupsAuditoria } from "@/components/layout/nav-auditoria";
 import { AuthProvider } from "@/lib/auth";
 import { filtrarGrupos, usePermissoes, type Nivel } from "@/lib/permissoes";
@@ -28,8 +29,8 @@ const INTERVALO_DA_SESSAO_MS = 2 * 60 * 1000;
 /*
   Prazos generosos, e eles não são o que o teste mede.
 
-  Esta montagem inclui a tela de Módulos Universais inteira — perto de noventa
-  linhas com `Switch` do Radix — mais a lateral. Num runner de CI com quatro
+  Esta montagem inclui a matriz de Permissões inteira — perto de noventa linhas,
+  cada uma com quatro botões — mais a lateral. Num runner de CI com quatro
   núcleos e uma dúzia de pacotes em paralelo, ela não cabe nos 5s que o vitest
   dá a um teste por padrão. O que o teste prova continua sendo o mesmo, e a
   prova de que não foi o relógio da sessão não depende destes números: ela é a
@@ -60,6 +61,23 @@ function estadoDosModulos(): ModulosUniversais {
   };
 }
 
+/*
+  O perfil que a aba abre. Um só, e do sistema: o que este teste mede é o
+  caminho de Inativar até o menu, e uma lista maior só multiplicaria montagem.
+*/
+const PERFIL = {
+  id: "11111111-1111-1111-1111-111111111111",
+  nome: "Gestor",
+  descricao: "Usa o produto inteiro.",
+  gerenciaContas: false,
+  nivelPadrao: "EDITAR" as Nivel,
+  sistema: true,
+  criadoEm: "2026-09-01T00:00:00.000Z",
+  criadoPor: null,
+  contas: 3,
+  restricoes: 0,
+};
+
 vi.mock("@/lib/api", async (original) => ({
   ...(await original<Record<string, unknown>>()),
   fetchJson: vi.fn(async (path: string, init?: RequestInit) => {
@@ -69,6 +87,15 @@ vi.mock("@/lib/api", async (original) => ({
         user: { id: "u1", name: "Chefe", email: "chefe@x.com", role: "ADMIN" },
         permissoes: permissoesDaCasa(),
         visualizacao: null,
+      };
+    }
+    if (path === "/papeis") return [PERFIL];
+    if (path.startsWith("/papeis/")) {
+      return {
+        papel: PERFIL,
+        permissoes: {},
+        universaisDesligadas: [...desligadas].sort(),
+        historico: [],
       };
     }
     if (init?.method === "PUT") {
@@ -105,7 +132,7 @@ function montar() {
   return render(
     <QueryClientProvider client={client}>
       <AuthProvider>
-        <PainelDeModulosUniversais />
+        <PainelDePermissoes />
         <LateralDeTeste />
       </AuthProvider>
     </QueryClientProvider>,
@@ -120,7 +147,7 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("a decisão chega ao menu por invalidação, e não pelo relógio", () => {
-  it("desligar a seção tira a seção da lateral sem recarregar a página", async () => {
+  it("inativar a seção tira a seção da lateral sem recarregar a página", async () => {
     const comecou = Date.now();
     montar();
 
@@ -128,7 +155,7 @@ describe("a decisão chega ao menu por invalidação, e não pelo relógio", () 
     await screen.findByTestId("secao-no-menu-visao-executiva", {}, ESPERA);
 
     fireEvent.click(
-      await screen.findByTestId("switch-secao-visao-executiva", {}, ESPERA),
+      await screen.findByTestId("inativar-#visao-executiva", {}, ESPERA),
     );
 
     await waitFor(() => {
@@ -147,7 +174,7 @@ describe("a decisão chega ao menu por invalidação, e não pelo relógio", () 
     expect(screen.getByTestId("secao-no-menu-chamados-ambev")).toBeTruthy();
   }, PRAZO);
 
-  it("ligar a seção de volta devolve a seção à lateral, na mesma sessão", async () => {
+  it("reativar a seção devolve a seção à lateral, na mesma sessão", async () => {
     desligadas = ["#visao-executiva"];
     montar();
 
@@ -163,7 +190,7 @@ describe("a decisão chega ao menu por invalidação, e não pelo relógio", () 
     expect(screen.getByTestId("secao-no-menu-chamados-ambev")).toBeTruthy();
 
     fireEvent.click(
-      await screen.findByTestId("switch-secao-visao-executiva", {}, ESPERA),
+      await screen.findByTestId("inativar-#visao-executiva", {}, ESPERA),
     );
 
     await waitFor(() => {
@@ -171,12 +198,12 @@ describe("a decisão chega ao menu por invalidação, e não pelo relógio", () 
     }, ESPERA);
   }, PRAZO);
 
-  it("desligar um módulo tira só aquele item, e a seção fica", async () => {
+  it("inativar um módulo tira só aquele item, e a seção fica", async () => {
     montar();
     await screen.findByTestId("secao-no-menu-visao-executiva", {}, ESPERA);
 
     fireEvent.click(
-      await screen.findByTestId("switch-universal-/dre", {}, ESPERA),
+      await screen.findByTestId("inativar-/dre", {}, ESPERA),
     );
 
     await waitFor(() => {

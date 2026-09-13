@@ -1,7 +1,7 @@
 import { navGroupsAuditoria } from "@/components/layout/nav-auditoria";
 import { navGroupsFechamento } from "@/components/layout/nav-fechamento";
 import { GRUPO_ADMINISTRACAO } from "@/components/layout/nav-administracao";
-import { chaveDaSecao, nivelDoModulo } from "@workspace/acesso";
+import { chaveDaSecao, nivelDoModulo, padraoDe } from "@workspace/acesso";
 import {
   AMBIENTES,
   BASES_DE_AUDITORIA,
@@ -51,6 +51,14 @@ export type { Nivel };
 export const NIVEIS: Nivel[] = ["EDITAR", "VISUALIZAR", "SEM_ACESSO"];
 
 export const NIVEL_PADRAO: Nivel = "EDITAR";
+
+/*
+  O piso que um mapa de permissões carrega — o do perfil da conta, quando ele
+  diz algo diferente de `EDITAR`, e a constante acima quando não diz. Reexportado
+  daqui pela mesma razão de `nivelDoModulo`: quem lê permissão nesta interface
+  não precisa saber que a casa do vocabulário é `@workspace/acesso`.
+*/
+export { CHAVE_PADRAO, padraoDe } from "@workspace/acesso";
 
 /** O que cada nível quer dizer, em uma linha — a mesma frase na tela e aqui. */
 export const EXPLICACAO_DO_NIVEL: Record<Nivel, string> = {
@@ -258,7 +266,7 @@ export function nivelDaSecao(
   permissoes: Record<string, Nivel>,
   secao: string,
 ): Nivel {
-  return permissoes[chaveDaSecao(secao)] ?? NIVEL_PADRAO;
+  return permissoes[chaveDaSecao(secao)] ?? padraoDe(permissoes);
 }
 
 /**
@@ -350,7 +358,7 @@ export function nivelDoAmbiente(
   permissoes: Record<string, Nivel>,
   id: Ambiente,
 ): Nivel {
-  return permissoes[chaveDoAmbiente(id)] ?? NIVEL_PADRAO;
+  return permissoes[chaveDoAmbiente(id)] ?? padraoDe(permissoes);
 }
 
 /**
@@ -422,7 +430,9 @@ export function acessoDaLocalizacao(
   location: string,
 ): AcessoDaTela {
   const modulo = moduloDaLocalizacao(location);
-  const doModulo = modulo ? nivelDe(permissoes, modulo.chave) : NIVEL_PADRAO;
+  const doModulo = modulo
+    ? nivelDe(permissoes, modulo.chave)
+    : padraoDe(permissoes);
 
   if (modulo && CHAVES_DA_ADMINISTRACAO.has(modulo.chave)) {
     return {

@@ -29,7 +29,7 @@ import { cn } from "@/lib/utils";
  */
 
 export function PainelDoPerfil() {
-  const { user: me } = useAuth();
+  const { user: me, perfil } = useAuth();
 
   return (
     <div className="space-y-6 max-w-3xl">
@@ -54,10 +54,23 @@ export function PainelDoPerfil() {
               <Linha rotulo="E-mail">
                 <span className="font-mono text-sm">{me.email}</span>
               </Linha>
-              <Linha rotulo="Papel">
-                {me.role === "ADMIN"
-                  ? "Administrador — usa o produto e gerencia contas"
-                  : "Operador — usa o produto"}
+              {/*
+                O nome do perfil, e não uma frase derivada de `role`.
+
+                `role` tem dois valores — gerencia contas, ou não —, e os perfis
+                de fábrica são três: `Gestor` e `Leitor` compartilham o mesmo
+                `role`, e derivar o rótulo dele dava o mesmo nome a duas coisas
+                diferentes. O nome vem da sessão (`perfil`), que é onde o
+                cadastro está; o que `role` ainda diz, e continua valendo, é a
+                segunda linha.
+              */}
+              <Linha rotulo="Perfil de acesso">
+                {perfil ?? "Sem perfil — conta criada pelo terminal"}
+                <span className="block text-xs text-muted-foreground">
+                  {me.role === "ADMIN"
+                    ? "Gerencia contas: cria, desativa, redefine senha e muda o perfil dos outros."
+                    : "Não gerencia contas."}
+                </span>
               </Linha>
               <Linha rotulo="ID da conta">
                 <IdDaConta id={me.id} />

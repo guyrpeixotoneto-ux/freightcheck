@@ -3527,6 +3527,42 @@ function planoUp(): PassoUp[] {
     add(M90, `índice ${i}`, levantar(M90, new RegExp(`INDEX IF NOT EXISTS "${i}"`)));
   }
 
+  /*
+    A `0095` — os três perfis de fábrica e o piso de cada um.
+
+    Ela é a continuação obrigatória do bloco da `0082`, e está aqui no fim
+    porque **precisa** vir depois dele: o `up` recria `papel` da DDL da `0082`
+    (sem `nivel_padrao`), repovoa com `Operador` e `Administrador`, e só então
+    os dois backfills penduram cada conta pelo `role`. O segundo deles casa
+    `lower("nome") = 'operador'` — o nome que esta migration troca. Renomear
+    antes deixaria toda conta não-administradora sem papel.
+
+    Os três passos repõem dado, e por isso são `reconstroiDados`: a coluna
+    sozinha devolveria um cadastro com dois perfis de nomes antigos e nenhum
+    `Leitor` — quer dizer, um estado que nenhum caminho de deploy produz.
+  */
+  const M95 = "0095_perfis_de_acesso";
+  add(M95, "papel.nivel_padrao", levantar(M95, /ADD COLUMN IF NOT EXISTS "nivel_padrao"/));
+  add(M95, "papel_nivel_padrao_check", levantar(M95, /papel_nivel_padrao_check/));
+  p.push({
+    migration: M95,
+    objeto: "papel Operador → Gestor",
+    sql: reconstruir(M95, /SET "nome" = 'Gestor'/),
+    reconstroiDados: true,
+  });
+  p.push({
+    migration: M95,
+    objeto: "papel Administrador (descrição)",
+    sql: reconstruir(M95, /lower\("nome"\) = 'administrador'/),
+    reconstroiDados: true,
+  });
+  p.push({
+    migration: M95,
+    objeto: "papel Leitor (reconstrução)",
+    sql: reconstruir(M95, /INSERT INTO "papel"/),
+    reconstroiDados: true,
+  });
+
   return p;
 }
 

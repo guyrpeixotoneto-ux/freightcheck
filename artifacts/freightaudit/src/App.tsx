@@ -551,14 +551,19 @@ function RotasDaAuditoria() {
       <Route path="/configuracoes/seguranca">
         <Configuracoes secao="seguranca" />
       </Route>
-      <Route path="/configuracoes/papeis">
-        <Configuracoes secao="papeis" />
-      </Route>
       <Route path="/configuracoes/permissoes">
         <Configuracoes secao="permissoes" />
       </Route>
+      {/*
+        Os dois endereços das seções que Permissões absorveu. Eles continuam
+        atendidos — estão em link compartilhado e em conversa antiga — e abrem a
+        seção que hoje responde o que eles respondiam, em vez de 404.
+      */}
+      <Route path="/configuracoes/papeis">
+        <Configuracoes secao="permissoes" />
+      </Route>
       <Route path="/configuracoes/modulos-universais">
-        <Configuracoes secao="modulos-universais" />
+        <Configuracoes secao="permissoes" />
       </Route>
       {/*
         Cargos, Negócio e Departamento saíram de `TELAS_EM_PREPARO` quando o

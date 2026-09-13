@@ -5,7 +5,7 @@ import { useContextosDaCasca } from "@/lib/contextos";
 import { cn } from "@/lib/utils";
 import { useContas } from "./contas";
 import { useModulosUniversais } from "./modulos-universais-consulta";
-import { usePapeis } from "./papeis-consulta";
+import { usePerfis } from "./perfis-consulta";
 import { SECOES_GERAIS, estaEmPreparo, type SecaoDeConfiguracao } from "./secoes";
 
 /**
@@ -63,7 +63,7 @@ const plural = (n: number, um: string, muitos: string) =>
   `${n} ${n === 1 ? um : muitos}`;
 
 export function IndiceDeConfiguracoes() {
-  const { user: me } = useAuth();
+  const { user: me, perfil } = useAuth();
   const { contextos, carregando: carregandoUnidades, indisponivel } =
     useContextosDaCasca();
   /*
@@ -73,9 +73,9 @@ export function IndiceDeConfiguracoes() {
     decidir.
   */
   const { data: contas, isLoading: carregandoContas } = useContas();
-  /* A mesma consulta da seção de Papéis, pela razão de `contas.ts`: uma
+  /* A mesma consulta da seção de Permissões, pela razão de `contas.ts`: uma
      `queryFn` por chave. */
-  const { data: papeis, isLoading: carregandoPapeis } = usePapeis();
+  const { data: perfis, isLoading: carregandoPerfis } = usePerfis();
   /*
     A camada da casa: quantas partes do produto esta instalação desligou para
     todo mundo. A linha existe porque zero é a resposta normal e ninguém abriria
@@ -87,10 +87,15 @@ export function IndiceDeConfiguracoes() {
 
   const estados = new Map<string, EstadoDaSecao>();
 
+  /*
+    O nome do perfil vem da sessão, e não de `role`: os perfis de fábrica são
+    três desde a `0095`, e `role` só distingue dois — dizer "operador" para quem
+    está em `Gestor` ou em `Leitor` seria o índice inventando um nome.
+  */
   estados.set("/configuracoes/perfil", me
     ? {
         pronta: true,
-        resumo: `${me.name} · ${me.role === "ADMIN" ? "administrador" : "operador"}`,
+        resumo: perfil === null ? me.name : `${me.name} · ${perfil}`,
       }
     : CARREGANDO);
 
@@ -128,76 +133,40 @@ export function IndiceDeConfiguracoes() {
   );
 
   estados.set(
-    "/configuracoes/papeis",
-    /*
-      O resumo conta os papéis e quantos deles alguém cadastrou: toda instalação
-      nasce com os dois do sistema, e dizer só "2 papéis" faria uma casa que
-      nunca cadastrou nada parecer configurada.
-    */
-    carregandoPapeis || papeis === undefined
-      ? CARREGANDO
-      : {
-          pronta: papeis.length > 0,
-          resumo: (() => {
-            const proprios = papeis.filter((p) => !p.sistema).length;
-            return proprios > 0
-              ? `${plural(papeis.length, "papel", "papéis")} · ${plural(
-                  proprios,
-                  "cadastrado aqui",
-                  "cadastrados aqui",
-                )}`
-              : `${plural(papeis.length, "papel", "papéis")} — só os do sistema`;
-          })(),
-        },
-  );
-
-  const outrasContas =
-    contas === undefined || me === null
-      ? 0
-      : contas.filter((c) => c.id !== me.id).length;
-
-  estados.set(
     "/configuracoes/permissoes",
     /*
-      O dado da linha é sobre quantas contas dá para decidir, e não quantas
-      restrições existem: saber isso exigiria uma consulta por conta, e o índice
-      não abre sete telas para se desenhar. A própria conta fica fora da conta
-      pela mesma razão que fica fora da caixa de escolha lá dentro — ninguém
-      muda o próprio acesso.
-    */
-    carregandoContas || contas === undefined || me === null
-      ? CARREGANDO
-      : {
-          pronta: outrasContas > 0,
-          resumo:
-            outrasContas > 0
-              ? `${plural(outrasContas, "conta", "contas")} além da sua`
-              : "Só a sua conta — ninguém muda o próprio acesso",
-        },
-  );
+      Uma linha para as três camadas que a seção passou a reunir, e ela diz a
+      que **é notícia**: o que a casa tirou do ar. Quantos perfis existem é o
+      estado normal — toda instalação nasce com três —, e um resumo que só os
+      contasse deixaria de fora a única coisa que explica "sumiu uma tela do
+      menu de todo mundo".
 
-  estados.set(
-    "/configuracoes/modulos-universais",
-    /*
-      Sem visto verde, e de propósito: aqui o cadastro cheio é a exceção, e não
-      a meta. O visto diz "esta seção tem conteúdo no banco"; nesta, ter
-      conteúdo quer dizer que a casa desligou partes do produto — marcar isso de
-      verde diria que uma instalação com tudo no ar está pela metade.
+      Quantas exceções por conta existem não entra: saber isso exigiria uma
+      consulta por conta, e o índice não abre sete telas para se desenhar.
     */
-    carregandoUniversais || universais === undefined
+    carregandoPerfis ||
+    perfis === undefined ||
+    carregandoUniversais ||
+    universais === undefined
       ? CARREGANDO
       : {
-          pronta: false,
-          /*
-            A linha diz **o que** foi desligado, e não quantas linhas há no
-            banco. Desde que a seção virou decisão própria, uma linha só pode
-            estar tirando dez telas do menu — e "1 desligado para todo mundo"
-            descreveria isso como se fosse uma tela.
-          */
-          resumo:
-            universais.desligadas.length > 0
-              ? resumoDoQueEstaFora(universais.desligadas.map((d) => d.chave))
-              : "Tudo ligado — o produto inteiro no ar",
+          pronta: perfis.length > 0,
+          resumo: (() => {
+            const proprios = perfis.filter((p) => !p.sistema).length;
+            const cadastro =
+              proprios > 0
+                ? `${plural(perfis.length, "perfil", "perfis")} · ${plural(
+                    proprios,
+                    "cadastrado aqui",
+                    "cadastrados aqui",
+                  )}`
+                : `${plural(perfis.length, "perfil", "perfis")} — só os do sistema`;
+            return universais.desligadas.length > 0
+              ? `${cadastro} · ${resumoDoQueEstaFora(
+                  universais.desligadas.map((d) => d.chave),
+                )}`
+              : cadastro;
+          })(),
         },
   );
 

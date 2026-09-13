@@ -5,7 +5,11 @@ import { createTestDatabase, type TestDb } from "@workspace/ingest/testing";
 import type { SessionUser } from "../../lib/session";
 
 /**
- * O cadastro de papéis, atravessado por HTTP.
+ * O cadastro de perfis de acesso, atravessado por HTTP.
+ *
+ * A rota e a tabela continuam se chamando `papel` — renomeá-las quebraria todo
+ * endereço em uso para ganhar coerência de vocabulário num lugar onde ninguém
+ * lê. Quem diz "perfil" é a tela.
  *
  * O que este arquivo prova é o que faz o papel valer a pena existir, e nada
  * disso é visível olhando uma tabela:
@@ -46,7 +50,7 @@ async function criarConta(email: string, role: string): Promise<SessionUser> {
     [
       email,
       role,
-      await papelDoBanco(role === "ADMIN" ? "Administrador" : "Operador"),
+      await papelDoBanco(role === "ADMIN" ? "Administrador" : "Gestor"),
     ],
   );
   const user = { id: rows[0]!.id, name: email, email, role };
@@ -103,23 +107,82 @@ afterAll(async () => {
   await ctx?.drop();
 });
 
-describe("a migration semeia o que já existia", () => {
-  it("os dois papéis do sistema nascem, e sem restrição nenhuma", async () => {
+describe("a migration semeia os três perfis de fábrica", () => {
+  it("Administrador, Gestor e Leitor nascem, e nenhum com restrição de módulo", async () => {
     const papeis = (await (await fetch(`${base}/papeis`, {
       headers: como("op@x.com"),
     })).json()) as Array<Record<string, unknown>>;
 
     const nomes = papeis.map((p) => p.nome);
-    expect(nomes).toContain("Operador");
     expect(nomes).toContain("Administrador");
+    expect(nomes).toContain("Gestor");
+    expect(nomes).toContain("Leitor");
+    /* `Operador` virou `Gestor` — é o mesmo perfil renomeado, e não um novo ao
+       lado dele: as contas que estavam nele continuam onde estavam. */
+    expect(nomes).not.toContain("Operador");
+
     for (const p of papeis) {
       expect(p.sistema).toBe(true);
-      /* Zero restrições é o ponto: papel sem linha alcança tudo, e é por isso
-         que ninguém muda de acesso no dia em que o cadastro nasce. */
+      /*
+        Zero restrições nos três, `Leitor` inclusive: o que faz dele um leitor é
+        o **piso** (`nivelPadrao`), e não noventa linhas em `papel_permissao`.
+        Se um dia a semente passar a escrever linhas, este `expect` cai — e é o
+        que se quer, porque a partir daí o módulo que nascer nasce editável para
+        ele.
+      */
       expect(p.restricoes).toBe(0);
     }
+
     expect(papeis.find((p) => p.nome === "Administrador")!.gerenciaContas).toBe(true);
-    expect(papeis.find((p) => p.nome === "Operador")!.gerenciaContas).toBe(false);
+    expect(papeis.find((p) => p.nome === "Gestor")!.gerenciaContas).toBe(false);
+    expect(papeis.find((p) => p.nome === "Leitor")!.gerenciaContas).toBe(false);
+
+    expect(papeis.find((p) => p.nome === "Administrador")!.nivelPadrao).toBe("EDITAR");
+    expect(papeis.find((p) => p.nome === "Gestor")!.nivelPadrao).toBe("EDITAR");
+    expect(papeis.find((p) => p.nome === "Leitor")!.nivelPadrao).toBe("VISUALIZAR");
+  });
+
+  it("o piso do Leitor chega ao que vale, e sem uma linha por módulo", async () => {
+    /*
+      É o teste do mecanismo inteiro: o piso mora numa coluna, viaja no mapa na
+      chave `*` e é lido por `nivelDoModulo` — então uma conta de Leitor tem de
+      sair `VISUALIZAR` num módulo que ninguém decidiu, sem que exista linha
+      nenhuma para ele. É isso que faz o perfil sobreviver ao módulo que nasce
+      amanhã.
+    */
+    const leitor = await papelDoBanco("Leitor");
+    const detalhe = (await (await fetch(`${base}/papeis/${leitor}`, {
+      headers: como("chefe@x.com"),
+    })).json()) as { permissoes: Record<string, string> };
+    expect(detalhe.permissoes["*"]).toBe("VISUALIZAR");
+    expect(Object.keys(detalhe.permissoes)).toEqual(["*"]);
+
+    await ctx.pool.query(`UPDATE "app_user" SET "papel_id" = $1 WHERE "email" = $2`, [
+      leitor,
+      "op@x.com",
+    ]);
+    const daConta = (await (await fetch(
+      `${base}/users/${CONTAS["op@x.com"]!.id}/permissoes`,
+      { headers: como("chefe@x.com") },
+    )).json()) as { permissoes: Record<string, string> };
+    expect(daConta.permissoes["*"]).toBe("VISUALIZAR");
+
+    /* E de volta ao Gestor, para não contaminar os casos seguintes. */
+    await ctx.pool.query(`UPDATE "app_user" SET "papel_id" = $1 WHERE "email" = $2`, [
+      await papelDoBanco("Gestor"),
+      "op@x.com",
+    ]);
+  });
+
+  it("o piso não é uma das chaves que o perfil restringe", async () => {
+    const leitor = await papelDoBanco("Leitor");
+    const res = await fetch(`${base}/papeis/${leitor}/permissoes`, {
+      method: "PUT",
+      headers: como("chefe@x.com"),
+      body: JSON.stringify({ niveis: { "*": "SEM_ACESSO" } }),
+    });
+    expect(res.status).toBe(400);
+    expect((await json(res)).error as string).toMatch(/nivelPadrao/);
   });
 
   it("ler é de quem tem sessão; cadastrar é de quem gerencia contas", async () => {
@@ -268,16 +331,16 @@ describe("role é derivado do papel — uma decisão, uma escrita", () => {
 
 describe("os becos respondem 409", () => {
   it("papel do sistema não se renomeia nem se apaga", async () => {
-    const operador = await papelDoBanco("Operador");
+    const gestor = await papelDoBanco("Gestor");
 
-    const renomear = await fetch(`${base}/papeis/${operador}`, {
+    const renomear = await fetch(`${base}/papeis/${gestor}`, {
       method: "PUT",
       headers: como("chefe@x.com"),
       body: JSON.stringify({ nome: "Usuário comum" }),
     });
     expect(renomear.status).toBe(409);
 
-    const apagar = await fetch(`${base}/papeis/${operador}`, {
+    const apagar = await fetch(`${base}/papeis/${gestor}`, {
       method: "DELETE",
       headers: como("chefe@x.com"),
     });

@@ -1,15 +1,18 @@
 import { and, desc, eq } from "drizzle-orm";
 import {
+  CHAVE_PADRAO,
   NIVEL_PADRAO,
   chaveDaSecao,
   ehNivel,
   nivelDoModulo,
+  padraoDe,
   secaoGovernadaDe,
   type Nivel,
 } from "@workspace/acesso";
 import {
   appUserTable,
   papelPermissaoTable,
+  papelTable,
   permissaoDeModuloEventoTable,
   permissaoDeModuloTable,
   type Database,
@@ -174,11 +177,13 @@ export function escritaForaDoAmbiente(caminho: string): boolean {
   saber que a casa do vocabulário mudou.
 */
 export {
+  CHAVE_PADRAO,
   NIVEIS,
   NIVEL_PADRAO,
   chaveDaSecao,
   ehNivel,
   maisRestritivo,
+  padraoDe,
   type Nivel,
 } from "@workspace/acesso";
 
@@ -242,7 +247,18 @@ export async function excecoesDe(
   return mapa;
 }
 
-/** O que um papel decide, chave a chave — só as que têm linha. */
+/**
+ * O que um perfil decide: o piso dele, mais as chaves que têm linha.
+ *
+ * O piso entra no mapa como `CHAVE_PADRAO` — a quarta forma de chave, em
+ * `@workspace/acesso` — e é ele que faz `Leitor` existir sem noventa linhas em
+ * `papel_permissao`. Ele viaja junto com o resto do mapa até a sessão, o menu e
+ * o portão, e quem lê por `nivelDoModulo` o respeita sem precisar saber disso.
+ *
+ * Ele só é escrito quando **não** é `EDITAR`: o mapa de um perfil que concede,
+ * que é o de quase toda instalação, continua sendo exatamente o que era antes
+ * desta coluna — chave a chave, e nada mais.
+ */
 export async function permissoesDoPapel(
   db: Database,
   papelId: string,
@@ -253,10 +269,27 @@ export async function permissoesDoPapel(
     .where(eq(papelPermissaoTable.papelId, papelId));
 
   const mapa: Record<string, Nivel> = {};
+  const piso = await pisoDoPapel(db, papelId);
+  if (piso !== NIVEL_PADRAO) mapa[CHAVE_PADRAO] = piso;
   for (const linha of linhas) {
     if (ehNivel(linha.nivel)) mapa[linha.chave] = linha.nivel;
   }
   return mapa;
+}
+
+/** O `nivel_padrao` do perfil — o piso dele. `EDITAR` para o que não existe. */
+export async function pisoDoPapel(
+  db: Database,
+  papelId: string,
+): Promise<Nivel> {
+  const [linha] = await db
+    .select({ nivelPadrao: papelTable.nivelPadrao })
+    .from(papelTable)
+    .where(eq(papelTable.id, papelId))
+    .limit(1);
+  return linha !== undefined && ehNivel(linha.nivelPadrao)
+    ? linha.nivelPadrao
+    : NIVEL_PADRAO;
 }
 
 /** O papel de uma conta, ou `null` — conta anterior à `0082`, ou do terminal. */
@@ -363,7 +396,7 @@ export function nivelDoAmbiente(
   permissoes: Record<string, Nivel>,
   id: Ambiente,
 ): Nivel {
-  return permissoes[chaveDoAmbiente(id)] ?? NIVEL_PADRAO;
+  return permissoes[chaveDoAmbiente(id)] ?? padraoDe(permissoes);
 }
 
 /**
@@ -396,7 +429,15 @@ export async function definirPermissoes(
   const atuais = await excecoesDe(db, entrada.userId);
 
   for (const [modulo, nivel] of Object.entries(entrada.niveis)) {
-    const herdado = doPapel[modulo] ?? NIVEL_PADRAO;
+    /*
+      O piso é do perfil, e não de uma pessoa: `CHAVE_PADRAO` numa exceção de
+      conta seria uma linha que nenhuma tela sabe mostrar nem desfazer. Quem
+      quer uma pessoa só de leitura a põe num perfil que o diga.
+    */
+    if (modulo === CHAVE_PADRAO) continue;
+    /* O piso do perfil é a herança quando a chave não tem linha própria: sem
+       ele, tirar uma exceção de uma conta `Leitor` a devolveria a `EDITAR`. */
+    const herdado = doPapel[modulo] ?? padraoDe(doPapel);
     const anterior = atuais[modulo];
     if ((anterior ?? herdado) === nivel) continue;
 
