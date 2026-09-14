@@ -453,8 +453,17 @@ export default function KmRodado() {
 
                 {/* -------------------------------------------------- */}
                 {/* Dados parciais: dito na tela, não escondido.        */}
+                {/*                                                      */}
+                {/* A condição é o descarte, e **não** a cobertura menor */}
+                {/* que 100%: ela também cai quando o export repete uma  */}
+                {/* linha idêntica, e colapsar duplicata não é perder    */}
+                {/* dado. Preso à cobertura, o aviso aparecia sobre a    */}
+                {/* vigência real dizendo "0 de 2497 trechos ficaram     */}
+                {/* fora" — uma frase alarmante e vazia, sobre uma tela  */}
+                {/* em que nada ficou fora. Quem colapsou aparece no     */}
+                {/* cartão "Fora da conta", que é onde a frase cabe.     */}
                 {/* -------------------------------------------------- */}
-                {dados.resumo.cobertura !== null && dados.resumo.cobertura < 1 && (
+                {totalDescartadas > 0 && (
                   <Card className="p-4 border-l-4 border-l-warning">
                     <p className="text-sm">
                       <strong>Dados parciais.</strong> {totalDescartadas} de{" "}
