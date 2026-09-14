@@ -372,7 +372,7 @@ describe("a lateral", () => {
     expect(secoesDaAuditoria()).not.toContain("Justificativas");
   });
 
-  it("mantém as onze seções do desenho, na ordem", () => {
+  it("mantém as doze seções do desenho, na ordem", () => {
     expect(secoesDaAuditoria()).toEqual([
       /*
         Chamados Ambev abre a lista porque é por onde o dia começa: o que a fila
@@ -406,6 +406,12 @@ describe("a lateral", () => {
         paga por ter o ativo — ver `nav-auditoria.ts`.
       */
       "Custo Fixo",
+      /*
+        E o Custo Variável logo abaixo dele, porque é a outra metade da mesma
+        conta: ali o que se paga por ter o ativo, aqui o que se paga por rodar
+        com ele — ver `nav-auditoria.ts`.
+      */
+      "Custo Variável",
       "Frota",
       "Inteligência",
       "Dados & governança",
@@ -606,11 +612,13 @@ describe("o catálogo de telas em preparo", () => {
     de entregar uma tela; subi-lo sem acrescentar `pergunta` e `depende` é o que
     este caso recusa.
 
-    E subiu de doze para dezesseis quando a seção **Custo Fixo** nasceu com os
-    seus quatro módulos — Finame, Juros Finame, IPVA e Lucro Fixo. Os quatro
-    estão no menu com o nome, e nenhum deles tem número para mostrar: cada
-    rubrica precisa estar separada na base e ligada ao ativo e à vigência antes
-    de virar tela. É exatamente a subida que este caso aceita — com `pergunta`,
+    E subiu de doze para vinte quando nasceram as duas seções da conta do ativo,
+    com quatro módulos cada uma: **Custo Fixo** — Finame, Juros Finame, IPVA e
+    Lucro Fixo — e **Custo Variável** — Km Rodado, Velocidade Média, TMA e
+    Salário Variável. Os oito estão no menu com o nome, e nenhum deles tem
+    número para mostrar: no fixo, cada rubrica precisa estar separada na base e
+    ligada ao ativo e à vigência; no variável, falta antes disso o realizado da
+    operação. É exatamente a subida que este caso aceita — com `pergunta`,
     `depende` e `hoje` em cada uma —, e não a que ele recusa.
 
     Ele já tinha subido uma vez, de doze para dezesseis, e por um motivo que o
@@ -646,7 +654,7 @@ describe("o catálogo de telas em preparo", () => {
     const catalogo = fonte("pages/telas-em-preparo.ts");
     const telas = [...catalogo.matchAll(/^\s{4}href:\s*"([^"]+)"/gm)].length;
 
-    expect(telas).toBe(16);
+    expect(telas).toBe(20);
     expect([...catalogo.matchAll(/^\s{4}depende:\s*\[/gm)]).toHaveLength(telas);
     expect([...catalogo.matchAll(/^\s{4}pergunta:/gm)]).toHaveLength(telas);
   });

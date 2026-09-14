@@ -67,6 +67,7 @@
   --color-nav-recuperacao: hsl(var(--nav-recuperacao));
   --color-nav-qlp: hsl(var(--nav-qlp));
   --color-nav-custo-fixo: hsl(var(--nav-custo-fixo));
+  --color-nav-custo-variavel: hsl(var(--nav-custo-variavel));
   --color-nav-frota: hsl(var(--nav-frota));
   --color-nav-inteligencia: hsl(var(--nav-inteligencia));
   --color-nav-dados: hsl(var(--nav-dados));
@@ -278,6 +279,7 @@
   --nav-recuperacao: 212 73% 29%;
   --nav-qlp: 212 73% 29%;
   --nav-custo-fixo: 212 73% 29%;
+  --nav-custo-variavel: 212 73% 29%;
   --nav-frota: 212 73% 29%;
   --nav-inteligencia: 212 73% 29%;
   --nav-dados: 212 73% 29%;
@@ -440,6 +442,7 @@
   --nav-recuperacao: 212 80% 66%;
   --nav-qlp: 212 80% 66%;
   --nav-custo-fixo: 212 80% 66%;
+  --nav-custo-variavel: 212 80% 66%;
   --nav-frota: 212 80% 66%;
   --nav-inteligencia: 212 80% 66%;
   --nav-dados: 212 80% 66%;

@@ -7,6 +7,7 @@ import {
   Calculator,
   CalendarDays,
   ChartColumn,
+  ChartNoAxesCombined,
   CircleDollarSign,
   Compass,
   ClipboardCheck,
@@ -42,11 +43,13 @@ import {
   SquareActivity,
   SquareTerminal,
   Tags,
+  Timer,
   Tractor,
   TrendingUp,
   TriangleAlert,
   Truck,
   UsersRound,
+  Wallet,
   Workflow,
   type LucideIcon,
 } from "lucide-react";
@@ -71,7 +74,7 @@ import { GRUPO_ADMINISTRACAO } from "./nav-administracao";
 import type { NavGroup } from "./nav";
 
 /**
- * A lateral do ambiente Auditoria — as onze seções, e a ordem em que se lê o
+ * A lateral do ambiente Auditoria — as doze seções, e a ordem em que se lê o
  * trabalho de um dia.
  *
  * A lista morava em `sidebar.tsx`, como constante, e saiu de lá pela mesma razão
@@ -106,7 +109,8 @@ import type { NavGroup } from "./nav";
  * hoje (**Compras**), procura-se o desvio (**Auditoria**), cobra-se o desvio achado
  * (**Processos**), confere-se o quadro de gente que o modelo remunera
  * (**QLP**), confere-se o que se paga por ter o ativo, rubrica a rubrica
- * (**Custo Fixo**), desce-se ao ativo que o sofreu (**Frota**), pergunta-se ao
+ * (**Custo Fixo**) e o que se paga por rodar com ele (**Custo Variável**),
+ * desce-se ao ativo que o sofreu (**Frota**), pergunta-se ao
  * assistente o que sobrou (**Inteligência**), e por baixo de tudo estão o
  * material (**Dados & governança**) e a casa (**Administração**).
  *
@@ -477,6 +481,30 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
         { href: "/custo-fixo-juros-finame", label: "Juros Finame", icon: Percent },
         { href: "/custo-fixo-ipva", label: "IPVA", icon: Receipt },
         { href: "/custo-fixo-lucro-fixo", label: "Lucro Fixo", icon: TrendingUp },
+      ],
+    },
+    {
+      /*
+        CUSTO VARIÁVEL fica colada ao Custo Fixo porque é a outra metade da
+        mesma conta: ali, o que se paga por **ter** o ativo; aqui, o que se paga
+        por **rodar** com ele.
+
+        **São quatro módulos**: Km Rodado e Velocidade Média — o quanto se rodou
+        e como se rodou —, TMA e Salário Variável. Como os quatro do Custo Fixo,
+        eles entram hoje só com o nome, e abrem telas em preparo: cada verbete em
+        `pages/telas-em-preparo.ts` diz o que falta no banco para a rubrica virar
+        número e para onde ir enquanto isso.
+      */
+      id: "custo-variavel",
+      titulo: "Custo Variável",
+      descricao: "O que se paga por rodar com o ativo",
+      icon: ChartNoAxesCombined,
+      cor: "text-nav-custo-variavel",
+      itens: [
+        { href: "/custo-variavel-km-rodado", label: "Km Rodado", icon: Route },
+        { href: "/custo-variavel-velocidade-media", label: "Velocidade Média", icon: Gauge },
+        { href: "/custo-variavel-tma", label: "TMA", icon: Timer },
+        { href: "/custo-variavel-salario-variavel", label: "Salário Variável", icon: Wallet },
       ],
     },
     /*

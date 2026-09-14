@@ -7,14 +7,18 @@ import {
   Database,
   FileSpreadsheet,
   HardHat,
+  Gauge,
   History,
   Percent,
   Receipt,
+  Route,
   Shield,
   SquareActivity,
   SquareTerminal,
+  Timer,
   TrendingUp,
   TriangleAlert,
+  Wallet,
   type LucideIcon,
 } from "lucide-react";
 
@@ -266,6 +270,114 @@ export const TELAS_EM_PREPARO: TelaEmPreparo[] = [
         label: "Composição",
         porque:
           "O valor montado de um equipamento, parcela a parcela, onde a linha do lucro aparece.",
+      },
+    ],
+  },
+
+  // -------------------------------------------------------------------------
+  // Custo Variável
+  // -------------------------------------------------------------------------
+  /*
+    A outra metade da conta, e o mesmo contrato dos quatro acima: o item existe
+    no menu com o nome, e o verbete diz o que falta antes de a rubrica virar
+    número. A linha comum aqui é outra, e é a que separa custo variável de custo
+    fixo: **o realizado**. Nenhuma destas quatro telas fecha sem o que a operação
+    de fato rodou na quinzena, e é esse dado que o export que abastece este banco
+    ainda não traz — o mesmo que já falta ao Impacto, e pela mesma razão.
+  */
+  {
+    href: "/custo-variavel-km-rodado",
+    label: "Km Rodado",
+    icon: Route,
+    cor: "text-nav-custo-variavel",
+    pergunta:
+      "Quantos quilômetros cada ativo rodou na vigência, quanto isso custou pelo valor contratado do km, e o que mudou desde a vigência anterior.",
+    depende: [
+      "A quilometragem realizada por equipamento e por quinzena: o que chega hoje é o preço do km, e multiplicar preço por uma distância que ninguém importou seria inventar o número que a tela existe para mostrar.",
+      "O vínculo entre a quilometragem e a placa e a vigência a que ela pertence, sem o qual o total é um número solto, e não o que uma operação rodou numa quinzena.",
+    ],
+    hoje: [
+      {
+        href: "/composicao",
+        label: "Composição",
+        porque: "O valor contratado do km, parcela a parcela — metade da conta que esta tela vai fechar.",
+      },
+      {
+        href: "/radar-trechos",
+        label: "Radar de Trechos",
+        porque: "De centenas de trechos, quais pedem olhada — é a leitura por distância que o dado já sustenta.",
+      },
+    ],
+  },
+  {
+    href: "/custo-variavel-velocidade-media",
+    label: "Velocidade Média",
+    icon: Gauge,
+    cor: "text-nav-custo-variavel",
+    pergunta:
+      "A que velocidade média cada ativo rodou na vigência, e o que essa velocidade explica do que se pagou por rodar.",
+    depende: [
+      "Distância e tempo realizados na mesma linha: velocidade é razão entre os dois, e sem os dois não há média nenhuma para mostrar.",
+      "A separação entre tempo rodando e tempo parado — o ativo esperando carga não abaixa a velocidade de quem dirigiu, e somar os dois daria uma média que não descreve nem uma coisa nem outra.",
+    ],
+    hoje: [
+      {
+        href: "/ativos-e-parados",
+        label: "Ativos e parados",
+        porque: "Onde já se lê o que rodou e o que ficou parado na vigência aberta.",
+      },
+      {
+        href: "/analise-equipamentos",
+        label: "Análise de frota",
+        porque: "O comportamento da frota por categoria, que é a altura em que esta média vai ser lida.",
+      },
+    ],
+  },
+  {
+    href: "/custo-variavel-tma",
+    label: "TMA",
+    icon: Timer,
+    cor: "text-nav-custo-variavel",
+    pergunta:
+      "Qual o tempo médio de atendimento por unidade e por ativo, e quanto do custo variável da vigência ele responde.",
+    depende: [
+      "O registro de cada atendimento com começo e fim: média de tempo sem os dois carimbos é média de nada.",
+      "A regra do que conta como atendimento — o que entra, o que é espera e o que é interrupção —, sem a qual duas unidades com a mesma operação exibiriam TMAs que não se comparam.",
+    ],
+    hoje: [
+      {
+        href: "/ativos-e-parados",
+        label: "Ativos e parados",
+        porque: "A leitura de tempo que o banco já sustenta hoje, por ativo e por vigência.",
+      },
+      {
+        href: "/book-operador",
+        label: "Book do Operador",
+        porque: "A regra do atendimento está escrita lá — a metade da resposta que não depende de importação.",
+      },
+    ],
+  },
+  {
+    href: "/custo-variavel-salario-variavel",
+    label: "Salário Variável",
+    icon: Wallet,
+    cor: "text-nav-custo-variavel",
+    pergunta:
+      "Quanto da folha desta vigência é variável — o que se paga por produção, e não por ter a pessoa no quadro —, por unidade e por cargo.",
+    depende: [
+      "A parte variável separada da fixa dentro da folha: enquanto as duas chegarem somadas, o total seria o da remuneração inteira, e não o do que a produção moveu.",
+      "A produção a que o variável se prende — a mesma quilometragem e o mesmo atendimento de que as telas acima dependem —, sem a qual a tela mostra o valor pago e não responde se é o valor devido.",
+    ],
+    hoje: [
+      {
+        href: "/qlp-administrativo",
+        label: "QLP Administrativo",
+        porque: "O quadro de gente que o modelo remunera, por unidade e cargo — onde a folha já se lê hoje.",
+      },
+      {
+        href: "/remunerado",
+        label: "Remunerado",
+        porque: "O que a vigência remunera, como a própria tabela o declara.",
       },
     ],
   },
