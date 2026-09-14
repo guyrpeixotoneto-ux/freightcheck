@@ -1,4 +1,4 @@
-import { Building2, Briefcase, IdCard, KeyRound, MapPin, Network, ShieldCheck, UserRound, Users, type LucideIcon } from "lucide-react";
+import { Building2, Briefcase, IdCard, KeyRound, MapPin, Network, Power, ShieldCheck, UserRound, Users, type LucideIcon } from "lucide-react";
 import { TELAS_EM_PREPARO } from "@/pages/telas-em-preparo";
 
 /**
@@ -77,6 +77,23 @@ export const SECOES_GERAIS: SecaoDeConfiguracao[] = [
     icon: ShieldCheck,
     descricao:
       "Os perfis de acesso e o que cada um alcança, módulo a módulo — com a exceção de cada conta e o que a casa tira do ar para todo mundo.",
+  },
+  {
+    /*
+      A decisão da casa tem seção própria de novo, e não é uma segunda porta
+      para a mesma coisa: Permissões decide **quem alcança o quê** e oferece o
+      Inativar linha a linha, para quem descobre ali que um módulo não deveria
+      estar no ar para ninguém. Esta responde a pergunta inteira de uma vez —
+      quanto do produto esta casa usa —, e é ela que tem o que não cabe numa
+      coluna: os números do que está fora do ar, o motivo que acompanha o
+      desligamento, o histórico de quem decidiu e o arquivamento de cada módulo
+      e de cada seção.
+    */
+    href: "/configuracoes/modulos-universais",
+    label: "Módulos Universais",
+    icon: Power,
+    descricao:
+      "Que partes do produto esta casa usa — o que for desligado aqui sai do menu de todo mundo, e o que não se usa mais pode ser arquivado.",
   },
   {
     href: "/configuracoes/cargos",

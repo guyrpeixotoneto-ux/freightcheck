@@ -135,38 +135,55 @@ export function IndiceDeConfiguracoes() {
   estados.set(
     "/configuracoes/permissoes",
     /*
-      Uma linha para as três camadas que a seção passou a reunir, e ela diz a
-      que **é notícia**: o que a casa tirou do ar. Quantos perfis existem é o
-      estado normal — toda instalação nasce com três —, e um resumo que só os
-      contasse deixaria de fora a única coisa que explica "sumiu uma tela do
-      menu de todo mundo".
+      Perfis, e só perfis. O que a casa tirou do ar já teve de morar nesta linha,
+      no tempo em que Permissões era a única porta para a decisão da instalação;
+      hoje Módulos Universais tem linha própria logo abaixo, e repetir o número
+      nas duas faria o índice parecer contar duas coisas quando conta uma.
 
       Quantas exceções por conta existem não entra: saber isso exigiria uma
       consulta por conta, e o índice não abre sete telas para se desenhar.
     */
-    carregandoPerfis ||
-    perfis === undefined ||
-    carregandoUniversais ||
-    universais === undefined
+    carregandoPerfis || perfis === undefined
       ? CARREGANDO
       : {
           pronta: perfis.length > 0,
           resumo: (() => {
             const proprios = perfis.filter((p) => !p.sistema).length;
-            const cadastro =
-              proprios > 0
-                ? `${plural(perfis.length, "perfil", "perfis")} · ${plural(
-                    proprios,
-                    "cadastrado aqui",
-                    "cadastrados aqui",
-                  )}`
-                : `${plural(perfis.length, "perfil", "perfis")} — só os do sistema`;
-            return universais.desligadas.length > 0
-              ? `${cadastro} · ${resumoDoQueEstaFora(
-                  universais.desligadas.map((d) => d.chave),
+            return proprios > 0
+              ? `${plural(perfis.length, "perfil", "perfis")} · ${plural(
+                  proprios,
+                  "cadastrado aqui",
+                  "cadastrados aqui",
                 )}`
-              : cadastro;
+              : `${plural(perfis.length, "perfil", "perfis")} — só os do sistema`;
           })(),
+        },
+  );
+
+  estados.set(
+    "/configuracoes/modulos-universais",
+    /*
+      A linha da casa, e o único caso do índice em que **zero é o estado bom**.
+
+      Todas as outras dizem "falta cadastrar"; esta diz quanto do produto está
+      fora do ar, e uma instalação saudável tem nada fora do ar. Por isso o
+      visto verde aparece sempre que a leitura chegou: não há o que preencher
+      aqui — o que há é uma decisão tomada ou não tomada, e as duas são estados
+      legítimos. O resumo separa seção, módulo e ambiente porque a seção pesa
+      mais: ela tira do menu os módulos que ainda não existem.
+
+      Arquivado entra na contagem, e não ganha número próprio: ele já está fora
+      do ar, e somá-lo à parte faria a mesma chave aparecer duas vezes numa
+      linha de uma frase só.
+    */
+    carregandoUniversais || universais === undefined
+      ? CARREGANDO
+      : {
+          pronta: true,
+          resumo:
+            universais.desligadas.length > 0
+              ? resumoDoQueEstaFora(universais.desligadas.map((d) => d.chave))
+              : "O produto inteiro no ar",
         },
   );
 
