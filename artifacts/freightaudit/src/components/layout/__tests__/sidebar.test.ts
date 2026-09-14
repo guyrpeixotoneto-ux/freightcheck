@@ -398,8 +398,27 @@ describe("a lateral", () => {
       */
       "Compras",
       "Auditoria",
-      "Processos",
-      "QLP",
+      /*
+        **Processos saiu da lateral.** Era uma seção de um item — Fluxos
+        Operacionais —, e o item saiu com ela; as rotas continuam de pé em
+        `App.tsx`, para quem tem o link, mas não há mais caminho de menu até
+        elas.
+      */
+      /*
+        **O QLP não é mais seção.** As duas telas dele — Operacional e
+        Administrativo — são hoje as duas últimas linhas de Custo Fixo, porque
+        estrutura de pessoal responde à mesma pergunta das rubricas do ativo: o
+        que se paga independente do quanto se rodou. Ver `nav-auditoria.ts`,
+        onde a mudança está escrita por extenso, inclusive o que ela custa —
+        a chave de seção `#qlp` deixou de existir.
+      */
+      "Custo Fixo",
+      /*
+        E o Custo Variável logo abaixo dele, porque é a outra metade da mesma
+        conta: ali o que se paga por ter o ativo, aqui o que se paga por rodar
+        com ele — ver `nav-auditoria.ts`.
+      */
+      "Custo Variável",
       "Frota",
       "Inteligência",
       "Dados & governança",
@@ -600,8 +619,17 @@ describe("o catálogo de telas em preparo", () => {
     de entregar uma tela; subi-lo sem acrescentar `pergunta` e `depende` é o que
     este caso recusa.
 
-    Ele subiu uma vez, de doze para dezesseis, e por um motivo que o caso
-    aceita: Configurações virou índice, e as quatro seções da casa que o banco
+    E subiu de doze para vinte quando nasceram as duas seções da conta do ativo,
+    com quatro módulos cada uma: **Custo Fixo** — Finame, Juros Finame, IPVA e
+    Lucro Fixo — e **Custo Variável** — Km Rodado, Velocidade Média, TMA e
+    Salário Variável. Os oito estão no menu com o nome, e nenhum deles tem
+    número para mostrar: no fixo, cada rubrica precisa estar separada na base e
+    ligada ao ativo e à vigência; no variável, falta antes disso o realizado da
+    operação. É exatamente a subida que este caso aceita — com `pergunta`,
+    `depende` e `hoje` em cada uma —, e não a que ele recusa.
+
+    Ele já tinha subido uma vez, de doze para dezesseis, e por um motivo que o
+    caso aceita: Configurações virou índice, e as quatro seções da casa que o banco
     ainda não sustentava — Minha Empresa, Cargos, Negócio e Departamento —
     entraram no catálogo com `pergunta`, `depende` e `hoje`, em vez de virarem
     quatro formulários que não gravam. É a diferença que o catálogo existe para
@@ -633,7 +661,7 @@ describe("o catálogo de telas em preparo", () => {
     const catalogo = fonte("pages/telas-em-preparo.ts");
     const telas = [...catalogo.matchAll(/^\s{4}href:\s*"([^"]+)"/gm)].length;
 
-    expect(telas).toBe(12);
+    expect(telas).toBe(20);
     expect([...catalogo.matchAll(/^\s{4}depende:\s*\[/gm)]).toHaveLength(telas);
     expect([...catalogo.matchAll(/^\s{4}pergunta:/gm)]).toHaveLength(telas);
   });

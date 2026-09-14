@@ -1165,7 +1165,7 @@ function DetalheDrawer({
       <SheetContent side="right" className="w-full sm:max-w-3xl p-0 flex flex-col gap-0">
         <SheetHeader className="px-6 py-4 border-b">
           <SheetTitle className="flex items-center gap-2">
-            <Briefcase className="w-5 h-5 text-nav-qlp" />
+            <Briefcase className="w-5 h-5 text-nav-custo-fixo" />
             {dados ? dados.cargo : "Cargo"}
           </SheetTitle>
           <SheetDescription asChild>

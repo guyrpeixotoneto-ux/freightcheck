@@ -1,11 +1,13 @@
 import {
   ArrowRightLeft,
   BadgeCheck,
+  Banknote,
   Bot,
   Briefcase,
   Calculator,
   CalendarDays,
   ChartColumn,
+  ChartNoAxesCombined,
   CircleDollarSign,
   Compass,
   ClipboardCheck,
@@ -27,10 +29,10 @@ import {
   House,
   Layers,
   LayoutDashboard,
+  Percent,
   Plug,
   Radar,
   Receipt,
-  RefreshCcwDot,
   Route,
   Scale,
   ScanSearch,
@@ -40,12 +42,12 @@ import {
   SquareActivity,
   SquareTerminal,
   Tags,
+  Timer,
   Tractor,
   TrendingUp,
   TriangleAlert,
   Truck,
-  UsersRound,
-  Workflow,
+  Wallet,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -101,9 +103,11 @@ import type { NavGroup } from "./nav";
  * vigilância e o retrato
  * do conjunto (**Visão executiva**, que reúne os dois desde que as duas seções
  * viraram uma), libera-se o que precisa ser comprado
- * hoje (**Compras**), procura-se o desvio (**Auditoria**), cobra-se o desvio achado
- * (**Processos**), confere-se o quadro de gente que o modelo remunera
- * (**QLP**), desce-se ao ativo que o sofreu (**Frota**), pergunta-se ao
+ * hoje (**Compras**), procura-se o desvio (**Auditoria**),
+ * confere-se o que se paga por ter o ativo e a estrutura de
+ * gente que o modelo remunera (**Custo Fixo**, que é onde o QLP mora desde que
+ * deixou de ser seção) e o que se paga por rodar com ele (**Custo Variável**),
+ * desce-se ao ativo que o sofreu (**Frota**), pergunta-se ao
  * assistente o que sobrou (**Inteligência**), e por baixo de tudo estão o
  * material (**Dados & governança**) e a casa (**Administração**).
  *
@@ -391,51 +395,81 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
     },
     {
       /*
-        Processos é seção própria, e não a cauda da Auditoria, porque é outro
-        trabalho e quase sempre outra pessoa: auditar é descobrir, desenhar o
-        processo é dizer como se trabalha. Quem passa o dia numa das duas fecha
-        a outra.
+        CUSTO FIXO reúne tudo o que a vigência cobra esteja o equipamento
+        parado ou não — a parcela que não depende de ter rodado. Vem acima do
+        Custo Variável, que é a outra metade da conta, e acima da Frota, que é
+        onde se desce ao ativo individual.
 
-        A seção tinha três telas em preparo — Contestação & Recuperação,
-        Reconciliação e Risco & Materialidade — e elas saíram junto com as
-        entradas de `pages/telas-em-preparo.ts` que as sustentavam: um menu que
-        anuncia três telas e entrega três avisos de "ainda não" é ruído para
-        quem trabalha aqui todo dia. Voltam quando forem telas de verdade.
+        É seção própria, e não um item da Frota, porque a pergunta é de outra
+        altura. A Frota pergunta pelo ativo — o que mudou nesta placa, quanto ela
+        custou na quinzena. O custo fixo pergunta pela **rubrica**: quanto cada
+        uma pesa e o que a fez mudar de uma vigência para outra. São as mesmas
+        linhas lidas por outro eixo, e um item solto dentro da Frota faria a
+        leitura por rubrica parecer um recorte de placa.
+
+        **São seis módulos, e eles se leem em dois blocos.** Primeiro as quatro
+        rubricas do ativo: Finame e Juros Finame — o principal do financiamento
+        e o que ele cobra de juros —, IPVA e Lucro Fixo. Depois as duas de
+        gente: QLP Operacional e QLP Administrativo, o quadro de lotação que o
+        modelo remunera, nas duas alturas em que o Freightech o publica.
+
+        **O QLP era seção própria, e virou as duas últimas linhas desta.** Ele
+        estava separado porque a população é outra — gente, não metal —, mas a
+        pergunta que ele responde é a mesma que as quatro acima: o que se paga
+        todo mês independente do quanto se rodou. Estrutura de pessoal é custo
+        fixo, e mantê-la num cartão vizinho obrigava a somar de cabeça duas
+        seções para ver a conta inteira.
+
+        **Uma consequência a registrar**: a chave de seção era `#qlp`
+        (`nav.ts`), e quem tivesse desligado a seção QLP em Permissões tinha
+        essa decisão gravada nela. A seção não existe mais, e as duas telas
+        passam a responder à chave de Custo Fixo — as chaves **por item**
+        (`/qlp-operacional`, `/qlp-administrativo`) continuam valendo, porque
+        são o `href`, e o `href` não mudou.
+
+        Os quatro módulos do ativo entram **só com o nome**, e abrem telas em
+        preparo: cada verbete em `pages/telas-em-preparo.ts` diz o que falta para
+        a rubrica virar número e para onde ir enquanto isso; quando a definição
+        de um deles chegar, ele sai de lá, vira `<Route>` em `App.tsx`, e este
+        menu não muda uma vírgula. O QLP Administrativo já é tela de verdade; o
+        Operacional ainda espera o export dele.
       */
-      id: "processos",
-      titulo: "Processos",
-      descricao: "O mapa dos processos da empresa",
-      icon: RefreshCcwDot,
-      cor: "text-nav-recuperacao",
+      id: "custo-fixo",
+      titulo: "Custo Fixo",
+      descricao: "O que se paga por ter o ativo e a estrutura, rubrica a rubrica",
+      icon: CircleDollarSign,
+      cor: "text-nav-custo-fixo",
       itens: [
-        /*
-          Fluxos Operacionais saiu da Administração: o mapa dos processos não é
-          cadastro da casa, é o desenho do trabalho. O endereço continua sem
-          prefixo, como o resto desta lista: é o roteador aninhado que põe a
-          base do ambiente na frente (`App.tsx`), e `/fluxos` está no mesmo
-          `Switch` das outras telas da auditoria.
-        */
-        { href: "/fluxos", label: "Fluxos Operacionais", icon: Workflow },
+        { href: "/custo-fixo-finame", label: "Finame", icon: Banknote },
+        { href: "/custo-fixo-juros-finame", label: "Juros Finame", icon: Percent },
+        { href: "/custo-fixo-ipva", label: "IPVA", icon: Receipt },
+        { href: "/custo-fixo-lucro-fixo", label: "Lucro Fixo", icon: TrendingUp },
+        { href: "/qlp-operacional", label: "QLP Operacional", icon: HardHat },
+        { href: "/qlp-administrativo", label: "QLP Administrativo", icon: Briefcase },
       ],
     },
     {
       /*
-        QLP — o quadro de lotação de pessoal que o modelo remunera — é seção
-        própria, acima da Frota, porque é a outra metade da mesma conta: a Frota
-        carrega o custo do ativo, e o QLP carrega o custo da estrutura de gente,
-        lida nas duas alturas em que o Freightech a publica — a operação e a
-        administração. Os dois itens abrem telas em preparo: a regra vive no Book,
-        mas o export que abastece este banco ainda não traz os valores de QLP —
-        ver `pages/telas-em-preparo.ts`, onde cada um diz o que falta.
+        CUSTO VARIÁVEL fica colada ao Custo Fixo porque é a outra metade da
+        mesma conta: ali, o que se paga por **ter** o ativo; aqui, o que se paga
+        por **rodar** com ele.
+
+        **São quatro módulos**: Km Rodado e Velocidade Média — o quanto se rodou
+        e como se rodou —, TMA e Salário Variável. Como os quatro do Custo Fixo,
+        eles entram hoje só com o nome, e abrem telas em preparo: cada verbete em
+        `pages/telas-em-preparo.ts` diz o que falta no banco para a rubrica virar
+        número e para onde ir enquanto isso.
       */
-      id: "qlp",
-      titulo: "QLP",
-      descricao: "O quadro de gente que o modelo remunera",
-      icon: UsersRound,
-      cor: "text-nav-qlp",
+      id: "custo-variavel",
+      titulo: "Custo Variável",
+      descricao: "O que se paga por rodar com o ativo",
+      icon: ChartNoAxesCombined,
+      cor: "text-nav-custo-variavel",
       itens: [
-        { href: "/qlp-operacional", label: "QLP Operacional", icon: HardHat },
-        { href: "/qlp-administrativo", label: "QLP Administrativo", icon: Briefcase },
+        { href: "/custo-variavel-km-rodado", label: "Km Rodado", icon: Route },
+        { href: "/custo-variavel-velocidade-media", label: "Velocidade Média", icon: Gauge },
+        { href: "/custo-variavel-tma", label: "TMA", icon: Timer },
+        { href: "/custo-variavel-salario-variavel", label: "Salário Variável", icon: Wallet },
       ],
     },
     /*

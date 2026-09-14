@@ -33,7 +33,6 @@ import {
   Layers,
   MapPin,
   Radar,
-  RefreshCcwDot,
   Route,
   Scale,
   ScanSearch,
