@@ -3389,6 +3389,32 @@ function planoUp(): PassoUp[] {
     add(M86, `índice ${indice}`, levantar(M86, new RegExp(`INDEX IF NOT EXISTS "${indice}"`)));
   }
 
+  /*
+    A `0096` — as colunas do arquivamento, no par de tabelas da `0086`.
+
+    Vêm logo depois do bloco acima porque dependem dele: o `up` recria as duas
+    tabelas da DDL da `0086`, que não conhece coluna nenhuma de arquivamento, e
+    só então estas três entram. Ordem trocada, o `ALTER` cairia numa tabela que
+    ainda não existe.
+
+    As três são nuláveis e sem default, a forma que a allowlist aceita (`0078`),
+    e nenhuma delas mexe em dado: o conteúdo continua voltando por
+    `devolverConteudo`, como o bloco da `0086` explica.
+  */
+  const M96 = "0096_arquivar_modulo_universal";
+  for (const coluna of ["arquivado_em", "arquivado_por"]) {
+    add(
+      M96,
+      `modulo_universal.${coluna}`,
+      levantar(M96, new RegExp(`"modulo_universal" ADD COLUMN IF NOT EXISTS "${coluna}"`)),
+    );
+  }
+  add(
+    M96,
+    "modulo_universal_evento.arquivado",
+    levantar(M96, /"modulo_universal_evento" ADD COLUMN IF NOT EXISTS "arquivado"/),
+  );
+
   const M42 = "0042_viagem_completa";
   for (const coluna of COLUNAS_DO_RETRATO_DA_VIAGEM) {
     add(

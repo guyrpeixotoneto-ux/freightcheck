@@ -1,4 +1,4 @@
-import { desc, eq, inArray, sql } from "drizzle-orm";
+import { desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import {
   moduloUniversalEventoTable,
   moduloUniversalTable,
@@ -53,8 +53,14 @@ export const CHAVES_PROTEGIDAS: readonly string[] = [
   "#administracao",
 ];
 
-/** As três formas de chave que esta camada aceita — módulo, ambiente e seção. */
-function formaValida(chave: string): boolean {
+/**
+ * As três formas de chave que esta camada aceita — módulo, ambiente e seção.
+ *
+ * Exportada porque as rotas precisam dela para escolher o código do erro:
+ * "corpo inválido" é 400 e "isto não pode ser feito" é 409, e só quem sabe se a
+ * forma é conhecida sabe em qual das duas famílias a recusa caiu.
+ */
+export function formaValida(chave: string): boolean {
   return (
     chave.startsWith("/") || chave.startsWith("@") || chave.startsWith("#")
   );
@@ -65,6 +71,9 @@ export interface ModuloUniversalDesligado {
   desligadoEm: string;
   desligadoPor: string;
   motivo: string | null;
+  /** Quando saiu da lista de quem administra — nulo em quem ninguém arquivou. */
+  arquivadoEm: string | null;
+  arquivadoPor: string | null;
 }
 
 /** As chaves desligadas, com quem desligou e quando. */
@@ -77,11 +86,17 @@ export async function listarModulosDesligados(
       desligadoEm: moduloUniversalTable.desligadoEm,
       desligadoPor: moduloUniversalTable.desligadoPor,
       motivo: moduloUniversalTable.motivo,
+      arquivadoEm: moduloUniversalTable.arquivadoEm,
+      arquivadoPor: moduloUniversalTable.arquivadoPor,
     })
     .from(moduloUniversalTable)
     .orderBy(moduloUniversalTable.chave);
 
-  return linhas.map((l) => ({ ...l, desligadoEm: l.desligadoEm.toISOString() }));
+  return linhas.map((l) => ({
+    ...l,
+    desligadoEm: l.desligadoEm.toISOString(),
+    arquivadoEm: l.arquivadoEm?.toISOString() ?? null,
+  }));
 }
 
 /**
@@ -218,6 +233,139 @@ export async function definirModulosUniversais(
   });
 }
 
+/**
+ * As chaves que saíram da lista de quem administra.
+ *
+ * Arquivada é sempre desligada — a linha só existe quando a chave está fora do
+ * ar —, e por isso esta lista é um subconjunto de `chavesDesligadas`. Nenhum
+ * leitor de acesso a consulta: o menu, o portão e a sessão continuam
+ * perguntando só se a chave está desligada, e a resposta não muda por ela estar
+ * arrumada ou não.
+ */
+export async function chavesArquivadas(db: Database): Promise<Set<string>> {
+  const linhas = await db
+    .select({ chave: moduloUniversalTable.chave })
+    .from(moduloUniversalTable)
+    .where(isNotNull(moduloUniversalTable.arquivadoEm));
+  return new Set(linhas.map((l) => l.chave));
+}
+
+/**
+ * A recusa de um arquivamento, em uma frase — ou `null` quando ele serve.
+ *
+ * **Arquivar exige a chave já desligada**, e esta função não desliga nada por
+ * conta própria. Tirar uma parte do produto do ar muda o menu de todo mundo e
+ * tem gesto e aviso próprios; embutir isso num gesto de arrumação faria alguém
+ * derrubar o QLP da casa inteira achando que estava limpando a lista — é a
+ * mesma recusa que a conta arquivada faz desde a `0078`, e pela mesma razão.
+ *
+ * **Desarquivar é sempre permitido**, inclusive de uma chave que não esteja
+ * arquivada (não escreve nada) — devolver algo à vista de quem administra nunca
+ * é o ato que precisa de defesa.
+ */
+export function problemaDoArquivamento(
+  chave: string,
+  arquivado: boolean,
+  desligadas: ReadonlySet<string>,
+): string | null {
+  if (typeof chave !== "string" || chave.trim() === "") {
+    return "Chave de módulo vazia.";
+  }
+  if (!formaValida(chave)) {
+    return `${chave} não é uma chave conhecida: módulo começa por "/", ambiente por "@" e seção por "#".`;
+  }
+  if (arquivado && !desligadas.has(chave)) {
+    return `${chave} está no ar: só se arquiva o que já está desligado para toda a instalação. Desligue primeiro — arquivar arruma a lista, não tira ninguém do ar.`;
+  }
+  return null;
+}
+
+/**
+ * Arquiva e desarquiva chaves, e grava só o que mudou.
+ *
+ * O gesto é sobre a **lista**, e não sobre o acesso: arquivar não desliga nada
+ * e desarquivar não devolve nada ao menu. Quem já estava desligada continua
+ * desligada nos dois casos — é por isso que o evento gravado leva
+ * `ligado: false`, que é o que a chave era antes e continua sendo, com
+ * `arquivado` dizendo o que este evento decidiu.
+ *
+ * Como em `definirModulosUniversais`: uma transação só, com o espelho da casa
+ * dentro dela, e a resposta relida do banco depois do commit em vez de montada
+ * a partir do que se pediu. Pedir "arquivado" para quem já está arquivada não
+ * escreve nada e não vai para o histórico — o histórico é a lista de decisões,
+ * e não a de cliques.
+ */
+export async function definirArquivamento(
+  db: Database,
+  entrada: {
+    /** Chave → arquivada. `true` tira da lista; `false` a devolve a ela. */
+    chaves: Record<string, boolean>;
+    /** O e-mail de quem decidiu. */
+    por: string;
+  },
+): Promise<ModuloUniversalDesligado[]> {
+  return db.transaction(async (tx) => {
+    const banco = tx as unknown as Database;
+    const desligadas = await chavesDesligadas(banco);
+    const arquivadas = await chavesArquivadas(banco);
+
+    const paraArquivar: string[] = [];
+    const paraDesarquivar: string[] = [];
+
+    for (const [chave, arquivado] of Object.entries(entrada.chaves)) {
+      /*
+        Uma chave ligada não tem linha onde gravar arquivamento, e desarquivar
+        o que não está arquivado não muda nada. Os dois casos saem daqui em
+        silêncio, como o "ligar o que já está ligado" da outra escrita.
+      */
+      if (!desligadas.has(chave)) continue;
+      if (arquivado === arquivadas.has(chave)) continue;
+      (arquivado ? paraArquivar : paraDesarquivar).push(chave);
+    }
+
+    if (paraArquivar.length > 0) {
+      await tx
+        .update(moduloUniversalTable)
+        .set({ arquivadoEm: new Date(), arquivadoPor: entrada.por })
+        .where(inArray(moduloUniversalTable.chave, paraArquivar));
+    }
+
+    if (paraDesarquivar.length > 0) {
+      await tx
+        .update(moduloUniversalTable)
+        .set({ arquivadoEm: null, arquivadoPor: null })
+        .where(inArray(moduloUniversalTable.chave, paraDesarquivar));
+    }
+
+    const eventos = [
+      ...paraArquivar.map((chave) => ({
+        chave,
+        ligado: false,
+        arquivado: true,
+        motivo: null,
+        por: entrada.por,
+      })),
+      ...paraDesarquivar.map((chave) => ({
+        chave,
+        ligado: false,
+        arquivado: false,
+        motivo: null,
+        por: entrada.por,
+      })),
+    ];
+    if (eventos.length > 0) {
+      await tx.insert(moduloUniversalEventoTable).values(eventos);
+    }
+
+    await espelharDecisaoDaCasa(async (texto) => {
+      const resultado = await tx.execute(sql.raw(texto));
+      return (resultado as unknown as { rows?: Record<string, unknown>[] }).rows ?? [];
+    });
+
+    return listarModulosDesligados(banco);
+  });
+}
+
 /** O histórico da casa, do mais recente para o mais antigo. */
 export async function historicoDosModulosUniversais(
   db: Database,
@@ -225,6 +373,7 @@ export async function historicoDosModulosUniversais(
   Array<{
     chave: string;
     ligado: boolean;
+    arquivado: boolean | null;
     motivo: string | null;
     em: string;
     por: string;
@@ -234,6 +383,7 @@ export async function historicoDosModulosUniversais(
     .select({
       chave: moduloUniversalEventoTable.chave,
       ligado: moduloUniversalEventoTable.ligado,
+      arquivado: moduloUniversalEventoTable.arquivado,
       motivo: moduloUniversalEventoTable.motivo,
       em: moduloUniversalEventoTable.em,
       por: moduloUniversalEventoTable.por,
@@ -249,10 +399,13 @@ export async function historicoDosModulosUniversais(
 export async function historicoDaChave(
   db: Database,
   chave: string,
-): Promise<Array<{ ligado: boolean; em: string; por: string }>> {
+): Promise<
+  Array<{ ligado: boolean; arquivado: boolean | null; em: string; por: string }>
+> {
   const linhas = await db
     .select({
       ligado: moduloUniversalEventoTable.ligado,
+      arquivado: moduloUniversalEventoTable.arquivado,
       em: moduloUniversalEventoTable.em,
       por: moduloUniversalEventoTable.por,
     })

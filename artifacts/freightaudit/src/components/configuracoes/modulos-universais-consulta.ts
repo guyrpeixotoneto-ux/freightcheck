@@ -18,12 +18,27 @@ export interface ModuloDesligado {
   desligadoEm: string;
   desligadoPor: string;
   motivo: string | null;
+  /**
+   * Quando esta chave saiu da **lista** de quem administra — nula em quem
+   * ninguém arquivou, que é o caso de toda chave até alguém clicar.
+   *
+   * Arquivar não mexe no acesso: quem está aqui já estava desligada, e continua.
+   * O que muda é a tela onde a decisão se toma — a matriz encolhe e a chave vai
+   * para a gaveta de arquivados, de onde volta com um clique.
+   */
+  arquivadoEm: string | null;
+  arquivadoPor: string | null;
 }
 
 export interface EventoUniversal {
   chave: string;
   /** `false` é o desligamento; `true`, a volta ao menu. */
   ligado: boolean;
+  /**
+   * O que este evento decidiu sobre a lista: `true` arquivou, `false`
+   * desarquivou, nulo é um evento de ligar ou desligar.
+   */
+  arquivado: boolean | null;
   motivo: string | null;
   em: string;
   por: string;

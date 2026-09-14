@@ -79,6 +79,8 @@ const espelho = (): ModulosUniversais => ({
     desligadoEm: "2026-09-13T17:48:22.000Z",
     desligadoPor: "chefe@x.com",
     motivo: null,
+    arquivadoEm: null,
+    arquivadoPor: null,
   })),
   protegidas: ["/configuracoes", "#administracao"],
   historico: [],

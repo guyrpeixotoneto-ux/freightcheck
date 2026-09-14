@@ -102,6 +102,18 @@ async function definir(
   });
 }
 
+/** Arquiva ou devolve à lista, como a gaveta da matriz faria. */
+async function arquivar(
+  quem: string,
+  chaves: Record<string, boolean>,
+): Promise<Response> {
+  return fetch(`${base}/modulos-universais/arquivadas`, {
+    method: "PUT",
+    headers: como(quem),
+    body: JSON.stringify({ chaves }),
+  });
+}
+
 /** O que vale para uma conta — a soma que o portão e o menu leem. */
 async function efetivas(id: string): Promise<Record<string, string>> {
   const res = await fetch(`${base}/users/${id}/permissoes`, {
@@ -366,5 +378,154 @@ describe("a seção desligada fecha o portão, e não só o menu", () => {
     const corpo = (await res.json()) as { protegidas: string[] };
     expect(corpo.protegidas).toContain("/configuracoes");
     expect(corpo.protegidas).toContain("#administracao");
+  });
+});
+
+/**
+ * Arquivar — a decisão sobre a **lista**, e não sobre o acesso.
+ *
+ * Desligar já tira do menu de todo mundo, e não tira da tela onde a decisão se
+ * toma: uma casa que não usa dois terços do produto administra acesso dentro de
+ * uma matriz em que quase tudo está riscado. Arquivar tira dali, e quatro
+ * coisas provam que isso não é uma exclusão com outro nome:
+ *
+ * 1. **A linha continua inteira** — quem desligou, quando e por quê seguem na
+ *    resposta, agora com quem arquivou e quando;
+ * 2. **o acesso não muda** — quem estava fora do ar continua fora, nem mais nem
+ *    menos, e o portão recusa a mesma escrita de antes;
+ * 3. **só se arquiva o que está desligado** — pedir sobre uma chave no ar é 409,
+ *    porque arrumar a lista não pode derrubar tela de ninguém por tabela;
+ * 4. **desarquivar devolve à lista** sem religar nada.
+ */
+describe("arquivar tira da lista, e não do banco", () => {
+  it("só administrador arquiva", async () => {
+    expect((await definir("chefe@x.com", { "/fluxos": false })).status).toBe(200);
+    const res = await arquivar("op@x.com", { "/fluxos": true });
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as { error: string }).error).toMatch(
+      /administradores/i,
+    );
+  });
+
+  it("não se arquiva o que está no ar — arrumar a lista não desliga ninguém", async () => {
+    const res = await arquivar("chefe@x.com", { "/book-operador": true });
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toMatch(
+      /está no ar/i,
+    );
+
+    /* E nada foi escrito: a chave não entrou na lista do que a casa desligou. */
+    const lista = await fetch(`${base}/modulos-universais`, {
+      headers: como("chefe@x.com"),
+    });
+    const corpo = (await lista.json()) as { desligadas: Array<{ chave: string }> };
+    expect(corpo.desligadas.map((d) => d.chave)).not.toContain("/book-operador");
+  });
+
+  it("arquivar guarda quem e quando, e não mexe no acesso", async () => {
+    const antes = (await efetivas(CONTAS["op@x.com"].id))["/fluxos"];
+    expect(antes).toBe("SEM_ACESSO");
+
+    const res = await arquivar("chefe@x.com", { "/fluxos": true });
+    expect(res.status).toBe(200);
+    const corpo = (await res.json()) as {
+      desligadas: Array<{
+        chave: string;
+        desligadoPor: string;
+        arquivadoEm: string | null;
+        arquivadoPor: string | null;
+      }>;
+      historico: Array<{ chave: string; ligado: boolean; arquivado: boolean | null }>;
+    };
+
+    const linha = corpo.desligadas.find((d) => d.chave === "/fluxos");
+    expect(linha).toBeDefined();
+    /* A decisão de quem desligou continua ali — arquivar não a substitui. */
+    expect(linha!.desligadoPor).toBe("chefe@x.com");
+    expect(linha!.arquivadoPor).toBe("chefe@x.com");
+    expect(linha!.arquivadoEm).not.toBeNull();
+
+    /* O evento diz que o gesto foi sobre a lista, e que a chave segue fora do ar. */
+    expect(corpo.historico[0]).toMatchObject({
+      chave: "/fluxos",
+      ligado: false,
+      arquivado: true,
+    });
+
+    expect((await efetivas(CONTAS["op@x.com"].id))["/fluxos"]).toBe("SEM_ACESSO");
+  });
+
+  it("arquivar de novo não escreve nada — o histórico é de decisões, não de cliques", async () => {
+    const quantos = async () => {
+      const res = await fetch(`${base}/modulos-universais`, {
+        headers: como("chefe@x.com"),
+      });
+      const corpo = (await res.json()) as {
+        historico: Array<{ chave: string; arquivado: boolean | null }>;
+      };
+      return corpo.historico.filter(
+        (h) => h.chave === "/fluxos" && h.arquivado !== null,
+      ).length;
+    };
+
+    const antes = await quantos();
+    expect((await arquivar("chefe@x.com", { "/fluxos": true })).status).toBe(200);
+    expect(await quantos()).toBe(antes);
+  });
+
+  it("desarquivar devolve à lista e não religa nada", async () => {
+    const res = await arquivar("chefe@x.com", { "/fluxos": false });
+    expect(res.status).toBe(200);
+    const corpo = (await res.json()) as {
+      desligadas: Array<{ chave: string; arquivadoEm: string | null }>;
+      historico: Array<{ chave: string; ligado: boolean; arquivado: boolean | null }>;
+    };
+
+    const linha = corpo.desligadas.find((d) => d.chave === "/fluxos");
+    expect(linha?.arquivadoEm).toBeNull();
+    expect(corpo.historico[0]).toMatchObject({
+      chave: "/fluxos",
+      ligado: false,
+      arquivado: false,
+    });
+
+    /* Continua fora do ar: quem devolve ao menu é o outro gesto. */
+    expect((await efetivas(CONTAS["op@x.com"].id))["/fluxos"]).toBe("SEM_ACESSO");
+  });
+
+  it("ligar de volta desarquiva junto — a linha some inteira", async () => {
+    expect((await arquivar("chefe@x.com", { "/fluxos": true })).status).toBe(200);
+    expect((await definir("chefe@x.com", { "/fluxos": true })).status).toBe(200);
+
+    const res = await fetch(`${base}/modulos-universais`, {
+      headers: como("chefe@x.com"),
+    });
+    const corpo = (await res.json()) as {
+      desligadas: Array<{ chave: string }>;
+    };
+    expect(corpo.desligadas.map((d) => d.chave)).not.toContain("/fluxos");
+
+    /* E arquivar depois disso é recusado, porque a chave voltou ao ar. */
+    expect((await arquivar("chefe@x.com", { "/fluxos": true })).status).toBe(409);
+  });
+
+  it("a seção inteira também se arquiva, e a chave é a dela", async () => {
+    expect((await definir("chefe@x.com", { "#processos": false })).status).toBe(200);
+    const res = await arquivar("chefe@x.com", { "#processos": true });
+    expect(res.status).toBe(200);
+    const corpo = (await res.json()) as {
+      desligadas: Array<{ chave: string; arquivadoPor: string | null }>;
+    };
+    expect(
+      corpo.desligadas.find((d) => d.chave === "#processos")?.arquivadoPor,
+    ).toBe("chefe@x.com");
+  });
+
+  it("chave fora das três formas conhecidas é recusada aqui também", async () => {
+    const res = await arquivar("chefe@x.com", { "visao-executiva": true });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toMatch(
+      /não é uma chave conhecida/i,
+    );
   });
 });

@@ -673,6 +673,13 @@
       "when": 1789500900000,
       "tag": "0095_perfis_de_acesso",
       "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "7",
+      "when": 1789501000000,
+      "tag": "0096_arquivar_modulo_universal",
+      "breakpoints": true
     }
   ]
 }
