@@ -109,25 +109,49 @@ describe("metadata do drizzle", () => {
   });
 
   it("descreve, em cada snapshot, um banco que as migrations daquele ponto produzem", async () => {
-    // Um banco por ponto de parada, da 0012 em diante — que é onde os
-    // snapshots tinham deixado de ser escritos.
-    for (const entrada of journal.entries.filter((e) => e.idx >= 12)) {
-      const nome = `fc_meta_${process.pid}_${entrada.idx}`;
-      const admin = new pg.Pool({ connectionString: ADMIN });
-      await admin.query(`DROP DATABASE IF EXISTS "${nome}"`);
-      await admin.query(`CREATE DATABASE "${nome}"`);
-      await admin.end();
-      criados.push(nome);
+    /*
+      **Um banco só, e a fila aplicada uma vez.**
 
-      const pool = new pg.Pool({
-        connectionString: ADMIN.replace("/postgres?", `/${nome}?`),
-      });
-      for (const m of readMigrations()) {
-        await pool.query("BEGIN");
-        for (const comando of m.statements) await pool.query(comando);
-        await pool.query("COMMIT");
-        if (m.tag === entrada.tag) break;
-      }
+      A conferência é por ponto de parada — o snapshot da `0012` descreve o
+      banco que a fila produz até a `0012`, e assim por diante da `0012` em
+      diante, que é onde os snapshots tinham deixado de ser escritos. O que
+      mudou é como se chega a cada ponto: eram 85 bancos, cada um reaplicando a
+      fila inteira desde a `0000`, e o custo crescia com o quadrado do tamanho
+      dela. Em 14/09/2026 isso estourou os 300s do CI — não por defeito de
+      migration nenhuma, mas porque a `0096` acrescentou mais uma rodada a uma
+      conta que já vinha raspando o teto.
+
+      Aplicar `0000…0k` num banco novo e aplicar incrementalmente até `0k` num
+      banco que já tem `0000…0k-1` produzem **o mesmo banco** — a fila é uma
+      sequência, e cada migration só depende do que veio antes dela. Então o
+      ponto de parada deixou de ser um banco e passou a ser um **instante**:
+      aplica-se na ordem, e no instante em que a migration dona de um snapshot
+      termina, ele é conferido contra o banco que existe naquele momento.
+
+      A asserção é a mesma, item por item; o que sai é a repetição.
+    */
+    const nome = `fc_meta_${process.pid}`;
+    const admin = new pg.Pool({ connectionString: ADMIN });
+    await admin.query(`DROP DATABASE IF EXISTS "${nome}"`);
+    await admin.query(`CREATE DATABASE "${nome}"`);
+    await admin.end();
+    criados.push(nome);
+
+    const pool = new pg.Pool({
+      connectionString: ADMIN.replace("/postgres?", `/${nome}?`),
+    });
+    /* Os pontos de parada, por tag — a `0012` em diante. */
+    const pontos = new Map(
+      journal.entries.filter((e) => e.idx >= 12).map((e) => [e.tag, e] as const),
+    );
+
+    for (const m of readMigrations()) {
+      await pool.query("BEGIN");
+      for (const comando of m.statements) await pool.query(comando);
+      await pool.query("COMMIT");
+
+      const entrada = pontos.get(m.tag);
+      if (!entrada) continue;
 
       const snapshot = ler(entrada.idx);
       const faltando: string[] = [];
@@ -192,12 +216,13 @@ describe("metadata do drizzle", () => {
         }
       }
 
-      await pool.end();
       expect(
         faltando,
         `snapshot ${entrada.tag} promete o que o banco não tem`,
       ).toEqual([]);
     }
+
+    await pool.end();
   }, 300_000);
 });
 
