@@ -1,6 +1,7 @@
 import {
   ArrowRightLeft,
   BadgeCheck,
+  Banknote,
   Bot,
   Briefcase,
   Calculator,
@@ -27,6 +28,7 @@ import {
   House,
   Layers,
   LayoutDashboard,
+  Percent,
   Plug,
   Radar,
   Receipt,
@@ -69,7 +71,7 @@ import { GRUPO_ADMINISTRACAO } from "./nav-administracao";
 import type { NavGroup } from "./nav";
 
 /**
- * A lateral do ambiente Auditoria — as dez seções, e a ordem em que se lê o
+ * A lateral do ambiente Auditoria — as onze seções, e a ordem em que se lê o
  * trabalho de um dia.
  *
  * A lista morava em `sidebar.tsx`, como constante, e saiu de lá pela mesma razão
@@ -103,7 +105,8 @@ import type { NavGroup } from "./nav";
  * viraram uma), libera-se o que precisa ser comprado
  * hoje (**Compras**), procura-se o desvio (**Auditoria**), cobra-se o desvio achado
  * (**Processos**), confere-se o quadro de gente que o modelo remunera
- * (**QLP**), desce-se ao ativo que o sofreu (**Frota**), pergunta-se ao
+ * (**QLP**), confere-se o que se paga por ter o ativo, rubrica a rubrica
+ * (**Custo Fixo**), desce-se ao ativo que o sofreu (**Frota**), pergunta-se ao
  * assistente o que sobrou (**Inteligência**), e por baixo de tudo estão o
  * material (**Dados & governança**) e a casa (**Administração**).
  *
@@ -436,6 +439,44 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
       itens: [
         { href: "/qlp-operacional", label: "QLP Operacional", icon: HardHat },
         { href: "/qlp-administrativo", label: "QLP Administrativo", icon: Briefcase },
+      ],
+    },
+    {
+      /*
+        CUSTO FIXO vem entre o QLP e a Frota porque é onde a conta muda de
+        natureza: acima dela está o que se paga por ter gente, abaixo o ativo
+        que roda, e aqui está o que se paga por **ter** o ativo — a parcela que
+        a vigência cobra esteja o equipamento parado ou não.
+
+        É seção própria, e não um item da Frota, porque a pergunta é de outra
+        altura. A Frota pergunta pelo ativo — o que mudou nesta placa, quanto ela
+        custou na quinzena. O custo fixo pergunta pela **rubrica**: quanto cada
+        uma pesa e o que a fez mudar de uma vigência para outra. São as mesmas
+        linhas lidas por outro eixo, e um item solto dentro da Frota faria a
+        leitura por rubrica parecer um recorte de placa.
+
+        **São quatro módulos, um por rubrica**: Finame e Juros Finame — o
+        principal do financiamento do ativo e o que ele cobra de juros —, IPVA e
+        Lucro Fixo.
+
+        Os quatro entram hoje **só com o nome**, e abrem telas em preparo: o que
+        cada um vai mostrar ainda não está decidido, e a regra da casa é que
+        nenhum item leve a lugar nenhum nem a um número inventado. Cada verbete
+        em `pages/telas-em-preparo.ts` diz o que falta para a rubrica virar
+        número e para onde ir enquanto isso; quando a definição de um deles
+        chegar, ele sai de lá, vira `<Route>` em `App.tsx`, e este menu não muda
+        uma vírgula.
+      */
+      id: "custo-fixo",
+      titulo: "Custo Fixo",
+      descricao: "O que se paga por ter o ativo, rubrica a rubrica",
+      icon: CircleDollarSign,
+      cor: "text-nav-custo-fixo",
+      itens: [
+        { href: "/custo-fixo-finame", label: "Finame", icon: Banknote },
+        { href: "/custo-fixo-juros-finame", label: "Juros Finame", icon: Percent },
+        { href: "/custo-fixo-ipva", label: "IPVA", icon: Receipt },
+        { href: "/custo-fixo-lucro-fixo", label: "Lucro Fixo", icon: TrendingUp },
       ],
     },
     /*

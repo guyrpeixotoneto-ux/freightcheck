@@ -372,7 +372,7 @@ describe("a lateral", () => {
     expect(secoesDaAuditoria()).not.toContain("Justificativas");
   });
 
-  it("mantém as dez seções do desenho, na ordem", () => {
+  it("mantém as onze seções do desenho, na ordem", () => {
     expect(secoesDaAuditoria()).toEqual([
       /*
         Chamados Ambev abre a lista porque é por onde o dia começa: o que a fila
@@ -400,6 +400,12 @@ describe("a lateral", () => {
       "Auditoria",
       "Processos",
       "QLP",
+      /*
+        Custo Fixo entra entre o QLP e a Frota, e a posição é a da conta: acima,
+        o que se paga por ter gente; abaixo, o ativo que roda; aqui, o que se
+        paga por ter o ativo — ver `nav-auditoria.ts`.
+      */
+      "Custo Fixo",
       "Frota",
       "Inteligência",
       "Dados & governança",
@@ -600,8 +606,15 @@ describe("o catálogo de telas em preparo", () => {
     de entregar uma tela; subi-lo sem acrescentar `pergunta` e `depende` é o que
     este caso recusa.
 
-    Ele subiu uma vez, de doze para dezesseis, e por um motivo que o caso
-    aceita: Configurações virou índice, e as quatro seções da casa que o banco
+    E subiu de doze para dezesseis quando a seção **Custo Fixo** nasceu com os
+    seus quatro módulos — Finame, Juros Finame, IPVA e Lucro Fixo. Os quatro
+    estão no menu com o nome, e nenhum deles tem número para mostrar: cada
+    rubrica precisa estar separada na base e ligada ao ativo e à vigência antes
+    de virar tela. É exatamente a subida que este caso aceita — com `pergunta`,
+    `depende` e `hoje` em cada uma —, e não a que ele recusa.
+
+    Ele já tinha subido uma vez, de doze para dezesseis, e por um motivo que o
+    caso aceita: Configurações virou índice, e as quatro seções da casa que o banco
     ainda não sustentava — Minha Empresa, Cargos, Negócio e Departamento —
     entraram no catálogo com `pergunta`, `depende` e `hoje`, em vez de virarem
     quatro formulários que não gravam. É a diferença que o catálogo existe para
@@ -633,7 +646,7 @@ describe("o catálogo de telas em preparo", () => {
     const catalogo = fonte("pages/telas-em-preparo.ts");
     const telas = [...catalogo.matchAll(/^\s{4}href:\s*"([^"]+)"/gm)].length;
 
-    expect(telas).toBe(12);
+    expect(telas).toBe(16);
     expect([...catalogo.matchAll(/^\s{4}depende:\s*\[/gm)]).toHaveLength(telas);
     expect([...catalogo.matchAll(/^\s{4}pergunta:/gm)]).toHaveLength(telas);
   });

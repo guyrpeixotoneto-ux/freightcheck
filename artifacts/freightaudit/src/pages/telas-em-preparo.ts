@@ -1,5 +1,6 @@
 import {
   BadgeCheck,
+  Banknote,
   Building2,
   ChartColumn,
   ClipboardCheck,
@@ -7,9 +8,12 @@ import {
   FileSpreadsheet,
   HardHat,
   History,
+  Percent,
+  Receipt,
   Shield,
   SquareActivity,
   SquareTerminal,
+  TrendingUp,
   TriangleAlert,
   type LucideIcon,
 } from "lucide-react";
@@ -146,6 +150,122 @@ export const TELAS_EM_PREPARO: TelaEmPreparo[] = [
         href: "/assistente",
         label: "Assistente IA",
         porque: "Responde o que o Book diz sobre QLP, cargo a cargo, sem esperar a tela.",
+      },
+    ],
+  },
+
+  // -------------------------------------------------------------------------
+  // Custo Fixo
+  // -------------------------------------------------------------------------
+  /*
+    Os quatro módulos da seção Custo Fixo entram no menu com o nome, e no
+    catálogo com o que já se sabe de cada rubrica. A definição de cada tela — o
+    que ela mostra, com que grão e comparada a quê — ainda vem; o que este
+    catálogo recusa é o caminho contrário, um item de menu que abre página vazia
+    enquanto a definição não chega.
+
+    O `depende` dos quatro tem uma linha em comum, e não é acaso: custo fixo de
+    um ativo só fecha quando a rubrica estiver separada na base e ligada ao
+    equipamento e à vigência a que pertence. O que muda de um verbete para o
+    outro é a segunda linha, que é a do dado próprio da rubrica.
+  */
+  {
+    href: "/custo-fixo-finame",
+    label: "Finame",
+    icon: Banknote,
+    cor: "text-nav-custo-fixo",
+    pergunta:
+      "Quanto do principal do financiamento do ativo esta vigência carrega, por equipamento, e o que mudou desde a vigência anterior.",
+    depende: [
+      "A rubrica de Finame separada do resto do custo fixo na base: enquanto ela chegar somada a outras parcelas, o total seria o de um bloco, e não o do financiamento.",
+      "O contrato por trás da parcela — valor financiado, prazo e o que já foi amortizado —, sem o qual a tela mostra o que se paga na quinzena e não o que se deve.",
+    ],
+    hoje: [
+      {
+        href: "/composicao",
+        label: "Composição",
+        porque:
+          "O valor montado de um equipamento, parcela a parcela — é onde a linha do financiamento aparece hoje.",
+      },
+      {
+        href: "/alteracoes",
+        label: "Alterações",
+        porque: "O delta de cada parâmetro na vigência aberta, que é de onde a variação da parcela sai.",
+      },
+    ],
+  },
+  {
+    href: "/custo-fixo-juros-finame",
+    label: "Juros Finame",
+    icon: Percent,
+    cor: "text-nav-custo-fixo",
+    pergunta:
+      "Quanto do que se paga pelo financiamento é juro, e não amortização — por equipamento e por vigência.",
+    depende: [
+      "A separação entre principal e juro dentro da parcela: o export que chega a este banco traz o valor pago, e um total de juros tirado dele seria conta nossa apresentada como dado do Freightech.",
+      "A taxa contratada e a data de cada parcela, sem as quais não há como conferir o juro cobrado contra o juro devido — que é a pergunta que a auditoria faz aqui.",
+    ],
+    hoje: [
+      {
+        href: "/composicao",
+        label: "Composição",
+        porque:
+          "A parcela inteira do financiamento, como a vigência a declara, antes da separação entre principal e juro.",
+      },
+      {
+        href: "/book-operador",
+        label: "Book do Operador",
+        porque:
+          "A regra do financiamento está escrita lá — é a metade da resposta que não depende de importação.",
+      },
+    ],
+  },
+  {
+    href: "/custo-fixo-ipva",
+    label: "IPVA",
+    icon: Receipt,
+    cor: "text-nav-custo-fixo",
+    pergunta:
+      "Quanto de IPVA esta vigência cobra por ativo, e se o valor bate com a base do veículo — ano, categoria e UF do emplacamento.",
+    depende: [
+      "A rubrica de IPVA isolada e ligada à placa: rateada dentro de um bloco de custo fixo, ela não se confere contra veículo nenhum.",
+      "A base do veículo que sustenta a conferência — ano-modelo, valor venal e a UF do emplacamento —, que é o que separa um IPVA alto de um IPVA errado.",
+    ],
+    hoje: [
+      {
+        href: "/composicao",
+        label: "Composição",
+        porque: "Onde a linha de IPVA aparece hoje, dentro do valor montado do equipamento.",
+      },
+      {
+        href: "/categorias",
+        label: "Categorias",
+        porque: "Onde se vê, e se corrige, a classificação da rubrica de que este total depende.",
+      },
+    ],
+  },
+  {
+    href: "/custo-fixo-lucro-fixo",
+    label: "Lucro Fixo",
+    icon: TrendingUp,
+    cor: "text-nav-custo-fixo",
+    pergunta:
+      "Quanto desta vigência é lucro fixo — a remuneração que o modelo paga por ter o ativo à disposição, independente do quanto ele rodou.",
+    depende: [
+      "A rubrica de lucro fixo separada na base, com a unidade e a vigência a que pertence: somada ao resto da estrutura, ela vira um bloco que não se audita.",
+      "O percentual contratado sobre o qual ela é calculada, sem o qual a tela mostra o valor pago e não responde se é o valor devido.",
+    ],
+    hoje: [
+      {
+        href: "/remunerado",
+        label: "Remunerado",
+        porque: "O que a vigência remunera hoje, como a própria tabela o declara.",
+      },
+      {
+        href: "/composicao",
+        label: "Composição",
+        porque:
+          "O valor montado de um equipamento, parcela a parcela, onde a linha do lucro aparece.",
       },
     ],
   },
