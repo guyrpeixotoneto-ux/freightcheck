@@ -415,6 +415,31 @@ function PerfilEscolhido({
    * segunda, quem inativa o QLP continua vendo o QLP na lateral até recarregar
    * a página, e duvidaria, com razão, de que a decisão valeu.
    */
+  /**
+   * Arquivar — o mesmo escopo de `inativar`, e uma rota própria.
+   *
+   * A fila é a mesma (a decisão é uma só para a instalação inteira), e a
+   * resposta reescreve a consulta da casa, de onde a matriz lê o que está
+   * arquivado. O que **não** é invalidado aqui é a sessão: arquivar não muda o
+   * menu de ninguém — a chave já estava fora do ar antes e continua depois —, e
+   * recarregar a sessão a cada arrumação de lista seria pagar por uma mudança
+   * que não existe.
+   */
+  const arquivar = useMutation({
+    scope: { id: "modulos-universais" },
+    mutationFn: (chaves: Record<string, boolean>) =>
+      fetchJson<ModulosUniversais>("/modulos-universais/arquivadas", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chaves }),
+      }),
+    onSuccess: (resposta) => {
+      aoFalhar(null);
+      queryClient.setQueryData(CHAVE_DOS_MODULOS_UNIVERSAIS, resposta);
+    },
+    onError: (err: Error) => aoFalhar(err.message),
+  });
+
   const inativar = useMutation({
     /* A mesma fila de `definir`, e pela mesma razão — a chave do escopo é a da
        casa, porque a decisão é uma só para a instalação inteira. */
@@ -438,7 +463,31 @@ function PerfilEscolhido({
     nome.trim() !== perfil.nome || descricao.trim() !== (perfil.descricao ?? "");
 
   const bloqueado =
-    !podeMexer || definir.isPending || inativar.isPending || salvarCadastro.isPending;
+    !podeMexer ||
+    definir.isPending ||
+    inativar.isPending ||
+    arquivar.isPending ||
+    salvarCadastro.isPending;
+
+  /**
+   * O que a casa arquivou — desligado **e** fora da lista.
+   *
+   * Sai da mesma leitura que traz as protegidas, e não do detalhe do perfil: o
+   * detalhe manda as chaves desligadas (que é o que decide o acesso), e quem
+   * arquivou e quando só existe aqui. É por isso que a gaveta é desenhada com
+   * esta lista e a matriz é riscada com a outra.
+   */
+  const arquivadas = useMemo(
+    () =>
+      (universais.data?.desligadas ?? [])
+        .filter((d) => d.arquivadoEm !== null && d.arquivadoPor !== null)
+        .map((d) => ({
+          chave: d.chave,
+          arquivadoEm: d.arquivadoEm as string,
+          arquivadoPor: d.arquivadoPor as string,
+        })),
+    [universais.data],
+  );
 
   /**
    * As duas leituras que a matriz descreve chegaram.
@@ -601,9 +650,15 @@ function PerfilEscolhido({
             padrao={piso}
             universaisDesligadas={detalhe.data?.universaisDesligadas ?? []}
             universaisProtegidas={universais.data?.protegidas ?? []}
+            universaisArquivadas={arquivadas}
             aoInativar={
               podeMexer
                 ? (chave, ligado) => inativar.mutate({ [chave]: ligado })
+                : undefined
+            }
+            aoArquivar={
+              podeMexer
+                ? (chave, arquivado) => arquivar.mutate({ [chave]: arquivado })
                 : undefined
             }
             desabilitado={bloqueado}

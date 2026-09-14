@@ -76,6 +76,35 @@ export const moduloUniversalTable = pgTable(
      * tela sumiu?" a quem chegar depois.
      */
     motivo: text("motivo"),
+    /**
+     * Arquivada — desligada **e** fora da lista de quem administra.
+     *
+     * Desligar já tira do menu de todo mundo, e não tira da tela onde a decisão
+     * se toma: quarenta e sete chaves desligadas continuam ocupando quarenta e
+     * sete linhas riscadas na matriz, entre as vinte que a casa usa de verdade.
+     * Arquivar é a decisão sobre a **lista**, e não sobre o acesso — a mesma
+     * distinção que a `0078` escreveu para a conta arquivada: a chave sai da
+     * vista, continua inteira no banco, e volta com um clique.
+     *
+     * **Arquivar pressupõe estar desligada.** Uma chave arquivada e no ar seria
+     * uma tela aberta para todo mundo que não aparece na tela que existe para
+     * dizer o que está aberto — quer dizer, a única combinação que esta camada
+     * não pode oferecer. O portão de escrita exige a chave já desligada e não
+     * desliga por conta própria: tirar uma parte do produto do ar é um ato com
+     * aviso próprio, e escondê-lo dentro de um gesto de arrumação faria alguém
+     * derrubar o QLP da casa inteira achando que estava limpando a lista.
+     *
+     * **Ligar de volta desarquiva**, e sem cerimônia: a linha inteira some
+     * quando a chave volta ao menu, e não há estado "no ar, mas escondido" para
+     * ninguém precisar desfazer depois.
+     *
+     * `arquivadoPor` pela razão de `desligadoPor`: sumir com uma decisão da
+     * vista é ato administrativo, e ato administrativo sem autor é o que este
+     * produto recusa em todas as outras telas. Nulo nos dois é o estado de toda
+     * chave que ninguém arquivou — que são todas até alguém clicar.
+     */
+    arquivadoEm: timestamp("arquivado_em", { withTimezone: true }),
+    arquivadoPor: text("arquivado_por"),
   },
   (t) => [index("modulo_universal_chave_idx").on(t.chave)],
 );
@@ -94,6 +123,19 @@ export const moduloUniversalEventoTable = pgTable(
     chave: text("chave").notNull(),
     /** `false` é o desligamento; `true`, a volta ao menu. */
     ligado: boolean("ligado").notNull(),
+    /**
+     * O que este evento decidiu sobre a **lista**, quando foi disso que ele
+     * tratou: `true` arquivou, `false` desarquivou, nulo é um evento de ligar
+     * ou desligar — os únicos que existiam antes desta coluna.
+     *
+     * Nula, e não `false` com default: sem isso, todo desligamento já gravado
+     * passaria a se ler como "e desarquivou também", inventando no histórico um
+     * gesto que ninguém fez num tempo em que arquivar nem existia. `ligado`
+     * continua dizendo se a chave está no ar — arquivar não mexe nisso, e por
+     * isso um evento de arquivamento carrega `ligado: false`, que é o que a
+     * chave era antes e continua sendo.
+     */
+    arquivado: boolean("arquivado"),
     motivo: text("motivo"),
     em: timestamp("em", { withTimezone: true }).notNull().defaultNow(),
     por: text("por").notNull(),

@@ -107,6 +107,8 @@ vi.mock("@/lib/api", async (original) => ({
               desligadoEm: "2026-09-04T12:00:00.000Z",
               desligadoPor: "chefe@x.com",
               motivo: null,
+              arquivadoEm: null,
+              arquivadoPor: null,
             })),
         ],
       };

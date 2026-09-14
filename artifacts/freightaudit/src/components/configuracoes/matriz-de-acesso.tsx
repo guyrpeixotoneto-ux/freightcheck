@@ -1,5 +1,17 @@
 import { useMemo, useState } from "react";
-import { Eye, EyeOff, Layers, Lock, PencilLine, Power, RotateCcw, Search } from "lucide-react";
+import {
+  Archive,
+  ArchiveRestore,
+  ChevronRight,
+  Eye,
+  EyeOff,
+  Layers,
+  Lock,
+  PencilLine,
+  Power,
+  RotateCcw,
+  Search,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -44,6 +56,14 @@ import { cn } from "@/lib/utils";
  *   perfil — e então cada linha precisa dizer o que é herança e o que é
  *   exceção, e oferecer a volta. É o `herdado` abaixo: ausente, a matriz é a de
  *   um perfil; presente, a de uma conta com perfil.
+ *
+ * **Arquivar é sobre a lista, e não sobre o acesso.** Uma chave desligada ganha
+ * um segundo gesto, discreto, ao lado do vermelho: ela sai desta matriz e vai
+ * para a gaveta do fim, com quem a arquivou e quando. Continua fora do ar —
+ * arquivar não desliga e não religa nada — e continua inteira no banco, com o
+ * histórico de quem a desligou. É o que faz a tela de uma casa que não usa dois
+ * terços do produto voltar a ter o tamanho do que ela usa, sem que a saída
+ * oferecida para isso seja apagar decisão. Ver `schema/modulo-universal.ts`.
  *
  * **O piso não é um botão.** `padrao` é o que vale para toda chave que ninguém
  * decidiu — `EDITAR` em quase todo perfil, `VISUALIZAR` num `Leitor` —, e a
@@ -144,6 +164,13 @@ export function contarPorNivel(
   return contagem;
 }
 
+/** Uma chave que saiu da lista: o que ela é, quem a arquivou e quando. */
+export interface ChaveArquivada {
+  chave: string;
+  arquivadoEm: string;
+  arquivadoPor: string;
+}
+
 export interface MatrizDeAcessoProps {
   /** O que vale, chave a chave — já somado, quando há duas camadas. */
   niveis: Record<string, Nivel>;
@@ -172,11 +199,30 @@ export interface MatrizDeAcessoProps {
   /** As chaves que o servidor recusa desligar — hoje, `/configuracoes`. */
   universaisProtegidas?: readonly string[];
   /**
+   * As chaves que a casa **arquivou** — desligadas e fora desta lista.
+   *
+   * Elas não somem do produto e não somem do banco: somem daqui. Uma instalação
+   * que não usa dois terços do produto administrava acesso dentro de uma tela
+   * em que quase tudo estava riscado, e as vinte linhas que ela usa de verdade
+   * ficavam perdidas entre as quarenta e sete que ninguém vai olhar de novo. A
+   * gaveta no fim da matriz guarda todas, com quem arquivou e quando, e
+   * devolve qualquer uma com um clique.
+   */
+  universaisArquivadas?: readonly ChaveArquivada[];
+  /**
    * Ligar e desligar para a casa inteira. Ausente, a coluna **Inativar** não
    * aparece — é o caso da matriz de uma conta, onde a decisão da casa não se
    * toma: ela vale para todo mundo, e não caberia numa tela sobre uma pessoa.
    */
   aoInativar?: (chave: string, ligado: boolean) => void;
+  /**
+   * Arquivar e desarquivar. Ausente, a gaveta e o botão não aparecem — é o caso
+   * da matriz de uma conta, onde a decisão da casa não se toma.
+   *
+   * Só existe sobre chave desligada: o servidor recusa arquivar o que está no
+   * ar, e a tela não oferece o gesto onde ele seria recusado.
+   */
+  aoArquivar?: (chave: string, arquivado: boolean) => void;
   desabilitado: boolean;
   carregando?: boolean;
   aoEscolher: (niveis: Record<string, Nivel>) => void;
@@ -190,7 +236,9 @@ export function MatrizDeAcesso({
   nomeDaHeranca,
   universaisDesligadas,
   universaisProtegidas,
+  universaisArquivadas,
   aoInativar,
+  aoArquivar,
   desabilitado,
   carregando = false,
   aoEscolher,
@@ -205,6 +253,10 @@ export function MatrizDeAcesso({
     () => new Set(universaisProtegidas ?? []),
     [universaisProtegidas],
   );
+  const arquivadas = useMemo(
+    () => new Map((universaisArquivadas ?? []).map((a) => [a.chave, a] as const)),
+    [universaisArquivadas],
+  );
 
   /**
    * A casa desligou este módulo — direto, ou pela seção dele.
@@ -218,19 +270,35 @@ export function MatrizDeAcesso({
 
   const secoes = useMemo(() => {
     const termo = busca.trim().toLowerCase();
-    return SECOES_DO_CATALOGO.map((secao) => ({
-      ...secao,
-      /** A seção inteira, como ela é no menu — a busca não a encolhe. */
-      total: secao.itens.length,
-      itens: secao.itens.filter(
-        (m) =>
-          termo === "" ||
-          m.rotulo.toLowerCase().includes(termo) ||
-          m.chave.toLowerCase().includes(termo) ||
-          secao.grupo.toLowerCase().includes(termo),
-      ),
-    })).filter((secao) => secao.itens.length > 0);
-  }, [busca]);
+    return SECOES_DO_CATALOGO
+      /* A seção arquivada sai inteira, com os módulos dela: ela é uma chave só
+         (`#<id>`), e foi essa chave que alguém tirou da vista. */
+      .filter((secao) => !arquivadas.has(chaveDaSecao(secao.secao)))
+      .map((secao) => {
+        /*
+          O módulo arquivado sai antes da busca, e antes do `total`.
+
+          A ordem importa: `total` é o denominador da frase "a busca está
+          escondendo N de M", e um M que contasse os arquivados faria a tela
+          prometer módulos que ela não mostra em busca nenhuma. Arquivado não
+          está escondido pela busca — está guardado na gaveta.
+        */
+        const naLista = secao.itens.filter((m) => !arquivadas.has(m.chave));
+        return {
+          ...secao,
+          /** A seção como ela está na lista — a busca não a encolhe. */
+          total: naLista.length,
+          itens: naLista.filter(
+            (m) =>
+              termo === "" ||
+              m.rotulo.toLowerCase().includes(termo) ||
+              m.chave.toLowerCase().includes(termo) ||
+              secao.grupo.toLowerCase().includes(termo),
+          ),
+        };
+      })
+      .filter((secao) => secao.itens.length > 0);
+  }, [arquivadas, busca]);
 
   /*
     A busca vale para os dois eixos, e por isso os ambientes também são
@@ -240,14 +308,15 @@ export function MatrizDeAcesso({
   */
   const ambientesNaTela = useMemo(() => {
     const termo = busca.trim().toLowerCase();
-    if (termo === "") return AMBIENTES;
-    return AMBIENTES.filter(
+    const naLista = AMBIENTES.filter((a) => !arquivadas.has(chaveDoAmbiente(a.id)));
+    if (termo === "") return naLista;
+    return naLista.filter(
       (a) =>
         a.nomeCompleto.toLowerCase().includes(termo) ||
         a.nome.toLowerCase().includes(termo) ||
         a.id.includes(termo),
     );
-  }, [busca]);
+  }, [arquivadas, busca]);
 
   /** O nível da camada de baixo — o do perfil, ou o piso dele. */
   const base = (chave: string): Nivel => herdado?.[chave] ?? padraoHerdado;
@@ -309,7 +378,8 @@ export function MatrizDeAcesso({
               Ambientes de trabalho
             </span>
             <span className="text-xs text-muted-foreground">
-              {ambientesNaTela.length} de {AMBIENTES.length}
+              {ambientesNaTela.length} de{" "}
+              {AMBIENTES.filter((a) => !arquivadas.has(chaveDoAmbiente(a.id))).length}
             </span>
             {!desabilitado && (
               <AplicarAoGrupo
@@ -347,6 +417,7 @@ export function MatrizDeAcesso({
                 aoEscolher={(opcao) => aoEscolher({ [chave]: opcao })}
                 aoVoltar={() => aoEscolher({ [chave]: base(chave) })}
                 aoInativar={aoInativar}
+                aoArquivar={aoArquivar}
               />
             );
           })}
@@ -403,6 +474,16 @@ export function MatrizDeAcesso({
                         aoAlternar={(ligado) => aoInativar(chaveDaSua, ligado)}
                       />
                     )}
+                    {aoArquivar !== undefined &&
+                      !secaoProtegida &&
+                      secaoDesligada && (
+                        <BotaoArquivar
+                          chave={chaveDaSua}
+                          desabilitado={desabilitado}
+                          rotulo={`a seção ${secao.grupo}`}
+                          aoArquivar={() => aoArquivar(chaveDaSua, true)}
+                        />
+                      )}
                     {!desabilitado && !secaoDesligada && (
                       <AplicarAoGrupo
                         rotulo="Aplicar ao grupo"
@@ -455,6 +536,7 @@ export function MatrizDeAcesso({
                       aoEscolher={(opcao) => aoEscolher({ [modulo.chave]: opcao })}
                       aoVoltar={() => aoEscolher({ [modulo.chave]: base(modulo.chave) })}
                       aoInativar={aoInativar}
+                      aoArquivar={aoArquivar}
                     />
                   );
                 })}
@@ -468,7 +550,142 @@ export function MatrizDeAcesso({
           </p>
         )}
       </div>
+
+      {!carregando && aoArquivar !== undefined && arquivadas.size > 0 && (
+        <GavetaDeArquivados
+          arquivadas={[...arquivadas.values()]}
+          desabilitado={desabilitado}
+          aoDesarquivar={(chave) => aoArquivar(chave, false)}
+        />
+      )}
     </>
+  );
+}
+
+/**
+ * A gaveta dos arquivados — o que saiu da lista, e o caminho de volta.
+ *
+ * Fechada por padrão, e com o número no rótulo: é o que faz a matriz encolher
+ * de verdade. Aberta, cada linha diz **o que era**, **quem arquivou** e
+ * **quando** — sem isso, "arquivar" seria indistinguível de apagar para quem
+ * chegasse depois, que é exatamente a dúvida que este gesto existe para não
+ * deixar no ar.
+ *
+ * Não há botão de esvaziar, e não é esquecimento: não existe apagar nesta
+ * camada. Uma chave sai da gaveta de um jeito só — voltando para a lista.
+ */
+function GavetaDeArquivados({
+  arquivadas,
+  desabilitado,
+  aoDesarquivar,
+}: {
+  arquivadas: readonly ChaveArquivada[];
+  desabilitado: boolean;
+  aoDesarquivar: (chave: string) => void;
+}) {
+  const [aberta, setAberta] = useState(false);
+  const emOrdem = [...arquivadas].sort((a, b) =>
+    rotuloDaChave(a.chave).localeCompare(rotuloDaChave(b.chave), "pt-BR"),
+  );
+
+  return (
+    <div className="rounded-md border">
+      <button
+        type="button"
+        aria-expanded={aberta}
+        onClick={() => setAberta((antes) => !antes)}
+        className="flex w-full items-center gap-2 px-4 py-2.5 text-left hover:bg-muted/50"
+        data-testid="gaveta-de-arquivados"
+      >
+        <ChevronRight
+          className={cn(
+            "h-3.5 w-3.5 text-muted-foreground transition-transform",
+            aberta && "rotate-90",
+          )}
+        />
+        <Archive className="h-3.5 w-3.5 text-muted-foreground" />
+        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Arquivados
+        </span>
+        <span className="text-xs tabular-nums text-muted-foreground">
+          {emOrdem.length}
+        </span>
+        <span className="ml-auto text-xs text-muted-foreground">
+          Fora da lista e fora do ar — nada foi apagado.
+        </span>
+      </button>
+
+      {aberta && (
+        <div className="divide-y border-t">
+          {emOrdem.map((linha) => (
+            <div
+              key={linha.chave}
+              className="flex flex-wrap items-center gap-3 px-4 py-2.5"
+            >
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-semibold text-muted-foreground">
+                  {rotuloDaChave(linha.chave)}
+                </span>
+                <span className="block text-xs text-muted-foreground">
+                  {linha.chave} · arquivado por {linha.arquivadoPor} ·{" "}
+                  {new Date(linha.arquivadoEm).toLocaleString("pt-BR")}
+                </span>
+              </span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8"
+                disabled={desabilitado}
+                title={`Devolver ${rotuloDaChave(linha.chave)} à lista — ele continua fora do ar`}
+                onClick={() => aoDesarquivar(linha.chave)}
+                data-testid={`desarquivar-${linha.chave}`}
+              >
+                <ArchiveRestore className="mr-1.5 h-3.5 w-3.5" />
+                Desarquivar
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Arquivar — a decisão sobre a **lista**, e não sobre o acesso.
+ *
+ * Discreto de propósito, ao lado do botão vermelho que o precede: ele não muda
+ * o menu de ninguém, não tira nada do ar e não apaga linha nenhuma. O que ele
+ * faz é tirar da matriz o que a casa já decidiu que não usa, e a frase do
+ * `title` diz isso inteiro — quem clica aqui esperando "excluir" precisa
+ * descobrir antes, e não depois, que a decisão continua guardada.
+ */
+function BotaoArquivar({
+  chave,
+  desabilitado,
+  rotulo,
+  aoArquivar,
+}: {
+  chave: string;
+  desabilitado: boolean;
+  rotulo: string;
+  aoArquivar: () => void;
+}) {
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="sm"
+      className="h-8 px-2 text-muted-foreground"
+      disabled={desabilitado}
+      title={`Arquivar ${rotulo}: sai desta lista e vai para a gaveta de arquivados. Continua fora do ar, nada é apagado, e volta com um clique.`}
+      onClick={aoArquivar}
+      data-testid={`arquivar-${chave}`}
+    >
+      <Archive className="mr-1.5 h-3.5 w-3.5" />
+      Arquivar
+    </Button>
   );
 }
 
@@ -522,6 +739,7 @@ function Linha({
   aoEscolher,
   aoVoltar,
   aoInativar,
+  aoArquivar,
 }: {
   titulo: string;
   subtitulo: string;
@@ -537,6 +755,7 @@ function Linha({
   aoEscolher: (nivel: Nivel) => void;
   aoVoltar: () => void;
   aoInativar?: (chave: string, ligado: boolean) => void;
+  aoArquivar?: (chave: string, arquivado: boolean) => void;
 }) {
   const excecao = herdadoDe !== null && nivel !== herdadoDe;
 
@@ -572,6 +791,23 @@ function Linha({
       </span>
 
       <span className="flex items-center gap-1.5">
+        {aoArquivar !== undefined &&
+          !protegida &&
+          !desligadaPelaSecao &&
+          desligadaNaCasa && (
+            /*
+              Só sobre chave desligada, e por isso depois do botão de cima: a
+              ordem dos dois é a ordem dos gestos — tira-se do ar, e só então se
+              tira da lista. Oferecê-lo sobre uma chave no ar seria oferecer o
+              gesto que o servidor recusa.
+            */
+            <BotaoArquivar
+              chave={chave}
+              desabilitado={desabilitado}
+              rotulo={titulo}
+              aoArquivar={() => aoArquivar(chave, true)}
+            />
+          )}
         {aoInativar !== undefined && !protegida && !desligadaPelaSecao && (
           <BotaoInativar
             chave={chave}
