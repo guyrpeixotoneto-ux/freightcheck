@@ -32,6 +32,7 @@ import {
   Receipt,
   RefreshCcwDot,
   Route,
+  Ruler,
   Scale,
   ScanSearch,
   ShoppingCart,
@@ -346,6 +347,41 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
         */
         { href: "/dre", label: "DRE", icon: Receipt },
       ],
+    },
+    {
+      /*
+        CUSTO VARIÁVEL — o lado da remuneração que anda com a operação.
+
+        **Por que uma seção, e não um item dentro de Frota.** Frota responde
+        sobre o ativo: o cavalo, a carreta, o trecho, um por um. Esta responde
+        sobre o **direcionador** — a grandeza que multiplica o dinheiro e que a
+        tabela de frete contrata por trecho. São perguntas de alturas
+        diferentes, e quem abre uma não está procurando a outra.
+
+        **O nome, e a ressalva que ele merece.** "Custo variável" é, neste
+        produto, uma classe da DRE (`lib/curation/src/catalogo.ts`) — e o
+        dicionário da tabela de frete classifica km, tempos e velocidade como
+        *"Direcionador operacional (não entra na DRE)"*, que é justamente o
+        contrário. A seção leva o nome que quem trabalha nela usa; o que ela
+        **não** faz é somar em linha de DRE nenhuma, e a tela de cada módulo
+        escreve isso com todas as letras.
+
+        **Um item só, por enquanto, e isso é a regra da lateral — não um
+        esquecimento.** Nenhum item daqui leva a lugar nenhum, e nenhum leva a
+        um número inventado. TMA Origem, TMA Destino e Velocidade Média
+        pertencem a esta seção e ainda não estão nela porque ainda não têm
+        fonte: os eventos de chegada e atendimento não existem neste acervo, e
+        a duração que o diário operacional traz chega como texto ambíguo
+        (`lib/coletores/src/operacao-transporte.ts` já recusou medir sobre ela,
+        pelo mesmo motivo). Anunciá-los aqui antes da fonte seria prometer
+        medição que o banco não sustenta.
+      */
+      id: "custo-variavel",
+      titulo: "Custo variável",
+      descricao: "Os direcionadores que multiplicam a remuneração — km, tempo e velocidade",
+      icon: Ruler,
+      cor: "text-nav-frota",
+      itens: [{ href: "/km-rodado", label: "Km Rodado", icon: Ruler }],
     },
     {
       /*

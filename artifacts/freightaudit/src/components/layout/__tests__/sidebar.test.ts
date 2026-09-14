@@ -372,7 +372,7 @@ describe("a lateral", () => {
     expect(secoesDaAuditoria()).not.toContain("Justificativas");
   });
 
-  it("mantém as dez seções do desenho, na ordem", () => {
+  it("mantém as onze seções do desenho, na ordem", () => {
     expect(secoesDaAuditoria()).toEqual([
       /*
         Chamados Ambev abre a lista porque é por onde o dia começa: o que a fila
@@ -391,6 +391,18 @@ describe("a lateral", () => {
         seção ao lado até as duas virarem uma — ver `nav-auditoria.ts`.
       */
       "Visão executiva",
+      /*
+        Custo variável entra entre a leitura executiva e Compras, e o lugar é a
+        própria ordem do dia: ela responde sobre o **direcionador** — a grandeza
+        que multiplica a remuneração —, que é a pergunta que se faz depois de
+        ver o retrato do conjunto e antes de liberar compra.
+
+        Ela nasce com um item, e isso é a regra da lateral e não um
+        esquecimento: TMA Origem, TMA Destino e Velocidade Média pertencem aqui
+        e ainda não têm fonte no acervo. Nenhum item da lateral leva a um número
+        inventado — ver `nav-auditoria.ts`.
+      */
+      "Custo variável",
       /*
         Compras vem antes de Auditoria porque é um portão antes de o dinheiro
         sair, e não uma descoberta sobre o que já saiu — ver o comentário da

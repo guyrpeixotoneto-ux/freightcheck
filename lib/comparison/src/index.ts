@@ -36,5 +36,6 @@ export * from "./alteracoes-do-ativo";
 export * from "./composicao-da-vigencia";
 export * from "./evolucao-por-placa";
 export * from "./radar-trechos";
+export * from "./km-rodado";
 export * from "./painel-de-justificativas";
 export * from "./conciliacao-de-chamados";

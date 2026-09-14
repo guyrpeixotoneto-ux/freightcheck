@@ -31,6 +31,7 @@ import cadastroRouter from "./cadastro";
 import comprasRouter from "./compras";
 import justificativasRouter from "./justificativas";
 import trechosRouter from "./trechos";
+import kmRodadoRouter from "./km-rodado";
 import fluxosRouter from "./fluxos";
 import integracoesRouter from "./integracoes";
 
@@ -250,6 +251,7 @@ router.use(justificativasRouter);
   consolidado por `@workspace/comparison`. Ver `routes/trechos.ts`.
 */
 router.use(trechosRouter);
+router.use(kmRodadoRouter);
 /*
   Fluxos Operacionais: o mapa dos processos da empresa, na seção Processos. É a
   única superfície deste servidor escopada por **empresa** — a unidade canônica

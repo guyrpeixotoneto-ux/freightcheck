@@ -63,6 +63,7 @@ import Fluxos from '@/pages/fluxos';
 import TelaDoFluxo from '@/pages/fluxo';
 import Frota360 from '@/pages/frota-360';
 import RadarTrechos from '@/pages/radar-trechos';
+import KmRodado from '@/pages/km-rodado';
 import QlpAdministrativo from '@/pages/qlp-administrativo';
 import Remunerado from '@/pages/remunerado';
 import Justificativas from '@/pages/justificativas';
@@ -494,6 +495,7 @@ function RotasDaAuditoria() {
         outra; o "Ver diagnóstico" de cada linha linka de volta para cá.
       */}
       <Route path="/radar-trechos" component={RadarTrechos} />
+      <Route path="/km-rodado" component={KmRodado} />
       <Route path="/comparar" component={Comparar} />
       {/*
         QLP Administrativo saiu de `TELAS_EM_PREPARO` quando a importação

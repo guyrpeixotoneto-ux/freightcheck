@@ -362,6 +362,41 @@ export function baseAtualizadaPath(): string {
 }
 
 /**
+ * A tabela de frete real — o lado **variável** da remuneração, por trecho.
+ *
+ * O primeiro export de trecho que este repositório guarda, e ele é de outra
+ * natureza que os `Modelo_*`: aqueles descrevem o ativo remunerado (cavalo,
+ * carreta) por placa; este descreve o **percurso** — origem, destino,
+ * capacidade e quilometragem —, identificado pela chave do trecho. É a fonte
+ * que `docs/DICIONARIO-TABELA-DE-FRETE.md` descreve e que, até ele chegar,
+ * nenhuma linha daquele dicionário tinha sido conferida contra valor real.
+ *
+ * Duas abas. `Trecho` é o export: 2.497 linhas × 110 atributos, vigência
+ * `EMPURRADA_1_9_2026`, seis unidades e dois operadores. `KM RODADO` **não é
+ * export** — é a auditoria que o transportador faz à mão, comparando o km de um
+ * mesmo percurso entre as capacidades de 28 e 30 pallets. Ela está aqui porque
+ * é o contrato do módulo de Km Rodado: o que a planilha acha, o módulo tem de
+ * acostumar a achar, e o que ela erra, o módulo tem de deixar de errar.
+ *
+ * Três coisas que só este arquivo mostrou, e que nenhuma fixture inventada
+ * mostraria:
+ *
+ * 1. **`chaveTrecho` não identifica.** Ela repete em 147 grupos, 318 linhas, e
+ *    as repetidas têm km diferente — mesmo percurso físico, faturamento
+ *    diferente. Sob a identidade declarada em `tipos.ts` o import perde 171
+ *    trechos (6,8%) em silêncio, e o que se perde é um km.
+ * 2. **O ciclo fecha, e a projeção mensal não fecha na bala.** `kmRodado =
+ *    kmIda + kmVolta` em 2.497 de 2.497; `kmRodadoMesPorEquipe = kmRodado ×
+ *    previsaoViagens × diasMes` em 2.436, e as 61 restantes são o
+ *    arredondamento de `previsaoViagens` a duas casas, não outra fórmula.
+ * 3. **`velocidadeMediaKmH` é entrada, não medição.** Vale 60 em quase toda
+ *    linha, e é ela que produz o tempo de trajeto — não o contrário.
+ */
+export function tabelaDeFreteTrechoPath(): string {
+  return findAsset("Tabela_De_Frete_Trecho");
+}
+
+/**
  * O export de chamados real — agosto e setembro de 2026, um mês por aba.
  *
  * O primeiro export de fila que este repositório guarda, e ele é o que trouxe à
