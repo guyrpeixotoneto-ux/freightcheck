@@ -372,7 +372,7 @@ describe("a lateral", () => {
     expect(secoesDaAuditoria()).not.toContain("Justificativas");
   });
 
-  it("mantém as onze seções do desenho, na ordem", () => {
+  it("mantém as dez seções do desenho, na ordem", () => {
     expect(secoesDaAuditoria()).toEqual([
       /*
         Chamados Ambev abre a lista porque é por onde o dia começa: o que a fila
@@ -398,7 +398,12 @@ describe("a lateral", () => {
       */
       "Compras",
       "Auditoria",
-      "Processos",
+      /*
+        **Processos saiu da lateral.** Era uma seção de um item — Fluxos
+        Operacionais —, e o item saiu com ela; as rotas continuam de pé em
+        `App.tsx`, para quem tem o link, mas não há mais caminho de menu até
+        elas.
+      */
       /*
         **O QLP não é mais seção.** As duas telas dele — Operacional e
         Administrativo — são hoje as duas últimas linhas de Custo Fixo, porque

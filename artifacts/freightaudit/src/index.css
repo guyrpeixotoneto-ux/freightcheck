@@ -64,7 +64,6 @@
   --color-nav-chamados: hsl(var(--nav-chamados));
   --color-nav-compras: hsl(var(--nav-compras));
   --color-nav-auditoria: hsl(var(--nav-auditoria));
-  --color-nav-recuperacao: hsl(var(--nav-recuperacao));
   --color-nav-custo-fixo: hsl(var(--nav-custo-fixo));
   --color-nav-custo-variavel: hsl(var(--nav-custo-variavel));
   --color-nav-frota: hsl(var(--nav-frota));
@@ -275,7 +274,6 @@
   --nav-chamados: 212 73% 29%;
   --nav-compras: 212 73% 29%;
   --nav-auditoria: 212 73% 29%;
-  --nav-recuperacao: 212 73% 29%;
   --nav-custo-fixo: 212 73% 29%;
   --nav-custo-variavel: 212 73% 29%;
   --nav-frota: 212 73% 29%;
@@ -437,7 +435,6 @@
   --nav-chamados: 212 80% 66%;
   --nav-compras: 212 80% 66%;
   --nav-auditoria: 212 80% 66%;
-  --nav-recuperacao: 212 80% 66%;
   --nav-custo-fixo: 212 80% 66%;
   --nav-custo-variavel: 212 80% 66%;
   --nav-frota: 212 80% 66%;

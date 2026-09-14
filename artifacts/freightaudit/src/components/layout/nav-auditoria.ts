@@ -33,7 +33,6 @@ import {
   Plug,
   Radar,
   Receipt,
-  RefreshCcwDot,
   Route,
   Scale,
   ScanSearch,
@@ -49,7 +48,6 @@ import {
   TriangleAlert,
   Truck,
   Wallet,
-  Workflow,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -73,7 +71,7 @@ import { GRUPO_ADMINISTRACAO } from "./nav-administracao";
 import type { NavGroup } from "./nav";
 
 /**
- * A lateral do ambiente Auditoria — as onze seções, e a ordem em que se lê o
+ * A lateral do ambiente Auditoria — as dez seções, e a ordem em que se lê o
  * trabalho de um dia.
  *
  * A lista morava em `sidebar.tsx`, como constante, e saiu de lá pela mesma razão
@@ -105,8 +103,8 @@ import type { NavGroup } from "./nav";
  * vigilância e o retrato
  * do conjunto (**Visão executiva**, que reúne os dois desde que as duas seções
  * viraram uma), libera-se o que precisa ser comprado
- * hoje (**Compras**), procura-se o desvio (**Auditoria**), cobra-se o desvio achado
- * (**Processos**), confere-se o que se paga por ter o ativo e a estrutura de
+ * hoje (**Compras**), procura-se o desvio (**Auditoria**),
+ * confere-se o que se paga por ter o ativo e a estrutura de
  * gente que o modelo remunera (**Custo Fixo**, que é onde o QLP mora desde que
  * deixou de ser seção) e o que se paga por rodar com ele (**Custo Variável**),
  * desce-se ao ativo que o sofreu (**Frota**), pergunta-se ao
@@ -393,35 +391,6 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
         { href: "/impacto-financeiro", label: "Impacto financeiro", icon: CircleDollarSign },
         { href: "/anomalias", label: "Anomalias", icon: TriangleAlert },
         { href: "/auditorias", label: "Auditorias", icon: ClipboardCheck },
-      ],
-    },
-    {
-      /*
-        Processos é seção própria, e não a cauda da Auditoria, porque é outro
-        trabalho e quase sempre outra pessoa: auditar é descobrir, desenhar o
-        processo é dizer como se trabalha. Quem passa o dia numa das duas fecha
-        a outra.
-
-        A seção tinha três telas em preparo — Contestação & Recuperação,
-        Reconciliação e Risco & Materialidade — e elas saíram junto com as
-        entradas de `pages/telas-em-preparo.ts` que as sustentavam: um menu que
-        anuncia três telas e entrega três avisos de "ainda não" é ruído para
-        quem trabalha aqui todo dia. Voltam quando forem telas de verdade.
-      */
-      id: "processos",
-      titulo: "Processos",
-      descricao: "O mapa dos processos da empresa",
-      icon: RefreshCcwDot,
-      cor: "text-nav-recuperacao",
-      itens: [
-        /*
-          Fluxos Operacionais saiu da Administração: o mapa dos processos não é
-          cadastro da casa, é o desenho do trabalho. O endereço continua sem
-          prefixo, como o resto desta lista: é o roteador aninhado que põe a
-          base do ambiente na frente (`App.tsx`), e `/fluxos` está no mesmo
-          `Switch` das outras telas da auditoria.
-        */
-        { href: "/fluxos", label: "Fluxos Operacionais", icon: Workflow },
       ],
     },
     {

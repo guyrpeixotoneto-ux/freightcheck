@@ -52,7 +52,13 @@ describe("a chave do módulo é o endereço sem a base do ambiente", () => {
 describe("o endereço aberto e o módulo dono dele", () => {
   it("a tela de dentro pertence ao módulo de fora", () => {
     expect(moduloDaLocalizacao("/composicao/ABC1234")?.chave).toBe("/composicao");
-    expect(moduloDaLocalizacao("/fluxos/7")?.chave).toBe("/fluxos");
+    /*
+      `/fluxos/7` era o segundo exemplo, e saiu com o módulo: Fluxos
+      Operacionais deixou de existir no produto (`nav-auditoria.ts`, `App.tsx`).
+      O DRE do veículo faz a mesma prova — a tela de um veículo pertence ao
+      módulo que a lista abre.
+    */
+    expect(moduloDaLocalizacao("/dre/ABC1234")?.chave).toBe("/dre");
   });
 
   it("o prefixo mais longo ganha — /dre não engole /dre-veiculo", () => {

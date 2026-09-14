@@ -59,8 +59,6 @@ import Assistente from '@/pages/assistente';
 import Vigencias from '@/pages/vigencias';
 import Versoes from '@/pages/versoes';
 import Configuracoes from '@/pages/configuracoes';
-import Fluxos from '@/pages/fluxos';
-import TelaDoFluxo from '@/pages/fluxo';
 import Frota360 from '@/pages/frota-360';
 import RadarTrechos from '@/pages/radar-trechos';
 import QlpAdministrativo from '@/pages/qlp-administrativo';
@@ -579,14 +577,6 @@ function RotasDaAuditoria() {
       <Route path="/configuracoes/departamento">
         <Configuracoes secao="departamento" />
       </Route>
-      {/*
-        Processos → Fluxos Operacionais. A rota do fluxo aberto vem depois da
-        lista, e as duas vivem neste mesmo `Switch`: montado sob a base de cada
-        auditoria, `/fluxos` atende tanto `/fluxos` quanto
-        `/auditoria-rota/fluxos`.
-      */}
-      <Route path="/fluxos" component={Fluxos} />
-      <Route path="/fluxos/:id" component={TelaDoFluxo} />
 
       {/*
         As telas que o menu anuncia e o banco ainda não sustenta.

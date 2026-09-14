@@ -206,7 +206,15 @@ export const SECAO_DO_MODULO_GOVERNADO: Readonly<Record<string, string>> = {
   "/curadoria": "dados-governanca",
   "/importacoes": "dados-governanca",
   "/integracoes": "dados-governanca",
-  "/fluxos": "processos",
+  /*
+    `/fluxos` saiu desta tabela junto com a seção Processos, que era a dona
+    dele e deixou de existir no menu (`nav-auditoria.ts`). O módulo continua
+    governado — o portão recusa a escrita de quem não tem `/fluxos`
+    (`ESCRITAS_POR_MODULO`) —; o que não existe mais é a seção que pudesse ser
+    desligada em bloco. Apontar para uma seção que o menu não tem seria pior
+    do que não apontar: o portão perguntaria por uma decisão que ninguém
+    consegue tomar.
+  */
   "/book-operador": "inteligencia",
   "/assistente": "inteligencia",
   "/dados": "dados-governanca",
