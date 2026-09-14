@@ -65,6 +65,12 @@ import { cn } from "@/lib/utils";
  * terços do produto voltar a ter o tamanho do que ela usa, sem que a saída
  * oferecida para isso seja apagar decisão. Ver `schema/modulo-universal.ts`.
  *
+ * O mesmo gesto está em Módulos Universais, que é onde a decisão da casa se lê
+ * inteira — com os números do que está fora do ar, o motivo e o histórico. Aqui
+ * ele existe pela razão que trouxe o Inativar para esta matriz: quem descobre,
+ * revisando um perfil, que um módulo não deveria estar no ar para ninguém
+ * decide ali mesmo, sem perder a decisão no caminho até a outra tela.
+ *
  * **O piso não é um botão.** `padrao` é o que vale para toda chave que ninguém
  * decidiu — `EDITAR` em quase todo perfil, `VISUALIZAR` num `Leitor` —, e a
  * matriz o usa como linha de base em vez da constante. Sem isso, um `Leitor`
