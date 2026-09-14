@@ -72,10 +72,22 @@ export function enderecoAberto(): string {
  * e são ambientes distintos, com acessos que se decidem separadamente
  * (`components/configuracoes/permissoes.tsx`).
  *
- * Serve a uma coisa só, e é honesto dizer qual: o portão do servidor
- * (`middlewares/portao-de-permissao.ts`) recusa **escrita** de quem não tem
- * edição no ambiente de onde a chamada saiu. Não é recorte de dado — o recorte
- * é `?operacao=`, e ele não depende de permissão nenhuma.
+ * Serviu a uma coisa só por muito tempo, e é honesto dizer o que mudou: o portão
+ * do servidor (`middlewares/portao-de-permissao.ts`) recusa **escrita** de quem
+ * não tem edição no ambiente de onde a chamada saiu, e isso continua sendo o uso
+ * geral dele. Desde `GET /balance/recorte`, há uma leitura que também o exige —
+ * e ali ele faz duas coisas que em nenhum outro lugar faz: é a chave da
+ * permissão **de leitura** e é de onde a operação é **derivada**, em vez de ser
+ * aceita como o cliente a mandou (`lib/ambiente-da-auditoria.ts`, no servidor).
+ *
+ * A exceção é nomeada e estreita, e o motivo está escrito lá: o portão não
+ * esconde leitura porque as leituras são compartilhadas entre telas, e fingir
+ * bloqueio sobre endpoint compartilhado quebraria tela permitida para proteger
+ * nada. Aquela rota nasceu com uma tela e uma pergunta, então a justificativa da
+ * regra não a alcança.
+ *
+ * Fora dela, continua valendo: `?ambiente=` não é recorte de dado — o recorte é
+ * `?operacao=`, e ele não depende de permissão nenhuma.
  *
  * É carimbado nos oito, e não só nos prefixados: fora de um prefixo o ambiente
  * é a Auditoria Empurrada, que mora na raiz (`lib/ambiente.ts`), e ela é um

@@ -154,3 +154,55 @@ export const NATUREZAS: {
 export function natureza(code: DestinoNatureza) {
   return NATUREZAS.find((n) => n.code === code)!;
 }
+
+/**
+ * `GET /balance/recorte` — a procedência das fontes de **um** recorte.
+ *
+ * Espelha `BalancoDoRecorte` em `artifacts/api-server/src/routes/balance.ts`.
+ * A diferença para `BalancoResumo` não é de forma, é de pergunta: aquele
+ * responde *"os arquivos fecham?"* sobre o acervo inteiro, e é global por
+ * contrato; este responde *"qual a qualidade das fontes que alimentam o que
+ * está na tela?"*.
+ *
+ * **Não há percentual aqui, e a ausência é o contrato.** Cobertura auditada
+ * recortada não é grandeza bem definida: o resíduo — célula que não chegou a
+ * destino — nunca virou fato, logo não tem unidade nem vigência a que
+ * pertencer. Por isso a resposta é toda em contagens, e por isso
+ * `celulasDosArquivos` tem esse nome em vez de `celulas`: ela é a massa
+ * **integral** dos arquivos que alimentaram o recorte, e pode conter célula de
+ * outros recortes. A grandeza deste recorte é `atribuido.celulasEmFato`.
+ */
+export interface BalancoDoRecorte {
+  recorte: {
+    operacao: string;
+    scopeHash: string;
+    canal: string | null;
+    period: string;
+    label: string;
+  };
+  importacoes: (BalancoResumo & {
+    alcance: {
+      contextos: number;
+      vigencias: string[];
+      exclusivoDesteRecorte: boolean;
+      /** Se o alcance foi medido. `false` nunca conta como exclusividade. */
+      medido: boolean;
+    };
+  })[];
+  conservacao: {
+    arquivos: number;
+    fecham: number;
+    /** A massa integral dos arquivos — **não** "células deste recorte". */
+    celulasDosArquivos: number;
+    /** Do arquivo, e nunca rateado: célula sem destino não tem recorte. */
+    residuo: number;
+    exclusivaDesteRecorte: boolean;
+  };
+  atribuido: { vigenciasVivas: number; celulasEmFato: number };
+  ultima: {
+    importRunId: string;
+    filename: string;
+    status: string;
+    receivedAt: string;
+  } | null;
+}
