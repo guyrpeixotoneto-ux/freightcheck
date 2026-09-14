@@ -2,14 +2,13 @@ import {
   CircleSlash,
   CloudDownload,
   Database,
+  FileStack,
   Lock,
   RotateCw,
-  ShieldCheck,
   TriangleAlert,
 } from "lucide-react";
 import { Link } from "wouter";
 import { EstadoVazio } from "@/components/ui/estado-vazio";
-import { escreverPercentual } from "@/lib/visao-geral";
 import { cn } from "@/lib/utils";
 import type {
   EstadoDaProcedencia,
@@ -36,15 +35,21 @@ const COR_DO_TOM: Record<Tom, string> = {
  * `/imports`), e o único que responde por *como sabemos* em vez de por *quanto
  * foi*.
  *
- * **É aqui que mora a cobertura auditada** — células alcançadas ÷ células
- * importadas —, e é essa mudança de lugar que conserta o defeito que a seção
- * tinha: o Impacto Líquido publicava "Cobertura financeira" e o Resumo
- * executivo publicava "Cobertura auditada", as duas em percentual, as duas num
- * anel, as duas coloridas pela mesma régua. Quem abria as duas telas na mesma
- * vigência via dois números do mesmo recorte sem pista de que falavam de
- * populações diferentes. Agora a da apuração fica no placar, qualificando o
- * líquido, e a auditada fica aqui, qualificando o dado — separadas por assunto,
- * e cada uma dizendo por extenso do que é percentual.
+ * **A cobertura auditada saiu deste andar, e não foi para outro.** Ela era um
+ * percentual do acervo inteiro publicado debaixo do cabeçalho de uma unidade:
+ * `/balance` não aceitava recorte, de modo que PERNAMBUCO e a Visão Geral
+ * exibiam o mesmo número — ele nunca foi de unidade nenhuma. A fonte agora é
+ * `/balance/recorte`, recortada pela mesma unidade, canal e competência dos
+ * cinco andares acima.
+ *
+ * E o que entra no lugar são **contagens**, não um percentual recortado. A razão
+ * é de aritmética, não de tela: o resíduo — célula que não chegou a destino —
+ * nunca virou fato, logo não tem unidade nem vigência a que pertencer, e é
+ * justamente a parcela que o Rastreio de Dados existe para achar. Ratear o
+ * irrateável para publicar "99,2% desta unidade" seria dar precisão a um número
+ * que não a tem. Então o andar diz quantos arquivos alimentaram este recorte,
+ * quantos deles fecham, quantas células deste recorte viraram fato, e de quando
+ * é a última importação **dele** — cada uma sendo o que o nome diz.
  *
  * **O andar não some mais.** Ele desenhava só quando tinha os três números, e
  * sumia calado nos outros quatro casos — carregando, sem importação conferida,
@@ -104,43 +109,53 @@ export function Procedencia({
  * deixou de ser a única coisa que o arquivo sabe desenhar.
  */
 function Medidas({ procedencia }: { procedencia: DadosDaProcedencia }) {
-  const { cobertura, qualidade, integridade, ultima } = procedencia;
+  const { arquivos, ultima } = procedencia;
+  const inteiro = (n: number) => n.toLocaleString("pt-BR");
 
   return (
     <>
-      <div className="grid gap-5 sm:grid-cols-3 mt-5">
-        {cobertura && (
-          <Medida
-            icone={ShieldCheck}
-            rotulo="Cobertura auditada"
-            valor={escreverPercentual(cobertura.percentual, 1)}
-            tom={qualidade?.tom ?? null}
-            /*
-              O rótulo diz "das células importadas" por extenso, e não "%
-              coberto". Chamar de "% do valor importado" daria a um número de
-              massa a autoridade de um número de remuneração — a nota original
-              de `cobertura`, em `lib/visao-geral.ts`.
-            */
-            nota={`das células importadas · ${cobertura.celulas.toLocaleString("pt-BR")} conferidas em ${cobertura.importacoes} ${
-              cobertura.importacoes === 1 ? "importação" : "importações"
-            }`}
-          />
-        )}
+      {/*
+        A pastilha do recorte, e ela não é enfeite: é o que este andar não tinha
+        e por isso mentia de escopo. Um número de procedência sem o recorte ao
+        lado é indistinguível de um número do acervo inteiro — que é exactamente
+        o que ele era.
+      */}
+      <p className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-accent border px-2.5 py-1 text-3xs font-bold text-brand">
+        <FileStack className="w-3 h-3 shrink-0" />
+        {procedencia.recorte.label} · o mesmo recorte dos andares acima
+      </p>
 
-        {integridade && (
-          <Medida
-            icone={Database}
-            rotulo={integridade.titulo}
-            valor={integridade.ok ? "íntegro" : "atenção"}
-            tom={integridade.ok ? "ok" : "grave"}
-            nota={integridade.detalhe}
-          />
-        )}
+      <div className="grid gap-5 sm:grid-cols-3 mt-5">
+        <Medida
+          icone={FileStack}
+          rotulo="Fontes deste recorte"
+          valor={inteiro(arquivos.total)}
+          tom={arquivos.fecham === arquivos.total ? "ok" : "grave"}
+          nota={
+            arquivos.fecham === arquivos.total
+              ? `${arquivos.total === 1 ? "a importação fecha" : "todas fecham"}: nenhuma célula sem destino`
+              : `${inteiro(arquivos.total - arquivos.fecham)} de ${inteiro(arquivos.total)} não fecham`
+          }
+        />
+
+        <Medida
+          icone={Database}
+          rotulo="Células deste recorte"
+          valor={inteiro(procedencia.celulasEmFato)}
+          tom={null}
+          /*
+            A nota diz de que população é o outro número, porque é o único jeito
+            de os dois conviverem sem se confundir: a massa é dos arquivos, e a
+            contagem de cima é do recorte. Sem esta frase, quem divide uma pela
+            outra inventa o percentual que o contrato recusa.
+          */
+          nota={`viraram fato · os arquivos trouxeram ${inteiro(procedencia.massaDosArquivos)} células ao todo`}
+        />
 
         {ultima && (
           <Medida
             icone={CloudDownload}
-            rotulo="Última importação"
+            rotulo="Última importação deste recorte"
             valor={ultima.hora}
             tom={null}
             nota={`${ultima.relativo} · ${ultima.filename}`}
@@ -148,17 +163,29 @@ function Medidas({ procedencia }: { procedencia: DadosDaProcedencia }) {
         )}
       </div>
 
-      {cobertura && cobertura.foraDaAuditoria > 0 && (
+      {procedencia.residuo > 0 ? (
         <p className="text-xs text-muted-foreground leading-snug mt-5 pt-4 border-t">
-          {cobertura.foraDaAuditoria.toLocaleString("pt-BR")}{" "}
-          {cobertura.foraDaAuditoria === 1 ? "célula ficou" : "células ficaram"} fora da auditoria
-          — o Rastreio de Dados diz quais e por quê.
+          {inteiro(procedencia.residuo)}{" "}
+          {procedencia.residuo === 1 ? "célula ficou" : "células ficaram"} fora da auditoria nos
+          arquivos que alimentam este recorte — o Rastreio de Dados diz quais e por quê.
+        </p>
+      ) : (
+        <p className="text-xs text-muted-foreground leading-snug mt-5 pt-4 border-t">
+          Toda célula que estes arquivos trouxeram chegou a um destino declarado.
         </p>
       )}
 
-      {cobertura && cobertura.foraDaAuditoria === 0 && (
-        <p className="text-xs text-muted-foreground leading-snug mt-5 pt-4 border-t">
-          Toda célula que os arquivos trouxeram chegou a um destino declarado.
+      {/*
+        A ressalva que torna a conta defensável, e ela só aparece quando é
+        verdadeira: um arquivo multi-unidade entra legitimamente na procedência
+        de todas as unidades que alimentou, e o resíduo dele é **do arquivo**.
+        Dizer isso é o que impede alguém de somar a massa de três recortes e
+        achar que tem o acervo.
+      */}
+      {!arquivos.exclusivos && (
+        <p className="text-xs text-muted-foreground leading-snug mt-2">
+          Parte destes arquivos alimenta outras unidades ou competências: a massa e o resíduo
+          acima são <strong>deles</strong>, e não deste recorte.
         </p>
       )}
     </>
@@ -176,7 +203,7 @@ function Carregando() {
   return (
     <>
       <span role="status" className="sr-only">
-        Conferindo as importações desta competência…
+        Conferindo as importações deste recorte…
       </span>
       <div aria-hidden className="grid gap-5 sm:grid-cols-3 mt-5">
         {[0, 1, 2].map((i) => (
@@ -209,7 +236,7 @@ function Vazia() {
       className="mt-5"
       compacto
       icone={CircleSlash}
-      titulo="Nenhuma importação desta leitura passou pela conferência"
+      titulo="Nenhuma importação deste recorte passou pela conferência"
       descricao="Os números dos andares acima continuam válidos — o que falta é a conta de conservação que diz se alguma célula se perdeu no caminho. Ela é gerada quando a importação é promovida."
       acao={
         <Link href="/importacoes" className="text-xs font-semibold text-brand hover:underline">
@@ -381,7 +408,7 @@ function Medida({
   tom,
   nota,
 }: {
-  icone: typeof ShieldCheck;
+  icone: typeof Database;
   rotulo: string;
   valor: string;
   tom: Tom | null;

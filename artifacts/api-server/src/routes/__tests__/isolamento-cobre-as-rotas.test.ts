@@ -17,6 +17,28 @@ import { describe, expect, it } from "vitest";
  * do acervo de uma operação. Não é uma prova de que o recorte está correto (essa
  * é a suíte de isolamento, contra dados de verdade); é a prova de que ninguém
  * passou por aqui sem decidir.
+ *
+ * ---------------------------------------------------------------------------
+ * O eixo real é a **rota**, e não o arquivo
+ * ---------------------------------------------------------------------------
+ *
+ * O arquivo sempre foi uma aproximação, e ela bastava enquanto todo arquivo era
+ * inteiro de um lado ou do outro. `balance.ts` é o primeiro que não é: a
+ * conservação de um arquivo importado é global por contrato — *"o balanço é
+ * sobre o arquivo que chegou"* —, e a procedência de um recorte, que vive no
+ * mesmo módulo porque é a pergunta inversa sobre os mesmos dados, recorta por
+ * operação e exige ambiente.
+ *
+ * Com a régua por arquivo havia só duas respostas para ele, e as duas erradas:
+ * tirar a exceção diria que `GET /balance` isola, e ele não isola; mantê-la
+ * diria que `GET /balance/recorte` não isola, e ele é a rota que mais isola
+ * deste servidor. Então {@link SEM_RECORTE_POR_ROTA} guarda a exceção **da
+ * rota**, e todas as outras rotas do mesmo arquivo passam a ser conferidas uma a
+ * uma, dentro do próprio handler.
+ *
+ * A régua por arquivo continua valendo para todo o resto, e de propósito: listar
+ * as vinte rotas de `users.ts` uma a uma para dizer vinte vezes "é a casa" seria
+ * ruído, e ruído é o que faz uma lista destas deixar de ser lida.
  */
 
 const ROTAS = path.resolve(import.meta.dirname, "..");
@@ -71,7 +93,6 @@ const SEM_ACERVO: Record<string, string> = {
     "chamados são população própria: têm unidade (a série da `0087`), e não têm canal — nada em `ticket` os liga a uma operação.",
   "monitoramento-de-chamados.ts":
     "o monitoramento é derivado de `ticket`, e herda o mesmo eixo: recorta por série/unidade (`serieDaConsulta`, a autoridade única do arquivo) e não por operação, porque o chamado que ele compara não pertence a uma.",
-  "balance.ts": "balanço de massa: a conferência de um arquivo, por importação.",
   "fechamento.ts":
     "o Fechamento tem eixo próprio de operação — `competencia.tipo_de_operacao`, ver `OPERACAO_DO_AMBIENTE`.",
   "remuneracao.ts":
@@ -82,6 +103,21 @@ const SEM_ACERVO: Record<string, string> = {
     "a gestão das integrações é a casa: chave de API e log de chamadas valem para o produto inteiro, e uma chave não pertence a uma operação. O que o sistema externo alcança **com** aquela chave é que é recortado — em `v1.ts`, pela mesma `operacaoDaConsulta` das telas.",
   "fluxos.ts":
     "o mapa dos processos é escopado por empresa (`resolverEmpresa`), e não toca em `snapshot`: um fluxo não pertence a uma vigência.",
+};
+
+/**
+ * As **rotas** que não leem o acervo de uma operação, no arquivo que tem as duas
+ * metades. A chave é `arquivo.ts:MÉTODO /caminho`, como o Express a declara.
+ *
+ * Só entra aqui rota de arquivo que **também** tem rota recortada: um arquivo
+ * inteiro fora do eixo continua em {@link SEM_ACERVO}, que é onde ele se lê de
+ * uma vez.
+ */
+const SEM_RECORTE_POR_ROTA: Record<string, string> = {
+  "balance.ts:GET /balance":
+    "a conservação é do arquivo importado, e é global por contrato: um arquivo é de uma importação só, e recortá-lo por unidade daria a impressão de que existe massa 'de outra unidade' explicando a que falta. Quem responde por recorte é GET /balance/recorte, na mesma rota-irmã.",
+  "balance.ts:GET /balance/:importRunId":
+    "o detalhe de uma importação, pedido pelo id dela — a mesma conta da lista, sobre um arquivo só. Um arquivo não pertence a uma operação, então não há recorte a conferir nem `exigirOperacaoDoRecurso` a chamar.",
 };
 
 const arquivosDeRota = () =>
@@ -101,7 +137,53 @@ const fonte = (arquivo: string) => readFileSync(path.join(ROTAS, arquivo), "utf8
 const leAOperacao = (texto: string) =>
   texto.includes("operacaoDaConsulta") ||
   texto.includes('from "../lib/contexto"') ||
-  texto.includes("exigirOperacaoDoRecurso");
+  texto.includes("exigirOperacaoDoRecurso") ||
+  /*
+    `recorteDaAuditoria` é a quarta porta, e a mais estrita: ela **deriva** a
+    operação do ambiente de trabalho em vez de aceitar a que o cliente mandou,
+    e recusa o par incompatível. Ver `lib/ambiente-da-auditoria.ts`.
+  */
+  texto.includes("recorteDaAuditoria");
+
+/**
+ * As rotas declaradas num arquivo, com o corpo de cada uma.
+ *
+ * O corte é em `router.<método>(`, que é como toda rota deste servidor se
+ * declara. O corpo de uma rota é o texto até a declaração seguinte — bruto, e
+ * bruto basta: a pergunta é se **aquele handler** chama uma das quatro portas,
+ * e nenhuma delas é chamada por acidente.
+ */
+function rotasDoArquivo(texto: string): { assinatura: string; corpo: string }[] {
+  const declaracao = /router\.(get|post|put|patch|delete)\(\s*"([^"]+)"/g;
+  const achadas: { assinatura: string; inicio: number }[] = [];
+  for (const casado of texto.matchAll(declaracao)) {
+    achadas.push({
+      assinatura: `${casado[1]!.toUpperCase()} ${casado[2]!}`,
+      inicio: casado.index!,
+    });
+  }
+
+  return achadas.map((rota, i) => ({
+    assinatura: rota.assinatura,
+    corpo: texto.slice(rota.inicio, achadas[i + 1]?.inicio ?? texto.length),
+  }));
+}
+
+/**
+ * A chave partida no **primeiro** `:`, e não em todos.
+ *
+ * `balance.ts:GET /balance/:importRunId` tem dois: o que separa arquivo de rota
+ * e o do parâmetro do Express. Partir em todos deixava o `:importRunId` de fora
+ * da assinatura, e a rota passava a constar como fantasma.
+ */
+function partirChave(chave: string): { arquivo: string; assinatura: string } {
+  const corte = chave.indexOf(":");
+  return { arquivo: chave.slice(0, corte), assinatura: chave.slice(corte + 1) };
+}
+
+/** Os arquivos que têm exceção **de rota** — os de duas metades. */
+const arquivosComExcecaoDeRota = () =>
+  [...new Set(Object.keys(SEM_RECORTE_POR_ROTA).map((chave) => partirChave(chave).arquivo))];
 
 describe("o recorte por operação", () => {
   it("alcança toda rota que lê o acervo — ou a exceção está escrita", () => {
@@ -123,6 +205,63 @@ describe("o recorte por operação", () => {
     );
 
     expect(desatualizadas).toEqual([]);
+  });
+
+  /*
+    A régua por rota, aplicada onde o arquivo tem as duas metades. É este caso
+    que impede a volta do defeito que motivou a mudança: uma rota nova dentro de
+    `balance.ts` que esquecesse o recorte passaria pela régua do arquivo (ele lê
+    a operação, em outra rota) e é pega aqui.
+  */
+  it("dentro de arquivo de duas metades, confere cada rota no próprio handler", () => {
+    const semRecorte: string[] = [];
+
+    for (const arquivo of arquivosComExcecaoDeRota()) {
+      for (const rota of rotasDoArquivo(fonte(arquivo))) {
+        const chave = `${arquivo}:${rota.assinatura}`;
+        if (SEM_RECORTE_POR_ROTA[chave] !== undefined) continue;
+        if (!leAOperacao(rota.corpo)) semRecorte.push(chave);
+      }
+    }
+
+    expect(semRecorte).toEqual([]);
+  });
+
+  it("não guarda exceção de rota para rota que já recorta", () => {
+    const desatualizadas = Object.entries(SEM_RECORTE_POR_ROTA)
+      .filter(([chave]) => {
+        const { arquivo, assinatura } = partirChave(chave);
+        const rota = rotasDoArquivo(fonte(arquivo)).find(
+          (r) => r.assinatura === assinatura,
+        );
+        return rota !== undefined && leAOperacao(rota.corpo);
+      })
+      .map(([chave]) => chave);
+
+    expect(desatualizadas).toEqual([]);
+  });
+
+  it("não guarda exceção de rota para rota que não existe mais", () => {
+    const fantasmas = Object.keys(SEM_RECORTE_POR_ROTA).filter((chave) => {
+      const { arquivo, assinatura } = partirChave(chave);
+      if (!arquivosDeRota().includes(arquivo)) return true;
+      return !rotasDoArquivo(fonte(arquivo)).some((r) => r.assinatura === assinatura);
+    });
+
+    expect(fantasmas).toEqual([]);
+  });
+
+  /*
+    E as duas listas não se sobrepõem: um arquivo inteiro fora do eixo não tem o
+    que fazer na lista de rotas, e vice-versa. Sem este caso, uma exceção
+    esquecida numa das duas passaria a ser lida como a decisão vigente.
+  */
+  it("as duas listas de exceção não se sobrepõem", () => {
+    const nas_duas = arquivosComExcecaoDeRota().filter(
+      (arquivo) => SEM_ACERVO[arquivo] !== undefined,
+    );
+
+    expect(nas_duas).toEqual([]);
   });
 
   it("não guarda exceção para arquivo que não existe mais", () => {

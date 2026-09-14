@@ -11,7 +11,7 @@ import {
 import { ladosDoImpacto } from "../visao-geral";
 import { coberturaDaVigencia, situacaoDaApuracao } from "../impacto-apurado";
 import type { ItemCockpit } from "../cockpit";
-import type { BalancoResumo } from "@/components/balanco/tipos";
+import type { BalancoDoRecorte } from "@/components/balanco/tipos";
 import type {
   ChangeGroup,
   CockpitView,
@@ -540,45 +540,107 @@ describe("o mapa", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 5. A procedência — e a cobertura que desceu para cá
+// 5. A procedência — o recorte, e as contagens que substituíram o percentual
 // ---------------------------------------------------------------------------
 
-describe("a procedência", () => {
-  const balanco = (overrides: Partial<BalancoResumo> = {}): BalancoResumo =>
-    ({
-      entrada: 1000,
-      residuo: 0,
-      porNatureza: { PERDA: 60, RESIDUO: 0, DESCARTE: 0, DADO: 940, OUTRO: 0 },
-      ...overrides,
-    }) as BalancoResumo;
-
-  it("publica a cobertura auditada — percentual de célula, não de dinheiro", () => {
-    const p = procedenciaDoPanorama([balanco()], null)!;
-    expect(p.cobertura!.percentual).toBeCloseTo(94, 5);
-    expect(p.cobertura!.celulas).toBe(1000);
-    expect(p.qualidade).not.toBeNull();
-  });
-
-  it("some inteira quando não há importação conferida — não desenha zeros", () => {
-    expect(procedenciaDoPanorama(null, null)).toBeNull();
-    expect(procedenciaDoPanorama([], [])).toBeNull();
-  });
-
-  it("a última importação sai com hora e distância", () => {
-    const agora = new Date("2026-09-02T09:00:00Z");
-    const p = procedenciaDoPanorama(
-      null,
-      [
-        {
+/** Uma resposta de `/balance/recorte`, com o mínimo que a tela lê. */
+const recorte = (over: {
+  arquivos?: number;
+  fecham?: number;
+  celulasDosArquivos?: number;
+  residuo?: number;
+  exclusiva?: boolean;
+  celulasEmFato?: number;
+  ultima?: BalancoDoRecorte["ultima"];
+} = {}): BalancoDoRecorte => ({
+  recorte: {
+    operacao: "EMPURRADA",
+    scopeHash: "hash-pe",
+    canal: "EMPURRADA",
+    period: "2026-08-01",
+    label: "PERNAMBUCO · EMPURRADA",
+  },
+  importacoes: [],
+  conservacao: {
+    arquivos: over.arquivos ?? 3,
+    fecham: over.fecham ?? 3,
+    celulasDosArquivos: over.celulasDosArquivos ?? 47_318,
+    residuo: over.residuo ?? 0,
+    exclusivaDesteRecorte: over.exclusiva ?? true,
+  },
+  atribuido: { vigenciasVivas: 1, celulasEmFato: over.celulasEmFato ?? 12_004 },
+  ultima:
+    over.ultima === undefined
+      ? {
           importRunId: "1",
-          status: "PROMOTED",
           filename: "cavalos.xlsx",
+          status: "PROMOTED",
           receivedAt: "2026-09-02T07:00:00Z",
-        },
-      ],
-      agora,
-    );
-    expect(p?.ultima?.filename).toBe("cavalos.xlsx");
+        }
+      : over.ultima,
+});
+
+describe("a procedência", () => {
+  const AGORA = new Date("2026-09-02T09:00:00Z");
+
+  it("publica contagens, e nenhum percentual", () => {
+    const p = procedenciaDoPanorama(recorte(), AGORA)!;
+
+    expect(p.arquivos).toEqual({ total: 3, fecham: 3, exclusivos: true });
+    expect(p.celulasEmFato).toBe(12_004);
+    expect(p.massaDosArquivos).toBe(47_318);
+    /*
+      A régua deste andar: nenhum campo é fração de nada. Cobertura auditada
+      recortada não é grandeza bem definida — o resíduo nunca virou fato, logo
+      não tem unidade a que pertencer —, e um percentual aqui rateava o
+      irrateável.
+    */
+    expect(Object.keys(p)).not.toContain("cobertura");
+    expect(Object.keys(p)).not.toContain("qualidade");
+    expect(JSON.stringify(p)).not.toMatch(/percentual/i);
+  });
+
+  it("separa a massa dos arquivos das células do recorte", () => {
+    /*
+      São populações diferentes, e a diferença é o que impede a divisão de uma
+      pela outra: a massa é integral dos arquivos e pode conter célula de outra
+      unidade; as células em fato são deste recorte.
+    */
+    const p = procedenciaDoPanorama(
+      recorte({ celulasDosArquivos: 100_000, celulasEmFato: 4_000 }),
+      AGORA,
+    )!;
+
+    expect(p.massaDosArquivos).toBe(100_000);
+    expect(p.celulasEmFato).toBe(4_000);
+  });
+
+  it("carrega o recorte que o servidor resolveu, e não o que a tela pediu", () => {
+    const p = procedenciaDoPanorama(recorte(), AGORA)!;
+    expect(p.recorte.label).toBe("PERNAMBUCO · EMPURRADA");
+    expect(p.recorte.period).toBe("2026-08-01");
+  });
+
+  it("some inteira quando nenhum arquivo alimenta o recorte — não desenha zeros", () => {
+    expect(procedenciaDoPanorama(null, AGORA)).toBeNull();
+    expect(procedenciaDoPanorama(undefined, AGORA)).toBeNull();
+    expect(procedenciaDoPanorama(recorte({ arquivos: 0, fecham: 0 }), AGORA)).toBeNull();
+  });
+
+  it("diz quando a massa não é exclusiva deste recorte", () => {
+    const p = procedenciaDoPanorama(recorte({ exclusiva: false }), AGORA)!;
+    expect(p.arquivos.exclusivos).toBe(false);
+  });
+
+  it("a última importação é a do recorte, com hora e distância", () => {
+    const p = procedenciaDoPanorama(recorte(), AGORA)!;
+    expect(p.ultima?.filename).toBe("cavalos.xlsx");
+    expect(p.ultima?.relativo).toBe("há 2h");
+  });
+
+  it("sem última importação, cala em vez de fabricar uma data", () => {
+    const p = procedenciaDoPanorama(recorte({ ultima: null }), AGORA)!;
+    expect(p.ultima).toBeNull();
   });
 });
 
@@ -587,7 +649,7 @@ describe("a procedência", () => {
 // ---------------------------------------------------------------------------
 
 /*
-  Até aqui os quatro terminavam no mesmo pixel: as duas consultas saíam com
+  Até aqui os quatro terminavam no mesmo pixel: as consultas saíam com
   `.catch(() => null)`, e um `null` fazia o andar sumir. "Não há importação
   conferida", "a API respondeu 503", "ainda estou lendo" e "o seu acesso não
   alcança isto" viravam a mesma tela — a ausência —, num andar cuja pergunta é
@@ -597,26 +659,11 @@ describe("a procedência", () => {
   outro**, e o que não se sabe nunca pode sair como se soubesse.
 */
 describe("o estado do andar da procedência", () => {
-  const BALANCO: BalancoResumo = {
-    entrada: 1000,
-    residuo: 0,
-    porNatureza: { PERDA: 60, RESIDUO: 0, DESCARTE: 0, DADO: 940, OUTRO: 0 },
-  } as BalancoResumo;
-
-  const IMPORTACAO = {
-    importRunId: "1",
-    status: "PROMOTED",
-    filename: "cavalos.xlsx",
-    receivedAt: "2026-09-02T07:00:00Z",
-  };
+  const AGORA = new Date("2026-09-02T09:00:00Z");
+  const PRONTA = () => procedenciaDoPanorama(recorte(), AGORA);
 
   /** Uma leitura que respondeu. */
-  const respondeu = <T,>(rota: string, dados: T) => ({
-    rota,
-    carregando: false,
-    dados,
-    erro: null,
-  });
+  const respondeu = (rota: string) => ({ rota, carregando: false, dados: {}, erro: null });
 
   /** Uma leitura que falhou, com o status que o servidor deu. */
   const falhou = (rota: string, status: number | null, erroEm = 1_756_800_000_000) => ({
@@ -629,31 +676,17 @@ describe("o estado do andar da procedência", () => {
 
   const lendo = (rota: string) => ({ rota, carregando: true, dados: undefined, erro: null });
 
-  const AGORA = new Date("2026-09-02T09:00:00Z");
-
-  it("com as duas respostas e dado a publicar, está pronta", () => {
-    const estado = estadoDaProcedencia(
-      respondeu("/balance", [BALANCO]),
-      respondeu("/imports", [IMPORTACAO]),
-      AGORA,
-    );
+  it("com resposta e dado a publicar, está pronta", () => {
+    const estado = estadoDaProcedencia([respondeu("/balance/recorte")], PRONTA());
 
     expect(estado.estado).toBe("pronta");
     if (estado.estado !== "pronta") throw new Error("desfecho errado");
-    expect(estado.procedencia.cobertura!.percentual).toBeCloseTo(94, 5);
+    expect(estado.procedencia.celulasEmFato).toBe(12_004);
   });
 
   it("distingue 'não há o que conferir' de 'não consegui ler'", () => {
-    const vazia = estadoDaProcedencia(
-      respondeu("/balance", []),
-      respondeu("/imports", []),
-      AGORA,
-    );
-    const falha = estadoDaProcedencia(
-      falhou("/balance", 503),
-      falhou("/imports", 503),
-      AGORA,
-    );
+    const vazia = estadoDaProcedencia([respondeu("/balance/recorte")], null);
+    const falha = estadoDaProcedencia([falhou("/balance/recorte", 503)], null);
 
     expect(vazia.estado).toBe("vazia");
     expect(falha.estado).toBe("falha");
@@ -661,33 +694,29 @@ describe("o estado do andar da procedência", () => {
 
   it("não chama de vazia uma leitura que ainda não começou", () => {
     /*
-      As duas consultas ficam desligadas até o conteúdo principal chegar, e
-      `isPending` é verdadeiro o tempo todo aí. Tratá-las como decididas
-      publicaria "nenhuma importação passou pela conferência" sobre uma pergunta
-      que ninguém tinha feito ainda.
+      A consulta fica desligada até o conteúdo principal chegar, e `isPending` é
+      verdadeiro o tempo todo aí. Tratá-la como decidida publicaria "nenhuma
+      importação passou pela conferência" sobre uma pergunta que ninguém tinha
+      feito ainda.
     */
-    const estado = estadoDaProcedencia(lendo("/balance"), lendo("/imports"), AGORA);
-    expect(estado.estado).toBe("carregando");
+    expect(estadoDaProcedencia([lendo("/balance/recorte")], null).estado).toBe("carregando");
   });
 
-  it("espera as duas se decidirem antes de anunciar uma falha", () => {
+  it("espera todas se decidirem antes de anunciar uma falha", () => {
     /*
       Um 403 responde em milissegundos e uma leitura lenta demora segundos: sem
       esta espera o andar piscaria "falhou" e viraria "parcial" com o dado que
       estava a caminho.
     */
-    const estado = estadoDaProcedencia(falhou("/balance", 503), lendo("/imports"), AGORA);
+    const estado = estadoDaProcedencia([falhou("/a", 503), lendo("/b")], null);
     expect(estado.estado).toBe("carregando");
   });
 
   it("401 e 403 são acesso, e não falha de leitura", () => {
     for (const status of [401, 403]) {
-      const estado = estadoDaProcedencia(
-        falhou("/balance", status),
-        falhou("/imports", status),
-        AGORA,
+      expect(estadoDaProcedencia([falhou("/balance/recorte", status)], null).estado).toBe(
+        "sem_acesso",
       );
-      expect(estado.estado).toBe("sem_acesso");
     }
   });
 
@@ -696,27 +725,24 @@ describe("o estado do andar da procedência", () => {
       Mandar quem está na tela falar com o administrador da unidade sobre um
       servidor com defeito é o tipo de recomendação que faz perder a viagem.
     */
-    const estado = estadoDaProcedencia(
-      falhou("/balance", 403),
-      falhou("/imports", 500),
-      AGORA,
-    );
-
+    const estado = estadoDaProcedencia([falhou("/a", 403), falhou("/b", 500)], null);
     expect(estado.estado).toBe("falha");
   });
 
-  it("uma respondeu e a outra não: publica o que veio e nomeia o que faltou", () => {
+  it("com dado publicável e uma leitura falhada, é parcial e nomeia o que faltou", () => {
+    /*
+      O Panorama lê uma fonte só hoje, então ele não produz este desfecho. A
+      regra fica porque a máquina é de N leituras: quem acrescentar uma segunda
+      fonte recebe o comportamento certo em vez de reinventá-lo.
+    */
     const estado = estadoDaProcedencia(
-      respondeu("/balance", [BALANCO]),
-      falhou("/imports", 503),
-      AGORA,
+      [respondeu("/balance/recorte"), falhou("/imports", 503)],
+      PRONTA(),
     );
 
     expect(estado.estado).toBe("parcial");
     if (estado.estado !== "parcial") throw new Error("desfecho errado");
-    /* O que chegou continua publicado… */
-    expect(estado.procedencia.cobertura!.percentual).toBeCloseTo(94, 5);
-    /* …e o que não chegou é dito, com endereço e status. */
+    expect(estado.procedencia.celulasEmFato).toBe(12_004);
     expect(estado.faltou).toHaveLength(1);
     expect(estado.faltou[0]!.rota).toBe("/imports");
     expect(estado.faltou[0]!.status).toBe(503);
@@ -727,44 +753,35 @@ describe("o estado do andar da procedência", () => {
       Uma queda de rede sobe um `TypeError` sem status nenhum. Escrever "HTTP
       500" aqui explicaria uma causa que a tela não conhece.
     */
-    const estado = estadoDaProcedencia(
-      falhou("/balance", null),
-      falhou("/imports", null),
-      AGORA,
-    );
+    const estado = estadoDaProcedencia([falhou("/balance/recorte", null)], null);
 
     expect(estado.estado).toBe("falha");
     if (estado.estado !== "falha") throw new Error("desfecho errado");
-    expect(estado.falhas.every((f) => f.status === null)).toBe(true);
-    expect(estado.falhas.every((f) => f.semAcesso === false)).toBe(true);
+    expect(estado.falhas[0]!.status).toBeNull();
+    expect(estado.falhas[0]!.semAcesso).toBe(false);
   });
 
   it("a hora da falha é a do registro dela, e nunca a de agora", () => {
     const estado = estadoDaProcedencia(
-      falhou("/balance", 503, Date.parse("2026-09-02T08:59:12Z")),
-      falhou("/imports", 503, 0),
-      AGORA,
+      [
+        falhou("/a", 503, Date.parse("2026-09-02T08:59:12Z")),
+        falhou("/b", 503, 0),
+      ],
+      null,
     );
 
     if (estado.estado !== "falha") throw new Error("desfecho errado");
-    const [balance, imports] = estado.falhas;
-    expect(balance!.quando?.toISOString()).toBe("2026-09-02T08:59:12.000Z");
+    expect(estado.falhas[0]!.quando?.toISOString()).toBe("2026-09-02T08:59:12.000Z");
     /* Sem carimbo, a tela cala sobre a hora em vez de fabricar uma. */
-    expect(imports!.quando).toBeNull();
+    expect(estado.falhas[1]!.quando).toBeNull();
   });
 
-  it("uma falha com dado do outro lado nunca vira 'vazia'", () => {
+  it("uma falha nunca vira 'vazia'", () => {
     /*
       O caso que o `.catch(() => null)` produzia: o erro sumia, a procedência
       saía `null`, e a tela publicava a ausência — que é uma afirmação sobre o
       acervo — a partir de um servidor que caiu.
     */
-    const estado = estadoDaProcedencia(
-      falhou("/balance", 500),
-      respondeu("/imports", []),
-      AGORA,
-    );
-
-    expect(estado.estado).toBe("falha");
+    expect(estadoDaProcedencia([falhou("/balance/recorte", 500)], null).estado).toBe("falha");
   });
 });

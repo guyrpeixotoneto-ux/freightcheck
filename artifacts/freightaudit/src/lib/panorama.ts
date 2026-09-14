@@ -1,18 +1,12 @@
 import {
-  cobertura as coberturaAuditada,
   equipamentoMaisTocado,
   escreverImpacto,
   escreverPercentual,
   frotaTotal,
-  integridade,
   maioresImpactos,
   participacao,
-  qualidadeDaCobertura,
   ultimaImportacao,
   variacao,
-  type Cobertura,
-  type ExecucaoDeImportacao,
-  type Integridade,
   type LadosDoImpacto,
   type Tom,
   type UltimaImportacao,
@@ -28,7 +22,7 @@ import {
 } from "./impacto-apurado";
 import { linkDeAlteracoes, type Recorte } from "./recorte";
 import type { ItemCockpit } from "./cockpit";
-import type { BalancoResumo } from "@/components/balanco/tipos";
+import type { BalancoDoRecorte } from "@/components/balanco/tipos";
 import type { FamiliesOverview, FamiliesView } from "@/components/inicio/types";
 
 /**
@@ -500,11 +494,28 @@ export function mapaDoPanorama(
 // ---------------------------------------------------------------------------
 
 export interface Procedencia {
-  /** Cobertura **auditada**: células alcançadas ÷ células importadas. */
-  cobertura: Cobertura | null;
-  /** A qualidade da cobertura auditada, pela régua canônica. */
-  qualidade: { palavra: string; tom: Tom } | null;
-  integridade: Integridade | null;
+  /** O recorte que **o servidor** resolveu. Nunca o que a tela pediu. */
+  recorte: { label: string; period: string };
+  /** Os arquivos que alimentaram este recorte. */
+  arquivos: {
+    total: number;
+    fecham: number;
+    /** `true` quando todo arquivo alimentou só este recorte. */
+    exclusivos: boolean;
+  };
+  /**
+   * A massa **integral** dos arquivos acima — e não "células deste recorte".
+   *
+   * O nome é longo de propósito: ela pode conter célula atribuída a outra
+   * unidade, porque um arquivo multi-unidade alimenta legitimamente a
+   * procedência de todas as que alimentou. Somar a de três recortes daria o
+   * triplo do acervo.
+   */
+  massaDosArquivos: number;
+  /** Células sem destino, **do arquivo**. Zero é a única resposta aceitável. */
+  residuo: number;
+  /** A grandeza deste recorte: células que viraram fato nas vigências dele. */
+  celulasEmFato: number;
   ultima: UltimaImportacao | null;
 }
 
@@ -512,30 +523,64 @@ export interface Procedencia {
  * De onde vêm os números — o último andar, e deliberadamente o último.
  *
  * Quem abre a tela vem ver dinheiro, e a qualidade do dado nunca deve competir
- * com o financeiro pelo primeiro olhar. É também o único andar que lê fontes
- * fora de `/changes` (`/balance` e `/imports`), e o único que responde por
- * *como sabemos* em vez de por *quanto foi*.
+ * com o financeiro pelo primeiro olhar. É também o único andar que lê fonte
+ * fora de `/changes`, e o único que responde por *como sabemos* em vez de por
+ * *quanto foi*.
  *
- * `null` em toda parte é um estado legítimo: sem importação conferida, o andar
- * some inteiro em vez de desenhar zeros — a mesma regra de "cartão sem dado não
- * aparece" que vale no placar.
+ * **Ele deixou de publicar a cobertura do acervo inteiro.** Lia `/balance` sem
+ * recorte nenhum, de modo que o Panorama de PERNAMBUCO e a Visão Geral
+ * publicavam o mesmo percentual — ele nunca foi de unidade nenhuma. Agora a
+ * fonte é `/balance/recorte`, que recorta pela mesma unidade, canal e
+ * competência dos cinco andares acima, e deriva a operação do ambiente de
+ * trabalho em vez de aceitar a que o cliente mandou.
+ *
+ * **E deixou de publicar percentual.** Não por economia de tela: cobertura
+ * auditada recortada não é grandeza bem definida. O resíduo — célula que não
+ * chegou a destino — nunca virou fato, logo não tem unidade nem vigência a que
+ * pertencer, e é justamente a parcela que o Rastreio de Dados existe para achar.
+ * Um percentual aqui rateava o irrateável. O que fica são contagens, e a
+ * distinção que elas carregam: {@link Procedencia.massaDosArquivos} é dos
+ * arquivos, {@link Procedencia.celulasEmFato} é deste recorte.
+ *
+ * `null` quando não há arquivo a conferir — e aí quem fala é o estado `vazia`,
+ * que diz isso com uma frase em vez de com um zero.
  */
 export function procedenciaDoPanorama(
-  balancos: BalancoResumo[] | null | undefined,
-  importacoes: ExecucaoDeImportacao[] | null | undefined,
+  dados: BalancoDoRecorte | null | undefined,
   agora: Date = new Date(),
 ): Procedencia | null {
-  const cob = coberturaAuditada(balancos);
-  const integ = integridade(balancos);
-  const ultima = ultimaImportacao(importacoes, agora);
-
-  if (cob === null && integ === null && ultima === null) return null;
+  if (!dados) return null;
+  if (dados.conservacao.arquivos === 0) return null;
 
   return {
-    cobertura: cob,
-    qualidade: cob ? qualidadeDaCobertura(cob.percentual) : null,
-    integridade: integ,
-    ultima,
+    recorte: { label: dados.recorte.label, period: dados.recorte.period },
+    arquivos: {
+      total: dados.conservacao.arquivos,
+      fecham: dados.conservacao.fecham,
+      exclusivos: dados.conservacao.exclusivaDesteRecorte,
+    },
+    massaDosArquivos: dados.conservacao.celulasDosArquivos,
+    residuo: dados.conservacao.residuo,
+    celulasEmFato: dados.atribuido.celulasEmFato,
+    /*
+      A última importação passa pela mesma função dos outros módulos, e não por
+      uma formatação nova aqui: a régua de "há 2h" / "ontem" / "em 14/08/2026"
+      é de um lugar só. A diferença é a população — esta é a última **deste
+      recorte**, e não a do acervo, que era o defeito.
+    */
+    ultima: dados.ultima
+      ? ultimaImportacao(
+          [
+            {
+              importRunId: dados.ultima.importRunId,
+              status: dados.ultima.status,
+              filename: dados.ultima.filename,
+              receivedAt: dados.ultima.receivedAt,
+            },
+          ],
+          agora,
+        )
+      : null,
   };
 }
 
@@ -623,25 +668,34 @@ export type EstadoDaProcedencia =
  * "parcial" com o dado que estava a caminho. Uma leitura que trava fica no
  * esqueleto, que é o que de fato está acontecendo.
  *
- * **`parcial` é o estado que o desenho original não previa, e é o que mais vai
- * acontecer:** são duas consultas a rotas diferentes, e elas falham
- * separadamente. Derrubar o andar inteiro porque uma das duas caiu joga fora
- * uma resposta que chegou; publicar só o que veio, sem dizer o que faltou,
- * apresenta meia procedência como se fosse inteira.
+ * **`parcial` é o estado de quem lê de mais de uma fonte.** Ele nasceu quando o
+ * andar lia `/balance` e `/imports` separadamente: duas rotas falham em
+ * separado, derrubar o andar inteiro porque uma caiu joga fora a resposta que
+ * chegou, e publicar só o que veio sem dizer o que faltou apresenta meia
+ * procedência como se fosse inteira.
+ *
+ * Hoje a tela lê **uma** fonte — `/balance/recorte` devolve também a última
+ * importação do recorte, que era o segundo pedido —, então o Panorama não o
+ * produz. O desfecho fica porque a máquina é de N leituras e a regra dele é a
+ * parte difícil: quem acrescentar uma segunda fonte amanhã recebe o
+ * comportamento certo em vez de reinventá-lo.
  */
 export function estadoDaProcedencia(
-  balancos: LeituraDaProcedencia<BalancoResumo[]>,
-  importacoes: LeituraDaProcedencia<ExecucaoDeImportacao[]>,
-  agora: Date = new Date(),
+  leituras: readonly LeituraDaProcedencia<unknown>[],
+  /**
+   * O que as leituras sustentam — `null` quando não sustentam nada.
+   *
+   * A máquina não conhece o formato da resposta de propósito: ela decide sobre
+   * **em que pé está a leitura**, e isso não depende de qual é o payload. Quem
+   * monta a procedência é `procedenciaDoPanorama`, uma vez, fora daqui.
+   */
+  procedencia: Procedencia | null,
 ): EstadoDaProcedencia {
-  const leituras = [balancos, importacoes];
   if (leituras.some((leitura) => leitura.carregando)) return { estado: "carregando" };
 
   const falhas = leituras
     .map(falhaDaLeitura)
     .filter((falha): falha is FalhaDaProcedencia => falha !== null);
-
-  const procedencia = procedenciaDoPanorama(balancos.dados, importacoes.dados, agora);
 
   if (procedencia === null) {
     if (falhas.length === 0) return { estado: "vazia" };
