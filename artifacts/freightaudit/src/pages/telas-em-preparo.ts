@@ -115,7 +115,7 @@ export const TELAS_EM_PREPARO: TelaEmPreparo[] = [
   },
 
   // -------------------------------------------------------------------------
-  // QLP
+  // QLP — hoje dentro de Custo Fixo
   // -------------------------------------------------------------------------
   /*
     `/qlp-administrativo` saiu deste catálogo: a importação passou a receber o
@@ -136,7 +136,7 @@ export const TELAS_EM_PREPARO: TelaEmPreparo[] = [
     href: "/qlp-operacional",
     label: "QLP Operacional",
     icon: HardHat,
-    cor: "text-nav-qlp",
+    cor: "text-nav-custo-fixo",
     pergunta:
       "Quantas pessoas o modelo remunera na operação de cada unidade — o quadro por cargo, a quantidade contratada e o valor que ela carrega na quinzena.",
     depende: [

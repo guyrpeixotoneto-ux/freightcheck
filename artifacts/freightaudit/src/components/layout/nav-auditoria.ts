@@ -48,7 +48,6 @@ import {
   TrendingUp,
   TriangleAlert,
   Truck,
-  UsersRound,
   Wallet,
   Workflow,
   type LucideIcon,
@@ -74,7 +73,7 @@ import { GRUPO_ADMINISTRACAO } from "./nav-administracao";
 import type { NavGroup } from "./nav";
 
 /**
- * A lateral do ambiente Auditoria — as doze seções, e a ordem em que se lê o
+ * A lateral do ambiente Auditoria — as onze seções, e a ordem em que se lê o
  * trabalho de um dia.
  *
  * A lista morava em `sidebar.tsx`, como constante, e saiu de lá pela mesma razão
@@ -107,9 +106,9 @@ import type { NavGroup } from "./nav";
  * do conjunto (**Visão executiva**, que reúne os dois desde que as duas seções
  * viraram uma), libera-se o que precisa ser comprado
  * hoje (**Compras**), procura-se o desvio (**Auditoria**), cobra-se o desvio achado
- * (**Processos**), confere-se o quadro de gente que o modelo remunera
- * (**QLP**), confere-se o que se paga por ter o ativo, rubrica a rubrica
- * (**Custo Fixo**) e o que se paga por rodar com ele (**Custo Variável**),
+ * (**Processos**), confere-se o que se paga por ter o ativo e a estrutura de
+ * gente que o modelo remunera (**Custo Fixo**, que é onde o QLP mora desde que
+ * deixou de ser seção) e o que se paga por rodar com ele (**Custo Variável**),
  * desce-se ao ativo que o sofreu (**Frota**), pergunta-se ao
  * assistente o que sobrou (**Inteligência**), e por baixo de tudo estão o
  * material (**Dados & governança**) e a casa (**Administração**).
@@ -427,30 +426,10 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
     },
     {
       /*
-        QLP — o quadro de lotação de pessoal que o modelo remunera — é seção
-        própria, acima da Frota, porque é a outra metade da mesma conta: a Frota
-        carrega o custo do ativo, e o QLP carrega o custo da estrutura de gente,
-        lida nas duas alturas em que o Freightech a publica — a operação e a
-        administração. Os dois itens abrem telas em preparo: a regra vive no Book,
-        mas o export que abastece este banco ainda não traz os valores de QLP —
-        ver `pages/telas-em-preparo.ts`, onde cada um diz o que falta.
-      */
-      id: "qlp",
-      titulo: "QLP",
-      descricao: "O quadro de gente que o modelo remunera",
-      icon: UsersRound,
-      cor: "text-nav-qlp",
-      itens: [
-        { href: "/qlp-operacional", label: "QLP Operacional", icon: HardHat },
-        { href: "/qlp-administrativo", label: "QLP Administrativo", icon: Briefcase },
-      ],
-    },
-    {
-      /*
-        CUSTO FIXO vem entre o QLP e a Frota porque é onde a conta muda de
-        natureza: acima dela está o que se paga por ter gente, abaixo o ativo
-        que roda, e aqui está o que se paga por **ter** o ativo — a parcela que
-        a vigência cobra esteja o equipamento parado ou não.
+        CUSTO FIXO reúne tudo o que a vigência cobra esteja o equipamento
+        parado ou não — a parcela que não depende de ter rodado. Vem acima do
+        Custo Variável, que é a outra metade da conta, e acima da Frota, que é
+        onde se desce ao ativo individual.
 
         É seção própria, e não um item da Frota, porque a pergunta é de outra
         altura. A Frota pergunta pelo ativo — o que mudou nesta placa, quanto ela
@@ -459,21 +438,36 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
         linhas lidas por outro eixo, e um item solto dentro da Frota faria a
         leitura por rubrica parecer um recorte de placa.
 
-        **São quatro módulos, um por rubrica**: Finame e Juros Finame — o
-        principal do financiamento do ativo e o que ele cobra de juros —, IPVA e
-        Lucro Fixo.
+        **São seis módulos, e eles se leem em dois blocos.** Primeiro as quatro
+        rubricas do ativo: Finame e Juros Finame — o principal do financiamento
+        e o que ele cobra de juros —, IPVA e Lucro Fixo. Depois as duas de
+        gente: QLP Operacional e QLP Administrativo, o quadro de lotação que o
+        modelo remunera, nas duas alturas em que o Freightech o publica.
 
-        Os quatro entram hoje **só com o nome**, e abrem telas em preparo: o que
-        cada um vai mostrar ainda não está decidido, e a regra da casa é que
-        nenhum item leve a lugar nenhum nem a um número inventado. Cada verbete
-        em `pages/telas-em-preparo.ts` diz o que falta para a rubrica virar
-        número e para onde ir enquanto isso; quando a definição de um deles
-        chegar, ele sai de lá, vira `<Route>` em `App.tsx`, e este menu não muda
-        uma vírgula.
+        **O QLP era seção própria, e virou as duas últimas linhas desta.** Ele
+        estava separado porque a população é outra — gente, não metal —, mas a
+        pergunta que ele responde é a mesma que as quatro acima: o que se paga
+        todo mês independente do quanto se rodou. Estrutura de pessoal é custo
+        fixo, e mantê-la num cartão vizinho obrigava a somar de cabeça duas
+        seções para ver a conta inteira.
+
+        **Uma consequência a registrar**: a chave de seção era `#qlp`
+        (`nav.ts`), e quem tivesse desligado a seção QLP em Permissões tinha
+        essa decisão gravada nela. A seção não existe mais, e as duas telas
+        passam a responder à chave de Custo Fixo — as chaves **por item**
+        (`/qlp-operacional`, `/qlp-administrativo`) continuam valendo, porque
+        são o `href`, e o `href` não mudou.
+
+        Os quatro módulos do ativo entram **só com o nome**, e abrem telas em
+        preparo: cada verbete em `pages/telas-em-preparo.ts` diz o que falta para
+        a rubrica virar número e para onde ir enquanto isso; quando a definição
+        de um deles chegar, ele sai de lá, vira `<Route>` em `App.tsx`, e este
+        menu não muda uma vírgula. O QLP Administrativo já é tela de verdade; o
+        Operacional ainda espera o export dele.
       */
       id: "custo-fixo",
       titulo: "Custo Fixo",
-      descricao: "O que se paga por ter o ativo, rubrica a rubrica",
+      descricao: "O que se paga por ter o ativo e a estrutura, rubrica a rubrica",
       icon: CircleDollarSign,
       cor: "text-nav-custo-fixo",
       itens: [
@@ -481,6 +475,8 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
         { href: "/custo-fixo-juros-finame", label: "Juros Finame", icon: Percent },
         { href: "/custo-fixo-ipva", label: "IPVA", icon: Receipt },
         { href: "/custo-fixo-lucro-fixo", label: "Lucro Fixo", icon: TrendingUp },
+        { href: "/qlp-operacional", label: "QLP Operacional", icon: HardHat },
+        { href: "/qlp-administrativo", label: "QLP Administrativo", icon: Briefcase },
       ],
     },
     {

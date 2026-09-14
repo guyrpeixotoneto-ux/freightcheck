@@ -372,7 +372,7 @@ describe("a lateral", () => {
     expect(secoesDaAuditoria()).not.toContain("Justificativas");
   });
 
-  it("mantém as doze seções do desenho, na ordem", () => {
+  it("mantém as onze seções do desenho, na ordem", () => {
     expect(secoesDaAuditoria()).toEqual([
       /*
         Chamados Ambev abre a lista porque é por onde o dia começa: o que a fila
@@ -399,11 +399,13 @@ describe("a lateral", () => {
       "Compras",
       "Auditoria",
       "Processos",
-      "QLP",
       /*
-        Custo Fixo entra entre o QLP e a Frota, e a posição é a da conta: acima,
-        o que se paga por ter gente; abaixo, o ativo que roda; aqui, o que se
-        paga por ter o ativo — ver `nav-auditoria.ts`.
+        **O QLP não é mais seção.** As duas telas dele — Operacional e
+        Administrativo — são hoje as duas últimas linhas de Custo Fixo, porque
+        estrutura de pessoal responde à mesma pergunta das rubricas do ativo: o
+        que se paga independente do quanto se rodou. Ver `nav-auditoria.ts`,
+        onde a mudança está escrita por extenso, inclusive o que ela custa —
+        a chave de seção `#qlp` deixou de existir.
       */
       "Custo Fixo",
       /*
