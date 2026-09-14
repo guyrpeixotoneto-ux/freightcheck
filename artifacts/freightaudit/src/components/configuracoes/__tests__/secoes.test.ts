@@ -41,24 +41,22 @@ describe("o índice de Configurações", () => {
     const sustentadas = SECOES_GERAIS.filter((s) => !estaEmPreparo(s.href));
 
     /*
-      Oito hoje. Eram três — Meu Perfil, Unidades e Usuários —, viraram quatro
+      Nove hoje. Eram três — Meu Perfil, Unidades e Usuários —, viraram quatro
       quando Permissões ganhou endereço próprio, sete quando o cadastro da casa
       nasceu e Cargos, Negócio e Departamento saíram do catálogo de telas em
       preparo, oito quando a troca da senha saiu de Meu Perfil e virou
       Segurança, nove quando o papel deixou de ser dois valores no código e
       virou cadastro, dez quando os Módulos Universais deram à casa a terceira
-      camada — e **oito de novo** quando as três telas de acesso viraram uma:
-      as três respondiam a mesma pergunta sobre sujeitos diferentes, e quem
-      precisava das três começava numa e terminava em outra. É exatamente o
-      efeito que este `expect` existe para produzir: ele cai no dia da mudança e
-      obriga a olhar as duas listas juntas, em vez de deixar o catálogo
-      prometendo o que já existe.
+      camada, oito quando as três telas de acesso viraram uma — e **nove de
+      novo** quando a decisão da casa voltou a ter tela própria, com o
+      arquivamento que não cabia numa coluna da matriz. É exatamente o efeito
+      que este `expect` existe para produzir: ele cai no dia da mudança e obriga
+      a olhar as duas listas juntas, em vez de deixar o catálogo prometendo o
+      que já existe.
 
-      Os dois endereços que saíram desta lista continuam atendidos em `App.tsx`
-      — `/configuracoes/papeis` e `/configuracoes/modulos-universais` abrem
-      Permissões —, e por isso eles não estão aqui **nem** em preparo: rota sem
-      linha no índice é o caso legítimo do redirecionamento, e o que este
-      arquivo recusa é o contrário, a linha sem rota.
+      `Papéis` continua fora desta lista e atendido em `App.tsx`: rota sem linha
+      no índice é o caso legítimo do redirecionamento, e o que este arquivo
+      recusa é o contrário, a linha sem rota.
     */
     expect(sustentadas.map((s) => s.href)).toEqual([
       "/configuracoes/perfil",
@@ -66,6 +64,7 @@ describe("o índice de Configurações", () => {
       "/configuracoes/unidades",
       "/configuracoes/usuarios",
       "/configuracoes/permissoes",
+      "/configuracoes/modulos-universais",
       "/configuracoes/cargos",
       "/configuracoes/negocio",
       "/configuracoes/departamento",
@@ -75,21 +74,20 @@ describe("o índice de Configurações", () => {
     }
   });
 
-  it("mantém no ar os endereços das seções que Permissões absorveu", () => {
+  it("mantém no ar o endereço da seção que Permissões absorveu", () => {
     /*
-      `Papéis` e `Módulos Universais` saíram do índice quando Permissões passou a
-      reunir as três camadas. Eles saíram da **lista**, e não do roteador: os
-      dois endereços estão em link compartilhado e em conversa antiga, e um 404
-      seria a resposta errada para quem pergunta a coisa certa no endereço de
-      ontem.
+      `Papéis` saiu do índice quando Permissões passou a reunir as camadas de
+      acesso. Ele saiu da **lista**, e não do roteador: o endereço está em link
+      compartilhado e em conversa antiga, e um 404 seria a resposta errada para
+      quem pergunta a coisa certa no endereço de ontem.
+
+      `Módulos Universais` esteve nesta mesma frase por um tempo e saiu dela: a
+      seção voltou ao índice com o arquivamento, e o endereço voltou a abrir a
+      tela dele — quem guardou o link de setembro cai onde sempre caiu.
     */
-    for (const antigo of [
-      "/configuracoes/papeis",
-      "/configuracoes/modulos-universais",
-    ]) {
-      expect(rotasDoApp.has(antigo), `${antigo} deixou de ser atendido`).toBe(true);
-      expect(SECOES_GERAIS.some((s) => s.href === antigo)).toBe(false);
-    }
+    const antigo = "/configuracoes/papeis";
+    expect(rotasDoApp.has(antigo), `${antigo} deixou de ser atendido`).toBe(true);
+    expect(SECOES_GERAIS.some((s) => s.href === antigo)).toBe(false);
   });
 
   it("não repete endereço", () => {

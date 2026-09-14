@@ -555,15 +555,20 @@ function RotasDaAuditoria() {
         <Configuracoes secao="permissoes" />
       </Route>
       {/*
-        Os dois endereços das seções que Permissões absorveu. Eles continuam
-        atendidos — estão em link compartilhado e em conversa antiga — e abrem a
-        seção que hoje responde o que eles respondiam, em vez de 404.
+        `Papéis` continua atendido pela seção que o absorveu — o endereço está
+        em link compartilhado e em conversa antiga, e abrir a matriz é responder
+        o que ele respondia, em vez de 404.
+
+        `Módulos Universais` voltou a ter tela própria: a decisão da casa cabe
+        na coluna Inativar da matriz, e o resto dela não cabia — os números do
+        que está fora do ar, o motivo, o histórico e o arquivamento. O endereço
+        é o mesmo de sempre, então o link antigo abre exatamente onde abria.
       */}
       <Route path="/configuracoes/papeis">
         <Configuracoes secao="permissoes" />
       </Route>
       <Route path="/configuracoes/modulos-universais">
-        <Configuracoes secao="permissoes" />
+        <Configuracoes secao="modulos-universais" />
       </Route>
       {/*
         Cargos, Negócio e Departamento saíram de `TELAS_EM_PREPARO` quando o
