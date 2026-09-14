@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  estadoDaProcedencia,
   leituraDaUnidade,
   leituraDaVisaoGeral,
   mapaDoPanorama,
@@ -578,5 +579,192 @@ describe("a procedência", () => {
       agora,
     );
     expect(p?.ultima?.filename).toBe("cavalos.xlsx");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 6. Em que pé está a procedência — os quatro fatos que eram um nada só
+// ---------------------------------------------------------------------------
+
+/*
+  Até aqui os quatro terminavam no mesmo pixel: as duas consultas saíam com
+  `.catch(() => null)`, e um `null` fazia o andar sumir. "Não há importação
+  conferida", "a API respondeu 503", "ainda estou lendo" e "o seu acesso não
+  alcança isto" viravam a mesma tela — a ausência —, num andar cuja pergunta é
+  "posso confiar nisto?".
+
+  A régua destes casos é uma só: **nenhum desfecho pode ser confundido com
+  outro**, e o que não se sabe nunca pode sair como se soubesse.
+*/
+describe("o estado do andar da procedência", () => {
+  const BALANCO: BalancoResumo = {
+    entrada: 1000,
+    residuo: 0,
+    porNatureza: { PERDA: 60, RESIDUO: 0, DESCARTE: 0, DADO: 940, OUTRO: 0 },
+  } as BalancoResumo;
+
+  const IMPORTACAO = {
+    importRunId: "1",
+    status: "PROMOTED",
+    filename: "cavalos.xlsx",
+    receivedAt: "2026-09-02T07:00:00Z",
+  };
+
+  /** Uma leitura que respondeu. */
+  const respondeu = <T,>(rota: string, dados: T) => ({
+    rota,
+    carregando: false,
+    dados,
+    erro: null,
+  });
+
+  /** Uma leitura que falhou, com o status que o servidor deu. */
+  const falhou = (rota: string, status: number | null, erroEm = 1_756_800_000_000) => ({
+    rota,
+    carregando: false,
+    dados: undefined,
+    erro: status === null ? new TypeError("Failed to fetch") : { status },
+    erroEm,
+  });
+
+  const lendo = (rota: string) => ({ rota, carregando: true, dados: undefined, erro: null });
+
+  const AGORA = new Date("2026-09-02T09:00:00Z");
+
+  it("com as duas respostas e dado a publicar, está pronta", () => {
+    const estado = estadoDaProcedencia(
+      respondeu("/balance", [BALANCO]),
+      respondeu("/imports", [IMPORTACAO]),
+      AGORA,
+    );
+
+    expect(estado.estado).toBe("pronta");
+    if (estado.estado !== "pronta") throw new Error("desfecho errado");
+    expect(estado.procedencia.cobertura!.percentual).toBeCloseTo(94, 5);
+  });
+
+  it("distingue 'não há o que conferir' de 'não consegui ler'", () => {
+    const vazia = estadoDaProcedencia(
+      respondeu("/balance", []),
+      respondeu("/imports", []),
+      AGORA,
+    );
+    const falha = estadoDaProcedencia(
+      falhou("/balance", 503),
+      falhou("/imports", 503),
+      AGORA,
+    );
+
+    expect(vazia.estado).toBe("vazia");
+    expect(falha.estado).toBe("falha");
+  });
+
+  it("não chama de vazia uma leitura que ainda não começou", () => {
+    /*
+      As duas consultas ficam desligadas até o conteúdo principal chegar, e
+      `isPending` é verdadeiro o tempo todo aí. Tratá-las como decididas
+      publicaria "nenhuma importação passou pela conferência" sobre uma pergunta
+      que ninguém tinha feito ainda.
+    */
+    const estado = estadoDaProcedencia(lendo("/balance"), lendo("/imports"), AGORA);
+    expect(estado.estado).toBe("carregando");
+  });
+
+  it("espera as duas se decidirem antes de anunciar uma falha", () => {
+    /*
+      Um 403 responde em milissegundos e uma leitura lenta demora segundos: sem
+      esta espera o andar piscaria "falhou" e viraria "parcial" com o dado que
+      estava a caminho.
+    */
+    const estado = estadoDaProcedencia(falhou("/balance", 503), lendo("/imports"), AGORA);
+    expect(estado.estado).toBe("carregando");
+  });
+
+  it("401 e 403 são acesso, e não falha de leitura", () => {
+    for (const status of [401, 403]) {
+      const estado = estadoDaProcedencia(
+        falhou("/balance", status),
+        falhou("/imports", status),
+        AGORA,
+      );
+      expect(estado.estado).toBe("sem_acesso");
+    }
+  });
+
+  it("uma recusa de acesso ao lado de uma falha de servidor é falha", () => {
+    /*
+      Mandar quem está na tela falar com o administrador da unidade sobre um
+      servidor com defeito é o tipo de recomendação que faz perder a viagem.
+    */
+    const estado = estadoDaProcedencia(
+      falhou("/balance", 403),
+      falhou("/imports", 500),
+      AGORA,
+    );
+
+    expect(estado.estado).toBe("falha");
+  });
+
+  it("uma respondeu e a outra não: publica o que veio e nomeia o que faltou", () => {
+    const estado = estadoDaProcedencia(
+      respondeu("/balance", [BALANCO]),
+      falhou("/imports", 503),
+      AGORA,
+    );
+
+    expect(estado.estado).toBe("parcial");
+    if (estado.estado !== "parcial") throw new Error("desfecho errado");
+    /* O que chegou continua publicado… */
+    expect(estado.procedencia.cobertura!.percentual).toBeCloseTo(94, 5);
+    /* …e o que não chegou é dito, com endereço e status. */
+    expect(estado.faltou).toHaveLength(1);
+    expect(estado.faltou[0]!.rota).toBe("/imports");
+    expect(estado.faltou[0]!.status).toBe(503);
+  });
+
+  it("não inventa status para uma falha que não teve um", () => {
+    /*
+      Uma queda de rede sobe um `TypeError` sem status nenhum. Escrever "HTTP
+      500" aqui explicaria uma causa que a tela não conhece.
+    */
+    const estado = estadoDaProcedencia(
+      falhou("/balance", null),
+      falhou("/imports", null),
+      AGORA,
+    );
+
+    expect(estado.estado).toBe("falha");
+    if (estado.estado !== "falha") throw new Error("desfecho errado");
+    expect(estado.falhas.every((f) => f.status === null)).toBe(true);
+    expect(estado.falhas.every((f) => f.semAcesso === false)).toBe(true);
+  });
+
+  it("a hora da falha é a do registro dela, e nunca a de agora", () => {
+    const estado = estadoDaProcedencia(
+      falhou("/balance", 503, Date.parse("2026-09-02T08:59:12Z")),
+      falhou("/imports", 503, 0),
+      AGORA,
+    );
+
+    if (estado.estado !== "falha") throw new Error("desfecho errado");
+    const [balance, imports] = estado.falhas;
+    expect(balance!.quando?.toISOString()).toBe("2026-09-02T08:59:12.000Z");
+    /* Sem carimbo, a tela cala sobre a hora em vez de fabricar uma. */
+    expect(imports!.quando).toBeNull();
+  });
+
+  it("uma falha com dado do outro lado nunca vira 'vazia'", () => {
+    /*
+      O caso que o `.catch(() => null)` produzia: o erro sumia, a procedência
+      saía `null`, e a tela publicava a ausência — que é uma afirmação sobre o
+      acervo — a partir de um servidor que caiu.
+    */
+    const estado = estadoDaProcedencia(
+      falhou("/balance", 500),
+      respondeu("/imports", []),
+      AGORA,
+    );
+
+    expect(estado.estado).toBe("falha");
   });
 });

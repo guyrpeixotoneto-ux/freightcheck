@@ -538,3 +538,148 @@ export function procedenciaDoPanorama(
     ultima,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Andar 6 — em que pé está a leitura
+// ---------------------------------------------------------------------------
+
+/** O que a tela sabe de **uma** das duas leituras da procedência. */
+export interface LeituraDaProcedencia<T> {
+  /** O endereço, para que a falha diga o que não respondeu. */
+  rota: string;
+  /** A consulta ainda não se decidiu — inclusive quando ainda nem começou. */
+  carregando: boolean;
+  dados: T | null | undefined;
+  /** A falha como o React Query a entrega. Nula quando não houve. */
+  erro: unknown;
+  /**
+   * Quando a falha foi registrada — `errorUpdatedAt`, e nunca um `new Date()`
+   * fabricado na hora de desenhar. É a mesma regra de `UltimaAtualizacao`: a
+   * hora que a tela publica diz quando a resposta chegou, e não que horas são.
+   */
+  erroEm?: number;
+}
+
+/** Uma leitura que não respondeu, e o pouco que se sabe sobre por quê. */
+export interface FalhaDaProcedencia {
+  rota: string;
+  /** Quando ela foi registrada — `null` quando a leitura não sabe dizer. */
+  quando: Date | null;
+  /** O status HTTP — `null` quando a falha não chegou a ter um (rede, DNS). */
+  status: number | null;
+  /**
+   * `true` em 401 e 403.
+   *
+   * Não é a leitura que falhou, é o acesso — e as duas mandam procurar em
+   * lugares diferentes: uma é com quem cuida do servidor, a outra é com quem
+   * administra a unidade.
+   */
+  semAcesso: boolean;
+}
+
+/**
+ * Os seis desfechos do andar 6, e **nenhum deles é o outro**.
+ *
+ * Até aqui eram um só. As duas consultas saíam com `.catch(() => null)`, o
+ * `null` viajava até {@link procedenciaDoPanorama}, que devolvia `null`, e a
+ * tela não desenhava o andar. De modo que "não há importação conferida", "a API
+ * respondeu 503", "ainda estou lendo" e "o seu acesso não alcança esta leitura"
+ * terminavam no mesmo pixel: nenhum.
+ *
+ * Para uma tela executiva isso é elegante. Para uma leitura de auditoria é o
+ * defeito mais caro que esta tela podia ter, e o próprio produto já escreveu a
+ * regra em `pages/rastreio-de-dados.tsx`: *"um indicador que só aparece quando
+ * há problema é indistinguível de um indicador quebrado"*. Um andar que some
+ * por falha faz **ausência de evidência** parecer **evidência de ausência** —
+ * e é exatamente esse par que uma auditoria existe para separar.
+ *
+ * **"Cartão sem dado não aparece" vale para dado ausente.** Não vale para
+ * leitura que falhou, não vale para acesso negado e não vale para leitura em
+ * curso. A recusa de desenhar zeros é sobre um dado que se sabe não existir;
+ * nos outros três casos não se sabe coisa nenhuma, e é isso que a tela tem de
+ * dizer.
+ */
+export type EstadoDaProcedencia =
+  /** Alguma das duas leituras ainda não se decidiu. */
+  | { estado: "carregando" }
+  /** As duas responderam, e não há importação conferida a resumir. */
+  | { estado: "vazia" }
+  /** As duas responderam e há o que publicar. */
+  | { estado: "pronta"; procedencia: Procedencia }
+  /** Uma respondeu e a outra não: publica o que veio e **nomeia** o que faltou. */
+  | { estado: "parcial"; procedencia: Procedencia; faltou: FalhaDaProcedencia[] }
+  /** Nada a publicar, e o que impediu foi o acesso. */
+  | { estado: "sem_acesso"; falhas: FalhaDaProcedencia[] }
+  /** Nada a publicar, e o que impediu foi a leitura. */
+  | { estado: "falha"; falhas: FalhaDaProcedencia[] };
+
+/**
+ * Em que pé está o andar da procedência.
+ *
+ * **Enquanto alguma das duas não se decidiu, o estado é `carregando`** — mesmo
+ * que a outra já tenha falhado. A alternativa era publicar a falha assim que
+ * ela chega, e ela chega rápido: um 403 responde em milissegundos e uma leitura
+ * lenta demora segundos, de modo que o andar piscaria "falhou" antes de virar
+ * "parcial" com o dado que estava a caminho. Uma leitura que trava fica no
+ * esqueleto, que é o que de fato está acontecendo.
+ *
+ * **`parcial` é o estado que o desenho original não previa, e é o que mais vai
+ * acontecer:** são duas consultas a rotas diferentes, e elas falham
+ * separadamente. Derrubar o andar inteiro porque uma das duas caiu joga fora
+ * uma resposta que chegou; publicar só o que veio, sem dizer o que faltou,
+ * apresenta meia procedência como se fosse inteira.
+ */
+export function estadoDaProcedencia(
+  balancos: LeituraDaProcedencia<BalancoResumo[]>,
+  importacoes: LeituraDaProcedencia<ExecucaoDeImportacao[]>,
+  agora: Date = new Date(),
+): EstadoDaProcedencia {
+  const leituras = [balancos, importacoes];
+  if (leituras.some((leitura) => leitura.carregando)) return { estado: "carregando" };
+
+  const falhas = leituras
+    .map(falhaDaLeitura)
+    .filter((falha): falha is FalhaDaProcedencia => falha !== null);
+
+  const procedencia = procedenciaDoPanorama(balancos.dados, importacoes.dados, agora);
+
+  if (procedencia === null) {
+    if (falhas.length === 0) return { estado: "vazia" };
+    /*
+      Só é "sem acesso" quando **todas** as falhas são de acesso. Uma 403 ao
+      lado de uma 500 é uma tela que caiu, e mandar a pessoa falar com o
+      administrador da unidade sobre um servidor com defeito é o tipo de
+      recomendação que faz perder a viagem.
+    */
+    return falhas.every((falha) => falha.semAcesso)
+      ? { estado: "sem_acesso", falhas }
+      : { estado: "falha", falhas };
+  }
+
+  if (falhas.length > 0) return { estado: "parcial", procedencia, faltou: falhas };
+  return { estado: "pronta", procedencia };
+}
+
+/**
+ * O que se sabe de uma leitura que não respondeu.
+ *
+ * O status é lido com cuidado porque nem toda falha é `ApiError`: uma queda de
+ * rede sobe um `TypeError` sem status nenhum, e inventar um número aqui faria a
+ * tela explicar uma causa que ela não conhece.
+ */
+function falhaDaLeitura(leitura: LeituraDaProcedencia<unknown>): FalhaDaProcedencia | null {
+  if (leitura.erro === null || leitura.erro === undefined) return null;
+
+  const bruto = (leitura.erro as { status?: unknown }).status;
+  const status = typeof bruto === "number" ? bruto : null;
+
+  const quando =
+    typeof leitura.erroEm === "number" && leitura.erroEm > 0 ? new Date(leitura.erroEm) : null;
+
+  return {
+    rota: leitura.rota,
+    quando,
+    status,
+    semAcesso: status === 401 || status === 403,
+  };
+}

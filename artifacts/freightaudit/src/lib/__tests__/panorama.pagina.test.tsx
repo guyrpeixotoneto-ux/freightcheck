@@ -399,3 +399,121 @@ describe("a página do Panorama", () => {
     ).toBeTruthy();
   });
 });
+
+/*
+  O andar 6, nos quatro desfechos que eram um só.
+
+  As duas leituras da procedência saíam com `.catch(() => null)`, e o `null`
+  fazia o andar sumir. De modo que "não há importação conferida" — uma
+  afirmação sobre o acervo —, "a API caiu", "você não tem acesso" e "ainda estou
+  lendo" produziam exatamente a mesma tela: nenhuma. Num andar que existe para
+  responder "posso confiar nisto?", isso faz **ausência de evidência** parecer
+  **evidência de ausência**.
+
+  O que estes casos protegem não é o texto de cada estado — é que os quatro
+  continuem sendo quatro, e que nenhum deles volte a ser o silêncio.
+*/
+describe("a procedência, quando ela não tem o que publicar", () => {
+  /** O mesmo servidor da suíte, com as duas rotas da procedência trocáveis. */
+  const servidorCom = (procedencia: {
+    balance?: () => Response;
+    imports?: () => Response;
+  }) =>
+    vi.fn(async (entrada: RequestInfo | URL) => {
+      const url = String(entrada);
+      if (url.includes("/changes/families")) return resposta(VIGENCIA);
+      if (url.includes("/changes/grouped")) return resposta(VIGENCIA);
+      if (url.includes("/balance")) {
+        return (
+          procedencia.balance?.() ??
+          resposta([
+            {
+              entrada: 1000,
+              residuo: 0,
+              porNatureza: { PERDA: 60, RESIDUO: 0, DESCARTE: 0, DADO: 940, OUTRO: 0 },
+            },
+          ])
+        );
+      }
+      if (url.includes("/imports")) {
+        return (
+          procedencia.imports?.() ??
+          resposta([
+            {
+              importRunId: "1",
+              status: "PROMOTED",
+              filename: "cavalos.xlsx",
+              receivedAt: "2026-08-01T09:12:00Z",
+            },
+          ])
+        );
+      }
+      return resposta({ from: "2026-07-01", to: "2026-08-01", periods: [], entries: [] });
+    });
+
+  const caiu = () => resposta({ error: "indisponível" }, 503);
+  const negou = () => resposta({ error: "sem permissão" }, 403);
+  const vazio = () => resposta([]);
+
+  it("com as duas rotas fora, diz que não conseguiu ler — e não que não há dado", async () => {
+    vi.stubGlobal("fetch", servidorCom({ balance: caiu, imports: caiu }));
+    montar();
+
+    await waitFor(() =>
+      expect(screen.getByText("Não foi possível conferir a procedência")).toBeTruthy(),
+    );
+    expect(screen.getByText(/está dizendo que não conseguiu ler/)).toBeTruthy();
+
+    /* O endereço e o status saem por extenso: é o que liga a tela ao log. */
+    expect(screen.getByText(/\/balance · HTTP 503/)).toBeTruthy();
+
+    /* E os andares acima continuam de pé — a falha é sobre a confiança neles. */
+    expect(screen.getByText("Impacto líquido apurado")).toBeTruthy();
+  });
+
+  it("um 403 manda procurar o acesso, e não o servidor", async () => {
+    vi.stubGlobal("fetch", servidorCom({ balance: negou, imports: negou }));
+    montar();
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("Seu acesso não alcança a conferência das importações"),
+      ).toBeTruthy(),
+    );
+    expect(screen.getByText(/você é que não o vê/)).toBeTruthy();
+
+    /*
+      Sem botão de tentar de novo: repetir o pedido devolve o mesmo 403, e um
+      botão que não pode funcionar é uma promessa que a tela não cumpre.
+    */
+    expect(screen.queryByText("Tentar de novo")).toBeNull();
+  });
+
+  it("sem importação conferida, a frase é sobre o acervo — e o andar continua na tela", async () => {
+    vi.stubGlobal("fetch", servidorCom({ balance: vazio, imports: vazio }));
+    montar();
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("Nenhuma importação desta leitura passou pela conferência"),
+      ).toBeTruthy(),
+    );
+    /* A frase salva os cinco andares acima em vez de deixá-los sob suspeita. */
+    expect(screen.getByText(/continuam válidos/)).toBeTruthy();
+    /* E o título do andar continua desenhado: ele não some mais. */
+    expect(screen.getByText("De onde vêm estes números")).toBeTruthy();
+  });
+
+  it("uma rota respondendo e a outra não: publica o que veio e nomeia o que faltou", async () => {
+    vi.stubGlobal("fetch", servidorCom({ imports: caiu }));
+    montar();
+
+    /* O que chegou é publicado… */
+    await waitFor(() => expect(screen.getByText("Cobertura auditada")).toBeTruthy());
+    /* …e a tela não apresenta meia procedência como se fosse inteira. */
+    expect(
+      screen.getByText(/Esta procedência está incompleta: uma das fontes não respondeu/),
+    ).toBeTruthy();
+    expect(screen.getByText(/\/imports · HTTP 503/)).toBeTruthy();
+  });
+});

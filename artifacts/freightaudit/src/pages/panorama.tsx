@@ -35,12 +35,13 @@ import {
   type FiltroDeMudanca,
 } from "@/lib/impacto-apurado";
 import {
+  estadoDaProcedencia,
   leituraDaUnidade,
   leituraDaVisaoGeral,
   mapaDoPanorama,
   placarDoPanorama,
-  procedenciaDoPanorama,
   vereditoDoPanorama,
+  type EstadoDaProcedencia,
   type LeituraDoPanorama,
   type Veredito as DadosDoVeredito,
 } from "@/lib/panorama";
@@ -184,19 +185,26 @@ export default function Panorama() {
     mesma razão medida em `docs/AUDITORIA-ZERO-LOADING.md` para a série geral:
     não alimentam a resposta que traz alguém à tela, e disputariam o mesmo pool
     de conexões com a leitura que alimenta.
+
+    **Elas não engolem mais a falha.** As duas saíam com `.catch(() => null)`, e
+    o `null` fazia o andar 6 sumir — de modo que "a API caiu", "você não tem
+    acesso", "ainda estou lendo" e "não há importação conferida" terminavam no
+    mesmo nada, num andar cuja pergunta é *"posso confiar nisto?"*. Quem separa
+    os quatro é `estadoDaProcedencia`, em `lib/panorama.ts`, e a tela desenha
+    cada um deles.
   */
   const principalPronto = visaoGeral ? !overviewQuery.isLoading : !vigencia.isLoading;
   const balancos = useQuery({
     queryKey: ["balance", "panorama"],
     enabled: principalPronto,
     ...LEITURA_DE_APURACAO,
-    queryFn: () => fetchJson<BalancoResumo[]>("/balance").catch(() => null),
+    queryFn: () => fetchJson<BalancoResumo[]>("/balance"),
   });
   const importacoes = useQuery({
     queryKey: ["imports", "panorama"],
     enabled: principalPronto,
     ...LEITURA_DE_APURACAO,
-    queryFn: () => fetchJson<ExecucaoDeImportacao[]>("/imports").catch(() => null),
+    queryFn: () => fetchJson<ExecucaoDeImportacao[]>("/imports"),
   });
 
   const serieDaUnidade = useSerieDeImpacto(visaoGeral ? null : view, consulta, !visaoGeral);
@@ -221,7 +229,33 @@ export default function Panorama() {
   const unidade = view ? nomeDaUnidade(view.context) : null;
   const periodoAtual = visaoGeral ? (overview?.period ?? null) : (view?.period ?? null);
 
-  const procedencia = procedenciaDoPanorama(balancos.data, importacoes.data);
+  /*
+    `isPending` e não `isLoading`: enquanto `enabled` é falso — o conteúdo
+    principal ainda não chegou — a consulta não está carregando, mas também não
+    tem resposta, e tratá-la como decidida publicaria "não há importação
+    conferida" sobre uma pergunta que ninguém fez ainda.
+  */
+  const procedencia = estadoDaProcedencia(
+    {
+      rota: "/balance",
+      carregando: balancos.isPending,
+      dados: balancos.data,
+      erro: balancos.error,
+      erroEm: balancos.errorUpdatedAt,
+    },
+    {
+      rota: "/imports",
+      carregando: importacoes.isPending,
+      dados: importacoes.data,
+      erro: importacoes.error,
+      erroEm: importacoes.errorUpdatedAt,
+    },
+  );
+
+  const relerProcedencia = () => {
+    void balancos.refetch();
+    void importacoes.refetch();
+  };
 
   return (
     <Layout>
@@ -306,6 +340,7 @@ export default function Panorama() {
                   parametros={parametros}
                   onTrocar={trocarPara}
                   procedencia={procedencia}
+                  onRelerProcedencia={relerProcedencia}
                 />
               </div>
             )}
@@ -333,6 +368,7 @@ export default function Panorama() {
                   parametros={parametros}
                   onTrocar={trocarPara}
                   procedencia={procedencia}
+                  onRelerProcedencia={relerProcedencia}
                 />
               </div>
             )}
@@ -368,6 +404,7 @@ function Corpo({
   parametros,
   onTrocar,
   procedencia,
+  onRelerProcedencia,
 }: {
   leitura: LeituraDoPanorama;
   /** A unidade aberta — `null` na Visão Geral. */
@@ -383,7 +420,8 @@ function Corpo({
   vigenciaAberta: string | null;
   parametros: URLSearchParams;
   onTrocar: (mudancas: Record<string, string | null>) => void;
-  procedencia: ReturnType<typeof procedenciaDoPanorama>;
+  procedencia: EstadoDaProcedencia;
+  onRelerProcedencia: () => void;
 }) {
   const daVigencia: Recorte = { ...recorte, period: vigenciaAberta };
   const comDestino = view !== null;
@@ -643,7 +681,11 @@ function Corpo({
       />
 
       {/* ---- Andar 6 · a procedência ---- */}
-      {procedencia && <Procedencia procedencia={procedencia} />}
+      {/*
+        Sem condição na frente: este andar desenha nos seis desfechos, e é
+        justamente o sumiço calado dele que `estadoDaProcedencia` desfaz.
+      */}
+      <Procedencia estado={procedencia} onTentarDeNovo={onRelerProcedencia} />
 
       {/* As gavetas — as mesmas do Impacto Apurado, sobre o mesmo recorte. */}
       {view && detalheFamilia && (
