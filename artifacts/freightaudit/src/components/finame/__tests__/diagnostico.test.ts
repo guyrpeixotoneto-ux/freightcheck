@@ -29,6 +29,7 @@ const linha = (over: Partial<LinhaDeFiname> = {}): LinhaDeFiname => ({
   motivo: null,
   periodoFiname: "60",
   dataDeCadastro: "2019-05-10",
+  fimDoContrato: "2024-05-10",
   impactoAmount: -5169.5,
   impactoPeriodicidade: "MENSAL",
   impactoCalculado: true,

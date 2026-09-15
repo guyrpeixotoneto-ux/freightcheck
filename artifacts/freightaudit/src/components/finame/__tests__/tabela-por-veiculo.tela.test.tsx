@@ -42,6 +42,7 @@ const linha = (over: Partial<LinhaDeFiname> = {}): LinhaDeFiname => ({
   motivo: null,
   periodoFiname: "60",
   dataDeCadastro: "2019-05-10",
+  fimDoContrato: "2024-05-10",
   impactoAmount: -6179.29,
   impactoPeriodicidade: "MENSAL",
   impactoCalculado: true,
@@ -120,6 +121,7 @@ describe("a tabela por veículo", () => {
     expect(within(placa).getByText("2")).toBeTruthy();
     expect(within(placa).getByText("60 meses")).toBeTruthy();
     expect(within(placa).getByText("10/05/2019")).toBeTruthy();
+    expect(within(placa).getByText("10/05/2024")).toBeTruthy();
   });
 
   it("abre as alterações daquela placa — e só as dela", () => {
@@ -154,6 +156,63 @@ describe("a tabela por veículo", () => {
     expect(onAbrir).toHaveBeenCalledWith(
       expect.objectContaining({ entityLabel: "QYQ5B02", entityType: "CAVALO" }),
     );
+  });
+});
+
+describe("o fim do contrato, que virou coluna", () => {
+  /*
+    O fim do contrato é do veículo, como o prazo e a data de cadastro: ele
+    responde na linha da placa, e não numa linha da expansão no meio das outras
+    treze — que era onde a data de 2026 ficava, longe da amortização em R$ 0,00
+    que ela explica.
+  */
+  /* O contexto da vigência chega repetido em cada linha da placa, e é ele que a
+     coluna lê: as linhas da QYW6D15 dizem todas o mesmo fim de contrato. */
+  const COM_FIM = [
+    ...RECORTE.map((l) =>
+      l.entityLabel === "QYW6D15" ? { ...l, fimDoContrato: "2026-08-02" } : l,
+    ),
+    linha({
+      id: 4,
+      variavel: "data_fim_contrato",
+      rotuloDaVariavel: "Fim do contrato",
+      medida: "DATA",
+      attributeCode: "cavalo.data_fim_contrato",
+      base: "2021-08-02",
+      comparada: "2026-08-02",
+      diferenca: null,
+      variacao: null,
+      fimDoContrato: "2026-08-02",
+      impactoAmount: null,
+      impactoPeriodicidade: null,
+      impactoCalculado: false,
+    }),
+  ];
+
+  const renderizarComFim = () =>
+    render(
+      <TooltipProvider>
+        <TabelaDeFiname veiculos={agruparPorVeiculo(COM_FIM)} onAbrir={vi.fn()} />
+      </TooltipProvider>,
+    );
+
+  it("escreve a data na coluna da placa, ao lado da data de cadastro", () => {
+    renderizarComFim();
+    const placa = screen.getByRole("button", {
+      name: /Abrir as alterações de QYW6D15/,
+    });
+    expect(within(placa).getByText("02/08/2026")).toBeTruthy();
+  });
+
+  it("sai da expansão — a coluna já o diz, e repetir é dizer duas vezes", () => {
+    renderizarComFim();
+    fireEvent.click(
+      screen.getByRole("button", { name: /Abrir as alterações de QYW6D15/ }),
+    );
+    expect(screen.getByText("Parcela FINAME")).toBeTruthy();
+    // O único "Fim do contrato" da tela é o título da coluna.
+    expect(screen.getAllByText("Fim do contrato")).toHaveLength(1);
+    expect(screen.getByText("Fim do contrato").tagName).toBe("TH");
   });
 });
 
