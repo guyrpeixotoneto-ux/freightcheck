@@ -30,7 +30,6 @@ import {
   Landmark,
   Layers,
   LayoutDashboard,
-  Percent,
   Plug,
   Radar,
   Receipt,
@@ -386,9 +385,9 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
         linhas lidas por outro eixo, e um item solto dentro da Frota faria a
         leitura por rubrica parecer um recorte de placa.
 
-        **São sete módulos, e eles se leem em dois blocos.** Primeiro as cinco
-        rubricas do ativo: Finame e Juros Finame — o principal do financiamento
-        e o que ele cobra de juros —, IPVA, Lucro Fixo e Impostos. Depois as duas de
+        **São seis módulos, e eles se leem em dois blocos.** Primeiro as quatro
+        rubricas do ativo: Finame — o principal do financiamento —, IPVA, Lucro
+        Fixo e Impostos. Depois as duas de
         gente: QLP Operacional e QLP Administrativo, o quadro de lotação que o
         modelo remunera, nas duas alturas em que o Freightech o publica.
 
@@ -406,8 +405,8 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
         (`/qlp-operacional`, `/qlp-administrativo`) continuam valendo, porque
         são o `href`, e o `href` não mudou.
 
-        Os quatro módulos do ativo entram **só com o nome**, e abrem telas em
-        preparo: cada verbete em `pages/telas-em-preparo.ts` diz o que falta para
+        Os módulos do ativo que ainda não têm tela — IPVA, Lucro Fixo e
+        Impostos — entram **só com o nome**, e abrem telas em preparo: cada verbete em `pages/telas-em-preparo.ts` diz o que falta para
         a rubrica virar número e para onde ir enquanto isso; quando a definição
         de um deles chegar, ele sai de lá, vira `<Route>` em `App.tsx`, e este
         menu não muda uma vírgula. O QLP Administrativo já é tela de verdade; o
@@ -420,7 +419,6 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
       cor: "text-nav-custo-fixo",
       itens: [
         { href: "/custo-fixo-finame", label: "Finame", icon: Banknote },
-        { href: "/custo-fixo-juros-finame", label: "Juros Finame", icon: Percent },
         { href: "/custo-fixo-ipva", label: "IPVA", icon: Receipt },
         { href: "/custo-fixo-lucro-fixo", label: "Lucro Fixo", icon: TrendingUp },
         { href: "/custo-fixo-impostos", label: "Impostos", icon: Landmark },

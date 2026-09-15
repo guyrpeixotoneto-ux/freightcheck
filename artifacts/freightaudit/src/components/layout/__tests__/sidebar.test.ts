@@ -679,12 +679,20 @@ describe("o catálogo de telas em preparo", () => {
     elas discordam; no de Lucro Variável é o realizado da operação, porque a
     base traz a previsão, e previsão apresentada como resultado é exatamente o
     número que este produto não mostra.
+
+    E caiu de vinte e um para vinte quando **Juros Finame** saiu do menu. Não é
+    tela entregue, é módulo que não se sustentava: o juro do financiamento é
+    coluna dentro da Auditoria de FINAME — que já compara juros, amortização e
+    taxa parcela a parcela —, e não rubrica ao lado dela. Saiu o item
+    (`nav-auditoria.ts`) e saiu o verbete, pela mesma regra das três da antiga
+    Recuperação: tela em preparo sem item que a alcance é catálogo que ninguém
+    lê.
   */
   it("descreve, para cada tela, o que falta antes de ela mostrar um número", () => {
     const catalogo = fonte("pages/telas-em-preparo.ts");
     const telas = [...catalogo.matchAll(/^\s{4}href:\s*"([^"]+)"/gm)].length;
 
-    expect(telas).toBe(21);
+    expect(telas).toBe(20);
     expect([...catalogo.matchAll(/^\s{4}depende:\s*\[/gm)]).toHaveLength(telas);
     expect([...catalogo.matchAll(/^\s{4}pergunta:/gm)]).toHaveLength(telas);
   });
