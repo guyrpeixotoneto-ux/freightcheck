@@ -31,7 +31,7 @@ import type { FamiliesView } from "@/components/inicio/types";
  */
 export const BOTAO_DE_TROCA =
   "inline-flex items-center gap-2 rounded-lg border border-brand/30 bg-card px-4 py-2.5 " +
-  "text-sm font-bold text-brand shadow-[var(--sombra-1)] " +
+  "text-sm font-bold text-brand whitespace-nowrap shadow-[var(--sombra-1)] " +
   "hover:border-brand hover:bg-accent/60 transition-colors";
 
 /**
