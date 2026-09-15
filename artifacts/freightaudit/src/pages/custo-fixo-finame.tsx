@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearch } from "wouter";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Banknote, Download, Search, SlidersHorizontal } from "lucide-react";
 import type { LinhaDeFiname } from "@workspace/comparison/finame";
-import { VARIAVEIS_DE_FINAME } from "@workspace/comparison/finame";
+import { VARIAVEIS_DE_FINAME, agruparPorVeiculo } from "@workspace/comparison/finame";
 import { Layout } from "@/components/layout/layout";
 import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import { ApiErrorNotice } from "@/components/api-error";
@@ -45,6 +45,11 @@ import {
 } from "@/lib/finame";
 import { type CandidatosDoPar } from "@/lib/candidatos";
 import {
+  JustificarDialog,
+  type AlvoDaJustificativa,
+} from "@/components/justificativas/justificar-dialog";
+import { useJustificadaPor, type Justificativa } from "@/lib/justificativas";
+import {
   parDePartida,
   rotulosDasVigencias,
   vigenciasDaUnidade,
@@ -65,6 +70,29 @@ import { cn } from "@/lib/utils";
  * massa. Por isso a tabela abre no recorte das alterações, e "Mostrar veículos
  * sem alteração" é um alternador desligado — quando ligado, o servidor lê as
  * duas vigências inteiras e devolve também as linhas iguais.
+ *
+ * ---------------------------------------------------------------------------
+ * A tabela é **por placa**, e as variáveis moram dentro dela
+ * ---------------------------------------------------------------------------
+ * A tabela nasceu por variável — uma linha por (veículo × variável) —, e a
+ * mesma placa aparecia até catorze vezes, espalhada por várias páginas. Hoje
+ * `agruparPorVeiculo` junta as linhas por placa, e clicar abre as alterações
+ * daquela placa ali mesmo; a gaveta de detalhe continua a um botão de distância,
+ * com o diagnóstico e as variáveis que só existem nela.
+ *
+ * Três consequências, todas deliberadas:
+ *
+ * **Filtra primeiro, agrupa depois.** As abas, a busca e os dois seletores
+ * continuam sendo sobre a alteração — é nela que moram o estado e a variável —,
+ * e a placa entra na lista quando sobra alguma linha dela. Agrupar antes
+ * obrigaria cada filtro a decidir o que é "uma placa alterada".
+ *
+ * **As abas contam alterações; a paginação conta veículos.** Cada uma conta o
+ * que de fato mostra: a aba conta o que o filtro dela recorta, e o rodapé conta
+ * as linhas que a tabela desenhou.
+ *
+ * **O CSV continua por variável.** Ele é o arquivo que a auditoria confere linha
+ * a linha, e agrupá-lo esconderia justamente a variável que se moveu.
  *
  * **Nenhuma conta mora neste arquivo.** Estado, diferença, variação, impacto e
  * agregados vêm de `@workspace/comparison/finame`, que o servidor importa do
@@ -283,15 +311,83 @@ export default function AuditoriaDeFiname() {
     queryFn: () => fetchJson<TotaisDeFiname>(`/finame/totais?base=${base}&comparada=${comparada}`),
   });
 
+  /**
+   * As justificativas desta comparação, por `change.id` — a última coluna.
+   *
+   * É uma segunda consulta, e não um campo da comparação: a justificativa é
+   * escrita depois, por um gestor, sobre uma alteração que já existia. Pendurá-la
+   * no `/finame/comparacao` faria a tela recalcular a comparação inteira toda vez
+   * que alguém justificasse uma linha.
+   *
+   * `useConsultaResiliente`, que mora dentro do hook, é o que garante que uma
+   * falha aqui não vire painel de erro: sem justificativas a tabela continua
+   * inteira, com a coluna em branco. A comparação é o dado da tela; a
+   * justificativa é o comentário sobre ele.
+   */
+  const { justificadaPor } = useJustificadaPor(comparacao.data?.changeSetId);
+
+  /**
+   * Justificar sem sair da tabela.
+   *
+   * A explicação de uma queda nasce olhando a linha que caiu — e era
+   * exatamente ali que não dava para escrevê-la: quem via a amortização zerar
+   * tinha de abrir Chamados, reencontrar a vigência no seletor, reencontrar a
+   * placa na fila e só então escrever. Duas telas para uma frase.
+   *
+   * O que muda é **de onde se abre**, e nada do que justificar significa: o
+   * diálogo é o mesmo componente de Chamados e o POST é o mesmo `/justificativas`
+   * — mesma rota, mesmo `changeSetId`, uma linha de `justificativa` por
+   * alteração. Gravar de novo não edita a anterior: é histórico, e a tela lê
+   * sempre a mais recente. Por isso também não há gravação otimista aqui; o que
+   * volta para a tabela é o que o banco confirmou.
+   */
+  const queryClient = useQueryClient();
+  const [alvo, setAlvo] = useState<AlvoDaJustificativa[] | null>(null);
+  const [justificativaAtual, setJustificativaAtual] = useState<Justificativa | null>(null);
+
+  const gravarJustificativa = useMutation({
+    mutationFn: (input: { changeIds: number[]; texto: string }) =>
+      fetchJson<{ justificativas: Justificativa[] }>("/justificativas", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          changeSetId: comparacao.data?.changeSetId,
+          changeIds: input.changeIds,
+          texto: input.texto,
+        }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["justificativas", comparacao.data?.changeSetId],
+      });
+      setAlvo(null);
+      setJustificativaAtual(null);
+    },
+  });
+
   const linhas = useMemo(() => comparacao.data?.linhas ?? [], [comparacao.data]);
   const filtradas = useMemo(() => filtrar(linhas, filtros), [linhas, filtros]);
   const contagens = useMemo(
     () => contagemPorAba(linhas, { ...filtros, estado: "TODAS" }),
     [linhas, filtros],
   );
+
+  /**
+   * As placas — o que a tabela lista desde que deixou de listar variáveis.
+   *
+   * **Agrupa depois de filtrar, e não antes.** As abas, a busca e os dois
+   * seletores continuam sendo sobre a alteração — é ali que moram o estado e a
+   * variável —, e a placa entra na lista quando sobra alguma linha dela no
+   * recorte. Agrupar primeiro obrigaria cada filtro a decidir o que significa
+   * "uma placa alterada", e a aba diria 33 sobre uma tabela de 7 linhas.
+   *
+   * Por isso a contagem das abas continua em alterações: é o que elas contam. A
+   * paginação, essa sim, passou a ser de veículos — é o que a tabela mostra.
+   */
+  const veiculos = useMemo(() => agruparPorVeiculo(filtradas), [filtradas]);
   const naPagina = useMemo(
-    () => filtradas.slice((pagina - 1) * porPagina, pagina * porPagina),
-    [filtradas, pagina, porPagina],
+    () => veiculos.slice((pagina - 1) * porPagina, pagina * porPagina),
+    [veiculos, pagina, porPagina],
   );
 
   // Filtrar encurta a lista; a página em que se estava pode não existir mais.
@@ -303,7 +399,7 @@ export default function AuditoriaDeFiname() {
     vigencias.data?.find((v) => v.id === comparada)?.sourceLabel ?? "Vigência Comparada";
 
   function exportar() {
-    const blob = csvComoBlob(linhasDoCsv(filtradas));
+    const blob = csvComoBlob(linhasDoCsv(filtradas, justificadaPor));
     salvarArquivo(
       blob,
       `finame-${paraNomeDeArquivo(rotuloBase)}-para-${paraNomeDeArquivo(rotuloComparada)}.csv`,
@@ -548,23 +644,51 @@ export default function AuditoriaDeFiname() {
             ) : (
               <>
                 <TabelaDeFiname
-                  linhas={naPagina}
-                  onAbrir={(l) =>
-                    setAberto({ entityLabel: l.entityLabel, entityType: l.entityType })
+                  veiculos={naPagina}
+                  justificadaPor={justificadaPor}
+                  onAbrir={(v) =>
+                    setAberto({ entityLabel: v.entityLabel, entityType: v.entityType })
                   }
+                  onJustificar={(alvos, atual) => {
+                    gravarJustificativa.reset();
+                    setJustificativaAtual(atual ?? null);
+                    setAlvo(alvos);
+                  }}
                 />
                 <Paginacao
                   pagina={pagina}
                   porPagina={porPagina}
-                  total={filtradas.length}
+                  total={veiculos.length}
                   onPagina={setPagina}
                   onPorPagina={setPorPagina}
                   tamanhos={[50, 100, 300]}
-                  unidade="linhas"
-                  unidadeSingular="linha"
+                  unidade="veículos"
+                  unidadeSingular="veículo"
                 />
               </>
             )}
+
+            {/* O diálogo é o de Chamados, e a vigência vai escrita nele: quem
+                justifica a partir daqui escolheu o par no seletor acima, e uma
+                caixa que não diz onde grava deixa a decisão sem a metade que a
+                torna verificável. */}
+            <JustificarDialog
+              alvo={alvo}
+              contexto={`comparação ${rotuloBase} → ${rotuloComparada}`}
+              justificativaAtual={justificativaAtual}
+              pendente={gravarJustificativa.isPending}
+              erro={gravarJustificativa.error}
+              onClose={() => {
+                setAlvo(null);
+                setJustificativaAtual(null);
+              }}
+              onConfirmar={(texto) =>
+                gravarJustificativa.mutate({
+                  changeIds: (alvo ?? []).map((a) => a.id),
+                  texto,
+                })
+              }
+            />
 
             <DetalheDoVeiculo
               veiculo={aberto}

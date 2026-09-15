@@ -3,6 +3,10 @@ import { db } from "@workspace/db";
 import {
   CODIGOS_DA_TABELA,
   CODIGOS_DO_DETALHE,
+  CODIGOS_DO_CONTEXTO,
+  codigoDaDataDeCadastro,
+  codigoDoPeriodo,
+  comContextoDoVeiculo,
   alteracoesPorVariavel,
   computeChangeSet,
   distribuicaoPorEstado,
@@ -17,6 +21,7 @@ import {
   totaisPorVigencia,
   variavelDoCodigo,
   VARIAVEIS_DE_FINAME,
+  type ContextoDoVeiculo,
   type LinhaDeFiname,
 } from "@workspace/comparison";
 import { classificarFalha } from "../lib/classificar-falha";
@@ -121,6 +126,47 @@ async function linhasIguais(
 }
 
 /**
+ * O prazo e a data de cadastro de cada veículo numa vigência.
+ *
+ * Dois atributos (`periodo_finame` e a data de entrada), lidos das duas pontas
+ * para alimentar as colunas de contexto da tabela. Não saem do `change_set` de
+ * propósito: o change set só conhece o que mudou, e nem o prazo nem a data de
+ * cadastro da imensa maioria dos veículos muda — derivá-los dali deixaria as
+ * colunas vazias exatamente nas linhas em que elas explicam a queda da parcela.
+ */
+async function contextoDaVigencia(
+  snapshot: { effectiveDate: string } | undefined,
+): Promise<ContextoDoVeiculo[]> {
+  if (!snapshot || CODIGOS_DO_CONTEXTO.length === 0) return [];
+  const contexto: ContextoDoVeiculo[] = [];
+  for (const entityType of ["CAVALO", "CARRETA"] as const) {
+    const codigos = CODIGOS_DO_CONTEXTO.filter(
+      (c) => variavelDoCodigo(c)?.codigo[entityType] === c,
+    );
+    if (codigos.length === 0) continue;
+    const codigoPeriodo = codigoDoPeriodo(entityType);
+    const codigoData = codigoDaDataDeCadastro(entityType);
+    const tabela = await getEntityTable(
+      db,
+      entityType,
+      codigos,
+      undefined,
+      snapshot.effectiveDate,
+    );
+    if (!tabela) continue;
+    for (const linha of tabela.rows) {
+      contexto.push({
+        entityLabel: linha.label,
+        entityType,
+        periodo: codigoPeriodo ? (linha.values[codigoPeriodo]?.value ?? null) : null,
+        dataDeCadastro: codigoData ? (linha.values[codigoData]?.value ?? null) : null,
+      });
+    }
+  }
+  return contexto;
+}
+
+/**
  * O par de vigências, recortado no financiamento.
  *
  * `GET /finame/comparacao?base=<snapshotId>&comparada=<snapshotId>`
@@ -173,6 +219,18 @@ router.get("/finame/comparacao", async (req, res, next): Promise<void> => {
       );
       todas = [...linhas, ...(await linhasIguais(snapshotA, snapshotB, jaListadas))];
     }
+
+    /* As colunas de contexto: o prazo e a data de cadastro do veículo na
+       vigência comparada, com a base respondendo pelos que saíram. Duas
+       leituras de dois atributos. */
+    const [contextoDaBase, contextoDaComparada] = await Promise.all([
+      contextoDaVigencia(snapshotA),
+      contextoDaVigencia(snapshotB),
+    ]);
+    todas = comContextoDoVeiculo(todas, {
+      base: contextoDaBase,
+      comparada: contextoDaComparada,
+    });
 
     res.json({
       changeSetId: resumo.id,

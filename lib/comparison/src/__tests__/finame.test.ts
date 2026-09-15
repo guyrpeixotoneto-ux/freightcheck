@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   CODIGOS_DA_TABELA,
   CODIGOS_DO_DETALHE,
+  agruparPorVeiculo,
   alteracoesPorVariavel,
   celulasDoCsv,
   codigoDaVariavel,
+  comContextoDoVeiculo,
   distribuicaoPorEstado,
   estadoDaAlteracao,
   impactoPorPeriodicidade,
@@ -446,6 +448,8 @@ describe("a exportação", () => {
     expect(celulasDoCsv(linha)).toEqual([
       "ABC1D23",
       "CAVALO",
+      null,
+      null,
       "Parcela FINAME",
       "8450",
       "8760",
@@ -453,7 +457,28 @@ describe("a exportação", () => {
       3.668639,
       "Alterado",
       null,
+      null,
     ]);
+  });
+
+  it("leva o contexto do veículo e a justificativa que o gestor escreveu", () => {
+    const [linha] = comContextoDoVeiculo([linhaDaAlteracao(alteracao())!], {
+      comparada: [
+        {
+          entityLabel: "ABC1D23",
+          entityType: "CAVALO",
+          periodo: "60",
+          dataDeCadastro: "2019-05-10",
+        },
+      ],
+    });
+    expect(celulasDoCsv(linha!, "Fim do contrato em 2024.").slice(2, 4)).toEqual([
+      "60",
+      "2019-05-10",
+    ]);
+    expect(celulasDoCsv(linha!, "Fim do contrato em 2024.").at(-1)).toBe(
+      "Fim do contrato em 2024.",
+    );
   });
 
   it("leva o motivo da recusa quando não há número", () => {
@@ -466,11 +491,204 @@ describe("a exportação", () => {
         inconclusiveReason: "O tipo do valor mudou entre os dois snapshots.",
       }),
     )!;
-    expect(celulasDoCsv(linha).slice(5)).toEqual([
+    expect(celulasDoCsv(linha).slice(7)).toEqual([
       null,
       null,
       "Conflito",
       "O tipo do valor mudou entre os dois snapshots.",
+      null,
     ]);
+  });
+});
+
+describe("o contexto do veículo", () => {
+  const linhas = () => [
+    linhaDaAlteracao(alteracao())!,
+    linhaDaAlteracao(
+      alteracao({ entityLabel: "XYZ9K88", attributeCode: "cavalo.amortizacao_cavalo" }),
+    )!,
+  ];
+
+  it("repete o prazo e a data do veículo em todas as linhas dele", () => {
+    const comContexto = comContextoDoVeiculo(linhas(), {
+      comparada: [
+        {
+          entityLabel: "ABC1D23",
+          entityType: "CAVALO",
+          periodo: "60",
+          dataDeCadastro: "2019-05-10",
+        },
+      ],
+    });
+    expect(comContexto[0]!.periodoFiname).toBe("60");
+    expect(comContexto[0]!.dataDeCadastro).toBe("2019-05-10");
+    // O veículo que a leitura não trouxe continua sem contexto — e não com zero.
+    expect(comContexto[1]!.periodoFiname).toBeNull();
+    expect(comContexto[1]!.dataDeCadastro).toBeNull();
+    expect(comContexto).toHaveLength(2);
+  });
+
+  it("deixa a comparada mandar, e usa a base só para o veículo que saiu", () => {
+    const comContexto = comContextoDoVeiculo(linhas(), {
+      base: [
+        {
+          entityLabel: "ABC1D23",
+          entityType: "CAVALO",
+          periodo: "48",
+          dataDeCadastro: "2018-01-02",
+        },
+        {
+          entityLabel: "XYZ9K88",
+          entityType: "CAVALO",
+          periodo: "36",
+          dataDeCadastro: "2017-03-04",
+        },
+      ],
+      comparada: [
+        {
+          entityLabel: "ABC1D23",
+          entityType: "CAVALO",
+          periodo: "60",
+          dataDeCadastro: "2019-05-10",
+        },
+      ],
+    });
+    expect(comContexto[0]!.periodoFiname).toBe("60");
+    expect(comContexto[0]!.dataDeCadastro).toBe("2019-05-10");
+    // Ausente na comparada: o contexto da base é o único que existe.
+    expect(comContexto[1]!.periodoFiname).toBe("36");
+    expect(comContexto[1]!.dataDeCadastro).toBe("2017-03-04");
+  });
+
+  it("não deixa um campo em branco apagar o que a base já dizia", () => {
+    const [linha] = comContextoDoVeiculo([linhaDaAlteracao(alteracao())!], {
+      base: [
+        {
+          entityLabel: "ABC1D23",
+          entityType: "CAVALO",
+          periodo: "48",
+          dataDeCadastro: "2018-01-02",
+        },
+      ],
+      comparada: [
+        {
+          entityLabel: "ABC1D23",
+          entityType: "CAVALO",
+          periodo: "",
+          dataDeCadastro: null,
+        },
+      ],
+    });
+    expect(linha!.periodoFiname).toBe("48");
+    expect(linha!.dataDeCadastro).toBe("2018-01-02");
+  });
+});
+
+describe("o agrupamento por veículo", () => {
+  /* Duas placas: uma que moveu parcela, juros e prazo, e outra que moveu só a
+     amortização — o recorte mínimo em que a ordem e a contagem importam. */
+  const recorte = () =>
+    linhasDeFiname([
+      alteracao({ entityLabel: "ABC1D23", attributeCode: "cavalo.finame_cavalo" }),
+      alteracao({
+        entityLabel: "ABC1D23",
+        attributeCode: "cavalo.juros_finame_cavalo",
+        valueBefore: "2180",
+        valueAfter: "2301",
+        deltaAbsolute: "121",
+        deltaPercent: "5.550459",
+      }),
+      alteracao({
+        entityLabel: "ABC1D23",
+        attributeCode: "cavalo.periodo_finame",
+        valueBefore: "60",
+        valueAfter: "48",
+        deltaAbsolute: "-12",
+        deltaPercent: "-20",
+        impactConfidence: "NOT_APPLICABLE",
+        impactAmount: null,
+        impactPeriodicity: null,
+      }),
+      alteracao({
+        entityLabel: "XYZ9K88",
+        attributeCode: "cavalo.amortizacao_cavalo",
+        valueBefore: "6270",
+        valueAfter: "5900",
+        deltaAbsolute: "-370",
+        deltaPercent: "-5.901116",
+      }),
+    ]);
+
+  it("junta as variáveis da mesma placa numa linha só, sem perder nenhuma", () => {
+    const veiculos = agruparPorVeiculo(recorte());
+    expect(veiculos).toHaveLength(2);
+    const abc = veiculos.find((v) => v.entityLabel === "ABC1D23")!;
+    expect(abc.linhas).toHaveLength(3);
+    expect(abc.alteracoes).toBe(3);
+    // Prazo é mês, e não dinheiro: conta como alteração, não como alteração em R$.
+    expect(abc.alteracoesEmDinheiro).toBe(2);
+  });
+
+  it("mostra a parcela FINAME da placa — e não a soma das monetárias dela", () => {
+    const abc = agruparPorVeiculo(recorte()).find((v) => v.entityLabel === "ABC1D23")!;
+    expect(abc.parcela).toEqual({
+      base: 8450,
+      comparada: 8760,
+      diferenca: 310,
+      variacao: 3.668639,
+    });
+  });
+
+  it("deixa a parcela nula quando a linha dela não está no recorte", () => {
+    // A placa que só moveu a amortização: somar os 370 aqui diria que a parcela
+    // caiu 370 — e a parcela dela pode não ter se movido.
+    const xyz = agruparPorVeiculo(recorte()).find((v) => v.entityLabel === "XYZ9K88")!;
+    expect(xyz.parcela).toBeNull();
+    expect(xyz.alteracoes).toBe(1);
+  });
+
+  it("ordena pela maior mexida de parcela, e a placa desempata", () => {
+    const veiculos = agruparPorVeiculo(recorte());
+    expect(veiculos.map((v) => v.entityLabel)).toEqual(["ABC1D23", "XYZ9K88"]);
+  });
+
+  it("dá à placa o pior estado das linhas dela, como a rosca faz", () => {
+    const veiculos = agruparPorVeiculo(
+      linhasDeFiname([
+        alteracao({ entityLabel: "ABC1D23" }),
+        alteracao({
+          entityLabel: "ABC1D23",
+          attributeCode: "cavalo.taxa_finame",
+          comparability: "INCONCLUSIVE",
+          nature: "TYPE_CHANGE",
+          deltaAbsolute: null,
+          deltaPercent: null,
+          inconclusiveReason: "O tipo do valor mudou entre os dois snapshots.",
+        }),
+      ]),
+    );
+    expect(veiculos[0]!.estado).toBe("CONFLITO");
+    // O conflito não some da contagem de alterações da placa: ele não é uma.
+    expect(veiculos[0]!.alteracoes).toBe(1);
+  });
+
+  it("leva o prazo e a data de cadastro para a linha da placa", () => {
+    const veiculos = agruparPorVeiculo(
+      comContextoDoVeiculo(recorte(), {
+        comparada: [
+          {
+            entityLabel: "ABC1D23",
+            entityType: "CAVALO",
+            periodo: "48",
+            dataDeCadastro: "2019-05-10",
+          },
+        ],
+      }),
+    );
+    const abc = veiculos.find((v) => v.entityLabel === "ABC1D23")!;
+    expect(abc.periodoFiname).toBe("48");
+    expect(abc.dataDeCadastro).toBe("2019-05-10");
+    const xyz = veiculos.find((v) => v.entityLabel === "XYZ9K88")!;
+    expect(xyz.periodoFiname).toBeNull();
   });
 });
