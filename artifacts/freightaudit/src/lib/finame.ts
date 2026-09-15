@@ -1,4 +1,8 @@
 import {
+  periodicitySuffix,
+  rotuloDeListaDaVigencia,
+} from "@workspace/comparison/labels";
+import {
   ROTULO_DO_ESTADO,
   celulasDoCsv,
   COLUNAS_DO_CSV,
@@ -349,9 +353,30 @@ export interface VigenciaRotulavel extends VigenciaEmparelhavel {
   revision?: number | null;
 }
 
-/** `2026-08-16` → `16/08/2026`. */
-function dataBr(effectiveDate: string): string {
-  return effectiveDate.split("-").reverse().join("/");
+/**
+ * A vigência escrita como quem fala dela — `julho/2026 · 2ª quinzena`.
+ *
+ * O rótulo era `EMPURRADA_2_7_2026 · 16/07/2026`: o nome do arquivo que a
+ * Ambev mandou, mais a data em que ele passou a valer. As duas coisas são
+ * verdadeiras e nenhuma é o jeito como alguém pergunta — ninguém abre a tela
+ * querendo saber o que mudou no `EMPURRADA_2_7_2026`.
+ *
+ * Quem monta é `rotuloDeListaDaVigencia`, do motor, e é de propósito: o
+ * seletor do cabeçalho (`components/vigencia/seletor-de-vigencia.tsx`) já
+ * escreve assim, e duas funções montando o mesmo nome dariam "2ª quinzena"
+ * numa tela e "dia 16" na outra. Ela também resolve o caso que uma regra
+ * ingênua erraria — duas entregas no mesmo mês que **não** são quinzenas
+ * limpas viram `dia 02`, em vez de inventar uma quinzena que não existe.
+ *
+ * `doContexto` são as datas da própria lista: a marca só aparece quando há
+ * mais de uma entrega naquele mês, e é a lista quem sabe disso.
+ */
+function rotuloDaVigencia(
+  effectiveDate: string,
+  doContexto: readonly string[],
+): string {
+  const { mes, marca } = rotuloDeListaDaVigencia(effectiveDate, doContexto);
+  return marca ? `${mes} · ${marca}` : mes;
 }
 
 /**
@@ -366,14 +391,15 @@ function dataBr(effectiveDate: string): string {
  * A régua é **acrescentar só o que desempata**, na ordem em que a pessoa
  * pensa:
  *
- * 1. `sourceLabel · data` — o que já existia, e o que basta na maioria dos
- *    casos;
+ * 1. `julho/2026 · 2ª quinzena` — como se fala da vigência, e o que basta na
+ *    maioria dos casos;
  * 2. **a unidade**, quando duas linhas iguais são de unidades diferentes. É o
  *    caso desta tela, e é a informação que faltava;
  * 3. **a cobertura**, quando a mesma unidade entregou cavalo e carreta na mesma
  *    data — duas séries que compartilham as datas, e que o motor também não
  *    compara entre si;
- * 4. **a revisão**, o último desempate possível, para o que sobrar.
+ * 4. **o arquivo** (`sourceLabel`), para o que ainda seguir igual;
+ * 5. **a revisão**, o último desempate possível, para o que sobrar.
  *
  * Nada é acrescentado a quem já é único: um rótulo que carrega sempre as quatro
  * coisas é uma linha ilegível, e ilegível também esconde.
@@ -386,6 +412,10 @@ export function rotulosDasVigencias<T extends VigenciaRotulavel>(
   const sufixos: ((v: T) => string | null)[] = [
     (v) => nomeDoEscopo(v.scopeHash),
     (v) => v.entityTypeSet || null,
+    /* O nome do arquivo desceu para cá quando o rótulo virou `julho/2026 · 2ª
+       quinzena`: ele deixou de ser como a vigência se chama e passou a ser o
+       que ela veio, útil só quando duas linhas seguem indistinguíveis. */
+    (v) => v.sourceLabel || null,
     (v) => (v.revision == null ? null : `rev. ${v.revision}`),
   ];
 
@@ -411,12 +441,85 @@ export function rotulosDasVigencias<T extends VigenciaRotulavel>(
     for (const [chave, subgrupo] of porSufixo) resolver(subgrupo, chave, nivel + 1);
   };
 
+  const datas = vigencias.map((v) => v.effectiveDate);
   const porBase = new Map<string, T[]>();
   for (const v of vigencias) {
-    const base = `${v.sourceLabel} · ${dataBr(v.effectiveDate)}`;
+    const base = rotuloDaVigencia(v.effectiveDate, datas);
     porBase.set(base, [...(porBase.get(base) ?? []), v]);
   }
   for (const [base, grupo] of porBase) resolver(grupo, base, 0);
 
   return rotulos;
+}
+
+// ---------------------------------------------------------------------------
+// Os números de cada candidata — o que o menu escreve ao lado da vigência
+// ---------------------------------------------------------------------------
+
+/** O que `/finame/candidatos` devolve. */
+export interface CandidatosDeFiname {
+  para: string;
+  candidatos: {
+    id: string;
+    numeros: {
+      alteracoes: number;
+      impacto: {
+        porPeriodicidade: Record<string, number>;
+        naoCalculavel: number;
+        cobertasPorParcelas: number;
+      };
+    } | null;
+  }[];
+  /** Quantas candidatas não couberam no orçamento desta chamada. */
+  pendentes: number;
+}
+
+/** O que uma linha do menu mostra à direita da vigência. */
+export interface NumerosDaLinha {
+  /** Uma linha de dinheiro por periodicidade, já escrita — pode ser vazia. */
+  valores: { texto: string; bruto: number }[];
+  /** "457 alterações", "1 alteração" ou "nenhuma alteração". */
+  alteracoes: string;
+}
+
+/**
+ * O que escrever ao lado de uma vigência — ou **nada**, que é o caso que
+ * importa.
+ *
+ * A regra inteira está no tipo de retorno: `null` quer dizer *não escreva
+ * número nenhum nesta linha*, e é o que sai para quem ainda não foi calculado.
+ * Ausência de cálculo e "nada mudou" são fatos diferentes, e o segundo é uma
+ * notícia — "nenhuma alteração" responde a pergunta; um "0 alterações" escrito
+ * por cima de uma conta que não aconteceu **mente com números**, que é a pior
+ * forma de mentir numa tela de auditoria.
+ *
+ * O dinheiro sai por periodicidade, cada balde na sua linha, com o sufixo do
+ * motor (`/mês`, `/ano`, `(valor único)`). Somar os baldes num número só é o
+ * que `impactoPorPeriodicidade` se recusa a fazer — a parcela é mensal e a base
+ * de compra é do ato da compra —, e uma tela que somasse aqui publicaria um
+ * total que nenhuma outra do produto reconhece.
+ */
+export function numerosDaLinha(
+  numeros: CandidatosDeFiname["candidatos"][number]["numeros"],
+): NumerosDaLinha | null {
+  if (!numeros) return null;
+
+  const valores = Object.entries(numeros.impacto.porPeriodicidade)
+    .filter(([, valor]) => valor !== 0)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([periodicidade, valor]) => ({
+      texto: `${valor > 0 ? "+" : "−"}${formatBrl(Math.abs(valor))}${periodicitySuffix(
+        periodicidade,
+      )}`,
+      bruto: valor,
+    }));
+
+  const alteracoes =
+    numeros.alteracoes === 0
+      ? "nenhuma alteração"
+      : `${formatNumber(numeros.alteracoes, 0)} ${
+          numeros.alteracoes === 1 ? "alteração" : "alterações"
+        }`;
+
+  return { valores, alteracoes };
 }

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { parDePartida, rotulosDasVigencias, vigenciasDaUnidade } from "../finame";
+import {
+  numerosDaLinha,
+  parDePartida,
+  rotulosDasVigencias,
+  vigenciasDaUnidade,
+} from "../finame";
 
 /**
  * O par com que a Auditoria de FINAME abre — a regressão que este arquivo
@@ -120,7 +125,8 @@ describe("os rótulos do seletor", () => {
   ]);
   const nomeDoEscopo = (hash: string) => nomes.get(hash) ?? null;
 
-  it("não acrescenta nada a quem já é único", () => {
+  /* Um mês com uma entrega só não ganha marca: não há o que desempatar. */
+  it("escreve a vigência como se fala dela, e nada mais", () => {
     const rotulos = rotulosDasVigencias(
       [
         comRotulo("pe-ago", "EMPURRADA_2_8_2026", "2026-08-16", PERNAMBUCO),
@@ -129,8 +135,22 @@ describe("os rótulos do seletor", () => {
       nomeDoEscopo,
     );
 
-    expect(rotulos.get("pe-ago")).toBe("EMPURRADA_2_8_2026 · 16/08/2026");
-    expect(rotulos.get("pe-jul")).toBe("EMPURRADA_2_7_2026 · 16/07/2026");
+    expect(rotulos.get("pe-ago")).toBe("agosto/2026");
+    expect(rotulos.get("pe-jul")).toBe("julho/2026");
+  });
+
+  /* Duas entregas no mesmo mês: aí a quinzena entra, e só aí. */
+  it("marca a quinzena quando o mês tem as duas entregas", () => {
+    const rotulos = rotulosDasVigencias(
+      [
+        comRotulo("jul1", "EMPURRADA_1_7_2026", "2026-07-01", PERNAMBUCO),
+        comRotulo("jul2", "EMPURRADA_2_7_2026", "2026-07-16", PERNAMBUCO),
+      ],
+      nomeDoEscopo,
+    );
+
+    expect(rotulos.get("jul1")).toBe("julho/2026 · 1ª quinzena");
+    expect(rotulos.get("jul2")).toBe("julho/2026 · 2ª quinzena");
   });
 
   /* O relato, dito como teste: duas unidades, dois rótulos diferentes. */
@@ -143,8 +163,8 @@ describe("os rótulos do seletor", () => {
       nomeDoEscopo,
     );
 
-    expect(rotulos.get("pe")).toBe("EMPURRADA_1_6_2026 · 01/06/2026 · PERNAMBUCO");
-    expect(rotulos.get("ca")).toBe("EMPURRADA_1_6_2026 · 01/06/2026 · CAMAÇARI");
+    expect(rotulos.get("pe")).toBe("junho/2026 · PERNAMBUCO");
+    expect(rotulos.get("ca")).toBe("junho/2026 · CAMAÇARI");
     expect(new Set(rotulos.values()).size).toBe(2);
   });
 
@@ -162,8 +182,8 @@ describe("os rótulos do seletor", () => {
       nomeDoEscopo,
     );
 
-    expect(rotulos.get("cav")).toBe("EMPURRADA_1_6_2026 · 01/06/2026 · CAVALO");
-    expect(rotulos.get("car")).toBe("EMPURRADA_1_6_2026 · 01/06/2026 · CARRETA");
+    expect(rotulos.get("cav")).toBe("junho/2026 · CAVALO");
+    expect(rotulos.get("car")).toBe("junho/2026 · CARRETA");
   });
 
   it("cai na revisão como último desempate", () => {
@@ -186,8 +206,14 @@ describe("os rótulos do seletor", () => {
       comRotulo("ca", "EMPURRADA_1_6_2026", "2026-06-01", CAMACARI),
     ]);
 
-    expect(rotulos.get("pe")).toBe("EMPURRADA_1_6_2026 · 01/06/2026");
-    expect(rotulos.get("ca")).toBe("EMPURRADA_1_6_2026 · 01/06/2026");
+    /*
+      As duas seguem idênticas, e é a verdade: sem `/contexts`, o que
+      `/snapshots` entrega sobre estas duas linhas é o mesmo em tudo — mesmo
+      arquivo, mesma data, mesma cobertura. Nenhum sufixo separa o que o dado
+      não separa, e escrever um daria uma distinção inventada.
+    */
+    expect(rotulos.get("pe")).toBe("junho/2026");
+    expect(rotulos.get("ca")).toBe("junho/2026");
   });
 
   /* O acervo real, como o arquivo o produziu: trinta linhas, trinta rótulos. */
@@ -205,5 +231,71 @@ describe("os rótulos do seletor", () => {
     const rotulos = rotulosDasVigencias(lista, nomeDoEscopo);
 
     expect(new Set(rotulos.values()).size).toBe(lista.length);
+  });
+});
+
+/**
+ * O que o menu escreve ao lado de cada vigência.
+ *
+ * A regressão que este bloco guarda é uma frase: **ausência não é zero**. Um
+ * par que o servidor ainda não calculou não tem número, e escrever "0
+ * alterações" ali seria responder com um número uma pergunta que não foi feita
+ * — numa tela de auditoria, a pior forma de errar.
+ */
+describe("os números de cada linha do menu", () => {
+  const comImpacto = (
+    alteracoes: number,
+    porPeriodicidade: Record<string, number>,
+  ) => ({
+    alteracoes,
+    impacto: { porPeriodicidade, naoCalculavel: 0, cobertasPorParcelas: 0 },
+  });
+
+  it("não escreve número nenhum para quem ainda não foi calculado", () => {
+    expect(numerosDaLinha(null)).toBeNull();
+  });
+
+  /* O outro lado da mesma moeda: nada mudou **é** resposta, e tem texto. */
+  it("diz 'nenhuma alteração' quando o cálculo aconteceu e deu zero", () => {
+    const linha = numerosDaLinha(comImpacto(0, {}));
+
+    expect(linha?.alteracoes).toBe("nenhuma alteração");
+    expect(linha?.valores).toEqual([]);
+  });
+
+  it("escreve o dinheiro com a periodicidade, e o sinal certo", () => {
+    const linha = numerosDaLinha(comImpacto(457, { MENSAL: -302261.18 }));
+
+    expect(linha?.alteracoes).toBe("457 alterações");
+    expect(linha?.valores).toHaveLength(1);
+    expect(linha?.valores[0].texto).toMatch(/^−R\$/);
+    expect(linha?.valores[0].texto).toMatch(/\/mês$/);
+    expect(linha?.valores[0].bruto).toBeLessThan(0);
+  });
+
+  it("uma alteração no singular", () => {
+    expect(numerosDaLinha(comImpacto(1, {}))?.alteracoes).toBe("1 alteração");
+  });
+
+  /*
+    Duas periodicidades viram duas linhas, e nunca uma soma: a parcela é mensal
+    e a base de compra é do ato da compra. Somá-las aqui publicaria um total que
+    `impactoPorPeriodicidade` se recusa a calcular.
+  */
+  it("não soma periodicidades diferentes num número só", () => {
+    const linha = numerosDaLinha(
+      comImpacto(12, { MENSAL: -1000, PONTUAL: -50000 }),
+    );
+
+    expect(linha?.valores).toHaveLength(2);
+    expect(linha?.valores.map((v) => v.bruto)).toEqual([-1000, -50000]);
+  });
+
+  /* Um balde zerado não vira linha "R$ 0" — ele simplesmente não tem notícia. */
+  it("não escreve R$ 0 para um balde sem impacto", () => {
+    const linha = numerosDaLinha(comImpacto(3, { MENSAL: 0 }));
+
+    expect(linha?.valores).toEqual([]);
+    expect(linha?.alteracoes).toBe("3 alterações");
   });
 });
