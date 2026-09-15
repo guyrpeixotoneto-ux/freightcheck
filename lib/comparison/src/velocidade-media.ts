@@ -1283,6 +1283,7 @@ export const COLUNAS_DO_CSV_DE_VELOCIDADE = [
   "Status",
   "Motivo",
   "Fora da soma",
+  "Justificativa",
 ] as const;
 
 /**
@@ -1301,17 +1302,25 @@ const UNIDADE_NO_CSV: Record<PapelDoTempo, string> = {
   FATOR: "motoristas por conjunto",
   CONTEXTO: "texto",
 };
-
 /**
- * Uma linha da tabela como as onze células do CSV.
+ * Uma linha da tabela como as células do CSV.
  *
  * A coluna "Versão" separa o tempo que a operação pratica do tempo que
  * remunera. Sem ela, um arquivo com as duas versões lado a lado é uma lista de
  * minutos em que ninguém distingue os dois — e a diferença entre eles é
  * justamente o que o dicionário pede que não se apague.
+ *
+ * A justificativa entra por parâmetro porque **não é da linha**: ela é do
+ * gestor, mora em `justificativa` e é lida por `change_id` numa segunda
+ * consulta. Guardá-la dentro da linha faria a comparação carregar um texto que o
+ * motor não produziu — e que muda sem a comparação mudar. É a mesma escolha de
+ * `celulasDoCsv`, no FINAME. No arquivo ela é a última coluna, e é boa parte do
+ * motivo de o CSV existir para além da tela: quem recebe a planilha lê o que
+ * mudou e, na mesma linha, por que mudou.
  */
 export function celulasDoCsvDeVelocidade(
   l: LinhaDeVelocidade,
+  justificativa?: string | null,
 ): (string | number | null)[] {
   return [
     l.entityLabel,
@@ -1325,5 +1334,6 @@ export function celulasDoCsvDeVelocidade(
     ROTULO_DO_ESTADO[l.estado],
     l.motivo,
     l.foraDaSoma,
+    justificativa ?? null,
   ];
 }

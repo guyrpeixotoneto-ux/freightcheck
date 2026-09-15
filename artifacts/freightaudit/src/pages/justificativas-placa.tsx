@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { JustificarDialog } from "@/components/justificativas/justificar-dialog";
+import type { JustificativaEstruturada } from "@workspace/comparison/justificativa-estruturada";
 import type { ChangeRow } from "@/components/changes/change-table";
 import { fetchJson } from "@/lib/api";
 import { useComparacoes, type Justificativa } from "@/lib/justificativas";
@@ -216,14 +217,18 @@ export default function JustificativasPlaca() {
   };
 
   const mutation = useMutation({
-    mutationFn: (input: { changeSetId: string; changeIds: number[]; texto: string }) =>
+    mutationFn: (input: {
+      changeSetId: string;
+      changeIds: number[];
+      justificativa: JustificativaEstruturada;
+    }) =>
       fetchJson<{ justificativas: Justificativa[] }>("/justificativas", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           changeSetId: input.changeSetId,
           changeIds: input.changeIds,
-          texto: input.texto,
+          ...input.justificativa,
         }),
       }),
     onSuccess: (_data, input) => {
@@ -457,12 +462,12 @@ export default function JustificativasPlaca() {
           setDialogAlvo(null);
           mutation.reset();
         }}
-        onConfirmar={(texto) => {
+        onConfirmar={(justificativa) => {
           if (!dialogAlvo) return;
           mutation.mutate({
             changeSetId: dialogAlvo.changeSetId,
             changeIds: dialogAlvo.changes.map((c) => c.id),
-            texto,
+            justificativa,
           });
         }}
       />

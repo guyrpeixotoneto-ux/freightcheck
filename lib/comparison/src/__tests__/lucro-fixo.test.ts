@@ -4,6 +4,7 @@ import {
   CODIGOS_DO_DETALHE_DE_LUCRO_FIXO,
   alteracoesPorVariavelDeLucroFixo,
   celulasDoCsvDeLucroFixo,
+  COLUNAS_DO_CSV_DE_LUCRO_FIXO,
   codigoDaVariavelDeLucroFixo,
   coexistencias,
   distribuicaoPorEstadoDeLucroFixo,
@@ -400,6 +401,23 @@ describe("os totais por vigência", () => {
 });
 
 describe("o CSV", () => {
+  /*
+    A justificativa é a última coluna, e o cabeçalho é a prova de que ela
+    está alinhada: uma célula a mais do que os títulos desloca tudo o que
+    vem antes na planilha de quem recebe o arquivo, em silêncio.
+  */
+  it("leva a justificativa do gestor como última coluna", () => {
+    const linha = linhaDeLucroFixoDaAlteracao(alteracao())!;
+    const explicada = celulasDoCsvDeLucroFixo(linha, "Conforme a regra: contrato renegociado.");
+    expect(explicada).toHaveLength(COLUNAS_DO_CSV_DE_LUCRO_FIXO.length);
+    expect(COLUNAS_DO_CSV_DE_LUCRO_FIXO.at(-1)).toBe("Justificativa");
+    expect(explicada.at(-1)).toBe("Conforme a regra: contrato renegociado.");
+
+    /* Pendente é célula vazia, e não a palavra "pendente": quem soma a
+       coluna no Excel conta o que está escrito nela. */
+    expect(celulasDoCsvDeLucroFixo(linha).at(-1)).toBeNull();
+  });
+
   it("leva o aviso do conjunto para dentro do arquivo", () => {
     const linha = linhaDeLucroFixoDaAlteracao(
       alteracao({
@@ -408,7 +426,7 @@ describe("o CSV", () => {
       }),
     )!;
     const celulas = celulasDoCsvDeLucroFixo(linha);
-    expect(celulas).toHaveLength(10);
+    expect(celulas).toHaveLength(11);
     expect(String(celulas[9])).toContain("284 de 284");
   });
 

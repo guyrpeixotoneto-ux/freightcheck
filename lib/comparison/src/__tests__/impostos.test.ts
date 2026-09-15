@@ -4,6 +4,7 @@ import {
   CODIGOS_DO_DETALHE_DE_IMPOSTOS,
   alteracoesPorVariavelDeImpostos,
   celulasDoCsvDeImpostos,
+  COLUNAS_DO_CSV_DE_IMPOSTOS,
   codigoDaVariavelDeImpostos,
   conferenciaDeAliquotas,
   distribuicaoPorEstadoDeImpostos,
@@ -410,6 +411,23 @@ describe("a conferência entre a alíquota declarada e a medida", () => {
 });
 
 describe("o CSV", () => {
+  /*
+    A justificativa é a última coluna, e o cabeçalho é a prova de que ela
+    está alinhada: uma célula a mais do que os títulos desloca tudo o que
+    vem antes na planilha de quem recebe o arquivo, em silêncio.
+  */
+  it("leva a justificativa do gestor como última coluna", () => {
+    const [linha] = linhasDeImpostos([alteracao()]);
+    const explicada = celulasDoCsvDeImpostos(linha, "Conforme a regra: contrato renegociado.");
+    expect(explicada).toHaveLength(COLUNAS_DO_CSV_DE_IMPOSTOS.length);
+    expect(COLUNAS_DO_CSV_DE_IMPOSTOS.at(-1)).toBe("Justificativa");
+    expect(explicada.at(-1)).toBe("Conforme a regra: contrato renegociado.");
+
+    /* Pendente é célula vazia, e não a palavra "pendente": quem soma a
+       coluna no Excel conta o que está escrito nela. */
+    expect(celulasDoCsvDeImpostos(linha).at(-1)).toBeNull();
+  });
+
   it("diz por extenso o que é montante e o que é alíquota", () => {
     const [montante] = linhasDeImpostos([alteracao()]);
     const [taxa] = linhasDeImpostos([
@@ -429,7 +447,7 @@ describe("o CSV", () => {
       alteracao({ attributeCode: "cavalo.valor_icms" }),
     ]);
     const celulas = celulasDoCsvDeImpostos(linha);
-    expect(celulas).toHaveLength(12);
+    expect(celulas).toHaveLength(13);
     expect(String(celulas[11])).toContain("1.215");
   });
 });

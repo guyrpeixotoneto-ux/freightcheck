@@ -1181,6 +1181,7 @@ export const COLUNAS_DO_CSV_DE_IMPOSTOS = [
   "Status",
   "Motivo",
   "Fora da soma",
+  "Justificativa",
 ] as const;
 
 /** Como o CSV escreve o papel de cada coluna, por extenso. */
@@ -1189,9 +1190,8 @@ const PAPEL_NO_CSV: Record<PapelDaColuna, string> = {
   ALIQUOTA: "Alíquota (%)",
   BASE: "Base de cálculo",
 };
-
 /**
- * Uma linha da tabela como as doze células do CSV.
+ * Uma linha da tabela como as células do CSV.
  *
  * Devolve texto cru — sem `R$`, sem `%`, sem separador de milhar e sem decidir o
  * separador do arquivo. Quem escreve o CSV é `lib/csv.ts`, no cliente, que já
@@ -1203,8 +1203,19 @@ const PAPEL_NO_CSV: Record<PapelDaColuna, string> = {
  * numéricas na mesma coluna, e uma soma de coluna junta as duas sem avisar. Dizer
  * por extenso o que cada linha é custa uma coluna e evita o total que não é de
  * nada. A última coluna, pelo mesmo motivo, carrega o aviso da coluna zerada.
+ *
+ * A justificativa entra por parâmetro porque **não é da linha**: ela é do
+ * gestor, mora em `justificativa` e é lida por `change_id` numa segunda
+ * consulta. Guardá-la dentro da linha faria a comparação carregar um texto que o
+ * motor não produziu — e que muda sem a comparação mudar. É a mesma escolha de
+ * `celulasDoCsv`, no FINAME. No arquivo ela é a última coluna, e é boa parte do
+ * motivo de o CSV existir para além da tela: quem recebe a planilha lê o que
+ * mudou e, na mesma linha, por que mudou.
  */
-export function celulasDoCsvDeImpostos(l: LinhaDeImpostos): (string | number | null)[] {
+export function celulasDoCsvDeImpostos(
+  l: LinhaDeImpostos,
+  justificativa?: string | null,
+): (string | number | null)[] {
   return [
     l.entityLabel,
     l.entityType,
@@ -1218,5 +1229,6 @@ export function celulasDoCsvDeImpostos(l: LinhaDeImpostos): (string | number | n
     ROTULO_DO_ESTADO[l.estado],
     l.motivo,
     l.foraDaSoma,
+    justificativa ?? null,
   ];
 }

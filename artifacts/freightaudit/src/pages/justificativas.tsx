@@ -11,6 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ApiErrorNotice } from "@/components/api-error";
 import { JustificarDialog } from "@/components/justificativas/justificar-dialog";
+import type { JustificativaEstruturada } from "@workspace/comparison/justificativa-estruturada";
 import { BOTAO_DE_TROCA, MenuDeVigencias } from "@/components/vigencia/seletor-de-vigencia";
 import { fetchJson } from "@/lib/api";
 import { useConsultaResiliente } from "@/lib/consulta-resiliente";
@@ -265,14 +266,14 @@ export default function Justificativas() {
   };
 
   const mutation = useMutation({
-    mutationFn: (input: { changeIds: number[]; texto: string }) =>
+    mutationFn: (input: { changeIds: number[]; justificativa: JustificativaEstruturada }) =>
       fetchJson<{ justificativas: Justificativa[] }>("/justificativas", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           changeSetId,
           changeIds: input.changeIds,
-          texto: input.texto,
+          ...input.justificativa,
         }),
       }),
     onSuccess: (_data, input) => {
@@ -558,9 +559,9 @@ export default function Justificativas() {
           setDialogAlvo(null);
           mutation.reset();
         }}
-        onConfirmar={(texto) => {
+        onConfirmar={(justificativa) => {
           if (!dialogAlvo) return;
-          mutation.mutate({ changeIds: dialogAlvo.map((c) => c.id), texto });
+          mutation.mutate({ changeIds: dialogAlvo.map((c) => c.id), justificativa });
         }}
       />
     </Layout>

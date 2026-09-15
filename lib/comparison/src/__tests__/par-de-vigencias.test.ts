@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { parDePartida, rotulosDasVigencias, vigenciasDaUnidade } from "../recorte-de-rubrica";
+import {
+  parDePartida,
+  rotulosDasVigencias,
+  TIPOS_DE_EQUIPAMENTO,
+  vigenciasDaUnidade,
+  vigenciasQueCobrem,
+} from "../recorte-de-rubrica";
 
 /**
  * O par com que a Auditoria de FINAME abre — a regressão que este arquivo
@@ -47,6 +53,43 @@ describe("as vigências da unidade aberta", () => {
   /* Sem unidade aberta não há recorte a aplicar — esconder seria inventar um. */
   it("devolve o acervo inteiro sem unidade aberta", () => {
     expect(vigenciasDaUnidade(acervo, null)).toHaveLength(3);
+  });
+});
+
+/**
+ * O recorte que faltava nas quatro telas de grão equipamento.
+ *
+ * O sintoma, relatado em 15/09/2026 na Auditoria de Lucro Fixo: o seletor
+ * oferecia `setembro/2026` como "Para", e a comparação abria dizendo
+ * "Coberturas diferentes: EMPURRADA_1_8_2026 cobre CAVALO e EMPURRADA_1_9_2026
+ * cobre TRECHO". A vigência de setembro era o arquivo de **trecho** da mesma
+ * unidade, que uma tela de placa não lê — e a lista não devia tê-la oferecido.
+ */
+describe("as vigências de grão equipamento", () => {
+  const acervo = [
+    vigencia("pe-set-trecho", "2026-09-01", PERNAMBUCO, "TRECHO"),
+    vigencia("pe-ago-cavalo", "2026-08-01", PERNAMBUCO, "CAVALO"),
+    vigencia("pe-ago-carreta", "2026-08-01", PERNAMBUCO, "CARRETA"),
+    vigencia("pe-jul-ambos", "2026-07-16", PERNAMBUCO, "CARRETA+CAVALO"),
+  ];
+
+  it("deixa de fora a vigência que só cobre trecho", () => {
+    expect(vigenciasQueCobrem(acervo, TIPOS_DE_EQUIPAMENTO).map((v) => v.id)).toEqual([
+      "pe-ago-cavalo",
+      "pe-ago-carreta",
+      "pe-jul-ambos",
+    ]);
+  });
+
+  /* Cobrir um dos tipos basta: a unidade que entrega só carreta não desaparece. */
+  it("aceita quem cobre qualquer um dos tipos pedidos", () => {
+    const so_cavalo_e_trecho = [vigencia("x", "2026-08-01", PERNAMBUCO, "CAVALO+TRECHO")];
+    expect(vigenciasQueCobrem(so_cavalo_e_trecho, TIPOS_DE_EQUIPAMENTO)).toHaveLength(1);
+  });
+
+  /* Um recorte sem critério é a lista inteira, não a lista vazia. */
+  it("não recorta nada quando a lista de tipos é vazia", () => {
+    expect(vigenciasQueCobrem(acervo, [])).toHaveLength(4);
   });
 });
 

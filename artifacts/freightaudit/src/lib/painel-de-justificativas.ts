@@ -85,6 +85,13 @@ export interface LinhaDoPainel {
   impactAmount: number | null;
   impactPeriodicity: string | null;
   texto: string | null;
+  /* A justificativa estruturada da linha — reabrir uma já justificada traz de
+     volta a fórmula e a regra gravadas, em vez de pedi-las de novo. */
+  formula: string | null;
+  regra: string | null;
+  conforme: boolean | null;
+  motivoExcecao: string | null;
+  responsavelAprovacao: string | null;
   criadoPor: string | null;
   criadoEm: string | null;
 }
