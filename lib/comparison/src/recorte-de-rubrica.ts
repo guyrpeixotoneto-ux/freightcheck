@@ -278,19 +278,44 @@ export function vigenciasDaUnidade<T extends VigenciaEmparelhavel>(
  * `entityTypeSet` é a lista de coberturas separadas por `+` — `CARRETA+CAVALO`,
  * `TRECHO`. Comparar por igualdade com o tipo procurado erraria na vigência que
  * entrega mais de uma cobertura; o teste é de pertinência.
+ *
+ * **Aceita mais de um tipo**, e isto é o que faltava do outro lado: as
+ * auditorias de grão equipamento leem cavalo *e* carreta, e uma unidade pode
+ * entregar os dois na mesma vigência (`CARRETA+CAVALO`) ou cada um na sua. O
+ * recorte delas é `TIPOS_DE_EQUIPAMENTO` — quem cobre qualquer um dos tipos
+ * pedidos entra. Uma lista vazia não recorta nada, porque um recorte sem
+ * critério é a lista inteira, não a lista vazia.
  */
 export function vigenciasQueCobrem<T extends VigenciaEmparelhavel>(
   vigencias: readonly T[],
-  entityType: string,
+  entityType: string | readonly string[],
 ): T[] {
-  const alvo = entityType.trim().toUpperCase();
-  return vigencias.filter((v) =>
-    (v.entityTypeSet ?? "")
-      .split("+")
-      .map((t) => t.trim().toUpperCase())
-      .includes(alvo),
+  const alvos = (typeof entityType === "string" ? [entityType] : entityType).map((t) =>
+    t.trim().toUpperCase(),
   );
+  if (alvos.length === 0) return [...vigencias];
+  return vigencias.filter((v) => {
+    const cobertura = (v.entityTypeSet ?? "")
+      .split("+")
+      .map((t) => t.trim().toUpperCase());
+    return alvos.some((alvo) => cobertura.includes(alvo));
+  });
 }
+
+/**
+ * Os tipos de entidade das auditorias de grão equipamento — o irmão de
+ * {@link TIPO_DO_KM_RODADO}.
+ *
+ * FINAME, IPVA, Impostos e Lucro Fixo leem placa: cavalo e carreta, e nada
+ * mais. Elas listavam **todas** as vigências da unidade, e o acervo entrega o
+ * arquivo de trecho como vigência separada, com `entity_type_set = TRECHO` — de
+ * modo que a lista oferecia uma ponta que aquelas telas não sabem ler. Escolher
+ * essa ponta é a recusa do motor em tela ("Coberturas diferentes", `engine.ts`)
+ * quando a outra ponta é de equipamento, ou zero linhas sem explicação quando
+ * as duas são de trecho. Nos dois casos o erro não é de quem clicou: era a
+ * lista que não devia ter oferecido.
+ */
+export const TIPOS_DE_EQUIPAMENTO: readonly string[] = ["CAVALO", "CARRETA"];
 
 /**
  * O par de partida: as duas vigências mais recentes que **formam par de
