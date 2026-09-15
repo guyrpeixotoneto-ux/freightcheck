@@ -119,12 +119,88 @@ export interface ColunaIdentificadora {
   tambemEhFato?: boolean;
 }
 
+// ---------------------------------------------------------------------------
+// A família do dataset — o acervo que o arquivo alimenta
+// ---------------------------------------------------------------------------
+
+/**
+ * A família é **declarada pelo tipo**, e é isso que a torna um eixo próprio.
+ *
+ * A identidade canônica de uma vigência é (sistema, família, canal, data,
+ * escopo) — ver `canonical-identity.ts`, e o índice único que o Postgres gera
+ * sobre ela. A família era *derivada* do `entity_type`: um mapa de CAVALO para
+ * REMUNERACAO_EQUIPAMENTO, de QLP para QUADRO_DE_PESSOAL. Enquanto o único
+ * acervo era o remunerado, derivar e declarar davam no mesmo, e derivar era
+ * menos escrita.
+ *
+ * O **real** desfaz o empate. O extrato do financiamento fala das mesmas
+ * placas, na mesma data, no mesmo canal: derivada do tipo, a família dele sairia
+ * REMUNERACAO_EQUIPAMENTO, e o arquivo colidiria com a vigência remunerada
+ * daquela data — recusado como duplicata, ou pior, fundido com ela. Trocar o
+ * `entity_type` para não colidir custaria mais caro ainda: `entity_identifier`
+ * é único por (tipo, valor), então a placa do real viraria uma **entidade
+ * diferente** da mesma placa no remunerado, e não haveria como cruzar as duas —
+ * que é a única coisa que a auditoria do real precisa fazer.
+ *
+ * Declarar a família resolve os dois de uma vez: o `entity_type` continua
+ * CAVALO, e a placa casa; a família diz de que acervo aquele arquivo é, e as
+ * duas vigências coexistem na mesma data sem se ver.
+ *
+ * Elas moram aqui, e não em `canonical-identity.ts`, pelo motivo que o cabeçalho
+ * deste arquivo explica: a aba da tela precisa saber a família que está
+ * declarando, e `canonical-identity.ts` importa `node:crypto`. Lá elas
+ * continuam exportadas, por reexportação, para quem já as lia de
+ * `@workspace/ingest`.
+ */
+
+/**
+ * A remuneração dos ativos: o que a Ambev paga por cavalo, carreta, trecho.
+ *
+ * CAVALO e CARRETA são componentes de uma mesma família. Um arquivo só de
+ * cavalos e um arquivo de cavalos+carretas descrevem a mesma remuneração da
+ * mesma vigência — antes disto, viravam duas identidades ativas, e os cavalos
+ * passavam a existir em duplicidade. A família é do acervo, e não conta quantas
+ * abas foram lidas.
+ */
+export const DATASET_FAMILY_REMUNERACAO_EQUIPAMENTO = "REMUNERACAO_EQUIPAMENTO";
+
+/**
+ * O quadro de lotação de pessoal — administrativo e operacional, uma família.
+ *
+ * **Por que não a mesma família do equipamento.** A identidade da vigência é
+ * (sistema, família, canal, data, escopo). Sem família própria, um arquivo de
+ * QLP da mesma unidade, mesma data e mesmo canal teria a mesma identidade da
+ * remuneração de equipamento — e entraria como *revisão* dela, superpondo uma
+ * vigência que fala de caminhão com uma que fala de gente. A família existe
+ * para essa distinção; usá-la é o que impede a confusão, não uma formalidade.
+ *
+ * **Por que uma só para os dois QLPs.** Pelo mesmo argumento que junta CAVALO e
+ * CARRETA: os dois arquivos descrevem o mesmo quadro da mesma vigência, cada um
+ * com uma parte da população. Em famílias separadas, cada um abriria a sua
+ * vigência e nunca se reconheceriam como partes de um todo; na mesma, o segundo
+ * entra como revisão que herda os fatos do primeiro — a máquina de fato herdado
+ * (`0017`) foi escrita exatamente para o arquivo parcial.
+ *
+ * **E por que ela não é um acervo à parte na tela.** O que a Ambev paga por
+ * gente é remuneração igual: a família separa a *identidade da vigência*, que é
+ * problema do banco, e o acervo separa *telas*, que é problema de quem opera.
+ * As duas divisões são reais e não coincidem — ver `ACERVOS`, abaixo.
+ */
+export const DATASET_FAMILY_QUADRO_DE_PESSOAL = "QUADRO_DE_PESSOAL";
+
 export interface DefinicaoDeTipo {
   code: TipoDeImportacao;
   /** O nome na aba e nas frases: "Cavalo", "QLP Administrativo". */
   rotulo: string;
   /** Uma linha sobre o que se importa por aqui. */
   descricao: string;
+  /**
+   * O acervo que este tipo alimenta — metade da identidade canônica da vigência.
+   *
+   * Ver o bloco acima: é a declaração da família que deixa o real e o remunerado
+   * do mesmo veículo, na mesma data, existirem sem colidir.
+   */
+  familia: string;
   /**
    * As colunas que, juntas, identificam uma linha — na ordem em que compõem a
    * chave.
@@ -198,12 +274,14 @@ export const TIPOS_DE_IMPORTACAO: DefinicaoDeTipo[] = [
     code: "CAVALO",
     rotulo: "Cavalo",
     descricao: "O export de remuneração do cavalo mecânico, por placa e quinzena.",
+    familia: DATASET_FAMILY_REMUNERACAO_EQUIPAMENTO,
     identidade: [PLACA],
   },
   {
     code: "CARRETA",
     rotulo: "Carreta",
     descricao: "O export de remuneração da carreta, por placa e quinzena.",
+    familia: DATASET_FAMILY_REMUNERACAO_EQUIPAMENTO,
     identidade: [PLACA],
   },
   {
@@ -212,6 +290,7 @@ export const TIPOS_DE_IMPORTACAO: DefinicaoDeTipo[] = [
     descricao:
       "O export do lado variável da remuneração — origem, destino e quilometragem —, " +
       "identificado pela chave do trecho e não por placa.",
+    familia: DATASET_FAMILY_REMUNERACAO_EQUIPAMENTO,
     identidade: [CHAVE_TRECHO],
   },
   /*
@@ -243,6 +322,7 @@ export const TIPOS_DE_IMPORTACAO: DefinicaoDeTipo[] = [
     descricao:
       "O export de remuneração do caminhão — o ativo que tração e AS rodam no " +
       "lugar do cavalo mecânico —, por placa e quinzena.",
+    familia: DATASET_FAMILY_REMUNERACAO_EQUIPAMENTO,
     identidade: [PLACA],
   },
   {
@@ -251,6 +331,7 @@ export const TIPOS_DE_IMPORTACAO: DefinicaoDeTipo[] = [
     descricao:
       "O export de remuneração da carroceria — o implemento do caminhão, no " +
       "lugar da carreta —, por placa e quinzena.",
+    familia: DATASET_FAMILY_REMUNERACAO_EQUIPAMENTO,
     identidade: [PLACA],
   },
   {
@@ -259,6 +340,7 @@ export const TIPOS_DE_IMPORTACAO: DefinicaoDeTipo[] = [
     descricao:
       "O export de remuneração da empilhadeira, o ativo da operação de apoio: " +
       "trabalha dentro do pátio, não puxa implemento e não roda trecho.",
+    familia: DATASET_FAMILY_REMUNERACAO_EQUIPAMENTO,
     identidade: [PLACA],
   },
   {
@@ -268,6 +350,7 @@ export const TIPOS_DE_IMPORTACAO: DefinicaoDeTipo[] = [
       "O quadro de lotação de pessoal da estrutura administrativa: um cargo por " +
       "unidade, com as despesas de ordenados, encargos, benefícios, frota leve, " +
       "telefonia e uniformes.",
+    familia: DATASET_FAMILY_QUADRO_DE_PESSOAL,
     identidade: [UNIDADE_CNPJ, CARGO],
   },
   {
@@ -276,8 +359,142 @@ export const TIPOS_DE_IMPORTACAO: DefinicaoDeTipo[] = [
     descricao:
       "O quadro de lotação de pessoal da operação: um cargo por unidade e turno, " +
       "com piso, adicional noturno, benefícios, encargos e a quantidade por caminhão.",
+    familia: DATASET_FAMILY_QUADRO_DE_PESSOAL,
     identidade: [UNIDADE_CNPJ, CARGO_EQUIPE, TURNO],
   },
+];
+
+/**
+ * O financiamento como o banco o cobra — o **real**, ao lado do remunerado.
+ *
+ * Esta é a família que obriga a declaração a existir, e o motivo está no
+ * `entity_type`. O extrato fala das mesmas placas: para a auditoria poder
+ * cruzar o real com o remunerado do mesmo veículo, os dois têm de ser a
+ * **mesma entidade** — e `entity_identifier` é único por (tipo, valor), então
+ * inventar um `CAVALO_REAL` transformaria a placa ABC1D23 do real numa
+ * entidade diferente da ABC1D23 do remunerado, e não haveria o que cruzar.
+ *
+ * O tipo declarado continua sendo CAVALO, portanto, e é a família que separa os
+ * acervos. Sem ela, os dois arquivos da mesma data teriam a mesma identidade
+ * canônica de vigência, e o segundo seria recusado como reentrega do primeiro.
+ */
+export const DATASET_FAMILY_FINANCIAMENTO_REAL = "FINANCIAMENTO_REAL";
+
+// ---------------------------------------------------------------------------
+// Os acervos — a fileira de cima da tela de Importações
+// ---------------------------------------------------------------------------
+
+/** Os acervos que a tela oferece, na ordem em que aparecem. */
+export type Acervo = "REMUNERADO" | "REAL";
+
+export interface DefinicaoDeAcervo {
+  code: Acervo;
+  /** Como o endereço o escreve: `?secao=remunerado`. */
+  slug: string;
+  /** O nome na aba e nas frases. */
+  rotulo: string;
+  /** Uma linha sobre o que entra por aqui. */
+  descricao: string;
+  /**
+   * A família que este acervo carimba, quando ele carimba uma.
+   *
+   * O **real** fixa a dele: todo arquivo que entra por ali é financiamento
+   * real, seja de cavalo ou de carreta. O **remunerado** deixa `undefined` e
+   * defere ao tipo, porque ali a família depende do que se envia — o
+   * equipamento tem a sua, o quadro de pessoal tem a dele.
+   *
+   * Ver {@link familiaDeclarada}, que é onde essa regra vira um valor.
+   */
+  familiaFixa?: string;
+  /**
+   * Os tipos que este acervo aceita. Ausente quer dizer **todos**.
+   *
+   * O real é o financiamento de um **ativo**, e nem todo tipo é um: um trecho é
+   * uma perna de rota, e uma perna de rota não se financia; o quadro de pessoal
+   * não tem contrato de banco. Oferecer as abas deles dentro do Real seria
+   * convidar a declarar um acervo para um arquivo que não pode pertencer a ele.
+   *
+   * A lista é por código, e não derivada de `EQUIPAMENTOS_DO_AMBIENTE`
+   * (`lib/frota.ts`, no cliente), porque aquela inclui o trecho — ela responde
+   * "que ativos esta auditoria mostra", que é outra pergunta.
+   */
+  tipos?: TipoDeImportacao[];
+}
+
+/**
+ * A lista dos acervos. Uma só, e esta.
+ *
+ * A fileira de abas da tela é escrita por ela, e o servidor recusa por ela —
+ * pela mesma razão que `TIPOS_DE_IMPORTACAO` é uma lista só: duas listas
+ * concordariam no dia em que fossem escritas e discordariam depois.
+ *
+ * **Chamados não está aqui**, e não é esquecimento. Ele é a terceira aba da
+ * mesma fileira na tela, mas não é um acervo de planilha: não tem tipo
+ * declarado, não tem família de vigência e não passa por este pipeline. A tela
+ * o trata como o caso à parte que ele é, em vez de o enfiar nesta lista e
+ * precisar de exceção em toda regra que a lista sustenta.
+ */
+export const ACERVOS: DefinicaoDeAcervo[] = [
+  {
+    code: "REMUNERADO",
+    slug: "remunerado",
+    rotulo: "Remunerado",
+    descricao:
+      "O que a Ambev paga: o export de remuneração dos ativos e o quadro de " +
+      "lotação de pessoal, por vigência.",
+  },
+  {
+    code: "REAL",
+    slug: "real",
+    rotulo: "Real",
+    descricao:
+      "O custo como ele é cobrado — hoje, o extrato do financiamento dos " +
+      "veículos. Entra por planilha enquanto a API não existe.",
+    familiaFixa: DATASET_FAMILY_FINANCIAMENTO_REAL,
+    tipos: ["CAVALO", "CARRETA", "CAMINHAO", "CARROCERIA", "EMPILHADEIRA"],
+  },
+];
+
+const ACERVO_POR_SLUG = new Map<string, DefinicaoDeAcervo>(
+  ACERVOS.map((acervo) => [acervo.slug, acervo]),
+);
+
+/** O acervo de um slug de endereço, ou `null` quando ele não é um. */
+export function acervoDoSlug(slug: string | null | undefined): DefinicaoDeAcervo | null {
+  if (slug === null || slug === undefined) return null;
+  return ACERVO_POR_SLUG.get(slug.trim().toLowerCase()) ?? null;
+}
+
+/**
+ * A família que um envio declara — a conta que junta o acervo e o tipo.
+ *
+ * É a única forma de escrever essa regra: o acervo sozinho não decide (o
+ * remunerado tem duas famílias), e o tipo sozinho também não (CAVALO existe nos
+ * dois acervos). Quem chama isto é o envio, e o valor vai para o
+ * `declared_family` do run — de onde a promoção o lê.
+ */
+export function familiaDeclarada(
+  acervo: DefinicaoDeAcervo | null,
+  tipo: DefinicaoDeTipo | null,
+): string | null {
+  if (acervo?.familiaFixa !== undefined) return acervo.familiaFixa;
+  return tipo?.familia ?? null;
+}
+
+/** Se este acervo aceita receber um arquivo daquele tipo. */
+export function acervoAceitaTipo(
+  acervo: DefinicaoDeAcervo,
+  code: TipoDeImportacao,
+): boolean {
+  return acervo.tipos === undefined || acervo.tipos.includes(code);
+}
+
+/** Toda família que um envio pode declarar — o que o servidor aceita. */
+export const FAMILIAS_DECLARAVEIS: string[] = [
+  ...new Set([
+    ...TIPOS_DE_IMPORTACAO.map((tipo) => tipo.familia),
+    ...ACERVOS.flatMap((a) => (a.familiaFixa ? [a.familiaFixa] : [])),
+  ]),
 ];
 
 const POR_CODIGO = new Map<string, DefinicaoDeTipo>(

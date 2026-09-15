@@ -619,6 +619,22 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
         "import_run.promotion_report",
         "import_run.promocao_em",
         /*
+          A da `0098` — a família de dataset que o envio declarou, o acervo por
+          onde a planilha entrou.
+
+          Ela existe porque a identidade canônica de uma vigência é (sistema,
+          família, canal, data, escopo), e a família era derivada do
+          `entity_type`: o real e o remunerado do mesmo veículo, na mesma data,
+          caíam na mesma identidade e um recusava o outro. Declarada, ela separa
+          os acervos sem tocar no `entity_type` — que é o que mantém a placa do
+          real casando com a mesma placa do remunerado.
+
+          Aditiva e nula, pela mesma razão das de cima: `NULL` é a verdade sobre
+          todo run anterior a ela, e é a forma que este diff aceita sobre tabela
+          que Production já tem.
+        */
+        "import_run.declared_family",
+        /*
           A coluna que a `0046` acrescentou a `fechamento_competencia` **não**
           entra aqui, e a ausência é a informação: o diff a reporta pela tabela,
           não pela coluna, porque Production não tem nenhuma das treze do

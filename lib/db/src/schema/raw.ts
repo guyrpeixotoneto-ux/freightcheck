@@ -149,6 +149,20 @@ export const importRunTable = pgTable(
      */
     declaredType: text("declared_type"),
     /**
+     * A família de dataset que o envio declarou — o acervo, não o tipo.
+     *
+     * Metade da identidade canônica da vigência (`0015`), e a metade que o tipo
+     * não decide sozinho: CAVALO existe no remunerado **e** no real, e os dois
+     * precisam coexistir na mesma data sem colidir. É a conta de
+     * (acervo × tipo) feita no envio — `familiaDeclarada`, em
+     * `lib/ingest/src/tipos.ts` — gravada uma vez e lida pela promoção.
+     *
+     * Nulo quer dizer "ninguém declarou", que é como todo run anterior a esta
+     * coluna entrou: a família saía deduzida do `entity_type` dos fatos, e
+     * continua saindo quando esta está nula.
+     */
+    declaredFamily: text("declared_family"),
+    /**
      * O run que este aqui releu — nulo em toda importação que é a primeira
      * leitura do seu arquivo.
      *

@@ -397,6 +397,17 @@ export const ALLOWLIST: {
     tipo: "text",
     aindaPodeNaoExistir: true,
   },
+  /*
+    A da `0098`. A família de dataset que o envio declarou — o acervo por onde a
+    planilha entrou, que é o que deixa o real e o remunerado do mesmo veículo
+    coexistirem na mesma data. Aditiva e nula, como todas as daqui.
+  */
+  {
+    tabela: "import_run",
+    coluna: "declared_family",
+    tipo: "text",
+    aindaPodeNaoExistir: true,
+  },
 ];
 
 /**
