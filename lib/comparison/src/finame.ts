@@ -38,17 +38,39 @@
  * que ninguém preencheu numa economia de 100%.
  */
 
+import {
+  chaveDoVeiculo,
+  estadoDaAlteracao,
+  GRAVIDADE,
+  numero,
+  ROTULO_DO_ESTADO,
+  type AlteracaoDoMotor,
+  type EstadoDaLinha,
+  type MedidaDaVariavel,
+} from "./recorte-de-rubrica";
+
+/*
+  O vocabulário comum — o que uma variável mede, os seis estados, a forma da
+  alteração do motor e a tradução de uma para a outra — saiu daqui para
+  `recorte-de-rubrica.ts` quando a Auditoria de IPVA nasceu do mesmo desenho.
+  Nada mudou de sentido e nada mudou de nome: os símbolos continuam sendo
+  exportados por este módulo, e quem importava de `@workspace/comparison/finame`
+  não mudou uma linha. O que mudou é que agora existe **uma** definição de
+  "Conflito" para os dois recortes, em vez de duas cópias livres para divergir.
+*/
+export {
+  estadoDaAlteracao,
+  ROTULO_DO_ESTADO,
+  type AlteracaoDoMotor,
+  type MedidaDaVariavel,
+};
+
+/** Os seis estados de uma linha de FINAME. O mesmo tipo dos demais recortes. */
+export type EstadoDaLinhaDeFiname = EstadoDaLinha;
+
 // ---------------------------------------------------------------------------
 // O catálogo das variáveis
 // ---------------------------------------------------------------------------
-
-/** O que a variável mede — e, por consequência, como a tela a escreve. */
-export type MedidaDaVariavel =
-  | "DINHEIRO"
-  | "PERCENTUAL"
-  | "MESES"
-  | "ANO"
-  | "DATA";
 
 /**
  * Uma variável de FINAME, com o código que cada tipo de equipamento usa.
@@ -270,97 +292,6 @@ export function codigoDaVariavel(
 }
 
 // ---------------------------------------------------------------------------
-// Os seis estados
-// ---------------------------------------------------------------------------
-
-/**
- * O que aconteceu com esta variável, neste veículo, entre as duas vigências.
- *
- * Os seis são exaustivos e nenhum deles é "não sei": `DADO_INCOMPLETO` e
- * `CONFLITO` são as duas formas honestas de dizer que **houve** algo e que ele
- * não vira número, cada uma com o motivo que o motor gravou.
- */
-export type EstadoDaLinhaDeFiname =
-  | "SEM_ALTERACAO"
-  | "ALTERADO"
-  | "NOVO_NA_VIGENCIA"
-  | "AUSENTE_NA_COMPARADA"
-  | "DADO_INCOMPLETO"
-  | "CONFLITO";
-
-export const ROTULO_DO_ESTADO: Record<EstadoDaLinhaDeFiname, string> = {
-  SEM_ALTERACAO: "Sem alteração",
-  ALTERADO: "Alterado",
-  NOVO_NA_VIGENCIA: "Novo na vigência",
-  AUSENTE_NA_COMPARADA: "Ausente na vigência comparada",
-  DADO_INCOMPLETO: "Dado incompleto",
-  CONFLITO: "Conflito",
-};
-
-/**
- * A alteração como o motor a grava, reduzida ao que este módulo lê.
- *
- * Estruturalmente compatível com `ChangeRow` (`query.ts`) — é ele que chega
- * aqui em produção. Escrito como interface própria para que o teste construa
- * uma linha à mão sem montar as trinta colunas da tabela.
- */
-export interface AlteracaoDoMotor {
-  id?: number;
-  changeType: string;
-  nature?: string | null;
-  attributeCode: string | null;
-  attributeName?: string | null;
-  entityLabel: string | null;
-  entityType: string | null;
-  valueBefore: string | null;
-  valueAfter: string | null;
-  isNullBefore?: boolean | null;
-  isNullAfter?: boolean | null;
-  nullReasonBefore?: string | null;
-  nullReasonAfter?: string | null;
-  /** `numeric` do Postgres chega como string. A conversão mora aqui. */
-  deltaAbsolute: string | number | null;
-  deltaPercent: string | number | null;
-  comparability: string;
-  inconclusiveReason?: string | null;
-  impactConfidence?: string | null;
-  impactAmount?: string | number | null;
-  impactPeriodicity?: string | null;
-}
-
-/**
- * O estado de uma alteração — a tradução do motor para a tela.
- *
- * A ordem dos testes é deliberada: o eixo da frota decide antes do valor, e a
- * incomparabilidade decide antes de qualquer número. Uma linha `INCONCLUSIVE`
- * com `delta` nulo classificada como "Alterado" mostraria um travessão sob o
- * rótulo de uma alteração medida.
- */
-export function estadoDaAlteracao(a: AlteracaoDoMotor): EstadoDaLinhaDeFiname {
-  if (a.changeType === "ENTITY_ADDED" || a.changeType === "ATTRIBUTE_ADDED") {
-    return "NOVO_NA_VIGENCIA";
-  }
-  if (a.changeType === "ENTITY_REMOVED" || a.changeType === "ATTRIBUTE_REMOVED") {
-    return "AUSENTE_NA_COMPARADA";
-  }
-  if (a.comparability === "INCONCLUSIVE") {
-    /*
-      Duas famílias de incomparável, e elas não se dizem com a mesma palavra.
-
-      Um valor que apareceu, sumiu ou trocou de motivo de ausência é **dado
-      incompleto**: o acervo tem um buraco, e o buraco é o achado. Um tipo que
-      mudou, uma coluna que a fonte entrega com dois tipos no mesmo import e uma
-      semântica que se moveu são **conflito**: os dois lados existem e não podem
-      ser postos lado a lado com segurança. Chamar os dois de "incompleto"
-      mandaria alguém procurar um dado que está lá.
-    */
-    const ausencia = a.nature === "APPEARED" || a.nature === "DISAPPEARED" || a.nature === "NULL_REASON";
-    return ausencia ? "DADO_INCOMPLETO" : "CONFLITO";
-  }
-  return "ALTERADO";
-}
-
-// ---------------------------------------------------------------------------
 // A linha da tabela
 // ---------------------------------------------------------------------------
 
@@ -388,13 +319,6 @@ export interface LinhaDeFiname {
   impactoAmount: number | null;
   impactoPeriodicidade: string | null;
   impactoCalculado: boolean;
-}
-
-/** `numeric` do Postgres chega como string; nulo continua nulo. */
-function numero(valor: string | number | null | undefined): number | null {
-  if (valor === null || valor === undefined) return null;
-  const n = typeof valor === "number" ? valor : Number(valor);
-  return Number.isFinite(n) ? n : null;
 }
 
 /**
@@ -614,11 +538,6 @@ export interface ResumoDeFiname {
   impacto: ImpactoDeFiname;
 }
 
-/** A chave de um veículo dentro de um recorte: rótulo mais tipo. */
-function chaveDoVeiculo(l: LinhaDeFiname): string {
-  return `${l.entityLabel}\u001f${l.entityType}`;
-}
-
 /**
  * Os seis indicadores do topo, de uma passada só.
  *
@@ -725,15 +644,6 @@ export interface FatiaDeEstado {
  * Sem essa regra a soma das fatias passaria do total de veículos, e uma rosca
  * cujas fatias somam 113% é um gráfico que ninguém acredita.
  */
-const GRAVIDADE: readonly EstadoDaLinhaDeFiname[] = [
-  "CONFLITO",
-  "AUSENTE_NA_COMPARADA",
-  "NOVO_NA_VIGENCIA",
-  "DADO_INCOMPLETO",
-  "ALTERADO",
-  "SEM_ALTERACAO",
-];
-
 export function distribuicaoPorEstado(
   linhas: readonly LinhaDeFiname[],
   frota: FrotaDoPar,

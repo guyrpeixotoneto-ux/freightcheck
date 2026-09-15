@@ -20,7 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { SeletorDoPar, type VigenciaEscolhivel } from "@/components/finame/seletor-do-par";
+import { SeletorDoPar, type VigenciaEscolhivel } from "@/components/comparacao/seletor-do-par";
 import { CartoesDeFiname } from "@/components/finame/cartoes";
 import {
   AlteracoesPorVariavel,
@@ -296,6 +296,7 @@ export default function AuditoriaDeFiname() {
               setComparada(base);
             }}
             carregando={comparacao.isFetching}
+            idPrefixo="finame"
           />
         )}
 

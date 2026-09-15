@@ -687,12 +687,21 @@ describe("o catálogo de telas em preparo", () => {
     (`nav-auditoria.ts`) e saiu o verbete, pela mesma regra das três da antiga
     Recuperação: tela em preparo sem item que a alcance é catálogo que ninguém
     lê.
+
+    E de vinte para dezenove quando **IPVA** ficou pronta — esta por entrega, e
+    não por baixa de menu, pelo caminho que o Finame abriu e com a mesma
+    ressalva: o verbete pedia a conferência contra ano, categoria e UF do
+    emplacamento, e categoria e UF continuam não existindo no acervo. A tela não
+    passou a afirmar nada sobre elas. O que mudou é que o acervo já sustentava a
+    outra metade — o IPVA sobre o valor de nota é uma alíquota, e é ela que
+    distingue um IPVA alto de um IPVA errado. O que falta continua dito na
+    própria tela, e não aqui.
   */
   it("descreve, para cada tela, o que falta antes de ela mostrar um número", () => {
     const catalogo = fonte("pages/telas-em-preparo.ts");
     const telas = [...catalogo.matchAll(/^\s{4}href:\s*"([^"]+)"/gm)].length;
 
-    expect(telas).toBe(20);
+    expect(telas).toBe(19);
     expect([...catalogo.matchAll(/^\s{4}depende:\s*\[/gm)]).toHaveLength(telas);
     expect([...catalogo.matchAll(/^\s{4}pergunta:/gm)]).toHaveLength(telas);
   });
