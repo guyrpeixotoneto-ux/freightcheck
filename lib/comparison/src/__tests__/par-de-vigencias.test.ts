@@ -120,7 +120,8 @@ describe("os rótulos do seletor", () => {
   ]);
   const nomeDoEscopo = (hash: string) => nomes.get(hash) ?? null;
 
-  it("não acrescenta nada a quem já é único", () => {
+  /* Um mês com uma entrega só não ganha marca: não há o que desempatar. */
+  it("escreve a vigência como se fala dela, e nada mais", () => {
     const rotulos = rotulosDasVigencias(
       [
         comRotulo("pe-ago", "EMPURRADA_2_8_2026", "2026-08-16", PERNAMBUCO),
@@ -129,8 +130,22 @@ describe("os rótulos do seletor", () => {
       nomeDoEscopo,
     );
 
-    expect(rotulos.get("pe-ago")).toBe("EMPURRADA_2_8_2026 · 16/08/2026");
-    expect(rotulos.get("pe-jul")).toBe("EMPURRADA_2_7_2026 · 16/07/2026");
+    expect(rotulos.get("pe-ago")).toBe("agosto/2026");
+    expect(rotulos.get("pe-jul")).toBe("julho/2026");
+  });
+
+  /* Duas entregas no mesmo mês: aí a quinzena entra, e só aí. */
+  it("marca a quinzena quando o mês tem as duas entregas", () => {
+    const rotulos = rotulosDasVigencias(
+      [
+        comRotulo("jul1", "EMPURRADA_1_7_2026", "2026-07-01", PERNAMBUCO),
+        comRotulo("jul2", "EMPURRADA_2_7_2026", "2026-07-16", PERNAMBUCO),
+      ],
+      nomeDoEscopo,
+    );
+
+    expect(rotulos.get("jul1")).toBe("julho/2026 · 1ª quinzena");
+    expect(rotulos.get("jul2")).toBe("julho/2026 · 2ª quinzena");
   });
 
   /* O relato, dito como teste: duas unidades, dois rótulos diferentes. */
@@ -143,8 +158,8 @@ describe("os rótulos do seletor", () => {
       nomeDoEscopo,
     );
 
-    expect(rotulos.get("pe")).toBe("EMPURRADA_1_6_2026 · 01/06/2026 · PERNAMBUCO");
-    expect(rotulos.get("ca")).toBe("EMPURRADA_1_6_2026 · 01/06/2026 · CAMAÇARI");
+    expect(rotulos.get("pe")).toBe("junho/2026 · PERNAMBUCO");
+    expect(rotulos.get("ca")).toBe("junho/2026 · CAMAÇARI");
     expect(new Set(rotulos.values()).size).toBe(2);
   });
 
@@ -162,8 +177,8 @@ describe("os rótulos do seletor", () => {
       nomeDoEscopo,
     );
 
-    expect(rotulos.get("cav")).toBe("EMPURRADA_1_6_2026 · 01/06/2026 · CAVALO");
-    expect(rotulos.get("car")).toBe("EMPURRADA_1_6_2026 · 01/06/2026 · CARRETA");
+    expect(rotulos.get("cav")).toBe("junho/2026 · CAVALO");
+    expect(rotulos.get("car")).toBe("junho/2026 · CARRETA");
   });
 
   it("cai na revisão como último desempate", () => {
@@ -186,8 +201,14 @@ describe("os rótulos do seletor", () => {
       comRotulo("ca", "EMPURRADA_1_6_2026", "2026-06-01", CAMACARI),
     ]);
 
-    expect(rotulos.get("pe")).toBe("EMPURRADA_1_6_2026 · 01/06/2026");
-    expect(rotulos.get("ca")).toBe("EMPURRADA_1_6_2026 · 01/06/2026");
+    /*
+      As duas seguem idênticas, e é a verdade: sem `/contexts`, o que
+      `/snapshots` entrega sobre estas duas linhas é o mesmo em tudo — mesmo
+      arquivo, mesma data, mesma cobertura. Nenhum sufixo separa o que o dado
+      não separa, e escrever um daria uma distinção inventada.
+    */
+    expect(rotulos.get("pe")).toBe("junho/2026");
+    expect(rotulos.get("ca")).toBe("junho/2026");
   });
 
   /* O acervo real, como o arquivo o produziu: trinta linhas, trinta rótulos. */

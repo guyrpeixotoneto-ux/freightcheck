@@ -1,5 +1,8 @@
 import { ArrowLeftRight, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import { numerosDaLinha, type CandidatosDoPar } from "@/lib/candidatos";
+import { cn } from "@/lib/utils";
 import {
   Select,
   SelectContent,
@@ -88,6 +91,10 @@ export function SeletorDoPar({
   onInverter,
   carregando = false,
   idPrefixo,
+  candidatos,
+  carregandoCandidatos = false,
+  onAbrirDe,
+  erroDosCandidatos = null,
 }: {
   vigencias: VigenciaEscolhivel[];
   /**
@@ -99,6 +106,24 @@ export function SeletorDoPar({
    * exatamente o que produzia cinco `EMPURRADA_1_6_2026 · 01/06/2026` seguidas.
    */
   rotulos: ReadonlyMap<string, string>;
+  /**
+   * O que cada candidata a "De" produz contra o "Para" aberto — por id.
+   *
+   * `undefined` enquanto ninguém perguntou ou a pergunta está no ar; uma
+   * entrada com `numeros: null` é a candidata que o servidor ainda não
+   * calculou. Os dois casos escrevem a mesma coisa na linha: **nada**.
+   *
+   * Opcional, e é o que mantém a Auditoria de IPVA intacta: sem a propriedade,
+   * o menu é exatamente o que era antes. Quando houver `/ipva/candidatos`,
+   * basta a tela passar a resposta — o componente já sabe desenhá-la.
+   */
+  candidatos?: CandidatosDoPar;
+  /** Há pergunta em voo: as linhas sem número mostram esqueleto, não vazio. */
+  carregandoCandidatos?: boolean;
+  /** Avisa a página de que o menu "De" abriu — é o que dispara a pergunta. */
+  onAbrirDe?: (aberto: boolean) => void;
+  /** A falha da pergunta pelos números, quando houve uma. */
+  erroDosCandidatos?: string | null;
   base: string;
   comparada: string;
   onBase: (id: string) => void;
@@ -119,6 +144,46 @@ export function SeletorDoPar({
     rotulos.get(v.id) ??
     `${v.sourceLabel} · ${v.effectiveDate.split("-").reverse().join("/")}`;
 
+  const escolhida = vigencias.find((v) => v.id === base);
+
+  const numerosDe = (id: string) =>
+    numerosDaLinha(candidatos?.candidatos.find((c) => c.id === id)?.numeros ?? null);
+
+  /**
+   * A linha do menu: a vigência à esquerda, o que o par produz à direita.
+   *
+   * Sem números, a linha é só a vigência — e um esqueleto no lugar deles
+   * enquanto a pergunta está no ar. O esqueleto é deliberado: ele diz "está
+   * vindo" sem escrever um valor, que é a única coisa que não se pode fazer
+   * aqui (ver `numerosDaLinha`).
+   */
+  const linha = (v: VigenciaEscolhivel, comNumeros: boolean) => {
+    const n = comNumeros ? numerosDe(v.id) : null;
+    return (
+      <span className="flex w-full items-center justify-between gap-6">
+        <span>{rotulo(v)}</span>
+        {n ? (
+          <span className="flex flex-col items-end text-xs leading-tight">
+            {n.valores.map((valor) => (
+              <span
+                key={valor.texto}
+                className={cn(
+                  "font-semibold tabular-nums",
+                  valor.bruto > 0 ? "text-emerald-700" : "text-destructive",
+                )}
+              >
+                {valor.texto}
+              </span>
+            ))}
+            <span className="text-muted-foreground">{n.alteracoes}</span>
+          </span>
+        ) : comNumeros && carregandoCandidatos ? (
+          <Skeleton className="h-3 w-24 rounded" />
+        ) : null}
+      </span>
+    );
+  };
+
   return (
     <section className="superficie px-4 py-3" aria-label="Par de vigências">
       <div className="flex flex-wrap items-end gap-3">
@@ -129,16 +194,42 @@ export function SeletorDoPar({
           >
             De
           </label>
-          <Select value={base} onValueChange={onBase}>
+          <Select value={base} onValueChange={onBase} onOpenChange={onAbrirDe}>
             <SelectTrigger id={`${idPrefixo}-base`} aria-label="De (vigência de origem)">
-              <SelectValue placeholder="Escolha a vigência de origem" />
+              {/*
+                O campo fechado mostra **só a vigência**, e não a linha inteira
+                da lista.
+
+                Por padrão o Radix repete no gatilho os filhos do item
+                escolhido, e isso punha `+R$ 7.238,85/mês · 7 alterações` dentro
+                da caixa — a dois centímetros do cartão "Impacto financeiro",
+                que publica o mesmo número maior e com rótulo. Número repetido
+                não confirma nada: só divide a atenção, e no dia em que os dois
+                divergirem por um arredondamento é ele que vira a dúvida.
+
+                Na lista o número é o que faz escolher; escolhido, ele já está
+                dito na tela inteira.
+              */}
+              <SelectValue placeholder="Escolha a vigência de origem">
+                {escolhida ? rotulo(escolhida) : null}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
               {vigencias.map((v) => (
                 <SelectItem key={v.id} value={v.id}>
-                  {rotulo(v)}
+                  {linha(v, true)}
                 </SelectItem>
               ))}
+              {/*
+                A falha não tira o menu do ar: escolher a vigência continua
+                possível, e o que se perde é só a coluna da direita. A frase é
+                a do servidor — desde `apresentar-erro.ts`, ela é uma frase.
+              */}
+              {erroDosCandidatos && (
+                <p className="border-t px-2 py-1.5 text-xs text-muted-foreground">
+                  {erroDosCandidatos}
+                </p>
+              )}
             </SelectContent>
           </Select>
         </div>
