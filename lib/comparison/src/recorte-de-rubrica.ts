@@ -66,6 +66,12 @@ import { rotuloDeListaDaVigencia } from "./labels";
  * - `FATOR` é quantos motoristas um conjunto exige — uma contagem fracionária,
  *   sem unidade no mundo, que `ANO` arredondaria para um inteiro e apagaria
  *   justamente a fração que distingue 1,4 de 1,9 motorista por conjunto.
+ *
+ * `QUANTIDADE` entrou com a Auditoria do QLP, e é a contagem do que se remunera:
+ * posições de um cargo, linhas de telefone, uniformes. Ela existe separada de
+ * `DINHEIRO` porque no QLP as duas convivem na mesma linha — quantidade, valor
+ * unitário e despesa —, e escrever "R$ 3,00" onde a fonte disse três uniformes
+ * é o erro que a tabela inteira convida a cometer.
  */
 export type MedidaDaVariavel =
   | "DINHEIRO"
@@ -80,7 +86,8 @@ export type MedidaDaVariavel =
   | "TEXTO"
   | "MINUTOS"
   | "VELOCIDADE"
-  | "FATOR";
+  | "FATOR"
+  | "QUANTIDADE";
 
 // ---------------------------------------------------------------------------
 // Os seis estados

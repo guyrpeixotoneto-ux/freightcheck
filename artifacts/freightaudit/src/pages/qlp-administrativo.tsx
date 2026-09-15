@@ -75,6 +75,7 @@ import {
   SecoesDaApresentacao,
   SeloDeSeveridade,
 } from "@/components/apontamentos/apresentacao";
+import { AuditoriaDoQuadro } from "@/components/qlp-auditoria/auditoria";
 
 /**
  * QLP Administrativo — o quadro de pessoal da estrutura administrativa que o
@@ -90,6 +91,11 @@ import {
  * - **Alterações** — o que mudou entre duas vigências do quadro. O diff é o do
  *   motor canônico (`POST /change-sets`), o mesmo de Comparar Vigências: esta
  *   aba só escolhe o par e apresenta — nenhuma diferença é calculada aqui.
+ * - **Auditoria** — as contas que o quadro declara sobre si mesmo, dentro desta
+ *   vigência: `Quantidade × Valor = Despesa`, uma por rubrica, e o efetivo
+ *   contra o quadro de referência. É a aba que existe **apesar** do travamento
+ *   abaixo: agregar dinheiro depende de curadoria, mas conferir a multiplicação
+ *   que a própria planilha declara depende só de aritmética.
  * - **Inconsistências** — o que **não** está no quadro. A importação não escolhe
  *   em silêncio entre duas linhas que discordam sobre o mesmo cargo: ela deixa
  *   o registro de fora e o arquivo entra. Sem esta aba, a vigência apareceria
@@ -101,11 +107,12 @@ import {
  * no lugar de um número que não existe.
  */
 
-type Aba = "quadro" | "evolucao" | "alteracoes" | "inconsistencias";
+type Aba = "quadro" | "evolucao" | "alteracoes" | "auditoria" | "inconsistencias";
 const ABAS: { id: Aba; rotulo: string }[] = [
   { id: "quadro", rotulo: "Quadro" },
   { id: "evolucao", rotulo: "Evolução" },
   { id: "alteracoes", rotulo: "Alterações" },
+  { id: "auditoria", rotulo: "Auditoria" },
   { id: "inconsistencias", rotulo: "Inconsistências" },
 ];
 
@@ -292,6 +299,19 @@ export default function QlpAdministrativo() {
               <AbaEvolucao view={evolucao.data ?? null} carregando={evolucao.isLoading} />
             )}
             {aba === "alteracoes" && <AbaAlteracoes serie={evolucao.data?.quadro ?? []} />}
+            {/*
+              A aba de Auditoria não escolhe par de vigências, e é a diferença
+              dela para a de Alterações: a conferência é **dentro** de uma
+              vigência — a conta que o quadro declara sobre si mesmo —, e o
+              contexto que ela precisa é o mesmo `comum` das demais abas.
+            */}
+            {aba === "auditoria" && (
+              <AuditoriaDoQuadro
+                quadro="ADMINISTRATIVO"
+                query={comum}
+                rotuloDaVigencia={period || undefined}
+              />
+            )}
             {aba === "inconsistencias" && (
               <AbaInconsistencias
                 view={inconsistencias.data ?? null}

@@ -15,6 +15,7 @@
     "./impostos": "./src/impostos.ts",
     "./km-rodado": "./src/km-rodado.ts",
     "./velocidade-media": "./src/velocidade-media.ts",
+    "./qlp": "./src/qlp.ts",
     "./ipva": "./src/ipva.ts",
     "./lucro-fixo": "./src/lucro-fixo.ts",
     "./recorte-de-rubrica": "./src/recorte-de-rubrica.ts",

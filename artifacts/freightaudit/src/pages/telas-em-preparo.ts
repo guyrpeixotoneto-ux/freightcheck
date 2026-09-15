@@ -6,7 +6,6 @@ import {
   ClipboardCheck,
   Database,
   FileSpreadsheet,
-  HardHat,
   History,
   Receipt,
   Shield,
@@ -129,31 +128,27 @@ export const TELAS_EM_PREPARO: TelaEmPreparo[] = [
     + cargo + turno), então o caminho é o mesmo que o administrativo percorreu:
     importar a primeira planilha, e promover a tela.
   */
-  {
-    href: "/qlp-operacional",
-    label: "QLP Operacional",
-    icon: HardHat,
-    cor: "text-nav-custo-fixo",
-    pergunta:
-      "Quantas pessoas o modelo remunera na operação de cada unidade — o quadro por cargo, a quantidade contratada e o valor que ela carrega na quinzena.",
-    depende: [
-      "As linhas de QLP dentro da importação: o Freightech publica cargo, quantidade e valor por faixa (os cartões de QLP benchmark), e o export que chega a este banco não traz nenhuma delas — sem essas linhas, não há quadro para mostrar.",
-      "O vínculo entre o quadro e a unidade e vigência a que ele pertence, sem o qual a tela mostraria um número solto, e não o quadro de uma operação numa quinzena.",
-    ],
-    hoje: [
-      {
-        href: "/book-operador",
-        label: "Book do Operador",
-        porque:
-          "A regra do quadro de gente está escrita nos blocos de Gente — é a metade da resposta que não depende de importação.",
-      },
-      {
-        href: "/assistente",
-        label: "Assistente IA",
-        porque: "Responde o que o Book diz sobre QLP, cargo a cargo, sem esperar a tela.",
-      },
-    ],
-  },
+  /*
+    `/qlp-operacional` saiu deste catálogo — e saiu **sem o arquivo**, que é a
+    única vez que isto acontece nesta série. É preciso dizer com todas as letras:
+    o que o verbete pedia continua faltando. As linhas de QLP operacional não
+    chegam neste banco, e a tela abre dizendo isso.
+
+    O que mudou é que ela pode existir antes do arquivo sem prometer nada. O grão
+    (unidade + cargo + turno), as colunas e — sobretudo — **as contas** estão
+    declarados no dicionário da tabela de equipe: nove daquelas colunas são
+    subtotais das outras, e a cadeia que as liga está escrita lá como *proposta,
+    não medida*. Uma tela que confere essa cadeia é o instrumento que a confirma
+    ou a derruba no dia em que o primeiro export entrar — e, até lá, o que ela
+    mostra é a frase verdadeira, e não um quadro vazio que pareceria uma operação
+    sem gente.
+
+    A mesma auditoria virou a aba **Auditoria** do QLP Administrativo, onde o
+    arquivo já existe: lá ela confere `Quantidade × Valor = Despesa`, uma por
+    rubrica, e o efetivo contra o quadro de referência da auditoria bimestral
+    (`docs/ACHADO-QLP.md`). É o mesmo componente nas duas telas, porque é a mesma
+    pergunta.
+  */
 
   // -------------------------------------------------------------------------
   // Custo Fixo

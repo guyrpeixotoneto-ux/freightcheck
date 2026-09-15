@@ -1972,6 +1972,19 @@ export interface EntityTable {
     entityId: string;
     /** A placa, quando o ativo tem uma. */
     label: string | null;
+    /**
+     * O mesmo identificador **como se lê**, quando a fonte guardou os dois.
+     *
+     * Para uma placa os dois coincidem e este campo não muda nada. Ele existe
+     * pelo QLP, onde a chave normalizada é `20618821000799AUXILIARADM` e a
+     * legível é `20.618.821/0007-99 · AUXILIAR ADM`: a primeira identifica e a
+     * segunda se lê, e uma tela por cargo que só tivesse a primeira listaria
+     * trinta linhas que ninguém distingue.
+     *
+     * Nulo quando a fonte não guardou a forma legível — nunca a normalizada
+     * repetida, que faria a tela acreditar que tem um nome quando não tem.
+     */
+    labelRaw: string | null;
     values: Record<string, { value: string | null; nullReason: string | null }>;
   }[];
 }
@@ -2228,8 +2241,14 @@ export async function getEntityTable(
        AND ${contextFilter("s", context)}
   `);
 
-  const { rows: placas } = await db.execute<{ entity_id: string; valor: string }>(sql`
-    SELECT ei.entity_id::text AS entity_id, ei.identifier_value AS valor
+  const { rows: placas } = await db.execute<{
+    entity_id: string;
+    valor: string;
+    legivel: string | null;
+  }>(sql`
+    SELECT ei.entity_id::text AS entity_id,
+           ei.identifier_value AS valor,
+           ei.identifier_value_raw AS legivel
       FROM entity_identifier ei
       JOIN entity e ON e.id = ei.entity_id
      WHERE ei.identifier_type = 'PLACA'
@@ -2237,6 +2256,16 @@ export async function getEntityTable(
        AND e.entity_type = ${entityType}
   `);
   const placaDe = new Map(placas.map((p) => [p.entity_id, p.valor]));
+  /*
+    A forma legível só entra quando é **diferente** da normalizada: repetir a
+    chave num campo que a tela vai chamar de "nome" faria o QLP mostrar
+    `20618821000799AUXILIARADM` sob o rótulo de nome do cargo.
+  */
+  const legivelDe = new Map(
+    placas
+      .filter((p) => p.legivel !== null && p.legivel !== p.valor)
+      .map((p) => [p.entity_id, p.legivel as string]),
+  );
 
   /*
     O diagnóstico, e não só o resultado.
@@ -2267,6 +2296,7 @@ export async function getEntityTable(
       linha = {
         entityId: fato.entity_id,
         label: placaDe.get(fato.entity_id) ?? null,
+        labelRaw: legivelDe.get(fato.entity_id) ?? null,
         values: {},
       };
       porEntidade.set(fato.entity_id, linha);

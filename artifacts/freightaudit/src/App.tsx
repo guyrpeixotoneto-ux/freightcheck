@@ -62,6 +62,7 @@ import Configuracoes from '@/pages/configuracoes';
 import Frota360 from '@/pages/frota-360';
 import RadarTrechos from '@/pages/radar-trechos';
 import QlpAdministrativo from '@/pages/qlp-administrativo';
+import QlpOperacional from '@/pages/qlp-operacional';
 import AuditoriaDeFiname from '@/pages/custo-fixo-finame';
 import AuditoriaDeIpva from '@/pages/custo-fixo-ipva';
 import AuditoriaDeLucroFixo from '@/pages/custo-fixo-lucro-fixo';
@@ -588,6 +589,22 @@ function RotasDaAuditoria() {
         menu não mudou uma vírgula, como manda o catálogo.
       */}
       <Route path="/qlp-administrativo" component={QlpAdministrativo} />
+      {/*
+        QLP Operacional sai de `TELAS_EM_PREPARO` — e sai **sem o arquivo**, que
+        é a única vez que isto acontece nesta série. O verbete dizia depender das
+        linhas de QLP dentro da importação, e elas continuam não chegando; o que
+        mudou é que o grão, as colunas e as contas estão declarados no dicionário
+        da tabela de equipe, e a tela que os confere pode existir antes do
+        primeiro arquivo. Enquanto ele não chega, ela diz isso — que é mais
+        honesto do que um quadro vazio, e é o mesmo desenho das telas 360° dos
+        tipos que ainda não foram importados.
+
+        O que ela confere quando o arquivo chegar é a **cadeia dos subtotais**:
+        nove colunas desta tabela são subtotais das outras, e o dicionário
+        descreve a cadeia como proposta, não medida (`docs/ACHADO-QLP.md`). O
+        menu não mudou uma vírgula, como manda o catálogo.
+      */}
+      <Route path="/qlp-operacional" component={QlpOperacional} />
       <Route path="/importacoes" component={Importacoes} />
       <Route path="/integracoes" component={Integracoes} />
       <Route path="/composicao" component={Composicao} />
