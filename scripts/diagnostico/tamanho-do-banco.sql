@@ -293,10 +293,23 @@ BEGIN READ ONLY;
 \echo ''
 \echo '=== [10] GERADOR: janela de datas das maiores tabelas ==================='
 -- Esta seção NÃO consulta as tabelas: ela IMPRIME o SQL que faria isso, para
--- que cada consulta seja lida antes de rodar. São min()/max() sobre colunas de
--- data das 15 maiores tabelas; com índice na coluna é barato, sem índice é uma
--- varredura da tabela inteira — por isso não roda sozinha.
-SELECT format(
+-- que cada consulta seja lida antes de rodar.
+--
+-- A primeira versão desta seção procurava a data numa LISTA FIXA de nomes de
+-- coluna ('created_at', 'received_at', 'em', 'dia'…). Rodada em produção, ela
+-- devolveu seis tabelas e nenhuma das grandes: `fact`, `staged_fact`,
+-- `raw_cell`, `raw_row` e `change` não têm coluna de data — nenhuma delas. A
+-- lista não estava incompleta; a premissa é que estava errada. Em quase todo
+-- este schema a data de uma linha não mora nela: mora no `import_run` que a
+-- criou, e é por isso que há duas metades abaixo.
+
+\echo ''
+\echo '--- [10a] Tabelas que TÊM data própria ----------------------------------'
+-- Sem lista de nomes: vale qualquer coluna de data/timestamp, e a primeira do
+-- `attnum` (a mais antiga da tabela) é a escolhida — é a que costuma ser a de
+-- criação. `DISTINCT ON` garante uma consulta por tabela, não uma por coluna.
+SELECT DISTINCT ON (c.oid)
+       format(
          'SELECT %L AS tabela, min(%I) AS mais_antigo, max(%I) AS mais_recente, count(*) AS linhas FROM %I;',
          c.relname, a.attname, a.attname, c.relname) AS sql_para_revisar
   FROM pg_class c
@@ -306,12 +319,77 @@ SELECT format(
  WHERE c.relkind = 'r'
    AND n.nspname = 'public'
    AND t.typname IN ('timestamptz','timestamp','date')
-   AND a.attname IN ('created_at','received_at','started_at','em','dia','criado_em','guardado_em')
    AND c.oid IN (
      SELECT c2.oid FROM pg_class c2 JOIN pg_namespace n2 ON n2.oid = c2.relnamespace
       WHERE c2.relkind = 'r' AND n2.nspname = 'public'
-      ORDER BY pg_total_relation_size(c2.oid) DESC LIMIT 15)
- ORDER BY pg_total_relation_size(c.oid) DESC, c.relname, a.attname;
+      ORDER BY pg_total_relation_size(c2.oid) DESC LIMIT 20)
+ ORDER BY c.oid, a.attnum;
+
+COMMIT;
+
+BEGIN READ ONLY;
+
+\echo ''
+\echo '--- [10b] Tabelas SEM data própria, mas ligadas a import_run ------------'
+-- Aqui entram as grandes. Qualquer coluna que aponte para `import_run` serve
+-- como data emprestada — o schema usa quatro nomes para essa ligação
+-- (`import_run_id`, `origin_import_run_id`, `first_seen_import_run_id`,
+-- `source_import_run_id`), e o `LIKE` os cobre sem precisar listá-los.
+--
+-- Só aparece a tabela que NÃO tem data própria: com data própria, a 10a já
+-- respondeu, e a data dela é mais precisa que a da importação.
+SELECT DISTINCT ON (c.oid)
+       format(
+         'SELECT %L AS tabela, min(ir.started_at) AS mais_antigo, max(ir.started_at) AS mais_recente, count(*) AS linhas'
+         || ' FROM %I x JOIN import_run ir ON ir.id = x.%I;',
+         c.relname, c.relname, a.attname) AS sql_para_revisar
+  FROM pg_class c
+  JOIN pg_namespace n ON n.oid = c.relnamespace
+  JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
+  JOIN pg_type t ON t.oid = a.atttypid
+ WHERE c.relkind = 'r'
+   AND n.nspname = 'public'
+   AND c.relname <> 'import_run'
+   AND a.attname LIKE '%import_run_id'
+   AND t.typname = 'uuid'
+   AND c.oid IN (
+     SELECT c2.oid FROM pg_class c2 JOIN pg_namespace n2 ON n2.oid = c2.relnamespace
+      WHERE c2.relkind = 'r' AND n2.nspname = 'public'
+      ORDER BY pg_total_relation_size(c2.oid) DESC LIMIT 20)
+   AND NOT EXISTS (
+     SELECT 1 FROM pg_attribute a2 JOIN pg_type t2 ON t2.oid = a2.atttypid
+      WHERE a2.attrelid = c.oid AND a2.attnum > 0 AND NOT a2.attisdropped
+        AND t2.typname IN ('timestamptz','timestamp','date'))
+ ORDER BY c.oid, a.attnum;
+
+COMMIT;
+
+BEGIN READ ONLY;
+
+\echo ''
+\echo '--- [10c] As que nem isso têm — o caminho é por outra tabela ------------'
+-- `raw_cell` e `raw_row` não têm data nem coluna de `import_run`: chegam lá por
+-- `raw_row -> raw_sheet -> import_run`. Um gerador genérico teria de percorrer
+-- o grafo de chaves estrangeiras para descobrir isso, e o resultado seria um
+-- SQL que ninguém revisaria de verdade. As duas estão escritas à mão na seção
+-- 6c de `crescimento.sql`, onde o caminho fica visível.
+SELECT c.relname                                      AS tabela,
+       pg_size_pretty(pg_total_relation_size(c.oid))  AS total,
+       'sem data e sem import_run_id — ver crescimento.sql, seção 6c' AS observacao
+  FROM pg_class c
+  JOIN pg_namespace n ON n.oid = c.relnamespace
+ WHERE c.relkind = 'r'
+   AND n.nspname = 'public'
+   AND NOT EXISTS (
+     SELECT 1 FROM pg_attribute a JOIN pg_type t ON t.oid = a.atttypid
+      WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
+        AND (t.typname IN ('timestamptz','timestamp','date')
+             OR a.attname LIKE '%import_run_id'))
+   AND c.oid IN (
+     SELECT c2.oid FROM pg_class c2 JOIN pg_namespace n2 ON n2.oid = c2.relnamespace
+      WHERE c2.relkind = 'r' AND n2.nspname = 'public'
+      ORDER BY pg_total_relation_size(c2.oid) DESC LIMIT 20)
+ ORDER BY pg_total_relation_size(c.oid) DESC;
 
 COMMIT;
 

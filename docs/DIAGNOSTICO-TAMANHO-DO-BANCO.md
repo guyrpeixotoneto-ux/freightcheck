@@ -1,5 +1,22 @@
 # Diagnóstico de tamanho e crescimento do banco
 
+> **MEDIDO EM 15/09/2026 — e o resultado inverteu a hipótese principal.**
+>
+> Não é dado: **87% deste banco são índices** (1.115 MB de 1.270 MB), inflados
+> por um ciclo de exclusão e reimportação que já removeu ~90% de tudo o que
+> entrou. O heap está saudável e o autovacuum em dia.
+>
+> - A evidência, o plano de reindexação e a análise estrutural:
+>   **`docs/PLANO-INCHACO-DOS-INDICES.md`**
+> - Por que `staged_fact` espelha `fact`, e o que quebraria ao limpá-la:
+>   **`docs/RETENCAO-DO-STAGED-FACT.md`**
+> - Crescimento ao longo do tempo: `scripts/diagnostico/crescimento.sql`
+> - Densidade real dos índices: `scripts/diagnostico/densidade-dos-indices.sql`
+>
+> O que segue abaixo é a análise de repositório que precedeu a medição. Ela
+> continua válida como mapa do schema; as hipóteses da seção 3 estão julgadas
+> no fim do documento.
+
 Este documento é a **etapa 1** de uma investigação: o que o repositório
 responde sozinho, sem conectar em lugar nenhum. As etapas 2 e 4 — medir o banco
 e a velocidade do crescimento — dependem de uma credencial de produção que não
@@ -213,3 +230,24 @@ deliberadamente não propõe como conclusão: nenhum `DELETE`, nenhuma política
 retenção aplicada, nenhum índice removido, nenhum `VACUUM FULL`, nenhuma
 migration. Se a medição apontar para alguma dessas, ela vira uma proposta com
 número ao lado — não um comando executado.
+
+
+---
+
+## Julgamento das hipóteses, depois da medição
+
+| # | Hipótese | Veredito |
+|--:|---|---|
+| 1 | `raw_cell` domina, e isso é normal | **Errada.** `raw_cell` é a 3ª, com 10% do banco. `fact` (43%) e `staged_fact` (40%) dominam — e nas três o peso é índice, não dado. |
+| 2 | Reimportações multiplicam RAW | **Plausível, não medida.** É o que `crescimento.sql` §2 responde. |
+| 3 | Logs de integração sem retenção | **Errada por ora.** `integracao_chamada` e `integracao_execucao` não apareceram entre as 20 maiores — ainda não há integração em uso intenso. Continua sendo a dívida de dois anos adiante. |
+| 4 | Binário de fechamento acumulado | **Pequena.** `fechamento_referencia_conteudo` são 4,4 MB, 0,3% do banco. `book_entry` são 7,8 MB. Reais, irrelevantes. |
+| 5 | Exclusões que não devolveram espaço físico | **Certa — e era a resposta.** Errei o lugar: apostei no heap, e o heap se recuperou inteiro (zero linhas mortas). Quem não devolveu espaço foram os índices. |
+| 6 | Dado de teste em produção | **Não investigada.** Sem sinal nos tamanhos. |
+| 7 | `assistant_message.trace` | **Pequena.** 880 kB. |
+
+E a pergunta que abriu tudo: **1,26 GB é normal?**
+
+Em volume, sim — e é pouco: 1,28% do limite de 100 GB. Em composição, não: 87%
+de índice é o dobro do que se esperaria. A resposta completa, com plano e
+recomendação, está em `docs/PLANO-INCHACO-DOS-INDICES.md`.
