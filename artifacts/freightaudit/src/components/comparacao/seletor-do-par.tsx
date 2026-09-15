@@ -93,7 +93,6 @@ export function SeletorDoPar({
   idPrefixo,
   candidatos,
   carregandoCandidatos = false,
-  onAbrirDe,
   erroDosCandidatos = null,
 }: {
   vigencias: VigenciaEscolhivel[];
@@ -109,9 +108,13 @@ export function SeletorDoPar({
   /**
    * O que cada candidata a "De" produz contra o "Para" aberto — por id.
    *
-   * `undefined` enquanto ninguém perguntou ou a pergunta está no ar; uma
-   * entrada com `numeros: null` é a candidata que o servidor ainda não
-   * calculou. Os dois casos escrevem a mesma coisa na linha: **nada**.
+   * `undefined` enquanto a pergunta está no ar; uma entrada com `numeros: null`
+   * é a candidata que o servidor ainda não calculou. Os dois casos escrevem a
+   * mesma coisa na linha: **nada**.
+   *
+   * Quem pergunta é a página, e pergunta **no carregamento dela** — não na
+   * abertura do menu. O componente não tem mais opinião sobre isso: ele desenha
+   * o que chegou, e um esqueleto enquanto não chegou.
    *
    * Opcional, e é o que mantém a Auditoria de IPVA intacta: sem a propriedade,
    * o menu é exatamente o que era antes. Quando houver `/ipva/candidatos`,
@@ -120,8 +123,6 @@ export function SeletorDoPar({
   candidatos?: CandidatosDoPar;
   /** Há pergunta em voo: as linhas sem número mostram esqueleto, não vazio. */
   carregandoCandidatos?: boolean;
-  /** Avisa a página de que o menu "De" abriu — é o que dispara a pergunta. */
-  onAbrirDe?: (aberto: boolean) => void;
   /** A falha da pergunta pelos números, quando houve uma. */
   erroDosCandidatos?: string | null;
   base: string;
@@ -207,7 +208,7 @@ export function SeletorDoPar({
           >
             De
           </label>
-          <Select value={base} onValueChange={onBase} onOpenChange={onAbrirDe}>
+          <Select value={base} onValueChange={onBase}>
             <SelectTrigger id={`${idPrefixo}-base`} aria-label="De (vigência de origem)">
               {/*
                 O campo fechado mostra **só a vigência**, e não a linha inteira

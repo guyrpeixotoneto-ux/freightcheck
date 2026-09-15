@@ -210,10 +210,10 @@ export default function AuditoriaDeIpva() {
    * FINAME, e é de propósito que sejam: a pergunta é a mesma, e duas telas
    * irmãs respondendo com cadências diferentes seria diferença sem motivo.
    *
-   * **Só quando o menu abre.** Calcular comparações para quem nunca abriu o
-   * seletor seria cobrar do banco por uma pergunta que ninguém fez. E a
-   * abertura não espera a resposta: o menu aparece inteiro na hora, os números
-   * entram depois.
+   * **Assim que há um "Para".** A pergunta sai com a tela, e não na abertura do
+   * menu: esperar o clique fazia o menu abrir com esqueletos cinza no lugar dos
+   * números, bem no instante em que se escolhe. Quem abre o seletor já o
+   * encontra preenchido, e a chamada é a mesma que o primeiro clique faria.
    *
    * **A chave carrega o Para e a unidade.** Trocar qualquer um dos dois é
    * pergunta nova, então é chave nova — não há invalidação manual a esquecer.
@@ -223,12 +223,11 @@ export default function AuditoriaDeIpva() {
    * a chamada seguinte continua de onde a anterior parou, porque o que foi
    * calculado ficou gravado. Uma fila que não anda encerra a pergunta.
    */
-  const [menuDeAberto, setMenuDeAberto] = useState(false);
   /** Quantas ficaram pendentes na resposta anterior — a régua do progresso. */
   const pendentesAnteriores = useRef<number | null>(null);
   const candidatos = useQuery({
     queryKey: ["ipva", "candidatos", escopoAberto, comparada],
-    enabled: menuDeAberto && Boolean(comparada),
+    enabled: Boolean(comparada),
     staleTime: 5 * 60_000,
     queryFn: () => fetchJson<CandidatosDoPar>(`/ipva/candidatos?para=${comparada}`),
     refetchInterval: (query) => {
@@ -327,7 +326,6 @@ export default function AuditoriaDeIpva() {
             idPrefixo="ipva"
             candidatos={candidatos.data}
             carregandoCandidatos={candidatos.isFetching}
-            onAbrirDe={setMenuDeAberto}
             erroDosCandidatos={
               candidatos.error instanceof Error ? candidatos.error.message : null
             }

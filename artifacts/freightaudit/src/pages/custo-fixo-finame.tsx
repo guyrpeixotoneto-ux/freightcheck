@@ -253,10 +253,16 @@ export default function AuditoriaDeFiname() {
    *
    * Três decisões, e nenhuma é de estilo:
    *
-   * **Só quando o menu abre.** `enabled` depende de `menuDeAberto`: calcular
-   * comparações para quem nunca abriu o seletor seria cobrar do banco por uma
-   * pergunta que ninguém fez. E a abertura não espera a resposta — o menu
-   * aparece inteiro na hora, os números entram depois.
+   * **Assim que há um "Para".** `enabled` olha só para `comparada`: a pergunta
+   * sai com a tela, e não na abertura do menu. Esperar o clique fazia o menu
+   * abrir com três esqueletos cinza e os números entrarem por baixo do cursor —
+   * a escolha acontece nesses primeiros instantes, que eram justamente os que
+   * não tinham número. Quem abre o seletor já o encontra preenchido.
+   *
+   * O preço disso é uma chamada por tela carregada, e ela é a mesma que o
+   * primeiro clique no menu faria: o orçamento do servidor, o reaproveitamento
+   * do que já foi comparado e o `staleTime` de cinco minutos continuam sendo o
+   * que limita o custo — o que mudou foi o instante em que ela parte.
    *
    * **A chave carrega o Para e a unidade.** Trocar qualquer um dos dois é uma
    * pergunta nova, então é chave nova — não há invalidação manual a esquecer.
@@ -269,12 +275,11 @@ export default function AuditoriaDeFiname() {
    * porque o que foi calculado ficou gravado. Para no zero — e para também se o
    * servidor não progredir, que é o que impede o laço infinito.
    */
-  const [menuDeAberto, setMenuDeAberto] = useState(false);
   /** Quantas ficaram pendentes na resposta anterior — a régua do progresso. */
   const pendentesAnteriores = useRef<number | null>(null);
   const candidatos = useQuery({
     queryKey: ["finame", "candidatos", escopoAberto, comparada],
-    enabled: menuDeAberto && Boolean(comparada),
+    enabled: Boolean(comparada),
     staleTime: 5 * 60_000,
     queryFn: () =>
       fetchJson<CandidatosDoPar>(`/finame/candidatos?para=${comparada}`),
@@ -435,7 +440,6 @@ export default function AuditoriaDeFiname() {
             rotulos={rotulos}
             candidatos={candidatos.data}
             carregandoCandidatos={candidatos.isFetching}
-            onAbrirDe={setMenuDeAberto}
             erroDosCandidatos={
               candidatos.error instanceof Error ? candidatos.error.message : null
             }

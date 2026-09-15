@@ -162,20 +162,20 @@ export default function AuditoriaDeLucroFixo() {
    * sejam as mesmas: a pergunta é a mesma, e telas irmãs respondendo com
    * cadências diferentes seria diferença sem motivo.
    *
-   * **Só quando o menu abre** — calcular comparações para quem nunca abriu o
-   * seletor seria cobrar do banco por uma pergunta que ninguém fez, e a
-   * abertura não espera a resposta. **A chave carrega o Para e a unidade**, de
-   * modo que trocar qualquer um dos dois é chave nova e não há invalidação
-   * manual a esquecer. **Os pendentes voltam**: pergunta-se de novo enquanto a
+   * **Assim que há um "Para"** — a pergunta sai com a tela, e não na abertura
+   * do menu: esperar o clique fazia o menu abrir com esqueletos cinza no lugar
+   * dos números, bem no instante em que se escolhe; a chamada é a mesma que o
+   * primeiro clique faria. **A chave carrega o Para e a unidade**, de modo que
+   * trocar qualquer um dos dois é chave nova e não há invalidação manual a
+   * esquecer. **Os pendentes voltam**: pergunta-se de novo enquanto a
    * fila andar, e a chamada seguinte continua de onde a anterior parou; uma
    * fila que não anda encerra a pergunta.
    */
-  const [menuDeAberto, setMenuDeAberto] = useState(false);
   /** Quantas ficaram pendentes na resposta anterior — a régua do progresso. */
   const pendentesAnteriores = useRef<number | null>(null);
   const candidatos = useQuery({
     queryKey: ["lucro-fixo", "candidatos", escopoAberto, comparada],
-    enabled: menuDeAberto && Boolean(comparada),
+    enabled: Boolean(comparada),
     staleTime: 5 * 60_000,
     queryFn: () =>
       fetchJson<CandidatosDoPar>(`/lucro-fixo/candidatos?para=${comparada}`),
@@ -291,7 +291,6 @@ export default function AuditoriaDeLucroFixo() {
             idPrefixo="lucro-fixo"
             candidatos={candidatos.data}
             carregandoCandidatos={candidatos.isFetching}
-            onAbrirDe={setMenuDeAberto}
             erroDosCandidatos={
               candidatos.error instanceof Error ? candidatos.error.message : null
             }
