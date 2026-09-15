@@ -304,30 +304,43 @@ export const TELAS_EM_PREPARO: TelaEmPreparo[] = [
     só".
   */
 
-  {
-    href: "/custo-variavel-tma",
-    label: "TMA",
-    icon: Timer,
-    cor: "text-nav-custo-variavel",
-    pergunta:
-      "Qual o tempo médio de atendimento por unidade e por ativo, e quanto do custo variável da vigência ele responde.",
-    depende: [
-      "O registro de cada atendimento com começo e fim: média de tempo sem os dois carimbos é média de nada.",
-      "A regra do que conta como atendimento — o que entra, o que é espera e o que é interrupção —, sem a qual duas unidades com a mesma operação exibiriam TMAs que não se comparam.",
-    ],
-    hoje: [
-      {
-        href: "/ativos-e-parados",
-        label: "Ativos e parados",
-        porque: "A leitura de tempo que o banco já sustenta hoje, por ativo e por vigência.",
-      },
-      {
-        href: "/book-operador",
-        label: "Book do Operador",
-        porque: "A regra do atendimento está escrita lá — a metade da resposta que não depende de importação.",
-      },
-    ],
-  },
+  /*
+    `/custo-variavel-tma` saiu deste catálogo — e saiu com **metade** do verbete
+    atendida, o que é preciso dizer com todas as letras.
+
+    Ele pedia duas coisas. A segunda chegou: **a regra do que conta como
+    atendimento** está declarada, e são duas regras, não uma. O dicionário da
+    tabela de frete define o TMA de origem como "da chegada à saída carregado" e
+    o de destino como "da chegada à liberação, incluindo fila e descarga" —
+    carregar não é descarregar, e a tela nunca junta as duas médias. O verbete
+    temia que "duas unidades com a mesma operação exibissem TMAs que não se
+    comparam"; o risco real era menor e mais próximo, e é o que a tela encontra:
+    **a mesma doca declarada com dois tempos diferentes conforme o trecho**.
+
+    A primeira continua faltando, e é a que importa para a palavra "médio": *"o
+    registro de cada atendimento com começo e fim"*. Este acervo tem o TMA
+    **parametrizado** — o tempo que o modelo de remuneração reconhece para aquela
+    porta —, e não o medido. A tela não afirma quanto um caminhão esperou; afirma
+    quanto o contrato reconhece que ele espera, e diz a diferença num painel
+    próprio.
+
+    **É uma pergunta menor? Não: é o número que remunera.** Um TMA parametrizado
+    acima do praticado é tempo pago que não acontece; abaixo, é operação
+    absorvendo espera que ninguém reconhece. As duas conversas existem hoje.
+
+    **E a tela tem dois grãos, o que nenhuma das anteriores teve.** Por **local**,
+    porque é o que o verbete pede por extenso — "por unidade" — e é onde a
+    inversão da tabela enxerga a contradição que nenhuma tela por trecho vê. Por
+    **trecho**, porque quem negocia contrato negocia percurso, e a soma das duas
+    portas sobre o ciclo é a fila de quem tem espera demais. Os dois saem da mesma
+    leitura, e por isso nunca discordam (`docs/ACHADO-TMA.md`).
+
+    O que o verbete pedia sobre "quanto do custo variável ele responde" continua
+    fora: o tempo vira custo pela jornada e pelo fator motorista, e essa conta
+    depende das viagens realizadas — o mesmo realizado que falta a Km Rodado e a
+    Velocidade Média.
+  */
+
   {
     href: "/custo-variavel-salario-variavel",
     label: "Salário Variável",
