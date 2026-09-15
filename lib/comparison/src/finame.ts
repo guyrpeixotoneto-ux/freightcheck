@@ -539,6 +539,130 @@ export function comContextoDoVeiculo(
 }
 
 // ---------------------------------------------------------------------------
+// O agrupamento por veículo — uma linha por placa
+// ---------------------------------------------------------------------------
+
+/** Um veículo da tabela: a placa, o que ela moveu, e as linhas por baixo. */
+export interface VeiculoDeFiname {
+  entityLabel: string | null;
+  entityType: string;
+  /** O prazo e a data de cadastro, que são do veículo e não da variável. */
+  periodoFiname: string | null;
+  dataDeCadastro: string | null;
+  /** Quantas variáveis se moveram nesta placa. */
+  alteracoes: number;
+  /** Quantas dessas são dinheiro — as demais são prazo, taxa, ano, data. */
+  alteracoesEmDinheiro: number;
+  /**
+   * A parcela FINAME desta placa: as duas pontas, o delta e a variação.
+   *
+   * **Uma variável, e não a soma das monetárias.** Somar parcela, juros,
+   * amortização e valor de NF numa célula só juntaria o mesmo dinheiro escrito
+   * três vezes (a parcela é juros + amortização) com um valor do ato da compra,
+   * que nem periodicidade tem em comum com os outros — as duas recusas que
+   * {@link impactoPorPeriodicidade} já faz para o recorte inteiro. A parcela é a
+   * variável que o gráfico de totais soma, e é ela que a coluna mostra.
+   *
+   * `null` quando a linha da parcela não está no recorte: ou ela não se moveu
+   * (e o alternador "sem alteração" está desligado), ou um filtro por variável a
+   * deixou de fora. Nulo aqui é "não está no recorte", nunca "não mudou".
+   */
+  parcela: {
+    base: number | null;
+    comparada: number | null;
+    diferenca: number | null;
+    variacao: number | null;
+  } | null;
+  /**
+   * O estado da placa — o pior entre as linhas dela, pela mesma régua da rosca.
+   *
+   * Quem tem conflito aparece como conflito ainda que também tenha uma variável
+   * alterada: um veículo tem um estado só, e é o mais grave. Sem essa regra a
+   * mesma placa apareceria em duas leituras diferentes na mesma tela.
+   */
+  estado: EstadoDaLinhaDeFiname;
+  /** As linhas desta placa, na ordem em que vieram — o que a expansão mostra. */
+  linhas: LinhaDeFiname[];
+}
+
+const numeroDoTexto = (valor: string | null): number | null => {
+  if (valor === null || valor === "") return null;
+  const n = Number(valor);
+  return Number.isFinite(n) ? n : null;
+};
+
+/**
+ * As linhas viradas uma linha por placa.
+ *
+ * A tabela nasceu por variável — uma linha por (veículo × variável) —, e com
+ * catorze variáveis a mesma placa aparecia catorze vezes, espalhada por três
+ * páginas: ler "o que aconteceu com a QYW6D15" era procurar as linhas dela na
+ * lista. Agrupar responde essa pergunta de uma vez, e a lista de baixo continua
+ * inteira dentro da placa.
+ *
+ * **Não recalcula nada.** Contagem, estado e a parcela saem das linhas que o
+ * motor já produziu; o que a função faz é juntar por `(placa, tipo)` e ordenar.
+ *
+ * A ordem é a do dinheiro: primeiro quem moveu mais parcela em valor absoluto,
+ * depois quem moveu mais variáveis, e a placa desempata. Uma ordem alfabética
+ * poria a maior queda do mês na página quatro.
+ */
+export function agruparPorVeiculo(
+  linhas: readonly LinhaDeFiname[],
+): VeiculoDeFiname[] {
+  const veiculos = new Map<string, VeiculoDeFiname>();
+
+  for (const l of linhas) {
+    const chave = chaveDoVeiculo(l);
+    const veiculo =
+      veiculos.get(chave) ??
+      ({
+        entityLabel: l.entityLabel,
+        entityType: l.entityType,
+        periodoFiname: l.periodoFiname,
+        dataDeCadastro: l.dataDeCadastro,
+        alteracoes: 0,
+        alteracoesEmDinheiro: 0,
+        parcela: null,
+        estado: l.estado,
+        linhas: [],
+      } as VeiculoDeFiname);
+
+    veiculo.linhas.push(l);
+    /* O contexto é do veículo, mas chega repetido em cada linha: a primeira que
+       o declara manda, e as seguintes só preenchem o que ainda está nulo. */
+    veiculo.periodoFiname ??= l.periodoFiname;
+    veiculo.dataDeCadastro ??= l.dataDeCadastro;
+
+    if (l.variavel !== "veiculo" && l.estado === "ALTERADO") {
+      veiculo.alteracoes++;
+      if (l.medida === "DINHEIRO") veiculo.alteracoesEmDinheiro++;
+    }
+    if (l.variavel === "parcela") {
+      veiculo.parcela = {
+        base: numeroDoTexto(l.base),
+        comparada: numeroDoTexto(l.comparada),
+        diferenca: l.diferenca,
+        variacao: l.variacao,
+      };
+    }
+    if (GRAVIDADE.indexOf(l.estado) < GRAVIDADE.indexOf(veiculo.estado)) {
+      veiculo.estado = l.estado;
+    }
+
+    veiculos.set(chave, veiculo);
+  }
+
+  return [...veiculos.values()].sort((a, b) => {
+    const deA = Math.abs(a.parcela?.diferenca ?? 0);
+    const deB = Math.abs(b.parcela?.diferenca ?? 0);
+    if (deA !== deB) return deB - deA;
+    if (a.alteracoes !== b.alteracoes) return b.alteracoes - a.alteracoes;
+    return (a.entityLabel ?? "").localeCompare(b.entityLabel ?? "");
+  });
+}
+
+// ---------------------------------------------------------------------------
 // O impacto — e as duas coisas que ele se recusa a fazer
 // ---------------------------------------------------------------------------
 

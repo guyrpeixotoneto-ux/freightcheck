@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   CODIGOS_DA_TABELA,
   CODIGOS_DO_DETALHE,
+  agruparPorVeiculo,
   alteracoesPorVariavel,
   celulasDoCsv,
   codigoDaVariavel,
@@ -580,5 +581,114 @@ describe("o contexto do veículo", () => {
     });
     expect(linha!.periodoFiname).toBe("48");
     expect(linha!.dataDeCadastro).toBe("2018-01-02");
+  });
+});
+
+describe("o agrupamento por veículo", () => {
+  /* Duas placas: uma que moveu parcela, juros e prazo, e outra que moveu só a
+     amortização — o recorte mínimo em que a ordem e a contagem importam. */
+  const recorte = () =>
+    linhasDeFiname([
+      alteracao({ entityLabel: "ABC1D23", attributeCode: "cavalo.finame_cavalo" }),
+      alteracao({
+        entityLabel: "ABC1D23",
+        attributeCode: "cavalo.juros_finame_cavalo",
+        valueBefore: "2180",
+        valueAfter: "2301",
+        deltaAbsolute: "121",
+        deltaPercent: "5.550459",
+      }),
+      alteracao({
+        entityLabel: "ABC1D23",
+        attributeCode: "cavalo.periodo_finame",
+        valueBefore: "60",
+        valueAfter: "48",
+        deltaAbsolute: "-12",
+        deltaPercent: "-20",
+        impactConfidence: "NOT_APPLICABLE",
+        impactAmount: null,
+        impactPeriodicity: null,
+      }),
+      alteracao({
+        entityLabel: "XYZ9K88",
+        attributeCode: "cavalo.amortizacao_cavalo",
+        valueBefore: "6270",
+        valueAfter: "5900",
+        deltaAbsolute: "-370",
+        deltaPercent: "-5.901116",
+      }),
+    ]);
+
+  it("junta as variáveis da mesma placa numa linha só, sem perder nenhuma", () => {
+    const veiculos = agruparPorVeiculo(recorte());
+    expect(veiculos).toHaveLength(2);
+    const abc = veiculos.find((v) => v.entityLabel === "ABC1D23")!;
+    expect(abc.linhas).toHaveLength(3);
+    expect(abc.alteracoes).toBe(3);
+    // Prazo é mês, e não dinheiro: conta como alteração, não como alteração em R$.
+    expect(abc.alteracoesEmDinheiro).toBe(2);
+  });
+
+  it("mostra a parcela FINAME da placa — e não a soma das monetárias dela", () => {
+    const abc = agruparPorVeiculo(recorte()).find((v) => v.entityLabel === "ABC1D23")!;
+    expect(abc.parcela).toEqual({
+      base: 8450,
+      comparada: 8760,
+      diferenca: 310,
+      variacao: 3.668639,
+    });
+  });
+
+  it("deixa a parcela nula quando a linha dela não está no recorte", () => {
+    // A placa que só moveu a amortização: somar os 370 aqui diria que a parcela
+    // caiu 370 — e a parcela dela pode não ter se movido.
+    const xyz = agruparPorVeiculo(recorte()).find((v) => v.entityLabel === "XYZ9K88")!;
+    expect(xyz.parcela).toBeNull();
+    expect(xyz.alteracoes).toBe(1);
+  });
+
+  it("ordena pela maior mexida de parcela, e a placa desempata", () => {
+    const veiculos = agruparPorVeiculo(recorte());
+    expect(veiculos.map((v) => v.entityLabel)).toEqual(["ABC1D23", "XYZ9K88"]);
+  });
+
+  it("dá à placa o pior estado das linhas dela, como a rosca faz", () => {
+    const veiculos = agruparPorVeiculo(
+      linhasDeFiname([
+        alteracao({ entityLabel: "ABC1D23" }),
+        alteracao({
+          entityLabel: "ABC1D23",
+          attributeCode: "cavalo.taxa_finame",
+          comparability: "INCONCLUSIVE",
+          nature: "TYPE_CHANGE",
+          deltaAbsolute: null,
+          deltaPercent: null,
+          inconclusiveReason: "O tipo do valor mudou entre os dois snapshots.",
+        }),
+      ]),
+    );
+    expect(veiculos[0]!.estado).toBe("CONFLITO");
+    // O conflito não some da contagem de alterações da placa: ele não é uma.
+    expect(veiculos[0]!.alteracoes).toBe(1);
+  });
+
+  it("leva o prazo e a data de cadastro para a linha da placa", () => {
+    const veiculos = agruparPorVeiculo(
+      comContextoDoVeiculo(recorte(), {
+        comparada: [
+          {
+            entityLabel: "ABC1D23",
+            entityType: "CAVALO",
+            periodo: "48",
+            dataDeCadastro: "2019-05-10",
+          },
+        ],
+      }),
+    );
+    const abc = veiculos.find((v) => v.entityLabel === "ABC1D23")!;
+    expect(abc.periodoFiname).toBe("48");
+    expect(abc.dataDeCadastro).toBe("2019-05-10");
+    const xyz = veiculos.find((v) => v.entityLabel === "XYZ9K88")!;
+    expect(xyz.periodoFiname).toBeNull();
   });
 });

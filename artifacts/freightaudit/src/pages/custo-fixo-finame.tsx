@@ -3,7 +3,7 @@ import { useSearch } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { Banknote, Download, Search, SlidersHorizontal } from "lucide-react";
 import type { LinhaDeFiname } from "@workspace/comparison/finame";
-import { VARIAVEIS_DE_FINAME } from "@workspace/comparison/finame";
+import { VARIAVEIS_DE_FINAME, agruparPorVeiculo } from "@workspace/comparison/finame";
 import { Layout } from "@/components/layout/layout";
 import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import { ApiErrorNotice } from "@/components/api-error";
@@ -66,6 +66,29 @@ import { cn } from "@/lib/utils";
  * massa. Por isso a tabela abre no recorte das alterações, e "Mostrar veículos
  * sem alteração" é um alternador desligado — quando ligado, o servidor lê as
  * duas vigências inteiras e devolve também as linhas iguais.
+ *
+ * ---------------------------------------------------------------------------
+ * A tabela é **por placa**, e as variáveis moram dentro dela
+ * ---------------------------------------------------------------------------
+ * A tabela nasceu por variável — uma linha por (veículo × variável) —, e a
+ * mesma placa aparecia até catorze vezes, espalhada por várias páginas. Hoje
+ * `agruparPorVeiculo` junta as linhas por placa, e clicar abre as alterações
+ * daquela placa ali mesmo; a gaveta de detalhe continua a um botão de distância,
+ * com o diagnóstico e as variáveis que só existem nela.
+ *
+ * Três consequências, todas deliberadas:
+ *
+ * **Filtra primeiro, agrupa depois.** As abas, a busca e os dois seletores
+ * continuam sendo sobre a alteração — é nela que moram o estado e a variável —,
+ * e a placa entra na lista quando sobra alguma linha dela. Agrupar antes
+ * obrigaria cada filtro a decidir o que é "uma placa alterada".
+ *
+ * **As abas contam alterações; a paginação conta veículos.** Cada uma conta o
+ * que de fato mostra: a aba conta o que o filtro dela recorta, e o rodapé conta
+ * as linhas que a tabela desenhou.
+ *
+ * **O CSV continua por variável.** Ele é o arquivo que a auditoria confere linha
+ * a linha, e agrupá-lo esconderia justamente a variável que se moveu.
  *
  * **Nenhuma conta mora neste arquivo.** Estado, diferença, variação, impacto e
  * agregados vêm de `@workspace/comparison/finame`, que o servidor importa do
@@ -305,9 +328,23 @@ export default function AuditoriaDeFiname() {
     () => contagemPorAba(linhas, { ...filtros, estado: "TODAS" }),
     [linhas, filtros],
   );
+
+  /**
+   * As placas — o que a tabela lista desde que deixou de listar variáveis.
+   *
+   * **Agrupa depois de filtrar, e não antes.** As abas, a busca e os dois
+   * seletores continuam sendo sobre a alteração — é ali que moram o estado e a
+   * variável —, e a placa entra na lista quando sobra alguma linha dela no
+   * recorte. Agrupar primeiro obrigaria cada filtro a decidir o que significa
+   * "uma placa alterada", e a aba diria 33 sobre uma tabela de 7 linhas.
+   *
+   * Por isso a contagem das abas continua em alterações: é o que elas contam. A
+   * paginação, essa sim, passou a ser de veículos — é o que a tabela mostra.
+   */
+  const veiculos = useMemo(() => agruparPorVeiculo(filtradas), [filtradas]);
   const naPagina = useMemo(
-    () => filtradas.slice((pagina - 1) * porPagina, pagina * porPagina),
-    [filtradas, pagina, porPagina],
+    () => veiculos.slice((pagina - 1) * porPagina, pagina * porPagina),
+    [veiculos, pagina, porPagina],
   );
 
   // Filtrar encurta a lista; a página em que se estava pode não existir mais.
@@ -564,21 +601,21 @@ export default function AuditoriaDeFiname() {
             ) : (
               <>
                 <TabelaDeFiname
-                  linhas={naPagina}
+                  veiculos={naPagina}
                   justificadaPor={justificadaPor}
-                  onAbrir={(l) =>
-                    setAberto({ entityLabel: l.entityLabel, entityType: l.entityType })
+                  onAbrir={(v) =>
+                    setAberto({ entityLabel: v.entityLabel, entityType: v.entityType })
                   }
                 />
                 <Paginacao
                   pagina={pagina}
                   porPagina={porPagina}
-                  total={filtradas.length}
+                  total={veiculos.length}
                   onPagina={setPagina}
                   onPorPagina={setPorPagina}
                   tamanhos={[50, 100, 300]}
-                  unidade="linhas"
-                  unidadeSingular="linha"
+                  unidade="veículos"
+                  unidadeSingular="veículo"
                 />
               </>
             )}
