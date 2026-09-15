@@ -382,3 +382,68 @@ describe("a cobertura escrita como quem fala dela", () => {
     expect(rotuloDaCobertura("")).toBe("");
   });
 });
+
+/**
+ * A lista que cada aba oferece — o recorte que subiu para cima do par.
+ *
+ * As quatro auditorias de grão equipamento passaram a abrir por série: a aba
+ * Cavalo só oferece vigências que têm cavalo, a de Carreta só as que têm
+ * carreta, e "Cavalo + Carreta" o acervo de equipamento inteiro. A função é a
+ * mesma que já recortava o acervo de trecho para fora; o que muda é o
+ * argumento, e é isso que estes casos prendem — porque a resposta certa não é
+ * óbvia para a vigência que traz os **dois** equipamentos.
+ */
+describe("a lista de vigências de cada aba", () => {
+  const acervo = [
+    vigencia("cavalo", "2026-08-16", PERNAMBUCO, "CAVALO"),
+    vigencia("carreta", "2026-08-16", PERNAMBUCO, "CARRETA"),
+    vigencia("ambos", "2026-07-16", PERNAMBUCO, "CARRETA+CAVALO"),
+    vigencia("trecho", "2026-09-01", PERNAMBUCO, "TRECHO"),
+  ];
+
+  /* A decisão que importa: a vigência que traz os dois **tem** cavalo, e some
+     da aba Cavalo se o teste for de igualdade em vez de pertinência. */
+  it("a aba Cavalo mostra também a vigência que traz os dois", () => {
+    expect(vigenciasQueCobrem(acervo, ["CAVALO"]).map((v) => v.id)).toEqual([
+      "cavalo",
+      "ambos",
+    ]);
+  });
+
+  it("a aba Carreta mostra também a vigência que traz os dois", () => {
+    expect(vigenciasQueCobrem(acervo, ["CARRETA"]).map((v) => v.id)).toEqual([
+      "carreta",
+      "ambos",
+    ]);
+  });
+
+  it("a aba Cavalo + Carreta mostra o acervo de equipamento inteiro", () => {
+    expect(vigenciasQueCobrem(acervo, TIPOS_DE_EQUIPAMENTO).map((v) => v.id)).toEqual([
+      "cavalo",
+      "carreta",
+      "ambos",
+    ]);
+  });
+
+  /* Nenhuma aba de equipamento mostra trecho — a tela não sabe lê-lo. */
+  it("nenhuma aba oferece a vigência de trecho", () => {
+    for (const aba of [["CAVALO"], ["CARRETA"], TIPOS_DE_EQUIPAMENTO]) {
+      expect(vigenciasQueCobrem(acervo, aba).map((v) => v.id)).not.toContain("trecho");
+    }
+  });
+
+  /**
+   * Dentro da aba, o par ainda precisa ser comparável.
+   *
+   * A aba Cavalo mostra a série pura e a que traz os dois, e o motor não compara
+   * uma com a outra — a cobertura tem de bater exatamente (`engine.ts`). É por
+   * isso que o recorte da aba **não** substitui o do seletor: eles fazem
+   * perguntas diferentes e os dois continuam necessários.
+   */
+  it("não dispensa o recorte de compatibilidade dentro da aba", () => {
+    const daAba = vigenciasQueCobrem(acervo, ["CAVALO"]);
+    const pura = daAba.find((v) => v.id === "cavalo")!;
+
+    expect(vigenciasCompativeisCom(daAba, pura)).toEqual([]);
+  });
+});

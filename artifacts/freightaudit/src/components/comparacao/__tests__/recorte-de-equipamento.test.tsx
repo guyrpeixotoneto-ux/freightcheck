@@ -9,8 +9,10 @@
 // pediu estava com ele a um palmo do cursor, o que é o argumento inteiro: um
 // eixo de leitura escondido entre refinamentos não é um eixo.
 //
-// O que estes casos prendem é o que o controle promete: os três recortes, o
-// número de cada um, e a recusa honesta de abrir um que não tem veículo.
+// O controle ficou acima do par de vigências, porque é ele que manda no par:
+// na aba Cavalo o seletor só oferece vigências que têm cavalo. O que estes
+// casos prendem é o que ele promete — os três recortes, a troca, e a recusa
+// honesta de abrir uma série que a unidade não tem.
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -23,88 +25,88 @@ afterEach(cleanup);
 
 function montar(
   valor: RecorteDeTipo,
-  contagens: Record<RecorteDeTipo, number>,
+  disponiveis: Record<RecorteDeTipo, boolean>,
 ) {
   const onValor = vi.fn();
   render(
     <RecorteDeEquipamento
       valor={valor}
       onValor={onValor}
-      contagens={contagens}
+      disponiveis={disponiveis}
       idPrefixo="finame"
     />,
   );
   return { onValor };
 }
 
-const AMBOS: Record<RecorteDeTipo, number> = {
-  TODOS: 135,
-  CAVALO: 68,
-  CARRETA: 67,
+/** A unidade que entrega os dois equipamentos. */
+const AMBOS: Record<RecorteDeTipo, boolean> = {
+  TODOS: true,
+  CAVALO: true,
+  CARRETA: true,
 };
 
 describe("os três recortes", () => {
-  it("escreve a cobertura como quem fala dela, com o tamanho de cada uma", () => {
+  it("escreve a cobertura como quem fala dela", () => {
     montar("TODOS", AMBOS);
 
-    expect(screen.getByRole("tab", { name: /Cavalo \+ Carreta/ }).textContent).toContain(
-      "135",
-    );
-    expect(screen.getByRole("tab", { name: /^Cavalo 68$/ }).textContent).toContain("68");
-    expect(screen.getByRole("tab", { name: /^Carreta 67$/ }).textContent).toContain("67");
+    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual([
+      "Cavalo + Carreta",
+      "Cavalo",
+      "Carreta",
+    ]);
   });
 
   it("marca só o recorte aberto", () => {
     montar("CARRETA", AMBOS);
 
     expect(
-      screen.getByRole("tab", { name: /^Carreta/ }).getAttribute("aria-selected"),
+      screen.getByRole("tab", { name: "Carreta" }).getAttribute("aria-selected"),
     ).toBe("true");
     expect(
-      screen.getByRole("tab", { name: /^Cavalo 68$/ }).getAttribute("aria-selected"),
+      screen.getByRole("tab", { name: "Cavalo" }).getAttribute("aria-selected"),
     ).toBe("false");
   });
 
   it("troca de recorte com o valor que a página usa no filtro", () => {
     const { onValor } = montar("TODOS", AMBOS);
-    /* `/^Cavalo/` sozinho casaria também com "Cavalo + Carreta": o dígito
-       depois do nome é o que separa a aba do tipo da aba do total. */
-    fireEvent.click(screen.getByRole("tab", { name: /^Cavalo \d/ }));
+    /* Pelo nome exato: `/^Cavalo/` casaria também com "Cavalo + Carreta". */
+    fireEvent.click(screen.getByRole("tab", { name: "Cavalo" }));
 
     expect(onValor).toHaveBeenCalledWith("CAVALO");
   });
 });
 
-describe("o recorte que a comparação não tem", () => {
-  /* O par só cobre cavalo: a aba Carreta não abre uma tela vazia — ela diz por
-     quê, que é a mesma distinção entre "não mudou" e "não há" que o resto do
-     produto faz. */
-  const SO_CAVALO: Record<RecorteDeTipo, number> = {
-    TODOS: 135,
-    CAVALO: 135,
-    CARRETA: 0,
+describe("a série que a unidade não tem", () => {
+  /* Nenhuma vigência da unidade cobre carreta: a aba não abre uma tela vazia —
+     ela diz por quê, que é a mesma distinção entre "não mudou" e "não há" que o
+     resto do produto faz. */
+  const SO_CAVALO: Record<RecorteDeTipo, boolean> = {
+    TODOS: true,
+    CAVALO: true,
+    CARRETA: false,
   };
 
-  it("desabilita a aba sem veículo e explica a ausência", () => {
+  it("desabilita a aba sem vigência e explica a ausência", () => {
     montar("TODOS", SO_CAVALO);
-    const carreta = screen.getByRole("tab", { name: /^Carreta/ });
+    const carreta = screen.getByRole("tab", { name: "Carreta" });
 
     expect(carreta.hasAttribute("disabled")).toBe(true);
     expect(carreta.getAttribute("title")).toBe(
-      "Esta comparação não tem carreta. Importe o arquivo correspondente nas duas vigências para auditá-lo aqui.",
+      "Nenhuma vigência desta unidade tem carreta. Importe o arquivo correspondente para auditá-lo aqui.",
     );
   });
 
   it("não deixa abrir o recorte vazio nem por clique", () => {
     const { onValor } = montar("TODOS", SO_CAVALO);
-    fireEvent.click(screen.getByRole("tab", { name: /^Carreta/ }));
+    fireEvent.click(screen.getByRole("tab", { name: "Carreta" }));
 
     expect(onValor).not.toHaveBeenCalled();
   });
 
   /* "Todos" nunca desabilita: mesmo zerado, ele é a tela que já existia. */
   it("mantém Cavalo + Carreta sempre disponível", () => {
-    montar("TODOS", { TODOS: 0, CAVALO: 0, CARRETA: 0 });
+    montar("TODOS", { TODOS: true, CAVALO: false, CARRETA: false });
 
     expect(
       screen.getByRole("tab", { name: /Cavalo \+ Carreta/ }).hasAttribute("disabled"),

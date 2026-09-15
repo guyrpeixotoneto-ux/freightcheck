@@ -353,7 +353,21 @@ export function DistribuicaoPorEstado({
               />
             </PieChart>
           </ResponsiveContainer>
-          <ul className="flex min-w-0 flex-1 flex-col gap-1.5 text-xs">
+          {/*
+            A legenda tem largura mínima, e é ela que conserta o rótulo cortado.
+
+            `min-w-0` deixava a lista encolher até o fim: ao lado da rosca de
+            188px, num painel de três colunas, sobravam uns 120px para o rótulo
+            disputar com a contagem e o percentual — e "Sem alteração" saía
+            como "S…". Um estado de auditoria abreviado a uma letra não é
+            legenda; é um enigma ao lado de um gráfico colorido.
+
+            Com um piso de 13rem, o `flex-wrap` do contêiner faz o que ele já
+            sabia fazer: quando não cabe do lado, a legenda desce para a linha
+            de baixo e ocupa a largura inteira do painel. Nada é escondido em
+            nenhuma das duas larguras.
+          */}
+          <ul className="flex min-w-[13rem] flex-1 flex-col gap-1.5 text-xs">
             {dados.map((d) => (
               <li key={d.estado} className="flex items-center gap-2">
                 <span
@@ -361,7 +375,8 @@ export function DistribuicaoPorEstado({
                   className="h-2.5 w-2.5 flex-none rounded-sm"
                   style={{ background: COR_DO_ESTADO[d.estado] }}
                 />
-                <span className="truncate">{d.rotulo}</span>
+                {/* Sem `truncate`: o rótulo quebra em duas linhas antes de sumir. */}
+                <span className="leading-tight">{d.rotulo}</span>
                 <span className="ml-auto font-mono font-semibold tabular-nums">
                   {formatNumber(d.trechos, 0)}
                 </span>

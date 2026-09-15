@@ -197,6 +197,16 @@ export default function AuditoriaDeFiname() {
    */
   const unidadeResolvida = recorte.scopeHash !== null || !contextosCarregando;
 
+  /**
+   * A série aberta — cavalo, carreta, ou as duas.
+   *
+   * Declarada **antes** da lista de vigências porque é ela que a recorta: na
+   * aba Cavalo o seletor do par só oferece vigências que têm cavalo. O
+   * mecanismo continua sendo `filtros.tipo`, que a tabela, as abas de estado e
+   * o CSV já respeitavam; o que mudou é quem o comanda e o quanto ele alcança.
+   */
+  const recorteDeTipo = (filtros.tipo === "TODOS" ? "TODOS" : filtros.tipo) as RecorteDeTipo;
+
   /** As vigências da unidade aberta — a lista que o seletor oferece. */
   /**
    * As vigências que o seletor oferece: as da unidade aberta **que cobrem
@@ -213,11 +223,34 @@ export default function AuditoriaDeFiname() {
       unidadeResolvida
         ? vigenciasQueCobrem(
             vigenciasDaUnidade(vigencias.data ?? [], escopoAberto),
-            TIPOS_DE_EQUIPAMENTO,
+            /* A aba escolhe a série: Cavalo oferece quem tem cavalo — inclusive
+               as vigências que trazem os dois —, Carreta idem, e "Cavalo +
+               Carreta" o acervo de equipamento inteiro. Quem garante que as
+               duas pontas do par continuam comparáveis dentro da aba é o
+               seletor (`vigenciasCompativeisCom`): a cobertura da vigência
+               ainda tem de bater exatamente, e uma série de cavalo puro não
+               casa com uma de cavalo mais carreta. */
+            recorteDeTipo === "TODOS" ? TIPOS_DE_EQUIPAMENTO : [recorteDeTipo],
           )
         : [],
-    [vigencias.data, escopoAberto, unidadeResolvida],
+    [vigencias.data, escopoAberto, unidadeResolvida, recorteDeTipo],
   );
+
+  /**
+   * Quais séries esta unidade tem — o que habilita cada aba.
+   *
+   * Sai da lista de vigências, e não da comparação: a aba precisa estar certa
+   * antes de existir par escolhido. `daUnidade` não serve porque ele já está
+   * recortado pela aba aberta — a pergunta aqui é sobre o acervo da unidade.
+   */
+  const disponiveis = useMemo(() => {
+    const todas = vigenciasDaUnidade(vigencias.data ?? [], escopoAberto);
+    return {
+      TODOS: true,
+      CAVALO: vigenciasQueCobrem(todas, ["CAVALO"]).length > 0,
+      CARRETA: vigenciasQueCobrem(todas, ["CARRETA"]).length > 0,
+    } as Record<RecorteDeTipo, boolean>;
+  }, [vigencias.data, escopoAberto]);
 
   /**
    * O texto de cada opção do seletor, distinto por construção.
@@ -307,20 +340,6 @@ export default function AuditoriaDeFiname() {
    */
   const linhas = useMemo(() => comparacao.data?.linhas ?? [], [comparacao.data]);
 
-  /**
-   * O recorte aberto — e de onde saem os números que a tela publica.
-   *
-   * `filtros.tipo` continua sendo o mecanismo: a tabela, a contagem das abas de
-   * estado e o CSV já o respeitavam, e reescrever aquilo em nome de um controle
-   * novo seria trocar uma régua que funciona por outra igual. O que muda é
-   * quem o comanda — um segmento no topo da tela, e não um seletor perdido
-   * entre os filtros da tabela — e o que ele alcança: daqui para frente,
-   * também os cartões e os gráficos.
-   *
-   * Os agregados do recorte vêm prontos do servidor (`porTipo`). A tela escolhe
-   * qual ler; não soma nada.
-   */
-  const recorteDeTipo = (filtros.tipo === "TODOS" ? "TODOS" : filtros.tipo) as RecorteDeTipo;
   const agregados =
     recorteDeTipo === "TODOS"
       ? comparacao.data
@@ -431,25 +450,33 @@ export default function AuditoriaDeFiname() {
             onTentarDeNovo={() => void vigencias.refetch()}
           />
         ) : (
-          <SeletorDoPar
-            vigencias={daUnidade}
-            rotulos={rotulos}
-            candidatos={candidatos.data}
-            carregandoCandidatos={candidatos.isFetching}
-            erroDosCandidatos={
-              candidatos.error instanceof Error ? candidatos.error.message : null
-            }
-            base={base}
-            comparada={comparada}
-            onBase={setBase}
-            onComparada={setComparada}
-            onInverter={() => {
-              setBase(comparada);
-              setComparada(base);
-            }}
-            carregando={comparacao.isFetching}
-            idPrefixo="finame"
-          />
+          <>
+            <RecorteDeEquipamento
+              valor={recorteDeTipo}
+              onValor={(tipo) => setFiltros((f) => ({ ...f, tipo }))}
+              disponiveis={disponiveis}
+              idPrefixo="finame"
+            />
+            <SeletorDoPar
+              vigencias={daUnidade}
+              rotulos={rotulos}
+              candidatos={candidatos.data}
+              carregandoCandidatos={candidatos.isFetching}
+              erroDosCandidatos={
+                candidatos.error instanceof Error ? candidatos.error.message : null
+              }
+              base={base}
+              comparada={comparada}
+              onBase={setBase}
+              onComparada={setComparada}
+              onInverter={() => {
+                setBase(comparada);
+                setComparada(base);
+              }}
+              carregando={comparacao.isFetching}
+              idPrefixo="finame"
+            />
+          </>
         )}
 
         {/*
@@ -495,13 +522,6 @@ export default function AuditoriaDeFiname() {
 
         {comparacao.data && (
           <>
-            <RecorteDeEquipamento
-              valor={recorteDeTipo}
-              onValor={(tipo) => setFiltros((f) => ({ ...f, tipo }))}
-              contagens={contagensDoRecorte}
-              idPrefixo="finame"
-            />
-
             <CartoesDeFiname resumo={(agregados ?? comparacao.data).resumo} />
 
             {(agregados ?? comparacao.data).resumo.impacto.cobertasPorParcelas > 0 && (
