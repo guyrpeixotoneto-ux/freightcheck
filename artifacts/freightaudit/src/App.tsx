@@ -67,6 +67,7 @@ import AuditoriaDeIpva from '@/pages/custo-fixo-ipva';
 import AuditoriaDeLucroFixo from '@/pages/custo-fixo-lucro-fixo';
 import AuditoriaDeImpostos from '@/pages/custo-fixo-impostos';
 import AuditoriaDeKmRodado from '@/pages/custo-variavel-km-rodado';
+import AuditoriaDeVelocidadeMedia from '@/pages/custo-variavel-velocidade-media';
 import Remunerado from '@/pages/remunerado';
 import Justificativas from '@/pages/justificativas';
 import JustificativasPlaca from '@/pages/justificativas-placa';
@@ -563,6 +564,24 @@ function RotasDaAuditoria() {
         vírgula, como manda o catálogo.
       */}
       <Route path="/custo-variavel-km-rodado" component={AuditoriaDeKmRodado} />
+      {/*
+        Velocidade Média sai de `TELAS_EM_PREPARO` e é a segunda de custo
+        variável, no mesmo grão da primeira: o trecho.
+
+        O verbete pedia duas coisas — distância e tempo na mesma linha, e a
+        separação entre tempo rodando e tempo parado — e a tabela de frete tem as
+        duas: o ciclo é declarado como deslocamento mais TMA de origem, TMA de
+        destino e refeição, e cada parcela tem coluna. Subtraindo as paradas sobra
+        o tempo rodando, que é a separação que o verbete dizia faltar.
+
+        O que continua faltando é o realizado: estes são o tempo e a distância
+        **contratados**, não o que um motorista praticou numa quinzena. A tela diz
+        isso e inverte a identidade do dicionário para conferir — o tempo rodando
+        sobre o km do ciclo tem de devolver a velocidade declarada
+        (`docs/ACHADO-VELOCIDADE-MEDIA.md`). O menu não mudou uma vírgula, como
+        manda o catálogo.
+      */}
+      <Route path="/custo-variavel-velocidade-media" component={AuditoriaDeVelocidadeMedia} />
       {/*
         QLP Administrativo saiu de `TELAS_EM_PREPARO` quando a importação
         passou a receber o export próprio dele (tipo QLP_ADMINISTRATIVO) — o

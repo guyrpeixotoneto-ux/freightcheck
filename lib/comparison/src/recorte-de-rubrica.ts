@@ -54,6 +54,18 @@ import { rotuloDeListaDaVigencia } from "./labels";
  * - `TEXTO` é o que não é número nenhum — origem, destino, o nome de uma
  *   unidade —, e existe para que a tela escreva o valor como veio em vez de
  *   tentar convertê-lo.
+ *
+ * As três últimas entraram com a Auditoria de Velocidade Média, e seguem a
+ * mesma regra das de cima — o nome da unidade é parte do número:
+ *
+ * - `MINUTOS` é tempo de ciclo, TMA e refeição. `MESES` já existia e não serve:
+ *   escrever "412 meses" onde a fonte disse 412 minutos é o número certo sob o
+ *   rótulo errado.
+ * - `VELOCIDADE` é km/h, e não é uma razão qualquer: `REAIS_POR_KM` escreveria
+ *   "58,0000 R$/km" onde a fonte disse 58 km/h.
+ * - `FATOR` é quantos motoristas um conjunto exige — uma contagem fracionária,
+ *   sem unidade no mundo, que `ANO` arredondaria para um inteiro e apagaria
+ *   justamente a fração que distingue 1,4 de 1,9 motorista por conjunto.
  */
 export type MedidaDaVariavel =
   | "DINHEIRO"
@@ -65,7 +77,10 @@ export type MedidaDaVariavel =
   | "DISTANCIA"
   | "REAIS_POR_KM"
   | "VIAGENS"
-  | "TEXTO";
+  | "TEXTO"
+  | "MINUTOS"
+  | "VELOCIDADE"
+  | "FATOR";
 
 // ---------------------------------------------------------------------------
 // Os seis estados
