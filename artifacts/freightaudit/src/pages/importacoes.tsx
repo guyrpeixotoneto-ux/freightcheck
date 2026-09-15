@@ -1163,7 +1163,28 @@ export default function Importacoes() {
         </div>
       )}
 
-      <RunDetailDialog run={detailOf} onClose={() => setDetailOf(null)} />
+      <RunDetailDialog
+        /* O cartão guardou uma cópia do run no clique; a lista, essa sim, se
+           refaz depois de ocultar/reexibir. Reencontrar o run pelo id faz o
+           diálogo mostrar o estado de agora — e não o de quando abriu. */
+        run={
+          detailOf === null
+            ? null
+            : (runs.find((r) => r.importRunId === detailOf.importRunId) ??
+              detailOf)
+        }
+        onClose={() => setDetailOf(null)}
+        onToggleHidden={(run) =>
+          toggleHidden.mutate({
+            importRunId: run.importRunId,
+            hidden: run.hiddenAt === null,
+          })
+        }
+        togglingHidden={
+          toggleHidden.isPending &&
+          toggleHidden.variables?.importRunId === detailOf?.importRunId
+        }
+      />
       <ReprocessDialog
         /* Uma caixa por importação, como na exclusão: o motivo digitado para
            uma não pode aparecer preenchido na próxima. */
@@ -1813,9 +1834,13 @@ function StatusPill({ status }: { status: string }) {
 function RunDetailDialog({
   run,
   onClose,
+  onToggleHidden,
+  togglingHidden,
 }: {
   run: ImportRun | null;
   onClose: () => void;
+  onToggleHidden: (run: ImportRun) => void;
+  togglingHidden: boolean;
 }) {
   return (
     <Dialog open={run !== null} onOpenChange={(open) => !open && onClose()}>
@@ -1842,6 +1867,24 @@ function RunDetailDialog({
               {run.finishedAt ? dateTime(run.finishedAt) : "—"}
             </Field>
             <Field label="Enviado por">{run.triggeredBy ?? "—"}</Field>
+            {/* Quem chega aqui por "Ver detalhes" de um cartão oculto precisa
+                ler o mesmo que o cartão diz, e desfazer sem voltar para a
+                lista: o diálogo é onde se confere o registro antes de decidir,
+                e decidir era justamente o que não dava para fazer daqui. */}
+            {run.hiddenAt !== null && (
+              <Field label="Na lista">
+                <span className="inline-flex items-center gap-1.5 text-slate-700">
+                  <EyeOff className="w-3.5 h-3.5" />
+                  oculta desde {dateTime(run.hiddenAt)}
+                </span>
+                <span className="text-muted-foreground">
+                  {" "}
+                  · fora do dashboard, do comparativo, da cobertura e do DRE
+                  {run.hiddenBy && <> · ocultada por {run.hiddenBy}</>}
+                  {run.hiddenReason && <> · motivo: {run.hiddenReason}</>}
+                </span>
+              </Field>
+            )}
             {/* A mesma distinção do cartão, com as mesmas palavras: o que o
                 arquivo trouxe numa linha, o que a vigência resultante cobre na
                 outra — e a segunda só quando difere da primeira. */}
@@ -1894,6 +1937,22 @@ function RunDetailDialog({
           <Apontamentos importRunId={run.importRunId} />
 
           <DialogFooter>
+            {/* Mesma ação e mesmas palavras do cartão — reversível, sem
+                confirmação, e o botão desfaz a si mesmo. */}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => onToggleHidden(run)}
+              disabled={togglingHidden}
+              className="text-slate-700 hover:text-slate-900 hover:bg-slate-100"
+            >
+              {run.hiddenAt !== null ? (
+                <Eye className="w-3.5 h-3.5 mr-1.5" />
+              ) : (
+                <EyeOff className="w-3.5 h-3.5 mr-1.5" />
+              )}
+              {run.hiddenAt !== null ? "Reexibir" : "Ocultar"}
+            </Button>
             <Button variant="outline" size="sm" onClick={onClose}>
               Fechar
             </Button>
