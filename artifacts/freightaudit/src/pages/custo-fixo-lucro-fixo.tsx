@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearch } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { Download, Search, SlidersHorizontal, TrendingUp } from "lucide-react";
@@ -42,6 +42,7 @@ import {
 import { TabelaDeLucroFixo } from "@/components/lucro-fixo/tabela";
 import { DetalheDoVeiculo } from "@/components/lucro-fixo/detalhe";
 import { fetchJson, salvarArquivo } from "@/lib/api";
+import { type CandidatosDoPar } from "@/lib/candidatos";
 import { csvComoBlob, paraNomeDeArquivo } from "@/lib/csv";
 import { formatNumber } from "@/lib/format";
 import {
@@ -154,6 +155,43 @@ export default function AuditoriaDeLucroFixo() {
   const semParPossivel =
     Boolean(vigencias.data) && unidadeResolvida && parDePartida(daUnidade) === null;
 
+  /**
+   * Os números de cada candidata a "De", contra o "Para" aberto.
+   *
+   * As mesmas três decisões das outras duas auditorias, e é de propósito que
+   * sejam as mesmas: a pergunta é a mesma, e telas irmãs respondendo com
+   * cadências diferentes seria diferença sem motivo.
+   *
+   * **Só quando o menu abre** — calcular comparações para quem nunca abriu o
+   * seletor seria cobrar do banco por uma pergunta que ninguém fez, e a
+   * abertura não espera a resposta. **A chave carrega o Para e a unidade**, de
+   * modo que trocar qualquer um dos dois é chave nova e não há invalidação
+   * manual a esquecer. **Os pendentes voltam**: pergunta-se de novo enquanto a
+   * fila andar, e a chamada seguinte continua de onde a anterior parou; uma
+   * fila que não anda encerra a pergunta.
+   */
+  const [menuDeAberto, setMenuDeAberto] = useState(false);
+  /** Quantas ficaram pendentes na resposta anterior — a régua do progresso. */
+  const pendentesAnteriores = useRef<number | null>(null);
+  const candidatos = useQuery({
+    queryKey: ["lucro-fixo", "candidatos", escopoAberto, comparada],
+    enabled: menuDeAberto && Boolean(comparada),
+    staleTime: 5 * 60_000,
+    queryFn: () =>
+      fetchJson<CandidatosDoPar>(`/lucro-fixo/candidatos?para=${comparada}`),
+    refetchInterval: (query) => {
+      const dados = query.state.data;
+      if (!dados || dados.pendentes === 0) {
+        pendentesAnteriores.current = null;
+        return false;
+      }
+      const anterior = pendentesAnteriores.current;
+      pendentesAnteriores.current = dados.pendentes;
+      if (anterior === null) return 1_500;
+      return dados.pendentes < anterior ? 1_500 : false;
+    },
+  });
+
   const comparacao = useQuery({
     queryKey: ["lucro-fixo", "comparacao", base, comparada, comSemAlteracao],
     enabled: Boolean(base && comparada),
@@ -251,6 +289,12 @@ export default function AuditoriaDeLucroFixo() {
             }}
             carregando={comparacao.isFetching}
             idPrefixo="lucro-fixo"
+            candidatos={candidatos.data}
+            carregandoCandidatos={candidatos.isFetching}
+            onAbrirDe={setMenuDeAberto}
+            erroDosCandidatos={
+              candidatos.error instanceof Error ? candidatos.error.message : null
+            }
           />
         )}
 
