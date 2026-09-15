@@ -69,6 +69,7 @@ import AuditoriaDeLucroFixo from '@/pages/custo-fixo-lucro-fixo';
 import AuditoriaDeImpostos from '@/pages/custo-fixo-impostos';
 import AuditoriaDeKmRodado from '@/pages/custo-variavel-km-rodado';
 import AuditoriaDeVelocidadeMedia from '@/pages/custo-variavel-velocidade-media';
+import AuditoriaDeTma from '@/pages/custo-variavel-tma';
 import Remunerado from '@/pages/remunerado';
 import Justificativas from '@/pages/justificativas';
 import JustificativasPlaca from '@/pages/justificativas-placa';
@@ -583,6 +584,7 @@ function RotasDaAuditoria() {
         manda o catálogo.
       */}
       <Route path="/custo-variavel-velocidade-media" component={AuditoriaDeVelocidadeMedia} />
+      <Route path="/custo-variavel-tma" component={AuditoriaDeTma} />
       {/*
         QLP Administrativo saiu de `TELAS_EM_PREPARO` quando a importação
         passou a receber o export próprio dele (tipo QLP_ADMINISTRATIVO) — o

@@ -240,6 +240,21 @@ export const TELAS_QUE_HONRAM_ESCOPO = new Set<string>([
     comparar vigências de escopos distintos.
   */
   "/custo-variavel-velocidade-media",
+  /*
+    A Auditoria de TMA, pelo mesmo mecanismo e com o mesmo filtro de trecho: a
+    tela (`pages/custo-variavel-tma.tsx`) recorta o seletor pela unidade aberta
+    **e** pelas vigências que cobrem trecho, que é de onde o tempo de porta é
+    lido — ainda que o grão de leitura da primeira aba seja o local.
+
+    Aqui o recorte por unidade faz mais do que trocar o dado: um local só se
+    confere contra os trechos **da mesma unidade**. Misturar unidades poria a
+    mesma doca com tempos de dois contratos diferentes na mesma linha, e a tela
+    acusaria como contradição o que é só a soma de duas operações distintas.
+
+    Fora de `TELAS_QUE_HONRAM_VISAO_GERAL` pelo motivo de sempre: o motor recusa
+    comparar vigências de escopos distintos.
+  */
+  "/custo-variavel-tma",
 ]);
 
 /**

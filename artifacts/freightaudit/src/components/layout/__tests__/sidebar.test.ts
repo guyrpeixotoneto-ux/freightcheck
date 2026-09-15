@@ -745,12 +745,20 @@ describe("o catálogo de telas em preparo", () => {
     liga está lá como proposta, não medida. A tela que confere essa cadeia é o
     instrumento que a confirma no dia em que o export entrar, e a mesma
     auditoria virou aba no QLP Administrativo, onde o arquivo já existe.
+
+    E de catorze para treze com **TMA**, a oitava — e a primeira que sai com
+    **metade** do verbete atendida, dito assim. A regra do que conta como
+    atendimento existe, e são duas: carregar e descarregar têm definições
+    diferentes no dicionário, e a tela nunca junta as duas médias. O registro de
+    cada atendimento com começo e fim continua faltando, e por isso o que está na
+    tela é o TMA **parametrizado** — o tempo que o contrato reconhece, não o que
+    o caminhão esperou. Que é, ainda assim, o número que remunera.
   */
   it("descreve, para cada tela, o que falta antes de ela mostrar um número", () => {
     const catalogo = fonte("pages/telas-em-preparo.ts");
     const telas = [...catalogo.matchAll(/^\s{4}href:\s*"([^"]+)"/gm)].length;
 
-    expect(telas).toBe(14);
+    expect(telas).toBe(13);
     expect([...catalogo.matchAll(/^\s{4}depende:\s*\[/gm)]).toHaveLength(telas);
     expect([...catalogo.matchAll(/^\s{4}pergunta:/gm)]).toHaveLength(telas);
   });
