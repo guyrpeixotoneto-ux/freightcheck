@@ -76,8 +76,45 @@ Os doze índices não tocados ainda carregam inchaço — `raw_cell_row_column_u
 original dava ~210 MB ali; corrigida pelo erro de 6% e pelo fator 1,5 acima,
 fica em **~180 MB**. Uma segunda passada levaria o banco a ~520 MB.
 
-**Não autorizado, não executado.** Fica como proposta, com a calibração agora
-feita por medida em vez de aritmética.
+**Autorizado por Guy em 15/09/2026, logo após esta primeira passada.** Rodar
+com:
+
+```bash
+PRODUCTION_DATABASE_URL='postgres://…' \
+  ./scripts/manutencao/reindexar.sh --confirmar --os-restantes
+```
+
+São **treze** índices, não doze: os doze que a medição listou acima do corte de
+8 MB, mais `change_pkey`, que ficou de fora daquela consulta por ser pequeno
+(3,7 MB) e é o **maior fator do banco** (~20x).
+
+Expectativa, já usando o fator 1,5 aprendido nesta primeira passada:
+
+| Índice | Hoje | Esperado | Recupera |
+|---|--:|--:|--:|
+| `raw_cell_row_column_uq` | 53 MB | ~17 MB | ~36 MB |
+| `fact_pkey` | 42 MB | ~9 MB | ~33 MB |
+| `staged_fact_pkey` | 35 MB | ~9 MB | ~26 MB |
+| `staged_fact_raw_cell_idx` | 35 MB | ~9 MB | ~26 MB |
+| `raw_cell_pkey` | 37 MB | ~14 MB | ~23 MB |
+| `fact_entity_attribute_idx` | 35 MB | ~20 MB | ~15 MB |
+| `change_pkey` | 3,7 MB | ~0,3 MB | ~3,4 MB |
+| `fact_attribute_idx` | 15 MB | ~12 MB | ~3 MB |
+| `fact_origin_import_run_idx` | 13 MB | ~12 MB | ~1 MB |
+| `fact_snapshot_entity_idx` | 20 MB | ~20 MB | ~0,5 MB |
+| `raw_cell_row_idx` | 11 MB | ~11 MB | **~0** |
+| `staged_fact_run_idx` | 11 MB | ~11 MB | **~0** |
+| `staged_fact_run_label_idx` | 12 MB | ~12 MB | **~0** |
+| **total** | **322 MB** | **~156 MB** | **~167 MB** |
+
+Banco esperado depois: **~540 MB**.
+
+**Quatro deles vão recuperar praticamente nada, e isso é o esperado, não
+falha.** `raw_cell_row_idx`, `staged_fact_run_idx`, `staged_fact_run_label_idx`
+e `fact_origin_import_run_idx` mediram fator 0,9 a 1,6 — já estão sadios. Entram
+porque custam segundos e porque um "0 bytes" neles é a confirmação disso. Se
+vierem com recuperação alta, aí sim é a estimativa que está errada, e vale
+parar para entender.
 
 ## O que mudou na projeção
 
