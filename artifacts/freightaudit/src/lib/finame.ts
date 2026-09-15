@@ -289,9 +289,10 @@ export interface VigenciaEmparelhavel {
  * viram duas linhas idênticas no seletor. Sem este recorte, a tela oferecia as
  * duas sem dizer qual é qual, e a lateral, ao lado, nomeava uma delas.
  *
- * Sem `scopeHash` a lista sai inteira, e é deliberado: é o caso de quem abriu a
- * tela sem escolher unidade nenhuma, e esconder vigência de quem não filtrou
- * seria inventar um recorte que ninguém pediu.
+ * Sem `scopeHash` a lista sai inteira — o caso em que nem a URL nem `/contexts`
+ * sabem dizer qual unidade está aberta. Quem chama resolve a unidade antes
+ * (`contextoAberto`, em `lib/contextos.ts`), de modo que na prática isto é o
+ * degrau final: só o acervo inteiro é melhor do que nada em tela.
  */
 export function vigenciasDaUnidade<T extends VigenciaEmparelhavel>(
   vigencias: readonly T[],
