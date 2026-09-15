@@ -23,6 +23,8 @@ import {
 } from "@workspace/comparison";
 import { classificarFalha } from "../lib/classificar-falha";
 import { exigirOperacaoDoRecurso, operacaoDaConsulta } from "../lib/operacao";
+import { comTetoDeRota } from "../lib/timeout-de-rota";
+import { candidatasDoPar, TETO_DE_CANDIDATAS_MS } from "../lib/candidatas-do-par";
 
 /**
  * AUDITORIA DE IPVA — o recorte do tributo entre duas vigências.
@@ -281,5 +283,68 @@ function comoNumero(bruto: string | null): number | null {
   const n = Number(bruto);
   return Number.isFinite(n) ? n : null;
 }
+
+/**
+ * O que cada candidata a "De" produz contra o "Para" escolhido, no IPVA.
+ *
+ * `GET /ipva/candidatos?para=<snapshotId>`
+ *
+ * Irmã de `/finame/candidatos`, e deliberadamente sem uma linha de regra
+ * própria: o orçamento, o reaproveitamento do que já foi comparado e o recorte
+ * por unidade e cobertura moram em `lib/candidatas-do-par.ts`. O que entra aqui
+ * é o recorte do IPVA — quais atributos ler, e como contar o que mudou neles.
+ *
+ * Fosse por cópia, as duas telas responderiam com fôlegos diferentes à mesma
+ * pergunta no dia em que uma das cópias ganhasse um segundo a mais de
+ * orçamento, e nada na tela diria por quê.
+ */
+router.get("/ipva/candidatos", async (req, res, next): Promise<void> => {
+  const para = typeof req.query.para === "string" ? req.query.para : "";
+  if (!para) {
+    res.status(400).json({ error: "Informe a vigência de destino." });
+    return;
+  }
+  await exigirOperacaoDoRecurso(req, "vigência", para, () => operacaoDoSnapshot(db, para));
+  const operacao = operacaoDaConsulta(req.query as Record<string, unknown>);
+
+  try {
+    await comTetoDeRota(TETO_DE_CANDIDATAS_MS, async (dbComTeto) => {
+      const resposta = await candidatasDoPar(
+        dbComTeto,
+        para,
+        {
+          attributeCodes: CODIGOS_DO_DETALHE_DE_IPVA,
+          numeros: (rows) => {
+            const linhas = linhasDeIpva(rows);
+            /* A frota entra zerada: esta rota não publica "veículos
+               comparados", só o que se moveu. Derivar a frota de um zero seria
+               inventar um denominador que ninguém pediu. */
+            const { variaveisAlteradas, impacto } = resumirIpva(linhas, {
+              comparados: 0,
+              novos: 0,
+              ausentes: 0,
+            });
+            return { alteracoes: variaveisAlteradas, impacto };
+          },
+        },
+        { operacao, computedBy: "api:ipva-candidatos" },
+      );
+
+      if ("naoEncontrada" in resposta) {
+        res.status(404).json({ error: "Essa vigência não existe." });
+        return;
+      }
+      res.json(resposta);
+    });
+  } catch (err) {
+    const desfecho = classificarFalha(err);
+    if (desfecho.tipo !== "REGRA") {
+      next(err);
+      return;
+    }
+    req.log.warn({ err }, "Candidatas de IPVA recusadas");
+    res.status(422).json({ error: desfecho.mensagem });
+  }
+});
 
 export default router;

@@ -22,6 +22,7 @@ import {
 import { classificarFalha } from "../lib/classificar-falha";
 import { exigirOperacaoDoRecurso, operacaoDaConsulta } from "../lib/operacao";
 import { comTetoDeRota } from "../lib/timeout-de-rota";
+import { candidatasDoPar, TETO_DE_CANDIDATAS_MS } from "../lib/candidatas-do-par";
 
 /**
  * AUDITORIA DE FINAME — o recorte do financiamento entre duas vigências.
@@ -270,59 +271,21 @@ router.get("/finame/totais", async (req, res): Promise<void> => {
 });
 
 /**
- * O que **cada candidata a "De"** produz contra o "Para" escolhido.
+ * O que cada candidata a "De" produz contra o "Para" escolhido, no FINAME.
  *
  * `GET /finame/candidatos?para=<snapshotId>`
  *
- * ---------------------------------------------------------------------------
- * Por que esta rota existe, e por que ela não é `/changes/range`
- * ---------------------------------------------------------------------------
- * O seletor do cabeçalho (`components/vigencia/seletor-de-vigencia.tsx`) mostra,
- * ao lado de cada vigência, o que ela custou e quantas alterações a produziram.
- * Aqueles números são de cada vigência **contra a anterior dela** — uma leitura
- * de série, que é a pergunta daquela tela.
+ * A pergunta desta rota não é a do seletor do cabeçalho
+ * (`components/vigencia/seletor-de-vigencia.tsx`), que mostra cada vigência
+ * contra a **anterior dela** — uma leitura de série. Aqui o número é **do
+ * par**: fixado o Para, quanto cada candidata produz contra ele. Trazer os
+ * números de lá seria mostrar, ao lado de um par, o impacto de outro.
  *
- * Esta tela é de **par**, e a pergunta é outra: fixado o "Para", quanto cada
- * candidata a "De" produz *contra ele*. O número muda quando o Para muda, e é
- * justamente isso que a leitura de série não sabe responder. Trazer os números
- * de lá seria mostrar, ao lado de um par, o impacto de outro.
- *
- * ---------------------------------------------------------------------------
- * As três decisões
- * ---------------------------------------------------------------------------
- * **A lista é da mesma unidade e da mesma cobertura, decidido aqui.** As duas
- * condições são as recusas do motor antecipadas (`engine.ts`), e ficam no
- * servidor e não só na tela: um `para` de Camaçari nunca devolve candidata de
- * Pernambuco, mesmo que alguém monte o endereço à mão.
- *
- * **Nada é recalculado à toa.** `getChangeSetForPair` responde por quem já foi
- * comparado alguma vez; só quem nunca foi passa por `computeChangeSet`. É o
- * mesmo caminho de `/finame/comparacao`, de modo que o número que aparece no
- * menu é o mesmo que a tela mostra depois do clique — nunca uma segunda conta.
- *
- * **Quem não coube no orçamento volta sem número, e isso é dito.** Calcular uma
- * comparação nova custa segundos; calcular cinco de uma vez estoura o prazo de
- * qualquer proxy no caminho. Então o orçamento é de {@link ORCAMENTO_MS}, e o
- * que não couber volta `numeros: null` — que quer dizer **"ainda não sei"**, e
- * nunca "zero". O cliente pede de novo e a rota continua de onde parou, porque
- * o que foi calculado ficou gravado.
+ * O orçamento, o reaproveitamento do que já foi comparado e o recorte por
+ * unidade e cobertura moram em `lib/candidatas-do-par.ts`, com o IPVA. O que
+ * sobra aqui é o recorte do FINAME: quais atributos ler, e como contar o que
+ * mudou neles.
  */
-const ORCAMENTO_MS = 8_000;
-const TETO_DE_CANDIDATOS_MS = 12_000;
-
-/**
- * Os números de um par, no recorte do FINAME.
- *
- * `alteracoes` são **variáveis alteradas**, e não veículos: é a mesma unidade
- * de contagem da palavra "alterações" no resto do produto, e a mesma que o
- * cartão desta tela publica. Contar veículos sob o rótulo "alterações" daria
- * um número menor para a mesma coisa, dependendo da tela que se abre.
- */
-interface NumerosDoPar {
-  alteracoes: number;
-  impacto: ReturnType<typeof resumirFiname>["impacto"];
-}
-
 router.get("/finame/candidatos", async (req, res, next): Promise<void> => {
   const para = typeof req.query.para === "string" ? req.query.para : "";
   if (!para) {
@@ -333,65 +296,34 @@ router.get("/finame/candidatos", async (req, res, next): Promise<void> => {
   const operacao = operacaoDaConsulta(req.query as Record<string, unknown>);
 
   try {
-    await comTetoDeRota(TETO_DE_CANDIDATOS_MS, async (dbComTeto) => {
-      const vigencias = await listComparableSnapshots(dbComTeto, { operacao });
-      const destino = vigencias.find((v) => v.id === para);
-      if (!destino) {
+    await comTetoDeRota(TETO_DE_CANDIDATAS_MS, async (dbComTeto) => {
+      const resposta = await candidatasDoPar(
+        dbComTeto,
+        para,
+        {
+          attributeCodes: CODIGOS_DO_DETALHE,
+          numeros: (rows) => {
+            const linhas = linhasDeFiname(rows);
+            /* A frota entra zerada de propósito: aqui não se publica "veículos
+               comparados" — só o que se moveu. Os campos que dependem da frota
+               não saem desta rota, e inventá-los a partir de um zero seria pior
+               do que não tê-los. */
+            const { variaveisAlteradas, impacto } = resumirFiname(linhas, {
+              comparados: 0,
+              novos: 0,
+              ausentes: 0,
+            });
+            return { alteracoes: variaveisAlteradas, impacto };
+          },
+        },
+        { operacao, computedBy: "api:finame-candidatos" },
+      );
+
+      if ("naoEncontrada" in resposta) {
         res.status(404).json({ error: "Essa vigência não existe." });
         return;
       }
-
-      /* A mesma série do destino, da mais recente para a mais antiga: quem
-         abre o menu olha primeiro as de cima, então são elas que ganham o
-         orçamento. */
-      const candidatas = vigencias
-        .filter(
-          (v) =>
-            v.id !== destino.id &&
-            v.scopeHash === destino.scopeHash &&
-            v.entityTypeSet === destino.entityTypeSet,
-        )
-        .sort((a, b) => b.effectiveDate.localeCompare(a.effectiveDate));
-
-      const limite = Date.now() + ORCAMENTO_MS;
-      const resposta: { id: string; numeros: NumerosDoPar | null }[] = [];
-      let pendentes = 0;
-
-      for (const candidata of candidatas) {
-        const gravado = await getChangeSetForPair(dbComTeto, candidata.id, destino.id);
-        if (!gravado && Date.now() >= limite) {
-          resposta.push({ id: candidata.id, numeros: null });
-          pendentes++;
-          continue;
-        }
-
-        const resumo =
-          gravado ??
-          (await computeChangeSet(dbComTeto, candidata.id, destino.id, {
-            computedBy: "api:finame-candidatos",
-          }));
-
-        const { rows } = await listChanges(dbComTeto, resumo.id, {
-          attributeCodes: [...CODIGOS_DO_DETALHE],
-          limit: 5000,
-        });
-        const linhas = linhasDeFiname(rows);
-        /* A frota entra zerada de propósito: aqui não se publica "veículos
-           comparados" — só o que se moveu. Os campos que dependem da frota
-           não saem desta rota, e inventá-los a partir de um zero seria pior
-           do que não tê-los. */
-        const { variaveisAlteradas, impacto } = resumirFiname(linhas, {
-          comparados: 0,
-          novos: 0,
-          ausentes: 0,
-        });
-        resposta.push({
-          id: candidata.id,
-          numeros: { alteracoes: variaveisAlteradas, impacto },
-        });
-      }
-
-      res.json({ para: destino.id, candidatos: resposta, pendentes });
+      res.json(resposta);
     });
   } catch (err) {
     const desfecho = classificarFalha(err);
