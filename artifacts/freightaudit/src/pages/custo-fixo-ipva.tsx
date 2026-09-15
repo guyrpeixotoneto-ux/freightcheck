@@ -40,6 +40,8 @@ import {
   TotalPorVigencia,
 } from "@/components/ipva/graficos";
 import { TabelaDeIpva } from "@/components/ipva/tabela";
+import { JustificarDialog } from "@/components/justificativas/justificar-dialog";
+import { useJustificarNaTabela } from "@/lib/justificar-na-tabela";
 import { DetalheDoVeiculo } from "@/components/ipva/detalhe";
 import { fetchJson, salvarArquivo } from "@/lib/api";
 import { type CandidatosDoPar } from "@/lib/candidatos";
@@ -295,8 +297,19 @@ export default function AuditoriaDeIpva() {
   const rotuloComparada =
     vigencias.data?.find((v) => v.id === comparada)?.sourceLabel ?? "Para";
 
+  /*
+    Justificar sem sair daqui — a mesma caixa de Chamados, o mesmo POST, e a
+    vigência escrita nela: quem justifica a partir desta tela escolheu o par no
+    seletor acima, e um diálogo que não diz onde grava deixa a decisão sem a
+    metade que a torna verificável.
+  */
+  const justificar = useJustificarNaTabela(
+    comparacao.data?.changeSetId,
+    `comparação ${rotuloBase} → ${rotuloComparada}`,
+  );
+
   function exportar() {
-    const blob = csvComoBlob(linhasDoCsv(filtradas));
+    const blob = csvComoBlob(linhasDoCsv(filtradas, justificar.justificadaPor));
     salvarArquivo(
       blob,
       `ipva-${paraNomeDeArquivo(rotuloBase)}-para-${paraNomeDeArquivo(rotuloComparada)}.csv`,
@@ -580,9 +593,11 @@ export default function AuditoriaDeIpva() {
               <>
                 <TabelaDeIpva
                   linhas={naPagina}
+                  justificadaPor={justificar.justificadaPor}
                   onAbrir={(l) =>
                     setAberto({ entityLabel: l.entityLabel, entityType: l.entityType })
                   }
+                  onJustificar={justificar.abrir}
                 />
                 <Paginacao
                   pagina={pagina}
@@ -596,6 +611,8 @@ export default function AuditoriaDeIpva() {
                 />
               </>
             )}
+
+            <JustificarDialog {...justificar.propsDoDialogo} />
 
             <DetalheDoVeiculo
               veiculo={aberto}

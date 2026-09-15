@@ -15,30 +15,12 @@ import {
   escreverVariacao,
 } from "@/lib/finame";
 import { formatNumber } from "@/lib/format";
-import type { AlvoDaJustificativa } from "@/components/justificativas/justificar-dialog";
+import {
+  CelulaDeJustificativa,
+  alvoDaLinha,
+  type AbrirJustificativa,
+} from "@/components/justificativas/coluna";
 import type { Justificativa } from "@/lib/justificativas";
-
-/**
- * Justificar a partir da tabela — o que o componente pede de fora.
- *
- * A tela não grava nada: ela **abre o diálogo** que a página já sabe gravar, o
- * mesmo de Chamados. `alvos` são as alterações que vão receber o texto (uma, ou
- * todas as da placa), e `atual` é o que já está gravado, quando se está
- * reescrevendo — o diálogo abre com ele no campo, porque quem reabre uma linha
- * explicada quase sempre quer corrigir, não redigir do zero.
- */
-export type AbrirJustificativa = (
-  alvos: AlvoDaJustificativa[],
-  atual?: Justificativa | null,
-) => void;
-
-/** Uma linha do motor como o diálogo de justificar a enxerga. */
-const alvoDaLinha = (l: LinhaDeFiname): AlvoDaJustificativa => ({
-  id: l.id!,
-  entityLabel: l.entityLabel,
-  attributeCode: l.attributeCode,
-  attributeName: l.rotuloDaVariavel,
-});
 
 const ROTULO_DO_TIPO: Record<string, string> = { CAVALO: "Cavalo", CARRETA: "Carreta" };
 
@@ -511,85 +493,5 @@ function AlteracoesDoVeiculo({
         Abrir detalhe completo
       </Button>
     </div>
-  );
-}
-
-/**
- * A justificativa de uma alteração — lida e escrita na mesma célula.
- *
- * Três estados, e nenhum deles é decorativo:
- *
- * - **sem `change.id`** (a linha "sem alteração", que o alternador traz): não há
- *   o que justificar, e a célula fica vazia;
- * - **sem texto**: um botão "Justificar", porque a pendência é a informação;
- * - **com texto**: o texto, clicável para reescrever. Gravar de novo não edita a
- *   anterior — o histórico é o que torna a justificativa auditável —, e por isso
- *   o diálogo abre com o texto atual à vista, dizendo o que vai substituir.
- *
- * **Só a linha alterada ganha botão**, a mesma régua da contagem da placa: um
- * conflito ou um dado incompleto é a recusa do motor em afirmar que houve
- * alteração, e o que ele pede é o conserto do dado. Se o botão existisse aqui, o
- * numerador da placa contaria uma linha que o denominador não conta — "4 de 3".
- * O texto já gravado numa dessas linhas continua à vista, só de leitura, porque
- * apagá-lo da tela seria esconder o histórico.
- *
- * Sem `onJustificar` a célula é só de leitura: é o que mantém a tabela usável
- * onde justificar não faz sentido, sem um botão que não grava.
- */
-function CelulaDeJustificativa({
-  linha: l,
-  justificativa,
-  onJustificar,
-}: {
-  linha: LinhaDeFiname;
-  justificativa: Justificativa | undefined;
-  onJustificar?: AbrirJustificativa;
-}) {
-  /* Nem toda linha é justificável: ver o cabeçalho. A que não é não escreve
-     "Sem justificativa" — não há pendência ali para ser cobrada. */
-  if (l.id === null) return null;
-  const alterada = l.estado === "ALTERADO";
-  const abrir = alterada ? onJustificar : undefined;
-
-  if (!justificativa) {
-    if (!alterada) return null;
-    if (!abrir) return <span className="text-muted-foreground/70">Sem justificativa</span>;
-    return (
-      <button
-        type="button"
-        onClick={() => abrir([alvoDaLinha(l)])}
-        aria-label={`Justificar ${l.rotuloDaVariavel} de ${l.entityLabel ?? "veículo sem placa"}`}
-        className="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[0.7rem] font-semibold hover:bg-muted"
-      >
-        <MessageSquarePlus className="h-3.5 w-3.5" aria-hidden="true" />
-        Justificar
-      </button>
-    );
-  }
-
-  const texto = (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <span className="block max-w-[16rem] truncate text-left">{justificativa.texto}</span>
-      </TooltipTrigger>
-      <TooltipContent className="max-w-sm text-xs">
-        {justificativa.texto}
-        <span className="mt-1 block text-muted-foreground">{justificativa.criadoPor}</span>
-      </TooltipContent>
-    </Tooltip>
-  );
-
-  if (!abrir) return texto;
-  return (
-    <button
-      type="button"
-      onClick={() => abrir([alvoDaLinha(l)], justificativa)}
-      aria-label={`Reescrever a justificativa de ${l.rotuloDaVariavel} de ${
-        l.entityLabel ?? "veículo sem placa"
-      }`}
-      className="max-w-full text-left underline decoration-dotted underline-offset-2 hover:text-foreground"
-    >
-      {texto}
-    </button>
   );
 }

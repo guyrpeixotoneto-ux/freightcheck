@@ -1,6 +1,12 @@
 import { Info } from "lucide-react";
 import type { LinhaDeKm } from "@workspace/comparison/km-rodado";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  CelulaDeJustificativa,
+  COLUNA_DE_JUSTIFICATIVA,
+  type AbrirJustificativa,
+} from "@/components/justificativas/coluna";
+import type { Justificativa } from "@/lib/justificativas";
 import { cn } from "@/lib/utils";
 import {
   ROTULO_DO_ESTADO,
@@ -34,10 +40,16 @@ import {
  */
 export function TabelaDeKm({
   linhas,
+  justificadaPor,
   onAbrir,
+  onJustificar,
 }: {
   linhas: LinhaDeKm[];
+  /** A justificativa mais recente de cada alteração, por `change.id`. */
+  justificadaPor?: ReadonlyMap<number, Justificativa>;
   onAbrir: (linha: LinhaDeKm) => void;
+  /** Sem ele a coluna é só de leitura — ver `CelulaDeJustificativa`. */
+  onJustificar?: AbrirJustificativa;
 }) {
   return (
     <div className="superficie overflow-x-auto">
@@ -56,6 +68,7 @@ export function TabelaDeKm({
               "Diferença",
               "Variação %",
               "Status",
+              COLUNA_DE_JUSTIFICATIVA,
             ].map((titulo, i) => (
               <th
                 key={titulo}
@@ -165,6 +178,14 @@ export function TabelaDeKm({
                     </Tooltip>
                   )}
                 </span>
+              </td>
+              {/* O clique da célula é dela: a linha inteira abre o detalhe. */}
+              <td className="px-3 py-2 text-xs">
+                <CelulaDeJustificativa
+                  linha={l}
+                  justificativa={l.id === null ? undefined : justificadaPor?.get(l.id)}
+                  onJustificar={onJustificar}
+                />
               </td>
             </tr>
           ))}

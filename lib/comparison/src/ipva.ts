@@ -923,21 +923,32 @@ export const COLUNAS_DO_CSV_DE_IPVA = [
   "Status",
   "Motivo",
   "Fora da soma",
+  "Justificativa",
 ] as const;
 
 /**
- * Uma linha da tabela como as dez células do CSV.
+ * Uma linha da tabela como as células do CSV.
  *
  * Devolve texto cru — sem `R$`, sem separador de milhar e sem decidir o
  * separador do arquivo. Quem escreve o CSV é `lib/csv.ts`, no cliente, que já
  * sabe o que o Excel brasileiro espera.
  *
- * A décima coluna é o aviso da linha que não soma, e ela existe no arquivo
- * justamente porque o arquivo sai do produto e vira soma na planilha de outra
- * pessoa. Um CSV que exporta a coluna "mensal" sem dizer que ela não é 1/12 da
+ * O aviso da linha que não soma viaja junto, e existe no arquivo justamente
+ * porque o arquivo sai do produto e vira soma na planilha de outra pessoa. Um CSV que exporta a coluna "mensal" sem dizer que ela não é 1/12 da
  * anual é a forma mais fácil de o achado se perder.
+ *
+ * A justificativa entra por parâmetro porque **não é da linha**: ela é do
+ * gestor, mora em `justificativa` e é lida por `change_id` numa segunda
+ * consulta. Guardá-la dentro da linha faria a comparação carregar um texto que o
+ * motor não produziu — e que muda sem a comparação mudar. É a mesma escolha de
+ * `celulasDoCsv`, no FINAME. No arquivo ela é a última coluna, e é boa parte do
+ * motivo de o CSV existir para além da tela: quem recebe a planilha lê o que
+ * mudou e, na mesma linha, por que mudou.
  */
-export function celulasDoCsvDeIpva(l: LinhaDeIpva): (string | number | null)[] {
+export function celulasDoCsvDeIpva(
+  l: LinhaDeIpva,
+  justificativa?: string | null,
+): (string | number | null)[] {
   return [
     l.entityLabel,
     l.entityType,
@@ -949,5 +960,6 @@ export function celulasDoCsvDeIpva(l: LinhaDeIpva): (string | number | null)[] {
     ROTULO_DO_ESTADO[l.estado],
     l.motivo,
     l.foraDaSoma,
+    justificativa ?? null,
   ];
 }

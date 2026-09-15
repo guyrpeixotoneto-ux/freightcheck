@@ -1,6 +1,12 @@
 import { Info } from "lucide-react";
 import type { LinhaDeLucroFixo } from "@workspace/comparison/lucro-fixo";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  CelulaDeJustificativa,
+  COLUNA_DE_JUSTIFICATIVA,
+  type AbrirJustificativa,
+} from "@/components/justificativas/coluna";
+import type { Justificativa } from "@/lib/justificativas";
 import { cn } from "@/lib/utils";
 import {
   ROTULO_DO_ESTADO,
@@ -29,10 +35,16 @@ const ROTULO_DO_TIPO: Record<string, string> = { CAVALO: "Cavalo", CARRETA: "Car
  */
 export function TabelaDeLucroFixo({
   linhas,
+  justificadaPor,
   onAbrir,
+  onJustificar,
 }: {
   linhas: LinhaDeLucroFixo[];
+  /** A justificativa mais recente de cada alteração, por `change.id`. */
+  justificadaPor?: ReadonlyMap<number, Justificativa>;
   onAbrir: (linha: LinhaDeLucroFixo) => void;
+  /** Sem ele a coluna é só de leitura — ver `CelulaDeJustificativa`. */
+  onJustificar?: AbrirJustificativa;
 }) {
   return (
     <div className="superficie overflow-x-auto">
@@ -42,7 +54,17 @@ export function TabelaDeLucroFixo({
         </caption>
         <thead>
           <tr className="border-b bg-muted/60">
-            {["Veículo", "Tipo", "Variável", "De", "Para", "Diferença", "Variação %", "Status"].map(
+            {[
+              "Veículo",
+              "Tipo",
+              "Variável",
+              "De",
+              "Para",
+              "Diferença",
+              "Variação %",
+              "Status",
+              COLUNA_DE_JUSTIFICATIVA,
+            ].map(
               (titulo, i) => (
                 <th
                   key={titulo}
@@ -151,6 +173,14 @@ export function TabelaDeLucroFixo({
                     </Tooltip>
                   )}
                 </span>
+              </td>
+              {/* O clique da célula é dela: a linha inteira abre o detalhe. */}
+              <td className="px-3 py-2 text-xs">
+                <CelulaDeJustificativa
+                  linha={l}
+                  justificativa={l.id === null ? undefined : justificadaPor?.get(l.id)}
+                  onJustificar={onJustificar}
+                />
               </td>
             </tr>
           ))}

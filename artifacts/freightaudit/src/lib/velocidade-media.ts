@@ -299,11 +299,24 @@ export function contagemPorAba(
  * horas e minutos: "11h 36min" é uma string para a planilha, e 696 é um número
  * que ela soma, ordena e usa em fórmula.
  */
-export function linhasDoCsv(linhas: readonly LinhaDeVelocidade[]): string[][] {
+export function linhasDoCsv(
+  linhas: readonly LinhaDeVelocidade[],
+  /*
+     O que o gestor escreveu sobre cada alteração, por `change.id` — a mesma
+     leitura que a coluna da tabela usa. Opcional porque ela pode não ter
+     voltado: um CSV com a coluna em branco continua sendo o arquivo da
+     comparação, e recusá-lo por causa do comentário seria trocar o dado pela
+     nota sobre o dado.
+  */
+  justificadaPor?: ReadonlyMap<number, { texto: string }>,
+): string[][] {
   return [
     [...COLUNAS_DO_CSV_DE_VELOCIDADE],
     ...linhas.map((l) =>
-      celulasDoCsvDeVelocidade(l).map((celula) => {
+      celulasDoCsvDeVelocidade(
+        l,
+        l.id === null ? null : (justificadaPor?.get(l.id)?.texto ?? null),
+      ).map((celula) => {
         if (celula === null || celula === undefined) return "";
         if (typeof celula === "number") return numeroParaCsv(celula);
         return celula;
