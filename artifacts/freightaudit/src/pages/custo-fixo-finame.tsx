@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearch } from "wouter";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Banknote, Download, Search, SlidersHorizontal } from "lucide-react";
 import type { LinhaDeFiname } from "@workspace/comparison/finame";
 import { VARIAVEIS_DE_FINAME, agruparPorVeiculo } from "@workspace/comparison/finame";
@@ -44,7 +44,11 @@ import {
   type TotaisDeFiname,
 } from "@/lib/finame";
 import { type CandidatosDoPar } from "@/lib/candidatos";
-import { useJustificadaPor } from "@/lib/justificativas";
+import {
+  JustificarDialog,
+  type AlvoDaJustificativa,
+} from "@/components/justificativas/justificar-dialog";
+import { useJustificadaPor, type Justificativa } from "@/lib/justificativas";
 import {
   parDePartida,
   rotulosDasVigencias,
@@ -321,6 +325,45 @@ export default function AuditoriaDeFiname() {
    * justificativa é o comentário sobre ele.
    */
   const { justificadaPor } = useJustificadaPor(comparacao.data?.changeSetId);
+
+  /**
+   * Justificar sem sair da tabela.
+   *
+   * A explicação de uma queda nasce olhando a linha que caiu — e era
+   * exatamente ali que não dava para escrevê-la: quem via a amortização zerar
+   * tinha de abrir Chamados, reencontrar a vigência no seletor, reencontrar a
+   * placa na fila e só então escrever. Duas telas para uma frase.
+   *
+   * O que muda é **de onde se abre**, e nada do que justificar significa: o
+   * diálogo é o mesmo componente de Chamados e o POST é o mesmo `/justificativas`
+   * — mesma rota, mesmo `changeSetId`, uma linha de `justificativa` por
+   * alteração. Gravar de novo não edita a anterior: é histórico, e a tela lê
+   * sempre a mais recente. Por isso também não há gravação otimista aqui; o que
+   * volta para a tabela é o que o banco confirmou.
+   */
+  const queryClient = useQueryClient();
+  const [alvo, setAlvo] = useState<AlvoDaJustificativa[] | null>(null);
+  const [justificativaAtual, setJustificativaAtual] = useState<Justificativa | null>(null);
+
+  const gravarJustificativa = useMutation({
+    mutationFn: (input: { changeIds: number[]; texto: string }) =>
+      fetchJson<{ justificativas: Justificativa[] }>("/justificativas", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          changeSetId: comparacao.data?.changeSetId,
+          changeIds: input.changeIds,
+          texto: input.texto,
+        }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["justificativas", comparacao.data?.changeSetId],
+      });
+      setAlvo(null);
+      setJustificativaAtual(null);
+    },
+  });
 
   const linhas = useMemo(() => comparacao.data?.linhas ?? [], [comparacao.data]);
   const filtradas = useMemo(() => filtrar(linhas, filtros), [linhas, filtros]);
@@ -606,6 +649,11 @@ export default function AuditoriaDeFiname() {
                   onAbrir={(v) =>
                     setAberto({ entityLabel: v.entityLabel, entityType: v.entityType })
                   }
+                  onJustificar={(alvos, atual) => {
+                    gravarJustificativa.reset();
+                    setJustificativaAtual(atual ?? null);
+                    setAlvo(alvos);
+                  }}
                 />
                 <Paginacao
                   pagina={pagina}
@@ -619,6 +667,28 @@ export default function AuditoriaDeFiname() {
                 />
               </>
             )}
+
+            {/* O diálogo é o de Chamados, e a vigência vai escrita nele: quem
+                justifica a partir daqui escolheu o par no seletor acima, e uma
+                caixa que não diz onde grava deixa a decisão sem a metade que a
+                torna verificável. */}
+            <JustificarDialog
+              alvo={alvo}
+              contexto={`comparação ${rotuloBase} → ${rotuloComparada}`}
+              justificativaAtual={justificativaAtual}
+              pendente={gravarJustificativa.isPending}
+              erro={gravarJustificativa.error}
+              onClose={() => {
+                setAlvo(null);
+                setJustificativaAtual(null);
+              }}
+              onConfirmar={(texto) =>
+                gravarJustificativa.mutate({
+                  changeIds: (alvo ?? []).map((a) => a.id),
+                  texto,
+                })
+              }
+            />
 
             <DetalheDoVeiculo
               veiculo={aberto}

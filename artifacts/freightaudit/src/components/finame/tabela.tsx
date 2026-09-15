@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronRight, Info, PanelRightOpen } from "lucide-react";
+import { ChevronRight, Info, MessageSquarePlus, PanelRightOpen } from "lucide-react";
 import type { LinhaDeFiname, VeiculoDeFiname } from "@workspace/comparison/finame";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -15,7 +15,30 @@ import {
   escreverVariacao,
 } from "@/lib/finame";
 import { formatNumber } from "@/lib/format";
+import type { AlvoDaJustificativa } from "@/components/justificativas/justificar-dialog";
 import type { Justificativa } from "@/lib/justificativas";
+
+/**
+ * Justificar a partir da tabela — o que o componente pede de fora.
+ *
+ * A tela não grava nada: ela **abre o diálogo** que a página já sabe gravar, o
+ * mesmo de Chamados. `alvos` são as alterações que vão receber o texto (uma, ou
+ * todas as da placa), e `atual` é o que já está gravado, quando se está
+ * reescrevendo — o diálogo abre com ele no campo, porque quem reabre uma linha
+ * explicada quase sempre quer corrigir, não redigir do zero.
+ */
+export type AbrirJustificativa = (
+  alvos: AlvoDaJustificativa[],
+  atual?: Justificativa | null,
+) => void;
+
+/** Uma linha do motor como o diálogo de justificar a enxerga. */
+const alvoDaLinha = (l: LinhaDeFiname): AlvoDaJustificativa => ({
+  id: l.id!,
+  entityLabel: l.entityLabel,
+  attributeCode: l.attributeCode,
+  attributeName: l.rotuloDaVariavel,
+});
 
 const ROTULO_DO_TIPO: Record<string, string> = { CAVALO: "Cavalo", CARRETA: "Carreta" };
 
@@ -74,11 +97,14 @@ export function TabelaDeFiname({
   veiculos,
   justificadaPor,
   onAbrir,
+  onJustificar,
 }: {
   veiculos: VeiculoDeFiname[];
   /** A justificativa mais recente de cada alteração, por `change.id`. */
   justificadaPor?: ReadonlyMap<number, Justificativa>;
   onAbrir: (veiculo: { entityLabel: string | null; entityType: string }) => void;
+  /** Abre o diálogo de justificar. Ausente, a coluna fica só de leitura. */
+  onJustificar?: AbrirJustificativa;
 }) {
   const [expandidas, setExpandidas] = useState<ReadonlySet<string>>(new Set());
 
@@ -121,6 +147,7 @@ export function TabelaDeFiname({
               veiculo={v}
               aberta={expandidas.has(chaveDoVeiculo(v))}
               justificadaPor={justificadaPor}
+              onJustificar={onJustificar}
               onAlternar={() => alternar(v)}
               onAbrir={() => onAbrir(v)}
             />
@@ -136,12 +163,14 @@ function FragmentoDoVeiculo({
   veiculo: v,
   aberta,
   justificadaPor,
+  onJustificar,
   onAlternar,
   onAbrir,
 }: {
   veiculo: VeiculoDeFiname;
   aberta: boolean;
   justificadaPor?: ReadonlyMap<number, Justificativa>;
+  onJustificar?: AbrirJustificativa;
   onAlternar: () => void;
   onAbrir: () => void;
 }) {
@@ -240,10 +269,35 @@ function FragmentoDoVeiculo({
         <td className="whitespace-nowrap px-3 py-2 text-xs text-muted-foreground">
           {justificaveis.length === 0 ? (
             ""
-          ) : justificadas === 0 ? (
-            <span className="text-muted-foreground/70">Sem justificativa</span>
           ) : (
-            `${formatNumber(justificadas, 0)} de ${formatNumber(justificaveis.length, 0)}`
+            <span className="flex items-center gap-2">
+              <span className={cn(justificadas === 0 && "text-muted-foreground/70")}>
+                {justificadas === 0
+                  ? "Sem justificativa"
+                  : `${formatNumber(justificadas, 0)} de ${formatNumber(justificaveis.length, 0)}`}
+              </span>
+              {/* Justificar a placa inteira: o mesmo texto para todas as
+                  alterações dela, que é como a auditoria de fato explica uma
+                  queda — o contrato acabou, e isso vale para a parcela, para os
+                  juros e para a amortização da mesma placa. O clique não pode
+                  subir para a linha, ou abriria a expansão junto. */}
+              {onJustificar && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onJustificar(justificaveis.map(alvoDaLinha));
+                  }}
+                  aria-label={`Justificar as ${justificaveis.length} alterações de ${
+                    v.entityLabel ?? "veículo sem placa"
+                  }`}
+                  className="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[0.7rem] font-semibold hover:bg-muted"
+                >
+                  <MessageSquarePlus className="h-3.5 w-3.5" aria-hidden="true" />
+                  Justificar
+                </button>
+              )}
+            </span>
           )}
         </td>
       </tr>
@@ -254,6 +308,7 @@ function FragmentoDoVeiculo({
             <AlteracoesDoVeiculo
               linhas={v.linhas}
               justificadaPor={justificadaPor}
+              onJustificar={onJustificar}
               onAbrir={onAbrir}
             />
           </td>
@@ -274,10 +329,12 @@ function FragmentoDoVeiculo({
 function AlteracoesDoVeiculo({
   linhas,
   justificadaPor,
+  onJustificar,
   onAbrir,
 }: {
   linhas: readonly LinhaDeFiname[];
   justificadaPor?: ReadonlyMap<number, Justificativa>;
+  onJustificar?: AbrirJustificativa;
   onAbrir: () => void;
 }) {
   return (
@@ -373,28 +430,13 @@ function AlteracoesDoVeiculo({
                   <td className="px-3 py-1.5 text-xs text-muted-foreground">
                     {/* Linha "sem alteração" não tem `change.id`, e portanto não
                         tem o que justificar: fica em branco, e não com um traço
-                        que sugerisse pendência. */}
-                    {!justificativa ? (
-                      l.id === null ? (
-                        ""
-                      ) : (
-                        <span className="text-muted-foreground/70">Sem justificativa</span>
-                      )
-                    ) : (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <span className="block max-w-[16rem] truncate text-left">
-                            {justificativa.texto}
-                          </span>
-                        </TooltipTrigger>
-                        <TooltipContent className="max-w-sm text-xs">
-                          {justificativa.texto}
-                          <span className="mt-1 block text-muted-foreground">
-                            {justificativa.criadoPor}
-                          </span>
-                        </TooltipContent>
-                      </Tooltip>
-                    )}
+                        que sugerisse pendência — nem com um botão que gravaria
+                        sobre coisa nenhuma. */}
+                    <CelulaDeJustificativa
+                      linha={l}
+                      justificativa={justificativa}
+                      onJustificar={onJustificar}
+                    />
                   </td>
                 </tr>
               );
@@ -414,5 +456,73 @@ function AlteracoesDoVeiculo({
         Abrir detalhe completo
       </Button>
     </div>
+  );
+}
+
+/**
+ * A justificativa de uma alteração — lida e escrita na mesma célula.
+ *
+ * Três estados, e nenhum deles é decorativo:
+ *
+ * - **sem `change.id`** (a linha "sem alteração", que o alternador traz): não há
+ *   o que justificar, e a célula fica vazia;
+ * - **sem texto**: um botão "Justificar", porque a pendência é a informação;
+ * - **com texto**: o texto, clicável para reescrever. Gravar de novo não edita a
+ *   anterior — o histórico é o que torna a justificativa auditável —, e por isso
+ *   o diálogo abre com o texto atual à vista, dizendo o que vai substituir.
+ *
+ * Sem `onJustificar` a célula é só de leitura: é o que mantém a tabela usável
+ * onde justificar não faz sentido, sem um botão que não grava.
+ */
+function CelulaDeJustificativa({
+  linha: l,
+  justificativa,
+  onJustificar,
+}: {
+  linha: LinhaDeFiname;
+  justificativa: Justificativa | undefined;
+  onJustificar?: AbrirJustificativa;
+}) {
+  if (l.id === null) return null;
+
+  if (!justificativa) {
+    if (!onJustificar) return <span className="text-muted-foreground/70">Sem justificativa</span>;
+    return (
+      <button
+        type="button"
+        onClick={() => onJustificar([alvoDaLinha(l)])}
+        aria-label={`Justificar ${l.rotuloDaVariavel} de ${l.entityLabel ?? "veículo sem placa"}`}
+        className="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[0.7rem] font-semibold hover:bg-muted"
+      >
+        <MessageSquarePlus className="h-3.5 w-3.5" aria-hidden="true" />
+        Justificar
+      </button>
+    );
+  }
+
+  const texto = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="block max-w-[16rem] truncate text-left">{justificativa.texto}</span>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-sm text-xs">
+        {justificativa.texto}
+        <span className="mt-1 block text-muted-foreground">{justificativa.criadoPor}</span>
+      </TooltipContent>
+    </Tooltip>
+  );
+
+  if (!onJustificar) return texto;
+  return (
+    <button
+      type="button"
+      onClick={() => onJustificar([alvoDaLinha(l)], justificativa)}
+      aria-label={`Reescrever a justificativa de ${l.rotuloDaVariavel} de ${
+        l.entityLabel ?? "veículo sem placa"
+      }`}
+      className="max-w-full text-left underline decoration-dotted underline-offset-2 hover:text-foreground"
+    >
+      {texto}
+    </button>
   );
 }
