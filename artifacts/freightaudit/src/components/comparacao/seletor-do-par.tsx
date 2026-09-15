@@ -262,6 +262,19 @@ export function SeletorDoPar({
    * linha que ficasse em esqueleto para sempre prometeria um número que não
    * vem.
    */
+  /**
+   * O `ItemText` do Radix encolhe, e era ele que desalinhava a coluna direita.
+   *
+   * `SelectItem` desenha `<Item><span indicador/><ItemText>{filhos}</ItemText></Item>`,
+   * e o `ItemText` sai sem classe nenhuma: ele se ajusta ao conteúdo. O
+   * `w-full` da nossa linha resolvia contra **ele**, não contra a largura do
+   * item — então cada valor da direita parava a um tanto do rótulo, e a coluna
+   * saía em escada. Esticar o último `span` do item devolve a régua comum.
+   *
+   * Mora aqui, e não em `ui/select.tsx`: são estes menus que têm duas colunas.
+   */
+  const ITEM_LARGO = "[&>span:last-child]:w-full";
+
   const linha = (
     v: VigenciaEscolhivel,
     comNumeros: boolean,
@@ -356,7 +369,7 @@ export function SeletorDoPar({
                 return (
                   <>
                     {compativeis.map((v) => (
-                      <SelectItem key={v.id} value={v.id}>
+                      <SelectItem key={v.id} value={v.id} className={ITEM_LARGO}>
                         {linha(v, true)}
                       </SelectItem>
                     ))}
@@ -371,7 +384,7 @@ export function SeletorDoPar({
                             Outra cobertura — troca as duas pontas
                           </SelectLabel>
                           {resto.map((v) => (
-                            <SelectItem key={v.id} value={v.id}>
+                            <SelectItem key={v.id} value={v.id} className={ITEM_LARGO}>
                               {linha(v, true, true)}
                             </SelectItem>
                           ))}
@@ -434,7 +447,7 @@ export function SeletorDoPar({
                 return (
                   <>
                     {compativeis.map((v) => (
-                      <SelectItem key={v.id} value={v.id}>
+                      <SelectItem key={v.id} value={v.id} className={ITEM_LARGO}>
                         {linha(v, false)}
                       </SelectItem>
                     ))}
@@ -449,7 +462,7 @@ export function SeletorDoPar({
                             Outra cobertura — troca as duas pontas
                           </SelectLabel>
                           {resto.map((v) => (
-                            <SelectItem key={v.id} value={v.id}>
+                            <SelectItem key={v.id} value={v.id} className={ITEM_LARGO}>
                               {linha(v, false, true)}
                             </SelectItem>
                           ))}
