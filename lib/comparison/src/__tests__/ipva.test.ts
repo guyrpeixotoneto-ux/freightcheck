@@ -436,3 +436,156 @@ describe("a taxa fixa, que a alíquota espalhada escondia", () => {
     expect(a.veredito).toBe("POR_VEICULO");
   });
 });
+
+/**
+ * O estorno fora da régua — e só da régua.
+ *
+ * Também nasceu de uma renderização, e não de uma hipótese: com os dois estornos
+ * de Jul/2026 dentro da medida, o mínimo da carreta ia a −0,604%, o desvio
+ * estourava, e uma rubrica que é a mesma taxa de R$ 150 para as 71 carretas era
+ * anunciada como "calculado veículo a veículo". Duas linhas que não são critério
+ * nenhum decidiam o critério da vigência inteira.
+ *
+ * Um IPVA negativo é crédito, não alíquota baixa. Ele sai da dispersão e do
+ * veredito, e **continua em tudo o mais** — é isso que o último caso prende, e é
+ * a parte que mais fácil se perderia numa refatoração futura.
+ */
+describe("os estornos e a régua da alíquota", () => {
+  const carreta = (valorNf: number, ipva: number, etiqueta: string): ValorDeIpva => ({
+    ponta: "BASE",
+    entityType: "CARRETA",
+    entityLabel: etiqueta,
+    ipva,
+    valorNf,
+  });
+
+  /** As seis carretas de sempre: R$ 140–152 sobre implementos de valor variado. */
+  const carretasFixas = (): ValorDeIpva[] => [
+    carreta(156000, 140.34, "C1"),
+    carreta(283000, 140.34, "C2"),
+    carreta(198000, 150, "C3"),
+    carreta(221000, 150, "C4"),
+    carreta(174000, 152, "C5"),
+    carreta(240000, 150, "C6"),
+  ];
+
+  it("1 · taxa fixa com estornos continua taxa fixa", () => {
+    const [a] = aliquotaImplicita([
+      ...carretasFixas(),
+      carreta(283000, -1709.86, "C7"),
+      carreta(198000, -640.5, "C8"),
+    ]);
+
+    expect(a.veredito).toBe("VALOR_FIXO");
+    expect(a.veiculos).toBe(6);
+    expect(a.estornos).toBe(2);
+
+    /*
+      A medida é a dos seis positivos, e nada mais: o mínimo é a carreta de
+      R$ 140,34 sobre a nota de R$ 283 mil (0,0496%), e não o estorno de
+      −R$ 1.709,86 sobre a mesma nota (−0,604%), que era o mínimo que a régua
+      antiga publicava. Os quatro números têm de bater com os das seis fixas
+      sozinhas — se um estorno tivesse deslocado qualquer um deles, é aqui que
+      apareceria.
+    */
+    expect(a.minima).toBeCloseTo(0.0496, 3);
+    const soAsFixas = aliquotaImplicita(carretasFixas())[0];
+    expect([a.minima, a.media, a.maxima, a.desvio]).toEqual([
+      soAsFixas.minima,
+      soAsFixas.media,
+      soAsFixas.maxima,
+      soAsFixas.desvio,
+    ]);
+  });
+
+  it("2 · cálculo realmente variável continua sendo identificado", () => {
+    // Jul/2026 nos cavalos: 0,535% a 1,193%, e nenhum dos dois lados é fixo.
+    const [a] = aliquotaImplicita(
+      [
+        [200000, 0.535],
+        [350000, 0.62],
+        [480000, 0.651],
+        [260000, 0.7],
+        [310000, 1.193],
+        [420000, 0.58],
+      ].map(([nf, p]) => ({
+        ponta: "BASE" as const,
+        entityType: "CAVALO",
+        entityLabel: `P${nf}`,
+        valorNf: nf,
+        ipva: nf * (p / 100),
+      })),
+    );
+    expect(a.veredito).toBe("POR_VEICULO");
+    expect(a.estornos).toBe(0);
+  });
+
+  it("2b · o estorno não transforma percentual único em outra coisa", () => {
+    const [a] = aliquotaImplicita([
+      ...[200000, 350000, 480000, 260000, 310000, 420000].map((nf) => ({
+        ponta: "BASE" as const,
+        entityType: "CAVALO",
+        entityLabel: `P${nf}`,
+        valorNf: nf,
+        ipva: nf * 0.01,
+      })),
+      { ponta: "BASE" as const, entityType: "CAVALO", entityLabel: "X", valorNf: 300000, ipva: -2100 },
+    ]);
+    expect(a.veredito).toBe("FORMULA_UNICA");
+    expect(a.desvio).toBe(0);
+    expect(a.estornos).toBe(1);
+  });
+
+  it("3 · sem positivos suficientes não recebe classificação enganosa", () => {
+    const [a] = aliquotaImplicita([
+      carreta(156000, 140.34, "C1"),
+      carreta(283000, 150, "C2"),
+      carreta(198000, 150, "C3"),
+      carreta(221000, 150, "C4"),
+      carreta(174000, -320, "C5"),
+      carreta(240000, -1709.86, "C6"),
+      carreta(210000, -88, "C7"),
+    ]);
+    // Quatro positivos e três estornos: os quatro até parecem uma taxa fixa, e é
+    // justamente por parecerem que o veredito não pode afirmá-lo.
+    expect(a.veiculos).toBe(4);
+    expect(a.estornos).toBe(3);
+    expect(a.veredito).toBe("BASE_INSUFICIENTE");
+    expect(a.veredito).not.toBe("VALOR_FIXO");
+  });
+
+  it("3b · só estornos não vira uma medida de coisa nenhuma", () => {
+    const [a] = aliquotaImplicita([carreta(156000, -140.34, "C1"), carreta(283000, -150, "C2")]);
+    expect(a.veiculos).toBe(0);
+    expect(a.estornos).toBe(2);
+    expect(a.media).toBeNull();
+    expect(a.desvio).toBeNull();
+    expect(a.veredito).toBe("BASE_INSUFICIENTE");
+  });
+
+  it("4 · o estorno continua no impacto, na contagem e no total da vigência", () => {
+    const linhas = linhasDeIpva([
+      alteracao({
+        entityLabel: "RTA9E11",
+        entityType: "CARRETA",
+        attributeCode: "carreta.ipva_licenciamento",
+        valueBefore: "150",
+        valueAfter: "-1709.86",
+        deltaAbsolute: "-1859.86",
+        impactAmount: "-1859.86",
+      }),
+    ]);
+    const impacto = impactoDeIpva(linhas);
+    expect(impacto.valoresNegativos).toBe(1);
+    expect(impacto.porPeriodicidade.ANUAL).toBe(-1859.86);
+
+    // E no total lido das duas vigências, que é outro caminho do mesmo dado.
+    const totais = totaisDeIpvaPorVigencia([
+      { ponta: "BASE", entityType: "CARRETA", entityLabel: "A", ipva: 150, valorNf: 198000 },
+      { ponta: "BASE", entityType: "CARRETA", entityLabel: "B", ipva: -1709.86, valorNf: 283000 },
+    ]);
+    expect(totais[0].veiculos).toBe(2);
+    expect(totais[0].negativos).toBe(1);
+    expect(totais[0].total).toBe(-1559.86);
+  });
+});

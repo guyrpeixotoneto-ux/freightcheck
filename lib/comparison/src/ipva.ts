@@ -710,8 +710,20 @@ export const ROTULO_DO_VEREDITO: Record<VereditoDaAliquota, string> = {
 export interface AliquotaDaVigencia {
   ponta: "BASE" | "COMPARADA";
   entityType: string;
-  /** Quantos ativos têm IPVA **e** valor de nota — os únicos que entram. */
+  /**
+   * Quantos ativos sustentam as medidas: têm IPVA, têm valor de nota, e o IPVA
+   * é **positivo**. É a população do veredito, e não a da rubrica — os estornos
+   * estão contados ao lado, em {@link estornos}.
+   */
   veiculos: number;
+  /**
+   * Quantos lançamentos negativos foram separados desta medida.
+   *
+   * Eles não somem: continuam na tabela, no impacto, no total da vigência e no
+   * indicador de negativos. O que eles não fazem é **medir dispersão** — ver
+   * {@link aliquotaImplicita}.
+   */
+  estornos: number;
   /** Em pontos percentuais: `1.0` para 1,000% da nota. */
   minima: number | null;
   media: number | null;
@@ -752,7 +764,14 @@ const DESVIO_DE_FORMULA = 0.005;
  */
 const VARIACAO_DE_TAXA_FIXA = 0.05;
 
-/** Quantos ativos uma ponta precisa ter para o veredito significar algo. */
+/**
+ * Quantos ativos **positivos** uma ponta precisa ter para o veredito valer.
+ *
+ * Positivos, e não lançamentos: uma vigência com quatro licenciamentos e onze
+ * estornos não conhece o critério de ninguém, e dizer "taxa fixa" ali seria
+ * afirmar sobre quatro linhas uma regra da frota inteira. Abaixo do mínimo o
+ * veredito é `BASE_INSUFICIENTE`, que é a resposta honesta.
+ */
 const MINIMO_PARA_VEREDITO = 5;
 
 /**
@@ -769,13 +788,41 @@ const MINIMO_PARA_VEREDITO = 5;
  * Um ativo sem valor de nota, ou com nota zero, **não entra**: dividir por zero
  * não produz alíquota nenhuma, e tratá-lo como 0% faria a média cair por um
  * cadastro em branco.
+ *
+ * ---------------------------------------------------------------------------
+ * O estorno sai da medida, e só da medida
+ * ---------------------------------------------------------------------------
+ * Um IPVA negativo não é uma alíquota baixa: é um crédito, um lançamento de
+ * natureza contrária ao que esta função mede. Dois deles bastavam para inverter
+ * o veredito da carreta — o mínimo ia a −0,604%, o desvio estourava, e uma
+ * rubrica que é a mesma taxa de R$ 150 para todas as 71 carretas passava a ser
+ * anunciada como "calculado veículo a veículo". O critério da vigência ficava
+ * ilegível por causa de duas linhas que não são critério nenhum.
+ *
+ * Então **as medidas — mínima, média, máxima e desvio — e o veredito olham só os
+ * positivos.** É a mesma regra que esta tela já aplica em outro lugar: ausência
+ * não vira zero, e agora crédito não vira alíquota.
+ *
+ * O que os estornos continuam fazendo é tudo o resto, e é deliberado: continuam
+ * somando no impacto, continuam no total da vigência, continuam contados em
+ * `valoresNegativos`, continuam marcados na linha da tabela, ditos no
+ * diagnóstico e a um alternador de distância. E aparecem **aqui também**, em
+ * {@link AliquotaDaVigencia.estornos}, para que a coluna de ativos não fique
+ * dizendo 69 onde a vigência tem 71 sem explicar os dois que faltam. Tirá-los da
+ * régua é uma decisão sobre como se mede; escondê-los seria maquiar.
  */
 export function aliquotaImplicita(
   valores: readonly ValorDeIpva[],
 ): AliquotaDaVigencia[] {
   const porPonta = new Map<
     string,
-    { ponta: "BASE" | "COMPARADA"; entityType: string; percentuais: number[]; reais: number[] }
+    {
+      ponta: "BASE" | "COMPARADA";
+      entityType: string;
+      percentuais: number[];
+      reais: number[];
+      estornos: number;
+    }
   >();
 
   for (const v of valores) {
@@ -783,20 +830,30 @@ export function aliquotaImplicita(
     const chave = `${v.ponta}${v.entityType}`;
     const atual =
       porPonta.get(chave) ??
-      { ponta: v.ponta, entityType: v.entityType, percentuais: [], reais: [] };
-    atual.percentuais.push((v.ipva / v.valorNf) * 100);
-    atual.reais.push(v.ipva);
+      { ponta: v.ponta, entityType: v.entityType, percentuais: [], reais: [], estornos: 0 };
+    /*
+      O crédito é contado e não medido. Zero entra pelo caminho dos positivos —
+      é uma isenção declarada, não um lançamento de natureza contrária —, e um
+      zero não desloca o coeficiente de variação como um negativo desloca.
+    */
+    if (v.ipva < 0) {
+      atual.estornos += 1;
+    } else {
+      atual.percentuais.push((v.ipva / v.valorNf) * 100);
+      atual.reais.push(v.ipva);
+    }
     porPonta.set(chave, atual);
   }
 
   return [...porPonta.values()]
-    .map(({ ponta, entityType, percentuais, reais }) => {
+    .map(({ ponta, entityType, percentuais, reais, estornos }) => {
       const veiculos = percentuais.length;
       if (veiculos === 0) {
         return {
           ponta,
           entityType,
           veiculos,
+          estornos,
           minima: null,
           media: null,
           maxima: null,
@@ -839,6 +896,7 @@ export function aliquotaImplicita(
         ponta,
         entityType,
         veiculos,
+        estornos,
         minima: Number(Math.min(...percentuais).toFixed(4)),
         media: Number(media.toFixed(4)),
         maxima: Number(Math.max(...percentuais).toFixed(4)),

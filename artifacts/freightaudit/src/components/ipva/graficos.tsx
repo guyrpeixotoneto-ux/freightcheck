@@ -296,6 +296,12 @@ export function DistribuicaoPorEstado({
  * e UF do emplacamento não estão no acervo, e é com eles que se saberia se
  * 1,000% é a alíquota certa daquele estado. A nota diz isso por extenso, em vez
  * de deixar o número parecer um veredito fiscal.
+ *
+ * **E os estornos aparecem numa coluna própria, fora da régua.** Um IPVA
+ * negativo é crédito, não alíquota baixa; deixá-lo medir dispersão fazia dois
+ * lançamentos inverterem o veredito de 71 carretas. Ele sai da medida e continua
+ * visível aqui — a coluna existe justamente para que "62 ativos" nunca seja
+ * lido como "a vigência só tem 62 linhas".
  */
 export function AliquotaImplicita({
   aliquotas,
@@ -336,6 +342,7 @@ export function AliquotaImplicita({
                 <th scope="col" className="px-3 py-2 text-left font-bold">Vigência</th>
                 <th scope="col" className="px-3 py-2 text-left font-bold">Tipo</th>
                 <th scope="col" className="px-3 py-2 text-right font-bold">Ativos</th>
+                <th scope="col" className="px-3 py-2 text-right font-bold">Estornos</th>
                 <th scope="col" className="px-3 py-2 text-right font-bold">Mín.</th>
                 <th scope="col" className="px-3 py-2 text-right font-bold">Média</th>
                 <th scope="col" className="px-3 py-2 text-right font-bold">Máx.</th>
@@ -352,6 +359,19 @@ export function AliquotaImplicita({
                   </td>
                   <td className="px-3 py-1.5 text-right font-mono tabular-nums">
                     {formatNumber(a.veiculos, 0)}
+                  </td>
+                  {/*
+                    Zero estorno fica em travessão, e não em "0": numa coluna que
+                    quase sempre está vazia, o zero repetido linha após linha
+                    rouba o olho do número que importa ao lado.
+                  */}
+                  <td
+                    className={cn(
+                      "px-3 py-1.5 text-right font-mono tabular-nums",
+                      a.estornos > 0 ? "text-warning-foreground" : "text-muted-foreground",
+                    )}
+                  >
+                    {a.estornos > 0 ? formatNumber(a.estornos, 0) : "—"}
                   </td>
                   <td className="px-3 py-1.5 text-right font-mono tabular-nums">
                     {escreverAliquota(a.minima)}
@@ -385,6 +405,10 @@ export function AliquotaImplicita({
       <p className="text-[0.7rem] text-muted-foreground">
         Ativos sem valor de nota, ou com nota zero, ficam de fora: dividir por zero não produz
         alíquota, e tratá-los como 0% faria a média cair por um cadastro em branco.{" "}
+        <strong className="font-semibold">Os estornos também ficam fora da régua</strong> — um
+        IPVA negativo é crédito, não alíquota baixa, e dois deles bastavam para inverter o
+        veredito de uma frota inteira. Eles continuam somando no impacto e contados no indicador
+        de negativos.{" "}
         <strong className="font-semibold">
           O que falta para isto virar conferência fiscal continua faltando:
         </strong>{" "}
