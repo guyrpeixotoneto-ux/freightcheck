@@ -137,18 +137,16 @@ export function escreverVariacao(variacao: number | null): string {
 }
 
 /**
- * A cor de um número que subiu ou desceu — **invertida em relação a FINAME e
- * IPVA**, e esta é a linha mais importante do arquivo.
+ * A cor de um número que subiu ou desceu — a mesma régua de FINAME e IPVA.
  *
- * Naquelas duas telas a rubrica é custo, e subir é vermelho. Aqui a rubrica é
- * `Receita bruta` (`DIRECAO_ECONOMICA`), e subir é **verde**: um lucro fixo que
- * cresceu é mais dinheiro entrando. Copiar a função das outras telas — que era o
- * caminho mais curto, já que tudo o mais nelas se repete — pintaria de vermelho
- * a melhor notícia do mês e de verde a pior.
+ * A rubrica é `Receita bruta` (`DIRECAO_ECONOMICA`), e subir é **verde**: um
+ * lucro fixo que cresceu é mais dinheiro entrando.
  *
- * A amortização, que divide a tabela com o lucro fixo, é **custo** e mantém a
- * régua das outras telas: ela desce quando o financiamento termina, e descer é
- * bom. É por isso que a direção é decidida por variável, e não pela tela.
+ * **A amortização segue a mesma direção**, e não a régua de custo que esta
+ * função já usou. Ela também é linha remunerada na tabela de frete, não a
+ * prestação que a transportadora paga ao banco: uma amortização que cai é
+ * rubrica deixando de ser paga — piora, e sai em vermelho. Decidir por variável
+ * pintava de verde a pior notícia da tabela.
  *
  * Ciclo, ano e data continuam sem cor: eles não têm lado bom, e pintá-los
  * afirmaria um juízo que esta tela não tem como sustentar.
@@ -156,13 +154,9 @@ export function escreverVariacao(variacao: number | null): string {
 export function corDaDiferenca(
   diferenca: number | null,
   medida: MedidaDaVariavel,
-  variavel: string,
 ): string {
   if (diferenca === null || diferenca === 0 || medida !== "DINHEIRO") return "";
-  const ehReceita = variavel !== "amortizacao";
-  const subiu = diferenca > 0;
-  if (ehReceita) return subiu ? "text-success" : "text-destructive";
-  return subiu ? "text-destructive" : "text-success";
+  return diferenca > 0 ? "text-success" : "text-destructive";
 }
 
 /** O selo de cada estado. Cor **e** texto — nunca só a cor. */
@@ -292,7 +286,7 @@ export function linhasDoCsv(linhas: readonly LinhaDeLucroFixo[]): string[][] {
  * O impacto por periodicidade, escrito.
  *
  * Nunca um total único. E o sinal aqui é de receita: `+` é mais dinheiro
- * entrando, que é o oposto do que o mesmo `+` significa nas telas de custo.
+ * entrando — o mesmo que o `+` significa nas telas de FINAME e IPVA.
  */
 export function escreverImpacto(
   porPeriodicidade: Record<string, number>,

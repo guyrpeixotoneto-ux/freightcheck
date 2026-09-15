@@ -158,19 +158,25 @@ export function escreverAliquota(percentual: number | null): string {
 }
 
 /**
- * A cor de um número que subiu ou desceu — e por que ela não é semântica aqui.
+ * A cor de um número que subiu ou desceu — e para que lado ela aponta.
  *
- * Um IPVA que sobe é custo; um que desce é economia. Mas ano e data não têm lado
- * bom, e pintá-los de verde e vermelho afirmaria um juízo que esta tela não tem
- * como sustentar. Então a cor só aparece em dinheiro; o resto fica na tinta
- * normal, e o sinal diz tudo o que há para dizer.
+ * O IPVA desta tela é **rubrica remunerada na tabela de frete**, não o carnê que
+ * a transportadora paga ao estado. Um IPVA que cai para R$ 0,00 não é economia:
+ * é a rubrica deixando de ser paga, e quem opera perdeu dinheiro. Então
+ * **descer é vermelho e subir é verde**, a mesma régua do FINAME e do lucro fixo
+ * — as três rubricas são remuneração, e a cor é a do bolso de quem lê.
+ *
+ * Mas ano e data não têm lado bom, e pintá-los de verde e vermelho afirmaria um
+ * juízo que esta tela não tem como sustentar. Então a cor só aparece em
+ * dinheiro; o resto fica na tinta normal, e o sinal diz tudo o que há para
+ * dizer.
  */
 export function corDaDiferenca(
   diferenca: number | null,
   medida: MedidaDaVariavel,
 ): string {
   if (diferenca === null || diferenca === 0 || medida !== "DINHEIRO") return "";
-  return diferenca > 0 ? "text-destructive" : "text-success";
+  return diferenca > 0 ? "text-success" : "text-destructive";
 }
 
 /** O selo de cada estado. Cor **e** texto — nunca só a cor. */

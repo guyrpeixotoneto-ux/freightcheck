@@ -13,11 +13,10 @@ import { corDaDiferenca, escreverDiferenca, escreverValor } from "@/lib/lucro-fi
  * "desceu +R$ 5.169,50" foi o que a tela de FINAME mostrou na primeira
  * renderização sobre dado real.
  *
- * A segunda é **a cor**. Esta é a primeira auditoria de rubrica que trata de
- * receita, e na mesma tabela convivem uma receita (o lucro fixo) e um custo (a
- * amortização): a mesma seta para cima significa coisas opostas nas duas linhas.
- * Copiar `corDaDiferenca` das telas de custo — que era o caminho mais curto,
- * porque tudo o mais se repete — pintaria de vermelho a melhor notícia do mês.
+ * A segunda é **a cor**. As três auditorias de rubrica olham para remuneração,
+ * e a régua é uma só: subir é verde, cair é vermelho. Inclusive a amortização,
+ * que divide a tabela com o lucro fixo — ela cair é rubrica deixando de ser
+ * paga, e pintar isso de verde chamaria de economia a pior notícia do mês.
  */
 
 const linha = (over: Partial<LinhaDeLucroFixo> = {}): LinhaDeLucroFixo => ({
@@ -67,32 +66,33 @@ const amortizacao = (over: Partial<LinhaDeLucroFixo> = {}) =>
     ...over,
   });
 
-describe("a cor, que aqui não é a das telas de custo", () => {
+describe("a cor: negativo é piora, em toda linha de dinheiro", () => {
   it("pinta de verde o lucro fixo que subiu — é receita", () => {
-    expect(corDaDiferenca(3318.01, "DINHEIRO", "lucro_fixo")).toBe("text-success");
+    expect(corDaDiferenca(3318.01, "DINHEIRO")).toBe("text-success");
   });
 
   it("pinta de vermelho o lucro fixo que caiu", () => {
-    expect(corDaDiferenca(-3318.01, "DINHEIRO", "lucro_fixo")).toBe("text-destructive");
+    expect(corDaDiferenca(-3318.01, "DINHEIRO")).toBe("text-destructive");
   });
 
   /*
-    A linha vizinha, na mesma tabela e com o sinal oposto. É este par que torna
-    a régua por variável necessária: por tela, uma das duas sairia errada.
+    A linha vizinha, na mesma tabela. Ela já saiu em verde ao cair, quando esta
+    função tratava a amortização como custo: a rubrica é remunerada na tabela de
+    frete, e cair é perder dinheiro, não deixar de gastá-lo.
   */
-  it("pinta de verde a amortização que caiu — é custo", () => {
-    expect(corDaDiferenca(-3100, "DINHEIRO", "amortizacao")).toBe("text-success");
+  it("pinta de vermelho a amortização que caiu — também é remuneração", () => {
+    expect(corDaDiferenca(-3100, "DINHEIRO")).toBe("text-destructive");
   });
 
-  it("pinta de vermelho a amortização que subiu", () => {
-    expect(corDaDiferenca(3100, "DINHEIRO", "amortizacao")).toBe("text-destructive");
+  it("pinta de verde a amortização que subiu", () => {
+    expect(corDaDiferenca(3100, "DINHEIRO")).toBe("text-success");
   });
 
   it("não pinta o que não tem lado bom", () => {
-    expect(corDaDiferenca(1, "CICLO", "ciclo")).toBe("");
-    expect(corDaDiferenca(1, "ANO", "ano")).toBe("");
-    expect(corDaDiferenca(0, "DINHEIRO", "lucro_fixo")).toBe("");
-    expect(corDaDiferenca(null, "DINHEIRO", "lucro_fixo")).toBe("");
+    expect(corDaDiferenca(1, "CICLO")).toBe("");
+    expect(corDaDiferenca(1, "ANO")).toBe("");
+    expect(corDaDiferenca(0, "DINHEIRO")).toBe("");
+    expect(corDaDiferenca(null, "DINHEIRO")).toBe("");
   });
 });
 

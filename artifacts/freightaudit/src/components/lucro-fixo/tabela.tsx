@@ -112,7 +112,7 @@ export function TabelaDeLucroFixo({
               <td
                 className={cn(
                   "whitespace-nowrap px-3 py-2 text-right font-mono tabular-nums",
-                  corDaDiferenca(l.diferenca, l.medida, l.variavel),
+                  corDaDiferenca(l.diferenca, l.medida),
                 )}
               >
                 {escreverDiferenca(l.diferenca, l.medida)}
@@ -120,7 +120,7 @@ export function TabelaDeLucroFixo({
               <td
                 className={cn(
                   "whitespace-nowrap px-3 py-2 text-right font-mono tabular-nums",
-                  corDaDiferenca(l.diferenca, l.medida, l.variavel),
+                  corDaDiferenca(l.diferenca, l.medida),
                 )}
               >
                 {escreverVariacao(l.variacao)}

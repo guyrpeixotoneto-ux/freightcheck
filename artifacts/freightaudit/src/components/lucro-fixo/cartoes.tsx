@@ -25,8 +25,8 @@ import { escreverImpacto, type ComparacaoDeLucroFixo } from "@/lib/lucro-fixo";
  * que ela responde de passagem.
  *
  * **O sinal do impacto é de receita.** Positivo é mais dinheiro entrando, e por
- * isso a cor de um impacto positivo aqui é verde — o contrário do que ela
- * significa nas telas de custo.
+ * isso a cor de um impacto positivo aqui é verde — a mesma régua das telas de
+ * FINAME e IPVA, que também olham para rubricas remuneradas.
  */
 export function CartoesDeLucroFixo({
   resumo,
@@ -120,7 +120,7 @@ export function CartoesDeLucroFixo({
         rotulo="Impacto na receita"
         valor={principal ? principal.valor : "Sem impacto precificável"}
         corDoValor={
-          /* Receita: subir é verde. O oposto das telas de custo — ver `corDaDiferenca`. */
+          /* Receita: subir é verde, cair é vermelho — ver `corDaDiferenca`. */
           principal ? (principal.bruto > 0 ? "text-success" : "text-destructive") : undefined
         }
         nota={

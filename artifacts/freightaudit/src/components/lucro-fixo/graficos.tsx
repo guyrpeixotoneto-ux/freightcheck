@@ -352,17 +352,17 @@ export function ViradasDeCiclo({
                     {v.de} → {v.para}
                   </td>
                   {/*
-                    A amortização é custo: ela cair é boa notícia, e sai em
-                    verde. O lucro fixo é receita: ele subir é boa notícia, e
-                    também sai em verde. Os dois com a mesma cor e sinais
-                    opostos não é descuido — é a leitura certa das duas colunas.
+                    As duas colunas são remuneração e seguem a mesma régua:
+                    subir é verde, cair é vermelho. Uma amortização que cai é
+                    rubrica deixando de ser paga — piora, não economia. Ver
+                    `corDaDiferenca` em `@/lib/lucro-fixo`.
                   */}
                   <td
                     className={cn(
                       "px-3 py-1.5 text-right font-mono tabular-nums",
                       v.amortizacaoDiferenca === null || v.amortizacaoDiferenca === 0
                         ? ""
-                        : v.amortizacaoDiferenca < 0
+                        : v.amortizacaoDiferenca > 0
                           ? "text-success"
                           : "text-destructive",
                     )}

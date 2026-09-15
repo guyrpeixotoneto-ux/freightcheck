@@ -135,19 +135,25 @@ export function escreverVariacao(variacao: number | null): string {
 }
 
 /**
- * A cor de um número que subiu ou desceu — e por que ela não é semântica aqui.
+ * A cor de um número que subiu ou desceu — e para que lado ela aponta.
  *
- * Uma parcela que sobe é custo; uma que desce é economia. Mas prazo, ano e data
- * não têm lado bom, e pintá-los de verde e vermelho afirmaria um juízo que esta
- * tela não tem como sustentar. Então a cor só aparece em dinheiro; o resto fica
- * na tinta normal, e o sinal diz tudo o que há para dizer.
+ * O FINAME desta tela é **parcela remunerada na tabela de frete**, não a conta
+ * que a transportadora paga ao banco. Uma parcela que cai para R$ 0,00 não é
+ * economia: é a rubrica deixando de ser paga, e quem opera perdeu dinheiro.
+ * Então **descer é vermelho e subir é verde**, a mesma régua do lucro fixo e do
+ * IPVA — as três rubricas são remuneração, e a cor é a do bolso de quem lê.
+ *
+ * Mas prazo, ano e data não têm lado bom, e pintá-los de verde e vermelho
+ * afirmaria um juízo que esta tela não tem como sustentar. Então a cor só
+ * aparece em dinheiro; o resto fica na tinta normal, e o sinal diz tudo o que há
+ * para dizer.
  */
 export function corDaDiferenca(
   diferenca: number | null,
   medida: MedidaDaVariavel,
 ): string {
   if (diferenca === null || diferenca === 0 || medida !== "DINHEIRO") return "";
-  return diferenca > 0 ? "text-destructive" : "text-success";
+  return diferenca > 0 ? "text-success" : "text-destructive";
 }
 
 /** O selo de cada estado. Cor **e** texto — nunca só a cor. */

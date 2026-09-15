@@ -242,7 +242,7 @@ export function DetalheDoVeiculo({
                       <td
                         className={cn(
                           "px-3 py-1.5 text-right font-mono tabular-nums",
-                          corDaDiferenca(l.diferenca, l.medida, l.variavel),
+                          corDaDiferenca(l.diferenca, l.medida),
                         )}
                       >
                         {escreverVariacao(l.variacao)}
@@ -278,7 +278,7 @@ export function DetalheDoVeiculo({
                       <span
                         className={cn(
                           "font-mono text-xs tabular-nums",
-                          corDaDiferenca(l.diferenca, l.medida, l.variavel),
+                          corDaDiferenca(l.diferenca, l.medida),
                         )}
                       >
                         {escreverDiferenca(l.diferenca, l.medida)}

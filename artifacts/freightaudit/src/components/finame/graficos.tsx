@@ -286,7 +286,7 @@ export function EvolucaoEntreVigencias({
                 </span>
                 <span
                   className={`font-mono text-xs tabular-nums ${
-                    delta > 0 ? "text-destructive" : delta < 0 ? "text-success" : "text-muted-foreground"
+                    delta > 0 ? "text-success" : delta < 0 ? "text-destructive" : "text-muted-foreground"
                   }`}
                 >
                   {delta > 0 ? "+" : delta < 0 ? "−" : ""}
